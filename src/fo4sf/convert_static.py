@@ -196,7 +196,7 @@ def pose_skinned_shapes(src, shapes, report: dict = None):
     skins keep the stored positions, counted in report["skinned_kept_stored"]."""
     from . import fo4skin
     animated = any(src.type_of(i) in ANIMATED_BLOCKS for i in range(len(src.blocks)))
-    out, posed, kept = [], 0, 0
+    out, posed, kept, odd_root = [], 0, 0, 0
     ident = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
     for s in shapes:
         if not s.skinned:
@@ -211,6 +211,8 @@ def pose_skinned_shapes(src, shapes, report: dict = None):
             kept += 1
             out.append(s)
             continue
+        if skin.skeleton_root not in (0, -1):            # untested case (QA on PR #45): every vanilla file checked roots at block 0
+            odd_root += 1
         positions = fo4skin.pose_vertices(s.positions, skin, bones)
         rots = [r for _, r, _ in fo4skin.skin_transforms(skin, bones)]
 
@@ -234,6 +236,8 @@ def pose_skinned_shapes(src, shapes, report: dict = None):
                 report["skinned_posed_animated"] = posed
         if kept:
             report["skinned_kept_stored"] = kept
+        if odd_root:
+            report["skinned_root_not_block0"] = odd_root   # posed in NIF root space anyway; flagged for the in-game look
     return out
 
 
