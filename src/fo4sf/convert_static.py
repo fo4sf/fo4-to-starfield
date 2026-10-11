@@ -231,6 +231,60 @@ def fo4_mesh_collision(src, sf_mesh_template: bytes, report: dict = None):
     return None
 
 
+ANIMATED_BLOCKS = ("NiControllerManager", "NiControllerSequence")
+
+
+def pose_skinned_shapes(src, shapes, report: dict = None):
+    """Skinned shapes posed the way the NIF's nodes stand (fo4skin.node_world), in NIF root space with an identity shape
+    transform, so the mesh lands where FO4 draws it and where its bone-node collision is (research log 2026-10-10 "FO4
+    skin reader": SkeletonClothed01's root bone is turned 45 degrees from the bind pose; a vault sink's tap is stored at
+    the model origin and posed on the basin rim). Normals and tangents turn with each vertex's heaviest bone. The node
+    pose is the rest pose of animated NIFs too (controllers move nodes from there; the sink's tap is only right when
+    posed), so they are posed as well and counted in report["skinned_posed_animated"] for the in-game check. Unreadable
+    skins keep the stored positions, counted in report["skinned_kept_stored"]."""
+    from . import fo4skin
+    animated = any(src.type_of(i) in ANIMATED_BLOCKS for i in range(len(src.blocks)))
+    out, posed, kept = [], 0, 0
+    ident = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+    for s in shapes:
+        if not s.skinned:
+            out.append(s)
+            continue
+        try:
+            skin = fo4skin.read_skin(src, s.block)
+            bones = fo4skin.node_world(src, skin) if skin else None
+        except (nifmod.NifError, ValueError, struct.error):
+            skin = bones = None
+        if skin is None or bones is None:
+            kept += 1
+            out.append(s)
+            continue
+        positions = fo4skin.pose_vertices(s.positions, skin, bones)
+        rots = [r for _, r, _ in fo4skin.skin_transforms(skin, bones)]
+
+        def turn(vecs):
+            res = []
+            for v, ws, ks in zip(vecs, skin.weights, skin.indices):
+                r = rots[ks[max(range(len(ws)), key=lambda j: ws[j])]]
+                d = (r[0] * v[0] + r[1] * v[1] + r[2] * v[2], r[3] * v[0] + r[4] * v[1] + r[5] * v[2],
+                     r[6] * v[0] + r[7] * v[1] + r[8] * v[2])
+                ln = (d[0] ** 2 + d[1] ** 2 + d[2] ** 2) ** 0.5 or 1.0
+                res.append((d[0] / ln, d[1] / ln, d[2] / ln))
+            return res
+        out.append(replace(s, positions=positions, normals=turn(s.normals) if s.normals else s.normals,
+                           tangents=turn(s.tangents) if s.tangents else s.tangents,
+                           translation=(0.0, 0.0, 0.0), rotation=ident, scale=1.0))
+        posed += 1
+    if report is not None:
+        if posed:
+            report["skinned_posed"] = posed
+            if animated:
+                report["skinned_posed_animated"] = posed
+        if kept:
+            report["skinned_kept_stored"] = kept
+    return out
+
+
 def convert_static(fo4_nif: bytes, out_name: str, material_path: str = PLACEHOLDER_MATERIAL,
                    unit_scale: float = UNIT_SCALE, collision_template: bytes = None,
                    material_paths: list = None, collision_mode: str = "box",
@@ -248,6 +302,8 @@ def convert_static(fo4_nif: bytes, out_name: str, material_path: str = PLACEHOLD
               if (include_skinned or not s.skinned) and s.positions and s.triangles]
     if not shapes:
         raise nifmod.NifError("no static BSTriShape geometry found")
+    if include_skinned:
+        shapes = pose_skinned_shapes(src, shapes, report)   # node pose, as FO4 draws placed skinned props
     files, static_shapes, all_pts, all_tris = {}, [], [], []
     for i, s in enumerate(shapes):
         if material_paths and material_paths[i] is None:      # caller asked to drop this shape (e.g. effect shader)
