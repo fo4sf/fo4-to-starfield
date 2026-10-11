@@ -133,6 +133,45 @@ def walkable_triangles(f):
     return out
 
 
+def tread_levels(f):
+    """Distinct heights (metres, NIF root space) of a model's treads: upward collision triangles that are nearly flat
+    (nz/|n| >= 0.9), stair-helper bodies left out; heights within 4 cm are one tread. A flight has 3 or more. Railings
+    and trims named "stair" have none (library run 2026-10-11: all 7 routes on BldDecoSmRailStairs* ended STUCK or
+    FALL; they are rails beside the stairs, the steps are another model), so they get no stairs route."""
+    zs = []
+    for layer, pts, tris in collision_bodies(f):
+        if layer == STAIRHELPER:
+            continue
+        for t in tris:
+            a, b, c = (pts[x] for x in t)
+            u = [b[q] - a[q] for q in range(3)]
+            v = [c[q] - a[q] for q in range(3)]
+            n = (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
+            ln = math.sqrt(sum(x * x for x in n))
+            if ln > 1e-9 and n[2] / ln >= 0.9:
+                zs += [a[2], b[2], c[2]]
+    levels = []
+    for z in sorted(zs):
+        if not levels or z - levels[-1] > 0.04:
+            levels.append(z)
+    return levels
+
+
+def door_twins(refs, items):
+    """{formkey: formkey} for door references placed on the same spot (within 0.1 m). FO4 double doors are two
+    single-leaf doors, each hinged at its own jamb (library BldWoodPDbDoor01 100196 + 10019C, rotated 180 degrees to
+    each other); a route through the middle is blocked by the second leaf until that door is activated as well."""
+    doors = [r for r in refs
+             if r.get("model") and items.get("meshes\\" + r["model"].lstrip("\\").lower(), {}).get("door")]
+    out = {}
+    for i, a in enumerate(doors):
+        for b in doors[i + 1:]:
+            if all(abs(a["pos"][k] - b["pos"][k]) <= 0.1 / UNIT for k in range(3)):
+                out[a["formkey"]] = b["formkey"]
+                out[b["formkey"]] = a["formkey"]
+    return out
+
+
 def surface_z(tris, x, y, below):
     """Highest z of any triangle over (x, y) that is not above `below`, or None."""
     best = None
@@ -243,7 +282,8 @@ def main():
     cell = json.load(open(a.cell_json, encoding="utf-8-sig"))
     man = json.load(open(a.manifest))
     items = {it["source"].lower(): it for it in man["items"]}
-    routes, cache, skipped, tri_cache = [], {}, {}, {}
+    routes, cache, skipped, tri_cache, tread_cache = [], {}, {}, {}, {}
+    twins = door_twins(cell["refs"], items)
     for r in cell["refs"]:
         model = r.get("model") or ""
         key = "meshes\\" + model.lstrip("\\").lower()
@@ -267,11 +307,15 @@ def main():
             centre = place(centre_l)
             n = tuple(x - y for x, y in zip(place(axis_l), pos))
             local = formids.get(f"REFR:FO4Port_{cell['cell']}:{r['formkey']}")
+            twin = twins.get(r["formkey"])
+            twin_local = formids.get(f"REFR:FO4Port_{cell['cell']}:{twin}") if twin else None
             for side in (1, -1):
                 ns = tuple(side * x for x in n)
                 start = tuple(centre[i] - 1.6 * ns[i] for i in range(3))
                 routes.append({"cell": cell["cell"], "kind": "door", "ref": r["formkey"], "model": model, "side": side,
                                **({"sf_ref_local": f"{local:06X}"} if local is not None else {}),
+                               **({"twin": twin} if twin else {}),
+                               **({"sf_ref_local_twin": f"{twin_local:06X}"} if twin_local is not None else {}),
                                "start": [round(start[0], 2), round(start[1], 2), round(pos[2] + 0.3, 2)],
                                "heading": round(math.degrees(math.atan2(ns[0], ns[1])) % 360, 1), "use": True,
                                "walk_ms": 1100,
@@ -288,6 +332,13 @@ def main():
             label = model if how is None else f"{model} ({how})"
             skipped[label] = skipped.get(label, 0) + 1
             continue
+        if how == "sloped-collision":                     # no helper: only a real flight of treads counts as stairs
+            if key not in tread_cache:
+                tread_cache[key] = tread_levels(nif.parse(src.mesh(key)))
+            if len(tread_cache[key]) < 3:
+                skipped[model + " (no helper, no treads: railing or trim)"] = \
+                    skipped.get(model + " (no helper, no treads: railing or trim)", 0) + 1
+                continue
         lo, hi = ends([place(p) for p in pts])
         d = (hi[0] - lo[0], hi[1] - lo[1])
         run = math.hypot(*d) or 1.0

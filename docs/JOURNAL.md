@@ -709,3 +709,15 @@ sides, 1 one side (`0FFCA5`), 3 none: the wooden double doors `100196` and `1001
 rail stairs (`BldDecoSmRailStairs01L/R`, `03L/R`, `Short01R`) account for 7 STUCK/FALL; brick and block stairs pass.
 **Vault 81, 19 routes:** 16 PASS, 2 BLOCKED, 1 UNOPENED; all 13 stair routes pass; stall doors `19DA38` both sides,
 `19DA3A` / `19DA36` one side each. Results: `run_lib_1011`, `run_v81_1010` (local). Posted on #32.
+## 2026-10-11 Route planner: railings are not stairs; double doors are twins (offline)
+Two findings from the library run, both test-side, not converter bugs:
+- The 7 STUCK/FALL "rail stairs" routes (`BldDecoSmRailStairs*`) were routes on railings: their FO4 collision has no
+  treads at all (6 flat vertices on one level) and no helper; the steps are a separate model. A scan of all 74 "stair"
+  models in the pinned build: 45 carry FO4's RampDummy helper, the other 29 are railings, trims and stairwell walls, and
+  NONE has treads without a helper, so a synthesized helper (built and then dropped today) has no target. The planner
+  now requires 3 tread levels for a model without a helper and skips the rest with a reason (`tread_levels`).
+- The library's "double doors" `100196` + `10019C` are two single-leaf `BldWoodPDbDoor01` references on one spot,
+  rotated 180 degrees, each hinged at its own jamb; the route activated one and hit the other leaf. The planner marks
+  such pairs (`door_twins`, within 0.1 m) and the runner resets and activates the twin leaf too (`+twin:` in the verb).
+Tests: tread levels (steps, railing, helper and underside ignored, 4 cm merge) and twins; 260 OK, guard OK. The
+twin step is untested in game until the next library run.
