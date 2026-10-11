@@ -627,3 +627,17 @@ twin step is untested in game until the next library run.
 - **Terrain**: PR #56 (FO4 2x2 patch at Red Rocket, two decoders agree exactly, borders match, the building sits on the
   terrain) and PR #57 (Starfield: 430/433 worldspaces use `Data\TERRAIN\<EditorID>.btd`; BTD decoded and re-encoded;
   experiment 1 staged in `C:\Modding\staging\terrain_exp1`, not deployed). Next blocker: the in-game BTD load test.
+
+## 2026-10-11 Experiment installation recovery (Codex, PR #59 follow-up)
+
+Synthetic only; no game version or live installation involved. Seven injected-failure regressions failed on
+`d28abe7`: partial/missing copies, activation error/interruption, locked cleanup and concurrent edits left files
+untracked or overwritten. `exp_install.py` now preflights sources, journals before publication, reuses the
+deployer's verified exclusive copies/atomic writes, and rolls back errors. Interrupted cleanup retains the
+record, refuses a relaunch as "already installed", and preserves changed/unproven files and Plugins.txt edits.
+
+`python -B -m unittest discover -s tests -p test_exp_install.py -v`: 11 OK, including successful install/relaunch/
+uninstall, final-record failure, initially absent Plugins.txt and cleanup containment. Full suite:
+`python -B -m unittest discover -s tests -q`: 317 tests OK, 1 skipped. Hard interruption between publication and
+its confirmation deliberately leaves that target unproven for manual review. Offline recovery evidence only;
+Claude retains game control and terrain ownership. Coordination: #32. QA required before merging.

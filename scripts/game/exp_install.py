@@ -9,34 +9,50 @@ exactly what the record lists (files unchanged since install only) and only the 
 touches FO4Port's own deployment (deploy_starfield.py).
 """
 import argparse
+import base64
 import hashlib
 import json
 import os
 import shutil
 import sys
 
+# Reuse the converter deployer's tested atomic writes and no-overwrite publication.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import deploy_starfield as deployment  # noqa: E402
+
 RECORD = "FO4SFExp.install.json"
+_UNSET = object()
 
 
 def plugins_txt():
     return os.path.join(os.environ.get("LOCALAPPDATA", ""), "Starfield", "Plugins.txt")
 
 
-def read_plugins(p):
-    """(lines, bom, newline) of Plugins.txt, so a rewrite keeps the file's own BOM and line endings."""
+def read_bytes(p):
     if not os.path.exists(p):
+        return None
+    with open(p, "rb") as f:
+        return f.read()
+
+
+def plugin_lines(raw):
+    """(lines, bom, newline) from one snapshot of Plugins.txt."""
+    if raw is None:
         return [], b"", "\r\n"
-    raw = open(p, "rb").read()
     bom = b"\xef\xbb\xbf" if raw.startswith(b"\xef\xbb\xbf") else b""
     text = raw[len(bom):].decode("utf-8")
     return text.splitlines(), bom, ("\r\n" if "\r\n" in text else "\n")
 
 
-def write_plugins(p, lines, bom, nl):
-    tmp = p + ".fo4sfexp.tmp"
-    with open(tmp, "wb") as f:
-        f.write(bom + (nl.join(lines) + nl).encode("utf-8"))
-    os.replace(tmp, p)
+def read_plugins(p):
+    return plugin_lines(read_bytes(p))
+
+
+def write_plugins(p, lines, bom, nl, expected_current=_UNSET):
+    content = bom + (nl.join(lines) + nl).encode("utf-8")
+    kwargs = {} if expected_current is _UNSET else {"expected_current": expected_current}
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    deployment.atomic_write_bytes(p, content, ".fo4sfexp-plugins-", **kwargs)
 
 
 def digest(p):
@@ -58,13 +74,76 @@ def staged_files(exp_dir, plugins):
     return out
 
 
+def data_path(data, rel):
+    """Resolve only targets inside this installation's Data folder."""
+    root = os.path.realpath(data)
+    target = os.path.realpath(os.path.join(data, rel))
+    if os.path.commonpath((root, target)) != root or target == root:
+        raise ValueError(f"experiment path is outside Data: {rel!r}")
+    return target
+
+
+def cleanup(data, rec_p, rec):
+    """Undo confirmed publications; preserve changed/unproven files and a retryable journal."""
+    targets = {rel: data_path(data, rel) for rel in rec["files"]}
+    directories = {rel: data_path(data, rel) for rel in rec["dirs"]}
+    p = plugins_txt()
+    if os.path.normcase(os.path.abspath(rec.get("plugins_txt", p))) != os.path.normcase(os.path.abspath(p)):
+        raise ValueError("recorded Plugins.txt does not match the current user path")
+    errors = []
+    try:
+        if not rec.get("complete", True):
+            if rec.get("plugins_restore_pending"):
+                deployment.restore_plugins(rec)
+                rec["plugins_restore_pending"] = False
+                rec["plugins_added"] = []
+        elif rec["plugins_added"] and os.path.exists(p):
+            original = read_bytes(p)
+            lines, bom, nl = plugin_lines(original)
+            added = {x.casefold() for x in rec["plugins_added"]}
+            write_plugins(p, [ln for ln in lines if ln.strip().casefold() not in added], bom, nl, original)
+            rec["plugins_added"] = []
+    except OSError as e:
+        errors.append(str(e))
+    published = set(rec.get("published_files", []))
+    kept = {}
+    for rel, h in rec["files"].items():
+        dst = targets[rel]
+        try:
+            if os.path.exists(dst):
+                if not rec.get("complete", True) and rel not in published:
+                    raise OSError(f"destination was not confirmed as published; preserved: {rel}")
+                if digest(dst) != h:
+                    raise OSError(f"file changed since install; preserved: {rel}")
+                os.remove(dst)
+        except OSError as e:
+            kept[rel] = h
+            errors.append(str(e))
+    rec["files"] = kept
+    rec["published_files"] = [rel for rel in rec.get("published_files", []) if rel in kept]
+    for rel in sorted(directories, key=len, reverse=True):
+        full = directories[rel]
+        try:
+            if os.path.isdir(full) and not os.listdir(full):
+                os.rmdir(full)
+        except OSError as e:
+            errors.append(str(e))
+    if errors:
+        deployment.write_manifest(rec_p, rec)
+        raise OSError(f"recovery record retained at {rec_p}: {'; '.join(errors)}")
+    os.remove(rec_p)
+
+
 def install(a):
-    data = os.path.join(a.starfield, "Data")
+    data = os.path.abspath(os.path.join(a.starfield, "Data"))
     rec_p = os.path.join(data, RECORD)
     plugins = [p.strip() for p in a.plugins.split(",") if p.strip()] if a.plugins else \
         sorted(f for f in os.listdir(a.exp_dir) if f.lower().endswith(".esm"))[:1]
     if os.path.exists(rec_p):
-        rec = json.load(open(rec_p))
+        with open(rec_p) as f:
+            rec = json.load(f)
+        if not rec.get("complete", True):
+            sys.exit(f"incomplete experiment install ({rec_p}); uninstall it first")
         same = os.path.normcase(rec.get("exp_dir", "")) == os.path.normcase(os.path.abspath(a.exp_dir)) and \
             all(p in rec["files"] for p in plugins)
         if same:                                          # a relaunch of the same experiment: nothing to do
@@ -72,28 +151,59 @@ def install(a):
             return
         sys.exit(f"another experiment is installed ({rec_p}); uninstall it first")
     files = staged_files(a.exp_dir, plugins)
-    clash = [rel for _, rel in files if os.path.exists(os.path.join(data, rel))]
+    targets = {rel: data_path(data, rel) for _, rel in files}
+    clash = [rel for _, rel in files if os.path.exists(targets[rel])]
     if clash:
         sys.exit(f"refusing to overwrite existing game files: {clash}")
-    rec = {"exp_dir": os.path.abspath(a.exp_dir), "files": {}, "dirs": [], "plugins_added": []}
-    for src, rel in files:
-        dst = os.path.join(data, rel)
-        d = os.path.dirname(dst)
-        if not os.path.isdir(d):
-            os.makedirs(d)
-            rec["dirs"].append(os.path.relpath(d, data))
-        shutil.copyfile(src, dst)
-        rec["files"][rel] = digest(dst)
+    # Validate all sources and snapshot activation before publishing anything.
+    identities = {rel: digest(src) for src, rel in files}
     p = plugins_txt()
-    lines, bom, nl = read_plugins(p)
+    original = read_bytes(p)
+    lines, bom, nl = plugin_lines(original)
+    rec = {"exp_dir": os.path.abspath(a.exp_dir), "files": {}, "dirs": [], "plugins_added": [],
+           "complete": False, "published_files": [], "plugins_txt": p,
+           "plugins_original": base64.b64encode(original).decode("ascii") if original is not None else None,
+           "plugins_restore_pending": False}
     names = {ln.lstrip("*").strip().casefold() for ln in lines}
     for plug in plugins:
         if plug.casefold() not in names:
             lines.append("*" + plug)
             rec["plugins_added"].append("*" + plug)
-    write_plugins(p, lines, bom, nl)
-    with open(rec_p, "w") as f:
-        json.dump(rec, f, indent=1)
+    activated = bom + (nl.join(lines) + nl).encode("utf-8")
+    rec["plugins_activated"] = base64.b64encode(activated).decode("ascii")
+    deployment.write_manifest(rec_p, rec)
+    try:
+        for src, rel in files:
+            dst = targets[rel]
+            missing = []
+            d = os.path.dirname(dst)
+            while d != data and not os.path.isdir(d):
+                missing.append(os.path.relpath(d, data))
+                d = os.path.dirname(d)
+            rec["dirs"].extend(reversed(missing))
+            rec["files"][rel] = identities[rel]
+            deployment.write_manifest(rec_p, rec)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            deployment.copy_new_artifact(src, dst)
+            rec["published_files"].append(rel)
+            if digest(dst) != identities[rel]:
+                raise OSError(f"installed file differs from validated source: {rel}")
+            deployment.write_manifest(rec_p, rec)
+        if rec["plugins_added"]:
+            if read_bytes(p) != original:
+                raise OSError("Plugins.txt changed during install; preserving concurrent edits")
+            rec["plugins_restore_pending"] = True
+            deployment.write_manifest(rec_p, rec)
+            write_plugins(p, lines, bom, nl, original)
+        rec["complete"] = True
+        deployment.write_manifest(rec_p, rec)
+    except Exception as e:
+        rec["complete"] = False
+        try:
+            cleanup(data, rec_p, rec)
+        except (OSError, ValueError) as recovery:
+            sys.exit(f"install failed: {e}; {recovery}")
+        sys.exit(f"install failed and was rolled back: {e}")
     print(f"installed {len(rec['files'])} files, plugins {rec['plugins_added']}")
 
 
@@ -103,29 +213,12 @@ def uninstall(a):
     if not os.path.exists(rec_p):
         print("nothing installed")
         return
-    rec = json.load(open(rec_p))
-    kept = []
-    for rel, h in rec["files"].items():
-        dst = os.path.join(data, rel)
-        if os.path.exists(dst):
-            if digest(dst) != h:
-                kept.append(rel)                          # changed since install: not ours any more
-                continue
-            os.remove(dst)
-    for d in sorted(rec["dirs"], key=len, reverse=True):
-        full = os.path.join(data, d)
-        if os.path.isdir(full) and not os.listdir(full):
-            os.rmdir(full)
-    p = plugins_txt()
-    if os.path.exists(p) and rec["plugins_added"]:
-        added = {x.casefold() for x in rec["plugins_added"]}
-        lines, bom, nl = read_plugins(p)
-        write_plugins(p, [ln for ln in lines if ln.strip().casefold() not in added], bom, nl)
-    if kept:
-        rec["files"] = {k: rec["files"][k] for k in kept}
-        json.dump(rec, open(rec_p, "w"), indent=1)
-        sys.exit(f"kept files that changed since install: {kept}")
-    os.remove(rec_p)
+    with open(rec_p) as f:
+        rec = json.load(f)
+    try:
+        cleanup(data, rec_p, rec)
+    except (OSError, ValueError) as e:
+        sys.exit(f"uninstall incomplete: {e}")
     print("uninstalled")
 
 
