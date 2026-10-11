@@ -345,7 +345,7 @@ gate 0** (exp2b3 reads real heights; the staged README starts with this).
 | Locate: a tile found at H_ll's shift ((14, 0), (0, 14), (14, 14)) | H_ll holds for it in one landing |
 | Locate: found at another shift | the actual placement: the local rule's scale and axes follow (e.g. (7, 0) for T10 = scale 0.5); recompute the lat/longs and confirm with one more run |
 | Locate: not found | the tile is not along the transect: opposite axis sign, more than 1.4 x H_ll's distance, overlapping (and maybe refused, "Overlapping existing overlay"), or not activated |
-| Seam `ring` probes off by metres while `near` and `inner` are exact (tile entries) | the merge ring blends even with mask 0: option (b) cannot be exact at seams; go (a). The masks are row-flip invariant, so this cannot be a flipped mask |
+| Seam `ring` probes off by metres while `near` and `inner` are exact | in the group entry (tiles adjacent in that landing): the merge ring blends even with mask 0, option (b) cannot be exact at seams, go (a). In a tile entry the seam borders whatever its own landing put there (the neighbour only if it is adjacent: locate shows it), so compare with the edges entry's mask-0 ring on an outer edge. The masks are row-flip invariant, so none of this can be a flipped mask |
 | `edges`: w ring (mask 255) off by metres, s ring (mask 0) exact | the mask controls the ring blend; mask 0 on seams should keep them exact |
 | `edges`: both rings off | the outer merge ring blends whatever the mask holds |
 | Tile entries `NOTERRAIN` | 14-cell overlays do not load where exp2b3's 29-cell one does: compare records |
