@@ -601,3 +601,24 @@ open PRs (#34 QA PASS, #35 in progress), local team state, next steps. Removed a
 docs/ai/agent-status.md refreshed from live sources. Shut down: guardian proxy stopped, local model unloaded, no
 background jobs left. Next session: re-run Vault 81 and the library, finish the Prydwen (same pinned build), then
 movable bodies for loose items.
+
+## 2026-10-10 Claude: FO4 skin reader and pose bake (offline)
+New `src/fo4sf/fo4skin.py` reads a skinned FO4 shape's skin (bone nodes from `BSSkin::Instance`, skin-to-bone
+transforms and bone-space bounding spheres from `BSSkin::BoneData`, f16 weights and u8 bone slots per vertex) and
+poses its vertices by linear blend skinning. Checked on `SkeletonClothed01.nif` and on all 16,350 skinned shapes in
+the two FO4 mesh archives (0 read errors). Posing the skeleton with its own NIF nodes does **not** give back the stored
+positions (max 64.45 units): its node pose is the bind pose with the root bone turned 45 degrees about X, and the
+ragdoll bodies are in that node pose. With that one rigid transform taken out, the error is 0.000025 units. The
+converter draws skinned shapes from the stored positions but puts collision on the nodes, so mesh and collision
+disagree for 346 placements in the pinned build (95 skeletons; vault sink taps drawn at the model origin). Not
+changed in this PR. Next: pose skinned shapes with `fo4skin` in `convert_nif` (check in game), then pose ragdoll
+skeletons. Evidence: docs/ai/research-log.md.
+
+## 2026-10-10 Skinned props posed as FO4 draws them (offline; owner at the PC touring the library)
+Follow-up to PR #45's finding. `convert_static.pose_skinned_shapes` now bakes the NIF's node pose into every skinned
+shape (linear blend skinning, normals turned with the heaviest bone), so the mesh lands where FO4 draws it and where
+its bone-node collision already is. Real-data check: the Vault 81 sink's tap moves from the floor (model origin) to the
+basin rim (1.13-1.19 m) with its water streams under it; the skeleton's mesh now matches its collision box exactly
+(z 0.29-1.74 m). Animated NIFs are posed too (their rest pose) and flagged `skinned_posed_animated` in the manifest for
+the in-game look. Tests 273 OK, guard OK (guard now skips `.claude/` agent worktrees). Not yet seen in game; expect
+346 placements to shift in the next build (PR #45's scan). Ragdoll pose (XRGD, PR #44 export) comes on top of this.
