@@ -37,3 +37,12 @@ any window. Deterministic guards: refuses if the agent was active in the last 10
 was woken in the last 30 min (their usage comes from the owner's plans); every attempt is logged (wakes.jsonl).
 Alternatives: keystrokes into the agents' terminals (focus stealing, wrong-window risk); GitHub comments only (agents
 don't poll while idle).
+
+## 2026-10-10 Load-door teleports are written by the plugin writer, not left to the ReferenceLinks post-pass
+PluginSpike decides each manifest item's base record type; an XTEL is only valid between DOOR references, and both ends
+are only known once every cell of the build is placed. So PluginSpike makes `load_door` items DOOR records and writes
+the XTEL for each pair placed in the same build (dotnet/PluginSpike/TeleportLinks.cs), moving both ends to the
+persistent group. Codex's ReferenceLinks post-pass (Relationships.Apply) writes the same link when it runs afterwards
+(same values, idempotent) and still reports the unresolved ones. Alternatives: ReferenceLinks only (the STAT -> DOOR
+change is PluginSpike's anyway, and every build would need the second pass); a DOOR for every FO4 Door base (fake doors,
+hatches and trapdoors would become activatable with no destination).

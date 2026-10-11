@@ -601,3 +601,13 @@ open PRs (#34 QA PASS, #35 in progress), local team state, next steps. Removed a
 docs/ai/agent-status.md refreshed from live sources. Shut down: guardian proxy stopped, local model unloaded, no
 background jobs left. Next session: re-run Vault 81 and the library, finish the Prydwen (same pinned build), then
 movable bodies for loose items.
+
+## 2026-10-10 Claude: load doors between converted cells get their teleport (offline)
+FO4 load doors were kept shut since 2026-10-08. Now `dotnet/PluginSpike` makes every manifest `load_door` a graph-less
+DOOR record (collision unchanged) and, after all cells of a build are placed, writes the Starfield XTEL on both ends of
+every pair whose destination is placed in the same build; both references become persistent, as all 964 vanilla XTEL
+references are (docs/ai/research-log.md 2026-10-10). Unlinked doors stay shut and are listed in `<out>/teleports.json`;
+`PluginSpike teleports FO4Port.esm` lists the written links. Offline only: the pinned 15 cells + a scratch export of
+FortHagen02 give one pair (FortHagen01 `0CD469` <-> FortHagen02 `0CD46A`), read back from the written plugin. Not yet in
+game. Note for the next build: 12 of the 15 pinned cell exports predate the persistent-reference export and hold no
+load-door XTEL at all; re-export them before expecting any door to teleport. Branch `claude/load-door-teleport`.
