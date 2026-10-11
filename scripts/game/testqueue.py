@@ -203,11 +203,21 @@ def plan_terrain(a):
     worldspace loads its BTD at all, through the record or by name, and at what height scale."""
     staging = os.path.abspath(a.staging)
     esm = os.path.join(staging, "FO4Port.esm")
-    exp = load(os.path.join(a.exp_dir, "expected.json"))
-    worlds = [("FO4TX_W01Spawn", "FO4TX_World01.btd", "record and name"),
-              ("FO4TX_W02Spawn", "FO4TX_Shared02.btd", "record path only"),
-              ("FO4TX_W03Spawn", "FO4TX_World03.btd", "name only")]
     tests = []
+    # later experiments ship their own plan.json: [{"coc": "<cell editor id>", "label": "...", "drop_z": 80,
+    #   "points": [{"label", "x", "y", "expect"}], "beyond": {"x", "y"} (optional)}]  (metres, world coordinates)
+    own = load(os.path.join(a.exp_dir, "plan.json"))
+    for n, w in enumerate(own or []):
+        if not str(w.get("coc", "")).replace("_", "").isalnum():
+            sys.exit(f"bad coc name in plan.json: {w.get('coc')!r}")
+        tests.append({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "", "ref": w["coc"],
+                      "model": w.get("label", ""), "world_coc": w["coc"], "drop_z": float(w.get("drop_z", 80.0)),
+                      "points": w["points"], "beyond": w.get("beyond") or {"x": w["points"][0]["x"] + 500.0,
+                                                                           "y": w["points"][0]["y"]}})
+    exp = load(os.path.join(a.exp_dir, "expected.json")) if not own else {}
+    worlds = [] if own else [("FO4TX_W01Spawn", "FO4TX_World01.btd", "record and name"),
+                             ("FO4TX_W02Spawn", "FO4TX_Shared02.btd", "record path only"),
+                             ("FO4TX_W03Spawn", "FO4TX_World03.btd", "name only")]
     for n, (coc, btd, how) in enumerate(worlds):
         e = exp[btd]
         pts = [{"label": "ground", "x": -60.0, "y": -60.0, "expect": e["ground"]},

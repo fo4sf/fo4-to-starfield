@@ -479,3 +479,21 @@ class PreLaunchTests(unittest.TestCase):
         launched, log = self.run_with([sys.executable, "-c", "import sys; sys.exit(3)"])
         self.assertEqual(launched, [])
         self.assertIn("pre-launch exit 3", log)
+
+
+class PlanJsonTests(unittest.TestCase):
+    def test_experiment_with_its_own_plan(self):
+        d = tempfile.mkdtemp()
+        open(os.path.join(d, "FO4Port.esm"), "wb").write(b"TES4")
+        plan = [{"coc": "FO4CW_RedRocketSpawn", "label": "Red Rocket patch", "drop_z": 140,
+                 "points": [{"label": "v0", "x": -1000.0, "y": 300.0, "expect": 101.2}]}]
+        json.dump(plan, open(os.path.join(d, "plan.json"), "w"))
+        out = os.path.join(d, "q")
+        tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])
+        t = json.load(open(os.path.join(out, "queue.json")))["tests"]
+        self.assertEqual([x["world_coc"] for x in t], ["FO4CW_RedRocketSpawn"])
+        self.assertEqual(t[0]["drop_z"], 140.0)
+        self.assertEqual(t[0]["beyond"], {"x": -500.0, "y": 300.0})
+        json.dump([{"coc": "bad name; quit", "points": []}], open(os.path.join(d, "plan.json"), "w"))
+        with self.assertRaises(SystemExit):               # typed into the console: letters, digits, _ only
+            tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])
