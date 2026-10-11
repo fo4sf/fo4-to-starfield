@@ -33,6 +33,21 @@ def generated(staging, stem="chair"):
 
 
 class CheckpointTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "case-sensitive symlink fallback is covered by Linux CI")
+    def test_case_insensitive_lookup_cannot_follow_a_symlink_outside_staging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            staging = root / "staging"
+            outside = root / "outside"
+            staging.mkdir()
+            outside.mkdir()
+            (outside / "owner.dds").write_bytes(b"synthetic outside file")
+            (staging / "textures").symlink_to(outside, target_is_directory=True)
+            for relative in ("Textures", "Textures/owner.dds"):
+                with self.subTest(relative=relative):
+                    with self.assertRaisesRegex(ValueError, "escapes staging"):
+                        checkpoints.staged_path(staging, relative)
+
     def test_batch_failed_conversion_invalidates_previously_successful_checkpoint(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -45,15 +45,16 @@ def staged_path(staging, relative):
         direct = current / part
         if direct.exists():
             current = direct
-            continue
-        if current.is_dir():
+        elif current.is_dir():
             matches = [child for child in current.iterdir() if child.name.casefold() == part.casefold()]
             if len(matches) > 1:
                 raise ValueError("ambiguous case-insensitive checkpoint output path")
-            if matches:
-                current = matches[0]
-                continue
-        current = direct
+            current = matches[0] if matches else direct
+        else:
+            current = direct
+        # A differently cased directory may be a symlink. Check its resolved
+        # target before traversing the next component or returning a file.
+        current = local_path(root, current.relative_to(root).as_posix())
     return current
 
 

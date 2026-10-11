@@ -614,3 +614,7 @@ GitHub About now links the live #32 status and describes experimental interiors,
 terrain research; topics retain existing labels and add terrain/game-conversion. Claude, Codex and Grok attribution
 is retained. Main publication uses #37 and its required CI, with protections unchanged. No live game changes.
 Validation: 254 synthetic tests OK (1 skipped), guard and diff checks OK; all 18 local README links exist.
+QA caught a case-insensitive fallback symlink escaping staging in the existing Linux compatibility change.
+The resolver now rechecks containment after every component; a synthetic Linux symlink regression covers both
+directory and file requests. It is skipped on Windows because that fallback requires case-sensitive lookup.
+Final Windows suite: 255 tests OK (2 skipped); guard and diff checks OK. Linux CI executes the new regression.
