@@ -284,6 +284,52 @@ class RecoverTests(RunnerTests):
         self.assertNotIn("recover", calls)
 
 
+class BreakerTests(unittest.TestCase):
+    def test_a_kind_that_never_decides_is_switched_off(self):
+        d = tempfile.mkdtemp()
+        make_queue(d, n=12)
+        calls = []
+        r = tq.Runner(d, args(max_attempts=1), ctl=FakeControls(), step=lambda t, o: calls.append(t) or 0)
+        r.session, r.cell, r._ps = True, "C", (lambda *a, **k: (0, ""))
+        r.run()
+        self.assertEqual(len(calls), tq.BREAKER)
+        done = json.load(open(os.path.join(d, "state.json")))["done"]
+        self.assertEqual(sum(v["class"] == "BREAKER" for v in done.values()), 12 - tq.BREAKER)
+
+    def test_a_kind_with_a_verdict_keeps_running(self):
+        d = tempfile.mkdtemp()
+        make_queue(d, n=10)
+        calls = []
+
+        def step(t, o):
+            calls.append(t)
+            if len(calls) == 1:
+                json.dump({"end_read": "0 0 0.1", "shot": touch(o, "fall.png")}, open(os.path.join(o, "obs.json"), "w"))
+            return 0
+        r = tq.Runner(d, args(max_attempts=1), ctl=FakeControls(), step=step)
+        r.session, r.cell, r._ps = True, "C", (lambda *a, **k: (0, ""))
+        r.run()
+        self.assertEqual(len(calls), 10)
+
+
+class PopupTests(RunnerTests):
+    def test_focus_lost_without_input_is_taken_back(self):
+        refocused = []
+        self.ctl.refocus_game = lambda: refocused.append(1) or setattr(self.ctl, "fg", "starfield.exe") or True
+        r = self.runner(self.landing(0.1), refocus=True)
+        r.ctl.last_sent_tick = 1
+        self.ctl.fg = "steamwebhelper.exe"
+        self.assertEqual(r.run(), 0)
+        self.assertEqual(refocused, [1])
+
+    def test_focus_lost_after_owner_input_is_not_taken_back(self):
+        self.ctl.refocus_game = lambda: self.fail("must not refocus after owner input")
+        r = self.runner(self.landing(0.1), refocus=True)
+        r.ctl.last_sent_tick = 1
+        self.ctl.fg, self.ctl.foreign = "chrome.exe", True
+        self.assertEqual(r.run(), 3)
+
+
 class ParseGetposTests(unittest.TestCase):
     def parse(self, text):
         import subprocess
