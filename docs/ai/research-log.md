@@ -11,7 +11,7 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   from the setting initialisers in Starfield.exe and the CK (code that references each name string); Fallout4.esm
   placed-reference extents; fits of lat/long -> planet cell against the two measured registrations; vanilla overlay
   clusters under a true-scale model. Then `src/fo4sf/overlay_grid.py`, `scripts/terrain/make_cw_overlays.py`,
-  `dotnet/TerrainOverlays`, `tests/test_overlay_grid.py` (22), and experiment 3 staged in
+  `dotnet/TerrainOverlays`, `tests/test_overlay_grid.py` (35 after QA's review), and experiment 3 staged in
   `C:\Modding\staging\terrain_exp3`. Scratch scripts in `C:\Modding\research\terrain\scale\`.
 - Evidence:
   - **verified**: overlay blocks are 3 to 14 cells (430: 207 / 121 / 77 of 3 / 4 / 5, two of 14); procedural surface
@@ -26,18 +26,32 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   - **verified**: the playable Commonwealth (cells with >= 20 references) is FO4 x -34..31, y -39..31 = 39 x 42
     Starfield cells; the LAND grid is 114.
   - **unresolved**: the absolute lat/long -> planet cell rule (0 of 7 projections x 13 scales x 20 origin grids fit
-    World01 (+30, -35), LC172World (-5, -23) and exp2b (-12, -27)). **supported**: true planet scale locally (Cydonia's 8 overlays fit
-    one landing without overlap for scale 0.5 to about 1.1).
-  - **verified**: all 2,112 vanilla BTD entries (Terrain01..04, TerrainPatch, SFBGS00D Main) are stored uncompressed
-    in their archives; our `exp_install.py --pack` archives store the BTD zlib-compressed (Archive2
-    `-compression=Default`). exp2b attempt 1 (runner obs.json) read z = -116.00, the BTD minimum, at all 10 probes.
-    **supported**: compressed BTD entries are not read by the terrain streamer; fix: `-compression=None` for `.btd`.
-  - **verified** offline: experiment 3 (2 x 2 tiles of 14 cells, Sanctuary / Vault 111 / Red Rocket) 277 of 277 checks,
-    worst point 5.029 mm (step 5.173 mm); builds from Fallout4.esm and from the cached grid give byte-identical BTDs;
-    synthetic test: four tiles side by side = one BTD of the region, sample for sample.
+    World01 (+30, -35), LC172World (-5, -23) and exp2b (-12, -27)). World01's (+30, -35) holds for the first attempt
+    of all five registered runs only; the three second cocs in the same session arrived at non-whole-cell offsets
+    (**unresolved**). **supported**: true planet scale locally, bounded only: Cydonia's 8 overlays fit one landing
+    without overlap for scale 0.5 to about 1.1 to 1.2.
+  - **verified** (raw BA2 headers): the terrain-only vanilla archives (Terrain01..04, TerrainPatch) store all 2,004 of
+    their BTDs uncompressed; SFBGS00D Main stores its 108 BTDs uncompressed too, but stores all 11,974 of its entries
+    that way, so it says nothing about BTDs in particular; Meshes01 is fully packed; our `--pack` archive held the BTD
+    zlib-packed (27,375,606 of 27,612,888 bytes). exp2b attempt 1 (runner obs.json) read z = -116.00, the BTD
+    minimum, at 14 of 14 probes, the spawn and the beyond probe outside the overlay; attempt 2 read its spawn mid-fall
+    (-354.13), started every drop near -309 m, and 10 of 14 probes fell through (no evidence either way). **unresolved**: why the BTD
+    read flat (packed BTDs not readable is one hypothesis; the BTD not used at all is not excluded; exp1c's flat -13.94
+    is not raw 0 of its -500..1000 range). The installer stores archives uncompressed since `claude/test-queue`
+    f210b91; the rerun exp2b3 is queued and gates experiment 3.
+  - **verified** (runner obs.json): our persistent anchors read back their unmerged local position in 4 of 4 attempts
+    (exp1d a1, a2; exp2b a1, a2); the vanilla LC172World anchor moved with its merge. So experiment 3 no longer reads
+    one tile's anchor from another tile's landing (those "position" entries could not measure anything): every entry
+    uses the coc'd tile's own spawn (x, y) and a z_ref probe, and three locate transects find where each tile really
+    sits from the heights read (`make_cw_overlays.py analyse`; on simulated runs over the real BTDs it recovers H_ll,
+    off-by-one, scale 0.5 and scale 1.2 placements uniquely).
+  - **verified** offline: experiment 3 (2 x 2 tiles of 14 cells, Sanctuary / Vault 111 / Red Rocket), re-staged: 9
+    entries, 115 points, 490 of 490 checks, worst point 5.167 mm (step 5.173 mm); BTDs and plugins byte-identical to
+    the first staging; masks north / south symmetric (mask row order unresolved); synthetic test: four tiles side by
+    side = one BTD of the region, sample for sample.
 - Status: recommendation (one overlay of the playable core plus surroundings, grid of 14-cell overlays as fallback)
-  is a **supported hypothesis** pending exp2b and exp3 in game. Landing size, seam blending, the lat/long rule and
-  large-overlay behaviour are **unresolved**.
+  is a **supported hypothesis** pending exp2b3 and exp3 in game. Why exp2b read flat, landing size, seam blending, the
+  lat/long rule, large-overlay behaviour, the even-size grid origin and the mask row order are **unresolved**.
 
 ## 2026-10-11 Claude: overlay record fixes
 - Question: in which records do our terrain experiment plugins differ from vanilla unique overlays, and what must

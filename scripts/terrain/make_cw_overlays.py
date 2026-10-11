@@ -445,9 +445,36 @@ def snap(tds, tiles, x, y, label, kind, keep=EDGE_KEEP, radius=12, **meta):
     return td.point(*first, label, kind, **meta) if first else None
 
 
-def route(points, start, tds, tiles, max_jump=MAX_JUMP, prefix="wp"):
-    """Probe order for one entry: nearest neighbour from the spawn (CW `start`), with waypoint probes (eligible
-    vertices, H_ll expectations) inserted wherever a jump would exceed max_jump. Returns (points, longest jump)."""
+JUMP_SLACK = 1.25       # a waypoint may move its legs to this many times max_jump
+WAYPOINT_OFFSETS = sorted(((dx, dy) for dx in range(-225, 226, 75) for dy in range(-225, 226, 75)),
+                          key=lambda o: o[0] ** 2 + o[1] ** 2)
+
+
+def waypoint(tds, allowed, ideal, here, nxt, legs_left, label, max_jump=MAX_JUMP, keep=EDGE_KEEP):
+    """An eligible vertex near CW `ideal` in one of the `allowed` tiles, at least `keep` metres inside that tile's
+    edges (never in a merge ring), reachable from `here` in one jump and leaving `nxt` within `legs_left` jumps (each
+    up to JUMP_SLACK * max_jump). Tries positions up to 225 m around `ideal`, nearest first; None if none fits."""
+    lim = JUMP_SLACK * max_jump
+    for dx, dy in WAYPOINT_OFFSETS:
+        x, y = ideal[0] + dx, ideal[1] + dy
+        t = og.tile_at(allowed, x, y)
+        if t is None or edge_distance(t, x, y) < keep:
+            continue
+        p = snap(tds, [t], x, y, label, "waypoint", keep=keep, radius=6)
+        if p is None or edge_distance(t, p["x_cw"], p["y_cw"]) < keep:
+            continue
+        if math.hypot(p["x_cw"] - here[0], p["y_cw"] - here[1]) <= lim and \
+                math.hypot(nxt["x_cw"] - p["x_cw"], nxt["y_cw"] - p["y_cw"]) <= legs_left * lim:
+            return p
+    return None
+
+
+def route(points, start, tds, tiles, max_jump=MAX_JUMP, prefix="wp", allowed=None):
+    """Probe order for one entry: nearest neighbour from the spawn (CW `start`), with waypoint probes inserted wherever
+    a jump would exceed max_jump, evenly along the leg (waypoint(): eligible vertices in the `allowed` tiles, default
+    all, outside every merge ring; H_ll expectations). A tile entry allows only its own tile: in its landing the other
+    tiles' places are unknown. Returns (points, longest jump)."""
+    allowed = list(allowed or tiles)
     left = list(points)
     out, here, k, longest = [], start, 0, 0.0
     while left:
@@ -455,11 +482,10 @@ def route(points, start, tds, tiles, max_jump=MAX_JUMP, prefix="wp"):
         left.remove(nxt)
         d = math.hypot(nxt["x_cw"] - here[0], nxt["y_cw"] - here[1])
         if max_jump and d > max_jump:
-            steps = int(math.ceil(d / max_jump))
+            steps, leg0 = int(math.ceil(d / max_jump)), here
             for s in range(1, steps):
-                f = s / steps
-                w = snap(tds, tiles, here[0] + (nxt["x_cw"] - here[0]) * f, here[1] + (nxt["y_cw"] - here[1]) * f,
-                         f"{prefix}_{k:02d}", "waypoint")
+                ideal = (leg0[0] + (nxt["x_cw"] - leg0[0]) * s / steps, leg0[1] + (nxt["y_cw"] - leg0[1]) * s / steps)
+                w = waypoint(tds, allowed, ideal, here, nxt, steps - s, f"{prefix}_{k:02d}", max_jump)
                 if w is not None:
                     longest = max(longest, math.hypot(w["x_cw"] - here[0], w["y_cw"] - here[1]))
                     out.append(w)
@@ -559,7 +585,8 @@ def make_plan(a, tiles, tds, own, pairs, by_tag, hmin, hmax):
     def add(kind, t, label, pts_cw, drop=None, lowest=None):
         o = by_tag[t.tag]
         start = t.to_cw(*o["anchor"]["local"][:2])
-        ordered, longest = route(pts_cw, start, tds, tiles, a.max_jump, prefix=f"wp{len(plan)}")
+        ordered, longest = route(pts_cw, start, tds, tiles, a.max_jump, prefix=f"wp{len(plan)}",
+                                 allowed=None if kind in ("group", "locate") else [t])
         pts = [to_plan_point(p, t) for p in ordered]
         dz = drop if drop is not None else drop_z(pts)
         low = min(p["expect"] for p in pts) if lowest is None else lowest
@@ -891,6 +918,10 @@ def check_staging(out, prm, plan, vanilla_mars_entries=None, plugins=True):
             need(t is not None, f"plan entry {i} point {p['label']}: inside a tile")
             if t is None:
                 continue
+            if entry_kind(w["label"]) in ("tile", "edges"):    # read in the tile's own landing: nothing else is known
+                need(t is ft, f"plan entry {i} point {p['label']}: in the coc'd tile")
+            if p["label"].startswith("wp"):
+                need(edge_distance(t, x, y) >= EDGE_KEEP - 1e-6, f"plan entry {i} waypoint {p['label']}: outside merge rings")
             lx, ly = t.to_local(x, y)
             hs = decode_at(raws[t.tag], *dec[t.tag], t.n, lx, ly)
             e = max(abs(v - p["expect"]) for v in hs.values())

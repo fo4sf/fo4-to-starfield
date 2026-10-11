@@ -1,9 +1,11 @@
 # The whole Commonwealth as native Starfield terrain: size limits, options, generator, experiment 3
 
 Author: Claude, 2026-10-11. Branch `claude/commonwealth-terrain-scale`, stacked on PR #64
-(`claude/terrain-overlay-records`, which contains #60, #57 and #56). Starfield 1.16.244. Nothing here ran in game or
-in the Creation Kit. Labels: **verified** (checked offline on files, command or number given), **supported**
-(supported hypothesis), **unresolved**.
+(`claude/terrain-overlay-records` at e8c0171, which contains #60, #57 and #56). Starfield 1.16.244. Nothing of experiment
+3 ran in game or in the Creation Kit. Labels: **verified** (checked offline on files, command or number given),
+**supported** (supported hypothesis), **unresolved**. Revised the same evening after QA's review of PR #67: the
+experiment 3 plan no longer relies on anchors (they do not merge), the packing evidence is restated at its real
+strength, and exp3 is gated on an uncompressed exp2b rerun.
 
 Already verified in game before this work (runner, 2026-10-11, `C:\Modding\research\terrain\binding\findings.md`):
 a worldspace's own BTD applies only when it is an overlay activated on a planet (PNDT `CNAM` entry); activation merges
@@ -12,15 +14,20 @@ blended with procedural ground (LC172World border cells 4 to 6 m off, inner cell
 
 ## Short answer
 
-0. **Blocking for every BTD option, found while writing (supported):** every vanilla terrain archive stores its BTDs
-   **uncompressed** (Starfield - Terrain01..04, TerrainPatch, SFBGS00D: 2,112 of 2,112 entries with packed size 0),
-   while our installer packs them zlib-compressed (`exp_install.py --pack` runs Archive2 with `-compression=Default`:
-   `FO4TerrainExp2 - Main.ba2` holds the BTD as 27,375,606 packed bytes). exp2b's first attempt (16:28 to 16:41) read
-   **z = -116.00, the BTD's minimum, at all 10 probes** after merging at (-12, -27) cells: the overlay was placed but
-   its heights read as raw 0. exp1c's BA2 run read one flat height everywhere too. Hypothesis: the terrain streamer
-   reads the BTD's own zlib blocks at file offsets and cannot use a compressed archive entry. Fix to try first: pack
-   `.btd` files with `-compression=None` (installer on `claude/test-queue`, not this branch). Options (a), (b) and (c)
-   all depend on it; experiment 3 should be installed with the fix.
+0. **Gate for every BTD option: no run has read our BTD heights yet.** exp2b's first attempt (16:28 to 16:46) merged
+   at (-12, -27) cells and read **z = -116.00, the BTD's minimum, at 14 of 14 probes, at the spawn and at the beyond
+   probe** (outside the overlay) (runner obs.json). Its second attempt read the spawn mid-fall (z -354.13), so the
+   runner's Z offset (-459.27) started every drop near -309 m, under that surface: 10 of 14 probes fell through, two
+   stayed at -309.27 and the two far ones read -116.00, so it adds nothing about the BTD. Archive facts (**verified**, raw BA2 headers): our installer stored the BTD zlib-packed (`FO4TerrainExp2 -
+   Main.ba2`: 27,375,606 of 27,612,888 bytes); the terrain-only vanilla archives store all their BTDs uncompressed
+   (Terrain01..04 and TerrainPatch: 2,004 BTDs). SFBGS00D - Main also stores its 108 BTDs uncompressed, but it stores
+   all 11,974 of its entries that way (as every DLC Main.ba2 here does), so it says nothing about BTDs in particular;
+   Meshes01 is fully packed. Cause of the flat read: **unresolved**. A packed BTD that the terrain streamer cannot read
+   is one hypothesis; the BTD not being used at all is not excluded (the beyond probe outside the overlay read -116.00
+   too), and exp1c's flat -13.94 is a different signature (its range is -500..1000, so not raw 0). Since 17:06 the
+   installer stores every archive entry uncompressed (`claude/test-queue` f210b91, in the integration worktree as
+   904232f) and the uncompressed rerun `terrain_exp2b3` is queued. **Experiment 3 must not be queued until that rerun
+   reads the BTD's own heights** (staged README says so).
 1. **The full LAND grid cannot be one landing in any option.** The Commonwealth LAND grid is 192 FO4 cells =
    11,234.7 m = 114 Starfield cells per side. Starfield's default game terrain width is **100 cells** with a
    **5-cell** playable buffer (decoded from Starfield.exe, **verified** values, meaning **supported**), and the
@@ -36,11 +43,13 @@ blended with procedural ground (LC172World border cells 4 to 6 m off, inner cell
    (b) has a 1-cell merge ring at every seam whose behaviour is unknown (experiment 3 measures it).
 4. **Generator built**: `scripts/terrain/make_cw_overlays.py` + `src/fo4sf/overlay_grid.py` + `dotnet/TerrainOverlays`
    write the BTDs, masks, SFBK / LCTN / WRLD / cells / anchors and the Mars registration for any FO4 cell rectangle,
-   as one overlay (`--tile` at least the region) or a grid. 22 synthetic tests.
-5. **Experiment 3 staged** (`C:\Modding\staging\terrain_exp3`): 2 x 2 overlays of 14 x 14 cells around Sanctuary,
-   Vault 111 and Red Rocket, one shared height range, masks 0 on the seams, an anchor and a COC cell per tile, placed by
-   hypothesis H_ll so they should lie edge to edge. 8 plan entries, 68 points, pairs on both sides of all 4 seam
-   segments. Offline check: 277 of 277 items pass, worst point 5.03 mm (step 5.17 mm).
+   as one overlay (`--tile` at least the region) or a grid; `analyse` reads the runner's results. 35 synthetic tests.
+5. **Experiment 3 staged, gated on item 0** (`C:\Modding\staging\terrain_exp3`): 2 x 2 overlays of 14 x 14 cells
+   around Sanctuary, Vault 111 and Red Rocket, one shared height range, masks 0 on the seams, a COC cell per tile,
+   placed by hypothesis H_ll so they should lie edge to edge. 9 plan entries, 115 points: each tile in its own landing,
+   the seams in T00's landing, three **locate transects** that find where T10, T01 and T11 really sit in T00's landing
+   from the heights read (whether or not H_ll holds), and T00's outer edges with mask 255 and 0. Offline check: 490 of
+   490 items pass, worst point 5.17 mm (step 5.17 mm).
 
 ## 1. Size limits
 
@@ -109,8 +118,9 @@ once is **unresolved**).
 - One landing holds at most about 90 x 90 usable cells (100 minus the buffer) (**supported**). The full 114-cell
   LAND grid does not fit in any option; the outermost ~1 km ring (FO4's own unplayable, LOD-only terrain) can only be
   cropped, drawn as planet LOD (option c) or as static LOD meshes (option d).
-- A single overlay of 64 to 90 cells is 4.6 to 6.4 times wider than any vanilla overlay. Experiment 2b (29 cells,
-  running while this was written) is the first in-game data point above 14.
+- A single overlay of 64 to 90 cells is 4.6 to 6.4 times wider than any vanilla overlay. Experiment 2b (29 cells)
+  activated and merged but read flat (Short answer, item 0); its uncompressed rerun exp2b3 is the first possible
+  in-game data point above 14.
 
 ## 2. Where an activated overlay lands (lat/long -> planet cell)
 
@@ -121,10 +131,14 @@ once is **unresolved**).
   names the first value `Longitude` and the second `Latitude`; our builders write the latitude into Mutagen's
   `Longitude` (TerrainOverlays) and the check reads the raw bytes. In these terms experiment 1's World01 is at
   latitude 0.2, longitude 1.2 rad and experiment 2b at latitude 0.3, longitude -1.2.
-- **Measured (runner):** World01 (0.2, 1.2) -> local origin at planet cell **(+30, -35)** (both registered runs);
-  LC172World (-0.043119, -0.087881) -> **(-5, -23)** (anchor 0010238E, run `terrain_A2_lc172`: offset -500, -2300,
-  Z -3.62); exp2b's `FO4CW_Commonwealth` (0.3, -1.2) -> **(-12, -27)** (first attempt, from the spawn: arrived at
-  (-2189.03, -1552.80) for the marker at local (-989.03, 1147.20)).
+- **Measured (runner obs.json):** World01 (0.2, 1.2) -> local origin at planet cell **(+30, -35)**: the COC marker
+  (50, 50) arrived at (3050, -3450) in the **first** attempt of all five registered runs (terrain_exp1_mars, exp1b,
+  exp1c, B_w01, exp1d). The three second attempts that coc'd again in the same game session (exp1_mars, exp1b, exp1d)
+  arrived at (77.6, 101.1), (74.0, 8.0) and (75.3, 99.7) instead: not a whole-cell offset of (50, 50), so not this
+  merge (**unresolved**; an unmerged load is one candidate). LC172World (-0.043119, -0.087881) -> **(-5, -23)**
+  (anchor 0010238E, run `terrain_A2_lc172`: offset -500, -2300, Z -3.62); exp2b's `FO4CW_Commonwealth` (0.3, -1.2) ->
+  **(-12, -27)** in both attempts (from the spawn: arrived at (-2189.03, -1552.80) for the marker at local (-989.03,
+  1147.20)).
 - **No absolute rule found (unresolved):** 7 projections (equirectangular, sinusoidal, orthographic, azimuthal
   equidistant / Lambert per hemisphere, Mercator, swapped axes) x 13 scales (Mars radius; 49,152 = 256 x 16 x 12 cells
   per face over pi, pi/2, 2 pi; 14- and 10-cell pitches) x 4 sign choices x 20 origin grids (1 to 256 cells, floor or
@@ -133,13 +147,16 @@ once is **unresolved**).
   of the landing's origin.
 - **Local scale (supported):** hypothesis H_ll: near a registration the offset moves at true planet scale, x east =
   R cos(lat) dlon / 100 m, y north = R dlat / 100 m (Mars R = 3,390 km from its PNDT body data: 33,900 cells per
-  radian). Vanilla clusters agree within a factor of about 2 (scratch `clusters.py`): the 8 Cydonia overlays never
-  overlap for scale factors 0.5 to 4 but do at 0.25, and span 51 x 79 cells at 1 (fits in one 90-cell landing),
-  91 x 148 at 2 (does not); Akila (2 overlays) and Ixyll II (3) show the same picture. So 0.5 <= s <= about 1.1 if the
-  Cydonia overlays are meant to share one landing.
-- **Consequence:** edge-to-edge overlays need the local rule measured once (experiment 3 does that with an anchor per
-  tile). A single overlay only needs a lat/long that puts it in the middle of the landing; experiment 2b gave one
-  offset, (-12, -27) at (0.3, -1.2), to start from.
+  radian). Vanilla clusters only bound it (scratch `clusters.py`): the 8 Cydonia overlays overlap at scale factor
+  0.25 and not from 0.5 to 4 (QA's recomputation: none from 0.5 to 2), and span 51 x 79 cells at 1 (fits in one
+  90-cell landing), 91 x 148 at 2 (does not), counting the spread of their origins plus the largest overlay (QA, with
+  another convention: 43 x 73 and 81 x 142). Akila (2 overlays) and Ixyll II (3) show the same picture. So 0.5 <= s <=
+  about 1.1 to 1.2 if the Cydonia overlays are meant to share one landing; nothing pins s = 1.
+- **Consequence:** edge-to-edge overlays need the local rule measured. Our persistent anchors cannot do it: they read
+  back their unmerged local position in 4 of 4 attempts (exp1d a1, a2: (50, 50, 10); exp2b a1, a2: (-989.03, 1147.20,
+  105.14)), while the vanilla LC172World anchor moved with its merge. Experiment 3 therefore measures placement from
+  heights (locate transects, `analyse`). A single overlay only needs a lat/long that puts it in the middle of the
+  landing; experiment 2b gave one offset, (-12, -27) at (0.3, -1.2), to start from.
 
 ## 3. Options
 
@@ -148,13 +165,13 @@ once is **unresolved**).
 | What | One WRLD + SFBK + BTD (64 to 90 cells), Absolute, one PNDT entry | N x N overlays of <= 14 cells, one PNDT entry each, lat/longs edge to edge | A planet (new, or an override of an unused one) whose surface tree (SFTR: 2 faces x 256 x 256 pattern slots) points at our patterns (SFPT: 16 x 16 block slots) of our 14-cell blocks (SFBK + BTD) | FO4 LAND triangles as `.mesh` tiles with collision, placed as statics over a flat or lowered ground |
 | Geography | exact (1 sample = 0.78 m, quantisation 6 to 12 mm; FO4 cliffs lose up to 1.4 m, experiment 2) | exact inside tiles; at seams unknown | exact only if block alignment and merge blending keep absolute heights (unknown) | exact (FO4's own triangles) |
 | Seams | none inside; outer 1-cell ring blends into planet ground (fine: outside the playable area) | every seam has two 1-cell merge rings (`uOverlayMergeZoneSize` 1). With mask 0 on seams they may stay exact (unknown); if blended, a 200 m strip per seam is wrong by metres (LC172: 4 to 6 m) | blocks overlap by 2 cells; equal heights in both blocks blend to the same values (supported) | tile edges share vertices (we control them); none with the ground if it is hidden |
-| Placement | lat/long so the overlay sits in the middle of the 100-cell landing: one measurement (exp2b gives one) | the local lat/long rule to the cell (exp3); rounding to whole cells must not shift a tile | which face cell a lat/long falls in (projection unresolved), or fill every slot | none (worldspace coordinates) |
+| Placement | lat/long so the overlay sits in the middle of the 100-cell landing: one measurement (exp2b gives one) | the local lat/long rule to the cell (exp3 locates the tiles from heights); rounding to whole cells must not shift a tile | which face cell a lat/long falls in (projection unresolved), or fill every slot | none (worldspace coordinates) |
 | LOD / far terrain | BTD LOD0-4 inside; beyond the overlay the planet's procedural ground | same | the planet's own LOD shows our blocks (far terrain is the Commonwealth) | own LOD meshes needed |
-| Overlay mask | 255 on the outer ring (vanilla style) | 255 on outer edges, 0 on seams (exp3) | none (blocks have no mask) | n/a |
+| Overlay mask | 255 on the outer ring (vanilla style) | 255 on outer edges, 0 on seams; north / south rings only in pairs while the mask row order is unresolved (exp3) | none (blocks have no mask) | n/a |
 | Precedent | none above 14 cells (vanilla max), CK recommends < 6 | each tile vanilla-sized | the way every vanilla planet is built (procedural blocks) | statics are routine |
 | Effort | done (generator, `--tile` >= region) | done (generator) | large: SFTR (512 KB arrays), SFPT, SFBK sets, rotation byte meaning, face mapping, a planet | large: terrain mesh + collision + materials + LOD pipelines |
 | Main unknowns | does a 64-90-cell overlay activate, stream and stay exact; Z offset of Absolute | seam blending; the lat/long rule; overlap refusals ("Overlapping existing overlay") | block height alignment (`JNAM`, Relative), merge style, rotation identity (`GNAM` 0x08?), SFTR overrides ("CK does not copy this on overrides"), procedural content on it | performance at 4,700 to 37,000 tiles; terrain materials |
-| Cheapest in-game test | exp2b (29 cells, running); then a 64-cell core overlay (`--tile 64`) | **exp3 (staged)** | override MarsSurfaceTree so every slot holds one test pattern of one 14-cell marker block; coc LC172Ext01, probe the 12-cell pitch, rotation and heights | one FO4 cell as a mesh tile with collision in exp2b's world, 1 m above the BTD |
+| Cheapest in-game test | exp2b3 (29 cells, uncompressed rerun, queued); then a 64-cell core overlay (`--tile 64`) | **exp3 (staged, after exp2b3)** | override MarsSurfaceTree so every slot holds one test pattern of one 14-cell marker block; coc LC172Ext01, probe the 12-cell pitch, rotation and heights | one FO4 cell as a mesh tile with collision in exp2b's world, 1 m above the BTD |
 
 Evidence for (c) (**verified** record layout, behaviour **unresolved**): SFTR `CNAM` 2, `DNAM` 256, then per face
 `FNAM` 65,536 SFPT FormIDs and `GNAM` 65,536 bytes (almost all 0x08); SFPT `FNAM` 256 SFBK FormIDs, `GNAM` 256 bytes:
@@ -174,13 +191,16 @@ landing. Start at 64 x 64 cells (6.4 km: the 3.9 x 4.2 km playable area plus 1.2
 Static LOD meshes (d) for the ring beyond only if the far view matters.
 
 Gates, in order (each a queued runner job; nothing else depends on guessing):
-0. **BTD packing:** rerun exp2b with its BTD stored uncompressed in the plugin BA2 (Short answer, item 0).
-1. **exp1d / exp2b** (exp1d done at 16:24: anchor not merged, heights not ours; exp2b running, first attempt flat at
-   its minimum): record fixes; a 29-cell real-terrain overlay, Absolute, Z offset, its merge offset.
-2. **exp3 (staged here):** tile heights, seam behaviour with mask 0, the local lat/long rule (anchors per tile).
-3. **exp4 (next, generator ready):** if exp2b passes, `--fo4-cells -34 31 -39 31 --tile 64 --pad origin
+0. **exp2b3** (queued 17:06, installer f210b91): exp2b with its BTD stored uncompressed. Reads the BTD's heights ->
+   queue exp3. Still flat at -116 -> packing was not the cause: find out why the BTD is not used (records, alignment,
+   archive path) before any further BTD experiment; exp3 would only repeat it.
+1. **exp1d / exp2b** (done): exp1d's anchor not merged, heights not ours; exp2b merged at (-12, -27), flat at its
+   minimum (item 0).
+2. **exp3 (staged here, after gate 0):** tile heights, seam behaviour with mask 0, the outer ring with mask 255 and 0,
+   where the tiles really sit in one landing (the local lat/long rule, from heights), the even-size grid origin.
+3. **exp4 (next, generator ready):** if exp2b3 passes, `--fo4-cells -34 31 -39 31 --tile 64 --pad origin
    --grid-points 4` (the playable core in one overlay, its frame = the CW frame) at a lat/long chosen from exp2b's and
-   exp3's offsets; if exp2b fails on size, 14-cell tiles with the exp3 calibration.
+   exp3's offsets; if large overlays fail, 14-cell tiles with the exp3 calibration.
 
 Why not (b) first: it is only as exact as its seams, needs the placement rule to the cell, and multiplies records
 (the 64-cell core = 25 tiles of 14). Why not (c): every vanilla planet uses it, but the exactness depends on four
@@ -194,24 +214,51 @@ already does.
         [--plugin FO4TerrainExp3.esm]
         [--mars-plugin FO4TerrainExp3_Mars.esm | --no-mars] [--alignment absolute|relative] [--hnam 0]
         [--ref-lat 0.2 --ref-lon 1.2 --ref-offset 30 -35] [--centre-cell 0 0] [--radius-km 3390]
+        [--mask-ns symmetric|outer] [--load-byte 02] [--max-jump 400] [--locate-step 200]
     dotnet run --project dotnet/TerrainOverlays -c Release -- <Starfield.esm> <dir>
     python scripts/terrain/make_cw_overlays.py check --sf-data <Starfield\Data> --out <dir> [--no-plugins] [--verbose]
+    python scripts/terrain/make_cw_overlays.py analyse --out <dir> --runs <runner queue folder> [--json <file>]
+        [--tol 0.5] [--window 30] [--free-z]
 
 - `src/fo4sf/overlay_grid.py`: FO4 cell rectangle -> Starfield cells (CW frame = FO4 units / 70), split into n x n
   tiles (padding split between both sides), tile frames (local = CW - origin; the BTD grid rule of terrain_grid.py),
   sample lattices that continue across seams, outer edges, seam segments, the shared height range, H_ll placement
-  (`latlon_for_offset`, `predicted_offset`, `group_targets`). `overlay.mask_array(n, edges=...)` writes rings only on
-  outer edges.
+  (`latlon_for_offset`, `predicted_offset`, `group_targets`), `mask_edges` (below), `whole_cells` and `locate_tile`
+  (where an overlay sits, from height reads: every whole-cell shift in a window, reads inside the overlay but outside
+  its 1-cell merge ring must all match its BTD within 0.5 m, at least 3 of them).
+- Masks: `overlay.mask_array(n, edges=...)` writes rings only on the edges given. The engine's image row order of an
+  overlay mask is **unresolved** (QA's offline count of placed references inside the mask-0 area points both ways),
+  so `--mask-ns symmetric` (default) writes the north and south rings only when both are outer edges: the mask then
+  reads the same either way and a flipped row order cannot put 255 on a seam. A single overlay keeps its full ring;
+  in a grid with several rows the outer north / south edges get 0 (`--mask-ns outer` restores them once the row
+  order is known).
 - `make_cw_overlays.py`: reads FO4 LAND once (`fo4land`, or a cached `.npz`), resamples every tile at its CW sample
   positions (separable bilinear), quantises all tiles with one range, writes BTDs (LTEX of TempJemisonWorld, as
   experiment 2), masks (texconv BC4, or the built-in lossless writer), `overlays_params.json`, `plan.json`,
   `expected.json`, `README.txt`, `preview.png`. Check points are FO4 vertices whose decoded height equals the FO4
   height within one quantisation step under bilinear and both triangle splits, on slopes up to 25 deg.
+- Plan entries (`make_plan`), runner format: every entry cocs into the tile whose frame its points use, and takes the
+  merge offset from that tile's spawn: `spawn_local` is the COC marker's x and y only, so the runner's Z offset stays 0
+  and a spawn read mid-fall cannot lower the drops; the anchor is still read, and the runner falls back to the spawn
+  when it reads its local position. `z_ref` names the entry's flat centre probe, from which the judge takes the Z
+  offset. `drop_z` = highest expected point + 40 m (locate entries: the shared maximum + 40 m). `settle_ms` covers the
+  whole free fall from `drop_z` to 20 m under the lowest point at 3.71 m/s^2 plus 1 s (at least 8 s). Points are
+  ordered nearest-first from the spawn, with waypoint probes (eligible vertices at least 150 m inside a tile edge, in
+  the coc'd tile only for tile and edges entries) wherever a jump would exceed `--max-jump`. Kinds: `tile` (one per
+  tile, own landing), `group`, `locate` (one per other tile) and `edges`, all in the first tile's landing (section 6).
+- `analyse`: reads `tests/*/a*/spec.json` + `obs.json` from runner queue folders and reports, whatever the runner's
+  verdict: the merge offset of each landing (spawn read - spawn_local; whole cells or not), the anchor read, the Z
+  offset (z_ref, else the coc'd tile's own heights), every point's error in the entry's frame, and for every tile the
+  whole-cell shift that fits the heights read (`locate_tile`; the coc'd tile itself should be at (0, 0); reads the
+  coc'd tile explains are not used for the others). Positions are the ones the game reported, so a probe that ended
+  away from its target still counts.
 - `dotnet/TerrainOverlays`: per tile an SFBK (copy of OverlayBlockLC172World: `ANAM`, `DNAM`, `ENAM` = shared range,
   `FNAM` = SW-corner rule, `INAM`/`HNAM`), its own LCTN (keyword LocTypeOverlay, parent SSol_PMars_Surface; the CK
   warns when overlays share one), a WRLD (copy of LC172World) with all n x n cells, a COC cell with a marker 2 m
   above the anchor, and a persistent XMarker anchor; anchors take FormIDs 0x800 + tile index so plan.json can name
-  them. The Mars plugin appends one `CNAM` entry per tile.
+  them (load-order byte `--load-byte`, 02 as exp2b's resolved; the runner reads the ref literally). The Mars plugin
+  appends one `CNAM` entry per tile. It has no unit test of its own: `check` walks its real output raw (records,
+  fields, FormIDs, CNAM order), and a synthetic test feeds `check`'s record walk minimal plugins and mutated ones.
 - One overlay = `--tile` at least the region's size (option a); `--pad origin` puts tile origins on multiples of the
   tile size, so a single overlay over the FO4 origin has its own frame equal to the CW frame (FO4 position / 70 is the
   local position, as in experiment 2); `--grid-points K` adds a K x K spread of check points. The whole LAND grid
@@ -219,77 +266,120 @@ already does.
   samples, so memory stays per strip (strips equal one resample bit for bit: test).
 - Option (a) trial (scratch folder, not staged): the playable core, FO4 cells x -34..31, y -39..31, `--tile 64 --pad
   origin --grid-points 4` -> one overlay of Starfield cells -32..31 on both axes, origin = CW origin, BTD 103,172,485
-  B, range -120..503 m (step 9.506 mm), plugin 183,096 B with 4,096 cells, 21 points, check 74 of 74, worst point
-  8.5 mm; about 17 s to build.
-- Tests (`tests/test_overlay_grid.py`, 22, synthetic heights from a formula): region and padding arithmetic, frames,
-  lattice continuity, seams and edges, masks per edge, H_ll round trip and scale, edge-to-edge targets; a full build
-  of 2 x 2 tiles of 5 cells whose four BTDs side by side are **exactly** the raw samples of one 10 x 10-cell BTD of the
-  same region, plan points are FO4 vertices, seam pairs on both sides at the same along-seam coordinate, the offline
-  check passes and catches a wrong expectation and a step at a seam; a single-overlay build (option a: one tile,
-  ring on all four edges, no seam entries, origin padding, grid points); row strips equal one resample bit for bit;
-  the 2 x 2-sample decode equals point_interp over the whole decoded grid.
+  B, range -120..503 m (step 9.506 mm), plugin 183,096 B with 4,096 cells; about 18 s to build. Plan after this
+  revision: 21 points + 55 waypoints (the grid points are up to 4,692 m from the spawn), drop 310 m, wait 15.5 s (the
+  earlier fixed 8 s left 8 of 21 points mid-fall, QA), longest jump 386 m, about 1.6 h in game; `--max-jump 0` drops
+  the waypoints. Check 299 of 299 without plugins.
+- Tests (`tests/test_overlay_grid.py`, 35, synthetic heights from a formula): region and padding arithmetic, frames,
+  lattice continuity, seams and edges, masks per edge and `mask_edges` (row-flip invariant), H_ll round trip and
+  scale, edge-to-edge targets, fall times and waits, whole-cell offsets, `locate_tile` (finds a shift, rejects a
+  missing tile, free Z); a full build of 2 x 2 tiles of 5 cells whose four BTDs side by side are **exactly** the raw
+  samples of one 10 x 10-cell BTD of the same region; the plan contract (coc'd frame, spawn x / y, z_ref, drop, wait,
+  jumps, FO4 vertices), locate transects (at least 3 probes in the target, none in a merge ring), the edges entry; the
+  offline check passes and catches a wrong expectation, a step at a seam and five plan-contract errors; the raw plugin
+  walk on minimal synthetic plugins passes and catches a swapped lat/long and a non-persistent anchor; `analyse` on
+  simulated runner output (anchors unmerged, spawn mid-fall, a Z offset) finds T10 one cell off H_ll, T01 on it and
+  T11 missing, finds a BTD one cell off its own frame, and reads runner folders (BOM included); a single-overlay
+  build; row strips equal one resample bit for bit; the 2 x 2-sample decode equals point_interp.
 
-## 6. Experiment 3 (staged, not deployed)
+## 6. Experiment 3 (staged, not deployed; gated)
 
 `C:\Modding\staging\terrain_exp3` (outside the repo): `FO4TerrainExp3.esm` 39,822 B, `FO4TerrainExp3_Mars.esm`
 6,573 B, four BTDs 6,000,752 to 6,701,057 B, four masks 980,128 B, `overlays_params.json`, `plan.json`,
 `expected.json`, `offline_check.json`, `README.txt`, `preview.png`. FO4 cells x -35..10, y -6..40 -> Starfield cells
-x -21..6, y -4..23 (28 x 28) -> 2 x 2 tiles of 14. Shared range -40..299 m, step 5.173 mm. Built twice, from
-Fallout4.esm through `fo4land` and from the earlier cached grid: the four BTDs are byte-identical (SHA-256).
+x -21..6, y -4..23 (28 x 28) -> 2 x 2 tiles of 14. Shared range -40..299 m, step 5.173 mm. Re-staged after QA's
+review: BTDs and both plugins byte-identical to the first staging (SHA-256), masks and plan new. **Do not queue before
+gate 0** (exp2b3 reads real heights; the staged README starts with this).
 
-| Tile | CW cells x / y | Own origin (CW m) | Mask ring | Anchor (local) | lat, lon (rad) | Predicted planet cell |
+| Tile | CW cells x / y | Own origin (CW m) | Mask ring | Anchor / spawn (local) | lat, lon (rad) | Predicted planet cell |
 |---|---|---|---|---|---|---|
-| FO4CW3_T00 (SW) | -21..-8 / -4..9 | (-1400, 300) | w, s | 02000800 (52.34, 58.40, 88.57) | 0.200825959, 1.198886263 | (-7, -7) |
-| FO4CW3_T10 (SE) | -7..6 / -4..9 | (0, 300) | e, s | 02000801 (45.71, 47.43, 9.83) | 0.200825959, 1.199307677 | (7, -7) |
-| FO4CW3_T01 (NW) | -21..-8 / 10..23 | (-1400, 1700) | w, n | 02000802 (410.74, -553.49, 105.14) = Red Rocket | 0.201238938, 1.198886216 | (-7, 7) |
-| FO4CW3_T11 (NE) | -7..6 / 10..23 | (0, 1700) | e, n | 02000803 (100.57, 49.94, 56.23) | 0.201238938, 1.199307648 | (7, 7) |
+| FO4CW3_T00 (SW) | -21..-8 / -4..9 | (-1400, 300) | w | 02000800 (52.34, 58.40, 88.57) | 0.200825959, 1.198886263 | (-7, -7) |
+| FO4CW3_T10 (SE) | -7..6 / -4..9 | (0, 300) | e | 02000801 (45.71, 47.43, 9.83) | 0.200825959, 1.199307677 | (7, -7) |
+| FO4CW3_T01 (NW) | -21..-8 / 10..23 | (-1400, 1700) | w | 02000802 (410.74, -553.49, 105.14) = Red Rocket | 0.201238938, 1.198886216 | (-7, 7) |
+| FO4CW3_T11 (NE) | -7..6 / 10..23 | (0, 1700) | e | 02000803 (100.57, 49.94, 56.23) | 0.201238938, 1.199307648 | (7, 7) |
 
 - Seams: x = -700 m (T00 | T10, T01 | T11), y = 1000 m (T00 / T01, T10 / T11). Red Rocket (CW -989, 1147), Sanctuary
   (-1154, 1260) and Vault 111 (-1275, 1305) all lie in T01, at least one cell from its seams.
+- Masks (`--mask-ns symmetric`): the west tiles ring on w, the east tiles on e; every N / S edge, outer or seam, is 0.
 - Placement by H_ll from World01's measured offset, group centre at planet cell (0, 0): adjacent tiles differ by
   14 cells = 4.130e-4 rad in latitude and 4.214e-4 rad in longitude.
-- `plan.json`, 8 entries, 68 points, runner format (points and `expect` in the entry's frame, `expect` = FO4 height / 70):
-  - 4 tile entries (coc the tile, its own anchor and `spawn_local`): its landmarks or centre, a slope point, and its
-    side of every seam it touches at three distances: near (1.5 to 2.2 m), ring (40 to 52 m, inside the 1-cell merge
-    ring), inner (140 to 149 m).
-  - 1 group entry (coc T00, anchor T00): both sides of all 4 seam segments (24 points) in T00's frame. It passes only
-    if the tiles lie edge to edge and the seams are exact.
-  - 3 position entries (coc T00, anchor of T10 / T01 / T11, no spawn fallback): each tile's planet cell and heights
-    read from T00's landing.
-- Offline check (`make_cw_overlays.py check`, raw record walk independent of Mutagen): **277 of 277 pass**. Every point
-  decodes within one step under all three interpolation rules (worst 5.029 mm); all seams continue the lattice (largest
-  raw step across a seam not above twice the steps beside it; T10 / T11 crosses a 2.7 m-per-sample slope); each WRLD ->
-  own LCTN (2CA99D, parent 01B736) -> SFBK (`ANAM`, `DNAM` 14 x 14, `ENAM` -40 / 299, `FNAM` 196 values = rule,
-  `INAM` 1, `HNAM` 0); anchors `01000800..803` persistent XMarkers at the plan positions; 4 COC cells; Mars plugin
-  overrides 0003F59A with 10 + 4 entries, latitude first; masks decode exactly.
+- `plan.json`, 9 entries, 115 points (18 of them waypoints), runner format (points and `expect` in the entry's frame,
+  `expect` = FO4 height / 70); every entry: coc the frame tile, its spawn x / y, `z_ref` = that tile's flat centre:
 
-**Reading the result**
+| # | Entry | Points | Drop / wait | What it measures |
+|---|---|---|---|---|
+| 0-3 | `tile` T00, T10, T01, T11 (own landing) | 10, 10, 13, 10 | 95-190 m / 9.5-11 s | landmarks or centre, a slope, its side of each seam at near (1.5-2.2 m), ring (40-52 m, inside the 1-cell merge ring) and inner (140-149 m) distance; the landing's merge offset (spawn) |
+| 4 | `group` (T00's landing) | 31 | 175 m / 11 s | T00's centre and both sides of all 4 seam segments: passes only if the tiles lie edge to edge (H_ll at scale 1) and the seams are exact |
+| 5-7 | `locate` T10, T01, T11 (T00's landing) | 9, 9, 13 | 340 m / 16 s | a transect every ~200 m from T00's centre toward each tile; `analyse` finds the tile at whatever whole-cell shift it really has |
+| 8 | `edges` T00 (T00's landing) | 10 | 240 m / 11.5 s | T00's outer w edge (mask 255) and s edge (mask 0): two probes in the cell ring (40-60 m), one inside it (140-170 m) each |
+
+- Locate coverage (**verified** offline from the staged probe positions): the T10 and T01 transects put at least 3
+  probes inside the target's interior for a shift of 3 to 20 cells along H_ll's direction (scale about 0.2 to 1.4;
+  below 14 the target overlaps T00, whose own probes then read T00) and -6 to +6 cells across it; the T11 diagonal
+  for (k, k) up to 22.
+  `analyse` on simulated runs over the real exp3 BTDs found every tile at its true shift, with no other consistent
+  shift, for: H_ll; T10 one cell further east and T01 one cell south (T11 absent: not found); scale 0.5 ((7, 0),
+  (0, 7)); scale 1.2 with a 2-cell side shift ((17, 2), (-1, 17), (17, 17)). Limits: the transects look only in H_ll's
+  direction (a flipped axis sign is "not found"), and where tiles overlap (scale 0.5) the diagonal transect could not
+  separate T11 from T01.
+- Offline check (`make_cw_overlays.py check`, raw record walk independent of Mutagen): **490 of 490 pass**. Every
+  point decodes within one step under all three interpolation rules (worst 5.167 mm); all seams continue the lattice
+  (largest raw step across a seam not above twice the steps beside it); the entry contract (frame = coc'd tile, spawn x
+  / y, z_ref among the points, drop, wait covers the fall, jumps at most 447 m, tile and edges points in their own tile,
+  waypoints outside merge rings); each WRLD -> own LCTN (2CA99D, parent 01B736) -> SFBK (`ANAM`, `DNAM` 14 x 14,
+  `ENAM` -40 / 299, `FNAM` 196 values = rule, `INAM` 1, `HNAM` 0); anchors `01000800..803` persistent XMarkers at the
+  plan positions, plan refs `0200080x`; 4 COC cells; Mars plugin overrides 0003F59A with 10 + 4 entries, latitude
+  first; masks decode exactly.
+- Runtime: about 2.6 h in one game session (exp2b took about 70 s per probe with an 8 s wait).
+
+**Reading the result** (`make_cw_overlays.py analyse --out C:\Modding\staging\terrain_exp3 --runs <queue folder>`)
 
 | Observation | Meaning |
 |---|---|
-| Tile entries pass | each tile's heights are exact (H holds for all four; Absolute gives Z offset ~0) |
-| Tile entries pass except the `ring` points of seams | the merge ring blends even with mask 0: option (b) cannot be exact at seams; go (a) |
-| Group entry passes | tiles edge to edge and seams exact: (b) works and H_ll holds at scale 1 |
-| Position entries put T10, T01, T11 at (14, 0), (0, 14), (14, 14) cells from T00 | H_ll holds; other values give the local scale and axes directly |
-| A position entry fails `prid` | that tile was not activated in T00's landing (outside the window, or refused as overlapping: scale < 1) |
-| Tile entries `NOTERRAIN` | 14-cell overlays do not load where exp2b's does: compare records |
-| An anchor reads exactly its local position (offset 0, as in exp1d below) | its persistent refs were not merged (or `prid` read unloaded data); the probes went to the wrong place: take the offset from `spawn_read` - `spawn_local` in `obs.json` and rerun with that |
+| Everything flat at the BTD minimum, as in exp2b | gate 0 was not passed: do not interpret anything else |
+| A tile entry passes; `analyse`: own tile at (0, 0), merge offset whole cells | that tile's heights are exact (H); its Z offset is in the verdict detail (H: Absolute, HNAM 0 -> about 0) |
+| `analyse`: own tile at (+-1, 0) or (0, +-1) instead of (0, 0) in every tile entry | the BTD sits one cell off its own frame: the n // 2 grid-origin rule is wrong for even sizes. 14 is the first even size tested in game (LC172World 3, exp2b 29); the vanilla even-sized worlds oedebugoverlay (4 x 4, WRLD object bounds +-200 m) and LC165World (10 x 10, +-500 m) agree with the rule (cells -2..1 and -5..4, as QA notes) but do not show where the BTD's samples go |
+| A tile entry's merge offset is not whole cells | that landing did not merge as expected (as World01's second cocs): its probes are not in the tile's frame, its heights say nothing; rerun it as the first coc of a session |
+| Tile entries: whole-cell merge offsets differing by (14, 0), (0, 14), (14, 14) from T00's | each tile's own landing puts it where H_ll predicts relative to T00's; this alone does not show that one landing holds them side by side (the group and locate entries do) |
+| Group entry passes | in one landing the tiles lie edge to edge (H_ll at scale 1) and the seams are exact: (b) works |
+| Locate: a tile found at H_ll's shift ((14, 0), (0, 14), (14, 14)) | H_ll holds for it in one landing |
+| Locate: found at another shift | the actual placement: the local rule's scale and axes follow (e.g. (7, 0) for T10 = scale 0.5); recompute the lat/longs and confirm with one more run |
+| Locate: not found | the tile is not along the transect: opposite axis sign, more than 1.4 x H_ll's distance, overlapping (and maybe refused, "Overlapping existing overlay"), or not activated |
+| Seam `ring` probes off by metres while `near` and `inner` are exact (tile entries) | the merge ring blends even with mask 0: option (b) cannot be exact at seams; go (a). The masks are row-flip invariant, so this cannot be a flipped mask |
+| `edges`: w ring (mask 255) off by metres, s ring (mask 0) exact | the mask controls the ring blend; mask 0 on seams should keep them exact |
+| `edges`: both rings off | the outer merge ring blends whatever the mask holds |
+| Tile entries `NOTERRAIN` | 14-cell overlays do not load where exp2b3's 29-cell one does: compare records |
 
-Runner caveat, **verified** from exp1d's `obs.json` (finished 16:24, while this was written; its analysis belongs to
-the overlay-records track): in both attempts the anchor `02000800` read back (50.00, 50.00, 10.00), exactly its local
-position, while the COC spawn arrived at (3050, -3450, -500) in attempt 1 and (75.32, 99.74, -19.84) in attempt 2. In
-the vanilla control the anchor did move with the merge (LC172World: -500, -2300). Both anchors sit in the world's
-persistent top cell (raw walk: group type 8 under the top cell, flag 0x400), so the record layout is not the difference
-(**unresolved**). Experiment 3's anchors are built the same way; exp2b (running now) will show whether they move.
+Runner facts behind this plan (**verified** from obs.json, 2026-10-11):
+- Anchors: our persistent XMarker anchors read back their unmerged local position in all 4 attempts (exp1d a1, a2:
+  (50.00, 50.00, 10.00); exp2b a1, a2: (-989.03, 1147.20, 105.14)), while the vanilla LC172World anchor 0010238E
+  moved with the merge (-500, -2300). Both kinds sit in the world's persistent top cell (raw walk: group type 8, flag
+  0x400), so the difference is **unresolved**. QA's reading: a persistent ref resolves in its own worldspace. So no
+  exp3 entry depends on an anchor, and the earlier "position" entries (coc T00, another tile's anchor, no spawn
+  fallback) were removed: the anchor would have read its local position, the runner would have used offset (0, 0, 0)
+  and probed the other tile's local coordinates inside T00's landing.
+- The spawn is sometimes read mid-fall (exp1d a1 z -500.00, exp2b a2 z -354.13); with a 3-value `spawn_local` the
+  runner lowered every drop by that much (exp2b a2: drops near -309 m, all fell through). Hence x / y only plus z_ref.
+- One `drop_z` per entry and a fixed 8 s wait left low points mid-fall (QA: 8 of 21 points of the 64-cell trial need
+  11.3 to 11.8 s at 3.71 m/s^2 against about 10.9 s); waits are now sized from the fall.
+- Long jumps: in exp2b a1 a 349 m setpos jump ended 141.9 m short (judged INCONCLUSIVE MOVED), a 560 m one arrived in
+  both attempts; the cause is **unresolved**. Waypoints keep jumps at about 400 m or less (447 m at most after
+  snapping); `analyse` uses the positions the game reported, so a displaced probe still counts.
+- Second coc in one session: World01's second cocs arrived unmerged-looking, exp2b's did not. exp3 cocs 9 times in one
+  session; `analyse` flags every entry whose merge offset is not whole cells.
+- Load-order byte: the anchor refs assume 02 (exp2b's 02000800 resolved with the same Plugins.txt layout).
 
 ## 7. Risks
-- BTD storage in the plugin archive (Short answer, item 0): until a run with uncompressed BTDs shows our heights, no
-  BTD-based option is validated; if uncompressed storage does not help either, (d) static meshes become the main path.
+- Gate 0: until a run reads our BTD heights (exp2b3), no BTD-based option is validated; if the uncompressed rerun is
+  still flat, the cause is elsewhere (records, alignment, archive path) and (d) static meshes gain weight.
 - A 64 to 90-cell overlay may not activate, may load slowly, or may be cut at the landing's edge; nothing in vanilla
   is that large. Mitigation: grow in steps (29 -> 64 -> 90), fall back to (b).
-- The lat/long rule may have per-landing origin snapping that moves a large overlay off-centre; the anchor shows it
-  and the lat/long can be corrected.
+- The lat/long rule may have per-landing origin snapping that moves a large overlay off-centre; the spawn offset
+  shows it and the lat/long can be corrected (anchors cannot: they do not merge).
 - Merge rings at seams (b) may be impossible to make exact.
+- Even-sized BTDs: if the n // 2 origin rule is wrong for even n, every 14- or 64-cell tile is one cell off; exp3's
+  `analyse` detects it (own tile not at (0, 0)) and odd sizes avoid it.
+- Mask row order: until known, grids keep 0 on outer north / south edges (no blend ring there).
 - Water (55 % of LAND cells average below 0 m), FO4 land textures, grass and terrain holes are not handled yet.
 - Host planet: Mars is a test host; the final host (a hidden or new planet) changes the Location parent and the
   lat/long reference.
@@ -299,9 +389,11 @@ persistent top cell (raw walk: group type 8 under the top cell, flag 0x400), so 
 1. Whether the 100-cell game terrain width bounds a landing as read here (supported only by the setting's name and
    value and the measured offsets, all within 35 cells).
 2. The absolute lat/long -> planet cell rule and the landing's origin snapping.
-3. Overlay size limits in game above 14 cells (exp2b: 29).
+3. Overlay size limits in game above 14 cells (exp2b3: 29).
 4. Seam behaviour between adjacent overlays and the role of the mask in blending (exp3).
 5. Option (c) rules: block pitch, height alignment, merge style, rotation identity, face projection.
+6. Why exp2b read flat at its minimum (gate 0), why our persistent anchors do not merge, the mask image row order, and
+   what a second coc in one session does.
 
 ## Reproduce
 
@@ -309,11 +401,13 @@ persistent top cell (raw walk: group type 8 under the top cell, flag 0x400), so 
     dotnet run --project dotnet/TerrainOverlays -c Release -- <Starfield.esm> C:\Modding\staging\terrain_exp3
     python scripts/terrain/make_cw_overlays.py check --sf-data <Starfield\Data> --out C:\Modding\staging\terrain_exp3
     python -m unittest tests.test_overlay_grid tests.test_overlay
+    (after the run) python scripts/terrain/make_cw_overlays.py analyse --out C:\Modding\staging\terrain_exp3 --runs C:\Modding\testqueue\terrain_exp3 --json <file>
 
-Install for the runner: `scripts/game/exp_install.py install --exp-dir C:\Modding\staging\terrain_exp3 --plugins
-FO4TerrainExp3.esm,FO4TerrainExp3_Mars.esm --pack` (branch `claude/test-queue`), then `testqueue.py plan-terrain
---exp-dir C:\Modding\staging\terrain_exp3 ...`. Never with experiment 1 or 2 installed (all three Mars plugins override
-MarsPlanetData).
+Install for the runner, after gate 0 only: `scripts/game/exp_install.py install --exp-dir
+C:\Modding\staging\terrain_exp3 --plugins FO4TerrainExp3.esm,FO4TerrainExp3_Mars.esm --pack` (branch
+`claude/test-queue` at f210b91 or later, which stores the archive uncompressed), then `testqueue.py plan-terrain
+--exp-dir C:\Modding\staging\terrain_exp3 ...`. Never with experiment 1 or 2 installed (all three Mars plugins
+override MarsPlanetData).
 
 Scratch scripts (not in the repo; outputs are game-derived) in `C:\Modding\research\terrain\scale\`:
 `scan_planets.py` (PNDT / SFBK / SFPT / SFTR / WRLD raw scan), `btd100.py`, `sfpt_worlds.py`, `inidefaults.py`,
