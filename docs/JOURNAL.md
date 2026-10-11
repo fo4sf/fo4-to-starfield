@@ -601,3 +601,16 @@ open PRs (#34 QA PASS, #35 in progress), local team state, next steps. Removed a
 docs/ai/agent-status.md refreshed from live sources. Shut down: guardian proxy stopped, local model unloaded, no
 background jobs left. Next session: re-run Vault 81 and the library, finish the Prydwen (same pinned build), then
 movable bodies for loose items.
+
+## 2026-10-11 Precombine hull primitives decoded (offline, Claude, branch `claude/precombine-primitives`)
+Known-unknown #2. The 38 `SCOL\CM*.NIF` bodies that failed with "shared vertex index 2130 out of range" hold **convex
+hull primitives** next to triangles: in a section with flags bit 0 set, a primitive `(a, b, b, b)` is a hull whose
+record sits in the section's shared-index range (`a - numPacked`): word 0 = `0x52 | count` (count = `(w0 >> 9) +
+bit 8`), word 1 = first shared vertex, word 2 unresolved; `b` is the primitive's leaf node. Evidence in
+docs/ai/research-log.md (2026-10-11): 286 hulls in 38 models tile the shared-vertex array exactly, 281 lie inside the
+render bounds (the 5 outside overshoot by 0.5 m on 7 m or 9 cm on 1 m), 250 are 4-point planks/rods, the rest up to
+53 points. Corrections: the "4 shared vertices per primitive" grouping (2026-10-09) is refuted; the count is per record
+(2 to 53). The decoder now returns the hull surfaces for route planning, and `convert_bodies` emits one Starfield convex
+body per hull and neutralises the primitive in the copied mesh. Side check with the real template: all 38 models
+convert natively (284 hull bodies, 21 mesh bodies, 0 skipped parts; was 36 guessed + 2 partial). 263 tests pass, guard
+ok. Not deployed, unverified in game: the pinned build is unchanged.

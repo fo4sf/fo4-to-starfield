@@ -20,32 +20,78 @@ CMD_DOMAIN = 32                                      # hkAabb of the whole mesh 
 SECTION_SIZE = 96
 # section: nodes hkArray(16), domain hkAabb(32), codecParms float[6] @48 (offset xyz, scale xyz),
 # firstPackedVertex u32 @72, sharedVertices u32 @76 (start<<8 | count), primitives u32 @80 (start<<8 | count),
-# dataRuns u32 @84, numPackedVertices u8 @88, numSharedIndices u8 @89
+# dataRuns u32 @84, numPackedVertices u8 @88, numSharedIndices u8 @89, leafIndex u16 @90, page u8 @92, flags u8 @93
+
+# Hull primitives (FO4 precombines, SCOL\CM*.NIF; docs/ai/research-log.md 2026-10-11). A section whose flags bit 0 is
+# set can hold convex hulls next to triangles: primitive (a, b, b, b) with a >= numPackedVertices is a hull, not a
+# triangle. a - numPackedVertices is a slot in the section's sharedVerticesIndex range holding a 3 x u16 record:
+#   word 0  bits 0-7 = 0x52 (constant), count = (word0 >> 9) + ((word0 >> 8) & 1)   (bit 8 is set for a few hulls:
+#           36, 44, 47 vertices; the split is not understood, the sum is right: hull ranges tile the shared array)
+#   word 1  first shared vertex; the hull is the convex hull of sharedVertices[first : first + count]
+#   word 2  unresolved (half-float-like 0.81..1.33, constant per source shape)
+# b is the section tree leaf of the primitive (its data byte is 2 * primitive index). Hull primitives have one shape
+# key each (section << 8 | primitive << 1), like a triangle. Verified on 286 hulls in 38 models (0 shared vertices
+# unreferenced, 0 in two hulls, 0 shared between a hull and a triangle).
+SECTION_HULLS = 1                                    # section flags bit: section holds hull primitives
+HULL_TAG = 0x52                                      # low byte of a hull record's first word
 
 
-def _compressed_mesh(p: hkpackfile.Packfile, data_obj: int) -> Tuple[List[Vec], List[Tuple[int, int, int]]]:
-    sec_at, nsec = p.array(data_obj + CMD_SECTIONS)
-    prim_at, _ = p.array(data_obj + CMD_PRIMITIVES)
-    sidx_at, _ = p.array(data_obj + CMD_SHARED_INDEX)
-    pack_at, _ = p.array(data_obj + CMD_PACKED)
+def _hull_record(p: hkpackfile.Packfile, sidx_at: int, sh_start: int, slot: int, nsi: int, nshared: int):
+    """(first shared vertex, count) of the hull record in a section's shared-index slot; raises on anything else."""
+    if slot < 0 or slot + 3 > nsi:
+        raise hkpackfile.PackfileError(f"hull record slot {slot} outside the section's {nsi} shared indices")
+    w0, first, _unresolved = p.unpack("<3H", sidx_at + 2 * (sh_start + slot))
+    if (w0 & 0xFF) != HULL_TAG:
+        raise hkpackfile.PackfileError(f"hull record tag 0x{w0 & 0xFF:02x} (expected 0x{HULL_TAG:02x})")
+    count = (w0 >> 9) + ((w0 >> 8) & 1)
+    if count < 1 or first + count > nshared:
+        raise hkpackfile.PackfileError(f"hull vertices {first}..{first + count} outside the {nshared} shared vertices")
+    return first, count
+
+
+def _classify(prim: bytes, npacked: int, nsi: int, flags: int) -> str:
+    """"hull", "tri" (triangle or quad) or "none" (unused 0xDEAD slot / degenerate point) for a 4-byte primitive."""
+    a, b, c, d = prim
+    if (flags & SECTION_HULLS) and b == c == d and npacked <= a < npacked + nsi:
+        return "hull"                                # includes (x, x, x, x): the leaf index can equal the slot
+    if a == b == c == d or max(a, b, c, d) >= npacked + nsi:
+        return "none"
+    return "tri"
+
+
+def _shared_vertices(p: hkpackfile.Packfile, data_obj: int) -> List[Vec]:
+    """Shared vertices: 21 / 21 / 22 bits quantised over the whole domain."""
     shar_at, nshared = p.array(data_obj + CMD_SHARED)
     dmin = p.unpack("<3f", data_obj + CMD_DOMAIN)
     dmax = p.unpack("<3f", data_obj + CMD_DOMAIN + 16)
-    # shared vertices: 21 / 21 / 22 bits quantised over the whole domain
+    bits = (0x1FFFFF, 0x1FFFFF, 0x3FFFFF)
     shared = []
     for k in range(nshared):
         v, = p.unpack("<Q", shar_at + 8 * k)
         q = (v & 0x1FFFFF, (v >> 21) & 0x1FFFFF, v >> 42)
-        bits = (0x1FFFFF, 0x1FFFFF, 0x3FFFFF)
         shared.append(tuple(dmin[a] + q[a] * (dmax[a] - dmin[a]) / bits[a] for a in range(3)))
+    return shared
+
+
+def _decode_mesh(p: hkpackfile.Packfile, data_obj: int):
+    """(points, triangles, keys, hulls) of a compressed mesh. Triangles are point-index triples in key order with their
+    shape keys (section << 8 | primitive << 1 | t, t = 1 for the second triangle of a quad; matches maxKeyValue /
+    numPrimitiveKeys in FO4 and vanilla Starfield). hulls: [(section, primitive, slot, first, count, points)] for the
+    hull primitives (see SECTION_HULLS), which have no triangle here."""
+    sec_at, nsec = p.array(data_obj + CMD_SECTIONS)
+    prim_at, _ = p.array(data_obj + CMD_PRIMITIVES)
+    sidx_at, _ = p.array(data_obj + CMD_SHARED_INDEX)
+    pack_at, _ = p.array(data_obj + CMD_PACKED)
+    shared = _shared_vertices(p, data_obj)
     points: List[Vec] = []
-    tris = []
+    tris, keys, hulls = [], [], []
     for s in range(nsec):
         so = sec_at + SECTION_SIZE * s
         off = p.unpack("<3f", so + 48)
         scale = p.unpack("<3f", so + 60)
         first_packed, shared_d, prim_d = p.unpack("<3I", so + 72)
-        npacked, = p.unpack("<B", so + 88)
+        npacked, nsi = p.unpack("<BB", so + 88)
+        flags, = p.unpack("<B", so + 93)
         sh_start = shared_d >> 8
         local = []
         for k in range(npacked):
@@ -66,15 +112,53 @@ def _compressed_mesh(p: hkpackfile.Packfile, data_obj: int) -> Tuple[List[Vec], 
                 points.append(shared[j])
             return cache[i]
         pstart, pcount = prim_d >> 8, prim_d & 0xFF
-        limit = npacked + p.unpack("<B", so + 89)[0]      # packed + shared vertex slots of this section
         for k in range(pcount):
-            a, b, c, d = p.raw(prim_at + 4 * (pstart + k), 4)
-            if max(a, b, c, d) >= limit or a == b == c == d:   # unused (0xDEAD) slot or degenerate point: no triangle
+            prim = p.raw(prim_at + 4 * (pstart + k), 4)
+            kind = _classify(prim, npacked, nsi, flags)
+            if kind == "none":
                 continue
+            if kind == "hull":
+                slot = prim[0] - npacked
+                first, count = _hull_record(p, sidx_at, sh_start, slot, nsi, len(shared))
+                hulls.append((s, k, slot, first, count, shared[first:first + count]))
+                continue
+            a, b, c, d = prim
             tris.append((vertex(a), vertex(b), vertex(c)))
+            keys.append((s << 8) | (k << 1))
             if c != d:                                   # quad
                 tris.append((vertex(a), vertex(c), vertex(d)))
+                keys.append((s << 8) | (k << 1) | 1)
+    return points, tris, keys, hulls
+
+
+def hull_surface(pts):
+    """(points, triangles) of the closed convex hull over a hull primitive's points: a flat set becomes a 1 cm slab; a
+    set without volume (fewer than 3 distinct points, e.g. the two 2-point hulls in FO4) gives ([], [])."""
+    from . import meshcollision as mc
+    pts = mc.thicken_if_flat(list(pts))
+    try:
+        faces = mc.convex_hull_triangles(pts)
+    except hkpackfile.PackfileError:
+        return [], []
+    return pts, faces
+
+
+def _compressed_mesh(p: hkpackfile.Packfile, data_obj: int) -> Tuple[List[Vec], List[Tuple[int, int, int]]]:
+    """Points and triangles of a compressed mesh. Hull primitives are returned as their triangulated hull surface, so
+    consumers of the plain geometry (route planning, compounds) see the whole collision."""
+    points, tris, _, hulls = _decode_mesh(p, data_obj)
+    for *_, pts in hulls:
+        hp, faces = hull_surface(pts)
+        base = len(points)
+        points += hp
+        tris += [(base + a, base + b, base + c) for a, b, c in faces]
     return points, tris
+
+
+def compressed_mesh_hulls(p: hkpackfile.Packfile, data_obj: int):
+    """[(section, primitive, slot, first shared vertex, count, points)] per hull primitive of a compressed mesh (empty for
+    ordinary meshes). Raises PackfileError on a malformed hull record."""
+    return _decode_mesh(p, data_obj)[3]
 
 
 # hknpPhysicsSystemData: bodyCinfos hkArray @64, 96 bytes each: shape pointer @0, position hkVector4 @48,
@@ -168,28 +252,15 @@ def decode(blob: bytes) -> Tuple[List[Vec], List[Tuple[int, int, int]], List[str
         tris += [(a + base, b_ + base, c + base) for a, b_, c in tr]
     return points, tris, skipped
 
+
 def compressed_mesh_keys(p: hkpackfile.Packfile, data_obj: int):
-    """[(shape key, (min xyz, max xyz))] per triangle of a compressed mesh. Key = section << 8 | primitive << 1 | t,
-    t = 1 for the second triangle of a quad (matches maxKeyValue / numPrimitiveKeys in FO4 and vanilla Starfield)."""
-    pts, _ = [], None
-    sec_at, nsec = p.array(data_obj + CMD_SECTIONS)
-    points, tris = _compressed_mesh(p, data_obj)        # same order: per section, per primitive, quads split
-    out, k = [], 0
-    prim_at, _ = p.array(data_obj + CMD_PRIMITIVES)
-    for s in range(nsec):
-        prim_d, = p.unpack("<I", sec_at + SECTION_SIZE * s + 80)
-        pstart, pcount = prim_d >> 8, prim_d & 0xFF
-        so = sec_at + SECTION_SIZE * s
-        limit = p.unpack("<B", so + 88)[0] + p.unpack("<B", so + 89)[0]
-        for j in range(pcount):
-            a, b, c, d = p.raw(prim_at + 4 * (pstart + j), 4)
-            if max(a, b, c, d) >= limit or a == b == c == d:   # unused (0xDEAD) slot / degenerate: no key
-                continue
-            for t in ((0,) if c == d else (0, 1)):
-                tri = tris[k]
-                k += 1
-                P = [points[i] for i in tri]
-                lo = tuple(min(q[x] for q in P) for x in range(3))
-                hi = tuple(max(q[x] for q in P) for x in range(3))
-                out.append(((s << 8) | (j << 1) | t, (lo, hi)))
+    """[(shape key, (min xyz, max xyz))] per triangle of a compressed mesh (hull primitives have no triangle key: they
+    are converted as convex bodies). Key = section << 8 | primitive << 1 | t, t = 1 for the second triangle of a quad."""
+    points, tris, keys, _ = _decode_mesh(p, data_obj)
+    out = []
+    for key, tri in zip(keys, tris):
+        P = [points[i] for i in tri]
+        lo = tuple(min(q[x] for q in P) for x in range(3))
+        hi = tuple(max(q[x] for q in P) for x in range(3))
+        out.append((key, (lo, hi)))
     return out
