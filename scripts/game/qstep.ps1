@@ -160,9 +160,17 @@ switch ($kind) {
       if ($sv.Count -eq 3) { $ox = [double]$sv[0] - [double]$t.spawn_local[0]; $oy = [double]$sv[1] - [double]$t.spawn_local[1] }
       $obs['offset'] = @($ox, $oy)
     }
+    # drop_above_spawn: drop height relative to the arrival (terrain height unknown in a relocated world);
+    # settle_ms: wait before reading (a 60 m fall at Mars gravity takes about 6 s)
+    $dropz = [double]$t.drop_z
+    if ($t.drop_above_spawn -and $obs['spawn_read']) {
+      $sv = "$($obs['spawn_read'])".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+      if ($sv.Count -eq 3) { $dropz = [double]$sv[2] + [double]$t.drop_above_spawn }
+    }
+    $settle = if ($t.settle_ms) { [int]$t.settle_ms } else { 4500 }
     foreach ($p in $t.points) {
-      Teleport @(([double]$p.x + $ox), ([double]$p.y + $oy), $t.drop_z) 0 15
-      Start-Sleep -Milliseconds 4500                 # a fall from 80 m takes about 4 s
+      Teleport @(([double]$p.x + $ox), ([double]$p.y + $oy), $dropz) 0 15
+      Start-Sleep -Milliseconds $settle               # a fall from 80 m takes about 4 s on Earth gravity
       $pts += [ordered]@{ label = $p.label; read = (Read-Pos); shot = (Shot "pt$k.png") }
       $obs['points'] = $pts; Save-Obs                 # after every point: a cut-off keeps the heights already read
       $k++
