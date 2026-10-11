@@ -61,10 +61,16 @@ def staged_files(exp_dir, plugins):
 def install(a):
     data = os.path.join(a.starfield, "Data")
     rec_p = os.path.join(data, RECORD)
-    if os.path.exists(rec_p):
-        sys.exit(f"an experiment is already installed ({rec_p}); uninstall it first")
     plugins = [p.strip() for p in a.plugins.split(",") if p.strip()] if a.plugins else \
         sorted(f for f in os.listdir(a.exp_dir) if f.lower().endswith(".esm"))[:1]
+    if os.path.exists(rec_p):
+        rec = json.load(open(rec_p))
+        same = os.path.normcase(rec.get("exp_dir", "")) == os.path.normcase(os.path.abspath(a.exp_dir)) and \
+            all(p in rec["files"] for p in plugins)
+        if same:                                          # a relaunch of the same experiment: nothing to do
+            print("already installed")
+            return
+        sys.exit(f"another experiment is installed ({rec_p}); uninstall it first")
     files = staged_files(a.exp_dir, plugins)
     clash = [rel for _, rel in files if os.path.exists(os.path.join(data, rel))]
     if clash:

@@ -224,10 +224,14 @@ def plan_terrain(a):
     q = {"created": now(), "staging": staging, "plugin_sha256": digest, "build_id": digest[:8],
          "commit": subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
          "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]],
-         "launch_cell": a.launch_cell, "experiment": os.path.abspath(a.exp_dir), "tests": tests}
+         "launch_cell": a.launch_cell, "experiment": os.path.abspath(a.exp_dir),
+         "tests": tests[:a.only] if a.only else tests}
+    if a.plugins:                                         # installed by the runner right before it launches the game
+        q["pre_launch"] = [sys.executable, os.path.join(HERE, "exp_install.py"), "install", "--exp-dir",
+                           os.path.abspath(a.exp_dir), "--starfield", a.starfield, "--plugins", a.plugins]
     os.makedirs(a.out, exist_ok=True)
     save_atomic(os.path.join(a.out, "queue.json"), q)
-    print(f"{len(tests)} terrain tests (experiment {a.exp_dir}) on build {q['build_id']}")
+    print(f"{len(q['tests'])} terrain tests (experiment {a.exp_dir}) on build {q['build_id']}")
 
 
 # ------------------------------------------------------------------------------------------------------------ judging
@@ -512,6 +516,12 @@ class Runner:
             if not self.pinned_ok():
                 self.log("staging FO4Port.esm no longer matches the pinned build: stopping")
                 return "stop"
+            pre = self.q.get("pre_launch")
+            if pre:                                       # e.g. install a staged experiment only when the game starts
+                r = subprocess.run(pre, capture_output=True, text=True, cwd=REPO)
+                self.log(f"pre-launch exit {r.returncode}: {(r.stdout + r.stderr).strip()[-200:]}")
+                if r.returncode != 0:
+                    return "stop"
             self.state["relaunches"] += 1
             self.checkpoint()
             self.log(f"launching the pinned build {self.q['build_id']} into {launch}")
@@ -783,6 +793,9 @@ def main(argv=None):
     pt.add_argument("--out", required=True)
     pt.add_argument("--launch-cell", default="Vault111Cryo")
     pt.add_argument("--plugin-index", default="02")
+    pt.add_argument("--starfield", default=r"D:\SteamLibrary\steamapps\common\Starfield")
+    pt.add_argument("--plugins", default="", help="experiment plugins to activate before launch (exp_install.py)")
+    pt.add_argument("--only", type=int, default=0, help="keep the first N worlds")
     r = sub.add_parser("run")
     r.add_argument("--queue", required=True)
     r.add_argument("--starfield", default=r"D:\SteamLibrary\steamapps\common\Starfield")
