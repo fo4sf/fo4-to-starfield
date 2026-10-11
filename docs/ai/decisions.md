@@ -56,3 +56,13 @@ persistent group. Codex's ReferenceLinks post-pass (Relationships.Apply) writes 
 (same values, idempotent) and still reports the unresolved ones. Alternatives: ReferenceLinks only (the STAT -> DOOR
 change is PluginSpike's anyway, and every build would need the second pass); a DOOR for every FO4 Door base (fake doors,
 hatches and trapdoors would become activatable with no destination).
+## 2026-10-10 Place models without the NIF scene root's own transform
+The converter, the route planner and the collision reader compose a model's node transforms from the children of the
+scene root, not from the root itself (`nif.world_transforms(placed=True)`): the engine replaces the root's transform
+with the reference's, so a rotation stored on the FO4 root is not applied in game. Why: `PryCatwalkStairsEnt02` has a
+180-degree root; converting it with the root turned the stairs the wrong way round (Prydwen routes 20/28/29 fell, 19/27/30
+never reached their start), and FO4's own precombined physics matches 89 placements of 15 rooted models only without
+the root (docs/ai/research-log.md, 2026-10-10). Alternatives: apply the root as the file stores it (what we did; wrong
+for 44 of 4,014 converted models, 232 placements); apply it only to models outside precombines (no evidence that the
+engine does, and the stairs are not precombined). The default `world_transforms()` keeps the file's own composition for
+tools that want the file as stored (door rig/motion modules, oracles).

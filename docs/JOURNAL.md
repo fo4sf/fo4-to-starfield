@@ -676,3 +676,17 @@ the branch writer reports "2 references linked (1 mutual pairs), 28 destinations
 marker doors the converter never places. Read back from the written plugin; 0 existing FormIDs changed against the staging
 map. `teleports.json` now lists the unplaced sources too (PluginSpike.Tests asserts it). Still offline, not in game; PR #50
 (docs/ai/research-log.md 2026-10-11).
+## 2026-10-10: the Prydwen's 7 small falls (offline diagnosis, fix not yet built)
+The 7 `FALL` routes of the pinned Prydwen run are two problems, neither a hole in the converted collision
+(details and evidence: docs/ai/research-log.md, same date).
+- Routes 12, 13, 15, 18: the "stairs" `PryPlatformInCornerStairs01/02` are railing frames. Their post bevels gave the
+  planner a fake ramp (ends 0.03 m apart under a 0.91 m rise), and the walk went down the real stair next to them
+  (`PryCatwalkStairsEnt01`), ending where FO4's own steps are. `routes.py` now rejects ramps steeper than 60 degrees
+  end to end (all real ones are at most 46.4).
+- Routes 20, 28, 29: `PryCatwalkStairsEnt02` was converted facing the wrong way. Its NIF root node is turned
+  180 degrees, and the game ignores a root node's transform: FO4's precombined physics matches 89 placements of 15 such
+  models only without it. The converter applied it, so the first flight climbed away from the second and the routes
+  started in mid-air. Now geometry, collision nodes and door pivots leave the root out (`nif.world_transforms
+  placed=True`). This also turns back 43 other models (232 placements across the slice), among them diner counters,
+  Vault 114/95 catwalk frames, desk lamps, posters and the Cambridge `HitDoorSm01/Lg01` doors.
+Next: rebuild, then rerun the Prydwen (routes 12-32 and the regenerated Ent02 routes) and the Cambridge doors in game.
