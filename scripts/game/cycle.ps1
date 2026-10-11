@@ -10,8 +10,11 @@
 # then OCR-check and press E again if it is still shown. (Earlier: the popup swallowed the coc; a fixed-time E missed it.)
 # coc from the main menu works but is unusable for tests: the blank character is pulled into the new-game start after a
 # few minutes (load screen, then a hang).
+# Exit codes: 1 bad cell name, 2 input guard, 3 the game was not started by this script, 4 arrival not verified,
+# 5 a screen check could not run (nothing pressed), 6 an activation prompt sits under the crosshair (nothing pressed).
 param([Parameter(Mandatory)][string]$Staging, [Parameter(Mandatory)][string]$Starfield, [string]$Cell = 'FO4Port_Vault111Cryo',
       [string]$Shot = (Join-Path $env:TEMP 'fo4sf_cycle.png'), [string]$CellJson = '')
+if ($Cell -notmatch '^[A-Za-z0-9_]+$') { "cell name must be letters, digits and underscores (it is typed into the game): $Cell"; exit 1 }
 $repo = Split-Path (Split-Path $PSScriptRoot); $sf = $Starfield
 $i = (Join-Path $PSScriptRoot 'input.ps1'); $env:LEGACY = '1'
 $p = Get-Process Starfield -ErrorAction SilentlyContinue
@@ -29,13 +32,17 @@ function Send($seq) {
   powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq $seq | Out-Null
   if ($LASTEXITCODE -ne 0) { "input guard stopped the sequence (someone else has focus)"; exit 2 }
 }
-function Clear-AchievementsPopup {
-  # true if the popup was on screen and E was sent to close it
+function Popup-Shown {
+  # true if the achievements popup is on screen (OCR of its text box); presses nothing
   $tmp = Join-Path $env:TEMP 'fo4sf_popup.png'
   powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'shot.ps1') -Out $tmp | Out-Null
   $text = powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'ocr.ps1') -Image $tmp -X 390 -Y 285 -W 500 -H 60
   if ($LASTEXITCODE -ne 0) { "popup OCR check failed (ocr.ps1 exit $LASTEXITCODE): nothing pressed"; exit 5 }   # fail closed
-  if (($text | Out-String) -match 'achievement') { Send 'hold:e,300|wait:1500'; return $true }
+  return (($text | Out-String) -match 'achievement')
+}
+function Clear-AchievementsPopup {
+  # true if the popup was on screen and E was sent to close it (the console must be closed: keys go to its line otherwise)
+  if (Popup-Shown) { Send 'hold:e,300|wait:1500'; return $true }
   return $false
 }
 
@@ -55,16 +62,20 @@ function Prompt-Visible {
 # first console opening of the session raises the popup (possibly invisible); close the console, then E closes the popup
 Send 'key:grave|wait:1500|type:fov 90|wait:300|key:enter|wait:2500|key:grave|wait:1500'
 if (Prompt-Visible) { Send 'move:300,0|wait:800' }           # look away from the prompt before E
-if (-not (Prompt-Visible)) { Send 'hold:e,300|wait:1500' } else { "activation prompt under the crosshair: E not pressed" }
+if (Prompt-Visible) { "activation prompt still under the crosshair after looking away: E would use it, stopping"; exit 6 }
+Send 'hold:e,300|wait:1500'
 Clear-AchievementsPopup | Out-Null
 if ($CellJson) {
   $name = $Cell -replace '^FO4Port_', ''
   powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'coc.ps1') -Cell $name -CellJson $CellJson
   if ($LASTEXITCODE -ne 0) { "coc.ps1 could not verify the arrival in $Cell (exit $LASTEXITCODE)"; exit 4 }
 } else {
-  Send "key:grave|wait:1500|key:back|key:back|key:back|type:coc $Cell|wait:400|key:enter|wait:3000"
-  if (Clear-AchievementsPopup) {                              # the popup blocked the coc: send it once more
-    Send "key:grave|wait:1500|key:back|key:back|key:back|type:coc $Cell|wait:400|key:enter|wait:3000"
+  $clear = 'key:back|' * 40                                    # empties the console line, whatever was left in it
+  Send "key:grave|wait:1500|${clear}type:coc $Cell|wait:400|key:enter|wait:3000"
+  if (Popup-Shown) {                                          # the popup swallowed the coc and the console is still open
+    Send 'key:grave|wait:1200'                                 # close the console first, or E goes to its line
+    Clear-AchievementsPopup | Out-Null
+    Send "key:grave|wait:1500|${clear}type:coc $Cell|wait:400|key:enter|wait:3000"
   }
   Start-Sleep 37                                               # cell load
 }

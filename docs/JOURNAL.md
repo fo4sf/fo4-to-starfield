@@ -601,3 +601,11 @@ open PRs (#34 QA PASS, #35 in progress), local team state, next steps. Removed a
 docs/ai/agent-status.md refreshed from live sources. Shut down: guardian proxy stopped, local model unloaded, no
 background jobs left. Next session: re-run Vault 81 and the library, finish the Prydwen (same pinned build), then
 movable bodies for loose items.
+
+## 2026-10-10 Launch script hardened after QA (offline; owner at the PC)
+PR #42's QA agent found that `cycle.ps1` pressed E blind when its screen check could not run. Fixed: a failed prompt
+or popup check now stops with exit 5; an activation prompt that stays under the crosshair stops with exit 6; a `coc`
+the popup swallowed is retried only after the console is closed and the popup cleared, with the console line emptied
+first; the cell name is validated before it is typed. New tests: every `scripts/game/*.ps1` must parse (PowerShell's
+parser, skipped where there is none) and `prompt_visible.py` is checked on synthetic screenshots. 258 tests OK on
+this branch.
