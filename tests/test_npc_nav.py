@@ -305,14 +305,14 @@ class ControlGateTests(unittest.TestCase):
         r.run()
         return calls
 
-    def tests(self):
+    def make_tests(self):
         n0 = tq.npc_test(0, N0)
         n1 = tq.npc_test(1, dict(N0, label="N1", control=False, expect="FAIL NONAV"))
         return n0, n1
 
     def test_a_fail_counts_only_after_the_control_passed(self):
         d = tempfile.mkdtemp()
-        n0, n1 = self.tests()
+        n0, n1 = self.make_tests()
         self.queue(d, [n0, n1])
         self.run_queue(d, {n0["id"]: "walk", n1["id"]: "still"})
         done = json.load(open(os.path.join(d, "state.json")))["done"]
@@ -324,7 +324,7 @@ class ControlGateTests(unittest.TestCase):
 
     def test_failed_control_makes_the_others_inconclusive_and_final(self):
         d = tempfile.mkdtemp()
-        n0, n1 = self.tests()
+        n0, n1 = self.make_tests()
         self.queue(d, [n0, n1])
         calls = self.run_queue(d, {n0["id"]: "still", n1["id"]: "still"})
         done = json.load(open(os.path.join(d, "state.json")))["done"]
@@ -336,7 +336,7 @@ class ControlGateTests(unittest.TestCase):
         self.assertEqual(line["expect"], "FAIL NONAV")
 
     def test_control_from_another_queue(self):
-        n0, n1 = self.tests()
+        n0, n1 = self.make_tests()
         ctrl = tempfile.mkdtemp()
         self.queue(ctrl, [n0])
         for state, want in ((None, "CONTROL"), ("FAIL", "CONTROL"), ("PASS", "NONAV")):
@@ -350,7 +350,7 @@ class ControlGateTests(unittest.TestCase):
             self.assertEqual(done[n1["id"]]["class"], want, state)
 
     def test_pass_and_unconfigured_queues_are_not_gated(self):
-        n0, n1 = self.tests()
+        n0, n1 = self.make_tests()
         q = {"tests": [n1]}
         self.assertEqual(tq.control_gate(tempfile.mkdtemp(), q, n1, "FAIL", "NONAV", "x"), ("FAIL", "NONAV", "x"))
         q = {"tests": [n0, n1]}
