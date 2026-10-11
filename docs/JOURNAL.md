@@ -690,3 +690,22 @@ The 7 `FALL` routes of the pinned Prydwen run are two problems, neither a hole i
   placed=True`). This also turns back 43 other models (232 placements across the slice), among them diner counters,
   Vault 114/95 catwalk frames, desk lamps, posters and the Cambridge `HitDoorSm01/Lg01` doors.
 Next: rebuild, then rerun the Prydwen (routes 12-32 and the regenerated Ent02 routes) and the Cambridge doors in game.
+## 2026-10-10 Launch script hardened after QA (offline; owner at the PC)
+PR #42's QA agent found that `cycle.ps1` pressed E blind when its screen check could not run. Fixed: a failed prompt
+or popup check now stops with exit 5; an activation prompt that stays under the crosshair stops with exit 6; a `coc`
+the popup swallowed is retried only after the console is closed and the popup cleared, with the console line emptied
+first; the cell name is validated before it is typed. New tests: every `scripts/game/*.ps1` must parse (PowerShell's
+parser, skipped where there is none) and `prompt_visible.py` is checked on synthetic screenshots. 258 tests OK on
+this branch.
+- **Launch script waits on the screen, not timers (offline).** `cycle.ps1` now polls a screenshot every 3 s for the main
+  menu text, then for the HUD after Continue and after a blind `coc`, instead of sleeping 30 + 45 + 37 s. The checks
+  were validated on today's saved screenshots (menu text read on the menu shot only; HUD seen in game only). Before:
+  195-210 s per cycle; after: to be measured on the next run (docs/ai/optimization.md).
+
+## 2026-10-11 Overnight: library and Vault 81 re-run on the pinned build (Lead task 4)
+Owner away (PC idle 4.7 h); normal build restored (`AC379C53`), entered with the verified cycle (168 s, from 195-210).
+**Boston Public Library, 67 routes (110 min):** 42 PASS, 10 STUCK, 4 FALL, 5 BLOCKED, 6 UNREAD. Doors 12 of 16 both
+sides, 1 one side (`0FFCA5`), 3 none: the wooden double doors `100196` and `10019C` block from both sides. The deco
+rail stairs (`BldDecoSmRailStairs01L/R`, `03L/R`, `Short01R`) account for 7 STUCK/FALL; brick and block stairs pass.
+**Vault 81, 19 routes:** 16 PASS, 2 BLOCKED, 1 UNOPENED; all 13 stair routes pass; stall doors `19DA38` both sides,
+`19DA3A` / `19DA36` one side each. Results: `run_lib_1011`, `run_v81_1010` (local). Posted on #32.
