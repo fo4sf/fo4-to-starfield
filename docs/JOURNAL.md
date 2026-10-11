@@ -613,3 +613,11 @@ this branch.
   menu text, then for the HUD after Continue and after a blind `coc`, instead of sleeping 30 + 45 + 37 s. The checks
   were validated on today's saved screenshots (menu text read on the menu shot only; HUD seen in game only). Before:
   195-210 s per cycle; after: to be measured on the next run (docs/ai/optimization.md).
+
+## 2026-10-11 Overnight: library and Vault 81 re-run on the pinned build (Lead task 4)
+Owner away (PC idle 4.7 h); normal build restored (`AC379C53`), entered with the verified cycle (168 s, from 195-210).
+**Boston Public Library, 67 routes (110 min):** 42 PASS, 10 STUCK, 4 FALL, 5 BLOCKED, 6 UNREAD. Doors 12 of 16 both
+sides, 1 one side (`0FFCA5`), 3 none: the wooden double doors `100196` and `10019C` block from both sides. The deco
+rail stairs (`BldDecoSmRailStairs01L/R`, `03L/R`, `Short01R`) account for 7 STUCK/FALL; brick and block stairs pass.
+**Vault 81, 19 routes:** 16 PASS, 2 BLOCKED, 1 UNOPENED; all 13 stair routes pass; stall doors `19DA38` both sides,
+`19DA3A` / `19DA36` one side each. Results: `run_lib_1011`, `run_v81_1010` (local). Posted on #32.
