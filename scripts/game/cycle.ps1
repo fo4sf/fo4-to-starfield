@@ -24,9 +24,30 @@ if ($p -and $p.Id -ne $own) { "Starfield is running but was not started by cycle
 if ($p) { $p.CloseMainWindow() | Out-Null; Start-Sleep 8; $p.Refresh(); if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -Confirm:$false }; Start-Sleep 4 }
 python -I "$repo\scripts\deploy_starfield.py" uninstall --starfield $sf | Out-Null
 python -I "$repo\scripts\deploy_starfield.py" install --staging $Staging --starfield $sf | Select-Object -Last 1
+function Wait-Screen($label, $maxSec, $check) {
+  # poll a screenshot every 3 s until $check (script block: png path -> bool) is true; prints how long it took.
+  # false after $maxSec: the caller goes on as the old fixed timer would have (docs/ai/optimization.md 2026-10-10).
+  $t0 = Get-Date
+  $png = Join-Path $env:TEMP 'fo4sf_wait.png'
+  while (((Get-Date) - $t0).TotalSeconds -lt $maxSec) {
+    powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'shot.ps1') -Out $png | Out-Null
+    if (& $check $png) { "{0} after {1} s" -f $label, [int]((Get-Date) - $t0).TotalSeconds; return $true }
+    Start-Sleep 3
+  }
+  "{0}: not seen within {1} s, going on" -f $label, $maxSec
+  return $false
+}
+$MenuShown = { param($png)                                      # main menu: "PRESS ANY BUTTON TO START" along the bottom
+  $t = powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'ocr.ps1') -Image $png -X 380 -Y 645 -W 520 -H 45
+  return (($t | Out-String) -match 'PRESS ANY') }
+$HudShown = { param($png)                                       # in game: oxygen ring + health bar (hud_visible.py)
+  $py = if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'python' }
+  return ((& $py (Join-Path $PSScriptRoot 'hud_visible.py') $png 2>$null) -eq 'yes') }
+
 Start-Process 'steam://rungameid/1716740'
 $deadline = (Get-Date).AddSeconds(150); while ((Get-Date) -lt $deadline) { $q = Get-Process Starfield -ErrorAction SilentlyContinue; if ($q) { $q.Id | Set-Content $pidFile; break }; Start-Sleep 3 }
-Start-Sleep 30
+Start-Sleep 10
+Wait-Screen 'main menu' 120 $MenuShown | Out-Null
 
 function Send($seq) {
   powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq $seq | Out-Null
@@ -47,7 +68,8 @@ function Clear-AchievementsPopup {
 }
 
 # main menu: Continue, clear load-time notices, wait for the save to load
-Send 'click:768,432|wait:6000|key:up|wait:700|key:enter|wait:2500|hold:e,300|wait:2500|hold:e,300|wait:45000'
+Send 'click:768,432|wait:6000|key:up|wait:700|key:enter|wait:2500|hold:e,300|wait:2500|hold:e,300|wait:3000'
+Wait-Screen 'save loaded' 120 $HudShown | Out-Null
 function Prompt-Visible {
   # an activation prompt (door, NPC, item) under the crosshair: E would use it
   $tmp = Join-Path $env:TEMP 'fo4sf_prompt.png'
@@ -77,7 +99,7 @@ if ($CellJson) {
     Clear-AchievementsPopup | Out-Null
     Send "key:grave|wait:1500|${clear}type:coc $Cell|wait:400|key:enter|wait:3000"
   }
-  Start-Sleep 37                                               # cell load
+  Wait-Screen 'cell loaded' 90 $HudShown | Out-Null
 }
 powershell -NoProfile -ExecutionPolicy Bypass -File $PSScriptRoot\shot.ps1 -Out $Shot | Out-Null
 "cycle done -> $Shot"

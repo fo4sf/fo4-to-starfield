@@ -609,3 +609,7 @@ the popup swallowed is retried only after the console is closed and the popup cl
 first; the cell name is validated before it is typed. New tests: every `scripts/game/*.ps1` must parse (PowerShell's
 parser, skipped where there is none) and `prompt_visible.py` is checked on synthetic screenshots. 258 tests OK on
 this branch.
+- **Launch script waits on the screen, not timers (offline).** `cycle.ps1` now polls a screenshot every 3 s for the main
+  menu text, then for the HUD after Continue and after a blind `coc`, instead of sleeping 30 + 45 + 37 s. The checks
+  were validated on today's saved screenshots (menu text read on the menu shot only; HUD seen in game only). Before:
+  195-210 s per cycle; after: to be measured on the next run (docs/ai/optimization.md).

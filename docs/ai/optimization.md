@@ -42,3 +42,9 @@ whole long session history replayed) and, in the default read-only sandbox, coul
 After: default is a fresh session with a short brief pointing at #32 / handoff / AGENTS.md, with workspace-write +
 network. `--fork` stays available when the old context is really needed. After (measured): the next fresh-session wake fixed the bug it was briefed on, ran the tests and the guard, and
 opened PR #34 using **54,793 tokens** (99% less than the fork's 5,677,999).
+
+### 2026-10-10 Claude: cycle.ps1 waits on the screen instead of timers (in progress)
+Before (measured today, `cycle.ps1` from close to verified arrival): 195 s (Vault 114 swap, 20:3x) and 210 s (Vault 81,
+18:5x). Fixed timers inside: 30 s after launch, 45 s after Continue, 37 s after a blind `coc` (112 s), plus coc.ps1's
+30 s. Change: poll a screenshot every 3 s for the main menu text, then for the HUD, and go on as soon as it shows (the
+timers stay as the upper bound). After: to be measured on the next run, same command, same cell.
