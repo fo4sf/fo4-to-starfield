@@ -740,3 +740,12 @@ twin step is untested in game until the next library run.
 - **Cause of run 1:** the loose files were never read. `Starfield.ini` has `sResourceDataDirsFinal=STRINGS\` and there is no StarfieldCustom.ini. The experiment installer now packs the BTDs into the plugin's own `<plugin> - Main.ba2` (`exp_install.py --pack`).
 - **Run 1b:** BTDs packed. World01 reads the same procedural heights again, so the packed BTD isn't used either. Registering World01 on Mars (run 1) moves the spawn onto a real Mars mountainside; the pads read flat at about -2.5 m, still procedural.
 - **Next (queued):** control drops in two vanilla worldspaces via `cow`, at lc001world and akilacity points whose BTD heights are known. These show whether `coc`/`cow` gives BTD terrain at all, or only the planet landing does. Then the Mars-registration variant with packed BTDs, then the test batches.
+
+## 2026-10-11 late afternoon: terrain measuring method validated on vanilla terrain
+- **Console routes into vanilla exteriors:** `coc <exterior cell EditorID>` works (`LC172Ext01`, `LC001Outpost`). `cow`, `coc <worldspace>` and `player.moveto <non-persistent ref>` do not.
+- **Control LC172World** (the template our test worlds are cloned from): the overlay is merged into Mars at offset (-500, -2300, -3.62), read from the persistent COC marker 0010238E. Probes in the overlay's own frame:
+  - match its BTD within **0.02 m** in the centre cell, which the vanilla overlay mask marks as authored;
+  - within 0.3-0.36 m just outside it;
+  - 4-6 m off in the border cells, where the mask blends in procedural terrain.
+- **Method:** anchor-relative probing measures BTD heights exactly where the overlay is authored, and the overlay mask decides where that is.
+- **Research** (`C:\Modding\research\terrain\binding\findings.md`, PR #64): a worldspace's own BTD only applies to an overlay activated on a planet (PNDT CNAM). Our records also differed from vanilla in FNAM size, Location, mask and alignment. The fixed experiments exp1d and exp2b (real Red Rocket heights) are queued after test B.
