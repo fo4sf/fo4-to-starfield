@@ -137,6 +137,10 @@ class GeometryTests(unittest.TestCase):
         _m, rep = fo4land.merge_cells(grids, 0, 0, 2, 2)
         self.assertEqual(rep["east_west_max_abs"], 8.0)
         self.assertEqual(rep["north_south_max_abs"], 16.0)
+        allp = fo4land.edge_mismatches(grids)
+        self.assertEqual((allp["pairs"], allp["max_abs"], allp["mismatched_vertices"]), (4, 16.0, 2))
+        self.assertEqual(sorted((m["cell"], m["neighbour"]) for m in allp["mismatches"]),
+                         [([0, 0], [0, 1]), ([0, 0], [1, 0])])
 
     def test_height_at_on_plane_and_saddle(self):
         merged = 8.0 * (100 + np.mgrid[0:65, 0:65][1] + 2 * np.mgrid[0:65, 0:65][0])

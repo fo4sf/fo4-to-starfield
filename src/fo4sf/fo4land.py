@@ -289,6 +289,27 @@ def merge_cells(grids, x0, y0, nx, ny):
     return merged, report
 
 
+def edge_mismatches(grids):
+    """Compare every east/north neighbour pair present in {(cx, cy): (33, 33) grid}.
+    Returns {"pairs", "max_abs", "mismatched_vertices", "mismatches": [{cell, neighbour, max_abs, vertices}]}."""
+    out = {"pairs": 0, "max_abs": 0.0, "mismatched_vertices": 0, "mismatches": []}
+    n = GRID - 1
+    for (x, y), g in grids.items():
+        for dx, dy in ((1, 0), (0, 1)):
+            nb = grids.get((x + dx, y + dy))
+            if nb is None:
+                continue
+            a, b = (g[:, n], nb[:, 0]) if dx else (g[n, :], nb[0, :])
+            diff = np.abs(a - b)
+            out["pairs"] += 1
+            if diff.max() > 0:
+                out["max_abs"] = max(out["max_abs"], float(diff.max()))
+                out["mismatched_vertices"] += int((diff > 0).sum())
+                out["mismatches"].append({"cell": [x, y], "neighbour": [x + dx, y + dy],
+                                          "max_abs": float(diff.max()), "vertices": int((diff > 0).sum())})
+    return out
+
+
 def height_at(merged, origin_x, origin_y, x, y, method="bilinear"):
     """Terrain height at world (x, y) from a merged grid whose [0, 0] vertex is at (origin_x, origin_y).
     method: 'bilinear', 'tri_sw_ne' or 'tri_nw_se' (the two possible quad splits; FO4's split is unresolved)."""

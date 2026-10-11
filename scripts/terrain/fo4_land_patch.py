@@ -56,8 +56,36 @@ def load(args):
     return world, patch, refs, bases
 
 
+def world_scan(args):
+    """Whole-worldspace facts: seams between all neighbouring cells, height range, VHGT sizes and pad bytes."""
+    with fo4land.Plugin(args.esm) as p:
+        world = p.read_world(args.world, refs=False)
+    grids, sizes, pads = {}, {}, {}
+    for xy, c in world["cells"].items():
+        if c["vhgt"]:
+            grids[xy] = fo4land.decode_vhgt(c["vhgt"])
+            sizes[len(c["vhgt"])] = sizes.get(len(c["vhgt"]), 0) + 1
+            pad = c["vhgt"][fo4land.VHGT_MIN_SIZE:].hex() or "-"
+            pads[pad] = pads.get(pad, 0) + 1
+    edges = fo4land.edge_mismatches(grids)
+    worst = sorted(edges.pop("mismatches"), key=lambda m: -m["max_abs"])
+    lo = min(float(g.min()) for g in grids.values())
+    hi = max(float(g.max()) for g in grids.values())
+    xs = [xy[0] for xy in grids]
+    ys = [xy[1] for xy in grids]
+    return {"cells_with_vhgt": len(grids), "cells_without_vhgt": len(world["cells"]) - len(grids),
+            "cell_x_range": [min(xs), max(xs)], "cell_y_range": [min(ys), max(ys)],
+            "vhgt_sizes": {str(k): v for k, v in sizes.items()}, "vhgt_pad_bytes": dict(sorted(pads.items(), key=lambda kv: -kv[1])[:5]),
+            "height_min_units": lo, "height_max_units": hi,
+            "fo4land_16bit_step_units": (hi - lo) / 65535.0,
+            "edges": dict(edges, mismatched_pairs=len(worst), worst=worst[:10],
+                          max_abs_histogram={str(v): sum(1 for m in worst if m["max_abs"] == v)
+                                             for v in sorted({m["max_abs"] for m in worst})[:12]})}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--world-scan", action="store_true", help="also scan seams/height range of the whole worldspace")
     ap.add_argument("--esm", required=True)
     ap.add_argument("--world", default="Commonwealth")
     ap.add_argument("--x0", type=int, required=True)
@@ -86,21 +114,9 @@ def main():
     ox, oy = args.x0 * CELL_UNITS, args.y0 * CELL_UNITS
 
     # (c) shared borders, inside the patch and against the ring of neighbours
-    ring = {"pairs": 0, "max_abs": 0.0, "mismatched_vertices": 0}
-    for (x, y), g in grids.items():
-        for dx, dy in ((1, 0), (0, 1)):
-            nb = grids.get((x + dx, y + dy))
-            if nb is None:
-                continue
-            a, b = (g[:, GRID - 1], nb[:, 0]) if dx else (g[GRID - 1, :], nb[0, :])
-            diff = np.abs(a - b)
-            ring["pairs"] += 1
-            ring["max_abs"] = max(ring["max_abs"], float(diff.max()))
-            ring["mismatched_vertices"] += int((diff > 0).sum())
-            if diff.max() > 0:
-                ring.setdefault("mismatches", []).append({"cell": [x, y], "neighbour": [x + dx, y + dy],
-                                                          "max_abs": float(diff.max()), "vertices": int((diff > 0).sum())})
-    report["shared_edges"] = {"inside_patch": edges, "patch_plus_ring": ring}
+    report["shared_edges"] = {"inside_patch": edges, "patch_plus_ring": fo4land.edge_mismatches(grids)}
+    if args.world_scan:
+        report["world_scan"] = world_scan(args)
 
     cells_out = []
     for xy in sorted(patch, key=lambda t: (t[1], t[0])):
