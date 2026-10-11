@@ -7,6 +7,9 @@ one alphabetically) and a Data\\ tree of loose files (e.g. Data\\Terrain\\*.btd)
 file, records everything it adds in Data\\FO4SFExp.install.json, and appends "*<plugin>" to Plugins.txt. uninstall removes
 exactly what the record lists (files unchanged since install only) and only the Plugins.txt lines it added; it never
 touches FO4Port's own deployment (deploy_starfield.py).
+
+--pack builds one stored General archive, including terrain overlay masks, outside the staged input folder.
+This matches Claude's current terrain packing policy; runtime terrain acceptance is a separate game test.
 """
 import argparse
 import base64
@@ -16,12 +19,14 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 
 # Reuse the converter deployer's tested atomic writes and no-overwrite publication.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import deploy_starfield as deployment  # noqa: E402
 
 RECORD = "FO4SFExp.install.json"
+PACKING_POLICY = "general-stored-v1"
 _UNSET = object()
 
 
@@ -123,6 +128,8 @@ def plan_activation(lines, plugins):
 
 
 def verify_relaunch(a, data, plugins, packed, rec):
+    if packed and rec.get("packing_policy") != PACKING_POLICY:
+        sys.exit("experiment packing policy changed or is unknown; uninstall before relaunching")
     active = {line.strip()[1:].casefold() for line in read_plugins(plugins_txt())[0]
               if line.strip().startswith("*")}
     if any(name.casefold() not in active for name in plugins):
@@ -203,11 +210,20 @@ def build_ba2(a, root, out):
     folders = sorted(d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d)))
     if not folders:
         sys.exit(f"nothing to pack under {root}")
-    deployment.build_archive(argparse.Namespace(starfield=a.starfield, staging=root), out, folders, "General")
+    # Vanilla terrain BTDs/masks use stored General entries. Do not apply the ordinary mesh archive compression.
+    deployment.build_archive(argparse.Namespace(starfield=a.starfield, staging=root), out, folders, "General",
+                             compression="None")
     return out
 
 
 def install(a):
+    if getattr(a, "pack", False):
+        with tempfile.TemporaryDirectory(prefix="fo4sf-exp-pack-") as packing_dir:
+            return _install(a, packing_dir)
+    return _install(a)
+
+
+def _install(a, packing_dir=None):
     data = os.path.abspath(os.path.join(a.starfield, "Data"))
     rec_p = os.path.join(data, RECORD)
     plugins = [p.strip() for p in a.plugins.split(",") if p.strip()] if a.plugins else \
@@ -261,7 +277,7 @@ def install(a):
         key = "plugin/" + plugin if plugin is not None else "Data/" + relative.replace("\\", "/")
         identities[relative] = inputs[key]
     if packed:
-        built = build_ba2(a, os.path.join(a.exp_dir, "Data"), os.path.join(a.exp_dir, ba2))
+        built = build_ba2(a, os.path.join(a.exp_dir, "Data"), os.path.join(packing_dir, ba2))
         files.append((built, ba2))
         identities[ba2] = digest(built)
     if source_inventory(a.exp_dir, plugins) != inputs:
@@ -272,7 +288,8 @@ def install(a):
     lines, added, replaced = plan_activation(lines, plugins)
     rec = {"exp_dir": os.path.abspath(a.exp_dir), "files": {}, "dirs": [], "plugins_added": added,
            "plugins_replaced": replaced, "source_inputs": inputs,
-           "complete": False, "pack": packed, "published_files": [], "plugins_txt": p,
+           "complete": False, "pack": packed, "packing_policy": PACKING_POLICY if packed else None,
+           "published_files": [], "plugins_txt": p,
            "plugins_original": base64.b64encode(original).decode("ascii") if original is not None else None,
            "plugins_restore_pending": False}
     activated = deployment.render_lines(lines, original)

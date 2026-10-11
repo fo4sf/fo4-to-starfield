@@ -151,7 +151,7 @@ def write_lines(p, lines, original=None):
     atomic_write_bytes(p, render_lines(lines, original), ".fo4port-plugins-", expected_current=original)
 
 
-def build_archive(a, out, folders, fmt):
+def build_archive(a, out, folders, fmt, compression="Default"):
     tool = os.path.join(a.starfield, "Tools", "Archive2", "Archive2.exe")
     if not os.path.exists(tool):
         sys.exit(f"Archive2 not found at {tool} (install the Starfield Creation Kit)")
@@ -159,9 +159,9 @@ def build_archive(a, out, folders, fmt):
     with tempfile.TemporaryDirectory(prefix=".fo4port-archive-", dir=os.path.dirname(os.path.abspath(out))) as temporary:
         fresh = os.path.join(temporary, os.path.basename(out))
         r = subprocess.run([tool, ",".join(folders), f"-create={fresh}", f"-root={a.staging}", f"-format={fmt}",
-                            "-compression=Default"], cwd=a.staging, capture_output=True, text=True)
+                            f"-compression={compression}"], cwd=a.staging, capture_output=True, text=True)
         if r.returncode != 0 or not os.path.isfile(fresh):
-            sys.exit("Archive2 failed (no successful fresh output):\n" + r.stdout + r.stderr)
+            sys.exit("Archive2 failed (no successful fresh output):\n" + (r.stdout or "") + (r.stderr or ""))
         with open(fresh, "rb") as stream:
             head = stream.read(4)
         if os.path.getsize(fresh) < 16 or head != b"BTDX":

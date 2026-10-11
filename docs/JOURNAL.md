@@ -691,3 +691,13 @@ interruption/concurrent-edit cases remain preserved for manual review. Final foc
 Final Codex QA reproduced one older inventory race: a loose resource added after enumeration was recorded but
 never published, yet relaunch passed. A pinned-input/publication set check now rejects additions/removals before
 any game writes.34 targeted/full344 tests OK (1 skipped), guard/diff checks OK; narrow final QA PASS.
+
+### 2026-10-11: Codex reconciles terrain packing with installer recovery (#62, #67, #68)
+
+Latest Claude source bcbe0b9 supersedes the earlier DDS split: terrain masks share the General archive and entries
+are stored uncompressed. Codex carried that policy into #62 while retaining validated archive output, source/file
+hashes and rollback. Output now lives in a temporary directory outside staging and is cleaned after success/failure.
+A recorded packing-policy identity blocks an old compressed install from being reused after the upgrade; controlled
+uninstall remains available. Five synthetic regressions failed before this correction;39 targeted/full349 tests OK
+(1 skipped), guard/diff checks OK. Archive2 is mocked; no live game or installation changed. Runtime explanation for
+the minimum-height terrain plateau remains a hypothesis pending Claude's controlled retest. Scoped QA requested.

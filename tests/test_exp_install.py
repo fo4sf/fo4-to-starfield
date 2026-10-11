@@ -82,9 +82,86 @@ class ExperimentRecoveryTests(unittest.TestCase):
             process.assert_called_once()
         self.assertFalse((self.data / "Terrain").exists())
         self.assertEqual((self.data / "Experiment - Main.ba2").read_bytes(),
-                         (self.staging / "Experiment - Main.ba2").read_bytes())
+                         b"BTDX" + bytes(12) + b"synthetic archive")
         self.assertEqual((self.data / "Experiment_Mars.esm").read_bytes(), b"synthetic registration plugin")
         exp.uninstall(self.args)
+        self.assert_rolled_back()
+
+    def test_terrain_archive_is_stored_uncompressed(self):
+        build = self.archive_builder()
+        with patch.object(exp.subprocess, "run", side_effect=build) as process:
+            exp.install(self.args)
+        self.assertIn("-compression=None", process.call_args.args[0])
+        self.assertNotIn("-compression=Default", process.call_args.args[0])
+
+    def test_packing_keeps_staging_read_only_and_cleans_temporary_output(self):
+        build = self.archive_builder()
+        old_archive = self.staging / "Experiment - Main.ba2"
+        old_archive.write_bytes(b"another track's previous archive")
+        before = {p.relative_to(self.staging): p.read_bytes()
+                  for p in self.staging.rglob("*") if p.is_file()}
+        with patch.object(exp.subprocess, "run", side_effect=build) as process:
+            exp.install(self.args)
+        output = Path(next(arg[len("-create="):] for arg in process.call_args.args[0]
+                           if arg.startswith("-create=")))
+        self.assertFalse(output.is_relative_to(self.staging))
+        self.assertFalse(output.parent.parent.exists())
+        self.assertEqual({p.relative_to(self.staging): p.read_bytes()
+                          for p in self.staging.rglob("*") if p.is_file()}, before)
+        self.assertNotEqual((self.data / old_archive.name).read_bytes(), old_archive.read_bytes())
+
+    def test_terrain_and_overlay_mask_share_the_general_archive(self):
+        build = self.archive_builder()
+        mask = self.staging / "Data" / "textures" / "terrain" / "overlaymasks" / "synthetic.dds"
+        mask.parent.mkdir(parents=True)
+        mask.write_bytes(b"synthetic mask")
+        with patch.object(exp.subprocess, "run", side_effect=build) as process:
+            exp.install(self.args)
+            process.assert_called_once()
+        command = process.call_args.args[0]
+        self.assertEqual(command[1], "Terrain,textures")
+        self.assertIn("-format=General", command)
+        self.assertIn("-compression=None", command)
+        record = json.loads((self.data / exp.RECORD).read_bytes())
+        self.assertIn("Data/textures/terrain/overlaymasks/synthetic.dds", record["source_inputs"])
+        self.assertEqual(set(record["files"]), {"Experiment.esm", "Experiment - Main.ba2"})
+        exp.uninstall(self.args)
+        self.assert_rolled_back()
+
+    def test_relaunch_rejects_a_previous_packing_policy(self):
+        build = self.archive_builder()
+        with patch.object(exp.subprocess, "run", side_effect=build):
+            exp.install(self.args)
+        record_path = self.data / exp.RECORD
+        record = json.loads(record_path.read_bytes())
+        record.pop("packing_policy", None)
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+        before = record_path.read_bytes()
+        with patch.object(exp.subprocess, "run", side_effect=build) as process:
+            with self.assertRaisesRegex(SystemExit, "packing policy"):
+                exp.install(self.args)
+            process.assert_not_called()
+        self.assertEqual(record_path.read_bytes(), before)
+        exp.uninstall(self.args)
+        self.assert_rolled_back()
+
+    def test_failed_pack_cleans_temporary_output_without_touching_staging(self):
+        build = self.archive_builder()
+        before = {p.relative_to(self.staging): p.read_bytes()
+                  for p in self.staging.rglob("*") if p.is_file()}
+
+        def fail(command, **kwargs):
+            build(command, **kwargs)
+            return SimpleNamespace(returncode=1, stdout="synthetic failure", stderr=None)
+
+        with patch.object(exp.subprocess, "run", side_effect=fail) as process:
+            with self.assertRaisesRegex(SystemExit, "synthetic failure"):
+                exp.install(self.args)
+        output = Path(next(arg[len("-create="):] for arg in process.call_args.args[0]
+                           if arg.startswith("-create=")))
+        self.assertFalse(output.parent.parent.exists())
+        self.assertEqual({p.relative_to(self.staging): p.read_bytes()
+                          for p in self.staging.rglob("*") if p.is_file()}, before)
         self.assert_rolled_back()
 
     def test_packed_archive_copy_failure_rolls_back_published_plugin(self):

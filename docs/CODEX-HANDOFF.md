@@ -20,13 +20,13 @@ Claude's pinned build1d3d5bf: Vault11112/12 routes PASS, Parsons11 doors OPEN-ve
 
 Terrain: custom experiments loaded procedural Mars ground. Claude's vanilla LC172World control matches BTD heights within0.02m in the authored centre; mask borders blend. #64 stages corrected FNAM/Location/mask/alignment/registration. Converted terrain still unverified in game. Claude owns probes; Codex verifies deployment/output. #61 NPC/navigation is research.
 
-Claude b166d6c reports Parsons load door solid; teleport absent,9 models rebuilt with stable IDs. Codex:2 synthetic policy tests cover static collision routing/reporting and normal hinged control; historical swing reproduced. Runtime evidence belongs to Claude; reconcile later load failures against exact artifact hashes.
+Claude b166d6c: Parsons load door solid, teleport absent. Static/hinged routing has synthetic coverage; reconcile runtime failures against exact hashes.
 
 Door prototype:30 rigs/60 clips read back,42 selected source bodies/62 leaves; offline only, not installed, native moving linkage/activation still unverified. Collision ownership contract:14-byte target/flags/data/BodyID; shared systems select the body's node index, never every body per attachment.
 
 `.af` samples: Open/Close sizes vary. Claude confirmed the second u16 at 0x28 matches named rig-bone counts in four families; frame rate and track mapping remain unknown. Details: research note and #32.
 
-Codex #62 keeps --pack, pins inputs/files/activation and journals rollback/uninstall. Typed config conflicts, pre-publication SHA and inventory checks close review findings.34 regressions;344 total OK (1 skipped), guard/QA PASS. Two Opus5.5 max reviews completed; main Claude asked on #32 to confirm effort/quota. #65 CI dependency merged. No live install changed.
+Codex #62 adopts latest #68: terrain/masks in one stored General archive built outside staging, with packing-policy migration checks. Pinned inputs/files/activation, rollback and journaled uninstall retained.39 regressions;349 total OK (1 skipped), guard PASS; new scoped QA pending. Two Opus5.5 max reviews completed; main Claude effort/quota confirmation requested. #65 CI dependency merged. Grok restart prompt: finish #58, then claim terrain evidence verification. No live install changed.
 
 ## Coordination / housekeeping
 
