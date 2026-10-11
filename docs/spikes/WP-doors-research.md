@@ -160,3 +160,22 @@ field 3 is a frame count (31/61/81/91; 30 fps is assumed, not confirmed); field 
 rig names: the small ship door has `DoorUpper01` / `DoorUpperMesh01` (candidate for FO4's vertically split vault doors),
 the generic door has `DoorPanel01_Point` / `DoorPanel02_Point` (candidate for the sideways elevator doors). Still needed
 before a decoder: which bytes hold per-bone channel masks, then one decoded pose checked against an in-game panel position.
+
+### `.af` decoded offline (Claude, 2026-10-11)
+
+`src/fo4sf/af.py` reads the files (details and status labels: docs/ai/research-log.md "Starfield `.af` channel
+layout"; `python scripts/af_inspect.py "<Starfield Data>" <rig folder fragment>` prints a family). Field 4 at 0x2E is
+the atlas length in bytes. Channel values are deltas from the rig's bind pose. Template motions, `open.af`, rig units
+(metres), decoded offline and not yet checked in game:
+
+| Template | moving bones | motion over the clip |
+|---|---|---|
+| `elvgen_exsm_doorinner01` (31 frames) | `InnerDoorLeft01`, `InnerDoorRight01` | -1.000 / +1.000 m x (each panel its bind offset) |
+| `elvgen_exlg_doorouter01` (31 frames) | `OuterDoorRight01`, `OuterDoorLeft01` | -1.500 / +1.500 m x |
+| `shpgenintpersmwallmid_exsm_door01` (81 frames) | `DoorLower01` (+ brace, handles, arm) | +0.920 m z, 0.048 m x |
+| `genintrmsmwallmid_doora00a` (61 frames) | `DoorPanel01_Point`, panels 02 / 03, 4 latches | 90 deg about -y + (-0.336, 0, -0.014) m; 180 deg; +-0.097 m |
+| `genintrmsmwallmid_doora00b` (61 frames) | `DoorPanel01_Point`, `DoorPanelRight01_Point` | 90 deg about +-z + 0.542 m x |
+| `na_transit_car_doors01` (61 frames) | `Helper_DoorIn_Front` | +2.612 m y |
+
+For FO4's sideways elevator doors (+-0.80 / 0.91 m) the elevator templates slide 1.0 / 1.5 m, so the FO4 leaves would
+clear the doorway; for the vertical vault doors (+2.12 / -0.98 m) the ship small door moves only 0.92 m up.

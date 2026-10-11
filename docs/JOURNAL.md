@@ -601,3 +601,17 @@ open PRs (#34 QA PASS, #35 in progress), local team state, next steps. Removed a
 docs/ai/agent-status.md refreshed from live sources. Shut down: guardian proxy stopped, local model unloaded, no
 background jobs left. Next session: re-run Vault 81 and the library, finish the Prydwen (same pinned build), then
 movable bodies for loose items.
+
+## 2026-10-11 Claude: Starfield `.af` decoded offline (known-unknown #1)
+Own reader `src/fo4sf/af.py` (`parse`, `parse_rig`, `sample`, `pose_at`; structure names from CALUMI.Animation,
+LGPL-3.0, no code copied), read-only inspector `scripts/af_inspect.py`, 16 synthetic tests. Evidence: all 19,358
+vanilla `.af` files parse to exactly their byte length; 9 door families decode to the expected motions (Akila hinge
+90 deg about -z over 31 frames, elevator panels slide exactly their 1.000 / 1.500 m bind offsets, ship small door
+lower panel +0.92 m up, generic door panel 90 deg plus four 0.097 m latches). Channel values are deltas from the
+rig's bind pose (every `open.af` starts at identity / zero, every `close.af` ends there, 57 channels, 37 on bones with a
+non-identity bind). Rotation is 3 x (7-bit coarse + 8-bit fine) with the largest quaternion component dropped;
+translation is 3 x (i16 coarse + i8 fine) scaled by the rig header's two precision floats. Open: how the delta
+composes with a non-identity bind rotation (parent frame is the supported hypothesis), the frame rate (30 fps fits),
+the preamble / suffix sections of actor animations, and an in-game check of one decoded pose. Status labels per claim
+in docs/ai/research-log.md "Starfield `.af` channel layout". Branch `claude/af-channel-layout`, PR awaiting QA; no
+game files touched or copied.
