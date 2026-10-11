@@ -372,21 +372,22 @@ def stage(a, tiles, tds, own, anchors, pairs, seam_rep, targets, latlon, hmin, h
     for t in tiles:
         o = by_tag[t.tag]
         pts = [to_plan_point(p, t) for p in own[t]]
-        plan.append({"coc": o["coc"], "label": f"exp3 tile T{t.tag} ({t.n}x{t.n} cells, CW cells x {t.cells_x} "
+        plan.append({"coc": o["coc"], "label": f"{a.experiment} tile T{t.tag} ({t.n}x{t.n} cells, CW cells x {t.cells_x} "
                                               f"y {t.cells_y}; {alignment_label}): own heights and its side of every seam",
                      "anchor": {"ref": o["anchor"]["ref"], "local": o["anchor"]["local"]},
                      "spawn_local": o["anchor"]["local"], "drop_z": drop_z(pts), "settle_ms": 8000, "points": pts})
     seam_pts = [p for prs in pairs.values() for _, pa, pb in prs for p in (pa, pb)]
     fo = by_tag[first.tag]
     gpts = [to_plan_point(p, first) for p in seam_pts]
-    plan.append({"coc": fo["coc"], "label": f"exp3 group: both sides of every seam in T{first.tag}'s frame "
-                                            "(passes only if the tiles lie edge to edge and the seams are exact)",
-                 "anchor": {"ref": fo["anchor"]["ref"], "local": fo["anchor"]["local"]},
-                 "spawn_local": fo["anchor"]["local"], "drop_z": drop_z(gpts), "settle_ms": 8000, "points": gpts})
+    if gpts:                                          # a single overlay has no seams
+        plan.append({"coc": fo["coc"], "label": f"{a.experiment} group: both sides of every seam in T{first.tag}'s "
+                                                "frame (passes only if the tiles lie edge to edge and the seams are exact)",
+                     "anchor": {"ref": fo["anchor"]["ref"], "local": fo["anchor"]["local"]},
+                     "spawn_local": fo["anchor"]["local"], "drop_z": drop_z(gpts), "settle_ms": 8000, "points": gpts})
     for t in tiles[1:]:
         o = by_tag[t.tag]
         pts = [to_plan_point(p, t) for p in own[t] if p["kind"] in ("centre", "landmark", "slope")]
-        plan.append({"coc": fo["coc"], "label": f"exp3 position: tile T{t.tag} read from T{first.tag}'s landing "
+        plan.append({"coc": fo["coc"], "label": f"{a.experiment} position: tile T{t.tag} read from T{first.tag}'s landing "
                                                 f"(its anchor and own points; no spawn fallback)",
                      "anchor": {"ref": o["anchor"]["ref"], "local": o["anchor"]["local"]},
                      "drop_z": drop_z(pts), "settle_ms": 8000, "points": pts})
@@ -493,6 +494,9 @@ def readme(a, params, plan, masks):
               f"{sum(len(e['points']) for e in plan)} points.",
               "Reading: own entries pass -> each tile's heights exact (H); group passes -> tiles edge to edge and seams",
               "exact; position entries give each tile's planet cell in the first tile's landing (tests H_ll).",
+              "Caveat (exp1d, 2026-10-11): its anchor read back exactly its local position (50, 50, 10) while the COC",
+              "spawn arrived at (3050, -3450); if an anchor here reads its own local position, the runner's offset is 0",
+              "and the probes went to the wrong place: take the offset from spawn_read - spawn_local in obs.json.",
               "", "Masks: " + ", ".join(f"{k['file']} ({k['width']} px, ring on {k['outer_edges'] or 'none'}, "
                                          f"{k['pixels_differ']} px differ)" for k in masks)]
     with open(os.path.join(a.out, "README.txt"), "w", encoding="utf-8") as f:

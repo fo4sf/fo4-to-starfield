@@ -221,7 +221,7 @@ class SyntheticBuild(unittest.TestCase):
     def test_plan_entries(self):
         self.assertEqual(len(self.plan), 4 + 1 + 3)
         kinds = [e["label"].split(":")[0] for e in self.plan]
-        self.assertTrue(kinds[4].startswith("exp3 group"))
+        self.assertEqual(kinds[4], "terrain_test group")
         group = self.plan[4]
         self.assertEqual(len(group["points"]), 4 * 3 * 2)        # 4 seam segments x 3 distances x 2 sides
         for e in self.plan[5:]:
@@ -261,6 +261,24 @@ class SyntheticBuild(unittest.TestCase):
         self.assertEqual(rep["summary"]["failed"], 0)
         self.assertTrue(all(s["bad"] == 0 for s in rep["seams"]))
         self.assertLessEqual(rep["summary"]["max_point_error_mm"], rep["summary"]["step_mm"])
+
+    def test_single_overlay(self):
+        """Option (a): a tile at least as large as the region gives one overlay, ring on all four edges, no seams."""
+        out = os.path.join(self.tmp.name, "single")
+        os.makedirs(out)
+        with contextlib.redirect_stdout(io.StringIO()):
+            mco.build(build_args(out, self.npz, tile=10, prefix="FO4CWS", experiment="terrain_single"))
+        prm = jload(os.path.join(out, "overlays_params.json"))
+        plan = jload(os.path.join(out, "plan.json"))
+        self.assertEqual(len(prm["overlays"]), 1)
+        o = prm["overlays"][0]
+        self.assertEqual((o["n"], o["cells_cw"]), (10, {"x": [-5, 4], "y": [-5, 4]}))
+        self.assertEqual(o["mask_outer_edges"], ["w", "e", "s", "n"])
+        self.assertEqual(o["planet_target_cell"], [0, 0])          # the region's centre = the overlay's own origin
+        self.assertEqual(len(plan), 1)
+        ok, rep = mco.check_staging(out, prm, plan, None, plugins=False)
+        self.assertTrue(ok, [c for c in rep["checks"] if not c[1]][:5])
+        self.assertEqual(rep["seams"], [])
 
     def test_check_catches_a_wrong_expectation(self):
         plan = json.loads(json.dumps(self.plan))

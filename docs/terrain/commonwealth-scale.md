@@ -27,7 +27,7 @@ blended with procedural ground (LC172World border cells 4 to 6 m off, inner cell
    (b) has a 1-cell merge ring at every seam whose behaviour is unknown (experiment 3 measures it).
 4. **Generator built**: `scripts/terrain/make_cw_overlays.py` + `src/fo4sf/overlay_grid.py` + `dotnet/TerrainOverlays`
    write the BTDs, masks, SFBK / LCTN / WRLD / cells / anchors and the Mars registration for any FO4 cell rectangle,
-   as one overlay (`--tile` at least the region) or a grid. 18 synthetic tests.
+   as one overlay (`--tile` at least the region) or a grid. 19 synthetic tests.
 5. **Experiment 3 staged** (`C:\Modding\staging\terrain_exp3`): 2 x 2 overlays of 14 x 14 cells around Sanctuary,
    Vault 111 and Red Rocket, one shared height range, masks 0 on the seams, an anchor and a COC cell per tile, placed by
    hypothesis H_ll so they should lie edge to edge. 8 plan entries, 68 points, pairs on both sides of all 4 seam
@@ -198,11 +198,12 @@ already does.
   them. The Mars plugin appends one `CNAM` entry per tile.
 - One overlay = `--tile` at least the region's size (option a). The whole LAND grid with 14-cell tiles is 9 x 9 tiles
   (126 cells); it builds tile by tile, so memory stays per tile.
-- Tests (`tests/test_overlay_grid.py`, 18, synthetic heights from a formula): region and padding arithmetic, frames,
+- Tests (`tests/test_overlay_grid.py`, 19, synthetic heights from a formula): region and padding arithmetic, frames,
   lattice continuity, seams and edges, masks per edge, H_ll round trip and scale, edge-to-edge targets; a full build
   of 2 x 2 tiles of 5 cells whose four BTDs side by side are **exactly** the raw samples of one 10 x 10-cell BTD of the
   same region, plan points are FO4 vertices, seam pairs on both sides at the same along-seam coordinate, the offline
-  check passes and catches a wrong expectation and a step at a seam.
+  check passes and catches a wrong expectation and a step at a seam; a single-overlay build (option a: one tile,
+  ring on all four edges, no seam entries).
 
 ## 6. Experiment 3 (staged, not deployed)
 
@@ -248,6 +249,14 @@ Fallout4.esm through `fo4land` and from the earlier cached grid: the four BTDs a
 | Position entries put T10, T01, T11 at (14, 0), (0, 14), (14, 14) cells from T00 | H_ll holds; other values give the local scale and axes directly |
 | A position entry fails `prid` | that tile was not activated in T00's landing (outside the window, or refused as overlapping: scale < 1) |
 | Tile entries `NOTERRAIN` | 14-cell overlays do not load where exp2b's does: compare records |
+| An anchor reads exactly its local position (offset 0, as in exp1d below) | its persistent refs were not merged (or `prid` read unloaded data); the probes went to the wrong place: take the offset from `spawn_read` - `spawn_local` in `obs.json` and rerun with that |
+
+Runner caveat, **verified** from exp1d's `obs.json` (finished 16:24, while this was written; its analysis belongs to
+the overlay-records track): in both attempts the anchor `02000800` read back (50.00, 50.00, 10.00), exactly its local
+position, while the COC spawn arrived at (3050, -3450, -500) in attempt 1 and (75.32, 99.74, -19.84) in attempt 2. In
+the vanilla control the anchor did move with the merge (LC172World: -500, -2300). Both anchors sit in the world's
+persistent top cell (raw walk: group type 8 under the top cell, flag 0x400), so the record layout is not the difference
+(**unresolved**). Experiment 3's anchors are built the same way; exp2b (running now) will show whether they move.
 
 ## 7. Risks
 - A 64 to 90-cell overlay may not activate, may load slowly, or may be cut at the landing's edge; nothing in vanilla
