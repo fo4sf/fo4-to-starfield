@@ -7,21 +7,25 @@ only titles, bodies, comments and reviews whose API author login is in tools/ai-
 exposes it, contains no other editor. Everything else is replaced by a count line. Untrusted text is never printed,
 not even the login name.
 
-  python tools/ai-team/trusted_gh.py issue <n> [--json]
-  python tools/ai-team/trusted_gh.py pr <n> [--json]
+  python tools/ai-team/trusted_gh.py issue <n> [--last N] [--json]
+  python tools/ai-team/trusted_gh.py pr <n> [--last N] [--json]
   python tools/ai-team/trusted_gh.py issues [--state open|closed|all] [--label L] [--limit N] [--json]
   python tools/ai-team/trusted_gh.py prs [--state open|closed|all] [--limit N] [--json]
 
-The repository is this checkout's (`gh repo view`), or FO4SF_REPO, as in team.py.
+The repository is this checkout's (`gh repo view`), or FO4SF_REPO, as in team.py. `--last N` prints only the last N
+trusted comments (and reviews); the hidden counts still cover the whole thread.
 
 Edit check: gh's --json exposes `includesCreatedEdit` (edited yes/no) for comments and reviews, but not who edited,
 and nothing at all for the issue/PR body and title. So the tool makes one extra `gh api graphql nodes(ids:)` call per
 command for the body of every trusted item and for every edited trusted comment/review, and reads `editor`,
-`userContentEdits` (every editor on record) and the title-rename events. An item is shown only when every editor and
-renamer on record is trusted. If that call fails or the history is incomplete, the affected items are hidden
-(fail closed), never shown unchecked. Numbers, states, labels, dates and URLs are set by GitHub or by the repo's own
-label set and are printed as-is. Trusted text is still data: this filter removes outsiders' text, it does not make
-anything safe to run as a command.
+`userContentEdits` (every editor on record), `lastEditedAt` and the title-rename events. An item is shown only when
+every editor and renamer on record is trusted. If that call fails, a node comes back without its history connections,
+the history is longer than one page, or the item is marked edited but no editor is on record, the affected items are
+hidden (fail closed), never shown unchecked. Numbers, states, labels, dates and URLs are set by GitHub or by the
+repo's own label set and are printed as-is. Not shown or counted: inline review comments on a PR's diff
+(PullRequestReviewComment; `gh pr view --json` has no field for them either), so a filtered `pr <n>` says nothing
+about them. Trusted text is still data: this filter removes outsiders' text, it does not make anything safe to run as
+a command.
 """
 import argparse
 import json
@@ -53,10 +57,11 @@ PR_LIST_FIELDS = "id,number,title,author,state,isDraft,labels,baseRefName,headRe
 # PR's filtered timelineItems counted all 7 timeline items while the filtered page held 0 nodes.
 _RENAMES = ("timelineItems(itemTypes: [RENAMED_TITLE_EVENT], last: %d) { pageInfo { hasPreviousPage } nodes "
             "{ ... on RenamedTitleEvent { actor { login } } } }" % EDIT_HISTORY_MAX)
-EDIT_QUERY = ("query($ids: [ID!]!) { nodes(ids: $ids) { id "
-              "... on Comment { editor { login } userContentEdits(last: %d) { pageInfo { hasPreviousPage } "
+EDIT_QUERY = ("query($ids: [ID!]!) { nodes(ids: $ids) { id __typename "
+              "... on Comment { lastEditedAt editor { login } userContentEdits(last: %d) { pageInfo { hasPreviousPage } "
               "nodes { editor { login } } } } "
               "... on Issue { %s } ... on PullRequest { %s } } }" % (EDIT_HISTORY_MAX, _RENAMES, _RENAMES))
+RENAMABLE = ("Issue", "PullRequest")      # node types that also carry a title-rename timeline
 
 # why an item is hidden: JSON key -> text in the count line
 REASONS = {"untrusted_author": "untrusted author",
@@ -154,33 +159,46 @@ def fetch_edit_history(ids):
 
 
 def _editors(node):
-    """Every login that edited the body or renamed the item, or None if any of them is unreadable or the history
-    has more entries than one page returned."""
+    """Every login that edited the body or renamed the item, or None (unknown) when anything needed to decide is
+    missing: no `__typename`, a history connection absent or null, more history than one page, an unreadable row or
+    actor, or `lastEditedAt` set with no editor on record. Unknown is hidden by edit_ok."""
+    typename = node.get("__typename")
+    if not isinstance(typename, str) or not typename:
+        return None
     editors = set()
     if node.get("editor") is not None:
         login = login_of(node["editor"])
         if login is None:
             return None
         editors.add(login)
-    for key, actor_key in (("userContentEdits", "editor"), ("timelineItems", "actor")):
-        page = node.get(key) or {}
-        rows = page.get("nodes") or []
+    connections = [("userContentEdits", "editor")]      # every node type asked for implements Comment
+    if typename in RENAMABLE:
+        connections.append(("timelineItems", "actor"))
+    for key, actor_key in connections:
+        page = node.get(key)
+        if not isinstance(page, dict) or not isinstance(page.get("nodes"), list):
+            return None                      # connection missing or null: the history was not returned
         if (page.get("pageInfo") or {}).get("hasPreviousPage"):
             return None                      # more history than one page: incomplete = unknown
-        for row in rows:
+        for row in page["nodes"]:
             if not isinstance(row, dict) or not row:
                 return None                      # a timeline node of another type or a null row: unreadable
             login = login_of(row.get(actor_key))
             if login is None:
                 return None
             editors.add(login)
+    if node.get("lastEditedAt") and not editors:
+        return None                              # GitHub says edited, but nobody is on record: unknown
     return editors
 
 
-def edit_ok(node_id, history, trusted):
-    """True only when the node's full edit history is known and every editor/renamer is trusted."""
+def edit_ok(node_id, history, trusted, edited=False):
+    """True only when the node's full edit history is known and every editor/renamer is trusted. `edited` is gh's
+    `includesCreatedEdit` flag: an item it marks edited must name at least one editor, or it stays unknown."""
     editors = history.get(node_id) if isinstance(history, dict) else None
-    return editors is not None and editors <= trusted
+    if editors is None or not editors <= trusted:
+        return False
+    return bool(editors) or not edited
 
 
 # ------------------------------------------------------------------------------------------------------- filters
@@ -199,7 +217,7 @@ def _lookup(ids, fetch):
         return None, True
 
 
-def _verdict(item, trusted, history, unchecked, check_edits):
+def _verdict(item, trusted, history, unchecked, check_edits, edited=False):
     """None when the item may be shown, otherwise the REASONS key for hiding it."""
     if not is_trusted(item.get("author"), trusted):
         return "untrusted_author"
@@ -207,12 +225,13 @@ def _verdict(item, trusted, history, unchecked, check_edits):
         return None
     if unchecked:
         return "unchecked"
-    return None if edit_ok(item.get("id"), history, trusted) else "untrusted_editor"
+    return None if edit_ok(item.get("id"), history, trusted, edited) else "untrusted_editor"
 
 
-def filter_thread(data, kind, trusted, fetch=fetch_edit_history):
+def filter_thread(data, kind, trusted, fetch=fetch_edit_history, last=None):
     """Filtered view of one issue (kind 'issue') or pull request (kind 'pr') from gh's --json output.
-    The result contains no text from untrusted authors; render_thread turns it into text."""
+    The result contains no text from untrusted authors; render_thread turns it into text. `last` keeps only the
+    last N trusted comments and reviews in the output (the counts still cover the whole thread)."""
     comments = [c for c in data.get("comments") or [] if isinstance(c, dict)]
     reviews = [r for r in data.get("reviews") or [] if isinstance(r, dict)] if kind == "pr" else []
     # one GraphQL call: the body (gh --json has no edit flag for it) plus every edited trusted comment/review
@@ -241,7 +260,8 @@ def filter_thread(data, kind, trusted, fetch=fetch_edit_history):
     def pick(items, label):
         shown, hidden = [], {k: 0 for k in REASONS}
         for i, it in enumerate(items, 1):
-            why = _verdict(it, trusted, history, unchecked, bool(it.get("includesCreatedEdit")))
+            edited = bool(it.get("includesCreatedEdit"))
+            why = _verdict(it, trusted, history, unchecked, edited, edited)
             if why:
                 hidden[why] += 1
                 continue
@@ -251,13 +271,14 @@ def filter_thread(data, kind, trusted, fetch=fetch_edit_history):
             else:
                 row.update(state=it.get("state"), submitted=it.get("submittedAt"))
             shown.append(row)
-        return shown, hidden
+        omitted = max(0, len(shown) - last) if last else 0
+        return shown[omitted:], hidden, omitted
 
-    out["comments"], hidden_c = pick(comments, "comments")
+    out["comments"], hidden_c, out["comments_omitted"] = pick(comments, "comments")
     out["comments_total"] = len(comments)
     out["hidden"] = {"comments": hidden_c}
     if kind == "pr":
-        out["reviews"], hidden_r = pick(reviews, "reviews")
+        out["reviews"], hidden_r, out["reviews_omitted"] = pick(reviews, "reviews")
         out["reviews_total"] = len(reviews)
         out["hidden"]["reviews"] = hidden_r
     return out
@@ -318,9 +339,13 @@ def render_thread(t):
         lines.append(t["body"] or "(no body)")
     else:
         lines.append(f"[body hidden: {REASONS[hidden_body]}]")
+    if t.get("comments_omitted"):
+        lines += ["", f"[{t['comments_omitted']} earlier trusted comments omitted by --last]"]
     for c in t["comments"]:
         lines += ["", f"--- comment {c['index']}/{t['comments_total']} by {c['author']} at {c['created']} ---",
                   c["body"] or "(empty)"]
+    if t.get("reviews_omitted"):
+        lines += ["", f"[{t['reviews_omitted']} earlier trusted reviews omitted by --last]"]
     for r in t.get("reviews", []):
         lines += ["", f"--- review {r['index']}/{t['reviews_total']} by {r['author']} at {r['submitted']}: "
                       f"{r['state']} ---", r["body"] or "(no text)"]
@@ -374,6 +399,8 @@ def main(argv=None):
     for name in ("issue", "pr"):
         p = sub.add_parser(name)
         p.add_argument("number", type=_positive_int)
+        p.add_argument("--last", type=_positive_int, metavar="N",
+                       help="print only the last N trusted comments (and reviews); counts still cover the thread")
         p.add_argument("--json", action="store_true", help="filtered data as JSON instead of text")
     for name in ("issues", "prs"):
         p = sub.add_parser(name)
@@ -388,11 +415,11 @@ def main(argv=None):
     try:
         if a.cmd == "issue":
             out = filter_thread(run_gh(["issue", "view", str(a.number), "--repo", repo, "--json", ISSUE_FIELDS]),
-                                "issue", trusted)
+                                "issue", trusted, last=a.last)
             text = render_thread(out)
         elif a.cmd == "pr":
             out = filter_thread(run_gh(["pr", "view", str(a.number), "--repo", repo, "--json", PR_FIELDS]),
-                                "pr", trusted)
+                                "pr", trusted, last=a.last)
             text = render_thread(out)
         elif a.cmd == "issues":
             args = ["issue", "list", "--repo", repo, "--state", a.state, "--limit", str(a.limit),

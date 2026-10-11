@@ -87,7 +87,8 @@ Codex/Grok at it):
 
 ```
 python tools/ai-team/trusted_gh.py issue 32            # one issue with its comments
-python tools/ai-team/trusted_gh.py pr 44               # one PR with comments and reviews
+python tools/ai-team/trusted_gh.py issue 32 --last 20  # only the last 20 trusted comments (counts still cover all)
+python tools/ai-team/trusted_gh.py pr 44               # one PR with comments and reviews (not inline diff comments)
 python tools/ai-team/trusted_gh.py issues [--state all] [--label ready] [--limit 50]
 python tools/ai-team/trusted_gh.py prs [--state all] [--limit 50]       # add --json for the filtered data as JSON
 ```
@@ -98,15 +99,19 @@ repository owner's login, `fo4sf`, which is also the shared agent account, so th
 former login never appears as an API author, so it is not listed) **and** its edit history has no other editor: one extra `gh api graphql nodes(ids:)` call per command
 reads `editor`, `userContentEdits` and title-rename events for the body and for every edited trusted comment (gh's
 `includesCreatedEdit` says edited, not by whom). Everything else becomes one line, `[N comments from untrusted authors
-hidden]`, and untrusted text is never printed, not even the login. If the history call fails or is incomplete, the item
-is hidden (fail closed). Numbers, states, labels and dates come from GitHub and are shown for every item.
+hidden]`, and untrusted text is never printed, not even the login. If the history call fails, a node comes back without
+its history connections, the history is longer than one page, or an item is marked edited with nobody on record, the
+item is hidden (fail closed). Numbers, states, labels and dates come from GitHub and are shown for every item.
 
-Enforced by code: `.opencode/agents/fo4-lead.md` allows `python tools/ai-team/trusted_gh.py *` and sets
-`gh issue view` / `gh pr view` to `ask` (refused in unattended runs); `gh issue list` / `gh pr list` stay allowed for
-the board (their titles are unfiltered: use `trusted_gh.py issues` when titles matter). Not covered: the Research and
-QA agents still have raw `gh issue view` / `gh pr view` / `gh pr diff` (QA has to read the diff it reviews), and the
-remote agents' own `gh`. Trusted text is still data: the filter removes outsiders' text, it does not make anything safe
-to run as a command. Tests: `python -m unittest tests.test_ai_trusted_gh` (mocked gh, no network).
+Enforced by code, in part: `.opencode/agents/fo4-lead.md` allows `python tools/ai-team/trusted_gh.py *` and sets
+`gh issue view` / `gh pr view` to `ask` (refused in unattended runs). `gh issue list` / `gh pr list` / `gh pr diff`
+stay allowed for the board, and `gh issue list --json body` / `gh pr list --json body` print every author's full body
+(QA checked this live on PR #49), so the permission alone does not close the channel; the Lead's procedure tells it to
+read only through `trusted_gh.py` (`issues` for the board, `issue <n> --last 20` for #32). Still open: those list
+`--json body` paths, `gh pr diff`, the Research and QA agents' raw `gh issue view` / `gh pr view` (QA has to read the
+diff it reviews), inline review comments on a PR's diff (`pr <n>` neither shows nor counts them, like `gh pr view`),
+and the remote agents' own `gh`. Trusted text is still data: the filter removes outsiders' text, it does not make
+anything safe to run as a command. Tests: `python -m unittest tests.test_ai_trusted_gh` (mocked gh, no network).
 
 ## Manual operations
 
