@@ -356,3 +356,94 @@ class ControlTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TerrainTests(unittest.TestCase):
+    def test_terrain_judge(self):
+        d = tempfile.mkdtemp()
+        shot = touch(d, "spawn.png")
+        t = {"kind": "terrain", "points": [{"label": "ground", "x": -60.0, "y": -60.0, "expect": 10.0},
+                                           {"label": "padA", "x": 30.0, "y": 30.0, "expect": 35.0}]}
+        ok = {"shot": shot, "points": [{"read": "-60.0 -60.0 10.1"}, {"read": "30.0 30.0 35.0"}]}
+        self.assertEqual(tq.judge(t, ok, d)[0], "PASS")
+        scaled = {"shot": shot, "points": [{"read": "-60.0 -60.0 80.0"}, {"read": "30.0 30.0 280.0"}]}
+        self.assertEqual(tq.judge(t, scaled, d)[:2], ("FAIL", "HEIGHTS"))
+        void = {"shot": shot, "points": [{"read": "-60.0 -60.0 -400.0"}, {"read": "30.0 30.0 -380.0"}]}
+        self.assertEqual(tq.judge(t, void, d)[:2], ("FAIL", "NOTERRAIN"))
+        self.assertEqual(tq.judge(t, {"shot": shot, "points": [{"read": None}, {"read": "30 30 35"}]}, d)[0],
+                         "INCONCLUSIVE")
+        self.assertEqual(tq.judge(t, dict(ok, shot=None), d)[0], "INCONCLUSIVE")
+
+    def test_plan_terrain(self):
+        d = tempfile.mkdtemp()
+        open(os.path.join(d, "FO4Port.esm"), "wb").write(b"TES4")
+        exp = {b: {"ground": 10.0, "padA_x20-40_y20-40": h, "padB_x60-80_y20-40": 22.5, "pitC_x20-40_y60-80": 5.0}
+               for b, h in (("FO4TX_World01.btd", 35.0), ("FO4TX_Shared02.btd", 45.0), ("FO4TX_World03.btd", 55.0))}
+        json.dump(exp, open(os.path.join(d, "expected.json"), "w"))
+        out = os.path.join(d, "q")
+        tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])
+        q = json.load(open(os.path.join(out, "queue.json")))
+        self.assertEqual([t["world_coc"] for t in q["tests"]], ["FO4TX_W01Spawn", "FO4TX_W02Spawn", "FO4TX_W03Spawn"])
+        self.assertEqual([t["points"][1]["expect"] for t in q["tests"]], [35.0, 45.0, 55.0])
+        self.assertTrue(all(t["cell"] == "" for t in q["tests"]))
+
+    def test_qstep_has_the_terrain_step(self):
+        src = open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8").read()
+        self.assertIn("'terrain' {", src)
+        self.assertIn("'recover' {", src)
+
+
+class ExpInstallTests(unittest.TestCase):
+    def test_install_and_uninstall_leave_nothing_behind(self):
+        sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
+        import exp_install
+        root = tempfile.mkdtemp()
+        game, exp, local = (os.path.join(root, x) for x in ("game", "exp", "local"))
+        os.makedirs(os.path.join(game, "Data"))
+        os.makedirs(os.path.join(exp, "Data", "Terrain"))
+        os.makedirs(os.path.join(local, "Starfield"))
+        open(os.path.join(exp, "Exp.esm"), "wb").write(b"TES4")
+        open(os.path.join(exp, "Data", "Terrain", "W.btd"), "wb").write(b"BTDB")
+        plugins = os.path.join(local, "Starfield", "Plugins.txt")
+        original = b"\xef\xbb\xbf# comment\r\n*FO4Port.esm\r\n"
+        open(plugins, "wb").write(original)
+        old = os.environ.get("LOCALAPPDATA")
+        os.environ["LOCALAPPDATA"] = local
+        try:
+            exp_install.main(["install", "--exp-dir", exp, "--starfield", game])
+            self.assertTrue(os.path.exists(os.path.join(game, "Data", "Terrain", "W.btd")))
+            self.assertEqual(open(plugins, "rb").read(), original + b"*Exp.esm\r\n")
+            with self.assertRaises(SystemExit):           # a second install refuses
+                exp_install.main(["install", "--exp-dir", exp, "--starfield", game])
+            exp_install.main(["uninstall", "--starfield", game])
+            self.assertEqual(open(plugins, "rb").read(), original)
+            self.assertEqual(sorted(os.listdir(os.path.join(game, "Data"))), [])
+        finally:
+            if old is None:
+                os.environ.pop("LOCALAPPDATA")
+            else:
+                os.environ["LOCALAPPDATA"] = old
+
+    def test_never_overwrites_game_files(self):
+        sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
+        import exp_install
+        root = tempfile.mkdtemp()
+        game, exp = os.path.join(root, "game"), os.path.join(root, "exp")
+        os.makedirs(os.path.join(game, "Data"))
+        os.makedirs(exp)
+        open(os.path.join(exp, "Exp.esm"), "wb").write(b"new")
+        open(os.path.join(game, "Data", "Exp.esm"), "wb").write(b"theirs")
+        with self.assertRaises(SystemExit):
+            exp_install.main(["install", "--exp-dir", exp, "--starfield", game])
+        self.assertEqual(open(os.path.join(game, "Data", "Exp.esm"), "rb").read(), b"theirs")
+
+
+class LaunchIdleTests(unittest.TestCase):
+    def test_runner_input_does_not_count_as_owner_activity_for_a_relaunch(self):
+        ctl = FakeControls()
+        ctl.idle, ctl.last_sent_tick = 5, 123             # only the runner's own keys a moment ago
+        self.assertIsNone(tq.blocked_reason(ctl, {"hours": [[0, 24]]}, launching=True, min_idle=900))
+        ctl.foreign = True                                # the owner touched the PC after that
+        self.assertIn("owner active", tq.blocked_reason(ctl, {"hours": [[0, 24]]}, launching=True, min_idle=900))
+        ctl.foreign, ctl.last_sent_tick = False, None     # nothing known: needs real idle time
+        self.assertIn("owner active", tq.blocked_reason(ctl, {"hours": [[0, 24]]}, launching=True, min_idle=900))
