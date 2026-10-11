@@ -249,6 +249,13 @@ def install(a):
     inputs = source_inventory(a.exp_dir, plugins)
     plugin_sources = {os.path.abspath(os.path.join(a.exp_dir, name)): name for name in plugins}
     identities = {}
+    selected = set()
+    for src, relative in files:
+        plugin = plugin_sources.get(os.path.abspath(src))
+        key = "plugin/" + plugin if plugin is not None else "Data/" + relative.replace("\\", "/")
+        selected.add(key)
+    if not selected.issubset(inputs) or (not packed and selected != set(inputs)):
+        sys.exit("experiment file inventory changed during preparation; nothing installed")
     for src, relative in files:
         plugin = plugin_sources.get(os.path.abspath(src))
         key = "plugin/" + plugin if plugin is not None else "Data/" + relative.replace("\\", "/")

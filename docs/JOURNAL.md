@@ -688,3 +688,6 @@ before publication; existing callers retain their default interface. Exp uses on
 unsupported packed root files/profile paths/duplicate targets, and releases only proven foreign destinations.
 33 targeted/full343 tests OK (1 skipped), guard OK. CR-only/no-final-newline restoration also passes. Unknown
 interruption/concurrent-edit cases remain preserved for manual review. Final focused Codex QA pending.
+Final Codex QA reproduced one older inventory race: a loose resource added after enumeration was recorded but
+never published, yet relaunch passed. A pinned-input/publication set check now rejects additions/removals before
+any game writes.34 targeted/full344 tests OK (1 skipped), guard/diff checks OK; narrow final QA PASS.

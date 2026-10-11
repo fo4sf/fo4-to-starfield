@@ -319,6 +319,19 @@ class ExperimentRecoveryTests(unittest.TestCase):
             exp.install(self.args)
         self.assert_rolled_back()
 
+    def test_resource_added_after_enumeration_cannot_be_recorded_but_omitted(self):
+        real_files = exp.staged_files
+
+        def files(*args):
+            planned = real_files(*args)
+            (self.staging / "Data" / "Terrain" / "late.bin").write_bytes(b"late synthetic resource")
+            return planned
+
+        with patch.object(exp, "staged_files", side_effect=files):
+            with self.assertRaisesRegex(SystemExit, "inventory changed"):
+                exp.install(self.args)
+        self.assert_rolled_back()
+
     def test_publication_is_recorded_before_full_installed_archive_hash(self):
         build = self.archive_builder()
         real_digest = exp.digest
