@@ -368,7 +368,7 @@ def main(argv=None):
     ap.add_argument("--exp-dir", default="")
     ap.add_argument("--starfield", required=True)
     ap.add_argument("--plugins", default="", help="comma-separated plugin file names to activate")
-    ap.add_argument("--pack", action="store_true", help="install the staged Data tree as '<first plugin> - Main.ba2'")
+    ap.add_argument("--pack", action="store_true", help="pack staged Data into a stored General '<first plugin> - Main.ba2'")
     a = ap.parse_args(argv)
     if a.cmd == "install":
         if not a.exp_dir:

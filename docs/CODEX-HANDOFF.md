@@ -26,7 +26,7 @@ Door prototype:30 rigs/60 clips read back,42 selected source bodies/62 leaves; o
 
 `.af` samples: Open/Close sizes vary. Claude confirmed the second u16 at 0x28 matches named rig-bone counts in four families; frame rate and track mapping remain unknown. Details: research note and #32.
 
-Codex #62 adopts latest #68: terrain/masks in one stored General archive built outside staging, with packing-policy migration checks. Pinned inputs/files/activation, rollback and journaled uninstall retained.39 regressions;349 total OK (1 skipped), guard PASS; new scoped QA pending. Two Opus5.5 max reviews completed; main Claude effort/quota confirmation requested. #65 CI dependency merged. Grok restart prompt: finish #58, then claim terrain evidence verification. No live install changed.
+Codex #62 adopts latest #68: terrain/masks in one stored General archive outside staging, with packing-policy migration checks. Hashes/activation, rollback and journaled uninstall retained. Latest #59 base2745b79 integrated;39 regressions/351 total OK (1 skipped), guard/diff/packing/merge QA PASS. Two Opus5.5 max reviews completed; main Claude effort/quota confirmation requested. #65 merged. Grok: fix #58 blank/null start false PASS, then claim terrain evidence verification. No live install changed.
 
 ## Coordination / housekeeping
 

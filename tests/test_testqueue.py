@@ -561,3 +561,47 @@ class NumericReadTests(unittest.TestCase):
         # 2026-10-11 World03: a failed spawn read "fail console 3" produced the offset (0, 0, -7)
         src = open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8").read()
         self.assertEqual(src.count("-match '^\s*-?\d+"), 3)
+
+
+class ZRefTests(unittest.TestCase):
+    def test_height_offset_from_a_reference_probe(self):
+        d = tempfile.mkdtemp()
+        shot = touch(d, "spawn.png")
+        t = {"kind": "terrain", "z_ref": "ground",
+             "points": [{"label": "ground", "x": -60.0, "y": -60.0, "expect": 10.0},
+                        {"label": "padA", "x": 30.0, "y": 30.0, "expect": 35.0}]}
+        obs = {"shot": shot, "offset": [3000.0, -3500.0, -500.0], "offset_from": "spawn",   # spawn read mid-fall
+               "points": [{"read": "2940.0 -3560.0 -13.94"}, {"read": "3030.0 -3470.0 11.06"}]}
+        self.assertEqual(tq.judge(t, obs, d)[0], "PASS")
+        flat = dict(obs, points=[{"read": "2940.0 -3560.0 -13.94"}, {"read": "3030.0 -3470.0 -13.94"}])
+        self.assertEqual(tq.judge(t, flat, d)[:2], ("FAIL", "HEIGHTS"))
+
+
+class StoredArchiveTests(unittest.TestCase):
+    def test_experiment_archives_are_stored_uncompressed(self):
+        from unittest.mock import patch
+        import exp_install
+
+        with tempfile.TemporaryDirectory() as root:
+            game = os.path.join(root, "game")
+            tool = os.path.join(game, "Tools", "Archive2", "Archive2.exe")
+            os.makedirs(os.path.dirname(tool))
+            with open(tool, "wb") as stream:
+                stream.write(b"synthetic tool; never executed")
+            data = os.path.join(root, "Data")
+            os.makedirs(os.path.join(data, "Terrain"))
+            with open(os.path.join(data, "Terrain", "World.btd"), "wb") as stream:
+                stream.write(b"synthetic terrain")
+
+            def pack(command, **kwargs):
+                output = next(arg[len("-create="):] for arg in command if arg.startswith("-create="))
+                with open(output, "wb") as stream:
+                    stream.write(b"BTDX" + bytes(20))
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            with patch.object(exp_install.subprocess, "run", side_effect=pack) as process:
+                exp_install.build_ba2(SimpleNamespace(starfield=game), data, os.path.join(root, "terrain.ba2"))
+            command = process.call_args.args[0]
+            self.assertIn("-compression=None", command)
+            self.assertNotIn("-compression=Default", command)
+            self.assertIn("-format=General", command)

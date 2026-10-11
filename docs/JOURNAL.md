@@ -700,4 +700,25 @@ hashes and rollback. Output now lives in a temporary directory outside staging a
 A recorded packing-policy identity blocks an old compressed install from being reused after the upgrade; controlled
 uninstall remains available. Five synthetic regressions failed before this correction;39 targeted/full349 tests OK
 (1 skipped), guard/diff checks OK. Archive2 is mocked; no live game or installation changed. Runtime explanation for
-the minimum-height terrain plateau remains a hypothesis pending Claude's controlled retest. Scoped QA requested.
+the minimum-height terrain plateau remains a hypothesis pending Claude's controlled retest. Scoped QA PASS.
+
+## 2026-10-11 evening: why our overlay terrain came out flat
+- **In game:** every registered overlay test was perfectly flat at exactly its BTD's minimum height:
+  - exp2b (29x29 Red Rocket BTD, absolute alignment) read -116.00 m at all 14 probes;
+  - World01 / exp1d read -500 m (with relative alignment, -13.94 m).
+  The overlay itself was activated (cells merged at whole-cell offsets).
+- **Offline diagnosis** (two agents; scratch data in `C:\Modding\research\terrain\zero`):
+  - Our BTD layout matches vanilla section by section, and the heights are in every LOD.
+  - The one difference is that all 2,112 vanilla BTDs (Shattered Space's 108 included) and every official plugin Main.ba2 are stored **uncompressed**. Ours were zlib-compressed by Archive2 `-compression=Default`.
+  - The engine reads BTD blocks by offset straight from the archive, so it decoded nothing and used raw 0.
+  - Fix: `exp_install.py` now packs with `-compression=None`.
+- **Next candidates** if that is not all:
+  - `lodsettings/<edid>.lod` (every vanilla overlay has one);
+  - the 29x29 size (the largest vanilla overlay is 14x14).
+- **Queued:** exp2b3 (Red Rocket, stored), then exp1f (World01, stored), then the batches.
+
+Codex integrated #59 base2745b79 into #62 to resolve its installer conflict; retained stored compression through the
+reviewed helper, both journal entries, and upstream-identical runner/probe implementation. One incoming test searched
+source text for an Archive2 flag; replaced that exact test with a synthetic command check. Full351 tests OK (1 skipped).
+Packing/merge QA PASS; command test detects a Default-compression regression. Grok #58 QA reproduced blank/null starts
+reported PASS; requested an owned fix and synthetic door/stair cases. No Grok-owned file or game state changed.
