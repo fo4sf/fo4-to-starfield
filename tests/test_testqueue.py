@@ -575,3 +575,11 @@ class ZRefTests(unittest.TestCase):
         self.assertEqual(tq.judge(t, obs, d)[0], "PASS")
         flat = dict(obs, points=[{"read": "2940.0 -3560.0 -13.94"}, {"read": "3030.0 -3470.0 -13.94"}])
         self.assertEqual(tq.judge(t, flat, d)[:2], ("FAIL", "HEIGHTS"))
+
+
+class StoredArchiveTests(unittest.TestCase):
+    def test_experiment_archives_are_stored_uncompressed(self):
+        # vanilla stores every BTD uncompressed; a zlib-packed BTD read as raw 0 in game (2026-10-11)
+        src = open(os.path.join(ROOT, "scripts", "game", "exp_install.py"), encoding="utf-8").read()
+        self.assertIn('"-compression=None"', src)
+        self.assertNotIn('"-compression=Default"', src)
