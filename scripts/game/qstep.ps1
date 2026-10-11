@@ -47,7 +47,9 @@ function Teleport($pos, $heading, $pitch = 10) {
         "type:player.setangle x $pitch|key:enter|wait:400|key:grave|wait:1800")
 }
 
-switch ($t.kind) {
+$kind = $t.kind
+if ($kind -in 'stairs', 'door') { $kind = 'route' }     # testqueue.py plans stairs and door tests; both are routes
+switch ($kind) {
   'route' {
     # stairs or door: route_run.ps1 does the walk (door reset incl. the twin leaf, prompt search, OPEN check)
     $rr = Join-Path $here 'route_run.ps1'
@@ -109,9 +111,12 @@ switch ($t.kind) {
     & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $cap $prep 135 12
     $txt = ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $prep -Scale 1) -join ' ')
     $obs['reply'] = $txt
-    if ($txt -match 'Mode\s*OFF') { Send 'type:tgm|key:enter|wait:700'; $obs['toggled_again'] = $true }
+    # Starfield replies "God Mode enabled." / "God Mode disabled." (2026-10-11); the last match is this command's reply
+    $last = [regex]::Matches($txt, 'Mode\s*(enabled|disabled|ON|OFF)', 'IgnoreCase') | Select-Object -Last 1
+    $state = if ($last) { $last.Groups[1].Value.ToLower() } else { '' }
+    if ($state -in 'disabled', 'off') { Send 'type:tgm|key:enter|wait:700'; $obs['toggled_again'] = $true }
     Send 'key:grave|wait:900'
-    $obs['god'] = if ($txt -match 'Mode\s*ON') { 'on' } elseif ($txt -match 'Mode\s*OFF') { 'on (second toggle)' } else { 'unknown' }
+    $obs['god'] = if ($state -in 'enabled', 'on') { 'on' } elseif ($state -in 'disabled', 'off') { 'on (second toggle)' } else { 'unknown' }
   }
   'save' {
     if ($t.name -notmatch '^[A-Za-z0-9_]+$') { "bad save name"; exit 4 }

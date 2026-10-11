@@ -220,6 +220,16 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(r.run(), 3)
 
 
+class StepScriptTests(unittest.TestCase):
+    def test_qstep_handles_every_planned_kind(self):
+        # the supervised run 2026-10-11 found "unknown kind stairs": the planner's kinds must all reach a step
+        src = open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8").read()
+        for kind in tq.KINDS:
+            self.assertTrue(f"'{kind}'" in src, kind)
+        self.assertIn("$kind -in 'stairs', 'door'", src)
+        self.assertIn("enabled|disabled", src)
+
+
 class ControlTests(unittest.TestCase):
     def test_hours(self):
         ctl = FakeControls()
