@@ -734,3 +734,9 @@ twin step is untested in game until the next library run.
 - **Terrain**: PR #56 (FO4 2x2 patch at Red Rocket, two decoders agree exactly, borders match, the building sits on the
   terrain) and PR #57 (Starfield: 430/433 worldspaces use `Data\TERRAIN\<EditorID>.btd`; BTD decoded and re-encoded;
   experiment 1 staged in `C:\Modding\staging\terrain_exp1`, not deployed). Next blocker: the in-game BTD load test.
+
+## 2026-10-11 afternoon: terrain experiment 1 in game (unattended runner)
+- **Run 1:** loose BTDs. World01 and World02 (record path; record path + name) load on Mars with procedural ground. The heights are identical in both worlds (4.18 / 11.86 / 15.98 / 10.68 m at our 10 / 35 / 22.5 / 5 m pads), so neither used its BTD. World03 (name only, no surface block) hangs on the loading screen.
+- **Cause of run 1:** the loose files were never read. `Starfield.ini` has `sResourceDataDirsFinal=STRINGS\` and there is no StarfieldCustom.ini. The experiment installer now packs the BTDs into the plugin's own `<plugin> - Main.ba2` (`exp_install.py --pack`).
+- **Run 1b:** BTDs packed. World01 reads the same procedural heights again, so the packed BTD isn't used either. Registering World01 on Mars (run 1) moves the spawn onto a real Mars mountainside; the pads read flat at about -2.5 m, still procedural.
+- **Next (queued):** control drops in two vanilla worldspaces via `cow`, at lc001world and akilacity points whose BTD heights are known. These show whether `coc`/`cow` gives BTD terrain at all, or only the planet landing does. Then the Mars-registration variant with packed BTDs, then the test batches.
