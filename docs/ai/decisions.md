@@ -10,8 +10,9 @@ to a grid of 14-cell overlays generated edge to edge if large overlays fail in g
 every overlay seam has a 1-cell merge ring of unknown behaviour; both are built by the same generator
 (`scripts/terrain/make_cw_overlays.py`). Alternatives: a custom planet surface made of our blocks (exact far terrain,
 but four unknown height / blend rules and a planet to build), static mesh tiles (exact, but new collision, material
-and LOD pipelines). Gates: exp2b (29-cell overlay), exp3 (2 x 2 grid, seams, lat/long), then a 64-cell core overlay.
-Evidence: docs/terrain/commonwealth-scale.md.
+and LOD pipelines). Gates: BTDs stored uncompressed in the plugin archive (all vanilla terrain archives do; exp2b's
+compressed BTD read flat at its minimum), exp2b (29-cell overlay), exp3 (2 x 2 grid, seams, lat/long), then a 64-cell
+core overlay. Evidence: docs/terrain/commonwealth-scale.md.
 
 ## 2026-10-11 FO4 terrain heights: own Python reader following fo4land, Mutagen as the cross-check (Claude)
 `src/fo4sf/fo4land.py` reads LAND/VHGT with the algorithm of fo76utils `fo4land` (MIT); `dotnet/Fo4Land` decodes the

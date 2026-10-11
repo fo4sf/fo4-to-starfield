@@ -28,6 +28,10 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   - **unresolved**: the absolute lat/long -> planet cell rule (0 of 7 projections x 13 scales x 20 origin grids fit
     World01 (+30, -35) and LC172World (-5, -23)). **supported**: true planet scale locally (Cydonia's 8 overlays fit
     one landing without overlap for scale 0.5 to about 1.1).
+  - **verified**: all 2,112 vanilla BTD entries (Terrain01..04, TerrainPatch, SFBGS00D Main) are stored uncompressed
+    in their archives; our `exp_install.py --pack` archives store the BTD zlib-compressed (Archive2
+    `-compression=Default`). exp2b attempt 1 (runner obs.json) read z = -116.00, the BTD minimum, at all 10 probes.
+    **supported**: compressed BTD entries are not read by the terrain streamer; fix: `-compression=None` for `.btd`.
   - **verified** offline: experiment 3 (2 x 2 tiles of 14 cells, Sanctuary / Vault 111 / Red Rocket) 277 of 277 checks,
     worst point 5.029 mm (step 5.173 mm); builds from Fallout4.esm and from the cached grid give byte-identical BTDs;
     synthetic test: four tiles side by side = one BTD of the region, sample for sample.

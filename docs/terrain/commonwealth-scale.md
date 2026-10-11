@@ -12,6 +12,15 @@ blended with procedural ground (LC172World border cells 4 to 6 m off, inner cell
 
 ## Short answer
 
+0. **Blocking for every BTD option, found while writing (supported):** every vanilla terrain archive stores its BTDs
+   **uncompressed** (Starfield - Terrain01..04, TerrainPatch, SFBGS00D: 2,112 of 2,112 entries with packed size 0),
+   while our installer packs them zlib-compressed (`exp_install.py --pack` runs Archive2 with `-compression=Default`:
+   `FO4TerrainExp2 - Main.ba2` holds the BTD as 27,375,606 packed bytes). exp2b's first attempt (16:28 to 16:41) read
+   **z = -116.00, the BTD's minimum, at all 10 probes** after merging at (-12, -27) cells: the overlay was placed but
+   its heights read as raw 0. exp1c's BA2 run read one flat height everywhere too. Hypothesis: the terrain streamer
+   reads the BTD's own zlib blocks at file offsets and cannot use a compressed archive entry. Fix to try first: pack
+   `.btd` files with `-compression=None` (installer on `claude/test-queue`, not this branch). Options (a), (b) and (c)
+   all depend on it; experiment 3 should be installed with the fix.
 1. **The full LAND grid cannot be one landing in any option.** The Commonwealth LAND grid is 192 FO4 cells =
    11,234.7 m = 114 Starfield cells per side. Starfield's default game terrain width is **100 cells** with a
    **5-cell** playable buffer (decoded from Starfield.exe, **verified** values, meaning **supported**), and the
@@ -163,7 +172,9 @@ landing. Start at 64 x 64 cells (6.4 km: the 3.9 x 4.2 km playable area plus 1.2
 Static LOD meshes (d) for the ring beyond only if the far view matters.
 
 Gates, in order (each a queued runner job; nothing else depends on guessing):
-1. **exp1d / exp2b (queued):** record fixes; a 29-cell real-terrain overlay, Absolute, Z offset, its merge offset.
+0. **BTD packing:** rerun exp2b with its BTD stored uncompressed in the plugin BA2 (Short answer, item 0).
+1. **exp1d / exp2b** (exp1d done at 16:24: anchor not merged, heights not ours; exp2b running, first attempt flat at
+   its minimum): record fixes; a 29-cell real-terrain overlay, Absolute, Z offset, its merge offset.
 2. **exp3 (staged here):** tile heights, seam behaviour with mask 0, the local lat/long rule (anchors per tile).
 3. **exp4 (next, generator ready):** if exp2b passes, `--fo4-cells -34 31 -39 31 --tile 64 --pad origin
    --grid-points 4` (the playable core in one overlay, its frame = the CW frame) at a lat/long chosen from exp2b's and
@@ -270,6 +281,8 @@ persistent top cell (raw walk: group type 8 under the top cell, flag 0x400), so 
 (**unresolved**). Experiment 3's anchors are built the same way; exp2b (running now) will show whether they move.
 
 ## 7. Risks
+- BTD storage in the plugin archive (Short answer, item 0): until a run with uncompressed BTDs shows our heights, no
+  BTD-based option is validated; if uncompressed storage does not help either, (d) static meshes become the main path.
 - A 64 to 90-cell overlay may not activate, may load slowly, or may be cut at the landing's edge; nothing in vanilla
   is that large. Mitigation: grow in steps (29 -> 64 -> 90), fall back to (b).
 - The lat/long rule may have per-landing origin snapping that moves a large overlay off-centre; the anchor shows it

@@ -524,6 +524,8 @@ def readme(a, params, plan, masks):
              "Install (game closed). The runner does it:",
              f"  scripts/game/exp_install.py install --exp-dir <this folder> --starfield <game> --plugins {','.join(pl)} --pack",
              f"  --pack puts Data\\Terrain and Data\\textures into \"{base} - Main.ba2\" (loose files are not read).",
+             "  Store the .btd files UNCOMPRESSED in that archive (Archive2 -compression=None): every vanilla terrain",
+             "  archive does, and exp2b with a compressed BTD read the BTD's minimum height everywhere (2026-10-11).",
              "",
              "Tiles (CW = Commonwealth frame, metres = FO4 units / 70):"]
     for o in ov:
