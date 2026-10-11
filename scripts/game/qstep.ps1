@@ -5,7 +5,9 @@
 # Exit 0: observations written (they may still be incomplete: the judge decides). 2: input guard. 3: console could not be
 # opened safely (nothing typed). 4: bad spec.
 # Kinds (spec.kind): route (stairs/door, via route_run.ps1), fall (drop onto a floor point), movable (walk into an item and
-# read its position before and after), travel (activate a load door, read where the player arrives), godmode, save, load.
+# read its position before and after), travel (activate a load door, read where the player arrives), terrain (drop onto
+# points of known height), npc_nav (spawn a vanilla actor at A, make it walk to the player at B, sample, remove it),
+# godmode, save, load, recover.
 param([Parameter(Mandatory)][string]$Spec, [Parameter(Mandatory)][string]$Out, [string]$PluginIndex = '02')
 $env:LEGACY = '1'
 if (-not $env:FO4SF_PYTHON) { $env:FO4SF_PYTHON = 'C:\Modding\venv-render\Scripts\python.exe' }
@@ -197,6 +199,170 @@ switch ($kind) {
     Start-Sleep -Milliseconds 4500
     $obs['beyond_read'] = Read-Pos
     $obs['beyond_shot'] = Shot 'beyond.png'
+  }
+  'npc_nav' {
+    # NPC navigation (PR #61 docs/actors/npc-navigation.md 3.4, docs/ai/test-queue.md): travel, spawn a vanilla actor at
+    # A, order it to walk to the player standing at B, sample where it is, remove it. Commands that act on the console
+    # selection (the walk command, disable, markfordelete) are typed only in a console session in which the game has
+    # just confirmed the selection (GetIsID <npc> read 1 by OCR). Everything typed is validated here again.
+    $hex8 = '^[0-9A-Fa-f]{8}$'
+    $num3 = '^\s*-?\d+(\.\d+)?\s+-?\d+(\.\d+)?\s+-?\d+(\.\d+)?\s*$'   # "fail console 3" is not a position
+    # the same table as testqueue.py NPC_METHODS: nothing else is ever typed for a method
+    $methods = @{ 'ptr_player' = @('PathToRef player'); 'cf_pathto_player' = @('cf "Actor.PathToReference" player 1.0')
+                  'follow_player' = @('SetPlayerTeammate 1', 'EvaluatePackage'); 'combat_player' = @('StartCombat player') }
+    if ("$($t.travel)" -notmatch '^coc [A-Za-z0-9_]+$') { "bad travel"; exit 4 }
+    $npc = "$($t.npc)"
+    if ($npc -notmatch $hex8) { "bad npc"; exit 4 }
+    if (-not $methods.ContainsKey("$($t.method)")) { "bad method"; exit 4 }
+    $pre = @($t.pre | Where-Object { $_ })
+    foreach ($c in $pre) { if (@('gnm') -cnotcontains "$c") { "bad pre"; exit 4 } }
+    if ($t.anchor -and "$($t.anchor.ref)" -notmatch $hex8) { "bad anchor"; exit 4 }
+    $parse = Join-Path $here 'parse_npc.py'
+    function Npc-Capture([string[]]$cmds, [string[]]$need) {
+      # console open: clear its log (ClearConsole), type the commands, OCR this session's replies (parse_npc.py)
+      $seq = 'type:ClearConsole|key:enter|wait:500'
+      foreach ($c in $cmds) { $seq += "|type:$c|key:enter|wait:600" }
+      Send "$seq|wait:400"
+      $cap = Join-Path $Out 'npc_cap.png'; $prep = Join-Path $Out 'npc_prep.png'; $txt = Join-Path $Out 'npc_ocr.txt'
+      powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'shot_region.ps1') -Out $cap | Out-Null
+      $r = $null
+      foreach ($th in 135, 140, 130, 145) {
+        & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $cap $prep $th 12 | Out-Null
+        (powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $prep -Scale 1) | Set-Content $txt -Encoding utf8
+        $r = (& $env:FO4SF_PYTHON $parse $txt) | ConvertFrom-Json
+        $missing = @($need | Where-Object { $null -eq $r.$_ })
+        if ($r -and $missing.Count -eq 0) { break }
+      }
+      return $r
+    }
+    $script:npcRef = $null                            # FFxxxxxx from GetSelf; used only while the game confirms it
+    function Select-Npc {
+      # Opens the console and selects the actor: by its id, by the console selection as it is, or by PickLastRef. Returns
+      # with the console OPEN and the actor confirmed (GetIsID 1 in this session) plus its position, or closes the
+      # console and returns $null.
+      Console-Open
+      $tries = @(); if ($script:npcRef) { $tries += "prid $($script:npcRef)" }; $tries += 'selection'; $tries += 'plr'
+      foreach ($how in $tries) {
+        $cmds = @(); if ($how -ne 'selection') { $cmds += $how }
+        $cmds += "GetIsID $npc", 'getpos x', 'getpos y', 'getpos z'
+        $r = Npc-Capture $cmds @('isid', 'pos')
+        if ($r -and $r.isid -eq 1) {
+          $p = $null; if ("$($r.pos)" -match $num3) { $p = "$($r.pos)" }
+          return [ordered]@{ via = $how.Split(' ')[0]; isid = 1; read = $p; ocr = $r.ocr }
+        }
+      }
+      Send 'key:grave|wait:600'
+      return $null
+    }
+
+    # 1. travel (coc <cell editor id>: the console travel that works), wait for the HUD
+    Console-Open
+    Send "type:$($t.travel)|key:enter|wait:400|key:grave|wait:3000"
+    $hud = Join-Path $Out 'hud.png'; $t0 = Get-Date
+    do { Start-Sleep 2; powershell -NoProfile -ExecutionPolicy Bypass -File $shot -Out $hud | Out-Null
+         $up = (& $env:FO4SF_PYTHON (Join-Path $here 'hud_visible.py') $hud) -eq 'yes' } until ($up -or ((Get-Date) - $t0).TotalSeconds -gt 90)
+    $obs['load_s'] = [int]((Get-Date) - $t0).TotalSeconds; $obs['hud_back'] = $up
+    Start-Sleep 3
+    $obs['spawn_read'] = Read-Pos
+    $obs['shot'] = Shot 'arrival.png'
+    # 2. frame offset, as the terrain kind: A and B are in the worldspace's own frame; an activated overlay is merged into
+    # the planet worldspace at an offset, read from a persistent anchor ref (prid + getpos) or from the arrival point
+    $ox = 0.0; $oy = 0.0; $oz = 0.0
+    if ($t.anchor) {
+      $ar = Read-Pos "$($t.anchor.ref)"
+      $obs['anchor_read'] = $ar
+      if ("$ar" -match $num3) {
+        $av = "$ar".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+        $ox = [double]$av[0] - [double]$t.anchor.local[0]; $oy = [double]$av[1] - [double]$t.anchor.local[1]
+        $oz = [double]$av[2] - [double]$t.anchor.local[2]; $obs['offset'] = @($ox, $oy, $oz); $obs['offset_from'] = 'anchor'
+      }
+    }
+    if (-not $obs['offset'] -and $t.spawn_local -and ("$($obs['spawn_read'])" -match $num3)) {
+      $sv = "$($obs['spawn_read'])".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+      $ox = [double]$sv[0] - [double]$t.spawn_local[0]; $oy = [double]$sv[1] - [double]$t.spawn_local[1]
+      if ($t.spawn_local.Count -ge 3) { $oz = [double]$sv[2] - [double]$t.spawn_local[2] }
+      $obs['offset'] = @($ox, $oy, $oz); $obs['offset_from'] = 'spawn'
+    }
+    if (($t.anchor -or $t.spawn_local) -and -not $obs['offset']) { $obs['offset_missing'] = $true; Save-Obs; exit 0 }   # nothing spawned
+    Save-Obs
+    $ax = [double]$t.a[0] + $ox; $ay = [double]$t.a[1] + $oy; $az = [double]$t.a[2] + $oz
+    $bx = [double]$t.b[0] + $ox; $by = [double]$t.b[1] + $oy; $bz = [double]$t.b[2] + $oz
+    $settle = [int]$t.settle_ms
+    # 3. the player to A (dropped from $t.drop m: god mode is on), optional probes (gnm), then the actor at the player's
+    # feet: placeatme, PickLastRef selects it, GetIsID confirms it, GetSelf may give its id
+    Teleport @($ax, $ay, ($az + [double]$t.drop)) $t.heading_a 10
+    Start-Sleep -Milliseconds $settle
+    $obs['player_a'] = Read-Pos
+    if ($pre.Count -gt 0) {
+      Console-Open
+      Send ((($pre | ForEach-Object { "type:$_|key:enter|wait:600" }) -join '|') + '|key:grave|wait:600')
+      Start-Sleep -Milliseconds ([int]$t.pre_wait_ms)
+      $obs['pre'] = ($pre -join '; '); $obs['pre_shot'] = Shot 'pre.png'
+    }
+    Console-Open
+    $s1 = Npc-Capture @("player.placeatme $npc 1", 'plr', "GetIsID $npc", 'GetSelf') @('isid')
+    $obs['spawn'] = [ordered]@{ isid = $s1.isid; self = $s1.self; ocr = $s1.ocr }
+    $spawnSelf = $null                                # the runtime id PickLastRef gave right after placeatme
+    if ("$($s1.self)" -match '^FF[0-9A-F]{6}$') { $spawnSelf = "$($s1.self)" }
+    if ($s1.isid -eq 1) {
+      $script:npcRef = $spawnSelf
+      $s2 = Npc-Capture @("GetIsID $npc", 'getpos x', 'getpos y', 'getpos z') @('isid', 'pos')
+      if ($s2.isid -eq 1 -and "$($s2.pos)" -match $num3) { $obs['spawn']['read'] = "$($s2.pos)" }
+    }
+    Send 'key:grave|wait:600'
+    $obs['spawn_shot'] = Shot 'spawn.png'
+    Save-Obs
+    if ($s1.isid -eq 1) {
+      # 4. the player to B, facing A: the walk target
+      Teleport @($bx, $by, ($bz + [double]$t.drop)) $t.heading_b 10
+      Start-Sleep -Milliseconds $settle
+      $pb = Read-Pos
+      $obs['player_b'] = $null; if ("$pb" -match $num3) { $obs['player_b'] = "$pb" }
+      # 5. the walk command, on the confirmed selection; t = 0 read in the same session
+      $sel = Select-Npc
+      if ($sel) {
+        $obs['t0'] = $sel
+        $cmds = @(); if ($t.path_line) { $cmds += 'tpl' }; $cmds += $methods["$($t.method)"]
+        $c = Npc-Capture $cmds @()
+        $obs['command_ocr'] = $c.ocr                  # the console's reply settles the command syntax (unresolved)
+        Send 'key:grave|wait:300'
+        $obs['command_sent'] = $true; $obs['command'] = ($methods["$($t.method)"] -join '; ')
+        # 6. samples. The console pauses the game (supported hypothesis), so time counts only while it is closed
+        # (t_game, about +-2 s); t_wall is the clock time since the command.
+        $cmdAt = Get-Date; $closedAt = $cmdAt; $game = 0.0; $samples = @(); $k = 0
+        foreach ($s in @($t.reads_s)) {
+          if ([double]$s -le 0) { continue }            # t = 0 is the read above
+          $game += ((Get-Date) - $closedAt).TotalSeconds
+          if ([double]$s -gt $game) { Start-Sleep -Milliseconds ([int](([double]$s - $game) * 1000)); $game = [double]$s }
+          $r = Select-Npc
+          if ($r) { Send 'key:grave|wait:300' }
+          $closedAt = Get-Date
+          $samples += [ordered]@{ t_game = [math]::Round($game, 1); t_wall = [math]::Round(((Get-Date) - $cmdAt).TotalSeconds, 1)
+                                  isid = $(if ($r) { 1 } else { $null }); read = $(if ($r) { $r.read } else { $null })
+                                  via = $(if ($r) { $r.via } else { '' }); shot = (Shot "npc$k.png") }
+          $obs['samples'] = $samples; Save-Obs           # after every read: a cut-off keeps what was read
+          $k++
+        }
+      } else { $obs['command_sent'] = $false }
+    }
+    # 7. remove the actor so no test leaves an NPC behind: disable + markfordelete, only on a confirmed selection (an
+    # unconfirmed spawn may still have created one: PickLastRef finds it). When GetIsID never read 1 (e.g. a leveled
+    # actor whose base differs), the runtime id read right after placeatme is used, if GetSelf reads it back.
+    $clean = [ordered]@{ removed = $false }
+    $sel = Select-Npc
+    if (-not $sel -and $spawnSelf) {
+      Console-Open
+      $r = Npc-Capture @("prid $spawnSelf", 'GetSelf') @('self')
+      if ("$($r.self)" -eq $spawnSelf) { $sel = [ordered]@{ via = 'id' } } else { Send 'key:grave|wait:600' }
+    }
+    if ($sel) {
+      $d = Npc-Capture @('disable', 'GetDisabled') @('disabled')
+      Send 'type:markfordelete|key:enter|wait:600|key:grave|wait:600'
+      $clean['removed'] = $true; $clean['disabled'] = $d.disabled; $clean['via'] = $sel.via
+    } else { $clean['note'] = 'no confirmed handle: an actor may be left in the world' }
+    if ($t.path_line -and $obs['command_sent']) { Console-Open; Send 'type:tpl|key:enter|wait:500|key:grave|wait:600' }
+    $obs['cleanup'] = $clean
+    $obs['end_shot'] = Shot 'cleanup.png'
   }
   'recover' {
     # testqueue.py calls this only when nobody touched the PC since its last input: a menu, the Steam overlay or a

@@ -1,12 +1,16 @@
 """Install / uninstall a staged in-game experiment (a plugin plus loose files) next to the converted build, reversibly.
 
-usage: python exp_install.py install|uninstall|status --exp-dir <staged dir> --starfield <game dir>
+usage: python exp_install.py install|uninstall|status --exp-dir <staged dir> --starfield <game dir> [--pack]
 
 The staged dir holds one or more <name>.esm files (only those listed with --plugins are activated, default: the first
 one alphabetically) and a Data\\ tree of loose files (e.g. Data\\Terrain\\*.btd). install refuses to overwrite any existing
 file, records everything it adds in Data\\FO4SFExp.install.json, and appends "*<plugin>" to Plugins.txt. uninstall removes
 exactly what the record lists (files unchanged since install only) and only the Plugins.txt lines it added; it never
 touches FO4Port's own deployment (deploy_starfield.py).
+
+--pack (Starfield reads no loose files on this install) packs the Data tree into the first plugin's own archives, as
+deploy_starfield.py does for FO4Port: Data\\textures into "<plugin> - Textures.ba2" (Archive2 -format=DDS, .dds files
+only) and every other top-level folder into "<plugin> - Main.ba2" (-format=General).
 """
 import argparse
 import hashlib
@@ -59,22 +63,52 @@ def staged_files(exp_dir, plugins):
     return out
 
 
-def build_ba2(a, root, out):
-    """Pack every top-level folder under root into a general BA2 with the official Archive2 (as deploy_starfield.py)."""
+TEXTURES = "textures"                                     # packed with -format=DDS, like FO4Port - Textures.ba2
+
+
+def build_ba2(a, root, out, folders=None, fmt="General"):
+    """Pack top-level folders under root (default: all of them) into one BA2 with the official Archive2, as
+    deploy_starfield.py does: format General for meshes, terrain and materials, DDS for textures."""
     tool = os.path.join(a.starfield, "Tools", "Archive2", "Archive2.exe")
     if not os.path.exists(tool):
         sys.exit(f"Archive2 not found at {tool} (Starfield Creation Kit)")
-    folders = sorted(d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d)))
+    if folders is None:
+        folders = sorted(d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d)))
     if not folders:
         sys.exit(f"nothing to pack under {root}")
     tmp = out + ".tmp.ba2"
     if os.path.exists(tmp):
         os.remove(tmp)
-    r = subprocess.run([tool, ",".join(folders), f"-create={tmp}", f"-root={root}", "-format=General",
+    r = subprocess.run([tool, ",".join(folders), f"-create={tmp}", f"-root={root}", f"-format={fmt}",
                         "-compression=Default"], cwd=root, capture_output=True, text=True)
-    if r.returncode != 0 or not os.path.isfile(tmp) or open(tmp, "rb").read(4) != b"BTDX":
-        sys.exit("Archive2 failed:\n" + r.stdout + r.stderr)
+    ok =r.returncode == 0 and os.path.isfile(tmp)
+    if ok:
+        with open(tmp, "rb") as f:
+            ok = f.read(4) == b"BTDX"
+    if not ok:
+        sys.exit("Archive2 failed:\n" + (r.stdout or "") + (r.stderr or ""))
     os.replace(tmp, out)
+    return out
+
+
+def pack(a, plugins):
+    """[(built archive, name in Data)] for the staged Data tree: textures -> '<plugin> - Textures.ba2' (DDS), every
+    other top-level folder -> '<plugin> - Main.ba2' (General). Checked before anything is built."""
+    root = os.path.join(a.exp_dir, "Data")
+    tops = sorted(d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d))) if os.path.isdir(root) else []
+    tex = [d for d in tops if d.lower() == TEXTURES]
+    main = [d for d in tops if d.lower() != TEXTURES]
+    if not tops:
+        sys.exit(f"nothing to pack under {root}")
+    other = [os.path.relpath(os.path.join(r, f), root) for d in tex for r, _, fs in os.walk(os.path.join(root, d))
+             for f in fs if not f.lower().endswith(".dds")]
+    if other:                                             # a DDS archive holds textures only
+        sys.exit(f"not a .dds file under Data\\textures (move it out of textures): {other}")
+    stem = os.path.splitext(plugins[0])[0]
+    out = []
+    for folders, fmt, name in ((main, "General", f"{stem} - Main.ba2"), (tex, "DDS", f"{stem} - Textures.ba2")):
+        if folders:
+            out.append((build_ba2(a, root, os.path.join(a.exp_dir, name), folders, fmt), name))
     return out
 
 
@@ -95,10 +129,8 @@ def install(a):
     if a.pack:
         # Starfield reads no loose files here (Starfield.ini sResourceDataDirsFinal=STRINGS\ only; terrain experiment 1,
         # 2026-10-11, got procedural planet ground because its loose BTDs were never seen). A plugin's own
-        # "<name> - Main.ba2" loads with it, so the staged Data tree goes into that archive instead.
-        ba2 = os.path.splitext(plugins[0])[0] + " - Main.ba2"
-        built = build_ba2(a, os.path.join(a.exp_dir, "Data"), os.path.join(a.exp_dir, ba2))
-        files = [(s, r) for s, r in files if r in plugins] + [(built, ba2)]
+        # "<name> - Main.ba2" and "<name> - Textures.ba2" load with it, so the staged Data tree goes into those.
+        files = [(s, r) for s, r in files if r in plugins] + pack(a, plugins)
     clash = [rel for _, rel in files if os.path.exists(os.path.join(data, rel))]
     if clash:
         sys.exit(f"refusing to overwrite existing game files: {clash}")
@@ -162,7 +194,8 @@ def main(argv=None):
     ap.add_argument("--exp-dir", default="")
     ap.add_argument("--starfield", required=True)
     ap.add_argument("--plugins", default="", help="comma-separated plugin file names to activate")
-    ap.add_argument("--pack", action="store_true", help="install the staged Data tree as '<first plugin> - Main.ba2'")
+    ap.add_argument("--pack", action="store_true", help="install the staged Data tree as '<first plugin> - Main.ba2' "
+                                                         "and Data\\textures as '<first plugin> - Textures.ba2'")
     a = ap.parse_args(argv)
     if a.cmd == "install":
         if not a.exp_dir:
