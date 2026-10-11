@@ -51,14 +51,28 @@ def fnam_match(fnam, heights_raw):
 
 
 # ------------------------------------------------------------------------------------------------------------ mask
-def mask_array(cells_x, cells_y=None, border_cells=1, px_per_cell=MASK_PX_PER_CELL):
-    """Overlay mask image (uint8, rows north-first): 0 inside, 255 on the outer `border_cells` ring of cells."""
+EDGES = ("w", "e", "s", "n")
+
+
+def mask_array(cells_x, cells_y=None, border_cells=1, px_per_cell=MASK_PX_PER_CELL, edges=EDGES):
+    """Overlay mask image (uint8, rows north-first): 0 inside, 255 on the outer `border_cells` ring of cells.
+    `edges` limits the ring to some sides ('w', 'e', 's', 'n'): a tile of a grid of adjacent overlays keeps 0 on the
+    seams it shares with its neighbours (docs/terrain/commonwealth-scale.md)."""
     cells_y = cells_x if cells_y is None else cells_y
     if cells_x <= 2 * border_cells or cells_y <= 2 * border_cells:
         raise ValueError("the border ring leaves no inside")
-    a = np.full((cells_y * px_per_cell, cells_x * px_per_cell), 255, np.uint8)
+    if any(e not in EDGES for e in edges):
+        raise ValueError(f"edges must be among {EDGES}")
+    a = np.zeros((cells_y * px_per_cell, cells_x * px_per_cell), np.uint8)
     b = border_cells * px_per_cell
-    a[b:a.shape[0] - b, b:a.shape[1] - b] = 0
+    if "w" in edges:
+        a[:, :b] = 255
+    if "e" in edges:
+        a[:, a.shape[1] - b:] = 255
+    if "n" in edges:                    # row 0 = north
+        a[:b, :] = 255
+    if "s" in edges:
+        a[a.shape[0] - b:, :] = 255
     return a
 
 
@@ -138,9 +152,9 @@ def dds_bc4(img):
     return DDS_MAGIC + bytes(hdr) + dx10 + bc4_encode_blocks(a)
 
 
-def mask_check(img, cells_x, cells_y=None, border_cells=1, px_per_cell=MASK_PX_PER_CELL):
+def mask_check(img, cells_x, cells_y=None, border_cells=1, px_per_cell=MASK_PX_PER_CELL, edges=EDGES):
     """Compare a decoded mask with mask_array(): (pixels that differ, max |difference|)."""
-    want = mask_array(cells_x, cells_y, border_cells, px_per_cell).astype(np.int32)
+    want = mask_array(cells_x, cells_y, border_cells, px_per_cell, edges).astype(np.int32)
     got = np.asarray(img).astype(np.int32)
     if got.shape != want.shape:
         return int(want.size), 255
