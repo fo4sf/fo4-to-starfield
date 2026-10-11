@@ -92,8 +92,8 @@ class FakeControls:
     def mark_sent(self):
         pass
 
-    def foreground_exe(self):
-        return self.fg
+    def game_in_front(self):
+        return bool(self.pid) and self.fg == "starfield.exe"
 
     def game_pid(self):
         return self.pid
@@ -244,6 +244,60 @@ class ProbePointTests(unittest.TestCase):
                         out, "10"], check=True, capture_output=True)
         names = sorted(line.split(" ", 3)[3] for line in open(out).read().splitlines())
         self.assertEqual(names, ["BldDecoSmFlrOnly04.nif", "BldWlpSmFlrCeil01.nif", "BldWoodPSmStairsHalfTiny03.nif"])
+
+
+class RecoverTests(RunnerTests):
+    def test_menu_over_the_hud_is_escaped_once_then_the_test_retried(self):
+        calls = []
+
+        def step(test, out):
+            calls.append(test["kind"])
+            if test["kind"] == "recover":
+                json.dump({"hud_before": False, "escapes": 1, "hud_after": True}, open(os.path.join(out, "obs.json"), "w"))
+                return 0
+            if calls.count("fall") == 1:
+                json.dump({"stopped": "console not opened safely (3)"}, open(os.path.join(out, "obs.json"), "w"))
+                return 3
+            return self.landing(0.1)(test, out)
+        self.runner(step, max_tests=2).run()
+        self.assertEqual(calls[:3], ["fall", "recover", "fall"])
+
+    def test_menu_that_stays_stops_the_run(self):
+        def step(test, out):
+            if test["kind"] == "recover":
+                json.dump({"hud_before": False, "escapes": 3, "hud_after": False}, open(os.path.join(out, "obs.json"), "w"))
+                return 0
+            json.dump({"stopped": "console not opened safely (3)"}, open(os.path.join(out, "obs.json"), "w"))
+            return 3
+        self.assertEqual(self.runner(step).run(), 3)
+        self.assertEqual(json.load(open(os.path.join(self.d, "state.json")))["status"], "stopped: menu or overlay")
+
+    def test_no_escape_after_owner_input(self):
+        calls = []
+
+        def step(test, out):
+            calls.append(test["kind"])
+            self.ctl.foreign = True                       # the owner touched the PC during the step
+            json.dump({"stopped": "console not opened safely (3)"}, open(os.path.join(out, "obs.json"), "w"))
+            return 3
+        self.assertEqual(self.runner(step).run(), 3)
+        self.assertNotIn("recover", calls)
+
+
+class ParseGetposTests(unittest.TestCase):
+    def parse(self, text):
+        import subprocess
+        p = os.path.join(tempfile.mkdtemp(), "ocr.txt")
+        open(p, "w").write(text)
+        return subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "game", "parse_getpos.py"), p],
+                              capture_output=True, text=True).stdout.strip()
+
+    def test_ocr_quirks(self):
+        self.assertEqual(self.parse("GetPos: X >> -10.07\nGetPos: Y >> 43.95\nGetPos: Z >> -10.95\n"),
+                         "-10.07 43.95 -10.95")
+        # seen 2026-10-11: ">>" dropped, "Po s" split, older lines above the latest reply
+        self.assertEqual(self.parse("GetPos: z 1.00\nprid 0200BA55\nGet Po s: X > > 9.71\nGetPos: Y > > -66.58\n"
+                                    "GetPos: z 7.95\n"), "9.71 -66.58 7.95")
 
 
 class ControlTests(unittest.TestCase):
