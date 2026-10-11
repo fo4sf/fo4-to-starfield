@@ -601,3 +601,25 @@ open PRs (#34 QA PASS, #35 in progress), local team state, next steps. Removed a
 docs/ai/agent-status.md refreshed from live sources. Shut down: guardian proxy stopped, local model unloaded, no
 background jobs left. Next session: re-run Vault 81 and the library, finish the Prydwen (same pinned build), then
 movable bodies for loose items.
+
+## 2026-10-10 Trusted-author filter for GitHub reads (Claude, PR)
+Anyone can post in this public repository, so issue and PR text is a prompt-injection channel for the local Lead and
+for the briefs `wake_agent.py` sends. `tools/ai-team/trusted_gh.py` (`issue <n>`, `pr <n>`, `issues`, `prs`) wraps
+`gh ... --json` and prints only text whose API author, and every editor on record, is in `config.json`
+`trusted_authors` (default: the repository owner's login, which is also the shared agent account); everything else
+becomes a count line, and untrusted text or logins never reach stdout. Edit history comes from one `gh api graphql`
+round per command (the body plus edited trusted comments) and the tool fails closed when it cannot be read.
+`.opencode/agents/fo4-lead.md` allows the tool and moves `gh issue view` / `gh pr view` to `ask`; listing stays
+allowed. Evidence and what is not covered (Research/QA agents, `gh pr diff`) are in docs/ai/research-log.md; 25
+mocked-gh tests, full suite OK, guard ok.
+
+## 2026-10-11 trusted_gh.py: QA round on PR #49 (Claude)
+QA (local) passed PR #49 with notes; two were right about the code and the docs. Fixed: a comment marked edited whose
+GraphQL history came back as `null` produced an empty editor set and was printed; `_editors` now needs `__typename`,
+the `userContentEdits` connection (plus `timelineItems` for issues and PRs), and at least one editor on record for
+anything GitHub or gh marks edited, otherwise the item counts as unknown and is hidden. Added `--last N` so the Lead
+can read #32 without 100+ comments, nine tests (null node, null/empty history, missing typename, 61 ids in two
+GraphQL calls, untrusted editor on a review, list with GraphQL down, list `--json`, `--last`, wiring), and corrected
+the docs: `gh issue list --json body` / `gh pr list --json body` stay allowed for the Lead (listing was to remain
+allowed), so the permission is only part of the control and the Lead's procedure now starts with `trusted_gh.py
+issues`. Full suite OK, guard ok; details in docs/ai/research-log.md.

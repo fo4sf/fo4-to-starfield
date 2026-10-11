@@ -17,5 +17,6 @@
     "fo4-implement": "qwen3-14b",
     "fo4-research": "qwen3-14b",
     "fo4-qa": "qwen3-14b"
-  }
+  },
+  "trusted_authors": ["fo4sf"]
 }
