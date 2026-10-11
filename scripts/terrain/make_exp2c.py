@@ -335,9 +335,9 @@ def path_report(world, start, points, drop_z, capsule=CAPSULE):
 
 
 def position_cost(hits):
-    """0 for a clear teleport position, 1 when only terrain overlaps (the vanilla LC172World run moved the player
-    through such positions on real relief and read all 8 probes at their x and y), 10 when a placed object does
-    (no evidence yet whether setpos resolves that)."""
+    """0 for a clear teleport position, 1 when only terrain overlaps (probably harmless: the vanilla LC172World run
+    moved the player between 8 probes on real relief and read every probe at its x and y), 10 when a placed object
+    does (no evidence yet whether setpos resolves that)."""
     return 0 if not hits else 10 if any(h != "terrain" for h in hits) else 1
 
 
@@ -778,8 +778,10 @@ def fo4_collision_tops(fo4_data, plan, metas):
     """Every point that lands on an object, checked against FO4's OWN collision: the source NIF read from the FO4
     mesh archives, its bodies decoded by scripts/game/routes.collision_bodies (independent of the converter and of
     sfbodies), placed with the reference's position, rotation and scale; the highest surface under the entry's drop
-    height at the point. Returns [{"entry", "label", "edid", "fo4_top", "expect", "diff_mm"}] (fo4_top None: FO4's
-    collision of that model does not decode there, e.g. hknpDynamicCompoundShape)."""
+    height at the point, and the collision layer it belongs to (1 = static; the offline surface model treats every layer
+    as solid, so a top on a layer the player passes through would be a false landing). Returns [{"entry", "label",
+    "edid", "fo4_top", "layer", "expect", "diff_mm"}] (fo4_top None: FO4's collision of that model does not decode
+    there, e.g. hknpDynamicCompoundShape)."""
     sys.path.insert(0, os.path.join(REPO, "scripts", "game"))
     import routes
     from fo4sf import ba2, nif as nifmod
@@ -796,14 +798,18 @@ def fo4_collision_tops(fo4_data, plan, metas):
             if src not in cache:
                 name = "meshes\\" + o["model"].replace("/", "\\").split("\\", 1)[1]
                 blob = next((a.read(name) for a in archives if a.find(name) is not None), None)
-                tris = []
+                layers = {}
                 if blob is not None:
-                    for _layer, pts, tr in routes.collision_bodies(nifmod.parse(blob)):
-                        tris += [tuple(exterior.to_world(pts[i], o["pos"], o["rot"], o["scale"]) for i in t) for t in tr]
-                cache[src] = tris
-            top = exterior.top_z(cache[src], p["x"], p["y"], below=entry["drop_z"]) if cache[src] else None
+                    for layer, pts, tr in routes.collision_bodies(nifmod.parse(blob)):
+                        layers.setdefault(layer, []).extend(
+                            tuple(exterior.to_world(pts[i], o["pos"], o["rot"], o["scale"]) for i in t) for t in tr)
+                cache[src] = layers
+            tops = [(z, layer) for layer, tris in cache[src].items()
+                    if (z := exterior.top_z(tris, p["x"], p["y"], below=entry["drop_z"])) is not None]
+            top, layer = max(tops) if tops else (None, None)
             out.append({"entry": e, "label": p["label"], "edid": o["edid"], "fo4_top": None if top is None else round(top, 5),
-                        "expect": p["expect"], "diff_mm": None if top is None else round((top - p["expect"]) * 1000, 3)})
+                        "layer": layer, "expect": p["expect"],
+                        "diff_mm": None if top is None else round((top - p["expect"]) * 1000, 3)})
     return out
 
 
@@ -1058,8 +1064,9 @@ def cmd_check(a):
         rep["fo4_collision_tops"] = fo4_collision_tops(a.fo4_data, plan, metas)
         for t in rep["fo4_collision_tops"]:
             if t["entry"] in (1, 2):                                   # the judged objects and the shop floor
-                need(t["diff_mm"] is not None and abs(t["diff_mm"]) < 1.0,
-                     f"{t['label']}: FO4's own collision top {t['fo4_top']} = expect {t['expect']} ({t['diff_mm']} mm)")
+                need(t["diff_mm"] is not None and abs(t["diff_mm"]) < 1.0 and t["layer"] == 1,
+                     f"{t['label']}: FO4's own collision top {t['fo4_top']} (layer {t['layer']}) = expect {t['expect']} "
+                     f"({t['diff_mm']} mm)")
     rep["points"] = pts
     rep["checks"] = checks
     rep["pass"] = all(c[1] for c in checks)
