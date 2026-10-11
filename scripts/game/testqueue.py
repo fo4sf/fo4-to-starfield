@@ -238,7 +238,7 @@ def plan_terrain(a):
          "tests": tests[:a.only] if a.only else tests}
     if a.plugins:                                         # installed by the runner right before it launches the game
         q["pre_launch"] = [sys.executable, os.path.join(HERE, "exp_install.py"), "install", "--exp-dir",
-                           os.path.abspath(a.exp_dir), "--starfield", a.starfield, "--plugins", a.plugins]
+                           os.path.abspath(a.exp_dir), "--starfield", a.starfield, "--plugins", a.plugins, "--pack"]
     os.makedirs(a.out, exist_ok=True)
     save_atomic(os.path.join(a.out, "queue.json"), q)
     print(f"{len(q['tests'])} terrain tests (experiment {a.exp_dir}) on build {q['build_id']}")
