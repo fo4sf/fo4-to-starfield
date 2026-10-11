@@ -230,6 +230,22 @@ class StepScriptTests(unittest.TestCase):
         self.assertIn("enabled|disabled", src)
 
 
+class ProbePointTests(unittest.TestCase):
+    def test_floor_pieces_by_file_name_not_folder(self):
+        import subprocess
+        d = tempfile.mkdtemp()
+        kit = "Interiors\Building\Deco\Small_FloorCeilKit\\"
+        refs = [{"type": "Static", "model": kit + name, "pos": [70.0 * k * 5, 0.0, 0.0]} for k, name in
+                enumerate(["BldDecoSmCeilOnly03.nif", "BldDecoSmFlrOnly04.nif", "BldWlpSmFlrCeil01.nif",
+                           "SubPlatformWall03.nif", "BldWoodPSmStairsHalfTiny03.nif"])]
+        json.dump({"cell": "C", "refs": refs}, open(os.path.join(d, "c.json"), "w"))
+        out = os.path.join(d, "pts.txt")
+        subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "game", "probe_points.py"), os.path.join(d, "c.json"),
+                        out, "10"], check=True, capture_output=True)
+        names = sorted(line.split(" ", 3)[3] for line in open(out).read().splitlines())
+        self.assertEqual(names, ["BldDecoSmFlrOnly04.nif", "BldWlpSmFlrCeil01.nif", "BldWoodPSmStairsHalfTiny03.nif"])
+
+
 class ControlTests(unittest.TestCase):
     def test_hours(self):
         ctl = FakeControls()
