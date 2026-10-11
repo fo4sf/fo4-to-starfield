@@ -53,19 +53,23 @@ SEVERITY = {("fall", "FALL"): 5, ("travel", "NOTRAVEL"): 5, ("travel", "NOPROMPT
             ("door", "NOPROMPT"): 3, ("stairs", "FALL"): 4, ("stairs", "STUCK"): 3, ("door", "FALL"): 5,
             ("movable", "NOTMOVED"): 2, ("movable", "ITEMFELL"): 3, ("any", "CRASH"): 5,
             ("terrain", "NOTERRAIN"): 5, ("terrain", "HEIGHTS"): 4,
-            ("npc_nav", "FELL"): 5, ("npc_nav", "NONAV"): 4, ("npc_nav", "STALLED"): 3}
+            ("npc_nav", "FELL"): 5, ("npc_nav", "NONAV"): 4, ("npc_nav", "STALLED"): 3, ("npc_nav", "WANDER"): 3}
 PS = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
 BREAKER = 6          # inconclusive attempts in a row, with no PASS/FAIL yet, that switch a kind off for the run
-FINAL_INCONCLUSIVE = ("CONTROL",)   # inconclusive for a reason a retry cannot change
+FINAL_INCONCLUSIVE = ("CONTROL", "PRECONDITION")   # inconclusive for a reason a retry cannot change
 
 # npc_nav (PR #61 docs/actors/npc-navigation.md 3.4): what qstep.ps1 types on the verified console selection to make the
 # actor walk to the player, who stands at B. qstep.ps1 has the same table; nothing else is ever typed for a method.
 # PathToRef (PTR, one optional TESObjectREFR, "Force actor to path to reference.") is a console command in Starfield.exe
 # 1.16.244 (command table decoded, docs/ai/test-queue.md); cf + Actor.PathToReference is the research doc's first idea.
-NPC_METHODS = {"ptr_player": ["PathToRef player"],
+# "none" types nothing: the baseline (does the actor come to the player without a command, e.g. its default package?).
+NPC_METHODS = {"none": [],
+               "ptr_player": ["PathToRef player"],
                "cf_pathto_player": ['cf "Actor.PathToReference" player 1.0'],
                "follow_player": ["SetPlayerTeammate 1", "EvaluatePackage"],
                "combat_player": ["StartCombat player"]}
+# GenerateNavMesh's short name "gnm" sits next to its name and help text in Starfield.exe, but its command entry was
+# not decoded (supported hypothesis, unlike PTR / PLR / PRID): staged plans do not use it yet.
 NPC_PRE = ("gnm",)                  # probe commands allowed before the spawn (GenerateNavMesh: route R1, run N2)
 
 
@@ -318,8 +322,11 @@ def npc_test(n, w):
          "nomove": _num(w, "nomove", 0.5, 0.05, 10), "spawn_tol": _num(w, "spawn_tol", 3.0, 0.5, 20),
          "target_tol": _num(w, "target_tol", 3.0, 0.5, 20), "fell_m": _num(w, "fell_m", 3.0, 0.5, 100),
          "drop": _num(w, "drop", 0.5, 0, 200), "settle_ms": int(_num(w, "settle_ms", 1500, 0, 30000)),
-         "pre_wait_ms": int(_num(w, "pre_wait_ms", 5000, 0, 60000)),
-         "path_line": bool(w.get("path_line", False)), "control": bool(w.get("control", False))}
+         "pre_wait_ms": int(_num(w, "pre_wait_ms", 5000, 0, 60000)), "max_speed": _num(w, "max_speed", 8.0, 1, 50),
+         "path_line": bool(w.get("path_line", False)), "control": bool(w.get("control", False)),
+         "baseline": method == "none"}
+    if t["baseline"] and t["control"]:
+        sys.exit(f"{label}: a baseline (method none) gates the controls and cannot be one itself")
     if w.get("anchor"):
         if not isinstance(w["anchor"], dict):
             sys.exit(f"bad anchor in plan.json (want {{\"ref\": \"<8 hex>\", \"local\": [x, y, z]}}): {w['anchor']!r}")
@@ -329,10 +336,31 @@ def npc_test(n, w):
         t["anchor"] = {"ref": ref.upper(), "local": _vec(w["anchor"].get("local"), (3,), "anchor local")}
     if w.get("spawn_local"):
         t["spawn_local"] = _vec(w["spawn_local"], (2, 3), "spawn_local")
+    if w.get("requires"):
+        r = w["requires"]
+        ok = isinstance(r, dict) and isinstance(r.get("queue"), str) and bool(r["queue"]) and \
+            bool(re.fullmatch(r"[A-Za-z0-9_]+", str(r.get("test") or ""))) and r.get("verdict", "PASS") in ("PASS", "FAIL")
+        if not ok:
+            sys.exit(f"bad requires in plan.json (want {{\"queue\": \"<queue dir>\", \"test\": \"<test id>\"}}): {r!r}")
+        t["requires"] = {"queue": os.path.abspath(r["queue"]), "test": r["test"], "verdict": r.get("verdict", "PASS")}
     for k in ("expect", "basis"):
         if w.get(k):
             t[k] = str(w[k])
     return t
+
+
+def precondition(test):
+    """None when the test may run, else why not: a test with "requires" runs only when that test of another queue has
+    the required verdict (N1 walks on terrain exp2b only once exp2b's terrain test passed: its heights are ours)."""
+    r = test.get("requires")
+    if not r:
+        return None
+    done = (load(os.path.join(r["queue"], "state.json"), {}) or {}).get("done", {})
+    got = done.get(r["test"])
+    if got and got.get("verdict") == r["verdict"]:
+        return None
+    have = f"{got.get('verdict')} {got.get('class')}" if got else "no result"
+    return f"needs {r['test']} in {r['queue']} to be {r['verdict']}, it is {have}: not run"
 
 
 def plan_npc(a):
@@ -349,7 +377,8 @@ def plan_npc(a):
         sys.exit(f"no tests in {os.path.join(a.exp_dir, 'plan.json')}")
     if not isinstance(src, list) or not all(isinstance(w, dict) for w in src):
         sys.exit("plan.json must be a list of test objects (or {\"tests\": [...]})")
-    src = sorted(src, key=lambda w: not w.get("control"))   # controls first: the others are judged against them
+    # baselines (method none) first, then controls: the others are judged against them
+    src = sorted(src, key=lambda w: (w.get("method") != "none", not w.get("control")))
     tests = [npc_test(n, w) for n, w in enumerate(src)]
     digest = sha256(esm)
     q = {"created": now(), "staging": staging, "plugin_sha256": digest, "build_id": digest[:8],
@@ -359,10 +388,22 @@ def plan_npc(a):
          "tests": tests[:a.only] if a.only else tests}
     if a.control_queue:
         q["control_queue"] = os.path.abspath(a.control_queue)
+    world = os.path.abspath(a.install_exp or a.exp_dir) if a.plugins else ""
     if a.plugins:                                         # e.g. the terrain experiment whose world N1 walks on
         q["pre_launch"] = [sys.executable, os.path.join(HERE, "exp_install.py"), "install", "--exp-dir",
-                           os.path.abspath(a.install_exp or a.exp_dir), "--starfield", a.starfield,
-                           "--plugins", a.plugins, "--pack"]
+                           world, "--starfield", a.starfield, "--plugins", a.plugins, "--pack"]
+    for t in q["tests"]:
+        # a required test must have measured the very world this queue installs (same staged folder, packed by the
+        # same exp_install.py at install time), or its PASS says nothing about this run
+        r = t.get("requires")
+        if not r:
+            continue
+        rq = load(os.path.join(r["queue"], "queue.json"))
+        if not rq or r["test"] not in {x.get("id") for x in rq.get("tests", [])}:
+            sys.exit(f"{t['id']}: requires {r['test']} in {r['queue']}, which is not planned there")
+        if os.path.normcase(rq.get("experiment") or "") != os.path.normcase(world):
+            sys.exit(f"{t['id']}: {r['queue']} tested {rq.get('experiment')!r}, but this queue installs {world!r} "
+                     f"(--install-exp)")
     os.makedirs(a.out, exist_ok=True)
     save_atomic(os.path.join(a.out, "queue.json"), q)
     print(f"{len(q['tests'])} npc_nav tests ({sum(t['control'] for t in q['tests'])} control) from {a.exp_dir} "
@@ -478,9 +519,11 @@ def judge(test, obs, out_dir):
 def judge_npc(test, obs, shot_ok):
     """npc_nav (PR #61 3.4). The actor spawns at A, the player (the walk target) stands at B. Positions are in the
     worldspace's own frame plus the measured offset (anchor or spawn), like terrain points. Only reads whose console
-    selection the game confirmed (GetIsID 1 in the same console session) and that have a screenshot count."""
+    selection the game confirmed (GetIsID 1 in the same console session) and that have a screenshot count.
+    A baseline (method none, no command) is judged the other way round: PASS when the actor did NOT come to B."""
     if (test.get("anchor") or test.get("spawn_local")) and not obs.get("offset"):
-        return "INCONCLUSIVE", "ANCHOR", "frame offset not measured (anchor / spawn read failed): nothing spawned"
+        why = obs.get("offset_missing") or "anchor / arrival read failed"
+        return "INCONCLUSIVE", "ANCHOR", f"frame offset not measured ({why}): nothing spawned"
     off = (list(obs.get("offset") or []) + [0.0, 0.0, 0.0])[:3]
     A = [test["a"][k] + off[k] for k in range(3)]
     B = [test["b"][k] + off[k] for k in range(3)]
@@ -522,6 +565,31 @@ def judge_npc(test, obs, shot_ok):
     low = min(p[2] for _, p in good)
     if low < zfloor:
         return "FAIL", "FELL", f"actor dropped to z {low:.1f} (start {p0[2]:.1f}): world, not navigation; {stats}"
+    # faster than max_speed between two reads, with 2 s of slack on the game clock: a warp (teammate catch-up, a
+    # script moveto), not a walk. The slack makes this a check for gross jumps only; an arrival already at the first
+    # read is not taken as a walk either (below).
+    vmax, prev_t, prev_p = test.get("max_speed", 8.0), 0.0, p0
+    for smp, p in good:
+        t = smp.get("t_game")
+        if not isinstance(t, (int, float)):
+            continue
+        seg = math.hypot(p[0] - prev_p[0], p[1] - prev_p[1])
+        if seg > vmax * (max(t - prev_t, 0.0) + 2.0):
+            return ("INCONCLUSIVE", "WARP", f"{seg:.1f} m between t {prev_t:g} and {t:g} s, faster than {vmax:g} m/s: "
+                    f"not a walk; {stats}")
+        prev_t, prev_p = t, p
+    if test.get("baseline"):
+        came = dmin <= test["radius"] or d0 - dend >= test["min_progress"]
+        if came:
+            return ("FAIL", "WANDER", f"came {d0 - dend:.1f} m towards B without a command: a control PASS of this actor "
+                    f"here says nothing about the command; {stats}")
+        if len(good) < want:
+            return "INCONCLUSIVE", "UNREAD", f"{len(good)} of {want} reads confirmed: {stats}"
+        return "PASS", "PASS", f"stayed away from B without a command: {stats}"
+    if dist(good[0][1]) <= test["radius"]:
+        # at B by the first read: no position on the way was seen, so a warp to the player is not ruled out
+        return ("INCONCLUSIVE", "EARLY", f"already at B at the first read ({good[0][0].get('t_game')} s): the walk "
+                f"itself was not observed (add an earlier read); {stats}")
     if dmin <= test["radius"]:
         return "PASS", "PASS", f"arrived within {test['radius']} m of B: {stats}"
     if d0 - dend >= test["min_progress"]:
@@ -535,28 +603,46 @@ def judge_npc(test, obs, shot_ok):
 
 def control_gate(qdir, q, test, verdict, cls, detail):
     """A FAIL of a non-control npc_nav test only means something when the control (same method, same actor, in a vanilla
-    navmeshed cell: N0) passed, in this queue or in q['control_queue']. Otherwise: INCONCLUSIVE CONTROL, final, with the
-    raw verdict kept in the detail. PASS needs no control (the walk was observed). No control configured: unchanged."""
-    if test.get("kind") != "npc_nav" or test.get("control") or verdict != "FAIL":
+    navmeshed cell: N0) passed, in this queue or in q['control_queue'], and, when a baseline of that actor is planned
+    there (method none: no command), the baseline passed too (the actor did not come to B on its own, so the control's
+    PASS was the command's doing). Otherwise: INCONCLUSIVE CONTROL with the raw verdict kept in the detail; the runner
+    keeps the raw verdict and the report applies the gate again (a control that passes later still counts). PASS
+    needs no control (the walk was observed). No control configured: unchanged."""
+    if test.get("kind") != "npc_nav" or test.get("control") or test.get("baseline") or verdict != "FAIL":
         return verdict, cls, detail
     sources = [qdir] + ([q["control_queue"]] if q.get("control_queue") else [])
-    configured, ran = bool(q.get("control_queue")), False
+    configured, ctrl, base = bool(q.get("control_queue")), [], []
     for d in sources:
         qq = load(os.path.join(d, "queue.json"), {}) or {}
         done = (load(os.path.join(d, "state.json"), {}) or {}).get("done", {})
         for c in qq.get("tests", []):
-            if c.get("kind") != "npc_nav" or not c.get("control"):
+            if c.get("kind") != "npc_nav":
                 continue
-            configured = True
-            if c.get("method") == test.get("method") and c.get("npc") == test.get("npc") and c["id"] in done:
-                ran = True
-                if done[c["id"]]["verdict"] == "PASS":
-                    return verdict, cls, detail + f" (control {c['id']} passed)"
+            configured = configured or bool(c.get("control"))
+            if c.get("npc") != test.get("npc"):
+                continue
+            if c.get("control") and c.get("method") == test.get("method"):
+                ctrl.append((c["id"], done.get(c["id"])))
+            elif c.get("baseline"):
+                base.append((c["id"], done.get(c["id"])))
     if not configured:
         return verdict, cls, detail
-    why = "did not pass" if ran else "has no result"
-    return ("INCONCLUSIVE", "CONTROL",
-            f"control ({test.get('method')}, {test.get('npc')}) {why}; raw verdict {verdict} {cls}: {detail}")
+    raw = f"raw verdict {verdict} {cls}: {detail}"
+
+    def why(group):
+        if any(r and r.get("class") == "WANDER" for _, r in group):
+            return "did not pass (the actor came to B without a command)"
+        return "did not pass" if any(r for _, r in group) else "has no result"
+    passed = [i for i, r in ctrl if r and r.get("verdict") == "PASS"]
+    if not passed:
+        return "INCONCLUSIVE", "CONTROL", f"control ({test.get('method')}, {test.get('npc')}) {why(ctrl)}; {raw}"
+    if base:
+        bpass = [i for i, r in base if r and r.get("verdict") == "PASS"]
+        if not bpass:
+            return ("INCONCLUSIVE", "CONTROL",
+                    f"control {passed[0]} passed but the baseline ({test.get('npc')}, no command) {why(base)}; {raw}")
+        return verdict, cls, detail + f" (control {passed[0]} and baseline {bpass[0]} passed)"
+    return verdict, cls, detail + f" (control {passed[0]} passed)"
 
 
 # ----------------------------------------------------------------------------------------------------------- controls
@@ -680,15 +766,28 @@ def blocked_reason(ctl, q, launching=False, min_idle=900):
 
 
 # -------------------------------------------------------------------------------------------------------------- runner
+# npc_nav step costs, worst case (typing about 0.24 s a character, +0.08 s shifted, a PowerShell start per Send)
+NPC_SESSION_S = 45      # one console session: open, ClearConsole + ~60 characters, waits, OCR at up to 4 thresholds
+NPC_READ_S = 75         # Read-Pos: up to 3 readpos.ps1 runs
+NPC_REMOVE_S = 300      # kept for the removal (qstep.ps1 $reserve): Select-Npc, removal by id, disable, markfordelete
+
+
 def step_timeout(test):
-    """Seconds one qstep.ps1 may take. Typing costs about 0.25 s a character and every confirmed npc_nav read is one
-    console session (ClearConsole, GetIsID, getpos x/y/z, OCR), up to three when the selection has to be found again."""
+    """Seconds one qstep.ps1 may take before the runner kills it. Every confirmed npc_nav read is one console session
+    (ClearConsole, GetIsID, getpos x/y/z, OCR), up to three when the selection has to be found again (Select-Npc)."""
     if test.get("kind") == "terrain":
         # a terrain drop takes about a minute per point (teleport, fall, OCR read): 300 s cut experiment 1 off
         return 150 + 90 * (len(test.get("points", [])) + 1)
     if test.get("kind") == "npc_nav":
         reads = test.get("reads_s") or [0]
-        return int(480 + 75 * len(reads) + max(reads) + len(test.get("pre") or []) * test.get("pre_wait_ms", 0) / 1000)
+        n = len([x for x in reads if x > 0])
+        pre = len(test.get("pre") or []) * (test.get("pre_wait_ms", 0) / 1000 + 30)
+        fixed = (120                                      # coc, the HUD back (up to 90 s), 3 s
+                 + 5 * NPC_READ_S + 12 + NPC_READ_S        # the arrival until it settles (5 reads), the anchor
+                 + 2 * (30 + test.get("settle_ms", 0) / 1000 + NPC_READ_S)   # the player to A and to B
+                 + pre + 2 * NPC_SESSION_S                 # probes, the spawn and its position
+                 + 4 * NPC_SESSION_S + NPC_REMOVE_S)       # t = 0 (Select-Npc) and the command; the removal
+        return int(fixed + n * (3 * NPC_SESSION_S + 10) + max(reads))
     return 300
 
 
@@ -731,9 +830,11 @@ class Runner:
 
     def _step(self, test, out_dir):
         spec = os.path.join(out_dir, "spec.json")
-        save_atomic(spec, test)
+        timeout = step_timeout(test)
+        # npc_nav: the step stops sampling in time to remove its actor before this timeout would kill it
+        save_atomic(spec, dict(test, budget_s=timeout - 60) if test.get("kind") == "npc_nav" else test)
         code, out = self._ps("qstep.ps1", ["-Spec", spec, "-Out", out_dir, "-PluginIndex", self.q["plugin_index"]],
-                             step_timeout(test))
+                             timeout)
         with open(os.path.join(out_dir, "step.log"), "w", encoding="utf-8") as f:
             f.write(out)
         return code
@@ -867,6 +968,19 @@ class Runner:
             if ran >= a.max_tests or time.time() > self.deadline:
                 self.log("test or time budget used up")
                 break
+            pre = precondition(t)
+            if pre:                                       # checked before the game is launched for it: final
+                rec = {"id": t["id"], "kind": t["kind"], "cell": t["cell"], "ref": t["ref"], "model": t.get("model", ""),
+                       "attempt": 0, "verdict": "INCONCLUSIVE", "class": "PRECONDITION", "detail": pre, "exit": None,
+                       "dir": "", "t": now()}
+                if t.get("expect"):
+                    rec["expect"] = t["expect"]
+                with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
+                    f.write(json.dumps(rec) + "\n")
+                self.state["done"][t["id"]] = {"verdict": "INCONCLUSIVE", "class": "PRECONDITION", "attempts": 0}
+                self.checkpoint()
+                self.log(f"{t['id']}: INCONCLUSIVE PRECONDITION {pre}")
+                continue
             while True:
                 why = blocked_reason(self.ctl, self.q)
                 if not why and self.ctl.game_pid() and not self.ctl.game_in_front():
@@ -939,8 +1053,8 @@ class Runner:
                     self.session, self.cell = False, None
                     verdict, cls, detail = "INCONCLUSIVE", "CRASH", "the game exited during this test"
                 else:
-                    verdict, cls, detail = judge(t, load(os.path.join(out_dir, "obs.json")), out_dir)
-                    verdict, cls, detail = control_gate(self.qdir, self.q, t, verdict, cls, detail)
+                    raw = judge(t, load(os.path.join(out_dir, "obs.json")), out_dir)
+                    verdict, cls, detail = control_gate(self.qdir, self.q, t, *raw)
                     if not t["cell"]:
                         self.cell = None                  # the test travelled (terrain experiment world)
                     if cls in ("STOPPED", "NOOBS", "NORESULT"):
@@ -949,11 +1063,15 @@ class Runner:
                    "attempt": n, "verdict": verdict, "class": cls, "detail": detail, "exit": code, "dir": out_dir, "t": now()}
             if t.get("expect"):
                 rec["expect"] = t["expect"]
+            if cls == "CONTROL":
+                rec["raw"] = list(raw)                    # the report gates it again (write_report)
             with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
                 f.write(json.dumps(rec) + "\n")
             final = verdict != "INCONCLUSIVE" or n >= a.max_attempts or cls in FINAL_INCONCLUSIVE
             if final:
                 self.state["done"][t["id"]] = {"verdict": verdict, "class": cls, "attempts": n}
+                if cls == "CONTROL":
+                    self.state["done"][t["id"]]["raw"] = list(raw)
             k = br.setdefault(t["kind"], {"inconclusive_run": 0, "decided": 0, "open": False})
             if verdict == "INCONCLUSIVE" and cls not in ("CRASH", "NOCELL") + FINAL_INCONCLUSIVE:
                 k["inconclusive_run"] += 1
@@ -978,11 +1096,21 @@ class Runner:
 # -------------------------------------------------------------------------------------------------------------- report
 def write_report(qdir):
     q = load(os.path.join(qdir, "queue.json"))
-    rows = [json.loads(x) for x in open(os.path.join(qdir, "results.jsonl"), encoding="utf-8")] \
-        if os.path.exists(os.path.join(qdir, "results.jsonl")) else []
+    rows = []
+    if os.path.exists(os.path.join(qdir, "results.jsonl")):
+        with open(os.path.join(qdir, "results.jsonl"), encoding="utf-8") as f:
+            rows = [json.loads(x) for x in f]
     final = {}
     for r in rows:                                        # last attempt per test counts
         final[r["id"]] = r
+    # npc_nav control gate again, on the raw verdict: a control that passed after this test ran (retried at the end
+    # of its queue, or its queue ran later) now counts
+    by_id = {t["id"]: t for t in q["tests"]}
+    for k, r in list(final.items()):
+        if r.get("class") == "CONTROL" and r.get("raw") and k in by_id:
+            v, c, d = control_gate(qdir, q, by_id[k], *r["raw"])
+            if c != "CONTROL":
+                final[k] = dict(r, verdict=v, detail=d + " (gated again at report time)", **{"class": c})
     tally = {}
     for r in final.values():
         tally.setdefault(r["kind"], {}).setdefault(r["verdict"], 0)

@@ -50,7 +50,9 @@ class QstepNpcSandboxTests(unittest.TestCase):
         with open(os.path.join(out, "obs.json"), encoding="utf-8-sig") as f:
             obs = json.load(f)
         with open(state) as f:
-            left = [k for k, a in json.load(f)["actors"].items() if not (a.get("disabled") and a.get("deleted"))]
+            st = json.load(f)
+        left = [k for k, a in st["actors"].items() if not (a.get("disabled") and a.get("deleted"))]
+        self.typed = st.get("typed", [])
         return tq.judge(t, obs, out), obs, left
 
     def check(self, want, plan=None, world=None, removed=True):
@@ -84,6 +86,51 @@ class QstepNpcSandboxTests(unittest.TestCase):
     def test_failed_spawn_types_nothing_on_the_selection(self):
         obs = self.check(("INCONCLUSIVE", "SPAWN"), world={"spawn_fails": True}, removed=False)
         self.assertFalse(obs["cleanup"]["removed"])
+
+    def test_cf_is_typed_with_its_quotes(self):
+        # Windows PowerShell 5.1 dropped the quotes of a native argument: the console got cf Actor.PathToReference
+        cf = 'cf "Actor.PathToReference" player 1.0'
+        obs = self.check(("PASS", "PASS"), plan={"method": "cf_pathto_player"},
+                         world={"accepts": cf.lower()})
+        self.assertEqual(obs["command"], cf)
+        self.assertIn(cf, self.typed)
+        self.assertNotIn("cf Actor.PathToReference player 1.0", self.typed)
+
+    def test_column_ocr_layout(self):
+        # real console OCR lists labels first, then values, and loses a lone "y" argument (2026-10-11)
+        obs = self.check(("PASS", "PASS"), world={"layout": "column"})
+        self.assertEqual(obs["cleanup"]["via"], "prid")
+        self.assertEqual(obs["spawn"]["how"], "order")
+        self.assertTrue(all(s["isid"] == 1 for s in obs["samples"]))
+
+    def test_anchor_reading_its_local_position_falls_back_to_the_arrival(self):
+        # exp2b 2026-10-11: prid 02000800 + getpos gave -989.03 1147.20 105.14, the anchor's unmerged local position
+        world = dict(MARS, anchor_pos=[-989.03, 1147.2, 105.14])
+        obs = self.check(("PASS", "PASS"), plan=N1, world=world)
+        self.assertTrue(obs["anchor_unmerged"])
+        self.assertEqual(obs["offset_from"], "spawn")
+        self.assertEqual([round(v, 2) for v in obs["offset"]], [3000.0, -3500.0, -20.0])
+
+    def test_offset_waits_for_the_arrival_to_land(self):
+        # exp1d read the arrival mid-fall: the Z offset comes from a read that no longer moves
+        world = dict(MARS, anchor_pos=[-989.03, 1147.2, 105.14], fall={"height": 150.0, "speed": 12.0})
+        obs = self.check(("PASS", "PASS"), plan=N1, world=world)
+        self.assertTrue(obs["spawn_settled"])
+        self.assertGreater(len(obs["spawn_reads"]), 2)
+        self.assertAlmostEqual(obs["offset"][2], -20.0, places=1)
+
+    def test_an_arrival_that_never_lands_spawns_nothing(self):
+        world = dict(MARS, anchor_pos=[-989.03, 1147.2, 105.14], fall={"height": 100000.0, "speed": 5.0})
+        v, obs, left = self.run_step(N1, world)
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "ANCHOR"), v[2])
+        self.assertIn("still moving", obs["offset_missing"])
+        self.assertNotIn("spawn", obs)
+        self.assertEqual(left, [])
+
+    def test_baseline_types_no_command(self):
+        obs = self.check(("PASS", "PASS"), plan={"method": "none", "control": False})
+        self.assertEqual(obs["command"], "")
+        self.assertFalse([c for c in self.typed if c.lower().startswith(("pathtoref", "cf ", "setplayerteammate"))])
 
 
 if __name__ == "__main__":

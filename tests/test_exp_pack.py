@@ -1,6 +1,6 @@
-"""exp_install.py --pack: the staged Data tree goes into the plugin's own archives, textures into a DDS-format
-'<plugin> - Textures.ba2' (as deploy_starfield.py does for FO4Port), the rest into a General '<plugin> - Main.ba2';
-installed and uninstalled like every other file. A fake Archive2 (recorded subprocess.run) builds the archives."""
+"""exp_install.py --pack: the staged Data tree, textures included, goes into one General, stored '<plugin> - Main.ba2'
+(the layout vanilla uses for terrain textures and overlay masks), built outside the staged folder, installed and
+uninstalled like every other file. A fake Archive2 (recorded subprocess.run) builds the archive; nothing is executed."""
 import os
 import sys
 import tempfile
@@ -18,7 +18,16 @@ def write(p, data=b"x"):
         f.write(data)
 
 
-class TexturePackTests(unittest.TestCase):
+def read(p):
+    with open(p, "rb") as f:
+        return f.read()
+
+
+def tree(d):
+    return sorted(os.path.relpath(os.path.join(r, f), d) for r, _, fs in os.walk(d) for f in fs)
+
+
+class PackTests(unittest.TestCase):
     def setUp(self):
         root = tempfile.mkdtemp()
         self.game, self.exp, self.local = (os.path.join(root, x) for x in ("game", "exp", "local"))
@@ -30,10 +39,10 @@ class TexturePackTests(unittest.TestCase):
         self.calls = []
 
         def fake_run(cmd, cwd=None, capture_output=False, text=False, **kw):
-            # Archive2 <folders> -create=<out> -root=<root> -format=<fmt> -compression=Default
+            # Archive2 <folders> -create=<out> -root=<root> -format=<fmt> -compression=<c>
             opts = dict(a[1:].split("=", 1) for a in cmd[2:])
             self.calls.append({"folders": cmd[1].split(","), "format": opts["format"], "root": opts["root"],
-                               "out": os.path.basename(opts["create"]).replace(".tmp.ba2", "")})   # built under a temp name
+                               "compression": opts["compression"], "create": opts["create"]})
             write(opts["create"], b"BTDX" + b"\0" * 20)
             return SimpleNamespace(returncode=0, stdout="", stderr="")
         self.old = (exp_install.subprocess.run, os.environ.get("LOCALAPPDATA"))
@@ -54,52 +63,47 @@ class TexturePackTests(unittest.TestCase):
     def data(self):
         return sorted(os.listdir(os.path.join(self.game, "Data")))
 
-    def test_textures_go_into_a_dds_archive_and_the_rest_into_main(self):
+    def test_terrain_and_overlay_mask_go_into_one_general_stored_archive(self):
         write(os.path.join(self.exp, "Data", "Terrain", "W.btd"), b"BTDB")
         write(os.path.join(self.exp, "Data", "textures", "terrain", "overlaymasks", "w.dds"), b"DDS ")
+        before = tree(self.exp)
         self.install()
-        by_fmt = {c["format"]: c for c in self.calls}
-        self.assertEqual(sorted(by_fmt), ["DDS", "General"])
-        self.assertEqual((by_fmt["General"]["folders"], by_fmt["General"]["out"]), (["Terrain"], "Exp - Main.ba2"))
-        self.assertEqual((by_fmt["DDS"]["folders"], by_fmt["DDS"]["out"]), (["textures"], "Exp - Textures.ba2"))
-        self.assertTrue(all(c["root"] == os.path.join(self.exp, "Data") for c in self.calls))
-        self.assertEqual(self.data(), ["Exp - Main.ba2", "Exp - Textures.ba2", "Exp.esm", "Exp_Mars.esm",
-                                       exp_install.RECORD])
-        self.assertFalse(os.path.exists(os.path.join(self.game, "Data", "Terrain")))   # no loose files
+        self.assertEqual(len(self.calls), 1)
+        c = self.calls[0]
+        self.assertEqual((c["folders"], c["format"], c["compression"]), (["Terrain", "textures"], "General", "None"))
+        self.assertEqual(c["root"], os.path.join(self.exp, "Data"))
+        self.assertFalse(os.path.normcase(c["create"]).startswith(os.path.normcase(self.exp)))   # built elsewhere
+        self.assertFalse(os.path.exists(os.path.dirname(c["create"])))                          # and cleaned up
+        self.assertEqual(tree(self.exp), before)                                                 # staged folder only read
+        self.assertEqual(self.data(), ["Exp - Main.ba2", "Exp.esm", "Exp_Mars.esm", exp_install.RECORD])
+        self.assertFalse(os.path.exists(os.path.join(self.game, "Data", "Terrain")))           # no loose files
         exp_install.main(["uninstall", "--starfield", self.game])
         self.assertEqual(self.data(), [])
-        with open(os.path.join(self.local, "Starfield", "Plugins.txt"), "rb") as f:
-            self.assertEqual(f.read(), b"*FO4Port.esm\r\n")
+        self.assertEqual(read(os.path.join(self.local, "Starfield", "Plugins.txt")), b"*FO4Port.esm\r\n")
 
-    def test_textures_only_builds_no_main_archive(self):
-        write(os.path.join(self.exp, "Data", "Textures", "a.DDS"), b"DDS ")              # any case
-        self.install()
-        self.assertEqual([(c["format"], c["folders"]) for c in self.calls], [("DDS", ["Textures"])])
-        self.assertIn("Exp - Textures.ba2", self.data())
-        self.assertNotIn("Exp - Main.ba2", self.data())
-
-    def test_a_non_dds_file_in_textures_is_refused_before_anything_is_built(self):
-        write(os.path.join(self.exp, "Data", "Terrain", "W.btd"), b"BTDB")
-        write(os.path.join(self.exp, "Data", "textures", "notes.txt"), b"x")
-        with self.assertRaises(SystemExit):
-            self.install()
-        self.assertEqual(self.calls, [])
-        self.assertEqual(self.data(), [])
-
-    def test_an_existing_texture_archive_is_never_overwritten(self):
+    def test_an_existing_archive_is_never_overwritten(self):
         write(os.path.join(self.exp, "Data", "textures", "a.dds"), b"DDS ")
-        write(os.path.join(self.game, "Data", "Exp - Textures.ba2"), b"theirs")
+        write(os.path.join(self.game, "Data", "Exp - Main.ba2"), b"theirs")
         with self.assertRaises(SystemExit):
             self.install()
-        with open(os.path.join(self.game, "Data", "Exp - Textures.ba2"), "rb") as f:
-            self.assertEqual(f.read(), b"theirs")
+        self.assertEqual(read(os.path.join(self.game, "Data", "Exp - Main.ba2")), b"theirs")
         self.assertNotIn("Exp.esm", self.data())
 
     def test_archive2_failure_installs_nothing(self):
         write(os.path.join(self.exp, "Data", "textures", "a.dds"), b"DDS ")
-        exp_install.subprocess.run = lambda *a, **k: SimpleNamespace(returncode=1, stdout="bad", stderr="")
+        before = tree(self.exp)
+        exp_install.subprocess.run = lambda *a, **k: SimpleNamespace(returncode=1, stdout="bad", stderr=None)
         with self.assertRaises(SystemExit):
             self.install()
+        self.assertEqual(self.data(), [])
+        self.assertEqual(tree(self.exp), before)
+
+    def test_without_pack_the_loose_files_are_copied(self):
+        write(os.path.join(self.exp, "Data", "Terrain", "W.btd"), b"BTDB")
+        exp_install.main(["install", "--exp-dir", self.exp, "--starfield", self.game, "--plugins", "Exp.esm"])
+        self.assertEqual(self.calls, [])
+        self.assertEqual(read(os.path.join(self.game, "Data", "Terrain", "W.btd")), b"BTDB")
+        exp_install.main(["uninstall", "--starfield", self.game])
         self.assertEqual(self.data(), [])
 
 

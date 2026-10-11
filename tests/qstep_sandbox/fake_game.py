@@ -3,7 +3,11 @@ State lives in the JSON file named by $FAKE_STATE.
 usage: fake_game.py type <input.ps1 sequence> | screen | readpos [ref]
 Scenario knobs in the state: speed (m/s, 0 = the actor never moves), isid_ok (GetIsID answers 1 for the right base),
 self_fmt (hex | paren | none), lose_selection (every console open clears the selection), spawn_fails, clear_fails
-(ClearConsole leaves the log), accepts (the one walk command that works), anchor_id / anchor_pos, arrival."""
+(ClearConsole leaves the log), accepts (the one walk command that works), anchor_id / anchor_pos, arrival,
+fall ({"height", "speed"}: after coc the player falls from arrival z + height at speed m/s until the arrival z),
+layout ("inline" | "column": how the OCR lists the screen, modelled on real console OCR of 2026-10-11: labels first,
+then values; echo arguments drift into the value column, a lone "y" is lost).
+"typed" keeps every command the console received (ClearConsole does not clear it)."""
 import json
 import math
 import os
@@ -24,12 +28,21 @@ def actor_pos(s, a):
     return list(a["pos"])
 
 
+def player_pos(s):
+    p = list(s["player"])
+    f = s.get("falling")
+    if f:
+        p[2] = max(f["ground"], f["top"] - f["speed"] * (time.time() - f["t"]))
+    return p
+
+
 def selected(s):
     return s["actors"].get(s.get("sel") or "")
 
 
 def run(s, cmd):
     low = cmd.lower()
+    s.setdefault("typed", []).append(cmd)
     if low == "clearconsole" and not s.get("clear_fails"):
         s["log"] = []
         return
@@ -37,15 +50,21 @@ def run(s, cmd):
     w = cmd.split()
     a = selected(s)
     if low.startswith("player.setpos "):
+        s["player"] = player_pos(s)
+        s["falling"] = None
         s["player"]["xyz".index(w[1])] = float(w[2])
     elif low.startswith("coc "):
         s["cell"], s["player"] = w[1], list(s["arrival"])
+        if s.get("fall"):
+            s["falling"] = {"ground": s["arrival"][2], "top": s["arrival"][2] + s["fall"]["height"],
+                            "speed": s["fall"]["speed"], "t": time.time()}
     elif low.startswith("player.placeatme "):
         if s.get("spawn_fails"):
             s["log"].append("Item not found")
             return
         rid = f"FF{0x800 + len(s['actors']):06X}"
-        s["actors"][rid] = {"base": w[1].upper(), "pos": [s["player"][0] + 0.8, s["player"][1], s["player"][2]]}
+        p = player_pos(s)
+        s["actors"][rid] = {"base": w[1].upper(), "pos": [p[0] + 0.8, p[1], p[2]]}
         s["last"] = rid
     elif low == "plr":
         s["sel"] = s.get("last")
@@ -88,6 +107,25 @@ def run(s, cmd):
         s["log"].append(f"GetDisabled >> {'1.00' if a and a.get('disabled') else '0.00'}")
 
 
+def column(lines):
+    """The OCR's column layout: the left column (command names, reply labels) first, then the right one (values and
+    the arguments that drifted off their echo); a lone 'y' argument is lost."""
+    left, right = [], []
+    for ln in lines:
+        if " >> " in ln:
+            lab, val = ln.split(" >> ", 1)
+            left.append(lab + " > >")
+            right.append(val)
+        elif " " in ln and not ln.startswith(("Missing", "Reference", "Script", "Item")):
+            cmd, arg = ln.split(" ", 1)
+            left.append(cmd)
+            if arg != "y":
+                right.append(arg)
+        else:
+            left.append(ln)
+    return left + right
+
+
 def main():
     with open(P) as f:
         s = json.load(f)
@@ -105,12 +143,13 @@ def main():
                 if s["console"] and s.get("lose_selection"):
                     s["sel"] = None
     elif sys.argv[1] == "screen":
-        print("\n".join(s["log"][-9:]))                    # the console shows about nine lines
+        lines = s["log"][-9:]                              # the console shows about nine lines
+        print("\n".join(column(lines) if s.get("layout") == "column" else lines))
         return
     elif sys.argv[1] == "readpos":
         ref = sys.argv[2].upper() if len(sys.argv) > 2 else ""
         if not ref:
-            print(" ".join(f"{v:.2f}" for v in s["player"]))
+            print(" ".join(f"{v:.2f}" for v in player_pos(s)))
         elif ref == s.get("anchor_id"):
             s["sel"] = ref                                 # readpos -Ref selects with prid
             print(" ".join(f"{v:.2f}" for v in s["anchor_pos"]))
