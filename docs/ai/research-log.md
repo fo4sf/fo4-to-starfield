@@ -52,7 +52,7 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
     LCTN (2CA99D, 01B736), INAM/HNAM 0/0 (exp1d) and 1/0 (exp2b), persistent XMarker anchor `01000800`
     (plan `02000800`), Mars entry, mask decodes exactly, plan points within one quantisation step.
 - Status: records **verified** offline. Whether any of the four differences matters in game, the meaning of `HNAM`,
-  the stale FNAM of 242 vanilla blocks, mask row order and the run-time load-order byte (02 assumed) are
+  the stale FNAM of 247 vanilla blocks, mask row order and the run-time load-order byte (02 assumed) are
   **unresolved**.
 
 ## 2026-10-11 Claude: terrain experiment 2 staged
