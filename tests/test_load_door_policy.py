@@ -1,4 +1,4 @@
-"""Synthetic production checks for load-door safety before teleport support."""
+"""Synthetic production checks for load doors: static with native collision; the teleport is the plugin writer's job."""
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -25,7 +25,7 @@ class LoadDoorPolicyTests(unittest.TestCase):
         converter.stats = {"assets": 0, "failed": 0}
         return converter.convert_nif(name)
 
-    def test_load_doors_stay_static_with_collision_and_report_missing_teleport(self):
+    def test_load_doors_stay_static_with_collision_and_carry_bounds_for_the_door_record(self):
         for name in ("meshes/doors/SyntheticDoorLoad01.nif", "meshes/doors/LoadSyntheticDoor01.nif"):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as staging, \
                     patch.object(pipeline.nif, "door_hinge", return_value=True), \
@@ -35,7 +35,11 @@ class LoadDoorPolicyTests(unittest.TestCase):
                 self.assertTrue(result["ok"], result)
                 swing.assert_not_called()
                 self.assertNotIn("door", result)
-                self.assertIn("teleport not ported", result["load_door"])
+                self.assertIn("plugin writer", result["load_door"]["note"])
+                # nested_nif: a 1 m triangle under a node moved 1 m in x and turned 90 degrees -> x 0..1, y 0..1, z 0
+                lo, hi = result["load_door"]["bounds"]
+                for got, want in zip(lo + hi, [0, 0, 0, 1, 1, 0]):
+                    self.assertAlmostEqual(got, want, places=2)
                 self.assertEqual(static.call_args.kwargs["collision_template"], b"synthetic collision")
                 self.assertEqual(static.call_args.kwargs["sf_mesh_template"], b"synthetic native template")
 

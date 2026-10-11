@@ -659,3 +659,20 @@ the fixed `cycle.ps1` (PR #42) and verified at the COC marker (0.0 m).
   (`XRGD`, 28 bytes per body; research log). So the phase A rigid skeleton spawns standing and topples, which is the
   ~1 m slide and 0.88 m drop measured in game. Needed: `XRGD` in Fo4Export (Codex) and a posed bake on the converter
   side (skin weights). Until then skeletons are movable but in the wrong pose; reported, not hidden.
+## 2026-10-10 Claude: load doors between converted cells get their teleport (offline)
+FO4 load doors were kept shut since 2026-10-08. Now `dotnet/PluginSpike` makes every manifest `load_door` a graph-less
+DOOR record (collision unchanged) and, after all cells of a build are placed, writes the Starfield XTEL on both ends of
+every pair whose destination is placed in the same build; both references become persistent, as all 964 vanilla XTEL
+references are (docs/ai/research-log.md 2026-10-10). Unlinked doors stay shut and are listed in `<out>/teleports.json`;
+`PluginSpike teleports FO4Port.esm` lists the written links. Offline only: the pinned 15 cells + a scratch export of
+FortHagen02 give one pair (FortHagen01 `0CD469` <-> FortHagen02 `0CD46A`), read back from the written plugin. Not yet in
+game. Note for the next build: 12 of the 15 pinned cell exports predate the persistent-reference export and hold no
+load-door XTEL at all; re-export them before expecting any door to teleport. Branch `claude/load-door-teleport`.
+
+## 2026-10-11 Claude: load-door teleports checked on the re-exported 16 cells
+Follow-up to 2026-10-10. With the 15 pinned cells and FortHagen02 re-exported (schema 2, C:\Modding\staging\exports_1011),
+the branch writer reports "2 references linked (1 mutual pairs), 28 destinations not in this build, 4 sources not placed,
+0 issues": 34 XTELs, one pair (FortHagen01 `0CD469` <-> FortHagen02 `0CD46A`), the rest lead out of the set or sit on
+marker doors the converter never places. Read back from the written plugin; 0 existing FormIDs changed against the staging
+map. `teleports.json` now lists the unplaced sources too (PluginSpike.Tests asserts it). Still offline, not in game; PR #50
+(docs/ai/research-log.md 2026-10-11).

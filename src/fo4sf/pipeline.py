@@ -17,13 +17,14 @@ from typing import Dict, List, Optional
 
 from . import ba2 as ba2mod
 from . import convert_material as cm
-from . import convert_static, nif, sfcollision, sfnif, textures
+from . import convert_static, nif, sfcollision, sfmesh, sfnif, textures
 
 DOOR_RE = re.compile(r"[\\/]doors?[\\/]|door[^\\/]*\.nif$", re.I)
 NOT_HINGED_RE = re.compile(r"vault|elevator|garage|gate|hatch|slid", re.I)   # sliding / lifting doors animate differently
-# FO4 load doors never swing open into the next space: activating one teleports. Destinations are not ported yet, so a
-# rigged swing opened onto the void behind the wall (Parsons: walked through the entrance door, fell to z -72). Keep
-# them shut and solid with their native collision; the missing teleport is reported per asset as "load_door".
+# FO4 load doors never swing open into the next space: activating one teleports. A rigged swing opened onto the void behind
+# the wall (Parsons: walked through the entrance door, fell to z -72), so they stay shut and solid with their native
+# collision. The plugin writer (dotnet/PluginSpike) makes them DOOR records and writes the teleport link on both references
+# when both ends are placed in the same build; the per-asset "load_door" entry carries the model bounds for that record.
 LOAD_DOOR_RE = re.compile(r"door[^\\/]*load[^\\/]*\.nif$|load[^\\/]*door[^\\/]*\.nif$", re.I)
 
 
@@ -436,7 +437,12 @@ class Converter:
                                       r"|[\\/]doors?[\\/]|door[^\\/]*\.nif$", nif_name, re.I))
             load_door = bool(LOAD_DOOR_RE.search(nif_name))
             if load_door:
-                res["load_door"] = "teleport not ported: door stays shut"
+                # bounds (metres, NIF space) for the DOOR record's OBND, like the hinged doors' "door.bounds"
+                pts = [sfmesh.decode_position(p, m.scale) for m in (convert_static.shape_to_mesh(s) for s in shapes)
+                       for p in m.positions]
+                res["load_door"] = {"note": "static door: teleport written by the plugin writer when both ends are in the build",
+                                    "bounds": [[round(min(p[a] for p in pts), 4) for a in range(3)],
+                                               [round(max(p[a] for p in pts), 4) for a in range(3)]]}
             # A door leaf that animates in FO4 ("Open" sequence) but is not rigged here (sliding / vault / elevator doors,
             # or rigging failed) cannot open: keep it passable rather than a closed wall, and say so.
             seq_names = [struct.unpack_from("<i", src.blocks[i], 0)[0] for i in range(len(src.blocks))

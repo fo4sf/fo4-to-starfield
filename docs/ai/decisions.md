@@ -48,3 +48,11 @@ don't poll while idle).
 - Alternatives: MiscItem (adds pickup/inventory semantics FO4 statics don't have); leaving them static (blocks doors,
   silently changes gameplay); converting constraints first (weeks; the Vault 114 door needed a fix now). Breakables
   (`*Dest` models) are included in the merge without a check that their union matches the intact mesh: open.
+## 2026-10-10 Load-door teleports are written by the plugin writer, not left to the ReferenceLinks post-pass
+PluginSpike decides each manifest item's base record type; an XTEL is only valid between DOOR references, and both ends
+are only known once every cell of the build is placed. So PluginSpike makes `load_door` items DOOR records and writes
+the XTEL for each pair placed in the same build (dotnet/PluginSpike/TeleportLinks.cs), moving both ends to the
+persistent group. Codex's ReferenceLinks post-pass (Relationships.Apply) writes the same link when it runs afterwards
+(same values, idempotent) and still reports the unresolved ones. Alternatives: ReferenceLinks only (the STAT -> DOOR
+change is PluginSpike's anyway, and every build would need the second pass); a DOOR for every FO4 Door base (fake doors,
+hatches and trapdoors would become activatable with no destination).

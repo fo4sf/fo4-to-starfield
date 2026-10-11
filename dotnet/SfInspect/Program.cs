@@ -112,4 +112,95 @@ switch (args[1])
                 && wanted.Any(w => file.ToString().Contains(w, StringComparison.OrdinalIgnoreCase)))
                 Console.WriteLine($"{r.GetType().Name.Replace("BinaryOverlay", "")}  {r.EditorID}  {r.FormKey}  model={file}");
         break;
+    case "teleports":   // how vanilla load doors are set up: every placed object with an XTEL, its base record, its destination
+    {
+        // (ref, cell, persistent group?) for every placed object in interior and worldspace cells
+        var all = new Dictionary<Mutagen.Bethesda.Plugins.FormKey, (IPlacedObjectGetter r, ICellGetter c, bool persistent, bool interior)>();
+        void Take(ICellGetter c, bool interior)
+        {
+            foreach (var r in c.Persistent.OfType<IPlacedObjectGetter>()) all.TryAdd(r.FormKey, (r, c, true, interior));
+            foreach (var r in c.Temporary.OfType<IPlacedObjectGetter>()) all.TryAdd(r.FormKey, (r, c, false, interior));
+        }
+        foreach (var c in cells) Take(c, true);
+        foreach (var w in mod.Worldspaces)
+        {
+            if (w.TopCell != null) Take(w.TopCell, false);
+            foreach (var c in w.SubCells.SelectMany(b => b.Items).SelectMany(b => b.Items)) Take(c, false);
+        }
+        var tele = all.Values.Where(x => x.r.TeleportDestination != null).ToList();
+        Console.WriteLine($"placed objects scanned: {all.Count}; with XTEL: {tele.Count} (interior {tele.Count(x => x.interior)}, " +
+                          $"persistent group {tele.Count(x => x.persistent)}, record flag 0x400 {tele.Count(x => (x.r.MajorRecordFlagsRaw & 0x400) != 0)})");
+        int baseDoor = 0, baseOther = 0, destDoor = 0, destBack = 0, destMissing = 0, transition = 0, sameCell = 0, agc = 0, agcNull = 0;
+        var xtelFlags = new Dictionary<uint, int>();
+        var doorFlags = new Dictionary<string, int>();
+        var bases = new Dictionary<Mutagen.Bethesda.Plugins.FormKey, int>();
+        var dist = new List<double>();
+        var recFlags = new Dictionary<int, int>();
+        foreach (var (r, c, persistent, interior) in tele)
+        {
+            var t = r.TeleportDestination!;
+            xtelFlags[(uint)t.Flags] = xtelFlags.GetValueOrDefault((uint)t.Flags) + 1;
+            recFlags[r.MajorRecordFlagsRaw] = recFlags.GetValueOrDefault(r.MajorRecordFlagsRaw) + 1;
+            if (!t.TransitionInterior.IsNull) transition++;
+            if (cache.TryResolve<IDoorGetter>(r.Base.FormKey, out var d))
+            {
+                baseDoor++;
+                bases[d.FormKey] = bases.GetValueOrDefault(d.FormKey) + 1;
+                doorFlags[d.Flags.ToString()] = doorFlags.GetValueOrDefault(d.Flags.ToString()) + 1;
+                if (d.Components.OfType<IAnimationGraphComponentGetter>().Any()) agc++; else agcNull++;
+            }
+            else baseOther++;
+            if (all.TryGetValue(t.Door.FormKey, out var dest))
+            {
+                if (cache.TryResolve<IDoorGetter>(dest.r.Base.FormKey, out _)) destDoor++;
+                if (dest.r.TeleportDestination?.Door.FormKey == r.FormKey) destBack++;
+                if (dest.c.FormKey == c.FormKey) sameCell++;
+                var p = dest.r.Position;
+                dist.Add(Math.Sqrt(Math.Pow(t.Position.X - p.X, 2) + Math.Pow(t.Position.Y - p.Y, 2) + Math.Pow(t.Position.Z - p.Z, 2)));
+            }
+            else destMissing++;
+        }
+        Console.WriteLine($"base is DOOR: {baseDoor}, other: {baseOther}; of those DOORs: with AnimationGraphComponent {agc}, without {agcNull}");
+        Console.WriteLine($"destination found: {tele.Count - destMissing} (base DOOR {destDoor}, links back to source {destBack}, same cell {sameCell}); not found {destMissing}");
+        Console.WriteLine($"XTEL TransitionInterior set: {transition}");
+        foreach (var kv in xtelFlags.OrderByDescending(k => k.Value)) Console.WriteLine($"  XTEL flags {kv.Key}: {kv.Value}");
+        foreach (var kv in recFlags.OrderByDescending(k => k.Value).Take(6)) Console.WriteLine($"  record flags 0x{kv.Key:X}: {kv.Value}");
+        foreach (var kv in doorFlags.OrderByDescending(k => k.Value)) Console.WriteLine($"  DOOR flags [{kv.Key}]: {kv.Value}");
+        dist.Sort();
+        if (dist.Count > 0) Console.WriteLine($"XTEL arrival point to destination door position: median {dist[dist.Count / 2]:F2}, p10 {dist[dist.Count / 10]:F2}, p90 {dist[dist.Count * 9 / 10]:F2}");
+        Console.WriteLine("most used DOOR bases with an XTEL:");
+        foreach (var kv in bases.OrderByDescending(k => k.Value).Take(12))
+        {
+            var d = cache.Resolve<IDoorGetter>(kv.Key);
+            var g = d.Components.OfType<IAnimationGraphComponentGetter>().FirstOrDefault();
+            Console.WriteLine($"{kv.Value,5}  {d.FormKey} {d.EditorID}  name={d.Name}  flags={d.Flags}  model={d.Model?.File}  agc={g?.ANAM ?? "none"}  components=[{string.Join(",", d.Components.Select(x => x.GetType().Name.Replace("BinaryOverlay", "")))}]");
+        }
+        var want = args.Length > 2 ? args[2] : null;
+        Console.WriteLine("examples (interior source, destination resolved):");
+        foreach (var (r, c, persistent, interior) in tele.Where(x => x.interior && all.ContainsKey(x.r.TeleportDestination!.Door.FormKey) &&
+                     (want == null || (x.c.EditorID ?? "").Contains(want, StringComparison.OrdinalIgnoreCase))).Take(want == null ? 6 : 20))
+        {
+            var t = r.TeleportDestination!;
+            var dest = all[t.Door.FormKey];
+            cache.TryResolve<IDoorGetter>(r.Base.FormKey, out var d);
+            cache.TryResolve<IDoorGetter>(dest.r.Base.FormKey, out var dd);
+            Console.WriteLine($"  {c.EditorID} {r.FormKey} persistent={persistent} flags=0x{r.MajorRecordFlagsRaw:X} base={d?.EditorID} pos=({r.Position.X:F2},{r.Position.Y:F2},{r.Position.Z:F2}) rotZ={r.Rotation.Z:F3}");
+            Console.WriteLine($"     -> {dest.c.EditorID} {dest.r.FormKey} persistent={dest.persistent} base={dd?.EditorID} destpos=({dest.r.Position.X:F2},{dest.r.Position.Y:F2},{dest.r.Position.Z:F2}) destrotZ={dest.r.Rotation.Z:F3}");
+            Console.WriteLine($"     XTEL pos=({t.Position.X:F2},{t.Position.Y:F2},{t.Position.Z:F2}) rot=({t.Rotation.X:F3},{t.Rotation.Y:F3},{t.Rotation.Z:F3}) flags={t.Flags} transition={t.TransitionInterior.FormKey} back={(dest.r.TeleportDestination?.Door.FormKey == r.FormKey)}");
+        }
+        break;
+    }
+    case "doorrec":   // one DOOR record by EditorID substring: every property, for comparing a load door with a hinged door
+        foreach (var d in mod.Doors.Where(d => (d.EditorID ?? "").Contains(args[2], StringComparison.OrdinalIgnoreCase)).Take(3))
+        {
+            Console.WriteLine($"== {d.EditorID} {d.FormKey} model={d.Model?.File}");
+            foreach (var p in d.GetType().GetProperties())
+            {
+                object? v; try { v = p.GetValue(d); } catch { continue; }
+                var s = v switch { null => "null", string str => str, System.Collections.IEnumerable e and not string => "[" + string.Join(", ", e.Cast<object>().Take(8).Select(x => x.GetType().Name.Replace("BinaryOverlay", ""))) + "]", _ => v.ToString() };
+                if (s != null && s.Length > 200) s = s.Substring(0, 200);
+                Console.WriteLine($"   {p.Name} = {s}");
+            }
+        }
+        break;
 }
