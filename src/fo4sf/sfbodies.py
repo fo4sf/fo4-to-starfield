@@ -78,12 +78,12 @@ def _quat_apply(q, v):
 
 def _cms_triangles(r: _Reader, cms_at: int, cms_type: int) -> List[Tri]:
     tf, b, D = r.tf, r.b, r.D
-    data_at, _, _ = r.target(cms_at + _field(tf, cms_type, "data").offset)
+    data_at, _, data_item = r.target(cms_at + _field(tf, cms_type, "data").offset)
     if not data_at:
         raise BodyError("compressed mesh without data")
-    t_data = _type_index(tf, "hknpCompressedMeshShapeData")
-    t_tree = _type_index(tf, "hknpCompressedMeshShapeTree")
-    tree = data_at + _field(tf, t_data, "meshTree").offset
+    f_tree = _field(tf, data_item.type, "meshTree")                 # hknpCompressedMeshShapeData.meshTree
+    t_tree = f_tree.type
+    tree = data_at + f_tree.offset
 
     def arr(name):
         at, n, _ = r.target(tree + _field(tf, t_tree, name).offset)

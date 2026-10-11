@@ -14,6 +14,8 @@ import math
 import re
 from typing import Dict, List, Optional, Tuple
 
+import numpy as np
+
 from . import terrain_grid as tg
 
 UNITS_PER_METRE = 70.0
@@ -35,6 +37,9 @@ TYPE_REASONS = {
 # the same model filter convert_batch applies to cell exports (editor markers; fog / light / particle effect meshes)
 MARKER_RE = re.compile(r"marker", re.I)
 EFFECTS_RE = re.compile(r"^\\?effects[\\/]", re.I)
+# placed water planes (activators using meshes\water\*.nif): FO4 renders them with its water type; converted as a
+# static they would be an opaque grey sheet at water level, so they stay out until water is translated
+WATER_RE = re.compile(r"^\\?water[\\/]", re.I)
 
 
 def source_key(model: str) -> str:
@@ -57,6 +62,8 @@ def classify(ref: dict, convert_types=CONVERT_TYPES) -> Tuple[str, Optional[str]
         return "skip", "editor_marker", f"editor marker model {model}"
     if EFFECTS_RE.search(model):
         return "skip", "effect", f"effect mesh (fog, light beam or particles) {model}"
+    if WATER_RE.search(model):
+        return "skip", "water", f"placed water plane {model}: no water translation yet (as a static it is an opaque sheet)"
     return "convert", None, ""
 
 
@@ -197,6 +204,71 @@ def top_z(tris, x, y, below=math.inf) -> Optional[float]:
     return zs[0] if zs else None
 
 
+def world_triangles(model_tris, placed, skip_disabled=True):
+    """(tris (N, 3, 3), owners (N,)) of every placed reference: model_tris[base] is a (M, 3, 3) array in model space
+    (metres), moved by scale, ref_matrix(rot) and pos. Initially disabled references have no collision in game and
+    are left out unless skip_disabled is False."""
+    out, own = [], []
+    for k, p in enumerate(placed):
+        if skip_disabled and p.get("disabled"):
+            continue
+        t = np.asarray(model_tris.get(p["base"], ()), np.float64).reshape(-1, 3, 3)
+        if not len(t):
+            continue
+        m = np.array(ref_matrix(p["rot"])).reshape(3, 3)
+        w = (t.reshape(-1, 3) * float(p["scale"])) @ m.T + np.asarray(p["pos"], np.float64)
+        out.append(w.reshape(-1, 3, 3))
+        own.append(np.full(len(t), k, np.int64))
+    if not out:
+        return np.zeros((0, 3, 3)), np.zeros(0, np.int64)
+    return np.concatenate(out), np.concatenate(own)
+
+
+class SurfaceIndex:
+    """World collision triangles of many placed objects, bucketed on an xy grid for fast vertical queries.
+    tris: (N, 3, 3) array (metres), owners: (N,) int array (index of the placed reference)."""
+
+    def __init__(self, tris, owners, cell: float = 4.0):
+        self.tris = np.asarray(tris, np.float64).reshape(-1, 3, 3)
+        self.owners = np.asarray(owners, np.int64).reshape(-1)
+        self.cell = cell
+        self.buckets: Dict[Tuple[int, int], list] = {}
+        if not len(self.tris):
+            return
+        lo = np.floor(self.tris[:, :, :2].min(axis=1) / cell).astype(np.int64)
+        hi = np.floor(self.tris[:, :, :2].max(axis=1) / cell).astype(np.int64)
+        for k in range(len(self.tris)):
+            for i in range(lo[k, 0], hi[k, 0] + 1):
+                for j in range(lo[k, 1], hi[k, 1] + 1):
+                    self.buckets.setdefault((int(i), int(j)), []).append(k)
+        self.buckets = {key: np.array(v, np.int64) for key, v in self.buckets.items()}
+
+    def surfaces(self, x: float, y: float):
+        """[(z, owner)] of every triangle covering (x, y), highest first."""
+        idx = self.buckets.get((int(math.floor(x / self.cell)), int(math.floor(y / self.cell))))
+        if idx is None:
+            return []
+        t = self.tris[idx]
+        a, b, c = t[:, 0], t[:, 1], t[:, 2]
+        d = (b[:, 1] - c[:, 1]) * (a[:, 0] - c[:, 0]) + (c[:, 0] - b[:, 0]) * (a[:, 1] - c[:, 1])
+        ok = np.abs(d) > 1e-12
+        d = np.where(ok, d, 1.0)
+        l1 = ((b[:, 1] - c[:, 1]) * (x - c[:, 0]) + (c[:, 0] - b[:, 0]) * (y - c[:, 1])) / d
+        l2 = ((c[:, 1] - a[:, 1]) * (x - c[:, 0]) + (a[:, 0] - c[:, 0]) * (y - c[:, 1])) / d
+        l3 = 1.0 - l1 - l2
+        hit = ok & (l1 >= -1e-9) & (l2 >= -1e-9) & (l3 >= -1e-9)
+        z = l1 * a[:, 2] + l2 * b[:, 2] + l3 * c[:, 2]
+        out = sorted(zip(z[hit].tolist(), self.owners[idx][hit].tolist()), reverse=True)
+        return out
+
+    def top(self, x: float, y: float, below: float = math.inf):
+        """(z, owner) of the highest surface at (x, y) not above `below`, or None."""
+        for z, o in self.surfaces(x, y):
+            if z <= below:
+                return z, o
+        return None
+
+
 def disc_offsets(radius: float, rings: int = 2, per_ring: int = 8):
     """(dx, dy) samples of a disc: the centre plus `rings` rings of `per_ring` points."""
     out = [(0.0, 0.0)]
@@ -206,16 +278,95 @@ def disc_offsets(radius: float, rings: int = 2, per_ring: int = 8):
     return out
 
 
-def landing(tris, ground, x, y, drop_z, radius=0.6):
+def triangles_top(tris):
+    """A `top` function for landing() over a plain triangle list (owner None)."""
+    def top(x, y, below):
+        z = top_z(tris, x, y, below)
+        return None if z is None else (z, None)
+    return top
+
+
+def landing(top, ground, x, y, drop_z, radius=0.6):
     """What a player dropped at (x, y) from drop_z lands on, judged over a disc of `radius` (about the character
-    capsule): {"z": highest support under the drop, "spread": max - min support over the disc, "ground": terrain z,
-    "on_object": the support is a collision surface above the terrain}. ground(x, y) is the terrain height."""
-    zs, objs = [], []
-    for dx, dy in disc_offsets(radius):
+    capsule). top(x, y, below) -> (z, owner) or None is the highest collision surface not above `below`
+    (SurfaceIndex.top, or triangles_top); ground(x, y) the terrain height. Returns {"z": highest support under the
+    disc, "spread": max - min support over the disc, "ground": terrain z at the centre, "on_object": the centre's
+    support is a collision surface above the terrain, "all_on_object", "owner": the centre support's owner,
+    "owners": every owner supporting part of the disc}."""
+    zs, objs, owners, centre_owner = [], [], set(), None
+    for k, (dx, dy) in enumerate(disc_offsets(radius)):
         g = ground(x + dx, y + dy)
-        o = top_z(tris, x + dx, y + dy, drop_z)
-        zs.append(max(g, o) if o is not None else g)
-        objs.append(o is not None and o > g)
-    g0 = ground(x, y)
-    return {"z": max(zs), "spread": max(zs) - min(zs), "ground": g0, "on_object": objs[0],
-            "all_on_object": all(objs)}
+        hit = top(x + dx, y + dy, drop_z)
+        on = hit is not None and hit[0] > g
+        zs.append(hit[0] if on else g)
+        objs.append(on)
+        if on:
+            owners.add(hit[1])
+            if k == 0:
+                centre_owner = hit[1]
+    return {"z": max(zs), "centre": zs[0], "spread": max(zs) - min(zs), "ground": ground(x, y), "on_object": objs[0],
+            "all_on_object": all(objs), "owner": centre_owner, "owners": sorted(owners, key=str)}
+
+
+def clearance(index: SurfaceIndex, x, y, z, radius=0.6, skin=0.05):
+    """Free height above z over a disc: lowest collision surface higher than z + skin at any disc sample, minus z
+    (math.inf when nothing is above)."""
+    best = math.inf
+    for dx, dy in disc_offsets(radius):
+        above = [s for s, _ in index.surfaces(x + dx, y + dy) if s > z + skin]
+        if above:
+            best = min(best, min(above) - z)
+    return best
+
+
+def flat_samples(index: SurfaceIndex, ground, owner, bounds, drop_z, step=0.5, min_above=0.02):
+    """(x, y, z) on a grid over bounds (x0, y0, x1, y1) where a drop from drop_z lands on `owner` (its surface is the
+    highest one not above drop_z and lies more than min_above over the terrain)."""
+    x0, y0, x1, y1 = bounds
+    out = []
+    for x in np.arange(x0 + step / 2, x1, step):
+        for y in np.arange(y0 + step / 2, y1, step):
+            hit = index.top(float(x), float(y), drop_z)
+            if hit is not None and hit[1] == owner and hit[0] > ground(float(x), float(y)) + min_above:
+                out.append((float(x), float(y), hit[0]))
+    return out
+
+
+def interior_order(samples, radius=2.0, flat_tol=0.03, min_count=1):
+    """Samples ranked by how interior and level their neighbourhood is: the count of samples within `radius` whose
+    z lies within flat_tol of the sample's own z (more = farther from an edge or a step), ties broken by distance to
+    the samples' centroid, then by position (deterministic). Samples below min_count neighbours are dropped."""
+    if not samples:
+        return []
+    s = np.asarray(samples, np.float64)
+    cx, cy = s[:, 0].mean(), s[:, 1].mean()
+    ranked = []
+    for x, y, z in samples:
+        d = np.hypot(s[:, 0] - x, s[:, 1] - y)
+        cnt = int(((d <= radius + 1e-9) & (np.abs(s[:, 2] - z) <= flat_tol)).sum())
+        if cnt >= min_count:
+            ranked.append((-cnt, round(math.hypot(x - cx, y - cy), 6), x, y, z))
+    ranked.sort()
+    return [(x, y, z, -c) for c, _, x, y, z in ranked]
+
+
+def pick_points(index: SurfaceIndex, ground, owner, bounds, drop_z, count=1, min_gap=3.0, step=0.5, radius=0.6,
+                flat_tol=0.02, need_clearance=0.0):
+    """Up to `count` measuring points on `owner`: interior, level samples whose whole landing disc rests on the owner
+    (spread <= flat_tol) and, when need_clearance > 0, with that much free height above the surface (room for the
+    dropped player under a roof). Points are at least min_gap apart. Returns [(x, y, landing dict, clearance)]."""
+    picked = []
+    for x, y, z, _ in interior_order(flat_samples(index, ground, owner, bounds, drop_z, step), radius=2.0,
+                                     flat_tol=flat_tol, min_count=9):
+        if any(math.hypot(x - p[0], y - p[1]) < min_gap for p in picked):
+            continue
+        land = landing(index.top, ground, x, y, drop_z, radius)
+        if not (land["all_on_object"] and land["owners"] == [owner] and land["spread"] <= flat_tol):
+            continue
+        free = clearance(index, x, y, land["centre"], radius) if need_clearance else math.inf
+        if free < need_clearance:
+            continue
+        picked.append((x, y, land, free))
+        if len(picked) == count:
+            break
+    return picked
