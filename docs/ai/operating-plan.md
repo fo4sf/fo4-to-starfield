@@ -1,7 +1,7 @@
 ## Operating Plan
 
 ### Roles and Chain of Command
-- **Owner (dasscooby)**: Sets goals, merges to main, handles installations and security settings.
+- **Owner**: Sets goals, merges to main, handles installations and security settings.
 - **Lead (local)**: Coordinates between owner and Claude, reviews project state, prioritizes tasks, reports to owner via issue #32 and this document.
 - **Claude (remote)**: Primary engineering lead for coding, file-format research, builds, and in-game tests. Operates autonomously except for merges/installs/security changes.
 
