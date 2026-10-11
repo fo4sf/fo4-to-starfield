@@ -105,8 +105,8 @@ def collision_template_from_nif(sf_nif: bytes) -> bytes:
 def fo4_native_collision(src, universal_template: bytes, report: dict = None):
     """[Starfield single-body physics blobs], one per FO4 collision body (meshcollision.convert_bodies), or None to fall
     back. Unsupported shape classes and malformed data return None and record why. One exception, reported as
-    report["skipped_parts"]: precombine debris parts in the undecoded primitive encoding (see convert_bodies) are left
-    out and the rest of the model keeps its native bodies."""
+    report["skipped_parts"]: mesh parts whose primitives the decoder cannot read (a hull record failing its checks, an
+    unknown encoding; see convert_bodies) are left out and the rest of the model keeps its native bodies."""
     from . import meshcollision
     objs = [i for i in range(len(src.blocks)) if src.type_of(i) == "bhkNPCollisionObject"]
     if not objs:

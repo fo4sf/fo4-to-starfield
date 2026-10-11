@@ -145,6 +145,9 @@ def transplant(fo4_blob: bytes, sf_template_blob: bytes) -> Optional[bytes]:
     d, pos = found
     if any(abs(x) > 1e-5 for x in pos):
         return None
+    from . import fo4collision
+    if fo4collision.compressed_mesh_hulls(p, d):          # verbatim copy cannot carry hull primitives: convert_bodies does
+        raise hkpackfile.PackfileError("mesh has hull primitives (convert_bodies handles them)")
     tf = hktagfile.Tagfile(sf_template_blob)
     blob = tf.blob
     tmpl = {tf.type_name(it.type): it for it in tf.items[1:]}
@@ -646,24 +649,49 @@ def _emit_convex(w: "_Writer", t: _Tmpl, p: hkpackfile.Packfile, shape: int, rot
     try:
         _hull_links(faces, nv)
     except hkpackfile.PackfileError:                       # FO4 hull with broken topology: rebuild faces from vertices
-        verts = thicken_if_flat(verts)
-        faces = convex_hull_faces(verts)
-        try:
-            _hull_links(faces, len(verts))
-        except hkpackfile.PackfileError:                   # overlapping near-coplanar polygons: triangulated hull
-            faces = convex_hull_triangles(verts)
-        used = sorted({v for f in faces for v in f})
-        remap = {v: k for k, v in enumerate(used)}
-        verts = [verts[v] for v in used]
-        faces = [[remap[v] for v in f] for f in faces]
-        nv, nf = len(verts), len(faces)
-        face_raw = bytes([0, 0, 0, 127]) * nf               # minHalfAngle 127 as vanilla boxes; rebuilt by _faces_raw
-        planes = _planes_from_faces(verts, faces)
+        verts, faces, face_raw, planes = _rebuild_hull(verts)
+    radius, = p.unpack("<f", shape + 20)
+    return _write_convex_shape(w, t, verts, faces, face_raw, planes, radius)
+
+
+def _rebuild_hull(verts):
+    """(verts, faces, face records, planes) of a closed outward hull rebuilt from a point set: FO4 hulls with broken
+    topology, vertex-only convex shapes and the precombine hull primitives carry no usable faces. A flat set becomes a
+    1 cm slab; polygon faces when they close, else the triangulated hull. Raises PackfileError for a set without volume."""
+    verts = thicken_if_flat(list(verts))
+    faces = convex_hull_faces(verts)
+    try:
+        _hull_links(faces, len(verts))
+    except hkpackfile.PackfileError:                       # overlapping near-coplanar polygons: triangulated hull
+        faces = convex_hull_triangles(verts)
+    used = sorted({v for f in faces for v in f})
+    remap = {v: k for k, v in enumerate(used)}
+    verts = [verts[v] for v in used]
+    faces = [[remap[v] for v in f] for f in faces]
+    face_raw = bytes([0, 0, 0, 127]) * len(faces)          # minHalfAngle 127 as vanilla boxes; rebuilt by _faces_raw
+    return verts, faces, face_raw, _planes_from_faces(verts, faces)
+
+
+def _emit_hull(w: "_Writer", t: _Tmpl, pts, R=None, tr=(0.0, 0.0, 0.0), radius: float = 0.0):
+    """One FO4 hull primitive (see fo4collision.SECTION_HULLS) -> Starfield hknpConvexShape in node space: the hull
+    points get the accumulated part transform (R row-major 3x3, tr) and a rebuilt closed hull. Returns the shape item,
+    or None when the points have no volume (a 2-point hull: nothing to collide with at radius 0)."""
+    R = R or (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+    verts = [tuple(tr[i] + sum(R[3 * i + k] * v[k] for k in range(3)) for i in range(3)) for v in pts]
+    try:
+        verts, faces, face_raw, planes = _rebuild_hull(verts)
+    except hkpackfile.PackfileError:
+        return None
+    return _write_convex_shape(w, t, verts, faces, face_raw, planes, radius)
+
+
+def _write_convex_shape(w: "_Writer", t: _Tmpl, verts, faces, face_raw: bytes, planes: bytes, radius: float) -> int:
+    """Write a Starfield hknpConvexShape (hull: float3 vertices, planes, faces, indices, links) and return its item."""
+    nv, nf = len(verts), len(faces)
     nidx = sum(len(f) for f in faces)
     links, vedges = _hull_links(faces, nv)
     T_CVX = t.type("hknpConvexShape")
     body = bytearray(t.item_bytes("hknpConvexShape"))
-    radius, = p.unpack("<f", shape + 20)
     struct.pack_into("<f", body, t.field(T_CVX, "convexRadius").offset, radius)
     struct.pack_into("<Q", body, t.field(T_CVX, "properties").offset, 0)             # static: no mass properties
     hull = t.field(T_CVX, "hull")
@@ -693,9 +721,34 @@ def _shift_aabb(raw: bytes, pos) -> bytes:
     return struct.pack("<8f", *(lo[i] + pos[i] for i in range(3)), lo[3], *(hi[i] + pos[i] for i in range(3)), hi[3])
 
 
-def _emit_mesh(w: "_Writer", t: _Tmpl, p: hkpackfile.Packfile, d: int, pos=(0.0, 0.0, 0.0)) -> int:
+def _neutralize_hulls(fo4: dict, hulls) -> set:
+    """Turn the hull primitives of a FO4 mesh (fo4collision.compressed_mesh_hulls) into degenerate points before the
+    arrays are copied into Starfield: the primitive becomes (a, a, a, a) and its shared-index record's first word a valid
+    shared vertex index (the hull's first vertex), so a Havok triangle built from it is a point, not a read past the
+    shared vertices. The hulls themselves are emitted as convex bodies. Returns the sections touched (their flags bit
+    SECTION_HULLS is cleared by the caller, as vanilla Starfield sections have flags 0). Mutates fo4 in place."""
+    sections = set()
+    if not hulls:
+        return sections
+    prims = bytearray(fo4["primitives"][0])
+    sidx = bytearray(fo4["sharedVerticesIndex"][0])
+    sec_raw = fo4["sections"][0]
+    for s, k, slot, first, _count, _pts in hulls:
+        shared_d, prim_d = struct.unpack_from("<2I", sec_raw, 96 * s + 76)
+        at = 4 * ((prim_d >> 8) + k)
+        prims[at:at + 4] = bytes([prims[at]]) * 4
+        struct.pack_into("<H", sidx, 2 * ((shared_d >> 8) + slot), first)
+        sections.add(s)
+    fo4["primitives"] = (bytes(prims), fo4["primitives"][1])
+    fo4["sharedVerticesIndex"] = (bytes(sidx), fo4["sharedVerticesIndex"][1])
+    return sections
+
+
+def _emit_mesh(w: "_Writer", t: _Tmpl, p: hkpackfile.Packfile, d: int, pos=(0.0, 0.0, 0.0), hulls=None) -> int:
     """FO4 hknpCompressedMeshShapeData -> Starfield hknpCompressedMeshShape (+ data, trees, SIMD tree). A body
-    translation is baked in (domain, section domains and codec offsets move; quantised data stay relative)."""
+    translation is baked in (domain, section domains and codec offsets move; quantised data stay relative).
+    hulls: the mesh's hull primitives (fo4collision.compressed_mesh_hulls); they are neutralised in the copied arrays
+    (_neutralize_hulls) and get no SIMD-tree leaf, the caller emits them as convex bodies."""
     from . import fo4collision
     tf = t.tf
     T_CMS, T_DATA = t.type("hknpCompressedMeshShape"), t.type("hknpCompressedMeshShapeData")
@@ -705,6 +758,7 @@ def _emit_mesh(w: "_Writer", t: _Tmpl, p: hkpackfile.Packfile, d: int, pos=(0.0,
     for name, off in FO4_ARRAYS.items():
         at, n = p.array(d + off)
         fo4[name] = (p.raw(at, ELEM_SIZE[name] * n) if n else b"", n)
+    hull_sections = _neutralize_hulls(fo4, hulls)
     cms = bytearray(t.item_bytes("hknpCompressedMeshShape"))
     struct.pack_into("<Q", cms, t.field(T_CMS, "properties").offset, 0)
     n_keys, bits_per_key, max_key = struct.unpack_from("<iiI", p.raw(d + FO4_TREE + 48, 12))
@@ -756,6 +810,8 @@ def _emit_mesh(w: "_Writer", t: _Tmpl, p: hkpackfile.Packfile, d: int, pos=(0.0,
         s = _convert_section(sec_raw[96 * k:96 * k + 96])
         s[16:48] = _shift_aabb(bytes(s[16:48]), pos)
         struct.pack_into("<3f", s, 48, *(a + b for a, b in zip(struct.unpack_from("<3f", s, 48), pos)))   # codec offset
+        if k in hull_sections:
+            s[95] &= ~fo4collision.SECTION_HULLS & 0xFF        # hulls neutralised: plain section, as vanilla Starfield
         secs.append(bytes(s))
     i_secs = w.add(sec_elem_t, 0x20, b"".join(secs), nsec)
     w.ptr(sec_arr_t, i_data, tree_off + t.field(T_TREE, "sections").offset, i_secs)
@@ -816,7 +872,8 @@ def convert_bodies(fo4_blob: bytes, template_blob: bytes, select: Optional[List[
             continue                                       # diagnostic only: test stairs without the helper ramp
         if (filt & 0x7F) in UNMAPPED_LAYERS:
             raise hkpackfile.PackfileError(f"body {k} uses {UNMAPPED_LAYERS[filt & 0x7F]} (no Starfield equivalent)")
-        for kind, obj, R, tr in _shape_parts(p, classes, shape, IDENTITY3, (0.0, 0.0, 0.0)):
+        def start_body():
+            """A fresh single-body physics system (template material, identity body, the FO4 collision layer)."""
             w = _Writer()
             i_psd = w.add(T_PSD, 0x10, t.item_bytes("hknpPhysicsSystemData"), 1)
             i_mat = w.add(T_MAT, 0x20, t.item_bytes("hknpMaterial", count=1), 1)
@@ -828,27 +885,41 @@ def convert_bodies(fo4_blob: bytes, template_blob: bytes, select: Optional[List[
             i_body = w.add(T_BODY, 0x20, body, 1)
             w.ptr(t.field(T_PSD, "materials").type, i_psd, t.field(T_PSD, "materials").offset, i_mat)
             w.ptr(t.field(T_PSD, "bodyCinfos").type, i_psd, t.field(T_PSD, "bodyCinfos").offset, i_body)
+            return w, i_body
+
+        for kind, obj, R, tr in _shape_parts(p, classes, shape, IDENTITY3, (0.0, 0.0, 0.0)):
+            w, i_body = start_body()
             if kind == "mesh":
                 try:
+                    hulls = fc.compressed_mesh_hulls(p, obj)
                     keys = fc.compressed_mesh_keys(p, obj)
                 except hkpackfile.PackfileError as e:
-                    # FO4 precombines (CM*.NIF) carry extra small bodies whose primitives use another encoding (packed 0,
-                    # 4 shared vertices per primitive, index triples): thin debris rods ~1 cm thick. Not decoded yet.
-                    # Skip that part only and report it, instead of losing the whole model's collision to guessed boxes.
-                    if skipped is None or "shared vertex index" not in str(e):
+                    # A mesh section this decoder cannot read (an undecoded primitive encoding, or a hull record that
+                    # fails its checks): skip that part only and report it, instead of losing the whole model's
+                    # collision to guessed boxes.
+                    if skipped is None or not ("shared vertex index" in str(e) or "hull" in str(e)):
                         raise
                     skipped.append(f"body {k}: {e}")
                     continue
-                if not keys:                               # only degenerate / unused primitives: nothing to collide with
+                # FO4 precombine hull primitives (fo4collision.SECTION_HULLS): one convex body each, in node space, with
+                # the part transform baked in. They are removed from the mesh copy below (_neutralize_hulls).
+                for _s, _j, _slot, _first, _count, pts in hulls:
+                    wh, ih_body = start_body()
+                    i_shape = _emit_hull(wh, t, pts, R, tr)
+                    if i_shape is None:                    # no volume (2-point hull): nothing to collide with
+                        continue
+                    wh.ptr(t.field(T_BODY, "shape").type, ih_body, t.field(T_BODY, "shape").offset, i_shape)
+                    out.append(wh.build(sdk, type_sec))
+                if not keys:                               # only hulls / degenerate / unused primitives: no mesh body
                     continue
                 if any(abs(a - b_) > 1e-4 for a, b_ in zip(R, IDENTITY3)):
                     # rotated compound instance: keep the mesh in its own space and return the instance transform for
                     # the caller's child node (re-quantising the compressed mesh would change FO4's geometry)
-                    i_shape = _emit_mesh(w, t, p, obj, (0.0, 0.0, 0.0))
+                    i_shape = _emit_mesh(w, t, p, obj, (0.0, 0.0, 0.0), hulls)
                     w.ptr(t.field(T_BODY, "shape").type, i_body, t.field(T_BODY, "shape").offset, i_shape)
                     out.append((w.build(sdk, type_sec), tuple(tr), tuple(R)))
                     continue
-                i_shape = _emit_mesh(w, t, p, obj, tr)
+                i_shape = _emit_mesh(w, t, p, obj, tr, hulls)
             elif kind == "sphere":
                 i_shape = _emit_sphere(w, t, p, obj, R, tr)
             else:
