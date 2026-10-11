@@ -165,10 +165,10 @@ def plan(a):
         c = load(p)
         if isinstance(c, dict) and "refs" in c and c.get("cell") and c["cell"] != "merged":
             cells.append(c)
+    all_refs = {r["formkey"]: (c["cell"], r) for c in cells for r in c["refs"]}   # travel may lead to an unplanned cell
     if a.cells:
         want = {c.strip() for c in a.cells.split(",")}
         cells = [c for c in cells if c["cell"] in want]
-    all_refs = {r["formkey"]: (c["cell"], r) for c in cells for r in c["refs"]}
     tests = []
     for c in cells:
         tests += plan_cell(c, staging, kinds, a.per_cell, a.plugin_index, formids, items, all_refs)
