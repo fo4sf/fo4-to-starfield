@@ -33,7 +33,8 @@ repo; they walk the GRUP tree and parse `NVNM` byte-exactly).
 | Navmesh info map | one `NAVI` (`00000FF1`): `NVER`, **56,631 `NVMI`**, `NVPP`; 53.9 MB | one `NAVI` (`00000FF1`): `NVER`, 7,798 `NVMI`, `NVPP`; 1.4 MB |
 | Exterior cell size seen in NAVM | **100 m** (navmeshes of NewAtlantis cell (0,1) end exactly at x = 100.0, y = 200.0) | 4,096 units = 58.5 m (Red Rocket cell (-17,19): x -69,632..-65,536 exactly) |
 
-Per worldspace (`SfInspect navm <name>`; the scratch scanner gives the same numbers, two independent readers):
+Per worldspace (`SfInspect navm <name>`; the scratch scanner gives the same numbers, two independent readers;
+`SfInspect navm '*'`: 48,617 in worldspaces + 7,959 interior = 56,576):
 
 | Worldspace | kind | NAVM | cells with NAVM / cells |
 |---|---|---|---|
@@ -52,7 +53,8 @@ The 9 worldspaces without any NAVM: `DefaultWorld`, `oedebugoverlay`, three `Ove
 
 Procedural planet surfaces have **no worldspace record and no NAVM in the ESM** (verified: 1,504 planets have a
 procedural `SurfaceTree`, only 45 register a master worldspace; docs/terrain/architecture.md on PR #57). A landing
-overlay is 10..26 cells but carries one navmesh. NPCs and fauna still walk on generated terrain in normal play.
+overlay is 10..26 cells but carries one navmesh. NPCs and fauna still walk on generated terrain in normal play (common
+gameplay observation, not measured here), so that terrain is navmeshed at runtime (**supported hypothesis**, 1.3).
 
 ### 1.2 Navmesh generation inputs in the data (verified)
 
@@ -92,8 +94,8 @@ generation" and NPCs stuck after loading at procedurally generated locations.
 
 ### 1.4 Decision: does a vanilla NPC move in a plugin worldspace with only BTD terrain and no NAVM?
 
-**No, plan on it not moving** (supported hypothesis). Reasons: authored worldspaces, including every master worldspace
-a planet registers, ship their navmesh as NAVM (cities: 820..2,708 each); the engine's runtime generator is tied to
+**No, plan on it not moving** (supported hypothesis). Reasons: authored worldspaces ship their navmesh as NAVM (424 of
+433 worldspaces; the four cities measured 820..2,708 each); the engine's runtime generator is tied to
 planet/procgen generation (`PlanetNavMeshGen`, `bIgnoreProcGenMask`) and to seed markers (`bIgnoreMissingNavMeshSeed`);
 the pathing code fails when "Start Location is not on the navmesh". Expected behaviour without navmesh: the actor spawns,
 idles, turns, falls if there is no collision, but does not path (Fallout 4 / Skyrim experience; not measured in Starfield).
@@ -124,7 +126,8 @@ Parsing every record with each layout and requiring the parser to end exactly at
 | grid | divisor u32, max-distance 2 f32, min/max 6 f32, divisor^2 triangle lists | same |
 | trailing | none | **4 B** (`0c 00 08 00` in 55,994 of 56,570) |
 
-The 6 Starfield records that do not parse have vertex indices outside i16 (large navmeshes); **unresolved**.
+The 6 Starfield records that do not parse fail the vertex-index check when indices are read as i16 (probably u16
+indices in very large navmeshes; **unresolved**).
 Mutagen's Starfield schema (`SfInspect props NavmeshGeometry` / `NavmeshVertex` / `NavmeshTriangle` / `NavmeshCover`)
 has exactly these fields, with the unknowns named `Unknown` (vertex i32, triangle byte) and `Unknown3` (trailing 4 B):
 an independent confirmation, and it means a Mutagen writer can emit Starfield NAVM with typed fields.
@@ -222,7 +225,7 @@ runtime question for free.
 |---|---|---|---|
 | harmless humanoid | **0000CF96** | `LvlCitizen_NoOld` | NPC_, HumanRace 00347D, Unaggressive / Cowardly, `DefaultMasterPackageList_Human` 2C55CA, template `LCharCitizen` |
 | creature (passive) | **001F3E88** | `PCM_Narion_Kreet_GrazerPreyA` | NPC_, OctopedeARace 015B13, Unaggressive, `DefaultMasterPackageList_Creature` 26F68A, flee/curious reaction lists; risk: a PCM creature may expect planet context |
-| hostile humanoid (combat step) | **0010DD71** | `LvlSpacer_Male` | NPC_, HumanRace, `csSpacer_Assault`, template chain `LvlSpacer` 27BB7B; `EncSpacer01Template` 270255 carries `SpacerFaction` 27BB8C (hostility itself: supported, check in game) |
+| hostile humanoid (combat step) | **0010DD71** | `LvlSpacer_Male` | NPC_, HumanRace, `csSpacer_Assault`, `DefaultTemplate` `LvlSpacer` (NPC_ 27BB7B); the spacer template `EncSpacer01Template` 270255 carries `SpacerFaction` 27BB8C (chain between them not traced; hostility: supported, check in game) |
 | hostile creature (later) | 001F3E89 | `PCM_Narion_Kreet_StalkerPredatorA` | NPC_, CCT_DummyRace |
 | target marker | 0000003B / 00000034 | `XMarker` / `XMarkerHeading` | STAT |
 | seed marker (probe N3) | 000001F8 | `NavMeshSeedMarker` | STAT |
@@ -233,18 +236,30 @@ Control cell: **`QASmoke`** (002BE3A9), an interior with one navmesh `002BE3AA`:
 
 ### 3.2 Console recipe (N0, control; run by the queue runner, never by hand while the test chain runs)
 
+One console command per line; the text after `#` is a note for this page, not console input.
+
 ```
 coc QASmoke
 tgm
-player.setpos x -8          ; player.setpos y -4 ; player.setpos z 0.5
+player.setpos x -8
+player.setpos y -4
+player.setpos z 0.5
 player.placeatme 0000CF96 1
-plr                         ; selects the actor just created (PickLastRef)
-GetIsID 0000CF96            ; must print 1, else INCONCLUSIVE (wrong selection)
-getpos x ; getpos y ; getpos z ; GetCurrentAIProcedure          -> t = 0
-player.setpos x 5           ; player.setpos y 10 ; player.setpos z 0.5   (selection stays on the actor)
-tpl                         ; path line on for the screenshots
-cf "Actor.PathToReference" 14 1.0                                 ; walk to the player (ref 00000014)
-getpos x ; getpos y ; getpos z ; GetCurrentAIProcedure          -> t = 3, 8, 15, 30 s; screenshot at each
+plr                                   # PickLastRef: selects the actor just created
+GetIsID 0000CF96                      # must print 1, else INCONCLUSIVE (wrong selection)
+getpos x                              # t = 0: getpos x / y / z and GetCurrentAIProcedure
+getpos y
+getpos z
+GetCurrentAIProcedure
+player.setpos x 5                     # player to B; the console selection stays on the actor
+player.setpos y 10
+player.setpos z 0.5
+tpl                                   # path line on, for the screenshots
+cf "Actor.PathToReference" 14 1.0     # walk to the player (ref 00000014)
+getpos x                              # repeat the four reads at t = 3, 8, 15, 30 s, screenshot each time
+getpos y
+getpos z
+GetCurrentAIProcedure
 ```
 
 `PathToReference` is in the exe's script-function table (next to Starfield-only functions such as `IsRampDown`), and
@@ -309,7 +324,7 @@ verified with `SfInspect props Npc`):
 
 | FO4 | value in LvlRaider | Starfield `Npc` | first conversion |
 |---|---|---|---|
-| `EDID` / `FULL` | LvlRaider / "Raider" | `EditorID` / `Name` | `FO4_LvlRaider`, "Raider" (keep) |
+| `EDID` / `FULL` | LvlRaider / none (the template's `FULL` is a localized string ID) | `EditorID` / `Name` | `FO4_LvlRaider`, "Raider" |
 | `RNAM` race | HumanRace 00013746 | `Race` | **HumanRace 00347D** |
 | `TPLT` + `TPTA` (13 per-data-type templates) + ACBS template flags | LCharRaider, LCharRaiderFaceAndGender | `DefaultTemplate`, `TemplateActors`, `UseTemplateActors` | template = **LvlSpacer 27BB7B** for traits (look), inventory, voice: the placeholder |
 | `SNAM` factions | RaiderFaction 0001CBED rank 0 | `Factions` | SpacerFaction 27BB8C first; own `FO4_RaiderFaction` later |
