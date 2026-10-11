@@ -218,7 +218,7 @@ def plan_terrain(a):
             sys.exit(f"bad travel command in plan.json: {travel!r}")
         tests.append({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "", "ref": w["coc"],
                       "model": w.get("label", ""), "world_coc": w["coc"], "travel": travel,
-                      **{k: w[k] for k in ("spawn_local", "anchor", "drop_above_spawn", "settle_ms") if w.get(k)},
+                      **{k: w[k] for k in ("spawn_local", "anchor", "drop_above_spawn", "settle_ms", "z_ref") if w.get(k)},
                       "drop_z": float(w.get("drop_z", 80.0)),
                       "points": w["points"], "beyond": w.get("beyond") or {"x": w["points"][0]["x"] + 500.0,
                                                                            "y": w["points"][0]["y"]}})
@@ -333,6 +333,11 @@ def judge(test, obs, out_dir):
         parts, worst, fell = [], 0.0, False
         off = list(obs.get("offset") or [0.0, 0.0]) + [0.0]
         ox, oy, oz = off[0], off[1], off[2]                 # overlay merge offset (anchor or spawn), z included
+        zref = test.get("z_ref")
+        if zref:                                            # Z offset from a reference probe (e.g. "ground"): only
+            for p, r in reads:                              # height differences between points are compared
+                if p["label"] == zref:
+                    oz = r[2] - p["expect"]
         for p, r in reads:
             parts.append(f"{p['label']} {r[2] - oz:.2f} (want {p['expect']})")
             off = math.hypot(r[0] - p["x"] - ox, r[1] - p["y"] - oy)
