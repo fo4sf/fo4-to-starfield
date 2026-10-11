@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import sys
 
 RECORD = "FO4SFExp.install.json"
@@ -58,6 +59,25 @@ def staged_files(exp_dir, plugins):
     return out
 
 
+def build_ba2(a, root, out):
+    """Pack every top-level folder under root into a general BA2 with the official Archive2 (as deploy_starfield.py)."""
+    tool = os.path.join(a.starfield, "Tools", "Archive2", "Archive2.exe")
+    if not os.path.exists(tool):
+        sys.exit(f"Archive2 not found at {tool} (Starfield Creation Kit)")
+    folders = sorted(d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d)))
+    if not folders:
+        sys.exit(f"nothing to pack under {root}")
+    tmp = out + ".tmp.ba2"
+    if os.path.exists(tmp):
+        os.remove(tmp)
+    r = subprocess.run([tool, ",".join(folders), f"-create={tmp}", f"-root={root}", "-format=General",
+                        "-compression=Default"], cwd=root, capture_output=True, text=True)
+    if r.returncode != 0 or not os.path.isfile(tmp) or open(tmp, "rb").read(4) != b"BTDX":
+        sys.exit("Archive2 failed:\n" + r.stdout + r.stderr)
+    os.replace(tmp, out)
+    return out
+
+
 def install(a):
     data = os.path.join(a.starfield, "Data")
     rec_p = os.path.join(data, RECORD)
@@ -72,6 +92,13 @@ def install(a):
             return
         sys.exit(f"another experiment is installed ({rec_p}); uninstall it first")
     files = staged_files(a.exp_dir, plugins)
+    if a.pack:
+        # Starfield reads no loose files here (Starfield.ini sResourceDataDirsFinal=STRINGS\ only; terrain experiment 1,
+        # 2026-10-11, got procedural planet ground because its loose BTDs were never seen). A plugin's own
+        # "<name> - Main.ba2" loads with it, so the staged Data tree goes into that archive instead.
+        ba2 = os.path.splitext(plugins[0])[0] + " - Main.ba2"
+        built = build_ba2(a, os.path.join(a.exp_dir, "Data"), os.path.join(a.exp_dir, ba2))
+        files = [(s, r) for s, r in files if r in plugins] + [(built, ba2)]
     clash = [rel for _, rel in files if os.path.exists(os.path.join(data, rel))]
     if clash:
         sys.exit(f"refusing to overwrite existing game files: {clash}")
@@ -135,6 +162,7 @@ def main(argv=None):
     ap.add_argument("--exp-dir", default="")
     ap.add_argument("--starfield", required=True)
     ap.add_argument("--plugins", default="", help="comma-separated plugin file names to activate")
+    ap.add_argument("--pack", action="store_true", help="install the staged Data tree as '<first plugin> - Main.ba2'")
     a = ap.parse_args(argv)
     if a.cmd == "install":
         if not a.exp_dir:

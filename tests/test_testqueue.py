@@ -497,3 +497,35 @@ class PlanJsonTests(unittest.TestCase):
         json.dump([{"coc": "bad name; quit", "points": []}], open(os.path.join(d, "plan.json"), "w"))
         with self.assertRaises(SystemExit):               # typed into the console: letters, digits, _ only
             tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])
+
+
+class ExpPackTests(unittest.TestCase):
+    def test_pack_installs_the_plugin_archive_instead_of_loose_files(self):
+        sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
+        import exp_install
+        root = tempfile.mkdtemp()
+        game, exp, local = (os.path.join(root, x) for x in ("game", "exp", "local"))
+        os.makedirs(os.path.join(game, "Data"))
+        os.makedirs(os.path.join(exp, "Data", "Terrain"))
+        os.makedirs(os.path.join(local, "Starfield"))
+        open(os.path.join(exp, "Exp.esm"), "wb").write(b"TES4")
+        open(os.path.join(exp, "Data", "Terrain", "W.btd"), "wb").write(b"BTDB")
+        open(os.path.join(local, "Starfield", "Plugins.txt"), "wb").write(b"*FO4Port.esm\r\n")
+
+        def fake_ba2(a, data_root, out):
+            open(out, "wb").write(b"BTDX fake")
+            return out
+        old_env, old_build = os.environ.get("LOCALAPPDATA"), exp_install.build_ba2
+        os.environ["LOCALAPPDATA"], exp_install.build_ba2 = local, fake_ba2
+        try:
+            exp_install.main(["install", "--exp-dir", exp, "--starfield", game, "--pack"])
+            self.assertEqual(sorted(os.listdir(os.path.join(game, "Data"))),
+                             ["Exp - Main.ba2", "Exp.esm", exp_install.RECORD])
+            exp_install.main(["uninstall", "--starfield", game])
+            self.assertEqual(os.listdir(os.path.join(game, "Data")), [])
+        finally:
+            exp_install.build_ba2 = old_build
+            if old_env is None:
+                os.environ.pop("LOCALAPPDATA")
+            else:
+                os.environ["LOCALAPPDATA"] = old_env
