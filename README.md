@@ -2,9 +2,8 @@
 
 **An experimental, unofficial research and converter project for carrying Fallout 4 content into Starfield (Creation Engine 2).** It reads game files from installations you select and generates local outputs. The repository contains no raw Bethesda game data or extracted assets; it does include a small set of in-game screenshots depicting Bethesda-owned visuals, which are not covered by this repository's code license. This is a work in progress, not a playable total conversion.
 
-[Issues](https://github.com/dasscooby/fo4-to-starfield/issues) · [Current project status](https://github.com/dasscooby/fo4-to-starfield/issues/32) · [Work packages](docs/WORK-PACKAGES.md) · [Format research](docs/FORMAT-GAP.md)
+[Issues](../../issues) · [Current project status](../../issues/32) · [Work packages](docs/WORK-PACKAGES.md) · [Format research](docs/FORMAT-GAP.md)
 
-[![CI](https://github.com/dasscooby/fo4-to-starfield/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/dasscooby/fo4-to-starfield/actions/workflows/ci.yml)
 
 ## What is working
 
@@ -12,7 +11,7 @@ A Fallout 4 patio chair has rendered inside Starfield with its shape, scale, ori
 
 ### Recent in-game route results
 
-Reported by Claude on 2026-10-10 for one pinned test build (code `1d3d5bf`; details and limitations in [shared status #32](https://github.com/dasscooby/fo4-to-starfield/issues/32)):
+Reported by Claude on 2026-10-10 for one pinned test build (code `1d3d5bf`; details and limitations in [shared status #32](../../issues/32)):
 
 | Test area | Result |
 |---|---|
@@ -41,11 +40,11 @@ These are reports for a particular build, not a guarantee about other builds or 
 
 ![Parsons hinged door routes, side B](docs/media/route-parsons-door-bothsides-b.jpg)
 
-More captured work: [Vault 111](docs/spikes/WP10-vault111-first-light.md) · [additional interiors](docs/spikes/WP10-more-interiors.md) · [collision](docs/spikes/S6-collision.md) · [door routes and test evidence](https://github.com/dasscooby/fo4-to-starfield/issues/32).
+More captured work: [Vault 111](docs/spikes/WP10-vault111-first-light.md) · [additional interiors](docs/spikes/WP10-more-interiors.md) · [collision](docs/spikes/S6-collision.md) · [door routes and test evidence](../../issues/32).
 
 ## What remains
 
-The current priority is finishing a measured interior slice: stairs and openings that preserve walkable collision, doors that work from both sides, and repeatable deployment. Open problems include Prydwen stair falls, some blocked or one-sided doors, and Fallout 4 physics objects that still behave as fixed obstacles in Starfield. See [the issue tracker](https://github.com/dasscooby/fo4-to-starfield/issues) and [risk register](docs/RISKS.md) for current work. Actors, terrain, quests, animation systems, and full-game parity are not complete.
+The current priority is finishing a measured interior slice: stairs and openings that preserve walkable collision, doors that work from both sides, and repeatable deployment. Open problems include Prydwen stair falls, some blocked or one-sided doors, and Fallout 4 physics objects that still behave as fixed obstacles in Starfield. See [the issue tracker](../../issues) and [risk register](docs/RISKS.md) for current work. Actors, terrain, quests, animation systems, and full-game parity are not complete.
 
 ## Why conversion is difficult
 
@@ -63,7 +62,7 @@ These are measured research notes, not promises of complete format support. Meth
 ## Try it
 
 ```powershell
-git clone https://github.com/dasscooby/fo4-to-starfield
+git clone <this repository's URL, from the Code button>
 cd fo4-to-starfield
 python -m pip install -r requirements-ci.txt
 python -m unittest discover -s tests -v
@@ -78,7 +77,7 @@ To reproduce measurements, install the tools listed in [setup](docs/SETUP.md), u
 - Converters read local files selected by the user; generated outputs stay local. The project does not distribute a conversion pack.
 - Tests use synthetic fixtures. Offline passes do not prove that an asset works in-game.
 - This is for offline, single-player modding research. It does not modify either game's executable.
-- Do not commit credentials, personal machine paths, or private game data. Report suspected vulnerabilities using [GitHub's private reporting option](https://github.com/dasscooby/fo4-to-starfield/security/advisories/new) when available; see [SECURITY.md](SECURITY.md).
+- Do not commit credentials, personal machine paths, or private game data. Report suspected vulnerabilities using [GitHub's private reporting option](../../security/advisories/new) when available; see [SECURITY.md](SECURITY.md).
 
 ## Legal and license
 
@@ -90,4 +89,4 @@ The project does not provide legal advice or establish that any particular extra
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md), choose an open issue, and use its acceptance criteria. Every change must pass the synthetic tests and asset guard. Identify whether a result is **in-game verified**, **offline tested**, or an **unverified hypothesis**.
 
-The project is led by **dasscooby**. AI-assisted contributions are acknowledged by role: **Claude** (conversion pipeline and in-game testing), **Codex** (deployment, recovery, persistent identities, and output verification), and **Grok** (acceptance criteria and evidence gates). Agent labels and commit subjects identify work; these names do not represent separate human contributors or endorsements.
+The project is led by the repository owner. AI-assisted contributions are acknowledged by role: **Claude** (conversion pipeline and in-game testing), **Codex** (deployment, recovery, persistent identities, and output verification), and **Grok** (acceptance criteria and evidence gates). Agent labels and commit subjects identify work; these names do not represent separate human contributors or endorsements.
