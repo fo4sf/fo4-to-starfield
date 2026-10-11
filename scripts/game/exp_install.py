@@ -70,8 +70,11 @@ def build_ba2(a, root, out):
     tmp = out + ".tmp.ba2"
     if os.path.exists(tmp):
         os.remove(tmp)
+    # stored, not compressed: all 2,112 vanilla BTDs (and every official plugin's Main.ba2) are stored uncompressed,
+    # and the engine streams BTD blocks by offset from the archive; zlib-packed BTDs read as raw 0 everywhere
+    # (terrain runs 2026-10-11: flat at exactly the ENAM minimum)
     r = subprocess.run([tool, ",".join(folders), f"-create={tmp}", f"-root={root}", "-format=General",
-                        "-compression=Default"], cwd=root, capture_output=True, text=True)
+                        "-compression=None"], cwd=root, capture_output=True, text=True)
     if r.returncode != 0 or not os.path.isfile(tmp) or open(tmp, "rb").read(4) != b"BTDX":
         sys.exit("Archive2 failed:\n" + r.stdout + r.stderr)
     os.replace(tmp, out)
