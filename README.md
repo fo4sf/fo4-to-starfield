@@ -1,17 +1,28 @@
 # Fallout 4 → Starfield: a measured conversion toolchain
 
-**An experimental, unofficial research and converter project for carrying Fallout 4 content into Starfield (Creation Engine 2).** It reads game files from installations you select and generates local outputs. The repository contains no raw Bethesda game data or extracted assets; it does include a small set of in-game screenshots depicting Bethesda-owned visuals, which are not covered by this repository's code license. This is a work in progress, not a playable total conversion.
+**Bring Fallout 4 into Starfield's Creation Engine 2 through a measured, repeatable conversion toolchain.** The goal is to preserve Fallout 4 gameplay while using Starfield's native physics and modern engine capabilities. Experimental interiors already load in Starfield; the full game conversion is unfinished.
 
-[Issues](../../issues) · [Current project status](../../issues/32) · [Work packages](docs/WORK-PACKAGES.md) · [Format research](docs/FORMAT-GAP.md)
+Converters read **your own copies of both games** and generate local outputs. No game files or conversion pack are distributed. Existing in-game screenshots depict Bethesda-owned visuals and are excluded from the project's code license.
 
+[Latest progress](#latest-progress--2026-10-11) · [Run an installed build](#run-an-installed-build-windows) · [Cell commands](#visit-converted-cells) · [Live updates](https://github.com/fo4sf/fo4-to-starfield/issues/32) · [Contribute](CONTRIBUTING.md)
 
-## What is working
+## Latest progress — 2026-10-11
 
-A Fallout 4 patio chair has rendered inside Starfield with its shape, scale, original texture, lighting, shadows, and converted box collision. Experimental interior builds also load in Starfield. The latest pinned route report shows real progress and remaining failures; it does **not** establish that the interior milestone is complete.
+| Work | Evidence and current limit |
+|---|---|
+| **Interiors, materials and native collision** | Vault 111, Vault 81, Red Rocket cave, Vault 114, Prydwen, Hotel Rexford, Boston Public Library and Parsons load in experimental builds. Stairs and hinged doors have recorded in-game passes; the complete interior acceptance gate remains open. |
+| **Queued in-game tests** | [Claude's runner, #59](https://github.com/fo4sf/fo4-to-starfield/pull/59), verified launch/save/load and cell arrival on integration build `2470f876`: 2 stairs PASS, 2 falls PASS, 2 doors FAIL where routes aimed beside an open doorway. Missing observations stay inconclusive. The larger queue has no completed acceptance report yet. |
+| **Commonwealth terrain** | [Source heights, #56](https://github.com/fo4sf/fo4-to-starfield/pull/56), [native BTD architecture, #57](https://github.com/fo4sf/fo4-to-starfield/pull/57), and [Red Rocket experiment, #60](https://github.com/fo4sf/fo4-to-starfield/pull/60). Independent source decoders agree; the staged terrain passes offline read-back checks. Loading and walking on it in Starfield remain unverified. |
+| **Movable objects and connected interiors** | [Native movable bodies, #41](https://github.com/fo4sf/fo4-to-starfield/pull/41), and [load-door links, #50](https://github.com/fo4sf/fo4-to-starfield/pull/50), are under review. Movement and teleport acceptance are still pending for the integration build. |
+| **Recoverable experiment installs** | [Codex's recovery fix, #62](https://github.com/fo4sf/fo4-to-starfield/pull/62): 11 synthetic regressions pass; the branch's full suite reports 317 tests OK, one skipped. Copy/activation failures roll back; interrupted cleanup retains its record. Offline tested, awaiting review. |
+| **NPC navigation and actors** | [Claude's research, #61](https://github.com/fo4sf/fo4-to-starfield/pull/61), maps navigation formats and proposes a minimal NPC test. Research and a plan, not a working actor port. |
+
+Linked pull requests are experimental work under review, not features guaranteed by a fresh checkout of `main`.
+Follow [the shared update thread](https://github.com/fo4sf/fo4-to-starfield/issues/32) for exact revisions, results and corrections.
 
 ### Recent in-game route results
 
-Reported by Claude on 2026-10-10 for one pinned test build (code `1d3d5bf`; details and limitations in [shared status #32](../../issues/32)):
+Earlier results reported by Claude on 2026-10-10 for one pinned test build (code `1d3d5bf`; details and limitations in [shared status #32](https://github.com/fo4sf/fo4-to-starfield/issues/32)). These are separate from the newer integration batch above:
 
 | Test area | Result |
 |---|---|
@@ -26,25 +37,64 @@ These are reports for a particular build, not a guarantee about other builds or 
 
 ### See the work
 
-**A converted object in Starfield**
+**New queued stair test in Starfield** — captured by Claude for the `2470f876` integration build.
 
-![Fallout 4 patio chair with its original texture, rendered in Starfield](docs/media/fo4-chair-textured-in-starfield.png)
+![Queued stair test in Starfield](https://raw.githubusercontent.com/fo4sf/fo4-to-starfield/d28abe77151d4af7c5acc228a10fd31928d6c9cf/docs/media/2026-10-11-queue-stairs-pass.jpg)
 
-**Interiors and routes**
-
-![Vault 111 stairs in Starfield](docs/media/vault111-stairs-catwalk-in-starfield.png)
+**Hotel Rexford: native hinged door**
 
 ![Hotel Rexford door opened in Starfield](docs/media/rexford-door-native.jpg)
 
-![Parsons hinged door routes, side A](docs/media/route-parsons-door-bothsides-a.jpg)
+**Parsons: both-side door evidence**
 
-![Parsons hinged door routes, side B](docs/media/route-parsons-door-bothsides-b.jpg)
+![Parsons hinged door route, side A](docs/media/route-parsons-door-bothsides-a.jpg)
 
-More captured work: [Vault 111](docs/spikes/WP10-vault111-first-light.md) · [additional interiors](docs/spikes/WP10-more-interiors.md) · [collision](docs/spikes/S6-collision.md) · [door routes and test evidence](../../issues/32).
+[Opposite-side capture](docs/media/route-parsons-door-bothsides-b.jpg) · [First textured chair](docs/media/fo4-chair-textured-in-starfield.png) · [Vault 111 stairs](docs/media/vault111-stairs-catwalk-in-starfield.png)
+
+More captured work: [Vault 111](docs/spikes/WP10-vault111-first-light.md) · [additional interiors](docs/spikes/WP10-more-interiors.md) · [collision](docs/spikes/S6-collision.md) · [door routes and test evidence](https://github.com/fo4sf/fo4-to-starfield/issues/32).
 
 ## What remains
 
-The current priority is finishing a measured interior slice: stairs and openings that preserve walkable collision, doors that work from both sides, and repeatable deployment. Open problems include Prydwen stair falls, some blocked or one-sided doors, and Fallout 4 physics objects that still behave as fixed obstacles in Starfield. See [the issue tracker](../../issues) and [risk register](docs/RISKS.md) for current work. Actors, terrain, quests, animation systems, and full-game parity are not complete.
+The interior slice still needs reliable stairs, clear openings, both-side door operation, pushable objects and repeatable deployment. Some route failures come from test positioning; others require geometry or physics fixes. Terrain loading, navigation and actor behavior need in-game probes. Quests, dialogue, combat systems and full-game parity remain unfinished. See [the issue tracker](https://github.com/fo4sf/fo4-to-starfield/issues) and [risk register](docs/RISKS.md).
+
+## Run an installed build (Windows)
+
+If your converted build is **already installed and enabled** in Starfield, this PowerShell command launches the Steam game:
+
+```powershell
+Start-Process "steam://rungameid/1716740"
+```
+
+Load a dedicated test save, then use the console commands below. Downloading this repository alone does not install converted cells.
+
+For an existing converted staging folder, deploy it from the repository folder before launching. Replace the two placeholders with your local paths; see [setup](docs/SETUP.md) for prerequisites, including the Creation Kit's Archive2 tool:
+
+```powershell
+python -I scripts/deploy_starfield.py install --staging "<converted-staging>" --starfield "<Starfield-install>"
+```
+
+The installer refuses to overwrite an existing deployment. Its paired cleanup command is:
+
+```powershell
+python -I scripts/deploy_starfield.py uninstall --starfield "<Starfield-install>"
+```
+
+## Visit converted cells
+
+Open Starfield's console with the tilde/backtick key and enter **one** command. Each destination must be included in your installed build; an unbuilt cell is unavailable.
+
+| Destination | Starfield console command |
+|---|---|
+| Vault 111 | `coc FO4Port_Vault111Cryo` |
+| Vault 81 | `coc FO4Port_Vault81` |
+| Red Rocket cave | `coc FO4Port_RedRocket01` |
+| Vault 114 | `coc FO4Port_Vault114` |
+| Prydwen | `coc FO4Port_PrydwenHull01` |
+| Hotel Rexford | `coc FO4Port_GoodneighborHotelRexford` |
+| Boston Public Library | `coc FO4Port_BostonPublicLibrary02` |
+| Parsons State | `coc FO4Port_ParsonsState01` |
+
+These are prototype cells for testing, not a campaign start or a completed playthrough.
 
 ## Why conversion is difficult
 
@@ -62,7 +112,7 @@ These are measured research notes, not promises of complete format support. Meth
 ## Try it
 
 ```powershell
-git clone <this repository's URL, from the Code button>
+git clone https://github.com/fo4sf/fo4-to-starfield.git
 cd fo4-to-starfield
 python -m pip install -r requirements-ci.txt
 python -m unittest discover -s tests -v
@@ -77,7 +127,7 @@ To reproduce measurements, install the tools listed in [setup](docs/SETUP.md), u
 - Converters read local files selected by the user; generated outputs stay local. The project does not distribute a conversion pack.
 - Tests use synthetic fixtures. Offline passes do not prove that an asset works in-game.
 - This is for offline, single-player modding research. It does not modify either game's executable.
-- Do not commit credentials, personal machine paths, or private game data. Report suspected vulnerabilities using [GitHub's private reporting option](../../security/advisories/new) when available; see [SECURITY.md](SECURITY.md).
+- Do not commit credentials, personal machine paths, or private game data. Report suspected vulnerabilities using [GitHub's private reporting option](https://github.com/fo4sf/fo4-to-starfield/security/advisories/new) when available; see [SECURITY.md](SECURITY.md).
 
 ## Legal and license
 
