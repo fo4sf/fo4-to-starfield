@@ -8,8 +8,11 @@ door:   PASS if the end point is min_past metres beyond the door plane (dot with
         UNOPENED if it is past the plane but the prompt was absent or was not OPEN: the leaf was already open.
         Otherwise NOPROMPT if the activation prompt was never seen, else BLOCKED.
 A start more than 3 m off in X/Y, or more than 2 m off in Z, is UNREAD: the route was not begun.
+A recorded start that does not parse, or any non-finite coordinate, is UNREAD.
 A drop of more than 6 m after a matched start is FALL, including a door that opens onto the void.
-Any other move no walk of this length could make is UNREAD.
+Any other move no walk of this length could make is UNREAD: a stair whose height is met without
+walking along it, a door end more than 12 m past the plane or more than 6 m back toward the start,
+or a door end more than 3 m off the opening. A near miss (the library doors at -0.7 to -0.9 m) stays BLOCKED.
 Prints one line per route, a summary, and a door tally: both OPEN, one side, geometry, load failures.
 Exit code 1 unless the file records results, every one is PASS, no load door was passed,
 walked through, or fallen through, and no hinged pair is geometry (crossed with no recorded OPEN).
@@ -23,16 +26,21 @@ import sys
 def parse(s):
     try:
         v = [float(x) for x in s.split()]
-        return v if len(v) == 3 else None
     except (AttributeError, ValueError):
         return None
+    if len(v) != 3 or not all(math.isfinite(x) for x in v):
+        return None
+    return v
 
 
 def judge(route, res):
     end = parse(res.get("end_read"))
-    start = parse(res.get("start_read"))
+    raw_start = res.get("start_read")
+    start = parse(raw_start)
     if end is None:
         return "UNREAD", ""
+    if raw_start not in (None, "") and start is None:
+        return "UNREAD", f"start not readable: {raw_start}"
     target = route.get("start")
     moved_xy = moved_z = None
     if start is not None:
@@ -58,10 +66,17 @@ def judge(route, res):
         if rise > top_rise + 2.0:                     # higher than the stair goes: a misread, not a climb
             return "UNREAD", f"implausible rise {rise:.2f} (stair top is {top_rise:.2f})"
         dx, dy = high[0] - low[0], high[1] - low[1]
-        span = math.hypot(dx, dy) or 1.0
-        off_axis = abs((end[0] - low[0]) * dy - (end[1] - low[1]) * dx) / span
+        span = math.hypot(dx, dy)
+        off_axis = abs((end[0] - low[0]) * dy - (end[1] - low[1]) * dx) / (span or 1.0)
         if off_axis > 3.0:                            # not on this stair's line: a shifted OCR column
             return "UNREAD", f"end {off_axis:.1f} m off the stair"
+        # Height without travel along the ramp is a Z-column swap, not a climb. Nearly vertical
+        # helpers (run under 0.75 m) have no along-track to check. 0.45 of the run still passes a
+        # 50-degree stair, where 80% of the height is about 0.67 of the run.
+        if rise >= e["min_rise"] and span >= 0.75:
+            along = ((end[0] - low[0]) * dx + (end[1] - low[1]) * dy) / span
+            if along < 0.45 * span:
+                return "UNREAD", f"rise {rise:.2f} m but only {along:.2f} m along a {span:.2f} m stair"
         if end[2] < low[2] - 0.5:
             return "FALL", f"z {end[2]:.2f} < floor {low[2]:.2f}"
         return ("PASS" if rise >= e["min_rise"] else "STUCK"), f"rise {rise:.2f} / need {e['min_rise']:.2f}"
@@ -77,7 +92,7 @@ def judge(route, res):
     horizontal = math.hypot(ux, uy) or 1.0
     ux, uy = ux / horizontal, uy / horizontal
     side = abs((end[0] - e["plane_point"][0]) * uy - (end[1] - e["plane_point"][1]) * ux)
-    if past > 12.0 or side > 3.0:
+    if past > 12.0 or past < -6.0 or side > 3.0:
         return "UNREAD", f"implausible door end past {past:.1f} m, {side:.1f} m off the opening"
     if past >= e["min_past"]:
         verb = res.get("verb")

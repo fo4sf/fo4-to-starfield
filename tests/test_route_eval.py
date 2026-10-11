@@ -37,6 +37,17 @@ class RouteEvalTests(unittest.TestCase):
             {"start_read": "0 0 0", "end_read": "20 0 1"})[0], "UNREAD")
         self.assertEqual(door("30 0 0"), "UNREAD")
         self.assertEqual(door("2 8 0"), "UNREAD")
+        self.assertEqual(door("-0.9 0 0"), "BLOCKED")      # library double doors, -0.7 to -0.9 m, are real blocks
+        self.assertEqual(door("-8 0 0"), "UNREAD")         # metres back toward the start: not a blocked leaf
+        self.assertEqual(stair("0.1 0 1.9"), "UNREAD")     # the height, without walking the ramp
+        self.assertEqual(stair("-2 0 1.9"), "UNREAD")      # rose, but on the wrong side of the low end
+        self.assertEqual(evaluator.judge(
+            {"kind": "stairs", "expect": {"low": [0, 0, 0], "high": [2, 0, 2], "min_rise": 1.6}},
+            {"start_read": "0 0 0.3", "end_read": "nan nan nan"})[0], "UNREAD")
+        self.assertEqual(evaluator.judge(
+            {"kind": "door", "start": [0, 0, 0],
+             "expect": {"plane_point": [0, 0, 0], "plane_normal": [1, 0, 0], "min_past": 0.8}},
+            {"start_read": "inf 0 0", "end_read": "3 0 0", "prompt": True, "verb": "OPEN"})[0], "UNREAD")
         self.assertEqual(evaluator.judge(
             {"kind": "door", "expect": {"plane_point": [0, 0, 0], "plane_normal": [0, 0, 0], "min_past": 0.8}},
             {"end_read": "1 0 0"})[0], "UNREAD")
