@@ -1441,3 +1441,14 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
 - Merged tonight: #162, #163, #161, #165, #166 (and the queue of the day before). Open: #164 (sandbox suite running),
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
+## 2026-10-10 Claude: FO4 skin reader and pose bake (offline)
+New `src/fo4sf/fo4skin.py` reads a skinned FO4 shape's skin (bone nodes from `BSSkin::Instance`, skin-to-bone
+transforms and bone-space bounding spheres from `BSSkin::BoneData`, f16 weights and u8 bone slots per vertex) and
+poses its vertices by linear blend skinning. Checked on `SkeletonClothed01.nif` and on all 16,350 skinned shapes in
+the two FO4 mesh archives (0 read errors). Posing the skeleton with its own NIF nodes does **not** give back the stored
+positions (max 64.45 units): its node pose is the bind pose with the root bone turned 45 degrees about X, and the
+ragdoll bodies are in that node pose. With that one rigid transform taken out, the error is 0.000025 units. The
+converter draws skinned shapes from the stored positions but puts collision on the nodes, so mesh and collision
+disagree for 346 placements in the pinned build (95 skeletons; vault sink taps drawn at the model origin). Not
+changed in this PR. Next: pose skinned shapes with `fo4skin` in `convert_nif` (check in game), then pose ragdoll
+skeletons. Evidence: docs/ai/research-log.md.
