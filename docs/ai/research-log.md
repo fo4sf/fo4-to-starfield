@@ -3,6 +3,26 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-11 Claude: NPC navigation and minimal actor conversion research
+- Question: will an NPC walk in a plugin worldspace with BTD terrain only; can FO4 navmesh be converted; which vanilla
+  NPCs and console steps give the smallest NPC test; how does a FO4 raider map to a Starfield NPC_?
+- Method: read-only scans of Starfield.esm / Fallout4.esm (GRUP walk, byte-exact `NVNM` parse), `SfInspect`
+  (`navm`, `npcfind`, `npc`, `props`), strings in Starfield.exe and CreationKit.exe. Details:
+  [docs/actors/npc-navigation.md](../actors/npc-navigation.md). Nothing run in game.
+- Evidence: NAVM 56,576 (Starfield) / 7,893 (FO4); 424 of 433 Starfield worldspaces have NAVM, cities 820..2,708,
+  landing overlays 1 each, `DefaultWorld` 0; interiors 7,959 NAVM in 475 of 11,985 cells. `NVNM` v17 vs v15: vertices
+  16 B (metres) vs 12 B (units), cover 12 B vs 8 B, +4 trailing bytes; all FO4 records parse exactly, 56,570 of 56,576
+  Starfield records; Mutagen's Starfield `NavmeshGeometry` schema has the same fields. Exe: runtime generator settings
+  (`bDisableNavMeshRuntimeGen`, `PlanetNavMeshGen`, `bIgnoreMissingNavMeshSeed`), console `GenerateNavMesh` (`gnm`),
+  `PickLastRef` (`plr`); CK: `-UpdateNavmeshGeneration` / `-FinalizeNavmeshes:<esm> (cell ids...)`. FormIDs verified:
+  `LvlCitizen_NoOld` 0000CF96, `PCM_Narion_Kreet_GrazerPreyA` 001F3E88, `LvlSpacer_Male` 0010DD71, control cell
+  `QASmoke` (one flat 554.7 m^2 navmesh).
+- Status: Starfield `NVNM` v17 layout **verified** (56,570 records + Mutagen schema); FORMAT-GAP's "NAVM overlap 1.0"
+  **verified for subrecord signatures only**, the inner layout differs. "No movement without authored NAVM in a plugin
+  worldspace": **supported hypothesis**. Runtime generation for plugin worldspaces (`gnm`, seed markers): **unresolved**,
+  probes N1-N3. Meaning of the vertex i32, triangle byte 20, cover and trailing fields: **unresolved**. FO4 navmesh
+  conversion for Red Rocket: **supported hypothesis** (FO4 cell (-17,19) lies inside one 100 m Starfield cell).
+
 ## 2026-10-09 Claude: which FO4 collision bodies are movable?
 - Question: how does an FO4 `bhkPhysicsSystem` mark a body as movable (pushable), so the converter can stop turning
   physics objects into fixed obstacles (Vault 114 door `05C7DC` is blocked by a ragdoll skeleton)?
