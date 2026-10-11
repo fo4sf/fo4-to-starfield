@@ -539,3 +539,18 @@ class SpawnOffsetTests(unittest.TestCase):
         obs = {"shot": shot, "offset": [3050.0, -3491.0], "points": [{"read": "3080.0 -3461.0 35.1"}]}
         self.assertEqual(tq.judge(t, obs, d)[0], "PASS")
         self.assertEqual(tq.judge(t, dict(obs, offset=None), d)[:2], ("INCONCLUSIVE", "MOVED"))
+
+
+class AnchorOffsetTests(unittest.TestCase):
+    def test_heights_are_judged_in_the_overlay_frame(self):
+        d = tempfile.mkdtemp()
+        shot = touch(d, "spawn.png")
+        t = {"kind": "terrain", "points": [{"label": "padA", "x": 30.0, "y": 30.0, "expect": 35.0},
+                                           {"label": "ground", "x": -60.0, "y": -60.0, "expect": 10.0}]}
+        obs = {"shot": shot, "offset": [3000.0, -3500.0, -23.94], "offset_from": "anchor",
+               "points": [{"read": "3030.0 -3470.0 11.06"}, {"read": "2940.0 -3560.0 -13.94"}]}
+        v, cls, detail = tq.judge(t, obs, d)
+        self.assertEqual(v, "PASS", detail)
+        self.assertIn("from anchor", detail)
+        flat = dict(obs, points=[{"read": "3030.0 -3470.0 -13.9"}, {"read": "2940.0 -3560.0 -13.94"}])
+        self.assertEqual(tq.judge(t, flat, d)[:2], ("FAIL", "HEIGHTS"))

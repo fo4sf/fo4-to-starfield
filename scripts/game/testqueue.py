@@ -218,7 +218,7 @@ def plan_terrain(a):
             sys.exit(f"bad travel command in plan.json: {travel!r}")
         tests.append({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "", "ref": w["coc"],
                       "model": w.get("label", ""), "world_coc": w["coc"], "travel": travel,
-                      **{k: w[k] for k in ("spawn_local", "drop_above_spawn", "settle_ms") if w.get(k)},
+                      **{k: w[k] for k in ("spawn_local", "anchor", "drop_above_spawn", "settle_ms") if w.get(k)},
                       "drop_z": float(w.get("drop_z", 80.0)),
                       "points": w["points"], "beyond": w.get("beyond") or {"x": w["points"][0]["x"] + 500.0,
                                                                            "y": w["points"][0]["y"]}})
@@ -331,15 +331,17 @@ def judge(test, obs, out_dir):
             got = "; ".join(f"{p['label']} {r[2]:.2f} (want {p['expect']})" for p, r in reads if r is not None)
             return "INCONCLUSIVE", "UNREAD", f"{len([r for _, r in reads if r])} of {len(test['points'])} heights read"                 + (f": {got}" if got else "")
         parts, worst, fell = [], 0.0, False
-        ox, oy = (obs.get("offset") or [0.0, 0.0])[:2]     # spawn-relative points (planet-registered worlds)
+        off = list(obs.get("offset") or [0.0, 0.0]) + [0.0]
+        ox, oy, oz = off[0], off[1], off[2]                 # overlay merge offset (anchor or spawn), z included
         for p, r in reads:
-            parts.append(f"{p['label']} {r[2]:.2f} (want {p['expect']})")
+            parts.append(f"{p['label']} {r[2] - oz:.2f} (want {p['expect']})")
             off = math.hypot(r[0] - p["x"] - ox, r[1] - p["y"] - oy)
             if off > 2.0:
                 return "INCONCLUSIVE", "MOVED", f"{p['label']}: ended {off:.1f} m away"
-            worst = max(worst, abs(r[2] - p["expect"]))
-            fell = fell or r[2] < p["expect"] - 20
-        detail = "; ".join(parts)
+            worst = max(worst, abs(r[2] - oz - p["expect"]))
+            fell = fell or r[2] - oz < p["expect"] - 50     # falling through reads hundreds of metres below
+        detail = "; ".join(parts) + (f" (offset {ox:.1f}, {oy:.1f}, {oz:.2f} from {obs.get('offset_from')})"
+                                     if obs.get("offset") else "")
         if fell:
             return "FAIL", "NOTERRAIN", "fell through where terrain should be: " + detail
         if worst > 0.5:
