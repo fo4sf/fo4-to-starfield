@@ -31,6 +31,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -210,8 +211,15 @@ def plan_terrain(a):
     for n, w in enumerate(own or []):
         if not str(w.get("coc", "")).replace("_", "").isalnum():
             sys.exit(f"bad coc name in plan.json: {w.get('coc')!r}")
+        travel = w.get("travel") or ""
+        # cow did not move the player in Starfield (control run 2026-10-11: still in the interior); moveto to a
+        # reference inside the target worldspace does
+        if travel and not re.fullmatch(r"(coc|cow) [A-Za-z0-9_]+( -?\d+ -?\d+)?|player\.moveto [0-9A-Fa-f]{8}", travel):
+            sys.exit(f"bad travel command in plan.json: {travel!r}")
         tests.append({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "", "ref": w["coc"],
-                      "model": w.get("label", ""), "world_coc": w["coc"], "drop_z": float(w.get("drop_z", 80.0)),
+                      "model": w.get("label", ""), "world_coc": w["coc"], "travel": travel,
+                      **{k: w[k] for k in ("spawn_local", "anchor", "drop_above_spawn", "settle_ms") if w.get(k)},
+                      "drop_z": float(w.get("drop_z", 80.0)),
                       "points": w["points"], "beyond": w.get("beyond") or {"x": w["points"][0]["x"] + 500.0,
                                                                            "y": w["points"][0]["y"]}})
     exp = load(os.path.join(a.exp_dir, "expected.json")) if not own else {}
@@ -238,7 +246,7 @@ def plan_terrain(a):
          "tests": tests[:a.only] if a.only else tests}
     if a.plugins:                                         # installed by the runner right before it launches the game
         q["pre_launch"] = [sys.executable, os.path.join(HERE, "exp_install.py"), "install", "--exp-dir",
-                           os.path.abspath(a.exp_dir), "--starfield", a.starfield, "--plugins", a.plugins]
+                           os.path.abspath(a.exp_dir), "--starfield", a.starfield, "--plugins", a.plugins, "--pack"]
     os.makedirs(a.out, exist_ok=True)
     save_atomic(os.path.join(a.out, "queue.json"), q)
     print(f"{len(q['tests'])} terrain tests (experiment {a.exp_dir}) on build {q['build_id']}")
@@ -323,13 +331,17 @@ def judge(test, obs, out_dir):
             got = "; ".join(f"{p['label']} {r[2]:.2f} (want {p['expect']})" for p, r in reads if r is not None)
             return "INCONCLUSIVE", "UNREAD", f"{len([r for _, r in reads if r])} of {len(test['points'])} heights read"                 + (f": {got}" if got else "")
         parts, worst, fell = [], 0.0, False
+        off = list(obs.get("offset") or [0.0, 0.0]) + [0.0]
+        ox, oy, oz = off[0], off[1], off[2]                 # overlay merge offset (anchor or spawn), z included
         for p, r in reads:
-            parts.append(f"{p['label']} {r[2]:.2f} (want {p['expect']})")
-            if math.hypot(r[0] - p["x"], r[1] - p["y"]) > 2.0:
-                return "INCONCLUSIVE", "MOVED", f"{p['label']}: ended {math.hypot(r[0] - p['x'], r[1] - p['y']):.1f} m away"
-            worst = max(worst, abs(r[2] - p["expect"]))
-            fell = fell or r[2] < p["expect"] - 20
-        detail = "; ".join(parts)
+            parts.append(f"{p['label']} {r[2] - oz:.2f} (want {p['expect']})")
+            off = math.hypot(r[0] - p["x"] - ox, r[1] - p["y"] - oy)
+            if off > 2.0:
+                return "INCONCLUSIVE", "MOVED", f"{p['label']}: ended {off:.1f} m away"
+            worst = max(worst, abs(r[2] - oz - p["expect"]))
+            fell = fell or r[2] - oz < p["expect"] - 50     # falling through reads hundreds of metres below
+        detail = "; ".join(parts) + (f" (offset {ox:.1f}, {oy:.1f}, {oz:.2f} from {obs.get('offset_from')})"
+                                     if obs.get("offset") else "")
         if fell:
             return "FAIL", "NOTERRAIN", "fell through where terrain should be: " + detail
         if worst > 0.5:

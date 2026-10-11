@@ -137,8 +137,11 @@ switch ($kind) {
   'terrain' {
     # terrain experiment: coc into a test worldspace, then drop onto points of known terrain height and read z
     if ($t.world_coc -notmatch '^[A-Za-z0-9_]+$') { "bad world name"; exit 4 }
+    # travel: "cow <world> x y" reaches a vanilla worldspace without a COC cell (control runs); default coc <world_coc>
+    $go = "coc $($t.world_coc)"
+    if ($t.travel) { if ($t.travel -notmatch '^((coc|cow) [A-Za-z0-9_]+( -?\d+ -?\d+)?|player\.moveto [0-9A-Fa-f]{8})$') { "bad travel"; exit 4 }; $go = $t.travel }
     Console-Open
-    Send "type:coc $($t.world_coc)|key:enter|wait:400|key:grave|wait:3000"
+    Send "type:$go|key:enter|wait:400|key:grave|wait:3000"
     $hud = Join-Path $Out 'hud.png'; $t0 = Get-Date
     do { Start-Sleep 2; powershell -NoProfile -ExecutionPolicy Bypass -File $shot -Out $hud | Out-Null
          $up = (& $env:FO4SF_PYTHON (Join-Path $here 'hud_visible.py') $hud) -eq 'yes' } until ($up -or ((Get-Date) - $t0).TotalSeconds -gt 90)
@@ -149,9 +152,41 @@ switch ($kind) {
     Save-Obs
     $pts = @()
     $k = 0
+    # Points are in the worldspace's own frame. An activated overlay is merged into the planet worldspace at a whole-cell
+    # offset plus a Z offset (Mars runs 2026-10-11: COC marker (50, 50) arrived at (3050, -3450)). The offset comes from
+    # anchor (a persistent ref: {ref, local [x,y,z]}, read with prid + getpos) or else from spawn_local (where the
+    # player stands after coc, [x,y] or [x,y,z]); with a z component the expected heights shift by the same Z offset.
+    $ox = 0.0; $oy = 0.0; $oz = 0.0
+    if ($t.anchor) {
+      if ("$($t.anchor.ref)" -notmatch '^[0-9A-Fa-f]{8}$') { "bad anchor"; exit 4 }
+      $ar = Read-Pos "$($t.anchor.ref)"
+      $obs['anchor_read'] = $ar
+      $av = "$ar".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+      if ($av.Count -eq 3) {
+        $ox = [double]$av[0] - [double]$t.anchor.local[0]; $oy = [double]$av[1] - [double]$t.anchor.local[1]
+        $oz = [double]$av[2] - [double]$t.anchor.local[2]; $obs['offset'] = @($ox, $oy, $oz); $obs['offset_from'] = 'anchor'
+      }
+    }
+    if (-not $obs['offset'] -and $t.spawn_local -and $obs['spawn_read']) {
+      $sv = "$($obs['spawn_read'])".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+      if ($sv.Count -eq 3) {
+        $ox = [double]$sv[0] - [double]$t.spawn_local[0]; $oy = [double]$sv[1] - [double]$t.spawn_local[1]
+        if ($t.spawn_local.Count -ge 3) { $oz = [double]$sv[2] - [double]$t.spawn_local[2] }
+        $obs['offset'] = @($ox, $oy, $oz); $obs['offset_from'] = 'spawn'
+      }
+    }
+    Save-Obs
+    # drop_above_spawn: drop height relative to the arrival (terrain height unknown in a relocated world);
+    # settle_ms: wait before reading (a 60 m fall at Mars gravity takes about 6 s)
+    $dropz = [double]$t.drop_z + $oz                # drop_z is in the worldspace's own frame
+    if ($t.drop_above_spawn -and $obs['spawn_read']) {
+      $sv = "$($obs['spawn_read'])".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+      if ($sv.Count -eq 3) { $dropz = [double]$sv[2] + [double]$t.drop_above_spawn }
+    }
+    $settle = if ($t.settle_ms) { [int]$t.settle_ms } else { 4500 }
     foreach ($p in $t.points) {
-      Teleport @($p.x, $p.y, $t.drop_z) 0 15
-      Start-Sleep -Milliseconds 4500                 # a fall from 80 m takes about 4 s
+      Teleport @(([double]$p.x + $ox), ([double]$p.y + $oy), $dropz) 0 15
+      Start-Sleep -Milliseconds $settle               # a fall from 80 m takes about 4 s on Earth gravity
       $pts += [ordered]@{ label = $p.label; read = (Read-Pos); shot = (Shot "pt$k.png") }
       $obs['points'] = $pts; Save-Obs                 # after every point: a cut-off keeps the heights already read
       $k++

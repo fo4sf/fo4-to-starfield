@@ -35,6 +35,21 @@ class ExperimentRecoveryTests(unittest.TestCase):
         self.addCleanup(environment.stop)
         self.args = SimpleNamespace(starfield=str(self.data.parent), exp_dir=str(self.staging), plugins="")
 
+    def archive_builder(self, payload=b"BTDX" + bytes(12) + b"synthetic archive"):
+        tool = self.data.parent / "Tools" / "Archive2" / "Archive2.exe"
+        tool.parent.mkdir(parents=True)
+        tool.write_bytes(b"synthetic tool; never executed")
+        self.args.pack = True
+
+        def build(command, **kwargs):
+            self.assertEqual(Path(kwargs["cwd"]), self.staging / "Data")
+            self.assertIn("-format=General", command)
+            output = next(arg[len("-create="):] for arg in command if arg.startswith("-create="))
+            Path(output).write_bytes(payload)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        return build
+
     def assert_rolled_back(self):
         self.assertEqual(list(self.data.iterdir()), [])
         self.assertEqual(self.plugins.read_bytes(), self.original)
@@ -55,6 +70,115 @@ class ExperimentRecoveryTests(unittest.TestCase):
         self.assertEqual(list(self.data.iterdir()), [existing])
         self.assertEqual(existing.read_bytes(), b"owner file")
         self.assertEqual(self.plugins.read_bytes(), self.original)
+
+    def test_packed_install_publishes_plugins_and_archive_only(self):
+        build = self.archive_builder()
+        self.args.plugins = "Experiment.esm,Experiment_Mars.esm"
+        (self.staging / "Experiment_Mars.esm").write_bytes(b"synthetic registration plugin")
+        with patch.object(exp.subprocess, "run", side_effect=build) as process:
+            exp.install(self.args)
+            process.assert_called_once()
+            exp.install(self.args)
+            process.assert_called_once()
+        self.assertFalse((self.data / "Terrain").exists())
+        self.assertEqual((self.data / "Experiment - Main.ba2").read_bytes(),
+                         (self.staging / "Experiment - Main.ba2").read_bytes())
+        self.assertEqual((self.data / "Experiment_Mars.esm").read_bytes(), b"synthetic registration plugin")
+        exp.uninstall(self.args)
+        self.assert_rolled_back()
+
+    def test_packed_archive_copy_failure_rolls_back_published_plugin(self):
+        build = self.archive_builder()
+        real_copy = exp.shutil.copyfile
+
+        def copy(source, target):
+            if Path(source).suffix == ".ba2":
+                Path(target).write_bytes(b"partial archive")
+                raise OSError("injected archive copy failure")
+            return real_copy(source, target)
+
+        with patch.object(exp.subprocess, "run", side_effect=build), \
+                patch.object(exp.shutil, "copyfile", side_effect=copy):
+            with self.assertRaisesRegex(SystemExit, "rolled back"):
+                exp.install(self.args)
+        self.assert_rolled_back()
+
+    def test_packed_build_failure_preserves_previous_archive_and_game(self):
+        build = self.archive_builder()
+        archive = self.staging / "Experiment - Main.ba2"
+        previous = b"previous staging archive"
+        archive.write_bytes(previous)
+
+        def fail(command, **kwargs):
+            result = build(command, **kwargs)
+            result.returncode = 1
+            return result
+
+        with patch.object(exp.subprocess, "run", side_effect=fail):
+            with self.assertRaises(SystemExit):
+                exp.install(self.args)
+        self.assertEqual(archive.read_bytes(), previous)
+        self.assert_rolled_back()
+
+    def test_truncated_packed_archive_is_rejected_before_installation(self):
+        build = self.archive_builder(b"BTDX")
+        archive = self.staging / "Experiment - Main.ba2"
+        previous = b"previous staging archive"
+        archive.write_bytes(previous)
+        with patch.object(exp.subprocess, "run", side_effect=build):
+            with self.assertRaises(SystemExit):
+                exp.install(self.args)
+        self.assertEqual(archive.read_bytes(), previous)
+        self.assert_rolled_back()
+
+    def test_missing_plugin_is_rejected_before_packing(self):
+        build = self.archive_builder()
+        self.args.plugins = "Experiment.esm,Missing.esm"
+        archive = self.staging / "Experiment - Main.ba2"
+        previous = b"previous staging archive"
+        archive.write_bytes(previous)
+        with patch.object(exp.subprocess, "run", side_effect=build) as process:
+            with self.assertRaises((OSError, SystemExit)):
+                exp.install(self.args)
+            process.assert_not_called()
+        self.assertEqual(archive.read_bytes(), previous)
+        self.assert_rolled_back()
+
+    def test_packing_mode_change_is_not_reported_as_already_installed(self):
+        exp.install(self.args)
+        installed = (self.data / exp.RECORD).read_bytes()
+        build = self.archive_builder()
+        with patch.object(exp.subprocess, "run", side_effect=build) as process:
+            with self.assertRaisesRegex(SystemExit, "mode"):
+                exp.install(self.args)
+            process.assert_not_called()
+        self.assertEqual((self.data / exp.RECORD).read_bytes(), installed)
+        exp.uninstall(self.args)
+        self.assert_rolled_back()
+
+    def changed_plugin_blocks_relaunch_after_partial_cleanup(self):
+        exp.install(self.args)
+        plugin = self.data / "Experiment.esm"
+        plugin.write_bytes(b"owner changed plugin")
+        with self.assertRaisesRegex(SystemExit, "changed since install"):
+            exp.uninstall(self.args)
+        self.assertEqual({path.name for path in self.data.iterdir()}, {"Experiment.esm", exp.RECORD})
+        with self.assertRaisesRegex(SystemExit, "incomplete"):
+            exp.install(self.args)
+        self.assertEqual(plugin.read_bytes(), b"owner changed plugin")
+        # Once the owner restores the recorded content, cleanup is retryable.
+        plugin.write_bytes((self.staging / "Experiment.esm").read_bytes())
+        exp.uninstall(self.args)
+        self.assert_rolled_back()
+
+    def test_partial_loose_uninstall_cannot_masquerade_as_installed(self):
+        self.changed_plugin_blocks_relaunch_after_partial_cleanup()
+
+    def test_partial_packed_uninstall_cannot_masquerade_as_installed(self):
+        build = self.archive_builder()
+        with patch.object(exp.subprocess, "run", side_effect=build) as process:
+            self.changed_plugin_blocks_relaunch_after_partial_cleanup()
+            process.assert_called_once()
 
     def test_partial_second_copy_rolls_back_files_and_directories(self):
         real_copy = exp.shutil.copyfile

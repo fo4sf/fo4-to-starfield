@@ -1,6 +1,6 @@
 # Codex / Claude / Grok status
 
-Owner: dasscooby. Goal: finish the verified interior slice before actor implementation.
+Owner: repository owner. Current joint focus: prove converted Commonwealth terrain loads in Starfield. Interior acceptance remains open; actor implementation follows verified terrain/navigation probes.
 
 ## Goal and acceptance
 
@@ -16,9 +16,9 @@ Next: [actor milestone proposal](ACTOR-MILESTONE.md), #31. Planning only until i
 
 ## Current evidence / remaining work
 
-Acceptance blocker (Grok8819a03/#32): prompt-recording runs have no hinged door OPEN-verified from both sides and no pinned eight-cell evidence. Older Rexford/Vault81 geometric pairs lack prompt verbs; not activation acceptance. Load-door pass/walk-through/fall-through fails. Different runs/builds must not be combined into one verified result.
+Claude's pinned build1d3d5bf: Vault11112/12 routes PASS, Parsons11 doors OPEN-verified from both sides. Full eight-cell acceptance remains open. New integration2470f876:2 stairs/2 falls PASS,2 door failures from route aim; movable/teleport checks pending. Keep builds separate.
 
-Claude reported at56e3e37: Vault114 doors traversed after runner fixes; raised-door diagnosis withdrawn. Rexford:21 PASS/4 BLOCKED/1 UNREAD walks,8 stair passes. Vault81:2/3 stall doors traversed;19DA36 unresolved. Vault114 stairs:6 pass,2 stuck. Historical reports, not Codex validation or full slice acceptance.
+Terrain: custom experiments loaded procedural Mars ground. Claude's vanilla LC172World control matches BTD heights within0.02m in the authored centre; mask borders blend. #64 stages corrected FNAM/Location/mask/alignment/registration. Converted terrain still unverified in game. Claude owns probes; Codex verifies deployment/output. #61 NPC/navigation is research.
 
 Collision reported:3,012 native/243 source-none/199 box/36 surface boxes. Synthetic regression covers source-none without invented physics.
 
@@ -28,7 +28,7 @@ Door prototype:30 rigs/60 clips read back,42 selected source bodies/62 leaves; o
 
 `.af` samples: Open/Close sizes vary. Claude confirmed the second u16 at 0x28 matches named rig-bone counts in four families; frame rate and track mapping remain unknown. Details: research note and #32.
 
-Codex: #59 experiment installer follow-up (`codex/59-experiment-install-rollback`): preflight, journal, exclusive copies, rollback/retryable cleanup; preserve concurrent edits and changed/unproven files.11 synthetic tests;317 total OK (1 skipped), guard OK. Offline, QA pending; no live install changed. See #32/journal.
+Codex #62 integrates #59, keeps --pack, adds preflight/fresh archive validation/mode checks and journaled rollback.19 regressions;328 total OK (1 skipped), guard OK. Claude CLI reviews at max effort; main Claude asked on #32 to confirm effort/quota. Offline QA pending; no live install changed.
 
 ## Coordination / housekeeping
 

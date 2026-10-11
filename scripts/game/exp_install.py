@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import sys
 
 # Reuse the converter deployer's tested atomic writes and no-overwrite publication.
@@ -129,9 +130,19 @@ def cleanup(data, rec_p, rec):
         except OSError as e:
             errors.append(str(e))
     if errors:
+        rec["cleanup_pending"] = True
         deployment.write_manifest(rec_p, rec)
         raise OSError(f"recovery record retained at {rec_p}: {'; '.join(errors)}")
     os.remove(rec_p)
+
+
+def build_ba2(a, root, out):
+    """Build a fresh general BA2, preserving the previous archive if validation fails."""
+    folders = sorted(d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d)))
+    if not folders:
+        sys.exit(f"nothing to pack under {root}")
+    deployment.build_archive(argparse.Namespace(starfield=a.starfield, staging=root), out, folders, "General")
+    return out
 
 
 def install(a):
@@ -139,29 +150,46 @@ def install(a):
     rec_p = os.path.join(data, RECORD)
     plugins = [p.strip() for p in a.plugins.split(",") if p.strip()] if a.plugins else \
         sorted(f for f in os.listdir(a.exp_dir) if f.lower().endswith(".esm"))[:1]
+    packed = bool(getattr(a, "pack", False))
+    if packed and not plugins:
+        sys.exit("packing requires at least one experiment plugin")
     if os.path.exists(rec_p):
         with open(rec_p) as f:
             rec = json.load(f)
-        if not rec.get("complete", True):
+        if not rec.get("complete", True) or rec.get("cleanup_pending"):
             sys.exit(f"incomplete experiment install ({rec_p}); uninstall it first")
         same = os.path.normcase(rec.get("exp_dir", "")) == os.path.normcase(os.path.abspath(a.exp_dir)) and \
             all(p in rec["files"] for p in plugins)
         if same:                                          # a relaunch of the same experiment: nothing to do
+            if bool(rec.get("pack", False)) != packed:
+                sys.exit("experiment packing mode changed; uninstall it before changing modes")
             print("already installed")
             return
         sys.exit(f"another experiment is installed ({rec_p}); uninstall it first")
     files = staged_files(a.exp_dir, plugins)
-    targets = {rel: data_path(data, rel) for _, rel in files}
-    clash = [rel for _, rel in files if os.path.exists(targets[rel])]
+    names = [rel for _, rel in files]
+    if packed:
+        # Starfield reads no loose files here (Starfield.ini sResourceDataDirsFinal=STRINGS\ only; terrain experiment 1,
+        # 2026-10-11, got procedural planet ground because its loose BTDs were never seen). A plugin's own
+        # "<name> - Main.ba2" loads with it, so the staged Data tree goes into that archive instead.
+        ba2 = os.path.splitext(plugins[0])[0] + " - Main.ba2"
+        files = [(s, r) for s, r in files if r in plugins]
+        names = [rel for _, rel in files] + [ba2]
+    targets = {rel: data_path(data, rel) for rel in names}
+    clash = [rel for rel in names if os.path.exists(targets[rel])]
     if clash:
         sys.exit(f"refusing to overwrite existing game files: {clash}")
     # Validate all sources and snapshot activation before publishing anything.
     identities = {rel: digest(src) for src, rel in files}
+    if packed:
+        built = build_ba2(a, os.path.join(a.exp_dir, "Data"), os.path.join(a.exp_dir, ba2))
+        files.append((built, ba2))
+        identities[ba2] = digest(built)
     p = plugins_txt()
     original = read_bytes(p)
     lines, bom, nl = plugin_lines(original)
     rec = {"exp_dir": os.path.abspath(a.exp_dir), "files": {}, "dirs": [], "plugins_added": [],
-           "complete": False, "published_files": [], "plugins_txt": p,
+           "complete": False, "pack": packed, "published_files": [], "plugins_txt": p,
            "plugins_original": base64.b64encode(original).decode("ascii") if original is not None else None,
            "plugins_restore_pending": False}
     names = {ln.lstrip("*").strip().casefold() for ln in lines}
@@ -228,6 +256,7 @@ def main(argv=None):
     ap.add_argument("--exp-dir", default="")
     ap.add_argument("--starfield", required=True)
     ap.add_argument("--plugins", default="", help="comma-separated plugin file names to activate")
+    ap.add_argument("--pack", action="store_true", help="install the staged Data tree as '<first plugin> - Main.ba2'")
     a = ap.parse_args(argv)
     if a.cmd == "install":
         if not a.exp_dir:
