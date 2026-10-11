@@ -413,8 +413,13 @@ class ExpInstallTests(unittest.TestCase):
             exp_install.main(["install", "--exp-dir", exp, "--starfield", game])
             self.assertTrue(os.path.exists(os.path.join(game, "Data", "Terrain", "W.btd")))
             self.assertEqual(open(plugins, "rb").read(), original + b"*Exp.esm\r\n")
-            with self.assertRaises(SystemExit):           # a second install refuses
-                exp_install.main(["install", "--exp-dir", exp, "--starfield", game])
+            exp_install.main(["install", "--exp-dir", exp, "--starfield", game])   # same experiment again: no-op
+            self.assertEqual(open(plugins, "rb").read(), original + b"*Exp.esm\r\n")
+            other = os.path.join(root, "other")
+            os.makedirs(other)
+            open(os.path.join(other, "Other.esm"), "wb").write(b"TES4")
+            with self.assertRaises(SystemExit):           # a different experiment refuses
+                exp_install.main(["install", "--exp-dir", other, "--starfield", game])
             exp_install.main(["uninstall", "--starfield", game])
             self.assertEqual(open(plugins, "rb").read(), original)
             self.assertEqual(sorted(os.listdir(os.path.join(game, "Data"))), [])
@@ -447,3 +452,30 @@ class LaunchIdleTests(unittest.TestCase):
         self.assertIn("owner active", tq.blocked_reason(ctl, {"hours": [[0, 24]]}, launching=True, min_idle=900))
         ctl.foreign, ctl.last_sent_tick = False, None     # nothing known: needs real idle time
         self.assertIn("owner active", tq.blocked_reason(ctl, {"hours": [[0, 24]]}, launching=True, min_idle=900))
+
+
+class PreLaunchTests(unittest.TestCase):
+    def run_with(self, pre):
+        d = tempfile.mkdtemp()
+        make_queue(d, n=1)
+        q = json.load(open(os.path.join(d, "queue.json")))
+        q["pre_launch"] = pre
+        json.dump(q, open(os.path.join(d, "queue.json"), "w"))
+        ctl = FakeControls()
+        ctl.pid = None                                    # no game yet: the runner has to launch
+        launched = []
+        r = tq.Runner(d, args(), ctl=ctl, step=lambda t, o: 0)
+        r.pinned_ok = lambda: True
+        r._ps = lambda script, *a, **k: launched.append(script) or (1, "launch refused in the test")
+        r.run()
+        return launched, open(os.path.join(d, "run.log")).read()
+
+    def test_pre_launch_runs_right_before_the_launch(self):
+        launched, log = self.run_with([sys.executable, "-c", "print('installed')"])
+        self.assertIn("pre-launch exit 0: installed", log)
+        self.assertEqual(launched[:1], ["cycle.ps1"])
+
+    def test_failed_pre_launch_stops_without_launching(self):
+        launched, log = self.run_with([sys.executable, "-c", "import sys; sys.exit(3)"])
+        self.assertEqual(launched, [])
+        self.assertIn("pre-launch exit 3", log)
