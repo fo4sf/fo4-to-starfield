@@ -47,4 +47,4 @@ opened PR #34 using **54,793 tokens** (99% less than the fork's 5,677,999).
 Before (measured today, `cycle.ps1` from close to verified arrival): 195 s (Vault 114 swap, 20:3x) and 210 s (Vault 81,
 18:5x). Fixed timers inside: 30 s after launch, 45 s after Continue, 37 s after a blind `coc` (112 s), plus coc.ps1's
 30 s. Change: poll a screenshot every 3 s for the main menu text, then for the HUD, and go on as soon as it shows (the
-timers stay as the upper bound). After: to be measured on the next run, same command, same cell.
+timers stay as the upper bound). After (first run, 2026-10-11 01:3x, library cell, verified arrival): **168 s**, from 195-210 s (-15 to -20%). The per-phase times were swallowed by a pipe on that run; the script now prints them with Write-Host.

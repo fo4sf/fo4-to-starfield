@@ -31,7 +31,7 @@ function Wait-Screen($label, $maxSec, $check) {
   $png = Join-Path $env:TEMP 'fo4sf_wait.png'
   while (((Get-Date) - $t0).TotalSeconds -lt $maxSec) {
     powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'shot.ps1') -Out $png | Out-Null
-    if (& $check $png) { "{0} after {1} s" -f $label, [int]((Get-Date) - $t0).TotalSeconds; return $true }
+    if (& $check $png) { Write-Host ("{0} after {1} s" -f $label, [int]((Get-Date) - $t0).TotalSeconds); return $true }
     Start-Sleep 3
   }
   "{0}: not seen within {1} s, going on" -f $label, $maxSec
