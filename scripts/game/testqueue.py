@@ -3,7 +3,7 @@ checkpoint after every test, resume later, and rank the problems found.
 
 usage:
   python testqueue.py plan   --staging <build dir> --out <queue dir> [--cells A,B] [--kinds stairs,door,fall,movable,travel]
-                             [--per-cell 12] [--plugin-index 02]
+                             [--per-cell 12] [--per-kind N] [--plugin-index 02]
   python testqueue.py run    --queue <queue dir> [--max-tests N] [--max-hours 8] [--min-idle 900] [--wait-for-idle]
                              [--refocus] [--max-attempts 2] [--dry-run]
   python testqueue.py report --queue <queue dir>
@@ -172,6 +172,15 @@ def plan(a):
     tests = []
     for c in cells:
         tests += plan_cell(c, staging, kinds, a.per_cell, a.plugin_index, formids, items, all_refs)
+    if a.per_kind:                                        # small batches: the first N of each kind in each cell
+        seen = {}
+        keep = []
+        for t in tests:
+            k = (t["cell"], t["kind"])
+            seen[k] = seen.get(k, 0) + 1
+            if seen[k] <= a.per_kind:
+                keep.append(t)
+        tests = keep
     for n, t in enumerate(tests):
         t["id"] = f"{n:04d}_{t['kind']}_{t['cell']}_{str(t['ref']).split(':')[0]}" + (f"_s{t['side']}" if t.get("side") else "")
     digest = sha256(esm)
@@ -646,6 +655,7 @@ def main(argv=None):
     p.add_argument("--kinds", default=",".join(KINDS))
     p.add_argument("--per-cell", type=int, default=12)
     p.add_argument("--plugin-index", default="02")
+    p.add_argument("--per-kind", type=int, default=0, help="keep the first N tests of each kind per cell (0 = all)")
     r = sub.add_parser("run")
     r.add_argument("--queue", required=True)
     r.add_argument("--starfield", default=r"D:\SteamLibrary\steamapps\common\Starfield")
