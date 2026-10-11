@@ -2,6 +2,11 @@
 //   dotnet run -- <Starfield.esm> cells <substr>     interior cells (EditorID contains substr) + lighting template
 //   dotnet run -- <Starfield.esm> lights <substr>    LIGH records (EditorID contains substr) + radius/colour
 //   dotnet run -- <Starfield.esm> templates          lighting templates in use by interior cells (most used first)
+// Terrain (read-only, docs/terrain/architecture.md):
+//   wrld [substr]            every WRLD with terrain/planet/parent fields      sfbk [substr]   every SurfaceBlock (BTD path, sizes)
+//   planetworlds             planets registering master worldspaces            wcells <WRLD> [out.tsv]   cells + ref positions
+//   form <hex>... | form type:<TypePrefix> <EditorID substr>   one-level dump of any record      landcount
+// Note: opening a plugin other than Starfield.esm needs a master flag lookup (not implemented).
 using Mutagen.Bethesda.Plugins.Cache;
 using Mutagen.Bethesda.Starfield;
 
