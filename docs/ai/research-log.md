@@ -3,6 +3,32 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-11 Claude: terrain experiment 2c, the FO4 objects around Red Rocket on the native terrain
+- Question: can the real FO4 exterior references (cells x -20..-15, y 16..21) be placed on the exp2b terrain so the
+  runner measures object-on-terrain alignment, and what does the converted collision say they stand on?
+  Write-up: [docs/terrain/experiment2c.md](../terrain/experiment2c.md).
+- Method: new `dotnet/Fo4Land export-exterior` (Fo4Export's serializers compiled in unchanged), `src/fo4sf/exterior.py`
+  (skip reasons, placement, surface queries), `src/fo4sf/sfbodies.py` (reads back converted collision),
+  `convert_batch.py --prefix`, `dotnet/TerrainExp2` objects mode, `scripts/terrain/make_exp2c.py` (select / stage /
+  check); synthetic tests `test_exterior`, `test_sfbodies`, `test_make_exp2c`, `test_batch_prefix`. Staged
+  `C:\Modding\staging\terrain_exp2c`. Not deployed, not run in game.
+- Evidence:
+  - **verified**: export = 8,960 references + 48 actors, the same 9,008 FormIDs, cells and positions (0.004 units)
+    as the raw Python reader; 496 persistent references live in the world's persistent cell.
+  - **verified**: 8,069 placed (1,385 models), 939 skipped with a reason (decals, lights, power lines, markers,
+    effects, triggers, actors, 15 models that do not convert, 2 water planes); trees convert (STAT + BSTriShape).
+  - **verified**: converted collision read back = FO4's own (RedRExt_Workshop01: 5,898 triangles, 0 differ).
+    Workshop01 has no floor; the shop floor is RedRExt_Workshop02 at origin + 0.0286 m. The building origin stands on
+    the pump island (0.117 m above the terrain) under the canopy.
+  - **verified**: clockwise heading (PluginSpike / routes.py): 33 references at floor height fall inside the shop
+    footprint, 0 with the opposite sign.
+  - **verified**: building z - BTD = -0.56 mm (FO4 LAND: 0.00 mm); BTD vs FO4 terrain under all 8,069 origins:
+    median 1.43 mm, p99 56.6 mm, max 482 mm (sharp FO4 edge).
+  - **verified**: raw walk: all 847 exp2b records unchanged, Mars plugin / BTD / mask byte-identical, 8,071 REFR in
+    16 cells as written, 0 missing geometry / material / texture files; 109 checks PASS.
+- Status: offline **verified**. Whether overlay references merge with the terrain's offset, texture archive needs,
+  object bounds in exteriors and the capsule radius used for point choice are **unresolved** (in-game run pending).
+
 ## 2026-10-11 Claude: overlay record fixes
 - Question: in which records do our terrain experiment plugins differ from vanilla unique overlays, and what must
   SFBK `FNAM` hold? Write-up: [docs/terrain/overlay-records.md](../terrain/overlay-records.md).

@@ -187,7 +187,12 @@ Details:
 | Fell through (NOTERRAIN) | The BTD did not load. Compare with experiment 1: size (27.6 MB, 29 cells), `SmallWorld` with 841 cells, or the lookup path |
 | Experiment 1 passes only with the Mars registration | Add the same `PNDT` entry for `FO4CW_Commonwealth` (an `FO4TerrainExp1_Mars.esm` copy) |
 
-## Next step (plan, not built): Red Rocket exterior statics in this worldspace
+## Next step: Red Rocket exterior statics in this worldspace
+
+> **Built (2026-10-11) as experiment 2c**, [experiment2c.md](experiment2c.md): `Fo4Land export-exterior`, the
+> existing converter (`--prefix fo4cw`), and `TerrainExp2` placing STAT / DOOR records and references in exp2b's
+> plugin (one plugin, exp2b's FormIDs kept), not PluginSpike. The plan below is the original sketch.
+
 - `dotnet/Fo4Export` (Codex's, not changed here) exports **interior** cells only. `export <EditorID>` looks only at
   interior cells, and FO4 exterior cells mostly have no EditorID. Its `AllCells()` already walks worldspace cells,
   but only to resolve teleport dependencies.
