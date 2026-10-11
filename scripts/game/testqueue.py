@@ -203,11 +203,21 @@ def plan_terrain(a):
     worldspace loads its BTD at all, through the record or by name, and at what height scale."""
     staging = os.path.abspath(a.staging)
     esm = os.path.join(staging, "FO4Port.esm")
-    exp = load(os.path.join(a.exp_dir, "expected.json"))
-    worlds = [("FO4TX_W01Spawn", "FO4TX_World01.btd", "record and name"),
-              ("FO4TX_W02Spawn", "FO4TX_Shared02.btd", "record path only"),
-              ("FO4TX_W03Spawn", "FO4TX_World03.btd", "name only")]
     tests = []
+    # later experiments ship their own plan.json: [{"coc": "<cell editor id>", "label": "...", "drop_z": 80,
+    #   "points": [{"label", "x", "y", "expect"}], "beyond": {"x", "y"} (optional)}]  (metres, world coordinates)
+    own = load(os.path.join(a.exp_dir, "plan.json"))
+    for n, w in enumerate(own or []):
+        if not str(w.get("coc", "")).replace("_", "").isalnum():
+            sys.exit(f"bad coc name in plan.json: {w.get('coc')!r}")
+        tests.append({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "", "ref": w["coc"],
+                      "model": w.get("label", ""), "world_coc": w["coc"], "drop_z": float(w.get("drop_z", 80.0)),
+                      "points": w["points"], "beyond": w.get("beyond") or {"x": w["points"][0]["x"] + 500.0,
+                                                                           "y": w["points"][0]["y"]}})
+    exp = load(os.path.join(a.exp_dir, "expected.json")) if not own else {}
+    worlds = [] if own else [("FO4TX_W01Spawn", "FO4TX_World01.btd", "record and name"),
+                             ("FO4TX_W02Spawn", "FO4TX_Shared02.btd", "record path only"),
+                             ("FO4TX_W03Spawn", "FO4TX_World03.btd", "name only")]
     for n, (coc, btd, how) in enumerate(worlds):
         e = exp[btd]
         pts = [{"label": "ground", "x": -60.0, "y": -60.0, "expect": e["ground"]},
@@ -310,7 +320,8 @@ def judge(test, obs, out_dir):
         pts = obs.get("points") or []
         reads = [(p, parse3(o.get("read")) if isinstance(o, dict) else None) for p, o in zip(test["points"], pts)]
         if len(reads) < len(test["points"]) or any(r is None for _, r in reads) or not shot_ok(obs.get("shot")):
-            return "INCONCLUSIVE", "UNREAD", "a height was not read or the screenshot is missing"
+            got = "; ".join(f"{p['label']} {r[2]:.2f} (want {p['expect']})" for p, r in reads if r is not None)
+            return "INCONCLUSIVE", "UNREAD", f"{len([r for _, r in reads if r])} of {len(test['points'])} heights read"                 + (f": {got}" if got else "")
         parts, worst, fell = [], 0.0, False
         for p, r in reads:
             parts.append(f"{p['label']} {r[2]:.2f} (want {p['expect']})")
@@ -488,7 +499,9 @@ class Runner:
     def _step(self, test, out_dir):
         spec = os.path.join(out_dir, "spec.json")
         save_atomic(spec, test)
-        code, out = self._ps("qstep.ps1", ["-Spec", spec, "-Out", out_dir, "-PluginIndex", self.q["plugin_index"]], 300)
+        # a terrain drop takes about a minute per point (teleport, fall, OCR read): 300 s cut experiment 1 off
+        timeout = 150 + 90 * (len(test.get("points", [])) + 1) if test.get("kind") == "terrain" else 300
+        code, out = self._ps("qstep.ps1", ["-Spec", spec, "-Out", out_dir, "-PluginIndex", self.q["plugin_index"]], timeout)
         with open(os.path.join(out_dir, "step.log"), "w", encoding="utf-8") as f:
             f.write(out)
         return code
