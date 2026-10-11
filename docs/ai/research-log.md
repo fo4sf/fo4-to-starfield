@@ -3,6 +3,32 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-11 Claude: overlay record fixes
+- Question: in which records do our terrain experiment plugins differ from vanilla unique overlays, and what must
+  SFBK `FNAM` hold? Write-up: [docs/terrain/overlay-records.md](../terrain/overlay-records.md).
+- Method: raw walks of Starfield.esm (SFBK, WRLD, LCTN, PNDT, STAT) and per-cell statistics of the raw u16 heights of
+  every decodable vanilla BTD with 1..30 cells (1,711 SFBK; scratch scripts, outputs not in the repo); vanilla overlay
+  masks decoded with the new BC4 decoder. Then `src/fo4sf/overlay.py`, `scripts/terrain/overlay_records.py`,
+  `dotnet/TerrainExp1` overlay mode, `dotnet/TerrainExp2` params, `make_exp2.py restage`, `tests/test_overlay.py`.
+  Staged `C:\Modding\staging\terrain_exp1d` and `terrain_exp2b`. Not deployed, not run in game.
+- Evidence:
+  - **verified**: `FNAM` = `DNAM.x * DNAM.y` u16 in all 1,730 vanilla SFBK with an FNAM. Value = raw height of each
+    cell's south-west corner sample, cells from the south row: every cell exact in 1,464 of 1,711 records, 94.6 % of
+    all cells; min / max / mean / median / midrange / centre / north-first order: 0 records exact. lc172world 9/9,
+    akilacity 89 % of cells, NewAtlantis 91 %, lc001world 4/25.
+  - **verified**: all 430 overlay WRLDs have `XLCN`; `LocTypeOverlay` on the location in 11 of the 72 registered
+    ones (LC172World among them), city / settlement keywords on the rest. LC172WorldLocation: parent
+    `SSol_PMars_Surface` 01B736.
+  - **verified**: vanilla masks are DNAM cells x 100 px, legacy `BC4U`, one mip, in a General BA2; ours match the
+    format. `INAM` 1 (Absolute) in 10 vanilla blocks, `HNAM` -239..0; 1,743 Relative.
+  - **verified**: PNDT `CNAM` entry = f64 (Mutagen Longitude), f64 (Latitude), u32 WRLD; Mars 10 entries + ours.
+  - **verified** (offline check, both folders PASS): FNAM 50 B / 1,682 B equal to the rule for every cell, XLCN ->
+    LCTN (2CA99D, 01B736), INAM/HNAM 0/0 (exp1d) and 1/0 (exp2b), persistent XMarker anchor `01000800`
+    (plan `02000800`), Mars entry, mask decodes exactly, plan points within one quantisation step.
+- Status: records **verified** offline. Whether any of the four differences matters in game, the meaning of `HNAM`,
+  the stale FNAM of 242 vanilla blocks, mask row order and the run-time load-order byte (02 assumed) are
+  **unresolved**.
+
 ## 2026-10-11 Claude: terrain experiment 2 staged
 - Question: can the real Commonwealth terrain around Red Rocket be one native Starfield BTD at absolute positions,
   ready for the unattended runner, whichever BTD lookup experiment 1 finds?

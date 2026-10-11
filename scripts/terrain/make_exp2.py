@@ -1,16 +1,21 @@
 """Terrain experiment 2: real Commonwealth heights around Red Rocket as one native Starfield BTD (docs/terrain/experiment2.md).
 
     python scripts/terrain/make_exp2.py build --fo4 <Fallout4.esm> --sf-data <Starfield Data dir> --out <staging dir>
+    python scripts/terrain/make_exp2.py restage --from <staged exp2 dir> --sf-data <Starfield Data dir> --out <dir>
     dotnet run --project dotnet/TerrainExp2 -c Release -- <Starfield.esm> <staging dir>      (reads exp2_params.json)
     python scripts/terrain/make_exp2.py check --sf-data <Starfield Data dir> --out <staging dir>
 
-build writes, all OUTSIDE the repo (derived game data):
+build writes, all OUTSIDE the repo (derived game data); restage takes the BTD, points and spawn of an already staged
+experiment 2 instead of reading Fallout4.esm (exp2b, docs/terrain/overlay-records.md):
   Data/Terrain/FO4CW_Commonwealth.btd   n x n cells, FO4 heights / 70 at absolute positions (FO4 x, y / 70)
-  plan.json         check points for scripts/game/testqueue.py plan-terrain (runner format)
+  Data/textures/terrain/overlaymasks/fo4cw_commonwealth.dds   overlay mask (BC4, 100 px per cell, 255 outer ring)
+  plan.json         runner format: coc, label, anchor, spawn_local, drop_z, settle_ms, points (worldspace's own frame)
   expected.json     hypothesis, grid, height range, every point with its metadata and offline verification
-  exp2_params.json  numbers the dotnet plugin builder needs (n, height range, spawn, SFBK connections)
+  exp2_params.json  what the dotnet plugin builder needs: n, height range, spawn, FNAM (one raw u16 per BTD cell),
+                    alignment / HNAM, location, anchor, Mars registration
   README.txt        manual console steps;  preview.png  heightmap with the check points (north up)
-check re-reads the staged BTD and plugin: decoded heights at every plan point and a raw record dump of the esm.
+check re-reads the staged files: decoded heights at every plan point and a raw record walk of both plugins
+(scripts/terrain/overlay_records.py check_staging).
 
 Rules (supported hypotheses until the game shows them, see experiment 1): BTD grid starts n // 2 cells west / south of the
 world origin, 100 m cells, 128 samples per cell, row 0 = south; BTD height = world z in metres (hypothesis H).
@@ -25,11 +30,16 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "src"))
-from fo4sf import ba2, btd, fo4land  # noqa: E402
+from fo4sf import ba2, btd, fo4land, overlay  # noqa: E402
 from fo4sf import terrain_grid as tg  # noqa: E402
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import overlay_records  # noqa: E402
 
 WORLD = "FO4CW_Commonwealth"
 PLUGIN = "FO4TerrainExp2.esm"
+MARS_PLUGIN = "FO4TerrainExp2_Mars.esm"
+ANCHOR_EDID = "FO4CW_Anchor"
 BTD_NAME = WORLD + ".btd"
 COC = "FO4CW_RedRocketSpawn"
 PATCH = (-18, -17, 18, 19)              # FO4 cells x0, x1, y0, y1 of the PR #56 patch
@@ -256,9 +266,6 @@ def build(a):
     if not check["pass"]:
         sys.exit("a plan point's decoded height differs from its expectation by more than one quantisation step")
 
-    plan = [{"coc": COC, "label": f"terrain exp2: Commonwealth heights around Red Rocket ({n}x{n}-cell BTD, H: z = FO4/70)",
-             "drop_z": drop_z, "points": [{k: p[k] for k in ("label", "x", "y", "expect")} for p in pts],
-             "beyond": beyond}]
     cr = tg.cell_range(n)
     expected = {
         "experiment": "terrain_exp2", "plugin": PLUGIN, "worldspace": WORLD, "btd": f"Data\\Terrain\\{BTD_NAME}",
@@ -284,49 +291,67 @@ def build(a):
                     "seam pair differs while others pass": "LOD0 block stitching or FO4 cell border handling",
                     "slopes off by ~slope x 0.4 m": "half-sample grid shift (shift_sensitivity_m per point)",
                     "fell (NOTERRAIN)": "BTD not loaded: compare with experiment 1"}}
-    params = {"plugin": PLUGIN, "world": WORLD, "btd_path": f"Data\\TERRAIN\\{BTD_NAME}", "n": n,
+    stage(a, data, raw, pts, spawn, spawn_ground, drop_z, expected)
+
+
+def stage(a, data, raw, pts, spawn, spawn_ground, drop_z, expected):
+    """Everything after the BTD: overlay records in the params (FNAM per cell, alignment, Location, anchor, Mars
+    registration), the overlay mask, plan.json in the runner format, expected.json, README.txt and the preview."""
+    n = raw.shape[1] // 128
+    cr = tg.cell_range(n)
+    hmin, hmax = expected["height_range_m"]
+    ground = round(float(spawn_ground), 4)
+    anchor = {"edid": ANCHOR_EDID, "local": [spawn[0], spawn[1], ground], "ref": overlay_records.anchor_ref()}
+    mars = None if a.no_mars else {"plugin": MARS_PLUGIN, "latitude": a.mars_lat, "longitude": a.mars_lon}
+    params = {"plugin": PLUGIN, "world": WORLD, "btd_path": f"Data\\TERRAIN\\{BTD_NAME}",
+              "btd_file": f"Data/Terrain/{BTD_NAME}", "n": n,
               "cell_min": cr[0], "cell_max": cr[1], "hmin": hmin, "hmax": hmax,
-              "connections": tg.connections_raw(raw), "coc": COC, "spawn": spawn,
+              "fnam": overlay.fnam_values(raw), "alignment": a.alignment, "hnam": a.hnam, "location": True,
+              "anchor": anchor, "mars": mars, "mask": overlay_records.mask_rel(WORLD), "coc": COC, "spawn": spawn,
               "spawn_cell": list(tg.sf_cell_of(*spawn[:2])),
               "bounds_min_m": tg.grid_origin(n), "bounds_max_m": tg.grid_origin(n) + n * tg.SF_CELL_M}
+    plan = [{"coc": COC,
+             "label": f"terrain exp2b: Commonwealth heights around Red Rocket ({n}x{n}-cell BTD) + overlay records "
+                      f"({a.alignment}, HNAM {a.hnam}{', Mars' if mars else ''})",
+             "anchor": {"ref": anchor["ref"], "local": anchor["local"]}, "spawn_local": [spawn[0], spawn[1], ground],
+             "drop_z": drop_z, "settle_ms": 8000,
+             "points": [{k: p[k] for k in ("label", "x", "y", "expect")} for p in pts]}]
+    expected = dict(expected, experiment="terrain_exp2b", anchor=anchor, spawn_local=plan[0]["spawn_local"],
+                    overlay_records={"fnam": f"{n * n} raw u16 = SW-corner sample of every BTD cell ({n * n * 2} B)",
+                                     "alignment": a.alignment, "hnam": a.hnam,
+                                     "location": WORLD + "Location (LocTypeOverlay 2CA99D, parent SSol_PMars_Surface)",
+                                     "mask": overlay_records.mask_rel(WORLD), "mars": mars})
+    expected.pop("beyond", None)
+    mk = overlay_records.write_mask(a.out, WORLD, n, a.mask_writer)
     for name, obj in (("plan.json", plan), ("expected.json", expected), ("exp2_params.json", params)):
         with open(os.path.join(a.out, name), "w", encoding="utf-8") as f:
             json.dump(obj, f, indent=1)
-    write_readme(a.out, n, pts, spawn, drop_z, beyond, len(data))
-    preview(dec, n, pts, spawn, os.path.join(a.out, "preview.png"))
-    print(f"plan: {len(pts)} points, drop_z {drop_z}, spawn {spawn}, beyond {beyond}")
+    overlay_records.readme(a.out, "experiment 2b", params, plan[0], mk, [
+        f"Real Commonwealth heights around Red Rocket as a native Starfield BTD ({n} x {n} cells, {len(data):,} bytes;",
+        "the same BTD as experiment 2) with the overlay record fixes: SFBK FNAM = one raw cell-corner height per cell",
+        f"({n * n * 2} B, was 16 B), Location {WORLD}Location (LocTypeOverlay, parent SSol_PMars_Surface), overlay mask,",
+        f"alignment {a.alignment} (INAM {1 if a.alignment == 'absolute' else 0}, HNAM {a.hnam}), "
+        + (f"registered on Mars by {MARS_PLUGIN} (latitude {a.mars_lat}, longitude {a.mars_lon})" if mars
+           else "no planet registration") + ",",
+        f"and a persistent anchor {ANCHOR_EDID}. Points are FO4 vertices: expect = FO4 height / 70 (hypothesis H).",
+        "Never install together with experiment 1 (both Mars plugins override MarsPlanetData)."])
+    t = btd.read(data)
+    preview(t.heights_m(), n, pts, spawn, os.path.join(a.out, "preview.png"))
+    print(f"plan: {len(pts)} points, drop_z {drop_z}, spawn_local {plan[0]['spawn_local']}, anchor {anchor}, "
+          f"mask {mk['bytes']:,} B ({mk['pixels_differ']} px differ)")
 
 
-def write_readme(out, n, pts, spawn, drop_z, beyond, size):
-    lines = [
-        "Terrain experiment 2 (Claude, 2026-10-11). NOT deployed. Real Commonwealth heights around Red Rocket as a native",
-        f"Starfield BTD ({n} x {n} cells, {size:,} bytes). Recipe and how to read the result: docs/terrain/experiment2.md",
-        "(branch claude/terrain-exp2). Run it after experiment 1 or together with it (never both installed at once).",
-        "",
-        "Install (game closed), or let the runner do it: scripts/game/exp_install.py install --exp-dir <this folder>",
-        f"  1. Copy {PLUGIN} to Starfield\\Data.",
-        f"  2. Copy Data\\Terrain\\{BTD_NAME} to Starfield\\Data\\Terrain\\ (create the folder).",
-        f"  3. Add  *{PLUGIN}  to Plugins.txt. Loose files must be enabled (as for the converted meshes).",
-        "",
-        "In game (test save), console:",
-        "  tgm",
-        f"  coc {COC}            ground?  player.getpos z  -> about {spawn[2] - SPAWN_ABOVE:.2f} (spawn marker is 2 m higher)",
-        "  For every point: player.setpos x <x> / player.setpos y <y> / player.setpos z "
-        f"{drop_z:g}, wait to land, player.getpos z -> expect (+-0.5 m):",
-    ]
-    for p in pts:
-        lines.append(f"    {p['label']:<22} x {p['x']:>10.4f}  y {p['y']:>10.4f}  -> {p['expect']:.2f}   "
-                     f"({p['kind']}, slope {p['slope_deg']:.1f} deg)")
-    lines += [
-        f"  Beyond the BTD edge: x {beyond['x']:.1f}, y {beyond['y']:.1f} (100 m west of it): void / flat / water? screenshot.",
-        "  Look around from the spawn: does the ground follow the Red Rocket hill and the road? screenshot (north, east).",
-        "",
-        "Uninstall: exp_install.py uninstall, or remove the Plugins.txt line and delete the esm and the .btd.",
-        "expected.json holds the numbers and the offline check; plan.json is the runner's input; preview.png the heightmap.",
-        "Rebuild: scripts/terrain/make_exp2.py build, dotnet/TerrainExp2, make_exp2.py check.",
-    ]
-    with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
+def restage(a):
+    """exp2b from an already staged experiment 2 (same BTD, points and spawn; no Fallout4.esm needed)."""
+    exp = json.load(open(os.path.join(a.source, "expected.json")))
+    data = open(os.path.join(a.source, "Data", "Terrain", BTD_NAME), "rb").read()
+    if exp.get("btd_bytes") not in (None, len(data)):
+        sys.exit("expected.json does not belong to this BTD")
+    t = btd.read(data)
+    os.makedirs(os.path.join(a.out, "Data", "Terrain"), exist_ok=True)
+    with open(os.path.join(a.out, "Data", "Terrain", BTD_NAME), "wb") as f:
+        f.write(data)
+    stage(a, data, t.heights_raw, exp["points"], exp["spawn"]["pos_m"], exp["spawn"]["ground_m"], exp["drop_z"], exp)
 
 
 def preview(dec, n, pts, spawn, path, size=928):
@@ -355,80 +380,33 @@ def preview(dec, n, pts, spawn, path, size=928):
 
 
 # ---------------------------------------------------------------------------------------------------------- check
-def dump_plugin(path):
-    """Raw record walk of the staged plugin: what the engine will read (independent of Mutagen)."""
-    buf = open(path, "rb").read()
-    out = {"bytes": len(buf), "records": {}, "wrld": [], "sfbk": [], "cells": 0, "refs": []}
-
-    def walk(start, end, cell=None):
-        for item in fo4land.iter_items(buf, start, end):
-            if item[0] == "GRUP":
-                walk(item[1] + 24, item[2], cell)
-                continue
-            typ, off, _flags, fid = item
-            t = typ.decode()
-            out["records"][t] = out["records"].get(t, 0) + 1
-            fields = list(fo4land.iter_subrecords(fo4land.record_data(buf, off)))
-            f = {s.decode("latin-1"): d for s, d in fields}
-            edid = fo4land.zstring(f["EDID"]) if "EDID" in f else ""
-            if t == "WRLD":
-                out["wrld"].append({"fid": "%08X" % fid, "edid": edid, "fields": [s.decode("latin-1") for s, _ in fields],
-                                    "NAM0": list(struct.unpack("<2f", f["NAM0"])) if "NAM0" in f else None,
-                                    "NAM9": list(struct.unpack("<2f", f["NAM9"])) if "NAM9" in f else None,
-                                    "surface_block_ref": [d.hex() for s, d in fields if s == b"BNAM"]})
-            elif t == "SFBK":
-                out["sfbk"].append({"fid": "%08X" % fid, "edid": edid, "ANAM": fo4land.zstring(f.get("ANAM", b"")),
-                                    "DNAM": list(struct.unpack("<2I", f["DNAM"])) if "DNAM" in f else None,
-                                    "ENAM": list(struct.unpack("<2f", f["ENAM"])) if "ENAM" in f else None,
-                                    "FNAM": list(struct.unpack("<8H", f["FNAM"])) if "FNAM" in f else None})
-            elif t == "CELL":
-                out["cells"] += 1
-                if edid:
-                    xy = struct.unpack("<2i", f["XCLC"][:8]) if "XCLC" in f else None
-                    out.setdefault("named_cells", []).append({"fid": "%08X" % fid, "edid": edid, "xclc": xy})
-            elif t == "REFR":
-                r = fo4land.parse_ref(fields)
-                out["refs"].append({"fid": "%08X" % fid, "edid": edid, "base": "%08X" % r["base"], "pos": r["pos"]})
-    walk(24 + struct.unpack_from("<I", buf, 4)[0], len(buf))
-    return out
-
-
 def check(a):
+    """BTD summary, then the overlay check: decoded heights at every plan point and a raw record walk of both plugins
+    (WRLD XLCN, LCTN keyword/parent, SFBK FNAM/INAM/HNAM, anchor, PNDT CNAM entry) plus the mask."""
     exp = json.load(open(os.path.join(a.out, "expected.json")))
-    plan = json.load(open(os.path.join(a.out, "plan.json")))
     data = open(os.path.join(a.out, "Data", "Terrain", BTD_NAME), "rb").read()
     t = btd.read(data)
     n = t.ncx
-    dec = t.heights_m()
     step = (t.hmax - t.hmin) / 65535.0
-    errs = []
-    o = tg.grid_origin(n)
-    for p in plan[0]["points"]:                      # worst of bilinear and both triangle splits
-        hs = tg.point_interp(dec, o, o, tg.SF_STEP_M, p["x"], p["y"])
-        e = max(abs(h - p["expect"]) for h in hs.values())
-        errs.append(e)
-        print(f"  {p['label']:<22} decoded {hs['bilinear']:9.4f} (tri {hs['tri_sw_ne']:9.4f} {hs['tri_nw_se']:9.4f})"
-              f"  expect {p['expect']:9.4f}  error {e * 1000:6.3f} mm")
     print(f"BTD {len(data):,} B, {n} x {t.ncy} cells, range {t.hmin}..{t.hmax}, step {step * 1000:.3f} mm, "
           f"LTEX {['%08X' % x for x in t.ltex]}, quad {[int(v) for v in t.quad_map[0, 0]]}, "
           f"weights max {int(t.weights.max())}")
-    print(f"max error {max(errs) * 1000:.3f} mm <= step: {max(errs) <= step}")
     sp = exp["spawn"]["pos_m"]
-    print(f"spawn {sp}: ground {tg.btd_height_at(dec, n, sp[0], sp[1]):.4f}")
-    esm = os.path.join(a.out, PLUGIN)
-    d = dump_plugin(esm)
-    d["named_cells"] = d.get("named_cells", [])
-    print(json.dumps({k: d[k] for k in ("bytes", "records", "wrld", "sfbk", "cells", "named_cells", "refs")}, indent=1))
-    ok = (max(errs) <= step and len(d["wrld"]) == 1 and d["wrld"][0]["edid"] == WORLD and len(d["sfbk"]) == 1
-          and d["sfbk"][0]["ANAM"] == f"Data\\TERRAIN\\{BTD_NAME}" and d["sfbk"][0]["DNAM"] == [n, n]
-          and any(c["edid"] == COC for c in d["named_cells"]) and len(d["refs"]) == 1)
-    print("CHECK", "PASS" if ok else "FAIL")
-    return 0 if ok else 1
+    print(f"spawn {sp}: ground {tg.btd_height_at(t.heights_m(), n, sp[0], sp[1]):.4f}")
+    return overlay_records.run_check(a.out, "exp2_params.json", a.sf_data)
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=("build", "check"))
+    ap.add_argument("cmd", choices=("build", "restage", "check"))
+    ap.add_argument("--from", dest="source", help="restage: an already staged experiment 2 folder (BTD + expected.json)")
+    ap.add_argument("--alignment", choices=("relative", "absolute"), default="absolute",
+                    help="SFBK INAM: absolute (1, like NewAtlantis; default) or relative (0, like the LC overlays)")
+    ap.add_argument("--hnam", type=int, default=0, help="SFBK HNAM height offset (NewAtlantis: -239)")
+    ap.add_argument("--no-mars", action="store_true", help="no Mars registration plugin")
+    ap.add_argument("--mars-lat", type=float, default=-1.2, help="Mutagen MasterWorldspace.Latitude (2nd f64 of the entry)")
+    ap.add_argument("--mars-lon", type=float, default=0.3, help="Mutagen MasterWorldspace.Longitude (1st f64)")
+    ap.add_argument("--mask-writer", choices=("texconv", "builtin"), default="texconv")
     ap.add_argument("--fo4", help="Fallout4.esm")
     ap.add_argument("--sf-data", required=True, help="Starfield Data folder (terrain BA2s)")
     ap.add_argument("--out", required=True, help="staging folder, e.g. C:\\Modding\\staging\\terrain_exp2")
@@ -442,6 +420,11 @@ def main():
             sys.exit("--fo4 is required for build")
         os.makedirs(a.out, exist_ok=True)
         return build(a)
+    if a.cmd == "restage":
+        if not a.source:
+            sys.exit("--from is required for restage")
+        os.makedirs(a.out, exist_ok=True)
+        return restage(a)
     return check(a)
 
 

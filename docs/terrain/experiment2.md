@@ -3,6 +3,12 @@
 Author: Claude, 2026-10-11. Branch `claude/terrain-exp2` (built on `claude/terrain-architecture` (PR #57) with
 `claude/terrain-source` (PR #56) merged in). Status: **built and checked offline, staged, not deployed, not run in game**.
 
+> **Follow-up (2026-10-11): experiment 2b** in [overlay-records.md](overlay-records.md) is this experiment with the
+> overlay record fixes: SFBK `FNAM` = one raw height per BTD cell (1,682 B, the "connections" below were wrong),
+> a Location, an overlay mask, Absolute alignment (`INAM` 1, `HNAM` 0), a Mars registration plugin
+> (`FO4TerrainExp2_Mars.esm`) and a persistent anchor. Staged in `C:\Modding\staging\terrain_exp2b`. `make_exp2.py
+> build` and `restage` now write that form; `C:\Modding\staging\terrain_exp2` is left as first built.
+
 Labels: **verified** = measured here, number given; **supported** = supported hypothesis; **unresolved** = not known.
 Offline checks are not in-game acceptance.
 
@@ -93,8 +99,9 @@ Details:
 - `NAM0`/`NAM9` (object bounds) are raw metres. Mutagen shows them divided by 4096, so the template's -0.0488 /
   0.0732 are raw -200 / 300 m, matching its cells -2..2. Writing -1400/4096 produced raw -1400.0 (**verified**).
 - `FNAM` ("connections") holds the corners and edge midpoints, SW, S, SE, E, NE, N, NW, W. Only the first value
-  matches vanilla (the SW corner, 3 of 3 blocks checked: lc172world, akilacity, newatlantis). The meaning of the
-  other seven is **unresolved**. It should not matter for a worldspace that is never blended into a planet.
+  matches vanilla (the SW corner, 3 of 3 blocks checked: lc172world, akilacity, newatlantis). **Superseded**: vanilla
+  `FNAM` holds one raw u16 per BTD cell, the SW-corner sample of each cell (exact for every cell in 1,464 of 1,711
+  vanilla blocks; [overlay-records.md](overlay-records.md)), so this 16-byte `FNAM` has the wrong size. Fixed in exp2b.
 - Spawn: the Red Rocket building `000211C0` origin is FO4 (-69232, 80304, 7360). Divided by 70 that is
   (-989.0286, 1147.2), in Starfield cell (-10, 11). The decoded BTD ground there is 105.1434 m (FO4 7360 / 70 =
   105.1429). The marker is 2 m higher, at 107.1434. The building itself is not placed in this experiment.
@@ -207,7 +214,8 @@ Details:
 2. Whether `SmallWorld` (copied from the 5 x 5 template) limits a 29 x 29 world, and whether all 841 empty cells are
    needed. In vanilla akilacity, 55 of its 81 BTD cells hold references (`SfInspect wcells`); whether the
    other 26 have empty CELL records was not checked.
-3. The meaning of `FNAM` entries 2-8; the alignment fields (`HNAM`/`INAM`/`JNAM`) for a master worldspace.
+3. ~~The meaning of `FNAM` entries 2-8~~ (resolved: one value per cell, see overlay-records.md); the alignment
+   fields (`HNAM`/`INAM`/`JNAM`) for a master worldspace (exp2b tests `INAM` 1 / `HNAM` 0).
 4. FO4's triangle split, and cliff accuracy (above).
 
 ## Reproduce

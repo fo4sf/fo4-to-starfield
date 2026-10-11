@@ -15,10 +15,8 @@ Everything is written to the staging folder (derived game data never enters the 
 """
 import argparse
 import json
-import math
 import os
 import re
-import shutil
 import struct
 import subprocess
 import sys
@@ -44,6 +42,11 @@ ANCHOR_ID = 0x800                   # the builders give the anchor the plugin's 
 # back to spawn_local when prid fails.
 ANCHOR_LOAD_BYTE = "02"
 PLAN_KEYS = ("coc", "label", "anchor", "spawn_local", "drop_z", "settle_ms", "points")
+
+
+def read_bytes(path):
+    with open(path, "rb") as f:
+        return f.read()
 
 
 def mask_rel(world):
@@ -76,14 +79,14 @@ def write_mask(out, world, n, writer="texconv", texconv=TEXCONV):
             made = os.path.join(tmp, world.lower() + ".dds")
             if r.returncode != 0 or not os.path.isfile(made):
                 sys.exit("texconv failed:\n" + r.stdout + r.stderr)
-            data = open(made, "rb").read()
+            data = read_bytes(made)
     with open(dst, "wb") as f:
         f.write(data)
     return mask_report(out, world, n)
 
 
 def mask_report(out, world, n):
-    data = open(os.path.join(out, *mask_rel(world).split("/")), "rb").read()
+    data = read_bytes(os.path.join(out, *mask_rel(world).split("/")))
     info = overlay.dds_info(data)
     differ, worst = overlay.mask_check(overlay.bc4_decode(data), n)
     return {"file": mask_rel(world), "bytes": len(data), "width": info["width"], "height": info["height"],
@@ -94,7 +97,7 @@ def mask_report(out, world, n):
 # ---------------------------------------------------------------------------------------------------------- raw walk
 def walk_plugin(path):
     """Every record of a plugin, raw (independent of Mutagen): masters and [{sig, fid, flags, fields}]."""
-    buf = open(path, "rb").read()
+    buf = read_bytes(path)
     hsize = struct.unpack_from("<I", buf, 4)[0]
     masters = [fo4land.zstring(d) for s, d in fo4land.iter_subrecords(buf[24:24 + hsize]) if s == b"MAST"]
     recs = []
@@ -149,7 +152,7 @@ def check_staging(out, prm, plan, vanilla_mars_entries=None):
 
     n = prm["n"]
     world = prm["world"]
-    data = open(os.path.join(out, *prm["btd_file"].split("/")), "rb").read()
+    data = read_bytes(os.path.join(out, *prm["btd_file"].split("/")))
     t = btd.read(data)
     dec = t.heights_m()
     step = (t.hmax - t.hmin) / 65535.0
@@ -266,7 +269,7 @@ def vanilla_mars_count(sf_data):
     p = os.path.join(sf_data, "Starfield.esm") if sf_data else ""
     if not os.path.isfile(p):
         return None
-    buf = open(p, "rb").read()
+    buf = read_bytes(p)
     off = 24 + struct.unpack_from("<I", buf, 4)[0]
     for item in fo4land.iter_items(buf, off, len(buf)):
         if item[0] == "GRUP" and item[3] == b"PNDT":
@@ -369,7 +372,7 @@ def readme(out, name, prm, plan, mk, intro):
         "    (e.g. click a placed object of the plugin in the console) or use the arrival instead:",
         f"  player.getpos x/y/z right after the coc -> S; the COC marker stands at local {plan['spawn_local']} (ground).",
         "  offset O = A - anchor local  (or S - spawn_local). Alignment " + prm["alignment"] +
-        (": with INAM 1 / HNAM 0 the Z offset should be 0" if prm["alignment"] == "absolute" else
+        (": if Absolute means world z = BTD height + HNAM (hypothesis), the Z offset is 0" if prm["alignment"] == "absolute" else
          ": the Z offset is whatever the merge applies") + ".",
         f"  For every point: player.setpos x <x + O.x> / player.setpos y <y + O.y> / player.setpos z <{plan['drop_z']:g} + O.z>,",
         f"  wait {plan['settle_ms'] / 1000:g} s, player.getpos z -> expect + O.z (+-0.5 m):",
