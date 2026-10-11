@@ -308,6 +308,26 @@ def landing(top, ground, x, y, drop_z, radius=0.6):
             "all_on_object": all(objs), "owner": centre_owner, "owners": sorted(owners, key=str)}
 
 
+def nearby_object(top, ground, x, y, drop_z, radii=(0.15, 0.3, 0.45, 0.6), per_ring=24, threshold=0.1):
+    """The closest collision surface standing more than `threshold` above the terrain around (x, y), as seen by a
+    drop from drop_z: {"distance", "height" (above the terrain there), "owner"} for the first ring (smallest radius)
+    where one appears (its highest sample), or None when the rings are clear. A dropped player whose capsule
+    reaches such a surface may land on it instead of the terrain."""
+    for r in radii:
+        best = None
+        for k in range(per_ring):
+            px, py = x + r * math.cos(2 * math.pi * k / per_ring), y + r * math.sin(2 * math.pi * k / per_ring)
+            hit = top(px, py, drop_z)
+            if hit is None:
+                continue
+            h = hit[0] - ground(px, py)
+            if h > threshold and (best is None or h > best["height"]):
+                best = {"distance": r, "height": h, "owner": hit[1]}
+        if best is not None:
+            return best
+    return None
+
+
 def clearance(index: SurfaceIndex, x, y, z, radius=0.6, skin=0.05):
     """Free height above z over a disc: lowest collision surface higher than z + skin at any disc sample, minus z
     (math.inf when nothing is above)."""

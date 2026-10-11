@@ -164,6 +164,18 @@ class SurfaceIndexTests(unittest.TestCase):
         self.assertAlmostEqual(roof[0][2]["centre"], 3.2)
         self.assertEqual(ex.clearance(idx, 8, 5, 3.2), math.inf)
 
+    def test_nearby_object(self):
+        crate = box_tris(1.0, -1, 0, 2, 1, 0.5)                           # 0.5 m tall, its edge 1 m east of the point
+        idx = ex.SurfaceIndex(np.array(crate), np.zeros(len(crate), np.int64))
+        ground = lambda x, y: 0.0
+        self.assertIsNone(ex.nearby_object(idx.top, ground, 0, 0, 50))  # rings reach 0.6 m only
+        near = ex.nearby_object(idx.top, ground, 0.6, 0, 50)
+        self.assertEqual(near["distance"], 0.45)
+        self.assertAlmostEqual(near["height"], 0.5)
+        self.assertEqual(near["owner"], 0)
+        self.assertIsNone(ex.nearby_object(idx.top, ground, 0.6, 0, 50, threshold=0.6))
+        self.assertIsNone(ex.nearby_object(idx.top, ground, 0.6, 0, 0.4))   # dropped below the crate top: not seen
+
     def test_interior_order_prefers_the_middle(self):
         samples = [(x * 0.5, y * 0.5, 1.0) for x in range(11) for y in range(5)]
         best = ex.interior_order(samples, radius=1.0)[0]
