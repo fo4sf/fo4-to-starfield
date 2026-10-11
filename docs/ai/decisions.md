@@ -37,3 +37,13 @@ any window. Deterministic guards: refuses if the agent was active in the last 10
 was woken in the last 30 min (their usage comes from the owner's plans); every attempt is logged (wakes.jsonl).
 Alternatives: keystrokes into the agents' terminals (focus stealing, wrong-window risk); GitHub comments only (agents
 don't poll while idle).
+
+## 2026-10-10 GitHub text reaches the Lead only through a trusted-author filter
+`tools/ai-team/trusted_gh.py` is the Lead's read path for issues and PRs; raw `gh issue view` / `gh pr view` are
+`ask` (refused unattended) and listing stays allowed. Trust is a login allowlist in `config.json` (`trusted_authors`:
+the repository owner, which is the shared agent account; a machine account is added there when it exists), checked
+against the API author and against every editor/renamer on record, failing closed when the history cannot be read.
+Why: a public repository is an injection channel, and "a sentence in a prompt is not a control" (admin-node review).
+Alternatives: a prompt-only rule (not enforced); label-based trust (labels do not cover comments and can be stale);
+showing untrusted bodies with a warning (leaves the body as the channel); `authorAssociation == OWNER` (no room for a
+machine account).

@@ -3,6 +3,30 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-10 Claude: what can a trusted-author filter for GitHub reads rely on? (tools/ai-team/trusted_gh.py)
+- Question: which facts from the GitHub API let a wrapper drop outsiders' text before a local model reads an issue
+  or PR, and what is the owner's API login (docs/ai/admin-node-review-2026-10-10.md asked for the filter in code)?
+- Method: read-only `gh api`, `gh ... --json` and `gh api graphql` calls against the repository on 2026-10-10; the
+  tool's own `fetch_edit_history` run on real node ids; unit tests on synthetic gh JSON (`tests/test_ai_trusted_gh.py`).
+- Owner login: the repository owner, the authenticated shared account, the author of all 34 issues (`--state all`) and
+  of all 104 comments on #32 report the login `fo4sf`. The former login returns HTTP 404 from `users/<login>` while
+  the old repo URL redirects to `fo4sf/fo4-to-starfield`: **verified**. A retired username can be re-registered, so
+  the tool resolves the repo slug from the checkout (as PR #47 does for team.py) and trusts logins, not URLs.
+- `gh issue view 32 --json comments` returns 104 comments, equal to the REST `comments` count (pagination past 100
+  works): **verified**.
+- gh's `--json` exposes `includesCreatedEdit` (edited yes/no) for comments and reviews, no editor, and no edit flag
+  at all for the issue/PR body or title. GraphQL `nodes(ids:) { ... on Comment { editor userContentEdits } }` answers
+  for Issue, IssueComment and PullRequest nodes (6 nodes checked), and on the 27 issues whose bodies were edited
+  (2 edits each) `fetch_edit_history` returns `{'fo4sf'}`: **verified**.
+- `timelineItems(itemTypes: [RENAMED_TITLE_EVENT]).totalCount` counts all timeline items (PR #33: 15, with 0 filtered
+  nodes), so page completeness is read from `pageInfo.hasPreviousPage`, never from totalCount: **verified** (13 PRs).
+- No edited comment, renamed title or non-owner author exists in the repository today, so the hide-on-untrusted-author
+  and hide-on-untrusted-editor paths are exercised by the 25 synthetic tests only; that GraphQL reports an outsider's
+  edit through the same `editor` / `userContentEdits` fields is a **supported hypothesis** (API schema, not observed).
+- Cost: filtered read of #32 (104 comments, one GraphQL round for the body) 2.6 s vs raw `gh issue view --json` 1.5 s.
+- **Unresolved** (follow-up): the Lead's and QA's `gh pr diff`, and the Research/QA agents' raw `gh issue view` /
+  `gh pr view`, still print anyone's text; the remote agents' own `gh` is outside this filter.
+
 ## 2026-10-09 Claude: which FO4 collision bodies are movable?
 - Question: how does an FO4 `bhkPhysicsSystem` mark a body as movable (pushable), so the converter can stop turning
   physics objects into fixed obstacles (Vault 114 door `05C7DC` is blocked by a ragdoll skeleton)?

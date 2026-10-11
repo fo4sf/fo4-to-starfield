@@ -601,3 +601,14 @@ open PRs (#34 QA PASS, #35 in progress), local team state, next steps. Removed a
 docs/ai/agent-status.md refreshed from live sources. Shut down: guardian proxy stopped, local model unloaded, no
 background jobs left. Next session: re-run Vault 81 and the library, finish the Prydwen (same pinned build), then
 movable bodies for loose items.
+
+## 2026-10-10 Trusted-author filter for GitHub reads (Claude, PR)
+Anyone can post in this public repository, so issue and PR text is a prompt-injection channel for the local Lead and
+for the briefs `wake_agent.py` sends. `tools/ai-team/trusted_gh.py` (`issue <n>`, `pr <n>`, `issues`, `prs`) wraps
+`gh ... --json` and prints only text whose API author, and every editor on record, is in `config.json`
+`trusted_authors` (default: the repository owner's login, which is also the shared agent account); everything else
+becomes a count line, and untrusted text or logins never reach stdout. Edit history comes from one `gh api graphql`
+round per command (the body plus edited trusted comments) and the tool fails closed when it cannot be read.
+`.opencode/agents/fo4-lead.md` allows the tool and moves `gh issue view` / `gh pr view` to `ask`; listing stays
+allowed. Evidence and what is not covered (Research/QA agents, `gh pr diff`) are in docs/ai/research-log.md; 25
+mocked-gh tests, full suite OK, guard ok.
