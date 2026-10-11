@@ -34,7 +34,7 @@ anchor ref, so the runner can measure the merge offset directly.
   Order: cells row-major from the south row, west to east (the same order as the BTD's LOD0 blocks).
 - Examples: `lc172world` 9 of 9 cells exact; `akilacity` 89 % of cells (max difference 25 raw = 0.57 m);
   `NewAtlantis` 91 %; `lc001world` only 4 of 25 (differences up to 1,759 raw = 40 m, FNAM above the cell's own
-  maximum in places). The 242 records that are not exact are consistent with an FNAM written before a later terrain
+  maximum in places). The 247 records that are not exact are consistent with an FNAM written before a later terrain
   edit (**unresolved**; not needed for our files, which are written together).
 - The earlier observation "`FNAM[0]` = the BTD's SW corner" (experiment 2) is the first value of this rule.
 - `src/fo4sf/overlay.py` `fnam_values()` writes it; exp1d stores 25 values (50 B), exp2b 841 values (1,682 B). The raw
@@ -129,7 +129,7 @@ both folders:
 
 ## Unknowns
 1. Whether any of the four differences matters to the engine (everything here is offline).
-2. The meaning of `HNAM` in Absolute blocks, `XNAM`/`YNAM` on the location, and the stale FNAM in 242 vanilla blocks.
+2. The meaning of `HNAM` in Absolute blocks, `XNAM`/`YNAM` on the location, and the stale FNAM in 247 vanilla blocks.
 3. Mask row order and what else reads the mask.
 4. The real load-order byte of the experiment plugin at run time.
 
