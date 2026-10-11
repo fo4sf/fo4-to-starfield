@@ -26,7 +26,10 @@ _UNSET = object()
 
 
 def plugins_txt():
-    return os.path.join(os.environ.get("LOCALAPPDATA", ""), "Starfield", "Plugins.txt")
+    local = os.environ.get("LOCALAPPDATA", "")
+    if not local or not os.path.isabs(local):
+        sys.exit("LOCALAPPDATA must identify an absolute Starfield user profile directory")
+    return os.path.join(local, "Starfield", "Plugins.txt")
 
 
 def read_bytes(p):
@@ -50,7 +53,8 @@ def read_plugins(p):
 
 
 def write_plugins(p, lines, bom, nl, expected_current=_UNSET):
-    content = bom + (nl.join(lines) + nl).encode("utf-8")
+    content = (bom + (nl.join(lines) + nl).encode("utf-8") if expected_current is _UNSET
+               else deployment.render_lines(lines, expected_current))
     kwargs = {} if expected_current is _UNSET else {"expected_current": expected_current}
     os.makedirs(os.path.dirname(p), exist_ok=True)
     deployment.atomic_write_bytes(p, content, ".fo4sfexp-plugins-", **kwargs)
@@ -194,6 +198,8 @@ def cleanup(data, rec_p, rec):
 
 def build_ba2(a, root, out):
     """Build a fresh general BA2, preserving the previous archive if validation fails."""
+    if any(os.path.isfile(os.path.join(root, name)) for name in os.listdir(root)):
+        sys.exit("cannot pack root-level Data files; place resources in supported subfolders")
     folders = sorted(d for d in os.listdir(root) if os.path.isdir(os.path.join(root, d)))
     if not folders:
         sys.exit(f"nothing to pack under {root}")
@@ -233,12 +239,20 @@ def install(a):
         files = [(s, r) for s, r in files if r in plugins]
         names = [rel for _, rel in files] + [ba2]
     targets = {rel: data_path(data, rel) for rel in names}
+    destinations = [os.path.normcase(targets[rel]) for rel in names]
+    if len(destinations) != len(set(destinations)):
+        sys.exit("duplicate experiment destination paths; nothing installed")
     clash = [rel for rel in names if os.path.exists(targets[rel])]
     if clash:
         sys.exit(f"refusing to overwrite existing game files: {clash}")
     # Validate all sources and snapshot activation before publishing anything.
-    identities = {rel: digest(src) for src, rel in files}
     inputs = source_inventory(a.exp_dir, plugins)
+    plugin_sources = {os.path.abspath(os.path.join(a.exp_dir, name)): name for name in plugins}
+    identities = {}
+    for src, relative in files:
+        plugin = plugin_sources.get(os.path.abspath(src))
+        key = "plugin/" + plugin if plugin is not None else "Data/" + relative.replace("\\", "/")
+        identities[relative] = inputs[key]
     if packed:
         built = build_ba2(a, os.path.join(a.exp_dir, "Data"), os.path.join(a.exp_dir, ba2))
         files.append((built, ba2))
@@ -254,7 +268,7 @@ def install(a):
            "complete": False, "pack": packed, "published_files": [], "plugins_txt": p,
            "plugins_original": base64.b64encode(original).decode("ascii") if original is not None else None,
            "plugins_restore_pending": False}
-    activated = bom + (nl.join(lines) + nl).encode("utf-8")
+    activated = deployment.render_lines(lines, original)
     rec["plugins_activated"] = base64.b64encode(activated).decode("ascii")
     deployment.write_manifest(rec_p, rec)
     try:
@@ -269,7 +283,14 @@ def install(a):
             rec["files"][rel] = identities[rel]
             deployment.write_manifest(rec_p, rec)
             os.makedirs(os.path.dirname(dst), exist_ok=True)
-            deployment.copy_new_artifact(src, dst)
+            try:
+                deployment.copy_new_artifact(src, dst, expected_sha256=identities[rel])
+            except FileExistsError:
+                if rel not in rec["published_files"]:
+                    # Exclusive creation proves this call did not publish the destination.
+                    rec["files"].pop(rel, None)
+                    deployment.write_manifest(rec_p, rec)
+                raise
             rec["published_files"].append(rel)
             deployment.write_manifest(rec_p, rec)
             if digest(dst) != identities[rel]:
@@ -279,7 +300,15 @@ def install(a):
                 raise OSError("Plugins.txt changed during install; preserving concurrent edits")
             rec["plugins_restore_pending"] = True
             deployment.write_manifest(rec_p, rec)
-            write_plugins(p, lines, bom, nl, original)
+            try:
+                write_plugins(p, lines, bom, nl, original)
+            except deployment.ConcurrentUpdateError:
+                # This typed failure proves the original configuration was never replaced.
+                rec["plugins_restore_pending"] = False
+                rec["plugins_added"] = []
+                rec["plugins_replaced"] = []
+                deployment.write_manifest(rec_p, rec)
+                raise
         rec["complete"] = True
         deployment.write_manifest(rec_p, rec)
     except Exception as e:

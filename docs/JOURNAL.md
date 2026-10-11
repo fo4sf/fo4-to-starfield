@@ -680,3 +680,11 @@ staged input identity. Disabled plugin lines are activated with replacement trac
 Inputs are rechecked after packing, and publication is journaled before full installed-file hashing.27 targeted /
 337 total tests OK (1 skipped), guard OK; exact upstream numeric-read fix46d4727 preserved. A second scoped Claude
 max-effort review runs. Concurrent config edits/unproven files still require manual recovery; preserved by design.
+Second Opus5.5 max review confirmed F1/F2/F4 and identified preparation/recovery edge cases. Six synthetic cases
+failed before the next correction: omitted root Data files, missing profile environment, duplicate targets,
+pre-replacement config conflict, changed source during copy and a proven foreign destination trapping recovery.
+The shared deploy helpers now expose a typed conflict before replacement and optionally verify the copied SHA
+before publication; existing callers retain their default interface. Exp uses one input hash snapshot, rejects
+unsupported packed root files/profile paths/duplicate targets, and releases only proven foreign destinations.
+33 targeted/full343 tests OK (1 skipped), guard OK. CR-only/no-final-newline restoration also passes. Unknown
+interruption/concurrent-edit cases remain preserved for manual review. Final focused Codex QA pending.

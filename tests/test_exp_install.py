@@ -208,6 +208,18 @@ class ExperimentRecoveryTests(unittest.TestCase):
         exp.uninstall(self.args)
         self.assert_rolled_back()
 
+    def test_activation_restoration_preserves_cr_and_missing_trailing_newline(self):
+        for original in (b"# owner\r*FO4Port.esm\rExperiment.esm\r",
+                         b"\xef\xbb\xbf# owner\n*FO4Port.esm\nExperiment.esm"):
+            with self.subTest(original=original):
+                self.original = original
+                self.plugins.write_bytes(original)
+                exp.install(self.args)
+                expected = original.replace(b"Experiment.esm", b"*Experiment.esm")
+                self.assertEqual(self.plugins.read_bytes(), expected)
+                exp.uninstall(self.args)
+                self.assert_rolled_back()
+
     def test_relaunch_rejects_an_externally_deactivated_plugin(self):
         exp.install(self.args)
         inactive = self.original + b"Experiment.esm\r\n"
@@ -252,6 +264,59 @@ class ExperimentRecoveryTests(unittest.TestCase):
         with patch.object(exp.subprocess, "run", side_effect=change_inputs):
             with self.assertRaisesRegex(SystemExit, "changed during preparation"):
                 exp.install(self.args)
+        self.assert_rolled_back()
+
+    def test_packing_refuses_omitted_root_data_files_before_building(self):
+        build = self.archive_builder()
+        (self.staging / "Data" / "extra.txt").write_bytes(b"synthetic root resource")
+        with patch.object(exp.subprocess, "run", side_effect=build) as process:
+            with self.assertRaisesRegex(SystemExit, "root"):
+                exp.install(self.args)
+            process.assert_not_called()
+        self.assert_rolled_back()
+
+    def test_missing_local_appdata_cannot_activate_a_relative_profile(self):
+        previous = os.getcwd()
+        os.chdir(self.root)
+        try:
+            with patch.dict(os.environ, {"LOCALAPPDATA": ""}):
+                with self.assertRaisesRegex(SystemExit, "LOCALAPPDATA"):
+                    exp.install(self.args)
+        finally:
+            os.chdir(previous)
+        self.assert_rolled_back()
+
+    def test_pre_replacement_config_conflict_finishes_rollback(self):
+        real_write = exp.write_plugins
+        edited = self.original + b"*OwnerAdded.esm\r\n"
+
+        def edit_before_write(*args, **kwargs):
+            self.plugins.write_bytes(edited)
+            return real_write(*args, **kwargs)
+
+        with patch.object(exp, "write_plugins", side_effect=edit_before_write):
+            with self.assertRaisesRegex(SystemExit, "rolled back"):
+                exp.install(self.args)
+        self.assertEqual(list(self.data.iterdir()), [])
+        self.assertEqual(self.plugins.read_bytes(), edited)
+
+    def test_changed_source_during_copy_is_never_published(self):
+        real_copy = exp.shutil.copyfile
+
+        def copy(source, target):
+            if Path(source).suffix == ".esm":
+                Path(source).write_bytes(b"changed source while copying")
+            return real_copy(source, target)
+
+        with patch.object(exp.shutil, "copyfile", side_effect=copy):
+            with self.assertRaisesRegex(SystemExit, "rolled back"):
+                exp.install(self.args)
+        self.assert_rolled_back()
+
+    def test_duplicate_destinations_are_rejected_before_publication(self):
+        (self.staging / "Data" / "Experiment.esm").write_bytes(b"conflicting synthetic plugin")
+        with self.assertRaisesRegex(SystemExit, "duplicate"):
+            exp.install(self.args)
         self.assert_rolled_back()
 
     def test_publication_is_recorded_before_full_installed_archive_hash(self):
@@ -400,8 +465,8 @@ class ExperimentRecoveryTests(unittest.TestCase):
                 exp.install(self.args)
         self.assertEqual(target.read_bytes(), foreign)
         self.assertEqual(self.plugins.read_bytes(), self.original)
-        with self.assertRaisesRegex(SystemExit, "not confirmed"):
-            exp.uninstall(self.args)
+        self.assertFalse((self.data / exp.RECORD).exists(), "proven foreign publication must not trap recovery")
+        exp.uninstall(self.args)
         self.assertEqual(target.read_bytes(), foreign)
 
     def test_recovery_record_cannot_delete_outside_data(self):
