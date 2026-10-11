@@ -167,6 +167,11 @@ switch ($kind) {
       if ("$ar" -match '^\s*-?\d+(\.\d+)?\s+-?\d+(\.\d+)?\s+-?\d+(\.\d+)?\s*$') {               # "fail console 3" also has three words
         $ox = [double]$av[0] - [double]$t.anchor.local[0]; $oy = [double]$av[1] - [double]$t.anchor.local[1]
         $oz = [double]$av[2] - [double]$t.anchor.local[2]; $obs['offset'] = @($ox, $oy, $oz); $obs['offset_from'] = 'anchor'
+        # our own persistent marker read back its unmerged local position (exp1d 2026-10-11: 50 50 10 while the
+        # overlay sat at +3000 -3500): an all-zero offset says nothing, use the spawn instead
+        if ([Math]::Abs($ox) -lt 0.01 -and [Math]::Abs($oy) -lt 0.01 -and $t.spawn_local) {
+          $ox = 0.0; $oy = 0.0; $oz = 0.0; $obs.Remove('offset'); $obs['anchor_unmerged'] = $true
+        }
       }
     }
     if (-not $obs['offset'] -and $t.spawn_local -and $obs['spawn_read']) {
