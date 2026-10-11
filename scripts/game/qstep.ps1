@@ -137,8 +137,11 @@ switch ($kind) {
   'terrain' {
     # terrain experiment: coc into a test worldspace, then drop onto points of known terrain height and read z
     if ($t.world_coc -notmatch '^[A-Za-z0-9_]+$') { "bad world name"; exit 4 }
+    # travel: "cow <world> x y" reaches a vanilla worldspace without a COC cell (control runs); default coc <world_coc>
+    $go = "coc $($t.world_coc)"
+    if ($t.travel) { if ($t.travel -notmatch '^(coc|cow) [A-Za-z0-9_]+( -?\d+ -?\d+)?$') { "bad travel"; exit 4 }; $go = $t.travel }
     Console-Open
-    Send "type:coc $($t.world_coc)|key:enter|wait:400|key:grave|wait:3000"
+    Send "type:$go|key:enter|wait:400|key:grave|wait:3000"
     $hud = Join-Path $Out 'hud.png'; $t0 = Get-Date
     do { Start-Sleep 2; powershell -NoProfile -ExecutionPolicy Bypass -File $shot -Out $hud | Out-Null
          $up = (& $env:FO4SF_PYTHON (Join-Path $here 'hud_visible.py') $hud) -eq 'yes' } until ($up -or ((Get-Date) - $t0).TotalSeconds -gt 90)

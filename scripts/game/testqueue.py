@@ -31,6 +31,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -210,8 +211,12 @@ def plan_terrain(a):
     for n, w in enumerate(own or []):
         if not str(w.get("coc", "")).replace("_", "").isalnum():
             sys.exit(f"bad coc name in plan.json: {w.get('coc')!r}")
+        travel = w.get("travel") or ""
+        if travel and not re.fullmatch(r"(coc|cow) [A-Za-z0-9_]+( -?\d+ -?\d+)?", travel):
+            sys.exit(f"bad travel command in plan.json: {travel!r}")
         tests.append({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "", "ref": w["coc"],
-                      "model": w.get("label", ""), "world_coc": w["coc"], "drop_z": float(w.get("drop_z", 80.0)),
+                      "model": w.get("label", ""), "world_coc": w["coc"], "travel": travel,
+                      "drop_z": float(w.get("drop_z", 80.0)),
                       "points": w["points"], "beyond": w.get("beyond") or {"x": w["points"][0]["x"] + 500.0,
                                                                            "y": w["points"][0]["y"]}})
     exp = load(os.path.join(a.exp_dir, "expected.json")) if not own else {}
