@@ -349,6 +349,58 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   `C:\Modding\staging\npc_nav_n0b`, queue `npc_nav_n0b`). Also found: QASmoke's 16 ceiling panels (rotation 0, 90,
   270 degrees) lie flat only when rotated Z first; `fo4sf.exterior.ref_matrix` (X, Y, Z) stands them on edge
   (**unresolved** for references that combine Y and Z rotations; no effect on this analysis).
+## 2026-10-11 Claude: `XRGD` ragdoll pose decoded (bone world transforms from per-placement data)
+- Question: which body each 28-byte `XRGD` entry belongs to, what its position / rotation are relative to, and the
+  Euler convention (follow-up of "why the converted skeleton spawns standing", below).
+- Method: all 8,919 `XRGD` subrecords of Fallout4.esm (75,292 entries; local script: linear record walk, zlib records)
+  against the node trees, `hknpPhysicsSystemData` bodies and constraints of the placed models (`nif`, `hkpackfile`;
+  `SkeletonClothed01.nif`, `SkeletonBareBody01.nif`, the destructible saw horses and barriers). Acceptance on the 62
+  Vault 114 placements (cell `0428E4`) with ragdoll data, the floor taken from the cell's static collision
+  (`routes.walkable_triangles`). Implementation: `src/fo4sf/ragdoll_pose.py` (`pose_bones`), 10 synthetic tests.
+- Evidence (order): entry k belongs to physics body k (the `body` field of the `bhkNPCollisionObject` that attaches it
+  to a node, i.e. the system's body-cinfo order); the clothed skeleton's 17 collision objects are bodies 0..16 in block
+  order (TorsoLower, LeftUpperLeg, LeftLowerLeg, LeftFoot, RightUpperLeg, ..., LeftHand). Entry count = body count
+  for 57 of the 62 placements; the other 5 carry entries for a different model (`Sawhorse01`: 6 entries, 1 body;
+  `TrashCanMetal` 2/1; two `MetalBarrel01Fire*_Static` 3/1; `TrapGrenadeBouquet` 40/27): stale data, rejected.
+  The first 4 bytes of an entry are uninitialised memory, not a bone id: ESM-wide the u8 is 0 in 71% of the entries
+  and the 3 bytes after it are non-zero in 45%, often ASCII fragments of file paths (`617465 69616c 5c4d61 576561`
+  = "ate", "ial", "\Ma", "Wea"); only 314 of 8,919 records happen to count 0..n-1.
+- Evidence (frame): an entry replaces its body's node **local** transform (relative to the parent node; to the
+  reference for a node under the root). For the 69 Vault 114 joints whose parent node is also a body, |entry position|
+  equals the NIF bone length (relative error mean 0.36%, median 0.11%, max 3.7%: joint slack of a settled ragdoll)
+  and the entry sits 0.12 units (mean; max 0.89) from the NIF local translation. 8 bodies (gear-room gate, oxygen
+  tank, skeletons) with a non-trivial bind rotation kept their NIF translation to 0.01 units; 6 of them also keep the
+  NIF rotation exactly (0.0001 rad), the other 2 turned in place (0.72 rad). The skeleton's constraints use the same frame: pivot A is
+  the child node origin, pivot B the child's NIF local translation in the parent (c8: B (-0.100, 0.027, -0.191) m =
+  LeftUpperLegBone01 (-6.99, 1.87, -13.39) units), B's axes are the child's local rotation columns (z, y, -x). Shape
+  vertices are in the node frame (a leg hull spans z -0.8..30.7 along its node with the child joint at 32.9; the torso
+  hull lies at z -18.9..-0.6 under the pelvis node); the body cinfo position is the node origin for torso / skull
+  bodies and the hull centre for limbs, and is not needed for posing.
+- Evidence (Euler): R = Rx(-x) Ry(-y) Rz(-z), the NIF's own NiMatrix3 convention. Of the 8 unmoved bodies above
+  (selected by position only), 6 match their NIF rotation within 0.002 rad under this order; 4 under
+  Ry(-y)Rx(-x)Rz(-z), 2 under Rz(-z)Ry(-y)Rx(-x) and Rz(-z)Rx(-x)Ry(-y), 0 under Rz(z)Ry(y)Rx(x) and Rx(x)Ry(y)Rz(z)
+  (mean errors 0.11 / 0.15 / 1.46 / 1.46 / 2.15 / 2.99 rad). The 29
+  posed limited hinges (knees, elbows, saw-horse legs): the hinge axis of the child frame mapped by the posed local
+  rotation meets the parent's axis within 0.08 deg median (mean 0.60, max 5.8); the three alternatives 1.4-9.8 deg
+  median, 13-77 max.
+- Acceptance (57 posed placements, game units): the lowest posed collision point is within +/-3 of the surface under
+  it for **53 of 57** (bind pose: 41), and within +/-3 of the placement's floor for 44 (median -0.01; bind 35).
+  Skeletons: `05C942` (SkeletonClothed, placed z -1107.4, floor -1120) posed bones span z -1115.5..-1102.7 (spread
+  12.8, pelvis->skull -12 deg), hull from 1.1 below to 21.7 above the floor, where the bind pose stands 129 tall;
+  `05C94F` spread 10.9, hull -0.75..21.5; `1B4E17` -1.6..34.1; `1B4F92` rests 150 above the cave floor on the stone
+  coffin beside it (clearance -0.36). The 4 of 57 off their surface are saw horses / a barrier posed partly through
+  FO4 geometry (`171007`: 4.9 under the floor) or with no surface found under the lowest point.
+- Side finding (REFR `DATA` rotation order): placing the cell's 164 tilted placements (|rx| or |ry| > 0.05 rad: 149
+  loose items, 15 ragdolls) with each of the 12 Euler orders, Rx(-x)Ry(-y)Rz(-z) rests the most of them on their
+  support (gap within +/-3: 129 of 164, median |gap| 0.56) against 100 (median 1.60) for the project's
+  `routes.ref_matrix` order Rz(-z)Ry(-y)Rx(-x). **Supported hypothesis**; `routes.py` is not changed here (the route
+  runs are its in-game check). Known unknown #7.
+- Status: entry order = body index, entry = node local transform in the parent frame, Euler Rx(-x)Ry(-y)Rz(-z):
+  **verified** offline (bind-exact entries and hinge axes on real data, floor test on 57 placements). First 4 bytes
+  are garbage: **verified** (ESM-wide). Whether Starfield shows the posed skeletons lying as FO4 does: **unresolved**
+  until the pose is baked into the converted mesh and body (needs the skin weights of PR #45 / #46) and seen in game.
+  Both skeleton NIFs have an identity root; `pose_bones` composes a root transform like any node: **unresolved** for
+  models with a non-identity root.
 
 ## 2026-10-10 Claude: how Starfield makes a body movable
 - Question: what must a converted body and record carry so Starfield simulates it (FO4 loose items, known unknown #6)?
