@@ -6,25 +6,33 @@ Vault 111 and Red Rocket.
         [--fo4-cells -35 10 -6 40] [--tile 14] [--prefix FO4CW3] [--plugin FO4TerrainExp3.esm] ...
     dotnet run --project dotnet/TerrainOverlays -c Release -- <Starfield.esm> <dir>     (reads overlays_params.json)
     python scripts/terrain/make_cw_overlays.py check --sf-data <Starfield Data> --out <dir>
+    python scripts/terrain/make_cw_overlays.py analyse --out <dir> --runs <runner queue folder> [--json <file>]
 
 build writes, all OUTSIDE the repo (derived game data):
   Data/Terrain/<WORLD>.btd                     one BTD per tile, FO4 heights / 70 at CW positions, one shared range
-  Data/textures/terrain/overlaymasks/<world>.dds   255 on the outer edges' cell ring, 0 on seams between tiles
+  Data/textures/terrain/overlaymasks/<world>.dds   255 on outer edges' cell ring (north / south only in pairs by
+                                                   default: mask row order unresolved), 0 on seams between tiles
   overlays_params.json   what dotnet/TerrainOverlays needs (worlds, blocks, FNAM, anchors, COC, lat/long per tile)
-  plan.json              runner format: one entry per tile (own anchor, own frame), one group entry (seam pairs of all
-                         tiles in the first tile's frame: passes only if the tiles lie edge to edge in game) and one
-                         position entry per other tile read from the first tile's landing
+  plan.json              runner format (make_plan): per tile its own heights and seam sides; in the first tile's
+                         landing a group entry (seam pairs: passes only if the tiles lie edge to edge), one locate
+                         transect per other tile and an edges entry. Every entry uses the coc'd tile's own frame and
+                         spawn (x, y) for the merge offset, a z_ref probe for the Z offset, waits for the whole fall.
   expected.json, README.txt, preview.png
-check re-reads the staged files: decoded heights at every plan point, seam continuity, masks, and a raw record walk of
-both plugins (WRLD, XLCN/LCTN, SFBK, anchor, COC cell, PNDT CNAM entries).
+check re-reads the staged files: decoded heights at every plan point, seam continuity, masks, the entry contract
+(frame = coc'd tile, spawn_local, z_ref, drop and wait, jump lengths) and a raw record walk of both plugins (WRLD,
+XLCN/LCTN, SFBK, anchor, COC cell, PNDT CNAM entries).
+analyse reads the runner's obs.json files and reports what they measured, whatever the verdict: each landing's merge
+offset, the Z offset, every point's error and where each tile really sits (whole-cell shift that fits the heights).
 
 Placement (hypothesis H_ll, src/fo4sf/overlay_grid.py): tile lat/long from one measured registration (World01 on
-Mars) at true planet scale. Supported, not verified: the experiment measures it (anchors per tile).
+Mars) at true planet scale. Supported, not verified. Our persistent anchors read back their unmerged local position
+in game (exp1d, exp2b), so placement is measured from heights (locate entries + analyse), not from anchors.
 """
 import argparse
 import json
 import math
 import os
+import re
 import struct
 import sys
 
@@ -47,7 +55,18 @@ LANDMARKS = (("redrocket", 0x000211C0, -69232.0, 80304.0),
              ("sanctuary", 0x00072A48, -80768.19, 88174.80),
              ("vault111", 0x0009F272, -89271.98, 91369.30))
 DIST = {"near": (0.8, 2.7), "ring": (40.0, 60.0), "inner": (140.0, 170.0)}   # metres from the seam, per side
-PLAN_KEYS = ("coc", "label", "anchor", "drop_z", "settle_ms", "points")
+PLAN_KEYS = ("coc", "label", "anchor", "spawn_local", "z_ref", "drop_z", "settle_ms", "points")
+# Drops (runner qstep.ps1 'terrain'): every point of an entry is dropped from drop_z (entry frame) + the runner's Z
+# offset, which is 0 here because spawn_local carries no z: a spawn read mid-fall (exp1d a1 z -500, exp2b a2 z -354)
+# would otherwise lower every drop below the ground. The Z offset is judged from the z_ref probe instead.
+DROP_MARGIN = 40.0      # metres above the highest expected point of an entry (room for an unknown Z offset)
+MARS_G = 3.71           # m/s2, Mars surface gravity (0.38 g), for fall times
+FALL_BELOW = 20.0       # the wait also covers a fall this far below the lowest expected point
+MIN_SETTLE_MS = 8000
+MAX_JUMP = 400.0        # waypoint probes keep consecutive setpos jumps at or under about this (exp2b a1: a 349 m jump
+#                         ended 141.9 m short, a 560 m one arrived; the cause is unknown, shorter is the cheap guard)
+LOCATE_STEP = 200.0     # spacing of locate probes along a transect
+EDGE_KEEP = 150.0       # locate and waypoint probes stay this far inside tile edges (outside every merge ring)
 
 
 def m(units):
@@ -385,8 +404,193 @@ def to_plan_point(p, frame_tile):
     return {"label": p["label"], "x": round(x, 4), "y": round(y, 4), "expect": p["expect"]}
 
 
-def drop_z(points):
-    return float(math.ceil((max(p["expect"] for p in points) + 25.0) / 5.0) * 5.0)
+def drop_z(points, margin=DROP_MARGIN):
+    return float(math.ceil((max(p["expect"] for p in points) + margin) / 5.0) * 5.0)
+
+
+def fall_seconds(drop, lowest, below=FALL_BELOW, g=MARS_G):
+    """Free-fall time (no drag) from drop to `below` metres under the lowest expected point."""
+    return math.sqrt(2.0 * max(drop - lowest + below, 0.0) / g)
+
+
+def settle_ms(drop, lowest):
+    """Runner wait after each drop: the whole free fall plus 1 s, at least MIN_SETTLE_MS. (The runner adds about 2.9 s
+    of console steps between setpos z and the wait, which is left as margin.)"""
+    return int(max(MIN_SETTLE_MS, 500 * math.ceil((fall_seconds(drop, lowest) + 1.0) / 0.5)))
+
+
+def edge_distance(tile, x, y):
+    x0, x1, y0, y1 = tile.bounds_m
+    return min(x - x0, x1 - x, y - y0, y1 - y)
+
+
+def snap(tds, tiles, x, y, label, kind, keep=EDGE_KEEP, radius=12, **meta):
+    """The eligible FO4 vertex nearest to CW (x, y) in the tile that holds it under H_ll (tiles edge to edge),
+    preferring vertices at least `keep` metres inside that tile's edges. None when there is none."""
+    t = og.tile_at(tiles, x, y)
+    if t is None:
+        return None
+    td = tds[t]
+    r0, c0 = (int(round(v)) for v in td.rc_of(x, y))
+    cand = sorted(((r, c) for r in range(r0 - radius, r0 + radius + 1) for c in range(c0 - radius, c0 + radius + 1)),
+                  key=lambda rc: (rc[0] - r0) ** 2 + (rc[1] - c0) ** 2)
+    first = None
+    for r, c in cand:
+        if not td.eligible(r, c):
+            continue
+        vx, vy, _ = td.vertex(r, c)
+        if edge_distance(t, vx, vy) >= keep:
+            return td.point(r, c, label, kind, **meta)
+        first = first or (r, c)
+    return td.point(*first, label, kind, **meta) if first else None
+
+
+def route(points, start, tds, tiles, max_jump=MAX_JUMP, prefix="wp"):
+    """Probe order for one entry: nearest neighbour from the spawn (CW `start`), with waypoint probes (eligible
+    vertices, H_ll expectations) inserted wherever a jump would exceed max_jump. Returns (points, longest jump)."""
+    left = list(points)
+    out, here, k, longest = [], start, 0, 0.0
+    while left:
+        nxt = min(left, key=lambda p: math.hypot(p["x_cw"] - here[0], p["y_cw"] - here[1]))
+        left.remove(nxt)
+        d = math.hypot(nxt["x_cw"] - here[0], nxt["y_cw"] - here[1])
+        if max_jump and d > max_jump:
+            steps = int(math.ceil(d / max_jump))
+            for s in range(1, steps):
+                f = s / steps
+                w = snap(tds, tiles, here[0] + (nxt["x_cw"] - here[0]) * f, here[1] + (nxt["y_cw"] - here[1]) * f,
+                         f"{prefix}_{k:02d}", "waypoint")
+                if w is not None:
+                    longest = max(longest, math.hypot(w["x_cw"] - here[0], w["y_cw"] - here[1]))
+                    out.append(w)
+                    here = (w["x_cw"], w["y_cw"])
+                    k += 1
+            d = math.hypot(nxt["x_cw"] - here[0], nxt["y_cw"] - here[1])
+        longest = max(longest, d)
+        out.append(nxt)
+        here = (nxt["x_cw"], nxt["y_cw"])
+    return out, longest
+
+
+def locate_transect(tds, tiles, target, start, step=LOCATE_STEP, keep=EDGE_KEEP):
+    """Locate probes from CW `start` (the first tile's centre point) toward the centre of `target` and on to its far
+    edge (less `keep`), every `step` metres, skipping positions within `keep` of any tile edge. In the first tile's
+    frame they cover the target at any whole-cell shift along that line from about half to 1.4 times its H_ll
+    distance (at least three probes inside it)."""
+    x0, x1, y0, y1 = target.bounds_m
+    gx, gy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+    length = math.hypot(gx - start[0], gy - start[1])
+    ux, uy = (gx - start[0]) / length, (gy - start[1]) / length
+    end = length
+    while x0 + keep <= start[0] + ux * (end + 1) <= x1 - keep and y0 + keep <= start[1] + uy * (end + 1) <= y1 - keep:
+        end += 1.0
+    pts, k, d = [], 0, step
+    while d <= end:
+        x, y = start[0] + ux * d, start[1] + uy * d
+        t = og.tile_at(tiles, x, y)
+        if t is not None and edge_distance(t, x, y) >= keep:
+            p = snap(tds, tiles, x, y, f"loc_T{target.tag}_{k:02d}", "locate", keep=keep, radius=8,
+                     transect=f"T{target.tag}", along_m=round(d, 1))
+            if p is not None and edge_distance(og.tile_at(tiles, p["x_cw"], p["y_cw"]), p["x_cw"], p["y_cw"]) >= keep - 15:
+                pts.append(p)
+                k += 1
+        d += step
+    return pts
+
+
+def edge_points(td, tiles, mask_edges):
+    """Probes in the outer cell ring (DIST 'ring') and inside it (DIST 'inner') of each outer edge of one tile, away
+    from its corners; the label carries the mask value written on that edge (255 or 0)."""
+    t = td.tile
+    x0, x1, y0, y1 = t.bounds_m
+    pts = []
+    for e in og.outer_edges(t, tiles):
+        val = 255 if e in mask_edges else 0
+        for frac, cls in ((1 / 3, "ring"), (2 / 3, "ring"), (1 / 2, "inner")):
+            dmin, dmax = DIST[cls]
+            inset = (dmin + dmax) / 2.0
+            along = (x0 + (x1 - x0) * frac) if e in ("s", "n") else (y0 + (y1 - y0) * frac)
+            x, y = {"w": (x0 + inset, along), "e": (x1 - inset, along),
+                    "s": (along, y0 + inset), "n": (along, y1 - inset)}[e]
+            r0, c0 = (int(round(v)) for v in td.rc_of(x, y))
+            best = None
+            for r, c in sorted(((r, c) for r in range(r0 - 12, r0 + 13) for c in range(c0 - 12, c0 + 13)),
+                               key=lambda rc: (rc[0] - r0) ** 2 + (rc[1] - c0) ** 2):
+                vx, vy, _ = td.vertex(r, c)
+                de = {"w": vx - x0, "e": x1 - vx, "s": vy - y0, "n": y1 - vy}[e]
+                others = [v for k, v in {"w": vx - x0, "e": x1 - vx, "s": vy - y0, "n": y1 - vy}.items() if k != e]
+                if dmin <= de <= dmax and min(others) >= EDGE_KEEP and td.eligible(r, c):
+                    best = (r, c, de)
+                    break
+            if best is None:
+                sys.exit(f"no eligible {cls} vertex on the {e} edge of tile {t.tag}")
+            name = f"edge_{e}{val}_{cls}" + (f"_{int(frac * 3)}" if cls == "ring" else "")
+            p = td.point(best[0], best[1], name, "edge", edge=e, mask=val, distance_class=cls)
+            p["distance_to_edge_m"] = round(best[2], 4)
+            pts.append(p)
+    return pts
+
+
+ENTRY_KINDS = ("tile", "group", "locate", "edges")
+
+
+def entry_kind(label):
+    """Entry kind from a plan label '<experiment> <kind> ...' (the runner keeps the label as the test's 'model')."""
+    parts = str(label).split(" ")
+    return parts[1].rstrip(":") if len(parts) > 1 and parts[1].rstrip(":") in ENTRY_KINDS else None
+
+
+def make_plan(a, tiles, tds, own, pairs, by_tag, hmin, hmax):
+    """Runner entries (plan.json) and the CW points behind them (expected.json 'entries').
+
+    Every entry cocs into the tile whose frame its points use and takes the merge offset from that tile's spawn
+    (spawn_local, x and y only): our persistent anchors read back their unmerged local position (exp1d a1, a2 and
+    exp2b a1, a2), so the runner's anchor offset is 0 and it falls back to the spawn; no entry relies on another
+    tile's anchor. z_ref names the entry's flat centre probe: the judge takes the Z offset from it.
+      tile    one per tile: its own heights (landmarks, centre, slope) and its side of each seam (near, ring, inner)
+      group   in the first tile's landing: both sides of every seam (passes only if the tiles lie edge to edge)
+      locate  in the first tile's landing: a transect toward each other tile; `analyse` finds where that tile really
+              sits from the heights read (whole-cell shift), whether or not H_ll holds
+      edges   the first tile's outer edges: cell ring with mask 255 and with mask 0, and inside it"""
+    first = tiles[0]
+    plan, entries = [], []
+    centre = {t: next(p for p in own[t] if p["kind"] == "centre") for t in tiles}
+
+    def add(kind, t, label, pts_cw, drop=None, lowest=None):
+        o = by_tag[t.tag]
+        start = t.to_cw(*o["anchor"]["local"][:2])
+        ordered, longest = route(pts_cw, start, tds, tiles, a.max_jump, prefix=f"wp{len(plan)}")
+        pts = [to_plan_point(p, t) for p in ordered]
+        dz = drop if drop is not None else drop_z(pts)
+        low = min(p["expect"] for p in pts) if lowest is None else lowest
+        plan.append({"coc": o["coc"], "label": f"{a.experiment} {kind} {label}",
+                     "anchor": {"ref": o["anchor"]["ref"], "local": o["anchor"]["local"]},
+                     "spawn_local": o["anchor"]["local"][:2], "z_ref": centre[t]["label"], "drop_z": dz,
+                     "settle_ms": settle_ms(dz, low), "points": pts})
+        entries.append({"index": len(plan) - 1, "kind": kind, "frame": t.tag, "coc": o["coc"],
+                        "longest_jump_m": round(longest, 1), "points": ordered})
+
+    alignment_label = f"{a.alignment}, HNAM {a.hnam}"
+    for t in tiles:
+        add("tile", t, f"T{t.tag} ({t.n}x{t.n} cells, CW cells x {t.cells_x} y {t.cells_y}; {alignment_label}): own "
+                       "heights and its side of every seam; its landing's merge offset from the spawn", own[t])
+    if len(tiles) > 1:
+        seam_pts = [p for prs in pairs.values() for _, pa, pb in prs for p in (pa, pb)]
+        add("group", first, f"T{first.tag} landing: both sides of every seam in T{first.tag}'s frame (passes only if "
+                            "the tiles lie edge to edge, H_ll at scale 1, and the seams are exact)",
+            [centre[first]] + seam_pts)
+        start = (centre[first]["x_cw"], centre[first]["y_cw"])
+        for t in tiles[1:]:
+            pts = locate_transect(tds, tiles, t, start, a.locate_step)
+            add("locate", first, f"T{t.tag} from T{first.tag}'s landing: transect toward T{t.tag} (passes if it sits "
+                                 f"where H_ll puts it; where it really sits: make_cw_overlays.py analyse)",
+                [centre[first]] + pts, drop=drop_z([{"expect": hmax}]), lowest=hmin)
+        me = og.mask_edges(first, tiles, a.mask_ns)
+        add("edges", first, f"T{first.tag}: cell ring of its outer edges with the mask value in the label "
+                            f"({', '.join(e + ('255' if e in me else '0') for e in og.outer_edges(first, tiles))}) "
+                            "and inside it (does the merge ring blend where the mask is 255 / 0?)",
+            [centre[first]] + edge_points(tds[first], tiles, me))
+    return plan, entries
 
 
 def stage(a, tiles, tds, own, anchors, pairs, seam_rep, targets, latlon, hmin, hmax, sizes, table, quad):
@@ -398,7 +602,7 @@ def stage(a, tiles, tds, own, anchors, pairs, seam_rep, targets, latlon, hmin, h
         ax, ay = t.to_local(ap["x_cw"], ap["y_cw"])
         local = [round(ax, 4), round(ay, 4), ap["expect"]]
         fid = orc.ANCHOR_ID + k
-        mask_edges = og.outer_edges(t, tiles)
+        mask_edges = og.mask_edges(t, tiles, a.mask_ns)
         overlays.append({
             "world": w, "tag": t.tag, "ix": t.ix, "iy": t.iy, "n": t.n,
             "cells_cw": {"x": list(t.cells_x), "y": list(t.cells_y)}, "origin_cw_m": list(t.origin_m),
@@ -407,35 +611,13 @@ def stage(a, tiles, tds, own, anchors, pairs, seam_rep, targets, latlon, hmin, h
             "fnam": overlay.fnam_values(tds[t].raw), "mask": orc.mask_rel(w), "mask_outer_edges": list(mask_edges),
             "coc": w + "Spawn", "spawn": [local[0], local[1], round(local[2] + SPAWN_ABOVE, 4)],
             "spawn_cell": list(tg.sf_cell_of(local[0], local[1])),
-            "anchor": {"edid": w + "Anchor", "local": local, "form_id": fid, "ref": orc.anchor_ref(fid)},
+            "anchor": {"edid": w + "Anchor", "local": local, "form_id": fid, "ref": orc.anchor_ref(fid, a.load_byte)},
             "location": w + "Location", "block": w + "Block",
             "bounds_min_m": tg.grid_origin(t.n), "bounds_max_m": tg.grid_origin(t.n) + t.n * tg.SF_CELL_M,
             "planet_target_cell": list(targets[t]),
             "latitude": latlon[t][0], "longitude": latlon[t][1]})
     by_tag = {o["tag"]: o for o in overlays}
-    alignment_label = f"{a.alignment}, HNAM {a.hnam}"
-    for t in tiles:
-        o = by_tag[t.tag]
-        pts = [to_plan_point(p, t) for p in own[t]]
-        plan.append({"coc": o["coc"], "label": f"{a.experiment} tile T{t.tag} ({t.n}x{t.n} cells, CW cells x {t.cells_x} "
-                                              f"y {t.cells_y}; {alignment_label}): own heights and its side of every seam",
-                     "anchor": {"ref": o["anchor"]["ref"], "local": o["anchor"]["local"]},
-                     "spawn_local": o["anchor"]["local"], "drop_z": drop_z(pts), "settle_ms": 8000, "points": pts})
-    seam_pts = [p for prs in pairs.values() for _, pa, pb in prs for p in (pa, pb)]
-    fo = by_tag[first.tag]
-    gpts = [to_plan_point(p, first) for p in seam_pts]
-    if gpts:                                          # a single overlay has no seams
-        plan.append({"coc": fo["coc"], "label": f"{a.experiment} group: both sides of every seam in T{first.tag}'s "
-                                                "frame (passes only if the tiles lie edge to edge and the seams are exact)",
-                     "anchor": {"ref": fo["anchor"]["ref"], "local": fo["anchor"]["local"]},
-                     "spawn_local": fo["anchor"]["local"], "drop_z": drop_z(gpts), "settle_ms": 8000, "points": gpts})
-    for t in tiles[1:]:
-        o = by_tag[t.tag]
-        pts = [to_plan_point(p, t) for p in own[t] if p["kind"] in ("centre", "landmark", "slope")]
-        plan.append({"coc": fo["coc"], "label": f"{a.experiment} position: tile T{t.tag} read from T{first.tag}'s landing "
-                                                f"(its anchor and own points; no spawn fallback)",
-                     "anchor": {"ref": o["anchor"]["ref"], "local": o["anchor"]["local"]},
-                     "drop_z": drop_z(pts), "settle_ms": 8000, "points": pts})
+    plan, entries = make_plan(a, tiles, tds, own, pairs, by_tag, hmin, hmax)
 
     mars = None if a.no_mars else {"plugin": a.mars_plugin, "planet": "MarsPlanetData",
                                    "radius_km": a.radius_km,
@@ -443,14 +625,19 @@ def stage(a, tiles, tds, own, anchors, pairs, seam_rep, targets, latlon, hmin, h
                                    "reference": {"latitude": a.ref_lat, "longitude": a.ref_lon,
                                                  "offset_cells": list(a.ref_offset)}}
     params = {"plugin": a.plugin, "prefix": a.prefix, "hmin": hmin, "hmax": hmax, "alignment": a.alignment,
-              "hnam": a.hnam, "mars": mars, "overlays": overlays,
+              "hnam": a.hnam, "mars": mars, "overlays": overlays, "anchor_load_byte": a.load_byte,
+              "mask_ns": a.mask_ns, "max_jump_m": a.max_jump,
               "note": "latitude/longitude in radians; PNDT CNAM stores latitude first (Mutagen calls it Longitude)"}
     masks = []
     for o in overlays:
         masks.append(write_mask(a.out, o["world"], o["n"], o["mask_outer_edges"], a.mask_writer))
     check = {"points": sum(len(e["points"]) for e in plan), "seams": seam_rep,
-             "max_point_error_m": max(p["error_m"] for t in tiles for p in own[t]),
-             "quantisation_step_m": (hmax - hmin) / 65535.0}
+             "max_point_error_m": max(p["error_m"] for e in entries for p in e["points"]),
+             "quantisation_step_m": (hmax - hmin) / 65535.0,
+             "entries": [{"index": e["index"], "kind": e["kind"], "frame": f"T{e['frame']}", "points": len(e["points"]),
+                          "waypoints": sum(1 for p in e["points"] if p["kind"] == "waypoint"),
+                          "longest_jump_m": e["longest_jump_m"], "drop_z": plan[e["index"]]["drop_z"],
+                          "settle_ms": plan[e["index"]]["settle_ms"]} for e in entries]}
     expected = {"experiment": a.experiment, "plugin": a.plugin, "fo4_cells": list(a.fo4_cells), "tile": a.tile,
                 "grid": list(og.grid_shape(tiles)), "height_range_m": [hmin, hmax],
                 "quantisation_step_m": (hmax - hmin) / 65535.0,
@@ -459,9 +646,14 @@ def stage(a, tiles, tds, own, anchors, pairs, seam_rep, targets, latlon, hmin, h
                 "hypotheses": {"H": "BTD height = world z (Absolute, HNAM 0: no Z offset)",
                                "H_ll": "overlay merge offset moves at true planet scale near the reference registration",
                                "seams": "inner seams with mask 0 keep the tiles' own heights (no blend into procedural "
-                                        "ground)"},
+                                        "ground)",
+                               "grid": "an even-sized BTD's south-west sample is n // 2 cells west / south of the local "
+                                       "origin (as for odd sizes; 14 is the first even size tested in game)"},
                 "overlays": overlays, "seams": seam_rep,
-                "points": {t.tag: own[t] for t in tiles}, "offline_check": check}
+                "points": {t.tag: own[t] for t in tiles},
+                "entries": [{k: e[k] for k in ("index", "kind", "frame", "coc", "longest_jump_m", "points")}
+                            for e in entries],
+                "offline_check": check}
     for name, obj in (("plan.json", plan), ("expected.json", expected), ("overlays_params.json", params)):
         with open(os.path.join(a.out, name), "w", encoding="utf-8") as f:
             json.dump(obj, f, indent=1)
@@ -510,12 +702,21 @@ def readme(a, params, plan, masks):
     pl = [params["plugin"]] + ([params["mars"]["plugin"]] if params.get("mars") else [])
     base = os.path.splitext(params["plugin"])[0]
     ov = params["overlays"]
+    kinds = [entry_kind(e["label"]) for e in plan]
+    count = {k: kinds.count(k) for k in ENTRY_KINDS if k in kinds}
     lines = [f"Terrain {a.experiment} (Claude, 2026-10-11). NOT deployed. Recipe: docs/terrain/commonwealth-scale.md",
              "(branch claude/commonwealth-terrain-scale).",
-             f"{len(ov)} overlay worldspaces of {ov[0]['n']} x {ov[0]['n']} cells, edge to edge in the Commonwealth frame "
+             "",
+             "DO NOT QUEUE until an exp2b rerun with the BTD stored uncompressed (terrain_exp2b3, installer",
+             "claude/test-queue f210b91) reads the BTD's own heights. exp2b's packed BTD read flat -116.00 (its minimum)",
+             "at every probe; until a run reads real heights this experiment would only repeat that.",
+             "",
+             f"{len(ov)} overlay worldspace(s) of {ov[0]['n']} x {ov[0]['n']} cells, edge to edge in the Commonwealth frame "
              f"(FO4 cells {a.fo4_cells}), one shared",
              f"height range {params['hmin']}..{params['hmax']} m, alignment {a.alignment} (HNAM {a.hnam}), one Location each,",
-             "masks 255 only on the outer edges (seams between tiles 0), a persistent anchor and a COC cell per tile.",
+             f"masks: 255 on the outer edges' cell ring, 0 on seams; north / south rings mode '{a.mask_ns}' (mask row order",
+             "is unresolved: 'symmetric' writes them only in pairs, so a flipped row order cannot put 255 on a seam).",
+             "A persistent anchor and a COC cell per tile.",
              "Registered on Mars by " + (params["mars"]["plugin"] if params.get("mars") else "nothing") +
              " at lat/long chosen by hypothesis H_ll (true planet scale from World01's measured",
              "offset), so that the tiles should lie edge to edge around planet cell " + str(a.centre_cell) + ".",
@@ -523,9 +724,11 @@ def readme(a, params, plan, masks):
              "",
              "Install (game closed). The runner does it:",
              f"  scripts/game/exp_install.py install --exp-dir <this folder> --starfield <game> --plugins {','.join(pl)} --pack",
-             f"  --pack puts Data\\Terrain and Data\\textures into \"{base} - Main.ba2\" (loose files are not read).",
-             "  Store the .btd files UNCOMPRESSED in that archive (Archive2 -compression=None): every vanilla terrain",
-             "  archive does, and exp2b with a compressed BTD read the BTD's minimum height everywhere (2026-10-11).",
+             f"  --pack puts Data\\Terrain and Data\\textures into \"{base} - Main.ba2\" (loose files are not read); since",
+             "  claude/test-queue f210b91 it stores every entry uncompressed (Archive2 -compression=None), as all vanilla",
+             "  terrain archives do. Check: every entry of the built archive has packed size 0.",
+             f"  Anchor refs assume load-order byte {params.get('anchor_load_byte', '02')} (as exp2b's resolved); the "
+             "runner reads them literally.",
              "",
              "Tiles (CW = Commonwealth frame, metres = FO4 units / 70):"]
     for o in ov:
@@ -534,16 +737,20 @@ def readme(a, params, plan, masks):
         lines.append(f"      lat {o['latitude']:.9f} lon {o['longitude']:.9f} rad -> predicted planet cell "
                      f"{o['planet_target_cell']}, mask ring on {o['mask_outer_edges'] or 'no edge'}")
     lines += ["",
-              "In game (test save), console, per plan entry: tgm; coc <coc>; prid <anchor ref>; getpos x/y/z -> A;",
-              "offset O = A - anchor local; for every point: player.setpos x <x+O.x>, y <y+O.y>, z <drop_z+O.z>, wait,",
-              "player.getpos z -> expect + O.z (+-0.5 m). Points are in the entry's frame (see the labels).",
-              f"Plan: {len(plan)} entries ({len(ov)} tiles, 1 group, {len(ov) - 1} positions), "
+              "In game (test save), console, per plan entry: tgm; coc <coc>; player.getpos x/y -> S; offset O = S -",
+              "spawn_local (x, y; whole 100 m cells when merged); for every point: player.setpos x <x+O.x>, y <y+O.y>,",
+              "z <drop_z>, wait settle_ms, player.getpos z. Heights are judged relative to the z_ref probe (the entry's",
+              "flat centre): Z offset = z(z_ref) - its expect. The runner does all of this (spawn fallback: our anchors",
+              "read back their unmerged local position, so the anchor offset is 0 and the spawn is used).",
+              f"Plan: {len(plan)} entries ({', '.join(f'{v} {k}' for k, v in count.items())}), "
               f"{sum(len(e['points']) for e in plan)} points.",
-              "Reading: own entries pass -> each tile's heights exact (H); group passes -> tiles edge to edge and seams",
-              "exact; position entries give each tile's planet cell in the first tile's landing (tests H_ll).",
-              "Caveat (exp1d, 2026-10-11): its anchor read back exactly its local position (50, 50, 10) while the COC",
-              "spawn arrived at (3050, -3450); if an anchor here reads its own local position, the runner's offset is 0",
-              "and the probes went to the wrong place: take the offset from spawn_read - spawn_local in obs.json.",
+              "Reading (details: docs/terrain/commonwealth-scale.md section 6):",
+              "  python scripts/terrain/make_cw_overlays.py analyse --out <this folder> --runs <runner queue folder>",
+              "  gives per entry the merge offset of its landing (whole cells or not), the Z offset, every point's error,",
+              "  and per tile where it sits (whole-cell shift that matches the heights read; own tile: (0, 0) expected).",
+              "  tile entries pass -> each tile's heights exact; group passes -> tiles edge to edge (H_ll at scale 1) and",
+              "  seams exact; locate entries -> where each tile really is in T00's landing, even if H_ll is wrong;",
+              "  edges -> whether the outer ring blends with mask 255 and with mask 0.",
               "", "Masks: " + ", ".join(f"{k['file']} ({k['width']} px, ring on {k['outer_edges'] or 'none'}, "
                                          f"{k['pixels_differ']} px differ)" for k in masks)]
     with open(os.path.join(a.out, "README.txt"), "w", encoding="utf-8") as f:
@@ -649,15 +856,35 @@ def check_staging(out, prm, plan, vanilla_mars_entries=None, plugins=True):
     by_ref = {o["anchor"]["ref"]: o for o in ovs}
     by_coc = {o["coc"]: o for o in ovs}
     pts = []
+    jumps = []
     for i, w in enumerate(plan):
         need(all(k in w for k in PLAN_KEYS), f"plan entry {i} has {', '.join(PLAN_KEYS)}")
         frame = by_ref.get(w["anchor"]["ref"])
         need(frame is not None and w["anchor"]["local"] == frame["anchor"]["local"], f"plan entry {i}: anchor = a tile anchor")
         need(w["coc"] in by_coc, f"plan entry {i}: coc {w['coc']} is a tile COC cell")
-        if "spawn_local" in w:
-            need(by_coc[w["coc"]]["anchor"]["ref"] == w["anchor"]["ref"], f"plan entry {i}: spawn_local only with its own tile")
+        if frame is None or w["coc"] not in by_coc:
+            continue
+        # the runner offsets the points by the coc'd tile's own merge offset (anchor, else spawn): the points must be in
+        # that tile's frame, and spawn_local must be x, y only (a spawn read mid-fall must not move the drops)
+        need(by_coc[w["coc"]]["anchor"]["ref"] == w["anchor"]["ref"], f"plan entry {i}: frame = the coc'd tile")
+        need(list(w.get("spawn_local", [])) == list(frame["anchor"]["local"][:2]),
+             f"plan entry {i}: spawn_local = the coc'd tile's spawn, x and y only")
+        labels = [p["label"] for p in w["points"]]
+        need(w.get("z_ref") in labels, f"plan entry {i}: z_ref {w.get('z_ref')} is one of its points")
         ft = tiles[frame["tag"]]
-        need(w["drop_z"] > max(p["expect"] for p in w["points"]) + 10, f"plan entry {i}: drop_z above every point")
+        top, low = max(p["expect"] for p in w["points"]), min(p["expect"] for p in w["points"])
+        if entry_kind(w["label"]) == "locate":          # probes may land on any tile: clear the whole range
+            top, low = max(top, prm["hmax"]), min(low, prm["hmin"])
+        need(w["drop_z"] >= top + DROP_MARGIN - 1e-6, f"plan entry {i}: drop_z {w['drop_z']} >= {top:.1f} + {DROP_MARGIN}")
+        need(w["settle_ms"] >= 1000.0 * fall_seconds(w["drop_z"], low),
+             f"plan entry {i}: settle {w['settle_ms']} ms covers the fall ({fall_seconds(w['drop_z'], low):.1f} s)")
+        here, longest = list(frame["anchor"]["local"][:2]), 0.0
+        for p in w["points"]:
+            longest = max(longest, math.hypot(p["x"] - here[0], p["y"] - here[1]))
+            here = [p["x"], p["y"]]
+        jumps.append({"entry": i, "longest_jump_m": round(longest, 1)})
+        if prm.get("max_jump_m"):
+            need(longest <= 1.25 * prm["max_jump_m"], f"plan entry {i}: longest jump {longest:.0f} m")
         for p in w["points"]:
             x, y = ft.to_cw(p["x"], p["y"])
             t = og.tile_at(tl, x, y)
@@ -671,6 +898,7 @@ def check_staging(out, prm, plan, vanilla_mars_entries=None, plugins=True):
                         "decoded": {k: round(v, 4) for k, v in hs.items()}, "error_mm": round(e * 1000, 3)})
             need(e <= steps[t.tag], f"plan entry {i} point {p['label']}: decoded within one step in T{t.tag}")
     rep["points"] = pts
+    rep["jumps"] = jumps
     for o in ovs:   # anchors on the ground of their own tile
         t = tiles[o["tag"]]
         ax, ay, az = o["anchor"]["local"]
@@ -738,7 +966,9 @@ def check_plugins(out, prm, raws, need, rep, vanilla_mars_entries):
             ar = fo4land.parse_ref(an[0]["fields"])
             need(ar["base"] == orc.XMARKER and an[0]["flags"] & orc.PERSISTENT, f"{o['world']}: anchor XMarker, persistent")
             need(an[0]["fid"] == own | o["anchor"]["form_id"] and o["anchor"]["ref"][2:].upper() == "%06X" % o["anchor"]["form_id"],
-                 f"{o['world']}: anchor FormID {an[0]['fid']:08X} = plan ref {o['anchor']['ref']}")
+                 f"{o['world']}: anchor FormID {an[0]['fid']:08X} = plan ref {o['anchor']['ref']} (low 24 bits)")
+            need(o["anchor"]["ref"][:2].upper() == prm.get("anchor_load_byte", orc.ANCHOR_LOAD_BYTE).upper(),
+                 f"{o['world']}: plan ref load-order byte {o['anchor']['ref'][:2]} (assumed at run time)")
             need(max(abs(p - q) for p, q in zip(ar["pos"], o["anchor"]["local"])) < 1e-3, f"{o['world']}: anchor at {ar['pos']}")
         coc = [r for r in recs if r["sig"] == "CELL" and orc.edid(r) == o["coc"]]
         need(len(coc) == 1, f"{o['world']}: COC cell {o['coc']}")
@@ -767,12 +997,178 @@ def check_plugins(out, prm, raws, need, rep, vanilla_mars_entries):
         rep["mars"] = {"file": prm["mars"]["plugin"], "bytes": mp["bytes"], "entries": len(ents), "ours": mine}
 
 
+# --------------------------------------------------------------------------------------------------------- analyse
+def parse3(s):
+    try:
+        v = [float(x) for x in str(s).split()]
+    except ValueError:
+        return None
+    return v if len(v) == 3 else None
+
+
+def load_runs(dirs):
+    """(spec, obs, attempt folder) of every runner attempt under the queue folders: tests/<id>/a<n>/spec.json and
+    obs.json (PowerShell writes obs.json with a BOM)."""
+    import glob
+    out = []
+    for d in dirs:
+        for sp in sorted(glob.glob(os.path.join(d, "tests", "*", "a*", "spec.json"))):
+            ob = os.path.join(os.path.dirname(sp), "obs.json")
+            if os.path.isfile(ob):
+                with open(sp, encoding="utf-8-sig") as f:
+                    spec = json.load(f)
+                with open(ob, encoding="utf-8-sig") as f:
+                    obs = json.load(f)
+                out.append((spec, obs, os.path.dirname(sp)))
+    return out
+
+
+def analyse_attempt(spec, obs, prm, raws, tol=0.5, window=30, free_z=False):
+    """What one runner attempt measured, independent of the runner's verdict: the merge offset of its landing (from
+    the spawn; whole cells or not), the anchor read, the Z offset (z_ref probe), every point's height error in the
+    entry's frame, and for every tile the whole-cell shift that matches the heights read (og.locate_tile): (0, 0) for
+    the coc'd tile itself, H_ll's prediction for the others if they lie edge to edge."""
+    ovs = {o["anchor"]["ref"]: o for o in prm["overlays"]}
+    frame = ovs.get((spec.get("anchor") or {}).get("ref"))
+    if frame is None:
+        return {"id": spec.get("id"), "error": "the entry's anchor is not one of the staged tiles"}
+    tiles = {o["tag"]: og.Tile(o["ix"], o["iy"], o["cells_cw"]["x"][0], o["cells_cw"]["y"][0], o["n"])
+             for o in prm["overlays"]}
+    ft = tiles[frame["tag"]]
+    res = {"id": spec.get("id"), "kind": entry_kind(spec.get("model", "")), "frame": f"T{frame['tag']}",
+           "anchor_read": obs.get("anchor_read"), "anchor_unmerged": bool(obs.get("anchor_unmerged")),
+           "runner_offset": obs.get("offset"), "runner_offset_from": obs.get("offset_from")}
+    spawn, sl = parse3(obs.get("spawn_read")), spec.get("spawn_local")
+    merge, merge_from = None, None
+    if spawn and sl:
+        so = (spawn[0] - sl[0], spawn[1] - sl[1])
+        cells = og.whole_cells(*so)
+        res.update(spawn_read=spawn, spawn_offset_m=[round(v, 2) for v in so], spawn_offset_cells=cells)
+        if cells is not None:
+            merge, merge_from = (cells[0] * og.SF_CELL_M, cells[1] * og.SF_CELL_M), "spawn (whole cells)"
+    ar = parse3(obs.get("anchor_read"))
+    if ar:
+        loc = frame["anchor"]["local"]
+        res["anchor_offset_m"] = [round(ar[k] - loc[k], 2) for k in range(3)]
+    if merge is None and obs.get("offset"):
+        merge, merge_from = tuple(obs["offset"][:2]), f"runner ({obs.get('offset_from')})"
+    if merge is None:
+        merge, merge_from = (0.0, 0.0), "none (0)"
+    res["merge_offset_m"], res["merge_from"] = [round(v, 2) for v in merge], merge_from
+    reads = [(p, parse3(o.get("read")) if isinstance(o, dict) else None)
+             for p, o in zip(spec.get("points", []), obs.get("points") or [])]
+    oz, oz_from = 0.0, "none (0)"
+    zr = next(((p, r) for p, r in reads if r and p["label"] == spec.get("z_ref")), None)
+    if zr and zr[1][2] > prm["hmin"] - 50:
+        oz, oz_from = zr[1][2] - zr[0]["expect"], f"z_ref {zr[0]['label']}"
+    elif spawn and sl and len(sl) >= 3:
+        oz, oz_from = spawn[2] - sl[2], "spawn"
+    res["z_offset_m"], res["z_from"] = round(oz, 3), oz_from
+    pts, use = [], []
+    for p, r in reads:
+        if r is None:
+            pts.append({"label": p["label"], "read": None})
+            continue
+        q = (r[0] - merge[0], r[1] - merge[1])
+        h = r[2] - oz
+        fell = h < prm["hmin"] - 50
+        cx, cy = ft.to_cw(*q)
+        t = og.tile_at(list(tiles.values()), cx, cy)
+        dec = None
+        if t is not None:
+            raw = raws[t.tag]
+            dec = decode_at(raw, prm["hmin"], prm["hmax"], t.n, *t.to_local(cx, cy))
+        pts.append({"label": p["label"], "x": round(q[0], 2), "y": round(q[1], 2), "h": round(h, 3),
+                    "moved_m": round(math.hypot(q[0] - p["x"], q[1] - p["y"]), 2), "expect": p["expect"],
+                    "error_m": round(h - p["expect"], 3), "fell": fell,
+                    "h_ll_tile": f"T{t.tag}" if t else None,
+                    "h_ll_decoded_error_m": round(min(abs(h - v) for v in dec.values()), 3) if dec else None})
+        if not fell:
+            use.append((q[0], q[1], h, r[2]))
+    res["points"] = pts
+    good = [p for p in pts if p.get("h") is not None and not p["fell"]]
+    res["summary"] = {"read": len(good) + sum(1 for p in pts if p.get("fell")), "of": len(spec.get("points", [])),
+                      "fell": sum(1 for p in pts if p.get("fell")),
+                      "within_0.5m": sum(1 for p in good if abs(p["error_m"]) <= 0.5),
+                      "worst_m": max((abs(p["error_m"]) for p in good), default=None)}
+
+    def decoder(tag):
+        t = tiles[tag]
+        return lambda lx, ly: decode_at(raws[tag], prm["hmin"], prm["hmax"], t.n, lx, ly).values()
+    # the coc'd tile itself: (0, 0) unless its BTD sits off its own frame (e.g. a wrong grid-origin rule for even
+    # sizes). If its heights do not fit with the z_ref Z offset (a z_ref probe off by a shift reads the wrong height),
+    # search again with a free Z offset on the raw heights and use that offset for the other tiles.
+    rel = [(x, y, h) for x, y, h, _ in use]
+    own = og.locate_tile(rel, ft.n, decoder(frame["tag"]), (0, 0), window=2, tol=tol)
+    res["locate_z"] = res["z_from"]
+    if own["best"] is None:
+        alt = og.locate_tile([(x, y, z) for x, y, _, z in use], ft.n, decoder(frame["tag"]), (0, 0), window=2,
+                             tol=tol, free_z=True)
+        if alt["best"] is not None:
+            own, dz = alt, alt["best"]["dz"]
+            rel = [(x, y, z - dz) for x, y, _, z in use]
+            res["locate_z"] = f"free, from the coc'd tile's own heights ({dz:+.2f} m)"
+    use = rel
+    loc = {f"T{frame['tag']}": {"predicted": [0, 0], **own}}
+    d0 = own["best"]["d"] if own["best"] else (0, 0)
+    lo, hi = tg.grid_origin(ft.n), tg.grid_origin(ft.n) + ft.n * og.SF_CELL_M
+
+    def explained_by_frame(x, y, h):
+        """A read that the coc'd tile itself explains (at its own located shift) is not evidence for another tile."""
+        lx, ly = x - d0[0] * og.SF_CELL_M, y - d0[1] * og.SF_CELL_M
+        return lo <= lx < hi and lo <= ly < hi and min(abs(h - v) for v in decoder(frame["tag"])(lx, ly)) <= tol
+    rest = [r for r in use if not explained_by_frame(*r)]
+    for tag, t in tiles.items():
+        if tag == frame["tag"]:
+            continue
+        pred = (int(round((t.origin_m[0] - ft.origin_m[0]) / og.SF_CELL_M)),
+                int(round((t.origin_m[1] - ft.origin_m[1]) / og.SF_CELL_M)))
+        loc[f"T{tag}"] = {"predicted": list(pred), **og.locate_tile(rest, t.n, decoder(tag), pred, window=window,
+                                                                    tol=tol, free_z=free_z)}
+    res["locate"] = loc
+    return res
+
+
+def analyse(a):
+    prm = json.loads(orc.read_bytes(os.path.join(a.out, "overlays_params.json")))
+    raws = {o["tag"]: btd.read(orc.read_bytes(os.path.join(a.out, *o["btd_file"].split("/")))).heights_raw
+            for o in prm["overlays"]}
+    runs = load_runs(a.runs)
+    if not runs:
+        sys.exit(f"no runner attempts (tests/*/a*/spec.json + obs.json) under {a.runs}")
+    out = [dict(analyse_attempt(spec, obs, prm, raws, a.tol, a.window, a.free_z), dir=d) for spec, obs, d in runs]
+    for r in out:
+        if "error" in r:
+            print(f"{r['id']}: {r['error']}")
+            continue
+        s = r["summary"]
+        print(f"{r['id']} [{os.path.basename(r['dir'])}] {r['kind']} in {r['frame']}'s landing: merge offset "
+              f"{r['merge_offset_m']} m from {r['merge_from']} (spawn offset {r.get('spawn_offset_m')}, whole cells "
+              f"{r.get('spawn_offset_cells')}); anchor offset {r.get('anchor_offset_m')}; Z offset {r['z_offset_m']} "
+              f"from {r['z_from']}")
+        print(f"    points {s['read']} of {s['of']} read, {s['fell']} fell through, {s['within_0.5m']} within 0.5 m, "
+              f"worst {s['worst_m']}; tiles located with Z offset {r['locate_z']}")
+        for tag, v in r["locate"].items():
+            b = v["best"]
+            alt = ", ".join(f"{tuple(c['d'])} {c['match']}/{c['inside']}" for c in v["consistent"][1:3])
+            top = v["top"][0] if v["top"] else None
+            print(f"    {tag}: predicted {tuple(v['predicted'])}; " +
+                  (f"found at {tuple(b['d'])} ({b['match']}/{b['inside']} interior reads match, ring "
+                   f"{b['ring_match']}/{b['ring']})" if b else
+                   f"not found (best {tuple(top['d'])} {top['match']}/{top['inside']})" if top else "no read inside") +
+                  (f"; also consistent: {alt}" if alt else ""))
+    if a.json:
+        with open(a.json, "w", encoding="utf-8") as f:
+            json.dump(out, f, indent=1)
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=("build", "check"))
+    ap.add_argument("cmd", choices=("build", "check", "analyse"))
     ap.add_argument("--fo4", help="Fallout4.esm")
     ap.add_argument("--fo4-npz", help="cached FO4 LAND grids (.npz with 'grid' and 'heights') instead of --fo4")
-    ap.add_argument("--sf-data", required=True, help="Starfield Data folder (LTEX template BTD; Starfield.esm for check)")
+    ap.add_argument("--sf-data", default="", help="Starfield Data folder (build: LTEX template BTD; check: Starfield.esm)")
     ap.add_argument("--out", required=True, help="staging folder, e.g. C:\\Modding\\staging\\terrain_exp3")
     ap.add_argument("--fo4-cells", type=int, nargs=4, default=[-35, 10, -6, 40], metavar=("X0", "X1", "Y0", "Y1"),
                     help="inclusive FO4 cell rectangle (default: experiment 3 around Sanctuary, Vault 111, Red Rocket)")
@@ -796,14 +1192,34 @@ def main():
                     help="measured planet cell of the reference overlay's local origin")
     ap.add_argument("--centre-cell", type=int, nargs=2, default=[0, 0], help="planet cell for the region's centre")
     ap.add_argument("--mask-writer", choices=("texconv", "builtin"), default="texconv")
+    ap.add_argument("--mask-ns", choices=og.MASK_NS, default="symmetric",
+                    help="north / south mask rings: 'symmetric' only in pairs (mask row order unresolved), 'outer' on "
+                         "every outer edge")
+    ap.add_argument("--load-byte", default=orc.ANCHOR_LOAD_BYTE,
+                    help="load-order byte of the plugin at run time for the anchor refs in plan.json (exp2b: 02)")
+    ap.add_argument("--max-jump", type=float, default=MAX_JUMP, help="waypoints keep setpos jumps under this (0: off)")
+    ap.add_argument("--locate-step", type=float, default=LOCATE_STEP, help="spacing of locate probes (m)")
     ap.add_argument("--verbose", action="store_true")
     ap.add_argument("--no-plugins", action="store_true", help="check: skip the plugin record walk (before dotnet ran)")
+    ap.add_argument("--runs", nargs="+", default=[], help="analyse: runner queue folder(s) with tests/*/a*/obs.json")
+    ap.add_argument("--tol", type=float, default=0.5, help="analyse: height match tolerance (m)")
+    ap.add_argument("--window", type=int, default=30, help="analyse: cells searched around H_ll's prediction")
+    ap.add_argument("--free-z", action="store_true", help="analyse: allow one Z offset per tile and shift")
+    ap.add_argument("--json", default="", help="analyse: write the full result here")
     a = ap.parse_args()
     if a.cmd == "build":
+        if not a.sf_data:
+            sys.exit("--sf-data is required for build")
         if not (a.fo4 or a.fo4_npz):
             sys.exit("--fo4 or --fo4-npz is required for build")
+        if not re.fullmatch(r"[0-9A-Fa-f]{2}", a.load_byte):
+            sys.exit("--load-byte must be two hex digits")
         os.makedirs(a.out, exist_ok=True)
         return build(a)
+    if a.cmd == "analyse":
+        return analyse(a)
+    if not a.sf_data:
+        sys.exit("--sf-data is required for check")
     return check(a)
 
 

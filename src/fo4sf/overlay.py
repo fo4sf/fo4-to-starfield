@@ -11,8 +11,12 @@ them so it can be tested with synthetic data (tests/test_overlay.py):
 * Overlay mask: textures/terrain/overlaymasks/<edid lower case>.dds, BC4, 100 px per cell, 0 inside the authored area
   and 255 on a ring of border cells (vanilla). Only procedural generation reads it (supported, unverified in game).
 
-Image rows here are north-first (row 0 = north edge, like a DDS); the mask is symmetric so the choice does not matter
-for the ring masks written by the experiments.
+Image rows here are written north-first (row 0 = north edge, like a DDS). Whether the engine reads mask rows
+north-first or south-first is UNRESOLVED (QA's offline count of placed references inside the mask-0 area points both
+ways: NewAtlantis 0.990 north-first vs 0.835 south-first, lc001world 0.818 vs 0.973; PR #67 review, not repeated
+here). A full ring is the same either way; a mask with a ring on
+only one of the north / south edges is not, so overlay_grid.mask_edges writes north / south rings only in pairs by
+default.
 """
 import struct
 
@@ -55,9 +59,10 @@ EDGES = ("w", "e", "s", "n")
 
 
 def mask_array(cells_x, cells_y=None, border_cells=1, px_per_cell=MASK_PX_PER_CELL, edges=EDGES):
-    """Overlay mask image (uint8, rows north-first): 0 inside, 255 on the outer `border_cells` ring of cells.
+    """Overlay mask image (uint8, rows written north-first): 0 inside, 255 on the outer `border_cells` ring of cells.
     `edges` limits the ring to some sides ('w', 'e', 's', 'n'): a tile of a grid of adjacent overlays keeps 0 on the
-    seams it shares with its neighbours (docs/terrain/commonwealth-scale.md)."""
+    seams it shares with its neighbours (docs/terrain/commonwealth-scale.md). A ring on 'n' without 's' (or the
+    reverse) depends on the engine's unresolved row order."""
     cells_y = cells_x if cells_y is None else cells_y
     if cells_x <= 2 * border_cells or cells_y <= 2 * border_cells:
         raise ValueError("the border ring leaves no inside")

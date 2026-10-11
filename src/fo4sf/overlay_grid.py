@@ -11,12 +11,17 @@ docs/terrain/commonwealth-scale.md explains the choice. This module is the pure 
 * Adjacent tiles sample one continuous 0.78125 m lattice: the first sample of a tile is one step after the last sample
   of its west / south neighbour, exactly as LOD0 blocks follow each other inside one BTD. With one shared height range
   the raw u16 values across a seam are those a single BTD of the whole region would hold.
-* Overlay masks: 255 on the cell ring of every OUTER edge (where vanilla overlays blend into procedural ground), 0 on
-  inner seams between tiles (overlay.mask_array(n, edges=outer_edges(tile, tiles))).
+* Overlay masks: 255 on the cell ring of OUTER edges (where vanilla overlays blend into procedural ground), 0 on
+  inner seams between tiles (overlay.mask_array(n, edges=mask_edges(tile, tiles))). The image row order of a mask
+  (north-first or south-first) is unresolved, so by default the north / south rings are written only when both are
+  outer edges: the mask then reads the same either way and a seam never gets 255 by a flipped row order.
 * Planet placement hypothesis H_ll (supported, unverified in game): near a registration the merge offset of an
   overlay moves at true planet scale, x east = R cos(lat) dlon, y north = R dlat, in 100 m cells; reference = one
   measured registration (World01 on Mars: latitude 0.2, longitude 1.2 rad -> local origin at planet cell (+30, -35)).
   PNDT CNAM stores latitude first, then longitude, in radians (Earth overlays sit at their real cities).
+* Locating a tile from height reads (locate_tile): persistent anchors in our overlays read back their unmerged local
+  position in game, so where a tile actually sits in another tile's landing is measured by heights alone: probes at
+  known positions in the landing, matched against the tile's own BTD at every whole-cell shift.
 """
 import math
 from dataclasses import dataclass
@@ -28,8 +33,11 @@ from .overlay import EDGES
 
 SF_CELL_M = tg.SF_CELL_M
 MARS_RADIUS_KM = 3390.0              # MarsPlanetData body FNAM radius (Starfield.esm)
-# measured 2026-10-11 (runner, both registered World01 runs): World01 at latitude 0.2, longitude 1.2 rad on Mars ->
-# its local origin at planet cell (+30, -35)
+# measured 2026-10-11 (runner obs.json): World01 at latitude 0.2, longitude 1.2 rad on Mars -> its local origin at
+# planet cell (+30, -35): COC marker (50, 50) arrived at (3050, -3450) in the FIRST attempt of all five registered runs
+# (terrain_exp1_mars, exp1b, exp1c, B_w01, exp1d). The three second attempts that coc'd again in the same game
+# session arrived at (77.6, 101.1), (74.0, 8.0) and (75.3, 99.7) instead: not a whole-cell offset of (50, 50), so
+# not this merge (unexplained). exp2b kept its offset (-12, -27) in both attempts.
 WORLD01_LATLON = (0.2, 1.2)
 WORLD01_OFFSET = (30, -35)
 
@@ -133,6 +141,22 @@ def outer_edges(tile, tiles):
     return tuple(e for e in EDGES if (tile.ix + nb[e][0], tile.iy + nb[e][1]) not in have)
 
 
+MASK_NS = ("symmetric", "outer")
+
+
+def mask_edges(tile, tiles, ns="symmetric"):
+    """Edges whose cell ring is 255 in the tile's overlay mask. 'outer': every outer edge. 'symmetric' (default): as
+    'outer', but the north and south rings only when both are outer edges, so a mask is the same under either image
+    row order (unresolved, docs/terrain/overlay-records.md). In a grid with more than one row every tile then has 0 on
+    its outer north / south edge too; west / east rings stay on outer edges."""
+    if ns not in MASK_NS:
+        raise ValueError(f"ns must be one of {MASK_NS}")
+    outer = outer_edges(tile, tiles)
+    if ns == "outer" or ("n" in outer and "s" in outer):
+        return outer
+    return tuple(e for e in outer if e not in ("n", "s"))
+
+
 def seams(tiles):
     """Seam segments between neighbouring tiles: dicts with axis 'x' (a vertical line x = const between a west tile a
     and an east tile b) or 'y' (horizontal line y = const between a south tile a and a north tile b), the line's CW
@@ -219,3 +243,62 @@ def check_adjacent(tiles, targets):
         if targets[t] != (rx + dx, ry + dy):
             return False
     return True
+
+
+# ------------------------------------------------------------------------------------------------------------ locate
+def whole_cells(dx, dy, tol_m=2.0):
+    """(cx, cy) when the offset (dx, dy) metres is a whole number of 100 m cells within tol_m on both axes, else None.
+    A merge offset is whole cells (verified on LC172World, World01, exp2b); a spawn that slid or an unmerged load is
+    not."""
+    cx, cy = round(dx / SF_CELL_M), round(dy / SF_CELL_M)
+    if abs(dx - cx * SF_CELL_M) <= tol_m and abs(dy - cy * SF_CELL_M) <= tol_m:
+        return int(cx), int(cy)
+    return None
+
+
+def locate_tile(reads, n, decode, centre=(0, 0), window=30, tol=0.5, min_points=3, ring_m=SF_CELL_M, free_z=False):
+    """Where an n x n-cell overlay sits, from height reads taken in another frame.
+
+    reads: [(x, y, h)] positions and heights in the frame of the entry (the coc'd tile's own frame, Z offset removed).
+    decode(lx, ly): the overlay's heights at its own local position (an iterable: one value per interpolation rule).
+    A candidate D (whole cells) puts the overlay's local origin at frame position 100 * D; a read at q is then at
+    overlay-local q - 100 D. Reads inside the overlay but within ring_m of its edge (the 1-cell merge ring) are counted
+    apart and not required to match. A candidate is consistent when at least min_points interior reads fall inside and
+    every one matches within tol (free_z: after removing their median difference, one Z offset per candidate).
+    Candidates: every D within `window` cells of `centre` on both axes. Returns {best, consistent: [...], top: [...]},
+    each item {d, inside, match, ring, ring_match, dz}; best = the consistent candidate with the most interior reads
+    (ties: nearest to centre), None if no candidate is consistent."""
+    lo = -(n // 2) * SF_CELL_M
+    hi = lo + n * SF_CELL_M
+    pts = [(float(x), float(y), float(h)) for x, y, h in reads]
+    out = []
+    for i in range(centre[0] - window, centre[0] + window + 1):
+        for j in range(centre[1] - window, centre[1] + window + 1):
+            inner, ring = [], []
+            for x, y, h in pts:
+                lx, ly = x - i * SF_CELL_M, y - j * SF_CELL_M
+                if not (lo <= lx < hi and lo <= ly < hi):
+                    continue
+                vals = list(decode(lx, ly))
+                edge = min(lx - lo, hi - lx, ly - lo, hi - ly)
+                (ring if edge < ring_m else inner).append((h, vals))
+            if not inner and not ring:
+                continue
+            dz = 0.0
+            if free_z and inner:
+                dz = float(np.median([h - v[0] for h, v in inner]))
+
+            def ok(h, vals):
+                return min(abs(h - dz - v) for v in vals) <= tol
+            m = sum(1 for h, v in inner if ok(h, v))
+            rm = sum(1 for h, v in ring if ok(h, v))
+            out.append({"d": (i, j), "inside": len(inner), "match": m, "ring": len(ring), "ring_match": rm,
+                        "dz": round(dz, 3)})
+    need = min_points + (1 if free_z else 0)
+
+    def dist(c):
+        return abs(c["d"][0] - centre[0]) + abs(c["d"][1] - centre[1])
+    consistent = sorted((c for c in out if c["inside"] >= need and c["match"] == c["inside"]),
+                        key=lambda c: (-c["inside"], dist(c)))
+    top = sorted(out, key=lambda c: (-c["match"], c["inside"] - c["match"], dist(c)))[:5]
+    return {"best": consistent[0] if consistent else None, "consistent": consistent[:5], "top": top}
