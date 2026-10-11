@@ -180,6 +180,98 @@ class ExperimentRecoveryTests(unittest.TestCase):
             self.changed_plugin_blocks_relaunch_after_partial_cleanup()
             process.assert_called_once()
 
+    def test_interrupted_uninstall_is_journaled_before_plugin_changes(self):
+        exp.install(self.args)
+        real_write = exp.write_plugins
+
+        def remove_activation_then_interrupt(*args, **kwargs):
+            real_write(*args, **kwargs)
+            raise KeyboardInterrupt("injected interrupted uninstall")
+
+        with patch.object(exp, "write_plugins", side_effect=remove_activation_then_interrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                exp.uninstall(self.args)
+        self.assertEqual(self.plugins.read_bytes(), self.original)
+        with self.assertRaisesRegex(SystemExit, "incomplete"):
+            exp.install(self.args)
+        exp.uninstall(self.args)
+        self.assert_rolled_back()
+
+    def test_inactive_existing_plugin_is_activated_and_restored(self):
+        self.original += b"  Experiment.esm  \r\n"
+        self.plugins.write_bytes(self.original)
+        exp.install(self.args)
+        lines = self.plugins.read_text(encoding="utf-8-sig").splitlines()
+        self.assertEqual(lines.count("*Experiment.esm"), 1)
+        self.assertNotIn("  Experiment.esm  ", lines)
+        exp.install(self.args)
+        exp.uninstall(self.args)
+        self.assert_rolled_back()
+
+    def test_relaunch_rejects_an_externally_deactivated_plugin(self):
+        exp.install(self.args)
+        inactive = self.original + b"Experiment.esm\r\n"
+        self.plugins.write_bytes(inactive)
+        with self.assertRaisesRegex(SystemExit, "inactive"):
+            exp.install(self.args)
+        self.assertEqual(self.plugins.read_bytes(), inactive)
+
+    def test_relaunch_rejects_a_missing_packed_archive(self):
+        build = self.archive_builder()
+        with patch.object(exp.subprocess, "run", side_effect=build) as process:
+            exp.install(self.args)
+            (self.data / "Experiment - Main.ba2").unlink()
+            with self.assertRaisesRegex(SystemExit, "missing or changed"):
+                exp.install(self.args)
+            process.assert_called_once()
+
+    def test_relaunch_rejects_rebuilt_staged_plugin(self):
+        exp.install(self.args)
+        (self.staging / "Experiment.esm").write_bytes(b"rebuilt plugin")
+        with self.assertRaisesRegex(SystemExit, "source inputs changed"):
+            exp.install(self.args)
+        self.assertEqual((self.data / "Experiment.esm").read_bytes(), b"synthetic plugin")
+
+    def test_relaunch_rejects_changed_packed_terrain_inputs(self):
+        build = self.archive_builder()
+        with patch.object(exp.subprocess, "run", side_effect=build) as process:
+            exp.install(self.args)
+            (self.staging / "Data" / self.terrain).write_bytes(b"changed terrain")
+            with self.assertRaisesRegex(SystemExit, "source inputs changed"):
+                exp.install(self.args)
+            process.assert_called_once()
+
+    def test_changed_terrain_during_packing_is_rejected_before_installation(self):
+        build = self.archive_builder()
+
+        def change_inputs(command, **kwargs):
+            result = build(command, **kwargs)
+            (self.staging / "Data" / self.terrain).write_bytes(b"changed while packing")
+            return result
+
+        with patch.object(exp.subprocess, "run", side_effect=change_inputs):
+            with self.assertRaisesRegex(SystemExit, "changed during preparation"):
+                exp.install(self.args)
+        self.assert_rolled_back()
+
+    def test_publication_is_recorded_before_full_installed_archive_hash(self):
+        build = self.archive_builder()
+        real_digest = exp.digest
+
+        def interrupt(path):
+            if Path(path) == self.data / "Experiment - Main.ba2":
+                raise KeyboardInterrupt("injected interruption during installed archive hash")
+            return real_digest(path)
+
+        with patch.object(exp.subprocess, "run", side_effect=build), \
+                patch.object(exp, "digest", side_effect=interrupt):
+            with self.assertRaises(KeyboardInterrupt):
+                exp.install(self.args)
+        record = json.loads((self.data / exp.RECORD).read_text())
+        self.assertIn("Experiment - Main.ba2", record["published_files"])
+        exp.uninstall(self.args)
+        self.assert_rolled_back()
+
     def test_partial_second_copy_rolls_back_files_and_directories(self):
         real_copy = exp.shutil.copyfile
 

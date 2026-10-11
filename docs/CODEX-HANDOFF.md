@@ -28,7 +28,7 @@ Door prototype:30 rigs/60 clips read back,42 selected source bodies/62 leaves; o
 
 `.af` samples: Open/Close sizes vary. Claude confirmed the second u16 at 0x28 matches named rig-bone counts in four families; frame rate and track mapping remain unknown. Details: research note and #32.
 
-Codex #62 integrates #59, keeps --pack, adds preflight/fresh archive validation/mode checks and journaled rollback.19 regressions;328 total OK (1 skipped), guard OK. Claude CLI reviews at max effort; main Claude asked on #32 to confirm effort/quota. Offline QA pending; no live install changed.
+Codex #62 keeps --pack, pins inputs/installed files and activation, journals uninstall before changes and restores disabled plugin lines.27 regressions;337 total OK (1 skipped), guard OK. Opus5.5 max-effort review found blockers now addressed; follow-up runs. Main Claude asked on #32 to confirm effort/quota. #65 CI dependency merged. No live install changed.
 
 ## Coordination / housekeeping
 

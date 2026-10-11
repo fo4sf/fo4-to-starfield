@@ -84,6 +84,57 @@ def data_path(data, rel):
     return target
 
 
+def source_inventory(exp_dir, plugins):
+    """Pin staged inputs, including loose inputs used to build a packed archive."""
+    inputs = {"plugin/" + name: digest(os.path.join(exp_dir, name)) for name in plugins}
+    data = os.path.join(exp_dir, "Data")
+    for root, dirs, files in os.walk(data):
+        dirs.sort()
+        for name in sorted(files):
+            path = os.path.join(root, name)
+            relative = os.path.relpath(path, data).replace("\\", "/")
+            inputs["Data/" + relative] = digest(path)
+    return inputs
+
+
+def plan_activation(lines, plugins):
+    updated, added, replaced = list(lines), [], []
+    for name in plugins:
+        matches = [(i, line) for i, line in enumerate(updated)
+                   if line.strip().lstrip("*").casefold() == name.casefold()]
+        if len(matches) > 1:
+            raise ValueError(f"duplicate plugin entries in Plugins.txt: {name}")
+        if matches:
+            index, original = matches[0]
+            if original.strip().startswith("*"):
+                continue
+            active = "*" + original.strip()
+            updated[index] = active
+            replaced.append({"active": active, "original": original})
+        else:
+            active = "*" + name
+            updated.append(active)
+            added.append(active)
+    return updated, added, replaced
+
+
+def verify_relaunch(a, data, plugins, packed, rec):
+    active = {line.strip()[1:].casefold() for line in read_plugins(plugins_txt())[0]
+              if line.strip().startswith("*")}
+    if any(name.casefold() not in active for name in plugins):
+        sys.exit("experiment plugin is inactive; recover the installation before relaunching")
+    if packed and os.path.splitext(plugins[0])[0] + " - Main.ba2" not in rec["files"]:
+        sys.exit("packed experiment archive is not recorded; uninstall before relaunching")
+    for relative, identity in rec["files"].items():
+        target = data_path(data, relative)
+        if not os.path.isfile(target) or digest(target) != identity:
+            sys.exit(f"installed experiment file is missing or changed: {relative}")
+    if rec.get("source_inputs") is None:
+        sys.exit("legacy experiment input identity is unavailable; uninstall before relaunching")
+    if source_inventory(a.exp_dir, plugins) != rec["source_inputs"]:
+        sys.exit("experiment source inputs changed; uninstall before relaunching")
+
+
 def cleanup(data, rec_p, rec):
     """Undo confirmed publications; preserve changed/unproven files and a retryable journal."""
     targets = {rel: data_path(data, rel) for rel in rec["files"]}
@@ -98,12 +149,17 @@ def cleanup(data, rec_p, rec):
                 deployment.restore_plugins(rec)
                 rec["plugins_restore_pending"] = False
                 rec["plugins_added"] = []
-        elif rec["plugins_added"] and os.path.exists(p):
+                rec["plugins_replaced"] = []
+        elif (rec["plugins_added"] or rec.get("plugins_replaced")) and os.path.exists(p):
             original = read_bytes(p)
             lines, bom, nl = plugin_lines(original)
             added = {x.casefold() for x in rec["plugins_added"]}
-            write_plugins(p, [ln for ln in lines if ln.strip().casefold() not in added], bom, nl, original)
+            replaced = {item["active"].casefold(): item["original"] for item in rec.get("plugins_replaced", [])}
+            restored = [replaced.get(ln.strip().casefold(), ln) for ln in lines
+                        if ln.strip().casefold() not in added]
+            write_plugins(p, restored, bom, nl, original)
             rec["plugins_added"] = []
+            rec["plugins_replaced"] = []
     except OSError as e:
         errors.append(str(e))
     published = set(rec.get("published_files", []))
@@ -163,6 +219,7 @@ def install(a):
         if same:                                          # a relaunch of the same experiment: nothing to do
             if bool(rec.get("pack", False)) != packed:
                 sys.exit("experiment packing mode changed; uninstall it before changing modes")
+            verify_relaunch(a, data, plugins, packed, rec)
             print("already installed")
             return
         sys.exit(f"another experiment is installed ({rec_p}); uninstall it first")
@@ -181,22 +238,22 @@ def install(a):
         sys.exit(f"refusing to overwrite existing game files: {clash}")
     # Validate all sources and snapshot activation before publishing anything.
     identities = {rel: digest(src) for src, rel in files}
+    inputs = source_inventory(a.exp_dir, plugins)
     if packed:
         built = build_ba2(a, os.path.join(a.exp_dir, "Data"), os.path.join(a.exp_dir, ba2))
         files.append((built, ba2))
         identities[ba2] = digest(built)
+    if source_inventory(a.exp_dir, plugins) != inputs:
+        sys.exit("experiment source inputs changed during preparation; nothing installed")
     p = plugins_txt()
     original = read_bytes(p)
     lines, bom, nl = plugin_lines(original)
-    rec = {"exp_dir": os.path.abspath(a.exp_dir), "files": {}, "dirs": [], "plugins_added": [],
+    lines, added, replaced = plan_activation(lines, plugins)
+    rec = {"exp_dir": os.path.abspath(a.exp_dir), "files": {}, "dirs": [], "plugins_added": added,
+           "plugins_replaced": replaced, "source_inputs": inputs,
            "complete": False, "pack": packed, "published_files": [], "plugins_txt": p,
            "plugins_original": base64.b64encode(original).decode("ascii") if original is not None else None,
            "plugins_restore_pending": False}
-    names = {ln.lstrip("*").strip().casefold() for ln in lines}
-    for plug in plugins:
-        if plug.casefold() not in names:
-            lines.append("*" + plug)
-            rec["plugins_added"].append("*" + plug)
     activated = bom + (nl.join(lines) + nl).encode("utf-8")
     rec["plugins_activated"] = base64.b64encode(activated).decode("ascii")
     deployment.write_manifest(rec_p, rec)
@@ -214,10 +271,10 @@ def install(a):
             os.makedirs(os.path.dirname(dst), exist_ok=True)
             deployment.copy_new_artifact(src, dst)
             rec["published_files"].append(rel)
+            deployment.write_manifest(rec_p, rec)
             if digest(dst) != identities[rel]:
                 raise OSError(f"installed file differs from validated source: {rel}")
-            deployment.write_manifest(rec_p, rec)
-        if rec["plugins_added"]:
+        if rec["plugins_added"] or rec["plugins_replaced"]:
             if read_bytes(p) != original:
                 raise OSError("Plugins.txt changed during install; preserving concurrent edits")
             rec["plugins_restore_pending"] = True
@@ -232,7 +289,7 @@ def install(a):
         except (OSError, ValueError) as recovery:
             sys.exit(f"install failed: {e}; {recovery}")
         sys.exit(f"install failed and was rolled back: {e}")
-    print(f"installed {len(rec['files'])} files, plugins {rec['plugins_added']}")
+    print(f"installed {len(rec['files'])} files, plugins {plugins}")
 
 
 def uninstall(a):
@@ -244,6 +301,8 @@ def uninstall(a):
     with open(rec_p) as f:
         rec = json.load(f)
     try:
+        rec["cleanup_pending"] = True
+        deployment.write_manifest(rec_p, rec)
         cleanup(data, rec_p, rec)
     except (OSError, ValueError) as e:
         sys.exit(f"uninstall incomplete: {e}")

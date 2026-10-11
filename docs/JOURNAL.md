@@ -674,3 +674,9 @@ requested on #32. Publication awaits review; converted terrain acceptance remain
 Additional synthetic proof: partial uninstall preserved a changed plugin, removed its terrain/archive, then
 relaunch falsely reported installed. Cleanup now persists a pending flag and blocks relaunch until completed;
 loose and packed cases pass. Final targeted19/full328 tests OK (1 skipped); guard remains required before commit.
+Claude Opus5.5 max-effort review found an uninstall-interruption gap and inactive plugin entries counted active.
+Uninstall now journals its pending state before any changes; relaunch validates activation, installed hashes and
+staged input identity. Disabled plugin lines are activated with replacement tracking and restored on uninstall.
+Inputs are rechecked after packing, and publication is journaled before full installed-file hashing.27 targeted /
+337 total tests OK (1 skipped), guard OK; exact upstream numeric-read fix46d4727 preserved. A second scoped Claude
+max-effort review runs. Concurrent config edits/unproven files still require manual recovery; preserved by design.
