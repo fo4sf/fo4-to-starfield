@@ -134,6 +134,33 @@ switch ($kind) {
     $obs['hud_back'] = $up; $obs['load_s'] = [int]((Get-Date) - $t0).TotalSeconds
     $obs['end_read'] = Read-Pos
   }
+  'terrain' {
+    # terrain experiment: coc into a test worldspace, then drop onto points of known terrain height and read z
+    if ($t.world_coc -notmatch '^[A-Za-z0-9_]+$') { "bad world name"; exit 4 }
+    Console-Open
+    Send "type:coc $($t.world_coc)|key:enter|wait:400|key:grave|wait:3000"
+    $hud = Join-Path $Out 'hud.png'; $t0 = Get-Date
+    do { Start-Sleep 2; powershell -NoProfile -ExecutionPolicy Bypass -File $shot -Out $hud | Out-Null
+         $up = (& $env:FO4SF_PYTHON (Join-Path $here 'hud_visible.py') $hud) -eq 'yes' } until ($up -or ((Get-Date) - $t0).TotalSeconds -gt 90)
+    $obs['load_s'] = [int]((Get-Date) - $t0).TotalSeconds
+    Start-Sleep 3
+    $obs['spawn_read'] = Read-Pos
+    $obs['shot'] = Shot 'spawn.png'
+    $pts = @()
+    $k = 0
+    foreach ($p in $t.points) {
+      Teleport @($p.x, $p.y, $t.drop_z) 0 15
+      Start-Sleep -Milliseconds 4500                 # a fall from 80 m takes about 4 s
+      $pts += [ordered]@{ label = $p.label; read = (Read-Pos); shot = (Shot "pt$k.png") }
+      $k++
+    }
+    $obs['points'] = $pts
+    # beyond the BTD's edge: void, flat default, water or the host planet? recorded, not judged
+    Teleport @($t.beyond.x, $t.beyond.y, $t.drop_z) 90 5
+    Start-Sleep -Milliseconds 4500
+    $obs['beyond_read'] = Read-Pos
+    $obs['beyond_shot'] = Shot 'beyond.png'
+  }
   'recover' {
     # testqueue.py calls this only when nobody touched the PC since its last input: a menu, the Steam overlay or a
     # popup hides the HUD. Nudge the mouse (ends the idle camera), then up to three Escapes, each followed by a check.

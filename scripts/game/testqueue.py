@@ -42,11 +42,12 @@ sys.path.insert(0, HERE)
 import route_eval  # noqa: E402
 
 UNIT = 1.0 / 70.0
-KINDS = ("stairs", "door", "fall", "movable", "travel")
+KINDS = ("stairs", "door", "fall", "movable", "travel")         # planned from a build; "terrain" via plan-terrain
 # ranking weight per (kind, verdict reason class): falling out of the world and broken travel first
 SEVERITY = {("fall", "FALL"): 5, ("travel", "NOTRAVEL"): 5, ("travel", "NOPROMPT"): 4, ("door", "BLOCKED"): 4,
             ("door", "NOPROMPT"): 3, ("stairs", "FALL"): 4, ("stairs", "STUCK"): 3, ("door", "FALL"): 5,
-            ("movable", "NOTMOVED"): 2, ("movable", "ITEMFELL"): 3, ("any", "CRASH"): 5}
+            ("movable", "NOTMOVED"): 2, ("movable", "ITEMFELL"): 3, ("any", "CRASH"): 5,
+            ("terrain", "NOTERRAIN"): 5, ("terrain", "HEIGHTS"): 4}
 PS = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
 BREAKER = 6          # inconclusive attempts in a row, with no PASS/FAIL yet, that switch a kind off for the run
 
@@ -196,6 +197,39 @@ def plan(a):
     print(f"{len(tests)} tests in {len(cells)} cells on build {q['build_id']}: {counts}")
 
 
+def plan_terrain(a):
+    """Terrain experiment 1 (docs/terrain/architecture.md on PR #57): three test worldspaces, each with its own BTD
+    (flat ground at 10 m and pads at known heights); which height the player lands on shows whether the plugin's
+    worldspace loads its BTD at all, through the record or by name, and at what height scale."""
+    staging = os.path.abspath(a.staging)
+    esm = os.path.join(staging, "FO4Port.esm")
+    exp = load(os.path.join(a.exp_dir, "expected.json"))
+    worlds = [("FO4TX_W01Spawn", "FO4TX_World01.btd", "record and name"),
+              ("FO4TX_W02Spawn", "FO4TX_Shared02.btd", "record path only"),
+              ("FO4TX_W03Spawn", "FO4TX_World03.btd", "name only")]
+    tests = []
+    for n, (coc, btd, how) in enumerate(worlds):
+        e = exp[btd]
+        pts = [{"label": "ground", "x": -60.0, "y": -60.0, "expect": e["ground"]},
+               {"label": "padA", "x": 30.0, "y": 30.0, "expect": e["padA_x20-40_y20-40"]},
+               {"label": "padB", "x": 70.0, "y": 30.0, "expect": e["padB_x60-80_y20-40"]},
+               {"label": "pitC", "x": 30.0, "y": 70.0, "expect": e["pitC_x20-40_y60-80"]}]
+        if n == 0:                                        # pad edge: 1 m inside / outside pad A
+            pts += [{"label": "padA_edge_in", "x": 39.0, "y": 30.0, "expect": e["padA_x20-40_y20-40"]},
+                    {"label": "padA_edge_out", "x": 41.0, "y": 30.0, "expect": e["ground"]}]
+        tests.append({"id": f"{n:04d}_terrain_{coc}", "kind": "terrain", "cell": "", "ref": coc, "model": btd,
+                      "world_coc": coc, "btd_lookup": how, "drop_z": 80.0, "points": pts,
+                      "beyond": {"x": 300.0, "y": 0.0}})
+    digest = sha256(esm)
+    q = {"created": now(), "staging": staging, "plugin_sha256": digest, "build_id": digest[:8],
+         "commit": subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
+         "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]],
+         "launch_cell": a.launch_cell, "experiment": os.path.abspath(a.exp_dir), "tests": tests}
+    os.makedirs(a.out, exist_ok=True)
+    save_atomic(os.path.join(a.out, "queue.json"), q)
+    print(f"{len(tests)} terrain tests (experiment {a.exp_dir}) on build {q['build_id']}")
+
+
 # ------------------------------------------------------------------------------------------------------------ judging
 def judge(test, obs, out_dir):
     """(verdict, reason class, detail) from raw observations. Missing observations are INCONCLUSIVE."""
@@ -267,6 +301,25 @@ def judge(test, obs, out_dir):
         if math.dist(end, st) <= 3.0:
             return "FAIL", "NOTRAVEL", "pressed E at the door but stayed in place"
         return "INCONCLUSIVE", "ELSEWHERE", f"ended {d:.1f} m from the arrival point"
+    if kind == "terrain":
+        # heights measured by dropping the player onto known terrain pads (terrain experiment 1, PR #57)
+        pts = obs.get("points") or []
+        reads = [(p, parse3(o.get("read")) if isinstance(o, dict) else None) for p, o in zip(test["points"], pts)]
+        if len(reads) < len(test["points"]) or any(r is None for _, r in reads) or not shot_ok(obs.get("shot")):
+            return "INCONCLUSIVE", "UNREAD", "a height was not read or the screenshot is missing"
+        parts, worst, fell = [], 0.0, False
+        for p, r in reads:
+            parts.append(f"{p['label']} {r[2]:.2f} (want {p['expect']})")
+            if math.hypot(r[0] - p["x"], r[1] - p["y"]) > 2.0:
+                return "INCONCLUSIVE", "MOVED", f"{p['label']}: ended {math.hypot(r[0] - p['x'], r[1] - p['y']):.1f} m away"
+            worst = max(worst, abs(r[2] - p["expect"]))
+            fell = fell or r[2] < p["expect"] - 20
+        detail = "; ".join(parts)
+        if fell:
+            return "FAIL", "NOTERRAIN", "fell through where terrain should be: " + detail
+        if worst > 0.5:
+            return "FAIL", "HEIGHTS", f"off by up to {worst:.2f} m: " + detail
+        return "PASS", "PASS", detail
     return "INCONCLUSIVE", "KIND", f"unknown kind {kind}"
 
 
@@ -278,7 +331,13 @@ class Controls:
 
     def __init__(self, queue_dir):
         self.queue_dir = queue_dir
+        # shared by the queues of one chain (same parent folder): input sent by the previous queue is not the owner's
+        self.tick_file = os.path.join(os.path.dirname(os.path.abspath(queue_dir)), "last_sent_tick.txt")
         self.last_sent_tick = None
+        try:
+            self.last_sent_tick = int(open(self.tick_file).read().strip())
+        except (OSError, ValueError):
+            pass
 
     def stop_file(self):
         for p in (os.path.join(self.queue_dir, "STOP"), os.path.join(self.state_dir, "testqueue.STOP")):
@@ -316,6 +375,11 @@ class Controls:
     def mark_sent(self):
         """Call right after a subprocess that sent input returned: later input is the owner's."""
         self.last_sent_tick = self._tick()
+        try:
+            with open(self.tick_file, "w") as f:
+                f.write(str(self.last_sent_tick))
+        except OSError:
+            pass
 
     def foreign_input(self):
         if self.last_sent_tick is None:
@@ -370,7 +434,9 @@ def blocked_reason(ctl, q, launching=False, min_idle=900):
     h = time.localtime().tm_hour
     if not any(lo <= h < hi for lo, hi in q.get("hours", [[0, 24]])):
         return f"outside the allowed hours {q.get('hours')}"
-    if launching and ctl.idle_s() < min_idle:
+    # the PC counts as idle when nobody gave input since the runner's own last input (relaunch after a crash, the
+    # next queue of a chain); otherwise it needs min_idle seconds without any input
+    if launching and ctl.idle_s() < min_idle and (ctl.last_sent_tick is None or ctl.foreign_input()):
         return f"owner active (idle {ctl.idle_s():.0f} s < {min_idle} s): not launching the game"
     if ctl.foreign_input():
         return "owner input detected (keyboard/mouse the runner did not send)"
@@ -433,7 +499,9 @@ class Runner:
         if gp and gp != self.ctl.owned_pid():
             self.log("a Starfield the runner did not start is running (the owner's session): stopping")
             return "stop"
-        cell_json = os.path.join(self.q["staging"], cell + ".json")
+        # a test with no cell (terrain experiment) travels on its own: launch into the queue's launch cell, no coc
+        launch = cell or self.q.get("launch_cell") or "Vault111Cryo"
+        cell_json = os.path.join(self.q["staging"], launch + ".json")
         if not gp:
             if self.state["relaunches"] >= self.a.max_relaunch:
                 self.log(f"game not running and {self.state['relaunches']} relaunches used: stopping")
@@ -446,17 +514,17 @@ class Runner:
                 return "stop"
             self.state["relaunches"] += 1
             self.checkpoint()
-            self.log(f"launching the pinned build {self.q['build_id']} into {cell}")
+            self.log(f"launching the pinned build {self.q['build_id']} into {launch}")
             code, out = self._ps("cycle.ps1", ["-Staging", self.q["staging"], "-Starfield", self.a.starfield,
-                                               "-Cell", f"FO4Port_{cell}", "-CellJson", cell_json,
+                                               "-Cell", f"FO4Port_{launch}", "-CellJson", cell_json,
                                                "-Shot", os.path.join(self.qdir, "cycle.png")], 900, steal=True)
             self.log(f"cycle exit {code}: {out.strip().splitlines()[-1] if out.strip() else ''}")
             if code != 0:
                 return "stop" if code in (2, 3, 5, 6) else "retry"
-            self.session, self.cell = False, cell
+            self.session, self.cell = False, launch
         if not self.session:
-            self.setup_session(cell)
-        if self.cell != cell:
+            self.setup_session(launch)
+        if cell and self.cell != cell:
             code, out = self._ps("coc.ps1", ["-Cell", cell, "-CellJson", cell_json], 180)
             self.log(f"coc {cell}: exit {code} {out.strip().splitlines()[-1] if out.strip() else ''}")
             if code == 2:
@@ -617,6 +685,8 @@ class Runner:
                     verdict, cls, detail = "INCONCLUSIVE", "CRASH", "the game exited during this test"
                 else:
                     verdict, cls, detail = judge(t, load(os.path.join(out_dir, "obs.json")), out_dir)
+                    if not t["cell"]:
+                        self.cell = None                  # the test travelled (terrain experiment world)
                     if cls in ("STOPPED", "NOOBS", "NORESULT"):
                         self.cell = None                  # unknown game state: re-verify the cell next time
             rec = {"id": t["id"], "kind": t["kind"], "cell": t["cell"], "ref": t["ref"], "model": t.get("model", ""),
@@ -681,7 +751,7 @@ def write_report(qdir):
     lines = [f"# Test queue report: build {q['build_id']} (commit {q['commit'][:8]})", "",
              f"{len(final)} of {len(q['tests'])} tests have a result, {pending} pending. Generated {now()}.", "",
              "| kind | PASS | FAIL | INCONCLUSIVE |", "|---|---|---|---|"]
-    for k in KINDS:
+    for k in KINDS + ("terrain",):
         if k in tally:
             lines.append(f"| {k} | {tally[k].get('PASS', 0)} | {tally[k].get('FAIL', 0)} | {tally[k].get('INCONCLUSIVE', 0)} |")
     lines += ["", "## Ranked problems (FAIL first, by severity x count)", "",
@@ -707,6 +777,12 @@ def main(argv=None):
     p.add_argument("--per-cell", type=int, default=12)
     p.add_argument("--plugin-index", default="02")
     p.add_argument("--per-kind", type=int, default=0, help="keep the first N tests of each kind per cell (0 = all)")
+    pt = sub.add_parser("plan-terrain")
+    pt.add_argument("--staging", required=True)
+    pt.add_argument("--exp-dir", required=True)
+    pt.add_argument("--out", required=True)
+    pt.add_argument("--launch-cell", default="Vault111Cryo")
+    pt.add_argument("--plugin-index", default="02")
     r = sub.add_parser("run")
     r.add_argument("--queue", required=True)
     r.add_argument("--starfield", default=r"D:\SteamLibrary\steamapps\common\Starfield")
@@ -724,6 +800,8 @@ def main(argv=None):
     a = ap.parse_args(argv)
     if a.cmd == "plan":
         return plan(a)
+    if a.cmd == "plan-terrain":
+        return plan_terrain(a)
     if a.cmd == "run":
         return Runner(a.queue, a).run()
     if a.cmd == "report":
