@@ -266,8 +266,7 @@ def build(a):
         lo, hi = min(lo, float(h.min())), max(hi, float(h.max()))
     hmin, hmax = og.height_range(lo, hi)
     step = (hmax - hmin) / 65535.0
-    import make_exp2
-    table, quad = make_exp2.ltex_template(a.sf_data)
+    table, quad = ltex_source(a.sf_data)
     tds = {}
     sizes = {}
     for t in tiles:                                   # pass 2: quantise and write
@@ -308,6 +307,12 @@ def build(a):
     ref = (a.ref_lat, a.ref_lon)
     latlon = {t: og.latlon_for_offset(targets[t], ref, tuple(a.ref_offset), a.radius_km) for t in tiles}
     stage(a, tiles, tds, own, anchors, pairs, seam_rep, targets, latlon, hmin, hmax, sizes, table, quad)
+
+
+def ltex_source(sf_data):
+    """LTEX table and quadrant bytes of vanilla TempJemisonWorld (one plain ground texture), as experiment 2."""
+    import make_exp2
+    return make_exp2.ltex_template(sf_data)
 
 
 def world_name(a, t):
@@ -532,9 +537,9 @@ def preview(tds, tiles, own, path, k=8):
 
 # ---------------------------------------------------------------------------------------------------------- check
 def check(a):
-    prm = json.load(open(os.path.join(a.out, "overlays_params.json")))
-    plan = json.load(open(os.path.join(a.out, "plan.json")))
-    ok, rep = check_staging(a.out, prm, plan, orc.vanilla_mars_count(a.sf_data))
+    prm = json.loads(orc.read_bytes(os.path.join(a.out, "overlays_params.json")))
+    plan = json.loads(orc.read_bytes(os.path.join(a.out, "plan.json")))
+    ok, rep = check_staging(a.out, prm, plan, orc.vanilla_mars_count(a.sf_data), plugins=not a.no_plugins)
     for what, good in rep["checks"]:
         if not good or a.verbose:
             print(("  ok   " if good else "  FAIL ") + what)
@@ -550,8 +555,9 @@ def check(a):
     return 0 if ok else 1
 
 
-def check_staging(out, prm, plan, vanilla_mars_entries=None):
-    """Offline verification of a staged overlay grid. Returns (ok, report)."""
+def check_staging(out, prm, plan, vanilla_mars_entries=None, plugins=True):
+    """Offline verification of a staged overlay grid. Returns (ok, report). plugins=False skips the record walk
+    (before dotnet/TerrainOverlays ran, and in the synthetic tests)."""
     checks, rep = [], {}
 
     def need(cond, what):
@@ -622,7 +628,27 @@ def check_staging(out, prm, plan, vanilla_mars_entries=None):
         need(max(abs(v - az) for v in g.values()) <= steps[o["tag"]], f"{o['world']}: anchor z = ground")
         need(abs(o["spawn"][2] - az - SPAWN_ABOVE) < 1e-6 and o["spawn"][:2] == [ax, ay], f"{o['world']}: COC marker 2 m above the anchor")
 
-    # plugin
+    if plugins:
+        check_plugins(out, prm, raws, need, rep, vanilla_mars_entries)
+    masks = []
+    for o in ovs:
+        mk = mask_report(out, o["world"], o["n"], tuple(o["mask_outer_edges"]))
+        need(mk["format"] == "BC4" and mk["mips"] == 1 and mk["width"] == mk["height"] == o["n"] * 100 and
+             mk["pixels_differ"] == 0, f"{o['world']}: mask BC4 {mk['width']} px, ring on {mk['outer_edges']}, exact")
+        masks.append(mk)
+    rep["masks"] = masks
+    rep["checks"] = checks
+    ok = all(c[1] for c in checks)
+    rep["summary"] = {"checks": len(checks), "failed": sum(1 for c in checks if not c[1]), "points": len(pts),
+                      "max_point_error_mm": max(p["error_mm"] for p in pts) if pts else None,
+                      "step_mm": round(min(steps.values()) * 1000, 4)}
+    rep["pass"] = ok
+    return ok, rep
+
+
+def check_plugins(out, prm, raws, need, rep, vanilla_mars_entries):
+    """Raw record walk of the overlay plugin and the Mars registration plugin (independent of Mutagen)."""
+    ovs = prm["overlays"]
     d = orc.walk_plugin(os.path.join(out, prm["plugin"]))
     own = len(d["masters"]) << 24
     recs = d["records"]
@@ -689,20 +715,6 @@ def check_staging(out, prm, plan, vanilla_mars_entries=None):
         if vanilla_mars_entries is not None:
             need(len(ents) == vanilla_mars_entries + len(ovs), f"PNDT CNAM {len(ents)} = vanilla {vanilla_mars_entries} + {len(ovs)}")
         rep["mars"] = {"file": prm["mars"]["plugin"], "bytes": mp["bytes"], "entries": len(ents), "ours": mine}
-    masks = []
-    for o in ovs:
-        mk = mask_report(out, o["world"], o["n"], tuple(o["mask_outer_edges"]))
-        need(mk["format"] == "BC4" and mk["mips"] == 1 and mk["width"] == mk["height"] == o["n"] * 100 and
-             mk["pixels_differ"] == 0, f"{o['world']}: mask BC4 {mk['width']} px, ring on {mk['outer_edges']}, exact")
-        masks.append(mk)
-    rep["masks"] = masks
-    rep["checks"] = checks
-    ok = all(c[1] for c in checks)
-    rep["summary"] = {"checks": len(checks), "failed": sum(1 for c in checks if not c[1]), "points": len(pts),
-                      "max_point_error_mm": max(p["error_mm"] for p in pts) if pts else None,
-                      "step_mm": round(min(steps.values()) * 1000, 4)}
-    rep["pass"] = ok
-    return ok, rep
 
 
 def main():
@@ -732,6 +744,7 @@ def main():
     ap.add_argument("--centre-cell", type=int, nargs=2, default=[0, 0], help="planet cell for the region's centre")
     ap.add_argument("--mask-writer", choices=("texconv", "builtin"), default="texconv")
     ap.add_argument("--verbose", action="store_true")
+    ap.add_argument("--no-plugins", action="store_true", help="check: skip the plugin record walk (before dotnet ran)")
     a = ap.parse_args()
     if a.cmd == "build":
         if not (a.fo4 or a.fo4_npz):
