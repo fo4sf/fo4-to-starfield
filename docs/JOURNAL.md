@@ -601,3 +601,29 @@ open PRs (#34 QA PASS, #35 in progress), local team state, next steps. Removed a
 docs/ai/agent-status.md refreshed from live sources. Shut down: guardian proxy stopped, local model unloaded, no
 background jobs left. Next session: re-run Vault 81 and the library, finish the Prydwen (same pinned build), then
 movable bodies for loose items.
+
+## 2026-10-11 Route planner: railings are not stairs; double doors are twins (offline)
+Two findings from the library run, both test-side, not converter bugs:
+- The 7 STUCK/FALL "rail stairs" routes (`BldDecoSmRailStairs*`) were routes on railings: their FO4 collision has no
+  treads at all (6 flat vertices on one level) and no helper; the steps are a separate model. A scan of all 74 "stair"
+  models in the pinned build: 45 carry FO4's RampDummy helper, the other 29 are railings, trims and stairwell walls, and
+  NONE has treads without a helper, so a synthesized helper (built and then dropped today) has no target. The planner
+  now requires 3 tread levels for a model without a helper and skips the rest with a reason (`tread_levels`).
+- The library's "double doors" `100196` + `10019C` are two single-leaf `BldWoodPDbDoor01` references on one spot,
+  rotated 180 degrees, each hinged at its own jamb; the route activated one and hit the other leaf. The planner marks
+  such pairs (`door_twins`, within 0.1 m) and the runner resets and activates the twin leaf too (`+twin:` in the verb).
+Tests: tread levels (steps, railing, helper and underside ignored, 4 cm merge) and twins; 260 OK, guard OK. The
+twin step is untested in game until the next library run.
+
+## 2026-10-11 Queued test runner verified in game; terrain kickoff (Claude)
+- **Runner (PR #59)**: `scripts/game/testqueue.py` + `qstep.ps1`. Supervised batch on the integration build `2470f876`
+  (main + #41 #50 #51 #42 #54, local branch `claude/integration-1011`): launch, dedicated save `fo4sf_test_2470f876`
+  created and loaded, god mode read from the console ("God Mode enabled."), cell arrival verified; 2 stairs PASS,
+  2 falls PASS, 2 doors FAIL (`BldWoodPDoorShutter01` open but the route aims beside the doorway). Six runner bugs found
+  and fixed (kind mapping, tgm reply, ceiling pieces as probe floors, OCR without ">>", Steam popup taking the focus,
+  HUD recovery). The owner closed the game mid-run; movable and travel steps are not verified in game yet.
+- **Queued**: the rest of the supervised batch, then 753 tests on 16 cells (`C:\Modding\testqueue\overnight.ps1`),
+  starting only after 15 min without input.
+- **Terrain**: PR #56 (FO4 2x2 patch at Red Rocket, two decoders agree exactly, borders match, the building sits on the
+  terrain) and PR #57 (Starfield: 430/433 worldspaces use `Data\TERRAIN\<EditorID>.btd`; BTD decoded and re-encoded;
+  experiment 1 staged in `C:\Modding\staging\terrain_exp1`, not deployed). Next blocker: the in-game BTD load test.
