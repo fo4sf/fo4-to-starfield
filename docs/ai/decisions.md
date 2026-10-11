@@ -2,6 +2,14 @@
 
 Format: date, decision, why, alternatives considered.
 
+## 2026-10-11 FO4 terrain heights: own Python reader following fo4land, Mutagen as the cross-check (Claude)
+`src/fo4sf/fo4land.py` reads LAND/VHGT with the algorithm of fo76utils `fo4land` (MIT); `dotnet/Fo4Land` decodes the
+same cells through Mutagen as a second, independent parse. Why: fo4land needs scons + a C++ compiler, which this
+machine lacks and the rules forbid installing; its output is 16-bit normalised (0.81-unit step for the Commonwealth)
+and drops the shared 33rd edge vertex we need for seam checks; Python fits the converter and unittest stack.
+Alternatives: build fo4land (blocked), Mutagen only (C# outside the Python pipeline), extend Codex's Fo4Export
+(not ours). Evidence: docs/terrain/source-patch.md.
+
 ## 2026-10-09 Enforce local concurrency with a proxy, not with prompts
 OpenCode has no cross-agent concurrency limit for a provider. A small stdlib-Python proxy (:1235) in front of
 LM Studio (:1234) admits at most 1 inference request at a time after a resource check, queues the rest, and logs

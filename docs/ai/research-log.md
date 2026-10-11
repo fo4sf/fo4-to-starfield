@@ -20,6 +20,35 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   **unresolved** until experiment 1 (staged in `C:\Modding\staging\terrain_exp1`, not deployed). Recommendation:
   option A, a dedicated worldspace with a native BTD.
 
+## 2026-10-11 Claude: FO4 terrain source patch
+- Question: can we read absolute Fallout 4 terrain heights for a small patch, and prove them right, by reusing
+  existing work before writing a LAND parser?
+- Method:
+  - Read fo76utils `fo4land` (MIT, commit `c52da18`) as the reference. It cannot be built here: there is no
+    compiler or scons, and nothing was installed.
+  - Wrote `src/fo4sf/fo4land.py`, which follows its VHGT algorithm, and `dotnet/Fo4Land`, a Mutagen-based second
+    decode.
+  - Extracted cells x -18..-17, y 18..19 of `Commonwealth` around the Red Rocket Truck Stop
+    (REFR `000211C0`, `RedRExt_Workshop01`).
+  - Details and commands: [docs/terrain/source-patch.md](../terrain/source-patch.md).
+- Evidence (report.json; all **verified**):
+  - Python vs Mutagen decode: max abs difference 0.0 over 4,356 vertices, and the same 1,315 refs.
+  - All 1,315 temporary refs lie inside their XCLC cell (min margin 0.21 units).
+  - Patch seams: max difference 0.0.
+  - The Red Rocket floor z 7360 equals the terrain at its origin (residual 0). Over its footprint the max abs
+    residual is 8 units.
+  - 100 rocks, stumps, saplings and shrubs: z minus terrain median -7.4 units. Flipped or transposed grids give
+    367-653.
+  - Patch relief 1840 units, slope median 11.3 deg, max 76.5 deg.
+  - Whole world: 36,864 cells. 649 of 73,344 neighbour seams (0.88%) do not match, the worst by 13,056 units in the
+    far north-west (x -68..-62, y 76..77).
+- Status: VHGT layout and orientation (row 0 = south, col 0 = west, height = 8 * (offset + accumulated gradient),
+  origin = XCLC * 4096) are **verified** for Fallout4.esm.
+  - The large maple trees sit 266 units deep. That they are planted deep on purpose is a **supported hypothesis**.
+  - **Unresolved**: FO4's triangle split (bilinear vs either diagonal differs by up to 19 units at the refs),
+    whether the big seams matter (are they in the playable area), and how any of this maps to Starfield terrain
+    scale or format. 70 units/m is only the object scale.
+
 ## 2026-10-09 Claude: which FO4 collision bodies are movable?
 - Question: how does an FO4 `bhkPhysicsSystem` mark a body as movable (pushable), so the converter can stop turning
   physics objects into fixed obstacles (Vault 114 door `05C7DC` is blocked by a ragdoll skeleton)?
