@@ -152,17 +152,33 @@ switch ($kind) {
     Save-Obs
     $pts = @()
     $k = 0
-    # spawn_local (x, y of the COC marker in the plugin): a planet-registered world moved the spawn by kilometres
-    # (Mars run 2026-10-11: marker ~(0, 41), arrival (3050, -3450)); then every point is shifted by the same offset
-    $ox = 0.0; $oy = 0.0
-    if ($t.spawn_local -and $obs['spawn_read']) {
-      $sv = "$($obs['spawn_read'])".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
-      if ($sv.Count -eq 3) { $ox = [double]$sv[0] - [double]$t.spawn_local[0]; $oy = [double]$sv[1] - [double]$t.spawn_local[1] }
-      $obs['offset'] = @($ox, $oy)
+    # Points are in the worldspace's own frame. An activated overlay is merged into the planet worldspace at a whole-cell
+    # offset plus a Z offset (Mars runs 2026-10-11: COC marker (50, 50) arrived at (3050, -3450)). The offset comes from
+    # anchor (a persistent ref: {ref, local [x,y,z]}, read with prid + getpos) or else from spawn_local (where the
+    # player stands after coc, [x,y] or [x,y,z]); with a z component the expected heights shift by the same Z offset.
+    $ox = 0.0; $oy = 0.0; $oz = 0.0
+    if ($t.anchor) {
+      if ("$($t.anchor.ref)" -notmatch '^[0-9A-Fa-f]{8}$') { "bad anchor"; exit 4 }
+      $ar = Read-Pos "$($t.anchor.ref)"
+      $obs['anchor_read'] = $ar
+      $av = "$ar".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+      if ($av.Count -eq 3) {
+        $ox = [double]$av[0] - [double]$t.anchor.local[0]; $oy = [double]$av[1] - [double]$t.anchor.local[1]
+        $oz = [double]$av[2] - [double]$t.anchor.local[2]; $obs['offset'] = @($ox, $oy, $oz); $obs['offset_from'] = 'anchor'
+      }
     }
+    if (-not $obs['offset'] -and $t.spawn_local -and $obs['spawn_read']) {
+      $sv = "$($obs['spawn_read'])".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+      if ($sv.Count -eq 3) {
+        $ox = [double]$sv[0] - [double]$t.spawn_local[0]; $oy = [double]$sv[1] - [double]$t.spawn_local[1]
+        if ($t.spawn_local.Count -ge 3) { $oz = [double]$sv[2] - [double]$t.spawn_local[2] }
+        $obs['offset'] = @($ox, $oy, $oz); $obs['offset_from'] = 'spawn'
+      }
+    }
+    Save-Obs
     # drop_above_spawn: drop height relative to the arrival (terrain height unknown in a relocated world);
     # settle_ms: wait before reading (a 60 m fall at Mars gravity takes about 6 s)
-    $dropz = [double]$t.drop_z
+    $dropz = [double]$t.drop_z + $oz                # drop_z is in the worldspace's own frame
     if ($t.drop_above_spawn -and $obs['spawn_read']) {
       $sv = "$($obs['spawn_read'])".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
       if ($sv.Count -eq 3) { $dropz = [double]$sv[2] + [double]$t.drop_above_spawn }
