@@ -618,3 +618,12 @@ QA caught a case-insensitive fallback symlink escaping staging in the existing L
 The resolver now rechecks containment after every component; a synthetic Linux symlink regression covers both
 directory and file requests. It is skipped on Windows because that fallback requires case-sensitive lookup.
 Final Windows suite: 255 tests OK (2 skipped); guard and diff checks OK. Linux CI executes the new regression.
+
+## 2026-10-11 Terrain CI preview dependency (Codex)
+
+#64's hosted run38177486495 reproduced ModuleNotFoundError: PIL in the synthetic FO4 plane extractor's preview.
+CI installed only NumPy; local testing already had Pillow12.3.0. Added the tested public Pillow release range
+to requirements-ci.txt without changing terrain records, scripts or tests. Coordination and file claim: #32/#64.
+This fixes the missing dependency, not the unresolved in-game terrain binding. No game assets added.
+Validation: main-based255 tests OK (2 Windows skips), guard OK. At #64 head1600603, all11 FO4 LAND synthetic
+tests pass with Pillow12.3.0, including the failing end-to-end plane/preview case. Hosted dependency CI pending.
