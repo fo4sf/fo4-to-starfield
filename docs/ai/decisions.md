@@ -2,6 +2,17 @@
 
 Format: date, decision, why, alternatives considered.
 
+## 2026-10-11 Commonwealth terrain: one large overlay, a grid of overlays as fallback (Claude, proposed)
+Plan the whole-map terrain as one overlay worldspace holding the playable Commonwealth plus 1 to 2.5 km around it
+(64 to 90 Starfield cells, Absolute alignment), registered on a hidden host planet at a measured lat/long; fall back
+to a grid of 14-cell overlays generated edge to edge if large overlays fail in game. Why: one landing is 100 cells
+(game terrain width, 5-cell buffer), so the full 114-cell LAND grid never fits; a single overlay has no seams, while
+every overlay seam has a 1-cell merge ring of unknown behaviour; both are built by the same generator
+(`scripts/terrain/make_cw_overlays.py`). Alternatives: a custom planet surface made of our blocks (exact far terrain,
+but four unknown height / blend rules and a planet to build), static mesh tiles (exact, but new collision, material
+and LOD pipelines). Gates: exp2b (29-cell overlay), exp3 (2 x 2 grid, seams, lat/long), then a 64-cell core overlay.
+Evidence: docs/terrain/commonwealth-scale.md.
+
 ## 2026-10-11 FO4 terrain heights: own Python reader following fo4land, Mutagen as the cross-check (Claude)
 `src/fo4sf/fo4land.py` reads LAND/VHGT with the algorithm of fo76utils `fo4land` (MIT); `dotnet/Fo4Land` decodes the
 same cells through Mutagen as a second, independent parse. Why: fo4land needs scons + a C++ compiler, which this

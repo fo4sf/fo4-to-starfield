@@ -3,6 +3,38 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-11 Claude: the whole Commonwealth at Starfield scale
+- Question: can the whole Commonwealth (LAND 192 x 192 FO4 cells, 11.23 km) become native Starfield terrain with
+  exact geography, as one overlay, a grid of overlays, a custom planet surface or static meshes, and what limits the
+  size? Write-up: [docs/terrain/commonwealth-scale.md](../terrain/commonwealth-scale.md).
+- Method: raw scans of Starfield.esm (PNDT, SFBK, SFPT, SFTR, WRLD) and the BTD header survey; INI defaults decoded
+  from the setting initialisers in Starfield.exe and the CK (code that references each name string); Fallout4.esm
+  placed-reference extents; fits of lat/long -> planet cell against the two measured registrations; vanilla overlay
+  clusters under a true-scale model. Then `src/fo4sf/overlay_grid.py`, `scripts/terrain/make_cw_overlays.py`,
+  `dotnet/TerrainOverlays`, `tests/test_overlay_grid.py` (18), and experiment 3 staged in
+  `C:\Modding\staging\terrain_exp3`. Scratch scripts in `C:\Modding\research\terrain\scale\`.
+- Evidence:
+  - **verified**: overlay blocks are 3 to 14 cells (430: 207 / 121 / 77 of 3 / 4 / 5, two of 14); procedural surface
+    blocks 14 (616) and 26 (217) cells; the 108 BTDs of 100 x 100 cells are editor / test worlds with the default
+    -500 / 1000 range, none registered on a planet.
+  - **verified** values (meaning supported): `uDefaultGameTerrainWidthInCells` 100, `uPlayableSpaceOverlayCellBuffer`
+    5, `uOverlayMergeZoneSize` 1, `uBlockSize` 10, `uBlockMergeZoneSize` 2, `uPlanetBiomMapFaceDim` 256,
+    `uAlignment:Overlay` 4; CK `iBlockCutRecommendedMaxDimensionExclusive` 6 (the "maximum recommended cut
+    dimensions" message).
+  - **verified**: PNDT `CNAM` = latitude first, then longitude, radians (Earth overlays at Kyoto, Hong Kong, Cairo, St.
+    Louis, Orlando; CydoniaCity at real Cydonia). Mutagen's names are swapped.
+  - **verified**: the playable Commonwealth (cells with >= 20 references) is FO4 x -34..31, y -39..31 = 39 x 42
+    Starfield cells; the LAND grid is 114.
+  - **unresolved**: the absolute lat/long -> planet cell rule (0 of 7 projections x 13 scales x 20 origin grids fit
+    World01 (+30, -35) and LC172World (-5, -23)). **supported**: true planet scale locally (Cydonia's 8 overlays fit
+    one landing without overlap for scale 0.5 to about 1.1).
+  - **verified** offline: experiment 3 (2 x 2 tiles of 14 cells, Sanctuary / Vault 111 / Red Rocket) 277 of 277 checks,
+    worst point 5.029 mm (step 5.173 mm); builds from Fallout4.esm and from the cached grid give byte-identical BTDs;
+    synthetic test: four tiles side by side = one BTD of the region, sample for sample.
+- Status: recommendation (one overlay of the playable core plus surroundings, grid of 14-cell overlays as fallback)
+  is a **supported hypothesis** pending exp2b and exp3 in game. Landing size, seam blending, the lat/long rule and
+  large-overlay behaviour are **unresolved**.
+
 ## 2026-10-11 Claude: overlay record fixes
 - Question: in which records do our terrain experiment plugins differ from vanilla unique overlays, and what must
   SFBK `FNAM` hold? Write-up: [docs/terrain/overlay-records.md](../terrain/overlay-records.md).
