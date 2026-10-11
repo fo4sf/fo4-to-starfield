@@ -144,7 +144,9 @@ def fo4_native_collision(src, universal_template: bytes, report: dict = None, dy
         return None
     motion = {} if motion is None else motion
     blobs, skipped = [], []
-    world = nifmod.world_transforms(src)
+    # placed=True: the game ignores the scene root's own transform (PryCatwalkStairsEnt02's 180-degree root turned the
+    # converted stairs the wrong way round; FO4's precombined physics only matches without it).
+    world = nifmod.world_transforms(src, placed=True)
     rigid = _rigid_ragdoll(src, objs, world, dynamic_template, motion) if dynamic_template is not None and len(objs) > 1 else None
     if rigid is not None:                            # phase A ragdoll: one rigid movable body on the root node
         if report is not None:
@@ -152,9 +154,6 @@ def fo4_native_collision(src, universal_template: bytes, report: dict = None, dy
                           motion_note=f"{motion['rigid_bodies']} FO4 bodies merged into one rigid movable body "
                                       "(ragdoll, breakable or hose): joints, breakage and skinning not converted yet")
         return [rigid]
-    # placed=True: the game ignores the scene root's own transform (PryCatwalkStairsEnt02's 180-degree root turned the
-    # converted stairs the wrong way round; FO4's precombined physics only matches without it).
-    world = nifmod.world_transforms(src, placed=True)
     for i in objs:
         target, _, data = struct.unpack_from("<iHi", src.blocks[i], 0)
         if not (0 <= target < len(src.blocks)):
