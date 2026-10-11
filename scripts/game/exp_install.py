@@ -1,12 +1,19 @@
 """Install / uninstall a staged in-game experiment (a plugin plus loose files) next to the converted build, reversibly.
 
-usage: python exp_install.py install|uninstall|status --exp-dir <staged dir> --starfield <game dir>
+usage: python exp_install.py install|uninstall|status --exp-dir <staged dir> --starfield <game dir> [--pack]
 
 The staged dir holds one or more <name>.esm files (only those listed with --plugins are activated, default: the first
 one alphabetically) and a Data\\ tree of loose files (e.g. Data\\Terrain\\*.btd). install refuses to overwrite any existing
 file, records everything it adds in Data\\FO4SFExp.install.json, and appends "*<plugin>" to Plugins.txt. uninstall removes
 exactly what the record lists (files unchanged since install only) and only the Plugins.txt lines it added; it never
 touches FO4Port's own deployment (deploy_starfield.py).
+
+--pack (Starfield reads no loose files on this install) packs the whole Data tree, textures included, into the first
+plugin's own "<plugin> - Main.ba2" (Archive2 -format=General, stored). That is how vanilla ships terrain textures: all
+7,761 textures/terrain/* files in Starfield's Data (463 overlay masks) are in General archives ("Starfield -
+DensityMaps.ba2"; SFBGS00D's 44 overlay masks in "SFBGS00D - Main.ba2" although "SFBGS00D - Textures.ba2" exists), none
+in a DDS archive (read-only BA2 name scan, 2026-10-11). The archive is built in a temporary folder, so the staged
+experiment folder (often another track's) is only read.
 """
 import argparse
 import hashlib
@@ -15,8 +22,14 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 
 RECORD = "FO4SFExp.install.json"
+
+
+def read_json(p):
+    with open(p) as f:
+        return json.load(f)
 
 
 def plugins_txt():
@@ -27,7 +40,8 @@ def read_plugins(p):
     """(lines, bom, newline) of Plugins.txt, so a rewrite keeps the file's own BOM and line endings."""
     if not os.path.exists(p):
         return [], b"", "\r\n"
-    raw = open(p, "rb").read()
+    with open(p, "rb") as f:
+        raw = f.read()
     bom = b"\xef\xbb\xbf" if raw.startswith(b"\xef\xbb\xbf") else b""
     text = raw[len(bom):].decode("utf-8")
     return text.splitlines(), bom, ("\r\n" if "\r\n" in text else "\n")
@@ -75,8 +89,12 @@ def build_ba2(a, root, out):
     # (terrain runs 2026-10-11: flat at exactly the ENAM minimum)
     r = subprocess.run([tool, ",".join(folders), f"-create={tmp}", f"-root={root}", "-format=General",
                         "-compression=None"], cwd=root, capture_output=True, text=True)
-    if r.returncode != 0 or not os.path.isfile(tmp) or open(tmp, "rb").read(4) != b"BTDX":
-        sys.exit("Archive2 failed:\n" + r.stdout + r.stderr)
+    ok = r.returncode == 0 and os.path.isfile(tmp)
+    if ok:
+        with open(tmp, "rb") as f:
+            ok = f.read(4) == b"BTDX"
+    if not ok:
+        sys.exit("Archive2 failed:\n" + (r.stdout or "") + (r.stderr or ""))
     os.replace(tmp, out)
     return out
 
@@ -87,7 +105,7 @@ def install(a):
     plugins = [p.strip() for p in a.plugins.split(",") if p.strip()] if a.plugins else \
         sorted(f for f in os.listdir(a.exp_dir) if f.lower().endswith(".esm"))[:1]
     if os.path.exists(rec_p):
-        rec = json.load(open(rec_p))
+        rec = read_json(rec_p)
         same = os.path.normcase(rec.get("exp_dir", "")) == os.path.normcase(os.path.abspath(a.exp_dir)) and \
             all(p in rec["files"] for p in plugins)
         if same:                                          # a relaunch of the same experiment: nothing to do
@@ -95,17 +113,27 @@ def install(a):
             return
         sys.exit(f"another experiment is installed ({rec_p}); uninstall it first")
     files = staged_files(a.exp_dir, plugins)
-    if a.pack:
-        # Starfield reads no loose files here (Starfield.ini sResourceDataDirsFinal=STRINGS\ only; terrain experiment 1,
-        # 2026-10-11, got procedural planet ground because its loose BTDs were never seen). A plugin's own
-        # "<name> - Main.ba2" loads with it, so the staged Data tree goes into that archive instead.
+    if not a.pack:
+        return copy_in(data, rec_p, a.exp_dir, plugins, files)
+    # Starfield reads no loose files here (Starfield.ini sResourceDataDirsFinal=STRINGS\ only; terrain experiment 1,
+    # 2026-10-11, got procedural planet ground because its loose BTDs were never seen). A plugin's own
+    # "<name> - Main.ba2" loads with it, so the staged Data tree goes into that archive instead, built outside the
+    # staged folder.
+    work = tempfile.mkdtemp(prefix="fo4sf_exp_pack_")
+    try:
         ba2 = os.path.splitext(plugins[0])[0] + " - Main.ba2"
-        built = build_ba2(a, os.path.join(a.exp_dir, "Data"), os.path.join(a.exp_dir, ba2))
-        files = [(s, r) for s, r in files if r in plugins] + [(built, ba2)]
+        built = build_ba2(a, os.path.join(a.exp_dir, "Data"), os.path.join(work, ba2))
+        return copy_in(data, rec_p, a.exp_dir, plugins, [(s, r) for s, r in files if r in plugins] + [(built, ba2)])
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def copy_in(data, rec_p, exp_dir, plugins, files):
+    """Copy (source, path in Data) into the game's Data folder, never over an existing file; record it; activate."""
     clash = [rel for _, rel in files if os.path.exists(os.path.join(data, rel))]
     if clash:
         sys.exit(f"refusing to overwrite existing game files: {clash}")
-    rec = {"exp_dir": os.path.abspath(a.exp_dir), "files": {}, "dirs": [], "plugins_added": []}
+    rec = {"exp_dir": os.path.abspath(exp_dir), "files": {}, "dirs": [], "plugins_added": []}
     for src, rel in files:
         dst = os.path.join(data, rel)
         d = os.path.dirname(dst)
@@ -133,7 +161,7 @@ def uninstall(a):
     if not os.path.exists(rec_p):
         print("nothing installed")
         return
-    rec = json.load(open(rec_p))
+    rec = read_json(rec_p)
     kept = []
     for rel, h in rec["files"].items():
         dst = os.path.join(data, rel)
@@ -153,7 +181,8 @@ def uninstall(a):
         write_plugins(p, [ln for ln in lines if ln.strip().casefold() not in added], bom, nl)
     if kept:
         rec["files"] = {k: rec["files"][k] for k in kept}
-        json.dump(rec, open(rec_p, "w"), indent=1)
+        with open(rec_p, "w") as f:
+            json.dump(rec, f, indent=1)
         sys.exit(f"kept files that changed since install: {kept}")
     os.remove(rec_p)
     print("uninstalled")
@@ -174,7 +203,11 @@ def main(argv=None):
     if a.cmd == "uninstall":
         return uninstall(a)
     rec_p = os.path.join(a.starfield, "Data", RECORD)
-    print(open(rec_p).read() if os.path.exists(rec_p) else "nothing installed")
+    if not os.path.exists(rec_p):
+        print("nothing installed")
+        return
+    with open(rec_p) as f:
+        print(f.read())
 
 
 if __name__ == "__main__":

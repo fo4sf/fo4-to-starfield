@@ -4,6 +4,9 @@ checkpoint after every test, resume later, and rank the problems found.
 usage:
   python testqueue.py plan   --staging <build dir> --out <queue dir> [--cells A,B] [--kinds stairs,door,fall,movable,travel]
                              [--per-cell 12] [--per-kind N] [--plugin-index 02]
+  python testqueue.py plan-terrain --staging <build dir> --exp-dir <experiment> --out <queue dir> [--plugins a.esm,b.esm]
+  python testqueue.py plan-npc --staging <build dir> --exp-dir <dir with plan.json> --out <queue dir>
+                             [--install-exp <experiment> --plugins a.esm,b.esm] [--control-queue <N0 queue dir>]
   python testqueue.py run    --queue <queue dir> [--max-tests N] [--max-hours 8] [--min-idle 900] [--wait-for-idle]
                              [--refocus] [--max-attempts 2] [--dry-run]
   python testqueue.py report --queue <queue dir>
@@ -44,13 +47,30 @@ import route_eval  # noqa: E402
 
 UNIT = 1.0 / 70.0
 KINDS = ("stairs", "door", "fall", "movable", "travel")         # planned from a build; "terrain" via plan-terrain
+EXTRA_KINDS = ("terrain", "npc_nav")                            # planned from an experiment's plan.json
 # ranking weight per (kind, verdict reason class): falling out of the world and broken travel first
 SEVERITY = {("fall", "FALL"): 5, ("travel", "NOTRAVEL"): 5, ("travel", "NOPROMPT"): 4, ("door", "BLOCKED"): 4,
             ("door", "NOPROMPT"): 3, ("stairs", "FALL"): 4, ("stairs", "STUCK"): 3, ("door", "FALL"): 5,
             ("movable", "NOTMOVED"): 2, ("movable", "ITEMFELL"): 3, ("any", "CRASH"): 5,
-            ("terrain", "NOTERRAIN"): 5, ("terrain", "HEIGHTS"): 4}
+            ("terrain", "NOTERRAIN"): 5, ("terrain", "HEIGHTS"): 4,
+            ("npc_nav", "FELL"): 5, ("npc_nav", "NONAV"): 4, ("npc_nav", "STALLED"): 3, ("npc_nav", "WANDER"): 3}
 PS = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
 BREAKER = 6          # inconclusive attempts in a row, with no PASS/FAIL yet, that switch a kind off for the run
+FINAL_INCONCLUSIVE = ("CONTROL", "PRECONDITION")   # inconclusive for a reason a retry cannot change
+
+# npc_nav (PR #61 docs/actors/npc-navigation.md 3.4): what qstep.ps1 types on the verified console selection to make the
+# actor walk to the player, who stands at B. qstep.ps1 has the same table; nothing else is ever typed for a method.
+# PathToRef (PTR, one optional TESObjectREFR, "Force actor to path to reference.") is a console command in Starfield.exe
+# 1.16.244 (command table decoded, docs/ai/test-queue.md); cf + Actor.PathToReference is the research doc's first idea.
+# "none" types nothing: the baseline (does the actor come to the player without a command, e.g. its default package?).
+NPC_METHODS = {"none": [],
+               "ptr_player": ["PathToRef player"],
+               "cf_pathto_player": ['cf "Actor.PathToReference" player 1.0'],
+               "follow_player": ["SetPlayerTeammate 1", "EvaluatePackage"],
+               "combat_player": ["StartCombat player"]}
+# GenerateNavMesh's short name "gnm" sits next to its name and help text in Starfield.exe, but its command entry was
+# not decoded (supported hypothesis, unlike PTR / PLR / PRID): staged plans do not use it yet.
+NPC_PRE = ("gnm",)                  # probe commands allowed before the spawn (GenerateNavMesh: route R1, run N2)
 
 
 # ---------------------------------------------------------------------------------------------------------- utilities
@@ -252,6 +272,144 @@ def plan_terrain(a):
     print(f"{len(q['tests'])} terrain tests (experiment {a.exp_dir}) on build {q['build_id']}")
 
 
+def _vec(v, sizes, what):
+    if not isinstance(v, (list, tuple)):
+        sys.exit(f"bad {what} in plan.json (want a list of numbers): {v!r}")
+    try:
+        out = [float(x) for x in v]
+    except (TypeError, ValueError):
+        sys.exit(f"bad {what} in plan.json: {v!r}")
+    if len(out) not in sizes or not all(math.isfinite(x) and abs(x) < 1e6 for x in out):
+        sys.exit(f"bad {what} in plan.json: {v!r}")
+    return out
+
+
+def _num(w, key, default, lo, hi):
+    try:
+        v = float(w.get(key, default))
+    except (TypeError, ValueError):
+        sys.exit(f"bad {key} in plan.json: {w.get(key)!r}")
+    if not (math.isfinite(v) and lo <= v <= hi):
+        sys.exit(f"{key} in plan.json must be within {lo}..{hi}: {v}")
+    return v
+
+
+def npc_test(n, w):
+    """One npc_nav test from a plan.json entry. Everything qstep.ps1 types into the console comes from here and is
+    validated (cell editor id, hex form ids, whitelisted methods and probes, finite numbers); qstep checks it again."""
+    label = str(w.get("label") or f"npc{n}")
+    travel = str(w.get("travel") or "")
+    if not re.fullmatch(r"coc [A-Za-z0-9_]+", travel):     # coc <cell editor id> is the travel that works (2026-10-11)
+        sys.exit(f"bad travel in plan.json (coc <cell editor id>): {travel!r}")
+    npc = str(w.get("npc") or "")
+    if not re.fullmatch(r"[0-9A-Fa-f]{8}", npc):
+        sys.exit(f"bad npc form id in plan.json: {npc!r}")
+    method = str(w.get("method") or "ptr_player")
+    if method not in NPC_METHODS:
+        sys.exit(f"unknown method {method!r}; known: {sorted(NPC_METHODS)}")
+    pre = w.get("pre") or []
+    if not isinstance(pre, list) or any(c not in NPC_PRE for c in pre):
+        sys.exit(f"pre must be a list of commands among {NPC_PRE}: {pre!r}")
+    a, b = _vec(w.get("a"), (3,), "a"), _vec(w.get("b"), (3,), "b")
+    reads = sorted(set(_vec(w.get("reads_s", [0, 3, 8, 15, 30]), range(1, 13), "reads_s")))
+    if reads[0] < 0 or reads[-1] > 300 or reads[-1] <= 0:
+        sys.exit(f"reads_s must be 1..12 times within 0..300 s, the last > 0: {reads}")
+    safe = re.sub(r"[^A-Za-z0-9_]", "_", label)[:40]
+    t = {"id": f"{n:04d}_npc_nav_{safe}", "kind": "npc_nav", "cell": "", "ref": label, "model": label,
+         "travel": travel, "npc": npc.upper(), "method": method, "pre": pre, "a": a, "b": b,
+         "heading_a": heading_to(a, b), "heading_b": heading_to(b, a), "reads_s": reads,
+         "radius": _num(w, "radius", 2.5, 0.1, 50), "min_progress": _num(w, "min_progress", 5.0, 0.1, 500),
+         "nomove": _num(w, "nomove", 0.5, 0.05, 10), "spawn_tol": _num(w, "spawn_tol", 3.0, 0.5, 20),
+         "target_tol": _num(w, "target_tol", 3.0, 0.5, 20), "fell_m": _num(w, "fell_m", 3.0, 0.5, 100),
+         "drop": _num(w, "drop", 0.5, 0, 200), "settle_ms": int(_num(w, "settle_ms", 1500, 0, 30000)),
+         "pre_wait_ms": int(_num(w, "pre_wait_ms", 5000, 0, 60000)), "max_speed": _num(w, "max_speed", 8.0, 1, 50),
+         "path_line": bool(w.get("path_line", False)), "control": bool(w.get("control", False)),
+         "baseline": method == "none"}
+    if t["baseline"] and t["control"]:
+        sys.exit(f"{label}: a baseline (method none) gates the controls and cannot be one itself")
+    if w.get("anchor"):
+        if not isinstance(w["anchor"], dict):
+            sys.exit(f"bad anchor in plan.json (want {{\"ref\": \"<8 hex>\", \"local\": [x, y, z]}}): {w['anchor']!r}")
+        ref = str(w["anchor"].get("ref") or "")
+        if not re.fullmatch(r"[0-9A-Fa-f]{8}", ref):
+            sys.exit(f"bad anchor ref in plan.json: {ref!r}")
+        t["anchor"] = {"ref": ref.upper(), "local": _vec(w["anchor"].get("local"), (3,), "anchor local")}
+    if w.get("spawn_local"):
+        t["spawn_local"] = _vec(w["spawn_local"], (2, 3), "spawn_local")
+    if w.get("requires"):
+        r = w["requires"]
+        ok = isinstance(r, dict) and isinstance(r.get("queue"), str) and bool(r["queue"]) and \
+            bool(re.fullmatch(r"[A-Za-z0-9_]+", str(r.get("test") or ""))) and r.get("verdict", "PASS") in ("PASS", "FAIL")
+        if not ok:
+            sys.exit(f"bad requires in plan.json (want {{\"queue\": \"<queue dir>\", \"test\": \"<test id>\"}}): {r!r}")
+        t["requires"] = {"queue": os.path.abspath(r["queue"]), "test": r["test"], "verdict": r.get("verdict", "PASS")}
+    for k in ("expect", "basis"):
+        if w.get(k):
+            t[k] = str(w[k])
+    return t
+
+
+def precondition(test):
+    """None when the test may run, else why not: a test with "requires" runs only when that test of another queue has
+    the required verdict (N1 walks on terrain exp2b only once exp2b's terrain test passed: its heights are ours)."""
+    r = test.get("requires")
+    if not r:
+        return None
+    done = (load(os.path.join(r["queue"], "state.json"), {}) or {}).get("done", {})
+    got = done.get(r["test"])
+    if got and got.get("verdict") == r["verdict"]:
+        return None
+    have = f"{got.get('verdict')} {got.get('class')}" if got else "no result"
+    return f"needs {r['test']} in {r['queue']} to be {r['verdict']}, it is {have}: not run"
+
+
+def plan_npc(a):
+    """NPC navigation runs (PR #61 3.3): N0 the control in a vanilla navmeshed cell, N1 the same actor and commands in
+    a test worldspace. plan.json: a list of tests (or {"tests": [...]}), see npc_test and docs/ai/test-queue.md."""
+    staging = os.path.abspath(a.staging)
+    esm = os.path.join(staging, "FO4Port.esm")
+    if not os.path.exists(esm):
+        sys.exit(f"no FO4Port.esm in {staging}: the runner pins and launches a build")
+    src = load(os.path.join(a.exp_dir, "plan.json"))
+    if isinstance(src, dict):
+        src = src.get("tests")
+    if not src:
+        sys.exit(f"no tests in {os.path.join(a.exp_dir, 'plan.json')}")
+    if not isinstance(src, list) or not all(isinstance(w, dict) for w in src):
+        sys.exit("plan.json must be a list of test objects (or {\"tests\": [...]})")
+    # baselines (method none) first, then controls: the others are judged against them
+    src = sorted(src, key=lambda w: (w.get("method") != "none", not w.get("control")))
+    tests = [npc_test(n, w) for n, w in enumerate(src)]
+    digest = sha256(esm)
+    q = {"created": now(), "staging": staging, "plugin_sha256": digest, "build_id": digest[:8],
+         "commit": subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
+         "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]],
+         "launch_cell": a.launch_cell, "experiment": os.path.abspath(a.exp_dir),
+         "tests": tests[:a.only] if a.only else tests}
+    if a.control_queue:
+        q["control_queue"] = os.path.abspath(a.control_queue)
+    world = os.path.abspath(a.install_exp or a.exp_dir) if a.plugins else ""
+    if a.plugins:                                         # e.g. the terrain experiment whose world N1 walks on
+        q["pre_launch"] = [sys.executable, os.path.join(HERE, "exp_install.py"), "install", "--exp-dir",
+                           world, "--starfield", a.starfield, "--plugins", a.plugins, "--pack"]
+    for t in q["tests"]:
+        # a required test must have measured the very world this queue installs (same staged folder, packed by the
+        # same exp_install.py at install time), or its PASS says nothing about this run
+        r = t.get("requires")
+        if not r:
+            continue
+        rq = load(os.path.join(r["queue"], "queue.json"))
+        if not rq or r["test"] not in {x.get("id") for x in rq.get("tests", [])}:
+            sys.exit(f"{t['id']}: requires {r['test']} in {r['queue']}, which is not planned there")
+        if os.path.normcase(rq.get("experiment") or "") != os.path.normcase(world):
+            sys.exit(f"{t['id']}: {r['queue']} tested {rq.get('experiment')!r}, but this queue installs {world!r} "
+                     f"(--install-exp)")
+    os.makedirs(a.out, exist_ok=True)
+    save_atomic(os.path.join(a.out, "queue.json"), q)
+    print(f"{len(q['tests'])} npc_nav tests ({sum(t['control'] for t in q['tests'])} control) from {a.exp_dir} "
+          f"on build {q['build_id']}")
+
+
 # ------------------------------------------------------------------------------------------------------------ judging
 def judge(test, obs, out_dir):
     """(verdict, reason class, detail) from raw observations. Missing observations are INCONCLUSIVE."""
@@ -352,7 +510,139 @@ def judge(test, obs, out_dir):
         if worst > 0.5:
             return "FAIL", "HEIGHTS", f"off by up to {worst:.2f} m: " + detail
         return "PASS", "PASS", detail
+    if kind == "npc_nav":
+        v, cls, detail = judge_npc(test, obs, shot_ok)
+        return v, cls, detail + (f" [expected {test['expect']}]" if test.get("expect") else "")
     return "INCONCLUSIVE", "KIND", f"unknown kind {kind}"
+
+
+def judge_npc(test, obs, shot_ok):
+    """npc_nav (PR #61 3.4). The actor spawns at A, the player (the walk target) stands at B. Positions are in the
+    worldspace's own frame plus the measured offset (anchor or spawn), like terrain points. Only reads whose console
+    selection the game confirmed (GetIsID 1 in the same console session) and that have a screenshot count.
+    A baseline (method none, no command) is judged the other way round: PASS when the actor did NOT come to B."""
+    if (test.get("anchor") or test.get("spawn_local")) and not obs.get("offset"):
+        why = obs.get("offset_missing") or "anchor / arrival read failed"
+        return "INCONCLUSIVE", "ANCHOR", f"frame offset not measured ({why}): nothing spawned"
+    off = (list(obs.get("offset") or []) + [0.0, 0.0, 0.0])[:3]
+    A = [test["a"][k] + off[k] for k in range(3)]
+    B = [test["b"][k] + off[k] for k in range(3)]
+    sp = obs.get("spawn") or {}
+    if sp.get("isid") != 1:
+        return "INCONCLUSIVE", "SPAWN", f"spawned actor not confirmed (GetIsID {sp.get('isid')}, OCR {str(sp.get('ocr'))[:80]!r})"
+    ps = parse3(sp.get("read"))
+    p0 = parse3((obs.get("t0") or {}).get("read")) or ps
+    if p0 is None:
+        return "INCONCLUSIVE", "UNREAD", "actor position not read before the command"
+    ds = math.hypot((ps or p0)[0] - A[0], (ps or p0)[1] - A[1])
+    if ds > test.get("spawn_tol", 3.0):
+        return "INCONCLUSIVE", "SPAWN", f"actor stood {ds:.1f} m from A before the command"
+    if not obs.get("command_sent"):
+        return "INCONCLUSIVE", "HANDLE", "the actor's console handle was lost before the walk command"
+    tb = parse3(obs.get("player_b"))
+    if tb is None or math.hypot(tb[0] - B[0], tb[1] - B[1]) > test.get("target_tol", 3.0):
+        return "INCONCLUSIVE", "TARGET", f"the player (the walk target) was not read at B: {obs.get('player_b')!r}"
+    good = []
+    for s in obs.get("samples") or []:
+        p = parse3(s.get("read")) if isinstance(s, dict) else None
+        if p is not None and s.get("isid") == 1 and shot_ok(s.get("shot")):
+            good.append((s, p))
+    want = len([x for x in test["reads_s"] if x > 0])
+    if not good:
+        return "INCONCLUSIVE", "UNREAD", f"no confirmed position read after the command (0 of {want})"
+
+    def dist(p):
+        return math.hypot(p[0] - tb[0], p[1] - tb[1])
+    d0, dend = dist(p0), dist(good[-1][1])
+    dmin = min(dist(p) for _, p in good)
+    moved = max(math.hypot(p[0] - p0[0], p[1] - p0[1]) for _, p in good)
+    path, last = 0.0, p0
+    for _, p in good:
+        path, last = path + math.hypot(p[0] - last[0], p[1] - last[1]), p
+    stats = (f"d0 {d0:.1f} m, min d {dmin:.1f} m, end d {dend:.1f} m, moved {moved:.1f} m, path {path:.1f} m, "
+             f"{len(good)}/{want} reads, last at {good[-1][0].get('t_game')} s ({test['method']})")
+    zfloor = min(p0[2], tb[2]) - test.get("fell_m", 3.0)
+    low = min(p[2] for _, p in good)
+    if low < zfloor:
+        return "FAIL", "FELL", f"actor dropped to z {low:.1f} (start {p0[2]:.1f}): world, not navigation; {stats}"
+    # faster than max_speed between two reads, with 2 s of slack on the game clock: a warp (teammate catch-up, a
+    # script moveto), not a walk. The slack makes this a check for gross jumps only; an arrival already at the first
+    # read is not taken as a walk either (below).
+    vmax, prev_t, prev_p = test.get("max_speed", 8.0), 0.0, p0
+    for smp, p in good:
+        t = smp.get("t_game")
+        if not isinstance(t, (int, float)):
+            continue
+        seg = math.hypot(p[0] - prev_p[0], p[1] - prev_p[1])
+        if seg > vmax * (max(t - prev_t, 0.0) + 2.0):
+            return ("INCONCLUSIVE", "WARP", f"{seg:.1f} m between t {prev_t:g} and {t:g} s, faster than {vmax:g} m/s: "
+                    f"not a walk; {stats}")
+        prev_t, prev_p = t, p
+    if test.get("baseline"):
+        came = dmin <= test["radius"] or d0 - dend >= test["min_progress"]
+        if came:
+            return ("FAIL", "WANDER", f"came {d0 - dend:.1f} m towards B without a command: a control PASS of this actor "
+                    f"here says nothing about the command; {stats}")
+        if len(good) < want:
+            return "INCONCLUSIVE", "UNREAD", f"{len(good)} of {want} reads confirmed: {stats}"
+        return "PASS", "PASS", f"stayed away from B without a command: {stats}"
+    if dist(good[0][1]) <= test["radius"]:
+        # at B by the first read: no position on the way was seen, so a warp to the player is not ruled out
+        return ("INCONCLUSIVE", "EARLY", f"already at B at the first read ({good[0][0].get('t_game')} s): the walk "
+                f"itself was not observed (add an earlier read); {stats}")
+    if dmin <= test["radius"]:
+        return "PASS", "PASS", f"arrived within {test['radius']} m of B: {stats}"
+    if d0 - dend >= test["min_progress"]:
+        return "PASS", "PASS", f"walked {d0 - dend:.1f} m towards B: {stats}"
+    if len(good) < want:
+        return "INCONCLUSIVE", "UNREAD", f"{len(good)} of {want} reads confirmed: {stats}"
+    if moved < test.get("nomove", 0.5):
+        return "FAIL", "NONAV", f"spawned and commanded, never moved: {stats}"
+    return "FAIL", "STALLED", f"moved but did not reach B: {stats}"
+
+
+def control_gate(qdir, q, test, verdict, cls, detail):
+    """A FAIL of a non-control npc_nav test only means something when the control (same method, same actor, in a vanilla
+    navmeshed cell: N0) passed, in this queue or in q['control_queue'], and, when a baseline of that actor is planned
+    there (method none: no command), the baseline passed too (the actor did not come to B on its own, so the control's
+    PASS was the command's doing). Otherwise: INCONCLUSIVE CONTROL with the raw verdict kept in the detail; the runner
+    keeps the raw verdict and the report applies the gate again (a control that passes later still counts). PASS
+    needs no control (the walk was observed). No control configured: unchanged."""
+    if test.get("kind") != "npc_nav" or test.get("control") or test.get("baseline") or verdict != "FAIL":
+        return verdict, cls, detail
+    sources = [qdir] + ([q["control_queue"]] if q.get("control_queue") else [])
+    configured, ctrl, base = bool(q.get("control_queue")), [], []
+    for d in sources:
+        qq = load(os.path.join(d, "queue.json"), {}) or {}
+        done = (load(os.path.join(d, "state.json"), {}) or {}).get("done", {})
+        for c in qq.get("tests", []):
+            if c.get("kind") != "npc_nav":
+                continue
+            configured = configured or bool(c.get("control"))
+            if c.get("npc") != test.get("npc"):
+                continue
+            if c.get("control") and c.get("method") == test.get("method"):
+                ctrl.append((c["id"], done.get(c["id"])))
+            elif c.get("baseline"):
+                base.append((c["id"], done.get(c["id"])))
+    if not configured:
+        return verdict, cls, detail
+    raw = f"raw verdict {verdict} {cls}: {detail}"
+
+    def why(group):
+        if any(r and r.get("class") == "WANDER" for _, r in group):
+            return "did not pass (the actor came to B without a command)"
+        return "did not pass" if any(r for _, r in group) else "has no result"
+    passed = [i for i, r in ctrl if r and r.get("verdict") == "PASS"]
+    if not passed:
+        return "INCONCLUSIVE", "CONTROL", f"control ({test.get('method')}, {test.get('npc')}) {why(ctrl)}; {raw}"
+    if base:
+        bpass = [i for i, r in base if r and r.get("verdict") == "PASS"]
+        if not bpass:
+            return ("INCONCLUSIVE", "CONTROL",
+                    f"control {passed[0]} passed but the baseline ({test.get('npc')}, no command) {why(base)}; {raw}")
+        return verdict, cls, detail + f" (control {passed[0]} and baseline {bpass[0]} passed)"
+    return verdict, cls, detail + f" (control {passed[0]} passed)"
 
 
 # ----------------------------------------------------------------------------------------------------------- controls
@@ -476,6 +766,31 @@ def blocked_reason(ctl, q, launching=False, min_idle=900):
 
 
 # -------------------------------------------------------------------------------------------------------------- runner
+# npc_nav step costs, worst case (typing about 0.24 s a character, +0.08 s shifted, a PowerShell start per Send)
+NPC_SESSION_S = 45      # one console session: open, ClearConsole + ~60 characters, waits, OCR at up to 4 thresholds
+NPC_READ_S = 75         # Read-Pos: up to 3 readpos.ps1 runs
+NPC_REMOVE_S = 300      # kept for the removal (qstep.ps1 $reserve): Select-Npc, removal by id, disable, markfordelete
+
+
+def step_timeout(test):
+    """Seconds one qstep.ps1 may take before the runner kills it. Every confirmed npc_nav read is one console session
+    (ClearConsole, GetIsID, getpos x/y/z, OCR), up to three when the selection has to be found again (Select-Npc)."""
+    if test.get("kind") == "terrain":
+        # a terrain drop takes about a minute per point (teleport, fall, OCR read): 300 s cut experiment 1 off
+        return 150 + 90 * (len(test.get("points", [])) + 1)
+    if test.get("kind") == "npc_nav":
+        reads = test.get("reads_s") or [0]
+        n = len([x for x in reads if x > 0])
+        pre = len(test.get("pre") or []) * (test.get("pre_wait_ms", 0) / 1000 + 30)
+        fixed = (120                                      # coc, the HUD back (up to 90 s), 3 s
+                 + 5 * NPC_READ_S + 12 + NPC_READ_S        # the arrival until it settles (5 reads), the anchor
+                 + 2 * (30 + test.get("settle_ms", 0) / 1000 + NPC_READ_S)   # the player to A and to B
+                 + pre + 2 * NPC_SESSION_S                 # probes, the spawn and its position
+                 + 4 * NPC_SESSION_S + NPC_REMOVE_S)       # t = 0 (Select-Npc) and the command; the removal
+        return int(fixed + n * (3 * NPC_SESSION_S + 10) + max(reads))
+    return 300
+
+
 class Runner:
     def __init__(self, qdir, a, ctl=None, step=None):
         self.qdir, self.a = qdir, a
@@ -515,10 +830,11 @@ class Runner:
 
     def _step(self, test, out_dir):
         spec = os.path.join(out_dir, "spec.json")
-        save_atomic(spec, test)
-        # a terrain drop takes about a minute per point (teleport, fall, OCR read): 300 s cut experiment 1 off
-        timeout = 150 + 90 * (len(test.get("points", [])) + 1) if test.get("kind") == "terrain" else 300
-        code, out = self._ps("qstep.ps1", ["-Spec", spec, "-Out", out_dir, "-PluginIndex", self.q["plugin_index"]], timeout)
+        timeout = step_timeout(test)
+        # npc_nav: the step stops sampling in time to remove its actor before this timeout would kill it
+        save_atomic(spec, dict(test, budget_s=timeout - 60) if test.get("kind") == "npc_nav" else test)
+        code, out = self._ps("qstep.ps1", ["-Spec", spec, "-Out", out_dir, "-PluginIndex", self.q["plugin_index"]],
+                             timeout)
         with open(os.path.join(out_dir, "step.log"), "w", encoding="utf-8") as f:
             f.write(out)
         return code
@@ -652,6 +968,19 @@ class Runner:
             if ran >= a.max_tests or time.time() > self.deadline:
                 self.log("test or time budget used up")
                 break
+            pre = precondition(t)
+            if pre:                                       # checked before the game is launched for it: final
+                rec = {"id": t["id"], "kind": t["kind"], "cell": t["cell"], "ref": t["ref"], "model": t.get("model", ""),
+                       "attempt": 0, "verdict": "INCONCLUSIVE", "class": "PRECONDITION", "detail": pre, "exit": None,
+                       "dir": "", "t": now()}
+                if t.get("expect"):
+                    rec["expect"] = t["expect"]
+                with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
+                    f.write(json.dumps(rec) + "\n")
+                self.state["done"][t["id"]] = {"verdict": "INCONCLUSIVE", "class": "PRECONDITION", "attempts": 0}
+                self.checkpoint()
+                self.log(f"{t['id']}: INCONCLUSIVE PRECONDITION {pre}")
+                continue
             while True:
                 why = blocked_reason(self.ctl, self.q)
                 if not why and self.ctl.game_pid() and not self.ctl.game_in_front():
@@ -724,19 +1053,27 @@ class Runner:
                     self.session, self.cell = False, None
                     verdict, cls, detail = "INCONCLUSIVE", "CRASH", "the game exited during this test"
                 else:
-                    verdict, cls, detail = judge(t, load(os.path.join(out_dir, "obs.json")), out_dir)
+                    raw = judge(t, load(os.path.join(out_dir, "obs.json")), out_dir)
+                    verdict, cls, detail = control_gate(self.qdir, self.q, t, *raw)
                     if not t["cell"]:
                         self.cell = None                  # the test travelled (terrain experiment world)
                     if cls in ("STOPPED", "NOOBS", "NORESULT"):
                         self.cell = None                  # unknown game state: re-verify the cell next time
             rec = {"id": t["id"], "kind": t["kind"], "cell": t["cell"], "ref": t["ref"], "model": t.get("model", ""),
                    "attempt": n, "verdict": verdict, "class": cls, "detail": detail, "exit": code, "dir": out_dir, "t": now()}
+            if t.get("expect"):
+                rec["expect"] = t["expect"]
+            if cls == "CONTROL":
+                rec["raw"] = list(raw)                    # the report gates it again (write_report)
             with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
                 f.write(json.dumps(rec) + "\n")
-            if verdict != "INCONCLUSIVE" or n >= a.max_attempts:
+            final = verdict != "INCONCLUSIVE" or n >= a.max_attempts or cls in FINAL_INCONCLUSIVE
+            if final:
                 self.state["done"][t["id"]] = {"verdict": verdict, "class": cls, "attempts": n}
+                if cls == "CONTROL":
+                    self.state["done"][t["id"]]["raw"] = list(raw)
             k = br.setdefault(t["kind"], {"inconclusive_run": 0, "decided": 0, "open": False})
-            if verdict == "INCONCLUSIVE" and cls not in ("CRASH", "NOCELL"):
+            if verdict == "INCONCLUSIVE" and cls not in ("CRASH", "NOCELL") + FINAL_INCONCLUSIVE:
                 k["inconclusive_run"] += 1
             elif verdict != "INCONCLUSIVE":
                 k["inconclusive_run"], k["decided"] = 0, k["decided"] + 1
@@ -747,7 +1084,7 @@ class Runner:
             self.checkpoint()
             ran += 1
             self.log(f"{t['id']}: {verdict} {cls} {detail}")
-            if verdict == "INCONCLUSIVE" and n < a.max_attempts:
+            if not final:
                 pending.append(t)                         # retried at the end of the queue
         left = len([t for t in tests if t["id"] not in self.state["done"]])
         self.checkpoint("finished" if left == 0 else f"paused ({left} left)")
@@ -759,11 +1096,21 @@ class Runner:
 # -------------------------------------------------------------------------------------------------------------- report
 def write_report(qdir):
     q = load(os.path.join(qdir, "queue.json"))
-    rows = [json.loads(x) for x in open(os.path.join(qdir, "results.jsonl"), encoding="utf-8")] \
-        if os.path.exists(os.path.join(qdir, "results.jsonl")) else []
+    rows = []
+    if os.path.exists(os.path.join(qdir, "results.jsonl")):
+        with open(os.path.join(qdir, "results.jsonl"), encoding="utf-8") as f:
+            rows = [json.loads(x) for x in f]
     final = {}
     for r in rows:                                        # last attempt per test counts
         final[r["id"]] = r
+    # npc_nav control gate again, on the raw verdict: a control that passed after this test ran (retried at the end
+    # of its queue, or its queue ran later) now counts
+    by_id = {t["id"]: t for t in q["tests"]}
+    for k, r in list(final.items()):
+        if r.get("class") == "CONTROL" and r.get("raw") and k in by_id:
+            v, c, d = control_gate(qdir, q, by_id[k], *r["raw"])
+            if c != "CONTROL":
+                final[k] = dict(r, verdict=v, detail=d + " (gated again at report time)", **{"class": c})
     tally = {}
     for r in final.values():
         tally.setdefault(r["kind"], {}).setdefault(r["verdict"], 0)
@@ -785,13 +1132,22 @@ def write_report(qdir):
         g["cells"] = sorted(g["cells"])
     ranked = sorted(groups.values(), key=lambda g: (-(g["verdict"] == "FAIL"), -g["score"], -g["count"]))
     pending = len(q["tests"]) - len(load(os.path.join(qdir, "state.json"), {"done": {}})["done"])
+    # hypotheses written down before the run (npc_nav plan.json "expect"): what came out
+    expectations = []
+    for t in q["tests"]:
+        if t.get("expect"):
+            r = final.get(t["id"])
+            got = None if r is None else ("PASS" if r["verdict"] == "PASS" else f"{r['verdict']} {r['class']}")
+            expectations.append({"id": t["id"], "expect": t["expect"], "result": got, "basis": t.get("basis", "")})
     rep = {"build_id": q["build_id"], "commit": q["commit"], "tests": len(q["tests"]), "results": len(final),
            "pending": pending, "tally": tally, "ranked": ranked}
+    if expectations:
+        rep["expectations"] = expectations
     save_atomic(os.path.join(qdir, "report.json"), rep)
     lines = [f"# Test queue report: build {q['build_id']} (commit {q['commit'][:8]})", "",
              f"{len(final)} of {len(q['tests'])} tests have a result, {pending} pending. Generated {now()}.", "",
              "| kind | PASS | FAIL | INCONCLUSIVE |", "|---|---|---|---|"]
-    for k in KINDS + ("terrain",):
+    for k in KINDS + EXTRA_KINDS:
         if k in tally:
             lines.append(f"| {k} | {tally[k].get('PASS', 0)} | {tally[k].get('FAIL', 0)} | {tally[k].get('INCONCLUSIVE', 0)} |")
     lines += ["", "## Ranked problems (FAIL first, by severity x count)", "",
@@ -800,6 +1156,12 @@ def write_report(qdir):
         ex = g["examples"][0]
         lines.append(f"| {n} | {g['verdict']} | {g['kind']} | {g['class']} | {g['model']} | {g['count']} | "
                      f"{', '.join(g['cells'])} | {ex['id']}: {ex['detail']} |")
+    if expectations:
+        lines += ["", "## Expectations written before the run", "",
+                  "| test | expected | result | as expected | basis |", "|---|---|---|---|---|"]
+        for e in expectations:
+            same = "" if e["result"] is None else ("yes" if e["result"] == e["expect"] else "no")
+            lines.append(f"| {e['id']} | {e['expect']} | {e['result'] or 'pending'} | {same} | {e['basis']} |")
     with open(os.path.join(qdir, "report.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     return rep
@@ -826,6 +1188,17 @@ def main(argv=None):
     pt.add_argument("--starfield", default=r"D:\SteamLibrary\steamapps\common\Starfield")
     pt.add_argument("--plugins", default="", help="experiment plugins to activate before launch (exp_install.py)")
     pt.add_argument("--only", type=int, default=0, help="keep the first N worlds")
+    pn = sub.add_parser("plan-npc", help="NPC navigation tests (npc_nav) from <exp-dir>\\plan.json")
+    pn.add_argument("--staging", required=True)
+    pn.add_argument("--exp-dir", required=True, help="folder with plan.json")
+    pn.add_argument("--out", required=True)
+    pn.add_argument("--launch-cell", default="Vault111Cryo")
+    pn.add_argument("--plugin-index", default="02")
+    pn.add_argument("--starfield", default=r"D:\SteamLibrary\steamapps\common\Starfield")
+    pn.add_argument("--plugins", default="", help="experiment plugins to activate before launch (exp_install.py)")
+    pn.add_argument("--install-exp", default="", help="experiment folder those plugins come from (default --exp-dir)")
+    pn.add_argument("--control-queue", default="", help="queue whose control tests gate this queue's FAIL verdicts")
+    pn.add_argument("--only", type=int, default=0, help="keep the first N tests")
     r = sub.add_parser("run")
     r.add_argument("--queue", required=True)
     r.add_argument("--starfield", default=r"D:\SteamLibrary\steamapps\common\Starfield")
@@ -845,6 +1218,8 @@ def main(argv=None):
         return plan(a)
     if a.cmd == "plan-terrain":
         return plan_terrain(a)
+    if a.cmd == "plan-npc":
+        return plan_npc(a)
     if a.cmd == "run":
         return Runner(a.queue, a).run()
     if a.cmd == "report":

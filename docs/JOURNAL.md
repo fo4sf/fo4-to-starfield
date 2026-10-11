@@ -749,3 +749,18 @@ twin step is untested in game until the next library run.
   - 4-6 m off in the border cells, where the mask blends in procedural terrain.
 - **Method:** anchor-relative probing measures BTD heights exactly where the overlay is authored, and the overlay mask decides where that is.
 - **Research** (`C:\Modding\research\terrain\binding\findings.md`, PR #64): a worldspace's own BTD only applies to an overlay activated on a planet (PNDT CNAM). Our records also differed from vanilla in FNAM size, Location, mask and alignment. The fixed experiments exp1d and exp2b (real Red Rocket heights) are queued after test B.
+
+## 2026-10-11 evening: why our overlay terrain came out flat
+- **In game:** every registered overlay test was perfectly flat at exactly its BTD's minimum height:
+  - exp2b (29x29 Red Rocket BTD, absolute alignment) read -116.00 m at all 14 probes;
+  - World01 / exp1d read -500 m (with relative alignment, -13.94 m).
+  The overlay itself was activated (cells merged at whole-cell offsets).
+- **Offline diagnosis** (two agents; scratch data in `C:\Modding\research\terrain\zero`):
+  - Our BTD layout matches vanilla section by section, and the heights are in every LOD.
+  - The one difference is that all 2,112 vanilla BTDs (Shattered Space's 108 included) and every official plugin Main.ba2 are stored **uncompressed**. Ours were zlib-compressed by Archive2 `-compression=Default`.
+  - The engine reads BTD blocks by offset straight from the archive, so it decoded nothing and used raw 0.
+  - Fix: `exp_install.py` now packs with `-compression=None`.
+- **Next candidates** if that is not all:
+  - `lodsettings/<edid>.lod` (every vanilla overlay has one);
+  - the 29x29 size (the largest vanilla overlay is 14x14).
+- **Queued:** exp2b3 (Red Rocket, stored), then exp1f (World01, stored), then the batches.
