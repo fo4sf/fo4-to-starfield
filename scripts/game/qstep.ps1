@@ -152,8 +152,16 @@ switch ($kind) {
     Save-Obs
     $pts = @()
     $k = 0
+    # spawn_local (x, y of the COC marker in the plugin): a planet-registered world moved the spawn by kilometres
+    # (Mars run 2026-10-11: marker ~(0, 41), arrival (3050, -3450)); then every point is shifted by the same offset
+    $ox = 0.0; $oy = 0.0
+    if ($t.spawn_local -and $obs['spawn_read']) {
+      $sv = "$($obs['spawn_read'])".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+      if ($sv.Count -eq 3) { $ox = [double]$sv[0] - [double]$t.spawn_local[0]; $oy = [double]$sv[1] - [double]$t.spawn_local[1] }
+      $obs['offset'] = @($ox, $oy)
+    }
     foreach ($p in $t.points) {
-      Teleport @($p.x, $p.y, $t.drop_z) 0 15
+      Teleport @(([double]$p.x + $ox), ([double]$p.y + $oy), $t.drop_z) 0 15
       Start-Sleep -Milliseconds 4500                 # a fall from 80 m takes about 4 s
       $pts += [ordered]@{ label = $p.label; read = (Read-Pos); shot = (Shot "pt$k.png") }
       $obs['points'] = $pts; Save-Obs                 # after every point: a cut-off keeps the heights already read

@@ -529,3 +529,13 @@ class ExpPackTests(unittest.TestCase):
                 os.environ.pop("LOCALAPPDATA")
             else:
                 os.environ["LOCALAPPDATA"] = old_env
+
+
+class SpawnOffsetTests(unittest.TestCase):
+    def test_points_are_judged_at_the_spawn_offset(self):
+        d = tempfile.mkdtemp()
+        shot = touch(d, "spawn.png")
+        t = {"kind": "terrain", "points": [{"label": "padA", "x": 30.0, "y": 30.0, "expect": 35.0}]}
+        obs = {"shot": shot, "offset": [3050.0, -3491.0], "points": [{"read": "3080.0 -3461.0 35.1"}]}
+        self.assertEqual(tq.judge(t, obs, d)[0], "PASS")
+        self.assertEqual(tq.judge(t, dict(obs, offset=None), d)[:2], ("INCONCLUSIVE", "MOVED"))

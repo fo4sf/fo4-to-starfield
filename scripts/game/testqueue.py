@@ -218,6 +218,7 @@ def plan_terrain(a):
             sys.exit(f"bad travel command in plan.json: {travel!r}")
         tests.append({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "", "ref": w["coc"],
                       "model": w.get("label", ""), "world_coc": w["coc"], "travel": travel,
+                      **({"spawn_local": w["spawn_local"]} if w.get("spawn_local") else {}),
                       "drop_z": float(w.get("drop_z", 80.0)),
                       "points": w["points"], "beyond": w.get("beyond") or {"x": w["points"][0]["x"] + 500.0,
                                                                            "y": w["points"][0]["y"]}})
@@ -330,10 +331,12 @@ def judge(test, obs, out_dir):
             got = "; ".join(f"{p['label']} {r[2]:.2f} (want {p['expect']})" for p, r in reads if r is not None)
             return "INCONCLUSIVE", "UNREAD", f"{len([r for _, r in reads if r])} of {len(test['points'])} heights read"                 + (f": {got}" if got else "")
         parts, worst, fell = [], 0.0, False
+        ox, oy = (obs.get("offset") or [0.0, 0.0])[:2]     # spawn-relative points (planet-registered worlds)
         for p, r in reads:
             parts.append(f"{p['label']} {r[2]:.2f} (want {p['expect']})")
-            if math.hypot(r[0] - p["x"], r[1] - p["y"]) > 2.0:
-                return "INCONCLUSIVE", "MOVED", f"{p['label']}: ended {math.hypot(r[0] - p['x'], r[1] - p['y']):.1f} m away"
+            off = math.hypot(r[0] - p["x"] - ox, r[1] - p["y"] - oy)
+            if off > 2.0:
+                return "INCONCLUSIVE", "MOVED", f"{p['label']}: ended {off:.1f} m away"
             worst = max(worst, abs(r[2] - p["expect"]))
             fell = fell or r[2] < p["expect"] - 20
         detail = "; ".join(parts)
