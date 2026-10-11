@@ -23,8 +23,7 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   5 kg, clipboard 4 kg.
 - Status: field meanings **verified** (named by the type tables, consistent across samples); inertia factor 1.5
   **verified** (30 items); "a dynamic body on a MoveableStatic is pushable in game" **supported hypothesis** until the
-  in-game test. Open: vanilla dynamic shapes also carry `hknpShapeMassProperties`; ours don't (not needed by Havok when
-  the body has a mass distribution: **unresolved** until tested).
+  in-game test. Vanilla dynamic shapes also carry `hknpShapeMassProperties`; ours don't: a converted can, a compound cone and the rigid skeleton moved when pushed in game (journal 2026-10-10), so the body's mass distribution is enough: **supported hypothesis**. Principal axes of non-box hulls come out in ascending-moment order where vanilla keeps the near-identity order; the tensors agree (QA on PR #41, 12 items, |dot| >= 0.988): a convention difference, not an error.
 
 ## 2026-10-10 Claude: why the converted skeleton spawns standing (FO4 `XRGD` ragdoll pose)
 - Question: in game the rigid skeleton (Vault 114 `05C942`) ended about 1 m sideways and 0.88 m lower than placed. Why?

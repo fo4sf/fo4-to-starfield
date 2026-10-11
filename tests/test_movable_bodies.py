@@ -220,19 +220,32 @@ class RigidRagdollTests(unittest.TestCase):
         self.assertEqual(tuple(round(x, 6) for x in t1), (2.0, 0.5, 0.0))           # bone turns the part's offset
         self.assertEqual(tuple(round(x, 6) for x in R1), tuple(float(x) for x in ROT_Z90))
 
-    def test_anchored_body_keeps_the_system_static(self):
+    def rigid(self, masses):
         class P:
             def objects(self):
                 return [(1, "hknpPhysicsSystemData")]
 
             def array(self, at):
-                return (100, 2)
+                return (100, len(masses))
         motion = {}
-        placements = {0: ((1, 0, 0, 0, 1, 0, 0, 0, 1), (0.0, 0.0, 0.0)), 1: ((1, 0, 0, 0, 1, 0, 0, 0, 1), (0.0, 0.0, 0.0))}
+        placements = {k: ((1, 0, 0, 0, 1, 0, 0, 0, 1), (0.0, 0.0, 0.0)) for k in range(len(masses))}
         with patch.object(meshcollision.hkpackfile, "Packfile", return_value=P()), \
-                patch.object(fc, "body_mass", side_effect=[None, 10.0]):
-            self.assertIsNone(meshcollision.rigid_dynamic_body(b"x", b"dyn", placements, motion))
-        self.assertIn("not dynamic", motion["kept_static"][0])
+                patch.object(fc, "body_mass", side_effect=masses):
+            out = meshcollision.rigid_dynamic_body(b"x", b"dyn", placements, motion)
+        return out, motion
+
+    def test_mixed_system_is_reported_once_and_marks_the_per_body_path(self):
+        out, motion = self.rigid([None, 10.0, 5.0])
+        self.assertIsNone(out)
+        self.assertEqual(len(motion["kept_static"]), 1)
+        self.assertIn("3-body system (2 dynamic): 1 anchored / keyframed", motion["kept_static"][0])
+        self.assertTrue(motion["rigid_reported"])                    # convert_bodies adds no second reason
+
+    def test_all_static_system_is_not_a_kept_static_case(self):
+        out, motion = self.rigid([None, None])                       # escalators, cabinets, gear doors: nothing moves in FO4
+        self.assertIsNone(out)
+        self.assertNotIn("kept_static", motion)
+        self.assertNotIn("rigid_reported", motion)
 
 
 class RoutingTests(unittest.TestCase):

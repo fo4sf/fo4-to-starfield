@@ -149,8 +149,8 @@ def fo4_native_collision(src, universal_template: bytes, report: dict = None, dy
     if rigid is not None:                            # phase A ragdoll: one rigid movable body on the root node
         if report is not None:
             report.update(source="fo4-native", bodies=1, motion="dynamic", mass_kg=round(motion["dynamic"], 4),
-                          motion_note=f"{motion['rigid_bodies']} FO4 bodies merged into one rigid movable body: "
-                                      "joints (constraints) and skinning not converted yet")
+                          motion_note=f"{motion['rigid_bodies']} FO4 bodies merged into one rigid movable body "
+                                      "(ragdoll, breakable or hose): joints, breakage and skinning not converted yet")
         return [rigid]
     for i in objs:
         target, _, data = struct.unpack_from("<iHi", src.blocks[i], 0)

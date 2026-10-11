@@ -955,7 +955,7 @@ def convert_bodies(fo4_blob: bytes, template_blob: bytes, select: Optional[List[
                 why = f"shape has {len(parts)} part(s) of kind {'/'.join(kinds)} (convex parts only)"
             elif dynamic_template is None:
                 why = "dynamic body not allowed here (collision on a child node, or no dynamic template)"
-            if why:
+            if why and not motion.get("rigid_reported"):   # the rigid merge already explained this system
                 motion.setdefault("kept_static", []).append(f"body {k} ({mass:.3g} kg): {why}")
             else:
                 dynamic = True
@@ -1087,20 +1087,31 @@ def rigid_dynamic_body(fo4_blob: bytes, dynamic_template: bytes, placements: dic
     if len(systems) != 1:
         return None
     at, n = p.array(systems[0] + fc.SYS_BODIES)
-    if at is None or n < 2 or sorted(placements) != list(range(n)):
-        motion.setdefault("kept_static", []).append(f"{n}-body system: collision objects don't cover every body once")
+    if at is None or n < 2:
+        return None
+    masses = [fc.body_mass(p, systems[0], k) for k in range(n)]
+    dynamic = [k for k, m in enumerate(masses) if m is not None]
+    if not dynamic:                                       # nothing movable in FO4 either: not a kept-static case
+        return None
+
+    def keep(why):
+        # one reason per system, and the per-body path must not add its own (QA on PR #41: 38 of 44 reports were for
+        # systems with no dynamic body at all, and mixed systems were reported twice)
+        motion.setdefault("kept_static", []).append(f"{n}-body system ({len(dynamic)} dynamic): {why}")
+        motion["rigid_reported"] = True
+    if sorted(placements) != list(range(n)):
+        keep("collision objects don't cover every body once")
+        return None
+    if len(dynamic) != n:
+        keep(f"{n - len(dynamic)} anchored / keyframed bodies: joints not converted")
         return None
     parts, total = [], 0.0
     for k in range(n):
-        mass = fc.body_mass(p, systems[0], k)
-        if mass is None:
-            motion.setdefault("kept_static", []).append(f"{n}-body system: body {k} is not dynamic (anchored / keyframed)")
-            return None
-        total += mass
+        total += masses[k]
         Rn, tn = placements[k]
         for kind, obj, R, tr in _shape_parts(p, classes, p.pointer(at + fc.BODY_SIZE * k), IDENTITY3, (0.0, 0.0, 0.0)):
             if kind not in ("convex", "convex-verts"):
-                motion.setdefault("kept_static", []).append(f"{n}-body system: body {k} has a {kind} part")
+                keep(f"body {k} has a {kind} part (convex parts only)")
                 return None
             R2 = tuple(sum(Rn[3 * r + j] * R[3 * j + c] for j in range(3)) for r in range(3) for c in range(3))
             t2 = tuple(tn[r] + sum(Rn[3 * r + j] * tr[j] for j in range(3)) for r in range(3))

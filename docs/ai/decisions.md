@@ -37,3 +37,14 @@ any window. Deterministic guards: refuses if the agent was active in the last 10
 was woken in the last 30 min (their usage comes from the owner's plans); every attempt is logged (wakes.jsonl).
 Alternatives: keystrokes into the agents' terminals (focus stealing, wrong-window risk); GitHub comments only (agents
 don't poll while idle).
+
+## 2026-10-10 Movable FO4 objects: MoveableStatic records and one rigid body per multi-body system
+- Decision: FO4 dynamic bodies convert to Starfield MoveableStatic records (never MiscItem: no inventory, no value, no
+  pickup prompt) with vanilla-derived dynamic Havok bodies; a multi-body all-dynamic FO4 system (ragdoll skeleton,
+  breakable, hose-and-tank) becomes ONE rigid compound body with the system's total mass ("phase A"), and systems with
+  any anchored body stay static.
+- Why: pushable objects are FO4 gameplay; MoveableStatic is how Starfield itself places pushable set dressing (431 in
+  Starfield.esm); a rigid merge unblocks doorways today while constraints (joints) are a separate format job.
+- Alternatives: MiscItem (adds pickup/inventory semantics FO4 statics don't have); leaving them static (blocks doors,
+  silently changes gameplay); converting constraints first (weeks; the Vault 114 door needed a fix now). Breakables
+  (`*Dest` models) are included in the merge without a check that their union matches the intact mesh: open.
