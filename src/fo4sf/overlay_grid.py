@@ -97,13 +97,21 @@ def sf_cells_of_fo4_rect(x0, x1, y0, y1, units_per_metre=tg.UNITS_PER_METRE):
 def split(cx0, cx1, cy0, cy1, tile, pad="centre"):
     """Tiles of `tile` x `tile` cells covering the inclusive Starfield cell rectangle. The rectangle is padded up to a
     whole number of tiles per axis: 'centre' splits the extra cells between both sides (west / south get the smaller
-    half), 'sw' adds them on the east / north. Returns tiles ordered south row first, west to east."""
+    half), 'sw' adds them on the east / north, 'origin' aligns the tile grid so that tile origins sit on multiples of
+    `tile` cells: the tile over the CW origin then has its own frame equal to the CW frame (FO4 position / 70 is its
+    local position, as in experiment 2). Returns tiles ordered south row first, west to east."""
     if tile < 3:
         raise ValueError("tiles need at least 3 x 3 cells (the vanilla minimum)")
     if cx1 < cx0 or cy1 < cy0:
         raise ValueError("empty rectangle")
+    if pad not in ("centre", "sw", "origin"):
+        raise ValueError(f"unknown padding {pad!r}")
 
     def axis(a0, a1):
+        if pad == "origin":
+            start = math.floor((a0 + tile // 2) / tile) * tile - tile // 2
+            count = -(-(a1 - start + 1) // tile)
+            return [start + k * tile for k in range(count)]
         w = a1 - a0 + 1
         count = -(-w // tile)
         extra = count * tile - w

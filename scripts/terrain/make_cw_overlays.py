@@ -98,27 +98,58 @@ def tile_vertices(fo4, tile):
     return fo4.merged(cx0 - 1, cx1 + 1, cy0 - 1, cy1 + 1)
 
 
+def tile_strips(fo4, tile, rows=1024):
+    """Tile heights in metres at its BTD sample positions (CW frame), as (first row, block [rows, cols]) strips from
+    the south, so a 64- or 90-cell overlay never holds its whole float grid. Each strip resamples only the FO4 vertex
+    rows it needs; the arithmetic per sample is the same as one call over the whole grid (all coordinates here are
+    exact binary fractions), so the result is identical (tests compare with tile_heights)."""
+    g, (ox, oy) = tile_vertices(fo4, tile)
+    xs, ys = tile.sample_coords()
+    xu = xs * tg.UNITS_PER_METRE
+    sp = tg.FO4_VERTEX_UNITS
+    last = g.shape[0] - 1
+    for r0 in range(0, len(ys), rows):
+        yu = ys[r0:r0 + rows] * tg.UNITS_PER_METRE
+        a = int(min(max(math.floor((yu[0] - oy) / sp), 0), last))
+        b = int(min(max(math.floor((yu[-1] - oy) / sp) + 1, 0), last))
+        if b <= a:
+            a, b = max(min(a, last - 1), 0), min(max(a, 0) + 1, last)
+        block = tg.resample_bilinear(g[a:b + 1], ox, oy + a * sp, sp, xu, yu) / tg.UNITS_PER_METRE
+        yield r0, block
+
+
 def tile_heights(fo4, tile):
-    """Tile heights in metres [row, col] (row 0 = south) at its BTD sample positions (CW frame)."""
+    """Tile heights in metres [row, col] (row 0 = south) at its BTD sample positions (CW frame), in one array."""
     g, (ox, oy) = tile_vertices(fo4, tile)
     xs, ys = tile.sample_coords()
     return tg.resample_bilinear(g, ox, oy, tg.FO4_VERTEX_UNITS, xs * tg.UNITS_PER_METRE,
                                 ys * tg.UNITS_PER_METRE) / tg.UNITS_PER_METRE
 
 
+def decode_at(raw, hmin, hmax, n, lx, ly):
+    """Height of an n x n-cell BTD's raw grid at local (lx, ly) under bilinear and both triangle splits. Decodes only
+    the 2 x 2 samples around the point: same values and edge clamping as tg.point_interp over the whole decoded grid,
+    without holding a float copy of a 64- or 90-cell overlay."""
+    o = tg.grid_origin(n)
+    last = raw.shape[0] - 2
+    c = min(max(int(math.floor((lx - o) / tg.SF_STEP_M)), 0), last)
+    r = min(max(int(math.floor((ly - o) / tg.SF_STEP_M)), 0), last)
+    win = hmin + raw[r:r + 2, c:c + 2].astype(np.float64) / 65535.0 * (hmax - hmin)
+    return tg.point_interp(win, o + c * tg.SF_STEP_M, o + r * tg.SF_STEP_M, tg.SF_STEP_M, lx, ly)
+
+
 # ---------------------------------------------------------------------------------------------------------- points
 class TileData:
     def __init__(self, tile, raw, hmin, hmax, verts, vorigin):
         self.tile, self.raw = tile, raw
-        self.dec = hmin + raw.astype(np.float64) / 65535.0 * (hmax - hmin)
+        self.hmin, self.hmax = hmin, hmax
         self.step = (hmax - hmin) / 65535.0
         self.verts, self.vorigin = verts, vorigin       # FO4 vertex grid (units) and its origin (units)
 
     def decoded(self, x_cw, y_cw):
         """Height of the written BTD at a CW position under bilinear and both triangle splits."""
         lx, ly = self.tile.to_local(x_cw, y_cw)
-        o = tg.grid_origin(self.tile.n)
-        return tg.point_interp(self.dec, o, o, tg.SF_STEP_M, lx, ly)
+        return decode_at(self.raw, self.hmin, self.hmax, self.tile.n, lx, ly)
 
     def vertex(self, r, c):
         """CW position (m) and FO4 height (m) of vertex (r, c) of the tile's FO4 grid."""
@@ -212,14 +243,22 @@ def seam_pairs(seam, ta, tb, ends=150.0):
     return out
 
 
-def interior_points(td, tiles):
-    """Landmarks in the tile (at least two cells from an outer edge), else a flat vertex near the tile's centre, plus
-    the steepest eligible vertex (5..25 deg) within 150 m of the centre."""
+def interior_points(td, tiles, grid_points=0):
+    """Landmarks in the tile (at least two cells from an outer edge), a flat vertex near the tile's centre, the
+    steepest eligible vertex (5..25 deg) near the centre, and optionally a grid_points x grid_points spread of eligible
+    vertices over the tile (for large single overlays)."""
     t = td.tile
     outer = og.outer_edges(t, tiles)
     x0, x1, y0, y1 = t.bounds_m
     margin = {e: 200.0 if e in outer else 0.0 for e in overlay.EDGES}
     pts = []
+    for i in range(grid_points):
+        for j in range(grid_points):
+            gx = x0 + margin["w"] + (x1 - margin["e"] - x0 - margin["w"]) * (2 * i + 1) / (2 * grid_points)
+            gy = y0 + margin["s"] + (y1 - margin["n"] - y0 - margin["s"]) * (2 * j + 1) / (2 * grid_points)
+            rc = td.nearest_eligible(gx, gy, radius=20)
+            if rc:
+                pts.append(td.point(*rc, f"grid_T{t.tag}_{i}{j}", "grid"))
     for name, fid, xu, yu in LANDMARKS:
         x, y = m(xu), m(yu)
         if x0 + margin["w"] <= x < x1 - margin["e"] and y0 + margin["s"] <= y < y1 - margin["n"]:
@@ -261,17 +300,22 @@ def build(a):
     fo4.load(need)
     print(f"FO4 cells read: {len(fo4.grids)}")
     lo, hi = math.inf, -math.inf
+    extent = {}
     for t in tiles:                                   # pass 1: shared height range
-        h = tile_heights(fo4, t)
-        lo, hi = min(lo, float(h.min())), max(hi, float(h.max()))
+        tl, th = math.inf, -math.inf
+        for _, h in tile_strips(fo4, t):
+            tl, th = min(tl, float(h.min())), max(th, float(h.max()))
+        extent[t] = (tl, th)
+        lo, hi = min(lo, tl), max(hi, th)
     hmin, hmax = og.height_range(lo, hi)
     step = (hmax - hmin) / 65535.0
     table, quad = ltex_source(a.sf_data)
     tds = {}
     sizes = {}
     for t in tiles:                                   # pass 2: quantise and write
-        h = tile_heights(fo4, t)
-        raw = btd.quantize(h, hmin, hmax)
+        raw = np.empty((t.n * tg.SF_CELL_SAMPLES, t.n * tg.SF_CELL_SAMPLES), np.uint16)
+        for r0, h in tile_strips(fo4, t):
+            raw[r0:r0 + h.shape[0]] = btd.quantize(h, hmin, hmax)
         data = btd.write(btd.Btd(6, hmin, hmax, table, raw, np.zeros_like(raw),
                                  np.tile(np.frombuffer(quad, np.uint8), (2 * t.n, 2 * t.n, 1))))
         path = os.path.join(a.out, "Data", "Terrain", world_name(a, t) + ".btd")
@@ -279,9 +323,10 @@ def build(a):
         with open(path, "wb") as f:
             f.write(data)
         sizes[t.tag] = len(data)
+        del data
         verts, vorigin = tile_vertices(fo4, t)
-        tds[t] = TileData(t, btd.read(data).heights_raw, hmin, hmax, verts, vorigin)
-        print(f"  T{t.tag}: {path} ({len(data):,} B), heights {h.min():.2f}..{h.max():.2f} m")
+        tds[t] = TileData(t, raw, hmin, hmax, verts, vorigin)
+        print(f"  T{t.tag}: {path} ({sizes[t.tag]:,} B), heights {extent[t][0]:.2f}..{extent[t][1]:.2f} m")
     print(f"shared range {hmin}..{hmax} m, step {step * 1000:.3f} mm")
 
     # seams: continuity of the raw samples across every seam (same lattice, same range)
@@ -291,7 +336,7 @@ def build(a):
     # points
     own, anchors, spawns = {}, {}, {}
     for t in tiles:
-        pts, centre = interior_points(tds[t], tiles)
+        pts, centre = interior_points(tds[t], tiles, a.grid_points)
         own[t] = pts
         rr = next((p for p in pts if p["label"] == "redrocket"), None)
         ap = rr or next(p for p in pts if p["kind"] == "centre")
@@ -513,7 +558,7 @@ def preview(tds, tiles, own, path, k=8):
     W, H = (x1 - x0) * px, (y1 - y0) * px
     img = np.zeros((H, W))
     for t in tiles:
-        d = tds[t].dec[::k, ::k]
+        d = tds[t].hmin + tds[t].raw[::k, ::k].astype(np.float64) / 65535.0 * (tds[t].hmax - tds[t].hmin)
         r0 = (t.cy0 - y0) * px
         c0 = (t.cx0 - x0) * px
         img[r0:r0 + d.shape[0], c0:c0 + d.shape[1]] = d
@@ -578,7 +623,7 @@ def check_staging(out, prm, plan, vanilla_mars_entries=None, plugins=True):
         need(overlay.fnam_match(struct.pack(f"<{len(o['fnam'])}H", *o["fnam"]), b.heights_raw)[0] == o["n"] ** 2,
              f"{o['world']}: params FNAM = SW-corner rule")
         need(list(t.origin_m) == o["origin_cw_m"], f"{o['world']}: origin {o['origin_cw_m']}")
-        dec[o["tag"]], raws[o["tag"]], steps[o["tag"]] = b.heights_m(), b.heights_raw, (b.hmax - b.hmin) / 65535.0
+        dec[o["tag"]], raws[o["tag"]], steps[o["tag"]] = (b.hmin, b.hmax), b.heights_raw, (b.hmax - b.hmin) / 65535.0
     tl = list(tiles.values())
     # tiles abut exactly and seams continue the lattice
     seam_rep = []
@@ -618,8 +663,7 @@ def check_staging(out, prm, plan, vanilla_mars_entries=None, plugins=True):
             if t is None:
                 continue
             lx, ly = t.to_local(x, y)
-            o = tg.grid_origin(t.n)
-            hs = tg.point_interp(dec[t.tag], o, o, tg.SF_STEP_M, lx, ly)
+            hs = decode_at(raws[t.tag], *dec[t.tag], t.n, lx, ly)
             e = max(abs(v - p["expect"]) for v in hs.values())
             pts.append({"entry": i, "label": p["label"], "tile": t.tag, "x": p["x"], "y": p["y"], "expect": p["expect"],
                         "decoded": {k: round(v, 4) for k, v in hs.items()}, "error_mm": round(e * 1000, 3)})
@@ -628,7 +672,7 @@ def check_staging(out, prm, plan, vanilla_mars_entries=None, plugins=True):
     for o in ovs:   # anchors on the ground of their own tile
         t = tiles[o["tag"]]
         ax, ay, az = o["anchor"]["local"]
-        g = tg.point_interp(dec[o["tag"]], tg.grid_origin(t.n), tg.grid_origin(t.n), tg.SF_STEP_M, ax, ay)
+        g = decode_at(raws[o["tag"]], *dec[o["tag"]], t.n, ax, ay)
         need(max(abs(v - az) for v in g.values()) <= steps[o["tag"]], f"{o['world']}: anchor z = ground")
         need(abs(o["spawn"][2] - az - SPAWN_ABOVE) < 1e-6 and o["spawn"][:2] == [ax, ay], f"{o['world']}: COC marker 2 m above the anchor")
 
@@ -732,7 +776,10 @@ def main():
                     help="inclusive FO4 cell rectangle (default: experiment 3 around Sanctuary, Vault 111, Red Rocket)")
     ap.add_argument("--tile", type=int, default=14, help="cells per tile side (14 = the largest vanilla unique overlay); "
                                                          "a tile at least as large as the region gives one overlay")
-    ap.add_argument("--pad", choices=("centre", "sw"), default="centre")
+    ap.add_argument("--pad", choices=("centre", "sw", "origin"), default="centre",
+                    help="padding of the region to whole tiles; origin: tile origins on multiples of --tile cells, so the "
+                         "tile over the FO4 origin has local = CW (single overlays)")
+    ap.add_argument("--grid-points", type=int, default=0, help="also check a K x K spread of vertices per tile")
     ap.add_argument("--prefix", default="FO4CW3", help="EditorID prefix of the worlds (FO4CW3_T00, ...)")
     ap.add_argument("--plugin", default="FO4TerrainExp3.esm")
     ap.add_argument("--mars-plugin", default="FO4TerrainExp3_Mars.esm")

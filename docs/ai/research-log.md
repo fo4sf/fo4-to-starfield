@@ -11,7 +11,7 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   from the setting initialisers in Starfield.exe and the CK (code that references each name string); Fallout4.esm
   placed-reference extents; fits of lat/long -> planet cell against the two measured registrations; vanilla overlay
   clusters under a true-scale model. Then `src/fo4sf/overlay_grid.py`, `scripts/terrain/make_cw_overlays.py`,
-  `dotnet/TerrainOverlays`, `tests/test_overlay_grid.py` (19), and experiment 3 staged in
+  `dotnet/TerrainOverlays`, `tests/test_overlay_grid.py` (22), and experiment 3 staged in
   `C:\Modding\staging\terrain_exp3`. Scratch scripts in `C:\Modding\research\terrain\scale\`.
 - Evidence:
   - **verified**: overlay blocks are 3 to 14 cells (430: 207 / 121 / 77 of 3 / 4 / 5, two of 14); procedural surface

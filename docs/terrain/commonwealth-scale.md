@@ -27,7 +27,7 @@ blended with procedural ground (LC172World border cells 4 to 6 m off, inner cell
    (b) has a 1-cell merge ring at every seam whose behaviour is unknown (experiment 3 measures it).
 4. **Generator built**: `scripts/terrain/make_cw_overlays.py` + `src/fo4sf/overlay_grid.py` + `dotnet/TerrainOverlays`
    write the BTDs, masks, SFBK / LCTN / WRLD / cells / anchors and the Mars registration for any FO4 cell rectangle,
-   as one overlay (`--tile` at least the region) or a grid. 19 synthetic tests.
+   as one overlay (`--tile` at least the region) or a grid. 22 synthetic tests.
 5. **Experiment 3 staged** (`C:\Modding\staging\terrain_exp3`): 2 x 2 overlays of 14 x 14 cells around Sanctuary,
    Vault 111 and Red Rocket, one shared height range, masks 0 on the seams, an anchor and a COC cell per tile, placed by
    hypothesis H_ll so they should lie edge to edge. 8 plan entries, 68 points, pairs on both sides of all 4 seam
@@ -90,8 +90,9 @@ references each name string in Starfield.exe and decodes the value; `xref_lea.py
 | 90-cell window on the playable core | | 9,000 | 90 | -118.86..641.03 m |
 
 55 % of the LAND cells have a mean height below 0 (sea and rivers; water is not handled by this track).
-BTD size: 30.6 to 34.2 KB per cell in experiment 3 (32.8 in experiment 2), so a 64 x 64 overlay is about 135 MB,
-90 x 90 about 265 MB, the full 114 x 114 about 430 MB, in one plugin BA2. The BTD stores every cell and LOD level as
+BTD size: 30.6 to 34.2 KB per cell in experiment 3 (32.8 in experiment 2); one 64 x 64-cell overlay of the
+playable core measured 103.2 MB (25.2 KB per cell, generator trial in section 5), so 90 x 90 is about 200 to 270 MB
+and the full 114 x 114 about 330 to 430 MB, in one plugin BA2. The BTD stores every cell and LOD level as
 its own zlib block, so streaming per cell is possible (**supported**; whether the overlay merge loads a whole BTD at
 once is **unresolved**).
 
@@ -164,8 +165,9 @@ Static LOD meshes (d) for the ring beyond only if the far view matters.
 Gates, in order (each a queued runner job; nothing else depends on guessing):
 1. **exp1d / exp2b (queued):** record fixes; a 29-cell real-terrain overlay, Absolute, Z offset, its merge offset.
 2. **exp3 (staged here):** tile heights, seam behaviour with mask 0, the local lat/long rule (anchors per tile).
-3. **exp4 (next, generator ready):** if exp2b passes, `--tile 64` on the playable core at a lat/long chosen from
-   exp2b's and exp3's offsets; if exp2b fails on size, 14-cell tiles with the exp3 calibration.
+3. **exp4 (next, generator ready):** if exp2b passes, `--fo4-cells -34 31 -39 31 --tile 64 --pad origin
+   --grid-points 4` (the playable core in one overlay, its frame = the CW frame) at a lat/long chosen from exp2b's and
+   exp3's offsets; if exp2b fails on size, 14-cell tiles with the exp3 calibration.
 
 Why not (b) first: it is only as exact as its seams, needs the placement rule to the cell, and multiplies records
 (the 64-cell core = 25 tiles of 14). Why not (c): every vanilla planet uses it, but the exactness depends on four
@@ -175,7 +177,8 @@ already does.
 ## 5. Generator
 
     python scripts/terrain/make_cw_overlays.py build --fo4 <Fallout4.esm> --sf-data <Starfield\Data> --out <dir>
-        [--fo4-cells X0 X1 Y0 Y1] [--tile 14] [--pad centre|sw] [--prefix FO4CW3] [--plugin FO4TerrainExp3.esm]
+        [--fo4-cells X0 X1 Y0 Y1] [--tile 14] [--pad centre|sw|origin] [--grid-points 0] [--prefix FO4CW3]
+        [--plugin FO4TerrainExp3.esm]
         [--mars-plugin FO4TerrainExp3_Mars.esm | --no-mars] [--alignment absolute|relative] [--hnam 0]
         [--ref-lat 0.2 --ref-lon 1.2 --ref-offset 30 -35] [--centre-cell 0 0] [--radius-km 3390]
     dotnet run --project dotnet/TerrainOverlays -c Release -- <Starfield.esm> <dir>
@@ -196,14 +199,22 @@ already does.
   warns when overlays share one), a WRLD (copy of LC172World) with all n x n cells, a COC cell with a marker 2 m
   above the anchor, and a persistent XMarker anchor; anchors take FormIDs 0x800 + tile index so plan.json can name
   them. The Mars plugin appends one `CNAM` entry per tile.
-- One overlay = `--tile` at least the region's size (option a). The whole LAND grid with 14-cell tiles is 9 x 9 tiles
-  (126 cells); it builds tile by tile, so memory stays per tile.
-- Tests (`tests/test_overlay_grid.py`, 19, synthetic heights from a formula): region and padding arithmetic, frames,
+- One overlay = `--tile` at least the region's size (option a); `--pad origin` puts tile origins on multiples of the
+  tile size, so a single overlay over the FO4 origin has its own frame equal to the CW frame (FO4 position / 70 is the
+  local position, as in experiment 2); `--grid-points K` adds a K x K spread of check points. The whole LAND grid
+  with 14-cell tiles is 9 x 9 tiles (126 cells). Tiles are resampled in row strips and check points decode 2 x 2
+  samples, so memory stays per strip (strips equal one resample bit for bit: test).
+- Option (a) trial (scratch folder, not staged): the playable core, FO4 cells x -34..31, y -39..31, `--tile 64 --pad
+  origin --grid-points 4` -> one overlay of Starfield cells -32..31 on both axes, origin = CW origin, BTD 103,172,485
+  B, range -120..503 m (step 9.506 mm), plugin 183,096 B with 4,096 cells, 21 points, check 74 of 74, worst point
+  8.5 mm; about 17 s to build.
+- Tests (`tests/test_overlay_grid.py`, 22, synthetic heights from a formula): region and padding arithmetic, frames,
   lattice continuity, seams and edges, masks per edge, H_ll round trip and scale, edge-to-edge targets; a full build
   of 2 x 2 tiles of 5 cells whose four BTDs side by side are **exactly** the raw samples of one 10 x 10-cell BTD of the
   same region, plan points are FO4 vertices, seam pairs on both sides at the same along-seam coordinate, the offline
   check passes and catches a wrong expectation and a step at a seam; a single-overlay build (option a: one tile,
-  ring on all four edges, no seam entries).
+  ring on all four edges, no seam entries, origin padding, grid points); row strips equal one resample bit for bit;
+  the 2 x 2-sample decode equals point_interp over the whole decoded grid.
 
 ## 6. Experiment 3 (staged, not deployed)
 

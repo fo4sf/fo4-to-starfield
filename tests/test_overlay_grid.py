@@ -55,6 +55,21 @@ class Region(unittest.TestCase):
         with self.assertRaises(ValueError):
             og.split(0, 9, 0, 9, 2)
 
+    def test_origin_padding(self):
+        # the playable core (Starfield cells x -20..18, y -23..18) as one 64-cell overlay whose frame is the CW frame
+        one = og.split(-20, 18, -23, 18, 64, pad="origin")
+        self.assertEqual(len(one), 1)
+        self.assertEqual((one[0].cells_x, one[0].cells_y), ((-32, 31), (-32, 31)))
+        self.assertEqual(one[0].origin_m, (0.0, 0.0))
+        self.assertEqual(one[0].to_local(-989.0286, 1147.2), (-989.0286, 1147.2))
+        # a grid: tile origins on multiples of 14 cells, one tile centred on the CW origin
+        tiles = og.split(-21, 6, -4, 23, 14, pad="origin")
+        self.assertTrue(all((t.cx0 + 7) % 14 == 0 and (t.cy0 + 7) % 14 == 0 for t in tiles))
+        self.assertIn((0.0, 0.0), [t.origin_m for t in tiles])
+        self.assertTrue(min(t.cx0 for t in tiles) <= -21 and max(t.cx0 + 13 for t in tiles) >= 6)
+        with self.assertRaises(ValueError):
+            og.split(0, 9, 0, 9, 5, pad="middle")
+
     def test_frames_round_trip(self):
         t = og.Tile(1, 0, -7, -4, 14)
         self.assertEqual(t.origin_m, (0.0, 300.0))          # cell -7 + 14 // 2 = 0, cell -4 + 7 = 3
@@ -165,7 +180,7 @@ def build_args(out, npz, **kw):
     a = dict(cmd="build", fo4=None, fo4_npz=npz, sf_data="unused", out=out, fo4_cells=[-8, 7, -8, 7], tile=5,
              pad="centre", prefix="FO4CWT", plugin="FO4TerrainTest.esm", mars_plugin="FO4TerrainTest_Mars.esm",
              no_mars=False, experiment="terrain_test", alignment="absolute", hnam=0, radius_km=og.MARS_RADIUS_KM,
-             ref_lat=0.2, ref_lon=1.2, ref_offset=[30, -35], centre_cell=[0, 0], mask_writer="builtin")
+             ref_lat=0.2, ref_lon=1.2, ref_offset=[30, -35], centre_cell=[0, 0], mask_writer="builtin", grid_points=0)
     a.update(kw)
     return argparse.Namespace(**a)
 
@@ -262,12 +277,37 @@ class SyntheticBuild(unittest.TestCase):
         self.assertTrue(all(s["bad"] == 0 for s in rep["seams"]))
         self.assertLessEqual(rep["summary"]["max_point_error_mm"], rep["summary"]["step_mm"])
 
+    def test_strips_equal_one_resample(self):
+        """Large overlays are resampled in row strips; the result must be the same as one call, bit for bit."""
+        fo4 = mco.Fo4Heights(npz=self.npz)
+        t = og.Tile(0, 0, -5, -5, 5)
+        whole = mco.tile_heights(fo4, t)
+        got = np.full_like(whole, np.nan)
+        for r0, h in mco.tile_strips(fo4, t, rows=100):            # 640 rows: six strips of 100 and one of 40
+            got[r0:r0 + h.shape[0]] = h
+        self.assertTrue((got == whole).all())
+
+    def test_decode_window_matches_full_grid(self):
+        rng = np.random.default_rng(5)
+        raw = rng.integers(0, 65535, size=(3 * 128, 3 * 128)).astype(np.uint16)
+        hmin, hmax = -40.0, 299.0
+        full = hmin + raw.astype(np.float64) / 65535.0 * (hmax - hmin)
+        o = tg.grid_origin(3)
+        pts = [(o, o), (o + 299.9, o + 299.9), (o - 5.0, 12.3), (151.0, o + 400.0), (0.0, 0.0)]
+        pts += [tuple(v) for v in rng.uniform(o - 2, o + 302, size=(40, 2))]
+        for x, y in pts:
+            a = mco.decode_at(raw, hmin, hmax, 3, x, y)
+            b = tg.point_interp(full, o, o, tg.SF_STEP_M, x, y)
+            for k in b:
+                self.assertAlmostEqual(a[k], b[k], places=9)
+
     def test_single_overlay(self):
         """Option (a): a tile at least as large as the region gives one overlay, ring on all four edges, no seams."""
         out = os.path.join(self.tmp.name, "single")
         os.makedirs(out)
         with contextlib.redirect_stdout(io.StringIO()):
-            mco.build(build_args(out, self.npz, tile=10, prefix="FO4CWS", experiment="terrain_single"))
+            mco.build(build_args(out, self.npz, tile=10, prefix="FO4CWS", experiment="terrain_single", pad="origin",
+                                 grid_points=2))
         prm = jload(os.path.join(out, "overlays_params.json"))
         plan = jload(os.path.join(out, "plan.json"))
         self.assertEqual(len(prm["overlays"]), 1)
@@ -275,7 +315,9 @@ class SyntheticBuild(unittest.TestCase):
         self.assertEqual((o["n"], o["cells_cw"]), (10, {"x": [-5, 4], "y": [-5, 4]}))
         self.assertEqual(o["mask_outer_edges"], ["w", "e", "s", "n"])
         self.assertEqual(o["planet_target_cell"], [0, 0])          # the region's centre = the overlay's own origin
+        self.assertEqual(o["origin_cw_m"], [0.0, 0.0])             # pad origin: local frame = CW frame
         self.assertEqual(len(plan), 1)
+        self.assertEqual(sum(1 for p in plan[0]["points"] if p["label"].startswith("grid_T00_")), 4)
         ok, rep = mco.check_staging(out, prm, plan, None, plugins=False)
         self.assertTrue(ok, [c for c in rep["checks"] if not c[1]][:5])
         self.assertEqual(rep["seams"], [])
