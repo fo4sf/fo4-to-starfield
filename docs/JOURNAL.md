@@ -659,3 +659,15 @@ the fixed `cycle.ps1` (PR #42) and verified at the COC marker (0.0 m).
   (`XRGD`, 28 bytes per body; research log). So the phase A rigid skeleton spawns standing and topples, which is the
   ~1 m slide and 0.88 m drop measured in game. Needed: `XRGD` in Fo4Export (Codex) and a posed bake on the converter
   side (skin weights). Until then skeletons are movable but in the wrong pose; reported, not hidden.
+
+## 2026-10-11 `XRGD` ragdoll pose decoded (offline, no game input)
+- FO4's per-placement ragdoll data is readable now: one entry per physics body in body order, each replacing its bone
+  node's local transform (parent-node frame, game units), rotation Rx(-x)Ry(-y)Rz(-z) like the NIF itself. Evidence
+  and numbers: research log, same date. `src/fo4sf/ragdoll_pose.pose_bones(nif_bytes, entries)` returns the posed bone
+  world transforms in reference space; 10 synthetic tests.
+- Vault 114: 57 of 62 placements with `XRGD` pose; 53 of them rest on the surface under them (bind pose: 41). The two
+  skeletons by door `05C7DC` lie flat (bones within 13 units of height, hull 1 unit under to 22 above the floor) where
+  the bind pose stood 129 tall. 5 placements carry entries for another model (stale) and are rejected.
+- Next: bake the pose into the converted mesh (skin weights, PR #45 / #46) and the rigid body, rebuild Vault 114, look
+  in game. Side finding to check: the REFR rotation order `routes.ref_matrix` uses offline may be the wrong one
+  (known unknown #7).
