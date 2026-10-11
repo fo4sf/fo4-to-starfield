@@ -162,14 +162,14 @@ switch ($kind) {
       $ar = Read-Pos "$($t.anchor.ref)"
       $obs['anchor_read'] = $ar
       $av = "$ar".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
-      if ($av.Count -eq 3) {
+      if ("$ar" -match '^\s*-?\d+(\.\d+)?\s+-?\d+(\.\d+)?\s+-?\d+(\.\d+)?\s*$') {               # "fail console 3" also has three words
         $ox = [double]$av[0] - [double]$t.anchor.local[0]; $oy = [double]$av[1] - [double]$t.anchor.local[1]
         $oz = [double]$av[2] - [double]$t.anchor.local[2]; $obs['offset'] = @($ox, $oy, $oz); $obs['offset_from'] = 'anchor'
       }
     }
     if (-not $obs['offset'] -and $t.spawn_local -and $obs['spawn_read']) {
       $sv = "$($obs['spawn_read'])".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
-      if ($sv.Count -eq 3) {
+      if ("$($obs['spawn_read'])" -match '^\s*-?\d+(\.\d+)?\s+-?\d+(\.\d+)?\s+-?\d+(\.\d+)?\s*$') {
         $ox = [double]$sv[0] - [double]$t.spawn_local[0]; $oy = [double]$sv[1] - [double]$t.spawn_local[1]
         if ($t.spawn_local.Count -ge 3) { $oz = [double]$sv[2] - [double]$t.spawn_local[2] }
         $obs['offset'] = @($ox, $oy, $oz); $obs['offset_from'] = 'spawn'
@@ -181,7 +181,7 @@ switch ($kind) {
     $dropz = [double]$t.drop_z + $oz                # drop_z is in the worldspace's own frame
     if ($t.drop_above_spawn -and $obs['spawn_read']) {
       $sv = "$($obs['spawn_read'])".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
-      if ($sv.Count -eq 3) { $dropz = [double]$sv[2] + [double]$t.drop_above_spawn }
+      if ("$($obs['spawn_read'])" -match '^\s*-?\d+(\.\d+)?\s+-?\d+(\.\d+)?\s+-?\d+(\.\d+)?\s*$') { $dropz = [double]$sv[2] + [double]$t.drop_above_spawn }
     }
     $settle = if ($t.settle_ms) { [int]$t.settle_ms } else { 4500 }
     foreach ($p in $t.points) {

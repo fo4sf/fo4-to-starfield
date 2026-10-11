@@ -554,3 +554,10 @@ class AnchorOffsetTests(unittest.TestCase):
         self.assertIn("from anchor", detail)
         flat = dict(obs, points=[{"read": "3030.0 -3470.0 -13.9"}, {"read": "2940.0 -3560.0 -13.94"}])
         self.assertEqual(tq.judge(t, flat, d)[:2], ("FAIL", "HEIGHTS"))
+
+
+class NumericReadTests(unittest.TestCase):
+    def test_offsets_only_from_numeric_reads(self):
+        # 2026-10-11 World03: a failed spawn read "fail console 3" produced the offset (0, 0, -7)
+        src = open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8").read()
+        self.assertEqual(src.count("-match '^\s*-?\d+"), 3)
