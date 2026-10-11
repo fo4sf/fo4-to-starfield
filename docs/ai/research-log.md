@@ -26,7 +26,7 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   - **verified**: the playable Commonwealth (cells with >= 20 references) is FO4 x -34..31, y -39..31 = 39 x 42
     Starfield cells; the LAND grid is 114.
   - **unresolved**: the absolute lat/long -> planet cell rule (0 of 7 projections x 13 scales x 20 origin grids fit
-    World01 (+30, -35) and LC172World (-5, -23)). **supported**: true planet scale locally (Cydonia's 8 overlays fit
+    World01 (+30, -35), LC172World (-5, -23) and exp2b (-12, -27)). **supported**: true planet scale locally (Cydonia's 8 overlays fit
     one landing without overlap for scale 0.5 to about 1.1).
   - **verified**: all 2,112 vanilla BTD entries (Terrain01..04, TerrainPatch, SFBGS00D Main) are stored uncompressed
     in their archives; our `exp_install.py --pack` archives store the BTD zlib-compressed (Archive2

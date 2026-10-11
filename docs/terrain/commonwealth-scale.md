@@ -50,7 +50,7 @@ Raw walk of Starfield.esm (scratch `scan_planets.py`, output `C:\Modding\researc
 | What | Sizes (cells per side: count) |
 |---|---|
 | SFBK of the 430 overlay worldspaces (`WRLD` overlay `BNAM`) | 3: 207, 4: 121, 5: 77, 6: 3, 7: 3, 8: 7, 9: 1, 10: 5, 11: 3, 12: 1, **14: 2** (NewAtlantis, SettleWaggonerFarm) |
-| Overlays registered on a planet (PNDT `CNAM`, 72) | 3 to 14; the 14 largest are cities and settlements |
+| Overlays registered on a planet (PNDT `CNAM`, 72) | 3 to 14; 11 have 10 or more cells (cities, settlements, a few large locations) |
 | Overlay source blocks (`NAM1 OverlaySource\...`) | 3, 4, 5: 135 each |
 | Procedural surface blocks (`NAM1` = theme) | **14** ("1K" themes): 616, **26** ("2K"): 217 |
 | SFBK with `DNAM` 100 x 100 | 1: `OverlayBlockTestPCMBaseSurvey01Overlay`, no WRLD in the shipped esm |
@@ -110,7 +110,7 @@ once is **unresolved**).
   LAND grid does not fit in any option; the outermost ~1 km ring (FO4's own unplayable, LOD-only terrain) can only be
   cropped, drawn as planet LOD (option c) or as static LOD meshes (option d).
 - A single overlay of 64 to 90 cells is 4.6 to 6.4 times wider than any vanilla overlay. Experiment 2b (29 cells,
-  queued) is the first in-game data point above 14.
+  running while this was written) is the first in-game data point above 14.
 
 ## 2. Where an activated overlay lands (lat/long -> planet cell)
 
@@ -123,12 +123,14 @@ once is **unresolved**).
   latitude 0.2, longitude 1.2 rad and experiment 2b at latitude 0.3, longitude -1.2.
 - **Measured (runner):** World01 (0.2, 1.2) -> local origin at planet cell **(+30, -35)** (both registered runs);
   LC172World (-0.043119, -0.087881) -> **(-5, -23)** (anchor 0010238E, run `terrain_A2_lc172`: offset -500, -2300,
-  Z -3.62).
+  Z -3.62); exp2b's `FO4CW_Commonwealth` (0.3, -1.2) -> **(-12, -27)** (first attempt, from the spawn: arrived at
+  (-2189.03, -1552.80) for the marker at local (-989.03, 1147.20)).
 - **No absolute rule found (unresolved):** 7 projections (equirectangular, sinusoidal, orthographic, azimuthal
   equidistant / Lambert per hemisphere, Mercator, swapped axes) x 13 scales (Mars radius; 49,152 = 256 x 16 x 12 cells
   per face over pi, pi/2, 2 pi; 14- and 10-cell pitches) x 4 sign choices x 20 origin grids (1 to 256 cells, floor or
-  round) reproduce both measurements in 0 cases (scratch `latlon_fit.py`). Two points cannot separate projection,
-  scale and the landing's origin snapping.
+  round) reproduce the measurements in 0 cases, with the first two or all three (scratch `latlon_fit.py`). So few
+  points cannot separate projection, scale and the landing's origin snapping; all three offsets are within 35 cells
+  of the landing's origin.
 - **Local scale (supported):** hypothesis H_ll: near a registration the offset moves at true planet scale, x east =
   R cos(lat) dlon / 100 m, y north = R dlat / 100 m (Mars R = 3,390 km from its PNDT body data: 33,900 cells per
   radian). Vanilla clusters agree within a factor of about 2 (scratch `clusters.py`): the 8 Cydonia overlays never
@@ -136,8 +138,8 @@ once is **unresolved**).
   91 x 148 at 2 (does not); Akila (2 overlays) and Ixyll II (3) show the same picture. So 0.5 <= s <= about 1.1 if the
   Cydonia overlays are meant to share one landing.
 - **Consequence:** edge-to-edge overlays need the local rule measured once (experiment 3 does that with an anchor per
-  tile). A single overlay only needs a lat/long that puts it in the middle of the landing; experiment 2b's anchor
-  measures its offset at (0.3, -1.2) for that.
+  tile). A single overlay only needs a lat/long that puts it in the middle of the landing; experiment 2b gave one
+  offset, (-12, -27) at (0.3, -1.2), to start from.
 
 ## 3. Options
 
@@ -152,7 +154,7 @@ once is **unresolved**).
 | Precedent | none above 14 cells (vanilla max), CK recommends < 6 | each tile vanilla-sized | the way every vanilla planet is built (procedural blocks) | statics are routine |
 | Effort | done (generator, `--tile` >= region) | done (generator) | large: SFTR (512 KB arrays), SFPT, SFBK sets, rotation byte meaning, face mapping, a planet | large: terrain mesh + collision + materials + LOD pipelines |
 | Main unknowns | does a 64-90-cell overlay activate, stream and stay exact; Z offset of Absolute | seam blending; the lat/long rule; overlap refusals ("Overlapping existing overlay") | block height alignment (`JNAM`, Relative), merge style, rotation identity (`GNAM` 0x08?), SFTR overrides ("CK does not copy this on overrides"), procedural content on it | performance at 4,700 to 37,000 tiles; terrain materials |
-| Cheapest in-game test | exp2b (29 cells, queued); then a 64-cell core overlay (`--tile 64`) | **exp3 (staged)** | override MarsSurfaceTree so every slot holds one test pattern of one 14-cell marker block; coc LC172Ext01, probe the 12-cell pitch, rotation and heights | one FO4 cell as a mesh tile with collision in exp2b's world, 1 m above the BTD |
+| Cheapest in-game test | exp2b (29 cells, running); then a 64-cell core overlay (`--tile 64`) | **exp3 (staged)** | override MarsSurfaceTree so every slot holds one test pattern of one 14-cell marker block; coc LC172Ext01, probe the 12-cell pitch, rotation and heights | one FO4 cell as a mesh tile with collision in exp2b's world, 1 m above the BTD |
 
 Evidence for (c) (**verified** record layout, behaviour **unresolved**): SFTR `CNAM` 2, `DNAM` 256, then per face
 `FNAM` 65,536 SFPT FormIDs and `GNAM` 65,536 bytes (almost all 0x08); SFPT `FNAM` 256 SFBK FormIDs, `GNAM` 256 bytes:
