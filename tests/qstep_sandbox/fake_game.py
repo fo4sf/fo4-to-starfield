@@ -1,13 +1,14 @@
 """SANDBOX ONLY: a simulated Starfield console for tests/test_qstep_sandbox.py. No game, no keys, no windows.
 State lives in the JSON file named by $FAKE_STATE.
-usage: fake_game.py type <input.ps1 sequence> | screen | readpos [ref]
+usage: fake_game.py type <input.ps1 sequence, or - for $FAKE_SEQ> | screen | readpos [ref]
 Scenario knobs in the state: speed (m/s, 0 = the actor never moves), isid_ok (GetIsID answers 1 for the right base),
 self_fmt (hex | paren | none), lose_selection (every console open clears the selection), spawn_fails, clear_fails
 (ClearConsole leaves the log), accepts (the one walk command that works), anchor_id / anchor_pos, arrival,
 fall ({"height", "speed"}: after coc the player falls from arrival z + height at speed m/s until the arrival z),
 layout ("inline" | "column": how the OCR lists the screen, modelled on real console OCR of 2026-10-11: labels first,
 then values; echo arguments drift into the value column, a lone "y" is lost).
-"typed" keeps every command the console received (ClearConsole does not clear it)."""
+"typed" keeps every command the console received (ClearConsole does not clear it); "clock" is the game time, which
+runs only while the console is closed."""
 import json
 import math
 import os
@@ -17,12 +18,19 @@ import time
 P = os.environ["FAKE_STATE"]
 
 
+def game_time(s):
+    """Seconds of game time: the clock runs only while the console is closed (the console pauses the game, the
+    supported hypothesis qstep.ps1's t_game rests on). Actors walk on it; the arrival fall uses the wall clock."""
+    c = s.setdefault("clock", {"game": 0.0, "since": time.time()})
+    return c["game"] + (time.time() - c["since"] if c["since"] is not None else 0.0)
+
+
 def actor_pos(s, a):
     if a.get("target") and s["speed"] > 0 and not a.get("disabled"):
         sx, sy, sz = a["start"]
         tx, ty, _ = s["player"]
         d = math.hypot(tx - sx, ty - sy)
-        go = min(s["speed"] * (time.time() - a["cmd_at"]), max(d - 1.2, 0))
+        go = min(s["speed"] * (game_time(s) - a["cmd_at"]), max(d - 1.2, 0))
         if d > 0:
             return [sx + (tx - sx) / d * go, sy + (ty - sy) / d * go, sz]
     return list(a["pos"])
@@ -96,7 +104,7 @@ def run(s, cmd):
         s["log"].append(f"GetPos: {ax} >> {p['XYZ'.index(ax)]:.2f}")
     elif low in ("pathtoref player", 'cf "actor.pathtoreference" player 1.0', "setplayerteammate 1"):
         if a is not None and s.get("accepts", "pathtoref player") == low:
-            a["start"], a["target"], a["cmd_at"] = actor_pos(s, a), True, time.time()
+            a["start"], a["target"], a["cmd_at"] = actor_pos(s, a), True, game_time(s)
         elif a is not None:
             s["log"].append("Script command not found")
     elif low == "disable" and a is not None:
@@ -131,7 +139,8 @@ def main():
         s = json.load(f)
     if sys.argv[1] == "type":
         typed = ""
-        for step in sys.argv[2].split("|"):
+        seq = os.environ.get("FAKE_SEQ", "") if sys.argv[2] == "-" else sys.argv[2]   # '-': input.ps1's $Seq
+        for step in seq.split("|"):
             k, _, v = step.partition(":")
             if k == "type":
                 typed += v
@@ -139,7 +148,9 @@ def main():
                 run(s, typed)
                 typed = ""
             elif k == "key" and v == "grave":
+                now = game_time(s)
                 s["console"] = not s.get("console")
+                s["clock"] = {"game": now, "since": None if s["console"] else time.time()}
                 if s["console"] and s.get("lose_selection"):
                     s["sel"] = None
     elif sys.argv[1] == "screen":

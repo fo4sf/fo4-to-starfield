@@ -12,6 +12,26 @@ sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
 import testqueue as tq  # noqa: E402
 
 
+def jdump(obj, p):
+    with open(p, "w") as f:
+        json.dump(obj, f)
+
+
+def jload(p):
+    with open(p) as f:
+        return json.load(f)
+
+
+def readf(p, mode="r", **kw):
+    with open(p, mode, **kw) as f:
+        return f.read()
+
+
+def writef(p, data, mode="wb"):
+    with open(p, mode) as f:
+        f.write(data)
+
+
 def touch(d, name):
     open(os.path.join(d, name), "wb").close()
     return name
@@ -62,7 +82,7 @@ class JudgeTests(unittest.TestCase):
         routes = {"routes": [{"kind": "stairs", "start": [0, 0, 0],
                               "expect": {"low": [0, 0, 0], "high": [0, 3, 2], "min_rise": 1.6}}]}
         rf = os.path.join(self.d, "routes.json")
-        json.dump(routes, open(rf, "w"))
+        jdump(routes, rf)
         t = {"kind": "stairs", "routes_file": rf, "route_index": 0}
         up = {"result": {"start_read": "0 0 0", "end_read": "0 2.5 1.9"}, "shots": ["r0.png"]}
         self.assertEqual(tq.judge(t, up, self.d)[0], "PASS")
@@ -108,8 +128,8 @@ class FakeControls:
 def make_queue(d, n=3, kind="fall"):
     tests = [{"id": f"{k:04d}_{kind}", "kind": kind, "cell": "C", "ref": f"pt{k}", "model": "m.nif",
               "point": [0.0, 0.0, 0.0], "heading": 0} for k in range(n)]
-    json.dump({"build_id": "abcd1234", "commit": "0" * 40, "staging": d, "plugin_sha256": "x", "save": "fo4sf_test_abcd1234",
-               "plugin_index": "02", "hours": [[0, 24]], "tests": tests}, open(os.path.join(d, "queue.json"), "w"))
+    jdump({"build_id": "abcd1234", "commit": "0" * 40, "staging": d, "plugin_sha256": "x", "save": "fo4sf_test_abcd1234",
+           "plugin_index": "02", "hours": [[0, 24]], "tests": tests}, os.path.join(d, "queue.json"))
 
 
 def args(**kw):
@@ -133,16 +153,16 @@ class RunnerTests(unittest.TestCase):
 
     def landing(self, z):
         def step(test, out):
-            json.dump({"end_read": f"0 0 {z}", "shot": touch(out, "fall.png")}, open(os.path.join(out, "obs.json"), "w"))
+            jdump({"end_read": f"0 0 {z}", "shot": touch(out, "fall.png")}, os.path.join(out, "obs.json"))
             return 0
         return step
 
     def results(self):
-        return [json.loads(x) for x in open(os.path.join(self.d, "results.jsonl"))]
+        return [json.loads(x) for x in readf(os.path.join(self.d, "results.jsonl")).splitlines()]
 
     def test_checkpoint_after_every_test_and_resume(self):
         self.runner(self.landing(0.1), max_tests=2).run()
-        st = json.load(open(os.path.join(self.d, "state.json")))
+        st = jload(os.path.join(self.d, "state.json"))
         self.assertEqual(len(st["done"]), 2)
         calls = []
 
@@ -151,7 +171,7 @@ class RunnerTests(unittest.TestCase):
             return self.landing(0.1)(test, out)
         self.runner(step).run()
         self.assertEqual(calls, ["0002_fall"])           # only the test that was left
-        self.assertEqual(len(json.load(open(os.path.join(self.d, "state.json")))["done"]), 3)
+        self.assertEqual(len(jload(os.path.join(self.d, "state.json"))["done"]), 3)
         self.assertTrue(os.path.exists(os.path.join(self.d, "report.md")))
 
     def test_inconclusive_is_retried_up_to_the_limit_and_fail_is_final(self):
@@ -164,10 +184,10 @@ class RunnerTests(unittest.TestCase):
             return self.landing(-20)(test, out)           # fell through: FAIL
         self.runner(step, max_attempts=2).run()
         self.assertEqual(calls, {"0000_fall": 2, "0001_fall": 1, "0002_fall": 1})
-        done = json.load(open(os.path.join(self.d, "state.json")))["done"]
+        done = jload(os.path.join(self.d, "state.json"))["done"]
         self.assertEqual(done["0000_fall"]["verdict"], "INCONCLUSIVE")
         self.assertEqual(done["0001_fall"]["verdict"], "FAIL")
-        rep = json.load(open(os.path.join(self.d, "report.json")))
+        rep = jload(os.path.join(self.d, "report.json"))
         self.assertEqual(rep["ranked"][0]["class"], "FALL")
         self.assertEqual(rep["ranked"][0]["count"], 2)
 
@@ -179,7 +199,7 @@ class RunnerTests(unittest.TestCase):
             r = self.runner(lambda t, o: calls.append(t) or 0)
             self.assertEqual(r.run(), 3)
             self.assertEqual(calls, [])
-            self.assertTrue(json.load(open(os.path.join(self.d, "state.json")))["status"].startswith("stopped"))
+            self.assertTrue(jload(os.path.join(self.d, "state.json"))["status"].startswith("stopped"))
 
     def test_owner_input_or_other_window_stops_without_counting_an_attempt(self):
         self.ctl.fg = "chrome.exe"
@@ -193,7 +213,7 @@ class RunnerTests(unittest.TestCase):
             n[0] += 1
             return 2                                      # input guard tripped mid-step
         self.assertEqual(self.runner(step).run(), 3)
-        st = json.load(open(os.path.join(self.d, "state.json")))
+        st = jload(os.path.join(self.d, "state.json"))
         self.assertEqual(st["done"], {})
         self.assertEqual(st["attempts"]["0000_fall"], 0)
 
@@ -204,7 +224,7 @@ class RunnerTests(unittest.TestCase):
         r = self.runner(step, max_tests=1)
         r.run()
         self.assertEqual(self.results()[0]["class"], "CRASH")
-        self.assertEqual(json.load(open(os.path.join(self.d, "state.json")))["crashes"], 1)
+        self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 1)
 
     def test_someone_elses_game_is_never_touched(self):
         self.ctl.pid = 7                                  # not the pid cycle.ps1 recorded
@@ -223,7 +243,7 @@ class RunnerTests(unittest.TestCase):
 class StepScriptTests(unittest.TestCase):
     def test_qstep_handles_every_planned_kind(self):
         # the supervised run 2026-10-11 found "unknown kind stairs": the planner's kinds must all reach a step
-        src = open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8").read()
+        src = readf(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8")
         for kind in tq.KINDS:
             self.assertTrue(f"'{kind}'" in src, kind)
         self.assertIn("$kind -in 'stairs', 'door'", src)
@@ -238,11 +258,11 @@ class ProbePointTests(unittest.TestCase):
         refs = [{"type": "Static", "model": kit + name, "pos": [70.0 * k * 5, 0.0, 0.0]} for k, name in
                 enumerate(["BldDecoSmCeilOnly03.nif", "BldDecoSmFlrOnly04.nif", "BldWlpSmFlrCeil01.nif",
                            "SubPlatformWall03.nif", "BldWoodPSmStairsHalfTiny03.nif"])]
-        json.dump({"cell": "C", "refs": refs}, open(os.path.join(d, "c.json"), "w"))
+        jdump({"cell": "C", "refs": refs}, os.path.join(d, "c.json"))
         out = os.path.join(d, "pts.txt")
         subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "game", "probe_points.py"), os.path.join(d, "c.json"),
                         out, "10"], check=True, capture_output=True)
-        names = sorted(line.split(" ", 3)[3] for line in open(out).read().splitlines())
+        names = sorted(line.split(" ", 3)[3] for line in readf(out).splitlines())
         self.assertEqual(names, ["BldDecoSmFlrOnly04.nif", "BldWlpSmFlrCeil01.nif", "BldWoodPSmStairsHalfTiny03.nif"])
 
 
@@ -253,10 +273,10 @@ class RecoverTests(RunnerTests):
         def step(test, out):
             calls.append(test["kind"])
             if test["kind"] == "recover":
-                json.dump({"hud_before": False, "escapes": 1, "hud_after": True}, open(os.path.join(out, "obs.json"), "w"))
+                jdump({"hud_before": False, "escapes": 1, "hud_after": True}, os.path.join(out, "obs.json"))
                 return 0
             if calls.count("fall") == 1:
-                json.dump({"stopped": "console not opened safely (3)"}, open(os.path.join(out, "obs.json"), "w"))
+                jdump({"stopped": "console not opened safely (3)"}, os.path.join(out, "obs.json"))
                 return 3
             return self.landing(0.1)(test, out)
         self.runner(step, max_tests=2).run()
@@ -265,12 +285,12 @@ class RecoverTests(RunnerTests):
     def test_menu_that_stays_stops_the_run(self):
         def step(test, out):
             if test["kind"] == "recover":
-                json.dump({"hud_before": False, "escapes": 3, "hud_after": False}, open(os.path.join(out, "obs.json"), "w"))
+                jdump({"hud_before": False, "escapes": 3, "hud_after": False}, os.path.join(out, "obs.json"))
                 return 0
-            json.dump({"stopped": "console not opened safely (3)"}, open(os.path.join(out, "obs.json"), "w"))
+            jdump({"stopped": "console not opened safely (3)"}, os.path.join(out, "obs.json"))
             return 3
         self.assertEqual(self.runner(step).run(), 3)
-        self.assertEqual(json.load(open(os.path.join(self.d, "state.json")))["status"], "stopped: menu or overlay")
+        self.assertEqual(jload(os.path.join(self.d, "state.json"))["status"], "stopped: menu or overlay")
 
     def test_no_escape_after_owner_input(self):
         calls = []
@@ -278,7 +298,7 @@ class RecoverTests(RunnerTests):
         def step(test, out):
             calls.append(test["kind"])
             self.ctl.foreign = True                       # the owner touched the PC during the step
-            json.dump({"stopped": "console not opened safely (3)"}, open(os.path.join(out, "obs.json"), "w"))
+            jdump({"stopped": "console not opened safely (3)"}, os.path.join(out, "obs.json"))
             return 3
         self.assertEqual(self.runner(step).run(), 3)
         self.assertNotIn("recover", calls)
@@ -293,7 +313,7 @@ class BreakerTests(unittest.TestCase):
         r.session, r.cell, r._ps = True, "C", (lambda *a, **k: (0, ""))
         r.run()
         self.assertEqual(len(calls), tq.BREAKER)
-        done = json.load(open(os.path.join(d, "state.json")))["done"]
+        done = jload(os.path.join(d, "state.json"))["done"]
         self.assertEqual(sum(v["class"] == "BREAKER" for v in done.values()), 12 - tq.BREAKER)
 
     def test_a_kind_with_a_verdict_keeps_running(self):
@@ -304,7 +324,7 @@ class BreakerTests(unittest.TestCase):
         def step(t, o):
             calls.append(t)
             if len(calls) == 1:
-                json.dump({"end_read": "0 0 0.1", "shot": touch(o, "fall.png")}, open(os.path.join(o, "obs.json"), "w"))
+                jdump({"end_read": "0 0 0.1", "shot": touch(o, "fall.png")}, os.path.join(o, "obs.json"))
             return 0
         r = tq.Runner(d, args(max_attempts=1), ctl=FakeControls(), step=step)
         r.session, r.cell, r._ps = True, "C", (lambda *a, **k: (0, ""))
@@ -334,7 +354,7 @@ class ParseGetposTests(unittest.TestCase):
     def parse(self, text):
         import subprocess
         p = os.path.join(tempfile.mkdtemp(), "ocr.txt")
-        open(p, "w").write(text)
+        writef(p, text, "w")
         return subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "game", "parse_getpos.py"), p],
                               capture_output=True, text=True).stdout.strip()
 
@@ -376,19 +396,19 @@ class TerrainTests(unittest.TestCase):
 
     def test_plan_terrain(self):
         d = tempfile.mkdtemp()
-        open(os.path.join(d, "FO4Port.esm"), "wb").write(b"TES4")
+        writef(os.path.join(d, "FO4Port.esm"), b"TES4")
         exp = {b: {"ground": 10.0, "padA_x20-40_y20-40": h, "padB_x60-80_y20-40": 22.5, "pitC_x20-40_y60-80": 5.0}
                for b, h in (("FO4TX_World01.btd", 35.0), ("FO4TX_Shared02.btd", 45.0), ("FO4TX_World03.btd", 55.0))}
-        json.dump(exp, open(os.path.join(d, "expected.json"), "w"))
+        jdump(exp, os.path.join(d, "expected.json"))
         out = os.path.join(d, "q")
         tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])
-        q = json.load(open(os.path.join(out, "queue.json")))
+        q = jload(os.path.join(out, "queue.json"))
         self.assertEqual([t["world_coc"] for t in q["tests"]], ["FO4TX_W01Spawn", "FO4TX_W02Spawn", "FO4TX_W03Spawn"])
         self.assertEqual([t["points"][1]["expect"] for t in q["tests"]], [35.0, 45.0, 55.0])
         self.assertTrue(all(t["cell"] == "" for t in q["tests"]))
 
     def test_qstep_has_the_terrain_step(self):
-        src = open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8").read()
+        src = readf(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8")
         self.assertIn("'terrain' {", src)
         self.assertIn("'recover' {", src)
 
@@ -402,26 +422,26 @@ class ExpInstallTests(unittest.TestCase):
         os.makedirs(os.path.join(game, "Data"))
         os.makedirs(os.path.join(exp, "Data", "Terrain"))
         os.makedirs(os.path.join(local, "Starfield"))
-        open(os.path.join(exp, "Exp.esm"), "wb").write(b"TES4")
-        open(os.path.join(exp, "Data", "Terrain", "W.btd"), "wb").write(b"BTDB")
+        writef(os.path.join(exp, "Exp.esm"), b"TES4")
+        writef(os.path.join(exp, "Data", "Terrain", "W.btd"), b"BTDB")
         plugins = os.path.join(local, "Starfield", "Plugins.txt")
         original = b"\xef\xbb\xbf# comment\r\n*FO4Port.esm\r\n"
-        open(plugins, "wb").write(original)
+        writef(plugins, original)
         old = os.environ.get("LOCALAPPDATA")
         os.environ["LOCALAPPDATA"] = local
         try:
             exp_install.main(["install", "--exp-dir", exp, "--starfield", game])
             self.assertTrue(os.path.exists(os.path.join(game, "Data", "Terrain", "W.btd")))
-            self.assertEqual(open(plugins, "rb").read(), original + b"*Exp.esm\r\n")
+            self.assertEqual(readf(plugins, "rb"), original + b"*Exp.esm\r\n")
             exp_install.main(["install", "--exp-dir", exp, "--starfield", game])   # same experiment again: no-op
-            self.assertEqual(open(plugins, "rb").read(), original + b"*Exp.esm\r\n")
+            self.assertEqual(readf(plugins, "rb"), original + b"*Exp.esm\r\n")
             other = os.path.join(root, "other")
             os.makedirs(other)
-            open(os.path.join(other, "Other.esm"), "wb").write(b"TES4")
+            writef(os.path.join(other, "Other.esm"), b"TES4")
             with self.assertRaises(SystemExit):           # a different experiment refuses
                 exp_install.main(["install", "--exp-dir", other, "--starfield", game])
             exp_install.main(["uninstall", "--starfield", game])
-            self.assertEqual(open(plugins, "rb").read(), original)
+            self.assertEqual(readf(plugins, "rb"), original)
             self.assertEqual(sorted(os.listdir(os.path.join(game, "Data"))), [])
         finally:
             if old is None:
@@ -436,11 +456,11 @@ class ExpInstallTests(unittest.TestCase):
         game, exp = os.path.join(root, "game"), os.path.join(root, "exp")
         os.makedirs(os.path.join(game, "Data"))
         os.makedirs(exp)
-        open(os.path.join(exp, "Exp.esm"), "wb").write(b"new")
-        open(os.path.join(game, "Data", "Exp.esm"), "wb").write(b"theirs")
+        writef(os.path.join(exp, "Exp.esm"), b"new")
+        writef(os.path.join(game, "Data", "Exp.esm"), b"theirs")
         with self.assertRaises(SystemExit):
             exp_install.main(["install", "--exp-dir", exp, "--starfield", game])
-        self.assertEqual(open(os.path.join(game, "Data", "Exp.esm"), "rb").read(), b"theirs")
+        self.assertEqual(readf(os.path.join(game, "Data", "Exp.esm"), "rb"), b"theirs")
 
 
 class LaunchIdleTests(unittest.TestCase):
@@ -458,9 +478,9 @@ class PreLaunchTests(unittest.TestCase):
     def run_with(self, pre):
         d = tempfile.mkdtemp()
         make_queue(d, n=1)
-        q = json.load(open(os.path.join(d, "queue.json")))
+        q = jload(os.path.join(d, "queue.json"))
         q["pre_launch"] = pre
-        json.dump(q, open(os.path.join(d, "queue.json"), "w"))
+        jdump(q, os.path.join(d, "queue.json"))
         ctl = FakeControls()
         ctl.pid = None                                    # no game yet: the runner has to launch
         launched = []
@@ -468,7 +488,7 @@ class PreLaunchTests(unittest.TestCase):
         r.pinned_ok = lambda: True
         r._ps = lambda script, *a, **k: launched.append(script) or (1, "launch refused in the test")
         r.run()
-        return launched, open(os.path.join(d, "run.log")).read()
+        return launched, readf(os.path.join(d, "run.log"))
 
     def test_pre_launch_runs_right_before_the_launch(self):
         launched, log = self.run_with([sys.executable, "-c", "print('installed')"])
@@ -484,17 +504,17 @@ class PreLaunchTests(unittest.TestCase):
 class PlanJsonTests(unittest.TestCase):
     def test_experiment_with_its_own_plan(self):
         d = tempfile.mkdtemp()
-        open(os.path.join(d, "FO4Port.esm"), "wb").write(b"TES4")
+        writef(os.path.join(d, "FO4Port.esm"), b"TES4")
         plan = [{"coc": "FO4CW_RedRocketSpawn", "label": "Red Rocket patch", "drop_z": 140,
                  "points": [{"label": "v0", "x": -1000.0, "y": 300.0, "expect": 101.2}]}]
-        json.dump(plan, open(os.path.join(d, "plan.json"), "w"))
+        jdump(plan, os.path.join(d, "plan.json"))
         out = os.path.join(d, "q")
         tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])
-        t = json.load(open(os.path.join(out, "queue.json")))["tests"]
+        t = jload(os.path.join(out, "queue.json"))["tests"]
         self.assertEqual([x["world_coc"] for x in t], ["FO4CW_RedRocketSpawn"])
         self.assertEqual(t[0]["drop_z"], 140.0)
         self.assertEqual(t[0]["beyond"], {"x": -500.0, "y": 300.0})
-        json.dump([{"coc": "bad name; quit", "points": []}], open(os.path.join(d, "plan.json"), "w"))
+        jdump([{"coc": "bad name; quit", "points": []}], os.path.join(d, "plan.json"))
         with self.assertRaises(SystemExit):               # typed into the console: letters, digits, _ only
             tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])
 
@@ -508,12 +528,12 @@ class ExpPackTests(unittest.TestCase):
         os.makedirs(os.path.join(game, "Data"))
         os.makedirs(os.path.join(exp, "Data", "Terrain"))
         os.makedirs(os.path.join(local, "Starfield"))
-        open(os.path.join(exp, "Exp.esm"), "wb").write(b"TES4")
-        open(os.path.join(exp, "Data", "Terrain", "W.btd"), "wb").write(b"BTDB")
-        open(os.path.join(local, "Starfield", "Plugins.txt"), "wb").write(b"*FO4Port.esm\r\n")
+        writef(os.path.join(exp, "Exp.esm"), b"TES4")
+        writef(os.path.join(exp, "Data", "Terrain", "W.btd"), b"BTDB")
+        writef(os.path.join(local, "Starfield", "Plugins.txt"), b"*FO4Port.esm\r\n")
 
         def fake_ba2(a, data_root, out, folders=None, fmt="General"):
-            open(out, "wb").write(b"BTDX fake")
+            writef(out, b"BTDX fake")
             return out
         old_env, old_build = os.environ.get("LOCALAPPDATA"), exp_install.build_ba2
         os.environ["LOCALAPPDATA"], exp_install.build_ba2 = local, fake_ba2
@@ -559,7 +579,7 @@ class AnchorOffsetTests(unittest.TestCase):
 class NumericReadTests(unittest.TestCase):
     def test_offsets_only_from_numeric_reads(self):
         # 2026-10-11 World03: a failed spawn read "fail console 3" produced the offset (0, 0, -7)
-        src = open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8").read()
+        src = readf(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8")
         self.assertEqual(src.count("-match '^\s*-?\d+"), 3)
 
 
@@ -580,6 +600,6 @@ class ZRefTests(unittest.TestCase):
 class StoredArchiveTests(unittest.TestCase):
     def test_experiment_archives_are_stored_uncompressed(self):
         # vanilla stores every BTD uncompressed; a zlib-packed BTD read as raw 0 in game (2026-10-11)
-        src = open(os.path.join(ROOT, "scripts", "game", "exp_install.py"), encoding="utf-8").read()
+        src = readf(os.path.join(ROOT, "scripts", "game", "exp_install.py"), encoding="utf-8")
         self.assertIn('"-compression=None"', src)
         self.assertNotIn('"-compression=Default"', src)
