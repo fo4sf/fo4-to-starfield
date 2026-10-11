@@ -8,6 +8,13 @@
 //   FO4TX_World03  no overlay component, file Data\TERRAIN\FO4TX_World03.btd                  (name only, like TempJemisonWorld)
 // Each worldspace copies the vanilla Mars landing world LC172World (02DF8C; 5 x 5 cells -2..2, 3 x 3-cell BTD) minus its
 // cells/offset tables, and gets 25 empty exterior cells (-2..2) plus a COC marker in cell (0,0) (EditorID FO4TX_W0nSpawn).
+//
+// Overlay mode (exp1d, docs/terrain/overlay-records.md): when <output dir>/exp1_params.json exists (written by
+// scripts/terrain/overlay_records.py exp1d) only World01 is built, with the overlay record fixes: SFBK FNAM = one raw u16
+// per BTD cell (25 values, 50 B), INAM/HNAM from "alignment"/"hnam", a Location like LC172WorldLocation (keyword
+// LocTypeOverlay 2CA99D, parent SSol_PMars_Surface 01B736) on XLCN, a persistent XMarker anchor (FormID 0x800) and the
+// Mars registration at the params' latitude/longitude.
+using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Starfield;
@@ -29,6 +36,9 @@ var mod = new StarfieldMod(modKey, release);
 mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
 uint next = 0x800;
 FormKey NewKey() => new(modKey, next++);
+var prmPath = Path.Combine(outDir, "exp1_params.json");
+JsonElement? prm = File.Exists(prmPath) ? JsonDocument.Parse(File.ReadAllText(prmPath)).RootElement : null;
+FormKey? anchorKey = prm != null ? NewKey() : null;                      // the anchor takes the first FormID (0x800)
 
 const ushort BorderRaw = 22282;     // 10.0 m in a -500..1000 m BTD: round((10 + 500) / 1500 * 65535)
 
@@ -39,6 +49,15 @@ SurfaceBlock MakeBlock(string edid, string btdPath)
     b.ANAM = btdPath;
     b.DNAM = new SurfaceBlockIntItem { First = 5, Second = 5 };              // cells per side (vanilla: DNAM = BTD size / 128)
     b.FNAM = Enumerable.Repeat(new[] { (byte)(BorderRaw & 0xFF), (byte)(BorderRaw >> 8) }, 8).SelectMany(x => x).ToArray(); // "Connections": raw border heights
+    if (prm is JsonElement p)
+    {
+        // vanilla FNAM: DNAM.x * DNAM.y raw u16, the SW-corner sample of every BTD cell (written by overlay_records.py)
+        var v = p.GetProperty("fnam").EnumerateArray().Select(e => (ushort)e.GetInt32()).ToArray();
+        if (v.Length != 25) throw new InvalidDataException($"fnam has {v.Length} values, DNAM 5 x 5 needs 25");
+        b.FNAM = v.SelectMany(x => new[] { (byte)(x & 0xFF), (byte)(x >> 8) }).ToArray();
+        b.INAM = (byte)(p.GetProperty("alignment").GetString() == "absolute" ? 1 : 0);   // 0 Relative, 1 Absolute
+        b.HNAM = unchecked((ushort)(short)p.GetProperty("hnam").GetInt32());
+    }
     b.Components.Clear();                                                    // drop BlockEditorMetaData (CK bookkeeping)
     mod.SurfaceBlocks.Add(b);
     return b;
@@ -54,6 +73,19 @@ Worldspace MakeWorld(int n, SurfaceBlock? block)
     w.OffsetData = null;
     w.CellSizeData = null;
     w.Location.Clear();                                                      // LC172's location has quest aliases; keep it out
+    if (prm != null)
+    {
+        // like LC172WorldLocation (3807BE): keyword LocTypeOverlay, parent = Mars surface location; no refs
+        var loc = (Location)sf.Locations.First(l => l.FormKey.ID == 0x3807BE).Duplicate(NewKey());
+        loc.EditorID = $"FO4TX_World0{n}Location";
+        loc.Name = $"FO4 Terrain Test 0{n}";
+        loc.MasterSpecialReferences.Clear();
+        loc.MasterInitiallyDisabledReferences.Clear();
+        loc.Keywords = new ExtendedList<IFormLinkGetter<IKeywordGetter>> { new FormLink<IKeywordGetter>(new FormKey(sfEsm, 0x2CA99D)) };
+        loc.ParentLocation.SetTo(new FormKey(sfEsm, 0x01B736));
+        mod.Locations.Add(loc);
+        w.Location.SetTo(loc.FormKey);
+    }
     var overlay = w.Components.OfType<WorldSpaceOverlayComponent>().FirstOrDefault();
     if (block == null) w.Components.Clear();
     else overlay!.SurfaceBlock.SetTo(block.FormKey);
@@ -79,15 +111,27 @@ Worldspace MakeWorld(int n, SurfaceBlock? block)
             sub.Items.Add(c);
         }
     w.TopCell = new Cell(NewKey(), release) { Flags = Cell.Flag.HasWater };   // persistent top cell, empty
+    if (prm is JsonElement p && anchorKey is FormKey ak && n == 1)
+    {
+        // persistent XMarker (00003B) at a known local position: the runner reads its position (prid + getpos)
+        var a = p.GetProperty("anchor");
+        var pos = a.GetProperty("local").EnumerateArray().Select(e => e.GetSingle()).ToArray();
+        var anchor = new PlacedObject(ak, release) { EditorID = a.GetProperty("edid").GetString(), Base = new FormLinkNullable<IPlaceableObjectGetter>(new FormKey(sfEsm, 0x00003B)), Position = new P3Float(pos[0], pos[1], pos[2]), Rotation = new P3Float(0, 0, 0) };
+        anchor.MajorRecordFlagsRaw |= 0x400;                                  // Persistent
+        w.TopCell.Persistent.Add(anchor);
+    }
     mod.Worldspaces.Add(w);
     return w;
 }
 
 var b1 = MakeBlock("FO4TX_Block01", @"Data\TERRAIN\FO4TX_World01.btd");
-var b2 = MakeBlock("FO4TX_Block02", @"Data\TERRAIN\FO4TX_Shared02.btd");
 var w1 = MakeWorld(1, b1);
-MakeWorld(2, b2);
-MakeWorld(3, null);
+if (prm == null)                                                             // overlay mode: World01 only
+{
+    var b2 = MakeBlock("FO4TX_Block02", @"Data\TERRAIN\FO4TX_Shared02.btd");
+    MakeWorld(2, b2);
+    MakeWorld(3, null);
+}
 mod.ModHeader.Stats.NextFormID = next;
 
 void Save(StarfieldMod m)
@@ -105,7 +149,9 @@ var mars = new StarfieldMod(marsKey, release);
 mars.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
 var planet = (Planet)sf.Planets.First(p => p.EditorID == "MarsPlanetData").DeepCopy();   // same FormKey = override
 mars.Planets.Add(planet);
-planet.MasterWorldspaces.Add(new MasterWorldspace { Worldspace = new FormLink<IWorldspaceGetter>(w1.FormKey), Latitude = 1.2, Longitude = 0.2 });
+double lat = 1.2, lon = 0.2;
+if (prm is JsonElement pm) { lat = pm.GetProperty("mars").GetProperty("latitude").GetDouble(); lon = pm.GetProperty("mars").GetProperty("longitude").GetDouble(); }
+planet.MasterWorldspaces.Add(new MasterWorldspace { Worldspace = new FormLink<IWorldspaceGetter>(w1.FormKey), Latitude = lat, Longitude = lon });
 mars.ModHeader.Stats.NextFormID = 0x800;
 var marsPath = Path.Combine(outDir, marsKey.FileName);
 mars.BeginWrite.ToPath(marsPath).WithLoadOrder(sfEsm, modKey)
