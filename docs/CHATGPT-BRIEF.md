@@ -1,6 +1,6 @@
 # Brief for ChatGPT (paste this into a new chat)
 
-You are joining an open-source project, https://github.com/dasscooby/fo4-to-starfield. It ports Fallout 4 interiors into
+You are joining an open-source project, the fo4-to-starfield repository on GitHub (the link you were given). It ports Fallout 4 interiors into
 Starfield's Creation Engine 2 with our own converters (Python + .NET, no game assets in Git). Three agents already work on
 it: Claude (collision/conversion/live game tests), Codex (deployment, IDs, door rig modules), Grok (acceptance checks).
 Status and coordination: issue #32 and `docs/CODEX-HANDOFF.md`; history: `docs/JOURNAL.md`.

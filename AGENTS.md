@@ -2,7 +2,7 @@
 
 Applies to all agents: the local OpenCode team (Lead, Implementation, Research, QA) and the remote agents (Claude,
 Codex, Grok, ChatGPT). It adds to [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/CODEX-HANDOFF.md](docs/CODEX-HANDOFF.md);
-where they say more, they win. Owner: dasscooby.
+where they say more, they win. Owner: the repository owner (the GitHub account this repo belongs to).
 
 ## Communication: GitHub is the source of truth
 - Issues are tasks; the owner's issues (#29, #30, #31, ...) are the inbox. #32 is the shared status thread.

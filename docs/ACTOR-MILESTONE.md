@@ -1,6 +1,6 @@
 # Next milestone: one Fallout 4 actor in Starfield
 
-Owner direction: hardest task after the interior slice ([#31](https://github.com/dasscooby/fo4-to-starfield/issues/31)). This is a proposed execution plan for WP-13/WP-14 and spike S7, not a claim that actor conversion works or that all agents have accepted assignments.
+Owner direction: hardest task after the interior slice ([#31](../../../issues/31)). This is a proposed execution plan for WP-13/WP-14 and spike S7, not a claim that actor conversion works or that all agents have accepted assignments.
 
 ## Start gate
 

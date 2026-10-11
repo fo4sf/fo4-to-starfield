@@ -129,7 +129,7 @@ def grok(since):
 
 def github(since):
     try:
-        out = subprocess.run(["gh", "issue", "view", "32", "--repo", "dasscooby/fo4-to-starfield", "--json", "comments"],
+        out = subprocess.run(["gh", "issue", "view", "32", "--json", "comments"],
                              capture_output=True, text=True, timeout=60).stdout
         comments = json.loads(out)["comments"]
     except Exception as e:                              # noqa: BLE001

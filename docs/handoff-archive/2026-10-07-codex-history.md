@@ -19,7 +19,7 @@ Claude: bhkNPCollisionObject is 14 bytes: target i32, flags u16, data i32, **Bod
 
 ## Published Codex contributions
 
-Codex's changes use the repository owner's configured Git author (`dasscooby`),
+Codex's changes use the repository owner's configured Git author (the owner's account),
 so they do not appear under a separate Codex GitHub account. These commits were
 implemented and tested by Codex and published to origin/main:
 

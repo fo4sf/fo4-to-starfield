@@ -80,7 +80,7 @@ Full reasoning: [docs/PLAN.md](docs/PLAN.md).
 ## Quick start (contributors)
 
 ```
-git clone https://github.com/dasscooby/fo4-to-starfield
+git clone <this repository's URL, from the Code button>
 cd fo4-to-starfield
 python -m unittest discover tests        # synthetic fixtures only
 python scripts/guard.py                   # must pass before every commit
@@ -103,11 +103,11 @@ python -I scripts/recon.py --fo4-esm <Fallout4.esm> --fo4-data <FO4 Data dir> --
 
 ## Acknowledgments
 
-This project is led by **dasscooby**, with contributions from these AI coding collaborators:
+This project is led by the repository owner, with contributions from these AI coding collaborators:
 
-- **Claude** — core conversion pipeline, materials, native collision integration, plugin generation, and in-game testing.
-- **Codex (OpenAI)** — deployment and recovery, persistent identities and cache checks, source-state preservation, door animation/model tooling, and output verification.
-- **Grok (xAI)** — the interior acceptance harness, evidence requirements, and synthetic gate tests. First contribution: [pinned in-game evidence gate](https://github.com/dasscooby/fo4-to-starfield/commit/76b44dd015b5187d6fc8dee75dbf312b1f585a7b).
+- **Claude** ï¿½ core conversion pipeline, materials, native collision integration, plugin generation, and in-game testing.
+- **Codex (OpenAI)** ï¿½ deployment and recovery, persistent identities and cache checks, source-state preservation, door animation/model tooling, and output verification.
+- **Grok (xAI)** ï¿½ the interior acceptance harness, evidence requirements, and synthetic gate tests. First contribution: [pinned in-game evidence gate](../../commit/76b44dd015b5187d6fc8dee75dbf312b1f585a7b).
 
 Agent-assisted commits use the maintainer's configured Git author; `Codex:` and `Grok:` commit subjects identify their work. These acknowledgments describe contributions, not proof that the unfinished conversion is game-ready.
 
