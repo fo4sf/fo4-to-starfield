@@ -611,3 +611,11 @@ references are (docs/ai/research-log.md 2026-10-10). Unlinked doors stay shut an
 FortHagen02 give one pair (FortHagen01 `0CD469` <-> FortHagen02 `0CD46A`), read back from the written plugin. Not yet in
 game. Note for the next build: 12 of the 15 pinned cell exports predate the persistent-reference export and hold no
 load-door XTEL at all; re-export them before expecting any door to teleport. Branch `claude/load-door-teleport`.
+
+## 2026-10-11 Claude: load-door teleports checked on the re-exported 16 cells
+Follow-up to 2026-10-10. With the 15 pinned cells and FortHagen02 re-exported (schema 2, C:\Modding\staging\exports_1011),
+the branch writer reports "2 references linked (1 mutual pairs), 28 destinations not in this build, 4 sources not placed,
+0 issues": 34 XTELs, one pair (FortHagen01 `0CD469` <-> FortHagen02 `0CD46A`), the rest lead out of the set or sit on
+marker doors the converter never places. Read back from the written plugin; 0 existing FormIDs changed against the staging
+map. `teleports.json` now lists the unplaced sources too (PluginSpike.Tests asserts it). Still offline, not in game; PR #50
+(docs/ai/research-log.md 2026-10-11).

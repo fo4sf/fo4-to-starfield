@@ -27,7 +27,9 @@ public sealed class TeleportReport
     public int Pairs { get; set; }                  // mutual pairs: both ends link each other (counted once per pair)
     public int OneWay { get; set; }                 // destination placed, but it has no XTEL back to the source
     public int DestinationNotInBuild { get; set; }  // destination reference not placed: its cell is not in this build or its model was not converted
+    public int SourceNotPlaced { get; set; }        // the exported XTEL sits on a reference that was not placed (its model was not converted)
     public List<string> Unlinked { get; } = new();  // "<cell> <source ref> -> <destination ref>" for DestinationNotInBuild
+    public List<string> UnplacedSources { get; } = new();   // same format, for SourceNotPlaced
     public List<TeleportIssue> Issues { get; } = new();
 }
 
@@ -50,8 +52,13 @@ public static class TeleportLinks
             {
                 if (!r.TryGetProperty("teleport_destination", out var tel) || tel.ValueKind == JsonValueKind.Null) continue;
                 var source = r.GetProperty("formkey").GetString()!;
-                if (!placed.TryGetValue(source, out var from)) continue;        // model not converted: nothing placed to link
                 var doorKey = tel.GetProperty("door").GetString();
+                if (!placed.TryGetValue(source, out var from))                   // model not converted: nothing placed to link
+                {
+                    report.SourceNotPlaced++;
+                    report.UnplacedSources.Add($"{cellName} {source} -> {doorKey}");
+                    continue;
+                }
                 if (doorKey == null) { report.Issues.Add(new(source, "", "XTEL without a destination door")); continue; }
                 if (!placed.TryGetValue(doorKey, out var to))
                 {

@@ -223,7 +223,7 @@ foreach (var cdoc in cellDocs)
 var teleports = TeleportLinks.Apply(mod, placedBySource, cellDocs.Select(d => d.RootElement));
 foreach (var d in cellDocs) d.Dispose();
 Console.WriteLine($"teleports: {teleports.Linked} references linked ({teleports.Pairs} mutual pairs, {teleports.OneWay} one-way), " +
-                  $"{teleports.DestinationNotInBuild} destinations not in this build, {teleports.Issues.Count} issues");
+                  $"{teleports.DestinationNotInBuild} destinations not in this build, {teleports.SourceNotPlaced} sources not placed, {teleports.Issues.Count} issues");
 foreach (var issue in teleports.Issues) Console.WriteLine($"  issue {issue.Source} -> {issue.Target}: {issue.Reason}");
 File.WriteAllText(Path.Combine(outDir, "teleports.json"), JsonSerializer.Serialize(teleports, new JsonSerializerOptions { WriteIndented = true }));
 
