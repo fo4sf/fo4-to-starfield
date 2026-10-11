@@ -48,6 +48,7 @@ SEVERITY = {("fall", "FALL"): 5, ("travel", "NOTRAVEL"): 5, ("travel", "NOPROMPT
             ("door", "NOPROMPT"): 3, ("stairs", "FALL"): 4, ("stairs", "STUCK"): 3, ("door", "FALL"): 5,
             ("movable", "NOTMOVED"): 2, ("movable", "ITEMFELL"): 3, ("any", "CRASH"): 5}
 PS = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
+BREAKER = 6          # inconclusive attempts in a row, with no PASS/FAIL yet, that switch a kind off for the run
 
 
 # ---------------------------------------------------------------------------------------------------------- utilities
@@ -546,6 +547,13 @@ class Runner:
             while True:
                 why = blocked_reason(self.ctl, self.q)
                 if not why and self.ctl.game_pid() and not self.ctl.game_in_front():
+                    # no keyboard/mouse input since the runner's last step: a popup took the focus (the Steam
+                    # overlay hint did, 2026-10-11), not the owner, so take the game back at once
+                    popup = self.ctl.last_sent_tick is not None and not self.ctl.foreign_input()
+                    if popup and self.a.refocus and self.ctl.refocus_game():
+                        self.log("focus lost without owner input (popup): game brought back to the front")
+                        self.ctl.mark_sent()
+                        continue
                     why = "owner switched to another window"
                 if not why:
                     break
@@ -565,6 +573,17 @@ class Runner:
                     self.log(f"stopped: {g}")
                     self.checkpoint(f"stopped: {g}")
                     return 3
+            br = self.state.setdefault("breaker", {})
+            if br.get(t["kind"], {}).get("open"):
+                rec = {"id": t["id"], "kind": t["kind"], "cell": t["cell"], "ref": t["ref"], "model": t.get("model", ""),
+                       "attempt": 0, "verdict": "INCONCLUSIVE", "class": "BREAKER",
+                       "detail": f"not run: the first {BREAKER} {t['kind']} tests were all inconclusive", "exit": None,
+                       "dir": "", "t": now()}
+                with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
+                    f.write(json.dumps(rec) + "\n")
+                self.state["done"][t["id"]] = {"verdict": "INCONCLUSIVE", "class": "BREAKER", "attempts": 0}
+                self.checkpoint()
+                continue
             n = self.state["attempts"].get(t["id"], 0) + 1
             self.state["attempts"][t["id"]] = n
             out_dir = os.path.join(self.qdir, "tests", t["id"], f"a{n}")
@@ -606,6 +625,15 @@ class Runner:
                 f.write(json.dumps(rec) + "\n")
             if verdict != "INCONCLUSIVE" or n >= a.max_attempts:
                 self.state["done"][t["id"]] = {"verdict": verdict, "class": cls, "attempts": n}
+            k = br.setdefault(t["kind"], {"inconclusive_run": 0, "decided": 0, "open": False})
+            if verdict == "INCONCLUSIVE" and cls not in ("CRASH", "NOCELL"):
+                k["inconclusive_run"] += 1
+            elif verdict != "INCONCLUSIVE":
+                k["inconclusive_run"], k["decided"] = 0, k["decided"] + 1
+            if k["decided"] == 0 and k["inconclusive_run"] >= BREAKER:
+                k["open"] = True                          # this kind's step is broken here: stop spending hours on it
+                self.log(f"circuit breaker: {BREAKER} {t['kind']} tests in a row inconclusive, none decided: "
+                         f"the rest of this kind is skipped")
             self.checkpoint()
             ran += 1
             self.log(f"{t['id']}: {verdict} {cls} {detail}")
