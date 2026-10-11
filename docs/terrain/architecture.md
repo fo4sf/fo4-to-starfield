@@ -279,6 +279,9 @@ height says which file the engine loaded.
 | World02 has terrain, World03 not (or the reverse) | the engine binds by record (or by name) |
 | No ground anywhere, even with Mars | loose BTD not loaded, or a field we copied matters; next: pack into a BA2, then try overriding a vanilla BTD |
 
+**Experiment 2** (staged next, also not deployed): the real Commonwealth heights around Red Rocket in one 29 x 29-cell
+BTD with 14 check points for the unattended runner. See [experiment2.md](experiment2.md).
+
 ## 6. Unknowns (in order)
 1. **In game:** does `FO4TX_World01` show terrain at 10 m without a planet entry (experiment 1)? Everything else waits on this.
 2. Record path vs name binding; what is drawn beyond the BTD edge; whether loose `.btd` files load or must be in a BA2.

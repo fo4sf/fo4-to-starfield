@@ -3,6 +3,42 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-11 Claude: terrain experiment 2 staged
+- Question: can the real Commonwealth terrain around Red Rocket be one native Starfield BTD at absolute positions,
+  ready for the unattended runner, whichever BTD lookup experiment 1 finds?
+  Write-up: [docs/terrain/experiment2.md](../terrain/experiment2.md).
+- Method:
+  - `src/fo4sf/terrain_grid.py`: grid rule, choice of n, separable bilinear resampling with edge clamping, and
+    interpolation rules for check points.
+  - `scripts/terrain/make_exp2.py`: reads the FO4 cells with the PR #56 `fo4land` module, writes the BTD with
+    `btd.py`, then `plan.json` and `expected.json`.
+  - `dotnet/TerrainExp2`: writes the plugin from experiment 1's template.
+  - Survey of the LTEX quadrant maps of the 753 top-level vanilla BTDs (scratch).
+  - Staged in `C:\Modding\staging\terrain_exp2`. Not deployed.
+- Evidence (**verified** offline):
+  - n = 29: Starfield cells -14..14, samples -1400..1499.22 m. That covers the PR #56 patch plus 300 m.
+  - FO4 cells x/y -24..25 (2,500) read, so the whole BTD holds real heights.
+  - BTD 27,612,888 B. Heights -114.46..140.67 m, header -116/142, step 3.937 mm.
+  - Base texture `001235C2` LDirtFootprints01: the base of 2,334,675 quadrants in vanilla BTDs, and the only texture
+    of TempJemisonWorld.
+  - Plugin 36,742 B, checked with a raw walk:
+    - WRLD `FO4CW_Commonwealth`, overlay `BNAM` pointing to SFBK `ANAM Data\TERRAIN\FO4CW_Commonwealth.btd`
+      (record path and name both match), `DNAM` 29 x 29, `ENAM` -116/142;
+    - `NAM0`/`NAM9` raw -1400/1500 m (Mutagen shows metres / 4096);
+    - 841 cells;
+    - COC cell `FO4CW_RedRocketSpawn` (-10, 11) with a marker at (-989.03, 1147.20, 107.14).
+  - 14 check points at FO4 vertices (Red Rocket, flat, slope, both seam kinds, resampled). The decoded BTD returns
+    every expected height within 3.221 mm under bilinear and both triangle splits.
+  - Over all 4,225 patch vertices: median error 1.58 cm, p99 13.4 cm, max 1.42 m at a 75 deg cliff.
+  - Rebuilds are byte-identical.
+  - SFBK `FNAM[0]` = the BTD's SW corner raw height in 3 of 3 vanilla blocks.
+- Status:
+  - BTD, plugin and plan are **verified** offline.
+  - H (BTD z = FO4 z / 70) and the grid rule remain **supported hypotheses** until experiment 1 or 2 runs in game.
+  - **Unresolved**: `FNAM[1..7]`, whether `SmallWorld` or 841 empty cells matter, FO4's triangle split, and cliff
+    accuracy at a 0.78 m grid.
+  - Next (plan): an exterior exporter for the Red Rocket statics. Fo4Export is interior-only.
+
 ## 2026-10-11 Claude: Starfield terrain architecture
 - Question: how can native Starfield terrain carry the exact Commonwealth geography (S5 / WP-12)?
   Full write-up: [docs/terrain/architecture.md](../terrain/architecture.md).

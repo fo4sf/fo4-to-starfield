@@ -402,10 +402,13 @@ def check(a):
     dec = t.heights_m()
     step = (t.hmax - t.hmin) / 65535.0
     errs = []
-    for p in plan[0]["points"]:
-        h = tg.btd_height_at(dec, n, p["x"], p["y"])
-        errs.append(abs(h - p["expect"]))
-        print(f"  {p['label']:<22} decoded {h:9.4f}  expect {p['expect']:9.4f}  error {abs(h - p['expect']) * 1000:6.3f} mm")
+    o = tg.grid_origin(n)
+    for p in plan[0]["points"]:                      # worst of bilinear and both triangle splits
+        hs = tg.point_interp(dec, o, o, tg.SF_STEP_M, p["x"], p["y"])
+        e = max(abs(h - p["expect"]) for h in hs.values())
+        errs.append(e)
+        print(f"  {p['label']:<22} decoded {hs['bilinear']:9.4f} (tri {hs['tri_sw_ne']:9.4f} {hs['tri_nw_se']:9.4f})"
+              f"  expect {p['expect']:9.4f}  error {e * 1000:6.3f} mm")
     print(f"BTD {len(data):,} B, {n} x {t.ncy} cells, range {t.hmin}..{t.hmax}, step {step * 1000:.3f} mm, "
           f"LTEX {['%08X' % x for x in t.ltex]}, quad {[int(v) for v in t.quad_map[0, 0]]}, "
           f"weights max {int(t.weights.max())}")
