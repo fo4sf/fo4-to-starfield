@@ -3,6 +3,19 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-10 Claude: skinned props are drawn in the node pose (converter now bakes it)
+- Question: FO4 skinned props (skeletons, sinks) were converted in their stored bind pose; is that what FO4 shows?
+- Method: `convert_static.pose_skinned_shapes` (fo4skin, PR #45) on the real files, stored vs posed vertex heights.
+- Evidence: `Vault_Sink_01.nif`: the tap is stored at the model origin (z -0.03..0.03 m) and posed on the basin rim
+  (1.13..1.19 m), the two water-stream shapes posed falling from it (0.82..1.07 m); stored, they sit in the floor.
+  `SkeletonClothed01.nif`: posed z 0.29..1.74 m and y -0.53..0.92 m, the same box as its 17 bone nodes / converted
+  collision (0.30..1.74, -0.54..0.92); stored it stands 0.01..1.88 m with collision 0.3 m above its feet.
+- Status: "FO4 draws placed skinned props in the NIF's node pose": **supported hypothesis** (the sink makes no sense
+  otherwise; the skeleton's collision agrees; not yet seen in game). Animated NIFs (NiControllerManager) are posed too:
+  the node pose is their rest pose; **unresolved** whether every animated prop looks right (counted in the manifest as
+  `skinned_posed_animated` for the in-game check). The pinned build has 2,272 skinned placements, 346 of which move by
+  2 units or more (PR #45's scan).
+
 ## 2026-10-10 Claude: FO4 skin reader (BSSkin::Instance, BSSkin::BoneData, vertex weights) and pose bake
 - Question: where does a skinned FO4 shape keep its bone nodes, skin-to-bone transforms and per-vertex weights, and
   does posing it with the NIF's own bone nodes give back its stored positions? (Prerequisite for posing ragdoll
