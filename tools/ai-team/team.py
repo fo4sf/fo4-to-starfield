@@ -14,7 +14,8 @@ import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-REPO = "dasscooby/fo4-to-starfield"
+REPO = os.environ.get("FO4SF_REPO") or subprocess.run(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"],
+                                               capture_output=True, text=True, timeout=30, cwd=HERE).stdout.strip()   # this checkout's repo
 
 
 def _gh(args):

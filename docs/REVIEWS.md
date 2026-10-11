@@ -6,7 +6,7 @@ links the commits. Reviewers: please state what you ran or read for each finding
 
 Suggested prompt for an AI reviewer:
 
-> Review https://github.com/dasscooby/fo4-to-starfield (start with README, docs/PLAN.md, docs/JOURNAL.md and the latest commits).
+> Review the fo4-to-starfield repository on GitHub (start with README, docs/PLAN.md, docs/JOURNAL.md and the latest commits).
 > Look for correctness bugs in `src/fo4sf`, `dotnet/`, `scripts/` that would make converted Fallout 4 content look, collide or
 > load wrong in Starfield, or make the pipeline lose data silently. For each finding give: file and function, what goes wrong,
 > a minimal reproduction (input + expected vs actual), and a suggested fix. Prefer few verified findings over many guesses.

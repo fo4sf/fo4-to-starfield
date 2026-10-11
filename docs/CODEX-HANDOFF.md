@@ -1,6 +1,6 @@
 # Codex / Claude / Grok status
 
-Owner: dasscooby. Goal: finish the verified interior slice before actor implementation.
+Owner: the repository owner. Goal: finish the verified interior slice before actor implementation.
 
 ## Goal and acceptance
 
