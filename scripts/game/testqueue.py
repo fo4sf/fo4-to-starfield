@@ -212,7 +212,9 @@ def plan_terrain(a):
         if not str(w.get("coc", "")).replace("_", "").isalnum():
             sys.exit(f"bad coc name in plan.json: {w.get('coc')!r}")
         travel = w.get("travel") or ""
-        if travel and not re.fullmatch(r"(coc|cow) [A-Za-z0-9_]+( -?\d+ -?\d+)?", travel):
+        # cow did not move the player in Starfield (control run 2026-10-11: still in the interior); moveto to a
+        # reference inside the target worldspace does
+        if travel and not re.fullmatch(r"(coc|cow) [A-Za-z0-9_]+( -?\d+ -?\d+)?|player\.moveto [0-9A-Fa-f]{8}", travel):
             sys.exit(f"bad travel command in plan.json: {travel!r}")
         tests.append({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "", "ref": w["coc"],
                       "model": w.get("label", ""), "world_coc": w["coc"], "travel": travel,
