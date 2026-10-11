@@ -44,9 +44,13 @@ function Assert-Foreground($procName) {
   if ($name -ne $procName) { Write-Error "ABORT: foreground window belongs to '$name', not '$procName'. No input sent."; exit 2 }
 }
 $p = Get-Process $Proc -ErrorAction Stop | Select-Object -First 1
-[In]::ShowWindow($p.MainWindowHandle, 9) | Out-Null
-[In]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
-Start-Sleep -Milliseconds 400
+# FO4SF_NO_FOCUS_STEAL=1 (unattended queue runs, testqueue.py): never bring the game to the front. If the owner has
+# switched to another window, they are using the PC: the guard below stops with exit 2 instead of taking focus back.
+if ($env:FO4SF_NO_FOCUS_STEAL -ne '1') {
+  [In]::ShowWindow($p.MainWindowHandle, 9) | Out-Null
+  [In]::SetForegroundWindow($p.MainWindowHandle) | Out-Null
+  Start-Sleep -Milliseconds 400
+}
 Assert-Foreground $Proc
 $steps = $Seq.Split('|')
 foreach ($s in $steps) {
