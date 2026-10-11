@@ -65,9 +65,13 @@ for ($k = $First;$k -lt [Math]::Min($list.Count, $First + $Count); $k++) {
   if ($LASTEXITCODE -ne 0) { "guard stopped at route $k"; break }
   # a door route starts at the pitch remembered for this door ref / model / cell (prompt_memory.py), else the level pitch
   $cell = "$($r.cell)"; if (-not $cell) { $cell = [IO.Path]::GetFileNameWithoutExtension($Routes) }
+  # '-' stands for an empty model or ref: Windows PowerShell 5.1 drops an empty-string argument to a native command,
+  # which would shift prompt_memory.py's positional arguments (a hit would then fail on the missing pitch, no memory)
+  $model = "$($r.model)"; if (-not $model) { $model = '-' }
+  $refArg = "$($r.ref)"; if (-not $refArg) { $refArg = '-' }
   $memPitch = 0
   if ($r.use -and $PitchMemory -ne 'off') {
-    $m = "$(& $env:FO4SF_PYTHON $memPy get $PitchMemory $cell "$($r.model)" "$($r.ref)")".Trim()
+    $m = "$(& $env:FO4SF_PYTHON $memPy get $PitchMemory $cell $model $refArg)".Trim()
     if ($m -match '^\d+$') { $memPitch = [int]$m }
   }
   Level-Camera $(if ($memPitch -gt 0) { $memPitch } else { $LevelPitch })
@@ -122,7 +126,7 @@ for ($k = $First;$k -lt [Math]::Min($list.Count, $First + $Count); $k++) {
       powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq "move:0,$TiltStep|wait:450" | Out-Null
     }
     if ($prompt -and $PitchMemory -ne 'off') {
-      $memArgs = @('hit', $PitchMemory, $cell, "$($r.model)", "$($r.ref)", $pitch)
+      $memArgs = @('hit', $PitchMemory, $cell, $model, $refArg, $pitch)
       if ($missed -gt 0) { $memArgs += @('--missed', $missed) }
       & $env:FO4SF_PYTHON $memPy @memArgs | Out-Null
     }

@@ -607,8 +607,11 @@ movable bodies for loose items.
 saved per cell / door model / ref in `prompt_pitch.json` next to the routes file; the next door route of that cell
 levels straight to it and takes one shot, a miss falls back to the unchanged 9-round sweep, two misses drop the pitch.
 Without a memory the input sequence is the old one. Measured before from the pinned-build run folders
-(`prompt_rounds.py`, file times of `r<k>_pre.png`): 117 door routes, 2.53 rounds each (76% at 2 rounds, none at 1,
-5 full sweeps), 2.07 s per round, ~5 s of a 102.8 s door route; the console typing between routes (70.7 s) is the
+(`prompt_rounds.py`, file times of `r<k>_pre.png`): 149 door routes in 9 runs (the library run of 2026-10-11
+included), 2.50 rounds each (76% at 2 rounds, none at 1, 5 full sweeps), 2.07 s per round, ~5 s of a 102.8 s door
+route (library: median 102.9 s over 28 consecutive door routes); the console typing between routes (70.7 s) is the
 larger cost. docs/ai/research-log.md and docs/ai/optimization.md hold the numbers and the after-plan (same cell twice,
-compare `prompt_rounds.py` output and `route_eval.py` verdicts). PR `claude/route-prompt-memory` (needs-qa); 264
-tests pass, guard ok.
+compare `prompt_rounds.py` output and `route_eval.py` verdicts). PR `claude/route-prompt-memory` (needs-qa); 265
+tests pass, guard ok. 2026-10-11: an empty door model or ref goes to `prompt_memory.py` as `-` (Windows PowerShell
+5.1 drops an empty-string argument to a native command, verified with `python -c "print(sys.argv)"`; `""` would have
+shifted the arguments and the hit would have failed on the missing pitch).

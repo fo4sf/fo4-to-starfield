@@ -85,6 +85,25 @@ class PromptMemoryTests(unittest.TestCase):
                 json.dump({"cells": []}, f)
             self.assertEqual(memory.load(path), {"cells": {}})
 
+    def test_a_dash_stands_for_an_empty_model_or_ref(self):
+        # route_run.ps1 passes '-' for an empty model or ref (routes.py: model = r.get("model") or ""): Windows
+        # PowerShell 5.1 drops an empty-string argument to a native command, so "" would shift the positional arguments
+        # and the hit would fail on the missing pitch. '-' must record and look up by cell only, never as a model name.
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "prompt_pitch.json")
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(memory.main(["hit", path, "V", "-", "-", "1000"]), 0)
+            saved = memory.load(path)
+            self.assertEqual(saved["cells"]["V"]["pitch"], 1000)
+            self.assertNotIn("models", saved["cells"]["V"])
+            self.assertNotIn("refs", saved["cells"]["V"])
+            with redirect_stdout(io.StringIO()) as out:
+                memory.main(["get", path, "V", "-", "-"])
+            self.assertEqual(out.getvalue().strip(), "1000")
+            with redirect_stdout(io.StringIO()) as out:
+                memory.main(["get", path, "V", "-"])
+            self.assertEqual(out.getvalue().strip(), "1000")
+
 
 class RunnerConstantsTests(unittest.TestCase):
     def test_route_run_sweep_matches_the_memory_module_and_is_the_old_one(self):
@@ -97,6 +116,12 @@ class RunnerConstantsTests(unittest.TestCase):
         self.assertIn('"move:0,-2500|wait:250|move:0,-2500|wait:300|move:0,$pitch|wait:500"', text)
         self.assertIn('"move:0,$TiltStep|wait:450"', text)
         self.assertIn("Level-Camera $LevelPitch }", text)
+        # empty model / ref go to prompt_memory.py as '-' (PowerShell 5.1 drops empty-string arguments), both calls
+        self.assertIn("if (-not $model) { $model = '-' }", text)
+        self.assertIn("if (-not $refArg) { $refArg = '-' }", text)
+        self.assertIn("$memPy get $PitchMemory $cell $model $refArg", text)
+        self.assertIn("@('hit', $PitchMemory, $cell, $model, $refArg, $pitch)", text)
+        self.assertEqual(memory.NONE_ARG, "-")
         self.assertIn("$PitchMemory -ne 'off'", text)
 
 

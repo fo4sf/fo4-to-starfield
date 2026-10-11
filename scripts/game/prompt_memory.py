@@ -14,6 +14,8 @@ usage:
   prompt_memory.py get <file> <cell> [<model> [<ref>]]                       prints the pitch to start at, or "none"
   prompt_memory.py hit <file> <cell> <model> <ref> <pitch> [--missed <P>]    the prompt was found at <pitch>;
                                                                              --missed <P>: the remembered P showed none
+<model> or <ref> given as "-" means unknown (route_run.ps1 passes that for an empty field: Windows PowerShell 5.1 drops
+an empty-string argument to a native command, which would shift the positional arguments).
 Lookup order: ref, then model, then the cell's last pitch. A pitch is not offered when it equals LEVEL (the sweep's
 first round is there anyway) or when it missed MAX_MISSES times in this cell. No file or no entry prints "none", and
 the runner then searches exactly as before.
@@ -27,6 +29,7 @@ from datetime import datetime
 LEVEL = 700        # route_run.ps1: counts down from the top clamp that level the camera (calibrated in game)
 STEP = 150         # route_run.ps1: counts per sweep round
 MAX_MISSES = 2     # a remembered pitch that showed no prompt this often is not offered again in that cell
+NONE_ARG = "-"     # route_run.ps1 passes this for an empty model or ref (PowerShell 5.1 drops empty-string arguments)
 
 
 def model_key(model):
@@ -113,11 +116,13 @@ def main(argv=None):
     hit.add_argument("pitch", type=int)
     hit.add_argument("--missed", type=int, default=None)
     a = ap.parse_args(argv)
+    model = "" if a.model == NONE_ARG else a.model
+    ref = "" if a.ref == NONE_ARG else a.ref
     if a.cmd == "get":
-        pitch = lookup(load(a.file), a.cell, a.model, a.ref)
+        pitch = lookup(load(a.file), a.cell, model, ref)
         print("none" if pitch is None else pitch)
         return 0
-    data = record_hit(load(a.file), a.cell, a.model, a.ref, a.pitch, a.missed)
+    data = record_hit(load(a.file), a.cell, model, ref, a.pitch, a.missed)
     save(a.file, data)
     print(f"{a.cell}: {a.pitch}" + (f" (missed {a.missed})" if a.missed is not None else ""))
     return 0
