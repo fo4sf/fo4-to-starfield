@@ -112,7 +112,9 @@ def fo4_native_collision(src, universal_template: bytes, report: dict = None):
     if not objs:
         return None
     blobs, skipped = [], []
-    world = nifmod.world_transforms(src)
+    # placed=True: the game ignores the scene root's own transform (PryCatwalkStairsEnt02's 180-degree root turned the
+    # converted stairs the wrong way round; FO4's precombined physics only matches without it).
+    world = nifmod.world_transforms(src, placed=True)
     for i in objs:
         target, _, data = struct.unpack_from("<iHi", src.blocks[i], 0)
         if not (0 <= target < len(src.blocks)):
@@ -194,7 +196,8 @@ def convert_static(fo4_nif: bytes, out_name: str, material_path: str = PLACEHOLD
     allow_guess=False: FO4's own collision or nothing, never a guessed box (vegetation, mounds, door frames: a box
     around them would be an invisible wall). A failed native conversion is reported as "fo4-native-failed"."""
     src = nifmod.parse(fo4_nif)
-    shapes = [s for s in nifmod.fo4_trishapes(src) if (include_skinned or not s.skinned) and s.positions and s.triangles]
+    shapes = [s for s in nifmod.fo4_trishapes(src, placed=True)
+              if (include_skinned or not s.skinned) and s.positions and s.triangles]
     if not shapes:
         raise nifmod.NifError("no static BSTriShape geometry found")
     files, static_shapes, all_pts, all_tris = {}, [], [], []
@@ -251,12 +254,12 @@ def convert_door(fo4_nif: bytes, out_name: str, material_paths: list, unit_scale
     reference position to keep the door where FO4 drew it. bounds = (min xyz, max xyz) in NIF space (for the record's OBND)."""
     template = template or sfnif.DOOR_TEMPLATE
     src = nifmod.parse(fo4_nif)
-    hinge = nifmod.door_hinge(src)
+    hinge = nifmod.door_hinge(src, placed=True)
     if hinge is None:
         raise nifmod.NifError("no Open sequence / hinge node")
     moving_blocks = nifmod.descendants(src, hinge[0])
     pivot = hinge[1]
-    shapes = [s for s in nifmod.fo4_trishapes(src) if s.positions and s.triangles]
+    shapes = [s for s in nifmod.fo4_trishapes(src, placed=True) if s.positions and s.triangles]
     files, static_shapes, moving_shapes, moving_pts, all_pts = {}, [], [], [], []
     for i, s in enumerate(shapes):
         if material_paths[i] is None:

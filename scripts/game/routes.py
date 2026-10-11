@@ -4,7 +4,9 @@ usage: python routes.py --fo4-data <FO4 Data> --cell-json <cell.json> --manifest
 
 Stairs: every placed model whose FO4 collision has a stair ramp: the L_STAIRHELPER body (layer 31) if present, else the
 collision triangles sloped 20-50 degrees. The ramp's low and high ends (node space -> placement) give a start point 0.8 m
-before the low end, the heading towards the high end, and the expected height at the top.
+before the low end, the heading towards the high end, and the expected height at the top. Ends steeper than
+MAX_RAMP_SLOPE apart are not a ramp (bevels on a railing frame) and get no route; they are listed as skipped.
+Models are placed as the game places them: the NIF's scene root transform is not applied (nif.world_transforms).
 Doors: every placed converted door (manifest item with "door"): start 1.6 m in front of the FO4 origin facing through
 the opening, press E, walk; pass = the player ends at least 1 m past the door plane.
 Coordinates are metres in Starfield cell space (FO4 units / 70); reference rotations use Bethesda's clockwise angles.
@@ -39,8 +41,9 @@ def apply(m, v):
 
 
 def collision_bodies(f):
-    """(layer, points, triangles) of every FO4 collision body of a NIF, points in NIF root space (metres)."""
-    world = nif.world_transforms(f)
+    """(layer, points, triangles) of every FO4 collision body of a NIF, points in NIF root space (metres), placed as the
+    game places a reference: without the scene root's own transform (nif.world_transforms placed=True)."""
+    world = nif.world_transforms(f, placed=True)
     for i in range(len(f.blocks)):
         if f.type_of(i) != "bhkNPCollisionObject":
             continue
@@ -75,8 +78,24 @@ def collision_bodies(f):
             yield layer, [to_root(v) for v in pts], tris
 
 
+# A ramp's low and high ends (ends()) must be a walkable run apart. Every FO4 stair ramp in the 15 converted cells is at
+# most 46.4 degrees end to end (V111HallStairs01's helper); the railing frames around the Prydwen stairwells
+# (PryPlatformInCornerStairs01/02, PryPlatformWallStairs01) only have small 20-50 degree bevels on their posts, whose
+# lowest and highest points sit 0.03 m apart under a 0.91 m rise (88 degrees): not a ramp.
+MAX_RAMP_SLOPE = 60.0
+NOT_A_RAMP = "sloped triangles, no ramp"
+
+
+def ramp_slope(points):
+    """Slope in degrees of the line from a ramp's low end to its high end (90 when they are stacked)."""
+    lo, hi = ends(points)
+    return math.degrees(math.atan2(hi[2] - lo[2], math.hypot(hi[0] - lo[0], hi[1] - lo[1])))
+
+
 def ramp_points(f):
-    """Node-space-transformed (NIF root, metres) points of the stair ramp of a FO4 NIF, or [] if it has none."""
+    """Node-space-transformed (NIF root, metres) points of the stair ramp of a FO4 NIF and how they were found:
+    ([], None) if it has no sloped collision at all, ([], NOT_A_RAMP) if what it has is not a ramp (ramp_slope above
+    MAX_RAMP_SLOPE)."""
     helper, sloped = [], []
     for layer, pts, tris in collision_bodies(f):
         if layer == STAIRHELPER:
@@ -91,7 +110,10 @@ def ramp_points(f):
             tilt = math.degrees(math.acos(max(-1, min(1, nrm[2] / ln))))
             if 20 < tilt < 50:
                 sloped += [a, b_, c]
-    return (helper, "stairhelper") if helper else (sloped, "sloped-collision") if sloped else ([], None)
+    for pts, how in ((helper, "stairhelper"), (sloped, "sloped-collision")):
+        if pts and ramp_slope(pts) <= MAX_RAMP_SLOPE:
+            return pts, how
+    return ([], NOT_A_RAMP) if helper or sloped else ([], None)
 
 
 def walkable_triangles(f):
@@ -148,9 +170,9 @@ def door_frame(f):
     """(centre, unit normal) of a door model in its local space (metres): bounds of all render shapes, normal along the
     thinner horizontal axis. None if it has no geometry."""
     pts = []
-    hinge = nif.door_hinge(f)                       # the closed leaf spans the opening: use it alone when there is one
+    hinge = nif.door_hinge(f, placed=True)          # the closed leaf spans the opening: use it alone when there is one
     moving = nif.descendants(f, hinge[0]) if hinge else None
-    for s in nif.fo4_trishapes(f):
+    for s in nif.fo4_trishapes(f, placed=True):
         if moving is not None and s.block not in moving:
             continue
         for v in s.positions:
@@ -263,7 +285,8 @@ def main():
             cache[key] = ramp_points(nif.parse(raw)) if raw else ([], None)
         pts, how = cache[key]
         if not pts:
-            skipped[model] = skipped.get(model, 0) + 1
+            label = model if how is None else f"{model} ({how})"
+            skipped[label] = skipped.get(label, 0) + 1
             continue
         lo, hi = ends([place(p) for p in pts])
         d = (hi[0] - lo[0], hi[1] - lo[1])
