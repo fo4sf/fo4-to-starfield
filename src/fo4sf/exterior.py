@@ -142,6 +142,13 @@ def place(selected: dict, manifest: dict, cell_min: int, cell_max: int, edid_pre
                 skipped.append(skip_entry(r, "not_converted", "model missing from the converter manifest"))
             continue
         pos = metres(r["pos"])
+        scale = float(r.get("scale") or 1.0)
+        rot = [float(v) for v in r["rot"]]
+        if "door" in item:                       # rigged door: its NIF origin is the hinge, shift as PluginSpike does
+            off = item["door"]["origin_offset"]
+            m = ref_matrix(rot)
+            pos = tuple(pos[a] + scale * sum(m[3 * a + k] * off[k] for k in range(3)) for a in range(3))
+        # the cell of the position actually written, after the hinge shift (a door near a cell edge can cross it)
         cell = tg.sf_cell_of(pos[0], pos[1])
         if not (cell_min <= cell[0] <= cell_max and cell_min <= cell[1] <= cell_max):
             skipped.append(skip_entry(r, "outside_terrain", f"Starfield cell {list(cell)} outside {cell_min}..{cell_max}"))
@@ -156,13 +163,6 @@ def place(selected: dict, manifest: dict, cell_min: int, cell_max: int, edid_pre
                 base["door"] = item["door"]
             base_index[key] = len(bases)
             bases.append(base)
-        b = bases[base_index[key]]
-        scale = float(r.get("scale") or 1.0)
-        rot = [float(v) for v in r["rot"]]
-        if "door" in b:                          # rigged door: its NIF origin is the hinge, shift as PluginSpike does
-            off = b["door"]["origin_offset"]
-            m = ref_matrix(rot)
-            pos = tuple(pos[a] + scale * sum(m[3 * a + k] * off[k] for k in range(3)) for a in range(3))
         placed.append({"src": r["formkey"], "base": base_index[key], "cell": list(cell),
                        "pos": [round(v, 5) for v in pos], "rot": rot, "scale": scale,
                        "disabled": bool(r.get("disabled")), "fo4_persistent": bool(r.get("persistent")),
@@ -267,6 +267,13 @@ class SurfaceIndex:
             if z <= below:
                 return z, o
         return None
+
+    def near(self, x: float, y: float, r: float):
+        """Indices of the triangles whose buckets touch the square (x - r .. x + r, y - r .. y + r) (a superset)."""
+        i0, i1 = int(math.floor((x - r) / self.cell)), int(math.floor((x + r) / self.cell))
+        j0, j1 = int(math.floor((y - r) / self.cell)), int(math.floor((y + r) / self.cell))
+        parts = [self.buckets[(i, j)] for i in range(i0, i1 + 1) for j in range(j0, j1 + 1) if (i, j) in self.buckets]
+        return np.unique(np.concatenate(parts)) if parts else np.zeros(0, np.int64)
 
 
 def disc_offsets(radius: float, rings: int = 2, per_ring: int = 8):
@@ -390,3 +397,68 @@ def pick_points(index: SurfaceIndex, ground, owner, bounds, drop_z, count=1, min
         if len(picked) == count:
             break
     return picked
+
+
+# ------------------------------------------------------------------------------------------------------------ teleports
+def setpos_path(start, target_xy, drop_z):
+    """The positions the runner's Teleport passes through (scripts/game/qstep.ps1: player.setpos x, then y, then z) on
+    its way from start (x, y, z: where the player stands) to target_xy at drop_z: [(x1, y0, z0), (x1, y1, z0),
+    (x1, y1, drop_z)]."""
+    x0, y0, z0 = start
+    x1, y1 = target_xy
+    return [(x1, y0, z0), (x1, y1, z0), (x1, y1, drop_z)]
+
+
+def _clip_z(poly, zlo, zhi):
+    """The part of a polygon [(x, y, z)] between the planes z = zlo and z = zhi (Sutherland-Hodgman)."""
+    def clip(poly, inside, level):
+        out = []
+        for i in range(len(poly)):
+            a, b = poly[i], poly[(i + 1) % len(poly)]
+            ia, ib = inside(a), inside(b)
+            if ia:
+                out.append(a)
+            if ia != ib:
+                t = (level - a[2]) / (b[2] - a[2])
+                out.append(tuple(a[k] + (b[k] - a[k]) * t for k in range(3)))
+        return out
+    poly = clip(list(poly), lambda p: p[2] >= zlo, zlo)
+    return clip(poly, lambda p: p[2] <= zhi, zhi) if poly else []
+
+
+def _xy_distance(poly, x, y) -> float:
+    """Distance in xy from (x, y) to a convex polygon's projection (0 inside; degenerate polygons by their edges)."""
+    n = len(poly)
+    if n >= 3:
+        signs = [(poly[(i + 1) % n][0] - poly[i][0]) * (y - poly[i][1]) - (poly[(i + 1) % n][1] - poly[i][1]) * (x - poly[i][0])
+                 for i in range(n)]
+        if (all(s >= -1e-12 for s in signs) or all(s <= 1e-12 for s in signs)) and any(abs(s) > 1e-12 for s in signs):
+            return 0.0
+    best = math.inf
+    for i in range(n):
+        (ax, ay, _), (bx, by, _) = poly[i], poly[(i + 1) % n]
+        dx, dy = bx - ax, by - ay
+        ll = dx * dx + dy * dy
+        t = 0.0 if ll < 1e-18 else max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / ll))
+        best = min(best, math.hypot(x - ax - t * dx, y - ay - t * dy))
+    return best
+
+
+def capsule_hits(index: SurfaceIndex, ground, x, y, z, radius=0.4, height=1.8, skin=0.05):
+    """What a standing player (a vertical cylinder of `radius` from z + skin to z + height, z = the feet) placed at
+    (x, y, z) overlaps: [owner] of every collision triangle that reaches into the cylinder (walls included, not only
+    the surfaces a vertical ray sees), plus "terrain" when the terrain rises above z + skin anywhere under the disc.
+    Empty = clear. The radius and height are assumptions (the capsule is unresolved); skin ignores touching contact.
+    A cylinder wholly inside a closed solid wider and taller than itself touches no triangle and is not reported."""
+    hits = set()
+    for k in index.near(x, y, radius).tolist():
+        tri = index.tris[k]
+        if tri[:, 2].max() <= z + skin or tri[:, 2].min() >= z + height:
+            continue
+        poly = _clip_z([tuple(v) for v in tri.tolist()], z + skin, z + height)
+        if poly and _xy_distance(poly, x, y) < radius:
+            hits.add(int(index.owners[k]))
+    out = sorted(hits)
+    if any(ground(x + dx, y + dy) > z + skin for dx, dy in disc_offsets(radius)):
+        out.append("terrain")
+    return out

@@ -9,7 +9,9 @@
 //   source_cell    FormKey  the CELL record that stores it (the worldspace's persistent cell for persistent references)
 // Persistent references of exterior cells live in the worldspace's persistent cell in Fallout4.esm, not in their own
 // cell: they are taken from there when their position lies in the range (cell = floor(position / 4096)), and from any
-// persistent group of the exterior cells themselves. Top level: "cell" is a name for the range, "formkey" the
+// persistent group of the exterior cells themselves. Placed hazards / projectiles (APlacedTrap types) have positions
+// too and go to deferred_refs like every placement that is neither REFR nor ACHR; a persistent placement without a
+// position is counted in exterior.persistent_unpositioned_by_type. Top level: "cell" is a name for the range, "formkey" the
 // worldspace's FormKey (there is no single cell), "worldspace" and "exterior" describe the range and its cells.
 // Positions stay FO4 units, rotations radians; translation happens in the plugin writer. Output stays outside the repo.
 using System.Text.Json;
@@ -59,12 +61,20 @@ public static class ExteriorExport
                                temporary = cell.Temporary.Count, persistent_in_cell = cell.Persistent.Count });
         }
         int fromTop = 0;
+        // persistent placements whose type has no position here cannot be range-tested: counted per type, never
+        // dropped silently (none in Fallout4.esm's Commonwealth persistent cell, 2026-10-11)
+        var unpositioned = new Dictionary<string, int>();
         if (world.TopCell is { } top)
         {
             foreach (var p in top.Persistent)
             {
                 var pos = Position(p);
-                if (pos is null) continue;
+                if (pos is null)
+                {
+                    var t = p.GetType().Name.Replace("BinaryOverlay", "");
+                    unpositioned[t] = unpositioned.GetValueOrDefault(t) + 1;
+                    continue;
+                }
                 var xy = CellOf(pos.Value.X, pos.Value.Y);
                 if (!InRange(xy)) continue;
                 placements.Add((p, true, xy, top));
@@ -133,6 +143,7 @@ public static class ExteriorExport
             worldspace = new { editor_id = world.EditorID, formkey = world.FormKey.ToString() },
             exterior = new { xmin, ymin, xmax, ymax, cell_units = CellUnits, cells = cellInfo,
                              persistent_from_world_cell = fromTop,
+                             persistent_unpositioned_by_type = unpositioned,
                              world_persistent_cell = world.TopCell?.FormKey.ToString() },
             refs,
             deferred_refs = deferred,
@@ -143,6 +154,7 @@ public static class ExteriorExport
         Console.WriteLine($"{name}: {cellInfo.Count} cells, {refs.Count} references ({fromTop} persistent from the world's persistent cell), " +
                           $"{deferred.Count} deferred -> {outPath}");
         foreach (var kv in byType.OrderByDescending(k => k.Value)) Console.WriteLine($"  {kv.Key}: {kv.Value}");
+        foreach (var kv in unpositioned) Console.WriteLine($"  persistent without a position (not range-tested): {kv.Key}: {kv.Value}");
         return 0;
     }
 
@@ -150,6 +162,7 @@ public static class ExteriorExport
     {
         IPlacedObjectGetter o => o.Position,
         IPlacedNpcGetter n => n.Position,
+        IAPlacedTrapGetter t => t.Position,     // hazards, missiles, arrows, beams, cones, flames, barriers, traps
         _ => null,
     };
 

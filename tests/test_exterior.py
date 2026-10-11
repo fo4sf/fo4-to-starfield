@@ -182,6 +182,34 @@ class SurfaceIndexTests(unittest.TestCase):
         self.assertEqual((best[0], best[1]), (2.5, 1.0))
 
 
+class TeleportTests(unittest.TestCase):
+    def test_setpos_path(self):
+        self.assertEqual(ex.setpos_path((1, 2, 3), (10, 20), 150), [(10, 2, 3), (10, 20, 3), (10, 20, 150)])
+
+    def test_capsule_hits_walls_floors_and_terrain(self):
+        wall = box_tris(5.0, -5, 0, 5.2, 5, 3.0)                          # a 0.2 m thick wall, 3 m high, at x 5..5.2
+        floor = box_tris(-5, -5, -0.3, 5, 5, 0.0)
+        tris = wall + floor
+        idx = ex.SurfaceIndex(np.array(tris), np.array([0] * len(wall) + [1] * len(floor)))
+        flat = lambda x, y: -1.0
+        self.assertEqual(ex.capsule_hits(idx, flat, 0, 0, 0.0), [])                 # standing on the floor
+        self.assertEqual(ex.capsule_hits(idx, flat, 4.7, 0, 0.0), [0])              # 0.3 m from the wall face
+        self.assertEqual(ex.capsule_hits(idx, flat, 4.5, 0, 0.0), [])               # 0.5 m away: clear
+        self.assertEqual(ex.capsule_hits(idx, flat, 5.1, 0, 3.5), [])               # above the wall
+        self.assertEqual(ex.capsule_hits(idx, flat, 0, 0, -0.2), [1])               # feet inside the floor slab
+        self.assertEqual(ex.capsule_hits(idx, lambda x, y: x * 0.5, 0.5, 0, 0.1), ["terrain"])   # slope rises over z
+        self.assertEqual(ex.capsule_hits(idx, flat, 20, 20, 0.0), [])
+        # a vertical ray never sees the wall's sides: the surface queries alone would call x = 5.1 at z 1 clear
+        self.assertEqual([o for _, o in idx.surfaces(5.1, 0) if 1.0 < _ < 2.8], [])
+        self.assertEqual(ex.capsule_hits(idx, flat, 5.1, 0, 1.0), [0])
+
+    def test_near_is_a_superset(self):
+        tris = box_tris(10, 10, 0, 11, 11, 1)
+        idx = ex.SurfaceIndex(np.array(tris), np.zeros(len(tris), np.int64))
+        self.assertEqual(len(idx.near(10.5, 10.5, 0.4)), len(tris))
+        self.assertEqual(len(idx.near(-10, -10, 0.4)), 0)
+
+
 class PlaceTests(unittest.TestCase):
     def manifest(self):
         return {"items": [{"editor_id": "FO4Port_a", "model": "fo4cw\\architecture\\a.nif", "source": "meshes\\architecture\\a.nif"},
@@ -211,9 +239,18 @@ class PlaceTests(unittest.TestCase):
         self.assertEqual(f["base"], 1)
         self.assertAlmostEqual(f["pos"][0], 10.0, places=4)
         self.assertAlmostEqual(f["pos"][1], -2.0, places=4)
+        # the cell follows the written (shifted) position: FO4 origin y = 0 is cell 0, the hinge at y = -2 m cell -1
+        self.assertEqual(f["cell"], [0, -1])
         reasons = {s["formkey"]: s["reason"] for s in skipped}
         self.assertEqual(reasons, {"C": "conversion_failed", "D": "not_converted", "E": "outside_terrain"})
         self.assertIn("BSTriShape", next(s["detail"] for s in skipped if s["formkey"] == "C"))
+
+    def test_door_shifted_out_of_the_terrain_is_skipped(self):
+        # FO4 origin inside cell 13 (x 1399 m), the hinge 2 m east puts the door in cell 14: outside -14..13
+        sel = {"refs": [ref("G", t="Door", model="doors\\door.nif", pos=(1399 * 70, 0, 0), scale=2.0)]}
+        bases, placed, skipped = ex.place(sel, self.manifest(), -14, 13)
+        self.assertEqual(placed, [])
+        self.assertEqual([s["reason"] for s in skipped], ["outside_terrain"])
 
     def test_editor_id_prefix(self):
         self.assertEqual(ex.plugin_editor_id("FO4Port_chair", "FO4CW_"), "FO4CW_chair")
