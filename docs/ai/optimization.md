@@ -12,6 +12,7 @@ same input), and the commit. Use the `optimization` label on the issue or PR.
 | Unit tests (241) | `python -m unittest discover -s tests` | 2.4 s | Claude |
 | Deploy + launch + load cell | `research/s1/cycle.ps1` | ~3 min | Claude |
 | Parsons route run, 45 routes | `scripts/game/route_run.ps1` | ~2 min per door route (prompt search + console checks) | Claude, in progress |
+| Door prompt search, 117 door routes / 8 runs | `scripts/game/prompt_rounds.py <run dirs>` | 2.53 screenshot+OCR rounds per door route, 2.07 s each (~5.2 s); 102.8 s per door route (Rexford r10 -> r11) | Claude, entry 2026-10-10 |
 | Guardian status (one sample) | `guardian.py status` | 1.1 s | Claude |
 | Remote usage report, 24 h | `remote_usage.py` | 2.7 s | Claude |
 | Local model tokens per task | `guardian.py report` | no data yet (no model) | n/a |
@@ -20,11 +21,63 @@ same input), and the commit. Use the `optimization` label on the issue or PR.
 - Build: `--resume` checkpoints (Codex) instead of full rebuilds when only a few models change. The last six
   Claude rebuilds were full (~6 min each) for changes touching 2–118 models.
 - Route runs: the prompt search takes up to 9 screenshot+OCR rounds per door; start the tilt from the last
-  successful pitch per cell.
+  successful pitch per cell. Implemented 2026-10-10 (`scripts/game/prompt_memory.py`, `route_run.ps1 -PitchMemory`,
+  PR `claude/route-prompt-memory`); the "before" is measured (entry below: 2.53 rounds per door route, not 9), the
+  "after" needs a live run.
+- Route runs: the console typing is the larger cost. Rexford 2026-10-09: 102.8 s from one door route's first prompt
+  shot to the next route's (`r10_pre.png` -> `r11_pre.png` creation times), of which 70.7 s lie between the end
+  shot `r10.png` and `r11_pre.png`: console open, `prid` + `setopenstate 0`, five `player.setpos` / `setangle`
+  commands, the camera levelling and three `getpos` reads, typed at 240 ms per key (`input.ps1` Tap: 160 ms down +
+  80 ms up). The prompt search is 2.1-6.3 s of the 102.8 s. Candidates: shorter per-key waits, or `player.moveto` of
+  a placed marker; both need a measured in-game check that the console still takes every key.
 - Remote usage: Codex 102 M input tokens in 24 h, 96% cached; Claude 160 M cache reads; Grok 73 M input.
   Long single sessions dominate. Shorter sessions with handoff notes may cut cached-context cost; measure first.
 
 ## Entries
+
+### 2026-10-10 Claude: route runner remembers the prompt pitch per cell (before measured, after pending)
+Change: `scripts/game/prompt_memory.py` + `route_run.ps1 -PitchMemory`. The pitch (mouse counts below the top clamp)
+at which `prompt_visible.py` saw the door prompt is saved per cell, door model and ref in `prompt_pitch.json` next
+to the routes file. The next door route of that cell levels the camera straight to it and takes one shot; a miss
+re-levels and runs the unchanged 9-round sweep, and a pitch that misses twice in a cell is dropped. With no memory
+file, or `-PitchMemory off`, the input sequence is the old one exactly (same level sequence, 700 + 150 counts per
+round, 9 rounds); the additions are two Python calls per door route (`get` before levelling, `hit` after a found
+prompt) and three result fields (`prompt_rounds`, `prompt_pitch`, `pitch_source`). Not run in game yet.
+
+Before (measured 2026-10-10 from the pinned-build run folders `staging\multi_next\run_*`, runs of 2026-10-09/10;
+rounds per door route = 1 + (last write - creation) of `r<k>_pre.png` / 2.07 s, the runner overwriting that file
+once per round; `python scripts/game/prompt_rounds.py <run dirs>`):
+
+| Run | Door routes | Rounds | Rounds: routes | Never saw the prompt (9 rounds) |
+|---|---|---|---|---|
+| run_GoodneighborHotelRexford | 23 | 53 | 2: 18, 3: 3, 4: 2 | 0 |
+| run_parsons | 32 | 84 | 2: 25, 3: 4, 4: 1, 9: 2 | 2 |
+| run_parsons_doors2 | 25 | 61 | 2: 20, 3: 4, 9: 1 | 1 |
+| run_parsons_doors3 | 2 | 6 | 2: 1, 4: 1 | 0 |
+| run_parsons_doors4 | 5 | 12 | 2: 3, 3: 2 | 0 |
+| run_v81_1010 | 6 | 12 | 2: 6 | 0 |
+| run_Vault111Cryo | 2 | 4 | 2: 2 | 0 |
+| run_Vault114 | 22 | 64 | 2: 14, 3: 6, 9: 2 | 2 |
+| **Total** | **117** | **296** (2.53 per route) | 2: 89, 3: 19, 4: 4, 9: 5 | 5 |
+
+- Seconds per round: 2.05-2.07 (the five full sweeps span 16.4-16.6 s for 8 tilts); a round is `shot.ps1` +
+  `prompt_visible.py` + `input.ps1 move:0,150|wait:450`. The search is ~5.2 s per door route on average: 2.1 s at
+  2 rounds, 6.3 s at 4, 16.5 s when nothing is found. A door route takes 102.8 s (Rexford r10 -> r11 pre shots).
+- No door route saw the prompt at the levelled pitch (round 1); 76% (89/117) saw it one tilt lower (850 counts).
+- Ceiling: the 139 rounds beyond the first (~288 s over 117 routes, 2.5 s per route) are all a memory can save if
+  every remembered pitch hits. The 5 no-prompt sweeps stay at 9 rounds, plus one shot and a re-level after a miss.
+
+After (plan; same command, same pinned build, same routes file; the game is not run from this branch):
+1. `route_run.ps1 -Routes routes_<cell>.json -Out run_<cell>_a` with no `prompt_pitch.json` next to the routes
+   file: the first door route sweeps as before and writes the memory; the later door routes of the run use it.
+2. `route_run.ps1 ... -Out run_<cell>_b` for the same cell: every door route starts from memory.
+3. `python scripts/game/prompt_rounds.py run_<cell>_a run_<cell>_b` against the before folder of the same cell:
+   rounds per door route (now recorded in results.jsonl), `pitch_source` counts (memory / sweep / sweep-after-miss),
+   `misses` in `prompt_pitch.json`, and the route period from the `_pre` creation times. `route_eval.py` verdicts
+   must not change (a faster wrong E press is a regression).
+   Expected if the pitch repeats as the before data suggests: 1 round per door route instead of 2.53, about 3 s less
+   per door route (~3% of 102.8 s). If more than about one door route in five misses, the pitch is not reproducible
+   enough and the memory should be removed rather than tuned.
 
 ### 2026-10-09 Claude: model load without memory mapping (local team)
 Before: `lms load qwen3-14b --gpu max` -> LM Studio held 10.5 GB of system RAM for a model fully in VRAM; RAM 88.2%,

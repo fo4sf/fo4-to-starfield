@@ -3,6 +3,26 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-10 Claude: does the door prompt appear at a repeatable camera pitch?
+- Question: can `route_run.ps1` start its prompt search at the pitch that worked before in the same cell
+  (docs/ai/optimization.md candidate) without losing prompts?
+- Method: rounds per door route from the eight pinned-build run folders (`staging\multi_next\run_*`, 2026-10-09/10)
+  and the two `movable_v114\routes_door*` reruns. The runner overwrites `r<k>_pre.png` once per round, so
+  rounds = 1 + (last write - creation) / 2.07 s (`scripts/game/prompt_rounds.py`). Offline only, no game run.
+- Evidence: 117 door routes: 89 saw the prompt in round 2 (850 counts below the top clamp), 19 in round 3, 4 in
+  round 4, 5 never (9 rounds); none in round 1 (every span >= 2.10 s). Every 9-round sweep spans 16.4-16.6 s
+  (8 tilts x 2.06 s), which fixes the seconds per round. Same route re-run on the same build: 30 of the 32 Parsons
+  door routes repeated in `run_parsons_doors2/3/4` needed the same round count as in `run_parsons` (r19 and r31:
+  2 -> 3). Vault 114 `05C7DC`: 3 rounds in 5 of 6 attempts over three runs and two builds (`run_Vault114` r26/r27,
+  `movable_v114\routes_door` r26, `routes_door2` r26/r27); the sixth swept 9 rounds with no prompt and no result
+  line (run stopped).
+- Status: "the levelled camera (700) never shows the prompt, one tilt (850) shows it for 76% of door routes, and a
+  door repeats its pitch in 30 of 32 reruns": **verified** as round counts. The mapping of file-time spans to rounds:
+  **supported hypothesis** (consistent with all five full sweeps and the 2.1 s minimum span; not checked against a
+  logged run). Why some doors need 3-4 rounds (Rexford fridge `10AC51`, Vault 114 `SubDoor01Right` `04BB78` /
+  `05C7DC`, `141A4E`): **unresolved** (not analysed). Whether a remembered pitch hits in game: **unresolved** until
+  the live run planned in optimization.md.
+
 ## 2026-10-09 Claude: which FO4 collision bodies are movable?
 - Question: how does an FO4 `bhkPhysicsSystem` mark a body as movable (pushable), so the converter can stop turning
   physics objects into fixed obstacles (Vault 114 door `05C7DC` is blocked by a ragdoll skeleton)?

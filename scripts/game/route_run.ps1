@@ -1,20 +1,34 @@
 # Walk every route from routes.py in the game and record positions + a screenshot per route.
-# usage: route_run.ps1 -Routes routes.json -Out <dir> [-First 0] [-Count 999]
+# usage: route_run.ps1 -Routes routes.json -Out <dir> [-First 0] [-Count 999] [-PitchMemory <file>|off]
 # Requires: Starfield in front, in the route's cell, console CLOSED. Every keystroke goes through input.ps1's foreground
 # guard (stops if anything else is in front). Results: <Out>\results.jsonl (one line per route), <Out>\r<k>.png.
-param([string]$Routes, [string]$Out, [int]$First = 0, [int]$Count = 999, [int]$BackOff = 0, [string]$Only = '', [int]$StepIn = 0,[string]$PluginIndex = '02')
+param([string]$Routes, [string]$Out, [int]$First = 0, [int]$Count = 999, [int]$BackOff = 0, [string]$Only = '', [int]$StepIn = 0,[string]$PluginIndex = '02', [string]$PitchMemory = '')
 # -PluginIndex: FO4Port.esm's load-order prefix in the console (refs show as 02xxxxxx in this setup)
 # -StepIn <ms>: walk towards a door before looking for the prompt (0 = press E from the route start, outside the swing arc)
 # -BackOff <ms>: after E, walk backwards this long before crossing (gets out of the leaf's swing arc; one-sided blocks test)
 # -Only 13,15: run just these route indices
+# -PitchMemory <file>: per-cell memory of the camera pitch that showed the activation prompt (prompt_memory.py). Default:
+#   prompt_pitch.json next to the routes file; 'off' disables it. A door route in a cell with a remembered pitch levels
+#   the camera straight to it and takes one shot; no prompt there means re-level and the unchanged 9-round sweep. With
+#   no memory (first door of a cell, no file) the search is exactly the old sweep.
 $env:LEGACY = '1'
 if (-not $env:FO4SF_PYTHON) { $env:FO4SF_PYTHON = 'C:\Modding\venv-render\Scripts\python.exe' }   # OCR prep needs numpy
 $here = $PSScriptRoot
 $i = Join-Path $here 'input.ps1'; $shot = Join-Path $here 'shot.ps1'; $readpos = Join-Path $here 'readpos.ps1'
+$memPy = Join-Path $here 'prompt_memory.py'
+$LevelPitch = 700; $TiltStep = 150; $MaxRounds = 9   # counts below the top clamp that level the camera; sweep step and length
 New-Item -ItemType Directory -Force $Out | Out-Null
 $res = Join-Path $Out 'results.jsonl'
 $list = (Get-Content $Routes -Raw | ConvertFrom-Json).routes
 $inv = [Globalization.CultureInfo]::InvariantCulture
+if ($PitchMemory -eq '') { $PitchMemory = Join-Path (Split-Path -Parent (Resolve-Path $Routes).Path) 'prompt_pitch.json' }
+
+function Level-Camera([int]$pitch) {
+  # level the first-person camera: setangle x turns the actor, but the camera keeps its own mouse-look pitch (seen
+  # stuck looking at the floor, so E never reached a door). Look fully up (clamps), then down a calibrated amount
+  # ($LevelPitch), or straight to a remembered pitch that showed the prompt in this cell.
+  powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq "move:0,-2500|wait:250|move:0,-2500|wait:300|move:0,$pitch|wait:500" | Out-Null
+}
 
 function Read-Pos {
   # readpos leaves the console closed; if a read fails the console was probably open: close it once and retry
@@ -49,9 +63,14 @@ for ($k = $First;$k -lt [Math]::Min($list.Count, $First + $Count); $k++) {
          "type:player.setangle x 10|key:enter|wait:400|key:grave|wait:1800"   # x 0 points the camera at the floor
   powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq $seq | Out-Null
   if ($LASTEXITCODE -ne 0) { "guard stopped at route $k"; break }
-  # level the first-person camera: setangle x turns the actor, but the camera keeps its own mouse-look pitch (seen
-  # stuck looking at the floor, so E never reached a door). Look fully up (clamps), then down a calibrated amount.
-  powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq 'move:0,-2500|wait:250|move:0,-2500|wait:300|move:0,700|wait:500' | Out-Null
+  # a door route starts at the pitch remembered for this door ref / model / cell (prompt_memory.py), else the level pitch
+  $cell = "$($r.cell)"; if (-not $cell) { $cell = [IO.Path]::GetFileNameWithoutExtension($Routes) }
+  $memPitch = 0
+  if ($r.use -and $PitchMemory -ne 'off') {
+    $m = "$(& $env:FO4SF_PYTHON $memPy get $PitchMemory $cell "$($r.model)" "$($r.ref)")".Trim()
+    if ($m -match '^\d+$') { $memPitch = [int]$m }
+  }
+  Level-Camera $(if ($memPitch -gt 0) { $memPitch } else { $LevelPitch })
   $p0 = Read-Pos
   if ("$p0" -like 'fail console*') { "start read: $p0 at route ${k}: stopping"; break }
   # we just teleported there: a start read far from the target is an OCR misread (Parsons: "-0.00 6.40 0.00"), read again
@@ -71,7 +90,7 @@ for ($k = $First;$k -lt [Math]::Min($list.Count, $First + $Count); $k++) {
       "start read $p0 equals last end at route ${k}: console out of step, stopping"; break
     }
   }
-  $prompt = $null; $verb = $null
+  $prompt = $null; $verb = $null; $rounds = $null; $pitch = $null; $pitchSource = $null
   if ($far) {
     # the engine moved the player elsewhere (start under the floor -> cell entrance): nothing to test here, and pressing
     # E or walking from there hits whatever is in front (Parsons: E started a dialogue with the companion). Skip.
@@ -87,11 +106,25 @@ for ($k = $First;$k -lt [Math]::Min($list.Count, $First + $Count); $k++) {
     # the levelled pitch is not reproducible between sessions (Parsons: aimed over the door, no prompt, E did nothing):
     # tilt down in small steps until the activation prompt is on screen. The last _pre shot is the evidence.
     $pre = Join-Path $Out "r${k}_pre.png"
-    $prompt = $false
-    for ($t = 0; $t -lt 9; $t++) {
+    $prompt = $false; $rounds = 0; $pitchSource = 'sweep'; $missed = 0
+    if ($memPitch -gt 0) {
+      # one shot at the remembered pitch first (the camera is already there); no prompt: back to the level pitch and
+      # the unchanged sweep below. The miss is recorded with the sweep's result, so a pitch that keeps missing is dropped.
+      $rounds++
       powershell -NoProfile -ExecutionPolicy Bypass -File $shot -Out $pre | Out-Null
-      if ((& $env:FO4SF_PYTHON (Join-Path $here 'prompt_visible.py') $pre) -eq 'yes') { $prompt = $true; break }
-      powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq 'move:0,150|wait:450' | Out-Null
+      if ((& $env:FO4SF_PYTHON (Join-Path $here 'prompt_visible.py') $pre) -eq 'yes') { $prompt = $true; $pitch = $memPitch; $pitchSource = 'memory' }
+      else { $missed = $memPitch; $pitchSource = 'sweep-after-miss'; Level-Camera $LevelPitch }
+    }
+    for ($t = 0; (-not $prompt) -and $t -lt $MaxRounds; $t++) {
+      $rounds++
+      powershell -NoProfile -ExecutionPolicy Bypass -File $shot -Out $pre | Out-Null
+      if ((& $env:FO4SF_PYTHON (Join-Path $here 'prompt_visible.py') $pre) -eq 'yes') { $prompt = $true; $pitch = $LevelPitch + $TiltStep * $t; break }
+      powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq "move:0,$TiltStep|wait:450" | Out-Null
+    }
+    if ($prompt -and $PitchMemory -ne 'off') {
+      $memArgs = @('hit', $PitchMemory, $cell, "$($r.model)", "$($r.ref)", $pitch)
+      if ($missed -gt 0) { $memArgs += @('--missed', $missed) }
+      & $env:FO4SF_PYTHON $memPy @memArgs | Out-Null
     }
     # only open a closed door: a door left open by an earlier route shows CLOSE (or no prompt through the opening), and
     # E would shut it in the player's face. The verb is recorded with the result.
@@ -115,8 +148,9 @@ for ($k = $First;$k -lt [Math]::Min($list.Count, $First + $Count); $k++) {
   $p1 = Read-Pos
   if ("$p1" -like 'fail console*') { "end read: $p1 at route ${k}: stopping"; break }
   powershell -NoProfile -ExecutionPolicy Bypass -File $shot -Out (Join-Path $Out "r$k.png") | Out-Null
-  $line = @{ index = $k; ref = $r.ref; kind = $r.kind; start_read = $p0; end_read = $p1; prompt = $prompt; verb = $verb } | ConvertTo-Json -Compress
+  $line = @{ index = $k; ref = $r.ref; kind = $r.kind; start_read = $p0; end_read = $p1; prompt = $prompt; verb = $verb;
+             prompt_rounds = $rounds; prompt_pitch = $pitch; pitch_source = $pitchSource } | ConvertTo-Json -Compress
   Add-Content $res $line
   $prevEnd = $p1; $prevFar = $far
-  "route $k $($r.kind) $($r.ref): $p0 -> $p1"
+  "route $k $($r.kind) $($r.ref): $p0 -> $p1" + $(if ($null -ne $rounds) { " (prompt: $rounds rounds, pitch $pitch, $pitchSource)" } else { '' })
 }
