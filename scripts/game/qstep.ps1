@@ -146,12 +146,14 @@ switch ($kind) {
     Start-Sleep 3
     $obs['spawn_read'] = Read-Pos
     $obs['shot'] = Shot 'spawn.png'
+    Save-Obs
     $pts = @()
     $k = 0
     foreach ($p in $t.points) {
       Teleport @($p.x, $p.y, $t.drop_z) 0 15
       Start-Sleep -Milliseconds 4500                 # a fall from 80 m takes about 4 s
       $pts += [ordered]@{ label = $p.label; read = (Read-Pos); shot = (Shot "pt$k.png") }
+      $obs['points'] = $pts; Save-Obs                 # after every point: a cut-off keeps the heights already read
       $k++
     }
     $obs['points'] = $pts

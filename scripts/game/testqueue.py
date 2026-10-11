@@ -320,7 +320,8 @@ def judge(test, obs, out_dir):
         pts = obs.get("points") or []
         reads = [(p, parse3(o.get("read")) if isinstance(o, dict) else None) for p, o in zip(test["points"], pts)]
         if len(reads) < len(test["points"]) or any(r is None for _, r in reads) or not shot_ok(obs.get("shot")):
-            return "INCONCLUSIVE", "UNREAD", "a height was not read or the screenshot is missing"
+            got = "; ".join(f"{p['label']} {r[2]:.2f} (want {p['expect']})" for p, r in reads if r is not None)
+            return "INCONCLUSIVE", "UNREAD", f"{len([r for _, r in reads if r])} of {len(test['points'])} heights read"                 + (f": {got}" if got else "")
         parts, worst, fell = [], 0.0, False
         for p, r in reads:
             parts.append(f"{p['label']} {r[2]:.2f} (want {p['expect']})")
@@ -498,7 +499,9 @@ class Runner:
     def _step(self, test, out_dir):
         spec = os.path.join(out_dir, "spec.json")
         save_atomic(spec, test)
-        code, out = self._ps("qstep.ps1", ["-Spec", spec, "-Out", out_dir, "-PluginIndex", self.q["plugin_index"]], 300)
+        # a terrain drop takes about a minute per point (teleport, fall, OCR read): 300 s cut experiment 1 off
+        timeout = 150 + 90 * (len(test.get("points", [])) + 1) if test.get("kind") == "terrain" else 300
+        code, out = self._ps("qstep.ps1", ["-Spec", spec, "-Out", out_dir, "-PluginIndex", self.q["plugin_index"]], timeout)
         with open(os.path.join(out_dir, "step.log"), "w", encoding="utf-8") as f:
             f.write(out)
         return code
