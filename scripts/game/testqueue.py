@@ -324,17 +324,16 @@ class Controls:
         return d > 500
 
     @staticmethod
-    def foreground_exe():
-        u, k = ctypes.windll.user32, ctypes.windll.kernel32
+    def foreground_pid():
+        u = ctypes.windll.user32
         pid = ctypes.c_uint32()
         u.GetWindowThreadProcessId(u.GetForegroundWindow(), ctypes.byref(pid))
-        h = k.OpenProcess(0x1000, False, pid.value)
-        if not h:
-            return ""
-        buf, n = ctypes.create_unicode_buffer(1024), ctypes.c_uint32(1024)
-        ok = k.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(n))
-        k.CloseHandle(h)
-        return os.path.basename(buf.value).lower() if ok else ""
+        return pid.value
+
+    def game_in_front(self):
+        """The runner's game owns the foreground window (compared by process id, not by name)."""
+        gp = self.game_pid()
+        return bool(gp) and self.foreground_pid() == gp
 
     @staticmethod
     def game_pid():
@@ -356,10 +355,7 @@ class Controls:
     @staticmethod
     def refocus_game():
         """Bring the runner's own game window to the front (only used after --min-idle of owner inactivity)."""
-        r = subprocess.run(PS[:-1] + ["-Command", "$p = Get-Process Starfield -ErrorAction SilentlyContinue | Select-Object -First 1; "
-                           "if ($p) { Add-Type -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(System.IntPtr h);' "
-                           "-Name W -Namespace F; [F.W]::SetForegroundWindow($p.MainWindowHandle) | Out-Null }"], capture_output=True)
-        time.sleep(1.0)
+        r = subprocess.run(PS + [os.path.join(HERE, "refocus.ps1")], capture_output=True, text=True)
         return r.returncode == 0
 
 
@@ -492,12 +488,26 @@ class Runner:
         self.log(f"god mode: {obs.get('god')} (reply {obs.get('reply', '')[:60]!r})")
         self.session = True
 
+    def recover(self):
+        """The console could not be opened (menu, overlay or popup over the HUD). Only when nobody touched the PC since
+        the runner's last input: up to three Escapes, each followed by a HUD check (qstep kind recover). True: HUD back."""
+        if self.ctl.foreign_input() or not self.ctl.game_in_front():
+            return False
+        d = os.path.join(self.qdir, "_session", "recover")
+        os.makedirs(d, exist_ok=True)
+        code = self.step({"kind": "recover"}, d)
+        obs = load(os.path.join(d, "obs.json"), {})
+        self.log(f"recover: exit {code}, HUD before {obs.get('hud_before')}, escapes {obs.get('escapes')}, after {obs.get('hud_after')}")
+        self.cell = None
+        return code == 0 and obs.get("hud_after") is True
+
     def wait_or_stop(self, why):
         """Owner present: stop, or with --wait-for-idle wait until the PC is idle again (STOP/Guardian still end it)."""
         if not self.a.wait_for_idle or not why.startswith("owner"):
             return False
         self.log(f"{why}: waiting for {self.a.min_idle} s of inactivity")
         self.checkpoint("waiting for idle")
+        refocus_fails = 0
         while True:
             time.sleep(30)
             hard = blocked_reason(self.ctl, self.q)
@@ -508,12 +518,16 @@ class Runner:
                 return False
             if self.ctl.idle_s() >= self.a.min_idle:
                 self.ctl.last_sent_tick = None
-                if self.ctl.game_pid() and self.ctl.foreground_exe() != "starfield.exe":
+                if self.ctl.game_pid() and not self.ctl.game_in_front():
                     if not self.a.refocus:
                         self.log("idle again but the game is not in front and --refocus is off: stopping")
                         return False
-                    self.ctl.refocus_game()
-                    self.ctl.mark_sent()
+                    if not self.ctl.refocus_game():
+                        refocus_fails += 1
+                        self.log(f"idle, but the game could not be brought to the front ({refocus_fails})")
+                        if refocus_fails >= 3:
+                            return False
+                        continue
                 self.log("idle again: continuing")
                 return True
 
@@ -531,7 +545,7 @@ class Runner:
                 break
             while True:
                 why = blocked_reason(self.ctl, self.q)
-                if not why and self.ctl.game_pid() and self.ctl.foreground_exe() != "starfield.exe":
+                if not why and self.ctl.game_pid() and not self.ctl.game_in_front():
                     why = "owner switched to another window"
                 if not why:
                     break
@@ -557,6 +571,10 @@ class Runner:
             os.makedirs(out_dir, exist_ok=True)
             if g in ("nocell", "retry"):
                 verdict, cls, detail, code = "INCONCLUSIVE", "NOCELL", f"cell {t['cell']} not reached ({g})", None
+                if g == "nocell" and not self.recover():
+                    self.log("stopped: the game is not in a playable state (menu or overlay)")
+                    self.checkpoint("stopped: menu or overlay")
+                    return 3
             else:
                 pid_before = self.ctl.game_pid()
                 code = self.step(t, out_dir)
@@ -568,6 +586,11 @@ class Runner:
                         continue
                     self.log("stopped: owner took over during a step")
                     self.checkpoint("stopped: owner took over during a step")
+                    return 3
+                if code == 3 and not self.recover():      # a menu or overlay hides the HUD and Escape did not clear it
+                    self.state["attempts"][t["id"]] = n - 1
+                    self.log("stopped: the game is not in a playable state (menu or overlay)")
+                    self.checkpoint("stopped: menu or overlay")
                     return 3
                 if pid_before and not self.ctl.game_pid():
                     self.state["crashes"] += 1

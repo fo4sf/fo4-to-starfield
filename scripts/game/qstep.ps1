@@ -134,6 +134,20 @@ switch ($kind) {
     $obs['hud_back'] = $up; $obs['load_s'] = [int]((Get-Date) - $t0).TotalSeconds
     $obs['end_read'] = Read-Pos
   }
+  'recover' {
+    # testqueue.py calls this only when nobody touched the PC since its last input: a menu, the Steam overlay or a
+    # popup hides the HUD. Nudge the mouse (ends the idle camera), then up to three Escapes, each followed by a check.
+    $hud = Join-Path $Out 'hud.png'
+    function Hud-Up { powershell -NoProfile -ExecutionPolicy Bypass -File $shot -Out $hud | Out-Null
+                      (& $env:FO4SF_PYTHON (Join-Path $here 'hud_visible.py') $hud) -eq 'yes' }
+    Send 'move:1,0|wait:300|move:-1,0|wait:1500'
+    $obs['hud_before'] = Hud-Up
+    $n = 0
+    while (-not (Hud-Up) -and $n -lt 3) { Send 'key:esc|wait:2000'; $n++ }
+    $obs['escapes'] = $n
+    $obs['hud_after'] = Hud-Up
+    $obs['shot'] = Shot 'recover.png'
+  }
   default { "unknown kind $($t.kind)"; exit 4 }
 }
 Save-Obs
