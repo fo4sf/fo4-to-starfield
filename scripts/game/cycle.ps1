@@ -34,7 +34,7 @@ function Wait-Screen($label, $maxSec, $check) {
     if (& $check $png) { Write-Host ("{0} after {1} s" -f $label, [int]((Get-Date) - $t0).TotalSeconds); return $true }
     Start-Sleep 3
   }
-  "{0}: not seen within {1} s, going on" -f $label, $maxSec
+  Write-Host ("{0}: not seen within {1} s, going on" -f $label, $maxSec)   # Write-Host: callers pipe the result to Out-Null
   return $false
 }
 $MenuShown = { param($png)                                      # main menu: "PRESS ANY BUTTON TO START" along the bottom
