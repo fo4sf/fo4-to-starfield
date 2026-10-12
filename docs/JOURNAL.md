@@ -657,3 +657,13 @@ twin step is untested in game until the next library run.
   - `lodsettings/<edid>.lod` (every vanilla overlay has one);
   - the 29x29 size (the largest vanilla overlay is 14x14).
 - **Queued:** exp2b3 (Red Rocket, stored), then exp1f (World01, stored), then the batches.
+
+## 2026-10-11 evening: native Starfield terrain carries the real Commonwealth heights (Red Rocket)
+- **exp2b3**, our FO4CW_Commonwealth overlay (29x29 Starfield cells of FO4 LAND around Red Rocket, Absolute alignment, registered on Mars, BTD stored uncompressed in the plugin's Main.ba2): 13 of 14 probes match FO4 height / 70 within 0.08 m, including the Red Rocket origin (105.14 m), slopes, an FO4 cell seam and a Starfield block seam. Overlay Z offset 0.01 m.
+  - The 14th probe (resampled_sw) ended 142 m from its target, so it was not measured.
+  - Absolute alignment keeps the real world heights.
+- **Cause of all the earlier flat results:** a zlib-compressed BTD in the BA2. Stored (uncompressed), as vanilla ships it, works.
+- **Next (queued, each test from a fresh launch):**
+  - exp2c: 8,069 real FO4 objects around Red Rocket on this terrain (PR #66);
+  - exp3: four edge-to-edge 14x14 overlays with seam probes (PR #67);
+  - World01 stored; the vanilla NPC navigation control; then the batches.
