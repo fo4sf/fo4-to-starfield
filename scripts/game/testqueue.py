@@ -336,6 +336,15 @@ def npc_test(n, w):
         t["fresh"] = True
     if t["baseline"] and t["control"]:
         sys.exit(f"{label}: a baseline (method none) gates the controls and cannot be one itself")
+    if w.get("control_npc"):
+        # the actor whose control (same method) and baseline gate this test's FAIL, when it differs from the test's own
+        # actor: a converted actor in the vanilla control cell is judged against the vanilla actor's control there
+        cn = str(w["control_npc"])
+        if not re.fullmatch(r"[0-9A-Fa-f]{8}", cn):
+            sys.exit(f"bad control_npc form id in plan.json: {cn!r}")
+        if t["control"] or t["baseline"]:
+            sys.exit(f"{label}: control_npc gates a test's FAIL; a control or a baseline is never gated")
+        t["control_npc"] = cn.upper()
     if w.get("anchor"):
         if not isinstance(w["anchor"], dict):
             sys.exit(f"bad anchor in plan.json (want {{\"ref\": \"<8 hex>\", \"local\": [x, y, z]}}): {w['anchor']!r}")
@@ -620,9 +629,11 @@ def control_gate(qdir, q, test, verdict, cls, detail):
     there (method none: no command), the baseline passed too (the actor did not come to B on its own, so the control's
     PASS was the command's doing). Otherwise: INCONCLUSIVE CONTROL with the raw verdict kept in the detail; the runner
     keeps the raw verdict and the report applies the gate again (a control that passes later still counts). PASS
-    needs no control (the walk was observed). No control configured: unchanged."""
+    needs no control (the walk was observed). No control configured: unchanged. A test with "control_npc" is gated by
+    that actor's control and baseline instead of its own (a converted actor judged against the vanilla one)."""
     if test.get("kind") != "npc_nav" or test.get("control") or test.get("baseline") or verdict != "FAIL":
         return verdict, cls, detail
+    gate_npc = test.get("control_npc") or test.get("npc")
     sources = [qdir] + ([q["control_queue"]] if q.get("control_queue") else [])
     configured, ctrl, base = bool(q.get("control_queue")), [], []
     for d in sources:
@@ -632,7 +643,7 @@ def control_gate(qdir, q, test, verdict, cls, detail):
             if c.get("kind") != "npc_nav":
                 continue
             configured = configured or bool(c.get("control"))
-            if c.get("npc") != test.get("npc"):
+            if c.get("npc") != gate_npc:
                 continue
             if c.get("control") and c.get("method") == test.get("method"):
                 ctrl.append((c["id"], done.get(c["id"])))
@@ -648,12 +659,12 @@ def control_gate(qdir, q, test, verdict, cls, detail):
         return "did not pass" if any(r for _, r in group) else "has no result"
     passed = [i for i, r in ctrl if r and r.get("verdict") == "PASS"]
     if not passed:
-        return "INCONCLUSIVE", "CONTROL", f"control ({test.get('method')}, {test.get('npc')}) {why(ctrl)}; {raw}"
+        return "INCONCLUSIVE", "CONTROL", f"control ({test.get('method')}, {gate_npc}) {why(ctrl)}; {raw}"
     if base:
         bpass = [i for i, r in base if r and r.get("verdict") == "PASS"]
         if not bpass:
             return ("INCONCLUSIVE", "CONTROL",
-                    f"control {passed[0]} passed but the baseline ({test.get('npc')}, no command) {why(base)}; {raw}")
+                    f"control {passed[0]} passed but the baseline ({gate_npc}, no command) {why(base)}; {raw}")
         return verdict, cls, detail + f" (control {passed[0]} and baseline {bpass[0]} passed)"
     return verdict, cls, detail + f" (control {passed[0]} passed)"
 

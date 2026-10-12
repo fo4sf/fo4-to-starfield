@@ -13,7 +13,8 @@ plugin's own "<plugin> - Main.ba2" (Archive2 -format=General, stored). That is h
 7,761 textures/terrain/* files in Starfield's Data (463 overlay masks) are in General archives ("Starfield -
 DensityMaps.ba2"; SFBGS00D's 44 overlay masks in "SFBGS00D - Main.ba2" although "SFBGS00D - Textures.ba2" exists), none
 in a DDS archive (read-only BA2 name scan, 2026-10-11). The archive is built in a temporary folder, so the staged
-experiment folder (often another track's) is only read.
+experiment folder (often another track's) is only read. A staged folder without a Data tree (a plugin-only experiment
+such as the converted raider) installs its plugins and no archive.
 """
 import argparse
 import hashlib
@@ -114,6 +115,10 @@ def install(a):
         sys.exit(f"another experiment is installed ({rec_p}); uninstall it first")
     files = staged_files(a.exp_dir, plugins)
     if not a.pack:
+        return copy_in(data, rec_p, a.exp_dir, plugins, files)
+    if not any(rel not in plugins for _, rel in files):
+        # a plugin-only experiment (actor_raider1: one NPC_, no assets): nothing to archive, the plugins alone go in
+        print("no Data tree staged: installing the plugins without an archive")
         return copy_in(data, rec_p, a.exp_dir, plugins, files)
     # Starfield reads no loose files here (Starfield.ini sResourceDataDirsFinal=STRINGS\ only; terrain experiment 1,
     # 2026-10-11, got procedural planet ground because its loose BTDs were never seen). A plugin's own
