@@ -631,3 +631,10 @@ class FreshBudgetTests(RunnerTests):
         st = json.load(open(os.path.join(self.d, "state.json")))
         self.assertEqual(len(st["done"]), 5)
         self.assertEqual(st["fresh_launches"], 4)
+
+
+class Exp3RecoveryTests(unittest.TestCase):
+    def test_hang_reread_and_tab_recovery_present(self):
+        src = open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8").read()
+        self.assertIn("[Math]::Abs([double]$Matches[1] - $dropz) -lt 0.05", src)
+        self.assertIn("Send 'key:tab|wait:2000'", src)
