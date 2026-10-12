@@ -142,6 +142,26 @@ class SliceInstallTests(unittest.TestCase):
                 self.assertFalse((self.data / 'Slice.esm').exists())
                 self.assertEqual(json.loads(master.read_text()), state)
 
+    def test_uninstall_cannot_invalidate_an_interrupted_master_snapshot(self):
+        exp.install(self.args)
+        before = self.txt.read_bytes()
+        receipt = (self.data / exp.RECORD).read_bytes()
+        master = self.data / exp.deployment.MANIFEST
+        state = {'complete': False, 'plugins_txt': str(self.txt),
+                 'plugins_original': exp.base64.b64encode(before).decode('ascii'),
+                 'plugins_activated': exp.base64.b64encode(before).decode('ascii')}
+        master.write_text(json.dumps(state))
+        with self.assertRaisesRegex(SystemExit, 'incomplete FO4Port'):
+            exp.uninstall(self.args)
+        self.assertEqual(self.txt.read_bytes(), before)
+        self.assertEqual((self.data / exp.RECORD).read_bytes(), receipt)
+        self.assertEqual((self.data / 'Slice.esm').read_bytes(), (self.stage / 'Slice.esm').read_bytes())
+        exp.deployment.restore_plugins(state)
+        state['complete'] = True
+        master.write_text(json.dumps(state))
+        exp.uninstall(self.args)
+        self.assertFalse((self.data / exp.RECORD).exists())
+
     def test_missing_changed_or_inactive_plugin_cannot_report_order_success(self):
         exp.install(self.args)
         self.cycle_appends_master()

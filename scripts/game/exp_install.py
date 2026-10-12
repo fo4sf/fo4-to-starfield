@@ -195,7 +195,7 @@ def require_complete_master(data):
     if os.path.exists(manifest):
         state = read_json(manifest)
         if state.get("complete") is not True or state.get("cleanup_pending"):
-            raise ValueError("incomplete FO4Port deployment; finish its recovery before installing or ordering")
+            raise ValueError("incomplete FO4Port deployment; finish its recovery before changing experiments")
 
 
 def plugins_txt():
@@ -530,6 +530,10 @@ def uninstall(a):
     if not os.path.exists(rec_p):
         print("nothing installed")
         return
+    try:
+        require_complete_master(data)
+    except (OSError, ValueError) as error:
+        sys.exit(f"experiment not uninstalled: {error}")
     with open(rec_p) as f:
         rec = json.load(f)
     try:
