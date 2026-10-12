@@ -370,6 +370,11 @@ the face, or runs the inherited AI.
 
 ## 7. Next
 
+- **2026-10-12: N2 against N0b.** N0 could not tell a commanded walk from wandering (its citizen came 5-9 m towards
+  the old B whatever was typed; docs/actors/npc-navigation.md section 5). The re-plans `npc_nav_n2a_b` (N2a_base,
+  N2a_ptr, N2a_combat) and `npc_nav_n2b_b` move N2 to N0b's pair A (-12, 12, 0) -> B (6, 12, 0) and rule (within 3 m of
+  the player or 12 m closer), drop `cf` / `follow` (no control left for them) and gate against `npc_nav_n0b`; the
+  staged READMEs have the commands. The queues above stay as they are.
 - **N2c**, after N2a passes and the converted navmesh passes N1 (PR #71): the raider at its converted Concord position
   (-829.06, 1,008.31, 88.09) m, on the core64 overlay (PR #72, which reaches Concord).
 - **A direct hostility read.** The approach rule only sees movement. A console read of the combat state or the faction

@@ -3,6 +3,27 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-12 Claude: why the NPC control N0 could not tell a commanded walk from wandering
+- Question: N0 (`npc_nav_n0`, QASmoke) passed `PathToRef` twice and failed its no-command baseline; is that a walk, a
+  navmesh problem, or wander? What pair and rule would separate them (N0b)?
+- Method: N0's obs.json reads and console OCR (read only); `scripts/actors/navmesh_points.py analyze` on Starfield.esm:
+  QASmoke's NAVM parsed with `src/fo4sf/navmesh.py`, triangle graph and components, every reference's OBND (Starfield:
+  6 f32, metres) placed and classified, free space at 0.1 m, corridor path (funnel), free path, segment clearance and
+  "drift progress" (how much closer to B an actor gets by going where actors went on their own); NPC_ AIDT bytes.
+  Details: [docs/actors/npc-navigation.md](../actors/npc-navigation.md) section 5.
+- Evidence: every N0 actor, commanded or not, stayed in x -11.4..0.0, y -6.1..2.0 and never came closer than 10.8 m to B
+  (5, 10); base 5.4 m, PathToRef 6.8 / 9.0 m, `cf "Actor.PathToReference"` replied "No script named Actor is attached to
+  the object", SetPlayerTeammate + EvaluatePackage stood still 30 s. NAVM 002BE3AA: 12 vertices, 14 triangles, no
+  links, one component of 554.7 m^2; the old straight path = navmesh path = free path, 3.8 m clear of every wall and
+  pillar; going to the arrival marker (COCMarkerHeading 002BE3AF, -3.4, -1.1) gains 5.2 m, to the navmesh centre 8.5 m.
+  No sandbox furniture or idle marker on the navmesh. AIDT: EncCitizen01Template Unaggressive / Cowardly, EncSpacer01Template
+  Unaggressive / Brave.
+- Status: the navmesh did not block N0 (**verified**); the `cf` method as written cannot reach PathToReference
+  (**verified**); "N0's PathToRef PASSes were a walk" **refuted** (wander pattern, judged by a 5 m rule); the
+  progress came from the citizens' own package taking them to the middle of the room (**supported hypothesis**);
+  whether PathToRef or StartCombat walks an actor to the player (**unresolved**, N0b: A (-12, 12, 0) -> B (6, 12, 0),
+  18 m, PASS = within 3 m or 12 m closer, staged `C:\Modding\staging\npc_nav_n0b`, queue `npc_nav_n0b`).
+
 ## 2026-10-10 Claude: how Starfield makes a body movable
 - Question: what must a converted body and record carry so Starfield simulates it (FO4 loose items, known unknown #6)?
 - Method: field-level dumps with `hktagfile` (field names from the files' own type tables) of vanilla Static, MiscItem,

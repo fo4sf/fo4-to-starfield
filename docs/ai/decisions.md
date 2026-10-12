@@ -155,3 +155,16 @@ Alternatives considered:
 - Console commands that calm the spawned raider (StopCombat, faction changes): unverified in Starfield, and they would
   add untested console lines to the step.
 - tcai (combat AI off): global, and it would differ from N0's conditions.
+
+## 2026-10-12 NPC navigation control N0b: a pair chosen against the actors' own drift, PASS = 3 m or 12 m (Claude, proposed)
+N0 replaced by N0b in QASmoke: A (-12, 12, 0) -> B (6, 12, 0), chosen by `scripts/actors/navmesh_points.py` so that
+going where N0's actors went on their own (the middle of the room, the arrival marker) gains at most 6 m towards B;
+PASS = within 3 m of the player or 12 m closer (baselines judged on the same numbers); commands PathToRef and
+StartCombat, a calm and a hostile vanilla actor; N1 / N2 re-planned against it into new queues. Why: N0's actors came
+5-9 m towards the old B whatever was typed, and the old pair let an actor gain 8.5 m that way, so the 5 m rule passed
+wander (docs/actors/npc-navigation.md section 5). The rule uses the plan keys the runner already has, so the
+integration-1012 runner plans and judges it unchanged. Alternatives: a baseline-relative judge (PASS only a margin
+beyond the same actor's measured baseline progress): sound, but it needs a runner change (and a runner feature flag)
+before any queue can use it, and it differs from the fixed rule only when a baseline comes 7-12 m and its command just
+over 12 m; every test's detail in results.jsonl carries its numbers, so such a case is read by hand for now. A longer pair (up to 25 m): more room
+for an actor that stops at weapon range, but with B in the north-east corner the drift exceeds 6 m beyond 18.7 m.
