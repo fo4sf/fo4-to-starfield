@@ -671,3 +671,11 @@ twin step is untested in game until the next library run.
   - Test 1 PASS: the terrain probes are still within 0.08 m with the objects placed.
   - Test 2 PASS: object tops land where FO4 put them, so their collision works: Red Rocket roof 109.73 m (want 109.74), brick building roof 103.87 (103.88), road piece 88.20 (88.21).
   - Probing 100 m past the overlay raised Starfield's "Boundary Reached" popup, the landing area's limit.
+- **exp3** (four adjacent 14x14-cell overlays, each registered on Mars): probes in the arrival tile read real terrain. Every probe 500-700 m away, in or near a neighbouring tile, hung at the drop height even after 24 s of re-reads, so nothing loads there.
+  - Taken with the "Boundary Reached" popup at the edge of the 29-cell overlay, a landing seems to load only the overlay it arrives in. A Commonwealth made of many small overlays would not be walkable across seams.
+  - The candidate is one large overlay. **terrain_core64** (PR #72: 64x64 cells = 6.4 km covering Sanctuary, Vault 111, Red Rocket and Concord, 6 rays of probes out to 3 km) is queued.
+- **Navmesh (PR #71):** FO4's navmesh around Red Rocket is converted to 156 Starfield NAVM records with a NAVI override. The N1 NPC tests are queued after the vanilla control N0:
+  - N1a: terrain only;
+  - N1c: converted navmesh;
+  - N1b: the runtime generator.
+- **Ground textures (PR #70):** staged. They need a daytime run; every Mars arrival so far was at night.
