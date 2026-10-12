@@ -638,3 +638,18 @@ class Exp3RecoveryTests(unittest.TestCase):
         src = open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8").read()
         self.assertIn("[Math]::Abs([double]$Matches[1] - $dropz) -lt 0.05", src)
         self.assertIn("Send 'key:tab|wait:2000'", src)
+
+
+class HopTests(unittest.TestCase):
+    def test_hop_options_reach_the_step(self):
+        d = tempfile.mkdtemp()
+        open(os.path.join(d, "FO4Port.esm"), "wb").write(b"TES4")
+        plan = [{"coc": "FO4Core_RedRocketSpawn", "drop_z": 245, "hop_m": 300, "hop_wait_ms": 7000,
+                 "points": [{"label": "a", "x": 0.0, "y": 0.0, "expect": 1.0}]}]
+        json.dump(plan, open(os.path.join(d, "plan.json"), "w"))
+        out = os.path.join(d, "q")
+        tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])
+        t = json.load(open(os.path.join(out, "queue.json")))["tests"][0]
+        self.assertEqual((t["hop_m"], t["hop_wait_ms"]), (300, 7000))
+        src = open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8").read()
+        self.assertIn("if ($t.hop_m)", src)
