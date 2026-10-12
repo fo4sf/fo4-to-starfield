@@ -37,9 +37,15 @@ def local_path(staging, relative):
 
 
 def output_inventory(staging, result, prefix="fo4port"):
-    """Follow generated NIF -> mesh/material -> texture dependencies."""
-    paths = {"meshes/" + result["out_name"] + ".nif"}
-    model = nif.parse(local_path(staging, next(iter(paths))).read_bytes())
+    """Follow generated NIF -> mesh/material -> texture dependencies, plus a door's own rig and clips (result["door"]
+    ["files"], written by convert_static.convert_multipart_door)."""
+    model_path = "meshes/" + result["out_name"] + ".nif"
+    paths = {model_path}
+    door_files = (result.get("door") or {}).get("files") or []
+    if not isinstance(door_files, list) or not all(isinstance(p, str) and p.startswith("meshes/") for p in door_files):
+        raise ValueError("door files must be staging paths below meshes/")
+    paths.update(door_files)
+    model = nif.parse(local_path(staging, model_path).read_bytes())
     for i, block in enumerate(model.blocks):
         if model.type_of(i) == "BSGeometry":
             for mesh in sfnif.parse_bsgeometry(block).meshes:

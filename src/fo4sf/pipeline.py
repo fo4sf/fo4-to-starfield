@@ -85,12 +85,17 @@ def _plane_pair(dds: bytes, tmp: str, texconv_exe: str):
 
 
 class Converter:
+    door_anim_dll: Optional[str] = None
+
     def __init__(self, src: Fo4Archives, staging: str, texconv_exe: str, content_resources: str,
                  collision_template: Optional[bytes] = None, prefix: str = "fo4port",
                  no_collision_pattern: str = r"^meshes[\\/](architecture|interiors|scol)[\\/]", rig_doors: bool = False,
                  door_physics_donor: Optional[bytes] = None, sf_mesh_template: Optional[bytes] = None,
-                 dynamic_template: Optional[bytes] = None, max_texture=None):
+                 dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None):
         self.src, self.staging, self.texconv = src, staging, texconv_exe
+        # door_anim_dll: the external CALUMI.Animation library (not distributed). With it, rigged doors that move more
+        # than one part (frozen_door_parts) get their own rig and Open/Close clips instead of the single-hinge template.
+        self.door_anim_dll = door_anim_dll
         # dynamic_template (a vanilla dynamic convex body, meshcollision.DYNAMIC_TEMPLATE_NIF): FO4 loose items with one
         # dynamic body become movable; their result carries "movable" (plugin writer: MoveableStatic, not Static)
         self.dynamic_template = dynamic_template
@@ -472,16 +477,34 @@ class Converter:
             coll_report = {}
             files = None
             if self.rig_doors and self.door_physics_donor is not None and DOOR_RE.search(nif_name) and not NOT_HINGED_RE.search(nif_name) and not load_door and nif.door_hinge(src):
-                try:                                     # hinged door: rigged like the vanilla template door so it opens
-                    files, offset, bounds = convert_static.convert_door(raw, out_name, mats,
-                                                                collision_template=self.collision_template,
-                                                                leaf_physics_donor=self.door_physics_donor)
-                    t = sfnif.DOOR_TEMPLATE
-                    res["door"] = {"origin_offset": [round(x, 5) for x in offset], "anim_graph": t["anim_graph"],
-                                   "bounds": [[round(x, 4) for x in b] for b in bounds],
-                                   "skeleton": t["skeleton"], "animations": t["animations"]}
-                except Exception as e:                   # noqa: BLE001  (falls back to a static door)
-                    res["door_error"] = f"{type(e).__name__}: {e}"
+                # Parts FO4 moves outside the first animated node (second leaf, shutter, other sliding panels) cannot
+                # hang under the template's single hinge: with the CALUMI library such a door gets its own rig and
+                # clips (one track and one keyframed body per part, as vanilla double doors); without it the template
+                # door is kept and the parts that stay closed are listed (door_frozen_parts), not silently dropped.
+                frozen = convert_static.frozen_door_parts(src)
+                if frozen and self.door_anim_dll:
+                    try:
+                        from . import native_door
+                        files, res["door"] = convert_static.convert_multipart_door(
+                            raw, out_name, mats, lambda plan, scale: native_door.export_files(plan, self.door_anim_dll, scale),
+                            collision_template=self.collision_template, leaf_physics_donor=self.door_physics_donor)
+                    except Exception as e:               # noqa: BLE001  (falls back to the template door)
+                        files = None
+                        res.pop("door", None)
+                        res["door_error"] = f"multi-part: {type(e).__name__}: {e}"
+                if files is None:
+                    try:                                 # hinged door: rigged like the vanilla template door so it opens
+                        files, offset, bounds = convert_static.convert_door(raw, out_name, mats,
+                                                                    collision_template=self.collision_template,
+                                                                    leaf_physics_donor=self.door_physics_donor)
+                        t = sfnif.DOOR_TEMPLATE
+                        res["door"] = {"origin_offset": [round(x, 5) for x in offset], "anim_graph": t["anim_graph"],
+                                       "bounds": [[round(x, 4) for x in b] for b in bounds],
+                                       "skeleton": t["skeleton"], "animations": t["animations"]}
+                        if frozen:
+                            res["door_frozen_parts"] = frozen
+                    except Exception as e:               # noqa: BLE001  (falls back to a static door)
+                        res["door_error"] = (res["door_error"] + "; " if "door_error" in res else "") + f"{type(e).__name__}: {e}"
             if files is None:
                 if animated and not load_door and DOOR_RE.search(nif_name):
                     use_box = False
