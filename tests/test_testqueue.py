@@ -124,6 +124,11 @@ class FakeControls:
     def refocus_game(self):
         return True
 
+    def close_game(self):
+        self.closed = getattr(self, "closed", 0) + 1
+        self.pid = None
+        return True
+
 
 def make_queue(d, n=3, kind="fall"):
     tests = [{"id": f"{k:04d}_{kind}", "kind": kind, "cell": "C", "ref": f"pt{k}", "model": "m.nif",
@@ -603,3 +608,24 @@ class StoredArchiveTests(unittest.TestCase):
         src = readf(os.path.join(ROOT, "scripts", "game", "exp_install.py"), encoding="utf-8")
         self.assertIn('"-compression=None"', src)
         self.assertNotIn('"-compression=Default"', src)
+
+
+class FreshTests(RunnerTests):
+    def test_fresh_tests_relaunch_after_the_first(self):
+        q = json.load(open(os.path.join(self.d, "queue.json")))
+        for t in q["tests"]:
+            t["fresh"] = True
+        json.dump(q, open(os.path.join(self.d, "queue.json"), "w"))
+        launches = []
+        r = self.runner(self.landing(0.1))
+
+        def ps(script, *a, **k):
+            launches.append(script)
+            self.ctl.pid = 42                             # cycle.ps1 started the game again
+            return (0, "ok")
+        r._ps = ps
+        r.setup_session = lambda cell: setattr(r, "session", True)
+        r.pinned_ok = lambda: True
+        r.run()
+        self.assertEqual(getattr(self.ctl, "closed", 0), 2)       # before tests 2 and 3
+        self.assertEqual(launches.count("cycle.ps1"), 2)
