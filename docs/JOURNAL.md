@@ -595,9 +595,41 @@ start, OPEN read from the prompt (`94d6dcb`), idle-camera wake (`76488be`).
   Starfield body from a vanilla donor (as the keyframed door leaves do), with mass from FO4. Until then they're
   reported, not silently changed.
 
+## 2026-10-09 — Codex: checkpoint success-validation parity (#32)
+
+- Verified with synthetic generated NIF/material/texture outputs: a checkpoint with intact output hashes but `fallback_materials: 1` or `door_error` was reused although save rejects it. The new regression fails both cases against baseline `cd94162`.
+- Load and save now share the same success predicate; degraded cached results cause reconversion and do not enter batch expectations.
+- Validation with the numpy-enabled render venv: `python -m unittest discover -s tests -p test_checkpoints.py` (13 pass), `python -m unittest discover -s tests` (253 tests, one skipped), `python scripts/guard.py` (ok). Tests ran outside the sandbox after temporary-directory permission errors inside it.
+- Synthetic/offline only; game versions not applicable, no game assets or live installation changed. QA required before merge.
 ## 2026-10-10 Session end (owner powering down)
 Status summary posted on #32 (comment 6094545513): pinned-build route results per cell, open problems by owner,
 open PRs (#34 QA PASS, #35 in progress), local team state, next steps. Removed a stray `needs-qa` label from #32.
 docs/ai/agent-status.md refreshed from live sources. Shut down: guardian proxy stopped, local model unloaded, no
 background jobs left. Next session: re-run Vault 81 and the library, finish the Prydwen (same pinned build), then
 movable bodies for loose items.
+
+## 2026-10-11 Public README and About refresh (Codex)
+
+Owner requested immediate publication of the README and GitHub information. Refreshed the existing #36/#37 work
+with Claude's latest pinned evidence, queued runner, offline terrain/NPC research and Codex's #62 recovery tests.
+Earlier route results and the newer integration batch remain separate. Added the already-installed Steam launch
+command, staging deploy/uninstall examples and eight COC commands checked against PluginSpike's naming and the
+staged cell filenames. Reused existing published screenshots; no game outputs or new media added.
+
+GitHub About now links the live #32 status and describes experimental interiors, native physics, queued tests and
+terrain research; topics retain existing labels and add terrain/game-conversion. Claude, Codex and Grok attribution
+is retained. Main publication uses #37 and its required CI, with protections unchanged. No live game changes.
+Validation: 254 synthetic tests OK (1 skipped), guard and diff checks OK; all 18 local README links exist.
+QA caught a case-insensitive fallback symlink escaping staging in the existing Linux compatibility change.
+The resolver now rechecks containment after every component; a synthetic Linux symlink regression covers both
+directory and file requests. It is skipped on Windows because that fallback requires case-sensitive lookup.
+Final Windows suite: 255 tests OK (2 skipped); guard and diff checks OK. Linux CI executes the new regression.
+
+## 2026-10-11 Terrain CI preview dependency (Codex)
+
+#64's hosted run38177486495 reproduced ModuleNotFoundError: PIL in the synthetic FO4 plane extractor's preview.
+CI installed only NumPy; local testing already had Pillow12.3.0. Added the tested public Pillow release range
+to requirements-ci.txt without changing terrain records, scripts or tests. Coordination and file claim: #32/#64.
+This fixes the missing dependency, not the unresolved in-game terrain binding. No game assets added.
+Validation: main-based255 tests OK (2 Windows skips), guard OK. At #64 head1600603, all11 FO4 LAND synthetic
+tests pass with Pillow12.3.0, including the failing end-to-end plane/preview case. Hosted dependency CI pending.
