@@ -48,6 +48,20 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual(tq.judge(t, far, self.d)[:2], ("INCONCLUSIVE", "MISSED"))
         self.assertEqual(tq.judge(t, dict(base, item_after=None), self.d)[0], "INCONCLUSIVE")
 
+    def test_movable_walk_over_the_item(self):
+        # batch_full 0095 (2026-10-12): start 1.1 m before a book, walked over it (0.01 m), ended 3.2 m past it
+        t = {"kind": "movable"}
+        b, a = touch(self.d, "before.png"), touch(self.d, "after.png")
+        obs = {"item_before": "44.92 87.04 11.02", "item_after": "44.92 87.04 11.02", "player_start": "44.37 86.09 10.97",
+               "player_end": "46.45 89.85 10.87", "shot_before": b, "shot_after": a}
+        v, c, d = tq.judge(t, obs, self.d)
+        self.assertEqual((v, c), ("FAIL", "NOTMOVED"), d)
+        self.assertIn("passed 0.02 m", d)
+        # a walk that never comes near the item stays MISSED
+        side = dict(obs, player_start="40.0 80.0 11.0", player_end="41.0 80.0 11.0")
+        self.assertEqual(tq.judge(t, side, self.d)[:2], ("INCONCLUSIVE", "MISSED"))
+        self.assertAlmostEqual(tq.seg_dist_xy((0, 0, 0), (0, 0, 0), (3, 4, 0)), 5.0)
+
     def test_travel(self):
         t = {"kind": "travel", "start": [0.0, 0.0, 0.0], "arrival": [100.0, 50.0, 2.0], "dest_cell": "B"}
         s = touch(self.d, "arrival.png")

@@ -256,6 +256,14 @@ def plan_terrain(a):
 
 
 # ------------------------------------------------------------------------------------------------------------ judging
+def seg_dist_xy(a, b, p):
+    """Horizontal distance from point p to the segment a-b (x, y of 3-tuples)."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    n = dx * dx + dy * dy
+    t = 0.0 if n == 0 else max(0.0, min(1.0, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / n))
+    return math.hypot(a[0] + t * dx - p[0], a[1] + t * dy - p[1])
+
+
 def judge(test, obs, out_dir):
     """(verdict, reason class, detail) from raw observations. Missing observations are INCONCLUSIVE."""
     if not obs:
@@ -308,9 +316,18 @@ def judge(test, obs, out_dir):
         if moved >= 0.05:
             return "PASS", "PASS", f"item moved {moved:.2f} m"
         reach = math.hypot(pe[0] - b[0], pe[1] - b[1])
+        # the walk runs from player_start to player_end: its closest approach decides whether the player reached the
+        # item (batch_full 2026-10-12: the player walked straight over a book, 0.01 m from it, and ended 3.2 m past
+        # it; judged on the end point alone it was MISSED, and six of those switched the whole kind off)
+        ps = parse3(obs.get("player_start"))
+        how = f"player reached it ({reach:.2f} m)"
+        if ps is not None:
+            near = seg_dist_xy(ps, pe, b)
+            if near < reach:
+                reach, how = near, f"player passed {near:.2f} m from it (walked {math.hypot(pe[0] - ps[0], pe[1] - ps[1]):.1f} m)"
         if reach <= 1.0:
-            return "FAIL", "NOTMOVED", f"player reached it ({reach:.2f} m) but it moved {moved:.3f} m"
-        return "INCONCLUSIVE", "MISSED", f"player ended {reach:.2f} m from the item"
+            return "FAIL", "NOTMOVED", f"{how} but it moved {moved:.3f} m"
+        return "INCONCLUSIVE", "MISSED", f"player came no closer than {reach:.2f} m to the item"
     if kind == "travel":
         st = parse3(obs.get("start_read"))
         if st is None or math.hypot(st[0] - test["start"][0], st[1] - test["start"][1]) > 3:
