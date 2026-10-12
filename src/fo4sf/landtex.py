@@ -130,15 +130,26 @@ def table_order(keys, coverage):
     return sorted(keys, key=lambda k: (coverage[k], k))
 
 
-def _alphas(wq, forced_bottom):
+def _alphas(wq, forced_bottom, search=True):
     """Top-down 3-bit alphas for weights wq[k, h, w] (k = slots, top first) that sum to 1 per sample: slot j's final
     weight is a_j * prod_{i < j} (1 - a_i), and what is left goes to the bottom (the last slot, forced to alpha 7, or
     the base byte when forced_bottom is False and wq holds the five slots only). Each free slot may round its exact
     alpha down or up; of those 2^free combinations the one with the smallest summed |weight error| (including the
-    bottom's) is kept per sample, so quantisation errors do not pile up on the lower layers."""
+    bottom's) is kept per sample, so quantisation errors do not pile up on the lower layers. search=False rounds each
+    exact alpha to the nearest step instead (the comparison in ground-textures.md 4)."""
     k = wq.shape[0]
     free = k - 1 if forced_bottom else k
     shape = wq.shape[1:]
+    if not search:
+        q = np.zeros(wq.shape, np.int64)
+        rem = np.ones(shape)
+        for j in range(free):
+            a = np.where(rem > 1e-9, wq[j] / np.maximum(rem, 1e-9), 0.0)
+            q[j] = np.clip(np.rint(a * ALPHA_MAX), 0, ALPHA_MAX)
+            rem = rem * (1.0 - q[j] / ALPHA_MAX)
+        if forced_bottom:
+            q[k - 1] = ALPHA_MAX
+        return q
     qs = np.zeros((1, max(free, 1)) + shape, np.int64)
     rem = np.ones((1,) + shape)
     err = np.zeros((1,) + shape)
@@ -162,7 +173,7 @@ def _alphas(wq, forced_bottom):
     return q
 
 
-def encode_quadrant(wq, idx, n):
+def encode_quadrant(wq, idx, n, search=True):
     """One quadrant. wq[m, 64, 64]: weights of the table entries idx[m] (ascending table index), > 0 somewhere,
     summing to 1 per sample. Returns (8 quadrant bytes, u16 alpha words [64, 64])."""
     m = len(idx)
@@ -171,11 +182,11 @@ def encode_quadrant(wq, idx, n):
     b = [0] * 8
     if m == MAX_TEXTURES:
         slots, base = list(idx[:SLOTS]), idx[SLOTS]
-        q = _alphas(wq[:SLOTS], forced_bottom=False)
+        q = _alphas(wq[:SLOTS], forced_bottom=False, search=search)
         b[6] = n - base
     else:
         slots = list(idx)
-        q = _alphas(wq, forced_bottom=True)
+        q = _alphas(wq, forced_bottom=True, search=search)
     for j, t in enumerate(slots):
         b[j] = n - t
     word = np.zeros(wq.shape[1:], np.int64)
@@ -184,7 +195,7 @@ def encode_quadrant(wq, idx, n):
     return bytes(b), word.astype(np.uint16)
 
 
-def encode(weights, n=None):
+def encode(weights, n=None, search=True):
     """weights[n, H, W] float in table order (index = table index), summing to 1 per sample, H and W multiples of 64.
     Returns (quad_map uint8 [H/64, W/64, 8], alpha words uint16 [H, W], stats). Per quadrant the 6 textures with the
     largest summed weight are kept; the rest is renormalised onto them (stats["dropped"] = weight lost)."""
@@ -213,7 +224,7 @@ def encode(weights, n=None):
                 wq[main][zero] = 1.0
                 tot = np.where(zero, 1.0, tot)
             wq = wq / tot
-            b, wd = encode_quadrant(wq, used, n)
+            b, wd = encode_quadrant(wq, used, n, search)
             qm[qy, qx] = np.frombuffer(b, np.uint8)
             words[sl] = wd
             counts[len(used)] += 1

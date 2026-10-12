@@ -376,14 +376,15 @@ class Fo4landTextures(unittest.TestCase):
 
 def synthetic_fo4(path):
     """Fallout4.esm stand-in: WRLD Commonwealth with FO4 cells (0..1, 0..1), flat at 8 units, dried grass everywhere
-    and an opaque asphalt layer over the north-east quadrant of cell (1, 1)."""
+    and an opaque asphalt layer over all of cell (1, 1)."""
     vhgt = fo4land.encode_vhgt(1.0, np.zeros((33, 33), int))
     items, fid = [], 0x400
     for cy in (0, 1):
         for cx in (0, 1):
             tex = [btxt(0x900, q) for q in range(4)]
             if (cx, cy) == (1, 1):
-                tex += [atxt(0x901, 3, 0), vtxt([(r, c, 1.0) for r in range(Q) for c in range(Q)])]
+                for q in range(4):
+                    tex += [atxt(0x901, q, 0), vtxt([(r, c, 1.0) for r in range(Q) for c in range(Q)])]
             land = rec(b"LAND", fid + 1, [(b"DATA", b"\0" * 4), (b"VHGT", vhgt)] + tex)
             items += [rec(b"CELL", fid, [(b"XCLC", struct.pack("<iiI", cx, cy, 0))]),
                       grup(fid, 6, [grup(fid, 9, [land])])]
@@ -398,49 +399,121 @@ def synthetic_fo4(path):
         f.write(data)
 
 
+def mars_plugin(entries, compressed=True, masters=("Starfield.esm", "FO4TerrainExp2.esm")):
+    """Registration plugin stand-in: TES4 with masters, GRUP PNDT with one PNDT record: EDID, the 1-byte CNAM and the
+    master-worldspace CNAM (f64, f64, u32 WRLD per entry), zlib-compressed when asked."""
+    tes4 = rec(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 1.0, 1, 0x800))] +
+               [x for mst in masters for x in ((b"MAST", mst.encode() + b"\0"), (b"DATA", b"\0" * 8))])
+    fields = [(b"EDID", b"MarsPlanetData\0"), (b"CNAM", b"\x01"),
+              (b"CNAM", b"".join(struct.pack("<ddI", la, lo, w) for la, lo, w in entries)), (b"FNAM", b"\0" * 4)]
+    data = b"".join(sig + struct.pack("<H", len(d)) + d for sig, d in fields)
+    body, flags = (struct.pack("<I", len(data)) + zlib.compress(data), fo4land.COMPRESSED) if compressed else (data, 0)
+    pndt = b"PNDT" + struct.pack("<III", len(body), flags, 0x3F59A) + b"\0" * 8 + body
+    return tes4 + grup(b"PNDT", 0, [pndt])
+
+
+def staged_source(d, mars=True):
+    """A staged-exp2b2 stand-in in d: one-cell BTD (flat 8 units, LDirtFootprints01 everywhere), plugins, plan."""
+    fo4, src = os.path.join(d, "fo4"), os.path.join(d, "src")
+    for p in (fo4, os.path.join(src, "Data", "Terrain"), os.path.join(src, "Data", "meshes", "terrain")):
+        os.makedirs(p)
+    synthetic_fo4(os.path.join(fo4, "Fallout4.esm"))
+    raw = btd.quantize(np.full((128, 128), 8 / 70), -10.0, 10.0)
+    quad = np.zeros((2, 2, 8), np.uint8)
+    quad[..., 0] = 1
+    data = btd.write(btd.Btd(6, -10.0, 10.0, [ground_map.formid(k) for k in ground_map.TEMPLATE_TABLE], raw,
+                             np.zeros_like(raw), quad))
+    for sub in (("Data", "Terrain"), ("Data", "meshes", "terrain")):
+        with open(os.path.join(src, *sub, gt.BTD_NAME), "wb") as f:
+            f.write(data)
+    with open(os.path.join(src, "FO4TerrainExp2.esm"), "wb") as f:
+        f.write(b"stand-in")
+    if mars:
+        with open(os.path.join(src, "FO4TerrainExp2_Mars.esm"), "wb") as f:
+            f.write(mars_plugin([(-0.04, -0.09, 0x0000ABCD), (0.3, -1.2, 0x01000802)]))
+    gt.write_json(os.path.join(src, "expected.json"), {
+        "fo4_cells": {"x": [0, 1], "y": [0, 1]}, "structure": {"pos_m": [40.0, 40.0, 0.0]},
+        "region_of_interest_m": {"xmin": 2.0, "xmax": 98.0, "ymin": 2.0, "ymax": 98.0}})
+    gt.write_json(os.path.join(src, "plan.json"), [
+        {"coc": "Spawn", "points": [{"label": "p1", "x": 40.0, "y": 40.0, "expect": 0.1143}]},
+        {"coc": "Spawn", "points": [{"label": "p2", "x": 60.0, "y": 60.0, "expect": 0.1143}]}])
+    return fo4, src, raw, data
+
+
 class Exp2tBuild(unittest.TestCase):
-    def test_build_and_check_on_a_synthetic_one_cell_btd(self):
+    def test_build_and_check_every_variant_on_a_synthetic_one_cell_btd(self):
         with tempfile.TemporaryDirectory() as d:
-            fo4, src, out = (os.path.join(d, x) for x in ("fo4", "src", "out"))
-            for p in (fo4, os.path.join(src, "Data", "Terrain"), os.path.join(src, "Data", "meshes", "terrain")):
-                os.makedirs(p)
-            synthetic_fo4(os.path.join(fo4, "Fallout4.esm"))
-            raw = btd.quantize(np.full((128, 128), 8 / 70), -10.0, 10.0)
-            quad = np.zeros((2, 2, 8), np.uint8)
-            quad[..., 0] = 1
-            data = btd.write(btd.Btd(6, -10.0, 10.0, [0x1235C2], raw, np.zeros_like(raw), quad))
-            for sub in (("Data", "Terrain"), ("Data", "meshes", "terrain")):
-                with open(os.path.join(src, *sub, gt.BTD_NAME), "wb") as f:
-                    f.write(data)
-            with open(os.path.join(src, "FO4TerrainExp2.esm"), "wb") as f:
-                f.write(b"stand-in")
-            gt.write_json(os.path.join(src, "expected.json"), {
-                "fo4_cells": {"x": [0, 1], "y": [0, 1]}, "structure": {"pos_m": [40.0, 40.0, 0.0]},
-                "region_of_interest_m": {"xmin": 2.0, "xmax": 98.0, "ymin": 2.0, "ymax": 98.0}})
-            gt.write_json(os.path.join(src, "plan.json"), [
-                {"coc": "Spawn", "points": [{"label": "p1", "x": 40.0, "y": 40.0, "expect": 0.1143}]},
-                {"coc": "Spawn", "points": [{"label": "p2", "x": 60.0, "y": 60.0, "expect": 0.1143}]}])
+            fo4, src, raw, src_btd = staged_source(d)
+            out = os.path.join(d, "exp2t")
             self.assertEqual(gt.main(["build", "--from", src, "--out", out, "--fo4-data", fo4]), 0)
             self.assertEqual(gt.main(["check", "--from", src, "--out", out]), 0)
+            self.assertEqual(gt.main(["check", "--from", src, "--out", out + "a"]), 0)     # one variant folder
             with self.assertRaises(SystemExit):                  # an existing staging is not overwritten silently
                 gt.main(["build", "--from", src, "--out", out, "--fo4-data", fo4])
-            self.assertEqual(gt.main(["build", "--from", src, "--out", out, "--fo4-data", fo4, "--replace"]), 0)
-            plan = gt.read_json(os.path.join(out, "plan.json"))
-            exp = gt.read_json(os.path.join(out, "expected.json"))
-            new = btd.read(gt.read_bytes(os.path.join(out, "Data", "Terrain", gt.BTD_NAME)))
-            self.assertTrue(os.path.exists(os.path.join(out, "FO4TerrainExp2.esm")))
-        self.assertEqual(len(plan), 2)
-        self.assertTrue(all(w["fresh"] is True for w in plan))
-        labels = [p["label"] for p in plan[0]["points"]]
-        self.assertEqual(labels[0], "p1")
-        self.assertIn("ground_grass", labels)
-        self.assertIn("ground_lot", labels)
-        np.testing.assert_array_equal(new.heights_raw, raw)
+            self.assertEqual(gt.main(["build", "--from", src, "--out", out, "--fo4-data", fo4, "--replace",
+                                      "--variants", "t,ta"]), 0)
+            got = {}
+            for v in gt.BUILD_ORDER:
+                f = gt.variant_dir(out, v)
+                got[v] = (gt.read_json(os.path.join(f, "plan.json")), gt.read_json(os.path.join(f, "expected.json")),
+                          gt.read_bytes(os.path.join(f, "Data", "Terrain", gt.BTD_NAME)),
+                          gt.read_bytes(os.path.join(f, "FO4TerrainExp2_Mars.esm")))
+                self.assertFalse(os.path.exists(f + ".partial"))
+            src_mars = gt.read_bytes(os.path.join(src, "FO4TerrainExp2_Mars.esm"))
+        self.assertEqual(sorted(gt.BUILD_ORDER), sorted(gt.VARIANTS))
+        for v, (plan, exp, data, mars) in got.items():
+            self.assertEqual(len(plan), 2)
+            self.assertTrue(all(w["fresh"] is True for w in plan))
+            labels = [p["label"] for p in plan[0]["points"]]
+            self.assertEqual(labels[0], "p1")
+            self.assertIn("ground_grass", labels)
+            self.assertIn("ground_lot", labels)
+            new = btd.read(data)
+            np.testing.assert_array_equal(new.heights_raw, raw)
+            self.assertEqual(exp["experiment"], "terrain_exp2" + v)
+            self.assertEqual(exp["variant"]["name"], v)
+            _o, _g, _e, pair = gt.registration_entry(mars, "FO4TerrainExp2.esm")
+            self.assertEqual(pair, gt.SITES["day"])
+            self.assertTrue(gt.registration_diff(mars, src_mars, _e)[0])
+            table = [e["edid"] for e in exp["ltex"]["table"]]
+            for s in exp["ground_textures"]["spots"]:
+                self.assertGreaterEqual(min(s["target_share"].values()), gt.VIEW_MIN_SHARE, (v, s["label"]))
+        plan, exp, data, _m = got["t0"]
+        self.assertEqual(data, src_btd)
+        self.assertEqual([e["edid"] for e in exp["ltex"]["table"]], ground_map.TEMPLATE_TABLE)
+        plan, exp, data, _m = got["t"]
         self.assertEqual([e["edid"] for e in exp["ltex"]["table"]], ["LGravelDecorative01", "LGrassDeadWet01"])
-        self.assertEqual(new.ltex, [ground_map.SF_FORMID["LGravelDecorative01"], ground_map.SF_FORMID["LGrassDeadWet01"]])
+        self.assertEqual(btd.read(data).ltex, [ground_map.SF_FORMID["LGravelDecorative01"],
+                                               ground_map.SF_FORMID["LGrassDeadWet01"]])
         lot = next(s for s in exp["ground_textures"]["spots"] if s["label"] == "ground_lot")
-        self.assertEqual(list(lot["sf_decoded"]), ["LGravelDecorative01"])
-        self.assertGreater(lot["x"], 58.5 + 29.0)                 # inside the asphalt quadrant (x > 87.8 m)
+        self.assertEqual(lot["sf_mapped"], "LGravelDecorative01")
+        self.assertGreater(lot["x"], 58.5 + 3.0)                   # inside the asphalt cell with the view window
+        self.assertEqual(list(lot["sf_view"]), ["LGravelDecorative01"])
+        plan, exp, data, _m = got["ta"]
+        table = [e["edid"] for e in exp["ltex"]["table"]]
+        self.assertEqual(table, ground_map.TEMPLATE_TABLE + ["LLooseRocksForest01", "LGrassAridSparse01_Dead"])
+        self.assertEqual(exp["ltex"]["template_indices"], list(range(7)))
+        lot = next(s for s in exp["ground_textures"]["spots"] if s["label"] == "ground_lot")
+        self.assertEqual(lot["sf_mapped"], "LLooseRocksForest01")
+        plan, exp, data, _m = got["tc"]
+        self.assertEqual([e["edid"] for e in exp["ltex"]["table"]],
+                         ground_map.TEMPLATE_TABLE + ["LGravelDecorative01", "LGrassDeadWet01"])
+        plan, exp, data, _m = got["tb"]
+        self.assertEqual([e["edid"] for e in exp["ltex"]["table"]][7:], ["LGravelDecorative01", "LGrassDeadWet01"])
+
+    def test_site_day_needs_the_registration_plugin_and_source_keeps_it(self):
+        with tempfile.TemporaryDirectory() as d:
+            fo4, src, _raw, _data = staged_source(d, mars=False)
+            out = os.path.join(d, "exp2t")
+            with self.assertRaises(SystemExit):
+                gt.main(["build", "--from", src, "--out", out, "--fo4-data", fo4, "--variants", "t"])
+            self.assertEqual(gt.main(["build", "--from", src, "--out", out, "--fo4-data", fo4, "--variants", "t",
+                                      "--site", "source"]), 0)
+            exp = gt.read_json(os.path.join(out, "expected.json"))
+            self.assertIsNone(exp["site"]["mars"])
+            self.assertFalse(os.path.exists(out + "a"))
+            self.assertEqual(gt.main(["check", "--from", src, "--out", out, "--variants", "t"]), 0)
+            self.assertEqual(gt.main(["check", "--from", src, "--out", out]), 1)       # the other variants are missing
 
 
 class Exp2tHelpers(unittest.TestCase):
@@ -458,6 +531,17 @@ class Exp2tHelpers(unittest.TestCase):
         x = np.arange(128) * 100 / 128 * 70 / 128          # sample column -> FO4 vertex column
         self.assertTrue((np.argmax(dec, 0)[:, x < 19] == 0).all())
         self.assertTrue((np.argmax(dec, 0)[:, x > 20] == 1).all())
+        # with a template: its entries come first and stay unused; the same weights land on the later indices
+        table, qm2, words2, st2 = gt.encode_btd(keys, grids, (0.0, 0.0), n, template=("p1", "p2", "p3"))
+        self.assertEqual(table, ["p1", "p2", "p3", "w", "e"])
+        dec2 = landtex.decode(qm2, words2, 5)
+        self.assertEqual(float(np.abs(dec2[:3]).max()), 0.0)
+        np.testing.assert_allclose(dec2[3:], dec, atol=1e-6)
+        self.assertTrue(((qm2[..., :7] == 0) | (qm2[..., :7] <= 2)).all())   # values 1..2 -> table 3..4 (n - v)
+        # plain rounding is never better on average than the search
+        _t, qm3, words3, st3 = gt.encode_btd(keys, grids, (0.0, 0.0), n, search=False)
+        self.assertEqual(st3["alpha_rounding"], "plain")
+        self.assertGreaterEqual(st3["mean_weight_error"] + 1e-12, st["mean_weight_error"])
 
     def test_sample_matches_terrain_grid_bilinear(self):
         from fo4sf import terrain_grid as tg
@@ -466,6 +550,9 @@ class Exp2tHelpers(unittest.TestCase):
         ref = tg.resample_bilinear(g, 0.0, 0.0, 128.0, xs * 70, ys * 70)
         got = gt.sample(g, gt.axis(ys, 0.0, 20), gt.axis(xs, 0.0, 30))
         np.testing.assert_allclose(got, ref)
+        X, Y = np.meshgrid(xs, ys)
+        pts = gt.points_bilinear(g, gt.axis(Y.ravel(), 0.0, 20), gt.axis(X.ravel(), 0.0, 30)).reshape(X.shape)
+        np.testing.assert_allclose(pts, ref)
 
     def test_spots_pick_pure_flat_vertex_nearest_the_reference(self):
         rows = cols = 41
@@ -473,19 +560,209 @@ class Exp2tHelpers(unittest.TestCase):
         w = [np.zeros((rows, cols)) for _ in keys]
         w[1][:] = 1.0
         w[1][:, 30:], w[0][:, 30:] = 0.0, 1.0              # asphalt strip in the east
-        w[1][:5, :10], w[2][:5, :10] = 0.0, 1.0            # dirt in the south-west corner
+        w[1][:5, :10], w[2][:5, :10] = 0.0, 1.0            # eroded dirt in the south-west corner
         heights = np.zeros((rows, cols))
         used = [(0.0, 0.0)]
         spots = gt.find_spots(keys, w, heights, (0.0, 0.0), (20 * 128 / 70, 20 * 128 / 70), lambda r, c: 0.0, 0.004,
                               used)
         got = {s["label"]: s for s in spots}
         self.assertNotIn("ground_road", got)               # no RubbleRock01 anywhere
-        self.assertEqual(got["ground_lot"]["fo4_textures"], {"LAsphalt01": 1.0})
+        self.assertEqual(got["ground_lot"]["fo4_at_vertex"], {"LAsphalt01": 1.0})
+        self.assertEqual(got["ground_lot"]["sf_mapped"], "LGravelDecorative01")
         self.assertGreaterEqual(got["ground_lot"]["x"], 31 * 128 / 70 - 1e-3)   # inside the strip (purity radius 1)
         self.assertEqual(got["ground_grass"]["sf_mapped"], "LGrassDeadWet01")
-        self.assertEqual(got["ground_dirt"]["fo4_textures"], {"LRootsEroded01": 1.0})
+        self.assertEqual(got["ground_dirt"]["fo4_at_vertex"], {"LRootsEroded01": 1.0})
+        self.assertEqual(got["ground_dirt"]["fo4_sources"], ["LRootsEroded01"])
         self.assertTrue(all(s["expect"] == 0.0 for s in spots))
         self.assertEqual(len(used), 1 + len(spots))
+
+    def test_spot_purity_counts_only_textures_of_one_starfield_target(self):
+        # the old bug: RootsEroded01 (-> LDirtPacked04) and DirtPath01 (-> LDirtPacked10) half and half passed a purity
+        # test over their union; now neither target is pure there, and the pure RootsEroded01 patch further away wins
+        rows = cols = 61
+        keys = ["LDirtPath01", "LDriedGrass01", "LRootsEroded01"]
+        w = [np.zeros((rows, cols)) for _ in keys]
+        w[1][:] = 1.0
+        w[1][25:36, 25:36] = 0.0
+        w[0][25:36, 25:36], w[2][25:36, 25:36] = 0.5, 0.5           # mixed patch right at the reference point
+        w[1][50:61, 50:61], w[2][50:61, 50:61] = 0.0, 1.0           # pure eroded dirt in the north-east corner
+        self.assertNotEqual(ground_map.sf_for("LDirtPath01"), ground_map.sf_for("LRootsEroded01"))
+        ref = (30 * 128 / 70, 30 * 128 / 70)
+        dirt = [("ground_dirt", "dirt", "LDirtPacked04", 0.0, 2, 0.9)]
+        spots = gt.find_spots(keys, w, np.zeros((rows, cols)), (0.0, 0.0), ref, lambda r, c: 0.0, 0.004, [],
+                              spots=dirt)
+        self.assertEqual(len(spots), 1)
+        self.assertGreaterEqual(spots[0]["x"], 52 * 128 / 70 - 1e-3)
+        self.assertEqual(spots[0]["fo4_textures"], {"LRootsEroded01": 1.0})
+        path = [("ground_path", "path", "LDirtPacked10", 0.0, 2, 0.9)]
+        self.assertEqual(gt.find_spots(keys, w, np.zeros((rows, cols)), (0.0, 0.0), ref, lambda r, c: 0.0, 0.004, [],
+                                       spots=path), [])
+
+    def test_spot_needs_the_target_share_in_the_view_window_and_disk(self):
+        rows = cols = 41
+        keys = ["LDriedGrass01"]
+        w = [np.ones((rows, cols))]
+        calls = []
+
+        def share(x, y, target):                          # the decoded view is poor south of y = 50 m
+            calls.append((x, y, target))
+            return {"view": 0.95 if y >= 50 else 0.5, "disk": 0.97}
+
+        spot = [("ground_grass", "grass", "LGrassDeadWet01", 0.0, 2, 0.9)]
+        got = gt.find_spots(keys, w, np.zeros((rows, cols)), (0.0, 0.0), (36.6, 36.6), lambda r, c: 0.0, 0.004, [],
+                            share_fn=share, spots=spot)
+        self.assertEqual(len(got), 1)
+        self.assertGreaterEqual(got[0]["y"], 50.0)
+        self.assertGreater(got[0]["skipped_for_low_share"], 0)
+        self.assertEqual(got[0]["target_share"], {"view": 0.95, "disk": 0.97})
+        self.assertTrue(all(c[2] == "LGrassDeadWet01" for c in calls))
+
+    def test_decoded_shares_cover_the_view_window_not_one_sample(self):
+        # one-cell BTD: table [A, B]; B everywhere except a band y >= 58.5 m of A. A spot at y = 56 m sits on B, but the
+        # runner's screenshot looks 2..7 m north (58..63 m), which is all A
+        n, H = 1, 128
+        o = gt.tg.grid_origin(n)
+        ys = o + np.arange(H) * gt.tg.SF_STEP_M
+        wA = np.zeros((2, H, H))
+        wA[0][ys >= 58.5, :] = 1.0
+        wA[1] = 1.0 - wA[0]
+        qm, words, _st = landtex.encode(wA, 2)
+        t = btd.Btd(6, 0.0, 1.0, [1, 2], np.zeros((H, H), np.uint16), words, qm)
+        at = gt.decoded_at(t, ["A", "B"], 50.0, 56.0)
+        view = gt.decoded_shares(t, ["A", "B"], 50.0, 56.0, "view")
+        disk = gt.decoded_shares(t, ["A", "B"], 50.0, 56.0, "disk")
+        self.assertEqual(list(at), ["B"])
+        self.assertGreater(view["A"], 0.9)
+        self.assertAlmostEqual(sum(view.values()), 1.0, places=2)
+        self.assertLess(disk["A"], 0.5)
+        # samples in the window: x 47..53, y 58..63 at 0.78125 m
+        X, Y = gt.window_points(50.0, 56.0, "view")
+        self.assertAlmostEqual(float(X.min()), 47.0)
+        self.assertAlmostEqual(float(Y.max()), 63.0)
+        Xd, Yd = gt.window_points(0.0, 0.0, "disk")
+        self.assertLessEqual(float(np.hypot(Xd, Yd).max()), gt.DISK_M + 1e-9)
+        self.assertEqual(gt.decoded_shares(t, ["A", "B"], 500.0, 500.0, "view"), {})     # outside the BTD
+
+    def test_fold_rare_textures(self):
+        keys = ["a", "b", "c", "rare"]
+        g = [np.full((3, 3), x) for x in (0.5, 0.3, 0.1997, 0.0003)]
+        pal = {"sf": {"a": {"color": [200, 10, 10]}, "b": {"color": [10, 200, 10]}, "c": {"color": [10, 10, 200]},
+                      "rare": {"color": [20, 190, 20]}}}
+        self.assertEqual(gt.fold_rare(keys, g, pal), {"rare": "b"})        # nearest colour
+        self.assertEqual(gt.fold_rare(keys, g), {"rare": "a"})             # no palette: the most common
+        self.assertEqual(gt.fold_rare(keys, g, pal, min_coverage=0.0), {})
+
+
+class Exp2tRegistration(unittest.TestCase):
+    def test_relocate_compressed_and_uncompressed(self):
+        ents = [(-0.04, -0.09, 0x0000ABCD), (0.3, -1.2, 0x01000802), (0.7, -0.17, 0x00001234)]
+        for compressed in (True, False):
+            src = mars_plugin(ents, compressed)
+            off, groups, e, pair = gt.registration_entry(src, "FO4TerrainExp2.esm")
+            self.assertEqual(pair, (0.3, -1.2))
+            new, old = gt.relocate_registration(src, "FO4TerrainExp2.esm", (0.2, 1.2))
+            self.assertEqual(old, (0.3, -1.2))
+            self.assertEqual(gt.registration_entry(new, "fo4terrainexp2.esm")[3], (0.2, 1.2))
+            ok, summary = gt.registration_diff(new, src, e)
+            self.assertTrue(ok, summary)
+            _h, recs = gt.plugin_records(new)
+            fields = dict(fo4land.iter_subrecords(recs[0][3]))
+            self.assertEqual(fields[b"EDID"], b"MarsPlanetData\0")
+            cn = [d for s, d in fo4land.iter_subrecords(recs[0][3]) if s == b"CNAM" and len(d) == 60][0]
+            self.assertEqual(struct.unpack_from("<ddI", cn, 0), (-0.04, -0.09, 0x0000ABCD))
+            self.assertEqual(struct.unpack_from("<ddI", cn, 40), (0.7, -0.17, 0x00001234))
+            gsize = struct.unpack_from("<I", new, groups[0] + 4)[0]
+            self.assertEqual(groups[0] + gsize, len(new))                   # group size follows the record
+            if not compressed:                                              # only bytes of the entry's f64 pair
+                diff = [i for i, (x, y) in enumerate(zip(new, src)) if x != y]
+                self.assertTrue(diff and all(off + 24 + e <= i < off + 24 + e + 16 for i in diff))
+        # a different site entry is caught by the diff
+        a = mars_plugin(ents, False)
+        b = mars_plugin([ents[0], ents[1], (0.7, -0.18, 0x00001234)], False)
+        self.assertFalse(gt.registration_diff(a, b, gt.registration_entry(a, "FO4TerrainExp2.esm")[2])[0])
+
+    def test_registration_entry_errors(self):
+        with self.assertRaises(ValueError):                                  # not a master
+            gt.registration_entry(mars_plugin([(0.3, -1.2, 0x01000802)]), "Other.esm")
+        with self.assertRaises(ValueError):                                  # two entries of the plugin
+            gt.registration_entry(mars_plugin([(0.3, -1.2, 0x01000802), (0.1, 0.1, 0x01000803)]), "FO4TerrainExp2.esm")
+        with self.assertRaises(ValueError):                                  # none
+            gt.registration_entry(mars_plugin([(0.3, -1.2, 0x00000802)]), "FO4TerrainExp2.esm")
+
+
+class Exp2tSurveyAndLighting(unittest.TestCase):
+    def test_btd_table_reads_only_the_header_and_biom_refs(self):
+        tab = [0x1085C, 0x1235C2]
+        head = btd.MAGIC + struct.pack("<IffIIiiiiI", 6, 0.0, 1.0, 128, 128, 0, 0, 0, 0, len(tab)) + \
+            struct.pack("<2I", *tab)
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "x.bin")
+            with open(p, "wb") as f:
+                f.write(b"junk" + head + b"\xff" * 64)
+
+            class A:
+                path = p
+                entries = [type("E", (), {"packed": 0, "offset": 4, "unpacked": len(head) + 64})()]
+            self.assertEqual(gt.btd_table(A, 0), tab)
+            biom = rec(b"BIOM", 0x77, [(b"EDID", b"B\0"), (b"LNAM", struct.pack("<I", 0x1235C2)),
+                                       (b"ANAM", struct.pack("<2I", 0x1235C2, 0x55)), (b"XNAM", struct.pack("<I", 9))])
+            esm = os.path.join(d, "s.esm")
+            with open(esm, "wb") as f:
+                f.write(rec(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 1.0, 0, 0))]) + grup(b"BIOM", 0, [biom]))
+            self.assertEqual(gt.biom_ltex_refs(esm), {0x1235C2: 2, 0x55: 1})
+
+    def test_lighting_verdicts_and_report(self):
+        from PIL import Image
+        self.assertEqual(gt.lighting_verdict(110.0, 120.0), "daylight")
+        self.assertEqual(gt.lighting_verdict(7.0, 51.6), "daylight")        # arrival in a pit, probes in daylight
+        self.assertEqual(gt.lighting_verdict(12.0, 35.0), "night")
+        self.assertEqual(gt.lighting_verdict(12.0, None), "night")
+        self.assertEqual(gt.lighting_verdict(45.0, 42.0), "unclear")
+        with tempfile.TemporaryDirectory() as d:
+            att = os.path.join(d, "q", "tests", "0000_terrain_X", "a1")
+            os.makedirs(att)
+            sky = np.zeros((720, 1280, 3), np.uint8)
+            sky[:200] = 15
+            Image.fromarray(sky).save(os.path.join(att, "spawn.png"))
+            for k in (0, 1, 10):
+                im = np.full((720, 1280, 3), 30, np.uint8)
+                im[300:420, 500:780] = 200                  # the helmet lamp's circle does not count
+                Image.fromarray(im).save(os.path.join(att, f"pt{k}.png"))
+            rep = os.path.join(d, "rep.json")
+            self.assertEqual(gt.main(["lighting", "--run", os.path.join(d, "q"), "--out", rep]), 0)
+            r = gt.read_json(rep)["attempts"][0]
+            self.assertEqual(r["verdict"], "night")
+            self.assertEqual(r["sky_top_rows"], 15.0)
+            self.assertEqual(r["probe_corner_median"], 30.0)
+            self.assertEqual(list(r["probe_corners"]), ["pt0", "pt1", "pt10"])
+            self.assertEqual(gt.main(["lighting", "--run", os.path.join(d, "empty")]), 1)
+
+
+class Exp2tMappingVariants(unittest.TestCase):
+    def test_folds_placeholders_and_notes(self):
+        for v, fold in ground_map.FOLD.items():
+            self.assertEqual(set(fold), set(ground_map.SF_CANDIDATES), v)
+            self.assertEqual(len(set(fold.values())), 4, v)
+            for k in fold.values():
+                self.assertIn(k, ground_map.SF_FORMID)
+            self.assertEqual(len(ground_map.TEMPLATE_TABLE) + 4, 11)
+        self.assertEqual(sorted(ground_map.PLACEHOLDERS), sorted(ground_map.PLACEHOLDER_FORMID))
+        self.assertEqual(set(ground_map.TEMPLATE_TABLE), set(ground_map.PLACEHOLDERS) | {"LDirtFootprints01"})
+        self.assertEqual(ground_map.formid("LDefault001Solid"), 0x0001085C)
+        self.assertEqual(ground_map.formid("LGravelRoad01"), 0x001235C1)
+        with self.assertRaises(KeyError):
+            ground_map.formid("LNoSuchTexture")
+        self.assertEqual(ground_map.folded("ta", "LDriedGrass01"), "LGrassAridSparse01_Dead")
+        self.assertEqual(ground_map.folded("tb", "LAsphalt01"), "LGravelDecorative01")
+        self.assertTrue(set(ground_map.NOTES) <= set(ground_map.MAP))
+        self.assertEqual(gt.parse_variants("all"), gt.BUILD_ORDER)
+        self.assertEqual(gt.parse_variants("ta,t"), ["t", "ta"])
+        with self.assertRaises(SystemExit):
+            gt.parse_variants("tz")
+        self.assertEqual([gt.variant_dir("x", v) for v in ("t", "t0", "ta")], ["x", "x0", "xa"])
+        self.assertEqual(set(gt.RUN_ORDER), set(gt.VARIANTS))
+        chain = {v: i["vs"] for v, i in gt.VARIANTS.items()}
+        self.assertEqual(chain, {"t0": "exp2b2", "ta": "t0", "tb": "ta", "tc": "tb", "t": "tc"})
 
 
 if __name__ == "__main__":

@@ -30,7 +30,7 @@ SF_FORMID = {
     "LDirtPacked01": 0x0003013A, "LDirtPacked02": 0x000557C1, "LDirtPacked04": 0x000557C2,
     "LDirtPacked06": 0x0005592C, "LDirtPacked07": 0x0005592D, "LDirtPacked08": 0x00056375,
     "LDirtPacked09": 0x00251B78, "LDirtPacked10": 0x001CC5CB, "LDirtPacked05_Tan": 0x002073E4,
-    "LDirtPacked09_Brown": 0x002073DB, "LDirtPacked02_Pale": 0x002073ED, "LDirtPacked04_Pale": 0x002073E9,
+    "LDirtPacked09_Brown": 0x002073DB, "LDirtPacked04_Brown": 0x002073EB, "LDirtPacked02_Pale": 0x002073ED, "LDirtPacked04_Pale": 0x002073E9,
     "LDirtPacked08_GrayRocks": 0x0021615B, "LDirtPacked09_GrayRocks": 0x0021615A,
     "LDirtForestPacked01": 0x000714D3, "LDirtForestPacked01_Dark": 0x00145441, "LDirtForestPine01": 0x002C1C79,
     "LDirtForestRoots01": 0x00273167, "LDirtForestRoots02": 0x00172586, "LLeavesPineNeedles01": 0x00286AF9,
@@ -44,6 +44,16 @@ SF_FORMID = {
     "LDebrisPile01": 0x0020A82D, "LScrapPile01": 0x0020A82C, "LTrash01": 0x002E57E6,
     "LDirtFootprints01": 0x001235C2,
 }
+
+# The six placeholder LTEX that every vanilla BTD with an LTEX table carries (verified: survey, ground-textures.md 2.2),
+# and the table of exp2b2's BTD (copied from a vanilla template; verified in game to render LDirtFootprints01), in its
+# order. No BIOM names the placeholders; they stand for the planet biome's ground (supported).
+PLACEHOLDERS = ["LDefault001Solid", "LDefault002Talus", "LDefault003FlatIn", "LDefault004FlatOut", "LDefault005Flow",
+                "LDefault006Base"]
+PLACEHOLDER_FORMID = {"LDefault001Solid": 0x0001085C, "LDefault002Talus": 0x0001085D, "LDefault003FlatIn": 0x0001085E,
+                      "LDefault004FlatOut": 0x0001085F, "LDefault005Flow": 0x00010860, "LDefault006Base": 0x00010861}
+TEMPLATE_TABLE = ["LDefault006Base", "LDefault005Flow", "LDefault004FlatOut", "LDefault003FlatIn", "LDefault002Talus",
+                  "LDefault001Solid", "LDirtFootprints01"]
 
 SF_CANDIDATES = {
     "grass": ["LGrassDeadWet01", "LGrassDeadWet02", "LGrassLive01", "LGrassLive02", "LGrassWeeds01", "LGrassWeeds02",
@@ -178,11 +188,40 @@ REVIEWED = {
     "LMuddyLeaves01Wet": "nearest LLeavesTropical01 (dE 2.9) shows green tropical leaves; LDirtForestRoots02 is the "
                          "brown leaf litter used for LFallenLeaves01 (dE 1.6 there)",
 }
+# FO4 EditorID -> a note on a choice that is the nearest colour but not the obvious name
+NOTES = {
+    "LAsphalt01": "nearest colour (dE 7.0); the paved list also holds vanilla LGravelAsphaltRoad01, the semantic match, "
+                  "but its albedo averages (47, 46, 45) against FO4 Asphalt01's (115, 111, 100): FO4's lots are "
+                  "sun-bleached grey, so the light grey gravel was kept",
+}
 FALLBACK = "LDirtPacked02"
+
+# exp2t variants ta / tb (ground-textures.md 5): every FO4 texture folded onto four Starfield LTEX by its category.
+# ta: four LTEX that vanilla gameplay BTD tables carry (sb016templeworld, sb013templeworld, akilacity,
+#     overlaytraitprimordialnetworksm01). tb: four LTEX of the full mapping that no vanilla BTD table carries (all named
+#     by BIOMs). With exp2b2's 7-entry template table both make 11 entries, the size of akilacity's table.
+FOLD = {
+    "ta": {"grass": "LGrassAridSparse01_Dead", "lawn": "LGrassAridSparse01_Dead", "gravel": "LLooseRocksForest01",
+           "paved": "LLooseRocksForest01", "debris": "LLooseRocksForest01", "dirt": "LDirtPacked04_Brown",
+           "mud": "LDirtPacked04_Brown", "sand": "LDirtPacked04_Brown", "forest": "LDirtForestPacked01"},
+    "tb": {"grass": "LGrassDeadWet01", "lawn": "LGrassDeadWet01", "gravel": "LGravelDecorative01",
+           "paved": "LGravelDecorative01", "debris": "LGravelDecorative01", "dirt": "LDirtPacked04", "mud": "LDirtPacked04",
+           "sand": "LDirtPacked04", "forest": "LDirtForestPacked01_Dark"},
+}
 
 
 def category(fo4_edid):
     return FO4_CATEGORY.get(fo4_edid, "dirt")
+
+
+def formid(sf_edid):
+    """Starfield.esm FormID of a mapped LTEX or a placeholder."""
+    return SF_FORMID[sf_edid] if sf_edid in SF_FORMID else PLACEHOLDER_FORMID[sf_edid]
+
+
+def folded(variant, fo4_edid):
+    """Starfield LTEX of a FO4 LTEX in a folded variant (FOLD)."""
+    return FOLD[variant][category(fo4_edid)]
 
 
 def sf_for(fo4_edid):

@@ -2,11 +2,23 @@
 
 Format: date, decision, why, alternatives considered.
 
+## 2026-10-11 Ground-texture experiment as a five-step ladder at a daylight site (Claude)
+exp2t is staged as five variants that each change one thing against the previous one (t0 control: exp2b2's BTD;
+ta: exp2b2's 7-entry template + 4 LTEX that vanilla gameplay tables carry, 11 entries; tb: as ta with 4 LTEX no BTD
+uses; tc: template + full mapping, 31; t: full mapping, 24, no placeholders), all registered on Mars at exp1's site
+(0.2, 1.2) instead of exp2b2's (0.3, -1.2). Run t0, ta, t; tc and tb only if t differs from ta. Why: every vanilla
+table carries the six placeholders and at most 18 entries, so a single exp2t run could not tell which departure
+broke it; and every run at exp2's longitude arrived at night, which hides colour and tint. Alternatives: one run
+with the full mapping (cannot attribute a failure), a full factorial (8 runs), a game-hour step in the runner (whether
+`set gamehour` moves the sun on a planet is untested, and the runner lives on the test-queue branch). Evidence:
+docs/terrain/ground-textures.md 2.2 and 5.
+
 ## 2026-10-11 FO4 ground textures: vanilla Starfield land textures first, new terrain materials later (Claude)
 The Commonwealth BTD carries FO4's ground textures as vanilla `Starfield.esm` LTEX in its LTEX table: every FO4 land
 texture maps to one of 27 Earth-like vanilla LTEX by hand category + nearest average colour, reviewed by eye
-(`src/fo4sf/ground_map.py`). Why: vanilla BTDs already name concrete LTEX (akilacity, overlay traits), so it needs no
-plugin record and no new material; all 27 materials exist in the run-time material database. Alternatives: new LTEX
+(`src/fo4sf/ground_map.py`). Why: vanilla BTDs already name concrete LTEX (akilacity, overlay traits; always next to
+the six placeholders, in tables of at most 18 entries, see the ladder entry above), so it needs no plugin record
+and no new material; all 27 materials exist in the run-time material database. Alternatives: new LTEX
 + `.mat` from converted FO4 textures (no official plugin adds an LTEX; a BTD table has no master list, so a plugin
 FormID would bake in a load-order byte; terrain material loading from a plugin archive is untested) and the six
 `LDefault*` placeholders (they take the planet's look, the opposite of the goal). Revisit after exp2t runs. Evidence:

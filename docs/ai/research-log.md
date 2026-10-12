@@ -3,6 +3,40 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-11 Claude: ground textures fix pass (QA review of PR #70)
+- Question: the QA review found that the exp2t dirt spot was mislabelled, that every Commonwealth overlay run was at
+  night, and that exp2t departed from every vanilla LTEX table in untested ways. Which of that holds, and what fixes
+  it? Write-up: [docs/terrain/ground-textures.md](../terrain/ground-textures.md) sections 2.2, 5.1-5.3.
+- Method: `ground_textures.py survey` (all BTD tables of the Starfield and add-on archives, BIOM `LNAM`/`ANAM`);
+  `ground_textures.py lighting` over every earlier terrain queue (spawn sky, probe-shot corners); queue/obs files for
+  save, start times and merge offsets; raw PNDT `CNAM` pairs of the staged Mars plugins; `Fallout4.exe` strings; VCLR
+  over the footprint and the region of interest; decoded-BTD shares over each spot's view window and disk.
+- Evidence:
+  - **verified**: the old `ground_dirt` spot was one `LDirtPath01` vertex in mostly `LRootsEroded01` (two different
+    Starfield targets); spots are now chosen per single target and must hold >= 90 % of the decoded view window and of
+    a 6 m disk (all four do: 91-96 % / 95-100 %). `check` tests that window, not the nearest sample.
+  - **verified**: 2,112 vanilla BTDs, 659 with an LTEX table, all 659 with the six `LDefault*` placeholders (11 index
+    patterns); sizes 0: 1,453, 6: 256, 7: 341, 8: 37, 9: 20, 11: 1, 12: 1, 17: 1, 18: 2; largest gameplay table
+    akilacity (11). 20 of the 24 textures of the full mapping (22 of the first 27) are in no vanilla table, 5 in no
+    BIOM, `LGravelRoad01` and `LDebrisPile01` in neither. The earlier "a table may name any LTEX" is **corrected**.
+  - **verified**: every Commonwealth overlay arrival (exp2b .. exp2c, 8 attempts) was at night (spawn sky 6.4-19.9 of
+    255); the runner has no time-of-day control. From the same save (`fo4sf_test_2470f876`) the overlays registered at
+    longitude 1.2 (exp1_mars, exp1d, exp3) arrived in daylight (103-131), exp2's at -1.2 never.
+    **Supported**: local time follows the registration longitude. Fix: every new variant registers at exp1's site
+    (0.2, 1.2); only the PNDT entry's 16 bytes changed (checked).
+  - **downgraded**: "the exp2b 'Mars dirt' is `LDirtFootprints01`'s own albedo" (was supported) is now
+    **unresolved**: the screenshots were lamp-lit at night. The control variant exp2t0 shows it in daylight.
+  - **verified** (upgraded from supported): FO4's default land texture is `Ground\CommonwealthDefault01_d.dds`, the
+    `Fallout4.exe` default of `sDefaultLandDiffuseTexture:Landscape` (bytes 46,682,039 / 46,682,072).
+  - **verified**: VCLR over the 1,490 footprint cells is mean 0.996 / p5 0.992 of white (0.998 / 0.996 in the 175
+    cells of the region of interest); alpha search on today's input 0.0306 / 99.04 % -> 0.0289 / 99.25 % (plain
+    rounding vs search, reproducible with `--alpha-rounding plain`); the palette now reads `TilingDistance` (220 of
+    416 materials; colours unchanged).
+- Staged: five variants that change one thing at a time (t0 control, ta vanilla-shaped 11 entries, tb 11 entries with
+  never-in-a-BTD LTEX, tc template + full mapping 31, t full mapping 24); all `check` PASS, all accepted by a dry
+  `plan-terrain`. Not run in game.
+- Status: offline findings **verified**; daylight at the new site **supported**; what the game draws **unresolved**.
+
 ## 2026-10-11 Claude: FO4 ground textures in the BTD (exp2t staged)
 - Question: how do FO4 LAND texture layers and Starfield BTD texture sections work, and can the native Commonwealth
   terrain (exp2b2, heights verified in game) get Fallout 4's ground look? Write-up:
@@ -16,7 +50,8 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   `C:\Modding\staging\terrain_exp2t`. Not deployed, not run in game.
 - Evidence:
   - **verified**: FO4 field layouts (quadrant 0 = SW .. 3 = NE, 17 x 17 positions, row 0 = south); 1,701 of 10,000
-    quadrants have no BTXT (default texture); VCLR is white (mean 0.998) around Red Rocket.
+    quadrants have no BTXT (default texture); VCLR is white (mean 0.998) around Red Rocket (0.996 over the whole
+    footprint; see the fix-pass entry above).
   - **verified**: BTD quadrant = 8 bytes, bytes 0..4 slots with alpha group k, byte 6 base, bytes 5 / 7 and bit 15
     never set, textures in ascending table index; without byte 6 the last slot's alpha is 7 (100 % in four of five
     files, 99.97 % in newatlantis, 69-100 % in akilacity). Our decode -> encode reproduces five vanilla BTDs' effective
@@ -26,11 +61,12 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
     **Supported**: placeholders resolve to the planet biome's Solid/Talus/... texture; concrete LTEX render as
     themselves (akilacity uses both).
   - **supported**: blend reading (top slot over lower slots over base; fo76utils + the opaque bottom slot); FO4 default
-    texture = CommonwealthDefault01 (fo76utils `-deftxt 0x000AB07E`); the exp2b "Mars dirt" is `LDirtFootprints01`'s
-    own reddish albedo (`#8F6C58`).
+    texture = CommonwealthDefault01 (fo76utils `-deftxt 0x000AB07E`; now **verified**, see above); the exp2b "Mars
+    dirt" is `LDirtFootprints01`'s own reddish albedo (`#8F6C58`) (now **unresolved**: night shots, see above).
   - **verified** (offline): exp2t BTD heights byte-identical to exp2b2 (SHA-256 of header, cell min/max, LOD4 heights,
     every block's height half); 27-entry LTEX table; mean weight error 0.0289, dominant texture kept at 99.25 % of
-    samples, 0.11 % weight dropped by the 6-texture limit; four ground spots decode to their mapped texture; packed
+    samples, 0.11 % weight dropped by the 6-texture limit; four ground spots decode to their mapped texture (at one
+    sample only: the dirt and lot spots were wrong for the screenshot, see above); packed
     with Archive2 `-compression=None` the BTDs are stored and byte-identical.
 - Status: format and writer **verified** offline; what the game draws (concrete LTEX on Mars, tint, blend model,
   option b: plugin terrain materials) **unresolved** until exp2t runs.
