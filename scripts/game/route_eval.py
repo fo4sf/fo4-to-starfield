@@ -8,7 +8,8 @@ door:   PASS if the end point is min_past metres beyond the door plane (dot with
         UNOPENED if it is past the plane but the prompt was absent or was not OPEN: the leaf was already open.
         Otherwise NOPROMPT if the activation prompt was never seen, else BLOCKED.
 A start more than 3 m off in X/Y, or more than 2 m off in Z, is UNREAD: the route was not begun.
-A recorded start that does not parse, or any non-finite coordinate, is UNREAD.
+A recorded start that does not parse, a present but empty or null start, or any non-finite coordinate, is UNREAD.
+A result that never stored start_read is still scored.
 A drop of more than 6 m after a matched start is FALL, including a door that opens onto the void.
 Any other move no walk of this length could make is UNREAD: a stair whose height is met without
 walking along it, a door end more than 12 m past the plane or more than 6 m back toward the start,
@@ -35,12 +36,19 @@ def parse(s):
 
 def judge(route, res):
     end = parse(res.get("end_read"))
-    raw_start = res.get("start_read")
-    start = parse(raw_start)
     if end is None:
         return "UNREAD", ""
-    if raw_start not in (None, "") and start is None:
-        return "UNREAD", f"start not readable: {raw_start}"
+    # None from .get means both "key absent" and JSON null. Only a stored empty or null start is unreadable.
+    # A file that never wrote start_read is still scored.
+    if "start_read" in res:
+        raw_start = res.get("start_read")
+        if raw_start is None or (isinstance(raw_start, str) and not raw_start.strip()):
+            return "UNREAD", "start not readable"
+        start = parse(raw_start)
+        if start is None:
+            return "UNREAD", f"start not readable: {raw_start}"
+    else:
+        start = None
     target = route.get("start")
     moved_xy = moved_z = None
     if start is not None:

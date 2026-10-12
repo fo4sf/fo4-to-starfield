@@ -55,6 +55,22 @@ class RouteEvalTests(unittest.TestCase):
             {"kind": "stairs", "expect": {"low": [0, 0, 0], "high": [2, 0, 2], "min_rise": 1.6}},
             {"end_read": "nope"})[0], "UNREAD")
 
+    def test_present_blank_start_is_unread_and_a_missing_start_still_scores(self):
+        # QA on #58: "" and null were the same as an absent key, so this door PASSed.
+        door_route = {"kind": "door", "start": [0, 0, 0],
+                      "expect": {"plane_point": [0, 0, 0], "plane_normal": [1, 0, 0], "min_past": 0.8}}
+        opened = {"end_read": "3 0 0", "prompt": True, "verb": "OPEN"}
+        self.assertEqual(evaluator.judge(door_route, dict(opened, start_read=""))[0], "UNREAD")
+        self.assertEqual(evaluator.judge(door_route, dict(opened, start_read=None))[0], "UNREAD")
+        self.assertEqual(evaluator.judge(door_route, dict(opened, start_read="   "))[0], "UNREAD")
+        self.assertEqual(evaluator.judge(door_route, dict(opened, start_read="fail"))[0], "UNREAD")
+        self.assertEqual(evaluator.judge(door_route, dict(opened))[0], "PASS")
+        stair_route = {"kind": "stairs", "expect": {"low": [0, 0, 0], "high": [2, 0, 2], "min_rise": 1.6}}
+        climbed = {"end_read": "2.1 0.2 1.9"}
+        self.assertEqual(evaluator.judge(stair_route, dict(climbed, start_read=""))[0], "UNREAD")
+        self.assertEqual(evaluator.judge(stair_route, dict(climbed, start_read=None))[0], "UNREAD")
+        self.assertEqual(evaluator.judge(stair_route, dict(climbed))[0], "PASS")
+
     def test_missed_start_and_missing_prompt(self):
         stair_route = {"kind": "stairs", "start": [0, 0, 0.3],
                        "expect": {"low": [0, 0, 0], "high": [2, 0, 2], "min_rise": 1.6}}
