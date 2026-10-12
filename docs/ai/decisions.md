@@ -37,3 +37,19 @@ any window. Deterministic guards: refuses if the agent was active in the last 10
 was woken in the last 30 min (their usage comes from the owner's plans); every attempt is logged (wakes.jsonl).
 Alternatives: keystrokes into the agents' terminals (focus stealing, wrong-window risk); GitHub comments only (agents
 don't poll while idle).
+
+## 2026-10-11 Converted actors: own identity, inherited Starfield behaviour (Claude)
+A converted Fallout 4 NPC_ keeps what makes it that actor: its name, faction intent, weapon, death loot and combat
+style intent. It inherits behaviour from a vanilla Starfield template of the same role through the ACBS template flags:
+traits, stats, AI data and packages, attack data, keywords, scripts, and template slots 13 / 14. The first record
+(`FO4_LvlRaider`, docs/actors/raider-conversion.md) templates directly on NPC_ records (EncSpacer01Template,
+EncSpacerFaceM01), not on the leveled lists, so its look and level are the same in every test.
+Why: Starfield runs the actor with its own systems (reaction radii, combat AI, faces), and the plugin stays small
+(547 B). The behaviour template can be swapped without touching the identity, and a failure in the vanilla control
+cell points at the record, not at the world.
+Alternatives considered:
+- Copying every FO4 field: FO4 AI semantics differ (hostility through aggression rather than faction relations), and
+  FO4 faces and outfits need the skinning milestones.
+- Duplicating a vanilla NPC_ (DeepCopy): carries the vanilla identity, and so hides what the conversion contributes.
+- Templating on LvlSpacer / LCharSpacer: random per spawn, and the spawn may get a generated base that `GetIsID` does
+  not confirm (N0_ptr_lvl).

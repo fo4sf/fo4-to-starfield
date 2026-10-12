@@ -64,7 +64,7 @@ the staged experiment folder (often another track's) is only read.
 Why General for textures too (verified, read-only BA2 name scan of Starfield's Data, 2026-10-11): all 7,761
 `textures/terrain/*` files, the 463 vanilla overlay masks among them, are in General archives (`Starfield -
 DensityMaps.ba2`); SFBGS00D's 44 overlay masks are in `SFBGS00D - Main.ba2` although `SFBGS00D - Textures.ba2` exists; no
-DDS (DX10) archive holds `textures/terrain/`. Terrain experiments 1d / 2b were measured with this packing. (A first
+DDS (DX10) archive holds `textures/terrain/`. Terrain experiments 1d / 2b were measured with this packing. A staged folder without a `Data\` tree (a plugin-only experiment, e.g. `actor_raider1`) installs its plugins and no archive. (A first
 version of this branch split `Data\textures` into a DDS `- Textures.ba2`; it was never run and is reverted.)
 
 ## NPC navigation (`npc_nav`)
@@ -108,6 +108,7 @@ into its name again, so the new run starts with no attempts used.
 | `handle_tol` | the ref PickLastRef names must stand this close (horizontal, metres) to the player's read at A | 2.0 |
 | `path_line` | `tpl` (path display) on for the walk, off at the end | false |
 | `control` | a control test: gates the FAIL verdicts of the other tests | false |
+| `control_npc` | the actor (8 hex) whose control (same method) and baseline gate this test's FAIL instead of the test's own actor: a converted actor in the vanilla control cell is judged against the vanilla actor's control there (N2a: `002B211C`, docs/actors/raider-conversion.md); not on a control or a baseline | the test's `npc` |
 | `requires` | `{"queue": "<queue dir>", "test": "<test id>", "verdict": "PASS"}`: run only when that test has that verdict; `plan-npc` checks that the queue tested the very folder `--install-exp` installs | none |
 | `fresh` | relaunch the runner's game before this test, as `plan-terrain --fresh` (a repeated `coc` into a merged planet world arrives erratically, 2026-10-11); `plan-npc --fresh` sets it on every test | false |
 | `expect`, `basis` | the verdict expected before the run and why (verified / supported hypothesis); shown in the report | none |
@@ -237,7 +238,7 @@ ref it names is removed only when `GetSelf` after `prid` names no other ref, it 
 | FAIL | STALLED | moved, but neither PASS rule |
 | INCONCLUSIVE | ANCHOR / SPAWN / HANDLE / TARGET / UNREAD | no frame offset; spawn not confirmed or more than 3 m from A; selection lost before the command; player not read at B; a planned read missing for a FAIL |
 | INCONCLUSIVE | WARP / EARLY | faster than `max_speed` between reads; at B by the first read |
-| INCONCLUSIVE | CONTROL | a FAIL of a non-control test while no control with the same method and actor passed, or the actor's baseline (when planned) did not pass (this queue or `--control-queue`). Final for the runner, raw verdict kept (`raw` in `results.jsonl` / `state.json`); `report` applies the gate again, so a control that passes later (retried at the end of its queue, or its queue run afterwards) still counts. PASS is never gated |
+| INCONCLUSIVE | CONTROL | a FAIL of a non-control test while no control with the same method and actor (`control_npc` when set) passed, or that actor's baseline (when planned) did not pass (this queue or `--control-queue`). Final for the runner, raw verdict kept (`raw` in `results.jsonl` / `state.json`); `report` applies the gate again, so a control that passes later (retried at the end of its queue, or its queue run afterwards) still counts. PASS is never gated |
 | INCONCLUSIVE | PRECONDITION | `requires` not met: not run, the game not launched for it; final (plan the queue again once the required test passed) |
 
 ### Evidence used (Starfield.exe 1.16.244, read-only, `scripts/recon_console.py`)

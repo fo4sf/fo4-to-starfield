@@ -3,6 +3,34 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-11 Claude: converting one Fallout 4 raider into a native Starfield NPC_
+- Question: what does a converted FO4 actor need to run on Starfield's own actor systems, and can Mutagen write it?
+  Full write-up: docs/actors/raider-conversion.md.
+- Method: `dotnet/ActorRaider` (read-only on both ESMs): `export-fo4` follows the template chain of ACHR 00046458
+  `DN092concordRaider01` (Concord); `sf-dump`, `sf-tplstats`, `rawcount`, and `roundtrip` (Mutagen writes 6 vanilla
+  NPC_ records back; every subrecord is compared with Starfield.esm).
+- Evidence and status:
+  - **Verified:** the FO4 chain is LvlRaider 0002898B -> LCharRaider 00022E48 -> EncRaider01Template 0003183A at
+    player level 1, with traits from LCharRaiderFaceAndGender 000FD3A3 (14 faces). Starfield's LvlSpacer 0027BB7B ->
+    LCharSpacer 0027BB7D (10 tiers) + LCharSpacerFaceAndGender 0027BB7C (7 faces) has the same shape.
+  - **Verified:** hostility works differently. FO4 RaiderFaction has no relation to PlayerFaction (9 relations); its
+    raiders are VeryAggressive. SpacerFaction 0027BB8C is Enemy to PlayerFaction 01C21C; Spacers are Unaggressive /
+    Brave and carry 6 RDSA reaction radii.
+  - **Verified:** Starfield NPC_ have 15 template slots; Mutagen 0.55.0-alpha.67 names 13 of them (slots 13 and 14 are
+    `TemplateActors.Unknown1/2`, flag bits unnamed). 5,445 of 7,131 NPC_ use templates (bit 13: 2,825, bit 14: 4,253).
+    Slots 13 and 14 almost always share the behaviour template, never Traits alone. What they mean is **unresolved**.
+  - **Verified:** Mutagen round trip. 1 of 6 records came back byte-identical. 2 differ only in FULL (localized string
+    ID -> inline string). 3 gain an empty STOP after RDSA; 4,310 of 7,131 vanilla NPC_ carry STOP before CNAM (32 right
+    after RDSA), so that it is harmless is a **supported hypothesis**. Everything else matched, including TPTA, AIDT,
+    RDSA and the raw subrecords.
+  - **Verified:** the Coachman WEAP 0026D96B has `NpcsUseAmmo` False. FO4Port.esm's highest local FormID is DE5C, so
+    the raider's F04800 cannot collide.
+  - **Supported hypothesis:** the plugin's console ID is 02F04800 (first plugin in Plugins.txt = slot 02, as for the
+    terrain anchor 02000800).
+  - **Supported hypothesis:** a direct NPC_ template, with no leveled list in the chain, keeps `GetIsID` working.
+  - **Unresolved until N2a / N2b run:** whether Starfield spawns, animates and paths the converted record, and
+    whether it engages the player.
+
 ## 2026-10-09 Claude: which FO4 collision bodies are movable?
 - Question: how does an FO4 `bhkPhysicsSystem` mark a body as movable (pushable), so the converter can stop turning
   physics objects into fixed obstacles (Vault 114 door `05C7DC` is blocked by a ragdoll skeleton)?

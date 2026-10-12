@@ -12,7 +12,8 @@ static class Writer
 {
     // TPTA slots in ACBS template-flag order. Starfield has 15: Mutagen 0.55.0-alpha.67 names 13 of them and calls the
     // last two Unknown1 / Unknown2 (flag bits 13, 14 have no name in Npc.TemplateActorType either). Their meaning is
-    // unresolved; in Starfield.esm they follow the behaviour template, never Traits alone (sf-tplstats).
+    // unresolved; in Starfield.esm they almost always share the behaviour categories' template, never Traits alone
+    // (sf-tplstats: 961 / 847 records match the 10 behaviour categories; 6 / 26 point elsewhere).
     public static readonly (string Name, int Bit)[] Slots =
     {
         ("Traits", 0), ("Stats", 1), ("Factions", 2), ("SpellList", 3), ("AiData", 4), ("AiPackages", 5),

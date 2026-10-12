@@ -63,7 +63,8 @@ FLAGS = {"Respawn": "Respawn", "Essential": "Essential", "Protected": "Protected
 
 # ACBS template categories: inherited from the Spacer templates (native behaviour) or the record's own (the Fallout 4
 # identity). Unknown1 / Unknown2 are Starfield's template slots 13 and 14, unnamed in Mutagen 0.55.0-alpha.67; in
-# Starfield.esm they follow the behaviour template, never Traits alone (ActorRaider sf-tplstats), so they go with it.
+# Starfield.esm they almost always share the behaviour template, never Traits alone (ActorRaider sf-tplstats), so they
+# go with it.
 INHERIT = ["Traits", "Stats", "SpellList", "AiData", "AiPackages", "Script", "DefPackList", "AttackData", "Keywords",
            "Unknown1", "Unknown2"]
 OWN = ["Factions", "BaseData", "Inventory"]

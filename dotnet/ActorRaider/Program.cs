@@ -16,7 +16,9 @@
 //   fo4-find <Fallout4.esm> <cell x> <cell y> <radius cells> [base EditorID substr]   placed NPCs near a Commonwealth cell
 //   fo4-dump / sf-dump <esm> <ids hex,comma>     every property of the records
 //   sf-find <Starfield.esm> <Class> <EditorID substr> [n]     e.g. sf-find ... Weapon Coachman
-//   sf-tplstats <Starfield.esm>                  template flag bits and the unnamed slots (TPTA Unknown1/2) over all NPC_
+//   sf-tplstats <Starfield.esm> [n]              template flag bits and the unnamed slots (TPTA Unknown1/2) over all NPC_
+//   rawsubs <plugin> <SIG> <ids hex,comma>       subrecord types and sizes of raw records (decompressed)
+//   rawcount <plugin> <SIG> <SUB>                records of a group that contain a subrecord type, and where
 //   props <Fallout4|Starfield> <Class>           Mutagen's schema of a class or enum
 // Nothing is deployed and no game file is written.
 using Mutagen.Bethesda;
@@ -151,7 +153,7 @@ switch (args[0])
         }
         Console.WriteLine($"NPC_ {all}, with template flags {templated}");
         for (int b = 0; b < 16; b++) Console.WriteLine($"  bit {b,2} ({1 << b,5}): {flagCounts[b]}");
-        foreach (var kv in pattern.OrderByDescending(k => k.Value).Take(30)) Console.WriteLine($"  {kv.Key}: {kv.Value}");
+        foreach (var kv in pattern.OrderByDescending(k => k.Value).Take(args.Length > 2 ? int.Parse(args[2]) : 30)) Console.WriteLine($"  {kv.Key}: {kv.Value}");
         return 0;
     }
 }
