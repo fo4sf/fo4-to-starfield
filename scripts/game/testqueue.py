@@ -89,11 +89,11 @@ def now():
 
 
 # ----------------------------------------------------------------------------------------------------------- planning
-def plan_cell(cell, staging, kinds, per_cell, plugin_index, formids, items, all_refs):
+def plan_cell(cell, staging, kinds, per_cell, plugin_index, formids, items, all_refs, routes_prefix="routes_"):
     """Tests for one exported cell, in the owner's priority order: stairs, falls, doors (both sides), movable, travel."""
     name = cell["cell"]
     out = []
-    routes_file = os.path.join(staging, f"routes_{name}.json")
+    routes_file = os.path.join(staging, f"{routes_prefix}{name}.json")   # e.g. routesfull_ = routes.py --max 400
     routes = load(routes_file, {}).get("routes", [])
     if "stairs" in kinds:
         for k, r in enumerate(routes):
@@ -101,7 +101,8 @@ def plan_cell(cell, staging, kinds, per_cell, plugin_index, formids, items, all_
                 out.append({"kind": "stairs", "cell": name, "ref": r["ref"], "model": r["model"],
                             "routes_file": routes_file, "route_index": k})
     if "fall" in kinds:
-        pts_file = os.path.join(staging, f"probe_{name}.txt")
+        # the point count is part of the name: a bigger batch must not reuse a smaller batch's picks
+        pts_file = os.path.join(staging, f"probe_{name}.txt" if per_cell == 10 else f"probe_{name}_{per_cell}.txt")
         if not os.path.exists(pts_file):
             subprocess.run([sys.executable, os.path.join(HERE, "probe_points.py"), os.path.join(staging, name + ".json"),
                             pts_file, str(per_cell)], check=False, capture_output=True)
@@ -174,7 +175,7 @@ def plan(a):
         cells = [c for c in cells if c["cell"] in want]
     tests = []
     for c in cells:
-        tests += plan_cell(c, staging, kinds, a.per_cell, a.plugin_index, formids, items, all_refs)
+        tests += plan_cell(c, staging, kinds, a.per_cell, a.plugin_index, formids, items, all_refs, a.routes_prefix)
     if a.per_kind:                                        # small batches: the first N of each kind in each cell
         seen = {}
         keep = []
@@ -843,6 +844,7 @@ def main(argv=None):
     p.add_argument("--per-cell", type=int, default=12)
     p.add_argument("--plugin-index", default="02")
     p.add_argument("--per-kind", type=int, default=0, help="keep the first N tests of each kind per cell (0 = all)")
+    p.add_argument("--routes-prefix", default="routes_", help="route files <staging>/<prefix><cell>.json (routes.py output)")
     pt = sub.add_parser("plan-terrain")
     pt.add_argument("--staging", required=True)
     pt.add_argument("--exp-dir", required=True)
