@@ -24,10 +24,14 @@ closed.
 Time of day: local_time (default 22.0, night) changes on "SetLocalTime <h>" (method slt), "SetLocalTime <h> 1"
 (slt_galaxy) or 'cgf "Game.SetLocalTime" <h>' (cgf) when that method is in time_works (default ["slt"]; [] = no command
 has an effect); "fw <id> [1]" sets weather, and weather_sky {id: brightness} overrides the sky. "shot <png>" writes a
-screenshot whose top 200 rows have the sky's brightness (110 by day, 6..18 h, else 12) and whose lower rows are ground."""
+screenshot whose top 200 rows have the sky's brightness (110 by day, 6..18 h, else 12) and whose lower rows are ground.
+INI settings (ini, default INI below, made-up values): GetINI "<name:Section>" prints "INISetting <name:Section> >> <v>"
+(%i / %.4f) or ">> NOT FOUND"; SetINI on a known setting prints nothing, on an unknown one 'INI setting "<name:Section>"
+does not exist' (the reply formats in Starfield.exe 1.16.244)."""
 import json
 import math
 import os
+import re
 import struct
 import sys
 import time
@@ -35,6 +39,7 @@ import zlib
 
 P = os.environ["FAKE_STATE"]
 STATIC = "0024A824"
+INI = {"bBorderRegionsEnabled:General": 1, "fPlayableAreaX:General": 3200.0, "uPlayableSpaceOverlayCellBuffer:Planet": 2}
 
 
 def game_time(s):
@@ -169,6 +174,18 @@ def run(s, cmd):
             s["local_time"] = float(w[2] if method == "cgf" else w[1])
     elif low.startswith("fw "):
         s["weather"] = w[1].upper()
+    elif low.startswith(("getini ", "setini ")):
+        m = re.fullmatch(r'(getini|setini) "([^"]+)"(?: (\S+))?', cmd, re.I)
+        ini = s.setdefault("ini", dict(INI))
+        key = m.group(2) if m else ""
+        if low.startswith("getini"):
+            v = ini.get(key)
+            s["log"].append(f"INISetting {key} >> " + ("NOT FOUND" if v is None else
+                                                      f"{v:.4f}" if isinstance(v, float) else f"{v}"))
+        elif key in ini and m.group(3) is not None:
+            ini[key] = type(ini[key])(float(m.group(3)))
+        else:
+            s["log"].append(f'INI setting "{key}" does not exist')
 
 
 def sky(s):
@@ -211,6 +228,7 @@ def column(lines):
 def quirks(ln):
     """OCR misreadings seen in the runner's console OCR (2026-10-11)."""
     for a, b in (("GetIsID >>", "GetlslD"), ("GetIsID", "GetlsID"), ("GetInFaction", "GetlnFaction"),
+                 ("INISetting", "lNlSetting"), ("GetINI", "GetlNl"), ("Enabled", "EnabIed"),
                  ("ClearConsole", "Clear Console"), ("GetDisabled", "Get Disabled"), ("GetPos: X", "Get Po s: X"),
                  (">>", "> >")):
         ln = ln.replace(a, b)

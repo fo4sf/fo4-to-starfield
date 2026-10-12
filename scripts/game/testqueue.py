@@ -10,7 +10,9 @@ usage:
                              [--fresh]
   plan-terrain and plan-npc also take [--time-of-day <local hour>] [--time-methods slt,slt_galaxy,cgf]
                              [--weather <form id>] [--need-daylight] for every test (plan.json fields of the same names
-                             per test; docs/ai/test-queue.md "Time of day and weather")
+                             per test; docs/ai/test-queue.md "Time of day and weather"); plan.json may also carry
+                             console_pre / console_post: whitelisted console lines (console_plan.py) typed before the
+                             travel / after the arrival
   python testqueue.py run   --queue <queue dir> [--max-tests N] [--max-hours 8] [--min-idle 900] [--wait-for-idle]
                              [--refocus] [--max-attempts 2] [--dry-run]
   python testqueue.py report --queue <queue dir>
@@ -47,6 +49,7 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
+import console_plan  # noqa: E402
 import route_eval  # noqa: E402
 import sky_light  # noqa: E402
 
@@ -140,6 +143,11 @@ def with_light(t, w, cli):
     merged = {k: w[k] for k in sky_light.LIGHT_KEYS if isinstance(w, dict) and k in w}
     merged.update(cli)
     return dict(t, **sky_light.light_fields(merged, _plan_fail))
+
+
+def with_extras(t, w, cli):
+    """with_light plus the whitelisted console_pre / console_post commands of the plan.json entry (console_plan.py)."""
+    return dict(with_light(t, w, cli), **console_plan.console_fields(w, _plan_fail))
 
 
 # ----------------------------------------------------------------------------------------------------------- planning
@@ -273,14 +281,14 @@ def plan_terrain(a):
         # reference inside the target worldspace does
         if travel and not re.fullmatch(r"(coc|cow) [A-Za-z0-9_]+( -?\d+ -?\d+)?|player\.moveto [0-9A-Fa-f]{8}", travel):
             sys.exit(f"bad travel command in plan.json: {travel!r}")
-        tests.append(with_light({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "", "ref": w["coc"],
-                                 "model": w.get("label", ""), "world_coc": w["coc"], "travel": travel,
-                                 **{k: w[k] for k in ("spawn_local", "anchor", "drop_above_spawn", "settle_ms", "z_ref",
-                                                      "hop_m", "hop_wait_ms") if w.get(k)},
-                                 "drop_z": float(w.get("drop_z", 80.0)),
-                                 "points": w["points"], "beyond": w.get("beyond") or {"x": w["points"][0]["x"] + 500.0,
-                                                                                      "y": w["points"][0]["y"]}},
-                                w, cli))
+        tests.append(with_extras({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "",
+                                  "ref": w["coc"], "model": w.get("label", ""), "world_coc": w["coc"], "travel": travel,
+                                  **{k: w[k] for k in ("spawn_local", "anchor", "drop_above_spawn", "settle_ms",
+                                                       "z_ref", "hop_m", "hop_wait_ms") if w.get(k)},
+                                  "drop_z": float(w.get("drop_z", 80.0)),
+                                  "points": w["points"], "beyond": w.get("beyond") or {"x": w["points"][0]["x"] + 500.0,
+                                                                                       "y": w["points"][0]["y"]}},
+                                 w, cli))
     exp = load(os.path.join(a.exp_dir, "expected.json")) if not own else {}
     worlds = [] if own else [("FO4TX_W01Spawn", "FO4TX_World01.btd", "record and name"),
                              ("FO4TX_W02Spawn", "FO4TX_Shared02.btd", "record path only"),
@@ -393,7 +401,7 @@ def npc_test(n, w):
     for k in ("expect", "basis"):
         if w.get(k):
             t[k] = str(w[k])
-    return with_light(t, w, {})              # time of day / weather after the arrival, before the spawn
+    return with_extras(t, w, {})   # time of day, weather, console commands (before the travel, after the arrival)
 
 
 def precondition(test):
@@ -427,7 +435,7 @@ def plan_npc(a):
     # baselines (method none) first, then controls: the others are judged against them
     src = sorted(src, key=lambda w: (w.get("method") != "none", not w.get("control")))
     cli = light_cli(a)
-    tests = [with_light(npc_test(n, w), w, cli) for n, w in enumerate(src)]
+    tests = [with_extras(npc_test(n, w), w, cli) for n, w in enumerate(src)]
     digest = sha256(esm)
     q = {"created": now(), "staging": staging, "plugin_sha256": digest, "build_id": digest[:8],
          "commit": subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
@@ -471,6 +479,9 @@ def judge(test, obs, out_dir):
     read as daylight becomes INCONCLUSIVE NIGHT (final: a retry types the same commands into the same save's time) or,
     when the sky was not read at all, INCONCLUSIVE LIGHT (retried). A FAIL stays a FAIL."""
     v, cls, detail = judge_kind(test, obs, out_dir)
+    con, _ = console_plan.summary(test, obs)              # console_pre / console_post replies: shown, never judged
+    if con and obs:
+        detail = f"{detail} {con}"
     lt = light_of(test, obs)
     if lt is None or not obs or obs.get("stopped"):
         return v, cls, detail
@@ -857,6 +868,20 @@ NPC_READ_S = 75         # Read-Pos: up to 3 readpos.ps1 runs
 NPC_REMOVE_S = 300      # kept for the removal (qstep.ps1 $reserve): Select-Npc (2), PickLastRef again (3), disable (1)
 LIGHT_TRY_S = 30        # one time-of-day / weather command: console open, typing, close, screenshot, sky measure
 LIGHT_WAIT_MS = 4000    # qstep.ps1's wait after such a command before the screenshot (plan field light_wait_ms)
+CONSOLE_CMD_S = 35      # one console_pre / console_post command: open, ~45 characters, capture, OCR, close
+HOP_S = 40              # one intermediate terrain hop: console open, five setpos / setangle lines, close
+
+
+def terrain_hops(test):
+    """Intermediate hops qstep.ps1 makes for hop_m (the same count: ceil(distance / hop_m) - 1 between points)."""
+    hop = test.get("hop_m")
+    pts = test.get("points") or []
+    if not hop or len(pts) < 2:
+        return 0
+    n = 0
+    for p, q in zip(pts, pts[1:]):
+        n += max(0, math.ceil(math.hypot(q["x"] - p["x"], q["y"] - p["y"]) / float(hop)) - 1)
+    return n
 
 
 def step_timeout(test):
@@ -864,11 +889,18 @@ def step_timeout(test):
     (ClearConsole, prid <id>, GetIsID, getpos x/y/z, OCR), two when the first is not read (Select-Npc). The spawn is
     four sessions (placeatme; plr; prid + GetSelf; GetIsID + getpos) around spawn_wait_ms of game time.
     Time of day / weather: one console session per command qstep.ps1 may type (open, up to ~35 characters, close),
-    light_wait_ms, a screenshot and its measure: LIGHT_TRY_S each, worst case (the ladder stops early)."""
+    light_wait_ms, a screenshot and its measure: LIGHT_TRY_S each, worst case (the ladder stops early).
+    console_pre / console_post: CONSOLE_CMD_S per command (console open, typing, capture, OCR, close)."""
     light = len(sky_light.commands(test)) * (LIGHT_TRY_S + test.get("light_wait_ms", LIGHT_WAIT_MS) / 1000)
+    light += CONSOLE_CMD_S * sum(len(test.get(k) or []) for k in console_plan.CONSOLE_KEYS)
     if test.get("kind") == "terrain":
-        # a terrain drop takes about a minute per point (teleport, fall, OCR read): 300 s cut experiment 1 off
-        return int(150 + 90 * (len(test.get("points", [])) + 1) + light)
+        # a terrain drop takes about a minute per point (teleport, fall, OCR read): 300 s cut experiment 1 off; a
+        # settle_ms above the step's default 4.5 s adds to every point (core64 2026-10-11: 10-12 s settle, 103-114 s a
+        # point); every intermediate hop of hop_m is one more teleport plus hop_wait_ms
+        pts = test.get("points", [])
+        settle = max(0.0, test.get("settle_ms", 4500) - 4500) / 1000
+        return int(150 + (90 + settle) * (len(pts) + 1) + light + terrain_hops(test) * HOP_S
+                   + terrain_hops(test) * test.get("hop_wait_ms", 6000) / 1000)
     if test.get("kind") == "npc_nav":
         reads = test.get("reads_s") or [0]
         n = len([x for x in reads if x > 0])
@@ -1130,6 +1162,7 @@ class Runner:
             out_dir = os.path.join(self.qdir, "tests", t["id"], f"a{n}")
             os.makedirs(out_dir, exist_ok=True)
             lt = None                                     # the sky reading, for tests that asked for a time of day
+            con = []                                      # console_pre / console_post replies (parsed OCR)
             if g in ("nocell", "retry"):
                 verdict, cls, detail, code = "INCONCLUSIVE", "NOCELL", f"cell {t['cell']} not reached ({g})", None
                 if g == "nocell" and not self.recover():
@@ -1162,6 +1195,7 @@ class Runner:
                     obs = load(os.path.join(out_dir, "obs.json"))
                     raw = judge(t, obs, out_dir)
                     lt = light_of(t, obs)
+                    con = console_plan.summary(t, obs)[1]
                     verdict, cls, detail = control_gate(self.qdir, self.q, t, *raw)
                     if not t["cell"]:
                         self.cell = None                  # the test travelled (terrain experiment world)
@@ -1173,6 +1207,8 @@ class Runner:
                 rec["expect"] = t["expect"]
             if lt:                                        # daylight / night / unclear / unread, sky before -> after
                 rec["light"], rec["sky"], rec["light_detail"] = lt["light"], lt["sky"], lt["detail"]
+            if con:
+                rec["console"] = con
             if cls == "CONTROL":
                 rec["raw"] = list(raw)                    # the report gates it again (write_report)
             with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
@@ -1254,10 +1290,13 @@ def write_report(qdir):
              for r in final.values() if r.get("light")]
     rep = {"build_id": q["build_id"], "commit": q["commit"], "tests": len(q["tests"]), "results": len(final),
            "pending": pending, "tally": tally, "ranked": ranked}
+    console = [dict(c, id=r["id"]) for r in final.values() for c in r.get("console") or []]
     if expectations:
         rep["expectations"] = expectations
     if light:
         rep["light"] = light
+    if console:
+        rep["console"] = console
     save_atomic(os.path.join(qdir, "report.json"), rep)
     lines = [f"# Test queue report: build {q['build_id']} (commit {q['commit'][:8]})", "",
              f"{len(final)} of {len(q['tests'])} tests have a result, {pending} pending. Generated {now()}.", "",
@@ -1284,6 +1323,13 @@ def write_report(qdir):
             b, a_ = (list(x["sky"] or []) + [None, None])[:2]
             sky = " -> ".join("-" if v is None else f"{v:.1f}" for v in (b, a_))
             lines.append(f"| {x['id']} | {x['light']} | {sky} | {x['detail']} |")
+    if console:
+        lines += ["", "## Console replies (console_pre before the travel, console_post after the arrival; OCR, best "
+                  "effort: the capture is console_<k>.png in the attempt folder)", "",
+                  "| test | phase | command | reply | note |", "|---|---|---|---|---|"]
+        for c in console:
+            got = c["value"] if c.get("status") == "value" else c.get("status")
+            lines.append(f"| {c['id']} | {c['phase']} | `{c['cmd']}` | {got} | {c.get('note') or ''} |")
     with open(os.path.join(qdir, "report.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     return rep

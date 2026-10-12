@@ -29,7 +29,7 @@ MARS = {"anchor_id": "02000800", "anchor_pos": [2010.97, -2352.8, 85.14], "arriv
 
 class SandboxStep:
     """Runs the copied qstep.ps1 against the simulated game (mixed into the opt-in test classes below)."""
-    def run_step(self, plan=None, world=None, test=None):
+    def run_step(self, plan=None, world=None, test=None, code=0):
         d = tempfile.mkdtemp(prefix="qstep_npc_")
         step_dir = os.path.join(d, "game")
         shutil.copytree(SANDBOX, step_dir)
@@ -46,7 +46,11 @@ class SandboxStep:
         r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                             os.path.join(step_dir, "qstep.ps1"), "-Spec", spec, "-Out", out],
                            capture_output=True, text=True, env=env, timeout=600)
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.returncode, code, r.stdout + r.stderr)
+        if code:                                              # a refused spec: what (if anything) reached the console
+            with open(state) as f:
+                self.typed = json.load(f).get("typed", [])
+            return r.stdout, None, None
         with open(os.path.join(out, "obs.json"), encoding="utf-8-sig") as f:
             obs = json.load(f)
         with open(state) as f:
@@ -223,6 +227,59 @@ class QstepLightSandboxTests(SandboxStep, unittest.TestCase):
         self.assertLess(at, min(k for k, c in enumerate(self.typed) if c.startswith("player.setpos")))
         self.assertEqual(v[0], "PASS", v[2])                  # the simulated player stays at the drop height 5 = expect
         self.assertIn("[light: local hour 12: sky 12.0 -> 110.0 after SetLocalTime 12; daylight]", v[2])
+
+
+BORDER = ['GetINI "bBorderRegionsEnabled:General"', 'GetINI "fPlayableAreaX:General"',
+          'GetINI "uPlayableSpaceOverlayCellBuffer:Planet"', 'SetINI "bBorderRegionsEnabled:General" 0',
+          'GetINI "bBorderRegionsEnabled:General"']
+
+
+@unittest.skipUnless(ENABLED, "opt-in: FO4SF_QSTEP_SANDBOX=1 on Windows")
+class QstepConsoleSandboxTests(SandboxStep, unittest.TestCase):
+    """console_pre / console_post (console_plan.py) in the real step, against the simulated INI settings; its OCR reads
+    l for I ("GetlNl", "lNlSetting", "EnabIed") and "> >" for ">>"."""
+    def terrain(self, **extra):
+        return tq.with_extras({"id": "0000_terrain_QASmoke", "kind": "terrain", "cell": "", "ref": "QASmoke",
+                               "model": "", "world_coc": "QASmoke", "travel": "", "drop_z": 5.0, "settle_ms": 1,
+                               "points": [{"label": "p0", "x": 1.0, "y": 1.0, "expect": 5.0}],
+                               "beyond": {"x": 3.0, "y": 1.0}}, extra, {})
+
+    def test_border_commands_before_the_travel_and_a_read_after_the_arrival(self):
+        t = self.terrain(console_pre=BORDER, console_post=['GetINI "bBorderRegionsEnabled:General"'], time_of_day=12)
+        v, obs, _ = self.run_step(test=t)
+        coc = self.typed.index("coc QASmoke")
+        self.assertEqual(self.typed[:coc], BORDER)                    # after the save, before the travel, in order
+        post = self.typed.index('GetINI "bBorderRegionsEnabled:General"', coc)
+        self.assertLess(self.typed.index("SetLocalTime 12"), post)
+        self.assertLess(post, min(k for k, c in enumerate(self.typed) if c.startswith("player.setpos")))
+        self.assertEqual([(c["phase"], c["cmd"]) for c in obs["console"]],
+                         [("pre", c) for c in BORDER] + [("post", 'GetINI "bBorderRegionsEnabled:General"')])
+        self.assertTrue(all(c["shot"] for c in obs["console"]))
+        self.assertEqual(v[0], "PASS", v[2])
+        self.assertIn("[console pre: GetINI bBorderRegionsEnabled:General = 1; GetINI fPlayableAreaX:General = "
+                      "3200.0000; GetINI uPlayableSpaceOverlayCellBuffer:Planet = 2; SetINI "
+                      "bBorderRegionsEnabled:General 0 (no reply); GetINI bBorderRegionsEnabled:General = 0] "
+                      "[console post: GetINI bBorderRegionsEnabled:General = 0]", v[2])
+
+    def test_npc_nav_types_its_console_commands_too(self):
+        v, obs, _ = self.run_step(plan={"console_pre": ['GetINI "bNoSuch:General"', 'SetINI "bNoSuch:General" 1'],
+                                        "console_post": ['GetINI "fPlayableAreaX:General"']})
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        coc = self.typed.index("coc QASmoke")
+        self.assertEqual(self.typed[:coc], ['GetINI "bNoSuch:General"', 'SetINI "bNoSuch:General" 1'])
+        self.assertLess(self.typed.index('GetINI "fPlayableAreaX:General"'),
+                        self.typed.index("player.placeatme 0000CF96 1"))
+        self.assertIn("[console pre: GetINI bNoSuch:General (not found: INISetting >> NOT FOUND); SetINI bNoSuch:General "
+                      '1 (error: INI setting "bNoSuch:General" does not exist)]', v[2])
+
+    def test_a_command_off_the_whitelist_types_nothing(self):
+        for bad in (["qqq"], ["player.additem 0000000F 100"], ['GetINI "bBorderRegionsEnabled:General"', "tgm"],
+                    ['SetINI "bBorderRegionsEnabled:General" 0|key:enter|type:tgm']):
+            out, _, _ = self.run_step(test=dict(self.terrain(), console_pre=bad), code=4)
+            self.assertIn("bad console_pre", out)
+            self.assertEqual(self.typed, [], bad)
+        out, _, _ = self.run_step(test=dict(self.terrain(), console_post=["coc Elsewhere"]), code=4)
+        self.assertEqual(self.typed, [])
 
 
 if __name__ == "__main__":

@@ -177,6 +177,73 @@ between queues has to run first, as for every terrain queue). Afterwards
 `report.md` "Light" says per run whether it was in daylight; `ground_textures.py lighting --run <queue dir>` still reads
 the arrival (`spawn.png`, taken before the time is set) and the probe corners (after it).
 
+## Console commands before and after the travel (`console_pre`, `console_post`; `terrain`, `npc_nav`)
+
+core64 (2026-10-11): every probe more than about 4 cells (about 450 m) from the `coc` arrival raised Starfield's
+"Boundary Reached" popup, although all 4,096 overlay cells exist; Starfield.exe has INI settings for that border. To test
+such settings unattended, a test can carry two lists of console lines:
+
+| plan.json field | typed | default |
+|---|---|---|
+| `console_pre` | after the save has loaded (the runner's `setup_session`), before the travel (`coc`) | `[]` |
+| `console_post` | after the arrival (and after the time of day / weather), before the probes or the spawn | `[]` |
+
+Only these lines pass (`console_plan.py` `PATTERN`, checked by `plan-terrain` / `plan-npc` and again by `qstep.ps1`
+`$consoleOk`, case-sensitive, whole line; a bad line ends planning, or the step with exit 4 before anything is typed;
+at most 12 per list):
+
+- `GetINI "<name>:<Section>"` and `SetINI "<name>:<Section>" <number>` (names and sections `[A-Za-z0-9_]{1,64}`, numbers
+  `-?\d{1,9}(.\d{1,6})?`);
+- the time-of-day / weather lines: `SetLocalTime <h> [1]`, `cgf "Game.SetLocalTime" <h>` (h 0..23.99), `fw <8 hex> [1]`.
+
+Anything else (`qqq`, `player.additem ...`, `coc ...`, `tgm`, a `;` or `|` inside a line, unquoted names, curly quotes, a
+trailing newline) is refused; `tests/test_console_plan.py` lists the cases.
+
+Each line is its own console session: open, type, capture the console region and OCR it (as the god-mode reply), close.
+`obs.json` `console`: [{`phase` (`pre` / `post`), `cmd`, `ocr`, `shot` (`console_<k>.png`)}]. The judge reads each reply
+from the text after the command's last echo (`console_plan.reply`: `value`, `not found`, `error`, `no reply`, `unread`;
+OCR tolerant of l / I / 1, `> >`, dropped quotes; a reply that is not there is `unread`, never an older line's value),
+appends `[console pre: GetINI bBorderRegionsEnabled:General = 1; ...] [console post: ...]` to the detail (shown, never
+judged; `n of m typed` when the step ended early), and `results.jsonl` `console`, `report.md` "Console replies" and
+`report.json` `console` list them. Each line adds 35 s to the step timeout.
+
+Evidence (Starfield.exe 1.16.244.0, read-only):
+- **verified** (command entries decoded): `SetINISetting` (short `SetINI`, "Sets an INI setting value.", parameters String,
+  String), `GetINISetting` (short `GetINI`, "Prints an INI setting value to the console.", String), `RefreshINI`
+  (`REFINI`, "Refresh INI settings from file.", none).
+- **verified** (strings): the settings `bBorderRegionsEnabled:General`, `fPlayableAreaX:General`, `fPlayableAreaY:General`,
+  `fPlayableAreaZ:General`, `uMaximumPlayableAreaWorldCoord:General`, `uPlayableSpaceOverlayCellBuffer:Planet`.
+- **supported hypothesis** (format strings, which command prints them not traced): GetINI replies `INISetting %s >> %i` /
+  `%u` / `%.4f` / `'%s'` / `NOT FOUND`; errors `INI setting "%s" does not exist` / `is not a boolean|int|float|string`.
+- **unresolved**: whether `SetINI "bBorderRegionsEnabled:General" 0` typed in a running game (before the `coc`) removes
+  the landing border for the next arrival (the "Border Regions Unlock" mod sets the INI value instead, community report
+  relayed by the lead, not checked here); the staged runs below answer it.
+
+### Staged border plans (core64)
+
+`C:\Modding\staging\terrain_core64_border0` and `terrain_core64b_border0` are copies of `terrain_core64` (rays) and
+`terrain_core64b` (rays with 300 m hops); plugins, `Data\` and reference files are unchanged and only `plan.json`
+differs. Every test keeps its ray and adds:
+`console_pre` = `GetINI "bBorderRegionsEnabled:General"`, `GetINI "fPlayableAreaX:General"`,
+`GetINI "uPlayableSpaceOverlayCellBuffer:Planet"`, `SetINI "bBorderRegionsEnabled:General" 0`,
+`GetINI "bBorderRegionsEnabled:General"`; `console_post` = `GetINI "bBorderRegionsEnabled:General"` (does the value survive
+the travel?); `time_of_day` 12 (recorded only, no `need_daylight`: the heights decide as before).
+
+```powershell
+& $py scripts\game\testqueue.py plan-terrain --staging C:\Modding\staging\integ_1011 --exp-dir C:\Modding\staging\terrain_core64_border0 `
+      --out C:\Modding\testqueue\terrain_core64_border0 --plugins FO4TerrainCore.esm,FO4TerrainCore_Mars.esm --fresh
+& $py scripts\game\testqueue.py plan-terrain --staging C:\Modding\staging\integ_1011 --exp-dir C:\Modding\staging\terrain_core64b_border0 `
+      --out C:\Modding\testqueue\terrain_core64b_border0 --plugins FO4TerrainCore.esm,FO4TerrainCore_Mars.esm --fresh
+```
+
+Both install the core64 plugins from their own folder; `exp_install.py` refuses while core64 (or any experiment) is still
+installed, so the chain's uninstall between queues has to run first.
+
+Terrain step timeout (fix in this branch): measured core64 steps took 103-114 s a point (7 points 722-798 s against
+870 s), and hops (`hop_m`) were not counted at all. The timeout is now 150 + (90 + settle surplus) x (points + 1) + 40 s and
+`hop_wait_ms` for every intermediate hop (`terrain_hops`, the same count as `qstep.ps1`) + the light and console
+commands: core64_border0 1,035-1,238 s, core64b_border0 1,223-1,614 s.
+
 ## Staged experiments: `exp_install.py --pack`
 
 Loose files are not read on this install, so `--pack` puts the experiment's whole `Data\` tree, textures included, into
@@ -391,5 +458,9 @@ that reads its local position, an arrival read mid-fall, an arrival that never l
 (`QstepLightSandboxTests`: the simulated game arrives at night, local time 22, and its screenshots carry the simulated
 sky in their top rows): `SetLocalTime 12` gives daylight before the spawn; a ladder that only `cgf` (typed with its
 quotes) moves; no command with an effect (INCONCLUSIVE NIGHT with `need_daylight`, "no effect: night"); `fw <id> 1`
-before the time; the terrain step setting the time after the arrival and before the first probe. Opt-in, 30-60 s a
-scenario: `$env:FO4SF_QSTEP_SANDBOX = '1'`.
+before the time; the terrain step setting the time after the arrival and before the first probe. Console commands
+(`QstepConsoleSandboxTests`, simulated INI settings answering in the exe's reply formats, OCR reading `GetlNl`,
+`lNlSetting`, `EnabIed`, `> >`): the five border lines before the `coc` and the read after the arrival (values 1,
+3200.0000, 2, no reply, 0; then 0), npc_nav with an unknown setting (NOT FOUND, does not exist), and lines off the
+whitelist (`qqq`, `player.additem`, `tgm`, a `|key:` injection, `coc` in `console_post`): exit 4, nothing typed. Opt-in,
+30-60 s a scenario: `$env:FO4SF_QSTEP_SANDBOX = '1'`.

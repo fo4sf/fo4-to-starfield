@@ -8,7 +8,8 @@
 # read its position before and after), travel (activate a load door, read where the player arrives), terrain (drop onto
 # points of known height), npc_nav (spawn a vanilla actor at A, make it walk to the player at B, sample, remove it),
 # godmode, save, load, recover. terrain and npc_nav may set the time of day / weather after the arrival (time_of_day,
-# time_methods, weather, weather_lock, light_wait_ms: Apply-Light) and record the sky brightness before and after.
+# time_methods, weather, weather_lock, light_wait_ms: Apply-Light) and record the sky brightness before and after, and
+# type whitelisted console_pre (before the travel) / console_post (after the arrival) commands, OCR'd into obs.console.
 param([Parameter(Mandatory)][string]$Spec, [Parameter(Mandatory)][string]$Out, [string]$PluginIndex = '02')
 $env:LEGACY = '1'
 if (-not $env:FO4SF_PYTHON) { $env:FO4SF_PYTHON = 'C:\Modding\venv-render\Scripts\python.exe' }
@@ -78,6 +79,38 @@ function Light-Commands {
     }
   }
   return ,$cmds
+}
+# console_pre (after the save has loaded, before the travel) and console_post (after the arrival, before the probes or
+# the spawn): only lines that match this whitelist are typed (the same pattern as console_plan.py PATTERN; .NET \z, so a
+# trailing newline never passes); a bad line ends the step with exit 4 before anything is typed.
+$consoleOk = '^(?:GetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}"|SetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}" -?\d{1,9}(?:\.\d{1,6})?|SetLocalTime (?:1?\d|2[0-3])(?:\.\d{1,2})?(?: 1)?|cgf "Game\.SetLocalTime" (?:1?\d|2[0-3])(?:\.\d{1,2})?|fw [0-9A-Fa-f]{8}(?: 1)?)\z'
+function Console-List($list, [string]$what) {
+  $out = @()
+  foreach ($c in @($list | Where-Object { $null -ne $_ })) {
+    if ($c -isnot [string] -or $c -cnotmatch $consoleOk) { "bad $what"; exit 4 }
+    $out += $c
+  }
+  if ($out.Count -gt 12) { "bad $what"; exit 4 }
+  return ,$out
+}
+function Run-Console($cmds, [string]$phase) {
+  # one console session per command: type it, capture the console, OCR (as the god mode reply), close. The OCR text and
+  # the capture (console_<k>.png) go to obs.json "console"; testqueue.py reads the reply (console_plan.reply)
+  if ($cmds.Count -eq 0) { return }
+  if (-not $obs.Contains('console')) { $obs['console'] = @() }
+  $k = @($obs['console']).Count
+  foreach ($c in $cmds) {
+    $k++
+    Console-Open
+    Send "type:$c|key:enter|wait:900"
+    $cap = Join-Path $Out "console_$k.png"; $prep = Join-Path $Out "console_${k}_prep.png"
+    powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'shot_region.ps1') -Out $cap | Out-Null
+    & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $cap $prep 135 12 | Out-Null
+    $txt = ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $prep -Scale 1) -join "`n")
+    Send 'key:grave|wait:800'
+    $obs['console'] += [ordered]@{ phase = $phase; cmd = $c; ocr = $txt; shot = $(if (Test-Path $cap) { "console_$k.png" } else { $null }) }
+    Save-Obs
+  }
 }
 function Sky-Measure([string]$name, $before, [string]$hour) {
   # sky brightness of a screenshot in $Out (sky_light.py measure: mean of its top 200 rows), $null when not read
@@ -210,6 +243,8 @@ switch ($kind) {
     $go = "coc $($t.world_coc)"
     if ($t.travel) { if ($t.travel -notmatch '^((coc|cow) [A-Za-z0-9_]+( -?\d+ -?\d+)?|player\.moveto [0-9A-Fa-f]{8})$') { "bad travel"; exit 4 }; $go = $t.travel }
     $lightCmds = Light-Commands
+    $preCmds = Console-List $t.console_pre 'console_pre'; $postCmds = Console-List $t.console_post 'console_post'
+    Run-Console $preCmds 'pre'                       # after the save has loaded, before the travel
     Console-Open
     Send "type:$go|key:enter|wait:400|key:grave|wait:3000"
     $hud = Join-Path $Out 'hud.png'; $t0 = Get-Date
@@ -221,6 +256,7 @@ switch ($kind) {
     $obs['shot'] = Shot 'spawn.png'
     Save-Obs
     Apply-Light $lightCmds "$($obs['shot'])"         # time of day / weather before the probes' screenshots
+    Run-Console $postCmds 'post'                     # after the arrival, before the probes
     $pts = @()
     $k = 0
     # Points are in the worldspace's own frame. An activated overlay is merged into the planet worldspace at a whole-cell
@@ -318,6 +354,7 @@ switch ($kind) {
     $handleTol = 2.0; if ($null -ne $t.handle_tol) { $handleTol = [double]$t.handle_tol }
     if ($spawnWait -lt 0 -or $spawnWait -gt 30000 -or $handleTol -lt 0.5 -or $handleTol -gt 10) { "bad spawn_wait_ms / handle_tol"; exit 4 }
     $lightCmds = Light-Commands
+    $preCmds = Console-List $t.console_pre 'console_pre'; $postCmds = Console-List $t.console_post 'console_post'
     $parse = Join-Path $here 'parse_npc.py'
     # step budget (testqueue.py step_timeout minus a margin): samples stop early so that the removal always has
     # $reserve seconds left before the runner would kill the step and leave the actor behind
@@ -412,6 +449,7 @@ switch ($kind) {
     }
 
     # 1. travel (coc <cell editor id>: the console travel that works), wait for the HUD, read the arrival until it stops
+    Run-Console $preCmds 'pre'                       # after the save has loaded, before the travel
     Console-Open
     Send "type:$($t.travel)|key:enter|wait:400|key:grave|wait:3000"
     $hud = Join-Path $Out 'hud.png'; $t0 = Get-Date
@@ -423,6 +461,7 @@ switch ($kind) {
     $obs['spawn_read'] = $arr.read; $obs['spawn_settled'] = $arr.settled; $obs['spawn_reads'] = $arr.reads
     $obs['shot'] = Shot 'arrival.png'
     Apply-Light $lightCmds "$($obs['shot'])"         # time of day / weather before the spawn and the samples' shots
+    Run-Console $postCmds 'post'                     # after the arrival, before the offset and the spawn
     # 2. frame offset, as the terrain kind: A and B are in the worldspace's own frame; an activated overlay is merged into
     # the planet worldspace at an offset, read from a persistent anchor ref (prid + getpos) or from the arrival point
     $ox = 0.0; $oy = 0.0; $oz = 0.0
