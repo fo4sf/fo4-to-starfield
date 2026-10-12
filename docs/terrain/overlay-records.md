@@ -79,6 +79,9 @@ anchor ref, so the runner can measure the merge offset directly.
   - `FO4TerrainExp1_Mars.esm` (exp1d): World01 at Latitude 1.2, Longitude 0.2 (as exp1b/exp1c).
   - `FO4TerrainExp2_Mars.esm` (exp2b): `FO4CW_Commonwealth` at Latitude -1.2, Longitude 0.3, far from the vanilla
     Mars sites (Latitude -0.09..-0.38) and from exp1. Both override `MarsPlanetData`: never install both.
+  - Correction (2026-10-11, [commonwealth-scale.md](commonwealth-scale.md) section 2): the names above are Mutagen's,
+    which are swapped. The first f64 is the **latitude** (Earth overlays sit at their real cities), so World01 is at
+    latitude 0.2, longitude 1.2 rad and exp2b at latitude 0.3, longitude -1.2 rad.
 - Anchor: a persistent `XMarker` (`00003B`, flag `0x400`) in the worldspace's persistent cell, FormID `0x800` (the
   builders allocate it first): exp1d `FO4TX_W01Anchor` at local (50, 50, 10) (ground under the COC marker), exp2b
   `FO4CW_Anchor` at local (-989.0286, 1147.2, 105.1434) (ground under the Red Rocket COC marker). plan.json names it

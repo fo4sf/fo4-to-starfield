@@ -89,11 +89,16 @@ class Converter:
                  collision_template: Optional[bytes] = None, prefix: str = "fo4port",
                  no_collision_pattern: str = r"^meshes[\\/](architecture|interiors|scol)[\\/]", rig_doors: bool = False,
                  door_physics_donor: Optional[bytes] = None, sf_mesh_template: Optional[bytes] = None,
-                 dynamic_template: Optional[bytes] = None):
+                 dynamic_template: Optional[bytes] = None, max_texture=None):
         self.src, self.staging, self.texconv = src, staging, texconv_exe
         # dynamic_template (a vanilla dynamic convex body, meshcollision.DYNAMIC_TEMPLATE_NIF): FO4 loose items with one
         # dynamic body become movable; their result carries "movable" (plugin writer: MoveableStatic, not Static)
         self.dynamic_template = dynamic_template
+        # max_texture: optional size cap per texture kind (textures.parse_texture_caps: '1024' or 'color=1024,...'); the
+        # converted DDS loses its top mip levels until it fits (textures.cap_dds). Off by default: FO4Port keeps full
+        # resolution. When set, texture_log records every texture's full and written size.
+        self.texture_caps = textures.parse_texture_caps(max_texture)
+        self.texture_log: Dict[str, dict] = {}
         # rig_doors: hinged doors become DOOR NIFs that open (needs door_physics_donor: without a keyframed leaf body the leaf
         # is pinned and blocks the doorway). Off by default because the donor comes from the Starfield install.
         self.rig_doors = rig_doors
@@ -141,6 +146,21 @@ class Converter:
         os.makedirs(os.path.dirname(p), exist_ok=True)
         open(p, "w", encoding="utf-8", newline="\n").write(cm.dump_mat(mat))
         return mat_rel.replace("/", "\\")
+
+    def _publish_texture(self, src_path: str, dst: str, kind: str):
+        """Copy a converted texture into the staging folder; with a cap for its kind, without the top mip levels that
+        exceed it (the full size is logged either way while caps are on)."""
+        cap = self.texture_caps.get(kind, 0)
+        if not self.texture_caps:
+            shutil.copy2(src_path, dst)
+            return
+        with open(src_path, "rb") as f:
+            data = f.read()
+        out, info = textures.cap_dds(data, cap)
+        with open(dst, "wb") as f:
+            f.write(out)
+        rel = os.path.relpath(dst, self.staging).replace("\\", "/").lower()
+        self.texture_log[rel] = {"kind": kind, "cap": cap, **info}
 
     # -- materials ---------------------------------------------------------------------------
     def material(self, bgsm_path: str) -> Optional[str]:
@@ -273,7 +293,7 @@ class Converter:
             for kind, fn in kinds:
                 dst = os.path.join(self.staging, *f"{tex_rel}_{kind}.dds".split("/"))
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copy2(os.path.join(tmp, fn), dst)
+                self._publish_texture(os.path.join(tmp, fn), dst, kind)
                 out[kind] = cm.game_path(f"{tex_rel}_{kind}.dds")
         if decal:
             if self._decal_template is None:
@@ -331,7 +351,7 @@ class Converter:
                 kind = {"Albedo": "color", "Normal": "normal", "Roughness": "rough"}[slot]
                 dst = os.path.join(self.staging, *f"{tex_rel}_{kind}.dds".split("/"))
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copy2(os.path.join(tmp, fn), dst)
+                self._publish_texture(os.path.join(tmp, fn), dst, kind)
                 files[slot] = cm.game_path(f"{tex_rel}_{kind}.dds")
         if self._glass_template is None:
             self._glass_template = cm.read_template_path(self.content_resources, cm.GLASS_TEMPLATE_MAT)

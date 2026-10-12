@@ -12,6 +12,41 @@ navmesh per cell (re-weld partial portals), no NAVI (cross-navmesh paths probabl
 overriding every vanilla entry), CK generation (not FO4's navmesh; owner time). Evidence:
 docs/actors/navmesh-conversion.md.
 
+## 2026-10-12 Terrain test travel: every teleport at most 2 cells per axis, terrain waypoints instead of hops (Claude, proposed)
+Plans for the terrain runner keep every teleport within 200 m along each axis (at most 2 Starfield cells whatever the
+overlay's merge offset): legs longer than 185 m get open terrain waypoints that are judged like the probes, and
+`hop_m` 200 stays as a safety net. Why: in the overlay runs so far, teleports of at most 2 cells per axis landed 144 of
+145 times and those of 3 or more relocated the player ("Boundary Reached") or hung 11 of 28 times
+(`scripts/terrain/teleport_audit.py`, **supported**); distance alone does not separate them. Waypoints rather than
+hops, because the runner's step timeout (150 + 90 s per point) does not count hops. Alternatives: `hop_m` 200 alone
+(core64c's entry 1 would run past its timeout), splitting entries (at best 79 s of margin), per-axis hops in the
+runner (a runner change, not on the integration branch). Evidence: docs/terrain/core64c.md "Teleport rule".
+
+## 2026-10-12 Whole-core objects: one archive below 4 GiB with capped textures, not a region split (Claude, proposed)
+core64c selects 649,596 convertible Fallout4.esm exterior references of the 64-cell core and places the 648,358 whose
+models convert (1,238 belong to the 118 models that do not) in core64's plugin, and ships every
+converted file in one stored `<plugin> - Main.ba2`, with converted textures capped per kind by dropping top mip levels
+(color 1024, normal 512, rough 256, opacity 512 px; `convert_batch.py --max-texture`, off by default). Why: every large
+vanilla archive stops just below 4 GiB (whether the engine reads past it is unresolved); full resolution needs about
+8.5 GiB; the runner's installer packs one archive; the 11,769 models share 2,632 materials over the whole map, so a
+split into 15 regions of 1.6 km would need 28.8 GiB and its four central regions would still exceed 4 GiB each; C:
+has too little room for a full-resolution build plus its temporary archive. Alternatives: cap 512 everywhere (1.66
+GiB, blurrier albedo), one plugin's Main + Textures archive plus a carrier plugin at full resolution (needs a
+per-plugin installer and an in-game check), region plugins (above). Evidence: docs/terrain/core64c.md.
+
+## 2026-10-11 Commonwealth terrain: one large overlay, a grid of overlays as fallback (Claude, proposed)
+Plan the whole-map terrain as one overlay worldspace holding the playable Commonwealth plus 1 to 2.5 km around it
+(64 to 90 Starfield cells, Absolute alignment), registered on a hidden host planet at a measured lat/long; fall back
+to a grid of 14-cell overlays generated edge to edge if large overlays fail in game. Why: one landing is 100 cells
+(game terrain width, 5-cell buffer), so the full 114-cell LAND grid never fits; a single overlay has no seams, while
+every overlay seam has a 1-cell merge ring of unknown behaviour; both are built by the same generator
+(`scripts/terrain/make_cw_overlays.py`). Alternatives: a custom planet surface made of our blocks (exact far terrain,
+but four unknown height / blend rules and a planet to build), static mesh tiles (exact, but new collision, material
+and LOD pipelines). Gates: an uncompressed rerun of exp2b (exp2b3) must read our BTD heights (exp2b's packed BTD
+read flat at its minimum; cause unresolved, packing is one hypothesis), then exp3 (2 x 2 grid: seams, where the tiles
+sit, measured from heights since our anchors do not merge), then a 64-cell core overlay. Evidence:
+docs/terrain/commonwealth-scale.md.
+
 ## 2026-10-11 FO4 terrain heights: own Python reader following fo4land, Mutagen as the cross-check (Claude)
 `src/fo4sf/fo4land.py` reads LAND/VHGT with the algorithm of fo76utils `fo4land` (MIT); `dotnet/Fo4Land` decodes the
 same cells through Mutagen as a second, independent parse. Why: fo4land needs scons + a C++ compiler, which this
