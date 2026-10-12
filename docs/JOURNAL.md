@@ -793,3 +793,8 @@ twin step is untested in game until the next library run.
     - `exp_install.py order` puts experiment plugins after their masters.
   - **Queue:** `slice_redrocket_door_b` (needs door_trip, door_check, plugin_order: integration-1012 at 16e21a4 or later).
   - **integration-1012 now (16e21a4):** test-queue + #73 + #75 + #76 + #77 + #78 + #79. The unit suite passes (37 opt-in skipped) and guard passes. Its planned queues wait for the owner to switch the chain's runner.
+- **batch_full, 07:00:** the movable breaker tripped after 6 INCONCLUSIVE MISSED in BostonPublicLibrary02, so about 610 movable tests in every cell are skipped this run.
+  - The judge looked only at where the player ended. The player had walked straight over the items: the closest approach was 0.02-0.27 m for 4 of the 6, ending 2-3 m past them.
+  - Fixed (e49904c, in integration-1012 at 8e74394): the walk's closest approach decides. Re-judged, 4 become **FAIL NOTMOVED** (a burnt book and a bobby-pin box did not move when walked over; real findings) and 2 stay MISSED.
+  - The movable tests need a re-plan on the new runner after batch_full.
+- **07:00:** someone used the PC. The runner's game was gone, and the runner is waiting for 15 min without input before it relaunches; no relaunch while the owner is active.
