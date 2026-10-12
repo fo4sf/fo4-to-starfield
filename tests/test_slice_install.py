@@ -109,6 +109,39 @@ class SliceInstallTests(unittest.TestCase):
             rec[field] = not value
             (self.data / exp.RECORD).write_text(json.dumps(rec))
 
+    def test_order_preserves_an_interrupted_master_deploys_recovery_snapshot(self):
+        exp.install(self.args)
+        self.cycle_appends_master()
+        before = self.txt.read_bytes()
+        master = self.data / exp.deployment.MANIFEST
+        state = {'complete': False, 'plugins_txt': str(self.txt), 'plugins_original': None,
+                 'plugins_activated': exp.base64.b64encode(before).decode('ascii')}
+        master.write_text(json.dumps(state))
+        self.assertEqual(exp.order(self.args), 6)
+        self.assertEqual(self.txt.read_bytes(), before)
+        self.assertEqual(json.loads(master.read_text()), state)
+        exp.deployment.restore_plugins(state)
+        self.assertFalse(self.txt.exists(), 'master recovery must still recognize the original activated bytes')
+
+    def test_complete_master_deployment_allows_order(self):
+        exp.install(self.args)
+        self.cycle_appends_master()
+        (self.data / exp.deployment.MANIFEST).write_text(json.dumps({'complete': True}))
+        self.assertEqual(exp.order(self.args), 0)
+
+    def test_install_cannot_invalidate_an_interrupted_master_snapshot(self):
+        before = self.txt.read_bytes()
+        master = self.data / exp.deployment.MANIFEST
+        for state in ({'complete': False}, {'complete': True, 'cleanup_pending': True}, {}):
+            with self.subTest(state=state):
+                master.write_text(json.dumps(state))
+                with self.assertRaisesRegex(SystemExit, 'incomplete FO4Port'):
+                    exp.install(self.args)
+                self.assertEqual(self.txt.read_bytes(), before)
+                self.assertFalse((self.data / exp.RECORD).exists())
+                self.assertFalse((self.data / 'Slice.esm').exists())
+                self.assertEqual(json.loads(master.read_text()), state)
+
     def test_missing_changed_or_inactive_plugin_cannot_report_order_success(self):
         exp.install(self.args)
         self.cycle_appends_master()

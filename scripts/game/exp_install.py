@@ -149,6 +149,7 @@ def order(a):
         print("nothing installed: no order to fix")
         return 0
     try:
+        require_complete_master(data)
         rec = read_json(rec_p)
         if not rec.get("complete", True) or rec.get("cleanup_pending"):
             raise ValueError("incomplete experiment install; finish recovery before ordering")
@@ -186,6 +187,15 @@ def order(a):
 def read_json(p):
     with open(p) as f:
         return json.load(f)
+
+
+def require_complete_master(data):
+    """Never mutate activation bytes needed by an interrupted main-build recovery."""
+    manifest = os.path.join(data, deployment.MANIFEST)
+    if os.path.exists(manifest):
+        state = read_json(manifest)
+        if state.get("complete") is not True or state.get("cleanup_pending"):
+            raise ValueError("incomplete FO4Port deployment; finish its recovery before installing or ordering")
 
 
 def plugins_txt():
@@ -384,6 +394,10 @@ def install(a):
 def _install(a, packing_dir=None):
     data = os.path.abspath(os.path.join(a.starfield, "Data"))
     rec_p = os.path.join(data, RECORD)
+    try:
+        require_complete_master(data)
+    except (OSError, ValueError) as error:
+        sys.exit(f"experiment not installed: {error}")
     plugins = [p.strip() for p in a.plugins.split(",") if p.strip()] if a.plugins else \
         sorted(f for f in os.listdir(a.exp_dir) if f.lower().endswith(".esm"))[:1]
     requested_pack = bool(getattr(a, "pack", False))
