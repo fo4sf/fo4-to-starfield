@@ -16,7 +16,7 @@ import time
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-from fo4sf import ba2, checkpoints, convert_static, meshcollision, pipeline, sfcollision, sfnif  # noqa: E402
+from fo4sf import ba2, checkpoints, convert_static, meshcollision, pipeline, sfcollision, sfnif, textures  # noqa: E402
 
 
 def checkpoint_signature(a):
@@ -40,7 +40,30 @@ def checkpoint_signature(a):
            "rig_doors": bool(a.starfield_data)}
     if getattr(a, "prefix", "fo4port") != "fo4port":   # output paths differ; the default keeps existing checkpoints valid
         sig["prefix"] = a.prefix
+    caps = textures.parse_texture_caps(getattr(a, "max_texture", ""))
+    if caps:                                            # capped outputs differ; no cap keeps existing checkpoints valid
+        sig["max_texture"] = caps
     return sig
+
+
+def merge_texture_log(staging, log):
+    """Add this run's texture log (pipeline.Converter.texture_log) to <staging>/texture_log.json, which keeps the entries
+    of earlier runs (a resumed run reuses their textures without converting them again). Returns the merged log."""
+    path = os.path.join(staging, "texture_log.json")
+    merged = {}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            merged = json.load(f)
+    merged.update(log)
+    write_json_atomic(path, merged)
+    return merged
+
+
+def texture_totals(log):
+    full = sum(v.get("bytes", 0) for v in log.values())
+    written = sum(v.get("out_bytes", 0) for v in log.values())
+    return {"textures": len(log), "capped": sum(1 for v in log.values() if v.get("capped")),
+            "full_bytes": full, "written_bytes": written}
 
 
 def source_identity(source):
@@ -123,9 +146,17 @@ def main():
     ap.add_argument("--prefix", default="fo4port",
                     help="folder under meshes/, materials/ and textures/ for the converted files (another plugin's own "
                          "archive needs its own prefix, so two archives never hold different files at the same path)")
+    ap.add_argument("--max-texture", default="",
+                    help="cap converted textures by dropping top mip levels: one size for every kind ('1024') or per "
+                         "kind ('color=1024,normal=512,rough=256,opacity=512'); default: full resolution. The full and "
+                         "written size of every texture go to <staging>/texture_log.json")
     a = ap.parse_args()
     if not re.fullmatch(r"[a-z0-9_]+", a.prefix):
         ap.error("--prefix: lower-case letters, digits and _ only")
+    try:
+        textures.parse_texture_caps(a.max_texture)
+    except ValueError as e:
+        ap.error(f"--max-texture: {e}")
 
     ids = load_editor_ids(a.staging)
 
@@ -169,7 +200,8 @@ def main():
             if conv is None:
                 conv = pipeline.Converter(src, a.staging, a.texconv, a.content_resources, template,
                                           rig_doors=donor is not None, door_physics_donor=donor,
-                                          sf_mesh_template=mesh_template, prefix=a.prefix)
+                                          sf_mesh_template=mesh_template, prefix=a.prefix,
+                                          max_texture=a.max_texture)
             r = conv.convert_nif(name)
             if cache:
                 try:
@@ -191,6 +223,10 @@ def main():
         print(f"  ok  {name} -> {eid} (shapes {r['shapes']}, fallback materials {r['fallback_materials']})")
     for f in failures[:15]:
         print("  FAIL", f["nif"], "-", f["reason"][:110])
+    tex_totals = None
+    if textures.parse_texture_caps(a.max_texture):
+        tex_totals = texture_totals(merge_texture_log(a.staging, conv.texture_log if conv else {}))
+        print(f"textures (all runs): {tex_totals}")
     if cache:
         inconsistent = cache.verify_batch()
         if inconsistent:
@@ -198,6 +234,8 @@ def main():
             raise RuntimeError(f"{len(inconsistent)} generated dependencies changed after model conversion; build not deployable")
     stats = dict(conv.stats) if conv else {"materials_ok": 0, "materials_fallback": 0}
     stats.update(assets=len(items), failed=len(failures), reused=reused)
+    if tex_totals is not None:
+        stats["textures"] = tex_totals
     manifest = {"items": items, "failures": failures, "material_fallbacks": conv.material_errors if conv else {}, "stats": stats,
                 "seconds": round(time.time() - t0, 1)}
     os.makedirs(a.staging, exist_ok=True)
