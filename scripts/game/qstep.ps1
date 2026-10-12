@@ -195,8 +195,22 @@ switch ($kind) {
       if ("$($obs['spawn_read'])" -match '^\s*-?\d+(\.\d+)?\s+-?\d+(\.\d+)?\s+-?\d+(\.\d+)?\s*$') { $dropz = [double]$sv[2] + [double]$t.drop_above_spawn }
     }
     $settle = if ($t.settle_ms) { [int]$t.settle_ms } else { 4500 }
+    # hop_m: reach a far point in hops of at most hop_m metres (each hop waits hop_wait_ms), so terrain streams in
+    # behind the player as it would while travelling (core64 2026-10-11: single 1-2 km jumps hung at the drop height)
+    $hx = [double]$ox + [double]$t.points[0].x; $hy = [double]$oy + [double]$t.points[0].y
     foreach ($p in $t.points) {
-      Teleport @(([double]$p.x + $ox), ([double]$p.y + $oy), $dropz) 0 15
+      $tx = [double]$p.x + $ox; $ty = [double]$p.y + $oy
+      if ($t.hop_m) {
+        $dist = [Math]::Sqrt(($tx - $hx) * ($tx - $hx) + ($ty - $hy) * ($ty - $hy))
+        $n = [Math]::Ceiling($dist / [double]$t.hop_m)
+        for ($h = 1; $h -lt $n; $h++) {
+          Teleport @(($hx + ($tx - $hx) * $h / $n), ($hy + ($ty - $hy) * $h / $n), $dropz) 0 15
+          Start-Sleep -Milliseconds $(if ($t.hop_wait_ms) { [int]$t.hop_wait_ms } else { 6000 })
+        }
+        $obs['hops'] = 1 + [int]$obs['hops'] + [Math]::Max(0, $n - 1)
+      }
+      $hx = $tx; $hy = $ty
+      Teleport @($tx, $ty, $dropz) 0 15
       Start-Sleep -Milliseconds $settle               # a fall from 80 m takes about 4 s on Earth gravity
       $rd = Read-Pos
       # still hanging at the drop height: the cells around a far point were not loaded yet (exp3 2026-10-11 read 170.00
