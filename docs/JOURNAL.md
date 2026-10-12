@@ -601,3 +601,59 @@ open PRs (#34 QA PASS, #35 in progress), local team state, next steps. Removed a
 docs/ai/agent-status.md refreshed from live sources. Shut down: guardian proxy stopped, local model unloaded, no
 background jobs left. Next session: re-run Vault 81 and the library, finish the Prydwen (same pinned build), then
 movable bodies for loose items.
+
+## 2026-10-11 Route planner: railings are not stairs; double doors are twins (offline)
+Two findings from the library run, both test-side, not converter bugs:
+- The 7 STUCK/FALL "rail stairs" routes (`BldDecoSmRailStairs*`) were routes on railings: their FO4 collision has no
+  treads at all (6 flat vertices on one level) and no helper; the steps are a separate model. A scan of all 74 "stair"
+  models in the pinned build: 45 carry FO4's RampDummy helper, the other 29 are railings, trims and stairwell walls, and
+  NONE has treads without a helper, so a synthesized helper (built and then dropped today) has no target. The planner
+  now requires 3 tread levels for a model without a helper and skips the rest with a reason (`tread_levels`).
+- The library's "double doors" `100196` + `10019C` are two single-leaf `BldWoodPDbDoor01` references on one spot,
+  rotated 180 degrees, each hinged at its own jamb; the route activated one and hit the other leaf. The planner marks
+  such pairs (`door_twins`, within 0.1 m) and the runner resets and activates the twin leaf too (`+twin:` in the verb).
+Tests: tread levels (steps, railing, helper and underside ignored, 4 cm merge) and twins; 260 OK, guard OK. The
+twin step is untested in game until the next library run.
+
+## 2026-10-11 Queued test runner verified in game; terrain kickoff (Claude)
+- **Runner (PR #59)**: `scripts/game/testqueue.py` + `qstep.ps1`. Supervised batch on the integration build `2470f876`
+  (main + #41 #50 #51 #42 #54, local branch `claude/integration-1011`): launch, dedicated save `fo4sf_test_2470f876`
+  created and loaded, god mode read from the console ("God Mode enabled."), cell arrival verified; 2 stairs PASS,
+  2 falls PASS, 2 doors FAIL (`BldWoodPDoorShutter01` open but the route aims beside the doorway). Six runner bugs found
+  and fixed (kind mapping, tgm reply, ceiling pieces as probe floors, OCR without ">>", Steam popup taking the focus,
+  HUD recovery). The owner closed the game mid-run; movable and travel steps are not verified in game yet.
+- **Queued**: the rest of the supervised batch, then 753 tests on 16 cells (`C:\Modding\testqueue\overnight.ps1`),
+  starting only after 15 min without input.
+- **Terrain**: PR #56 (FO4 2x2 patch at Red Rocket, two decoders agree exactly, borders match, the building sits on the
+  terrain) and PR #57 (Starfield: 430/433 worldspaces use `Data\TERRAIN\<EditorID>.btd`; BTD decoded and re-encoded;
+  experiment 1 staged in `C:\Modding\staging\terrain_exp1`, not deployed). Next blocker: the in-game BTD load test.
+
+## 2026-10-11 afternoon: terrain experiment 1 in game (unattended runner)
+- **Run 1:** loose BTDs. World01 and World02 (record path; record path + name) load on Mars with procedural ground. The heights are identical in both worlds (4.18 / 11.86 / 15.98 / 10.68 m at our 10 / 35 / 22.5 / 5 m pads), so neither used its BTD. World03 (name only, no surface block) hangs on the loading screen.
+- **Cause of run 1:** the loose files were never read. `Starfield.ini` has `sResourceDataDirsFinal=STRINGS\` and there is no StarfieldCustom.ini. The experiment installer now packs the BTDs into the plugin's own `<plugin> - Main.ba2` (`exp_install.py --pack`).
+- **Run 1b:** BTDs packed. World01 reads the same procedural heights again, so the packed BTD isn't used either. Registering World01 on Mars (run 1) moves the spawn onto a real Mars mountainside; the pads read flat at about -2.5 m, still procedural.
+- **Next (queued):** control drops in two vanilla worldspaces via `cow`, at lc001world and akilacity points whose BTD heights are known. These show whether `coc`/`cow` gives BTD terrain at all, or only the planet landing does. Then the Mars-registration variant with packed BTDs, then the test batches.
+
+## 2026-10-11 late afternoon: terrain measuring method validated on vanilla terrain
+- **Console routes into vanilla exteriors:** `coc <exterior cell EditorID>` works (`LC172Ext01`, `LC001Outpost`). `cow`, `coc <worldspace>` and `player.moveto <non-persistent ref>` do not.
+- **Control LC172World** (the template our test worlds are cloned from): the overlay is merged into Mars at offset (-500, -2300, -3.62), read from the persistent COC marker 0010238E. Probes in the overlay's own frame:
+  - match its BTD within **0.02 m** in the centre cell, which the vanilla overlay mask marks as authored;
+  - within 0.3-0.36 m just outside it;
+  - 4-6 m off in the border cells, where the mask blends in procedural terrain.
+- **Method:** anchor-relative probing measures BTD heights exactly where the overlay is authored, and the overlay mask decides where that is.
+- **Research** (`C:\Modding\research\terrain\binding\findings.md`, PR #64): a worldspace's own BTD only applies to an overlay activated on a planet (PNDT CNAM). Our records also differed from vanilla in FNAM size, Location, mask and alignment. The fixed experiments exp1d and exp2b (real Red Rocket heights) are queued after test B.
+
+## 2026-10-11 evening: why our overlay terrain came out flat
+- **In game:** every registered overlay test was perfectly flat at exactly its BTD's minimum height:
+  - exp2b (29x29 Red Rocket BTD, absolute alignment) read -116.00 m at all 14 probes;
+  - World01 / exp1d read -500 m (with relative alignment, -13.94 m).
+  The overlay itself was activated (cells merged at whole-cell offsets).
+- **Offline diagnosis** (two agents; scratch data in `C:\Modding\research\terrain\zero`):
+  - Our BTD layout matches vanilla section by section, and the heights are in every LOD.
+  - The one difference is that all 2,112 vanilla BTDs (Shattered Space's 108 included) and every official plugin Main.ba2 are stored **uncompressed**. Ours were zlib-compressed by Archive2 `-compression=Default`.
+  - The engine reads BTD blocks by offset straight from the archive, so it decoded nothing and used raw 0.
+  - Fix: `exp_install.py` now packs with `-compression=None`.
+- **Next candidates** if that is not all:
+  - `lodsettings/<edid>.lod` (every vanilla overlay has one);
+  - the 29x29 size (the largest vanilla overlay is 14x14).
+- **Queued:** exp2b3 (Red Rocket, stored), then exp1f (World01, stored), then the batches.
