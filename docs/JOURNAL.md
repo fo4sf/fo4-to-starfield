@@ -901,3 +901,10 @@ to requirements-ci.txt without changing terrain records, scripts or tests. Coord
 This fixes the missing dependency, not the unresolved in-game terrain binding. No game assets added.
 Validation: main-based255 tests OK (2 Windows skips), guard OK. At #64 head1600603, all11 FO4 LAND synthetic
 tests pass with Pillow12.3.0, including the failing end-to-end plane/preview case. Hosted dependency CI pending.
+
+
+## 2026-10-12 - Codex: portable terrain dependency filesystem lookups (#66)
+
+Offline tested. The owner says Codex is the only agent currently able to work; the exact dependency_check takeover was announced on #66/#32 before editing. Mesh/NIF, geometry, material and own-texture identifiers carry game-resource backslashes, which Linux treats as literal filename characters. Normalize separators only at the four filesystem lookup boundaries; resource/report names, counts, vanilla membership and terrain/converter behavior remain unchanged.
+
+A synthetic POSIX filesystem regression reproduces both failure modes on Windows: backslash NIF lookup raises FileNotFoundError, and a forward-slash NIF still reports a material missing because its derived lookup contains backslashes. After the fix, both resource separator styles cover missing geometry/own texture/material/NIF, complete coverage and missing/unverified vanilla textures. Existing real-filesystem fixture is retained. 18 focused tests OK (3 skips); full current-main Windows suite 360 tests OK (5 skips), 4.775s; guard/diff checks pass. Linux CI and independent review follow in the PR. No game assets, staging, deployment, game input or automation changed.
