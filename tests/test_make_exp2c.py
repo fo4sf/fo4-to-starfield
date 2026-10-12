@@ -1,15 +1,19 @@
 """Terrain experiment 2c builder (scripts/terrain/make_exp2c.py): point classification, object choice, raw plugin walk
 and dependency check, all on synthetic data (no game files)."""
 import importlib.util
+import io
 import json
 import math
 import os
 from pathlib import Path
+import posixpath
 import re
 import struct
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import numpy as np
 
@@ -364,6 +368,50 @@ class PluginWalkTests(unittest.TestCase):
 
 
 class DependencyTests(unittest.TestCase):
+    def test_resource_names_resolve_on_a_posix_filesystem(self):
+        # A literal backslash is a filename character on POSIX. Exercise that behavior on Windows too.
+        data = '/synthetic/Data'
+        for separator in ('/', '\\'):
+            with self.subTest(separator=separator):
+                shape = sfnif.StaticShape(b'S', ('aa' + separator + 'bb').encode(), 3, 3,
+                                         'materials' + separator + 'fo4cw' + separator + 'm.mat',
+                                         (0, 0, 0, 1), (0, 0, 0, 1, 1, 1))
+                mat = {'own': 'Data\\textures\\fo4cw\\x_color.dds',
+                       'vanilla': 'Data/Textures/common/vanilla.DDS'}
+                files = {data + '/meshes/fo4cw/nested/x.nif': nif.serialize(sfnif.build_static_nif(b'X', [shape])),
+                         data + '/materials/fo4cw/m.mat': json.dumps(mat).encode()}
+
+                def read(path, mode='r', **kwargs):
+                    if path not in files:
+                        raise FileNotFoundError(path)
+                    blob = files[path]
+                    return io.BytesIO(blob) if 'b' in mode else io.StringIO(blob.decode('utf-8'))
+
+                filesystem = SimpleNamespace(path=SimpleNamespace(join=posixpath.join,
+                                                                  isfile=lambda p: p in files))
+                models = ['fo4cw' + separator + 'nested' + separator + 'x.nif']
+                with patch.object(mk, 'os', filesystem), patch.object(mk, 'open', read, create=True):
+                    result = mk.dependency_check(data, models, vanilla={'textures/common/vanilla.dds'})
+                    self.assertEqual(result['missing'], ['geometries\\aa\\bb.mesh',
+                                                          'textures\\fo4cw\\x_color.dds'])
+                    self.assertEqual(result['missing_count'], 2)
+                    files[data + '/geometries/aa/bb.mesh'] = b'synthetic mesh'
+                    files[data + '/textures/fo4cw/x_color.dds'] = b'synthetic texture'
+                    result = mk.dependency_check(data, models, vanilla={'textures/common/vanilla.dds'})
+                    self.assertEqual(result['missing'], [])
+                    self.assertEqual(result['counts'], {'nifs': 1, 'meshes': 1, 'materials': 1,
+                                                       'textures_own': 1, 'textures_vanilla': 1,
+                                                       'vanilla_unverified': 0})
+                    self.assertEqual(mk.dependency_check(data, models, vanilla=set())['missing'],
+                                     ['textures\\common\\vanilla.dds'])
+                    self.assertEqual(mk.dependency_check(data, models)['counts']['vanilla_unverified'], 1)
+                    del files[data + '/materials/fo4cw/m.mat']
+                    self.assertEqual(mk.dependency_check(data, models)['missing'],
+                                     ['materials' + separator + 'fo4cw' + separator + 'm.mat'])
+                    del files[data + '/meshes/fo4cw/nested/x.nif']
+                    with self.assertRaises(FileNotFoundError):
+                        mk.dependency_check(data, models)
+
     def test_meshes_materials_and_textures(self):
         with tempfile.TemporaryDirectory() as data:
             shape = sfnif.StaticShape(b"S", b"aa\\bb", 3, 3, "materials\\fo4cw\\m.mat", (0, 0, 0, 1), (0, 0, 0, 1, 1, 1))
