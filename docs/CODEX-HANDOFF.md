@@ -14,18 +14,20 @@ Walk Red Rocket-Sanctuary and its bridge/cell borders both ways; prove terrain r
 
 ## Latest evidence / open work
 
-Claude reports core64b NW hops through Sanctuary/Vault111 to2km with matching heights (#32,6118693845); continuous walking/all directions remain open, older large-jump seam claims need reruns. Red Rocket ground/objects align. N1c moved with156 converted NAVM; commanded arrival/cross-cell paths remain unproven (#32,6121240178).
+Core64c (#76):648,358 staged refs/1,708 populated cells across6.4km; nearby probes cover510m only. Its audit corrects older300m-hop claims: <=2 cells/axis mostly landed, >=3 sometimes relocated/hung; supported hypothesis, not guarantee. Continuous travel remains unproven. N1c NPC moved; commanded/cross-cell paths remain open.
 
 Open regressions: Fort Hagen shutter/frame collision and load-door prompt, Vault114 cinder-block step and movable physics. Cave/native playback need live proof; interior acceptance remains incomplete.
 
-#34/#35 (main): degraded checkpoint retries and streamed archive SHA; sources remain immutable. #86 is in #66 at85e342f: four filesystem lookups,360 Windows tests (5 skips), Linux CI38306629144 and23-probe independent QA pass; reports/counts unchanged.
+#34/#35 (main): degraded checkpoint retries and streamed archive SHA; immutable sources. #86 in #66 at85e342f: portable resource lookups,360 Windows tests/Linux CI/independent QA pass; report counts unchanged.
 
-Reviewed #81/#80 are merged into #79 at29f3b83: generated skeleton/Open/Close dependencies remain tracked and small authored bind rotations are preserved.814 Windows tests (28 skips), Linux CI38307142896 and independent cache/matrix QA pass. Reviewed #83 is merged into #78 at75598ed: verified BA2 packing, recovery, --needs/order/plugin-only support, and install/order/uninstall guards for interrupted main recovery.883 Windows tests (38 skips), Linux CI38307143001 and independent QA pass. Parent trees match tested child heads.
+Reviewed #81/#80 are merged into #79 at29f3b83: generated skeleton/Open/Close dependencies remain tracked and small authored bind rotations are preserved.814 Windows tests/Linux CI/independent cache/matrix QA pass. Reviewed #83 is merged into #78 at75598ed: verified BA2 packing, recovery, --needs/order/plugin-only support, and install/order/uninstall guards for interrupted main recovery.883 Windows tests/Linux CI/independent QA pass. Tested child trees match integrations.
 
-#89 budget-resume fix is merged into #78 at02cfa8e: paused work returns4, completed/dry-run returns0;887 Windows tests (38 skips), Linux CI38319797231 and independent QA pass. Old batch_full hit12h and exited0 with1109 left; its chain ended. Remaining non-movable work estimates15-18 active hours plus waits/retries. An offline133-test diagnostic plan retains all16 cells/all49 failures and old2470f876 pin (~3-4h); independently checked, not scheduled/run. Live runner needs adoption before resume. The full batch remains backfill; old movable checks need corrected re-planning.
+#89 budget-resume fix is merged into #78 at02cfa8e: paused work returns4, completed/dry-run returns0;887 Windows tests/Linux CI/independent QA pass. Old batch_full hit12h and exited0 with1109 left; its chain ended. Non-movable work estimates15-18 active hours plus waits. Offline133-test plan retains16 cells/49 failures/old2470f876 pin (~3-4h), independently checked, not run. Adopt runner before resume; preserve full batch; re-plan movable tests.
 
-Parents #66/#78/#79 remain open; parent integrations are not main feature merges or runtime proof. Native moving collision and cave entry/return/save need live tests. #84 final replace/unlink races remain; helpers assume one controller. No live install changed.
+Parents #66/#78/#79 remain open, not runtime accepted. Moving collision/cave/save need live tests. #84 replace/unlink races remain; one controller required.
+
+Codex #91 prepares pinned smoke/baseline/informational exterior queues and regional coverage candidates. Final unjudged beyond jumps are suppressed; SHA checks guard input/queue drift. [Campaign/run gates](testing/commonwealth-campaign.md). No live scheduling/install/input; walking/connected interiors/distant arrivals remain separate gates.
 
 ## Coordination
 
-GitHub #29-32 is the inbox/status source. [History](handoff-archive/2026-10-07-codex-history.md). Keep below4KB; link experiments. Preserve staging/multi. No automation/local-team or live-control changes.
+GitHub #29-32 is the inbox/status source. [History](handoff-archive/2026-10-07-codex-history.md). Keep below4KB; link experiments. Preserve staging/multi. Live controls unchanged.
