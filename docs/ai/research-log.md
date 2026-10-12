@@ -3,6 +3,38 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-11 Claude: Fallout 4 navmesh converted onto the native Red Rocket terrain (exp2d), NAVI for plugins, N1
+- Question: can FO4's NAVM records around Red Rocket become Starfield NAVM records in the overlay worldspace's 100 m
+  cells (links across the new cell lines included), does a plugin need navmesh info (NAVI / NVMI) and in what form, and
+  which N1 tests separate world, navigation and actor failures? Write-up:
+  [docs/actors/navmesh-conversion.md](../actors/navmesh-conversion.md).
+- Method: `src/fo4sf/navmesh.py` (both NVNM layouts, NVMI, cell cut with canonical point keys, grid, validator),
+  `dotnet/TerrainExp2` navmesh mode (NAVM + NAVI override), `scripts/terrain/make_exp2d.py` (stage / check / npc), raw
+  scans of Fallout4.esm, Starfield.esm and the official Starfield plugins (scratch scripts), Mutagen round trips;
+  `tests/test_navmesh.py` (synthetic). Staged `C:\Modding\staging\terrain_exp2d`, `terrain_exp2b2_npc`,
+  `npc_nav_n1a` / `n1b` / `n1c`. Not deployed, not run in game.
+- Evidence:
+  - **verified**: triangle field order height, u8 extra, u16 flags, u16 cover (edge-link bits agree with the edge
+    values in 63,875 FO4 and 256,726 Starfield triangles, 5,970 / 1 disagreements one byte earlier): corrects PR #61's
+    reading of the flags offset; edge links name the target triangle's edge and come in symmetric pairs (7,606 FO4,
+    7,196 CydoniaCity); parent grid is y then x (105 + 2,708 of 105 + 2,708).
+  - **verified**: the search grid rule (divisor, bounds, cell size) on 1,004 / 1,004 akilacity navmeshes; lists
+    identical in 873, a superset in all.
+  - **verified**: NVMI layout on all 56,631 Starfield.esm entries (traversals and a 5-byte tail of cell-border bits
+    after the doors / outline); merged-to = link targets (56,502 / 56,563), location = vertex mean (56,490), border bits.
+  - **verified**: every official plugin with navmesh overrides NAVI `00000FF1` with only its own entries (SFBGS003 920,
+    SFBGS00D 4,126, BlueprintShips 507, SFBGS006 71 vs 56,631): the engine merges NVMI per navmesh (**supported**).
+  - **verified** (offline): 105 FO4 navmeshes -> 156 NAVM, 68,132 triangles, 4,104 link pairs, every NVNM byte-identical
+    to the Python reference writer, 0 structural problems, cell-line links exact, exp2c's 10,301 records unchanged;
+    41,207 of 43,901 vertices within 0.5 m of the BTD or the converted collision, 2,674 of the rest equally off FO4's
+    own LAND and source collision.
+  - **verified**: Mutagen 0.55.0-alpha.67 needs the grid lists as one raw array, the parent coordinates swapped, an
+    empty MNAM list; vanilla NAVM/NAVI form version 581.
+- Status: conversion and records **verified** offline; that the engine uses them (and the merged-world offset for
+  navmesh) **unresolved** until N1c runs; vertex i32 meaning **supported**; triangle extra byte, NVMI f32, cover,
+  outline algorithm, traversals **unresolved**. PR #68's staged N1 requires a terrain test that read INCONCLUSIVE MOVED
+  and would never run; N1a / N1b / N1c bring their own world checks.
+
 ## 2026-10-11 Claude: terrain experiment 2c, the FO4 objects around Red Rocket on the native terrain
 - Question: can the real FO4 exterior references (cells x -20..-15, y 16..21) be placed on the exp2b terrain so the
   runner measures object-on-terrain alignment, and what does the converted collision say they stand on?
