@@ -12,7 +12,9 @@ usage:
                              [--weather <form id>] [--need-daylight] for every test (plan.json fields of the same names
                              per test; docs/ai/test-queue.md "Time of day and weather"); plan.json may also carry
                              console_pre / console_post: whitelisted console lines (console_plan.py) typed before the
-                             travel / after the arrival
+                             travel / after the arrival. queue.json "needs" lists the runner features such a queue
+                             uses (runner_features.py): a runner without them refuses it, also an older one (the
+                             queue's pre_launch runs the runner's own exp_install.py with --needs)
   python testqueue.py run   --queue <queue dir> [--max-tests N] [--max-hours 8] [--min-idle 900] [--wait-for-idle]
                              [--refocus] [--max-attempts 2] [--dry-run]
   python testqueue.py report --queue <queue dir>
@@ -51,6 +53,7 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import console_plan  # noqa: E402
 import route_eval  # noqa: E402
+import runner_features  # noqa: E402
 import sky_light  # noqa: E402
 
 UNIT = 1.0 / 70.0
@@ -64,9 +67,11 @@ SEVERITY = {("fall", "FALL"): 5, ("travel", "NOTRAVEL"): 5, ("travel", "NOPROMPT
             ("npc_nav", "FELL"): 5, ("npc_nav", "NONAV"): 4, ("npc_nav", "STALLED"): 3, ("npc_nav", "WANDER"): 3}
 PS = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
 BREAKER = 6          # inconclusive attempts in a row, with no PASS/FAIL yet, that switch a kind off for the run
-# inconclusive for a reason a retry cannot change. NIGHT: need_daylight and the sky did not read as daylight after the
-# time-of-day commands; a retry loads the same save at the same time and types the same commands
-FINAL_INCONCLUSIVE = ("CONTROL", "PRECONDITION", "NIGHT")
+# inconclusive for a reason a retry cannot change. NIGHT (need_daylight, the run did not read as daylight) is NOT
+# final: arrivals of the same test differ between attempts (exp1d 2026-10-11: a1 fell into a pit, sky 7.3, a2 in the
+# open, 131.0), so a retry can read differently; it does not count towards the circuit breaker either (the step works)
+FINAL_INCONCLUSIVE = ("CONTROL", "PRECONDITION")
+NO_BREAKER = ("CRASH", "NOCELL", "NIGHT")
 
 # npc_nav (PR #61 docs/actors/npc-navigation.md 3.4): what qstep.ps1 types on the verified console selection to make the
 # actor walk to the player, who stands at B. qstep.ps1 has the same table; nothing else is ever typed for a method.
@@ -311,12 +316,12 @@ def plan_terrain(a):
          "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]],
          "launch_cell": a.launch_cell, "experiment": os.path.abspath(a.exp_dir),
          "tests": [dict(t, fresh=True) if a.fresh else t for t in (tests[:a.only] if a.only else tests)]}
-    if a.plugins:                                         # installed by the runner right before it launches the game
-        q["pre_launch"] = [sys.executable, os.path.join(HERE, "exp_install.py"), "install", "--exp-dir",
-                           os.path.abspath(a.exp_dir), "--starfield", a.starfield, "--plugins", a.plugins, "--pack"]
+    # installed by the runner right before it launches the game; needs: the runner features its tests use
+    q.update(queue_extras(q["tests"], a, a.exp_dir))
     os.makedirs(a.out, exist_ok=True)
     save_atomic(os.path.join(a.out, "queue.json"), q)
-    print(f"{len(q['tests'])} terrain tests (experiment {a.exp_dir}) on build {q['build_id']}")
+    print(f"{len(q['tests'])} terrain tests (experiment {a.exp_dir}) on build {q['build_id']}"
+          + (f", needs runner features {', '.join(q['needs'])}" if q.get("needs") else ""))
 
 
 def _vec(v, sizes, what):
@@ -445,9 +450,7 @@ def plan_npc(a):
     if a.control_queue:
         q["control_queue"] = os.path.abspath(a.control_queue)
     world = os.path.abspath(a.install_exp or a.exp_dir) if a.plugins else ""
-    if a.plugins:                                         # e.g. the terrain experiment whose world N1 walks on
-        q["pre_launch"] = [sys.executable, os.path.join(HERE, "exp_install.py"), "install", "--exp-dir",
-                           world, "--starfield", a.starfield, "--plugins", a.plugins, "--pack"]
+    q.update(queue_extras(q["tests"], a, world))           # e.g. the terrain experiment whose world N1 walks on
     for t in q["tests"]:
         # a required test must have measured the very world this queue installs (same staged folder, packed by the
         # same exp_install.py at install time), or its PASS says nothing about this run
@@ -463,21 +466,25 @@ def plan_npc(a):
     os.makedirs(a.out, exist_ok=True)
     save_atomic(os.path.join(a.out, "queue.json"), q)
     print(f"{len(q['tests'])} npc_nav tests ({sum(t['control'] for t in q['tests'])} control) from {a.exp_dir} "
-          f"on build {q['build_id']}")
+          f"on build {q['build_id']}" + (f", needs runner features {', '.join(q['needs'])}" if q.get("needs") else ""))
 
 
 # ------------------------------------------------------------------------------------------------------------ judging
 def light_of(test, obs):
-    """The sky reading of a test that asked for a time of day or a weather (sky_light.verdict), else None."""
-    return sky_light.verdict(test, (obs or {}).get("light"))
+    """The light of a test that asked for a time of day or a weather (sky_light.verdict: the arrival camera before and
+    after the commands, and for terrain the probe shots, whose corner median decides), else None."""
+    obs = obs or {}
+    probes = obs.get("points") if test.get("kind") == "terrain" else None
+    return sky_light.verdict(test, obs.get("light"), probes if isinstance(probes, list) else None)
 
 
 def judge(test, obs, out_dir):
     """(verdict, reason class, detail) from raw observations. Missing observations are INCONCLUSIVE.
-    A test that asked for a time of day or a weather gets its sky reading appended to the detail ("[light: ...]",
-    e.g. "no effect: night" when the commands left a dark sky as it was). With need_daylight, a PASS whose sky did not
-    read as daylight becomes INCONCLUSIVE NIGHT (final: a retry types the same commands into the same save's time) or,
-    when the sky was not read at all, INCONCLUSIVE LIGHT (retried). A FAIL stays a FAIL."""
+    A test that asked for a time of day or a weather gets its light appended to the detail ("[light: ...]", e.g.
+    "no effect: night" when the commands left a dark sky as it was, "already daylight at the arrival: the time commands
+    were not tested"). With need_daylight, a PASS whose run did not read as daylight (terrain: the probe shots' corner
+    median, else the arrival camera after the commands) becomes INCONCLUSIVE NIGHT, or INCONCLUSIVE LIGHT when nothing
+    was read; both are retried (another arrival can read differently). A FAIL stays a FAIL."""
     v, cls, detail = judge_kind(test, obs, out_dir)
     con, _ = console_plan.summary(test, obs)              # console_pre / console_post replies: shown, never judged
     if con and obs:
@@ -861,13 +868,53 @@ def blocked_reason(ctl, q, launching=False, min_idle=900):
     return None
 
 
+def planned_on_other_code(commit):
+    """A warning when the queue was planned at a commit this runner's checkout does not contain (planned from another
+    worktree or branch: its plan may use behaviour this runner's qstep.ps1 does not have), else None."""
+    if not commit or not re.fullmatch(r"[0-9a-f]{7,40}", str(commit)):
+        return None
+    try:
+        r = subprocess.run(["git", "-C", REPO, "merge-base", "--is-ancestor", commit, "HEAD"], capture_output=True,
+                           text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode == 1:
+        return (f"note: this queue was planned at commit {commit[:8]}, which this runner's checkout does not contain: "
+                f"its tests run with this checkout's qstep.ps1")
+    if r.returncode != 0:
+        return f"note: planning commit {commit[:8]} not found in this runner's checkout"
+    return None
+
+
+def queue_extras(tests, a, exp_dir):
+    """queue.json "needs" (runner_features.needs) and "pre_launch": the RUNNER's own exp_install.py (a path relative to
+    the checkout the runner runs from: testqueue.py starts it there) installs the experiment when --plugins is given, and
+    with --needs it refuses when that runner lacks the features (an exp_install.py from before --needs refuses the
+    option itself); without plugins, runner_features.py check does the same."""
+    out = {}
+    need = runner_features.needs(tests)
+    if need:
+        out["needs"] = need
+    if a.plugins:
+        out["pre_launch"] = [sys.executable, os.path.join("scripts", "game", "exp_install.py"), "install", "--exp-dir",
+                             os.path.abspath(exp_dir), "--starfield", a.starfield, "--plugins", a.plugins, "--pack"] \
+            + (["--needs", ",".join(need)] if need else [])
+    elif need:
+        out["pre_launch"] = [sys.executable, os.path.join("scripts", "game", "runner_features.py"), "check",
+                             ",".join(need)]
+    return out
+
+
 # -------------------------------------------------------------------------------------------------------------- runner
 # npc_nav step costs, worst case (typing about 0.24 s a character, +0.08 s shifted, a PowerShell start per Send)
 NPC_SESSION_S = 45      # one console session: open, ClearConsole + ~60 characters, waits, OCR at up to 4 thresholds
 NPC_READ_S = 75         # Read-Pos: up to 3 readpos.ps1 runs
 NPC_REMOVE_S = 300      # kept for the removal (qstep.ps1 $reserve): Select-Npc (2), PickLastRef again (3), disable (1)
-LIGHT_TRY_S = 30        # one time-of-day / weather command: console open, typing, close, screenshot, sky measure
+LIGHT_TRY_S = 50        # one time-of-day / weather command: console open, typing, reply capture + OCR, close, two
+                        # screenshots and their measures (the second only when the first did not read as asked)
 LIGHT_WAIT_MS = 4000    # qstep.ps1's wait after such a command before the screenshot (plan field light_wait_ms)
+LIGHT_PROBE_S = 4       # terrain with light: the measure of every probe shot
+REPIN_S = 8             # terrain, time_repin: the time command typed again in every probe's teleport session
 CONSOLE_CMD_S = 35      # one console_pre / console_post command: open, ~45 characters, capture, OCR, close
 HOP_S = 40              # one intermediate terrain hop: console open, five setpos / setangle lines, close
 
@@ -888,10 +935,12 @@ def step_timeout(test):
     """Seconds one qstep.ps1 may take before the runner kills it. Every confirmed npc_nav read is one console session
     (ClearConsole, prid <id>, GetIsID, getpos x/y/z, OCR), two when the first is not read (Select-Npc). The spawn is
     four sessions (placeatme; plr; prid + GetSelf; GetIsID + getpos) around spawn_wait_ms of game time.
-    Time of day / weather: one console session per command qstep.ps1 may type (open, up to ~35 characters, close),
-    light_wait_ms, a screenshot and its measure: LIGHT_TRY_S each, worst case (the ladder stops early).
+    Time of day / weather: one console session per command qstep.ps1 may type (open, up to ~35 characters, reply
+    capture and OCR, close), twice light_wait_ms, two screenshots and their measures: LIGHT_TRY_S each, worst case (the
+    ladder stops early); terrain also measures every probe shot (LIGHT_PROBE_S) and types the time command again before
+    every probe (REPIN_S, time_repin).
     console_pre / console_post: CONSOLE_CMD_S per command (console open, typing, capture, OCR, close)."""
-    light = len(sky_light.commands(test)) * (LIGHT_TRY_S + test.get("light_wait_ms", LIGHT_WAIT_MS) / 1000)
+    light = len(sky_light.commands(test)) * (LIGHT_TRY_S + 2 * test.get("light_wait_ms", LIGHT_WAIT_MS) / 1000)
     light += CONSOLE_CMD_S * sum(len(test.get(k) or []) for k in console_plan.CONSOLE_KEYS)
     if test.get("kind") == "terrain":
         # a terrain drop takes about a minute per point (teleport, fall, OCR read): 300 s cut experiment 1 off; a
@@ -899,7 +948,8 @@ def step_timeout(test):
         # point); every intermediate hop of hop_m is one more teleport plus hop_wait_ms
         pts = test.get("points", [])
         settle = max(0.0, test.get("settle_ms", 4500) - 4500) / 1000
-        return int(150 + (90 + settle) * (len(pts) + 1) + light + terrain_hops(test) * HOP_S
+        per_pt = (LIGHT_PROBE_S if sky_light.commands(test) else 0) + (REPIN_S if sky_light.repins(test) else 0)
+        return int(150 + (90 + settle) * (len(pts) + 1) + light + per_pt * len(pts) + terrain_hops(test) * HOP_S
                    + terrain_hops(test) * test.get("hop_wait_ms", 6000) / 1000)
     if test.get("kind") == "npc_nav":
         reads = test.get("reads_s") or [0]
@@ -1091,6 +1141,15 @@ class Runner:
         tests = self.q["tests"]
         pending = [t for t in tests if t["id"] not in self.state["done"]]
         self.log(f"run: {len(pending)} of {len(tests)} tests pending on build {self.q['build_id']} (commit {self.q['commit'][:8]})")
+        miss = runner_features.missing(self.q.get("needs") or runner_features.needs(tests))
+        if miss:
+            self.log(f"stopped: this queue needs runner features {miss} that this checkout ({REPO}) lacks: update it "
+                     f"(merge the branch the queue was planned from) and run the queue again")
+            self.checkpoint(f"stopped: runner lacks {', '.join(miss)}")
+            return 3
+        note = planned_on_other_code(self.q.get("commit"))
+        if note:
+            self.log(note)
         self.checkpoint("running")
         ran = 0
         for t in pending:
@@ -1207,6 +1266,9 @@ class Runner:
                 rec["expect"] = t["expect"]
             if lt:                                        # daylight / night / unclear / unread, sky before -> after
                 rec["light"], rec["sky"], rec["light_detail"] = lt["light"], lt["sky"], lt["detail"]
+                rec["light_tested"], rec["light_credited"] = lt["tested"], lt["credited"]
+                if lt["probes"]:
+                    rec["light_probes"] = lt["probes"]
             if con:
                 rec["console"] = con
             if cls == "CONTROL":
@@ -1219,7 +1281,7 @@ class Runner:
                 if cls == "CONTROL":
                     self.state["done"][t["id"]]["raw"] = list(raw)
             k = br.setdefault(t["kind"], {"inconclusive_run": 0, "decided": 0, "open": False})
-            if verdict == "INCONCLUSIVE" and cls not in ("CRASH", "NOCELL") + FINAL_INCONCLUSIVE:
+            if verdict == "INCONCLUSIVE" and cls not in NO_BREAKER + FINAL_INCONCLUSIVE:
                 k["inconclusive_run"] += 1
             elif verdict != "INCONCLUSIVE":
                 k["inconclusive_run"], k["decided"] = 0, k["decided"] + 1
@@ -1286,7 +1348,8 @@ def write_report(qdir):
             got = None if r is None else ("PASS" if r["verdict"] == "PASS" else f"{r['verdict']} {r['class']}")
             expectations.append({"id": t["id"], "expect": t["expect"], "result": got, "basis": t.get("basis", "")})
     # time of day / weather asked for: was the run in daylight? (night with "no effect": the commands changed nothing)
-    light = [{"id": r["id"], "light": r["light"], "sky": r.get("sky"), "detail": r.get("light_detail", "")}
+    light = [{"id": r["id"], "light": r["light"], "sky": r.get("sky"), "tested": r.get("light_tested"),
+              "credited": r.get("light_credited"), "probes": r.get("light_probes"), "detail": r.get("light_detail", "")}
              for r in final.values() if r.get("light")]
     rep = {"build_id": q["build_id"], "commit": q["commit"], "tests": len(q["tests"]), "results": len(final),
            "pending": pending, "tally": tally, "ranked": ranked}
@@ -1317,12 +1380,18 @@ def write_report(qdir):
             same = "" if e["result"] is None else ("yes" if e["result"] == e["expect"] else "no")
             lines.append(f"| {e['id']} | {e['expect']} | {e['result'] or 'pending'} | {same} | {e['basis']} |")
     if light:
-        lines += ["", "## Light (time of day / weather asked for; sky = mean of the top 200 rows, 0..255)", "",
-                  "| test | light | sky before -> after | detail |", "|---|---|---|---|"]
+        lines += ["", "## Light (time of day / weather asked for; sky = the arrival camera's top 200 rows, probes = "
+                  "the median of the probe shots' top corners, 0..255; the probes decide when there are some)", "",
+                  "| test | light | sky before -> after | probes | commands tested | worked | detail |",
+                  "|---|---|---|---|---|---|---|"]
         for x in light:
             b, a_ = (list(x["sky"] or []) + [None, None])[:2]
             sky = " -> ".join("-" if v is None else f"{v:.1f}" for v in (b, a_))
-            lines.append(f"| {x['id']} | {x['light']} | {sky} | {x['detail']} |")
+            pr = x.get("probes") or {}
+            probes = f"{pr['corners']:.1f} ({pr['n']})" if pr.get("corners") is not None else "-"
+            tested = {True: "yes", False: "no (already as asked)"}.get(x.get("tested"), "unknown")
+            lines.append(f"| {x['id']} | {x['light']} | {sky} | {probes} | {tested} | {x.get('credited') or '-'} | "
+                         f"{x['detail']} |")
     if console:
         lines += ["", "## Console replies (console_pre before the travel, console_post after the arrival; OCR, best "
                   "effort: the capture is console_<k>.png in the attempt folder)", "",
@@ -1379,7 +1448,7 @@ def main(argv=None):
                              f"(default {','.join(sky_light.DEFAULT_LADDER)}: stops once the sky reads right)")
         sp.add_argument("--weather", default="", help="weather form id forced after the arrival (fw <id>)")
         sp.add_argument("--need-daylight", action="store_true",
-                        help="a PASS whose sky did not read as daylight is INCONCLUSIVE NIGHT")
+                        help="a PASS whose run did not read as daylight is INCONCLUSIVE NIGHT (retried)")
     r = sub.add_parser("run")
     r.add_argument("--queue", required=True)
     r.add_argument("--starfield", default=r"D:\SteamLibrary\steamapps\common\Starfield")

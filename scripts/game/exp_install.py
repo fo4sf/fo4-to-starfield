@@ -1,6 +1,7 @@
 """Install / uninstall a staged in-game experiment (a plugin plus loose files) next to the converted build, reversibly.
 
 usage: python exp_install.py install|uninstall|status --exp-dir <staged dir> --starfield <game dir> [--pack]
+                             [--needs light,console]
 
 The staged dir holds one or more <name>.esm files (only those listed with --plugins are activated, default: the first
 one alphabetically) and a Data\\ tree of loose files (e.g. Data\\Terrain\\*.btd). install refuses to overwrite any existing
@@ -14,6 +15,11 @@ plugin's own "<plugin> - Main.ba2" (Archive2 -format=General, stored). That is h
 DensityMaps.ba2"; SFBGS00D's 44 overlay masks in "SFBGS00D - Main.ba2" although "SFBGS00D - Textures.ba2" exists), none
 in a DDS archive (read-only BA2 name scan, 2026-10-11). The archive is built in a temporary folder, so the staged
 experiment folder (often another track's) is only read.
+
+--needs (a queue's pre_launch, testqueue.py plan-*): install only when this checkout's runner has those features
+(runner_features.py); the queue runs this script by a path relative to the runner's checkout, so it is the runner's own
+copy, and a copy from before --needs existed refuses the option (argparse, exit 2): an older runner stops before it
+launches the game instead of running a queue without its time of day or console lines.
 """
 import argparse
 import hashlib
@@ -195,10 +201,20 @@ def main(argv=None):
     ap.add_argument("--starfield", required=True)
     ap.add_argument("--plugins", default="", help="comma-separated plugin file names to activate")
     ap.add_argument("--pack", action="store_true", help="install the staged Data tree as '<first plugin> - Main.ba2'")
+    ap.add_argument("--needs", default="", help="runner features the queue needs (runner_features.py); refuse without")
     a = ap.parse_args(argv)
     if a.cmd == "install":
         if not a.exp_dir:
             sys.exit("--exp-dir is required")
+        need = [x.strip() for x in a.needs.split(",") if x.strip()]
+        if need:
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            import runner_features
+            miss = runner_features.missing(need)
+            if miss:
+                print(f"not installed: this runner lacks {', '.join(miss)} (runner_features.py has "
+                      f"{', '.join(runner_features.FEATURES)}); update its checkout first")
+                sys.exit(5)
         return install(a)
     if a.cmd == "uninstall":
         return uninstall(a)

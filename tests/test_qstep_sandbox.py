@@ -226,7 +226,62 @@ class QstepLightSandboxTests(SandboxStep, unittest.TestCase):
         self.assertLess(self.typed.index("coc QASmoke"), at)
         self.assertLess(at, min(k for k, c in enumerate(self.typed) if c.startswith("player.setpos")))
         self.assertEqual(v[0], "PASS", v[2])                  # the simulated player stays at the drop height 5 = expect
-        self.assertIn("[light: local hour 12: sky 12.0 -> 110.0 after SetLocalTime 12; daylight]", v[2])
+        self.assertIn("[light: local hour 12: sky 12.0 -> 110.0 after SetLocalTime 12; daylight after SetLocalTime 12; "
+                      "probes: 1 measured, corner median 110.0 -> daylight => daylight]", v[2])
+        self.assertEqual((obs["points"][0]["corners"], obs["points"][0]["repin"]), (110.0, True))
+
+    def terrain(self, n=3, **light):
+        pts = [{"label": f"p{k}", "x": 1.0 + k, "y": 1.0, "expect": 5.0} for k in range(n)]
+        return tq.with_light({"id": "0000_terrain_QASmoke", "kind": "terrain", "cell": "", "ref": "QASmoke",
+                              "model": "", "world_coc": "QASmoke", "travel": "", "drop_z": 8.0, "settle_ms": 1,
+                              "points": pts, "beyond": {"x": 9.0, "y": 1.0}}, dict({"time_of_day": 12}, **light), {})
+
+    def test_an_arrival_already_in_daylight_does_not_test_the_commands(self):
+        # every staged exp2t plan of the first version of this branch arrived where the sky already read daylight
+        v, obs, _ = self.run_step(test=self.terrain(n=1), world={"local_time": 12.0, "land_z": 5.0})
+        self.assertEqual(v[0], "PASS", v[2])
+        self.assertEqual(obs["light"]["before"]["sky"], 110.0)
+        self.assertEqual([x["cmd"] for x in obs["light"]["tries"]], ["SetLocalTime 12"])
+        self.assertIn("sky 110.0 -> 110.0 after SetLocalTime 12; already daylight at the arrival: the time commands "
+                      "were not tested", v[2])
+        self.assertEqual(tq.light_of(self.terrain(n=1), obs)["tested"], False)
+
+    def test_a_refused_command_is_read_from_the_console(self):
+        v, obs, _ = self.run_step(test=self.terrain(n=1), world={"slt_error": True, "time_works": ["cgf"],
+                                                                 "land_z": 5.0})
+        self.assertEqual(v[0], "PASS", v[2])
+        tries = obs["light"]["tries"]
+        self.assertEqual([(x["method"], x["done"]) for x in tries], [("slt", False), ("slt_galaxy", False),
+                                                                     ("cgf", True)])
+        self.assertIn("SetLocalTime only works on a planet.", tries[0]["ocr"])
+        self.assertTrue(all(x["console"] for x in tries))
+        self.assertIn("(console: SetLocalTime 12: SetLocalTime only works on a planet; SetLocalTime 12 1: SetLocalTime "
+                      "only works on a planet)", v[2])
+        self.assertIn('daylight after cgf "Game.SetLocalTime" 12', v[2])
+        self.assertEqual(obs["light"]["repin"], 'cgf "Game.SetLocalTime" 12')   # cgf is what is typed again
+        self.assertEqual(self.typed.count('cgf "Game.SetLocalTime" 12'), 2)    # the ladder and the one probe
+
+    def test_a_slow_sky_is_credited_to_the_command_that_changed_it(self):
+        v, obs, _ = self.run_step(test=self.terrain(n=1), world={"time_lag_shots": 1, "land_z": 5.0})
+        self.assertEqual(v[0], "PASS", v[2])
+        (x,) = obs["light"]["tries"]                                            # the ladder stopped at slt
+        self.assertEqual((x["sky"], x["sky_late"], x["done"]), (12.0, 110.0, True))
+        self.assertNotIn("SetLocalTime 12 1", self.typed)
+        self.assertIn("daylight after SetLocalTime 12 (on its second shot)", v[2])
+
+    def test_the_time_is_set_again_before_every_probe(self):
+        # game time runs between console sessions (drift_per_open 3 h): without the repin the third probe is at night
+        v, obs, _ = self.run_step(test=self.terrain(), world={"drift_per_open": 3.0, "land_z": 5.0})
+        self.assertEqual(v[0], "PASS", v[2])
+        self.assertEqual([p["corners"] for p in obs["points"]], [110.0, 110.0, 110.0])
+        sets = [k for k, c in enumerate(self.typed) if c.startswith("player.setpos x")]
+        for k in sets[:3]:                                                      # the probes; not the beyond drop
+            self.assertEqual(self.typed[k - 1], "SetLocalTime 12")
+        v, obs, _ = self.run_step(test=self.terrain(time_repin=False), world={"drift_per_open": 3.0, "land_z": 5.0})
+        self.assertEqual([p["corners"] for p in obs["points"]], [110.0, 110.0, 12.0])
+        self.assertEqual(self.typed.count("SetLocalTime 12"), 1)
+        self.assertIn("night at p2", v[2])
+        self.assertIn("=> daylight", v[2])                                      # the median: two of three
 
 
 BORDER = ['GetINI "bBorderRegionsEnabled:General"', 'GetINI "fPlayableAreaX:General"',

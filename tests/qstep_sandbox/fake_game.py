@@ -25,6 +25,10 @@ Time of day: local_time (default 22.0, night) changes on "SetLocalTime <h>" (met
 (slt_galaxy) or 'cgf "Game.SetLocalTime" <h>' (cgf) when that method is in time_works (default ["slt"]; [] = no command
 has an effect); "fw <id> [1]" sets weather, and weather_sky {id: brightness} overrides the sky. "shot <png>" writes a
 screenshot whose top 200 rows have the sky's brightness (110 by day, 6..18 h, else 12) and whose lower rows are ground.
+slt_error: the console command SetLocalTime prints "SetLocalTime only works on a planet." and changes nothing (cgf
+still works when listed in time_works); time_lag_shots: after a time change the next N screenshots still show the old
+sky (a slow change); drift_per_open: every console open moves the local time on by that many hours (game time passing
+between console sessions, e.g. during the probes); land_z: a player.setpos z lands at that height at once.
 INI settings (ini, default INI below, made-up values): GetINI "<name:Section>" prints "INISetting <name:Section> >> <v>"
 (%i / %.4f) or ">> NOT FOUND"; SetINI on a known setting prints nothing, on an unknown one 'INI setting "<name:Section>"
 does not exist' (the reply formats in Starfield.exe 1.16.244)."""
@@ -103,6 +107,8 @@ def run(s, cmd):
         s["player"] = player_pos(s)
         s["falling"] = None
         s["player"]["xyz".index(w[1])] = float(w[2])
+        if w[1] == "z" and s.get("land_z") is not None:    # the player lands at once on ground at land_z
+            s["player"][2] = float(s["land_z"])
     elif low.startswith("coc "):
         s["cell"], s["player"] = w[1], list(s["arrival"])
         if s.get("fall"):
@@ -170,8 +176,13 @@ def run(s, cmd):
         s["log"].append(f"GetDisabled >> {1 if a and a.get('disabled') else 0}")
     elif low.startswith(("setlocaltime ", 'cgf "game.setlocaltime" ')):
         method = "cgf" if low.startswith("cgf") else ("slt_galaxy" if w[-1] == "1" and len(w) == 3 else "slt")
-        if method in s.get("time_works", ["slt"]):
+        if method != "cgf" and s.get("slt_error"):
+            s["log"].append("SetLocalTime only works on a planet.")
+        elif method in s.get("time_works", ["slt"]):
+            old = sky(s)
             s["local_time"] = float(w[2] if method == "cgf" else w[1])
+            if s.get("time_lag_shots"):
+                s["lag"] = {"left": int(s["time_lag_shots"]), "sky": old}
     elif low.startswith("fw "):
         s["weather"] = w[1].upper()
     elif low.startswith(("getini ", "setini ")):
@@ -253,6 +264,8 @@ def main():
                 s["console"] = not s.get("console")
                 s["clock"] = {"game": now, "since": None if s["console"] else time.time()}
                 if s["console"]:
+                    if s.get("drift_per_open"):            # game time passed since the last console session
+                        s["local_time"] = (s.get("local_time", 22.0) + s["drift_per_open"]) % 24
                     if s.get("crosshair", STATIC):         # opening the console selects what the crosshair is on
                         s["sel"] = s.get("crosshair", STATIC)
                     elif s.get("lose_selection"):
@@ -261,8 +274,12 @@ def main():
                     for a in s["actors"].values():
                         a.pop("pending", None)
     elif sys.argv[1] == "shot":
-        write_png(sys.argv[2], sky(s))
-        return
+        lag = s.get("lag") or {}
+        if lag.get("left", 0) > 0:                         # the sky has not followed the new time yet
+            write_png(sys.argv[2], lag["sky"])
+            lag["left"] -= 1
+        else:
+            write_png(sys.argv[2], sky(s))
     elif sys.argv[1] == "screen":
         lines = s["log"][-9:]                              # the console shows about nine lines
         if s.get("layout") == "column":

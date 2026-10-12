@@ -8,8 +8,9 @@
 # read its position before and after), travel (activate a load door, read where the player arrives), terrain (drop onto
 # points of known height), npc_nav (spawn a vanilla actor at A, make it walk to the player at B, sample, remove it),
 # godmode, save, load, recover. terrain and npc_nav may set the time of day / weather after the arrival (time_of_day,
-# time_methods, weather, weather_lock, light_wait_ms: Apply-Light) and record the sky brightness before and after, and
-# type whitelisted console_pre (before the travel) / console_post (after the arrival) commands, OCR'd into obs.console.
+# time_methods, time_repin, weather, weather_lock, light_wait_ms: Apply-Light) and record the light before and after
+# (terrain: also on every probe shot; the time command that worked is typed again before each probe), and type
+# whitelisted console_pre (before the travel) / console_post (after the arrival) commands, OCR'd into obs.console.
 param([Parameter(Mandatory)][string]$Spec, [Parameter(Mandatory)][string]$Out, [string]$PluginIndex = '02')
 $env:LEGACY = '1'
 if (-not $env:FO4SF_PYTHON) { $env:FO4SF_PYTHON = 'C:\Modding\venv-render\Scripts\python.exe' }
@@ -48,9 +49,11 @@ function Read-Pos([string]$ref = '') {
 }
 function Shot($name) { $f = Join-Path $Out $name; powershell -NoProfile -ExecutionPolicy Bypass -File $shot -Out $f | Out-Null; if (Test-Path $f) { return $name } else { return $null } }
 function F($x) { ([double]$x).ToString('0.###', $inv) }
-function Teleport($pos, $heading, $pitch = 10) {
+function Teleport($pos, $heading, $pitch = 10, [string]$first = '') {
+  # $first: a light command Apply-Light found working (from its validated table), typed in the same console session
   Console-Open
-  Send ("type:player.setpos x $(F $pos[0])|key:enter|wait:350|type:player.setpos y $(F $pos[1])|key:enter|wait:350|" +
+  $pre = ''; if ($first) { $pre = "type:$first|key:enter|wait:400|" }
+  Send ($pre + "type:player.setpos x $(F $pos[0])|key:enter|wait:350|type:player.setpos y $(F $pos[1])|key:enter|wait:350|" +
         "type:player.setpos z $(F $pos[2])|key:enter|wait:350|type:player.setangle z $(F $heading)|key:enter|wait:350|" +
         "type:player.setangle x $pitch|key:enter|wait:400|key:grave|wait:1800")
 }
@@ -67,7 +70,8 @@ function Light-Commands {
     $cmds += [ordered]@{ method = 'weather'; cmd = $c }
   }
   if ($null -ne $t.time_of_day) {
-    $hv = [double]$t.time_of_day
+    if ($t.time_of_day -is [bool]) { "bad time_of_day"; exit 4 }
+    $hv = [Math]::Round([double]$t.time_of_day, 2)
     if ([double]::IsNaN($hv) -or $hv -lt 0 -or $hv -ge 24) { "bad time_of_day"; exit 4 }
     $h = $hv.ToString('0.##', $inv)
     $table = @{ 'slt' = "SetLocalTime $h"; 'slt_galaxy' = "SetLocalTime $h 1"; 'cgf' = "cgf `"Game.SetLocalTime`" $h" }
@@ -93,9 +97,17 @@ function Console-List($list, [string]$what) {
   if ($out.Count -gt 12) { "bad $what"; exit 4 }
   return ,$out
 }
+function Read-Console([string]$name) {
+  # the open console's text: capture its region ($name.png in $Out), prepare and OCR it (as the god mode reply)
+  $cap = Join-Path $Out "$name.png"; $prep = Join-Path $Out "${name}_prep.png"
+  powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'shot_region.ps1') -Out $cap | Out-Null
+  & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $cap $prep 135 12 | Out-Null
+  $txt = ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $prep -Scale 1) -join "`n")
+  return @{ ocr = $txt; shot = $(if (Test-Path $cap) { "$name.png" } else { $null }) }
+}
 function Run-Console($cmds, [string]$phase) {
-  # one console session per command: type it, capture the console, OCR (as the god mode reply), close. The OCR text and
-  # the capture (console_<k>.png) go to obs.json "console"; testqueue.py reads the reply (console_plan.reply)
+  # one console session per command: type it, capture the console, OCR, close. The OCR text and the capture
+  # (console_<k>.png) go to obs.json "console"; testqueue.py reads the reply (console_plan.reply)
   if ($cmds.Count -eq 0) { return }
   if (-not $obs.Contains('console')) { $obs['console'] = @() }
   $k = @($obs['console']).Count
@@ -103,12 +115,9 @@ function Run-Console($cmds, [string]$phase) {
     $k++
     Console-Open
     Send "type:$c|key:enter|wait:900"
-    $cap = Join-Path $Out "console_$k.png"; $prep = Join-Path $Out "console_${k}_prep.png"
-    powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'shot_region.ps1') -Out $cap | Out-Null
-    & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $cap $prep 135 12 | Out-Null
-    $txt = ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $prep -Scale 1) -join "`n")
+    $r = Read-Console "console_$k"
     Send 'key:grave|wait:800'
-    $obs['console'] += [ordered]@{ phase = $phase; cmd = $c; ocr = $txt; shot = $(if (Test-Path $cap) { "console_$k.png" } else { $null }) }
+    $obs['console'] += [ordered]@{ phase = $phase; cmd = $c; ocr = $r.ocr; shot = $r.shot }
     Save-Obs
   }
 }
@@ -122,13 +131,18 @@ function Sky-Measure([string]$name, $before, [string]$hour) {
   $j = & $env:FO4SF_PYTHON $skyPy @a
   try { return ("$j" | ConvertFrom-Json) } catch { return $null }
 }
+$script:repin = ''                                    # the time command that worked, typed again before every probe
 function Apply-Light($cmds, [string]$beforeShot) {
   # After the arrival, before the step's other screenshots. The arrival's own screenshot is the "before" sky. Each
-  # command in its own console session, then light_wait_ms with the console closed, a screenshot (sky_<k>.png) and its
-  # sky. The time ladder stops at the first command after which the sky reads as the requested hour (sky_light.done).
-  # Everything goes to obs.json "light"; the judge (testqueue.py) marks the run night when nothing changed a dark sky.
+  # command in its own console session: typed, the console's reply captured and OCR'd ("SetLocalTime only works on a
+  # planet." tells a refused command from one without a visible effect), closed; then light_wait_ms with the console
+  # closed, a screenshot (sky_<k>.png) and its sky. A time command whose shot does not read as the requested hour gets a
+  # second shot after another light_wait_ms (sky_<k>_late.png), so a slow change is credited to the command that made
+  # it and not to the next one. The ladder stops at the first command after which the sky reads as the requested hour
+  # (sky_light.done); terrain types that command again before every probe (time_repin, default on). Everything goes to
+  # obs.json "light"; the judge (sky_light.verdict) decides the run's light, with the probe shots when there are some.
   if ($cmds.Count -eq 0) { return }
-  $hour = ''; if ($null -ne $t.time_of_day) { $hour = ([double]$t.time_of_day).ToString('0.##', $inv) }
+  $hour = ''; if ($null -ne $t.time_of_day) { $hour = ([Math]::Round([double]$t.time_of_day, 2)).ToString('0.##', $inv) }
   $wait = 4000; if ($null -ne $t.light_wait_ms) { $wait = [int]$t.light_wait_ms }
   $b = Sky-Measure $beforeShot $null ''
   $bs = $null; if ($b) { $bs = $b.sky }
@@ -139,13 +153,28 @@ function Apply-Light($cmds, [string]$beforeShot) {
   foreach ($c in $cmds) {
     $k++
     Console-Open
-    Send "type:$($c.cmd)|key:enter|wait:600|key:grave|wait:$wait"
+    Send "type:$($c.cmd)|key:enter|wait:900"
+    $r = Read-Console "sky_${k}_console"
+    Send "key:grave|wait:$wait"
     $name = Shot "sky_$k.png"
-    $m = Sky-Measure $name $bs $(if ($c.method -eq 'weather') { '' } else { $hour })
-    $L['tries'] += [ordered]@{ method = $c.method; cmd = $c.cmd; shot = $name; sky = $(if ($m) { $m.sky } else { $null })
-                               class = $(if ($m) { $m.class } else { 'unread' }); done = [bool]($m -and $m.done) }
+    $h = $(if ($c.method -eq 'weather') { '' } else { $hour })
+    $m = Sky-Measure $name $bs $h
+    $try = [ordered]@{ method = $c.method; cmd = $c.cmd; ocr = $r.ocr; console = $r.shot; shot = $name
+                       sky = $(if ($m) { $m.sky } else { $null }); class = $(if ($m) { $m.class } else { 'unread' })
+                       done = [bool]($m -and $m.done) }
+    if ($c.method -ne 'weather' -and -not $try.done) {
+      Start-Sleep -Milliseconds $wait
+      $late = Shot "sky_${k}_late.png"
+      $m2 = Sky-Measure $late $bs $h
+      $try['shot_late'] = $late; $try['sky_late'] = $(if ($m2) { $m2.sky } else { $null })
+      $try['done'] = [bool]($m2 -and $m2.done)
+    }
+    $L['tries'] += $try
     $obs['light'] = $L; Save-Obs
-    if ($c.method -ne 'weather' -and $m -and $m.done) { break }
+    if ($c.method -ne 'weather' -and $try.done) {
+      if ($t.kind -eq 'terrain' -and $t.time_repin -ne $false) { $script:repin = $c.cmd; $L['repin'] = $c.cmd; Save-Obs }
+      break
+    }
   }
 }
 
@@ -311,7 +340,7 @@ switch ($kind) {
         $obs['hops'] = 1 + [int]$obs['hops'] + [Math]::Max(0, $n - 1)
       }
       $hx = $tx; $hy = $ty
-      Teleport @($tx, $ty, $dropz) 0 15
+      Teleport @($tx, $ty, $dropz) 0 15 $script:repin    # with the time command that worked: noon at every probe
       Start-Sleep -Milliseconds $settle               # a fall from 80 m takes about 4 s on Earth gravity
       $rd = Read-Pos
       # still hanging at the drop height: the cells around a far point were not loaded yet (exp3 2026-10-11 read 170.00
@@ -319,7 +348,13 @@ switch ($kind) {
       for ($w = 0; $w -lt 2 -and "$rd" -match '^\s*\S+\s+\S+\s+(-?\d+(\.\d+)?)\s*$' -and [Math]::Abs([double]$Matches[1] - $dropz) -lt 0.05; $w++) {
         Start-Sleep -Milliseconds 8000; $rd = Read-Pos
       }
-      $pts += [ordered]@{ label = $p.label; read = $rd; shot = (Shot "pt$k.png") }
+      $pt = [ordered]@{ label = $p.label; read = $rd; shot = (Shot "pt$k.png") }
+      if ($script:repin) { $pt['repin'] = $true }
+      if ($lightCmds.Count -gt 0 -and $pt.shot) {          # the probe shot's light: its corners decide the run's light
+        $pm = Sky-Measure $pt.shot $null ''
+        if ($pm) { $pt['sky'] = $pm.sky; $pt['corners'] = $pm.corners }
+      }
+      $pts += $pt
       $obs['points'] = $pts; Save-Obs                 # after every point: a cut-off keeps the heights already read
       $k++
     }
