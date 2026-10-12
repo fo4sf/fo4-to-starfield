@@ -2,7 +2,10 @@
 
 Author: Claude, 2026-10-12. Branch `claude/slice-redrocket-door`, stacked on `claude/integration-1012` (runner #59,
 npc_nav #68, daylight #73, raider #75, core64c #76, N0b #77). Starfield 1.16.244, Fallout 4 1.10.163.
-Status: **built and checked offline, staged, not deployed, not run.** Offline checks are not in-game acceptance.
+Status: **built and checked offline, staged, queue planned, not deployed, not run.** Offline checks are not in-game
+acceptance. Staged `C:\Modding\staging\slice_redrocket_door`; queue `C:\Modding\testqueue\slice_redrocket_door`
+(queue.json only, planned 2026-10-12 at bf7c853; not in the chain: that is the owner's call, after the chain's runner
+checkout has this branch).
 Labels: **verified** = checked here on files (number given), **supported** = supported hypothesis, **unresolved**,
 **refuted**.
 
@@ -234,6 +237,13 @@ $py = 'C:\Modding\venv-render\Scripts\python.exe'
 
 Optional: `--time-of-day 12` (the exp2d site is the night site; the runner's light ladder, PR #73) for lit exterior
 screenshots; it adds the `light` need. Step timeout 2,872 s (worst case); about 6 to 10 minutes expected.
+
+Planned with the first command at bf7c853 (build `2470f876`, test `0000_door_trip_rr_cave_door`, needs `door_trip`,
+`plugin_order`, `pre_launch` = the runner's own `exp_install.py install ... --plugins
+FO4TerrainExp2.esm,FO4TerrainExp2_Mars.esm,FO4SliceRedRocket.esm --pack --needs door_trip,plugin_order`); a dry run of
+the same plan in a scratch folder: "dry run: would run 0000_door_trip_rr_cave_door". The chain's current checkout
+(`fo4-to-starfield-wt\integ`, integration-1011) has no `runner_features.py`; its `exp_install.py` rejects `--needs`
+(exit 2), so it would stop at "pre-launch exit 2" without launching.
 
 ## 7. Unknowns and risks
 

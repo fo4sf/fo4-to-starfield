@@ -33,7 +33,8 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   **unresolved** (the runner's new `door_trip` test tells: UNMERGED / REMERGED); a master loading after its plugin
   in Starfield **unresolved** and avoided (cycle.ps1 now runs `exp_install.py order`); `player.GetInCell` from the
   console **supported** (GetInCell is in Starfield.exe beside "Is the reference in the specified cell?", like GetIsID,
-  whose console reply is verified). Staged `C:\Modding\staging\slice_redrocket_door`, not run.
+  whose console reply is verified). Staged `C:\Modding\staging\slice_redrocket_door`; queue
+  `C:\Modding\testqueue\slice_redrocket_door` planned (needs `door_trip`, `plugin_order`), not run.
 
 ## 2026-10-12 Claude: why the NPC control N0 could not tell a commanded walk from wandering
 - Question: N0 (`npc_nav_n0`, QASmoke) passed `PathToRef` twice and failed its no-command baseline; is that a walk, a
