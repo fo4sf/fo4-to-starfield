@@ -172,12 +172,13 @@ class PlanEntryTests(unittest.TestCase):
             Path(d, "exp", "plan.json").write_text(json.dumps(plan))
             args = type("A", (), dict(staging=os.path.join(d, "staging"), exp_dir=os.path.join(d, "exp"),
                                       out=os.path.join(d, "q"), plugin_index="02", launch_cell="Vault111Cryo",
-                                      only=0, plugins="", starfield=""))()
+                                      only=0, plugins="", starfield="", fresh=True))()
             tq.plan_terrain(args)
             q = json.loads(Path(d, "q", "queue.json").read_text())
         t = q["tests"][0]
         for k in ("z_ref", "spawn_local", "anchor", "settle_ms", "drop_z", "points"):
             self.assertEqual(t[k], plan[0][k], k)
+        self.assertIs(t["fresh"], True)          # plan-terrain --fresh (claude/test-queue 658cb6b): merged worlds
 
 
 def runner_source():
