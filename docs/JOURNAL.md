@@ -595,6 +595,12 @@ start, OPEN read from the prompt (`94d6dcb`), idle-camera wake (`76488be`).
   Starfield body from a vanilla donor (as the keyframed door leaves do), with mass from FO4. Until then they're
   reported, not silently changed.
 
+## 2026-10-09 — Codex: checkpoint success-validation parity (#32)
+
+- Verified with synthetic generated NIF/material/texture outputs: a checkpoint with intact output hashes but `fallback_materials: 1` or `door_error` was reused although save rejects it. The new regression fails both cases against baseline `cd94162`.
+- Load and save now share the same success predicate; degraded cached results cause reconversion and do not enter batch expectations.
+- Validation with the numpy-enabled render venv: `python -m unittest discover -s tests -p test_checkpoints.py` (13 pass), `python -m unittest discover -s tests` (253 tests, one skipped), `python scripts/guard.py` (ok). Tests ran outside the sandbox after temporary-directory permission errors inside it.
+- Synthetic/offline only; game versions not applicable, no game assets or live installation changed. QA required before merge.
 ## 2026-10-10 Session end (owner powering down)
 Status summary posted on #32 (comment 6094545513): pinned-build route results per cell, open problems by owner,
 open PRs (#34 QA PASS, #35 in progress), local team state, next steps. Removed a stray `needs-qa` label from #32.
@@ -860,3 +866,45 @@ twin step is untested in game until the next library run.
   - Reading so far: no navmesh means no movement; `gnm` also gives no movement; the converted FO4 navmesh gives movement in 4 of 4 tests.
   - Shipping the converted navmesh is the supported route; `gnm` in a plugin worldspace is refuted for this use, to be rechecked with N1b_b against the N0b control.
   - The chain now runs supervised_1011, then batch_full (integration-1011 runner).
+
+
+## 2026-10-12 - Codex: recoverable installer compatibility for the cave slice (#78/#62)
+
+Offline tested, synthetic files only; no game version/runtime acceptance claimed. #62 rejected the cave queue's --needs and cycle's order command. Combining the original ordering code with recovery also skipped pre-existing/reactivated plugins, accepted disabled masters/cycles and could overwrite a concurrent Plugins.txt edit. The new synthetic compatibility suite reproduced these failures plus plugin-only --pack trying to build an empty archive.
+
+Carried #62's independently reviewed journaled publication, pinned SHA inputs and stored General BA2 coverage/content verifier onto #78. Retained the runner feature gate and ordering CLI; receipts now name every selected plugin. Ordering requires complete/non-cleanup state, unchanged selected plugin files, active masters and satisfiable dependencies; its atomic rewrite compares the original snapshot and refuses concurrent edits. Completed-install cleanup restores owned activation lines by text, so ordering requires no whole-file rollback snapshot update. Install/order/uninstall all refuse an interrupted or cleanup-pending main deployment before mutating its activation snapshot or experiment receipt. Plugin-only --pack keeps its requested mode for relaunch checks and builds no archive. Truncated TES4 headers/subrecords cannot hide a master. Two newer upstream packing fixtures now emit valid synthetic BA2 resources; runner implementation is untouched.
+
+Validation: 14 new compatibility tests, 43 recovery, 9 packed-verifier, 4 terrain/mask packing, 18 upstream door-trip and 81 queue tests pass. Final current-main Windows suite: 882 tests, OK (38 skipped); guard/diff checks pass. Independent Codex QA reproduced both order and uninstall invalidating interrupted main recovery; install/order/uninstall now share the refusal guard. Independent final PASS includes distinct activation snapshots, master recovery and later uninstall retry. Hosted CI at e661977 ran 881 tests and failed solely on the existing #66 Linux filesystem separator lookup; terrain file remains Claude-owned. #84 records inherited final compare/replace/unlink race gaps; no interprocess isolation is claimed. No staging, Plugins.txt, game installation, live input, automation or local-model changes.
+
+## 2026-10-11 Public README and About refresh (Codex)
+
+Owner requested immediate publication of the README and GitHub information. Refreshed the existing #36/#37 work
+with Claude's latest pinned evidence, queued runner, offline terrain/NPC research and Codex's #62 recovery tests.
+Earlier route results and the newer integration batch remain separate. Added the already-installed Steam launch
+command, staging deploy/uninstall examples and eight COC commands checked against PluginSpike's naming and the
+staged cell filenames. Reused existing published screenshots; no game outputs or new media added.
+
+GitHub About now links the live #32 status and describes experimental interiors, native physics, queued tests and
+terrain research; topics retain existing labels and add terrain/game-conversion. Claude, Codex and Grok attribution
+is retained. Main publication uses #37 and its required CI, with protections unchanged. No live game changes.
+Validation: 254 synthetic tests OK (1 skipped), guard and diff checks OK; all 18 local README links exist.
+QA caught a case-insensitive fallback symlink escaping staging in the existing Linux compatibility change.
+The resolver now rechecks containment after every component; a synthetic Linux symlink regression covers both
+directory and file requests. It is skipped on Windows because that fallback requires case-sensitive lookup.
+Final Windows suite: 255 tests OK (2 skipped); guard and diff checks OK. Linux CI executes the new regression.
+
+## 2026-10-11 Terrain CI preview dependency (Codex)
+
+#64's hosted run38177486495 reproduced ModuleNotFoundError: PIL in the synthetic FO4 plane extractor's preview.
+CI installed only NumPy; local testing already had Pillow12.3.0. Added the tested public Pillow release range
+to requirements-ci.txt without changing terrain records, scripts or tests. Coordination and file claim: #32/#64.
+This fixes the missing dependency, not the unresolved in-game terrain binding. No game assets added.
+Validation: main-based255 tests OK (2 Windows skips), guard OK. At #64 head1600603, all11 FO4 LAND synthetic
+tests pass with Pillow12.3.0, including the failing end-to-end plane/preview case. Hosted dependency CI pending.
+
+
+## 2026-10-12 - Codex: portable terrain dependency filesystem lookups (#66)
+
+Offline tested. The owner says Codex is the only agent currently able to work; the exact dependency_check takeover was announced on #66/#32 before editing. Mesh/NIF, geometry, material and own-texture identifiers carry game-resource backslashes, which Linux treats as literal filename characters. Normalize separators only at the four filesystem lookup boundaries; resource/report names, counts, vanilla membership and terrain/converter behavior remain unchanged.
+
+A synthetic POSIX filesystem regression reproduces both failure modes on Windows: backslash NIF lookup raises FileNotFoundError, and a forward-slash NIF still reports a material missing because its derived lookup contains backslashes. After the fix, both resource separator styles cover missing geometry/own texture/material/NIF, complete coverage and missing/unverified vanilla textures. Existing real-filesystem fixture is retained. 18 focused tests OK (3 skips); full current-main Windows suite 360 tests OK (5 skips), 4.775s; guard/diff checks pass. Linux CI and independent review follow in the PR. No game assets, staging, deployment, game input or automation changed.

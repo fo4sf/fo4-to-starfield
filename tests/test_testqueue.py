@@ -538,7 +538,9 @@ class ExpPackTests(unittest.TestCase):
         writef(os.path.join(local, "Starfield", "Plugins.txt"), b"*FO4Port.esm\r\n")
 
         def fake_ba2(a, data_root, out, folders=None, fmt="General"):
-            writef(out, b"BTDX fake")
+            from pathlib import Path
+            from ba2_fixture import archive_from_tree
+            writef(out, archive_from_tree(Path(data_root)))
             return out
         old_env, old_build = os.environ.get("LOCALAPPDATA"), exp_install.build_ba2
         os.environ["LOCALAPPDATA"], exp_install.build_ba2 = local, fake_ba2
@@ -604,10 +606,32 @@ class ZRefTests(unittest.TestCase):
 
 class StoredArchiveTests(unittest.TestCase):
     def test_experiment_archives_are_stored_uncompressed(self):
-        # vanilla stores every BTD uncompressed; a zlib-packed BTD read as raw 0 in game (2026-10-11)
-        src = readf(os.path.join(ROOT, "scripts", "game", "exp_install.py"), encoding="utf-8")
-        self.assertIn('"-compression=None"', src)
-        self.assertNotIn('"-compression=Default"', src)
+        from unittest.mock import patch
+        import exp_install
+
+        with tempfile.TemporaryDirectory() as root:
+            game = os.path.join(root, "game")
+            tool = os.path.join(game, "Tools", "Archive2", "Archive2.exe")
+            os.makedirs(os.path.dirname(tool))
+            with open(tool, "wb") as stream:
+                stream.write(b"synthetic tool; never executed")
+            data = os.path.join(root, "Data")
+            os.makedirs(os.path.join(data, "Terrain"))
+            with open(os.path.join(data, "Terrain", "World.btd"), "wb") as stream:
+                stream.write(b"synthetic terrain")
+
+            def pack(command, **kwargs):
+                output = next(arg[len("-create="):] for arg in command if arg.startswith("-create="))
+                with open(output, "wb") as stream:
+                    stream.write(b"BTDX" + bytes(20))
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            with patch.object(exp_install.subprocess, "run", side_effect=pack) as process:
+                exp_install.build_ba2(SimpleNamespace(starfield=game), data, os.path.join(root, "terrain.ba2"))
+            command = process.call_args.args[0]
+            self.assertIn("-compression=None", command)
+            self.assertNotIn("-compression=Default", command)
+            self.assertIn("-format=General", command)
 
 
 class FreshTests(RunnerTests):

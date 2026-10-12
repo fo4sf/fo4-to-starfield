@@ -1091,7 +1091,7 @@ def dependency_check(data, models, prefix="fo4cw", vanilla=None):
     seen_mats, seen_tex, missing = set(), set(), []
     counts = {"nifs": 0, "meshes": 0, "materials": 0, "textures_own": 0, "textures_vanilla": 0, "vanilla_unverified": 0}
     for m in sorted(set(models)):
-        with open(os.path.join(data, "meshes", m), "rb") as f:
+        with open(os.path.join(data, "meshes", m.replace("\\", "/")), "rb") as f:
             n = nifmod.parse(f.read())
         counts["nifs"] += 1
         for i in range(len(n.blocks)):
@@ -1102,7 +1102,7 @@ def dependency_check(data, models, prefix="fo4cw", vanilla=None):
                     continue
                 counts["meshes"] += 1
                 rel = ref.path.decode("latin-1").replace("/", "\\") + ".mesh"
-                if not os.path.isfile(os.path.join(data, "geometries", rel)):
+                if not os.path.isfile(os.path.join(data, "geometries", rel.replace("\\", "/"))):
                     missing.append("geometries\\" + rel)
         for path in nifmod.referenced_paths(n):
             low = path.replace("/", "\\").lower()
@@ -1110,7 +1110,7 @@ def dependency_check(data, models, prefix="fo4cw", vanilla=None):
                 continue
             seen_mats.add(low)
             counts["materials"] += 1
-            mp = os.path.join(data, low)
+            mp = os.path.join(data, low.replace("\\", "/"))
             if not os.path.isfile(mp):
                 missing.append(path)
                 continue
@@ -1124,7 +1124,7 @@ def dependency_check(data, models, prefix="fo4cw", vanilla=None):
                     rel = rel if rel.startswith("textures\\") else "textures\\" + rel
                     if rel.startswith(f"textures\\{prefix}\\"):
                         counts["textures_own"] += 1
-                        if not os.path.isfile(os.path.join(data, rel)):
+                        if not os.path.isfile(os.path.join(data, rel.replace("\\", "/"))):
                             missing.append(rel)
                     else:
                         counts["textures_vanilla"] += 1

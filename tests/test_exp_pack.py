@@ -2,10 +2,12 @@
 (the layout vanilla uses for terrain textures and overlay masks), built outside the staged folder, installed and
 uninstalled like every other file. A fake Archive2 (recorded subprocess.run) builds the archive; nothing is executed."""
 import os
+from pathlib import Path
 import sys
 import tempfile
 import unittest
 from types import SimpleNamespace
+from ba2_fixture import archive_from_tree
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
@@ -43,7 +45,7 @@ class PackTests(unittest.TestCase):
             opts = dict(a[1:].split("=", 1) for a in cmd[2:])
             self.calls.append({"folders": cmd[1].split(","), "format": opts["format"], "root": opts["root"],
                                "compression": opts["compression"], "create": opts["create"]})
-            write(opts["create"], b"BTDX" + b"\0" * 20)
+            write(opts["create"], archive_from_tree(Path(opts["root"])))
             return SimpleNamespace(returncode=0, stdout="", stderr="")
         self.old = (exp_install.subprocess.run, os.environ.get("LOCALAPPDATA"))
         exp_install.subprocess.run = fake_run
