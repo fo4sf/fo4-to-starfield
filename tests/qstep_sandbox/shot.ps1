@@ -1,3 +1,3 @@
-# SANDBOX ONLY: writes a placeholder file instead of a screenshot.
+# SANDBOX ONLY: writes the simulated game's screenshot (a small PNG whose top rows have the simulated sky's brightness).
 param([string]$Out)
-[IO.File]::WriteAllBytes($Out, [byte[]](137, 80, 78, 71)); "saved (sandbox)"
+& $env:FO4SF_PYTHON (Join-Path $PSScriptRoot 'fake_game.py') shot $Out; "saved (sandbox)"

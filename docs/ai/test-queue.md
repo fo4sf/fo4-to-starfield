@@ -54,6 +54,261 @@ is final. A game crash during a test is recorded (class CRASH) and the game is r
 ranked problem list: FAIL groups by severity x count, then INCONCLUSIVE groups). Tests planned with an `"expect"`
 (npc_nav) get a section "Expectations written before the run": expected verdict, result, as expected yes / no, basis.
 
+## Time of day and weather (`terrain`, `npc_nav`)
+
+Where an overlay worldspace is registered on Mars decides the time of day of the arrival (the runner always loads the
+same save). C:\Modding\testqueue, 2026-10-11, 31 Mars arrivals (read-only): every arrival at the raw PNDT `CNAM` pair
+(0.3, -1.2) was at night (exp2b, exp2b2, exp2b3, exp2c, exp2d and core64: 18 of 18), every arrival at (0.2, 1.2) in
+daylight (exp1_mars, exp1b_mars, exp1c_mars, exp1d, terrain_B_w01 and exp3 at (0.2008..0.2012, 1.1989..1.1993): 13 of
+13). PR #70's exp2t variants (commit 5f09a1d) therefore moved their registration to (0.2, 1.2) to be judged in daylight;
+the night site is still where core64, exp2b2 and the NPC runs on it are. A test can ask for a local time of day and/or a
+weather; the step sets them right after the arrival, before any other screenshot, and records the light before and
+after (and on every terrain probe shot), so the judge can tell a daylight run from one where the commands changed
+nothing, and from one that was in daylight anyway (then the commands were not tested).
+
+| plan.json field (per test) | meaning | default |
+|---|---|---|
+| `time_of_day` | local hour on the planet, 0 <= h <= 23.99 after rounding to two decimals (12 = noon on every planet, whatever its day length); `true` / `false` are refused | none |
+| `time_methods` | ladder of time commands, tried in order until the sky reads as asked: `slt` (`SetLocalTime <h>`), `slt_galaxy` (`SetLocalTime <h> 1`), `cgf` (`cgf "Game.SetLocalTime" <h>`) | all three, in that order |
+| `time_repin` | terrain: type the command that worked again before every probe (in the probe's teleport session), so the probes stay at the asked hour while game time runs | true |
+| `weather` | weather form id (8 hex digits), typed `fw <id>` before the time | none |
+| `weather_lock` | `fw <id> 1`: the weather stays until `rwo` (ReleaseWeatherOverride) | false |
+| `light_wait_ms` | wait with the console closed after each command, before its screenshot (and again before a second shot) | 4000 |
+| `need_daylight` | a PASS whose run did not read as daylight becomes INCONCLUSIVE `NIGHT`, or `LIGHT` when nothing was read; both are retried up to `--max-attempts` (another arrival of the same test can read differently: exp1d a1 fell into a pit, sky 7.3, a2 read 131.0) and `NIGHT` does not count towards the circuit breaker. A FAIL stays a FAIL | false |
+
+The same for every test of a queue from the command line (it wins over plan.json):
+
+```powershell
+& $py scripts\game\testqueue.py plan-terrain ... --time-of-day 12 [--time-methods slt,cgf] [--weather <id>] [--need-daylight]
+& $py scripts\game\testqueue.py plan-npc ... --time-of-day 12
+```
+
+`plan-terrain` / `plan-npc` validate the fields (`sky_light.light_fields`: hour range after rounding, the three method
+names, 8 hex digits, booleans) and `qstep.ps1` checks them again before the travel (exit 4, nothing typed); nothing else
+from these fields is ever typed.
+
+What the step does (`qstep.ps1` `Apply-Light`): the arrival's own screenshot is the "before" sky (terrain: `spawn.png`
+after the arrival read; npc_nav: `arrival.png` after the arrival settled). Then the weather command, then the time
+ladder. Each command has its own console session: typed, the console captured and OCR'd (`sky_<k>_console.png`, so a
+refused command such as "SetLocalTime only works on a planet." is told apart from one without a visible effect), closed;
+then `light_wait_ms`, a screenshot `sky_<k>.png` and its sky. A time command whose shot does not read as the requested
+hour gets a second shot after another `light_wait_ms` (`sky_<k>_late.png`), so a slow change is credited to the command
+that made it and not to the next one. The ladder stops at the first command after which the sky reads as the requested
+hour (`sky_light.done`: daylight for 7..17 h, night before 5 or after 19 h, any change of at least 15 in between).
+Terrain then types that command again before every probe (`time_repin`) and measures every probe shot. `obs.json`
+`light`: `time_of_day`, `weather`, `before` {`shot`, `sky`}, `tries` [{`method`, `cmd`, `ocr`, `console`, `shot`, `sky`,
+`class`, `done`, and `shot_late` / `sky_late` when taken}], `repin`; every terrain point gets `sky`, `corners` and
+`repin`.
+
+Light measures (`sky_light.py measure <png>`, the two measures of `scripts/terrain/ground_textures.py lighting`, PR #70):
+`sky` = the mean RGB value (0..255) of the top 200 rows (the arrival camera); `corners` = the mean of the top fifth's
+outer quarters (ground away from the helmet lamp: the probe shots). The 31 Mars arrivals above, by site:
+
+| reading | night site (18) | daylight site (13) | threshold |
+|---|---|---|---|
+| arrival camera `sky` (spawn.png) | 6.4..19.9, and core64 41.1, 44.3 | 7.3 (exp1d a1, a pit), 49.9 (exp3 0003), 96.4, 103.0..131.6 | night <= 30, daylight >= 60 |
+| median of the probe shots' `corners` | 6.7..37.0 | 47.5..154.4 | night <= 40, daylight >= 45 |
+
+The arrival camera alone misreads 4 of 31 (two daylight arrivals as night / unclear, two night arrivals as unclear);
+the probe-corner median separates all 31 (single probe shots do not: they range 6.4..61.4 at night and 33.6..170.9 by
+day). So the run's light is the probe-corner median when probes were measured (terrain) and the arrival camera's last
+reading after the commands otherwise (npc_nav). The thresholds sit between the groups: a heuristic, not a calibration.
+
+Judge (`sky_light.verdict`): the light goes into the detail of every test that asked for it, e.g.
+`[light: local hour 12: sky 12.3 -> 110.2 after SetLocalTime 12; daylight after SetLocalTime 12; probes: 18 measured,
+corner median 96.0 -> daylight => daylight]`, `[light: local hour 12: sky 12.3 -> 12.4 after SetLocalTime 12;
+SetLocalTime 12 1; cgf "Game.SetLocalTime" 12 (console: SetLocalTime 12: SetLocalTime only works on a planet; ...); no
+effect: night; probes: ... -> night => night (asked for daylight)]` or `[light: local hour 12: sky 110.0 -> 112.0 after
+SetLocalTime 12; already daylight at the arrival: the time commands were not tested => daylight]`. A shaded arrival
+camera with daylight probes says "(the arrival camera read night: the probes decide)" and "whether the commands acted
+is unknown". `results.jsonl` gets `light` (`daylight`, `night`, `unclear`, `unread`), `sky` [before, after],
+`light_tested` (false: already as asked at the arrival), `light_credited` (the command after which the sky first read
+as asked), `light_probes` {`n`, `corners`, `class`, `night`, `unclear`} and `light_detail`; `report.md` / `report.json`
+get a section "Light" with the same columns. The step timeout grows by 50 s + 2 x `light_wait_ms` per command the test
+may type, and for terrain by 4 s per probe (its measure) plus 8 s per probe with `time_repin`.
+
+`ground_textures.py lighting` (PR #70) still classifies an attempt from `spawn.png`, taken before the time is set; for a
+queue with `time_of_day` read `results.jsonl` `light` / `light_probes` instead (**unresolved** on #70's branch, not
+changed here).
+
+### A queue needs a runner that has these features
+
+The unattended chain runs `testqueue.py run` from the integration worktree. A runner without this branch ignores test
+fields it does not know, so a queue with `time_of_day` or `console_pre` would run at night without the commands and
+without a word. Therefore:
+
+- `plan-terrain` / `plan-npc` write `"needs"` into `queue.json` (`runner_features.needs`: `light` for a time of day or a
+  weather, `console` for `console_pre` / `console_post`), and the runner refuses a queue whose needs its checkout lacks
+  (`runner_features.FEATURES`; run.log "stopped: this queue needs runner features ...", status "stopped: runner lacks
+  ...", exit 3, nothing launched). It also notes in run.log when the queue was planned at a commit its checkout does not
+  contain.
+- `pre_launch` runs the RUNNER's own `scripts\game\exp_install.py` (a path relative to the runner's checkout; testqueue.py
+  starts it there) with `--needs light,console`; a queue without plugins gets `scripts\game\runner_features.py check
+  <needs>` instead. A runner from before this branch has an `exp_install.py` without `--needs`, which refuses the
+  option (argparse, exit 2), so its `ensure_game` stops at "pre-launch exit 2" before launching the game (verified
+  offline against the integration worktree at dcf8ad6, 2026-10-12). In the chain a required queue that stops this way
+  stays first in `chain_queue.txt` and ends the chain; an optional one (`?name`) is skipped.
+- Planning itself: a planner from before this branch refuses `--time-of-day` ("unrecognized arguments"), so the queue
+  commands below carry `--time-of-day 12` even where plan.json has it.
+
+So: merge this branch into the checkout the chain runs from, then plan from it and queue.
+
+### Research: which command changes the local time on a planet (2026-10-11, offline, read-only)
+
+Sources: the installed `Starfield.exe` 1.16.244.0 (command entries decoded as in `scripts/recon_console.py`; the ones
+below are built on the stack, so they were read from their initialiser bytes), the Creation Kit's Papyrus sources in
+`Tools\ContentResources.zip` (`Scripts/Source/*.psc`), a raw scan of `Starfield.esm` and Mutagen 0.55's PNDT decoding.
+
+- **verified** (command entry decoded): `SetLocalTime`, short name `slt`, opcode 0x2D3, help "Sets the local time on the
+  current planet, optionally updating the galaxy sim.", parameters `Local Time` (Float, required) and `(Optional) 1 to
+  update Galaxy sim` (Integer, optional). Next to it: "SetLocalTime only works on a planet." It sits among the weather
+  test commands (`TestAllWeathers` / `taw`, `TestClimateWeatherTransitions` / `tcwt`).
+- **verified** (Papyrus source text): `Game.psc` "Rotates the current planet such that the local time will match the
+  specified time" `Function SetLocalTime(float afLocalTime) native global`; `float Function GetLocalTime()` "Get the local
+  time in normalized 24-hour day scale for this planet"; `Function PassTime(int aiHours)` "Pass time as if the player has
+  waited the given number of hours". `Planet.psc` `float Function GetDayLength()` "the day length in hours".
+  `Utility.psc` `GetHoursUntilLocalHour`: `Game.GetLocalTime()` "returns local time normalized to 24 hours, so 12 always
+  = noon"; real (universal) hours until a local hour = local hours x day length / 24; off a planet, the time of day is
+  the fraction of `GameDaysPassed` x 24.
+- **supported hypothesis** that `SetLocalTime` changes the sky at once: Bethesda's own scripts use it for staged
+  arrivals: the opening quest's fragment (`QF_MQ101_00003448.psc`) calls `Game.SetLocalTime(10)`, `(9)`, `(11.5)`, `(8)`;
+  `SFBGS00D:OnLoadSetLocalTime` sets daytime on load when the local time is past evening. Whether the console form needs
+  the galaxy-sim flag, and whether `cgf` reaches the native (CallGlobalFunction, short name `cgf` by string adjacency:
+  "Calls a global papyrus function. First parameter is the function, the rest are parameters"), is **unresolved**: hence
+  the ladder `slt`, `slt_galaxy`, `cgf`.
+- **verified** (entries decoded): `PassTime` (one Integer, "Passes the given number of hours as if the player were
+  sleeping."); `ForceWeather` / `fw` (opcode 0x112D, "Forces the active weather to the specified type, without
+  transition.", parameters Form and an optional Int), `SetWeather` / `sw` (0x1104, two parameters),
+  `ReleaseWeatherOverride` / `rwo` (0x1158, none). `PassTime` is not in the ladder: it moves the universal clock by whole
+  hours, and which local hour that reaches depends on the local time, which the step cannot read yet.
+- `Starfield.esm` globals (raw scan, FLTV): `GameYear` 00000035 = 330, `GameMonth` 00000036 = 5, `GameDay` 00000037 = 7,
+  `GameHour` 00000038 = 8.0, `GameDaysPassed` 00000039 = 0, `TimeScale` 0000003A = 20 (**verified**). The exe also has the
+  settings `fCalendarTimeScaleGround` / `fCalendarTimeScaleSpace`. `set gamehour to <h>` writes the universal clock, not
+  the planet's rotation; whether the sky follows it is **unresolved** and it is not in the ladder. Community guides
+  give only waiting, sleeping and the time scale: [dexerto](https://www.dexerto.com/starfield/starfield-how-to-change-the-time-of-day-2275088/)
+  (read: wait or sleep; "the local hours may differ from UT"); [gfinity](https://www.gfinityesports.com/guides/starfield-change-time-of-day/)
+  (search snippet only, **unverified**: `showmenu sleepwaitmenu`, `set 3a to x`, `setgs fCalendarTimeScaleGround x`).
+- Day length (**supported hypothesis**): Mutagen decodes the PNDT orbital field `RotationalVelocity`: Earth 1, Mars 0.96,
+  Jemison 0.48, Akila 0.857 (6/7), Venus -0.004115 (= -1/243), Luna, Phobos, Europa, Titan and Mercury 0. Read as
+  rotations per 24 h: day length = 24 h / |v| (Earth 24 h, Mars 25 h, Akila 28 h, Venus 5,832 h = its 243-day sidereal
+  rotation, retrograde; 0 = no own rotation). Not yet compared with `Planet.GetDayLength()` in game. With the Utility.psc
+  formula one local hour on Mars is 25 / 24 universal hours, so `GameHour` (universal, 24 h) and the local hour drift
+  apart by one hour per Mars day; a local hour is the phase of the planet's rotation at the site, which is why
+  `SetLocalTime` "rotates the planet" instead of changing `GameHour`.
+- Why one site was always night (**supported hypothesis**): every run loads the same save, so the universal time at
+  arrival is always the same, and the local time at a site then depends only on where the overlay is registered
+  (verified data, read-only: raw `CNAM` (0.3, -1.2) 18 of 18 arrivals at night, (0.2, 1.2) 13 of 13 in daylight, above;
+  exp1d's daylight arrival 16:15 and exp2b's night arrival 16:27 were 12 minutes apart).
+- Weather ids: `Starfield.esm` has only three WTHR records (raw scan): `DefaultWeather` 0000015E, `SpaceWeather`
+  00249FA6, `NewAtlantisWeather50` 0027CF9B; none is a Mars weather, so no staged plan sets `weather` (how a planet
+  surface gets its weather is **unresolved**). `fw` syntax in the earlier games: [ck.uesp.net
+  ForceWeather](https://ck.uesp.net/wiki/ForceWeather), [geck.uesp.net FW](https://geck.uesp.net/wiki/FW) (override flag
+  1 holds until ReleaseWeatherOverride).
+- Community listing of `SetLocalTime` ("sets the local time on the current planet, optionally updating the galaxy sim"):
+  [starfield.fandom.com Help_command](https://starfield.fandom.com/wiki/Help_command) (search snippet only, the page
+  was not readable: **unverified**).
+
+In game (**unresolved** until the first run at the night site, `terrain_exp2b2_noon` below): whether `SetLocalTime`
+works inside an overlay worldspace merged into Mars (the exe also has "SetLocalTime only works on a planet."; the
+reply is now read), whether the sky changes without a reload and within 4 s (8 s with the second shot), and whether a
+Mars noon reads above the thresholds. Also **unresolved**: how fast the local time runs during the probes. `TimeScale`
+is 20 (above): if it applied in full, the 18.6 minutes exp2b2 a1 took for 14 probes would be about 6 game hours; how
+much of that the console pauses is unknown (the probe shots of exp3 0004, 49 minutes, kept the same corner reading
+104.3, which suggests little drift but was not checked further). `time_repin` makes the answer irrelevant for terrain
+probes; the probe readings show it either way.
+
+### Staged time-of-day plan (night site)
+
+`C:\Modding\staging\terrain_exp2b2_noon`: exp2b2's plugins and `Data\` byte for byte, so the worldspace registers at the
+night site (0.3, -1.2), with exp2t0's single test (exp2b2's 14 height probes + the 4 ground-type spots pt14..pt17;
+exp2t0's BTD is exp2b2's byte for byte, only its registration site differs) and `time_of_day` 12, without
+`need_daylight` (the heights are judged as before, the light is recorded). It answers whether the ladder turns a night
+arrival into daylight; its probe shots compare with exp2t0's at the daylight site. The core64 border plans below are
+at the same night site and set `time_of_day` 12 too. Step timeout 2,316 s (18 probes, light, repin).
+
+```powershell
+& $py scripts\game\testqueue.py plan-terrain --staging C:\Modding\staging\integ_1011 --exp-dir C:\Modding\staging\terrain_exp2b2_noon `
+      --out C:\Modding\testqueue\terrain_exp2b2_noon --plugins FO4TerrainExp2.esm,FO4TerrainExp2_Mars.esm --fresh --time-of-day 12
+```
+
+Superseded: the five `C:\Modding\staging\terrain_exp2t*_day` copies of the first version of this branch register at
+the daylight site like their PR #70 originals, so their arrival is already in daylight and they cannot test the
+commands (each README now says so; not queued). For the exp2t looks queue PR #70's own folders.
+
+## Console commands before and after the travel (`console_pre`, `console_post`; `terrain`, `npc_nav`)
+
+core64 (2026-10-11): every probe more than about 4 cells (about 450 m) from the `coc` arrival raised Starfield's
+"Boundary Reached" popup, although all 4,096 overlay cells exist; Starfield.exe has INI settings for that border. To test
+such settings unattended, a test can carry two lists of console lines:
+
+| plan.json field | typed | default |
+|---|---|---|
+| `console_pre` | after the save has loaded (the runner's `setup_session`), before the travel (`coc`) | `[]` |
+| `console_post` | after the arrival (and after the time of day / weather), before the probes or the spawn | `[]` |
+
+Only these lines pass (`console_plan.py` `PATTERN`, checked by `plan-terrain` / `plan-npc` and again by `qstep.ps1`
+`$consoleOk`, case-sensitive, whole line; a bad line ends planning, or the step with exit 4 before anything is typed;
+at most 12 per list):
+
+- `GetINI "<name>:<Section>"` and `SetINI "<name>:<Section>" <number>` (names and sections `[A-Za-z0-9_]{1,64}`, numbers
+  `-?\d{1,9}(.\d{1,6})?`);
+- the time-of-day / weather lines: `SetLocalTime <h> [1]`, `cgf "Game.SetLocalTime" <h>` (h 0..23.99), `fw <8 hex> [1]`.
+
+Anything else (`qqq`, `player.additem ...`, `coc ...`, `tgm`, a `;` or `|` inside a line, unquoted names, curly quotes, a
+trailing newline) is refused; `tests/test_console_plan.py` lists the cases.
+
+Each line is its own console session: open, type, capture the console region and OCR it (as the god-mode reply), close.
+`obs.json` `console`: [{`phase` (`pre` / `post`), `cmd`, `ocr`, `shot` (`console_<k>.png`)}]. The judge reads each reply
+from the text after the command's last echo (`console_plan.reply`: `value`, `not found`, `error`, `no reply`, `unread`;
+OCR tolerant of l / I / 1, `> >`, dropped quotes; a reply that is not there is `unread`, never an older line's value),
+appends `[console pre: GetINI bBorderRegionsEnabled:General = 1; ...] [console post: ...]` to the detail (shown, never
+judged; `n of m typed` when the step ended early), and `results.jsonl` `console`, `report.md` "Console replies" and
+`report.json` `console` list them. Each line adds 35 s to the step timeout.
+
+Evidence (Starfield.exe 1.16.244.0, read-only):
+- **verified** (command entries decoded): `SetINISetting` (short `SetINI`, "Sets an INI setting value.", parameters String,
+  String), `GetINISetting` (short `GetINI`, "Prints an INI setting value to the console.", String), `RefreshINI`
+  (`REFINI`, "Refresh INI settings from file.", none).
+- **verified** (strings): the settings `bBorderRegionsEnabled:General`, `fPlayableAreaX:General`, `fPlayableAreaY:General`,
+  `fPlayableAreaZ:General`, `uMaximumPlayableAreaWorldCoord:General`, `uPlayableSpaceOverlayCellBuffer:Planet`.
+- **supported hypothesis** (format strings, which command prints them not traced): GetINI replies `INISetting %s >> %i` /
+  `%u` / `%.4f` / `'%s'` / `NOT FOUND`; errors `INI setting "%s" does not exist` / `is not a boolean|int|float|string`.
+- **unresolved**: whether `SetINI "bBorderRegionsEnabled:General" 0` typed in a running game (before the `coc`) removes
+  the landing border for the next arrival (the "Border Regions Unlock" mod sets the INI value instead, community report
+  relayed by the lead, not checked here); the staged runs below answer it.
+
+### Staged border plans (core64)
+
+`C:\Modding\staging\terrain_core64_border0` and `terrain_core64b_border0` are copies of `terrain_core64` (rays) and
+`terrain_core64b` (rays with 300 m hops); plugins, `Data\` and reference files are unchanged and only `plan.json`
+differs. Every test keeps its ray and adds:
+`console_pre` = `GetINI "bBorderRegionsEnabled:General"`, `GetINI "fPlayableAreaX:General"`,
+`GetINI "uPlayableSpaceOverlayCellBuffer:Planet"`, `SetINI "bBorderRegionsEnabled:General" 0`,
+`GetINI "bBorderRegionsEnabled:General"`; `console_post` = `GetINI "bBorderRegionsEnabled:General"` (does the value survive
+the travel?); `time_of_day` 12 (recorded only, no `need_daylight`: the heights decide as before; core64 is at the
+night site, so this tests the time commands as well).
+
+```powershell
+& $py scripts\game\testqueue.py plan-terrain --staging C:\Modding\staging\integ_1011 --exp-dir C:\Modding\staging\terrain_core64_border0 `
+      --out C:\Modding\testqueue\terrain_core64_border0 --plugins FO4TerrainCore.esm,FO4TerrainCore_Mars.esm --fresh --time-of-day 12
+& $py scripts\game\testqueue.py plan-terrain --staging C:\Modding\staging\integ_1011 --exp-dir C:\Modding\staging\terrain_core64b_border0 `
+      --out C:\Modding\testqueue\terrain_core64b_border0 --plugins FO4TerrainCore.esm,FO4TerrainCore_Mars.esm --fresh --time-of-day 12
+```
+
+Both install the core64 plugins from their own folder; `exp_install.py` refuses while core64 (or any experiment) is still
+installed, so the chain's uninstall between queues has to run first.
+
+Does the `SetINI` outlive the run? **Supported hypothesis**: no. `SetINI` changes the running game's setting;
+Starfield writes only its preference settings back (`StarfieldPrefs.ini` under Documents\My Games\Starfield, whose
+`[General]` held only `uiMarketplaceUpdatedHash` on 2026-10-12, read-only check), and every border test starts from a
+fresh launch. After the border queues, `findstr /i BorderRegions` on that file (read-only) settles it.
+
+Terrain step timeout (fix in this branch): measured core64 steps took 103-114 s a point (7 points 722-798 s against
+870 s), and hops (`hop_m`) were not counted at all. The timeout is now 150 + (90 + settle surplus) x (points + 1) + 40 s and
+`hop_wait_ms` for every intermediate hop (`terrain_hops`, the same count as `qstep.ps1`) + the light and console
+commands, and the light of every probe shot (4 s) and the time command typed again before every probe (8 s):
+core64_border0 1,167-1,394 s, core64b_border0 1,355-1,770 s (planned 2026-10-12).
+
 ## Staged experiments: `exp_install.py --pack`
 
 Loose files are not read on this install, so `--pack` puts the experiment's whole `Data\` tree, textures included, into
@@ -264,5 +519,17 @@ console selects a floor static, an actor placed with the console open is not sel
 `GetInFaction` lines, the real reply formats, l-for-I OCR. Scenarios: walk, no walk, the 2026-10-11 spawn, `plr` that
 never selects, a selection that stays on the static (no walk, no `disable`, the static never touched), an unconfirmed
 spawn removed by its id, the anchor frame, a failed spawn, `cf` typed with its quotes, the column OCR layout, an anchor
-that reads its local position, an arrival read mid-fall, an arrival that never lands, the baseline. Opt-in, 30-60 s a
-scenario: `$env:FO4SF_QSTEP_SANDBOX = '1'`.
+that reads its local position, an arrival read mid-fall, an arrival that never lands, the baseline. Time of day
+(`QstepLightSandboxTests`: the simulated game arrives at night, local time 22, and its screenshots carry the simulated
+sky in their top rows): `SetLocalTime 12` gives daylight before the spawn; a ladder that only `cgf` (typed with its
+quotes) moves; no command with an effect (INCONCLUSIVE NIGHT with `need_daylight`, "no effect: night"); `fw <id> 1`
+before the time; the terrain step setting the time after the arrival and before the first probe; an arrival already
+in daylight ("the time commands were not tested"); `SetLocalTime` refused with "only works on a planet." (read from
+the console, `cgf` credited and typed again before the probe); a sky that follows one screenshot late (credited to
+`SetLocalTime 12` on its second shot, `SetLocalTime 12 1` never typed); game time that moves 3 h per console session
+(with `time_repin` every probe reads daylight, without it the third probe reads night and is named). Console commands
+(`QstepConsoleSandboxTests`, simulated INI settings answering in the exe's reply formats, OCR reading `GetlNl`,
+`lNlSetting`, `EnabIed`, `> >`): the five border lines before the `coc` and the read after the arrival (values 1,
+3200.0000, 2, no reply, 0; then 0), npc_nav with an unknown setting (NOT FOUND, does not exist), and lines off the
+whitelist (`qqq`, `player.additem`, `tgm`, a `|key:` injection, `coc` in `console_post`): exit 4, nothing typed. Opt-in,
+30-60 s a scenario: `$env:FO4SF_QSTEP_SANDBOX = '1'`.

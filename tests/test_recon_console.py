@@ -8,7 +8,10 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
-import recon_console  # noqa: E402
+try:                                   # recon_console.py scans with numpy (the runner's venv); CI has none
+    import recon_console  # noqa: E402
+except ImportError:
+    recon_console = None
 
 BASE = 0x140000000
 SECS = {".text": (0x1000, 0x400), ".rdata": (0x2000, 0x800), ".data": (0x3000, 0xC00)}   # va, raw pointer; 0x400 each
@@ -56,6 +59,7 @@ def image():
     return bytes(data)
 
 
+@unittest.skipUnless(recon_console, "numpy not installed")
 class ReconConsoleTests(unittest.TestCase):
     def test_decodes_a_command_entry(self):
         img = recon_console.Image(image())

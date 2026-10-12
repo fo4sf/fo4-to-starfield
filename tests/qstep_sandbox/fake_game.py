@@ -20,15 +20,30 @@ command that works), anchor_id / anchor_pos, arrival, fall ({"height", "speed"}:
 arrival z + height at speed m/s until the arrival z), layout ("inline" | "column": labels first, then values; echo
 arguments drift into the value column, a lone "y" is lost).
 "typed" keeps every command the console received; "clock" is the game time, which runs only while the console is
-closed."""
+closed.
+Time of day: local_time (default 22.0, night) changes on "SetLocalTime <h>" (method slt), "SetLocalTime <h> 1"
+(slt_galaxy) or 'cgf "Game.SetLocalTime" <h>' (cgf) when that method is in time_works (default ["slt"]; [] = no command
+has an effect); "fw <id> [1]" sets weather, and weather_sky {id: brightness} overrides the sky. "shot <png>" writes a
+screenshot whose top 200 rows have the sky's brightness (110 by day, 6..18 h, else 12) and whose lower rows are ground.
+slt_error: the console command SetLocalTime prints "SetLocalTime only works on a planet." and changes nothing (cgf
+still works when listed in time_works); time_lag_shots: after a time change the next N screenshots still show the old
+sky (a slow change); drift_per_open: every console open moves the local time on by that many hours (game time passing
+between console sessions, e.g. during the probes); land_z: a player.setpos z lands at that height at once.
+INI settings (ini, default INI below, made-up values): GetINI "<name:Section>" prints "INISetting <name:Section> >> <v>"
+(%i / %.4f) or ">> NOT FOUND"; SetINI on a known setting prints nothing, on an unknown one 'INI setting "<name:Section>"
+does not exist' (the reply formats in Starfield.exe 1.16.244)."""
 import json
 import math
 import os
+import re
+import struct
 import sys
 import time
+import zlib
 
 P = os.environ["FAKE_STATE"]
 STATIC = "0024A824"
+INI = {"bBorderRegionsEnabled:General": 1, "fPlayableAreaX:General": 3200.0, "uPlayableSpaceOverlayCellBuffer:Planet": 2}
 
 
 def game_time(s):
@@ -92,6 +107,8 @@ def run(s, cmd):
         s["player"] = player_pos(s)
         s["falling"] = None
         s["player"]["xyz".index(w[1])] = float(w[2])
+        if w[1] == "z" and s.get("land_z") is not None:    # the player lands at once on ground at land_z
+            s["player"][2] = float(s["land_z"])
     elif low.startswith("coc "):
         s["cell"], s["player"] = w[1], list(s["arrival"])
         if s.get("fall"):
@@ -157,6 +174,47 @@ def run(s, cmd):
         a["deleted"] = True
     elif low == "getdisabled":
         s["log"].append(f"GetDisabled >> {1 if a and a.get('disabled') else 0}")
+    elif low.startswith(("setlocaltime ", 'cgf "game.setlocaltime" ')):
+        method = "cgf" if low.startswith("cgf") else ("slt_galaxy" if w[-1] == "1" and len(w) == 3 else "slt")
+        if method != "cgf" and s.get("slt_error"):
+            s["log"].append("SetLocalTime only works on a planet.")
+        elif method in s.get("time_works", ["slt"]):
+            old = sky(s)
+            s["local_time"] = float(w[2] if method == "cgf" else w[1])
+            if s.get("time_lag_shots"):
+                s["lag"] = {"left": int(s["time_lag_shots"]), "sky": old}
+    elif low.startswith("fw "):
+        s["weather"] = w[1].upper()
+    elif low.startswith(("getini ", "setini ")):
+        m = re.fullmatch(r'(getini|setini) "([^"]+)"(?: (\S+))?', cmd, re.I)
+        ini = s.setdefault("ini", dict(INI))
+        key = m.group(2) if m else ""
+        if low.startswith("getini"):
+            v = ini.get(key)
+            s["log"].append(f"INISetting {key} >> " + ("NOT FOUND" if v is None else
+                                                      f"{v:.4f}" if isinstance(v, float) else f"{v}"))
+        elif key in ini and m.group(3) is not None:
+            ini[key] = type(ini[key])(float(m.group(3)))
+        else:
+            s["log"].append(f'INI setting "{key}" does not exist')
+
+
+def sky(s):
+    wx = s.get("weather_sky", {}).get(s.get("weather") or "")
+    if wx is not None:
+        return wx
+    return 110 if 6.0 <= s.get("local_time", 22.0) <= 18.0 else 12
+
+
+def write_png(path, value, w=8, h=300):
+    """RGB PNG: the top 200 rows at the sky's brightness, the rest ground (40)."""
+    rows = b"".join(b"\0" + bytes([value if y < 200 else 40] * 3 * w) for y in range(h))
+
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
 
 
 def column(lines):
@@ -181,6 +239,7 @@ def column(lines):
 def quirks(ln):
     """OCR misreadings seen in the runner's console OCR (2026-10-11)."""
     for a, b in (("GetIsID >>", "GetlslD"), ("GetIsID", "GetlsID"), ("GetInFaction", "GetlnFaction"),
+                 ("INISetting", "lNlSetting"), ("GetINI", "GetlNl"), ("Enabled", "EnabIed"),
                  ("ClearConsole", "Clear Console"), ("GetDisabled", "Get Disabled"), ("GetPos: X", "Get Po s: X"),
                  (">>", "> >")):
         ln = ln.replace(a, b)
@@ -205,6 +264,8 @@ def main():
                 s["console"] = not s.get("console")
                 s["clock"] = {"game": now, "since": None if s["console"] else time.time()}
                 if s["console"]:
+                    if s.get("drift_per_open"):            # game time passed since the last console session
+                        s["local_time"] = (s.get("local_time", 22.0) + s["drift_per_open"]) % 24
                     if s.get("crosshair", STATIC):         # opening the console selects what the crosshair is on
                         s["sel"] = s.get("crosshair", STATIC)
                     elif s.get("lose_selection"):
@@ -212,6 +273,13 @@ def main():
                 else:                                      # the game runs again: placed actors become ready
                     for a in s["actors"].values():
                         a.pop("pending", None)
+    elif sys.argv[1] == "shot":
+        lag = s.get("lag") or {}
+        if lag.get("left", 0) > 0:                         # the sky has not followed the new time yet
+            write_png(sys.argv[2], lag["sky"])
+            lag["left"] -= 1
+        else:
+            write_png(sys.argv[2], sky(s))
     elif sys.argv[1] == "screen":
         lines = s["log"][-9:]                              # the console shows about nine lines
         if s.get("layout") == "column":

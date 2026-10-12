@@ -27,18 +27,18 @@ N1 = {"travel": "coc FO4CW_RedRocketSpawn", "a": [-987.43, 1128.23, 105.03], "b"
 MARS = {"anchor_id": "02000800", "anchor_pos": [2010.97, -2352.8, 85.14], "arrival": [2010.97, -2352.8, 85.14]}
 
 
-@unittest.skipUnless(ENABLED, "opt-in: FO4SF_QSTEP_SANDBOX=1 on Windows")
-class QstepNpcSandboxTests(unittest.TestCase):
-    def run_step(self, plan=None, world=None):
+class SandboxStep:
+    """Runs the copied qstep.ps1 against the simulated game (mixed into the opt-in test classes below)."""
+    def run_step(self, plan=None, world=None, test=None, code=0):
         d = tempfile.mkdtemp(prefix="qstep_npc_")
         step_dir = os.path.join(d, "game")
         shutil.copytree(SANDBOX, step_dir)
-        for f in ("qstep.ps1", "parse_npc.py", "parse_getpos.py"):
+        for f in ("qstep.ps1", "parse_npc.py", "parse_getpos.py", "sky_light.py"):
             shutil.copy(os.path.join(GAME, f), step_dir)
         state = os.path.join(d, "state.json")
         with open(state, "w") as f:
             json.dump(dict(WORLD, **(world or {})), f)
-        t = tq.npc_test(0, dict(N0, **(plan or {})))
+        t = test or tq.npc_test(0, dict(N0, **(plan or {})))
         spec, out = os.path.join(d, "spec.json"), os.path.join(d, "out")
         with open(spec, "w") as f:
             json.dump(t, f)
@@ -46,7 +46,11 @@ class QstepNpcSandboxTests(unittest.TestCase):
         r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                             os.path.join(step_dir, "qstep.ps1"), "-Spec", spec, "-Out", out],
                            capture_output=True, text=True, env=env, timeout=600)
-        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(r.returncode, code, r.stdout + r.stderr)
+        if code:                                              # a refused spec: what (if anything) reached the console
+            with open(state) as f:
+                self.typed = json.load(f).get("typed", [])
+            return r.stdout, None, None
         with open(os.path.join(out, "obs.json"), encoding="utf-8-sig") as f:
             obs = json.load(f)
         with open(state) as f:
@@ -64,6 +68,9 @@ class QstepNpcSandboxTests(unittest.TestCase):
             self.assertEqual(left, [], obs.get("cleanup"))
         return obs
 
+
+@unittest.skipUnless(ENABLED, "opt-in: FO4SF_QSTEP_SANDBOX=1 on Windows")
+class QstepNpcSandboxTests(SandboxStep, unittest.TestCase):
     def test_walk_is_a_pass_and_the_actor_is_removed(self):
         obs = self.check(("PASS", "PASS"))
         self.assertEqual(obs["cleanup"]["via"], "prid")       # by PickLastRef's id
@@ -168,6 +175,166 @@ class QstepNpcSandboxTests(unittest.TestCase):
         obs = self.check(("PASS", "PASS"), plan={"method": "none", "control": False})
         self.assertEqual(obs["command"], "")
         self.assertFalse([c for c in self.typed if c.lower().startswith(("pathtoref", "cf ", "setplayerteammate"))])
+
+
+@unittest.skipUnless(ENABLED, "opt-in: FO4SF_QSTEP_SANDBOX=1 on Windows")
+class QstepLightSandboxTests(SandboxStep, unittest.TestCase):
+    """Time of day / weather (sky_light.py) in the real step: the simulated game arrives at night (local time 22, sky
+    12) and its screenshots carry the simulated sky's brightness in their top rows."""
+    def test_setlocaltime_makes_daylight_before_the_spawn(self):
+        obs = self.check(("PASS", "PASS"), plan={"time_of_day": 12})
+        light = obs["light"]
+        self.assertEqual(light["before"], {"shot": "arrival.png", "sky": 12.0})
+        self.assertEqual([(x["cmd"], x["sky"], x["done"]) for x in light["tries"]], [("SetLocalTime 12", 110.0, True)])
+        at = self.typed.index("SetLocalTime 12")
+        self.assertLess(self.typed.index("coc QASmoke"), at)
+        self.assertLess(at, self.typed.index("player.placeatme 0000CF96 1"))
+
+    def test_the_ladder_goes_on_until_the_sky_reads_as_asked(self):
+        v, obs, _ = self.run_step(plan={"time_of_day": 12}, world={"time_works": ["cgf"]})
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        self.assertEqual([(x["method"], x["done"]) for x in obs["light"]["tries"]],
+                         [("slt", False), ("slt_galaxy", False), ("cgf", True)])
+        self.assertIn('cgf "Game.SetLocalTime" 12', self.typed)        # typed with its quotes
+        self.assertIn("SetLocalTime 12 1", self.typed)
+        self.assertIn("after SetLocalTime 12; SetLocalTime 12 1; cgf", v[2])
+
+    def test_no_effect_is_marked_night(self):
+        v, obs, _ = self.run_step(plan={"time_of_day": 12, "need_daylight": True}, world={"time_works": []})
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "NIGHT"), v[2])
+        self.assertIn("sky 12.0 -> 12.0", v[2])
+        self.assertIn("no effect: night", v[2])
+        self.assertEqual(len(obs["light"]["tries"]), 3)
+
+    def test_weather_first_then_the_time(self):
+        v, obs, _ = self.run_step(plan={"weather": "0000015e", "weather_lock": True, "time_of_day": 9.5,
+                                        "time_methods": ["slt"]}, world={"weather_sky": {"0000015E": 70}})
+        self.assertEqual([x["cmd"] for x in obs["light"]["tries"]], ["fw 0000015E 1", "SetLocalTime 9.5"])
+        self.assertLess(self.typed.index("fw 0000015E 1"), self.typed.index("SetLocalTime 9.5"))
+        self.assertEqual(obs["light"]["tries"][0]["sky"], 70.0)
+        self.assertIn("; daylight", v[2])
+
+    def test_terrain_sets_the_time_after_the_arrival_before_the_probes(self):
+        t = tq.with_light({"id": "0000_terrain_QASmoke", "kind": "terrain", "cell": "", "ref": "QASmoke", "model": "",
+                           "world_coc": "QASmoke", "travel": "", "drop_z": 5.0, "settle_ms": 1,
+                           "points": [{"label": "p0", "x": 1.0, "y": 1.0, "expect": 5.0}], "beyond": {"x": 3.0, "y": 1.0}},
+                          {"time_of_day": 12, "need_daylight": True}, {})
+        v, obs, _ = self.run_step(test=t)
+        self.assertEqual(obs["light"]["before"]["shot"], "spawn.png")
+        self.assertEqual(obs["light"]["tries"][0]["sky"], 110.0)
+        at = self.typed.index("SetLocalTime 12")
+        self.assertLess(self.typed.index("coc QASmoke"), at)
+        self.assertLess(at, min(k for k, c in enumerate(self.typed) if c.startswith("player.setpos")))
+        self.assertEqual(v[0], "PASS", v[2])                  # the simulated player stays at the drop height 5 = expect
+        self.assertIn("[light: local hour 12: sky 12.0 -> 110.0 after SetLocalTime 12; daylight after SetLocalTime 12; "
+                      "probes: 1 measured, corner median 110.0 -> daylight => daylight]", v[2])
+        self.assertEqual((obs["points"][0]["corners"], obs["points"][0]["repin"]), (110.0, True))
+
+    def terrain(self, n=3, **light):
+        pts = [{"label": f"p{k}", "x": 1.0 + k, "y": 1.0, "expect": 5.0} for k in range(n)]
+        return tq.with_light({"id": "0000_terrain_QASmoke", "kind": "terrain", "cell": "", "ref": "QASmoke",
+                              "model": "", "world_coc": "QASmoke", "travel": "", "drop_z": 8.0, "settle_ms": 1,
+                              "points": pts, "beyond": {"x": 9.0, "y": 1.0}}, dict({"time_of_day": 12}, **light), {})
+
+    def test_an_arrival_already_in_daylight_does_not_test_the_commands(self):
+        # every staged exp2t plan of the first version of this branch arrived where the sky already read daylight
+        v, obs, _ = self.run_step(test=self.terrain(n=1), world={"local_time": 12.0, "land_z": 5.0})
+        self.assertEqual(v[0], "PASS", v[2])
+        self.assertEqual(obs["light"]["before"]["sky"], 110.0)
+        self.assertEqual([x["cmd"] for x in obs["light"]["tries"]], ["SetLocalTime 12"])
+        self.assertIn("sky 110.0 -> 110.0 after SetLocalTime 12; already daylight at the arrival: the time commands "
+                      "were not tested", v[2])
+        self.assertEqual(tq.light_of(self.terrain(n=1), obs)["tested"], False)
+
+    def test_a_refused_command_is_read_from_the_console(self):
+        v, obs, _ = self.run_step(test=self.terrain(n=1), world={"slt_error": True, "time_works": ["cgf"],
+                                                                 "land_z": 5.0})
+        self.assertEqual(v[0], "PASS", v[2])
+        tries = obs["light"]["tries"]
+        self.assertEqual([(x["method"], x["done"]) for x in tries], [("slt", False), ("slt_galaxy", False),
+                                                                     ("cgf", True)])
+        self.assertIn("SetLocalTime only works on a planet.", tries[0]["ocr"])
+        self.assertTrue(all(x["console"] for x in tries))
+        self.assertIn("(console: SetLocalTime 12: SetLocalTime only works on a planet; SetLocalTime 12 1: SetLocalTime "
+                      "only works on a planet)", v[2])
+        self.assertIn('daylight after cgf "Game.SetLocalTime" 12', v[2])
+        self.assertEqual(obs["light"]["repin"], 'cgf "Game.SetLocalTime" 12')   # cgf is what is typed again
+        self.assertEqual(self.typed.count('cgf "Game.SetLocalTime" 12'), 2)    # the ladder and the one probe
+
+    def test_a_slow_sky_is_credited_to_the_command_that_changed_it(self):
+        v, obs, _ = self.run_step(test=self.terrain(n=1), world={"time_lag_shots": 1, "land_z": 5.0})
+        self.assertEqual(v[0], "PASS", v[2])
+        (x,) = obs["light"]["tries"]                                            # the ladder stopped at slt
+        self.assertEqual((x["sky"], x["sky_late"], x["done"]), (12.0, 110.0, True))
+        self.assertNotIn("SetLocalTime 12 1", self.typed)
+        self.assertIn("daylight after SetLocalTime 12 (on its second shot)", v[2])
+
+    def test_the_time_is_set_again_before_every_probe(self):
+        # game time runs between console sessions (drift_per_open 3 h): without the repin the third probe is at night
+        v, obs, _ = self.run_step(test=self.terrain(), world={"drift_per_open": 3.0, "land_z": 5.0})
+        self.assertEqual(v[0], "PASS", v[2])
+        self.assertEqual([p["corners"] for p in obs["points"]], [110.0, 110.0, 110.0])
+        sets = [k for k, c in enumerate(self.typed) if c.startswith("player.setpos x")]
+        for k in sets[:3]:                                                      # the probes; not the beyond drop
+            self.assertEqual(self.typed[k - 1], "SetLocalTime 12")
+        v, obs, _ = self.run_step(test=self.terrain(time_repin=False), world={"drift_per_open": 3.0, "land_z": 5.0})
+        self.assertEqual([p["corners"] for p in obs["points"]], [110.0, 110.0, 12.0])
+        self.assertEqual(self.typed.count("SetLocalTime 12"), 1)
+        self.assertIn("night at p2", v[2])
+        self.assertIn("=> daylight", v[2])                                      # the median: two of three
+
+
+BORDER = ['GetINI "bBorderRegionsEnabled:General"', 'GetINI "fPlayableAreaX:General"',
+          'GetINI "uPlayableSpaceOverlayCellBuffer:Planet"', 'SetINI "bBorderRegionsEnabled:General" 0',
+          'GetINI "bBorderRegionsEnabled:General"']
+
+
+@unittest.skipUnless(ENABLED, "opt-in: FO4SF_QSTEP_SANDBOX=1 on Windows")
+class QstepConsoleSandboxTests(SandboxStep, unittest.TestCase):
+    """console_pre / console_post (console_plan.py) in the real step, against the simulated INI settings; its OCR reads
+    l for I ("GetlNl", "lNlSetting", "EnabIed") and "> >" for ">>"."""
+    def terrain(self, **extra):
+        return tq.with_extras({"id": "0000_terrain_QASmoke", "kind": "terrain", "cell": "", "ref": "QASmoke",
+                               "model": "", "world_coc": "QASmoke", "travel": "", "drop_z": 5.0, "settle_ms": 1,
+                               "points": [{"label": "p0", "x": 1.0, "y": 1.0, "expect": 5.0}],
+                               "beyond": {"x": 3.0, "y": 1.0}}, extra, {})
+
+    def test_border_commands_before_the_travel_and_a_read_after_the_arrival(self):
+        t = self.terrain(console_pre=BORDER, console_post=['GetINI "bBorderRegionsEnabled:General"'], time_of_day=12)
+        v, obs, _ = self.run_step(test=t)
+        coc = self.typed.index("coc QASmoke")
+        self.assertEqual(self.typed[:coc], BORDER)                    # after the save, before the travel, in order
+        post = self.typed.index('GetINI "bBorderRegionsEnabled:General"', coc)
+        self.assertLess(self.typed.index("SetLocalTime 12"), post)
+        self.assertLess(post, min(k for k, c in enumerate(self.typed) if c.startswith("player.setpos")))
+        self.assertEqual([(c["phase"], c["cmd"]) for c in obs["console"]],
+                         [("pre", c) for c in BORDER] + [("post", 'GetINI "bBorderRegionsEnabled:General"')])
+        self.assertTrue(all(c["shot"] for c in obs["console"]))
+        self.assertEqual(v[0], "PASS", v[2])
+        self.assertIn("[console pre: GetINI bBorderRegionsEnabled:General = 1; GetINI fPlayableAreaX:General = "
+                      "3200.0000; GetINI uPlayableSpaceOverlayCellBuffer:Planet = 2; SetINI "
+                      "bBorderRegionsEnabled:General 0 (no reply); GetINI bBorderRegionsEnabled:General = 0] "
+                      "[console post: GetINI bBorderRegionsEnabled:General = 0]", v[2])
+
+    def test_npc_nav_types_its_console_commands_too(self):
+        v, obs, _ = self.run_step(plan={"console_pre": ['GetINI "bNoSuch:General"', 'SetINI "bNoSuch:General" 1'],
+                                        "console_post": ['GetINI "fPlayableAreaX:General"']})
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        coc = self.typed.index("coc QASmoke")
+        self.assertEqual(self.typed[:coc], ['GetINI "bNoSuch:General"', 'SetINI "bNoSuch:General" 1'])
+        self.assertLess(self.typed.index('GetINI "fPlayableAreaX:General"'),
+                        self.typed.index("player.placeatme 0000CF96 1"))
+        self.assertIn("[console pre: GetINI bNoSuch:General (not found: INISetting >> NOT FOUND); SetINI bNoSuch:General "
+                      '1 (error: INI setting "bNoSuch:General" does not exist)]', v[2])
+
+    def test_a_command_off_the_whitelist_types_nothing(self):
+        for bad in (["qqq"], ["player.additem 0000000F 100"], ['GetINI "bBorderRegionsEnabled:General"', "tgm"],
+                    ['SetINI "bBorderRegionsEnabled:General" 0|key:enter|type:tgm']):
+            out, _, _ = self.run_step(test=dict(self.terrain(), console_pre=bad), code=4)
+            self.assertIn("bad console_pre", out)
+            self.assertEqual(self.typed, [], bad)
+        out, _, _ = self.run_step(test=dict(self.terrain(), console_post=["coc Elsewhere"]), code=4)
+        self.assertEqual(self.typed, [])
 
 
 if __name__ == "__main__":
