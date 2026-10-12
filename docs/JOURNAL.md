@@ -703,3 +703,18 @@ twin step is untested in game until the next library run.
 - So the popup comes from a **single teleport more than ~4 cells from the current position**, not from a fixed window around the arrival. The 6.4 km overlay streams in as the player moves.
 - exp3's neighbouring-overlay probes were single 500-700 m jumps too, so the seam question is open again and needs a hop run.
 - The other five core64b rays are pending: its STOP is removed, and it needs to go back into `chain_queue.txt`. terrain_core64e (PR #74, one pebble per cell) now only asks whether content changes the single-jump limit, which is low priority.
+
+## 2026-10-12 early morning: navmesh plugin terrain check passes; the vanilla NPC control is not a control yet
+- **exp2d PASS** (Red Rocket terrain + objects + the converted navmesh plugin, PR #71): the ground under all four N1 NPC points (A, B, and A2/B2 across a cell line) reads the expected height within 0.01 m, 5 of 5. The navmesh plugin does not disturb the terrain.
+- **N0, the vanilla NPC control in QASmoke** (actor 002B211C, levelled 0000CF96; A (-8, -4) to B (5, 10), 20 m):
+  - 2 PASS, 3 FAIL, but **no test shows a commanded walk**. Every actor, with or without a command, stayed in the same patch (x -11..0, y -6..2) and never came within 10.8 m of B.
+  - Baseline (no command): wandered 5.4 m towards B, FAIL WANDER.
+  - `PathToRef player`: 6.8 m and 9.0 m towards B, counted as PASS, but that is within the wander.
+  - `cf "Actor.PathToReference" player 1.0`: the console replied "No script named Actor is attached to the object".
+  - `SetPlayerTeammate 1` + `EvaluatePackage`: the actor stood still for 30 s.
+  - The robot visible next to the camera in the sample shots is also there in the no-command baseline. It is most likely the save's companion, not the test actor.
+- **Next for the NPC tests:**
+  - B must be reachable on navmesh from A (supported hypothesis: it is not in QASmoke, or the package overrides PathToRef).
+  - The judge must require arrival (end within a few metres of B) or progress beyond the baseline's wander.
+  - Add `StartCombat player` (a script command in Starfield.exe: "Forces the currently selected reference to initiate combat with the provided actor") as a control method.
+  - The N1 queues still run (moving at all on our terrain with and without navmesh is useful), but their "towards B" verdicts carry the same caveat.
