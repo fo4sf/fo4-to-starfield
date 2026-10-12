@@ -198,7 +198,13 @@ switch ($kind) {
     foreach ($p in $t.points) {
       Teleport @(([double]$p.x + $ox), ([double]$p.y + $oy), $dropz) 0 15
       Start-Sleep -Milliseconds $settle               # a fall from 80 m takes about 4 s on Earth gravity
-      $pts += [ordered]@{ label = $p.label; read = (Read-Pos); shot = (Shot "pt$k.png") }
+      $rd = Read-Pos
+      # still hanging at the drop height: the cells around a far point were not loaded yet (exp3 2026-10-11 read 170.00
+      # at points ~700 m from the arrival); wait and read again, twice at most
+      for ($w = 0; $w -lt 2 -and "$rd" -match '^\s*\S+\s+\S+\s+(-?\d+(\.\d+)?)\s*$' -and [Math]::Abs([double]$Matches[1] - $dropz) -lt 0.05; $w++) {
+        Start-Sleep -Milliseconds 8000; $rd = Read-Pos
+      }
+      $pts += [ordered]@{ label = $p.label; read = $rd; shot = (Shot "pt$k.png") }
       $obs['points'] = $pts; Save-Obs                 # after every point: a cut-off keeps the heights already read
       $k++
     }
@@ -443,6 +449,9 @@ switch ($kind) {
     $n = 0
     while (-not (Hud-Up) -and $n -lt 3) { Send 'key:esc|wait:2000'; $n++ }
     $obs['escapes'] = $n
+    # Starfield's "Boundary Reached" popup closes with Tab (its Cancel), not Escape (exp3 2026-10-11)
+    if (-not (Hud-Up)) { Send 'key:tab|wait:2000'; $obs['tab'] = $true
+                         if (-not (Hud-Up)) { Send 'key:esc|wait:2000' } }
     $obs['hud_after'] = Hud-Up
     $obs['shot'] = Shot 'recover.png'
   }

@@ -124,6 +124,11 @@ class FakeControls:
     def refocus_game(self):
         return True
 
+    def close_game(self):
+        self.closed = getattr(self, "closed", 0) + 1
+        self.pid = None
+        return True
+
 
 def make_queue(d, n=3, kind="fall"):
     tests = [{"id": f"{k:04d}_{kind}", "kind": kind, "cell": "C", "ref": f"pt{k}", "model": "m.nif",
@@ -603,3 +608,53 @@ class StoredArchiveTests(unittest.TestCase):
         src = readf(os.path.join(ROOT, "scripts", "game", "exp_install.py"), encoding="utf-8")
         self.assertIn('"-compression=None"', src)
         self.assertNotIn('"-compression=Default"', src)
+
+
+class FreshTests(RunnerTests):
+    def test_fresh_tests_relaunch_after_the_first(self):
+        q = json.load(open(os.path.join(self.d, "queue.json")))
+        for t in q["tests"]:
+            t["fresh"] = True
+        json.dump(q, open(os.path.join(self.d, "queue.json"), "w"))
+        launches = []
+        r = self.runner(self.landing(0.1))
+
+        def ps(script, *a, **k):
+            launches.append(script)
+            self.ctl.pid = 42                             # cycle.ps1 started the game again
+            return (0, "ok")
+        r._ps = ps
+        r.setup_session = lambda cell: setattr(r, "session", True)
+        r.pinned_ok = lambda: True
+        r.run()
+        self.assertEqual(getattr(self.ctl, "closed", 0), 2)       # before tests 2 and 3
+        self.assertEqual(launches.count("cycle.ps1"), 2)
+
+
+class FreshBudgetTests(RunnerTests):
+    def test_fresh_relaunches_do_not_use_up_the_crash_budget(self):
+        # 2026-10-11 exp2c: three intended relaunches hit --max-relaunch 3 and the fourth test never ran
+        make_queue(self.d, n=5)
+        q = json.load(open(os.path.join(self.d, "queue.json")))
+        for t in q["tests"]:
+            t["fresh"] = True
+        json.dump(q, open(os.path.join(self.d, "queue.json"), "w"))
+        r = self.runner(self.landing(0.1), max_relaunch=1)
+
+        def ps(script, *a, **k):
+            self.ctl.pid = 42
+            return (0, "ok")
+        r._ps = ps
+        r.setup_session = lambda cell: setattr(r, "session", True)
+        r.pinned_ok = lambda: True
+        self.assertEqual(r.run(), 0)
+        st = json.load(open(os.path.join(self.d, "state.json")))
+        self.assertEqual(len(st["done"]), 5)
+        self.assertEqual(st["fresh_launches"], 4)
+
+
+class Exp3RecoveryTests(unittest.TestCase):
+    def test_hang_reread_and_tab_recovery_present(self):
+        src = open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8").read()
+        self.assertIn("[Math]::Abs([double]$Matches[1] - $dropz) -lt 0.05", src)
+        self.assertIn("Send 'key:tab|wait:2000'", src)

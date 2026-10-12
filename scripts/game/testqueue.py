@@ -263,7 +263,7 @@ def plan_terrain(a):
          "commit": subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
          "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]],
          "launch_cell": a.launch_cell, "experiment": os.path.abspath(a.exp_dir),
-         "tests": tests[:a.only] if a.only else tests}
+         "tests": [dict(t, fresh=True) if a.fresh else t for t in (tests[:a.only] if a.only else tests)]}
     if a.plugins:                                         # installed by the runner right before it launches the game
         q["pre_launch"] = [sys.executable, os.path.join(HERE, "exp_install.py"), "install", "--exp-dir",
                            os.path.abspath(a.exp_dir), "--starfield", a.starfield, "--plugins", a.plugins, "--pack"]
@@ -739,6 +739,18 @@ class Controls:
         except (OSError, ValueError):
             return None
 
+    def close_game(self):
+        """Close the runner's OWN game (cycle.ps1's pid) so the next test starts from a fresh launch."""
+        gp = self.game_pid()
+        if not gp or gp != self.owned_pid():
+            return False
+        subprocess.run(PS[:-1] + ["-Command", f"$g = Get-Process -Id {gp} -ErrorAction SilentlyContinue; if ($g) {{ "
+                                  "$g.CloseMainWindow() | Out-Null; Start-Sleep 10; $g.Refresh(); "
+                                  f"if (-not $g.HasExited) {{ Stop-Process -Id {gp} -Force -Confirm:$false }} }}"],
+                       capture_output=True)
+        time.sleep(5)
+        return True
+
     @staticmethod
     def refocus_game():
         """Bring the runner's own game window to the front (only used after --min-idle of owner inactivity)."""
@@ -853,7 +865,9 @@ class Runner:
         launch = cell or self.q.get("launch_cell") or "Vault111Cryo"
         cell_json = os.path.join(self.q["staging"], launch + ".json")
         if not gp:
-            if self.state["relaunches"] >= self.a.max_relaunch:
+            fresh = getattr(self, "fresh_launch", False)
+            self.fresh_launch = False
+            if not fresh and self.state["relaunches"] >= self.a.max_relaunch:
                 self.log(f"game not running and {self.state['relaunches']} relaunches used: stopping")
                 return "stop"
             why = blocked_reason(self.ctl, self.q, launching=True, min_idle=self.a.min_idle)
@@ -868,7 +882,10 @@ class Runner:
                 self.log(f"pre-launch exit {r.returncode}: {(r.stdout + r.stderr).strip()[-200:]}")
                 if r.returncode != 0:
                     return "stop"
-            self.state["relaunches"] += 1
+            if fresh:
+                self.state["fresh_launches"] = self.state.get("fresh_launches", 0) + 1
+            else:
+                self.state["relaunches"] += 1              # crash or first launch: bounded by --max-relaunch
             self.checkpoint()
             self.log(f"launching the pinned build {self.q['build_id']} into {launch}")
             code, out = self._ps("cycle.ps1", ["-Staging", self.q["staging"], "-Starfield", self.a.starfield,
@@ -1002,6 +1019,13 @@ class Runner:
                 self.log(f"dry run: would run {t['id']}")
                 ran += 1
                 continue
+            if t.get("fresh") and getattr(self, "game_used", False) and self.ctl.game_pid():
+                # every arrival after the first in an already merged planet world was erratic (2026-10-11 terrain
+                # retries fell through): a "fresh" test starts from a new launch
+                self.log("fresh test: closing the runner's game for a new launch")
+                self.ctl.close_game()
+                self.session, self.cell, self.game_used = False, None, False
+                self.fresh_launch = True                  # an intended relaunch: not counted against --max-relaunch
             g = self.ensure_game(t["cell"])
             if g in ("stop",) or (g and g.startswith(("owner", "STOP", "Resource", "outside"))):
                 if g != "stop" and self.wait_or_stop(g):
@@ -1034,6 +1058,7 @@ class Runner:
             else:
                 pid_before = self.ctl.game_pid()
                 code = self.step(t, out_dir)
+                self.game_used = True
                 if code == 2:                             # the owner took the foreground mid-step: not an attempt
                     self.state["attempts"][t["id"]] = n - 1
                     self.cell = None
@@ -1188,6 +1213,7 @@ def main(argv=None):
     pt.add_argument("--starfield", default=r"D:\SteamLibrary\steamapps\common\Starfield")
     pt.add_argument("--plugins", default="", help="experiment plugins to activate before launch (exp_install.py)")
     pt.add_argument("--only", type=int, default=0, help="keep the first N worlds")
+    pt.add_argument("--fresh", action="store_true", help="relaunch the game before every test (clean arrivals)")
     pn = sub.add_parser("plan-npc", help="NPC navigation tests (npc_nav) from <exp-dir>\\plan.json")
     pn.add_argument("--staging", required=True)
     pn.add_argument("--exp-dir", required=True, help="folder with plan.json")
