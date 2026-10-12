@@ -8,7 +8,7 @@ Walk Red Rocket-Sanctuary and its bridge/cell borders both ways; prove terrain r
 
 ## Owners / locks
 
-- Claude: collision/Havok, convert_static.py, pipeline.py, convert_batch.py, PluginSpike, terrain/actors, game scripts/staging/live control. No concurrent edits or game input from others.
+- Claude: collision/Havok, convert_static.py, pipeline.py, convert_batch.py, PluginSpike, terrain/actors, game scripts/staging/live control. No concurrent edits or other game input.
 - Codex: deployment/recovery, identities/checkpoints/cache/output QA, Fo4Export/ReferenceLinks, animation/door bridge modules and tests, this status/archive. Shared sfnif.py changes need an exact scope claim. Codex owns exp_install.py compatibility with #78; Claude retains cycle/qstep and all live tests.
 - Grok: acceptance oracle, route_eval.judge, terrain_evidence.py/tests. #69 still needs capture-provenance QA correction; identical XYZ may be independent stationary captures. No other game/control files without a new claim.
 
@@ -16,9 +16,9 @@ Walk Red Rocket-Sanctuary and its bridge/cell borders both ways; prove terrain r
 
 Claude reports core64b NW short hops through Sanctuary/Vault111 to2km with matching terrain heights (#32, 6118693845). Earlier large-jump Boundary/seam conclusions need hop reruns; full continuous traversal and all directions remain open. Red Rocket objects/ground align in exp2c/exp2d. N1c NPC moved with156 converted NAVM records; N0/commanded arrival and cross-cell navigation remain unproven (#32, 6121240178).
 
-Claude's supervised_1011:10 PASS/5 FAIL/2 inconclusive. Open: multi-part shutter motion, load-door activation, Vault114 cinder-block step and movable item. #78 cave entry/return is staged, not runtime-accepted. #79 multi-part rigs/clips/body fix is offline; native playback/moving-body linkage needs in-game proof. Older eight-interior reports are not complete acceptance. Do not combine different builds into one result.
+Claude's supervised_1011:10 PASS/5 FAIL/2 inconclusive. Open: multi-part shutter motion, load-door activation, Vault114 cinder-block step and movable item. #78 cave entry/return is staged, not runtime-accepted. #79 multi-part rigs/clips/body fix is offline; native playback/moving-body linkage needs in-game proof. Eight-interior acceptance is incomplete; never combine builds.
 
-Codex #34/#35 merged: degraded checkpoints retry; archive sources use streamed SHA (immutable during conversion). #83 carries reviewed #62 recovery/BA2 verification onto #78's --needs/order/plugin-only packing. Selected plugins/active masters/cycles are checked; install/order/uninstall refuse interrupted main recovery. 14 compatibility tests, 882 full Windows tests (38 skips), guard and independent QA pass. Hosted CI inherits #66's path error; needs Claude integration/runtime acceptance. #84 tracks inherited final replace/unlink race gaps; single deployment controller assumed. No live install changed.
+Codex #34/#35 merged: degraded checkpoints retry; archive sources use streamed SHA (immutable during conversion). #83 carries reviewed #62 recovery/BA2 verification onto #78's --needs/order/plugin-only packing. Selected plugins/active masters/cycles are checked; install/order/uninstall refuse interrupted main recovery. 14 focused/882 full tests (38 skips), guard and independent QA pass. Hosted CI inherits #66's path error; needs Claude integration/runtime acceptance. #84 tracks inherited final replace/unlink race gaps; single deployment controller assumed. No live install changed.
 
 Codex #80 tracks generated skeleton/Open/Close.af/.afx despite omitted files lists/rig tags (7 focused/808 full;28 skips). #81 preserves small authored bind rotations (5 focused/813 full;28 skips + pose-matrix checks). Both independently reviewed; hosted CI blocked by #66's existing Linux game-path lookup. Four-lookup patch prepared for Claude; terrain file untouched. Native playback/collision still need in-game proof.
 
