@@ -325,6 +325,10 @@ def npc_test(n, w):
          "target_tol": _num(w, "target_tol", 3.0, 0.5, 20), "fell_m": _num(w, "fell_m", 3.0, 0.5, 100),
          "drop": _num(w, "drop", 0.5, 0, 200), "settle_ms": int(_num(w, "settle_ms", 1500, 0, 30000)),
          "pre_wait_ms": int(_num(w, "pre_wait_ms", 5000, 0, 60000)), "max_speed": _num(w, "max_speed", 8.0, 1, 50),
+         # the console closed this long after placeatme before the handle is read (the game runs: N0_base 2026-10-11
+         # read PickLastRef with the console still open and the selection stayed on a static), and how close to the
+         # player at A the ref PickLastRef names must stand (placeatme puts it at the player's feet)
+         "spawn_wait_ms": int(_num(w, "spawn_wait_ms", 2000, 0, 30000)), "handle_tol": _num(w, "handle_tol", 2.0, 0.5, 10),
          "path_line": bool(w.get("path_line", False)), "control": bool(w.get("control", False)),
          "baseline": method == "none"}
     if w.get("fresh"):
@@ -524,9 +528,11 @@ def judge(test, obs, out_dir):
 
 def judge_npc(test, obs, shot_ok):
     """npc_nav (PR #61 3.4). The actor spawns at A, the player (the walk target) stands at B. Positions are in the
-    worldspace's own frame plus the measured offset (anchor or spawn), like terrain points. Only reads whose console
-    selection the game confirmed (GetIsID 1 in the same console session) and that have a screenshot count.
-    A baseline (method none, no command) is judged the other way round: PASS when the actor did NOT come to B."""
+    worldspace's own frame plus the measured offset (anchor or spawn), like terrain points. The spawn counts only when
+    qstep.ps1 confirmed the handle (PickLastRef's id, GetSelf naming no other ref, GetIsID 1, at the player at A); only
+    reads whose selection the game confirmed (prid <id>, GetIsID 1 in the same console session) and that have a
+    screenshot count. A baseline (method none, no command) is judged the other way round: PASS when the actor did NOT
+    come to B."""
     if (test.get("anchor") or test.get("spawn_local")) and not obs.get("offset"):
         why = obs.get("offset_missing") or "anchor / arrival read failed"
         return "INCONCLUSIVE", "ANCHOR", f"frame offset not measured ({why}): nothing spawned"
@@ -534,8 +540,10 @@ def judge_npc(test, obs, shot_ok):
     A = [test["a"][k] + off[k] for k in range(3)]
     B = [test["b"][k] + off[k] for k in range(3)]
     sp = obs.get("spawn") or {}
-    if sp.get("isid") != 1:
-        return "INCONCLUSIVE", "SPAWN", f"spawned actor not confirmed (GetIsID {sp.get('isid')}, OCR {str(sp.get('ocr'))[:80]!r})"
+    if sp.get("isid") != 1 or sp.get("confirmed") is False:
+        why = sp.get("why") or f"GetIsID {sp.get('isid')}"
+        return "INCONCLUSIVE", "SPAWN", (f"spawned actor not confirmed ({why}; PickLastRef {sp.get('ref')}, GetSelf "
+                                         f"{sp.get('self')}, OCR {str(sp.get('ocr'))[:80]!r})")
     ps = parse3(sp.get("read"))
     p0 = parse3((obs.get("t0") or {}).get("read")) or ps
     if p0 is None:
@@ -787,12 +795,13 @@ def blocked_reason(ctl, q, launching=False, min_idle=900):
 # npc_nav step costs, worst case (typing about 0.24 s a character, +0.08 s shifted, a PowerShell start per Send)
 NPC_SESSION_S = 45      # one console session: open, ClearConsole + ~60 characters, waits, OCR at up to 4 thresholds
 NPC_READ_S = 75         # Read-Pos: up to 3 readpos.ps1 runs
-NPC_REMOVE_S = 300      # kept for the removal (qstep.ps1 $reserve): Select-Npc, removal by id, disable, markfordelete
+NPC_REMOVE_S = 300      # kept for the removal (qstep.ps1 $reserve): Select-Npc (2), PickLastRef again (3), disable (1)
 
 
 def step_timeout(test):
     """Seconds one qstep.ps1 may take before the runner kills it. Every confirmed npc_nav read is one console session
-    (ClearConsole, GetIsID, getpos x/y/z, OCR), up to three when the selection has to be found again (Select-Npc)."""
+    (ClearConsole, prid <id>, GetIsID, getpos x/y/z, OCR), two when the first is not read (Select-Npc). The spawn is
+    four sessions (placeatme; plr; prid + GetSelf; GetIsID + getpos) around spawn_wait_ms of game time."""
     if test.get("kind") == "terrain":
         # a terrain drop takes about a minute per point (teleport, fall, OCR read): 300 s cut experiment 1 off
         return 150 + 90 * (len(test.get("points", [])) + 1)
@@ -803,9 +812,10 @@ def step_timeout(test):
         fixed = (120                                      # coc, the HUD back (up to 90 s), 3 s
                  + 5 * NPC_READ_S + 12 + NPC_READ_S        # the arrival until it settles (5 reads), the anchor
                  + 2 * (30 + test.get("settle_ms", 0) / 1000 + NPC_READ_S)   # the player to A and to B
-                 + pre + 2 * NPC_SESSION_S                 # probes, the spawn and its position
-                 + 4 * NPC_SESSION_S + NPC_REMOVE_S)       # t = 0 (Select-Npc) and the command; the removal
-        return int(fixed + n * (3 * NPC_SESSION_S + 10) + max(reads))
+                 + pre + 4 * NPC_SESSION_S + 10            # probes, the spawn: placeatme, plr, GetSelf, GetIsID + getpos
+                 + test.get("spawn_wait_ms", 2000) / 1000
+                 + 3 * NPC_SESSION_S + NPC_REMOVE_S)       # t = 0 (Select-Npc) and the command; the removal
+        return int(fixed + n * (2 * NPC_SESSION_S + 10) + max(reads))
     return 300
 
 

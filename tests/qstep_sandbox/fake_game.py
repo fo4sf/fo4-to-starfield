@@ -1,14 +1,26 @@
 """SANDBOX ONLY: a simulated Starfield console for tests/test_qstep_sandbox.py. No game, no keys, no windows.
 State lives in the JSON file named by $FAKE_STATE.
 usage: fake_game.py type <input.ps1 sequence, or - for $FAKE_SEQ> | screen | readpos [ref]
-Scenario knobs in the state: speed (m/s, 0 = the actor never moves), isid_ok (GetIsID answers 1 for the right base),
-self_fmt (hex | paren | none), lose_selection (every console open clears the selection), spawn_fails, clear_fails
-(ClearConsole leaves the log), accepts (the one walk command that works), anchor_id / anchor_pos, arrival,
-fall ({"height", "speed"}: after coc the player falls from arrival z + height at speed m/s until the arrival z),
-layout ("inline" | "column": how the OCR lists the screen, modelled on real console OCR of 2026-10-11: labels first,
-then values; echo arguments drift into the value column, a lone "y" is lost).
-"typed" keeps every command the console received (ClearConsole does not clear it); "clock" is the game time, which
-runs only while the console is closed."""
+
+The defaults model what the runner saw in game (N0_base in QASmoke, 2026-10-11):
+  - ClearConsole does not clear the console: its echo goes below the older lines (clear_fails, default true);
+  - opening the console selects the ref under the crosshair, the floor static 0024A824 (crosshair; statics hold its
+    position);
+  - an actor placed while the console is open (the game paused) is only ready once the console closes
+    (spawn_deferred): before that PickLastRef names its id but the selection stays where it was, so GetIsID reads 0.00
+    and GetSelf names the static, as the N0_base spawn session read;
+  - placeatme prints three "GetInFaction >> 0.00" lines of the game's own (faction_lines);
+  - replies "PickLastRef: (FF000800)", "GetIsID >> 1.00", "GetSelf >> (ff000800)", "GetDisabled >> 1";
+  - OCR quirks in what "screen" returns (ocr_quirks): l for I ("GetlsID", "GetlslD", "GetlnFaction"), "> >" for ">>",
+    "Clear Console", "Get Disabled", "Get Po s"; about nine lines are visible.
+Other knobs: speed (m/s, 0 = the actor never moves), isid_ok (GetIsID answers 1 for the right base), self_fmt
+(paren | hex | none), plr_selects (false: plr names the last ref but never selects it), prid_fails (prid never selects),
+lose_selection (without a crosshair ref: every console open clears the selection), spawn_fails, accepts (the one walk
+command that works), anchor_id / anchor_pos, arrival, fall ({"height", "speed"}: after coc the player falls from
+arrival z + height at speed m/s until the arrival z), layout ("inline" | "column": labels first, then values; echo
+arguments drift into the value column, a lone "y" is lost).
+"typed" keeps every command the console received; "clock" is the game time, which runs only while the console is
+closed."""
 import json
 import math
 import os
@@ -16,6 +28,7 @@ import sys
 import time
 
 P = os.environ["FAKE_STATE"]
+STATIC = "0024A824"
 
 
 def game_time(s):
@@ -44,19 +57,37 @@ def player_pos(s):
     return p
 
 
+def statics(s):
+    return s.setdefault("statics", {STATIC: {"pos": [0.0, 0.0, -0.1]}})
+
+
 def selected(s):
-    return s["actors"].get(s.get("sel") or "")
+    """('actor', a) | ('static', st) | (None, None) for the console's selection."""
+    sel = s.get("sel") or ""
+    a = s["actors"].get(sel)
+    if a is not None and not a.get("pending"):
+        return "actor", a
+    if sel in statics(s):
+        return "static", statics(s)[sel]
+    return None, None
+
+
+def select(s, rid):
+    """A ref that is not ready (placed while the console was open) cannot be selected yet."""
+    a = s["actors"].get(rid)
+    if (a is not None and not a.get("pending")) or rid in statics(s) or rid == s.get("anchor_id"):
+        s["sel"] = rid
 
 
 def run(s, cmd):
     low = cmd.lower()
     s.setdefault("typed", []).append(cmd)
-    if low == "clearconsole" and not s.get("clear_fails"):
+    if low == "clearconsole" and not s.get("clear_fails", True):
         s["log"] = []
         return
     s["log"].append(cmd)                                   # the console echoes what was typed
     w = cmd.split()
-    a = selected(s)
+    kind, a = selected(s)
     if low.startswith("player.setpos "):
         s["player"] = player_pos(s)
         s["falling"] = None
@@ -72,47 +103,60 @@ def run(s, cmd):
             return
         rid = f"FF{0x800 + len(s['actors']):06X}"
         p = player_pos(s)
-        s["actors"][rid] = {"base": w[1].upper(), "pos": [p[0] + 0.8, p[1], p[2]]}
+        s["actors"][rid] = {"base": w[1].upper(), "pos": [p[0] + 0.8, p[1], p[2]],
+                            "pending": bool(s.get("console")) and s.get("spawn_deferred", True)}
         s["last"] = rid
+        if s.get("faction_lines", True):
+            s["log"] += ["GetInFaction >> 0.00"] * 3
     elif low == "plr":
-        s["sel"] = s.get("last")
+        if s.get("last"):
+            s["log"].append(f"PickLastRef: ({s['last']})")
+            if s.get("plr_selects", True):
+                select(s, s["last"])
     elif low.startswith("prid "):
-        if w[1].upper() in s["actors"] or w[1].upper() == s.get("anchor_id"):
-            s["sel"] = w[1].upper()
+        rid = w[1].upper()
+        if s.get("prid_fails"):
+            return
+        if rid in s["actors"] or rid in statics(s) or rid == s.get("anchor_id"):
+            select(s, rid)
         else:
             s["log"].append("Reference not found")
     elif low.startswith("getisid "):
-        if a is None:
+        if kind is None:
             s["log"].append("Missing reference")
         else:
-            ok = a["base"] == w[1].upper() and s.get("isid_ok", True)
+            ok = kind == "actor" and a["base"] == w[1].upper() and s.get("isid_ok", True)
             s["log"].append(f"GetIsID >> {'1.00' if ok else '0.00'}")
     elif low == "getself":
-        fmt = s.get("self_fmt", "hex")
-        if a is not None and fmt != "none":
-            s["log"].append(f"GetSelf >> {s['sel']}" if fmt == "hex" else f"GetSelf >> ({s['sel']})")
+        fmt = s.get("self_fmt", "paren")
+        if kind is not None and fmt != "none":
+            s["log"].append(f"GetSelf >> {s['sel']}" if fmt == "hex" else f"GetSelf >> ({s['sel'].lower()})")
     elif low.startswith("getpos "):
         sel = s.get("sel")
         if sel is not None and sel == s.get("anchor_id"):
             p = s["anchor_pos"]
-        elif a is not None:
+        elif kind == "actor":
             p = actor_pos(s, a)
+        elif kind == "static":
+            p = a["pos"]
         else:
             s["log"].append("Missing reference")
             return
         ax = w[1].upper()
         s["log"].append(f"GetPos: {ax} >> {p['XYZ'.index(ax)]:.2f}")
     elif low in ("pathtoref player", 'cf "actor.pathtoreference" player 1.0', "setplayerteammate 1"):
-        if a is not None and s.get("accepts", "pathtoref player") == low:
+        if kind == "actor" and s.get("accepts", "pathtoref player") == low:
             a["start"], a["target"], a["cmd_at"] = actor_pos(s, a), True, game_time(s)
-        elif a is not None:
+        elif kind is not None:
             s["log"].append("Script command not found")
-    elif low == "disable" and a is not None:
-        a["pos"], a["target"], a["disabled"] = actor_pos(s, a), False, True
-    elif low == "markfordelete" and a is not None:
+    elif low == "disable" and kind is not None:
+        if kind == "actor":
+            a["pos"], a["target"] = actor_pos(s, a), False
+        a["disabled"] = True                               # a static too: the tests check that never happens
+    elif low == "markfordelete" and kind is not None:
         a["deleted"] = True
     elif low == "getdisabled":
-        s["log"].append(f"GetDisabled >> {'1.00' if a and a.get('disabled') else '0.00'}")
+        s["log"].append(f"GetDisabled >> {1 if a and a.get('disabled') else 0}")
 
 
 def column(lines):
@@ -134,6 +178,15 @@ def column(lines):
     return left + right
 
 
+def quirks(ln):
+    """OCR misreadings seen in the runner's console OCR (2026-10-11)."""
+    for a, b in (("GetIsID >>", "GetlslD"), ("GetIsID", "GetlsID"), ("GetInFaction", "GetlnFaction"),
+                 ("ClearConsole", "Clear Console"), ("GetDisabled", "Get Disabled"), ("GetPos: X", "Get Po s: X"),
+                 (">>", "> >")):
+        ln = ln.replace(a, b)
+    return ln
+
+
 def main():
     with open(P) as f:
         s = json.load(f)
@@ -151,11 +204,21 @@ def main():
                 now = game_time(s)
                 s["console"] = not s.get("console")
                 s["clock"] = {"game": now, "since": None if s["console"] else time.time()}
-                if s["console"] and s.get("lose_selection"):
-                    s["sel"] = None
+                if s["console"]:
+                    if s.get("crosshair", STATIC):         # opening the console selects what the crosshair is on
+                        s["sel"] = s.get("crosshair", STATIC)
+                    elif s.get("lose_selection"):
+                        s["sel"] = None
+                else:                                      # the game runs again: placed actors become ready
+                    for a in s["actors"].values():
+                        a.pop("pending", None)
     elif sys.argv[1] == "screen":
         lines = s["log"][-9:]                              # the console shows about nine lines
-        print("\n".join(column(lines) if s.get("layout") == "column" else lines))
+        if s.get("layout") == "column":
+            lines = column(lines)
+        if s.get("ocr_quirks", True):
+            lines = [quirks(ln) for ln in lines]
+        print("\n".join(lines))
         return
     elif sys.argv[1] == "readpos":
         ref = sys.argv[2].upper() if len(sys.argv) > 2 else ""

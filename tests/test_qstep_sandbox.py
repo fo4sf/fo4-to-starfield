@@ -53,6 +53,8 @@ class QstepNpcSandboxTests(unittest.TestCase):
             st = json.load(f)
         left = [k for k, a in st["actors"].items() if not (a.get("disabled") and a.get("deleted"))]
         self.typed = st.get("typed", [])
+        # a selection that stayed on the floor static must never get disable (N0_base's spawn session had one)
+        self.assertEqual([k for k, v in st.get("statics", {}).items() if v.get("disabled") or v.get("deleted")], [])
         return tq.judge(t, obs, out), obs, left
 
     def check(self, want, plan=None, world=None, removed=True):
@@ -64,19 +66,53 @@ class QstepNpcSandboxTests(unittest.TestCase):
 
     def test_walk_is_a_pass_and_the_actor_is_removed(self):
         obs = self.check(("PASS", "PASS"))
-        self.assertEqual(obs["cleanup"]["via"], "prid")       # by the GetSelf id
+        self.assertEqual(obs["cleanup"]["via"], "prid")       # by PickLastRef's id
         self.assertEqual(obs["command"], "PathToRef player")
+        sp = obs["spawn"]
+        self.assertEqual((sp["ref"], sp["self"], sp["isid"], sp["confirmed"]), ("FF000800", "FF000800", 1, True))
+        self.assertTrue(all(s["via"] == "prid" for s in obs["samples"]))
 
     def test_no_walk_is_nonav(self):
         self.check(("FAIL", "NONAV"), world={"speed": 0.0})
 
-    def test_stale_log_and_lost_selection_still_find_the_actor(self):
-        obs = self.check(("PASS", "PASS"), world={"clear_fails": True, "lose_selection": True, "self_fmt": "none"})
-        self.assertTrue(all(s["via"] == "plr" for s in obs["samples"]))
+    def test_the_spawn_session_of_2026_10_11(self):
+        # what N0_base met in game: ClearConsole leaves the older lines, the console selects the floor static under
+        # the crosshair, the game prints GetInFaction lines after placeatme, the actor is not ready while the console
+        # is open, OCR reads l for I (all fake defaults). The old step typed placeatme, plr, GetIsID, GetSelf in one
+        # session and read GetIsID 0 / GetSelf (0024a824); the handle is now read after the console was closed
+        obs = self.check(("PASS", "PASS"), plan={"method": "none", "control": False})
+        sp = obs["spawn"]
+        self.assertTrue(sp["confirmed"], sp["why"])
+        self.assertIn("GetlnFaction", sp["place_ocr"])
+        self.assertIn("PickLastRef", sp["plr_ocr"])
+        self.assertLessEqual(sp["dist_a"], 2.0)
+        self.assertEqual(obs["cleanup"]["via"], "prid")
+        at = self.typed.index("player.placeatme 0000CF96 1")
+        self.assertEqual(self.typed[at + 1:at + 3], ["ClearConsole", "plr"])    # a new session: the console was closed
+
+    def test_plr_that_never_selects_is_taken_by_id(self):
+        # the worst reading of the N0_base spawn: PickLastRef names the ref but never selects it; prid <id> does
+        obs = self.check(("PASS", "PASS"), world={"plr_selects": False})
+        self.assertTrue(all(s["via"] == "prid" for s in obs["samples"]))
+
+    def test_a_selection_that_stays_on_the_static_is_never_used(self):
+        # neither plr nor prid select anything: the console keeps the floor static. GetSelf names it: no walk, no
+        # disable; the actor is left in the (never saved) session and the note says so
+        v, obs, left = self.run_step(world={"plr_selects": False, "prid_fails": True})
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "SPAWN"), v[2])
+        self.assertIn("GetSelf named 0024A824", obs["spawn"]["why"])
+        self.assertNotIn("samples", obs)
+        self.assertFalse(obs["cleanup"]["removed"])
+        self.assertEqual(obs["cleanup"]["by_plr"]["self"], "0024A824")
+        self.assertEqual(left, ["FF000800"])
+        self.assertNotIn("disable", self.typed)
 
     def test_unconfirmed_spawn_is_removed_by_its_id(self):
+        # GetIsID does not match (a templated actor?): not confirmed, nothing commanded, removed as the ref PickLastRef
+        # named at the spawn, at the player's feet, which GetSelf names
         obs = self.check(("INCONCLUSIVE", "SPAWN"), world={"isid_ok": False})
-        self.assertEqual(obs["cleanup"]["via"], "id")
+        self.assertEqual(obs["cleanup"]["via"], "plr")
+        self.assertIn("GetIsID 0000CF96 read 0", obs["spawn"]["why"])
         self.assertNotIn("samples", obs)                      # nothing commanded on an unconfirmed handle
 
     def test_world_frame_from_the_anchor(self):
@@ -101,6 +137,7 @@ class QstepNpcSandboxTests(unittest.TestCase):
         obs = self.check(("PASS", "PASS"), world={"layout": "column"})
         self.assertEqual(obs["cleanup"]["via"], "prid")
         self.assertEqual(obs["spawn"]["how"], "order")
+        self.assertEqual(obs["spawn"]["self"], "FF000800")
         self.assertTrue(all(s["isid"] == 1 for s in obs["samples"]))
 
     def test_anchor_reading_its_local_position_falls_back_to_the_arrival(self):
