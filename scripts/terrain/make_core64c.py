@@ -960,7 +960,7 @@ def readme(out, prm, ov, plan, exp):
     o, d = exp["objects"], exp["data"]
     ref = exp["reference"]
     lines = [
-        "Terrain core64c (Claude, 2026-10-11). NOT deployed, NOT queued. Recipe: docs/terrain/core64c.md",
+        "Terrain core64c (Claude, 2026-10-12). NOT deployed, NOT queued. Recipe: docs/terrain/core64c.md",
         "(branch claude/terrain-core64-objects). Base: core64 (" + exp["core"] + "): the same BTD, mask, Location,",
         "Mars registration, anchor, COC marker and FormIDs, plus EVERY Fallout 4 exterior object of the 64 x 64-cell",
         f"core that converts: {o['placed']:,} references of {o['bases']:,} models (STAT, {o['doors']} rigged DOOR) at",
@@ -974,12 +974,17 @@ def readme(out, prm, ov, plan, exp):
         f"  --pack builds \"{base} - Main.ba2\" from Data\\ (Archive2 -format=General -compression=None: every entry",
         "  stored, BTD included; textures load from the General archive, verified with exp2c on 2026-10-11).",
         f"Queue: testqueue.py plan-terrain --staging <build> --exp-dir <this folder> --out <queue> --plugins {','.join(pl)} --fresh",
-        "Never install together with another terrain experiment (every Mars plugin overrides MarsPlanetData).",
+        "Never install together with another terrain experiment (every Mars plugin overrides MarsPlanetData). core64,",
+        "core64b and core64e use the same plugin and archive names: exp_install.py uninstall first (it refuses otherwise).",
+        "The installer builds the archive in %TEMP% (C:) and copies it to the game's Data folder.",
         "",
         f"Plan: {len(plan)} entries, each ONE coc {plan[0]['coc']} arrival (fresh launch). spawn_local {plan[0]['spawn_local']}",
         f"= where the player lands under the COC marker {ov['spawn']}. Heights are judged relative to {REF_LABEL}",
         f"({ref['x']}, {ref['y']} -> {ref['expect']}: open level terrain {ref['distance_from_arrival']} m from the arrival,",
-        f"nothing above it within {x2c.REF_CLEAR} m). The runner faces north at every point and takes a screenshot there.",
+        f"nothing above it within {x2c.REF_CLEAR} m), the first point of every entry. Between points the runner travels in",
+        f"hops of at most {HOP_M} m ({HOP_WAIT_MS} ms each; core64b's verified hops: a single teleport more than about 4",
+        "cells from the player raised \"Boundary Reached\" in core64). The runner faces north at every point and takes a",
+        "screenshot there; every arrival so far was at night on Mars.",
     ]
     meta = {(q["entry"], q["label"]): q for q in exp["points"]}
     for i, e in enumerate(plan):
@@ -1014,6 +1019,65 @@ def abs_stats(values):
             "p95_mm": round(float(np.percentile(v, 95)) * 1000, 2), "p99_mm": round(float(np.percentile(v, 99)) * 1000, 2),
             "max_mm": round(float(v.max()) * 1000, 2), "within_1cm": int((v <= 0.01).sum()),
             "within_5cm": int((v <= 0.05).sum())}
+
+
+def compound_top(fo4_data, owner, x, y, drop_z):
+    """FO4's own collision top of `owner` at (x, y) below drop_z, for models whose bodies routes.collision_bodies
+    skips (hknpDynamicCompoundShape): every bhkNPCollisionObject body of the source NIF decoded with Codex's
+    fo4_compounds.decode_body (instances applied), placed like routes.collision_bodies places a body (node world
+    transform, Havok units = metres) and then like the reference. Bodies with their own position or rotation are not
+    placed (that convention is unverified, fo4collision.decode_bodies) and are counted. Returns (top, layer, report)."""
+    sys.path.insert(0, os.path.join(REPO, "scripts", "game"))
+    import routes
+    from fo4sf import ba2, fo4_compounds, hkpackfile, nif as nifmod
+    name = "meshes\\" + owner["model"].replace("/", "\\").split("\\", 1)[1]
+    blob = None
+    for fn in sorted(os.listdir(fo4_data)):
+        if fn.lower().startswith("fallout4 - meshes") and fn.lower().endswith(".ba2"):
+            arc = ba2.Ba2(os.path.join(fo4_data, fn))
+            if arc.find(name) is not None:
+                blob = arc.read(name)
+                break
+    rep = {"model": name, "bodies": 0, "leaves": 0, "skipped_body_transform": 0, "errors": []}
+    if blob is None:
+        rep["errors"].append("not in the FO4 mesh archives")
+        return None, None, rep
+    f = nifmod.parse(blob)
+    world = nifmod.world_transforms(f)
+    tops = []
+    for i in range(len(f.blocks)):
+        if f.type_of(i) != "bhkNPCollisionObject":
+            continue
+        target, _, data = struct.unpack_from("<iHi", f.blocks[i], 0)
+        body = struct.unpack_from("<I", f.blocks[i], 10)[0] if len(f.blocks[i]) >= 14 else 0
+        if not (0 <= data < len(f.blocks)) or f.type_of(data) != "bhkPhysicsSystem":
+            continue
+        n, = struct.unpack_from("<I", f.blocks[data], 0)
+        pack_blob = f.blocks[data][4:4 + n]
+        try:
+            d = fo4_compounds.decode_body(pack_blob, body)
+            p = hkpackfile.Packfile(pack_blob)
+            sysobj = next(o for o, c in p.objects() if c == "hknpPhysicsSystemData")
+            at, _nb = p.array(sysobj + 64)
+            layer = p.unpack("<I", at + 96 * body + 20)[0] & 0x7F
+        except (hkpackfile.PackfileError, IndexError, StopIteration, ValueError, struct.error) as e:
+            rep["errors"].append(f"body {body}: {type(e).__name__}: {e}")
+            continue
+        rep["bodies"] += 1
+        q = d["quaternion_xyzw"]
+        if any(abs(v) > 1e-6 for v in d["position_havok_units"]) or abs(abs(q[3]) - 1.0) > 1e-6:
+            rep["skipped_body_transform"] += 1
+            continue
+        tr, rot, _ = world(target)
+        for leaf in d["leaves"]:
+            rep["leaves"] += 1
+            pts = [exterior.to_world(tuple(a + b * routes.UNIT for a, b in zip(routes.apply(rot, v), tr)),
+                                     owner["pos"], owner["rot"], owner["scale"]) for v in leaf["points"]]
+            z = exterior.top_z([tuple(pts[k] for k in t) for t in leaf["triangles"]], x, y, below=drop_z)
+            if z is not None:
+                tops.append((z, layer))
+    top, layer = max(tops) if tops else (None, None)
+    return top, layer, rep
 
 
 def signed_stats(values):
@@ -1240,6 +1304,14 @@ def cmd_check(a):
     rep["points"] = pts
     if a.fo4_data:
         rep["fo4_collision_tops"] = x2c.fo4_collision_tops(a.fo4_data, plan, metas)
+        for t in rep["fo4_collision_tops"]:
+            t["decoder"] = "routes.collision_bodies"
+            if t["fo4_top"] is None:                    # compound bodies: Codex's fo4_compounds decoder instead
+                drop = plan[t["entry"]]["drop_z"]
+                pt = next(p for p in plan[t["entry"]]["points"] if p["label"] == t["label"])
+                top, layer, crep = compound_top(a.fo4_data, metas[(t["entry"], t["label"])]["owner"], pt["x"], pt["y"], drop)
+                t.update(fo4_top=None if top is None else round(top, 5), layer=layer, decoder="fo4_compounds.decode_body",
+                         compound=crep, diff_mm=None if top is None else round((top - t["expect"]) * 1000, 3))
         for t in rep["fo4_collision_tops"]:
             if t["entry"] == 1:
                 need(t["diff_mm"] is not None and abs(t["diff_mm"]) < 1.0 and t["layer"] == 1,

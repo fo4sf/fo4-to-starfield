@@ -3,6 +3,43 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-12 Claude: core64c, every FO4 exterior object of the 64-cell core on core64, staged
+- Question: can ALL Fallout 4 exterior objects of the core (which covers the whole playable Commonwealth) go onto the
+  core64 terrain as one experiment, how large is that, and what has to give? Write-up:
+  [docs/terrain/core64c.md](../terrain/core64c.md).
+- Method: `Fo4Land export-exterior` in 11 bands, `scripts/terrain/make_core64c.py` (select, measure, stage, check),
+  `convert_batch.py --prefix fo4core --max-texture` (new: top mip levels dropped per texture kind, full and written
+  size logged), `dotnet/TerrainOverlays` objects mode (new), synthetic tests `test_make_core64c`, `test_texture_cap`.
+  Staged `C:\Modding\staging\terrain_core64c`. Not deployed, not run in game.
+- Evidence:
+  - **verified**: 706,579 FO4 references in the covered cells (701,754 placed objects + 4,825 actors / hazards /
+    traps); 649,596 convert-eligible references of 11,887 models; 56,983 skipped with a reason (decals 13,118, lights
+    6,275, idle markers 5,828, power lines 4,982, editor markers 13,542, actors 3,685, trigger volumes 2,414, effects
+    2,087, water planes 721, ...); 11,769 models convert and 118 do not (exactly the dry run's prediction), so
+    **648,358 references** are placed (1,238 more skipped as `conversion_failed`). Conversion 2,499 s, one process.
+  - **verified** (directory listing): every large vanilla Starfield archive is 4,294,061,043 to 4,294,946,755 bytes,
+    never 2^32 or more. **unresolved**: whether the engine reads past 4 GiB, and whether numbered per-plugin archives
+    (`.* - Main[0-9]*\.ba2` in Starfield.exe) load.
+  - **verified** (dry run of the converter's material logic over the FO4 texture archives' DX10 records): 2,632
+    materials, 8,635 textures, 7.30 GiB at full resolution; with meshes about 8.3 GiB. **supported** (estimate): a
+    split into the 15 occupied 1.6 km regions needs 28.8 GiB (shared materials repeat) and the four central regions
+    5.6 to 6.2 GiB each, so a region split does not fit 4 GiB archives either.
+  - **verified**: with per-kind caps (color 1024, normal 512, rough 256, opacity 512 px; top mip levels dropped) the
+    converted textures are 2.42 GiB (7.26 GiB before the caps, logged per texture); the Data tree is 3.63 GiB and
+    Archive2 with the installer's arguments builds one stored archive of 3,899,305,077 bytes (51,821 entries, 0 packed).
+  - **verified**: `FO4TerrainCore.esm` 46,114,630 B = core64's 4,102 records, all unchanged, + 11,699 STAT + 70 DOOR
+    + 648,358 REFR in 1,708 cells (up to 6,049 per cell); BTD, mask and Mars plugin byte-identical to core64; 0 missing
+    model, geometry, material or texture files.
+  - **verified**: BTD minus FO4 LAND under all 648,358 origins: median 2.78 mm, p99 86.7 mm, max 3.19 m; 97.3 % within
+    5 cm, 673 above 0.25 m. **supported**: the tail is steep FO4 relief (median 3.54 m per terrain quad there, 0.46 m
+    overall: quarry walls, cliffs, terrain under building floors) rounded off by the 0.78 m BTD grid.
+  - **verified**: plan of 3 entries (terrain probes clear of objects; the Sanctuary player house, Red Rocket shop and
+    Concord museum roofs, each 4.7 to 14.2 m above the terrain; informational probes and 3 north-facing screenshot
+    spots), all travelling in core64b's 300 m hops; the judged roofs equal FO4's own collision within 0.045 mm
+    (the museum's compound bodies through Codex's `fo4_compounds.decode_body`); 167 of 167 offline checks.
+- Status: offline **verified**; everything in game **unresolved** (load and streaming of ~1,700 populated cells,
+  frame time, whether objects merge with the terrain's offset everywhere, night-time screenshots).
+
 ## 2026-10-11 Claude: core64, one 64-cell Commonwealth overlay staged
 - Question: does ONE large overlay (option a) load its real heights everywhere around a single arrival? exp2b (one
   29-cell overlay, stored BTD) read FO4 heights within 0.08 m and FO4 objects within 0.02 m in game; exp3 (four

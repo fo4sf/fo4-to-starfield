@@ -256,6 +256,66 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(mk.scenario_reads(w, entry, meta, "flat_terrain"), [w.hmin, 4.0])
 
 
+class CompoundTopTests(unittest.TestCase):
+    """make_core64c.compound_top with a synthetic NIF and packfile (decoders patched): body placement as
+    routes.collision_bodies (node translation in game units / 70, Havok units = metres), then the reference."""
+
+    def run_top(self, position=(0.0, 0.0, 0.0), quat=(0.0, 0.0, 0.0, 1.0), node_tr=(70.0, 0.0, 0.0), layer=1):
+        from unittest import mock
+        from fo4sf import ba2, fo4_compounds, hkpackfile, nif as nifmod
+        blocks = [struct.pack("<iHiI", 1, 0, 2, 0), b"", struct.pack("<I", 4) + b"PACK"]
+        types = ["bhkNPCollisionObject", "NiNode", "bhkPhysicsSystem"]
+        fake_nif = type("F", (), {"blocks": blocks, "type_of": lambda self, i: types[i]})()
+        leaf = {"points": [(-1.0, -1.0, 2.0), (1.0, -1.0, 2.0), (1.0, 1.0, 2.0), (-1.0, 1.0, 2.0)],
+                "triangles": [(0, 1, 2), (0, 2, 3)]}
+
+        class Pack:
+            def __init__(self, blob):
+                pass
+
+            def objects(self):
+                return [(10, "hknpPhysicsSystemData")]
+
+            def array(self, at):
+                return 100, 1
+
+            def unpack(self, fmt, at):
+                return (layer,)
+
+        class Arc:
+            def __init__(self, path):
+                pass
+
+            def find(self, name):
+                return 0 if name == "meshes\\a\\b.nif" else None
+
+            def read(self, name):
+                return b"NIF"
+        owner = {"model": "fo4core\\a\\b.nif", "pos": [10.0, 20.0, 5.0], "rot": [0.0, 0.0, 0.0], "scale": 2.0}
+        with tempfile.TemporaryDirectory() as tmp:
+            open(os.path.join(tmp, "Fallout4 - Meshes.ba2"), "wb").close()
+            with mock.patch.object(ba2, "Ba2", Arc), mock.patch.object(nifmod, "parse", return_value=fake_nif), \
+                    mock.patch.object(nifmod, "world_transforms",
+                                      return_value=lambda t: (node_tr, (1, 0, 0, 0, 1, 0, 0, 0, 1), 1.0)), \
+                    mock.patch.object(fo4_compounds, "decode_body", return_value={
+                        "position_havok_units": list(position), "quaternion_xyzw": list(quat), "leaves": [leaf]}), \
+                    mock.patch.object(hkpackfile, "Packfile", Pack):
+                return mk.compound_top(tmp, owner, 12.0, 20.0, 100.0)
+
+    def test_top_placed_like_routes_then_the_reference(self):
+        top, layer, rep = self.run_top()
+        # leaf top z 2 m, node +1 m in x (70 units), reference scale 2 at z 5: the square spans x 10..14, top 9
+        self.assertAlmostEqual(top, 9.0)
+        self.assertEqual((layer, rep["bodies"], rep["leaves"], rep["skipped_body_transform"]), (1, 1, 1, 0))
+
+    def test_body_with_its_own_transform_is_counted_not_placed(self):
+        top, layer, rep = self.run_top(position=(0.5, 0.0, 0.0))
+        self.assertIsNone(top)
+        self.assertEqual(rep["skipped_body_transform"], 1)
+        top, _layer, rep = self.run_top(quat=(0.0, 0.0, 0.7071, 0.7071))
+        self.assertIsNone(top)
+
+
 class StageTests(unittest.TestCase):
     def test_link_tree_and_archive_estimate(self):
         with tempfile.TemporaryDirectory() as tmp:
