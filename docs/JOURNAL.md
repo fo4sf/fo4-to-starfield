@@ -753,3 +753,10 @@ twin step is untested in game until the next library run.
   - Reading so far: no navmesh means no movement; `gnm` also gives no movement; the converted FO4 navmesh gives movement in 4 of 4 tests.
   - Shipping the converted navmesh is the supported route; `gnm` in a plugin worldspace is refuted for this use, to be rechecked with N1b_b against the N0b control.
   - The chain now runs supervised_1011, then batch_full (integration-1011 runner).
+- **supervised_1011 finished (17 tests: 10 PASS, 5 FAIL, 2 INCONCLUSIVE).** Ranked:
+  1. **Door BLOCKED, 2 tests:** FortHagen01's wooden shutter door (BldWoodPDoorShutter01, 0BD6A1). It shows OPEN, activates and swings, and the prompt flips to CLOSE. But the panel still covers part of the opening, and the player stops 0.9 m before the door plane. Candidates: the door swings only part of the way, or its collision does not follow the animation. Unresolved.
+  2. **Travel NOPROMPT:** FortHagen01 load door 0CD469. The companion stood at the door; the runner now disables it per session (bf01e51, not yet in the chain's runner).
+  3. **Stairs STUCK:** Vault 114 CinderBlockStairs02 (rose 0.10 m, needed 0.12 m).
+  4. **Movable NOTMOVED:** FortHagen01 CigarettePack. The player reached it, but it moved 0.000 m.
+  - The two INCONCLUSIVEs: a fall held 1.5 m above a cave floor, and a movable test the player missed by 2.39 m.
+- The chain now runs **batch_full** (1,764 tests, about 30 h) on integration-1011.
