@@ -10,7 +10,7 @@ test program runs and reports.
 
 - `C:\Modding\testqueue\chain.ps1` reads `C:\Modding\testqueue\chain_queue.txt` (one queue per line, `?name` = optional)
   and runs each queue with `scripts\game\testqueue.py run` from the integration worktree
-  `C:\Users\great\Desktop\codehell\fo4-to-starfield-wt\integ` (pinned build `C:\Modding\staging\integ_1011`).
+  `%USERPROFILE%\Desktop\codehell\fo4-to-starfield-wt\integ` (pinned build `C:\Modding\staging\integ_1011`).
 - Owner controls stay in force: the game is launched only after 15 min without keyboard/mouse input (or right after the
   runner's own input); a Starfield the runner did not start is never touched (the chain waits until it is closed); a STOP
   file (`C:\Modding\testqueue\STOP_ALL`, `%LOCALAPPDATA%\fo4-ai-team\state\testqueue.STOP`) or a Resource Guardian
@@ -21,7 +21,7 @@ test program runs and reports.
 ## What Codex does (and only this)
 
 1. Status: for every queue folder in `C:\Modding\testqueue` that has a `queue.json`, run
-   `C:\Modding\venv-render\Scripts\python.exe C:\Users\great\Desktop\codehell\fo4-to-starfield-wt\integ\scripts\game\testqueue.py status --queue <folder>`,
+   `C:\Modding\venv-render\Scripts\python.exe %USERPROFILE%\Desktop\codehell\fo4-to-starfield-wt\integ\scripts\game\testqueue.py status --queue <folder>`,
    and read the last 30 lines of `overnight.log` and `watchdog.log`. Is the chain running? (process with `chain.ps1` in its
    command line). Which queue is active, how many tests are done?
 2. Reports: for every queue that has `results.jsonl`, run

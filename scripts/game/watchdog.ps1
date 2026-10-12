@@ -15,8 +15,9 @@
 param([switch]$Once, [string]$Config = 'C:\Modding\testqueue\watchdog.json')
 $ErrorActionPreference = 'Continue'
 $tq = 'C:\Modding\testqueue'
-$repo = 'C:\Users\great\Desktop\codehell\fo4-to-starfield'
-$wt = 'C:\Users\great\Desktop\codehell\fo4-to-starfield-wt\integ'
+# the checkout this script runs from (worktrees share one repository, so its refs include every branch)
+$repo = Split-Path (Split-Path $PSScriptRoot)
+$wt = $repo
 $log = Join-Path $tq 'watchdog.log'
 $stateFile = Join-Path $tq 'watchdog_state.json'
 $heartbeat = Join-Path $tq 'claude_heartbeat.txt'
