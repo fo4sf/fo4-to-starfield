@@ -753,3 +753,126 @@ conflicts in this worktree. Verifier QA found a declared filename length past EO
 with the BA2 reader. Name lengths now require exact bounded reads and normalization matches the reader's lower().
 Three synthetic unit/install cases cover the fixes.52 focused/381 full tests OK (1 skipped); narrow final QA PASS.
 Independent checks confirmed v1-v3 name bounds, reader-distinct Unicode names and no publication/activation on failure.
+
+- **exp3** (four adjacent 14x14-cell overlays, each registered on Mars): probes in the arrival tile read real terrain. Every probe 500-700 m away, in or near a neighbouring tile, hung at the drop height even after 24 s of re-reads, so nothing loads there.
+  - Taken with the "Boundary Reached" popup at the edge of the 29-cell overlay, a landing seems to load only the overlay it arrives in. A Commonwealth made of many small overlays would not be walkable across seams.
+  - The candidate is one large overlay. **terrain_core64** (PR #72: 64x64 cells = 6.4 km covering Sanctuary, Vault 111, Red Rocket and Concord, 6 rays of probes out to 3 km) is queued.
+- **Navmesh (PR #71):** FO4's navmesh around Red Rocket is converted to 156 Starfield NAVM records with a NAVI override. The N1 NPC tests are queued after the vanilla control N0:
+  - N1a: terrain only;
+  - N1c: converted navmesh;
+  - N1b: the runtime generator.
+- **Ground textures (PR #70):** staged. They need a daytime run; every Mars arrival so far was at night.
+
+## 2026-10-11 night: dead man's switch and the huge batch (owner's request)
+- **`scripts/game/watchdog.ps1`** runs detached. It is not reboot-proof yet (the owner was asked about a scheduled task).
+  - After 3 h with no "Claude:" commit and no heartbeat (`C:\Modding\testqueue\claude_heartbeat.txt`), it starts `C:\Modding\testqueue\chain.ps1` itself. No AI is needed; the runner keeps every owner control.
+  - At most every 6 h it calls Codex (`codex exec`, sandbox workspace-write) to follow `docs/ai/codex-runbook.md`: status, reports, one #32 comment, no code changes or game input.
+  - At most 3 chain starts per 6 h. An unfinished required queue goes back to the front of `chain_queue.txt`.
+  - AGENTS.md records the exception.
+- **`batch_full`**, queued last: 1,764 tests on the 16 cells. It covers every route (routes.py `--max 400` -> `routesfull_*.json`) plus 40 falls and 40 movable items per cell, about 30 h.
+- **core64** (one 64x64-cell overlay, 6.4 km) in game: every probe within ~500 m of the arrival is exact (Sanctuary 110.27/110.29, Vault 111 127.09/127.09). Single 1-2 km setpos jumps do not load in time, so a hop variant (300 m steps) is queued next.
+
+## 2026-10-11 late night: the "far terrain does not load" result is a 9x9-cell playable border
+- **core64, all six rays** (one arrival at Red Rocket each, from a fresh launch): every probe up to ~380 m from the arrival reads the FO4 height within 0.01 m (arrival 105.14, Sanctuary 110.27, Vault 111 127.09, Concord 87.09, se_500m 56.92/56.91, ne_500m 113.38/113.37).
+  - The first probe at 500 m straight east, south or west (and 700 m diagonally) raises Starfield's **"Boundary Reached"** popup (screenshot in the test folder). Its position read is garbled, and every later probe stays at its drop height.
+  - The allowed probes span local cells x -14..-7 and y 8..14, and the blocked ones sit 5 cells out. That is a window of about 4 cells around the arrival cell (-10, 11), inside an overlay whose 4,096 cells all exist and whose worldspace bounds (NAM0/NAM9) cover the whole 6.4 km.
+- **Supported hypothesis:** the limit is Starfield's landing-area border, not our data. Starfield.exe has `bBorderRegionsEnabled:General` (set to 0 by the "Border Regions Unlock" mod), `fPlayableAreaX/Y/Z:General`, `uMaximumPlayableAreaWorldCoord:General` and `uPlayableSpaceOverlayCellBuffer:Planet`. The console has `SetINI` and `GetINI`, so a test can change the border for one session without touching an ini file.
+- **This also confounds exp3's "neighbouring overlays do not load" result (500-700 m probes).** That needs a re-run with the border off before the many-overlays option is ruled out.
+- **Runner:** core64b (300 m hops) is paused with a queue STOP. Its second hop would only reach the same border. The next queue reads the settings (`GetINI`), sets `bBorderRegionsEnabled` to 0 after the save loads and before the coc, then repeats the rays and hops.
+- **Fixed:** an open breaker now skips a test before the "fresh" relaunch (one wasted launch per tripped breaker).
+- **Correction, 2026-10-12 00:01: travelling works, so the border limits jumps, not the world.** core64b's north-west ray reached every probe in 300 m hops (11 hops) and PASSED to 2 km:
+  - arrival 105.14, Sanctuary 110.27, Vault 111 127.09, 500 m 114.17 (want 114.17), 1,000 m 202.54 (202.51), 2,000 m 188.45 (188.46);
+  - no "Boundary Reached" on the way.
+- So the popup comes from a **single teleport more than ~4 cells from the current position**, not from a fixed window around the arrival. The 6.4 km overlay streams in as the player moves.
+- exp3's neighbouring-overlay probes were single 500-700 m jumps too, so the seam question is open again and needs a hop run.
+- The other five core64b rays are pending: its STOP is removed, and it needs to go back into `chain_queue.txt`. terrain_core64e (PR #74, one pebble per cell) now only asks whether content changes the single-jump limit, which is low priority.
+
+## 2026-10-12 early morning: navmesh plugin terrain check passes; the vanilla NPC control is not a control yet
+- **exp2d PASS** (Red Rocket terrain + objects + the converted navmesh plugin, PR #71): the ground under all four N1 NPC points (A, B, and A2/B2 across a cell line) reads the expected height within 0.01 m, 5 of 5. The navmesh plugin does not disturb the terrain.
+- **N0, the vanilla NPC control in QASmoke** (actor 002B211C, levelled 0000CF96; A (-8, -4) to B (5, 10), 20 m):
+  - 2 PASS, 3 FAIL, but **no test shows a commanded walk**. Every actor, with or without a command, stayed in the same patch (x -11..0, y -6..2) and never came within 10.8 m of B.
+  - Baseline (no command): wandered 5.4 m towards B, FAIL WANDER.
+  - `PathToRef player`: 6.8 m and 9.0 m towards B, counted as PASS, but that is within the wander.
+  - `cf "Actor.PathToReference" player 1.0`: the console replied "No script named Actor is attached to the object".
+  - `SetPlayerTeammate 1` + `EvaluatePackage`: the actor stood still for 30 s.
+  - The robot visible next to the camera in the sample shots is also there in the no-command baseline. It is most likely the save's companion, not the test actor.
+- **Next for the NPC tests:**
+  - B must be reachable on navmesh from A (supported hypothesis: it is not in QASmoke, or the package overrides PathToRef).
+  - The judge must require arrival (end within a few metres of B) or progress beyond the baseline's wander.
+  - Add `StartCombat player` (a script command in Starfield.exe: "Forces the currently selected reference to initiate combat with the provided actor") as a control method.
+  - The N1 queues still run (moving at all on our terrain with and without navmesh is useful), but their "towards B" verdicts carry the same caveat.
+
+## 2026-10-12 ~02:00: three slice pieces built and reviewed; integration-1012 ready (not yet the chain's runner)
+- **Built and adversarially reviewed overnight.** Each reviewer found blocking problems, and each was fixed.
+  - **PR #73 (daylight, plus the console hook).** `SetLocalTime` is the runner's time-of-day command, with the reply captured.
+    - Light is judged from every probe shot, and NIGHT is retried.
+    - A queue lists the runner features it `needs`, so an older runner refuses it at pre-launch instead of running it without the time.
+    - The test is staged at the site that was night 18 of 18 times (`terrain_exp2b2_noon`); the daylight site was day 13 of 13.
+  - **PR #75 (first converted FO4 NPC):** the Concord raider (FO4 ACHR 00046458, LvlRaider) as one Starfield NPC_ on the Spacer templates.
+    - The record now carries PRPS/STON/EDCT/PRON, which all 7,131 vanilla NPC_ have.
+    - A calm copy is used for the walk tests (N2a), so the peaceful vanilla control is fair. The hostile copy goes to N2b.
+  - **PR #76 (every FO4 exterior object on the 6.4 km core):** 648,358 references of 11,769 models, a 46.1 MB plugin and a 3.63 GiB stored archive (textures capped per kind to stay under 4 GiB).
+    - Object z matches FO4's own terrain at the median, +0.22 m.
+    - The plan uses waypoints so that every teleport moves at most 2 cells per axis.
+- **Teleport rule:** at most 2 cells per axis landed 144 of 145 times; 3 or more cells per axis failed 11 of 28 times (all 6 in core64). The rule is a supported hypothesis from `scripts/terrain/teleport_audit.py`, and "~4 cells" is refuted.
+- **`claude/integration-1012`** merges test-queue, daylight, raider and core64-objects. The unit suite and guard pass.
+  - It has one semantic fix: NPC plans accept the light and console keys.
+  - Queues planned with it: `terrain_core64c`, `terrain_exp2b2_noon` (needs: light), `npc_nav_n2a`, `npc_nav_n2b`. They are not in the chain yet.
+  - The chain still runs integration-1011 (N1c, N1b, then the supervised and full batches). Switching the chain's checkout and adding the queues is the owner's call.
+- **N1a** (vanilla NPC on our terrain, no navmesh): the NPC never moved (0.0 m), as expected without a navmesh. It counts as INCONCLUSIVE only because N0's control did not pass.
+- **N1 (vanilla NPC 002B211C on our Red Rocket terrain, ~03:10): the converted FO4 navmesh carries Starfield's AI.**
+  - **N1a (terrain only, no navmesh):** the NPC never moved in 4 of 4 tests. Every read was the same position to 0.1 m for 30 s.
+  - **N1c (with the converted navmesh, PR #71):** the NPC moved in 4 of 4 tests, 10.5, 7.2, 11.0 and 14.1 m (paths up to 27.6 m), and its z followed the terrain (105.0 to 105.5 m). It also walked about 9.5 m towards the player before any command.
+  - These are **verified movement on converted navmesh**, not commanded navigation: it wandered, as in QASmoke, and never reached B.
+  - The cross-cell test stayed in its own cell (x -2194..-2183, cell line at -2200), so the NAVI edge links across cells are still **unresolved**.
+  - All N1 verdicts read INCONCLUSIVE CONTROL because N0's control is not a control yet. N0b (navmesh-connected points, StartCombat, arrival judging) is being built and reviewed.
+- **N0b, the NPC control redesign (PR #77, reviewed and fixed; merged into integration-1012 at f3dcf5d):**
+  - **Why N0 could not tell commands from wandering:** QASmoke's navmesh (one NAVM, 002BE3AA) is a single 555 m2 area. The old pair was connected by a clear straight path. The actors' own drift (up to 14.06 m from t0, measured in N1c) covered most of the 19 m.
+  - **New design:** a 24 m pair. The approach before the command is capped at 3 m (otherwise INCONCLUSIVE PRECOMMAND). A PASS needs 18 m of approach from t0 or arrival within 3 m. A control counts only with its own queue's baselines.
+  - **Tests:** two citizen baselines, the Spacer baseline, PathToRef and StartCombat.
+  - **Queue:** `npc_nav_n0b` (needs runner feature npc_t0, so integration-1012 or later).
+  - **Re-plans:** the N1 and N2 re-plans are staged as `npc_nav_*_b`. They are planned only after `npc_control.py ready` confirms N0b passed. The earlier `npc_nav_n2a` / `npc_nav_n2b` queues carry a STOP note (superseded).
+- **N1b (the same NPC on our terrain after Starfield's runtime generator `gnm`, no shipped navmesh):** it never moved in 3 of 3 tests where it spawned. The 4th test did not confirm its spawn, twice (INCONCLUSIVE SPAWN, a runner reason).
+  - Reading so far: no navmesh means no movement; `gnm` also gives no movement; the converted FO4 navmesh gives movement in 4 of 4 tests.
+  - Shipping the converted navmesh is the supported route; `gnm` in a plugin worldspace is refuted for this use, to be rechecked with N1b_b against the N0b control.
+  - The chain now runs supervised_1011, then batch_full (integration-1011 runner).
+- **supervised_1011 finished (17 tests: 10 PASS, 5 FAIL, 2 INCONCLUSIVE).** Ranked:
+  1. **Door BLOCKED, 2 tests:** FortHagen01's wooden shutter door (BldWoodPDoorShutter01, 0BD6A1). It shows OPEN, activates and swings, and the prompt flips to CLOSE. But the panel still covers part of the opening, and the player stops 0.9 m before the door plane. Candidates: the door swings only part of the way, or its collision does not follow the animation. Unresolved.
+  2. **Travel NOPROMPT:** FortHagen01 load door 0CD469. The companion stood at the door; the runner now disables it per session (bf01e51, not yet in the chain's runner).
+  3. **Stairs STUCK:** Vault 114 CinderBlockStairs02 (rose 0.10 m, needed 0.12 m).
+  4. **Movable NOTMOVED:** FortHagen01 CigarettePack. The player reached it, but it moved 0.000 m.
+  - The two INCONCLUSIVEs: a fall held 1.5 m above a cave floor, and a movable test the player missed by 2.39 m.
+- The chain now runs **batch_full** (1,764 tests, about 30 h) on integration-1011.
+
+## 2026-10-12 morning: multi-part FO4 doors lost every panel but the first (fixed offline, PR #79)
+- **Cause (verified offline):**
+  - `nif.door_hinge` read only the first node the FO4 `Open` sequence moves.
+  - `convert_door` hung that node alone under the Akila template hinge. Every other panel went under the static frame, with no bone and no body.
+  - The Akila clip has one track.
+  - The FortHagen01 shutter's `Right` panel is one example of a panel that stayed behind.
+- **Blast radius:**
+  - In the 16 pinned cells: 10 door models, 38 placed doors and 76 batch_full door tests. They include the Parsons double door 06CF29, plus high-tech doors with 3 of 4 sliding panels frozen.
+  - In Fallout4.esm: 80 models move geometry outside their first node.
+- **Fix:**
+  - These doors get their own rig plus Open/Close clips built from FO4's keys with CALUMI: one bone, one track and one keyframed collision box per moving part.
+  - Clip keys are offsets from the rest pose, as in 126 vanilla door rigs.
+  - Offline result: 40 of 40 moving parts have tracks and bodies (was 23 of 40). 47 of 57 door models are byte-identical. The overlay plugin differs from integ_1011 in exactly 48 records.
+- **Review notes (pass-with-notes):**
+  - Nested motion is not detected yet (`RRMegaSecurityDoor01` and `Prewar_Locker_Door01`; neither is in the build).
+  - One physics system per panel has no vanilla precedent: every vanilla double door shares one system. This is the largest in-game risk.
+  - Three rigs use FO4's `@#0` name suffix as bone names.
+- **Also:**
+  - The FortHagen shutters are windows (the wall is solid to about 1.03 m), so their walk tests cannot pass; the route planner should skip openings above step height.
+  - It all needs a new pinned build (overlay `integ_1011_doors`) after batch_full. Commands are in docs/spikes/WP-doors-research.md.
+- **Slice: the Red Rocket cave door (PR #78, fixed after review; merged into integration-1012):**
+  - **Source (verified):** in FO4, RedRocket01's door 05E844 and the exterior door 08EB65 are AutoloadDoors (the player walks into a marker) linked to each other. Neither end existed in our build: markers are never placed.
+  - **Plugin:** FO4SliceRedRocket.esm places the vanilla AutoloadDoor_Cave (24F9CE) at both FO4 spots. Its marker is the FO4 marker / 70 within 0.013 %, and the two doors are persistent and teleport-linked both ways.
+    - It sits in the cave mouth 38 m south of exp2d's arrival.
+    - Offline checks pass: 27/27 and 28/28.
+  - **Runner:**
+    - A `door_trip` kind: coc, walk in, read the cell and position, walk out, save, move away, load, read again.
+    - FAIL NOLOAD needs the player still within 3 m of the door with no load seen.
+    - The position is read after every walk step, so a fast loading screen cannot send the player into the void.
+    - `exp_install.py order` puts experiment plugins after their masters.
+  - **Queue:** `slice_redrocket_door_b` (needs door_trip, door_check, plugin_order: integration-1012 at 16e21a4 or later).
+  - **integration-1012 now (16e21a4):** test-queue + #73 + #75 + #76 + #77 + #78 + #79. The unit suite passes (37 opt-in skipped) and guard passes. Its planned queues wait for the owner to switch the chain's runner.

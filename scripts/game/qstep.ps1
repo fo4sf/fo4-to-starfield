@@ -118,6 +118,22 @@ switch ($kind) {
     Send 'key:grave|wait:900'
     $obs['god'] = if ($state -in 'enabled', 'on') { 'on' } elseif ($state -in 'disabled', 'off') { 'on (second toggle)' } else { 'unknown' }
   }
+  'companion_off' {
+    # The test save's companion (Vasco, Starfield.esm ACHR 000057BE VascoREF) follows the player: it stood in front of a
+    # load door (FortHagen01 0CD469 NOPROMPT, 2026-10-12) and in every NPC sample shot. Disabled for this session only
+    # (the runner's own save; nothing is saved here). GetDisabled >> 1 confirms it.
+    if ("$($t.ref)" -notmatch '^[0-9A-Fa-f]{8}$') { "bad ref"; exit 4 }
+    Console-Open
+    Send "type:prid $($t.ref)|key:enter|wait:500|type:disable|key:enter|wait:500|type:GetDisabled|key:enter|wait:700"
+    $cap = Join-Path $Out 'companion.png'; $prep = Join-Path $Out 'companion_prep.png'
+    powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'shot_region.ps1') -Out $cap | Out-Null
+    & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $cap $prep 135 12
+    $txt = ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $prep -Scale 1) -join ' ')
+    Send 'key:grave|wait:900'
+    $obs['reply'] = $txt
+    $last = [regex]::Matches($txt, 'GetDisabled\s*>+\s*([01])', 'IgnoreCase') | Select-Object -Last 1
+    $obs['companion'] = if ($last -and $last.Groups[1].Value -eq '1') { 'disabled' } else { 'unknown' }
+  }
   'save' {
     if ($t.name -notmatch '^[A-Za-z0-9_]+$') { "bad save name"; exit 4 }
     Console-Open
@@ -189,8 +205,22 @@ switch ($kind) {
       if ("$($obs['spawn_read'])" -match '^\s*-?\d+(\.\d+)?\s+-?\d+(\.\d+)?\s+-?\d+(\.\d+)?\s*$') { $dropz = [double]$sv[2] + [double]$t.drop_above_spawn }
     }
     $settle = if ($t.settle_ms) { [int]$t.settle_ms } else { 4500 }
+    # hop_m: reach a far point in hops of at most hop_m metres (each hop waits hop_wait_ms), so terrain streams in
+    # behind the player as it would while travelling (core64 2026-10-11: single 1-2 km jumps hung at the drop height)
+    $hx = [double]$ox + [double]$t.points[0].x; $hy = [double]$oy + [double]$t.points[0].y
     foreach ($p in $t.points) {
-      Teleport @(([double]$p.x + $ox), ([double]$p.y + $oy), $dropz) 0 15
+      $tx = [double]$p.x + $ox; $ty = [double]$p.y + $oy
+      if ($t.hop_m) {
+        $dist = [Math]::Sqrt(($tx - $hx) * ($tx - $hx) + ($ty - $hy) * ($ty - $hy))
+        $n = [Math]::Ceiling($dist / [double]$t.hop_m)
+        for ($h = 1; $h -lt $n; $h++) {
+          Teleport @(($hx + ($tx - $hx) * $h / $n), ($hy + ($ty - $hy) * $h / $n), $dropz) 0 15
+          Start-Sleep -Milliseconds $(if ($t.hop_wait_ms) { [int]$t.hop_wait_ms } else { 6000 })
+        }
+        $obs['hops'] = 1 + [int]$obs['hops'] + [Math]::Max(0, $n - 1)
+      }
+      $hx = $tx; $hy = $ty
+      Teleport @($tx, $ty, $dropz) 0 15
       Start-Sleep -Milliseconds $settle               # a fall from 80 m takes about 4 s on Earth gravity
       $rd = Read-Pos
       # still hanging at the drop height: the cells around a far point were not loaded yet (exp3 2026-10-11 read 170.00

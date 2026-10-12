@@ -43,6 +43,7 @@ sys.path.insert(0, HERE)
 import route_eval  # noqa: E402
 
 UNIT = 1.0 / 70.0
+COMPANION_REF = "000057BE"   # Starfield.esm ACHR VascoREF: the test save's companion, disabled per session
 KINDS = ("stairs", "door", "fall", "movable", "travel")         # planned from a build; "terrain" via plan-terrain
 # ranking weight per (kind, verdict reason class): falling out of the world and broken travel first
 SEVERITY = {("fall", "FALL"): 5, ("travel", "NOTRAVEL"): 5, ("travel", "NOPROMPT"): 4, ("door", "BLOCKED"): 4,
@@ -89,11 +90,11 @@ def now():
 
 
 # ----------------------------------------------------------------------------------------------------------- planning
-def plan_cell(cell, staging, kinds, per_cell, plugin_index, formids, items, all_refs):
+def plan_cell(cell, staging, kinds, per_cell, plugin_index, formids, items, all_refs, routes_prefix="routes_"):
     """Tests for one exported cell, in the owner's priority order: stairs, falls, doors (both sides), movable, travel."""
     name = cell["cell"]
     out = []
-    routes_file = os.path.join(staging, f"routes_{name}.json")
+    routes_file = os.path.join(staging, f"{routes_prefix}{name}.json")   # e.g. routesfull_ = routes.py --max 400
     routes = load(routes_file, {}).get("routes", [])
     if "stairs" in kinds:
         for k, r in enumerate(routes):
@@ -101,7 +102,8 @@ def plan_cell(cell, staging, kinds, per_cell, plugin_index, formids, items, all_
                 out.append({"kind": "stairs", "cell": name, "ref": r["ref"], "model": r["model"],
                             "routes_file": routes_file, "route_index": k})
     if "fall" in kinds:
-        pts_file = os.path.join(staging, f"probe_{name}.txt")
+        # the point count is part of the name: a bigger batch must not reuse a smaller batch's picks
+        pts_file = os.path.join(staging, f"probe_{name}.txt" if per_cell == 10 else f"probe_{name}_{per_cell}.txt")
         if not os.path.exists(pts_file):
             subprocess.run([sys.executable, os.path.join(HERE, "probe_points.py"), os.path.join(staging, name + ".json"),
                             pts_file, str(per_cell)], check=False, capture_output=True)
@@ -174,7 +176,7 @@ def plan(a):
         cells = [c for c in cells if c["cell"] in want]
     tests = []
     for c in cells:
-        tests += plan_cell(c, staging, kinds, a.per_cell, a.plugin_index, formids, items, all_refs)
+        tests += plan_cell(c, staging, kinds, a.per_cell, a.plugin_index, formids, items, all_refs, a.routes_prefix)
     if a.per_kind:                                        # small batches: the first N of each kind in each cell
         seen = {}
         keep = []
@@ -218,7 +220,8 @@ def plan_terrain(a):
             sys.exit(f"bad travel command in plan.json: {travel!r}")
         tests.append({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "", "ref": w["coc"],
                       "model": w.get("label", ""), "world_coc": w["coc"], "travel": travel,
-                      **{k: w[k] for k in ("spawn_local", "anchor", "drop_above_spawn", "settle_ms", "z_ref") if w.get(k)},
+                      **{k: w[k] for k in ("spawn_local", "anchor", "drop_above_spawn", "settle_ms", "z_ref", "hop_m",
+                                           "hop_wait_ms") if w.get(k)},
                       "drop_z": float(w.get("drop_z", 80.0)),
                       "points": w["points"], "beyond": w.get("beyond") or {"x": w["points"][0]["x"] + 500.0,
                                                                            "y": w["points"][0]["y"]}})
@@ -612,6 +615,12 @@ class Runner:
         code = self.step({"kind": "godmode"}, sd)
         obs = load(os.path.join(sd, "obs.json"), {})
         self.log(f"god mode: {obs.get('god')} (reply {obs.get('reply', '')[:60]!r})")
+        # the save's companion follows the player and blocks doors and shots: off for this session (queue.json
+        # "companion": "keep" leaves it)
+        if self.q.get("companion", "off") != "keep":
+            code = self.step({"kind": "companion_off", "ref": COMPANION_REF}, sd)
+            obs = load(os.path.join(sd, "obs.json"), {})
+            self.log(f"companion {COMPANION_REF}: {obs.get('companion')} (exit {code})")
         self.session = True
 
     def recover(self):
@@ -690,6 +699,19 @@ class Runner:
                 self.log(f"dry run: would run {t['id']}")
                 ran += 1
                 continue
+            # an open breaker skips the test before any launch (core64 2026-10-11: a "fresh" test relaunched the game
+            # only to be skipped)
+            br = self.state.setdefault("breaker", {})
+            if br.get(t["kind"], {}).get("open"):
+                rec = {"id": t["id"], "kind": t["kind"], "cell": t["cell"], "ref": t["ref"], "model": t.get("model", ""),
+                       "attempt": 0, "verdict": "INCONCLUSIVE", "class": "BREAKER",
+                       "detail": f"not run: the first {BREAKER} {t['kind']} tests were all inconclusive", "exit": None,
+                       "dir": "", "t": now()}
+                with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
+                    f.write(json.dumps(rec) + "\n")
+                self.state["done"][t["id"]] = {"verdict": "INCONCLUSIVE", "class": "BREAKER", "attempts": 0}
+                self.checkpoint()
+                continue
             if t.get("fresh") and getattr(self, "game_used", False) and self.ctl.game_pid():
                 # every arrival after the first in an already merged planet world was erratic (2026-10-11 terrain
                 # retries fell through): a "fresh" test starts from a new launch
@@ -705,17 +727,6 @@ class Runner:
                     self.log(f"stopped: {g}")
                     self.checkpoint(f"stopped: {g}")
                     return 3
-            br = self.state.setdefault("breaker", {})
-            if br.get(t["kind"], {}).get("open"):
-                rec = {"id": t["id"], "kind": t["kind"], "cell": t["cell"], "ref": t["ref"], "model": t.get("model", ""),
-                       "attempt": 0, "verdict": "INCONCLUSIVE", "class": "BREAKER",
-                       "detail": f"not run: the first {BREAKER} {t['kind']} tests were all inconclusive", "exit": None,
-                       "dir": "", "t": now()}
-                with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
-                    f.write(json.dumps(rec) + "\n")
-                self.state["done"][t["id"]] = {"verdict": "INCONCLUSIVE", "class": "BREAKER", "attempts": 0}
-                self.checkpoint()
-                continue
             n = self.state["attempts"].get(t["id"], 0) + 1
             self.state["attempts"][t["id"]] = n
             out_dir = os.path.join(self.qdir, "tests", t["id"], f"a{n}")
@@ -842,6 +853,7 @@ def main(argv=None):
     p.add_argument("--per-cell", type=int, default=12)
     p.add_argument("--plugin-index", default="02")
     p.add_argument("--per-kind", type=int, default=0, help="keep the first N tests of each kind per cell (0 = all)")
+    p.add_argument("--routes-prefix", default="routes_", help="route files <staging>/<prefix><cell>.json (routes.py output)")
     pt = sub.add_parser("plan-terrain")
     pt.add_argument("--staging", required=True)
     pt.add_argument("--exp-dir", required=True)

@@ -657,8 +657,84 @@ class FreshBudgetTests(RunnerTests):
         self.assertEqual(st["fresh_launches"], 4)
 
 
+class BreakerBeforeFreshTests(RunnerTests):
+    def test_an_open_breaker_skips_without_a_relaunch(self):
+        # 2026-10-11 core64: with the terrain breaker open, every skipped "fresh" retry still closed and relaunched
+        make_queue(self.d, n=tq.BREAKER + 3)
+        q = json.load(open(os.path.join(self.d, "queue.json")))
+        for t in q["tests"]:
+            t["fresh"] = True
+        json.dump(q, open(os.path.join(self.d, "queue.json"), "w"))
+        r = tq.Runner(self.d, args(max_attempts=1), ctl=self.ctl, step=lambda t, o: 0)   # never an observation
+
+        def ps(script, *a, **k):
+            self.ctl.pid = 42
+            return (0, "ok")
+        r._ps = ps
+        r.setup_session = lambda cell: setattr(r, "session", True)
+        r.pinned_ok = lambda: True
+        self.assertEqual(r.run(), 0)
+        self.assertEqual(getattr(self.ctl, "closed", 0), tq.BREAKER - 1)   # only between the tests that ran
+        done = json.load(open(os.path.join(self.d, "state.json")))["done"]
+        self.assertEqual(sum(v["class"] == "BREAKER" for v in done.values()), 3)
+
+
+class CompanionTests(unittest.TestCase):
+    def test_the_companion_is_disabled_after_god_mode(self):
+        # 2026-10-12: the save's companion stood in front of FortHagen01's load door (NOPROMPT) and in every NPC shot
+        d = tempfile.mkdtemp()
+        make_queue(d, n=1)
+        kinds = []
+        r = tq.Runner(d, args(), ctl=FakeControls(), step=lambda t, o: kinds.append((t["kind"], t.get("ref"))) or 0)
+        r.setup_session("C")
+        self.assertEqual([k for k, _ in kinds][-2:], ["godmode", "companion_off"])
+        self.assertEqual(kinds[-1][1], tq.COMPANION_REF)
+        src = open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8").read()
+        self.assertIn("'companion_off' {", src)
+        self.assertIn("-notmatch '^[0-9A-Fa-f]{8}$'", src)
+
+    def test_a_queue_can_keep_the_companion(self):
+        d = tempfile.mkdtemp()
+        make_queue(d, n=1)
+        q = json.load(open(os.path.join(d, "queue.json")))
+        q["companion"] = "keep"
+        json.dump(q, open(os.path.join(d, "queue.json"), "w"))
+        kinds = []
+        r = tq.Runner(d, args(), ctl=FakeControls(), step=lambda t, o: kinds.append(t["kind"]) or 0)
+        r.setup_session("C")
+        self.assertNotIn("companion_off", kinds)
+
+
 class Exp3RecoveryTests(unittest.TestCase):
     def test_hang_reread_and_tab_recovery_present(self):
         src = open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8").read()
         self.assertIn("[Math]::Abs([double]$Matches[1] - $dropz) -lt 0.05", src)
         self.assertIn("Send 'key:tab|wait:2000'", src)
+
+
+class HopTests(unittest.TestCase):
+    def test_hop_options_reach_the_step(self):
+        d = tempfile.mkdtemp()
+        open(os.path.join(d, "FO4Port.esm"), "wb").write(b"TES4")
+        plan = [{"coc": "FO4Core_RedRocketSpawn", "drop_z": 245, "hop_m": 300, "hop_wait_ms": 7000,
+                 "points": [{"label": "a", "x": 0.0, "y": 0.0, "expect": 1.0}]}]
+        json.dump(plan, open(os.path.join(d, "plan.json"), "w"))
+        out = os.path.join(d, "q")
+        tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])
+        t = json.load(open(os.path.join(out, "queue.json")))["tests"][0]
+        self.assertEqual((t["hop_m"], t["hop_wait_ms"]), (300, 7000))
+        src = open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8").read()
+        self.assertIn("if ($t.hop_m)", src)
+
+
+class WatchdogTests(unittest.TestCase):
+    def test_watchdog_rules(self):
+        src = open(os.path.join(ROOT, "scripts", "game", "watchdog.ps1"), encoding="utf-8").read()
+        self.assertIn("threshold_hours = 3.0", src)                  # default inactivity before it acts
+        self.assertIn("if (Stopped)", src)                           # STOP files win
+        self.assertIn("-not $running -and (QueueLeft) -gt 0", src)   # never a second chain, never an empty one
+        self.assertIn("--grep '^Claude'", src)                       # Claude's commits count as activity
+        self.assertIn("-s workspace-write", src)                     # Codex runs sandboxed
+        self.assertNotIn("dangerously", src)
+        runbook = open(os.path.join(ROOT, "docs", "ai", "codex-runbook.md"), encoding="utf-8").read()
+        self.assertIn("No input to Starfield", runbook)
