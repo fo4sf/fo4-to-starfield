@@ -33,11 +33,14 @@ def checkpoint_signature(a):
             packages[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
             packages[name] = None
-    return {"version": 1, "python": sys.version, "packages": packages,
-            "archives": [checkpoints.archive_identity(p) for p in archives],
-            "content": {str(p.resolve()): checkpoints.digest(p) for p in
-                        [*code, Path(a.texconv), Path(a.content_resources), Path(a.collision_template)]},
-            "rig_doors": bool(a.starfield_data)}
+    sig = {"version": 1, "python": sys.version, "packages": packages,
+           "archives": [checkpoints.archive_identity(p) for p in archives],
+           "content": {str(p.resolve()): checkpoints.digest(p) for p in
+                       [*code, Path(a.texconv), Path(a.content_resources), Path(a.collision_template)]},
+           "rig_doors": bool(a.starfield_data)}
+    if getattr(a, "prefix", "fo4port") != "fo4port":   # output paths differ; the default keeps existing checkpoints valid
+        sig["prefix"] = a.prefix
+    return sig
 
 
 def source_identity(source):
@@ -117,7 +120,12 @@ def main():
     ap.add_argument("--cell-json", default="", help="convert the models placed in a cell exported by dotnet/Fo4Export")
     ap.add_argument("--types", default="Static,StaticCollection,MovableStatic,Furniture,Door,Activator,Container,MiscItem,Terminal",
                     help="base record types to take from --cell-json")
+    ap.add_argument("--prefix", default="fo4port",
+                    help="folder under meshes/, materials/ and textures/ for the converted files (another plugin's own "
+                         "archive needs its own prefix, so two archives never hold different files at the same path)")
     a = ap.parse_args()
+    if not re.fullmatch(r"[a-z0-9_]+", a.prefix):
+        ap.error("--prefix: lower-case letters, digits and _ only")
 
     ids = load_editor_ids(a.staging)
 
@@ -161,7 +169,7 @@ def main():
             if conv is None:
                 conv = pipeline.Converter(src, a.staging, a.texconv, a.content_resources, template,
                                           rig_doors=donor is not None, door_physics_donor=donor,
-                                          sf_mesh_template=mesh_template)
+                                          sf_mesh_template=mesh_template, prefix=a.prefix)
             r = conv.convert_nif(name)
             if cache:
                 try:

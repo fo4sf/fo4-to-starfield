@@ -72,6 +72,47 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   is a **supported hypothesis** pending exp2b3 and exp3 in game. Why exp2b read flat, landing size, seam blending, the
   lat/long rule, large-overlay behaviour, the even-size grid origin and the mask row order are **unresolved**.
 
+## 2026-10-11 Claude: terrain experiment 2c, the FO4 objects around Red Rocket on the native terrain
+- Question: can the real FO4 exterior references (cells x -20..-15, y 16..21) be placed on the exp2b terrain so the
+  runner measures object-on-terrain alignment, and what does the converted collision say they stand on?
+  Write-up: [docs/terrain/experiment2c.md](../terrain/experiment2c.md).
+- Method: new `dotnet/Fo4Land export-exterior` (Fo4Export's serializers compiled in unchanged), `src/fo4sf/exterior.py`
+  (skip reasons, placement, surface queries), `src/fo4sf/sfbodies.py` (reads back converted collision),
+  `convert_batch.py --prefix`, `dotnet/TerrainExp2` objects mode, `scripts/terrain/make_exp2c.py` (select / stage /
+  check); synthetic tests `test_exterior`, `test_sfbodies`, `test_make_exp2c`, `test_batch_prefix`. Staged
+  `C:\Modding\staging\terrain_exp2c`. Not deployed, not run in game.
+- Evidence:
+  - **verified**: export = 8,960 references + 48 actors, the same 9,008 FormIDs, cells and positions (0.004 units)
+    as the raw Python reader; 496 persistent references live in the world's persistent cell.
+  - **verified**: 8,069 placed (1,385 models), 939 skipped with a reason (decals, lights, power lines, markers,
+    effects, triggers, actors, 15 models that do not convert, 2 water planes); trees convert (STAT + BSTriShape).
+  - **verified**: converted collision read back = FO4's own (RedRExt_Workshop01: 5,898 triangles, 0 differ).
+    Workshop01 has no floor; the shop floor is RedRExt_Workshop02 at origin + 0.0286 m. (Corrected in the fix pass:
+    Workshop02 also holds the canopy roof; the COC marker stands 2 m above the terrain and the player falls 1.88 m onto
+    the pump island, 0.117 m above the terrain.)
+  - **verified**: clockwise heading (PluginSpike / routes.py): 33 references at floor height fall inside the shop
+    footprint, 0 with the opposite sign.
+  - **verified**: building z - BTD = -0.56 mm (FO4 LAND: 0.00 mm); BTD vs FO4 terrain under all 8,069 origins:
+    median 1.43 mm, p99 56.6 mm, max 482 mm (sharp FO4 edge).
+  - **verified**: raw walk: all 847 exp2b records unchanged, Mars plugin / BTD / mask byte-identical, 8,071 REFR in
+    16 cells as written, 0 missing geometry / material / texture files; 109 checks PASS.
+- Status: offline **verified**. Whether overlay references merge with the terrain's offset, texture archive needs,
+  object bounds in exteriors and the capsule radius used for point choice are **unresolved** (in-game run pending).
+- Fix pass after QA (same day): the first plan lost the runner's new `z_ref` key (its entries copied six keys by
+  hand), judged points 0.10 to 0.31 m above the terrain that the 0.5 m tolerance cannot tell from terrain, and mixed
+  terrain probes with object probes, while exp2b's first attempt read flat ground (-116.00, the BTD minimum, at all
+  14 probes) with its anchor unmerged. Now (**verified** offline, `offline_check.json` 137 checks PASS):
+  - every entry carries every key of the base entry and has its own terrain reference `zref_ground` as `z_ref`;
+    four entries: terrain gate, object tops >= 1.0 m above the terrain, shop floor (informational), informational;
+  - with the runner's own formula: entry 1 fails on flat ground (5.49 m), entry 2 fails without objects (15.99 m),
+    entry 3 passes either way (0.142 m: informational); the integ runner plans all four tests with `z_ref`;
+  - the judged tops and the floor equal FO4's own collision (source NIFs, `routes.collision_bodies`) within 0.035 mm,
+    all on layer 1; the low-drop entry's teleport positions are clear with a 0.4 m x 1.8 m cylinder (walls included);
+  - `exterior.place` takes the cell after the rigged-door hinge shift (door `077A83` moved from cell (-10, 10) to
+    (-10, 11)); `check` tests every reference's cell against its written position;
+  - re-staged on `terrain_exp2b2` (exp2b + BTD also under `meshes/terrain`); not queued until an exp2b-family run
+    shows the BTD relief (**unresolved**: compressed BTD storage is the supported cause, PR #67).
+
 ## 2026-10-11 Claude: overlay record fixes
 - Question: in which records do our terrain experiment plugins differ from vanilla unique overlays, and what must
   SFBK `FNAM` hold? Write-up: [docs/terrain/overlay-records.md](../terrain/overlay-records.md).

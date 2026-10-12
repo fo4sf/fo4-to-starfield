@@ -20,6 +20,11 @@
 //              01B736) referenced by the worldspace's XLCN
 //   anchor     {"edid", "local": [x, y, z]}: a persistent XMarker (00003B) in the persistent cell, FormID 0x800
 //   mars       {"plugin", "latitude", "longitude"}: write the Mars registration plugin (PNDT CNAM entry appended)
+//   objects    "objects.json" (experiment 2c, docs/terrain/experiment2c.md, written by scripts/terrain/make_exp2c.py
+//              stage): converted Fallout 4 models as STAT (or rigged DOOR) records and their references in the
+//              exterior cells, {"bases": [{"edid", "model", "door"?}], "refs": [{"src", "base", "cell", "pos", "rot",
+//              "scale", "disabled"}]} (metres, radians). Their FormIDs come after every terrain record, so the terrain
+//              records, the anchor and the Mars plugin keep exp2b's FormIDs; <staging dir>/formids.json lists them.
 using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
@@ -104,11 +109,13 @@ var spawn = FA("spawn");
 var spawnCell = FA("spawn_cell").Select(v => (int)v).ToArray();
 var blocks = new Dictionary<(int, int), WorldspaceBlock>();
 var subs = new Dictionary<(int, int), WorldspaceSubBlock>();
+var cellAt = new Dictionary<(int, int), Cell>();
 int cells = 0;
 for (int x = cmin; x <= cmax; x++)
     for (int y = cmin; y <= cmax; y++)
     {
         var c = new Cell(NewKey(), release) { Grid = new CellGrid { Point = new P2Int(x, y) } };
+        cellAt[(x, y)] = c;
         if (x == spawnCell[0] && y == spawnCell[1])
         {
             c.EditorID = S("coc");
@@ -143,6 +150,82 @@ if (anchorKey is FormKey ak)
     anchor.MajorRecordFlagsRaw |= 0x400;                             // Persistent
     w.TopCell.Persistent.Add(anchor);
 }
+int nStat = 0, nDoor = 0, nRef = 0, nDisabled = 0;
+if (Has("objects"))
+{
+    // experiment 2c: converted FO4 models and their references, allocated after every terrain record
+    using var odoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, S("objects"))));
+    var o = odoc.RootElement;
+    var baseKeys = new List<FormKey>();
+    var ids = new Dictionary<string, object>();
+    var baseIds = new Dictionary<string, string>();
+    foreach (var b in o.GetProperty("bases").EnumerateArray())
+    {
+        var edid = b.GetProperty("edid").GetString()!;
+        var model = b.GetProperty("model").GetString()!;
+        if (b.TryGetProperty("door", out var d) && d.ValueKind == JsonValueKind.Object)
+        {
+            // hinged door rigged like the vanilla template door (as PluginSpike): graph, skeleton, animations, bounds
+            var rec = new Door(NewKey(), release)
+            {
+                EditorID = edid, Model = new Model { File = model }, Name = "Door",
+                SoundLevel = SoundLevel.Normal, FacingAxisOverride = Door.FacingAxisOverrideEnum.BasedOnBounds,
+            };
+            if (d.TryGetProperty("bounds", out var bj))
+                rec.ObjectBounds = new ObjectBounds
+                {
+                    First = new P3Float(bj[0][0].GetSingle(), bj[0][1].GetSingle(), bj[0][2].GetSingle()),
+                    Second = new P3Float(bj[1][0].GetSingle(), bj[1][1].GetSingle(), bj[1][2].GetSingle()),
+                };
+            rec.Components.Add(new AnimationGraphComponent
+            {
+                ANAM = d.GetProperty("anim_graph").GetString(), BNAM = d.GetProperty("skeleton").GetString(),
+                CNAM = d.GetProperty("animations").GetString(),
+            });
+            mod.Doors.Add(rec);
+            baseKeys.Add(rec.FormKey);
+            nDoor++;
+        }
+        else
+        {
+            var stat = new Static(NewKey(), release) { EditorID = edid, Model = new Model { File = model } };
+            mod.Statics.Add(stat);
+            baseKeys.Add(stat.FormKey);
+            nStat++;
+        }
+        baseIds[edid] = baseKeys[^1].ID.ToString("X6");
+    }
+    var refIds = new Dictionary<string, string>();
+    foreach (var r in o.GetProperty("refs").EnumerateArray())
+    {
+        float[] V(string k) => r.GetProperty(k).EnumerateArray().Select(e => e.GetSingle()).ToArray();
+        var cxy = r.GetProperty("cell").EnumerateArray().Select(e => e.GetInt32()).ToArray();
+        if (!cellAt.TryGetValue((cxy[0], cxy[1]), out var cell))
+            throw new InvalidDataException($"reference {r.GetProperty("src").GetString()} in cell ({cxy[0]}, {cxy[1]}) outside the BTD cells");
+        var pos = V("pos");
+        var rot = V("rot");
+        var obj = new PlacedObject(NewKey(), release)
+        {
+            Base = new FormLinkNullable<IPlaceableObjectGetter>(baseKeys[r.GetProperty("base").GetInt32()]),
+            Position = new P3Float(pos[0], pos[1], pos[2]),
+            Rotation = new P3Float(rot[0], rot[1], rot[2]),
+        };
+        var scale = r.GetProperty("scale").GetSingle();
+        if (Math.Abs(scale - 1f) > 1e-4) obj.Scale = scale;
+        if (r.GetProperty("disabled").GetBoolean())
+        {
+            obj.MajorRecordFlagsRaw |= 0x800;                            // Initially Disabled, as in FO4
+            nDisabled++;
+        }
+        cell.Temporary.Add(obj);
+        refIds[r.GetProperty("src").GetString()!] = obj.FormKey.ID.ToString("X6");
+        nRef++;
+    }
+    ids["plugin"] = modKey.FileName.String;
+    ids["bases"] = baseIds;
+    ids["refs"] = refIds;
+    File.WriteAllText(Path.Combine(outDir, "formids.json"), JsonSerializer.Serialize(ids, new JsonSerializerOptions { WriteIndented = true }));
+}
 mod.Worldspaces.Add(w);
 mod.ModHeader.Stats.NextFormID = next;
 
@@ -151,7 +234,8 @@ mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(sfDa
     .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full)).Write();
 Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): WRLD {w.FormKey} {w.EditorID}, SFBK {block.FormKey} -> {block.ANAM}, " +
                   $"FNAM {block.FNAM?.Length} B, INAM {block.INAM}, HNAM {block.HNAM}, location {w.Location.FormKeyNullable}, anchor {anchorKey}, " +
-                  $"{cells} cells {cmin}..{cmax}, COC {S("coc")} at ({spawn[0]}, {spawn[1]}, {spawn[2]}) in cell ({spawnCell[0]}, {spawnCell[1]}), next FormID 0x{next:X}");
+                  $"{cells} cells {cmin}..{cmax}, COC {S("coc")} at ({spawn[0]}, {spawn[1]}, {spawn[2]}) in cell ({spawnCell[0]}, {spawnCell[1]}), next FormID 0x{next:X}" +
+                  (Has("objects") ? $"; objects: {nStat} STAT, {nDoor} DOOR, {nRef} REFR ({nDisabled} initially disabled)" : ""));
 
 if (Has("mars"))
 {
