@@ -15,6 +15,10 @@ usage:
                              travel / after the arrival. queue.json "needs" lists the runner features such a queue
                              uses (runner_features.py): a runner without them refuses it, also an older one (the
                              queue's pre_launch runs the runner's own exp_install.py with --needs)
+  python testqueue.py plan-door --staging <build dir> --exp-dir <dir with plan.json> --out <queue dir>
+                             [--plugins a.esm,b.esm] [--fresh]
+                             door_trip (docs/slice/redrocket-door.md): coc into a world, through a load door into an
+                             interior and back out, save, load; every arrival observed (position, GetInCell, screenshot)
   python testqueue.py run   --queue <queue dir> [--max-tests N] [--max-hours 8] [--min-idle 900] [--wait-for-idle]
                              [--refocus] [--max-attempts 2] [--dry-run]
   python testqueue.py report --queue <queue dir>
@@ -52,19 +56,23 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import console_plan  # noqa: E402
+import exp_install  # noqa: E402
 import route_eval  # noqa: E402
 import runner_features  # noqa: E402
 import sky_light  # noqa: E402
 
 UNIT = 1.0 / 70.0
 KINDS = ("stairs", "door", "fall", "movable", "travel")         # planned from a build; "terrain" via plan-terrain
-EXTRA_KINDS = ("terrain", "npc_nav")                            # planned from an experiment's plan.json
+EXTRA_KINDS = ("terrain", "npc_nav", "door_trip")               # planned from an experiment's plan.json
 # ranking weight per (kind, verdict reason class): falling out of the world and broken travel first
 SEVERITY = {("fall", "FALL"): 5, ("travel", "NOTRAVEL"): 5, ("travel", "NOPROMPT"): 4, ("door", "BLOCKED"): 4,
             ("door", "NOPROMPT"): 3, ("stairs", "FALL"): 4, ("stairs", "STUCK"): 3, ("door", "FALL"): 5,
             ("movable", "NOTMOVED"): 2, ("movable", "ITEMFELL"): 3, ("any", "CRASH"): 5,
             ("terrain", "NOTERRAIN"): 5, ("terrain", "HEIGHTS"): 4,
-            ("npc_nav", "FELL"): 5, ("npc_nav", "NONAV"): 4, ("npc_nav", "STALLED"): 3, ("npc_nav", "WANDER"): 3}
+            ("npc_nav", "FELL"): 5, ("npc_nav", "NONAV"): 4, ("npc_nav", "STALLED"): 3, ("npc_nav", "WANDER"): 3,
+            ("door_trip", "NOLOAD"): 5, ("door_trip", "WRONGCELL"): 5, ("door_trip", "UNMERGED"): 5,
+            ("door_trip", "REMERGED"): 4, ("door_trip", "ELSEWHERE"): 4, ("door_trip", "RELOAD"): 5,
+            ("door_trip", "FELL"): 5, ("door_trip", "OFFGROUND"): 3}
 PS = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
 BREAKER = 6          # inconclusive attempts in a row, with no PASS/FAIL yet, that switch a kind off for the run
 # inconclusive for a reason a retry cannot change. NIGHT (need_daylight, the run did not read as daylight) is NOT
@@ -529,6 +537,95 @@ def plan_npc(a):
           f"on build {q['build_id']}" + (f", needs runner features {', '.join(q['needs'])}" if q.get("needs") else ""))
 
 
+# door_trip (docs/slice/redrocket-door.md): every key a plan.json test may carry; anything else stops the planning
+DOOR_PLAN_KEYS = frozenset((
+    "label", "travel", "spawn_local", "outside", "inside", "save", "radius", "start_tol", "reload_tol", "ground_tol",
+    "walk_ms", "walk_step_ms", "settle_ms", "drop", "near_wait_ms", "load_wait_s", "fresh", "expect", "basis")
+    + sky_light.LIGHT_KEYS + console_plan.CONSOLE_KEYS)
+DOOR_SIDE_KEYS = {"outside": frozenset(("start", "door", "arrival", "near", "ground")),
+                  "inside": frozenset(("cell", "start", "door", "arrival", "near", "floor"))}
+NAME = r"[A-Za-z0-9_]{1,64}"                                    # a cell EditorID or a save name: typed into the console
+
+
+def door_test(n, w):
+    """One door_trip test from a plan.json entry (docs/slice/redrocket-door.md). Positions: "outside" in the world's own
+    frame (the runner adds the overlay's merge offset, measured from the settled arrival against spawn_local), "inside"
+    in the interior cell's frame. Everything qstep.ps1 types comes from here and is validated (qstep checks it again):
+    the coc travel, the interior cell's EditorID (player.GetInCell), the save name, finite numbers."""
+    label = str(w.get("label") or f"door{n}")
+    unknown = sorted(set(w) - DOOR_PLAN_KEYS)
+    if unknown:
+        sys.exit(f"{label}: unknown plan.json keys {unknown} (known: {sorted(DOOR_PLAN_KEYS)})")
+    travel = str(w.get("travel") or "")
+    if not re.fullmatch(r"coc [A-Za-z0-9_]+", travel):
+        sys.exit(f"bad travel in plan.json (coc <cell editor id>): {travel!r}")
+    sides = {}
+    for side, keys in DOOR_SIDE_KEYS.items():
+        s = w.get(side)
+        if not isinstance(s, dict) or set(s) - keys:
+            sys.exit(f"{label}: {side} must be an object with keys among {sorted(keys)}: {s!r}")
+        out = {k: _vec(s.get(k), (3,), f"{side}.{k}") for k in ("start", "door", "arrival")}
+        out["near"] = _vec(s["near"], (3,), f"{side}.near") if s.get("near") is not None else None
+        for k in ("ground", "floor"):
+            if k in keys and s.get(k) is not None:
+                out[k] = _vec([s[k]], (1,), f"{side}.{k}")[0]
+        sides[side] = out
+    cell = str(w["inside"].get("cell") or "")
+    if not re.fullmatch(NAME, cell):
+        sys.exit(f"bad inside.cell in plan.json (an interior cell's EditorID): {cell!r}")
+    sides["inside"]["cell"] = cell
+    save = str(w.get("save") or "")
+    if not re.fullmatch(NAME, save) or not save.lower().startswith("fo4sf_"):
+        sys.exit(f"bad save name in plan.json (fo4sf_<letters, digits, _>, not the runner's session save): {save!r}")
+    if save.lower().startswith("fo4sf_test_"):
+        sys.exit(f"save name {save!r} would overwrite a runner session save (fo4sf_test_<build>)")
+    safe = re.sub(r"[^A-Za-z0-9_]", "_", label)[:40]
+    o, i = sides["outside"], sides["inside"]
+    t = {"id": f"{n:04d}_door_trip_{safe}", "kind": "door_trip", "cell": "", "ref": label, "model": label,
+         "travel": travel, "spawn_local": _vec(w.get("spawn_local"), (2, 3), "spawn_local"),
+         "outside": o, "inside": i, "save": save,
+         # the walk towards each door: heading from the start to the door (degrees clockwise from north, as setangle z)
+         "heading_out": heading_to(o["start"], o["door"]), "heading_in": heading_to(i["start"], i["door"]),
+         "radius": _num(w, "radius", 4.0, 0.5, 50), "start_tol": _num(w, "start_tol", 3.0, 0.5, 50),
+         "reload_tol": _num(w, "reload_tol", 1.0, 0.05, 50), "ground_tol": _num(w, "ground_tol", 1.0, 0.05, 50),
+         "walk_ms": int(_num(w, "walk_ms", 8000, 0, 60000)), "walk_step_ms": int(_num(w, "walk_step_ms", 500, 100, 5000)),
+         "settle_ms": int(_num(w, "settle_ms", 6000, 0, 30000)), "drop": _num(w, "drop", 0.5, 0, 50),
+         "near_wait_ms": int(_num(w, "near_wait_ms", 6000, 0, 60000)),
+         "load_wait_s": int(_num(w, "load_wait_s", 90, 10, 600))}
+    if w.get("fresh"):
+        t["fresh"] = True
+    for k in ("expect", "basis"):
+        if w.get(k):
+            t[k] = str(w[k])
+    return with_extras(t, w, {})
+
+
+def plan_door(a):
+    """door_trip tests from <exp-dir>/plan.json (a list, or {"tests": [...]}); see door_test."""
+    staging = os.path.abspath(a.staging)
+    esm = os.path.join(staging, "FO4Port.esm")
+    if not os.path.exists(esm):
+        sys.exit(f"no FO4Port.esm in {staging}: the runner pins and launches a build")
+    src = load(os.path.join(a.exp_dir, "plan.json"))
+    if isinstance(src, dict):
+        src = src.get("tests")
+    if not src or not isinstance(src, list) or not all(isinstance(w, dict) for w in src):
+        sys.exit(f"no door_trip tests in {os.path.join(a.exp_dir, 'plan.json')} (a list of test objects)")
+    cli = light_cli(a)
+    tests = [with_extras(door_test(n, w), w, cli) for n, w in enumerate(src)]
+    digest = sha256(esm)
+    q = {"created": now(), "staging": staging, "plugin_sha256": digest, "build_id": digest[:8],
+         "commit": subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
+         "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]],
+         "launch_cell": a.launch_cell, "experiment": os.path.abspath(a.exp_dir),
+         "tests": [dict(t, fresh=True) if a.fresh else t for t in (tests[:a.only] if a.only else tests)]}
+    q.update(queue_extras(q["tests"], a, a.exp_dir))
+    os.makedirs(a.out, exist_ok=True)
+    save_atomic(os.path.join(a.out, "queue.json"), q)
+    print(f"{len(q['tests'])} door_trip tests (experiment {a.exp_dir}) on build {q['build_id']}"
+          + (f", needs runner features {', '.join(q['needs'])}" if q.get("needs") else ""))
+
+
 # ------------------------------------------------------------------------------------------------------------ judging
 def light_of(test, obs):
     """The light of a test that asked for a time of day or a weather (sky_light.verdict: the arrival camera before and
@@ -660,7 +757,140 @@ def judge_kind(test, obs, out_dir):
     if kind == "npc_nav":
         v, cls, detail = judge_npc(test, obs, shot_ok)
         return v, cls, detail + (f" [expected {test['expect']}]" if test.get("expect") else "")
+    if kind == "door_trip":
+        v, cls, detail = judge_door(test, obs, shot_ok)
+        return v, cls, detail + (f" [expected {test['expect']}]" if test.get("expect") else "")
     return "INCONCLUSIVE", "KIND", f"unknown kind {kind}"
+
+
+def _add(p, off):
+    return [p[k] + off[k] for k in range(3)]
+
+
+def _whole_cells(delta, radius, cell=100.0):
+    """(dx, dy) when delta is a whole number of Starfield cells in x and y (within radius) and level in z, else None:
+    an arrival the overlay merge put at another cell offset than the coc arrival's."""
+    dx, dy = round(delta[0] / cell) * cell, round(delta[1] / cell) * cell
+    if (dx or dy) and math.hypot(delta[0] - dx, delta[1] - dy) <= radius and abs(delta[2]) <= radius:
+        return dx, dy
+    return None
+
+
+def judge_door(test, obs, shot_ok):
+    """door_trip (docs/slice/redrocket-door.md). The legs must all be observed, in order: the coc arrival (settled,
+    gives the overlay's merge offset O = arrival - spawn_local), "in" (from outside.start + O through the door to
+    inside.arrival), "out" (from inside.start through the door to outside.arrival + O), the save (its file written) and
+    the load (a loading screen seen, then the same position as before the save, settled, on outside.ground + O.z). A
+    position not read, a start not reached or a screenshot missing is INCONCLUSIVE, never PASS; the first leg that
+    fails decides. GetInCell (inside.cell), read after each arrival, must agree with the position when it was read."""
+    if not obs.get("offset"):
+        why = obs.get("offset_missing") or "the arrival was not read or never settled"
+        return "INCONCLUSIVE", "ANCHOR", f"no merge offset ({why}): no door was tried"
+    off = (list(obs["offset"]) + [0.0, 0.0, 0.0])[:3]
+    o, i = test["outside"], test["inside"]
+    R, ST = test.get("radius", 4.0), test.get("start_tol", 3.0)
+    legs = {x.get("name"): x for x in obs.get("legs") or [] if isinstance(x, dict)}
+    notes = [f"offset {off[0]:.1f}, {off[1]:.1f}, {off[2]:.2f}"]
+
+    def leg(name, start, door, arrival, unmerged=None):
+        """None when the leg passed (notes appended), else (verdict, class, detail). unmerged: the arrival point in
+        the world's own frame (out leg), to tell an arrival without the overlay's merge offset."""
+        x = legs.get(name)
+        if not x:
+            return "INCONCLUSIVE", "UNREAD", f"{name}: the leg did not run"
+        st = parse3(x.get("start_read"))
+        if st is None or math.hypot(st[0] - start[0], st[1] - start[1]) > ST:
+            got = "not read" if st is None else f"read {math.hypot(st[0] - start[0], st[1] - start[1]):.1f} m away"
+            return "INCONCLUSIVE", "START", f"{name}: the start in front of the door was not reached ({got})"
+        how = (f"trigger {x.get('trigger') or 'none'} after {x.get('walked_ms', 0)} ms of walking"
+               + (", prompt seen" if x.get("prompt") else ""))
+        end = parse3(x.get("arrival_read"))
+        loaded = bool(x.get("load_seen"))
+        cell = x.get("incell")
+        if end is None:
+            return "INCONCLUSIVE", "UNREAD", f"{name}: arrival not read ({how})"
+        if not shot_ok(x.get("shot")):
+            return "INCONCLUSIVE", "NOSHOT", f"{name}: no arrival screenshot"
+        moved = math.dist(end, st)
+        if moved < 30.0:                                         # the player is still near where the walk started
+            dd = math.dist(end, door)
+            if loaded:
+                return ("INCONCLUSIVE", "NOMOVE", f"{name}: the HUD went away (a load?) but the player stayed "
+                        f"{dd:.1f} m from the door: a menu or popup, not a load ({how})")
+            return "FAIL", "NOLOAD", (f"{name}: no load: the player ended {dd:.1f} m from the door after {how}"
+                                      + (f", teleported {x['near_m']} m from it as a last try" if x.get("near_m") else ""))
+        d = math.dist(end, arrival)
+        inside = name == "in"
+        want_cell = 1 if inside else 0
+        settled = bool(x.get("arrival_settled"))
+        if not settled and end[2] < arrival[2] - 3.0 and math.hypot(end[0] - arrival[0], end[1] - arrival[1]) <= R:
+            return ("FAIL", "FELL", f"{name}: arrived over the arrival point but falling (z {end[2]:.1f}, "
+                    f"{arrival[2] - end[2]:.1f} m below it, not settled): no floor or ground there; {how}")
+        if d <= R:
+            if not settled:
+                return "INCONCLUSIVE", "UNREAD", f"{name}: arrived {d:.1f} m from the arrival point, still moving"
+            if cell is not None and cell != want_cell:
+                return ("INCONCLUSIVE", "CELLREAD", f"{name}: arrived {d:.1f} m from the arrival point but GetInCell "
+                        f"{i['cell']} read {cell}")
+            notes.append(f"{name}: arrived {d:.1f} m from the {'interior' if inside else 'merged exterior'} arrival "
+                         f"point (GetInCell {i['cell']} {'unread' if cell is None else cell}), {how}, load "
+                         f"{x.get('load_s')} s")
+            return None
+        if unmerged is not None:                                 # out: the arrival in the world's own frame
+            dl = math.dist(end, unmerged)
+            if dl <= R:
+                return ("FAIL", "UNMERGED", f"{name}: arrived {dl:.1f} m from the arrival point's UNMERGED position "
+                        f"(the overlay's own frame, offset not applied); {how}")
+            wc = _whole_cells([end[k] - arrival[k] for k in range(3)], R)
+            if wc:
+                return ("FAIL", "REMERGED", f"{name}: arrived at the arrival point shifted by {wc[0]:+.0f}, {wc[1]:+.0f} m "
+                        f"(whole cells): the overlay merged at another offset than at the coc arrival; {how}")
+        if cell == want_cell and inside:
+            return "FAIL", "ELSEWHERE", f"in: in {i['cell']} (GetInCell 1) but {d:.1f} m from the arrival point"
+        if loaded and cell is not None and cell != want_cell:
+            where = "still in" if cell == 1 else "not in"
+            return "FAIL", "WRONGCELL", f"{name}: loaded, {where} {i['cell']} (GetInCell {cell}), {d:.1f} m away"
+        return "INCONCLUSIVE", "ELSEWHERE", f"{name}: ended {d:.1f} m from the arrival point ({how})"
+
+    o_start, o_door, o_arr = _add(o["start"], off), _add(o["door"], off), _add(o["arrival"], off)
+    r = leg("in", o_start, o_door, i["arrival"])
+    if r:
+        return r[0], r[1], f"{r[2]}; {'; '.join(notes)}"
+    r = leg("out", i["start"], i["door"], o_arr, unmerged=o["arrival"])
+    if r:
+        return r[0], r[1], f"{r[2]}; {'; '.join(notes)}"
+    out_read = parse3(legs["out"].get("arrival_read"))
+    ground = o.get("ground")
+    if ground is not None:
+        notes.append(f"out arrival z {out_read[2] - off[2]:.2f} (ground {ground:.2f})")
+    sv = obs.get("save") or {}
+    if not sv.get("found"):
+        why = sv.get("why") or ("not checked" if not sv else "no file")
+        return "INCONCLUSIVE", "NOSAVE", f"save {test['save']}: file not seen ({why}); {'; '.join(notes)}"
+    rl = obs.get("reload") or {}
+    rd = parse3(rl.get("read"))
+    if not rl.get("load_seen"):
+        return ("INCONCLUSIVE", "RELOAD_UNSEEN", f"load {test['save']}: no loading screen seen, so the read after it says "
+                f"nothing; {'; '.join(notes)}")
+    if rd is None or not shot_ok(rl.get("shot")):
+        return "INCONCLUSIVE", "UNREAD", f"load: position not read or no screenshot; {'; '.join(notes)}"
+    dr = math.dist(rd, out_read)
+    z0 = (ground + off[2]) if ground is not None else out_read[2]
+    if rd[2] < z0 - 3.0:
+        return "FAIL", "FELL", f"after the load z {rd[2]:.2f}, {z0 - rd[2]:.1f} m below the ground; {'; '.join(notes)}"
+    if dr > test.get("reload_tol", 1.0):
+        return ("FAIL", "RELOAD", f"after the load {dr:.2f} m from where the save was made ({rl.get('read')} vs "
+                f"{legs['out'].get('arrival_read')}); {'; '.join(notes)}")
+    if not rl.get("settled"):
+        return "INCONCLUSIVE", "UNREAD", f"after the load the position never settled; {'; '.join(notes)}"
+    if ground is not None and abs(rd[2] - z0) > test.get("ground_tol", 1.0):
+        return ("FAIL", "OFFGROUND", f"after the load z {rd[2] - off[2]:.2f} in the world's frame, ground {ground:.2f} "
+                f"(off by {rd[2] - z0:+.2f} m); {'; '.join(notes)}")
+    cell = rl.get("incell")
+    notes.append(f"save {test['save']} written ({sv.get('size')} B); after the load {dr:.2f} m from the saved spot"
+                 + (f", z {rd[2] - z0:+.2f} m from the ground" if ground is not None else "")
+                 + f", GetInCell {i['cell']} {'unread' if cell is None else cell}, load {rl.get('load_s')} s")
+    return "PASS", "PASS", "; ".join(notes)
 
 
 def judge_npc(test, obs, shot_ok):
@@ -1014,6 +1244,20 @@ def planned_on_other_code(commit):
     return None
 
 
+def plugin_order_needed(exp_dir, plugins):
+    """True when a staged plugin masters a plugin that neither the game loads on its own nor an earlier plugin of the
+    same install provides (e.g. FO4Port.esm, which cycle.ps1's deploy activates after the experiment's plugins): such a
+    queue needs a runner whose cycle.ps1 runs exp_install.py order (runner feature plugin_order)."""
+    for k, p in enumerate(plugins):
+        f = os.path.join(exp_dir, p)
+        if not os.path.exists(f):
+            continue
+        earlier = {x.casefold() for x in plugins[:k]}
+        if any(not exp_install.implicit(m) and m.casefold() not in earlier for m in exp_install.plugin_masters(f)):
+            return True
+    return False
+
+
 def queue_extras(tests, a, exp_dir):
     """queue.json "needs" (runner_features.needs) and "pre_launch": the RUNNER's own exp_install.py (a path relative to
     the checkout the runner runs from: testqueue.py starts it there) installs the experiment when --plugins is given, and
@@ -1021,6 +1265,8 @@ def queue_extras(tests, a, exp_dir):
     option itself); without plugins, runner_features.py check does the same."""
     out = {}
     need = runner_features.needs(tests)
+    if a.plugins and plugin_order_needed(exp_dir, [p.strip() for p in a.plugins.split(",") if p.strip()]):
+        need = sorted(set(need) | {"plugin_order"})
     if need:
         out["needs"] = need
     if a.plugins:
@@ -1090,7 +1336,29 @@ def step_timeout(test):
                  + test.get("spawn_wait_ms", 2000) / 1000
                  + 3 * NPC_SESSION_S + NPC_REMOVE_S)       # t = 0 (Select-Npc) and the command; the removal
         return int(fixed + n * (2 * NPC_SESSION_S + 10) + max(reads) + light)
+    if test.get("kind") == "door_trip":
+        return door_timeout(test, light)
     return 300
+
+
+DOOR_CHECK_S = 8        # door_trip: one HUD check while walking (screenshot + hud_visible.py, PowerShell + Python start)
+
+
+def door_timeout(test, light=0.0):
+    """Worst case of one door_trip step (qstep.ps1 'door_trip'): the coc arrival read until it settles (5 reads), per
+    leg the teleport to the start, its read, every walk step with its HUD check, E, the 1 m teleport with its checks,
+    the load (load_wait_s), the arrival read until it settles and GetInCell (one console session), then the save and
+    the load with their reads."""
+    step_ms = max(test.get("walk_step_ms", 500), 1)
+    checks = math.ceil(test.get("walk_ms", 8000) / step_ms)
+    leg = (30 + test.get("settle_ms", 6000) / 1000 + NPC_READ_S + 5
+           + checks * (step_ms / 1000 + DOOR_CHECK_S) + 15
+           + 30 + test.get("near_wait_ms", 6000) / 1000 + 4 * DOOR_CHECK_S
+           + test.get("load_wait_s", 90) + 3 + 5 * NPC_READ_S + 12 + NPC_SESSION_S + 5)
+    fixed = 120 + 5 * NPC_READ_S + 12 + 5                  # coc, the HUD back (up to 90 s), the arrival settled, shot
+    save = 30 + 10
+    reload = 30 + 120 + 3 + 5 * NPC_READ_S + 12 + NPC_SESSION_S + 5
+    return int(fixed + 2 * leg + save + reload + light)
 
 
 class Runner:
@@ -1183,7 +1451,8 @@ class Runner:
                                                "-Shot", os.path.join(self.qdir, "cycle.png")], 900, steal=True)
             self.log(f"cycle exit {code}: {out.strip().splitlines()[-1] if out.strip() else ''}")
             if code != 0:
-                return "stop" if code in (2, 3, 5, 6) else "retry"
+                # 7: an installed experiment plugin's master is not active (exp_install.py order): nothing launched
+                return "stop" if code in (2, 3, 5, 6, 7) else "retry"
             self.session, self.cell = False, launch
         if not self.session:
             self.setup_session(launch)
@@ -1585,7 +1854,18 @@ def main(argv=None):
     pn.add_argument("--only", type=int, default=0, help="keep the first N tests")
     pn.add_argument("--fresh", action="store_true", help="relaunch the game before every test (a test's own "
                                                          "\"fresh\": true in plan.json does the same for that test)")
-    for sp in (pt, pn):                                   # time of day / weather for every test (docs/ai/test-queue.md)
+    pd = sub.add_parser("plan-door", help="door_trip tests (a load door there and back, save, load) from "
+                                          "<exp-dir>\\plan.json (docs/slice/redrocket-door.md)")
+    pd.add_argument("--staging", required=True)
+    pd.add_argument("--exp-dir", required=True, help="folder with plan.json and the plugins to install")
+    pd.add_argument("--out", required=True)
+    pd.add_argument("--launch-cell", default="Vault111Cryo")
+    pd.add_argument("--plugin-index", default="02")
+    pd.add_argument("--starfield", default=r"D:\SteamLibrary\steamapps\common\Starfield")
+    pd.add_argument("--plugins", default="", help="experiment plugins to activate before launch (exp_install.py)")
+    pd.add_argument("--only", type=int, default=0, help="keep the first N tests")
+    pd.add_argument("--fresh", action="store_true", help="relaunch the game before every test")
+    for sp in (pt, pn, pd):                               # time of day / weather for every test (docs/ai/test-queue.md)
         sp.add_argument("--time-of-day", type=float, default=None,
                         help="local hour set after the arrival, before the screenshots (12 = noon on any planet)")
         sp.add_argument("--time-methods", default="",
@@ -1615,6 +1895,8 @@ def main(argv=None):
         return plan_terrain(a)
     if a.cmd == "plan-npc":
         return plan_npc(a)
+    if a.cmd == "plan-door":
+        return plan_door(a)
     if a.cmd == "run":
         return Runner(a.queue, a).run()
     if a.cmd == "report":

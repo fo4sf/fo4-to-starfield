@@ -2,6 +2,7 @@
 
 usage: python exp_install.py install|uninstall|status --exp-dir <staged dir> --starfield <game dir> [--pack]
                              [--needs light,console]
+       python exp_install.py order --starfield <game dir>
 
 The staged dir holds one or more <name>.esm files (only those listed with --plugins are activated, default: the first
 one alphabetically) and a Data\\ tree of loose files (e.g. Data\\Terrain\\*.btd). install refuses to overwrite any existing
@@ -21,17 +22,121 @@ such as the converted raider) installs its plugins and no archive.
 (runner_features.py); the queue runs this script by a path relative to the runner's checkout, so it is the runner's own
 copy, and a copy from before --needs existed refuses the option (argparse, exit 2): an older runner stops before it
 launches the game instead of running a queue without its time of day or console lines.
+
+order (cycle.ps1 runs it after deploy_starfield.py has activated FO4Port.esm, right before the launch): every plugin
+this install activated loads after each of its masters that Plugins.txt lists. install appends the experiment's
+plugins before the launch, and cycle.ps1's deploy appends "*FO4Port.esm" after them on every launch, so a plugin that
+masters FO4Port.esm (the slice's door plugin, docs/slice/redrocket-door.md) would otherwise load before its own master.
+A master that is neither listed in Plugins.txt nor one of the game's own implicit files (Starfield.esm, the official
+ESMs) cannot be loaded at all: exit 6, Plugins.txt unchanged. Lines are only moved, never added or removed, so both
+uninstalls (this script's and deploy_starfield.py's, which remove lines by their text) still find theirs.
 """
 import argparse
 import hashlib
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 
 RECORD = "FO4SFExp.install.json"
+# files the game loads on its own, never listed in Plugins.txt (Starfield.esm, the official masters); compared
+# case-insensitively, "sfbgs" as a prefix (SFBGS003.esm ... SFBGS047.esm on this install)
+IMPLICIT = ("starfield.esm", "blueprintships-starfield.esm", "constellation.esm", "oldmars.esm", "shatteredspace.esm")
+
+
+def plugin_masters(path):
+    """The master file names in a plugin's TES4 header (MAST subrecords, in header order). Raises ValueError for a
+    file that is not a TES4 plugin."""
+    with open(path, "rb") as f:
+        head = f.read(24)
+        if len(head) < 24 or head[:4] != b"TES4":
+            raise ValueError(f"{path}: not a TES4 plugin")
+        size = struct.unpack_from("<I", head, 4)[0]
+        data = f.read(size)
+    out, pos = [], 0
+    big = None                                            # XXXX: the next subrecord's real size (u32)
+    while pos + 6 <= len(data):
+        typ = data[pos:pos + 4]
+        n = struct.unpack_from("<H", data, pos + 4)[0]
+        if typ == b"XXXX":
+            big = struct.unpack_from("<I", data, pos + 6)[0]
+            pos += 6 + n
+            continue
+        if big is not None:
+            n, big = big, None
+        if typ == b"MAST":
+            out.append(data[pos + 6:pos + 6 + n].split(b"\0")[0].decode("utf-8", "replace"))
+        pos += 6 + n
+    return out
+
+
+def implicit(name):
+    low = name.casefold()
+    return low in IMPLICIT or low.startswith("sfbgs")
+
+
+def order_lines(lines, plugins, masters):
+    """(new lines, moved, missing): every plugin in `plugins` (activated by this install, in that order) moved right
+    after the last line naming one of its masters, when it stands before it. masters: {plugin: [master, ...]}.
+    missing: (plugin, master) pairs whose master is neither on a line nor implicit."""
+    def name(ln):
+        return ln.strip().lstrip("*").strip().casefold()
+    out = list(lines)
+    moved, missing = [], []
+    for _ in range(len(plugins) + 1):                     # a chain of masters settles within len(plugins) passes
+        changed = False
+        for p in plugins:
+            at = [k for k, ln in enumerate(out) if name(ln) == p.casefold()]
+            if not at:
+                continue
+            i = at[0]
+            last = -1
+            for m in masters.get(p, []):
+                idx = [k for k, ln in enumerate(out) if name(ln) == m.casefold()]
+                if idx:
+                    last = max(last, max(idx))
+                elif not implicit(m) and (p, m) not in missing:
+                    missing.append((p, m))
+            if last > i:
+                ln = out.pop(i)
+                out.insert(last, ln)                       # last shifted down by one after the pop: right after it
+                if p not in moved:
+                    moved.append(p)
+                changed = True
+        if not changed:
+            break
+    return out, moved, missing
+
+
+def order(a):
+    """Plugins.txt: the plugins this install activated after their masters (module doc). 0 ok, 6 a master missing."""
+    data = os.path.join(a.starfield, "Data")
+    rec_p = os.path.join(data, RECORD)
+    if not os.path.exists(rec_p):
+        print("nothing installed: no order to fix")
+        return 0
+    rec = read_json(rec_p)
+    plugins = [x.lstrip("*") for x in rec.get("plugins_added", [])]
+    masters = {}
+    for p in plugins:
+        f = os.path.join(data, p)
+        if os.path.exists(f):
+            masters[p] = plugin_masters(f)
+    p_txt = plugins_txt()
+    lines, bom, nl = read_plugins(p_txt)
+    new, moved, missing = order_lines(lines, plugins, masters)
+    if missing:
+        print("not ordered: " + "; ".join(f"{p} needs {m}, which Plugins.txt does not list" for p, m in missing))
+        return 6
+    if new != lines:
+        write_plugins(p_txt, new, bom, nl)
+        print(f"moved after their masters: {', '.join(moved)}")
+    else:
+        print("order ok: every installed plugin loads after its masters")
+    return 0
 
 
 def read_json(p):
@@ -201,7 +306,7 @@ def uninstall(a):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=("install", "uninstall", "status"))
+    ap.add_argument("cmd", choices=("install", "uninstall", "status", "order"))
     ap.add_argument("--exp-dir", default="")
     ap.add_argument("--starfield", required=True)
     ap.add_argument("--plugins", default="", help="comma-separated plugin file names to activate")
@@ -223,6 +328,8 @@ def main(argv=None):
         return install(a)
     if a.cmd == "uninstall":
         return uninstall(a)
+    if a.cmd == "order":
+        sys.exit(order(a))
     rec_p = os.path.join(a.starfield, "Data", RECORD)
     if not os.path.exists(rec_p):
         print("nothing installed")

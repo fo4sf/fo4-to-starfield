@@ -370,7 +370,7 @@ class NpcStepScriptTests(unittest.TestCase):
         self.assertLess(block.index("if ($confirmed) {"), block.index("Teleport @($bx"))
         self.assertIn("if ($confirmed) { $script:npcRef = $pk['ref'] }", block)
         # every later session selects by that id only (opening the console selects what the crosshair is on)
-        sel = block[block.index("function Select-Npc"):block.index("function Read-Settled")]
+        sel = block[block.index("function Select-Npc"):block.index("# 1. travel")]
         self.assertIn("-cnotmatch $ffid) { return $null }", sel)
         self.assertIn("@(\"prid $($script:npcRef)\", \"GetIsID $npc\"", sel)
         self.assertNotIn("'selection'", sel)

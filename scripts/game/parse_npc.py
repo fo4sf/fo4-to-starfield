@@ -1,11 +1,13 @@
 """Parse the OCR'd console text of one npc_nav console session (qstep.ps1). Prints one JSON object:
 {"ref": "FF010D65"|null, "isid": 1|0|null, "x"/"y"/"z": float|null, "pos": "x y z"|null, "disabled": 1|0|null,
+ "incell": 1|0|null,
  "self": "FF010D65"|"0024A824"|null, "how": "order"|"inline"|"", "ocr": "<text>"}
 
 usage: parse_npc.py <ocr text file> [--expect ref,isid,x,y,z] [--typed FF010D65]
   --expect  what this session's commands produce, in the order they were typed: ref (plr: the id in PickLastRef's
             reply), isid (GetIsID), x / y / z (getpos x/y/z), disabled (GetDisabled), self (GetSelf: the id of the
-            console's selection, any form id)
+            console's selection, any form id), incell (player.GetInCell <cell>: door_trip, a condition function's
+            reply like GetIsID's, "GetInCell >> 1.00": supported hypothesis, not yet seen in game)
   --typed   ids this session typed itself (prid <id>): such an id counts as GetSelf's reply only when it is on screen twice
 
 What the console shows (runner sessions of 2026-10-11, N0_base in QASmoke: OCR texts and captures):
@@ -53,6 +55,7 @@ LABELS = {                                                   # command name as e
     "disabled": rf"Get\s?D{I_}sab{I_}ed",
     "pos": r"Get\s?Po\s?s",
     "ref": rf"P{I_}ck\s?{I_}ast\s?Ref",                      # only the game writes PickLastRef: qstep types plr
+    "incell": rf"Get\s?{I_}n\s?Ce{I_}{I_}",                      # GetInCell (door_trip): "GetInCell >> 1.00"
 }
 CLEAR = rf"C{I_}ear\s?Conso{I_}e"                            # ClearConsole's echo: this session's first line
 PLR = rf"(?<![\w.])p{I_}r(?!\w)"                             # plr's echo
@@ -63,8 +66,9 @@ HEX = r"[0-9A-Fa-fOoIl|]"                                    # a hex digit as OC
 FFID = rf"(?<![0-9A-Za-z])(?:0x)?\(?\s*([Ff][Ff]{HEX}{{6}})\s*\)?(?![0-9A-Za-z])"
 ANYID = rf"\(\s*({HEX}{{8}})\s*\)|(?<![0-9A-Za-z])0x({HEX}{{8}})(?![0-9A-Za-z])"   # "(0024a824)", "0x0024a824"
 DECID = r"(?<![\w.,])(42\d{8})(?:[.,]\d+)?(?![\w])"         # FF000000..FFFFFFFF written in decimal
-KIND_OF = {"ref": "ref", "isid": "isid", "x": "pos", "y": "pos", "z": "pos", "disabled": "disabled", "self": "self"}
-FLAGS = ("isid", "disabled")
+KIND_OF = {"ref": "ref", "isid": "isid", "x": "pos", "y": "pos", "z": "pos", "disabled": "disabled", "self": "self",
+           "incell": "incell"}
+FLAGS = ("isid", "disabled", "incell")
 
 
 def flat(s):
@@ -220,7 +224,7 @@ def parse(raw, expect=("isid", "x", "y", "z", "self", "disabled"), typed=()):
     got, how = read_order(ev, text, nums, start), "order"
     if got is None:
         got, how = read_inline(text, nums, start), "inline"
-    r = {k: got.get(k) for k in ("isid", "x", "y", "z", "disabled")}
+    r = {k: got.get(k) for k in ("isid", "x", "y", "z", "disabled", "incell")}
     for k in FLAGS:
         if r[k] is not None:
             r[k] = int(r[k])

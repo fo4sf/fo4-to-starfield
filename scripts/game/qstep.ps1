@@ -7,6 +7,7 @@
 # Kinds (spec.kind): route (stairs/door, via route_run.ps1), fall (drop onto a floor point), movable (walk into an item and
 # read its position before and after), travel (activate a load door, read where the player arrives), terrain (drop onto
 # points of known height), npc_nav (spawn a vanilla actor at A, make it walk to the player at B, sample, remove it),
+# door_trip (coc into a world, through a load door into an interior and back out, save, load: every arrival read),
 # godmode, save, load, recover. terrain and npc_nav may set the time of day / weather after the arrival (time_of_day,
 # time_methods, time_repin, weather, weather_lock, light_wait_ms: Apply-Light) and record the light before and after
 # (terrain: also on every probe shot; the time command that worked is typed again before each probe), and type
@@ -48,6 +49,36 @@ function Read-Pos([string]$ref = '') {
   return $null
 }
 function Shot($name) { $f = Join-Path $Out $name; powershell -NoProfile -ExecutionPolicy Bypass -File $shot -Out $f | Out-Null; if (Test-Path $f) { return $name } else { return $null } }
+$pos3 = '^\s*-?\d+(\.\d+)?\s+-?\d+(\.\d+)?\s+-?\d+(\.\d+)?\s*$'   # "x y z" as readpos prints it ("fail console 3" is not)
+function Read-Settled([int]$tries = 5, [int]$gapMs = 3000) {
+  # the arrival, read until two reads 3 s apart agree within 0.3 m: exp1d (2026-10-11) read it mid-fall (z -500)
+  $prev = Read-Pos; $reads = @("$prev")
+  for ($n = 1; $n -lt $tries; $n++) {
+    Start-Sleep -Milliseconds $gapMs
+    $cur = Read-Pos; $reads += "$cur"
+    if ("$prev" -match $pos3 -and "$cur" -match $pos3) {
+      $a = "$prev".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+      $b = "$cur".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+      $still = $true
+      for ($k = 0; $k -lt 3; $k++) { if ([Math]::Abs([double]$a[$k] - [double]$b[$k]) -ge 0.3) { $still = $false } }
+      if ($still) { return @{ read = "$cur"; settled = $true; reads = $reads } }
+    }
+    $prev = $cur
+  }
+  return @{ read = $prev; settled = $false; reads = $reads }
+}
+function Hud-Shown([string]$name = 'hud.png') {
+  # the plain HUD on screen (hud_visible.py): $false during a fade, a loading screen, the console or a menu
+  $f = Join-Path $Out $name
+  powershell -NoProfile -ExecutionPolicy Bypass -File $shot -Out $f | Out-Null
+  return ((& $env:FO4SF_PYTHON (Join-Path $here 'hud_visible.py') $f) -eq 'yes')
+}
+function Wait-Hud([int]$maxSec, [string]$name = 'hud.png') {
+  # after a load started: poll every 2 s until the HUD is back; @{ up; secs }
+  $t0 = Get-Date
+  do { Start-Sleep 2; $up = Hud-Shown $name } until ($up -or ((Get-Date) - $t0).TotalSeconds -gt $maxSec)
+  return @{ up = $up; secs = [int]((Get-Date) - $t0).TotalSeconds }
+}
 function F($x) { ([double]$x).ToString('0.###', $inv) }
 function Teleport($pos, $heading, $pitch = 10, [string]$first = '') {
   # $first: a light command Apply-Light found working (from its validated table), typed in the same console session
@@ -465,24 +496,6 @@ switch ($kind) {
       Send 'key:grave|wait:600'
       return $null
     }
-    function Read-Settled([int]$tries = 5, [int]$gapMs = 3000) {
-      # the arrival, read until two reads 3 s apart agree within 0.3 m: exp1d (2026-10-11) read it mid-fall (z -500)
-      $prev = Read-Pos; $reads = @("$prev")
-      for ($n = 1; $n -lt $tries; $n++) {
-        Start-Sleep -Milliseconds $gapMs
-        $cur = Read-Pos; $reads += "$cur"
-        if ("$prev" -match $num3 -and "$cur" -match $num3) {
-          $a = "$prev".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
-          $b = "$cur".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
-          $still = $true
-          for ($k = 0; $k -lt 3; $k++) { if ([Math]::Abs([double]$a[$k] - [double]$b[$k]) -ge 0.3) { $still = $false } }
-          if ($still) { return @{ read = "$cur"; settled = $true; reads = $reads } }
-        }
-        $prev = $cur
-      }
-      return @{ read = $prev; settled = $false; reads = $reads }
-    }
-
     # 1. travel (coc <cell editor id>: the console travel that works), wait for the HUD, read the arrival until it stops
     Run-Console $preCmds 'pre'                       # after the save has loaded, before the travel
     Console-Open
@@ -646,6 +659,190 @@ switch ($kind) {
     $obs['cleanup'] = $clean
     $obs['end_shot'] = Shot 'cleanup.png'
     $obs['step_s'] = [int]((Get-Date) - $stepStart).TotalSeconds
+  }
+  'door_trip' {
+    # The playable slice's working door (docs/slice/redrocket-door.md): coc into the world, read the arrival until it
+    # settles (the overlay's merge offset O = arrival - spawn_local), then two legs through a load door: "in" from
+    # outside.start + O towards outside.door + O, "out" from inside.start towards inside.door. Each leg: teleport to the
+    # start facing the door, read it, then walk at the door in walk_step_ms steps with a HUD check after each (an
+    # automatic door loads within fAutoDoorActivateDistance, 3 m in Starfield.esm, behind a fade and a loading screen),
+    # E when an activation prompt shows, and as a last try a teleport to the "near" point (1 m in front of the door);
+    # then the HUD back, the arrival read until it settles, player.GetInCell <inside.cell> and a screenshot. A leg that
+    # does not arrive where expected ends the step (the judge names why). Then save <save> (its file must appear in the
+    # Saves folder), load <save> (a loading screen must be seen), the position read until it settles, GetInCell, a
+    # screenshot. Everything typed is validated here again.
+    $nameRe = '^[A-Za-z0-9_]{1,64}$'
+    if ("$($t.travel)" -notmatch '^coc [A-Za-z0-9_]+$') { "bad travel"; exit 4 }
+    $cell = "$($t.inside.cell)"
+    if ($cell -cnotmatch $nameRe) { "bad inside.cell"; exit 4 }
+    $save = "$($t.save)"
+    if ($save -cnotmatch $nameRe -or $save -notmatch '^fo4sf_' -or $save -match '^fo4sf_test_') { "bad save"; exit 4 }
+    function Vec3($v, [string]$what, [bool]$optional = $false) {
+      if ($null -eq $v -and $optional) { return $null }
+      $a = @($v)
+      if ($a.Count -ne 3) { "bad $what"; exit 4 }
+      $out = @()
+      foreach ($x in $a) {
+        if ($x -isnot [double] -and $x -isnot [int] -and $x -isnot [long] -and $x -isnot [decimal]) { "bad $what"; exit 4 }
+        $d = [double]$x; if ([double]::IsNaN($d) -or [double]::IsInfinity($d) -or [Math]::Abs($d) -gt 1e6) { "bad $what"; exit 4 }
+        $out += $d
+      }
+      return ,$out
+    }
+    function Num($v, [double]$def, [double]$lo, [double]$hi, [string]$what) {
+      if ($null -eq $v) { return $def }
+      if ($v -is [bool] -or $v -is [string]) { "bad $what"; exit 4 }
+      $d = [double]$v; if ([double]::IsNaN($d) -or $d -lt $lo -or $d -gt $hi) { "bad $what"; exit 4 }
+      return $d
+    }
+    $oStart = Vec3 $t.outside.start 'outside.start'; $oDoor = Vec3 $t.outside.door 'outside.door'
+    $oArr = Vec3 $t.outside.arrival 'outside.arrival'; $oNear = Vec3 $t.outside.near 'outside.near' $true
+    $iStart = Vec3 $t.inside.start 'inside.start'; $iDoor = Vec3 $t.inside.door 'inside.door'
+    $iArr = Vec3 $t.inside.arrival 'inside.arrival'; $iNear = Vec3 $t.inside.near 'inside.near' $true
+    $sl = @($t.spawn_local); if ($sl.Count -lt 2 -or $sl.Count -gt 3) { "bad spawn_local"; exit 4 }
+    $radius = Num $t.radius 4.0 0.5 50 'radius'
+    $walkMs = [int](Num $t.walk_ms 8000 0 60000 'walk_ms'); $stepMs = [int](Num $t.walk_step_ms 500 100 5000 'walk_step_ms')
+    $settle = [int](Num $t.settle_ms 6000 0 30000 'settle_ms'); $drop = Num $t.drop 0.5 0 50 'drop'
+    $nearWait = [int](Num $t.near_wait_ms 6000 0 60000 'near_wait_ms'); $loadWait = [int](Num $t.load_wait_s 90 10 600 'load_wait_s')
+    $hOut = Num $t.heading_out 0 0 360 'heading_out'; $hIn = Num $t.heading_in 0 0 360 'heading_in'
+    $lightCmds = Light-Commands
+    $preCmds = Console-List $t.console_pre 'console_pre'; $postCmds = Console-List $t.console_post 'console_post'
+    $parse = Join-Path $here 'parse_npc.py'
+    function Dist3([string]$read, $p) {
+      if ("$read" -notmatch $pos3) { return $null }
+      $v = "$read".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+      return [Math]::Sqrt([Math]::Pow([double]$v[0] - $p[0], 2) + [Math]::Pow([double]$v[1] - $p[1], 2) + [Math]::Pow([double]$v[2] - $p[2], 2))
+    }
+    function Prompt-Up([string]$png) {
+      $f = Join-Path $Out $png
+      if (-not (Test-Path $f)) { return $false }
+      return ((& $env:FO4SF_PYTHON (Join-Path $here 'prompt_visible.py') $f) -eq 'yes')
+    }
+    function In-Cell([string]$tag) {
+      # player.GetInCell <cell> in its own console session (ClearConsole first: its echo marks the session start for
+      # parse_npc.py), the capture and OCR kept as <tag>_cap.png / <tag>_ocr.txt; 1, 0 or $null (not read)
+      Console-Open
+      Send "type:ClearConsole|key:enter|wait:500|type:player.GetInCell $cell|key:enter|wait:900"
+      $cap = Join-Path $Out "${tag}_cap.png"; $prep = Join-Path $Out "${tag}_prep.png"; $txt = Join-Path $Out "${tag}_ocr.txt"
+      powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'shot_region.ps1') -Out $cap | Out-Null
+      $r = $null
+      foreach ($th in 135, 140, 130, 145) {
+        & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $cap $prep $th 12 | Out-Null
+        (powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $prep -Scale 1) | Set-Content $txt -Encoding utf8
+        $r = (& $env:FO4SF_PYTHON $parse $txt '--expect=incell') | ConvertFrom-Json
+        if ($r -and $null -ne $r.incell) { break }
+      }
+      Send 'key:grave|wait:600'
+      return @{ incell = $(if ($r) { $r.incell } else { $null }); ocr = $(if ($r) { $r.ocr } else { '' }) }
+    }
+    function Door-Leg([string]$name, $start, $door, $near, [double]$heading) {
+      $L = [ordered]@{ name = $name; start_target = $start; door = $door }
+      Teleport @($start[0], $start[1], ($start[2] + $drop)) $heading 10
+      Start-Sleep -Milliseconds $settle
+      $L['start_read'] = Read-Pos
+      $L['start_shot'] = Shot "${name}_start.png"
+      $L['prompt'] = Prompt-Up "${name}_start.png"
+      $loaded = $false; $walked = 0; $trig = ''
+      while (-not $loaded -and $walked -lt $walkMs) {     # walk at the door; the HUD goes away when the load starts
+        $ms = [Math]::Min($stepMs, $walkMs - $walked)
+        Send "hold:w,$ms|wait:250"
+        $walked += $ms
+        if (-not (Hud-Shown "${name}_walk.png")) { $loaded = $true; $trig = 'walk' }
+        elseif (-not $L['prompt'] -and (Prompt-Up "${name}_walk.png")) { $L['prompt'] = $true }
+      }
+      if (-not $loaded -and $L['prompt']) {               # a door with an activation prompt: E
+        $pre = Join-Path $Out "${name}_pre_e.png"
+        powershell -NoProfile -ExecutionPolicy Bypass -File $shot -Out $pre | Out-Null
+        if (Prompt-Up "${name}_pre_e.png") {
+          Send 'key:e|wait:2500'
+          if (-not (Hud-Shown "${name}_e.png")) { $loaded = $true; $trig = 'e' }
+        }
+      }
+      if (-not $loaded -and $near) {                      # last try: stand 1 m in front of the door
+        $L['near_m'] = [Math]::Round([Math]::Sqrt([Math]::Pow($near[0] - $door[0], 2) + [Math]::Pow($near[1] - $door[1], 2)), 2)
+        Teleport @($near[0], $near[1], ($near[2] + $drop)) $heading 10
+        $t1 = Get-Date
+        while (-not $loaded -and ((Get-Date) - $t1).TotalMilliseconds -lt $nearWait) {
+          if (-not (Hud-Shown "${name}_near.png")) { $loaded = $true; $trig = 'near' } else { Start-Sleep -Milliseconds 1000 }
+        }
+      }
+      $L['trigger'] = $trig; $L['walked_ms'] = $walked; $L['load_seen'] = $loaded
+      if ($loaded) { $w = Wait-Hud $loadWait "${name}_hud.png"; $L['hud_back'] = $w.up; $L['load_s'] = $w.secs }
+      Start-Sleep 3
+      $arr = Read-Settled
+      $L['arrival_read'] = $arr.read; $L['arrival_settled'] = $arr.settled; $L['arrival_reads'] = $arr.reads
+      $c = In-Cell "${name}_cell"
+      $L['incell'] = $c.incell; $L['incell_ocr'] = $c.ocr
+      $L['shot'] = Shot "${name}_arrival.png"
+      return $L
+    }
+
+    # 1. the coc arrival and the overlay's merge offset
+    Run-Console $preCmds 'pre'
+    Console-Open
+    Send "type:$($t.travel)|key:enter|wait:400|key:grave|wait:3000"
+    $w0 = Wait-Hud 90 'hud.png'; $obs['load_s'] = $w0.secs; $obs['hud_back'] = $w0.up
+    Start-Sleep 3
+    $arr = Read-Settled
+    $obs['spawn_read'] = $arr.read; $obs['spawn_settled'] = $arr.settled; $obs['spawn_reads'] = $arr.reads
+    $obs['shot'] = Shot 'arrival.png'
+    Apply-Light $lightCmds "$($obs['shot'])"
+    Run-Console $postCmds 'post'
+    if (-not $arr.settled -or "$($arr.read)" -notmatch $pos3) {
+      $obs['offset_missing'] = 'the arrival was not read or still moving after 5 reads'; Save-Obs; exit 0
+    }
+    $sv = "$($arr.read)".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+    $O = @(([double]$sv[0] - [double]$sl[0]), ([double]$sv[1] - [double]$sl[1]), 0.0)
+    if ($sl.Count -ge 3) { $O[2] = [double]$sv[2] - [double]$sl[2] }
+    $obs['offset'] = $O; $obs['offset_from'] = 'spawn'
+    Save-Obs
+    function Plus($p, $o) { if ($null -eq $p) { return $null }; return @(($p[0] + $o[0]), ($p[1] + $o[1]), ($p[2] + $o[2])) }
+    # 2. in: through the door in the world, into the interior
+    $legIn = Door-Leg 'in' (Plus $oStart $O) (Plus $oDoor $O) (Plus $oNear $O) $hOut
+    $obs['legs'] = @($legIn); Save-Obs
+    $d = Dist3 $legIn['arrival_read'] $iArr
+    if ($null -eq $d -or $d -gt $radius) { Save-Obs; exit 0 }
+    # 3. out: through the interior door, back onto the terrain (the merged frame)
+    $legOut = Door-Leg 'out' $iStart $iDoor $iNear $hIn
+    $obs['legs'] = @($legIn, $legOut); Save-Obs
+    $d = Dist3 $legOut['arrival_read'] (Plus $oArr $O)
+    if ($null -eq $d -or $d -gt $radius) { Save-Obs; exit 0 }
+    # 4. save under the test's own name; its file must appear in the Saves folder
+    $saves = $env:FO4SF_SAVES_DIR
+    if (-not $saves) {
+      $saves = Join-Path $env:USERPROFILE 'OneDrive\Documents\My Games\Starfield\Saves'
+      if (-not (Test-Path $saves)) { $saves = Join-Path $env:USERPROFILE 'Documents\My Games\Starfield\Saves' }
+    }
+    $S = [ordered]@{ name = $save; dir_found = (Test-Path $saves); found = $false }
+    $saveAt = (Get-Date).AddSeconds(-2)
+    Console-Open
+    Send "type:save $save|key:enter|wait:5000|key:grave|wait:1500"
+    $t1 = Get-Date
+    do {
+      $f = Get-ChildItem -Path $saves -Filter "*$save*" -File -ErrorAction SilentlyContinue |
+           Where-Object { $_.LastWriteTime -ge $saveAt } | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+      if (-not $f) { Start-Sleep 2 }
+    } until ($f -or ((Get-Date) - $t1).TotalSeconds -gt 30)
+    if ($f) { $S['found'] = $true; $S['file'] = $f.Name; $S['size'] = $f.Length; $S['mtime'] = $f.LastWriteTime.ToString('s') }
+    else { $S['why'] = $(if ($S['dir_found']) { "no file *$save* written in the Saves folder within 30 s" } else { 'Saves folder not found' }) }
+    $obs['save'] = $S; $obs['save_shot'] = Shot 'saved.png'; Save-Obs
+    if (-not $S['found']) { exit 0 }
+    # 5. load it: a loading screen must be seen, then the position read until it settles
+    $R = [ordered]@{ name = $save }
+    Console-Open
+    Send "type:load $save|key:enter|wait:2500"
+    $gone = $false; $t1 = Get-Date
+    while (-not $gone -and ((Get-Date) - $t1).TotalSeconds -lt 20) {
+      if (-not (Hud-Shown 'reload_hud.png')) { $gone = $true } else { Start-Sleep -Milliseconds 1000 }
+    }
+    $R['load_seen'] = $gone
+    if ($gone) { $w = Wait-Hud 120 'reload_hud.png'; $R['hud_back'] = $w.up; $R['load_s'] = $w.secs }
+    Start-Sleep 3
+    $r2 = Read-Settled
+    $R['read'] = $r2.read; $R['settled'] = $r2.settled; $R['reads'] = $r2.reads
+    $c = In-Cell 'reload_cell'; $R['incell'] = $c.incell; $R['incell_ocr'] = $c.ocr
+    $R['shot'] = Shot 'reload.png'
+    $obs['reload'] = $R
   }
   'recover' {
     # testqueue.py calls this only when nobody touched the PC since its last input: a menu, the Steam overlay or a

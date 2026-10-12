@@ -11,7 +11,8 @@
 # coc from the main menu works but is unusable for tests: the blank character is pulled into the new-game start after a
 # few minutes (load screen, then a hang).
 # Exit codes: 1 bad cell name, 2 input guard, 3 the game was not started by this script, 4 arrival not verified,
-# 5 a screen check could not run (nothing pressed), 6 an activation prompt sits under the crosshair (nothing pressed).
+# 5 a screen check could not run (nothing pressed), 6 an activation prompt sits under the crosshair (nothing pressed),
+# 7 an installed experiment plugin's master is not active (exp_install.py order; the game is not launched).
 param([Parameter(Mandatory)][string]$Staging, [Parameter(Mandatory)][string]$Starfield, [string]$Cell = 'FO4Port_Vault111Cryo',
       [string]$Shot = (Join-Path $env:TEMP 'fo4sf_cycle.png'), [string]$CellJson = '')
 if ($Cell -notmatch '^[A-Za-z0-9_]+$') { "cell name must be letters, digits and underscores (it is typed into the game): $Cell"; exit 1 }
@@ -24,6 +25,15 @@ if ($p -and $p.Id -ne $own) { "Starfield is running but was not started by cycle
 if ($p) { $p.CloseMainWindow() | Out-Null; Start-Sleep 8; $p.Refresh(); if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force -Confirm:$false }; Start-Sleep 4 }
 python -I "$repo\scripts\deploy_starfield.py" uninstall --starfield $sf | Out-Null
 python -I "$repo\scripts\deploy_starfield.py" install --staging $Staging --starfield $sf | Select-Object -Last 1
+# A staged experiment installed before this launch (testqueue.py pre_launch) was appended to Plugins.txt before the
+# deploy above appended FO4Port.esm again: a plugin of it that masters FO4Port.esm (the slice door plugin) is moved
+# after its masters here. Nothing installed or nothing to move: no change. A master missing: exit 7, no launch.
+if (Test-Path (Join-Path $sf 'Data\FO4SFExp.install.json')) {
+  $ord = python -I "$repo\scripts\game\exp_install.py" order --starfield $sf
+  $ordCode = $LASTEXITCODE
+  $ord | Select-Object -Last 1
+  if ($ordCode -ne 0) { "experiment plugin order could not be fixed (exit $ordCode): not launching"; exit 7 }
+}
 function Wait-Screen($label, $maxSec, $check) {
   # poll a screenshot every 3 s until $check (script block: png path -> bool) is true; prints how long it took.
   # false after $maxSec: the caller goes on as the old fixed timer would have (docs/ai/optimization.md 2026-10-10).

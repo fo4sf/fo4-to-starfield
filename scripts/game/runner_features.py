@@ -19,7 +19,11 @@ import sys
 #          approach, and the control gate pairing a control with the baselines of its own queue. An older runner would
 #          judge such a queue by min_progress alone (a 12 m pre-command guard, an arrival credited with the wander
 #          before the command: verifier of PR #77, 2026-10-12)
-FEATURES = ("light", "console", "npc_t0")
+# door_trip:    the door_trip kind (plan-door; docs/slice/redrocket-door.md): through a load door and back, save, load.
+#               An older qstep.ps1 ends such a step with "unknown kind" (exit 4) after the game was launched for it
+# plugin_order: cycle.ps1 runs exp_install.py order after deploying FO4Port.esm, so an experiment plugin that masters
+#               FO4Port.esm loads after it; an older runner would launch with that plugin before its master
+FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order")
 
 
 def needs(tests):
@@ -32,6 +36,8 @@ def needs(tests):
             out.add("console")
         if "precommand_m" in t or "arrive_progress" in t:
             out.add("npc_t0")
+        if t.get("kind") == "door_trip":
+            out.add("door_trip")
     return sorted(out)
 
 

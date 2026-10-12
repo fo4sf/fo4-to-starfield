@@ -30,6 +30,7 @@ another window in front of the game, also stops it (or makes it wait for an idle
 | travel | load doors whose XTEL partner is in the same build | arrived within 4 m of the arrival point | no prompt; E did nothing | start not reached, arrived elsewhere |
 | terrain | `plan-terrain` (an experiment's plan.json) | heights within 0.5 m | NOTERRAIN, HEIGHTS | a height not read, moved |
 | npc_nav | `plan-npc` (plan.json, below) | the actor walked to B (a baseline: stayed away without a command) | NONAV, STALLED, FELL, WANDER | spawn / handle / reads failed, warp or early arrival, control or precondition not met |
+| door_trip | `plan-door` (plan.json, below) | through a load door into an interior and back, saved and loaded, every arrival read where expected | NOLOAD, UNMERGED, REMERGED, WRONGCELL, FELL, RELOAD, OFFGROUND | offset, start, a read, the save file or the loading screen not seen |
 
 Every verdict needs its observations: a position that was not read or a screenshot that is missing makes the test
 INCONCLUSIVE, never PASS. INCONCLUSIVE tests are retried once more at the end of the queue (`--max-attempts 2`); a FAIL
@@ -322,6 +323,44 @@ Why General for textures too (verified, read-only BA2 name scan of Starfield's D
 DensityMaps.ba2`); SFBGS00D's 44 overlay masks are in `SFBGS00D - Main.ba2` although `SFBGS00D - Textures.ba2` exists; no
 DDS (DX10) archive holds `textures/terrain/`. Terrain experiments 1d / 2b were measured with this packing. A staged folder without a `Data\` tree (a plugin-only experiment, e.g. `actor_raider1`) installs its plugins and no archive. (A first
 version of this branch split `Data\textures` into a DDS `- Textures.ba2`; it was never run and is reverted.)
+
+## Load door trips (`door_trip`) and experiment plugins that master FO4Port.esm (`plugin_order`)
+
+The slice's "working door -> converted interior -> save/reload" (docs/slice/redrocket-door.md, which has the step, the
+obs.json fields and every verdict). One test: `coc` into a world, the settled arrival gives the overlay's merge offset
+(as npc_nav's `spawn_local`); "in": teleport to `outside.start` + offset facing the door, walk at it in steps with a HUD
+check after each (an automatic door fades and loads within 3 m), E if a prompt shows, a teleport to `outside.near` as
+the last try; the arrival read until it settles, `player.GetInCell <inside.cell>` (parse_npc.py `incell`), a
+screenshot; "out" the same from `inside.start`; then `save <save>` (its file must appear in the Saves folder) and
+`load <save>` (a loading screen must be seen), the position read again. PASS needs every arrival observed where
+expected; a leg that fails ends the step.
+
+| plan.json field | meaning | default |
+|---|---|---|
+| `travel` | `coc <cell editor id>` into the world | required |
+| `spawn_local` | the arrival in the world's own frame: offset = settled arrival - spawn_local | required |
+| `outside` | `start`, `door`, `arrival` (where the interior door's XTEL puts the player), `near`, `ground` (what the returning player stands on): the world's own frame | required (near, ground optional) |
+| `inside` | `cell` (EditorID, typed for GetInCell), `start`, `door`, `arrival`, `near`, `floor`: the interior's frame | required |
+| `save` | save name, `fo4sf_` + letters / digits / `_`, never a `fo4sf_test_` session save | required |
+| `radius`, `start_tol`, `reload_tol`, `ground_tol` | arrival, start, reload and ground tolerances (m) | 4, 3, 1, 1 |
+| `walk_ms`, `walk_step_ms`, `near_wait_ms`, `load_wait_s`, `settle_ms`, `drop` | the walk, the last try, the load wait, the settle after a teleport, the drop | 8000, 500, 6000, 90, 6000, 0.5 |
+| `fresh`, `expect`, `basis`, time of day / weather, `console_pre` / `console_post` | as for npc_nav | |
+
+```powershell
+& $py scripts\game\testqueue.py plan-door --staging C:\Modding\staging\integ_1011 --exp-dir C:\Modding\staging\slice_redrocket_door `
+      --out C:\Modding\testqueue\slice_redrocket_door --plugins FO4TerrainExp2.esm,FO4TerrainExp2_Mars.esm,FO4SliceRedRocket.esm --fresh
+```
+
+`plugin_order`: `pre_launch` appends the experiment's plugins to Plugins.txt, then cycle.ps1's deploy removes and
+re-appends `*FO4Port.esm`, so an experiment plugin that masters FO4Port.esm (the slice door plugin) would load before
+its master. cycle.ps1 now runs `exp_install.py order` after the deploy: every plugin in `FO4SFExp.install.json` moves
+right after the last of its masters that Plugins.txt lists (lines are moved only; both uninstalls still find theirs);
+a master neither listed nor one of the game's own files stops the launch (cycle exit 7, the runner stops). Queues
+whose plugins master something outside the install and the game get the need `plugin_order` (`plan-*`,
+`plugin_order_needed`), so a runner without it refuses them before launching. Tests: `tests/test_door_trip.py`
+(plan, judge, order), `QstepDoorSandboxTests` in `tests/test_qstep_sandbox.py` (the real step against simulated
+automatic doors, loading screens, GetInCell and save files: a full trip, an unmerged return, a door that does nothing,
+a blocked walk loaded from the last-try spot, a load that lands elsewhere, a save that is not written, refused specs).
 
 ## NPC navigation (`npc_nav`)
 

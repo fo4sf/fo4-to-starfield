@@ -31,7 +31,16 @@ sky (a slow change); drift_per_open: every console open moves the local time on 
 between console sessions, e.g. during the probes); land_z: a player.setpos z lands at that height at once.
 INI settings (ini, default INI below, made-up values): GetINI "<name:Section>" prints "INISetting <name:Section> >> <v>"
 (%i / %.4f) or ">> NOT FOUND"; SetINI on a known setting prints nothing, on an unknown one 'INI setting "<name:Section>"
-does not exist' (the reply formats in Starfield.exe 1.16.244)."""
+does not exist' (the reply formats in Starfield.exe 1.16.244).
+Load doors (door_trip): doors [{"cell", "pos", "auto", "works", "dest_cell", "dest_pos"}]: an automatic door ("auto")
+loads when the player comes within auto_dist (3 m, Starfield.esm fAutoDoorActivateDistance) while the game runs (a walk
+step, or the console closing after a setpos); a door without "auto" loads on E within 2.5 m, where prompt_visible.py
+says yes. A load moves the player to dest_pos in dest_cell and hides the HUD for load_secs (hud_visible.py says no).
+"player.setangle z <deg>" sets the heading; "hold:w,<ms>" walks walk_speed m/s along it (walk_blocked: not at all).
+"player.GetInCell <cell>" prints "GetInCell >> 1.00" / "0.00". "save <name>" writes <name>.sfs (player, cell) into
+$FO4SF_SAVES_DIR (save_fails: nothing written); "load <name>" restores it (reload_shift added to the position), closes
+the console and hides the HUD for load_secs; a load of a missing save prints "Save not found" and the console stays
+open."""
 import json
 import math
 import os
@@ -76,6 +85,39 @@ def statics(s):
     return s.setdefault("statics", {STATIC: {"pos": [0.0, 0.0, -0.1]}})
 
 
+def door_load(s, d):
+    """The player goes through door d: its destination, a loading screen for load_secs."""
+    s["cell"], s["player"], s["falling"] = d["dest_cell"], list(d["dest_pos"]), None
+    s["loading_until"] = time.time() + float(s.get("load_secs", 2.0))
+    s.setdefault("loads", []).append(d.get("name", d["dest_cell"]))
+
+
+def auto_doors(s):
+    """An automatic load door within auto_dist of the player (same cell, the game running) loads: True if one did."""
+    p = player_pos(s)
+    for d in s.get("doors", []):
+        if d.get("auto") and d.get("works", True) and (d.get("cell") or "").lower() == (s.get("cell") or "").lower() \
+                and math.dist(p, d["pos"]) <= float(s.get("auto_dist", 3.0)):
+            door_load(s, d)
+            return True
+    return False
+
+
+def walk(s, ms):
+    """hold:w: walk along the heading in 5 cm steps, an automatic door in range loads at once."""
+    if s.get("walk_blocked"):
+        return
+    h = math.radians(float(s.get("heading", 0.0)))
+    dist = float(s.get("walk_speed", 3.0)) * ms / 1000.0
+    p = player_pos(s)
+    s["falling"] = None
+    for _ in range(int(dist / 0.05)):
+        p = [p[0] + 0.05 * math.sin(h), p[1] + 0.05 * math.cos(h), p[2]]
+        s["player"] = p
+        if auto_doors(s):
+            return
+
+
 def selected(s):
     """('actor', a) | ('static', st) | (None, None) for the console's selection."""
     sel = s.get("sel") or ""
@@ -109,6 +151,27 @@ def run(s, cmd):
         s["player"]["xyz".index(w[1])] = float(w[2])
         if w[1] == "z" and s.get("land_z") is not None:    # the player lands at once on ground at land_z
             s["player"][2] = float(s["land_z"])
+    elif low.startswith("player.setangle z "):
+        s["heading"] = float(w[2])
+    elif low.startswith("player.getincell "):
+        s["log"].append(f"GetInCell >> {'1.00' if (s.get('cell') or '').lower() == w[1].lower() else '0.00'}")
+    elif low.startswith("save "):
+        if not s.get("save_fails"):
+            d = os.environ.get("FO4SF_SAVES_DIR") or os.path.dirname(P)
+            with open(os.path.join(d, w[1] + ".sfs"), "w") as f:
+                json.dump({"player": player_pos(s), "cell": s.get("cell")}, f)
+    elif low.startswith("load "):
+        f = os.path.join(os.environ.get("FO4SF_SAVES_DIR") or os.path.dirname(P), w[1] + ".sfs")
+        if not os.path.exists(f):
+            s["log"].append("Save not found")
+            return
+        with open(f) as fh:
+            sv = json.load(fh)
+        shift = s.get("reload_shift") or [0.0, 0.0, 0.0]
+        s["player"] = [sv["player"][k] + shift[k] for k in range(3)]
+        s["cell"], s["falling"], s["console"] = sv["cell"], None, False      # the load closes the console
+        s["clock"] = {"game": game_time(s), "since": time.time()}
+        s["loading_until"] = time.time() + float(s.get("load_secs", 2.0))
     elif low.startswith("coc "):
         s["cell"], s["player"] = w[1], list(s["arrival"])
         if s.get("fall"):
@@ -239,6 +302,7 @@ def column(lines):
 def quirks(ln):
     """OCR misreadings seen in the runner's console OCR (2026-10-11)."""
     for a, b in (("GetIsID >>", "GetlslD"), ("GetIsID", "GetlsID"), ("GetInFaction", "GetlnFaction"),
+                 ("GetInCell", "GetlnCell"),
                  ("INISetting", "lNlSetting"), ("GetINI", "GetlNl"), ("Enabled", "EnabIed"),
                  ("ClearConsole", "Clear Console"), ("GetDisabled", "Get Disabled"), ("GetPos: X", "Get Po s: X"),
                  (">>", "> >")):
@@ -273,6 +337,16 @@ def main():
                 else:                                      # the game runs again: placed actors become ready
                     for a in s["actors"].values():
                         a.pop("pending", None)
+                    auto_doors(s)                          # a setpos left the player in an automatic door's range
+            elif k == "hold" and v.startswith("w,") and not s.get("console"):
+                walk(s, int(v[2:]))
+            elif k == "key" and v == "e" and not s.get("console"):
+                p = player_pos(s)
+                for d in s.get("doors", []):
+                    if not d.get("auto") and d.get("works", True) and math.dist(p, d["pos"]) <= 2.5 and \
+                            (d.get("cell") or "").lower() == (s.get("cell") or "").lower():
+                        door_load(s, d)
+                        break
     elif sys.argv[1] == "shot":
         lag = s.get("lag") or {}
         if lag.get("left", 0) > 0:                         # the sky has not followed the new time yet

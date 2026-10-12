@@ -3,6 +3,38 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-12 Claude: the Red Rocket cave load door on the converted terrain (slice: working door -> interior -> save)
+- Question: which Fallout 4 load door links RedRocket01 with the Commonwealth, where is it relative to the converted
+  terrain of experiment 2d, what does our side hold of it, and how is it written so a player can walk through it and
+  back on the merged overlay? Details: [docs/slice/redrocket-door.md](../slice/redrocket-door.md).
+- Method: new `dotnet/SliceDoor` (read-only verbs `fo4` on Fallout4.esm, `sf-door` on Starfield.esm, `port` on the
+  pinned FO4Port.esm; `build` / `check` for the link plugin); the two marker NIFs read from the FO4 and Starfield mesh
+  archives (`src/fo4sf/ba2.py`, `nif.py`); GMSTs with `SfInspect form`; exp2d's `skipped.json` / `objects.json`;
+  `scripts/slice/make_redrocket_door.py` (ground, floor and walk against exp2d's BTD and converted collision and the
+  build's converted interior collision); a raw group walk comparing the override records with their masters.
+- Evidence: Fallout4.esm `05E844` (RedRocket01, persistent) <-> `08EB65` (Commonwealth persistent cell, FO4 cell -18,
+  18), both base `01ED77` AutoloadDoor ("Auto Door", Automatic, `AutoLoadMarker01.nif`, no script), XTELs naming each
+  other, flags 0; converted: exterior door (-994.948, 1109.490, 98.684) m, 38.2 m south of exp2d's arrival, in the
+  hole of `CaveEntrGround01_Grass` (floor 97.73); arrival outside (-995.530, 1104.143, 99.771) over terrain 99.734;
+  interior door (-1.659, 2.416, 0), arrival inside (0.049, -6.622, -0.006). The pinned build's `FO4Port_RedRocket01`
+  (`002338`) has 0 persistent references and no XTEL / DOOR reference; exp2d skipped `08EB65` (`editor_marker`).
+  Starfield `AutoloadDoor_Cave` (24F9CE): "Auto Door", Automatic, `Meshes\autoloadmarker01.nif`, script
+  `ENV_NotSealedLocationDoorScript`; 92 references, the 45 in worldspaces all in overlay worldspaces' persistent
+  cells (all 345 worldspace XTEL references are in the persistent cell); its marker's bounds (half 0.9144, 0.1143,
+  1.3716 m) are the FO4 marker's (64, 8, 96 units) / 70 exactly. GMST `fAutoDoorActivateDistance` 3,
+  `fAutoDoorDisplayDistance` 12. `FO4SliceRedRocket.esm` (1,123 B): WRLD and persistent-cell overrides byte-identical
+  to FO4TerrainExp2.esm's records, the RedRocket01 CELL override byte-identical to FO4Port.esm's, doors 0x800 / 0x801
+  persistent with XTELs both ways; Mutagen read-back 28 of 28, Python check 25 of 25. Plugins.txt of the last exp2d
+  run: `*FO4TerrainExp2.esm`, `*FO4TerrainExp2_Mars.esm`, `*FO4Port.esm` (the deploy re-appends FO4Port.esm after the
+  experiment on every launch).
+- Status: the Fallout 4 link, our missing ends and the plugin's records **verified** (offline); vanilla's layout for
+  automatic cave doors in overlays **verified** (data), that it works for ours **supported hypothesis**; whether the
+  persistent door stands at the merged position and whether the XTEL arrival into the overlay gets the merge offset
+  **unresolved** (the runner's new `door_trip` test tells: UNMERGED / REMERGED); a master loading after its plugin
+  in Starfield **unresolved** and avoided (cycle.ps1 now runs `exp_install.py order`); `player.GetInCell` from the
+  console **supported** (GetInCell is in Starfield.exe beside "Is the reference in the specified cell?", like GetIsID,
+  whose console reply is verified). Staged `C:\Modding\staging\slice_redrocket_door`, not run.
+
 ## 2026-10-12 Claude: why the NPC control N0 could not tell a commanded walk from wandering
 - Question: N0 (`npc_nav_n0`, QASmoke) passed `PathToRef` twice and failed its no-command baseline; is that a walk, a
   navmesh problem, or wander? What pair and rule would separate them (N0b)?

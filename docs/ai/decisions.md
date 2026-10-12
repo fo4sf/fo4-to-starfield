@@ -171,3 +171,19 @@ up to 14.1 m from t0 and walked up to 9.5 m towards the player before the comman
 Alternatives: keep the 18 m pair with the new judge (P 12 m: below the 14.1 m move on record); a baseline-relative
 judge (PASS only a margin beyond the same actor's measured baseline): needs several baselines per actor and pair to
 mean anything; the 18 m pair with a 12 m rule and no runner change: refuted by the finding above.
+
+## 2026-10-12 Fallout 4 marker load doors become the vanilla automatic cave door; experiment plugins load after their masters (Claude)
+A Fallout 4 load door whose model is an editor marker (`AutoloadDoor` 01ED77, `AutoLoadMarker01.nif`, Automatic) is
+written as a reference of Starfield's own `AutoloadDoor_Cave` (24F9CE): same name, flag and marker (the Starfield marker
+is the FO4 one at 1/70, so the FO4 scale carries over), persistent, XTEL to the other end; an exterior end goes into the
+worldspace's persistent cell, as all 45 vanilla overlay-world references of that door and all 345 worldspace XTEL
+references do. The first one is the Red Rocket cave (docs/slice/redrocket-door.md), in a small link plugin that
+masters FO4Port.esm and the terrain experiment instead of changing either. Because the runner's deploy activates
+FO4Port.esm after an experiment's plugins on every launch, cycle.ps1 now runs `exp_install.py order` before the launch:
+every plugin the experiment installed moves after its masters (runner feature `plugin_order`).
+Why: the converter never places marker models, so both ends were missing; vanilla uses this exact door and layout for
+its planet caves, which keeps the unknowns to our overlay's merge, not to the door record.
+Alternatives: a converted FO4Port load door base (a visible door with an E prompt the cave never had); a new DOOR
+copying 24F9CE without its environment script (a configuration vanilla never uses); placing the doors in FO4Port.esm or
+FO4TerrainExp2.esm (would change the pinned build or a measured experiment); leaving the plugin before its master (in
+Fallout 4 / Skyrim a load crash; in Starfield untested).

@@ -42,7 +42,10 @@ class SandboxStep:
         spec, out = os.path.join(d, "spec.json"), os.path.join(d, "out")
         with open(spec, "w") as f:
             json.dump(t, f)
-        env = dict(os.environ, FAKE_STATE=state, FO4SF_PYTHON=sys.executable, FO4SF_NO_FOCUS_STEAL="1", LEGACY="1")
+        saves = os.path.join(d, "saves")
+        os.makedirs(saves)
+        env = dict(os.environ, FAKE_STATE=state, FO4SF_PYTHON=sys.executable, FO4SF_NO_FOCUS_STEAL="1", LEGACY="1",
+                   FO4SF_SAVES_DIR=saves)
         r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                             os.path.join(step_dir, "qstep.ps1"), "-Spec", spec, "-Out", out],
                            capture_output=True, text=True, env=env, timeout=600)
@@ -57,6 +60,7 @@ class SandboxStep:
             st = json.load(f)
         left = [k for k, a in st["actors"].items() if not (a.get("disabled") and a.get("deleted"))]
         self.typed = st.get("typed", [])
+        self.state = st
         # a selection that stayed on the floor static must never get disable (N0_base's spawn session had one)
         self.assertEqual([k for k, v in st.get("statics", {}).items() if v.get("disabled") or v.get("deleted")], [])
         return tq.judge(t, obs, out), obs, left
@@ -335,6 +339,90 @@ class QstepConsoleSandboxTests(SandboxStep, unittest.TestCase):
             self.assertEqual(self.typed, [], bad)
         out, _, _ = self.run_step(test=dict(self.terrain(), console_post=["coc Elsewhere"]), code=4)
         self.assertEqual(self.typed, [])
+
+
+# door_trip (docs/slice/redrocket-door.md): the Red Rocket cave link as staged, in the world's own frame / the interior
+# frame; the simulated overlay is merged at OFF (exp2d's measured offset, rounded)
+OFF = [-1200.0, -2700.0, 0.0]
+DOOR = {"label": "rr_cave", "travel": "coc FO4CW_RedRocketSpawn", "spawn_local": [-989.0286, 1147.2, 105.2609],
+        "outside": {"start": [-995.53, 1104.143, 99.771], "door": [-994.948, 1109.49, 98.684],
+                    "arrival": [-995.53, 1104.143, 99.771], "near": [-995.03, 1108.5, 99.0], "ground": 99.6},
+        "inside": {"cell": "FO4Port_RedRocket01", "start": [0.049, -6.622, -0.006], "door": [-1.659, 2.416, 0.0],
+                   "arrival": [0.049, -6.622, -0.006], "near": [-1.47, 1.43, 0.0], "floor": 0.0},
+        "save": "fo4sf_slice_rrdoor", "settle_ms": 0, "walk_ms": 4000, "walk_step_ms": 500, "near_wait_ms": 3000}
+
+
+def plus(p, o=OFF):
+    return [p[k] + o[k] for k in range(3)]
+
+
+def door_world(unmerged=False, works=True, **extra):
+    """The simulated world: the coc arrival merged at OFF, an automatic door outside (in the coc cell) and one inside."""
+    o, i = DOOR["outside"], DOOR["inside"]
+    w = {"arrival": plus(DOOR["spawn_local"]), "player": [0, 0, 0],
+         "doors": [{"name": "ext", "cell": "FO4CW_RedRocketSpawn", "pos": plus(o["door"]), "auto": True, "works": works,
+                    "dest_cell": i["cell"], "dest_pos": i["arrival"]},
+                   {"name": "int", "cell": i["cell"], "pos": i["door"], "auto": True, "works": True,
+                    "dest_cell": "FO4CW_RedRocketSpawn", "dest_pos": o["arrival"] if unmerged else plus(o["arrival"])}]}
+    w.update(extra)
+    return w
+
+
+@unittest.skipUnless(ENABLED, "opt-in: FO4SF_QSTEP_SANDBOX=1 on Windows")
+class QstepDoorSandboxTests(SandboxStep, unittest.TestCase):
+    """door_trip in the real step against simulated load doors (automatic doors that load within 3 m, a loading screen
+    that hides the HUD, GetInCell, save files in a temporary Saves folder)."""
+    def trip(self, world, plan=None, code=0):
+        return self.run_step(test=tq.door_test(0, dict(DOOR, **(plan or {}))), world=world, code=code)
+
+    def test_through_the_door_and_back_then_save_and_load(self):
+        v, obs, _ = self.trip(door_world())
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        self.assertEqual(self.state["loads"], ["ext", "int"])
+        self.assertEqual([(x["name"], x["trigger"], x["incell"]) for x in obs["legs"]], [("in", "walk", 1), ("out", "walk", 0)])
+        self.assertEqual([round(c, 1) for c in obs["offset"]], [-1200.0, -2700.0, 0.0])
+        self.assertTrue(obs["save"]["found"])
+        self.assertEqual(obs["save"]["file"], "fo4sf_slice_rrdoor.sfs")
+        self.assertTrue(obs["reload"]["load_seen"])
+        self.assertEqual(obs["reload"]["incell"], 0)
+        self.assertLess(self.typed.index("save fo4sf_slice_rrdoor"), self.typed.index("load fo4sf_slice_rrdoor"))
+        self.assertIn("player.GetInCell FO4Port_RedRocket01", self.typed)
+        self.assertIn("out: arrived 0.0 m from the merged exterior arrival point (GetInCell FO4Port_RedRocket01 0)", v[2])
+
+    def test_a_return_without_the_merge_offset_is_unmerged(self):
+        v, obs, _ = self.trip(door_world(unmerged=True))
+        self.assertEqual(v[:2], ("FAIL", "UNMERGED"), v[2])
+        self.assertNotIn("save fo4sf_slice_rrdoor", self.typed)       # the step stops at the leg that failed
+
+    def test_a_door_that_does_nothing_is_noload(self):
+        v, obs, _ = self.trip(door_world(works=False))
+        self.assertEqual(v[:2], ("FAIL", "NOLOAD"), v[2])
+        leg = obs["legs"][0]
+        self.assertEqual((leg["load_seen"], leg["trigger"]), (False, ""))
+        self.assertAlmostEqual(leg["near_m"], 1.0, delta=0.05)
+        self.assertEqual(len(obs["legs"]), 1)
+        self.assertNotIn("save fo4sf_slice_rrdoor", self.typed)
+
+    def test_a_blocked_walk_loads_from_the_near_point(self):
+        v, obs, _ = self.trip(door_world(walk_blocked=True))
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        self.assertEqual([x["trigger"] for x in obs["legs"]], ["near", "near"])
+
+    def test_a_load_that_puts_the_player_elsewhere_is_reload(self):
+        v, obs, _ = self.trip(door_world(reload_shift=[0.0, 7.5, 0.0]))
+        self.assertEqual(v[:2], ("FAIL", "RELOAD"), v[2])
+
+    def test_no_save_file_is_inconclusive_and_nothing_is_loaded(self):
+        v, obs, _ = self.trip(door_world(save_fails=True))
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "NOSAVE"), v[2])
+        self.assertNotIn("load fo4sf_slice_rrdoor", self.typed)
+
+    def test_a_bad_spec_types_nothing(self):
+        for bad in ({"save": "fo4sf_test_1234"}, {"inside": dict(DOOR["inside"], cell="FO4Port RedRocket01")},
+                    {"travel": "player.moveto 02000800"}):
+            t = dict(tq.door_test(0, DOOR), **bad)
+            out, _, _ = self.run_step(test=t, world=door_world(), code=4)
+            self.assertEqual(self.typed, [], bad)
 
 
 if __name__ == "__main__":
