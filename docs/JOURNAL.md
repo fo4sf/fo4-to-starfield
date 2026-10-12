@@ -899,6 +899,11 @@ tests pass with Pillow12.3.0, including the failing end-to-end plane/preview cas
 - Preserved reviewed main #34/#35 and staging containment when integrating #79 in a separate Codex worktree. New regressions failed before the fix; seven focused tests and 808 full-suite tests pass (28 skipped, including opt-in sandbox checks). Guard/diff checks pass. No game data, staging, installation or input was touched; runtime multi-part animation remains unverified.
 - Independent Claude review passed the initial fix and identified an optional rig-tag omission: generated references are now followed even without that tag. Added omission and vanilla-template compatibility regressions; final independent review passes (including custom prefixes and mixed vanilla/generated references). Hosted Linux CI separately exposed an existing make_exp2c dependency path issue; a four-lookup patch passed POSIX-only synthetic probes and was prepared for the Claude-owned file without editing it.
 
+## 2026-10-12 Codex: small authored door binds are rotations
+- Synthetic NIF/controller repro: a0.1-degree leaf bind was classified identity by quaternion w alone, so the native first offset retained0.1 degrees even when the closed pose equalled the bind.
+- Identity detection now also checks the vector norm; native preparation shares the predicate. Meaningful small binds get a static parent and identity animated bind; sign-equivalent identity/tiny numerical noise remain supported.
+- Five regression tests failed before correction and now pass. Independent matrix evaluation agrees at every Open/Close frame for three axes, small/large binds, translation and both possible bind/offset composition orders. Full813 tests OK (28 skipped), guard/diff checks pass. Independent QA PASS (boundary/sign, nested hierarchy, cross-axis and synthetic converter routing probes); no DLL, game assets, staging, install or input touched. Runtime playback remains unverified.
+
 
 ## 2026-10-12 - Codex: portable terrain dependency filesystem lookups (#66)
 

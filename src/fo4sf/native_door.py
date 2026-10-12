@@ -18,6 +18,7 @@ import json
 import tempfile
 import xml.etree.ElementTree as ET
 from .nif import NifError
+from . import door_rig
 
 MOVE_EPSILON = 1e-6     # metres: a translation offset below this is "no translation channel"
 
@@ -41,7 +42,7 @@ def prepare(plan, unit_scale, fps=30):
             if source['node'] not in index:
                 raise NifError('door clip track has no rig bone')
             bone_index=index[source['node']];bone=bones[bone_index];bind=bone['bind']
-            if abs(abs(bind['quaternion_wxyz'][0])-1)>1e-6:
+            if not door_rig.is_identity_rotation(bind['quaternion_wxyz']):
                 raise NifError('animated door bone needs an identity bind rotation (door_rig.animated_identity_binds)')
             frames={};previous=None
             for sample in source['samples']:

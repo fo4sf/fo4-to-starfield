@@ -102,7 +102,9 @@ def _qrotate(q,v):
 
 
 def is_identity_rotation(q,tolerance=1e-6):
-    return abs(abs(q[0])-1)<=tolerance
+    # w approaches +/-1 quadratically with angle; small authored rotations can
+    # have an almost-identity w while their vector part is still significant.
+    return abs(abs(q[0])-1)<=tolerance and math.hypot(*q[1:])<=tolerance
 
 
 def animated_identity_binds(plan):
