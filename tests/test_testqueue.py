@@ -609,3 +609,25 @@ class FreshTests(RunnerTests):
         r.run()
         self.assertEqual(getattr(self.ctl, "closed", 0), 2)       # before tests 2 and 3
         self.assertEqual(launches.count("cycle.ps1"), 2)
+
+
+class FreshBudgetTests(RunnerTests):
+    def test_fresh_relaunches_do_not_use_up_the_crash_budget(self):
+        # 2026-10-11 exp2c: three intended relaunches hit --max-relaunch 3 and the fourth test never ran
+        make_queue(self.d, n=5)
+        q = json.load(open(os.path.join(self.d, "queue.json")))
+        for t in q["tests"]:
+            t["fresh"] = True
+        json.dump(q, open(os.path.join(self.d, "queue.json"), "w"))
+        r = self.runner(self.landing(0.1), max_relaunch=1)
+
+        def ps(script, *a, **k):
+            self.ctl.pid = 42
+            return (0, "ok")
+        r._ps = ps
+        r.setup_session = lambda cell: setattr(r, "session", True)
+        r.pinned_ok = lambda: True
+        self.assertEqual(r.run(), 0)
+        st = json.load(open(os.path.join(self.d, "state.json")))
+        self.assertEqual(len(st["done"]), 5)
+        self.assertEqual(st["fresh_launches"], 4)
