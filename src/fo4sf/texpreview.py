@@ -26,7 +26,8 @@ def tail_dds(archive, name, max_dim=256):
     if e.kind != "DX10":
         raise ValueError(f"{name}: not a texture entry")
     chunks = sorted(e.chunks, key=lambda c: c[3])
-    keep = [c for c in chunks if max(e.width >> c[3], 1) <= max_dim and max(e.height >> c[3], 1) <= max_dim] or chunks[-1:]
+    keep = [c for c in chunks
+            if max(e.width >> c[3], 1) <= max_dim and max(e.height >> c[3], 1) <= max_dim] or chunks[-1:]
     first = keep[0][3]
     w, h = max(e.width >> first, 1), max(e.height >> first, 1)
     out = [_dds_header_dx10(w, h, e.mips - first, e.dxgi, e.cubemap)]

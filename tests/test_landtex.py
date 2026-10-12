@@ -364,6 +364,7 @@ class Fo4landTextures(unittest.TestCase):
                 names = {fid: fo4land.zstring(dict(f)[b"EDID"]) for fid, f in pl.group_records(b"LTEX")}
                 self.assertEqual(names, {0x900: "LDirtA", 0x901: "LGrassB"})
                 self.assertEqual(list(pl.group_records(b"TXST")), [])
+                self.assertEqual([f for f, _ in pl.group_records(b"WRLD")], [0x3C])     # children group skipped
                 c = pl.read_world("W", refs=False, land_textures=True)["cells"][(3, -2)]
                 plain = pl.read_world("W", refs=False)["cells"][(3, -2)]
         self.assertNotIn("land_tex", plain)
@@ -371,6 +372,75 @@ class Fo4landTextures(unittest.TestCase):
         q = landtex.parse_land_textures(c["land_tex"])
         self.assertEqual(q[2]["base"], 0x900)
         self.assertEqual(float(q[2]["layers"][0][2][1, 2]), 0.5)
+
+
+def synthetic_fo4(path):
+    """Fallout4.esm stand-in: WRLD Commonwealth with FO4 cells (0..1, 0..1), flat at 8 units, dried grass everywhere
+    and an opaque asphalt layer over the north-east quadrant of cell (1, 1)."""
+    vhgt = fo4land.encode_vhgt(1.0, np.zeros((33, 33), int))
+    items, fid = [], 0x400
+    for cy in (0, 1):
+        for cx in (0, 1):
+            tex = [btxt(0x900, q) for q in range(4)]
+            if (cx, cy) == (1, 1):
+                tex += [atxt(0x901, 3, 0), vtxt([(r, c, 1.0) for r in range(Q) for c in range(Q)])]
+            land = rec(b"LAND", fid + 1, [(b"DATA", b"\0" * 4), (b"VHGT", vhgt)] + tex)
+            items += [rec(b"CELL", fid, [(b"XCLC", struct.pack("<iiI", cx, cy, 0))]),
+                      grup(fid, 6, [grup(fid, 9, [land])])]
+            fid += 2
+    pcell = rec(b"CELL", 0x200, [(b"XCLC", struct.pack("<iiI", 0, 0, 0))])
+    world = [pcell, grup(0x200, 6, []), grup(b"\0\0\0\0", 4, [grup(b"\0\0\0\0", 5, items)])]
+    data = (rec(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 1.0, 0, 0))]) +
+            grup(b"LTEX", 0, [rec(b"LTEX", 0x900, [(b"EDID", b"LDriedGrass01\0")]),
+                              rec(b"LTEX", 0x901, [(b"EDID", b"LAsphalt01\0")])]) +
+            grup(b"WRLD", 0, [rec(b"WRLD", 0x3C, [(b"EDID", b"Commonwealth\0")]), grup(0x3C, 1, world)]))
+    with open(path, "wb") as f:
+        f.write(data)
+
+
+class Exp2tBuild(unittest.TestCase):
+    def test_build_and_check_on_a_synthetic_one_cell_btd(self):
+        with tempfile.TemporaryDirectory() as d:
+            fo4, src, out = (os.path.join(d, x) for x in ("fo4", "src", "out"))
+            for p in (fo4, os.path.join(src, "Data", "Terrain"), os.path.join(src, "Data", "meshes", "terrain")):
+                os.makedirs(p)
+            synthetic_fo4(os.path.join(fo4, "Fallout4.esm"))
+            raw = btd.quantize(np.full((128, 128), 8 / 70), -10.0, 10.0)
+            quad = np.zeros((2, 2, 8), np.uint8)
+            quad[..., 0] = 1
+            data = btd.write(btd.Btd(6, -10.0, 10.0, [0x1235C2], raw, np.zeros_like(raw), quad))
+            for sub in (("Data", "Terrain"), ("Data", "meshes", "terrain")):
+                with open(os.path.join(src, *sub, gt.BTD_NAME), "wb") as f:
+                    f.write(data)
+            with open(os.path.join(src, "FO4TerrainExp2.esm"), "wb") as f:
+                f.write(b"stand-in")
+            gt.write_json(os.path.join(src, "expected.json"), {
+                "fo4_cells": {"x": [0, 1], "y": [0, 1]}, "structure": {"pos_m": [40.0, 40.0, 0.0]},
+                "region_of_interest_m": {"xmin": 2.0, "xmax": 98.0, "ymin": 2.0, "ymax": 98.0}})
+            gt.write_json(os.path.join(src, "plan.json"), [
+                {"coc": "Spawn", "points": [{"label": "p1", "x": 40.0, "y": 40.0, "expect": 0.1143}]},
+                {"coc": "Spawn", "points": [{"label": "p2", "x": 60.0, "y": 60.0, "expect": 0.1143}]}])
+            self.assertEqual(gt.main(["build", "--from", src, "--out", out, "--fo4-data", fo4]), 0)
+            self.assertEqual(gt.main(["check", "--from", src, "--out", out]), 0)
+            with self.assertRaises(SystemExit):                  # an existing staging is not overwritten silently
+                gt.main(["build", "--from", src, "--out", out, "--fo4-data", fo4])
+            self.assertEqual(gt.main(["build", "--from", src, "--out", out, "--fo4-data", fo4, "--replace"]), 0)
+            plan = gt.read_json(os.path.join(out, "plan.json"))
+            exp = gt.read_json(os.path.join(out, "expected.json"))
+            new = btd.read(gt.read_bytes(os.path.join(out, "Data", "Terrain", gt.BTD_NAME)))
+            self.assertTrue(os.path.exists(os.path.join(out, "FO4TerrainExp2.esm")))
+        self.assertEqual(len(plan), 2)
+        self.assertTrue(all(w["fresh"] is True for w in plan))
+        labels = [p["label"] for p in plan[0]["points"]]
+        self.assertEqual(labels[0], "p1")
+        self.assertIn("ground_grass", labels)
+        self.assertIn("ground_lot", labels)
+        np.testing.assert_array_equal(new.heights_raw, raw)
+        self.assertEqual([e["edid"] for e in exp["ltex"]["table"]], ["LGravelDecorative01", "LGrassDeadWet01"])
+        self.assertEqual(new.ltex, [ground_map.SF_FORMID["LGravelDecorative01"], ground_map.SF_FORMID["LGrassDeadWet01"]])
+        lot = next(s for s in exp["ground_textures"]["spots"] if s["label"] == "ground_lot")
+        self.assertEqual(list(lot["sf_decoded"]), ["LGravelDecorative01"])
+        self.assertGreater(lot["x"], 58.5 + 29.0)                 # inside the asphalt quadrant (x > 87.8 m)
 
 
 class Exp2tHelpers(unittest.TestCase):

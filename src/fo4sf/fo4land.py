@@ -153,14 +153,17 @@ class Plugin:
     # ------------------------------------------------------------------ base records
 
     def group_records(self, label):
-        """Yield (form id, [(sig, bytes)]) for every record of one top group (e.g. b"LTEX"); nothing if absent.
-        Works for any plugin with 24-byte record headers (Fallout 4 and Starfield)."""
+        """Yield (form id, [(sig, bytes)]) for every record directly in one top group (e.g. b"LTEX"; nested groups
+        such as a WRLD's children are skipped); nothing if the group is absent. Works for any plugin with 24-byte
+        record headers (Fallout 4 and Starfield)."""
         g = self.top_group(label)
         if g is None:
             return
-        for typ, off, _flags, fid in iter_items(self.buf, g[0], g[1]):
-            if typ != "GRUP":
-                yield fid, list(iter_subrecords(record_data(self.buf, off)))
+        for item in iter_items(self.buf, g[0], g[1]):
+            if item[0] == "GRUP":
+                continue
+            _typ, off, _flags, fid = item
+            yield fid, list(iter_subrecords(record_data(self.buf, off)))
 
     def base_records(self, wanted=None, edid_regex=None, skip_groups=(b"WRLD", b"CELL", b"DIAL", b"QUST")):
         """{form_id: (type, editor_id, obnd)} for top-level records whose id is in `wanted` or whose EDID matches.

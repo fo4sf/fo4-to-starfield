@@ -286,7 +286,8 @@ BTD with 14 check points for the unattended runner. See [experiment2.md](experim
 1. **In game:** does `FO4TX_World01` show terrain at 10 m without a planet entry (experiment 1)? Everything else waits on this.
 2. Record path vs name binding; what is drawn beyond the BTD edge; whether loose `.btd` files load or must be in a BA2.
 3. BTDs larger than 100 x 100 cells (the full FO4 grid needs 113).
-4. LTEX/material mapping for FO4 land textures; water heights; terrain holes; grass.
+4. LTEX/material mapping for FO4 land textures (offline answer and the exp2t test: [ground-textures.md](ground-textures.md));
+   water heights; terrain holes; grass.
 5. Meaning of `SNAM`/`PNAM` beyond xEdit's names; `FNAM` connections and alignment fields for a master worldspace that
    is never blended (A).
 

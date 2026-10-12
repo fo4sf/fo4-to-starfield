@@ -3,6 +3,38 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-11 Claude: FO4 ground textures in the BTD (exp2t staged)
+- Question: how do FO4 LAND texture layers and Starfield BTD texture sections work, and can the native Commonwealth
+  terrain (exp2b2, heights verified in game) get Fallout 4's ground look? Write-up:
+  [docs/terrain/ground-textures.md](../terrain/ground-textures.md).
+- Method: FO4 `BTXT/ATXT/VTXT/VCLR` read for the 2,500 cells of the exp2 footprint (`fo4land` + new `landtex`);
+  quadrant bytes and 3-bit alphas of five vanilla overlay BTDs, the BTDs of Shattered Space and the earlier 753-file
+  LTEX survey; LTEX / BIOM / WRLD records of Starfield.esm and the 8 add-on plugins; terrain `.mat` files of the
+  Creation Kit's ContentResources.zip; run-time `materialsbeta.cdb`; average albedo of every FO4 and Starfield land
+  texture from low mips (new LZ4 block reader). Then `src/fo4sf/landtex.py`, `ground_map.py`, `texpreview.py`,
+  `lz4block.py`, `scripts/terrain/ground_textures.py`, `tests/test_landtex.py`. Staged
+  `C:\Modding\staging\terrain_exp2t`. Not deployed, not run in game.
+- Evidence:
+  - **verified**: FO4 field layouts (quadrant 0 = SW .. 3 = NE, 17 x 17 positions, row 0 = south); 1,701 of 10,000
+    quadrants have no BTXT (default texture); VCLR is white (mean 0.998) around Red Rocket.
+  - **verified**: BTD quadrant = 8 bytes, bytes 0..4 slots with alpha group k, byte 6 base, bytes 5 / 7 and bit 15
+    never set, textures in ascending table index; without byte 6 the last slot's alpha is 7 (100 % in four of five
+    files, 99.97 % in newatlantis, 69-100 % in akilacity). Our decode -> encode reproduces five vanilla BTDs' effective
+    weights exactly; every differing alpha is hidden below an opaque layer.
+  - **verified**: vanilla BTDs paint with six `LDefault*` placeholders (+ `LDirtFootprints01`, BIOM's Path texture);
+    no BIOM references the placeholders; Shattered Space's 108 BTDs use only them; no add-on plugin has an LTEX record.
+    **Supported**: placeholders resolve to the planet biome's Solid/Talus/... texture; concrete LTEX render as
+    themselves (akilacity uses both).
+  - **supported**: blend reading (top slot over lower slots over base; fo76utils + the opaque bottom slot); FO4 default
+    texture = CommonwealthDefault01 (fo76utils `-deftxt 0x000AB07E`); the exp2b "Mars dirt" is `LDirtFootprints01`'s
+    own reddish albedo (`#8F6C58`).
+  - **verified** (offline): exp2t BTD heights byte-identical to exp2b2 (SHA-256 of header, cell min/max, LOD4 heights,
+    every block's height half); 27-entry LTEX table; mean weight error 0.0289, dominant texture kept at 99.25 % of
+    samples, 0.11 % weight dropped by the 6-texture limit; four ground spots decode to their mapped texture; packed
+    with Archive2 `-compression=None` the BTDs are stored and byte-identical.
+- Status: format and writer **verified** offline; what the game draws (concrete LTEX on Mars, tint, blend model,
+  option b: plugin terrain materials) **unresolved** until exp2t runs.
+
 ## 2026-10-11 Claude: overlay record fixes
 - Question: in which records do our terrain experiment plugins differ from vanilla unique overlays, and what must
   SFBK `FNAM` hold? Write-up: [docs/terrain/overlay-records.md](../terrain/overlay-records.md).

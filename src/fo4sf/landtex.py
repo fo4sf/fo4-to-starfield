@@ -8,16 +8,17 @@ Fallout 4 (verified on Fallout4.esm, docs/terrain/ground-textures.md 1):
     Quadrants: 0 = south-west, 1 = south-east, 2 = north-west, 3 = north-east, 17 x 17 vertices each; vertex row/column
     16 is shared by two quadrants. LTEX 0 in an ATXT means the default texture (as a missing BTXT).
     Blending (supported, fo76utils renderPixelTES4): the base, then the layers in ascending layer number, each drawn
-    over what is below with its opacity. So with opacities a_1..a_k the weight of layer i is a_i * prod_{j > i} (1 - a_j)
-    and the base keeps prod_j (1 - a_j).
+    over what is below with its opacity. So with opacities a_1..a_k the weight of layer i is
+    a_i * prod_{j > i} (1 - a_j) and the base keeps prod_j (1 - a_j).
 
 Starfield BTD (verified on vanilla files, docs/terrain/ground-textures.md 2):
     LTEX table of n FormIDs; per quadrant (64 x 64 samples, 50 m) 8 bytes, value v -> table[n - v], 0 = empty.
     Bytes 0..4 are layer slots, slot k's alpha is bits 3k..3k+2 (0..7) of the sample's u16 weight; byte 6 is the base
     (no alpha); bytes 5 and 7 are always 0. A quadrant's textures sit in ascending table index; the one with the highest
-    index is the bottom. With up to 5 textures there is no byte 6: the last slot is the bottom and its alpha is 7
-    everywhere (lc172world, newatlantis, lc001world, cydoniacity). Blending (supported, fo76utils renderPixelFO76 and the
-    alpha-7 bottom slot): from the bottom up, each slot over what is below with alpha / 7; slot 0 is the top.
+    index is the bottom. With up to 5 textures there is no byte 6: the last slot is the bottom and its alpha is 7 at
+    (nearly) every sample (lc172world, lc001world, cydoniacity 100 %, newatlantis 99.97 %). Blending (supported,
+    fo76utils renderPixelFO76 and the alpha-7 bottom slot): from the bottom up, each slot over what is below with
+    alpha / 7; slot 0 is the top. decode(encode(decode(vanilla))) == decode(vanilla) for five vanilla overlays.
 
 Arrays are [row, column] with row 0 = south, as in fo4land and btd.
 """
@@ -238,7 +239,6 @@ def decode(quad_map, words, n):
             sl = (slice(qy * SF_QUAD, (qy + 1) * SF_QUAD), slice(qx * SF_QUAD, (qx + 1) * SF_QUAD))
             qb = quad_map[qy, qx]
             rem = np.ones((SF_QUAD, SF_QUAD))
-            j = 0
             for k in range(SLOTS):
                 v = int(qb[k])
                 if not 0 < v <= n:
@@ -246,13 +246,7 @@ def decode(quad_map, words, n):
                 a = ((w[sl] >> (3 * k)) & 7) / ALPHA_MAX
                 out[(n - v,) + sl] += a * rem
                 rem = rem * (1.0 - a)
-                j += 1
             _slots, base = quadrant_textures(qb, n)
             if base is not None:
                 out[(base,) + sl] += rem
     return out
-
-
-def dominant(weights):
-    """Index of the largest weight per sample (argmax over axis 0) and that weight."""
-    return np.argmax(weights, axis=0), np.max(weights, axis=0)

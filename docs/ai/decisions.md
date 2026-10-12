@@ -2,6 +2,16 @@
 
 Format: date, decision, why, alternatives considered.
 
+## 2026-10-11 FO4 ground textures: vanilla Starfield land textures first, new terrain materials later (Claude)
+The Commonwealth BTD carries FO4's ground textures as vanilla `Starfield.esm` LTEX in its LTEX table: every FO4 land
+texture maps to one of 27 Earth-like vanilla LTEX by hand category + nearest average colour, reviewed by eye
+(`src/fo4sf/ground_map.py`). Why: vanilla BTDs already name concrete LTEX (akilacity, overlay traits), so it needs no
+plugin record and no new material; all 27 materials exist in the run-time material database. Alternatives: new LTEX
++ `.mat` from converted FO4 textures (no official plugin adds an LTEX; a BTD table has no master list, so a plugin
+FormID would bake in a load-order byte; terrain material loading from a plugin archive is untested) and the six
+`LDefault*` placeholders (they take the planet's look, the opposite of the goal). Revisit after exp2t runs. Evidence:
+docs/terrain/ground-textures.md.
+
 ## 2026-10-11 FO4 terrain heights: own Python reader following fo4land, Mutagen as the cross-check (Claude)
 `src/fo4sf/fo4land.py` reads LAND/VHGT with the algorithm of fo76utils `fo4land` (MIT); `dotnet/Fo4Land` decodes the
 same cells through Mutagen as a second, independent parse. Why: fo4land needs scons + a C++ compiler, which this

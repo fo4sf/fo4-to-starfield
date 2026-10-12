@@ -1,14 +1,17 @@
 """Fallout 4 ground textures on the native Commonwealth terrain (docs/terrain/ground-textures.md).
 
     python scripts/terrain/ground_textures.py palette --fo4-data <FO4 Data> --sf-data <Starfield Data> --out <palette.json>
+    python scripts/terrain/ground_textures.py suggest --palette <palette.json> [--out <suggest.json>]
     python scripts/terrain/ground_textures.py build --from <staged exp2b2> --fo4-data <FO4 Data> --sf-data <Starfield Data>
                                                     --out <staging dir, e.g. C:\\Modding\\staging\\terrain_exp2t>
-                                                    [--palette <palette.json>]
+                                                    [--palette <palette.json>] [--replace]
     python scripts/terrain/ground_textures.py check --from <staged exp2b2> --out <staging dir>
 
 palette  average albedo of every FO4 land texture (TXST diffuse or its BGSM) and every Starfield LTEX (its .mat in the
-         Creation Kit's ContentResources.zip -> albedo DDS, low mips only); the mapping table (fo4sf.ground_map) was
-         chosen with it. Written outside the repo (derived from game files).
+         Creation Kit's ContentResources.zip -> albedo DDS, low mips only), plus 128 px previews next to the json;
+         the mapping table (fo4sf.ground_map) was chosen with it. Written outside the repo (derived from game files).
+suggest  nearest-colour Starfield candidate per FO4 land texture within its category, next to the frozen table, and a
+         check that every Starfield FormID in the table is that EditorID's LTEX in Starfield.esm.
 build    reads the FO4 LAND texture layers (BTXT/ATXT/VTXT) of the BTD footprint, turns them into per-vertex weights,
          maps every FO4 LTEX to a vanilla Starfield LTEX, resamples onto the BTD grid and writes the BTD's texture
          sections (LTEX table, quadrant bytes, 3-bit alphas). Heights, header, cell min/max and LOD4 heights stay
@@ -66,7 +69,8 @@ def fo4_land_textures(fo4_esm):
         for fid, f in p.group_records(b"LTEX"):
             tn = next((struct.unpack_from("<I", d)[0] for s, d in f if s == b"TNAM" and len(d) == 4), 0)
             t = txst.get(tn, {})
-            out[fid] = {"edid": edid(f), "txst": t.get("EDID", ""), "diffuse": t.get("TX00", ""), "bgsm": t.get("MNAM", "")}
+            out[fid] = {"edid": edid(f), "txst": t.get("EDID", ""), "diffuse": t.get("TX00", ""),
+                        "bgsm": t.get("MNAM", "")}
     return out
 
 
@@ -189,7 +193,8 @@ def suggest(a):
     check that every FormID in ground_map.SF_FORMID is the Starfield.esm LTEX of that EditorID."""
     pal = read_json(a.palette)
     sf = {v["edid"]: fid for fid, v in sf_land_textures(os.path.join(a.sf_data, "Starfield.esm")).items()}
-    bad = {k: ("%08X" % v, "%08X" % sf[k] if k in sf else None) for k, v in ground_map.SF_FORMID.items() if sf.get(k) != v}
+    bad = {k: ("%08X" % v, "%08X" % sf[k] if k in sf else None) for k, v in ground_map.SF_FORMID.items()
+           if sf.get(k) != v}
     rows = []
     for fo4, v in sorted(pal["fo4"].items()):
         cat = ground_map.category(fo4)
@@ -199,7 +204,8 @@ def suggest(a):
         best = cands[0][1] if cands else None
         chosen = ground_map.sf_for(fo4)
         de = next((d for d, c in cands if c == chosen), None)
-        rows.append({"fo4": fo4, "category": cat, "nearest": best, "nearest_de": round(cands[0][0], 1) if cands else None,
+        rows.append({"fo4": fo4, "category": cat, "nearest": best,
+                     "nearest_de": round(cands[0][0], 1) if cands else None,
                      "chosen": chosen, "chosen_de": round(de, 1) if de is not None else None,
                      "runner_up": [c for _, c in cands[1:3]]})
     for r in rows:
@@ -357,7 +363,8 @@ def find_spots(fo4_keys, fo4_w, heights, origin_units, near_m, err_fn, step, use
         used.append((x, y))
         top = sorted(((float(fo4_w[i][r, c]), fo4_keys[i]) for i in range(len(fo4_keys))), reverse=True)[:3]
         out.append({"label": label, "x": round(x, 4), "y": round(y, 4), "expect": round(m(float(heights[r, c])), 4),
-                    "ground": desc, "purity": {"radius_vertices": radius, "min_weight": purity}, "fo4_textures": {kk: round(w, 3) for w, kk in top if w > 0.005},
+                    "ground": desc, "purity": {"radius_vertices": radius, "min_weight": purity},
+                    "fo4_textures": {kk: round(w, 3) for w, kk in top if w > 0.005},
                     "sf_mapped": ground_map.sf_for(top[0][1]), "dist_from_redrocket_m": round(dist, 1),
                     "slope_deg": round(tg.local_slope_deg(heights, r, c, tg.FO4_VERTEX_UNITS), 2),
                     "predicted_error_m": round(e, 6), "fo4_cell": list(fo4land.cell_of(x * 70, y * 70)),
@@ -462,8 +469,8 @@ def build(a):
     test["label"] = (f"terrain exp2t: exp2b2 ({n}x{n}-cell BTD, Absolute, Mars) with FO4 ground textures mapped to "
                      f"{len(order)} vanilla Starfield LTEX; screenshots at {len(spots)} ground-type spots")
     test["points"] = list(test["points"]) + [{k: s[k] for k in ("label", "x", "y", "expect")} for s in spots]
-    test["fresh"] = True
-    write_json(os.path.join(out, "plan.json"), [test])
+    # a merged planet world needs a relaunch per test (repeat coc is erratic); later tests of the source plan are kept
+    write_json(os.path.join(out, "plan.json"), [dict(w, fresh=True) for w in [test] + list(plan[1:])])
     ltex = {"table": [{"index": i, "formid": "%08X" % ground_map.SF_FORMID[k], "edid": k,
                        "coverage": round(stats["coverage"][k], 5)} for i, k in enumerate(order)],
             "rule": "table order = rarest first (top layers) .. most common last (bottom); per quadrant the 6 textures "
@@ -732,8 +739,10 @@ def check(a):
               f"{'ok' if good else 'DIFFERENT TOP TEXTURE'}")
         ok &= good
     pts = {p["label"] for p in plan[0]["points"]}
-    ok &= all(s["label"] in pts for s in exp["ground_textures"]["spots"]) and plan[0].get("fresh") is True
-    print(f"plan: {len(plan[0]['points'])} points, fresh {plan[0].get('fresh')}; check {'PASS' if ok else 'FAIL'}")
+    fresh = all(w.get("fresh") is True for w in plan)
+    ok &= all(s["label"] in pts for s in exp["ground_textures"]["spots"]) and fresh
+    print(f"plan: {len(plan)} test(s), {len(plan[0]['points'])} points in the first, all fresh {fresh}; "
+          f"check {'PASS' if ok else 'FAIL'}")
     write_json(os.path.join(out, "offline_check_textures.json"), {"pass": bool(ok), "source_digest": src_d})
     return ok
 
