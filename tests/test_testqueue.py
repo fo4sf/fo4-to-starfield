@@ -673,3 +673,16 @@ class HopTests(unittest.TestCase):
         self.assertEqual((t["hop_m"], t["hop_wait_ms"]), (300, 7000))
         src = open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8").read()
         self.assertIn("if ($t.hop_m)", src)
+
+
+class WatchdogTests(unittest.TestCase):
+    def test_watchdog_rules(self):
+        src = open(os.path.join(ROOT, "scripts", "game", "watchdog.ps1"), encoding="utf-8").read()
+        self.assertIn("threshold_hours = 3.0", src)                  # default inactivity before it acts
+        self.assertIn("if (Stopped)", src)                           # STOP files win
+        self.assertIn("-not $running -and (QueueLeft) -gt 0", src)   # never a second chain, never an empty one
+        self.assertIn("--grep '^Claude'", src)                       # Claude's commits count as activity
+        self.assertIn("-s workspace-write", src)                     # Codex runs sandboxed
+        self.assertNotIn("dangerously", src)
+        runbook = open(os.path.join(ROOT, "docs", "ai", "codex-runbook.md"), encoding="utf-8").read()
+        self.assertIn("No input to Starfield", runbook)
