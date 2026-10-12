@@ -513,7 +513,9 @@ class ExpPackTests(unittest.TestCase):
         open(os.path.join(local, "Starfield", "Plugins.txt"), "wb").write(b"*FO4Port.esm\r\n")
 
         def fake_ba2(a, data_root, out):
-            open(out, "wb").write(b"BTDX fake")
+            from pathlib import Path
+            from ba2_fixture import archive_from_tree
+            Path(out).write_bytes(archive_from_tree(Path(data_root)))
             return out
         old_env, old_build = os.environ.get("LOCALAPPDATA"), exp_install.build_ba2
         os.environ["LOCALAPPDATA"], exp_install.build_ba2 = local, fake_ba2

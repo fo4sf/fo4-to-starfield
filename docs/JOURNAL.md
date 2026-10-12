@@ -722,3 +722,15 @@ reviewed helper, both journal entries, and upstream-identical runner/probe imple
 source text for an Archive2 flag; replaced that exact test with a synthetic command check. Full351 tests OK (1 skipped).
 Packing/merge QA PASS; command test detects a Default-compression regression. Grok #58 QA reproduced blank/null starts
 reported PASS; requested an owned fix and synthetic door/stair cases. No Grok-owned file or game state changed.
+
+### 2026-10-11: Codex verifies packed resource coverage (#62)
+
+Three synthetic installs falsely succeeded with a valid-looking archive omitting terrain, changing its bytes, or
+storing it compressed despite the requested flag. The new verifier reuses the BA2 reader, checks supported General
+record bounds, unique normalized names/exact input coverage, stored entries and streamed SHA-256 against pinned inputs.
+Validation finishes before any game publication. Packing policy v2 prevents reuse of older unverified records; finish
+their controlled uninstall before upgrading. Realistic synthetic BA2 fixtures replace placeholder output.49 focused/
+361 full tests OK (1 skipped), guard OK; scoped QA pending. No real Archive2, live installation or game control used.
+Separate independent Grok QA: #58 blank-start correction PASS; #69 still passes malformed optional offsets or NaN
+tolerances. Repros posted to Grok's PR; no Grok-owned files or historical runtime tallies changed. Claude now reports
+Red Rocket terrain plus object collision; full region/interior acceptance and queued seams/NPC probes remain open.

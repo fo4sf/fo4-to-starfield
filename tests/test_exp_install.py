@@ -7,6 +7,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+from ba2_fixture import general_archive, archive_from_tree
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "game"))
@@ -35,7 +36,7 @@ class ExperimentRecoveryTests(unittest.TestCase):
         self.addCleanup(environment.stop)
         self.args = SimpleNamespace(starfield=str(self.data.parent), exp_dir=str(self.staging), plugins="")
 
-    def archive_builder(self, payload=b"BTDX" + bytes(12) + b"synthetic archive"):
+    def archive_builder(self, payload=None):
         tool = self.data.parent / "Tools" / "Archive2" / "Archive2.exe"
         tool.parent.mkdir(parents=True)
         tool.write_bytes(b"synthetic tool; never executed")
@@ -45,7 +46,7 @@ class ExperimentRecoveryTests(unittest.TestCase):
             self.assertEqual(Path(kwargs["cwd"]), self.staging / "Data")
             self.assertIn("-format=General", command)
             output = next(arg[len("-create="):] for arg in command if arg.startswith("-create="))
-            Path(output).write_bytes(payload)
+            Path(output).write_bytes(payload if payload is not None else archive_from_tree(self.staging / "Data"))
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         return build
@@ -82,7 +83,7 @@ class ExperimentRecoveryTests(unittest.TestCase):
             process.assert_called_once()
         self.assertFalse((self.data / "Terrain").exists())
         self.assertEqual((self.data / "Experiment - Main.ba2").read_bytes(),
-                         b"BTDX" + bytes(12) + b"synthetic archive")
+                         archive_from_tree(self.staging / "Data"))
         self.assertEqual((self.data / "Experiment_Mars.esm").read_bytes(), b"synthetic registration plugin")
         exp.uninstall(self.args)
         self.assert_rolled_back()
@@ -93,6 +94,27 @@ class ExperimentRecoveryTests(unittest.TestCase):
             exp.install(self.args)
         self.assertIn("-compression=None", process.call_args.args[0])
         self.assertNotIn("-compression=Default", process.call_args.args[0])
+
+    def test_packed_archive_missing_the_pinned_terrain_cannot_install(self):
+        build = self.archive_builder(general_archive({}))
+        with patch.object(exp.subprocess, "run", side_effect=build):
+            with self.assertRaisesRegex(SystemExit, "archive"):
+                exp.install(self.args)
+        self.assert_rolled_back()
+
+    def test_packed_archive_with_changed_terrain_bytes_cannot_install(self):
+        build = self.archive_builder(general_archive({self.terrain.as_posix(): b"wrong terrain"}))
+        with patch.object(exp.subprocess, "run", side_effect=build):
+            with self.assertRaisesRegex(SystemExit, "archive"):
+                exp.install(self.args)
+        self.assert_rolled_back()
+
+    def test_compressed_terrain_output_cannot_install_despite_the_requested_flag(self):
+        build = self.archive_builder(general_archive({self.terrain.as_posix(): b"synthetic terrain"}, compressed=True))
+        with patch.object(exp.subprocess, "run", side_effect=build):
+            with self.assertRaisesRegex(SystemExit, "archive"):
+                exp.install(self.args)
+        self.assert_rolled_back()
 
     def test_packing_keeps_staging_read_only_and_cleans_temporary_output(self):
         build = self.archive_builder()

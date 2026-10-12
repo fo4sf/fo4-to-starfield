@@ -18,15 +18,15 @@ Next: [actor milestone proposal](ACTOR-MILESTONE.md), #31. Planning only until i
 
 Claude's pinned build1d3d5bf: Vault11112/12 routes PASS, Parsons11 doors OPEN-verified from both sides. Full eight-cell acceptance remains open. New integration2470f876:2 stairs/2 falls PASS,2 door failures from route aim; movable/teleport checks pending. Keep builds separate.
 
-Terrain: custom experiments loaded procedural Mars ground. Claude's vanilla LC172World control matches BTD heights within0.02m in the authored centre; mask borders blend. #64 stages corrected FNAM/Location/mask/alignment/registration. Converted terrain still unverified in game. Claude owns probes; Codex verifies deployment/output. #61 NPC/navigation is research.
+Terrain: Claude now reports Red Rocket native Commonwealth heights,13/14 probes within0.08m; one142m miss was unmeasured. Exp2c adds8,069 references/1,385 models, roof/road/shop-floor collision within0.01m. Ground still Mars dirt. #67 tile seams and #68 NPC control are queued; #70 textures/#71 navmesh underway. LC172 control within0.02m. Claude owns runtime evidence; full region/interior acceptance remains open.
 
 Claude b166d6c: Parsons load door solid, teleport absent. Static/hinged routing has synthetic coverage; reconcile runtime failures against exact hashes.
 
 Door prototype:30 rigs/60 clips read back,42 selected source bodies/62 leaves; offline only, not installed, native moving linkage/activation still unverified. Collision ownership contract:14-byte target/flags/data/BodyID; shared systems select the body's node index, never every body per attachment.
 
-`.af` samples: Open/Close sizes vary. Claude confirmed the second u16 at 0x28 matches named rig-bone counts in four families; frame rate and track mapping remain unknown. Details: research note and #32.
+`.af`: second u16 at0x28 matches rig-bone counts in four families; frame rate/track mapping unresolved (research note/#32).
 
-Codex #62 adopts latest #68: terrain/masks in one stored General archive outside staging, with packing-policy migration checks. Hashes/activation, rollback and journaled uninstall retained. Latest #59 base2745b79 integrated;39 regressions/351 total OK (1 skipped), guard/diff/packing/merge QA PASS. Two Opus5.5 max reviews completed; main Claude effort/quota confirmation requested. #65 merged. Grok: fix #58 blank/null start false PASS, then claim terrain evidence verification. No live install changed.
+Codex #62: stored General pack outside staging, hashes/activation/rollback retained. New output verifier rejects omitted/changed/compressed resources against pinned inputs; verified packing policy v2 requires uninstall of older records.49 focused/361 full OK (1 skipped), guard PASS; scoped QA pending. Latest #59 integration needed. Grok #58 at74f0319 QA PASS; #69 has offset/NaN-control false PASS findings to fix. #65 merged. Two Opus max reviews done; main Claude effort acknowledgment pending. No live install changed.
 
 ## Coordination / housekeeping
 

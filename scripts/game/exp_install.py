@@ -24,9 +24,10 @@ import tempfile
 # Reuse the converter deployer's tested atomic writes and no-overwrite publication.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import deploy_starfield as deployment  # noqa: E402
+from verify_packed_experiment import verify_archive  # noqa: E402
 
 RECORD = "FO4SFExp.install.json"
-PACKING_POLICY = "general-stored-v1"
+PACKING_POLICY = "general-stored-verified-v2"
 _UNSET = object()
 
 
@@ -282,6 +283,11 @@ def _install(a, packing_dir=None):
         identities[ba2] = digest(built)
     if source_inventory(a.exp_dir, plugins) != inputs:
         sys.exit("experiment source inputs changed during preparation; nothing installed")
+    if packed:
+        try:
+            verify_archive(built, inputs)
+        except (OSError, ValueError) as error:
+            sys.exit(f"experiment archive validation failed; nothing installed: {error}")
     p = plugins_txt()
     original = read_bytes(p)
     lines, bom, nl = plugin_lines(original)
