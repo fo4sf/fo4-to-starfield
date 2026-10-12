@@ -22,6 +22,9 @@ usage:
   python testqueue.py run   --queue <queue dir> [--max-tests N] [--max-hours 8] [--min-idle 900] [--wait-for-idle]
                              [--refocus] [--max-attempts 2] [--dry-run]
   python testqueue.py report --queue <queue dir>
+
+Run exit status: 0 = all tests have terminal results (or a dry-run preview); 4 = budget pause with pending tests.
+A required queue's chain keeps nonzero runs queued for resume. A completed queue may still contain FAIL/INCONCLUSIVE.
   python testqueue.py status --queue <queue dir>
 
 Verdicts: PASS, FAIL (with a reason class) or INCONCLUSIVE. A missing observation (no position read, no screenshot,
@@ -1797,7 +1800,7 @@ class Runner:
         self.checkpoint("finished" if left == 0 else f"paused ({left} left)")
         self.log(f"run ends: {left} tests left")
         write_report(self.qdir)
-        return 0
+        return 4 if left and not a.dry_run else 0
 
 
 # -------------------------------------------------------------------------------------------------------------- report
