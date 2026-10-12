@@ -1036,6 +1036,19 @@ class Runner:
                 self.log(f"dry run: would run {t['id']}")
                 ran += 1
                 continue
+            # an open breaker skips the test before any launch (core64 2026-10-11: a "fresh" test relaunched the game
+            # only to be skipped)
+            br = self.state.setdefault("breaker", {})
+            if br.get(t["kind"], {}).get("open"):
+                rec = {"id": t["id"], "kind": t["kind"], "cell": t["cell"], "ref": t["ref"], "model": t.get("model", ""),
+                       "attempt": 0, "verdict": "INCONCLUSIVE", "class": "BREAKER",
+                       "detail": f"not run: the first {BREAKER} {t['kind']} tests were all inconclusive", "exit": None,
+                       "dir": "", "t": now()}
+                with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
+                    f.write(json.dumps(rec) + "\n")
+                self.state["done"][t["id"]] = {"verdict": "INCONCLUSIVE", "class": "BREAKER", "attempts": 0}
+                self.checkpoint()
+                continue
             if t.get("fresh") and getattr(self, "game_used", False) and self.ctl.game_pid():
                 # every arrival after the first in an already merged planet world was erratic (2026-10-11 terrain
                 # retries fell through): a "fresh" test starts from a new launch
@@ -1051,17 +1064,6 @@ class Runner:
                     self.log(f"stopped: {g}")
                     self.checkpoint(f"stopped: {g}")
                     return 3
-            br = self.state.setdefault("breaker", {})
-            if br.get(t["kind"], {}).get("open"):
-                rec = {"id": t["id"], "kind": t["kind"], "cell": t["cell"], "ref": t["ref"], "model": t.get("model", ""),
-                       "attempt": 0, "verdict": "INCONCLUSIVE", "class": "BREAKER",
-                       "detail": f"not run: the first {BREAKER} {t['kind']} tests were all inconclusive", "exit": None,
-                       "dir": "", "t": now()}
-                with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
-                    f.write(json.dumps(rec) + "\n")
-                self.state["done"][t["id"]] = {"verdict": "INCONCLUSIVE", "class": "BREAKER", "attempts": 0}
-                self.checkpoint()
-                continue
             n = self.state["attempts"].get(t["id"], 0) + 1
             self.state["attempts"][t["id"]] = n
             out_dir = os.path.join(self.qdir, "tests", t["id"], f"a{n}")

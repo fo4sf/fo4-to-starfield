@@ -786,3 +786,42 @@ twin step is untested in game until the next library run.
   - N1c: converted navmesh;
   - N1b: the runtime generator.
 - **Ground textures (PR #70):** staged. They need a daytime run; every Mars arrival so far was at night.
+
+## 2026-10-11 night: dead man's switch and the huge batch (owner's request)
+- **`scripts/game/watchdog.ps1`** runs detached. It is not reboot-proof yet (the owner was asked about a scheduled task).
+  - After 3 h with no "Claude:" commit and no heartbeat (`C:\Modding\testqueue\claude_heartbeat.txt`), it starts `C:\Modding\testqueue\chain.ps1` itself. No AI is needed; the runner keeps every owner control.
+  - At most every 6 h it calls Codex (`codex exec`, sandbox workspace-write) to follow `docs/ai/codex-runbook.md`: status, reports, one #32 comment, no code changes or game input.
+  - At most 3 chain starts per 6 h. An unfinished required queue goes back to the front of `chain_queue.txt`.
+  - AGENTS.md records the exception.
+- **`batch_full`**, queued last: 1,764 tests on the 16 cells. It covers every route (routes.py `--max 400` -> `routesfull_*.json`) plus 40 falls and 40 movable items per cell, about 30 h.
+- **core64** (one 64x64-cell overlay, 6.4 km) in game: every probe within ~500 m of the arrival is exact (Sanctuary 110.27/110.29, Vault 111 127.09/127.09). Single 1-2 km setpos jumps do not load in time, so a hop variant (300 m steps) is queued next.
+
+## 2026-10-11 late night: the "far terrain does not load" result is a 9x9-cell playable border
+- **core64, all six rays** (one arrival at Red Rocket each, from a fresh launch): every probe up to ~380 m from the arrival reads the FO4 height within 0.01 m (arrival 105.14, Sanctuary 110.27, Vault 111 127.09, Concord 87.09, se_500m 56.92/56.91, ne_500m 113.38/113.37).
+  - The first probe at 500 m straight east, south or west (and 700 m diagonally) raises Starfield's **"Boundary Reached"** popup (screenshot in the test folder). Its position read is garbled, and every later probe stays at its drop height.
+  - The allowed probes span local cells x -14..-7 and y 8..14, and the blocked ones sit 5 cells out. That is a window of about 4 cells around the arrival cell (-10, 11), inside an overlay whose 4,096 cells all exist and whose worldspace bounds (NAM0/NAM9) cover the whole 6.4 km.
+- **Supported hypothesis:** the limit is Starfield's landing-area border, not our data. Starfield.exe has `bBorderRegionsEnabled:General` (set to 0 by the "Border Regions Unlock" mod), `fPlayableAreaX/Y/Z:General`, `uMaximumPlayableAreaWorldCoord:General` and `uPlayableSpaceOverlayCellBuffer:Planet`. The console has `SetINI` and `GetINI`, so a test can change the border for one session without touching an ini file.
+- **This also confounds exp3's "neighbouring overlays do not load" result (500-700 m probes).** That needs a re-run with the border off before the many-overlays option is ruled out.
+- **Runner:** core64b (300 m hops) is paused with a queue STOP. Its second hop would only reach the same border. The next queue reads the settings (`GetINI`), sets `bBorderRegionsEnabled` to 0 after the save loads and before the coc, then repeats the rays and hops.
+- **Fixed:** an open breaker now skips a test before the "fresh" relaunch (one wasted launch per tripped breaker).
+- **Correction, 2026-10-12 00:01: travelling works, so the border limits jumps, not the world.** core64b's north-west ray reached every probe in 300 m hops (11 hops) and PASSED to 2 km:
+  - arrival 105.14, Sanctuary 110.27, Vault 111 127.09, 500 m 114.17 (want 114.17), 1,000 m 202.54 (202.51), 2,000 m 188.45 (188.46);
+  - no "Boundary Reached" on the way.
+- So the popup comes from a **single teleport more than ~4 cells from the current position**, not from a fixed window around the arrival. The 6.4 km overlay streams in as the player moves.
+- exp3's neighbouring-overlay probes were single 500-700 m jumps too, so the seam question is open again and needs a hop run.
+- The other five core64b rays are pending: its STOP is removed, and it needs to go back into `chain_queue.txt`. terrain_core64e (PR #74, one pebble per cell) now only asks whether content changes the single-jump limit, which is low priority.
+
+## 2026-10-12 early morning: navmesh plugin terrain check passes; the vanilla NPC control is not a control yet
+- **exp2d PASS** (Red Rocket terrain + objects + the converted navmesh plugin, PR #71): the ground under all four N1 NPC points (A, B, and A2/B2 across a cell line) reads the expected height within 0.01 m, 5 of 5. The navmesh plugin does not disturb the terrain.
+- **N0, the vanilla NPC control in QASmoke** (actor 002B211C, levelled 0000CF96; A (-8, -4) to B (5, 10), 20 m):
+  - 2 PASS, 3 FAIL, but **no test shows a commanded walk**. Every actor, with or without a command, stayed in the same patch (x -11..0, y -6..2) and never came within 10.8 m of B.
+  - Baseline (no command): wandered 5.4 m towards B, FAIL WANDER.
+  - `PathToRef player`: 6.8 m and 9.0 m towards B, counted as PASS, but that is within the wander.
+  - `cf "Actor.PathToReference" player 1.0`: the console replied "No script named Actor is attached to the object".
+  - `SetPlayerTeammate 1` + `EvaluatePackage`: the actor stood still for 30 s.
+  - The robot visible next to the camera in the sample shots is also there in the no-command baseline. It is most likely the save's companion, not the test actor.
+- **Next for the NPC tests:**
+  - B must be reachable on navmesh from A (supported hypothesis: it is not in QASmoke, or the package overrides PathToRef).
+  - The judge must require arrival (end within a few metres of B) or progress beyond the baseline's wander.
+  - Add `StartCombat player` (a script command in Starfield.exe: "Forces the currently selected reference to initiate combat with the provided actor") as a control method.
+  - The N1 queues still run (moving at all on our terrain with and without navmesh is useful), but their "towards B" verdicts carry the same caveat.
