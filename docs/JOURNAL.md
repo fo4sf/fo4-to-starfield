@@ -760,3 +760,24 @@ twin step is untested in game until the next library run.
   4. **Movable NOTMOVED:** FortHagen01 CigarettePack. The player reached it, but it moved 0.000 m.
   - The two INCONCLUSIVEs: a fall held 1.5 m above a cave floor, and a movable test the player missed by 2.39 m.
 - The chain now runs **batch_full** (1,764 tests, about 30 h) on integration-1011.
+
+## 2026-10-12 morning: multi-part FO4 doors lost every panel but the first (fixed offline, PR #79)
+- **Cause (verified offline):**
+  - `nif.door_hinge` read only the first node the FO4 `Open` sequence moves.
+  - `convert_door` hung that node alone under the Akila template hinge. Every other panel went under the static frame, with no bone and no body.
+  - The Akila clip has one track.
+  - The FortHagen01 shutter's `Right` panel is one example of a panel that stayed behind.
+- **Blast radius:**
+  - In the 16 pinned cells: 10 door models, 38 placed doors and 76 batch_full door tests. They include the Parsons double door 06CF29, plus high-tech doors with 3 of 4 sliding panels frozen.
+  - In Fallout4.esm: 80 models move geometry outside their first node.
+- **Fix:**
+  - These doors get their own rig plus Open/Close clips built from FO4's keys with CALUMI: one bone, one track and one keyframed collision box per moving part.
+  - Clip keys are offsets from the rest pose, as in 126 vanilla door rigs.
+  - Offline result: 40 of 40 moving parts have tracks and bodies (was 23 of 40). 47 of 57 door models are byte-identical. The overlay plugin differs from integ_1011 in exactly 48 records.
+- **Review notes (pass-with-notes):**
+  - Nested motion is not detected yet (`RRMegaSecurityDoor01` and `Prewar_Locker_Door01`; neither is in the build).
+  - One physics system per panel has no vanilla precedent: every vanilla double door shares one system. This is the largest in-game risk.
+  - Three rigs use FO4's `@#0` name suffix as bone names.
+- **Also:**
+  - The FortHagen shutters are windows (the wall is solid to about 1.03 m), so their walk tests cannot pass; the route planner should skip openings above step height.
+  - It all needs a new pinned build (overlay `integ_1011_doors`) after batch_full. Commands are in docs/spikes/WP-doors-research.md.
