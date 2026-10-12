@@ -851,6 +851,22 @@ def piece_nvmi(pc: Piece, nav_fid: int, world: int, fid_of: List[int], door_fid=
                 border_bits(v.min(0), v.max(0), pc.cell))
 
 
+def grid_raw(lists, trailer=None) -> List[int]:
+    """The grid lists as one i16 sequence (u32 count as two i16, then the indices), optionally followed by the 4-byte
+    trailer as two i16. Mutagen 0.55.0-alpha.67 reads everything after a vanilla record's grid header as ONE such array
+    (NavmeshGeometry.GridArrays[0], trailer included, Unknown3 left 0 and not written back: byte-identical round trip);
+    for a new record it writes GridArrays without counts and always writes Unknown3 after them. So the writer gives
+    it this array without the trailer and Unknown3 = the trailer (TerrainExp2; checked byte for byte by make_exp2d)."""
+    out = []
+    for lst in lists:
+        n = len(lst)
+        out += [n & 0xFFFF if n & 0xFFFF < 0x8000 else (n & 0xFFFF) - 0x10000, n >> 16]
+        out += [int(i) for i in lst]
+    if trailer:
+        out += list(struct.unpack("<2h", trailer))
+    return out
+
+
 def export(pieces: List[Piece]) -> dict:
     """navmesh.json for dotnet/TerrainExp2: one entry per piece, links name pieces by index (the writer allocates the
     FormIDs), doors name the converted door by its source key. Vertices are float32 values (as written)."""
@@ -867,7 +883,8 @@ def export(pieces: List[Piece]) -> dict:
             "links": [list(x) for x in pc.links],
             "doors": [[tri, ex, src] for tri, ex, src in pc.doors],
             "waypoints": [[float(p[0]), float(p[1]), float(p[2]), tri, ex] for p, tri, ex in pc.waypoints],
-            "grid": {"divisor": d, "size": list(size), "min": list(gmin), "max": list(gmax), "lists": lists},
+            "grid": {"divisor": d, "size": list(size), "min": list(gmin), "max": list(gmax), "lists": lists,
+                     "raw": grid_raw(lists)},
             "nvmi": {"location": [float(x) for x in vf.mean(0, dtype=np.float32)],
                      "border": border_bits(vf.min(0), vf.max(0), pc.cell)},
         })

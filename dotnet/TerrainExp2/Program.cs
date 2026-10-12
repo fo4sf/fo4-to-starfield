@@ -246,6 +246,7 @@ if (Has("navmesh"))
     {
         NavMeshVersion = 17,
         PreferredPathing = new PreferredPathing(),
+        FormVersion = 581,                                          // Starfield.esm, SFBGS006, BlueprintShips: 581
     };
     var navIds = new List<string>();
     for (int i = 0; i < navs.Count; i++)
@@ -264,7 +265,9 @@ if (Has("navmesh"))
             Parent = new WorldspaceNavmeshParent
             {
                 Parent = new FormLink<IWorldspaceGetter>(w.FormKey),
-                Coordinates = new P2Int16((short)cxy[0], (short)cxy[1]),
+                // the file holds grid y, then grid x (every vanilla exterior NAVM matches its cell's XCLC that way);
+                // Mutagen writes Coordinates.X first, so X takes the grid y
+                Coordinates = new P2Int16((short)cxy[1], (short)cxy[0]),
             },
             GridSize = (uint)grid.GetProperty("divisor").GetInt32(),
             GridMaxDistance = new P2Float(gsize[0], gsize[1]),
@@ -309,9 +312,17 @@ if (Has("navmesh"))
         }
         foreach (var p in e.GetProperty("waypoints").EnumerateArray())
             g.Waypoints.Add(new NavmeshWaypoint { Location = new P3Float(p[0].GetSingle(), p[1].GetSingle(), p[2].GetSingle()), TriangleIndex = p[3].GetInt16(), Unknown = p[4].GetInt32() });
-        foreach (var lst in grid.GetProperty("lists").EnumerateArray())
-            g.GridArrays.Add(new NavmeshGridArray { GridCell = new ExtendedList<short>(lst.EnumerateArray().Select(x => x.GetInt16())) });
-        cell.NavigationMeshes.Add(new NavigationMesh(navKeys[i], release) { NavmeshGeometry = g });
+        // Mutagen 0.55.0-alpha.67 reads everything after a vanilla grid header (d * d lists of u32 count + i16
+        // indices, then the 4 trailing bytes) as ONE i16 array in GridArrays[0] and writes it back as is; GridArrays
+        // with one list each lose the counts, and Unknown3 is always written after them for a new record. So
+        // navmesh.json's "raw" (navmesh.grid_raw) is the lists with their counts and Unknown3 the trailer.
+        g.GridArrays.Add(new NavmeshGridArray { GridCell = new ExtendedList<short>(grid.GetProperty("raw").EnumerateArray().Select(x => x.GetInt16())) });
+        cell.NavigationMeshes.Add(new NavigationMesh(navKeys[i], release)
+        {
+            NavmeshGeometry = g,
+            PreCutMapEntries = new ExtendedList<PreCutMapEntry>(),   // the empty MNAM every vanilla NAVM has
+            FormVersion = 581,                                      // as Starfield.esm's newest NAVM and its NAVI
+        });
 
         var nv = e.GetProperty("nvmi");
         var loc = nv.GetProperty("location").EnumerateArray().Select(x => x.GetSingle()).ToArray();
