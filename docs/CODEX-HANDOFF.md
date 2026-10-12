@@ -26,7 +26,7 @@ Door prototype:30 rigs/60 clips read back,42 selected source bodies/62 leaves; o
 
 `.af`: second u16 at0x28 matches rig-bone counts in four families; frame rate/track mapping unresolved (research note/#32).
 
-Codex #62: stored General pack outside staging, hashes/activation/rollback retained. New output verifier rejects omitted/changed/compressed resources against pinned inputs; verified packing policy v2 requires uninstall of older records.49 focused/361 full OK (1 skipped), guard PASS; scoped QA pending. Latest #59 integration needed. Grok #58 at74f0319 QA PASS; #69 has offset/NaN-control false PASS findings to fix. #65 merged. Two Opus max reviews done; main Claude effort acknowledgment pending. No live install changed.
+Codex #62: stored General pack outside staging, hashes/activation/rollback retained. Output verifier rejects omitted/changed/compressed resources, invalid name lengths and reader-mismatched identities; policy v2 requires uninstall of older records.52 focused/381 full OK (1 skipped), guard/diff/final QA PASS. #59 base4a29506 integrated. Grok #58 at74f0319 QA PASS; #69 has offset/NaN-control false PASS findings to fix. #65 merged. Two Opus max reviews done; main Claude effort acknowledgment pending. No live install changed.
 
 ## Coordination / housekeeping
 

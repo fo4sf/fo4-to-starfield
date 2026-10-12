@@ -2,6 +2,7 @@
 import hashlib
 from pathlib import Path
 import sys
+import struct
 import tempfile
 import unittest
 
@@ -63,3 +64,21 @@ class PackedExperimentTests(unittest.TestCase):
         self.path.write_bytes(general_archive(self.resources))
         with self.assertRaisesRegex(ValueError, "duplicate"):
             verify_archive(str(self.path), self.inputs)
+
+    def test_declared_name_lengths_must_fit_in_the_archive(self):
+        blob = bytearray(general_archive(self.resources))
+        name_offset, = struct.unpack_from("<Q", blob, 16)
+        first_length, = struct.unpack_from("<H", blob, name_offset)
+        struct.pack_into("<H", blob, name_offset + 2 + first_length, 65535)
+        self.path.write_bytes(blob)
+        with self.assertRaisesRegex(ValueError, "name length"):
+            verify_archive(str(self.path), self.inputs)
+
+    def test_unicode_names_follow_the_existing_reader_lookup(self):
+        resources = {"Terrain/Straße.btd": b"one", "Terrain/STRASSE.btd": b"two"}
+        inputs = {"Data/" + name: hashlib.sha256(data).hexdigest() for name, data in resources.items()}
+        self.path.write_bytes(general_archive(resources))
+        verify_archive(str(self.path), inputs)
+        self.path.write_bytes(general_archive({"Terrain/STRASSE.btd": b"one"}))
+        with self.assertRaisesRegex(ValueError, "inventory"):
+            verify_archive(str(self.path), {"Data/Terrain/Straße.btd": inputs["Data/Terrain/Straße.btd"]})

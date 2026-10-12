@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import struct
 import tempfile
 from types import SimpleNamespace
 import unittest
@@ -113,6 +114,16 @@ class ExperimentRecoveryTests(unittest.TestCase):
         build = self.archive_builder(general_archive({self.terrain.as_posix(): b"synthetic terrain"}, compressed=True))
         with patch.object(exp.subprocess, "run", side_effect=build):
             with self.assertRaisesRegex(SystemExit, "archive"):
+                exp.install(self.args)
+        self.assert_rolled_back()
+
+    def test_overstated_archive_name_length_cannot_install(self):
+        payload = bytearray(general_archive({self.terrain.as_posix(): b"synthetic terrain"}))
+        name_offset, = struct.unpack_from("<Q", payload, 16)
+        struct.pack_into("<H", payload, name_offset, 65535)
+        build = self.archive_builder(payload)
+        with patch.object(exp.subprocess, "run", side_effect=build):
+            with self.assertRaisesRegex(SystemExit, "name length"):
                 exp.install(self.args)
         self.assert_rolled_back()
 

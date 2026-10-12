@@ -13,7 +13,7 @@ def normalized_name(name: str) -> str:
     name = name.replace("\\", "/")
     if name.startswith("/") or ":" in name or any(part in ("", ".", "..") for part in name.split("/")):
         raise ValueError(f"invalid archive resource path: {name!r}")
-    return name.casefold()
+    return name.lower()  # Match Ba2._norm; Unicode casefold aliases reader-distinct names.
 
 
 def verify_archive(path: str, inputs: dict[str, str]) -> None:
@@ -37,6 +37,12 @@ def verify_archive(path: str, inputs: dict[str, str]) -> None:
         records_end = 24 + extra + 36 * count
         if records_end > size or name_offset < records_end or name_offset + 2 * count > size:
             raise ValueError("archive record/name table is truncated or out of bounds")
+        with open(path, "rb") as stream:
+            stream.seek(name_offset)
+            for _ in range(count):
+                length, = struct.unpack("<H", stream.read(2))
+                if length > size - stream.tell() or len(stream.read(length)) != length:
+                    raise ValueError("archive declared name length exceeds the available bytes")
         archive = Ba2(path)
         names = [normalized_name(entry.name) for entry in archive.entries]
         if len(set(names)) != len(names) or set(names) != set(expected):
