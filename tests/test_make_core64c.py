@@ -201,14 +201,21 @@ class WorldTests(unittest.TestCase):
 
 
 class PlanTests(unittest.TestCase):
-    def test_ring_order(self):
+    def test_spoke_order_keeps_jumps_short(self):
         w = local_world([])
         start = (0.0, 0.0, 0.0)
-        pts = [{"label": n, "x": x, "y": y, "expect": 0.0} for n, x, y in
-               (("far_n", 0, 450), ("near_e", 200, 0), ("ref", 5, 5), ("near_w", -200, 0), ("far_e", 450, 0),
-                ("near_n", 0, 200), ("far_w", -450, 0))]
-        got = [p["label"] for p in mk.order_entry(w, start, pts, 50.0)]
-        self.assertEqual(got, ["ref", "near_e", "near_n", "near_w", "far_e", "far_n", "far_w"])
+        pts = [{"label": "ref", "x": 5.0, "y": 5.0, "expect": 0.0}]
+        for deg in (0, 45, 135, 180, 270, 320):                    # core64's six rays, probes at 200 and 500 m
+            for d in (200, 500):
+                a = math.radians(deg)
+                pts.append({"label": f"r{deg}_{d}", "x": d * math.cos(a), "y": d * math.sin(a), "expect": 0.0})
+        order = mk.order_entry(w, start, pts, 50.0)
+        self.assertEqual(order[0]["label"], "ref")
+        self.assertEqual(sorted(p["label"] for p in order), sorted(p["label"] for p in pts))
+        longest, _total = mk.path_key((0.0, 0.0), [(p["x"], p["y"]) for p in order])
+        spokes = mk.spoke_order(start, pts)
+        self.assertLess(longest, 400.0)                             # a plain bearing sort jumps 707 m (90 deg at 500 m)
+        self.assertLessEqual(longest, mk.path_key((0.0, 0.0), [(p["x"], p["y"]) for p in spokes])[0])
 
     def test_exhaustive_order_prefers_short_jumps(self):
         w = local_world([])

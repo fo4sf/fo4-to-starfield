@@ -548,10 +548,55 @@ def leg_cost(world, a, b, drop_z, capsule=x2c.CAPSULE):
                for x, y, z in exterior.setpos_path(a, (b["x"], b["y"]), drop_z))
 
 
+def path_key(start, seq):
+    """(longest jump, total distance) of visiting seq [(x, y)] from start: what order_entry minimises."""
+    ln, here = [], start
+    for q in seq:
+        ln.append(math.hypot(q[0] - here[0], q[1] - here[1]))
+        here = q
+    return round(max(ln), 3), round(sum(ln), 3)
+
+
+def spoke_order(start, points, sector_deg=45.0):
+    """Points near the arrival (< 100 m) first, then by bearing sector around the arrival, outward in one sector and
+    inward in the next (a zig-zag over the spokes), so no jump crosses the arrival or skips a sector at 500 m."""
+    def bearing(p):
+        return math.degrees(math.atan2(p["y"] - start[1], p["x"] - start[0])) % 360.0
+
+    def dist(p):
+        return math.hypot(p["x"] - start[0], p["y"] - start[1])
+    near = sorted((p for p in points if dist(p) < 100), key=lambda p: (dist(p), p["label"]))
+    far = [p for p in points if dist(p) >= 100]
+    sectors = {}
+    for p in far:
+        sectors.setdefault(int(bearing(p) // sector_deg), []).append(p)
+    out = list(near)
+    for n, s in enumerate(sorted(sectors)):
+        out += sorted(sectors[s], key=lambda p: (dist(p), p["label"]), reverse=bool(n % 2))
+    return out
+
+
+def two_opt(start, order):
+    """Reverse sub-sequences while that lowers (longest jump, total distance) from start (the arrival)."""
+    order = list(order)
+    best = path_key(start, [(p["x"], p["y"]) for p in order])
+    improved = True
+    while improved:
+        improved = False
+        for i in range(len(order) - 1):
+            for j in range(i + 1, len(order)):
+                cand = order[:i] + order[i:j + 1][::-1] + order[j + 1:]
+                k = path_key(start, [(p["x"], p["y"]) for p in cand])
+                if k < best:
+                    order, best, improved = cand, k, True
+    return order
+
+
 def order_entry(world, start, points, drop_z, exhaustive=6):
     """Visiting order: up to `exhaustive` points every order, by (teleport positions overlapping collision, longest
-    jump, total distance); more points by rings around the arrival (< 100 m, < 350 m, beyond) and bearing within a
-    ring, so no jump crosses the arrival (the core64 run read every probe within 500 m exactly; 1 to 2 km jumps hung)."""
+    jump, total distance); more points by a spoke zig-zag around the arrival improved by 2-opt on (longest jump, total
+    distance). Short jumps matter: the core64 run read every probe within 500 m of the arrival exactly, while single
+    1 to 2 km jumps hung at the drop height (2026-10-11)."""
     import itertools
     if len(points) <= exhaustive:
         nodes = [tuple(start)] + [(p["x"], p["y"], p["expect"]) for p in points]
@@ -564,12 +609,7 @@ def order_entry(world, start, points, drop_z, exhaustive=6):
             return sum(cost[leg] for leg in legs), round(max(ln), 1), round(sum(ln), 1), perm
         best = min(itertools.permutations(range(len(points))), key=key)
         return [points[k] for k in best]
-
-    def ring_key(p):
-        d = math.hypot(p["x"] - start[0], p["y"] - start[1])
-        ring = 0 if d < 100 else 1 if d < 350 else 2
-        return ring, round(math.degrees(math.atan2(p["y"] - start[1], p["x"] - start[0])) % 360.0, 3), p["label"]
-    return sorted(points, key=ring_key)
+    return two_opt(start[:2], spoke_order(start, points))
 
 
 def entry_drop(world, points):
@@ -1177,7 +1217,10 @@ def cmd_check(a):
                       "by_folder": {f: sum(b for n, b in files if n.split("/")[0].lower() == f)
                                     for f in sorted({n.split("/")[0].lower() for n, _ in files})}}
     need(est < ARCHIVE_LIMIT, f"one stored archive about {est / 2 ** 30:.3f} GiB < 4 GiB")
-    need(all(n.isascii() and " " not in n for n, _ in files), "archive paths are plain ASCII without spaces")
+    need(all(n.isascii() for n, _ in files), "archive paths are plain ASCII")
+    # FO4's own file names keep their spaces (e.g. "loose planks 01.nif"); exp2c packed 33 such paths the same way
+    # and its objects loaded in game, so they are counted, not refused
+    rep["archive"]["paths_with_spaces"] = sum(1 for n, _ in files if " " in n)
     if a.archive2 and a.scratch:
         dry, probs = archive_dry_run(a.archive2, out, a.scratch, files)
         rep["archive"]["dry_run"] = dry

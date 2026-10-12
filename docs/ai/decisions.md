@@ -2,6 +2,17 @@
 
 Format: date, decision, why, alternatives considered.
 
+## 2026-10-12 Whole-core objects: one archive below 4 GiB with capped textures, not a region split (Claude, proposed)
+core64c places all 649,596 convertible FO4 exterior references of the 64-cell core in core64's plugin and ships every
+converted file in one stored `<plugin> - Main.ba2`, with converted textures capped per kind by dropping top mip levels
+(color 1024, normal 512, rough 256, opacity 512 px; `convert_batch.py --max-texture`, off by default). Why: every large
+vanilla archive stops just below 4 GiB (whether the engine reads past it is unresolved); full resolution needs about
+8.3 GiB; the runner's installer packs one archive; the 11,769 models share 2,632 materials over the whole map, so a
+split into 15 regions of 1.6 km would need 28.8 GiB and its four central regions would still exceed 4 GiB each; C:
+has too little room for a full-resolution build plus its temporary archive. Alternatives: cap 512 everywhere (1.66
+GiB, blurrier albedo), one plugin's Main + Textures archive plus a carrier plugin at full resolution (needs a
+per-plugin installer and an in-game check), region plugins (above). Evidence: docs/terrain/core64c.md.
+
 ## 2026-10-11 Commonwealth terrain: one large overlay, a grid of overlays as fallback (Claude, proposed)
 Plan the whole-map terrain as one overlay worldspace holding the playable Commonwealth plus 1 to 2.5 km around it
 (64 to 90 Starfield cells, Absolute alignment), registered on a hidden host planet at a measured lat/long; fall back
