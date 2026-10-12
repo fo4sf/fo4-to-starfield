@@ -2,7 +2,7 @@
 
 Archive identity includes a streaming SHA-256 digest, so same-size edits with
 preserved timestamps invalidate resume data. Archives must remain immutable
-while their identity is being computed. Small tools/templates and converter
+throughout the conversion run. Small tools/templates and converter
 sources also use content hashes.
 """
 import hashlib
@@ -61,10 +61,32 @@ def local_path(staging, relative):
     return path
 
 
+def staged_path(staging, relative):
+    """Resolve generated game paths case-insensitively on case-sensitive hosts."""
+    root = Path(staging).resolve()
+    requested = local_path(root, relative)
+    current = root
+    for part in requested.relative_to(root).parts:
+        direct = current / part
+        if direct.exists():
+            current = direct
+        elif current.is_dir():
+            matches = [child for child in current.iterdir() if child.name.casefold() == part.casefold()]
+            if len(matches) > 1:
+                raise ValueError("ambiguous case-insensitive checkpoint output path")
+            current = matches[0] if matches else direct
+        else:
+            current = direct
+        # A differently cased directory may be a symlink. Check its resolved
+        # target before traversing the next component or returning a file.
+        current = local_path(root, current.relative_to(root).as_posix())
+    return current
+
+
 def output_inventory(staging, result, prefix="fo4port"):
     """Follow generated NIF -> mesh/material -> texture dependencies."""
     paths = {"meshes/" + result["out_name"] + ".nif"}
-    model = nif.parse(local_path(staging, next(iter(paths))).read_bytes())
+    model = nif.parse(staged_path(staging, next(iter(paths))).read_bytes())
     for i, block in enumerate(model.blocks):
         if model.type_of(i) == "BSGeometry":
             for mesh in sfnif.parse_bsgeometry(block).meshes:
@@ -92,9 +114,15 @@ def output_inventory(staging, result, prefix="fo4port"):
                 paths.add(name)
 
     for name in materials:
-        with local_path(staging, name).open(encoding="utf-8-sig") as f:
+        with staged_path(staging, name).open(encoding="utf-8-sig") as f:
             textures(json.load(f))
-    return {name: digest(local_path(staging, name)) for name in sorted(paths)}
+    inventory = {}
+    root = Path(staging).resolve()
+    for name in sorted(paths):
+        path = staged_path(root, name)
+        canonical_name = path.relative_to(root).as_posix()
+        inventory[canonical_name] = digest(path)
+    return inventory
 
 
 class Checkpoints:

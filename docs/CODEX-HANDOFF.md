@@ -1,6 +1,6 @@
 # Codex / Claude / Grok status
 
-Owner: dasscooby. Goal: finish the verified interior slice before actor implementation.
+Owner: repository owner. Current joint focus: prove converted Commonwealth terrain loads in Starfield. Interior acceptance remains open; actor implementation follows verified terrain/navigation probes.
 
 ## Goal and acceptance
 
@@ -16,19 +16,17 @@ Next: [actor milestone proposal](ACTOR-MILESTONE.md), #31. Planning only until i
 
 ## Current evidence / remaining work
 
-Acceptance blocker (Grok8819a03/#32): prompt-recording runs have no hinged door OPEN-verified from both sides and no pinned eight-cell evidence. Older Rexford/Vault81 geometric pairs lack prompt verbs; not activation acceptance. Load-door pass/walk-through/fall-through fails. Different runs/builds must not be combined into one verified result.
+Claude's pinned build1d3d5bf: Vault11112/12 routes PASS, Parsons11 doors OPEN-verified from both sides. Full eight-cell acceptance remains open. New integration2470f876:2 stairs/2 falls PASS,2 door failures from route aim; movable/teleport checks pending. Keep builds separate.
 
-Claude reported at56e3e37: Vault114 doors traversed after runner fixes; raised-door diagnosis withdrawn. Rexford:21 PASS/4 BLOCKED/1 UNREAD walks,8 stair passes. Vault81:2/3 stall doors traversed;19DA36 unresolved. Vault114 stairs:6 pass,2 stuck. Historical reports, not Codex validation or full slice acceptance.
+Terrain: Claude now reports Red Rocket native Commonwealth heights,13/14 probes within0.08m; one142m miss was unmeasured. Exp2c adds8,069 references/1,385 models, roof/road/shop-floor collision within0.01m. Ground still Mars dirt. #67 tile seams and #68 NPC control are queued; #70 textures/#71 navmesh underway. LC172 control within0.02m. Claude owns runtime evidence; full region/interior acceptance remains open.
 
-Collision reported:3,012 native/243 source-none/199 box/36 surface boxes. Synthetic regression covers source-none without invented physics.
-
-Claude b166d6c reports Parsons load door solid; teleport absent,9 models rebuilt with stable IDs. Codex:2 synthetic policy tests cover static collision routing/reporting and normal hinged control; historical swing reproduced. Runtime evidence belongs to Claude; reconcile later load failures against exact artifact hashes.
+Claude b166d6c: Parsons load door solid, teleport absent. Static/hinged routing has synthetic coverage; reconcile runtime failures against exact hashes.
 
 Door prototype:30 rigs/60 clips read back,42 selected source bodies/62 leaves; offline only, not installed, native moving linkage/activation still unverified. Collision ownership contract:14-byte target/flags/data/BodyID; shared systems select the body's node index, never every body per attachment.
 
-`.af` samples: Open/Close sizes vary. Claude confirmed the second u16 at 0x28 matches named rig-bone counts in four families; frame rate and track mapping remain unknown. Details: research note and #32.
+`.af`: second u16 at0x28 matches rig-bone counts in four families; frame rate/track mapping unresolved (research note/#32).
 
-Codex:17 checkpoint/identity/44 deploy tests; full suite 258 passes (1 skip), guard passes. Archive resume identity now streams SHA-256 and rejects changes during hashing, covering same-size edits with restored timestamps; old metadata signatures miss safely. Measured +0.0494 s per synthetic 64 MiB archive (optimization log). A successful conversion whose dependency inventory fails blocks batch verification. Deploy prevents overwrites, atomically rewrites/restores Plugins.txt, checks concurrent edits during updates/recovery, preserves a config created after uninstall snapshot, validates manifest-owned plugin entries, preserves format/path, tracks published files, and limits uninstall to known artifacts. Recovery preserves changed/unproven files; legacy manifests may need manual cleanup. No live install changed.
+Codex #62: stored General pack outside staging, hashes/activation/rollback retained. Output verifier rejects omitted/changed/compressed resources, invalid name lengths and reader-mismatched identities; policy v2 requires uninstall of older records.52 focused/381 full OK (1 skipped), guard/diff/final QA PASS. #59 base4a29506 integrated. Grok #58 at74f0319 QA PASS; #69 has offset/NaN-control false PASS findings to fix. #65 merged. Two Opus max reviews done; main Claude effort acknowledgment pending. No live install changed.
 
 ## Coordination / housekeeping
 
