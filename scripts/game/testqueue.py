@@ -865,7 +865,9 @@ class Runner:
         launch = cell or self.q.get("launch_cell") or "Vault111Cryo"
         cell_json = os.path.join(self.q["staging"], launch + ".json")
         if not gp:
-            if self.state["relaunches"] >= self.a.max_relaunch:
+            fresh = getattr(self, "fresh_launch", False)
+            self.fresh_launch = False
+            if not fresh and self.state["relaunches"] >= self.a.max_relaunch:
                 self.log(f"game not running and {self.state['relaunches']} relaunches used: stopping")
                 return "stop"
             why = blocked_reason(self.ctl, self.q, launching=True, min_idle=self.a.min_idle)
@@ -880,7 +882,10 @@ class Runner:
                 self.log(f"pre-launch exit {r.returncode}: {(r.stdout + r.stderr).strip()[-200:]}")
                 if r.returncode != 0:
                     return "stop"
-            self.state["relaunches"] += 1
+            if fresh:
+                self.state["fresh_launches"] = self.state.get("fresh_launches", 0) + 1
+            else:
+                self.state["relaunches"] += 1              # crash or first launch: bounded by --max-relaunch
             self.checkpoint()
             self.log(f"launching the pinned build {self.q['build_id']} into {launch}")
             code, out = self._ps("cycle.ps1", ["-Staging", self.q["staging"], "-Starfield", self.a.starfield,
@@ -1020,6 +1025,7 @@ class Runner:
                 self.log("fresh test: closing the runner's game for a new launch")
                 self.ctl.close_game()
                 self.session, self.cell, self.game_used = False, None, False
+                self.fresh_launch = True                  # an intended relaunch: not counted against --max-relaunch
             g = self.ensure_game(t["cell"])
             if g in ("stop",) or (g and g.startswith(("owner", "STOP", "Resource", "outside"))):
                 if g != "stop" and self.wait_or_stop(g):
