@@ -7,8 +7,10 @@
     python scripts/convert_batch.py --cell-json <work>/convert_input.json --staging <work>/convert --prefix fo4core
            --max-texture <cap> --types <printed by select> --limit 1000000 --resume  + the usual converter arguments
     python scripts/terrain/make_core64c.py stage --work <work> --core <terrain_core64> --out <terrain_core64c> --sf-esm <Starfield.esm>
+           [--views]
     python scripts/terrain/make_core64c.py check --work <work> --core <terrain_core64> --out <terrain_core64c>
            [--fo4 <Fallout4.esm>] [--fo4-data <FO4 Data>] [--sf-data <Starfield Data>]
+    python scripts/terrain/make_core64c.py verify-data --out <terrain_core64c>
 
 select   reads every export band, classifies every reference (exterior.select: convert, or skip with a reason, never
          silently) and writes selected.json (the references to place, slimmed to the fields placing needs),
@@ -21,10 +23,13 @@ stage    places the converted references (exterior.place) in the core64 worldspa
          objects.json and builds FO4TerrainCore.esm + FO4TerrainCore_Mars.esm with dotnet/TerrainOverlays (objects
          after every core64 record: core64's FormIDs do not move, the Mars plugin stays byte-identical), and plan.json:
          core64's probes within 500 m of the arrival re-judged with the objects, object tops at three familiar places
-         and screenshot spots.
+         (each dropped on twice), with --views screenshot spots, and open terrain waypoints so that no teleport moves
+         the player more than 2 cells along an axis (build_plan).
 check    raw-walks the plugin (core64 records unchanged, REFRs per cell, bases, positions), object z - terrain z under
          every placed origin (BTD; with --fo4 also FO4's own LAND), every model / geometry / material / texture file,
-         every plan point re-derived from the converted collision, archive size; offline_check.json.
+         every plan point re-derived from the converted collision, every runner teleport (cells per axis) and the
+         step time, archive size; offline_check.json, and data_manifest.json (size and time of every staged file).
+verify-data  is the staged tree still the one check passed? (Data\\ is hard-linked to the conversion work folder.)
 Everything this writes stays outside the repo (derived game data).
 """
 import argparse
@@ -490,12 +495,42 @@ MUSEUM = "01CC81:Fallout4.esm"          # ConcordMuseumBLD (ConcordMuseum01.nif)
 TOPS = (("redrocket_roof", SHOP), ("sanctuary_house_roof", HOUSE_ROOF), ("concord_museum_roof", MUSEUM))
 VIEWS = (("view_redrocket", (STATION, SHOP)), ("view_sanctuary_house", (HOUSE_ROOF,)), ("view_concord_museum", (MUSEUM,)))
 ROOF_FLAT_TOL = (0.02, 0.1, 0.25)       # level first; a low-pitched roof only if no level part is found
-# Travel in hops (runner keys hop_m / hop_wait_ms, scripts/game/qstep.ps1): in core64's run a single teleport more than
-# about 4 cells (~380 m) from where the player stood raised "Boundary Reached" and hung, while core64b's north-west ray
-# reached every probe to 2 km in 300 m hops of 7 s (2026-10-11 / 12, PR #74 section 6b). The runner does not hop the
-# jump from the arrival to the first point, so every entry starts with the terrain reference next to the arrival.
-HOP_M, HOP_WAIT_MS = 300, 7000
+AGAIN = "_again"            # entry 2 drops on every roof twice in a row (about 70 s apart): late streaming vs absent
+# Teleport rule (supported hypothesis, docs/terrain/core64c.md "Teleport rule", scripts/terrain/teleport_audit.py).
+# The runner's Teleport types setpos x, then y, then z (scripts/game/qstep.ps1), so each setpos moves one axis. In the
+# overlay runs so far (core64, core64b, exp2b, exp2b2, exp2b3, exp2c, exp2d, exp3: 173 teleports from a position where
+# the previous one had landed), 144 of the 145 teleports that moved the player at most 2 cells along each axis landed
+# (the other: exp2b's second attempt, where the player fell through the world), while 11 of the 28 that moved 3 or more cells
+# along an axis relocated the player 8.2 to 11.8 km further along that axis ("Boundary Reached") or hung at the drop
+# height, all 6 in core64 among them. Distance alone does not separate them: exp3 moved 250.5 and 267.0 m along one axis
+# within 2 cells and landed, and hung after 248.7 m across 3 cells. A single-axis move of at most 200 m crosses at most
+# 2 cell borders whatever the overlay's merge offset, so every teleport of a plan stays within MAX_AXIS_M per axis.
+CELL_M = 100.0
+MAX_AXIS_CELLS = 2
+MAX_AXIS_M = MAX_AXIS_CELLS * CELL_M
+# The runner hops legs longer than hop_m (qstep.ps1: ceil(d / hop_m) equal teleports, Euclidean d, none before the
+# first point). Its step timeout, 150 + 90 s per point (testqueue.py step_timeout), does not count hops, so a plan keeps
+# every leg within HOP_M by adding terrain waypoints (each a judged reading, and 90 s more timeout); hop_m stays a
+# safety net for a leg without a usable waypoint.
+HOP_M, HOP_WAIT_MS = int(MAX_AXIS_M), 7000
+WAYPOINT_SPACING_M = 185.0  # ideal waypoint spacing: 15 m of slack below HOP_M for finding open terrain nearby
+WAYPOINT_SEARCH_M = 30.0
+WAYPOINT_MAX_SPREAD = 0.1   # m of terrain relief under the 0.6 m landing disc (about an 8 % grade): read within 0.5 m
+WAYPOINT_PREFIX = "wp_"
+# The runner's step costs (screenshot times of core64 / core64b, 2026-10-11): spawn shot 45 to 49 s after the step
+# starts; a point (teleport, fall, read, screenshot) 68 to 73 s at settle 8 to 12 s; a hop 46 s (core64b: +46 s for
+# one, +137 s for three); a "still hanging" re-read 28.5 s (core64: two per relocated probe, +57 s). An entry keeps
+# MIN_MARGIN_S between its estimated last point and the step timeout: four re-reads (core64b had 138 s).
+SPAWN_S, POINT_S, HOP_S, REREAD_S = 49.0, 62.0, 46.0, 29.0
+MIN_MARGIN_S = 4 * REREAD_S + 4.0
+# core64's merge offset on Mars (spawn read - spawn_local in all seven core64 / core64b runs: -1200.0029,
+# -2700.0043 or -2699.9243): whole cells, used only to report cell changes in the frame the runs had
+CORE64_OFFSET = (-1200.0, -2700.0)
 FIRST_POINT_MAX_M = 100.0
+REFR_NOTE = ("owner / nearby_object refr_in_plugin: the reference's FormID inside FO4TerrainCore.esm (6 hex digits). At "
+             "run time the game prefixes the plugin's load-order index, which depends on the plugins loaded before it "
+             "(the vanilla masters, BlueprintShips, the SFBGS plugins, FO4Port.esm, ...); this plan assumes none and "
+             "needs none (no anchor: the merge offset comes from spawn_local)")
 RUNNER_KEYS = x2c.RUNNER_KEYS
 ENTRY_OWN = ("label", "points", "drop_z", "z_ref", "spawn_local", "settle_ms", "hop_m", "hop_wait_ms")
 ROLES = ("terrain within 500 m", "familiar object tops", "informational")
@@ -548,19 +583,34 @@ def view_spot(world, label, owners, drop_z, dmin=20.0, dmax=90.0):
     return None
 
 
-def leg_cost(world, a, b, drop_z, capsule=x2c.CAPSULE):
-    return sum(x2c.position_cost(exterior.capsule_hits(world.index, world.ground, x, y, z, radius=capsule[0],
-                                                       height=capsule[1]))
-               for x, y, z in exterior.setpos_path(a, (b["x"], b["y"]), drop_z))
+def setpos_hits(world, cur, target_xy, drop_z, capsule=x2c.CAPSULE):
+    """What each position one runner Teleport passes through from cur (x, y, z) to target_xy overlaps (x2c's capsule):
+    [(x, y, z, hits)]."""
+    return [(x, y, z, exterior.capsule_hits(world.index, world.ground, x, y, z, radius=capsule[0], height=capsule[1]))
+            for x, y, z in exterior.setpos_path(cur, target_xy, drop_z)]
 
 
-def path_key(start, seq):
-    """(longest jump, total distance) of visiting seq [(x, y)] from start: what order_entry minimises."""
-    ln, here = [], start
-    for q in seq:
-        ln.append(math.hypot(q[0] - here[0], q[1] - here[1]))
-        here = q
-    return round(max(ln), 3), round(sum(ln), 3)
+def waypoints_needed(d, spacing=None):
+    """Waypoints a leg of d metres gets (add_waypoints): legs of up to `spacing` (WAYPOINT_SPACING_M) none, then one
+    more per `spacing`."""
+    return max(0, math.ceil(d / (spacing or WAYPOINT_SPACING_M) - 1e-9) - 1)
+
+
+def seq_key(start, seq, legs=None):
+    """(extra teleports, teleport position cost, length) of visiting seq (points) from start (x, y, z: where the
+    player stands): what order_entry minimises. With legs (a Legs), each leg as add_waypoints will travel it (its
+    waypoints, or the runner's hops where none was found, and x2c.position_cost of every position its teleports pass
+    through); without, waypoints_needed per leg and no position cost."""
+    extra, cost, total, here = 0, 0, 0.0, tuple(start)
+    for p in seq:
+        if legs is None:
+            d = math.hypot(p["x"] - here[0], p["y"] - here[1])
+            extra, total = extra + waypoints_needed(d), total + d
+        else:
+            lp = legs(here, p)
+            extra, cost, total = extra + lp["extra"], cost + lp["cost"], total + lp["length"]
+        here = (p["x"], p["y"], p["expect"])
+    return extra, cost, round(total, 3)
 
 
 def spoke_order(start, points, sector_deg=45.0):
@@ -582,40 +632,138 @@ def spoke_order(start, points, sector_deg=45.0):
     return out
 
 
-def two_opt(start, order):
-    """Reverse sub-sequences while that lowers (longest jump, total distance) from start (the arrival)."""
+def two_opt(order, key):
+    """Reverse sub-sequences while that lowers key(sequence)."""
     order = list(order)
-    best = path_key(start, [(p["x"], p["y"]) for p in order])
+    best = key(order)
     improved = True
     while improved:
         improved = False
         for i in range(len(order) - 1):
             for j in range(i + 1, len(order)):
                 cand = order[:i] + order[i:j + 1][::-1] + order[j + 1:]
-                k = path_key(start, [(p["x"], p["y"]) for p in cand])
+                k = key(cand)
                 if k < best:
                     order, best, improved = cand, k, True
     return order
 
 
-def order_entry(world, start, points, drop_z, exhaustive=6):
-    """Visiting order: up to `exhaustive` points every order, by (teleport positions overlapping collision, longest
-    jump, total distance); more points by a spoke zig-zag around the arrival improved by 2-opt on (longest jump, total
-    distance). Short jumps matter: the core64 run read every probe within 500 m of the arrival exactly, while single
-    1 to 2 km jumps hung at the drop height (2026-10-11)."""
+def order_entry(start, points, legs=None, exhaustive=8):
+    """Visiting order of points from start (x, y, z: where the player stands before the first of them): up to
+    `exhaustive` points every order, more points a spoke zig-zag around start improved by 2-opt, both by seq_key
+    (fewest extra teleports, then the fewest teleport positions in objects, then the shortest way). Ties keep the
+    given order."""
     import itertools
-    if len(points) <= exhaustive:
-        nodes = [tuple(start)] + [(p["x"], p["y"], p["expect"]) for p in points]
-        cost = {(i, j): leg_cost(world, nodes[i], points[j], drop_z) for i in range(len(points) + 1)
-                for j in range(len(points)) if i != j + 1}
 
-        def key(perm):
-            legs = [(0, perm[0])] + [(perm[k] + 1, perm[k + 1]) for k in range(len(perm) - 1)]
-            ln = [math.hypot(nodes[i][0] - points[j]["x"], nodes[i][1] - points[j]["y"]) for i, j in legs]
-            return sum(cost[leg] for leg in legs), round(max(ln), 1), round(sum(ln), 1), perm
-        best = min(itertools.permutations(range(len(points))), key=key)
-        return [points[k] for k in best]
-    return two_opt(start[:2], spoke_order(start, points))
+    def key(seq):
+        return seq_key(start, seq, legs)
+    if len(points) <= exhaustive:
+        return list(min(itertools.permutations(points), key=key))
+    return two_opt(spoke_order(start, points), key)
+
+
+def waypoint_ok(world, x, y, drop_z):
+    """Can (x, y) be a judged terrain waypoint? The three interpolation rules agree within one quantisation step (as
+    check requires of every terrain point), at most WAYPOINT_MAX_SPREAD of relief under the 0.6 m landing disc, no
+    object standing above the terrain within x2c.TERRAIN_CLEAR_RADII (1 m) and none reaching into a 3 m column of
+    radius 1 m, the drop lands on the terrain. Returns (terrain height, disc spread) or None."""
+    hs = world.ground_all(x, y)
+    if max(hs.values()) - min(hs.values()) > world.step:
+        return None
+    disc = [world.ground(x + dx, y + dy) for dx, dy in exterior.disc_offsets(0.6)]
+    if max(disc) - min(disc) > WAYPOINT_MAX_SPREAD:
+        return None
+    if exterior.nearby_object(world.index.top, world.ground, x, y, drop_z, radii=x2c.TERRAIN_CLEAR_RADII) is not None:
+        return None
+    if any(h != "terrain" for h in exterior.capsule_hits(world.index, world.ground, x, y, hs["bilinear"] + 0.02,
+                                                         radius=1.0, height=3.0)):
+        return None
+    if world.landing(x, y, drop_z)["on_object"]:
+        return None
+    return hs["bilinear"], max(disc) - min(disc)
+
+
+def waypoint(world, prev, ideal, target, legs_left, arrival, drop_z, label):
+    """The terrain point (waypoint_ok) nearest `ideal` within WAYPOINT_SEARCH_M (2 m grid) that keeps the leg from
+    prev (x, y, z) within HOP_M, can still reach target (x, y) in legs_left legs of HOP_M, lies within NEAR_M of the
+    arrival and whose teleport from prev overlaps no placed object. A terrain plan point or None."""
+    n = int(WAYPOINT_SEARCH_M / 2.0)
+    cands = sorted((i * i + j * j, ideal[0] + 2.0 * i, ideal[1] + 2.0 * j)
+                   for i in range(-n, n + 1) for j in range(-n, n + 1) if 4.0 * (i * i + j * j) <= WAYPOINT_SEARCH_M ** 2)
+    for _, x, y in cands:
+        x, y = round(x, 4), round(y, 4)
+        if (math.hypot(x - prev[0], y - prev[1]) > HOP_M or math.hypot(target[0] - x, target[1] - y) > HOP_M * legs_left
+                or math.hypot(x - arrival[0], y - arrival[1]) > NEAR_M):
+            continue
+        ok = waypoint_ok(world, x, y, drop_z)
+        if ok is None or any(h != "terrain" for *_pos, hits in setpos_hits(world, prev, (x, y), drop_z) for h in hits):
+            continue
+        g, spread = ok
+        return {"label": label, "x": x, "y": y, "kind": "terrain", "expect": round(g, 4), "terrain_expect": round(g, 4),
+                "landing": x2c.landing_json(world, world.landing(x, y, drop_z)), "nearby_object": None,
+                "waypoint": True, "disc_spread": round(spread, 4)}
+    return None
+
+
+def leg_plan(world, a, b, arrival, drop_z):
+    """How the plan travels from a (x, y, z: where the player stands) to point b: waypoints_needed() terrain waypoints
+    (waypoint(), unlabelled), each near its evenly spaced place, or none when one is not found (the runner then hops
+    the leg, hop_m); "extra": the teleports that adds, "cost": x2c.position_cost of every position the leg's
+    teleports pass through (after a hop the player is assumed at the drop height), "length": metres."""
+    d = math.hypot(b["x"] - a[0], b["y"] - a[1])
+    n = waypoints_needed(d)
+    wps, prev = [], tuple(a)
+    for i in range(1, n + 1):
+        ideal = (a[0] + (b["x"] - a[0]) * i / (n + 1), a[1] + (b["y"] - a[1]) * i / (n + 1))
+        w = waypoint(world, prev, ideal, (b["x"], b["y"]), n + 1 - i, arrival, drop_z, "")
+        if w is None:
+            break
+        wps.append(w)
+        prev = (w["x"], w["y"], w["expect"])
+    left = len(wps) < n or math.hypot(b["x"] - prev[0], b["y"] - prev[1]) > HOP_M
+    if left:
+        wps = []
+    chain = [{"label": "", "x": a[0], "y": a[1], "expect": a[2]}] + wps + [b]
+    tps = runner_teleports(chain, HOP_M)[1:]                  # the first is a itself (no hop before it)
+    cost, cur, k = 0, tuple(a), 1
+    for label, x, y in tps:
+        cost += sum(x2c.position_cost(hits) for *_pos, hits in setpos_hits(world, cur, (x, y), drop_z))
+        if label is None:
+            cur = (x, y, drop_z)
+        else:
+            cur, k = (x, y, chain[k]["expect"]), k + 1
+    return {"waypoints": wps, "left": left, "extra": len(tps) - 1, "cost": cost, "length": round(d, 3)}
+
+
+class Legs:
+    """leg_plan of every leg asked for, computed once: what order_entry weighs and add_waypoints puts in."""
+
+    def __init__(self, world, arrival, drop_z):
+        self.world, self.arrival, self.drop_z, self.memo = world, arrival, drop_z, {}
+
+    def __call__(self, a, b):
+        key = (round(a[0], 4), round(a[1], 4), round(a[2], 4), round(b["x"], 4), round(b["y"], 4), round(b["expect"], 4))
+        if key not in self.memo:
+            self.memo[key] = leg_plan(self.world, a, b, self.arrival, self.drop_z)
+        return self.memo[key]
+
+
+def add_waypoints(world, start, seq, arrival, drop_z, legs=None):
+    """seq with the terrain waypoints of every leg (leg_plan; start (x, y, z): where the player stands before seq[0]),
+    labelled wp_01, wp_02, ... in travel order, so no leg is longer than HOP_M and the runner hops none. Returns
+    (points, legs left to the runner's hops)."""
+    legs = legs or Legs(world, arrival, drop_z)
+    out, cur, left, k = [], tuple(start), [], 0
+    for p in seq:
+        lp = legs(cur, p)
+        if lp["left"]:
+            left.append({"to": p["label"], "from": [round(cur[0], 4), round(cur[1], 4)], "length_m": round(lp["length"], 1)})
+        for w in lp["waypoints"]:
+            k += 1
+            out.append(dict(w, label=f"{WAYPOINT_PREFIX}{k:02d}"))
+        out.append(p)
+        cur = (p["x"], p["y"], p["expect"])
+    return out, left
 
 
 def entry_drop(world, points):
@@ -643,16 +791,83 @@ def plan_entry(base, label, drop_z, points, z_ref, spawn_local, settle_ms):
     return e
 
 
-def hops_of(start, points, hop_m=HOP_M):
-    """The runner's extra hop teleports (qstep.ps1: none before the first point, ceil(d / hop_m) - 1 per later jump)
-    and the longest single teleport that leaves: (hops, longest teleport in metres)."""
-    hops, longest = 0, math.hypot(points[0]["x"] - start[0], points[0]["y"] - start[1]) if points else 0.0
-    for a, b in zip(points, points[1:]):
-        d = math.hypot(b["x"] - a["x"], b["y"] - a["y"])
-        n = max(1, math.ceil(d / hop_m))
-        hops += n - 1
-        longest = max(longest, d / n)
-    return hops, longest
+def runner_teleports(points, hop_m=HOP_M):
+    """The teleports qstep.ps1 makes for an entry's points, in order: [(label, x, y)], label None for a hop. No hop
+    before the first point (its hop origin is the first point itself); a later leg of d metres (Euclidean) becomes
+    ceil(d / hop_m) equal teleports."""
+    out = []
+    if not points:
+        return out
+    hx, hy = points[0]["x"], points[0]["y"]
+    for p in points:
+        if hop_m:
+            n = math.ceil(math.hypot(p["x"] - hx, p["y"] - hy) / hop_m)
+            out += [(None, hx + (p["x"] - hx) * h / n, hy + (p["y"] - hy) * h / n) for h in range(1, n)]
+        out.append((p["label"], p["x"], p["y"]))
+        hx, hy = p["x"], p["y"]
+    return out
+
+
+def axis_cells(d, cell=CELL_M):
+    """The most cell borders a move of d metres along one axis can cross, whatever the frame's offset."""
+    return int(math.ceil(abs(d) / cell - 1e-9))
+
+
+def axis_moves(start, teleports, offset=CORE64_OFFSET):
+    """Each teleport from where the player stood (start (x, y): the arrival): {"to", "dx", "dy", "cells": the most
+    cells it can move the player along an axis whatever the merge offset, "cells_core64": along an axis in core64's
+    measured frame}. qstep.ps1 sets x, then y, then z: each setpos moves one axis."""
+    out, cur = [], tuple(start[:2])
+    for label, x, y in teleports:
+        dx, dy = x - cur[0], y - cur[1]
+        core = max(abs(math.floor((x + offset[0]) / CELL_M) - math.floor((cur[0] + offset[0]) / CELL_M)),
+                   abs(math.floor((y + offset[1]) / CELL_M) - math.floor((cur[1] + offset[1]) / CELL_M)))
+        out.append({"to": label or "hop", "dx": round(dx, 2), "dy": round(dy, 2),
+                    "cells": max(axis_cells(dx), axis_cells(dy)), "cells_core64": int(core)})
+        cur = (x, y)
+    return out
+
+
+def runner_seconds(n_points, settle_ms, hops):
+    """Estimated seconds from the start of a terrain step to its last point saved (SPAWN_S, POINT_S + settle, HOP_S)."""
+    return SPAWN_S + n_points * (POINT_S + settle_ms / 1000.0) + hops * HOP_S
+
+
+def runner_timeout(n_points):
+    """testqueue.py step_timeout of a terrain test (claude/integration-1011 dcf8ad6): 150 + 90 * (points + 1) s."""
+    return 150 + 90 * (n_points + 1)
+
+
+def entry_travel(start, entry):
+    """The runner's teleports through one plan entry from start (x, y): hops, the longest single-axis move, the most
+    cells per axis (any frame and core64's), and the time estimate against the step timeout."""
+    tps = runner_teleports(entry["points"], entry.get("hop_m") or 0)
+    moves = axis_moves(start, tps)
+    hops = sum(1 for t in tps if t[0] is None)
+    est = runner_seconds(len(entry["points"]), entry["settle_ms"], hops)
+    to = runner_timeout(len(entry["points"]))
+    return {"teleports": len(tps), "hops": hops,
+            "max_axis_move_m": round(max(max(abs(m["dx"]), abs(m["dy"])) for m in moves), 1),
+            "max_axis_cells": max(m["cells"] for m in moves),
+            "max_axis_cells_core64": max(m["cells_core64"] for m in moves),
+            "estimated_s": round(est), "timeout_s": to, "margin_s": round(to - est), "moves": moves}
+
+
+def teleport_report(world, start, entry):
+    """x2c.path_report over the runner's teleports, hops included: what each position of each teleport overlaps
+    (start (x, y, z): where the player stands after the coc). The player is assumed to stand at a point's expected
+    landing after it, and at the drop height after a hop. Returns ([{"to", "positions"}], every position clear)."""
+    out, ok, cur = [], True, tuple(start)
+    want = {p["label"]: p["expect"] for p in entry["points"]}
+    for label, x, y in runner_teleports(entry["points"], entry.get("hop_m") or 0):
+        steps = []
+        for px, py, pz, hits in setpos_hits(world, cur, (x, y), entry["drop_z"]):
+            ok = ok and not hits
+            steps.append([round(px, 4), round(py, 4), round(pz, 4),
+                          [world.placed[h]["src"] if isinstance(h, int) else h for h in hits]])
+        out.append({"to": label or "hop", "positions": steps})
+        cur = (x, y, entry["drop_z"] if label is None else want[label])
+    return out, ok
 
 
 def validate_plan(plan, base, kinds):
@@ -676,7 +891,9 @@ def validate_plan(plan, base, kinds):
 
 def scenario_reads(world, entry, meta, scenario):
     """x2c.scenario_reads with this plan's kinds: terrain points (terrain, terrain_ref, terrain_near_object, view)
-    read the terrain without objects; object points then land on the highest terrain sample under their disc."""
+    read the terrain without objects; object points then land on the highest terrain sample under their disc.
+    landing_max: every point reads the highest collision or terrain under its 0.6 m landing disc (what the dropped
+    player may rest on: an object reaching into the disc of a terrain point shows here)."""
     reads = []
     for p in entry["points"]:
         on_terrain = meta[p["label"]]["kind"] in ("terrain", "terrain_ref", "terrain_near_object", "view")
@@ -685,22 +902,28 @@ def scenario_reads(world, entry, meta, scenario):
                          max(world.ground(p["x"] + dx, p["y"] + dy) for dx, dy in exterior.disc_offsets(0.6)))
         elif scenario == "flat_terrain":
             reads.append(world.hmin if on_terrain else p["expect"])
+        elif scenario == "landing_max":
+            reads.append(world.landing(p["x"], p["y"], entry["drop_z"])["z"])
         else:
             raise ValueError(scenario)
     return reads
 
 
-SCENARIOS = (("no_objects", "flat_terrain"), ("no_objects",), ("no_objects",))
+SCENARIOS = (("no_objects", "flat_terrain", "landing_max"), ("no_objects", "landing_max"), ("no_objects", "landing_max"))
 
 
-def build_plan(world, ov, base, core_exp):
+def build_plan(world, ov, base, core_exp, views=False):
     """Three entries, each ONE coc arrival at core64's COC marker, heights judged against the terrain reference
-    zref_ground read in the same test (z_ref):
+    zref_ground read in the same test (z_ref), its first point:
     1 terrain within 500 m  core64's probes within NEAR_M of the arrival that stay clear of objects (exact in core64)
     2 object tops           Red Rocket shop roof, the Sanctuary player house roof, the Concord museum roof (each at
-                            least x2c.MIN_DISCRIMINATION above the terrain: without the objects the entry fails)
-    3 informational         core64 probes now on or near an object, and screenshot spots south of the three places
-    Returns (plan, expected-json part)."""
+                            least x2c.MIN_DISCRIMINATION above the terrain: without the objects the entry fails), each
+                            dropped on twice in a row (<label>_again, about 70 s later: late streaming vs absent)
+    3 informational         core64 probes now on or near an object; with views, screenshot spots south of the three
+                            places (only useful once the runner sets the time of day: PR #73)
+    Points are ordered by order_entry; add_waypoints puts open terrain waypoints (judged like the probes) on every
+    leg longer than WAYPOINT_SPACING_M, so every teleport stays within MAX_AXIS_CELLS cells per axis without the
+    runner's hops, which its step timeout does not count. Returns (plan, expected-json part)."""
     sx, sy, sz = ov["spawn"]
     land_spawn = world.landing(sx, sy, sz)
     start = (sx, sy, land_spawn["centre"])
@@ -738,29 +961,38 @@ def build_plan(world, ov, base, core_exp):
         tops.append(p)
     if not tops:
         sys.exit(f"no familiar object top: {missing}")
-    views = []
-    for label, owners in VIEWS:
-        if all(o in world.by_src for o in owners):
-            v = view_spot(world, label, owners, 300.0)
-            if v is not None:
-                views.append(v)
-                continue
-        missing.append({"label": label, "src": owners[0], "reason": "no open terrain with a clear view south of it"})
-    info += views
+    if views:
+        for label, owners in VIEWS:
+            if all(o in world.by_src for o in owners):
+                v = view_spot(world, label, owners, 300.0)
+                if v is not None:
+                    info.append(v)
+                    continue
+            missing.append({"label": label, "src": owners[0], "reason": "no open terrain with a clear view south of it"})
 
-    groups, plan, kinds = [], [], {}
+    groups, plan, kinds, left = [], [], {}, []
     labels = [f"terrain_core64c 1/3 (terrain within {NEAR_M:.0f} m): core64's probes near the arrival that stay clear "
-              f"of objects, relative to {REF_LABEL} (a flat or missing BTD fails)",
+              f"of objects and open terrain waypoints between them, relative to {REF_LABEL} (a flat or missing BTD "
+              f"fails)",
               f"terrain_core64c 2/3 (familiar object tops): Red Rocket shop roof, Sanctuary player house roof, Concord "
-              f"museum roof, >= {x2c.MIN_DISCRIMINATION} m above the terrain, relative to {REF_LABEL} (fails if the "
-              f"objects are missing)",
-              "terrain_core64c 3/3 (informational): core64 probes now on or near objects, and screenshot spots facing "
-              "north at Red Rocket, the Sanctuary house and the Concord museum"]
+              f"museum roof, >= {x2c.MIN_DISCRIMINATION} m above the terrain, each dropped on twice in a row "
+              f"(<roof>{AGAIN}), relative to {REF_LABEL} (fails if the objects are missing)",
+              "terrain_core64c 3/3 (informational: the runner's verdict is expected to be FAIL HEIGHTS, read point by "
+              "point): core64 probes now on or near objects (e_500m: a maple's collision reaches into the landing "
+              "disc; ne_200m: 0.8 m from a 7 m cliff)" + (", screenshot spots facing north at Red Rocket, the "
+                                                          "Sanctuary house and the Concord museum" if views else "")]
+    ref_xyz = (ref["x"], ref["y"], ref["expect"])
+    legs = Legs(world, (sx, sy), 300.0)
     for i, pts in enumerate((judged_terrain, tops, info)):
-        drop = entry_drop(world, [ref] + pts)
-        order = [ref] + order_entry(world, (ref["x"], ref["y"], ref["expect"]), pts, drop)
-        groups.append(order)
+        order = order_entry(ref_xyz, pts, legs)
+        if i == 1:
+            order = [q for p in order for q in (p, dict(p, label=p["label"] + AGAIN, again_of=p["label"]))]
+        order, gaps = add_waypoints(world, ref_xyz, order, (sx, sy), 300.0, legs)
+        order = [ref] + order
+        drop = entry_drop(world, order)
         settle = settle_for(drop, min(p["expect"] for p in order))
+        groups.append(order)
+        left.append(gaps)
         plan.append(plan_entry(base, labels[i], drop, order, REF_LABEL, spawn_local, settle))
         kinds.update({(i, p["label"]): p["kind"] for p in order})
     problems = validate_plan(plan, base, kinds)
@@ -773,21 +1005,27 @@ def build_plan(world, ov, base, core_exp):
         for sc in SCENARIOS[i]:
             v, worst, _ = x2c.judge_heights(e["points"], scenario_reads(world, e, meta, sc), e["z_ref"])
             pred[sc] = {"verdict": v, "worst_m": round(worst, 3)}
-        paths, clear = x2c.path_report(world, start, e["points"], e["drop_z"])
+        paths, clear = teleport_report(world, start, e)
+        travel = entry_travel(start, e)
+        if travel["max_axis_cells"] > MAX_AXIS_CELLS or travel["margin_s"] < MIN_MARGIN_S:
+            sys.exit(f"entry {i + 1}: a teleport moves {travel['max_axis_cells']} cells along an axis (at most "
+                     f"{MAX_AXIS_CELLS}) or the step keeps {travel['margin_s']} s of {travel['timeout_s']} s (at least "
+                     f"{MIN_MARGIN_S:.0f})")
         here, legs = start[:2], []
         for p in e["points"]:
             legs.append(round(math.hypot(p["x"] - here[0], p["y"] - here[1]), 1))
             here = (p["x"], p["y"])
-        hops, longest_tp = hops_of(start, e["points"])
         entries.append({"label": e["label"], "role": ROLES[i], "drop_z": e["drop_z"], "settle_ms": e["settle_ms"],
                         "z_ref": e["z_ref"], "predicted": pred, "teleports_clear": clear, "legs_m": legs,
-                        "longest_leg_m": max(legs), "runner_hops": hops, "longest_teleport_m": round(longest_tp, 1),
+                        "longest_leg_m": max(legs), "waypoints": sum(1 for p in g if p.get("waypoint")),
+                        "legs_left_to_runner_hops": left[i],
+                        "travel": {k: v for k, v in travel.items() if k != "moves"},
                         "teleport_positions_on_objects": sum(
                             1 for t in paths for pos in t["positions"] if any(h != "terrain" for h in pos[3])),
-                        "teleports": paths})
+                        "moves": travel["moves"], "teleports": paths})
     return plan, {"spawn": {"marker": ov["spawn"], "landing": x2c.landing_json(world, land_spawn),
                             "spawn_local": spawn_local, "core64_spawn_local": base["spawn_local"]},
-                  "reference": ref, "entries": entries, "missing": missing,
+                  "reference": ref, "entries": entries, "missing": missing, "views": bool(views),
                   "points": [dict(p, entry=i) for i, g in enumerate(groups) for p in g]}
 
 
@@ -908,14 +1146,13 @@ def cmd_stage(a):
         sys.exit(f"converted collision unreadable: {world.collision_errors}")
     print(f"local world: {len(world.placed):,} references, {len(world.model_tris):,} models, {len(world.tris):,} "
           f"collision triangles ({time.time() - t2:.0f} s)")
-    plan, exp = build_plan(world, ov, core_plan[0], core_exp)
+    plan, exp = build_plan(world, ov, core_plan[0], core_exp, views=a.views)
     save(os.path.join(out, "plan.json"), plan, indent=1)
     ids = load(os.path.join(out, "formids.json")) if os.path.exists(os.path.join(out, "formids.json")) else None
-    lb = prm.get("anchor_load_byte", overlay_records.ANCHOR_LOAD_BYTE)
     for p in exp["points"]:
         for o in (p.get("owner"), (p.get("nearby_object") or {}).get("owner")):
             if o and ids:
-                o["refr"] = lb + ids["refs"][o["src"]]
+                o["refr_in_plugin"] = ids["refs"][o["src"]]
     tex = dict(man["stats"].get("textures") or {})
     log_path = os.path.join(a.work, "convert", "texture_log.json")
     if os.path.isfile(log_path):
@@ -943,13 +1180,17 @@ def cmd_stage(a):
                  "archive_limit": ARCHIVE_LIMIT, "textures": tex,
                  "texture_caps": ",".join(f"{k}={v}" for k, v in sorted((tex.get("caps") or {}).items())) or "none"},
         "times_s": {"stage_place": round(t1 - t0, 1), "plugin": plugin_s, "plan": round(time.time() - t2, 1)},
+        "refr_in_plugin": REFR_NOTE,
         **exp}
     save(os.path.join(out, "expected.json"), expected, indent=1)
     readme(out, prm, ov, plan, expected)
     for i, e in enumerate(plan):
         d = expected["entries"][i]
-        print(f"entry {i + 1} ({d['role']}): {len(e['points'])} points from {e['drop_z']} m, settle {e['settle_ms']} ms, "
-              f"predicted {d['predicted']}, longest leg {d['longest_leg_m']} m, teleports clear {d['teleports_clear']}")
+        t = d["travel"]
+        print(f"entry {i + 1} ({d['role']}): {len(e['points'])} points ({d['waypoints']} waypoints) from {e['drop_z']} m, "
+              f"settle {e['settle_ms']} ms, predicted {d['predicted']}, longest leg {d['longest_leg_m']} m, longest "
+              f"single-axis move {t['max_axis_move_m']} m ({t['max_axis_cells']} cells), {t['hops']} runner hops, "
+              f"about {t['estimated_s']} s of {t['timeout_s']} s, teleports clear {d['teleports_clear']}")
     print(f"spawn_local {expected['spawn']['spawn_local']}; missing {expected['missing']}; {time.time() - t0:.0f} s")
     return 0
 
@@ -981,33 +1222,50 @@ def readme(out, prm, ov, plan, exp):
         f"Plan: {len(plan)} entries, each ONE coc {plan[0]['coc']} arrival (fresh launch). spawn_local {plan[0]['spawn_local']}",
         f"= where the player lands under the COC marker {ov['spawn']}. Heights are judged relative to {REF_LABEL}",
         f"({ref['x']}, {ref['y']} -> {ref['expect']}: open level terrain {ref['distance_from_arrival']} m from the arrival,",
-        f"nothing above it within {x2c.REF_CLEAR} m), the first point of every entry. Between points the runner travels in",
-        f"hops of at most {HOP_M} m ({HOP_WAIT_MS} ms each; core64b's verified hops: a single teleport more than about 4",
-        "cells from the player raised \"Boundary Reached\" in core64). The runner faces north at every point and takes a",
-        "screenshot there; every arrival so far was at night on Mars.",
+        f"nothing above it within {x2c.REF_CLEAR} m), the first point of every entry.",
+        f"Teleports: every one moves the player at most {MAX_AXIS_CELLS} cells ({MAX_AXIS_M:.0f} m) along each axis. "
+        f"Legs longer than {WAYPOINT_SPACING_M:.0f} m",
+        f"get open terrain waypoints ({WAYPOINT_PREFIX}NN: at most {WAYPOINT_MAX_SPREAD:g} m of relief under the landing "
+        "disc, no object within 1 m;",
+        f"judged like the probes), so the runner hops none; hop_m {HOP_M} ({HOP_WAIT_MS} ms) stays as a safety net.",
+        "Why (supported hypothesis, docs/terrain/core64c.md \"Teleport rule\", scripts/terrain/teleport_audit.py):",
+        "in the overlay runs so far a teleport of 3 or more cells along an axis relocated the player 8.2 to 11.8 km",
+        "(\"Boundary Reached\") or hung 11 of 28 times (all 6 in core64), one of at most 2 cells landed 144 of 145 times.",
+        "The runner faces north at every point and takes a screenshot there; every arrival so far was at night on Mars",
+        "(the runner on claude/integration-1011 sets no time of day)" + ("." if exp.get("views") else
+                                                                       "; the screenshot spots are left out (stage --views)."),
     ]
     meta = {(q["entry"], q["label"]): q for q in exp["points"]}
     for i, e in enumerate(plan):
         dd = exp["entries"][i]
-        pr = dd["predicted"]
-        lines += ["", f"  {e['label']}", f"  drop_z {e['drop_z']}, settle {e['settle_ms']} ms; predicted without the objects: "
-                  f"{pr['no_objects']['verdict']} (worst {pr['no_objects']['worst_m']} m)" +
+        pr, t = dd["predicted"], dd["travel"]
+        lines += ["", f"  {e['label']}",
+                  f"  {len(e['points'])} points ({dd['waypoints']} waypoints), drop_z {e['drop_z']}, settle {e['settle_ms']} ms; "
+                  f"predicted without the objects: {pr['no_objects']['verdict']} (worst {pr['no_objects']['worst_m']} m)" +
                   (f", on flat terrain: {pr['flat_terrain']['verdict']} (worst {pr['flat_terrain']['worst_m']} m)"
-                   if "flat_terrain" in pr else "") + f"; longest jump {dd['longest_leg_m']} m, travelled in "
-                  f"{dd['runner_hops']} extra hops of at most {HOP_M} m ({HOP_WAIT_MS} ms each)"]
+                   if "flat_terrain" in pr else "") +
+                  f", resting on the highest surface under each 0.6 m disc: {pr['landing_max']['verdict']} (worst "
+                  f"{pr['landing_max']['worst_m']} m)",
+                  f"  longest leg {dd['longest_leg_m']} m, longest single-axis move {t['max_axis_move_m']} m (at most "
+                  f"{t['max_axis_cells']} cells), {t['hops']} runner hops; about {t['estimated_s']} s to the last point of the "
+                  f"{t['timeout_s']} s step timeout ({t['margin_s']} s to spare)"]
         for p in e["points"]:
             m = meta[(i, p["label"])]
             owner = (m.get("owner") or {}).get("edid", "")
             near = m.get("nearby_object") or {}
-            what = {"terrain": "terrain (core64 probe)", "terrain_ref": "terrain, the Z reference",
+            what = {"terrain": "terrain (waypoint)" if m.get("waypoint") else "terrain (core64 probe)",
+                    "terrain_ref": "terrain, the Z reference",
                     "terrain_covered": "core64 probe now on " + owner,
                     "terrain_near_object": f"terrain, {owner} {near.get('height', 0):.2f} m high at {near.get('distance')} m",
-                    "object_top": f"top of {owner}, {m.get('discrimination', 0):.2f} m above the terrain",
+                    "object_top": f"top of {owner}, {m.get('discrimination', 0):.2f} m above the terrain under the disc" +
+                                  (" (second drop)" if m.get("again_of") else ""),
                     "view": f"screenshot spot, {m.get('distance_to_target_m')} m south of {owner}"}[m["kind"]]
             lines.append(f"    {p['label']:<30} x {p['x']:>10.4f}  y {p['y']:>10.4f}  -> {p['expect']:.4f}   {what}")
     lines += ["", "Files: " + ", ".join(pl) + ", Data\\ (core64's BTD, its meshes\\terrain copy and mask; converted meshes,",
               "geometries, materials, textures under fo4core\\), objects.json, formids.json, skipped.json, plan.json,",
-              "expected.json, offline_check.json (make_core64c.py check). Uninstall: exp_install.py uninstall."]
+              "expected.json, offline_check.json (make_core64c.py check). Uninstall: exp_install.py uninstall.",
+              "Data\\ is hard-linked to the conversion work folder (no second copy): a rewrite there changes this tree. Before",
+              "installing run make_core64c.py verify-data --out <this folder> (sizes and times as checked; exit 1 if any differ)."]
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
@@ -1143,7 +1401,12 @@ def cmd_check(a):
              x2c.sha256(os.path.join(out, *rel.split("/"))) == x2c.sha256(os.path.join(a.core, *rel.split("/"))),
              f"{rel} byte-identical to core64")
     terrain = Terrain(os.path.join(out, *ov["btd_file"].split("/")))
-    cwo.check_plugins(out, prm, {ov["tag"]: terrain.raw}, need, rep, overlay_records.vanilla_mars_count(a.sf_data))
+    def need_core64(cond, what):
+        # core64's anchor ref in overlays_params.json carries an assumed load-order byte; core64c's plan has no anchor
+        need(cond, what + " (core64's anchor; core64c's plan has no anchor and assumes no load-order index)"
+             if "load-order byte" in what else what)
+    cwo.check_plugins(out, prm, {ov["tag"]: terrain.raw}, need_core64, rep,
+                      overlay_records.vanilla_mars_count(a.sf_data))
     mk = cwo.mask_report(out, ov["world"], ov["n"], tuple(ov["mask_outer_edges"]))
     need(mk["pixels_differ"] == 0, f"mask exact ({mk['outer_edges']})")
     old = overlay_records.walk_plugin(os.path.join(a.core, prm["plugin"]))
@@ -1251,11 +1514,18 @@ def cmd_check(a):
         need(entry["coc"] == ov["coc"], f"entry {e + 1}: coc {entry['coc']}")
         p0 = entry["points"][0]
         d0 = math.hypot(p0["x"] - sx, p0["y"] - sy)
-        hops, longest_tp = hops_of((sx, sy), entry["points"])
-        need(entry.get("hop_m") == HOP_M and entry.get("hop_wait_ms") == HOP_WAIT_MS and d0 <= FIRST_POINT_MAX_M
-             and longest_tp <= HOP_M + 1e-6,
-             f"entry {e + 1}: first point {p0['label']} {d0:.1f} m from the arrival (no hop there), then {hops} hops of "
-             f"at most {HOP_M} m (longest teleport {longest_tp:.0f} m), {HOP_WAIT_MS} ms each")
+        need(entry.get("hop_m") == HOP_M and entry.get("hop_wait_ms") == HOP_WAIT_MS and d0 <= FIRST_POINT_MAX_M,
+             f"entry {e + 1}: first point {p0['label']} {d0:.1f} m from the arrival (the runner never hops there), "
+             f"hop_m {entry.get('hop_m')}, hop_wait_ms {entry.get('hop_wait_ms')}")
+        travel = entry_travel((sx, sy), entry)
+        need(travel["max_axis_cells"] <= MAX_AXIS_CELLS,
+             f"entry {e + 1}: each of the runner's {travel['teleports']} teleports ({travel['hops']} hops) moves the "
+             f"player at most {MAX_AXIS_CELLS} cells along each axis whatever the merge offset (longest single-axis move "
+             f"{travel['max_axis_move_m']} m; at most {travel['max_axis_cells_core64']} cells in core64's frame)")
+        need(travel["margin_s"] >= MIN_MARGIN_S,
+             f"entry {e + 1}: about {travel['estimated_s']} s to the last point of the {travel['timeout_s']} s step "
+             f"timeout ({travel['margin_s']} s to spare, at least {MIN_MARGIN_S:.0f})")
+        rep.setdefault("travel", []).append({k: v for k, v in travel.items() if k != "moves"})
         low = min(p["expect"] for p in entry["points"])
         need(entry["settle_ms"] >= 1000.0 * cwo.fall_seconds(entry["drop_z"], low),
              f"entry {e + 1}: settle {entry['settle_ms']} ms covers the fall")
@@ -1336,6 +1606,9 @@ def cmd_check(a):
              f"{dry.get('packed_entries')} packed ({probs})")
     rep["checks"] = checks
     rep["pass"] = all(c[1] for c in checks)
+    man = data_manifest(out, [prm["plugin"], prm["mars"]["plugin"]])
+    save(os.path.join(out, MANIFEST), {"checked": time.strftime("%Y-%m-%dT%H:%M:%S"), "pass": rep["pass"], "files": man})
+    rep["data_manifest"] = {"file": MANIFEST, "files": len(man)}
     rep["seconds"] = round(time.time() - t0, 1)
     save(os.path.join(out, "offline_check.json"), rep, indent=1)
     for what, good in checks:
@@ -1344,6 +1617,48 @@ def cmd_check(a):
     print(f"{sum(1 for c in checks if c[1])} of {len(checks)} checks ok; {rep['seconds']} s")
     print("CHECK", "PASS" if rep["pass"] else "FAIL")
     return 0 if rep["pass"] else 1
+
+
+MANIFEST = "data_manifest.json"
+
+
+def data_manifest(out, plugins=()):
+    """{path under out: [size, mtime_ns]} of every file of out\\Data and the given plugins. Data is hard-linked to the
+    conversion work folder: an in-place rewrite there changes the staged file's size or time (a replaced file, a new
+    link, leaves it alone)."""
+    files = {}
+    for root, _dirs, names in os.walk(os.path.join(out, "Data")):
+        for n in names:
+            path = os.path.join(root, n)
+            st = os.stat(path)
+            files[os.path.relpath(path, out).replace(os.sep, "/")] = [st.st_size, st.st_mtime_ns]
+    for pl in plugins:
+        st = os.stat(os.path.join(out, pl))
+        files[pl] = [st.st_size, st.st_mtime_ns]
+    return files
+
+
+def manifest_diff(old, new):
+    return {"missing": sorted(set(old) - set(new)), "added": sorted(set(new) - set(old)),
+            "changed": sorted(k for k in set(old) & set(new) if list(old[k]) != list(new[k]))}
+
+
+def cmd_verify_data(a):
+    """Is the staged tree still the one `check` passed? Exit 0 only if it passed and nothing changed since."""
+    path = os.path.join(a.out, MANIFEST)
+    if not os.path.isfile(path):
+        print(f"no {MANIFEST}: run make_core64c.py check first")
+        return 1
+    m = load(path)
+    prm, _ov = core_params(a.out)
+    diff = manifest_diff(m["files"], data_manifest(a.out, [prm["plugin"], prm["mars"]["plugin"]]))
+    for k, v in diff.items():
+        if v:
+            print(f"{len(v)} {k}: {v[:5]}")
+    good = m.get("pass") and not any(diff.values())
+    print(f"{len(m['files']):,} files as checked on {m.get('checked')} (check {'PASS' if m.get('pass') else 'FAIL'}): "
+          + ("unchanged" if good else "NOT the checked tree"))
+    return 0 if good else 1
 
 
 def main():
@@ -1366,14 +1681,19 @@ def main():
         s.add_argument("--out", required=True)
         if name == "stage":
             s.add_argument("--sf-esm", default="", help="Starfield.esm: build the plugins with dotnet/TerrainOverlays")
+            s.add_argument("--views", action="store_true",
+                           help="add screenshot spots to entry 3 (useful once the runner sets the time of day, PR #73)")
         else:
             s.add_argument("--sf-data", default="", help="Starfield Data (vanilla Mars entries, texture archives)")
             s.add_argument("--fo4", default="", help="Fallout4.esm: FO4's own terrain under every object")
             s.add_argument("--fo4-data", default="", help="FO4 Data: object tops against FO4's own collision")
             s.add_argument("--archive2", default="", help="Archive2.exe: build the archive into --scratch and measure it")
             s.add_argument("--scratch", default="", help="folder for the Archive2 dry run (deleted afterwards)")
+    s = sub.add_parser("verify-data", help="is the staged tree still the one check passed (sizes and times)?")
+    s.add_argument("--out", required=True)
     a = ap.parse_args()
-    return {"select": cmd_select, "measure": cmd_measure, "stage": cmd_stage, "check": cmd_check}[a.cmd](a)
+    return {"select": cmd_select, "measure": cmd_measure, "stage": cmd_stage, "check": cmd_check,
+            "verify-data": cmd_verify_data}[a.cmd](a)
 
 
 if __name__ == "__main__":

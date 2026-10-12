@@ -3,7 +3,26 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
-## 2026-10-12 Claude: core64c, every FO4 exterior object of the 64-cell core on core64, staged
+## 2026-10-12 Claude: correction, which teleports raise "Boundary Reached" in a merged overlay
+- Question: core64c's first plan (PR #76) and PR #74's commonwealth-scale.md said a single teleport more than about
+  4 cells from where the player stood raised "Boundary Reached", and that core64b's 300 m hops were verified safe.
+  What do the runner reports actually show?
+- Method: `scripts/terrain/teleport_audit.py` (new, synthetic test `test_teleport_audit`) rebuilds every teleport of
+  the eight overlay queues (core64, core64b, exp2b, exp2b2, exp2b3, exp2c, exp2d, exp3) from spec.json + obs.json,
+  hops as qstep.ps1 makes them, and judges it by the read that follows; counted only from a position where the
+  previous teleport landed. qstep types setpos x, then y, then z, so each setpos moves one axis.
+- Evidence (**verified** counts): of 145 teleports that moved the player at most 2 cells (100 m) along each axis, 144
+  landed (the other in exp2b's second attempt, where the player fell through the world at most points); of 28 that
+  moved 3 or more cells, 11 relocated the player 8.2 to 11.8 km further along that axis or hung at the drop height
+  (all 6 in core64: 292.6 m east, 303.5 m south, 296.2 m west and three diagonals of 3 to 4 cells), 17 landed. In
+  exp3, 250.5 and 267.0 m single-axis moves within 2 cells landed and a 248.7 m move across 3 cells hung. core64b's
+  hops were at most 187.4 m per axis.
+- Status: "about 4 cells" and "300 m hops are safe" **refuted**; a per-setpos distance limit (230 to 292 m, which
+  core64 alone fits) **refuted** by exp3; "at most 2 cells per axis lands, 3 or more is a risk" **supported
+  hypothesis**; the mechanism (a 5 x 5 loaded grid?) **unresolved**. core64c's plan now keeps every teleport within
+  200 m per axis (docs/terrain/core64c.md "Teleport rule"); PR #74's commonwealth-scale.md still states the old claim.
+
+## 2026-10-12 Claude: core64c, every Fallout4.esm exterior object of the 64-cell core on core64, staged
 - Question: can ALL Fallout 4 exterior objects of the core (which covers the whole playable Commonwealth) go onto the
   core64 terrain as one experiment, how large is that, and what has to give? Write-up:
   [docs/terrain/core64c.md](../terrain/core64c.md).
@@ -21,7 +40,9 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
     never 2^32 or more. **unresolved**: whether the engine reads past 4 GiB, and whether numbered per-plugin archives
     (`.* - Main[0-9]*\.ba2` in Starfield.exe) load.
   - **verified** (dry run of the converter's material logic over the FO4 texture archives' DX10 records): 2,632
-    materials, 8,635 textures, 7.30 GiB at full resolution; with meshes about 8.3 GiB. **supported** (estimate): a
+    materials, 8,635 textures, 7.30 GiB at full resolution; the converted set at full resolution with meshes,
+    geometries, terrain and materials is 8.47 GiB (an earlier "about 8.3 GiB" left out the terrain and materials).
+    **supported** (estimate): a
     split into the 15 occupied 1.6 km regions needs 28.8 GiB (shared materials repeat) and the four central regions
     5.6 to 6.2 GiB each, so a region split does not fit 4 GiB archives either.
   - **verified**: with per-kind caps (color 1024, normal 512, rough 256, opacity 512 px; top mip levels dropped) the
@@ -34,9 +55,10 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
     5 cm, 673 above 0.25 m. **supported**: the tail is steep FO4 relief (median 3.54 m per terrain quad there, 0.46 m
     overall: quarry walls, cliffs, terrain under building floors) rounded off by the 0.78 m BTD grid.
   - **verified**: plan of 3 entries (terrain probes clear of objects; the Sanctuary player house, Red Rocket shop and
-    Concord museum roofs, each 4.7 to 14.2 m above the terrain; informational probes and 3 north-facing screenshot
-    spots), all travelling in core64b's 300 m hops; the judged roofs equal FO4's own collision within 0.045 mm
-    (the museum's compound bodies through Codex's `fo4_compounds.decode_body`); 167 of 167 offline checks.
+    Concord museum roofs, 4.72 to 14.10 m above the terrain under the landing disc, each dropped on twice;
+    informational probes, screenshot spots only with `stage --views`), every teleport at most 2 cells per axis with
+    19 terrain waypoints and no runner hops (fix pass, entry below); the judged roofs equal FO4's own collision within
+    0.045 mm (the museum's compound bodies through Codex's `fo4_compounds.decode_body`); 252 of 252 offline checks.
 - Status: offline **verified**; everything in game **unresolved** (load and streaming of ~1,700 populated cells,
   frame time, whether objects merge with the terrain's offset everywhere, night-time screenshots).
 

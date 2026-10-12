@@ -2,12 +2,23 @@
 
 Format: date, decision, why, alternatives considered.
 
+## 2026-10-12 Terrain test travel: every teleport at most 2 cells per axis, terrain waypoints instead of hops (Claude, proposed)
+Plans for the terrain runner keep every teleport within 200 m along each axis (at most 2 Starfield cells whatever the
+overlay's merge offset): legs longer than 185 m get open terrain waypoints that are judged like the probes, and
+`hop_m` 200 stays as a safety net. Why: in the overlay runs so far, teleports of at most 2 cells per axis landed 144 of
+145 times and those of 3 or more relocated the player ("Boundary Reached") or hung 11 of 28 times
+(`scripts/terrain/teleport_audit.py`, **supported**); distance alone does not separate them. Waypoints rather than
+hops, because the runner's step timeout (150 + 90 s per point) does not count hops. Alternatives: `hop_m` 200 alone
+(core64c's entry 1 would run past its timeout), splitting entries (at best 79 s of margin), per-axis hops in the
+runner (a runner change, not on the integration branch). Evidence: docs/terrain/core64c.md "Teleport rule".
+
 ## 2026-10-12 Whole-core objects: one archive below 4 GiB with capped textures, not a region split (Claude, proposed)
-core64c places all 649,596 convertible FO4 exterior references of the 64-cell core in core64's plugin and ships every
+core64c selects 649,596 convertible Fallout4.esm exterior references of the 64-cell core and places the 648,358 whose
+models convert (1,238 belong to the 118 models that do not) in core64's plugin, and ships every
 converted file in one stored `<plugin> - Main.ba2`, with converted textures capped per kind by dropping top mip levels
 (color 1024, normal 512, rough 256, opacity 512 px; `convert_batch.py --max-texture`, off by default). Why: every large
 vanilla archive stops just below 4 GiB (whether the engine reads past it is unresolved); full resolution needs about
-8.3 GiB; the runner's installer packs one archive; the 11,769 models share 2,632 materials over the whole map, so a
+8.5 GiB; the runner's installer packs one archive; the 11,769 models share 2,632 materials over the whole map, so a
 split into 15 regions of 1.6 km would need 28.8 GiB and its four central regions would still exceed 4 GiB each; C:
 has too little room for a full-resolution build plus its temporary archive. Alternatives: cap 512 everywhere (1.66
 GiB, blurrier albedo), one plugin's Main + Textures archive plus a carrier plugin at full resolution (needs a

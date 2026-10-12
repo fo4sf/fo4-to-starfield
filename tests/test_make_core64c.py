@@ -201,28 +201,25 @@ class WorldTests(unittest.TestCase):
 
 
 class PlanTests(unittest.TestCase):
-    def test_spoke_order_keeps_jumps_short(self):
-        w = local_world([])
+    def test_spoke_order_needs_no_more_waypoints_than_the_spokes(self):
         start = (0.0, 0.0, 0.0)
-        pts = [{"label": "ref", "x": 5.0, "y": 5.0, "expect": 0.0}]
+        pts = []
         for deg in (0, 45, 135, 180, 270, 320):                    # core64's six rays, probes at 200 and 500 m
             for d in (200, 500):
                 a = math.radians(deg)
                 pts.append({"label": f"r{deg}_{d}", "x": d * math.cos(a), "y": d * math.sin(a), "expect": 0.0})
-        order = mk.order_entry(w, start, pts, 50.0)
-        self.assertEqual(order[0]["label"], "ref")
+        order = mk.order_entry(start, pts)                          # 12 points: spoke zig-zag + 2-opt
         self.assertEqual(sorted(p["label"] for p in order), sorted(p["label"] for p in pts))
-        longest, _total = mk.path_key((0.0, 0.0), [(p["x"], p["y"]) for p in order])
-        spokes = mk.spoke_order(start, pts)
-        self.assertLess(longest, 400.0)                             # a plain bearing sort jumps 707 m (90 deg at 500 m)
-        self.assertLessEqual(longest, mk.path_key((0.0, 0.0), [(p["x"], p["y"]) for p in spokes])[0])
+        key = mk.seq_key(start, order)
+        self.assertLessEqual(key, mk.seq_key(start, mk.spoke_order(start, pts)))
+        self.assertLess(key[0], mk.seq_key(start, sorted(pts, key=lambda p: p["label"]))[0])
 
-    def test_exhaustive_order_prefers_short_jumps(self):
-        w = local_world([])
-        pts = [{"label": "ref", "x": 5.0, "y": 0.0, "expect": 0.0}, {"label": "a", "x": -200.0, "y": 0.0, "expect": 0.0},
-               {"label": "b", "x": 250.0, "y": 0.0, "expect": 0.0}]
-        got = [p["label"] for p in mk.order_entry(w, (0.0, 0.0, 0.0), pts, 50.0)]
-        self.assertEqual(got, ["a", "ref", "b"])        # jumps 200, 205, 245 m: no 450 m jump from one side to the other
+    def test_exhaustive_order_fewest_waypoints_then_shortest(self):
+        pts = [{"label": "a", "x": -200.0, "y": 0.0, "expect": 0.0}, {"label": "b", "x": 250.0, "y": 0.0, "expect": 0.0}]
+        # a then b: 200 m (1 waypoint) + 450 m (2) = 3, 650 m; b then a: 250 m (1) + 450 m (2) = 3, 700 m
+        self.assertEqual([p["label"] for p in mk.order_entry((0.0, 0.0, 0.0), pts)], ["a", "b"])
+        self.assertEqual(mk.seq_key((0.0, 0.0, 0.0), pts), (3, 0, 650.0))
+        self.assertEqual([mk.waypoints_needed(d) for d in (0.0, 185.0, 185.1, 370.0, 371.0)], [0, 0, 1, 1, 2])
 
     def test_plan_entry_and_validation(self):
         base = {"coc": "FO4Core_RedRocketSpawn", "label": "core64", "spawn_local": [1, 2, 3], "z_ref": "arrival",
@@ -241,11 +238,93 @@ class PlanTests(unittest.TestCase):
         self.assertTrue(any("extra" in p for p in probs) and any("z_ref" in p for p in probs))
         self.assertTrue(mk.validate_plan([dict(e, coc="Other")], base, kinds))
 
-    def test_hops_as_the_runner_makes_them(self):
-        pts = [{"x": 10.0, "y": 0.0}, {"x": 610.0, "y": 0.0}, {"x": 650.0, "y": 0.0}]
-        # no hop before the first point; 600 m -> 2 teleports of 300 m (1 extra hop); 40 m -> none
-        self.assertEqual(mk.hops_of((0.0, 0.0), pts), (1, 300.0))
-        self.assertEqual(mk.hops_of((0.0, 0.0), [{"x": 500.0, "y": 0.0}]), (0, 500.0))
+    def test_order_avoids_teleport_positions_in_objects(self):
+        # setpos x comes first: from the start, going to "a" stands the player in the thin wall at (30, 0) on the
+        # ground; going to "b" first, and then from b (0, 40) to a, passes north of the wall
+        w = local_world([("WALL", (29.8, -3.0, 0.0, 30.2, 3.0, 5.0))], ground=0.0, origin=-100.0, size=256)
+        legs = mk.Legs(w, (0.0, 0.0), 50.0)
+        a = {"label": "a", "x": 30.0, "y": 40.0, "expect": 0.0}
+        b = {"label": "b", "x": 0.0, "y": 40.0, "expect": 0.0}
+        self.assertGreater(legs((0.0, 0.0, 0.0), a)["cost"], 0)                  # (30, 0, 0) is inside the wall
+        self.assertEqual(legs((0.0, 0.0, 0.0), b)["cost"], 0)
+        self.assertEqual([p["label"] for p in mk.order_entry((0.0, 0.0, 0.0), [a, b], legs)], ["b", "a"])
+        self.assertEqual([p["label"] for p in mk.order_entry((0.0, 0.0, 0.0), [a, b])], ["b", "a"])  # shorter too
+        self.assertEqual(len(legs.memo), 4)
+
+    def test_teleports_as_the_runner_makes_them(self):
+        pts = [{"label": "a", "x": 10.0, "y": 0.0}, {"label": "b", "x": 610.0, "y": 0.0},
+               {"label": "c", "x": 650.0, "y": 0.0}]
+        # no hop before the first point; 600 m -> ceil(600 / 300) = 2 teleports (1 hop); 40 m -> none
+        self.assertEqual(mk.runner_teleports(pts, 300), [("a", 10.0, 0.0), (None, 310.0, 0.0), ("b", 610.0, 0.0),
+                                                         ("c", 650.0, 0.0)])
+        self.assertEqual([t[1] for t in mk.runner_teleports(pts, 200)], [10.0, 210.0, 410.0, 610.0, 650.0])
+        self.assertEqual(mk.runner_teleports([{"label": "far", "x": 900.0, "y": 0.0}], 200), [("far", 900.0, 0.0)])
+        self.assertEqual(len(mk.runner_teleports(pts, 0)), 3)
+
+    def test_axis_cells_whatever_the_offset(self):
+        self.assertEqual([mk.axis_cells(d) for d in (0.0, -0.5, 100.0, 199.99, 200.0, 200.01, -292.6)],
+                         [0, 1, 1, 2, 2, 3, 3])
+        # core64 e_200m -> e_500m: 292.6 m east, 3 cells in core64's frame (relocated in game); hop_m 200 keeps every
+        # teleport at 2 cells or fewer in any frame
+        moves = mk.axis_moves((-784.4571, 1148.3429), [("e_500m", -491.8857, 1146.5143)])
+        self.assertEqual((moves[0]["cells"], moves[0]["cells_core64"]), (3, 3))
+        moves = mk.axis_moves((0.0, 0.0), [("a", 150.0, -20.0)], offset=(-1200.0, -2700.0))
+        self.assertEqual((moves[0]["cells"], moves[0]["cells_core64"]), (2, 1))
+        moves = mk.axis_moves((-784.4571, 1148.3429), mk.runner_teleports(
+            [{"label": "e_200m", "x": -784.4571, "y": 1148.3429}, {"label": "e_500m", "x": -491.8857, "y": 1146.5143}]))
+        self.assertEqual([m["to"] for m in moves], ["e_200m", "hop", "e_500m"])
+        self.assertLessEqual(max(m["cells"] for m in moves), mk.MAX_AXIS_CELLS)
+
+    def test_travel_time_against_the_step_timeout(self):
+        # the old entry 1: 9 points at a 10 s settle and 6 hops: 77 s left; core64b (7 points, 4 hops at 10.5 s): 130 s
+        # estimated, 138 s measured (its last point 732 s after the step started)
+        self.assertEqual(mk.runner_timeout(9), 1050)
+        self.assertEqual(round(mk.runner_seconds(9, 10000, 6)), 973)
+        self.assertEqual(round(mk.runner_timeout(7) - mk.runner_seconds(7, 10500, 4)), 130)
+        pts = [{"label": f"p{k}", "x": 150.0 * k, "y": 0.0, "expect": 0.0} for k in range(5)]
+        t = mk.entry_travel((0.0, 0.0), {"points": pts, "settle_ms": 10000, "hop_m": 200})
+        self.assertEqual((t["teleports"], t["hops"], t["max_axis_move_m"], t["max_axis_cells"]), (5, 0, 150.0, 2))
+        self.assertEqual(t["margin_s"], round(mk.runner_timeout(5) - mk.runner_seconds(5, 10000, 0)))
+        self.assertGreaterEqual(t["margin_s"], mk.MIN_MARGIN_S)
+        t = mk.entry_travel((0.0, 0.0), {"points": pts[:1] + [dict(pts[1], x=900.0)], "settle_ms": 10000, "hop_m": 200})
+        self.assertEqual(t["hops"], 4)                                                  # 900 m in 5 teleports
+
+    def test_waypoints_keep_every_leg_within_hop_m(self):
+        w = local_world([], ground=3.0, origin=-100.0, size=1024)                      # flat, x and y -100 .. 699 m
+        seq = [{"label": "far", "x": 500.0, "y": 0.0, "expect": 3.0}]
+        pts, left = mk.add_waypoints(w, (0.0, 0.0, 3.0), seq, (0.0, 0.0), 300.0)
+        self.assertEqual([p["label"] for p in pts], ["wp_01", "wp_02", "far"])        # 500 m: 2 waypoints at 185 m
+        self.assertEqual(left, [])
+        here = (0.0, 0.0)
+        for p in pts:
+            self.assertLessEqual(math.hypot(p["x"] - here[0], p["y"] - here[1]), mk.HOP_M)
+            here = (p["x"], p["y"])
+        self.assertTrue(all(p["kind"] == "terrain" and p["expect"] == 3.0 for p in pts[:2]))
+        self.assertEqual(mk.entry_travel((0.0, 0.0), {"points": pts, "settle_ms": 9000, "hop_m": mk.HOP_M})["hops"], 0)
+        # an object over the first ideal place: the waypoint moves to open terrain beside it, legs still within hop_m
+        w = local_world([("SHED", (150.0, -12.0, 0.0, 185.0, 12.0, 6.0))], ground=3.0, origin=-100.0, size=1024)
+        pts, left = mk.add_waypoints(w, (0.0, 0.0, 3.0), seq, (0.0, 0.0), 300.0)
+        self.assertEqual(left, [])
+        self.assertGreaterEqual(abs(pts[0]["y"]), 12.0 + 1.0)
+        here = (0.0, 0.0)
+        for p in pts:
+            self.assertLessEqual(math.hypot(p["x"] - here[0], p["y"] - here[1]), mk.HOP_M)
+            here = (p["x"], p["y"])
+        # no open terrain anywhere near the leg: no waypoint, the runner hops it
+        w = local_world([("BLOCK", (60.0, -60.0, 0.0, 440.0, 60.0, 6.0))], ground=3.0, origin=-100.0, size=1024)
+        pts, left = mk.add_waypoints(w, (0.0, 0.0, 3.0), seq, (0.0, 0.0), 300.0)
+        self.assertEqual([p["label"] for p in pts], ["far"])
+        self.assertEqual(left[0]["to"], "far")
+
+    def test_waypoint_ok_wants_moderate_relief(self):
+        w = local_world([], ground=0.0, origin=-100.0, size=256)
+        self.assertEqual(mk.waypoint_ok(w, 0.0, 0.0, 300.0), (0.0, 0.0))
+        w.heights = np.tile(np.arange(256, dtype=np.float64) * tg.SF_STEP_M * 0.2, (256, 1))   # a 20 % grade in x
+        self.assertIsNone(mk.waypoint_ok(w, 0.0, 0.0, 300.0))
+        w.heights = np.tile(np.arange(256, dtype=np.float64) * tg.SF_STEP_M * 0.05, (256, 1))  # 5 %
+        g, spread = mk.waypoint_ok(w, 0.0, 0.0, 300.0)
+        self.assertAlmostEqual(g, 100.0 * 0.05, places=6)
+        self.assertLess(spread, mk.WAYPOINT_MAX_SPREAD)
 
     def test_scenarios(self):
         w = local_world([("ROOF", (-5, 20, 0, 5, 30, 4.0))], ground=2.0)
@@ -254,6 +333,10 @@ class PlanTests(unittest.TestCase):
         meta = {"zref_ground": {"kind": "terrain_ref"}, "roof": {"kind": "object_top"}}
         self.assertEqual(mk.scenario_reads(w, entry, meta, "no_objects"), [2.0, 2.0])
         self.assertEqual(mk.scenario_reads(w, entry, meta, "flat_terrain"), [w.hmin, 4.0])
+        entry["drop_z"] = 50.0
+        entry["points"].append({"label": "edge", "x": 5.3, "y": 25.0, "expect": 2.0})  # terrain 0.3 m from the roof
+        meta["edge"] = {"kind": "terrain_near_object"}
+        self.assertEqual(mk.scenario_reads(w, entry, meta, "landing_max"), [2.0, 4.0, 4.0])
 
 
 class CompoundTopTests(unittest.TestCase):
@@ -332,6 +415,25 @@ class StageTests(unittest.TestCase):
             files = mk.data_files(out)
             self.assertEqual(files, [("meshes/fo4core/a.nif", 10)])
             self.assertEqual(mk.ba2_size(files), 32 + 36 + 10 + 2 + len("meshes/fo4core/a.nif"))
+
+    def test_data_manifest_sees_an_in_place_rewrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = os.path.join(tmp, "convert", "textures")
+            os.makedirs(src)
+            with open(os.path.join(src, "a.dds"), "wb") as f:
+                f.write(b"x" * 10)
+            out = os.path.join(tmp, "out")
+            mk.link_tree(os.path.join(tmp, "convert", "textures"), os.path.join(out, "Data", "textures"))
+            with open(os.path.join(out, "P.esm"), "wb") as f:
+                f.write(b"TES4")
+            old = mk.data_manifest(out, ["P.esm"])
+            self.assertEqual(sorted(old), ["Data/textures/a.dds", "P.esm"])
+            os.replace(os.path.join(src, "a.dds"), os.path.join(src, "b.dds"))         # a new link there: unchanged
+            self.assertEqual(mk.manifest_diff(old, mk.data_manifest(out, ["P.esm"])),
+                             {"missing": [], "added": [], "changed": []})
+            with open(os.path.join(src, "b.dds"), "wb") as f:                          # rewritten in place: changed
+                f.write(b"y" * 12)
+            self.assertEqual(mk.manifest_diff(old, mk.data_manifest(out, ["P.esm"]))["changed"], ["Data/textures/a.dds"])
 
     def test_terrain_edids(self):
         prm = {"overlays": [{"world": "W", "block": "WBlock", "location": "WLoc", "anchor": {"edid": "WAnchor"},
