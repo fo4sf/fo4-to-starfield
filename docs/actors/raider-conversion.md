@@ -207,6 +207,10 @@ N2a and N2b use the same cell, points, drop, reads and thresholds as N0 (`C:\Mod
 - reads at 0 / 3 / 8 / 15 / 30 s;
 - PASS within 2.5 m of B, or 5 m closer to it.
 
+There is one deviation from N0: `handle_tol` is 3 m instead of 2 m. Hostile actors may step away from the player's
+feet while the runner confirms the handle, because game time runs between the console sessions. The check only
+establishes which ref was spawned, and 3 m equals the judge's `spawn_tol`.
+
 Every test relaunches the game (`--fresh`). The queue's pre-launch step installs `actor_raider1` (plugin only, no
 archive).
 

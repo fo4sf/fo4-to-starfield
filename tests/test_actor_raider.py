@@ -186,6 +186,7 @@ class PlanTests(unittest.TestCase):
                 self.assertEqual(t[k], v, (t["label"], k))
             self.assertTrue(t["expect"] and t["basis"])
             self.assertRegex(t["basis"], r"(verified|supported hypothesis|unresolved):")
+            self.assertEqual(t["handle_tol"], 3.0)                        # hostile: may step away during the handle
         for t in n2a:
             self.assertEqual(t["npc"], "02F04800")
             self.assertFalse(t["control"])

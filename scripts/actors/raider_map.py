@@ -235,6 +235,10 @@ def table_md(rows):
 # --------------------------------------------------------------------------------------------------- npc_nav plans
 QASMOKE = {"travel": "coc QASmoke", "a": [-8, -4, 0], "b": [5, 10, 0], "drop": 0.5, "settle_ms": 1500,
            "reads_s": [0, 3, 8, 15, 30], "radius": 2.5, "min_progress": 5.0}     # exactly N0's (npc_nav_n0 plan.json)
+# the one deviation from N0: hostile actors (the raider, the vanilla Spacer) may step away from the player's feet while the
+# runner confirms the handle (game time runs between the console sessions), so the handle may stand up to 3 m from A,
+# the judge's spawn_tol, instead of 2 m. It only checks which ref was spawned; the walk is judged as in N0.
+HOSTILE = {"handle_tol": 3.0}
 N0_CITIZEN = "002B211C"           # EncCitizen01Template: N0's actor, whose controls gate N2a
 VANILLA_SPACER = ENC_SPACER_01["id"]   # EncSpacer01Template: not templated, the raider's behaviour template; N2b control
 
@@ -244,8 +248,8 @@ def plans(raider_id):
     controls (control_npc = the N0 citizen). N2b: StartCombat on the raider, judged against the same command on the
     vanilla Spacer template it inherits its behaviour from (a control in the same queue)."""
     def test(label, npc, method, expect, basis, **kw):
-        return {"label": label, "npc": npc, "method": method, **QASMOKE, "control": False, "expect": expect,
-                "basis": basis, **kw}
+        return {"label": label, "npc": npc, "method": method, **QASMOKE, **HOSTILE, "control": False,
+                "expect": expect, "basis": basis, **kw}
     hostile = ("the raider is in SpacerFaction (Enemy to PlayerFaction, verified in Starfield.esm) and inherits "
                "the Spacer AI data with its reaction radii")
     n2a = [
