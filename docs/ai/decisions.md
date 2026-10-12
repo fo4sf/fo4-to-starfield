@@ -84,3 +84,39 @@ the root (docs/ai/research-log.md, 2026-10-10). Alternatives: apply the root as 
 for 44 of 4,014 converted models, 232 placements); apply it only to models outside precombines (no evidence that the
 engine does, and the stairs are not precombined). The default `world_transforms()` keeps the file's own composition for
 tools that want the file as stored (door rig/motion modules, oracles).
+
+## 2026-10-11 Converted actors: own identity, inherited Starfield behaviour (Claude)
+A converted Fallout 4 NPC_ keeps what makes it that actor: its name, faction intent, weapon, death loot and combat
+style intent. It inherits behaviour from a vanilla Starfield template of the same role through the ACBS template flags:
+traits, stats, AI data and packages, attack data, keywords, scripts, and template slots 13 / 14. The first record
+(`FO4_LvlRaider`, docs/actors/raider-conversion.md) templates directly on NPC_ records (EncSpacer01Template,
+EncSpacerFaceM01), not on the leveled lists, so its look and level are the same in every test.
+Why: Starfield runs the actor with its own systems (reaction radii, combat AI, faces), and the plugin stays small
+(547 B). The behaviour template can be swapped without touching the identity, and a failure in the vanilla control
+cell points at the record, not at the world.
+Alternatives considered:
+- Copying every FO4 field: FO4 AI semantics differ (hostility through aggression rather than faction relations), and
+  FO4 faces and outfits need the skinning milestones.
+- Duplicating a vanilla NPC_ (DeepCopy): carries the vanilla identity, and so hides what the conversion contributes.
+- Templating on LvlSpacer / LCharSpacer: random per spawn, and the spawn may get a generated base that `GetIsID` does
+  not confirm (N0_ptr_lvl).
+Note (2026-10-12): the death item and combat style are written as the record's own, but under xEdit's Skyrim / FO4
+template semantics (a supported hypothesis for Starfield) they go with Traits and AI Data, both inherited, so they are
+probably overridden (docs/actors/raider-conversion.md section 3). Every converted NPC_ also carries PRPS, STON, PRON and
+EDCT and form version 581, as all 7,131 vanilla NPC_ do (copied from the templates it inherits from).
+
+## 2026-10-12 Converted actors are tested calm against calm, hostile against hostile (Claude)
+A commanded walk (PathToRef, SetPlayerTeammate) of a converted actor is tested on a calm probe: the conversion without
+factions, written into the same plugin (`FO4_LvlRaider_Calm`). Its FAILs are gated by the calm vanilla actor of N0 and
+its PASS is credited to the command only when its own baseline stayed away. The hostile conversion is judged without a
+command against the vanilla actor it inherits its behaviour from (N2b: both baselines). The runner measures the approach
+from the spawn read as well as from t0, and every N2 test waits for the first one's spawn (`requires` DECIDED).
+Why: QA on PR #75. With the hostile raider, combat AI would drive any walk, so a PASS said nothing about the command
+and a raider holding its firing distance would have read as a conversion failure against a calm control; StartCombat
+on an actor that is already hostile cannot be told from its own hostility; and t0 comes after the player moved to B.
+Alternatives considered:
+- A hostile vanilla control (the Spacer) for each command: also fair, but every test would then measure combat
+  pursuit, not the command, twice the launches for one question.
+- Console commands that calm the spawned raider (StopCombat, faction changes): unverified in Starfield, and they would
+  add untested console lines to the step.
+- tcai (combat AI off): global, and it would differ from N0's conditions.
