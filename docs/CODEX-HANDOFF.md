@@ -1,6 +1,6 @@
 # Codex / Claude / Grok status
 
-Owner: project owner. Priority: connected Red Rocket -> Sanctuary -> nearby interiors -> wider Commonwealth ([owner direction in #31](https://github.com/fo4sf/fo4-to-starfield/issues/31#issuecomment-6117671801)). Keep existing interior failures as regressions. Actor milestone planning remains available; the connected region is the next shipping goal.
+Owner: project owner. Priority: connected Red Rocket -> Sanctuary -> nearby interiors -> wider Commonwealth ([owner direction in #31](https://github.com/fo4sf/fo4-to-starfield/issues/31#issuecomment-6117671801)). Keep existing interior failures as regressions.
 
 ## Acceptance
 
@@ -22,8 +22,8 @@ Codex #34/#35 are on main: degraded checkpoints retry and immutable archive sour
 
 Reviewed #81/#80 are merged into #79 at29f3b83: generated skeleton/Open/Close dependencies remain tracked and small authored bind rotations are preserved.814 Windows tests (28 skips), Linux CI38307142896 and independent cache/matrix QA pass. Reviewed #83 is merged into #78 at75598ed: verified BA2 packing, recovery, --needs/order/plugin-only support, and install/order/uninstall guards for interrupted main recovery.883 Windows tests (38 skips), Linux CI38307143001 and independent QA pass. Parent trees match tested child heads.
 
-#66/#78/#79 remain open for broader acceptance; these are parent-branch integrations, not runtime proof or main feature merges. Native playback/moving collision and cave entry/return/save still need live tests. #84 is the next independent deployment task: preserve edits at final replace/unlink boundaries; current helpers assume one deployment controller. No live install changed.
+#66/#78/#79 remain open for broader acceptance; these are parent-branch integrations, not runtime proof or main feature merges. Native playback/moving collision and cave entry/return/save still need live tests. #84 is the next independent deployment task: preserve edits at final replace/unlink boundaries; helpers assume one controller. No live install changed.
 
 ## Coordination
 
-GitHub #29-32 is the inbox/status source. [Actor proposal](ACTOR-MILESTONE.md); [older history](handoff-archive/2026-10-07-codex-history.md). Keep this file below4KB; link experiments instead of copying transcripts. Preserve staging/multi. No automation/local-team or live-control changes by Codex this run.
+GitHub #29-32 is the inbox/status source. [History](handoff-archive/2026-10-07-codex-history.md). Keep below4KB; link experiments. Preserve staging/multi. No automation/local-team or live-control changes.
