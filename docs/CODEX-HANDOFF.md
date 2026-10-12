@@ -1,35 +1,25 @@
 # Codex / Claude / Grok status
 
-Owner: repository owner. Current joint focus: prove converted Commonwealth terrain loads in Starfield. Interior acceptance remains open; actor implementation follows verified terrain/navigation probes.
+Owner: project owner. Priority: connected Red Rocket -> Sanctuary -> nearby interiors -> wider Commonwealth ([owner direction in #31](https://github.com/fo4sf/fo4-to-starfield/issues/31#issuecomment-6117671801)). Keep existing interior failures as regressions. Actor milestone planning remains available; the connected region is the next shipping goal.
 
-## Goal and acceptance
+## Acceptance
 
-Vault 111, Vault 81, Red Rocket cave, Vault 114, Prydwen, Hotel Rexford, Boston Public Library, Parsons: walkable floors/stairs, clear doorways, correct door swing/body ownership/frame collision, acceptable materials and recoverable deployment. Require in-game evidence tied to exact revision/artifact hashes. Unreadable results are inconclusive. Preserve Fallout 4 gameplay and Starfield native physics/modern capabilities. No game assets in Git; guard before commits; no passwords/payments/outreach/history rewriting.
-
-Next: [actor milestone proposal](ACTOR-MILESTONE.md), #31. Planning only until interiors pass; assignments not yet acknowledged.
+Walk Red Rocket-Sanctuary and its bridge/cell borders both ways; prove terrain remains loaded. Then enter source-linked interiors normally and return to the same exterior with correct position/facing, stairs and closed/open door collision. Cave triggers and Vault111 lift/sliding doors need explicit tests. Initial COC/ray hops are setup/loading evidence, not walking or door acceptance. Pin code, plan, plugin/archive hashes and persistent IDs; unreached/unreadable results are inconclusive. Preserve FO4 gameplay and native Starfield physics/modern capabilities. No game assets in Git; guard before commits; no passwords/payments/outreach/history rewriting.
 
 ## Owners / locks
 
-- Claude: collision/Havok (`sfcollision`, `fo4collision`, `hkpackfile`, `hktagfile`, `meshcollision`), `convert_static.py`, `pipeline.py`, `scripts/convert_batch.py`, `dotnet/PluginSpike`, game scripts/staging/live control. Do not overwrite active edits.
-- Codex: deployment/recovery, persistent IDs/checkpoints/cache/output verification, Fo4Export/ReferenceLinks; animation/door bridge modules (`animation_curves`, `door_motion`, `door_clips`, `door_rig`, `native_door`, `door_model`, `door_prototype`, `door_collision`, `fo4_compounds`) and tests. Owns this status/archive. Shared `sfnif.py`: announce exact function before edits.
-- Grok: acceptance oracle and `route_eval.judge` plausibility. No other game scripts/collision/doors/live control without a new claim.
+- Claude: collision/Havok, convert_static.py, pipeline.py, convert_batch.py, PluginSpike, terrain/actors, game scripts/staging/live control. No concurrent edits or game input from others.
+- Codex: deployment/recovery, identities/checkpoints/cache/output QA, Fo4Export/ReferenceLinks, animation/door bridge modules and tests, this status/archive. Shared sfnif.py changes need an exact scope claim. Claude requested review of Codex-owned modules in #79; Codex is changing only checkpoints.py plus its own new synthetic tests/status in a separate branch.
+- Grok: acceptance oracle, route_eval.judge, terrain_evidence.py/tests. #69 still needs capture-provenance QA correction; identical XYZ may be independent stationary captures. No other game/control files without a new claim.
 
-## Current evidence / remaining work
+## Latest evidence / open work
 
-Claude's pinned build1d3d5bf: Vault11112/12 routes PASS, Parsons11 doors OPEN-verified from both sides. Full eight-cell acceptance remains open. New integration2470f876:2 stairs/2 falls PASS,2 door failures from route aim; movable/teleport checks pending. Keep builds separate.
+Claude reports core64b NW short hops through Sanctuary/Vault111 to2km with matching terrain heights (#32, 6118693845). Earlier large-jump Boundary/seam conclusions need hop reruns; full continuous traversal and all directions remain open. Red Rocket objects/ground align in exp2c/exp2d. N1c NPC moved with156 converted NAVM records; N0/commanded arrival and cross-cell navigation remain unproven (#32, 6121240178).
 
-Terrain: Claude now reports Red Rocket native Commonwealth heights,13/14 probes within0.08m; one142m miss was unmeasured. Exp2c adds8,069 references/1,385 models, roof/road/shop-floor collision within0.01m. Ground still Mars dirt. #67 tile seams and #68 NPC control are queued; #70 textures/#71 navmesh underway. LC172 control within0.02m. Claude owns runtime evidence; full region/interior acceptance remains open.
+Claude's supervised_1011:10 PASS/5 FAIL/2 inconclusive. Open: multi-part shutter motion, load-door activation, Vault114 cinder-block step and movable item. #78 cave entry/return is staged, not runtime-accepted. #79 multi-part rigs/clips/body fix is offline; native playback/moving-body linkage needs in-game proof. Older eight-interior reports are not complete acceptance. Do not combine different builds into one result.
 
-Claude b166d6c: Parsons load door solid, teleport absent. Static/hinged routing has synthetic coverage; reconcile runtime failures against exact hashes.
+Codex #34/#35 merged: degraded checkpoints retry; source archives use streamed SHA identity. Keep source archives immutable during conversion. #62 refreshed at9d76274 (#59 d4253c3 + main35d8b68): journaled recoverable installs and stored BA2 coverage/content verification; 399 tests/hosted CI pass; awaits Claude integration. No live installation changed. #80 cache follow-up tracks generated skeleton/Open/Close.af/.afx despite omitted files lists/rig tags:7 focused/808 full tests pass (28 skips). Independent QA PASS; CI blocked by the existing #66 Linux game-path lookup. Proposed four-lookup patch prepared for Claude; its terrain file was not edited. #81 small-bind follow-up: quaternion vector norm prevents0.1-degree binds being treated as zero;5 focused/813 full tests pass (28 skips), pose-matrix checks and independent QA pass; inherits #66 CI dependency.
 
-Door prototype:30 rigs/60 clips read back,42 selected source bodies/62 leaves; offline only, not installed, native moving linkage/activation still unverified. Collision ownership contract:14-byte target/flags/data/BodyID; shared systems select the body's node index, never every body per attachment.
+## Coordination
 
-`.af`: second u16 at0x28 matches rig-bone counts in four families; frame rate/track mapping unresolved (research note/#32).
-
-Codex #62 ready: stored General pack outside staging, hashes/activation/rollback retained. Output verifier rejects omitted/changed/compressed resources, invalid name lengths and reader-mismatched identities; policy v2 requires uninstall of older records.52 focused/381 full OK (1 skipped), guard/diff/final QA PASS. #59 base4a29506 integrated. Grok #58 at74f0319 QA PASS; #69 has offset/NaN-control false PASS findings to fix. #34 merged. #35 SHA identity: QA PASS, CI pending; main Claude effort acknowledgment pending. No live install changed.
-
-## Coordination / housekeeping
-
-Check #29-32 each session; publish concise evidence and blockers there. Keep this file <4KB. [History](handoff-archive/2026-10-07-codex-history.md).
-
-Delete reviewed scratch/recordings; never commit recordings. Keep staging\multi. Inspect before cleaning Codex's staging\codex-resume-smoke and research\codex-reflect.
+GitHub #29-32 is the inbox/status source. [Actor proposal](ACTOR-MILESTONE.md); [older history](handoff-archive/2026-10-07-codex-history.md). Keep this file below4KB; link experiments instead of copying transcripts. Preserve staging/multi. No automation/local-team or live-control changes by Codex this run.
