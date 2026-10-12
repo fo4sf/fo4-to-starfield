@@ -43,6 +43,7 @@ sys.path.insert(0, HERE)
 import route_eval  # noqa: E402
 
 UNIT = 1.0 / 70.0
+COMPANION_REF = "000057BE"   # Starfield.esm ACHR VascoREF: the test save's companion, disabled per session
 KINDS = ("stairs", "door", "fall", "movable", "travel")         # planned from a build; "terrain" via plan-terrain
 # ranking weight per (kind, verdict reason class): falling out of the world and broken travel first
 SEVERITY = {("fall", "FALL"): 5, ("travel", "NOTRAVEL"): 5, ("travel", "NOPROMPT"): 4, ("door", "BLOCKED"): 4,
@@ -614,6 +615,12 @@ class Runner:
         code = self.step({"kind": "godmode"}, sd)
         obs = load(os.path.join(sd, "obs.json"), {})
         self.log(f"god mode: {obs.get('god')} (reply {obs.get('reply', '')[:60]!r})")
+        # the save's companion follows the player and blocks doors and shots: off for this session (queue.json
+        # "companion": "keep" leaves it)
+        if self.q.get("companion", "off") != "keep":
+            code = self.step({"kind": "companion_off", "ref": COMPANION_REF}, sd)
+            obs = load(os.path.join(sd, "obs.json"), {})
+            self.log(f"companion {COMPANION_REF}: {obs.get('companion')} (exit {code})")
         self.session = True
 
     def recover(self):

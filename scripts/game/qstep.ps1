@@ -118,6 +118,22 @@ switch ($kind) {
     Send 'key:grave|wait:900'
     $obs['god'] = if ($state -in 'enabled', 'on') { 'on' } elseif ($state -in 'disabled', 'off') { 'on (second toggle)' } else { 'unknown' }
   }
+  'companion_off' {
+    # The test save's companion (Vasco, Starfield.esm ACHR 000057BE VascoREF) follows the player: it stood in front of a
+    # load door (FortHagen01 0CD469 NOPROMPT, 2026-10-12) and in every NPC sample shot. Disabled for this session only
+    # (the runner's own save; nothing is saved here). GetDisabled >> 1 confirms it.
+    if ("$($t.ref)" -notmatch '^[0-9A-Fa-f]{8}$') { "bad ref"; exit 4 }
+    Console-Open
+    Send "type:prid $($t.ref)|key:enter|wait:500|type:disable|key:enter|wait:500|type:GetDisabled|key:enter|wait:700"
+    $cap = Join-Path $Out 'companion.png'; $prep = Join-Path $Out 'companion_prep.png'
+    powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'shot_region.ps1') -Out $cap | Out-Null
+    & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $cap $prep 135 12
+    $txt = ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $prep -Scale 1) -join ' ')
+    Send 'key:grave|wait:900'
+    $obs['reply'] = $txt
+    $last = [regex]::Matches($txt, 'GetDisabled\s*>+\s*([01])', 'IgnoreCase') | Select-Object -Last 1
+    $obs['companion'] = if ($last -and $last.Groups[1].Value -eq '1') { 'disabled' } else { 'unknown' }
+  }
   'save' {
     if ($t.name -notmatch '^[A-Za-z0-9_]+$') { "bad save name"; exit 4 }
     Console-Open

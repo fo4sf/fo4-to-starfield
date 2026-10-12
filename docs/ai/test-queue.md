@@ -43,7 +43,10 @@ is final. A game crash during a test is recorded (class CRASH) and the game is r
   Every step runs with `FO4SF_NO_FOCUS_STEAL=1`, so `input.ps1` refuses to pull the game in front during a test.
 - `queue.json` `"hours"` limits the allowed hours (default `[[0, 24]]`); `--max-hours` and `--max-tests` bound a run.
 - The build is pinned: `queue.json` records the SHA-256 of `FO4Port.esm`; the runner will not launch a staging folder
-  whose plugin changed. The dedicated save `fo4sf_test_<build id>` is created on the first launch and loaded on later ones.
+  whose plugin changed. The dedicated save `fo4sf_test_<build id>` is created on the first launch and loaded on later ones. After god mode the
+  session disables the save's companion (Vasco, Starfield.esm ACHR `000057BE`; qstep kind `companion_off`, confirmed by
+  `GetDisabled >> 1`): it stood in front of FortHagen01's load door (NOPROMPT, 2026-10-12) and in every NPC sample shot.
+  The save itself is not changed; queue.json `"companion": "keep"` leaves the companion.
 
 ## Output (in the queue folder)
 
