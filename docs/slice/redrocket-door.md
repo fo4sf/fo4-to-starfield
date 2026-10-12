@@ -5,9 +5,10 @@ npc_nav #68, daylight #73, raider #75, core64c #76, N0b #77). Starfield 1.16.244
 Status: **built and checked offline, staged, queue planned, not deployed, not run.** Offline checks are not in-game
 acceptance. After QA on PR #78 (fix pass, section 6 "Fix pass"): staged `C:\Modding\staging\slice_redrocket_door_b`,
 queue `C:\Modding\testqueue\slice_redrocket_door_b` (queue.json only, planned at 95552f8; not in the chain: that is
-the owner's call, after the chain's runner checkout has this branch). The first staging and queue (`slice_redrocket_door`, bf7c853) are
-superseded: never run them (their judge could call a stand 5 m from the door "the door does not work", their interior
-start stood 4.50 m from the door, and the runner of that commit could teleport after a load it did not see).
+the owner's call, after the chain's runner checkout has this branch). The first staging and queue
+(`slice_redrocket_door`, bf7c853) are superseded: never run them (their judge could call a stand 5 m from the door
+"the door does not work", their interior start stood 4.50 m from the door, and the runner of that commit could
+teleport after a load it did not see).
 Labels: **verified** = checked here on files (number given), **supported** = supported hypothesis, **unresolved**,
 **refuted**.
 
