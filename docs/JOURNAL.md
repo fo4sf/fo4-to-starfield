@@ -781,3 +781,15 @@ twin step is untested in game until the next library run.
 - **Also:**
   - The FortHagen shutters are windows (the wall is solid to about 1.03 m), so their walk tests cannot pass; the route planner should skip openings above step height.
   - It all needs a new pinned build (overlay `integ_1011_doors`) after batch_full. Commands are in docs/spikes/WP-doors-research.md.
+- **Slice: the Red Rocket cave door (PR #78, fixed after review; merged into integration-1012):**
+  - **Source (verified):** in FO4, RedRocket01's door 05E844 and the exterior door 08EB65 are AutoloadDoors (the player walks into a marker) linked to each other. Neither end existed in our build: markers are never placed.
+  - **Plugin:** FO4SliceRedRocket.esm places the vanilla AutoloadDoor_Cave (24F9CE) at both FO4 spots. Its marker is the FO4 marker / 70 within 0.013 %, and the two doors are persistent and teleport-linked both ways.
+    - It sits in the cave mouth 38 m south of exp2d's arrival.
+    - Offline checks pass: 27/27 and 28/28.
+  - **Runner:**
+    - A `door_trip` kind: coc, walk in, read the cell and position, walk out, save, move away, load, read again.
+    - FAIL NOLOAD needs the player still within 3 m of the door with no load seen.
+    - The position is read after every walk step, so a fast loading screen cannot send the player into the void.
+    - `exp_install.py order` puts experiment plugins after their masters.
+  - **Queue:** `slice_redrocket_door_b` (needs door_trip, door_check, plugin_order: integration-1012 at 16e21a4 or later).
+  - **integration-1012 now (16e21a4):** test-queue + #73 + #75 + #76 + #77 + #78 + #79. The unit suite passes (37 opt-in skipped) and guard passes. Its planned queues wait for the owner to switch the chain's runner.
