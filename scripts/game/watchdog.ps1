@@ -88,15 +88,23 @@ while ($true) {
     $st = State
     if ($idleH -ge [double]$cfg.threshold_hours) {
       $running = ChainRunning
-      if (-not $running -and (QueueLeft) -gt 0) {
+      # at most 3 chain starts per 6 hours: a queue that keeps failing at once must not be restarted every check
+      $starts = @(if ($st -and $st.starts) { $st.starts | Where-Object { ((Get-Date) - [DateTime]$_).TotalHours -lt 6 } })
+      if (-not $running -and (QueueLeft) -gt 0 -and $starts.Count -lt 3) {
         Note ("Claude inactive {0:N1} h (last {1:s}): starting the test chain" -f $idleH, $last)
         Start-Process powershell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $tq 'chain.ps1')) `
                       -WindowStyle Hidden | Out-Null
+        $starts += (Get-Date).ToString('s')
+        SaveState @{ last_codex = $(if ($st) { $st.last_codex } else { $null }); starts = $starts; claude_last = $last.ToString('s') }
+        $st = State
+      } elseif (-not $running -and (QueueLeft) -gt 0) {
+        Note "chain not restarted: 3 starts in the last 6 hours already (see overnight.log)"
       }
       $lastCodex = if ($st -and $st.last_codex) { [DateTime]$st.last_codex } else { [DateTime]::MinValue }
       if ($cfg.codex -and ((Get-Date) - $lastCodex).TotalHours -ge [double]$cfg.codex_every_hours) {
         CodexHandOver $cfg $idleH
-        SaveState @{ last_codex = (Get-Date).ToString('s'); claude_last = $last.ToString('s') }
+        SaveState @{ last_codex = (Get-Date).ToString('s'); starts = $(if ($st) { @($st.starts) } else { @() });
+                     claude_last = $last.ToString('s') }
       }
     }
   }
