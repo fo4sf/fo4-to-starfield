@@ -9,8 +9,11 @@ import sys
 import tempfile
 import unittest
 
-import numpy as np
-from PIL import Image
+try:                                   # the sky measure needs numpy + Pillow (the runner's venv); the rest does not
+    import numpy as np
+    from PIL import Image
+except ImportError:
+    np = Image = None
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
@@ -80,6 +83,7 @@ class FieldTests(unittest.TestCase):
 
 
 class SkyTests(unittest.TestCase):
+    @unittest.skipUnless(Image, "numpy / Pillow not installed")
     def test_brightness_is_the_mean_of_the_top_rows(self):
         d = tempfile.mkdtemp()
         self.assertAlmostEqual(sl.brightness(png(os.path.join(d, "a.png"), 120, ground=10)), 120.0)
@@ -99,6 +103,7 @@ class SkyTests(unittest.TestCase):
         self.assertFalse(sl.done(None, 40, 18))
         self.assertFalse(sl.done(12, None, 12))
 
+    @unittest.skipUnless(Image, "numpy / Pillow not installed")
     def test_measure_prints_one_json_line(self):
         d = tempfile.mkdtemp()
         p = png(os.path.join(d, "sky.png"), 110)
