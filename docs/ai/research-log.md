@@ -32,8 +32,9 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
 - Evidence, clip convention (126 vanilla door rigs, first clip each): no clip has a track for every bone (tracks for
   animated bones only); all 391 translation tracks of bones with a nonzero bind start at 0 and all 83 rotation tracks
   of bones with a rotated bind start at identity, none at the bind: **clip keys are offsets from the bind**. CALUMI
-  stores the values as given (no bind arithmetic in `SFBGS_AnimationScene.cpp`). `native_door.prepare` wrote absolute
-  local keys for every bone, which would apply each bind twice; it had never run in game.
+  stores the values as given (no bind arithmetic in `SFBGS_AnimationScene.cpp`), and the independent `.af` reader of
+  PR #53 (`claude/af-channel-layout`, 2026-10-11 entry there, 9 door families) found the same. `native_door.prepare`
+  wrote absolute local keys for every bone, which would apply each bind twice; it had never run in game.
 - Side finding: both FortHagen01 shutters (`0BD6A1`, `0BD69F`) are window shutters. Their walls
   (`BldWoodPSmWallWindowHole01`, render triangles within 12 units of the door plane projected onto it) are solid from
   the floor to 1.03 m above the reference; the opening is the panels' own span, 1.08-2.46 m high and about 0.65 m wide.
@@ -64,10 +65,12 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   54,271 records, 48 changed: 10 DOOR (BNAM, CNAM, OBND) and their 38 REFR (position only; shutter `00BE6A` now at the
   FO4 position 12.8, 58.514, 7.314); FormIDs unchanged.
 - Status: where the panel is lost **verified** (offline: code path, converted NIF, manifest, template clip read-back;
-  symptom from the in-game screenshots). "Starfield clip keys are offsets from the bind" **supported hypothesis**
-  (vanilla survey; no clip of ours has played yet). "Our rig + clips + per-leaf keyframed boxes open both panels in game"
-  **unresolved** (in-game test plan: docs/spikes/WP-doors-research.md, "Multi-part doors"). Shutter walk test impossible
-  **verified** for `0BD6A1` (wall geometry), **supported** for `0BD69F` (same wall pieces).
+  symptom from the in-game screenshots). Vanilla clips store offsets from the bind: **verified** offline (two readers);
+  that the engine applies ours that way: **supported hypothesis** (no clip of ours has played yet; the composition order
+  with a rotated bind stays open, which identity binds on animated bones make moot). "Our rig + clips + per-leaf
+  keyframed boxes open both panels in game" **unresolved** (in-game test plan: docs/spikes/WP-doors-research.md,
+  "Multi-part doors"). Shutter walk test impossible **verified** for `0BD6A1` (wall geometry), **supported** for
+  `0BD69F` (same wall pieces).
 
 ## 2026-10-12 Claude: why the NPC control N0 could not tell a commanded walk from wandering
 - Question: N0 (`npc_nav_n0`, QASmoke) passed `PathToRef` twice and failed its no-command baseline; is that a walk, a
