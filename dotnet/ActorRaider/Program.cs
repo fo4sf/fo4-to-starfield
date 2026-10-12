@@ -5,10 +5,12 @@
 //        from at <player level> (TPTA / TPLT followed through LVLN entries; the first qualifying entry is chosen and
 //        every candidate is listed). Input of scripts/actors/raider_map.py.
 //   write <Starfield.esm> <spec.json> <out dir>
-//        one plugin with one NPC_ from the mapped spec (raider_map.py). Every vanilla link in the spec names its FormID,
-//        EditorID and record type; the writer refuses to write when one of them does not match Starfield.esm.
+//        one plugin with the spec's NPC_ records (raider_map.py: the conversion and its probe variant). Every vanilla link
+//        in the spec names its FormID, EditorID and record type; the writer refuses to write when one of them does not
+//        match Starfield.esm.
 //   check <Starfield.esm> <plugin.esm> <out.json>
-//        re-reads the written plugin (Mutagen), resolves every link and each template category against Starfield.esm.
+//        re-reads the written plugin (Mutagen), resolves every link and each template category against Starfield.esm,
+//        and reports a record without a subrecord that every vanilla NPC_ carries or with another form version.
 //   roundtrip <Starfield.esm> <NPC_ ids hex,comma> <scratch dir> <out.json>
 //        Mutagen write fidelity for NPC_: copies vanilla records into an override plugin, writes it and compares the
 //        subrecords byte by byte with Starfield.esm's (decompressed). Shows what Mutagen cannot write back.

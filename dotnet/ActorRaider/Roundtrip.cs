@@ -45,6 +45,32 @@ static class Roundtrip
         return outp;
     }
 
+    /// The record header form version (offset 20, 2 bytes) of every record of one top-level group: FormID -> version.
+    public static Dictionary<uint, ushort> FormVersions(string path, string sig)
+    {
+        var outp = new Dictionary<uint, ushort>();
+        using var fs = File.OpenRead(path);
+        using var br = new BinaryReader(fs);
+        string Sig() => Encoding.ASCII.GetString(br.ReadBytes(4));
+        Sig(); var hsize = br.ReadUInt32(); fs.Seek(16 + hsize, SeekOrigin.Current);
+        while (fs.Position < fs.Length)
+        {
+            var g = Sig(); var gsize = br.ReadUInt32(); var label = Encoding.ASCII.GetString(br.ReadBytes(4)); fs.Seek(12, SeekOrigin.Current);
+            if (g != "GRUP") throw new InvalidDataException($"expected GRUP at {fs.Position - 24}, got {g}");
+            long end = fs.Position + gsize - 24;
+            if (label != sig) { fs.Seek(end, SeekOrigin.Begin); continue; }
+            while (fs.Position < end)
+            {
+                var t = Sig(); var size = br.ReadUInt32();
+                if (t == "GRUP") { fs.Seek(size - 8, SeekOrigin.Current); continue; }
+                br.ReadUInt32(); var id = br.ReadUInt32(); br.ReadUInt32(); var version = br.ReadUInt16(); br.ReadUInt16();
+                fs.Seek(size, SeekOrigin.Current);
+                outp[id & 0xFFFFFF] = version;
+            }
+        }
+        return outp;
+    }
+
     public static List<(string Type, byte[] Data)> Subrecords(byte[] d)
     {
         var outp = new List<(string, byte[])>();

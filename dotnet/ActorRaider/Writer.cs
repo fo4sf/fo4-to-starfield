@@ -1,4 +1,4 @@
-// write / check: one Starfield NPC_ from a mapped spec (scripts/actors/raider_map.py), and its re-read.
+// write / check: Starfield NPC_ records from a mapped spec (scripts/actors/raider_map.py), and their re-read.
 using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
@@ -20,6 +20,15 @@ static class Writer
         ("ModelOrAnimation", 6), ("BaseData", 7), ("Inventory", 8), ("Script", 9), ("DefPackList", 10),
         ("AttackData", 11), ("Keywords", 12), ("Unknown1", 13), ("Unknown2", 14),
     };
+
+    // Subrecords that every vanilla NPC_ carries (raw scan of Starfield.esm: 7,131 of 7,131 records, all 2,821 that
+    // inherit Traits among them; EDID 7,130). Check reports a written record that lacks one.
+    public static readonly string[] AlwaysPresent =
+        { "EDID", "OBND", "ODTY", "ACBS", "RNAM", "PRPS", "AIDT", "DATA", "DNAM", "NAM5", "NAM6", "NAM4", "MWGT", "EDCT", "STON", "PRON" };
+
+    // The record header form version of every vanilla NPC_ (581 in all 7,131). Mutagen writes 576 unless told; its
+    // round trip of vanilla records keeps 581 and writes their subrecords back byte for byte, so it writes 581's layout.
+    public const ushort VanillaNpcFormVersion = 581;
 
     static IFormLink<INpcTemplateTargetGetter> SlotRef(TemplateActors t, string name) => name switch
     {
@@ -60,22 +69,52 @@ static class Writer
         return fk;
     }
 
+    /// One plugin with every NPC_ of the spec's "npcs" list (the conversion and its probe variants).
     public static int Write(string sfPath, string specPath, string outDir)
     {
         var spec = JsonDocument.Parse(File.ReadAllText(specPath)).RootElement;
-        var n = spec.GetProperty("npc");
         using var sf = StarfieldMod.CreateFromBinaryOverlay(sfPath, StarfieldRelease.Starfield);
         var c = Util.Cache(sf);
         var errors = new List<string>();
-        FormKey V(JsonElement e, string what) => Vanilla(c, e, what, errors);
-        FormKey Opt(string key) => n.TryGetProperty(key, out var e) && e.ValueKind == JsonValueKind.Object ? V(e, key) : FormKey.Null;
-
         var modKey = ModKey.FromNameAndExtension(spec.GetProperty("plugin").GetString()!);
         var mod = new StarfieldMod(modKey, StarfieldRelease.Starfield);
         mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
         mod.ModHeader.Author = "fo4-to-starfield ActorRaider";
+        uint next = 0x800;
+        var lines = new List<string>();
+        foreach (var n in spec.GetProperty("npcs").EnumerateArray())
+        {
+            var npc = Build(c, n, modKey, errors, out var bits);
+            if (npc is null) return 2;
+            if (mod.Npcs.ContainsKey(npc.FormKey)) { Console.Error.WriteLine($"form_id {npc.FormKey.ID:X6} used twice"); return 2; }
+            mod.Npcs.Add(npc);
+            next = Math.Max(next, npc.FormKey.ID + 1);
+            lines.Add($"  NPC_ {npc.FormKey} {npc.EditorID} \"{npc.Name}\" ({n.GetProperty("role").GetString()}): template flags " +
+                      $"0x{bits:X4}, {npc.Factions.Count} factions, {npc.Items?.Count ?? 0} items, {npc.Properties?.Count ?? 0} " +
+                      $"properties, form version {npc.FormVersion}");
+        }
+        if (errors.Count > 0)
+        {
+            Console.Error.WriteLine("spec does not match Starfield.esm, nothing written:\n  " + string.Join("\n  ", errors));
+            return 2;
+        }
+        mod.ModHeader.Stats.NextFormID = next;
+        Directory.CreateDirectory(outDir);
+        var path = Path.Combine(outDir, modKey.FileName);
+        mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(Path.GetDirectoryName(Path.GetFullPath(sfPath))!)
+            .WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
+        Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes):\n" + string.Join("\n", lines));
+        return 0;
+    }
+
+    /// One NPC_ from one entry of "npcs" (null: a form_id out of range, already reported).
+    static Npc? Build(ILinkCache c, JsonElement n, ModKey modKey, List<string> errors, out int bits)
+    {
+        bits = 0;
+        FormKey V(JsonElement e, string what) => Vanilla(c, e, what, errors);
+        FormKey Opt(string key) => n.TryGetProperty(key, out var e) && e.ValueKind == JsonValueKind.Object ? V(e, key) : FormKey.Null;
         var localId = Convert.ToUInt32(n.GetProperty("form_id").GetString(), 16);
-        if (localId < 0x800 || localId > 0xFFFFFF) { Console.Error.WriteLine($"form_id {localId:X} outside 000800..FFFFFF"); return 2; }
+        if (localId < 0x800 || localId > 0xFFFFFF) { Console.Error.WriteLine($"form_id {localId:X} outside 000800..FFFFFF"); return null; }
 
         var npc = new Npc(new FormKey(modKey, localId), StarfieldRelease.Starfield)
         {
@@ -90,6 +129,7 @@ static class Writer
             Unused = (byte)n.GetProperty("unused").GetInt32(),
             NAM5 = new MemorySlice<byte>(Convert.FromHexString(n.GetProperty("nam5").GetString()!)),
             Weight = new NpcWeight(),
+            FormVersion = (ushort)n.GetProperty("form_version").GetInt32(),
         };
         foreach (var f in n.GetProperty("flags").EnumerateArray())
             npc.Flags |= Enum.Parse<Npc.Flag>(f.GetString()!);
@@ -106,7 +146,6 @@ static class Writer
         npc.TemplateActors = new TemplateActors();
         foreach (var t in n.GetProperty("templates").EnumerateObject())
             SlotRef(npc.TemplateActors, t.Name).SetTo(V(t.Value, $"templates.{t.Name}"));
-        int bits = 0;
         foreach (var u in n.GetProperty("use_template").EnumerateArray())
         {
             var s = Slots.FirstOrDefault(x => x.Name == u.GetString());
@@ -127,33 +166,49 @@ static class Writer
             {
                 Item = new ContainerItem { Item = new FormLink<IItemGetter>(V(it.GetProperty("item"), "items")), Count = it.GetProperty("count").GetInt32() },
             });
-        npc.DefaultOutfit.SetTo(Opt("default_outfit"));
-        npc.SpaceOutfit.SetTo(Opt("space_outfit"));
-        npc.DeathItem.SetTo(Opt("death_item"));
-        npc.CombatStyle.SetTo(Opt("combat_style"));
-        npc.DefaultPackageList.SetTo(Opt("default_package_list"));
-        npc.CombatOverridePackageList.SetTo(Opt("combat_override_package_list"));
-        npc.FormationFaction.SetTo(Opt("formation_faction"));
-        npc.Class.SetTo(Opt("class"));
-        npc.Voice.SetTo(Opt("voice"));
-
-        if (errors.Count > 0)
+        // an optional link the spec does not give stays unset: SetTo(FormKey.Null) would write a null subrecord (the
+        // calm probe's HEFA was 00000000; no vanilla NPC_ has a null HEFA, 29 have one)
+        void Set<T>(IFormLinkNullable<T> link, FormKey fk) where T : class, IMajorRecordGetter
         {
-            Console.Error.WriteLine("spec does not match Starfield.esm, nothing written:\n  " + string.Join("\n  ", errors));
-            return 2;
+            if (!fk.IsNull) link.SetTo(fk);
         }
-        mod.Npcs.Add(npc);
-        mod.ModHeader.Stats.NextFormID = localId + 1;
-        Directory.CreateDirectory(outDir);
-        var path = Path.Combine(outDir, modKey.FileName);
-        mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(Path.GetDirectoryName(Path.GetFullPath(sfPath))!)
-            .WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
-        Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): NPC_ {npc.FormKey} {npc.EditorID} \"{npc.Name}\", " +
-                          $"template flags 0x{bits:X4}, {npc.Factions.Count} factions, {npc.Items.Count} items");
-        return 0;
+        Set(npc.DefaultOutfit, Opt("default_outfit"));
+        Set(npc.SpaceOutfit, Opt("space_outfit"));
+        Set(npc.DeathItem, Opt("death_item"));
+        Set(npc.CombatStyle, Opt("combat_style"));
+        Set(npc.DefaultPackageList, Opt("default_package_list"));
+        Set(npc.CombatOverridePackageList, Opt("combat_override_package_list"));
+        Set(npc.FormationFaction, Opt("formation_faction"));
+        Set(npc.Class, Opt("class"));
+        Set(npc.Voice, Opt("voice"));
+
+        // PRPS, STON, PRON and EDCT are in every vanilla NPC_, also in those that inherit the category. Vanilla templated
+        // records carry their template's values: PRPS equals the Stats template's in 2,692 of 4,046 Stats-templated
+        // NPC_ whose Stats template is an NPC_; STON / PRON / EDCT equal the Traits template's in 2,287 / 2,317 / 2,274
+        // of 2,318. So PRPS, STON and PRON are copied from the template of the category the spec names ("copied"). EDCT
+        // counts the tint blocks (MNAM TNAM QNAM VNAM NNAM INTV; it equals the number of MNAM in all 7,131 NPC_), which
+        // Mutagen writes from Tints: an empty, non-null list writes EDCT 0 and no block, as in EncSpacer01Template and
+        // 4,110 other vanilla NPC_ (the look comes from the Traits template; its tints are not copied).
+        var copied = n.GetProperty("copied");
+        INpcGetter? Tpl(string what)
+        {
+            var cat = copied.GetProperty(what).GetString()!;
+            var fk = SlotLink(npc.TemplateActors, cat);
+            if (fk.IsNull) fk = npc.DefaultTemplate.FormKey;
+            if (c.TryResolve<INpcGetter>(fk, out var t)) return t;
+            errors.Add($"copied.{what}: the {cat} template {fk} is not an NPC_ (a leveled list has no values to copy)");
+            return null;
+        }
+        if (Tpl("properties") is { } st)
+            npc.Properties = st.Properties?.Select(p => p.DeepCopy()).ToExtendedList() ?? new ExtendedList<ObjectProperty>();
+        if (Tpl("skin_tone_index") is { } tr) npc.SkinToneIndex = tr.SkinToneIndex ?? 0;
+        if (Tpl("pronoun") is { } pr) npc.Pronoun = pr.Pronoun ?? default;
+        npc.Tints = new ExtendedList<NpcTint>();
+        return npc;
     }
 
-    /// Re-read the plugin, resolve every link and every inherited category against Starfield.esm.
+    /// Re-read the plugin, resolve every link and every inherited category against Starfield.esm, and compare the raw
+    /// record with what every vanilla NPC_ carries (subrecord types, form version).
     public static int Check(string sfPath, string pluginPath, string outPath)
     {
         using var sf = StarfieldMod.CreateFromBinaryOverlay(sfPath, StarfieldRelease.Starfield);
@@ -173,6 +228,8 @@ static class Writer
             else problems.Add($"{what}: {fk} does not resolve");
             return d;
         }
+        var raw = Roundtrip.ReadGroup(pluginPath, "NPC_", null);
+        var versions = Roundtrip.FormVersions(pluginPath, "NPC_");
         var counts = plug.EnumerateMajorRecords().GroupBy(Util.RecType).ToDictionary(g => g.Key, g => g.Count());
         var npcs = new List<object>();
         foreach (var n in plug.Npcs)
@@ -190,18 +247,24 @@ static class Writer
                     if (t.UseTemplateActors != 0 && (((int)t.UseTemplateActors >> bit) & 1) != 0)
                         d["note"] = "the template inherits this category itself";
                     d["template_is_leveled_list"] = false;
-                    if (name == "Traits") { d["race"] = R(t.Race.FormKey, "traits race")["edid"]; d["voice"] = R(t.Voice.FormKey, "traits voice")["edid"]; d["female"] = t.Flags.HasFlag(Npc.Flag.Female); d["head_parts"] = t.HeadParts.Count; }
-                    if (name == "AiData") { d["aggression"] = t.Aggression.ToString(); d["confidence"] = t.Confidence.ToString(); d["assistance"] = t.Assistance.ToString(); d["reaction_radii"] = t.RDSAs?.Count ?? 0; }
-                    if (name == "Stats") { d["level"] = t.Level is INpcLevelGetter l ? l.Level : null; d["class"] = R(t.Class.FormKey, "stats class")["edid"]; }
-                    if (name == "DefPackList") d["default_package_list"] = R(t.DefaultPackageList.FormKey, "template package list")["edid"];
+                    if (name == "Traits") { d["race"] = R(t.Race.FormKey, "traits race").GetValueOrDefault("edid"); d["voice"] = R(t.Voice.FormKey, "traits voice").GetValueOrDefault("edid"); d["female"] = t.Flags.HasFlag(Npc.Flag.Female); d["head_parts"] = t.HeadParts.Count; d["death_item"] = R(t.DeathItem.FormKey, "traits death item").GetValueOrDefault("edid"); }
+                    if (name == "AiData") { d["aggression"] = t.Aggression.ToString(); d["confidence"] = t.Confidence.ToString(); d["assistance"] = t.Assistance.ToString(); d["reaction_radii"] = t.RDSAs?.Count ?? 0; d["combat_style"] = R(t.CombatStyle.FormKey, "ai data combat style").GetValueOrDefault("edid"); }
+                    if (name == "Stats") { d["level"] = t.Level is INpcLevelGetter l ? l.Level : null; d["class"] = R(t.Class.FormKey, "stats class").GetValueOrDefault("edid"); }
+                    if (name == "DefPackList") d["default_package_list"] = R(t.DefaultPackageList.FormKey, "template package list").GetValueOrDefault("edid");
                 }
                 else if (c.TryResolve<ILeveledNpcGetter>(fk, out _)) d["template_is_leveled_list"] = true;
                 inherited[name] = d;
             }
+            var subs = raw.TryGetValue(n.FormKey.ID, out var data) ? Roundtrip.Subrecords(data).Select(s => s.Type).ToList() : new List<string>();
+            var missing = AlwaysPresent.Where(s => !subs.Contains(s)).ToList();
+            if (missing.Count > 0) problems.Add($"{n.EditorID}: lacks {string.Join(", ", missing)}, which every vanilla NPC_ carries");
+            var fv = versions.GetValueOrDefault(n.FormKey.ID);
+            if (fv != VanillaNpcFormVersion) problems.Add($"{n.EditorID}: form version {fv}, every vanilla NPC_ has {VanillaNpcFormVersion}");
             npcs.Add(new Dictionary<string, object?>
             {
                 ["form_key"] = n.FormKey.ToString(), ["editor_id"] = n.EditorID, ["name"] = n.Name?.String,
                 ["runtime_id_if_first_plugin"] = $"02{n.FormKey.ID:X6}",
+                ["form_version"] = fv, ["subrecords"] = string.Join(" ", subs),
                 ["flags"] = n.Flags.ToString(), ["level"] = n.Level is INpcLevelGetter lv ? lv.Level : null,
                 ["race"] = R(n.Race.FormKey, "race"), ["default_template"] = R(n.DefaultTemplate.FormKey, "default template"),
                 ["use_template_actors"] = $"0x{bits:X4}",
@@ -213,6 +276,7 @@ static class Writer
                     ["default_outfit"] = R(n.DefaultOutfit.FormKey, "default outfit"), ["space_outfit"] = R(n.SpaceOutfit.FormKey, "space outfit"),
                     ["death_item"] = R(n.DeathItem.FormKey, "death item"), ["combat_style"] = R(n.CombatStyle.FormKey, "combat style"),
                     ["formation_faction"] = R(n.FormationFaction.FormKey, "formation faction"),
+                    ["properties"] = n.Properties?.Count ?? 0, ["skin_tone_index"] = n.SkinToneIndex, ["pronoun"] = n.Pronoun?.ToString(),
                 },
             });
         }

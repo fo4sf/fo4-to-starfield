@@ -53,3 +53,23 @@ Alternatives considered:
 - Duplicating a vanilla NPC_ (DeepCopy): carries the vanilla identity, and so hides what the conversion contributes.
 - Templating on LvlSpacer / LCharSpacer: random per spawn, and the spawn may get a generated base that `GetIsID` does
   not confirm (N0_ptr_lvl).
+Note (2026-10-12): the death item and combat style are written as the record's own, but under xEdit's Skyrim / FO4
+template semantics (a supported hypothesis for Starfield) they go with Traits and AI Data, both inherited, so they are
+probably overridden (docs/actors/raider-conversion.md section 3). Every converted NPC_ also carries PRPS, STON, PRON and
+EDCT and form version 581, as all 7,131 vanilla NPC_ do (copied from the templates it inherits from).
+
+## 2026-10-12 Converted actors are tested calm against calm, hostile against hostile (Claude)
+A commanded walk (PathToRef, SetPlayerTeammate) of a converted actor is tested on a calm probe: the conversion without
+factions, written into the same plugin (`FO4_LvlRaider_Calm`). Its FAILs are gated by the calm vanilla actor of N0 and
+its PASS is credited to the command only when its own baseline stayed away. The hostile conversion is judged without a
+command against the vanilla actor it inherits its behaviour from (N2b: both baselines). The runner measures the approach
+from the spawn read as well as from t0, and every N2 test waits for the first one's spawn (`requires` DECIDED).
+Why: QA on PR #75. With the hostile raider, combat AI would drive any walk, so a PASS said nothing about the command
+and a raider holding its firing distance would have read as a conversion failure against a calm control; StartCombat
+on an actor that is already hostile cannot be told from its own hostility; and t0 comes after the player moved to B.
+Alternatives considered:
+- A hostile vanilla control (the Spacer) for each command: also fair, but every test would then measure combat
+  pursuit, not the command, twice the launches for one question.
+- Console commands that calm the spawned raider (StopCombat, faction changes): unverified in Starfield, and they would
+  add untested console lines to the step.
+- tcai (combat AI off): global, and it would differ from N0's conditions.
