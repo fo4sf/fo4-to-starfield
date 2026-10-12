@@ -8,7 +8,7 @@ files (docs/terrain/architecture.md, section 1.4):
     4 x i32 cell rectangle                                    always 0 in Starfield
     u32 n, n x u32 LTEX FormIDs
     per cell        f32 min, f32 max                          of the decoded LOD0 heights
-    per quadrant    8 bytes LTEX table indices                (stored as n - index; copied from a template here)
+    per quadrant    8 bytes LTEX table indices                (stored as n - index; layout in fo4sf.landtex)
     LOD4            8 x 8 u16 heights per cell, then 8 x 8 u16 land-texture weights (every 16th sample)
     zlib tables     (u32 offset, u32 size) for LOD3 (8x8-cell groups), LOD2 (4x4), LOD1 (2x2), LOD0 (1 cell)
     zlib blocks     65,536 bytes each: 128 x 128 u16 heights then 128 x 128 u16 weights; LOD l = full grid sampled
@@ -91,6 +91,37 @@ def read(b: bytes) -> Btd:
         h[cy * 128:(cy + 1) * 128, cx * 128:(cx + 1) * 128] = np.frombuffer(raw, "<u2", 16384, 0).reshape(128, 128)
         w[cy * 128:(cy + 1) * 128, cx * 128:(cx + 1) * 128] = np.frombuffer(raw, "<u2", 16384, 32768).reshape(128, 128)
     return Btd(ver, hmin, hmax, ltex, h, w, quad, mm)
+
+
+def height_digest(b: bytes) -> dict:
+    """SHA-256 of every height-carrying part of a BTD, so two files can be compared for 'heights byte-identical,
+    texture sections free to differ': the 0x28-byte header (magic, version, range, size, cell rectangle), the per-cell
+    min/max table, the LOD4 heights and the height half (first 32,768 bytes) of every decompressed LOD3..LOD0 block."""
+    import hashlib
+    if b[:4] != MAGIC:
+        raise BtdError("not a BTD file")
+    rx, ry, nlt = struct.unpack_from("<II", b, 0x10) + struct.unpack_from("<I", b, 0x28)
+    ncx, ncy = rx // CELL_SAMPLES, ry // CELL_SAMPLES
+    n = ncx * ncy
+    p = 0x2C + 4 * nlt
+    out = {"header": hashlib.sha256(b[:0x28]).hexdigest(), "cell_minmax": hashlib.sha256(b[p:p + 8 * n]).hexdigest()}
+    p += 8 * n + 32 * n
+    out["lod4_heights"] = hashlib.sha256(b[p:p + 128 * n]).hexdigest()
+    p += 256 * n
+    tables = []
+    for l in (3, 2, 1, 0):
+        cnt = _group_count(ncy, l) * _group_count(ncx, l)
+        tables.append((p, cnt))
+        p += 8 * cnt
+    h = hashlib.sha256()
+    blocks = 0
+    for off, cnt in tables:
+        for i in range(cnt):
+            o, sz = struct.unpack_from("<II", b, off + 8 * i)
+            h.update(zlib.decompress(b[p + o:p + o + sz])[:32768])
+            blocks += 1
+    out["block_heights"], out["blocks"] = h.hexdigest(), blocks
+    return out
 
 
 def quantize(heights_m: np.ndarray, hmin: float, hmax: float) -> np.ndarray:

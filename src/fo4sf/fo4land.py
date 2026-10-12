@@ -29,6 +29,7 @@ UNITS_PER_METRE = 70.0  # the repo's object conversion; NOT proven to be the rig
 COMPRESSED = 0x00040000
 VHGT_MIN_SIZE = 4 + GRID * GRID  # 1093, the same lower bound fo4land checks
 REF_TYPES = (b"REFR", b"ACHR")
+LAND_TEXTURE_FIELDS = (b"BTXT", b"ATXT", b"VTXT", b"VCLR")
 
 _REC = struct.Struct("<4sIII")  # type, data size, flags, form id (header is 24 bytes)
 _GRP = struct.Struct("<4sI4si")  # "GRUP", total size incl. header, label, group type
@@ -151,6 +152,16 @@ class Plugin:
 
     # ------------------------------------------------------------------ base records
 
+    def group_records(self, label):
+        """Yield (form id, [(sig, bytes)]) for every record of one top group (e.g. b"LTEX"); nothing if absent.
+        Works for any plugin with 24-byte record headers (Fallout 4 and Starfield)."""
+        g = self.top_group(label)
+        if g is None:
+            return
+        for typ, off, _flags, fid in iter_items(self.buf, g[0], g[1]):
+            if typ != "GRUP":
+                yield fid, list(iter_subrecords(record_data(self.buf, off)))
+
     def base_records(self, wanted=None, edid_regex=None, skip_groups=(b"WRLD", b"CELL", b"DIAL", b"QUST")):
         """{form_id: (type, editor_id, obnd)} for top-level records whose id is in `wanted` or whose EDID matches.
         obnd = (x1, y1, z1, x2, y2, z2) object bounds in FO4 units, or None."""
@@ -193,13 +204,16 @@ class Plugin:
                 pending = (fid, fields) if name == edid else None
         raise KeyError(f"worldspace {edid!r} not found")
 
-    def read_world(self, edid, cells=None, refs=True):
+    def read_world(self, edid, cells=None, refs=True, land_textures=False):
         """Walk one worldspace. `cells`: set of (x, y) to load LAND/refs for (None = all).
         Returns {"world_fid", "world_fields", "cells": {(x, y): cell}, "persistent": [ref, ...]}.
         cell = {"fid", "edid", "x", "y", "vhgt": bytes|None, "land_fid", "refs": [ref], "persistent_refs": [ref]}.
+        land_textures: also keep the LAND's texture fields in file order, cell["land_tex"] = [(sig, bytes)] for
+        BTXT / ATXT / VTXT / VCLR (fo4sf.landtex parses them).
         """
         wfid, start, end, wfields = self.find_world(edid)
         result = {"world_fid": wfid, "world_fields": wfields, "cells": {}, "persistent": []}
+        self._land_textures = land_textures
         self._walk_world(start, end, cells, refs, result, None, in_block=False)
         return result
 
@@ -248,9 +262,14 @@ class Plugin:
                 continue
             typ, off, _flags, fid = item
             if typ == b"LAND":
+                tex = []
                 for sig, d in iter_subrecords(record_data(self.buf, off)):
                     if sig == b"VHGT":
                         cell["vhgt"], cell["land_fid"] = bytes(d), fid
+                    elif sig in LAND_TEXTURE_FIELDS:
+                        tex.append((sig, bytes(d)))
+                if getattr(self, "_land_textures", False):
+                    cell["land_tex"] = tex
             elif refs and typ in REF_TYPES:
                 r = parse_ref(iter_subrecords(record_data(self.buf, off)))
                 r["fid"], r["type"] = fid, typ.decode("ascii")
