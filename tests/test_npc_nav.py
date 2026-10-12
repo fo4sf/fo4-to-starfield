@@ -244,6 +244,18 @@ class NpcPlanTests(unittest.TestCase):
             self.plan([dict(n1, requires={"queue": os.path.join(self.d, "none"), "test": "x"})], *inst,
                       "--install-exp", world)
 
+    def test_fresh_tests_relaunch_the_game(self):
+        # a merged planet world arrives erratically on a repeated coc: its tests carry "fresh" (plan.json or --fresh),
+        # which the runner reads for any kind (relaunch before the test)
+        n1 = dict(N0, label="N1c", control=False, fresh=True)
+        q = self.plan([N0, n1])
+        self.assertNotIn("fresh", q["tests"][0])                    # the vanilla control relaunches nothing
+        self.assertIs(q["tests"][1]["fresh"], True)
+        q = self.plan([N0, dict(n1, fresh=False)], "--fresh")
+        self.assertEqual([t.get("fresh") for t in q["tests"]], [True, True])
+        q = self.plan([N0, dict(n1, fresh=False)])
+        self.assertEqual([t.get("fresh") for t in q["tests"]], [None, None])
+
     def test_qstep_types_only_the_planned_method_lines(self):
         # testqueue.NPC_METHODS and qstep.ps1's table must agree: every planned console line is in the step as written
         src = text(QSTEP)
