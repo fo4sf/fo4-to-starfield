@@ -825,3 +825,38 @@ twin step is untested in game until the next library run.
   - The judge must require arrival (end within a few metres of B) or progress beyond the baseline's wander.
   - Add `StartCombat player` (a script command in Starfield.exe: "Forces the currently selected reference to initiate combat with the provided actor") as a control method.
   - The N1 queues still run (moving at all on our terrain with and without navmesh is useful), but their "towards B" verdicts carry the same caveat.
+
+## 2026-10-12 ~02:00: three slice pieces built and reviewed; integration-1012 ready (not yet the chain's runner)
+- **Built and adversarially reviewed overnight.** Each reviewer found blocking problems, and each was fixed.
+  - **PR #73 (daylight, plus the console hook).** `SetLocalTime` is the runner's time-of-day command, with the reply captured.
+    - Light is judged from every probe shot, and NIGHT is retried.
+    - A queue lists the runner features it `needs`, so an older runner refuses it at pre-launch instead of running it without the time.
+    - The test is staged at the site that was night 18 of 18 times (`terrain_exp2b2_noon`); the daylight site was day 13 of 13.
+  - **PR #75 (first converted FO4 NPC):** the Concord raider (FO4 ACHR 00046458, LvlRaider) as one Starfield NPC_ on the Spacer templates.
+    - The record now carries PRPS/STON/EDCT/PRON, which all 7,131 vanilla NPC_ have.
+    - A calm copy is used for the walk tests (N2a), so the peaceful vanilla control is fair. The hostile copy goes to N2b.
+  - **PR #76 (every FO4 exterior object on the 6.4 km core):** 648,358 references of 11,769 models, a 46.1 MB plugin and a 3.63 GiB stored archive (textures capped per kind to stay under 4 GiB).
+    - Object z matches FO4's own terrain at the median, +0.22 m.
+    - The plan uses waypoints so that every teleport moves at most 2 cells per axis.
+- **Teleport rule:** at most 2 cells per axis landed 144 of 145 times; 3 or more cells per axis failed 11 of 28 times (all 6 in core64). The rule is a supported hypothesis from `scripts/terrain/teleport_audit.py`, and "~4 cells" is refuted.
+- **`claude/integration-1012`** merges test-queue, daylight, raider and core64-objects. The unit suite and guard pass.
+  - It has one semantic fix: NPC plans accept the light and console keys.
+  - Queues planned with it: `terrain_core64c`, `terrain_exp2b2_noon` (needs: light), `npc_nav_n2a`, `npc_nav_n2b`. They are not in the chain yet.
+  - The chain still runs integration-1011 (N1c, N1b, then the supervised and full batches). Switching the chain's checkout and adding the queues is the owner's call.
+- **N1a** (vanilla NPC on our terrain, no navmesh): the NPC never moved (0.0 m), as expected without a navmesh. It counts as INCONCLUSIVE only because N0's control did not pass.
+- **N1 (vanilla NPC 002B211C on our Red Rocket terrain, ~03:10): the converted FO4 navmesh carries Starfield's AI.**
+  - **N1a (terrain only, no navmesh):** the NPC never moved in 4 of 4 tests. Every read was the same position to 0.1 m for 30 s.
+  - **N1c (with the converted navmesh, PR #71):** the NPC moved in 4 of 4 tests, 10.5, 7.2, 11.0 and 14.1 m (paths up to 27.6 m), and its z followed the terrain (105.0 to 105.5 m). It also walked about 9.5 m towards the player before any command.
+  - These are **verified movement on converted navmesh**, not commanded navigation: it wandered, as in QASmoke, and never reached B.
+  - The cross-cell test stayed in its own cell (x -2194..-2183, cell line at -2200), so the NAVI edge links across cells are still **unresolved**.
+  - All N1 verdicts read INCONCLUSIVE CONTROL because N0's control is not a control yet. N0b (navmesh-connected points, StartCombat, arrival judging) is being built and reviewed.
+- **N0b, the NPC control redesign (PR #77, reviewed and fixed; merged into integration-1012 at f3dcf5d):**
+  - **Why N0 could not tell commands from wandering:** QASmoke's navmesh (one NAVM, 002BE3AA) is a single 555 m2 area. The old pair was connected by a clear straight path. The actors' own drift (up to 14.06 m from t0, measured in N1c) covered most of the 19 m.
+  - **New design:** a 24 m pair. The approach before the command is capped at 3 m (otherwise INCONCLUSIVE PRECOMMAND). A PASS needs 18 m of approach from t0 or arrival within 3 m. A control counts only with its own queue's baselines.
+  - **Tests:** two citizen baselines, the Spacer baseline, PathToRef and StartCombat.
+  - **Queue:** `npc_nav_n0b` (needs runner feature npc_t0, so integration-1012 or later).
+  - **Re-plans:** the N1 and N2 re-plans are staged as `npc_nav_*_b`. They are planned only after `npc_control.py ready` confirms N0b passed. The earlier `npc_nav_n2a` / `npc_nav_n2b` queues carry a STOP note (superseded).
+- **N1b (the same NPC on our terrain after Starfield's runtime generator `gnm`, no shipped navmesh):** it never moved in 3 of 3 tests where it spawned. The 4th test did not confirm its spawn, twice (INCONCLUSIVE SPAWN, a runner reason).
+  - Reading so far: no navmesh means no movement; `gnm` also gives no movement; the converted FO4 navmesh gives movement in 4 of 4 tests.
+  - Shipping the converted navmesh is the supported route; `gnm` in a plugin worldspace is refuted for this use, to be rechecked with N1b_b against the N0b control.
+  - The chain now runs supervised_1011, then batch_full (integration-1011 runner).

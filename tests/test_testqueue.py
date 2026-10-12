@@ -675,6 +675,32 @@ class BreakerBeforeFreshTests(RunnerTests):
         self.assertEqual(sum(v["class"] == "BREAKER" for v in done.values()), 3)
 
 
+class CompanionTests(unittest.TestCase):
+    def test_the_companion_is_disabled_after_god_mode(self):
+        # 2026-10-12: the save's companion stood in front of FortHagen01's load door (NOPROMPT) and in every NPC shot
+        d = tempfile.mkdtemp()
+        make_queue(d, n=1)
+        kinds = []
+        r = tq.Runner(d, args(), ctl=FakeControls(), step=lambda t, o: kinds.append((t["kind"], t.get("ref"))) or 0)
+        r.setup_session("C")
+        self.assertEqual([k for k, _ in kinds][-2:], ["godmode", "companion_off"])
+        self.assertEqual(kinds[-1][1], tq.COMPANION_REF)
+        src = open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8").read()
+        self.assertIn("'companion_off' {", src)
+        self.assertIn("-notmatch '^[0-9A-Fa-f]{8}$'", src)
+
+    def test_a_queue_can_keep_the_companion(self):
+        d = tempfile.mkdtemp()
+        make_queue(d, n=1)
+        q = json.load(open(os.path.join(d, "queue.json")))
+        q["companion"] = "keep"
+        json.dump(q, open(os.path.join(d, "queue.json"), "w"))
+        kinds = []
+        r = tq.Runner(d, args(), ctl=FakeControls(), step=lambda t, o: kinds.append(t["kind"]) or 0)
+        r.setup_session("C")
+        self.assertNotIn("companion_off", kinds)
+
+
 class Exp3RecoveryTests(unittest.TestCase):
     def test_hang_reread_and_tab_recovery_present(self):
         src = open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8").read()
