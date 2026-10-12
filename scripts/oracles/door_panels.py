@@ -126,7 +126,10 @@ def main():
             continue
         report = {"source": item["source"]}
         try:
-            parts = source_parts(src.mesh(item["source"]))
+            raw = src.mesh(item["source"])
+            if raw is None:
+                raise ValueError("source model is not in the FO4 archives")
+            parts = source_parts(raw)
             if len(parts) < 2 and not item.get("door_frozen_parts"):
                 continue                                          # single-part door: not this audit's subject
             model = (meshes / item["model"].replace("\\", "/")).resolve()
