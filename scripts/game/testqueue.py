@@ -935,10 +935,9 @@ def judge_door(test, obs, shot_ok):
         return ("INCONCLUSIVE", "RELOAD_UNSEEN", f"load {test['save']}: the player is still where it was moved before "
                 f"the load ({math.dist(away, out_read):.1f} m from the saved spot): the load did not happen; "
                 f"{'; '.join(notes)}")
-    if not rl.get("load_seen") and not (moved_away and dr <= tol):
-        return ("INCONCLUSIVE", "RELOAD_UNSEEN", f"load {test['save']}: no loading screen seen"
-                + ("" if moved_away else " and the player was not moved away before it") + ", so the read after it "
-                f"says nothing; {'; '.join(notes)}")
+    if not rl.get("load_seen") and not moved_away:          # moved away and gone from there: the load moved the player
+        return ("INCONCLUSIVE", "RELOAD_UNSEEN", f"load {test['save']}: no loading screen seen and the player was not "
+                f"moved away before it, so the read after it says nothing; {'; '.join(notes)}")
     z0 = (ground + off[2]) if ground is not None else out_read[2]
     if rd[2] < z0 - 3.0:
         return "FAIL", "FELL", f"after the load z {rd[2]:.2f}, {z0 - rd[2]:.1f} m below the ground; {'; '.join(notes)}"

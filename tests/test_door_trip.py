@@ -220,7 +220,12 @@ class DoorJudgeTests(unittest.TestCase):
                  (dict(rl, load_seen=False, away_read=away, read=away), ("INCONCLUSIVE", "RELOAD_UNSEEN")),
                  (dict(rl, load_seen=True, away_read=away, read=fmt([out_at[0], out_at[1] + 6, out_at[2]])),
                   ("FAIL", "RELOAD")),
-                 (dict(rl, load_seen=False, away_read=away, read=None), ("INCONCLUSIVE", "RELOAD_UNSEEN"))]
+                 (dict(rl, load_seen=False, away_read=away, read=None), ("INCONCLUSIVE", "RELOAD_UNSEEN")),
+                 # gone from the away spot without a loading screen seen: the load moved the player, so it is judged
+                 (dict(rl, load_seen=False, away_read=away, read=fmt([out_at[0], out_at[1] + 6, out_at[2]])),
+                  ("FAIL", "RELOAD")),
+                 (dict(rl, load_seen=False, away_read=away, read=fmt([out_at[0], out_at[1], out_at[2] - 40]),
+                       settled=False), ("FAIL", "FELL"))]
         for r, want in cases:
             v, cls, detail = self.judge(dict(good_obs(), reload=r))
             self.assertEqual((v, cls), want, (r, detail))
