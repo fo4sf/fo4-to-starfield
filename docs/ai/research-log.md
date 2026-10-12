@@ -3,6 +3,25 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-11 Claude: core64, one 64-cell Commonwealth overlay staged
+- Question: does ONE large overlay (option a) load its real heights everywhere around a single arrival? exp2b (one
+  29-cell overlay, stored BTD) read FO4 heights within 0.08 m and FO4 objects within 0.02 m in game; exp3 (four
+  14-cell overlays) read real terrain only in the arrival tile, probes 500-700 m away in the neighbours hung at the
+  drop height even after the runner's two 8 s re-reads, so separate overlays cannot be walked between.
+- Method: `make_cw_overlays.py build --plan rays` (new: one overlay, `--world`, `--coc`, `--btd-copy-meshes`, ray
+  entries), `dotnet/TerrainOverlays`, `make_cw_overlays.py check` (new: ray entry contract, COC marker, archive inputs,
+  CNAM uniqueness), an Archive2 dry run into the scratch folder, 8 new synthetic tests (43 in test_overlay_grid).
+- Evidence (**verified** offline, `C:\Modding\staging\terrain_core64`): FO4Core_Commonwealth, 64 x 64 cells = CW
+  cells -32..31 (6.4 km, local frame = FO4 / 70), BTD 103,172,485 B, range -120 / 503 m (step 9.506 mm), Absolute
+  (INAM 1, HNAM 0), mask ring 255 on all four edges (6400 px BC4, 20,480,128 B); FO4TerrainCore.esm 183,160 B (4,096
+  cells), FO4TerrainCore_Mars.esm 6,512 B (MarsPlanetData CNAM 10 vanilla + 1 at exp2b's lat/long 0.3, -1.2, unique,
+  nearest other entry 33,561 cells away). Check 208 of 208; 37 plan points decode within one step (worst 9.29 mm).
+  Archive2 dry run: 3 entries, all stored (packed 0), byte-identical to the staged files, 226,825,369 B. Build 9.3 s,
+  peak working set 2,049 MiB (commit 2,788 MiB); rebuild byte-identical.
+- **unresolved** until the run: whether a 64-cell overlay activates and streams everywhere (6 entries, one direction
+  each from the Red Rocket arrival, probes at 0 / 200 / 500 / 1000 / 2000 / 3000 m where inside, plus Sanctuary,
+  Vault 111, the Sanctuary bridge and Concord).
+
 ## 2026-10-11 Claude: the whole Commonwealth at Starfield scale
 - Question: can the whole Commonwealth (LAND 192 x 192 FO4 cells, 11.23 km) become native Starfield terrain with
   exact geography, as one overlay, a grid of overlays, a custom planet surface or static meshes, and what limits the

@@ -215,6 +215,8 @@ already does.
         [--mars-plugin FO4TerrainExp3_Mars.esm | --no-mars] [--alignment absolute|relative] [--hnam 0]
         [--ref-lat 0.2 --ref-lon 1.2 --ref-offset 30 -35] [--centre-cell 0 0] [--radius-km 3390]
         [--mask-ns symmetric|outer] [--load-byte 02] [--max-jump 400] [--locate-step 200]
+        [--plan grid|rays] [--world <edid>] [--coc <edid>Spawn] [--btd-copy-meshes]
+        [--rays nw:135,ne:45,e:0,se:-40,s:-90,w:180] [--ray-distances 0 200 500 1000 2000 3000] [--edge-keep 200]
     dotnet run --project dotnet/TerrainOverlays -c Release -- <Starfield.esm> <dir>
     python scripts/terrain/make_cw_overlays.py check --sf-data <Starfield\Data> --out <dir> [--no-plugins] [--verbose]
     python scripts/terrain/make_cw_overlays.py analyse --out <dir> --runs <runner queue folder> [--json <file>]
@@ -369,6 +371,57 @@ Runner facts behind this plan (**verified** from obs.json, 2026-10-11):
   session; `analyse` flags every entry whose merge offset is not whole cells.
 - Load-order byte: the anchor refs assume 02 (exp2b's 02000800 resolved with the same Plugins.txt layout).
 
+## 6a. core64: one overlay of the playable core (staged, not run)
+
+Added 2026-10-11 evening, branch `claude/terrain-core64` (stacked on this PR). Since this document was written,
+gate 0 passed in game: exp2b with its BTD stored uncompressed (runner `terrain_exp2b3`) read FO4 heights within
+0.08 m, and FO4 objects placed on it aligned within 0.02 m. exp3 then read real terrain only in the tile it arrived
+in: every probe 500 to 700 m away, in or near a neighbouring 14-cell overlay, hung at the drop height even after
+the runner's two extra 8 s waits, so a landing seems to load only the overlay it arrives in and separate overlays
+cannot be walked between. Option (a) is the candidate; core64 tests whether ONE large overlay loads everywhere.
+
+`C:\Modding\staging\terrain_core64` (outside the repo), **verified offline** (`check`: 208 of 208):
+
+| Item | Value |
+|---|---|
+| Region | FO4 cells x -34..31, y -39..31 (playable core, section 1.3), `--tile 64 --pad origin`: CW cells -32..31 on both axes, 6.4 km; local frame = CW frame (FO4 position / 70) |
+| Records | `FO4TerrainCore.esm` 183,160 B: WRLD `FO4Core_Commonwealth` (4,096 cells), SFBK `FO4Core_CommonwealthBlock` (DNAM 64, ENAM -120 / 503, INAM 1 Absolute, HNAM 0), own LCTN `FO4Core_CommonwealthLocation`, COC cell `FO4Core_RedRocketSpawn` (grid -10, 11) with `FO4Core_RedRocketSpawnMarker` (COCMarkerHeading) 2 m above the flat vertex at Red Rocket, local (-989.26, 1146.51, 105.14 ground) |
+| Mars | `FO4TerrainCore_Mars.esm` 6,512 B: MarsPlanetData CNAM = 10 vanilla + 1, latitude 0.3, longitude -1.2 (exp2b's registration, merged at planet cell (-12, -27) in game); the entry is unique, the nearest other is 33,561 cells away |
+| Data tree (`--pack` input) | `Data/Terrain/FO4Core_Commonwealth.btd` 103,172,485 B, the same bytes at `Data/meshes/terrain/` (`--btd-copy-meshes`, as exp2b had), mask `Data/textures/terrain/overlaymasks/fo4core_commonwealth.dds` 20,480,128 B (BC4 6400 px, 255 on the outer cell ring only). Archive2 dry run into the scratch folder with the installer's arguments: 3 entries, all stored (packed 0), byte-identical, 226,825,369 B |
+| Build | 9.3 s, peak working set 2,049 MiB (commit 2,788 MiB) for the 64-cell BTD; rebuild byte-identical (SHA-256) |
+
+`plan.json` (`--plan rays`), runner format, 6 entries, 37 points. Each entry is ONE coc arrival at
+`FO4Core_RedRocketSpawn` and one direction: the arrival's flat vertex first (= the marker's ground, `z_ref`), then FO4
+vertices at 200, 500, 1000, 2000 and 3000 m from it while they stay at least 200 m (2 cells) inside the overlay,
+plus the landmarks on the ray nearest their bearing, ordered by distance. `spawn_local` = the marker's ground (x, y,
+z). Probes prefer vertices of at most 10 deg within 29 m (two remain at 23 and 25 deg); every expectation is the FO4
+height / 70 at that vertex and decodes within one step (worst 9.29 mm, step 9.51 mm). No waypoints: the distances are
+the measurement, so the longest jump is about 1 km (exp2b once ended a 349 m jump 141.9 m short; `analyse` uses the
+positions the game reported).
+
+| Ray (bearing) | Probes (m from the arrival) | Drop / wait |
+|---|---|---|
+| nw (135) | Sanctuary 199, 200, Vault 111 328, 500, 1000, 2000 | 245 m / 10.5 s |
+| ne (45) | 200, 500, 1000, 2000 | 155 m / 10 s |
+| e (0) | 200, 500, 1000, 2000, 3000 | 150 m / 11 s |
+| se (-40) | Concord (map marker 00082138) 166, 200, 500, 1000, 2000, 3000 | 150 m / 11.5 s |
+| s (-90) | 200, 500, 1000, 2000, 3000 | 150 m / 10 s |
+| w (180) | Sanctuary bridge (NorthBridge 0001F970) 117, 200, 500, 1000, 2000 | 305 m / 12 s |
+
+3 km is outside the 2-cell margin toward nw, ne and w (Red Rocket is 1.5 km north-west of the overlay's centre).
+
+Queue (runner, `claude/test-queue`): `testqueue.py plan-terrain --staging <build> --exp-dir
+C:\Modding\staging\terrain_core64 --out <queue> --plugins FO4TerrainCore.esm,FO4TerrainCore_Mars.esm --fresh`
+(`--fresh`: every entry is a first coc after a relaunch). Reading: `make_cw_overlays.py analyse --out
+C:\Modding\staging\terrain_core64 --runs <queue>` prints per ray each probe's distance and its error or `hung`.
+
+| Observation | Meaning |
+|---|---|
+| Every probe within 0.5 m of its FO4 height (after the z_ref Z offset) in every direction | one 64-cell overlay loads everywhere around one arrival: grow toward 90 cells, then content |
+| Probes read real heights up to some distance, then hang at the drop height | the overlay streams only near the arrival (as exp3's neighbours): the distance tells how large one walkable piece can be |
+| The arrival probe already wrong or hanging | the 64-cell overlay did not activate (size limit): compare with exp2b, try 45 cells |
+| Spawn offset not whole cells | the landing did not merge as expected; the entry says nothing about heights |
+
 ## 7. Risks
 - Gate 0: until a run reads our BTD heights (exp2b3), no BTD-based option is validated; if the uncompressed rerun is
   still flat, the cause is elsewhere (records, alignment, archive path) and (d) static meshes gain weight.
@@ -402,6 +455,15 @@ Runner facts behind this plan (**verified** from obs.json, 2026-10-11):
     python scripts/terrain/make_cw_overlays.py check --sf-data <Starfield\Data> --out C:\Modding\staging\terrain_exp3
     python -m unittest tests.test_overlay_grid tests.test_overlay
     (after the run) python scripts/terrain/make_cw_overlays.py analyse --out C:\Modding\staging\terrain_exp3 --runs C:\Modding\testqueue\terrain_exp3 --json <file>
+
+core64 (section 6a):
+
+    python scripts/terrain/make_cw_overlays.py build --fo4 <Fallout4.esm> --sf-data <Starfield\Data> --out C:\Modding\staging\terrain_core64
+        --fo4-cells -34 31 -39 31 --tile 64 --pad origin --plan rays --prefix FO4Core --world FO4Core_Commonwealth
+        --coc FO4Core_RedRocketSpawn --plugin FO4TerrainCore.esm --mars-plugin FO4TerrainCore_Mars.esm
+        --experiment terrain_core64 --btd-copy-meshes --ref-lat 0.3 --ref-lon -1.2 --ref-offset -12 -27 --centre-cell -12 -27
+    dotnet run --project dotnet/TerrainOverlays -c Release -- <Starfield.esm> C:\Modding\staging\terrain_core64
+    python scripts/terrain/make_cw_overlays.py check --sf-data <Starfield\Data> --out C:\Modding\staging\terrain_core64
 
 Install for the runner, after gate 0 only: `scripts/game/exp_install.py install --exp-dir
 C:\Modding\staging\terrain_exp3 --plugins FO4TerrainExp3.esm,FO4TerrainExp3_Mars.esm --pack` (branch

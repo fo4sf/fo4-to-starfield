@@ -264,7 +264,7 @@ def build_args(out, npz, **kw):
 def spec_of(entry, n):
     """The runner's test spec for a plan entry (testqueue.py plan_terrain keeps these keys)."""
     return {"id": f"{n:04d}_terrain_{entry['coc']}", "kind": "terrain", "model": entry["label"],
-            "world_coc": entry["coc"], "spawn_local": entry["spawn_local"], "anchor": entry["anchor"],
+            "world_coc": entry["coc"], "spawn_local": entry["spawn_local"], "anchor": entry.get("anchor"),
             "z_ref": entry["z_ref"], "settle_ms": entry["settle_ms"], "drop_z": entry["drop_z"],
             "points": entry["points"]}
 
@@ -277,7 +277,8 @@ def simulate(prm, raws, entry, place, z_offset=0.0, own_shift=(0, 0), spawn_z=-3
     tiles = {o["tag"]: og.Tile(o["ix"], o["iy"], o["cells_cw"]["x"][0], o["cells_cw"]["y"][0], o["n"])
              for o in prm["overlays"]}
     by_ref = {o["anchor"]["ref"]: o for o in prm["overlays"]}
-    fo = by_ref[entry["anchor"]["ref"]]
+    fo = by_ref[entry["anchor"]["ref"]] if entry.get("anchor") else \
+        next(o for o in prm["overlays"] if o["coc"] == entry["coc"])
     fp = place[fo["tag"]]
     off = (fp[0] * 100.0, fp[1] * 100.0)
 
@@ -311,11 +312,11 @@ def zs(text):
     return text.encode("cp1252") + b"\0"
 
 
-def write_plugins(out, prm, persistent=True, swap_latlon=False):
+def write_plugins(out, prm, persistent=True, swap_latlon=False, vanilla=None):
     """Minimal plugins with the records check_plugins walks, laid out as dotnet/TerrainOverlays writes them. This
     tests the raw record walk, not TerrainOverlays itself (its real output is walked by `check` on the staged files)."""
     own = 1 << 24
-    body, ents = [], [(0.1, 0.2, 0x0001000A), (-0.3, 0.4, 0x0001000B)]          # two "vanilla" entries
+    body, ents = [], list(vanilla or [(0.1, 0.2, 0x0001000A), (-0.3, 0.4, 0x0001000B)])   # two "vanilla" entries
     for k, o in enumerate(prm["overlays"]):
         w, loc, blk = own | (0x900 + 3 * k), own | (0x901 + 3 * k), own | (0x902 + 3 * k)
         body.append(rec("LCTN", loc, [("EDID", zs(o["location"])), ("KWDA", struct.pack("<I", orc.LOC_TYPE_OVERLAY)),
@@ -329,7 +330,11 @@ def write_plugins(out, prm, persistent=True, swap_latlon=False):
         body.append(rec("WRLD", w, [("EDID", zs(o["world"])), ("XLCN", struct.pack("<I", loc)),
                                     ("BFCB", zs("BGSWorldSpaceOverlay_Component")), ("BNAM", struct.pack("<I", blk)),
                                     ("BFCE", b"")]))
-        body.append(rec("CELL", own | (0xA00 + k), [("EDID", zs(o["coc"]))]))
+        body.append(rec("CELL", own | (0xA00 + k), [("EDID", zs(o["coc"])),
+                                                    ("XCLC", struct.pack("<2iI", *o["spawn_cell"], 0))]))
+        body.append(rec("REFR", own | (0xB00 + k), [("EDID", zs(o["coc"] + "Marker")),
+                                                    ("NAME", struct.pack("<I", mco.COC_MARKER)),
+                                                    ("DATA", struct.pack("<6f", *o["spawn"], 0.0, 0.0, 0.0))]))
         body.append(rec("REFR", own | o["anchor"]["form_id"],
                         [("EDID", zs(o["anchor"]["edid"])), ("NAME", struct.pack("<I", orc.XMARKER)),
                          ("DATA", struct.pack("<6f", *o["anchor"]["local"], 0.0, 0.0, 0.0))],
@@ -646,6 +651,154 @@ class SyntheticBuild(unittest.TestCase):
         finally:
             with open(path, "wb") as f:
                 f.write(orig)
+
+
+class Rays(unittest.TestCase):
+    def test_nearest_ray_and_parse(self):
+        self.assertEqual(mco.nearest_ray(mco.RAYS, 170.0), "w")
+        self.assertEqual(mco.nearest_ray(mco.RAYS, -170.0), "w")             # wraps across 180
+        self.assertEqual(mco.nearest_ray(mco.RAYS, -45.0), "se")
+        self.assertEqual(mco.nearest_ray(mco.RAYS, 100.0), "nw")
+        self.assertEqual(mco.parse_rays("a:1, b2:-2.5"), (("a", 1.0), ("b2", -2.5)))
+        for bad in ("a", "a:1,a:2", "A B:3"):
+            with self.assertRaises(ValueError):
+                mco.parse_rays(bad)
+
+    def test_latlon_cells(self):
+        k = og.cells_per_radian(og.MARS_RADIUS_KM)
+        self.assertAlmostEqual(mco.latlon_cells((0.3, -1.2), (0.3 + 10 / k, -1.2)), 10.0, places=6)
+        self.assertAlmostEqual(mco.latlon_cells((0.0, math.pi - 1e-4), (0.0, -math.pi + 1e-4)), 2e-4 * k, places=3)
+
+
+class SingleOverlayRays(unittest.TestCase):
+    """--plan rays (terrain_core64): one overlay, one coc arrival per entry, probes at increasing distance from the
+    arrival in one direction each, the BTD also staged under meshes/terrain."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.npz = os.path.join(cls.tmp.name, "fo4.npz")
+        synthetic_npz(cls.npz)
+        cls.out = os.path.join(cls.tmp.name, "rays")
+        os.makedirs(cls.out)
+        cls._ltex = mco.ltex_source
+        mco.ltex_source = lambda sf_data: ([0x001235C2], bytes([1, 0, 0, 0, 0, 0, 0, 0]))
+        with contextlib.redirect_stdout(io.StringIO()):
+            mco.build(build_args(cls.out, cls.npz, tile=10, pad="origin", prefix="FO4CR", experiment="terrain_rays",
+                                 plugin="FO4TerrainRays.esm", mars_plugin="FO4TerrainRays_Mars.esm",
+                                 world="FO4CR_Commonwealth", coc="FO4CR_TestSpawn", btd_copy_meshes=True, plan="rays",
+                                 rays=mco.RAYS, ray_distances=[0.0, 60.0, 150.0, 300.0, 600.0], edge_keep=100.0,
+                                 ref_lat=0.3, ref_lon=-1.2, ref_offset=[-12, -27], centre_cell=[-12, -27]))
+        cls.prm = jload(os.path.join(cls.out, "overlays_params.json"))
+        cls.plan = jload(os.path.join(cls.out, "plan.json"))
+        cls.o = cls.prm["overlays"][0]
+
+    @classmethod
+    def tearDownClass(cls):
+        mco.ltex_source = cls._ltex
+        cls.tmp.cleanup()
+
+    def test_names_and_registration(self):
+        o = self.o
+        self.assertEqual((o["world"], o["coc"], o["location"], o["block"]),
+                         ("FO4CR_Commonwealth", "FO4CR_TestSpawn", "FO4CR_CommonwealthLocation", "FO4CR_CommonwealthBlock"))
+        self.assertEqual(o["btd_file"], "Data/Terrain/FO4CR_Commonwealth.btd")
+        self.assertEqual(o["btd_copies"], ["Data/meshes/terrain/FO4CR_Commonwealth.btd"])
+        self.assertEqual(o["mask_outer_edges"], ["w", "e", "s", "n"])
+        self.assertEqual((o["latitude"], o["longitude"]), mco.EXP2B_LATLON)   # exp2b's registration, unchanged
+        self.assertEqual(self.prm["plan_mode"], "rays")
+        self.assertEqual(rbytes(os.path.join(self.out, *o["btd_file"].split("/"))),
+                         rbytes(os.path.join(self.out, *o["btd_copies"][0].split("/"))))
+
+    def test_ray_entries(self):
+        o, t = self.o, og.Tile(0, 0, -5, -5, 10)
+        self.assertEqual([mco.entry_kind(e["label"]) for e in self.plan], ["ray"] * len(mco.RAYS))
+        for e, (name, deg) in zip(self.plan, mco.RAYS):
+            self.assertEqual(sorted(e), sorted(mco.RAY_PLAN_KEYS))            # runner format, no anchor
+            self.assertEqual(e["coc"], o["coc"])
+            self.assertEqual(e["spawn_local"], o["anchor"]["local"])           # the marker's ground, x y z
+            p0 = e["points"][0]
+            self.assertEqual((e["z_ref"], [p0["x"], p0["y"], p0["expect"]]), ("arrival", o["anchor"]["local"]))
+            d = [math.hypot(p["x"] - p0["x"], p["y"] - p0["y"]) for p in e["points"]]
+            self.assertEqual(d, sorted(d))
+            labels = [p["label"] for p in e["points"]]
+            self.assertEqual(labels, ["arrival"] + [f"{name}_{v:g}m" for v in (60, 150, 300)])   # 600 m is outside
+            exp = {p["label"]: p for en in jload(os.path.join(self.out, "expected.json"))["entries"] for p in en["points"]}
+            self.assertTrue(all(exp[p["label"]]["slope_deg"] <= mco.MAX_SLOPE for p in e["points"]))
+            snap = 16 * math.sqrt(2) * tg.FO4_VERTEX_UNITS / tg.UNITS_PER_METRE   # snap radius (flat preferred)
+            for p, want in zip(e["points"][1:], (60, 150, 300)):
+                ideal = (p0["x"] + want * math.cos(math.radians(deg)), p0["y"] + want * math.sin(math.radians(deg)))
+                self.assertLessEqual(math.hypot(p["x"] - ideal[0], p["y"] - ideal[1]), snap + 1e-6)
+                self.assertGreaterEqual(mco.edge_distance(t, p["x"], p["y"]), 100.0)
+            self.assertGreaterEqual(e["drop_z"], max(p["expect"] for p in e["points"]) + mco.DROP_MARGIN)
+            low = min(p["expect"] for p in e["points"])
+            self.assertGreaterEqual(e["settle_ms"], 1000 * mco.fall_seconds(e["drop_z"], low))
+            self.assertGreaterEqual(e["settle_ms"], 8000)
+
+    def test_offline_check_passes_and_catches(self):
+        ok, rep = mco.check_staging(self.out, self.prm, self.plan, None, plugins=False)
+        self.assertTrue(ok, [c for c in rep["checks"] if not c[1]][:5])
+        ai = rep["archive_inputs"]
+        self.assertEqual(ai["folders"], ["Terrain", "meshes", "textures"])
+        self.assertEqual(len(ai["files"]), 3)
+        x0 = self.o["anchor"]["local"]
+        for mutate in (lambda e: e.update(spawn_local=x0[:2]),                       # ground z missing
+                       lambda e: e.update(spawn_local=[x0[0], x0[1], x0[2] + 5.0]),
+                       lambda e: e.update(z_ref=e["points"][1]["label"]),
+                       lambda e: e.update(points=[e["points"][0]] + e["points"][:0:-1]),   # decreasing distance
+                       lambda e: e["points"][-1].update(x=470.0),                     # 30 m from the east edge
+                       lambda e: e["points"][1].update(expect=e["points"][1]["expect"] + 0.05),
+                       lambda e: e.update(label="terrain_rays tile x"),
+                       lambda e: e.update(coc="FO4CR_OtherSpawn")):
+            plan = json.loads(json.dumps(self.plan))
+            mutate(plan[2])
+            ok, rep = mco.check_staging(self.out, self.prm, plan, None, plugins=False)
+            self.assertFalse(ok)
+
+    def test_archive_inputs_catch_a_bad_copy_and_a_stray_file(self):
+        copy = os.path.join(self.out, *self.o["btd_copies"][0].split("/"))
+        orig = rbytes(copy)
+        try:
+            with open(copy, "ab") as f:
+                f.write(b"\0")
+            self.assertFalse(mco.check_staging(self.out, self.prm, self.plan, None, plugins=False)[0])
+        finally:
+            with open(copy, "wb") as f:
+                f.write(orig)
+        stray = os.path.join(self.out, "Data", "Terrain", "stray.btd")
+        try:
+            with open(stray, "wb") as f:
+                f.write(b"x")
+            self.assertFalse(mco.check_staging(self.out, self.prm, self.plan, None, plugins=False)[0])
+        finally:
+            os.remove(stray)
+        self.assertTrue(mco.check_staging(self.out, self.prm, self.plan, None, plugins=False)[0])
+
+    def test_cnam_entry_unique_and_clear_of_others(self):
+        lat, lon = self.o["latitude"], self.o["longitude"]
+        k = og.cells_per_radian(og.MARS_RADIUS_KM)
+        for vanilla, good in (([(0.1, 0.2, 0x0001000A)], True),
+                              ([(lat, lon, 0x0001000A)], False),                      # same lat / long
+                              ([(lat + 3.0 / k, lon, 0x0001000A)], False)):            # 3 cells away: overlaps
+            write_plugins(self.out, self.prm, vanilla=vanilla)
+            try:
+                ok, rep = mco.check_staging(self.out, self.prm, self.plan, 1, plugins=True)
+            finally:
+                for name in (self.prm["plugin"], self.prm["mars"]["plugin"]):
+                    os.remove(os.path.join(self.out, name))
+            self.assertEqual(ok, good, [c for c in rep["checks"] if not c[1]][:5])
+
+    def test_analyse_reads_a_ray_entry(self):
+        raws = {self.o["tag"]: btd.read(rbytes(os.path.join(self.out, *self.o["btd_file"].split("/")))).heights_raw}
+        e = self.plan[0]
+        obs = simulate(self.prm, raws, e, {self.o["tag"]: (-12, -27)}, spawn_z=self.o["anchor"]["local"][2])
+        r = mco.analyse_attempt(spec_of(e, 0), obs, self.prm, raws, window=2)
+        self.assertEqual(r["frame"], "T00")
+        self.assertEqual(tuple(r["spawn_offset_cells"]), (-12, -27))
+        self.assertEqual(r["summary"]["within_0.5m"], len(e["points"]))
+        self.assertEqual(r["summary"]["hung"], 0)
+        self.assertEqual([p["from_spawn_m"] for p in r["points"]][0], 0.0)
+        self.assertEqual(tuple(r["locate"]["T00"]["best"]["d"]), (0, 0))
 
 
 if __name__ == "__main__":
