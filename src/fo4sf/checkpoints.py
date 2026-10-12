@@ -43,10 +43,32 @@ def local_path(staging, relative):
     return path
 
 
+def staged_path(staging, relative):
+    """Resolve generated game paths case-insensitively on case-sensitive hosts."""
+    root = Path(staging).resolve()
+    requested = local_path(root, relative)
+    current = root
+    for part in requested.relative_to(root).parts:
+        direct = current / part
+        if direct.exists():
+            current = direct
+        elif current.is_dir():
+            matches = [child for child in current.iterdir() if child.name.casefold() == part.casefold()]
+            if len(matches) > 1:
+                raise ValueError("ambiguous case-insensitive checkpoint output path")
+            current = matches[0] if matches else direct
+        else:
+            current = direct
+        # A differently cased directory may be a symlink. Check its resolved
+        # target before traversing the next component or returning a file.
+        current = local_path(root, current.relative_to(root).as_posix())
+    return current
+
+
 def output_inventory(staging, result, prefix="fo4port"):
     """Follow generated NIF -> mesh/material -> texture dependencies."""
     paths = {"meshes/" + result["out_name"] + ".nif"}
-    model = nif.parse(local_path(staging, next(iter(paths))).read_bytes())
+    model = nif.parse(staged_path(staging, next(iter(paths))).read_bytes())
     for i, block in enumerate(model.blocks):
         if model.type_of(i) == "BSGeometry":
             for mesh in sfnif.parse_bsgeometry(block).meshes:
@@ -74,9 +96,15 @@ def output_inventory(staging, result, prefix="fo4port"):
                 paths.add(name)
 
     for name in materials:
-        with local_path(staging, name).open(encoding="utf-8-sig") as f:
+        with staged_path(staging, name).open(encoding="utf-8-sig") as f:
             textures(json.load(f))
-    return {name: digest(local_path(staging, name)) for name in sorted(paths)}
+    inventory = {}
+    root = Path(staging).resolve()
+    for name in sorted(paths):
+        path = staged_path(root, name)
+        canonical_name = path.relative_to(root).as_posix()
+        inventory[canonical_name] = digest(path)
+    return inventory
 
 
 class Checkpoints:
@@ -117,7 +145,13 @@ class Checkpoints:
         if not reusable_result(result):
             self.path(source).unlink(missing_ok=True)
             return False  # Retry degraded/failing conversions rather than freezing a placeholder.
-        outputs = output_inventory(self.staging, result)
+        try:
+            outputs = output_inventory(self.staging, result)
+        except (OSError, ValueError, KeyError, TypeError, struct.error):
+            # The batch runner may continue after checkpoint I/O errors. Keep an
+            # explicit failed expectation so it cannot publish an unverified build.
+            self.expected[source] = None
+            raise
         self.expected[source] = outputs
         self.directory.mkdir(parents=True, exist_ok=True)
         fd, temporary = tempfile.mkstemp(dir=self.directory, prefix=".pending-")
@@ -136,6 +170,9 @@ class Checkpoints:
         """Recheck expectations after all writes, including dependencies shared by models."""
         actual, errors = {}, []
         for source, outputs in self.expected.items():
+            if not isinstance(outputs, dict):
+                errors.append({"source": source, "output": "<dependency inventory unavailable>"})
+                continue
             for relative, expected in outputs.items():
                 path = local_path(self.staging, relative)
                 if path not in actual:
