@@ -51,7 +51,9 @@ def walk_obs(d, t, reads, **kw):
     b = [t["b"][k] + off[k] for k in range(3)]
     p0 = f"{a[0] + 0.8} {a[1]} {a[2]}"
     times = [x for x in t["reads_s"] if x > 0]
-    o = {"spawn": {"isid": 1, "self": "FF000800", "read": p0}, "t0": {"isid": 1, "read": p0, "via": "prid"},
+    o = {"spawn": {"ref": "FF000800", "self": "FF000800", "isid": 1, "read": p0, "dist_a": 0.8, "confirmed": True,
+                   "why": ""},
+         "t0": {"isid": 1, "read": p0, "via": "prid"},
          "command_sent": True, "player_b": f"{b[0]} {b[1]} {b[2]}",
          "samples": [{"t_game": s, "isid": 1, "read": r, "shot": touch(d, f"npc{k}.png")}
                      for k, (s, r) in enumerate(zip(times, reads))]}
@@ -117,6 +119,21 @@ class NpcJudgeTests(unittest.TestCase):
         self.assertEqual(self.judge(far)[:2], ("INCONCLUSIVE", "SPAWN"))
         self.assertEqual(self.judge(None)[0], "INCONCLUSIVE")
         self.assertEqual(self.judge({"stopped": "input guard"})[:2], ("INCONCLUSIVE", "STOPPED"))
+        # qstep.ps1 did not confirm the handle although GetIsID read 1 (GetSelf named another ref): not a spawn
+        other = dict(ok["spawn"], self="0024A824", confirmed=False, why="after prid FF000800 GetSelf named 0024A824")
+        v, cls, detail = self.judge(dict(ok, spawn=other))
+        self.assertEqual((v, cls), ("INCONCLUSIVE", "SPAWN"))
+        self.assertIn("GetSelf named 0024A824", detail)
+
+    def test_the_n0_base_spawn_of_2026_10_11_stays_inconclusive(self):
+        # obs.json of N0_base a1 as the first version of the step wrote it: never a PASS or FAIL from it
+        base = tq.npc_test(0, dict(N0, label="N0_base", npc="002B211C", method="none", control=False))
+        obs = {"spawn_read": "-3.40 -1.10 0.00", "spawn_settled": True, "player_a": "-8.00 -4.00 0.00",
+               "spawn": {"isid": 0, "self": None, "how": "inline", "ocr": SPAWN_2026_10_11},
+               "cleanup": {"removed": True, "disabled": None, "via": "plr"}}
+        v, cls, detail = self.judge(obs, base)
+        self.assertEqual((v, cls), ("INCONCLUSIVE", "SPAWN"))
+        self.assertIn("GetIsID 0", detail)
 
     def test_lost_handle_or_target_is_inconclusive(self):
         ok = walk_obs(self.d, self.t, towards(self.t, [0, 0, 0, 0]))
@@ -195,6 +212,7 @@ class NpcPlanTests(unittest.TestCase):
         self.assertEqual((t0["kind"], t0["cell"], t0["npc"], t0["method"]), ("npc_nav", "", "0000CF96", "ptr_player"))
         self.assertEqual(t0["reads_s"], [0.0, 3.0, 8.0, 15.0, 30.0])
         self.assertEqual((t0["radius"], t0["min_progress"], t0["nomove"], t0["max_speed"]), (2.5, 5.0, 0.5, 8.0))
+        self.assertEqual((t0["spawn_wait_ms"], t0["handle_tol"]), (2000, 2.0))   # the handle is read after the game ran
         self.assertAlmostEqual(t0["heading_a"], 42.9, places=1)   # from A towards B: north-east
         self.assertAlmostEqual(t0["heading_b"], 222.9, places=1)
         self.assertEqual(t1["anchor"], {"ref": "02000800", "local": [-989.0286, 1147.2, 105.1434]})
@@ -214,6 +232,7 @@ class NpcPlanTests(unittest.TestCase):
                {"anchor": "02000800"}, {"a": [0, "x", 0]}, {"a": [0, 0]}, {"b": [float("nan"), 0, 0]},
                {"b": [1e9, 0, 0]}, {"reads_s": [0]}, {"reads_s": [0, 500]}, {"reads_s": "30"}, {"radius": -1},
                {"settle_ms": 10 ** 6}, {"spawn_local": [0, 0, 0, 0]}, {"max_speed": 0},
+               {"spawn_wait_ms": -1}, {"spawn_wait_ms": 10 ** 6}, {"handle_tol": 0}, {"handle_tol": 50},
                {"method": "none", "control": True},                                  # a baseline gates the controls
                {"requires": "terrain_exp2b"}, {"requires": {"queue": "q", "test": "a b"}},
                {"requires": {"queue": "", "test": "x"}}, {"requires": {"queue": "q", "test": "x", "verdict": "OK"}}]
@@ -314,11 +333,49 @@ class NpcStepScriptTests(unittest.TestCase):
         self.assertIn("if ((Left-S) - $wait -lt $reserve)", loop)
         self.assertIn("samples_cut", loop)
 
-    def test_removal_by_id_needs_the_ref_near_a_or_b(self):
+    def test_removal_by_plr_needs_the_ref_near_a_or_b_and_not_another_selection(self):
         block = npc_block()
-        rid = block[block.index("if (-not $sel -and $spawnSelf) {"):block.index("if ($sel) {\n      $d = Npc-Capture")]
-        self.assertIn("'getpos x', 'getpos y', 'getpos z'", rid)
-        self.assertIn("-eq $spawnSelf -and $near", rid)
+        rid = block[block.index("$pk2 = Pick-Npc 'remove'"):block.index("if ($sel) {\n      $d = Npc-Capture")]
+        self.assertIn("[Math]::Min($da, $db) -lt 40", rid)
+        self.assertIn("$selfOk = (-not $pk2['self']) -or ($pk2['self'] -eq $pk2['ref'])", rid)
+        # GetIsID 1, or the very ref PickLastRef named at the spawn, at the player's feet, that GetSelf names
+        self.assertIn("($pk2['ref'] -eq $spawnRef) -and $spawnNear -and ($pk2['self'] -eq $pk2['ref'])", rid)
+        self.assertIn("$pk2['ref'] -and $selfOk -and $near -and (($pk2['isid'] -eq 1) -or $same)", rid)
+        # the confirmed handle first
+        self.assertLess(block.index("if ($script:npcRef) { $sel = Select-Npc }"), block.index("$pk2 = Pick-Npc"))
+
+    def test_the_handle_is_read_after_the_game_ran(self):
+        # N0_base 2026-10-11: plr typed in the placeatme session named FF010D65, but the selection stayed on the floor
+        # static (GetIsID 0.00, GetSelf (0024a824)). The console is closed for spawn_wait_ms before plr.
+        block = npc_block()
+        place = block.index("Npc-Capture @(\"player.placeatme $npc 1\") @() 'place'")
+        close = block.index("Send \"key:grave|wait:$spawnWait\"")
+        pick = block.index("$pk = Pick-Npc 'spawn'")
+        self.assertLess(place, close)
+        self.assertLess(close, pick)
+        self.assertNotIn("'plr', \"GetIsID $npc\", 'GetSelf'", block)          # the old one-session spawn
+        pk = block[block.index("function Pick-Npc"):block.index("function Select-Npc")]
+        self.assertIn("Npc-Capture @('plr') @('ref')", pk)                    # plr alone in its session
+        self.assertIn("-cnotmatch $ffid) { return $p }", pk)                  # nothing typed with an unread id
+        self.assertIn("Npc-Capture @(\"prid $($p['ref'])\", 'GetSelf') @('self')", pk)
+        self.assertNotIn("disable", pk)
+
+    def test_the_walk_needs_a_confirmed_handle(self):
+        block = npc_block()
+        conf = block[block.index("$why = @()"):block.index("$confirmed = ($why.Count -eq 0)")]
+        for need in ("PickLastRef gave no FFxxxxxx id", "$pk['self'] -ne $pk['ref']", "$pk['isid'] -ne 1",
+                     "its position was not read", "$dist -gt $handleTol"):
+            self.assertIn(need, conf, need)
+        self.assertLess(block.index("$confirmed = ($why.Count -eq 0)"), block.index("if ($confirmed) {"))
+        self.assertLess(block.index("if ($confirmed) {"), block.index("Teleport @($bx"))
+        self.assertIn("if ($confirmed) { $script:npcRef = $pk['ref'] }", block)
+        # every later session selects by that id only (opening the console selects what the crosshair is on)
+        sel = block[block.index("function Select-Npc"):block.index("function Read-Settled")]
+        self.assertIn("-cnotmatch $ffid) { return $null }", sel)
+        self.assertIn("@(\"prid $($script:npcRef)\", \"GetIsID $npc\"", sel)
+        self.assertNotIn("'selection'", sel)
+        self.assertNotIn("'plr'", sel)
+        self.assertIn("$ffid = '^FF[0-9A-F]{6}$'", block)
 
     def test_each_capture_tells_the_parser_what_it_typed(self):
         block = npc_block()
@@ -328,8 +385,9 @@ class NpcStepScriptTests(unittest.TestCase):
     def test_step_timeout_covers_the_worst_case_and_grows_with_reads(self):
         t = tq.npc_test(0, N0)
         self.assertGreater(tq.step_timeout(t), tq.step_timeout(dict(t, reads_s=[0, 5])))
-        # worst case: every read needs three Select-Npc sessions, plus the removal reserve
-        self.assertGreaterEqual(tq.step_timeout(t), 4 * 3 * tq.NPC_SESSION_S + tq.NPC_REMOVE_S + 30)
+        # worst case: every read needs both Select-Npc sessions, the spawn four, plus the removal reserve
+        self.assertGreaterEqual(tq.step_timeout(t), (4 * 2 + 4) * tq.NPC_SESSION_S + tq.NPC_REMOVE_S + 30)
+        self.assertGreater(tq.step_timeout(dict(t, spawn_wait_ms=20000)), tq.step_timeout(t))
         n1 = tq.npc_test(0, dict(N0, reads_s=[0, 5, 15, 30, 60], settle_ms=7000))
         self.assertGreater(tq.step_timeout(n1), 915)              # the old limit was cut by the Select-Npc fallbacks
         self.assertEqual(tq.step_timeout({"kind": "fall"}), 300)
@@ -361,6 +419,17 @@ INLINE = "GetIsID 0000CF96\nGetIsID > > 1.00\ngetpos x\nGet Pos: X > > -8.01\nge
 COLUMN = ("GetIsID\nGetIsID > >\ngetpos\nGet Pos: X > >\ngetpos\nGet Pos: Y > >\ngetpos\nGetPos: Z > >\n"
           "0000CF96\n1.00\nx\n-8.01\n-4.02\nz\n0.01")
 NO_ARROWS = "prid 02000800\nget pos x\nGetPos: X -989.03\nget pos y\nGetPos: Y 1147.20\ngetpos z\nGetPos: Z 105.14"
+# In-game evidence, N0_base a1 (2026-10-11 22:03, QASmoke, 002B211C EncCitizen01Template). The spawn session typed
+# ClearConsole, player.placeatme 002B211C 1, plr, GetIsID 002B211C, GetSelf; its OCR as obs.json kept it (the console
+# shows about nine lines: ClearConsole and placeatme had scrolled away; the GetInFaction lines are the game's own):
+SPAWN_2026_10_11 = ("GetlnFaction >> 0.00 GetlnFaction >> 0.00 GetlnFaction >> 0.00 plr PickLastRef: (FF010D65) "
+                    "GetlsID 002B211C GetlslD 0.00 GetSelf GetSelf > > (0024a824)")
+# the last capture of that step (removal: ClearConsole, disable, GetDisabled), npc_ocr.txt byte for byte, and what
+# npc_cap.png shows: ClearConsole left the previous session's getpos lines above its own echo
+CLEANUP_OCR_2026_10_11 = ("﻿Get Po s: X > > -7 82\r\nget pos y\r\nGetPos: Y > > -5 25\r\nget pos z\r\n"
+                          "GetPos: z 0.00\r\nClear Console\r\nGet Disabled\r\nGet Disabled > > 1\r\n")
+CLEANUP_PNG_2026_10_11 = ("GetPos: X >> -7.82\ngetpos y\nGetPos: Y >> -5.25\ngetpos z\nGetPos: Z >> 0.00\nClearConsole\n"
+                          "disable\nGetDisabled\nGetDisabled >> 1")
 
 
 class ParseNpcTests(unittest.TestCase):
@@ -441,6 +510,67 @@ class ParseNpcTests(unittest.TestCase):
         self.assertEqual(self.P("disable\nGetDisabled\nGetDisabled > > 1.00\n", ["disabled"])["disabled"], 1)
         self.assertEqual(self.P("disable\nGetDisabled\nGetDisabled > >\n1.00\n", ["disabled"])["disabled"], 1)
         self.assertIsNone(self.P("GetDisabled >> 1.00\n", ["disabled"])["disabled"])
+        # GetDisabled answers with an integer (N0_base 2026-10-11: "GetDisabled >> 1"); an integer needs the '>>'
+        self.assertEqual(self.P("disable\nGetDisabled\nGetDisabled >> 0\n", ["disabled"])["disabled"], 0)
+        self.assertIsNone(self.P("disable\nGetDisabled 1\n", ["disabled"])["disabled"])
+        self.assertIsNone(self.P("GetIsID 002B211C\n", ["isid"])["isid"])                    # not the id's first 0
+
+    def test_n0_base_spawn_session_of_2026_10_11(self):
+        # PickLastRef named FF010D65; GetIsID read 0 on the selection, GetSelf named 0024A824: the floor static the
+        # console had selected (its own label read "STAT '' (0024A824)" at 22:06). The l-for-I OCR is read.
+        r = self.P(SPAWN_2026_10_11, ["ref", "isid", "self"])
+        self.assertEqual((r["ref"], r["isid"], r["self"]), ("FF010D65", 0, "0024A824"))
+        r = self.P(SPAWN_2026_10_11, ["isid", "self"])                     # what the first step expected
+        self.assertEqual((r["isid"], r["self"], r["how"]), (0, "0024A824", "inline"))
+        self.assertIsNone(r["ref"])                                        # not asked for
+        # the game's own GetInFaction lines stand above this session's GetIsID echo: never its value
+        self.assertIsNone(self.P(SPAWN_2026_10_11.replace("GetlslD 0.00 ", ""), ["isid", "self"])["isid"])
+
+    def test_n0_base_removal_capture_of_2026_10_11(self):
+        # the previous session's getpos values stand above this session's ClearConsole echo: only GetDisabled counts
+        for name, raw in (("npc_ocr.txt", CLEANUP_OCR_2026_10_11), ("npc_cap.png", CLEANUP_PNG_2026_10_11)):
+            r = self.P(raw, ["disabled"])
+            self.assertEqual((r["disabled"], r["pos"]), (1, None), name)
+        # a session whose own replies were not read gives nothing, not the older values above its ClearConsole
+        lost = CLEANUP_PNG_2026_10_11[:CLEANUP_PNG_2026_10_11.index("ClearConsole")] + "ClearConsole\nprid FF010D65\n"
+        self.assertEqual(self.P(lost, ["x", "y", "z"], ["FF010D65"])["pos"], None)
+        stale3 = "getpos x\n" + lost
+        self.assertEqual(self.P(stale3, ["x", "y", "z"], ["FF010D65"])["pos"], None)    # 3 older getpos echoes
+
+    def test_picklastref(self):
+        for raw, want in (("ClearConsole\nplr\nPickLastRef: (FF010D65)\n", "FF010D65"),
+                          ("Clear Console\nplr\nPick Last Ref: (FFO1OD65)\n", "FF010D65"),       # O for 0
+                          ("ClearConsole\npIr\nPlckLastRef: (ff0l0d65)\n", "FF010D65"),          # l / I for 1, i
+                          ("ClearConsole\nplr\nPickLastRef >> FF010D65\n", "FF010D65"),
+                          # column layout with an older session's values and id in the right column: ours is last
+                          ("getpos x\nGetPos: X > >\nClearConsole\nplr\nPickLastRef:\n-7.82\n(FF000801)\n(FF010D65)",
+                           "FF010D65"),
+                          # an older session's reply above this session's plr, this one's lost: nothing
+                          ("plr\nPickLastRef: (FF000801)\nClearConsole\nplr\n", None),
+                          ("ClearConsole\nplr\nPickLastRef: (0024A824)\n", None),               # not a runtime ref
+                          ("ClearConsole\nplr\n", None)):
+            self.assertEqual(self.P(raw, ["ref"])["ref"], want, raw)
+
+    def test_getself_names_the_selection_whatever_it_is(self):
+        # after prid <id>, GetSelf names the selection: our id twice (echo + reply), or another ref (qstep vetoes)
+        ok = "ClearConsole\nprid FF010D65\nGetSelf\nGetSelf > > (ff010d65)\n"
+        self.assertEqual(self.P(ok, ["self"], ["FF010D65"])["self"], "FF010D65")
+        other = "ClearConsole\nprid FF010D65\nGetSelf\nGetSelf > > (0024a824)\n"
+        self.assertEqual(self.P(other, ["self"], ["FF010D65"])["self"], "0024A824")
+        # an older session's GetSelf reply above this session's ClearConsole is not this session's
+        stale = "GetSelf\nGetSelf > > (ff010d65)\nClearConsole\nprid FF010D65\nGetSelf\n"
+        self.assertIsNone(self.P(stale, ["self"], ["FF010D65"])["self"])
+
+    def test_a_line_the_game_printed_in_the_session_is_not_a_value(self):
+        # column layout: a GetInFaction line the game printed during this session puts its value among ours
+        col = ("ClearConsole\nGetIsID\nGetInFaction > >\nGetIsID > >\ngetpos\nGet Pos: X > >\ngetpos\nGet Pos: Y > >\n"
+               "getpos\nGetPos: Z > >\n002B211C\n0.00\n1.00\nx\n-8.01\n-4.02\nz\n0.01")
+        r = self.P(col)
+        self.assertEqual((r["isid"], r["pos"]), (None, None))
+        inline = ("ClearConsole\nGetIsID 002B211C\nGetInFaction >> 0.00\nGetIsID >> 1.00\ngetpos x\nGetPos: X >> -8.01\n"
+                  "getpos y\nGetPos: Y >> -4.02\ngetpos z\nGetPos: Z >> 0.01")
+        r = self.P(inline)
+        self.assertEqual((r["isid"], r["pos"], r["how"]), (1, "-8.01 -4.02 0.01", "inline"))
 
     def test_command_line(self):
         d = tempfile.mkdtemp()

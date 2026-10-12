@@ -76,13 +76,18 @@ the same actor and commands in a test worldspace, so world, navigation and actor
 
 ```powershell
 # plan.json in the experiment folder; --install-exp/--plugins install a world before launch (the staged terrain
-# experiment whose terrain queue the N1 tests "require"); --control-queue: the N0 queue that gates this queue's FAILs
+# experiment whose terrain queue the N1 tests "require"); --control-queue: the N0 queue that gates this queue's FAILs;
+# --fresh: a new game launch before every test (no actor or console state left over from the previous test)
 & $py scripts\game\testqueue.py plan-npc --staging C:\Modding\staging\<build> --exp-dir C:\Modding\staging\npc_nav_n0 `
-      --out C:\Modding\testqueue\npc_nav_n0
+      --out C:\Modding\testqueue\npc_nav_n0 --fresh
 & $py scripts\game\testqueue.py plan-npc --staging C:\Modding\staging\<build> --exp-dir C:\Modding\staging\npc_nav_n1 `
       --out C:\Modding\testqueue\npc_nav_n1 --install-exp C:\Modding\staging\terrain_exp2b2 `
-      --plugins FO4TerrainExp2.esm,FO4TerrainExp2_Mars.esm --control-queue C:\Modding\testqueue\npc_nav_n0
+      --plugins FO4TerrainExp2.esm,FO4TerrainExp2_Mars.esm --control-queue C:\Modding\testqueue\npc_nav_n0 --fresh
 ```
+
+`plan-npc` writes only `queue.json`: a queue folder that already ran keeps its `state.json` (attempts, verdicts) and
+`results.jsonl`. After a change to the step, move the old folder aside (for example to `npc_nav_n0_a1`) before planning
+into its name again, so the new run starts with no attempts used.
 
 `plan.json`: a list of tests (baselines are moved first, then controls). Everything the step types is validated by
 `plan-npc` and again by `qstep.ps1` (a bad value ends the step with exit 4 before anything is typed).
@@ -99,6 +104,8 @@ the same actor and commands in a test worldspace, so world, navigation and actor
 | `radius` R, `min_progress` M, `nomove`, `max_speed` | judge thresholds, metres and m/s | 2.5, 5, 0.5, 8 |
 | `drop`, `settle_ms` | the player is dropped this high above A and B (god mode), then waits | 0.5, 1500 |
 | `pre`, `pre_wait_ms` | probes after reaching A, before the spawn: only `gnm` (GenerateNavMesh, ladder run N2) | `[]`, 5000 |
+| `spawn_wait_ms` | game time with the console closed between `placeatme` and reading the handle (below) | 2000 |
+| `handle_tol` | the ref PickLastRef names must stand this close (horizontal, metres) to the player's read at A | 2.0 |
 | `path_line` | `tpl` (path display) on for the walk, off at the end | false |
 | `control` | a control test: gates the FAIL verdicts of the other tests | false |
 | `requires` | `{"queue": "<queue dir>", "test": "<test id>", "verdict": "PASS"}`: run only when that test has that verdict; `plan-npc` checks that the queue tested the very folder `--install-exp` installs | none |
@@ -112,59 +119,107 @@ What one test does (`qstep.ps1`, kind `npc_nav`):
    all-zero XY offset: our persistent markers do, exp1d 50 50 10 and exp2b -989.03 1147.20 105.14, 2026-10-11) or
    cannot be read, from the settled arrival. No offset when one was asked for, or an arrival that never settles: stop
    before anything is spawned (INCONCLUSIVE ANCHOR).
-2. Player to A (dropped from `drop`), optional `pre` probes, then one console session: `ClearConsole`,
-   `player.placeatme <npc> 1`, `plr` (PickLastRef selects it), `GetIsID <npc>`, `GetSelf`; OCR. Then `GetIsID` + `getpos`
-   for the spawn position.
-3. Player to B, facing A (the walk target is the player).
-4. The walk command, typed only on a confirmed selection (below), with the t = 0 position read in the same session
-   (`none`: nothing typed).
-5. For each time in `reads_s`: wait while the console is closed, open it, confirm the selection, `getpos x/y/z`, close,
-   screenshot. `obs.json` is saved after every read. `t_game` counts closed-console time (the console pauses the game:
-   supported hypothesis), `t_wall` the clock; both are kept (about +-2 s). The step gets a budget (`budget_s`, the
-   runner's timeout minus 60 s) and stops sampling (`samples_cut`) when fewer than 300 s would be left for step 6.
-6. Remove the actor: `disable`, `GetDisabled` (recorded), `markfordelete`, on a confirmed selection only.
+2. Player to A (dropped from `drop`), optional `pre` probes, then the spawn and its handle (next section):
+   `player.placeatme <npc> 1` in its own console session, the console closed for `spawn_wait_ms`, then three sessions:
+   `plr` (PickLastRef's reply gives the runtime id `FFxxxxxx`), `prid <id>` + `GetSelf`, `GetIsID <npc>` + `getpos x/y/z`.
+   Everything read goes to `obs.json` `spawn` (`ref`, `self`, `isid`, `read`, `dist_a`, `confirmed`, `why`, the OCR of
+   each session); the captures stay as `place_*`, `spawn_plr_*`, `spawn_self_*`, `spawn_isid_*` (`_cap.png`,
+   `_ocr.txt`).
+3. Only with a confirmed handle: player to B, facing A (the walk target is the player).
+4. The walk command, typed in a session that selected the actor with `prid <id>` and read `GetIsID` 1, with the t = 0
+   position read in that session (`none`: nothing typed).
+5. For each time in `reads_s`: wait while the console is closed, open it, `prid <id>`, `GetIsID <npc>` (must read 1),
+   `getpos x/y/z`, close, screenshot. `obs.json` is saved after every read. `t_game` counts closed-console time (the
+   console pauses the game: supported hypothesis), `t_wall` the clock; both are kept (about +-2 s). The step gets a
+   budget (`budget_s`, the runner's timeout minus 60 s) and stops sampling (`samples_cut`) when fewer than 300 s would
+   be left for step 6.
+6. Remove the actor: `disable`, `GetDisabled` (recorded), `markfordelete`, on a selection confirmed in the same session
+   only (next section), whether or not the spawn was confirmed.
 
 Typing: `qstep.ps1` passes every key sequence to `input.ps1` as a native argument. Windows PowerShell 5.1 drops the
 double quotes inside such an argument (verified: `cf "Actor.PathToReference" player 1.0` arrived as
 `cf Actor.PathToReference player 1.0`), so `Send` writes them as `\"`; the sandbox checks that the console receives the
 quoted line.
 
-Step timeout (`step_timeout`): a worst case, every read needing all three Select-Npc sessions (about 45 s each:
-console open, ClearConsole and ~60 characters at 0.24-0.32 s, waits, OCR at up to four thresholds), Read-Pos up to three
-tries, plus the 300 s removal reserve: about 2,000 s for N1's five reads (2,016 s), against a typical run of about 550 s.
+Step timeout (`step_timeout`): a worst case, every read needing both Select-Npc sessions and the spawn four sessions
+(about 45 s each: console open, ClearConsole and ~60 characters at 0.24-0.32 s, waits, OCR at up to four thresholds),
+Read-Pos up to three tries, plus the 300 s removal reserve (Select-Npc twice, PickLastRef again: three sessions, the
+removal): 1,852 s for N0's plans, 1,893 s for N1's (five reads up to 60 s), against a typical run of about 550 s.
 
 ### Reading the console (`parse_npc.py`)
 
-Each session starts with `ClearConsole` and `qstep.ps1` tells the parser which values its commands produce, in typing
-order (`--expect isid,x,y,z`; `--typed` the id a `prid` typed). Real console OCR on this PC comes in two layouts
-(verified, 2026-10-11 OCR texts of the runner's own sessions):
+What the console showed the runner (verified, N0_base attempt 1, 2026-10-11, QASmoke: `obs.json`, `npc_ocr.txt`,
+`npc_cap.png`, `C:\Modding\testqueue\npc_nav_n0\tests\0000_npc_nav_N0_base\a1`):
 
-- inline: `GetIsID > > 1.00`, `Get Pos: X > > -10.07`, sometimes without the arrows (`GetPos: X -989.03`);
-- column: all labels and echoes first, then all values; echo arguments drift into the value column (`x`, `z`) or are
-  lost (`y`): `Get Pos: Z > > player.getpos ... GetPos: Z > > tgm 3.66 x -10.07 43.95 z -10.95`.
+- about nine lines (the capture and the console in a full screenshot both hold nine);
+- `ClearConsole` does not clear them: the last capture shows the previous session's `GetPos: X >> -7.82`,
+  `GetPos: Y >> -5.25`, `GetPos: Z >> 0.00` above `ClearConsole`, `disable`, `GetDisabled`, `GetDisabled >> 1`;
+- the game prints lines of its own into a session: three `GetInFaction >> 0.00` after `player.placeatme 002B211C 1`;
+- replies: `PickLastRef: (FF010D65)`, `GetIsID >> 0.00` (a decimal), `GetSelf >> (0024a824)` (a parenthesised form id,
+  lower case), `GetPos: X >> -7.82`, `GetDisabled >> 1` (an integer);
+- OCR misreadings: l for I (`GetlsID 002B211C`, `GetlslD 0.00`, `GetlnFaction`), split words (`Get Po s`,
+  `Clear Console`, `Get Disabled`), `-7 82` for -7.82, `> >` for `>>`.
 
-Two readings, the first that holds is used. *Order*: the session's values are the decimals on screen in typing order;
-it holds only when there are exactly as many decimals as expected values, no reply label stands before the session's
-first command echo (nothing older is on screen) and the labels found are in the expected order; a GetIsID / GetDisabled
-value other than 0 or 1 drops it. *Inline*: label, arrows and value next to each other, after the session's first
-echo. Echoed integers and form ids are never values, and there is no bare-number fallback (GetIsID's `1.00` on its own
-line was taken as a coordinate before). GetSelf after `prid <id>` counts only when the id is on screen twice (the echoed
-argument and the reply). A column-layout screen that still holds an older session is not read (UNREAD, retried).
+Every session still types `ClearConsole` first: its echo marks where the session begins. `qstep.ps1` tells the parser
+what its commands produce, in typing order (`--expect ref,isid,x,y,z,self,disabled`; `--typed` the id a `prid` typed).
+The session start is the later of the last `ClearConsole` echo and the echo of the session's first expected command
+(the n-th last echo when the session typed it n times); nothing before it is read, ever (the previous parser counted
+an older session's `getpos` echoes and read its values). The OCR lays the lines out in two ways (verified, OCR texts
+of the runner's sessions): inline (`GetIsID > > 1.00`, `Get Pos: X > > -10.07`, sometimes without arrows) and column
+(all labels and echoes first, then all values; echo arguments drift into the value column or are lost:
+`Get Pos: Z > > player.getpos ... GetPos: Z > > tgm 3.66 x -10.07 43.95 z -10.95`).
+
+Two readings, the first that holds is used. *Order*: the session's values are the decimals after the session start in
+typing order; it holds only when there are exactly as many as expected, no `>>` stands before the session start (in the
+column layout older values would be counted), no more `>>` follow than reply labels (a line the game printed), and the
+labels are in the expected order; a GetIsID / GetDisabled value other than 0 or 1 drops it. *Inline*: label, arrows and
+value next to each other after the session start; GetIsID / GetDisabled also as an integer after `>>` or `:`. Echoed
+integers and form ids are never values, and there is no bare-number fallback. `ref`: the last `FFxxxxxx` id after this
+session's last `PickLastRef` label (`plr` is typed alone in its session, so that is its reply in both layouts). `self`:
+the last id after this session's `GetSelf` echo, any form id (`(0024a824)` too), an id the session typed itself only
+when on screen twice (echoed argument and reply). In ids, O / o for 0 and l / I / | for 1 are mapped back. A screen
+whose lines cannot be told apart is not read (UNREAD, retried).
 
 ### The actor handle: choice and risks
 
-Choice: `placeatme` + PickLastRef + `GetIsID` confirmation. Every console session that reads the actor or types a command
-that acts on the selection (the walk command, `disable`, `markfordelete`) first confirms the selection in that same
-session: `GetIsID <npc>` must read 1 by OCR, otherwise nothing more is typed. The selection is looked for in this order:
-`prid <id>` with the runtime id `GetSelf` returned at spawn (when it parsed as `FFxxxxxx`), the console selection as it is,
-then `plr` again. The alternative, a persistent actor placed by a plugin (known ref id, `prid`), needs a plugin in the
-control cell; it is the route for the converted actor (ladder N6), not for the vanilla control.
+What N0_base attempt 1 showed (2026-10-11, the first version of the step typed `ClearConsole`,
+`player.placeatme 002B211C 1`, `plr`, `GetIsID 002B211C`, `GetSelf` in one session): the citizen spawned (`spawn.png`:
+"Citizen: Howdy."); PickLastRef named `FF010D65`; but `GetIsID` read 0.00 and `GetSelf` named `0024A824`, and the
+console's own selection label read `STAT '' (0024A824)` in a later full screenshot (`_session\recover\recover.png`): the
+selection was a static, not the new actor (verified: the same id twice). Three minutes later, in the removal session,
+`plr` + `GetIsID` read 1.00 at -7.82, -5.25, 0.00, 1.3 m from A, and `GetDisabled` read 1 after `disable`. So `GetSelf`
+was right and `GetIsID` was right; what failed was the selection. Supported hypotheses: opening the console selects
+what is under the crosshair (the floor static, the player looking 10 degrees down, at A and at B), and an actor placed
+while the console is open (the game paused) is not selectable by `plr` until the game has run.
+
+Choice: the handle is PickLastRef's runtime id, read after the game ran, and confirmed by evidence before anything acts
+on it.
+
+1. `player.placeatme <npc> 1` in its own session (OCR kept as `place_ocr`), then the console is closed for
+   `spawn_wait_ms` (2 s) of game time.
+2. `plr` alone: the id in `PickLastRef: (FFxxxxxx)` after this session's start, 8 hex digits starting `FF`; nothing
+   further is typed without it.
+3. `prid <id>`, `GetSelf`: GetSelf must not name another ref (N0_base's `0024A824`); unread is allowed.
+4. `GetIsID <npc>` must read 1; `getpos x/y/z` must put the ref within `handle_tol` (2 m) of the player's read at A
+   (placeatme puts it at the player's feet).
+
+All four hold: `confirmed`, the walk and the samples follow; any fails: INCONCLUSIVE SPAWN with the reason in `why`.
+Every later session selects the actor by that id (`prid <id>`) and confirms `GetIsID` 1 in the same session before it
+reads the position or types the walk command, `disable` or `markfordelete`; the console's own selection and `plr` are
+never relied on after the spawn. The alternative, a persistent actor placed by a plugin (known ref id, `prid`), needs a
+plugin in the control cell; it is the route for the converted actor (ladder N6), not for the vanilla control.
+
+Removal: by the confirmed id first. Without one (or when it cannot be read), `plr` again, now that the game has run: the
+ref it names is removed only when `GetSelf` after `prid` names no other ref, it stands within 40 m of A or B, and either
+`GetIsID` reads 1, or it is the very ref PickLastRef named at the spawn (then within `handle_tol` of the player) and
+`GetSelf` names it. A selection that stayed on a static never gets `disable`.
 
 | risk | effect | mitigation / label |
 |---|---|---|
-| `GetIsID` compares a leveled actor's generated base, not the placed one: `0000CF96` LvlCitizen_NoOld has a template (TPLT 002B2120 and TPTA, verified by a raw walk of Starfield.esm) | every test of that actor INCONCLUSIVE SPAWN | unresolved; the staged plans use `002B211C` EncCitizen01Template (HumanRace, no TPLT / TPTA, not unique: verified, same walk) and keep one N0 test of `0000CF96` to answer the question; the spawn OCR is saved; the actor is still removed by its `GetSelf` id when `GetSelf` reads that id back and the ref stands within 40 m of A or B |
-| `GetSelf`'s reply format is unknown | no id: reads use the selection and `plr` | unresolved; hex, `(hex)`, `0x`, a bare id line and a decimal id are parsed; only `FFxxxxxx` (runtime refs) is used. A decimal id printed as a float would be lossy: removal by id therefore also needs the position check |
-| another runtime ref is created after the spawn (fauna in an exterior), `plr` picks it | that read fails the confirmation (UNREAD) | confirmed by `GetIsID`, never assumed |
+| `GetIsID` compares a leveled actor's generated base, not the placed one: `0000CF96` LvlCitizen_NoOld has a template (TPLT 002B2120 and TPTA, verified by a raw walk of Starfield.esm) | every test of that actor INCONCLUSIVE SPAWN | unresolved; the staged plans use `002B211C` EncCitizen01Template (HumanRace, no TPLT / TPTA, not unique: verified, same walk; `GetIsID` read 1.00 on it in N0_base's removal: verified) and keep one N0 test of `0000CF96` to answer the question; the spawn OCR is saved; the actor is still removed as the ref PickLastRef named at the spawn, at the player's feet, that `GetSelf` names |
+| the console keeps another selection (a static under the crosshair) | reads and commands would go to that ref | verified in N0_base; the handle is selected by `prid <id>` in every session, `GetSelf` must not name another ref, `GetIsID` must read 1 |
+| `plr` names a ref that is not the actor (the actor not yet created, or another ref created after it, e.g. fauna in an exterior) | no handle | the console is closed for `spawn_wait_ms` first; the ref must be of the base (`GetIsID` 1) and at the player's feet: INCONCLUSIVE SPAWN otherwise, never assumed |
+| OCR misreads the id (B / 8, D / 0) | `prid` selects nothing or another ref | O / l / I mapped back; a wrong id fails `GetSelf` / `GetIsID` / the position check |
 | the step is cut off (owner input, a menu over the HUD) | the actor stays in the session | the runner never saves after the session start, so a relaunch drops it; recorded as `cleanup` in `obs.json`; the step budget keeps 300 s for the removal before the timeout |
 | the actor's own package brings it near the player (QASmoke is about 24 x 24 m) | a false control PASS would make N1's FAILs count | the baseline (method `none`): a control counts for the gate only when the baseline of that actor passed (it did not come to B) |
 | a warp to the player (teammate catch-up, script moveto) | a false PASS | faster than `max_speed` + 2 s slack between reads: INCONCLUSIVE WARP (gross jumps only); at B by the first read: INCONCLUSIVE EARLY (the walk itself was not seen) |
@@ -196,12 +251,18 @@ to the specified base object?"), `GetDisabled`, `MarkForDelete`, `PlaceAtMe` ("[
 [forcepersist]"), `EvaluatePackage` (`evp`), `SetPlayerTeammate`, `StartCombat`, `GenerateNavMesh` (`gnm`: no command
 entry decoded, weaker than the others; the decoder also pairs ToggleNavMesh with "Toggle blocked display.", so some
 help pairings are wrong). `gnm` stays whitelisted for N2 but no staged plan uses it.
-Unresolved until N0 runs: whether `PathToRef player` and `cf "Actor.PathToReference" player 1.0` start a walk, the
-replies of `GetIsID` / `GetSelf` / `ClearConsole` in this console, whether `GetIsID` matches a templated actor's placed
-base, and whether the console pauses the game.
+Verified in game (N0_base attempt 1, 2026-10-11, above): the reply formats of `PickLastRef`, `GetIsID`, `GetSelf`,
+`GetPos`, `GetDisabled`; `ClearConsole` leaves the lines on screen; `placeatme` spawns `002B211C` at the player;
+`disable` works on it.
+Unresolved until N0 runs again: whether `PathToRef player` and `cf "Actor.PathToReference" player 1.0` start a walk,
+whether `GetIsID` matches a templated actor's placed base, whether the console pauses the game, and whether 2 s of game
+time are enough for `plr` to select a new actor.
 
 Sandbox: `tests/test_qstep_sandbox.py` runs the real step against a simulated console (`tests/qstep_sandbox`, whose
-`input.ps1` never sends input): walk, no walk, a log that is not cleared with a lost selection, an unconfirmed spawn, the
-anchor frame, a failed spawn, `cf` typed with its quotes, the column OCR layout, an anchor that reads its local position,
-an arrival read mid-fall, an arrival that never lands, the baseline. Opt-in, 30-60 s a scenario:
-`$env:FO4SF_QSTEP_SANDBOX = '1'`.
+`input.ps1` never sends input). Its defaults model what N0_base met: `ClearConsole` leaves the lines, opening the
+console selects a floor static, an actor placed with the console open is not selectable until it closes, the game's
+`GetInFaction` lines, the real reply formats, l-for-I OCR. Scenarios: walk, no walk, the 2026-10-11 spawn, `plr` that
+never selects, a selection that stays on the static (no walk, no `disable`, the static never touched), an unconfirmed
+spawn removed by its id, the anchor frame, a failed spawn, `cf` typed with its quotes, the column OCR layout, an anchor
+that reads its local position, an arrival read mid-fall, an arrival that never lands, the baseline. Opt-in, 30-60 s a
+scenario: `$env:FO4SF_QSTEP_SANDBOX = '1'`.
