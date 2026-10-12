@@ -860,3 +860,12 @@ twin step is untested in game until the next library run.
   - Reading so far: no navmesh means no movement; `gnm` also gives no movement; the converted FO4 navmesh gives movement in 4 of 4 tests.
   - Shipping the converted navmesh is the supported route; `gnm` in a plugin worldspace is refuted for this use, to be rechecked with N1b_b against the N0b control.
   - The chain now runs supervised_1011, then batch_full (integration-1011 runner).
+
+
+## 2026-10-12 - Codex: recoverable installer compatibility for the cave slice (#78/#62)
+
+Offline tested, synthetic files only; no game version/runtime acceptance claimed. #62 rejected the cave queue's --needs and cycle's order command. Combining the original ordering code with recovery also skipped pre-existing/reactivated plugins, accepted disabled masters/cycles and could overwrite a concurrent Plugins.txt edit. The new synthetic compatibility suite reproduced these failures plus plugin-only --pack trying to build an empty archive.
+
+Carried #62's independently reviewed journaled publication, pinned SHA inputs and stored General BA2 coverage/content verifier onto #78. Retained the runner feature gate and ordering CLI; receipts now name every selected plugin. Ordering requires complete/non-cleanup state, unchanged selected plugin files, active masters and satisfiable dependencies; its atomic rewrite compares the original snapshot and refuses concurrent edits. Completed-install cleanup restores owned activation lines by text, so ordering requires no whole-file rollback snapshot update. Plugin-only --pack keeps its requested mode for relaunch checks and builds no archive. Truncated TES4 headers/subrecords cannot hide a master. Two newer upstream packing fixtures now emit valid synthetic BA2 resources; runner implementation is untouched.
+
+Validation: 10 new compatibility tests, 43 recovery, 9 packed-verifier, 4 terrain/mask packing, 18 upstream door-trip and 81 queue tests pass. Full Windows suite: 872 tests in 41.817s, OK (37 skipped); guard/diff checks pass. Independent recovery QA is pending. No staging, Plugins.txt, game installation, live input, automation or local-model changes.
