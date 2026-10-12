@@ -541,9 +541,10 @@ def plan_npc(a):
 # door_trip (docs/slice/redrocket-door.md): every key a plan.json test may carry; anything else stops the planning
 DOOR_PLAN_KEYS = frozenset((
     "label", "travel", "spawn_local", "outside", "inside", "save", "radius", "start_tol", "reload_tol", "ground_tol",
-    "walk_ms", "walk_step_ms", "settle_ms", "drop", "near_wait_ms", "load_wait_s", "fresh", "expect", "basis")
+    "walk_ms", "walk_step_ms", "settle_ms", "drop", "near_wait_ms", "load_wait_s", "moved_m", "activate_m", "fresh",
+    "expect", "basis")
     + sky_light.LIGHT_KEYS + console_plan.CONSOLE_KEYS)
-DOOR_SIDE_KEYS = {"outside": frozenset(("start", "door", "arrival", "near", "ground")),
+DOOR_SIDE_KEYS = {"outside": frozenset(("start", "door", "arrival", "near", "ground", "ref")),
                   "inside": frozenset(("cell", "start", "door", "arrival", "near", "floor"))}
 NAME = r"[A-Za-z0-9_]{1,64}"                                    # a cell EditorID or a save name: typed into the console
 
@@ -570,6 +571,10 @@ def door_test(n, w):
         for k in ("ground", "floor"):
             if k in keys and s.get(k) is not None:
                 out[k] = _vec([s[k]], (1,), f"{side}.{k}")[0]
+        if s.get("ref") is not None:                    # the door's runtime form id: prid + getpos (a diagnostic)
+            if not re.fullmatch(r"[0-9A-Fa-f]{8}", str(s["ref"])):
+                sys.exit(f"bad {side}.ref in plan.json (8 hex digits, the door's form id in the load order): {s['ref']!r}")
+            out["ref"] = str(s["ref"]).upper()
         sides[side] = out
     cell = str(w["inside"].get("cell") or "")
     if not re.fullmatch(NAME, cell):
@@ -592,7 +597,11 @@ def door_test(n, w):
          "walk_ms": int(_num(w, "walk_ms", 8000, 0, 60000)), "walk_step_ms": int(_num(w, "walk_step_ms", 500, 100, 5000)),
          "settle_ms": int(_num(w, "settle_ms", 6000, 0, 30000)), "drop": _num(w, "drop", 0.5, 0, 50),
          "near_wait_ms": int(_num(w, "near_wait_ms", 6000, 0, 60000)),
-         "load_wait_s": int(_num(w, "load_wait_s", 90, 10, 600))}
+         "load_wait_s": int(_num(w, "load_wait_s", 90, 10, 600)),
+         # a read farther than moved_m from a leg's start is on the other side of the door (a load: the two frames
+         # are about 2.7 km apart here); activate_m: the automatic door's range (Starfield.esm
+         # fAutoDoorActivateDistance 3), within which standing without a load is a NOLOAD
+         "moved_m": _num(w, "moved_m", 30.0, 5, 1000), "activate_m": _num(w, "activate_m", 3.0, 0.5, 10)}
     if w.get("fresh"):
         t["fresh"] = True
     for k in ("expect", "basis"):
@@ -777,21 +786,44 @@ def _whole_cells(delta, radius, cell=100.0):
     return None
 
 
+def _door_ref_note(test, obs, off):
+    """The getpos of the outside door's reference (obs.door_read, read after the coc arrival): where the engine reports
+    the persistent door. Our persistent XMarker anchors read their unmerged local position (exp1d / exp2b), a vanilla
+    persistent ref in LC172World read the merged one, so a local read does not prove where the door stands."""
+    ref = test["outside"].get("ref")
+    if not ref:
+        return None
+    rd = parse3(obs.get("door_read"))
+    if rd is None:
+        return f"getpos of door {ref}: not read"
+    door = test["outside"]["door"]
+    dm, dl = math.dist(rd, _add(door, off)), math.dist(rd, door)
+    where = ("its merged position" if dm <= 1.0 else "its unmerged local position (as our anchors read)" if dl <= 1.0
+             else f"neither its merged ({dm:.1f} m) nor its local position ({dl:.1f} m): another ref?")
+    return f"getpos of door {ref} read {obs.get('door_read')}: {where}"
+
+
 def judge_door(test, obs, shot_ok):
     """door_trip (docs/slice/redrocket-door.md). The legs must all be observed, in order: the coc arrival (settled,
     gives the overlay's merge offset O = arrival - spawn_local), "in" (from outside.start + O through the door to
     inside.arrival), "out" (from inside.start through the door to outside.arrival + O), the save (its file written) and
-    the load (a loading screen seen, then the same position as before the save, settled, on outside.ground + O.z). A
-    position not read, a start not reached or a screenshot missing is INCONCLUSIVE, never PASS; the first leg that
-    fails decides. GetInCell (inside.cell), read after each arrival, must agree with the position when it was read."""
+    the load (the player back at the saved spot after being moved away, or a loading screen seen; settled, on
+    outside.ground + O.z). A position not read, a start not reached or a screenshot missing is INCONCLUSIVE, never
+    PASS; the first leg that fails decides. GetInCell (inside.cell), read after each arrival and after the load, must
+    agree with the position when it was read: a contradiction is INCONCLUSIVE CELLREAD, never a PASS or a FAIL. NOLOAD
+    needs the player standing (settled) within activate_m of the door with no load and GetInCell not saying the far
+    side. A leg that loaded only from the last-try teleport (trigger near) makes the whole trip INCONCLUSIVE NEARONLY:
+    the door works, walking in is not shown."""
     if not obs.get("offset"):
         why = obs.get("offset_missing") or "the arrival was not read or never settled"
         return "INCONCLUSIVE", "ANCHOR", f"no merge offset ({why}): no door was tried"
     off = (list(obs["offset"]) + [0.0, 0.0, 0.0])[:3]
     o, i = test["outside"], test["inside"]
     R, ST = test.get("radius", 4.0), test.get("start_tol", 3.0)
+    MOVED, ACT = test.get("moved_m", 30.0), test.get("activate_m", 3.0)
     legs = {x.get("name"): x for x in obs.get("legs") or [] if isinstance(x, dict)}
     notes = [f"offset {off[0]:.1f}, {off[1]:.1f}, {off[2]:.2f}"]
+    ref_note = _door_ref_note(test, obs, off)
 
     def leg(name, start, door, arrival, unmerged=None):
         """None when the leg passed (notes appended), else (verdict, class, detail). unmerged: the arrival point in
@@ -804,26 +836,44 @@ def judge_door(test, obs, shot_ok):
             got = "not read" if st is None else f"read {math.hypot(st[0] - start[0], st[1] - start[1]):.1f} m away"
             return "INCONCLUSIVE", "START", f"{name}: the start in front of the door was not reached ({got})"
         how = (f"trigger {x.get('trigger') or 'none'} after {x.get('walked_ms', 0)} ms of walking"
-               + (", prompt seen" if x.get("prompt") else ""))
+               + (", prompt seen" if x.get("prompt") else "")
+               + (", the load found by the position (no loading screen seen)" if x.get("load_by") == "position" else "")
+               + (f", last try skipped: {x['near_skipped']}" if x.get("near_skipped") else ""))
         end = parse3(x.get("arrival_read"))
-        loaded = bool(x.get("load_seen"))
+        seen = bool(x.get("load_seen"))
+        loaded = seen or x.get("load_by") == "position"
         cell = x.get("incell")
+        inside = name == "in"
+        want_cell = 1 if inside else 0                           # GetInCell <inside.cell> on the far side of the door
+        far_side = "in" if inside else "not in"
         if end is None:
             return "INCONCLUSIVE", "UNREAD", f"{name}: arrival not read ({how})"
         if not shot_ok(x.get("shot")):
             return "INCONCLUSIVE", "NOSHOT", f"{name}: no arrival screenshot"
-        moved = math.dist(end, st)
-        if moved < 30.0:                                         # the player is still near where the walk started
+        settled = bool(x.get("arrival_settled"))
+        if math.dist(end, st) < MOVED:                           # the player is still near where the walk started
             dd = math.dist(end, door)
-            if loaded:
+            if seen:
                 return ("INCONCLUSIVE", "NOMOVE", f"{name}: the HUD went away (a load?) but the player stayed "
                         f"{dd:.1f} m from the door: a menu or popup, not a load ({how})")
-            return "FAIL", "NOLOAD", (f"{name}: no load: the player ended {dd:.1f} m from the door after {how}"
-                                      + (f", teleported {x['near_m']} m from it as a last try" if x.get("near_m") else ""))
+            if cell == want_cell:
+                return ("INCONCLUSIVE", "CELLREAD", f"{name}: the position is still at this side's door ({dd:.1f} m "
+                        f"from it) but GetInCell {i['cell']} read {cell} ({far_side} it): a load the runner moved the "
+                        f"player back from, or a misread ({how})")
+            near_reads = [p for p in (parse3(c.get("read")) for c in x.get("checks") or [] if isinstance(c, dict))
+                          if p is not None and math.dist(p, st) < MOVED]
+            closest = min([dd] + [math.dist(p, door) for p in near_reads])
+            if dd > ACT:
+                return ("INCONCLUSIVE", "NOREACH", f"{name}: no load, but the player ended {dd:.1f} m from the door, "
+                        f"outside its {ACT:g} m range (closest read {closest:.1f} m): the door was not tried ({how})")
+            if not settled:
+                return ("INCONCLUSIVE", "UNREAD", f"{name}: no load, {dd:.1f} m from the door but still moving ({how})")
+            return "FAIL", "NOLOAD", (f"{name}: no load: the player stood {dd:.1f} m from the door, inside its "
+                                      f"{ACT:g} m range (GetInCell {i['cell']} {'unread' if cell is None else cell}), "
+                                      f"after {how}"
+                                      + (f", teleported {x['near_m']} m from it as a last try" if x.get("near_m") else "")
+                                      + (f"; {ref_note}" if ref_note and inside else ""))
         d = math.dist(end, arrival)
-        inside = name == "in"
-        want_cell = 1 if inside else 0
-        settled = bool(x.get("arrival_settled"))
         if not settled and end[2] < arrival[2] - 3.0 and math.hypot(end[0] - arrival[0], end[1] - arrival[1]) <= R:
             return ("FAIL", "FELL", f"{name}: arrived over the arrival point but falling (z {end[2]:.1f}, "
                     f"{arrival[2] - end[2]:.1f} m below it, not settled): no floor or ground there; {how}")
@@ -834,8 +884,8 @@ def judge_door(test, obs, shot_ok):
                 return ("INCONCLUSIVE", "CELLREAD", f"{name}: arrived {d:.1f} m from the arrival point but GetInCell "
                         f"{i['cell']} read {cell}")
             notes.append(f"{name}: arrived {d:.1f} m from the {'interior' if inside else 'merged exterior'} arrival "
-                         f"point (GetInCell {i['cell']} {'unread' if cell is None else cell}), {how}, load "
-                         f"{x.get('load_s')} s")
+                         f"point (GetInCell {i['cell']} {'unread' if cell is None else cell}), {how}, "
+                         + (f"load {x['load_s']} s" if x.get("load_s") is not None else "load time not seen"))
             return None
         if unmerged is not None:                                 # out: the arrival in the world's own frame
             dl = math.dist(end, unmerged)
@@ -864,22 +914,35 @@ def judge_door(test, obs, shot_ok):
     ground = o.get("ground")
     if ground is not None:
         notes.append(f"out arrival z {out_read[2] - off[2]:.2f} (ground {ground:.2f})")
+    if ref_note:
+        notes.append(ref_note)
     sv = obs.get("save") or {}
     if not sv.get("found"):
         why = sv.get("why") or ("not checked" if not sv else "no file")
         return "INCONCLUSIVE", "NOSAVE", f"save {test['save']}: file not seen ({why}); {'; '.join(notes)}"
     rl = obs.get("reload") or {}
     rd = parse3(rl.get("read"))
-    if not rl.get("load_seen"):
-        return ("INCONCLUSIVE", "RELOAD_UNSEEN", f"load {test['save']}: no loading screen seen, so the read after it says "
-                f"nothing; {'; '.join(notes)}")
+    away = parse3(rl.get("away_read"))                      # where the player was moved to before the load
+    moved_away = away is not None and math.dist(away, out_read) > 5.0
     if rd is None or not shot_ok(rl.get("shot")):
+        if not rl.get("load_seen"):
+            return ("INCONCLUSIVE", "RELOAD_UNSEEN", f"load {test['save']}: no loading screen seen and no position "
+                    f"read after it; {'; '.join(notes)}")
         return "INCONCLUSIVE", "UNREAD", f"load: position not read or no screenshot; {'; '.join(notes)}"
     dr = math.dist(rd, out_read)
+    tol = test.get("reload_tol", 1.0)
+    if moved_away and math.dist(rd, away) <= tol:
+        return ("INCONCLUSIVE", "RELOAD_UNSEEN", f"load {test['save']}: the player is still where it was moved before "
+                f"the load ({math.dist(away, out_read):.1f} m from the saved spot): the load did not happen; "
+                f"{'; '.join(notes)}")
+    if not rl.get("load_seen") and not (moved_away and dr <= tol):
+        return ("INCONCLUSIVE", "RELOAD_UNSEEN", f"load {test['save']}: no loading screen seen"
+                + ("" if moved_away else " and the player was not moved away before it") + ", so the read after it "
+                f"says nothing; {'; '.join(notes)}")
     z0 = (ground + off[2]) if ground is not None else out_read[2]
     if rd[2] < z0 - 3.0:
         return "FAIL", "FELL", f"after the load z {rd[2]:.2f}, {z0 - rd[2]:.1f} m below the ground; {'; '.join(notes)}"
-    if dr > test.get("reload_tol", 1.0):
+    if dr > tol:
         return ("FAIL", "RELOAD", f"after the load {dr:.2f} m from where the save was made ({rl.get('read')} vs "
                 f"{legs['out'].get('arrival_read')}); {'; '.join(notes)}")
     if not rl.get("settled"):
@@ -888,9 +951,19 @@ def judge_door(test, obs, shot_ok):
         return ("FAIL", "OFFGROUND", f"after the load z {rd[2] - off[2]:.2f} in the world's frame, ground {ground:.2f} "
                 f"(off by {rd[2] - z0:+.2f} m); {'; '.join(notes)}")
     cell = rl.get("incell")
+    if cell == 1:
+        return ("INCONCLUSIVE", "CELLREAD", f"after the load at the saved spot on the terrain but GetInCell {i['cell']} "
+                f"read 1; {'; '.join(notes)}")
     notes.append(f"save {test['save']} written ({sv.get('size')} B); after the load {dr:.2f} m from the saved spot"
                  + (f", z {rd[2] - z0:+.2f} m from the ground" if ground is not None else "")
-                 + f", GetInCell {i['cell']} {'unread' if cell is None else cell}, load {rl.get('load_s')} s")
+                 + f", GetInCell {i['cell']} {'unread' if cell is None else cell}, load {rl.get('load_s')} s, "
+                 + ("loading screen seen" if rl.get("load_seen") else "no loading screen seen")
+                 + (f", moved {math.dist(away, out_read):.1f} m away before it" if moved_away else ""))
+    near = [n for n in ("in", "out") if legs[n].get("trigger") == "near"]
+    if near:
+        return ("INCONCLUSIVE", "NEARONLY", f"the door loads, but the {' and '.join(near)} leg"
+                f"{'s' if len(near) > 1 else ''} loaded only from the last-try teleport 1 m from the door: walking in "
+                f"is not shown; {'; '.join(notes)}")
     return "PASS", "PASS", "; ".join(notes)
 
 
@@ -1343,22 +1416,28 @@ def step_timeout(test):
 
 
 DOOR_CHECK_S = 8        # door_trip: one HUD check while walking (screenshot + hud_visible.py, PowerShell + Python start)
+DOOR_READ_S = 25        # door_trip: one readpos.ps1 run after a walk step (console open, getpos x / y / z, OCR, 4 tries)
 
 
 def door_timeout(test, light=0.0):
-    """Worst case of one door_trip step (qstep.ps1 'door_trip'): the coc arrival read until it settles (5 reads), per
-    leg the teleport to the start, its read, every walk step with its HUD check, E, the 1 m teleport with its checks,
-    the load (load_wait_s), the arrival read until it settles and GetInCell (one console session), then the save and
-    the load with their reads."""
+    """Worst case of one door_trip step (qstep.ps1 'door_trip'): the coc arrival read until it settles (5 reads) and
+    the door's getpos, per leg the teleport to the start, its read, every walk step with its HUD check and one position
+    read (a second HUD check when the read fails), E with a full check before and after it, the full check before the
+    1 m teleport, that teleport with its HUD checks, the load (load_wait_s), the arrival read until it settles and
+    GetInCell (one console session), then the save, the teleport away with its read and the load with its reads."""
     step_ms = max(test.get("walk_step_ms", 500), 1)
+    settle = test.get("settle_ms", 6000) / 1000
     checks = math.ceil(test.get("walk_ms", 8000) / step_ms)
-    leg = (30 + test.get("settle_ms", 6000) / 1000 + NPC_READ_S + 5
-           + checks * (step_ms / 1000 + DOOR_CHECK_S) + 15
+    full_check = 2 * DOOR_CHECK_S + NPC_READ_S             # HUD, Read-Pos (3 runs), HUD again
+    leg = (30 + settle + NPC_READ_S + 5
+           + checks * (step_ms / 1000 + 2 * DOOR_CHECK_S + DOOR_READ_S)
+           + 2 * full_check + DOOR_CHECK_S + 15            # E: checked before and after it, its prompt shot
+           + full_check                                    # before the last try
            + 30 + test.get("near_wait_ms", 6000) / 1000 + 4 * DOOR_CHECK_S
            + test.get("load_wait_s", 90) + 3 + 5 * NPC_READ_S + 12 + NPC_SESSION_S + 5)
-    fixed = 120 + 5 * NPC_READ_S + 12 + 5                  # coc, the HUD back (up to 90 s), the arrival settled, shot
+    fixed = 120 + 5 * NPC_READ_S + 12 + 5 + NPC_READ_S     # coc, the HUD back (up to 90 s), settled, shot, door getpos
     save = 30 + 10
-    reload = 30 + 120 + 3 + 5 * NPC_READ_S + 12 + NPC_SESSION_S + 5
+    reload = 30 + settle + NPC_READ_S + 30 + 120 + 3 + 5 * NPC_READ_S + 12 + NPC_SESSION_S + 5
     return int(fixed + 2 * leg + save + reload + light)
 
 

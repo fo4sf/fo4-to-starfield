@@ -356,6 +356,11 @@ def plus(p, o=OFF):
     return [p[k] + o[k] for k in range(3)]
 
 
+def ps(x):
+    """A coordinate as qstep.ps1 types it into player.setpos (F: '0.###')."""
+    return f"{round(x, 3):.3f}".rstrip("0").rstrip(".")
+
+
 def door_world(unmerged=False, works=True, **extra):
     """The simulated world: the coc arrival merged at OFF, an automatic door outside (in the coc cell) and one inside."""
     o, i = DOOR["outside"], DOOR["inside"]
@@ -388,6 +393,47 @@ class QstepDoorSandboxTests(SandboxStep, unittest.TestCase):
         self.assertLess(self.typed.index("save fo4sf_slice_rrdoor"), self.typed.index("load fo4sf_slice_rrdoor"))
         self.assertIn("player.GetInCell FO4Port_RedRocket01", self.typed)
         self.assertIn("out: arrived 0.0 m from the merged exterior arrival point (GetInCell FO4Port_RedRocket01 0)", v[2])
+        # every walk step was followed by a position read; the load was seen by the HUD check
+        self.assertEqual([x["load_by"] for x in obs["legs"]], ["hud", "hud"])
+        self.assertTrue(all(c["tag"] == "walk" for x in obs["legs"] for c in x["checks"]))
+        # before the load the player was moved back to the coc arrival, about 44 m from the saved spot
+        away = [float(v) for v in obs["reload"]["away_read"].split()]
+        self.assertAlmostEqual(away[1], plus(DOOR["spawn_local"])[1], delta=0.1)
+        back = len(self.typed) - 1 - self.typed[::-1].index(f"player.setpos y {ps(plus(DOOR['spawn_local'])[1])}")
+        self.assertLess(self.typed.index("save fo4sf_slice_rrdoor"), back)
+        self.assertLess(back, self.typed.index("load fo4sf_slice_rrdoor"))
+        self.assertIn("loading screen seen", v[2])
+
+    def test_a_load_no_hud_check_saw_is_found_by_the_position(self):
+        # QA on PR #78: with an instant loading screen the HUD checks never see the load; the old step walked on in the
+        # new cell and teleported to the other side's last-try spot there (6 loads instead of 2, the void inside)
+        v, obs, _ = self.trip(door_world(load_secs=0))
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        self.assertEqual(self.state["loads"], ["ext", "int"])
+        self.assertEqual([(x["trigger"], x["load_by"], x["load_seen"]) for x in obs["legs"]],
+                         [("walk", "position", False), ("walk", "position", False)])
+        self.assertNotIn("near_m", obs["legs"][0])                     # no last-try teleport after the load
+        near_x = f"player.setpos x {ps(plus(DOOR['outside']['near'])[0])}"
+        self.assertNotIn(near_x, self.typed)
+        self.assertFalse(obs["reload"]["load_seen"])                  # the reload is shown by the position alone
+        self.assertIn("no loading screen seen, moved", v[2])
+
+    def test_no_reach_without_a_last_try(self):
+        plan = {"outside": dict(DOOR["outside"], near=None), "inside": dict(DOOR["inside"], near=None)}
+        v, obs, _ = self.trip(door_world(walk_blocked=True), plan=plan)
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "NOREACH"), v[2])
+        leg = obs["legs"][0]
+        self.assertEqual(leg["walk_stopped"], "no progress in two steps")
+        self.assertEqual(len(leg["checks"]), 2)                         # stopped after two steps without progress
+
+    def test_the_door_getpos_is_read_after_the_arrival(self):
+        o = DOOR["outside"]
+        w = door_world()
+        w["doors"][0].update(ref="05000800", ref_pos=o["door"])          # reads its unmerged local position
+        v, obs, _ = self.trip(w, plan={"outside": dict(o, ref="05000800")})
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        self.assertEqual(obs["door_read"], "-994.95 1109.49 98.68")        # the fake readpos -Ref (prid + getpos)
+        self.assertIn("getpos of door 05000800 read -994.95 1109.49 98.68: its unmerged local position", v[2])
 
     def test_a_return_without_the_merge_offset_is_unmerged(self):
         v, obs, _ = self.trip(door_world(unmerged=True))
@@ -400,13 +446,17 @@ class QstepDoorSandboxTests(SandboxStep, unittest.TestCase):
         leg = obs["legs"][0]
         self.assertEqual((leg["load_seen"], leg["trigger"]), (False, ""))
         self.assertAlmostEqual(leg["near_m"], 1.0, delta=0.05)
+        self.assertEqual(len(leg["checks"]), 8)                         # 4 s in 500 ms steps, each read
+        self.assertEqual(leg["incell"], 0)
         self.assertEqual(len(obs["legs"]), 1)
         self.assertNotIn("save fo4sf_slice_rrdoor", self.typed)
 
     def test_a_blocked_walk_loads_from_the_near_point(self):
+        # the door works when stood at, but the walk never reached it: not the walk-in the slice asks for
         v, obs, _ = self.trip(door_world(walk_blocked=True))
-        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "NEARONLY"), v[2])
         self.assertEqual([x["trigger"] for x in obs["legs"]], ["near", "near"])
+        self.assertEqual([x["walk_stopped"] for x in obs["legs"]], ["no progress in two steps"] * 2)
 
     def test_a_load_that_puts_the_player_elsewhere_is_reload(self):
         v, obs, _ = self.trip(door_world(reload_shift=[0.0, 7.5, 0.0]))

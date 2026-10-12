@@ -37,10 +37,10 @@ function Console-Open {
   if ($c -eq 2) { $obs['stopped'] = 'input guard'; Save-Obs; exit 2 }
   if ($c -ne 0) { $obs['stopped'] = "console not opened safely ($c)"; Save-Obs; exit 3 }
 }
-function Read-Pos([string]$ref = '') {
+function Read-Pos([string]$ref = '', [int]$tries = 3) {
   # up to 3 reads: OCR sometimes drops or shifts a column; a read with x == z or a missing value is retried
   $p = 'fail'
-  for ($n = 0; $n -lt 3; $n++) {
+  for ($n = 0; $n -lt $tries; $n++) {
     if ($ref) { $p = powershell -NoProfile -ExecutionPolicy Bypass -File $readpos -Ref $ref } else { $p = powershell -NoProfile -ExecutionPolicy Bypass -File $readpos }
     if ("$p" -like 'fail guard*') { $obs['stopped'] = 'input guard'; Save-Obs; exit 2 }
     $v = "$p".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
@@ -683,10 +683,14 @@ switch ($kind) {
     # start facing the door, read it, then walk at the door in walk_step_ms steps with a HUD check after each (an
     # automatic door loads within fAutoDoorActivateDistance, 3 m in Starfield.esm, behind a fade and a loading screen),
     # E when an activation prompt shows, and as a last try a teleport to the "near" point (1 m in front of the door);
-    # then the HUD back, the arrival read until it settles, player.GetInCell <inside.cell> and a screenshot. A leg that
-    # does not arrive where expected ends the step (the judge names why). Then save <save> (its file must appear in the
-    # Saves folder), load <save> (a loading screen must be seen), the position read until it settles, GetInCell, a
-    # screenshot. Everything typed is validated here again.
+    # after every walk step and before E or the last try the position is read too (Leg-Check): a load whose loading
+    # screen fell between two HUD checks is found by the position, and nothing is pressed or teleported unless a read
+    # put the player on this side of the door. Then the HUD back, the arrival read until it settles, player.GetInCell
+    # <inside.cell> and a screenshot. A leg that does not arrive where expected ends the step (the judge names why).
+    # Then save <save> (its file must appear in the Saves folder), a teleport away (back to the coc arrival), load
+    # <save> (the player must come back; a loading screen is looked for), the position read until it settles,
+    # GetInCell, a screenshot. With outside.ref the door's own getpos is read after the coc arrival (a diagnostic).
+    # Everything typed is validated here again.
     $nameRe = '^[A-Za-z0-9_]{1,64}$'
     if ("$($t.travel)" -notmatch '^coc [A-Za-z0-9_]+$') { "bad travel"; exit 4 }
     $cell = "$($t.inside.cell)"
@@ -721,6 +725,11 @@ switch ($kind) {
     $settle = [int](Num $t.settle_ms 6000 0 30000 'settle_ms'); $drop = Num $t.drop 0.5 0 50 'drop'
     $nearWait = [int](Num $t.near_wait_ms 6000 0 60000 'near_wait_ms'); $loadWait = [int](Num $t.load_wait_s 90 10 600 'load_wait_s')
     $hOut = Num $t.heading_out 0 0 360 'heading_out'; $hIn = Num $t.heading_in 0 0 360 'heading_in'
+    $startTol = Num $t.start_tol 3.0 0.5 50 'start_tol'; $movedM = Num $t.moved_m 30.0 5 1000 'moved_m'
+    $oRef = ''
+    if ($null -ne $t.outside.ref) {
+      $oRef = "$($t.outside.ref)"; if ($oRef -cnotmatch '^[0-9A-Fa-f]{8}$') { "bad outside.ref"; exit 4 }
+    }
     $lightCmds = Light-Commands
     $preCmds = Console-List $t.console_pre 'console_pre'; $postCmds = Console-List $t.console_post 'console_post'
     $parse = Join-Path $here 'parse_npc.py'
@@ -751,42 +760,101 @@ switch ($kind) {
       Send 'key:grave|wait:600'
       return @{ incell = $(if ($r) { $r.incell } else { $null }); ocr = $(if ($r) { $r.ocr } else { '' }) }
     }
+    function Vec-Of([string]$read) {
+      if ("$read" -notmatch $pos3) { return $null }
+      $v = "$read".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+      return ,@([double]$v[0], [double]$v[1], [double]$v[2])
+    }
+    function Leg-Check($L, [string]$tag, $start, $door, [int]$ms, [int]$tries) {
+      # Which side of the door is the player on (after a walk step, after E, before the last-try teleport)? 'loaded':
+      # the HUD is gone (a fade or a loading screen) or the position reads more than moved_m from the leg's start (a
+      # load whose fade and loading screen both fell between two HUD checks; the two sides are about 2.7 km apart);
+      # 'here': a read within moved_m of the start, kept in $L.checks with its distances; 'unread': no read while the
+      # HUD is up (an OCR miss). Nothing is teleported or pressed on the strength of 'unread'.
+      if (-not (Hud-Shown "$($L['name'])_$tag.png")) { $L['load_by'] = 'hud'; return 'loaded' }
+      $p = Read-Pos '' $tries
+      $c = [ordered]@{ tag = $tag; ms = $ms; read = $p }
+      $L['checks'] += $c
+      if ("$p" -notmatch $pos3) {
+        if (-not (Hud-Shown "$($L['name'])_${tag}_after.png")) { $L['load_by'] = 'hud'; return 'loaded' }
+        return 'unread'
+      }
+      $ds = Dist3 $p $start
+      $c['from_start'] = [Math]::Round($ds, 2); $c['to_door'] = [Math]::Round((Dist3 $p $door), 2)
+      if ($ds -gt $movedM) { $L['load_by'] = 'position'; return 'loaded' }
+      return 'here'
+    }
     function Door-Leg([string]$name, $start, $door, $near, [double]$heading) {
-      $L = [ordered]@{ name = $name; start_target = $start; door = $door }
+      # Teleport to the start facing the door and read it; walk at the door in walk_step_ms steps, after each a HUD
+      # check and a position read (Leg-Check): a load ends the walk at once, so the player never walks on in the new
+      # cell; two steps without progress (0.2 m) end it too. E only when a prompt showed, the last-try teleport to
+      # "near" only after a read put the player on this side: a load the HUD checks missed must never be followed by
+      # a teleport to this side's coordinates in the other cell (the interior's void, or 99 m under the terrain).
+      $L = [ordered]@{ name = $name; start_target = $start; door = $door; checks = @() }
       Teleport @($start[0], $start[1], ($start[2] + $drop)) $heading 10
       Start-Sleep -Milliseconds $settle
       $L['start_read'] = Read-Pos
       $L['start_shot'] = Shot "${name}_start.png"
       $L['prompt'] = Prompt-Up "${name}_start.png"
-      $loaded = $false; $walked = 0; $trig = ''
-      while (-not $loaded -and $walked -lt $walkMs) {     # walk at the door; the HUD goes away when the load starts
-        $ms = [Math]::Min($stepMs, $walkMs - $walked)
-        Send "hold:w,$ms|wait:250"
-        $walked += $ms
-        if (-not (Hud-Shown "${name}_walk.png")) { $loaded = $true; $trig = 'walk' }
-        elseif (-not $L['prompt'] -and (Prompt-Up "${name}_walk.png")) { $L['prompt'] = $true }
-      }
-      if (-not $loaded -and $L['prompt']) {               # a door with an activation prompt: E
-        $pre = Join-Path $Out "${name}_pre_e.png"
-        powershell -NoProfile -ExecutionPolicy Bypass -File $shot -Out $pre | Out-Null
-        if (Prompt-Up "${name}_pre_e.png") {
-          Send 'key:e|wait:2500'
-          if (-not (Hud-Shown "${name}_e.png")) { $loaded = $true; $trig = 'e' }
+      $walked = 0; $trig = ''; $act = 'walk'; $state = 'unread'
+      $sv0 = Vec-Of $L['start_read']
+      $go = $false
+      if ($null -eq $sv0) { $L['walk_skipped'] = 'the start was not read' }
+      elseif ([Math]::Sqrt([Math]::Pow($sv0[0] - $start[0], 2) + [Math]::Pow($sv0[1] - $start[1], 2)) -gt $startTol) {
+        $L['walk_skipped'] = 'the start read is not at the start'
+      } else { $go = $true; $state = 'here' }
+      if ($go) {
+        $prev = $sv0; $still = 0
+        while ($walked -lt $walkMs) {                     # walk at the door
+          $ms = [Math]::Min($stepMs, $walkMs - $walked)
+          Send "hold:w,$ms|wait:250"
+          $walked += $ms
+          $state = Leg-Check $L 'walk' $start $door $walked 1
+          if ($state -eq 'loaded') { $trig = 'walk'; break }
+          if (-not $L['prompt'] -and (Prompt-Up "${name}_walk.png")) { $L['prompt'] = $true }
+          if ($state -eq 'here') {
+            $cur = Vec-Of $L['checks'][-1]['read']
+            if ($null -ne $prev -and (Dist3 $L['checks'][-1]['read'] $prev) -lt 0.2) { $still++ } else { $still = 0 }
+            $prev = $cur
+            if ($still -ge 2) { $L['walk_stopped'] = 'no progress in two steps'; break }
+          }
+        }
+        if ($state -ne 'loaded' -and $L['prompt']) {     # a door with an activation prompt: E
+          if ($state -ne 'here') { $state = Leg-Check $L 'pre_e' $start $door $walked 3; if ($state -eq 'loaded') { $trig = $act } }
+          if ($state -eq 'here') {
+            $pre = Join-Path $Out "${name}_pre_e.png"
+            powershell -NoProfile -ExecutionPolicy Bypass -File $shot -Out $pre | Out-Null
+            if (Prompt-Up "${name}_pre_e.png") {
+              Send 'key:e|wait:2500'
+              $act = 'e'
+              $state = Leg-Check $L 'e' $start $door $walked 3
+              if ($state -eq 'loaded') { $trig = 'e' }
+            }
+          }
+        }
+        if ($state -ne 'loaded' -and $near) {             # last try: stand 1 m in front of the door
+          if ($state -ne 'here') { $state = Leg-Check $L 'pre_near' $start $door $walked 3; if ($state -eq 'loaded') { $trig = $act } }
+          if ($state -eq 'here') {
+            $L['near_m'] = [Math]::Round([Math]::Sqrt([Math]::Pow($near[0] - $door[0], 2) + [Math]::Pow($near[1] - $door[1], 2)), 2)
+            Teleport @($near[0], $near[1], ($near[2] + $drop)) $heading 10
+            $act = 'near'
+            $t1 = Get-Date
+            while (((Get-Date) - $t1).TotalMilliseconds -lt $nearWait) {
+              if (-not (Hud-Shown "${name}_near.png")) { $state = 'loaded'; $trig = 'near'; $L['load_by'] = 'hud'; break }
+              Start-Sleep -Milliseconds 1000
+            }
+          } elseif ($state -ne 'loaded') { $L['near_skipped'] = 'the player was not read on this side of the door' }
         }
       }
-      if (-not $loaded -and $near) {                      # last try: stand 1 m in front of the door
-        $L['near_m'] = [Math]::Round([Math]::Sqrt([Math]::Pow($near[0] - $door[0], 2) + [Math]::Pow($near[1] - $door[1], 2)), 2)
-        Teleport @($near[0], $near[1], ($near[2] + $drop)) $heading 10
-        $t1 = Get-Date
-        while (-not $loaded -and ((Get-Date) - $t1).TotalMilliseconds -lt $nearWait) {
-          if (-not (Hud-Shown "${name}_near.png")) { $loaded = $true; $trig = 'near' } else { Start-Sleep -Milliseconds 1000 }
-        }
-      }
-      $L['trigger'] = $trig; $L['walked_ms'] = $walked; $L['load_seen'] = $loaded
-      if ($loaded) { $w = Wait-Hud $loadWait "${name}_hud.png"; $L['hud_back'] = $w.up; $L['load_s'] = $w.secs }
+      $loaded = $state -eq 'loaded'
+      $L['trigger'] = $trig; $L['walked_ms'] = $walked; $L['load_seen'] = [bool]($loaded -and $L['load_by'] -eq 'hud')
+      if ($L['load_seen']) { $w = Wait-Hud $loadWait "${name}_hud.png"; $L['hud_back'] = $w.up; $L['load_s'] = $w.secs }
       Start-Sleep 3
       $arr = Read-Settled
       $L['arrival_read'] = $arr.read; $L['arrival_settled'] = $arr.settled; $L['arrival_reads'] = $arr.reads
+      if ($go -and -not $loaded -and "$($arr.read)" -match $pos3 -and (Dist3 $arr.read $start) -gt $movedM) {
+        $L['trigger'] = $act; $L['load_by'] = 'position'     # a load after the last action that no HUD check saw
+      }
       $c = In-Cell "${name}_cell"
       $L['incell'] = $c.incell; $L['incell_ocr'] = $c.ocr
       $L['shot'] = Shot "${name}_arrival.png"
@@ -811,7 +879,11 @@ switch ($kind) {
     $O = @(([double]$sv[0] - [double]$sl[0]), ([double]$sv[1] - [double]$sl[1]), 0.0)
     if ($sl.Count -ge 3) { $O[2] = [double]$sv[2] - [double]$sl[2] }
     $obs['offset'] = $O; $obs['offset_from'] = 'spawn'
+    $spawnRead = "$($arr.read)"
     Save-Obs
+    if ($oRef) {                                         # a diagnostic: where the engine reports the persistent door
+      $obs['door_read'] = Read-Pos $oRef; Save-Obs        # (prid + getpos; nothing moves)
+    }
     function Plus($p, $o) { if ($null -eq $p) { return $null }; return @(($p[0] + $o[0]), ($p[1] + $o[1]), ($p[2] + $o[2])) }
     # 2. in: through the door in the world, into the interior
     $legIn = Door-Leg 'in' (Plus $oStart $O) (Plus $oDoor $O) (Plus $oNear $O) $hOut
@@ -843,8 +915,17 @@ switch ($kind) {
     else { $S['why'] = $(if ($S['dir_found']) { "no file *$save* written in the Saves folder within 30 s" } else { 'Saves folder not found' }) }
     $obs['save'] = $S; $obs['save_shot'] = Shot 'saved.png'; Save-Obs
     if (-not $S['found']) { exit 0 }
-    # 5. load it: a loading screen must be seen, then the position read until it settles
+    # 5. away from the saved spot (back to the settled coc arrival, about 40 m north on the terrain), then load it: the
+    # load must bring the player back, so the position shows it even when no HUD check saw the loading screen
     $R = [ordered]@{ name = $save }
+    $away = Vec-Of $spawnRead
+    if ($null -ne $away) {
+      Teleport @($away[0], $away[1], ($away[2] + $drop)) 0 10
+      Start-Sleep -Milliseconds $settle
+      $R['away_read'] = Read-Pos
+      $R['away_shot'] = Shot 'away.png'
+      $obs['reload'] = $R; Save-Obs
+    }
     Console-Open
     Send "type:load $save|key:enter|wait:2500"
     $gone = $false; $t1 = Get-Date

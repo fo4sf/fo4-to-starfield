@@ -74,6 +74,8 @@ class PlacementTests(unittest.TestCase):
         self.assertEqual(t["heading_out"], m.heading(o["start"], o["door"]))
         self.assertEqual(t["heading_in"], m.heading(i["start"], i["door"]))
         self.assertEqual(m.heading([0, 0, 0], [1, 0, 0]), 90.0)
+        self.assertEqual(t["outside"]["ref"], m.OUTSIDE_REF)                # the runner's getpos diagnostic
+        self.assertEqual((t["moved_m"], t["activate_m"]), (30.0, m.ACTIVATE_M))
 
 
 def plugin(records, masters=("Starfield.esm",)):
@@ -132,12 +134,39 @@ class GeometryTests(unittest.TestCase):
         self.assertTrue(m.clear_until_range(open_walk, [6, 0, 0.5], [0, 3, 0]))
 
     def test_start_is_the_arrival_when_its_walk_is_clear_else_a_clear_spot(self):
-        start, walk, how = m.pick_start(self.support, self.blocked, [6, 0, 0.5], [6, 6, 0])
-        self.assertEqual((start, how), ([6, 6, 0.05], "arrival"))
-        start, walk, how = m.pick_start(self.support, self.blocked, [6, 0, 0.5], [-1, 0, 0])
+        start, walk, how, reach = m.pick_start(self.support, self.blocked, [6, 0, 0.5], [6, 6, 0])
+        self.assertEqual((start, how, reach), ([6, 6, 0.05], "arrival", {"to": "marker", "m": 0.5}))  # to the door
+        start, walk, how, reach = m.pick_start(self.support, self.blocked, [6, 0, 0.5], [-1, 0, 0])
         self.assertTrue(how.startswith("clear spot"), how)
-        self.assertTrue(m.clear_until_range(walk, [6, 0, 0.5], start))
+        self.assertEqual(reach, {"to": "marker", "m": 0.5})
+        self.assertTrue(m.clear_until_range(walk, [6, 0, 0.5], start, 0.5, m.MARKER_H))
         self.assertGreaterEqual(m.math.dist(start, [6, 0, 0.5]), m.ACTIVATE_M + 1.5 - 0.1)
+
+    def test_a_walk_clear_only_into_the_range_is_the_second_choice(self):
+        # a ring of rock 0.8 to 1.2 m around the door: no straight walk reaches the door itself, every one reaches 2.7 m
+        def ring(x, y, z):
+            return ["rock"] if 0.8 < m.math.hypot(x - 6, y) < 1.2 else []
+        start, walk, how, reach = m.pick_start(self.support, ring, [6, 0, 0.5], [6, 6, 0])
+        self.assertEqual((how, reach), ("arrival", {"to": "origin", "m": m.ACTIVATE_M - 0.3}))
+        self.assertFalse(m.clear_until_range(walk, [6, 0, 0.5], start, 0.5, m.MARKER_H))
+        self.assertTrue(m.clear_until_range(walk, [6, 0, 0.5], start, m.ACTIVATE_M - 0.3))
+        self.assertEqual(m.pick_start(self.support, lambda x, y, z: ["rock"], [6, 0, 0.5], [6, 6, 0])[2:],
+                         ("arrival (no clear straight walk found)", None))
+
+    def test_door_gap(self):
+        door = [0.0, 0.0, 1.0]                            # a marker 1 m above the floor, 0.63 m high (scale 0.23)
+        self.assertAlmostEqual(m.door_gap(0.4, 0.3, 0.0, door, 0.63), 0.5)          # overlapping in height: flat
+        self.assertAlmostEqual(m.door_gap(0.0, 0.0, -1.0, door, 0.63), 0.2)         # head 0.2 m below the marker
+        self.assertAlmostEqual(m.door_gap(0.0, 0.0, 2.0, door, 0.63), 0.37)         # feet above its top
+
+    def test_the_start_keeps_out_of_the_door_range_however_it_is_measured(self):
+        self.assertEqual(m.start_min_m(0.93), 5.27)      # RedRocket01's door: 3.57 + 0.85 marker + 0.35 capsule + 0.5
+        self.assertEqual(m.start_min_m(0.23), 4.63)      # the exterior door
+        # an arrival 3 m from the door is too close for the start: a clear spot at least start_min_m away
+        start, walk, how, reach = m.pick_start(self.support, self.blocked, [6, 0, 0.5], [6, 3, 0],
+                                               min_m=m.start_min_m(1.0))
+        self.assertTrue(how.startswith("clear spot"), how)
+        self.assertGreaterEqual(m.math.dist(start, [6, 0, 0.5]), m.start_min_m(1.0))
 
     def test_near_spot_in_front_of_the_door(self):
         n = m.pick_near(self.support, self.blocked, [6, 0, 0.5], [0, 0, 0], 0.0)

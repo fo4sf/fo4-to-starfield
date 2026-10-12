@@ -50,6 +50,10 @@ DOOR_BASE = {"plugin": "Starfield.esm", "id": "24F9CE", "editor_id": "AutoloadDo
 EDIDS = {"outside": "FO4SL_RedRocketCaveDoorExt", "inside": "FO4SL_RedRocketCaveDoorInt"}
 SAVE = "fo4sf_slice_rrdoor"
 NEAR_M = 1.0                                         # the last-try teleport: this far in front of the door
+# the exterior door's runtime form id for the runner's getpos diagnostic (plan outside.ref): this plugin's 0x800 at
+# load-order byte 05 (supported: FO4TerrainExp2.esm read as 02 in every exp2 run, then FO4TerrainExp2_Mars.esm 03,
+# FO4Port.esm 04, this plugin 05, all full plugins); a wrong byte only makes the diagnostic read another ref or none
+OUTSIDE_REF = "05000800"
 PLAN_KEYS = ("radius", "start_tol", "reload_tol", "ground_tol", "walk_ms", "walk_step_ms", "settle_ms", "drop",
              "near_wait_ms", "load_wait_s")
 # the overlay's merge offset the last exp2d run measured (C:\Modding\testqueue\terrain_exp2d results.jsonl, a1,
@@ -126,12 +130,12 @@ def plan_entry(sides, travel, spawn_local, overrides=None):
     o, i = sides["outside"], sides["inside"]
     e = {"label": "rr_cave_door", "travel": travel, "spawn_local": spawn_local,
          "outside": {"start": o["start"], "door": o["door"], "arrival": o["arrival"], "near": o["near"],
-                     "ground": o["ground"]},
+                     "ground": o["ground"], "ref": OUTSIDE_REF},
          "inside": {"cell": PORT_CELL, "start": i["start"], "door": i["door"], "arrival": i["arrival"],
                     "near": i["near"], "floor": i["floor"]},
          "save": SAVE, "radius": 4.0, "start_tol": 3.0, "reload_tol": 1.0, "ground_tol": 1.0, "walk_ms": 8000,
          "walk_step_ms": 500, "settle_ms": 6000, "drop": 0.5, "near_wait_ms": 6000, "load_wait_s": 90,
-         "expect": "PASS",
+         "moved_m": 30.0, "activate_m": ACTIVATE_M, "expect": "PASS",
          "basis": "supported hypothesis: vanilla keeps its automatic cave doors (AutoloadDoor_Cave, 45 of them) in "
                   "overlay worldspaces' persistent cells with XTELs to interior caves, as written here; whether our "
                   "overlay's merge offset is applied to the return arrival is unresolved"}
@@ -263,6 +267,19 @@ FEET = 0.5          # a floor under a point counts when it is at most this far a
 CLIMB = 0.3         # per 0.25 m sample of a walk: a 0.3 m step or a 50 degree slope (the player's limits: assumed)
 CAPSULE = (0.35, 1.8, 0.3)   # radius, height, skin (contacts lower than a step are not obstacles): assumed, unresolved
 ACTIVATE_M = 3.0    # Starfield.esm GMST fAutoDoorActivateDistance (051542) = 3
+ACTIVATE_MAX_M = 3.571875   # Starfield.esm GMST fDistanceAutomaticallyActivateDoor (003420), the larger door distance
+MARKER_HALF_X = 0.9144      # autoloadmarker01.nif half width (m, scale 1; BSGeometry bounds, Starfield - Meshes01.ba2)
+MARKER_H = 2.7432           # its height (m, scale 1), standing on its origin as the FO4 marker does (z 0..192 units)
+# a start whose straight walk is capsule clear until the player touches the door's marker first (whatever the range
+# is measured to), else until the feet are within 2.7 m of the door's origin (the 3 m range measured to the origin)
+REACH_TIERS = (("marker", 0.5), ("origin", ACTIVATE_M - 0.3))
+
+
+def start_min_m(scale):
+    """The closest a walk's start may stand to an automatic door: the larger door distance measured to the edge of the
+    scaled marker, plus the capsule radius and 0.5 m, so the teleport to the start cannot fire the door whether the
+    range is measured to the door's origin or to its marker (unresolved)."""
+    return round(ACTIVATE_MAX_M + MARKER_HALF_X * scale + CAPSULE[0] + 0.5, 2)
 
 
 def walk_profile(support, a, b, z0, step=0.25, climb=CLIMB, blocked=None):
@@ -293,49 +310,65 @@ def walk_profile(support, a, b, z0, step=0.25, climb=CLIMB, blocked=None):
             "gaps": gaps, "blocked": stop, "length": round(math.hypot(b[0] - a[0], b[1] - a[1]), 3)}
 
 
-def clear_until_range(walk, door, a, reach=ACTIVATE_M - 0.3):
+def door_gap(x, y, z, door, door_h):
+    """From a standing player (feet at z, CAPSULE height) to the door's marker (a vertical segment from the door's
+    origin up door_h): the horizontal distance when they overlap in height, else the distance to the nearer end."""
+    dz = max(0.0, door[2] - (z + CAPSULE[1]), z - (door[2] + door_h))
+    return math.hypot(math.hypot(x - door[0], y - door[1]), dz)
+
+
+def clear_until_range(walk, door, a, reach=ACTIVATE_M - 0.3, door_h=None):
     """True when a straight walk (walk_profile from a to door) has a floor and a clear capsule at every sample until its
-    feet are within `reach` of the door (where the automatic door should load), climbing at most CLIMB per sample."""
+    feet are within `reach` of the door's origin (door_h None, 3D: where the automatic door should load) or the player
+    is within `reach` of the door's marker (door_h its height: door_gap), climbing at most CLIMB per sample. The sample
+    that first comes within `reach` is not itself checked for the capsule."""
     for d, z, _own, clear in walk["samples"]:
         if z is None:
             return False
         f = d / walk["length"] if walk["length"] else 0.0
         x, y = a[0] + (door[0] - a[0]) * f, a[1] + (door[1] - a[1]) * f
-        if math.dist((x, y, z), door) < reach:
+        if (math.dist((x, y, z), door) if door_h is None else door_gap(x, y, z, door, door_h)) < reach:
             return True
         if not clear:
             return False
     return False
 
 
-def pick_start(support, blocked, door, arr, min_m=ACTIVATE_M + 1.5, max_m=8.0):
-    """Where the runner starts its walk at the door: the arrival point (the other door's XTEL) when a straight walk from
-    it reaches the door's activation range on a clear floor; else the clear spot closest to the arrival, min_m..max_m
-    from the door, from which such a walk exists (rings around the door, 15 degree steps). (start, walk, how)."""
+def pick_start(support, blocked, door, arr, min_m=ACTIVATE_M + 1.5, max_m=8.0, door_h=MARKER_H, tiers=REACH_TIERS):
+    """Where the runner starts its walk at the door, at least min_m from it (start_min_m: the teleport there must not
+    fire the door): for each tier in turn (REACH_TIERS: capsule clear until the player touches the door's marker of
+    height door_h, then until the feet are inside the 3 m range of its origin), the arrival point (the other door's
+    XTEL) when a straight walk from it is clear that far, else the clear spot closest to the arrival, min_m..max_m from
+    the door, from which such a walk exists (rings around the door, 15 degree steps). (start, walk, how, reach) with
+    reach = {"to": "marker" | "origin", "m": distance}, None when no straight walk is clear to any tier."""
     fa = support(arr[0], arr[1], arr[2] + FEET)
     a0 = [arr[0], arr[1], round(max(arr[2], (fa[0] if fa else arr[2]) + 0.05), 4)]
     w0 = walk_profile(support, a0, door, fa[0] if fa else arr[2], blocked=blocked)
-    if fa is not None and not blocked(arr[0], arr[1], fa[0]) and clear_until_range(w0, door, a0):
-        return a0, w0, "arrival"
+    a_ok = fa is not None and not blocked(arr[0], arr[1], fa[0]) and math.dist(a0, door) >= min_m
     base = math.atan2(arr[0] - door[0], arr[1] - door[1])
-    best = None
-    for d in np.arange(min_m, max_m + 0.01, 0.5):
-        for da in range(-90, 91, 15):
-            ang = base + math.radians(da)
-            x, y = door[0] + d * math.sin(ang), door[1] + d * math.cos(ang)
-            hit = support(x, y, max(door[2], arr[2]) + 1.5)
-            if hit is None or blocked(x, y, hit[0]):
-                continue
-            s = [round(x, 4), round(y, 4), round(hit[0] + 0.05, 4)]
-            w = walk_profile(support, s, door, hit[0], blocked=blocked)
-            if not clear_until_range(w, door, s):
-                continue
-            cost = math.hypot(x - arr[0], y - arr[1])
-            if best is None or cost < best[0]:
-                best = (cost, s, w)
-    if best is None:
-        return a0, w0, "arrival (no clear straight walk found)"
-    return best[1], best[2], f"clear spot {best[0]:.2f} m from the arrival"
+    for to, dist in tiers:
+        reach = {"to": to, "m": dist}
+        h = door_h if to == "marker" else None
+        if a_ok and clear_until_range(w0, door, a0, dist, h):
+            return a0, w0, "arrival", reach
+        best = None
+        for d in np.arange(min_m, max_m + 0.01, 0.5):
+            for da in range(-90, 91, 15):
+                ang = base + math.radians(da)
+                x, y = door[0] + d * math.sin(ang), door[1] + d * math.cos(ang)
+                hit = support(x, y, max(door[2], arr[2]) + 1.5)
+                if hit is None or blocked(x, y, hit[0]):
+                    continue
+                s = [round(x, 4), round(y, 4), round(hit[0] + 0.05, 4)]
+                w = walk_profile(support, s, door, hit[0], blocked=blocked)
+                if not clear_until_range(w, door, s, dist, h):
+                    continue
+                cost = math.hypot(x - arr[0], y - arr[1])
+                if best is None or cost < best[0]:
+                    best = (cost, s, w)
+        if best is not None:
+            return best[1], best[2], f"clear spot {best[0]:.2f} m from the arrival", reach
+    return a0, w0, "arrival (no clear straight walk found)", None
 
 
 def pick_near(support, blocked, door, start, door_floor, dists=(1.0, 1.5, 2.0), max_3d=2.5):
@@ -378,18 +411,21 @@ def exterior_support(world):
     return support
 
 
-def measure(support, blocked, door, arr, extra=None):
+def measure(support, blocked, door, arr, scale, extra=None):
     """One side of the link: the door, the arrival the other side's XTEL gives (= the walk's start: where the game puts
     a player in front of this door), what stands under both, the floor a straight walk from the arrival to the door
-    follows (and where its capsule would first touch something), and the last-try spot in front of the door."""
+    follows (and where its capsule would first touch something), and the last-try spot in front of the door. scale:
+    the door's, for the start's minimum distance (start_min_m)."""
     fa = support(arr[0], arr[1], arr[2] + FEET)
     fd = support(door[0], door[1], door[2] + FEET)
     arrival_walk = walk_profile(support, arr, door, fa[0] if fa else arr[2], blocked=blocked)
     # the walk starts at the arrival point when a straight walk from there reaches the door; otherwise (the RedRocket01
     # arrival touches a rock mound, and a mound stands on the straight line) at the clear spot closest to it
-    start, walk, how = pick_start(support, blocked, door, arr)
+    min_m = start_min_m(scale)
+    start, walk, how, reach = pick_start(support, blocked, door, arr, min_m=min_m, door_h=MARKER_H * scale)
     nr = pick_near(support, blocked, door, start, fd[0] if fd else None)
-    out = {"door": door, "arrival": arr, "start": start, "start_pick": how, "arrival_walk": arrival_walk,
+    out = {"door": door, "arrival": arr, "start": start, "start_pick": how, "start_reach": reach, "scale": scale,
+           "start_min_m": min_m, "start_to_door_m": round(math.dist(start, door), 3), "arrival_walk": arrival_walk,
            "near": nr["pos"] if nr else None, "near_pick": nr,
            "arrival_floor": fa[0] if fa else None, "arrival_floor_owner": fa[1] if fa else None,
            "arrival_above_floor": round(arr[2] - fa[0], 4) if fa else None,
@@ -400,7 +436,7 @@ def measure(support, blocked, door, arr, extra=None):
     return out
 
 
-def measure_outside(world, o_door, o_arr):
+def measure_outside(world, o_door, o_arr, scale):
     """The exterior door and its approach against exp2d's terrain (BTD) and converted collision. ground: what the
     returning player lands on at the arrival point (exterior.landing over a 0.6 m disc, from the arrival z + FEET), the
     judge's reference after the load."""
@@ -411,18 +447,18 @@ def measure_outside(world, o_door, o_arr):
     def blocked(x, y, z):
         return [world.describe(k)["edid"] if isinstance(k, (int, np.integer)) else k
                 for k in exterior.capsule_hits(world.index, world.ground, x, y, z, radius=r, height=h, skin=skin)]
-    return measure(exterior_support(world), blocked, o_door, o_arr, {
+    return measure(exterior_support(world), blocked, o_door, o_arr, scale, {
         "ground": round(la["centre"], 4), "arrival_landing": landing_json(world, la),
         "door_terrain": round(float(world.ground(o_door[0], o_door[1])), 4)})
 
 
-def measure_inside(interior, i_door, i_arr):
+def measure_inside(interior, i_door, i_arr, scale):
     r, h, skin = CAPSULE
 
     def blocked(x, y, z):
         return [interior.describe(k)["model"] for k in
                 exterior.capsule_hits(interior.index, lambda _x, _y: -1e9, x, y, z, radius=r, height=h, skin=skin)]
-    m = measure(interior.support, blocked, i_door, i_arr)
+    m = measure(interior.support, blocked, i_door, i_arr, scale)
     m["floor"] = m["arrival_floor"]
     return m
 
@@ -462,11 +498,11 @@ def cmd_stage(a):
     e0 = load(os.path.join(a.exp2d, "plan.json"))[0]
     travel = e0.get("travel") or f"coc {e0['coc']}"
     # 3. ground and floor (the doors themselves are copied from Fallout 4; the approach points are ours)
-    outside = measure_outside(world, o_side["pos"], i_side["xtel"]["pos"])
+    outside = measure_outside(world, o_side["pos"], i_side["xtel"]["pos"], o_side["scale"])
     interior = Interior(a.port, FO4_CELL)
     if interior.errors:
         print(f"note: {len(interior.errors)} interior models without readable collision: {sorted(interior.errors)[:5]}")
-    inside = measure_inside(interior, i_side["pos"], o_side["xtel"]["pos"])
+    inside = measure_inside(interior, i_side["pos"], o_side["xtel"]["pos"], i_side["scale"])
     # 4. the plugin
     params = {"plugin": PLUGIN, "door_base": DOOR_BASE,
               "world": {"plugin": EXP2_PLUGINS[0], "editor_id": prm["world"]},
@@ -613,19 +649,32 @@ def cmd_check(a):
     add("the exterior door is placed once (exp2d skips the Fallout 4 marker door)",
         exp["exp2d_exterior_door"]["status"] == "skipped", str(exp["exp2d_exterior_door"]))
     for name, m in (("exterior", o), ("interior", i)):
-        add(f"{name} door base on the floor under it (0 <= door z - floor <= 1.5 m: the trigger box stands in the "
-            f"opening)", m["door_floor"] is not None and -0.3 <= m["door_above_floor"] <= 1.5,
-            f"door z {m['door'][2]}, floor {m['door_floor']} ({m['door_floor_owner']})")
-        add(f"{name} arrival (the other door's XTEL point) over a floor within 0.5 m",
+        add(f"{name} door origin near the floor under it (-0.3 <= door z - floor <= 1.5 m: the marker stands in the "
+            f"opening, its origin at most 0.3 m inside what it stands on)",
+            m["door_floor"] is not None and -0.3 <= m["door_above_floor"] <= 1.5,
+            f"door z {m['door'][2]}, floor {m['door_floor']} ({m['door_floor_owner']}): the origin "
+            + (f"{m['door_above_floor']:.2f} m above it" if m["door_above_floor"] >= 0
+               else f"{-m['door_above_floor']:.2f} m below its top"))
+        add(f"{name} arrival (the other door's XTEL point) within 0.5 m of the floor under it (|XTEL z - floor| <= 0.5 m)",
             m["arrival_floor"] is not None and abs(m["arrival_above_floor"]) <= 0.5,
-            f"XTEL z {m['arrival'][2]}, floor {m['arrival_floor']} ({m['arrival_floor_owner']})")
+            f"XTEL z {m['arrival'][2]}, floor {m['arrival_floor']} ({m['arrival_floor_owner']}): "
+            + (f"{m['arrival_above_floor']:.2f} m above it" if m["arrival_above_floor"] >= 0
+               else f"{-m['arrival_above_floor']:.2f} m below its top"))
         w = m["walk"]
-        add(f"{name} straight walk from the start ({m['start_pick']}) reaches {ACTIVATE_M - 0.3:g} m of the door on a "
-            f"floor with the capsule clear (assumed capsule {CAPSULE[0]} x {CAPSULE[1]} m, climb {CLIMB} m per 0.25 m)",
-            clear_until_range(w, m["door"], m["start"]),
+        reach = m.get("start_reach") or {}
+        to = (f"{reach['m']:g} m of the door's marker (the player touches it)" if reach.get("to") == "marker" else
+              f"{reach['m']:g} m of the door's origin (inside its {ACTIVATE_M:g} m range only if that range is measured "
+              f"to the origin)" if reach else "the door (no tier)")
+        add(f"{name} straight walk from the start ({m['start_pick']}) comes within {to} on a floor, the capsule clear "
+            f"until then (assumed capsule {CAPSULE[0]} x {CAPSULE[1]} m, climb {CLIMB} m per 0.25 m)",
+            bool(reach) and clear_until_range(w, m["door"], m["start"], reach["m"],
+                                              MARKER_H * m["scale"] if reach["to"] == "marker" else None),
             f"{w['length']} m, largest rise {w['max_rise']} m, largest drop {w['max_drop']} m, "
             + (f"capsule first touches {w['blocked']['by']} at {w['blocked']['distance']} m "
                f"({w['length'] - w['blocked']['distance']:.2f} m before the door)" if w["blocked"] else "capsule clear"))
+        add(f"{name} start at least {m['start_min_m']} m from the door (the larger door distance "
+            f"{ACTIVATE_MAX_M} m to the edge of the scaled marker, capsule radius, 0.5 m): the teleport there cannot "
+            f"fire it", m["start_to_door_m"] >= m["start_min_m"], f"{m['start_to_door_m']} m")
         add(f"{name} last-try spot in front of the door (floor, capsule clear, within 2.5 m of the door)",
             m["near"] is not None, str(m["near_pick"]))
         add(f"{name} arrival outside the {ACTIVATE_M:g} m activation range of its own side's door (no immediate "
@@ -645,8 +694,9 @@ def cmd_check(a):
     new, moved, missing = exp_install.order_lines(lines, plugins, masters)
     want = ["*FO4TerrainExp2.esm", "*FO4TerrainExp2_Mars.esm", "*FO4Port.esm", f"*{PLUGIN}"]
     add("load order after exp_install.py order", new == want and not missing, " ".join(new))
-    add("plan needs the runner features door_trip and plugin_order",
-        testqueue.plugin_order_needed(out, plugins) and "door_trip" in testqueue.runner_features.needs([t]),
+    add("plan needs the runner features door_check, door_trip and plugin_order",
+        testqueue.plugin_order_needed(out, plugins)
+        and {"door_check", "door_trip"} <= set(testqueue.runner_features.needs([t])),
         str(sorted(set(testqueue.runner_features.needs([t])) | {"plugin_order"})))
     ok = all(c["ok"] for c in checks)
     save(os.path.join(out, "offline_check.json"), {"ok": ok, "checks": checks, "plugin_check": rep})

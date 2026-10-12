@@ -21,10 +21,15 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   Starfield `AutoloadDoor_Cave` (24F9CE): "Auto Door", Automatic, `Meshes\autoloadmarker01.nif`, script
   `ENV_NotSealedLocationDoorScript`; 92 references, the 45 in worldspaces all in overlay worldspaces' persistent
   cells (all 345 worldspace XTEL references are in the persistent cell); its marker's bounds (half 0.9144, 0.1143,
-  1.3716 m) are the FO4 marker's (64, 8, 96 units) / 70 exactly. GMST `fAutoDoorActivateDistance` 3,
+  1.3716 m, i.e. 3 ft, 4.5 in, 4.5 ft) are the FO4 marker's (64, 8, 96 units) / 70 to within 0.013 % (corrected after
+  QA: first written "exactly"). GMST `fAutoDoorActivateDistance` 3,
   `fAutoDoorDisplayDistance` 12. `FO4SliceRedRocket.esm` (1,123 B): WRLD and persistent-cell overrides byte-identical
   to FO4TerrainExp2.esm's records, the RedRocket01 CELL override byte-identical to FO4Port.esm's, doors 0x800 / 0x801
-  persistent with XTELs both ways; Mutagen read-back 28 of 28, Python check 25 of 25. Plugins.txt of the last exp2d
+  persistent with XTELs both ways; Mutagen read-back 28 of 28, Python check 25 of 25 (27 of 27 after the fix pass;
+  two labels claimed more than the code checks: the interior door's origin stands 0.27 m inside a column's rock base,
+  allowed down to -0.3 m, and the interior XTEL arrival z -0.006 is 0.25 m below a rock mound's top, not over it, as in
+  Fallout 4; the interior walk's capsule first touches a column 2.26 m from the door's origin, so walking out needs
+  the 3 m range measured to the origin: supported, not shown). Plugins.txt of the last exp2d
   run: `*FO4TerrainExp2.esm`, `*FO4TerrainExp2_Mars.esm`, `*FO4Port.esm` (the deploy re-appends FO4Port.esm after the
   experiment on every launch).
 - Status: the Fallout 4 link, our missing ends and the plugin's records **verified** (offline); vanilla's layout for

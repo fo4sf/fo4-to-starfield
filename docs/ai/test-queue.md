@@ -30,7 +30,7 @@ another window in front of the game, also stops it (or makes it wait for an idle
 | travel | load doors whose XTEL partner is in the same build | arrived within 4 m of the arrival point | no prompt; E did nothing | start not reached, arrived elsewhere |
 | terrain | `plan-terrain` (an experiment's plan.json) | heights within 0.5 m | NOTERRAIN, HEIGHTS | a height not read, moved |
 | npc_nav | `plan-npc` (plan.json, below) | the actor walked to B (a baseline: stayed away without a command) | NONAV, STALLED, FELL, WANDER | spawn / handle / reads failed, warp or early arrival, control or precondition not met |
-| door_trip | `plan-door` (plan.json, below) | through a load door into an interior and back, saved and loaded, every arrival read where expected | NOLOAD, UNMERGED, REMERGED, WRONGCELL, FELL, RELOAD, OFFGROUND | offset, start, a read, the save file or the loading screen not seen |
+| door_trip | `plan-door` (plan.json, below) | walked through a load door into an interior and back, saved and loaded, every arrival read where expected | NOLOAD, UNMERGED, REMERGED, WRONGCELL, FELL, RELOAD, OFFGROUND | offset, start, a read, the door not reached (NOREACH), loaded only from the last try (NEARONLY), position and GetInCell disagree (CELLREAD), the save file or the reload not seen |
 
 Every verdict needs its observations: a position that was not read or a screenshot that is missing makes the test
 INCONCLUSIVE, never PASS. INCONCLUSIVE tests are retried once more at the end of the queue (`--max-attempts 2`); a FAIL
@@ -143,7 +143,9 @@ without a word. Therefore:
 
 - `plan-terrain` / `plan-npc` write `"needs"` into `queue.json` (`runner_features.needs`: `light` for a time of day or a
   weather, `console` for `console_pre` / `console_post`, `npc_t0` for an npc_nav `precommand_m` / `arrive_progress`:
-  an older runner would judge such a queue by `min_progress` alone), and the runner refuses a queue whose needs its checkout lacks
+  an older runner would judge such a queue by `min_progress` alone; `door_trip` for the kind, `door_check` for a
+  door_trip test with `moved_m` / `activate_m`: the first door_trip runner could teleport after a load it did not see
+  and judge NOLOAD from 5 m), and the runner refuses a queue whose needs its checkout lacks
   (`runner_features.FEATURES`; run.log "stopped: this queue needs runner features ...", status "stopped: runner lacks
   ...", exit 3, nothing launched). It also notes in run.log when the queue was planned at a commit its checkout does not
   contain.
@@ -332,21 +334,26 @@ version of this branch split `Data\textures` into a DDS `- Textures.ba2`; it was
 The slice's "working door -> converted interior -> save/reload" (docs/slice/redrocket-door.md, which has the step, the
 obs.json fields and every verdict). One test: `coc` into a world, the settled arrival gives the overlay's merge offset
 (as npc_nav's `spawn_local`); "in": teleport to `outside.start` + offset facing the door, walk at it in steps with a HUD
-check after each (an automatic door fades and loads within 3 m), E if a prompt shows, a teleport to `outside.near` as
-the last try; the arrival read until it settles, `player.GetInCell <inside.cell>` (parse_npc.py `incell`), a
-screenshot; "out" the same from `inside.start`; then `save <save>` (its file must appear in the Saves folder) and
-`load <save>` (a loading screen must be seen), the position read again. PASS needs every arrival observed where
-expected; a leg that fails ends the step.
+check and a position read after each (an automatic door fades and loads within 3 m; a read more than `moved_m` from
+the start is a load the HUD checks missed, and ends the walk at once), E if a prompt shows, a teleport to
+`outside.near` as the last try, E and the last try only after a read on this side of the door; the arrival read
+until it settles, `player.GetInCell <inside.cell>` (parse_npc.py `incell`), a screenshot; "out" the same from
+`inside.start`; then `save <save>` (its file must appear in the Saves folder), a teleport back to the coc arrival and
+`load <save>` (the player must come back; a loading screen is looked for), the position and GetInCell read again.
+PASS needs every arrival observed where expected and both legs walked (a load from the last try alone is INCONCLUSIVE
+NEARONLY); NOLOAD needs the player standing within `activate_m` of the door with GetInCell not saying the far side;
+a leg that fails ends the step. With `outside.ref` the door's own getpos is read after the coc (a diagnostic).
 
 | plan.json field | meaning | default |
 |---|---|---|
 | `travel` | `coc <cell editor id>` into the world | required |
 | `spawn_local` | the arrival in the world's own frame: offset = settled arrival - spawn_local | required |
-| `outside` | `start`, `door`, `arrival` (where the interior door's XTEL puts the player), `near`, `ground` (what the returning player stands on): the world's own frame | required (near, ground optional) |
+| `outside` | `start`, `door`, `arrival` (where the interior door's XTEL puts the player), `near`, `ground` (what the returning player stands on): the world's own frame; `ref` (8 hex digits, the door's runtime form id: getpos diagnostic) | required (near, ground, ref optional) |
 | `inside` | `cell` (EditorID, typed for GetInCell), `start`, `door`, `arrival`, `near`, `floor`: the interior's frame | required |
 | `save` | save name, `fo4sf_` + letters / digits / `_`, never a `fo4sf_test_` session save | required |
 | `radius`, `start_tol`, `reload_tol`, `ground_tol` | arrival, start, reload and ground tolerances (m) | 4, 3, 1, 1 |
 | `walk_ms`, `walk_step_ms`, `near_wait_ms`, `load_wait_s`, `settle_ms`, `drop` | the walk, the last try, the load wait, the settle after a teleport, the drop | 8000, 500, 6000, 90, 6000, 0.5 |
+| `moved_m`, `activate_m` | a read farther than this from a leg's start is the other side of the door; the door's range for NOLOAD | 30, 3 |
 | `fresh`, `expect`, `basis`, time of day / weather, `console_pre` / `console_post` | as for npc_nav | |
 
 ```powershell
@@ -363,7 +370,9 @@ whose plugins master something outside the install and the game get the need `pl
 `plugin_order_needed`), so a runner without it refuses them before launching. Tests: `tests/test_door_trip.py`
 (plan, judge, order), `QstepDoorSandboxTests` in `tests/test_qstep_sandbox.py` (the real step against simulated
 automatic doors, loading screens, GetInCell and save files: a full trip, an unmerged return, a door that does nothing,
-a blocked walk loaded from the last-try spot, a load that lands elsewhere, a save that is not written, refused specs).
+a blocked walk loaded from the last-try spot (NEARONLY), a blocked walk without one (NOREACH), a load no HUD check saw
+(found by the position: 2 loads, no last-try teleport), the door's getpos, a load that lands elsewhere, a save that is
+not written, refused specs).
 
 ## NPC navigation (`npc_nav`)
 

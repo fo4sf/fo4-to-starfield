@@ -187,3 +187,16 @@ Alternatives: a converted FO4Port load door base (a visible door with an E promp
 copying 24F9CE without its environment script (a configuration vanilla never uses); placing the doors in FO4Port.esm or
 FO4TerrainExp2.esm (would change the pinned build or a measured experiment); leaving the plugin before its master (in
 Fallout 4 / Skyrim a load crash; in Starfield untested).
+
+## 2026-10-12 door_trip: a door "does not work" only from a stand in its range; a PASS needs the walk-in (Claude)
+After QA on PR #78: FAIL NOLOAD needs the player standing (settled) within the door's range (`activate_m`, 3 m) with
+no load and GetInCell not saying the far side; a player never in range is INCONCLUSIVE NOREACH, a contradiction
+INCONCLUSIVE CELLREAD. The step reads the position after every walk step and before E or the last-try teleport, so a
+load that no HUD screenshot caught is counted and never followed by a teleport to the other side's coordinates. A
+trip that loaded only from the last-try teleport is INCONCLUSIVE NEARONLY, because the owner's slice means walking in.
+Before `load` the player is moved back to the coc arrival, so the position shows the reload by itself.
+Why: a wrong FAIL on the slice's main question costs more than a retry; the HUD sampling (one screenshot about 1.5 s
+after each 500 ms step) can miss a short loading screen, and the old step then teleported into the void.
+Alternatives: keep NOLOAD on "near the start, no loading screen" (refuted by QA's synthetic cases); detect loads by
+comparing screenshots (fragile at night and in caves); PASS with a NEAR class (the report's tally counts every PASS as
+one, so the caveat would vanish from the summary).

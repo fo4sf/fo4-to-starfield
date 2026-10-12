@@ -23,7 +23,11 @@ import sys
 #               An older qstep.ps1 ends such a step with "unknown kind" (exit 4) after the game was launched for it
 # plugin_order: cycle.ps1 runs exp_install.py order after deploying FO4Port.esm, so an experiment plugin that masters
 #               FO4Port.esm loads after it; an older runner would launch with that plugin before its master
-FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order")
+# door_check:   door_trip with moved_m / activate_m (QA on PR #78, 2026-10-12): a position read after every walk step
+#               and before E or the last-try teleport, the player moved away before the reload, NOLOAD only from a stand
+#               within the door's range. The first door_trip runner could teleport after a load its HUD checks missed
+#               and call a stand 5 m from the door "the door does not work"
+FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check")
 
 
 def needs(tests):
@@ -38,6 +42,8 @@ def needs(tests):
             out.add("npc_t0")
         if t.get("kind") == "door_trip":
             out.add("door_trip")
+            if "moved_m" in t or "activate_m" in t:
+                out.add("door_check")
     return sorted(out)
 
 

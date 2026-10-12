@@ -32,7 +32,8 @@ between console sessions, e.g. during the probes); land_z: a player.setpos z lan
 INI settings (ini, default INI below, made-up values): GetINI "<name:Section>" prints "INISetting <name:Section> >> <v>"
 (%i / %.4f) or ">> NOT FOUND"; SetINI on a known setting prints nothing, on an unknown one 'INI setting "<name:Section>"
 does not exist' (the reply formats in Starfield.exe 1.16.244).
-Load doors (door_trip): doors [{"cell", "pos", "auto", "works", "dest_cell", "dest_pos"}]: an automatic door ("auto")
+Load doors (door_trip): doors [{"cell", "pos", "auto", "works", "dest_cell", "dest_pos", "ref", "ref_pos"}]: readpos
+<ref> of a door's "ref" prints its "ref_pos" (default its pos: what getpos reports); an automatic door ("auto")
 loads when the player comes within auto_dist (3 m, Starfield.esm fAutoDoorActivateDistance) while the game runs (a walk
 step, or the console closing after a setpos); a door without "auto" loads on E within 2.5 m, where prompt_visible.py
 says yes. A load moves the player to dest_pos in dest_cell and hides the HUD for load_secs (hud_visible.py says no).
@@ -370,7 +371,12 @@ def main():
             s["sel"] = ref                                 # readpos -Ref selects with prid
             print(" ".join(f"{v:.2f}" for v in s["anchor_pos"]))
         else:
-            print("fail")
+            d = next((d for d in s.get("doors", []) if (d.get("ref") or "").upper() == ref), None)
+            if d is None:
+                print("fail")
+            else:                                          # a door's getpos: ref_pos (e.g. its unmerged local position)
+                s["sel"] = ref
+                print(" ".join(f"{v:.2f}" for v in d.get("ref_pos") or d["pos"]))
     with open(P, "w") as f:
         json.dump(s, f, indent=1)
 

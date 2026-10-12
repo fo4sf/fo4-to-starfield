@@ -3,9 +3,11 @@
 Author: Claude, 2026-10-12. Branch `claude/slice-redrocket-door`, stacked on `claude/integration-1012` (runner #59,
 npc_nav #68, daylight #73, raider #75, core64c #76, N0b #77). Starfield 1.16.244, Fallout 4 1.10.163.
 Status: **built and checked offline, staged, queue planned, not deployed, not run.** Offline checks are not in-game
-acceptance. Staged `C:\Modding\staging\slice_redrocket_door`; queue `C:\Modding\testqueue\slice_redrocket_door`
-(queue.json only, planned 2026-10-12 at bf7c853; not in the chain: that is the owner's call, after the chain's runner
-checkout has this branch).
+acceptance. After QA on PR #78 (fix pass, section 6 "Fix pass"): staged `C:\Modding\staging\slice_redrocket_door_b`,
+queue `C:\Modding\testqueue\slice_redrocket_door_b` (queue.json only; not in the chain: that is the owner's call,
+after the chain's runner checkout has this branch). The first staging and queue (`slice_redrocket_door`, bf7c853) are
+superseded: never run them (their judge could call a stand 5 m from the door "the door does not work", their interior
+start stood 4.50 m from the door, and the runner of that commit could teleport after a load it did not see).
 Labels: **verified** = checked here on files (number given), **supported** = supported hypothesis, **unresolved**,
 **refuted**.
 
@@ -26,8 +28,9 @@ loads and reads where the player is after every step.
   uses exactly this door in exactly this layout for its own cave entrances on planets (45 of them).
 - One install (`C:\Modding\staging\slice_redrocket_door`) = experiment 2d (terrain, 8,069 objects, navmesh) + the door.
 - The runner gets a new kind, `door_trip`: coc to Red Rocket, walk into the cave mouth, arrive in RedRocket01, walk
-  into the exit, arrive on the terrain, save, load, read again. Every arrival must be read (position, GetInCell,
-  screenshot) for a PASS.
+  into the exit, arrive on the terrain, save, move away, load, read again. Every arrival must be read (position,
+  GetInCell, screenshot) for a PASS; a load is noticed by the HUD or by the position, whichever comes first; a trip
+  that loaded only from the last-try teleport is not a PASS (NEARONLY).
 - The game must load `FO4SliceRedRocket.esm` after `FO4Port.esm`, which the runner's deploy activates last: cycle.ps1
   now moves an experiment plugin after its masters (`exp_install.py order`).
 
@@ -93,7 +96,7 @@ load door. `AutoloadDoor_Cave` (`24F9CE:Starfield.esm`) is Starfield's own versi
 | name | Auto Door | Auto Door |
 | flags | Automatic | Automatic |
 | model | `AutoLoadMarker01.nif` | `Meshes\autoloadmarker01.nif` |
-| marker size | 128 x 16 x 192 units | 1.8288 x 0.2286 x 2.7432 m (BSGeometry bounds, `Starfield - Meshes01.ba2`) = the FO4 marker / 70 exactly |
+| marker size | 128 x 16 x 192 units | 1.8288 x 0.2286 x 2.7432 m (BSGeometry bounds, `Starfield - Meshes01.ba2`: 6 ft x 9 in x 9 ft) = the FO4 marker / 70 to within 0.013 % (128 / 70 = 1.82857 m) |
 | script | none | `ENV_NotSealedLocationDoorScript` (properties `ENV_Loc_NotSealedEnvironment` 0EF1E0, `..._BreathableAtmosphere` 20E1D9) |
 | components | | none (no animation graph) |
 
@@ -129,7 +132,9 @@ recorded in docs/ai/decisions.md (2026-10-12).
 Masters: Starfield.esm, FO4TerrainExp2.esm, FO4Port.esm (in that order). No XNDP navmesh door link is written: NPCs
 will not path through the door (out of scope here). The exterior door sits in the world's persistent cell like the
 45 vanilla ones and like exp2b's anchor; the anchor read back its unmerged local position (exp2b, 2026-10-11), so
-whether a persistent door stands at the merged position is exactly what the "in" leg below shows (**unresolved**).
+whether a persistent door stands at the merged position is **unresolved**. An in-leg PASS shows that it does; a NOLOAD
+alone cannot tell a door at its unmerged local position from an automatic door that does not fire, so the step also
+reads the door's own getpos (section 6, a diagnostic: our anchors read local coordinates there, a vanilla ref did not).
 
 **Load order.** The runner installs the experiment's plugins before the launch (`pre_launch`), then cycle.ps1's
 deploy removes and re-appends `*FO4Port.esm`, so FO4Port.esm would load after the plugin that masters it (Plugins.txt
@@ -141,9 +146,10 @@ game's own files ends the launch (cycle exit 7, the runner stops). The planned o
 `*FO4TerrainExp2_Mars.esm`, `*FO4Port.esm`, `*FO4SliceRedRocket.esm`. Console load-order bytes: FO4TerrainExp2.esm =
 02 (**verified**: its anchor read as `02000800` in every exp2 run), so FO4TerrainExp2_Mars.esm = 03, FO4Port.esm = 04
 and `FO4SliceRedRocket.esm` = 05 (both TES4 flags 0x1, full plugins: **supported**), the doors `05000800` /
-`05000801`. The runner's test does not depend on these numbers.
+`05000801`. The verdict does not depend on these numbers; plan.json's `outside.ref` `05000800` is only used for the
+getpos diagnostic (section 6).
 
-## 5. Offline checks (verified; `offline_check.json` in the staging folder: 25 checks pass, one of them SliceDoor's 28)
+## 5. Offline checks (verified; `offline_check.json` in the staging folder: 27 checks pass, one of them SliceDoor's 28)
 
 - **Mutagen read-back** (`SliceDoor check`, 28 checks): the masters; exactly 5 records; the WRLD, its persistent cell
   and the interior CELL equal their masters' records (same FormKey, every field, children aside); each door one
@@ -159,18 +165,19 @@ and `FO4SliceRedRocket.esm` = 05 (both TES4 flags 0x1, full plugins: **supported
 
 | | value |
 |---|---|
-| exterior door | z 98.684, floor under it 97.729 (the cave entrance static's floor; the BTD is 95.25 there, a pit under the static): the 0.63 m trigger stands 0.95 m above the floor in the cave mouth |
+| exterior door | z 98.684, floor under it 97.729 (the cave entrance static's floor; the BTD is 95.25 there, a pit under the static): the 0.63 m marker stands 0.96 m above the floor in the cave mouth |
 | arrival outside | XTEL z 99.771 over the terrain at 99.734; a returning player lands at 99.734 (the judge's `ground`) |
-| walk outside | from the arrival to the door: floor all the way down the cave mouth, 99.73 -> 97.73 m over 5.38 m, no rise over 0.02 m; the assumed capsule (0.35 m x 1.8 m) clear until the door itself; within 2.7 m of the door after about 3 m |
-| interior door | z 0.000, floor 0.275 (a column's rock base; the hall floor 0.143) |
-| arrival inside | XTEL z -0.006 over a rock mound top at 0.244 (the hall floor 0.013); the capsule touches `CaveMoundRocksMed04` there |
-| walk inside | the straight line from the arrival crosses mounds (capsule blocked from 4.1 to 5.9 m): the runner starts 4.5 m west of the door instead (-6.081, 1.580, 0.057, 10.2 m from the arrival, capsule clear, floor all the way, heading 79 degrees) |
+| walk outside | from the arrival (the start) to the door: floor all the way down the cave mouth, 99.73 -> 97.73 m over 5.38 m, no rise over 0.02 m; the assumed capsule (0.35 m x 1.8 m) clear until the door itself (it first touches the cave entrance static at the door's own xy, 5.38 m), so the player can touch the marker; within 2.7 m of the door's origin after about 3 m |
+| interior door | origin z 0.000 over a column's rock base whose top is 0.275 m: the origin stands 0.27 m inside the rock base (the check allows 0.3 m); the hall floor 0.143. Fallout 4 has the same geometry (position / 70) |
+| arrival inside | XTEL z -0.006: 0.25 m below the top of a rock mound (0.244) and 2 cm below the hall floor (0.013), as Fallout 4's XTEL / 70; the capsule touches `CaveMoundRocksMed04` there |
+| walk inside | the straight line from the arrival crosses mounds (capsule blocked from 4.1 to 5.9 m). No start 5.27 to 8 m from the door, within 90 degrees of the arrival's bearing, has a straight walk with the capsule clear to the door's marker: the tall column `CaveColmRockTall` stands beside the door. The runner starts 5.27 m west of the door (-6.837, 1.437, 0.064; 10.6 m from the arrival; heading 79 degrees): floor all the way, the capsule clear for 3.01 m, until 2.26 m from the door's origin, where it first touches that column. Walking in from inside therefore needs the 3 m range measured to the door's origin (**supported**, not shown); otherwise only the last try loads (NEARONLY) |
+| start distance | each start at least `fDistanceAutomaticallyActivateDoor` 3.57 m + half the scaled marker width + the capsule radius 0.35 + 0.5 m from its door: outside 4.63 m (the arrival is 5.49 m away), inside 5.27 m (the first staging had 4.50 m, close enough to fire the door at the start teleport if the range is measured to the marker) |
 | last-try spots | outside 1.0 m in front of the door (-995.056, 1108.496, 98.311); inside 1.5 m (-2.155, 1.000, -0.008); both on the floor, capsule clear |
 
 - Both arrivals stand outside the 3 m activation range of their own side's door (5.5 m and 9.2 m), so an arriving
   player does not bounce back. The hop from the coc arrival to the outside start is 6.5 m east-west, 43.1 m
   north-south (within the 2-cells-per-axis teleport rule).
-- The plan passes the runner's own `door_test`; the queue needs `door_trip` and `plugin_order`.
+- The plan passes the runner's own `door_test`; the queue needs `door_check`, `door_trip` and `plugin_order`.
 
 ## 6. The runner test: `door_trip`
 
@@ -179,64 +186,100 @@ the whole trip in one game session (planned with `--fresh`: a new launch first):
 
 1. `coc FO4CW_RedRocketSpawn`, the HUD back, the arrival read until two reads 3 s apart agree within 0.3 m; the merge
    offset O = arrival - `spawn_local`. Not settled: INCONCLUSIVE ANCHOR, nothing else is done.
+   With `outside.ref` (plan.json: `05000800`) the exterior door's own `getpos` (`prid`, nothing moves) goes to
+   `obs.door_read`: a diagnostic only. Our persistent anchors read their unmerged local position in exp1d / exp2b
+   while a vanilla persistent ref in LC172World read the merged one, so the detail names which this door reads; a
+   local read does not prove where the door stands.
 2. **in**: teleport to `outside.start` + O (0.5 m above the floor) facing the door (`heading_out` 6.2 degrees), read
-   the position and take `in_start.png`; walk at the door in 500 ms steps (`hold:w`), a HUD check after each (the fade
-   and the loading screen hide it), up to 8 s; if a prompt showed, E; if nothing loaded, teleport to the last-try spot
-   (`outside.near` + O) and wait 6 s. Then the HUD back (up to 90 s), the arrival read until it settles,
-   `player.GetInCell FO4Port_RedRocket01` (OCR'd like GetIsID) and `in_arrival.png`. Not within 4 m of
+   the position and take `in_start.png`; nothing more is tried in this leg unless that read is at the start (within
+   `start_tol`). Walk at the door in 500 ms steps (`hold:w`), after each a HUD check (the fade and the loading screen
+   hide it) and a position read (one readpos run): a HUD gone, or a read more than `moved_m` (30 m) from the start, is
+   a load (`load_by` hud / position) and ends the walk at once; two steps without 0.2 m of progress end it too
+   (`walk_stopped`); at most 8 s. If a prompt showed, E (after a read on this side). If nothing loaded, the last try:
+   a teleport to `outside.near` + O, only after a read put the player on this side of the door (else `near_skipped`),
+   then 6 s of HUD checks. Then the HUD back (up to 90 s) if a loading screen was seen, the arrival read until it
+   settles (an arrival far from the start that no check saw load is credited to the last action, `load_by`
+   position), `player.GetInCell FO4Port_RedRocket01` (OCR'd like GetIsID) and `in_arrival.png`. Not within 4 m of
    `inside.arrival`: the step ends here.
 3. **out**: the same from `inside.start` (heading 79.3 degrees) to the interior door; expect `outside.arrival` + O.
 4. `save fo4sf_slice_rrdoor`; the file must appear in the Saves folder within 30 s (`obs.save`).
-5. `load fo4sf_slice_rrdoor`; a loading screen must be seen (the HUD goes away), then the HUD back, the position read
-   until it settles, GetInCell and `reload.png`.
+5. A teleport back to the settled coc arrival (about 44 m from the saved spot, read as `reload.away_read`), then
+   `load fo4sf_slice_rrdoor`: a loading screen is looked for (20 s; the HUD goes away), the HUD back, the position
+   read until it settles, GetInCell and `reload.png`. The player must come back to the saved spot, which shows the
+   load whether or not a HUD check caught its loading screen.
 
-`obs.json`: `spawn_read`, `offset`, `legs` [{`name`, `start_read`, `start_shot`, `prompt`, `trigger` (walk / e /
-near / ""), `walked_ms`, `near_m`, `load_seen`, `hud_back`, `load_s`, `arrival_read`, `arrival_settled`,
-`arrival_reads`, `incell`, `incell_ocr`, `shot`}], `save` {`name`, `found`, `file`, `size`, `mtime`, `why`}, `reload`
-{`load_seen`, `hud_back`, `load_s`, `read`, `settled`, `incell`, `shot`}.
+`obs.json`: `spawn_read`, `offset`, `door_read`, `legs` [{`name`, `start_read`, `start_shot`, `prompt`, `checks`
+[{`tag` (walk / pre_e / e / pre_near), `ms`, `read`, `from_start`, `to_door`}], `walk_stopped`, `walk_skipped`,
+`trigger` (walk / e / near / ""), `load_by` (hud / position), `walked_ms`, `near_m`, `near_skipped`, `load_seen` (the
+HUD went away), `hud_back`, `load_s`, `arrival_read`, `arrival_settled`, `arrival_reads`, `incell`, `incell_ocr`,
+`shot`}], `save` {`name`, `found`, `file`, `size`, `mtime`, `why`}, `reload` {`away_read`, `away_shot`, `load_seen`,
+`hud_back`, `load_s`, `read`, `settled`, `incell`, `shot`}.
 
 ### Verdicts (the first leg that does not pass decides)
 
 | verdict | class | means |
 |---|---|---|
-| PASS | PASS | arrived inside within 4 m of the interior arrival point (settled; GetInCell 1 or unread), back outside within 4 m of the arrival point + O (settled; GetInCell 0 or unread), the save file written, a loading screen after `load`, then within 1 m of where the save was made, settled, within 1 m of the ground (99.73 + O.z) |
+| PASS | PASS | walked (or E) through: arrived inside within 4 m of the interior arrival point (settled; GetInCell 1 or unread), back outside within 4 m of the arrival point + O (settled; GetInCell 0 or unread), the save file written, after `load` back within 1 m of where the save was made (from 44 m away, or with a loading screen seen), settled, within 1 m of the ground (99.73 + O.z), GetInCell 0 or unread |
+| INCONCLUSIVE | NEARONLY | all of the above, but a leg loaded only from the last-try teleport 1 m from the door: the door works, walking in is not shown (retried) |
 | INCONCLUSIVE | ANCHOR | the coc arrival never settled: no offset, no door tried |
-| INCONCLUSIVE | START | the start in front of a door not reached (> 3 m) or not read |
-| FAIL | NOLOAD | walked at the door and stood 1 m from it (inside its 3 m range), no load: the door does not work |
+| INCONCLUSIVE | START | the start in front of a door not reached (> 3 m) or not read: nothing else tried in that leg |
+| FAIL | NOLOAD | no load, and the player stood (settled) within `activate_m` (3 m) of the door at the end (after the last try: 1 m), GetInCell not saying the far side: the door does not fire where it stands. With `outside.ref` the in leg's detail adds where getpos reports the door |
+| INCONCLUSIVE | NOREACH | no load, but the player ended more than 3 m from the door (the walk blocked, no last try): the door was not tried; the detail names the closest read |
 | INCONCLUSIVE | NOMOVE | the HUD went away but the player did not move: a menu or popup, not a load |
 | FAIL | UNMERGED | back outside, but at the arrival point's position in the world's own frame (the overlay's merge offset not applied to the XTEL arrival) |
 | FAIL | REMERGED | back outside at the arrival point shifted by whole cells: the overlay merged at another offset than at the coc arrival |
 | FAIL | FELL | over the arrival point but falling (more than 3 m below it, not settled), or after the load more than 3 m below the ground |
 | FAIL | WRONGCELL | loaded, but GetInCell says the wrong side (still in, or not in, RedRocket01) |
 | FAIL / INCONCLUSIVE | ELSEWHERE | in RedRocket01 (GetInCell 1) but away from the arrival point / somewhere unexplained |
-| INCONCLUSIVE | CELLREAD | the position says one side, GetInCell the other: an OCR or console question, retried |
+| INCONCLUSIVE | CELLREAD | the position says one side, GetInCell the other (after a leg, including a player still at this side's door with GetInCell saying the far side, or after the load): an OCR or console question, retried; never a PASS or a FAIL |
 | INCONCLUSIVE | NOSAVE | the save file was not seen: the load is not tried (a load of a missing save proves nothing) |
-| INCONCLUSIVE | RELOAD_UNSEEN | no loading screen after `load`: the read after it says nothing |
+| INCONCLUSIVE | RELOAD_UNSEEN | after `load` the player is still where it was moved to (the load did not happen), or no loading screen was seen and the player had not been moved away: the read after it says nothing |
 | FAIL | RELOAD | after the load more than 1 m from where the save was made |
 | FAIL | OFFGROUND | after the load at the saved spot, but not within 1 m of the expected ground |
 | INCONCLUSIVE | UNREAD / NOSHOT | a position not read or not settled, a screenshot missing |
 
-The detail names the trigger of each leg (a PASS by `near` means the walk did not reach the door, but standing at
-it loaded it), the load times, GetInCell and the offset. Files per attempt: `arrival.png`, `in_start.png`,
-`in_arrival.png`, `out_start.png`, `out_arrival.png`, `saved.png`, `reload.png`, the walk / HUD checks, the GetInCell
-captures and OCR (`in_cell_*`, `out_cell_*`, `reload_cell_*`).
+The detail names the trigger of each leg and how the load was noticed, the load times, GetInCell, the offset and the
+door's getpos. Files per attempt: `arrival.png`, `in_start.png`, `in_arrival.png`, `out_start.png`,
+`out_arrival.png`, `saved.png`, `away.png`, `reload.png`, the walk / HUD checks, the GetInCell captures and OCR
+(`in_cell_*`, `out_cell_*`, `reload_cell_*`).
 
-### Plan and run (C:\Modding\testqueue\slice_redrocket_door)
+### Fix pass after QA (PR #78, 2026-10-12)
 
-The queue needs runner features `door_trip` and `plugin_order`: the chain's runner must first be on a checkout with
-this branch (an older runner refuses the queue before launching: its `exp_install.py` rejects `--needs` or lacks the
-features, exit 2 / 5).
+- **NOLOAD only from a stand in range.** The first judge returned FAIL NOLOAD for any leg that ended within 30 m of
+  its start without a loading screen, without looking at GetInCell or at how close the player got: a player 5 m from
+  the door, or one GetInCell put inside RedRocket01, was "the door does not work". Now NOLOAD needs the final stand
+  (settled) within `activate_m` of the door and GetInCell not saying the far side; otherwise NOREACH, CELLREAD or
+  UNREAD (`tests/test_door_trip.py`, the QA cases among them).
+- **A load the HUD checks missed.** The first step noticed a load only from one HUD screenshot after each walk step.
+  If the fade, the loading screen and the fade-in all fell between two screenshots, it walked on in the new cell and
+  then teleported to this side's last-try spot there (the in leg: exterior coordinates inside RedRocket01, the void;
+  the out leg: interior coordinates on Mars, 99 m under the terrain). The sandbox, given an instant loading screen,
+  made 6 loads of a trip planned as 2. Now every walk step is followed by a position read, E and the last try need a
+  read on this side, and the same sandbox makes exactly 2 (`test_a_load_no_hud_check_saw_is_found_by_the_position`).
+  How long Starfield's loading screen lasts against the about 1.5 s between a step and its screenshot is
+  **unresolved**; the step no longer depends on it.
+- The load after the save is shown by the position (moved 44 m away first), GetInCell after it is judged, a trip that
+  loaded only from the last try is NEARONLY, the interior start keeps 5.27 m from its door, the door's getpos is read
+  as a diagnostic, and the offline check labels say what the code checks (section 5).
+
+### Plan and run (C:\Modding\testqueue\slice_redrocket_door_b)
+
+The queue needs runner features `door_check`, `door_trip` and `plugin_order`: the chain's runner must first be on a
+checkout with this branch at or after the fix pass (an older runner refuses the queue before launching: its
+`exp_install.py` rejects `--needs` or lacks the features, exit 2 / 5; the first door_trip runner, bf7c853, lacks
+`door_check`).
 
 ```powershell
 $py = 'C:\Modding\venv-render\Scripts\python.exe'
-& $py scripts\game\testqueue.py plan-door --staging C:\Modding\staging\integ_1011 --exp-dir C:\Modding\staging\slice_redrocket_door `
-      --out C:\Modding\testqueue\slice_redrocket_door --plugins FO4TerrainExp2.esm,FO4TerrainExp2_Mars.esm,FO4SliceRedRocket.esm --fresh
-& $py scripts\game\testqueue.py run --queue C:\Modding\testqueue\slice_redrocket_door --wait-for-idle --refocus --max-hours 2
-& $py scripts\game\testqueue.py report --queue C:\Modding\testqueue\slice_redrocket_door
+& $py scripts\game\testqueue.py plan-door --staging C:\Modding\staging\integ_1011 --exp-dir C:\Modding\staging\slice_redrocket_door_b `
+      --out C:\Modding\testqueue\slice_redrocket_door_b --plugins FO4TerrainExp2.esm,FO4TerrainExp2_Mars.esm,FO4SliceRedRocket.esm --fresh
+& $py scripts\game\testqueue.py run --queue C:\Modding\testqueue\slice_redrocket_door_b --wait-for-idle --refocus --max-hours 2
+& $py scripts\game\testqueue.py report --queue C:\Modding\testqueue\slice_redrocket_door_b
 ```
 
 Optional: `--time-of-day 12` (the exp2d site is the night site; the runner's light ladder, PR #73) for lit exterior
-screenshots; it adds the `light` need. Step timeout 2,872 s (worst case); about 6 to 10 minutes expected.
+screenshots; it adds the `light` need. Step timeout 4,676 s (worst case: every walk step with a position read, every
+read retried); about 8 to 12 minutes expected.
 
 Planned with the first command at bf7c853 (build `2470f876`, test `0000_door_trip_rr_cave_door`, needs `door_trip`,
 `plugin_order`, `pre_launch` = the runner's own `exp_install.py install ... --plugins
@@ -251,8 +294,11 @@ the same plan in a scratch folder: "dry run: would run 0000_door_trip_rr_cave_do
    say yes, our own persistent anchor read local coordinates: **unresolved**).
 2. Whether the XTEL arrival into our overlay gets the merge offset (the out leg; UNMERGED / REMERGED name the two
    ways it can fail: **unresolved**).
-3. The activation distance (3 m, to what point of the player and of the door) and whether a teleport into the range
-   loads as a walk does (**supported**: vanilla's automatic doors are entered by walking; the runner tries both).
+3. The activation distance (3 m `fAutoDoorActivateDistance` or 3.57 m `fDistanceAutomaticallyActivateDoor`, to what
+   point of the player and of the door) and whether a teleport into the range loads as a walk does (**supported**:
+   vanilla's automatic doors are entered by walking; the runner tries both, and a load from the teleport alone is
+   NEARONLY). Outside the player can walk until it touches the marker; inside the capsule first touches a column
+   2.26 m from the door's origin, so walking out needs the range measured to the origin (**supported**, not shown).
 4. `ENV_NotSealedLocationDoorScript` on Mars from an overlay: vanilla runs it on every planet cave (**supported**
    harmless).
 5. `player.GetInCell <cell>` in the console and its reply format (`GetInCell >> 1.00`, like GetIsID's: **supported**;
@@ -260,21 +306,23 @@ the same plan in a scratch folder: "dry run: would run 0000_door_trip_rr_cave_do
    is not.
 6. Save and load inside a merged overlay world: what the test is for (**unresolved**). The save `fo4sf_slice_rrdoor`
    stays in the owner's Saves folder (overwritten by every run).
-7. The interior start is in the hall's west branch (offline: floor and an assumed capsule). If the walk stops, the
-   last-try spot 1.5 m from the door decides.
+7. The interior start is in the hall's west branch, 5.27 m from the door (offline: floor and an assumed capsule).
+   If the walk stops short of the range, the last-try spot 1.5 m from the door loads it (NEARONLY) or not (NOLOAD).
+8. How long Starfield's fade and loading screen last against the about 1.5 s between the end of a walk step and its
+   HUD screenshot (**unresolved**): the step reads the position after every step, so it no longer depends on it.
 
 ## 8. Reproduce
 
 ```powershell
 $py = 'C:\Modding\venv-render\Scripts\python.exe'
 & $py scripts\slice\make_redrocket_door.py stage --fo4 <FO4 Data>\Fallout4.esm --sf-esm <Starfield Data>\Starfield.esm `
-      --port C:\Modding\staging\integ_1011 --exp2d C:\Modding\staging\terrain_exp2d --out C:\Modding\staging\slice_redrocket_door
+      --port C:\Modding\staging\integ_1011 --exp2d C:\Modding\staging\terrain_exp2d --out C:\Modding\staging\slice_redrocket_door_b
 & $py scripts\slice\make_redrocket_door.py check --sf-esm <Starfield Data>\Starfield.esm --port C:\Modding\staging\integ_1011 `
-      --exp2d C:\Modding\staging\terrain_exp2d --out C:\Modding\staging\slice_redrocket_door
+      --exp2d C:\Modding\staging\terrain_exp2d --out C:\Modding\staging\slice_redrocket_door_b
 & $py -m unittest tests.test_slice_redrocket_door tests.test_door_trip
 $env:FO4SF_QSTEP_SANDBOX = '1'; & $py -m unittest tests.test_qstep_sandbox.QstepDoorSandboxTests
 ```
 
-stage runs `dotnet/SliceDoor` (fo4, sf-door, port, build) itself, about 50 s with the 2.3 GB copy the first time;
+stage runs `dotnet/SliceDoor` (fo4, sf-door, port, build) itself, about 50 s with the 2.3 GB copy (47 s for `_b`);
 check about 30 s. Rebuild the slice whenever exp2d's plugin or the pinned build's RedRocket01 cell changes: the
 overrides copy them (check compares them byte for byte).

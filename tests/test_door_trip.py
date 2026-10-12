@@ -56,7 +56,13 @@ class DoorPlanTests(unittest.TestCase):
         self.assertEqual(t["inside"]["cell"], "FO4Port_RedRocket01")
         self.assertEqual(t["outside"]["ground"], 99.6)
         self.assertEqual((t["radius"], t["walk_ms"], t["walk_step_ms"]), (4.0, 8000, 500))
-        self.assertEqual(runner_features.needs([t]), ["door_trip"])
+        self.assertEqual((t["moved_m"], t["activate_m"]), (30.0, 3.0))
+        self.assertNotIn("ref", t["outside"])
+        self.assertEqual(tq.door_test(0, dict(PLAN, outside=dict(PLAN["outside"], ref="05000800")))["outside"]["ref"],
+                         "05000800")
+        self.assertEqual(runner_features.needs([t]), ["door_check", "door_trip"])
+        old = {k: v for k, v in t.items() if k not in ("moved_m", "activate_m")}      # a test planned at bf7c853
+        self.assertEqual(runner_features.needs([old]), ["door_trip"])
 
     def test_what_is_typed_is_validated(self):
         bad = [{"travel": "coc FO4CW_RedRocketSpawn; tgm"}, {"travel": "player.moveto 02000800"},
@@ -64,7 +70,9 @@ class DoorPlanTests(unittest.TestCase):
                {"inside": dict(PLAN["inside"], cell="FO4Port RedRocket01")},
                {"inside": dict(PLAN["inside"], cell="")}, {"outside": dict(PLAN["outside"], door=[1, 2])},
                {"outside": dict(PLAN["outside"], extra=1)}, {"walk_ms": 10 ** 6}, {"unknown_key": 1},
-               {"outside": dict(PLAN["outside"], start=[float("nan"), 0, 0])}]
+               {"outside": dict(PLAN["outside"], start=[float("nan"), 0, 0])},
+               {"outside": dict(PLAN["outside"], ref="0500080")}, {"outside": dict(PLAN["outside"], ref="05000800;tgm")},
+               {"inside": dict(PLAN["inside"], ref="05000801")}, {"activate_m": 50}, {"moved_m": 1}]
         for b in bad:
             with self.assertRaises(SystemExit, msg=b):
                 tq.door_test(0, dict(PLAN, **b))
@@ -83,11 +91,11 @@ class DoorPlanTests(unittest.TestCase):
         tq.main(["plan-door", "--staging", staging, "--exp-dir", exp, "--out", out, "--plugins", plugins, "--fresh"])
         with open(os.path.join(out, "queue.json")) as f:
             q = json.load(f)
-        self.assertEqual(q["needs"], ["door_trip", "plugin_order"])
+        self.assertEqual(q["needs"], ["door_check", "door_trip", "plugin_order"])
         self.assertTrue(q["tests"][0]["fresh"])
         pre = q["pre_launch"]
         self.assertEqual(pre[pre.index("--plugins") + 1], plugins)
-        self.assertEqual(pre[pre.index("--needs") + 1], "door_trip,plugin_order")
+        self.assertEqual(pre[pre.index("--needs") + 1], "door_check,door_trip,plugin_order")
         self.assertIn("--pack", pre)
         self.assertGreater(tq.step_timeout(q["tests"][0]), 2000)
 
@@ -120,12 +128,21 @@ class DoorJudgeTests(unittest.TestCase):
 
     def test_each_way_to_fail_or_stay_open(self):
         o, i = PLAN["outside"], PLAN["inside"]
-        far = fmt(plus(plus(o["start"]), [0, 0.5, 0]))           # still in front of the outside door
+        far = fmt(plus(plus(o["start"]), [0, 0.5, 0]))           # still in front of the outside door, 4.9 m from it
+        at_door = fmt(plus(o["near"]))                           # 1 m from the outside door (the last-try spot)
         cases = [
             (dict(good_obs(), offset=None), ("INCONCLUSIVE", "ANCHOR")),
             (self.leg(good_obs(), "in", start_read="fail"), ("INCONCLUSIVE", "START")),
             (self.leg(good_obs(), "in", start_read=fmt(plus(o["start"], [0, 8, 0]))), ("INCONCLUSIVE", "START")),
-            (self.leg(good_obs(), "in", load_seen=False, arrival_read=far, trigger=""), ("FAIL", "NOLOAD")),
+            (self.leg(good_obs(), "in", load_seen=False, arrival_read=at_door, trigger="", incell=0), ("FAIL", "NOLOAD")),
+            (self.leg(good_obs(), "in", load_seen=False, arrival_read=at_door, trigger="", incell=None), ("FAIL", "NOLOAD")),
+            # GetInCell says the far side while the position is at this side's door: never "the door does not work"
+            (self.leg(good_obs(), "in", load_seen=False, arrival_read=at_door, trigger="", incell=1),
+             ("INCONCLUSIVE", "CELLREAD")),
+            # never within the door's range: the door was not tried
+            (self.leg(good_obs(), "in", load_seen=False, arrival_read=far, trigger="", incell=0), ("INCONCLUSIVE", "NOREACH")),
+            (self.leg(good_obs(), "in", load_seen=False, arrival_read=at_door, trigger="", incell=0, arrival_settled=False),
+             ("INCONCLUSIVE", "UNREAD")),
             (self.leg(good_obs(), "in", load_seen=True, arrival_read=far), ("INCONCLUSIVE", "NOMOVE")),
             (self.leg(good_obs(), "in", arrival_read=None), ("INCONCLUSIVE", "UNREAD")),
             (self.leg(good_obs(), "in", shot=None), ("INCONCLUSIVE", "NOSHOT")),
@@ -140,7 +157,13 @@ class DoorJudgeTests(unittest.TestCase):
              ("FAIL", "REMERGED")),
             (self.leg(good_obs(), "out", arrival_read=fmt(plus(o["arrival"], [OFF[0], OFF[1], -40])),
                       arrival_settled=False), ("FAIL", "FELL")),
-            (self.leg(good_obs(), "out", load_seen=False, arrival_read=fmt(i["near"])), ("FAIL", "NOLOAD")),
+            (self.leg(good_obs(), "out", load_seen=False, arrival_read=fmt(i["near"]), incell=1), ("FAIL", "NOLOAD")),
+            (self.leg(good_obs(), "out", load_seen=False, arrival_read=fmt(i["near"]), incell=0),
+             ("INCONCLUSIVE", "CELLREAD")),
+            (self.leg(good_obs(), "out", load_seen=False, arrival_read=fmt(i["start"]), incell=1),
+             ("INCONCLUSIVE", "NOREACH")),
+            (self.leg(good_obs(), "in", load_seen=False, load_by="position", arrival_read=fmt([30, 30, 0]), incell=0),
+             ("FAIL", "WRONGCELL")),
             (self.leg(good_obs(), "out", arrival_read=fmt([30, 30, 0]), incell=1), ("FAIL", "WRONGCELL")),
             (dict(good_obs(), save={"found": False, "why": "no file"}), ("INCONCLUSIVE", "NOSAVE")),
             (dict(good_obs(), save=None), ("INCONCLUSIVE", "NOSAVE")),
@@ -151,10 +174,79 @@ class DoorJudgeTests(unittest.TestCase):
             (dict(good_obs(), reload=dict(good_obs()["reload"], read=fmt(plus(o["arrival"], [OFF[0], OFF[1], -30])))),
              ("FAIL", "FELL")),
             (dict(good_obs(), reload=dict(good_obs()["reload"], settled=False)), ("INCONCLUSIVE", "UNREAD")),
+            # GetInCell after the load contradicts the position on the terrain
+            (dict(good_obs(), reload=dict(good_obs()["reload"], incell=1)), ("INCONCLUSIVE", "CELLREAD")),
         ]
         for obs, want in cases:
             v, cls, detail = self.judge(obs)
             self.assertEqual((v, cls), want, detail)
+
+    def test_the_verifiers_cases_are_not_noload(self):
+        # QA on PR #78 with the queue's own test and offset: (a) arrival 10 m below the outside near point, not settled,
+        # GetInCell 1 (the door loaded, then the runner moved the player); (b) 5 m from the door, never within 3 m
+        o = PLAN["outside"]
+        a = self.leg(good_obs(), "in", load_seen=False, trigger="", arrival_settled=False, incell=1,
+                     arrival_read=fmt(plus(o["near"], [OFF[0], OFF[1], OFF[2] - 10])))
+        self.assertEqual(self.judge(a)[:2], ("INCONCLUSIVE", "CELLREAD"))
+        door = plus(o["door"])
+        b = self.leg(good_obs(), "in", load_seen=False, trigger="", incell=None, near_m=1.0,
+                     arrival_read=fmt([door[0], door[1] - 5.0, door[2]]),
+                     checks=[{"tag": "walk", "read": fmt([door[0], door[1] - 5.2, door[2]])}])
+        v, cls, detail = self.judge(b)
+        self.assertEqual((v, cls), ("INCONCLUSIVE", "NOREACH"), detail)
+        self.assertIn("closest read 5.0 m", detail)
+        # a walk read inside the range is reported, but NOLOAD needs the final stand there
+        c = self.leg(good_obs(), "in", load_seen=False, trigger="", incell=0, arrival_read=fmt(plus(o["near"])),
+                     checks=[{"tag": "walk", "read": fmt([door[0], door[1] - 2.0, door[2]])}])
+        v, cls, detail = self.judge(c)
+        self.assertEqual((v, cls), ("FAIL", "NOLOAD"), detail)
+        self.assertIn("inside its 3 m range (GetInCell FO4Port_RedRocket01 0)", detail)
+
+    def test_a_load_found_by_the_position_counts(self):
+        obs = good_obs()
+        for x in obs["legs"]:
+            x.update(load_seen=False, load_by="position", load_s=None)
+        v, cls, detail = self.judge(obs)
+        self.assertEqual((v, cls), ("PASS", "PASS"), detail)
+        self.assertIn("the load found by the position", detail)
+
+    def test_the_load_after_moving_away(self):
+        out_at = plus(PLAN["outside"]["arrival"])
+        away = fmt(plus(PLAN["spawn_local"]))                    # the coc arrival, 43 m from the saved spot
+        rl = good_obs()["reload"]
+        cases = [(dict(rl, load_seen=False, away_read=away), ("PASS", "PASS")),        # back: the load happened
+                 (dict(rl, load_seen=False), ("INCONCLUSIVE", "RELOAD_UNSEEN")),       # not moved, nothing seen
+                 (dict(rl, load_seen=True, away_read=away, read=away), ("INCONCLUSIVE", "RELOAD_UNSEEN")),
+                 (dict(rl, load_seen=False, away_read=away, read=away), ("INCONCLUSIVE", "RELOAD_UNSEEN")),
+                 (dict(rl, load_seen=True, away_read=away, read=fmt([out_at[0], out_at[1] + 6, out_at[2]])),
+                  ("FAIL", "RELOAD")),
+                 (dict(rl, load_seen=False, away_read=away, read=None), ("INCONCLUSIVE", "RELOAD_UNSEEN"))]
+        for r, want in cases:
+            v, cls, detail = self.judge(dict(good_obs(), reload=r))
+            self.assertEqual((v, cls), want, (r, detail))
+        v, cls, detail = self.judge(dict(good_obs(), reload=cases[0][0]))
+        self.assertIn("no loading screen seen, moved 43.9 m away before it", detail)
+
+    def test_a_trip_loaded_only_from_the_last_try_is_nearonly(self):
+        obs = self.leg(good_obs(), "out", trigger="near", near_m=1.5)
+        v, cls, detail = self.judge(obs)
+        self.assertEqual((v, cls), ("INCONCLUSIVE", "NEARONLY"), detail)
+        self.assertIn("the out leg loaded only from the last-try teleport", detail)
+
+    def test_the_door_getpos_diagnostic(self):
+        o = PLAN["outside"]
+        plan = {"outside": dict(o, ref="05000800")}
+        for read, want in ((fmt(o["door"]), "its unmerged local position"), (fmt(plus(o["door"])), "its merged position"),
+                           (fmt([0, 0, 0]), "another ref?"), ("fail", "not read")):
+            v, cls, detail = self.judge(dict(good_obs(), door_read=read), plan=plan)
+            self.assertEqual((v, cls), ("PASS", "PASS"), detail)
+            self.assertIn(want, detail)
+        nl = self.leg(dict(good_obs(), door_read=fmt(o["door"])), "in", load_seen=False, trigger="near", incell=0,
+                      arrival_read=fmt(plus(o["near"])))
+        v, cls, detail = self.judge(nl, plan=plan)
+        self.assertEqual((v, cls), ("FAIL", "NOLOAD"), detail)
+        self.assertIn("getpos of door 05000800 read", detail)
+        self.assertNotIn("getpos", self.judge(good_obs())[2])          # no ref, no note
 
     def test_off_the_ground_after_the_load(self):
         # the saved spot itself is 1.5 m above the expected ground: same place after the load, but not on the terrain
@@ -261,7 +353,7 @@ class FeatureTests(unittest.TestCase):
     def test_features(self):
         self.assertIn("door_trip", runner_features.FEATURES)
         self.assertIn("plugin_order", runner_features.FEATURES)
-        self.assertEqual(runner_features.missing(["door_trip", "plugin_order"]), [])
+        self.assertEqual(runner_features.missing(["door_check", "door_trip", "plugin_order"]), [])
 
 
 if __name__ == "__main__":
