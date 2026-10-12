@@ -441,7 +441,9 @@ C:\Modding\staging\terrain_core64 --runs <queue>` prints per ray each probe's di
 
 **Correction (2026-10-12 00:01, verified): travelling is not limited.**
 - core64b's north-west ray reached every probe in 300 m hops and passed to 2 km: 1,000 m 202.54 (want 202.51), 2,000 m 188.45 (188.46).
-- So "Boundary Reached" limits a single teleport more than ~4 cells from the player's current position. It is not a fixed window around the arrival, and the 6.4 km overlay streams in as the player moves.
+- So "Boundary Reached" limits a single teleport, not the world. It is not a fixed window around the arrival, and the 6.4 km overlay streams in as the player moves.
+- **Refined rule (supported hypothesis, PR #76's `scripts/terrain/teleport_audit.py` over eight overlay queues):** a teleport of at most 2 cells per axis from the current position landed 144 of 145 times. 3 or more cells per axis relocated the player 8-12 km or hung 11 of 28 times (all 6 in core64).
+  - The earlier "~4 cells" is **refuted**, and so is a per-setpos distance limit: 250-267 m within 2 cells landed, while 249 m across 3 cells hung.
 - H-content and H-ini now only explain the single-jump limit, so terrain_core64e and the SetINI border queues are low priority.
 - exp3's seam question needs a hop run.
 
