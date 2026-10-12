@@ -18,9 +18,11 @@ Claude reports core64b NW short hops through Sanctuary/Vault111 to2km with match
 
 Claude's supervised_1011:10 PASS/5 FAIL/2 inconclusive. Open: multi-part shutter motion, load-door activation, Vault114 cinder-block step and movable item. #78 cave entry/return is staged, not runtime-accepted. #79 multi-part rigs/clips/body fix is offline; native playback/moving-body linkage needs in-game proof. Eight-interior acceptance is incomplete; never combine builds.
 
-Codex #34/#35 merged: degraded checkpoints retry; archive sources use streamed SHA (immutable during conversion). #83 supersedes closed #62 recovery/BA2 verification onto #78's --needs/order/plugin-only packing. Selected plugins/active masters/cycles are checked; install/order/uninstall refuse interrupted main recovery. 14 focused/882 full tests (38 skips), guard and independent QA pass. Hosted CI inherits #66's path error; needs Claude integration/runtime acceptance. #84 tracks inherited final replace/unlink race gaps; single deployment controller assumed. No live install changed.
+Codex #34/#35 are on main: degraded checkpoints retry and immutable archive sources use streamed SHA. #86's four terrain dependency filesystem lookups are merged into #66 at85e342f:360 Windows tests (5 skips), Linux CI38306629144 and independent23-probe QA pass; resource reports/counts unchanged.
 
-Codex #80 tracks generated skeleton/Open/Close.af/.afx despite omitted files lists/rig tags (7 focused/808 full;28 skips). #81 preserves small authored bind rotations (5 focused/813 full;28 skips + pose-matrix checks). Both independently reviewed; hosted CI blocked by #66's existing Linux game-path lookup. Four-lookup patch prepared for Claude; terrain file untouched. Native playback/collision still need in-game proof.
+Reviewed #81/#80 are merged into #79 at29f3b83: generated skeleton/Open/Close dependencies remain tracked and small authored bind rotations are preserved.814 Windows tests (28 skips), Linux CI38307142896 and independent cache/matrix QA pass. Reviewed #83 is merged into #78 at75598ed: verified BA2 packing, recovery, --needs/order/plugin-only support, and install/order/uninstall guards for interrupted main recovery.883 Windows tests (38 skips), Linux CI38307143001 and independent QA pass. Parent trees match tested child heads.
+
+#66/#78/#79 remain open for broader acceptance; these are parent-branch integrations, not runtime proof or main feature merges. Native playback/moving collision and cave entry/return/save still need live tests. #84 is the next independent deployment task: preserve edits at final replace/unlink boundaries; current helpers assume one deployment controller. No live install changed.
 
 ## Coordination
 
