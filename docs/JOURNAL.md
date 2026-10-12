@@ -749,3 +749,7 @@ twin step is untested in game until the next library run.
   - **Tests:** two citizen baselines, the Spacer baseline, PathToRef and StartCombat.
   - **Queue:** `npc_nav_n0b` (needs runner feature npc_t0, so integration-1012 or later).
   - **Re-plans:** the N1 and N2 re-plans are staged as `npc_nav_*_b`. They are planned only after `npc_control.py ready` confirms N0b passed. The earlier `npc_nav_n2a` / `npc_nav_n2b` queues carry a STOP note (superseded).
+- **N1b (the same NPC on our terrain after Starfield's runtime generator `gnm`, no shipped navmesh):** it never moved in 3 of 3 tests where it spawned. The 4th test did not confirm its spawn, twice (INCONCLUSIVE SPAWN, a runner reason).
+  - Reading so far: no navmesh means no movement; `gnm` also gives no movement; the converted FO4 navmesh gives movement in 4 of 4 tests.
+  - Shipping the converted navmesh is the supported route; `gnm` in a plugin worldspace is refuted for this use, to be rechecked with N1b_b against the N0b control.
+  - The chain now runs supervised_1011, then batch_full (integration-1011 runner).
