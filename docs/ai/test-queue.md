@@ -138,7 +138,8 @@ fields it does not know, so a queue with `time_of_day` or `console_pre` would ru
 without a word. Therefore:
 
 - `plan-terrain` / `plan-npc` write `"needs"` into `queue.json` (`runner_features.needs`: `light` for a time of day or a
-  weather, `console` for `console_pre` / `console_post`), and the runner refuses a queue whose needs its checkout lacks
+  weather, `console` for `console_pre` / `console_post`, `npc_t0` for an npc_nav `precommand_m` / `arrive_progress`:
+  an older runner would judge such a queue by `min_progress` alone), and the runner refuses a queue whose needs its checkout lacks
   (`runner_features.FEATURES`; run.log "stopped: this queue needs runner features ...", status "stopped: runner lacks
   ...", exit 3, nothing launched). It also notes in run.log when the queue was planned at a commit its checkout does not
   contain.
@@ -359,6 +360,8 @@ check-queue` compares a planned queue with its plan.json).
 | `method` | `none` (no command: the baseline), `ptr_player` (`PathToRef player`), `cf_pathto_player` (`cf "Actor.PathToReference" player 1.0`), `follow_player` (`SetPlayerTeammate 1`, `EvaluatePackage`), `combat_player` (`StartCombat player`, hostile actors) | `ptr_player` |
 | `reads_s` | game seconds of the reads after the command; 0 is the read right before it | `[0, 3, 8, 15, 30]` |
 | `radius` R, `min_progress` M, `nomove`, `max_speed` | judge thresholds, metres and m/s | 2.5, 5, 0.5, 8 |
+| `precommand_m` | a commanded test whose actor came this far towards B between the spawn read and t0 is INCONCLUSIVE PRECOMMAND; needs runner feature `npc_t0` | M |
+| `arrive_progress` | an arrival within R is a PASS only after this much approach from t0 (d0 - min d), else INCONCLUSIVE SHORT; with it a baseline FAILs WANDER on the largest approach between any two of its reads (spawn read and t0 included); needs runner feature `npc_t0` (N0b, docs/actors/npc-navigation.md 5.4) | none (as before) |
 | `drop`, `settle_ms` | the player is dropped this high above A and B (god mode), then waits | 0.5, 1500 |
 | `pre`, `pre_wait_ms` | probes after reaching A, before the spawn: only `gnm` (GenerateNavMesh, ladder run N2) | `[]`, 5000 |
 | `spawn_wait_ms` | game time with the console closed between `placeatme` and reading the handle (below) | 2000 |
@@ -487,16 +490,17 @@ ref it names is removed only when `GetSelf` after `prid` names no other ref, it 
 
 | verdict | class | rule |
 |---|---|---|
-| PASS | PASS | min d <= R (arrived, not already at the first read), or d0 - d_end >= M (walked M towards B); reads may be missing after that |
+| PASS | PASS | min d <= R (arrived, not already at the first read; with `arrive_progress` A: also d0 - min d >= A), or d0 - d_end >= M (walked M towards B); reads may be missing after that |
 | PASS | PASS (baseline) | `none`: never within R of B and not M closer, all planned reads confirmed |
 | FAIL | FELL | a read below min(start z, B z) - 3 m: world, not navigation |
-| FAIL | WANDER | baseline: came to B (or M closer) without a command, measured from t0 and from the spawn read (the actor at the player's feet at A, before the player went to B: an actor that closed in before t0 counts) |
+| FAIL | WANDER | baseline: came to B (or M closer) without a command, measured from t0 and from the spawn read (the actor at the player's feet at A, before the player went to B: an actor that closed in before t0 counts); with `arrive_progress`: M closer between any two reads |
 | FAIL | NONAV | all planned reads confirmed, spawn and command succeeded, never moved `nomove` m from t = 0 |
 | FAIL | STALLED | moved, but neither PASS rule |
 | INCONCLUSIVE | ANCHOR / SPAWN / HANDLE / TARGET / UNREAD | no frame offset; spawn not confirmed or more than 3 m from A; selection lost before the command; player not read at B; a planned read missing for a FAIL |
 | INCONCLUSIVE | WARP / EARLY | faster than `max_speed` between reads; at B by the first read |
-| INCONCLUSIVE | PRECOMMAND | a commanded test whose actor came M towards B (or within R of it) between the spawn read and t0: what follows is not the command's walk alone (a hostile actor) |
-| INCONCLUSIVE | CONTROL | a FAIL of a non-control test while no control with the same method and actor (`control_npc` when set) passed, or that actor's baseline (when planned) did not pass (this queue or `--control-queue`). Final for the runner, raw verdict kept (`raw` in `results.jsonl` / `state.json`); `report` applies the gate again, so a control that passes later (retried at the end of its queue, or its queue run afterwards) still counts. PASS is never gated |
+| INCONCLUSIVE | PRECOMMAND | a commanded test whose actor came `precommand_m` (default M) towards B (or within R of it) between the spawn read and t0: what follows is not the command's walk alone (a hostile actor, or a citizen that walks up to the player: N0_cf, N1c) |
+| INCONCLUSIVE | SHORT | `arrive_progress` A: arrived within R, but less than A closer than at t0 (too little after the command to tell from wander; it did arrive, so no FAIL) |
+| INCONCLUSIVE | CONTROL | a FAIL of a non-control test while no control with the same method and actor (`control_npc` when set) passed (this queue or `--control-queue`), or the baselines of that actor planned in the control's own queue did not pass or one of them came to B (a baseline of the other queue neither opens nor closes the gate). Final for the runner, raw verdict kept (`raw` in `results.jsonl` / `state.json`); `report` applies the gate again, so a control that passes later (retried at the end of its queue, or its queue run afterwards) still counts. PASS is never gated |
 | INCONCLUSIVE | PRECONDITION | `requires` not met: not run, the game not launched for it; final (plan the queue again once the required test passed). A required test of the same queue that is still to be run or retried is waited for first; a dry run records nothing |
 
 A PASS of a commanded test carries a note from the same actor's baseline (this queue or `--control-queue`): "the

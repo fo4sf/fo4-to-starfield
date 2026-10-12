@@ -156,15 +156,18 @@ Alternatives considered:
   add untested console lines to the step.
 - tcai (combat AI off): global, and it would differ from N0's conditions.
 
-## 2026-10-12 NPC navigation control N0b: a pair chosen against the actors' own drift, PASS = 3 m or 12 m (Claude, proposed)
-N0 replaced by N0b in QASmoke: A (-12, 12, 0) -> B (6, 12, 0), chosen by `scripts/actors/navmesh_points.py` so that
-going where N0's actors went on their own (the middle of the room, the arrival marker) gains at most 6 m towards B;
-PASS = within 3 m of the player or 12 m closer (baselines judged on the same numbers); commands PathToRef and
-StartCombat, a calm and a hostile vanilla actor; N1 / N2 re-planned against it into new queues. Why: N0's actors came
-5-9 m towards the old B whatever was typed, and the old pair let an actor gain 8.5 m that way, so the 5 m rule passed
-wander (docs/actors/npc-navigation.md section 5). The rule uses the plan keys the runner already has, so the
-integration-1012 runner plans and judges it unchanged. Alternatives: a baseline-relative judge (PASS only a margin
-beyond the same actor's measured baseline progress): sound, but it needs a runner change (and a runner feature flag)
-before any queue can use it, and it differs from the fixed rule only when a baseline comes 7-12 m and its command just
-over 12 m; every test's detail in results.jsonl carries its numbers, so such a case is read by hand for now. A longer pair (up to 25 m): more room
-for an actor that stops at weapon range, but with B in the north-east corner the drift exceeds 6 m beyond 18.7 m.
+## 2026-10-12 NPC navigation control N0b: the walk judged from t0 on a 24 m pair, P = pair - 6 m (Claude, proposed)
+N0 replaced by N0b in QASmoke: A (5.5, -4.5, 0) -> B (-12, 12, 0), 24.05 m, chosen by
+`scripts/actors/navmesh_points.py`; the commanded walk is measured from t0 (new plan keys `precommand_m` 3 m,
+`arrive_progress` P; runner feature `npc_t0`): PASS = within 3 m of the player after coming P = 18 m closer than at
+t0, or 18 m closer at the end; 3 m of approach before the command makes it INCONCLUSIVE PRECOMMAND; a baseline FAILs
+WANDER on 18 m between any two reads; two citizen baselines; the control gate pairs a control with the baselines of its
+own queue. Commands PathToRef and StartCombat on the calm citizen, the hostile Spacer as a baseline; N1 / N2 re-planned
+with the rule of their own pairs, queued only once `npc_control.py ready` says N0b's controls passed. Why: N0's
+actors came 5-9 m towards the old B whatever was typed (the 5 m rule passed wander), and the first N0b plan (18 m north
+pair, 12 m, the integration-1012 judge unchanged) still let pre-command wander count: that judge's pre-command guard
+is min_progress (12 m) and an arrival needs no progress after the command (verifier of PR #77); actors on record moved
+up to 14.1 m from t0 and walked up to 9.5 m towards the player before the command (docs/actors/npc-navigation.md 5.3).
+Alternatives: keep the 18 m pair with the new judge (P 12 m: below the 14.1 m move on record); a baseline-relative
+judge (PASS only a margin beyond the same actor's measured baseline): needs several baselines per actor and pair to
+mean anything; the 18 m pair with a 12 m rule and no runner change: refuted by the finding above.

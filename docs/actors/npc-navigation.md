@@ -233,7 +233,7 @@ runtime question for free.
 Control cell: **`QASmoke`** (002BE3A9), an interior with one navmesh `002BE3AA`: 12 vertices, 14 triangles, a flat
 554.7 m^2 rectangle x -14.8..8.9, y -8.8..14.8 at z = 0. Points A = (-8, -4, 0) and B = (5, 10, 0) are both on it
 (verified, point-in-triangle), 19.1 m apart, on the **same** navmesh. (2026-10-12: still true, but N0 showed that this
-pair cannot tell a walk from wandering; section 5 has the result and the replacement pair of N0b.)
+pair cannot tell a walk from wandering; section 5 has the result and N0b's replacement, a 24 m pair.)
 
 ### 3.2 Console recipe (N0, control; run by the queue runner, never by hand while the test chain runs)
 
@@ -353,8 +353,8 @@ re-read, compare bytes.
 
 ## 5. N0 result and the N0b design (2026-10-12)
 
-N0 ran in game (queue `npc_nav_n0`, Starfield.exe 1.16.244, build 2470f876, 2026-10-12 00:17-01:12); everything else in
-this section is offline. Tools: `scripts/actors/navmesh_points.py` (read-only analysis of a cell's navmesh and objects in
+N0 ran in game (queue `npc_nav_n0`, Starfield.exe 1.16.244, build 2470f876, 2026-10-12 00:17-01:12), and N1a / N1c
+since (5.3); everything else in this section is offline. Tools: `scripts/actors/navmesh_points.py` (read-only analysis of a cell's navmesh and objects in
 Starfield.esm) and `scripts/actors/npc_control.py` (the N0b plan and the N1 / N2 plans derived for it).
 
 ### 5.1 What N0 measured (verified: the runner's obs.json reads and console OCR)
@@ -387,76 +387,141 @@ shot from B shows the actor.
 waypoints, all triangle flags 0x840, triangle heights 2.23..6.00 m; **one connected component** (shared edges only),
 554.7 m^2, x -14.83..8.90, y -8.77..14.82, z 0, centre (-3.0, 3.1), 8 open border edges. The cell's 156 references:
 80 floor tiles (`xxxMineGroundGravel6x6A`, 6 x 6 m) covering x -39..33, y -9..63, so the navmesh covers only the south
-room of a much larger hall; 56 obstacles (`xxxMineWallSmooth6x6A` walls 6 m high, `xxxMineWallRoughPillarA` pillars),
-16 ceiling panels at 6 m, 3 lights, 1 marker: `COCMarkerHeading` 002BE3AF at (-3.4, -1.1, 0), the `coc` arrival. Around
-the navmesh: walls on the west (x -15), south (y -8.7) and east (x 9), pillars in the south-west and south-east corners,
-**open to the north** (no wall between x -14.9 and 8.8 at y 15.1). No furniture, idle marker or other sandbox target on
-the navmesh (a container and an activator stand in the hall at (28.8, 35.8) and (-33.7, 19.5)). Free space (navmesh
-minus obstacles grown by 0.35 m): 509 m^2, one piece. The NAVM records cut no holes for the walls; the planner sees
-the rectangle, a body needs the free space.
+room of a much larger hall; 56 obstacles: 48 `xxxMineWallSmooth6x6A` walls 6 m high, 5 `xxxMineWallRoughPillarA`
+pillars, and three objects out in the hall, the crate `CrateKreet01a` (STAT, -3.1, 27.1: the crate straight ahead in
+N0's arrival shot), the container `_RENAME_TestCombatWeaponCrate01` (28.8, 35.8) and the activator
+`Debug_TestBurstActivator` (-33.7, 19.5); 16 ceiling panels; 3 lights; 1 marker, `COCMarkerHeading` 002BE3AF at
+(-3.4, -1.1, 0), the `coc` arrival. Around the navmesh: walls on the west (x -15), south (y -8.7) and east (x 9),
+pillars in the south-west and south-east corners, **open to the north** (no wall between x -14.9 and 8.8 at y 15.1).
+No furniture, idle marker or other sandbox target on the navmesh. Free space (navmesh minus obstacles grown by
+0.35 m): 509 m^2, one piece. The NAVM records cut no holes for the walls; the planner sees the rectangle, a body needs
+the free space.
 
-Old pair: A and B on the same component, navmesh path = free path = straight line = 19.1 m, the segment 3.8 m clear of
-every obstacle. **The navmesh and the walls did not stop N0's walk.** What fits N0's numbers instead: an actor at A
-that goes to the arrival marker gets 5.2 m closer to B, to the navmesh centre 8.5 m ("drift progress": the most an
-actor gains by going where actors went on their own). N0 measured 5.4 / 6.8 / 9.0 m. **Supported hypothesis:** the
-citizens' own package (sandbox) took them to the middle of the room, and on this pair that is 5-9 m "towards B".
+The ceiling: 16 more `xxxMineWallSmooth6x6A` at z 6 on a 6 m grid (x -9..9, y -6..12), rotation (0, 90, 270)
+degrees. **Verified** a ceiling: N0's arrival shot (`npc_nav_n0\tests\0000_npc_nav_N0_base\a1\arrival.png`) shows one
+over the room, ending at its open north side. Rotated Z first, then Y, the panels lie flat at z 5.87..6.00 and tile
+x -15..9, y -9..15, the room exactly. `fo4sf.exterior.ref_matrix` (X, then Y, then Z), which `navmesh_points.py` uses
+for every box, stands them on edge at z 3..9 instead. Both are "overhead" here (bottom above 1.8 m), so nothing in
+this section changes; **unresolved**: whether ref_matrix's order is right for references that combine Y and Z
+rotations (it is the matrix `routes.py` and PluginSpike use).
 
-### 5.3 N0b: a pair and a rule that separate them
+Old pair: A and B on the same component, navmesh path = free path = straight line = 19.1 m, the segment 3.85 m clear
+of every obstacle (exact; 3.82 m on the 0.1 m grid). **The navmesh and the walls did not stop N0's walk.** Going to a
+fixed place N0's actors went gains up to 8.5 m on that pair (to the navmesh centre; 5.2 m to the arrival marker), and
+N0 measured 5.4 / 6.8 / 9.0 m. That fit is weaker than the first version of this page said: N0_base ended 4.3 m from
+the marker and 7.4 m from the centre, not at either, and the actors also walk up to the player (5.3). **Unresolved:**
+what moves the citizen (its package, the player, or both); 5.3 measures how far, whatever the cause.
 
-Pair, chosen by rule (`navmesh_points.py`, deterministic; the candidates and their numbers are in the staged
-`qasmoke_points.json`): **A (-12, 12, 0) -> B (6, 12, 0), 18.0 m along the open north side**; one navmesh
-(triangles 9 and 2), navmesh path = free path = straight (ratio 1.00), the segment 2.83 m clear, the ends 2.84 / 2.83 m
-clear (walls and the open navmesh edge; placeatme puts the actor up to ~1.7 m from the player), A 15.7 m and B 16.1 m
-from the arrival marker, B 13.0 m from every N0 read. Going to the arrival marker gains 1.9 m, to the navmesh centre
-(the worst place N0's actors went) 5.3 m. The rules: 15..25 m apart, both ends >= 2.5 m and the segment >= 1 m clear,
-free path <= 1.05 x straight, A >= 8 m and B >= 12 m from the arrival marker, B >= 10 m from every N0 read, drift
-progress <= 6 m; ranked by distance near the old 19.1 m, small drift, wide margins.
+### 5.3 How far actors moved without a command (verified: obs.json of `npc_nav_n0`, `npc_nav_n1a`, `npc_nav_n1c`)
 
-Rule (existing plan keys, so the integration-1012 runner plans and judges it unchanged): **PASS = within 3 m of the
-player at B (not at the first read) or 12 m closer than at t0**; a baseline FAILs WANDER on the same numbers. 12 m is
-3 m above N0's largest uncommanded progress (9.0 m) and twice the new pair's drift bound. Reads at 0 / 1 / 3 / 8 / 15 /
-30 s (a 1 s read, so an actor that runs to the player is seen on the way, not INCONCLUSIVE EARLY). PR #75's spawn-read
-approach rule stays (a commanded actor that came 12 m closer before the command is INCONCLUSIVE PRECOMMAND).
-`tests/test_npc_control.py` judges N0's own reads both ways: the old rule gives N0's report (PASS for N0_ptr and
-N0_ptr_lvl), the N0b rule gives N0_base PASS and FAIL STALLED for both PathToRef runs. No judge code changed.
+`npc_control.py wander` lists every confirmed run (13): no command was shown to walk an actor, so every run counts as
+wander. Metres, horizontal, to the player's read at B:
+
+| Measure | Largest | Run |
+|---|---|---|
+| towards the player between the spawn read and t0 (before the command) | 9.45 | N1c_ptr_player |
+| towards the player after t0 (d0 - min d) | 8.96 | N0_ptr_lvl |
+| towards the player between any two reads | 9.45 | N1c_ptr_player |
+| distance from t0, any direction | 14.06 | N1c_cross_ptr (path 27.6 m) |
+| distance between two reads from t0 on, any direction | 14.06 | N1c_cross_ptr |
+
+Three citizens walked up to the player **before** the command, in the few game seconds between the spawn read (the
+player at A) and t0 (the player at B): N0_cf 4.4 m, N1c_ptr_player 9.5 m (d 19.5 -> 10.0 m), N1c_follow_player 3.4 m;
+after t0 all four N1c actors ended further from the player than at t0. Why they approach is **unresolved**. Under the
+worst case (a move on record pointed at the player) a rule needs more than 14.1 m of approach after the command.
+
+### 5.4 The judge measures the walk from t0 (testqueue.py, runner feature `npc_t0`)
+
+The first N0b plan (PR #77 as reviewed: 18 m pair, PASS within 3 m or 12 m closer) used the integration-1012 judge
+unchanged, and that judge has two holes (verifier of PR #77, **verified** in `tests/test_npc_control.py`
+`PreCommandDriftTests`): its pre-command guard (INCONCLUSIVE PRECOMMAND, PR #75) fires only at `min_progress`, so
+12 m there; and an arrival within `radius` passes whatever the actor covered before the command. A citizen that came
+11.5 m before t0 and 3.5 m after it passed; the old 2.5 m / 5 m rule called the same reads PRECOMMAND. N1c's 9.5 m
+before the command and N0_base's 8 m after it, pointed at the player, passed as well; N0_cf's 4.4 m and N0_ptr_lvl's
+9.0 m ended 3.8 m from the player, 0.8 m short. Two optional plan keys close the holes (a plan without them is judged
+exactly as before):
+
+- `precommand_m`: the approach between the spawn read and t0 that makes a commanded test INCONCLUSIVE PRECOMMAND
+  (default `min_progress`);
+- `arrive_progress`: an arrival within `radius` is a PASS only after this much approach from t0 (d0 - min d); an
+  arrival with less is INCONCLUSIVE SHORT (it did arrive: no FAIL; too little after the command: no PASS). With it a
+  baseline FAILs WANDER on the largest approach between **any** two of its reads, the spawn read and t0 included:
+  wander may start before or after the moment a command is typed.
+
+The control gate now pairs a control with the baselines of **its own queue**: a FAIL counts when a control of the same
+actor and method passed and the baselines next to it passed with none WANDER. Before, any baseline of the actor in
+this queue or the control queue counted, so a derived plan's own baseline (5.6) could open the gate for a control
+whose own baseline had come to the player. A commanded PASS is still credited only when no baseline of the actor in
+either queue came on its own. For queues with one baseline (all queues so far) the gate gives the same verdicts.
+
+A queue that uses the keys needs runner feature `npc_t0` (`scripts/game/runner_features.py`): `plan-npc` writes
+`needs: ["npc_t0"]` and a `pre_launch` of the runner's own `runner_features.py check npc_t0`, so an integration-1012
+runner refuses it (exit 5, verified) and an integration-1011 runner, which has no such file, stops at the pre-launch
+before the game starts.
+
+### 5.5 N0b: a 24 m pair and P = 18 m
+
+Pair, chosen by rule (`navmesh_points.py` version 2, deterministic; candidates and numbers in the staged
+`qasmoke_points.json`): **A (5.5, -4.5, 0) -> B (-12, 12, 0), 24.05 m from the south-east corner through the middle
+of the room to the north-west corner**; one navmesh, navmesh path = free path = straight (ratio 1.00), the segment
+2.82 m clear (exact; 2.84 m on the grid), the ends 3.04 / 2.82 m clear (walls, pillars, the open navmesh edge;
+placeatme puts the actor up to ~1.7 m from the player), A 9.5 m and B 15.7 m from the arrival marker, B 12.4 m from
+every N0 read (reversed, B would be 5.5 m from one: the direction matters). Going to a fixed place N0's actors went
+gains at most 11.7 m (to N0_ptr's read at the west wall). The rules: 22..26 m apart, both ends >= 2.5 m and the
+segment >= 1 m clear, free path <= 1.05 x straight, A >= 8 m and B >= 12 m from the arrival marker, B >= 10 m from
+every N0 read, fixed-place drift <= 12 m; ranked by distance near 24 m, small drift, wide margins. 24 m is about what
+the room allows with the ends clear; the first plan's 18 m north pair allowed only 12 m, less than 5.3's 14.1 m.
+
+Rule (`npc_control.rule_for`): P = the pair less 3 m (radius) and 3 m (pre-command allowance), rounded down to 0.5 m:
+**18 m** here. PASS = within 3 m of the player after coming 18 m closer than at t0, or 18 m closer at the end;
+`precommand_m` 3 m (beyond it even a walk all the way could not show 18 m); a baseline FAILs WANDER within 3 m or on
+18 m between any two reads. Reads at 0 / 1 / 3 / 8 / 15 / 30 s (the 1 s read sees an actor that runs to the player on
+the way, else INCONCLUSIVE EARLY). Margins (**supported hypothesis**, 13 runs): 8.6 m over the largest approach
+towards the player, 9.0 m over the largest after t0, 3.9 m over the largest move in any direction, 6.3 m over the
+fixed-place drift. N0's own reads under N0b's rule for their 19.1 m pair (P 13 m): N0_base PASS, N0_ptr and N0_ptr_lvl
+FAIL STALLED, N0_cf INCONCLUSIVE PRECOMMAND (tests).
 
 | Test | Actor | Method | Expected | Basis |
 |---|---|---|---|---|
-| N0b_base | 002B211C EncCitizen01Template | none | PASS | supported hypothesis: N0's wander, B far from it (above) |
-| N0b_ptr | same | `PathToRef player` | FAIL STALLED | supported hypothesis: N0 showed no effect; a PASS here proves PathToRef works |
+| N0b_base, N0b_base2 | 002B211C EncCitizen01Template | none | PASS | supported hypothesis: no run on record came 18 m towards the player; two launches, because the approach is not every run's |
+| N0b_ptr | same | `PathToRef player` | FAIL STALLED | supported hypothesis: no effect in N0 and none in N1c (10.0 -> 16.9 m, 15.2 -> 15.8 m after it); a PASS proves it works |
 | N0b_combat | same | `StartCombat player` | FAIL STALLED | supported hypothesis: AIDT Unaggressive, **Cowardly** (00 00 32 03 00 01 00, verified): it flees |
-| N0b_spacer_base | 00270255 EncSpacer01Template | none | FAIL WANDER | supported hypothesis: SpacerFaction Enemy to the player and 6 reaction radii (verified), as N2b |
-| N0b_spacer_combat | same | `StartCombat player` | PASS | AIDT Unaggressive, **Brave** (00 03 32 03 00 01 01, verified); may stop at weapon range |
-| N0b_spacer_ptr | same | `PathToRef player` | PASS | comes anyway (hostile); credited only if N0b_spacer_base stays away |
+| N0b_spacer_base | 00270255 EncSpacer01Template | none | FAIL WANDER | supported hypothesis: SpacerFaction Enemy to the player and 6 reaction radii (verified) |
 
-The commanded tests are controls (`control: true`): they gate N1 / N2 FAILs of the same actor and method. The Spacer
-gets `handle_tol` 3 m as in N2b. `cf_pathto_player` and `follow_player` have no N0b control: they failed in N0.
+Not planned any more: commanded Spacer tests. Spawned at the player's feet, a hostile Spacer comes for the player before
+the command, so they would read INCONCLUSIVE PRECOMMAND and be retried; the Spacer baseline answers the hostility
+question without a command. The commanded citizen tests are controls (`control: true`); a WANDER of either baseline
+voids them. Reading: both baselines PASS and a commanded citizen PASS = that command walks the citizen, and the derived
+plans with it are worth a run; both commanded FAIL (expected) = no console command walks the calm citizen, the derived
+citizen plans are not run (StartCombat's flight shows as end d > d0); N0b_spacer_base WANDER = hostility brings the
+Spacer to the player on this navmesh, a navigation reference that needs no command. Risks (**unresolved**): the save's
+companion may fight the Spacer; a cowardly citizen may flee off the navmesh to the north.
 
-Reading: N0b_base PASS + a commanded citizen PASS = that command walks the citizen, and N1 / N2a FAILs with it count.
-N0b_base PASS with both citizen commands failing = no console command walks a calm citizen (StartCombat's flight shows
-as end d > d0); then only a PASS or the hostile Spacer says something about navigation. N0b_spacer_base WANDER = the
-Spacer comes for the player on its own on this navmesh: a navigation reference that needs no command (its commanded
-PASSes are not credited to the command). Risks (**unresolved**): the save's companion may fight the Spacer; a
-cowardly citizen may flee off the navmesh to the north.
+### 5.6 N1 and N2 against N0b
 
-### 5.4 N1 and N2 switch their control to N0b
+`npc_control.py derive` re-plans every queue judged against N0, into new queue folders: each test gets the rule of its
+own pair (N1's 19.1 m pair: P 13 m; its 17.5 m cross pair: P 11 m; margins 3.6 / 1.6 m over the largest approach
+towards the player, -1.1 / -3.1 m over the largest move in any direction: thinner than N0b's, so a PASS there leans on
+that plan's own baseline), N2's QASmoke tests move to the N0b pair, `cf` / `follow` are dropped (no control left for
+them), a test that repeats one of N0b's is dropped (N2b's Spacer baseline), and a baseline of the actor in that world
+is added where the plan had none: it takes the credit from the plan's commanded PASSes when it comes on its own, and
+does not open or close the FAIL gate (5.4). No `combat_player` twin unless asked (`--twins`): the citizen is Cowardly,
+so a twin waits for N0b_combat.
 
-The control gate (`--control-queue`) finds N0b's controls by actor and method, so every queue judged against N0 should
-be re-planned against N0b, into new queue folders, from plans derived with `npc_control.py derive`: the N0b rule,
-`cf` / `follow` dropped (their FAIL could never count), a `combat_player` twin of the first `ptr_player` test, a
-baseline of the actor in that world where the plan had none (it credits or voids the queue's commanded PASSes), N2's
-QASmoke tests moved to the N0b pair. Staged in `C:\Modding\staging\npc_nav_<n>_b`:
+A commanded test of a derived plan keeps its source expectation **for the case its gate is open**: `npc_control.py
+ready --plan <plan.json> --control-queue C:\Modding\testqueue\npc_nav_n0b` exits 0 only when N0b's control of the
+same actor and method passed and N0b's baselines passed with none WANDER; until then (and if N0b goes as expected,
+never) the plan is not planned or queued, since its FAILs would be INCONCLUSIVE CONTROL. Staged in
+`C:\Modding\staging\npc_nav_<n>_b`; each README has the exact `plan-npc` command and what must hold first:
 
-| Plan | Tests | Switch? |
+| Plan | Tests | Before planning |
 |---|---|---|
-| `npc_nav_n1c_b` (exp2d, converted navmesh) | N1c_base, N1c_ptr_player, N1c_combat_player, N1c_cross_ptr | **yes**, the run that matters |
-| `npc_nav_n2a_b` (raider calm probe in QASmoke) | N2a_base, N2a_ptr, N2a_combat (control_npc 002B211C) | **yes** |
-| `npc_nav_n2b_b` (raider and Spacer baselines) | N2b_spacer_base, N2b_base (requires N2a_base in `npc_nav_n2a_b`) | yes (points and rule; no control queue, as N2b) |
-| `npc_nav_n1a_b` / `npc_nav_n1b_b` (exp2b2 terrain only / + `gnm`) | base, ptr, combat, cross | optional: N1a's NONAV (0.0 m in 30 s) stands as raw evidence; the gate only re-labels it |
+| `npc_nav_n1c_b` (exp2d, converted navmesh) | N1c_base, N1c_ptr_player, N1c_cross_ptr | N0b results, `ready` exits 0 |
+| `npc_nav_n2a_b` (raider calm probe in QASmoke) | N2a_base, N2a_ptr (control_npc 002B211C) | N0b results, `ready` exits 0 |
+| `npc_nav_n2b_b` (raider baseline) | N2b_base (requires N2a_base in `npc_nav_n2a_b`) | `npc_nav_n2a_b` planned (else `plan-npc` refuses the requires) |
+| `npc_nav_n1a_b` / `npc_nav_n1b_b` (exp2b2 terrain only / + `gnm`) | base, ptr, cross | as N1c_b; optional: N1a's NONAV (0.0 m in 30 s) stands as raw evidence |
 
-Each staged README has the exact `plan-npc` command (staging, install and plugins taken from the old queue,
-`--control-queue C:\Modding\testqueue\npc_nav_n0b`, `--fresh`); plan `npc_nav_n2a_b` before `npc_nav_n2b_b`. The old
-queues are not touched.
+The old queues are not touched.
 
 ## Inspector commands added
 

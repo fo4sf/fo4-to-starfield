@@ -209,9 +209,11 @@ then chain lines in this order: `terrain_exp2b2_npc`, `npc_nav_n1a`, `npc_nav_n1
 
 2026-10-12: N0 could not tell a commanded walk from wandering (docs/actors/npc-navigation.md section 5), so N1's FAILs
 gated by `npc_nav_n0` say nothing. The re-plans `npc_nav_n1c_b` (first), `npc_nav_n1a_b`, `npc_nav_n1b_b` keep these
-worlds and points, judge with N0b's rule (within 3 m of the player or 12 m closer), drop `cf` / `follow`, add a
-`combat_player` twin and a baseline of the citizen in that world, and use `--control-queue
-C:\Modding\testqueue\npc_nav_n0b`; the staged READMEs (`C:\Modding\staging\npc_nav_n1*_b`) have the exact commands.
+worlds and points, judge with N0b's rule for their own pairs (the walk from t0: within 3 m after P, or P closer;
+P = 13 m on the 19.1 m pair, 11 m on the 17.5 m cross pair), drop `cf` / `follow`, add a baseline of the citizen in
+that world, and use `--control-queue C:\Modding\testqueue\npc_nav_n0b`. Plan them only once `npc_control.py ready`
+exits 0 (N0b's PathToRef control and baselines passed; N0b expects that control to fail, then they are not run); the
+staged READMEs (`C:\Modding\staging\npc_nav_n1*_b`) have the exact commands.
 `plan-npc --fresh` and a plan's `"fresh"` need this branch's `testqueue.py` (commit "plan-npc keeps a test's fresh");
 the runner on `claude/integration-1011` drops `fresh` for npc_nav tests and has no `plan-npc --fresh`. PR #68's
 staged `npc_nav_n1` requires `terrain_exp2b3` 0000 PASS, which read INCONCLUSIVE MOVED: as staged it would never run;

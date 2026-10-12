@@ -372,8 +372,10 @@ the face, or runs the inherited AI.
 
 - **2026-10-12: N2 against N0b.** N0 could not tell a commanded walk from wandering (its citizen came 5-9 m towards
   the old B whatever was typed; docs/actors/npc-navigation.md section 5). The re-plans `npc_nav_n2a_b` (N2a_base,
-  N2a_ptr, N2a_combat) and `npc_nav_n2b_b` move N2 to N0b's pair A (-12, 12, 0) -> B (6, 12, 0) and rule (within 3 m of
-  the player or 12 m closer), drop `cf` / `follow` (no control left for them) and gate against `npc_nav_n0b`; the
+  N2a_ptr) and `npc_nav_n2b_b` (N2b_base; N2b's Spacer baseline is now N0b_spacer_base in `npc_nav_n0b`) move N2 to
+  N0b's pair A (5.5, -4.5, 0) -> B (-12, 12, 0) and rule (the walk from t0: within 3 m after 18 m, or 18 m closer),
+  drop `cf` / `follow` (no control left for them) and gate against `npc_nav_n0b`. Plan `npc_nav_n2a_b` only once
+  `npc_control.py ready` exits 0 for it, and before `npc_nav_n2b_b` (whose N2b_base requires N2a_base there); the
   staged READMEs have the commands. The queues above stay as they are.
 - **N2c**, after N2a passes and the converted navmesh passes N1 (PR #71): the raider at its converted Concord position
   (-829.06, 1,008.31, 88.09) m, on the core64 overlay (PR #72, which reaches Concord).

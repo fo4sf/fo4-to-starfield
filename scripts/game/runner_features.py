@@ -15,7 +15,11 @@ import sys
 # light:   time_of_day / weather (sky_light.py): the time ladder with OCR'd replies and second shots, the probe shots'
 #          light, the time command typed again before every terrain probe
 # console: console_pre / console_post (console_plan.py)
-FEATURES = ("light", "console")
+# npc_t0:  npc_nav precommand_m / arrive_progress (N0b): the walk judged from t0 only, baselines by their largest
+#          approach, and the control gate pairing a control with the baselines of its own queue. An older runner would
+#          judge such a queue by min_progress alone (a 12 m pre-command guard, an arrival credited with the wander
+#          before the command: verifier of PR #77, 2026-10-12)
+FEATURES = ("light", "console", "npc_t0")
 
 
 def needs(tests):
@@ -26,6 +30,8 @@ def needs(tests):
             out.add("light")
         if t.get("console_pre") or t.get("console_post"):
             out.add("console")
+        if "precommand_m" in t or "arrive_progress" in t:
+            out.add("npc_t0")
     return sorted(out)
 
 

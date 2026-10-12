@@ -19,10 +19,15 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   No sandbox furniture or idle marker on the navmesh. AIDT: EncCitizen01Template Unaggressive / Cowardly, EncSpacer01Template
   Unaggressive / Brave.
 - Status: the navmesh did not block N0 (**verified**); the `cf` method as written cannot reach PathToReference
-  (**verified**); "N0's PathToRef PASSes were a walk" **refuted** (wander pattern, judged by a 5 m rule); the
-  progress came from the citizens' own package taking them to the middle of the room (**supported hypothesis**);
-  whether PathToRef or StartCombat walks an actor to the player (**unresolved**, N0b: A (-12, 12, 0) -> B (6, 12, 0),
-  18 m, PASS = within 3 m or 12 m closer, staged `C:\Modding\staging\npc_nav_n0b`, queue `npc_nav_n0b`).
+  (**verified**); "N0's PathToRef PASSes were a walk" **refuted** (wander pattern, judged by a 5 m rule); what moved
+  the citizens (their package towards the middle of the room, the player, or both) **unresolved** (fix pass: N0_base
+  ended 4.3 m from the marker and 7.4 m from the centre, and three citizens walked up to the player before the
+  command: N0_cf 4.4 m, N1c_ptr_player 9.5 m, N1c_follow_player 3.4 m; the largest move from t0 on record is 14.1 m,
+  N1c_cross_ptr); whether PathToRef or StartCombat walks an actor to the player (**unresolved**, N0b: A (5.5, -4.5, 0)
+  -> B (-12, 12, 0), 24 m, the walk judged from t0, PASS = within 3 m after 18 m or 18 m closer, staged
+  `C:\Modding\staging\npc_nav_n0b`, queue `npc_nav_n0b`). Also found: QASmoke's 16 ceiling panels (rotation 0, 90,
+  270 degrees) lie flat only when rotated Z first; `fo4sf.exterior.ref_matrix` (X, Y, Z) stands them on edge
+  (**unresolved** for references that combine Y and Z rotations; no effect on this analysis).
 
 ## 2026-10-10 Claude: how Starfield makes a body movable
 - Question: what must a converted body and record carry so Starfield simulates it (FO4 loose items, known unknown #6)?

@@ -91,7 +91,8 @@ NPC_PRE = ("gnm",)                  # probe commands allowed before the spawn (G
 NPC_PLAN_KEYS = frozenset((
     "label", "travel", "npc", "method", "pre", "a", "b", "reads_s", "radius", "min_progress", "nomove", "spawn_tol",
     "target_tol", "fell_m", "drop", "settle_ms", "pre_wait_ms", "max_speed", "spawn_wait_ms", "handle_tol", "path_line",
-    "control", "control_npc", "fresh", "anchor", "spawn_local", "requires", "expect", "basis")
+    "control", "control_npc", "fresh", "anchor", "spawn_local", "requires", "expect", "basis",
+    "precommand_m", "arrive_progress")
     + sky_light.LIGHT_KEYS + console_plan.CONSOLE_KEYS)            # read by with_extras, after npc_test
 # requires.verdict: the required test's verdict, or DECIDED for either PASS or FAIL (its run was judged at all: for an
 # npc_nav test, the spawn was confirmed and the reads were taken)
@@ -394,6 +395,16 @@ def npc_test(n, w):
          "spawn_wait_ms": int(_num(w, "spawn_wait_ms", 2000, 0, 30000)), "handle_tol": _num(w, "handle_tol", 2.0, 0.5, 10),
          "path_line": bool(w.get("path_line", False)), "control": bool(w.get("control", False)),
          "baseline": method == "none"}
+    # the walk measured from t0 (N0b, docs/actors/npc-navigation.md 5.4): only when the plan sets them, so a queue
+    # without them is judged exactly as before and needs no runner feature (runner_features "npc_t0")
+    if "precommand_m" in w:
+        # a commanded test whose actor came this far towards B between the spawn read and t0 is INCONCLUSIVE
+        # PRECOMMAND (default: min_progress)
+        t["precommand_m"] = _num(w, "precommand_m", 5.0, 0.1, 500)
+    if "arrive_progress" in w:
+        # an arrival within radius is a PASS only when the actor also came this far towards B after t0 (d0 - min d);
+        # a baseline then FAILs WANDER on the largest approach between any two of its reads, the spawn read included
+        t["arrive_progress"] = _num(w, "arrive_progress", 0.0, 0.0, 500)
     if w.get("fresh"):
         # relaunch the runner's game before this test (as plan-terrain --fresh): a merged planet world arrives
         # erratically on a repeated coc (2026-10-11), so every test of one starts from a new launch
@@ -658,7 +669,10 @@ def judge_npc(test, obs, shot_ok):
     qstep.ps1 confirmed the handle (PickLastRef's id, GetSelf naming no other ref, GetIsID 1, at the player at A); only
     reads whose selection the game confirmed (prid <id>, GetIsID 1 in the same console session) and that have a
     screenshot count. A baseline (method none, no command) is judged the other way round: PASS when the actor did NOT
-    come to B."""
+    come to B. With the plan keys precommand_m / arrive_progress (N0b) the commanded walk is measured from t0 only:
+    an approach before the command beyond precommand_m is INCONCLUSIVE PRECOMMAND, an arrival is a PASS only after
+    arrive_progress metres from t0 (else INCONCLUSIVE SHORT), and a baseline FAILs WANDER on the largest approach
+    between any two of its reads."""
     if (test.get("anchor") or test.get("spawn_local")) and not obs.get("offset"):
         why = obs.get("offset_missing") or "anchor / arrival read failed"
         return "INCONCLUSIVE", "ANCHOR", f"frame offset not measured ({why}): nothing spawned"
@@ -704,8 +718,16 @@ def judge_npc(test, obs, shot_ok):
     path, last = 0.0, p0
     for _, p in good:
         path, last = path + math.hypot(p[0] - last[0], p[1] - last[1]), p
+    # from_t0 (plan key arrive_progress): the walk is measured from t0 only, and a baseline by the largest approach
+    # between any two of its reads (spawn read and t0 included): wander may start before or after the command
+    from_t0 = "arrive_progress" in test
+    seq = ([dS] if ps is not None else []) + [d0] + [dist(p) for _, p in good]
+    approach, far = 0.0, seq[0]
+    for x in seq[1:]:
+        approach, far = max(approach, far - x), max(far, x)
     stats = (f"spawn d {dS:.1f} m, d0 {d0:.1f} m, min d {dmin:.1f} m, end d {dend:.1f} m, moved {moved:.1f} m, path "
-             f"{path:.1f} m, {len(good)}/{want} reads, last at {good[-1][0].get('t_game')} s ({test['method']})")
+             f"{path:.1f} m, {len(good)}/{want} reads, last at {good[-1][0].get('t_game')} s ({test['method']})"
+             + (f", largest approach {approach:.1f} m" if from_t0 else ""))
     zfloor = min(p0[2], tb[2]) - test.get("fell_m", 3.0)
     low = min(p[2] for _, p in good)
     if low < zfloor:
@@ -724,7 +746,7 @@ def judge_npc(test, obs, shot_ok):
                     f"not a walk; {stats}")
         prev_t, prev_p = t, p
     if test.get("baseline"):
-        prog = max(d0 - dend, dS - dend, early)
+        prog = max(d0 - dend, dS - dend, early) if not from_t0 else max(d0 - dend, dS - dend, early, approach)
         came = min(dmin, d0) <= test["radius"] or prog >= test["min_progress"]
         if came:
             when = (f" ({early:.1f} m of it before the first read, between the spawn read and t0)"
@@ -734,19 +756,27 @@ def judge_npc(test, obs, shot_ok):
         if len(good) < want:
             return "INCONCLUSIVE", "UNREAD", f"{len(good)} of {want} reads confirmed: {stats}"
         return "PASS", "PASS", f"stayed away from B without a command: {stats}"
-    if early >= test["min_progress"] or (d0 <= test["radius"] < dS):
+    pre_lim = test.get("precommand_m", test["min_progress"])
+    if early >= pre_lim or (d0 <= test["radius"] < dS):
         # it came for the player before the command was typed (between the spawn read and t0): whatever follows is
-        # not the command's doing alone (a hostile actor), so neither a PASS nor a FAIL of the command
-        return ("INCONCLUSIVE", "PRECOMMAND", f"came {early:.1f} m towards B before the command (spawn read to t0): "
-                f"the walk after it is not the command's alone; {stats}")
+        # not the command's doing alone (a hostile actor, or a citizen that walks up to the player: N0_cf, N1c), so
+        # neither a PASS nor a FAIL of the command
+        return ("INCONCLUSIVE", "PRECOMMAND", f"came {early:.1f} m towards B before the command (spawn read to t0, "
+                f"limit {pre_lim:g} m): the walk after it is not the command's alone; {stats}")
     if dist(good[0][1]) <= test["radius"]:
         # at B by the first read: no position on the way was seen, so a warp to the player is not ruled out
         return ("INCONCLUSIVE", "EARLY", f"already at B at the first read ({good[0][0].get('t_game')} s): the walk "
                 f"itself was not observed (add an earlier read); {stats}")
-    if dmin <= test["radius"]:
-        return "PASS", "PASS", f"arrived within {test['radius']} m of B: {stats}"
+    if dmin <= test["radius"] and d0 - dmin >= test.get("arrive_progress", 0.0):
+        return "PASS", "PASS", (f"arrived within {test['radius']} m of B" + (
+            f", {d0 - dmin:.1f} m closer than at t0" if from_t0 else "") + f": {stats}")
     if d0 - dend >= test["min_progress"]:
         return "PASS", "PASS", f"walked {d0 - dend:.1f} m towards B: {stats}"
+    if dmin <= test["radius"]:
+        # at the player, but it started too close at t0 for the walk after the command to be told from wandering:
+        # neither a PASS (the command's part is too short) nor a FAIL (it did arrive)
+        return ("INCONCLUSIVE", "SHORT", f"arrived within {test['radius']} m of B but only {d0 - dmin:.1f} m closer "
+                f"than at t0 (needs {test['arrive_progress']:g} m): too short to tell from wandering; {stats}")
     if len(good) < want:
         return "INCONCLUSIVE", "UNREAD", f"{len(good)} of {want} reads confirmed: {stats}"
     if moved < test.get("nomove", 0.5):
@@ -779,8 +809,10 @@ def own_baseline_note(qdir, q, test):
 def control_gate(qdir, q, test, verdict, cls, detail):
     """A FAIL of a non-control npc_nav test only means something when the control (same method, same actor, in a vanilla
     navmeshed cell: N0) passed, in this queue or in q['control_queue'], and, when a baseline of that actor is planned
-    there (method none: no command), the baseline passed too (the actor did not come to B on its own, so the control's
-    PASS was the command's doing). Otherwise: INCONCLUSIVE CONTROL with the raw verdict kept in the detail; the runner
+    in the control's own queue (method none: no command), a baseline there passed and none came to B (the actor did
+    not come to B on its own, so the control's PASS was the command's doing; a baseline of the other queue, e.g. this
+    queue's wander reference in another world, does not vouch for that control). Otherwise: INCONCLUSIVE CONTROL with
+    the raw verdict kept in the detail; the runner
     keeps the raw verdict and the report applies the gate again (a control that passes later still counts). PASS
     needs no control (the walk was observed); it gets a note on whether the actor's own baseline credits the command
     (own_baseline_note). No control configured: unchanged. A test with "control_npc" is gated by
@@ -791,7 +823,7 @@ def control_gate(qdir, q, test, verdict, cls, detail):
         return verdict, cls, detail
     gate_npc = test.get("control_npc") or test.get("npc")
     sources = [qdir] + ([q["control_queue"]] if q.get("control_queue") else [])
-    configured, ctrl, base = bool(q.get("control_queue")), [], []
+    configured, ctrl, base = bool(q.get("control_queue")), [], {}
     for d in sources:
         qq = load(os.path.join(d, "queue.json"), {}) or {}
         done = (load(os.path.join(d, "state.json"), {}) or {}).get("done", {})
@@ -802,9 +834,9 @@ def control_gate(qdir, q, test, verdict, cls, detail):
             if c.get("npc") != gate_npc:
                 continue
             if c.get("control") and c.get("method") == test.get("method"):
-                ctrl.append((c["id"], done.get(c["id"])))
+                ctrl.append((d, c["id"], done.get(c["id"])))
             elif c.get("baseline"):
-                base.append((c["id"], done.get(c["id"])))
+                base.setdefault(d, []).append((c["id"], done.get(c["id"])))
     if not configured:
         return verdict, cls, detail
     raw = f"raw verdict {verdict} {cls}: {detail}"
@@ -813,16 +845,23 @@ def control_gate(qdir, q, test, verdict, cls, detail):
         if any(r and r.get("class") == "WANDER" for _, r in group):
             return "did not pass (the actor came to B without a command)"
         return "did not pass" if any(r for _, r in group) else "has no result"
-    passed = [i for i, r in ctrl if r and r.get("verdict") == "PASS"]
+    passed = [(d, i) for d, i, r in ctrl if r and r.get("verdict") == "PASS"]
     if not passed:
-        return "INCONCLUSIVE", "CONTROL", f"control ({test.get('method')}, {gate_npc}) {why(ctrl)}; {raw}"
-    if base:
-        bpass = [i for i, r in base if r and r.get("verdict") == "PASS"]
-        if not bpass:
-            return ("INCONCLUSIVE", "CONTROL",
-                    f"control {passed[0]} passed but the baseline ({gate_npc}, no command) {why(base)}; {raw}")
-        return verdict, cls, detail + f" (control {passed[0]} and baseline {bpass[0]} passed)"
-    return verdict, cls, detail + f" (control {passed[0]} passed)"
+        return ("INCONCLUSIVE", "CONTROL",
+                f"control ({test.get('method')}, {gate_npc}) {why([(i, r) for _d, i, r in ctrl])}; {raw}")
+    # a control's PASS is the command's doing only when the baselines planned next to it (its own queue: the same
+    # world, cell and pair) passed, none of them came to B on its own; a baseline of another queue (this queue's own
+    # wander reference in another world) says nothing about that control
+    refused = []
+    for d, i in passed:
+        group = base.get(d) or []
+        if not group:
+            return verdict, cls, detail + f" (control {i} passed)"
+        bpass = [j for j, r in group if r and r.get("verdict") == "PASS"]
+        if bpass and not any(r and r.get("class") == "WANDER" for _, r in group):
+            return verdict, cls, detail + f" (control {i} and baseline {bpass[0]} passed)"
+        refused.append(f"control {i} passed but the baseline ({gate_npc}, no command) {why(group)}")
+    return "INCONCLUSIVE", "CONTROL", f"{'; '.join(refused)}; {raw}"
 
 
 # ----------------------------------------------------------------------------------------------------------- controls

@@ -20,9 +20,11 @@ What `analyze` does (offline, deterministic, nothing written but --out and --png
      (distance to the nearest obstacle edge or open navmesh border);
   5. measures the old pair and every candidate pair: on the navmesh, component, straight distance, the navmesh path
      (funnel over the triangle corridor: what the path planner sees, obstacles are not cut out of this navmesh), the
-     free-space path (straight when the segment is clear, else grid A* pulled tight), the clearance along the segment,
-     the "attractor progress" (how much closer to B an actor gets by going from A to the arrival marker) and the
-     "drift progress" (the same for the worst of: the arrival marker, the navmesh centre, every traced read);
+     free-space path (straight when the segment is clear, else grid A* pulled tight), the clearance along the segment
+     and at its ends (on the grid, which ranks, and exact, to the obstacle and open-border edges), the "attractor
+     progress" (how much closer to B an actor gets by going from A to the arrival marker) and the
+     "drift progress" (the same for the worst of: the arrival marker, the navmesh centre, every traced read: fixed
+     places only; a wander that moves with the actor is npc_control.py's `wander` table);
   6. keeps pairs that are PAIR_MIN..PAIR_MAX apart, both ends END_CLEAR clear, the segment SEG_CLEAR clear, free path at
      most DETOUR_MAX x straight, A at least A_FROM_ARRIVAL and B at least B_FROM_ARRIVAL from the arrival marker, B at
      least B_FROM_TRACE from every position an actor was read at in the traced runs (--trace: the npc_nav queues of the
@@ -49,22 +51,25 @@ from fo4sf import navmesh as nm  # noqa: E402
 from fo4sf.exterior import ref_matrix  # noqa: E402
 from fo4sf.fo4land import Plugin, iter_items, iter_subrecords, record_data, zstring  # noqa: E402
 
-VERSION = 1
+VERSION = 2
 # the body: raider_map.HUMAN_BOUNDS is +-0.31 m wide and 1.8 m tall (a human NPC_'s OBND); 4 cm of margin
 AGENT_RADIUS = 0.35
 AGENT_HEIGHT = 1.8
 STEP = 0.3                    # a box whose top is at most this far above the navmesh is floor, not an obstacle
 GRID_M = 0.1                  # free-space grid
 LATTICE_M = 0.5               # candidate points
-PAIR_MIN, PAIR_MAX = 15.0, 25.0
+# N0b's rule (npc_control.py) wants the pair less 6 m (radius 3 m, pre-command allowance 3 m) of walk after the
+# command; uncommanded actors moved up to 14.1 m from t0 (npc_nav_n1c N1c_cross_ptr) and came up to 9.5 m towards the
+# player (N1c_ptr_player): 22 m leaves 16 m, QASmoke's room fits about 24 m with the ends clear
+PAIR_MIN, PAIR_MAX = 22.0, 26.0
 END_CLEAR = 2.5               # placeatme puts the actor up to ~1.7 m from the player (N0: 1.3-1.7 m); handle_tol 2 m
 SEG_CLEAR = 1.0               # the straight segment keeps a body and a margin away from every obstacle and border
 DETOUR_MAX = 1.05
-B_FROM_ARRIVAL = 12.0         # = N0b's min_progress: an actor idling at the arrival marker is not "12 m closer"
+B_FROM_ARRIVAL = 12.0         # an actor idling at the arrival marker is not most of the way to the player
 B_FROM_TRACE = 10.0           # every N0 read stayed >= 10.8 m from the old B; B is kept as far from all of them
 A_FROM_ARRIVAL = 8.0          # A away from the player's arrival (the COC marker), the middle of N0's wander
-DRIFT_MAX = 6.0               # half of N0b's min_progress (12 m): going where actors went on their own leaves 6 m
-TARGET_M = 19.1               # the old pair's distance: comparable walks
+DRIFT_MAX = 12.0              # going to a fixed place actors went on their own leaves >= 6 m of an 18 m walk
+TARGET_M = 24.0               # as long as the room allows: the longer the walk, the wider the margin over wander
 MARKER_FLAG = 0x00800000      # STAT record flag "is marker" (COCMarkerHeading 00000032 carries it, flags 00800004)
 SANDBOX_TYPES = ("FURN", "IDLM")
 TOP_N = 8
@@ -111,6 +116,19 @@ def seg_dist(px, py, ax, ay, bx, by):
     ln = dx * dx + dy * dy
     t = np.zeros_like(px) if ln == 0 else np.clip(((px - ax) * dx + (py - ay) * dy) / ln, 0.0, 1.0)
     return np.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+
+def seg_seg_dist(a, b, c, d):
+    """Exact 2D distance between the segments a-b and c-d (0 when they cross or touch)."""
+    def orient(p, q, r):
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+    o1, o2, o3, o4 = orient(a, b, c), orient(a, b, d), orient(c, d, a), orient(c, d, b)
+    if (o1 > 0) != (o2 > 0) and (o3 > 0) != (o4 > 0) and 0 not in (o1, o2, o3, o4):
+        return 0.0
+
+    def pt(p, q, r):
+        return float(seg_dist(np.array([p[0]]), np.array([p[1]]), q[0], q[1], r[0], r[1])[0])
+    return min(pt(a, c, d), pt(b, c, d), pt(c, a, b), pt(d, a, b))
 
 
 def inside_convex(px, py, poly):
@@ -368,8 +386,10 @@ class FreeSpace:
                 sx, sy = self.X[r0:r1 + 1, c0:c1 + 1], self.Y[r0:r1 + 1, c0:c1 + 1]
                 on[r0:r1 + 1, c0:c1 + 1] |= inside_convex(sx, sy, [tuple(q) for q in p])
         clear = np.full(self.X.shape, np.inf)
+        self.edges, self.polys = [], []                       # the exact geometry, for exact_clearance
         for a, b in boundary_edges(navs):
             clear = np.minimum(clear, seg_dist(self.X, self.Y, a[0], a[1], b[0], b[1]))
+            self.edges.append((a, b))
         for o in obstacles:
             poly = [tuple(q) for q in o["footprint"]]
             if len(poly) < 3:
@@ -377,6 +397,8 @@ class FreeSpace:
             for i in range(len(poly)):
                 a, b = poly[i], poly[(i + 1) % len(poly)]
                 clear = np.minimum(clear, seg_dist(self.X, self.Y, a[0], a[1], b[0], b[1]))
+                self.edges.append((a, b))
+            self.polys.append(poly)
             clear[inside_convex(self.X, self.Y, poly)] = 0.0
         clear[~on] = 0.0
         self.on, self.clear = on, clear
@@ -401,6 +423,17 @@ class FreeSpace:
         cols = np.clip(np.floor((xs - self.lo[0]) / self.grid).astype(int), 0, self.nx - 1)
         rows = np.clip(np.floor((ys - self.lo[1]) / self.grid).astype(int), 0, self.ny - 1)
         return float(self.clear[rows, cols].min())
+
+    def exact_clearance(self, a, b=None):
+        """The exact distance (no grid) of the point a, or the segment a-b, to the nearest obstacle footprint edge or
+        open navmesh border edge; 0 when it touches or enters an obstacle. The grid values (clearance,
+        segment_clearance) rank the pairs; this one is reported next to them."""
+        b = a if b is None else b
+        for poly in self.polys:
+            for p in (a, b):
+                if inside_convex(np.array([p[0]]), np.array([p[1]]), poly)[0]:
+                    return 0.0
+        return float(min((seg_seg_dist(a, b, e0, e1) for e0, e1 in self.edges), default=math.inf))
 
     def labels(self):
         """Connected components of the free cells (4-neighbour): (label array, -1 = not free; [cells per label])."""
@@ -509,7 +542,10 @@ def measure(navs, comps, fs, a, b, arrival=None, trace=(), attractors=None):
            "free_path": round(fp, 3) if fp is not None else None,
            "free_path_ratio": round(fp / d, 4) if fp is not None and d else None,
            "a_clearance": round(fs.clearance(a), 3), "b_clearance": round(fs.clearance(b), 3),
-           "segment_clearance": round(fs.segment_clearance(a, b), 3)}
+           "segment_clearance": round(fs.segment_clearance(a, b), 3),
+           "a_clearance_exact": round(fs.exact_clearance(a[:2]), 3),
+           "b_clearance_exact": round(fs.exact_clearance(b[:2]), 3),
+           "segment_clearance_exact": round(fs.exact_clearance(a[:2], b[:2]), 3)}
     if arrival is not None:
         out["a_from_arrival"] = round(math.dist(a[:2], arrival[:2]), 3)
         out["b_from_arrival"] = round(math.dist(b[:2], arrival[:2]), 3)
@@ -526,8 +562,8 @@ def measure(navs, comps, fs, a, b, arrival=None, trace=(), attractors=None):
 
 
 def score(m):
-    """Lower is better: a distance near the old pair's (comparable walks, and room for an actor that stops short of
-    the player, e.g. one that shoots from range, to still come min_progress closer), little to gain by drifting to
+    """Lower is better: a distance near TARGET_M (the longer the walk, the more of it lies beyond what actors moved on
+    their own; npc_control.rule_for asks for the pair less 6 m), little to gain by drifting to
     where actors went on their own (drift_progress, already capped at DRIFT_MAX; a drift away from B is no better than
     none), wide margins at both ends and along the way, B far from the traced reads, A away from the arrival marker.
     Every term saturates, so no single one buys a pair out of the others."""
@@ -879,7 +915,8 @@ def summary(res):
         if m:
             lines.append(f"  {key}: A {m['a']} B {m['b']} {m['distance']} m, same component {m['same_component']}, "
                          f"navmesh path {m['navmesh_path']}, free path {m['free_path']}, segment clearance "
-                         f"{m['segment_clearance']}, ends {m['a_clearance']} / {m['b_clearance']}, attractor progress "
+                         f"{m['segment_clearance']} (exact {m.get('segment_clearance_exact')}), ends "
+                         f"{m['a_clearance']} / {m['b_clearance']}, attractor progress "
                          f"{m.get('attractor_progress')}, drift progress {m.get('drift_progress')} (to "
                          f"{m.get('drift_to')}), A / B from arrival {m.get('a_from_arrival')} / "
                          f"{m.get('b_from_arrival')}, B from trace {m.get('b_from_trace')}")

@@ -161,6 +161,14 @@ class FreeSpaceTests(unittest.TestCase):
         self.assertAlmostEqual(self.fs.clearance((1, 6)), 1.0, delta=0.1)            # 1 m from the west border
         self.assertEqual(self.fs.clearance((12, 12.05)), 0.0)                          # inside the wall
         self.assertEqual(self.fs.clearance((30, 6)), 0.0)                              # off the navmesh
+        # exact values, no grid: the segment's nearest edge is the wall end (15, 12) or the open border
+        self.assertAlmostEqual(self.fs.exact_clearance((12, 6)), 6.0, places=9)
+        self.assertAlmostEqual(self.fs.exact_clearance((1, 6)), 1.0, places=9)
+        self.assertEqual(self.fs.exact_clearance((12, 12.05)), 0.0)
+        self.assertAlmostEqual(self.fs.exact_clearance((18, 6), (18, 18)), 3.0, places=9)
+        self.assertEqual(self.fs.exact_clearance((12, 6), (12, 18)), 0.0)                # through the wall
+        self.assertAlmostEqual(npt.seg_seg_dist((0, 0), (4, 0), (2, 1), (2, 3)), 1.0)
+        self.assertEqual(npt.seg_seg_dist((0, 0), (4, 4), (0, 4), (4, 0)), 0.0)
 
     def test_a_blocked_segment_detours_and_a_clear_one_is_straight(self):
         a, b = (12, 6, 0), (12, 18, 0)
@@ -186,11 +194,11 @@ class FreeSpaceTests(unittest.TestCase):
 
 class PairTests(unittest.TestCase):
     def test_pairs_follow_every_rule(self):
-        navs = {1: room(24, 24)}
-        fs = npt.FreeSpace(navs, [{"footprint": [[9, 12], [15, 12], [15, 12.13], [9, 12.13]]}])
+        navs = {1: room(32, 32)}                    # pairs are 22..26 m: a room larger than QASmoke's 24 m
+        fs = npt.FreeSpace(navs, [{"footprint": [[13, 16], [19, 16], [19, 16.13], [13, 16.13]]}])
         comps = npt.components(navs)
-        arrival = (12, 2, 0)
-        trace = [(10, 3, 0), (14, 4, 0)]
+        arrival = (16, 2, 0)
+        trace = [(14, 3, 0), (18, 4, 0)]
         pairs, counts = npt.pick_pairs(navs, comps, fs, arrival, trace, lattice=1.0, top=5)
         self.assertTrue(pairs)
         self.assertEqual(counts["pairs_ranked"], len(pairs))
@@ -203,8 +211,8 @@ class PairTests(unittest.TestCase):
             self.assertGreaterEqual(m["a_from_arrival"], npt.A_FROM_ARRIVAL)
             self.assertGreaterEqual(m["b_from_trace"], npt.B_FROM_TRACE)
             self.assertLessEqual(m["drift_progress"], npt.DRIFT_MAX)
-            # the drift covers the arrival, the navmesh centre (12, 12) and every traced read
-            for x in [arrival, (12, 12, 0)] + trace:
+            # the drift covers the arrival, the navmesh centre (16, 16) and every traced read
+            for x in [arrival, (16, 16, 0)] + trace:
                 self.assertLessEqual(m["distance"] - math.dist(m["b"][:2], x[:2]), m["drift_progress"] + 1e-3)
         self.assertEqual([m["score"] for m in pairs], sorted(m["score"] for m in pairs))
         again, _ = npt.pick_pairs(navs, comps, fs, arrival, trace, lattice=1.0, top=5)
@@ -233,17 +241,17 @@ def refr(fid, base, pos, rot=(0, 0, 0)):
 
 
 def plugin_bytes():
-    """TES4, a STAT group (wall, floor tile, COC marker), and one interior cell 'TestRoom' with a 24 x 24 m navmesh,
+    """TES4, a STAT group (wall, floor tile, COC marker), and one interior cell 'TestRoom' with a 32 x 32 m navmesh,
     a wall across its middle, a floor tile and the COC marker."""
-    nav = room(24, 24)
+    nav = room(32, 32)
     nvnm = nm.write_sf(nav)
     stat = (rec(b"STAT", 0x10, [(b"EDID", b"Wall6x6\0"), (b"OBND", struct.pack("<6f", -3, 0, 0, 3, 0.13, 6))])
             + rec(b"STAT", 0x11, [(b"EDID", b"Gravel6x6\0"), (b"OBND", struct.pack("<6f", -3, -3, 0, 3, 3, 0))])
             + rec(b"STAT", 0x32, [(b"EDID", b"COCMarkerHeading\0"),
                                   (b"OBND", struct.pack("<6f", -0.4, -0.4, 0, 0.4, 0.9, 1.9))], flags=0x00800004))
     temp = (rec(b"NAVM", 0x2001, [(b"NVNM", nvnm), (b"MNAM", b"")])
-            + refr(0x2002, 0x10, (12, 12, 0)) + refr(0x2003, 0x11, (3, 3, 0)))
-    pers = refr(0x2004, 0x32, (12, 3, 0))
+            + refr(0x2002, 0x10, (16, 16, 0)) + refr(0x2003, 0x11, (3, 3, 0)))
+    pers = refr(0x2004, 0x32, (16, 3, 0))
     children = grup(0x2000, 6, grup(0x2000, 8, pers) + grup(0x2000, 9, temp))
     other = rec(b"CELL", 0x1000, [(b"EDID", b"OtherRoom\0"), (b"DATA", b"\1\0")])
     cell = rec(b"CELL", 0x2000, [(b"EDID", b"TestRoom\0"), (b"DATA", b"\1\0")])
@@ -257,21 +265,23 @@ class AnalyzeTests(unittest.TestCase):
         esm = os.path.join(d, "Synthetic.esm")
         with open(esm, "wb") as f:
             f.write(plugin_bytes())
-        res, navs, fs, objs = npt.analyze(esm, "TestRoom", (6, 6, 0), (18, 18, 0))
+        res, navs, fs, objs = npt.analyze(esm, "TestRoom", (8, 8, 0), (24, 24, 0))
         self.assertEqual(res["cell"]["form_id"], "00002000")
         self.assertEqual([n["form_id"] for n in res["navmeshes"]], ["00002001"])
-        self.assertEqual(res["components"][0]["area_m2"], 576.0)
+        self.assertEqual(res["components"][0]["area_m2"], 1024.0)
         self.assertEqual(res["objects"]["classes"], {"floor": 1, "marker": 1, "obstacle": 1})
-        self.assertEqual(res["arrival"]["pos"], [12.0, 3.0, 0.0])
+        self.assertEqual(res["arrival"]["pos"], [16.0, 3.0, 0.0])
         old = res["old_pair"]
         self.assertTrue(old["same_component"])
-        self.assertEqual(old["segment_clearance"], 0.0)                 # the diagonal crosses the wall at (12, 12)
+        self.assertEqual(old["segment_clearance"], 0.0)                 # the diagonal crosses the wall at (16, 16)
+        self.assertEqual(old["segment_clearance_exact"], 0.0)
         ch = res["chosen"]
         self.assertIsNotNone(ch)
         self.assertGreaterEqual(ch["segment_clearance"], npt.SEG_CLEAR)
+        self.assertAlmostEqual(ch["segment_clearance_exact"], ch["segment_clearance"], delta=0.15)  # grid vs exact
         self.assertEqual(res["chosen_reversed"]["a"], ch["b"])
         self.assertIn("TestRoom 00002000", npt.summary(res))
-        res2 = npt.analyze(esm, "TestRoom", (6, 6, 0), (18, 18, 0))[0]
+        res2 = npt.analyze(esm, "TestRoom", (8, 8, 0), (24, 24, 0))[0]
         self.assertEqual(json.dumps(res, sort_keys=True), json.dumps(res2, sort_keys=True))
         with self.assertRaises(KeyError):
             npt.analyze(esm, "NoSuchRoom")
