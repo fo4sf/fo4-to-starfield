@@ -4,8 +4,8 @@ Author: Claude, 2026-10-12. Branch `claude/slice-redrocket-door`, stacked on `cl
 npc_nav #68, daylight #73, raider #75, core64c #76, N0b #77). Starfield 1.16.244, Fallout 4 1.10.163.
 Status: **built and checked offline, staged, queue planned, not deployed, not run.** Offline checks are not in-game
 acceptance. After QA on PR #78 (fix pass, section 6 "Fix pass"): staged `C:\Modding\staging\slice_redrocket_door_b`,
-queue `C:\Modding\testqueue\slice_redrocket_door_b` (queue.json only; not in the chain: that is the owner's call,
-after the chain's runner checkout has this branch). The first staging and queue (`slice_redrocket_door`, bf7c853) are
+queue `C:\Modding\testqueue\slice_redrocket_door_b` (queue.json only, planned at 95552f8; not in the chain: that is
+the owner's call, after the chain's runner checkout has this branch). The first staging and queue (`slice_redrocket_door`, bf7c853) are
 superseded: never run them (their judge could call a stand 5 m from the door "the door does not work", their interior
 start stood 4.50 m from the door, and the runner of that commit could teleport after a load it did not see).
 Labels: **verified** = checked here on files (number given), **supported** = supported hypothesis, **unresolved**,
@@ -281,12 +281,14 @@ Optional: `--time-of-day 12` (the exp2d site is the night site; the runner's lig
 screenshots; it adds the `light` need. Step timeout 4,676 s (worst case: every walk step with a position read, every
 read retried); about 8 to 12 minutes expected.
 
-Planned with the first command at bf7c853 (build `2470f876`, test `0000_door_trip_rr_cave_door`, needs `door_trip`,
-`plugin_order`, `pre_launch` = the runner's own `exp_install.py install ... --plugins
-FO4TerrainExp2.esm,FO4TerrainExp2_Mars.esm,FO4SliceRedRocket.esm --pack --needs door_trip,plugin_order`); a dry run of
-the same plan in a scratch folder: "dry run: would run 0000_door_trip_rr_cave_door". The chain's current checkout
-(`fo4-to-starfield-wt\integ`, integration-1011) has no `runner_features.py`; its `exp_install.py` rejects `--needs`
-(exit 2), so it would stop at "pre-launch exit 2" without launching.
+Planned with the first command at 95552f8 (build `2470f876`, test `0000_door_trip_rr_cave_door`, needs `door_check`,
+`door_trip`, `plugin_order`, `pre_launch` = the runner's own `exp_install.py install ... --plugins
+FO4TerrainExp2.esm,FO4TerrainExp2_Mars.esm,FO4SliceRedRocket.esm --pack --needs door_check,door_trip,plugin_order`,
+step timeout 4,676 s); a dry run of a copy of that queue.json in a scratch folder: "dry run: would run
+0000_door_trip_rr_cave_door". The chain's current checkout (`fo4-to-starfield-wt\integ`, integration-1011) has no
+`runner_features.py`; its `exp_install.py` rejects `--needs` (exit 2), so it would stop at "pre-launch exit 2" without
+launching. The superseded first queue (`slice_redrocket_door`, planned at bf7c853 from the first staging, never run)
+is left as it was: do not add it to the chain.
 
 ## 7. Unknowns and risks
 
