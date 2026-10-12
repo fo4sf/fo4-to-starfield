@@ -234,11 +234,18 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(e["settle_ms"], 11000)
         self.assertEqual(e["points"][1], {"label": "roof", "x": 4.0, "y": 5.0, "expect": 9.0})
         kinds = {(0, p["label"]): p["kind"] for p in pts}
+        self.assertEqual((e["hop_m"], e["hop_wait_ms"]), (mk.HOP_M, mk.HOP_WAIT_MS))
         self.assertEqual(mk.validate_plan([e], base, kinds), [])
         bad = dict(e, z_ref="roof", extra=1)
         probs = mk.validate_plan([bad], base, kinds)
         self.assertTrue(any("extra" in p for p in probs) and any("z_ref" in p for p in probs))
         self.assertTrue(mk.validate_plan([dict(e, coc="Other")], base, kinds))
+
+    def test_hops_as_the_runner_makes_them(self):
+        pts = [{"x": 10.0, "y": 0.0}, {"x": 610.0, "y": 0.0}, {"x": 650.0, "y": 0.0}]
+        # no hop before the first point; 600 m -> 2 teleports of 300 m (1 extra hop); 40 m -> none
+        self.assertEqual(mk.hops_of((0.0, 0.0), pts), (1, 300.0))
+        self.assertEqual(mk.hops_of((0.0, 0.0), [{"x": 500.0, "y": 0.0}]), (0, 500.0))
 
     def test_scenarios(self):
         w = local_world([("ROOF", (-5, 20, 0, 5, 30, 4.0))], ground=2.0)
@@ -274,6 +281,8 @@ class StageTests(unittest.TestCase):
     def test_abs_stats(self):
         s = mk.abs_stats([0.001, -0.002, 0.003, -0.5])
         self.assertEqual((s["count"], s["max_mm"], s["within_1cm"]), (4, 500.0, 3))
+        s = mk.signed_stats([1.0, -2.0, 3.0])
+        self.assertEqual((s["min"], s["median"], s["max"]), (-2.0, 1.0, 3.0))
 
 
 if __name__ == "__main__":

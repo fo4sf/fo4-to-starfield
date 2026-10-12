@@ -490,8 +490,14 @@ MUSEUM = "01CC81:Fallout4.esm"          # ConcordMuseumBLD (ConcordMuseum01.nif)
 TOPS = (("redrocket_roof", SHOP), ("sanctuary_house_roof", HOUSE_ROOF), ("concord_museum_roof", MUSEUM))
 VIEWS = (("view_redrocket", (STATION, SHOP)), ("view_sanctuary_house", (HOUSE_ROOF,)), ("view_concord_museum", (MUSEUM,)))
 ROOF_FLAT_TOL = (0.02, 0.1, 0.25)       # level first; a low-pitched roof only if no level part is found
+# Travel in hops (runner keys hop_m / hop_wait_ms, scripts/game/qstep.ps1): in core64's run a single teleport more than
+# about 4 cells (~380 m) from where the player stood raised "Boundary Reached" and hung, while core64b's north-west ray
+# reached every probe to 2 km in 300 m hops of 7 s (2026-10-11 / 12, PR #74 section 6b). The runner does not hop the
+# jump from the arrival to the first point, so every entry starts with the terrain reference next to the arrival.
+HOP_M, HOP_WAIT_MS = 300, 7000
+FIRST_POINT_MAX_M = 100.0
 RUNNER_KEYS = x2c.RUNNER_KEYS
-ENTRY_OWN = ("label", "points", "drop_z", "z_ref", "spawn_local", "settle_ms")
+ENTRY_OWN = ("label", "points", "drop_z", "z_ref", "spawn_local", "settle_ms", "hop_m", "hop_wait_ms")
 ROLES = ("terrain within 500 m", "familiar object tops", "informational")
 
 
@@ -633,8 +639,20 @@ def plan_entry(base, label, drop_z, points, z_ref, spawn_local, settle_ms):
     """One runner entry: every key of core64's entry `base` except the ones core64c sets (ENTRY_OWN), then its own."""
     e = {k: v for k, v in base.items() if k not in ENTRY_OWN}
     e.update(label=label, spawn_local=spawn_local, z_ref=z_ref, drop_z=drop_z, settle_ms=settle_ms,
-             points=[{k: p[k] for k in x2c.POINT_KEYS} for p in points])
+             hop_m=HOP_M, hop_wait_ms=HOP_WAIT_MS, points=[{k: p[k] for k in x2c.POINT_KEYS} for p in points])
     return e
+
+
+def hops_of(start, points, hop_m=HOP_M):
+    """The runner's extra hop teleports (qstep.ps1: none before the first point, ceil(d / hop_m) - 1 per later jump)
+    and the longest single teleport that leaves: (hops, longest teleport in metres)."""
+    hops, longest = 0, math.hypot(points[0]["x"] - start[0], points[0]["y"] - start[1]) if points else 0.0
+    for a, b in zip(points, points[1:]):
+        d = math.hypot(b["x"] - a["x"], b["y"] - a["y"])
+        n = max(1, math.ceil(d / hop_m))
+        hops += n - 1
+        longest = max(longest, d / n)
+    return hops, longest
 
 
 def validate_plan(plan, base, kinds):
@@ -739,9 +757,8 @@ def build_plan(world, ov, base, core_exp):
               "terrain_core64c 3/3 (informational): core64 probes now on or near objects, and screenshot spots facing "
               "north at Red Rocket, the Sanctuary house and the Concord museum"]
     for i, pts in enumerate((judged_terrain, tops, info)):
-        pts = [ref] + pts
-        drop = entry_drop(world, pts)
-        order = order_entry(world, start, pts, drop)
+        drop = entry_drop(world, [ref] + pts)
+        order = [ref] + order_entry(world, (ref["x"], ref["y"], ref["expect"]), pts, drop)
         groups.append(order)
         settle = settle_for(drop, min(p["expect"] for p in order))
         plan.append(plan_entry(base, labels[i], drop, order, REF_LABEL, spawn_local, settle))
@@ -761,9 +778,11 @@ def build_plan(world, ov, base, core_exp):
         for p in e["points"]:
             legs.append(round(math.hypot(p["x"] - here[0], p["y"] - here[1]), 1))
             here = (p["x"], p["y"])
+        hops, longest_tp = hops_of(start, e["points"])
         entries.append({"label": e["label"], "role": ROLES[i], "drop_z": e["drop_z"], "settle_ms": e["settle_ms"],
                         "z_ref": e["z_ref"], "predicted": pred, "teleports_clear": clear, "legs_m": legs,
-                        "longest_leg_m": max(legs), "teleport_positions_on_objects": sum(
+                        "longest_leg_m": max(legs), "runner_hops": hops, "longest_teleport_m": round(longest_tp, 1),
+                        "teleport_positions_on_objects": sum(
                             1 for t in paths for pos in t["positions"] if any(h != "terrain" for h in pos[3])),
                         "teleports": paths})
     return plan, {"spawn": {"marker": ov["spawn"], "landing": x2c.landing_json(world, land_spawn),
@@ -969,7 +988,8 @@ def readme(out, prm, ov, plan, exp):
         lines += ["", f"  {e['label']}", f"  drop_z {e['drop_z']}, settle {e['settle_ms']} ms; predicted without the objects: "
                   f"{pr['no_objects']['verdict']} (worst {pr['no_objects']['worst_m']} m)" +
                   (f", on flat terrain: {pr['flat_terrain']['verdict']} (worst {pr['flat_terrain']['worst_m']} m)"
-                   if "flat_terrain" in pr else "") + f"; longest jump {dd['longest_leg_m']} m"]
+                   if "flat_terrain" in pr else "") + f"; longest jump {dd['longest_leg_m']} m, travelled in "
+                  f"{dd['runner_hops']} extra hops of at most {HOP_M} m ({HOP_WAIT_MS} ms each)"]
         for p in e["points"]:
             m = meta[(i, p["label"])]
             owner = (m.get("owner") or {}).get("edid", "")
@@ -994,6 +1014,12 @@ def abs_stats(values):
             "p95_mm": round(float(np.percentile(v, 95)) * 1000, 2), "p99_mm": round(float(np.percentile(v, 99)) * 1000, 2),
             "max_mm": round(float(v.max()) * 1000, 2), "within_1cm": int((v <= 0.01).sum()),
             "within_5cm": int((v <= 0.05).sum())}
+
+
+def signed_stats(values):
+    v = np.asarray(values, np.float64)
+    return {k: round(float(np.percentile(v, q)), 4) for k, q in (("p1", 1), ("median", 50), ("p99", 99))} | {
+        "min": round(float(v.min()), 4), "max": round(float(v.max()), 4)}
 
 
 def archive_dry_run(archive2, out, scratch, files):
@@ -1109,7 +1135,7 @@ def cmd_check(a):
     pos = np.array([r["pos"] for r in objects["refs"]], np.float64)
     g = terrain.bilinear(pos[:, 0], pos[:, 1])
     dz = pos[:, 2] - g
-    rep["object_minus_btd"] = {"objects": int(len(dz)), "histogram_m": {
+    rep["object_minus_btd"] = {"objects": int(len(dz)), "abs": abs_stats(dz), "signed_m": signed_stats(dz), "histogram_m": {
         f"{lo}..{hi}": int(((dz >= lo) & (dz < hi)).sum()) for lo, hi in
         ((-500, -1), (-1, -0.25), (-0.25, -0.05), (-0.05, 0.05), (0.05, 0.25), (0.25, 1), (1, 500))}}
     by_src = {r["src"]: i for i, r in enumerate(objects["refs"])}
@@ -1133,6 +1159,8 @@ def cmd_check(a):
              "edid": objects["bases"][objects["refs"][idx[j]]["base"]]["edid"], "btd_minus_fo4_mm": round(float(diff[j]) * 1000, 1)}
             for j in worst]
         rep["btd_minus_fo4_land_under_objects"]["no_fo4_land"] = int((~ok).sum())
+        dz4 = pos[ok, 2] - g4[ok]
+        rep["object_minus_fo4_land"] = {"abs": abs_stats(dz4), "signed_m": signed_stats(dz4)}
         if k is not None:
             need(abs(pos[k, 2] - g4[k]) < 1e-3, f"Red Rocket station z - FO4 LAND = {(pos[k, 2] - g4[k]) * 1000:.2f} mm (FO4: 0)")
         s = rep["btd_minus_fo4_land_under_objects"]
@@ -1157,6 +1185,13 @@ def cmd_check(a):
     pts = []
     for e, entry in enumerate(plan):
         need(entry["coc"] == ov["coc"], f"entry {e + 1}: coc {entry['coc']}")
+        p0 = entry["points"][0]
+        d0 = math.hypot(p0["x"] - sx, p0["y"] - sy)
+        hops, longest_tp = hops_of((sx, sy), entry["points"])
+        need(entry.get("hop_m") == HOP_M and entry.get("hop_wait_ms") == HOP_WAIT_MS and d0 <= FIRST_POINT_MAX_M
+             and longest_tp <= HOP_M + 1e-6,
+             f"entry {e + 1}: first point {p0['label']} {d0:.1f} m from the arrival (no hop there), then {hops} hops of "
+             f"at most {HOP_M} m (longest teleport {longest_tp:.0f} m), {HOP_WAIT_MS} ms each")
         low = min(p["expect"] for p in entry["points"])
         need(entry["settle_ms"] >= 1000.0 * cwo.fall_seconds(entry["drop_z"], low),
              f"entry {e + 1}: settle {entry['settle_ms']} ms covers the fall")
