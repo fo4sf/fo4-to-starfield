@@ -679,3 +679,12 @@ twin step is untested in game until the next library run.
   - N1c: converted navmesh;
   - N1b: the runtime generator.
 - **Ground textures (PR #70):** staged. They need a daytime run; every Mars arrival so far was at night.
+
+## 2026-10-11 night: dead man's switch and the huge batch (owner's request)
+- **`scripts/game/watchdog.ps1`** runs detached. It is not reboot-proof yet (the owner was asked about a scheduled task).
+  - After 3 h with no "Claude:" commit and no heartbeat (`C:\Modding\testqueue\claude_heartbeat.txt`), it starts `C:\Modding\testqueue\chain.ps1` itself. No AI is needed; the runner keeps every owner control.
+  - At most every 6 h it calls Codex (`codex exec`, sandbox workspace-write) to follow `docs/ai/codex-runbook.md`: status, reports, one #32 comment, no code changes or game input.
+  - At most 3 chain starts per 6 h. An unfinished required queue goes back to the front of `chain_queue.txt`.
+  - AGENTS.md records the exception.
+- **`batch_full`**, queued last: 1,764 tests on the 16 cells. It covers every route (routes.py `--max 400` -> `routesfull_*.json`) plus 40 falls and 40 movable items per cell, about 30 h.
+- **core64** (one 64x64-cell overlay, 6.4 km) in game: every probe within ~500 m of the arrival is exact (Sanctuary 110.27/110.29, Vault 111 127.09/127.09). Single 1-2 km setpos jumps do not load in time, so a hop variant (300 m steps) is queued next.
