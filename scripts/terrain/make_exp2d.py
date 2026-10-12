@@ -94,6 +94,27 @@ def read_plugin_navmeshes(path):
     return navs, nvmis, raw, {"subrecords": subs, "navi": navi, "walk": rec}
 
 
+def navm_groups(path, world):
+    """{(group type, first in its group): count} of the NAVM records in a worldspace (vanilla CydoniaCity: all 2,708 in
+    the cells' temporary children group (9), ahead of the references)."""
+    out = {}
+    with fo4land.Plugin(path) as p:
+        _fid, start, end, _ = p.find_world(world)
+
+        def walk(s, e, gtype):
+            prev = None
+            for it in fo4land.iter_items(p.buf, s, e):
+                if it[0] == "GRUP":
+                    walk(it[1] + 24, it[2], it[4])
+                    continue
+                if it[0] == b"NAVM":
+                    k = (gtype, prev in (None, b"NAVM"))
+                    out[k] = out.get(k, 0) + 1
+                prev = it[0]
+        walk(start, end, None)
+    return out
+
+
 def door_sources(objects):
     """{Fallout 4 REFR FormID: source key} of the converted references whose base is a rigged DOOR."""
     out = {}
@@ -531,6 +552,11 @@ def cmd_check(a):
     need(navi["fid"] == 0x00000FF1 and nver == (17).to_bytes(4, "little") and nvpp == bytes(8),
          f"NAVI override 00000FF1, NVER 17, empty NVPP ({navi['fid']:08X}, {nver.hex()}, {None if nvpp is None else nvpp.hex()})")
     rep["navm_subrecords"] = sorted({tuple(s for s, _ in v) for v in info["subrecords"].values()})
+    need(rep["navm_subrecords"] == [("NVNM", "MNAM")] and
+         all(dict(v).get("MNAM") == 0 for v in info["subrecords"].values()), "every NAVM = NVNM + empty MNAM, as vanilla")
+    groups = navm_groups(os.path.join(out, prm["plugin"]), prm["world"])
+    need(groups == {(9, True): len(navs)}, f"every NAVM in its cell's temporary group, ahead of the references, as "
+         f"vanilla ({groups})")
 
     # 2. the NVNM bytes against the Python reference writer (same pieces, the FormIDs the plugin got)
     src_navs = load(os.path.join(out, "navmesh.json"))["navmeshes"]

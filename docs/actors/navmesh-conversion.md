@@ -117,12 +117,13 @@ adjustments, each found by writing, reading back raw and comparing (all **verifi
 4. **Form version** 581 on NAVM and NAVI (Starfield.esm's newest NAVM and its NAVI, SFBGS006, BlueprintShips: 581;
    SFBGS003: 582). The rest of the plugin keeps Mutagen's 576, which exp2c's objects load with.
 
-## 4. Offline verification (`make_exp2d.py check`, `offline_check_navmesh.json`): PASS, 35 checks
+## 4. Offline verification (`make_exp2d.py check`, `offline_check_navmesh.json`): PASS, 37 checks
 - exp2c unchanged: the Mars plugin, the BTD (both copies) and the overlay mask byte-identical; **all 10,301 exp2c records
   unchanged**; added: 156 NAVM + 1 NAVI only; masters [Starfield.esm]; NAVM FormIDs `0100303D`..`010030D8` after every
   exp2c record (`0100303C`); NAVI `00000FF1`, NVER 17, empty NVPP.
 - **Every NVNM parses with the vanilla layout and is byte-identical to `navmesh.write_sf`** of the same pieces with the
-  FormIDs the plugin got; every one ends with `0c 00 08 00`; subrecords NVNM + MNAM (0 B), as vanilla.
+  FormIDs the plugin got; every one ends with `0c 00 08 00`; subrecords NVNM + MNAM (0 B), and every NAVM in its
+  cell's temporary group ahead of the references, as vanilla (CydoniaCity: 2,708 of 2,708 there).
 - Structure (`navmesh.validate`): 0 problems. 8,208 link ends, all symmetric, each used by exactly one triangle edge;
   182,686 internal edge references, every one pointing back and sharing the two vertices; every vertex inside its
   navmesh's 100 m cell; every triangle in the grid; the divisor rule; door triangles flagged; 156 NVMI: merged-to = link
