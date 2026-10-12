@@ -667,3 +667,7 @@ twin step is untested in game until the next library run.
   - exp2c: 8,069 real FO4 objects around Red Rocket on this terrain (PR #66);
   - exp3: four edge-to-edge 14x14 overlays with seam probes (PR #67);
   - World01 stored; the vanilla NPC navigation control; then the batches.
+- **exp2c, same evening:** the real FO4 objects around Red Rocket (8,069 references, 1,385 converted models, one plugin) stand on the native terrain in game. Textures load from the stored plugin archive.
+  - Test 1 PASS: the terrain probes are still within 0.08 m with the objects placed.
+  - Test 2 PASS: object tops land where FO4 put them, so their collision works: Red Rocket roof 109.73 m (want 109.74), brick building roof 103.87 (103.88), road piece 88.20 (88.21).
+  - Probing 100 m past the overlay raised Starfield's "Boundary Reached" popup, the landing area's limit.
