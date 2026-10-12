@@ -3,6 +3,72 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-12 Claude: where the shutter door's second panel is lost (multi-part FO4 doors)
+- Question: FortHagen01 `0BD6A1` (`BldWoodPDoorShutter01`) shows OPEN, flips to CLOSE, but only one louvered panel
+  swings (supervised_1011 tests 0004/0005, `r4_pre.png` / `r4_open.png`). The FO4 source animates two nodes; where is the
+  second panel lost, and how many doors share the defect?
+- Method (offline, local scripts; no game data in the repo): `door_motion.inspect` / `door_rig.plan` on the FO4 NIF;
+  the converted NIF, manifest entry and FO4Port.esm of the pinned build `integ_1011` read back; vanilla Starfield doors
+  from `Starfield - Meshes01.ba2` / `Starfield - Animations.ba2` (rig + `.af` read back with the external CALUMI library,
+  `LoadAnimationSceneFromSFBGSFormatAndSaveToJsonC`) and their DOOR records from Starfield.esm; Fallout4.esm DOOR
+  records (MODL) and the 16 pinned cell exports scanned with `door_motion.inspect`.
+- Evidence, source: `Open` and `Close` each drive two nodes, `Left` (pivot 17.87, -24, 123.89 units, -107 degrees about z)
+  and `Right` (pivot 17.87, +24, 123.89, +114 degrees), 1.0 / 0.97 s; each node holds one shape and its own
+  `bhkNPCollisionObject` (body 0 / 1 of one compressed-mesh physics system).
+- Evidence, converted (`integ_1011`): the manifest's door entry names the Akila template rig and animations; the NIF is
+  root > `AK_Door_Anim_02_Root` > `Hinge01_Point` > `mesh001` (keyframed box, layer 2) > `Left:30`, and root > `Frame` >
+  `Right:30` with no bone and no body. The template's own clip (Akila `open.af` read back) has **one track** of its 6
+  bones: `Hinge01_Point`, 16 rotation keys to -90 degrees, no translation. So the Right panel has 0 bones, 0 tracks and
+  0 bodies; nothing could move it.
+- Cause in code: `nif.door_hinge` reads only the first controlled block of `Open` (offset 12 + 9), and
+  `convert_static.convert_door` moves only that node's descendants; every other shape lands under the static `Frame`.
+  The pipeline gate (`pipeline.Converter.convert_nif`) checks `door_hinge` alone and never consulted
+  `door_motion.inspect`, which already reports `requires_additional_motion_support: true` for this model.
+- Evidence, vanilla double door `IndIntRmSmWallMid_DoorA01` (`2BF4DA`): the same graph as the Akila door
+  (`SimpleOpenClose01.agx`) but its own rig (7 bones) and clips: `Open` has one track per leaf (`Hinge01_Point` -93,
+  `Hinge02_Point` +93 degrees, 48 rotation and 39 translation keys, a 0.149 m outward slide, frames 0-60); the NIF holds
+  one physics system with 3 bodies: 0 on the root (frame), 1 on `Door02_Mesh`, 2 on `Door01_Mesh`. The graph is not
+  the limit; a door moves as many parts as its own rig and clips have tracks.
+- Evidence, clip convention (126 vanilla door rigs, first clip each): no clip has a track for every bone (tracks for
+  animated bones only); all 391 translation tracks of bones with a nonzero bind start at 0 and all 83 rotation tracks
+  of bones with a rotated bind start at identity, none at the bind: **clip keys are offsets from the bind**. CALUMI
+  stores the values as given (no bind arithmetic in `SFBGS_AnimationScene.cpp`). `native_door.prepare` wrote absolute
+  local keys for every bone, which would apply each bind twice; it had never run in game.
+- Side finding: both FortHagen01 shutters (`0BD6A1`, `0BD69F`) are window shutters. Their walls
+  (`BldWoodPSmWallWindowHole01`, render triangles within 12 units of the door plane projected onto it) are solid from
+  the floor to 1.03 m above the reference; the opening is the panels' own span, 1.08-2.46 m high and about 0.65 m wide.
+  The walk test cannot pass with both panels open. Side 1 stopped at x 12.16, beside a fallen static
+  `FederalistChair01` (origin x 12.09, y 58.52, z 7.80; probably what stopped it), side -1 0.37 m before the plane,
+  about one capsule radius from the wall below the sill.
+- Blast radius, 16-cell build: 59 placed door models, 36 animate more than one node; 10 rigged models (38 references,
+  76 batch_full door tests) have geometry outside the first node and lose it: `BldWoodPDbDoor01` (second leaf + knob),
+  `BldWoodPDoorShutter01`, `HitDoorSm01` / `HitDoorLg01` (3 of 4 sliding panels frozen; the 4th swings on the Akila
+  hinge instead of sliding), `IndMetalDbDoor01`, `UtilMetalDbDoor01`, `PaintedWoodDoorDouble01` (Parsons `06CF29`, the
+  0.30 m block in the journal), `SwitchDoorExSmLatch01/02` (latches), `FancyBureauDoor01`. Fallout4.esm: 369 DOOR
+  records, 227 models; 106 models (175 records) animate more than one node, 80 (139 records) have geometry outside the
+  first node: 33 models (48 records) take the rig path, 17 are load doors (static by design), 18 not hinged (passable),
+  12 not door-named (static).
+- Fix (branch `claude/door-two-panels`): rigged doors with parts outside the first node
+  (`convert_static.frozen_door_parts`) get their own rig and clips when `convert_batch.py --door-anim-dll` names the
+  CALUMI library: `convert_static.convert_multipart_door` makes one rig bone per FO4 node (placed: root transform left
+  out), one clip track per animated node keyed from the bind (`native_door.prepare`; animated bones get identity binds,
+  `door_rig.animated_identity_binds`), one keyframed box per moving bone, the rig and `Open`/`Close` `.af` + `.afx` under
+  `meshes/<model>/characterassets` and `/animations`, and a DOOR entry with origin offset 0 whose BNAM / CNAM point there.
+  Without the library the template door stays and the manifest lists `door_frozen_parts`.
+- Offline checks (re-conversion of every placed door model into `C:\Modding\staging\door_two_panels`, 57 models, 17 s):
+  47 models byte-identical to `integ_1011` (NIF and manifest entry), the 10 above changed. `scripts/oracles/door_panels.py`
+  with CALUMI read-back: before 23 of 40 parts move (17 frozen), after 40 of 40 have an Open and a Close track and a
+  moving body; `door_bodies.py` 0 errors (moving bodies per door 1 -> 2 or 4). Shutter: rig 3 bones, `Open.af` 2 tracks
+  (`Left` -107, `Right` +114 degrees, 31 rotation keys, no translation), `Close.af` 2 tracks (30 keys), bodies on `Left`
+  and `Right`. Plugin overlay (`C:\Modding\staging\door_two_panels_esm`, pinned manifest with the 10 items swapped):
+  54,271 records, 48 changed: 10 DOOR (BNAM, CNAM, OBND) and their 38 REFR (position only; shutter `00BE6A` now at the
+  FO4 position 12.8, 58.514, 7.314); FormIDs unchanged.
+- Status: where the panel is lost **verified** (offline: code path, converted NIF, manifest, template clip read-back;
+  symptom from the in-game screenshots). "Starfield clip keys are offsets from the bind" **supported hypothesis**
+  (vanilla survey; no clip of ours has played yet). "Our rig + clips + per-leaf keyframed boxes open both panels in game"
+  **unresolved** (in-game test plan: docs/spikes/WP-doors-research.md, "Multi-part doors"). Shutter walk test impossible
+  **verified** for `0BD6A1` (wall geometry), **supported** for `0BD69F` (same wall pieces).
+
 ## 2026-10-12 Claude: why the NPC control N0 could not tell a commanded walk from wandering
 - Question: N0 (`npc_nav_n0`, QASmoke) passed `PathToRef` twice and failed its no-command baseline; is that a walk, a
   navmesh problem, or wander? What pair and rule would separate them (N0b)?
