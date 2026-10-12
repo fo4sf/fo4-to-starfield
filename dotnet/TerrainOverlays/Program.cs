@@ -16,6 +16,13 @@
 //                          COCMarkerHeading 2 m above the ground, a persistent XMarker anchor in the persistent cell
 // PNDT CNAM entries store latitude first, then longitude (radians; Earth overlays sit at their real cities). Mutagen
 // 0.55 names the first value Longitude and the second Latitude, so the params' latitude goes into .Longitude.
+//
+// Optional "objects": "objects.json" (core64c, docs/terrain/core64c.md, written by scripts/terrain/make_core64c.py stage):
+// converted Fallout 4 models as STAT (or rigged DOOR) records and their references in one overlay's exterior cells,
+// {"world": <overlay world EditorID>, "bases": [{"edid", "model", "door"?}], "refs": [{"src", "base", "cell", "pos",
+// "rot", "scale", "disabled"}]} (metres, radians), as dotnet/TerrainExp2's objects mode. Their FormIDs come after every
+// overlay record, so the terrain records, the anchors and the Mars plugin keep the FormIDs they have without objects;
+// <staging dir>/formids.json lists the new ones.
 using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
@@ -55,6 +62,7 @@ float hmin = prm.GetProperty("hmin").GetSingle(), hmax = prm.GetProperty("hmax")
 bool absolute = prm.GetProperty("alignment").GetString() == "absolute";
 short hnam = prm.GetProperty("hnam").GetInt16();
 var worlds = new List<(Worldspace World, JsonElement Params)>();
+var cellsOf = new Dictionary<string, Dictionary<(int, int), Cell>>();
 int idx = 0;
 foreach (var o in overlays)
 {
@@ -103,10 +111,12 @@ foreach (var o in overlays)
     string coc = o.GetProperty("coc").GetString()!;
     var blocks = new Dictionary<(int, int), WorldspaceBlock>();
     var subs = new Dictionary<(int, int), WorldspaceSubBlock>();
+    var cellAt = cellsOf[world] = new Dictionary<(int, int), Cell>();
     for (int x = cmin; x <= cmax; x++)
         for (int y = cmin; y <= cmax; y++)
         {
             var c = new Cell(NewKey(), release) { Grid = new CellGrid { Point = new P2Int(x, y) } };
+            cellAt[(x, y)] = c;
             if (x == spawnCell[0] && y == spawnCell[1])
             {
                 c.EditorID = coc;
@@ -141,11 +151,87 @@ foreach (var o in overlays)
                       $"{(cmax - cmin + 1) * (cmax - cmin + 1)} cells {cmin}..{cmax}, COC {coc} in ({spawnCell[0]}, {spawnCell[1]})");
     idx++;
 }
+int nStat = 0, nDoor = 0, nRef = 0, nDisabled = 0;
+if (Has(prm, "objects"))
+{
+    // core64c: converted FO4 models and their references, allocated after every overlay record
+    using var odoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, prm.GetProperty("objects").GetString()!)));
+    var o = odoc.RootElement;
+    string world = o.TryGetProperty("world", out var wj) ? wj.GetString()! : worlds[0].World.EditorID!;
+    if (!cellsOf.TryGetValue(world, out var cellAt)) throw new InvalidDataException($"objects.json names world {world}, not an overlay of these params");
+    var baseKeys = new List<FormKey>();
+    var baseIds = new Dictionary<string, string>();
+    foreach (var b in o.GetProperty("bases").EnumerateArray())
+    {
+        var edid = b.GetProperty("edid").GetString()!;
+        var model = b.GetProperty("model").GetString()!;
+        if (b.TryGetProperty("door", out var d) && d.ValueKind == JsonValueKind.Object)
+        {
+            // hinged door rigged like the vanilla template door (as PluginSpike and TerrainExp2): graph, skeleton, bounds
+            var rec = new Door(NewKey(), release)
+            {
+                EditorID = edid, Model = new Model { File = model }, Name = "Door",
+                SoundLevel = SoundLevel.Normal, FacingAxisOverride = Door.FacingAxisOverrideEnum.BasedOnBounds,
+            };
+            if (d.TryGetProperty("bounds", out var bj))
+                rec.ObjectBounds = new ObjectBounds
+                {
+                    First = new P3Float(bj[0][0].GetSingle(), bj[0][1].GetSingle(), bj[0][2].GetSingle()),
+                    Second = new P3Float(bj[1][0].GetSingle(), bj[1][1].GetSingle(), bj[1][2].GetSingle()),
+                };
+            rec.Components.Add(new AnimationGraphComponent
+            {
+                ANAM = d.GetProperty("anim_graph").GetString(), BNAM = d.GetProperty("skeleton").GetString(),
+                CNAM = d.GetProperty("animations").GetString(),
+            });
+            mod.Doors.Add(rec);
+            baseKeys.Add(rec.FormKey);
+            nDoor++;
+        }
+        else
+        {
+            var stat = new Static(NewKey(), release) { EditorID = edid, Model = new Model { File = model } };
+            mod.Statics.Add(stat);
+            baseKeys.Add(stat.FormKey);
+            nStat++;
+        }
+        baseIds[edid] = baseKeys[^1].ID.ToString("X6");
+    }
+    var refIds = new Dictionary<string, string>();
+    foreach (var r in o.GetProperty("refs").EnumerateArray())
+    {
+        float[] V(string k) => r.GetProperty(k).EnumerateArray().Select(e => e.GetSingle()).ToArray();
+        var cxy = r.GetProperty("cell").EnumerateArray().Select(e => e.GetInt32()).ToArray();
+        if (!cellAt.TryGetValue((cxy[0], cxy[1]), out var cell))
+            throw new InvalidDataException($"reference {r.GetProperty("src").GetString()} in cell ({cxy[0]}, {cxy[1]}) outside {world}'s cells");
+        var pos = V("pos");
+        var rot = V("rot");
+        var obj = new PlacedObject(NewKey(), release)
+        {
+            Base = new FormLinkNullable<IPlaceableObjectGetter>(baseKeys[r.GetProperty("base").GetInt32()]),
+            Position = new P3Float(pos[0], pos[1], pos[2]),
+            Rotation = new P3Float(rot[0], rot[1], rot[2]),
+        };
+        var scale = r.GetProperty("scale").GetSingle();
+        if (Math.Abs(scale - 1f) > 1e-4) obj.Scale = scale;
+        if (r.GetProperty("disabled").GetBoolean())
+        {
+            obj.MajorRecordFlagsRaw |= 0x800;                                // Initially Disabled, as in FO4
+            nDisabled++;
+        }
+        cell.Temporary.Add(obj);
+        refIds[r.GetProperty("src").GetString()!] = obj.FormKey.ID.ToString("X6");
+        nRef++;
+    }
+    var ids = new Dictionary<string, object> { ["plugin"] = modKey.FileName.String, ["world"] = world, ["bases"] = baseIds, ["refs"] = refIds };
+    File.WriteAllText(Path.Combine(outDir, "formids.json"), JsonSerializer.Serialize(ids));
+}
 mod.ModHeader.Stats.NextFormID = next;
 var path = Path.Combine(outDir, modKey.FileName);
 mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(sfData)
     .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full)).Write();
-Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {worlds.Count} overlays, next FormID 0x{next:X}");
+Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {worlds.Count} overlays, next FormID 0x{next:X}" +
+                  (Has(prm, "objects") ? $"; objects: {nStat} STAT, {nDoor} DOOR, {nRef} REFR ({nDisabled} initially disabled)" : ""));
 
 if (Has(prm, "mars"))
 {

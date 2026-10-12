@@ -166,7 +166,7 @@ class BatchCapTests(unittest.TestCase):
             seen, manifest, staging = self.run_batch(tmp, ["--max-texture", "color=512"], first)
             self.assertEqual(seen["max_texture"], "color=512")
             self.assertEqual(manifest["stats"]["textures"],
-                             {"textures": 1, "capped": 1, "full_bytes": 100, "written_bytes": 30})
+                             {"textures": 1, "capped": 1, "full_bytes": 100, "written_bytes": 30, "caps": {"color": 512}})
             second = {"textures/b_rough.dds": {"capped": False, "bytes": 10, "out_bytes": 10}}
             _seen, manifest, staging = self.run_batch(tmp, ["--max-texture", "color=512"], second)
             log = json.loads((staging / "texture_log.json").read_text())

@@ -235,7 +235,7 @@ def main():
     stats = dict(conv.stats) if conv else {"materials_ok": 0, "materials_fallback": 0}
     stats.update(assets=len(items), failed=len(failures), reused=reused)
     if tex_totals is not None:
-        stats["textures"] = tex_totals
+        stats["textures"] = dict(tex_totals, caps=textures.parse_texture_caps(a.max_texture))
     manifest = {"items": items, "failures": failures, "material_fallbacks": conv.material_errors if conv else {}, "stats": stats,
                 "seconds": round(time.time() - t0, 1)}
     os.makedirs(a.staging, exist_ok=True)
