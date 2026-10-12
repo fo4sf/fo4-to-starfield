@@ -76,11 +76,16 @@ class TerrainEvidenceTests(unittest.TestCase):
         self.assertEqual(oracle.judge(bundle(), tol_m=-0.1)[0], "UNREAD")
         self.assertEqual(oracle.judge(bundle(), reach_m=True)[0], "UNREAD")
 
-    def test_one_sample_repeated_is_not_settled(self):
+    def test_identical_frames_with_distinct_provenance_can_pass(self):
+        # QA on #69: identical XYZ may be independent stationary captures.
         same = ["10 -4 105.14", "10 -4 105.14"]
         self.assertEqual(oracle.judge(bundle(frames=same))[0], "UNREAD")
-        nudged = ["10 -4 105.14", "10.0000001 -4 105.14"]
-        self.assertEqual(oracle.judge(bundle(frames=nudged))[0], "UNREAD")
+        proven = bundle(frames=same, provenance=["cap-1", "cap-2"])
+        self.assertEqual(oracle.judge(proven)[0], "PASS")
+        duplicate = bundle(frames=same, provenance=["cap-1", "cap-1"])
+        self.assertEqual(oracle.judge(duplicate)[0], "UNREAD")
+        ids = bundle(frames=same, frame_ids=[1, 2])
+        self.assertEqual(oracle.judge(ids)[0], "PASS")
 
     def test_recorded_bytes_must_hash_to_the_pin(self):
         import hashlib

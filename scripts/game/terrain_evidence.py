@@ -6,7 +6,7 @@ A PASS needs every one of these. Anything missing is UNREAD, never a pass:
 - when the record includes those files' bytes, the bytes hash to the pin
 - ground is "plugin" (a procedural or unnamed ground cannot pass)
 - a recorded offset is a finite x, y, z (a bad value is not treated as zero)
-- at least two finite position frames that are not copies of one sample, all within reach_m of the point in X/Y
+- at least two finite position frames that are not copies of one sample (or that have distinct capture provenance), all within reach_m of the point in X/Y
 - those frames agree in Z within settle_m
 - the settled height is within tol_m of the expected height, after that offset
 - reach_m, settle_m and tol_m are finite and nonnegative
@@ -54,6 +54,28 @@ def _control(value):
     if not math.isfinite(value) or value < 0:
         return None
     return float(value)
+
+
+def _independent(evidence, n):
+    """True when metadata proves the frames are separate captures, not one sample copied.
+
+    Accepts a 'provenance' or 'frame_ids' list of length n containing distinct non-empty
+    strings or numbers. Absent or incomplete metadata is not proof.
+    """
+    for key in ("provenance", "frame_ids", "captures"):
+        meta = evidence.get(key)
+        if not isinstance(meta, list) or len(meta) != n:
+            continue
+        values = []
+        for item in meta:
+            if isinstance(item, (str, int, float)) and str(item).strip():
+                values.append(str(item).strip())
+            else:
+                break
+        else:
+            if len(set(values)) == n:
+                return True
+    return False
 
 
 def _shift(evidence):
@@ -131,9 +153,11 @@ def judge(evidence, reach_m=2.0, settle_m=0.05, tol_m=0.5):
     if any(read is None for read in reads):
         return "UNREAD", "a frame did not parse"
     # Two copies of one getpos are not two settled frames. A still player is inconclusive
-    # until the readings actually differ, which is safer than a false pass.
+    # until the readings actually differ or capture provenance shows independent samples.
+    # Identical XYZ from separate captures (stationary or rounded) can still settle.
     if len({tuple(round(part, 6) for part in read) for read in reads}) < 2:
-        return "UNREAD", "frames are one sample repeated"
+        if not _independent(evidence, len(reads)):
+            return "UNREAD", "frames are one sample repeated"
     tx, ty, expect = target
     ox, oy, oz = shift
     for read in reads:
@@ -168,7 +192,8 @@ def judge_probe(evidence, reach_m=2.0, settle_m=0.05, tol_m=0.5):
         if not isinstance(point, dict) or not point.get("label"):
             return "UNREAD", "a planned point has no label"
         label = point["label"]
-        one = {key: evidence[key] for key in ("pinned", "identity", "ground", "require_offset", "bodies")
+        one = {key: evidence[key] for key in ("pinned", "identity", "ground", "require_offset", "bodies",
+                                              "provenance", "frame_ids", "captures")
                if key in evidence}
         if "offset" in evidence:
             one["offset"] = evidence["offset"]
