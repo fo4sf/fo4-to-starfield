@@ -2,6 +2,19 @@
 
 Format: date, decision, why, alternatives considered.
 
+## 2026-10-12 Multi-part FO4 doors get their own rig and clips; single-part doors stay on the Akila template (Claude, proposed)
+A rigged FO4 door whose `Open` sequence moves geometry outside its first node (second leaf, shutter panel, sliding
+panel set, latches) is converted with one rig bone per FO4 node, its own `Open`/`Close` clips written with the external
+CALUMI library from FO4's own keys (tracks for animated bones only, keyed from the bind), one keyframed box per moving
+part, and a DOOR record whose BNAM / CNAM point at those files (graph unchanged: `SimpleOpenClose01.agx`). Doors with one
+moving part keep the verified template path. Why: the template rig's clip has one track, so a second part cannot move
+under it; vanilla double doors (`IndIntRmSmWallMid_DoorA01`) are built exactly this way; FO4's keys give the right
+pivots, angles, slides and timing for every part. Keeping single-part doors on the template keeps what already works
+in game while the native rig is unverified. Alternatives: a vanilla two-leaf template (fixed hinge spacing and swing
+that FO4 doors do not share), one DOOR reference per leaf on the Akila template (needs activate-parent links, and the
+mirrored leaf would swing the wrong way), leaving the extra parts static (the bug). Evidence: docs/ai/research-log.md
+2026-10-12; docs/spikes/WP-doors-research.md "Multi-part doors".
+
 ## 2026-10-11 FO4 navmesh: one Starfield NAVM per (FO4 navmesh, 100 m cell) and a NAVI holding only our entries (Claude)
 Every Fallout 4 navmesh is cut at Starfield's cell lines into one NAVM per cell it touches (cut points keyed so both
 sides are bit-identical; new links along the lines; FO4's own portals kept as links); the plugin carries a NAVI override

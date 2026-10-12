@@ -40,6 +40,8 @@ def checkpoint_signature(a):
            "rig_doors": bool(a.starfield_data), "movable_items": bool(a.starfield_data) and not a.static_items}
     if getattr(a, "prefix", "fo4port") != "fo4port":   # output paths differ; the default keeps existing checkpoints valid
         sig["prefix"] = a.prefix
+    if getattr(a, "door_anim_dll", "") and a.starfield_data:   # multi-part doors get their own rig and clips
+        sig["door_anim_dll"] = checkpoints.digest(Path(a.door_anim_dll))
     caps = textures.parse_texture_caps(getattr(a, "max_texture", ""))
     if caps:                                            # capped outputs differ; no cap keeps existing checkpoints valid
         sig["max_texture"] = caps
@@ -138,6 +140,10 @@ def main():
                     help="Starfield Data folder: enables opening doors (needs the vanilla door body as a keyframed donor)")
     ap.add_argument("--static-items", action="store_true",
                     help="keep FO4 loose items fixed (default with --starfield-data: movable, as in FO4)")
+    ap.add_argument("--door-anim-dll", default="",
+                    help="external CALUMI.Animation.dll (not distributed): with --starfield-data, doors that move more "
+                         "than one part (double doors, shutters, sliding panel sets) get their own rig and Open/Close "
+                         "clips; without it they keep the single-hinge template and list the parts that stay closed")
     ap.add_argument("--resume", action="store_true", help="reuse content-verified per-model checkpoints")
     ap.add_argument("--pattern", default=r"^meshes[\\/]setdressing[\\/]")
     ap.add_argument("--limit", type=int, default=20)
@@ -159,6 +165,10 @@ def main():
         textures.parse_texture_caps(a.max_texture)
     except ValueError as e:
         ap.error(f"--max-texture: {e}")
+    if a.door_anim_dll and not os.path.isfile(a.door_anim_dll):
+        ap.error("--door-anim-dll: file not found")
+    if a.door_anim_dll and not a.starfield_data:
+        ap.error("--door-anim-dll needs --starfield-data (doors are rigged only with the vanilla donor body)")
 
     ids = load_editor_ids(a.staging)
 
@@ -207,7 +217,8 @@ def main():
                 conv = pipeline.Converter(src, a.staging, a.texconv, a.content_resources, template,
                                           rig_doors=donor is not None, door_physics_donor=donor,
                                           sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
-                                          prefix=a.prefix, max_texture=a.max_texture)
+                                          prefix=a.prefix, max_texture=a.max_texture,
+                                          door_anim_dll=a.door_anim_dll or None)
             r = conv.convert_nif(name)
             if cache:
                 try:
@@ -226,7 +237,9 @@ def main():
                       "collision_report": r.get("collision_report") or {}, **({"door": r["door"]} if "door" in r else {}),
                       **({"load_door": r["load_door"]} if "load_door" in r else {}),
                       **({"movable": r["movable"]} if "movable" in r else {}),
-                      **({"door_not_opening": r["door_not_opening"]} if "door_not_opening" in r else {})})
+                      **({"door_not_opening": r["door_not_opening"]} if "door_not_opening" in r else {}),
+                      **({"door_frozen_parts": r["door_frozen_parts"]} if "door_frozen_parts" in r else {}),
+                      **({"door_error": r["door_error"]} if "door_error" in r else {})})
         print(f"  ok  {name} -> {eid} (shapes {r['shapes']}, fallback materials {r['fallback_materials']})")
     for f in failures[:15]:
         print("  FAIL", f["nif"], "-", f["reason"][:110])

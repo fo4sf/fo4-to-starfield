@@ -347,3 +347,121 @@ def convert_door(fo4_nif: bytes, out_name: str, material_paths: list, unit_scale
     hp = template["hinge_pos"]
     bounds = ([min(p[a] for p in all_pts) + hp[a] for a in range(3)], [max(p[a] for p in all_pts) + hp[a] for a in range(3)])
     return files, tuple(pivot[a] * unit_scale - hp[a] for a in range(3)), bounds
+
+
+def frozen_door_parts(src) -> list:
+    """Names of the nodes an FO4 door's "Open" sequence moves, with geometry, that are NOT below the first animated node
+    (nif.door_hinge). convert_door hangs only that first node under the template's single hinge, so these parts would
+    stay closed: the second leaf of a double door or shutter, the other panels of a sliding panel set. [] when the
+    single hinge covers every moving shape (a door knob under its leaf) or the motion cannot be read."""
+    from . import door_motion
+    try:
+        report = door_motion.inspect(src)
+    except Exception:                                  # noqa: BLE001  (unreadable motion: keep the template door)
+        return []
+    outside = set(report["animated_shapes_outside_single_hinge"])
+    return sorted({t["name"] for seq in report["sequences"] if seq["name"] == "Open" for t in seq["targets"]
+                   if outside & set(t["shape_blocks"])})
+
+
+def _apply(transform, point):
+    """(t, R row-major, s) applied to a point: s * R * p + t."""
+    t, r, s = transform
+    return tuple(s * (r[3 * i] * point[0] + r[3 * i + 1] * point[1] + r[3 * i + 2] * point[2]) + t[i] for i in range(3))
+
+
+def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, clip_files, unit_scale: float = UNIT_SCALE,
+                           collision_template: bytes = None, leaf_physics_donor: bytes = None) -> Tuple[Dict[str, bytes], dict]:
+    """FO4 door whose "Open" sequence moves geometry under more than one node (frozen_door_parts: double doors,
+    shutters, sliding panel sets) -> Starfield door with its OWN rig and clips, as vanilla double doors have
+    (IndIntRmSmWallMid_DoorA01: one rig bone and one clip track per leaf, one keyframed body per leaf).
+
+    Every FO4 node the door's sequences animate, and every static ancestor and shape parent, becomes a rig bone and a NIF
+    node of the same name (door_rig.plan, placed: the stored root transform is left out as in game; animated bones get
+    identity binds). Each moving bone that holds geometry gets its own keyframed box around that geometry (bone-local), so
+    each panel's collision follows its panel. Static geometry (frames) keeps no collision, as in convert_door.
+    clip_files(plan, unit_scale) -> {relative path: bytes} writes the rig and Open/Close clips (native_door.export_files
+    with the external CALUMI library); they are stored next to the NIF under meshes/<out_name>/.
+    material_paths: one per shape of nif.fo4_trishapes(src) with geometry, None = left out (effect shaders, markers).
+    The NIF keeps FO4's origin, so the reference needs no offset. Returns (files, door) where door is the manifest entry
+    (origin_offset, anim_graph, bounds, skeleton, animations, rig, animated_bones, moving_bodies, files)."""
+    from . import door_model, door_rig, native_door
+    if collision_template is None or leaf_physics_donor is None:
+        raise ValueError("multi-part door needs the box template and a keyframed donor body")
+    src = nifmod.parse(fo4_nif)
+    plan = door_rig.animated_identity_binds(door_rig.plan(src, placed=True))
+    if sorted(c["name"] for c in plan["clips"]) != ["Close", "Open"]:
+        raise nifmod.NifError("door needs exactly one Open and one Close sequence")   # the graph plays both
+    base = out_name.rsplit("/", 1)[-1]
+    lowered = [b["name"].lower() for b in plan["bones"]] + [("FO4Port_" + base).lower()]
+    if len(set(lowered)) != len(lowered):           # Bethesda node-name lookups have ignored case in earlier engines
+        raise nifmod.NifError("door rig bone names collide when case is ignored")
+    shapes = [s for s in nifmod.fo4_trishapes(src) if s.positions and s.triangles]
+    if len(material_paths) != len(shapes):
+        raise ValueError("one material entry per shape required")
+    kept = {s.block: (s, m) for s, m in zip(shapes, material_paths) if m is not None}
+    if any(s.skinned for s, _ in kept.values()):
+        raise nifmod.NifError("skinned door shapes cannot be rigged")
+    plan["attachments"] = [a for a in plan["attachments"] if a["shape"] in kept]
+    if not plan["attachments"]:
+        raise nifmod.NifError("door has no rendered geometry")
+    files, sf_shapes, local_pts = {}, {}, {}
+    for block, (s, material) in kept.items():
+        local = replace(s, translation=(0.0, 0.0, 0.0), rotation=(1, 0, 0, 0, 1, 0, 0, 0, 1), scale=1.0)
+        m = shape_to_mesh(local, unit_scale)
+        data = sfmesh.serialize(m)
+        d, f = mesh_file_path(data)
+        files[f"geometries/{d}/{f}.mesh"] = data
+        pts = [sfmesh.decode_position(p, m.scale) for p in m.positions]
+        sphere, box = sfnif.bounds_from_points(pts)
+        sf_shapes[block] = sfnif.StaticShape(s.name or f"Shape{block}".encode(), f"{d}\\{f}".encode(), len(m.triangles) * 3,
+                                             len(m.positions), material, sphere, box)
+        local_pts[block] = pts
+    bones = plan["bones"]
+    world = []                                     # bone -> model-space (t metres, R, s), parents first
+    for bone in bones:
+        b = bone["bind"]
+        w, x, y, z = b["quaternion_wxyz"]
+        r = (1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y), 2 * (x * y + w * z), 1 - 2 * (x * x + z * z),
+             2 * (y * z - w * x), 2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y))
+        local = (tuple(v * unit_scale for v in b["translation_source_units"]), r, b["scale"])
+        world.append(local if bone["parent"] == -1 else nifmod._compose(world[bone["parent"]], local))
+    animated = {t["node"] for clip in plan["clips"] for t in clip["tracks"]}
+    moving = set()
+    for i, bone in enumerate(bones):
+        if bone["node"] in animated or (bone["parent"] != -1 and bone["parent"] in moving):
+            moving.add(i)
+    bone_pts, all_pts = {}, []
+    for a in plan["attachments"]:
+        lt = a["local_transform"]
+        attach = (tuple(v * unit_scale for v in lt["translation_source_units"]), tuple(lt["rotation_row_major"]), lt["scale"])
+        pts = [_apply(attach, p) for p in local_pts[a["shape"]]]
+        all_pts += [_apply(world[a["bone"]], p) for p in pts]
+        if a["bone"] in moving:
+            bone_pts.setdefault(a["bone"], []).extend(pts)
+    collision = {}
+    for i, pts in sorted(bone_pts.items()):
+        lo = [min(p[k] for p in pts) for k in range(3)]
+        hi = [max(p[k] for p in pts) for k in range(3)]
+        blob = sfcollision.box_blob(collision_template, tuple((lo[k] + hi[k]) / 2 for k in range(3)),
+                                    tuple(max(0.02, (hi[k] - lo[k]) / 2) for k in range(3)))
+        collision[bones[i]["node"]] = sfcollision.keyframed(blob, leaf_physics_donor)
+    if not collision:
+        raise nifmod.NifError("door has no moving geometry")
+    model = door_model.build(plan, sf_shapes, unit_scale, collision, name=("FO4Port_" + base).encode())
+    files[f"meshes/{out_name}.nif"] = nifmod.serialize(model)
+    extra = clip_files(plan, unit_scale)
+    if native_door.RIG_FILE not in extra or not any(k.startswith(native_door.CLIP_DIR + "/") for k in extra):
+        raise ValueError("clip writer returned no rig or clips")
+    for relative, data in extra.items():
+        files[f"meshes/{out_name}/{relative}"] = data
+    door = {"origin_offset": [0.0, 0.0, 0.0], "anim_graph": sfnif.DOOR_TEMPLATE["anim_graph"],
+            "bounds": [[round(min(p[k] for p in all_pts), 4) for k in range(3)],
+                       [round(max(p[k] for p in all_pts), 4) for k in range(3)]],
+            "skeleton": f"{out_name}/{native_door.RIG_FILE}".replace("/", "\\"),
+            "animations": f"{out_name}/{native_door.CLIP_DIR}".replace("/", "\\"),
+            "rig": "native",
+            "animated_bones": sorted({bones[i]["name"] for i in range(len(bones)) if bones[i]["node"] in animated}),
+            "moving_bodies": len(collision),
+            "files": sorted(f"meshes/{out_name}/{relative}" for relative in extra)}
+    return files, door
