@@ -633,6 +633,28 @@ class FreshBudgetTests(RunnerTests):
         self.assertEqual(st["fresh_launches"], 4)
 
 
+class BreakerBeforeFreshTests(RunnerTests):
+    def test_an_open_breaker_skips_without_a_relaunch(self):
+        # 2026-10-11 core64: with the terrain breaker open, every skipped "fresh" retry still closed and relaunched
+        make_queue(self.d, n=tq.BREAKER + 3)
+        q = json.load(open(os.path.join(self.d, "queue.json")))
+        for t in q["tests"]:
+            t["fresh"] = True
+        json.dump(q, open(os.path.join(self.d, "queue.json"), "w"))
+        r = tq.Runner(self.d, args(max_attempts=1), ctl=self.ctl, step=lambda t, o: 0)   # never an observation
+
+        def ps(script, *a, **k):
+            self.ctl.pid = 42
+            return (0, "ok")
+        r._ps = ps
+        r.setup_session = lambda cell: setattr(r, "session", True)
+        r.pinned_ok = lambda: True
+        self.assertEqual(r.run(), 0)
+        self.assertEqual(getattr(self.ctl, "closed", 0), tq.BREAKER - 1)   # only between the tests that ran
+        done = json.load(open(os.path.join(self.d, "state.json")))["done"]
+        self.assertEqual(sum(v["class"] == "BREAKER" for v in done.values()), 3)
+
+
 class Exp3RecoveryTests(unittest.TestCase):
     def test_hang_reread_and_tab_recovery_present(self):
         src = open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8").read()
