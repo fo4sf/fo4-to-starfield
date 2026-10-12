@@ -2,6 +2,24 @@
 
 Format: date, decision, why, alternatives considered.
 
+## 2026-10-11 FO4 navmesh: one Starfield NAVM per (FO4 navmesh, 100 m cell) and a NAVI holding only our entries (Claude)
+Every Fallout 4 navmesh is cut at Starfield's cell lines into one NAVM per cell it touches (cut points keyed so both
+sides are bit-identical; new links along the lines; FO4's own portals kept as links); the plugin carries a NAVI override
+(`000FF1:Starfield.esm`) with one NVMI per new navmesh (no outline, no traversals). Why: FO4's portals overlap only in
+part, so keeping its navmeshes avoids re-meshing; Red Rocket's navmesh stays one record (a walk on it needs no links and
+no NAVI, the cleanest first test); every official plugin ships a partial NAVI the same way. Alternatives: one merged
+navmesh per cell (re-weld partial portals), no NAVI (cross-navmesh paths probably fail), a full NAVI copy (53.9 MB,
+overriding every vanilla entry), CK generation (not FO4's navmesh; owner time). Evidence:
+docs/actors/navmesh-conversion.md.
+
+## 2026-10-11 FO4 terrain heights: own Python reader following fo4land, Mutagen as the cross-check (Claude)
+`src/fo4sf/fo4land.py` reads LAND/VHGT with the algorithm of fo76utils `fo4land` (MIT); `dotnet/Fo4Land` decodes the
+same cells through Mutagen as a second, independent parse. Why: fo4land needs scons + a C++ compiler, which this
+machine lacks and the rules forbid installing; its output is 16-bit normalised (0.81-unit step for the Commonwealth)
+and drops the shared 33rd edge vertex we need for seam checks; Python fits the converter and unittest stack.
+Alternatives: build fo4land (blocked), Mutagen only (C# outside the Python pipeline), extend Codex's Fo4Export
+(not ours). Evidence: docs/terrain/source-patch.md.
+
 ## 2026-10-09 Enforce local concurrency with a proxy, not with prompts
 OpenCode has no cross-agent concurrency limit for a provider. A small stdlib-Python proxy (:1235) in front of
 LM Studio (:1234) admits at most 1 inference request at a time after a resource check, queues the rest, and logs

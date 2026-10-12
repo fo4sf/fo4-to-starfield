@@ -102,6 +102,7 @@ the same actor and commands in a test worldspace, so world, navigation and actor
 | `path_line` | `tpl` (path display) on for the walk, off at the end | false |
 | `control` | a control test: gates the FAIL verdicts of the other tests | false |
 | `requires` | `{"queue": "<queue dir>", "test": "<test id>", "verdict": "PASS"}`: run only when that test has that verdict; `plan-npc` checks that the queue tested the very folder `--install-exp` installs | none |
+| `fresh` | relaunch the runner's game before this test, as `plan-terrain --fresh` (a repeated `coc` into a merged planet world arrives erratically, 2026-10-11); `plan-npc --fresh` sets it on every test | false |
 | `expect`, `basis` | the verdict expected before the run and why (verified / supported hypothesis); shown in the report | none |
 
 What one test does (`qstep.ps1`, kind `npc_nav`):

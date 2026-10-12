@@ -7,7 +7,8 @@ usage:
   python testqueue.py plan-terrain --staging <build dir> --exp-dir <experiment> --out <queue dir> [--plugins a.esm,b.esm]
   python testqueue.py plan-npc --staging <build dir> --exp-dir <dir with plan.json> --out <queue dir>
                              [--install-exp <experiment> --plugins a.esm,b.esm] [--control-queue <N0 queue dir>]
-  python testqueue.py run    --queue <queue dir> [--max-tests N] [--max-hours 8] [--min-idle 900] [--wait-for-idle]
+                             [--fresh]
+  python testqueue.py run   --queue <queue dir> [--max-tests N] [--max-hours 8] [--min-idle 900] [--wait-for-idle]
                              [--refocus] [--max-attempts 2] [--dry-run]
   python testqueue.py report --queue <queue dir>
   python testqueue.py status --queue <queue dir>
@@ -325,6 +326,10 @@ def npc_test(n, w):
          "pre_wait_ms": int(_num(w, "pre_wait_ms", 5000, 0, 60000)), "max_speed": _num(w, "max_speed", 8.0, 1, 50),
          "path_line": bool(w.get("path_line", False)), "control": bool(w.get("control", False)),
          "baseline": method == "none"}
+    if w.get("fresh"):
+        # relaunch the runner's game before this test (as plan-terrain --fresh): a merged planet world arrives
+        # erratically on a repeated coc (2026-10-11), so every test of one starts from a new launch
+        t["fresh"] = True
     if t["baseline"] and t["control"]:
         sys.exit(f"{label}: a baseline (method none) gates the controls and cannot be one itself")
     if w.get("anchor"):
@@ -385,7 +390,7 @@ def plan_npc(a):
          "commit": subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
          "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]],
          "launch_cell": a.launch_cell, "experiment": os.path.abspath(a.exp_dir),
-         "tests": tests[:a.only] if a.only else tests}
+         "tests": [dict(t, fresh=True) if getattr(a, "fresh", False) else t for t in (tests[:a.only] if a.only else tests)]}
     if a.control_queue:
         q["control_queue"] = os.path.abspath(a.control_queue)
     world = os.path.abspath(a.install_exp or a.exp_dir) if a.plugins else ""
@@ -1225,6 +1230,8 @@ def main(argv=None):
     pn.add_argument("--install-exp", default="", help="experiment folder those plugins come from (default --exp-dir)")
     pn.add_argument("--control-queue", default="", help="queue whose control tests gate this queue's FAIL verdicts")
     pn.add_argument("--only", type=int, default=0, help="keep the first N tests")
+    pn.add_argument("--fresh", action="store_true", help="relaunch the game before every test (a test's own "
+                                                         "\"fresh\": true in plan.json does the same for that test)")
     r = sub.add_parser("run")
     r.add_argument("--queue", required=True)
     r.add_argument("--starfield", default=r"D:\SteamLibrary\steamapps\common\Starfield")
