@@ -9,7 +9,7 @@ sample NIF headers (`scripts/recon.py`, `scripts/recon_physics.py`). About 9 s r
 
 **Result:** see [FORMAT-GAP.md](FORMAT-GAP.md); raw data in [measurements/](measurements/).
 Headlines: plugin form versions 131 vs 581; 116 of 137 record types shared but field overlap mostly
-25–60%; no `LAND` or `SNDR` in Starfield; NIF BS 130 vs 175 with external `.mesh` geometry; Havok packfile vs
+25â€“60%; no `LAND` or `SNDR` in Starfield; NIF BS 130 vs 175 with external `.mesh` geometry; Havok packfile vs
 tagfile; `.bgsm` vs `.mat`/`.cdb`.
 
 **Open questions it raised:** meaning of the `.mesh` header fields (S1); how Starfield custom worldspaces get
@@ -18,7 +18,7 @@ terrain (S5); whether Mutagen's Starfield alpha can write usable plugins (S2).
 **Tooling gathered:** NifSkope (fo76utils) dev11 2025-12-30, xEdit 4.1.5f (includes `xSFEdit`),
 PyNifly V29.1.0, Blender 5.2.2, .NET SDK 9, Starfield Creation Kit (Steam 2722710), SFSE 0.2.21 (manual from Nexus).
 
-**Prior art search:** no public Fallout 4 → Starfield conversion project was found on GitHub or the web.
+**Prior art search:** no public Fallout 4 â†’ Starfield conversion project was found on GitHub or the web.
 Related open tooling is listed in the README.
 
 **Source reading (no code run):** fo76utils/nifskope has `.mesh` readers (`src/io/MeshFile.cpp`), a meshlet
@@ -595,7 +595,7 @@ start, OPEN read from the prompt (`94d6dcb`), idle-camera wake (`76488be`).
   Starfield body from a vanilla donor (as the keyframed door leaves do), with mass from FO4. Until then they're
   reported, not silently changed.
 
-## 2026-10-09 — Codex: checkpoint success-validation parity (#32)
+## 2026-10-09 â€” Codex: checkpoint success-validation parity (#32)
 
 - Verified with synthetic generated NIF/material/texture outputs: a checkpoint with intact output hashes but `fallback_materials: 1` or `door_error` was reused although save rejects it. The new regression fails both cases against baseline `cd94162`.
 - Load and save now share the same success predicate; degraded cached results cause reconversion and do not enter batch expectations.
@@ -896,4 +896,5 @@ tests pass with Pillow12.3.0, including the failing end-to-end plane/preview cas
 ## 2026-10-12 Codex: native-door checkpoints follow rig and clip references
 - Reproduced on #79 (612b78e), using its production synthetic two-panel converter: dropping the skeleton from both the saved files list and output hashes allowed reuse after the staged skeleton was removed.
 - Inventory now independently follows native DOOR skeleton and Open/Close .af/.afx references; missing, changed or invalid dependencies invalidate reuse. Optional extra outputs remain tracked; template doors keep their existing behavior.
-- Preserved reviewed main #34/#35 and staging containment when integrating #79 in a separate Codex worktree. New regressions failed before the fix; five focused tests and 806 full-suite tests pass (28 skipped, including opt-in sandbox checks). Guard/diff checks pass. No game data, staging, installation or input was touched; runtime multi-part animation remains unverified.
+- Preserved reviewed main #34/#35 and staging containment when integrating #79 in a separate Codex worktree. New regressions failed before the fix; seven focused tests and 808 full-suite tests pass (28 skipped, including opt-in sandbox checks). Guard/diff checks pass. No game data, staging, installation or input was touched; runtime multi-part animation remains unverified.
+- Independent Claude review passed the initial fix and identified an optional rig-tag omission: generated references are now followed even without that tag. Added omission and vanilla-template compatibility regressions; final independent review passes (including custom prefixes and mixed vanilla/generated references). Hosted Linux CI separately exposed an existing make_exp2c dependency path issue; a four-lookup patch passed POSIX-only synthetic probes and was prepared for the Claude-owned file without editing it.

@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 import test_door_two_panels as fixtures
+from test_checkpoints import generated
 from fo4sf import checkpoints
 
 
@@ -77,6 +78,34 @@ class NativeDoorCheckpointTests(unittest.TestCase):
                 (self.staging / relative).write_bytes(b"changed synthetic animation")
                 self.assertIsNone(self.cache().load("double.nif"))
                 self.assertIn({"source": "double.nif", "output": relative}, cache.verify_batch())
+
+    def test_omitted_rig_tag_cannot_hide_generated_dependencies(self):
+        result = copy.deepcopy(self.result)
+        del result["door"]["rig"]
+        del result["door"]["files"]
+        cache = self.cache()
+        self.assertTrue(cache.save("double.nif", result))
+        original = json.loads(cache.path("double.nif").read_text())
+        self.assertTrue(self.dependencies.issubset(original["outputs"]))
+        for relative in sorted(self.dependencies):
+            with self.subTest(dependency=relative):
+                self.write_outputs()
+                saved = copy.deepcopy(original)
+                del saved["outputs"][relative]
+                cache.path("double.nif").write_text(json.dumps(saved))
+                (self.staging / relative).unlink()
+                self.assertIsNone(self.cache().load("double.nif"))
+
+    def test_vanilla_template_references_do_not_require_staged_copies(self):
+        result, _ = generated(self.staging, "template")
+        result["door"] = {"skeleton": "architecture\\vanilla\\characterassets\\skeleton.rig",
+                          "animations": "architecture\\vanilla\\animations"}
+        for rig in (None, "template"):
+            with self.subTest(rig=rig):
+                result["door"]["rig"] = rig
+                cache = self.cache()
+                self.assertTrue(cache.save("template.nif", result))
+                self.assertEqual(self.cache().load("template.nif"), result)
 
     def test_missing_or_invalid_native_reference_metadata_cannot_resume(self):
         for key in ("skeleton", "animations"):

@@ -90,22 +90,28 @@ def staged_path(staging, relative):
     return current
 
 
-def _native_door_outputs(door):
-    """Follow native DOOR references independently of a recorded output list."""
-    if door.get("rig") != "native":
-        return set()
-    references = {}
+def _native_door_outputs(door, out_name):
+    """Follow generated DOOR references independently of optional cache metadata."""
+    native = door.get("rig") == "native"
+    generated_root = out_name.replace("\\", "/").split("/", 1)[0].lower() + "/"
+    paths = set()
     for key in ("skeleton", "animations"):
         value = door.get(key)
+        generated = isinstance(value, str) and value.replace("\\", "/").lower().startswith(generated_root)
+        if not native and not generated:
+            continue  # Vanilla template references are supplied by the game.
         if not isinstance(value, str) or not value:
             raise ValueError(f"native door {key} reference is missing")
         name = value.replace("\\", "/")
         if ":" in name or any(part in ("", ".", "..") for part in name.split("/")):
             raise ValueError(f"native door {key} must be relative to meshes/")
-        references[key] = "meshes/" + name
-    return {references["skeleton"]} | {
-        f"{references['animations']}/{clip}{suffix}"
-        for clip in ("Open", "Close") for suffix in (".af", ".afx")}
+        relative = "meshes/" + name
+        if key == "skeleton":
+            paths.add(relative)
+        else:
+            paths.update(f"{relative}/{clip}{suffix}"
+                         for clip in ("Open", "Close") for suffix in (".af", ".afx"))
+    return paths
 
 
 def output_inventory(staging, result, prefix="fo4port"):
@@ -119,7 +125,7 @@ def output_inventory(staging, result, prefix="fo4port"):
     if not isinstance(door_files, list) or not all(isinstance(p, str) and p.startswith("meshes/") for p in door_files):
         raise ValueError("door files must be staging paths below meshes/")
     paths.update(door_files)
-    paths.update(_native_door_outputs(door))
+    paths.update(_native_door_outputs(door, result["out_name"]))
     model = nif.parse(staged_path(staging, model_path).read_bytes())
     for i, block in enumerate(model.blocks):
         if model.type_of(i) == "BSGeometry":
