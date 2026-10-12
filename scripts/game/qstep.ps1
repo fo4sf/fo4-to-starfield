@@ -7,7 +7,8 @@
 # Kinds (spec.kind): route (stairs/door, via route_run.ps1), fall (drop onto a floor point), movable (walk into an item and
 # read its position before and after), travel (activate a load door, read where the player arrives), terrain (drop onto
 # points of known height), npc_nav (spawn a vanilla actor at A, make it walk to the player at B, sample, remove it),
-# godmode, save, load, recover.
+# godmode, save, load, recover. terrain and npc_nav may set the time of day / weather after the arrival (time_of_day,
+# time_methods, weather, weather_lock, light_wait_ms: Apply-Light) and record the sky brightness before and after.
 param([Parameter(Mandatory)][string]$Spec, [Parameter(Mandatory)][string]$Out, [string]$PluginIndex = '02')
 $env:LEGACY = '1'
 if (-not $env:FO4SF_PYTHON) { $env:FO4SF_PYTHON = 'C:\Modding\venv-render\Scripts\python.exe' }
@@ -51,6 +52,68 @@ function Teleport($pos, $heading, $pitch = 10) {
   Send ("type:player.setpos x $(F $pos[0])|key:enter|wait:350|type:player.setpos y $(F $pos[1])|key:enter|wait:350|" +
         "type:player.setpos z $(F $pos[2])|key:enter|wait:350|type:player.setangle z $(F $heading)|key:enter|wait:350|" +
         "type:player.setangle x $pitch|key:enter|wait:400|key:grave|wait:1800")
+}
+
+# Time of day and weather (terrain and npc_nav; docs/ai/test-queue.md "Time of day and weather", sky_light.py). Every
+# line comes from the table below (the same as sky_light.py TIME_METHODS) and is validated before anything is typed.
+$skyPy = Join-Path $here 'sky_light.py'
+function Light-Commands {
+  # this test's light commands in typing order (weather first, then the time ladder); exit 4 on a bad value
+  $cmds = @()
+  if ($t.weather) {
+    if ("$($t.weather)" -notmatch '^[0-9A-Fa-f]{8}$') { "bad weather"; exit 4 }
+    $c = "fw $($t.weather)"; if ($t.weather_lock) { $c += ' 1' }
+    $cmds += [ordered]@{ method = 'weather'; cmd = $c }
+  }
+  if ($null -ne $t.time_of_day) {
+    $hv = [double]$t.time_of_day
+    if ([double]::IsNaN($hv) -or $hv -lt 0 -or $hv -ge 24) { "bad time_of_day"; exit 4 }
+    $h = $hv.ToString('0.##', $inv)
+    $table = @{ 'slt' = "SetLocalTime $h"; 'slt_galaxy' = "SetLocalTime $h 1"; 'cgf' = "cgf `"Game.SetLocalTime`" $h" }
+    $ladder = @($t.time_methods | Where-Object { $_ })
+    if ($ladder.Count -eq 0) { $ladder = @('slt', 'slt_galaxy', 'cgf') }
+    foreach ($m in $ladder) {
+      if (-not $table.ContainsKey("$m")) { "bad time method"; exit 4 }
+      $cmds += [ordered]@{ method = "$m"; cmd = $table["$m"] }
+    }
+  }
+  return ,$cmds
+}
+function Sky-Measure([string]$name, $before, [string]$hour) {
+  # sky brightness of a screenshot in $Out (sky_light.py measure: mean of its top 200 rows), $null when not read
+  $f = Join-Path $Out $name
+  if (-not $name -or -not (Test-Path $f)) { return $null }
+  $a = @('measure', $f)
+  if ($null -ne $before) { $a += @('--before', ([double]$before).ToString('0.###', $inv)) }
+  if ($hour) { $a += @('--hour', $hour) }
+  $j = & $env:FO4SF_PYTHON $skyPy @a
+  try { return ("$j" | ConvertFrom-Json) } catch { return $null }
+}
+function Apply-Light($cmds, [string]$beforeShot) {
+  # After the arrival, before the step's other screenshots. The arrival's own screenshot is the "before" sky. Each
+  # command in its own console session, then light_wait_ms with the console closed, a screenshot (sky_<k>.png) and its
+  # sky. The time ladder stops at the first command after which the sky reads as the requested hour (sky_light.done).
+  # Everything goes to obs.json "light"; the judge (testqueue.py) marks the run night when nothing changed a dark sky.
+  if ($cmds.Count -eq 0) { return }
+  $hour = ''; if ($null -ne $t.time_of_day) { $hour = ([double]$t.time_of_day).ToString('0.##', $inv) }
+  $wait = 4000; if ($null -ne $t.light_wait_ms) { $wait = [int]$t.light_wait_ms }
+  $b = Sky-Measure $beforeShot $null ''
+  $bs = $null; if ($b) { $bs = $b.sky }
+  $L = [ordered]@{ time_of_day = $t.time_of_day; weather = $t.weather; before = [ordered]@{ shot = $beforeShot; sky = $bs }
+                   tries = @() }
+  $obs['light'] = $L; Save-Obs
+  $k = 0
+  foreach ($c in $cmds) {
+    $k++
+    Console-Open
+    Send "type:$($c.cmd)|key:enter|wait:600|key:grave|wait:$wait"
+    $name = Shot "sky_$k.png"
+    $m = Sky-Measure $name $bs $(if ($c.method -eq 'weather') { '' } else { $hour })
+    $L['tries'] += [ordered]@{ method = $c.method; cmd = $c.cmd; shot = $name; sky = $(if ($m) { $m.sky } else { $null })
+                               class = $(if ($m) { $m.class } else { 'unread' }); done = [bool]($m -and $m.done) }
+    $obs['light'] = $L; Save-Obs
+    if ($c.method -ne 'weather' -and $m -and $m.done) { break }
+  }
 }
 
 $kind = $t.kind
@@ -146,6 +209,7 @@ switch ($kind) {
     # travel: "cow <world> x y" reaches a vanilla worldspace without a COC cell (control runs); default coc <world_coc>
     $go = "coc $($t.world_coc)"
     if ($t.travel) { if ($t.travel -notmatch '^((coc|cow) [A-Za-z0-9_]+( -?\d+ -?\d+)?|player\.moveto [0-9A-Fa-f]{8})$') { "bad travel"; exit 4 }; $go = $t.travel }
+    $lightCmds = Light-Commands
     Console-Open
     Send "type:$go|key:enter|wait:400|key:grave|wait:3000"
     $hud = Join-Path $Out 'hud.png'; $t0 = Get-Date
@@ -156,6 +220,7 @@ switch ($kind) {
     $obs['spawn_read'] = Read-Pos
     $obs['shot'] = Shot 'spawn.png'
     Save-Obs
+    Apply-Light $lightCmds "$($obs['shot'])"         # time of day / weather before the probes' screenshots
     $pts = @()
     $k = 0
     # Points are in the worldspace's own frame. An activated overlay is merged into the planet worldspace at a whole-cell
@@ -252,6 +317,7 @@ switch ($kind) {
     $spawnWait = 2000; if ($null -ne $t.spawn_wait_ms) { $spawnWait = [int]$t.spawn_wait_ms }
     $handleTol = 2.0; if ($null -ne $t.handle_tol) { $handleTol = [double]$t.handle_tol }
     if ($spawnWait -lt 0 -or $spawnWait -gt 30000 -or $handleTol -lt 0.5 -or $handleTol -gt 10) { "bad spawn_wait_ms / handle_tol"; exit 4 }
+    $lightCmds = Light-Commands
     $parse = Join-Path $here 'parse_npc.py'
     # step budget (testqueue.py step_timeout minus a margin): samples stop early so that the removal always has
     # $reserve seconds left before the runner would kill the step and leave the actor behind
@@ -356,6 +422,7 @@ switch ($kind) {
     $arr = Read-Settled
     $obs['spawn_read'] = $arr.read; $obs['spawn_settled'] = $arr.settled; $obs['spawn_reads'] = $arr.reads
     $obs['shot'] = Shot 'arrival.png'
+    Apply-Light $lightCmds "$($obs['shot'])"         # time of day / weather before the spawn and the samples' shots
     # 2. frame offset, as the terrain kind: A and B are in the worldspace's own frame; an activated overlay is merged into
     # the planet worldspace at an offset, read from a persistent anchor ref (prid + getpos) or from the arrival point
     $ox = 0.0; $oy = 0.0; $oz = 0.0

@@ -8,6 +8,9 @@ usage:
   python testqueue.py plan-npc --staging <build dir> --exp-dir <dir with plan.json> --out <queue dir>
                              [--install-exp <experiment> --plugins a.esm,b.esm] [--control-queue <N0 queue dir>]
                              [--fresh]
+  plan-terrain and plan-npc also take [--time-of-day <local hour>] [--time-methods slt,slt_galaxy,cgf]
+                             [--weather <form id>] [--need-daylight] for every test (plan.json fields of the same names
+                             per test; docs/ai/test-queue.md "Time of day and weather")
   python testqueue.py run   --queue <queue dir> [--max-tests N] [--max-hours 8] [--min-idle 900] [--wait-for-idle]
                              [--refocus] [--max-attempts 2] [--dry-run]
   python testqueue.py report --queue <queue dir>
@@ -45,6 +48,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 import route_eval  # noqa: E402
+import sky_light  # noqa: E402
 
 UNIT = 1.0 / 70.0
 KINDS = ("stairs", "door", "fall", "movable", "travel")         # planned from a build; "terrain" via plan-terrain
@@ -57,7 +61,9 @@ SEVERITY = {("fall", "FALL"): 5, ("travel", "NOTRAVEL"): 5, ("travel", "NOPROMPT
             ("npc_nav", "FELL"): 5, ("npc_nav", "NONAV"): 4, ("npc_nav", "STALLED"): 3, ("npc_nav", "WANDER"): 3}
 PS = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
 BREAKER = 6          # inconclusive attempts in a row, with no PASS/FAIL yet, that switch a kind off for the run
-FINAL_INCONCLUSIVE = ("CONTROL", "PRECONDITION")   # inconclusive for a reason a retry cannot change
+# inconclusive for a reason a retry cannot change. NIGHT: need_daylight and the sky did not read as daylight after the
+# time-of-day commands; a retry loads the same save at the same time and types the same commands
+FINAL_INCONCLUSIVE = ("CONTROL", "PRECONDITION", "NIGHT")
 
 # npc_nav (PR #61 docs/actors/npc-navigation.md 3.4): what qstep.ps1 types on the verified console selection to make the
 # actor walk to the player, who stands at B. qstep.ps1 has the same table; nothing else is ever typed for a method.
@@ -107,6 +113,33 @@ def heading_to(src, dst):
 
 def now():
     return time.strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def _plan_fail(msg):
+    sys.exit(f"{msg} (plan.json or the plan command line)")
+
+
+def light_cli(a):
+    """Time-of-day / weather fields given on the plan-terrain / plan-npc command line: for every test, winning over the
+    same fields of plan.json (validated together with them, per test, in with_light)."""
+    raw = {}
+    if getattr(a, "time_of_day", None) is not None:
+        raw["time_of_day"] = a.time_of_day
+    if getattr(a, "time_methods", ""):
+        raw["time_methods"] = [m.strip() for m in a.time_methods.split(",") if m.strip()]
+    if getattr(a, "weather", ""):
+        raw["weather"] = a.weather
+    if getattr(a, "need_daylight", False):
+        raw["need_daylight"] = True
+    return raw
+
+
+def with_light(t, w, cli):
+    """A planned test plus the light fields of its plan.json entry `w` and of the command line, validated (only what
+    sky_light.light_fields returns ever reaches the console)."""
+    merged = {k: w[k] for k in sky_light.LIGHT_KEYS if isinstance(w, dict) and k in w}
+    merged.update(cli)
+    return dict(t, **sky_light.light_fields(merged, _plan_fail))
 
 
 # ----------------------------------------------------------------------------------------------------------- planning
@@ -227,8 +260,10 @@ def plan_terrain(a):
     staging = os.path.abspath(a.staging)
     esm = os.path.join(staging, "FO4Port.esm")
     tests = []
+    cli = light_cli(a)
     # later experiments ship their own plan.json: [{"coc": "<cell editor id>", "label": "...", "drop_z": 80,
     #   "points": [{"label", "x", "y", "expect"}], "beyond": {"x", "y"} (optional)}]  (metres, world coordinates)
+    # plus the optional time-of-day / weather fields (sky_light.LIGHT_KEYS)
     own = load(os.path.join(a.exp_dir, "plan.json"))
     for n, w in enumerate(own or []):
         if not str(w.get("coc", "")).replace("_", "").isalnum():
@@ -238,13 +273,14 @@ def plan_terrain(a):
         # reference inside the target worldspace does
         if travel and not re.fullmatch(r"(coc|cow) [A-Za-z0-9_]+( -?\d+ -?\d+)?|player\.moveto [0-9A-Fa-f]{8}", travel):
             sys.exit(f"bad travel command in plan.json: {travel!r}")
-        tests.append({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "", "ref": w["coc"],
-                      "model": w.get("label", ""), "world_coc": w["coc"], "travel": travel,
-                      **{k: w[k] for k in ("spawn_local", "anchor", "drop_above_spawn", "settle_ms", "z_ref", "hop_m",
-                                           "hop_wait_ms") if w.get(k)},
-                      "drop_z": float(w.get("drop_z", 80.0)),
-                      "points": w["points"], "beyond": w.get("beyond") or {"x": w["points"][0]["x"] + 500.0,
-                                                                           "y": w["points"][0]["y"]}})
+        tests.append(with_light({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "", "ref": w["coc"],
+                                 "model": w.get("label", ""), "world_coc": w["coc"], "travel": travel,
+                                 **{k: w[k] for k in ("spawn_local", "anchor", "drop_above_spawn", "settle_ms", "z_ref",
+                                                      "hop_m", "hop_wait_ms") if w.get(k)},
+                                 "drop_z": float(w.get("drop_z", 80.0)),
+                                 "points": w["points"], "beyond": w.get("beyond") or {"x": w["points"][0]["x"] + 500.0,
+                                                                                      "y": w["points"][0]["y"]}},
+                                w, cli))
     exp = load(os.path.join(a.exp_dir, "expected.json")) if not own else {}
     worlds = [] if own else [("FO4TX_W01Spawn", "FO4TX_World01.btd", "record and name"),
                              ("FO4TX_W02Spawn", "FO4TX_Shared02.btd", "record path only"),
@@ -258,9 +294,9 @@ def plan_terrain(a):
         if n == 0:                                        # pad edge: 1 m inside / outside pad A
             pts += [{"label": "padA_edge_in", "x": 39.0, "y": 30.0, "expect": e["padA_x20-40_y20-40"]},
                     {"label": "padA_edge_out", "x": 41.0, "y": 30.0, "expect": e["ground"]}]
-        tests.append({"id": f"{n:04d}_terrain_{coc}", "kind": "terrain", "cell": "", "ref": coc, "model": btd,
-                      "world_coc": coc, "btd_lookup": how, "drop_z": 80.0, "points": pts,
-                      "beyond": {"x": 300.0, "y": 0.0}})
+        tests.append(with_light({"id": f"{n:04d}_terrain_{coc}", "kind": "terrain", "cell": "", "ref": coc,
+                                 "model": btd, "world_coc": coc, "btd_lookup": how, "drop_z": 80.0, "points": pts,
+                                 "beyond": {"x": 300.0, "y": 0.0}}, {}, cli))
     digest = sha256(esm)
     q = {"created": now(), "staging": staging, "plugin_sha256": digest, "build_id": digest[:8],
          "commit": subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
@@ -357,7 +393,7 @@ def npc_test(n, w):
     for k in ("expect", "basis"):
         if w.get(k):
             t[k] = str(w[k])
-    return t
+    return with_light(t, w, {})              # time of day / weather after the arrival, before the spawn
 
 
 def precondition(test):
@@ -390,7 +426,8 @@ def plan_npc(a):
         sys.exit("plan.json must be a list of test objects (or {\"tests\": [...]})")
     # baselines (method none) first, then controls: the others are judged against them
     src = sorted(src, key=lambda w: (w.get("method") != "none", not w.get("control")))
-    tests = [npc_test(n, w) for n, w in enumerate(src)]
+    cli = light_cli(a)
+    tests = [with_light(npc_test(n, w), w, cli) for n, w in enumerate(src)]
     digest = sha256(esm)
     q = {"created": now(), "staging": staging, "plugin_sha256": digest, "build_id": digest[:8],
          "commit": subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
@@ -422,8 +459,29 @@ def plan_npc(a):
 
 
 # ------------------------------------------------------------------------------------------------------------ judging
+def light_of(test, obs):
+    """The sky reading of a test that asked for a time of day or a weather (sky_light.verdict), else None."""
+    return sky_light.verdict(test, (obs or {}).get("light"))
+
+
 def judge(test, obs, out_dir):
-    """(verdict, reason class, detail) from raw observations. Missing observations are INCONCLUSIVE."""
+    """(verdict, reason class, detail) from raw observations. Missing observations are INCONCLUSIVE.
+    A test that asked for a time of day or a weather gets its sky reading appended to the detail ("[light: ...]",
+    e.g. "no effect: night" when the commands left a dark sky as it was). With need_daylight, a PASS whose sky did not
+    read as daylight becomes INCONCLUSIVE NIGHT (final: a retry types the same commands into the same save's time) or,
+    when the sky was not read at all, INCONCLUSIVE LIGHT (retried). A FAIL stays a FAIL."""
+    v, cls, detail = judge_kind(test, obs, out_dir)
+    lt = light_of(test, obs)
+    if lt is None or not obs or obs.get("stopped"):
+        return v, cls, detail
+    detail = f"{detail} [light: {lt['detail']}]"
+    if test.get("need_daylight") and v == "PASS" and lt["light"] != "daylight":
+        return "INCONCLUSIVE", "LIGHT" if lt["light"] == "unread" else "NIGHT", f"not in daylight: {detail}"
+    return v, cls, detail
+
+
+def judge_kind(test, obs, out_dir):
+    """judge() for one kind, without the light reading."""
     if not obs:
         return "INCONCLUSIVE", "NOOBS", "no observations written"
     if obs.get("stopped"):
@@ -797,15 +855,20 @@ def blocked_reason(ctl, q, launching=False, min_idle=900):
 NPC_SESSION_S = 45      # one console session: open, ClearConsole + ~60 characters, waits, OCR at up to 4 thresholds
 NPC_READ_S = 75         # Read-Pos: up to 3 readpos.ps1 runs
 NPC_REMOVE_S = 300      # kept for the removal (qstep.ps1 $reserve): Select-Npc (2), PickLastRef again (3), disable (1)
+LIGHT_TRY_S = 30        # one time-of-day / weather command: console open, typing, close, screenshot, sky measure
+LIGHT_WAIT_MS = 4000    # qstep.ps1's wait after such a command before the screenshot (plan field light_wait_ms)
 
 
 def step_timeout(test):
     """Seconds one qstep.ps1 may take before the runner kills it. Every confirmed npc_nav read is one console session
     (ClearConsole, prid <id>, GetIsID, getpos x/y/z, OCR), two when the first is not read (Select-Npc). The spawn is
-    four sessions (placeatme; plr; prid + GetSelf; GetIsID + getpos) around spawn_wait_ms of game time."""
+    four sessions (placeatme; plr; prid + GetSelf; GetIsID + getpos) around spawn_wait_ms of game time.
+    Time of day / weather: one console session per command qstep.ps1 may type (open, up to ~35 characters, close),
+    light_wait_ms, a screenshot and its measure: LIGHT_TRY_S each, worst case (the ladder stops early)."""
+    light = len(sky_light.commands(test)) * (LIGHT_TRY_S + test.get("light_wait_ms", LIGHT_WAIT_MS) / 1000)
     if test.get("kind") == "terrain":
         # a terrain drop takes about a minute per point (teleport, fall, OCR read): 300 s cut experiment 1 off
-        return 150 + 90 * (len(test.get("points", [])) + 1)
+        return int(150 + 90 * (len(test.get("points", [])) + 1) + light)
     if test.get("kind") == "npc_nav":
         reads = test.get("reads_s") or [0]
         n = len([x for x in reads if x > 0])
@@ -816,7 +879,7 @@ def step_timeout(test):
                  + pre + 4 * NPC_SESSION_S + 10            # probes, the spawn: placeatme, plr, GetSelf, GetIsID + getpos
                  + test.get("spawn_wait_ms", 2000) / 1000
                  + 3 * NPC_SESSION_S + NPC_REMOVE_S)       # t = 0 (Select-Npc) and the command; the removal
-        return int(fixed + n * (2 * NPC_SESSION_S + 10) + max(reads))
+        return int(fixed + n * (2 * NPC_SESSION_S + 10) + max(reads) + light)
     return 300
 
 
@@ -1066,6 +1129,7 @@ class Runner:
             self.state["attempts"][t["id"]] = n
             out_dir = os.path.join(self.qdir, "tests", t["id"], f"a{n}")
             os.makedirs(out_dir, exist_ok=True)
+            lt = None                                     # the sky reading, for tests that asked for a time of day
             if g in ("nocell", "retry"):
                 verdict, cls, detail, code = "INCONCLUSIVE", "NOCELL", f"cell {t['cell']} not reached ({g})", None
                 if g == "nocell" and not self.recover():
@@ -1095,7 +1159,9 @@ class Runner:
                     self.session, self.cell = False, None
                     verdict, cls, detail = "INCONCLUSIVE", "CRASH", "the game exited during this test"
                 else:
-                    raw = judge(t, load(os.path.join(out_dir, "obs.json")), out_dir)
+                    obs = load(os.path.join(out_dir, "obs.json"))
+                    raw = judge(t, obs, out_dir)
+                    lt = light_of(t, obs)
                     verdict, cls, detail = control_gate(self.qdir, self.q, t, *raw)
                     if not t["cell"]:
                         self.cell = None                  # the test travelled (terrain experiment world)
@@ -1105,6 +1171,8 @@ class Runner:
                    "attempt": n, "verdict": verdict, "class": cls, "detail": detail, "exit": code, "dir": out_dir, "t": now()}
             if t.get("expect"):
                 rec["expect"] = t["expect"]
+            if lt:                                        # daylight / night / unclear / unread, sky before -> after
+                rec["light"], rec["sky"], rec["light_detail"] = lt["light"], lt["sky"], lt["detail"]
             if cls == "CONTROL":
                 rec["raw"] = list(raw)                    # the report gates it again (write_report)
             with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
@@ -1181,10 +1249,15 @@ def write_report(qdir):
             r = final.get(t["id"])
             got = None if r is None else ("PASS" if r["verdict"] == "PASS" else f"{r['verdict']} {r['class']}")
             expectations.append({"id": t["id"], "expect": t["expect"], "result": got, "basis": t.get("basis", "")})
+    # time of day / weather asked for: was the run in daylight? (night with "no effect": the commands changed nothing)
+    light = [{"id": r["id"], "light": r["light"], "sky": r.get("sky"), "detail": r.get("light_detail", "")}
+             for r in final.values() if r.get("light")]
     rep = {"build_id": q["build_id"], "commit": q["commit"], "tests": len(q["tests"]), "results": len(final),
            "pending": pending, "tally": tally, "ranked": ranked}
     if expectations:
         rep["expectations"] = expectations
+    if light:
+        rep["light"] = light
     save_atomic(os.path.join(qdir, "report.json"), rep)
     lines = [f"# Test queue report: build {q['build_id']} (commit {q['commit'][:8]})", "",
              f"{len(final)} of {len(q['tests'])} tests have a result, {pending} pending. Generated {now()}.", "",
@@ -1204,6 +1277,13 @@ def write_report(qdir):
         for e in expectations:
             same = "" if e["result"] is None else ("yes" if e["result"] == e["expect"] else "no")
             lines.append(f"| {e['id']} | {e['expect']} | {e['result'] or 'pending'} | {same} | {e['basis']} |")
+    if light:
+        lines += ["", "## Light (time of day / weather asked for; sky = mean of the top 200 rows, 0..255)", "",
+                  "| test | light | sky before -> after | detail |", "|---|---|---|---|"]
+        for x in light:
+            b, a_ = (list(x["sky"] or []) + [None, None])[:2]
+            sky = " -> ".join("-" if v is None else f"{v:.1f}" for v in (b, a_))
+            lines.append(f"| {x['id']} | {x['light']} | {sky} | {x['detail']} |")
     with open(os.path.join(qdir, "report.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     return rep
@@ -1245,6 +1325,15 @@ def main(argv=None):
     pn.add_argument("--only", type=int, default=0, help="keep the first N tests")
     pn.add_argument("--fresh", action="store_true", help="relaunch the game before every test (a test's own "
                                                          "\"fresh\": true in plan.json does the same for that test)")
+    for sp in (pt, pn):                                   # time of day / weather for every test (docs/ai/test-queue.md)
+        sp.add_argument("--time-of-day", type=float, default=None,
+                        help="local hour set after the arrival, before the screenshots (12 = noon on any planet)")
+        sp.add_argument("--time-methods", default="",
+                        help=f"ladder of time commands among {','.join(sky_light.TIME_METHODS)} "
+                             f"(default {','.join(sky_light.DEFAULT_LADDER)}: stops once the sky reads right)")
+        sp.add_argument("--weather", default="", help="weather form id forced after the arrival (fw <id>)")
+        sp.add_argument("--need-daylight", action="store_true",
+                        help="a PASS whose sky did not read as daylight is INCONCLUSIVE NIGHT")
     r = sub.add_parser("run")
     r.add_argument("--queue", required=True)
     r.add_argument("--starfield", default=r"D:\SteamLibrary\steamapps\common\Starfield")

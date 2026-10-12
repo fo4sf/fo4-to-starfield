@@ -20,12 +20,18 @@ command that works), anchor_id / anchor_pos, arrival, fall ({"height", "speed"}:
 arrival z + height at speed m/s until the arrival z), layout ("inline" | "column": labels first, then values; echo
 arguments drift into the value column, a lone "y" is lost).
 "typed" keeps every command the console received; "clock" is the game time, which runs only while the console is
-closed."""
+closed.
+Time of day: local_time (default 22.0, night) changes on "SetLocalTime <h>" (method slt), "SetLocalTime <h> 1"
+(slt_galaxy) or 'cgf "Game.SetLocalTime" <h>' (cgf) when that method is in time_works (default ["slt"]; [] = no command
+has an effect); "fw <id> [1]" sets weather, and weather_sky {id: brightness} overrides the sky. "shot <png>" writes a
+screenshot whose top 200 rows have the sky's brightness (110 by day, 6..18 h, else 12) and whose lower rows are ground."""
 import json
 import math
 import os
+import struct
 import sys
 import time
+import zlib
 
 P = os.environ["FAKE_STATE"]
 STATIC = "0024A824"
@@ -157,6 +163,30 @@ def run(s, cmd):
         a["deleted"] = True
     elif low == "getdisabled":
         s["log"].append(f"GetDisabled >> {1 if a and a.get('disabled') else 0}")
+    elif low.startswith(("setlocaltime ", 'cgf "game.setlocaltime" ')):
+        method = "cgf" if low.startswith("cgf") else ("slt_galaxy" if w[-1] == "1" and len(w) == 3 else "slt")
+        if method in s.get("time_works", ["slt"]):
+            s["local_time"] = float(w[2] if method == "cgf" else w[1])
+    elif low.startswith("fw "):
+        s["weather"] = w[1].upper()
+
+
+def sky(s):
+    wx = s.get("weather_sky", {}).get(s.get("weather") or "")
+    if wx is not None:
+        return wx
+    return 110 if 6.0 <= s.get("local_time", 22.0) <= 18.0 else 12
+
+
+def write_png(path, value, w=8, h=300):
+    """RGB PNG: the top 200 rows at the sky's brightness, the rest ground (40)."""
+    rows = b"".join(b"\0" + bytes([value if y < 200 else 40] * 3 * w) for y in range(h))
+
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
 
 
 def column(lines):
@@ -212,6 +242,9 @@ def main():
                 else:                                      # the game runs again: placed actors become ready
                     for a in s["actors"].values():
                         a.pop("pending", None)
+    elif sys.argv[1] == "shot":
+        write_png(sys.argv[2], sky(s))
+        return
     elif sys.argv[1] == "screen":
         lines = s["log"][-9:]                              # the console shows about nine lines
         if s.get("layout") == "column":

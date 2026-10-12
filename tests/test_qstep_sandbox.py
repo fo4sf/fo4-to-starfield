@@ -27,18 +27,18 @@ N1 = {"travel": "coc FO4CW_RedRocketSpawn", "a": [-987.43, 1128.23, 105.03], "b"
 MARS = {"anchor_id": "02000800", "anchor_pos": [2010.97, -2352.8, 85.14], "arrival": [2010.97, -2352.8, 85.14]}
 
 
-@unittest.skipUnless(ENABLED, "opt-in: FO4SF_QSTEP_SANDBOX=1 on Windows")
-class QstepNpcSandboxTests(unittest.TestCase):
-    def run_step(self, plan=None, world=None):
+class SandboxStep:
+    """Runs the copied qstep.ps1 against the simulated game (mixed into the opt-in test classes below)."""
+    def run_step(self, plan=None, world=None, test=None):
         d = tempfile.mkdtemp(prefix="qstep_npc_")
         step_dir = os.path.join(d, "game")
         shutil.copytree(SANDBOX, step_dir)
-        for f in ("qstep.ps1", "parse_npc.py", "parse_getpos.py"):
+        for f in ("qstep.ps1", "parse_npc.py", "parse_getpos.py", "sky_light.py"):
             shutil.copy(os.path.join(GAME, f), step_dir)
         state = os.path.join(d, "state.json")
         with open(state, "w") as f:
             json.dump(dict(WORLD, **(world or {})), f)
-        t = tq.npc_test(0, dict(N0, **(plan or {})))
+        t = test or tq.npc_test(0, dict(N0, **(plan or {})))
         spec, out = os.path.join(d, "spec.json"), os.path.join(d, "out")
         with open(spec, "w") as f:
             json.dump(t, f)
@@ -64,6 +64,9 @@ class QstepNpcSandboxTests(unittest.TestCase):
             self.assertEqual(left, [], obs.get("cleanup"))
         return obs
 
+
+@unittest.skipUnless(ENABLED, "opt-in: FO4SF_QSTEP_SANDBOX=1 on Windows")
+class QstepNpcSandboxTests(SandboxStep, unittest.TestCase):
     def test_walk_is_a_pass_and_the_actor_is_removed(self):
         obs = self.check(("PASS", "PASS"))
         self.assertEqual(obs["cleanup"]["via"], "prid")       # by PickLastRef's id
@@ -168,6 +171,58 @@ class QstepNpcSandboxTests(unittest.TestCase):
         obs = self.check(("PASS", "PASS"), plan={"method": "none", "control": False})
         self.assertEqual(obs["command"], "")
         self.assertFalse([c for c in self.typed if c.lower().startswith(("pathtoref", "cf ", "setplayerteammate"))])
+
+
+@unittest.skipUnless(ENABLED, "opt-in: FO4SF_QSTEP_SANDBOX=1 on Windows")
+class QstepLightSandboxTests(SandboxStep, unittest.TestCase):
+    """Time of day / weather (sky_light.py) in the real step: the simulated game arrives at night (local time 22, sky
+    12) and its screenshots carry the simulated sky's brightness in their top rows."""
+    def test_setlocaltime_makes_daylight_before_the_spawn(self):
+        obs = self.check(("PASS", "PASS"), plan={"time_of_day": 12})
+        light = obs["light"]
+        self.assertEqual(light["before"], {"shot": "arrival.png", "sky": 12.0})
+        self.assertEqual([(x["cmd"], x["sky"], x["done"]) for x in light["tries"]], [("SetLocalTime 12", 110.0, True)])
+        at = self.typed.index("SetLocalTime 12")
+        self.assertLess(self.typed.index("coc QASmoke"), at)
+        self.assertLess(at, self.typed.index("player.placeatme 0000CF96 1"))
+
+    def test_the_ladder_goes_on_until_the_sky_reads_as_asked(self):
+        v, obs, _ = self.run_step(plan={"time_of_day": 12}, world={"time_works": ["cgf"]})
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        self.assertEqual([(x["method"], x["done"]) for x in obs["light"]["tries"]],
+                         [("slt", False), ("slt_galaxy", False), ("cgf", True)])
+        self.assertIn('cgf "Game.SetLocalTime" 12', self.typed)        # typed with its quotes
+        self.assertIn("SetLocalTime 12 1", self.typed)
+        self.assertIn("after SetLocalTime 12; SetLocalTime 12 1; cgf", v[2])
+
+    def test_no_effect_is_marked_night(self):
+        v, obs, _ = self.run_step(plan={"time_of_day": 12, "need_daylight": True}, world={"time_works": []})
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "NIGHT"), v[2])
+        self.assertIn("sky 12.0 -> 12.0", v[2])
+        self.assertIn("no effect: night", v[2])
+        self.assertEqual(len(obs["light"]["tries"]), 3)
+
+    def test_weather_first_then_the_time(self):
+        v, obs, _ = self.run_step(plan={"weather": "0000015e", "weather_lock": True, "time_of_day": 9.5,
+                                        "time_methods": ["slt"]}, world={"weather_sky": {"0000015E": 70}})
+        self.assertEqual([x["cmd"] for x in obs["light"]["tries"]], ["fw 0000015E 1", "SetLocalTime 9.5"])
+        self.assertLess(self.typed.index("fw 0000015E 1"), self.typed.index("SetLocalTime 9.5"))
+        self.assertEqual(obs["light"]["tries"][0]["sky"], 70.0)
+        self.assertIn("; daylight", v[2])
+
+    def test_terrain_sets_the_time_after_the_arrival_before_the_probes(self):
+        t = tq.with_light({"id": "0000_terrain_QASmoke", "kind": "terrain", "cell": "", "ref": "QASmoke", "model": "",
+                           "world_coc": "QASmoke", "travel": "", "drop_z": 5.0, "settle_ms": 1,
+                           "points": [{"label": "p0", "x": 1.0, "y": 1.0, "expect": 5.0}], "beyond": {"x": 3.0, "y": 1.0}},
+                          {"time_of_day": 12, "need_daylight": True}, {})
+        v, obs, _ = self.run_step(test=t)
+        self.assertEqual(obs["light"]["before"]["shot"], "spawn.png")
+        self.assertEqual(obs["light"]["tries"][0]["sky"], 110.0)
+        at = self.typed.index("SetLocalTime 12")
+        self.assertLess(self.typed.index("coc QASmoke"), at)
+        self.assertLess(at, min(k for k, c in enumerate(self.typed) if c.startswith("player.setpos")))
+        self.assertEqual(v[0], "PASS", v[2])                  # the simulated player stays at the drop height 5 = expect
+        self.assertIn("[light: local hour 12: sky 12.0 -> 110.0 after SetLocalTime 12; daylight]", v[2])
 
 
 if __name__ == "__main__":
