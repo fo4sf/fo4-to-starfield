@@ -33,6 +33,34 @@ def generated(staging, stem="chair"):
 
 
 class CheckpointTests(unittest.TestCase):
+    def test_degraded_checkpoint_with_valid_outputs_cannot_be_reused(self):
+        for failure in ({"ok": False}, {"fallback_materials": 1},
+                        {"door_error": "missing native rig"}):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as tmp:
+                result, _ = generated(tmp)
+                cache = checkpoints.Checkpoints(tmp, {})
+                self.assertTrue(cache.save("chair.nif", result))
+                saved = json.loads(cache.path("chair.nif").read_text())
+                saved["result"].update(failure)
+                cache.path("chair.nif").write_text(json.dumps(saved))
+                resumed = checkpoints.Checkpoints(tmp, {})
+                self.assertIsNone(resumed.load("chair.nif"))
+                self.assertEqual(resumed.expected, {})
+    @unittest.skipIf(os.name == "nt", "case-sensitive symlink fallback is covered by Linux CI")
+    def test_case_insensitive_lookup_cannot_follow_a_symlink_outside_staging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            staging = root / "staging"
+            outside = root / "outside"
+            staging.mkdir()
+            outside.mkdir()
+            (outside / "owner.dds").write_bytes(b"synthetic outside file")
+            (staging / "textures").symlink_to(outside, target_is_directory=True)
+            for relative in ("Textures", "Textures/owner.dds"):
+                with self.subTest(relative=relative):
+                    with self.assertRaisesRegex(ValueError, "escapes staging"):
+                        checkpoints.staged_path(staging, relative)
+
     def test_batch_failed_conversion_invalidates_previously_successful_checkpoint(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
