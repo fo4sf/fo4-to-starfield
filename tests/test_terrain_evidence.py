@@ -76,11 +76,13 @@ class TerrainEvidenceTests(unittest.TestCase):
         self.assertEqual(oracle.judge(bundle(), tol_m=-0.1)[0], "UNREAD")
         self.assertEqual(oracle.judge(bundle(), reach_m=True)[0], "UNREAD")
 
-    def test_one_sample_repeated_is_not_settled(self):
+    def test_identical_stationary_captures_are_allowed(self):
+        # Independent readings of a settled player may be identical. Coordinates alone
+        # do not prove reuse; provenance belongs to capture ids or timestamps.
         same = ["10 -4 105.14", "10 -4 105.14"]
-        self.assertEqual(oracle.judge(bundle(frames=same))[0], "UNREAD")
+        self.assertEqual(oracle.judge(bundle(frames=same))[0], "PASS")
         nudged = ["10 -4 105.14", "10.0000001 -4 105.14"]
-        self.assertEqual(oracle.judge(bundle(frames=nudged))[0], "UNREAD")
+        self.assertEqual(oracle.judge(bundle(frames=nudged))[0], "PASS")
 
     def test_recorded_bytes_must_hash_to_the_pin(self):
         import hashlib

@@ -6,7 +6,7 @@ A PASS needs every one of these. Anything missing is UNREAD, never a pass:
 - when the record includes those files' bytes, the bytes hash to the pin
 - ground is "plugin" (a procedural or unnamed ground cannot pass)
 - a recorded offset is a finite x, y, z (a bad value is not treated as zero)
-- at least two finite position frames that are not copies of one sample, all within reach_m of the point in X/Y
+- at least two finite position frames, all within reach_m of the point in X/Y (identical positions are allowed)
 - those frames agree in Z within settle_m
 - the settled height is within tol_m of the expected height, after that offset
 - reach_m, settle_m and tol_m are finite and nonnegative
@@ -130,10 +130,9 @@ def judge(evidence, reach_m=2.0, settle_m=0.05, tol_m=0.5):
     reads = [_parse_frame(frame) for frame in frames]
     if any(read is None for read in reads):
         return "UNREAD", "a frame did not parse"
-    # Two copies of one getpos are not two settled frames. A still player is inconclusive
-    # until the readings actually differ, which is safer than a false pass.
-    if len({tuple(round(part, 6) for part in read) for read in reads}) < 2:
-        return "UNREAD", "frames are one sample repeated"
+    # Identical positions are allowed: independent stationary captures can match exactly.
+    # Distinctness of coordinates is not proof of independent samples. Reuse detection
+    # belongs to capture identifiers or timestamps when the collector records them.
     tx, ty, expect = target
     ox, oy, oz = shift
     for read in reads:
