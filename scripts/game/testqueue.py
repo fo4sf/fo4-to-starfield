@@ -19,6 +19,11 @@ usage:
                              [--plugins a.esm,b.esm] [--fresh]
                              door_trip (docs/slice/redrocket-door.md): coc into a world, through a load door into an
                              interior and back out, save, load; every arrival observed (position, GetInCell, screenshot)
+  python testqueue.py plan-walk --staging <build dir> --exp-dir <dir with plan.json and walk_ground.json> --out <queue dir>
+                             [--install-exp <experiment> --plugins a.esm,b.esm] [--fresh]
+                             walk (docs/terrain/walk-redrocket-sanctuary.md): the player walks continuously with real
+                             input (W held, player.setangle z, never a setpos) from the coc arrival over planned waypoints
+                             (scripts/terrain/walk_route.py); every leg read, its ground checked (walk_eval.py)
   python testqueue.py run   --queue <queue dir> [--max-tests N] [--max-hours 8] [--min-idle 900] [--wait-for-idle]
                              [--refocus] [--max-attempts 2] [--dry-run]
   python testqueue.py report --queue <queue dir>
@@ -63,11 +68,12 @@ import exp_install  # noqa: E402
 import route_eval  # noqa: E402
 import runner_features  # noqa: E402
 import sky_light  # noqa: E402
+import walk_eval  # noqa: E402
 
 UNIT = 1.0 / 70.0
 COMPANION_REF = "000057BE"   # Starfield.esm ACHR VascoREF: the test save's companion, disabled per session
 KINDS = ("stairs", "door", "fall", "movable", "travel")         # planned from a build; "terrain" via plan-terrain
-EXTRA_KINDS = ("terrain", "npc_nav", "door_trip")               # planned from an experiment's plan.json
+EXTRA_KINDS = ("terrain", "npc_nav", "door_trip", "walk")       # planned from an experiment's plan.json
 # ranking weight per (kind, verdict reason class): falling out of the world and broken travel first
 SEVERITY = {("fall", "FALL"): 5, ("travel", "NOTRAVEL"): 5, ("travel", "NOPROMPT"): 4, ("door", "BLOCKED"): 4,
             ("door", "NOPROMPT"): 3, ("stairs", "FALL"): 4, ("stairs", "STUCK"): 3, ("door", "FALL"): 5,
@@ -76,7 +82,9 @@ SEVERITY = {("fall", "FALL"): 5, ("travel", "NOTRAVEL"): 5, ("travel", "NOPROMPT
             ("npc_nav", "FELL"): 5, ("npc_nav", "NONAV"): 4, ("npc_nav", "STALLED"): 3, ("npc_nav", "WANDER"): 3,
             ("door_trip", "NOLOAD"): 5, ("door_trip", "WRONGCELL"): 5, ("door_trip", "UNMERGED"): 5,
             ("door_trip", "REMERGED"): 4, ("door_trip", "ELSEWHERE"): 4, ("door_trip", "RELOAD"): 5,
-            ("door_trip", "FELL"): 5, ("door_trip", "OFFGROUND"): 3}
+            ("door_trip", "FELL"): 5, ("door_trip", "OFFGROUND"): 3,
+            ("walk", "BOUNDARY"): 5, ("walk", "FELL"): 5, ("walk", "JUMP"): 5, ("walk", "HEIGHTS"): 4,
+            ("walk", "STUCK"): 4, ("walk", "OFFROUTE"): 3}
 PS = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
 BREAKER = 6          # inconclusive attempts in a row, with no PASS/FAIL yet, that switch a kind off for the run
 # inconclusive for a reason a retry cannot change. NIGHT (need_daylight, the run did not read as daylight) is NOT
@@ -639,6 +647,120 @@ def plan_door(a):
           + (f", needs runner features {', '.join(q['needs'])}" if q.get("needs") else ""))
 
 
+# walk (docs/terrain/walk-redrocket-sanctuary.md): every key a plan.json test may carry; anything else stops the planning
+WALK_PLAN_KEYS = frozenset((
+    "label", "travel", "spawn_local", "setup", "start", "waypoints", "goal_radius", "ground", "ground_sha256",
+    "bridge", "cells", "crossings", "length_m", "max_legs", "max_leg_m", "speed", "z_tol", "fell_m", "offroute_m",
+    "stuck_m", "stuck_k", "shot_every", "drop", "settle_ms", "start_tol", "fresh", "expect", "basis")
+    + sky_light.LIGHT_KEYS + console_plan.CONSOLE_KEYS)
+SRC_KEY = r"[0-9A-Fa-f]{6}:[A-Za-z0-9_ .-]{1,64}"               # an FO4 reference key as objects.json writes it
+
+
+def _int(w, key, default, lo, hi):
+    v = _num(w, key, default, lo, hi)
+    if v != int(v):
+        sys.exit(f"{key} in plan.json must be a whole number: {v}")
+    return int(v)
+
+
+def walk_test(n, w, exp_dir):
+    """One walk test from a plan.json entry (scripts/terrain/walk_route.py writes them). Positions are in the
+    overlay's own frame (the runner adds the merge offset measured at the coc arrival). The judge's ground file
+    (walk_ground.json next to plan.json) is pinned by its sha256, checked here and again when judging."""
+    label = str(w.get("label") or f"walk{n}")
+    unknown = sorted(set(w) - WALK_PLAN_KEYS)
+    if unknown:
+        sys.exit(f"{label}: unknown plan.json keys {unknown} (known: {sorted(WALK_PLAN_KEYS)})")
+    travel = str(w.get("travel") or "")
+    if not re.fullmatch(r"coc [A-Za-z0-9_]+", travel):
+        sys.exit(f"bad travel in plan.json (coc <cell editor id>): {travel!r}")
+    wps = w.get("waypoints")
+    if not isinstance(wps, list) or not 2 <= len(wps) <= 400:
+        sys.exit(f"{label}: waypoints must be a list of 2..400 [x, y, z, reach]")
+    wps = [_vec(p, (4, 5), "waypoint") for p in wps]                # x, y, z, reach[, keep 0 / 1]
+    if any(not 0.3 <= p[3] <= 20.0 for p in wps):
+        sys.exit(f"{label}: every waypoint's reach must be within 0.3..20 m")
+    if any(len(p) == 5 and p[4] not in (0.0, 1.0) for p in wps):
+        sys.exit(f"{label}: a waypoint's keep flag is 0 or 1")
+    ground = str(w.get("ground") or "")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}\.json", ground):
+        sys.exit(f"{label}: ground must be a .json file name next to plan.json: {ground!r}")
+    gpath = os.path.abspath(os.path.join(exp_dir, ground))
+    if not os.path.isfile(gpath):
+        sys.exit(f"{label}: ground file {gpath} not found")
+    gsha = str(w.get("ground_sha256") or "")
+    if not re.fullmatch(r"[0-9a-f]{64}", gsha) or sha256(gpath) != gsha:
+        sys.exit(f"{label}: {gpath} does not match ground_sha256 (re-plan with scripts/terrain/walk_route.py)")
+    safe = re.sub(r"[^A-Za-z0-9_]", "_", label)[:40]
+    t = {"id": f"{n:04d}_walk_{safe}", "kind": "walk", "cell": "", "ref": label, "model": label, "travel": travel,
+         "spawn_local": _vec(w.get("spawn_local"), (2, 3), "spawn_local"), "setup": bool(w.get("setup", False)),
+         "start": _vec(w.get("start") or wps[0][:3], (3,), "start"), "waypoints": wps,
+         "goal_radius": _num(w, "goal_radius", 3.0, 0.5, 20), "ground_path": gpath, "ground_sha256": gsha,
+         "length_m": _num(w, "length_m", 0.0, 0.0, 100000), "max_legs": _int(w, "max_legs", 60, 1, 400),
+         "max_leg_m": _num(w, "max_leg_m", 15.0, 3, 40), "speed": _num(w, "speed", 4.6, 1, 8),
+         "z_tol": _num(w, "z_tol", 0.6, 0.1, 3), "fell_m": _num(w, "fell_m", 3.0, 0.5, 50),
+         "offroute_m": _num(w, "offroute_m", 10.0, 2, 50), "stuck_m": _num(w, "stuck_m", 0.6, 0.1, 5),
+         "stuck_k": _int(w, "stuck_k", 3, 1, 10), "shot_every": _int(w, "shot_every", 3, 1, 50),
+         "drop": _num(w, "drop", 1.0, 0, 50), "settle_ms": _int(w, "settle_ms", 6000, 0, 30000),
+         "start_tol": _num(w, "start_tol", 3.0, 0.5, 50)}
+    if t["setup"] and t["start"] != wps[0][:3]:
+        sys.exit(f"{label}: start must be the first waypoint (the setup teleport's target)")
+    br = w.get("bridge")
+    if br:
+        if not isinstance(br, dict) or set(br) - {"src", "edid", "span", "min_reads"} or \
+                not re.fullmatch(SRC_KEY, str(br.get("src") or "")):
+            sys.exit(f"{label}: bad bridge (want {{\"src\": \"<FO4 ref key>\", \"edid\", \"span\": [s0, s1], "
+                     f"\"min_reads\"}}): {br!r}")
+        t["bridge"] = {"src": br["src"], "edid": str(br.get("edid") or ""),
+                       "span": _vec(br.get("span"), (2,), "bridge span"),
+                       "min_reads": _int(br, "min_reads", 2, 0, 50)}
+    cross = w.get("crossings") or []
+    if not isinstance(cross, list) or len(cross) > 100:
+        sys.exit(f"{label}: crossings must be a list")
+    t["crossings"] = []
+    for c in cross:
+        if not isinstance(c, dict):
+            sys.exit(f"{label}: bad crossing {c!r}")
+        a, b = _vec(c.get("from"), (2,), "crossing from"), _vec(c.get("to"), (2,), "crossing to")
+        if any(v != int(v) for v in a + b) or sum(abs(a[k] - b[k]) for k in range(2)) != 1:
+            sys.exit(f"{label}: a crossing joins two neighbouring cells: {c!r}")
+        t["crossings"].append({"from": [int(v) for v in a], "to": [int(v) for v in b], "s": float(c.get("s", 0.0))})
+    if w.get("fresh"):
+        t["fresh"] = True
+    for k in ("expect", "basis"):
+        if w.get(k):
+            t[k] = str(w[k])
+    return with_extras(t, w, {})
+
+
+def plan_walk(a):
+    """walk tests from <exp-dir>/plan.json (a list, or {"tests": [...]}); see walk_test."""
+    staging = os.path.abspath(a.staging)
+    esm = os.path.join(staging, "FO4Port.esm")
+    if not os.path.exists(esm):
+        sys.exit(f"no FO4Port.esm in {staging}: the runner pins and launches a build")
+    src = load(os.path.join(a.exp_dir, "plan.json"))
+    if isinstance(src, dict):
+        src = src.get("tests")
+    if not src or not isinstance(src, list) or not all(isinstance(w, dict) for w in src):
+        sys.exit(f"no walk tests in {os.path.join(a.exp_dir, 'plan.json')} (a list of test objects)")
+    cli = light_cli(a)
+    tests = [with_extras(walk_test(n, w, os.path.abspath(a.exp_dir)), w, cli) for n, w in enumerate(src)]
+    digest = sha256(esm)
+    q = {"created": now(), "staging": staging, "plugin_sha256": digest, "build_id": digest[:8],
+         "commit": subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
+         "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]],
+         "launch_cell": a.launch_cell, "experiment": os.path.abspath(a.exp_dir),
+         "tests": [dict(t, fresh=True) if a.fresh else t for t in (tests[:a.only] if a.only else tests)]}
+    world = os.path.abspath(a.install_exp or a.exp_dir) if a.plugins else ""
+    q.update(queue_extras(q["tests"], a, world))           # the terrain experiment the walk happens on
+    os.makedirs(a.out, exist_ok=True)
+    save_atomic(os.path.join(a.out, "queue.json"), q)
+    print(f"{len(q['tests'])} walk tests (route {a.exp_dir}) on build {q['build_id']}"
+          + (f", installing {world}" if world else "")
+          + (f", needs runner features {', '.join(q['needs'])}" if q.get("needs") else ""))
+
+
 # ------------------------------------------------------------------------------------------------------------ judging
 def light_of(test, obs):
     """The light of a test that asked for a time of day or a weather (sky_light.verdict: the arrival camera before and
@@ -789,6 +911,9 @@ def judge_kind(test, obs, out_dir):
         return v, cls, detail + (f" [expected {test['expect']}]" if test.get("expect") else "")
     if kind == "door_trip":
         v, cls, detail = judge_door(test, obs, shot_ok)
+        return v, cls, detail + (f" [expected {test['expect']}]" if test.get("expect") else "")
+    if kind == "walk":
+        v, cls, detail = walk_eval.judge(test, obs, shot_ok)
         return v, cls, detail + (f" [expected {test['expect']}]" if test.get("expect") else "")
     return "INCONCLUSIVE", "KIND", f"unknown kind {kind}"
 
@@ -1431,6 +1556,8 @@ def step_timeout(test):
         return int(fixed + n * (2 * NPC_SESSION_S + 10) + max(reads) + light)
     if test.get("kind") == "door_trip":
         return door_timeout(test, light)
+    if test.get("kind") == "walk":
+        return walk_timeout(test, light)
     return 300
 
 
@@ -1458,6 +1585,36 @@ def door_timeout(test, light=0.0):
     save = 30 + 10
     reload = 30 + settle + NPC_READ_S + 30 + 120 + 3 + 5 * NPC_READ_S + 12 + NPC_SESSION_S + 5
     return int(fixed + 2 * leg + save + reload + light)
+
+
+WALK_LEG_S = 60        # walk: one leg, worst case (console open, ClearConsole + three getpos, OCR at up to 4 thresholds,
+                       # the controller, setangle, the HUD shot and the popup OCR, a readpos.ps1 fallback); the hold adds
+                       # up to max_leg_m / walk_eval.V_LO seconds
+
+
+def walk_timeout(test, light=0.0):
+    """Worst case of one walk step (qstep.ps1 'walk'): the coc arrival until it settles, the setup teleport and its
+    settled read (reverse test), max_legs legs, the end shot. The step itself stops walking 150 s before its budget
+    (budget_s = this - 60)."""
+    fixed = 120 + 5 * NPC_READ_S + 12 + 10
+    setup = (30 + test.get("settle_ms", 6000) / 1000 + 5 * NPC_READ_S + 12 + 10) if test.get("setup") else 0
+    hold = min(test.get("max_leg_m", 15.0) / walk_eval.V_LO, walk_eval.MAX_HOLD_MS / 1000)
+    legs = test.get("max_legs", 60) * (WALK_LEG_S + hold)
+    return int(fixed + setup + legs + 30 + light)
+
+
+def installed_identity(starfield):
+    """What exp_install.py says is installed (its record in the game's Data folder: the staged folder, the plugins and
+    the sha256 of every installed file, the packed archive included), pinned with every walk result; {"error": ...}
+    when it cannot be read. Read only."""
+    p = os.path.join(starfield or "", "Data", exp_install.RECORD)
+    try:
+        with open(p, encoding="utf-8") as f:
+            r = json.load(f)
+    except (OSError, ValueError) as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+    return {"exp_dir": r.get("exp_dir"), "plugins": r.get("plugins"), "files": r.get("files"),
+            "packing_policy": r.get("packing_policy"), "complete": r.get("complete")}
 
 
 class Runner:
@@ -1501,7 +1658,7 @@ class Runner:
         spec = os.path.join(out_dir, "spec.json")
         timeout = step_timeout(test)
         # npc_nav: the step stops sampling in time to remove its actor before this timeout would kill it
-        save_atomic(spec, dict(test, budget_s=timeout - 60) if test.get("kind") == "npc_nav" else test)
+        save_atomic(spec, dict(test, budget_s=timeout - 60) if test.get("kind") in ("npc_nav", "walk") else test)
         code, out = self._ps("qstep.ps1", ["-Spec", spec, "-Out", out_dir, "-PluginIndex", self.q["plugin_index"]],
                              timeout)
         with open(os.path.join(out_dir, "step.log"), "w", encoding="utf-8") as f:
@@ -1790,6 +1947,8 @@ class Runner:
                     rec["light_probes"] = lt["probes"]
             if con:
                 rec["console"] = con
+            if t["kind"] == "walk":                       # the installed plugins' and archive's sha256, as run
+                rec["install"] = installed_identity(getattr(self.a, "starfield", ""))
             if cls == "CONTROL":
                 rec["raw"] = list(raw)                    # the report gates it again (write_report)
             with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
@@ -1970,7 +2129,19 @@ def main(argv=None):
     pd.add_argument("--plugins", default="", help="experiment plugins to activate before launch (exp_install.py)")
     pd.add_argument("--only", type=int, default=0, help="keep the first N tests")
     pd.add_argument("--fresh", action="store_true", help="relaunch the game before every test")
-    for sp in (pt, pn, pd):                               # time of day / weather for every test (docs/ai/test-queue.md)
+    pw = sub.add_parser("plan-walk", help="walk tests (a continuous walk over planned waypoints) from <exp-dir>\\plan.json "
+                                          "(docs/terrain/walk-redrocket-sanctuary.md)")
+    pw.add_argument("--staging", required=True)
+    pw.add_argument("--exp-dir", required=True, help="folder with plan.json and its walk_ground.json")
+    pw.add_argument("--out", required=True)
+    pw.add_argument("--launch-cell", default="Vault111Cryo")
+    pw.add_argument("--plugin-index", default="02")
+    pw.add_argument("--starfield", default=r"D:\SteamLibrary\steamapps\common\Starfield")
+    pw.add_argument("--plugins", default="", help="experiment plugins to activate before launch (exp_install.py)")
+    pw.add_argument("--install-exp", default="", help="experiment folder those plugins come from (default --exp-dir)")
+    pw.add_argument("--only", type=int, default=0, help="keep the first N tests")
+    pw.add_argument("--fresh", action="store_true", help="relaunch the game before every test")
+    for sp in (pt, pn, pd, pw):                           # time of day / weather for every test (docs/ai/test-queue.md)
         sp.add_argument("--time-of-day", type=float, default=None,
                         help="local hour set after the arrival, before the screenshots (12 = noon on any planet)")
         sp.add_argument("--time-methods", default="",
@@ -2002,6 +2173,8 @@ def main(argv=None):
         return plan_npc(a)
     if a.cmd == "plan-door":
         return plan_door(a)
+    if a.cmd == "plan-walk":
+        return plan_walk(a)
     if a.cmd == "run":
         return Runner(a.queue, a).run()
     if a.cmd == "report":

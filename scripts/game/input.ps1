@@ -1,4 +1,6 @@
 # usage: input.ps1 -Proc Starfield -Seq "key:enter","wait:1500","type:help foo 4","key:enter"
+# steps: key:<name>, type:<text>, wait:<ms>, hold:<key>,<ms>, holdg:<letter>,<ms> (released when the game loses focus),
+#        move:<dx>,<dy>, click:<x>,<y>; separated by |
 param([string]$Proc = 'Starfield', [string]$Seq)
 Add-Type @'
 using System; using System.Runtime.InteropServices;
@@ -43,6 +45,11 @@ function Assert-Foreground($procName) {
   $name = (Get-Process -Id $fp -ErrorAction SilentlyContinue).ProcessName
   if ($name -ne $procName) { Write-Error "ABORT: foreground window belongs to '$name', not '$procName'. No input sent."; exit 2 }
 }
+function Test-Foreground([int]$gamePid) {
+  # the same check by process id, cheap enough to poll while a key is held
+  $h = [FgCheck]::GetForegroundWindow(); $fp = 0; [FgCheck]::GetWindowThreadProcessId($h, [ref]$fp) | Out-Null
+  return ($fp -eq $gamePid)
+}
 $p = Get-Process $Proc -ErrorAction Stop | Select-Object -First 1
 # FO4SF_NO_FOCUS_STEAL=1 (unattended queue runs, testqueue.py): never bring the game to the front. If the owner has
 # switched to another window, they are using the PC: the guard below stops with exit 2 instead of taking focus back.
@@ -59,6 +66,22 @@ foreach ($s in $steps) {
   switch ($k) {
     'click' { $xy = $v.Split(','); [In]::Click([int]$xy[0], [int]$xy[1]) }
     'hold' { $hk, $ms = $v.Split(','); $vk = $names[$hk.ToLower()]; if (-not $vk) { $vk = [In]::VkKeyScan($hk[0]) -band 0xFF }; $sc = [In]::MapVirtualKey($vk,0); [In]::Legacy([byte]$vk,[byte]$sc,$false,$false); Start-Sleep -Milliseconds ([int]$ms); [In]::Legacy([byte]$vk,[byte]$sc,$true,$false) }
+    'holdg' {
+      # guarded timed hold (qstep.ps1 'walk'): one letter key, at most 10 s. The foreground is checked every 50 ms while
+      # the key is down; when the game loses it the key is released at once (a key-up only: no character is typed into
+      # the other window) and the step stops with exit 2, so the game never keeps walking behind the owner's window.
+      $hk, $ms = $v.Split(','); $ms = [int]$ms
+      if ($hk.Length -ne 1 -or $hk -notmatch '^[a-z]$' -or $ms -lt 1 -or $ms -gt 10000) { Write-Error "bad holdg '$v'"; exit 4 }
+      $vk = [In]::VkKeyScan($hk[0]) -band 0xFF; $sc = [In]::MapVirtualKey($vk,0)
+      $end = (Get-Date).AddMilliseconds($ms); $lost = $false
+      [In]::Legacy([byte]$vk,[byte]$sc,$false,$false)
+      while ((Get-Date) -lt $end) {
+        Start-Sleep -Milliseconds ([Math]::Max(1, [Math]::Min(50, [int](($end - (Get-Date)).TotalMilliseconds))))
+        if (-not (Test-Foreground $p.Id)) { $lost = $true; break }
+      }
+      [In]::Legacy([byte]$vk,[byte]$sc,$true,$false)
+      if ($lost) { Write-Error "ABORT: the game lost the foreground during a hold; key released."; exit 2 }
+    }
     'move' { $xy = $v.Split(','); [In]::mouse_event(1, [int]$xy[0], [int]$xy[1], 0, [IntPtr]::Zero) }
     'wait' { Start-Sleep -Milliseconds ([int]$v) }
     'key'  { $vk = $names[$v.ToLower()]; if (-not $vk -and $v.Length -eq 1) { $vk = [In]::VkKeyScan($v[0]) -band 0xFF }; Tap $vk }

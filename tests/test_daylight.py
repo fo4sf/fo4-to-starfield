@@ -118,8 +118,8 @@ class FieldTests(unittest.TestCase):
                       """'cgf' = "cgf `"Game.SetLocalTime`" $h" }""", src)
         self.assertIn("@('slt', 'slt_galaxy', 'cgf')", src)
         self.assertEqual(sl.DEFAULT_LADDER, ("slt", "slt_galaxy", "cgf"))
-        self.assertEqual(src.count("Apply-Light $lightCmds"), 3)          # terrain, npc_nav and door_trip
-        self.assertEqual(src.count("$lightCmds = Light-Commands"), 3)     # validated before the travel
+        self.assertEqual(src.count("Apply-Light $lightCmds"), 4)          # terrain, npc_nav, door_trip and walk
+        self.assertEqual(src.count("$lightCmds = Light-Commands"), 4)     # validated before the travel
         self.assertIn("if ($t.time_of_day -is [bool])", src)
         self.assertIn("$hv = [Math]::Round([double]$t.time_of_day, 2)", src)
         # the only thing typed again before a probe is the ladder's own command that worked

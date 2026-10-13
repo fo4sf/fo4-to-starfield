@@ -3,6 +3,29 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-13 Claude: a walkable Red Rocket <-> Sanctuary route on core64c, and a runner kind that walks it
+- Question: can the runner make the player walk (no teleports) from Red Rocket over the Sanctuary bridge into
+  Sanctuary and back on core64c, and what proves the terrain and objects stay loaded and walkable on the way? Details:
+  [docs/terrain/walk-redrocket-sanctuary.md](../terrain/walk-redrocket-sanctuary.md).
+- Method: `scripts/terrain/walk_route.py` (Fallout4.esm NAVM of FO4 cells x -21..-15, y 17..24, A* and funnel; a
+  0.5 m walkability raster from that navmesh and core64c's converted collision; line-of-sight smoothing; exact capsule
+  checks with `exterior.capsule_hits`); runner kind `walk` (`qstep.ps1`, `walk_eval.py` controller and judge,
+  `input.ps1` guarded `holdg`); synthetic unit tests, qstep sandbox scenarios and an ideal walker through the staged
+  plan judged against the real ground file.
+- Evidence (offline, verified): Fallout 4's own shortest navmesh path is 248.73 m (152 NAVM records, 99,419
+  triangles, 223 in the corridor), but a standing capsule (0.35 m radius, 0.4 m step) meets core64c's converted
+  collision at 33 of its 499 samples (guardrails, a station wagon, a trash can, a fence post, a swing set, a tree
+  stump, the elm at the cul-de-sac): the baked navmesh runs under these objects. The raster path is 254.33 m, clear at
+  all 510 samples and on navmesh at all of them, 44.47 m on the NorthBridge deck (01F970, 107.8 -> 109.9 -> 107.9 m),
+  across the local cell borders x = -1000, x = -1100, y = 1200, x = -1100; tallest step 0.335 m. The planner's
+  output is byte-identical when run again. The "BOUNDARY REACHED" box leaves the HUD's oxygen ring and health bar
+  visible, so a HUD check cannot see it; Windows OCR of the screen centre of Codex's capture read the title in 0.5 s
+  (the walk checks it after every leg). An ideal walker through the staged plan: 27 to 32 legs, PASS both ways
+  against the real walk_ground.json.
+- Status: route and runner **verified offline / in the sandbox only**; whether the player walks it in game (speed,
+  steering, the 0.335 m step, loading and popups at the borders and on the bridge) is **unresolved** until the queue
+  `C:\Modding\testqueue\walk_core64c` runs. Why Fallout 4's navmesh passes under those objects is **unresolved**.
+
 ## 2026-10-12 Claude: the Red Rocket cave load door on the converted terrain (slice: working door -> interior -> save)
 - Question: which Fallout 4 load door links RedRocket01 with the Commonwealth, where is it relative to the converted
   terrain of experiment 2d, what does our side hold of it, and how is it written so a player can walk through it and

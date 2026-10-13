@@ -27,7 +27,10 @@ import sys
 #               and before E or the last-try teleport, the player moved away before the reload, NOLOAD only from a stand
 #               within the door's range. The first door_trip runner could teleport after a load its HUD checks missed
 #               and call a stand 5 m from the door "the door does not work"
-FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check")
+# walk:         the walk kind (plan-walk; docs/terrain/walk-redrocket-sanctuary.md): a continuous walk with real input
+#               over planned waypoints, steered by walk_eval.py, W held by input.ps1's guarded holdg. An older qstep.ps1
+#               ends such a step with "unknown kind" (exit 4) after the game was launched for it
+FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "walk")
 
 
 def needs(tests):
@@ -44,6 +47,8 @@ def needs(tests):
             out.add("door_trip")
             if "moved_m" in t or "activate_m" in t:
                 out.add("door_check")
+        if t.get("kind") == "walk":
+            out.add("walk")
     return sorted(out)
 
 
