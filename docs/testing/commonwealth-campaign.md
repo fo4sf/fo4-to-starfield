@@ -72,6 +72,8 @@ Measure launch-to-controllable time, stream-to-visible/settled time, frame-time 
 
 Run regional batches within a 1–2 hour **active** budget with persisted state. Keep failures tied to individual cells/segments and resume pending work. Only broaden sampling after the early gates pass. Runtime coverage is the set of observed regions/routes/doors, never the entire placed-reference count. Maintain separate statuses for planned, observed PASS, observed FAIL, inconclusive and untested.
 
-## Evidence retention
+## Evidence audit and retention
+
+Use the [completed-phase evidence checker](commonwealth-evidence.md) to bind each observation to its queue, terminal attempt, actual XYZ, reference height and native capture. It also audits the unscored final teleport. The live October13 run exposed that `qstep.ps1` omitted the merge offset from this step: setting `beyond` to the last local point did not suppress the jump. Keep the old pins/results immutable and hold new launches until the runner is corrected and reviewed. This read-only audit never approves a phase or starts a game.
 
 Keep raw observation JSON, queue/campaign hashes and compact reports beside each phase. Record point/segment IDs, source model/reference, expected vs actual coordinates, controls and exception class. Preserve a small representative screenshot set for successes and all actionable failures; review temporary recordings then delete them under the existing media policy. Public GitHub updates should link concise evidence and state its exact scope. Do not commit game binaries, converted assets, local paths, saves or full recording transcripts. Full-map structures/terrain acceptance and complete Fallout 4 gameplay remain separate milestones.

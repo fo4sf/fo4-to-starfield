@@ -9,7 +9,7 @@ Walk Red Rocket-Sanctuary and its bridge/cell borders both ways; prove terrain r
 ## Owners / locks
 
 - Claude: collision/Havok, convert_static.py, pipeline.py, convert_batch.py, PluginSpike, terrain/actors, game scripts/staging/live control. No concurrent edits or other game input.
-- Codex: deployment/recovery, identities/checkpoints/cache/output QA, Fo4Export/ReferenceLinks, animation/door bridge modules and tests, this status/archive. Shared sfnif.py changes need a scope claim; Codex owns exp_install compatibility and #89 exit protocol. Claude retains live controls.
+- Codex: deployment/recovery, identities/checkpoints/cache/output QA, Fo4Export/ReferenceLinks, animation/door bridge modules and tests, this status/archive. Shared sfnif.py changes need a scope claim; Codex owns exp_install compatibility and #89 exit protocol. Live controller claim: #32.
 - Grok: acceptance oracle, route_eval.judge, terrain_evidence.py/tests. #69 still needs capture-provenance QA correction; identical XYZ may be independent stationary captures. No other game/control files without a new claim.
 
 ## Latest evidence / open work
@@ -20,13 +20,13 @@ Open regressions: Fort Hagen shutter/frame collision and load-door prompt, Vault
 
 #34/#35 (main): degraded checkpoint retries and streamed archive SHA; immutable sources. #86 in #66 at85e342f: portable resource lookups,360 Windows tests/Linux CI/independent QA pass; report counts unchanged.
 
-Reviewed #81/#80 are merged into #79 at29f3b83: generated skeleton/Open/Close dependencies remain tracked and small authored bind rotations are preserved.814 Windows tests/Linux CI/independent cache/matrix QA pass. Reviewed #83 is merged into #78 at75598ed: verified BA2 packing, recovery, --needs/order/plugin-only support, and install/order/uninstall guards for interrupted main recovery.883 Windows tests/Linux CI/independent QA pass. Tested child trees match integrations.
+Reviewed #80/#81 -> #79 at29f3b83: tracked rig/clips and small bind rotations;814 tests/CI/QA pass. #83/#89 -> #78 at02cfa8e: verified BA2/recovery/order/exit protocol;887 tests/CI/QA pass. Parent runtime acceptance remains open.
 
-#89 budget-resume fix is merged into #78 at02cfa8e: paused work returns4, completed/dry-run returns0;887 Windows tests/Linux CI/independent QA pass. Old batch_full hit12h and exited0 with1109 left; its chain ended. Non-movable work estimates15-18 active hours plus waits. Offline133-test plan retains16 cells/49 failures/old2470f876 pin (~3-4h), independently checked, not run. Adopt runner before resume; preserve full batch; re-plan movable tests.
+#89: unfinished work returns4, complete/dry-run0. Preserve old batch_full:1109 pending after12h/old exit0; non-movable estimate15-18 active hours. Offline133-test plan retains16 cells/49 failures/2470f876 (~3-4h), not run. Adopt reviewed runner; re-plan movable tests.
 
 Parents #66/#78/#79 remain open, not runtime accepted. Moving collision/cave/save need live tests. #84 replace/unlink races remain; one controller required.
 
-Codex #91 prepares pinned smoke/baseline/informational exterior queues and regional coverage candidates. Final unjudged beyond jumps are suppressed; SHA checks guard input/queue drift. [Campaign/run gates](testing/commonwealth-campaign.md). No live scheduling/install/input; walking/connected interiors/distant arrivals remain separate gates.
+Codex #91 prepares pinned exterior queues/regional candidates. Live October13: smoke7/7, baseline29/30 matching heights; six repeated roofs match, northeast+1.8939m remains flagged. Sources/installed identities verified; original stage/batch/save preserved. Final unscored jump was NOT suppressed: qstep omits the merge offset. All four entries' post-probes are excluded; boundary dialogue cannot measure map limits. Further launches held for Claude's reviewed fix/fresh pins. Codex owns the scoped controller until23:35:17Z; game closed. #93 adds read-only [evidence audit](testing/commonwealth-evidence.md); walking/connections remain open. [Public handoff](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6136825108).
 
 ## Coordination
 
