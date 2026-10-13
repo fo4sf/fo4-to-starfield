@@ -84,6 +84,19 @@ class TerrainEvidenceTests(unittest.TestCase):
         nudged = ["10 -4 105.14", "10.0000001 -4 105.14"]
         self.assertEqual(oracle.judge(bundle(frames=nudged))[0], "PASS")
 
+    def test_reused_capture_identifier_is_unread(self):
+        # When identifiers are present, a duplicate id is reuse, not an independent sample.
+        frames = [
+            {"pos": "10 -4 105.14", "id": "cap-1"},
+            {"pos": "10.01 -4 105.14", "id": "cap-1"},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=frames))[0], "UNREAD")
+        distinct = [
+            {"pos": "10 -4 105.14", "id": "cap-1"},
+            {"pos": "10.01 -4 105.14", "id": "cap-2"},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=distinct))[0], "PASS")
+
     def test_recorded_bytes_must_hash_to_the_pin(self):
         import hashlib
         raw = b"plan-v1"

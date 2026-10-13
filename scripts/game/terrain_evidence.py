@@ -43,6 +43,18 @@ def _parse_frame(value):
     return parts
 
 
+def _parse_capture(value):
+    """Return ((x, y, z), ident) or None. Accepts str/list or dict with pos + optional id."""
+    ident = None
+    if isinstance(value, dict):
+        ident = value.get("id") or value.get("capture")
+        value = value.get("pos") or value.get("xyz") or value.get("position")
+    parts = _parse_frame(value)
+    if parts is None:
+        return None
+    return parts, ident
+
+
 def _hash_ok(value):
     return isinstance(value, str) and _HEX64.fullmatch(value.strip()) is not None
 
@@ -127,12 +139,19 @@ def judge(evidence, reach_m=2.0, settle_m=0.05, tol_m=0.5):
     frames = evidence.get("frames")
     if not isinstance(frames, list) or len(frames) < 2:
         return "UNREAD", "fewer than two settled frames"
-    reads = [_parse_frame(frame) for frame in frames]
-    if any(read is None for read in reads):
+    parsed = [_parse_capture(frame) for frame in frames]
+    if any(item is None for item in parsed):
         return "UNREAD", "a frame did not parse"
+    reads = [item[0] for item in parsed]
+    idents = [item[1] for item in parsed]
     # Identical positions are allowed: independent stationary captures can match exactly.
-    # Distinctness of coordinates is not proof of independent samples. Reuse detection
-    # belongs to capture identifiers or timestamps when the collector records them.
+    # When the collector records capture identifiers, a reused id is UNREAD.
+    seen = set()
+    for ident in idents:
+        if ident is not None:
+            if ident in seen:
+                return "UNREAD", "capture identifier reused"
+            seen.add(ident)
     tx, ty, expect = target
     ox, oy, oz = shift
     for read in reads:
