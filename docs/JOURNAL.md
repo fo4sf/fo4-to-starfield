@@ -798,3 +798,13 @@ twin step is untested in game until the next library run.
   - Fixed (e49904c, in integration-1012 at 8e74394): the walk's closest approach decides. Re-judged, 4 become **FAIL NOTMOVED** (a burnt book and a bobby-pin box did not move when walked over; real findings) and 2 stay MISSED.
   - The movable tests need a re-plan on the new runner after batch_full.
 - **07:00:** someone used the PC. The runner's game was gone, and the runner is waiting for 15 min without input before it relaunches; no relaunch while the owner is active.
+
+## 2026-10-13: back after the limit; consolidated runner; first live cave-door trips
+- **While Claude was out:**
+  - Codex ran the Commonwealth core64c campaign on runner e27f6de: 7/7 smoke, 29/30 nearby, 15/15 informational heights. The north-east probe is +1.89 m (candidate: a RockCliff05 collision).
+  - Codex reviewed and patched #78 (#83, #89), #79 (#80, #81) and #66 (#86), and merged status and evidence tooling to main (#94, #97). The watchdog's Codex hand-overs failed: a missing tool host.
+- **`claude/integration-1013` (129b9ae):** integration-1012 plus those reviewed branches, PR #100 and main. Unit suite, guard and 36/36 sandbox pass. Claude holds the game controller (#32).
+- **Cave door on exp2d (`slice_door_1013`, 2 attempts):**
+  - **a1, INCONCLUSIVE:** a garbled OCR read ("99.74 -2195.27 99.41", the X line lost) looked like a 2.4 km jump, so the step declared a load after 0.5 s while the player was still 3 m short of the door. Also, `player.GetInCell FO4Port_RedRocket01` replies "not found for parameter Cell", although coc to that EditorID works.
+  - **a2, FAIL NOLOAD:** the player stood 1.0 m from the door's merged position, inside the 3 m range, and nothing loaded. `getpos` of the door reads its **unmerged local position** (-994.95, 1109.49), like our persistent anchors.
+  - **Supported hypothesis:** references in our overlay's persistent cell are not shifted by the merge offset, so the trigger sits about 1.2 / 2.7 km from the cave mouth. This blocks persistent doors in overlays until we know how vanilla stores them. The core64c door branch is investigating; runner fixes for strict reads and GetInCell are on the same branch.
