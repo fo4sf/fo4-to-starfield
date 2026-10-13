@@ -1,8 +1,9 @@
 """Per-model checkpoints with content-verified generated dependencies.
 
-Archive identity uses resolved path, size and nanosecond modification time.
-Archives must be immutable during a run; replace/touch edited archives before
-resuming. Small tools/templates and converter sources use content hashes.
+Archive identity includes a streaming SHA-256 digest, so same-size edits with
+preserved timestamps invalidate resume data. Archives must remain immutable
+throughout the conversion run. Small tools/templates and converter
+sources also use content hashes.
 """
 import hashlib
 import json
@@ -22,10 +23,41 @@ def digest(path):
     return h.hexdigest()
 
 
+def _stat_identity(stat):
+    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+
+
+def _path_identity(stat):
+    # On Windows, an explicit utime restore can make path and open-handle
+    # ctime reports differ even though the opened file is stable.
+    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+
+
+def _hash_open_file(stream):
+    h = hashlib.sha256()
+    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+        h.update(chunk)
+    return h.hexdigest()
+
+
 def archive_identity(path):
     path = Path(path).resolve()
-    stat = path.stat()
-    return [str(path), stat.st_size, stat.st_mtime_ns]
+    with path.open("rb") as stream:
+        before = os.fstat(stream.fileno())
+        content_hash = _hash_open_file(stream)
+        after = os.fstat(stream.fileno())
+    current_path = path.stat()
+    if (_stat_identity(before) != _stat_identity(after)
+            or _path_identity(after) != _path_identity(current_path)):
+        raise OSError(f"archive changed while fingerprinting: {path}")
+    return [str(path), after.st_size, content_hash]
+
+
+def reusable_result(result):
+    """Retry degraded/failing conversions rather than freezing a placeholder."""
+    return (result.get("ok") is True
+            and not result.get("fallback_materials")
+            and not result.get("door_error"))
 
 
 def local_path(staging, relative):
@@ -34,6 +66,28 @@ def local_path(staging, relative):
     if not path.is_relative_to(root):
         raise ValueError("checkpoint output escapes staging")
     return path
+
+
+def staged_path(staging, relative):
+    """Resolve generated game paths case-insensitively on case-sensitive hosts."""
+    root = Path(staging).resolve()
+    requested = local_path(root, relative)
+    current = root
+    for part in requested.relative_to(root).parts:
+        direct = current / part
+        if direct.exists():
+            current = direct
+        elif current.is_dir():
+            matches = [child for child in current.iterdir() if child.name.casefold() == part.casefold()]
+            if len(matches) > 1:
+                raise ValueError("ambiguous case-insensitive checkpoint output path")
+            current = matches[0] if matches else direct
+        else:
+            current = direct
+        # A differently cased directory may be a symlink. Check its resolved
+        # target before traversing the next component or returning a file.
+        current = local_path(root, current.relative_to(root).as_posix())
+    return current
 
 
 def output_inventory(staging, result, prefix="fo4port"):
@@ -45,7 +99,7 @@ def output_inventory(staging, result, prefix="fo4port"):
     if not isinstance(door_files, list) or not all(isinstance(p, str) and p.startswith("meshes/") for p in door_files):
         raise ValueError("door files must be staging paths below meshes/")
     paths.update(door_files)
-    model = nif.parse(local_path(staging, model_path).read_bytes())
+    model = nif.parse(staged_path(staging, model_path).read_bytes())
     for i, block in enumerate(model.blocks):
         if model.type_of(i) == "BSGeometry":
             for mesh in sfnif.parse_bsgeometry(block).meshes:
@@ -73,9 +127,15 @@ def output_inventory(staging, result, prefix="fo4port"):
                 paths.add(name)
 
     for name in materials:
-        with local_path(staging, name).open(encoding="utf-8-sig") as f:
+        with staged_path(staging, name).open(encoding="utf-8-sig") as f:
             textures(json.load(f))
-    return {name: digest(local_path(staging, name)) for name in sorted(paths)}
+    inventory = {}
+    root = Path(staging).resolve()
+    for name in sorted(paths):
+        path = staged_path(root, name)
+        canonical_name = path.relative_to(root).as_posix()
+        inventory[canonical_name] = digest(path)
+    return inventory
 
 
 class Checkpoints:
@@ -103,9 +163,9 @@ class Checkpoints:
             if any(type(result.get(field)) is not int or result[field] < 0
                    for field in ("shapes", "fallback_materials")):
                 return None
-            if output_inventory(self.staging, result) != cached["outputs"]:
+            if not reusable_result(result):
                 return None
-            if result.get("ok") is not True:
+            if output_inventory(self.staging, result) != cached["outputs"]:
                 return None
             self.expected[source] = cached["outputs"]
             return cached["result"]
@@ -113,7 +173,7 @@ class Checkpoints:
             return None
 
     def save(self, source, result):
-        if result.get("ok") is not True or result.get("fallback_materials") or result.get("door_error"):
+        if not reusable_result(result):
             self.path(source).unlink(missing_ok=True)
             return False  # Retry degraded/failing conversions rather than freezing a placeholder.
         try:
