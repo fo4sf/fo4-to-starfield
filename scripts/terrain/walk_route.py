@@ -1084,7 +1084,7 @@ def cmd_plan(a):
     gpath = os.path.join(a.out, "walk_ground.json")
     save_json(gpath, ground, indent=None)
     gsha = sha256(gpath)
-    route = {"version": VERSION, "made": time.strftime("%Y-%m-%dT%H:%M:%S"), "core": core,
+    route = {"version": VERSION, "core": core,
              "core_plugin": prm["plugin"], "core_plugin_sha256": sha256(os.path.join(core, prm["plugin"])),
              "fo4_esm": os.path.basename(a.fo4), "fo4_esm_size": os.path.getsize(a.fo4),
              "frame": ground["frame"], "corners": [[round(v, 4) for v in p] for p in corners],
