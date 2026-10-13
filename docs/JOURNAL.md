@@ -808,3 +808,7 @@ twin step is untested in game until the next library run.
   - **a1, INCONCLUSIVE:** a garbled OCR read ("99.74 -2195.27 99.41", the X line lost) looked like a 2.4 km jump, so the step declared a load after 0.5 s while the player was still 3 m short of the door. Also, `player.GetInCell FO4Port_RedRocket01` replies "not found for parameter Cell", although coc to that EditorID works.
   - **a2, FAIL NOLOAD:** the player stood 1.0 m from the door's merged position, inside the 3 m range, and nothing loaded. `getpos` of the door reads its **unmerged local position** (-994.95, 1109.49), like our persistent anchors.
   - **Supported hypothesis:** references in our overlay's persistent cell are not shifted by the merge offset, so the trigger sits about 1.2 / 2.7 km from the cave mouth. This blocks persistent doors in overlays until we know how vanilla stores them. The core64c door branch is investigating; runner fixes for strict reads and GetInCell are on the same branch.
+- **Daylight on demand (verified, `noon_1013`, PR #73):** at the night site (exp2b2, registration 0.3/-1.2 rad, dark in 18 of 18 earlier arrivals), `SetLocalTime 12` turned the sky from 6.4 to 180.4 (top-row brightness).
+  - All 18 probe shots read daylight (corner median 165.3), so the light holds through the run.
+  - The terrain verdict is INCONCLUSIVE only because one read lost a digit group (y read as -1.66 instead of -1553.49). That is the same OCR fault as the door trip; the strict labelled reads on the door branch fix it.
+  - Visual checks (ground textures, #70) can now run at noon.
