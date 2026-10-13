@@ -16,7 +16,8 @@ import sys
 from PIL import Image
 
 
-NAME = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]*\Z")
+NAME = re.compile(r"[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_-])?\Z")
+COMMIT = re.compile(r"[0-9a-f]{40}\Z")
 XY_TOLERANCE_M = 2.0
 HEIGHT_TOLERANCE_M = 0.5
 
@@ -33,13 +34,17 @@ def file_bytes(root, name):
     after = path.stat()
     if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
         raise ValueError("evidence changed while reading")
-    return data, {"file": name, "sha256": hashlib.sha256(data).hexdigest(),
+    return data, {"file": name, "physical_identity": [after.st_dev, after.st_ino],
+                  "sha256": hashlib.sha256(data).hexdigest(),
                   "bytes": len(data), "mtime_ns": after.st_mtime_ns}
 
 
 def snapshot(root, name):
     raw, identity = file_bytes(root, name)
-    return json.loads(raw.decode("utf-8-sig")), identity
+    value = json.loads(raw.decode("utf-8-sig"))
+    if not isinstance(value, dict):
+        raise ValueError('expected an evidence object')
+    return value, identity
 
 
 def xyz(read):
@@ -103,11 +108,12 @@ def inspect_test(test, obs, folder):
         row["observed"] = read
         try:
             image = capture(folder, actual.get("shot"))
-            if image["file"] in captures:
+            capture_id = tuple(image['physical_identity'])
+            if capture_id in captures:
                 raise ValueError("one capture path reused for different probe invocations")
-            captures.add(image["file"])
+            captures.add(capture_id)
             row["capture"] = image
-        except (OSError, ValueError, TypeError, Image.DecompressionBombError) as error:
+        except (OSError, ValueError, TypeError, SyntaxError, Image.DecompressionBombError) as error:
             row["capture_error"] = str(error)
         if read is None or "capture_error" in row:
             row.update(status="INCONCLUSIVE", classification="CAPTURE" if "capture_error" in row else "UNREAD")
@@ -133,7 +139,7 @@ def inspect_test(test, obs, folder):
     post = {"acceptance_gate": False, "observed": xyz(obs.get("beyond_read"))}
     target = test.get("beyond")
     if target:
-        if not vector([target.get('x'), target.get('y'), 0]):
+        if not isinstance(target, dict) or not vector([target.get('x'), target.get('y'), 0]):
             raise ValueError('invalid planned post-probe position')
         post["expected_merged_xy"] = [target["x"] + offset[0], target["y"] + offset[1]]
         if post["observed"] is None:
@@ -144,9 +150,9 @@ def inspect_test(test, obs, folder):
                         classification="POST_FRAME")
         try:
             post["capture"] = capture(folder, obs.get("beyond_shot"))
-            if post['capture']['file'] in captures:
+            if tuple(post['capture']['physical_identity']) in captures:
                 raise ValueError("post-probe capture reuses a point capture")
-        except (OSError, ValueError, TypeError, Image.DecompressionBombError) as error:
+        except (OSError, ValueError, TypeError, SyntaxError, Image.DecompressionBombError) as error:
             post.update(status="INCONCLUSIVE", classification="POST_CAPTURE", capture_error=str(error))
         if post["status"] != "MATCH":
             issues.append({"status": post["status"], "class": post["classification"]})
@@ -166,7 +172,9 @@ def inspect_phase(root, phase):
     if folder.is_symlink() or not folder.resolve().is_relative_to(root):
         raise ValueError("linked phase outside the campaign")
     queue, queue_identity = snapshot(folder, "queue.json")
-    if queue_identity["sha256"] != details["queue_sha256"] or queue["commit"] != manifest["runner_commit"]:
+    if not isinstance(queue.get('commit'), str) or not COMMIT.fullmatch(queue['commit']) \
+            or not isinstance(manifest.get('runner_commit'), str) or not COMMIT.fullmatch(manifest['runner_commit']) \
+            or queue_identity["sha256"] != details["queue_sha256"] or queue["commit"] != manifest["runner_commit"]:
         raise ValueError("phase queue differs from campaign pins")
     tests = queue.get('tests')
     if not isinstance(tests, list) or not tests or any(not isinstance(t, dict)
@@ -178,14 +186,22 @@ def inspect_phase(root, phase):
     state, state_identity = snapshot(folder, "state.json")
     raw, result_identity = file_bytes(folder, "results.jsonl")
     records = [json.loads(line) for line in raw.decode("utf-8-sig").splitlines() if line.strip()]
+    if not isinstance(state.get('done', {}), dict) or not isinstance(state.get('attempts', {}), dict) \
+            or any(not isinstance(r, dict) or type(r.get('attempt')) is not int or r['attempt'] < 1
+                   for r in records):
+        raise ValueError('invalid terminal attempt evidence')
     entries, issues = [], []
     for test in queue["tests"]:
         tid = test['id']
         done = state.get('done', {}).get(tid, {})
+        if not isinstance(done, dict):
+            raise ValueError('invalid terminal done entry')
         attempt = done.get('attempts')
         result = [r for r in records if r.get('id') == tid and r.get('attempt') == attempt]
         if not NAME.fullmatch(tid) or type(attempt) is not int or attempt < 1 or len(result) != 1 \
-                or state.get('attempts', {}).get(tid) != attempt or state.get('status') != 'finished':
+                or type(state.get('attempts', {}).get(tid)) is not int \
+                or state['attempts'][tid] != attempt or state.get('status') != 'finished' \
+                or any(r['attempt'] > attempt for r in records if r.get('id') == tid):
             entries.append({'id': tid, 'issues': [{'status': 'INCONCLUSIVE', 'class': 'ATTEMPT'}], 'points': []})
             continue
         record = result[0]

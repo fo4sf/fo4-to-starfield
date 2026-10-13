@@ -1,8 +1,11 @@
 """Synthetic captures and observations only; never launches a game."""
 import copy
+from contextlib import redirect_stdout
 import hashlib
 import importlib.util
+import io
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -36,7 +39,7 @@ class EvidenceTests(unittest.TestCase):
                     'beyond_read': '110 -200 17', 'beyond_shot': 'beyond.png'}
         for shot in ('pt0.png', 'pt1.png', 'pt2.png', 'beyond.png'):
             Image.new('RGB', (3, 3), (20, 30, 40)).save(self.folder / shot)
-        self.queue = {'commit': 'fixture_commit', 'tests': [self.plan]}
+        self.queue = {'commit': 'a' * 40, 'tests': [self.plan]}
         self.state = {'status': 'finished', 'done': {'fixture': {'verdict': 'PASS', 'class': 'PASS', 'attempts': 1}},
                       'attempts': {'fixture': 1}}
         self.result = {'id': 'fixture', 'attempt': 1, 'verdict': 'PASS', 'class': 'PASS'}
@@ -48,7 +51,7 @@ class EvidenceTests(unittest.TestCase):
     def save_fixture(self):
         self.write(self.phase / 'queue.json', self.queue)
         sha = hashlib.sha256((self.phase / 'queue.json').read_bytes()).hexdigest()
-        self.write(self.root / 'campaign.json', {'runner_commit': 'fixture_commit', 'phases': {
+        self.write(self.root / 'campaign.json', {'runner_commit': 'a' * 40, 'phases': {
             '01-smoke': {'queue_sha256': sha, 'acceptance_gate': True, 'points': 3}}})
         self.write(self.phase / 'state.json', self.state)
         self.write(self.phase / 'results.jsonl', self.result)
@@ -175,6 +178,84 @@ class EvidenceTests(unittest.TestCase):
         self.save_fixture()
         with self.assertRaisesRegex(ValueError, 'inventory'):
             self.inspect()
+
+    def test_hardlinked_capture_alias_is_not_an_independent_invocation(self):
+        path = self.folder / 'pt1.png'
+        path.unlink()
+        os.link(self.folder / 'pt0.png', path)
+        self.assertEqual(self.inspect()['status'], 'INCONCLUSIVE')
+
+    @unittest.skipUnless(os.name == 'nt', 'Windows filename aliases')
+    def test_windows_case_and_trailing_dot_aliases_cannot_pass(self):
+        for name in ('PT0.png', 'pt0.png.'):
+            with self.subTest(name=name):
+                self.obs['points'][1]['shot'] = name
+                self.save_fixture()
+                self.assertEqual(self.inspect()['status'], 'INCONCLUSIVE')
+        self.obs['points'][1]['shot'] = 'pt1.png'
+        self.obs['beyond_shot'] = 'PT0.png'
+        self.save_fixture()
+        self.assertEqual(self.inspect()['status'], 'INCONCLUSIVE')
+
+    def test_newer_terminal_failure_cannot_be_ignored(self):
+        with (self.phase / 'results.jsonl').open('a') as stream:
+            stream.write('\n' + json.dumps(dict(self.result, attempt=2, verdict='FAIL', **{'class': 'HEIGHTS'})))
+        self.assertEqual(self.inspect()['status'], 'INCONCLUSIVE')
+
+    def test_boolean_attempt_fields_are_rejected(self):
+        self.result['attempt'] = True
+        self.save_fixture()
+        with self.assertRaisesRegex(ValueError, 'attempt'):
+            self.inspect()
+        self.result['attempt'] = 1
+        self.state['attempts']['fixture'] = True
+        self.save_fixture()
+        self.assertEqual(self.inspect()['status'], 'INCONCLUSIVE')
+
+    def test_missing_commit_is_refused_even_when_queue_digest_matches(self):
+        for commit in (None, '', 'not-a-commit'):
+            with self.subTest(commit=commit):
+                self.queue['commit'] = commit
+                self.save_fixture()
+                manifest = json.loads((self.root / 'campaign.json').read_text())
+                manifest['runner_commit'] = commit
+                self.write(self.root / 'campaign.json', manifest)
+                with self.assertRaisesRegex(ValueError, 'campaign pins'):
+                    self.inspect()
+
+    def test_invalid_png_checksum_is_inconclusive(self):
+        path = self.folder / 'pt1.png'
+        data = bytearray(path.read_bytes())
+        data[60] ^= 1
+        path.write_bytes(data)
+        self.assertEqual(self.inspect()['status'], 'INCONCLUSIVE')
+
+    def test_malformed_object_shapes_cannot_crash_into_a_pass(self):
+        self.write(self.folder / 'obs.json', [])
+        self.assertEqual(self.inspect()['status'], 'INCONCLUSIVE')
+        self.save_fixture()
+        self.write(self.phase / 'results.jsonl', [])
+        with self.assertRaisesRegex(ValueError, 'attempt'):
+            self.inspect()
+        self.state['done']['fixture'] = []
+        self.save_fixture()
+        with self.assertRaisesRegex(ValueError, 'done entry'):
+            self.inspect()
+
+    def test_cli_returns_inconclusive_json_for_unusable_evidence(self):
+        path = self.folder / 'pt1.png'
+        data = bytearray(path.read_bytes())
+        data[60] ^= 1
+        path.write_bytes(data)
+        for malformed_obs in (False, True):
+            with self.subTest(malformed_obs=malformed_obs):
+                if malformed_obs:
+                    self.write(self.folder / 'obs.json', [])
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    code = evidence.main(['--campaign', str(self.root), '--phase', '01-smoke'])
+                self.assertEqual(code, 2)
+                self.assertEqual(json.loads(output.getvalue())['status'], 'INCONCLUSIVE')
 
 
 if __name__ == '__main__':
