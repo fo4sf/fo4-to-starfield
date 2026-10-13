@@ -97,6 +97,25 @@ class TerrainEvidenceTests(unittest.TestCase):
         ]
         self.assertEqual(oracle.judge(bundle(frames=distinct))[0], "PASS")
 
+    def test_reused_capture_timestamp_is_unread(self):
+        # Timestamps, when recorded, must also be unique for independent samples.
+        frames = [
+            {"pos": "10 -4 105.14", "time": 1.0},
+            {"pos": "10.01 -4 105.14", "time": 1.0},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=frames))[0], "UNREAD")
+        distinct = [
+            {"pos": "10 -4 105.14", "timestamp": 1.0},
+            {"pos": "10.01 -4 105.14", "timestamp": 2.0},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=distinct))[0], "PASS")
+        # Mixed with id still works.
+        mixed = [
+            {"pos": "10 -4 105.14", "id": "a", "t": 10},
+            {"pos": "10.01 -4 105.14", "id": "b", "t": 11},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=mixed))[0], "PASS")
+
     def test_recorded_bytes_must_hash_to_the_pin(self):
         import hashlib
         raw = b"plan-v1"

@@ -44,15 +44,17 @@ def _parse_frame(value):
 
 
 def _parse_capture(value):
-    """Return ((x, y, z), ident) or None. Accepts str/list or dict with pos + optional id."""
+    """Return ((x, y, z), ident, timestamp) or None. Accepts str/list or dict with pos + optional id/time."""
     ident = None
+    timestamp = None
     if isinstance(value, dict):
         ident = value.get("id") or value.get("capture")
+        timestamp = value.get("time") or value.get("timestamp") or value.get("t")
         value = value.get("pos") or value.get("xyz") or value.get("position")
     parts = _parse_frame(value)
     if parts is None:
         return None
-    return parts, ident
+    return parts, ident, timestamp
 
 
 def _hash_ok(value):
@@ -144,14 +146,21 @@ def judge(evidence, reach_m=2.0, settle_m=0.05, tol_m=0.5):
         return "UNREAD", "a frame did not parse"
     reads = [item[0] for item in parsed]
     idents = [item[1] for item in parsed]
+    times = [item[2] for item in parsed]
     # Identical positions are allowed: independent stationary captures can match exactly.
-    # When the collector records capture identifiers, a reused id is UNREAD.
-    seen = set()
+    # When the collector records capture identifiers or timestamps, a reused one is UNREAD.
+    seen_ids = set()
     for ident in idents:
         if ident is not None:
-            if ident in seen:
+            if ident in seen_ids:
                 return "UNREAD", "capture identifier reused"
-            seen.add(ident)
+            seen_ids.add(ident)
+    seen_times = set()
+    for ts in times:
+        if ts is not None:
+            if ts in seen_times:
+                return "UNREAD", "capture timestamp reused"
+            seen_times.add(ts)
     tx, ty, expect = target
     ox, oy, oz = shift
     for read in reads:
