@@ -406,8 +406,8 @@ switch ($kind) {
       $k++
     }
     $obs['points'] = $pts
-    # beyond the BTD's edge: void, flat default, water or the host planet? recorded, not judged
-    Teleport @($t.beyond.x, $t.beyond.y, $t.drop_z) 90 5
+    # Unscored plan diagnostic: use the same merged frame/drop height as the judged points.
+    Teleport @(([double]$t.beyond.x + $ox), ([double]$t.beyond.y + $oy), $dropz) 90 5
     Start-Sleep -Milliseconds 4500
     $obs['beyond_read'] = Read-Pos
     $obs['beyond_shot'] = Shot 'beyond.png'
