@@ -175,6 +175,9 @@ Also not translated, counted in `expected.json`: 6,732 references have an FO4 en
   bodies) within 0.045 mm, all on layer 1, except the informational Sanctuary road probe `nw_200m`, 10.0 mm above
   FO4's compound collision (convex radius is the likely cause, **unresolved**). Every judged terrain point and
   waypoint: the three interpolation rules within one quantisation step, no object within 1 m.
+  **Correction (2026-10-13):** this local world composed every reference rotation X first (`exterior.ref_matrix`);
+  the game and FO4 compose it Z first, so for references with an x or y rotation (332,641 of 648,358) the world was
+  wrong, and `ne_500m` was not clear of objects ([The northeast probe](#the-northeast-probe-2026-10-13), below).
 - **Travel** (every teleport the runner will make, hops included): at most 2 cells along each axis in any frame
   (longest single-axis moves 191.1 / 101.0 / 176.8 m in entries 1 / 2 / 3), 0 runner hops, and 551 / 386 / 461 s
   between the estimated last point and the step timeout (at least 120 s required).
@@ -263,9 +266,87 @@ like in game is **unresolved**):
 - 6,732 references have an FO4 enable parent and all show, so FO4's state-swap pairs (intact / destroyed versions of
   one thing) can overlap.
 - 759 rigged doors are shifted by their hinge offset (up to 7.1 m, `GenAtomicsGiantHandyDoor01`); never checked in game.
+  The shift rotates the offset X first (below): 156 of them, with an x or y rotation, are off by more than 1 cm (up to
+  9.17 m: tipped-over `RRBoxcarDoor01` boxcar doors, `BrStallDoor02`) (**supported**, offline numbers).
 - Owner `refr_in_plugin` in `expected.json` is a reference's FormID inside `FO4TerrainCore.esm` (6 hex digits). The
   runtime ID adds the plugin's load-order index, which depends on the plugins ahead of it (the vanilla masters,
   BlueprintShips, the SFBGS plugins, FO4Port.esm, ...); nothing in the plan needs it.
+
+## The northeast probe (2026-10-13)
+Author: Claude, branch `claude/northeast-probe-trace`. Tool: `scripts/terrain/collision_surface.py` (read only).
+Data (not installed, not queued): `C:\Modding\staging\northeast_probe_1013` (README.txt there).
+
+**Question.** In Codex's campaign (runner af27ce9, 2026-10-12/13) the nearby baseline matched 29 of 30 readings; the
+judged terrain probe `ne_500m` (local -638.1714, 1499.4286; plan: terrain 113.3714, "no object within 1 m") read
+115.28, **+1.8939 m** relative to the ground reference. Codex narrowed it to RockCliff05 `18BCCC` (its compressed
+body's enclosing box contains the point) without a surface. Object collision (the plan picked a point that is not
+clear) or a terrain / conversion error?
+
+**Answer.** The +1.8939 m is the top of RockCliff05's converted collision as the game places it: compressed-mesh
+body 0 (layer 13, triangle 925, slope 13 degrees) at **115.269 m**, 1.893 m above the terrain; the reading is
+115.2653 (prediction - reading: ray +0.004 m, dropped 0.3 m sphere +0.011 m). The point was **not collision-clear**
+in game. It is a **plan bug**, not a terrain or conversion error: the plan's offline world (`exterior.ref_matrix`)
+composed the reference's rotation (x 0.0312, y -0.2123, z 3.1979 rad: a 12 degree tilt) **X first**,
+`R = Rz(-z) Ry(-y) Rx(-x)`, which tilts the 24 m rock the other way and leaves nothing above the terrain within
+2.5 m of the point; the game composes it **Z first**, `R = Rx(-x) Ry(-y) Rz(-z)` (**supported hypothesis**, strong).
+The terrain is right there: the terrain-only core64 run read 113.38 at this point (**verified**). The converted
+collision itself is not in question: placed Z first it predicts the reading within 4 mm.
+
+**Evidence.**
+- **FO4's own transforms (verified).** FO4's precombined render meshes (`meshes\PreCombined\<cell>_*_OC.nif`,
+  `BSPackedCombinedSharedGeomDataExtra`: per combined reference a grayscale scale, rotation matrix, translation, scale
+  and bound) were built by FO4's tools from the references' angles. `collision_surface.py rotations` compares them
+  with the same references' angles: over every core64c reference tilted more than 3 degrees that is the only instance
+  at its position and scale in its cell's precombines (146,728 references in 4,497 cells), the stored matrix equals
+  Z first for **146,463** (99.82 %, within 1e-4); X first for 4,133 (3,696 of them rotate about one axis, where every
+  order agrees); every other order at most 16,038. The rest: 180 static-collection references (their parts are
+  combined, not the collection) and 85 of 7 models (`CurbStr01`, `RWResBrickPileSm01/02`, gun traps,
+  `DeskBlotterA`; **unresolved**).
+- **Every core64c landing read in game (supported).** `collision_surface.py trace` over the runner's own
+  `spec.json` / `obs.json` of all 52 readings (smoke 7, baseline 30, informational 15), each order of the three axis
+  rotations, a ray and a dropped sphere:
+
+| Prediction | Within 0.05 m | Within the runner's 0.5 m | Worst |
+|---|---|---|---|
+| Z first, sphere 0.3 m | **52 of 52** | 52 | 0.026 m |
+| Z first, ray | 51 | 52 | 0.212 m (`w_500m`, a 77 degree cliff face: the capsule's round bottom matters) |
+| X first, ray (the plan) | 50 | 51 | **1.889 m (`ne_500m`)** |
+| X first, sphere 0.3 m | 49 | 50 | 6.42 m (`e_500m`: maple `09C21A`, tilted 10 degrees, would catch the capsule 6.4 m up; the game read the terrain) |
+
+  The 29 matching baseline readings are the control: 23 terrain points on the terrain and 6 roof drops on their
+  planned roofs, under both orders. The orders differ only for tilted references, which is why every heading-only
+  check so far (exp2c's shop footprint, doors at 0 / 90 / 180 degrees, the roofs) passed with X first. The second
+  Z-first order (`zxy`) fits the readings as well; the precombines tell them apart (14,447 exact).
+- Placed Z first, RockCliff05 hits the vertical at `ne_500m` at 115.269; placed X first, its surfaces there lie 0.9 to
+  2.9 m under the terrain. Exhaustive selection: every reference whose collision bounding sphere can reach the point
+  (7 here), no unreadable model.
+
+**What this changes.** `exterior.ref_matrix` (make_exp2c, make_exp2d, make_core64c, `scripts/actors/navmesh_points.py`),
+`routes.ref_matrix` and `PluginSpike.RotateOffset` compose X first; for references with an x or y rotation (332,641 of
+core64c's 648,358; 174,059 over 10 degrees) their offline collision worlds, plan points and route geometry are wrong,
+and so are rigged-door hinge shifts written into plugins (156 of core64c's 759 by more than 1 cm, above). None of them
+is changed here (a follow-up with its own tests and rebuilds); this tool takes the order as a parameter. QASmoke's
+ceiling panels (research log, 2026-10-12: "lie flat only when rotated Z first") are the same finding in vanilla
+Starfield data.
+
+**Proposal for Codex's evidence checker** (`ne_500m_proposal.json`, data only): keep `ne_500m` FAIL HEIGHTS under the
+pinned plan; for a new reviewed campaign either judge `ne_500m` as an object point (`object_top` 115.269, RockCliff05,
+`refr_in_plugin` 062D29; informational: the 0.6 m disc spreads 0.28 m over the sloped rock) or replace it with the
+ground point **`ne_500m_clear` (-630.6714, 1510.9286), terrain 114.1674** (three interpolation rules within 0.4 mm;
+FO4 LAND 114.1763, one quantisation step), 13.7 m north-east of `ne_500m`: no object surface within 2 m and nothing
+reaching into a 1 m x 3 m column under either order, teleports from `wp_05` and towards `wp_06` overlap nothing
+(`collision_surface.py clear`; 46 nearer clear points were dropped for overlapping teleports). Offline only: no
+reading of it exists.
+
+    python scripts/terrain/collision_surface.py rotations --staging C:\Modding\staging\terrain_core64c --fo4-data <FO4 Data> --out rotations.json
+    python scripts/terrain/collision_surface.py trace --staging C:\Modding\staging\terrain_core64c --conventions xyz,zyx ^
+        --runner-test <queue>\tests\<test>\a1 [...] --sphere 0.3,0.4 --bounds-cache model_bounds.json --out trace.json
+    python scripts/terrain/collision_surface.py clear --staging C:\Modding\staging\terrain_core64c --near=-638.1714,1499.4286,ne_500m ^
+        --prev=-813.2571,1501.4286,123.1747 --next=-682.9333,1390.4 --fo4 <Fallout4.esm> --out clear.json
+    python -m unittest tests.test_collision_surface
+
+The first `trace` computes every model's collision radius (11,769 models, about 100 s) into `--bounds-cache`; later
+runs take seconds. `rotations` reads every cell's precombines (47 s).
 
 ## Unknowns
 1. Everything in game: whether 1,708 cells with up to 6,049 references each load and stream; frame time, memory and
@@ -277,7 +358,9 @@ like in game is **unresolved**):
 5. Everything skipped above (actors, lights, decals, power lines, markers, effects, water), DLC placements and FO4
    enable parents.
 6. The capsule (0.6 m landing disc, 1 m clear radius, 0.4 m x 1.8 m teleport cylinder: assumptions as in exp2c);
-   intermediate teleport positions overlap objects 0 / 0 / 2 times in entries 1 / 2 / 3 (`expected.json`).
+   intermediate teleport positions overlap objects 0 / 0 / 2 times in entries 1 / 2 / 3 (`expected.json`). A dropped
+   sphere of 0.3 to 0.4 m explains all 52 readings within 0.031 m (0.5 m: 0.058 m); the disc's highest sample does
+   not (`e_500m`, `w_500m`): **supported**, not a measurement of the capsule (northeast probe, above).
 7. Why 3-cell teleports sometimes fail (teleport rule above).
 
 ## Reproduce

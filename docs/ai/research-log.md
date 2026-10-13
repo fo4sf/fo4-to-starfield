@@ -3,6 +3,56 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-13 Claude: the core64c northeast probe (+1.8939 m) and the order of Bethesda reference rotations
+- Question: why did core64c's nearby-baseline probe `ne_500m` (local -638.1714, 1499.4286; plan: terrain 113.3714,
+  "clear of objects within 1 m") read 115.28 (+1.8939 m relative) in Codex's campaign (runner af27ce9), while the
+  other 29 baseline readings matched? Is it an object's collision (plan bug) or a terrain / conversion error?
+  Details: [docs/terrain/core64c.md](../terrain/core64c.md), "The northeast probe".
+- Method: new `scripts/terrain/collision_surface.py` (read only). `trace`: every crossing of the vertical through a
+  point with the converted collision (`sfbodies.nif_bodies`: compressed meshes, convex hulls with radius, spheres,
+  boxes) of every placed core64c reference that can reach it (exhaustive: bounding sphere of each of the 11,769
+  models' collision about its origin x scale, rotation-free), the BTD (three interpolation rules), landing discs, an
+  exactly dropped sphere (faces, edges, vertices) as a model of the capsule's round bottom; the reference rotation
+  composed in each of the six axis orders; readings taken from the runner's own `spec.json` + `obs.json`.
+  `rotations`: FO4's precombined render meshes (`meshes\PreCombined\<cell>_*_OC.nif`,
+  `BSPackedCombinedSharedGeomDataExtra`) store the rotation matrix of every combined reference, built by FO4's tools
+  from the reference's angles: compared with the angles of the same references. `clear`: the nearest collision-clear
+  ground point (make_core64c.waypoint_ok + no surface within 2 m + clear teleports) under every order.
+- Evidence:
+  - **verified**: in the terrain-only core64 run (2026-10-11) the same point read 113.38 (expect 113.3714): the
+    terrain is right there. Codex's candidate RockCliff05 `18BCCC` (pos -631.479, 1495.945, 110.350; rot 0.0312,
+    -0.2123, 3.1979 rad: tilted 12 degrees) is the owner, but not as the plan placed it.
+  - **verified** (FO4's own data): of 146,728 tilted (> 3 degrees) core64c references that are the only combined
+    instance at their position and scale in their cell's precombines (4,497 cells), **146,463 (99.82 %)** carry
+    exactly (1e-4) `R = Rx(-x) Ry(-y) Rz(-z)` (Z applied first); `exterior.ref_matrix`'s `R = Rz(-z) Ry(-y) Rx(-x)` (X
+    first, also `routes.ref_matrix`, `PluginSpike.RotateOffset`) only 4,133 (3,696 of them rotate about one axis only,
+    where every order agrees), every other order at most 16,038. The 265 others: 180 static collections (their parts
+    are combined, not the collection) and 85 references of 7 models (`CurbStr01`, `RWResBrickPileSm01/02`, three gun
+    traps, `DeskBlotterA`) **unresolved**.
+  - **supported (strong)**: with Z first, `ne_500m`'s vertical meets RockCliff05's compressed-mesh body 0 (layer 13,
+    triangle 925, slope 13 degrees) at **115.269**, 1.893 m above the terrain; the reading is 115.2653 (reading -
+    prediction: ray -0.004 m, a dropped 0.3 m sphere -0.011 m). With X first (the plan) nothing stands above the
+    terrain within 2.5 m. Over all 52 core64c
+    readings (smoke 7, baseline 30, informational 15), Z first + a 0.3 m sphere explains 52 within 0.05 m (max
+    0.026 m); X first misses `ne_500m` (+1.889), `e_500m` (a maple, `09C21A`, would catch the sphere 6.4 m up; the game
+    read the terrain) and `w_500m`. The other Z-first order (`zxy`) fits as well; the precombines tell them apart.
+    The 29 matching baseline readings: 23 terrain points on the terrain and 6 roof drops on their planned roofs under
+    both orders.
+  - core64c references with an x or y rotation: 332,641 of 648,358 (174,059 over 10 degrees). Rigged doors shifted by
+    their hinge offset with X first (`exterior.place`): 156 of 759 are off by more than 1 cm in FO4TerrainCore.esm (up
+    to 9.17 m, tipped-over boxcar doors `RRBoxcarDoor01`, `BrStallDoor02`): a placement error in the built plugin
+    (**supported**, offline numbers; not seen in game).
+- Status: `ne_500m` was **not collision-clear** in game; +1.8939 m is RockCliff05's collision top (**supported
+  hypothesis**, prediction within 4 mm); a plan bug (offline rotation order), not a terrain or conversion error. FO4
+  composes reference rotations Z first (**verified**, precombines); Starfield applies the copied FO4 angles the same
+  way (**supported**, 52 of 52 readings); "rotations are applied X then Y then Z" (exterior.py, routes.py, PluginSpike)
+  **refuted** for references with x or y rotation; QASmoke's "Z first" note (2026-10-12) and the navigation doc's
+  open question are answered by this. Not changed here: `exterior.ref_matrix`, `routes.ref_matrix`,
+  `PluginSpike.RotateOffset` and the plans and plugins built with them (follow-up). Staged (data only)
+  `C:\Modding\staging\northeast_probe_1013`: the traces, `rotations.json`, a corrected expectation (`ne_500m`
+  object_top 115.269) and a replacement ground point `ne_500m_clear` (-630.6714, 1510.9286, terrain 114.1674, FO4
+  LAND 114.1763) for Codex's evidence checker; the pinned baseline keeps FAIL HEIGHTS.
+
 ## 2026-10-12 Claude: the Red Rocket cave load door on the converted terrain (slice: working door -> interior -> save)
 - Question: which Fallout 4 load door links RedRocket01 with the Commonwealth, where is it relative to the converted
   terrain of experiment 2d, what does our side hold of it, and how is it written so a player can walk through it and
