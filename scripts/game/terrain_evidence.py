@@ -44,17 +44,38 @@ def _parse_frame(value):
 
 
 def _parse_capture(value):
-    """Return ((x, y, z), ident, timestamp) or None. Accepts str/list or dict with pos + optional id/time."""
+    """Return ((x, y, z), ident, timestamp) or None. Accepts str/list or dict with pos + optional id/time.
+    Metadata is taken by key presence so zero values are preserved. Unsupported types become None (handled later)."""
     ident = None
     timestamp = None
     if isinstance(value, dict):
-        ident = value.get("id") or value.get("capture")
-        timestamp = value.get("time") or value.get("timestamp") or value.get("t")
+        if "id" in value:
+            ident = value["id"]
+        elif "capture" in value:
+            ident = value["capture"]
+        if "time" in value:
+            timestamp = value["time"]
+        elif "timestamp" in value:
+            timestamp = value["timestamp"]
+        elif "t" in value:
+            timestamp = value["t"]
         value = value.get("pos") or value.get("xyz") or value.get("position")
     parts = _parse_frame(value)
     if parts is None:
         return None
     return parts, ident, timestamp
+
+def _valid_meta(value):
+    """Supported provenance values are None, str, int, or finite float. Others are malformed."""
+    if value is None:
+        return True
+    if isinstance(value, bool):  # bool is int subclass; reject
+        return False
+    if isinstance(value, (str, int)):
+        return True
+    if isinstance(value, float):
+        return math.isfinite(value)
+    return False
 
 
 def _hash_ok(value):
@@ -149,15 +170,20 @@ def judge(evidence, reach_m=2.0, settle_m=0.05, tol_m=0.5):
     times = [item[2] for item in parsed]
     # Identical positions are allowed: independent stationary captures can match exactly.
     # When the collector records capture identifiers or timestamps, a reused one is UNREAD.
+    # Malformed (non-hashable or unsupported type) metadata is UNREAD.
     seen_ids = set()
     for ident in idents:
         if ident is not None:
+            if not _valid_meta(ident):
+                return "UNREAD", "malformed capture identifier"
             if ident in seen_ids:
                 return "UNREAD", "capture identifier reused"
             seen_ids.add(ident)
     seen_times = set()
     for ts in times:
         if ts is not None:
+            if not _valid_meta(ts):
+                return "UNREAD", "malformed capture timestamp"
             if ts in seen_times:
                 return "UNREAD", "capture timestamp reused"
             seen_times.add(ts)
@@ -191,6 +217,8 @@ def judge_probe(evidence, reach_m=2.0, settle_m=0.05, tol_m=0.5):
         return "UNREAD", "readings were not recorded by label"
     rows = []
     verdicts = []
+    probe_ids = set()
+    probe_times = set()
     for point in points:
         if not isinstance(point, dict) or not point.get("label"):
             return "UNREAD", "a planned point has no label"
@@ -201,6 +229,26 @@ def judge_probe(evidence, reach_m=2.0, settle_m=0.05, tol_m=0.5):
             one["offset"] = evidence["offset"]
         one["point"] = point
         one["frames"] = reads[label] if isinstance(reads.get(label), list) else []
+        # Pre-check frames for probe-wide provenance reuse / malform
+        frames = one["frames"]
+        if isinstance(frames, list):
+            for frame in frames:
+                parsed = _parse_capture(frame)
+                if parsed is None:
+                    continue
+                _, ident, ts = parsed
+                if ident is not None:
+                    if not _valid_meta(ident):
+                        return "UNREAD", f"{label}: malformed capture identifier"
+                    if ident in probe_ids:
+                        return "UNREAD", f"{label}: capture identifier reused across probe"
+                    probe_ids.add(ident)
+                if ts is not None:
+                    if not _valid_meta(ts):
+                        return "UNREAD", f"{label}: malformed capture timestamp"
+                    if ts in probe_times:
+                        return "UNREAD", f"{label}: capture timestamp reused across probe"
+                    probe_times.add(ts)
         verdict, why = judge(one, reach_m, settle_m, tol_m)
         rows.append(f"{label} {verdict}")
         verdicts.append(verdict)

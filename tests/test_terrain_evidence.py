@@ -145,3 +145,66 @@ class TerrainEvidenceTests(unittest.TestCase):
         self.assertEqual(oracle.judge_probe(dropped)[0], "UNREAD")
         wrong = dict(evidence, reads=dict(evidence["reads"], flat=["12 -4 90", "12.01 -4 90"]))
         self.assertEqual(oracle.judge_probe(wrong)[0], "FAIL")
+
+    def test_zero_valued_provenance_is_preserved(self):
+        # Zero is a valid value; key presence must not drop it.
+        frames = [
+            {"pos": "10 -4 105.14", "id": 0},
+            {"pos": "10.01 -4 105.14", "id": 0},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=frames))[0], "UNREAD")
+        frames_ts = [
+            {"pos": "10 -4 105.14", "time": 0.0},
+            {"pos": "10.01 -4 105.14", "time": 0.0},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=frames_ts))[0], "UNREAD")
+        # Distinct zeros would not, but same zero is reuse.
+        distinct = [
+            {"pos": "10 -4 105.14", "id": 0},
+            {"pos": "10.01 -4 105.14", "id": 1},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=distinct))[0], "PASS")
+
+    def test_malformed_provenance_is_unread(self):
+        # Non-scalar metadata must not crash; it is unreadable.
+        frames = [
+            {"pos": "10 -4 105.14", "id": ["a"]},
+            {"pos": "10.01 -4 105.14", "id": "b"},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=frames))[0], "UNREAD")
+        frames_ts = [
+            {"pos": "10 -4 105.14", "timestamp": {"sec": 1}},
+            {"pos": "10.01 -4 105.14", "timestamp": 2},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=frames_ts))[0], "UNREAD")
+
+    def test_identifier_reuse_across_planned_points_is_unread(self):
+        # The same capture IDs cannot count for two different planned points.
+        evidence = {
+            "pinned": {"plan_sha256": PIN, "plugin_sha256": PIN, "archive_sha256": PIN},
+            "identity": {"plan_sha256": PIN, "plugin_sha256": PIN, "archive_sha256": PIN},
+            "ground": "plugin",
+            "points": [
+                {"label": "one", "x": 10.0, "y": -4.0, "expect": 105.14},
+                {"label": "two", "x": 11.0, "y": -4.0, "expect": 105.14},
+            ],
+            "reads": {
+                "one": [
+                    {"pos": "10 -4 105.14", "id": "a"},
+                    {"pos": "10.01 -4 105.14", "id": "b"},
+                ],
+                "two": [
+                    {"pos": "11 -4 105.14", "id": "a"},
+                    {"pos": "11.01 -4 105.14", "id": "b"},
+                ],
+            },
+        }
+        verdict, _ = oracle.judge_probe(evidence)
+        self.assertEqual(verdict, "UNREAD")
+        # Independent IDs still pass.
+        evidence["reads"]["two"] = [
+            {"pos": "11 -4 105.14", "id": "c"},
+            {"pos": "11.01 -4 105.14", "id": "d"},
+        ]
+        verdict, _ = oracle.judge_probe(evidence)
+        self.assertEqual(verdict, "PASS")
