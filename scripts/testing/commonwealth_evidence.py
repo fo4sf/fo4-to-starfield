@@ -59,7 +59,14 @@ def xyz(read):
 
 def vector(values):
     return isinstance(values, list) and len(values) == 3 and all(
-        isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) for v in values)
+        finite(v) for v in values)
+
+
+def finite(value):
+    try:
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def valid_plan(points):
@@ -102,6 +109,8 @@ def inspect_test(test, obs, folder):
     if ref_read is None:
         return {"id": test["id"], "issues": [{"status": "INCONCLUSIVE", "class": "REFERENCE"}], "points": []}
     reference_shift = ref_read[2] - expected[ref_index]["expect"]
+    if not finite(reference_shift):
+        raise ValueError('reference height exceeds finite arithmetic range')
     for plan, actual in zip(expected, observed):
         row = {"label": plan["label"], "expected_local": [plan["x"], plan["y"], plan["expect"]]}
         read = xyz(actual.get("read"))
@@ -120,12 +129,16 @@ def inspect_test(test, obs, folder):
         else:
             xy_error = math.hypot(read[0] - plan["x"] - offset[0], read[1] - plan["y"] - offset[1])
             z_error = read[2] - reference_shift - plan["expect"]
-            row.update(xy_error_m=xy_error, relative_z_error_m=z_error)
-            if xy_error > XY_TOLERANCE_M:
+            if not finite(xy_error) or not finite(z_error):
+                row.update(status='INCONCLUSIVE', classification='RANGE')
+            elif xy_error > XY_TOLERANCE_M:
+                row.update(xy_error_m=xy_error, relative_z_error_m=z_error)
                 row.update(status="INCONCLUSIVE", classification="MOVED")
             elif abs(z_error) > HEIGHT_TOLERANCE_M:
+                row.update(xy_error_m=xy_error, relative_z_error_m=z_error)
                 row.update(status="MISMATCH", classification="HEIGHTS")
             else:
+                row.update(xy_error_m=xy_error, relative_z_error_m=z_error)
                 row.update(status="MATCH", classification="MATCH")
         if row["status"] != "MATCH":
             issues.append({"status": row["status"], "class": row["classification"], "label": plan["label"]})
@@ -142,12 +155,17 @@ def inspect_test(test, obs, folder):
         if not isinstance(target, dict) or not vector([target.get('x'), target.get('y'), 0]):
             raise ValueError('invalid planned post-probe position')
         post["expected_merged_xy"] = [target["x"] + offset[0], target["y"] + offset[1]]
+        if not all(finite(v) for v in post['expected_merged_xy']):
+            raise ValueError('post-probe target exceeds finite arithmetic range')
         if post["observed"] is None:
             post.update(status="INCONCLUSIVE", classification="POST_UNREAD")
         else:
-            post["xy_error_m"] = math.dist(post['expected_merged_xy'], post['observed'][:2])
-            post.update(status="MATCH" if post["xy_error_m"] <= XY_TOLERANCE_M else "MISMATCH",
-                        classification="POST_FRAME")
+            error = math.dist(post['expected_merged_xy'], post['observed'][:2])
+            if not finite(error):
+                post.update(status='INCONCLUSIVE', classification='POST_RANGE')
+            else:
+                post['xy_error_m'] = error
+                post.update(status="MATCH" if error <= XY_TOLERANCE_M else "MISMATCH", classification="POST_FRAME")
         try:
             post["capture"] = capture(folder, obs.get("beyond_shot"))
             if tuple(post['capture']['physical_identity']) in captures:
@@ -220,8 +238,24 @@ def inspect_phase(root, phase):
             elif record['verdict'] == 'FAIL':
                 entry['issues'].append({'status': 'MISMATCH', 'class': 'REPORTED_FAILURE'})
             entries.append(entry)
-        except (OSError, ValueError, TypeError, KeyError) as error:
+        except (OSError, ValueError, TypeError, KeyError, OverflowError) as error:
             entries.append({'id': tid, 'issues': [{'status': 'INCONCLUSIVE', 'class': 'OBSERVATION', 'detail': str(error)}], 'points': []})
+    # Deduplicate native files across every completed entry, not just one attempt.
+    seen = {}
+    for entry in entries:
+        for observation in [*entry['points'], entry.get('post_probe', {})]:
+            image = observation.get('capture')
+            if image is None:
+                continue
+            key = tuple(image['physical_identity'])
+            if key in seen:
+                previous_entry, previous_observation = seen[key]
+                for owner, row in ((previous_entry, previous_observation), (entry, observation)):
+                    cls = 'CAPTURE_REUSE' if 'label' in row else 'POST_CAPTURE_REUSE'
+                    row.update(status='INCONCLUSIVE', classification=cls)
+                    owner['issues'].append({'status': 'INCONCLUSIVE', 'class': cls})
+            else:
+                seen[key] = (entry, observation)
     issues = [i for entry in entries for i in entry['issues']]
     status = 'INCONCLUSIVE' if any(i['status'] == 'INCONCLUSIVE' for i in issues) else 'MISMATCH' if issues else 'MATCH'
     return {'phase': phase, 'status': status, 'runtime_accepted': False,
@@ -240,10 +274,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         report = inspect_phase(args.campaign, args.phase)
-    except (OSError, ValueError, TypeError, KeyError) as error:
+        serialized = json.dumps(report, indent=2, allow_nan=False)
+    except (OSError, ValueError, TypeError, KeyError, OverflowError) as error:
         print(json.dumps({'status': 'INCONCLUSIVE', 'runtime_accepted': False, 'error': str(error)}))
         return 2
-    print(json.dumps(report, indent=2, allow_nan=False))
+    print(serialized)
     return {'MATCH': 0, 'MISMATCH': 1, 'INCONCLUSIVE': 2}[report['status']]
 
 

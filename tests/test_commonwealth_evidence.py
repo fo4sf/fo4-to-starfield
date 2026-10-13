@@ -257,6 +257,40 @@ class EvidenceTests(unittest.TestCase):
                 self.assertEqual(code, 2)
                 self.assertEqual(json.loads(output.getvalue())['status'], 'INCONCLUSIVE')
 
+    def test_cross_entry_capture_replay_cannot_pass(self):
+        plan2 = copy.deepcopy(self.plan)
+        plan2['id'] = 'fixture2'
+        self.queue['tests'].append(plan2)
+        self.state['done']['fixture2'] = copy.deepcopy(self.state['done']['fixture'])
+        self.state['attempts']['fixture2'] = 1
+        self.save_fixture()
+        manifest = json.loads((self.root / 'campaign.json').read_text())
+        manifest['phases']['01-smoke']['points'] = 6
+        self.write(self.root / 'campaign.json', manifest)
+        other = self.phase / 'tests' / 'fixture2' / 'a1'
+        other.mkdir(parents=True)
+        self.write(other / 'obs.json', self.obs)
+        for name in ('pt0.png', 'pt1.png', 'pt2.png', 'beyond.png'):
+            os.link(self.folder / name, other / name)
+        with (self.phase / 'results.jsonl').open('a') as stream:
+            stream.write('\n' + json.dumps(dict(self.result, id='fixture2')))
+        report = self.inspect()
+        self.assertEqual(report['status'], 'INCONCLUSIVE')
+        self.assertEqual(report['height_matches'], 0)
+        self.assertTrue(report['launch_hold'])
+
+    def test_overflowing_inputs_and_calculations_produce_inconclusive_json(self):
+        for plan_x, expect in ((1e308, 15), (10, 10**400)):
+            with self.subTest(plan_x=plan_x):
+                self.plan['points'][1].update(x=plan_x, expect=expect)
+                self.obs['points'][1]['read'] = '-1e308 -200 17'
+                self.save_fixture()
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    code = evidence.main(['--campaign', str(self.root), '--phase', '01-smoke'])
+                self.assertEqual(code, 2)
+                self.assertEqual(json.loads(output.getvalue())['status'], 'INCONCLUSIVE')
+
 
 if __name__ == '__main__':
     unittest.main()
