@@ -1,17 +1,24 @@
 // Plugin writer for converted assets (S2 -> WP-08 / WP-10).
 //   dotnet run -- <output dir> <manifest.json> [cell.json ...]
+//   dotnet run -- teleports <FO4Port.esm>        read a written plugin back and list its load-door teleport links (offline check)
 // Creates FO4Port.esm with one STAT per converted item and, for each cell export from dotnet/Fo4Export, an interior cell
 // "FO4Port_<cell>" holding every reference whose model was converted, placed at the Fallout 4 position / 70 (metres), same rotation
-// (radians) and scale. Initially-disabled FO4 references stay initially disabled.
+// (radians) and scale. Initially-disabled FO4 references stay initially disabled. Manifest items marked `load_door` become
+// graph-less DOOR records; when both ends of a load door pair are placed (both cell exports given), the references get the
+// Starfield teleport link (XTEL) and become persistent (TeleportLinks.cs). Load doors whose other end is not in the build
+// stay shut and are listed in <output dir>/teleports.json.
 //
 // FormIDs are STABLE: <output dir>/formids.json maps an identity key to its FormID and is reused on every run, so adding or
 // removing assets never renumbers existing records (saves and cross-references keep working). Keys:
-//   STAT:<editor id>   CELL:<cell name>   REFR:<cell name>:<source FO4 FormKey>   (lights and COC markers use their source ref)
+//   STAT:<editor id>   MSTT:<editor id> (movable items)   DOOR:<editor id>   CELL:<cell name>
+//   REFR:<cell name>:<source FO4 FormKey>   (lights and COC markers use their source ref)
 using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Starfield;
 using Noggog;
+
+if (args.Length == 2 && args[0] == "teleports") { TeleportLinks.List(args[1], Console.Out); return; }
 
 const float UnitsPerMetre = 70f;
 const uint FirstId = 0x800;
@@ -39,18 +46,54 @@ FormKey Id(string key)
 }
 
 // ---- statics ----------------------------------------------------------------------------------------------------------
-var items = new List<(string editorId, string model, string source, JsonElement? door)>();
+var items = new List<(string editorId, string model, string source, JsonElement? door, JsonElement? loadDoor, bool movable)>();
 using var manifestDoc = JsonDocument.Parse(File.ReadAllText(args[1]));
 foreach (var it in manifestDoc.RootElement.GetProperty("items").EnumerateArray())
     items.Add((it.GetProperty("editor_id").GetString()!, it.GetProperty("model").GetString()!, it.GetProperty("source").GetString()!,
-               it.TryGetProperty("door", out var dj) ? dj : null));
+               it.TryGetProperty("door", out var dj) ? dj : null, it.TryGetProperty("load_door", out var lj) ? lj : null,
+               it.TryGetProperty("movable", out _)));
 
 // source FO4 model -> (base record, origin offset in metres). Hinged doors become DOOR records animated by a vanilla door's
 // graph / skeleton / animations; their NIF origin sits at a different point, so references are shifted by origin_offset.
 var bySource = new Dictionary<string, (FormKey key, P3Float offset)>(StringComparer.OrdinalIgnoreCase);
-int doors = 0;
-foreach (var (editorId, model, source, door) in items)
+int doors = 0, loadDoors = 0, movables = 0;
+foreach (var (editorId, model, source, door, loadDoor, movable) in items)
 {
+    if (loadDoor is JsonElement ld)
+    {
+        // FO4 load door: a DOOR record with the static-looking converted model (native collision kept, no animation graph).
+        // Starfield.esm: 458 of its 964 XTEL references use a DOOR base without an animation graph (322 LoadElevator_InvisibleDoor,
+        // 89 AutoloadDoor_Cave, ...; docs/ai/research-log.md 2026-10-10), so the teleport needs no graph; that a visible graph-less
+        // door also teleports on the player's activation is still to be seen in game. The link itself is written per reference
+        // below. Flags 0, SoundLevel Normal and FacingAxisOverride BasedOnBounds as the vanilla visible load doors
+        // (IndIntRmSmWallMid_DoorA01_Load 2AC325).
+        var rec = new Door(Id("DOOR:" + editorId), release)
+        {
+            EditorID = editorId, Model = new Model { File = model }, Name = "Door",
+            SoundLevel = SoundLevel.Normal, FacingAxisOverride = Door.FacingAxisOverrideEnum.BasedOnBounds,
+        };
+        // newer manifests carry the model's bounds (metres, NIF space); older ones hold only a note string
+        if (ld.ValueKind == JsonValueKind.Object && ld.TryGetProperty("bounds", out var lb))
+            rec.ObjectBounds = new ObjectBounds
+            {
+                First = new P3Float(lb[0][0].GetSingle(), lb[0][1].GetSingle(), lb[0][2].GetSingle()),
+                Second = new P3Float(lb[1][0].GetSingle(), lb[1][1].GetSingle(), lb[1][2].GetSingle()),
+            };
+        mod.Doors.Add(rec);
+        bySource[source.Replace('/', '\\')] = (rec.FormKey, new P3Float(0, 0, 0));
+        loadDoors++;
+        continue;
+    }
+    if (movable)
+    {
+        // FO4 loose item converted with a dynamic body (manifest "movable"): a MoveableStatic, as Starfield's own
+        // pushable set dressing; a Static never simulates. DATA 4 as every vanilla MSTT checked (SfInspect mstt).
+        var ms = new MoveableStatic(Id("MSTT:" + editorId), release) { EditorID = editorId, Model = new Model { File = model }, DATA = 4 };
+        mod.MoveableStatics.Add(ms);
+        bySource[source.Replace('/', '\\')] = (ms.FormKey, new P3Float(0, 0, 0));
+        movables++;
+        continue;
+    }
     if (door is JsonElement d)
     {
         var rec = new Door(Id("DOOR:" + editorId), release)
@@ -84,7 +127,7 @@ foreach (var (editorId, model, source, door) in items)
     mod.Statics.Add(stat);
     bySource[source.Replace('/', '\\')] = (stat.FormKey, new P3Float(0, 0, 0));
 }
-Console.WriteLine($"{items.Count - doors} statics, {doors} doors");
+Console.WriteLine($"{items.Count - doors - loadDoors - movables} statics, {movables} movable statics, {doors} doors, {loadDoors} load doors");
 
 // FO4 / Starfield reference rotation (radians): Bethesda angles turn CLOCKWISE seen from the positive axis, so the matrix
 // uses the negated angles; applied X, then Y, then Z. Rotates a door-local offset into the cell. (0 / 180 degree doors are
@@ -116,9 +159,11 @@ string Setting(string cell, string key, string fallback) =>
 P3Float Pos(JsonElement p) => new(p[0].GetSingle() / UnitsPerMetre, p[1].GetSingle() / UnitsPerMetre, p[2].GetSingle() / UnitsPerMetre);
 P3Float Rot(JsonElement o) => new(o[0].GetSingle(), o[1].GetSingle(), o[2].GetSingle());
 
-foreach (var cellPath in args.Skip(2))
+// every placed reference by its source FO4 FormKey, for the teleport links after all cells are placed
+var placedBySource = new Dictionary<string, (PlacedObject obj, Cell cell)>();
+var cellDocs = args.Skip(2).Select(p => JsonDocument.Parse(File.ReadAllText(p))).ToList();   // kept open until the links are written
+foreach (var cdoc in cellDocs)
 {
-    using var cdoc = JsonDocument.Parse(File.ReadAllText(cellPath));
     var root = cdoc.RootElement;
     var src4 = root.GetProperty("cell").GetString()!;
     var cellName = "FO4Port_" + src4;
@@ -175,6 +220,7 @@ foreach (var cellPath in args.Skip(2))
             disabled++;
         }
         cell.Temporary.Add(obj);
+        placedBySource[src] = (obj, cell);
     }
     var cid = cell.FormKey.ID;
     var block = new CellBlock { BlockNumber = (int)(cid % 10), GroupType = GroupTypeEnum.InteriorCellBlock };
@@ -184,6 +230,14 @@ foreach (var cellPath in args.Skip(2))
     mod.Cells.Records.Add(block);
     Console.WriteLine($"cell {cellName} {cell.FormKey}: placed {placed} references + {lights} lights ({disabled} initially disabled), skipped {skipped}");
 }
+
+// ---- load-door teleports between the cells of this build ---------------------------------------------------------------
+var teleports = TeleportLinks.Apply(mod, placedBySource, cellDocs.Select(d => d.RootElement));
+foreach (var d in cellDocs) d.Dispose();
+Console.WriteLine($"teleports: {teleports.Linked} references linked ({teleports.Pairs} mutual pairs, {teleports.OneWay} one-way), " +
+                  $"{teleports.DestinationNotInBuild} destinations not in this build, {teleports.SourceNotPlaced} sources not placed, {teleports.Issues.Count} issues");
+foreach (var issue in teleports.Issues) Console.WriteLine($"  issue {issue.Source} -> {issue.Target}: {issue.Reason}");
+File.WriteAllText(Path.Combine(outDir, "teleports.json"), JsonSerializer.Serialize(teleports, new JsonSerializerOptions { WriteIndented = true }));
 
 // ---- door test cell (FO4PORT_DOORTEST=<door editor id>) ------------------------------------------------------------------
 // One 8x8 m vanilla platform, the converted door at the origin (facing +X like an FO4 door with no rotation), the vanilla

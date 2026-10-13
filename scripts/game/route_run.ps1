@@ -44,6 +44,7 @@ for ($k = $First;$k -lt [Math]::Min($list.Count, $First + $Count); $k++) {
   # an open door). Close this route's door first by its Starfield ref id (plugin load index + local FormID from routes.py).
   $close = ''
   if ($r.use -and $r.sf_ref_local) { $close = "type:prid $PluginIndex$($r.sf_ref_local)|key:enter|wait:300|type:setopenstate 0|key:enter|wait:300|" }
+  if ($r.use -and $r.sf_ref_local_twin) { $close += "type:prid $PluginIndex$($r.sf_ref_local_twin)|key:enter|wait:300|type:setopenstate 0|key:enter|wait:300|" }
   $seq = $close + "type:player.setpos x $x|key:enter|wait:350|type:player.setpos y $y|key:enter|wait:350|" +
          "type:player.setpos z $z|key:enter|wait:350|type:player.setangle z $h|key:enter|wait:350|" +
          "type:player.setangle x 10|key:enter|wait:400|key:grave|wait:1800"   # x 0 points the camera at the floor
@@ -106,6 +107,23 @@ for ($k = $First;$k -lt [Math]::Min($list.Count, $First + $Count); $k++) {
       if ($verb -notmatch 'OPEN|CLOSE' -and $close) { $verb = 'unread-after-reset' }
     }
     if ($verb -match 'OPEN|unread-after-reset') { powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq 'key:e|wait:2200' | Out-Null }
+    if ($r.twin -and $verb -match 'OPEN|unread-after-reset') {
+      # a FO4 double door is two single-leaf doors on one spot (routes.py door_twins): the other leaf still covers the
+      # middle of the opening, so look for its prompt where the first one was and activate it too
+      $pre2 = Join-Path $Out "r${k}_pre_twin.png"
+      $second = $false
+      for ($t = 0; $t -lt 4; $t++) {
+        powershell -NoProfile -ExecutionPolicy Bypass -File $shot -Out $pre2 | Out-Null
+        if ((& $env:FO4SF_PYTHON (Join-Path $here 'prompt_visible.py') $pre2) -eq 'yes') { $second = $true; break }
+        powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq 'move:0,120|wait:400' | Out-Null
+      }
+      if ($second) {
+        & $env:FO4SF_PYTHON (Join-Path $here 'prompt_verb_prep.py') $pre2 $vp
+        $verb2 = ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $vp -Scale 1) -join ' ').Trim()
+        if ($verb2 -match 'OPEN') { powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq 'key:e|wait:2200' | Out-Null; $verb += "+twin:$verb2" }
+        else { $verb += "+twin-not-opened:$verb2" }
+      } else { $verb += '+twin-no-prompt' }
+    }
     powershell -NoProfile -ExecutionPolicy Bypass -File $shot -Out (Join-Path $Out "r${k}_open.png") | Out-Null
     if ($BackOff -gt 0) { powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq "hold:s,$BackOff|wait:400" | Out-Null }
   }

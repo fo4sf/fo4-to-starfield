@@ -17,7 +17,7 @@ import time
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-from fo4sf import ba2, checkpoints, convert_static, meshcollision, pipeline, sfcollision, sfnif  # noqa: E402
+from fo4sf import ba2, checkpoints, convert_static, meshcollision, pipeline, sfcollision, sfnif, textures  # noqa: E402
 
 
 def checkpoint_signature(a):
@@ -34,11 +34,39 @@ def checkpoint_signature(a):
             packages[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
             packages[name] = None
-    return {"version": 1, "python": sys.version, "packages": packages,
-            "archives": [checkpoints.archive_identity(p) for p in archives],
-            "content": {str(p.resolve()): checkpoints.digest(p) for p in
-                        [*code, Path(a.texconv), Path(a.content_resources), Path(a.collision_template)]},
-            "rig_doors": bool(a.starfield_data)}
+    sig = {"version": 1, "python": sys.version, "packages": packages,
+           "archives": [checkpoints.archive_identity(p) for p in archives],
+           "content": {str(p.resolve()): checkpoints.digest(p) for p in
+                       [*code, Path(a.texconv), Path(a.content_resources), Path(a.collision_template)]},
+           "rig_doors": bool(a.starfield_data), "movable_items": bool(a.starfield_data) and not a.static_items}
+    if getattr(a, "prefix", "fo4port") != "fo4port":   # output paths differ; the default keeps existing checkpoints valid
+        sig["prefix"] = a.prefix
+    if getattr(a, "door_anim_dll", "") and a.starfield_data:   # multi-part doors get their own rig and clips
+        sig["door_anim_dll"] = checkpoints.digest(Path(a.door_anim_dll))
+    caps = textures.parse_texture_caps(getattr(a, "max_texture", ""))
+    if caps:                                            # capped outputs differ; no cap keeps existing checkpoints valid
+        sig["max_texture"] = caps
+    return sig
+
+
+def merge_texture_log(staging, log):
+    """Add this run's texture log (pipeline.Converter.texture_log) to <staging>/texture_log.json, which keeps the entries
+    of earlier runs (a resumed run reuses their textures without converting them again). Returns the merged log."""
+    path = os.path.join(staging, "texture_log.json")
+    merged = {}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            merged = json.load(f)
+    merged.update(log)
+    write_json_atomic(path, merged)
+    return merged
+
+
+def texture_totals(log):
+    full = sum(v.get("bytes", 0) for v in log.values())
+    written = sum(v.get("out_bytes", 0) for v in log.values())
+    return {"textures": len(log), "capped": sum(1 for v in log.values() if v.get("capped")),
+            "full_bytes": full, "written_bytes": written}
 
 
 def source_identity(source):
@@ -111,6 +139,12 @@ def main():
     ap.add_argument("--collision-template", required=True)
     ap.add_argument("--starfield-data", default="",
                     help="Starfield Data folder: enables opening doors (needs the vanilla door body as a keyframed donor)")
+    ap.add_argument("--static-items", action="store_true",
+                    help="keep FO4 loose items fixed (default with --starfield-data: movable, as in FO4)")
+    ap.add_argument("--door-anim-dll", default="",
+                    help="external CALUMI.Animation.dll (not distributed): with --starfield-data, doors that move more "
+                         "than one part (double doors, shutters, sliding panel sets) get their own rig and Open/Close "
+                         "clips; without it they keep the single-hinge template and list the parts that stay closed")
     ap.add_argument("--resume", action="store_true", help="reuse content-verified per-model checkpoints")
     ap.add_argument("--pattern", default=r"^meshes[\\/]setdressing[\\/]")
     ap.add_argument("--limit", type=int, default=20)
@@ -118,7 +152,24 @@ def main():
     ap.add_argument("--cell-json", default="", help="convert the models placed in a cell exported by dotnet/Fo4Export")
     ap.add_argument("--types", default="Static,StaticCollection,MovableStatic,Furniture,Door,Activator,Container,MiscItem,Terminal",
                     help="base record types to take from --cell-json")
+    ap.add_argument("--prefix", default="fo4port",
+                    help="folder under meshes/, materials/ and textures/ for the converted files (another plugin's own "
+                         "archive needs its own prefix, so two archives never hold different files at the same path)")
+    ap.add_argument("--max-texture", default="",
+                    help="cap converted textures by dropping top mip levels: one size for every kind ('1024') or per "
+                         "kind ('color=1024,normal=512,rough=256,opacity=512'); default: full resolution. The full and "
+                         "written size of every texture go to <staging>/texture_log.json")
     a = ap.parse_args()
+    if not re.fullmatch(r"[a-z0-9_]+", a.prefix):
+        ap.error("--prefix: lower-case letters, digits and _ only")
+    try:
+        textures.parse_texture_caps(a.max_texture)
+    except ValueError as e:
+        ap.error(f"--max-texture: {e}")
+    if a.door_anim_dll and not os.path.isfile(a.door_anim_dll):
+        ap.error("--door-anim-dll: file not found")
+    if a.door_anim_dll and not a.starfield_data:
+        ap.error("--door-anim-dll needs --starfield-data (doors are rigged only with the vanilla donor body)")
 
     ids = load_editor_ids(a.staging)
 
@@ -134,6 +185,10 @@ def main():
     if a.starfield_data:                          # FO4's own collision meshes, transplanted into a vanilla container
         mesh_template = meshcollision.template_from_nif(ba2.Ba2(os.path.join(a.starfield_data, "Starfield - Meshes01.ba2")).read(
             meshcollision.UNIVERSAL_TEMPLATE_NIF))
+    dynamic_template = None
+    if a.starfield_data and not a.static_items:   # FO4 loose items movable: built on a vanilla dynamic item's body
+        dynamic_template = meshcollision.check_dynamic_template(meshcollision.template_from_nif(
+            ba2.Ba2(os.path.join(a.starfield_data, "Starfield - Meshes01.ba2")).read(meshcollision.DYNAMIC_TEMPLATE_NIF)))
     cache =checkpoints.Checkpoints(a.staging, checkpoint_signature(a)) if a.resume else None
     conv = None
     if a.cell_json:
@@ -162,7 +217,9 @@ def main():
             if conv is None:
                 conv = pipeline.Converter(src, a.staging, a.texconv, a.content_resources, template,
                                           rig_doors=donor is not None, door_physics_donor=donor,
-                                          sf_mesh_template=mesh_template)
+                                          sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
+                                          prefix=a.prefix, max_texture=a.max_texture,
+                                          door_anim_dll=a.door_anim_dll or None)
             r = conv.convert_nif(name)
             if cache:
                 try:
@@ -180,7 +237,10 @@ def main():
                       "shapes": r["shapes"], "fallback_materials": r["fallback_materials"], "form_index": len(items),
                       "collision_report": r.get("collision_report") or {}, **({"door": r["door"]} if "door" in r else {}),
                       **({"load_door": r["load_door"]} if "load_door" in r else {}),
-                      **({"door_not_opening": r["door_not_opening"]} if "door_not_opening" in r else {})})
+                      **({"movable": r["movable"]} if "movable" in r else {}),
+                      **({"door_not_opening": r["door_not_opening"]} if "door_not_opening" in r else {}),
+                      **({"door_frozen_parts": r["door_frozen_parts"]} if "door_frozen_parts" in r else {}),
+                      **({"door_error": r["door_error"]} if "door_error" in r else {})})
         print(f"  ok  {name} -> {eid} (shapes {r['shapes']}, fallback materials {r['fallback_materials']})")
     for f in failures[:15]:
         print("  FAIL", f["nif"], "-", f["reason"][:110])
@@ -191,6 +251,10 @@ def main():
         for reason, count in reason_counts.most_common(5):
             print(f"    {count:4d}  {reason[:80]}")
 
+    tex_totals = None
+    if textures.parse_texture_caps(a.max_texture):
+        tex_totals = texture_totals(merge_texture_log(a.staging, conv.texture_log if conv else {}))
+        print(f"textures (all runs): {tex_totals}")
     if cache:
         inconsistent = cache.verify_batch()
         if inconsistent:
@@ -198,6 +262,8 @@ def main():
             raise RuntimeError(f"{len(inconsistent)} generated dependencies changed after model conversion; build not deployable")
     stats = dict(conv.stats) if conv else {"materials_ok": 0, "materials_fallback": 0}
     stats.update(assets=len(items), failed=len(failures), reused=reused)
+    if tex_totals is not None:
+        stats["textures"] = dict(tex_totals, caps=textures.parse_texture_caps(a.max_texture))
     manifest = {"items": items, "failures": failures, "material_fallbacks": conv.material_errors if conv else {}, "stats": stats,
                 "seconds": round(time.time() - t0, 1)}
     os.makedirs(a.staging, exist_ok=True)
