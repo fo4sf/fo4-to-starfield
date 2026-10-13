@@ -973,3 +973,13 @@ Measured prior-result intervals: stairs median85s, floors60s, doors100s. Remaini
 ## 2026-10-13 - Codex: corrected diagnostic merge frame in isolated runner
 
 Owner requested continued testing unless Claude needs control. Scoped claim on #32; original af27ce9 runner/campaign remains immutable. qstep's unscored terrain diagnostic now adds the measured X/Y merge offset and uses its computed world drop height. Three synthetic tests evaluate the actual parsed call with a harmless Teleport stub; the two nonzero cases failed before correction. No input helper or game body executes in these tests. Fresh pins and independent QA precede the remaining informational phase; prior boundary captures remain excluded from map-size conclusions.
+## 2026-10-13 Replayed ground-reference evidence (Codex, #96)
+
+Synthetic reproduction: two entries sharing only their ground-reference capture were inconclusive but still
+counted four dependent roof heights as matches; a final diagnostic reusing the reference left two matches.
+After phase-wide capture deduplication, unusable references now invalidate every dependent relative height.
+Six new regressions retain valid independent images with identical pixels, limit non-reference replay
+to the affected rows and demote stale HEIGHTS issues after reference invalidation (independent QA finding).
+Four negative regressions failed before their fixes. Validation:31 evidence tests and308
+full-suite tests pass (2 skips); guard passes. Re-reading completed pinned evidence preserves7/7 smoke and29/30
+baseline heights and all four POST_FRAME findings. Offline only; no game scripts, assets or live control changed.

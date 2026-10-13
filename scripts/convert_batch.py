@@ -4,6 +4,7 @@ usage: python convert_batch.py --fo4-data <Fallout 4 Data dir> --staging <out di
                                --texconv <Texconvx64.exe> --collision-template <vanilla box-collision Starfield .nif>
                                [--pattern "setdressing/(chair|stool)"] [--limit 40] [--manifest manifest.json]
 Writes <staging>/manifest.json: converted items (EditorID + model path for the plugin writer), failures with reasons, stats.
+After conversion, prints the top failure reasons by count.
 Needs numpy. Deterministic: names are processed in sorted order.
 """
 import argparse
@@ -243,6 +244,13 @@ def main():
         print(f"  ok  {name} -> {eid} (shapes {r['shapes']}, fallback materials {r['fallback_materials']})")
     for f in failures[:15]:
         print("  FAIL", f["nif"], "-", f["reason"][:110])
+    if failures:
+        from collections import Counter
+        reason_counts = Counter(f["reason"].split(":")[0].strip() for f in failures)
+        print("  Top failure reasons:")
+        for reason, count in reason_counts.most_common(5):
+            print(f"    {count:4d}  {reason[:80]}")
+
     tex_totals = None
     if textures.parse_texture_caps(a.max_texture):
         tex_totals = texture_totals(merge_texture_log(a.staging, conv.texture_log if conv else {}))

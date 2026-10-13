@@ -1,6 +1,6 @@
 # Codex / Claude / Grok status
 
-Owner: project owner. Priority: connected Red Rocket -> Sanctuary -> nearby interiors -> wider Commonwealth ([owner direction in #31](https://github.com/fo4sf/fo4-to-starfield/issues/31#issuecomment-6117671801)). Keep existing interior failures as regressions. Actor milestone planning remains available; the connected region is the next shipping goal.
+Owner: project owner. Goal: Red Rocket -> Sanctuary -> nearby interiors -> wider Commonwealth (#31). Keep interior failures as regressions.
 
 ## Acceptance
 
@@ -9,19 +9,25 @@ Walk Red Rocket-Sanctuary and its bridge/cell borders both ways; prove terrain r
 ## Owners / locks
 
 - Claude: collision/Havok, convert_static.py, pipeline.py, convert_batch.py, PluginSpike, terrain/actors, game scripts/staging/live control. No concurrent edits or other game input.
-- Codex: deployment/recovery, identities/checkpoints/cache/output QA, Fo4Export/ReferenceLinks, animation/door bridge modules and tests, this status/archive. Shared sfnif.py changes need an exact scope claim. Codex owns exp_install.py compatibility with #78; Claude retains cycle/qstep and all live tests.
+- Codex: deployment/recovery, identities/checkpoints/cache/output QA, Fo4Export/ReferenceLinks, animation/door bridge modules and tests, this status/archive. Shared sfnif.py changes need a scope claim; Codex owns exp_install compatibility and #89 exit protocol. Live controller claim: #32.
 - Grok: acceptance oracle, route_eval.judge, terrain_evidence.py/tests. #69 still needs capture-provenance QA correction; identical XYZ may be independent stationary captures. No other game/control files without a new claim.
 
 ## Latest evidence / open work
 
-Claude reports core64b NW short hops through Sanctuary/Vault111 to2km with matching terrain heights (#32, 6118693845). Earlier large-jump Boundary/seam conclusions need hop reruns; full continuous traversal and all directions remain open. Red Rocket objects/ground align in exp2c/exp2d. N1c NPC moved with156 converted NAVM records; N0/commanded arrival and cross-cell navigation remain unproven (#32, 6121240178).
+Core64c (#76):648,358 staged refs/1,708 populated cells across6.4km; nearby probes cover510m only. Its audit corrects older300m-hop claims: <=2 cells/axis mostly landed, >=3 sometimes relocated/hung; supported hypothesis, not guarantee. Continuous travel remains unproven. N1c NPC moved; commanded/cross-cell paths remain open.
 
-Claude's supervised_1011:10 PASS/5 FAIL/2 inconclusive. Open: multi-part shutter motion, load-door activation, Vault114 cinder-block step and movable item. #78 cave entry/return is staged, not runtime-accepted. #79 multi-part rigs/clips/body fix is offline; native playback/moving-body linkage needs in-game proof. Eight-interior acceptance is incomplete; never combine builds.
+Open regressions: Fort Hagen shutter/frame collision and load-door prompt, Vault114 cinder-block step and movable physics. Cave/native playback need live proof; interior acceptance remains incomplete.
 
-Codex #34/#35 merged: degraded checkpoints retry; archive sources use streamed SHA (immutable during conversion). #83 supersedes closed #62 recovery/BA2 verification onto #78's --needs/order/plugin-only packing. Selected plugins/active masters/cycles are checked; install/order/uninstall refuse interrupted main recovery. 14 focused/882 full tests (38 skips), guard and independent QA pass. Hosted CI inherits #66's path error; needs Claude integration/runtime acceptance. #84 tracks inherited final replace/unlink race gaps; single deployment controller assumed. No live install changed.
+#34/#35 (main): degraded checkpoint retries and streamed archive SHA; immutable sources. #86 in #66 at85e342f: portable resource lookups,360 Windows tests/Linux CI/independent QA pass; report counts unchanged.
 
-Codex #80 tracks generated skeleton/Open/Close.af/.afx despite omitted files lists/rig tags (7 focused/808 full;28 skips). #81 preserves small authored bind rotations (5 focused/813 full;28 skips + pose-matrix checks). Both independently reviewed; hosted CI blocked by #66's existing Linux game-path lookup. Four-lookup patch prepared for Claude; terrain file untouched. Native playback/collision still need in-game proof.
+Reviewed #80/#81 -> #79 at29f3b83: tracked rig/clips and small bind rotations;814 tests/CI/QA pass. #83/#89 -> #78 at02cfa8e: verified BA2/recovery/order/exit protocol;887 tests/CI/QA pass. Parent runtime acceptance remains open.
+
+#89: unfinished work returns4, complete/dry-run0. Preserve old batch_full:1109 pending after12h/old exit0; non-movable estimate15-18 active hours. Offline133-test plan retains16 cells/49 failures/2470f876 (~3-4h), not run. Adopt reviewed runner; re-plan movable tests.
+
+Parents #66/#78/#79 remain open, not runtime accepted. Moving collision/cave/save need live tests. #84 replace/unlink races remain; one controller required.
+
+Codex #91 prepares pinned exterior queues. Live October13: smoke7/7, baseline29/30 matching heights; six roofs match, northeast+1.8939m flagged. Sources/installed identities verified; original stage/batch/save preserved. qstep omits the final jump's merge offset: all four post-probes excluded; boundary dialogue cannot measure map limits. Launches held for Claude's reviewed fix/fresh pins. Codex controller until23:35:17Z; runner closed, owner photo session reserved. #94 merged read-only [evidence audit](testing/commonwealth-evidence.md); #96 invalidates heights dependent on replayed references. Walking/connections open. [Public handoff](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6138419102).
 
 ## Coordination
 
-GitHub #29-32 is the inbox/status source. [Actor proposal](ACTOR-MILESTONE.md); [older history](handoff-archive/2026-10-07-codex-history.md). Keep this file below4KB; link experiments instead of copying transcripts. Preserve staging/multi. No automation/local-team or live-control changes by Codex this run.
+GitHub #29-32 is the inbox/status source. [History](handoff-archive/2026-10-07-codex-history.md). Keep below4KB; link experiments. Preserve staging/multi. Live controls unchanged.
