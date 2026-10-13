@@ -279,6 +279,86 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(report['height_matches'], 0)
         self.assertTrue(report['launch_hold'])
 
+    def add_second_entry(self, replay=None):
+        """Independent files may have identical pixels; replay shares one inode."""
+        plan = copy.deepcopy(self.plan)
+        plan['id'] = 'fixture2'
+        self.queue['tests'].append(plan)
+        self.state['done']['fixture2'] = copy.deepcopy(self.state['done']['fixture'])
+        self.state['attempts']['fixture2'] = 1
+        self.save_fixture()
+        manifest = json.loads((self.root / 'campaign.json').read_text())
+        manifest['phases']['01-smoke']['points'] = 6
+        self.write(self.root / 'campaign.json', manifest)
+        other = self.phase / 'tests' / 'fixture2' / 'a1'
+        other.mkdir(parents=True)
+        self.write(other / 'obs.json', self.obs)
+        for name in ('pt0.png', 'pt1.png', 'pt2.png', 'beyond.png'):
+            if name == replay:
+                os.link(self.folder / name, other / name)
+            else:
+                (other / name).write_bytes((self.folder / name).read_bytes())
+        with (self.phase / 'results.jsonl').open('a') as stream:
+            stream.write('\n' + json.dumps(dict(self.result, id='fixture2')))
+
+    def test_replayed_reference_invalidates_both_entries_relative_heights(self):
+        self.add_second_entry(replay='pt0.png')
+        report = self.inspect()
+        self.assertEqual(report['status'], 'INCONCLUSIVE')
+        self.assertEqual(report['height_matches'], 0)
+        for entry in report['entries']:
+            self.assertTrue(all(p['status'] == 'INCONCLUSIVE' for p in entry['points']))
+            self.assertIn('CAPTURE_REUSE', [i['class'] for i in entry['issues']])
+            self.assertIn('REFERENCE', [i['class'] for i in entry['issues']])
+
+    def test_post_probe_replaying_reference_invalidates_relative_heights(self):
+        self.obs['beyond_shot'] = 'pt0.png'
+        self.save_fixture()
+        report = self.inspect()
+        self.assertEqual(report['status'], 'INCONCLUSIVE')
+        self.assertEqual(report['height_matches'], 0)
+        self.assertTrue(report['launch_hold'])
+        self.assertIn('REFERENCE', [i['class'] for i in report['entries'][0]['issues']])
+
+    def test_replayed_reference_demotes_dependent_height_mismatch_issues(self):
+        self.obs['points'][1]['read'] = '110 -200 18.9'
+        self.add_second_entry(replay='pt0.png')
+        report = self.inspect()
+        self.assertEqual(report['status'], 'INCONCLUSIVE')
+        self.assertEqual(report['height_matches'], 0)
+        for entry in report['entries']:
+            self.assertFalse(any(i['class'] == 'HEIGHTS' and i['status'] == 'MISMATCH'
+                                 for i in entry['issues']))
+            self.assertTrue(any(i.get('invalidated_class') == 'HEIGHTS' and
+                                i['status'] == 'INCONCLUSIVE' for i in entry['issues']))
+            self.assertIn('CAPTURE_REUSE', [i['class'] for i in entry['issues']])
+
+    def test_shifted_reference_demotes_dependent_height_mismatch_issues(self):
+        self.obs['points'][0]['read'] = '150 -200 12'
+        self.obs['points'][1]['read'] = '110 -200 18.9'
+        self.save_fixture()
+        report = self.inspect()
+        self.assertEqual(report['status'], 'INCONCLUSIVE')
+        self.assertEqual(report['height_matches'], 0)
+        self.assertFalse(any(i['status'] == 'MISMATCH' for i in report['entries'][0]['issues']))
+
+    def test_nonreference_replay_keeps_other_independent_heights(self):
+        self.add_second_entry(replay='pt1.png')
+        report = self.inspect()
+        self.assertEqual(report['status'], 'INCONCLUSIVE')
+        self.assertEqual(report['height_matches'], 4)
+        for entry in report['entries']:
+            self.assertEqual([p['status'] for p in entry['points']],
+                             ['MATCH', 'INCONCLUSIVE', 'MATCH'])
+            self.assertNotIn('REFERENCE', [i['class'] for i in entry['issues']])
+
+    def test_independent_identical_captures_across_entries_remain_usable(self):
+        self.add_second_entry()
+        report = self.inspect()
+        self.assertEqual(report['status'], 'MATCH')
+        self.assertEqual(report['height_matches'], 6)
+        self.assertFalse(report['launch_hold'])
+
     def test_overflowing_inputs_and_calculations_produce_inconclusive_json(self):
         for plan_x, expect in ((1e308, 15), (10, 10**400)):
             with self.subTest(plan_x=plan_x):

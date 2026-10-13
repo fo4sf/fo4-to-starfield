@@ -256,6 +256,19 @@ def inspect_phase(root, phase):
                     owner['issues'].append({'status': 'INCONCLUSIVE', 'class': cls})
             else:
                 seen[key] = (entry, observation)
+    # Phase-wide replay checks can invalidate a reference after inspect_test.
+    # Its relative heights then lose their evidence, including apparent mismatches.
+    for test, entry in zip(tests, entries):
+        reference = next((p for p in entry['points'] if p['label'] == test.get('z_ref')), None)
+        if reference is not None and reference['status'] == 'INCONCLUSIVE':
+            if not any(i['class'] == 'REFERENCE' for i in entry['issues']):
+                entry['issues'].append({'status': 'INCONCLUSIVE', 'class': 'REFERENCE'})
+            for row in entry['points']:
+                if row['status'] != 'INCONCLUSIVE':
+                    row.update(status='INCONCLUSIVE', classification='REFERENCE')
+            for issue in entry['issues']:
+                if issue['status'] == 'MISMATCH' and issue['class'] == 'HEIGHTS':
+                    issue.update(status='INCONCLUSIVE', invalidated_class='HEIGHTS', **{'class': 'REFERENCE'})
     issues = [i for entry in entries for i in entry['issues']]
     status = 'INCONCLUSIVE' if any(i['status'] == 'INCONCLUSIVE' for i in issues) else 'MISMATCH' if issues else 'MATCH'
     return {'phase': phase, 'status': status, 'runtime_accepted': False,

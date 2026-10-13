@@ -26,7 +26,7 @@ Reviewed #80/#81 -> #79 at29f3b83: tracked rig/clips and small bind rotations;81
 
 Parents #66/#78/#79 remain open, not runtime accepted. Moving collision/cave/save need live tests. #84 replace/unlink races remain; one controller required.
 
-Codex #91 prepares pinned exterior queues/regional candidates. Live October13: smoke7/7, baseline29/30 matching heights; six repeated roofs match, northeast+1.8939m remains flagged. Sources/installed identities verified; original stage/batch/save preserved. Final unscored jump was NOT suppressed: qstep omits the merge offset. All four entries' post-probes are excluded; boundary dialogue cannot measure map limits. Further launches held for Claude's reviewed fix/fresh pins. Codex owns the scoped controller until23:35:17Z; game closed. #93 adds read-only [evidence audit](testing/commonwealth-evidence.md); walking/connections remain open. [Public handoff](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6136825108).
+Codex #91 prepares pinned exterior queues. Live October13: smoke7/7, baseline29/30 matching heights; six roofs match, northeast+1.8939m flagged. Sources/installed identities verified; original stage/batch/save preserved. qstep omits the final jump's merge offset: all four post-probes excluded; boundary dialogue cannot measure map limits. Launches held for Claude's reviewed fix/fresh pins. Codex controller until23:35:17Z; runner closed, owner photo session reserved. #94 merged read-only [evidence audit](testing/commonwealth-evidence.md); #96 invalidates heights dependent on replayed references. Walking/connections open. [Public handoff](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6138419102).
 
 ## Coordination
 
