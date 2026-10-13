@@ -4,7 +4,7 @@ usage: python convert_batch.py --fo4-data <Fallout 4 Data dir> --staging <out di
                                --texconv <Texconvx64.exe> --collision-template <vanilla box-collision Starfield .nif>
                                [--pattern "setdressing/(chair|stool)"] [--limit 40] [--manifest manifest.json]
 Writes <staging>/manifest.json: converted items (EditorID + model path for the plugin writer), failures with reasons, stats.
-After conversion, prints the top failure reasons by count.
+After conversion, prints the top failure reasons by count (with percentages) and writes failure-summary.json.
 Needs numpy. Deterministic: names are processed in sorted order.
 """
 import argparse
@@ -187,9 +187,21 @@ def main():
     if failures:
         from collections import Counter
         reason_counts = Counter(f["reason"].split(":")[0].strip() for f in failures)
+        total = len(failures)
+        unique = len(reason_counts)
+        print(f"  Failure summary: {total} failures across {unique} unique top-level reasons")
         print("  Top failure reasons:")
         for reason, count in reason_counts.most_common(5):
-            print(f"    {count:4d}  {reason[:80]}")
+            pct = 100.0 * count / total
+            print(f"    {count:4d} ({pct:5.1f}%)  {reason[:80]}")
+        # Persist a compact summary for tooling / later review
+        summary = {
+            "total_failures": total,
+            "unique_reasons": unique,
+            "top": [{"reason": r, "count": c, "percent": round(100.0 * c / total, 1)}
+                    for r, c in reason_counts.most_common(10)],
+        }
+        write_json_atomic(os.path.join(a.staging, "failure-summary.json"), summary)
 
     if cache:
         inconsistent = cache.verify_batch()
