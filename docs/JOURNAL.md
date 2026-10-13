@@ -633,3 +633,13 @@ to requirements-ci.txt without changing terrain records, scripts or tests. Coord
 This fixes the missing dependency, not the unresolved in-game terrain binding. No game assets added.
 Validation: main-based255 tests OK (2 Windows skips), guard OK. At #64 head1600603, all11 FO4 LAND synthetic
 tests pass with Pillow12.3.0, including the failing end-to-end plane/preview case. Hosted dependency CI pending.
+
+## 2026-10-13 Replayed ground-reference evidence (Codex, #96)
+
+Synthetic reproduction: two entries sharing only their ground-reference capture were inconclusive but still
+counted four dependent roof heights as matches; a final diagnostic reusing the reference left two matches.
+After phase-wide capture deduplication, unusable references now invalidate every dependent relative height.
+Four new regressions retain valid independent images with identical pixels and limit non-reference replay
+to the affected rows. Both negative regressions failed before the fix. Validation:29 evidence tests and306
+full-suite tests pass (2 skips); guard passes. Re-reading completed pinned evidence preserves7/7 smoke and29/30
+baseline heights and all four POST_FRAME findings. Offline only; no game scripts, assets or live control changed.

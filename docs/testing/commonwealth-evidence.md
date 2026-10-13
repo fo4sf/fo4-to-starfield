@@ -12,6 +12,8 @@ The JSON report identifies the campaign, queue, terminal state, results, observa
 
 The report distinguishes matching sampled heights from the final unscored diagnostic teleport. The latter is compared against its planned position plus the measured merge offset. An unintended distant jump can therefore be flagged even when every judged height matched and the old runner returned0. A missing, corrupt, reordered, displaced or skipped observation remains inconclusive. A displaced ground reference invalidates all relative height results in its entry.
 
+The same reference rule applies after phase-wide capture checks. If another entry or the final diagnostic reuses a ground-reference capture, every height depending on that reference becomes inconclusive and is excluded from `height_matches`; the capture-reuse cause remains recorded. Reusing an unrelated roof capture affects those observations alone. Separate files with identical pixels remain usable. Synthetic reproduction and correction: [#96](https://github.com/fo4sf/fo4-to-starfield/issues/96).
+
 | Exit | Report status | Meaning |
 |---|---|---|
 |0|MATCH|The sampled data and capture artifacts match the plan; acceptance remains open.|
