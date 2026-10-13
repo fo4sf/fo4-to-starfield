@@ -51,7 +51,7 @@ an OCR misread); the leg budget (`max_legs`); the step's time budget.
 ```
 python scripts/terrain/walk_route.py plan --fo4 <Fallout4.esm> --core C:\Modding\staging\terrain_core64c --out C:\Modding\staging\walk_core64c
 ```
-22 s; byte-identical output when run again (walk_ground.json and plan.json sha256 compared).
+22 s; byte-identical output when run again (route.json, plan.json, walk_ground.json and README.txt compared).
 1. **Fallout 4's own navmesh.** The NAVM records of Fallout4.esm, worldspace Commonwealth, FO4 cells x -21..-15,
    y 17..24 (the area +- 60 m and one cell): 152 records, 99,419 triangles, joined over shared edges and edge links
    (`src/fo4sf/navmesh.py` parse; deleted triangles left out). A* over triangle centroids from the Red Rocket arrival
@@ -196,16 +196,19 @@ $py = 'C:\Modding\venv-render\Scripts\python.exe'
       --install-exp C:\Modding\staging\terrain_core64c --plugins FO4TerrainCore.esm,FO4TerrainCore_Mars.esm `
       --out C:\Modding\testqueue\walk_core64c --fresh
 ```
-queue.json `needs` = light, walk; `pre_launch` = this checkout's `exp_install.py install --exp-dir
-C:\Modding\staging\terrain_core64c ... --pack --needs light,walk`.
+queue.json (planned at commit b5822a3): build 2470f876, `needs` = light, walk; `pre_launch` = this checkout's
+`exp_install.py install --exp-dir C:\Modding\staging\terrain_core64c --plugins FO4TerrainCore.esm,FO4TerrainCore_Mars.esm
+--pack --needs light,walk`; tests `0000_walk_walk_redrocket_to_sanctuary` (step limit 4,597 s) and
+`0001_walk_walk_sanctuary_to_redrocket` (setup teleport; 5,030 s), both fresh, 43 waypoints, at most 57 legs, local
+noon, walk_ground.json 20b7c4a3f9d1c735....
 
 To run, from a checkout of this branch (the walk kind is not in the integration worktree's runner, which refuses the
-queue), with the game closed and no other runner active:
+queue: runner feature `walk`), with the game closed and no other runner active:
 ```powershell
 & $py scripts\terrain\make_core64c.py verify-data --out C:\Modding\staging\terrain_core64c
 & $py scripts\game\exp_install.py status --starfield D:\SteamLibrary\steamapps\common\Starfield
-#   another experiment installed (e.g. slice_redrocket_door_b)? uninstall it first:
-& $py scripts\game\exp_install.py uninstall --exp-dir <that experiment> --starfield D:\SteamLibrary\steamapps\common\Starfield
+#   another experiment installed (on 2026-10-13: slice_redrocket_door_b)? uninstall it first (its record names it):
+& $py scripts\game\exp_install.py uninstall --starfield D:\SteamLibrary\steamapps\common\Starfield
 & $py scripts\game\testqueue.py run --queue C:\Modding\testqueue\walk_core64c --max-attempts 2 --wait-for-idle --refocus
 & $py scripts\game\testqueue.py report --queue C:\Modding\testqueue\walk_core64c
 ```
@@ -213,7 +216,8 @@ Expected time: the first launch packs core64c's 3.63 GiB stored archive in %TEMP
 later launches find it installed), each fresh launch with the dedicated save and god mode about 4 min, the arrival
 and light about 2 min, the walk 27 to 32 legs of about 33 s (console session, typing at 0.24 s a character, OCR, the
 hold, the screenshot checks): 15 to 18 min. About 25 min a test, **about 1 hour** for both; a retry of an
-INCONCLUSIVE adds up to 25 min. The step's own limit is 4,970 s (57 legs worst case).
+INCONCLUSIVE adds up to 25 min. The step's own limit is 4,597 s / 5,030 s (57 legs worst case); the step stops
+walking 150 s before its budget (limit - 60 s), so a cut-off keeps every leg already read.
 
 ## Tests
 - `tests/test_terrain_walk_route.py`: edge links joining two navmeshes, A*, the funnel bending only at an inner corner,
