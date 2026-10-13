@@ -266,6 +266,9 @@ def inspect_phase(root, phase):
             for row in entry['points']:
                 if row['status'] != 'INCONCLUSIVE':
                     row.update(status='INCONCLUSIVE', classification='REFERENCE')
+            for issue in entry['issues']:
+                if issue['status'] == 'MISMATCH' and issue['class'] == 'HEIGHTS':
+                    issue.update(status='INCONCLUSIVE', invalidated_class='HEIGHTS', **{'class': 'REFERENCE'})
     issues = [i for entry in entries for i in entry['issues']]
     status = 'INCONCLUSIVE' if any(i['status'] == 'INCONCLUSIVE' for i in issues) else 'MISMATCH' if issues else 'MATCH'
     return {'phase': phase, 'status': status, 'runtime_accepted': False,

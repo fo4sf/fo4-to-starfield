@@ -320,6 +320,28 @@ class EvidenceTests(unittest.TestCase):
         self.assertTrue(report['launch_hold'])
         self.assertIn('REFERENCE', [i['class'] for i in report['entries'][0]['issues']])
 
+    def test_replayed_reference_demotes_dependent_height_mismatch_issues(self):
+        self.obs['points'][1]['read'] = '110 -200 18.9'
+        self.add_second_entry(replay='pt0.png')
+        report = self.inspect()
+        self.assertEqual(report['status'], 'INCONCLUSIVE')
+        self.assertEqual(report['height_matches'], 0)
+        for entry in report['entries']:
+            self.assertFalse(any(i['class'] == 'HEIGHTS' and i['status'] == 'MISMATCH'
+                                 for i in entry['issues']))
+            self.assertTrue(any(i.get('invalidated_class') == 'HEIGHTS' and
+                                i['status'] == 'INCONCLUSIVE' for i in entry['issues']))
+            self.assertIn('CAPTURE_REUSE', [i['class'] for i in entry['issues']])
+
+    def test_shifted_reference_demotes_dependent_height_mismatch_issues(self):
+        self.obs['points'][0]['read'] = '150 -200 12'
+        self.obs['points'][1]['read'] = '110 -200 18.9'
+        self.save_fixture()
+        report = self.inspect()
+        self.assertEqual(report['status'], 'INCONCLUSIVE')
+        self.assertEqual(report['height_matches'], 0)
+        self.assertFalse(any(i['status'] == 'MISMATCH' for i in report['entries'][0]['issues']))
+
     def test_nonreference_replay_keeps_other_independent_heights(self):
         self.add_second_entry(replay='pt1.png')
         report = self.inspect()

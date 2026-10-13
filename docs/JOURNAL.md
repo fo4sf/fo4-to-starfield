@@ -639,7 +639,8 @@ tests pass with Pillow12.3.0, including the failing end-to-end plane/preview cas
 Synthetic reproduction: two entries sharing only their ground-reference capture were inconclusive but still
 counted four dependent roof heights as matches; a final diagnostic reusing the reference left two matches.
 After phase-wide capture deduplication, unusable references now invalidate every dependent relative height.
-Four new regressions retain valid independent images with identical pixels and limit non-reference replay
-to the affected rows. Both negative regressions failed before the fix. Validation:29 evidence tests and306
+Six new regressions retain valid independent images with identical pixels, limit non-reference replay
+to the affected rows and demote stale HEIGHTS issues after reference invalidation (independent QA finding).
+Four negative regressions failed before their fixes. Validation:31 evidence tests and308
 full-suite tests pass (2 skips); guard passes. Re-reading completed pinned evidence preserves7/7 smoke and29/30
 baseline heights and all four POST_FRAME findings. Offline only; no game scripts, assets or live control changed.
