@@ -10,6 +10,10 @@
 // Vanilla keeps all 45 AutoloadDoor_Cave references of its overlay worldspaces, and all 345 XTEL references in
 // worldspaces, in the worldspace's persistent cell (SliceDoor sf-door, Starfield.esm 1.16.244), so the exterior door
 // goes there too. FormIDs: 0x800 the exterior door, 0x801 the interior door (fixed, so plans can name them).
+// Options (docs/slice/door-frames.md section 3): "persistent_cell": {"template_world": "LC172World"} gives the
+// persistent cell override a vanilla world's persistent cell record (flag 0x400, DATA XCLC LTMP XCLW XILS) instead of
+// the master's (ours: flag 0, DATA only; our persistent refs read unmerged in game); "probes": XMarkers from 0x802 in
+// an exterior cell (an override of the master's cell record), persistent or temporary, read by the runner's getpos.
 using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
@@ -27,6 +31,31 @@ public static class Build
     public static IStarfieldModDisposableGetter Open(string path, params string[] masters) =>
         StarfieldMod.CreateFromBinaryOverlay(path, StarfieldRelease.Starfield,
             new BinaryReadParameters { MasterFlagsLookup = Inspect.Styles(masters) });
+
+    /// <summary>The worldspace record alone: a deep copy without its exterior cell blocks and its persistent cell. A
+    /// plain DeepCopy materialises every child first (core64c's FO4TerrainCore.esm: 648,358 references), so the copy
+    /// leaves them out instead of clearing them afterwards; the record's own fields are copied as before.</summary>
+    public static Worldspace WorldOnly(IWorldspaceGetter w) =>
+        w.DeepCopy(new Worldspace.TranslationMask(defaultOn: true)
+        {
+            SubCells = new WorldspaceBlock.TranslationMask(defaultOn: false, onOverall: false),
+            TopCell = new Cell.TranslationMask(defaultOn: false, onOverall: false),
+        });
+
+    /// <summary>A cell record without its children (persistent, temporary, navigation meshes).</summary>
+    public static Cell CellOnly(ICellGetter c)
+    {
+        var copy = c.DeepCopy(new Cell.TranslationMask(defaultOn: true)
+        {
+            Persistent = false,
+            Temporary = false,
+            NavigationMeshes = new NavigationMesh.TranslationMask(defaultOn: false, onOverall: false),
+        });
+        copy.Persistent.Clear();
+        copy.Temporary.Clear();
+        copy.NavigationMeshes.Clear();
+        return copy;
+    }
 
     public static PlacedObject Door(FormKey key, FormKey doorBase, JsonElement side, FormKey other)
     {
@@ -79,28 +108,78 @@ public static class Build
         var ext = Door(extKey, baseKey, p.GetProperty("outside"), intKey);
         var inn = Door(intKey, baseKey, p.GetProperty("inside"), extKey);
 
-        // exterior: worldspace + its persistent cell, deep copies without their children, plus the door
+        // exterior: worldspace + its persistent cell, deep copies without their children, plus the door. With
+        // "persistent_cell": {"template_world": ...} the persistent cell override takes the record of a vanilla world's
+        // persistent cell instead (every one of Starfield.esm's 432 has record flag 0x400 and DATA XCLC LTMP XCLW XILS;
+        // ours had flag 0 and DATA only, and our persistent refs read unmerged while LC172World's read merged:
+        // docs/slice/door-frames.md section 3)
         var wid = S(p.GetProperty("world"), "editor_id");
         var w0 = exp2.Worldspaces.FirstOrDefault(w => w.EditorID == wid) ?? throw new InvalidDataException($"no WRLD {wid} in {exp2.ModKey}");
         if (w0.TopCell == null) throw new InvalidDataException($"{wid} has no persistent cell");
-        var w = w0.DeepCopy();
+        var w = WorldOnly(w0);
         w.SubCells.Clear();
-        var top = w0.TopCell.DeepCopy();
-        top.Persistent.Clear();
-        top.Temporary.Clear();
-        top.NavigationMeshes.Clear();
+        var top = CellOnly(w0.TopCell);
+        string topFrom = $"{exp2.ModKey}";
+        if (p.TryGetProperty("persistent_cell", out var pc))
+        {
+            var tw = S(pc, "template_world");
+            var t0 = sf.Worldspaces.FirstOrDefault(x => x.EditorID == tw)?.TopCell
+                     ?? throw new InvalidDataException($"no persistent cell of WRLD {tw} in {sf.ModKey}");
+            top = (Cell)CellOnly(t0).Duplicate(w0.TopCell.FormKey);
+            top.MajorRecordFlagsRaw = t0.MajorRecordFlagsRaw & ~0x40000;     // 0x400 persistent (compression aside)
+            topFrom = $"{tw}'s persistent cell {t0.FormKey}";
+        }
         top.Persistent.Add(ext);
         w.TopCell = top;
+
+        // probes (optional): XMarkers in an exterior cell of the world, persistent (the cell's persistent children) or
+        // temporary: where the engine reports each after the merge tells which storage it moves (runner door_trip probes)
+        uint nextId = InteriorId + 1;
+        var probeLines = new List<string>();
+        if (p.TryGetProperty("probes", out var probes) && probes.GetArrayLength() > 0)
+        {
+            var byCell = new Dictionary<(int, int), Cell>();
+            foreach (var pr in probes.EnumerateArray())
+            {
+                var g = pr.GetProperty("cell").EnumerateArray().Select(e => e.GetInt32()).ToArray();
+                if (!byCell.TryGetValue((g[0], g[1]), out var ec))
+                {
+                    IWorldspaceBlockGetter? blk0 = null; IWorldspaceSubBlockGetter? sub0 = null; ICellGetter? cell0 = null;
+                    foreach (var bk in w0.SubCells)
+                        foreach (var sb in bk.Items)
+                            foreach (var cc in sb.Items)
+                                if (cc.Grid?.Point.X == g[0] && cc.Grid?.Point.Y == g[1]) { blk0 = bk; sub0 = sb; cell0 = cc; }
+                    if (cell0 == null || blk0 == null || sub0 == null) throw new InvalidDataException($"no exterior cell ({g[0]}, {g[1]}) in {wid}");
+                    ec = CellOnly(cell0);
+                    byCell[(g[0], g[1])] = ec;
+                    var blk = w.SubCells.FirstOrDefault(b => b.BlockNumberX == blk0.BlockNumberX && b.BlockNumberY == blk0.BlockNumberY);
+                    if (blk == null) { blk = new WorldspaceBlock { BlockNumberX = blk0.BlockNumberX, BlockNumberY = blk0.BlockNumberY, GroupType = blk0.GroupType }; w.SubCells.Add(blk); }
+                    var esub = blk.Items.FirstOrDefault(s => s.BlockNumberX == sub0.BlockNumberX && s.BlockNumberY == sub0.BlockNumberY);
+                    if (esub == null) { esub = new WorldspaceSubBlock { BlockNumberX = sub0.BlockNumberX, BlockNumberY = sub0.BlockNumberY, GroupType = sub0.GroupType }; blk.Items.Add(esub); }
+                    esub.Items.Add(ec);
+                }
+                var id = Convert.ToUInt32(S(pr, "id"), 16);
+                if (id != nextId) throw new InvalidDataException($"probe id {id:X} out of order (expected {nextId:X})");
+                nextId++;
+                var o = new PlacedObject(new FormKey(modKey, id), StarfieldRelease.Starfield)
+                {
+                    EditorID = S(pr, "edid"),
+                    Base = new FormLinkNullable<IPlaceableObjectGetter>(new FormKey(sfKey, Convert.ToUInt32(S(pr, "base"), 16))),
+                    Position = P3(pr.GetProperty("pos")),
+                    Rotation = new P3Float(0, 0, 0),
+                };
+                if (pr.GetProperty("persistent").GetBoolean()) { o.MajorRecordFlagsRaw |= 0x400; ec.Persistent.Add(o); }
+                else ec.Temporary.Add(o);
+                probeLines.Add($"probe {o.FormKey} {o.EditorID} {(pr.GetProperty("persistent").GetBoolean() ? "persistent" : "temporary")} in ({g[0]}, {g[1]}) at {o.Position}");
+            }
+        }
         mod.Worldspaces.Add(w);
 
         // interior: the converted cell, a deep copy without its children, plus the door
         var cid = S(p.GetProperty("interior"), "editor_id");
         var c0 = port.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(s => s.Cells).FirstOrDefault(c => c.EditorID == cid)
                  ?? throw new InvalidDataException($"no CELL {cid} in {port.ModKey}");
-        var cell = c0.DeepCopy();
-        cell.Persistent.Clear();
-        cell.Temporary.Clear();
-        cell.NavigationMeshes.Clear();
+        var cell = CellOnly(c0);
         cell.Persistent.Add(inn);
         var n = cell.FormKey.ID;
         var block = new CellBlock { BlockNumber = (int)(n % 10), GroupType = GroupTypeEnum.InteriorCellBlock };
@@ -109,7 +188,7 @@ public static class Build
         block.SubBlocks.Add(sub);
         mod.Cells.Records.Add(block);
 
-        mod.ModHeader.Stats.NextFormID = InteriorId + 1;
+        mod.ModHeader.Stats.NextFormID = nextId;
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, modKey.FileName);
         // masters in the load order the runner produces: Starfield.esm, FO4TerrainExp2.esm (..._Mars), FO4Port.esm, this
@@ -118,8 +197,9 @@ public static class Build
                               new KeyedMasterStyle(port.ModKey, MasterStyle.Full))
             .Write();
         Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): base {door.EditorID} {baseKey} (flags {door.Flags}); " +
-                          $"exterior {extKey} in {wid} persistent cell {top.FormKey} at {ext.Position} -> {intKey}; " +
+                          $"exterior {extKey} in {wid} persistent cell {top.FormKey} (record from {topFrom}) at {ext.Position} -> {intKey}; " +
                           $"interior {intKey} in {cid} {cell.FormKey} at {inn.Position} -> {extKey}");
+        foreach (var l in probeLines) Console.WriteLine("  " + l);
         return 0;
     }
 }

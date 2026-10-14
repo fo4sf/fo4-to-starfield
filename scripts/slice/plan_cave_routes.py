@@ -93,15 +93,26 @@ def route_side(name, support, capsule_r, nav, start, door, bounds, start_free=0.
         return out
     wps = res["waypoints"]
     real = dr.free_near(capsule_r(CAPSULE[0]), start, start_free)
-    out["final_walk"] = dr.toward(support, real, wps[-1], door, reach=GOAL_M)
-    out.update(route=wps, level={"margin": res["radius"][0], "capsule": res["radius"][1]}, length=res["length"],
-               legs=res["legs"], end_to_door_m=res["end_to_door_m"], nodes=len(res["nodes"]),
-               capsule_contacts=dr.contacts(support, real, wps),
-               off_navmesh=dr.contacts(support, nav.blocked_at(0.0), wps),
+    out["final_walk"] = fw = dr.toward(support, real, wps[-1], door, reach=GOAL_M)
+    out["route_planned"] = [list(p) for p in wps]
+    if fw["reaches"] and math.dist(wps[-1], door) > GOAL_M:
+        # the runner's plan wants a route that ends near its door (testqueue.door_test: within activate_m + 1 m):
+        # the straight final walk, checked just above with the assumed capsule, becomes the route's last leg
+        wps = [list(p) for p in wps] + [fw["end"]]
+        out["final_point_added"] = True
+    planned = out["route_planned"]
+    length = res["length"] + (fw["walked_m"] if out.get("final_point_added") else 0.0)
+    # contacts over the whole route the runner walks; navmesh cover over the planned part only (the final walk into
+    # a cave mouth leaves FO4's navmesh by design: its door triangle lies at the XTEL point)
+    out.update(route=wps, level={"margin": res["radius"][0], "capsule": res["radius"][1]}, length=round(length, 3),
+               length_planned=res["length"], legs=res["legs"], end_to_door_m=round(math.dist(wps[-1], door), 3),
+               nodes=len(res["nodes"]), capsule_contacts=dr.contacts(support, real, wps),
+               off_navmesh=dr.contacts(support, nav.blocked_at(0.0), planned),
                drift={f"{off:+.1f}": {"capsule_contacts": len(dr.contacts(support, real, dr.lateral(wps, off))),
-                                      "off_navmesh": len(dr.contacts(support, nav.blocked_at(0.0), dr.lateral(wps, off)))}
+                                      "off_navmesh": len(dr.contacts(support, nav.blocked_at(0.0),
+                                                                     dr.lateral(planned, off)))}
                       for off in (-DRIFT_M, DRIFT_M)},
-               walk_ms=dr.walk_ms(res["length"]))
+               walk_ms=dr.walk_ms(length))
     return out
 
 
@@ -135,6 +146,21 @@ def render(path, side, support, nav, bounds, px=0.25, scale=3, above=50.0):
     img.resize((w * scale, h * scale)).save(path)
 
 
+def core_world(core, spawn_local, o_door):
+    """(core64c's local collision world around the arrival and the cave door, its bounds)."""
+    import make_core64c as mc                                          # noqa: E402  (numpy, the terrain modules)
+    with open(os.path.join(core, "objects.json"), encoding="utf-8-sig") as f:
+        obj = json.load(f)
+    _prm, ov = mc.core_params(core)
+    terrain = mc.Terrain(os.path.join(core, *ov["btd_file"].split("/")))
+    bounds_o = (min(spawn_local[0], o_door[0]) - 25.0, min(spawn_local[1], o_door[1]) - 20.0,
+                max(spawn_local[0], o_door[0]) + 25.0, max(spawn_local[1], o_door[1]) + 15.0)
+    world = mc.CoreWorld(os.path.join(core, "Data"), obj["bases"], obj["refs"], terrain, bounds_o, margin=15.0)
+    if world.collision_errors:
+        sys.exit(f"converted collision unreadable: {world.collision_errors}")
+    return world, bounds_o
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--fo4", required=True, help="Fallout4.esm")
@@ -143,27 +169,27 @@ def main(argv=None):
     ap.add_argument("--out", required=True, help="routes JSON to write (outside the repo)")
     ap.add_argument("--png", default="", help="also write <png>_outside.png / _inside.png maps")
     a = ap.parse_args(argv)
-    import make_core64c as mc                                          # noqa: E402  (numpy, the terrain modules)
+    out = plan_routes(a.fo4, a.core, a.port, png=a.png)
+    with open(a.out, "w", encoding="utf-8") as f:
+        json.dump(out, f, indent=1)
+    return 0 if out["outside"].get("route") and out["inside"].get("route") else 1
+
+
+def plan_routes(fo4, core, port, png="", world=None, interior=None):
+    """Both routes (the module doc): {"outside", "inside", "frames", "assumptions"}. world / interior: a prebuilt
+    core_world() result and make_redrocket_door.Interior, else built here."""
     import make_redrocket_door as rr                                   # noqa: E402
     import navmesh_points as npnt                                      # noqa: E402
 
-    with fo4land.Plugin(a.fo4) as pl:
+    with fo4land.Plugin(fo4) as pl:
         ext_navs = {f: navmesh.parse(b) for _c, f, _fl, b in navmesh.world_navmeshes(pl, "Commonwealth", EXT_CELLS)}
         _cfid, int_navs, _refs = npnt.read_cell(pl, FO4_CELL)
 
     # outside: core64c's world near Red Rocket
-    with open(os.path.join(a.core, "objects.json"), encoding="utf-8-sig") as f:
-        obj = json.load(f)
-    _prm, ov = mc.core_params(a.core)
-    with open(os.path.join(a.core, "plan.json"), encoding="utf-8-sig") as f:
+    with open(os.path.join(core, "plan.json"), encoding="utf-8-sig") as f:
         spawn_local = json.load(f)[0]["spawn_local"]
-    terrain = mc.Terrain(os.path.join(a.core, *ov["btd_file"].split("/")))
     o_door = metres(EXT_DOOR)
-    bounds_o = (min(spawn_local[0], o_door[0]) - 25.0, min(spawn_local[1], o_door[1]) - 20.0,
-                max(spawn_local[0], o_door[0]) + 25.0, max(spawn_local[1], o_door[1]) + 15.0)
-    world = mc.CoreWorld(os.path.join(a.core, "Data"), obj["bases"], obj["refs"], terrain, bounds_o, margin=15.0)
-    if world.collision_errors:
-        sys.exit(f"converted collision unreadable: {world.collision_errors}")
+    world, bounds_o = world or core_world(core, spawn_local, o_door)
     sup_o = rr.exterior_support(world)
     r_, h_, s_ = CAPSULE
 
@@ -181,7 +207,7 @@ def main(argv=None):
     print(f"outside: {outside.get('length')} m, level {outside.get('level')}, tried {outside['levels_tried']}")
 
     # inside: the pinned build's RedRocket01
-    it = rr.Interior(a.port, FO4_CELL)
+    it = interior or rr.Interior(port, FO4_CELL)
 
     def cap_i(r):
         return lambda x, y, z: [it.describe(k)["model"] for k in exterior.capsule_hits(
@@ -204,13 +230,11 @@ def main(argv=None):
                       "inside": "RedRocket01 interior frame (FO4 / 70)"},
            "assumptions": {"climb_m_per_0.25m": dr.CLIMB, "max_drop_m": dr.MAX_DROP, "capsule": CAPSULE,
                            "goal_m": GOAL_M, "levels": LEVELS, "speed_m_s": dr.SPEED}}
-    with open(a.out, "w", encoding="utf-8") as f:
-        json.dump(out, f, indent=1)
-    if a.png:
-        base = os.path.splitext(a.png)[0]
+    if png:
+        base = os.path.splitext(png)[0]
         render(base + "_outside.png", outside, sup_o, nav_o, bounds_o)
         render(base + "_inside.png", inside, it.support, nav_i, bounds_i, px=0.1, scale=4, above=1.5)
-    return 0 if outside.get("route") and inside.get("route") else 1
+    return out
 
 
 if __name__ == "__main__":

@@ -313,7 +313,8 @@ def lateral(waypoints, offset):
 def toward(support, blocked, start, door, reach=2.7, climb=CLIMB, max_drop=MAX_DROP, step=SAMPLE):
     """The walk straight at the door from start (feet) until the feet are within `reach` of the door's origin: what the
     runner does after the last waypoint. {"reaches", "walked_m", "to_door_m" (the closest sample), "why" (what stopped
-    it), "floor" [z ...]}. blocked: the capsule (a contact stops the walk, as a wall would)."""
+    it), "floor" [z ...], and when it reaches, "end" [x, y, z]: the first sample within reach}. blocked: the capsule
+    (a contact stops the walk, as a wall would)."""
     d = math.hypot(door[0] - start[0], door[1] - start[1])
     n = max(1, int(math.ceil(d / step - 1e-9)))
     prev, zs, closest = start[2], [], math.dist(start, door)
@@ -327,7 +328,7 @@ def toward(support, blocked, start, door, reach=2.7, climb=CLIMB, max_drop=MAX_D
         z = float(hit[0])
         if math.dist((x, y, z), door) <= reach:
             return {"reaches": True, "walked_m": round(d * f, 3), "to_door_m": round(math.dist((x, y, z), door), 3),
-                    "why": "", "floor": zs + [round(z, 4)]}
+                    "why": "", "floor": zs + [round(z, 4)], "end": [round(x, 4), round(y, 4), round(z, 4)]}
         hits = blocked(x, y, z)
         if hits:
             return {"reaches": False, "walked_m": round(d * (k - 1) / n, 3), "to_door_m": round(closest, 3),

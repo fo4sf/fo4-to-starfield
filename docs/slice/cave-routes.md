@@ -52,7 +52,9 @@ part is the runner's straight walk at the door. That final walk is checked with 
 
 ### Outside: core64c world frame (the runner adds the merge offset)
 
-- **Route.** 53.2 m in 7 legs, at level margin 0.3 with a 0.5 m capsule (the strictest level was found).
+- **Route.** 53.2 m in 7 legs, at level margin 0.3 with a 0.5 m capsule (the strictest level was found). The plan
+  adds the final walk at the door as an 8th leg, to (-995.0769, 1107.0002, 99.0544), 2.52 m from the door's origin.
+  The runner's `door_test` wants a route to end within `activate_m` + 1 m of its door. That gives 56.7 m in all.
 - **Waypoints.** From the pump island (floor `FO4Core_swisland9x1str01`, 105.26) the route leaves the canopy
   south-east, runs south along the east side of the station, turns south-west down the slope, and ends in front of
   the cave mouth:
@@ -69,12 +71,13 @@ part is the runner's straight walk at the door. That final walk is checked with 
   | end (in front of the cave mouth) | -995.2571 | 1103.5143 | 99.6857 |
 
 - **Climb and drop.** Largest rise 0.09 m and largest drop 0.10 m per 0.25 m. The whole route descends 5.6 m.
-- **Capsule.** 0 contacts with the 0.35 m capsule. Shifted 0.2 m to the left of the walking direction: 3 contacts.
-  Shifted to the right: 0. Off the navmesh: 0 either way.
+- **Capsule.** 0 contacts with the 0.35 m capsule. Shifted 0.2 m to the left of the walking direction: 4 contacts
+  with the final leg (3 without it). Shifted to the right: 0. Off the navmesh (planned part): 0 either way.
 - **Final walk at the door.** 3.5 m straight from the last waypoint, capsule clear, floor 99.71 down to 99.05. It
   reaches 2.52 m from the door's origin, inside the 3 m `fAutoDoorActivateDistance` if that range is measured to the
   origin (**supported**).
-- **W-hold budget.** 26.5 s (`door_route.walk_ms`: 1.6 x the route at 4.6 m/s, plus 8 s).
+- **W-hold budget.** 27.7 s with the final leg (`door_route.walk_ms`: 1.6 x the route at 4.6 m/s, plus 8 s). The
+  plan's `route_walk_ms` is 37.7 s: the longer leg's budget plus 10 s.
 
 ### Inside: RedRocket01 frame
 
@@ -103,6 +106,67 @@ part is the runner's straight walk at the door. That final walk is checked with 
 - **Start.** The arrival's own capsule touches `cavemoundrocksmed04`, as on exp2d (redrocket-door.md section 5). The
   route leaves from there: samples within 0.8 m of the start are not checked for the capsule.
 - **W-hold budget.** 10.3 s.
+
+## Staging and the queue (`scripts/slice/make_cave_core64c.py`)
+
+`stage` writes one install folder.
+
+**What the folder holds**
+
+| File | What |
+|---|---|
+| `FO4SliceRedRocketCore.esm` (1,563 B) | Masters: Starfield.esm, FO4TerrainCore.esm, FO4Port.esm. |
+| WRLD `FO4Core_Commonwealth` | An override, byte-identical to core64c's record. |
+| Persistent cell `001805` | Overridden in the record shape of LC172World's persistent cell: fix A of [door-frames.md](door-frames.md) section 3, `--template-world LC172World`. |
+| Exterior cell (-10, 11) | Byte-identical to core64c's record. It holds the two merge probes. |
+| Interior cell `FO4Port_RedRocket01` | Byte-identical to the pinned build's record. |
+| The two doors (`AutoloadDoor_Cave` 24F9CE) | Persistent, XTEL both ways, at the Fallout 4 positions / 70, as on exp2d. |
+| Probe `000802` | XMarker `00003B`, a persistent child of exterior cell (-10, 11). |
+| Probe `000803` | XMarker, temporary in the same cell (the control). |
+| `FO4TerrainCore.esm`, `FO4TerrainCore_Mars.esm` and the whole `Data` tree (51,821 files, 3.63 GiB) | Hard links to the `terrain_core64c` staging: the same files, no second copy. |
+
+**Install.** The runner's `exp_install.py` installs one folder. From this one it activates
+`FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SliceRedRocketCore.esm` and packs Data into
+`FO4TerrainCore - Main.ba2` exactly as for core64c. `cycle.ps1` then orders the slice plugin after `FO4Port.esm`.
+
+**Core64c facts the stage checks (verified).**
+
+- core64c places the cave mouth `08CCF2` (`FO4Core_caveentrground01`, cell (-10, 11)).
+- core64c's `skipped.json` lists `08EB65` as `editor_marker`, so the exterior door is placed once.
+
+**The plan (one door_trip test, `--fresh`).**
+
+- **Travel.** `coc FO4Core_RedRocketSpawn`, from core64c's `spawn_local`.
+- **Routes.** Both legs routed: `start` = the route's first point, so there is no teleport to a start.
+- **Facing.** `arrival_heading` is 181.914 degrees outside (the interior door's XTEL rotation, -3.1081858 rad) and
+  154.779 degrees inside (the exterior door's, 2.7014012 rad).
+- **IDs.** `cell_id` `04002338`, door ref `05000800`.
+- **Probes.** `05000802`, `05000803` and core64c's anchor `02000800`. These ids assume the load order FO4TerrainCore
+  02, Mars 03, FO4Port 04, the slice 05 (**supported**).
+- **Thresholds.** `moved_m` 61 (above the routes' reach + 10 m) and `facing_tol` 20 degrees.
+
+**`check` (16 checks, all pass on a dry-run stage, 2026-10-13).**
+
+- `SliceDoor check` (33 of 33).
+- A raw compare of every override with its master.
+- The hard links: the same files as core64c's, and its `data_manifest.json` (sizes and times) unchanged.
+- The plan through the runner's own `door_test`.
+- The load order after `exp_install.py order`.
+- The runner features the plan needs: `door_check, door_frames, door_route, door_trip, plugin_order`.
+- The routes' own checks.
+- Pins: sha256 of the three plugins, `FO4Port.esm`, `plan.json`, `slice_params.json`, `routes.json` and core64c's
+  `data_manifest.json`, plus the repo commit (`offline_check.json`).
+
+The archive's hash is recorded by `exp_install.py` when it builds the archive at install time.
+
+```powershell
+python scripts\slice\make_cave_core64c.py stage --fo4 <Fallout4.esm> --sf-esm <Starfield.esm> --port <pinned build> `
+       --core <terrain_core64c> --out <slice folder> --template-world LC172World
+python scripts\slice\make_cave_core64c.py check --sf-esm <Starfield.esm> --port <pinned build> --core <terrain_core64c> `
+       --out <slice folder>
+python scripts\game\testqueue.py plan-door --staging <pinned build> --exp-dir <slice folder> --out <queue> `
+       --plugins FO4TerrainCore.esm,FO4TerrainCore_Mars.esm,FO4SliceRedRocketCore.esm --fresh
+```
 
 ## Unknowns
 
