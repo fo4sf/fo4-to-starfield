@@ -29,8 +29,8 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   errors (start wedged / under a slab / against debris, walk too long, a 0.15 m flight), and FO4's own collision has no
   usable lane on 4 of these flights (`0EBECE`, `0F032C`, `09992E`, `170F9F`): **verified offline**; the new routes'
   in-game result: **unresolved** (queue planned in the page, not run). `routes.ref_matrix`'s X-first order for tilted
-  references: **refuted** (verified Z-first; `exterior.ref_matrix` and `PluginSpike.RotateOffset` still X-first, not
-  changed). Player capsule radius 0.35 m (0002 pushed out to its edge at the wall face) and one-sided floors that lift
+  references: **refuted** (verified Z-first, as PR #102 found on 146,463 of 146,728 tilted precombined references;
+  `exterior.ref_matrix` and `PluginSpike.RotateOffset` still X-first, not changed). Player capsule radius 0.35 m (0002 pushed out to its edge at the wall face) and one-sided floors that lift
   a player through them: **supported hypotheses**; such a lift is fragile (1 of 3 passed). Starfield's step-up below
   0.30 m without a helper (V111, 2026-10-08) leaves VltGearDoorStairs01 (no helper, 0.29-0.31 m treads) **unresolved**.
 

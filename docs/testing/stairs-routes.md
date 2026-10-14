@@ -56,8 +56,10 @@ the model is not what differs.
   precombine 312 tilted references match only that order, 3 only the old one, 85 both; the debris piles and floor
   chunks on the library stairs match 93-100 % of their vertices against 0-13 %. The old order put those debris piles
   up to about 1 m higher over the treads than FO4 has them. Pure Z rotations (most stairs, doors and walls) are the
-  same either way.
-  `exterior.ref_matrix` and `PluginSpike.RotateOffset` still use the old order (not changed here: follow-up).
+  same either way. PR #102 (core64c's northeast probe) found the same order independently on a far larger set: the
+  rotation matrices FO4's precombines store equal Z first for 146,463 of 146,728 tilted references in 4,497 cells.
+  `exterior.ref_matrix`, `navmesh_points.py` and `PluginSpike.RotateOffset` still use the old order (not changed here;
+  #102 lists them as its follow-up).
 - **Start buried under a slab:** a floor up to 1.5 m over the ramp counted as burying it; the gallery slab is 1.69 m
   over the BldDecoSmStairs03 foot. Now up to the player's height (1.8 m), and a flight hanging over nothing starts where
   the floor it ends on covers it.
