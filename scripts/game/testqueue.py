@@ -1540,6 +1540,7 @@ def step_timeout(test):
 
 DOOR_CHECK_S = 8        # door_trip: one HUD check while walking (screenshot + hud_visible.py, PowerShell + Python start)
 DOOR_READ_S = 25        # door_trip: one readpos.ps1 run after a walk step (console open, getpos x / y / z, OCR, 4 tries)
+DOOR_TIMEOUT_CAP_S = 5400   # door_trip: cap of the computed worst case (live trips 8-12 min; routed about 50 min at real step costs)
 DOOR_TURN_S = 15        # door_trip route: one player.setangle z console session (open, about 24 characters, close)
 
 
@@ -1574,7 +1575,10 @@ def door_timeout(test, light=0.0):
                 + steps * per + 2 * NPC_READ_S + 5 * 10            # + the confirmation reads, the heading reads
         else:
             legs += leg + 5 * 10
-    return int(fixed + legs + save + reload + light)
+    # the sum above is a worst case of worst cases (every read at its 3-run maximum, every route step used): 14,386 s
+    # for the routed core64c trip, while live trips took 8-12 min (2026-10-13). A hung step must not hold the game for
+    # hours, so the timeout is capped at DOOR_TIMEOUT_CAP_S.
+    return int(min(fixed + legs + save + reload + light, DOOR_TIMEOUT_CAP_S + light))
 
 
 class Runner:

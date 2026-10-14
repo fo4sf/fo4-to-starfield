@@ -320,7 +320,9 @@ class DoorFramesTests(unittest.TestCase):
         self.assertEqual((t["outside"]["arrival_heading"], t["inside"]["arrival_heading"]), (181.92, 154.78))
         self.assertEqual(runner_features.needs([t]), ["door_check", "door_frames", "door_route", "door_trip"])
         self.assertEqual((t["route_hold_ms"], t["route_max_steps"], t["facing_tol"]), (2000, 40, 20.0))
-        self.assertGreater(tq.step_timeout(t), tq.step_timeout(tq.door_test(0, PLAN)))
+        # the worst-case sum is capped: a hung routed trip must not hold the game for hours (live trips: 8-12 min)
+        self.assertEqual(tq.door_timeout(t), tq.DOOR_TIMEOUT_CAP_S)
+        self.assertGreaterEqual(tq.step_timeout(t), tq.step_timeout(tq.door_test(0, PLAN)))
         with self.assertRaises(SystemExit):                       # a route longer than moved_m allows
             tq.door_test(0, dict(self.plan(), moved_m=30.0))
         self.assertEqual(tq.door_test(0, dict(PLAN, outside=dict(PLAN["outside"], arrival_heading=-178.08)))
