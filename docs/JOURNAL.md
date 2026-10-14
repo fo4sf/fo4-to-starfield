@@ -810,7 +810,7 @@ twin step is untested in game until the next library run.
   - **Supported hypothesis:** references in our overlay's persistent cell are not shifted by the merge offset, so the trigger sits about 1.2 / 2.7 km from the cave mouth. This blocks persistent doors in overlays until we know how vanilla stores them. The core64c door branch is investigating; runner fixes for strict reads and GetInCell are on the same branch.
 - **Daylight on demand (verified, `noon_1013`, PR #73):** at the night site (exp2b2, registration 0.3/-1.2 rad, dark in 18 of 18 earlier arrivals), `SetLocalTime 12` turned the sky from 6.4 to 180.4 (top-row brightness).
   - All 18 probe shots read daylight (corner median 165.3), so the light holds through the run.
-  - The terrain verdict is INCONCLUSIVE only because one read lost a digit group (y read as -1.66 instead of -1553.49). That is the same OCR fault as the door trip; the strict labelled reads on the door branch fix it.
+  - The terrain verdict is INCONCLUSIVE only because one read lost a digit group (y read as -1.66 instead of -1553.49). That is the same OCR fault as the door trip; the strict labelled reads on the door branch fix it. **(Incomplete, 2026-10-14: probe resampled_sw was also relocated 141.9 m in this run; the judge reports only the first problem. See below.)**
   - Visual checks (ground textures, #70) can now run at noon.
 - **N0b2 (QASmoke NPC control, PR #77, spawn tolerance 6 m):** the three baselines PASS (citizen x2, Spacer). They wandered 6-10 m but came no closer than 19-22 m to the 24 m goal, so the control separates wandering from a commanded walk.
   - `PathToRef player`: **FAIL STALLED** (25 m of path, only 5.7 m of approach).
@@ -839,3 +839,25 @@ twin step is untested in game until the next library run.
   - Used after Continue in cycle.ps1 and during qstep's `load` kind.
   - After the save loads, cycle.ps1 runs the new read-only `exp_install.py active`. If an installed experiment plugin is no longer `*`-active, it exits 8 instead of testing. A switched load order now fails in seconds instead of freezing every coc.
   - Unit: 47/47 exp_install (4 new). The highlight check reads `save` on t033, `none` on the other frames and `current` on a frame with the rows swapped. Not yet verified in game.
+- **Fix verified in game (noon2_1013, 02:44 and 03:13 launches, runner 68adac4):**
+  - Both launches met the dialog. Frames: "Save" highlighted at 37-39 s, "Current" at 42 s, then the dialog closed.
+  - The Plugins.txt watcher saw no change after launch. Every experiment plugin stayed `*`-active through Continue, the dedicated save's load and the run.
+  - The coc into FO4CW_RedRocketSpawn loaded and all 18 probes ran: no freeze, where every coc froze the night before.
+  - Daylight again: sky 6.6 -> 180.6 and 34.8 -> 147.0 after `SetLocalTime 12`, corner medians 165.4 / 102.0.
+- **noon2 terrain verdicts, both INCONCLUSIVE MOVED, neither a terrain fault:**
+  - **a1 redrocket_2:** the Y read lost its digit group again ("-1.66" for -1551.66; a2 read it right).
+  - **a2 resampled_sw (supported hypothesis):** ended 141.9 m from its target.
+    - It lands at the same spot (-2343.28, -1758.94) in 8 of 10 attempts over every exp2b-plan run. In 2 attempts it landed on the target (-2458.06, -1842.40).
+    - The hop to it from seam_sf_east crosses 3 cell borders in X, and the core64 rule is at most 2 per axis.
+    - These plans have no `hop_m`. Terrain re-plans should set `hop_m` <= 150 so the runner splits long teleports.
+- **Codex's #107 and #103 reviews: all 11 findings fixed** (two Fable agents in their own worktrees; Claude reviewed and pushed).
+  - **#107** (head 2e3c961):
+    - routed trips need their walk evidence;
+    - every read types a nonce first and only replies after its echo count, one Work folder per read (unverified in game);
+    - the cave check binds the runner's routes and probes to the checked inputs;
+    - door_route nodes keyed by floor;
+    - the temporary_refs count is fixed.
+  - **#103** (head 4e0ad9d): STOP/Guardian inside the walk; experiment identity pinned and enforced; no readpos fallback; evidence checked before geometry; the offset only from settled reads; ordered one-to-one border matching.
+  - Suites 1036 and 1037 OK; sandboxes OK. Both are back to Codex for re-review.
+- **PR #110 movable fix pass** (pushed 612a245, suite 1013 OK): no PASS without the walk; ELEVATED only out of contact; the mass must be read back.
+  - GetMass has no console entry, so `cf "ObjectReference.GetMass"` is the only route (unverified in game).
