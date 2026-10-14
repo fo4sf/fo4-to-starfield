@@ -6,8 +6,11 @@ Starfield 1.16.244 builds its console command entries at runtime: the initialise
 `lea rax, [rip+X]` (48 8D 05) and stores it with `mov [rbp+D], rax` (48 89 85); the parameter count is stored with
 `mov eax, n` + `mov [rbp+D], ax` and the parameter array (16 bytes each: type-name pointer, type id, optional flag) is a
 static table in .data. Entry layout (decoded from PathToRef's initialiser, 2026-10-11): +0x00 name, +0x08 short name,
-+0x10 opcode (u32), +0x18 help, +0x22 parameter count (u16), +0x28 parameters. Script functions (GetSelf, GetIsID) are
-registered another way: --near prints the strings next to a name instead (their help text sits beside them).
++0x10 opcode (u32), +0x18 help, +0x22 parameter count (u16), +0x28 parameters. The script-function table (SetPos,
+PlaceAtMe, ApplyHavokImpulse, SetRigidBodyMass; opcodes 0x1000 and up, 2026-10-13) is built the same way on the stack
+pointer instead (`mov [rsp+D], rax` = 48 89 84 24, `mov dword [rsp+D], imm32` = C7 84 24, `mov byte [rsp+D], imm8` =
+C6 84 24, `mov [rsp+D], ax` = 66 89 84 24): both forms are read. Some script functions (GetSelf, GetIsID) are
+registered yet another way: --near prints the strings next to a name instead (their help text sits beside them).
 Nothing is written; the exe is only read."""
 import argparse
 import re
@@ -67,7 +70,7 @@ class Image:
         return idx, va + idx + 7 + d
 
     def stores(self, text_off):
-        """{rbp offset: value} from the store sequence that starts at a name's lea (see the module doc)."""
+        """{rbp or rsp offset: value} from the store sequence that starts at a name's lea (see the module doc)."""
         va, rs, rp = self.secs[".text"]
         i, rax, eax, out = text_off, None, None, {}
         for _ in range(40):
@@ -78,10 +81,17 @@ class Image:
             elif b[:3] == b"\x48\x89\x85":
                 out[struct.unpack_from("<i", b, 3)[0]] = rax
                 i += 7
+            elif b[:4] == b"\x48\x89\x84\x24":                 # mov [rsp+d32], rax
+                out[struct.unpack_from("<i", b, 4)[0]] = rax
+                i += 8
             elif b[:2] == b"\xc7\x85":
                 d, imm = struct.unpack_from("<iI", b, 2)
                 out[d] = imm
                 i += 10
+            elif b[:3] == b"\xc7\x84\x24":                     # mov dword [rsp+d32], imm32
+                d, imm = struct.unpack_from("<iI", b, 3)
+                out[d] = imm
+                i += 11
             elif b[:1] == b"\xb8":
                 eax = struct.unpack_from("<I", b, 1)[0]
                 i += 5
@@ -91,11 +101,19 @@ class Image:
             elif b[:3] == b"\x66\x89\x85":
                 out[struct.unpack_from("<i", b, 3)[0]] = eax
                 i += 7
+            elif b[:4] == b"\x66\x89\x84\x24":                 # mov [rsp+d32], ax
+                out[struct.unpack_from("<i", b, 4)[0]] = eax
+                i += 8
             elif b[:2] == b"\xc6\x85":
                 out[struct.unpack_from("<i", b, 2)[0]] = b[6]
                 i += 7
+            elif b[:3] == b"\xc6\x84\x24":                     # mov byte [rsp+d32], imm8
+                out[struct.unpack_from("<i", b, 3)[0]] = b[7]
+                i += 8
             elif b[:4] in (b"\xc5\xf8\x11\x85", b"\xc5\xfc\x11\x85"):
                 i += 8
+            elif b[:5] in (b"\xc5\xf8\x11\x84\x24", b"\xc5\xfc\x11\x84\x24"):
+                i += 9
             else:
                 break
         return out

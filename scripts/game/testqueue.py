@@ -3,7 +3,12 @@ checkpoint after every test, resume later, and rank the problems found.
 
 usage:
   python testqueue.py plan   --staging <build dir> --out <queue dir> [--cells A,B] [--kinds stairs,door,fall,movable,travel]
-                             [--per-cell 12] [--per-kind N] [--plugin-index 02]
+                             [--per-cell 12] [--per-kind N] [--plugin-index 02] [--impulse]
+                             --impulse: a movable item the walk did not move is pushed with ApplyHavokImpulse
+  python testqueue.py plan-movable --staging <build dir> --exp-dir <dir with plan.json> --out <queue dir> [--fresh]
+                             movable_control: an item (vanilla, or a converted one of the build) placed in a vanilla
+                             cell, walked over, then pushed with ApplyHavokImpulse (docs/ai/test-queue.md "Movable
+                             items: walk, then impulse")
   python testqueue.py plan-terrain --staging <build dir> --exp-dir <experiment> --out <queue dir> [--plugins a.esm,b.esm]
   python testqueue.py plan-npc --staging <build dir> --exp-dir <dir with plan.json> --out <queue dir>
                              [--install-exp <experiment> --plugins a.esm,b.esm] [--control-queue <N0 queue dir>]
@@ -54,6 +59,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+from types import SimpleNamespace
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
@@ -67,7 +73,7 @@ import sky_light  # noqa: E402
 UNIT = 1.0 / 70.0
 COMPANION_REF = "000057BE"   # Starfield.esm ACHR VascoREF: the test save's companion, disabled per session
 KINDS = ("stairs", "door", "fall", "movable", "travel")         # planned from a build; "terrain" via plan-terrain
-EXTRA_KINDS = ("terrain", "npc_nav", "door_trip")               # planned from an experiment's plan.json
+EXTRA_KINDS = ("terrain", "npc_nav", "door_trip", "movable_control")   # planned from an experiment's plan.json
 # ranking weight per (kind, verdict reason class): falling out of the world and broken travel first
 SEVERITY = {("fall", "FALL"): 5, ("travel", "NOTRAVEL"): 5, ("travel", "NOPROMPT"): 4, ("door", "BLOCKED"): 4,
             ("door", "NOPROMPT"): 3, ("stairs", "FALL"): 4, ("stairs", "STUCK"): 3, ("door", "FALL"): 5,
@@ -76,13 +82,17 @@ SEVERITY = {("fall", "FALL"): 5, ("travel", "NOTRAVEL"): 5, ("travel", "NOPROMPT
             ("npc_nav", "FELL"): 5, ("npc_nav", "NONAV"): 4, ("npc_nav", "STALLED"): 3, ("npc_nav", "WANDER"): 3,
             ("door_trip", "NOLOAD"): 5, ("door_trip", "WRONGCELL"): 5, ("door_trip", "UNMERGED"): 5,
             ("door_trip", "REMERGED"): 4, ("door_trip", "ELSEWHERE"): 4, ("door_trip", "RELOAD"): 5,
-            ("door_trip", "FELL"): 5, ("door_trip", "OFFGROUND"): 3}
+            ("door_trip", "FELL"): 5, ("door_trip", "OFFGROUND"): 3,
+            ("movable", "STUCK"): 3, ("movable_control", "STUCK"): 3, ("movable_control", "ITEMFELL"): 3,
+            ("movable_control", "NOTMOVED"): 2}
 PS = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
 BREAKER = 6          # inconclusive attempts in a row, with no PASS/FAIL yet, that switch a kind off for the run
 # inconclusive for a reason a retry cannot change. NIGHT (need_daylight, the run did not read as daylight) is NOT
 # final: arrivals of the same test differ between attempts (exp1d 2026-10-11: a1 fell into a pit, sky 7.3, a2 in the
 # open, 131.0), so a retry can read differently; it does not count towards the circuit breaker either (the step works)
-FINAL_INCONCLUSIVE = ("CONTROL", "PRECONDITION")
+# ELEVATED (movable): the item lies on furniture above the player's reach (supervised_1011 0007, 2026-10-12: a cigarette
+# pack 0.83 m up on a desk): the walk cannot reach it however often it is retried, and the step itself worked
+FINAL_INCONCLUSIVE = ("CONTROL", "PRECONDITION", "ELEVATED")
 NO_BREAKER = ("CRASH", "NOCELL", "NIGHT")
 
 # npc_nav (PR #61 docs/actors/npc-navigation.md 3.4): what qstep.ps1 types on the verified console selection to make the
@@ -109,6 +119,45 @@ NPC_PLAN_KEYS = frozenset((
 # requires.verdict: the required test's verdict, or DECIDED for either PASS or FAIL (its run was judged at all: for an
 # npc_nav test, the spawn was confirmed and the reads were taken)
 REQUIRE_VERDICTS = ("PASS", "FAIL", "DECIDED")
+
+# Movable items (docs/ai/test-queue.md "Movable items: walk, then impulse"). An item counts as moved at MOVE_M; one more
+# than ELEVATED_M above the player's feet at the stand point lies on furniture the walk cannot reach. When the walk did
+# not move it, ApplyHavokImpulse (a console script function of Starfield.exe 1.16.244: opcode 0x1251, four Floats, axis
+# x y z and magnitude; scripts/recon_console.py) is typed on the confirmed selection in steps of a speed change dv
+# (m/s): magnitude = mass x dv, the unit kg m/s a supported hypothesis (LC012NASAGravTrigger.psc scales its impulses by
+# GetMass()). The ladder stops at the first step that moves the item.
+MOVE_M, ELEVATED_M = 0.05, 0.5
+IMPULSE_DV = (1.5, 6.0, 24.0)
+SET_MASS_CMD = "SetRigidBodyMass"     # console script function, opcode 0x1156, one Float: "Sets the Havok mass for an object."
+MASS_PROBE = 'cf "ObjectReference.GetMass"'     # Papyrus ObjectReference.GetMass() through the console's CallFunction
+
+
+def _fmt(x, nd=3):
+    """A number as the console gets it: up to nd decimals, no trailing zeros, never -0."""
+    x = round(float(x), nd)
+    if x == 0:
+        return "0"
+    return f"{x:.{nd}f}".rstrip("0").rstrip(".")
+
+
+def impulse_axis(heading):
+    """Unit axis of an impulse: back along the walk (towards the stand point, the path the player has just walked, so
+    clear of obstacles) and 45 degrees up, so the item hops off the floor and lands away from where it lay."""
+    h = math.radians(float(heading))
+    s = 1 / math.sqrt(2)
+    return [round(-math.sin(h) * s, 3), round(-math.cos(h) * s, 3), round(s, 3)]
+
+
+def impulse_steps(mass, heading, dvs=IMPULSE_DV):
+    """The impulse ladder of one item: [{dv, magnitude, cmd}], magnitude = mass x dv (kg m/s)."""
+    ax = " ".join(_fmt(x) for x in impulse_axis(heading))
+    out = []
+    for dv in dvs:
+        mag = round(float(mass) * float(dv), 2)
+        if not 0 < mag < 1e6:
+            sys.exit(f"impulse magnitude {mag} out of range (mass {mass} kg x dv {dv} m/s)")
+        out.append({"dv": float(dv), "magnitude": mag, "cmd": f"ApplyHavokImpulse {ax} {_fmt(mag, 2)}"})
+    return out
 
 
 # ---------------------------------------------------------------------------------------------------------- utilities
@@ -179,8 +228,11 @@ def with_extras(t, w, cli):
 
 
 # ----------------------------------------------------------------------------------------------------------- planning
-def plan_cell(cell, staging, kinds, per_cell, plugin_index, formids, items, all_refs, routes_prefix="routes_"):
-    """Tests for one exported cell, in the owner's priority order: stairs, falls, doors (both sides), movable, travel."""
+def plan_cell(cell, staging, kinds, per_cell, plugin_index, formids, items, all_refs, routes_prefix="routes_",
+              impulse=False):
+    """Tests for one exported cell, in the owner's priority order: stairs, falls, doors (both sides), movable, travel.
+    impulse: a movable test whose walk does not move the item applies the impulse ladder to it (needs the item's base
+    record in formids.json and its mass in the manifest; runner feature "impulse")."""
     name = cell["cell"]
     out = []
     routes_file = os.path.join(staging, f"{routes_prefix}{name}.json")   # e.g. routesfull_ = routes.py --max 400
@@ -219,9 +271,17 @@ def plan_cell(cell, staging, kinds, per_cell, plugin_index, formids, items, all_
             towards = [x * UNIT for x in coc["pos"]] if coc else [item[0], item[1] - 1.0, item[2]]
             d = math.hypot(towards[0] - item[0], towards[1] - item[1]) or 1.0
             stand = [item[0] + (towards[0] - item[0]) / d * 1.1, item[1] + (towards[1] - item[1]) / d * 1.1, item[2] + 0.1]
-            out.append({"kind": "movable", "cell": name, "ref": r["formkey"], "model": r["model"],
-                        "sf_ref": f"{plugin_index}{local:06X}", "item": [round(x, 3) for x in item],
-                        "stand": [round(x, 3) for x in stand], "heading": heading_to(stand, item), "walk_ms": 900})
+            t = {"kind": "movable", "cell": name, "ref": r["formkey"], "model": r["model"],
+                 "sf_ref": f"{plugin_index}{local:06X}", "item": [round(x, 3) for x in item],
+                 "stand": [round(x, 3) for x in stand], "heading": heading_to(stand, item), "walk_ms": 900}
+            it = items[key]
+            base = formids.get(f"MSTT:{it.get('editor_id')}")
+            mass = (it.get("movable") or {}).get("mass_kg")
+            if impulse and base is not None and mass:
+                # the impulse acts on the selection only after prid <ref> and GetIsID <base> read 1 in that session
+                t.update(sf_base=f"{plugin_index}{base:06X}", mass_kg=float(mass),
+                         impulses=impulse_steps(mass, t["heading"]), impulse_wait_ms=3000)
+            out.append(t)
             n += 1
     if "travel" in kinds:
         for r in cell["refs"]:
@@ -265,7 +325,8 @@ def plan(a):
         cells = [c for c in cells if c["cell"] in want]
     tests = []
     for c in cells:
-        tests += plan_cell(c, staging, kinds, a.per_cell, a.plugin_index, formids, items, all_refs, a.routes_prefix)
+        tests += plan_cell(c, staging, kinds, a.per_cell, a.plugin_index, formids, items, all_refs, a.routes_prefix,
+                           impulse=getattr(a, "impulse", False))
     if a.per_kind:                                        # small batches: the first N of each kind in each cell
         seen = {}
         keep = []
@@ -281,6 +342,9 @@ def plan(a):
     q = {"created": now(), "staging": staging, "plugin_sha256": digest, "build_id": digest[:8],
          "commit": subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
          "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]], "tests": tests}
+    need = runner_features.needs(tests)
+    if need:                                              # e.g. "impulse": an older runner refuses the queue
+        q["needs"] = need
     os.makedirs(a.out, exist_ok=True)
     save_atomic(os.path.join(a.out, "queue.json"), q)
     counts = {}
@@ -639,6 +703,121 @@ def plan_door(a):
           + (f", needs runner features {', '.join(q['needs'])}" if q.get("needs") else ""))
 
 
+# movable_control (docs/ai/test-queue.md "Movable items: walk, then impulse"): every key a plan.json test may carry
+MOVABLE_PLAN_KEYS = frozenset((
+    "label", "model", "travel", "base", "base_edid", "mass_kg", "set_mass_kg", "mass_probe", "spot", "heading",
+    "stand_m", "park_m", "walk_ms", "settle_ms", "spawn_wait_ms", "handle_tol", "drop", "impulse_dv",
+    "impulse_wait_ms", "moved_m", "reach_m", "settle_m", "fresh", "expect", "basis") + console_plan.CONSOLE_KEYS)
+
+
+def movable_test(n, w, formids=None, items=None, plugin_index="02"):
+    """One movable_control test from a plan.json entry: an item placed with placeatme at `spot` in a vanilla cell (a
+    vanilla Starfield base, or a converted one of the pinned build by its EditorID), the player 1.1 m before it walks over
+    it along `heading`, then the impulse ladder when the walk did not move it. Everything qstep.ps1 types is built and
+    validated here (the coc travel, 8-hex form ids, SetRigidBodyMass / ApplyHavokImpulse with finite numbers in range,
+    the GetMass probe) and checked again by qstep."""
+    label = str(w.get("label") or f"item{n}")
+    unknown = sorted(set(w) - MOVABLE_PLAN_KEYS)
+    if unknown:
+        sys.exit(f"{label}: unknown plan.json keys {unknown} (known: {sorted(MOVABLE_PLAN_KEYS)})")
+    travel = str(w.get("travel") or "")
+    if not re.fullmatch(r"coc [A-Za-z0-9_]+", travel):
+        sys.exit(f"bad travel in plan.json (coc <cell editor id>): {travel!r}")
+    if bool(w.get("base")) == bool(w.get("base_edid")):
+        sys.exit(f"{label}: give exactly one of base (8 hex digits, the form id in the load order) and base_edid "
+                 f"(an EditorID of the pinned build's formids.json)")
+    model = str(w.get("model") or label)
+    if w.get("base"):
+        base = str(w["base"])
+        if not re.fullmatch(r"[0-9A-Fa-f]{8}", base):
+            sys.exit(f"bad base form id in plan.json: {base!r}")
+        mass = w.get("mass_kg")
+    else:
+        edid = str(w["base_edid"])
+        local = next((v for k, v in (formids or {}).items() if k in (f"MSTT:{edid}", f"MISC:{edid}")), None)
+        if local is None:
+            sys.exit(f"{label}: {edid} is not a MoveableStatic of the pinned build (formids.json)")
+        base = f"{plugin_index}{int(local):06X}"
+        it = next((x for x in (items or {}).values() if x.get("editor_id") == edid), {})
+        mass = w.get("mass_kg", (it.get("movable") or {}).get("mass_kg"))
+        model = str(w.get("model") or it.get("source") or edid)
+        if not it.get("movable"):
+            sys.exit(f"{label}: {edid} is not a movable item of the pinned build's manifest")
+    if mass is None:
+        sys.exit(f"{label}: mass_kg needed (the body's mass; the impulse magnitudes scale with it)")
+    mass = _num({"mass_kg": mass}, "mass_kg", 1.0, 0.01, 100000)
+    spot = _vec(w.get("spot"), (3,), "spot")
+    heading = _num(w, "heading", 0.0, 0.0, 360.0)
+    stand_m, park_m = _num(w, "stand_m", 1.1, 0.5, 5.0), _num(w, "park_m", 3.0, 1.0, 20.0)
+    if park_m <= stand_m:
+        sys.exit(f"{label}: park_m ({park_m}) must be farther than stand_m ({stand_m})")
+    h = math.radians(heading)
+    park = [round(spot[0] - math.sin(h) * park_m, 3), round(spot[1] - math.cos(h) * park_m, 3), spot[2]]
+    dvs = _vec(w.get("impulse_dv", list(IMPULSE_DV)), range(0, 5), "impulse_dv")
+    if any(not 0.1 <= dv <= 100 for dv in dvs):
+        sys.exit(f"{label}: impulse_dv steps must be within 0.1..100 m/s: {dvs}")
+    safe = re.sub(r"[^A-Za-z0-9_]", "_", label)[:40]
+    t = {"id": f"{n:04d}_movable_control_{safe}", "kind": "movable_control", "cell": "", "ref": label, "model": model,
+         "travel": travel, "base": base.upper(), "mass_kg": mass, "spot": spot, "heading": heading, "park": park,
+         "stand_m": stand_m, "walk_ms": int(_num(w, "walk_ms", 900, 100, 5000)),
+         "settle_ms": int(_num(w, "settle_ms", 1500, 0, 30000)), "drop": _num(w, "drop", 0.3, 0, 5),
+         # the console closed this long after placeatme (the item drops and settles; PickLastRef needs the game to have
+         # run, N0_base 2026-10-11), and how close to the spot the ref PickLastRef names must lie
+         "spawn_wait_ms": int(_num(w, "spawn_wait_ms", 3000, 500, 30000)),
+         "handle_tol": _num(w, "handle_tol", 2.0, 0.3, 10),
+         "impulse_wait_ms": int(_num(w, "impulse_wait_ms", 3000, 500, 30000)),
+         "moved_m": _num(w, "moved_m", MOVE_M, 0.01, 1.0), "reach_m": _num(w, "reach_m", 0.6, 0.1, 3.0),
+         "settle_m": _num(w, "settle_m", 0.1, 0.01, 1.0)}
+    if w.get("set_mass_kg") is not None:
+        # SetRigidBodyMass <kg> on the confirmed selection before the walk: does the same body move once it is as
+        # light as a vanilla item of its size? (its effect is unverified: the console's reply is kept)
+        sm = _num(w, "set_mass_kg", 1.0, 0.1, 1000)
+        t["set_mass_kg"], t["set_mass_cmd"] = sm, f"{SET_MASS_CMD} {_fmt(sm, 2)}"
+    if w.get("mass_probe"):
+        t["probe_cmd"] = MASS_PROBE                    # the reply's OCR is kept (diagnostic, never judged)
+    # the ladder's magnitudes are for the mass the body has during the test
+    t["impulses"] = impulse_steps(t.get("set_mass_kg", mass), heading, dvs) if dvs else []
+    if w.get("fresh"):
+        t["fresh"] = True
+    for k in ("expect", "basis"):
+        if w.get(k):
+            t[k] = str(w[k])
+    # whitelisted console lines before the travel / after the arrival (console_plan.py; e.g. GetINI of the character
+    # controller's settings), their replies OCR'd into obs.console and shown with the verdict
+    return dict(t, **console_plan.console_fields(w, _plan_fail))
+
+
+def plan_movable(a):
+    """movable_control tests from <exp-dir>/plan.json (a list, or {"tests": [...]}); see movable_test. The pinned build
+    (--staging) supplies FO4Port.esm, formids.json (base_edid) and the manifest (masses)."""
+    staging = os.path.abspath(a.staging)
+    esm = os.path.join(staging, "FO4Port.esm")
+    if not os.path.exists(esm):
+        sys.exit(f"no FO4Port.esm in {staging}: the runner pins and launches a build")
+    src = load(os.path.join(a.exp_dir, "plan.json"))
+    if isinstance(src, dict):
+        src = src.get("tests")
+    if not src or not isinstance(src, list) or not all(isinstance(w, dict) for w in src):
+        sys.exit(f"no movable_control tests in {os.path.join(a.exp_dir, 'plan.json')} (a list of test objects)")
+    formids = load(os.path.join(staging, "formids.json"), {})
+    items = {it["source"].lower(): it for it in load(os.path.join(staging, "manifest.json"), {"items": []})["items"]}
+    tests = [movable_test(n, w, formids, items, a.plugin_index) for n, w in enumerate(src)]
+    labels = [t["ref"] for t in tests]
+    if len(set(labels)) != len(labels):
+        sys.exit(f"duplicate labels in plan.json: {sorted({x for x in labels if labels.count(x) > 1})}")
+    digest = sha256(esm)
+    q = {"created": now(), "staging": staging, "plugin_sha256": digest, "build_id": digest[:8],
+         "commit": subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
+         "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]],
+         "launch_cell": a.launch_cell, "experiment": os.path.abspath(a.exp_dir),
+         "tests": [dict(t, fresh=True) if a.fresh else t for t in (tests[:a.only] if a.only else tests)]}
+    q.update(queue_extras(q["tests"], SimpleNamespace(plugins=""), a.exp_dir))
+    os.makedirs(a.out, exist_ok=True)
+    save_atomic(os.path.join(a.out, "queue.json"), q)
+    print(f"{len(q['tests'])} movable_control tests (experiment {a.exp_dir}) on build {q['build_id']}"
+          + (f", needs runner features {', '.join(q['needs'])}" if q.get("needs") else ""))
+
+
 # ------------------------------------------------------------------------------------------------------------ judging
 def light_of(test, obs):
     """The light of a test that asked for a time of day or a weather (sky_light.verdict: the arrival camera before and
@@ -718,28 +897,9 @@ def judge_kind(test, obs, out_dir):
             return "INCONCLUSIVE", "HELD", f"stopped {dz:.1f} m above"
         return "PASS", "PASS", f"landed {dz:+.2f} m"
     if kind == "movable":
-        b, a_ = parse3(obs.get("item_before")), parse3(obs.get("item_after"))
-        pe = parse3(obs.get("player_end"))
-        if b is None or a_ is None or pe is None or not (shot_ok(obs.get("shot_before")) and shot_ok(obs.get("shot_after"))):
-            return "INCONCLUSIVE", "UNREAD", "item or player position not read, or a screenshot missing"
-        moved = math.dist(b, a_)
-        if a_[2] < b[2] - 1.0:
-            return "FAIL", "ITEMFELL", f"item dropped {b[2] - a_[2]:.1f} m"
-        if moved >= 0.05:
-            return "PASS", "PASS", f"item moved {moved:.2f} m"
-        reach = math.hypot(pe[0] - b[0], pe[1] - b[1])
-        # the walk runs from player_start to player_end: its closest approach decides whether the player reached the
-        # item (batch_full 2026-10-12: the player walked straight over a book, 0.01 m from it, and ended 3.2 m past
-        # it; judged on the end point alone it was MISSED, and six of those switched the whole kind off)
-        ps = parse3(obs.get("player_start"))
-        how = f"player reached it ({reach:.2f} m)"
-        if ps is not None:
-            near = seg_dist_xy(ps, pe, b)
-            if near < reach:
-                reach, how = near, f"player passed {near:.2f} m from it (walked {math.hypot(pe[0] - ps[0], pe[1] - ps[1]):.1f} m)"
-        if reach <= 1.0:
-            return "FAIL", "NOTMOVED", f"{how} but it moved {moved:.3f} m"
-        return "INCONCLUSIVE", "MISSED", f"player came no closer than {reach:.2f} m to the item"
+        return judge_push(test, obs, shot_ok)
+    if kind == "movable_control":
+        return judge_movable_control(test, obs, shot_ok)
     if kind == "travel":
         st = parse3(obs.get("start_read"))
         if st is None or math.hypot(st[0] - test["start"][0], st[1] - test["start"][1]) > 3:
@@ -791,6 +951,126 @@ def judge_kind(test, obs, out_dir):
         v, cls, detail = judge_door(test, obs, shot_ok)
         return v, cls, detail + (f" [expected {test['expect']}]" if test.get("expect") else "")
     return "INCONCLUSIVE", "KIND", f"unknown kind {kind}"
+
+
+CLEAR_ECHO = re.compile(r"C[Il1|]ear\s?Conso[Il1|]e", re.I)          # ClearConsole's echo, as parse_npc.py reads it
+REFUSED = re.compile(r"not\s?found|unknown|invalid|missing|error|failed|cannot|can't", re.I)
+
+
+def console_refused(ocr):
+    """The refusal the console printed for this session's command (the text after the session's last ClearConsole echo),
+    else None."""
+    text = str(ocr or "")
+    starts = [m.end() for m in CLEAR_ECHO.finditer(text)]
+    m = REFUSED.search(text[starts[-1]:] if starts else text)
+    return m.group(0) if m else None
+
+
+def impulse_outcome(test, obs, start):
+    """The impulse ladder after a walk that did not move the item, judged from `start` (the item's read after the
+    walk): ("moved", step, distance, z drop, record) | ("stuck", steps) when every planned impulse was typed on a
+    confirmed selection and read back without a move | ("incomplete", why) | None when no ladder is planned."""
+    planned = test.get("impulses") or []
+    if not planned:
+        return None
+    done = [r for r in (obs.get("impulses") or []) if isinstance(r, dict)]
+    moved_m = test.get("moved_m", MOVE_M)
+    for k, rec in enumerate(done):
+        p = parse3(rec.get("read"))
+        if p is not None and math.dist(start, p) >= moved_m:
+            return "moved", k, math.dist(start, p), start[2] - p[2], rec
+    if len(done) == len(planned) and all(r.get("applied") and parse3(r.get("read")) is not None for r in done):
+        return "stuck", len(done)
+    if not done:
+        return "incomplete", "no impulse was applied"
+    miss = [str(k + 1) for k, r in enumerate(done) if not r.get("applied")]
+    unread = [str(k + 1) for k, r in enumerate(done) if r.get("applied") and parse3(r.get("read")) is None]
+    why = []
+    if miss:
+        why.append(f"impulse {', '.join(miss)} not applied (selection not confirmed)")
+    if unread:
+        why.append(f"impulse {', '.join(unread)} not read back")
+    if len(done) < len(planned):
+        why.append(f"{len(done)} of {len(planned)} impulses run")
+    return "incomplete", "; ".join(why)
+
+
+def judge_push(test, obs, shot_ok):
+    """movable (an item of the build, walked into) and movable_control (an item placed in a vanilla cell): the walk,
+    then, when it did not move the item, the impulse ladder. PASS (movable_control: WALKED) when the walk moved it 5 cm,
+    PASS IMPULSE when only an impulse did (the body is simulated, the walk does not push it), FAIL STUCK when no planned
+    impulse moved it either, FAIL ITEMFELL through the floor. Without a ladder the walk decides as before: FAIL NOTMOVED
+    when the player passed within reach of it, INCONCLUSIVE MISSED when not, and (movable) INCONCLUSIVE ELEVATED when it
+    lies more than ELEVATED_M above the player's feet: on furniture the walk cannot reach (supervised_1011 0007)."""
+    control = test["kind"] == "movable_control"
+    b, a_ = parse3(obs.get("item_before")), parse3(obs.get("item_after"))
+    pe = parse3(obs.get("player_end"))
+    if b is None or a_ is None or pe is None or not (shot_ok(obs.get("shot_before")) and shot_ok(obs.get("shot_after"))):
+        return "INCONCLUSIVE", "UNREAD", "item or player position not read, or a screenshot missing"
+    moved = math.dist(b, a_)
+    if a_[2] < b[2] - 1.0:
+        return "FAIL", "ITEMFELL", f"item dropped {b[2] - a_[2]:.1f} m"
+    reach = math.hypot(pe[0] - b[0], pe[1] - b[1])
+    # the walk runs from player_start to player_end: its closest approach decides whether the player reached the
+    # item (batch_full 2026-10-12: the player walked straight over a book, 0.01 m from it, and ended 3.2 m past
+    # it; judged on the end point alone it was MISSED, and six of those switched the whole kind off)
+    ps = parse3(obs.get("player_start"))
+    how = f"player reached it ({reach:.2f} m)"
+    if ps is not None:
+        near = seg_dist_xy(ps, pe, b)
+        if near < reach:
+            reach, how = near, f"player passed {near:.2f} m from it (walked {math.hypot(pe[0] - ps[0], pe[1] - ps[1]):.1f} m)"
+    if moved >= test.get("moved_m", MOVE_M):
+        return "PASS", "WALKED" if control else "PASS", f"item moved {moved:.2f} m" + (f" ({how})" if control else "")
+    walk = f"{how} but it moved {moved:.3f} m"
+    imp = impulse_outcome(test, obs, a_)
+    if imp and imp[0] == "moved":
+        _, k, d, drop, rec = imp
+        what = f"ApplyHavokImpulse {rec.get('magnitude')} (dv {rec.get('dv')} m/s, step {k + 1})"
+        if drop > 1.0:
+            return "FAIL", "ITEMFELL", f"{walk}; {what} dropped it {drop:.1f} m"
+        return "PASS", "IMPULSE", f"{walk}; {what} moved it {d:.2f} m"
+    if imp and imp[0] == "stuck":
+        top = max(r.get("dv", 0) for r in test["impulses"])
+        return "FAIL", "STUCK", f"{walk}; {imp[1]} impulses up to dv {top} m/s did not move it either"
+    note = f"; {imp[1]}" if imp else ""
+    elev = b[2] - ps[2] if ps is not None else None
+    if not control and elev is not None and elev > ELEVATED_M:
+        return "INCONCLUSIVE", "ELEVATED", (f"the item lies {elev:.2f} m above the player's feet (on furniture): the "
+                                            f"walk cannot reach it; {walk}{note}")
+    if reach <= test.get("reach_m", 1.0):
+        if imp:                                           # the ladder was planned but did not finish
+            return "INCONCLUSIVE", "IMPULSE", f"{walk}{note}"
+        return "FAIL", "NOTMOVED", walk
+    return "INCONCLUSIVE", "MISSED", f"player came no closer than {reach:.2f} m to the item{note}"
+
+
+def judge_movable_control(test, obs, shot_ok):
+    """movable_control: the player at the spot, the item placed and its handle confirmed (PickLastRef's id, GetSelf,
+    GetIsID <base> 1, within handle_tol of the spot), SetRigidBodyMass typed when planned and not refused, the item at
+    rest before the walk (its spawn read and its read before the walk within settle_m); then judge_push."""
+    sp = parse3(obs.get("player_spot"))
+    spot = test["spot"]
+    if sp is None or math.hypot(sp[0] - spot[0], sp[1] - spot[1]) > 1.0:
+        return "INCONCLUSIVE", "START", f"the player was not read at the spot ({obs.get('player_spot')})"
+    s = obs.get("spawn") or {}
+    if not s.get("confirmed"):
+        return "INCONCLUSIVE", "SPAWN", f"the placed item's handle was not confirmed: {s.get('why') or 'no spawn read'}"
+    if test.get("set_mass_cmd"):
+        m = obs.get("set_mass") or {}
+        if not m.get("typed"):
+            return "INCONCLUSIVE", "SETMASS", f"{test['set_mass_cmd']} not typed (selection not confirmed)"
+        refused = console_refused(m.get("ocr"))
+        if refused:
+            return "INCONCLUSIVE", "SETMASS", f"the console refused {test['set_mass_cmd']} ({refused!r})"
+    r0, b = parse3(s.get("read")), parse3(obs.get("item_before"))
+    if r0 is not None and b is not None and math.dist(r0, b) > test.get("settle_m", 0.1):
+        return "INCONCLUSIVE", "SETTLE", (f"the item was still moving before the walk: {math.dist(r0, b):.2f} m between "
+                                          f"its spawn read and its read before the walk")
+    v, c, d = judge_push(test, obs, shot_ok)
+    if test.get("set_mass_cmd") and v != "INCONCLUSIVE":
+        d += f" [{test['set_mass_cmd']} typed; its effect is not read back]"
+    return v, c, d
 
 
 def _add(p, off):
@@ -1431,7 +1711,32 @@ def step_timeout(test):
         return int(fixed + n * (2 * NPC_SESSION_S + 10) + max(reads) + light)
     if test.get("kind") == "door_trip":
         return door_timeout(test, light)
+    if test.get("kind") in ("movable", "movable_control"):
+        return movable_timeout(test) + int(light)         # console_pre / console_post of movable_control
     return 300
+
+
+def movable_timeout(test):
+    """Worst case of a movable / movable_control step: every impulse is one confirmed selection (Select-Item: up to two
+    sessions), the impulse line in its own capture, impulse_wait_ms with the console closed and a confirmed read (two
+    sessions). movable_control adds the coc arrival read until it settles, the player to the spot and its read, the
+    placeatme session with the player's move to the park point, spawn_wait_ms, the handle (plr; prid + GetSelf; GetIsID +
+    getpos), SetRigidBodyMass / the GetMass probe (one selection and up to three captures), the player to the stand point
+    and its read, the confirmed reads before and after the walk, and the removal (a selection, disable, markfordelete)."""
+    per_imp = 4 * NPC_SESSION_S + test.get("impulse_wait_ms", 3000) / 1000 + 10
+    imps = len(test.get("impulses") or [])
+    if test.get("kind") == "movable":
+        return int(300 + 2 * NPC_SESSION_S * bool(imps) + imps * per_imp)
+    extra = (test.get("set_mass_cmd") is not None) + 2 * (test.get("probe_cmd") is not None)
+    fixed = (120 + 5 * NPC_READ_S + 12 + 10                     # coc, the HUD back, the arrival until it settles, shot
+             + 2 * (30 + test.get("settle_ms", 1500) / 1000 + NPC_READ_S)   # the player to the spot and to the stand
+             + NPC_SESSION_S + 15 + test.get("spawn_wait_ms", 3000) / 1000    # placeatme, the move to the park point
+             + 3 * NPC_SESSION_S + 10                           # the handle: plr; prid + GetSelf; GetIsID + getpos
+             + (2 * NPC_SESSION_S + extra * NPC_SESSION_S if extra else 0)
+             + 2 * (2 * NPC_SESSION_S) + 10                     # the item read before and after the walk, two shots
+             + test.get("walk_ms", 900) / 1000 + 2 + NPC_READ_S  # the walk and the player's read after it
+             + 3 * NPC_SESSION_S)                               # the removal
+    return int(fixed + imps * per_imp + 60)
 
 
 DOOR_CHECK_S = 8        # door_trip: one HUD check while walking (screenshot + hud_visible.py, PowerShell + Python start)
@@ -1864,7 +2169,9 @@ def write_report(qdir):
     for t in q["tests"]:
         if t.get("expect"):
             r = final.get(t["id"])
-            got = None if r is None else ("PASS" if r["verdict"] == "PASS" else f"{r['verdict']} {r['class']}")
+            # "PASS" for a plain pass; with its class when a kind has several (movable_control: PASS WALKED / IMPULSE)
+            got = None if r is None else ("PASS" if (r["verdict"], r["class"]) == ("PASS", "PASS")
+                                          else f"{r['verdict']} {r['class']}")
             expectations.append({"id": t["id"], "expect": t["expect"], "result": got, "basis": t.get("basis", "")})
     # time of day / weather asked for: was the run in daylight? (night with "no effect": the commands changed nothing)
     light = [{"id": r["id"], "light": r["light"], "sky": r.get("sky"), "tested": r.get("light_tested"),
@@ -1936,6 +2243,9 @@ def main(argv=None):
     p.add_argument("--plugin-index", default="02")
     p.add_argument("--per-kind", type=int, default=0, help="keep the first N tests of each kind per cell (0 = all)")
     p.add_argument("--routes-prefix", default="routes_", help="route files <staging>/<prefix><cell>.json (routes.py output)")
+    p.add_argument("--impulse", action="store_true",
+                   help="movable: when the walk does not move an item, push it with ApplyHavokImpulse (runner feature "
+                        "impulse; docs/ai/test-queue.md \"Movable items: walk, then impulse\")")
     pt = sub.add_parser("plan-terrain")
     pt.add_argument("--staging", required=True)
     pt.add_argument("--exp-dir", required=True)
@@ -1970,6 +2280,15 @@ def main(argv=None):
     pd.add_argument("--plugins", default="", help="experiment plugins to activate before launch (exp_install.py)")
     pd.add_argument("--only", type=int, default=0, help="keep the first N tests")
     pd.add_argument("--fresh", action="store_true", help="relaunch the game before every test")
+    pm = sub.add_parser("plan-movable", help="movable_control tests (an item placed in a vanilla cell, walked over, "
+                                             "then pushed with ApplyHavokImpulse) from <exp-dir>\\plan.json")
+    pm.add_argument("--staging", required=True, help="the pinned build (FO4Port.esm, formids.json, manifest.json)")
+    pm.add_argument("--exp-dir", required=True, help="folder with plan.json")
+    pm.add_argument("--out", required=True)
+    pm.add_argument("--launch-cell", default="Vault111Cryo")
+    pm.add_argument("--plugin-index", default="02")
+    pm.add_argument("--only", type=int, default=0, help="keep the first N tests")
+    pm.add_argument("--fresh", action="store_true", help="relaunch the game before every test")
     for sp in (pt, pn, pd):                               # time of day / weather for every test (docs/ai/test-queue.md)
         sp.add_argument("--time-of-day", type=float, default=None,
                         help="local hour set after the arrival, before the screenshots (12 = noon on any planet)")
@@ -2002,6 +2321,8 @@ def main(argv=None):
         return plan_npc(a)
     if a.cmd == "plan-door":
         return plan_door(a)
+    if a.cmd == "plan-movable":
+        return plan_movable(a)
     if a.cmd == "run":
         return Runner(a.queue, a).run()
     if a.cmd == "report":

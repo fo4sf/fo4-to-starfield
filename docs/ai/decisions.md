@@ -213,3 +213,18 @@ after each 500 ms step) can miss a short loading screen, and the old step then t
 Alternatives: keep NOLOAD on "near the start, no loading screen" (refuted by QA's synthetic cases); detect loads by
 comparing screenshots (fragile at night and in caves); PASS with a NEAR class (the report's tally counts every PASS as
 one, so the caveat would vanish from the summary).
+
+## 2026-10-13 Movable tests: a walk that cannot push is not a FAIL; the impulse decides whether a body moves (Claude)
+A converted loose item that the walk did not move is judged by what can be known about its body, not by the walk alone:
+an item more than 0.5 m above the player's feet is INCONCLUSIVE ELEVATED (final, never counted by the circuit breaker),
+and a walk that leaves an item in place is followed by `ApplyHavokImpulse` on the confirmed selection (dv 1.5, 6, 24 m/s
+times its mass): PASS IMPULSE when that moves it, FAIL STUCK when nothing does. The converter keeps FO4's masses and
+bodies unchanged. A vanilla-controlled queue (`movable_control`, QASmoke) compares our items with vanilla items of the
+same size, and the book and the box again at 5 kg (`SetRigidBodyMass`), before any converter change.
+Why: the NOTMOVED FAILs were a desk 0.8 m up and flat books walked over (research-log 2026-10-13); the same book body
+moved when hit side-on, and every motion, layer and flag field matches vanilla items. A FAIL there pointed at the
+converter and, six in a row, switched the movable kind off for about 610 tests.
+Alternatives: lighten FO4's masses now (2-10 times Starfield's for small items; no evidence that mass is the cause, the
+25 kg book moved); plan only items the walk can push (needs each item's height and floor, and the batch would still not
+know whether a skipped item's body moves); MiscItem records (pick-up and inventory semantics FO4 statics never had,
+decisions 2026-10-10).

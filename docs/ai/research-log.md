@@ -3,6 +3,65 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-13 Claude: why some converted loose items did not move when the player walked into them
+- Question: converted FO4 loose items are MoveableStatic records with dynamic bodies (2026-10-10 entries below). In the
+  queued tests a trash can and a book moved, a cigarette pack, three books and two bobby-pin boxes did not (supervised_1011
+  0007 FAIL NOTMOVED; batch_full 0095 / 0096 / 0099 / 0100 re-judged FAIL NOTMOVED, after which the movable circuit
+  breaker skipped about 610 tests). Is it our conversion (fixable), Starfield's character controller (vanilla items
+  the same), or unresolved?
+- Method (read-only, local scripts not in the repo): field dumps (`hktagfile`) of the converted NIFs of the pinned build
+  `integ_1011` (build 2470f876) and of 2,379 vanilla NIFs used by Starfield.esm MiscItem / Book / MoveableStatic records
+  (record list from `SfInspect models`, NIFs from the mesh archives with `fo4sf.ba2` / `nif`); Starfield.esm `COLL`
+  records (the collision matrix) and `MSTT` subrecords of FO4Port.esm and Starfield.esm by a raw group walk; the cell
+  exports' REFR entries; `obs.json` and the screenshots of supervised_1011 0006 / 0007 / 0015 and batch_full 0095-0100;
+  Starfield.exe 1.16.244 (`scripts/recon_console.py`, which now also reads the stack-built script-function entries);
+  the Papyrus sources in `Tools\ContentResources.zip`.
+- Evidence, bodies: all 6,221 vanilla dynamic item bodies have motionType 2, flags 0x8a, qualityId 255,
+  collisionCntrl 0, collisionLookAheadDistance 0, activationPriority 0; 5,389 use the motion properties gravity 1,
+  linear / angular damping 0.1 / 0.05, max speed 100 / 200, deactivation 0.0025 / 0.0025 / 4 passes; 4,788 are on layer
+  4 (CLUTTER). The converted BurntBook01, CigarettePack, BobbyPinBox and TrashcanMetalOffice01 have exactly these values,
+  layer 4, BSXFlags 0x42 with the collision on the root node (vanilla: 1,698 dynamic bodies under BSXFlags 0x42, all on
+  the root node; 4,140 under 0x4A and 36 under 0x6A on child nodes; 347 under 0x4A on the root) and one
+  hknpRefMassDistribution each.
+- Evidence, collision matrix: Starfield.esm `L_CLUTTER` (index 4) collides with `L_CHARCONTROLLER` (30) and
+  `L_BIPED_NO_CC`; `L_DEBRIS_SMALL` (19) does not. The player's controller collides with our items.
+- Evidence, records: our MSTTs carry DATA 04 like vanilla, but OBND all zero and no FLLD (vanilla: real bounds, FLLD 1);
+  the trash can that moved has the same zero OBND.
+- Evidence, masses: converted (FO4's inverse mass): BurntBook01 25 kg, CigarettePack 10 kg, BobbyPinBox 50 kg, trash
+  can 15 kg. Vanilla items of a similar size: BookMedium02 / BookSmall02 10 kg, ContemporaryCigarettesPack01 5 kg
+  (8.5 x 4.6 x 15.7 cm upright; our pack 7 x 3.7 x 14.5 cm upright), Office_NotePad_Stack01 / 02 5 kg (3.8 / 5.7 cm),
+  Office_Folder01 8 kg, DataSlate01 5 kg; vanilla dynamic item masses: median 10 kg, 10th percentile 2 kg. Both games
+  make small clutter heavy; FO4's small items are 2-10 times Starfield's.
+- Evidence, placements: one model moved and did not move. BurntBook01 `217AC5` (Vault 114, scale 0.86) lay on a bench
+  seat 0.45 m above the floor; the player stepped up (end +0.68 m), hit it side-on, and it moved 0.46 m (0.29 m down:
+  `before.png`, `after.png`). `0FE25A`, `0FE259`, `100D9D` (BostonPublicLibrary02, scale 1) lay flat on the floor, 4.6 cm
+  thick; the player walked over them at 0.02-0.27 m and they moved 0.000 m. Same record, same body. CigarettePack
+  `1CBEF6` lay 0.83 m above the player's feet on a desk (`after.png`: the pack on the desktop, the player stopped at the
+  desk 0.67 m from it); BobbyPinBox `100164` / `1015BB` 0.81 m up. The trash can (moved 2.21 m, 0.64 m tall, lying on
+  its side in FO4) and the tin can of 2026-10-10 (0.56 m) stood on the floor and were hit side-on.
+- Evidence, console: `ApplyHavokImpulse` (opcode 0x1251, four Floats, "Applies an impulse of the passed magnitude to the
+  reference along a passed axis.") and `SetRigidBodyMass` (0x1156, one Float, "Sets the Havok mass for an object.") are
+  in the script-function table, built on the stack like `SetPos` / `PlaceAtMe` / `GetIsID`; `PushActorAway` too (actors).
+  Papyrus `ObjectReference.psc`: `ApplyHavokImpulse(afX, afY, afZ, afMagnitude)`, `float GetMass()`,
+  `SetMotionType(.., abImmediatelySimulate)` ("as if the player bumped into it"). `LC012NASAGravTrigger.psc` uses
+  magnitude = `GetMass()` x 0.25..0.5, so the magnitude is an impulse in kg m/s (supported hypothesis). The exe has the
+  INI setting `fCharacterMaxSlope:HAVOK` and the layer `L_CHARBUMPER` (it collides only with itself and the controller).
+- Status: "the converted items' bodies and records match vanilla MiscItem / MoveableStatic bodies on every motion,
+  layer, quality, flag and BSXFlags field" **verified**; "the same converted body moves when hit side-on and not when
+  walked over or out of reach" **verified** (BurntBook01, two placements); "the NOTMOVED FAILs were placements the walk
+  could not push: two items on furniture 0.8 m up, three flat books walked over" **verified** (reads and screenshots);
+  "Starfield's controller does not push light or small bodies at all" **refuted** as stated (a 25 kg book and 5-15 kg
+  cans moved when hit side-on); "a flat item lower than the step the capsule climbs is pressed down, not pushed,
+  vanilla items too" and "FO4's higher masses play no part" **supported hypotheses**, tested by the staged queue
+  `movable_control_1013` (vanilla notepads 3.8 / 5.7 cm and a folder 0.7 cm next to ours, the converted book and box
+  again at 5 kg through `SetRigidBodyMass`, `GetMass` read through `cf`, `fCharacterMaxSlope` through `GetINI`).
+- Consequence: not a converter defect (answer (b) in effect, for placement and contact reasons rather than mass or
+  size): no converter change. The movable test changes instead: an item more than 0.5 m above the player's feet is
+  INCONCLUSIVE ELEVATED (final, not counted by the breaker), and a walk that does not move an item is followed by the
+  impulse ladder (PASS IMPULSE: the body is simulated; FAIL STUCK: nothing moves it). docs/ai/test-queue.md "Movable
+  items: walk, then impulse"; decisions.md 2026-10-13. If the queue shows vanilla items of a size pushed where ours are
+  not, or the 5 kg variants pushed where the full-mass ones are not, mass becomes the cause: then (a), scale FO4 masses.
+
 ## 2026-10-12 Claude: the Red Rocket cave load door on the converted terrain (slice: working door -> interior -> save)
 - Question: which Fallout 4 load door links RedRocket01 with the Commonwealth, where is it relative to the converted
   terrain of experiment 2d, what does our side hold of it, and how is it written so a player can walk through it and

@@ -983,3 +983,22 @@ to the affected rows and demote stale HEIGHTS issues after reference invalidatio
 Four negative regressions failed before their fixes. Validation:31 evidence tests and308
 full-suite tests pass (2 skips); guard passes. Re-reading completed pinned evidence preserves7/7 smoke and29/30
 baseline heights and all four POST_FRAME findings. Offline only; no game scripts, assets or live control changed.
+
+## 2026-10-13 Claude: small converted items that "did not move" were out of reach or walked over (offline; a live test was running, so no game input)
+- **Not the conversion (verified offline):** the converted BurntBook01, CigarettePack, BobbyPinBox and trash can bodies
+  match vanilla Starfield items on every motion, layer, quality, flag and BSXFlags field (6,221 vanilla dynamic bodies
+  dumped). Starfield's own collision matrix lets the player's controller collide with their layer (CLUTTER).
+- **The failures were placements:** the cigarette pack (supervised_1011 0007) and both bobby-pin boxes lay 0.8 m up on
+  furniture; the player stopped at the desk. The three books (batch_full) lay flat on the floor, 4.6 cm thick, and the
+  player walked over them. The same book model moved 0.46 m in Vault 114, where it lay on a bench and the player hit it
+  side-on. FO4's masses (book 25 kg, pin box 50 kg) are 2-10 times Starfield's for items that size; that they play no
+  part is a supported hypothesis.
+- **Runner:** items on furniture are now INCONCLUSIVE ELEVATED (final, never counted by the breaker). A walk that does
+  not move an item can be followed by `ApplyHavokImpulse` (found in Starfield.exe's script-function table with
+  `scripts/recon_console.py`, which now reads those entries) on the confirmed selection: PASS IMPULSE / FAIL STUCK. New
+  kind `movable_control` (`plan-movable`): an item placed in a vanilla cell, walked over, then pushed. Synthetic tests
+  and sandbox scenarios; runner feature `impulse`.
+- **Staged, not run:** `movable_control_1013` in QASmoke: five vanilla items (a bin, a cigarette pack, notepad stacks 5.7
+  and 3.8 cm, a folder) next to our trash can, pack, pin box and book, plus the book and box at 5 kg via
+  `SetRigidBodyMass`. Each test wrote its expectation first. If the vanilla items move where ours do not, or the 5 kg
+  copies move where the originals do not, mass is the cause and the converter should scale FO4 masses.

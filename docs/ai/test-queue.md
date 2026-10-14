@@ -26,7 +26,8 @@ another window in front of the game, also stops it (or makes it wait for an idle
 | stairs | `routes_<cell>.json` (routes.py) | rose at least 80% of the flight | STUCK, FALL | start not reached, misread |
 | fall | `probe_points.py` floor points | landed within 0.6 m | dropped more than 3 m | landed 0.6-3 m lower, held above, pushed away |
 | door | `routes_<cell>.json`, both sides | crossed the plane after an OPEN this attempt | BLOCKED, NOPROMPT, FALL | already open, misread |
-| movable | manifest `movable` items placed in the cell | item moved at least 5 cm when walked into | did not move although reached; fell | player missed it |
+| movable | manifest `movable` items placed in the cell | item moved at least 5 cm when walked into; with `--impulse`: PASS IMPULSE when only the impulse moved it | did not move although reached (NOTMOVED); STUCK (no impulse moved it either); fell | player missed it; ELEVATED (more than 0.5 m above the player's feet: on furniture; final) |
+| movable_control | `plan-movable` (plan.json, below) | the item placed in a vanilla cell moved when walked over (WALKED) or only under ApplyHavokImpulse (IMPULSE) | STUCK, NOTMOVED, ITEMFELL | start, spawn handle, SetRigidBodyMass refused, the item not at rest before the walk (SETTLE), missed, a read missing |
 | travel | load doors whose XTEL partner is in the same build | arrived within 4 m of the arrival point | no prompt; E did nothing | start not reached, arrived elsewhere |
 | terrain | `plan-terrain` (an experiment's plan.json) | heights within 0.5 m | NOTERRAIN, HEIGHTS | a height not read, moved |
 | npc_nav | `plan-npc` (plan.json, below) | the actor walked to B (a baseline: stayed away without a command) | NONAV, STALLED, FELL, WANDER | spawn / handle / reads failed, warp or early arrival, control or precondition not met |
@@ -595,3 +596,80 @@ the console, `cgf` credited and typed again before the probe); a sky that follow
 3200.0000, 2, no reply, 0; then 0), npc_nav with an unknown setting (NOT FOUND, does not exist), and lines off the
 whitelist (`qqq`, `player.additem`, `tgm`, a `|key:` injection, `coc` in `console_post`): exit 4, nothing typed. Opt-in,
 30-60 s a scenario: `$env:FO4SF_QSTEP_SANDBOX = '1'`.
+
+## Movable items: walk, then impulse (`movable --impulse`, `movable_control`)
+
+Why (docs/ai/research-log.md 2026-10-13): the converted items that did not move were placements a walk cannot push, not
+bodies that cannot move. A cigarette pack and two bobby-pin boxes lay on furniture 0.8 m above the player's feet (the
+walk ends at the desk), three books lay flat on the floor and the player walked over them; the same book model moved
+0.46 m where it lay on a bench and was hit side-on. Every motion, layer and flag field of these bodies matches vanilla
+Starfield items. So:
+
+- **ELEVATED** (`movable`): an item more than 0.5 m above the player's read at the stand point that did not move is
+  INCONCLUSIVE ELEVATED, final at once and not counted by the circuit breaker (`FINAL_INCONCLUSIVE`).
+- **The impulse ladder**: when the walk moved the item less than 5 cm, `ApplyHavokImpulse <x> <y> <z> <magnitude>` is
+  typed on the item, in its own console session after `prid <ref>` and `GetIsID <base>` read 1 (the npc_nav handle
+  rules), the console is closed for `impulse_wait_ms` (3 s) and the item is read again (same confirmation). Axis: back
+  along the walk (the path the player has just walked, so free) and 45 degrees up. Magnitudes: mass x dv for dv 1.5, 6
+  and 24 m/s, stopping at the first that moves the item 5 cm (kg m/s: supported hypothesis, `LC012NASAGravTrigger.psc`
+  scales its impulses by `GetMass()`). PASS IMPULSE: the body is simulated, the walk does not push it; FAIL STUCK: no
+  impulse moved it either; INCONCLUSIVE IMPULSE: an impulse was not applied or not read back.
+- `testqueue.py plan --kinds movable --impulse` adds the ladder to every movable test whose item has a base record in
+  `formids.json` (`MSTT:<EditorID>`, the confirmation's `GetIsID`) and a mass in the manifest.
+
+`movable_control` places an item in a vanilla cell, so a converted item can be compared with vanilla items on the same
+floor. `plan-movable` reads `plan.json` (a list):
+
+```powershell
+& $py scripts\game\testqueue.py plan-movable --staging C:\Modding\staging\<pinned build> `
+      --exp-dir C:\Modding\staging\<experiment with plan.json> --out C:\Modding\testqueue\<queue> --fresh
+```
+
+| field | meaning | default |
+|---|---|---|
+| `label`, `model` | test name; what the item is (the report groups by it) | `item<n>`; the label (a converted item: its FO4 source) |
+| `travel` | `coc <cell editor id>` | required |
+| `base` / `base_edid` | the item's base form id in the load order (8 hex, a vanilla item) or the EditorID of a converted MoveableStatic of the pinned build (its id from `formids.json` and `--plugin-index`, its mass from the manifest) | one of them |
+| `mass_kg` | the body's mass (vanilla: from its NIF) | the manifest's for `base_edid` |
+| `spot`, `heading` | where the item is placed (metres, the cell's frame) and the walk's heading (degrees, as `setangle z`) | required, 0 |
+| `stand_m`, `park_m` | the player starts `stand_m` before the item's read position; waits `park_m` behind the spot while it settles | 1.1, 3.0 |
+| `set_mass_kg` | `SetRigidBodyMass <kg>` on the confirmed selection before the walk (its effect is not read back; a refusal in the console reply is INCONCLUSIVE SETMASS) | none |
+| `mass_probe` | `cf "ObjectReference.GetMass"` on the confirmed selection (before and after `set_mass_kg`); the OCR is kept as `obs.mass_probe`, never judged | false |
+| `impulse_dv`, `impulse_wait_ms` | the ladder's speed steps (m/s, up to 4; `[]`: none) and the wait after each | [1.5, 6, 24], 3000 |
+| `walk_ms`, `settle_ms`, `drop`, `spawn_wait_ms`, `handle_tol` | hold W; wait after a teleport; teleport height; console closed after `placeatme`; how close to the spot the placed item must lie | 900, 1500, 0.3, 3000, 2.0 |
+| `moved_m`, `reach_m`, `settle_m` | moved; the walk reached the item; at rest before the walk (spawn read vs the read before the walk) | 0.05, 0.6, 0.1 |
+| `console_pre`, `console_post` | whitelisted console lines (section above), e.g. `GetINI "fCharacterMaxSlope:HAVOK"` | none |
+| `fresh`, `expect`, `basis` | as npc_nav; an expectation names the PASS class (`PASS WALKED`, `PASS IMPULSE`) | |
+
+One test (`qstep.ps1` kind `movable_control`): `coc`, the arrival read until it settles; the player dropped at the spot;
+`player.placeatme <base> 1` in its own session and, in the same session (the game paused), the player moved to the
+park point, then the console closed for `spawn_wait_ms` so the item drops onto a free floor; the handle as npc_nav's
+(`plr` alone, `prid <id>` + `GetSelf` must not name another ref, `GetIsID <base>` 1, within `handle_tol` of the spot:
+else INCONCLUSIVE SPAWN and nothing acts on any selection); `SetRigidBodyMass` / the `GetMass` probe; the player
+`stand_m` before the item's read position facing `heading`; the item read (confirmed), the walk, the player's and the
+item's reads; the ladder; then `disable`, `GetDisabled`, `markfordelete` on a confirmed selection only. `movable` tests
+never remove anything: their items belong to the build. Runner feature `impulse` (`runner_features.py`): an older
+runner refuses such a queue before launching the game.
+
+Staged (2026-10-13, offline, not run): `C:\Modding\staging\movable_control_1013\plan.json`, queue
+`C:\Modding\testqueue\movable_control_1013` (planned with `--fresh` on `integ_1011`, build 2470f876): in QASmoke on
+lanes 1.8 m apart (x -12 .. 6, y 4, walking north), vanilla TrashbinGeneric01 / ContemporaryCigarettesPack01 /
+Office_NotePad_Stack02 (5.7 cm) / Office_NotePad_Stack01 (3.8 cm) / Office_Folder01 (0.7 cm) next to the converted
+TrashcanMetalOffice01 / CigarettePack / BobbyPinBox / BurntBook01, and the book and the box again at 5 kg. Each test
+writes its expectation and basis first.
+
+Evidence used (Starfield.exe 1.16.244, `scripts/recon_console.py`, which decodes the stack-built script-function entries
+too since 2026-10-13): `ApplyHavokImpulse` opcode 0x1251, Float x4, "Applies an impulse of the passed magnitude to the
+reference along a passed axis."; `SetRigidBodyMass` 0x1156, Float, "Sets the Havok mass for an object."; `SetPos`
+0x1007 (Axis, Float), `PlaceAtMe` 0x1025 (ObjectID, optional Count, Distance, Direction), `GetIsID` (ObjectID),
+`GetSelf` (`this`), `GetDisabled`, `Disable` (optional Integer), `MarkForDelete`, `ForceWeather` (`fw`, Form, optional
+Int) decoded the same way. Unresolved until the queue runs: whether the console accepts `ApplyHavokImpulse` and
+`SetRigidBodyMass` on a selected item, the magnitude's unit, the `cf` reply format of `GetMass`.
+
+Sandbox (`QstepMovableSandboxTests`; the simulated game pushes an item at least 8 cm tall that the walk passes within
+0.35 m of, walks over a thinner one, and moves an item by an impulse when magnitude / mass reaches 1 m/s): a tall
+vanilla bin pushed by the walk and removed (the `GetINI` line typed before the `coc`, its reply in the verdict); a flat
+book walked over and moved by the first impulse, typed on the confirmed selection; the ladder climbing to its second
+step; a fixed item (FAIL STUCK after three impulses); a 50 kg box not pushed, pushed after `SetRigidBodyMass 5` (both
+`GetMass` reads kept); a refused `SetRigidBodyMass`; a failed spawn (nothing acts on any selection); bad specs (exit 4,
+nothing typed); a `movable` test of the build's own book with the ladder (moved, never disabled).

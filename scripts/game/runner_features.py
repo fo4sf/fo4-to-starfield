@@ -27,7 +27,11 @@ import sys
 #               and before E or the last-try teleport, the player moved away before the reload, NOLOAD only from a stand
 #               within the door's range. The first door_trip runner could teleport after a load its HUD checks missed
 #               and call a stand 5 m from the door "the door does not work"
-FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check")
+# impulse:      movable items (docs/ai/test-queue.md "Movable items: walk, then impulse"): the movable_control kind
+#               (plan-movable: an item placed in a vanilla cell, walked over, then pushed with ApplyHavokImpulse) and
+#               movable tests planned with --impulse. An older qstep.ps1 ends a movable_control step with "unknown
+#               kind" after the game was launched for it, and skips a movable test's impulses without a word
+FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "impulse")
 
 
 def needs(tests):
@@ -44,6 +48,8 @@ def needs(tests):
             out.add("door_trip")
             if "moved_m" in t or "activate_m" in t:
                 out.add("door_check")
+        if t.get("kind") == "movable_control" or (t.get("kind") == "movable" and t.get("impulses")):
+            out.add("impulse")
     return sorted(out)
 
 

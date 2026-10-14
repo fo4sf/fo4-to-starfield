@@ -5,7 +5,8 @@
 # Exit 0: observations written (they may still be incomplete: the judge decides). 2: input guard. 3: console could not be
 # opened safely (nothing typed). 4: bad spec.
 # Kinds (spec.kind): route (stairs/door, via route_run.ps1), fall (drop onto a floor point), movable (walk into an item and
-# read its position before and after), travel (activate a load door, read where the player arrives), terrain (drop onto
+# read its position before and after; with impulses, ApplyHavokImpulse when the walk did not move it), movable_control
+# (place an item in a vanilla cell, walk over it, then the impulses), travel (activate a load door, read where the player arrives), terrain (drop onto
 # points of known height), npc_nav (spawn a vanilla actor at A, make it walk to the player at B, sample, remove it),
 # door_trip (coc into a world, through a load door into an interior and back out, save, load: every arrival read),
 # godmode, save, load, recover. terrain and npc_nav may set the time of day / weather after the arrival (time_of_day,
@@ -209,6 +210,110 @@ function Apply-Light($cmds, [string]$beforeShot) {
   }
 }
 
+# Movable items (movable with impulses, movable_control; docs/ai/test-queue.md "Movable items: walk, then impulse"). The
+# item is selected by its id (prid) and confirmed with GetIsID <base> 1 in the same console session before anything reads
+# its position or acts on it (npc_nav's handle rules: opening the console selects what is under the crosshair). Every
+# line typed for it matches one of these patterns (testqueue.py builds them; a bad line ends the step with exit 4 before
+# anything is typed).
+$hexId = '^[0-9A-Fa-f]{8}$'
+$impulseOk = '^ApplyHavokImpulse -?\d{1,2}(\.\d{1,3})? -?\d{1,2}(\.\d{1,3})? -?\d{1,2}(\.\d{1,3})? \d{1,6}(\.\d{1,2})?$'
+$setMassOk = '^SetRigidBodyMass \d{1,4}(\.\d{1,2})?$'
+$massProbe = 'cf "ObjectReference.GetMass"'
+function Item-Capture([string[]]$cmds, [string[]]$need, [string]$tag = 'item') {
+  # as npc_nav's Npc-Capture: ClearConsole first (its echo marks where this session begins), the commands, then
+  # parse_npc.py on this session's OCR (up to four thresholds until $need is read); the capture and the OCR text stay
+  # as <tag>_cap.png / <tag>_ocr.txt
+  $seq = 'type:ClearConsole|key:enter|wait:500'
+  foreach ($c in $cmds) { $seq += "|type:$c|key:enter|wait:600" }
+  Send "$seq|wait:400"
+  $exp = @(); $typed = @()
+  foreach ($c in $cmds) {
+    if ($c -eq 'plr') { $exp += 'ref' }
+    elseif ($c -like 'GetIsID *') { $exp += 'isid' } elseif ($c -match '^getpos ([xyz])$') { $exp += $Matches[1] }
+    elseif ($c -eq 'GetSelf') { $exp += 'self' } elseif ($c -eq 'GetDisabled') { $exp += 'disabled' }
+    elseif ($c -match '^prid ([0-9A-Fa-f]{8})$') { $typed += $Matches[1] }
+  }
+  $cap = Join-Path $Out "${tag}_cap.png"; $prep = Join-Path $Out "${tag}_prep.png"; $txt = Join-Path $Out "${tag}_ocr.txt"
+  powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'shot_region.ps1') -Out $cap | Out-Null
+  $r = $null
+  foreach ($th in 135, 140, 130, 145) {
+    & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $cap $prep $th 12 | Out-Null
+    (powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $prep -Scale 1) | Set-Content $txt -Encoding utf8
+    $r = (& $env:FO4SF_PYTHON (Join-Path $here 'parse_npc.py') $txt "--expect=$($exp -join ',')" "--typed=$($typed -join ',')") | ConvertFrom-Json
+    $missing = @($need | Where-Object { $null -eq $r.$_ })
+    if ($r -and $missing.Count -eq 0) { break }
+  }
+  return $r
+}
+function Select-Item([string]$ref, [string]$base, [string]$tag = 'item') {
+  # console open, prid <ref>, GetIsID <base> must read 1 (a second try only repeats the session: an OCR miss). Returns
+  # with the console OPEN and the item's read, or closes the console and returns $null
+  if ("$ref" -notmatch $hexId -or "$base" -notmatch $hexId) { return $null }
+  Console-Open
+  foreach ($n in 1, 2) {
+    $r = Item-Capture @("prid $ref", "GetIsID $base", 'getpos x', 'getpos y', 'getpos z') @('isid', 'pos') $tag
+    if ($r -and $r.isid -eq 1) {
+      $p = $null; if ("$($r.pos)" -match $pos3) { $p = "$($r.pos)" }
+      return [ordered]@{ isid = 1; read = $p; how = $r.how }
+    }
+  }
+  Send 'key:grave|wait:600'
+  return $null
+}
+function Item-Read([string]$ref, [string]$base, [string]$tag = 'item') {
+  # the item's confirmed position ("x y z"), console closed afterwards; $null when not selected or not read
+  $s = Select-Item $ref $base $tag
+  if (-not $s) { return $null }
+  Send 'key:grave|wait:600'
+  return $s.read
+}
+function Dist-3([string]$a, [string]$b) {
+  if ("$a" -notmatch $pos3 -or "$b" -notmatch $pos3) { return $null }
+  $u = "$a".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries); $v = "$b".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+  return [Math]::Sqrt([Math]::Pow([double]$u[0] - [double]$v[0], 2) + [Math]::Pow([double]$u[1] - [double]$v[1], 2) +
+                      [Math]::Pow([double]$u[2] - [double]$v[2], 2))
+}
+function Item-DistXY([string]$read, $p) {
+  if ("$read" -notmatch $pos3) { return $null }
+  $v = "$read".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+  return [Math]::Sqrt([Math]::Pow([double]$v[0] - [double]$p[0], 2) + [Math]::Pow([double]$v[1] - [double]$p[1], 2))
+}
+function Impulse-Lines {
+  # the planned impulse ladder, validated before anything is typed (exit 4 on a bad line)
+  $out = @()
+  foreach ($imp in @($t.impulses | Where-Object { $null -ne $_ })) {
+    if ("$($imp.cmd)" -cnotmatch $impulseOk) { "bad impulse"; exit 4 }
+    $out += $imp
+  }
+  if ($out.Count -gt 5) { "bad impulse"; exit 4 }
+  return ,$out
+}
+function Push-Impulses([string]$ref, [string]$base, [string]$from, $lines) {
+  # The impulse ladder after a walk that did not move the item ($from: its read after the walk). Each impulse in its own
+  # confirmed session: Select-Item, then the line (its OCR kept as impulse_<k>_cmd), the console closed for
+  # impulse_wait_ms (the game runs: the item hops and lands), a confirmed read and a screenshot. Stops at the first
+  # impulse that moved the item moved_m. Everything goes to obs.json "impulses" after every step.
+  $wait = 3000; if ($null -ne $t.impulse_wait_ms) { $wait = [int]$t.impulse_wait_ms }
+  $min = 0.05; if ($null -ne $t.moved_m) { $min = [double]$t.moved_m }
+  $done = @(); $k = 0
+  foreach ($imp in $lines) {
+    $k++
+    $rec = [ordered]@{ dv = $imp.dv; magnitude = $imp.magnitude; cmd = "$($imp.cmd)"; applied = $false; read = $null }
+    $s = Select-Item $ref $base "impulse_${k}_sel"
+    if ($s) {
+      $c = Item-Capture @("$($imp.cmd)") @() "impulse_${k}_cmd"
+      $rec['ocr'] = $c.ocr; $rec['applied'] = $true
+      Send "key:grave|wait:$wait"
+      $rec['read'] = Item-Read $ref $base "impulse_${k}_read"
+      $rec['shot'] = Shot "impulse_$k.png"
+    }
+    $done += $rec
+    $obs['impulses'] = $done; Save-Obs
+    $d = Dist-3 $rec['read'] $from
+    if ($null -ne $d -and $d -ge $min) { break }
+  }
+}
+
 $kind = $t.kind
 if ($kind -in 'stairs', 'door') { $kind = 'route' }     # testqueue.py plans stairs and door tests; both are routes
 switch ($kind) {
@@ -231,6 +336,10 @@ switch ($kind) {
     $obs['shot'] = Shot 'fall.png'
   }
   'movable' {
+    # walk into an item of the build; with impulses (testqueue.py plan --impulse) the ladder follows a walk that did not
+    # move it, on the item selected by prid <sf_ref> and confirmed by GetIsID <sf_base> 1
+    $imps = Impulse-Lines
+    if ($imps.Count -gt 0 -and ("$($t.sf_ref)" -notmatch $hexId -or "$($t.sf_base)" -notmatch $hexId)) { "bad sf_ref / sf_base"; exit 4 }
     $obs['item_before'] = Read-Pos $t.sf_ref
     Teleport $t.stand $t.heading 25
     $obs['player_start'] = Read-Pos
@@ -239,6 +348,139 @@ switch ($kind) {
     $obs['player_end'] = Read-Pos
     $obs['item_after'] = Read-Pos $t.sf_ref
     $obs['shot_after'] = Shot 'after.png'
+    if ($imps.Count -gt 0) {
+      $d = Dist-3 $obs['item_before'] $obs['item_after']
+      $min = 0.05; if ($null -ne $t.moved_m) { $min = [double]$t.moved_m }
+      if ($null -ne $d -and $d -lt $min) { Save-Obs; Push-Impulses "$($t.sf_ref)" "$($t.sf_base)" "$($obs['item_after'])" $imps }
+    }
+  }
+  'movable_control' {
+    # docs/ai/test-queue.md "Movable items: walk, then impulse". coc into a vanilla cell and read the arrival until it
+    # settles; the player to the spot; the item placed at the player's feet (placeatme) while the player moves on to the
+    # park point in the same console session (the game is paused while the console is open), so the item drops onto a
+    # free floor during spawn_wait_ms; its handle confirmed as npc_nav's (PickLastRef's id, GetSelf names no other ref,
+    # GetIsID <base> 1, within handle_tol of the spot); SetRigidBodyMass / the GetMass probe on the confirmed selection
+    # when planned (their OCR kept); the player stand_m before the item facing heading, the item's confirmed read, the
+    # walk (hold W walk_ms), the player's and the item's reads; the impulse ladder when the walk did not move it; then
+    # the item removed (disable, markfordelete) on a confirmed selection only. Everything typed is validated here again.
+    if ("$($t.travel)" -notmatch '^coc [A-Za-z0-9_]+$') { "bad travel"; exit 4 }
+    $base = "$($t.base)"; if ($base -notmatch $hexId) { "bad base"; exit 4 }
+    $spot = @($t.spot); $park = @($t.park)
+    if ($spot.Count -ne 3 -or $park.Count -ne 3) { "bad spot / park"; exit 4 }
+    foreach ($x in @($spot + $park)) {
+      if ($x -is [string] -or $x -is [bool] -or $null -eq $x) { "bad spot / park"; exit 4 }
+      $dx = [double]$x; if ([double]::IsNaN($dx) -or [Math]::Abs($dx) -gt 1e6) { "bad spot / park"; exit 4 }
+    }
+    $heading = [double]$t.heading; $standM = [double]$t.stand_m; $drop = [double]$t.drop
+    if ($heading -lt 0 -or $heading -gt 360 -or $standM -lt 0.5 -or $standM -gt 5 -or $drop -lt 0 -or $drop -gt 5) { "bad heading / stand_m / drop"; exit 4 }
+    $setMass = ''; if ($t.set_mass_cmd) { $setMass = "$($t.set_mass_cmd)"; if ($setMass -cnotmatch $setMassOk) { "bad set_mass_cmd"; exit 4 } }
+    $probe = ''; if ($t.probe_cmd) { $probe = "$($t.probe_cmd)"; if ($probe -cne $massProbe) { "bad probe_cmd"; exit 4 } }
+    $imps = Impulse-Lines
+    $spawnWait = [int]$t.spawn_wait_ms; $handleTol = [double]$t.handle_tol; $settle = [int]$t.settle_ms
+    $walkMs = [int]$t.walk_ms; $min = [double]$t.moved_m
+    if ($spawnWait -lt 500 -or $spawnWait -gt 30000 -or $handleTol -lt 0.3 -or $handleTol -gt 10 -or $settle -lt 0 -or
+        $settle -gt 30000 -or $walkMs -lt 100 -or $walkMs -gt 5000 -or $min -lt 0.01 -or $min -gt 1) { "bad timing / tolerances"; exit 4 }
+    $preCmds = Console-List $t.console_pre 'console_pre'; $postCmds = Console-List $t.console_post 'console_post'
+    # 1. travel, the arrival read until it stops
+    Run-Console $preCmds 'pre'                       # after the save has loaded, before the travel
+    Console-Open
+    Send "type:$($t.travel)|key:enter|wait:400|key:grave|wait:3000"
+    $w0 = Wait-Hud 90 'hud.png'; $obs['load_s'] = $w0.secs; $obs['hud_back'] = $w0.up
+    Start-Sleep 3
+    $arr = Read-Settled
+    $obs['arrival_read'] = $arr.read; $obs['arrival_settled'] = $arr.settled; $obs['arrival_reads'] = $arr.reads
+    $obs['shot'] = Shot 'arrival.png'
+    Save-Obs
+    Run-Console $postCmds 'post'                     # after the arrival, before the item is placed
+    # 2. the player at the spot (placeatme puts the item at the player's feet)
+    Teleport @([double]$spot[0], [double]$spot[1], ([double]$spot[2] + $drop)) $heading 10
+    Start-Sleep -Milliseconds $settle
+    $obs['player_spot'] = Read-Pos
+    Save-Obs
+    $ds = Item-DistXY $obs['player_spot'] $spot
+    if ($null -eq $ds -or $ds -gt 1.0) { exit 0 }      # not at the spot: nothing placed (judged START)
+    # 3. the item placed, the player to the park point in the same session, the console closed for spawn_wait_ms
+    Console-Open
+    $s0 = Item-Capture @("player.placeatme $base 1") @() 'place'
+    Send ("type:player.setpos x $(F $park[0])|key:enter|wait:350|type:player.setpos y $(F $park[1])|key:enter|wait:350|" +
+          "type:player.setpos z $(F ([double]$park[2] + $drop))|key:enter|wait:350|type:player.setangle z $(F $heading)|key:enter|" +
+          "wait:350|key:grave|wait:$spawnWait")
+    # 4. the handle (npc_nav's Pick-Npc): plr alone, prid <id> + GetSelf, GetIsID <base> + getpos
+    Console-Open
+    $r1 = Item-Capture @('plr') @('ref') 'spawn_plr'
+    $pk = [ordered]@{ 'ref' = $null; self = $null; isid = $null; read = $null; place_ocr = $s0.ocr; plr_ocr = $r1.ocr }
+    if ("$($r1.ref)" -cmatch '^FF[0-9A-F]{6}$') {
+      $pk['ref'] = "$($r1.ref)"
+      $r2 = Item-Capture @("prid $($pk['ref'])", 'GetSelf') @('self') 'spawn_self'
+      if ("$($r2.self)" -match $hexId) { $pk['self'] = "$($r2.self)" }
+      $r3 = Item-Capture @("GetIsID $base", 'getpos x', 'getpos y', 'getpos z') @('isid', 'pos') 'spawn_isid'
+      $pk['isid'] = $r3.isid
+      if ("$($r3.pos)" -match $pos3) { $pk['read'] = "$($r3.pos)" }
+    }
+    Send 'key:grave|wait:600'
+    $dist = Item-DistXY $pk['read'] $spot
+    $why = @()
+    if (-not $pk['ref']) { $why += 'PickLastRef gave no FFxxxxxx id' }
+    else {
+      if ($pk['self'] -and $pk['self'] -ne $pk['ref']) { $why += "after prid $($pk['ref']) GetSelf named $($pk['self']): another ref is selected" }
+      if ($pk['isid'] -ne 1) { $why += "GetIsID $base read $(if ($null -eq $pk['isid']) { 'nothing' } else { $pk['isid'] })" }
+      if ($null -eq $dist) { $why += 'its position was not read' }
+      elseif ($dist -gt $handleTol) { $why += "it lies $([math]::Round($dist, 2)) m from the spot (more than $handleTol m)" }
+    }
+    $pk['dist'] = $(if ($null -ne $dist) { [math]::Round($dist, 2) } else { $null })
+    $pk['confirmed'] = ($why.Count -eq 0); $pk['why'] = ($why -join '; ')
+    $obs['spawn'] = $pk
+    $obs['spawn_shot'] = Shot 'spawn.png'
+    Save-Obs
+    $ref = "$($pk['ref'])"
+    if ($pk['confirmed']) {
+      # 5. SetRigidBodyMass and the GetMass probe on the confirmed selection (their replies' OCR is kept)
+      if ($setMass -or $probe) {
+        $sel = Select-Item $ref $base 'mass_sel'
+        if ($sel) {
+          $mp = [ordered]@{}
+          if ($probe) { $mp['before'] = (Item-Capture @($probe) @() 'probe_before').ocr }
+          if ($setMass) { $obs['set_mass'] = [ordered]@{ typed = $true; cmd = $setMass; ocr = (Item-Capture @($setMass) @() 'set_mass').ocr } }
+          if ($probe -and $setMass) { $mp['after'] = (Item-Capture @($probe) @() 'probe_after').ocr }
+          if ($probe) { $obs['mass_probe'] = $mp }
+          Send 'key:grave|wait:600'
+        } elseif ($setMass) { $obs['set_mass'] = [ordered]@{ typed = $false; cmd = $setMass } }
+        Save-Obs
+      }
+      # 6. the player stand_m before the item (its spawn read), facing it along heading, on the floor read at the spot
+      $iv = "$($pk['read'])".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+      $hr = $heading * [Math]::PI / 180
+      $sx = [double]$iv[0] - [Math]::Sin($hr) * $standM; $sy = [double]$iv[1] - [Math]::Cos($hr) * $standM
+      $sz = [double]("$($obs['player_spot'])".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)[2])
+      $obs['stand'] = @([math]::Round($sx, 3), [math]::Round($sy, 3), [math]::Round($sz, 3))
+      Teleport @($sx, $sy, ($sz + $drop)) $heading 25
+      Start-Sleep -Milliseconds $settle
+      $obs['player_start'] = Read-Pos
+      $obs['item_before'] = Item-Read $ref $base 'item_before'
+      $obs['shot_before'] = Shot 'before.png'
+      Save-Obs
+      # 7. the walk over the item, then the player's and the item's reads
+      Send "hold:w,$walkMs|wait:1500"
+      $obs['player_end'] = Read-Pos
+      $obs['item_after'] = Item-Read $ref $base 'item_after'
+      $obs['shot_after'] = Shot 'after.png'
+      Save-Obs
+      # 8. the impulse ladder when the walk did not move it
+      $d = Dist-3 $obs['item_before'] $obs['item_after']
+      if ($imps.Count -gt 0 -and $null -ne $d -and $d -lt $min) { Push-Impulses $ref $base "$($obs['item_after'])" $imps }
+    }
+    # 9. remove the item: disable and markfordelete on a confirmed selection only (a world ref is never touched)
+    $clean = [ordered]@{ removed = $false }
+    if ($pk['confirmed']) {
+      $sel = Select-Item $ref $base 'remove_sel'
+      if ($sel) {
+        $dd = Item-Capture @('disable', 'GetDisabled') @('disabled') 'remove'
+        Send 'type:markfordelete|key:enter|wait:600|key:grave|wait:600'
+        $clean['removed'] = $true; $clean['disabled'] = $dd.disabled
+      } else { $clean['note'] = 'the item could not be selected again: it may be left in the cell' }
+    } else { $clean['note'] = 'no confirmed handle: an item may be left in the cell' }
+    $obs['cleanup'] = $clean
+    $obs['end_shot'] = Shot 'cleanup.png'
   }
   'travel' {
     Teleport $t.start $t.heading 10
