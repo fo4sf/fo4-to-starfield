@@ -47,7 +47,9 @@ class ArchiveIdentityTests(unittest.TestCase):
 
             def mutate_after_read(stream):
                 result = hash_open_file(stream)
-                archive.write_bytes(b"after!")
+                # Different size so size/mtime change is visible even on
+                # filesystems with coarse or delayed metadata updates.
+                archive.write_bytes(b"after!!")
                 return result
 
             with patch.object(checkpoints, "_hash_open_file", side_effect=mutate_after_read):
