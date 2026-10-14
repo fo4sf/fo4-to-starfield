@@ -619,6 +619,44 @@ class JudgeTests(unittest.TestCase):
         v = self.judge(good_obs(pts))
         self.assertEqual(v[:2], ("INCONCLUSIVE", "CROSSING"), v[2])         # x = -1000 and y = 1200 in one leg
 
+    def test_the_offset_comes_from_the_settled_arrival_only(self):
+        # Codex on PR #103: a missing spawn_read with spawn_settled false still passed on the step's own `offset`
+        obs = good_obs()
+        del obs["spawn_read"]
+        obs["spawn_settled"] = False
+        v = self.judge(obs)
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "ANCHOR"), v[2])
+        self.assertEqual(self.judge(good_obs(spawn_settled=False))[:2], ("INCONCLUSIVE", "ANCHOR"))
+        obs = good_obs()
+        del obs["offset"]                                                    # the step's number is not needed ...
+        self.assertEqual(self.judge(obs)[:2], ("PASS", "PASS"))
+        v = self.judge(good_obs(offset=[OFF[0] + 4.0, OFF[1], OFF[2]]))     # ... and not trusted
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "ANCHOR"), v[2])
+        self.assertIn("not the settled arrival's", v[2])
+        good = good_obs()
+        far = fmt(game(-995.0, 1190.0, slope_z(-995.0) - 40.0))             # the last two reads disagree: mid-fall
+        v = self.judge(good_obs(spawn_reads=[far, good["spawn_read"]]))
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "ANCHOR"), v[2])
+        self.assertEqual(self.judge(good_obs(spawn_reads=[far, good["spawn_read"], good["spawn_read"]]))[:2],
+                         ("PASS", "PASS"))
+
+    def test_the_first_leg_starts_at_the_arrival_or_the_setup_landing(self):
+        # Codex on PR #103: a first leg 4 m beyond the arrival passed (40 of 44 m walked)
+        v = self.judge(good_obs([(-999.0, 1190.0)] + list(WPS[1:])))
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "START"), v[2])
+        self.assertIn("4.0 m from the arrival", v[2])
+        self.assertEqual(self.judge(good_obs([(-997.0, 1190.0)] + list(WPS[1:])))[:2], ("PASS", "PASS"))  # start_tol
+        wps = [[x, y, ground_z(x, y), 2.5] for x, y in WPS[::-1]]
+        wps[-1][3] = 3.0
+        t, _ = test_of(setup=True, start=wps[0][:3], waypoints=wps, bridge=dict(BRIDGE, span=[5.0, 19.0], min_reads=2),
+                       crossings=[{"s": 14.0, "from": [-11, 12], "to": [-11, 11]},
+                                  {"s": 39.0, "from": [-11, 11], "to": [-10, 11]}])
+        setup = {"read": fmt(game(WPS[5][0], WPS[5][1], ground_z(*WPS[5]))), "settled": True}
+        self.assertEqual(we.judge(t, good_obs(WPS[::-1], setup=setup), shot_ok)[:2], ("PASS", "PASS"))
+        v = we.judge(t, good_obs([(-1015.0, 1210.0)] + list(WPS[::-1][1:]), setup=setup), shot_ok)
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "START"), v[2])
+        self.assertIn("4.0 m from the setup landing", v[2])
+
     def test_the_setup_landing_and_the_ground_file(self):
         obs = good_obs(WPS[::-1])
         t, d = test_of(setup=True, start=[WPS[0][0], WPS[0][1], ground_z(*WPS[0])])

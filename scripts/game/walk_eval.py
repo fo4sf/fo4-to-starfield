@@ -21,7 +21,9 @@ movement, or PROGRESS_LEGS legs without PROGRESS_M of progress along the route),
 the route (FELL_STOP: falling through the world), a confirmed jump (two reads agreeing on a move no walk can make),
 the leg budget.
 
-The judge decides from the raw reads alone (testqueue.py judge -> judge here): PASS only when the last read is within
+The judge decides from the raw reads alone (testqueue.py judge -> judge here; the merge offset recomputed from the
+settled arrival, merge_offset): PASS only when the first leg was read where the arrival (or the setup landing) was,
+the last read is within
 goal_radius of the goal, every leg was read, every move between two reads is plausible for walking, every read stands
 within z_tol on the terrain (core64c's BTD) or on a converted object's surface (walk_ground.json, its sha256 pinned in
 the test), every planned cell border was crossed between two reads, at least bridge.min_reads reads stood on the bridge
@@ -53,6 +55,7 @@ V_LO, V_HI = 1.5, 8.0
 MIN_HOLD_MS = 400
 MAX_HOLD_MS = 8000    # input.ps1 holdg takes at most 10 s
 AGREE_M = 1.0         # two reads within this agree (a confirmed position)
+SETTLE_M = 0.3        # m: the arrival counts as settled when two reads 3 s apart agree within this (qstep Read-Settled)
 LOOK_TOL = 1.0        # m: a waypoint the plan does not keep may be walked past when it lies this close to the leg
 WALK_CMD = re.compile(r"(ClearConsole|player\.getpos [xyz]|player\.setangle [xz] -?\d{1,3}(\.\d{1,2})?)")
 
@@ -366,20 +369,44 @@ def evidence_problem(test, legs):
     return None
 
 
+def merge_offset(test, obs):
+    """(O, arrival read, None) with the merge offset recomputed from the settled arrival: spawn_read with spawn_settled,
+    the last two spawn_reads (when recorded) agreeing within SETTLE_M as the step claims, against test["spawn_local"].
+    The step's own `offset` decides nothing: when recorded it has to agree. Else (None, None, why) (Codex on PR #103:
+    a missing spawn_read with spawn_settled false passed on the recorded offset)."""
+    sr = parse3(obs.get("spawn_read"))
+    if sr is None or obs.get("spawn_settled") is not True:
+        return None, None, obs.get("offset_missing") or "the arrival was not read or never settled"
+    if obs.get("spawn_reads") is not None:
+        reads = [parse3(r) for r in obs.get("spawn_reads") or []]
+        if len(reads) < 2 or reads[-1] is None or reads[-2] is None or reads[-1] != sr or \
+                max(abs(a - b) for a, b in zip(reads[-1], reads[-2])) >= SETTLE_M:
+            return None, None, "the arrival's last two reads do not agree: not settled"
+    sl = list(test["spawn_local"])
+    O = [sr[0] - sl[0], sr[1] - sl[1], sr[2] - sl[2] if len(sl) >= 3 else 0.0]
+    rec = obs.get("offset")
+    if rec is not None:
+        rec = (list(rec) + [0.0, 0.0, 0.0])[:3]
+        if any(not isinstance(v, (int, float)) or abs(v - O[k]) > 0.05 for k, v in enumerate(rec)):
+            return None, None, f"the recorded offset {rec} is not the settled arrival's ({O[0]:.2f}, {O[1]:.2f}, {O[2]:.2f})"
+    return O, sr, None
+
+
 def judge(test, obs, shot_ok, ground=None):
     """(verdict, class, detail) of one walk test from its raw observations (module doc)."""
-    if not obs.get("offset"):
-        why = obs.get("offset_missing") or "the arrival was not read or never settled"
+    O, at, why = merge_offset(test, obs)
+    if O is None:
         return "INCONCLUSIVE", "ANCHOR", f"no merge offset ({why}): no walk"
     if ground is None:
         ground, why = load_ground(test)
         if ground is None:
             return "INCONCLUSIVE", "GROUND", why
-    O = (list(obs["offset"]) + [0.0, 0.0, 0.0])[:3]
     W = test["waypoints"]
     poly = [w[:3] for w in W]
     tol, fell = float(test.get("z_tol", 0.6)), float(test.get("fell_m", 3.0))
+    start_tol = float(test.get("start_tol", 3.0))
     notes = [f"offset {O[0]:.1f}, {O[1]:.1f}, {O[2]:.2f}"]
+    where = "arrival"
     if test.get("setup"):
         su = obs.get("setup") or {}
         sr = parse3(su.get("read"))
@@ -387,15 +414,22 @@ def judge(test, obs, shot_ok, ground=None):
         if sr is None or not su.get("settled"):
             return "INCONCLUSIVE", "START", "the setup teleport's landing was not read or never settled: no walk"
         d0 = math.hypot(sr[0] - O[0] - st[0], sr[1] - O[1] - st[1])
-        if d0 > float(test.get("start_tol", 3.0)):
+        if d0 > start_tol:
             return "INCONCLUSIVE", "START", f"the setup teleport landed {d0:.1f} m from the start: no walk"
         notes.append(f"setup teleport landed {d0:.2f} m from the start (setup, not walking evidence)")
+        at, where = sr, "setup landing"
     legs = [x for x in obs.get("legs") or [] if isinstance(x, dict)]
     if not legs:
         return "INCONCLUSIVE", "UNREAD", f"no leg was read; {'; '.join(notes)}"
     ev = evidence_problem(test, legs)
     if ev:
         return "INCONCLUSIVE", ev[0], f"{ev[1]}; {'; '.join(notes)}"
+    # the walk starts where the player stood: the first leg's read connects to the arrival / the setup landing (nothing
+    # moved the player in between; Codex on PR #103: a first leg 4 m beyond the arrival passed with 40 of 44 m walked)
+    first = parse3(legs[0].get("used"))
+    if first is not None and math.hypot(first[0] - at[0], first[1] - at[1]) > start_tol:
+        return "INCONCLUSIVE", "START", (f"the first leg was read {math.hypot(first[0] - at[0], first[1] - at[1]):.1f} m "
+                                         f"from the {where}: the walk did not start there; {'; '.join(notes)}")
     bad_cmd = [c for x in legs for c in x.get("cmds") or [] if not WALK_CMD.fullmatch(str(c))]
     reads, problems, fails = [], [], []
     held, gap = 0, 0                                  # walking time and legs since the last read

@@ -166,6 +166,9 @@ converted object within 12 m of the path (0.5 m grid, 14,255 nodes, 515 objects)
   last an "aim", each `used` the leg's own `read` or `reread` (a confirmed jump with the re-read that confirmed it),
   every aim leg with its typed lines, hold and HUD check recorded and its screenshot where the step keeps one (every
   `shot_every` legs and at an event);
+- the merge offset comes from the settled arrival alone (`spawn_read` with `spawn_settled`, its last two reads
+  agreeing within 0.3 m; the step's own `offset` has to agree, it decides nothing) and the first leg was read within
+  `start_tol` (3 m) of the arrival (the setup landing for the reverse test): the walk starts where the player stood;
 - the last read is within `goal_radius` (3 m) of the goal;
 - every leg was read (`used`), every move between two reads is plausible for walking (at most 9 m/s over the hold
   plus 2 s per leg, + 1 m);
@@ -185,8 +188,9 @@ off the bridge deck onto the river bed), `HEIGHTS` (below every known ground by 
 `OFFGROUND` (above every known surface by more than 0.6 m: standing on something not converted, or mid-step),
 `HUDGAP`, `NOHUD`, `NOTREACHED` (leg or time budget used up short of the goal), `CROSSING` (a border not seen between
 two reads), `BRIDGE`, `NOSHOT`, `TYPED` (anything else typed during the walk, e.g. a recovery teleport), `START`
-(the reverse test's setup landing not read or more than 3 m off), `ANCHOR` (no merge offset), `GROUND` (walk_ground.json
-missing or changed), `LEGS` (legs missing, out of order, or a stop before the last one), `EVIDENCE` (a `used` that is
+(the reverse test's setup landing not read or more than 3 m off; the first leg read more than `start_tol` from the
+arrival / the landing), `ANCHOR` (no merge offset: the arrival not read, not settled, or the recorded offset not the
+settled arrival's), `GROUND` (walk_ground.json missing or changed), `LEGS` (legs missing, out of order, or a stop before the last one), `EVIDENCE` (a `used` that is
 neither the leg's read nor its re-read, a confirmed jump without its re-read, an aim leg without its typed lines, hold,
 HUD check or kept screenshot).
 
