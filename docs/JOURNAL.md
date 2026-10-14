@@ -817,3 +817,7 @@ twin step is untested in game until the next library run.
   - `StartCombat player` on the calm citizen: **FAIL NONAV** (never moved after the command; the first attempt was PRECOMMAND).
   - No console command drove this actor to the player. Next: a hostile actor (the converted raider, or the vanilla Spacer) under StartCombat, the N2b design.
   - (n0b_1013, the first run, had 4 of 5 INCONCLUSIVE SPAWN: placeatme put the actor 2.1-5.4 m away, over the 2 m handle check, although GetIsID/GetSelf confirmed it.)
+- **Ground textures (#70), first live tries:** `coc FO4CW_RedRocketSpawn` froze the game at the **daylight registration site (0.2, 1.2 rad)** for both tex_t0 (the control: exp2b2's BTD byte for byte, only the site changed) and tex_ta.
+  - No load and no reply for 90 s. The console then could not be reopened safely, so the runner stopped.
+  - Since only the site differs from the working exp2b2, the site is the supported cause.
+  - Re-staged as `terrain_exp2{t0,ta,t}_night` with exp2b2's Mars plugin (the night site, where every arrival works) and `SetLocalTime 12` for daylight. Queued after the cave tests.
