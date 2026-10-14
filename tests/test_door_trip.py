@@ -293,6 +293,14 @@ class DoorFramesTests(unittest.TestCase):
     """door_frames (docs/slice/door-frames.md): routes, facing, probes, rejected reads."""
     ROUTE_OUT = [PLAN["spawn_local"], [-985.0, 1130.0, 105.0], [-995.26, 1107.01, 99.06]]
     ROUTE_IN = [PLAN["inside"]["arrival"], [-3.0, -2.0, 0.0], [-2.0, 0.8, 0.0]]
+    # the steps qstep.ps1 Route-Walk records: a read on this side after every W hold, none for the hold that loaded
+    STEPS_IN = [{"wp": 1, "ms": 2000, "state": "here", "read": fmt(plus([-986.5, 1138.5, 105.1]))},
+                {"wp": 1, "ms": 1800, "state": "here", "read": fmt(plus([-985.1, 1130.4, 105.0]))},
+                {"wp": 2, "ms": 2000, "state": "here", "read": fmt(plus([-989.4, 1120.6, 102.1]))},
+                {"wp": 2, "ms": 2000, "state": "here", "read": fmt(plus([-993.6, 1111.2, 99.3]))},
+                {"wp": 3, "ms": 500, "state": "loaded", "read": None}]
+    STEPS_OUT = [{"wp": 1, "ms": 1200, "state": "here", "read": fmt([-2.8, -2.3, 0.0])},
+                 {"wp": 2, "ms": 700, "state": "loaded", "read": None}]
 
     def plan(self, **kw):
         o = dict(PLAN["outside"], route=self.ROUTE_OUT, arrival_heading=181.92)
@@ -304,9 +312,9 @@ class DoorFramesTests(unittest.TestCase):
     def obs(self):
         obs = good_obs()
         obs["legs"][0].update(start_read=fmt(plus(PLAN["spawn_local"])), mode="route", teleports=0,
-                              steps=[{"wp": 1}, {"wp": 2}], arrival_heading=154.6)
+                              steps=[dict(s) for s in self.STEPS_IN], arrival_heading=154.6)
         obs["legs"][1].update(start_read=fmt(PLAN["inside"]["arrival"]), mode="route", teleports=0,
-                              steps=[{"wp": 1}], arrival_heading=182.3)
+                              steps=[dict(s) for s in self.STEPS_OUT], arrival_heading=182.3)
         obs["reload"]["heading"] = 182.1
         return obs
 
@@ -331,9 +339,55 @@ class DoorFramesTests(unittest.TestCase):
     def test_a_walked_trip_with_the_right_facing_passes(self):
         v, cls, detail = self.judge(self.obs())
         self.assertEqual((v, cls), ("PASS", "PASS"), detail)
-        self.assertIn("along the route (2 steps, 0 teleports)", detail)
+        self.assertIn("along the route (5 steps, 0 teleports)", detail)
         self.assertIn("out arrival heading 182.3, want 181.9", detail)
         self.assertIn("heading after the load (the saved one) heading 182.1", detail)
+
+    def test_the_walk_must_show_in_the_record(self):
+        # Codex's review of PR #107: a routed trip passed with mode route and no steps, and with one teleport and
+        # trigger walk; the arrival, save and load positions alone cannot tell a walked route from a teleport
+        o = PLAN["outside"]
+        straight = [plus(p) for p in ([-990.5, 1137.5, 104.0], [-992.0, 1128.0, 102.0], [-993.5, 1118.5, 100.5],
+                                      [-994.5, 1111.5, 99.0])]                   # misses waypoint 1 by 6.6 m
+        cases = [({"steps": []}, "no route step read on this side"),
+                 ({"teleports": 1}, "1 teleport(s) in a routed leg"),
+                 ({"mode": None}, "mode straight, planned route"),
+                 ({"mode": "straight", "teleports": 1}, "mode straight, planned route"),
+                 ({"steps": [{"wp": 1, "ms": 2000, "state": "loaded", "read": None}]}, "no route step read on this side"),
+                 ({"steps": [dict(self.STEPS_IN[0], read=None)] + self.STEPS_IN[1:]}, "1 step(s) not read on this side"),
+                 ({"steps": [dict(self.STEPS_IN[0], read=fmt(plus([-985.1, 1030.4, 105.0])))] + self.STEPS_IN[1:]},
+                  "step 1 read 116.9 m from the read before, beyond the 21 m its hold walks"),
+                 ({"steps": [dict(s, read=fmt(p)) for s, p in zip(self.STEPS_IN, straight)] + [self.STEPS_IN[-1]]},
+                  "waypoint 1 passed no closer than 6.6 m"),
+                 ({"steps": self.STEPS_IN[:2] + [self.STEPS_IN[-1]]},
+                  "the last read on this side was 24.0 m from the door, beyond the 9 m the last hold walks")]
+        for bad, want in cases:
+            obs = self.obs()
+            obs["legs"][0].update(bad)
+            v, cls, detail = self.judge(obs)
+            self.assertEqual((v, cls), ("INCONCLUSIVE", "ROUTE"), (bad, detail))
+            self.assertIn(f"in: arrived, but the walk is not shown: {want}", detail)
+        obs = self.obs()
+        obs["legs"][1].update(steps=[], teleports=1)
+        v, cls, detail = self.judge(obs)
+        self.assertEqual((v, cls), ("INCONCLUSIVE", "ROUTE"), detail)
+        self.assertIn("out: arrived, but the walk is not shown: 1 teleport(s)", detail)
+        # a route that loaded only after the near teleport stays NEARONLY, with or without steps
+        for steps in ([], self.STEPS_IN):
+            obs = self.obs()
+            obs["legs"][0].update(trigger="near", near_m=1.0, teleports=1, steps=steps)
+            v, cls, detail = self.judge(obs)
+            self.assertEqual((v, cls), ("INCONCLUSIVE", "NEARONLY"), detail)
+        # a position failure still comes first
+        obs = self.obs()
+        obs["legs"][0].update(steps=[], load_seen=False, trigger="", arrival_read=fmt(plus(o["near"])))
+        self.assertEqual(self.judge(obs)[:2], ("FAIL", "NOLOAD"))
+        # a straight trip (no route planned) whose record claims a route
+        obs = good_obs()
+        obs["legs"][0]["mode"] = "route"
+        v, cls, detail = tq.judge_door(tq.door_test(0, PLAN), obs, lambda n: True)
+        self.assertEqual((v, cls), ("INCONCLUSIVE", "ROUTE"), detail)
+        self.assertIn("mode route, planned straight", detail)
 
     def test_the_route_start_is_where_the_player_stands(self):
         obs = self.obs()

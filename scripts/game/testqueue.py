@@ -552,6 +552,7 @@ DOOR_SIDE_KEYS = {"outside": frozenset(("start", "door", "arrival", "near", "gro
                   "inside": frozenset(("cell", "cell_id", "start", "door", "arrival", "near", "floor", "route",
                                        "arrival_heading"))}
 DOOR_ROUTE_MAX = 64                                             # waypoints per route (qstep.ps1 checks the same)
+ROUTE_MAX_SPEED = 10.0      # m/s: two route reads farther apart than a W hold walks are a teleport or another frame
 NAME = r"[A-Za-z0-9_]{1,64}"                                    # a cell EditorID or a save name: typed into the console
 
 
@@ -887,6 +888,44 @@ def _turn(a, b):
     return abs((a - b + 180.0) % 360.0 - 180.0)
 
 
+def _walk_evidence(test, x, route, door):
+    """None when a leg's record shows the planned walk, else why not. A leg with a planned route must have walked it:
+    mode route, no teleport (the near last try excepted: the trip is NEARONLY then), its steps read on this side, each
+    within one W hold of the read before, past every intermediate waypoint (within radius) and up to the door. The
+    arrival, save and load positions alone cannot tell a walked route from a teleport (Codex's review of PR #107,
+    2026-10-14: PASS with mode route and no steps, or with a teleport and trigger walk)."""
+    mode, want = x.get("mode") or "straight", "route" if route else "straight"
+    if mode != want:
+        return f"mode {mode}, planned {want}"
+    if not route or x.get("trigger") == "near":
+        return None
+    if x.get("teleports") or 0:
+        return f"{x['teleports']} teleport(s) in a routed leg"
+    steps = [s for s in x.get("steps") or [] if isinstance(s, dict)]
+    reads = [parse3(s.get("read")) for s in steps]
+    if sum(r is None for r in reads[:-1]):                  # only the step that loaded (or ended the walk) has none
+        return f"{sum(r is None for r in reads[:-1])} step(s) not read on this side"
+    chain = [parse3(x.get("start_read"))] + [r for r in reads if r is not None]
+    if len(chain) < 2:
+        return "no route step read on this side"
+    hold = float(test.get("route_hold_ms", 2000))
+    reach = [max(float(s.get("ms") or hold), 300.0) / 1000.0 * ROUTE_MAX_SPEED + 1.0 for s in steps]
+    for k in range(1, len(chain)):
+        d = math.dist(chain[k - 1], chain[k])
+        if d > reach[k - 1]:
+            return f"step {k} read {d:.1f} m from the read before, beyond the {reach[k - 1]:.0f} m its hold walks"
+    R = test.get("radius", 4.0)
+    for n, wp in enumerate(route[1:-1], 1):
+        off = min(seg_dist_xy(chain[k - 1], chain[k], wp) for k in range(1, len(chain)))
+        if off > R:
+            return f"waypoint {n} passed no closer than {off:.1f} m"
+    end = (reach[len(chain) - 1] if len(chain) - 1 < len(steps) else 1.0) + test.get("activate_m", 3.0)
+    d = math.dist(chain[-1], door)
+    if d > end:
+        return f"the last read on this side was {d:.1f} m from the door, beyond the {end:.0f} m the last hold walks"
+    return None
+
+
 def judge_door(test, obs, shot_ok):
     """door_trip (docs/slice/redrocket-door.md, docs/slice/door-frames.md). The legs must all be observed, in order: the
     coc arrival (settled, gives the overlay's merge offset O = arrival - spawn_local), "in" (from outside.start + O, or
@@ -904,7 +943,8 @@ def judge_door(test, obs, shot_ok):
     must be within facing_tol of it (the XTEL marker's rotation), and after the load the saved heading must come back:
     FAIL FACING, or INCONCLUSIVE NOFACING when not read; position failures come first. A leg that loaded only from the
     last-try teleport (trigger near) makes the whole trip INCONCLUSIVE NEARONLY: the door works, walking in is not
-    shown."""
+    shown. A leg that arrived without its record showing the planned walk (_walk_evidence: a routed leg's mode, no
+    teleport, continuous step reads past every waypoint up to the door) is INCONCLUSIVE ROUTE."""
     if not obs.get("offset"):
         why = obs.get("offset_missing") or "the arrival was not read or never settled"
         return "INCONCLUSIVE", "ANCHOR", f"no merge offset ({why}): no door was tried"
@@ -934,9 +974,10 @@ def judge_door(test, obs, shot_ok):
         return (f", GetInCell {i.get('cell_id') or i['cell']} {x.get('incell') if x.get('incell') is not None else 'unread'}"
                 + (f" ({x['incell_error']})" if x.get("incell_error") else "") + " (a diagnostic, not judged)")
 
-    def leg(name, start, door, arrival, unmerged=None):
+    def leg(name, start, door, arrival, unmerged=None, route=None):
         """None when the leg passed (notes appended), else (verdict, class, detail). unmerged: the arrival point in
-        the world's own frame (out leg), to tell an arrival without the overlay's merge offset."""
+        the world's own frame (out leg), to tell an arrival without the overlay's merge offset. route: the planned
+        waypoints in the frame the leg's reads are in, whose walk the record must show (_walk_evidence)."""
         x = legs.get(name)
         if not x:
             return "INCONCLUSIVE", "UNREAD", f"{name}: the leg did not run"
@@ -988,6 +1029,9 @@ def judge_door(test, obs, shot_ok):
         if d <= R:
             if not settled:
                 return "INCONCLUSIVE", "UNREAD", f"{name}: arrived {d:.1f} m from the arrival point, still moving"
+            why = _walk_evidence(test, x, route, door)
+            if why:                                              # arrived, but the record does not show the walk
+                return "INCONCLUSIVE", "ROUTE", f"{name}: arrived, but the walk is not shown: {why} ({how})"
             notes.append(f"{name}: arrived {d:.1f} m from the {'interior' if inside else 'merged exterior'} arrival "
                          f"point ({frame(end) or 'no known frame'} frame){cell_note(x)}, {how}, "
                          + (f"load {x['load_s']} s" if x.get("load_s") is not None else "load time not seen"))
@@ -1016,10 +1060,10 @@ def judge_door(test, obs, shot_ok):
     o_start = _add((o.get("route") or [o["start"]])[0], off)
     i_start = (i.get("route") or [i["start"]])[0]
     o_door, o_arr = _add(o["door"], off), _add(o["arrival"], off)
-    r = leg("in", o_start, o_door, i["arrival"])
+    r = leg("in", o_start, o_door, i["arrival"], route=[_add(p, off) for p in o["route"]] if o.get("route") else None)
     if r:
         return r[0], r[1], f"{r[2]}; {'; '.join(notes + probe_notes)}"
-    r = leg("out", i_start, i["door"], o_arr, unmerged=o["arrival"])
+    r = leg("out", i_start, i["door"], o_arr, unmerged=o["arrival"], route=i.get("route"))
     if r:
         return r[0], r[1], f"{r[2]}; {'; '.join(notes + probe_notes)}"
     out_read = parse3(legs["out"].get("arrival_read"))
