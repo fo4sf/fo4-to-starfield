@@ -46,6 +46,10 @@ class FailureSummaryTests(unittest.TestCase):
             summary = json.loads(summary_path.read_text())
             self.assertEqual(summary["total_failures"], 4)
             self.assertEqual(summary["unique_reasons"], 2)
+            self.assertEqual(summary["attempted"], 4)
+            self.assertEqual(summary["successes"], 0)
+            self.assertAlmostEqual(summary["success_percent"], 0.0)
+            self.assertIn("generated_at", summary)
             self.assertEqual(summary["top"][0]["reason"], "missing texture")
             self.assertEqual(summary["top"][0]["count"], 2)
             self.assertAlmostEqual(summary["top"][0]["percent"], 50.0)
@@ -76,6 +80,10 @@ class FailureSummaryTests(unittest.TestCase):
             summary = json.loads(summary_path.read_text())
             self.assertEqual(summary["total_failures"], 0)
             self.assertEqual(summary["unique_reasons"], 0)
+            self.assertEqual(summary["attempted"], 2)
+            self.assertEqual(summary["successes"], 2)
+            self.assertAlmostEqual(summary["success_percent"], 100.0)
+            self.assertIn("generated_at", summary)
             self.assertEqual(summary["top"], [])
 
     def test_overwrites_stale_summary_on_successful_rerun(self):
@@ -117,5 +125,7 @@ class FailureSummaryTests(unittest.TestCase):
             summary = json.loads((staging / "failure-summary.json").read_text())
             self.assertEqual(summary["total_failures"], 0)
             self.assertEqual(summary["unique_reasons"], 0)
+            self.assertEqual(summary["successes"], 2)
+            self.assertAlmostEqual(summary["success_percent"], 100.0)
             self.assertEqual(summary["top"], [])
 

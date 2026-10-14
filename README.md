@@ -124,7 +124,7 @@ python -m unittest discover -s tests -v
 python scripts/guard.py
 ```
 
-`scripts/convert_batch.py` converts groups of statics and now prints the top failure reasons by count (with percentages) after a run and writes failure-summary.json, making common issues easier to spot and process programmatically.
+`scripts/convert_batch.py` converts groups of statics and now prints the top failure reasons by count (with percentages) after a run and writes failure-summary.json (including timestamp, attempted/success counts, and success rate), making common issues easier to spot and process programmatically.
 
 To reproduce measurements, install the tools listed in [setup](docs/SETUP.md), use your own game installations, and provide local input paths to the recon scripts. Keep generated data and converted assets outside this repository. Read [contributing](CONTRIBUTING.md) before opening a pull request.
 
