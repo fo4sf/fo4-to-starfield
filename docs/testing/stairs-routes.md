@@ -216,7 +216,7 @@ Three queues, planned (no results yet), in this order:
 
 ```powershell
 $py = 'C:\Modding\venv-render\Scripts\python.exe'
-# 1. probes for section 1a (9 tests, ~13 min)
+# 1. probes for section 1a (8 tests, ~12 min)
 & $py scripts\game\testqueue.py plan --staging C:\Modding\staging\integ_1011 --out C:\Modding\testqueue\stairs_probe_1014 `
   --kinds stairs --routes-prefix routesprobe_ --routes-dir C:\Modding\staging\stairs_fix_1014 --refs 0EBED6,0EBED7,0C6B00
 # 2. the old routes, unchanged: the two under-slab runs and the 13 passed routes that moved (14 tests, ~20 min)
