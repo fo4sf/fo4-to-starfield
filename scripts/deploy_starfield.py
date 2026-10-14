@@ -29,6 +29,10 @@ DEPLOYED_FILES = frozenset((PLUGIN, ARCHIVE, TEX_ARCHIVE))
 _UNSET = object()
 
 
+class ConcurrentUpdateError(OSError):
+    """The expected file changed; the guarded replacement did not happen."""
+
+
 def plugins_txt_path():
     return os.path.join(os.environ.get("LOCALAPPDATA", ""), "Starfield", "Plugins.txt")
 
@@ -150,7 +154,7 @@ def update_plugins_config(p, content, expected_current):
     require_resolved_config_recovery(p)
     if expected_current is None:
         if os.path.lexists(p):
-            raise OSError("Plugins.txt changed during update; preserving concurrent edits")
+            raise ConcurrentUpdateError("Plugins.txt changed during update; preserving concurrent edits")
     else:
         check_regular_config(p)
     directory = tempfile.mkdtemp(prefix=".fo4port-config-", dir=os.path.dirname(os.path.abspath(p)))
@@ -167,6 +171,7 @@ def update_plugins_config(p, content, expected_current):
     def record_status():
         atomic_write_bytes(journal, (json.dumps(record, indent=1) + "\n").encode("utf-8"), ".journal-")
 
+    publication_attempted = False
     try:
         fd = os.open(intended, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "wb") as stream:
@@ -180,8 +185,9 @@ def update_plugins_config(p, content, expected_current):
         if expected_current is not None:
             os.replace(p, before)               # capture the actual final-boundary file, not an earlier read
             if read_config_bytes(before) != expected_current:
-                raise OSError("Plugins.txt changed during update; captured owner edits preserved")
+                raise ConcurrentUpdateError("Plugins.txt changed during update; captured owner edits preserved")
         if content is not None:
+            publication_attempted = True
             os.link(intended, p)                # atomic creation: a newly appeared owner file cannot be replaced
         elif os.path.lexists(p):
             raise OSError("Plugins.txt appeared during removal; preserving the new file")
@@ -203,8 +209,11 @@ def update_plugins_config(p, content, expected_current):
         except OSError:
             pass                                # the prepared journal and any captured bytes remain
         if isinstance(error, OSError):
-            raise OSError(f"Plugins.txt changed or update failed; preserving recovery copies at {directory}: "
-                          f"{error}; {restoration}") from error
+            safe_refusal = (not publication_attempted and isinstance(error, ConcurrentUpdateError) and
+                            restoration in ("no captured file", "captured file restored without replacement"))
+            error_type = ConcurrentUpdateError if safe_refusal else OSError
+            raise error_type(f"Plugins.txt changed or update failed; preserving recovery copies at {directory}: "
+                             f"{error}; {restoration}") from error
         raise
 
 

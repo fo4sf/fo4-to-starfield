@@ -67,6 +67,31 @@ class PluginConfigRecoveryTests(unittest.TestCase):
                                           expected_current=self.original)
         self.assertEqual(self.plugins.read_bytes(), self.edited)
 
+    def test_safely_restored_conflict_preserves_the_integration_exception_contract(self):
+        self.plugins.write_bytes(self.edited)
+        with self.assertRaises(deploy.ConcurrentUpdateError):
+            deploy.atomic_write_bytes(str(self.plugins), self.activated, '.plugins-', self.original)
+        self.assertEqual(self.plugins.read_bytes(), self.edited)
+        record = json.loads((self.recovery() / 'transaction.json').read_text())
+        self.assertEqual(record['restoration'], 'captured file restored without replacement')
+
+    def test_failed_conflict_restoration_is_not_a_safe_typed_refusal(self):
+        self.plugins.write_bytes(self.original)
+        replace, remove, _ = self.final_boundary_edit()
+        real_link = os.link
+
+        def refuse_restoration(source, target, **kwargs):
+            if Path(target) == self.plugins:
+                raise OSError('cannot restore captured owner file')
+            return real_link(source, target, **kwargs)
+
+        with replace, remove, patch.object(deploy.os, 'link', side_effect=refuse_restoration):
+            with self.assertRaises(OSError) as caught:
+                deploy.atomic_write_bytes(str(self.plugins), self.activated, '.plugins-', self.original)
+        self.assertNotIsInstance(caught.exception, deploy.ConcurrentUpdateError)
+        self.assertFalse(self.plugins.exists())
+        self.assertEqual((self.recovery() / 'before.txt').read_bytes(), self.edited)
+
     def test_missing_file_creation_never_replaces_a_new_owner_file(self):
         replace, remove, link = self.final_boundary_edit()
         with replace, remove, link:

@@ -658,11 +658,14 @@ Conditional Plugins.txt writes and both removal paths now capture the actual fil
 publish/restore without replacing a newer target, and retain before/intended files with a prepared
 journal. Hard-link support is tested before capture; unsupported filesystems refuse without moving
 the configuration. Unresolved/crash journals block retries and cannot silently release uninstall
-ownership when the target is absent. Twenty-seven focused regressions include real helper-process
+ownership when the target is absent. Twenty-nine focused regressions include real helper-process
 exits after capture/publication, late captured-file writes and recovery/metadata failures.
 
-Validation:338 full Windows tests pass (2 existing skips); guard/diff checks pass. Earlier independent
-QA passed the publication/removal paths; final review includes the retry guard and recovery notes.
+Validation:340 full Windows tests pass (2 existing skips); guard/diff checks pass. An isolated overlay
+on Claude's pinned129b9ae text sources passes1005 tests (38 existing skips), preserving the advanced
+archive/copy APIs and safe ConcurrentUpdateError classification. Its source/overlay hashes are
+recorded privately; no canonical integration files were edited. Earlier independent QA passed the
+publication/removal paths; final review includes the retry guard, exception contract and recovery notes.
 The conditional target name can briefly be absent. This preserves recoverable bytes rather than
 claiming compare-and-swap, immutable snapshots or power-loss durability; one controller and a
 closed game remain required. [Recovery procedure](testing/plugin-config-recovery.md).

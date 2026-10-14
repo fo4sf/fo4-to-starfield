@@ -36,6 +36,11 @@ block further configuration updates and recovery shortcuts. A missing target the
 cannot be mistaken for successful restoration of an originally absent file. This is a
 retry guard, not a lock that excludes every concurrent deployment process.
 
+The integration installer's `ConcurrentUpdateError` contract is retained only for a refusal
+before publication with no capture, or a captured owner file safely restored at the target.
+Publication attempts or unavailable/conflicting restorations raise ordinary OSError instead,
+so consumers retain cleanup ownership rather than treating a partial update as untouched.
+
 After a process stops, inspect transaction.json, the current Plugins.txt, before.txt when
 present, and intended.txt. Close the game and editors that hold these files before
 comparing/merging. Preserve the owner's newer entries. A prepared journal may have an
