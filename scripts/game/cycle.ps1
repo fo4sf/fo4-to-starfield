@@ -12,7 +12,9 @@
 # few minutes (load screen, then a hang).
 # Exit codes: 1 bad cell name, 2 input guard, 3 the game was not started by this script, 4 arrival not verified,
 # 5 a screen check could not run (nothing pressed), 6 an activation prompt sits under the crosshair (nothing pressed),
-# 7 an installed experiment plugin's master is not active (exp_install.py order; the game is not launched).
+# 7 an installed experiment plugin's master is not active (exp_install.py order; the game is not launched),
+# 8 the experiment plugins are no longer active after the save loaded, or the load order dialog could not be answered
+# with "Current" (loadorder.ps1; nothing tested, the game is left running for the runner to close).
 param([Parameter(Mandatory)][string]$Staging, [Parameter(Mandatory)][string]$Starfield, [string]$Cell = 'FO4Port_Vault111Cryo',
       [string]$Shot = (Join-Path $env:TEMP 'fo4sf_cycle.png'), [string]$CellJson = '')
 if ($Cell -notmatch '^[A-Za-z0-9_]+$') { "cell name must be letters, digits and underscores (it is typed into the game): $Cell"; exit 1 }
@@ -77,9 +79,24 @@ function Clear-AchievementsPopup {
   return $false
 }
 
-# main menu: Continue, clear load-time notices, wait for the save to load
-Send 'click:768,432|wait:6000|key:up|wait:700|key:enter|wait:2500|hold:e,300|wait:2500|hold:e,300|wait:3000'
+# main menu: Continue (E confirms "Continue from your last saved game?"), answer Starfield's "different Creations Load
+# Order" dialog with "Current" (loadorder.ps1), clear load-time notices, wait for the save to load. 2026-10-13 (launch
+# frames 23:20): the second E picked the preselected "Save", Starfield deactivated every experiment plugin and each later
+# coc into our worldspaces froze.
+Send 'click:768,432|wait:6000|key:up|wait:700|key:enter|wait:2500|hold:e,300|wait:2500'
+powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'loadorder.ps1')
+$lo = $LASTEXITCODE
+if ($lo -eq 2) { "input guard stopped the sequence (someone else has focus)"; exit 2 }
+if ($lo -eq 5) { exit 5 }
+if ($lo -eq 9) { "the load order dialog could not be answered with 'Current': not confirming 'Save'"; exit 8 }
+Send 'hold:e,300|wait:3000'
 Wait-Screen 'save loaded' 120 $HudShown | Out-Null
+if (Test-Path (Join-Path $sf 'Data\FO4SFExp.install.json')) {   # Starfield can still have switched the load order
+  $act = python -I "$repo\scripts\game\exp_install.py" active --starfield $sf
+  $actCode = $LASTEXITCODE
+  $act | Select-Object -Last 1
+  if ($actCode -ne 0) { "Starfield deactivated the experiment plugins while loading the save: not testing (exit $actCode)"; exit 8 }
+}
 function Prompt-Visible {
   # an activation prompt (door, NPC, item) under the crosshair: E would use it
   $tmp = Join-Path $env:TEMP 'fo4sf_prompt.png'

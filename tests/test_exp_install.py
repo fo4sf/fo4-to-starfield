@@ -604,5 +604,35 @@ class ExperimentRecoveryTests(unittest.TestCase):
         self.assertTrue(record.exists())
 
 
+class ActiveCheckTests(unittest.TestCase):
+    """exp_install.py active: Starfield can deactivate installed plugins while running (2026-10-13 load order dialog)."""
+
+    def run_active(self, plugins_txt_text, record):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "Data").mkdir()
+            (root / "Local" / "Starfield").mkdir(parents=True)
+            if record is not None:
+                (root / "Data" / exp.RECORD).write_text(json.dumps(record))
+            (root / "Local" / "Starfield" / "Plugins.txt").write_text(plugins_txt_text)
+            with patch.dict(os.environ, {"LOCALAPPDATA": str(root / "Local")}):
+                return exp.active(SimpleNamespace(starfield=str(root)))
+
+    def test_all_active(self):
+        txt = "# header\n*FO4Port.esm\n*FO4TerrainExp2.esm\n*FO4TerrainExp2_Mars.esm\n"
+        self.assertEqual(self.run_active(txt, {"plugins": ["FO4TerrainExp2.esm", "FO4TerrainExp2_Mars.esm"]}), 0)
+
+    def test_deactivated_by_the_game(self):
+        # Plugins.txt as Starfield rewrote it at 23:27 on 2026-10-13
+        txt = "# header\n*FO4Port.esm\nFO4TerrainExp2.esm\nFO4TerrainExp2_Mars.esm\n"
+        self.assertEqual(self.run_active(txt, {"plugins": ["FO4TerrainExp2.esm", "FO4TerrainExp2_Mars.esm"]}), 8)
+
+    def test_missing_line_and_legacy_record(self):
+        self.assertEqual(self.run_active("*FO4Port.esm\n", {"plugins_added": ["*Experiment.esm"]}), 8)
+
+    def test_nothing_installed(self):
+        self.assertEqual(self.run_active("*FO4Port.esm\n", None), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

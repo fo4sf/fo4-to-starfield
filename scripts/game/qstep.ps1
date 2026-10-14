@@ -320,8 +320,15 @@ switch ($kind) {
     if ($t.name -notmatch '^[A-Za-z0-9_]+$') { "bad save name"; exit 4 }
     Console-Open
     Send "type:load $($t.name)|key:enter|wait:3000"
-    $hud = Join-Path $Out 'hud.png'; $t0 = Get-Date
-    do { Start-Sleep 3; powershell -NoProfile -ExecutionPolicy Bypass -File $shot -Out $hud | Out-Null
+    $hud = Join-Path $Out 'hud.png'; $t0 = Get-Date; $lo = 0; $up = $false
+    do { Start-Sleep 3
+         if ($lo -eq 0) {                            # "different Creations Load Order" dialog: keep Current (loadorder.ps1)
+           powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'loadorder.ps1') -Out (Join-Path $Out 'loadorder.png') | Out-Null
+           $lo = $LASTEXITCODE; if ($lo -ne 0) { $obs['load_order_dialog'] = $lo }
+           if ($lo -eq 2) { $obs['stopped'] = 'input guard'; Save-Obs; exit 2 }
+           if ($lo -eq 9) { break }                  # not answered: nothing confirmed, the save is not loaded
+           if ($lo -eq 5) { $lo = 0 } }               # check could not run: try again on the next pass
+         powershell -NoProfile -ExecutionPolicy Bypass -File $shot -Out $hud | Out-Null
          $up = (& $env:FO4SF_PYTHON (Join-Path $here 'hud_visible.py') $hud) -eq 'yes' } until ($up -or ((Get-Date) - $t0).TotalSeconds -gt 120)
     $obs['hud_back'] = $up; $obs['load_s'] = [int]((Get-Date) - $t0).TotalSeconds
     $obs['end_read'] = Read-Pos

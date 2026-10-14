@@ -184,6 +184,29 @@ def order(a):
     return 0
 
 
+def active(a):
+    """Read-only: is every plugin this install activated still active ("*") in Plugins.txt? 0 yes or nothing installed,
+    8 no. Starfield itself can deactivate them while running (2026-10-13: answering "Save" to its "different Creations
+    Load Order" dialog after Continue rewrote Plugins.txt with every experiment plugin inactive; coc then froze)."""
+    rec_p = os.path.join(a.starfield, "Data", RECORD)
+    if not os.path.exists(rec_p):
+        print("nothing installed")
+        return 0
+    rec = read_json(rec_p)
+    plugins = rec.get("plugins")
+    if plugins is None:
+        plugins = [x.lstrip("*").strip() for x in rec.get("plugins_added", [])]
+        plugins += [x["active"].lstrip("*").strip() for x in rec.get("plugins_replaced", [])]
+    lines, _, _ = read_plugins(plugins_txt())
+    on = {ln.strip()[1:].strip().casefold() for ln in lines if ln.strip().startswith("*")}
+    off = [p for p in plugins if p.casefold() not in on]
+    if off:
+        print(f"inactive in Plugins.txt: {', '.join(off)}")
+        return 8
+    print(f"active: {', '.join(plugins)}")
+    return 0
+
+
 def read_json(p):
     with open(p) as f:
         return json.load(f)
@@ -547,7 +570,7 @@ def uninstall(a):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=("install", "uninstall", "status", "order"))
+    ap.add_argument("cmd", choices=("install", "uninstall", "status", "order", "active"))
     ap.add_argument("--exp-dir", default="")
     ap.add_argument("--starfield", required=True)
     ap.add_argument("--plugins", default="", help="comma-separated plugin file names to activate")
@@ -571,6 +594,8 @@ def main(argv=None):
         return uninstall(a)
     if a.cmd == "order":
         sys.exit(order(a))
+    if a.cmd == "active":
+        sys.exit(active(a))
     rec_p = os.path.join(a.starfield, "Data", RECORD)
     if not os.path.exists(rec_p):
         print("nothing installed")
