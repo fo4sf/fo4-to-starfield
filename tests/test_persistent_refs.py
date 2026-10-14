@@ -91,6 +91,17 @@ class PersistentRefsTests(unittest.TestCase):
         self.assertEqual(got, {"01000805": ("temporary children", False, "exterior"),
                                "01000800": ("persistent children", True, "persistent")})
 
+    def test_the_storage_counts_do_not_depend_on_the_refs_asked_for(self):
+        # Codex's review of PR #107: asking for 000805 made W report 0 temporary refs although it listed the ref
+        plain = self.walk(False)["worlds"]["W"]
+        rep = self.walk(False, refs=["000805", "000804"])
+        w = rep["worlds"]["W"]
+        self.assertEqual((w["temporary_refs"], plain["temporary_refs"]), (1, 1))
+        self.assertEqual([r["formid"] for r in rep["refs"]], ["01000804", "01000805"])
+        self.assertEqual([r["formid"] for r in w["exterior_persistent_refs"]],
+                         [r["formid"] for r in plain["exterior_persistent_refs"]])
+        self.assertEqual(len(w["persistent_refs"]), len(plain["persistent_refs"]))
+
 
 if __name__ == "__main__":
     unittest.main()

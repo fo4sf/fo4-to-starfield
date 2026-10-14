@@ -130,14 +130,15 @@ def walk(path, worlds=(), refs=()):
                 hit = fid in want_refs or (local in want_refs and (fid >> 24) == local_index)
                 if w is not None or hit:
                     cell_group = next((s for s in reversed(stack) if s[0] in (8, 9)), None)
-                    if w is not None and cell_group is not None and cell_group[0] == 9 and not hit:
-                        rep["worlds"][w]["temporary_refs"] += 1
-                    else:
+                    gtype = cell_group[0] if (w is not None and cell_group is not None) else None
+                    if gtype == 9:                  # the storage count: the same whether or not --refs asks for the ref
+                        rep["worlds"][w]["temporary_refs"] += 1    # (Codex's review of PR #107: it dropped the hits)
+                    if hit or gtype == 8:
                         r = summarize_ref(buf, pos, fid, [s for s in stack if s[0] in (1, 4, 5, 6, 8, 9)], cell_of)
                         r["world"] = w
                         if hit:
                             rep["refs"].append(r)
-                        if w is not None and cell_group is not None and cell_group[0] == 8:
+                        if gtype == 8:
                             key = ("persistent_refs" if cell_of.get(cell_group[1], {}).get("kind") == "persistent"
                                    else "exterior_persistent_refs")
                             rep["worlds"][w][key].append(r)
