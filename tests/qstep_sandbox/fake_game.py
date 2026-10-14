@@ -47,7 +47,9 @@ console stays open. A door's dest_heading is the heading after its load (the XTE
 prints the heading as a fourth value. garble_after_walks N: the first player read after the N-th walk step prints the
 first live run's garble (garble_count times): the previous read's z, this read's x and z, as "99.74 -2195.27 99.41"
 for (-2195.27, -1593.51, 99.41); walk_dz: every walk step changes z by that much (the live walk went down the cave
-mouth, so the garble's x and z differ and pass Read-Pos's x == z filter)."""
+mouth, so the garble's x and z differ and pass Read-Pos's x == z filter). The sandbox readpos types its nonce
+(fo4sfr<8 hex>) first, as the real one: the console echoes it and replies not found (the reply's wording is a
+supported hypothesis; readpos relies on the echo alone)."""
 import json
 import math
 import os
@@ -156,7 +158,9 @@ def run(s, cmd):
     s["log"].append(cmd)                                   # the console echoes what was typed
     w = cmd.split()
     kind, a = selected(s)
-    if low.startswith("player.setpos "):
+    if re.fullmatch(r"fo4sfr[0-9a-f]{8}", low):            # readpos's nonce: an unknown command, echoed and refused
+        s["log"].append(f'Script command "{cmd}" not found.')
+    elif low.startswith("player.setpos "):
         s["player"] = player_pos(s)
         s["falling"] = None
         s["player"]["xyz".index(w[1])] = float(w[2])

@@ -39,17 +39,25 @@ function Console-Open {
 }
 $script:strictReads = $false     # door_trip: readpos -Strict (labelled values of the read's own session only)
 $script:lastHeading = $null      # the heading of the last Read-Pos with -Angle ($null: not read)
+$script:readN = 0                # readpos.ps1 runs so far: each gets its own folder <Out>\reads\NNNN
 function Read-Pos([string]$ref = '', [int]$tries = 3, [bool]$angle = $false) {
   # up to 3 reads: OCR sometimes drops or shifts a column; a read with x == z or a missing value is retried. With
   # $angle (door_trip arrivals) readpos also types player.getangle z: the read returns "x y z" and the heading goes to
-  # $script:lastHeading
+  # $script:lastHeading. Every readpos run keeps its capture, OCR text and read.json (its nonce) in its own folder,
+  # listed in obs.read_log (Codex's review of PR #107: one shared folder, every read overwrote the last one's evidence)
   $p = 'fail'
   $extra = @()
   if ($script:strictReads) { $extra += '-Strict' }
   if ($angle -and -not $ref) { $extra += '-Angle' }
   $script:lastHeading = $null
   for ($n = 0; $n -lt $tries; $n++) {
-    if ($ref) { $p = powershell -NoProfile -ExecutionPolicy Bypass -File $readpos -Ref $ref @extra } else { $p = powershell -NoProfile -ExecutionPolicy Bypass -File $readpos @extra }
+    $script:readN++
+    $rel = 'reads\{0:D4}' -f $script:readN; $work = Join-Path $Out $rel
+    if ($ref) { $p = powershell -NoProfile -ExecutionPolicy Bypass -File $readpos -Work $work -Ref $ref @extra } else { $p = powershell -NoProfile -ExecutionPolicy Bypass -File $readpos -Work $work @extra }
+    $rj = Join-Path $work 'read.json'; $nonce = $null
+    if (Test-Path $rj) { try { $nonce = (Get-Content $rj -Raw | ConvertFrom-Json).nonce } catch { $nonce = $null } }
+    if (-not $obs.Contains('read_log')) { $obs['read_log'] = @() }
+    $obs['read_log'] += [ordered]@{ n = $script:readN; work = $rel; ref = $ref; nonce = $nonce; result = "$p" }
     if ("$p" -like 'fail guard*') { $obs['stopped'] = 'input guard'; Save-Obs; exit 2 }
     $v = "$p".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
     if ($extra -contains '-Angle' -and $v.Count -eq 4 -and $v[0] -ne $v[2]) {

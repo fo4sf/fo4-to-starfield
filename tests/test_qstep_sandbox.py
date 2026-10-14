@@ -61,6 +61,15 @@ class SandboxStep:
         left = [k for k, a in st["actors"].items() if not (a.get("disabled") and a.get("deleted"))]
         self.typed = st.get("typed", [])
         self.state = st
+        self.out = out
+        # every readpos run typed its own nonce first and kept read.json in its own folder, listed in obs.read_log
+        # (Codex's review of PR #107: one shared folder, a read not tied to its own request)
+        nonces = [c for c in self.typed if c.startswith("fo4sfr")]
+        self.assertEqual(len(nonces), len(set(nonces)))
+        self.assertEqual([r["nonce"] for r in obs.get("read_log", [])], nonces)
+        for r in obs.get("read_log", []):
+            with open(os.path.join(out, r["work"], "read.json"), encoding="utf-8-sig") as f:
+                self.assertEqual(json.load(f)["nonce"], r["nonce"])
         # a selection that stayed on the floor static must never get disable (N0_base's spawn session had one)
         self.assertEqual([k for k, v in st.get("statics", {}).items() if v.get("disabled") or v.get("deleted")], [])
         return tq.judge(t, obs, out), obs, left
