@@ -819,11 +819,23 @@ twin step is untested in game until the next library run.
   - (n0b_1013, the first run, had 4 of 5 INCONCLUSIVE SPAWN: placeatme put the actor 2.1-5.4 m away, over the 2 m handle check, although GetIsID/GetSelf confirmed it.)
 - **Ground textures (#70), first live tries:** `coc FO4CW_RedRocketSpawn` froze the game at the **daylight registration site (0.2, 1.2 rad)** for both tex_t0 (the control: exp2b2's BTD byte for byte, only the site changed) and tex_ta.
   - No load and no reply for 90 s. The console then could not be reopened safely, so the runner stopped.
-  - Since only the site differs from the working exp2b2, the site is the supported cause.
+  - Since only the site differs from the working exp2b2, the site is the supported cause. **(Withdrawn 2026-10-14: these runs came after the plugin deactivation below, which explains the freeze. The daylight site is untested.)**
   - Re-staged as `terrain_exp2{t0,ta,t}_night` with exp2b2's Mars plugin (the night site, where every arrival works) and `SetLocalTime 12` for daylight. Queued after the cave tests.
 - **BLOCKER since about 22:27 MDT (2026-10-13): Starfield deactivates our experiment plugins at startup.**
   - A timestamped Plugins.txt watcher shows our install and the deploy leave them active. About 35 s after launch, at the main menu, the game rewrites the file to `*FO4Port.esm` plus our plugins inactive. Reproduced twice (noon2_1013).
   - Every coc into our worldspaces then freezes: tex_t0/ta/t at the daylight and night sites, cave_core64c, noon2. The same staging worked at 16:13, 16:33 and 17:05. The vanilla LC172 control works.
-  - Launch screenshots show no pop-up. The newest save at the menu is the owner's own autosave from 20:47, between the last working test and the first failure.
-  - Supported hypothesis: the owner's session changed Starfield's own (Creations) load-order state. Owner asked; Codex asked on #32.
+  - ~~Launch screenshots show no pop-up.~~ Wrong: frame t033 of the 23:20 launch shows a dialog (cause below, 2026-10-14). The newest save at the menu was a 20:47 autosave, between the last working test and the first failure.
+  - ~~Supported hypothesis: the owner's session changed Starfield's own (Creations) load-order state.~~ Withdrawn; the runner's own key presses did it (2026-10-14).
   - In-game tests are paused until this is understood. The combat test (#112), cave-door fix A (#107), walk (#103) and the night-site texture queues are ready to run once it is.
+
+## 2026-10-14: cause of the plugin deactivation found (the runner's own E press)
+- **Cause (seen in the 23:20 launch frames, t031-t036):**
+  1. Continue asks "Continue from your last saved game?"; the first E confirms it (as always).
+  2. Starfield then shows "This save uses a different Creations Load Order than your current Load Order. Would you like to use the Load Order from this save, or your current Load Order?" with **Save** preselected.
+  3. cycle.ps1's second E (meant for load-time notices) picked **Save**. The menu greyed out while Starfield switched to the 20:47 autosave's load order and rewrote Plugins.txt with our experiment plugins inactive.
+  - The dialog appears only when the newest save was made with a different load order, so earlier runs never met it. The deactivation was not the owner's doing.
+- **Fix (`claude/integration-1013`):**
+  - `loadorder.ps1`: if the dialog is on screen (OCR "Load Order"), press Down, check that the grey highlight bar is on "Current" (`loadorder_row.py`, Save row 102 vs 49 grey on t033), then E. It never confirms "Save", and it presses nothing when there is no dialog.
+  - Used after Continue in cycle.ps1 and during qstep's `load` kind.
+  - After the save loads, cycle.ps1 runs the new read-only `exp_install.py active`. If an installed experiment plugin is no longer `*`-active, it exits 8 instead of testing. A switched load order now fails in seconds instead of freezing every coc.
+  - Unit: 47/47 exp_install (4 new). The highlight check reads `save` on t033, `none` on the other frames and `current` on a frame with the rows swapped. Not yet verified in game.
