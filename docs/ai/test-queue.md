@@ -389,8 +389,11 @@ REACHED" box (which leaves the HUD on screen). The STOP files and the Resource G
 too (spec `stop`), since the runner is blocked in the step; a stop ends it like a guard stop (exit 2, no attempt). Nothing else is typed during the walk; the judge checks every leg's typed lines. PASS: the
 goal reached, every leg read, every move plausible, every read on the terrain or a converted surface (0.6 m), every
 planned cell border crossed between two reads, at least two reads on the bridge deck, no popup, the screenshots.
-FAIL: BOUNDARY, FELL, HEIGHTS, JUMP, OFFROUTE, STUCK; anything missing is INCONCLUSIVE. The runner pins the
-experiment install record (plugins' and archive's sha256) with every walk result (`results.jsonl` `install`).
+FAIL: BOUNDARY, FELL, HEIGHTS, JUMP, OFFROUTE, STUCK; anything missing is INCONCLUSIVE. `plan-walk` needs
+`--install-exp` / `--plugins`: it pins the experiment's staged inputs (`queue.json` `experiment_identity`); the runner
+stops before a launch when that folder changed and records the install record with every walk result (`results.jsonl`
+`install`); a PASS or FAIL whose record is missing, incomplete or not the pinned experiment is INCONCLUSIVE INSTALL and
+stops the run.
 
 | plan.json field | meaning | default |
 |---|---|---|

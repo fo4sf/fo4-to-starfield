@@ -39,7 +39,11 @@ acceptance." Every terrain test so far dropped the player onto points (teleports
      `player.setangle` are typed: **never a setpos** (the judge checks every leg's list).
    A screenshot is kept every `shot_every` (3) legs and at every event (popup, HUD gap, detour).
 4. The end screenshot. The runner records the experiment install record with the result (`results.jsonl` `install`:
-   the staged folder, the plugins and the sha256 of every installed file, the packed archive included).
+   the staged folder, the plugins and the sha256 of every installed file, the packed archive included, and of every
+   staged input) and checks it against the experiment the queue pinned when it was planned (`queue.json`
+   `experiment_identity`: `plan-walk --install-exp` / `--plugins`, the sha256 of the plugins and the Data tree). A
+   changed staged folder stops the runner before a launch; a missing, incomplete or different install record turns a
+   PASS or FAIL into INCONCLUSIVE INSTALL (the raw verdict kept in the detail) and stops the run.
 
 The controller (`walk_eval.py`, plain Python, one call per leg): a waypoint counts as reached within its radius (2.5 m;
 1.2 m at corners and their lead points; 3 m at the goal), or once the player is past it along the route (only within
@@ -229,8 +233,9 @@ walking 150 s before its budget (limit - 60 s), so a cut-off keeps every leg alr
   short portals, layer choice (canopy / bridge), the blocking raster (a wall blocks within the capsule only, a kerb
   does not), the raster A* round a wall and never up a cliff, line of sight with clearance, waypoints at corners and
   on the bridge, merged corners, cell crossings.
-- `tests/test_walk_eval.py`: plan-walk (validation, queue needs and pre_launch), the install record pinned with a
-  result, the controller (waypoint by waypoint, past a waypoint, lookahead past waypoints not kept, side steps then
+- `tests/test_walk_eval.py`: plan-walk (validation, queue needs and pre_launch, the experiment pinned by its staged
+  inputs), the stop controls inside the walk, a changed experiment stopping before the launch, a walk result without
+  the pinned install record (INCONCLUSIVE INSTALL), the controller (waypoint by waypoint, past a waypoint, lookahead past waypoints not kept, side steps then
   stuck, a misread read again, a confirmed and an unconfirmed jump, off the route, falling, unread, leg budget, the
   hold cap) and the judge (PASS through testqueue, every FAIL and INCONCLUSIVE class above).
 - `tests/test_qstep_sandbox.py` `QstepWalkSandboxTests` (opt-in `FO4SF_QSTEP_SANDBOX=1`): the real step against a

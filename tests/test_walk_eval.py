@@ -6,6 +6,7 @@ import json
 import math
 import os
 import sqlite3
+import struct
 import sys
 import tempfile
 import unittest
@@ -13,9 +14,11 @@ from types import SimpleNamespace
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
+import exp_install  # noqa: E402
 import runner_features  # noqa: E402
 import testqueue as tq  # noqa: E402
 import walk_eval as we  # noqa: E402
+import test_testqueue as tt  # noqa: E402  (FakeControls, args: the runner without Windows or a game)
 
 OFF = [-1200.0, -2700.0, 0.0]
 WPS = [(-995.0, 1190.0), (-1005.0, 1190.0), (-1015.0, 1190.0), (-1015.0, 1198.0), (-1015.0, 1206.0),
@@ -108,6 +111,47 @@ def shot_ok(name):
     return bool(name)
 
 
+def tes4(path, body=b""):
+    """A minimal plugin (a TES4 header without masters, as exp_install.plugin_masters reads it) with distinct bytes."""
+    with open(path, "wb") as f:
+        f.write(b"TES4" + struct.pack("<I", 0) + b"\0" * 16 + body)
+
+
+PLUGINS = ["FO4TerrainCore.esm", "FO4TerrainCore_Mars.esm"]
+
+
+def planned_queue(d, *flags, **extra):
+    """plan-walk for real: a fake build in <d>/staging, the route in <d>/walk, the experiment it runs on in <d>/core
+    (two plugins and a Data file: what the runner installs and pins); returns (queue dir, core dir)."""
+    staging, exp, core, out = (os.path.join(d, x) for x in ("staging", "walk", "core", "queue"))
+    for p in (staging, exp, os.path.join(core, "Data", "Terrain")):
+        os.makedirs(p)
+    with open(os.path.join(staging, "FO4Port.esm"), "wb") as f:
+        f.write(b"TES4")
+    for k, p in enumerate(PLUGINS):
+        tes4(os.path.join(core, p), bytes([k]))
+    with open(os.path.join(core, "Data", "Terrain", "W.btd"), "wb") as f:
+        f.write(b"BTDB")
+    with open(os.path.join(exp, "plan.json"), "w") as f:
+        json.dump([entry(exp, **extra)], f)
+    tq.main(["plan-walk", "--staging", staging, "--exp-dir", exp, "--out", out, "--plugins", ",".join(PLUGINS),
+             "--install-exp", core] + list(flags))
+    return out, core
+
+
+def install_record(starfield, core, **changes):
+    """The install record exp_install.py would leave for the planned experiment in <starfield>/Data."""
+    rec = {"exp_dir": core, "plugins": PLUGINS, "complete": True, "pack": True,
+           "source_inputs": exp_install.source_inventory(core, PLUGINS),
+           "files": dict({p: exp_install.digest(os.path.join(core, p)) for p in PLUGINS},
+                         **{"FO4TerrainCore - Main.ba2": "cd" * 32}),
+           "packing_policy": "general-stored-verified-v2", "plugins_txt": "x"}
+    rec.update(changes)
+    os.makedirs(os.path.join(starfield, "Data"), exist_ok=True)
+    with open(os.path.join(starfield, "Data", exp_install.RECORD), "w") as f:
+        json.dump(rec, f)
+
+
 class WalkPlanTests(unittest.TestCase):
     def test_a_test_from_the_plan(self):
         t, d = test_of()
@@ -131,16 +175,7 @@ class WalkPlanTests(unittest.TestCase):
 
     def test_plan_walk_writes_the_queue_with_its_needs(self):
         d = tempfile.mkdtemp()
-        staging, exp, core, out = (os.path.join(d, x) for x in ("staging", "walk", "core", "queue"))
-        for p in (staging, exp, core):
-            os.makedirs(p)
-        with open(os.path.join(staging, "FO4Port.esm"), "wb") as f:
-            f.write(b"TES4")
-        with open(os.path.join(exp, "plan.json"), "w") as f:
-            json.dump([entry(exp, time_of_day=12, fresh=True)], f)
-        plugins = "FO4TerrainCore.esm,FO4TerrainCore_Mars.esm"
-        tq.main(["plan-walk", "--staging", staging, "--exp-dir", exp, "--out", out, "--plugins", plugins,
-                 "--install-exp", core, "--fresh"])
+        out, core = planned_queue(d, "--fresh", time_of_day=12, fresh=True)
         with open(os.path.join(out, "queue.json")) as f:
             q = json.load(f)
         self.assertEqual(q["needs"], ["light", "walk"])
@@ -150,11 +185,32 @@ class WalkPlanTests(unittest.TestCase):
         pre = q["pre_launch"]
         self.assertEqual(pre[pre.index("--exp-dir") + 1], os.path.abspath(core))      # core64c is what is installed
         self.assertEqual(pre[pre.index("--needs") + 1], "light,walk")
-        self.assertEqual(q["experiment"], os.path.abspath(exp))
+        self.assertEqual(q["experiment"], os.path.abspath(os.path.join(d, "walk")))
         self.assertGreater(tq.step_timeout(t), 20 * 60)
         self.assertEqual(runner_features.needs([t]), ["light", "walk"])
         self.assertEqual(runner_features.missing(["walk"]), [])
+        # the experiment the walk runs on is pinned by its staged inputs (Codex on PR #103: FO4Port alone was)
+        pin = q["experiment_identity"]
+        self.assertEqual((pin["exp_dir"], pin["plugins"]), (os.path.abspath(core), PLUGINS))
+        self.assertEqual(sorted(pin["inputs"]), ["Data/Terrain/W.btd", "plugin/FO4TerrainCore.esm",
+                                                 "plugin/FO4TerrainCore_Mars.esm"])
+        self.assertEqual(pin["inputs"]["Data/Terrain/W.btd"], tq.sha256(os.path.join(core, "Data", "Terrain", "W.btd")))
 
+    def test_plan_walk_needs_the_experiment(self):
+        d = tempfile.mkdtemp()
+        staging, exp = os.path.join(d, "staging"), os.path.join(d, "walk")
+        os.makedirs(staging)
+        os.makedirs(exp)
+        with open(os.path.join(staging, "FO4Port.esm"), "wb") as f:
+            f.write(b"TES4")
+        with open(os.path.join(exp, "plan.json"), "w") as f:
+            json.dump([entry(exp)], f)
+        with self.assertRaises(SystemExit):                            # no --plugins: nothing to pin
+            tq.main(["plan-walk", "--staging", staging, "--exp-dir", exp, "--out", os.path.join(d, "q")])
+        with self.assertRaises(SystemExit):                            # a plugin that is not staged
+            tq.main(["plan-walk", "--staging", staging, "--exp-dir", exp, "--out", os.path.join(d, "q"),
+                     "--plugins", "FO4TerrainCore.esm", "--install-exp", os.path.join(d, "core")])
+        self.assertFalse(os.path.exists(os.path.join(d, "q", "queue.json")))
 
     def test_the_install_record_is_pinned_with_a_result(self):
         d = tempfile.mkdtemp()
@@ -162,12 +218,76 @@ class WalkPlanTests(unittest.TestCase):
         os.makedirs(os.path.join(d, "Data"))
         rec = {"exp_dir": "C:\\Modding\\staging\\terrain_core64c", "plugins": ["FO4TerrainCore.esm"], "complete": True,
                "files": {"FO4TerrainCore.esm": "ab" * 32, "FO4TerrainCore - Main.ba2": "cd" * 32},
+               "source_inputs": {"plugin/FO4TerrainCore.esm": "ab" * 32, "Data/Terrain/W.btd": "ef" * 32},
                "packing_policy": "general-stored-verified-v2", "plugins_txt": "x"}
         with open(os.path.join(d, "Data", "FO4SFExp.install.json"), "w") as f:
             json.dump(rec, f)
         got = tq.installed_identity(d)
-        self.assertEqual(got["files"], rec["files"])
+        self.assertEqual((got["files"], got["source_inputs"]), (rec["files"], rec["source_inputs"]))
         self.assertNotIn("plugins_txt", got)
+
+    def test_a_changed_experiment_stops_before_the_launch(self):
+        d = tempfile.mkdtemp()
+        out, core = planned_queue(d)
+        ctl = tt.FakeControls()
+        ctl.pid = None                                                 # no game yet: the runner would launch
+        r = tq.Runner(out, tt.args(), ctl=ctl, step=lambda t, o: 0)
+        r._ps = lambda *a, **k: self.fail("must not launch on a changed experiment")
+        self.assertIsNone(r.experiment_mismatch())
+        with open(os.path.join(core, "Data", "Terrain", "W.btd"), "ab") as f:
+            f.write(b"!")                                              # the staged terrain changed since planning
+        self.assertIn("Data/Terrain/W.btd", r.experiment_mismatch())
+        self.assertEqual(r.run(), 3)
+        with open(os.path.join(out, "run.log"), encoding="utf-8") as f:
+            self.assertIn("changed since planning", f.read())
+        os.remove(os.path.join(core, PLUGINS[1]))                      # a plugin gone: unreadable, stops too
+        self.assertIn("unreadable", r.experiment_mismatch())
+
+    def walk_run(self, d, starfield, record=None):
+        """One run of the planned walk with a step that writes a passing observation: (exit, last result, status);
+        record(core) writes the install record between the planning and the run."""
+        out, core = planned_queue(d)
+        if record:
+            record(core)
+
+        def step(test, out_dir):
+            obs = good_obs()
+            for name in ["arrival.png"] + [x["shot"] for x in obs["legs"] if x.get("shot")]:
+                open(os.path.join(out_dir, name), "wb").close()
+            with open(os.path.join(out_dir, "obs.json"), "w") as f:
+                json.dump(obs, f)
+            return 0
+        r = tq.Runner(out, tt.args(starfield=starfield), ctl=tt.FakeControls(), step=step)
+        r.session, r.cell = True, "C"
+        code = r.run()
+        with open(os.path.join(out, "results.jsonl"), encoding="utf-8") as f:
+            rows = [json.loads(x) for x in f]
+        return code, rows[-1], r.state["status"], core
+
+    def test_a_walk_result_needs_the_pinned_install_record(self):
+        # Codex on PR #103: a mocked runner wrote PASS with a missing install receipt
+        d = tempfile.mkdtemp()
+        sf = os.path.join(d, "starfield")
+        code, rec, status, core = self.walk_run(d, sf)
+        self.assertEqual((code, rec["verdict"], rec["class"]), (3, "INCONCLUSIVE", "INSTALL"), rec["detail"])
+        self.assertIn("no install record", rec["detail"])
+        self.assertIn("raw verdict PASS PASS", rec["detail"])
+        self.assertTrue(status.startswith("stopped: no install record"), status)
+        self.assertIn("error", rec["install"])
+        for change, why in (({"complete": False}, "incomplete"), ({"plugins": PLUGINS[:1]}, "installed plugins"),
+                            ({"exp_dir": os.path.join(d, "other")}, "is not the pinned"),
+                            ({"source_inputs": {"plugin/FO4TerrainCore.esm": "00" * 32}}, "inputs differ")):
+            d2 = tempfile.mkdtemp()
+            sf2 = os.path.join(d2, "starfield")
+            code, rec, status, _ = self.walk_run(d2, sf2, lambda core: install_record(sf2, core, **change))
+            self.assertEqual((code, rec["class"]), (3, "INSTALL"), change)
+            self.assertIn(why, rec["detail"])
+            self.assertEqual(rec["install"]["complete"], change.get("complete", True))
+        d3 = tempfile.mkdtemp()                                        # the pinned experiment installed: PASS
+        sf3 = os.path.join(d3, "starfield")
+        code, rec, status, _ = self.walk_run(d3, sf3, lambda core: install_record(sf3, core))
+        self.assertEqual((code, rec["verdict"], status), (0, "PASS", "finished"), rec["detail"])
+        self.assertEqual(rec["install"]["files"]["FO4TerrainCore - Main.ba2"], "cd" * 32)
 
 
 class StopControlTests(unittest.TestCase):
