@@ -1021,3 +1021,27 @@ baseline heights and all four POST_FRAME findings. Offline only; no game scripts
 - Full suite with the qstep sandbox: 1013 tests OK (2 skips); `scripts/guard.py` ok.
 - Queue `movable_control_1013b` (planned at 18081d6, an ancestor of this head, so the runner takes it as it is) is the one
   to run; `movable_control_1013` is marked superseded in its staging README and must not run.
+## 2026-10-13 Failure summary enhancement (Grok)
+
+convert_batch.py now prints failure counts with percentages and unique-reason totals, and writes
+staging/failure-summary.json (top 10 reasons) for later review. Synthetic test covers the summary
+shape and percentages. Offline only; no game data or format changes. Guard and new test pass.
+
+## 2026-10-13 Codex: preserve evidence before reclaiming storage (#105)
+
+Added a private lossless capsule tool and [storage procedure](testing/progress-storage.md).
+It checks every archived byte against a SHA-256 manifest, rechecks the source, and publishes
+without overwriting an earlier capsule. It never deletes sources. Independent Ptolemy QA
+caught Windows restore-manifest aliases and archive-ancestor junctions; both are fixed with
+regressions. Validation:19 focused tests (1 privilege skip),330 suite tests (3 skips), guard
+and22 independent adversarial cases pass, including a real Windows junction regression.
+
+Private application preserved846 files/87 images in10 verified capsules:265,527,468 original
+bytes stored as185,228,667 archive bytes on a second local volume. A PowerShell restore plus
+independent file hashes verified all10 original files in a selected capsule.191 inactive,
+ignored Codex build outputs were then individually rechecked and removed, reclaiming
+82,490,338 logical bytes on the source volume; archives/index/cleanup receipts retain them.
+Temporary restore copies were also individually checked and cleared. Native campaigns,
+source pins, saves, recovery data and Claude's active queues remain at their original paths.
+This is local storage; no offsite backup or game acceptance is claimed. Private archives and
+machine paths are excluded from Git. Shared coordination: #32 comment6159604237.

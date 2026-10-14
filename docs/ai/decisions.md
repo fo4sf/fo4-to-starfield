@@ -234,3 +234,13 @@ the 25 kg book moved, the 50 kg box 0100 did not); a separate non-PASS class for
 carries it, and NOTMOVED keeps the class every earlier report used); plan only items the walk can push (needs each
 item's height and floor, and the batch would still not know whether a skipped item's body moves); MiscItem records
 (pick-up and inventory semantics FO4 statics never had, decisions 2026-10-10).
+## 2026-10-13 Codex: verified private evidence capsules before cleanup (#105)
+
+Keep native screenshots and compact reports/source pins together in private lossless capsules,
+with a per-file SHA-256 manifest and an external whole-capsule hash/index. Reopen and verify every
+member plus the unchanged source before publication; never overwrite an existing archive. Linked
+paths and restore-manifest aliases refuse archiving. Reclaim only explicitly identified inactive,
+regenerable owned outputs after verification; retain cleanup receipts. Active/pinned campaigns and
+unresolved configuration recovery stay in place. A second local volume is not an offsite backup.
+Alternatives rejected: unverified moves, age-based screenshot deletion, lossy originals, or putting
+private archives/game assets in Git. [Procedure](../testing/progress-storage.md).
