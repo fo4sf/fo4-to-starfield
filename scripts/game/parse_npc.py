@@ -232,6 +232,17 @@ def parse(raw, expect=("isid", "x", "y", "z", "self", "disabled"), typed=()):
     r["ref"] = read_ref(ev, start) if "ref" in expect else None
     r["self"] = read_self(ev, typed, start, begin) if "self" in expect else None
     r["how"] = how if any(v is not None for v in got.values()) else ""
+    if "incell" in expect:
+        # the console's refusal (first live door_trip run, 2026-10-13: "Item 'FO4Port_RedRocket01' not found for
+        # parameter Cell." and "Compiled script not saved!", OCR'd "pararneter", "Cornpiled"): the cell was not
+        # resolved, so there is no answer; never a 0
+        seg = text[start:] if start is not None else text
+        m = re.search(r"not\s?found\s?for\s?par\w{0,9}\s?Ce[l1I|]{2}|Co\w{1,3}p[il1|]{1,2}ed\s?scr[il1|]pt\s?not\s?saved",
+                      seg, re.I)
+        r["incell_error"] = ("not found for parameter Cell" if m and "found" in m.group(0).lower()
+                             else "compiled script not saved" if m else None)
+        if m:
+            r["incell"] = None
     r["ocr"] = text[:600]
     return r
 

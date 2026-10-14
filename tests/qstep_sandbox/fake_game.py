@@ -38,10 +38,16 @@ loads when the player comes within auto_dist (3 m, Starfield.esm fAutoDoorActiva
 step, or the console closing after a setpos); a door without "auto" loads on E within 2.5 m, where prompt_visible.py
 says yes. A load moves the player to dest_pos in dest_cell and hides the HUD for load_secs (hud_visible.py says no).
 "player.setangle z <deg>" sets the heading; "hold:w,<ms>" walks walk_speed m/s along it (walk_blocked: not at all).
-"player.GetInCell <cell>" prints "GetInCell >> 1.00" / "0.00". "save <name>" writes <name>.sfs (player, cell) into
-$FO4SF_SAVES_DIR (save_fails: nothing written); "load <name>" restores it (reload_shift added to the position), closes
-the console and hides the HUD for load_secs; a load of a missing save prints "Save not found" and the console stays
-open."""
+"player.GetInCell <cell>" prints "GetInCell >> 1.00" / "0.00" for a form id in cell_ids ({id: cell EditorID}), or for
+an EditorID when incell_editor_ids is set; otherwise the console's refusal of the first live run (2026-10-13): "Item
+'<arg>' not found for parameter Cell." and "Compiled script not saved!". "save <name>" writes <name>.sfs (player, cell,
+heading) into $FO4SF_SAVES_DIR (save_fails: nothing written); "load <name>" restores it (reload_shift added to the
+position), closes the console and hides the HUD for load_secs; a load of a missing save prints "Save not found" and the
+console stays open. A door's dest_heading is the heading after its load (the XTEL rotation); "readpos [ref] --angle"
+prints the heading as a fourth value. garble_after_walks N: the first player read after the N-th walk step prints the
+first live run's garble (garble_count times): the previous read's z, this read's x and z, as "99.74 -2195.27 99.41"
+for (-2195.27, -1593.51, 99.41); walk_dz: every walk step changes z by that much (the live walk went down the cave
+mouth, so the garble's x and z differ and pass Read-Pos's x == z filter)."""
 import json
 import math
 import os
@@ -89,6 +95,8 @@ def statics(s):
 def door_load(s, d):
     """The player goes through door d: its destination, a loading screen for load_secs."""
     s["cell"], s["player"], s["falling"] = d["dest_cell"], list(d["dest_pos"]), None
+    if d.get("dest_heading") is not None:
+        s["heading"] = float(d["dest_heading"])
     s["loading_until"] = time.time() + float(s.get("load_secs", 2.0))
     s.setdefault("loads", []).append(d.get("name", d["dest_cell"]))
 
@@ -110,10 +118,12 @@ def walk(s, ms):
         return
     h = math.radians(float(s.get("heading", 0.0)))
     dist = float(s.get("walk_speed", 3.0)) * ms / 1000.0
+    s["walks"] = s.get("walks", 0) + 1
     p = player_pos(s)
     s["falling"] = None
+    dz = float(s.get("walk_dz", 0.0)) / max(1, int(dist / 0.05))
     for _ in range(int(dist / 0.05)):
-        p = [p[0] + 0.05 * math.sin(h), p[1] + 0.05 * math.cos(h), p[2]]
+        p = [p[0] + 0.05 * math.sin(h), p[1] + 0.05 * math.cos(h), p[2] + dz]
         s["player"] = p
         if auto_doors(s):
             return
@@ -155,12 +165,17 @@ def run(s, cmd):
     elif low.startswith("player.setangle z "):
         s["heading"] = float(w[2])
     elif low.startswith("player.getincell "):
-        s["log"].append(f"GetInCell >> {'1.00' if (s.get('cell') or '').lower() == w[1].lower() else '0.00'}")
+        ids = {k.upper(): v for k, v in (s.get("cell_ids") or {}).items()}
+        cell = ids.get(w[1].upper()) or (w[1] if s.get("incell_editor_ids") else None)
+        if cell is None:
+            s["log"] += [f"Item '{w[1]}' not found for parameter Cell.", "Compiled script not saved!"]
+        else:
+            s["log"].append(f"GetInCell >> {'1.00' if (s.get('cell') or '').lower() == cell.lower() else '0.00'}")
     elif low.startswith("save "):
         if not s.get("save_fails"):
             d = os.environ.get("FO4SF_SAVES_DIR") or os.path.dirname(P)
             with open(os.path.join(d, w[1] + ".sfs"), "w") as f:
-                json.dump({"player": player_pos(s), "cell": s.get("cell")}, f)
+                json.dump({"player": player_pos(s), "cell": s.get("cell"), "heading": s.get("heading", 0.0)}, f)
     elif low.startswith("load "):
         f = os.path.join(os.environ.get("FO4SF_SAVES_DIR") or os.path.dirname(P), w[1] + ".sfs")
         if not os.path.exists(f):
@@ -171,6 +186,7 @@ def run(s, cmd):
         shift = s.get("reload_shift") or [0.0, 0.0, 0.0]
         s["player"] = [sv["player"][k] + shift[k] for k in range(3)]
         s["cell"], s["falling"], s["console"] = sv["cell"], None, False      # the load closes the console
+        s["heading"] = sv.get("heading", s.get("heading", 0.0))
         s["clock"] = {"game": game_time(s), "since": time.time()}
         s["loading_until"] = time.time() + float(s.get("load_secs", 2.0))
     elif low.startswith("coc "):
@@ -364,9 +380,19 @@ def main():
         print("\n".join(lines))
         return
     elif sys.argv[1] == "readpos":
-        ref = sys.argv[2].upper() if len(sys.argv) > 2 else ""
+        args = sys.argv[2:]
+        angle = "--angle" in args
+        ref = next((x.upper() for x in args if x and x != "--angle"), "")
         if not ref:
-            print(" ".join(f"{v:.2f}" for v in player_pos(s)))
+            p = player_pos(s)
+            g = s.get("garble_after_walks")
+            if g is not None and s.get("walks", 0) >= g and s.get("garbled", 0) < s.get("garble_count", 1) \
+                    and s.get("last_read"):
+                s["garbled"] = s.get("garbled", 0) + 1
+                print(f"{s['last_read'][2]:.2f} {p[0]:.2f} {p[2]:.2f}")
+            else:
+                s["last_read"] = p
+                print(" ".join(f"{v:.2f}" for v in p) + (f" {float(s.get('heading', 0.0)) % 360:.2f}" if angle else ""))
         elif ref == s.get("anchor_id"):
             s["sel"] = ref                                 # readpos -Ref selects with prid
             print(" ".join(f"{v:.2f}" for v in s["anchor_pos"]))

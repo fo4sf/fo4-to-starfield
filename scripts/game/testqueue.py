@@ -545,10 +545,13 @@ def plan_npc(a):
 DOOR_PLAN_KEYS = frozenset((
     "label", "travel", "spawn_local", "outside", "inside", "save", "radius", "start_tol", "reload_tol", "ground_tol",
     "walk_ms", "walk_step_ms", "settle_ms", "drop", "near_wait_ms", "load_wait_s", "moved_m", "activate_m", "fresh",
-    "expect", "basis")
+    "expect", "basis", "facing_tol", "frame_m", "probes", "route_hold_ms", "route_reach_m", "route_speed",
+    "route_walk_ms", "route_max_steps", "route_final_steps")
     + sky_light.LIGHT_KEYS + console_plan.CONSOLE_KEYS)
-DOOR_SIDE_KEYS = {"outside": frozenset(("start", "door", "arrival", "near", "ground", "ref")),
-                  "inside": frozenset(("cell", "start", "door", "arrival", "near", "floor"))}
+DOOR_SIDE_KEYS = {"outside": frozenset(("start", "door", "arrival", "near", "ground", "ref", "route", "arrival_heading")),
+                  "inside": frozenset(("cell", "cell_id", "start", "door", "arrival", "near", "floor", "route",
+                                       "arrival_heading"))}
+DOOR_ROUTE_MAX = 64                                             # waypoints per route (qstep.ps1 checks the same)
 NAME = r"[A-Za-z0-9_]{1,64}"                                    # a cell EditorID or a save name: typed into the console
 
 
@@ -578,6 +581,17 @@ def door_test(n, w):
             if not re.fullmatch(r"[0-9A-Fa-f]{8}", str(s["ref"])):
                 sys.exit(f"bad {side}.ref in plan.json (8 hex digits, the door's form id in the load order): {s['ref']!r}")
             out["ref"] = str(s["ref"]).upper()
+        if s.get("route") is not None:                  # walked from where the player stands (docs/slice/door-frames.md)
+            r = s["route"]
+            if not isinstance(r, list) or not 2 <= len(r) <= DOOR_ROUTE_MAX:
+                sys.exit(f"bad {side}.route in plan.json (2 to {DOOR_ROUTE_MAX} waypoints x, y, z): {r!r}")
+            out["route"] = [_vec(q, (3,), f"{side}.route") for q in r]
+        if s.get("arrival_heading") is not None:        # the facing the door gives on arrival (degrees, as getangle z)
+            out["arrival_heading"] = round(_vec([s["arrival_heading"]], (1,), f"{side}.arrival_heading")[0] % 360, 3)
+        if s.get("cell_id") is not None:                # player.GetInCell <form id>: a diagnostic only
+            if not re.fullmatch(r"[0-9A-Fa-f]{8}", str(s["cell_id"])):
+                sys.exit(f"bad {side}.cell_id in plan.json (8 hex digits, the cell's form id in the load order): {s['cell_id']!r}")
+            out["cell_id"] = str(s["cell_id"]).upper()
         sides[side] = out
     cell = str(w["inside"].get("cell") or "")
     if not re.fullmatch(NAME, cell):
@@ -604,7 +618,36 @@ def door_test(n, w):
          # a read farther than moved_m from a leg's start is on the other side of the door (a load: the two frames
          # are about 2.7 km apart here); activate_m: the automatic door's range (Starfield.esm
          # fAutoDoorActivateDistance 3), within which standing without a load is a NOLOAD
-         "moved_m": _num(w, "moved_m", 30.0, 5, 1000), "activate_m": _num(w, "activate_m", 3.0, 0.5, 10)}
+         "moved_m": _num(w, "moved_m", 30.0, 5, 1000), "activate_m": _num(w, "activate_m", 3.0, 0.5, 10),
+         # every read strict (readpos -Strict), a load never from one read, GetInCell never judged, the facing on
+         # arrival judged when planned (runner feature door_frames: the first live run, 2026-10-13)
+         "reads": "strict", "facing_tol": _num(w, "facing_tol", 20.0, 1, 90), "frame_m": _num(w, "frame_m", 150.0, 10, 1000)}
+    if o.get("route") or i.get("route"):
+        t.update({"route_hold_ms": int(_num(w, "route_hold_ms", 2000, 300, 10000)),
+                  "route_reach_m": _num(w, "route_reach_m", 0.8, 0.2, 5),
+                  "route_speed": _num(w, "route_speed", 4.6, 0.5, 20),
+                  "route_walk_ms": int(_num(w, "route_walk_ms", 60000, 1000, 600000)),
+                  "route_max_steps": int(_num(w, "route_max_steps", 40, 2, 400)),
+                  "route_final_steps": int(_num(w, "route_final_steps", 6, 1, 40))})
+        for side, s in (("outside", o), ("inside", i)):
+            r = s.get("route")
+            if r and math.dist(r[-1], s["door"]) > t["activate_m"] + 1.0:
+                sys.exit(f"{label}: {side}.route ends {math.dist(r[-1], s['door']):.1f} m from the door (at most "
+                         f"activate_m + 1 m: the final approach steers at the door from there)")
+            if r and t["moved_m"] <= max(math.dist(q, r[0]) for q in r) + 10.0:
+                sys.exit(f"{label}: moved_m {t['moved_m']} must exceed the {side} route's reach from its start + 10 m "
+                         f"(a read beyond moved_m counts as the other side of the door)")
+    probes = w.get("probes")
+    if probes is not None:                              # merge probes: refs whose getpos is read after the arrival
+        if not isinstance(probes, list) or len(probes) > 8:
+            sys.exit(f"bad probes in plan.json (at most 8 objects with ref, local, what): {probes!r}")
+        t["probes"] = []
+        for q in probes:
+            if not isinstance(q, dict) or set(q) - {"ref", "local", "what"} or \
+                    not re.fullmatch(r"[0-9A-Fa-f]{8}", str(q.get("ref"))):
+                sys.exit(f"bad probe in plan.json (ref: 8 hex digits, local: x y z, what): {q!r}")
+            t["probes"].append({"ref": str(q["ref"]).upper(), "local": _vec(q.get("local"), (3,), "probe local"),
+                                "what": str(q.get("what") or "")[:160]})
     if w.get("fresh"):
         t["fresh"] = True
     for k in ("expect", "basis"):
@@ -809,31 +852,59 @@ def _whole_cells(delta, radius, cell=100.0):
 def _door_ref_note(test, obs, off):
     """The getpos of the outside door's reference (obs.door_read, read after the coc arrival): where the engine reports
     the persistent door. Our persistent XMarker anchors read their unmerged local position (exp1d / exp2b), a vanilla
-    persistent ref in LC172World read the merged one, so a local read does not prove where the door stands."""
+    persistent ref in LC172World read the merged one; the door read its local position in the first live runs
+    (2026-10-13), where a last try 1 m from its merged position did not load (docs/slice/door-frames.md)."""
     ref = test["outside"].get("ref")
     if not ref:
         return None
     rd = parse3(obs.get("door_read"))
     if rd is None:
         return f"getpos of door {ref}: not read"
-    door = test["outside"]["door"]
-    dm, dl = math.dist(rd, _add(door, off)), math.dist(rd, door)
-    where = ("its merged position" if dm <= 1.0 else "its unmerged local position (as our anchors read)" if dl <= 1.0
-             else f"neither its merged ({dm:.1f} m) nor its local position ({dl:.1f} m): another ref?")
-    return f"getpos of door {ref} read {obs.get('door_read')}: {where}"
+    return f"getpos of door {ref} read {obs.get('door_read')}: {_merge_frame(rd, test['outside']['door'], off)}"
+
+
+def _merge_frame(read, local, off):
+    """Where a getpos read puts a ref placed at `local` in the overlay's own frame: merged (local + offset), its
+    unmerged local position, or neither."""
+    dm, dl = math.dist(read, _add(local, off)), math.dist(read, local)
+    return ("its merged position" if dm <= 1.0 else "its unmerged local position (as our anchors read)" if dl <= 1.0
+            else f"neither its merged ({dm:.1f} m) nor its local position ({dl:.1f} m): another ref?")
+
+
+def _probe_notes(test, obs, off):
+    """The merge probes (test.probes: refs at known local positions, each stored differently): merged or not."""
+    reads = {str(x.get("ref", "")).upper(): x.get("read") for x in obs.get("probe_reads") or [] if isinstance(x, dict)}
+    out = []
+    for q in test.get("probes") or []:
+        rd = parse3(reads.get(q["ref"]))
+        where = "not read" if rd is None else f"read {reads.get(q['ref'])}: {_merge_frame(rd, q['local'], off)}"
+        out.append(f"probe {q['ref']} ({q['what']}) {where}")
+    return out
+
+
+def _turn(a, b):
+    """The smallest angle between two headings (degrees)."""
+    return abs((a - b + 180.0) % 360.0 - 180.0)
 
 
 def judge_door(test, obs, shot_ok):
-    """door_trip (docs/slice/redrocket-door.md). The legs must all be observed, in order: the coc arrival (settled,
-    gives the overlay's merge offset O = arrival - spawn_local), "in" (from outside.start + O through the door to
-    inside.arrival), "out" (from inside.start through the door to outside.arrival + O), the save (its file written) and
-    the load (the player back at the saved spot after being moved away, or a loading screen seen; settled, on
-    outside.ground + O.z). A position not read, a start not reached or a screenshot missing is INCONCLUSIVE, never
-    PASS; the first leg that fails decides. GetInCell (inside.cell), read after each arrival and after the load, must
-    agree with the position when it was read: a contradiction is INCONCLUSIVE CELLREAD, never a PASS or a FAIL. NOLOAD
-    needs the player standing (settled) within activate_m of the door with no load and GetInCell not saying the far
-    side. A leg that loaded only from the last-try teleport (trigger near) makes the whole trip INCONCLUSIVE NEARONLY:
-    the door works, walking in is not shown."""
+    """door_trip (docs/slice/redrocket-door.md, docs/slice/door-frames.md). The legs must all be observed, in order: the
+    coc arrival (settled, gives the overlay's merge offset O = arrival - spawn_local), "in" (from outside.start + O, or
+    with outside.route from its first waypoint + O, the coc arrival itself, through the door to inside.arrival), "out"
+    (from inside.start, or inside.route's first waypoint, the interior arrival, through the door to outside.arrival +
+    O: the merged exterior frame), the save (its file written) and the load (the player back at the saved spot after
+    being moved away, or a loading screen seen; settled, on outside.ground + O.z). A position not read, a start not
+    reached or a screenshot missing is INCONCLUSIVE, never PASS; the first leg that fails decides.
+    Which side of the door the player is on comes from the position alone: the interior frame (within frame_m of the
+    interior door), the merged exterior frame (within frame_m of the outside door + O) or the unmerged one (of the
+    outside door). player.GetInCell is never judged: with the cell's EditorID the console refuses it ("Item
+    'FO4Port_RedRocket01' not found for parameter Cell.", first live run 2026-10-13); with inside.cell_id its reply is
+    reported as a diagnostic. NOLOAD needs the player standing (settled) within activate_m of the door with no load.
+    Facing: with <side>.arrival_heading the heading read at the arrival (getangle z, before anything turns the player)
+    must be within facing_tol of it (the XTEL marker's rotation), and after the load the saved heading must come back:
+    FAIL FACING, or INCONCLUSIVE NOFACING when not read; position failures come first. A leg that loaded only from the
+    last-try teleport (trigger near) makes the whole trip INCONCLUSIVE NEARONLY: the door works, walking in is not
+    shown."""
     if not obs.get("offset"):
         why = obs.get("offset_missing") or "the arrival was not read or never settled"
         return "INCONCLUSIVE", "ANCHOR", f"no merge offset ({why}): no door was tried"
@@ -841,9 +912,27 @@ def judge_door(test, obs, shot_ok):
     o, i = test["outside"], test["inside"]
     R, ST = test.get("radius", 4.0), test.get("start_tol", 3.0)
     MOVED, ACT = test.get("moved_m", 30.0), test.get("activate_m", 3.0)
+    FRAME, FTOL = test.get("frame_m", 150.0), test.get("facing_tol", 20.0)
     legs = {x.get("name"): x for x in obs.get("legs") or [] if isinstance(x, dict)}
     notes = [f"offset {off[0]:.1f}, {off[1]:.1f}, {off[2]:.2f}"]
     ref_note = _door_ref_note(test, obs, off)
+    probe_notes = _probe_notes(test, obs, off)
+    facing = []                                                  # (what, got, want)
+
+    def frame(p):
+        """The frame a position is in (interior / merged exterior / unmerged exterior), or None."""
+        d = {"interior": math.dist(p, i["door"]), "merged exterior": math.dist(p, _add(o["door"], off)),
+             "unmerged exterior": math.dist(p, o["door"])}
+        name = min(d, key=d.get)
+        if name == "unmerged exterior" and d["merged exterior"] <= FRAME:
+            name = "merged exterior"                             # no merge offset: the two coincide
+        return name if d[name] <= FRAME else None
+
+    def cell_note(x):
+        if x.get("incell") is None and not x.get("incell_error"):
+            return ""
+        return (f", GetInCell {i.get('cell_id') or i['cell']} {x.get('incell') if x.get('incell') is not None else 'unread'}"
+                + (f" ({x['incell_error']})" if x.get("incell_error") else "") + " (a diagnostic, not judged)")
 
     def leg(name, start, door, arrival, unmerged=None):
         """None when the leg passed (notes appended), else (verdict, class, detail). unmerged: the arrival point in
@@ -854,45 +943,44 @@ def judge_door(test, obs, shot_ok):
         st = parse3(x.get("start_read"))
         if st is None or math.hypot(st[0] - start[0], st[1] - start[1]) > ST:
             got = "not read" if st is None else f"read {math.hypot(st[0] - start[0], st[1] - start[1]):.1f} m away"
-            return "INCONCLUSIVE", "START", f"{name}: the start in front of the door was not reached ({got})"
+            return "INCONCLUSIVE", "START", f"{name}: the start {'of the route' if x.get('mode') == 'route' else 'in front of the door'} was not reached ({got})"
+        steps = [s for s in x.get("steps") or [] if isinstance(s, dict)]
         how = (f"trigger {x.get('trigger') or 'none'} after {x.get('walked_ms', 0)} ms of walking"
+               + (f" along the route ({len(steps)} steps, {x.get('teleports', 0)} teleports)" if x.get("mode") == "route" else "")
                + (", prompt seen" if x.get("prompt") else "")
-               + (", the load found by the position (no loading screen seen)" if x.get("load_by") == "position" else "")
+               + (", the load found by the position (two reads agree; no loading screen seen)" if x.get("load_by") == "position" else "")
+               + (f", walk stopped: {x['walk_stopped']}" if x.get("walk_stopped") else "")
                + (f", last try skipped: {x['near_skipped']}" if x.get("near_skipped") else ""))
+        rejected = [c for c in x.get("checks") or [] if isinstance(c, dict) and c.get("rejected")]
+        if rejected:
+            how += f", {len(rejected)} read(s) rejected ({', '.join(sorted({c['rejected'] for c in rejected}))})"
         end = parse3(x.get("arrival_read"))
         seen = bool(x.get("load_seen"))
         loaded = seen or x.get("load_by") == "position"
-        cell = x.get("incell")
         inside = name == "in"
-        want_cell = 1 if inside else 0                           # GetInCell <inside.cell> on the far side of the door
-        far_side = "in" if inside else "not in"
         if end is None:
             return "INCONCLUSIVE", "UNREAD", f"{name}: arrival not read ({how})"
         if not shot_ok(x.get("shot")):
             return "INCONCLUSIVE", "NOSHOT", f"{name}: no arrival screenshot"
         settled = bool(x.get("arrival_settled"))
-        if math.dist(end, st) < MOVED:                           # the player is still near where the walk started
+        if math.dist(end, st) < MOVED:                           # the player is still on this side of the door
             dd = math.dist(end, door)
             if seen:
                 return ("INCONCLUSIVE", "NOMOVE", f"{name}: the HUD went away (a load?) but the player stayed "
                         f"{dd:.1f} m from the door: a menu or popup, not a load ({how})")
-            if cell == want_cell:
-                return ("INCONCLUSIVE", "CELLREAD", f"{name}: the position is still at this side's door ({dd:.1f} m "
-                        f"from it) but GetInCell {i['cell']} read {cell} ({far_side} it): a load the runner moved the "
-                        f"player back from, or a misread ({how})")
-            near_reads = [p for p in (parse3(c.get("read")) for c in x.get("checks") or [] if isinstance(c, dict))
+            near_reads = [p for p in (parse3(c.get("read")) for c in x.get("checks") or [] if isinstance(c, dict)
+                                      and not c.get("rejected"))
                           if p is not None and math.dist(p, st) < MOVED]
             closest = min([dd] + [math.dist(p, door) for p in near_reads])
             if dd > ACT:
                 return ("INCONCLUSIVE", "NOREACH", f"{name}: no load, but the player ended {dd:.1f} m from the door, "
                         f"outside its {ACT:g} m range (closest read {closest:.1f} m): the door was not tried ({how})")
             if not settled:
-                return ("INCONCLUSIVE", "UNREAD", f"{name}: no load, {dd:.1f} m from the door but still moving ({how})")
+                return "INCONCLUSIVE", "UNREAD", f"{name}: no load, {dd:.1f} m from the door but still moving ({how})"
             return "FAIL", "NOLOAD", (f"{name}: no load: the player stood {dd:.1f} m from the door, inside its "
-                                      f"{ACT:g} m range (GetInCell {i['cell']} {'unread' if cell is None else cell}), "
-                                      f"after {how}"
+                                      f"{ACT:g} m range, after {how}"
                                       + (f", teleported {x['near_m']} m from it as a last try" if x.get("near_m") else "")
-                                      + (f"; {ref_note}" if ref_note and inside else ""))
+                                      + cell_note(x) + (f"; {ref_note}" if ref_note and inside else ""))
         d = math.dist(end, arrival)
         if not settled and end[2] < arrival[2] - 3.0 and math.hypot(end[0] - arrival[0], end[1] - arrival[1]) <= R:
             return ("FAIL", "FELL", f"{name}: arrived over the arrival point but falling (z {end[2]:.1f}, "
@@ -900,12 +988,12 @@ def judge_door(test, obs, shot_ok):
         if d <= R:
             if not settled:
                 return "INCONCLUSIVE", "UNREAD", f"{name}: arrived {d:.1f} m from the arrival point, still moving"
-            if cell is not None and cell != want_cell:
-                return ("INCONCLUSIVE", "CELLREAD", f"{name}: arrived {d:.1f} m from the arrival point but GetInCell "
-                        f"{i['cell']} read {cell}")
             notes.append(f"{name}: arrived {d:.1f} m from the {'interior' if inside else 'merged exterior'} arrival "
-                         f"point (GetInCell {i['cell']} {'unread' if cell is None else cell}), {how}, "
+                         f"point ({frame(end) or 'no known frame'} frame){cell_note(x)}, {how}, "
                          + (f"load {x['load_s']} s" if x.get("load_s") is not None else "load time not seen"))
+            want = (i if inside else o).get("arrival_heading")
+            if want is not None:
+                facing.append((f"{name} arrival", x.get("arrival_heading"), want))
             return None
         if unmerged is not None:                                 # out: the arrival in the world's own frame
             dl = math.dist(end, unmerged)
@@ -916,26 +1004,31 @@ def judge_door(test, obs, shot_ok):
             if wc:
                 return ("FAIL", "REMERGED", f"{name}: arrived at the arrival point shifted by {wc[0]:+.0f}, {wc[1]:+.0f} m "
                         f"(whole cells): the overlay merged at another offset than at the coc arrival; {how}")
-        if cell == want_cell and inside:
-            return "FAIL", "ELSEWHERE", f"in: in {i['cell']} (GetInCell 1) but {d:.1f} m from the arrival point"
-        if loaded and cell is not None and cell != want_cell:
-            where = "still in" if cell == 1 else "not in"
-            return "FAIL", "WRONGCELL", f"{name}: loaded, {where} {i['cell']} (GetInCell {cell}), {d:.1f} m away"
-        return "INCONCLUSIVE", "ELSEWHERE", f"{name}: ended {d:.1f} m from the arrival point ({how})"
+        fr = frame(end)
+        far = "interior" if inside else "merged exterior"
+        if loaded and fr == far:
+            return ("FAIL", "ELSEWHERE", f"{name}: loaded into the {far} frame but {d:.1f} m from the arrival point; {how}")
+        if loaded and fr is not None and fr != far:
+            return ("FAIL", "WRONGCELL", f"{name}: loaded, but the position is in the {fr} frame, {d:.1f} m from the "
+                    f"arrival point; {how}")
+        return "INCONCLUSIVE", "ELSEWHERE", f"{name}: ended {d:.1f} m from the arrival point ({fr or 'no known'} frame; {how})"
 
-    o_start, o_door, o_arr = _add(o["start"], off), _add(o["door"], off), _add(o["arrival"], off)
+    o_start = _add((o.get("route") or [o["start"]])[0], off)
+    i_start = (i.get("route") or [i["start"]])[0]
+    o_door, o_arr = _add(o["door"], off), _add(o["arrival"], off)
     r = leg("in", o_start, o_door, i["arrival"])
     if r:
-        return r[0], r[1], f"{r[2]}; {'; '.join(notes)}"
-    r = leg("out", i["start"], i["door"], o_arr, unmerged=o["arrival"])
+        return r[0], r[1], f"{r[2]}; {'; '.join(notes + probe_notes)}"
+    r = leg("out", i_start, i["door"], o_arr, unmerged=o["arrival"])
     if r:
-        return r[0], r[1], f"{r[2]}; {'; '.join(notes)}"
+        return r[0], r[1], f"{r[2]}; {'; '.join(notes + probe_notes)}"
     out_read = parse3(legs["out"].get("arrival_read"))
     ground = o.get("ground")
     if ground is not None:
         notes.append(f"out arrival z {out_read[2] - off[2]:.2f} (ground {ground:.2f})")
     if ref_note:
         notes.append(ref_note)
+    notes += probe_notes
     sv = obs.get("save") or {}
     if not sv.get("found"):
         why = sv.get("why") or ("not checked" if not sv else "no file")
@@ -969,20 +1062,31 @@ def judge_door(test, obs, shot_ok):
     if ground is not None and abs(rd[2] - z0) > test.get("ground_tol", 1.0):
         return ("FAIL", "OFFGROUND", f"after the load z {rd[2] - off[2]:.2f} in the world's frame, ground {ground:.2f} "
                 f"(off by {rd[2] - z0:+.2f} m); {'; '.join(notes)}")
-    cell = rl.get("incell")
-    if cell == 1:
-        return ("INCONCLUSIVE", "CELLREAD", f"after the load at the saved spot on the terrain but GetInCell {i['cell']} "
-                f"read 1; {'; '.join(notes)}")
     notes.append(f"save {test['save']} written ({sv.get('size')} B); after the load {dr:.2f} m from the saved spot"
                  + (f", z {rd[2] - z0:+.2f} m from the ground" if ground is not None else "")
-                 + f", GetInCell {i['cell']} {'unread' if cell is None else cell}, load {rl.get('load_s')} s, "
+                 + f"{cell_note(rl)}, load {rl.get('load_s')} s, "
                  + ("loading screen seen" if rl.get("load_seen") else "no loading screen seen")
                  + (f", moved {math.dist(away, out_read):.1f} m away before it" if moved_away else ""))
+    if o.get("arrival_heading") is not None:                # the saved facing must come back with the load
+        facing.append(("heading after the load (the saved one)", rl.get("heading"), legs["out"].get("arrival_heading")))
+    bad, unread = [], []
+    for what, got, want in facing:
+        if got is None or want is None:
+            unread.append(what)
+            continue
+        dt = _turn(float(got), float(want))
+        (bad if dt > FTOL else notes).append(f"{what} heading {float(got):.1f}, want {float(want):.1f} "
+                                             f"({dt:.1f} degrees off, tolerance {FTOL:g})")
+    if bad:
+        return "FAIL", "FACING", f"{'; '.join(bad)}; {'; '.join(notes)}"
     near = [n for n in ("in", "out") if legs[n].get("trigger") == "near"]
     if near:
         return ("INCONCLUSIVE", "NEARONLY", f"the door loads, but the {' and '.join(near)} leg"
                 f"{'s' if len(near) > 1 else ''} loaded only from the last-try teleport 1 m from the door: walking in "
                 f"is not shown; {'; '.join(notes)}")
+    if unread:
+        return ("INCONCLUSIVE", "NOFACING", f"facing not read: {', '.join(unread)} (position, save and load passed); "
+                f"{'; '.join(notes)}")
     return "PASS", "PASS", "; ".join(notes)
 
 
@@ -1436,6 +1540,7 @@ def step_timeout(test):
 
 DOOR_CHECK_S = 8        # door_trip: one HUD check while walking (screenshot + hud_visible.py, PowerShell + Python start)
 DOOR_READ_S = 25        # door_trip: one readpos.ps1 run after a walk step (console open, getpos x / y / z, OCR, 4 tries)
+DOOR_TURN_S = 15        # door_trip route: one player.setangle z console session (open, about 24 characters, close)
 
 
 def door_timeout(test, light=0.0):
@@ -1455,9 +1560,21 @@ def door_timeout(test, light=0.0):
            + 30 + test.get("near_wait_ms", 6000) / 1000 + 4 * DOOR_CHECK_S
            + test.get("load_wait_s", 90) + 3 + 5 * NPC_READ_S + 12 + NPC_SESSION_S + 5)
     fixed = 120 + 5 * NPC_READ_S + 12 + 5 + NPC_READ_S     # coc, the HUD back (up to 90 s), settled, shot, door getpos
+    fixed += len(test.get("probes") or []) * NPC_READ_S      # the merge probes' getpos
     save = 30 + 10
-    reload = 30 + settle + NPC_READ_S + 30 + 120 + 3 + 5 * NPC_READ_S + 12 + NPC_SESSION_S + 5
-    return int(fixed + 2 * leg + save + reload + light)
+    reload = 30 + settle + NPC_READ_S + 30 + 120 + 3 + 5 * (NPC_READ_S + 10) + 12 + NPC_SESSION_S + 5
+    legs = 0
+    for side in ("outside", "inside"):
+        if (test.get(side) or {}).get("route"):
+            # a routed leg: no start teleport; per step a turn (one console session), the W hold, a HUD check and a
+            # read, a reread when it fails, the confirmation reads of a far read; plus the final steps at the door
+            steps = test.get("route_max_steps", 40)
+            per = DOOR_TURN_S + test.get("route_hold_ms", 2000) / 1000 + 0.25 + 2 * DOOR_CHECK_S + DOOR_READ_S + NPC_READ_S
+            legs += leg - 30 - settle - checks * (step_ms / 1000 + 2 * DOOR_CHECK_S + DOOR_READ_S) \
+                + steps * per + 2 * NPC_READ_S + 5 * 10            # + the confirmation reads, the heading reads
+        else:
+            legs += leg + 5 * 10
+    return int(fixed + legs + save + reload + light)
 
 
 class Runner:

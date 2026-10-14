@@ -27,7 +27,14 @@ import sys
 #               and before E or the last-try teleport, the player moved away before the reload, NOLOAD only from a stand
 #               within the door's range. The first door_trip runner could teleport after a load its HUD checks missed
 #               and call a stand 5 m from the door "the door does not work"
-FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check")
+# door_frames:  door_trip with reads "strict" (docs/slice/door-frames.md; the first live runs, 2026-10-13): labelled
+#               position reads of the read's own session only (readpos -Strict), a load never taken from one read
+#               (two far reads that agree; axes that look swapped rejected), GetInCell never judged (the console
+#               refused the cell's EditorID), which side of the door from the position frames, the facing on arrival
+#               (getangle z) and after the load, merge probes. An older runner took "99.74 -2195.27 99.41" for a load
+# door_route:   door_trip legs that walk a planned route from where the player stands (outside.route / inside.route):
+#               no teleport to a start; an older qstep.ps1 would teleport to outside.start instead
+FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "door_frames", "door_route")
 
 
 def needs(tests):
@@ -44,6 +51,10 @@ def needs(tests):
             out.add("door_trip")
             if "moved_m" in t or "activate_m" in t:
                 out.add("door_check")
+            if t.get("reads") == "strict":
+                out.add("door_frames")
+            if (t.get("outside") or {}).get("route") or (t.get("inside") or {}).get("route"):
+                out.add("door_route")
     return sorted(out)
 
 
