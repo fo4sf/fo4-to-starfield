@@ -184,24 +184,26 @@ def main():
         print(f"  ok  {name} -> {eid} (shapes {r['shapes']}, fallback materials {r['fallback_materials']})")
     for f in failures[:15]:
         print("  FAIL", f["nif"], "-", f["reason"][:110])
-    if failures:
-        from collections import Counter
-        reason_counts = Counter(f["reason"].split(":")[0].strip() for f in failures)
-        total = len(failures)
-        unique = len(reason_counts)
+    from collections import Counter
+    reason_counts = Counter(f["reason"].split(":")[0].strip() for f in failures)
+    total = len(failures)
+    unique = len(reason_counts)
+    if total:
         print(f"  Failure summary: {total} failures across {unique} unique top-level reasons")
         print("  Top failure reasons:")
         for reason, count in reason_counts.most_common(5):
             pct = 100.0 * count / total
             print(f"    {count:4d} ({pct:5.1f}%)  {reason[:80]}")
-        # Persist a compact summary for tooling / later review
-        summary = {
-            "total_failures": total,
-            "unique_reasons": unique,
-            "top": [{"reason": r, "count": c, "percent": round(100.0 * c / total, 1)}
-                    for r, c in reason_counts.most_common(10)],
-        }
-        write_json_atomic(os.path.join(a.staging, "failure-summary.json"), summary)
+    else:
+        print("  Failure summary: 0 failures")
+    # Always persist a compact summary (including the zero case) so tooling sees the latest run
+    summary = {
+        "total_failures": total,
+        "unique_reasons": unique,
+        "top": [{"reason": r, "count": c, "percent": round(100.0 * c / total, 1) if total else 0.0}
+                for r, c in reason_counts.most_common(10)],
+    }
+    write_json_atomic(os.path.join(a.staging, "failure-summary.json"), summary)
 
     if cache:
         inconsistent = cache.verify_batch()
