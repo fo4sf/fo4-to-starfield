@@ -668,7 +668,9 @@ Validation:344 full Windows tests pass (2 existing skips); guard/diff checks pas
 on Claude's pinned129b9ae text sources passes1009 tests (38 existing skips), preserving the advanced
 archive/copy APIs and safe ConcurrentUpdateError classification. Its source/overlay hashes are
 recorded privately; no canonical integration files were edited. Earlier independent QA passed the
-publication/removal paths; final review includes the retry guard, exception contract and recovery notes.
+publication/removal paths; final Linnaeus QA PASSes c89795b's retry guard, exception contract and
+recovery notes after the access-error correction. Hosted CI38499957451 passes that code head;
+PR104 is ready for integration. Any subsequent status-only commit leaves the tested helper unchanged.
 The conditional target name can briefly be absent. This preserves recoverable bytes rather than
 claiming compare-and-swap, immutable snapshots or power-loss durability; one controller and a
 closed game remain required. [Recovery procedure](testing/plugin-config-recovery.md).

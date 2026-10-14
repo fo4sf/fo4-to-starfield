@@ -22,9 +22,9 @@ Open regressions: Fort Hagen shutter/frame collision and load-door prompt, Vault
 
 Reviewed #80/#81 -> #79 at29f3b83: tracked rig/clips and small bind rotations;814 tests/CI/QA pass. #83/#89 -> #78 at02cfa8e: verified BA2/recovery/order/exit protocol;887 tests/CI/QA pass. Parent runtime acceptance remains open.
 
-#89: unfinished work returns4, complete/dry-run0. Preserve old batch_full:1109 pending after12h/old exit0; non-movable estimate15-18 active hours. Offline133-test plan retains16 cells/49 failures/2470f876 (~3-4h), not run. Adopt reviewed runner; re-plan movable tests.
+#89: unfinished4, complete/dry-run0. Preserve batch_full:1109 pending after12h/old exit0; non-movable15-18h estimate. Offline133-probe plan:16 cells/49 failures/2470f876 (~3-4h), unrun. Reviewed runner/replanned movable tests required.
 
-Parents #66/#78/#79 remain open, not runtime accepted. Moving collision/cave/save need live tests. Codex #84/#104 candidate preserves configuration edits/recovery ownership:33 new/344 tests (2 skips); isolated129b9ae overlay1009 tests (38 skips). [Recovery tradeoffs](testing/plugin-config-recovery.md); final QA/CI pending. One controller required.
+Parents #66/#78/#79 remain open, not runtime accepted. Moving collision/cave/save need live tests. Codex #104 reviewed c89795b: configuration edits/recovery ownership,33 new/344 tests (2 skips); isolated129b9ae overlay1009 tests (38 skips). Linnaeus QA/CI38499957451 pass; integration pending. [Recovery tradeoffs](testing/plugin-config-recovery.md). One controller required.
 
 October13: smoke7/7, baseline29/30; six roofs match, northeast+1.8939m remains. #100/e27f6de fixes the final jump; fresh informational15/15. Inputs/captures verified, old campaign/save preserved. Four older jumps excluded; walking/map size/connections open. Codex released control and paused its completed monitor. [Results](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6154661951). Claude owns the controller at129b9ae; reports daylight working and cave-door merge-frame investigation (#32). #94/#97 [audit](testing/commonwealth-evidence.md).
 
