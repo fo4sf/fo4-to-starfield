@@ -821,3 +821,9 @@ twin step is untested in game until the next library run.
   - No load and no reply for 90 s. The console then could not be reopened safely, so the runner stopped.
   - Since only the site differs from the working exp2b2, the site is the supported cause.
   - Re-staged as `terrain_exp2{t0,ta,t}_night` with exp2b2's Mars plugin (the night site, where every arrival works) and `SetLocalTime 12` for daylight. Queued after the cave tests.
+- **BLOCKER since about 22:27 MDT (2026-10-13): Starfield deactivates our experiment plugins at startup.**
+  - A timestamped Plugins.txt watcher shows our install and the deploy leave them active. About 35 s after launch, at the main menu, the game rewrites the file to `*FO4Port.esm` plus our plugins inactive. Reproduced twice (noon2_1013).
+  - Every coc into our worldspaces then freezes: tex_t0/ta/t at the daylight and night sites, cave_core64c, noon2. The same staging worked at 16:13, 16:33 and 17:05. The vanilla LC172 control works.
+  - Launch screenshots show no pop-up. The newest save at the menu is the owner's own autosave from 20:47, between the last working test and the first failure.
+  - Supported hypothesis: the owner's session changed Starfield's own (Creations) load-order state. Owner asked; Codex asked on #32.
+  - In-game tests are paused until this is understood. The combat test (#112), cave-door fix A (#107), walk (#103) and the night-site texture queues are ready to run once it is.
