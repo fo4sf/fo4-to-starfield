@@ -542,17 +542,49 @@ class QstepMovableSandboxTests(SandboxStep, unittest.TestCase):
         self.assertEqual(left, [], obs.get("cleanup"))
 
     def test_a_heavy_item_set_light_is_pushed(self):
-        heavy = {"label": "C_box_m5", "base": "0200CE1F", "mass_kg": 50.0, "set_mass_kg": 5, "mass_probe": True}
+        heavy = {"label": "C_box_m5", "base": "0200CE1F", "mass_kg": 50.0, "set_mass_kg": 5}
         v, obs, _ = self.item(heavy, world={"push_max_kg": 20.0})
         self.assertEqual(v[:2], ("PASS", "WALKED"), v[2])
-        self.assertIn("SetRigidBodyMass 5 typed", v[2])
+        self.assertIn("[GetMass 5 kg after SetRigidBodyMass 5 (before: 50 kg)]", v[2])
         self.assertEqual(self.acted_on("SetRigidBodyMass 5"), ["prid FF000800", "GetIsID 0200CE1F"])
-        self.assertEqual(self.typed.count('cf "ObjectReference.GetMass"'), 2)   # before and after, quotes intact
+        probe = 'cf "ObjectReference.GetMass"'
+        self.assertEqual(self.typed.count(probe), 2)                          # before and after, quotes intact
         self.assertIn("GetMass > > 50.00", obs["mass_probe"]["before"])      # the OCR's "> >" for ">>"
         self.assertIn("GetMass > > 5.00", obs["mass_probe"]["after"])
+        # the reading after the set is in a session of its own, after the console was closed (the game ran), on a
+        # selection confirmed again
+        ev = self.state["events"]
+        k_set = ev.index("SetRigidBodyMass 5")
+        k_after = max(k for k, c in enumerate(ev) if c == probe)
+        opened = max(k for k in range(k_after) if ev[k] == "<open>")
+        self.assertGreater(opened, k_set)
+        self.assertIn("<close>", ev[k_set + 1:opened])
+        self.assertEqual([c for c in ev[opened:k_after] if c.startswith(("prid ", "GetIsID "))],
+                         ["prid FF000800", "GetIsID 0200CE1F"])
         # the same item at its own mass is not pushed
-        v, obs, _ = self.item(dict(heavy, set_mass_kg=None, mass_probe=False), world={"push_max_kg": 20.0})
+        v, obs, _ = self.item(dict(heavy, set_mass_kg=None), world={"push_max_kg": 20.0})
         self.assertEqual(v[:2], ("PASS", "IMPULSE"), v[2])
+
+    def test_a_mass_that_does_not_change_is_inconclusive(self):
+        # SetRigidBodyMass accepted without a word and nothing changes: the 5 kg copy is the 50 kg box, not pushed, and
+        # moved by an impulse like the original; judged on that it would read "thinness, not mass" (verifier of PR #110)
+        heavy = {"label": "C_box_m5", "base": "0200CE1F", "mass_kg": 50.0, "set_mass_kg": 5}
+        v, obs, left = self.item(heavy, world={"push_max_kg": 20.0, "setmass_noop": True})
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "MASS"), v[2])
+        self.assertIn("GetMass read 50 kg after SetRigidBodyMass 5", v[2])
+        self.assertEqual(left, [], obs.get("cleanup"))
+        # cf cannot reach the native GetMass (as cf "Actor.PathToReference" in N0_cf): nothing is read, nothing judged
+        v, obs, _ = self.item(heavy, world={"push_max_kg": 20.0,
+                                            "getmass_reply": "No script named ObjectReference is attached to the object"})
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "MASS"), v[2])
+        self.assertIn("GetMass was not read after SetRigidBodyMass 5", v[2])
+
+    def test_a_spot_off_the_planned_floor_places_nothing(self):
+        # the player lands 1 m below the planned spot (no open floor there at that height): nothing is placed
+        v, obs, left = self.item({"spot": [-3.0, 4.0, 1.0]})
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "START"), v[2])
+        self.assertFalse([c for c in self.typed if c.startswith("player.placeatme")])
+        self.assertEqual(left, [])
 
     def test_a_refused_set_mass_is_inconclusive(self):
         v, obs, _ = self.item({"set_mass_kg": 5}, world={"setmass_reply": 'Script command "SetRigidBodyMass" not found.'})
@@ -567,7 +599,9 @@ class QstepMovableSandboxTests(SandboxStep, unittest.TestCase):
         good = tq.movable_test(0, ITEM)
         for bad in ({"base": "0200CE2A 1"}, {"travel": "player.moveto 02000800"},
                     {"impulses": [{"dv": 1.5, "magnitude": 37.5, "cmd": "ApplyHavokImpulse 0 0 1 37.5; disable"}]},
-                    {"set_mass_cmd": "SetRigidBodyMass 5|key:enter"}, {"probe_cmd": 'cf "Game.QuitGame"'}):
+                    {"set_mass_cmd": "SetRigidBodyMass 5|key:enter"}, {"probe_cmd": 'cf "Game.QuitGame"'},
+                    {"set_mass_cmd": "SetRigidBodyMass 5"},                  # a set mass without its GetMass reading
+                    {"set_mass_cmd": "SetRigidBodyMass 5", "probe_cmd": 'cf "ObjectReference.GetMass"', "mass_wait_ms": 50}):
             out, _, _ = self.run_step(test=dict(good, **bad), world=item_world(), code=4)
             self.assertEqual(self.typed, [], bad)
 
@@ -578,7 +612,9 @@ class QstepMovableSandboxTests(SandboxStep, unittest.TestCase):
              "stand": [44.366, 86.087, 11.118], "heading": 30.2, "walk_ms": 900, "sf_base": "0200CE2A", "mass_kg": 25.0,
              "impulses": tq.impulse_steps(25.0, 30.2), "impulse_wait_ms": 500}
         v, obs, left = self.run_step(test=t, world={"actors": {"020049D1": book}, "player": [40.0, 80.0, 11.0]})
-        self.assertEqual(v[:2], ("PASS", "IMPULSE"), v[2])
+        # walked over, not pushed: FAIL NOTMOVED even though the impulse moved it (only the walk passes a movable test)
+        self.assertEqual(v[:2], ("FAIL", "NOTMOVED"), v[2])
+        self.assertIn("then moved it", v[2])
         self.assertEqual(left, ["020049D1"])                                # a world item is never disabled
         self.assertFalse(self.state["actors"]["020049D1"].get("disabled"))
         imp = [c for c in self.typed if c.startswith("ApplyHavokImpulse")]

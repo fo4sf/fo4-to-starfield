@@ -359,9 +359,11 @@ switch ($kind) {
     # settles; the player to the spot; the item placed at the player's feet (placeatme) while the player moves on to the
     # park point in the same console session (the game is paused while the console is open), so the item drops onto a
     # free floor during spawn_wait_ms; its handle confirmed as npc_nav's (PickLastRef's id, GetSelf names no other ref,
-    # GetIsID <base> 1, within handle_tol of the spot); SetRigidBodyMass / the GetMass probe on the confirmed selection
-    # when planned (their OCR kept); the player stand_m before the item facing heading, the item's confirmed read, the
-    # walk (hold W walk_ms), the player's and the item's reads; the impulse ladder when the walk did not move it; then
+    # GetIsID <base> 1, within handle_tol of the spot); the GetMass probe / SetRigidBodyMass on the confirmed selection
+    # when planned (their OCR kept; after SetRigidBodyMass the console closed mass_wait_ms and GetMass read again on a
+    # second confirmed selection: the judge needs that reading); the player stand_m before the item facing heading, the
+    # item's confirmed read, the walk (hold W walk_ms), the player's and the item's reads; the impulse ladder when the
+    # walk did not move it; then
     # the item removed (disable, markfordelete) on a confirmed selection only. Everything typed is validated here again.
     if ("$($t.travel)" -notmatch '^coc [A-Za-z0-9_]+$') { "bad travel"; exit 4 }
     $base = "$($t.base)"; if ($base -notmatch $hexId) { "bad base"; exit 4 }
@@ -375,6 +377,9 @@ switch ($kind) {
     if ($heading -lt 0 -or $heading -gt 360 -or $standM -lt 0.5 -or $standM -gt 5 -or $drop -lt 0 -or $drop -gt 5) { "bad heading / stand_m / drop"; exit 4 }
     $setMass = ''; if ($t.set_mass_cmd) { $setMass = "$($t.set_mass_cmd)"; if ($setMass -cnotmatch $setMassOk) { "bad set_mass_cmd"; exit 4 } }
     $probe = ''; if ($t.probe_cmd) { $probe = "$($t.probe_cmd)"; if ($probe -cne $massProbe) { "bad probe_cmd"; exit 4 } }
+    if ($setMass -and -not $probe) { "set_mass_cmd without probe_cmd: the mass set would never be read back"; exit 4 }
+    $massWait = 1000; if ($null -ne $t.mass_wait_ms) { $massWait = [int]$t.mass_wait_ms }
+    if ($massWait -lt 200 -or $massWait -gt 10000) { "bad mass_wait_ms"; exit 4 }
     $imps = Impulse-Lines
     $spawnWait = [int]$t.spawn_wait_ms; $handleTol = [double]$t.handle_tol; $settle = [int]$t.settle_ms
     $walkMs = [int]$t.walk_ms; $min = [double]$t.moved_m
@@ -399,6 +404,9 @@ switch ($kind) {
     Save-Obs
     $ds = Item-DistXY $obs['player_spot'] $spot
     if ($null -eq $ds -or $ds -gt 1.0) { exit 0 }      # not at the spot: nothing placed (judged START)
+    # not on the floor planned at the spot (testqueue.py SPOT_Z_M, 0.4 m): nothing placed (judged START)
+    $sz0 = [double]("$($obs['player_spot'])".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)[2])
+    if ([Math]::Abs($sz0 - [double]$spot[2]) -gt 0.4) { exit 0 }
     # 3. the item placed, the player to the park point in the same session, the console closed for spawn_wait_ms
     Console-Open
     $s0 = Item-Capture @("player.placeatme $base 1") @() 'place'
@@ -434,17 +442,25 @@ switch ($kind) {
     Save-Obs
     $ref = "$($pk['ref'])"
     if ($pk['confirmed']) {
-      # 5. SetRigidBodyMass and the GetMass probe on the confirmed selection (their replies' OCR is kept)
+      # 5. the GetMass probe and SetRigidBodyMass on the confirmed selection (their replies' OCR is kept). After
+      # SetRigidBodyMass the console is closed for mass_wait_ms (the game runs) and GetMass is read again on a second
+      # confirmed selection: the judge reads a set_mass test only when that reading is the mass set (else MASS)
       if ($setMass -or $probe) {
+        $mp = [ordered]@{}
         $sel = Select-Item $ref $base 'mass_sel'
         if ($sel) {
-          $mp = [ordered]@{}
           if ($probe) { $mp['before'] = (Item-Capture @($probe) @() 'probe_before').ocr }
           if ($setMass) { $obs['set_mass'] = [ordered]@{ typed = $true; cmd = $setMass; ocr = (Item-Capture @($setMass) @() 'set_mass').ocr } }
-          if ($probe -and $setMass) { $mp['after'] = (Item-Capture @($probe) @() 'probe_after').ocr }
-          if ($probe) { $obs['mass_probe'] = $mp }
-          Send 'key:grave|wait:600'
+          Send "key:grave|wait:$(if ($setMass) { $massWait } else { 600 })"
+          if ($setMass) {
+            $sel2 = Select-Item $ref $base 'mass_sel2'
+            if ($sel2) {
+              $mp['after'] = (Item-Capture @($probe) @() 'probe_after').ocr
+              Send 'key:grave|wait:600'
+            } else { $mp['after_note'] = 'the item was not selected again for the reading after SetRigidBodyMass' }
+          }
         } elseif ($setMass) { $obs['set_mass'] = [ordered]@{ typed = $false; cmd = $setMass } }
+        if ($probe) { $obs['mass_probe'] = $mp }
         Save-Obs
       }
       # 6. the player stand_m before the item (its spawn read), facing it along heading, on the floor read at the spot

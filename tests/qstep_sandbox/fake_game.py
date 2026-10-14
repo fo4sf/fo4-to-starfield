@@ -48,7 +48,9 @@ an item (an "actors" entry with item true) at the player's feet on the floor (+ 
 push_min_h tall (0.08 m) and not heavier than push_max_kg pushes it 0.5 m ahead; a thinner one is walked over.
 "ApplyHavokImpulse x y z m" on a selected item moves it dv x 0.3 m along the axis when dv = m / mass >= impulse_dv_min
 (1.0; impulse_works false or a fixed item: never); "SetRigidBodyMass <kg>" sets its mass (setmass_reply: the console
-prints that text instead); 'cf "ObjectReference.GetMass"' prints "GetMass >> <kg>" (a made-up reply format)."""
+prints that text instead; setmass_noop: accepted without a word and nothing changes); 'cf "ObjectReference.GetMass"'
+prints "GetMass >> <kg>" (a made-up reply format; getmass_reply: that text instead, e.g. the "No script named ... is
+attached to the object" that cf "Actor.PathToReference" got in N0_cf)."""
 import json
 import math
 import os
@@ -286,10 +288,12 @@ def run(s, cmd):
     elif low.startswith("setrigidbodymass "):
         if s.get("setmass_reply"):                         # the console refuses it (made-up text: the real one is unseen)
             s["log"].append(s["setmass_reply"])
-        elif kind == "actor" and a.get("item"):
+        elif kind == "actor" and a.get("item") and not s.get("setmass_noop"):
             a["mass_set"] = float(w[1])
     elif low == 'cf "objectreference.getmass"':
-        if kind == "actor" and a.get("item"):
+        if s.get("getmass_reply"):
+            s["log"].append(s["getmass_reply"])
+        elif kind == "actor" and a.get("item"):
             s["log"].append(f"GetMass >> {mass_of(a):.2f}")
     elif low == "disable" and kind is not None:
         if kind == "actor":

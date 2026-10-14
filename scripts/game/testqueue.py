@@ -90,8 +90,11 @@ BREAKER = 6          # inconclusive attempts in a row, with no PASS/FAIL yet, th
 # inconclusive for a reason a retry cannot change. NIGHT (need_daylight, the run did not read as daylight) is NOT
 # final: arrivals of the same test differ between attempts (exp1d 2026-10-11: a1 fell into a pit, sky 7.3, a2 in the
 # open, 131.0), so a retry can read differently; it does not count towards the circuit breaker either (the step works)
-# ELEVATED (movable): the item lies on furniture above the player's reach (supervised_1011 0007, 2026-10-12: a cigarette
-# pack 0.83 m up on a desk): the walk cannot reach it however often it is retried, and the step itself worked
+# ELEVATED (movable): the item lies on furniture the walk did not reach: more than ELEVATED_M above the player's feet and
+# the walk never came within CONTACT_M of it (supervised_1011 0007, 2026-10-12: a cigarette pack 0.83 m up on a desk,
+# the player stopped at the desk 0.67 m from it), or above the player's head. The same walk from the same stand point
+# stops at the same furniture however often it is retried, and the step itself worked. An item the walk passed through
+# (batch_full 0100: 0.26 m from the walk, 0.53 m above the highest feet read) is not ELEVATED: FAIL NOTMOVED
 FINAL_INCONCLUSIVE = ("CONTROL", "PRECONDITION", "ELEVATED")
 NO_BREAKER = ("CRASH", "NOCELL", "NIGHT")
 
@@ -120,16 +123,26 @@ NPC_PLAN_KEYS = frozenset((
 # npc_nav test, the spawn was confirmed and the reads were taken)
 REQUIRE_VERDICTS = ("PASS", "FAIL", "DECIDED")
 
-# Movable items (docs/ai/test-queue.md "Movable items: walk, then impulse"). An item counts as moved at MOVE_M; one more
-# than ELEVATED_M above the player's feet at the stand point lies on furniture the walk cannot reach. When the walk did
-# not move it, ApplyHavokImpulse (a console script function of Starfield.exe 1.16.244: opcode 0x1251, four Floats, axis
-# x y z and magnitude; scripts/recon_console.py) is typed on the confirmed selection in steps of a speed change dv
-# (m/s): magnitude = mass x dv, the unit kg m/s a supported hypothesis (LC012NASAGravTrigger.psc scales its impulses by
-# GetMass()). The ladder stops at the first step that moves the item.
-MOVE_M, ELEVATED_M = 0.05, 0.5
+# Movable items (docs/ai/test-queue.md "Movable items: walk, then impulse"). An item counts as moved at MOVE_M. Only the
+# walk can pass a movable test: the test asks whether the player pushes the item. When the walk did not move it,
+# ApplyHavokImpulse (a console script function of Starfield.exe 1.16.244: opcode 0x1251, four Floats, axis x y z and
+# magnitude; scripts/recon_console.py) is typed on the confirmed selection in steps of a speed change dv (m/s):
+# magnitude = mass x dv, the unit kg m/s a supported hypothesis (LC012NASAGravTrigger.psc scales its impulses by
+# GetMass()). The ladder stops at the first step that moves the item. It tells a simulated body the walk did not push
+# (still FAIL NOTMOVED when the walk reached it) from one nothing moves (FAIL STUCK); since its magnitudes scale with
+# the mass, it cannot show whether the mass stops the player: movable_control's vanilla items and SetRigidBodyMass can.
+# ELEVATED: the item more than ELEVATED_M above the player's feet (the highest of the reads before and after the walk)
+# while the walk came no closer than CONTACT_M to it, or more than OVERHEAD_M above them. CONTACT_M and OVERHEAD_M are
+# not measured from Starfield's character capsule (supported hypothesis: a radius of about 0.3-0.4 m plus the item's
+# half-width, a height of about 1.8 m); CONTACT_M lies between the two readings it must separate: 0.26 m (batch_full
+# 0100, walked through: FAIL NOTMOVED) and 0.67 m (supervised_1011 0007, stopped at the desk: ELEVATED)
+MOVE_M, ELEVATED_M, CONTACT_M, OVERHEAD_M = 0.05, 0.5, 0.5, 1.8
 IMPULSE_DV = (1.5, 6.0, 24.0)
 SET_MASS_CMD = "SetRigidBodyMass"     # console script function, opcode 0x1156, one Float: "Sets the Havok mass for an object."
 MASS_PROBE = 'cf "ObjectReference.GetMass"'     # Papyrus ObjectReference.GetMass() through the console's CallFunction
+# movable_control: the player read at the spot, and the placed item, this close in height to the spot (the floor there)
+SPOT_Z_M, SPAWN_Z_M = 0.4, 0.5
+MASS_WAIT_MS = 1000     # movable_control: the console closed after SetRigidBodyMass before GetMass reads it (the game runs)
 
 
 def _fmt(x, nd=3):
@@ -705,8 +718,8 @@ def plan_door(a):
 
 # movable_control (docs/ai/test-queue.md "Movable items: walk, then impulse"): every key a plan.json test may carry
 MOVABLE_PLAN_KEYS = frozenset((
-    "label", "model", "travel", "base", "base_edid", "mass_kg", "set_mass_kg", "mass_probe", "spot", "heading",
-    "stand_m", "park_m", "walk_ms", "settle_ms", "spawn_wait_ms", "handle_tol", "drop", "impulse_dv",
+    "label", "model", "travel", "base", "base_edid", "mass_kg", "set_mass_kg", "mass_probe", "mass_wait_ms", "spot",
+    "heading", "stand_m", "park_m", "walk_ms", "settle_ms", "spawn_wait_ms", "handle_tol", "drop", "impulse_dv",
     "impulse_wait_ms", "moved_m", "reach_m", "settle_m", "fresh", "expect", "basis") + console_plan.CONSOLE_KEYS)
 
 
@@ -770,11 +783,18 @@ def movable_test(n, w, formids=None, items=None, plugin_index="02"):
          "settle_m": _num(w, "settle_m", 0.1, 0.01, 1.0)}
     if w.get("set_mass_kg") is not None:
         # SetRigidBodyMass <kg> on the confirmed selection before the walk: does the same body move once it is as
-        # light as a vanilla item of its size? (its effect is unverified: the console's reply is kept)
+        # light as a vanilla item of its size? Its effect is unverified, so the GetMass probe is typed with it and the
+        # test is judged only when the probe reads the mass set (judge_movable_control: else INCONCLUSIVE MASS)
+        if "mass_probe" in w and not w["mass_probe"]:
+            sys.exit(f"{label}: set_mass_kg needs the GetMass probe (a test whose mass is not read back cannot be "
+                     f"judged); drop mass_probe: false")
         sm = _num(w, "set_mass_kg", 1.0, 0.1, 1000)
         t["set_mass_kg"], t["set_mass_cmd"] = sm, f"{SET_MASS_CMD} {_fmt(sm, 2)}"
-    if w.get("mass_probe"):
-        t["probe_cmd"] = MASS_PROBE                    # the reply's OCR is kept (diagnostic, never judged)
+        t["mass_wait_ms"] = int(_num(w, "mass_wait_ms", MASS_WAIT_MS, 200, 10000))
+    if w.get("mass_probe") or t.get("set_mass_cmd"):
+        # before (and after SetRigidBodyMass, in a session of its own once the game has run) the walk; with set_mass_kg
+        # the reading after the set decides whether the test can be judged, otherwise it is only shown
+        t["probe_cmd"] = MASS_PROBE
     # the ladder's magnitudes are for the mass the body has during the test
     t["impulses"] = impulse_steps(t.get("set_mass_kg", mass), heading, dvs) if dvs else []
     if w.get("fresh"):
@@ -997,11 +1017,19 @@ def impulse_outcome(test, obs, start):
 
 def judge_push(test, obs, shot_ok):
     """movable (an item of the build, walked into) and movable_control (an item placed in a vanilla cell): the walk,
-    then, when it did not move the item, the impulse ladder. PASS (movable_control: WALKED) when the walk moved it 5 cm,
-    PASS IMPULSE when only an impulse did (the body is simulated, the walk does not push it), FAIL STUCK when no planned
-    impulse moved it either, FAIL ITEMFELL through the floor. Without a ladder the walk decides as before: FAIL NOTMOVED
-    when the player passed within reach of it, INCONCLUSIVE MISSED when not, and (movable) INCONCLUSIVE ELEVATED when it
-    lies more than ELEVATED_M above the player's feet: on furniture the walk cannot reach (supervised_1011 0007)."""
+    then, when it did not move the item, the impulse ladder.
+    - PASS (movable_control: PASS WALKED): the walk moved it MOVE_M. Only the walk passes a movable test.
+    - FAIL ITEMFELL: it dropped through the floor (after the walk or an impulse). FAIL STUCK: every planned impulse was
+      typed on a confirmed selection and none moved it (the body does not respond).
+    - INCONCLUSIVE ELEVATED (movable): the walk did not reach it because it lies on furniture: more than ELEVATED_M
+      above the player's feet (the highest of the reads before and after the walk) while the walk came no closer than
+      CONTACT_M, or more than OVERHEAD_M above them (supervised_1011 0007). Final, not counted by the breaker.
+    - The walk reached it (closest approach within reach_m) and did not move it: movable FAIL NOTMOVED, whatever the
+      ladder showed (an impulse that moved it only adds "the body is simulated" to the detail: the player still cannot
+      push it); movable_control PASS IMPULSE when an impulse moved it (the measurement of a control: the body is
+      simulated, the walk did not push it), INCONCLUSIVE IMPULSE when the ladder did not finish, FAIL NOTMOVED without
+      a ladder.
+    - Otherwise INCONCLUSIVE MISSED, with what the ladder showed."""
     control = test["kind"] == "movable_control"
     b, a_ = parse3(obs.get("item_before")), parse3(obs.get("item_after"))
     pe = parse3(obs.get("player_end"))
@@ -1024,38 +1052,93 @@ def judge_push(test, obs, shot_ok):
         return "PASS", "WALKED" if control else "PASS", f"item moved {moved:.2f} m" + (f" ({how})" if control else "")
     walk = f"{how} but it moved {moved:.3f} m"
     imp = impulse_outcome(test, obs, a_)
+    note = ""
     if imp and imp[0] == "moved":
         _, k, d, drop, rec = imp
         what = f"ApplyHavokImpulse {rec.get('magnitude')} (dv {rec.get('dv')} m/s, step {k + 1})"
         if drop > 1.0:
             return "FAIL", "ITEMFELL", f"{walk}; {what} dropped it {drop:.1f} m"
-        return "PASS", "IMPULSE", f"{walk}; {what} moved it {d:.2f} m"
-    if imp and imp[0] == "stuck":
+        note = f"; {what} then moved it {d:.2f} m: the body is simulated"
+    elif imp and imp[0] == "stuck":
         top = max(r.get("dv", 0) for r in test["impulses"])
         return "FAIL", "STUCK", f"{walk}; {imp[1]} impulses up to dv {top} m/s did not move it either"
-    note = f"; {imp[1]}" if imp else ""
-    elev = b[2] - ps[2] if ps is not None else None
-    if not control and elev is not None and elev > ELEVATED_M:
-        return "INCONCLUSIVE", "ELEVATED", (f"the item lies {elev:.2f} m above the player's feet (on furniture): the "
-                                            f"walk cannot reach it; {walk}{note}")
-    if reach <= test.get("reach_m", 1.0):
-        if imp:                                           # the ladder was planned but did not finish
-            return "INCONCLUSIVE", "IMPULSE", f"{walk}{note}"
-        return "FAIL", "NOTMOVED", walk
-    return "INCONCLUSIVE", "MISSED", f"player came no closer than {reach:.2f} m to the item{note}"
+    elif imp:
+        note = f"; the impulse ladder did not finish: {imp[1]}"
+    # the player's feet: the highest read of the walk (a player who climbed onto the furniture reached its height)
+    feet = max(ps[2], pe[2]) if ps is not None else pe[2]
+    elev = b[2] - feet
+    if not control and (elev > OVERHEAD_M or (elev > ELEVATED_M and reach > CONTACT_M)):
+        where = "above the player's head" if elev > OVERHEAD_M else "on furniture"
+        return "INCONCLUSIVE", "ELEVATED", (f"the item lies {elev:.2f} m above the player's feet ({where}) and the walk "
+                                            f"came no closer than {reach:.2f} m: it did not reach it; it moved {moved:.3f} m{note}")
+    if reach > test.get("reach_m", 1.0):
+        return "INCONCLUSIVE", "MISSED", f"player came no closer than {reach:.2f} m to the item{note}"
+    if not control:
+        # the walk reached it and did not push it: the failure this test exists to find, whatever an impulse did
+        return "FAIL", "NOTMOVED", f"{walk}{note}"
+    if imp and imp[0] == "moved":
+        return "PASS", "IMPULSE", f"{walk}{note}"
+    if imp:                                               # the ladder was planned but did not finish
+        return "INCONCLUSIVE", "IMPULSE", f"{walk}{note}"
+    return "FAIL", "NOTMOVED", walk
+
+
+MASS_ECHO = re.compile(r"G[e3]t\s?M[a@]ss", re.I)                    # the probe's echo (and a reply naming it)
+MASS_NUM = re.compile(r"(?<![\w.])-?\d+(?:[.,]\d+)?(?![\w.])")
+# cf "Actor.PathToReference" (N0_cf, 2026-10-11) replied "No script named Actor is attached to the object"
+NO_SCRIPT = re.compile(r"no\s?script", re.I)
+
+
+def mass_read(ocr):
+    """(kg, "") read from a GetMass probe's console session, or (None, why): the one number printed after the probe's
+    echo in the text after the session's last ClearConsole echo. The reply's format is unseen (docs/ai/test-queue.md):
+    a refusal, no echo, no number or several different numbers read nothing."""
+    text = str(ocr or "")
+    starts = [m.end() for m in CLEAR_ECHO.finditer(text)]
+    text = text[starts[-1]:] if starts else text
+    bad = NO_SCRIPT.search(text) or REFUSED.search(text)
+    if bad:
+        return None, f"the console refused it ({bad.group(0)!r})"
+    echo = MASS_ECHO.search(text)
+    if not echo:
+        return None, "its echo was not read"
+    vals = sorted({round(float(x.replace(",", ".")), 2) for x in MASS_NUM.findall(text[echo.end():])})
+    if len(vals) != 1:
+        return None, ("no number after it" if not vals else f"several numbers after it ({', '.join(map(str, vals))})")
+    return vals[0], ""
+
+
+def mass_ok(read, want):
+    """GetMass read the mass SetRigidBodyMass set: within 5 %, at least 0.25 kg."""
+    return read is not None and abs(read - want) <= max(0.25, 0.05 * want)
 
 
 def judge_movable_control(test, obs, shot_ok):
-    """movable_control: the player at the spot, the item placed and its handle confirmed (PickLastRef's id, GetSelf,
-    GetIsID <base> 1, within handle_tol of the spot), SetRigidBodyMass typed when planned and not refused, the item at
-    rest before the walk (its spawn read and its read before the walk within settle_m); then judge_push."""
+    """movable_control: the player at the spot (within 1 m, and SPOT_Z_M of its height: on the floor there), the item
+    placed and its handle confirmed (PickLastRef's id, GetSelf, GetIsID <base> 1, within handle_tol of the spot and
+    SPAWN_Z_M of its height), the player at the stand point on the same floor; with set_mass_kg, SetRigidBodyMass typed
+    and not refused and GetMass read back as the mass set (else INCONCLUSIVE MASS: a mass that did not change would
+    otherwise read as "thinness, not mass"); the item at rest before the walk (its spawn read and its read before the
+    walk within settle_m); then judge_push."""
     sp = parse3(obs.get("player_spot"))
     spot = test["spot"]
     if sp is None or math.hypot(sp[0] - spot[0], sp[1] - spot[1]) > 1.0:
         return "INCONCLUSIVE", "START", f"the player was not read at the spot ({obs.get('player_spot')})"
+    if abs(sp[2] - spot[2]) > SPOT_Z_M:
+        return "INCONCLUSIVE", "START", (f"the player was read {sp[2] - spot[2]:+.2f} m from the spot's height: not on "
+                                         f"the open floor planned there ({obs.get('player_spot')})")
     s = obs.get("spawn") or {}
     if not s.get("confirmed"):
         return "INCONCLUSIVE", "SPAWN", f"the placed item's handle was not confirmed: {s.get('why') or 'no spawn read'}"
+    r0 = parse3(s.get("read"))
+    if r0 is not None and abs(r0[2] - spot[2]) > SPAWN_Z_M:
+        return "INCONCLUSIVE", "SPAWN", (f"the placed item was read {r0[2] - spot[2]:+.2f} m from the spot's height: not "
+                                         f"on the floor there ({s.get('read')})")
+    ps = parse3(obs.get("player_start"))
+    if ps is not None and abs(ps[2] - spot[2]) > SPOT_Z_M:
+        return "INCONCLUSIVE", "START", (f"the player was read {ps[2] - spot[2]:+.2f} m from the spot's height at the "
+                                         f"stand point: the walk would not start on the spot's floor")
+    mass_note = ""
     if test.get("set_mass_cmd"):
         m = obs.get("set_mass") or {}
         if not m.get("typed"):
@@ -1063,14 +1146,26 @@ def judge_movable_control(test, obs, shot_ok):
         refused = console_refused(m.get("ocr"))
         if refused:
             return "INCONCLUSIVE", "SETMASS", f"the console refused {test['set_mass_cmd']} ({refused!r})"
-    r0, b = parse3(s.get("read")), parse3(obs.get("item_before"))
+        probe = obs.get("mass_probe") or {}
+        before, _ = mass_read(probe.get("before"))
+        if probe.get("after") is None:
+            after, why = None, probe.get("after_note") or "its reply was not captured"
+        else:
+            after, why = mass_read(probe["after"])
+        was = f" (before: {_fmt(before, 2)} kg)" if before is not None else ""
+        if after is None:
+            return "INCONCLUSIVE", "MASS", (f"GetMass was not read after {test['set_mass_cmd']}: {why}{was}; the mass "
+                                            f"the walk met is unknown")
+        if not mass_ok(after, test["set_mass_kg"]):
+            return "INCONCLUSIVE", "MASS", (f"GetMass read {_fmt(after, 2)} kg after {test['set_mass_cmd']}{was}: the "
+                                            f"mass set did not take")
+        mass_note = f" [GetMass {_fmt(after, 2)} kg after {test['set_mass_cmd']}{was}]"
+    b = parse3(obs.get("item_before"))
     if r0 is not None and b is not None and math.dist(r0, b) > test.get("settle_m", 0.1):
         return "INCONCLUSIVE", "SETTLE", (f"the item was still moving before the walk: {math.dist(r0, b):.2f} m between "
                                           f"its spawn read and its read before the walk")
     v, c, d = judge_push(test, obs, shot_ok)
-    if test.get("set_mass_cmd") and v != "INCONCLUSIVE":
-        d += f" [{test['set_mass_cmd']} typed; its effect is not read back]"
-    return v, c, d
+    return v, c, d + mass_note
 
 
 def _add(p, off):
@@ -1721,18 +1816,21 @@ def movable_timeout(test):
     sessions), the impulse line in its own capture, impulse_wait_ms with the console closed and a confirmed read (two
     sessions). movable_control adds the coc arrival read until it settles, the player to the spot and its read, the
     placeatme session with the player's move to the park point, spawn_wait_ms, the handle (plr; prid + GetSelf; GetIsID +
-    getpos), SetRigidBodyMass / the GetMass probe (one selection and up to three captures), the player to the stand point
-    and its read, the confirmed reads before and after the walk, and the removal (a selection, disable, markfordelete)."""
+    getpos), the GetMass probe and SetRigidBodyMass (one selection and a capture each; after SetRigidBodyMass the console
+    closed MASS_WAIT_MS, a second selection and the probe again), the player to the stand point and its read, the
+    confirmed reads before and after the walk, and the removal (a selection, disable, markfordelete)."""
     per_imp = 4 * NPC_SESSION_S + test.get("impulse_wait_ms", 3000) / 1000 + 10
     imps = len(test.get("impulses") or [])
     if test.get("kind") == "movable":
         return int(300 + 2 * NPC_SESSION_S * bool(imps) + imps * per_imp)
-    extra = (test.get("set_mass_cmd") is not None) + 2 * (test.get("probe_cmd") is not None)
+    setm, probe = test.get("set_mass_cmd") is not None, test.get("probe_cmd") is not None
+    mass = (((2 + setm + probe) * NPC_SESSION_S if setm or probe else 0)
+            + ((3 * NPC_SESSION_S + test.get("mass_wait_ms", MASS_WAIT_MS) / 1000) if setm and probe else 0))
     fixed = (120 + 5 * NPC_READ_S + 12 + 10                     # coc, the HUD back, the arrival until it settles, shot
              + 2 * (30 + test.get("settle_ms", 1500) / 1000 + NPC_READ_S)   # the player to the spot and to the stand
              + NPC_SESSION_S + 15 + test.get("spawn_wait_ms", 3000) / 1000    # placeatme, the move to the park point
              + 3 * NPC_SESSION_S + 10                           # the handle: plr; prid + GetSelf; GetIsID + getpos
-             + (2 * NPC_SESSION_S + extra * NPC_SESSION_S if extra else 0)
+             + mass
              + 2 * (2 * NPC_SESSION_S) + 10                     # the item read before and after the walk, two shots
              + test.get("walk_ms", 900) / 1000 + 2 + NPC_READ_S  # the walk and the player's read after it
              + 3 * NPC_SESSION_S)                               # the removal

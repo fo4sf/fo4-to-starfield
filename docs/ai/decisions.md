@@ -214,17 +214,23 @@ Alternatives: keep NOLOAD on "near the start, no loading screen" (refuted by QA'
 comparing screenshots (fragile at night and in caves); PASS with a NEAR class (the report's tally counts every PASS as
 one, so the caveat would vanish from the summary).
 
-## 2026-10-13 Movable tests: a walk that cannot push is not a FAIL; the impulse decides whether a body moves (Claude)
-A converted loose item that the walk did not move is judged by what can be known about its body, not by the walk alone:
-an item more than 0.5 m above the player's feet is INCONCLUSIVE ELEVATED (final, never counted by the circuit breaker),
-and a walk that leaves an item in place is followed by `ApplyHavokImpulse` on the confirmed selection (dv 1.5, 6, 24 m/s
-times its mass): PASS IMPULSE when that moves it, FAIL STUCK when nothing does. The converter keeps FO4's masses and
-bodies unchanged. A vanilla-controlled queue (`movable_control`, QASmoke) compares our items with vanilla items of the
-same size, and the book and the box again at 5 kg (`SetRigidBodyMass`), before any converter change.
-Why: the NOTMOVED FAILs were a desk 0.8 m up and flat books walked over (research-log 2026-10-13); the same book body
-moved when hit side-on, and every motion, layer and flag field matches vanilla items. A FAIL there pointed at the
-converter and, six in a row, switched the movable kind off for about 610 tests.
-Alternatives: lighten FO4's masses now (2-10 times Starfield's for small items; no evidence that mass is the cause, the
-25 kg book moved); plan only items the walk can push (needs each item's height and floor, and the batch would still not
-know whether a skipped item's body moves); MiscItem records (pick-up and inventory semantics FO4 statics never had,
-decisions 2026-10-10).
+## 2026-10-13 Movable tests: only the walk passes; furniture the walk did not reach is ELEVATED; the impulse is a diagnostic (Claude)
+A movable test asks whether the player pushes the item, so only the walk passes it. A walk whose closest approach came
+within reach and left the item in place is FAIL NOTMOVED. When planned (`--impulse`), `ApplyHavokImpulse` on the
+confirmed selection (dv 1.5, 6, 24 m/s times its mass) follows: an impulse that moves the item only adds "the body is
+simulated" to the detail, FAIL STUCK when nothing moves it. An item more than 0.5 m above the player's highest feet read
+that the walk came no closer than 0.5 m to (or more than 1.8 m above them) is INCONCLUSIVE ELEVATED (final, never
+counted by the circuit breaker). The converter keeps FO4's masses and bodies unchanged for now. A vanilla-controlled
+queue (`movable_control_1013b`, QASmoke) compares our items with vanilla items of the same size, and the book and the
+box again at 5 kg (`SetRigidBodyMass`, judged only when `GetMass` reads 5 kg back), before any converter change.
+Why: the cigarette pack lay on a desk the walk stopped 0.67 m short of, and three flat books were walked over
+(research-log 2026-10-13); every motion, layer and flag field matches vanilla items. Six inconclusive results in a row
+switched the movable kind off for about 610 tests. The first version of this decision passed an item the walk could
+not push as PASS IMPULSE and made every item 0.5 m up ELEVATED; the verifier of PR #110 showed that the impulse ladder
+cancels the mass by construction (it would hide exactly the failure FO4's heavier items could cause) and that the pin
+box of batch_full 0100, 0.81 m up, lay where the walk passed 0.26 m from it and did not move.
+Alternatives: lighten FO4's masses now (2-10 times Starfield's for small items; unresolved whether mass is the cause:
+the 25 kg book moved, the 50 kg box 0100 did not); a separate non-PASS class for "simulated but not pushed" (the detail
+carries it, and NOTMOVED keeps the class every earlier report used); plan only items the walk can push (needs each
+item's height and floor, and the batch would still not know whether a skipped item's body moves); MiscItem records
+(pick-up and inventory semantics FO4 statics never had, decisions 2026-10-10).

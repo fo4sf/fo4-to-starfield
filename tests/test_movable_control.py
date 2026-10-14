@@ -1,6 +1,9 @@
-"""Movable items in the queued runner (scripts/game/testqueue.py): the walk, then the ApplyHavokImpulse ladder; items on
-furniture are ELEVATED, not NOTMOVED; movable_control plans (an item placed in a vanilla cell) are validated before
-anything can be typed. Synthetic data; no game, no PowerShell (tests/test_qstep_sandbox.py runs the step itself)."""
+"""Movable items in the queued runner (scripts/game/testqueue.py): the walk, then the ApplyHavokImpulse ladder. Only the
+walk passes a movable test (an impulse that moves the build's item is a diagnostic: FAIL NOTMOVED when the walk reached
+it); items on furniture the walk did not reach are ELEVATED, an item the walk passed through is NOTMOVED however high it
+lies; a SetRigidBodyMass test is judged only on a GetMass reading of the mass set; movable_control plans (an item
+placed in a vanilla cell) are validated before anything can be typed. Synthetic data; no game, no PowerShell
+(tests/test_qstep_sandbox.py runs the step itself)."""
 import json
 import os
 import sys
@@ -76,8 +79,47 @@ class MovableJudgeTests(unittest.TestCase):
                        end="10.45 61.40 7.31")
         v, c, d = tq.judge(t, obs, self.d)
         self.assertEqual((v, c), ("INCONCLUSIVE", "ELEVATED"), d)
-        self.assertIn("0.83 m above the player's feet", d)
+        self.assertIn("0.83 m above the player's feet (on furniture) and the walk came no closer than 0.67 m", d)
         self.assertIn("ELEVATED", tq.FINAL_INCONCLUSIVE)          # final, and never counted by the circuit breaker
+
+    def test_an_item_the_walk_passed_through_is_notmoved_however_high_it_lies(self):
+        # batch_full 0100 (BobbyPinBox 1015BB, verifier of PR #110): 0.81 m above the feet at the stand point, but the
+        # walk passed 0.26 m from it and the player rose 0.28 m on the way (0.53 m below the item at the end): inside
+        # the capsule's reach and height. It moved 0.000 m: FAIL NOTMOVED, not a final INCONCLUSIVE ELEVATED
+        obs = push_obs(self.d, before="33.62 68.45 11.78", after="33.62 68.45 11.78", start="32.94 67.36 10.97",
+                       end="34.31 71.12 11.25")
+        v, c, d = tq.judge({"kind": "movable"}, obs, self.d)
+        self.assertEqual((v, c), ("FAIL", "NOTMOVED"), d)
+        self.assertIn("player passed 0.27 m from it", d)          # 0.26 m in the verifier's figure
+        # the same item 0.6 m above the feet, the walk passing 0.3 m from it without climbing: still within contact
+        obs = push_obs(self.d, before="0.30 1.00 0.60", after="0.30 1.00 0.60", start="0.00 0.00 0.00",
+                       end="0.00 2.50 0.00")
+        self.assertEqual(tq.judge({"kind": "movable"}, obs, self.d)[:2], ("FAIL", "NOTMOVED"))
+        # a player who climbs onto the bench and passes over the item: its height above the start no longer counts
+        obs = push_obs(self.d, before="0.05 1.00 0.70", after="0.05 1.00 0.70", start="0.00 0.00 0.00",
+                       end="0.00 1.60 0.66")
+        self.assertEqual(tq.judge({"kind": "movable"}, obs, self.d)[:2], ("FAIL", "NOTMOVED"))
+
+    def test_an_item_above_the_head_or_out_of_contact_on_furniture_is_elevated(self):
+        # the walk under a shelf 2 m up: the capsule never touches it
+        obs = push_obs(self.d, before="0.05 1.00 2.00", after="0.05 1.00 2.00", start="0.00 0.00 0.00",
+                       end="0.00 2.50 0.00")
+        v, c, d = tq.judge({"kind": "movable"}, obs, self.d)
+        self.assertEqual((v, c), ("INCONCLUSIVE", "ELEVATED"), d)
+        self.assertIn("above the player's head", d)
+        # 0.55 m up (between the bench that was climbed and the desk) and the walk stopped 0.6 m short of it
+        obs = push_obs(self.d, before="0.00 1.20 0.55", after="0.00 1.20 0.55", start="0.00 0.00 0.00",
+                       end="0.00 0.60 0.00")
+        self.assertEqual(tq.judge({"kind": "movable"}, obs, self.d)[:2], ("INCONCLUSIVE", "ELEVATED"))
+
+    def test_an_item_on_the_players_floor_the_walk_stopped_short_of_is_missed(self):
+        # batch_full 0098 (BobbyPinBox 100164): the player was teleported onto the item's own surface (item z 11.78,
+        # player z 11.77), moved 0.17 m and stopped 1.45 m short of it: blocked by something else, not elevation
+        obs = push_obs(self.d, before="20.00 31.62 11.78", after="20.00 31.62 11.78", start="20.00 30.00 11.77",
+                       end="20.00 30.17 11.77")
+        v, c, d = tq.judge({"kind": "movable"}, obs, self.d)
+        self.assertEqual((v, c), ("INCONCLUSIVE", "MISSED"), d)
+        self.assertIn("no closer than 1.45 m", d)
 
     def test_a_book_on_a_bench_that_moved_is_still_a_pass(self):
         # supervised_1011 0015: the book lay 0.45 m up on a bench seat and moved 0.46 m when the player stepped up
@@ -94,23 +136,46 @@ class MovableJudgeTests(unittest.TestCase):
         t = {"kind": "movable", "impulses": tq.impulse_steps(25.0, 30.2)}
         base = dict(before="44.92 87.04 11.02", after="44.92 87.04 11.02", start="44.37 86.09 10.97",
                     end="46.45 89.85 10.87")
+        # the walk passed over the book and did not move it; the second impulse did. The player still cannot push it:
+        # FAIL NOTMOVED (the ladder's magnitudes are mass x dv, so they move a heavy item as easily as a light one and
+        # can never show that the mass stops the player; verifier of PR #110)
         moved = push_obs(self.d, **base, impulses=[imp("44.92 87.04 11.02"), imp("44.60 86.50 11.02", dv=6.0, magnitude=150.0)])
         v, c, d = tq.judge(t, moved, self.d)
-        self.assertEqual((v, c), ("PASS", "IMPULSE"), d)
+        self.assertEqual((v, c), ("FAIL", "NOTMOVED"), d)
         self.assertIn("player passed 0.02 m from it", d)
-        self.assertIn("ApplyHavokImpulse 150.0 (dv 6.0 m/s, step 2) moved it 0.63 m", d)
+        self.assertIn("ApplyHavokImpulse 150.0 (dv 6.0 m/s, step 2) then moved it 0.63 m: the body is simulated", d)
         stuck = push_obs(self.d, **base, impulses=[imp("44.92 87.04 11.02")] * 3)
         self.assertEqual(tq.judge(t, stuck, self.d)[:2], ("FAIL", "STUCK"))
+        # a ladder that did not finish leaves the walk's failure as it is
         cut = push_obs(self.d, **base, impulses=[imp("44.92 87.04 11.02"), imp(None, applied=False)])
         v, c, d = tq.judge(t, cut, self.d)
-        self.assertEqual((v, c), ("INCONCLUSIVE", "IMPULSE"), d)
-        self.assertIn("impulse 2 not applied", d)
+        self.assertEqual((v, c), ("FAIL", "NOTMOVED"), d)
+        self.assertIn("the impulse ladder did not finish: impulse 2 not applied", d)
         fell = push_obs(self.d, **base, impulses=[imp("44.92 87.04 8.00")])
         self.assertEqual(tq.judge(t, fell, self.d)[:2], ("FAIL", "ITEMFELL"))
-        # an impulse moves an item on a desk, which the walk could never reach: a pass, not ELEVATED
+        # an impulse moves an item on a desk the walk did not reach: ELEVATED (no PASS without the walk), the body noted
         desk = push_obs(self.d, before="10.54 62.06 8.14", after="10.54 62.06 8.14", start="10.53 60.97 7.31",
                         end="10.45 61.40 7.31", impulses=[imp("10.54 61.70 8.14")])
-        self.assertEqual(tq.judge(t, desk, self.d)[:2], ("PASS", "IMPULSE"))
+        v, c, d = tq.judge(t, desk, self.d)
+        self.assertEqual((v, c), ("INCONCLUSIVE", "ELEVATED"), d)
+        self.assertIn("the body is simulated", d)
+        # out of reach on the floor: MISSED, with what the impulse showed
+        far = push_obs(self.d, **base, impulses=[imp("44.60 86.50 11.02")])
+        far.update(player_start="40.00 80.00 10.97", player_end="40.00 81.00 10.97")
+        v, c, d = tq.judge(t, far, self.d)
+        self.assertEqual((v, c), ("INCONCLUSIVE", "MISSED"), d)
+        self.assertIn("the body is simulated", d)
+
+    def test_no_movable_result_is_a_pass_without_the_walk(self):
+        # whatever the ladder did, a movable test whose walk left the item in place is never PASS
+        t = {"kind": "movable", "impulses": tq.impulse_steps(50.0, 0)}
+        for start, end in (("0.00 -1.10 0.00", "0.00 1.50 0.00"), ("0.00 -1.10 0.00", "0.00 -0.40 0.00"),
+                           ("5.00 -1.10 0.00", "5.00 1.50 0.00")):
+            for ladder in ([imp("0.00 -0.50 0.00")], [imp("0.00 0.00 0.00"), imp("0.00 -2.00 0.00")]):
+                obs = push_obs(self.d, before="0.00 0.00 0.00", after="0.00 0.00 0.00", start=start, end=end,
+                               impulses=ladder)
+                v, c, d = tq.judge(t, obs, self.d)
+                self.assertNotEqual(v, "PASS", d)
 
 
 class MovableControlJudgeTests(unittest.TestCase):
@@ -127,11 +192,40 @@ class MovableControlJudgeTests(unittest.TestCase):
         self.assertIn("player passed 0.00 m from it", d)
         v, c, d = self.judge(control_obs(self.d, impulses=[imp("-3.00 3.55 0.00")]))
         self.assertEqual((v, c), ("PASS", "IMPULSE"), d)
+        self.assertIn("player passed 0.00 m from it (walked 2.7 m) but it moved 0.000 m", d)
         self.assertEqual(self.judge(control_obs(self.d, impulses=[imp("-3.00 4.00 0.00")] * 3))[:2], ("FAIL", "STUCK"))
+
+    def test_impulse_after_a_walk_that_missed_the_item_is_not_a_pass(self):
+        # PASS IMPULSE stands for "walked into or over it, not pushed, an impulse moved it"; a walk that never came
+        # within reach_m says nothing about pushing
+        side = control_obs(self.d, player_start="-1.50 2.90 0.00", player_end="-1.50 5.60 0.00",
+                           impulses=[imp("-3.00 3.55 0.00")])
+        v, c, d = self.judge(side)
+        self.assertEqual((v, c), ("INCONCLUSIVE", "MISSED"), d)
+        self.assertIn("the body is simulated", d)
 
     def test_preconditions(self):
         self.assertEqual(self.judge(control_obs(self.d, player_spot="10.0 10.0 0.0"))[:2], ("INCONCLUSIVE", "START"))
         self.assertEqual(self.judge(control_obs(self.d, player_spot=None))[:2], ("INCONCLUSIVE", "START"))
+        # the player at the spot's x y but not on the floor planned there (verifier of PR #110: the QASmoke lanes are
+        # not shown to be open floor): on top of something, or fallen below it
+        for z in ("1.20", "-2.00"):
+            v, c, d = self.judge(control_obs(self.d, player_spot=f"-3.00 4.00 {z}"))
+            self.assertEqual((v, c), ("INCONCLUSIVE", "START"), d)
+            self.assertIn("from the spot's height", d)
+        # the stand point on another floor
+        v, c, d = self.judge(control_obs(self.d, player_start="-3.00 2.90 0.90"))
+        self.assertEqual((v, c), ("INCONCLUSIVE", "START"), d)
+        # the item came to rest on something above the spot (or fell below it)
+        up = control_obs(self.d, spawn={"ref": "FF000800", "confirmed": True, "read": "-3.00 4.00 0.90"},
+                         item_before="-3.00 4.00 0.90", item_after="-3.00 4.00 0.90")
+        v, c, d = self.judge(up)
+        self.assertEqual((v, c), ("INCONCLUSIVE", "SPAWN"), d)
+        self.assertIn("not on the floor there", d)
+        # a tall item's origin a little above the floor is fine
+        ok = control_obs(self.d, spawn={"ref": "FF000800", "confirmed": True, "read": "-3.00 4.00 0.30"},
+                         item_before="-3.00 4.00 0.30", item_after="-3.00 6.10 0.30")
+        self.assertEqual(self.judge(ok)[:2], ("PASS", "WALKED"))
         bad = control_obs(self.d, spawn={"ref": "FF000800", "confirmed": False, "why": "GetIsID 0200CE2A read 0"})
         v, c, d = self.judge(bad)
         self.assertEqual((v, c), ("INCONCLUSIVE", "SPAWN"), d)
@@ -143,23 +237,66 @@ class MovableControlJudgeTests(unittest.TestCase):
         self.assertEqual(self.judge(side)[:2], ("INCONCLUSIVE", "MISSED"))
 
     def test_set_mass(self):
-        t = tq.movable_test(0, dict(ITEM, set_mass_kg=5, mass_probe=True))
+        t = tq.movable_test(0, dict(ITEM, set_mass_kg=5))
         self.assertEqual(t["set_mass_cmd"], "SetRigidBodyMass 5")
-        self.assertEqual(t["probe_cmd"], 'cf "ObjectReference.GetMass"')
+        self.assertEqual(t["probe_cmd"], 'cf "ObjectReference.GetMass"')   # always with set_mass_kg: its reading is judged
+        self.assertEqual(t["mass_wait_ms"], tq.MASS_WAIT_MS)
         self.assertEqual(t["impulses"][0]["magnitude"], 7.5)          # the ladder is for the mass set
-        ok = control_obs(self.d, item_after="-3.00 6.10 0.00",
-                         set_mass={"typed": True, "ocr": "Clear Console SetRigidBodyMass 5"})
+        with self.assertRaises(SystemExit):                            # a set mass that is never read back
+            tq.movable_test(0, dict(ITEM, set_mass_kg=5, mass_probe=False))
+        typed = {"typed": True, "ocr": "Clear Console SetRigidBodyMass 5"}
+        probe = {"before": 'Clear Console cf "ObjectReference.GetMass" GetMass > > 25.00',
+                 "after": 'GetMass > > 25.00 Clear Console cf "ObjectReference.GetMass" GetMass > > 5.00'}
+        ok = control_obs(self.d, item_after="-3.00 6.10 0.00", set_mass=typed, mass_probe=probe)
         v, c, d = self.judge(ok, t)
         self.assertEqual((v, c), ("PASS", "WALKED"), d)
-        self.assertIn("SetRigidBodyMass 5 typed; its effect is not read back", d)
+        self.assertIn("[GetMass 5 kg after SetRigidBodyMass 5 (before: 25 kg)]", d)
         self.assertEqual(self.judge(control_obs(self.d, set_mass={"typed": False}), t)[:2], ("INCONCLUSIVE", "SETMASS"))
         refused = control_obs(self.d, set_mass={"typed": True, "ocr": 'Missing reference Clear Console SetRigidBodyMass 5 '
                                                                      'Script command "SetRigidBodyMass" not found.'})
         self.assertEqual(self.judge(refused, t)[:2], ("INCONCLUSIVE", "SETMASS"))
         # a refusal printed before this session's ClearConsole belongs to an older session
-        old = control_obs(self.d, item_after="-3.00 6.10 0.00",
+        old = control_obs(self.d, item_after="-3.00 6.10 0.00", mass_probe=probe,
                           set_mass={"typed": True, "ocr": "Missing reference Clear Console SetRigidBodyMass 5"})
         self.assertEqual(self.judge(old, t)[:2], ("PASS", "WALKED"))
+
+    def test_a_mass_not_read_back_is_inconclusive(self):
+        # verifier of PR #110: if SetRigidBodyMass does nothing, the 5 kg copy behaves as the original and the queue
+        # would read "thinness, not mass"; such a test is judged only when GetMass reads the mass set
+        t = tq.movable_test(0, dict(ITEM, set_mass_kg=5))
+        typed = {"typed": True, "ocr": "Clear Console SetRigidBodyMass 5"}
+        walked = dict(item_after="-3.00 6.10 0.00", set_mass=typed)
+        for probe, why in (
+                (None, "not captured"),
+                ({"before": 'Clear Console cf "ObjectReference.GetMass" GetMass > > 25.00'}, "not captured"),
+                ({"after_note": "the item was not selected again"}, "not selected again"),
+                ({"after": 'Clear Console cf "ObjectReference.GetMass" No script named ObjectReference is attached to '
+                           'the object'}, "refused"),
+                ({"after": 'Clear Console cf "ObjectReference.GetMass"'}, "no number"),
+                ({"after": "Clear Console prid FF000800"}, "echo was not read"),
+                ({"after": 'Clear Console cf "ObjectReference.GetMass" GetMass > > 5.00 6.00'}, "several numbers")):
+            with self.subTest(why=why):
+                v, c, d = self.judge(control_obs(self.d, mass_probe=probe, **walked), t)
+                self.assertEqual((v, c), ("INCONCLUSIVE", "MASS"), d)
+                self.assertIn(why, d)
+        # read, but the mass did not change: nothing about mass can be said, whether or not the walk moved it
+        same = {"before": 'Clear Console cf "ObjectReference.GetMass" GetMass > > 25.00',
+                "after": 'Clear Console cf "ObjectReference.GetMass" GetMass > > 25.00'}
+        for after in ("-3.00 6.10 0.00", "-3.00 4.00 0.00"):
+            v, c, d = self.judge(control_obs(self.d, mass_probe=same, set_mass=typed, item_after=after,
+                                             impulses=[imp("-3.00 3.55 0.00")]), t)
+            self.assertEqual((v, c), ("INCONCLUSIVE", "MASS"), d)
+            self.assertIn("GetMass read 25 kg after SetRigidBodyMass 5 (before: 25 kg): the mass set did not take", d)
+        self.assertNotIn("MASS", tq.FINAL_INCONCLUSIVE)               # retried: an OCR miss can read on the next try
+
+    def test_mass_read(self):
+        self.assertEqual(tq.mass_read('Clear Console cf "ObjectReference.GetMass" GetMass >> 5.00'), (5.0, ""))
+        self.assertEqual(tq.mass_read('ClearConsole cf "ObjectReference.GetMass" 12,5')[0], 12.5)
+        self.assertEqual(tq.mass_read('cf "ObjectReference.GetMass" GetMass > > 5.00 GetMass > > 5.00')[0], 5.0)
+        self.assertIsNone(tq.mass_read("")[0])
+        self.assertIsNone(tq.mass_read('Clear Console cf "ObjectReference.GetMass" Script command not found 5')[0])
+        self.assertTrue(tq.mass_ok(5.1, 5.0) and tq.mass_ok(4.8, 5.0) and not tq.mass_ok(5.4, 5.0))
+        self.assertTrue(tq.mass_ok(19.2, 20.0) and not tq.mass_ok(18.9, 20.0) and not tq.mass_ok(None, 5.0))
 
 
 class MovablePlanTests(unittest.TestCase):
@@ -212,8 +349,8 @@ class MovablePlanTests(unittest.TestCase):
         q = jload(os.path.join(out, "queue.json"))
         self.assertEqual([t["base"] for t in q["tests"]], ["002A0D5B", "0200CE2A"])
         self.assertTrue(all(t["fresh"] for t in q["tests"]))
-        self.assertEqual(q["needs"], ["impulse"])
-        self.assertEqual(q["pre_launch"][-2:], ["check", "impulse"])          # the runner's own runner_features.py
+        self.assertEqual(q["needs"], ["impulse", "push_judge"])
+        self.assertEqual(q["pre_launch"][-2:], ["check", "impulse,push_judge"])   # the runner's own runner_features.py
         self.assertEqual(q["launch_cell"], "Vault111Cryo")
         jdump([dict(ITEM, label="same"), dict(ITEM, label="same")], os.path.join(exp, "plan.json"))
         with self.assertRaises(SystemExit):
@@ -276,13 +413,20 @@ class ElevatedRunTests(unittest.TestCase):
 class RunnerSupportTests(unittest.TestCase):
     def test_features(self):
         self.assertIn("impulse", runner_features.FEATURES)
-        self.assertEqual(runner_features.needs([tq.movable_test(0, ITEM)]), ["impulse"])
+        self.assertIn("push_judge", runner_features.FEATURES)
+        # push_judge: a runner of 91f3d17 (impulse only) would pass an item the player cannot push as PASS IMPULSE
+        self.assertEqual(runner_features.needs([tq.movable_test(0, ITEM)]), ["impulse", "push_judge"])
         self.assertEqual(runner_features.needs([{"kind": "movable"}]), [])
-        self.assertEqual(runner_features.needs([{"kind": "movable", "impulses": tq.impulse_steps(1, 0)}]), ["impulse"])
+        self.assertEqual(runner_features.needs([{"kind": "movable", "impulses": tq.impulse_steps(1, 0)}]),
+                         ["impulse", "push_judge"])
+        self.assertEqual(runner_features.missing(["impulse", "push_judge"]), [])
 
     def test_step_timeouts_cover_the_ladder(self):
         t = tq.movable_test(0, dict(ITEM, set_mass_kg=5, mass_probe=True))
         self.assertGreater(tq.step_timeout(t), 1500)
+        # the reading after SetRigidBodyMass: a second selection (two sessions), its capture and the wait
+        plain = tq.movable_test(0, dict(ITEM, mass_probe=True))
+        self.assertGreaterEqual(tq.step_timeout(t) - tq.step_timeout(plain), 4 * tq.NPC_SESSION_S)
         self.assertGreater(tq.step_timeout(t), tq.step_timeout(dict(t, impulses=[])) + 3 * 4 * tq.NPC_SESSION_S)
         self.assertEqual(tq.step_timeout({"kind": "movable"}), 300)
         self.assertGreater(tq.step_timeout({"kind": "movable", "impulses": tq.impulse_steps(1, 0)}), 900)

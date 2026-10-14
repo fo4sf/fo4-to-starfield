@@ -31,7 +31,13 @@ import sys
 #               (plan-movable: an item placed in a vanilla cell, walked over, then pushed with ApplyHavokImpulse) and
 #               movable tests planned with --impulse. An older qstep.ps1 ends a movable_control step with "unknown
 #               kind" after the game was launched for it, and skips a movable test's impulses without a word
-FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "impulse")
+# push_judge:   movable / movable_control judged as the verifier of PR #110 asked (2026-10-13): only the walk passes a
+#               movable test (an impulse that moves the build's item leaves it FAIL NOTMOVED when the walk reached it),
+#               ELEVATED only when the walk did not come within contact of the item, PASS IMPULSE of a control only when
+#               the walk reached the item, SetRigidBodyMass judged only on a GetMass reading of the mass set (read in a
+#               session of its own after the game ran), the player's and the item's heights at the spot. The first
+#               impulse runner (91f3d17) would pass an item the player cannot push as PASS IMPULSE
+FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "impulse", "push_judge")
 
 
 def needs(tests):
@@ -49,7 +55,7 @@ def needs(tests):
             if "moved_m" in t or "activate_m" in t:
                 out.add("door_check")
         if t.get("kind") == "movable_control" or (t.get("kind") == "movable" and t.get("impulses")):
-            out.add("impulse")
+            out.update(("impulse", "push_judge"))
     return sorted(out)
 
 
