@@ -1614,8 +1614,8 @@ def door_timeout(test, light=0.0):
 
 
 WALK_LEG_S = 60        # walk: one leg, worst case (console open, ClearConsole + three getpos, OCR at up to 4 thresholds,
-                       # the controller, setangle, the HUD shot and the popup OCR, a readpos.ps1 fallback); the hold adds
-                       # up to max_leg_m / walk_eval.V_LO seconds
+                       # the controller, setangle, the HUD shot and the popup OCR, up to two more read sessions when the
+                       # first fails); the hold adds up to max_leg_m / walk_eval.V_LO seconds
 
 
 def walk_timeout(test, light=0.0):

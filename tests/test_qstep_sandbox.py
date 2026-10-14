@@ -619,6 +619,22 @@ class QstepWalkSandboxTests(SandboxStep, unittest.TestCase):
         again = [x for x in obs["legs"] if x.get("reread")]
         self.assertEqual(len(again), 1)
         self.assertNotEqual(again[0]["read"], again[0]["used"])
+        self.assertEqual((again[0]["used"], again[0]["reread_via"]), (again[0]["reread"], "console"))
+        self.assertEqual(self.state["readpos_calls"], 2)                      # the settled arrival only
+
+    def test_a_read_missing_its_z_is_read_again_in_a_fresh_session(self):
+        # Codex on PR #103: the readpos.ps1 fallback (parse_getpos.py) takes the last X / Y / Z on screen, so a
+        # capture missing this session's Z joined the current x / y with the previous leg's z. The second z reply of
+        # the walk (leg 1) never reaches the screen: that leg is read again in its own ClearConsole-marked session
+        v, obs, _ = self.walk(world={"getpos_lost": [2]})
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        retried = [x for x in obs["legs"] if x.get("via") == "console_retry"]
+        self.assertEqual([x["n"] for x in retried], [1])
+        self.assertEqual(retried[0]["read"], retried[0]["used"])
+        self.assertEqual(retried[0]["cmds"].count("ClearConsole"), 2)         # two sessions, both this leg's
+        self.assertTrue(all(x["via"] == "console" for x in obs["legs"] if x["n"] != 1))
+        self.assertTrue(all(x["read_how"] in ("order", "inline") for x in obs["legs"] if x.get("used")))
+        self.assertEqual(self.state["readpos_calls"], 2)                      # readpos.ps1: the arrival only
 
     def test_a_bad_spec_types_nothing(self):
         for bad in ({"travel": "player.moveto 02000800"}, {"waypoints": [[1.0, 2.0, 3.0]]}):

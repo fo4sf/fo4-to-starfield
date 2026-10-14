@@ -40,7 +40,8 @@ says yes. A load moves the player to dest_pos in dest_cell and hides the HUD for
 "player.setangle z <deg>" sets the heading; "hold:w,<ms>" (and input.ps1's guarded "holdg:w,<ms>") walks walk_speed m/s
 along it (walk_blocked: not at all; heading_bias degrees are added to the heading the player really walks).
 "player.getpos x|y|z" prints "GetPos: X >> <v>" (the player's position; getpos_misread [n, ...]: the n-th x reply, from 1,
-drops its minus sign as the OCR did).
+drops its minus sign as the OCR did; getpos_lost [n, ...]: the n-th z reply is not on screen at all). readpos_calls
+counts the readpos.ps1 runs (the walk may use it for the arrival only).
 Ground (walk): ground {"z0", "sx", "sy", "decks": [[x0, y0, x1, y1, z]], "holes": [[x0, y0, x1, y1]],
 "walls": [[x0, y0, x1, y1]], "boundary": [[x0, y0, x1, y1]], "boundary_shift": [dx, dy, dz], "stop_box": [x0, y0, x1, y1]}
 in the game's frame: a walking player stands on the plane z0 + sx * x + sy * y, or on a deck's z inside it; a wall stops
@@ -209,6 +210,10 @@ def run(s, cmd):
             s["getpos_x"] = s.get("getpos_x", 0) + 1
             if s["getpos_x"] in s.get("getpos_misread", []):
                 v = abs(v)                                   # the OCR dropped the minus sign
+        if ax == "Z":
+            s["getpos_z"] = s.get("getpos_z", 0) + 1
+            if s["getpos_z"] in s.get("getpos_lost", []):
+                return                                       # the reply is not on screen (the OCR lost the line)
         s["log"].append(f"GetPos: {ax} >> {v:.2f}")
     elif low.startswith("player.setangle z "):
         s["heading"] = float(w[2])
@@ -427,6 +432,7 @@ def main():
         return
     elif sys.argv[1] == "readpos":
         ref = sys.argv[2].upper() if len(sys.argv) > 2 else ""
+        s["readpos_calls"] = s.get("readpos_calls", 0) + 1   # the walk must not use readpos.ps1 after the arrival
         if not ref:
             print(" ".join(f"{v:.2f}" for v in player_pos(s)))
         elif ref == s.get("anchor_id"):

@@ -383,6 +383,35 @@ class StopControlTests(unittest.TestCase):
         self.assertIn("if ($LASTEXITCODE -eq 5)", step)
 
 
+class ReadPathTests(unittest.TestCase):
+    """Codex on PR #103: the walk's readpos.ps1 fallback (parse_getpos.py) could join this session's x / y with an
+    older session's z; the walk reads only through its own ClearConsole-marked sessions (parse_npc.py) now."""
+    def test_a_capture_without_the_current_z_is_refused_by_the_walks_parser(self):
+        import parse_getpos
+        import parse_npc
+        old = ("ClearConsole\nplayer.getpos x\nGetPos: X >> -2195.00\nplayer.getpos y\nGetPos: Y >> -1510.00\n"
+               "player.getpos z\nGetPos: Z >> 80.10\n")
+        cur = "ClearConsole\nplayer.getpos x\nGetPos: X >> -2205.00\nplayer.getpos y\nGetPos: Y >> -1510.00\nplayer.getpos z\n"
+        screen = "\n".join((old + cur).splitlines()[-9:])          # nine lines on screen: this session's Z is not
+        self.assertEqual(parse_getpos.parse(screen), "-2205.00 -1510.00 80.10")       # mixed: the older z
+        self.assertIsNone(parse_npc.parse(screen, ["x", "y", "z"])["pos"])            # refused
+        whole = "\n".join((old + cur + "GetPos: Z >> 79.90\n").splitlines()[-9:])
+        self.assertEqual(parse_npc.parse(whole, ["x", "y", "z"])["pos"], "-2205.00 -1510.00 79.90")
+
+    def test_the_walk_reads_only_through_its_own_sessions(self):
+        # the sandbox (opt-in) walks it; here: after the arrival and the setup, the step names no other read path
+        with open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8") as f:
+            walk = f.read().split("'walk' {")[1].split("'recover' {")[0]
+        after = walk.split("# 3. the walk")[1]
+        self.assertNotIn("readpos", after.lower())
+        self.assertNotIn("Read-Pos", after)
+        self.assertNotIn("Walk-Fallback", walk)
+        self.assertEqual(after.count("Walk-Session 2"), 2)             # a failed first read; the second read of a jump
+        for key in ("$L['via'] = 'console'", "$L['via'] = 'console_retry'", "$L['reread_via'] = 'console'",
+                    "$L['read_how']", "$L['reread_how']"):
+            self.assertIn(key, after)
+
+
 class SteerTests(unittest.TestCase):
     def setUp(self):
         self.t, _ = test_of()

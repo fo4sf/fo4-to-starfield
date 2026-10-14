@@ -20,7 +20,10 @@ acceptance." Every terrain test so far dropped the player onto points (teleports
    teleport rule of docs/terrain/core64c.md (at most 200 m per axis, **supported**).
 3. The walk, leg after leg, until the controller says done or stop. One leg:
    - one console session: `ClearConsole`, `player.getpos x`, `player.getpos y`, `player.getpos z`, the console OCR'd
-     with `parse_npc.py` (only what follows this session's start is read; a failed read falls back to `readpos.ps1`);
+     with `parse_npc.py` (only what follows this session's start is read, and a position needs all three values from
+     it; a failed read, and the second read of an implausible move, is a fresh session of the same kind: never
+     `readpos.ps1`, whose `parse_getpos.py` takes the last X, Y, Z anywhere on screen and could join this session's
+     x / y with an older z. Each leg records which path read it: `via`, `read_how`, `reread_via`);
    - the controller (`scripts/game/walk_eval.py steer`) decides on that read: which waypoint is next, the heading,
      how long to hold W; `player.setangle z <heading>` is typed in the same session and the console closed;
    - W is held for that time with `input.ps1`'s new **guarded hold** `holdg:w,<ms>`: the foreground is checked every
@@ -188,7 +191,8 @@ streaming farther than 300 m from the arrival, daylight materials.
 `C:\Modding\testqueue\walk_core64c\report.md` (verdicts), `results.jsonl` (one line per attempt: verdict, class,
 detail with reads, walked metres, |dz|, the objects stood on, cells seen; `install`: the installed plugins' and
 archive's sha256), `tests\<id>\a<n>\`: `obs.json` (`spawn_read` / `offset`, `setup`, `legs`: per leg `read`, `used`,
-`reread`, `local` (the local frame), `wp`, `heading`, `hold_ms`, `hud`, `popup`, `cmds`, `shot`; `walk_stopped`),
+`reread`, `via` / `read_how` / `reread_via` (which read path and parse_npc reading gave each value), `local` (the local
+frame), `wp`, `heading`, `hold_ms`, `hud`, `popup`, `cmds`, `shot`; `walk_stopped`),
 `walk_NNN.png` (kept leg screenshots), `arrival.png`, `setup.png`, `end.png`, `walk_state.json` (the controller's
 state). The route itself: `C:\Modding\staging\walk_core64c\route.json` (both directions, every waypoint's expected
 ground and source, the report) and `README.txt`.

@@ -958,7 +958,7 @@ switch ($kind) {
     # the arrival read until it settles (the overlay's merge offset O = arrival - spawn_local), for a test with "setup"
     # ONE teleport to the route's start before the walk begins (setup, not walking evidence), then legs until the
     # controller says done or stop. A leg: one console session (ClearConsole, player.getpos x / y / z, the console OCR'd
-    # with parse_npc.py; a failed read falls back to readpos.ps1), the controller's decision on that read (walk_eval.py
+    # with parse_npc.py; a failed read is read again in a fresh session, Walk-Session), the controller's decision on that read (walk_eval.py
     # steer), "player.setangle z <heading>" typed in the same session, the console closed, W held for hold_ms
     # (input.ps1 holdg: released at once when the game loses the foreground), then one screenshot: the HUD
     # (hud_visible.py; gone -> wait up to 20 s for it) and the screen centre's text (ocr.ps1: "BOUNDARY REACHED" stops the
@@ -1009,25 +1009,34 @@ switch ($kind) {
     function Walk-Left { $budget - ((Get-Date) - $stepStart).TotalSeconds }
     function Walk-Read {
       # console OPEN: ClearConsole (its echo marks this session's start for parse_npc.py) and the three getpos; returns
-      # "x y z" or $null, the console stays open
+      # "x y z" or $null, the console stays open. parse_npc.py reads nothing before this session's start and gives a
+      # position only when all three values are this session's ($script:readHow: its reading, "order" / "inline").
       Send 'type:ClearConsole|key:enter|wait:500|type:player.getpos x|key:enter|wait:450|type:player.getpos y|key:enter|wait:450|type:player.getpos z|key:enter|wait:700'
       $script:legCmds += @('ClearConsole', 'player.getpos x', 'player.getpos y', 'player.getpos z')
       $cap = Join-Path $Out 'walk_cap.png'; $prep = Join-Path $Out 'walk_prep.png'; $txt = Join-Path $Out 'walk_ocr.txt'
       powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'shot_region.ps1') -Out $cap | Out-Null
+      $script:readHow = ''
       foreach ($th in 135, 140, 130, 145) {
         & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $cap $prep $th 12 | Out-Null
         (powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $prep -Scale 1) | Set-Content $txt -Encoding utf8
         $r = $null
         try { $r = (& $env:FO4SF_PYTHON $parse $txt '--expect=x,y,z') | ConvertFrom-Json } catch { $r = $null }
-        if ($r -and "$($r.pos)" -match $pos3) { return "$($r.pos)".Trim() }
+        if ($r -and "$($r.pos)" -match $pos3) { $script:readHow = "$($r.how)"; return "$($r.pos)".Trim() }
       }
       return $null
     }
-    function Walk-Fallback([int]$tries) {
-      # console CLOSED: readpos.ps1 (its own session, the same three getpos)
-      $script:legCmds += @('player.getpos x', 'player.getpos y', 'player.getpos z')
-      $p = Read-Pos '' $tries
-      if ("$p" -match $pos3) { return "$p".Trim() }
+    function Walk-Session([int]$tries) {
+      # console CLOSED before and after: up to $tries fresh sessions of the same ClearConsole-marked read (a failed
+      # first read, the second read of an implausible move). Never readpos.ps1: its parse_getpos.py takes the last X,
+      # Y and Z anywhere on screen, so a capture missing this session's Z joined the current x / y with an older
+      # session's z (Codex on PR #103); here all three values come from one current session or there is no read.
+      for ($k = 0; $k -lt $tries; $k++) {
+        Console-Open
+        $p = Walk-Read
+        Send 'key:grave|wait:600'
+        if ($p) { return $p }
+        Start-Sleep -Milliseconds 400
+      }
       return $null
     }
     function Steer([string]$read, [bool]$again = $false) {
@@ -1097,15 +1106,15 @@ switch ($kind) {
       $why = Walk-Stop; if ($why) { Stop-Walk $why $L }
       Console-Open
       $open = $true
-      $p = Walk-Read
-      if (-not $p) { Send 'key:grave|wait:600'; $open = $false; $p = Walk-Fallback 2; $L['via'] = 'readpos' }
+      $p = Walk-Read; $L['via'] = 'console'; $L['read_how'] = $script:readHow
+      if (-not $p) { Send 'key:grave|wait:600'; $open = $false; $p = Walk-Session 2; $L['via'] = 'console_retry'; $L['read_how'] = $script:readHow }
       $L['read'] = $p
       $d = Steer $p
       if ($d -and $d.action -eq 'reread') {
         if ($open) { Send 'key:grave|wait:600'; $open = $false }
         Start-Sleep -Milliseconds 500
-        $p2 = Walk-Fallback 3
-        $L['reread'] = $p2; $L['reread_why'] = "$($d.reason)"
+        $p2 = Walk-Session 2
+        $L['reread'] = $p2; $L['reread_why'] = "$($d.reason)"; $L['reread_via'] = 'console'; $L['reread_how'] = $script:readHow
         $d = Steer $p2 $true
         if ($d -and ($d.action -in 'aim', 'done' -or "$($d.reason)" -eq 'jump')) { $L['used'] = $p2 }
         $L['confirmed'] = [bool]($d -and $d.confirmed)
