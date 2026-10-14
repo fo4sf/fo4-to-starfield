@@ -36,6 +36,25 @@ Every verdict needs its observations: a position that was not read or a screensh
 INCONCLUSIVE, never PASS. INCONCLUSIVE tests are retried once more at the end of the queue (`--max-attempts 2`); a FAIL
 is final. A game crash during a test is recorded (class CRASH) and the game is relaunched (at most `--max-relaunch`).
 
+### Stairs routes (`routes.py`, 2026-10-13)
+
+`routes.py` keeps a stairs route only when an offline walk (`src/fo4sf/walksim.py`, a 0.35 x 1.8 m capsule over FO4's
+own collision of the stair and its neighbours) stands free at the start and climbs at least 80 % of the flight; it tries
+lanes across the flight and closer starts, ends the walk 0.6 m past the top (less when a drop is that close), plans no
+flight that rises less than 0.2 m, and skips a stair with no such lane with the reason (`skipped_stairs_without_ramp`,
+per stair in `stairs_checked`). Route entries carry `lane`, `sim_end` (where the offline walk ended), `emerges` and,
+for a lane that fits only the bare capsule, `tight`; the runner and the judge ignore them. Why: the library STUCKs of
+batch_full were routes, not conversions ([docs/testing/stairs-routes.md](../testing/stairs-routes.md)).
+
+Routes planned again for the same pinned build (a newer `routes.py`) live in their own folder; plan from it without
+copying or rebuilding the build, so the plugin hash, save and deploy stay the pinned build's:
+
+```powershell
+& $py scripts\game\testqueue.py plan --staging C:\Modding\staging\integ_1011 --out C:\Modding\testqueue\<batch> `
+  --kinds stairs --routes-prefix routesfull_ --routes-dir C:\Modding\staging\stairs_fix
+```
+`queue.json` then records `routes_dir`, and each test's `routes_file` points into it.
+
 ## Controls (checked before every launch and every test)
 
 - STOP file, Resource Guardian mode (`paused` / `stopped`, or an unreadable database) stop the run.

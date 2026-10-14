@@ -213,3 +213,19 @@ after each 500 ms step) can miss a short loading screen, and the old step then t
 Alternatives: keep NOLOAD on "near the start, no loading screen" (refuted by QA's synthetic cases); detect loads by
 comparing screenshots (fragile at night and in caves); PASS with a NEAR class (the report's tally counts every PASS as
 one, so the caveat would vanish from the summary).
+
+## 2026-10-13 Stairs routes are walked offline before they go to the game (Claude)
+`scripts/game/routes.py` writes a stairs route only for a lane that an offline player walk (`src/fo4sf/walksim.py`)
+climbs over FO4's own collision of the stair and its neighbours: a free start, no lift through a floor, at least 80 %
+of the flight, no drop within 0.5 m past the end; otherwise the stair is skipped with the reason. References are placed
+Z first (R = Rx(-x) Ry(-y) Rz(-z)), as FO4's precombined physics shows. Planned routes for an unchanged build go into
+their own folder (`testqueue.py plan --routes-dir`), never into the pinned staging.
+Why: every stairs FAIL in batch_full and supervised_1011 was a route the player could not walk in Fallout 4 either (a
+start wedged between a wall and a rail, under a floor slab, against fallen floor chunks or rebar, a walk 2 m past a top
+that ends in a collapsed floor, a 0.15 m "flight"), while the converted collision equals FO4's
+([docs/testing/stairs-routes.md](../testing/stairs-routes.md)). A FAIL must point at the port, not at the test. The walk
+gives the game's verdict on 59 of 64 recorded stairs results.
+Alternatives: keep one centre-line route per stair and read every FAIL by hand (each costs a game run and an offline
+analysis); hand-written skip lists for the library and Fort Hagen (do not carry to new cells); start every route from
+the top floor and walk down (does not test climbing, the owner's complaint); a converter change (nothing in the
+converted collision differs from FO4's except the intended helper flattening).

@@ -3,7 +3,9 @@ checkpoint after every test, resume later, and rank the problems found.
 
 usage:
   python testqueue.py plan   --staging <build dir> --out <queue dir> [--cells A,B] [--kinds stairs,door,fall,movable,travel]
-                             [--per-cell 12] [--per-kind N] [--plugin-index 02]
+                             [--per-cell 12] [--per-kind N] [--plugin-index 02] [--routes-prefix routesfull_]
+                             [--routes-dir <dir>]  (route files planned again outside the pinned build, e.g. a
+                             routes.py fix: the build, its plugin hash and deploy stay those of --staging)
   python testqueue.py plan-terrain --staging <build dir> --exp-dir <experiment> --out <queue dir> [--plugins a.esm,b.esm]
   python testqueue.py plan-npc --staging <build dir> --exp-dir <dir with plan.json> --out <queue dir>
                              [--install-exp <experiment> --plugins a.esm,b.esm] [--control-queue <N0 queue dir>]
@@ -179,11 +181,13 @@ def with_extras(t, w, cli):
 
 
 # ----------------------------------------------------------------------------------------------------------- planning
-def plan_cell(cell, staging, kinds, per_cell, plugin_index, formids, items, all_refs, routes_prefix="routes_"):
-    """Tests for one exported cell, in the owner's priority order: stairs, falls, doors (both sides), movable, travel."""
+def plan_cell(cell, staging, kinds, per_cell, plugin_index, formids, items, all_refs, routes_prefix="routes_",
+              routes_dir=None):
+    """Tests for one exported cell, in the owner's priority order: stairs, falls, doors (both sides), movable, travel.
+    Route files come from `routes_dir` when given (routes planned again for the same build), else from the staging."""
     name = cell["cell"]
     out = []
-    routes_file = os.path.join(staging, f"{routes_prefix}{name}.json")   # e.g. routesfull_ = routes.py --max 400
+    routes_file = os.path.join(routes_dir or staging, f"{routes_prefix}{name}.json")   # routesfull_ = routes.py --max 400
     routes = load(routes_file, {}).get("routes", [])
     if "stairs" in kinds:
         for k, r in enumerate(routes):
@@ -248,6 +252,9 @@ def plan(a):
     bad = [k for k in kinds if k not in KINDS]
     if bad:
         sys.exit(f"unknown kinds {bad}; known: {KINDS}")
+    routes_dir = os.path.abspath(a.routes_dir) if getattr(a, "routes_dir", "") else None
+    if routes_dir and not glob.glob(os.path.join(routes_dir, f"{a.routes_prefix}*.json")):
+        sys.exit(f"no {a.routes_prefix}*.json route files in {routes_dir}")
     formids = load(os.path.join(staging, "formids.json"), {})
     items = {it["source"].lower(): it for it in load(os.path.join(staging, "manifest.json"), {"items": []})["items"]}
     skip = {"editorids.json", "formids.json", "lighting.json", "merged.json", "manifest.json"}
@@ -265,7 +272,8 @@ def plan(a):
         cells = [c for c in cells if c["cell"] in want]
     tests = []
     for c in cells:
-        tests += plan_cell(c, staging, kinds, a.per_cell, a.plugin_index, formids, items, all_refs, a.routes_prefix)
+        tests += plan_cell(c, staging, kinds, a.per_cell, a.plugin_index, formids, items, all_refs, a.routes_prefix,
+                           routes_dir)
     if a.per_kind:                                        # small batches: the first N of each kind in each cell
         seen = {}
         keep = []
@@ -280,7 +288,8 @@ def plan(a):
     digest = sha256(esm)
     q = {"created": now(), "staging": staging, "plugin_sha256": digest, "build_id": digest[:8],
          "commit": subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
-         "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]], "tests": tests}
+         "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]], "tests": tests,
+         **({"routes_dir": routes_dir} if routes_dir else {})}
     os.makedirs(a.out, exist_ok=True)
     save_atomic(os.path.join(a.out, "queue.json"), q)
     counts = {}
@@ -1936,6 +1945,8 @@ def main(argv=None):
     p.add_argument("--plugin-index", default="02")
     p.add_argument("--per-kind", type=int, default=0, help="keep the first N tests of each kind per cell (0 = all)")
     p.add_argument("--routes-prefix", default="routes_", help="route files <staging>/<prefix><cell>.json (routes.py output)")
+    p.add_argument("--routes-dir", default="", help="take the route files from this folder instead of the staging "
+                   "(routes planned again for the same pinned build by a newer routes.py)")
     pt = sub.add_parser("plan-terrain")
     pt.add_argument("--staging", required=True)
     pt.add_argument("--exp-dir", required=True)

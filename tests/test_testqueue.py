@@ -426,6 +426,35 @@ class TerrainTests(unittest.TestCase):
         self.assertEqual([t["points"][1]["expect"] for t in q["tests"]], [35.0, 45.0, 55.0])
         self.assertTrue(all(t["cell"] == "" for t in q["tests"]))
 
+    def test_plan_takes_routes_planned_again_from_another_folder(self):
+        # a routes.py fix re-plans the routes of the SAME pinned build: the queue keeps the build's plugin hash and
+        # staging, the stairs tests point at the new route files
+        st, rd = tempfile.mkdtemp(), tempfile.mkdtemp()
+        writef(os.path.join(st, "FO4Port.esm"), b"TES4")
+        jdump({"cell": "CellA", "refs": []}, os.path.join(st, "CellA.json"))
+        old = {"routes": [{"kind": "stairs", "ref": "000001:Fallout4.esm", "model": "Old.nif"}]}
+        new = {"routes": [{"kind": "stairs", "ref": "000002:Fallout4.esm", "model": "New.nif", "lane": 0.75}],
+               "stairs_checked": []}
+        jdump(old, os.path.join(st, "routesfull_CellA.json"))
+        jdump(new, os.path.join(rd, "routesfull_CellA.json"))
+        out = os.path.join(st, "q_new")
+        tq.main(["plan", "--staging", st, "--out", out, "--kinds", "stairs", "--routes-prefix", "routesfull_",
+                 "--routes-dir", rd])
+        q = jload(os.path.join(out, "queue.json"))
+        self.assertEqual([t["ref"] for t in q["tests"]], ["000002:Fallout4.esm"])
+        self.assertEqual(q["tests"][0]["routes_file"], os.path.join(os.path.abspath(rd), "routesfull_CellA.json"))
+        self.assertEqual(q["routes_dir"], os.path.abspath(rd))
+        self.assertEqual(q["staging"], os.path.abspath(st))
+        out_old = os.path.join(st, "q_old")
+        tq.main(["plan", "--staging", st, "--out", out_old, "--kinds", "stairs", "--routes-prefix", "routesfull_"])
+        q_old = jload(os.path.join(out_old, "queue.json"))
+        self.assertEqual([t["ref"] for t in q_old["tests"]], ["000001:Fallout4.esm"])
+        self.assertNotIn("routes_dir", q_old)
+        self.assertEqual(q_old["build_id"], q["build_id"])
+        with self.assertRaises(SystemExit):                  # an empty routes folder is a mistake, not zero tests
+            tq.main(["plan", "--staging", st, "--out", os.path.join(st, "q_bad"), "--routes-prefix", "routesfull_",
+                     "--routes-dir", tempfile.mkdtemp()])
+
     def test_qstep_has_the_terrain_step(self):
         src = readf(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8")
         self.assertIn("'terrain' {", src)

@@ -3,6 +3,37 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-13 Claude: stairs: where the player got stuck, and why
+- Question: why do batch_full 0002 / 0003 / 0006 / 0007 / 0021 (STUCK), 0022 (FALL) on BostonPublicLibrary02's
+  BldDecoSm* stairs and supervised_1011 0010 (Vault114 CinderBlockStairs02) fail, when 12 library stairs tests of the
+  same models pass? Conversion or test? Details, per-test table and in-game plan:
+  [docs/testing/stairs-routes.md](../testing/stairs-routes.md).
+- Method: OCR reads from each test's `obs.json`; the FO4 collision (archives) and the converted collision of the pinned
+  build `integ_1011` (`fo4sf.sfbodies` read-back) placed per reference around each route: lane sections, what touches a
+  0.35 x 1.8 m player at the read positions, FO4-vs-converted bounds per neighbour; the reference rotation order checked
+  against FO4's precombined physics of the cell; an offline player walk (`src/fo4sf/walksim.py`) replayed on all 64
+  decided in-game stairs results; the 16 stair models re-converted with this branch into a new staging folder.
+- Evidence: 0006 / 0007 start in a 0.49 / 0.48 m slot between BldDecoMdWall01 `0EBEEB` / `0EBEE8` and
+  BldDecoSmRailStraightShort01 `0F02AD` / `0F02AC` on the landing (player moved 0.07 m); 0002 / 0003 start at the
+  foot of BldDecoSmStairs03 / Block03 under the gallery slab (z 5.49, 1.69 m over the foot, void below), were lifted
+  through it and stopped on it (z 5.58 / 5.55; the mirrored 0004 passed the same way), and 0002's flight is split by a
+  wall plug with a static double door and a pillar, its free half ending over 0.9 m of void; 0021's flight is crossed by
+  the fallen floor chunk `0F0279`; 0022 walked 6.5 m (old `walk_ms` 1410), 2 m past the top into the collapsed floor;
+  supervised 0010's two cinder blocks rise 0.15 m out of the cave floor (walked 2.7 m over them; rise 0.10 of 0.12);
+  batch_full 0423 (FortHagen02) stops at the rebar chunk `099CC8`. Re-converted stair models: 16 of 16 bodies identical
+  to `integ_1011`, treads / layers / bounds as FO4's, helpers > 40 degrees flattened as designed. Rotation: of the
+  library's tilted references found in its precombine, 312 match only R = Rx(-x) Ry(-y) Rz(-z), 3 only the order
+  `routes.ref_matrix` used (Rz Ry Rx), 85 both; the debris and chunks on the library stairs 93-100 % vs 0-13 %. Offline
+  walk vs game: 59 of 64 verdicts agree (the 5 others explained in the page).
+- Status: the converted collision of these stairs and their neighbours is FO4's: **verified**. The failures are route
+  errors (start wedged / under a slab / against debris, walk too long, a 0.15 m flight), and FO4's own collision has no
+  usable lane on 4 of these flights (`0EBECE`, `0F032C`, `09992E`, `170F9F`): **verified offline**; the new routes'
+  in-game result: **unresolved** (queue planned in the page, not run). `routes.ref_matrix`'s X-first order for tilted
+  references: **refuted** (verified Z-first; `exterior.ref_matrix` and `PluginSpike.RotateOffset` still X-first, not
+  changed). Player capsule radius 0.35 m (0002 pushed out to its edge at the wall face) and one-sided floors that lift
+  a player through them: **supported hypotheses**; such a lift is fragile (1 of 3 passed). Starfield's step-up below
+  0.30 m without a helper (V111, 2026-10-08) leaves VltGearDoorStairs01 (no helper, 0.29-0.31 m treads) **unresolved**.
+
 ## 2026-10-12 Claude: the Red Rocket cave load door on the converted terrain (slice: working door -> interior -> save)
 - Question: which Fallout 4 load door links RedRocket01 with the Commonwealth, where is it relative to the converted
   terrain of experiment 2d, what does our side hold of it, and how is it written so a player can walk through it and

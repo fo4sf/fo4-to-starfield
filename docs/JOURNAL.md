@@ -983,3 +983,23 @@ to the affected rows and demote stale HEIGHTS issues after reference invalidatio
 Four negative regressions failed before their fixes. Validation:31 evidence tests and308
 full-suite tests pass (2 skips); guard passes. Re-reading completed pinned evidence preserves7/7 smoke and29/30
 baseline heights and all four POST_FRAME findings. Offline only; no game scripts, assets or live control changed.
+
+## 2026-10-13 evening: the library stairs STUCKs were the routes, not the conversion (Claude, offline)
+
+- **Question (owner):** the player gets stuck on BostonPublicLibrary02's BldDecoSm* stairs (batch_full 0002, 0003, 0006,
+  0007, 0021 STUCK, 0022 FALL) and on Vault 114's cinder blocks (supervised_1011 0010).
+- **Result:** every failing route asked for a walk Fallout 4's own collision does not allow: a start wedged in a 0.49 m
+  slot between a wall and a rail (0006 / 0007), a start under the gallery slab at the foot of a flight that only
+  emerges above it (0002 / 0003), a fallen floor chunk across the flight (0021), a walk 2 m past a top that ends in the
+  collapsed floor (0022), a 0.15 m remainder of a buried flight (0010); batch_full 0423 (rebar on the flight) and 0136 (a
+  start 1.5 m over the floor) likewise. The 16 stair models re-converted with this branch read back body for body
+  identical to the pinned build and to FO4's treads; neighbours match FO4 to 2 cm.
+- **Fixed in the planner:** `routes.py` walks every lane offline (`src/fo4sf/walksim.py`) and keeps the first one a
+  player can climb, or skips the stair with the reason; tilted references are placed Z first, as FO4's precombines show
+  (the old order put the library's debris up to 1 m off). The walk gives the game's verdict on 59 of 64 recorded
+  stairs results. New routes for the 16 cells: 214 (226 before), all replay as PASS on the converted collision; every
+  stair that passed in game is still planned.
+- **Not run in game.** New routes in `C:\Modding\staging\stairs_fix` (no new plugin or archives); queue and expected
+  results in [docs/testing/stairs-routes.md](testing/stairs-routes.md). Left open: VltGearDoorStairs01 (no stair helper,
+  0.3 m treads; STUCK at 1.41 of 3.22 m on 2026-10-09), probably too steep a step for Starfield's controller without a
+  helper (supported hypothesis, V111 2026-10-08): a synthesized helper would be a converter change of its own.
