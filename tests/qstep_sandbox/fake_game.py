@@ -38,6 +38,12 @@ loads when the player comes within auto_dist (3 m, Starfield.esm fAutoDoorActiva
 step, or the console closing after a setpos); a door without "auto" loads on E within 2.5 m, where prompt_visible.py
 says yes. A load moves the player to dest_pos in dest_cell and hides the HUD for load_secs (hud_visible.py says no).
 "player.setangle z <deg>" sets the heading; "hold:w,<ms>" walks walk_speed m/s along it (walk_blocked: not at all).
+Combat (npc_nav combat_reads): "hostile" [base ids] engage the player (combat state 1, target 00000014) once the game runs
+after their spawn, holding their ground; "StartCombat player" does the same for the selected actor unless
+startcombat_fails. GetCombatState / GetCombatTarget / "GetLineOfSight player" reply "GetCombatState >> 1.00",
+"GetCombatTarget >> (00000014)" ("(00000000)" without a target), "GetLineOfSight >> 1.00" (knob los): HYPOTHESES of the
+in-game format; combat_fmt "int" prints "GetCombatState >> 1" and a bare target id, "refused" answers all three with
+"Script command not found".
 "player.GetInCell <cell>" prints "GetInCell >> 1.00" / "0.00". "save <name>" writes <name>.sfs (player, cell) into
 $FO4SF_SAVES_DIR (save_fails: nothing written); "load <name>" restores it (reload_shift added to the position), closes
 the console and hides the HUD for load_secs; a load of a missing save prints "Save not found" and the console stays
@@ -230,9 +236,33 @@ def run(s, cmd):
             a["start"], a["target"], a["cmd_at"] = actor_pos(s, a), True, game_time(s)
         elif kind is not None:
             s["log"].append("Script command not found")
+    elif low == "startcombat player":
+        # the combat manager takes the actor (combat state 1, target the player 00000014) unless startcombat_fails
+        # (N0b_combat 2026-10-13: StartCombat froze the calm citizen); it holds its ground either way
+        if kind == "actor" and not s.get("startcombat_fails"):
+            a["combat"] = "00000014"
+    elif low in ("getcombatstate", "getcombattarget", "getlineofsight player"):
+        # the combat reads (npc_nav combat_reads). Reply formats are a HYPOTHESIS (unverified in game): a condition
+        # function's decimal like GetIsID's, the target a parenthesised id like GetSelf's; combat_fmt "int" prints the
+        # state as an integer and the target bare; combat_fmt "refused": "Script command not found" for all three
+        if kind is None:
+            s["log"].append("Missing reference")
+        elif s.get("combat_fmt") == "refused":
+            s["log"].append("Script command not found")
+        else:
+            tgt = a.get("combat") if kind == "actor" else None
+            as_int = s.get("combat_fmt") == "int"
+            if low == "getcombatstate":
+                st = 1 if tgt else 0
+                s["log"].append(f"GetCombatState >> {st}" if as_int else f"GetCombatState >> {st:.2f}")
+            elif low == "getcombattarget":
+                rid = (tgt or "00000000")
+                s["log"].append(f"GetCombatTarget >> {rid}" if as_int else f"GetCombatTarget >> ({rid.lower()})")
+            else:
+                s["log"].append(f"GetLineOfSight >> {float(s.get('los', 1)):.2f}")
     elif low == "disable" and kind is not None:
         if kind == "actor":
-            a["pos"], a["target"] = actor_pos(s, a), False
+            a["pos"], a["target"], a["combat"] = actor_pos(s, a), False, None
         a["disabled"] = True                               # a static too: the tests check that never happens
     elif low == "markfordelete" and kind is not None:
         a["deleted"] = True
@@ -303,7 +333,7 @@ def column(lines):
 def quirks(ln):
     """OCR misreadings seen in the runner's console OCR (2026-10-11)."""
     for a, b in (("GetIsID >>", "GetlslD"), ("GetIsID", "GetlsID"), ("GetInFaction", "GetlnFaction"),
-                 ("GetInCell", "GetlnCell"),
+                 ("GetInCell", "GetlnCell"), ("GetCombatState", "Get Combat State"), ("GetLineOfSight", "GetLlneOfSight"),
                  ("INISetting", "lNlSetting"), ("GetINI", "GetlNl"), ("Enabled", "EnabIed"),
                  ("ClearConsole", "Clear Console"), ("GetDisabled", "Get Disabled"), ("GetPos: X", "Get Po s: X"),
                  (">>", "> >")):
@@ -338,6 +368,10 @@ def main():
                 else:                                      # the game runs again: placed actors become ready
                     for a in s["actors"].values():
                         a.pop("pending", None)
+                        # a hostile base (knob "hostile": [base ids]) engages the player on its own once the game runs,
+                        # and holds its ground (the Spacer of 2026-10-13 did not walk up to the player)
+                        if a["base"] in [b.upper() for b in s.get("hostile", [])] and not a.get("disabled"):
+                            a["combat"] = "00000014"
                     auto_doors(s)                          # a setpos left the player in an automatic door's range
             elif k == "hold" and v.startswith("w,") and not s.get("console"):
                 walk(s, int(v[2:]))

@@ -29,7 +29,7 @@ another window in front of the game, also stops it (or makes it wait for an idle
 | movable | manifest `movable` items placed in the cell | item moved at least 5 cm when walked into | did not move although reached; fell | player missed it |
 | travel | load doors whose XTEL partner is in the same build | arrived within 4 m of the arrival point | no prompt; E did nothing | start not reached, arrived elsewhere |
 | terrain | `plan-terrain` (an experiment's plan.json) | heights within 0.5 m | NOTERRAIN, HEIGHTS | a height not read, moved |
-| npc_nav | `plan-npc` (plan.json, below) | the actor walked to B (a baseline: stayed away without a command) | NONAV, STALLED, FELL, WANDER | spawn / handle / reads failed, warp or early arrival, control or precondition not met |
+| npc_nav | `plan-npc` (plan.json, below) | the actor walked to B (a baseline: stayed away without a command); with `combat_reads`: ENGAGED, in combat with the player | NONAV, STALLED, FELL, WANDER; NOCOMBAT | spawn / handle / reads failed, warp or early arrival, control or precondition not met; combat replies unreadable |
 | door_trip | `plan-door` (plan.json, below) | walked through a load door into an interior and back, saved and loaded, every arrival read where expected | NOLOAD, UNMERGED, REMERGED, WRONGCELL, FELL, RELOAD, OFFGROUND | offset, start, a read, the door not reached (NOREACH), loaded only from the last try (NEARONLY), position and GetInCell disagree (CELLREAD), the save file or the reload not seen |
 
 Every verdict needs its observations: a position that was not read or a screenshot that is missing makes the test
@@ -413,6 +413,7 @@ check-queue` compares a planned queue with its plan.json).
 | `radius` R, `min_progress` M, `nomove`, `max_speed` | judge thresholds, metres and m/s | 2.5, 5, 0.5, 8 |
 | `precommand_m` | a commanded test whose actor came this far towards B between the spawn read and t0 is INCONCLUSIVE PRECOMMAND; needs runner feature `npc_t0` | M |
 | `arrive_progress` | an arrival within R is a PASS only after this much approach from t0 (d0 - min d), else INCONCLUSIVE SHORT; with it a baseline FAILs WANDER on the largest approach between any two of its reads (spawn read and t0 included); needs runner feature `npc_t0` (N0b, docs/actors/npc-navigation.md 5.4) | none (as before) |
+| `combat_reads` | `true`: every sample's session also asks the combat manager and the verdict is ENGAGED / NOCOMBAT ("Combat engagement" below); methods `none` / `combat_player` only, never a control; needs runner feature `npc_combat` | false |
 | `drop`, `settle_ms` | the player is dropped this high above A and B (god mode), then waits | 0.5, 1500 |
 | `pre`, `pre_wait_ms` | probes after reaching A, before the spawn: only `gnm` (GenerateNavMesh, ladder run N2) | `[]`, 5000 |
 | `spawn_wait_ms` | game time with the console closed between `placeatme` and reading the handle (below) | 2000 |
@@ -457,6 +458,34 @@ Step timeout (`step_timeout`): a worst case, every read needing both Select-Npc 
 (about 45 s each: console open, ClearConsole and ~60 characters at 0.24-0.32 s, waits, OCR at up to four thresholds),
 Read-Pos up to three tries, plus the 300 s removal reserve (Select-Npc twice, PickLastRef again: three sessions, the
 removal): 1,852 s for N0's plans, 1,893 s for N1's (five reads up to 60 s), against a typical run of about 550 s.
+
+### Combat engagement (`combat_reads`)
+
+An approach is the wrong measure of combat: in QASmoke on 2026-10-13 the hostile vanilla Spacer (`00270255`,
+N0b_spacer_base) did not come 18 m towards the player in 30 s (PASS "stayed away" as a baseline), and `StartCombat
+player` froze the calm citizen (`002B211C`, N0b_combat: FAIL NONAV). With `"combat_reads": true` a test asks the combat
+manager instead. At every sample, once the selection is confirmed (`prid <id>`, `GetIsID` 1, `getpos x/y/z`),
+`qstep.ps1` makes a second capture in the same console open (the selection stays on the prid'ed ref while the console
+is open, as the spawn's captures rely on): `ClearConsole`, `GetIsID <npc>` again, then exactly `GetCombatState`,
+`GetCombatTarget` and `GetLineOfSight player` (`testqueue.NPC_COMBAT_READS`; Starfield.exe condition functions,
+verified in its help strings: "Test the state of this actor in the combat manager", "Gets the current actor's combat
+target (ref ID)"). Nine lines: what the console shows; all of it in one capture scrolled the position replies off
+(sandbox). Each sample gets `combat_isid` (that capture's GetIsID; 0 drops its values), `combat` (a small integer),
+`target` (an 8-hex form id; the player is `00000014`), `los` (0 / 1) and `combat_ocr` (its raw OCR; the capture stays
+as `npc_combat_cap.png` / `_ocr.txt`). The reply formats are **unverified**
+until the first run: `parse_npc.py` reads a condition function's decimal or an integer after the label (`GetCombatState
+>> 1.00`, `>> 1`) and an id in parentheses, bare or `0x` after `GetCombatTarget` (never an id the session typed
+itself), and leaves anything else `null`. An unreadable reply is never a value.
+
+Verdict (`testqueue.judge_npc_combat`): PASS ENGAGED when any confirmed sample read state >= 1 with target `00000014`;
+FAIL NOCOMBAT when every expected sample read state 0; INCONCLUSIVE COMBATREAD when the replies were not readable (the
+format hypothesis failed, or only some samples read), OTHERTARGET when it fought another ref. The walk judge's
+preconditions (spawn confirmed, player at B, command typed) still hold, and its verdict is appended as `walk: ...`
+(a method `none` test's walk read as a baseline's) for information only. A combat test is neither a wander baseline nor
+a control: it gates nothing and no control gate applies. Methods: `none` (a hostile actor engages on its own) or
+`combat_player`. Staged as experiment `npc_combat_c1` (plan.json: the Spacer as the positive control, the calm citizen
+as the negative one, the converted raider `02F04800` as the question), planned with `--install-exp` for the raider
+plugin and `--fresh`.
 
 ### Reading the console (`parse_npc.py`)
 

@@ -74,6 +74,7 @@ SEVERITY = {("fall", "FALL"): 5, ("travel", "NOTRAVEL"): 5, ("travel", "NOPROMPT
             ("movable", "NOTMOVED"): 2, ("movable", "ITEMFELL"): 3, ("any", "CRASH"): 5,
             ("terrain", "NOTERRAIN"): 5, ("terrain", "HEIGHTS"): 4,
             ("npc_nav", "FELL"): 5, ("npc_nav", "NONAV"): 4, ("npc_nav", "STALLED"): 3, ("npc_nav", "WANDER"): 3,
+            ("npc_nav", "NOCOMBAT"): 3,
             ("door_trip", "NOLOAD"): 5, ("door_trip", "WRONGCELL"): 5, ("door_trip", "UNMERGED"): 5,
             ("door_trip", "REMERGED"): 4, ("door_trip", "ELSEWHERE"): 4, ("door_trip", "RELOAD"): 5,
             ("door_trip", "FELL"): 5, ("door_trip", "OFFGROUND"): 3}
@@ -95,6 +96,15 @@ NPC_METHODS = {"none": [],
                "cf_pathto_player": ['cf "Actor.PathToReference" player 1.0'],
                "follow_player": ["SetPlayerTeammate 1", "EvaluatePackage"],
                "combat_player": ["StartCombat player"]}
+# combat_reads (docs/ai/test-queue.md "Combat engagement"): what every sample's confirmed session also types, after the
+# position, to ask the combat manager instead of measuring a walk (in QASmoke on 2026-10-13 the hostile Spacer held its
+# ground for 30 s and StartCombat froze the calm citizen: an approach is the wrong measure of combat). Condition
+# functions of Starfield.exe 1.16.244 (help strings): GetCombatState "Test the state of this actor in the combat
+# manager", GetCombatTarget "Gets the current actor's combat target (ref ID)", GetLineOfSight <ref>. qstep.ps1 has the
+# same table; nothing else is ever typed for it. The reply formats are unverified (parse_npc.py).
+NPC_COMBAT_READS = ("GetCombatState", "GetCombatTarget", "GetLineOfSight player")
+NPC_COMBAT_METHODS = ("none", "combat_player")      # a hostile actor engages on its own; StartCombat player
+PLAYER_REF = "00000014"                             # the player's ref id: GetCombatTarget's reply when engaged
 # GenerateNavMesh's short name "gnm" sits next to its name and help text in Starfield.exe, but its command entry was
 # not decoded (supported hypothesis, unlike PTR / PLR / PRID): staged plans do not use it yet.
 NPC_PRE = ("gnm",)                  # probe commands allowed before the spawn (GenerateNavMesh: route R1, run N2)
@@ -104,7 +114,7 @@ NPC_PLAN_KEYS = frozenset((
     "label", "travel", "npc", "method", "pre", "a", "b", "reads_s", "radius", "min_progress", "nomove", "spawn_tol",
     "target_tol", "fell_m", "drop", "settle_ms", "pre_wait_ms", "max_speed", "spawn_wait_ms", "handle_tol", "path_line",
     "control", "control_npc", "fresh", "anchor", "spawn_local", "requires", "expect", "basis",
-    "precommand_m", "arrive_progress")
+    "precommand_m", "arrive_progress", "combat_reads")
     + sky_light.LIGHT_KEYS + console_plan.CONSOLE_KEYS)            # read by with_extras, after npc_test
 # requires.verdict: the required test's verdict, or DECIDED for either PASS or FAIL (its run was judged at all: for an
 # npc_nav test, the spawn was confirmed and the reads were taken)
@@ -407,6 +417,20 @@ def npc_test(n, w):
          "spawn_wait_ms": int(_num(w, "spawn_wait_ms", 2000, 0, 30000)), "handle_tol": _num(w, "handle_tol", 2.0, 0.5, 10),
          "path_line": bool(w.get("path_line", False)), "control": bool(w.get("control", False)),
          "baseline": method == "none"}
+    if "combat_reads" in w:
+        # the combat manager asked at every sample (NPC_COMBAT_READS) and the verdict ENGAGED / NOCOMBAT from its
+        # replies, the walk as detail: a hostile actor (method none) or StartCombat player. Such a test is neither a
+        # wander baseline nor a control (its PASS means "in combat with the player", not "stayed away"): it gates
+        # nothing and is gated by nothing (control_gate). Needs runner feature npc_combat.
+        if not isinstance(w["combat_reads"], bool):
+            sys.exit(f"{label}: combat_reads must be true or false: {w['combat_reads']!r}")
+        if w["combat_reads"]:
+            if method not in NPC_COMBAT_METHODS:
+                sys.exit(f"{label}: combat_reads goes with methods {NPC_COMBAT_METHODS}, not {method!r}")
+            if t["control"] or w.get("control_npc"):
+                sys.exit(f"{label}: a combat_reads test is judged by its own combat reads: no control, no control_npc")
+            t["combat_reads"] = True
+            t["baseline"] = False
     # the walk measured from t0 (N0b, docs/actors/npc-navigation.md 5.4): only when the plan sets them, so a queue
     # without them is judged exactly as before and needs no runner feature (runner_features "npc_t0")
     if "precommand_m" in w:
@@ -785,7 +809,7 @@ def judge_kind(test, obs, out_dir):
             return "FAIL", "HEIGHTS", f"off by up to {worst:.2f} m: " + detail
         return "PASS", "PASS", detail
     if kind == "npc_nav":
-        v, cls, detail = judge_npc(test, obs, shot_ok)
+        v, cls, detail = (judge_npc_combat if test.get("combat_reads") else judge_npc)(test, obs, shot_ok)
         return v, cls, detail + (f" [expected {test['expect']}]" if test.get("expect") else "")
     if kind == "door_trip":
         v, cls, detail = judge_door(test, obs, shot_ok)
@@ -1107,6 +1131,64 @@ def judge_npc(test, obs, shot_ok):
     return "FAIL", "STALLED", f"moved but did not reach B: {stats}"
 
 
+def combat_read(sample):
+    """(state, target, los) of one sample as qstep.ps1 recorded them, each None unless it is a value: the state a small
+    integer 0..9, the target an 8-hex form id, LOS 0 / 1. An unreadable reply is never a value (the formats are
+    unverified in game: the raw OCR stays in the sample's combat_ocr). Nothing counts when the combat capture's own
+    GetIsID (combat_isid) read 0: another ref answered."""
+    if not isinstance(sample, dict) or sample.get("combat_isid") == 0:
+        return None, None, None
+    st, tg, los = sample.get("combat"), sample.get("target"), sample.get("los")
+    st = int(st) if isinstance(st, (int, float)) and not isinstance(st, bool) and 0 <= st <= 9 and st == int(st) else None
+    tg = tg.upper() if isinstance(tg, str) and re.fullmatch(r"[0-9A-Fa-f]{8}", tg) else None
+    los = int(los) if isinstance(los, (int, float)) and not isinstance(los, bool) and los in (0, 1) else None
+    return st, tg, los
+
+
+def judge_npc_combat(test, obs, shot_ok):
+    """npc_nav with combat_reads: the verdict comes from the combat manager, not from where the actor walked. PASS
+    ENGAGED when any confirmed sample read a combat state >= 1 with the player (00000014) as the target; FAIL NOCOMBAT
+    when every expected sample read state 0; INCONCLUSIVE COMBATREAD when the replies were not readable (the formats
+    are a hypothesis until the first run), OTHERTARGET when it fought something else. The walk judge's preconditions
+    (spawn confirmed, player at B, the command typed) hold here too, and its verdict is kept as detail only (a method
+    none test's walk is read as a baseline's: stayed away / came towards B without a command)."""
+    walk = judge_npc(dict(test, baseline=test.get("method") == "none"), obs, shot_ok)
+    if walk[0] == "INCONCLUSIVE" and walk[1] in ("ANCHOR", "SPAWN", "HANDLE", "TARGET"):
+        return walk
+    if walk[0] == "INCONCLUSIVE" and walk[1] == "UNREAD" and not obs.get("samples"):
+        return walk
+    reads = [s for s in obs.get("samples") or []
+             if isinstance(s, dict) and s.get("isid") == 1 and shot_ok(s.get("shot"))]
+    want = len([x for x in test["reads_s"] if x > 0])
+    walk_note = f"walk: {walk[0]} {walk[1]}, {walk[2]}"
+    if not reads:
+        return "INCONCLUSIVE", "UNREAD", f"no confirmed read after t0 (0 of {want}); {walk_note}"
+    rows = [(s.get("t_game"),) + combat_read(s) for s in reads]
+    seq = ", ".join(f"t {t} s: state {st if st is not None else '?'} target {tg or '?'} LOS {los if los is not None else '?'}"
+                    for t, st, tg, los in rows)
+    engaged = [(t, st, tg, los) for t, st, tg, los in rows if st is not None and st >= 1 and tg == PLAYER_REF]
+    if engaged:
+        t, st, tg, los = engaged[0]
+        return "PASS", "ENGAGED", (f"in combat with the player from t {t} s (state {st}, target {tg}, LOS "
+                                   f"{los if los is not None else '?'}), {len(engaged)} of {len(rows)} reads; {seq}; "
+                                   f"{walk_note}")
+    fighting = [(t, st, tg) for t, st, tg, _ in rows if st is not None and st >= 1]
+    if fighting:
+        t, st, tg = fighting[0]
+        if tg is None:
+            return ("INCONCLUSIVE", "COMBATREAD", f"combat state {st} at t {t} s but its target was not read (OCR "
+                    f"{str(reads[0].get('combat_ocr'))[:80]!r}); {seq}; {walk_note}")
+        return ("INCONCLUSIVE", "OTHERTARGET", f"in combat at t {t} s (state {st}) but with {tg}, not the player "
+                f"{PLAYER_REF}; {seq}; {walk_note}")
+    states = [st for _, st, _, _ in rows if st is not None]
+    if len(states) == want and all(st == 0 for st in states):
+        return "FAIL", "NOCOMBAT", f"never in combat ({want} of {want} reads state 0); {seq}; {walk_note}"
+    missing = [s for s in reads if combat_read(s)[0] is None]
+    ocr = str((missing or reads)[0].get("combat_ocr"))[:80]
+    return ("INCONCLUSIVE", "COMBATREAD", f"combat state read in {len(states)} of {want} samples, none in combat; "
+            f"the reply format is unverified (OCR {ocr!r}); {seq}; {walk_note}")
+
+
 def own_baseline_note(qdir, q, test):
     """Whether a commanded walk that passed can be credited to the command: the same actor's baseline (no command) in
     this queue or the control queue stayed away (yes) or came to B on its own (no). PASS stays PASS either way (the walk
@@ -1139,7 +1221,10 @@ def control_gate(qdir, q, test, verdict, cls, detail):
     keeps the raw verdict and the report applies the gate again (a control that passes later still counts). PASS
     needs no control (the walk was observed); it gets a note on whether the actor's own baseline credits the command
     (own_baseline_note). No control configured: unchanged. A test with "control_npc" is gated by
-    that actor's control and baseline instead of its own (a converted actor judged against the vanilla one)."""
+    that actor's control and baseline instead of its own (a converted actor judged against the vanilla one). A
+    combat_reads test is judged by the combat manager's own replies: no gate, no note."""
+    if test.get("combat_reads"):
+        return verdict, cls, detail
     if test.get("kind") == "npc_nav" and not test.get("baseline") and verdict == "PASS":
         return verdict, cls, detail + own_baseline_note(qdir, q, test)
     if test.get("kind") != "npc_nav" or test.get("control") or test.get("baseline") or verdict != "FAIL":
@@ -1377,6 +1462,7 @@ def queue_extras(tests, a, exp_dir):
 NPC_SESSION_S = 45      # one console session: open, ClearConsole + ~60 characters, waits, OCR at up to 4 thresholds
 NPC_READ_S = 75         # Read-Pos: up to 3 readpos.ps1 runs
 NPC_REMOVE_S = 300      # kept for the removal (qstep.ps1 $reserve): Select-Npc (2), PickLastRef again (3), disable (1)
+NPC_COMBAT_S = NPC_SESSION_S   # combat_reads: one more capture per confirmed read (GetIsID again, the three lines, OCR)
 LIGHT_TRY_S = 50        # one time-of-day / weather command: console open, typing, reply capture + OCR, close, two
                         # screenshots and their measures (the second only when the first did not read as asked)
 LIGHT_WAIT_MS = 4000    # qstep.ps1's wait after such a command before the screenshot (plan field light_wait_ms)
@@ -1428,7 +1514,8 @@ def step_timeout(test):
                  + pre + 4 * NPC_SESSION_S + 10            # probes, the spawn: placeatme, plr, GetSelf, GetIsID + getpos
                  + test.get("spawn_wait_ms", 2000) / 1000
                  + 3 * NPC_SESSION_S + NPC_REMOVE_S)       # t = 0 (Select-Npc) and the command; the removal
-        return int(fixed + n * (2 * NPC_SESSION_S + 10) + max(reads) + light)
+        per_read = 2 * NPC_SESSION_S + 10 + (NPC_COMBAT_S if test.get("combat_reads") else 0)
+        return int(fixed + n * per_read + max(reads) + light)
     if test.get("kind") == "door_trip":
         return door_timeout(test, light)
     return 300
