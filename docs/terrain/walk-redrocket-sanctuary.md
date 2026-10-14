@@ -162,6 +162,10 @@ probes read FO4 height / 70 within 0.01 m in game, **verified** 2026-10-11) and 
 converted object within 12 m of the path (0.5 m grid, 14,255 nodes, 515 objects).
 
 **PASS** only when all of these hold:
+- the leg records themselves hold up, checked before any geometry: legs 0, 1, 2, ... in order with every one but the
+  last an "aim", each `used` the leg's own `read` or `reread` (a confirmed jump with the re-read that confirmed it),
+  every aim leg with its typed lines, hold and HUD check recorded and its screenshot where the step keeps one (every
+  `shot_every` legs and at an event);
 - the last read is within `goal_radius` (3 m) of the goal;
 - every leg was read (`used`), every move between two reads is plausible for walking (at most 9 m/s over the hold
   plus 2 s per leg, + 1 m);
@@ -182,7 +186,9 @@ off the bridge deck onto the river bed), `HEIGHTS` (below every known ground by 
 `HUDGAP`, `NOHUD`, `NOTREACHED` (leg or time budget used up short of the goal), `CROSSING` (a border not seen between
 two reads), `BRIDGE`, `NOSHOT`, `TYPED` (anything else typed during the walk, e.g. a recovery teleport), `START`
 (the reverse test's setup landing not read or more than 3 m off), `ANCHOR` (no merge offset), `GROUND` (walk_ground.json
-missing or changed).
+missing or changed), `LEGS` (legs missing, out of order, or a stop before the last one), `EVIDENCE` (a `used` that is
+neither the leg's read nor its re-read, a confirmed jump without its re-read, an aim leg without its typed lines, hold,
+HUD check or kept screenshot).
 
 Not shown by a PASS: interiors and load doors, stairs, door collision, NPCs, anything beyond the route's 12 m corridor,
 streaming farther than 300 m from the arrival, daylight materials.

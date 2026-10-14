@@ -29,7 +29,8 @@ deck with reads before and after it, nothing but the walk's own console commands
 screenshots exist. FAIL classes: BOUNDARY (the popup), FELL (through the terrain, or off the route's surface, e.g. the
 bridge), HEIGHTS (below the ground by more than z_tol), JUMP (a confirmed move no walk makes), OFFROUTE, STUCK.
 Everything else that keeps it from a PASS is INCONCLUSIVE (UNREAD, READ, OFFGROUND, HUDGAP, NOHUD, NOTREACHED,
-CROSSING, BRIDGE, NOSHOT, TYPED, START, ANCHOR, GROUND).
+CROSSING, BRIDGE, NOSHOT, TYPED, START, ANCHOR, GROUND; LEGS and EVIDENCE when the leg records themselves cannot be
+trusted: evidence_problem, checked before any geometry).
 """
 import argparse
 import hashlib
@@ -333,6 +334,38 @@ def steer(st, test, read, reread=False):
 
 
 # ---------------------------------------------------------------------------------------------------------------- judge
+def evidence_problem(test, legs):
+    """(class, detail) of the first leg record that cannot be trusted, else None. Legs are numbered 0, 1, 2, ... in
+    order and every one but the last is an "aim" (a stop ends the loop); `used` is the leg's own read or re-read (a
+    confirmed jump needs the re-read that confirmed it); an aim leg has its typed lines, its hold and its HUD check
+    recorded, and its screenshot when the step keeps one (every shot_every legs and at an event: popup, HUD gone,
+    detour). Checked before the geometry: a record missing these says nothing about the walk, however good its numbers
+    (Codex on PR #103: stationary reads with advancing `used`, an omitted leg, no command / HUD evidence)."""
+    every = int(test.get("shot_every", 3))
+    for k, x in enumerate(legs):
+        n, act = x.get("n"), x.get("action")
+        if n != k:
+            return "LEGS", f"leg {k} is recorded as {n!r}: legs missing or out of order"
+        if k < len(legs) - 1 and act != "aim":
+            return "LEGS", f"leg {n}: action {act!r} before the last leg (a stop ends the walk)"
+        used, read, reread = x.get("used"), x.get("read"), x.get("reread")
+        if used is not None and used not in (read, reread):
+            return "EVIDENCE", f"leg {n}: the position used ({used}) is neither its read ({read}) nor its re-read ({reread})"
+        if x.get("confirmed") and (reread is None or used != reread):
+            return "EVIDENCE", f"leg {n}: a confirmed jump without the re-read that confirmed it"
+        if not isinstance(x.get("cmds"), list):
+            return "EVIDENCE", f"leg {n}: the typed console lines were not recorded"
+        if act == "aim":
+            if not x.get("hold_ms"):
+                return "EVIDENCE", f"leg {n}: no hold recorded"
+            if not isinstance(x.get("hud"), bool):
+                return "EVIDENCE", f"leg {n}: no HUD check recorded"
+            event = bool(x.get("popup")) or x.get("hud") is False or bool(x.get("detour"))
+            if (n % every == 0 or event) and not x.get("shot"):
+                return "EVIDENCE", f"leg {n}: no screenshot recorded (one is kept every {every} legs and at an event)"
+    return None
+
+
 def judge(test, obs, shot_ok, ground=None):
     """(verdict, class, detail) of one walk test from its raw observations (module doc)."""
     if not obs.get("offset"):
@@ -360,6 +393,9 @@ def judge(test, obs, shot_ok, ground=None):
     legs = [x for x in obs.get("legs") or [] if isinstance(x, dict)]
     if not legs:
         return "INCONCLUSIVE", "UNREAD", f"no leg was read; {'; '.join(notes)}"
+    ev = evidence_problem(test, legs)
+    if ev:
+        return "INCONCLUSIVE", ev[0], f"{ev[1]}; {'; '.join(notes)}"
     bad_cmd = [c for x in legs for c in x.get("cmds") or [] if not WALK_CMD.fullmatch(str(c))]
     reads, problems, fails = [], [], []
     held, gap = 0, 0                                  # walking time and legs since the last read

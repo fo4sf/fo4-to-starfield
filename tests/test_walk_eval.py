@@ -544,7 +544,7 @@ class JudgeTests(unittest.TestCase):
 
     def test_a_confirmed_jump_fails_an_unconfirmed_one_is_a_read(self):
         obs = good_obs(WPS[:2] + [(-900.0, 1190.0)])
-        obs["legs"][-1]["confirmed"] = True
+        obs["legs"][-1]["confirmed"], obs["legs"][-1]["reread"] = True, obs["legs"][-1]["used"]
         self.assertEqual(self.judge(obs)[:2], ("FAIL", "JUMP"))
         obs = good_obs(WPS[:2] + [WPS[5]])                      # 26 m after a 0.1 s hold: no walk does that
         obs["legs"][1]["hold_ms"] = 100
@@ -569,6 +569,47 @@ class JudgeTests(unittest.TestCase):
         obs["legs"][2]["hud"], obs["legs"][2]["hud_gap_s"] = False, 6
         self.assertEqual(self.judge(obs)[:2], ("INCONCLUSIVE", "HUDGAP"))
         self.assertEqual(self.judge({"legs": []})[:2], ("INCONCLUSIVE", "ANCHOR"))
+
+    def test_the_leg_records_are_checked_before_the_geometry(self):
+        # Codex on PR #103: synthetic PASSes with stationary raw reads and advancing `used`, an omitted leg (38.8 of
+        # 44 m), no command / HUD evidence, all but the first leg's screenshot missing
+        obs = good_obs()
+        for x in obs["legs"]:
+            x["read"] = obs["legs"][0]["read"]                               # the player never moved; `used` says it did
+        v = self.judge(obs)
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "EVIDENCE"), v[2])
+        self.assertIn("leg 1: the position used", v[2])
+        obs = good_obs()
+        del obs["legs"][2]                                                   # leg 2 omitted
+        v = self.judge(obs)
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "LEGS"), v[2])
+        self.assertIn("leg 2 is recorded as 3", v[2])
+        obs = good_obs()
+        obs["legs"][1], obs["legs"][2] = obs["legs"][2], obs["legs"][1]      # out of order
+        self.assertEqual(self.judge(obs)[:2], ("INCONCLUSIVE", "LEGS"))
+        obs = good_obs()
+        obs["legs"][1]["action"] = "stop"                                    # a stop before the last leg
+        self.assertEqual(self.judge(obs)[:2], ("INCONCLUSIVE", "LEGS"))
+        for key in ("cmds", "hud", "hold_ms"):
+            obs = good_obs()
+            del obs["legs"][1][key]
+            v = self.judge(obs)
+            self.assertEqual(v[:2], ("INCONCLUSIVE", "EVIDENCE"), (key, v[2]))
+        obs = good_obs()
+        for x in obs["legs"][1:]:
+            x.pop("shot", None)                                              # only the first leg's screenshot
+        v = self.judge(obs)
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "EVIDENCE"), v[2])
+        self.assertIn("leg 2: no screenshot", v[2])
+        obs = good_obs()
+        obs["legs"][1]["detour"] = True                                      # an event leg keeps its screenshot too
+        self.assertEqual(self.judge(obs)[:2], ("INCONCLUSIVE", "EVIDENCE"))
+        obs = good_obs()
+        obs["legs"][2]["confirmed"] = True                                   # confirmed without the re-read
+        self.assertEqual(self.judge(obs)[:2], ("INCONCLUSIVE", "EVIDENCE"))
+        obs = good_obs()
+        obs["legs"][2]["read"], obs["legs"][2]["reread"] = fmt([2205.0, -1510.0, 80.0]), obs["legs"][2]["used"]
+        self.assertEqual(self.judge(obs)[:2], ("PASS", "PASS"))             # `used` is the re-read: fine
 
     def test_borders_and_the_deck_must_be_seen(self):
         pts = [WPS[0], WPS[1], WPS[2], (-1015.0, 1203.0), WPS[5]]
