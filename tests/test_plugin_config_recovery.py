@@ -92,6 +92,104 @@ class PluginConfigRecoveryTests(unittest.TestCase):
         self.assertFalse(self.plugins.exists())
         self.assertEqual((self.recovery() / 'before.txt').read_bytes(), self.edited)
 
+    def test_inaccessible_capture_cannot_be_classified_as_no_capture(self):
+        self.plugins.write_bytes(self.edited)
+        real_lstat, real_lexists = os.lstat, os.path.lexists
+        inspected = 0
+
+        def deny_second_capture_inspection(path, *args, **kwargs):
+            nonlocal inspected
+            if Path(path).name == 'before.txt':
+                inspected += 1
+                if inspected >= 2:
+                    raise PermissionError('capture metadata unavailable')
+            return real_lstat(path, *args, **kwargs)
+
+        def suppressed_capture_access(path):
+            return False if Path(path).name == 'before.txt' else real_lexists(path)
+
+        with patch.object(deploy.os, 'lstat', side_effect=deny_second_capture_inspection), \
+                patch.object(deploy.os.path, 'lexists', side_effect=suppressed_capture_access):
+            with self.assertRaises(OSError) as caught:
+                deploy.atomic_write_bytes(str(self.plugins), self.activated, '.plugins-', self.original)
+        self.assertNotIsInstance(caught.exception, deploy.ConcurrentUpdateError)
+        self.assertFalse(self.plugins.exists())
+        self.assertEqual((self.recovery() / 'before.txt').read_bytes(), self.edited)
+
+    def test_inaccessible_journal_and_snapshots_do_not_release_uninstall_ownership(self):
+        recovery = self.root / '.fo4port-config-access'
+        recovery.mkdir()
+        (recovery / 'before.txt').write_bytes(self.edited)
+        (recovery / 'intended.txt').write_bytes(self.activated)
+        journal = recovery / 'transaction.json'
+        journal.write_text(json.dumps({'target': str(self.plugins), 'complete': False, 'status': 'prepared'}))
+        data = self.root / 'Data'
+        data.mkdir()
+        manifest = data / deploy.MANIFEST
+        deploy.write_manifest(str(manifest), {'files': [], 'plugins_txt': str(self.plugins),
+            'plugins_added': ['*FO4Port.esm'], 'plugins_replaced': [], 'plugins_original': None,
+            'plugins_activated': base64.b64encode(self.activated).decode('ascii'),
+            'plugins_restore_pending': True, 'complete': False})
+        real_open, real_lstat, real_lexists = open, os.lstat, os.path.lexists
+
+        def deny_journal(path, *args, **kwargs):
+            if Path(path) == journal:
+                raise PermissionError('journal access denied')
+            return real_open(path, *args, **kwargs)
+
+        def deny_snapshots(path, *args, **kwargs):
+            if Path(path).parent == recovery and Path(path).name in ('before.txt', 'intended.txt'):
+                raise PermissionError('snapshot access denied')
+            return real_lstat(path, *args, **kwargs)
+
+        def suppressed_snapshot_access(path):
+            if Path(path).parent == recovery and Path(path).name in ('before.txt', 'intended.txt'):
+                return False
+            return real_lexists(path)
+
+        with patch('builtins.open', side_effect=deny_journal), \
+                patch.object(deploy.os, 'lstat', side_effect=deny_snapshots), \
+                patch.object(deploy.os.path, 'lexists', side_effect=suppressed_snapshot_access), \
+                patch.object(deploy, 'plugins_txt_path', return_value=str(self.plugins)):
+            with self.assertRaisesRegex(SystemExit, 'uninstall incomplete'):
+                deploy.uninstall(SimpleNamespace(starfield=str(self.root), dry_run=False))
+        self.assertTrue(json.loads(manifest.read_text())['plugins_restore_pending'])
+        self.assertEqual((recovery / 'before.txt').read_bytes(), self.edited)
+
+    def test_inaccessible_config_parent_is_not_treated_as_absent(self):
+        real_stat = os.stat
+
+        def deny_parent(path, *args, **kwargs):
+            if Path(path) == self.root:
+                raise PermissionError('configuration directory unavailable')
+            return real_stat(path, *args, **kwargs)
+
+        state = {'plugins_txt': str(self.plugins), 'plugins_original': None,
+                 'plugins_activated': base64.b64encode(self.activated).decode('ascii')}
+        with patch.object(deploy.os, 'stat', side_effect=deny_parent):
+            with self.assertRaisesRegex(OSError, 'configuration directory unavailable'):
+                deploy.restore_plugins(state)
+
+    def test_inaccessible_target_is_not_an_already_restored_absent_file(self):
+        self.plugins.write_bytes(self.edited)
+        real_lstat, real_exists = os.lstat, os.path.exists
+
+        def deny_target(path, *args, **kwargs):
+            if Path(path) == self.plugins:
+                raise PermissionError('configuration file inspection denied')
+            return real_lstat(path, *args, **kwargs)
+
+        def suppressed_target_access(path):
+            return False if Path(path) == self.plugins else real_exists(path)
+
+        state = {'plugins_txt': str(self.plugins), 'plugins_original': None,
+                 'plugins_activated': base64.b64encode(self.activated).decode('ascii')}
+        with patch.object(deploy.os, 'lstat', side_effect=deny_target), \
+                patch.object(deploy.os.path, 'exists', side_effect=suppressed_target_access):
+            with self.assertRaisesRegex(OSError, 'configuration file inspection denied'):
+                deploy.restore_plugins(state)
+        self.assertEqual(self.plugins.read_bytes(), self.edited)
+
     def test_missing_file_creation_never_replaces_a_new_owner_file(self):
         replace, remove, link = self.final_boundary_edit()
         with replace, remove, link:

@@ -40,6 +40,9 @@ The integration installer's `ConcurrentUpdateError` contract is retained only fo
 before publication with no capture, or a captured owner file safely restored at the target.
 Publication attempts or unavailable/conflicting restorations raise ordinary OSError instead,
 so consumers retain cleanup ownership rather than treating a partial update as untouched.
+Capture attempts are tracked explicitly. Metadata inspection distinguishes actual absence
+from access failures; inaccessible journals, snapshots or configuration paths block recovery
+and cannot produce a safe conflict exception by being mistaken for absent files.
 
 After a process stops, inspect transaction.json, the current Plugins.txt, before.txt when
 present, and intended.txt. Close the game and editors that hold these files before

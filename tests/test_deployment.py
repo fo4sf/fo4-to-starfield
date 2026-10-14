@@ -505,7 +505,7 @@ class DeploymentRollbackTests(unittest.TestCase):
                 "plugins_original": None, "complete": True})
             user_file = b"*UserAdded.esm\n"
             args = SimpleNamespace(starfield=str(root), dry_run=False)
-            real_exists = deploy.os.path.exists
+            real_exists = deploy.config_path_exists
             plugin_checks = 0
 
             def create_after_snapshot(path):
@@ -518,7 +518,7 @@ class DeploymentRollbackTests(unittest.TestCase):
                 return real_exists(path)
 
             with patch.object(deploy, "plugins_txt_path", return_value=str(plugins)), \
-                    patch.object(deploy.os.path, "exists", side_effect=create_after_snapshot):
+                    patch.object(deploy, "config_path_exists", side_effect=create_after_snapshot):
                 deploy.uninstall(args)
             self.assertEqual(plugins.read_bytes(), user_file)
 

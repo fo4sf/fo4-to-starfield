@@ -108,11 +108,24 @@ def read_config_bytes(p):
         return stream.read()
 
 
+def config_path_exists(p):
+    """Only FileNotFoundError establishes absence; access/inspection failures propagate."""
+    try:
+        os.lstat(p)
+    except FileNotFoundError:
+        return False
+    return True
+
+
 def require_resolved_config_recovery(p):
     """Do not let a retry forget an unresolved capture merely because the target is absent."""
     parent = os.path.dirname(os.path.abspath(p))
-    if not os.path.isdir(parent):
+    try:
+        metadata = os.stat(parent)
+    except FileNotFoundError:
         return
+    if not stat.S_ISDIR(metadata.st_mode):
+        raise OSError("Plugins.txt configuration parent is not a directory")
     with os.scandir(parent) as entries:
         directories = [entry.path for entry in entries
                        if entry.name.startswith(".fo4port-config-") and entry.is_dir(follow_symlinks=False)]
@@ -126,11 +139,11 @@ def require_resolved_config_recovery(p):
             if not isinstance(target, str):
                 raise ValueError("invalid transaction target")
         except FileNotFoundError:
-            if os.path.lexists(before):
+            if config_path_exists(before):
                 raise OSError(f"Plugins.txt recovery journal unreadable; preserving copies at {directory}")
             continue
         except (OSError, ValueError, KeyError, TypeError):
-            if os.path.lexists(before) or os.path.lexists(intended):
+            if config_path_exists(before) or config_path_exists(intended):
                 raise OSError(f"Plugins.txt recovery journal unreadable; preserving copies at {directory}")
             continue
         if os.path.normcase(os.path.abspath(target)) != os.path.normcase(os.path.abspath(p)):
@@ -139,7 +152,7 @@ def require_resolved_config_recovery(p):
             continue
         if (record.get("status") == "interrupted" and
                 (record.get("restoration") == "captured file restored without replacement" or
-                 (record.get("restoration") == "no captured file" and not os.path.lexists(before)))):
+                 (record.get("capture_attempted") is False and not config_path_exists(before)))):
             continue
         raise OSError(f"Plugins.txt recovery remains unresolved; preserving copies at {directory}")
 
@@ -153,7 +166,7 @@ def update_plugins_config(p, content, expected_current):
     """
     require_resolved_config_recovery(p)
     if expected_current is None:
-        if os.path.lexists(p):
+        if config_path_exists(p):
             raise ConcurrentUpdateError("Plugins.txt changed during update; preserving concurrent edits")
     else:
         check_regular_config(p)
@@ -165,13 +178,14 @@ def update_plugins_config(p, content, expected_current):
         "version": 1, "target": os.path.abspath(p), "operation": "remove" if content is None else "write",
         "expected_sha256": hashlib.sha256(expected_current).hexdigest() if expected_current is not None else None,
         "intended_sha256": hashlib.sha256(content).hexdigest() if content is not None else None,
-        "complete": False, "status": "prepared",
+        "complete": False, "status": "prepared", "capture_attempted": False,
     }
 
     def record_status():
         atomic_write_bytes(journal, (json.dumps(record, indent=1) + "\n").encode("utf-8"), ".journal-")
 
     publication_attempted = False
+    capture_attempted = False
     try:
         fd = os.open(intended, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "wb") as stream:
@@ -183,34 +197,45 @@ def update_plugins_config(p, content, expected_current):
         os.link(intended, probe)                 # unsupported filesystems fail before capture
         os.remove(probe)
         if expected_current is not None:
+            record["capture_attempted"] = True
+            record_status()
+            capture_attempted = True
             os.replace(p, before)               # capture the actual final-boundary file, not an earlier read
             if read_config_bytes(before) != expected_current:
                 raise ConcurrentUpdateError("Plugins.txt changed during update; captured owner edits preserved")
         if content is not None:
             publication_attempted = True
             os.link(intended, p)                # atomic creation: a newly appeared owner file cannot be replaced
-        elif os.path.lexists(p):
+        elif config_path_exists(p):
             raise OSError("Plugins.txt appeared during removal; preserving the new file")
         record.update(complete=True, status="removed" if content is None else "published")
         record_status()
     except BaseException as error:
-        restoration = "no captured file"
-        if os.path.lexists(before):
+        restoration = "no capture attempted"
+        if capture_attempted:
             try:
-                os.link(before, p, follow_symlinks=False)
-                restoration = "captured file restored without replacement"
-            except FileExistsError:
-                restoration = "current target retained; captured file also retained"
-            except OSError as restore_error:
-                restoration = f"captured file retained; restoration unavailable: {restore_error}"
-        record.update(complete=False, status="interrupted", error=str(error), restoration=restoration)
+                captured_exists = config_path_exists(before)
+            except OSError as inspection_error:
+                restoration = f"capture inspection unavailable; recovery retained: {inspection_error}"
+            else:
+                restoration = "capture outcome unresolved; captured pathname absent"
+                if captured_exists:
+                    try:
+                        os.link(before, p, follow_symlinks=False)
+                        restoration = "captured file restored without replacement"
+                    except FileExistsError:
+                        restoration = "current target retained; captured file also retained"
+                    except OSError as restore_error:
+                        restoration = f"captured file retained; restoration unavailable: {restore_error}"
+        record.update(complete=False, status="interrupted", error=str(error), restoration=restoration,
+                      capture_attempted=capture_attempted)
         try:
             record_status()
         except OSError:
             pass                                # the prepared journal and any captured bytes remain
         if isinstance(error, OSError):
             safe_refusal = (not publication_attempted and isinstance(error, ConcurrentUpdateError) and
-                            restoration in ("no captured file", "captured file restored without replacement"))
+                            (not capture_attempted or restoration == "captured file restored without replacement"))
             error_type = ConcurrentUpdateError if safe_refusal else OSError
             raise error_type(f"Plugins.txt changed or update failed; preserving recovery copies at {directory}: "
                              f"{error}; {restoration}") from error
@@ -223,7 +248,7 @@ def restore_plugins(state):
     original = state["plugins_original"]
     original_bytes = base64.b64decode(original) if original is not None else None
     current = None
-    if os.path.exists(p):
+    if config_path_exists(p):
         with open(p, "rb") as f:
             current = f.read()
     expected = state.get("plugins_activated")
@@ -498,7 +523,7 @@ def uninstall(a):
             plugins_path = m["plugins_txt"]
             require_resolved_config_recovery(plugins_path)
             plugins_original = None
-            if os.path.exists(plugins_path):
+            if config_path_exists(plugins_path):
                 with open(plugins_path, "rb") as f:
                     plugins_original = f.read()
             pl = (plugins_original.decode("utf-8-sig").splitlines()
