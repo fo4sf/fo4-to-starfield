@@ -4,7 +4,8 @@ usage: python convert_batch.py --fo4-data <Fallout 4 Data dir> --staging <out di
                                --texconv <Texconvx64.exe> --collision-template <vanilla box-collision Starfield .nif>
                                [--pattern "setdressing/(chair|stool)"] [--limit 40] [--manifest manifest.json]
 Writes <staging>/manifest.json: converted items (EditorID + model path for the plugin writer), failures with reasons, stats.
-After conversion, prints the top failure reasons by count (with percentages) and writes failure-summary.json.
+After conversion, prints the top failure reasons by count (with percentages) and writes failure-summary.json
+(with attempted/success counts, success rate, timestamp, and top reasons).
 Needs numpy. Deterministic: names are processed in sorted order.
 """
 import argparse
@@ -197,7 +198,12 @@ def main():
     else:
         print("  Failure summary: 0 failures")
     # Always persist a compact summary (including the zero case) so tooling sees the latest run
+    attempted = len(items) + total
     summary = {
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "attempted": attempted,
+        "successes": len(items),
+        "success_percent": round(100.0 * len(items) / attempted, 1) if attempted else 100.0,
         "total_failures": total,
         "unique_reasons": unique,
         "top": [{"reason": r, "count": c, "percent": round(100.0 * c / total, 1) if total else 0.0}
