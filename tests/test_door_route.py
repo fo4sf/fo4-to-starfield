@@ -116,6 +116,33 @@ class PlanTests(unittest.TestCase):
         self.assertTrue(any(9.5 <= p[0] <= 12.5 for p in res["nodes"]))
         self.assertAlmostEqual(res["waypoints"][-1][2], 1.2)
 
+    def test_over_a_deck_stacked_on_the_ground(self):
+        # Codex's review of PR #107: nodes keyed by (x, y) alone, so the cheaper visit on the ground under a deck
+        # suppressed the deck's node there and no route over the deck was found. A deck 1.2 m up (x -1..1, y -2..8) over
+        # open ground, a ramp up to it from the south (y -5..-2), a 1 m wall across the ground at y 3 that only the deck
+        # passes over, the door at the deck's far end
+        ramp = [(-1, -2 - 0.5 * (k + 1), 1, -2 - 0.5 * k, 1.2 - 0.2 * (k + 1)) for k in range(6)]
+        deck = (-1, -2, 1, 8, 1.2)
+
+        def support(x, y, below):
+            if not (-20 <= x <= 20 and -20 <= y <= 20):
+                return None
+            best = (0.0, "ground")
+            for a, b, c, d, z in [deck] + ramp:
+                if a <= x <= c and b <= y <= d and z <= below and z > best[0]:
+                    best = (z, "deck")
+            return best
+
+        def blocked_r(r):
+            def blocked(x, y, z):
+                return ["wall"] if 2.9 - r < y < 3.1 + r and z < 1.0 else []    # feet below the wall's top
+            return blocked
+        res = dr.plan(support, blocked_r, (0, -8, 0.0), (0, 7.5, 1.2), BOUNDS, goal_m=1.0, radii=(0.35,))
+        self.assertIsNotNone(res["waypoints"], res["tried"])
+        self.assertAlmostEqual(res["waypoints"][-1][2], 1.2)
+        self.assertTrue(all(p[2] > 1.1 for p in res["nodes"] if p[1] > 3))    # over the wall on the deck
+        self.assertTrue(all(ok for _k, ok, _w in dr.replay(support, blocked_r(0.35), res["waypoints"])))
+
     def test_leaving_a_start_whose_capsule_touches_something(self):
         # four thin posts 0.42 m diagonally from the start: the capsule (0.35 m) of every first sample touches one
         support, br = world(boxes=[(x - 0.02, y - 0.02, x + 0.02, y + 0.02) for x in (-0.3, 0.3) for y in (-6.3, -5.7)])

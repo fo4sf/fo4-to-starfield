@@ -96,10 +96,17 @@ def search(support, blocked, start, goal, bounds, grid=GRID, climb=CLIMB, max_dr
     def h(x, y):
         return max(0.0, math.hypot(tx - x, ty - y) - goal.radius)
 
-    best = {(0, 0): 0.0}
-    zs = {(0, 0): sz}
-    prev = {(0, 0): None}
-    openq = [(h(sx, sy), 0.0, (0, 0))]
+    def key(i, j, z):
+        # a node is a grid point on a floor: the same (x, y) on a deck more than one climb above the ground is another
+        # node with other edges (Codex's review of PR #107, 2026-10-14: keyed by (x, y) alone, a cheaper visit on the
+        # lower floor suppressed the upper one, and no route over a stacked floor was found)
+        return i, j, int(round(z / climb))
+
+    s0 = key(0, 0, sz)
+    best = {s0: 0.0}
+    zs = {s0: sz}
+    prev = {s0: None}
+    openq = [(h(sx, sy), 0.0, s0)]
     done = set()
     steps = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1))
     while openq:
@@ -117,14 +124,17 @@ def search(support, blocked, start, goal, bounds, grid=GRID, climb=CLIMB, max_dr
         if len(done) > max_nodes:
             break
         for di, dj in steps:
-            nb = (node[0] + di, node[1] + dj)
-            nx, ny = sx + nb[0] * grid, sy + nb[1] * grid
-            if nb in done or not (bounds[0] <= nx <= bounds[2] and bounds[1] <= ny <= bounds[3]):
+            ni, nj = node[0] + di, node[1] + dj
+            nx, ny = sx + ni * grid, sy + nj * grid
+            if not (bounds[0] <= nx <= bounds[2] and bounds[1] <= ny <= bounds[3]):
                 continue
             ok, pts, _why = walk(c.support, c_blocked, (x, y), (nx, ny), z, climb, max_drop)
             if not ok:
                 continue
             nz = pts[-1][2]
+            nb = key(ni, nj, nz)                                                 # the floor the walk ends on
+            if nb in done:
+                continue
             cost = g + math.hypot(nx - x, ny - y) + 2.0 * max(0.0, nz - z)      # level ways first
             if cost < best.get(nb, math.inf):
                 best[nb], zs[nb], prev[nb] = cost, nz, node
