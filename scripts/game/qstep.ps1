@@ -29,6 +29,11 @@ function Send($seq) {
   $arg = $seq
   if ($PSVersionTable.PSVersion.Major -lt 7 -or "$PSNativeCommandArgumentPassing" -in '', 'Legacy') { $arg = $seq -replace '"', '\"' }
   powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq $arg | Out-Null
+  if ($LASTEXITCODE -eq 5) {                             # holdg: a STOP file (walk, FO4SF_STOP_FILES) appeared mid-hold
+    $hit = @("$env:FO4SF_STOP_FILES".Split(';') | Where-Object { $_ -and (Test-Path -LiteralPath $_) })
+    $obs['stopped'] = "STOP file $($hit -join ', ') (during a hold; the key was released)"; $obs['walk_stopped'] = 'stopped'
+    Save-Obs; exit 2
+  }
   if ($LASTEXITCODE -ne 0) { $obs['stopped'] = 'input guard'; Save-Obs; exit 2 }
 }
 function Console-Open {
@@ -960,6 +965,10 @@ switch ($kind) {
     # walk; nothing is pressed to close it). Every leg records the console lines it typed: during the walk only
     # ClearConsole, player.getpos and player.setangle, never a setpos (the judge checks). A screenshot is kept every
     # shot_every legs and at every event. Everything typed is validated here again.
+    # The owner's stop controls (spec.stop, testqueue.py stop_controls: the runner's STOP files and the Resource
+    # Guardian) are honoured inside the walk: the files before every action (Walk-Stop) and during the hold (input.ps1
+    # holdg, FO4SF_STOP_FILES), the Guardian once per leg (walk_eval.py steer). A stop ends the step like a guard stop:
+    # exit 2, nothing more typed, obs.json with the legs so far and `stopped` (the runner counts no attempt).
     if ("$($t.travel)" -notmatch '^coc [A-Za-z0-9_]+$') { "bad travel"; exit 4 }
     function Num-W($v, [double]$def, [double]$lo, [double]$hi, [string]$what) {
       if ($null -eq $v) { return $def }
@@ -986,6 +995,11 @@ switch ($kind) {
     $maxLegs = [int](Num-W $t.max_legs 60 1 400 'max_legs'); $shotEvery = [int](Num-W $t.shot_every 3 1 50 'shot_every')
     $drop = Num-W $t.drop 1.0 0 50 'drop'; $settle = [int](Num-W $t.settle_ms 6000 0 30000 'settle_ms')
     if ($null -ne $t.setup -and $t.setup -isnot [bool]) { "bad setup"; exit 4 }
+    $stopFiles = @()
+    if ($null -ne $t.stop -and $null -ne $t.stop.files) {
+      foreach ($f in @($t.stop.files)) { if ($f -isnot [string] -or -not $f) { "bad stop.files"; exit 4 }; $stopFiles += $f }
+    }
+    $env:FO4SF_STOP_FILES = ($stopFiles -join ';')        # input.ps1 holdg checks them while W is down
     $lightCmds = Light-Commands
     $preCmds = Console-List $t.console_pre 'console_pre'; $postCmds = Console-List $t.console_post 'console_post'
     $wpy = Join-Path $here 'walk_eval.py'; $parse = Join-Path $here 'parse_npc.py'
@@ -1030,6 +1044,17 @@ switch ($kind) {
       if (-not (Test-Path $f)) { return '' }
       return ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $f -X 320 -Y 150 -W 640 -H 330 -Scale 2) -join ' ')
     }
+    function Walk-Stop {
+      # the first STOP file of the spec that exists (cheap: tested before every action of a leg), else ''
+      foreach ($f in $stopFiles) { if (Test-Path -LiteralPath $f) { return "STOP file $f" } }
+      return ''
+    }
+    function Stop-Walk([string]$why, $L) {
+      # a stop control tripped: the unfinished leg and the reason go into obs.json, nothing more is typed, exit 2
+      $L['action'] = 'stop'; $L['reason'] = 'stopped'; $L['cmds'] = $script:legCmds
+      $obs['legs'] = @($legs) + @($L); $obs['walk_stopped'] = 'stopped'; $obs['stopped'] = $why
+      Save-Obs; exit 2
+    }
 
     # 1. the coc arrival and the overlay's merge offset
     Run-Console $preCmds 'pre'
@@ -1069,6 +1094,7 @@ switch ($kind) {
       if ((Walk-Left) -lt 150) { $stopReason = 'budget'; break }
       $script:legCmds = @()
       $L = [ordered]@{ n = $n; t = [Math]::Round(((Get-Date) - $walkStart).TotalSeconds, 1) }
+      $why = Walk-Stop; if ($why) { Stop-Walk $why $L }
       Console-Open
       $open = $true
       $p = Walk-Read
@@ -1086,6 +1112,7 @@ switch ($kind) {
       } elseif ($p) { $L['used'] = $p }
       if (-not $d) { if ($open) { Send 'key:grave|wait:600' }; $L['action'] = 'stop'; $L['reason'] = 'steer'; $L['cmds'] = $script:legCmds
                      $legs += $L; $obs['legs'] = $legs; $stopReason = 'steer'; break }
+      if ("$($d.reason)" -eq 'stopped') { Stop-Walk "$($d.stopped)" $L }       # a STOP file or the Guardian (steer)
       $L['action'] = "$($d.action)"; $L['reason'] = "$($d.reason)"; $L['wp'] = $d.wp; $L['local'] = $d.local
       $event = $false
       if ($d.action -eq 'aim') {
@@ -1097,8 +1124,10 @@ switch ($kind) {
         $script:legCmds += $cmd
         if (-not $pitched) { $seq += '|type:player.setangle x 5|key:enter|wait:300'; $script:legCmds += 'player.setangle x 5'; $pitched = $true }
         Send "$seq|key:grave|wait:500"; $open = $false
-        Send "holdg:w,$hold|wait:500"
         $L['heading'] = $h; $L['hold_ms'] = $hold; $L['dist'] = $d.dist; $L['detour'] = [bool]$d.detour; $L['speed'] = $d.speed
+        $why = Walk-Stop; if ($why) { Stop-Walk $why $L }
+        $obs['legs'] = @($legs) + @($L)                   # a stop during the hold (Send) keeps this leg's state
+        Send "holdg:w,$hold|wait:500"
         # the screen after the walk: HUD and popup
         $up = Hud-Shown 'walk_last.png'
         $L['hud'] = [bool]$up

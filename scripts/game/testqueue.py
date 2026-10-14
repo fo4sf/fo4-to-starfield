@@ -37,7 +37,8 @@ start not reached) is INCONCLUSIVE, never PASS. INCONCLUSIVE tests are retried u
 
 The owner's PC-use controls are checked before every launch and every test, and the run stops (checkpointed, resumable)
 when one trips:
-  - STOP file: <queue>\\STOP or %LOCALAPPDATA%\\fo4-ai-team\\state\\testqueue.STOP (create it to stop the runner);
+  - STOP file: <queue>\\STOP, the chain folder's <queue>\\..\\STOP_ALL or %LOCALAPPDATA%\\fo4-ai-team\\state\\testqueue.STOP
+    (create it to stop the runner; a walk step checks them between its actions and during a hold too);
   - Resource Guardian switch (tools/ai-team guardian.py pause|stop): mode paused or stopped;
   - owner activity: keyboard/mouse input that the runner did not send, or another window in front of the game. With
     --wait-for-idle the runner waits until the PC has been idle --min-idle seconds instead of stopping; with --refocus it
@@ -1329,7 +1330,7 @@ class Controls:
             pass
 
     def stop_file(self):
-        for p in (os.path.join(self.queue_dir, "STOP"), os.path.join(self.state_dir, "testqueue.STOP")):
+        for p in stop_files(self.queue_dir):
             if os.path.exists(p):
                 return p
         return None
@@ -1423,6 +1424,20 @@ class Controls:
         """Bring the runner's own game window to the front (only used after --min-idle of owner inactivity)."""
         r = subprocess.run(PS + [os.path.join(HERE, "refocus.ps1")], capture_output=True, text=True)
         return r.returncode == 0
+
+
+def stop_files(queue_dir):
+    """The STOP files that stop a run: the queue's own, the chain folder's STOP_ALL (the queues of one chain share a
+    parent folder; watchdog.ps1 honours the same file) and the state folder's testqueue.STOP."""
+    return [os.path.join(queue_dir, "STOP"), os.path.join(os.path.dirname(os.path.abspath(queue_dir)), "STOP_ALL"),
+            os.path.join(Controls.state_dir, "testqueue.STOP")]
+
+
+def stop_controls(queue_dir):
+    """What a walk step checks between its actions (qstep.ps1 'walk', walk_eval.stop_reason), passed in the step spec:
+    the runner is blocked in the step while it runs, so the step itself has to honour the STOP files and the Resource
+    Guardian's database (guardian_mode) and end with the input guard's exit code when one trips."""
+    return {"files": stop_files(queue_dir), "guardian_db": os.path.join(Controls.state_dir, "guardian.db")}
 
 
 def blocked_reason(ctl, q, launching=False, min_idle=900):
@@ -1658,7 +1673,10 @@ class Runner:
         spec = os.path.join(out_dir, "spec.json")
         timeout = step_timeout(test)
         # npc_nav: the step stops sampling in time to remove its actor before this timeout would kill it
-        save_atomic(spec, dict(test, budget_s=timeout - 60) if test.get("kind") in ("npc_nav", "walk") else test)
+        extra = {"budget_s": timeout - 60} if test.get("kind") in ("npc_nav", "walk") else {}
+        if test.get("kind") == "walk":                    # the owner's stop controls, checked between the walk's actions
+            extra["stop"] = stop_controls(self.qdir)
+        save_atomic(spec, dict(test, **extra))
         code, out = self._ps("qstep.ps1", ["-Spec", spec, "-Out", out_dir, "-PluginIndex", self.q["plugin_index"]],
                              timeout)
         with open(os.path.join(out_dir, "step.log"), "w", encoding="utf-8") as f:

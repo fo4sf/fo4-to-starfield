@@ -5,7 +5,8 @@ usage (qstep.ps1, one call per leg; plain Python, no numpy):
   python walk_eval.py steer --spec <spec.json> --state <walk_state.json> --read "x y z" [--reread]
 steer prints one JSON object: {"action": "aim" | "reread" | "done" | "stop", "heading", "hold_ms", "wp", "dist",
 "reason", ...}. qstep.ps1 types only "player.setangle z <heading>" and holds W for hold_ms (both validated again there);
-it never types a setpos during the walk.
+it never types a setpos during the walk. Before steering it checks the owner's stop controls named in the spec
+(stop_reason: the runner's STOP files, the Resource Guardian): {"action": "stop", "reason": "stopped", "stopped": why}.
 
 The player walks with real input from the coc arrival (or, for the reverse test, from a setup teleport made before the
 walk starts) over the planned waypoints (scripts/terrain/walk_route.py, core64c's local frame; the game's frame is that
@@ -36,6 +37,7 @@ import json
 import math
 import os
 import re
+import sqlite3
 import sys
 
 V_MAX = 9.0           # m/s: faster than any run or sprint (the player runs about 4.6 m/s)
@@ -212,6 +214,29 @@ def load_ground(test):
 
 
 # ------------------------------------------------------------------------------------------------------------- steering
+def stop_reason(test):
+    """The owner's stop control that has tripped, or None: test["stop"] (testqueue.py stop_controls, in the step spec)
+    names the STOP files the runner honours and the Resource Guardian's database (mode other than running, or
+    unreadable, stops: as testqueue.py). qstep.ps1 tests the files itself before every action and during a hold;
+    steer checks both once per leg, so a pause between tests also ends a walk in progress."""
+    ctl = test.get("stop") or {}
+    for p in ctl.get("files") or []:
+        if p and os.path.exists(p):
+            return f"STOP file {p}"
+    db = ctl.get("guardian_db")
+    if db and os.path.exists(db):
+        try:
+            c = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=5)
+            r = c.execute("SELECT value FROM control WHERE key='mode'").fetchone()
+            c.close()
+            mode = r[0] if r else "running"
+        except sqlite3.Error:
+            mode = "unreadable"
+        if mode != "running":
+            return f"Resource Guardian mode {mode}"
+    return None
+
+
 def init_state(test, offset):
     return {"offset": [float(v) for v in offset], "wp": 1 if len(test["waypoints"]) > 1 else 0, "legs": 0,
             "prev": None, "hold_prev": 0, "speed": float(test.get("speed", 4.6)), "still": 0, "pending": None,
@@ -467,6 +492,10 @@ def main(argv=None):
         st = init_state(test, off)
         out = {"action": "init", "wp": st["wp"]}
     else:
+        why = stop_reason(test)
+        if why:                                           # the state is left as it was: nothing was decided
+            print(json.dumps({"action": "stop", "reason": "stopped", "stopped": why}))
+            return 0
         with open(a.state, encoding="utf-8") as f:
             st = json.load(f)
         out = steer(st, test, a.read.strip() or None, a.reread)

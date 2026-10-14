@@ -384,8 +384,9 @@ by sha256). One test: `coc`, the settled arrival gives the merge offset (as `spa
 `setup` makes ONE teleport to the route's start before the walk (setup, not evidence); then legs: one console session
 (`ClearConsole`, `player.getpos x/y/z`, OCR with parse_npc.py, then `player.setangle z <heading>` from
 `walk_eval.py steer`), W held with `input.ps1`'s guarded `holdg` (released at once when the game loses the
-foreground), a screenshot checked for the HUD and, by OCR of the screen centre, the "BOUNDARY REACHED" box (which
-leaves the HUD on screen). Nothing else is typed during the walk; the judge checks every leg's typed lines. PASS: the
+foreground or a STOP file appears), a screenshot checked for the HUD and, by OCR of the screen centre, the "BOUNDARY
+REACHED" box (which leaves the HUD on screen). The STOP files and the Resource Guardian are checked inside the walk
+too (spec `stop`), since the runner is blocked in the step; a stop ends it like a guard stop (exit 2, no attempt). Nothing else is typed during the walk; the judge checks every leg's typed lines. PASS: the
 goal reached, every leg read, every move plausible, every read on the terrain or a converted surface (0.6 m), every
 planned cell border crossed between two reads, at least two reads on the bridge deck, no popup, the screenshots.
 FAIL: BOUNDARY, FELL, HEIGHTS, JUMP, OFFROUTE, STUCK; anything missing is INCONCLUSIVE. The runner pins the

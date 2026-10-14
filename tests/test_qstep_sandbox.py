@@ -52,9 +52,11 @@ class SandboxStep:
                             os.path.join(step_dir, "qstep.ps1"), "-Spec", spec, "-Out", out],
                            capture_output=True, text=True, env=env, timeout=600)
         self.assertEqual(r.returncode, code, r.stdout + r.stderr)
-        if code:                                              # a refused spec: what (if anything) reached the console
+        self.out, self.state_path = out, state
+        if code:                                              # a refused or stopped step: what reached the console
             with open(state) as f:
-                self.typed = json.load(f).get("typed", [])
+                self.state = json.load(f)
+            self.typed = self.state.get("typed", [])
             return r.stdout, None, None
         with open(os.path.join(out, "obs.json"), encoding="utf-8-sig") as f:
             obs = json.load(f)
@@ -624,6 +626,57 @@ class QstepWalkSandboxTests(SandboxStep, unittest.TestCase):
             t = dict(tq.walk_test(0, walk_entry(d), d), **bad)
             self.run_step(test=t, world=walk_world(), code=4)
             self.assertEqual(self.typed, [], bad)
+
+    def stopped_obs(self):
+        with open(os.path.join(self.out, "obs.json"), encoding="utf-8-sig") as f:
+            return json.load(f)
+
+    def test_a_stop_file_during_a_hold_ends_the_step_like_a_guard_stop(self):
+        # Codex on PR #103: the runner is blocked in the step, so the step has to honour the STOP files itself. The
+        # owner's STOP file appears while W is held (stop_box on the first leg): the key is released (exit 5 from
+        # holdg), the step exits 2 with the legs so far and `stopped` in obs.json, and nothing more is typed
+        d = tempfile.mkdtemp(prefix="walk_plan_")
+        stop = os.path.join(d, "STOP")
+        t = dict(tq.walk_test(0, walk_entry(d), d), stop={"files": [os.path.join(d, "nope"), stop], "guardian_db": ""})
+        world = walk_world(stop_file=stop, ground={"stop_box": box((-1004.0, 1185.0, -1002.0, 1195.0))})
+        self.run_step(test=t, world=world, code=2)
+        obs = self.stopped_obs()
+        self.assertEqual(obs["stopped"], f"STOP file {stop} (during a hold; the key was released)")
+        self.assertEqual(obs["walk_stopped"], "stopped")
+        self.assertEqual(len(obs["legs"]), 1)                              # the unfinished leg is kept
+        self.assertEqual((obs["legs"][0]["action"], obs["legs"][0]["hold_ms"] > 0), ("aim", True))
+        self.assertTrue(self.typed[-1].startswith("player.setangle"), self.typed[-3:])    # nothing after the hold
+        self.assertEqual(len(self.state["holds"]), 1)
+
+    def test_a_stop_file_before_a_leg_types_nothing_more(self):
+        d = tempfile.mkdtemp(prefix="walk_plan_")
+        stop = os.path.join(d, "STOP_ALL")
+        open(stop, "w").close()                                             # present before the walk starts
+        t = dict(tq.walk_test(0, walk_entry(d), d), stop={"files": [stop], "guardian_db": ""})
+        self.run_step(test=t, world=walk_world(), code=2)
+        obs = self.stopped_obs()
+        self.assertEqual(obs["stopped"], f"STOP file {stop}")
+        self.assertEqual([x["action"] for x in obs["legs"]], ["stop"])
+        self.assertNotIn("ClearConsole", self.typed)                       # the arrival was read, no leg was walked
+        self.assertNotIn("holds", self.state)
+
+    def test_a_paused_guardian_stops_the_walk_at_the_next_leg(self):
+        import sqlite3
+        d = tempfile.mkdtemp(prefix="walk_plan_")
+        db = os.path.join(d, "guardian.db")
+        c = sqlite3.connect(db)
+        c.execute("CREATE TABLE control (key TEXT PRIMARY KEY, value TEXT)")
+        c.execute("INSERT INTO control VALUES ('mode', 'paused')")
+        c.commit()
+        c.close()
+        t = dict(tq.walk_test(0, walk_entry(d), d), stop={"files": [os.path.join(d, "STOP")], "guardian_db": db})
+        self.run_step(test=t, world=walk_world(), code=2)
+        obs = self.stopped_obs()
+        self.assertEqual(obs["stopped"], "Resource Guardian mode paused")
+        self.assertEqual([(x["action"], x["reason"]) for x in obs["legs"]], [("stop", "stopped")])
+        self.assertIn("ClearConsole", self.typed)                          # the leg was read, then stopped: no aim
+        self.assertFalse([c for c in self.typed if c.startswith("player.setangle")])
+        self.assertNotIn("holds", self.state)
 
 
 if __name__ == "__main__":

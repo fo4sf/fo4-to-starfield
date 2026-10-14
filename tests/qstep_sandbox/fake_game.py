@@ -42,10 +42,12 @@ along it (walk_blocked: not at all; heading_bias degrees are added to the headin
 "player.getpos x|y|z" prints "GetPos: X >> <v>" (the player's position; getpos_misread [n, ...]: the n-th x reply, from 1,
 drops its minus sign as the OCR did).
 Ground (walk): ground {"z0", "sx", "sy", "decks": [[x0, y0, x1, y1, z]], "holes": [[x0, y0, x1, y1]],
-"walls": [[x0, y0, x1, y1]], "boundary": [[x0, y0, x1, y1]], "boundary_shift": [dx, dy, dz]} in the game's frame: a
-walking player stands on the plane z0 + sx * x + sy * y, or on a deck's z inside it; a wall stops the walk; a hole drops
-the player 80 m (no ground); entering a boundary box shows the "BOUNDARY REACHED" box (popup: what the centre OCR reads),
-moves the player by boundary_shift and stops the walk. A player.setpos z lands on that ground at once.
+"walls": [[x0, y0, x1, y1]], "boundary": [[x0, y0, x1, y1]], "boundary_shift": [dx, dy, dz], "stop_box": [x0, y0, x1, y1]}
+in the game's frame: a walking player stands on the plane z0 + sx * x + sy * y, or on a deck's z inside it; a wall stops
+the walk; a hole drops the player 80 m (no ground); entering a boundary box shows the "BOUNDARY REACHED" box (popup: what
+the centre OCR reads), moves the player by boundary_shift and stops the walk; entering stop_box creates the file
+"stop_file" (the owner's STOP file appearing mid-hold: the sandbox input.ps1 then exits 5 as the real holdg does). A
+player.setpos z lands on that ground at once.
 "popup" prints the popup's text (the sandbox ocr.ps1 with a region), "" when none.
 "player.GetInCell <cell>" prints "GetInCell >> 1.00" / "0.00". "save <name>" writes <name>.sfs (player, cell) into
 $FO4SF_SAVES_DIR (save_fails: nothing written); "load <name>" restores it (reload_shift added to the position), closes
@@ -150,6 +152,8 @@ def walk(s, ms):
                 s["player"] = [q[k] + shift[k] for k in range(3)]
                 s["popup"] = POPUP
                 return
+            if g.get("stop_box") and s.get("stop_file") and inside(g["stop_box"], q):
+                open(s["stop_file"], "a").close()            # the owner's STOP file appears while W is held
             z = ground_z(s, q)
             if z is None:
                 s["player"] = [q[0], q[1], q[2] - 80.0]      # fell through: no ground there

@@ -1,11 +1,15 @@
 """walk (docs/terrain/walk-redrocket-sanctuary.md): planning a walk queue (testqueue.py plan-walk), the controller
 qstep.ps1 asks every leg (walk_eval.py steer) and the judge on synthetic observations. Synthetic data only."""
+import contextlib
+import io
 import json
 import math
 import os
+import sqlite3
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
@@ -164,6 +168,99 @@ class WalkPlanTests(unittest.TestCase):
         got = tq.installed_identity(d)
         self.assertEqual(got["files"], rec["files"])
         self.assertNotIn("plugins_txt", got)
+
+
+class StopControlTests(unittest.TestCase):
+    """Codex on PR #103: the runner is blocked in a walk step, so the step honours the owner's stop controls itself."""
+    def test_the_stop_controls_reach_the_step_spec(self):
+        d = tempfile.mkdtemp()
+        qdir = os.path.join(d, "chain", "walk_q")
+        os.makedirs(qdir)
+        ctl = tq.stop_controls(qdir)
+        self.assertEqual(ctl["files"][:2], [os.path.join(qdir, "STOP"), os.path.join(d, "chain", "STOP_ALL")])
+        self.assertTrue(ctl["files"][2].endswith("testqueue.STOP"))
+        self.assertTrue(ctl["guardian_db"].endswith("guardian.db"))
+        t, _ = test_of()
+        with open(os.path.join(qdir, "queue.json"), "w") as f:
+            json.dump({"build_id": "x", "commit": "0" * 40, "staging": d, "plugin_sha256": "x", "plugin_index": "02",
+                       "hours": [[0, 24]], "tests": [t]}, f)
+        r = tq.Runner(qdir, SimpleNamespace(starfield=""))
+        r._ps = lambda *a, **k: (0, "")
+        out = os.path.join(qdir, "tests", t["id"], "a1")
+        os.makedirs(out)
+        r._step(t, out)
+        with open(os.path.join(out, "spec.json")) as f:
+            spec = json.load(f)
+        self.assertEqual(spec["stop"], ctl)
+        self.assertGreater(spec["budget_s"], 0)
+        # the chain folder's STOP_ALL (watchdog.ps1's file) stops the runner between tests too
+        old = tq.Controls.state_dir
+        tq.Controls.state_dir = os.path.join(d, "state")
+        try:
+            c = tq.Controls(qdir)
+            self.assertIsNone(c.stop_file())
+            open(os.path.join(d, "chain", "STOP_ALL"), "w").close()
+            self.assertEqual(c.stop_file(), os.path.join(d, "chain", "STOP_ALL"))
+        finally:
+            tq.Controls.state_dir = old
+
+    def test_stop_reason(self):
+        d = tempfile.mkdtemp()
+        stop, db = os.path.join(d, "STOP"), os.path.join(d, "guardian.db")
+        t = {"stop": {"files": [os.path.join(d, "nope"), stop], "guardian_db": db}}
+        self.assertIsNone(we.stop_reason(t))
+        self.assertIsNone(we.stop_reason({}))
+        open(stop, "w").close()
+        self.assertEqual(we.stop_reason(t), f"STOP file {stop}")
+        os.remove(stop)
+        c = sqlite3.connect(db)
+        c.execute("CREATE TABLE control (key TEXT PRIMARY KEY, value TEXT)")
+        c.execute("INSERT INTO control VALUES ('mode', 'running')")
+        c.commit()
+        self.assertIsNone(we.stop_reason(t))
+        c.execute("UPDATE control SET value = 'paused' WHERE key = 'mode'")
+        c.commit()
+        c.close()
+        self.assertEqual(we.stop_reason(t), "Resource Guardian mode paused")
+        with open(db, "wb") as f:
+            f.write(b"not a database")
+        self.assertEqual(we.stop_reason(t), "Resource Guardian mode unreadable")     # fail closed, as the runner
+
+    def test_steer_stops_on_a_stop_control_without_touching_its_state(self):
+        t, d = test_of()
+        stop = os.path.join(d, "STOP")
+        t["stop"] = {"files": [stop], "guardian_db": ""}
+        spec, state = os.path.join(d, "spec.json"), os.path.join(d, "walk_state.json")
+        with open(spec, "w") as f:
+            json.dump(t, f)
+        read = "--read=" + fmt(game(-995.0, 1190.0, slope_z(-995.0)))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            we.main(["init", "--spec", spec, "--state", state, "--offset", " ".join(str(v) for v in OFF)])
+            open(stop, "w").close()
+            we.main(["steer", "--spec", spec, "--state", state, read])
+        init, stopped = [json.loads(x) for x in out.getvalue().splitlines()]
+        self.assertEqual(init["action"], "init")
+        self.assertEqual(stopped, {"action": "stop", "reason": "stopped", "stopped": f"STOP file {stop}"})
+        with open(state) as f:
+            self.assertEqual(json.load(f)["legs"], 0)
+        os.remove(stop)
+        with contextlib.redirect_stdout(out):
+            we.main(["steer", "--spec", spec, "--state", state, read])
+        self.assertEqual(json.loads(out.getvalue().splitlines()[-1])["action"], "aim")
+
+    def test_the_step_and_the_hold_carry_the_checks(self):
+        # the sandbox (opt-in QstepWalkSandboxTests) proves it end to end; here: the real scripts carry the checks
+        game_dir = os.path.join(ROOT, "scripts", "game")
+        with open(os.path.join(game_dir, "input.ps1"), encoding="utf-8") as f:
+            holdg = f.read().split("'holdg' {")[1].split("'move'")[0]
+        self.assertIn("FO4SF_STOP_FILES", holdg)
+        self.assertIn("exit 5", holdg)
+        with open(os.path.join(game_dir, "qstep.ps1"), encoding="utf-8") as f:
+            step = f.read()
+        self.assertIn("$env:FO4SF_STOP_FILES = ", step)
+        self.assertEqual(step.count("Walk-Stop; if ($why) { Stop-Walk $why $L }"), 2)   # before the leg, before the hold
+        self.assertIn("if ($LASTEXITCODE -eq 5)", step)
 
 
 class SteerTests(unittest.TestCase):

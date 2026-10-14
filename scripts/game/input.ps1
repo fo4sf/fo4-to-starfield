@@ -1,6 +1,6 @@
 # usage: input.ps1 -Proc Starfield -Seq "key:enter","wait:1500","type:help foo 4","key:enter"
-# steps: key:<name>, type:<text>, wait:<ms>, hold:<key>,<ms>, holdg:<letter>,<ms> (released when the game loses focus),
-#        move:<dx>,<dy>, click:<x>,<y>; separated by |
+# steps: key:<name>, type:<text>, wait:<ms>, hold:<key>,<ms>, holdg:<letter>,<ms> (released when the game loses focus,
+#        exit 2, or when a STOP file named in FO4SF_STOP_FILES appears, exit 5), move:<dx>,<dy>, click:<x>,<y>; separated by |
 param([string]$Proc = 'Starfield', [string]$Seq)
 Add-Type @'
 using System; using System.Runtime.InteropServices;
@@ -70,17 +70,23 @@ foreach ($s in $steps) {
       # guarded timed hold (qstep.ps1 'walk'): one letter key, at most 10 s. The foreground is checked every 50 ms while
       # the key is down; when the game loses it the key is released at once (a key-up only: no character is typed into
       # the other window) and the step stops with exit 2, so the game never keeps walking behind the owner's window.
+      # The owner's STOP files (FO4SF_STOP_FILES, ';'-separated: qstep.ps1 'walk' sets them from its spec) are checked
+      # in the same loop: one appearing releases the key at once and exits 5 (the step ends like a guard stop).
       $hk, $ms = $v.Split(','); $ms = [int]$ms
       if ($hk.Length -ne 1 -or $hk -notmatch '^[a-z]$' -or $ms -lt 1 -or $ms -gt 10000) { Write-Error "bad holdg '$v'"; exit 4 }
+      $stops = @("$env:FO4SF_STOP_FILES".Split(';') | Where-Object { $_ })
       $vk = [In]::VkKeyScan($hk[0]) -band 0xFF; $sc = [In]::MapVirtualKey($vk,0)
-      $end = (Get-Date).AddMilliseconds($ms); $lost = $false
+      $end = (Get-Date).AddMilliseconds($ms); $lost = $false; $hit = $null
       [In]::Legacy([byte]$vk,[byte]$sc,$false,$false)
       while ((Get-Date) -lt $end) {
         Start-Sleep -Milliseconds ([Math]::Max(1, [Math]::Min(50, [int](($end - (Get-Date)).TotalMilliseconds))))
         if (-not (Test-Foreground $p.Id)) { $lost = $true; break }
+        $hit = $stops | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+        if ($hit) { break }
       }
       [In]::Legacy([byte]$vk,[byte]$sc,$true,$false)
       if ($lost) { Write-Error "ABORT: the game lost the foreground during a hold; key released."; exit 2 }
+      if ($hit) { Write-Error "STOP: $hit appeared during a hold; key released."; exit 5 }
     }
     'move' { $xy = $v.Split(','); [In]::mouse_event(1, [int]$xy[0], [int]$xy[1], 0, [IntPtr]::Zero) }
     'wait' { Start-Sleep -Milliseconds ([int]$v) }

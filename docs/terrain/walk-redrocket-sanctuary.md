@@ -25,6 +25,11 @@ acceptance." Every terrain test so far dropped the player onto points (teleports
      how long to hold W; `player.setangle z <heading>` is typed in the same session and the console closed;
    - W is held for that time with `input.ps1`'s new **guarded hold** `holdg:w,<ms>`: the foreground is checked every
      50 ms and the key is released at once when the game loses it (the step then stops with exit 2, as every guard);
+   - the owner's stop controls are honoured inside the walk (the runner is blocked in the step while it runs): the
+     STOP files `testqueue.py` honours (the queue's `STOP`, the chain folder's `STOP_ALL`, `testqueue.STOP`; passed in
+     the spec as `stop`) are tested before every action and during the hold (`holdg`, `FO4SF_STOP_FILES`), the
+     Resource Guardian once per leg (`walk_eval.py steer`). A stop ends the step like a guard stop: exit 2, nothing
+     more typed, `obs.json` with the legs so far and `stopped`; the runner counts no attempt;
    - one screenshot: the HUD (`hud_visible.py`; when it is gone the step waits up to 20 s for it and records the gap)
      and the screen centre's text (`ocr.ps1` on the region 320, 150, 640 x 330): "BOUNDARY REACHED" ends the walk and
      nothing is pressed to close it. The box leaves the HUD on screen, so a HUD check alone would miss it
