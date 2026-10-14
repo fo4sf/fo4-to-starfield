@@ -3,36 +3,51 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
-## 2026-10-13 Claude: stairs: where the player got stuck, and why
+## 2026-10-13 Claude: stairs: where the player got stuck, and why (corrected after QA on PR #111)
 - Question: why do batch_full 0002 / 0003 / 0006 / 0007 / 0021 (STUCK), 0022 (FALL) on BostonPublicLibrary02's
   BldDecoSm* stairs and supervised_1011 0010 (Vault114 CinderBlockStairs02) fail, when 12 library stairs tests of the
   same models pass? Conversion or test? Details, per-test table and in-game plan:
   [docs/testing/stairs-routes.md](../testing/stairs-routes.md).
 - Method: OCR reads from each test's `obs.json`; the FO4 collision (archives) and the converted collision of the pinned
   build `integ_1011` (`fo4sf.sfbodies` read-back) placed per reference around each route: lane sections, what touches a
-  0.35 x 1.8 m player at the read positions, FO4-vs-converted bounds per neighbour; the reference rotation order checked
-  against FO4's precombined physics of the cell; an offline player walk (`src/fo4sf/walksim.py`) replayed on all 64
-  decided in-game stairs results; the 16 stair models re-converted with this branch into a new staging folder.
+  0.35 x 1.8 m player at the read positions, FO4-vs-converted bounds per neighbour, where each stair helper's top face
+  comes out of the floors it pierces (FO4's, flattened as the planner models it, converted); the reference rotation
+  order checked against FO4's precombined physics of the cell; an offline player walk (`src/fo4sf/walksim.py`)
+  replayed on all 64 decided in-game stairs results with `scripts/game/stairs_calib.py` (a stop agrees only at the same
+  place: within 0.75 m across and 0.5 m in height); the 16 stair models re-converted with this branch.
 - Evidence: 0006 / 0007 start in a 0.49 / 0.48 m slot between BldDecoMdWall01 `0EBEEB` / `0EBEE8` and
-  BldDecoSmRailStraightShort01 `0F02AD` / `0F02AC` on the landing (player moved 0.07 m); 0002 / 0003 start at the
-  foot of BldDecoSmStairs03 / Block03 under the gallery slab (z 5.49, 1.69 m over the foot, void below), were lifted
-  through it and stopped on it (z 5.58 / 5.55; the mirrored 0004 passed the same way), and 0002's flight is split by a
-  wall plug with a static double door and a pillar, its free half ending over 0.9 m of void; 0021's flight is crossed by
-  the fallen floor chunk `0F0279`; 0022 walked 6.5 m (old `walk_ms` 1410), 2 m past the top into the collapsed floor;
-  supervised 0010's two cinder blocks rise 0.15 m out of the cave floor (walked 2.7 m over them; rise 0.10 of 0.12);
-  batch_full 0423 (FortHagen02) stops at the rebar chunk `099CC8`. Re-converted stair models: 16 of 16 bodies identical
-  to `integ_1011`, treads / layers / bounds as FO4's, helpers > 40 degrees flattened as designed. Rotation: of the
-  library's tilted references found in its precombine, 312 match only R = Rx(-x) Ry(-y) Rz(-z), 3 only the order
-  `routes.ref_matrix` used (Rz Ry Rx), 85 both; the debris and chunks on the library stairs 93-100 % vs 0-13 %. Offline
-  walk vs game: 59 of 64 verdicts agree (the 5 others explained in the page).
-- Status: the converted collision of these stairs and their neighbours is FO4's: **verified**. The failures are route
-  errors (start wedged / under a slab / against debris, walk too long, a 0.15 m flight), and FO4's own collision has no
-  usable lane on 4 of these flights (`0EBECE`, `0F032C`, `09992E`, `170F9F`): **verified offline**; the new routes'
-  in-game result: **unresolved** (queue planned in the page, not run). `routes.ref_matrix`'s X-first order for tilted
-  references: **refuted** (verified Z-first, as PR #102 found on 146,463 of 146,728 tilted precombined references;
-  `exterior.ref_matrix` and `PluginSpike.RotateOffset` still X-first, not changed). Player capsule radius 0.35 m (0002 pushed out to its edge at the wall face) and one-sided floors that lift
-  a player through them: **supported hypotheses**; such a lift is fragile (1 of 3 passed). Starfield's step-up below
-  0.30 m without a helper (V111, 2026-10-08) leaves VltGearDoorStairs01 (no helper, 0.29-0.31 m treads) **unresolved**.
+  BldDecoSmRailStraightShort01 `0F02AD` / `0F02AC` on the landing (player moved 0.07 m); 0021's flight is crossed by
+  the fallen floor chunk `0F0279` (the game stopped 0.57 m before it, the offline walk at it); 0022 walked 6.5 m (old
+  `walk_ms` 1410), 2 m past the top into the collapsed floor; supervised 0010's two cinder blocks rise 0.15 m out of
+  the cave floor (walked 2.7 m over them; rise 0.10 of 0.12); batch_full 0423 (FortHagen02) stops at the rebar chunk
+  `099CC8`. 0002 / 0003 started under the gallery slab at the foot of BldDecoSmStairs03 / Block03, came up onto the
+  slab and stopped 0.01 / 0.05 m before the place where the converted (flattened) helper comes up through the slab top
+  (x 24.34; FO4's helper at 23.89; the mirrored 0004 passed its crossing at x 34.20); the offline walk lifts the player
+  onto the slab 1.3 m earlier and climbs on, also from the game's stop points. Other converted crossings walked into
+  from a floor: 7 of 7 passed (Fort Hagen HalfTiny03 / BlockTiny03, moved 0.08-0.18 m, 37.0 degrees; Diamond City
+  ShackStairs01 0248, moved 0.54 m, 39.7 degrees). 0002's teleport point overlaps the closed load door `1828D6` (face
+  y 28.00), not the wall plug `1828D7` (first version: "face y 27.77"). Re-converted stair models: 16 of 16 bodies
+  identical to `integ_1011`, treads / layers / bounds as FO4's, helpers > 40 degrees flattened as designed. Rotation:
+  of the library's tilted references found in its precombine, 312 match only R = Rx(-x) Ry(-y) Rz(-z), 3 only the order
+  `routes.ref_matrix` used (Rz Ry Rx), 85 both; the debris and chunks on the library stairs 93-100 % vs 0-13 %; 0005's
+  in-game start z 3.07 fits the Z-first debris (QA). Offline walk vs game: same verdict 59 of 64, same verdict and
+  place 57 (converted collision; 60 / 58 in the planner's scene); first version: "59 of 64 agree", counting 0002,
+  whose offline walk stopped 1.95 m from the game's stop.
+- Status: 0006 / 0007 / 0021 / 0022 / supervised 0010 / 0423 / 0136 are route errors, FO4's own collision has no usable
+  lane on `0F032C`, `09992E`, `170F9F`, `0EBECE`: **verified offline**. 0002 / 0003: why the player stopped at the
+  converted helper's slab crossing is **unresolved**; the converter's flattening there (H1) and the under-slab approach
+  of the old routes (H2) are both live; probes that tell them apart are planned (page, section 5). The converted
+  collision equals FO4's except the flattened helpers: **verified**; whether a flattened helper's crossing of a floor
+  behaves in Starfield as FO4's: **unresolved**. `routes.ref_matrix`'s X-first order for tilted references:
+  **refuted** (verified Z-first, as PR #102 found on 146,463 of 146,728 tilted precombined references;
+  `exterior.ref_matrix` and `PluginSpike.RotateOffset` still X-first, not changed). Player capsule radius 0.35 m:
+  **assumed** (first version: supported hypothesis from 0002's push-out, withdrawn: the game pushed the player 0.23 m
+  further than a 0.35 m capsule needs from the door's face). One-sided floors that lift a player through them:
+  **supported hypothesis** (0004 passed through the slab; 0002 / 0003 were read on it). The offline walk as a model of
+  the game: **supported hypothesis** (57 of 64 same verdict and place; it cannot predict the 0002 / 0003 stops). That
+  the player pushes movable objects aside (the walk leaves them out): **supported hypothesis** (2026-10-10). Starfield's
+  step-up below 0.30 m without a helper (V111, 2026-10-08) leaves VltGearDoorStairs01 (no helper, 0.29-0.31 m treads)
+  **unresolved**.
 
 ## 2026-10-12 Claude: the Red Rocket cave load door on the converted terrain (slice: working door -> interior -> save)
 - Question: which Fallout 4 load door links RedRocket01 with the Commonwealth, where is it relative to the converted

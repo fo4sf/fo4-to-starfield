@@ -442,7 +442,14 @@ class TerrainTests(unittest.TestCase):
                  "--routes-dir", rd])
         q = jload(os.path.join(out, "queue.json"))
         self.assertEqual([t["ref"] for t in q["tests"]], ["000002:Fallout4.esm"])
-        self.assertEqual(q["tests"][0]["routes_file"], os.path.join(os.path.abspath(rd), "routesfull_CellA.json"))
+        # the queue runs and judges its own copy (QA on PR #111: re-planning the routes folder must not change how an
+        # existing queue is judged), and records the copy's hash
+        own = os.path.join(os.path.abspath(out), "routes", "routesfull_CellA.json")
+        self.assertEqual(q["tests"][0]["routes_file"], own)
+        self.assertEqual(q["routes_sha256"], {"routesfull_CellA.json": tq.sha256(own)})
+        jdump({"routes": [{"kind": "stairs", "ref": "000003:Fallout4.esm", "model": "Newer.nif"}]},
+              os.path.join(rd, "routesfull_CellA.json"))
+        self.assertEqual(jload(own)["routes"][0]["ref"], "000002:Fallout4.esm")
         self.assertEqual(q["routes_dir"], os.path.abspath(rd))
         self.assertEqual(q["staging"], os.path.abspath(st))
         out_old = os.path.join(st, "q_old")
@@ -454,6 +461,36 @@ class TerrainTests(unittest.TestCase):
         with self.assertRaises(SystemExit):                  # an empty routes folder is a mistake, not zero tests
             tq.main(["plan", "--staging", st, "--out", os.path.join(st, "q_bad"), "--routes-prefix", "routesfull_",
                      "--routes-dir", tempfile.mkdtemp()])
+
+    def test_judge_reads_the_queue_copy_of_the_routes(self):
+        # a route changed in the source folder after planning does not change the verdict of the planned queue
+        st, rd = tempfile.mkdtemp(), tempfile.mkdtemp()
+        writef(os.path.join(st, "FO4Port.esm"), b"TES4")
+        jdump({"cell": "CellA", "refs": []}, os.path.join(st, "CellA.json"))
+        route = {"kind": "stairs", "ref": "000002:Fallout4.esm", "model": "New.nif", "start": [0, 0, 0.3],
+                 "heading": 0, "walk_ms": 900, "expect": {"low": [0, 1, 0], "high": [0, 4, 2.0], "min_rise": 1.6}}
+        jdump({"routes": [route]}, os.path.join(rd, "routesfull_CellA.json"))
+        out = os.path.join(st, "q")
+        tq.main(["plan", "--staging", st, "--out", out, "--kinds", "stairs", "--routes-prefix", "routesfull_",
+                 "--routes-dir", rd])
+        t = jload(os.path.join(out, "queue.json"))["tests"][0]
+        harder = dict(route, expect=dict(route["expect"], min_rise=5.0))
+        jdump({"routes": [harder]}, os.path.join(rd, "routesfull_CellA.json"))
+        shot = os.path.join(out, "r.png")
+        writef(shot, b"png")
+        obs = {"result": {"start_read": "0 0 0", "end_read": "0 4.2 2.0", "kind": "stairs"}, "shots": ["r.png"]}
+        self.assertEqual(tq.judge(t, obs, out)[0], "PASS")
+
+    def test_plan_puts_listed_references_first_or_keeps_only_them(self):
+        tests = [{"kind": "stairs", "ref": f"{r}:Fallout4.esm"} for r in ("0EBECC", "0EBED6", "0EBEDE", "0EBED7")]
+        tests.append({"kind": "door", "ref": "0EBED6:Fallout4.esm", "side": -1})
+        got = tq.order_by_refs(tests, first="0ebede,0EBED6")
+        self.assertEqual([(t["ref"][:6], t["kind"]) for t in got],
+                         [("0EBEDE", "stairs"), ("0EBED6", "stairs"), ("0EBED6", "door"), ("0EBECC", "stairs"),
+                          ("0EBED7", "stairs")])
+        only = tq.order_by_refs(tests, refs="0EBED7,0EBECC")
+        self.assertEqual([t["ref"][:6] for t in only], ["0EBED7", "0EBECC"])
+        self.assertEqual(tq.order_by_refs(tests), tests)
 
     def test_qstep_has_the_terrain_step(self):
         src = readf(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8")

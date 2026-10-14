@@ -4,19 +4,24 @@ Used by the stairs route planner (scripts/game/routes.py) to check a route befor
 be (nearly) free, and a walk along the lane must climb the stair without being stopped by a wall, a railing, a static
 door or debris lying on the steps (docs/ai/research-log.md, 2026-10-13, "stairs: where the player got stuck").
 
-Model (assumptions, labelled; calibrated against the 62 decided in-game stairs results of batch_full and
-supervised_1011, not measured in the engine):
+Model (assumptions, labelled; checked against the 64 decided in-game stairs results of batch_full and
+supervised_1011 with scripts/game/stairs_calib.py: 59 verdicts agree, 57 also where the player stopped; not measured
+in the engine):
 - The player is a vertical cylinder of PLAYER_RADIUS from its feet + STEP_UP to its feet + PLAYER_HEIGHT; it stands on
   the highest upward-facing surface under its foot disc that is at most STEP_UP above its feet (lower ones: it drops).
-  Radius 0.35 m: supported hypothesis. batch_full 0002's teleport point overlapped a wall plug whose face is at
-  y 27.77; the player was read at y 27.42, pushed out until its edge touched that face.
+  Radius 0.35 m: assumed (docs/slice/redrocket-door.md assumed the same). batch_full 0002's push-out does not pin it
+  (corrected after QA on PR #111): the face its teleport point overlapped is the closed load door 1828D6's at y 28.00,
+  0.11 m north of it, not a wall plug's at y 27.77, and the game read the player 0.47 m south, 0.23 m further than a
+  0.35 m capsule needs.
 - Collision triangles are ONE-SIDED, front face by winding ((b - a) x (c - a)): a triangle only touches the capsule
   when the capsule's centre is on its front side. FO4 floor tiles face up and ceiling tiles face down (verified by
   winding, BldDecoSmFlrOnly01 / BldDecoSmCeilOnly01), and in game a player climbed BldDecoSmStairsBlock03 0EBED7 up
   through the BldDecoSmFlrOnly01 0EBEDC slab 1.7 m above the stair's foot (batch_full 0004, PASS).
-- A one-sided floor that cuts the capsule below its centre lifts the player onto it: a "lift". In game the same lift
-  through the library's gallery slab passed once (0004) and left the player standing on the slab twice (0002, 0003),
-  so the planner treats a lift higher than STEP_UP as a fragile lane.
+- A one-sided floor that cuts the capsule below its centre lifts the player onto it: a "lift". batch_full 0002 / 0003
+  made the same approach under the library's gallery slab and were read standing on the slab, then stopped 1.3 m
+  further, 0.01-0.05 m before the converted stair helper comes up through the slab; this walk climbs on from there
+  (docs/testing/stairs-routes.md, section 1a: unresolved). The planner refuses a lift higher than STEP_UP: a start
+  under a floor is not where FO4's level design walks.
 - A start that overlaps something is pushed out by the engine: Cambridge 0135 / 0143 / 0139 and Fort Hagen 0287 /
   0422 / 0424 were read 0.1-0.8 m from their teleport point, over a rail, a chair, a cabinet or a door leaf, and then
   climbed. walk() takes the nearest free spot within START_NUDGE and reports the distance ("nudge"). A start with no
@@ -29,7 +34,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-PLAYER_RADIUS = 0.35      # supported hypothesis (see above; docs/slice/redrocket-door.md assumed the same)
+PLAYER_RADIUS = 0.35      # assumed (see above; docs/slice/redrocket-door.md assumed the same)
 PLAYER_HEIGHT = 1.8       # assumed
 STEP_UP = 0.35            # highest step walked up without a ramp, and the band under the capsule that never blocks
 #                           (assumed; FO4 treads are 0.23-0.33 m and every FO4 stair here has a helper ramp)

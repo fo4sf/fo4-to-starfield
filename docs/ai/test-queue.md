@@ -36,24 +36,34 @@ Every verdict needs its observations: a position that was not read or a screensh
 INCONCLUSIVE, never PASS. INCONCLUSIVE tests are retried once more at the end of the queue (`--max-attempts 2`); a FAIL
 is final. A game crash during a test is recorded (class CRASH) and the game is relaunched (at most `--max-relaunch`).
 
-### Stairs routes (`routes.py`, 2026-10-13)
+### Stairs routes (`routes.py`, 2026-10-13; amended after QA on PR #111)
 
 `routes.py` keeps a stairs route only when an offline walk (`src/fo4sf/walksim.py`, a 0.35 x 1.8 m capsule over FO4's
 own collision of the stair and its neighbours) stands free at the start and climbs at least 80 % of the flight; it tries
-lanes across the flight and closer starts, ends the walk 0.6 m past the top (less when a drop is that close), plans no
-flight that rises less than 0.2 m, and skips a stair with no such lane with the reason (`skipped_stairs_without_ramp`,
-per stair in `stairs_checked`). Route entries carry `lane`, `sim_end` (where the offline walk ended), `emerges` and,
-for a lane that fits only the bare capsule, `tight`; the runner and the judge ignore them. Why: the library STUCKs of
-batch_full were routes, not conversions ([docs/testing/stairs-routes.md](../testing/stairs-routes.md)).
+lanes across the flight and closer starts, takes a lane that would touch a movable object last, ends the walk 0.6 m
+past the top (less when a drop is that close), plans no flight that rises less than 0.2 m, and skips a stair with no
+such lane with the reason (`skipped_stairs_without_ramp`, per stair in `stairs_checked`). Route entries carry `lane`,
+`sim_end` (where the offline walk ended), `emerges`, `tight` (a lane that fits only the bare capsule),
+`helper_crossing` (the walk meets a converted stair helper coming up through the floor, moved from FO4's: batch_full
+0002 / 0003 stopped at such a place, cause unresolved) and `movable_near`; the runner and the judge ignore them.
+`--probes-out` writes probes for each route with a helper crossing (`probe`: `through_crossing`, `runup`,
+`past_crossing`). Why and what the probes decide: [docs/testing/stairs-routes.md](../testing/stairs-routes.md).
 
-Routes planned again for the same pinned build (a newer `routes.py`) live in their own folder; plan from it without
-copying or rebuilding the build, so the plugin hash, save and deploy stay the pinned build's:
+Routes planned again for the same pinned build (a newer `routes.py`) live in their own new folder; plan from it
+without copying or rebuilding the build, so the plugin hash, save and deploy stay the pinned build's:
 
 ```powershell
 & $py scripts\game\testqueue.py plan --staging C:\Modding\staging\integ_1011 --out C:\Modding\testqueue\<batch> `
-  --kinds stairs --routes-prefix routesfull_ --routes-dir C:\Modding\staging\stairs_fix
+  --kinds stairs --routes-prefix routesfull_ --routes-dir C:\Modding\staging\stairs_fix_1014 [--first 0EBEDE,0EBEE3] [--refs ...]
 ```
-`queue.json` then records `routes_dir`, and each test's `routes_file` points into it.
+The queue copies the route files it uses into `<queue>\routes`, points each test's `routes_file` there and records
+`routes_dir` and `routes_sha256` in `queue.json`: re-planning the routes folder cannot change how a planned queue runs
+or is judged. `--refs A,B` keeps only those references' tests (in that order); `--first A,B` runs them first.
+
+`scripts/game/stairs_calib.py results --queue <queue> [--queue ...] --staging <build> --fo4-data <FO4 Data>` replays a
+queue's decided stairs results with the offline walk and counts a stop as agreeing only at the same place;
+`stairs_calib.py routes --routes-dir <dir> ...` replays route files (a consistency check: the planner keeps only lanes
+the walk climbs).
 
 ## Controls (checked before every launch and every test)
 

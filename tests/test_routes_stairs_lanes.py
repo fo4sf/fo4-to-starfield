@@ -1,10 +1,12 @@
 """Stairs route planning with the offline walk (scripts/game/routes.py + fo4sf.walksim) on synthetic collision: the
 reference rotation order, buried feet under floor slabs, lanes around walls, starts closer to the foot, walks that
-end at a drop, trivial rises, doors and movable objects. No game data."""
+end at a drop, trivial rises, doors and movable objects, converted helper crossings and their probes. No game data."""
 import importlib.util
+import json
 import math
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -168,6 +170,142 @@ class LaneTests(unittest.TestCase):
         self.assertAlmostEqual(found["start"][2], 1.69 + 0.3, places=2)
         self.assertAlmostEqual(found["expect"]["low"][2], 1.69, delta=0.1)
         self.assertGreater(found["buried_fraction"], 0.4)
+
+
+def library_helper():
+    """[(FO4 triangle, converted triangle)] of a 45-degree, 0.1 m thick helper slab rising 3.66 m along +y from y 0 (the
+    library's BldDecoSmStairs03 / StairsBlock03), the converted one flattened as the converter does."""
+    pts = [(-1.83, 0, 0), (1.83, 0, 0), (1.83, 3.66, 3.66), (-1.83, 3.66, 3.66),
+           (-1.83, 0.1, -0.1), (1.83, 0.1, -0.1), (1.83, 3.76, 3.56), (-1.83, 3.76, 3.56)]
+    tris = [(0, 1, 2), (0, 2, 3), (4, 6, 5), (4, 7, 6)]
+    with patch.object(routes, "collision_bodies", return_value=[(routes.STAIRHELPER, pts, tris)]):
+        return routes.helper_pairs(None)
+
+
+class HelperCrossingTests(unittest.TestCase):
+    """QA on PR #111: batch_full 0002 / 0003 stopped where the flattened helper comes up through the gallery slab, 0.43 m
+    from where FO4's does; the planner now marks routes that cross such a place and plans a probe past it."""
+    SLAB = 1.69
+
+    def test_a_route_over_a_slab_meets_the_flattened_crossing_first(self):
+        pairs = library_helper()
+        c = routes.helper_crossing(pairs, (0.0, 0.89, self.SLAB + 0.3), 0.0, 4.0, self.SLAB)
+        self.assertIsNotNone(c)
+        self.assertAlmostEqual(c["fo4_at"][1], 1.69, delta=0.03)        # FO4's 45-degree face: y = z
+        flat_y = 3.66 - (3.66 - self.SLAB) / math.tan(math.radians(c["slope"]))
+        self.assertAlmostEqual(c["at"][1], flat_y, delta=0.03)
+        self.assertGreater(c["moved"], 0.3)                               # the walk meets the converted one first
+        self.assertAlmostEqual(c["at"][2], self.SLAB)
+        self.assertGreater(c["depth"], 1.6)
+        self.assertLess(c["slope"], meshcollision.STAIR_HELPER_MAX_SLOPE + 1.0)
+
+    def test_a_gentle_helper_and_a_toe_on_the_floor_are_not_marked(self):
+        gentle = [(t, t) for t in ramp(-1.83, 1.83, 0, 4.0, 0.0, 2.0)]   # 27 degrees: the converter leaves it
+        self.assertIsNone(routes.helper_crossing(gentle, (0.0, -0.5, 1.3), 0.0, 4.0, 1.0))
+        on_floor = [(t, t) for t in ramp(-1.83, 1.83, 0, 4.0, 0.0, 2.0)]
+        self.assertIsNone(routes.helper_crossing(on_floor, (0.0, -0.8, 0.3), 0.0, 4.0, 0.0))
+        self.assertIsNone(routes.helper_crossing([], (0.0, 0.0, 0.3), 0.0, 4.0, 0.0))
+
+    def test_plan_marks_the_crossing_and_plans_a_probe_past_it(self):
+        pairs = library_helper()
+        parts = [("slab", floor(-3, 3, -4, 2.2, self.SLAB)), ("stair", [b for _, b in pairs]),
+                 ("upper", floor(-3, 3, 3.66, 8, 3.66))]
+        with patch.object(routes, "neighbour_ground", return_value=ground_of(parts[0], parts[2])), \
+                patch.object(routes, "walk_scene", return_value=scene(*parts)):
+            found, why = routes.plan_stairs({"refs": []}, None, sorted({v for a, _ in pairs for v in a}), None, {}, {},
+                                            pairs)
+        self.assertIsNotNone(found, why)
+        self.assertIn("helper_crossing", found)
+        c = found["helper_crossing"]
+        runup, probe = found["_probes"]
+        self.assertEqual(probe.get("probe"), "past_crossing", probe)
+        self.assertEqual(runup.get("probe"), "runup", runup)
+        self.assertAlmostEqual(c["at"][1] - runup["start"][1], routes.PROBE_RUNUP, delta=0.02)
+        self.assertAlmostEqual(runup["start"][2], self.SLAB + 0.3, delta=0.02)
+        self.assertEqual(runup["expect"], found["expect"])
+        self.assertGreater(runup["walk_ms"], found["walk_ms"])
+        self.assertAlmostEqual(probe["start"][1] - c["at"][1], routes.PROBE_PAST, delta=0.02)
+        top = routes.surface_z([b for _, b in pairs if routes._faces_up(b)], 0.0, probe["start"][1], 1e9)
+        self.assertAlmostEqual(probe["start"][2], top + 0.3, delta=0.02)
+        self.assertEqual(probe["expect"]["high"], found["expect"]["high"])
+        self.assertEqual(found["heading"], 0.0)
+
+
+class MovableTests(unittest.TestCase):
+    """QA on PR #111: the walk leaves movable objects out, so lanes that meet one are listed and taken last."""
+    LO, HI = (0.0, 0.0, 0.0), (0.0, 4.0, 2.0)
+    PLACED = [(-1.83, 0.0, 0.0), (1.83, 0.0, 0.0), (-1.83, 4.0, 2.0), (1.83, 4.0, 2.0)]
+
+    def plan(self, boxes):
+        parts = [("lower", floor(-3, 3, -4, 0, 0.0)), ("stair", ramp(-1.83, 1.83, 0, 4, 0.0, 2.0)),
+                 ("upper", floor(-3, 3, 4, 8, 2.0))]
+        refs = [{"formkey": f"00000{k}:Fallout4.esm", "model": "Clutter\\Box.nif", "pos": [x * 70, y * 70, 0],
+                 "rot": [0, 0, 0], "scale": 1} for k, (x, y) in enumerate(boxes)]
+        corners = [(-0.15, -0.15, 0.0), (0.15, 0.15, 0.3)]
+        with patch.object(routes, "neighbour_ground", return_value=ground_of(*parts)), \
+                patch.object(routes, "walk_scene", return_value=scene(*parts)), \
+                patch.object(routes, "_all_collision_points", return_value=corners):
+            return routes.plan_stairs({"refs": refs}, None, self.PLACED, None,
+                                      {"meshes\\clutter\\box.nif": {"movable": {"mass_kg": 10}}}, {})
+
+    def test_a_box_on_the_centre_line_moves_the_lane_and_is_listed_when_near(self):
+        found, why = self.plan([(0.0, -0.3)])
+        self.assertIsNotNone(found, why)
+        self.assertNotEqual(found["lane"], 0.0)
+        for d in found.get("movable_near", {}).values():
+            self.assertGreaterEqual(d, routes.MOVABLE_TOUCH)
+
+    def test_boxes_on_every_lane_keep_the_first_lane_and_list_them(self):
+        found, why = self.plan([(x / 4.0, -0.3) for x in range(-8, 9)])
+        self.assertIsNotNone(found, why)
+        self.assertEqual(found["lane"], 0.0)
+        self.assertLess(min(found["movable_near"].values()), routes.MOVABLE_TOUCH)
+
+    def test_no_movable_nothing_listed(self):
+        found, why = self.plan([])
+        self.assertEqual(found["lane"], 0.0)
+        self.assertNotIn("movable_near", found)
+
+
+class RouteFileTests(unittest.TestCase):
+    def test_route_entries_carry_emerges_crossing_and_probes(self):
+        # QA on PR #111: the page said route files gain "emerges"; main() never wrote it
+        pairs = library_helper()
+        found = {"start": [0.0, 0.89, 1.99], "heading": 0.0, "walk_ms": 900, "lane": 0.0, "buried_fraction": 0.46,
+                 "emerges": 0.46, "expect": {"low": [0, 1.69, 1.69], "high": [0, 3.66, 3.66], "min_rise": 1.58},
+                 "sim_end": [0.0, 4.26, 3.66], "helper_crossing": {"at": [0, 1.31, 1.69]},
+                 "_probes": [{"probe": "runup", "skipped": "no floor for the run-up"},
+                             {"probe": "past_crossing", "start": [0, 1.91, 2.3], "heading": 0.0, "walk_ms": 630,
+                              "expect": {}, "sim_end": [0, 4.6, 3.66]}]}
+        cell = {"cell": "CellA", "refs": [{"formkey": "000001:Fallout4.esm", "model": "Stairs03.nif", "pos": [0, 0, 0],
+                                            "rot": [0, 0, 0], "scale": 1}]}
+        d = tempfile.mkdtemp()
+        paths = {k: os.path.join(d, k) for k in ("cell.json", "manifest.json", "out.json", "probes.json")}
+        with open(paths["cell.json"], "w") as f:
+            json.dump(cell, f)
+        with open(paths["manifest.json"], "w") as f:
+            json.dump({"items": [{"source": "meshes\\stairs03.nif"}]}, f)
+        with patch.object(routes.pipeline, "Fo4Archives"), patch.object(routes.nif, "parse"), \
+                patch.object(routes, "ramp_points", return_value=([(0, 0, 0), (0, 3.66, 3.66)], "stairhelper")), \
+                patch.object(routes, "model_collision", return_value={"helper": [], "walk": [], "solid": []}), \
+                patch.object(routes, "plan_stairs", return_value=(dict(found), None)):
+            routes.main(["--fo4-data", d, "--cell-json", paths["cell.json"], "--manifest", paths["manifest.json"],
+                         "--out", paths["out.json"], "--probes-out", paths["probes.json"]])
+        with open(paths["out.json"]) as f:
+            route = json.load(f)["routes"][0]
+        self.assertEqual(route["emerges"], 0.46)
+        self.assertEqual(route["helper_crossing"], found["helper_crossing"])
+        self.assertNotIn("_probes", route)
+        with open(paths["probes.json"]) as f:
+            pf = json.load(f)
+        probes = pf["routes"]
+        self.assertEqual([p["probe"] for p in probes], ["through_crossing", "past_crossing"])
+        self.assertEqual(pf["probes_skipped"], [{"ref": "000001:Fallout4.esm", "model": "Stairs03.nif", "probe": "runup",
+                                                 "skipped": "no floor for the run-up"}])
+        self.assertEqual(probes[0]["start"], route["start"])
+        self.assertEqual(probes[1]["start"], [0, 1.91, 2.3])
+        self.assertEqual(probes[1]["ref"], route["ref"])
+        self.assertTrue(pairs)
 
 
 class SceneTests(unittest.TestCase):

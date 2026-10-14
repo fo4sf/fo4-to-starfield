@@ -214,18 +214,25 @@ Alternatives: keep NOLOAD on "near the start, no loading screen" (refuted by QA'
 comparing screenshots (fragile at night and in caves); PASS with a NEAR class (the report's tally counts every PASS as
 one, so the caveat would vanish from the summary).
 
-## 2026-10-13 Stairs routes are walked offline before they go to the game (Claude)
+## 2026-10-13 Stairs routes are walked offline before they go to the game (Claude; amended after QA on PR #111)
 `scripts/game/routes.py` writes a stairs route only for a lane that an offline player walk (`src/fo4sf/walksim.py`)
 climbs over FO4's own collision of the stair and its neighbours: a free start, no lift through a floor, at least 80 %
 of the flight, no drop within 0.5 m past the end; otherwise the stair is skipped with the reason. References are placed
-Z first (R = Rx(-x) Ry(-y) Rz(-z)), as FO4's precombined physics shows. Planned routes for an unchanged build go into
-their own folder (`testqueue.py plan --routes-dir`), never into the pinned staging.
-Why: every stairs FAIL in batch_full and supervised_1011 was a route the player could not walk in Fallout 4 either (a
-start wedged between a wall and a rail, under a floor slab, against fallen floor chunks or rebar, a walk 2 m past a top
-that ends in a collapsed floor, a 0.15 m "flight"), while the converted collision equals FO4's
-([docs/testing/stairs-routes.md](../testing/stairs-routes.md)). A FAIL must point at the port, not at the test. The walk
-gives the game's verdict on 59 of 64 recorded stairs results.
+Z first (R = Rx(-x) Ry(-y) Rz(-z)), as FO4's precombined physics shows. What the walk cannot vouch for is written on
+the route instead of hidden: `helper_crossing` (the walk meets a converted stair helper coming up through a floor at a
+place the converter's flattening moved) and `movable_near` (movable objects the walk leaves out); a lane that would
+touch a movable object is the last choice; `--probes-out` plans probes around each helper crossing. Planned routes for
+an unchanged build go into their own folder (`testqueue.py plan --routes-dir`), never into the pinned staging, and a
+queue keeps its own copy of the route files it uses (with their sha256).
+Why: most stairs FAILs in batch_full and supervised_1011 were routes the player could not walk in Fallout 4 either (a
+start wedged between a wall and a rail, against fallen floor chunks or rebar, a walk 2 m past a top that ends in a
+collapsed floor, a 0.15 m "flight"), while the converted collision equals FO4's except the flattened helpers
+([docs/testing/stairs-routes.md](../testing/stairs-routes.md)). A FAIL must point at the port, not at the test. But
+0002 / 0003 stopped at a converted helper's slab crossing that the walk climbs (cause unresolved), so a route the walk
+passes is not a route the port passes: the planner names such places and the queue tests them. The walk gives the
+game's verdict on 59 of 64 recorded stairs results, 57 also at the same place (`scripts/game/stairs_calib.py`).
 Alternatives: keep one centre-line route per stair and read every FAIL by hand (each costs a game run and an offline
 analysis); hand-written skip lists for the library and Fort Hagen (do not carry to new cells); start every route from
-the top floor and walk down (does not test climbing, the owner's complaint); a converter change (nothing in the
-converted collision differs from FO4's except the intended helper flattening).
+the top floor and walk down (does not test climbing, the owner's complaint); skip every route through a helper crossing
+(would drop the very tests that decide whether the converter's flattening is at fault); change the converter now (not
+before the probes say the crossing is the cause).
