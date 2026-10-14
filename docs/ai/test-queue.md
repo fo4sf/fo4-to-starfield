@@ -691,11 +691,17 @@ too since 2026-10-13): `ApplyHavokImpulse` opcode 0x1251, Float x4, "Applies an 
 reference along a passed axis."; `SetRigidBodyMass` 0x1156, Float, "Sets the Havok mass for an object."; `SetPos`
 0x1007 (Axis, Float), `PlaceAtMe` 0x1025 (ObjectID, optional Count, Distance, Direction), `GetIsID` (ObjectID),
 `GetSelf` (`this`), `GetDisabled`, `Disable` (optional Integer), `MarkForDelete`, `ForceWeather` (`fw`, Form, optional
-Int) decoded the same way. Unresolved until the queue runs: whether the console accepts `ApplyHavokImpulse` and
-`SetRigidBodyMass` on a selected item, the magnitude's unit, and whether `cf "ObjectReference.GetMass"` reaches the
-native function at all: `cf "Actor.PathToReference"` replied "No script named Actor is attached to the object" (N0_cf,
-verified), so the same reply for `ObjectReference` is a supported hypothesis; it would leave the 5 kg tests
-INCONCLUSIVE MASS.
+Int) decoded the same way. `CallFunction` (`cf`) is a console command of the same table (decoded 2026-10-14: "Calls a
+papyrus function on the targeted ref. First parameter is the function, the rest are parameters", one String and up to
+seven optional Strings); `GetMass` has no console entry of its own (`recon_console.py` decodes none; `--near` finds its
+name among the ObjectReference Papyrus natives, between `GetLocRefTypes` and `GetNthLinkedRef`), so `cf
+"ObjectReference.GetMass"` is the only console route to the mass, and the judge never assumes its reply: a 5 kg test is
+judged on the number read back, else INCONCLUSIVE MASS. Unresolved until the queue runs: whether the console accepts
+`ApplyHavokImpulse` and `SetRigidBodyMass` on a selected item, the magnitude's unit, and whether `cf
+"ObjectReference.GetMass"` reaches the native function and prints its value at all: `cf "Actor.PathToReference"`
+replied "No script named Actor is attached to the object" (N0_cf, verified), so the same reply for `ObjectReference` is
+a supported hypothesis; it would leave the 5 kg tests INCONCLUSIVE MASS. They stay in the queue (two tests of a few
+minutes each): a reading settles the mass question that nothing else in the queue can, and no reading costs no verdict.
 
 Sandbox (`QstepMovableSandboxTests`; the simulated game pushes an item at least 8 cm tall that the walk passes within
 0.35 m of, walks over a thinner one, and moves an item by an impulse when magnitude / mass reaches 1 m/s): a tall

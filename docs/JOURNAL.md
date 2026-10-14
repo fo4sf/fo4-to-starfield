@@ -1008,3 +1008,16 @@ baseline heights and all four POST_FRAME findings. Offline only; no game scripts
   box and book, plus the book and box at 5 kg via `SetRigidBodyMass`. Each test wrote its expectation first. If the
   vanilla items move where ours do not, or the 5 kg copies (GetMass read 5) move where the originals do not, mass is the
   cause and the converter should scale FO4 masses.
+
+## 2026-10-14 Claude: PR #110 fix pass checked, the console route to the mass confirmed, suite re-run (offline; no game input)
+- The verifier's three blocking findings are fixed by 18081d6 (only the walk passes a movable test, ELEVATED only when
+  the walk came no closer than 0.5 m to the item, a `SetRigidBodyMass` test judged only on a `GetMass` reading) and its
+  minor findings in the docs. This pass re-checked them against the reads and did the check the second finding asked
+  for: Starfield.exe 1.16.244's command table, read with `scripts/recon_console.py`, has `CallFunction` (`cf`, "Calls a
+  papyrus function on the targeted ref. First parameter is the function, the rest are parameters", one String and up to
+  seven optional Strings) and no console entry for `GetMass` (a Papyrus ObjectReference native), so `cf
+  "ObjectReference.GetMass"` is the only console route to the mass. The 5 kg tests stay in the queue and are
+  INCONCLUSIVE MASS without a number read back (docs/ai/test-queue.md "Movable items", research-log 2026-10-13).
+- Full suite with the qstep sandbox: 1013 tests OK (2 skips); `scripts/guard.py` ok.
+- Queue `movable_control_1013b` (planned at 18081d6, an ancestor of this head, so the runner takes it as it is) is the one
+  to run; `movable_control_1013` is marked superseded in its staging README and must not run.

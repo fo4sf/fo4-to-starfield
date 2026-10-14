@@ -51,6 +51,11 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
 - Evidence, console: `ApplyHavokImpulse` (opcode 0x1251, four Floats, "Applies an impulse of the passed magnitude to the
   reference along a passed axis.") and `SetRigidBodyMass` (0x1156, one Float, "Sets the Havok mass for an object.") are
   in the script-function table, built on the stack like `SetPos` / `PlaceAtMe` / `GetIsID`; `PushActorAway` too (actors).
+  `CallFunction` (`cf`) is a console command (decoded 2026-10-14: "Calls a papyrus function on the targeted ref. First
+  parameter is the function, the rest are parameters", one String and up to seven optional Strings) **verified**;
+  `GetMass` has no console command entry, its name sits among the ObjectReference Papyrus natives (`GetLocRefTypes`,
+  `GetMass`, `GetNthLinkedRef`) **verified**: `cf "ObjectReference.GetMass"` is the only console route to the mass, and
+  whether it reaches the native and prints the value is **unresolved** (the judge needs the number; else MASS).
   Papyrus `ObjectReference.psc`: `ApplyHavokImpulse(afX, afY, afZ, afMagnitude)`, `float GetMass()`,
   `SetMotionType(.., abImmediatelySimulate)` ("as if the player bumped into it"). `LC012NASAGravTrigger.psc` uses
   magnitude = `GetMass()` x 0.25..0.5, so the magnitude is an impulse in kg m/s (supported hypothesis). The exe has the
