@@ -812,3 +812,8 @@ twin step is untested in game until the next library run.
   - All 18 probe shots read daylight (corner median 165.3), so the light holds through the run.
   - The terrain verdict is INCONCLUSIVE only because one read lost a digit group (y read as -1.66 instead of -1553.49). That is the same OCR fault as the door trip; the strict labelled reads on the door branch fix it.
   - Visual checks (ground textures, #70) can now run at noon.
+- **N0b2 (QASmoke NPC control, PR #77, spawn tolerance 6 m):** the three baselines PASS (citizen x2, Spacer). They wandered 6-10 m but came no closer than 19-22 m to the 24 m goal, so the control separates wandering from a commanded walk.
+  - `PathToRef player`: **FAIL STALLED** (25 m of path, only 5.7 m of approach).
+  - `StartCombat player` on the calm citizen: **FAIL NONAV** (never moved after the command; the first attempt was PRECOMMAND).
+  - No console command drove this actor to the player. Next: a hostile actor (the converted raider, or the vanilla Spacer) under StartCombat, the N2b design.
+  - (n0b_1013, the first run, had 4 of 5 INCONCLUSIVE SPAWN: placeatme put the actor 2.1-5.4 m away, over the 2 m handle check, although GetIsID/GetSelf confirmed it.)
