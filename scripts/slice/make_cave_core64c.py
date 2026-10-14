@@ -62,6 +62,9 @@ PROBES = (("000802", "FO4SL_MergeProbePersistentCore", True, (-985.2571, 1138.51
            "XMarker, persistent child of exterior cell (-10, 11) (B)"),
           ("000803", "FO4SL_MergeProbeTemporaryCore", False, (-984.2571, 1138.5143, 105.0253),
            "XMarker, temporary in exterior cell (-10, 11) (C, the control)"))
+# the third probe: core64c's own anchor, in the overridden persistent cell (A); its runtime id and local position
+ANCHOR_PROBE = {"ref": f"{LOAD['core']}000800", "local": [-989.2571, 1146.5143, 105.1429],
+                "what": "core64c's anchor FO4Core_CommonwealthAnchor, in the overridden persistent cell (A)"}
 ROUTE_KNOBS = {"route_hold_ms": 2000, "route_reach_m": 0.8, "route_speed": 4.6, "route_max_steps": 40,
                "route_final_steps": 6}
 MANIFEST = "data_manifest.json"
@@ -151,6 +154,38 @@ def plan_entry(sides, routes, spawn_local, o_rot, i_rot, probes, overrides=None)
     return e
 
 
+def bind_plan(t, routes, params, anchor=ANCHOR_PROBE, tol=1e-3):
+    """What the runner's own test (testqueue.door_test of plan.json) says that the checked inputs do not: the routes it
+    walks against routes.json's, the probes it reads (refs, local positions) against slice_params.json's probes (the
+    plugin's runtime ids) and the anchor probe. [] when they agree; else one line per mismatch. Codex's review of PR
+    #107 (2026-10-14): check validated plan.json and routes.json each on its own, so an edited waypoint or a shifted
+    probe expectation passed."""
+    out = []
+    for side in ("outside", "inside"):
+        mine, theirs = t[side].get("route") or [], routes[side].get("route") or []
+        if len(mine) != len(theirs):
+            out.append(f"{side} route: {len(mine)} waypoints in plan.json, {len(theirs)} in routes.json")
+            continue
+        for k, (p, q) in enumerate(zip(mine, theirs)):
+            if math.dist(p, q) > tol:
+                out.append(f"{side} route waypoint {k}: plan.json {p}, routes.json {list(q)} ({math.dist(p, q):.3f} m apart)")
+        if mine and math.dist(t[side]["start"], mine[0]) > tol:
+            out.append(f"{side} start {t[side]['start']} is not the route's first waypoint {mine[0]}")
+    want = {f"{LOAD['slice']}{p['id']}".upper(): list(p["pos"]) for p in params.get("probes") or []}
+    if want:
+        want[anchor["ref"].upper()] = list(anchor["local"])
+    got = {p["ref"].upper(): list(p["local"]) for p in t.get("probes") or []}
+    for ref in sorted(set(want) - set(got)):
+        out.append(f"probe {ref} ({want[ref]}) is in slice_params.json but not in plan.json")
+    for ref in sorted(set(got) - set(want)):
+        out.append(f"probe {ref} ({got[ref]}) is in plan.json but not in slice_params.json")
+    for ref in sorted(set(got) & set(want)):
+        if math.dist(got[ref], want[ref]) > tol:
+            out.append(f"probe {ref}: plan.json expects {got[ref]}, the plugin places it at {want[ref]} "
+                       f"({math.dist(got[ref], want[ref]):.3f} m apart)")
+    return out
+
+
 def cmd_stage(a):
     t0 = time.time()
     out = os.path.abspath(a.out)
@@ -221,8 +256,7 @@ def cmd_stage(a):
     # 6. plan, expectations, README
     probes_plan = [] if a.no_probes else (
         [{"ref": f"{LOAD['slice']}{pid}", "local": list(pos), "what": what} for pid, _e, _p, pos, what in PROBES]
-        + [{"ref": f"{LOAD['core']}000800", "local": [-989.2571, 1146.5143, 105.1429],
-            "what": "core64c's anchor FO4Core_CommonwealthAnchor, in the overridden persistent cell (A)"}])
+        + [dict(ANCHOR_PROBE)])
     sides = {"outside": outside, "inside": inside}
     # coming back out, the player faces the interior door's XTEL rotation; going in, the exterior door's
     entry = plan_entry(sides, routes, spawn_local, i_side["xtel"]["rot"][2], o_side["xtel"]["rot"][2], probes_plan)
@@ -371,6 +405,11 @@ def cmd_check(a):
             f"{s.get('length')} m, level {s.get('level')}, final walk {s['final_walk'].get('to_door_m')} m from the door")
     add("outside route: the assumed capsule (0.35 m) touches nothing", not rt["outside"]["capsule_contacts"],
         f"{len(rt['outside']['capsule_contacts'])} contacts")
+    # the runner's test bound to the checked inputs: its routes are routes.json's, its probes the plugin's
+    bad = bind_plan(t, rt, params)
+    add("plan.json's routes and probes (as the runner reads them) are routes.json's and slice_params.json's", not bad,
+        "; ".join(bad) if bad else f"{len(t['outside']['route'])} + {len(t['inside']['route'])} waypoints, "
+        f"{len(t.get('probes') or [])} probes agree")
     # pins
     pins = {p: sha256(os.path.join(out, p)) for p in plugins}
     pins.update({"FO4Port.esm": sha256(port_esm), "plan.json": sha256(os.path.join(out, "plan.json")),

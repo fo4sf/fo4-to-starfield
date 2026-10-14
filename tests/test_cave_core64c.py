@@ -59,6 +59,37 @@ class CaveCore64cPlanTests(unittest.TestCase):
         self.assertEqual([p["ref"] for p in t["probes"]], ["05000802", "02000800"])
         self.assertGreater(tq.step_timeout(t), 0)
 
+    def test_check_binds_the_runners_test_to_the_checked_inputs(self):
+        # Codex's review of PR #107: check validated plan.json and routes.json each on its own and never compared the
+        # runner's routes and probe expectations with routes.json and slice_params.json
+        probes = [{"ref": "05000802", "local": [-985.2571, 1138.5143, 105.0253], "what": "B"},
+                  {"ref": "05000803", "local": [-984.2571, 1138.5143, 105.0253], "what": "C"}, dict(mk.ANCHOR_PROBE)]
+        params = {"probes": [{"id": pid, "pos": list(pos), "persistent": pers} for pid, _e, pers, pos, _w in mk.PROBES]}
+        t = tq.door_test(0, self.entry(probes))
+        self.assertEqual(mk.bind_plan(t, ROUTES, params), [])
+        e = self.entry(probes)                                               # one runner waypoint moved 0.5 m
+        e["outside"]["route"] = [list(p) for p in e["outside"]["route"]]
+        e["outside"]["route"][1][0] += 0.5
+        bad = mk.bind_plan(tq.door_test(0, e), ROUTES, params)
+        self.assertEqual(len(bad), 1, bad)
+        self.assertIn("outside route waypoint 1", bad[0])
+        self.assertIn("0.500 m apart", bad[0])
+        e = self.entry(probes)                                               # a probe expectation shifted 100 m
+        e["probes"] = [dict(probes[0], local=[-885.2571, 1138.5143, 105.0253])] + probes[1:]
+        bad = mk.bind_plan(tq.door_test(0, e), ROUTES, params)
+        self.assertEqual(len(bad), 1, bad)
+        self.assertIn("probe 05000802", bad[0])
+        self.assertIn("100.000 m apart", bad[0])
+        bad = mk.bind_plan(tq.door_test(0, self.entry(probes[:2])), ROUTES, params)     # the anchor probe dropped
+        self.assertEqual(len(bad), 1, bad)
+        self.assertIn("probe 02000800", bad[0])
+        bad = mk.bind_plan(t, ROUTES, {"probes": params["probes"][:1]})      # a probe the plugin does not place
+        self.assertEqual(len(bad), 1, bad)
+        self.assertIn("probe 05000803", bad[0])
+        bad = mk.bind_plan(t, {"outside": ROUTES["outside"], "inside": {"route": ROUTES["inside"]["route"][:2]}}, params)
+        self.assertEqual(bad, ["inside route: 3 waypoints in plan.json, 2 in routes.json"])
+        self.assertEqual(mk.bind_plan(tq.door_test(0, self.entry()), ROUTES, {}), [])   # --no-probes: none expected
+
     def test_probe_ids_follow_the_doors(self):
         self.assertEqual([p[0] for p in mk.PROBES], ["000802", "000803"])
         self.assertEqual([p[2] for p in mk.PROBES], [True, False])
