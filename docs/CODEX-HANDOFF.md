@@ -24,9 +24,9 @@ Reviewed #80/#81 -> #79 at29f3b83: tracked rig/clips and small bind rotations;81
 
 #89: unfinished work returns4, complete/dry-run0. Preserve old batch_full:1109 pending after12h/old exit0; non-movable estimate15-18 active hours. Offline133-test plan retains16 cells/49 failures/2470f876 (~3-4h), not run. Adopt reviewed runner; re-plan movable tests.
 
-Parents #66/#78/#79 remain open, not runtime accepted. Moving collision/cave/save need live tests. #84 replace/unlink races remain; one controller required.
+Parents #66/#78/#79 remain open, not runtime accepted. Moving collision/cave/save need live tests. Codex #84 candidate preserves final-boundary configuration edits and recovery ownership:27 new regressions/338 tests (2 skips). [Recovery tradeoffs/procedure](testing/plugin-config-recovery.md); final QA/CI pending. One controller required.
 
-Codex #91 prepares pinned exterior queues. Live October13: smoke7/7, baseline29/30 matching heights; six roofs match, northeast+1.8939m flagged. Sources/installed identities verified; original stage/batch/save preserved. qstep omits the final jump's merge offset: all four post-probes excluded; boundary dialogue cannot measure map limits. Launches held for Claude's reviewed fix/fresh pins. Codex controller until23:35:17Z; runner closed, owner photo session reserved. #94 merged read-only [evidence audit](testing/commonwealth-evidence.md); #96 invalidates heights dependent on replayed references. Walking/connections open. [Public handoff](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6138419102).
+October13: smoke7/7, baseline29/30; six roofs match, northeast+1.8939m remains. #100/e27f6de fixes the final jump; fresh informational15/15. Inputs/captures verified, old campaign/save preserved. Four older jumps excluded; walking/map size/connections open. Codex released control and paused its completed monitor. [Results](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6154661951). Claude owns the controller at129b9ae; reports daylight working and cave-door merge-frame investigation (#32). #94/#97 [audit](testing/commonwealth-evidence.md).
 
 ## Coordination
 

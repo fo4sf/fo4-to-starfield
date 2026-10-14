@@ -2,6 +2,17 @@
 
 Format: date, decision, why, alternatives considered.
 
+## 2026-10-13 Retain configuration before-images before conditional publication (#84, Codex)
+
+Capture the actual Plugins.txt pathname, compare its bytes, then publish/restore only by
+non-clobbering hard-link creation. Retain unique before/intended files and an intent journal
+even on success, so a delayed editor write remains recoverable. Refuse unsupported links
+before capture. Accept brief target-name absence while the game is closed, rather than
+claiming continuous atomic visibility or interprocess isolation. Compare-before-replace
+leaves a destructive final-operation race; ReplaceFileW with backup is not compare-and-swap
+and has multiple partial-failure states. No repeated replacement as rollback. Details and
+synthetic acceptance: [configuration recovery](../testing/plugin-config-recovery.md).
+
 ## 2026-10-09 Enforce local concurrency with a proxy, not with prompts
 OpenCode has no cross-agent concurrency limit for a provider. A small stdlib-Python proxy (:1235) in front of
 LM Studio (:1234) admits at most 1 inference request at a time after a resource check, queues the rest, and logs

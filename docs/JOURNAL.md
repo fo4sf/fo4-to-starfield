@@ -650,3 +650,20 @@ baseline heights and all four POST_FRAME findings. Offline only; no game scripts
 convert_batch.py now prints failure counts with percentages and unique-reason totals, and writes
 staging/failure-summary.json (top 10 reasons) for later review. Synthetic test covers the summary
 shape and percentages. Offline only; no game data or format changes. Guard and new test pass.
+
+## 2026-10-13 Recoverable configuration publication (Codex, #84)
+
+Four synthetic final-operation races reproduce overwritten/deleted owner edits before the repair.
+Conditional Plugins.txt writes and both removal paths now capture the actual file before comparison,
+publish/restore without replacing a newer target, and retain before/intended files with a prepared
+journal. Hard-link support is tested before capture; unsupported filesystems refuse without moving
+the configuration. Unresolved/crash journals block retries and cannot silently release uninstall
+ownership when the target is absent. Twenty-seven focused regressions include real helper-process
+exits after capture/publication, late captured-file writes and recovery/metadata failures.
+
+Validation:338 full Windows tests pass (2 existing skips); guard/diff checks pass. Earlier independent
+QA passed the publication/removal paths; final review includes the retry guard and recovery notes.
+The conditional target name can briefly be absent. This preserves recoverable bytes rather than
+claiming compare-and-swap, immutable snapshots or power-loss durability; one controller and a
+closed game remain required. [Recovery procedure](testing/plugin-config-recovery.md).
+Offline synthetic files only: no actual game configuration, deployment or controller was changed.
