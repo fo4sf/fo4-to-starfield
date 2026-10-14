@@ -68,6 +68,7 @@ none refuted. Nexus pages and forums returned HTTP 403, so details from them are
 | A3 | Cross-check our hknp TAG0 field layouts (body cinfo, motion properties, mass distribution, compressed mesh) against StarfieldMeshConverter's generated classes and `hkTypeTranscript.json` (MIT). | movable bodies, door bodies | Claude |
 | A4 | Prototype FO4 `.hkx` -> `.af` for one door or actor clip: decode with HavokLib/PyNifly as external tools, encode with CALUMI; compare with a vanilla clip of the same rig. | NPC milestone | later |
 | A5 | Use ozooma10's headless CALUMI.Animation fork (LGPL-3.0, no stdin blocking) if the upstream DLL ever blocks an unattended run. | runner stability | Codex |
+| A6 | **Later (decided 2026-10-13):** evaluate [slfx77/bethesda-multitool](https://github.com/slfx77/bethesda-multitool) (C#, .NET 10, 0BSD, active; reads ESM, NIF, `.btd`, BA2, DDS, `.pex`; Direct3D 12 worldspace viewer). Not needed now: our `.btd` files are verified in game, and the current blockers are runtime behaviour. Use it when we need offline visual QA at Commonwealth scale (stepping through core64c without the game PC) or a second `.btd` reader. Needs the .NET 10 SDK (an install: owner's OK first). First check whether its viewer renders a Starfield worldspace with our plugins. | offline QA at scale | Claude, later |
 
 **Animation findings**
 
