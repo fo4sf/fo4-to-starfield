@@ -644,3 +644,9 @@ to the affected rows and demote stale HEIGHTS issues after reference invalidatio
 Four negative regressions failed before their fixes. Validation:31 evidence tests and308
 full-suite tests pass (2 skips); guard passes. Re-reading completed pinned evidence preserves7/7 smoke and29/30
 baseline heights and all four POST_FRAME findings. Offline only; no game scripts, assets or live control changed.
+
+## 2026-10-13 Failure summary enhancement (Grok)
+
+convert_batch.py now prints failure counts with percentages and unique-reason totals, and writes
+staging/failure-summary.json (top 10 reasons) for later review. Synthetic test covers the summary
+shape and percentages. Offline only; no game data or format changes. Guard and new test pass.
