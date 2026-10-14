@@ -472,7 +472,7 @@ def judge(test, obs, shot_ok, ground=None):
             problems.append(("HUDGAP", f"leg {n}: the HUD was gone for {x.get('hud_gap_s')} s"))
         reads.append({"n": n, "p": p, "cls": cls, "src": src, "dz": dz,
                       "on": ground.owner_src(p[0], p[1], p[2], tol) if cls == "ok" else None,
-                      "s": project(poly, p[0], p[1])[1], "cell": cell_of(used[0], used[1])})
+                      "s": project(poly, p[0], p[1])[1], "cell": cell_of(used[0], used[1])})   # the game's cell (a note)
         prev, held, gap = p, int(x.get("hold_ms") or 0), 0
     stop = obs.get("walk_stopped") or ""
     last = reads[-1] if reads else None
@@ -510,16 +510,23 @@ def judge(test, obs, shot_ok, ground=None):
     if not reached:
         return "INCONCLUSIVE", "NOTREACHED", (f"ended {math.hypot(last['p'][0] - goal[0], last['p'][1] - goal[1]):.1f} m "
                                               f"from the goal; {stats}; {'; '.join(notes)}")
-    # the planned cell borders, in the game's frame: each crossed between two consecutive reads
-    seen = list(zip([r["cell"] for r in reads], [r["cell"] for r in reads[1:]]))
-    missing = []
-    for c in test.get("crossings") or []:
-        a = cell_of(c["from"][0] * 100.0 + O[0] + 50.0, c["from"][1] * 100.0 + O[1] + 50.0)
-        b = cell_of(c["to"][0] * 100.0 + O[0] + 50.0, c["to"][1] * 100.0 + O[1] + 50.0)
-        if (a, b) not in seen:
-            missing.append(f"{a}->{b}")
+    # the planned cell borders (local cells, as walk_route.py plans them): the reads stand in the local frame already
+    # (read - O, so the measured offset need not be cell-aligned); each planned crossing is matched, in route order, to
+    # the next pair of consecutive reads that crossed that border that way, one observed crossing for one planned
+    # (Codex on PR #103: the cell-centre translation assumed a cell-aligned offset, and a set membership let one
+    # observed crossing satisfy two planned occurrences)
+    pairs = [(cell_of(a["p"][0], a["p"][1]), cell_of(b["p"][0], b["p"][1])) for a, b in zip(reads, reads[1:])]
+    missing, j = [], 0
+    for c in sorted(test.get("crossings") or [], key=lambda c: float(c.get("s", 0.0))):
+        want = (tuple(c["from"]), tuple(c["to"]))
+        hit = next((i for i in range(j, len(pairs)) if pairs[i] == want), None)
+        if hit is None:
+            missing.append(f"{want[0]}->{want[1]} at s {float(c.get('s', 0.0)):.0f}")
+        else:
+            j = hit + 1
     if missing:
-        return "INCONCLUSIVE", "CROSSING", f"cell borders not seen between two reads: {missing}; {stats}"
+        return "INCONCLUSIVE", "CROSSING", (f"cell borders not crossed between two consecutive reads, in route order: "
+                                            f"{missing}; {stats}")
     br = test.get("bridge") or {}
     if br:
         on = [r for r in reads if r["on"] == br.get("src")]

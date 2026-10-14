@@ -173,7 +173,9 @@ converted object within 12 m of the path (0.5 m grid, 14,255 nodes, 515 objects)
 - every leg was read (`used`), every move between two reads is plausible for walking (at most 9 m/s over the hold
   plus 2 s per leg, + 1 m);
 - every read stands within `z_tol` (0.6 m) of the terrain or of a converted object's surface near it (0.75 m);
-- every planned cell border was crossed between two consecutive reads (the cells taken in the game's frame);
+- every planned cell border was crossed between two consecutive reads: the reads stand in the local frame (read - O,
+  so the measured offset need not be cell-aligned) and the planned crossings are matched in route order, one observed
+  crossing for one planned;
 - at least `bridge.min_reads` (2) reads stood on the bridge deck's surface, with reads before and after the bridge;
 - every console line typed during the walk was `ClearConsole`, `player.getpos` or `player.setangle`;
 - no popup was seen, the HUD never went away, the arrival screenshot and every kept leg screenshot exist.
@@ -186,8 +188,8 @@ off the bridge deck onto the river bed), `HEIGHTS` (below every known ground by 
 
 **INCONCLUSIVE** (retried once, never a PASS): `UNREAD` (a leg not read), `READ` (an implausible move not confirmed),
 `OFFGROUND` (above every known surface by more than 0.6 m: standing on something not converted, or mid-step),
-`HUDGAP`, `NOHUD`, `NOTREACHED` (leg or time budget used up short of the goal), `CROSSING` (a border not seen between
-two reads), `BRIDGE`, `NOSHOT`, `TYPED` (anything else typed during the walk, e.g. a recovery teleport), `START`
+`HUDGAP`, `NOHUD`, `NOTREACHED` (leg or time budget used up short of the goal), `CROSSING` (a planned border not crossed
+between two consecutive reads, in route order), `BRIDGE`, `NOSHOT`, `TYPED` (anything else typed during the walk, e.g. a recovery teleport), `START`
 (the reverse test's setup landing not read or more than 3 m off; the first leg read more than `start_tol` from the
 arrival / the landing), `ANCHOR` (no merge offset: the arrival not read, not settled, or the recorded offset not the
 settled arrival's), `GROUND` (walk_ground.json missing or changed), `LEGS` (legs missing, out of order, or a stop before the last one), `EVIDENCE` (a `used` that is

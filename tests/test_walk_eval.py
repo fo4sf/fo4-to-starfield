@@ -111,6 +111,15 @@ def shot_ok(name):
     return bool(name)
 
 
+def shifted(obs, dx):
+    """The same observations with the overlay merged dx further along x (every game-frame read moved with it)."""
+    def mv(s):
+        p = we.parse3(s)
+        return fmt([p[0] + dx, p[1], p[2]]) if p else s
+    return dict(obs, spawn_read=mv(obs["spawn_read"]), offset=[obs["offset"][0] + dx] + list(obs["offset"][1:]),
+                legs=[dict(x, read=mv(x.get("read")), used=mv(x.get("used"))) for x in obs["legs"]])
+
+
 def tes4(path, body=b""):
     """A minimal plugin (a TES4 header without masters, as exp_install.plugin_masters reads it) with distinct bytes."""
     with open(path, "wb") as f:
@@ -656,6 +665,23 @@ class JudgeTests(unittest.TestCase):
         v = we.judge(t, good_obs([(-1015.0, 1210.0)] + list(WPS[::-1][1:]), setup=setup), shot_ok)
         self.assertEqual(v[:2], ("INCONCLUSIVE", "START"), v[2])
         self.assertIn("4.0 m from the setup landing", v[2])
+
+    def test_borders_are_matched_in_the_local_frame_in_route_order_one_to_one(self):
+        # Codex on PR #103: the cell-centre translation assumed a cell-aligned offset (the same valid walk merged 30 m
+        # further along x was CROSSING), and one observed crossing could satisfy two planned occurrences
+        v = self.judge(shifted(good_obs(), -30.0))
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        self.assertIn("offset -1230.0, -2700.0", v[2])
+        self.assertIn("cells (-23,-16) -> (-23,-15)", v[2])                 # the game's cells, as a note
+        twice = [{"s": 5.0, "from": [-10, 11], "to": [-11, 11]}, {"s": 6.0, "from": [-10, 11], "to": [-11, 11]},
+                 {"s": 30.0, "from": [-11, 11], "to": [-11, 12]}]
+        v = self.judge(good_obs(), crossings=twice)
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "CROSSING"), v[2])
+        self.assertIn("['(-10, 11)->(-11, 11) at s 6']", v[2])              # the second occurrence is not seen
+        swapped = [{"s": 5.0, "from": [-11, 11], "to": [-11, 12]}, {"s": 30.0, "from": [-10, 11], "to": [-11, 11]}]
+        v = self.judge(good_obs(), crossings=swapped)
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "CROSSING"), v[2])         # crossed, but in the other order
+        self.assertIn("(-10, 11)->(-11, 11) at s 30", v[2])
 
     def test_the_setup_landing_and_the_ground_file(self):
         obs = good_obs(WPS[::-1])
