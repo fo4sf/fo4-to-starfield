@@ -274,6 +274,7 @@ def main():
         "pattern": a.pattern,
         "top": [{"reason": r, "count": c, "percent": round(100.0 * c / total, 1) if total else 0.0}
                 for r, c in reason_counts.most_common(10)],
+        "reasons": {r: c for r, c in reason_counts.most_common()},
     }
     write_json_atomic(os.path.join(a.staging, "failure-summary.json"), summary)
 
