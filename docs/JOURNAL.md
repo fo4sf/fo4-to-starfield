@@ -1180,6 +1180,27 @@ ownership re-review passed14 narrow checks including the original late-failure c
 hosted Linux CI passed. [Contract and limits](testing/archive-fingerprints.md). No live game,
 source archive, deployment, queue or save was changed.
 
+## 2026-10-15 Codex: preserve bridge deployment recovery (#124, offline tested)
+
+Reproduced an interrupted copy leaving a partial plugin untracked after uninstall
+removed its receipt. The installer now uses exclusive source-validated publication,
+resource verification, file intent/confirmation and activation/profile journals.
+Unknown, changed or unconfirmed files remain with a recoverable receipt. Existing
+complete legacy installations stay compatible after validation.
+
+Independent QA passed43 safety probes and found two P2 gaps: incomplete recovery
+could touch a different current profile, and a completed uninstall retry could
+duplicate a restored inactive line. Both are fixed;17 independent fix probes and7
+targeted tests pass. Claude's bridge-last order change c50e87c is integrated with
+the recovery-aware caller and ownership checks. Final ordering integration passes
+23 independent probes and9 selected tests; hosted CI passes.
+
+Validation:43 scoped/1301 Windows suite tests (70 skips), guard pass. No source
+installer was deployed, no game/queue/save changed. Cave a1 remains invalid; a
+separate serialized metadata comparison confirms the COC marker is temporary and
+the template grid is INT_MAX, supporting Claude's queued A/B without proving cause.
+[Recovery boundaries](testing/bridge-recovery.md). Historical negative cases retained.
+
 ## 2026-10-15 morning: integration-1014 is main; the next window's queues (Claude)
 - **#121 merged (10e7019)** after Codex's bounded merge-preservation review; main 9c291f1 (Codex's archive fingerprint
   guard, #120) merged in first. The runner worktree is pinned on main; new work goes on short branches off main.
@@ -1207,6 +1228,20 @@ both unchanged media identities pass; GitHub GFM renders the new sections/images
 Independent factual/link QA passed, with draft status made explicit. Guard passed.
 No new unit tests for documentation; hosted CI is checked on the PR. No game,
 runner, installation, queue or save changed.
+
+## 2026-10-15 Codex: bridge recovery on consolidated main
+
+Merged main d628b56 into the owned PR125 branch without rewriting history. Resolved
+only documentation conflicts: both append-only journal/decision histories remain;
+current-main concise ownership status is retained. Bridge installer, deployer,
+experiment installer, cycle caller and43 bridge tests have identical Git blobs to
+independently reviewed4c8ded6. Bridge-last/no-op exit0 behavior is unchanged.
+
+43 focused bridge/order/recovery tests and1,305 Windows tests(70 skips) pass.
+Independent five-invariant integration review passes; original source QA remains
+applicable. Guard passes; new-head CI gates ready status. No live profile, archive,
+installation, queue, watchdog, controller input or save changed. Source only,
+undeployed; Claude retains integration/game ownership.
 
 ## 2026-10-15: Codex — reserve stable IDs before plugin output (#132)
 
