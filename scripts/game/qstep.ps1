@@ -176,7 +176,7 @@ function Light-Commands {
 # console_pre (after the save has loaded, before the travel) and console_post (after the arrival, before the probes or
 # the spawn): only lines that match this whitelist are typed (the same pattern as console_plan.py PATTERN; .NET \z, so a
 # trailing newline never passes); a bad line ends the step with exit 4 before anything is typed.
-$consoleOk = '^(?:GetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}"|SetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}" -?\d{1,9}(?:\.\d{1,6})?|SetLocalTime (?:1?\d|2[0-3])(?:\.\d{1,2})?(?: 1)?|cgf "Game\.SetLocalTime" (?:1?\d|2[0-3])(?:\.\d{1,2})?|fw [0-9A-Fa-f]{8}(?: 1)?)\z'
+$consoleOk = '^(?:GetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}"|SetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}" -?\d{1,9}(?:\.\d{1,6})?|SetLocalTime (?:1?\d|2[0-3])(?:\.\d{1,2})?(?: 1)?|cgf "Game\.SetLocalTime" (?:1?\d|2[0-3])(?:\.\d{1,2})?|fw [0-9A-Fa-f]{8}(?: 1)?|cgf "FO4SF_Probe\.Pos" \d{1,10}|cgf "FO4SF_Probe\.Ack" "[A-Za-z0-9_.-]{1,40}"|cgf "FO4SF_Probe\.Player"|cgf "Debug\.TraceUser" "fo4sf" "[A-Za-z0-9_ .-]{1,60}")\z'
 function Console-List($list, [string]$what) {
   $out = @()
   foreach ($c in @($list | Where-Object { $null -ne $_ })) {

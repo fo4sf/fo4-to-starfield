@@ -291,7 +291,10 @@ at most 12 per list):
 
 - `GetINI "<name>:<Section>"` and `SetINI "<name>:<Section>" <number>` (names and sections `[A-Za-z0-9_]{1,64}`, numbers
   `-?\d{1,9}(.\d{1,6})?`);
-- the time-of-day / weather lines: `SetLocalTime <h> [1]`, `cgf "Game.SetLocalTime" <h>` (h 0..23.99), `fw <8 hex> [1]`.
+- the time-of-day / weather lines: `SetLocalTime <h> [1]`, `cgf "Game.SetLocalTime" <h>` (h 0..23.99), `fw <8 hex> [1]`;
+- the bridge's lines (2026-10-14, "Bridge" below): `cgf "FO4SF_Probe.Pos" <decimal form id>`, `cgf "FO4SF_Probe.Ack" "<tag>"`,
+  `cgf "FO4SF_Probe.Player"`, `cgf "Debug.TraceUser" "fo4sf" "<text>"` (tags `[A-Za-z0-9_.-]{1,40}`); their replies are
+  lines of the bridge's log, not console text (the OCR'd reply is kept as for any line).
 
 Anything else (`qqq`, `player.additem ...`, `coc ...`, `tgm`, a `;` or `|` inside a line, unquoted names, curly quotes, a
 trailing newline) is refused; `tests/test_console_plan.py` lists the cases.
