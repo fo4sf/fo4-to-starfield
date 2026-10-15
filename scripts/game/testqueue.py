@@ -389,7 +389,7 @@ def plan(a):
     tests = []
     for c in cells:
         tests += plan_cell(c, staging, kinds, a.per_cell, a.plugin_index, formids, items, all_refs, a.routes_prefix,
-                           routes_dir, impulse=getattr(a, "impulse", False))
+                           routes_dir=routes_dir, impulse=getattr(a, "impulse", False))
     if a.per_kind:                                        # small batches: the first N of each kind in each cell
         seen = {}
         keep = []

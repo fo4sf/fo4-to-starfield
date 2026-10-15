@@ -67,7 +67,7 @@ class WhitelistTests(unittest.TestCase):
             self.assertFalse(isinstance(c, str) and ps.match(c), repr(c))
         # terrain, npc_nav, door_trip, walk and movable_control
         self.assertEqual(src.count("Run-Console $preCmds 'pre'"), 5)
-        self.assertEqual(src.count("Run-Console $postCmds 'post'"), 4)
+        self.assertEqual(src.count("Run-Console $postCmds 'post'"), 5)
         self.assertIn("-cnotmatch $consoleOk", src)
 
     def test_fields(self):
