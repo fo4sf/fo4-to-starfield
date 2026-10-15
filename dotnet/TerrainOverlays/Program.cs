@@ -241,6 +241,7 @@ if (Has(prm, "objects"))
             {
                 EditorID = c.GetProperty("edid").GetString(), Model = new Model { File = c.GetProperty("model").GetString()! },
                 Name = c.GetProperty("name").GetString(),
+                Items = new ExtendedList<ContainerEntry>(),                        // null by default in Mutagen 0.55
             };
             foreach (var it in c.GetProperty("items").EnumerateArray())
             {
