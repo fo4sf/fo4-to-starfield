@@ -18,18 +18,17 @@ October14: Claude verified load-order Current in two launches and observation-br
 
 ## Source / reviewed work
 
-Main now contains #121 integration at10e7019. New work starts from main; source integration is not completed gameplay. Cave A/B/report: #32 comment6187749682; next scope request:6192228721.
+Main d628b56 includes #121 and README recap PR128. Source integration is not gameplay acceptance. Latest #32 claims supersede older handoff snapshots.
 
-- #117/PR120 merged9c291f1: guard/CI/QA pass. Windows fingerprint read exclusion; immutable-source contract remains.
-- PR11614f1115: guard/CI/QA pass; handover repair, no active restart. #89 exits: unfinished4, protection3, complete/dry-run0.
-- PR118 source de80a97/docs1350d9d:66 focused/414 Windows tests(3 skips), guard/final12-case QA/CI. Exact selection and per-read bindings gate diagnostics; old failures retained. Native bridge/console adapter pending; runtime acceptance false.
-- PR123319e131: guard/CI/QA pass. Packets5795->3634 characters; model quality/token saving unmeasured. Guardian-only inference needs a coordinated window.
-- PR1254c8ded6 ready:43 focused/1301 Windows tests(70 skips), guard/CI/QA, undeployed. Claude asks to move onto current main; preserve bridge-last order and no-op exit0. Merge main without history rewriting, then validate current callers before lead integration.
-- PR104bf239522:43 current-caller bridge tests pass; retain expected_sha256 API; integration pending.
-- PR69f706e77:21 author/14 independent controls and CI pass. PR121 merge review passes; no general runtime approval.
+- PR10458f0b51, PR116589f1bf, PR125fcdec287: current-main integration QA/guard/CI pass; source ready for Claude. No live application. Keep expected_sha256 publication, bridge-last order and no-op exit0.
+- PR1297511352: probe-free OFST/CLSZ comparison staged offline; mandatory raw checks pass. Native effect unverified; Claude owns the selected-door local-vs-merged comparison. No probes/exterior override/install/input. PR126 neighbour probes stay separate.
+- PR1181350d9d: exact selection/per-read evidence bindings reviewed; native adapter pending, runtime acceptance false. PR123319e131: source-linked packets reviewed; actual local-model savings unmeasured, Guardian-only coordinated window.
+- PR69831cf92: eight current-main merge checks/CI pass; unchanged f706e77 oracle retains21 author/14 independent controls. No terrain rescoring.
+- #117/PR120 merged9c291f1; immutable archive contract remains. R05 revised PR119775b453; Grok owns R06 navmesh losses.
+- Codex #130: custom-prefix cache omission fixed offline;27 focused/1281 Windows tests(70 skips), guard and independent QA pass. No pipeline/runner edits or live changes; awaits lead integration.
 
 ## Next / preservation
 
-Owner's October14 README recap with distinct October15 follow-up is ready. Next: current-main PR125 integration, then the bounded OFST/CLSZ SliceDoor option/check/stage packet on #32; no exterior-cell override/probes, deployment or input. R05 plan needs revision. Old batch_full:1109 pending;616 movables need fresh plans. #79 awaits release/pins.
+Next: Claude integrates ready proposals and runs the cave comparison. Old batch_full:1109 pending;616 movables need fresh plans. #79 awaits release/pins. Do not repeat unchanged QA/stages or manufacture work while native integration is held.
 
-#32/owner issues are the inbox. Refresh before choosing work/done. Keep handoff below4KB; history in handoff-archive. Nine completed private October15 capsules verified:2771 files, originals retained; local second volume, not offsite. Follow testing/progress-storage.md. Quiet hourly Codex follow-up active; other paused AI work stays paused.
+#32/owner issues are the inbox; refresh before choosing work/done. Keep this below4KB; history in handoff-archive. Fifteen October15 private capsules/2913 files reopen verified on D:, originals retained; local second volume, not offsite. Follow testing/progress-storage.md. Owner requests lower usage: quiet four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused.
