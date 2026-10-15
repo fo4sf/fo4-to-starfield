@@ -52,8 +52,12 @@ public static class Check
         // exactly the records the plugin is meant to hold
         var all = mod.EnumerateMajorRecords().ToList();
         var kinds = all.GroupBy(r => r.GetType().Name.Replace("BinaryOverlay", "")).ToDictionary(g => g.Key, g => g.Count());
-        Add("record set", all.Count == 5 && kinds.GetValueOrDefault("Worldspace") == 1 && kinds.GetValueOrDefault("Cell") == 2
-                          && kinds.GetValueOrDefault("PlacedObject") == 2,
+        // probes (optional): one exterior cell override per probe cell, one reference per probe
+        var probes = p.TryGetProperty("probes", out var pe) ? pe.EnumerateArray().ToList() : new List<JsonElement>();
+        var probeCells = probes.Select(x => string.Join(",", x.GetProperty("cell").EnumerateArray().Select(e => e.GetInt32()))).Distinct().Count();
+        var template = p.TryGetProperty("persistent_cell", out var pc) ? pc.GetProperty("template_world").GetString() : null;
+        Add("record set", all.Count == 5 + probeCells + probes.Count && kinds.GetValueOrDefault("Worldspace") == 1
+                          && kinds.GetValueOrDefault("Cell") == 2 + probeCells && kinds.GetValueOrDefault("PlacedObject") == 2 + probes.Count,
             string.Join(", ", kinds.OrderBy(k => k.Key).Select(k => $"{k.Key} {k.Value}")));
 
         var wid = p.GetProperty("world").GetProperty("editor_id").GetString();
@@ -69,20 +73,58 @@ public static class Check
         }
         // the overrides are the masters' own records: same FormKey, every field equal (children aside)
         Add("world override", w.FormKey == w0.FormKey && w.EditorID == wid, $"{w.FormKey} {w.EditorID}");
-        var wa = w0.DeepCopy(); wa.SubCells.Clear(); wa.TopCell = null;
-        var wb = w.DeepCopy(); wb.SubCells.Clear(); wb.TopCell = null;
+        // record-only copies (Build.WorldOnly / CellOnly): a full DeepCopy of the master's world would materialise
+        // every exterior reference first (core64c: 648,358)
+        var wa = Build.WorldOnly(w0); wa.SubCells.Clear(); wa.TopCell = null;
+        var wb = Build.WorldOnly(w); wb.SubCells.Clear(); wb.TopCell = null;
         Add("world override equals its master's record", wa.Equals(wb), string.Join(", ", Differences(wa, wb)));
-        Add("world has no exterior cells of its own", w.SubCells.Count == 0, $"{w.SubCells.Count} blocks");
+        var extCells = w.SubCells.SelectMany(b => b.Items).SelectMany(s => s.Items).ToList();
+        Add("world has no exterior cells of its own except the probe cells", extCells.Count == probeCells, $"{extCells.Count} cells");
+        foreach (var ec in extCells)
+        {
+            var m0 = w0.SubCells.SelectMany(b => b.Items).SelectMany(s => s.Items).FirstOrDefault(c => c.FormKey == ec.FormKey);
+            Add($"probe cell {ec.FormKey} equals its master's record", m0 != null && Build.CellOnly(m0).Equals(Build.CellOnly(ec)),
+                m0 == null ? "not in the master" : string.Join(", ", Differences(Build.CellOnly(m0), Build.CellOnly(ec))));
+        }
         Add("persistent cell override", w.TopCell.FormKey == w0.TopCell.FormKey, $"{w.TopCell.FormKey}");
-        var ta = w0.TopCell.DeepCopy(); ta.Persistent.Clear(); ta.Temporary.Clear(); ta.NavigationMeshes.Clear();
-        var tb = w.TopCell.DeepCopy(); tb.Persistent.Clear(); tb.Temporary.Clear(); tb.NavigationMeshes.Clear();
-        Add("persistent cell equals its master's record", ta.Equals(tb), string.Join(", ", Differences(ta, tb)));
+        var tb = Build.CellOnly(w.TopCell);
+        if (template == null)
+        {
+            var ta = Build.CellOnly(w0.TopCell);
+            Add("persistent cell equals its master's record", ta.Equals(tb), string.Join(", ", Differences(ta, tb)));
+        }
+        else
+        {
+            // the vanilla shape: the template world's persistent cell record, under our master's FormKey
+            var t0 = sf.Worldspaces.FirstOrDefault(x => x.EditorID == template)?.TopCell;
+            var ta = t0 == null ? null : (Cell)Build.CellOnly(t0).Duplicate(w.TopCell.FormKey);
+            if (ta != null) { ta.MajorRecordFlagsRaw &= ~0x40000; tb.MajorRecordFlagsRaw &= ~0x40000; }   // compression aside
+            Add($"persistent cell equals {template}'s persistent cell record (the vanilla shape, compression aside)", ta != null && ta.Equals(tb),
+                ta == null ? "no template" : string.Join(", ", Differences(ta, tb)));
+            Add("persistent cell record flag 0x400 (as all 432 vanilla persistent cells)", (w.TopCell.MajorRecordFlagsRaw & 0x400) != 0,
+                $"0x{w.TopCell.MajorRecordFlagsRaw:X}");
+            Add("persistent cell XCLC: the no-grid sentinel", w.TopCell.Grid?.Point.X == int.MaxValue && w.TopCell.Grid?.Point.Y == int.MaxValue,
+                $"{w.TopCell.Grid?.Point}");
+        }
         Add("interior cell override", cell.FormKey == c0.FormKey && cell.EditorID == cid, $"{cell.FormKey} {cell.EditorID}");
-        var ca = c0.DeepCopy(); ca.Persistent.Clear(); ca.Temporary.Clear(); ca.NavigationMeshes.Clear();
-        var cb = cell.DeepCopy(); cb.Persistent.Clear(); cb.Temporary.Clear(); cb.NavigationMeshes.Clear();
+        var ca = Build.CellOnly(c0);
+        var cb = Build.CellOnly(cell);
         Add("interior cell equals its master's record", ca.Equals(cb), string.Join(", ", Differences(ca, cb)));
 
         // the two doors: persistent, the vanilla automatic door, linked both ways
+        // probes as staged: their cell, persistence, base and position
+        foreach (var pr in probes)
+        {
+            var id = Convert.ToUInt32(pr.GetProperty("id").GetString(), 16);
+            var g = pr.GetProperty("cell").EnumerateArray().Select(e => e.GetInt32()).ToArray();
+            var ec = extCells.FirstOrDefault(c => c.Grid?.Point.X == g[0] && c.Grid?.Point.Y == g[1]);
+            var pers = pr.GetProperty("persistent").GetBoolean();
+            var r = ec == null ? null : (pers ? ec.Persistent : ec.Temporary).OfType<IPlacedObjectGetter>().FirstOrDefault(x => x.FormKey.ID == id);
+            Add($"probe {id:X6} {(pers ? "persistent" : "temporary")} in ({g[0]}, {g[1]}) as staged",
+                r != null && Near(r.Position, pr.GetProperty("pos")) && r.Base.FormKey.ID == Convert.ToUInt32(pr.GetProperty("base").GetString(), 16)
+                && ((r.MajorRecordFlagsRaw & 0x400) != 0) == pers,
+                r == null ? "missing" : $"{r.FormKey} base {r.Base.FormKey} at {r.Position} flags 0x{r.MajorRecordFlagsRaw:X}");
+        }
         var ext = w.TopCell.Persistent.OfType<IPlacedObjectGetter>().ToList();
         var inn = cell.Persistent.OfType<IPlacedObjectGetter>().ToList();
         Add("exterior door: one persistent reference, nothing temporary", ext.Count == 1 && w.TopCell.Temporary.Count == 0,

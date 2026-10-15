@@ -61,6 +61,15 @@ class SandboxStep:
         left = [k for k, a in st["actors"].items() if not (a.get("disabled") and a.get("deleted"))]
         self.typed = st.get("typed", [])
         self.state = st
+        self.out = out
+        # every readpos run typed its own nonce first and kept read.json in its own folder, listed in obs.read_log
+        # (Codex's review of PR #107: one shared folder, a read not tied to its own request)
+        nonces = [c for c in self.typed if c.startswith("fo4sfr")]
+        self.assertEqual(len(nonces), len(set(nonces)))
+        self.assertEqual([r["nonce"] for r in obs.get("read_log", [])], nonces)
+        for r in obs.get("read_log", []):
+            with open(os.path.join(out, r["work"], "read.json"), encoding="utf-8-sig") as f:
+                self.assertEqual(json.load(f)["nonce"], r["nonce"])
         # a selection that stayed on the floor static must never get disable (N0_base's spawn session had one)
         self.assertEqual([k for k, v in st.get("statics", {}).items() if v.get("disabled") or v.get("deleted")], [])
         return tq.judge(t, obs, out), obs, left
@@ -384,15 +393,17 @@ class QstepDoorSandboxTests(SandboxStep, unittest.TestCase):
         v, obs, _ = self.trip(door_world())
         self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
         self.assertEqual(self.state["loads"], ["ext", "int"])
-        self.assertEqual([(x["name"], x["trigger"], x["incell"]) for x in obs["legs"]], [("in", "walk", 1), ("out", "walk", 0)])
+        # GetInCell is typed only with inside.cell_id (the console refused the cell's EditorID in game, 2026-10-13)
+        self.assertEqual([(x["name"], x["trigger"], x["incell"]) for x in obs["legs"]],
+                         [("in", "walk", None), ("out", "walk", None)])
         self.assertEqual([round(c, 1) for c in obs["offset"]], [-1200.0, -2700.0, 0.0])
         self.assertTrue(obs["save"]["found"])
         self.assertEqual(obs["save"]["file"], "fo4sf_slice_rrdoor.sfs")
         self.assertTrue(obs["reload"]["load_seen"])
-        self.assertEqual(obs["reload"]["incell"], 0)
+        self.assertIsNone(obs["reload"]["incell"])
         self.assertLess(self.typed.index("save fo4sf_slice_rrdoor"), self.typed.index("load fo4sf_slice_rrdoor"))
-        self.assertIn("player.GetInCell FO4Port_RedRocket01", self.typed)
-        self.assertIn("out: arrived 0.0 m from the merged exterior arrival point (GetInCell FO4Port_RedRocket01 0)", v[2])
+        self.assertFalse([c for c in self.typed if "getincell" in c.lower()])
+        self.assertIn("out: arrived 0.0 m from the merged exterior arrival point (merged exterior frame)", v[2])
         # every walk step was followed by a position read; the load was seen by the HUD check
         self.assertEqual([x["load_by"] for x in obs["legs"]], ["hud", "hud"])
         self.assertTrue(all(c["tag"] == "walk" for x in obs["legs"] for c in x["checks"]))
@@ -447,7 +458,7 @@ class QstepDoorSandboxTests(SandboxStep, unittest.TestCase):
         self.assertEqual((leg["load_seen"], leg["trigger"]), (False, ""))
         self.assertAlmostEqual(leg["near_m"], 1.0, delta=0.05)
         self.assertEqual(len(leg["checks"]), 8)                         # 4 s in 500 ms steps, each read
-        self.assertEqual(leg["incell"], 0)
+        self.assertIsNone(leg["incell"])                                # GetInCell not typed without cell_id
         self.assertEqual(len(obs["legs"]), 1)
         self.assertNotIn("save fo4sf_slice_rrdoor", self.typed)
 
@@ -467,9 +478,85 @@ class QstepDoorSandboxTests(SandboxStep, unittest.TestCase):
         self.assertEqual(v[:2], ("INCONCLUSIVE", "NOSAVE"), v[2])
         self.assertNotIn("load fo4sf_slice_rrdoor", self.typed)
 
+    def test_the_garbled_read_of_the_first_live_run_is_not_a_load(self):
+        # slice_door_1013 a1 (2026-10-13): the read after the first walk step came back "99.74 -2195.27 99.41" (the
+        # previous read's z, this read's x and z) and the step took it for a load 2,372 m away, 3 m before the door
+        v, obs, _ = self.trip(door_world(garble_after_walks=1, walk_dz=-0.33))
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        self.assertEqual(self.state["loads"], ["ext", "int"])
+        leg = obs["legs"][0]
+        self.assertEqual((leg["trigger"], leg["load_by"]), ("walk", "hud"))
+        bad = [c for c in leg["checks"] if c.get("rejected")]
+        self.assertEqual([c["rejected"] for c in bad], ["axes swapped"])
+        self.assertEqual(bad[0]["read"].split()[0], leg["start_read"].split()[2])      # the start read's z as x
+        self.assertEqual(leg["checks"][leg["checks"].index(bad[0]) + 1]["tag"], "walk_confirm")
+        self.assertIn("1 read(s) rejected (axes swapped)", v[2])
+
+    def test_a_far_read_needs_a_second_one(self):
+        # the same garble twice in a row is still rejected: its axes look swapped against the last read on this side
+        v, obs, _ = self.trip(door_world(garble_after_walks=1, garble_count=2, walk_dz=-0.33))
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        self.assertEqual(self.state["loads"], ["ext", "int"])
+        self.assertEqual(len([c for c in obs["legs"][0]["checks"] if c.get("rejected")]), 2)
+
+    def test_getincell_refused_by_the_console_is_not_judged(self):
+        # a form id the console does not know answers like the EditorID did in game: "Item '...' not found for
+        # parameter Cell." The trip is judged by the position frames
+        v, obs, _ = self.trip(door_world(), plan={"inside": dict(DOOR["inside"], cell_id="04002338")})
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        self.assertIn("player.GetInCell 04002338", self.typed)
+        self.assertEqual([(x["incell"], x["incell_error"]) for x in obs["legs"]],
+                         [(None, "not found for parameter Cell")] * 2)
+        self.assertIn("GetInCell 04002338 unread (not found for parameter Cell) (a diagnostic, not judged)", v[2])
+        # with a form id the console knows, GetInCell is read (and still only reported)
+        v, obs, _ = self.trip(door_world(cell_ids={"04002338": "FO4Port_RedRocket01"}),
+                              plan={"inside": dict(DOOR["inside"], cell_id="04002338")})
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        self.assertEqual([x["incell"] for x in obs["legs"]], [1, 0])
+
+    def route_plan(self):
+        """A flat world (the fake keeps z while walking): the in leg walks 37 m from the coc arrival to the door."""
+        sl = [-989.0286, 1147.2, 100.0]
+        o = {"start": sl, "door": [-994.95, 1109.49, 100.0], "arrival": [-995.53, 1104.14, 100.0],
+             "near": [-995.03, 1108.5, 100.0], "ground": 100.0, "arrival_heading": 181.92,
+             "route": [sl, [-989.0, 1125.0, 100.0], [-995.0, 1112.0, 100.0]]}
+        i = dict(DOOR["inside"], arrival_heading=154.78, route=[DOOR["inside"]["arrival"], [-1.5, 0.0, 0.0]])
+        return {"spawn_local": sl, "outside": o, "inside": i, "moved_m": 150.0, "walk_step_ms": 500}
+
+    def route_world(self, out_heading=181.92):
+        pl = self.route_plan()
+        o, i = pl["outside"], pl["inside"]
+        return {"arrival": plus(pl["spawn_local"]), "player": [0, 0, 0],
+                "doors": [{"name": "ext", "cell": "FO4CW_RedRocketSpawn", "pos": plus(o["door"]), "auto": True,
+                           "dest_cell": i["cell"], "dest_pos": i["arrival"], "dest_heading": 154.78},
+                          {"name": "int", "cell": i["cell"], "pos": i["door"], "auto": True,
+                           "dest_cell": "FO4CW_RedRocketSpawn", "dest_pos": plus(o["arrival"]),
+                           "dest_heading": out_heading}]}
+
+    def test_a_walk_along_the_route_from_the_arrival(self):
+        v, obs, _ = self.trip(self.route_world(), plan=self.route_plan())
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        self.assertEqual(self.state["loads"], ["ext", "int"])
+        self.assertEqual([(x["mode"], x["teleports"], x["trigger"]) for x in obs["legs"]],
+                         [("route", 0, "walk"), ("route", 0, "walk")])
+        # no teleport between the coc and the first load: the player walked from the arrival
+        first_load = next(k for k, c in enumerate(self.typed) if c.startswith("save "))
+        self.assertFalse([c for c in self.typed[:first_load] if c.startswith("player.setpos")])
+        self.assertTrue([c for c in self.typed if c.startswith("player.setangle z")])
+        self.assertGreaterEqual(len(obs["legs"][0]["steps"]), 3)
+        self.assertAlmostEqual(obs["legs"][1]["arrival_heading"], 181.92, delta=0.01)
+        self.assertIn("out arrival heading 181.9, want 181.9", v[2])
+        self.assertIn("heading after the load (the saved one) heading 181.9", v[2])
+
+    def test_the_wrong_facing_on_return_fails(self):
+        v, obs, _ = self.trip(self.route_world(out_heading=6.0), plan=self.route_plan())
+        self.assertEqual(v[:2], ("FAIL", "FACING"), v[2])
+
     def test_a_bad_spec_types_nothing(self):
         for bad in ({"save": "fo4sf_test_1234"}, {"inside": dict(DOOR["inside"], cell="FO4Port RedRocket01")},
-                    {"travel": "player.moveto 02000800"}):
+                    {"travel": "player.moveto 02000800"}, {"inside": dict(DOOR["inside"], cell_id="FO4Port;tgm")},
+                    {"probes": [{"ref": "02000800;tgm", "local": [0, 0, 0], "what": ""}]},
+                    {"outside": dict(DOOR["outside"], route=[[0, 0, 0]])}):
             t = dict(tq.door_test(0, DOOR), **bad)
             out, _, _ = self.run_step(test=t, world=door_world(), code=4)
             self.assertEqual(self.typed, [], bad)

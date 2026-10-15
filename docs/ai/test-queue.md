@@ -30,7 +30,7 @@ another window in front of the game, also stops it (or makes it wait for an idle
 | travel | load doors whose XTEL partner is in the same build | arrived within 4 m of the arrival point | no prompt; E did nothing | start not reached, arrived elsewhere |
 | terrain | `plan-terrain` (an experiment's plan.json) | heights within 0.5 m | NOTERRAIN, HEIGHTS | a height not read, moved |
 | npc_nav | `plan-npc` (plan.json, below) | the actor walked to B (a baseline: stayed away without a command) | NONAV, STALLED, FELL, WANDER | spawn / handle / reads failed, warp or early arrival, control or precondition not met |
-| door_trip | `plan-door` (plan.json, below) | walked through a load door into an interior and back, saved and loaded, every arrival read where expected | NOLOAD, UNMERGED, REMERGED, WRONGCELL, FELL, RELOAD, OFFGROUND | offset, start, a read, the door not reached (NOREACH), loaded only from the last try (NEARONLY), position and GetInCell disagree (CELLREAD), the save file or the reload not seen |
+| door_trip | `plan-door` (plan.json, below) | walked through a load door into an interior and back, saved and loaded, every arrival read where expected (frame and, when planned, facing) | NOLOAD, UNMERGED, REMERGED, WRONGCELL, ELSEWHERE, FELL, RELOAD, OFFGROUND, FACING | offset, start, a read, the door not reached (NOREACH), loaded only from the last try (NEARONLY), no known frame (ELSEWHERE), a heading not read (NOFACING), the save file or the reload not seen |
 
 Every verdict needs its observations: a position that was not read or a screenshot that is missing makes the test
 INCONCLUSIVE, never PASS. INCONCLUSIVE tests are retried once more at the end of the queue (`--max-attempts 2`); a FAIL
@@ -145,7 +145,9 @@ without a word. Therefore:
   weather, `console` for `console_pre` / `console_post`, `npc_t0` for an npc_nav `precommand_m` / `arrive_progress`:
   an older runner would judge such a queue by `min_progress` alone; `door_trip` for the kind, `door_check` for a
   door_trip test with `moved_m` / `activate_m`: the first door_trip runner could teleport after a load it did not see
-  and judge NOLOAD from 5 m), and the runner refuses a queue whose needs its checkout lacks
+  and judge NOLOAD from 5 m; `door_frames` for `reads: strict` (every door_trip test planned since 2026-10-13: strict
+  reads, no load from one read, GetInCell not judged, facing, probes); `door_route` for a walked route), and the
+  runner refuses a queue whose needs its checkout lacks
   (`runner_features.FEATURES`; run.log "stopped: this queue needs runner features ...", status "stopped: runner lacks
   ...", exit 3, nothing launched). It also notes in run.log when the queue was planned at a commit its checkout does not
   contain.
@@ -344,6 +346,13 @@ PASS needs every arrival observed where expected and both legs walked (a load fr
 NEARONLY); NOLOAD needs the player standing within `activate_m` of the door with GetInCell not saying the far side;
 a leg that fails ends the step. With `outside.ref` the door's own getpos is read after the coc (a diagnostic).
 
+Since the first live runs (2026-10-13, [docs/slice/door-frames.md](../slice/door-frames.md)): every read is strict
+(`readpos -Strict`), a load is never taken from one read (a second far read must agree within 1 m; a read whose axes
+look swapped is rejected), GetInCell is typed only with `inside.cell_id` and never judged (the console refused the
+cell's EditorID), the side of the door comes from position frames, and each arrival also reads the heading. With
+`outside.route` / `inside.route` a leg walks from where the player stands (the coc arrival, the interior arrival)
+through the waypoints to the door, steering with `player.setangle z` and timed W holds: no start teleport.
+
 | plan.json field | meaning | default |
 |---|---|---|
 | `travel` | `coc <cell editor id>` into the world | required |
@@ -354,6 +363,12 @@ a leg that fails ends the step. With `outside.ref` the door's own getpos is read
 | `radius`, `start_tol`, `reload_tol`, `ground_tol` | arrival, start, reload and ground tolerances (m) | 4, 3, 1, 1 |
 | `walk_ms`, `walk_step_ms`, `near_wait_ms`, `load_wait_s`, `settle_ms`, `drop` | the walk, the last try, the load wait, the settle after a teleport, the drop | 8000, 500, 6000, 90, 6000, 0.5 |
 | `moved_m`, `activate_m` | a read farther than this from a leg's start is the other side of the door; the door's range for NOLOAD | 30, 3 |
+| `outside.route`, `inside.route` | 2 to 64 waypoints (x, y, z, the side's frame) from where the player stands to the door (the last within `activate_m` + 1 m of it); `moved_m` must exceed the route's reach + 10 m | none (straight walk from `start`) |
+| `route_hold_ms`, `route_reach_m`, `route_speed`, `route_walk_ms`, `route_max_steps`, `route_final_steps` | the longest W hold, when a waypoint counts as reached, the first speed guess (m/s), the W budget, the step budget, the steps at the door itself | 2000, 0.8, 4.6, 60000, 40, 6 |
+| `outside.arrival_heading`, `inside.arrival_heading`, `facing_tol` | the facing the door's XTEL gives on arrival (degrees, as getangle z); tolerance | none (not judged), 20 |
+| `inside.cell_id` | 8 hex digits: `player.GetInCell <id>` after each arrival, reported only | none (not typed) |
+| `frame_m` | a position within this of a side's door is in that side's frame | 150 |
+| `probes` | up to 8 {ref, local, what}: getpos after the arrival, reported as merged / local / neither | none |
 | `fresh`, `expect`, `basis`, time of day / weather, `console_pre` / `console_post` | as for npc_nav | |
 
 ```powershell

@@ -3,6 +3,34 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-13 Claude: the first live door_trip runs, and why our persistent refs read unmerged
+- Question: why did the first live Red Rocket cave door runs (queue `slice_door_1013`, exp2d + FO4SliceRedRocket.esm,
+  runner 129b9ae) end INCONCLUSIVE UNREAD (a1) and FAIL NOLOAD (a2), and what must change in the runner and the
+  plugin? Details: [docs/slice/door-frames.md](../slice/door-frames.md).
+- **verified** (a1 obs.json and captures): a garbled read "99.74 -2195.27 99.41" (the previous read's z, this read's
+  x and z; the default parser's bare-number fallback) made the step declare a load 3 m before the door; another read
+  turned "-1 593.51" into -1.59; `player.GetInCell FO4Port_RedRocket01` was refused ("Item 'FO4Port_RedRocket01' not
+  found for parameter Cell." / "Compiled script not saved!"): the PR #78 GetInCell hypothesis is **refuted** for
+  EditorIDs; the door's getpos read its unmerged local position (a1 and a2). The console selection "DOOR 'FO4SL_F..."
+  in the capture is the getpos diagnostic's `prid`, not a crosshair pick (**supported**).
+- Runner fixes (runner features `door_frames`, `door_route`): strict labelled reads (`parse_getpos.py --strict`), no
+  load from one read (a second far read must agree within 1 m; swapped axes rejected), GetInCell only with a form id
+  and never judged, the side of the door from position frames, the facing on arrival and after the load
+  (`getangle z`, reply format **supported**), routes walked from the arrival (no start teleport), merge probes.
+  Synthetic tests and sandbox scenarios reproduce the a1 garble and the GetInCell refusal.
+- **verified** (`scripts/slice/persistent_refs.py`, raw walk): all 432 worldspace persistent cells in Starfield.esm
+  have record flag 0x400 and DATA XCLC LTMP XCLW XILS; ours (TerrainOverlays, exp2) have flag 0 and DATA only.
+  LC172World's persistent COC marker 0010238E (NAME DATA, in the persistent cell like our anchors) read merged in
+  game (terrain_A2_lc172, 2026-10-11). 432 of 433 vanilla WRLD records have OFST / CLSZ, ours none. Vanilla keeps
+  overlay-world doors in the persistent cell and writes XTEL arrivals into overlay worlds in the local frame (44 of
+  44 within 19.6 m of the destination door's local position), as we do.
+- **supported hypothesis (fix A):** the merge moves a world's persistent refs only when its persistent cell has the
+  vanilla shape. `SliceDoor build` can now give the slice plugin's persistent-cell override LC172World's record
+  (`persistent_cell` template; checked offline) and place merge probes (a persistent and a temporary XMarker in an
+  exterior cell). The discriminating test is read by the door_trip step after the coc arrival: the door, core64c's
+  anchor, both probes; vanilla control: `merge_ctrl_lc172`. **unresolved:** whether A works, the OFST / CLSZ
+  alternative, GetInCell with a form id, the GetAngle reply.
+
 ## 2026-10-12 Claude: the Red Rocket cave load door on the converted terrain (slice: working door -> interior -> save)
 - Question: which Fallout 4 load door links RedRocket01 with the Commonwealth, where is it relative to the converted
   terrain of experiment 2d, what does our side hold of it, and how is it written so a player can walk through it and
