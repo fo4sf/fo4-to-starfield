@@ -248,6 +248,9 @@ def main():
     reason_counts = Counter(f["reason"].split(":")[0].strip() for f in failures)
     total = len(failures)
     unique = len(reason_counts)
+    attempted = len(items) + total
+    success_pct = 100.0 * len(items) / attempted if attempted else 100.0
+    print(f"  Batch result: {len(items)}/{attempted} succeeded ({success_pct:.1f}%)")
     if total:
         print(f"  Failure summary: {total} failures across {unique} unique top-level reasons")
         print("  Top failure reasons:")
@@ -258,6 +261,10 @@ def main():
         print("  Failure summary: 0 failures")
     # Always persist a compact summary (including the zero case) so tooling sees the latest run
     summary = {
+        "generated_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        "attempted": attempted,
+        "successes": len(items),
+        "success_percent": round(success_pct, 1),
         "total_failures": total,
         "unique_reasons": unique,
         "top": [{"reason": r, "count": c, "percent": round(100.0 * c / total, 1) if total else 0.0}
