@@ -21,7 +21,6 @@ using Noggog;
 if (args.Length == 2 && args[0] == "teleports") { TeleportLinks.List(args[1], Console.Out); return; }
 
 const float UnitsPerMetre = 70f;
-const uint FirstId = 0x800;
 var outDir = args[0];
 Directory.CreateDirectory(outDir);
 
@@ -33,15 +32,18 @@ mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
 
 // ---- stable FormID map ------------------------------------------------------------------------------------------------
 var mapPath = Path.Combine(outDir, "formids.json");
-var ids = File.Exists(mapPath)
-    ? JsonSerializer.Deserialize<Dictionary<string, uint>>(File.ReadAllText(mapPath))!
-    : new Dictionary<string, uint>();
-var next = ids.Count == 0 ? FirstId : ids.Values.Max() + 1;
+var ids = StableFormIds.Load(mapPath);
+var next = ids.Count == 0 ? StableFormIds.FirstId : ids.Values.Max() + 1;
 var usedThisRun = new HashSet<string>();
 FormKey Id(string key)
 {
     if (!usedThisRun.Add(key)) throw new InvalidOperationException($"duplicate identity key {key}");
-    if (!ids.TryGetValue(key, out var v)) { v = next++; ids[key] = v; }
+    if (!ids.TryGetValue(key, out var v))
+    {
+        if (next > StableFormIds.LastId) throw new InvalidOperationException($"FormID space exhausted; cannot allocate {key}");
+        v = next++;
+        ids[key] = v;
+    }
     return new FormKey(modKey, v);
 }
 

@@ -1239,3 +1239,25 @@ and1281 Windows suite tests(70 skips), guard and diff checks pass. Independent
 Anscombe QA passes three additional controls, including a genuine pre-fix cache
 and backslash namespace. #130 records pinned results; native acceptance is
 outside this correction.
+
+## 2026-10-15: Codex — validate persistent FormID reservations (#137)
+
+Synthetic binary repro on main4ba5c6a: a stored0x01000800 survived in the
+map but serialized as local000800; a uint.MaxValue tombstone wrapped the next
+allocation to zero. Valid sparse IDs round-tripped. Four new writer tests
+produced seven failing subcases before correction, including duplicate JSON
+keys, duplicate inactive reservations, and a failed allocation that still
+published its unusable reservation. Original outputs/logs are retained.
+
+PluginSpike now validates the complete map before constructing records:
+unique decoded keys and values, integer IDs within this writer's000800..FFFFFF
+range, including tombstones. New identities cannot exhaust/wrap the range;
+existing IDs at the limit remain reusable. Save independently validates before
+atomic publication. Invalid/exhausted inputs preserve both prior map bytes and
+plugin bytes. Release build has zero warnings/errors; seven writer checks,
+1308 Windows tests(69 skips), guard and independent Mencius QA pass. QA covers
+direct Save validation, escaped-equivalent duplicate keys and binary IDs on
+an exhausted-map rebuild. Native handling of its one-past-last HEDR.NextFormID
+remains unverified; these are offline controls, not native acceptance.
+No source IDs were repaired/reassigned, no native campaign was rescored, and
+no stages, game installation, controller or input changed.
