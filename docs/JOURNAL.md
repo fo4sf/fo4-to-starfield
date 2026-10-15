@@ -1211,3 +1211,7 @@ Independent Codex QA (Ampere):98 controls,32/32 raw corruptions rejected vs27/32
 limitations retained, combined check rejects all. Raw validation stays mandatory. New private stage
 has five records/34983-byte plugin SHA25651ec8f1be36283176b8edc909dc30c7137421819ab3482f5a00b459d0a091b34;
 only WRLD OFST/CLSZ differ from probe-free fixA; other records/IDs match. No live install/input.
+PR129 source b52e920: native-derived stage passes17 wrapper/31 typed checks; all7 source hashes
+unchanged after staging. Data51,821 hard links, no second payload copy. Normalized PR126 caller
+merge retains both adjacent argparse flags;2 parser controls pass (initial mixed-line-ending
+attempt failed and remains preserved). Native effect/return/save-reload belong to Claude.

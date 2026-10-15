@@ -30,6 +30,6 @@ Main now contains #121 integration at10e7019. New work starts from main; source 
 
 ## Next / preservation
 
-README recap published PR128/d628b56. Codex OFST/CLSZ packet: zero file-local arrays, no copied pointers;65x65 entries. Stage built;98 QA controls,32/32 raw corruptions rejected. Raw check mandatory; runtime unverified. No probes/exterior overrides/install/input. Claude's PR126 stays separate. R05 revised775b453. Old batch_full:1109 pending;616 movables need new plans. #79 awaits release/pins.
+README recap published PR128/d628b56. PR129 b52e920 OFST/CLSZ packet: zero file-local arrays,65x65 entries. Private stage17 wrapper/31 typed checks pass;98 QA controls,32/32 raw corruptions rejected. Raw check mandatory; native effect unverified. No probes/exterior overrides/install/input. PR126 stays separate. R05 revised775b453. Old batch_full:1109 pending;616 movables need new plans. #79 awaits release/pins.
 
 #32/owner issues are the inbox. Refresh before choosing work/done. Keep handoff below4KB; history in handoff-archive. Eleven completed private October15 capsules verified:2787 files, originals retained; local second volume, not offsite. Follow testing/progress-storage.md. Quiet hourly Codex follow-up active; other paused AI work stays paused.
