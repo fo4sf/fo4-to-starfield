@@ -995,3 +995,47 @@ stacked on cave runner2e3c961; live loop integration remains pending Claude. Sep
 CLI read-only fixture passed and the owner's runtime config was conditionally bound to that installed
 bundle, with recovery copies retained and timers/queues unchanged. The active watchdog was not restarted.
 No game input, installation or verdict rewriting is claimed.
+## 2026-10-13 Failure summary enhancement (Grok)
+
+convert_batch.py now prints failure counts with percentages and unique-reason totals, and writes
+staging/failure-summary.json (top 10 reasons) for later review. Synthetic test covers the summary
+shape and percentages. Offline only; no game data or format changes. Guard and new test pass.
+
+## 2026-10-13 Codex: preserve evidence before reclaiming storage (#105)
+
+Added a private lossless capsule tool and [storage procedure](testing/progress-storage.md).
+It checks every archived byte against a SHA-256 manifest, rechecks the source, and publishes
+without overwriting an earlier capsule. It never deletes sources. Independent Ptolemy QA
+caught Windows restore-manifest aliases and archive-ancestor junctions; both are fixed with
+regressions. Validation:19 focused tests (1 privilege skip),330 suite tests (3 skips), guard
+and22 independent adversarial cases pass, including a real Windows junction regression.
+
+Private application preserved846 files/87 images in10 verified capsules:265,527,468 original
+bytes stored as185,228,667 archive bytes on a second local volume. A PowerShell restore plus
+independent file hashes verified all10 original files in a selected capsule.191 inactive,
+ignored Codex build outputs were then individually rechecked and removed, reclaiming
+82,490,338 logical bytes on the source volume; archives/index/cleanup receipts retain them.
+Temporary restore copies were also individually checked and cleared. Native campaigns,
+source pins, saves, recovery data and Claude's active queues remain at their original paths.
+This is local storage; no offsite backup or game acceptance is claimed. Private archives and
+machine paths are excluded from Git. Shared coordination: #32 comment6159604237.
+
+## 2026-10-14 Codex: source-archive read guard (#117, offline tested)
+
+Reproduced a stale archive identity with an equal-size synthetic overwrite and
+deterministically unchanged metadata. The original returns the old digest; the
+guarded Windows reader refuses the writer. Two earlier full-suite failures remain
+preserved rather than replaced by passing retries. Acquisition now denies writes,
+writable mappings and deletion/rename during hashing and the final metadata check;
+existing readers work. The persisted identity format is unchanged. Sources still
+must stay immutable for the entire conversion run; POSIX has no new exclusion.
+
+Independent QA passed21 narrow sharing checks and caught a late stream-construction
+failure that could close a reused descriptor. The context manager now keeps explicit
+descriptor ownership with a non-owning stream; an actual late `io.open` exception and
+descriptor-reuse regression fails before the fix and passes afterward.
+
+Validation:14 focused checks,341 Windows suite tests (3 skips), guard pass. Independent
+ownership re-review passed14 narrow checks including the original late-failure counterexamples;
+hosted Linux CI passed. [Contract and limits](testing/archive-fingerprints.md). No live game,
+source archive, deployment, queue or save was changed.

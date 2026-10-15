@@ -4,6 +4,10 @@ Archive identity includes a streaming SHA-256 digest, so same-size edits with
 preserved timestamps invalidate resume data. Archives must remain immutable
 throughout the conversion run. Small tools/templates and converter
 sources also use content hashes.
+
+Windows fingerprints hold a read-sharing handle through the final metadata
+check. Other platforms retain best-effort mutation detection; callers must
+keep source archives immutable on every platform, including after return.
 """
 import hashlib
 import json
@@ -11,6 +15,7 @@ import os
 import struct
 from pathlib import Path
 import tempfile
+from contextlib import contextmanager
 
 from . import nif, sfnif
 
@@ -40,17 +45,57 @@ def _hash_open_file(stream):
     return h.hexdigest()
 
 
+@contextmanager
+def _open_archive_windows(path):
+    """Deny writers, writable mappings and deletion while this stream is open."""
+    import ctypes
+    from ctypes import wintypes
+    import msvcrt
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                           wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD,
+                           wintypes.HANDLE)
+    create_file.restype = wintypes.HANDLE
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = (wintypes.HANDLE,)
+    close_handle.restype = wintypes.BOOL
+    name = str(path)
+    if not name.startswith("\\\\?\\"):
+        name = "\\\\?\\UNC\\" + name[2:] if name.startswith("\\\\") else "\\\\?\\" + name
+    # GENERIC_READ, FILE_SHARE_READ, OPEN_EXISTING, sequential cached reads.
+    # Fail closed on incompatible existing access; never retry with write sharing.
+    handle = create_file(name, 0x80000000, 0x1, None, 3, 0x08000080, None)
+    if handle == wintypes.HANDLE(-1).value:
+        error = ctypes.WinError(ctypes.get_last_error())
+        error.filename = str(path)
+        raise error
+    try:
+        fd = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY | os.O_NOINHERIT)
+    except BaseException:
+        close_handle(handle)
+        raise
+    # open_osfhandle transfers ownership to the CRT descriptor. Keep explicit
+    # ownership: fdopen may fail after constructing/closing a partial stream.
+    try:
+        with os.fdopen(fd, "rb", closefd=False) as stream:
+            yield stream
+    finally:
+        os.close(fd)
+
+
 def archive_identity(path):
     path = Path(path).resolve()
-    with path.open("rb") as stream:
+    with (_open_archive_windows(path) if os.name == "nt" else path.open("rb")) as stream:
         before = os.fstat(stream.fileno())
         content_hash = _hash_open_file(stream)
         after = os.fstat(stream.fileno())
-    current_path = path.stat()
-    if (_stat_identity(before) != _stat_identity(after)
-            or _path_identity(after) != _path_identity(current_path)):
-        raise OSError(f"archive changed while fingerprinting: {path}")
-    return [str(path), after.st_size, content_hash]
+        current_path = path.stat()
+        if (_stat_identity(before) != _stat_identity(after)
+                or _path_identity(after) != _path_identity(current_path)):
+            raise OSError(f"archive changed while fingerprinting: {path}")
+        return [str(path), after.st_size, content_hash]
 
 
 def reusable_result(result):
