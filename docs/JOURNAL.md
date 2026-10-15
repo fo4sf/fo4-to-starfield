@@ -669,3 +669,17 @@ Temporary restore copies were also individually checked and cleared. Native camp
 source pins, saves, recovery data and Claude's active queues remain at their original paths.
 This is local storage; no offsite backup or game acceptance is claimed. Private archives and
 machine paths are excluded from Git. Shared coordination: #32 comment6159604237.
+
+## 2026-10-14 Codex: source-archive read guard (#117, offline tested)
+
+Reproduced a stale archive identity with an equal-size synthetic overwrite and
+deterministically unchanged metadata. The original returns the old digest; the
+guarded Windows reader refuses the writer. Two earlier full-suite failures remain
+preserved rather than replaced by passing retries. Acquisition now denies writes,
+writable mappings and deletion/rename during hashing and the final metadata check;
+existing readers work. The persisted identity format is unchanged. Sources still
+must stay immutable for the entire conversion run; POSIX has no new exclusion.
+
+Validation:13 focused checks,340 Windows suite tests (3 skips), guard pass. Independent
+QA is pending. [Contract and limits](testing/archive-fingerprints.md). No live game,
+source archive, deployment, queue or save was changed.
