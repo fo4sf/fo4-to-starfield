@@ -984,6 +984,18 @@ Four negative regressions failed before their fixes. Validation:31 evidence test
 full-suite tests pass (2 skips); guard passes. Re-reading completed pinned evidence preserves7/7 smoke and29/30
 baseline heights and all four POST_FRAME findings. Offline only; no game scripts, assets or live control changed.
 
+## 2026-10-14 Codex: reliable report handovers (#109)
+
+The configured copied CLI lacked its code-mode host. The source helper now requires a complete installed
+bundle, bounded probes/exec, literal Windows argument quoting and UTF-8 stdin. Failed or incomplete jobs
+do not consume the successful handover interval. Independent synthetic QA caught a concurrent report
+publication race and malformed-configuration fallback; both now refuse, retain diagnostics and preserve
+the other writer's report. Validation:31 focused tests and22 independent stub cases pass. The source is
+stacked on cave runner2e3c961; live loop integration remains pending Claude. Separately, an isolated actual
+CLI read-only fixture passed and the owner's runtime config was conditionally bound to that installed
+bundle, with recovery copies retained and timers/queues unchanged. The active watchdog was not restarted.
+No game input, installation or verdict rewriting is claimed.
+
 ## 2026-10-13 Claude: small converted items that "did not move" were out of reach or walked over (offline; a live test was running, so no game input)
 - **Not the conversion (verified offline):** the converted BurntBook01, CigarettePack, BobbyPinBox and trash can bodies
   match vanilla Starfield items on every motion, layer, quality, flag and BSXFlags field (6,221 vanilla dynamic bodies
@@ -1196,3 +1208,15 @@ both unchanged media identities pass; GitHub GFM renders the new sections/images
 Independent factual/link QA passed, with draft status made explicit. Guard passed.
 No new unit tests for documentation; hosted CI is checked on the PR. No game,
 runner, installation, queue or save changed.
+
+## 2026-10-15 Codex: current-main watchdog report integration (#109/PR116)
+
+Merged main d628b56 into the reviewed handover branch without rewriting history. Resolved only
+status/journal/decisions conflicts, preserving both append-only histories and current README.
+The helper, watchdog, synthetic tests and runbook blobs equal reviewed14f1115. Current-main source
+delta stays limited to report handover; Claude's chain/controller, actors, walk, bridge and archive
+guard are retained.32 focused fake-CLI tests/1309 Windows tests(70 skips)/guard pass. No real CLI
+inference, live watchdog restart/config update, queue or game activity was performed. Integration
+QA and current-head hosted CI are recorded on PR116; source readiness is not live application.
+Independent Codex QA (Hubble) passed five integration invariants: reviewed blobs, controller policy,
+main source preservation, both histories/current status, and source-only scope. No source repair changed.

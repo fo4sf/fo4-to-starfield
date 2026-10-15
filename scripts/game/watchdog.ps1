@@ -24,11 +24,26 @@ $heartbeat = Join-Path $tq 'claude_heartbeat.txt'
 function Note($m) { try { "$(Get-Date -Format s) $m" | Add-Content $log -ErrorAction Stop } catch { } }
 function Cfg {
   $c = @{ threshold_hours = 3.0; check_minutes = 10; codex = $true; codex_every_hours = 6.0
-          codex_exe = "$env:USERPROFILE\.codex\.sandbox-bin\codex.exe" }
-  if (Test-Path $Config) {
-    try { (Get-Content $Config -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $c[$_.Name] = $_.Value } }
-    catch { Note "config unreadable, defaults used: $_" }
+          codex_exe = $null } # auto-resolve an installed complete bundle; explicit invalid paths refuse
+  $codexConfigInvalid = $false
+  $codexConfigError = $null
+  try {
+    if (Test-Path -LiteralPath $Config -ErrorAction Stop) {
+      $raw = Get-Content -LiteralPath $Config -Raw -ErrorAction Stop
+      $loaded = ConvertFrom-Json -InputObject $raw -ErrorAction Stop
+      # PowerShell can unwrap a single-element JSON array; inspect its root token as well as the parsed type.
+      if ([string]::IsNullOrWhiteSpace($raw) -or -not $raw.TrimStart().StartsWith('{') -or
+          $loaded -isnot [pscustomobject]) { throw 'watchdog config root must be a JSON object' }
+      $loaded.PSObject.Properties | ForEach-Object { $c[$_.Name] = $_.Value }
+    }
+  } catch {
+    $codexConfigInvalid = $true
+    $codexConfigError = "$_"
+    Note "config unreadable/invalid, inherited defaults used for chain policy; Codex hand-over refused: $_"
   }
+  # These are derived handover-only markers, not configurable policy overrides.
+  $c.codex_config_invalid = $codexConfigInvalid
+  $c.codex_config_error = $codexConfigError
   return $c
 }
 function Stopped { (Test-Path (Join-Path $tq 'STOP_ALL')) -or (Test-Path "$env:LOCALAPPDATA\fo4-ai-team\state\testqueue.STOP") }
@@ -56,25 +71,24 @@ function QueueLeft { @(Get-Content (Join-Path $tq 'chain_queue.txt') -ErrorActio
 function State { if (Test-Path $stateFile) { try { return Get-Content $stateFile -Raw | ConvertFrom-Json } catch { } }; return $null }
 function SaveState($s) { $s | ConvertTo-Json | Set-Content -Encoding utf8 $stateFile }
 function CodexHandOver($cfg, $idleH) {
-  $exe = $cfg.codex_exe
-  if (-not (Test-Path $exe)) { Note "codex not found at ${exe}: no hand-over"; return }
+  if ($cfg.codex_config_invalid) {
+    Note "Codex hand-over refused: watchdog config invalid: $($cfg.codex_config_error)"
+    return $false
+  }
   $runbook = Join-Path $wt 'docs\ai\codex-runbook.md'
   if (-not (Test-Path $runbook)) { $runbook = Join-Path $repo 'docs\ai\codex-runbook.md' }
   $prompt = "Codex: Claude has been inactive for $([Math]::Round($idleH,1)) hours, so the test hand-over in $runbook applies. " +
             "Read that runbook and follow it exactly: check the unattended test chain in C:\Modding\testqueue, read the queue " +
-            "states and reports, and post one concise status comment to GitHub issue #32 starting with 'Codex:'. " +
+            "states and existing reports without re-running judges or rescoring queues, and post one concise status " +
+            "comment to GitHub issue #32 starting with 'Codex:'. Claude retains the live controller. " +
             "Do not edit code or repo files, do not send any input to Starfield yourself, do not touch the game folder or " +
             "Plugins.txt, and never write the owner's previous GitHub username anywhere."
-  $out = Join-Path $tq ("codex_handover_{0}.md" -f (Get-Date -Format 'yyyyMMdd_HHmm'))
-  # the prompt goes in on stdin ("-"): Start-Process in PowerShell 5.1 does not quote arguments with spaces
-  $promptFile = Join-Path $tq 'codex_prompt.txt'
-  Set-Content -Encoding utf8 $promptFile $prompt
-  $cargs = "exec --skip-git-repo-check -C `"$tq`" -s workspace-write -c sandbox_workspace_write.network_access=true -o `"$out`" -"
+  $out = Join-Path $tq ("codex_handover_{0}_{1}.md" -f (Get-Date -Format 'yyyyMMdd_HHmmss'), [Guid]::NewGuid().ToString('N'))
   try {
-    Start-Process -FilePath $exe -ArgumentList $cargs -WindowStyle Hidden -RedirectStandardInput $promptFile `
-                  -RedirectStandardOutput "$out.log" -RedirectStandardError "$out.err" | Out-Null
-    Note "Codex hand-over started (report $out)"
-  } catch { Note "Codex hand-over failed to start: $_" }
+    # The helper keeps the original -s workspace-write policy and network access for gh, then waits for exit.
+    . (Join-Path $PSScriptRoot 'codex_handover.ps1')
+    return (Invoke-CodexHandover -ConfiguredExe $cfg.codex_exe -Workspace $tq -Prompt $prompt -OutputPath $out -LogPath $log)
+  } catch { Note "Codex hand-over refused/failed: $_"; return $false }
 }
 
 Note "watchdog start (pid $PID, config $Config)"
@@ -102,9 +116,10 @@ while ($true) {
       }
       $lastCodex = if ($st -and $st.last_codex) { [DateTime]$st.last_codex } else { [DateTime]::MinValue }
       if ($cfg.codex -and ((Get-Date) - $lastCodex).TotalHours -ge [double]$cfg.codex_every_hours) {
-        CodexHandOver $cfg $idleH
-        SaveState @{ last_codex = (Get-Date).ToString('s'); starts = $(if ($st) { @($st.starts) } else { @() });
+        if (CodexHandOver $cfg $idleH) {
+          SaveState @{ last_codex = (Get-Date).ToString('s'); starts = $(if ($st) { @($st.starts) } else { @() });
                      claude_last = $last.ToString('s') }
+        }
       }
     }
   }
