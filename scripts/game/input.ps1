@@ -1,4 +1,8 @@
 # usage: input.ps1 -Proc Starfield -Seq "key:enter","wait:1500","type:help foo 4","key:enter"
+# Keys go through keybd_event (the legacy path) unless LEGACY=0: Starfield takes the console key and typed text only that
+# way (2026-10-14: a bare call without LEGACY=1 walked with W but never opened the console; every runner script had set it).
+# steps: key:<name>, type:<text>, wait:<ms>, hold:<key>,<ms>, holdg:<letter>,<ms> (released when the game loses focus,
+#        exit 2, or when a STOP file named in FO4SF_STOP_FILES appears, exit 5), move:<dx>,<dy>, click:<x>,<y>; separated by |
 param([string]$Proc = 'Starfield', [string]$Seq)
 Add-Type @'
 using System; using System.Runtime.InteropServices;
@@ -26,9 +30,9 @@ $names = @{ enter=0x0D; esc=0x1B; space=0x20; grave=0xC0; tab=0x09; up=0x26; dow
 function Tap([int]$vk, [bool]$shift = $false) {
   $scan = [In]::MapVirtualKey($vk, 0)
   $ext = $vk -in 0x26,0x28,0x25,0x27
-  if ($shift) { if ($env:LEGACY -eq "1") { [In]::Legacy(0x10, [byte][In]::MapVirtualKey(0x10,0), $false, $false) } else { [In]::Key([In]::MapVirtualKey(0x10,0), $false, $false) }; Start-Sleep -Milliseconds 40 }
-  if ($env:LEGACY -eq "1") { [In]::Legacy([byte]$vk, [byte]$scan, $false, $ext); Start-Sleep -Milliseconds 160; [In]::Legacy([byte]$vk, [byte]$scan, $true, $ext); Start-Sleep -Milliseconds 80 } else { [In]::Key($scan, $false, $ext); Start-Sleep -Milliseconds 160; [In]::Key($scan, $true, $ext); Start-Sleep -Milliseconds 80 }
-  if ($shift) { if ($env:LEGACY -eq "1") { [In]::Legacy(0x10, [byte][In]::MapVirtualKey(0x10,0), $true, $false) } else { [In]::Key([In]::MapVirtualKey(0x10,0), $true, $false) }; Start-Sleep -Milliseconds 40 }
+  if ($shift) { if ($env:LEGACY -ne "0") { [In]::Legacy(0x10, [byte][In]::MapVirtualKey(0x10,0), $false, $false) } else { [In]::Key([In]::MapVirtualKey(0x10,0), $false, $false) }; Start-Sleep -Milliseconds 40 }
+  if ($env:LEGACY -ne "0") { [In]::Legacy([byte]$vk, [byte]$scan, $false, $ext); Start-Sleep -Milliseconds 160; [In]::Legacy([byte]$vk, [byte]$scan, $true, $ext); Start-Sleep -Milliseconds 80 } else { [In]::Key($scan, $false, $ext); Start-Sleep -Milliseconds 160; [In]::Key($scan, $true, $ext); Start-Sleep -Milliseconds 80 }
+  if ($shift) { if ($env:LEGACY -ne "0") { [In]::Legacy(0x10, [byte][In]::MapVirtualKey(0x10,0), $true, $false) } else { [In]::Key([In]::MapVirtualKey(0x10,0), $true, $false) }; Start-Sleep -Milliseconds 40 }
 }
 # FOREGROUND_GUARD: never type into another app. Abort unless the target process owns the foreground window.
 Add-Type @"
@@ -42,6 +46,11 @@ function Assert-Foreground($procName) {
   $h = [FgCheck]::GetForegroundWindow(); $fp = 0; [FgCheck]::GetWindowThreadProcessId($h, [ref]$fp) | Out-Null
   $name = (Get-Process -Id $fp -ErrorAction SilentlyContinue).ProcessName
   if ($name -ne $procName) { Write-Error "ABORT: foreground window belongs to '$name', not '$procName'. No input sent."; exit 2 }
+}
+function Test-Foreground([int]$gamePid) {
+  # the same check by process id, cheap enough to poll while a key is held
+  $h = [FgCheck]::GetForegroundWindow(); $fp = 0; [FgCheck]::GetWindowThreadProcessId($h, [ref]$fp) | Out-Null
+  return ($fp -eq $gamePid)
 }
 $p = Get-Process $Proc -ErrorAction Stop | Select-Object -First 1
 # FO4SF_NO_FOCUS_STEAL=1 (unattended queue runs, testqueue.py): never bring the game to the front. If the owner has
@@ -59,6 +68,28 @@ foreach ($s in $steps) {
   switch ($k) {
     'click' { $xy = $v.Split(','); [In]::Click([int]$xy[0], [int]$xy[1]) }
     'hold' { $hk, $ms = $v.Split(','); $vk = $names[$hk.ToLower()]; if (-not $vk) { $vk = [In]::VkKeyScan($hk[0]) -band 0xFF }; $sc = [In]::MapVirtualKey($vk,0); [In]::Legacy([byte]$vk,[byte]$sc,$false,$false); Start-Sleep -Milliseconds ([int]$ms); [In]::Legacy([byte]$vk,[byte]$sc,$true,$false) }
+    'holdg' {
+      # guarded timed hold (qstep.ps1 'walk'): one letter key, at most 10 s. The foreground is checked every 50 ms while
+      # the key is down; when the game loses it the key is released at once (a key-up only: no character is typed into
+      # the other window) and the step stops with exit 2, so the game never keeps walking behind the owner's window.
+      # The owner's STOP files (FO4SF_STOP_FILES, ';'-separated: qstep.ps1 'walk' sets them from its spec) are checked
+      # in the same loop: one appearing releases the key at once and exits 5 (the step ends like a guard stop).
+      $hk, $ms = $v.Split(','); $ms = [int]$ms
+      if ($hk.Length -ne 1 -or $hk -notmatch '^[a-z]$' -or $ms -lt 1 -or $ms -gt 10000) { Write-Error "bad holdg '$v'"; exit 4 }
+      $stops = @("$env:FO4SF_STOP_FILES".Split(';') | Where-Object { $_ })
+      $vk = [In]::VkKeyScan($hk[0]) -band 0xFF; $sc = [In]::MapVirtualKey($vk,0)
+      $end = (Get-Date).AddMilliseconds($ms); $lost = $false; $hit = $null
+      [In]::Legacy([byte]$vk,[byte]$sc,$false,$false)
+      while ((Get-Date) -lt $end) {
+        Start-Sleep -Milliseconds ([Math]::Max(1, [Math]::Min(50, [int](($end - (Get-Date)).TotalMilliseconds))))
+        if (-not (Test-Foreground $p.Id)) { $lost = $true; break }
+        $hit = $stops | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+        if ($hit) { break }
+      }
+      [In]::Legacy([byte]$vk,[byte]$sc,$true,$false)
+      if ($lost) { Write-Error "ABORT: the game lost the foreground during a hold; key released."; exit 2 }
+      if ($hit) { Write-Error "STOP: $hit appeared during a hold; key released."; exit 5 }
+    }
     'move' { $xy = $v.Split(','); [In]::mouse_event(1, [int]$xy[0], [int]$xy[1], 0, [IntPtr]::Zero) }
     'wait' { Start-Sleep -Milliseconds ([int]$v) }
     'key'  { $vk = $names[$v.ToLower()]; if (-not $vk -and $v.Length -eq 1) { $vk = [In]::VkKeyScan($v[0]) -band 0xFF }; Tap $vk }

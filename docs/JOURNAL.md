@@ -995,6 +995,44 @@ stacked on cave runner2e3c961; live loop integration remains pending Claude. Sep
 CLI read-only fixture passed and the owner's runtime config was conditionally bound to that installed
 bundle, with recovery copies retained and timers/queues unchanged. The active watchdog was not restarted.
 No game input, installation or verdict rewriting is claimed.
+
+## 2026-10-13 Claude: small converted items that "did not move" were out of reach or walked over (offline; a live test was running, so no game input)
+- **Not the conversion (verified offline):** the converted BurntBook01, CigarettePack, BobbyPinBox and trash can bodies
+  match vanilla Starfield items on every motion, layer, quality, flag and BSXFlags field (6,221 vanilla dynamic bodies
+  dumped). Starfield's own collision matrix lets the player's controller collide with their layer (CLUTTER).
+- **Most failures were placements** (reads corrected after the verifier of PR #110): the cigarette pack (supervised_1011
+  0007, the only FAIL) lay 0.83 m up on a desk and the player stopped at the desk 0.67 m from it; one bobby-pin box
+  (batch_full 0098) lay level with the player, who was blocked 1.45 m short of it. The three books (batch_full) lay
+  flat on the floor, 4.6 cm thick, and the walk passed 0.02-0.15 m from them. The same book model moved 0.46 m in Vault
+  114, where it lay on a bench the player climbed onto (hit side-on, or walked over and pushed off: the reads do not
+  tell). **One is not a placement:** the other pin box (0100, 50 kg) lay 0.81 m above the feet at the stand point, but
+  the walk passed 0.26 m from it while the player rose 0.28 m, and it did not move. Whether FO4's masses (2-10 times
+  Starfield's for items that size) stop the push is unresolved.
+- **Runner:** only the walk passes a movable test: a walk that reaches an item and leaves it in place is FAIL NOTMOVED,
+  even when `ApplyHavokImpulse` (found in Starfield.exe's script-function table with `scripts/recon_console.py`, which
+  now reads those entries) then moves it; the impulse only adds "the body is simulated", or FAIL STUCK when nothing
+  moves it. INCONCLUSIVE ELEVATED (final, never counted by the breaker) only for an item more than 0.5 m above the
+  player's feet that the walk came no closer than 0.5 m to, or more than 1.8 m above them. New kind `movable_control`
+  (`plan-movable`): an item placed in a vanilla cell, walked over, then pushed; a `SetRigidBodyMass` test is judged only
+  when `GetMass` reads the mass set back. Synthetic tests and sandbox scenarios; runner features `impulse`, `push_judge`.
+- **Staged, not run:** `movable_control_1013b` in QASmoke (replacing `movable_control_1013`, planned before these fixes):
+  five vanilla items (a bin, a cigarette pack, notepad stacks 5.7 and 3.8 cm, a folder) next to our trash can, pack, pin
+  box and book, plus the book and box at 5 kg via `SetRigidBodyMass`. Each test wrote its expectation first. If the
+  vanilla items move where ours do not, or the 5 kg copies (GetMass read 5) move where the originals do not, mass is the
+  cause and the converter should scale FO4 masses.
+
+## 2026-10-14 Claude: PR #110 fix pass checked, the console route to the mass confirmed, suite re-run (offline; no game input)
+- The verifier's three blocking findings are fixed by 18081d6 (only the walk passes a movable test, ELEVATED only when
+  the walk came no closer than 0.5 m to the item, a `SetRigidBodyMass` test judged only on a `GetMass` reading) and its
+  minor findings in the docs. This pass re-checked them against the reads and did the check the second finding asked
+  for: Starfield.exe 1.16.244's command table, read with `scripts/recon_console.py`, has `CallFunction` (`cf`, "Calls a
+  papyrus function on the targeted ref. First parameter is the function, the rest are parameters", one String and up to
+  seven optional Strings) and no console entry for `GetMass` (a Papyrus ObjectReference native), so `cf
+  "ObjectReference.GetMass"` is the only console route to the mass. The 5 kg tests stay in the queue and are
+  INCONCLUSIVE MASS without a number read back (docs/ai/test-queue.md "Movable items", research-log 2026-10-13).
+- Full suite with the qstep sandbox: 1013 tests OK (2 skips); `scripts/guard.py` ok.
+- Queue `movable_control_1013b` (planned at 18081d6, an ancestor of this head, so the runner takes it as it is) is the one
+  to run; `movable_control_1013` is marked superseded in its staging README and must not run.
 ## 2026-10-13 Failure summary enhancement (Grok)
 
 convert_batch.py now prints failure counts with percentages and unique-reason totals, and writes
@@ -1020,6 +1058,120 @@ source pins, saves, recovery data and Claude's active queues remain at their ori
 This is local storage; no offsite backup or game acceptance is claimed. Private archives and
 machine paths are excluded from Git. Shared coordination: #32 comment6159604237.
 
+## 2026-10-13 evening: library stairs STUCKs: mostly the routes; 0002 / 0003 unresolved (Claude, offline)
+
+- **Question (owner):** the player gets stuck on BostonPublicLibrary02's BldDecoSm* stairs (batch_full 0002, 0003, 0006,
+  0007, 0021 STUCK, 0022 FALL) and on Vault 114's cinder blocks (supervised_1011 0010).
+- **Result:** 0006 / 0007 / 0021 / 0022 / supervised 0010 asked for a walk Fallout 4's own collision does not allow: a
+  start wedged in a 0.49 m slot between a wall and a rail (0006 / 0007), a fallen floor chunk across the flight (0021),
+  a walk 2 m past a top that ends in the collapsed floor (0022), a 0.15 m remainder of a buried flight (0010);
+  batch_full 0423 (rebar on the flight) and 0136 (a start 1.5 m over the floor) likewise. The 16 stair models
+  re-converted with this branch read back body for body identical to the pinned build and to FO4's treads; neighbours
+  match FO4 to 2 cm; only the steep stair helpers are flattened, as designed.
+- **Correction after QA (PR #111):** this entry first said all of them were routes. 0002 / 0003 came up onto the gallery
+  slab and stopped 0.01 / 0.05 m before the place where the converted, flattened helper comes up through the slab
+  (0.46 / 0.50 m from FO4's own crossing); the slab lift had worked. Why they stopped is unresolved; the converter's
+  flattening is a live suspect, the old routes' start under the slab another. The offline walk's agreement with the
+  game is 59 of 64 verdicts, 57 also at the same place (0002 had been counted at the wrong place); the 0.35 m capsule
+  radius is an assumption again (0002's push-out was read off the wrong face).
+- **Fixed in the planner:** `routes.py` walks every lane offline (`src/fo4sf/walksim.py`) and keeps the first one a
+  player can climb, or skips the stair with the reason; tilted references are placed Z first, as FO4's precombines show
+  (the old order put the library's debris up to 1 m off). Routes carry what the walk cannot vouch for (a converted
+  helper crossing, movable objects on the lane); `--probes-out` plans probes around each crossing;
+  `scripts/game/stairs_calib.py` replays in-game results and route files. New routes for the 16 cells: 214 (226
+  before); every stair that passed in game is still planned, 13 of them on new lanes (their old routes are queued as
+  controls).
+- **Not run in game.** Routes and probes in `C:\Modding\staging\stairs_fix_1014` (no new plugin or archives); three
+  queues planned (probes, old-route replays, the new routes), readings in
+  [docs/testing/stairs-routes.md](testing/stairs-routes.md). Left open: VltGearDoorStairs01 (no stair helper, 0.3 m
+  treads; STUCK at 1.41 of 3.22 m on 2026-10-09), probably too steep a step for Starfield's controller without a
+  helper (supported hypothesis, V111 2026-10-08): a synthesized helper would be a converter change of its own.
+
+## 2026-10-14 evening: integration-1014, the owner's master handoff, tonight's batch (Claude)
+- **Owner's handoff** (`team-handoffs/2026-10-14/FO4SF_Extensive_Research_and_Master_Handoff.md`, local): packets R01-R14, the
+  roles (Claude lead and live game, Codex review / persistent IDs / deployment, Grok oracle and diagnostics), and the claim
+  ladder every report must keep apart: converted, placed, interactive, persistent, campaign-tested.
+- **`claude/integration-1014` (ef30495):** integration-1013 (68adac4) plus the reviewed fix heads #107 2e3c961, #103 4e0ad9d,
+  #110 612a245, #113 b2af212, #112 507c21f, #111 fa9c5b3. Six conflicts resolved by hand (runner FEATURES now
+  door_frames / door_route / walk / impulse / push_judge / npc_combat together; testqueue's plan-walk and plan-movable
+  side by side; the sandbox fake game's walk keeps the ground model and the door branch's `walk_dz`; both research-log
+  entries). One post-merge fix: `plan()` passed `routes_dir` positionally into `impulse`'s slot. Unit suite 1221 OK
+  (69 skipped), qstep sandbox 66 OK (51 min), guard ok, `make_cave_core64c.py check` 11/11 PASS on build 2470f876.
+- **Runner checkout:** `fo4-to-starfield-wt\integ` detached at ef30495 (the branch lives in the session worktree). Queues
+  planned on it: `walk_core64c_1014` (2 walks, needs light + walk, core64c installed by the runner), `cave_core64c_1014`
+  (1 door_trip, fix A plugin, both legs routed), `npc_combat_c1_1014` (3 npc_nav with combat reads), then the three
+  night-site texture queues as optional. Chain started 20:23 MDT with the owner away ("run now, I'm stepping away").
+- **merge_ctrl_lc172 (2026-10-13, read today):** the vanilla persistent COC marker 0010238E reads **merged** (offset
+  -500 / -2300 / -3.62 from its local position, already in door-frames.md); probe lc172_7 matched its BTD height within
+  0.02 m, probe lc172_0 read 6.17 m low standing in a hollow between boulders (pt0.png: supported hypothesis). The
+  FAIL HEIGHTS is the probe spot, not the merge.
+- **R05 plan** (PR #119, docs only): a 12-ref cluster within 21 m of the core64c Red Rocket arrival (medkit container,
+  garage cabinet persistent 0.7 m east of x = -1000, stimpak / newspaper / Cram, the shop terminal and button box, one
+  trigger box, WoodCrate01 -> 02 enable parent plus MetalTable02 as the opposite-state twin), built as an extension of
+  the cave-slice add-on plugin (SliceDoor way, FormIDs 0x810-0x87F), never by inserting bases into TerrainOverlays
+  (its `NewKey()` is a positional counter: one inserted base renumbers 648,358 REFRs). Mutagen 0.55.0-alpha.67 has
+  CONT / ACTI / TERM / MISC / XPRM / XESP but no ActivateParents (verified by a reflection probe). Not implemented.
+- **PR #69 QA (Grok's oracle, 199cf7d):** needs one change: position aliases (`pos` / `xyz` / `position`) take the first
+  truthy value and never compare the rest, so a disagreeing or empty alias still passes; huge ints raise OverflowError
+  instead of UNREAD. 272 tests OK, guard ok. Posted on the PR.
+
+## 2026-10-14, 21:28-21:36: the observation bridge works in game (Claude; the owner watching)
+- **Owner's review and decisions** ("FO4SF Mass Review", 14 Oct): D1 a bridge replaces OCR reads, D2 integration-1014
+  lands on main (PR #121; 24 superseded PRs closed), D3 game time only in declared windows, D4 Codex / Grok on R07,
+  R02, R06 after their quota resets; the local agent is a librarian for the lead, not a planner.
+- **Bridge GO:** FO4SFBridge.esm (a global and a start-game-enabled quest carrying `FO4SF_Bridge.psc`, compiled with the
+  game's own PapyrusCompiler against ContentResources.zip) writes `FO4SF rt=.. pos=.. ang=.. cell=.. world=.. loaded=..
+  n=..` to `Logs\Script\User\fo4sf.0.log` every 0.66 s. Verified in one 8-minute session on the pinned build: 473
+  lines, a 2 s walk read as 1.64 m, the timer and state survive a save/load (the log rotates on each load), and
+  `cgf "Debug.TraceUser" "fo4sf" "ack 7"` from the console lands in the same log within a second. Refuted: the console
+  cannot `set` our global (no EditorID strings for the plugin; form ids not accepted by `set`). Details:
+  docs/ai/test-queue.md "Bridge". Media: docs/media/bridge-console-ack-1014.jpg, bridge-vault111-1014.jpg.
+- **Two environment facts:** input.ps1 needs `LEGACY=1` for the console (every runner script sets it; a bare call does
+  not); Windows Controlled Folder Access blocks our scripts from writing in Documents, so the Papyrus logging keys live
+  in the game folder's `Starfield.ini` (backed up).
+- **Earlier tonight:** both walks of walk_core64c_1014 unread (HUD dial split the console lines for OCR; fixed at
+  ccddf80, verified on the captures only); chain stopped; the bridge makes that fix the last OCR repair.
+- **Next:** runner feature `bridge` (positions from the log, console batches acknowledged by a TraceUser nonce) for
+  walk, door_trip and npc_nav; then the three gates in the owner's next window.
+
+## 2026-10-14, 22:00-23:00: the runner reads the bridge; four queues staged for the next window (Claude)
+- **Runner feature `bridge`** (e22cf82, dde3ec4, ec9bd40, 31da8cf): `plan-* --bridge <staged bridge>` marks every test
+  `bridge_reads` and pins the bridge's files; `bridge_install.py` deploys it before each launch under its own record;
+  qstep's `Read-Pos` for the player and the walk's reads come from the game's log (`obs.read_log` `via: bridge`); the
+  attempt folder keeps a copy of the log (`bridge.log`). Sandbox: the fake game writes a bridge log; the walk passes
+  with bridge reads and types no getpos. The console whitelist takes the bridge's cgf lines (`FO4SF_Probe.Pos / Ack /
+  Player`, `Debug.TraceUser "fo4sf"`); `bridge_log.py events | wait-ack` read the probe's replies.
+- **Staged, not run (owner's window, D3):** `bridge_probe_1015` (vanilla LC172: does cgf load the unattached
+  `FO4SF_Probe` script? five console lines, replies in the log), then `walk_core64c_1015`, `cave_core64c_1015`,
+  `npc_combat_c1_1015`, all with bridge reads on build 2470f876; `chain_queue.txt` lists them in that order.
+- **Noticed:** `tests/test_archive_identity.py::test_archive_modified_during_hash_is_rejected` fails under CPU load
+  (a timing window) and passes alone; not touched. Grok's headless instance of 19:37 never got a reply (credits at
+  100 % until 23:44); it now runs in a visible terminal on the owner's PC.
+
+## 2026-10-15, 23:00-02:30: the walk gate passed; the bridge's first night; fix A refuted (Claude)
+- **Walk gate (R04 part 1) PASSED both ways** (`walk_core64c_1015`, build 2470f876 + core64c, bridge reads):
+  Sanctuary -> Red Rocket 29 legs, 253.8 of 254.33 m, |dz| <= 0.14 m; Red Rocket -> Sanctuary 28 legs, 254.0 m, 7 reads on
+  the north bridge deck, cells crossed in route order; every read from the game's log, the console only to aim.
+  Media: docs/media/walk-s2rr-*.jpg. One attempt aborted at 00:00:03 when something took the foreground (the guard
+  held; the re-run passed).
+- **Bridge, first night:** two reader bugs found by the probe runs and fixed (freshness by the line's clock stamp;
+  planet form ids print negative and did not parse: every planet read saw the last Vault line); `cgf` loads the
+  unattached `FO4SF_Probe` script (three runs); the bridge plugin must load LAST (an earlier line shifted every
+  experiment's load index; cycle.ps1 now runs `bridge_install.py order` before launch). A 330 s poll showed the log is
+  not buffered (a line is on disk within 1 s while the game runs; nothing while paused).
+- **Cave door, A/B (cave_fixA_1015, cave_probes_1015):** fix A (vanilla persistent-cell shape) leaves the persistent
+  door reading its unmerged local position: the player stood 1.0 m from it, no load (**refuted**). The probes'
+  override of exterior cell (-10, 11) makes `coc FO4Core_RedRocketSpawn` land at (50, 50, 12.6), the centre of cell
+  (0, 0): an add-on must not override a core64c exterior cell (**verified twice**; mechanism a supported hypothesis).
+  Next candidates for the door: the WRLD OFST / CLSZ fields, or a temporary door ref in the exterior cell.
+- **Combat (npc_combat_c1_1015):** reply formats verified and the parser fixed (`GetCombatState` prints "The actor's
+  combat state: N.00"; `GetLineOfSight player` prints "<actor> sees / can't see <player>"). Citizen FAIL NOCOMBAT (the
+  negative control, as designed); the vanilla Spacer engaged in attempt 1 (state 2 -> 1, target the player) and not
+  in attempt 2: engagement of a spawned hostile within 30 s is stochastic; the converted raider never engaged and
+  never moved. The gate needs a forced engagement before the raider's result says anything about the conversion.
+- Also: docs/ai/first-run-failures-1014.md (twelve first-run failures, causes, guards); `input.ps1` defaults to the
+  legacy key path; the walk-plan key `bridge` (the deck) and the test flag `bridge_reads` are different things.
+
 ## 2026-10-14 Codex: source-archive read guard (#117, offline tested)
 
 Reproduced a stale archive identity with an equal-size synthetic overwrite and
@@ -1039,3 +1191,32 @@ Validation:14 focused checks,341 Windows suite tests (3 skips), guard pass. Inde
 ownership re-review passed14 narrow checks including the original late-failure counterexamples;
 hosted Linux CI passed. [Contract and limits](testing/archive-fingerprints.md). No live game,
 source archive, deployment, queue or save was changed.
+
+## 2026-10-15 Codex: October14 recap and current front-page progress
+
+Owner requested yesterday's progress on GitHub. README separates the October14
+Mountain-time load-order and observation-bridge milestones from October15's
+lead-reported walk/cave results. Corrected the obsolete phase03 hold and superseded
+branch statuses; merged code is distinct from proposed recovery/audit work.
+Reused the tracked Red Rocket walk and Vault111 bridge-session JPEGs unchanged;
+no media added. Captions distinguish scene illustrations from logged measurements.
+No complete-gameplay, ground-texture or native-acceptance claim.
+
+Sources: main10e7019 JOURNAL, bridge session32a5f5b, #32 comments6165570079,
+6154661951 and6187749682, current PR/QA records.24 local link/anchor targets and
+both unchanged media identities pass; GitHub GFM renders the new sections/images.
+Independent factual/link QA passed, with draft status made explicit. Guard passed.
+No new unit tests for documentation; hosted CI is checked on the PR. No game,
+runner, installation, queue or save changed.
+
+## 2026-10-15 Codex: current-main watchdog report integration (#109/PR116)
+
+Merged main d628b56 into the reviewed handover branch without rewriting history. Resolved only
+status/journal/decisions conflicts, preserving both append-only histories and current README.
+The helper, watchdog, synthetic tests and runbook blobs equal reviewed14f1115. Current-main source
+delta stays limited to report handover; Claude's chain/controller, actors, walk, bridge and archive
+guard are retained.32 focused fake-CLI tests/1309 Windows tests(70 skips)/guard pass. No real CLI
+inference, live watchdog restart/config update, queue or game activity was performed. Integration
+QA and current-head hosted CI are recorded on PR116; source readiness is not live application.
+Independent Codex QA (Hubble) passed five integration invariants: reviewed blobs, controller policy,
+main source preservation, both histories/current status, and source-only scope. No source repair changed.

@@ -1,14 +1,20 @@
 """Parse the OCR'd console text of one npc_nav console session (qstep.ps1). Prints one JSON object:
 {"ref": "FF010D65"|null, "isid": 1|0|null, "x"/"y"/"z": float|null, "pos": "x y z"|null, "disabled": 1|0|null,
- "incell": 1|0|null,
+ "incell": 1|0|null, "combat": 0..9|null, "target": "00000014"|null, "los": 1|0|null,
  "self": "FF010D65"|"0024A824"|null, "how": "order"|"inline"|"", "ocr": "<text>"}
 
 usage: parse_npc.py <ocr text file> [--expect ref,isid,x,y,z] [--typed FF010D65]
   --expect  what this session's commands produce, in the order they were typed: ref (plr: the id in PickLastRef's
             reply), isid (GetIsID), x / y / z (getpos x/y/z), disabled (GetDisabled), self (GetSelf: the id of the
             console's selection, any form id), incell (player.GetInCell <cell>: door_trip, a condition function's
-            reply like GetIsID's, "GetInCell >> 1.00": supported hypothesis, not yet seen in game)
-  --typed   ids this session typed itself (prid <id>): such an id counts as GetSelf's reply only when it is on screen twice
+            reply like GetIsID's, "GetInCell >> 1.00": supported hypothesis, not yet seen in game),
+            combat (GetCombatState: the game prints "The actor's combat state: 2.00" on the line after the echo;
+            ">> n" is also read), target (GetCombatTarget: "GetCombatTarget >> (00000014)", or bare / 0x), los
+            (GetLineOfSight player: "<actor> sees <player>" = 1, "<actor> can't see <player>" = 0; ">> 1" also
+            read). Formats verified in game on 2026-10-15 (npc_combat_c1_1015); what does not parse stays null and
+            the raw OCR is kept, never a guess
+  --typed   ids this session typed itself (prid <id>, GetIsID <npc>): such an id counts as GetSelf's reply only when it
+            is on screen twice, and never as GetCombatTarget's
 
 What the console shows (runner sessions of 2026-10-11, N0_base in QASmoke: OCR texts and captures):
   - about nine lines. ClearConsole does NOT clear them: its echo stands below the older lines (N0_base's last capture:
@@ -56,19 +62,27 @@ LABELS = {                                                   # command name as e
     "pos": r"Get\s?Po\s?s",
     "ref": rf"P{I_}ck\s?{I_}ast\s?Ref",                      # only the game writes PickLastRef: qstep types plr
     "incell": rf"Get\s?{I_}n\s?Ce{I_}{I_}",                      # GetInCell (door_trip): "GetInCell >> 1.00"
+    "combat": r"Get\s?Combat\s?State",                           # npc_nav combat_reads: formats unverified in game
+    "target": r"Get\s?Combat\s?Target",
+    "los": rf"Get\s?L{I_}ne\s?Of\s?S{I_}ght",
 }
 CLEAR = rf"C{I_}ear\s?Conso{I_}e"                            # ClearConsole's echo: this session's first line
 PLR = rf"(?<![\w.])p{I_}r(?!\w)"                             # plr's echo
 ARROWS = r"\s*(?::\s*)?(?:>\s*)+|\s*:\s*"                    # '>>', '> >', ':' or ': >>' between label and value
 VALUE = r"(?<![\w.,])(-\s?)?(\d{1,6})(?:\s?[.,]\s?(\d{1,3})|\s(\d{2}))(?![\w.,])"
 FLAG = r"(?<![\w.,])([01])(?![\w.,])"                         # an integer reply: "GetDisabled >> 1"
+SMALL = r"(?<![\w.,])(\d)(?![\w.,])"                          # a small integer reply: "GetCombatState >> 1"
 HEX = r"[0-9A-Fa-fOoIl|]"                                    # a hex digit as OCR may read it
 FFID = rf"(?<![0-9A-Za-z])(?:0x)?\(?\s*([Ff][Ff]{HEX}{{6}})\s*\)?(?![0-9A-Za-z])"
 ANYID = rf"\(\s*({HEX}{{8}})\s*\)|(?<![0-9A-Za-z])0x({HEX}{{8}})(?![0-9A-Za-z])"   # "(0024a824)", "0x0024a824"
 DECID = r"(?<![\w.,])(42\d{8})(?:[.,]\d+)?(?![\w])"         # FF000000..FFFFFFFF written in decimal
+# GetCombatTarget's reply as it may be written: "(00000014)", "0x00000014" or bare "00000014" (the player: 00000014)
+TARGET_ID = rf"(?<![0-9A-Za-z])(?:0x)?\(?\s*({HEX}{{8}})\s*\)?(?![0-9A-Za-z])"
 KIND_OF = {"ref": "ref", "isid": "isid", "x": "pos", "y": "pos", "z": "pos", "disabled": "disabled", "self": "self",
-           "incell": "incell"}
-FLAGS = ("isid", "disabled", "incell")
+           "incell": "incell", "combat": "combat", "target": "target", "los": "los"}
+FLAGS = ("isid", "disabled", "incell", "los")
+IDS = ("self", "ref", "target")                              # replies that are ids, not numbers
+SMALLS = ("combat",)                                         # replies that are a small integer 0..9
 
 
 def flat(s):
@@ -158,12 +172,14 @@ def read_order(ev, text, nums, start):
     arrows = [m.start() for m in re.finditer(r">\s*>", text)]
     if any(a < start for a in arrows) or len(arrows) > len(replies):   # older lines, or a line the game printed
         return None
-    got = [e[4] if e[2] == "pos" else e[2] for e in replies if e[2] not in ("self", "ref")]
+    got = [e[4] if e[2] == "pos" else e[2] for e in replies if e[2] not in IDS]
     it = iter(nums)
     if not all(g in it for g in got):                        # the labels found are in the expected order
         return None
     out = dict(zip(nums, vals))
     if any(out[k] not in (0.0, 1.0) for k in FLAGS if k in out):
+        return None
+    if any(not (0.0 <= out[k] <= 9.0 and out[k] == int(out[k])) for k in SMALLS if k in out):
         return None
     return out
 
@@ -174,11 +190,11 @@ def read_inline(text, nums, start):
         return {}
     seg, out = text[start:], {}
     for k in nums:
-        if k in FLAGS:
+        if k in FLAGS or k in SMALLS:
             hits = [(m.start(), value(re.search(VALUE + r"$", m.group(0))))
                     for m in re.finditer(LABELS[k] + "(?:" + ARROWS + r"|\s+)" + VALUE, seg, re.I)]
             hits += [(m.start(), float(m.group(m.lastindex)))          # integer replies need the '>>' or ':'
-                     for m in re.finditer(LABELS[k] + "(?:" + ARROWS + ")" + FLAG, seg, re.I)]
+                     for m in re.finditer(LABELS[k] + "(?:" + ARROWS + ")" + (FLAG if k in FLAGS else SMALL), seg, re.I)]
         else:
             # a reply has "Pos:" or an arrow after the axis ("getpos x" followed by a number is an echo)
             pat = LABELS["pos"] + rf"\s*(?::\s*{k}\b(?:{ARROWS}|\s+)|{k}(?:{ARROWS}))" + VALUE
@@ -186,6 +202,8 @@ def read_inline(text, nums, start):
         if hits:
             v = max(hits)[1]                                  # the last reply on screen
             if k in FLAGS and v not in (0.0, 1.0):
+                continue
+            if k in SMALLS and not (0.0 <= v <= 9.0 and v == int(v)):
                 continue
             out[k] = v
     return out
@@ -215,22 +233,51 @@ def read_self(ev, typed, start, begin):
     return ids[-1] if ids else None
 
 
+def read_target(ev, text, typed, start):
+    """GetCombatTarget's reply: the last form id after this session's last GetCombatTarget label (echo or reply),
+    never an id the session typed itself (prid <id>, GetIsID <npc>: in the column layout their arguments drift into
+    the value column). None when there is no label or no id after it: the format is unverified in game."""
+    if start is None:
+        return None
+    labels = [e[1] for e in ev if e[2] == "target" and e[0] >= start]
+    if not labels:
+        return None
+    typed = {t.upper() for t in typed}
+    ids = [hexid(m.group(1)) for m in re.finditer(TARGET_ID, text[labels[-1]:])]
+    ids = [i for i in ids if re.fullmatch(r"[0-9A-F]{8}", i) and i not in typed]
+    return ids[-1] if ids else None
+
+
 def parse(raw, expect=("isid", "x", "y", "z", "self", "disabled"), typed=()):
     text = flat(raw)
     ev = events(text)
     expect = list(expect)
-    nums = [k for k in expect if k not in ("self", "ref")]
+    nums = [k for k in expect if k not in IDS]
     start, begin = session_start(ev, expect)
     got, how = read_order(ev, text, nums, start), "order"
     if got is None:
         got, how = read_inline(text, nums, start), "inline"
-    r = {k: got.get(k) for k in ("isid", "x", "y", "z", "disabled", "incell")}
-    for k in FLAGS:
+    r = {k: got.get(k) for k in ("isid", "x", "y", "z", "disabled", "incell", "combat", "los")}
+    # the combat replies as the game really prints them (npc_combat_c1_1015, 2026-10-15, OCR of every sample):
+    # GetCombatState answers "The actor's combat state: 2.00" on the line after its echo (never ">> n");
+    # GetLineOfSight player answers "<actor> sees <player>" / "<actor> can't see <player>" (the actor's and the
+    # player's names). GetCombatTarget's ">> (00000014)" was as hypothesised. Only after the session start, last one.
+    seg = text[start:] if start is not None else ""
+    if "combat" in expect and r["combat"] is None:
+        hits = [float(m.group(1)) for m in re.finditer(r"combat\s?state\s*[:;]\s*(\d)(?:[.,]\s?\d{1,2})?\b", seg, re.I)]
+        if hits:
+            r["combat"] = hits[-1]
+    if "los" in expect and r["los"] is None:
+        hits = [m.group(1).lower() for m in re.finditer(r"\b(sees|can.?t\s?see|cannot\s?see|does\s?n.?t\s?see)\b", seg, re.I)]
+        if hits:
+            r["los"] = 1.0 if hits[-1] == "sees" else 0.0
+    for k in FLAGS + SMALLS:
         if r[k] is not None:
             r[k] = int(r[k])
     r["pos"] = " ".join(f"{r[k]:.2f}" for k in "xyz") if all(r[k] is not None for k in "xyz") else None
     r["ref"] = read_ref(ev, start) if "ref" in expect else None
     r["self"] = read_self(ev, typed, start, begin) if "self" in expect else None
+    r["target"] = read_target(ev, text, typed, start) if "target" in expect else None
     r["how"] = how if any(v is not None for v in got.values()) else ""
     if "incell" in expect:
         # the console's refusal (first live door_trip run, 2026-10-13: "Item 'FO4Port_RedRocket01' not found for

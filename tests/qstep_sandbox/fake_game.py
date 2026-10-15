@@ -37,7 +37,19 @@ Load doors (door_trip): doors [{"cell", "pos", "auto", "works", "dest_cell", "de
 loads when the player comes within auto_dist (3 m, Starfield.esm fAutoDoorActivateDistance) while the game runs (a walk
 step, or the console closing after a setpos); a door without "auto" loads on E within 2.5 m, where prompt_visible.py
 says yes. A load moves the player to dest_pos in dest_cell and hides the HUD for load_secs (hud_visible.py says no).
-"player.setangle z <deg>" sets the heading; "hold:w,<ms>" walks walk_speed m/s along it (walk_blocked: not at all).
+"player.setangle z <deg>" sets the heading; "hold:w,<ms>" (and input.ps1's guarded "holdg:w,<ms>") walks walk_speed m/s
+along it (walk_blocked: not at all; heading_bias degrees are added to the heading the player really walks).
+"player.getpos x|y|z" prints "GetPos: X >> <v>" (the player's position; getpos_misread [n, ...]: the n-th x reply, from 1,
+drops its minus sign as the OCR did; getpos_lost [n, ...]: the n-th z reply is not on screen at all). readpos_calls
+counts the readpos.ps1 runs (the walk may use it for the arrival only).
+Ground (walk): ground {"z0", "sx", "sy", "decks": [[x0, y0, x1, y1, z]], "holes": [[x0, y0, x1, y1]],
+"walls": [[x0, y0, x1, y1]], "boundary": [[x0, y0, x1, y1]], "boundary_shift": [dx, dy, dz], "stop_box": [x0, y0, x1, y1]}
+in the game's frame: a walking player stands on the plane z0 + sx * x + sy * y, or on a deck's z inside it; a wall stops
+the walk; a hole drops the player 80 m (no ground); entering a boundary box shows the "BOUNDARY REACHED" box (popup: what
+the centre OCR reads), moves the player by boundary_shift and stops the walk; entering stop_box creates the file
+"stop_file" (the owner's STOP file appearing mid-hold: the sandbox input.ps1 then exits 5 as the real holdg does). A
+player.setpos z lands on that ground at once.
+"popup" prints the popup's text (the sandbox ocr.ps1 with a region), "" when none.
 "player.GetInCell <cell>" prints "GetInCell >> 1.00" / "0.00" for a form id in cell_ids ({id: cell EditorID}), or for
 an EditorID when incell_editor_ids is set; otherwise the console's refusal of the first live run (2026-10-13): "Item
 '<arg>' not found for parameter Cell." and "Compiled script not saved!". "save <name>" writes <name>.sfs (player, cell,
@@ -49,7 +61,22 @@ first live run's garble (garble_count times): the previous read's z, this read's
 for (-2195.27, -1593.51, 99.41); walk_dz: every walk step changes z by that much (the live walk went down the cave
 mouth, so the garble's x and z differ and pass Read-Pos's x == z filter). The sandbox readpos types its nonce
 (fo4sfr<8 hex>) first, as the real one: the console echoes it and replies not found (the reply's wording is a
-supported hypothesis; readpos relies on the echo alone)."""
+supported hypothesis; readpos relies on the echo alone).
+Movable items (movable, movable_control): item_bases {base: {"height", "mass", "fixed"}}: placeatme of such a base puts
+an item (an "actors" entry with item true) at the player's feet on the floor (+ item_offset); an item can also be put in
+"actors" directly (the build's own placed item, read with readpos <ref>). Walking within 0.35 m of an item at least
+push_min_h tall (0.08 m) and not heavier than push_max_kg pushes it 0.5 m ahead; a thinner one is walked over.
+"ApplyHavokImpulse x y z m" on a selected item moves it dv x 0.3 m along the axis when dv = m / mass >= impulse_dv_min
+(1.0; impulse_works false or a fixed item: never); "SetRigidBodyMass <kg>" sets its mass (setmass_reply: the console
+prints that text instead; setmass_noop: accepted without a word and nothing changes); 'cf "ObjectReference.GetMass"'
+prints "GetMass >> <kg>" (a made-up reply format; getmass_reply: that text instead, e.g. the "No script named ... is
+attached to the object" that cf "Actor.PathToReference" got in N0_cf).
+Combat (npc_nav combat_reads): "hostile" [base ids] engage the player (combat state 1, target 00000014) once the game runs
+after their spawn, holding their ground; "StartCombat player" does the same for the selected actor unless
+startcombat_fails. GetCombatState / GetCombatTarget / "GetLineOfSight player" reply "GetCombatState >> 1.00",
+"GetCombatTarget >> (00000014)" ("(00000000)" without a target), "GetLineOfSight >> 1.00" (knob los): HYPOTHESES of the
+in-game format; combat_fmt "int" prints "GetCombatState >> 1" and a bare target id, "refused" answers all three with
+"Script command not found"."""
 import json
 import math
 import os
@@ -114,19 +141,87 @@ def auto_doors(s):
     return False
 
 
+def inside(box, p):
+    return box[0] <= p[0] <= box[2] and box[1] <= p[1] <= box[3]
+
+
+POPUP = "BOUNDARY REACHED Open the map to explore another region, or return to your ship. FAST TRAVEL TO SHIP B CANCEL"
+
+
+def ground_z(s, p):
+    """The walk ground under p (module doc), or None when there is none (a hole)."""
+    g = s["ground"]
+    if any(inside(b, p) for b in g.get("holes", [])):
+        return None
+    for d in g.get("decks", []):
+        if inside(d, p):
+            return float(d[4])
+    return float(g.get("z0", 0.0)) + float(g.get("sx", 0.0)) * p[0] + float(g.get("sy", 0.0)) * p[1]
+
+
+def mass_of(a):
+    return float(a.get("mass_set", a.get("mass", 1.0)))
+
+
+def push_items(s, p, h):
+    """Movable items the walking player touches (within 0.35 m): one at least push_min_h tall (default 0.08 m) and not
+    heavier than push_max_kg is pushed 0.5 m ahead of the player; a thinner one is walked over and stays (the model the
+    staged movable_control queue tests: supported hypothesis, docs/ai/test-queue.md)."""
+    for a in s["actors"].values():
+        if not a.get("item") or a.get("disabled") or a.get("pending") or a.get("fixed"):
+            continue
+        q = a["pos"]
+        if math.hypot(q[0] - p[0], q[1] - p[1]) > 0.35:
+            continue
+        if a.get("height", 0.1) < float(s.get("push_min_h", 0.08)) or mass_of(a) > float(s.get("push_max_kg", 1e9)):
+            continue
+        a["pos"] = [p[0] + 0.5 * math.sin(h), p[1] + 0.5 * math.cos(h), q[2]]
+
+
+def impulse(s, a, w):
+    """ApplyHavokImpulse <x> <y> <z> <magnitude> on a selected item: a speed change of magnitude / mass (kg m/s, the
+    supported hypothesis) of at least impulse_dv_min (default 1.0) moves it dv x 0.3 m along the axis' horizontal part
+    (impulse_works false, or a fixed item: nothing moves)."""
+    ax, ay, mag = float(w[1]), float(w[2]), float(w[4])
+    if a.get("fixed") or not s.get("impulse_works", True) or mag / mass_of(a) < float(s.get("impulse_dv_min", 1.0)):
+        return
+    n = math.hypot(ax, ay) or 1.0
+    d = mag / mass_of(a) * 0.3
+    q = a["pos"]
+    a["pos"] = [q[0] + ax / n * d, q[1] + ay / n * d, q[2]]
+
+
 def walk(s, ms):
     """hold:w: walk along the heading in 5 cm steps, an automatic door in range loads at once."""
-    if s.get("walk_blocked"):
+    if s.get("walk_blocked") or s.get("popup"):
         return
-    h = math.radians(float(s.get("heading", 0.0)))
+    h = math.radians(float(s.get("heading", 0.0)) + float(s.get("heading_bias", 0.0)))
     dist = float(s.get("walk_speed", 3.0)) * ms / 1000.0
     s["walks"] = s.get("walks", 0) + 1
     p = player_pos(s)
     s["falling"] = None
+    g = s.get("ground")
     dz = float(s.get("walk_dz", 0.0)) / max(1, int(dist / 0.05))
     for _ in range(int(dist / 0.05)):
-        p = [p[0] + 0.05 * math.sin(h), p[1] + 0.05 * math.cos(h), p[2] + dz]
+        q = [p[0] + 0.05 * math.sin(h), p[1] + 0.05 * math.cos(h), p[2] + dz]
+        if g is not None:
+            if any(inside(b, q) for b in g.get("walls", [])):
+                return                                     # blocked: the player stays where it was
+            if any(inside(b, q) for b in g.get("boundary", [])):
+                shift = g.get("boundary_shift") or [0.0, 0.0, 0.0]
+                s["player"] = [q[k] + shift[k] for k in range(3)]
+                s["popup"] = POPUP
+                return
+            if g.get("stop_box") and s.get("stop_file") and inside(g["stop_box"], q):
+                open(s["stop_file"], "a").close()            # the owner's STOP file appears while W is held
+            z = ground_z(s, q)
+            if z is None:
+                s["player"] = [q[0], q[1], q[2] - 80.0]      # fell through: no ground there
+                return
+            q[2] = z
+        p = q
         s["player"] = p
+        push_items(s, p, h)
         if auto_doors(s):
             return
 
@@ -152,6 +247,7 @@ def select(s, rid):
 def run(s, cmd):
     low = cmd.lower()
     s.setdefault("typed", []).append(cmd)
+    s.setdefault("events", []).append(cmd)                 # "events": the commands with the console's opens and closes
     if low == "clearconsole" and not s.get("clear_fails", True):
         s["log"] = []
         return
@@ -166,6 +262,22 @@ def run(s, cmd):
         s["player"]["xyz".index(w[1])] = float(w[2])
         if w[1] == "z" and s.get("land_z") is not None:    # the player lands at once on ground at land_z
             s["player"][2] = float(s["land_z"])
+        if w[1] == "z" and s.get("ground") is not None:    # ... or on the walk ground
+            z = ground_z(s, s["player"])
+            if z is not None:
+                s["player"][2] = z
+    elif low.startswith("player.getpos "):
+        ax = w[1].upper()
+        v = player_pos(s)["XYZ".index(ax)]
+        if ax == "X":
+            s["getpos_x"] = s.get("getpos_x", 0) + 1
+            if s["getpos_x"] in s.get("getpos_misread", []):
+                v = abs(v)                                   # the OCR dropped the minus sign
+        if ax == "Z":
+            s["getpos_z"] = s.get("getpos_z", 0) + 1
+            if s["getpos_z"] in s.get("getpos_lost", []):
+                return                                       # the reply is not on screen (the OCR lost the line)
+        s["log"].append(f"GetPos: {ax} >> {v:.2f}")
     elif low.startswith("player.setangle z "):
         s["heading"] = float(w[2])
     elif low.startswith("player.getincell "):
@@ -204,8 +316,14 @@ def run(s, cmd):
             return
         rid = f"FF{0x800 + len(s['actors']):06X}"
         p = player_pos(s)
-        s["actors"][rid] = {"base": w[1].upper(), "pos": [p[0] + 0.8, p[1], p[2]],
-                            "pending": bool(s.get("console")) and s.get("spawn_deferred", True)}
+        item = (s.get("item_bases") or {}).get(w[1].upper())
+        if item is not None:                               # a movable item: at the player's feet (+ item_offset)
+            off = s.get("item_offset") or [0.0, 0.0, 0.0]
+            s["actors"][rid] = dict(item, base=w[1].upper(), item=True, pos=[p[0] + off[0], p[1] + off[1], 0.0],
+                                    pending=bool(s.get("console")) and s.get("spawn_deferred", True))
+        else:
+            s["actors"][rid] = {"base": w[1].upper(), "pos": [p[0] + 0.8, p[1], p[2]],
+                                "pending": bool(s.get("console")) and s.get("spawn_deferred", True)}
         s["last"] = rid
         if s.get("faction_lines", True):
             s["log"] += ["GetInFaction >> 0.00"] * 3
@@ -250,9 +368,49 @@ def run(s, cmd):
             a["start"], a["target"], a["cmd_at"] = actor_pos(s, a), True, game_time(s)
         elif kind is not None:
             s["log"].append("Script command not found")
+    elif low.startswith("applyhavokimpulse "):
+        s.setdefault("impulses", []).append({"sel": s.get("sel"), "cmd": cmd})
+        if kind == "actor" and a.get("item"):
+            impulse(s, a, w)
+        elif kind is None:
+            s["log"].append("Missing reference")
+    elif low.startswith("setrigidbodymass "):
+        if s.get("setmass_reply"):                         # the console refuses it (made-up text: the real one is unseen)
+            s["log"].append(s["setmass_reply"])
+        elif kind == "actor" and a.get("item") and not s.get("setmass_noop"):
+            a["mass_set"] = float(w[1])
+    elif low == 'cf "objectreference.getmass"':
+        if s.get("getmass_reply"):
+            s["log"].append(s["getmass_reply"])
+        elif kind == "actor" and a.get("item"):
+            s["log"].append(f"GetMass >> {mass_of(a):.2f}")
+    elif low == "startcombat player":
+        # the combat manager takes the actor (combat state 1, target the player 00000014) unless startcombat_fails
+        # (N0b_combat 2026-10-13: StartCombat froze the calm citizen); it holds its ground either way
+        if kind == "actor" and not s.get("startcombat_fails"):
+            a["combat"] = "00000014"
+    elif low in ("getcombatstate", "getcombattarget", "getlineofsight player"):
+        # the combat reads (npc_nav combat_reads). Reply formats are a HYPOTHESIS (unverified in game): a condition
+        # function's decimal like GetIsID's, the target a parenthesised id like GetSelf's; combat_fmt "int" prints the
+        # state as an integer and the target bare; combat_fmt "refused": "Script command not found" for all three
+        if kind is None:
+            s["log"].append("Missing reference")
+        elif s.get("combat_fmt") == "refused":
+            s["log"].append("Script command not found")
+        else:
+            tgt = a.get("combat") if kind == "actor" else None
+            as_int = s.get("combat_fmt") == "int"
+            if low == "getcombatstate":
+                st = 1 if tgt else 0
+                s["log"].append(f"GetCombatState >> {st}" if as_int else f"GetCombatState >> {st:.2f}")
+            elif low == "getcombattarget":
+                rid = (tgt or "00000000")
+                s["log"].append(f"GetCombatTarget >> {rid}" if as_int else f"GetCombatTarget >> ({rid.lower()})")
+            else:
+                s["log"].append(f"GetLineOfSight >> {float(s.get('los', 1)):.2f}")
     elif low == "disable" and kind is not None:
         if kind == "actor":
-            a["pos"], a["target"] = actor_pos(s, a), False
+            a["pos"], a["target"], a["combat"] = actor_pos(s, a), False, None
         a["disabled"] = True                               # a static too: the tests check that never happens
     elif low == "markfordelete" and kind is not None:
         a["deleted"] = True
@@ -323,7 +481,7 @@ def column(lines):
 def quirks(ln):
     """OCR misreadings seen in the runner's console OCR (2026-10-11)."""
     for a, b in (("GetIsID >>", "GetlslD"), ("GetIsID", "GetlsID"), ("GetInFaction", "GetlnFaction"),
-                 ("GetInCell", "GetlnCell"),
+                 ("GetInCell", "GetlnCell"), ("GetCombatState", "Get Combat State"), ("GetLineOfSight", "GetLlneOfSight"),
                  ("INISetting", "lNlSetting"), ("GetINI", "GetlNl"), ("Enabled", "EnabIed"),
                  ("ClearConsole", "Clear Console"), ("GetDisabled", "Get Disabled"), ("GetPos: X", "Get Po s: X"),
                  (">>", "> >")):
@@ -347,6 +505,7 @@ def main():
             elif k == "key" and v == "grave":
                 now = game_time(s)
                 s["console"] = not s.get("console")
+                s.setdefault("events", []).append("<open>" if s["console"] else "<close>")
                 s["clock"] = {"game": now, "since": None if s["console"] else time.time()}
                 if s["console"]:
                     if s.get("drift_per_open"):            # game time passed since the last console session
@@ -358,9 +517,14 @@ def main():
                 else:                                      # the game runs again: placed actors become ready
                     for a in s["actors"].values():
                         a.pop("pending", None)
+                        # a hostile base (knob "hostile": [base ids]) engages the player on its own once the game runs,
+                        # and holds its ground (the Spacer of 2026-10-13 did not walk up to the player)
+                        if a["base"] in [b.upper() for b in s.get("hostile", [])] and not a.get("disabled"):
+                            a["combat"] = "00000014"
                     auto_doors(s)                          # a setpos left the player in an automatic door's range
-            elif k == "hold" and v.startswith("w,") and not s.get("console"):
+            elif k in ("hold", "holdg") and v.startswith("w,") and not s.get("console"):
                 walk(s, int(v[2:]))
+                s.setdefault("holds", []).append(int(v[2:]))
             elif k == "key" and v == "e" and not s.get("console"):
                 p = player_pos(s)
                 for d in s.get("doors", []):
@@ -375,6 +539,9 @@ def main():
             lag["left"] -= 1
         else:
             write_png(sys.argv[2], sky(s))
+    elif sys.argv[1] == "popup":
+        print(s.get("popup") or "")
+        return
     elif sys.argv[1] == "screen":
         lines = s["log"][-9:]                              # the console shows about nine lines
         if s.get("layout") == "column":
@@ -387,6 +554,7 @@ def main():
         args = sys.argv[2:]
         angle = "--angle" in args
         ref = next((x.upper() for x in args if x and x != "--angle"), "")
+        s["readpos_calls"] = s.get("readpos_calls", 0) + 1   # the walk must not use readpos.ps1 after the arrival
         if not ref:
             p = player_pos(s)
             g = s.get("garble_after_walks")
@@ -400,6 +568,9 @@ def main():
         elif ref == s.get("anchor_id"):
             s["sel"] = ref                                 # readpos -Ref selects with prid
             print(" ".join(f"{v:.2f}" for v in s["anchor_pos"]))
+        elif ref in s["actors"] and not s["actors"][ref].get("pending"):
+            s["sel"] = ref                                 # a placed item or actor (movable: the build's own item)
+            print(" ".join(f"{v:.2f}" for v in actor_pos(s, s["actors"][ref])))
         else:
             d = next((d for d in s.get("doors", []) if (d.get("ref") or "").upper() == ref), None)
             if d is None:
@@ -411,4 +582,25 @@ def main():
         json.dump(s, f, indent=1)
 
 
+def bridge_line():
+    """SANDBOX bridge (docs/ai/test-queue.md "Bridge"): after every fake-game call, one line to $FO4SF_BRIDGE_LOG as
+    the game's FO4SF_Bridge.psc writes them (the clock prefix, six decimals, "true", a decimal cell id, "none" for the
+    worldspace), so qstep.ps1's Bridge-Read reads the simulated player without a console session."""
+    log = os.environ.get("FO4SF_BRIDGE_LOG")
+    if not log:
+        return
+    with open(P) as f:
+        s = json.load(f)
+    s["bridge_n"] = s.get("bridge_n", 0) + 1
+    p = player_pos(s)
+    cell = 50331649 + sum(ord(c) for c in str(s.get("cell") or "")) % 1000
+    line = (f"[{time.strftime('%H:%M:%S')}] FO4SF rt={time.time() % 100000:.6f} pos={p[0]:.6f} {p[1]:.6f} {p[2]:.6f} "
+            f"ang={float(s.get('heading', 0.0)) % 360:.6f} cell={cell} world=none loaded=true n={s['bridge_n']}")
+    with open(log, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+    with open(P, "w") as f:
+        json.dump(s, f, indent=1)
+
+
 main()
+bridge_line()

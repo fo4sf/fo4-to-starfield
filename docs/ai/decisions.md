@@ -225,6 +225,27 @@ exit protocol. It cannot acquire game control through inactivity. Existing watch
 Alternatives rejected: copying one executable without its companions, silently ignoring explicit configuration,
 using a stale report as success, or rescoring live queues. Descendant termination and live integration remain
 separate limits; no watchdog restart is part of this source change.
+
+## 2026-10-13 Movable tests: only the walk passes; furniture the walk did not reach is ELEVATED; the impulse is a diagnostic (Claude)
+A movable test asks whether the player pushes the item, so only the walk passes it. A walk whose closest approach came
+within reach and left the item in place is FAIL NOTMOVED. When planned (`--impulse`), `ApplyHavokImpulse` on the
+confirmed selection (dv 1.5, 6, 24 m/s times its mass) follows: an impulse that moves the item only adds "the body is
+simulated" to the detail, FAIL STUCK when nothing moves it. An item more than 0.5 m above the player's highest feet read
+that the walk came no closer than 0.5 m to (or more than 1.8 m above them) is INCONCLUSIVE ELEVATED (final, never
+counted by the circuit breaker). The converter keeps FO4's masses and bodies unchanged for now. A vanilla-controlled
+queue (`movable_control_1013b`, QASmoke) compares our items with vanilla items of the same size, and the book and the
+box again at 5 kg (`SetRigidBodyMass`, judged only when `GetMass` reads 5 kg back), before any converter change.
+Why: the cigarette pack lay on a desk the walk stopped 0.67 m short of, and three flat books were walked over
+(research-log 2026-10-13); every motion, layer and flag field matches vanilla items. Six inconclusive results in a row
+switched the movable kind off for about 610 tests. The first version of this decision passed an item the walk could
+not push as PASS IMPULSE and made every item 0.5 m up ELEVATED; the verifier of PR #110 showed that the impulse ladder
+cancels the mass by construction (it would hide exactly the failure FO4's heavier items could cause) and that the pin
+box of batch_full 0100, 0.81 m up, lay where the walk passed 0.26 m from it and did not move.
+Alternatives: lighten FO4's masses now (2-10 times Starfield's for small items; unresolved whether mass is the cause:
+the 25 kg book moved, the 50 kg box 0100 did not); a separate non-PASS class for "simulated but not pushed" (the detail
+carries it, and NOTMOVED keeps the class every earlier report used); plan only items the walk can push (needs each
+item's height and floor, and the batch would still not know whether a skipped item's body moves); MiscItem records
+(pick-up and inventory semantics FO4 statics never had, decisions 2026-10-10).
 ## 2026-10-13 Codex: verified private evidence capsules before cleanup (#105)
 
 Keep native screenshots and compact reports/source pins together in private lossless capsules,
@@ -235,6 +256,29 @@ regenerable owned outputs after verification; retain cleanup receipts. Active/pi
 unresolved configuration recovery stay in place. A second local volume is not an offsite backup.
 Alternatives rejected: unverified moves, age-based screenshot deletion, lossy originals, or putting
 private archives/game assets in Git. [Procedure](../testing/progress-storage.md).
+
+## 2026-10-13 Stairs routes are walked offline before they go to the game (Claude; amended after QA on PR #111)
+`scripts/game/routes.py` writes a stairs route only for a lane that an offline player walk (`src/fo4sf/walksim.py`)
+climbs over FO4's own collision of the stair and its neighbours: a free start, no lift through a floor, at least 80 %
+of the flight, no drop within 0.5 m past the end; otherwise the stair is skipped with the reason. References are placed
+Z first (R = Rx(-x) Ry(-y) Rz(-z)), as FO4's precombined physics shows. What the walk cannot vouch for is written on
+the route instead of hidden: `helper_crossing` (the walk meets a converted stair helper coming up through a floor at a
+place the converter's flattening moved) and `movable_near` (movable objects the walk leaves out); a lane that would
+touch a movable object is the last choice; `--probes-out` plans probes around each helper crossing. Planned routes for
+an unchanged build go into their own folder (`testqueue.py plan --routes-dir`), never into the pinned staging, and a
+queue keeps its own copy of the route files it uses (with their sha256).
+Why: most stairs FAILs in batch_full and supervised_1011 were routes the player could not walk in Fallout 4 either (a
+start wedged between a wall and a rail, against fallen floor chunks or rebar, a walk 2 m past a top that ends in a
+collapsed floor, a 0.15 m "flight"), while the converted collision equals FO4's except the flattened helpers
+([docs/testing/stairs-routes.md](../testing/stairs-routes.md)). A FAIL must point at the port, not at the test. But
+0002 / 0003 stopped at a converted helper's slab crossing that the walk climbs (cause unresolved), so a route the walk
+passes is not a route the port passes: the planner names such places and the queue tests them. The walk gives the
+game's verdict on 59 of 64 recorded stairs results, 57 also at the same place (`scripts/game/stairs_calib.py`).
+Alternatives: keep one centre-line route per stair and read every FAIL by hand (each costs a game run and an offline
+analysis); hand-written skip lists for the library and Fort Hagen (do not carry to new cells); start every route from
+the top floor and walk down (does not test climbing, the owner's complaint); skip every route through a helper crossing
+(would drop the very tests that decide whether the converter's flattening is at fault); change the converter now (not
+before the probes say the crossing is the cause).
 
 ## 2026-10-14 Codex: Windows read sharing during source fingerprints (#117)
 

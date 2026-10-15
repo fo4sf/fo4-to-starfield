@@ -3,7 +3,7 @@ docs/slice/door-frames.md; the exp2d door it ports: docs/slice/redrocket-door.md
 
     python scripts/slice/make_cave_core64c.py stage --fo4 <Fallout4.esm> --sf-esm <Starfield.esm> --port <pinned build>
            --core <terrain_core64c> --out <slice folder> [--template-world LC172World] [--no-probes]
-    python scripts/slice/make_cave_core64c.py check --sf-esm <Starfield.esm> --port <pinned build> --core <terrain_core64c>
+    python scripts/slice/make_cave_core64c.py check --sf-esm <Starfield.esm> --port <pinned build> --core <terrain_core64c> --out <slice dir>
            --out <slice folder>
 
 stage  1. evidence (dotnet/SliceDoor, read-only): the Fallout 4 link (05E844 in RedRocket01 <-> 08EB65 in the

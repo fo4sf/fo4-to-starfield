@@ -5,7 +5,8 @@
 # Exit 0: observations written (they may still be incomplete: the judge decides). 2: input guard. 3: console could not be
 # opened safely (nothing typed). 4: bad spec.
 # Kinds (spec.kind): route (stairs/door, via route_run.ps1), fall (drop onto a floor point), movable (walk into an item and
-# read its position before and after), travel (activate a load door, read where the player arrives), terrain (drop onto
+# read its position before and after; with impulses, ApplyHavokImpulse when the walk did not move it), movable_control
+# (place an item in a vanilla cell, walk over it, then the impulses), travel (activate a load door, read where the player arrives), terrain (drop onto
 # points of known height), npc_nav (spawn a vanilla actor at A, make it walk to the player at B, sample, remove it),
 # door_trip (coc into a world, through a load door into an interior and back out, save, load: every arrival read),
 # godmode, save, load, recover. terrain and npc_nav may set the time of day / weather after the arrival (time_of_day,
@@ -18,6 +19,8 @@ if (-not $env:FO4SF_PYTHON) { $env:FO4SF_PYTHON = 'C:\Modding\venv-render\Script
 $here = $PSScriptRoot
 $i = Join-Path $here 'input.ps1'; $shot = Join-Path $here 'shot.ps1'; $readpos = Join-Path $here 'readpos.ps1'
 $t = Get-Content $Spec -Raw | ConvertFrom-Json
+$script:bridge = [bool]$t.bridge_reads                     # the player's position from the game's own log (Bridge-Read); "bridge" itself is a walk plan's deck
+$script:bridgeMaxAge = $(if ($t.bridge_max_age_s) { [double]$t.bridge_max_age_s } else { 2.0 })   # (the sandbox: longer)
 New-Item -ItemType Directory -Force $Out | Out-Null
 $inv = [Globalization.CultureInfo]::InvariantCulture
 $obs = [ordered]@{ kind = $t.kind; started = (Get-Date).ToString('s') }
@@ -29,6 +32,11 @@ function Send($seq) {
   $arg = $seq
   if ($PSVersionTable.PSVersion.Major -lt 7 -or "$PSNativeCommandArgumentPassing" -in '', 'Legacy') { $arg = $seq -replace '"', '\"' }
   powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq $arg | Out-Null
+  if ($LASTEXITCODE -eq 5) {                             # holdg: a STOP file (walk, FO4SF_STOP_FILES) appeared mid-hold
+    $hit = @("$env:FO4SF_STOP_FILES".Split(';') | Where-Object { $_ -and (Test-Path -LiteralPath $_) })
+    $obs['stopped'] = "STOP file $($hit -join ', ') (during a hold; the key was released)"; $obs['walk_stopped'] = 'stopped'
+    Save-Obs; exit 2
+  }
   if ($LASTEXITCODE -ne 0) { $obs['stopped'] = 'input guard'; Save-Obs; exit 2 }
 }
 function Console-Open {
@@ -40,7 +48,41 @@ function Console-Open {
 $script:strictReads = $false     # door_trip: readpos -Strict (labelled values of the read's own session only)
 $script:lastHeading = $null      # the heading of the last Read-Pos with -Angle ($null: not read)
 $script:readN = 0                # readpos.ps1 runs so far: each gets its own folder <Out>\reads\NNNN
+function Bridge-Read([bool]$angle = $false, [int]$tries = 12) {
+  # the player's position from the newest line of the bridge's log (bridge_log.py latest: the game's FO4SF_Bridge
+  # script writes one every half second; docs/ai/test-queue.md "Bridge"), not older than $script:bridgeMaxAge s:
+  # "x y z" (the game's six decimals) or $null; the heading to $script:lastHeading when $angle. No console, no
+  # capture: a stale log (the game or its quest not running) is a failed read, never an old position. Every try is
+  # listed in obs.read_log with via = bridge and the line's rt / n (the read's provenance, as readpos's nonce is).
+  # Freshness is the line's own clock stamp (bridge_log.py latest), and the tries span about 8 s: the game writes
+  # nothing while paused (a loading screen, the console open), and resumes a few seconds after the console closes
+  # (bridge_probe_1015 a1, 2026-10-14: the first line after a hop came 3 s after the reads had given up).
+  $script:lastHeading = $null
+  $cmd = @((Join-Path $here 'bridge_log.py'), 'latest', '--max-age', "$($script:bridgeMaxAge)")
+  if ($env:FO4SF_BRIDGE_LOG) { $cmd += @('--log', $env:FO4SF_BRIDGE_LOG) }     # the sandbox's log
+  for ($n = 0; $n -lt $tries; $n++) {
+    $script:readN++
+    $j = $null
+    try { $j = (& $env:FO4SF_PYTHON @cmd) | ConvertFrom-Json } catch { $j = $null }
+    if (-not $obs.Contains('read_log')) { $obs['read_log'] = @() }
+    $ok = [bool]($j -and $j.ok -and @($j.pos).Count -eq 3)
+    $pos = $(if ($ok) { (@($j.pos) | ForEach-Object { ([double]$_).ToString([Globalization.CultureInfo]::InvariantCulture) }) -join ' ' } else { "fail $($j.why)" })
+    $rec = [ordered]@{ n = $script:readN; via = 'bridge'; ref = ''; nonce = $null; result = $pos }
+    if ($ok) { $rec['rt'] = $j.rt; $rec['line'] = $j.n }
+    $obs['read_log'] += $rec
+    if ($ok) {
+      if ($angle -and $null -ne $j.ang) { $script:lastHeading = [double]$j.ang }
+      return $pos
+    }
+    Start-Sleep -Milliseconds 700
+  }
+  return $null
+}
 function Read-Pos([string]$ref = '', [int]$tries = 3, [bool]$angle = $false) {
+  # the player: the bridge; a ref: readpos. A caller's small try count (Read-Settled's 3) is a readpos retry budget;
+  # a bridge read needs its ~8 s of patience whatever the caller asked (bridge_probe_1015b: 3 tries gave up 2 s before
+  # the first line after the loading screen)
+  if ($script:bridge -and -not $ref) { return (Bridge-Read $angle ([Math]::Max($tries, 12))) }
   # up to 3 reads: OCR sometimes drops or shifts a column; a read with x == z or a missing value is retried. With
   # $angle (door_trip arrivals) readpos also types player.getangle z: the read returns "x y z" and the heading goes to
   # $script:lastHeading. Every readpos run keeps its capture, OCR text and read.json (its nonce) in its own folder,
@@ -140,7 +182,7 @@ function Light-Commands {
 # console_pre (after the save has loaded, before the travel) and console_post (after the arrival, before the probes or
 # the spawn): only lines that match this whitelist are typed (the same pattern as console_plan.py PATTERN; .NET \z, so a
 # trailing newline never passes); a bad line ends the step with exit 4 before anything is typed.
-$consoleOk = '^(?:GetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}"|SetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}" -?\d{1,9}(?:\.\d{1,6})?|SetLocalTime (?:1?\d|2[0-3])(?:\.\d{1,2})?(?: 1)?|cgf "Game\.SetLocalTime" (?:1?\d|2[0-3])(?:\.\d{1,2})?|fw [0-9A-Fa-f]{8}(?: 1)?)\z'
+$consoleOk = '^(?:GetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}"|SetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}" -?\d{1,9}(?:\.\d{1,6})?|SetLocalTime (?:1?\d|2[0-3])(?:\.\d{1,2})?(?: 1)?|cgf "Game\.SetLocalTime" (?:1?\d|2[0-3])(?:\.\d{1,2})?|fw [0-9A-Fa-f]{8}(?: 1)?|cgf "FO4SF_Probe\.Pos" \d{1,10}|cgf "FO4SF_Probe\.Ack" "[A-Za-z0-9_.-]{1,40}"|cgf "FO4SF_Probe\.Player"|cgf "Debug\.TraceUser" "fo4sf" "[A-Za-z0-9_ .-]{1,60}")\z'
 function Console-List($list, [string]$what) {
   $out = @()
   foreach ($c in @($list | Where-Object { $null -ne $_ })) {
@@ -231,6 +273,110 @@ function Apply-Light($cmds, [string]$beforeShot) {
   }
 }
 
+# Movable items (movable with impulses, movable_control; docs/ai/test-queue.md "Movable items: walk, then impulse"). The
+# item is selected by its id (prid) and confirmed with GetIsID <base> 1 in the same console session before anything reads
+# its position or acts on it (npc_nav's handle rules: opening the console selects what is under the crosshair). Every
+# line typed for it matches one of these patterns (testqueue.py builds them; a bad line ends the step with exit 4 before
+# anything is typed).
+$hexId = '^[0-9A-Fa-f]{8}$'
+$impulseOk = '^ApplyHavokImpulse -?\d{1,2}(\.\d{1,3})? -?\d{1,2}(\.\d{1,3})? -?\d{1,2}(\.\d{1,3})? \d{1,6}(\.\d{1,2})?$'
+$setMassOk = '^SetRigidBodyMass \d{1,4}(\.\d{1,2})?$'
+$massProbe = 'cf "ObjectReference.GetMass"'
+function Item-Capture([string[]]$cmds, [string[]]$need, [string]$tag = 'item') {
+  # as npc_nav's Npc-Capture: ClearConsole first (its echo marks where this session begins), the commands, then
+  # parse_npc.py on this session's OCR (up to four thresholds until $need is read); the capture and the OCR text stay
+  # as <tag>_cap.png / <tag>_ocr.txt
+  $seq = 'type:ClearConsole|key:enter|wait:500'
+  foreach ($c in $cmds) { $seq += "|type:$c|key:enter|wait:600" }
+  Send "$seq|wait:400"
+  $exp = @(); $typed = @()
+  foreach ($c in $cmds) {
+    if ($c -eq 'plr') { $exp += 'ref' }
+    elseif ($c -like 'GetIsID *') { $exp += 'isid' } elseif ($c -match '^getpos ([xyz])$') { $exp += $Matches[1] }
+    elseif ($c -eq 'GetSelf') { $exp += 'self' } elseif ($c -eq 'GetDisabled') { $exp += 'disabled' }
+    elseif ($c -match '^prid ([0-9A-Fa-f]{8})$') { $typed += $Matches[1] }
+  }
+  $cap = Join-Path $Out "${tag}_cap.png"; $prep = Join-Path $Out "${tag}_prep.png"; $txt = Join-Path $Out "${tag}_ocr.txt"
+  powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'shot_region.ps1') -Out $cap | Out-Null
+  $r = $null
+  foreach ($th in 135, 140, 130, 145) {
+    & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $cap $prep $th 12 | Out-Null
+    (powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $prep -Scale 1) | Set-Content $txt -Encoding utf8
+    $r = (& $env:FO4SF_PYTHON (Join-Path $here 'parse_npc.py') $txt "--expect=$($exp -join ',')" "--typed=$($typed -join ',')") | ConvertFrom-Json
+    $missing = @($need | Where-Object { $null -eq $r.$_ })
+    if ($r -and $missing.Count -eq 0) { break }
+  }
+  return $r
+}
+function Select-Item([string]$ref, [string]$base, [string]$tag = 'item') {
+  # console open, prid <ref>, GetIsID <base> must read 1 (a second try only repeats the session: an OCR miss). Returns
+  # with the console OPEN and the item's read, or closes the console and returns $null
+  if ("$ref" -notmatch $hexId -or "$base" -notmatch $hexId) { return $null }
+  Console-Open
+  foreach ($n in 1, 2) {
+    $r = Item-Capture @("prid $ref", "GetIsID $base", 'getpos x', 'getpos y', 'getpos z') @('isid', 'pos') $tag
+    if ($r -and $r.isid -eq 1) {
+      $p = $null; if ("$($r.pos)" -match $pos3) { $p = "$($r.pos)" }
+      return [ordered]@{ isid = 1; read = $p; how = $r.how }
+    }
+  }
+  Send 'key:grave|wait:600'
+  return $null
+}
+function Item-Read([string]$ref, [string]$base, [string]$tag = 'item') {
+  # the item's confirmed position ("x y z"), console closed afterwards; $null when not selected or not read
+  $s = Select-Item $ref $base $tag
+  if (-not $s) { return $null }
+  Send 'key:grave|wait:600'
+  return $s.read
+}
+function Dist-3([string]$a, [string]$b) {
+  if ("$a" -notmatch $pos3 -or "$b" -notmatch $pos3) { return $null }
+  $u = "$a".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries); $v = "$b".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+  return [Math]::Sqrt([Math]::Pow([double]$u[0] - [double]$v[0], 2) + [Math]::Pow([double]$u[1] - [double]$v[1], 2) +
+                      [Math]::Pow([double]$u[2] - [double]$v[2], 2))
+}
+function Item-DistXY([string]$read, $p) {
+  if ("$read" -notmatch $pos3) { return $null }
+  $v = "$read".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+  return [Math]::Sqrt([Math]::Pow([double]$v[0] - [double]$p[0], 2) + [Math]::Pow([double]$v[1] - [double]$p[1], 2))
+}
+function Impulse-Lines {
+  # the planned impulse ladder, validated before anything is typed (exit 4 on a bad line)
+  $out = @()
+  foreach ($imp in @($t.impulses | Where-Object { $null -ne $_ })) {
+    if ("$($imp.cmd)" -cnotmatch $impulseOk) { "bad impulse"; exit 4 }
+    $out += $imp
+  }
+  if ($out.Count -gt 5) { "bad impulse"; exit 4 }
+  return ,$out
+}
+function Push-Impulses([string]$ref, [string]$base, [string]$from, $lines) {
+  # The impulse ladder after a walk that did not move the item ($from: its read after the walk). Each impulse in its own
+  # confirmed session: Select-Item, then the line (its OCR kept as impulse_<k>_cmd), the console closed for
+  # impulse_wait_ms (the game runs: the item hops and lands), a confirmed read and a screenshot. Stops at the first
+  # impulse that moved the item moved_m. Everything goes to obs.json "impulses" after every step.
+  $wait = 3000; if ($null -ne $t.impulse_wait_ms) { $wait = [int]$t.impulse_wait_ms }
+  $min = 0.05; if ($null -ne $t.moved_m) { $min = [double]$t.moved_m }
+  $done = @(); $k = 0
+  foreach ($imp in $lines) {
+    $k++
+    $rec = [ordered]@{ dv = $imp.dv; magnitude = $imp.magnitude; cmd = "$($imp.cmd)"; applied = $false; read = $null }
+    $s = Select-Item $ref $base "impulse_${k}_sel"
+    if ($s) {
+      $c = Item-Capture @("$($imp.cmd)") @() "impulse_${k}_cmd"
+      $rec['ocr'] = $c.ocr; $rec['applied'] = $true
+      Send "key:grave|wait:$wait"
+      $rec['read'] = Item-Read $ref $base "impulse_${k}_read"
+      $rec['shot'] = Shot "impulse_$k.png"
+    }
+    $done += $rec
+    $obs['impulses'] = $done; Save-Obs
+    $d = Dist-3 $rec['read'] $from
+    if ($null -ne $d -and $d -ge $min) { break }
+  }
+}
+
 $kind = $t.kind
 if ($kind -in 'stairs', 'door') { $kind = 'route' }     # testqueue.py plans stairs and door tests; both are routes
 switch ($kind) {
@@ -253,6 +399,10 @@ switch ($kind) {
     $obs['shot'] = Shot 'fall.png'
   }
   'movable' {
+    # walk into an item of the build; with impulses (testqueue.py plan --impulse) the ladder follows a walk that did not
+    # move it, on the item selected by prid <sf_ref> and confirmed by GetIsID <sf_base> 1
+    $imps = Impulse-Lines
+    if ($imps.Count -gt 0 -and ("$($t.sf_ref)" -notmatch $hexId -or "$($t.sf_base)" -notmatch $hexId)) { "bad sf_ref / sf_base"; exit 4 }
     $obs['item_before'] = Read-Pos $t.sf_ref
     Teleport $t.stand $t.heading 25
     $obs['player_start'] = Read-Pos
@@ -261,6 +411,155 @@ switch ($kind) {
     $obs['player_end'] = Read-Pos
     $obs['item_after'] = Read-Pos $t.sf_ref
     $obs['shot_after'] = Shot 'after.png'
+    if ($imps.Count -gt 0) {
+      $d = Dist-3 $obs['item_before'] $obs['item_after']
+      $min = 0.05; if ($null -ne $t.moved_m) { $min = [double]$t.moved_m }
+      if ($null -ne $d -and $d -lt $min) { Save-Obs; Push-Impulses "$($t.sf_ref)" "$($t.sf_base)" "$($obs['item_after'])" $imps }
+    }
+  }
+  'movable_control' {
+    # docs/ai/test-queue.md "Movable items: walk, then impulse". coc into a vanilla cell and read the arrival until it
+    # settles; the player to the spot; the item placed at the player's feet (placeatme) while the player moves on to the
+    # park point in the same console session (the game is paused while the console is open), so the item drops onto a
+    # free floor during spawn_wait_ms; its handle confirmed as npc_nav's (PickLastRef's id, GetSelf names no other ref,
+    # GetIsID <base> 1, within handle_tol of the spot); the GetMass probe / SetRigidBodyMass on the confirmed selection
+    # when planned (their OCR kept; after SetRigidBodyMass the console closed mass_wait_ms and GetMass read again on a
+    # second confirmed selection: the judge needs that reading); the player stand_m before the item facing heading, the
+    # item's confirmed read, the walk (hold W walk_ms), the player's and the item's reads; the impulse ladder when the
+    # walk did not move it; then
+    # the item removed (disable, markfordelete) on a confirmed selection only. Everything typed is validated here again.
+    if ("$($t.travel)" -notmatch '^coc [A-Za-z0-9_]+$') { "bad travel"; exit 4 }
+    $base = "$($t.base)"; if ($base -notmatch $hexId) { "bad base"; exit 4 }
+    $spot = @($t.spot); $park = @($t.park)
+    if ($spot.Count -ne 3 -or $park.Count -ne 3) { "bad spot / park"; exit 4 }
+    foreach ($x in @($spot + $park)) {
+      if ($x -is [string] -or $x -is [bool] -or $null -eq $x) { "bad spot / park"; exit 4 }
+      $dx = [double]$x; if ([double]::IsNaN($dx) -or [Math]::Abs($dx) -gt 1e6) { "bad spot / park"; exit 4 }
+    }
+    $heading = [double]$t.heading; $standM = [double]$t.stand_m; $drop = [double]$t.drop
+    if ($heading -lt 0 -or $heading -gt 360 -or $standM -lt 0.5 -or $standM -gt 5 -or $drop -lt 0 -or $drop -gt 5) { "bad heading / stand_m / drop"; exit 4 }
+    $setMass = ''; if ($t.set_mass_cmd) { $setMass = "$($t.set_mass_cmd)"; if ($setMass -cnotmatch $setMassOk) { "bad set_mass_cmd"; exit 4 } }
+    $probe = ''; if ($t.probe_cmd) { $probe = "$($t.probe_cmd)"; if ($probe -cne $massProbe) { "bad probe_cmd"; exit 4 } }
+    if ($setMass -and -not $probe) { "set_mass_cmd without probe_cmd: the mass set would never be read back"; exit 4 }
+    $massWait = 1000; if ($null -ne $t.mass_wait_ms) { $massWait = [int]$t.mass_wait_ms }
+    if ($massWait -lt 200 -or $massWait -gt 10000) { "bad mass_wait_ms"; exit 4 }
+    $imps = Impulse-Lines
+    $spawnWait = [int]$t.spawn_wait_ms; $handleTol = [double]$t.handle_tol; $settle = [int]$t.settle_ms
+    $walkMs = [int]$t.walk_ms; $min = [double]$t.moved_m
+    if ($spawnWait -lt 500 -or $spawnWait -gt 30000 -or $handleTol -lt 0.3 -or $handleTol -gt 10 -or $settle -lt 0 -or
+        $settle -gt 30000 -or $walkMs -lt 100 -or $walkMs -gt 5000 -or $min -lt 0.01 -or $min -gt 1) { "bad timing / tolerances"; exit 4 }
+    $preCmds = Console-List $t.console_pre 'console_pre'; $postCmds = Console-List $t.console_post 'console_post'
+    # 1. travel, the arrival read until it stops
+    Run-Console $preCmds 'pre'                       # after the save has loaded, before the travel
+    Console-Open
+    Send "type:$($t.travel)|key:enter|wait:400|key:grave|wait:3000"
+    $w0 = Wait-Hud 90 'hud.png'; $obs['load_s'] = $w0.secs; $obs['hud_back'] = $w0.up
+    Start-Sleep 3
+    $arr = Read-Settled
+    $obs['arrival_read'] = $arr.read; $obs['arrival_settled'] = $arr.settled; $obs['arrival_reads'] = $arr.reads
+    $obs['shot'] = Shot 'arrival.png'
+    Save-Obs
+    Run-Console $postCmds 'post'                     # after the arrival, before the item is placed
+    # 2. the player at the spot (placeatme puts the item at the player's feet)
+    Teleport @([double]$spot[0], [double]$spot[1], ([double]$spot[2] + $drop)) $heading 10
+    Start-Sleep -Milliseconds $settle
+    $obs['player_spot'] = Read-Pos
+    Save-Obs
+    $ds = Item-DistXY $obs['player_spot'] $spot
+    if ($null -eq $ds -or $ds -gt 1.0) { exit 0 }      # not at the spot: nothing placed (judged START)
+    # not on the floor planned at the spot (testqueue.py SPOT_Z_M, 0.4 m): nothing placed (judged START)
+    $sz0 = [double]("$($obs['player_spot'])".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)[2])
+    if ([Math]::Abs($sz0 - [double]$spot[2]) -gt 0.4) { exit 0 }
+    # 3. the item placed, the player to the park point in the same session, the console closed for spawn_wait_ms
+    Console-Open
+    $s0 = Item-Capture @("player.placeatme $base 1") @() 'place'
+    Send ("type:player.setpos x $(F $park[0])|key:enter|wait:350|type:player.setpos y $(F $park[1])|key:enter|wait:350|" +
+          "type:player.setpos z $(F ([double]$park[2] + $drop))|key:enter|wait:350|type:player.setangle z $(F $heading)|key:enter|" +
+          "wait:350|key:grave|wait:$spawnWait")
+    # 4. the handle (npc_nav's Pick-Npc): plr alone, prid <id> + GetSelf, GetIsID <base> + getpos
+    Console-Open
+    $r1 = Item-Capture @('plr') @('ref') 'spawn_plr'
+    $pk = [ordered]@{ 'ref' = $null; self = $null; isid = $null; read = $null; place_ocr = $s0.ocr; plr_ocr = $r1.ocr }
+    if ("$($r1.ref)" -cmatch '^FF[0-9A-F]{6}$') {
+      $pk['ref'] = "$($r1.ref)"
+      $r2 = Item-Capture @("prid $($pk['ref'])", 'GetSelf') @('self') 'spawn_self'
+      if ("$($r2.self)" -match $hexId) { $pk['self'] = "$($r2.self)" }
+      $r3 = Item-Capture @("GetIsID $base", 'getpos x', 'getpos y', 'getpos z') @('isid', 'pos') 'spawn_isid'
+      $pk['isid'] = $r3.isid
+      if ("$($r3.pos)" -match $pos3) { $pk['read'] = "$($r3.pos)" }
+    }
+    Send 'key:grave|wait:600'
+    $dist = Item-DistXY $pk['read'] $spot
+    $why = @()
+    if (-not $pk['ref']) { $why += 'PickLastRef gave no FFxxxxxx id' }
+    else {
+      if ($pk['self'] -and $pk['self'] -ne $pk['ref']) { $why += "after prid $($pk['ref']) GetSelf named $($pk['self']): another ref is selected" }
+      if ($pk['isid'] -ne 1) { $why += "GetIsID $base read $(if ($null -eq $pk['isid']) { 'nothing' } else { $pk['isid'] })" }
+      if ($null -eq $dist) { $why += 'its position was not read' }
+      elseif ($dist -gt $handleTol) { $why += "it lies $([math]::Round($dist, 2)) m from the spot (more than $handleTol m)" }
+    }
+    $pk['dist'] = $(if ($null -ne $dist) { [math]::Round($dist, 2) } else { $null })
+    $pk['confirmed'] = ($why.Count -eq 0); $pk['why'] = ($why -join '; ')
+    $obs['spawn'] = $pk
+    $obs['spawn_shot'] = Shot 'spawn.png'
+    Save-Obs
+    $ref = "$($pk['ref'])"
+    if ($pk['confirmed']) {
+      # 5. the GetMass probe and SetRigidBodyMass on the confirmed selection (their replies' OCR is kept). After
+      # SetRigidBodyMass the console is closed for mass_wait_ms (the game runs) and GetMass is read again on a second
+      # confirmed selection: the judge reads a set_mass test only when that reading is the mass set (else MASS)
+      if ($setMass -or $probe) {
+        $mp = [ordered]@{}
+        $sel = Select-Item $ref $base 'mass_sel'
+        if ($sel) {
+          if ($probe) { $mp['before'] = (Item-Capture @($probe) @() 'probe_before').ocr }
+          if ($setMass) { $obs['set_mass'] = [ordered]@{ typed = $true; cmd = $setMass; ocr = (Item-Capture @($setMass) @() 'set_mass').ocr } }
+          Send "key:grave|wait:$(if ($setMass) { $massWait } else { 600 })"
+          if ($setMass) {
+            $sel2 = Select-Item $ref $base 'mass_sel2'
+            if ($sel2) {
+              $mp['after'] = (Item-Capture @($probe) @() 'probe_after').ocr
+              Send 'key:grave|wait:600'
+            } else { $mp['after_note'] = 'the item was not selected again for the reading after SetRigidBodyMass' }
+          }
+        } elseif ($setMass) { $obs['set_mass'] = [ordered]@{ typed = $false; cmd = $setMass } }
+        if ($probe) { $obs['mass_probe'] = $mp }
+        Save-Obs
+      }
+      # 6. the player stand_m before the item (its spawn read), facing it along heading, on the floor read at the spot
+      $iv = "$($pk['read'])".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+      $hr = $heading * [Math]::PI / 180
+      $sx = [double]$iv[0] - [Math]::Sin($hr) * $standM; $sy = [double]$iv[1] - [Math]::Cos($hr) * $standM
+      $sz = [double]("$($obs['player_spot'])".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)[2])
+      $obs['stand'] = @([math]::Round($sx, 3), [math]::Round($sy, 3), [math]::Round($sz, 3))
+      Teleport @($sx, $sy, ($sz + $drop)) $heading 25
+      Start-Sleep -Milliseconds $settle
+      $obs['player_start'] = Read-Pos
+      $obs['item_before'] = Item-Read $ref $base 'item_before'
+      $obs['shot_before'] = Shot 'before.png'
+      Save-Obs
+      # 7. the walk over the item, then the player's and the item's reads
+      Send "hold:w,$walkMs|wait:1500"
+      $obs['player_end'] = Read-Pos
+      $obs['item_after'] = Item-Read $ref $base 'item_after'
+      $obs['shot_after'] = Shot 'after.png'
+      Save-Obs
+      # 8. the impulse ladder when the walk did not move it
+      $d = Dist-3 $obs['item_before'] $obs['item_after']
+      if ($imps.Count -gt 0 -and $null -ne $d -and $d -lt $min) { Push-Impulses $ref $base "$($obs['item_after'])" $imps }
+    }
+    # 9. remove the item: disable and markfordelete on a confirmed selection only (a world ref is never touched)
+    $clean = [ordered]@{ removed = $false }
+    if ($pk['confirmed']) {
+      $sel = Select-Item $ref $base 'remove_sel'
+      if ($sel) {
+        $dd = Item-Capture @('disable', 'GetDisabled') @('disabled') 'remove'
+        Send 'type:markfordelete|key:enter|wait:600|key:grave|wait:600'
+        $clean['removed'] = $true; $clean['disabled'] = $dd.disabled
+      } else { $clean['note'] = 'the item could not be selected again: it may be left in the cell' }
+    } else { $clean['note'] = 'no confirmed handle: an item may be left in the cell' }
+    $obs['cleanup'] = $clean
+    $obs['end_shot'] = Shot 'cleanup.png'
   }
   'travel' {
     Teleport $t.start $t.heading 10
@@ -461,6 +760,16 @@ switch ($kind) {
     $pre = @($t.pre | Where-Object { $_ })
     foreach ($c in $pre) { if (@('gnm') -cnotcontains "$c") { "bad pre"; exit 4 } }
     if ($t.anchor -and "$($t.anchor.ref)" -notmatch $hex8) { "bad anchor"; exit 4 }
+    # combat_reads (docs/ai/test-queue.md "Combat engagement"): every sample's session also asks the combat manager,
+    # exactly these three lines (the same table as testqueue.py NPC_COMBAT_READS); their replies are parsed
+    # defensively (parse_npc.py: formats unverified in game) and kept raw. Only with methods none / combat_player.
+    $combatCmds = @('GetCombatState', 'GetCombatTarget', 'GetLineOfSight player')
+    $combatReads = $false
+    if ($null -ne $t.combat_reads) {
+      if ($t.combat_reads -isnot [bool]) { "bad combat_reads"; exit 4 }
+      $combatReads = [bool]$t.combat_reads
+      if ($combatReads -and @('none', 'combat_player') -cnotcontains "$($t.method)") { "bad combat_reads method"; exit 4 }
+    }
     $spawnWait = 2000; if ($null -ne $t.spawn_wait_ms) { $spawnWait = [int]$t.spawn_wait_ms }
     $handleTol = 2.0; if ($null -ne $t.handle_tol) { $handleTol = [double]$t.handle_tol }
     if ($spawnWait -lt 0 -or $spawnWait -gt 30000 -or $handleTol -lt 0.5 -or $handleTol -gt 10) { "bad spawn_wait_ms / handle_tol"; exit 4 }
@@ -484,8 +793,11 @@ switch ($kind) {
       $exp = @(); $typed = @()
       foreach ($c in $cmds) {
         if ($c -eq 'plr') { $exp += 'ref' }
-        elseif ($c -like 'GetIsID *') { $exp += 'isid' } elseif ($c -match '^getpos ([xyz])$') { $exp += $Matches[1] }
+        elseif ($c -match '^GetIsID ([0-9A-Fa-f]{8})$') { $exp += 'isid'; $typed += $Matches[1] }
+        elseif ($c -match '^getpos ([xyz])$') { $exp += $Matches[1] }
         elseif ($c -eq 'GetSelf') { $exp += 'self' } elseif ($c -eq 'GetDisabled') { $exp += 'disabled' }
+        elseif ($c -eq 'GetCombatState') { $exp += 'combat' } elseif ($c -eq 'GetCombatTarget') { $exp += 'target' }
+        elseif ($c -eq 'GetLineOfSight player') { $exp += 'los' }
         elseif ($c -match '^prid ([0-9A-Fa-f]{8})$') { $typed += $Matches[1] }
       }
       $cap = Join-Path $Out "${tag}_cap.png"; $prep = Join-Path $Out "${tag}_prep.png"; $txt = Join-Path $Out "${tag}_ocr.txt"
@@ -524,18 +836,29 @@ switch ($kind) {
       if ("$($r3.pos)" -match $num3) { $p['read'] = "$($r3.pos)" }
       return $p
     }
-    function Select-Npc {
+    function Select-Npc([switch]$Combat) {
       # Opening the console selects what is under the crosshair (supported hypothesis: N0_base's selection was the floor
       # static 0024A824 at A and again at B), so every session selects the actor by its id (prid, the confirmed
       # PickLastRef id) and confirms it: GetIsID <npc> 1 in the same session. Returns with the console OPEN plus its
       # position, or closes the console and returns $null. A second try only repeats the session (an OCR miss).
+      # -Combat: once the selection is confirmed, a second capture in the same console open (the selection stays on
+      # the prid'ed ref while the console is open, as Pick-Npc's captures rely on) types ClearConsole, GetIsID <npc>
+      # again and the combat reads ($combatCmds): nine lines, what the console shows. All of it in one capture would
+      # scroll the GetIsID and position replies off screen (the sandbox showed that). The replies are returned as read
+      # (null when not parsed); combat_isid is that capture's GetIsID (0: another ref answered, the judge drops them).
       if ("$($script:npcRef)" -cnotmatch $ffid) { return $null }
       Console-Open
       foreach ($n in 1, 2) {
         $r = Npc-Capture @("prid $($script:npcRef)", "GetIsID $npc", 'getpos x', 'getpos y', 'getpos z') @('isid', 'pos')
         if ($r -and $r.isid -eq 1) {
           $p = $null; if ("$($r.pos)" -match $num3) { $p = "$($r.pos)" }
-          return [ordered]@{ via = 'prid'; isid = 1; read = $p; how = $r.how; ocr = $r.ocr }
+          $o = [ordered]@{ via = 'prid'; isid = 1; read = $p; how = $r.how; ocr = $r.ocr }
+          if ($Combat) {
+            $c = Npc-Capture (@("GetIsID $npc") + $combatCmds) @('isid') 'npc_combat'
+            $o['combat_isid'] = $c.isid; $o['combat'] = $c.combat; $o['target'] = $c.target; $o['los'] = $c.los
+            $o['combat_ocr'] = $c.ocr
+          }
+          return $o
         }
       }
       Send 'key:grave|wait:600'
@@ -663,12 +986,20 @@ switch ($kind) {
             break
           }
           if ($wait -gt 0) { Start-Sleep -Milliseconds ([int]($wait * 1000)); $game = [double]$s }
-          $r = Select-Npc
+          $r = Select-Npc -Combat:$combatReads
           if ($r) { Send 'key:grave|wait:300' }
           $closedAt = Get-Date
-          $samples += [ordered]@{ t_game = [math]::Round($game, 1); t_wall = [math]::Round(((Get-Date) - $cmdAt).TotalSeconds, 1)
-                                  isid = $(if ($r) { 1 } else { $null }); read = $(if ($r) { $r.read } else { $null })
-                                  via = $(if ($r) { $r.via } else { '' }); shot = (Shot "npc$k.png") }
+          $smp = [ordered]@{ t_game = [math]::Round($game, 1); t_wall = [math]::Round(((Get-Date) - $cmdAt).TotalSeconds, 1)
+                             isid = $(if ($r) { 1 } else { $null }); read = $(if ($r) { $r.read } else { $null })
+                             via = $(if ($r) { $r.via } else { '' }); shot = (Shot "npc$k.png") }
+          if ($combatReads) {
+            # the combat manager's answers on the confirmed selection (parsed, else null), that capture's GetIsID and
+            # its raw OCR
+            $smp['combat_isid'] = $(if ($r) { $r.combat_isid } else { $null })
+            $smp['combat'] = $(if ($r) { $r.combat } else { $null }); $smp['target'] = $(if ($r) { $r.target } else { $null })
+            $smp['los'] = $(if ($r) { $r.los } else { $null }); $smp['combat_ocr'] = $(if ($r) { $r.combat_ocr } else { $null })
+          }
+          $samples += $smp
           $obs['samples'] = $samples; Save-Obs           # after every read: a cut-off keeps what was read
           $k++
         }
@@ -1109,6 +1440,229 @@ switch ($kind) {
     $c = In-Cell 'reload_cell'; $R['incell'] = $c.incell; $R['incell_ocr'] = $c.ocr; $R['incell_error'] = $c.error
     $R['shot'] = Shot 'reload.png'
     $obs['reload'] = $R
+  }
+  'walk' {
+    # A continuous walk (docs/terrain/walk-redrocket-sanctuary.md; the controller and the judge are walk_eval.py): coc,
+    # the arrival read until it settles (the overlay's merge offset O = arrival - spawn_local), for a test with "setup"
+    # ONE teleport to the route's start before the walk begins (setup, not walking evidence), then legs until the
+    # controller says done or stop. A leg: one console session (ClearConsole, player.getpos x / y / z, the console OCR'd
+    # with parse_npc.py; a failed read is read again in a fresh session, Walk-Session), the controller's decision on that read (walk_eval.py
+    # steer), "player.setangle z <heading>" typed in the same session, the console closed, W held for hold_ms
+    # (input.ps1 holdg: released at once when the game loses the foreground), then one screenshot: the HUD
+    # (hud_visible.py; gone -> wait up to 20 s for it) and the screen centre's text (ocr.ps1: "BOUNDARY REACHED" stops the
+    # walk; nothing is pressed to close it). Every leg records the console lines it typed: during the walk only
+    # ClearConsole, player.getpos and player.setangle, never a setpos (the judge checks). A screenshot is kept every
+    # shot_every legs and at every event. Everything typed is validated here again.
+    # The owner's stop controls (spec.stop, testqueue.py stop_controls: the runner's STOP files and the Resource
+    # Guardian) are honoured inside the walk: the files before every action (Walk-Stop) and during the hold (input.ps1
+    # holdg, FO4SF_STOP_FILES), the Guardian once per leg (walk_eval.py steer). A stop ends the step like a guard stop:
+    # exit 2, nothing more typed, obs.json with the legs so far and `stopped` (the runner counts no attempt).
+    if ("$($t.travel)" -notmatch '^coc [A-Za-z0-9_]+$') { "bad travel"; exit 4 }
+    function Num-W($v, [double]$def, [double]$lo, [double]$hi, [string]$what) {
+      if ($null -eq $v) { return $def }
+      if ($v -is [bool] -or $v -is [string]) { "bad $what"; exit 4 }
+      $d = [double]$v; if ([double]::IsNaN($d) -or $d -lt $lo -or $d -gt $hi) { "bad $what"; exit 4 }
+      return $d
+    }
+    function Vec-W($v, [int[]]$sizes, [string]$what) {
+      $a = @($v)
+      if ($sizes -notcontains $a.Count) { "bad $what"; exit 4 }
+      $out = @()
+      foreach ($x in $a) {
+        if ($x -isnot [double] -and $x -isnot [int] -and $x -isnot [long] -and $x -isnot [decimal]) { "bad $what"; exit 4 }
+        $d = [double]$x; if ([double]::IsNaN($d) -or [double]::IsInfinity($d) -or [Math]::Abs($d) -gt 1e6) { "bad $what"; exit 4 }
+        $out += $d
+      }
+      return ,$out
+    }
+    $sl = Vec-W $t.spawn_local @(2, 3) 'spawn_local'
+    $wps = @($t.waypoints)
+    if ($wps.Count -lt 2 -or $wps.Count -gt 400) { "bad waypoints"; exit 4 }
+    $W = @(); foreach ($w in $wps) { $W += ,(Vec-W $w @(4, 5) 'waypoint') }      # x, y, z, reach[, keep]
+    $start = Vec-W $t.start @(3) 'start'
+    $maxLegs = [int](Num-W $t.max_legs 60 1 400 'max_legs'); $shotEvery = [int](Num-W $t.shot_every 3 1 50 'shot_every')
+    $drop = Num-W $t.drop 1.0 0 50 'drop'; $settle = [int](Num-W $t.settle_ms 6000 0 30000 'settle_ms')
+    if ($null -ne $t.setup -and $t.setup -isnot [bool]) { "bad setup"; exit 4 }
+    $stopFiles = @()
+    if ($null -ne $t.stop -and $null -ne $t.stop.files) {
+      foreach ($f in @($t.stop.files)) { if ($f -isnot [string] -or -not $f) { "bad stop.files"; exit 4 }; $stopFiles += $f }
+    }
+    $env:FO4SF_STOP_FILES = ($stopFiles -join ';')        # input.ps1 holdg checks them while W is down
+    $lightCmds = Light-Commands
+    $preCmds = Console-List $t.console_pre 'console_pre'; $postCmds = Console-List $t.console_post 'console_post'
+    $wpy = Join-Path $here 'walk_eval.py'; $parse = Join-Path $here 'parse_npc.py'
+    $state = Join-Path $Out 'walk_state.json'
+    $stepStart = Get-Date
+    $budget = if ($t.budget_s) { [double]$t.budget_s } else { 1e9 }
+    function Walk-Left { $budget - ((Get-Date) - $stepStart).TotalSeconds }
+    function Walk-Read {
+      # console OPEN: ClearConsole (its echo marks this session's start for parse_npc.py) and the three getpos; returns
+      # "x y z" or $null, the console stays open. parse_npc.py reads nothing before this session's start and gives a
+      # position only when all three values are this session's ($script:readHow: its reading, "order" / "inline").
+      if ($script:bridge) { $script:readHow = 'bridge'; return (Bridge-Read $false 1) }   # no console session at all
+      Send 'type:ClearConsole|key:enter|wait:500|type:player.getpos x|key:enter|wait:450|type:player.getpos y|key:enter|wait:450|type:player.getpos z|key:enter|wait:700'
+      $script:legCmds += @('ClearConsole', 'player.getpos x', 'player.getpos y', 'player.getpos z')
+      $cap = Join-Path $Out 'walk_cap.png'; $prep = Join-Path $Out 'walk_prep.png'; $txt = Join-Path $Out 'walk_ocr.txt'
+      powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'shot_region.ps1') -Out $cap | Out-Null
+      $script:readHow = ''
+      foreach ($th in 135, 140, 130, 145) {
+        & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $cap $prep $th 12 | Out-Null
+        (powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $prep -Scale 1) | Set-Content $txt -Encoding utf8
+        $r = $null
+        try { $r = (& $env:FO4SF_PYTHON $parse $txt '--expect=x,y,z') | ConvertFrom-Json } catch { $r = $null }
+        if ($r -and "$($r.pos)" -match $pos3) { $script:readHow = "$($r.how)"; return "$($r.pos)".Trim() }
+      }
+      return $null
+    }
+    function Walk-Session([int]$tries) {
+      # console CLOSED before and after: up to $tries fresh sessions of the same ClearConsole-marked read (a failed
+      # first read, the second read of an implausible move). Never readpos.ps1: its parse_getpos.py takes the last X,
+      # Y and Z anywhere on screen, so a capture missing this session's Z joined the current x / y with an older
+      # session's z (Codex on PR #103); here all three values come from one current session or there is no read.
+      if ($script:bridge) {
+        for ($k = 0; $k -lt $tries; $k++) { $p = Walk-Read; if ($p) { return $p }; Start-Sleep -Milliseconds 400 }
+        return $null
+      }
+      for ($k = 0; $k -lt $tries; $k++) {
+        Console-Open
+        $p = Walk-Read
+        Send 'key:grave|wait:600'
+        if ($p) { return $p }
+        Start-Sleep -Milliseconds 400
+      }
+      return $null
+    }
+    function Steer([string]$read, [bool]$again = $false) {
+      # walk_eval.py steer: the next action for this read ("none" when unread); $null when it gave no answer
+      $rd = $(if ($read) { $read } else { 'none' })
+      $a = @($wpy, 'steer', '--spec', $Spec, '--state', $state, "--read=$rd")
+      if ($again) { $a += '--reread' }
+      $j = & $env:FO4SF_PYTHON @a
+      try { return ("$j" | ConvertFrom-Json) } catch { return $null }
+    }
+    function Popup-Text([string]$png) {
+      # the screen centre's text (the "BOUNDARY REACHED" box sits there and leaves the HUD on screen, 2026-10-12)
+      $f = Join-Path $Out $png
+      if (-not (Test-Path $f)) { return '' }
+      return ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $f -X 320 -Y 150 -W 640 -H 330 -Scale 2) -join ' ')
+    }
+    function Walk-Stop {
+      # the first STOP file of the spec that exists (cheap: tested before every action of a leg), else ''
+      foreach ($f in $stopFiles) { if (Test-Path -LiteralPath $f) { return "STOP file $f" } }
+      return ''
+    }
+    function Stop-Walk([string]$why, $L) {
+      # a stop control tripped: the unfinished leg and the reason go into obs.json, nothing more is typed, exit 2
+      $L['action'] = 'stop'; $L['reason'] = 'stopped'; $L['cmds'] = $script:legCmds
+      $obs['legs'] = @($legs) + @($L); $obs['walk_stopped'] = 'stopped'; $obs['stopped'] = $why
+      Save-Obs; exit 2
+    }
+
+    # 1. the coc arrival and the overlay's merge offset
+    Run-Console $preCmds 'pre'
+    Console-Open
+    Send "type:$($t.travel)|key:enter|wait:400|key:grave|wait:3000"
+    $w0 = Wait-Hud 90 'hud.png'; $obs['load_s'] = $w0.secs; $obs['hud_back'] = $w0.up
+    Start-Sleep 3
+    $arr = Read-Settled
+    $obs['spawn_read'] = $arr.read; $obs['spawn_settled'] = $arr.settled; $obs['spawn_reads'] = $arr.reads
+    $obs['shot'] = Shot 'arrival.png'
+    Apply-Light $lightCmds "$($obs['shot'])"
+    Run-Console $postCmds 'post'
+    if (-not $arr.settled -or "$($arr.read)" -notmatch $pos3) {
+      $obs['offset_missing'] = 'the arrival was not read or still moving after 5 reads'; Save-Obs; exit 0
+    }
+    $sv = "$($arr.read)".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+    $O = @(([double]$sv[0] - $sl[0]), ([double]$sv[1] - $sl[1]), 0.0)
+    if ($sl.Count -ge 3) { $O[2] = [double]$sv[2] - $sl[2] }
+    $obs['offset'] = $O; $obs['offset_from'] = 'spawn'
+    Save-Obs
+    # 2. setup (the reverse test): one teleport to the route's start, facing the next waypoint, before the walk
+    if ($t.setup) {
+      $h0 = ([Math]::Atan2($W[1][0] - $W[0][0], $W[1][1] - $W[0][1]) * 180.0 / [Math]::PI + 360.0) % 360.0
+      $tgt = @(($start[0] + $O[0]), ($start[1] + $O[1]), ($start[2] + $O[2]))
+      Teleport @($tgt[0], $tgt[1], ($tgt[2] + $drop)) $h0 5
+      Start-Sleep -Milliseconds $settle
+      $s2 = Read-Settled
+      $obs['setup'] = [ordered]@{ target = $tgt; read = $s2.read; settled = $s2.settled; reads = $s2.reads; shot = (Shot 'setup.png') }
+      Save-Obs
+      if (-not $s2.settled -or "$($s2.read)" -notmatch $pos3) { exit 0 }
+    }
+    # 3. the walk
+    $init = & $env:FO4SF_PYTHON $wpy init --spec $Spec --state $state "--offset=$(F $O[0]) $(F $O[1]) $(F $O[2])"
+    if ("$init" -notmatch '"init"') { $obs['walk_stopped'] = 'steer'; $obs['steer_init'] = "$init"; Save-Obs; exit 0 }
+    $legs = @(); $n = 0; $walkStart = Get-Date; $pitched = $false; $stopReason = ''
+    while ($true) {
+      if ((Walk-Left) -lt 150) { $stopReason = 'budget'; break }
+      $script:legCmds = @()
+      $L = [ordered]@{ n = $n; t = [Math]::Round(((Get-Date) - $walkStart).TotalSeconds, 1) }
+      $why = Walk-Stop; if ($why) { Stop-Walk $why $L }
+      if ($script:bridge) {                                # the bridge: no console session for the read
+        $open = $false
+        $p = Walk-Session 3; $L['via'] = 'bridge'; $L['read_how'] = $script:readHow
+      } else {
+        Console-Open
+        $open = $true
+        $p = Walk-Read; $L['via'] = 'console'; $L['read_how'] = $script:readHow
+        if (-not $p) { Send 'key:grave|wait:600'; $open = $false; $p = Walk-Session 2; $L['via'] = 'console_retry'; $L['read_how'] = $script:readHow }
+      }
+      $L['read'] = $p
+      $d = Steer $p
+      if ($d -and $d.action -eq 'reread') {
+        if ($open) { Send 'key:grave|wait:600'; $open = $false }
+        Start-Sleep -Milliseconds 500
+        $p2 = Walk-Session 2
+        $L['reread'] = $p2; $L['reread_why'] = "$($d.reason)"; $L['reread_via'] = $(if ($script:bridge) { 'bridge' } else { 'console' }); $L['reread_how'] = $script:readHow
+        $d = Steer $p2 $true
+        if ($d -and ($d.action -in 'aim', 'done' -or "$($d.reason)" -eq 'jump')) { $L['used'] = $p2 }
+        $L['confirmed'] = [bool]($d -and $d.confirmed)
+      } elseif ($p) { $L['used'] = $p }
+      if (-not $d) { if ($open) { Send 'key:grave|wait:600' }; $L['action'] = 'stop'; $L['reason'] = 'steer'; $L['cmds'] = $script:legCmds
+                     $legs += $L; $obs['legs'] = $legs; $stopReason = 'steer'; break }
+      if ("$($d.reason)" -eq 'stopped') { Stop-Walk "$($d.stopped)" $L }       # a STOP file or the Guardian (steer)
+      $L['action'] = "$($d.action)"; $L['reason'] = "$($d.reason)"; $L['wp'] = $d.wp; $L['local'] = $d.local
+      $event = $false
+      if ($d.action -eq 'aim') {
+        $h = [double]$d.heading; $hold = [int]$d.hold_ms
+        if ([double]::IsNaN($h) -or $h -lt 0 -or $h -gt 360 -or $hold -lt 100 -or $hold -gt 10000) { "bad steer answer"; exit 4 }
+        if (-not $open) { Console-Open; $open = $true }
+        $cmd = "player.setangle z $(([Math]::Round($h, 1)).ToString('0.#', $inv))"
+        $seq = "type:$cmd|key:enter|wait:300"
+        $script:legCmds += $cmd
+        if (-not $pitched) { $seq += '|type:player.setangle x 5|key:enter|wait:300'; $script:legCmds += 'player.setangle x 5'; $pitched = $true }
+        Send "$seq|key:grave|wait:500"; $open = $false
+        $L['heading'] = $h; $L['hold_ms'] = $hold; $L['dist'] = $d.dist; $L['detour'] = [bool]$d.detour; $L['speed'] = $d.speed
+        $why = Walk-Stop; if ($why) { Stop-Walk $why $L }
+        $obs['legs'] = @($legs) + @($L)                   # a stop during the hold (Send) keeps this leg's state
+        Send "holdg:w,$hold|wait:500"
+        # the screen after the walk: HUD and popup
+        $up = Hud-Shown 'walk_last.png'
+        $L['hud'] = [bool]$up
+        $pop = Popup-Text 'walk_last.png'
+        if ($pop -match 'BOUNDARY|REACHED|FAST TRAVEL|PLANET MAP') { $L['popup'] = "$pop".Trim(); $event = $true }
+        if (-not $up) {
+          $event = $true
+          $keep = Join-Path $Out ('walk_{0:D3}_nohud.png' -f $n); Copy-Item (Join-Path $Out 'walk_last.png') $keep -ErrorAction SilentlyContinue
+          $wb = Wait-Hud 20 'walk_hud.png'; $L['hud_gap_s'] = $wb.secs; $L['hud_back'] = [bool]$wb.up
+        }
+        if ($d.detour) { $event = $true }
+        if ((($n % $shotEvery) -eq 0) -or $event) {
+          $name = 'walk_{0:D3}.png' -f $n
+          Copy-Item (Join-Path $Out 'walk_last.png') (Join-Path $Out $name) -ErrorAction SilentlyContinue
+          if (Test-Path (Join-Path $Out $name)) { $L['shot'] = $name }
+        }
+      } elseif ($open) { Send 'key:grave|wait:600'; $open = $false }
+      $L['cmds'] = $script:legCmds
+      $legs += $L; $obs['legs'] = $legs; Save-Obs        # after every leg: a cut-off keeps what was read
+      if ($d.action -ne 'aim') { $stopReason = "$($d.reason)"; break }
+      if ($L['popup'] -and "$($L['popup'])" -match 'BOUNDARY|REACHED') { $stopReason = 'boundary'; break }
+      if ($L['hud'] -eq $false -and -not $L['hud_back']) { $stopReason = 'nohud'; break }
+      $n++
+    }
+    $obs['walk_stopped'] = $stopReason
+    $obs['walk_s'] = [int]((Get-Date) - $walkStart).TotalSeconds
+    $obs['end_shot'] = Shot 'end.png'
+    $obs['step_s'] = [int]((Get-Date) - $stepStart).TotalSeconds
   }
   'recover' {
     # testqueue.py calls this only when nobody touched the PC since its last input: a menu, the Steam overlay or a

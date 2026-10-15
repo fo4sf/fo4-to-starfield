@@ -65,8 +65,9 @@ class WhitelistTests(unittest.TestCase):
             self.assertTrue(ps.match(c), c)
         for c in BAD:
             self.assertFalse(isinstance(c, str) and ps.match(c), repr(c))
-        self.assertEqual(src.count("Run-Console $preCmds 'pre'"), 3)       # terrain, npc_nav and door_trip
-        self.assertEqual(src.count("Run-Console $postCmds 'post'"), 3)
+        # terrain, npc_nav, door_trip, walk and movable_control
+        self.assertEqual(src.count("Run-Console $preCmds 'pre'"), 5)
+        self.assertEqual(src.count("Run-Console $postCmds 'post'"), 5)
         self.assertIn("-cnotmatch $consoleOk", src)
 
     def test_fields(self):
@@ -208,3 +209,20 @@ class PlanTimeoutTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BridgeProbeLinesTests(unittest.TestCase):
+    """The bridge's console lines (2026-10-14): the probe's global functions and a TraceUser acknowledgement pass; any
+    other cgf, another log name or a tag with shell characters does not."""
+    def test_allowed(self):
+        for c in ('cgf "FO4SF_Probe.Pos" 1057678', 'cgf "FO4SF_Probe.Pos" 33556480', 'cgf "FO4SF_Probe.Ack" "probe-1"',
+                  'cgf "FO4SF_Probe.Ack" "walk.leg_3"', 'cgf "FO4SF_Probe.Player"', 'cgf "Debug.TraceUser" "fo4sf" "ack 7"',
+                  'cgf "Debug.TraceUser" "fo4sf" "before load"'):
+            self.assertTrue(cp.allowed(c), c)
+
+    def test_refused(self):
+        for c in ('cgf "FO4SF_Probe.Pos" abc', 'cgf "FO4SF_Probe.Pos" 0x0010238E', 'cgf "FO4SF_Probe.Pos"',
+                  'cgf "FO4SF_Probe.Ack" probe', 'cgf "FO4SF_Probe.Ack" "a;b"', 'cgf "FO4SF_Probe.Ack" "a|b"',
+                  'cgf "FO4SF_Probe.Teleport" 1 2 3', 'cgf "Debug.TraceUser" "other" "x"', 'cgf "Debug.Trace" "x"',
+                  'cgf "Game.QuitToMainMenu"', 'cgf "Debug.TraceUser" "fo4sf" "' + "a" * 61 + '"'):
+            self.assertFalse(cp.allowed(c), c)

@@ -26,15 +26,45 @@ another window in front of the game, also stops it (or makes it wait for an idle
 | stairs | `routes_<cell>.json` (routes.py) | rose at least 80% of the flight | STUCK, FALL | start not reached, misread |
 | fall | `probe_points.py` floor points | landed within 0.6 m | dropped more than 3 m | landed 0.6-3 m lower, held above, pushed away |
 | door | `routes_<cell>.json`, both sides | crossed the plane after an OPEN this attempt | BLOCKED, NOPROMPT, FALL | already open, misread |
-| movable | manifest `movable` items placed in the cell | item moved at least 5 cm when walked into | did not move although reached; fell | player missed it |
+| movable | manifest `movable` items placed in the cell | item moved at least 5 cm when walked into; with `--impulse`: PASS IMPULSE when only the impulse moved it | did not move although reached (NOTMOVED); STUCK (no impulse moved it either); fell | player missed it; ELEVATED (more than 0.5 m above the player's feet: on furniture; final) |
+| movable_control | `plan-movable` (plan.json, below) | the item placed in a vanilla cell moved when walked over (WALKED) or only under ApplyHavokImpulse (IMPULSE) | STUCK, NOTMOVED, ITEMFELL | start, spawn handle, SetRigidBodyMass refused, the item not at rest before the walk (SETTLE), missed, a read missing |
 | travel | load doors whose XTEL partner is in the same build | arrived within 4 m of the arrival point | no prompt; E did nothing | start not reached, arrived elsewhere |
 | terrain | `plan-terrain` (an experiment's plan.json) | heights within 0.5 m | NOTERRAIN, HEIGHTS | a height not read, moved |
-| npc_nav | `plan-npc` (plan.json, below) | the actor walked to B (a baseline: stayed away without a command) | NONAV, STALLED, FELL, WANDER | spawn / handle / reads failed, warp or early arrival, control or precondition not met |
+| npc_nav | `plan-npc` (plan.json, below) | the actor walked to B (a baseline: stayed away without a command); with `combat_reads`: ENGAGED, in combat with the player | NONAV, STALLED, FELL, WANDER; NOCOMBAT | spawn / handle / reads failed, warp or early arrival, control or precondition not met; combat replies unreadable |
 | door_trip | `plan-door` (plan.json, below) | walked through a load door into an interior and back, saved and loaded, every arrival read where expected (frame and, when planned, facing) | NOLOAD, UNMERGED, REMERGED, WRONGCELL, ELSEWHERE, FELL, RELOAD, OFFGROUND, FACING | offset, start, a read, the door not reached (NOREACH), loaded only from the last try (NEARONLY), no known frame (ELSEWHERE), a heading not read (NOFACING), the save file or the reload not seen |
 
 Every verdict needs its observations: a position that was not read or a screenshot that is missing makes the test
 INCONCLUSIVE, never PASS. INCONCLUSIVE tests are retried once more at the end of the queue (`--max-attempts 2`); a FAIL
 is final. A game crash during a test is recorded (class CRASH) and the game is relaunched (at most `--max-relaunch`).
+
+### Stairs routes (`routes.py`, 2026-10-13; amended after QA on PR #111)
+
+`routes.py` keeps a stairs route only when an offline walk (`src/fo4sf/walksim.py`, a 0.35 x 1.8 m capsule over FO4's
+own collision of the stair and its neighbours) stands free at the start and climbs at least 80 % of the flight; it tries
+lanes across the flight and closer starts, takes a lane that would touch a movable object last, ends the walk 0.6 m
+past the top (less when a drop is that close), plans no flight that rises less than 0.2 m, and skips a stair with no
+such lane with the reason (`skipped_stairs_without_ramp`, per stair in `stairs_checked`). Route entries carry `lane`,
+`sim_end` (where the offline walk ended), `emerges`, `tight` (a lane that fits only the bare capsule),
+`helper_crossing` (the walk meets a converted stair helper coming up through the floor, moved from FO4's: batch_full
+0002 / 0003 stopped at such a place, cause unresolved) and `movable_near`; the runner and the judge ignore them.
+`--probes-out` writes probes for each route with a helper crossing (`probe`: `through_crossing`, `runup`,
+`past_crossing`). Why and what the probes decide: [docs/testing/stairs-routes.md](../testing/stairs-routes.md).
+
+Routes planned again for the same pinned build (a newer `routes.py`) live in their own new folder; plan from it
+without copying or rebuilding the build, so the plugin hash, save and deploy stay the pinned build's:
+
+```powershell
+& $py scripts\game\testqueue.py plan --staging C:\Modding\staging\integ_1011 --out C:\Modding\testqueue\<batch> `
+  --kinds stairs --routes-prefix routesfull_ --routes-dir C:\Modding\staging\stairs_fix_1014 [--first 0EBEDE,0EBEE3] [--refs ...]
+```
+The queue copies the route files it uses into `<queue>\routes`, points each test's `routes_file` there and records
+`routes_dir` and `routes_sha256` in `queue.json`: re-planning the routes folder cannot change how a planned queue runs
+or is judged. `--refs A,B` keeps only those references' tests (in that order); `--first A,B` runs them first.
+
+`scripts/game/stairs_calib.py results --queue <queue> [--queue ...] --staging <build> --fo4-data <FO4 Data>` replays a
+queue's decided stairs results with the offline walk and counts a stop as agreeing only at the same place;
+`stairs_calib.py routes --routes-dir <dir> ...` replays route files (a consistency check: the planner keeps only lanes
+the walk climbs).
 
 ## Controls (checked before every launch and every test)
 
@@ -261,7 +291,10 @@ at most 12 per list):
 
 - `GetINI "<name>:<Section>"` and `SetINI "<name>:<Section>" <number>` (names and sections `[A-Za-z0-9_]{1,64}`, numbers
   `-?\d{1,9}(.\d{1,6})?`);
-- the time-of-day / weather lines: `SetLocalTime <h> [1]`, `cgf "Game.SetLocalTime" <h>` (h 0..23.99), `fw <8 hex> [1]`.
+- the time-of-day / weather lines: `SetLocalTime <h> [1]`, `cgf "Game.SetLocalTime" <h>` (h 0..23.99), `fw <8 hex> [1]`;
+- the bridge's lines (2026-10-14, "Bridge" below): `cgf "FO4SF_Probe.Pos" <decimal form id>`, `cgf "FO4SF_Probe.Ack" "<tag>"`,
+  `cgf "FO4SF_Probe.Player"`, `cgf "Debug.TraceUser" "fo4sf" "<text>"` (tags `[A-Za-z0-9_.-]{1,40}`); their replies are
+  lines of the bridge's log, not console text (the OCR'd reply is kept as for any line).
 
 Anything else (`qqq`, `player.additem ...`, `coc ...`, `tgm`, a `;` or `|` inside a line, unquoted names, curly quotes, a
 trailing newline) is refused; `tests/test_console_plan.py` lists the cases.
@@ -389,6 +422,47 @@ a blocked walk loaded from the last-try spot (NEARONLY), a blocked walk without 
 (found by the position: 2 loads, no last-try teleport), the door's getpos, a load that lands elsewhere, a save that is
 not written, refused specs).
 
+## Continuous walks (`walk`)
+
+The owner's first acceptance step: walk Red Rocket <-> Sanctuary over the bridge and cell borders both ways, with no
+teleport between start and goal (docs/terrain/walk-redrocket-sanctuary.md has the route, the step, every verdict and
+how to read a result). `scripts/terrain/walk_route.py` plans the route offline from Fallout 4's own navmesh and the
+staged overlay's converted collision and writes plan.json (two tests) and walk_ground.json (the judge's ground, pinned
+by sha256). One test: `coc`, the settled arrival gives the merge offset (as `spawn_local` elsewhere); a test with
+`setup` makes ONE teleport to the route's start before the walk (setup, not evidence); then legs: one console session
+(`ClearConsole`, `player.getpos x/y/z`, OCR with parse_npc.py, then `player.setangle z <heading>` from
+`walk_eval.py steer`), W held with `input.ps1`'s guarded `holdg` (released at once when the game loses the
+foreground or a STOP file appears), a screenshot checked for the HUD and, by OCR of the screen centre, the "BOUNDARY
+REACHED" box (which leaves the HUD on screen). The STOP files and the Resource Guardian are checked inside the walk
+too (spec `stop`), since the runner is blocked in the step; a stop ends it like a guard stop (exit 2, no attempt). Nothing else is typed during the walk; the judge checks every leg's typed lines. PASS: the
+goal reached, every leg read, every move plausible, every read on the terrain or a converted surface (0.6 m), every
+planned cell border crossed between two reads, at least two reads on the bridge deck, no popup, the screenshots.
+FAIL: BOUNDARY, FELL, HEIGHTS, JUMP, OFFROUTE, STUCK; anything missing is INCONCLUSIVE. `plan-walk` needs
+`--install-exp` / `--plugins`: it pins the experiment's staged inputs (`queue.json` `experiment_identity`); the runner
+stops before a launch when that folder changed and records the install record with every walk result (`results.jsonl`
+`install`); a PASS or FAIL whose record is missing, incomplete or not the pinned experiment is INCONCLUSIVE INSTALL and
+stops the run.
+
+| plan.json field | meaning | default |
+|---|---|---|
+| `travel`, `spawn_local` | as for door_trip | required |
+| `waypoints` | `[x, y, z, reach, keep]` in the world's own frame; z the expected ground; keep 1: a read there (else it may be walked past in a straight leg) | required |
+| `setup`, `start`, `drop`, `settle_ms`, `start_tol` | the reverse test's one teleport to `start` (the first waypoint) before the walk | false, -, 1, 6000, 3 |
+| `ground`, `ground_sha256` | walk_ground.json next to plan.json and its sha256 (checked when planning and when judging) | required |
+| `goal_radius`, `z_tol`, `fell_m`, `offroute_m` | judge tolerances (m) | 3, 0.6, 3, 10 |
+| `bridge` | `{src, edid, span: [s0, s1], min_reads}`: reads needed on that object's surface, with reads before and after | none |
+| `crossings` | the planned cell borders `{from, to}` (local cells) | none |
+| `max_legs`, `max_leg_m`, `speed`, `stuck_m`, `stuck_k`, `shot_every` | controller budget and settings | 60, 15, 4.6, 0.6, 3, 3 |
+| `fresh`, `expect`, `basis`, time of day / weather, `console_pre` / `console_post` | as for npc_nav | |
+
+```powershell
+& $py scripts\game\testqueue.py plan-walk --staging C:\Modding\staging\integ_1011 --exp-dir C:\Modding\staging\walk_core64c `
+      --install-exp C:\Modding\staging\terrain_core64c --plugins FO4TerrainCore.esm,FO4TerrainCore_Mars.esm `
+      --out C:\Modding\testqueue\walk_core64c --fresh
+```
+Needs the runner feature `walk`. Tests: `tests/test_terrain_walk_route.py`, `tests/test_walk_eval.py`,
+`QstepWalkSandboxTests` in `tests/test_qstep_sandbox.py`.
+
 ## NPC navigation (`npc_nav`)
 
 The NPC step of the playable slice (PR #61, `docs/actors/npc-navigation.md` sections 3.3 / 3.4): a vanilla actor is
@@ -428,6 +502,7 @@ check-queue` compares a planned queue with its plan.json).
 | `radius` R, `min_progress` M, `nomove`, `max_speed` | judge thresholds, metres and m/s | 2.5, 5, 0.5, 8 |
 | `precommand_m` | a commanded test whose actor came this far towards B between the spawn read and t0 is INCONCLUSIVE PRECOMMAND; needs runner feature `npc_t0` | M |
 | `arrive_progress` | an arrival within R is a PASS only after this much approach from t0 (d0 - min d), else INCONCLUSIVE SHORT; with it a baseline FAILs WANDER on the largest approach between any two of its reads (spawn read and t0 included); needs runner feature `npc_t0` (N0b, docs/actors/npc-navigation.md 5.4) | none (as before) |
+| `combat_reads` | `true`: every sample's session also asks the combat manager and the verdict is ENGAGED / NOCOMBAT ("Combat engagement" below); methods `none` / `combat_player` only, never a control; needs runner feature `npc_combat` | false |
 | `drop`, `settle_ms` | the player is dropped this high above A and B (god mode), then waits | 0.5, 1500 |
 | `pre`, `pre_wait_ms` | probes after reaching A, before the spawn: only `gnm` (GenerateNavMesh, ladder run N2) | `[]`, 5000 |
 | `spawn_wait_ms` | game time with the console closed between `placeatme` and reading the handle (below) | 2000 |
@@ -472,6 +547,34 @@ Step timeout (`step_timeout`): a worst case, every read needing both Select-Npc 
 (about 45 s each: console open, ClearConsole and ~60 characters at 0.24-0.32 s, waits, OCR at up to four thresholds),
 Read-Pos up to three tries, plus the 300 s removal reserve (Select-Npc twice, PickLastRef again: three sessions, the
 removal): 1,852 s for N0's plans, 1,893 s for N1's (five reads up to 60 s), against a typical run of about 550 s.
+
+### Combat engagement (`combat_reads`)
+
+An approach is the wrong measure of combat: in QASmoke on 2026-10-13 the hostile vanilla Spacer (`00270255`,
+N0b_spacer_base) did not come 18 m towards the player in 30 s (PASS "stayed away" as a baseline), and `StartCombat
+player` froze the calm citizen (`002B211C`, N0b_combat: FAIL NONAV). With `"combat_reads": true` a test asks the combat
+manager instead. At every sample, once the selection is confirmed (`prid <id>`, `GetIsID` 1, `getpos x/y/z`),
+`qstep.ps1` makes a second capture in the same console open (the selection stays on the prid'ed ref while the console
+is open, as the spawn's captures rely on): `ClearConsole`, `GetIsID <npc>` again, then exactly `GetCombatState`,
+`GetCombatTarget` and `GetLineOfSight player` (`testqueue.NPC_COMBAT_READS`; Starfield.exe condition functions,
+verified in its help strings: "Test the state of this actor in the combat manager", "Gets the current actor's combat
+target (ref ID)"). Nine lines: what the console shows; all of it in one capture scrolled the position replies off
+(sandbox). Each sample gets `combat_isid` (that capture's GetIsID; 0 drops its values), `combat` (a small integer),
+`target` (an 8-hex form id; the player is `00000014`), `los` (0 / 1) and `combat_ocr` (its raw OCR; the capture stays
+as `npc_combat_cap.png` / `_ocr.txt`). The reply formats are **unverified**
+until the first run: `parse_npc.py` reads a condition function's decimal or an integer after the label (`GetCombatState
+>> 1.00`, `>> 1`) and an id in parentheses, bare or `0x` after `GetCombatTarget` (never an id the session typed
+itself), and leaves anything else `null`. An unreadable reply is never a value.
+
+Verdict (`testqueue.judge_npc_combat`): PASS ENGAGED when any confirmed sample read state >= 1 with target `00000014`;
+FAIL NOCOMBAT when every expected sample read state 0; INCONCLUSIVE COMBATREAD when the replies were not readable (the
+format hypothesis failed, or only some samples read), OTHERTARGET when it fought another ref. The walk judge's
+preconditions (spawn confirmed, player at B, command typed) still hold, and its verdict is appended as `walk: ...`
+(a method `none` test's walk read as a baseline's) for information only. A combat test is neither a wander baseline nor
+a control: it gates nothing and no control gate applies. Methods: `none` (a hostile actor engages on its own) or
+`combat_player`. Staged as experiment `npc_combat_c1` (plan.json: the Spacer as the positive control, the calm citizen
+as the negative one, the converted raider `02F04800` as the question), planned with `--install-exp` for the raider
+plugin and `--fresh`.
 
 ### Reading the console (`parse_npc.py`)
 
@@ -610,3 +713,181 @@ the console, `cgf` credited and typed again before the probe); a sky that follow
 3200.0000, 2, no reply, 0; then 0), npc_nav with an unknown setting (NOT FOUND, does not exist), and lines off the
 whitelist (`qqq`, `player.additem`, `tgm`, a `|key:` injection, `coc` in `console_post`): exit 4, nothing typed. Opt-in,
 30-60 s a scenario: `$env:FO4SF_QSTEP_SANDBOX = '1'`.
+
+## Movable items: walk, then impulse (`movable --impulse`, `movable_control`)
+
+Why (docs/ai/research-log.md 2026-10-13): most converted items that did not move lay where the walk could not push
+them, not in bodies that cannot move: a cigarette pack on a desk 0.83 m above the player's feet (the walk ends at the
+desk 0.67 m from it), a pin box the player was blocked 1.45 m short of, three books flat on the floor that the walk
+passed over. One does not fit: a 50 kg pin box 0.81 m above the feet at the stand point that the walk passed 0.26 m
+from (the player rose 0.28 m on the way) did not move. Every motion, layer and flag field of these bodies matches
+vanilla Starfield items; the masses do not (FO4's are 2-10 times as heavy). So (verifier of PR #110, 2026-10-13):
+
+- **Only the walk passes a movable test.** It asks whether the player pushes the item. A walk whose closest approach
+  came within reach (1 m) and left the item in place is FAIL NOTMOVED, with or without the impulse ladder.
+- **ELEVATED** (`movable`): an item that did not move, more than 0.5 m above the player's feet (the higher of the reads
+  before and after the walk, so a player who climbed onto the furniture counts at its height) while the walk came no
+  closer than 0.5 m to it (`CONTACT_M`), or more than 1.8 m above them (`OVERHEAD_M`), is INCONCLUSIVE ELEVATED: final
+  at once and not counted by the circuit breaker (`FINAL_INCONCLUSIVE`). An item the walk passed within 0.5 m of is
+  judged by reach as any other, however high it lies. `CONTACT_M` and `OVERHEAD_M` are not measured from Starfield's
+  capsule (supported hypothesis: a radius of about 0.3-0.4 m plus the item's half-width, a height of about 1.8 m);
+  `CONTACT_M` lies between the readings it must separate, 0.26 m (batch_full 0100, walked through) and 0.67 m
+  (supervised_1011 0007, stopped at the desk).
+- **The impulse ladder** (diagnostic): when the walk moved the item less than 5 cm, `ApplyHavokImpulse <x> <y> <z>
+  <magnitude>` is typed on the item, in its own console session after `prid <ref>` and `GetIsID <base>` read 1 (the
+  npc_nav handle rules), the console is closed for `impulse_wait_ms` (3 s) and the item is read again (same
+  confirmation). Axis: back along the walk (the path the player has just walked, so free) and 45 degrees up.
+  Magnitudes: mass x dv for dv 1.5, 6 and 24 m/s, stopping at the first that moves the item 5 cm (kg m/s: supported
+  hypothesis, `LC012NASAGravTrigger.psc` scales its impulses by `GetMass()`). An impulse that moves it adds "the body
+  is simulated" to the detail of NOTMOVED / ELEVATED / MISSED; FAIL STUCK: every impulse was typed on a confirmed
+  selection and none moved it either. The magnitudes scale with the mass, so the ladder cannot show whether the mass
+  stops the player: `movable_control`'s vanilla items and its `SetRigidBodyMass` copies can.
+- `testqueue.py plan --kinds movable --impulse` adds the ladder to every movable test whose item has a base record in
+  `formids.json` (`MSTT:<EditorID>`, the confirmation's `GetIsID`) and a mass in the manifest. Runner features
+  `impulse` and `push_judge` (the first impulse runner, 91f3d17, passed such an item as PASS IMPULSE).
+
+`movable_control` places an item in a vanilla cell, so a converted item can be compared with vanilla items on the same
+floor. `plan-movable` reads `plan.json` (a list):
+
+```powershell
+& $py scripts\game\testqueue.py plan-movable --staging C:\Modding\staging\<pinned build> `
+      --exp-dir C:\Modding\staging\<experiment with plan.json> --out C:\Modding\testqueue\<queue> --fresh
+```
+
+| field | meaning | default |
+|---|---|---|
+| `label`, `model` | test name; what the item is (the report groups by it) | `item<n>`; the label (a converted item: its FO4 source) |
+| `travel` | `coc <cell editor id>` | required |
+| `base` / `base_edid` | the item's base form id in the load order (8 hex, a vanilla item) or the EditorID of a converted MoveableStatic of the pinned build (its id from `formids.json` and `--plugin-index`, its mass from the manifest) | one of them |
+| `mass_kg` | the body's mass (vanilla: from its NIF) | the manifest's for `base_edid` |
+| `spot`, `heading` | where the item is placed (metres, the cell's frame) and the walk's heading (degrees, as `setangle z`) | required, 0 |
+| `stand_m`, `park_m` | the player starts `stand_m` before the item's read position; waits `park_m` behind the spot while it settles | 1.1, 3.0 |
+| `set_mass_kg` | `SetRigidBodyMass <kg>` on the confirmed selection before the walk, with the `GetMass` probe before it and again after it (the console closed `mass_wait_ms`, a second confirmed selection). A refusal in the console reply is INCONCLUSIVE SETMASS; unless the probe after it reads the mass set (within 5 %, at least 0.25 kg) the test is INCONCLUSIVE MASS, whatever the walk did | none |
+| `mass_probe` | `cf "ObjectReference.GetMass"` on the confirmed selection (always with `set_mass_kg`; `mass_probe: false` with it stops the planning); without `set_mass_kg` its reading is only shown | false |
+| `mass_wait_ms` | the console closed after `SetRigidBodyMass` before the reading | 1000 |
+| `impulse_dv`, `impulse_wait_ms` | the ladder's speed steps (m/s, up to 4; `[]`: none) and the wait after each | [1.5, 6, 24], 3000 |
+| `walk_ms`, `settle_ms`, `drop`, `spawn_wait_ms`, `handle_tol` | hold W; wait after a teleport; teleport height; console closed after `placeatme`; how close to the spot the placed item must lie | 900, 1500, 0.3, 3000, 2.0 |
+| `moved_m`, `reach_m`, `settle_m` | moved; the walk reached the item; at rest before the walk (spawn read vs the read before the walk) | 0.05, 0.6, 0.1 |
+| `console_pre`, `console_post` | whitelisted console lines (section above), e.g. `GetINI "fCharacterMaxSlope:HAVOK"` | none |
+| `fresh`, `expect`, `basis` | as npc_nav; an expectation names the PASS class (`PASS WALKED`, `PASS IMPULSE`) | |
+
+`movable_control` results: PASS WALKED (the walk moved it); PASS IMPULSE (the walk came within `reach_m` and did not
+move it, an impulse did: a measurement of the control, the body is simulated and the walk did not push it); FAIL
+STUCK; FAIL NOTMOVED (no ladder); FAIL ITEMFELL; INCONCLUSIVE MISSED (the walk never came within `reach_m`, whatever an
+impulse did), IMPULSE (the ladder did not finish), START (the player not read at the spot, or not within 0.4 m of its
+height there or at the stand point: not the open floor the plan assumed), SPAWN (handle not confirmed, or the item at
+rest more than 0.5 m from the spot's height), SETMASS, MASS, SETTLE, UNREAD.
+
+One test (`qstep.ps1` kind `movable_control`): `coc`, the arrival read until it settles; the player dropped at the spot;
+(nothing is placed when the player is not within 1 m of the spot and 0.4 m of its height)
+`player.placeatme <base> 1` in its own session and, in the same session (the game paused), the player moved to the
+park point, then the console closed for `spawn_wait_ms` so the item drops onto a free floor; the handle as npc_nav's
+(`plr` alone, `prid <id>` + `GetSelf` must not name another ref, `GetIsID <base>` 1, within `handle_tol` of the spot:
+else INCONCLUSIVE SPAWN and nothing acts on any selection); the `GetMass` probe and `SetRigidBodyMass`, then the
+console closed `mass_wait_ms` and `GetMass` again on a second confirmed selection; the player
+`stand_m` before the item's read position facing `heading`; the item read (confirmed), the walk, the player's and the
+item's reads; the ladder; then `disable`, `GetDisabled`, `markfordelete` on a confirmed selection only. `movable` tests
+never remove anything: their items belong to the build. Runner feature `impulse` (`runner_features.py`): an older
+runner refuses such a queue before launching the game.
+
+Staged (2026-10-13, offline, not run): `movable_control_1013b` (staging and queue folders of that name; planned with
+`--fresh` on `integ_1011`, build 2470f876; it replaces `movable_control_1013`, planned before the verifier's fixes, whose
+5 kg tests would have been judged without a mass reading): in QASmoke on lanes 1.8 m apart (x -12 .. 6, y 4, walking
+north), vanilla TrashbinGeneric01 / ContemporaryCigarettesPack01 / Office_NotePad_Stack02 (5.7 cm) /
+Office_NotePad_Stack01 (3.8 cm) / Office_Folder01 (0.7 cm) next to the converted TrashcanMetalOffice01 / CigarettePack /
+BobbyPinBox / BurntBook01, and the book and the box again at 5 kg (judged only when `GetMass` reads 5 kg back). Each
+test writes its expectation and basis first. Open floor along the lanes is a supported hypothesis: the offline count
+of QASmoke's 156 references for N0 (docs/actors/npc-navigation.md 5.2) leaves nothing in its south room (navmesh x
+-14.8 .. 8.9, y -8.8 .. 14.8, z 0, on 6 x 6 m gravel floor tiles) but the border walls (x -15, x 9, y -8.7), the
+pillars in its two south corners and the ceiling 6 m up, and the lanes (x -12 .. 6, y about 2.9 .. 6) lie 3 m or more
+inside the walls. They were not checked lane by lane nor walked in game; the START / SPAWN height checks turn a lane
+that is not open floor at z 0 into INCONCLUSIVE instead of a result.
+
+Evidence used (Starfield.exe 1.16.244, `scripts/recon_console.py`, which decodes the stack-built script-function entries
+too since 2026-10-13): `ApplyHavokImpulse` opcode 0x1251, Float x4, "Applies an impulse of the passed magnitude to the
+reference along a passed axis."; `SetRigidBodyMass` 0x1156, Float, "Sets the Havok mass for an object."; `SetPos`
+0x1007 (Axis, Float), `PlaceAtMe` 0x1025 (ObjectID, optional Count, Distance, Direction), `GetIsID` (ObjectID),
+`GetSelf` (`this`), `GetDisabled`, `Disable` (optional Integer), `MarkForDelete`, `ForceWeather` (`fw`, Form, optional
+Int) decoded the same way. `CallFunction` (`cf`) is a console command of the same table (decoded 2026-10-14: "Calls a
+papyrus function on the targeted ref. First parameter is the function, the rest are parameters", one String and up to
+seven optional Strings); `GetMass` has no console entry of its own (`recon_console.py` decodes none; `--near` finds its
+name among the ObjectReference Papyrus natives, between `GetLocRefTypes` and `GetNthLinkedRef`), so `cf
+"ObjectReference.GetMass"` is the only console route to the mass, and the judge never assumes its reply: a 5 kg test is
+judged on the number read back, else INCONCLUSIVE MASS. Unresolved until the queue runs: whether the console accepts
+`ApplyHavokImpulse` and `SetRigidBodyMass` on a selected item, the magnitude's unit, and whether `cf
+"ObjectReference.GetMass"` reaches the native function and prints its value at all: `cf "Actor.PathToReference"`
+replied "No script named Actor is attached to the object" (N0_cf, verified), so the same reply for `ObjectReference` is
+a supported hypothesis; it would leave the 5 kg tests INCONCLUSIVE MASS. They stay in the queue (two tests of a few
+minutes each): a reading settles the mass question that nothing else in the queue can, and no reading costs no verdict.
+
+Sandbox (`QstepMovableSandboxTests`; the simulated game pushes an item at least 8 cm tall that the walk passes within
+0.35 m of, walks over a thinner one, and moves an item by an impulse when magnitude / mass reaches 1 m/s): a tall
+vanilla bin pushed by the walk and removed (the `GetINI` line typed before the `coc`, its reply in the verdict); a flat
+book walked over and moved by the first impulse, typed on the confirmed selection; the ladder climbing to its second
+step; a fixed item (FAIL STUCK after three impulses); a 50 kg box not pushed, pushed after `SetRigidBodyMass 5`
+(`GetMass` 50 before, 5 after in a session of its own on a selection confirmed again); a `SetRigidBodyMass` that
+changes nothing and a `GetMass` answered "No script named ObjectReference ..." (both INCONCLUSIVE MASS); a refused
+`SetRigidBodyMass`; a spot 1 m above the floor (nothing placed, START); a failed spawn (nothing acts on any
+selection); bad specs, among them a set mass without its probe (exit 4, nothing typed); a `movable` test of the
+build's own book with the ladder (walked over, moved by the impulse: FAIL NOTMOVED; never disabled).
+
+## Bridge: the game reports its own state (`scripts/bridge`, `dotnet/Bridge`, `bridge_log.py`; 2026-10-14)
+The owner's decision D1 of the 14 Oct review: position reads stop going through a screenshot and Windows OCR of the
+console (every read failure of 13-14 Oct was that channel: a lost digit group, a garbled read taken for a load, the
+runner's E on the load-order dialog, the HUD dial splitting console lines into a label column and a value column).
+Instead the game writes a file:
+- `FO4SFBridge.esm` (`dotnet/Bridge build`): GLOB `FO4SF_Cmd` (0x800, not Constant) and QUST `FO4SF_BridgeQuest`
+  (0x801, StartGameEnabled, no stages) carrying the Papyrus script `FO4SF_Bridge` with properties `FO4SF_Cmd` -> the
+  global and `Interval` (0.5 s). VMAD shape as vanilla quests (version 6, object format 2, extra-bind-data 3).
+- `scripts/bridge/FO4SF_Bridge.psc`: `OnInit` opens the user log `fo4sf` and starts a timer; every `OnTimer` writes one
+  line `FO4SF rt=<real time> pos=<x> <y> <z> ang=<heading> cell=<form id> world=<form id> loaded=<bool> [cmd=<n>] n=<count>`
+  with `Debug.TraceUser`; `cmd=` appears on the line after the global changed, so `set FO4SF_Cmd to 7` typed in the
+  console is acknowledged by the game, not by a capture. Compiled with the game's `Tools\Papyrus Compiler` against the
+  base scripts in `Tools\ContentResources.zip` (`make_bridge.py stage` extracts them); the `.pex` ships in
+  `Data\Scripts` of the experiment folder, packed by `exp_install.py --pack` (loose scripts are not read here).
+- Log: `<My Games>\Starfield\Logs\Script\User\fo4sf.0.log`; needs `[Papyrus] bEnableLogging=1 bEnableTrace=1
+  bLoadDebugInformation=1` in `StarfieldCustom.ini` (`make_bridge.py ini`, idempotent, keeps a .bak).
+- `scripts/game/bridge_log.py latest | wait-cmd <n> | wait-move`: the newest line as JSON (stale after 3 s: the game or
+  the quest is not running), a wait for the echo of a command, a wait for the player to move. Form ids come back as hex.
+- Staged: `C:\Modding\staging\bridge_t0` (plugin, pex, offline_check.txt all checks pass, plan.json, README.txt).
+- **Go/no-go: GO (in game, 2026-10-14 21:28-21:36, the owner watching; evidence in `C:\Modding\staging\bridge_t0\evidence`,
+  docs/media/bridge-*.jpg).** Pinned build 2470f876 + FO4SFBridge.esm, launched by cycle.ps1 into FO4Port_Vault111Cryo.
+  - **Lines (verified):** `[21:29:40] FO4SF rt=99.711006 pos=1.531505 -7.385632 -0.851672 ang=0.000000 cell=50336243
+    world=none loaded=true n=32`: one line every 0.66 s (0.5 s timer plus frame alignment), six decimals, `true` in
+    lower case, `none` for the worldspace in an interior, the game's `[HH:MM:SS]` prefix. `OnInit` ran at the main menu
+    (a 93-byte log, rotated to .1) and again when the save loaded. 473 lines in 8 minutes, no Papyrus error for the script.
+  - **Walk (verified):** W held 2 s through input.ps1: y -7.3856 -> -5.7418 (1.64 m) on the log, no capture involved.
+  - **Save and load (verified):** `save fo4sf_bridge_t0` then `load` of it: the quest's state and timer come back
+    (`n` continued at 411, `rt` at 424 s); `OnInit` fires again on the load, so the user log **rotates on every load**
+    (.0 is always the newest; a reader notes `n` / `rt`, never the file).
+  - **Console acknowledgement (verified):** `cgf "Debug.TraceUser" "fo4sf" "ack 7"` typed in the console wrote
+    `[21:33:44] ack 7` into the same log within a second: a console command batch can prove its own execution by
+    ending with such a line (a nonce), and `cgf` is already on the console whitelist.
+  - **The global channel does NOT work (verified, refuted):** `set FO4SF_Cmd to 7` -> "Unknown variable 'FO4SF_Cmd'",
+    `set 04000800 to 7` -> "Unknown variable '04000800'", `help FO4SF_Cmd 4` -> "VIEWER STRINGS NOT AVAILABLE", no
+    match: the game keeps no EditorID strings for this plugin's GLOB (coc still resolves cell EditorIDs). The script
+    reads the global fine (`cmd=0` on its first line), only the console cannot set it. The `FO4SF_Cmd` property stays
+    for a later route (a Papyrus-side setter); the runner uses the TraceUser acknowledgement.
+  - **Keys (verified the hard way):** input.ps1 needs `LEGACY=1` (keybd_event) for the console key and typed text, as
+    every runner script sets; a plain SendInput W still walks. **StarfieldCustom.ini cannot be written by our scripts:**
+    Windows Controlled Folder Access blocks python.exe and powershell.exe in Documents (Defender event 1123), so the
+    `[Papyrus]` keys went into the game folder's `Starfield.ini` (backup `Starfield.ini.bak-20261014-212734`);
+    `make_bridge.py ini` reports the block and names that fallback.
+- **Runner feature `bridge`** (`plan`, `plan-terrain`, `plan-npc`, `plan-door`, `plan-walk`, `plan-movable` with
+  `--bridge <staged bridge dir>`): every test of the queue carries `bridge_reads: true` (`bridge` is a walk plan's
+  deck); qstep.ps1's `Read-Pos` for the
+  player and the walk's `Walk-Read` / `Walk-Session` return the newest log line (`bridge_log.py latest`, not older
+  than 2 s; `bridge_max_age_s` in a test raises that for the sandbox), listed in `obs.read_log` with `via: bridge`
+  and the line's `rt` / `n` instead of a readpos nonce; reads of other references (doors, probes, NPCs) still go
+  through readpos. The queue pins the staged bridge (`queue.json "bridge"`: folder, plugin, sha256 of the plugin and
+  the .pex); before every launch the runner checks those hashes and runs `bridge_install.py install` (its own record
+  `Data\FO4SFBridge.install.json`, "FO4SFBridge - Main.ba2" packed like an experiment, "*FO4SFBridge.esm" last in
+  Plugins.txt; idempotent, re-activates after a deploy rewrote Plugins.txt; `exp_install.py uninstall` leaves it).
+  Sandbox: the fake game appends a bridge line to `$FO4SF_BRIDGE_LOG` after every call
+  (`test_the_walk_reads_the_bridge_log_and_types_no_getpos`). Still to come: console batches ending with a TraceUser
+  nonce (`cgf "Debug.TraceUser" "fo4sf" "<nonce>"`) in place of OCR confirmation; OCR stays for pop-ups and HUD checks.
+- **`FO4SF_Probe.psc` (staged with the bridge, unverified):** global functions for the console's `cgf`:
+  `cgf "FO4SF_Probe.Pos" <decimal form id>` logs that reference's position, heading, cell, disabled and loaded flags
+  (`FO4SF ref=<id> pos=.. ang=.. cell=.. disabled=.. loaded=..`), `cgf "FO4SF_Probe.Ack" "<tag>"` logs `FO4SF ack <tag>`,
+  `cgf "FO4SF_Probe.Player"` the player. If the VM loads an unattached script for cgf (supported hypothesis; the first
+  window tells), door and probe reads of `door_trip` and the NPC reads of `npc_nav` can leave OCR too.

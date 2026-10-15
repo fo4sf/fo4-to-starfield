@@ -8,7 +8,11 @@ Whitelist (docs/ai/test-queue.md "Console commands before and after the travel";
   SetLocalTime <hour> [1]               the time-of-day commands of sky_light.py
   cgf "Game.SetLocalTime" <hour>
   fw <8 hex digits> [1]
-names and sections [A-Za-z0-9_]{1,64}, hours 0..23.99, numbers -?\\d{1,9}(.\\d{1,6})?.
+  cgf "FO4SF_Probe.Pos" <decimal form id>   the bridge's probe (scripts/bridge/FO4SF_Probe.psc): a reference's
+  cgf "FO4SF_Probe.Ack" "<tag>"             position / an acknowledgement / the player, as lines of the bridge's log
+  cgf "FO4SF_Probe.Player"
+  cgf "Debug.TraceUser" "fo4sf" "<text>"    a line of the bridge's log, the game's own acknowledgement of the console
+names and sections [A-Za-z0-9_]{1,64}, hours 0..23.99, numbers -?\\d{1,9}(.\\d{1,6})?, tags [A-Za-z0-9_.-]{1,40}.
 
 Replies (parsed at judge time from the OCR, best effort; the raw OCR and the capture are always kept): GetINI prints
 "INISetting <name:Section> >> <value>" (formats %i / %u / %.4f / '%s' / NOT FOUND in the exe: supported hypothesis);
@@ -20,7 +24,11 @@ import re
 NAME = r"[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}"
 HOUR = r"(?:1?\d|2[0-3])(?:\.\d{1,2})?"
 PATTERN = (rf'GetINI "{NAME}"|SetINI "{NAME}" -?\d{{1,9}}(?:\.\d{{1,6}})?|SetLocalTime {HOUR}(?: 1)?'
-           rf'|cgf "Game\.SetLocalTime" {HOUR}|fw [0-9A-Fa-f]{{8}}(?: 1)?')
+           rf'|cgf "Game\.SetLocalTime" {HOUR}|fw [0-9A-Fa-f]{{8}}(?: 1)?'
+           # the bridge's probe functions and a TraceUser acknowledgement (docs/ai/test-queue.md "Bridge"): they only
+           # write lines to the bridge's user log; the decimal form id, a tag of letters, digits, _ . -
+           rf'|cgf "FO4SF_Probe\.Pos" \d{{1,10}}|cgf "FO4SF_Probe\.Ack" "[A-Za-z0-9_.-]{{1,40}}"|cgf "FO4SF_Probe\.Player"'
+           rf'|cgf "Debug\.TraceUser" "fo4sf" "[A-Za-z0-9_ .-]{{1,60}}"')
 CONSOLE_RE = re.compile(PATTERN)
 CONSOLE_KEYS = ("console_pre", "console_post")
 MAX_COMMANDS = 12
@@ -43,7 +51,7 @@ def console_fields(w, fail):
             if not allowed(c):
                 fail(f"{key}: {c!r} is not an allowed console command (GetINI \"<name>:<Section>\", "
                      f"SetINI \"<name>:<Section>\" <number>, SetLocalTime <h> [1], cgf \"Game.SetLocalTime\" <h>, "
-                     f"fw <8 hex> [1])")
+                     f"fw <8 hex> [1], cgf \"FO4SF_Probe.Pos|Ack|Player\" ..., cgf \"Debug.TraceUser\" \"fo4sf\" \"<text>\")")
         out[key] = list(v)
     return out
 

@@ -425,7 +425,8 @@ class PlanKeyTests(unittest.TestCase):
                      target_tol=3, fell_m=3, pre_wait_ms=5000, max_speed=8, spawn_wait_ms=2000, handle_tol=2,
                      path_line=False, control=False, control_npc=CITIZEN, fresh=True,
                      anchor={"ref": "02000800", "local": [0, 0, 0]}, spawn_local=[0, 0, 0],
-                     requires={"test": "N2a_base"}, expect="PASS", basis="b", precommand_m=3, arrive_progress=12)
+                     requires={"test": "N2a_base"}, expect="PASS", basis="b", precommand_m=3, arrive_progress=12,
+                     combat_reads=False)
         # the light and console fields (claude/runner-daylight) are read by with_extras after npc_test
         extras = set(tq.sky_light.LIGHT_KEYS) | set(tq.console_plan.CONSOLE_KEYS)
         self.assertEqual(set(every) | extras, set(tq.NPC_PLAN_KEYS))

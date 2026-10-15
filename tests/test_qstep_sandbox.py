@@ -5,6 +5,7 @@ Safety: the real qstep.ps1, parse_npc.py and parse_getpos.py are copied into a t
 fakes, so every helper the step calls (input.ps1, console_open.ps1, readpos.ps1, shot*.ps1, ocr.ps1) is a fake that
 never sends input; nothing in scripts/game is run except the copied step itself."""
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -17,6 +18,7 @@ GAME = os.path.join(ROOT, "scripts", "game")
 SANDBOX = os.path.join(ROOT, "tests", "qstep_sandbox")
 sys.path.insert(0, GAME)
 import testqueue as tq  # noqa: E402
+import walk_eval  # noqa: E402
 
 ENABLED = os.name == "nt" and os.environ.get("FO4SF_QSTEP_SANDBOX") == "1"
 N0 = {"label": "N0_ptr", "travel": "coc QASmoke", "npc": "0000CF96", "a": [-8, -4, 0], "b": [5, 10, 0],
@@ -29,11 +31,11 @@ MARS = {"anchor_id": "02000800", "anchor_pos": [2010.97, -2352.8, 85.14], "arriv
 
 class SandboxStep:
     """Runs the copied qstep.ps1 against the simulated game (mixed into the opt-in test classes below)."""
-    def run_step(self, plan=None, world=None, test=None, code=0):
+    def run_step(self, plan=None, world=None, test=None, code=0, env=None):
         d = tempfile.mkdtemp(prefix="qstep_npc_")
         step_dir = os.path.join(d, "game")
         shutil.copytree(SANDBOX, step_dir)
-        for f in ("qstep.ps1", "parse_npc.py", "parse_getpos.py", "sky_light.py"):
+        for f in ("qstep.ps1", "parse_npc.py", "parse_getpos.py", "sky_light.py", "walk_eval.py", "bridge_log.py"):
             shutil.copy(os.path.join(GAME, f), step_dir)
         state = os.path.join(d, "state.json")
         with open(state, "w") as f:
@@ -45,14 +47,16 @@ class SandboxStep:
         saves = os.path.join(d, "saves")
         os.makedirs(saves)
         env = dict(os.environ, FAKE_STATE=state, FO4SF_PYTHON=sys.executable, FO4SF_NO_FOCUS_STEAL="1", LEGACY="1",
-                   FO4SF_SAVES_DIR=saves)
+                   FO4SF_SAVES_DIR=saves, **(env or {}))
         r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                             os.path.join(step_dir, "qstep.ps1"), "-Spec", spec, "-Out", out],
                            capture_output=True, text=True, env=env, timeout=600)
         self.assertEqual(r.returncode, code, r.stdout + r.stderr)
-        if code:                                              # a refused spec: what (if anything) reached the console
+        self.out, self.state_path = out, state
+        if code:                                              # a refused or stopped step: what reached the console
             with open(state) as f:
-                self.typed = json.load(f).get("typed", [])
+                self.state = json.load(f)
+            self.typed = self.state.get("typed", [])
             return r.stdout, None, None
         with open(os.path.join(out, "obs.json"), encoding="utf-8-sig") as f:
             obs = json.load(f)
@@ -66,8 +70,9 @@ class SandboxStep:
         # (Codex's review of PR #107: one shared folder, a read not tied to its own request)
         nonces = [c for c in self.typed if c.startswith("fo4sfr")]
         self.assertEqual(len(nonces), len(set(nonces)))
-        self.assertEqual([r["nonce"] for r in obs.get("read_log", [])], nonces)
-        for r in obs.get("read_log", []):
+        console_reads = [r for r in obs.get("read_log", []) if r.get("via") != "bridge"]   # bridge reads type nothing
+        self.assertEqual([r["nonce"] for r in console_reads], nonces)
+        for r in console_reads:
             with open(os.path.join(out, r["work"], "read.json"), encoding="utf-8-sig") as f:
                 self.assertEqual(json.load(f)["nonce"], r["nonce"])
         # a selection that stayed on the floor static must never get disable (N0_base's spawn session had one)
@@ -188,6 +193,34 @@ class QstepNpcSandboxTests(SandboxStep, unittest.TestCase):
         obs = self.check(("PASS", "PASS"), plan={"method": "none", "control": False})
         self.assertEqual(obs["command"], "")
         self.assertFalse([c for c in self.typed if c.lower().startswith(("pathtoref", "cf ", "setplayerteammate"))])
+        self.assertNotIn("GetCombatState", self.typed)                        # no combat reads unless planned
+
+    def test_combat_reads_find_the_hostile_actor_engaged_where_it_stands(self):
+        # the Spacer of 2026-10-13: hostile, in combat with the player, holding its ground. The walk says "stayed away";
+        # the combat manager says ENGAGED, and that is the verdict
+        plan = {"method": "none", "control": False, "combat_reads": True, "npc": "00270255", "reads_s": [0, 2, 4]}
+        obs = self.check(("PASS", "ENGAGED"), plan=plan, world={"hostile": ["00270255"], "speed": 0.0})
+        for s in obs["samples"]:
+            self.assertEqual((s["combat_isid"], s["combat"], s["target"], s["los"]), (1, 1, "00000014", 1), s)
+            self.assertIn("GetCombatTarget", s["combat_ocr"])
+        # the three reads follow the confirmed position capture in the SAME console open, as a second capture with
+        # GetIsID again (nine lines: what the console shows): prid, GetIsID, getpos x/y/z, ClearConsole, GetIsID, them
+        at = [i for i, c in enumerate(self.typed) if c == "GetCombatState"]
+        self.assertEqual(len(at), 2)                                          # once per sample, not at t0 or the removal
+        for i in at:
+            self.assertEqual(self.typed[i - 7:i + 3], ["prid FF000800", "GetIsID 00270255", "getpos x", "getpos y",
+                                                       "getpos z", "ClearConsole", "GetIsID 00270255", "GetCombatState",
+                                                       "GetCombatTarget", "GetLineOfSight player"])
+        self.assertNotIn("StartCombat player", self.typed)
+
+    def test_a_calm_actor_reads_no_combat_and_a_refused_read_is_inconclusive(self):
+        plan = {"method": "none", "control": False, "combat_reads": True, "reads_s": [0, 2, 4]}
+        obs = self.check(("FAIL", "NOCOMBAT"), plan=plan, world={"speed": 0.0})
+        self.assertEqual([(s["combat"], s["target"]) for s in obs["samples"]], [(0, "00000000")] * 2)
+        # the hypothesis fails (the console refuses the commands): the position still reads, the verdict is open
+        obs = self.check(("INCONCLUSIVE", "COMBATREAD"), plan=plan, world={"speed": 0.0, "combat_fmt": "refused"})
+        self.assertEqual([(s["combat"], s["target"], s["los"], s["isid"]) for s in obs["samples"]], [(None, None, None, 1)] * 2)
+        self.assertIn("Script command not found", obs["samples"][0]["combat_ocr"])
 
 
 @unittest.skipUnless(ENABLED, "opt-in: FO4SF_QSTEP_SANDBOX=1 on Windows")
@@ -560,6 +593,386 @@ class QstepDoorSandboxTests(SandboxStep, unittest.TestCase):
             t = dict(tq.door_test(0, DOOR), **bad)
             out, _, _ = self.run_step(test=t, world=door_world(), code=4)
             self.assertEqual(self.typed, [], bad)
+
+
+# walk (docs/terrain/walk-redrocket-sanctuary.md): a 44 m route in the overlay's own frame over a gentle slope, across
+# the local cell borders x = -1000 and y = 1200 and a raised "bridge" deck, in a world merged at OFF (core64c's offset)
+WALK_WPS = [(-995.0, 1190.0), (-1005.0, 1190.0), (-1015.0, 1190.0), (-1015.0, 1198.0), (-1015.0, 1206.0),
+            (-1015.0, 1214.0)]
+DECK = (-1017.0, 1195.0, -1013.0, 1209.0, 81.2)          # local box and the deck's z (about 1.5 m over the slope)
+BRIDGE = {"src": "01F970:Fallout4.esm", "edid": "FO4Core_northbridge"}
+
+
+def slope_z(x):
+    return 100.0 + 0.02 * x                               # local frame
+
+
+def on_deck(x, y):
+    return DECK[0] <= x <= DECK[2] and DECK[1] <= y <= DECK[3]
+
+
+def walk_ground(d):
+    """A walk_ground.json for the sandbox route: the slope as the BTD window, the deck as an object surface."""
+    x0, y0, step = -1035.0, 1170.0, 0.78125
+    rows = [[round(slope_z(x0 + c * step), 4) for c in range(80)] for _r in range(80)]
+    sx0, sy0, ss = -1035.0, 1170.0, 0.5
+    nodes = {}
+    for i in range(int(math.ceil((DECK[0] - sx0) / ss)), int(math.floor((DECK[2] - sx0) / ss)) + 1):
+        for j in range(int(math.ceil((DECK[1] - sy0) / ss)), int(math.floor((DECK[3] - sy0) / ss)) + 1):
+            nodes[f"{i},{j}"] = [[DECK[4], 0]]
+    data = {"version": 1, "frame": "sandbox", "terrain": {"x0": x0, "y0": y0, "step": step, "rows": rows},
+            "surfaces": {"x0": sx0, "y0": sy0, "step": ss, "nx": 140, "ny": 140, "nodes": nodes}, "owners": [BRIDGE],
+            "corridor_m": 12.0, "path": [list(p) for p in WALK_WPS]}
+    p = os.path.join(d, "walk_ground.json")
+    with open(p, "w") as f:
+        json.dump(data, f)
+    return tq.sha256(p)
+
+
+def walk_entry(d, reverse=False, **extra):
+    """A plan.json entry as scripts/terrain/walk_route.py writes it, for the sandbox route (reverse: from the goal back
+    to the start after a setup teleport)."""
+    gsha = walk_ground(d)
+    wps = [[x, y, DECK[4] if on_deck(x, y) else slope_z(x), 3.0 if k == len(WALK_WPS) - 1 else 2.5]
+           for k, (x, y) in enumerate(WALK_WPS)]
+    cross = [{"s": 5.0, "from": [-10, 11], "to": [-11, 11], "axis": "x", "at": -1000.0},
+             {"s": 30.0, "from": [-11, 11], "to": [-11, 12], "axis": "y", "at": 1200.0}]
+    span = [25.0, 39.0]
+    if reverse:
+        wps = [w[:3] + [2.5] for w in wps[::-1]]
+        wps[-1][3] = 3.0
+        cross = [{"s": 44.0 - c["s"], "from": c["to"], "to": c["from"], "axis": c["axis"], "at": c["at"]}
+                 for c in cross[::-1]]
+        span = [44.0 - span[1], 44.0 - span[0]]
+    e = {"label": "sandbox_walk_back" if reverse else "sandbox_walk", "travel": "coc FO4Core_RedRocketSpawn",
+         "spawn_local": [-995.0, 1190.0, slope_z(-995.0)], "setup": reverse, "start": wps[0][:3], "waypoints": wps,
+         "goal_radius": 3.0, "ground": "walk_ground.json", "ground_sha256": gsha,
+         "bridge": dict(BRIDGE, span=span, min_reads=2), "crossings": cross, "length_m": 44.0, "max_legs": 20,
+         "speed": 3.0, "shot_every": 2, "settle_ms": 0, "drop": 1.0}
+    e.update(extra)
+    return e
+
+
+def game(p):
+    return [p[0] + OFF[0], p[1] + OFF[1], p[2] + OFF[2]]
+
+
+def box(b):
+    """A local (x0, y0, x1, y1[, ...]) box in the game's frame."""
+    return [b[0] + OFF[0], b[1] + OFF[1], b[2] + OFF[0], b[3] + OFF[1]] + list(b[4:])
+
+
+def walk_world(**extra):
+    g = {"z0": 100.0 - 0.02 * OFF[0], "sx": 0.02, "sy": 0.0, "decks": [box(DECK)]}
+    g.update(extra.pop("ground", {}))
+    w = {"arrival": game([-995.0, 1190.0, slope_z(-995.0)]), "player": [0, 0, 0], "walk_speed": 3.0, "ground": g}
+    w.update(extra)
+    return w
+
+
+@unittest.skipUnless(ENABLED, "opt-in: FO4SF_QSTEP_SANDBOX=1 on Windows")
+class QstepWalkSandboxTests(SandboxStep, unittest.TestCase):
+    """walk in the real step against a simulated ground: the player walks only with W and setangle; holes, walls and a
+    boundary box on the route; an OCR misread."""
+    def walk(self, world=None, reverse=False, code=0, **extra):
+        d = tempfile.mkdtemp(prefix="walk_plan_")
+        t = tq.walk_test(0, walk_entry(d, reverse, **extra), d)
+        return self.run_step(test=t, world=walk_world(**(world or {})), code=code)
+
+    def walk_cmds(self):
+        """Every console line typed after the walk's first ClearConsole."""
+        return self.typed[self.typed.index("ClearConsole"):]
+
+    def test_the_walk_passes_with_real_input_only(self):
+        v, obs, _ = self.walk(world={"heading_bias": 6.0})
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        self.assertEqual(obs["walk_stopped"], "goal")
+        self.assertTrue(all(walk_eval.WALK_CMD.fullmatch(c) for c in self.walk_cmds()), self.walk_cmds())
+        self.assertFalse([c for c in self.typed if "setpos" in c or "moveto" in c])     # no teleport at all
+        self.assertIn("2 reads on the FO4Core_northbridge deck", v[2])
+        self.assertIn("cells (-22,-16) -> (-23,-16) -> (-23,-15)", v[2])
+        self.assertTrue(self.state["holds"])
+        self.assertTrue(all(x["shot"] for x in obs["legs"][::2] if x["action"] == "aim"))
+
+    def test_the_walk_reads_the_bridge_log_and_types_no_getpos(self):
+        # runner feature bridge (2026-10-14): the player's position comes from the game's own log (the sandbox fake
+        # game writes one line per call to $FO4SF_BRIDGE_LOG); the console is only typed into to aim
+        d = tempfile.mkdtemp(prefix="walk_plan_")
+        t = dict(tq.walk_test(0, walk_entry(d), d), bridge_reads=True, bridge_max_age_s=300)
+        log = os.path.join(d, "fo4sf.0.log")
+        v, obs, _ = self.run_step(test=t, world=walk_world(heading_bias=6.0), env={"FO4SF_BRIDGE_LOG": log})
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        self.assertEqual(obs["walk_stopped"], "goal")
+        self.assertTrue(all(x["via"] == "bridge" and x["read_how"] == "bridge" for x in obs["legs"]), obs["legs"][0])
+        self.assertFalse([c for c in self.typed if "getpos" in c or c == "ClearConsole"], self.typed)
+        self.assertTrue(obs["read_log"] and all(r.get("via") == "bridge" and r.get("line") for r in obs["read_log"]),
+                        obs["read_log"][:2])
+        self.assertEqual(self.state.get("readpos_calls", 0), 0)
+        self.assertGreater(os.path.getsize(log), 0)
+
+    def test_a_straight_run_walks_past_a_waypoint_it_need_not_read(self):
+        wps = walk_entry(tempfile.mkdtemp())["waypoints"]
+        wps = [w + [0 if k == 1 else 1] for k, w in enumerate(wps)]
+        v, obs, _ = self.walk(waypoints=wps, max_leg_m=25.0)
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        self.assertEqual(obs["legs"][0]["hold_ms"], int(20.0 / 3.0 * 1000))   # (-995, 1190) straight to (-1015, 1190)
+        self.assertEqual(len(obs["legs"]), 5)
+
+    def test_the_reverse_walk_starts_after_one_setup_teleport(self):
+        v, obs, _ = self.walk(reverse=True)
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        self.assertTrue(obs["setup"]["settled"])
+        first = self.typed.index("ClearConsole")
+        self.assertTrue(all("setpos" not in c for c in self.typed[first:]))
+        self.assertEqual(sum(1 for c in self.typed[:first] if c.startswith("player.setpos x")), 1)
+        self.assertIn("setup teleport landed", v[2])
+
+    def test_a_hole_in_the_ground_is_a_fall(self):
+        v, obs, _ = self.walk(world={"ground": {"holes": [box((-1011.0, 1187.0, -1009.0, 1193.0))]}})
+        self.assertEqual(v[:2], ("FAIL", "FELL"), v[2])
+        self.assertEqual(obs["walk_stopped"], "fell")
+
+    def test_a_boundary_popup_stops_the_walk(self):
+        v, obs, _ = self.walk(world={"ground": {"boundary": [box((-1012.0, 1185.0, -1010.0, 1195.0))],
+                                                "boundary_shift": [9000.0, 0.0, 0.0]}})
+        self.assertEqual(v[:2], ("FAIL", "BOUNDARY"), v[2])
+        self.assertEqual(obs["walk_stopped"], "boundary")
+        self.assertIn("BOUNDARY REACHED", obs["legs"][-1]["popup"])
+        self.assertTrue(obs["legs"][-1]["shot"])
+
+    def test_a_wall_across_the_route_is_stuck(self):
+        v, obs, _ = self.walk(world={"ground": {"walls": [box((-1025.0, 1193.0, -1005.0, 1194.0))]}})
+        self.assertEqual(v[:2], ("FAIL", "STUCK"), v[2])
+        self.assertTrue(any(x.get("detour") for x in obs["legs"]))
+
+    def test_a_misread_is_read_again_and_the_walk_goes_on(self):
+        v, obs, _ = self.walk(world={"getpos_misread": [3]})
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        again = [x for x in obs["legs"] if x.get("reread")]
+        self.assertEqual(len(again), 1)
+        self.assertNotEqual(again[0]["read"], again[0]["used"])
+        self.assertEqual((again[0]["used"], again[0]["reread_via"]), (again[0]["reread"], "console"))
+        self.assertEqual(self.state["readpos_calls"], 2)                      # the settled arrival only
+
+    def test_a_read_missing_its_z_is_read_again_in_a_fresh_session(self):
+        # Codex on PR #103: the readpos.ps1 fallback (parse_getpos.py) takes the last X / Y / Z on screen, so a
+        # capture missing this session's Z joined the current x / y with the previous leg's z. The second z reply of
+        # the walk (leg 1) never reaches the screen: that leg is read again in its own ClearConsole-marked session
+        v, obs, _ = self.walk(world={"getpos_lost": [2]})
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        retried = [x for x in obs["legs"] if x.get("via") == "console_retry"]
+        self.assertEqual([x["n"] for x in retried], [1])
+        self.assertEqual(retried[0]["read"], retried[0]["used"])
+        self.assertEqual(retried[0]["cmds"].count("ClearConsole"), 2)         # two sessions, both this leg's
+        self.assertTrue(all(x["via"] == "console" for x in obs["legs"] if x["n"] != 1))
+        self.assertTrue(all(x["read_how"] in ("order", "inline") for x in obs["legs"] if x.get("used")))
+        self.assertEqual(self.state["readpos_calls"], 2)                      # readpos.ps1: the arrival only
+
+    def test_a_bad_spec_types_nothing(self):
+        for bad in ({"travel": "player.moveto 02000800"}, {"waypoints": [[1.0, 2.0, 3.0]]}):
+            d = tempfile.mkdtemp(prefix="walk_plan_")
+            t = dict(tq.walk_test(0, walk_entry(d), d), **bad)
+            self.run_step(test=t, world=walk_world(), code=4)
+            self.assertEqual(self.typed, [], bad)
+
+    def stopped_obs(self):
+        with open(os.path.join(self.out, "obs.json"), encoding="utf-8-sig") as f:
+            return json.load(f)
+
+    def test_a_stop_file_during_a_hold_ends_the_step_like_a_guard_stop(self):
+        # Codex on PR #103: the runner is blocked in the step, so the step has to honour the STOP files itself. The
+        # owner's STOP file appears while W is held (stop_box on the first leg): the key is released (exit 5 from
+        # holdg), the step exits 2 with the legs so far and `stopped` in obs.json, and nothing more is typed
+        d = tempfile.mkdtemp(prefix="walk_plan_")
+        stop = os.path.join(d, "STOP")
+        t = dict(tq.walk_test(0, walk_entry(d), d), stop={"files": [os.path.join(d, "nope"), stop], "guardian_db": ""})
+        world = walk_world(stop_file=stop, ground={"stop_box": box((-1004.0, 1185.0, -1002.0, 1195.0))})
+        self.run_step(test=t, world=world, code=2)
+        obs = self.stopped_obs()
+        self.assertEqual(obs["stopped"], f"STOP file {stop} (during a hold; the key was released)")
+        self.assertEqual(obs["walk_stopped"], "stopped")
+        self.assertEqual(len(obs["legs"]), 1)                              # the unfinished leg is kept
+        self.assertEqual((obs["legs"][0]["action"], obs["legs"][0]["hold_ms"] > 0), ("aim", True))
+        self.assertTrue(self.typed[-1].startswith("player.setangle"), self.typed[-3:])    # nothing after the hold
+        self.assertEqual(len(self.state["holds"]), 1)
+
+    def test_a_stop_file_before_a_leg_types_nothing_more(self):
+        d = tempfile.mkdtemp(prefix="walk_plan_")
+        stop = os.path.join(d, "STOP_ALL")
+        open(stop, "w").close()                                             # present before the walk starts
+        t = dict(tq.walk_test(0, walk_entry(d), d), stop={"files": [stop], "guardian_db": ""})
+        self.run_step(test=t, world=walk_world(), code=2)
+        obs = self.stopped_obs()
+        self.assertEqual(obs["stopped"], f"STOP file {stop}")
+        self.assertEqual([x["action"] for x in obs["legs"]], ["stop"])
+        self.assertNotIn("ClearConsole", self.typed)                       # the arrival was read, no leg was walked
+        self.assertNotIn("holds", self.state)
+
+    def test_a_paused_guardian_stops_the_walk_at_the_next_leg(self):
+        import sqlite3
+        d = tempfile.mkdtemp(prefix="walk_plan_")
+        db = os.path.join(d, "guardian.db")
+        c = sqlite3.connect(db)
+        c.execute("CREATE TABLE control (key TEXT PRIMARY KEY, value TEXT)")
+        c.execute("INSERT INTO control VALUES ('mode', 'paused')")
+        c.commit()
+        c.close()
+        t = dict(tq.walk_test(0, walk_entry(d), d), stop={"files": [os.path.join(d, "STOP")], "guardian_db": db})
+        self.run_step(test=t, world=walk_world(), code=2)
+        obs = self.stopped_obs()
+        self.assertEqual(obs["stopped"], "Resource Guardian mode paused")
+        self.assertEqual([(x["action"], x["reason"]) for x in obs["legs"]], [("stop", "stopped")])
+        self.assertIn("ClearConsole", self.typed)                          # the leg was read, then stopped: no aim
+        self.assertFalse([c for c in self.typed if c.startswith("player.setangle")])
+        self.assertNotIn("holds", self.state)
+
+
+ITEMS = {"0200CE2A": {"height": 0.046, "mass": 25.0},      # converted BurntBook01: flat, 25 kg
+         "002A0D5B": {"height": 0.42, "mass": 10.0},       # vanilla TrashbinGeneric01: tall, 10 kg
+         "0200CE1F": {"height": 0.11, "mass": 50.0}}       # a box too heavy to push at 50 kg in this world
+ITEM = {"label": "C_burntbook", "travel": "coc QASmoke", "base": "0200CE2A", "mass_kg": 25.0, "spot": [-3.0, 4.0, 0.0],
+        "heading": 0, "settle_ms": 0, "spawn_wait_ms": 500, "impulse_wait_ms": 500}
+
+
+def item_world(**extra):
+    return dict({"arrival": [-3.4, -1.1, 0.0], "player": [-3.4, -1.1, 0.0], "land_z": 0.0, "item_bases": ITEMS},
+                **extra)
+
+
+@unittest.skipUnless(ENABLED, "opt-in: FO4SF_QSTEP_SANDBOX=1 on Windows")
+class QstepMovableSandboxTests(SandboxStep, unittest.TestCase):
+    """movable_control and movable with impulses in the real step against simulated items: a tall item is pushed by the
+    walk, a thin one is walked over, ApplyHavokImpulse moves an item when dv = magnitude / mass is large enough."""
+    def item(self, plan=None, world=None, code=0):
+        return self.run_step(test=tq.movable_test(0, dict(ITEM, **(plan or {}))), world=item_world(**(world or {})),
+                             code=code)
+
+    def acted_on(self, cmd):
+        """The prid and GetIsID lines typed before cmd in the same console session (between its open and cmd): cmd was
+        typed on a confirmed selection when they name the item and its base."""
+        ev = self.state["events"]
+        k = ev.index(cmd)
+        opened = len(ev[:k]) - 1 - ev[:k][::-1].index("<open>")
+        return [c for c in ev[opened:k] if c.startswith(("prid ", "GetIsID "))]
+
+    def test_a_tall_item_is_pushed_by_the_walk_and_removed(self):
+        slope = 'GetINI "fCharacterMaxSlope:HAVOK"'
+        v, obs, left = self.item({"label": "V_trashbin", "base": "002A0D5B", "mass_kg": 10.0, "console_pre": [slope]},
+                                 world={"ini": {"fCharacterMaxSlope:HAVOK": 50.0}})
+        self.assertEqual(v[:2], ("PASS", "WALKED"), v[2])
+        self.assertEqual(left, [], obs.get("cleanup"))
+        self.assertIn("player.placeatme 002A0D5B 1", self.typed)
+        self.assertFalse([c for c in self.typed if c.startswith("ApplyHavokImpulse")])    # no ladder after a push
+        self.assertTrue(obs["spawn"]["confirmed"])
+        self.assertEqual(obs["spawn"]["ref"], "FF000800")
+        # the character controller's slope setting is read before the travel, its reply shown with the verdict
+        self.assertLess(self.typed.index(slope), self.typed.index("coc QASmoke"))
+        self.assertEqual(obs["console"][0]["cmd"], slope)
+        self.assertIn("50.0000", v[2])
+
+    def test_a_thin_item_is_walked_over_then_moved_by_the_first_impulse(self):
+        v, obs, left = self.item()
+        self.assertEqual(v[:2], ("PASS", "IMPULSE"), v[2])
+        self.assertIn("player passed 0.00 m from it", v[2])
+        self.assertIn("step 1", v[2])
+        self.assertEqual([c for c in self.typed if c.startswith("ApplyHavokImpulse")], ["ApplyHavokImpulse 0 -0.707 0.707 37.5"])
+        self.assertEqual(self.acted_on("ApplyHavokImpulse 0 -0.707 0.707 37.5"), ["prid FF000800", "GetIsID 0200CE2A"])
+        self.assertEqual(left, [], obs.get("cleanup"))
+        # the player was moved off the spot in the placeatme session, before the game ran again
+        k = self.typed.index("player.placeatme 0200CE2A 1")
+        self.assertEqual(self.typed[k + 1:k + 3], ["player.setpos x -3", "player.setpos y 1"])
+
+    def test_the_ladder_climbs_until_the_item_moves(self):
+        v, obs, _ = self.item(world={"impulse_dv_min": 5.0})
+        self.assertEqual(v[:2], ("PASS", "IMPULSE"), v[2])
+        self.assertIn("dv 6.0 m/s, step 2", v[2])
+        self.assertEqual(len(obs["impulses"]), 2)
+
+    def test_an_item_nothing_moves_is_stuck(self):
+        v, obs, left = self.item(world={"item_bases": dict(ITEMS, **{"0200CE2A": dict(ITEMS["0200CE2A"], fixed=True)})})
+        self.assertEqual(v[:2], ("FAIL", "STUCK"), v[2])
+        self.assertEqual(len(obs["impulses"]), 3)
+        self.assertEqual(left, [], obs.get("cleanup"))
+
+    def test_a_heavy_item_set_light_is_pushed(self):
+        heavy = {"label": "C_box_m5", "base": "0200CE1F", "mass_kg": 50.0, "set_mass_kg": 5}
+        v, obs, _ = self.item(heavy, world={"push_max_kg": 20.0})
+        self.assertEqual(v[:2], ("PASS", "WALKED"), v[2])
+        self.assertIn("[GetMass 5 kg after SetRigidBodyMass 5 (before: 50 kg)]", v[2])
+        self.assertEqual(self.acted_on("SetRigidBodyMass 5"), ["prid FF000800", "GetIsID 0200CE1F"])
+        probe = 'cf "ObjectReference.GetMass"'
+        self.assertEqual(self.typed.count(probe), 2)                          # before and after, quotes intact
+        self.assertIn("GetMass > > 50.00", obs["mass_probe"]["before"])      # the OCR's "> >" for ">>"
+        self.assertIn("GetMass > > 5.00", obs["mass_probe"]["after"])
+        # the reading after the set is in a session of its own, after the console was closed (the game ran), on a
+        # selection confirmed again
+        ev = self.state["events"]
+        k_set = ev.index("SetRigidBodyMass 5")
+        k_after = max(k for k, c in enumerate(ev) if c == probe)
+        opened = max(k for k in range(k_after) if ev[k] == "<open>")
+        self.assertGreater(opened, k_set)
+        self.assertIn("<close>", ev[k_set + 1:opened])
+        self.assertEqual([c for c in ev[opened:k_after] if c.startswith(("prid ", "GetIsID "))],
+                         ["prid FF000800", "GetIsID 0200CE1F"])
+        # the same item at its own mass is not pushed
+        v, obs, _ = self.item(dict(heavy, set_mass_kg=None), world={"push_max_kg": 20.0})
+        self.assertEqual(v[:2], ("PASS", "IMPULSE"), v[2])
+
+    def test_a_mass_that_does_not_change_is_inconclusive(self):
+        # SetRigidBodyMass accepted without a word and nothing changes: the 5 kg copy is the 50 kg box, not pushed, and
+        # moved by an impulse like the original; judged on that it would read "thinness, not mass" (verifier of PR #110)
+        heavy = {"label": "C_box_m5", "base": "0200CE1F", "mass_kg": 50.0, "set_mass_kg": 5}
+        v, obs, left = self.item(heavy, world={"push_max_kg": 20.0, "setmass_noop": True})
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "MASS"), v[2])
+        self.assertIn("GetMass read 50 kg after SetRigidBodyMass 5", v[2])
+        self.assertEqual(left, [], obs.get("cleanup"))
+        # cf cannot reach the native GetMass (as cf "Actor.PathToReference" in N0_cf): nothing is read, nothing judged
+        v, obs, _ = self.item(heavy, world={"push_max_kg": 20.0,
+                                            "getmass_reply": "No script named ObjectReference is attached to the object"})
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "MASS"), v[2])
+        self.assertIn("GetMass was not read after SetRigidBodyMass 5", v[2])
+
+    def test_a_spot_off_the_planned_floor_places_nothing(self):
+        # the player lands 1 m below the planned spot (no open floor there at that height): nothing is placed
+        v, obs, left = self.item({"spot": [-3.0, 4.0, 1.0]})
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "START"), v[2])
+        self.assertFalse([c for c in self.typed if c.startswith("player.placeatme")])
+        self.assertEqual(left, [])
+
+    def test_a_refused_set_mass_is_inconclusive(self):
+        v, obs, _ = self.item({"set_mass_kg": 5}, world={"setmass_reply": 'Script command "SetRigidBodyMass" not found.'})
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "SETMASS"), v[2])
+
+    def test_a_failed_spawn_acts_on_nothing(self):
+        v, obs, left = self.item(world={"spawn_fails": True})
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "SPAWN"), v[2])
+        self.assertFalse([c for c in self.typed if c.startswith(("ApplyHavokImpulse", "disable", "SetRigidBodyMass"))])
+
+    def test_a_bad_spec_types_nothing(self):
+        good = tq.movable_test(0, ITEM)
+        for bad in ({"base": "0200CE2A 1"}, {"travel": "player.moveto 02000800"},
+                    {"impulses": [{"dv": 1.5, "magnitude": 37.5, "cmd": "ApplyHavokImpulse 0 0 1 37.5; disable"}]},
+                    {"set_mass_cmd": "SetRigidBodyMass 5|key:enter"}, {"probe_cmd": 'cf "Game.QuitGame"'},
+                    {"set_mass_cmd": "SetRigidBodyMass 5"},                  # a set mass without its GetMass reading
+                    {"set_mass_cmd": "SetRigidBodyMass 5", "probe_cmd": 'cf "ObjectReference.GetMass"', "mass_wait_ms": 50}):
+            out, _, _ = self.run_step(test=dict(good, **bad), world=item_world(), code=4)
+            self.assertEqual(self.typed, [], bad)
+
+    def test_movable_impulses_act_on_the_builds_item_and_never_remove_it(self):
+        book = {"base": "0200CE2A", "item": True, "pos": [44.92, 87.04, 11.02], "height": 0.046, "mass": 25.0}
+        t = {"id": "0095_movable", "kind": "movable", "cell": "BostonPublicLibrary02", "ref": "0FE25A:Fallout4.esm",
+             "model": "Props\\BurntBook01.nif", "sf_ref": "020049D1", "item": [44.919, 87.038, 11.018],
+             "stand": [44.366, 86.087, 11.118], "heading": 30.2, "walk_ms": 900, "sf_base": "0200CE2A", "mass_kg": 25.0,
+             "impulses": tq.impulse_steps(25.0, 30.2), "impulse_wait_ms": 500}
+        v, obs, left = self.run_step(test=t, world={"actors": {"020049D1": book}, "player": [40.0, 80.0, 11.0]})
+        # walked over, not pushed: FAIL NOTMOVED even though the impulse moved it (only the walk passes a movable test)
+        self.assertEqual(v[:2], ("FAIL", "NOTMOVED"), v[2])
+        self.assertIn("then moved it", v[2])
+        self.assertEqual(left, ["020049D1"])                                # a world item is never disabled
+        self.assertFalse(self.state["actors"]["020049D1"].get("disabled"))
+        imp = [c for c in self.typed if c.startswith("ApplyHavokImpulse")]
+        self.assertEqual(len(imp), 1)
+        self.assertEqual(self.acted_on(imp[0]), ["prid 020049D1", "GetIsID 0200CE2A"])
 
 
 if __name__ == "__main__":

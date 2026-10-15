@@ -34,7 +34,29 @@ import sys
 #               (getangle z) and after the load, merge probes. An older runner took "99.74 -2195.27 99.41" for a load
 # door_route:   door_trip legs that walk a planned route from where the player stands (outside.route / inside.route):
 #               no teleport to a start; an older qstep.ps1 would teleport to outside.start instead
-FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "door_frames", "door_route")
+# walk:         the walk kind (plan-walk; docs/terrain/walk-redrocket-sanctuary.md): a continuous walk with real input
+#               over planned waypoints, steered by walk_eval.py, W held by input.ps1's guarded holdg. An older qstep.ps1
+#               ends such a step with "unknown kind" (exit 4) after the game was launched for it
+# impulse:      movable items (docs/ai/test-queue.md "Movable items: walk, then impulse"): the movable_control kind
+#               (plan-movable: an item placed in a vanilla cell, walked over, then pushed with ApplyHavokImpulse) and
+#               movable tests planned with --impulse. An older qstep.ps1 ends a movable_control step with "unknown
+#               kind" after the game was launched for it, and skips a movable test's impulses without a word
+# push_judge:   movable / movable_control judged as the verifier of PR #110 asked (2026-10-13): only the walk passes a
+#               movable test (an impulse that moves the build's item leaves it FAIL NOTMOVED when the walk reached it),
+#               ELEVATED only when the walk did not come within contact of the item, PASS IMPULSE of a control only when
+#               the walk reached the item, SetRigidBodyMass judged only on a GetMass reading of the mass set (read in a
+#               session of its own after the game ran), the player's and the item's heights at the spot. The first
+#               impulse runner (91f3d17) would pass an item the player cannot push as PASS IMPULSE
+# npc_combat:   npc_nav combat_reads (docs/ai/test-queue.md "Combat engagement"): every sample's console session also
+#               types GetCombatState / GetCombatTarget / GetLineOfSight player and the test is judged ENGAGED / NOCOMBAT
+#               by those replies, the walk as detail only. An older runner would drop the key at planning time (unknown
+#               plan keys stop plan-npc) or, given the queue, sample positions only and judge a hostile actor that holds
+#               its ground as a baseline that "stayed away" (N0b_spacer_base, 2026-10-13)
+# bridge:       the observation bridge (docs/ai/test-queue.md "Bridge"; plan --bridge, 2026-10-14): the player's
+#               position comes from the game's own log (qstep.ps1 Bridge-Read), never from a console capture, and the
+#               runner installs the staged bridge plugin before every launch (bridge_install.py). An older qstep.ps1
+#               would read the console as before and call the result a read of the same test
+FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "door_frames", "door_route", "walk", "impulse", "push_judge", "npc_combat", "bridge")
 
 
 def needs(tests):
@@ -47,6 +69,10 @@ def needs(tests):
             out.add("console")
         if "precommand_m" in t or "arrive_progress" in t:
             out.add("npc_t0")
+        if t.get("combat_reads"):
+            out.add("npc_combat")
+        if t.get("bridge_reads"):
+            out.add("bridge")
         if t.get("kind") == "door_trip":
             out.add("door_trip")
             if "moved_m" in t or "activate_m" in t:
@@ -55,6 +81,10 @@ def needs(tests):
                 out.add("door_frames")
             if (t.get("outside") or {}).get("route") or (t.get("inside") or {}).get("route"):
                 out.add("door_route")
+        if t.get("kind") == "walk":
+            out.add("walk")
+        if t.get("kind") == "movable_control" or (t.get("kind") == "movable" and t.get("impulses")):
+            out.update(("impulse", "push_judge"))
     return sorted(out)
 
 

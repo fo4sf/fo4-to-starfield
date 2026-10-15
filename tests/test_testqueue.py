@@ -426,6 +426,72 @@ class TerrainTests(unittest.TestCase):
         self.assertEqual([t["points"][1]["expect"] for t in q["tests"]], [35.0, 45.0, 55.0])
         self.assertTrue(all(t["cell"] == "" for t in q["tests"]))
 
+    def test_plan_takes_routes_planned_again_from_another_folder(self):
+        # a routes.py fix re-plans the routes of the SAME pinned build: the queue keeps the build's plugin hash and
+        # staging, the stairs tests point at the new route files
+        st, rd = tempfile.mkdtemp(), tempfile.mkdtemp()
+        writef(os.path.join(st, "FO4Port.esm"), b"TES4")
+        jdump({"cell": "CellA", "refs": []}, os.path.join(st, "CellA.json"))
+        old = {"routes": [{"kind": "stairs", "ref": "000001:Fallout4.esm", "model": "Old.nif"}]}
+        new = {"routes": [{"kind": "stairs", "ref": "000002:Fallout4.esm", "model": "New.nif", "lane": 0.75}],
+               "stairs_checked": []}
+        jdump(old, os.path.join(st, "routesfull_CellA.json"))
+        jdump(new, os.path.join(rd, "routesfull_CellA.json"))
+        out = os.path.join(st, "q_new")
+        tq.main(["plan", "--staging", st, "--out", out, "--kinds", "stairs", "--routes-prefix", "routesfull_",
+                 "--routes-dir", rd])
+        q = jload(os.path.join(out, "queue.json"))
+        self.assertEqual([t["ref"] for t in q["tests"]], ["000002:Fallout4.esm"])
+        # the queue runs and judges its own copy (QA on PR #111: re-planning the routes folder must not change how an
+        # existing queue is judged), and records the copy's hash
+        own = os.path.join(os.path.abspath(out), "routes", "routesfull_CellA.json")
+        self.assertEqual(q["tests"][0]["routes_file"], own)
+        self.assertEqual(q["routes_sha256"], {"routesfull_CellA.json": tq.sha256(own)})
+        jdump({"routes": [{"kind": "stairs", "ref": "000003:Fallout4.esm", "model": "Newer.nif"}]},
+              os.path.join(rd, "routesfull_CellA.json"))
+        self.assertEqual(jload(own)["routes"][0]["ref"], "000002:Fallout4.esm")
+        self.assertEqual(q["routes_dir"], os.path.abspath(rd))
+        self.assertEqual(q["staging"], os.path.abspath(st))
+        out_old = os.path.join(st, "q_old")
+        tq.main(["plan", "--staging", st, "--out", out_old, "--kinds", "stairs", "--routes-prefix", "routesfull_"])
+        q_old = jload(os.path.join(out_old, "queue.json"))
+        self.assertEqual([t["ref"] for t in q_old["tests"]], ["000001:Fallout4.esm"])
+        self.assertNotIn("routes_dir", q_old)
+        self.assertEqual(q_old["build_id"], q["build_id"])
+        with self.assertRaises(SystemExit):                  # an empty routes folder is a mistake, not zero tests
+            tq.main(["plan", "--staging", st, "--out", os.path.join(st, "q_bad"), "--routes-prefix", "routesfull_",
+                     "--routes-dir", tempfile.mkdtemp()])
+
+    def test_judge_reads_the_queue_copy_of_the_routes(self):
+        # a route changed in the source folder after planning does not change the verdict of the planned queue
+        st, rd = tempfile.mkdtemp(), tempfile.mkdtemp()
+        writef(os.path.join(st, "FO4Port.esm"), b"TES4")
+        jdump({"cell": "CellA", "refs": []}, os.path.join(st, "CellA.json"))
+        route = {"kind": "stairs", "ref": "000002:Fallout4.esm", "model": "New.nif", "start": [0, 0, 0.3],
+                 "heading": 0, "walk_ms": 900, "expect": {"low": [0, 1, 0], "high": [0, 4, 2.0], "min_rise": 1.6}}
+        jdump({"routes": [route]}, os.path.join(rd, "routesfull_CellA.json"))
+        out = os.path.join(st, "q")
+        tq.main(["plan", "--staging", st, "--out", out, "--kinds", "stairs", "--routes-prefix", "routesfull_",
+                 "--routes-dir", rd])
+        t = jload(os.path.join(out, "queue.json"))["tests"][0]
+        harder = dict(route, expect=dict(route["expect"], min_rise=5.0))
+        jdump({"routes": [harder]}, os.path.join(rd, "routesfull_CellA.json"))
+        shot = os.path.join(out, "r.png")
+        writef(shot, b"png")
+        obs = {"result": {"start_read": "0 0 0", "end_read": "0 4.2 2.0", "kind": "stairs"}, "shots": ["r.png"]}
+        self.assertEqual(tq.judge(t, obs, out)[0], "PASS")
+
+    def test_plan_puts_listed_references_first_or_keeps_only_them(self):
+        tests = [{"kind": "stairs", "ref": f"{r}:Fallout4.esm"} for r in ("0EBECC", "0EBED6", "0EBEDE", "0EBED7")]
+        tests.append({"kind": "door", "ref": "0EBED6:Fallout4.esm", "side": -1})
+        got = tq.order_by_refs(tests, first="0ebede,0EBED6")
+        self.assertEqual([(t["ref"][:6], t["kind"]) for t in got],
+                         [("0EBEDE", "stairs"), ("0EBED6", "stairs"), ("0EBED6", "door"), ("0EBECC", "stairs"),
+                          ("0EBED7", "stairs")])
+        only = tq.order_by_refs(tests, refs="0EBED7,0EBECC")
+        self.assertEqual([t["ref"][:6] for t in only], ["0EBED7", "0EBECC"])
+        self.assertEqual(tq.order_by_refs(tests), tests)
+
     def test_qstep_has_the_terrain_step(self):
         src = readf(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8")
         self.assertIn("'terrain' {", src)
@@ -553,6 +619,8 @@ class ExpPackTests(unittest.TestCase):
 
         def fake_ba2(a, data_root, out, folders=None, fmt="General"):
             from pathlib import Path
+            if os.path.dirname(os.path.abspath(__file__)) not in sys.path:   # tests/ (discover adds it; -m unittest tests.x does not)
+                sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
             from ba2_fixture import archive_from_tree
             writef(out, archive_from_tree(Path(data_root)))
             return out
@@ -772,3 +840,36 @@ class WatchdogTests(unittest.TestCase):
         self.assertNotIn("dangerously", src)
         runbook = open(os.path.join(ROOT, "docs", "ai", "codex-runbook.md"), encoding="utf-8").read()
         self.assertIn("No input to Starfield", runbook)
+
+
+class BridgeQueueTests(unittest.TestCase):
+    """plan-* --bridge: the queue pins the staged bridge's hashes and every test is marked for bridge reads."""
+    def test_apply_bridge_marks_tests_and_pins_hashes(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "Data", "Scripts"))
+            writef(os.path.join(d, "FO4SFBridge.esm"), b"plugin")
+            writef(os.path.join(d, "Data", "Scripts", "FO4SF_Bridge.pex"), b"pex")
+            tests = [{"kind": "walk"}, {"kind": "door_trip"}]
+            extra = tq.apply_bridge(tests, SimpleNamespace(bridge=d))
+            self.assertTrue(all(t["bridge_reads"] for t in tests))
+            self.assertEqual(extra["bridge"]["plugin"], "FO4SFBridge.esm")
+            self.assertEqual(sorted(extra["bridge"]["sha256"]), ["Data\Scripts\FO4SF_Bridge.pex", "FO4SFBridge.esm"]
+                             if os.sep == "\\" else ["Data/Scripts/FO4SF_Bridge.pex", "FO4SFBridge.esm"])
+            self.assertIn("bridge", tq.runner_features.needs(tests))
+            self.assertIsNone(tq.bridge_mismatch(extra["bridge"]))
+            writef(os.path.join(d, "Data", "Scripts", "FO4SF_Bridge.pex"), b"pex-v2")
+            self.assertIn("changed", tq.bridge_mismatch(extra["bridge"]))
+            os.remove(os.path.join(d, "FO4SFBridge.esm"))
+            self.assertIn("missing", tq.bridge_mismatch(extra["bridge"]))
+
+    def test_without_bridge_nothing_is_marked(self):
+        tests = [{"kind": "walk"}]
+        self.assertEqual(tq.apply_bridge(tests, SimpleNamespace(bridge="")), {})
+        self.assertNotIn("bridge_reads", tests[0])
+        self.assertNotIn("bridge", tq.runner_features.needs(tests))
+
+    def test_a_missing_staged_file_stops_the_plan(self):
+        with tempfile.TemporaryDirectory() as d:
+            writef(os.path.join(d, "FO4SFBridge.esm"), b"plugin")
+            with self.assertRaises(SystemExit):
+                tq.apply_bridge([{"kind": "walk"}], SimpleNamespace(bridge=d))
