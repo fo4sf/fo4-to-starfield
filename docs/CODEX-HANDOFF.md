@@ -18,7 +18,9 @@ Core64c (#76):648,358 staged refs/1,708 populated cells across6.4km; nearby prob
 
 Open regressions: Fort Hagen shutter/frame collision and load-door prompt, Vault114 cinder-block step and movable physics. Cave/native playback need live proof; interior acceptance remains incomplete.
 
-#117/PR120: Windows fingerprints deny writers/mappings/renames during hashing;14 focused/341 suite (3 skips), guard/CI pass. Independent QA caught a descriptor-ownership bug; fix/re-review pass. Sources stay immutable after return. [Limits](testing/archive-fingerprints.md).
+#117/PR120 merged at9c291f1:14 focused/341 Windows tests (3 skips), guard/CI/QA pass. Windows archive read exclusion; immutable-source contract remains. [Limits](testing/archive-fingerprints.md).
+
+#122/PR123: local evidence packets;16 focused/357 Windows tests (3 skips), guard/CI/fix QA pass. Marker grouping/context corrected;5795 ->3634 characters. Model quality/token savings remain unmeasured; no inference in Claude's window. [Use](ai/local-evidence-brief.md).
 
 Reviewed #80/#81 -> #79 at29f3b83: tracked rig/clips and small bind rotations;814 tests/CI/QA pass. #83/#89 -> #78 at02cfa8e: verified BA2/recovery/order/exit protocol;887 tests/CI/QA pass. Parent runtime acceptance remains open.
 
@@ -26,7 +28,7 @@ Reviewed #80/#81 -> #79 at29f3b83: tracked rig/clips and small bind rotations;81
 
 Parents #66/#78/#79 remain open, not runtime accepted. Moving collision/cave/save need live tests. #84 replace/unlink races remain; one controller required.
 
-October13: smoke7/7, baseline29/30; six roofs match, northeast+1.8939m remains. #100/e27f6de repairs the final jump; fresh informational15/15, inputs/native captures verified. Four old jumps excluded from map-size claims; walking/connections open. Original campaigns/save preserved. Codex released control and paused its completed monitor; Claude owns live control. #94/#97 [evidence audit](testing/commonwealth-evidence.md). [Results](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6154661951).
+October13: smoke7/7, baseline29/30, informational15/15; inputs/native captures checked. Northeast+1.8939m and walking/connections remain open. Four old wrong-frame jumps excluded from map-size claims. Original campaigns/save preserved; completed Codex monitor paused, Claude owns live control. [Audit](testing/commonwealth-evidence.md), [results](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6154661951).
 
 ## Coordination
 

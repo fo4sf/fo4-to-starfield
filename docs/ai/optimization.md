@@ -49,3 +49,20 @@ whole long session history replayed) and, in the default read-only sandbox, coul
 After: default is a fresh session with a short brief pointing at #32 / handoff / AGENTS.md, with workspace-write +
 network. `--fork` stays available when the old context is really needed. After (measured): the next fresh-session wake fixed the bug it was briefed on, ran the tests and the guard, and
 opened PR #34 using **54,793 tokens** (99% less than the fork's 5,677,999).
+
+### 2026-10-15 Codex: source-linked evidence packets (#122)
+
+Same three captured probe-log byte sequences, same packet command (explicit text
+inputs; no inference): raw file bodies **5795 characters**, corrected brief including
+source paths/hashes and selected diagnostic examples **3634 characters** (37.3% less).
+The command computes both counts from the same captured input. Ten selected lines
+form eight groups; every selected occurrence and complete captured source is retained.
+The earlier2990-character prototype lost context under independent adversarial tests
+and is superseded, with its evidence retained. Exact private pins/commands are in the
+owner's local-brief-122-20261015 evidence bundle, not in Git.
+
+This measures reading-text size, not Claude subscription tokens, inference latency
+or summary quality. Optional local-model testing is pending a coordinated resource
+window; its real readiness check refused without an inference request.16 focused and
+357 Windows suite tests (3 skips), guard/CI and independent fix re-review pass.
+[Usage and limits](local-evidence-brief.md).

@@ -689,3 +689,20 @@ Validation:14 focused checks,341 Windows suite tests (3 skips), guard pass. Inde
 ownership re-review passed14 narrow checks including the original late-failure counterexamples;
 hosted Linux CI passed. [Contract and limits](testing/archive-fingerprints.md). No live game,
 source archive, deployment, queue or save was changed.
+
+## 2026-10-15 Codex: bounded evidence packets for Claude (#122, offline tested)
+
+Added explicit-text capture, hashes and line anchors, repeated-diagnostic grouping
+and optional tool-free local summarization through Guardian. The helper never loads
+a model, changes a queue or judges gameplay. The owner's not-found review identified
+intentional OCR nonce commands; genuine refusals still remain separate evidence.
+
+Independent QA found five gaps: wrapped command context, over-collapsed mixed errors,
+selection omissions, malformed readiness observations and padded summaries. All are
+corrected with synthetic regressions; initial negatives are retained.16 focused and
+357 Windows suite tests (3 skips), guard/hosted CI pass. Independent re-review passes
+all8 counterexamples,4 fix-bound checks and16 focused tests.
+Same captured logs:5795 raw characters ->3634 brief characters; the smaller flawed
+prototype is superseded. No subscription-token or live model-quality claim. A real
+readiness check refused before inference while Claude retained the game window.
+[Use/limits](ai/local-evidence-brief.md), [measurement](ai/optimization.md).

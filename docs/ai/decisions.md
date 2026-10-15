@@ -59,3 +59,15 @@ the immutable-source contract across the conversion run; POSIX metadata checks r
 best effort. Alternatives rejected: accepting a green retry of the intermittent test,
 timestamp-only detection, or claiming that two hashes create an atomic snapshot.
 [Contract, evidence and limits](../testing/archive-fingerprints.md).
+
+## 2026-10-15 Codex: use local assistance for bounded evidence triage (#122)
+
+Capture explicit text inputs and prepare a short source-linked diagnostic packet
+before considering model summarization. Preserve all selected anchors and exact
+bytes. Collapse only complete marker-only messages; keep wrapped command context
+and mixed errors visible. Optional local inference has no tools and uses only the
+existing Guardian with an already-loaded model. A schema-bound summary remains
+untrusted and never changes an acceptance verdict. This avoids repeating the full
+Lead/tool/history context for log triage. Alternatives rejected: silently filtering
+not-found messages, letting model prose replace raw evidence, or claiming character
+reduction proves a token saving. Model quality/resource coordination remain gates.
