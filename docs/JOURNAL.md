@@ -595,6 +595,12 @@ start, OPEN read from the prompt (`94d6dcb`), idle-camera wake (`76488be`).
   Starfield body from a vanilla donor (as the keyframed door leaves do), with mass from FO4. Until then they're
   reported, not silently changed.
 
+## 2026-10-09 — Codex: checkpoint success-validation parity (#32)
+
+- Verified with synthetic generated NIF/material/texture outputs: a checkpoint with intact output hashes but `fallback_materials: 1` or `door_error` was reused although save rejects it. The new regression fails both cases against baseline `cd94162`.
+- Load and save now share the same success predicate; degraded cached results cause reconversion and do not enter batch expectations.
+- Validation with the numpy-enabled render venv: `python -m unittest discover -s tests -p test_checkpoints.py` (13 pass), `python -m unittest discover -s tests` (253 tests, one skipped), `python scripts/guard.py` (ok). Tests ran outside the sandbox after temporary-directory permission errors inside it.
+- Synthetic/offline only; game versions not applicable, no game assets or live installation changed. QA required before merge.
 ## 2026-10-10 Session end (owner powering down)
 Status summary posted on #32 (comment 6094545513): pinned-build route results per cell, open problems by owner,
 open PRs (#34 QA PASS, #35 in progress), local team state, next steps. Removed a stray `needs-qa` label from #32.
@@ -627,3 +633,59 @@ to requirements-ci.txt without changing terrain records, scripts or tests. Coord
 This fixes the missing dependency, not the unresolved in-game terrain binding. No game assets added.
 Validation: main-based255 tests OK (2 Windows skips), guard OK. At #64 head1600603, all11 FO4 LAND synthetic
 tests pass with Pillow12.3.0, including the failing end-to-end plane/preview case. Hosted dependency CI pending.
+
+## 2026-10-13 Replayed ground-reference evidence (Codex, #96)
+
+Synthetic reproduction: two entries sharing only their ground-reference capture were inconclusive but still
+counted four dependent roof heights as matches; a final diagnostic reusing the reference left two matches.
+After phase-wide capture deduplication, unusable references now invalidate every dependent relative height.
+Six new regressions retain valid independent images with identical pixels, limit non-reference replay
+to the affected rows and demote stale HEIGHTS issues after reference invalidation (independent QA finding).
+Four negative regressions failed before their fixes. Validation:31 evidence tests and308
+full-suite tests pass (2 skips); guard passes. Re-reading completed pinned evidence preserves7/7 smoke and29/30
+baseline heights and all four POST_FRAME findings. Offline only; no game scripts, assets or live control changed.
+
+## 2026-10-13 Failure summary enhancement (Grok)
+
+convert_batch.py now prints failure counts with percentages and unique-reason totals, and writes
+staging/failure-summary.json (top 10 reasons) for later review. Synthetic test covers the summary
+shape and percentages. Offline only; no game data or format changes. Guard and new test pass.
+
+## 2026-10-13 Codex: preserve evidence before reclaiming storage (#105)
+
+Added a private lossless capsule tool and [storage procedure](testing/progress-storage.md).
+It checks every archived byte against a SHA-256 manifest, rechecks the source, and publishes
+without overwriting an earlier capsule. It never deletes sources. Independent Ptolemy QA
+caught Windows restore-manifest aliases and archive-ancestor junctions; both are fixed with
+regressions. Validation:19 focused tests (1 privilege skip),330 suite tests (3 skips), guard
+and22 independent adversarial cases pass, including a real Windows junction regression.
+
+Private application preserved846 files/87 images in10 verified capsules:265,527,468 original
+bytes stored as185,228,667 archive bytes on a second local volume. A PowerShell restore plus
+independent file hashes verified all10 original files in a selected capsule.191 inactive,
+ignored Codex build outputs were then individually rechecked and removed, reclaiming
+82,490,338 logical bytes on the source volume; archives/index/cleanup receipts retain them.
+Temporary restore copies were also individually checked and cleared. Native campaigns,
+source pins, saves, recovery data and Claude's active queues remain at their original paths.
+This is local storage; no offsite backup or game acceptance is claimed. Private archives and
+machine paths are excluded from Git. Shared coordination: #32 comment6159604237.
+
+## 2026-10-14 Codex: source-archive read guard (#117, offline tested)
+
+Reproduced a stale archive identity with an equal-size synthetic overwrite and
+deterministically unchanged metadata. The original returns the old digest; the
+guarded Windows reader refuses the writer. Two earlier full-suite failures remain
+preserved rather than replaced by passing retries. Acquisition now denies writes,
+writable mappings and deletion/rename during hashing and the final metadata check;
+existing readers work. The persisted identity format is unchanged. Sources still
+must stay immutable for the entire conversion run; POSIX has no new exclusion.
+
+Independent QA passed21 narrow sharing checks and caught a late stream-construction
+failure that could close a reused descriptor. The context manager now keeps explicit
+descriptor ownership with a non-owning stream; an actual late `io.open` exception and
+descriptor-reuse regression fails before the fix and passes afterward.
+
+Validation:14 focused checks,341 Windows suite tests (3 skips), guard pass. Independent
+ownership re-review passed14 narrow checks including the original late-failure counterexamples;
+hosted Linux CI passed. [Contract and limits](testing/archive-fingerprints.md). No live game,
+source archive, deployment, queue or save was changed.

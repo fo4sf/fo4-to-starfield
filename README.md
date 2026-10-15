@@ -4,20 +4,25 @@
 
 Converters read **your own copies of both games** and generate local outputs. No game files or conversion pack are distributed. Existing in-game screenshots depict Bethesda-owned visuals and are excluded from the project's code license.
 
-[Latest progress](#latest-progress--2026-10-11) · [Run an installed build](#run-an-installed-build-windows) · [Cell commands](#visit-converted-cells) · [Live updates](https://github.com/fo4sf/fo4-to-starfield/issues/32) · [Contribute](CONTRIBUTING.md)
+[Latest progress](#latest-progress--2026-10-13) · [Run an installed build](#run-an-installed-build-windows) · [Cell commands](#visit-converted-cells) · [Live updates](https://github.com/fo4sf/fo4-to-starfield/issues/32) · [Contribute](CONTRIBUTING.md)
 
-## Latest progress — 2026-10-11
+## Latest progress — 2026-10-13
+
+**Commonwealth structures and terrain now have sampled in-game loading and landing evidence.** In Starfield `1.16.244.0`, the pinned nearby run recorded 29 matching heights out of 30 readable samples. Sanctuary, Red Rocket and Concord each supported two landings at their expected roof height. One northeast landing remains 1.8939 m above its ground expectation. [Today's results and remaining work](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6138582480) were recorded October 12 evening in Mountain time / October 13 UTC.
+
+This covers nearby sampled landings within 510 m of the arrival. Continuous walking, connected interiors and full-map streaming remain open.
 
 | Work | Evidence and current limit |
 |---|---|
 | **Interiors, materials and native collision** | Vault 111, Vault 81, Red Rocket cave, Vault 114, Prydwen, Hotel Rexford, Boston Public Library and Parsons load in experimental builds. Stairs and hinged doors have recorded in-game passes; the complete interior acceptance gate remains open. |
-| **Queued in-game tests** | [Claude's runner, #59](https://github.com/fo4sf/fo4-to-starfield/pull/59), verified launch/save/load and cell arrival on integration build `2470f876`: 2 stairs PASS, 2 falls PASS, 2 doors FAIL where routes aimed beside an open doorway. Missing observations stay inconclusive. The larger queue has no completed acceptance report yet. |
-| **Commonwealth terrain** | [Source heights, #56](https://github.com/fo4sf/fo4-to-starfield/pull/56), [native BTD architecture, #57](https://github.com/fo4sf/fo4-to-starfield/pull/57), and [Red Rocket experiment, #60](https://github.com/fo4sf/fo4-to-starfield/pull/60). Independent source decoders agree; the staged terrain passes offline read-back checks. Loading and walking on it in Starfield remain unverified. |
+| **Queued in-game tests** | [Claude's runner, #59](https://github.com/fo4sf/fo4-to-starfield/pull/59), recorded 7/7 matching smoke heights and 29/30 matching nearby baseline heights across four fresh launches (runner `af27ce9`, interior `2470f876`). All four unscored final diagnostic jumps used the wrong coordinate frame and are excluded; phase 03 remains held pending a reviewed fix and fresh pins. The earlier large interior queue still has unfinished work. |
+| **Commonwealth terrain and structures** | [Core64c, #76](https://github.com/fo4sf/fo4-to-starfield/pull/76), stages 648,358 references in 1,708 populated cells across a 6.4 km extent. Source heights, terrain and structure landings have nearby evidence; that placement count is not tested map coverage. [Pinned runtime handoff](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6136825108). |
+| **Independent evidence checks** | [Codex's checker, #94](https://github.com/fo4sf/fo4-to-starfield/pull/94), is merged: 25 new regressions, 302 Windows tests (2 skips), independent QA and Linux CI pass. It verifies completed attempts, XYZ/reference heights and captures, and detects misplaced final diagnostics. [Read-only audit command](docs/testing/commonwealth-evidence.md). |
 | **Movable objects and connected interiors** | [Native movable bodies, #41](https://github.com/fo4sf/fo4-to-starfield/pull/41), and [load-door links, #50](https://github.com/fo4sf/fo4-to-starfield/pull/50), are under review. Movement and teleport acceptance are still pending for the integration build. |
-| **Recoverable experiment installs** | [Codex's recovery fix, #62](https://github.com/fo4sf/fo4-to-starfield/pull/62): 11 synthetic regressions pass; the branch's full suite reports 317 tests OK, one skipped. Copy/activation failures roll back; interrupted cleanup retains its record. Offline tested, awaiting review. |
+| **Recoverable experiment installs** | #62 closed unmerged; its recovery/packing work was superseded by [#83](https://github.com/fo4sf/fo4-to-starfield/pull/83), integrated into the still-open experimental cave branch [#78](https://github.com/fo4sf/fo4-to-starfield/pull/78). Copy/activation failures roll back and interrupted cleanup retains its record in that reviewed integration. |
 | **NPC navigation and actors** | [Claude's research, #61](https://github.com/fo4sf/fo4-to-starfield/pull/61), maps navigation formats and proposes a minimal NPC test. Research and a plan, not a working actor port. |
 
-Linked pull requests are experimental work under review, not features guaranteed by a fresh checkout of `main`.
+Merged code and experimental branches are identified separately above. A fresh checkout of `main` does not install game assets or reproduce an experimental build automatically.
 Follow [the shared update thread](https://github.com/fo4sf/fo4-to-starfield/issues/32) for exact revisions, results and corrections.
 
 ### Recent in-game route results
@@ -55,7 +60,7 @@ More captured work: [Vault 111](docs/spikes/WP10-vault111-first-light.md) · [ad
 
 ## What remains
 
-The interior slice still needs reliable stairs, clear openings, both-side door operation, pushable objects and repeatable deployment. Some route failures come from test positioning; others require geometry or physics fixes. Terrain loading, navigation and actor behavior need in-game probes. Quests, dialogue, combat systems and full-game parity remain unfinished. See [the issue tracker](https://github.com/fo4sf/fo4-to-starfield/issues) and [risk register](docs/RISKS.md).
+The interior slice still needs reliable stairs, clear openings, both-side door operation, pushable objects and repeatable deployment. Some route failures come from test positioning; others require geometry or physics fixes. Nearby terrain loading has sampled evidence; continuous travel, larger regional coverage, navigation and actor behavior still need pinned in-game tests. Quests, dialogue, combat systems and full-game parity remain unfinished. See [the issue tracker](https://github.com/fo4sf/fo4-to-starfield/issues) and [risk register](docs/RISKS.md).
 
 ## Run an installed build (Windows)
 
@@ -118,6 +123,8 @@ python -m pip install -r requirements-ci.txt
 python -m unittest discover -s tests -v
 python scripts/guard.py
 ```
+
+`scripts/convert_batch.py` converts groups of statics and now prints the top failure reasons by count (with percentages) after a run and writes failure-summary.json, making common issues easier to spot and process programmatically.
 
 To reproduce measurements, install the tools listed in [setup](docs/SETUP.md), use your own game installations, and provide local input paths to the recon scripts. Keep generated data and converted assets outside this repository. Read [contributing](CONTRIBUTING.md) before opening a pull request.
 
