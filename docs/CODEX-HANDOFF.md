@@ -16,9 +16,9 @@ Core64c snapshot:648,358 references/1,708 populated cells over6.4km; this does n
 
 Claude reports load-order dialog correction at68adac4 verified live. Current cave #107 head2e3c961 and walk #103 head4e0ad9d require current-head re-review. Cave persistent-cell fix A remains a runtime hypothesis. Do not repeat superseded plugin-deactivation explanations.
 
-#109: complete CLI bundle/probes, bounded exec and no-overwrite reports pass31 focused tests,22 independent stub cases and1067 suite tests(43 skips). Source is ready for controlled integration on2e3c961; active watchdog source was not restarted. Separately, its executable binding passed an isolated real read-only CLI fixture and was conditionally updated, preserving timers/queues and recovery records. Report jobs read existing verdicts; no rescore or controller takeover. #89 exits: unfinished4, protection/prelaunch3, complete/dry-run0.
+#109 -> draftPR116 at a110ed6: complete CLI/probes, bounded exec and exclusive reports. 32 focused checks, original22 independent cases, late4-case QA and hosted CI pass. One unchanged Windows archive-mutation regression failed (#117); no clean full-suite claim. Active watchdog source was not restarted; only its previously verified executable binding changed, with timers/queues/recovery preserved. #89 exits: unfinished4, protection/prelaunch3, complete/dry-run0.
 
-#108: independent door_trip/walk audit is being corrected after synthetic QA; its normalized nonce/facing protocol is not yet connected to Claude's current producer. No new gameplay acceptance. Preserve old batch_full:1109 pending; all616 movable tests need fresh planning on the reviewed corrected judge/build. #79 door overlay build/deploy waits for Claude's explicit release and fresh pins.
+#108 -> draftPR118 at25b182c: independent normalized door/walk audit. Actor/query/capture, route, frame and pose/chronology gaps corrected; final independent8-case/5-test QA and hosted CI pass. Native producer/adapter still pending; runtime acceptance false. #117 also fails in the396-test Windows suite; preserve it. Old batch_full retains1109 pending; all616 movable tests need fresh planning. #79 overlay build/deploy waits for explicit controller release and fresh pins.
 
 ## Next / coordination
 
