@@ -261,6 +261,10 @@ def main():
         print("  Failure summary: 0 failures")
     # Always persist a compact summary (including the zero case) so tooling sees the latest run
     summary = {
+        "generated_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        "attempted": attempted,
+        "successes": len(items),
+        "success_percent": round(success_pct, 1),
         "total_failures": total,
         "unique_reasons": unique,
         "top": [{"reason": r, "count": c, "percent": round(100.0 * c / total, 1) if total else 0.0}
