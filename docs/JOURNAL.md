@@ -1208,6 +1208,23 @@ Independent factual/link QA passed, with draft status made explicit. Guard passe
 No new unit tests for documentation; hosted CI is checked on the PR. No game,
 runner, installation, queue or save changed.
 
+## 2026-10-15: Codex — reserve stable IDs before plugin output (#132)
+
+Synthetic main d628b56 repro: a directory blocking formids.json caused an error
+after a192-byte plugin had already been created without a saved ID map. Two new
+writer tests failed in three cases: creating a new plugin, replacing an existing
+plugin before map failure, and losing reservations when plugin output fails.
+Map publication now flushes a same-directory temporary JSON file and replaces the
+map before plugin writing. Map failure leaves plugin bytes untouched; later
+plugin failure retains IDs for retry. Existing JSON format and tombstones stay.
+No converter/runner, live installation, game input or native data changes. This
+is single-writer identity preservation, not a complete plugin transaction or
+proof of savegame compatibility. Release build has zero warnings/errors;3 writer
+tests,1279 Windows suite tests(69 skips, writer enabled), typed door binary tests
+and guard pass. Independent Locke QA passes locked-map preservation, sparse JSON
+compatibility and missing-Data-setting controls. Original harness assertion
+failure and its correction are retained with results. #132 pins publication.
+
 ## 2026-10-15: Codex — custom-prefix checkpoint dependencies (#130)
 
 Offline synthetic repro on main d628b56: with signature prefix `preview`, the

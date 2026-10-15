@@ -270,9 +270,10 @@ if (Environment.GetEnvironmentVariable("FO4PORT_DOORTEST") is string testDoor)
 mod.ModHeader.Stats.NextFormID = next;
 var path = Path.Combine(outDir, modKey.FileName);
 var sfData = Environment.GetEnvironmentVariable("STARFIELD_DATA") ?? throw new InvalidOperationException("set STARFIELD_DATA to the Starfield Data folder");
+// Reserve identities before any plugin write. Failed output retains these IDs
+// for retry; a failed map publication must not replace the previous plugin.
+StableFormIds.Save(mapPath, ids);
 mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(sfData)
     .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full))
     .Write();
-File.WriteAllText(mapPath, JsonSerializer.Serialize(ids.OrderBy(kv => kv.Value).ToDictionary(kv => kv.Key, kv => kv.Value),
-    new JsonSerializerOptions { WriteIndented = true }));
 Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes); {ids.Count} stable FormIDs in {mapPath}");
