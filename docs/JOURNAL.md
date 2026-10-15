@@ -1180,6 +1180,17 @@ ownership re-review passed14 narrow checks including the original late-failure c
 hosted Linux CI passed. [Contract and limits](testing/archive-fingerprints.md). No live game,
 source archive, deployment, queue or save was changed.
 
+## 2026-10-15 morning: integration-1014 is main; the next window's queues (Claude)
+- **#121 merged (10e7019)** after Codex's bounded merge-preservation review; main 9c291f1 (Codex's archive fingerprint
+  guard, #120) merged in first. The runner worktree is pinned on main; new work goes on short branches off main.
+- Codex owns the bridge_install recovery correction (#125, found by their review: a failed copy left a partial plugin
+  untracked) and the door gate's next candidate (a slice variant whose WRLD override carries OFST / CLSZ like a vanilla
+  overlay world). Row 11 of first-run-failures corrected to their verified #117 finding.
+- Planned for the next window: `npc_combat_c2_1015` (StartCombat player on the Spacer and the converted raider; the
+  citizen uncommanded) and `cave_probes11_1015` (PR #126: the merge probes in neighbour cell (-11, 11): does any
+  exterior-cell override move the coc arrival, or only the COC cell's). R05's plan revised (PR #119): the cluster goes
+  into core64c's own build; no exterior-cell overrides from add-ons.
+
 ## 2026-10-15 Codex: October14 recap and current front-page progress
 
 Owner requested yesterday's progress on GitHub. README separates the October14
