@@ -65,6 +65,72 @@ def parse_line(s):
     return d
 
 
+ACK = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF ack (?P<tag>.+?)\s*$")
+REF = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF ref=(?P<id>\d+)(?: (?P<none>none)| pos=(?P<x>-?\d+(?:\.\d+)?) (?P<y>-?\d+(?:\.\d+)?)"
+                 r" (?P<z>-?\d+(?:\.\d+)?)(?: ang=(?P<ang>-?\d+(?:\.\d+)?))?(?: cell=(?P<cell>\d+|none))?"
+                 r"(?: disabled=(?P<disabled>True|False|true|false))?(?: loaded=(?P<loaded>True|False|true|false))?)\s*$")
+PLAYER = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF player pos=(?P<x>-?\d+(?:\.\d+)?) (?P<y>-?\d+(?:\.\d+)?) (?P<z>-?\d+(?:\.\d+)?)"
+                    r"(?: ang=(?P<ang>-?\d+(?:\.\d+)?))?\s*$")
+
+
+def parse_event(s):
+    """Any bridge line as {"kind": ...}: "pos" (the timer's line, parse_line's fields), "ack" {tag} (FO4SF_Probe.Ack or
+    cgf Debug.TraceUser), "ref" {id (hex), pos, ang, cell, disabled, loaded, or none True} (FO4SF_Probe.Pos),
+    "player" {pos, ang} (FO4SF_Probe.Player), "init"; None for anything else."""
+    d = parse_line(s)
+    if d is not None:
+        return dict(d, kind="pos")
+    s = s.strip()
+    m = ACK.match(s)
+    if m:
+        return {"kind": "ack", "tag": m.group("tag")}
+    m = REF.match(s)
+    if m:
+        out = {"kind": "ref", "id": f"{int(m.group('id')) & 0xFFFFFFFF:08X}"}
+        if m.group("none"):
+            out["none"] = True
+            return out
+        out["pos"] = [float(m.group("x")), float(m.group("y")), float(m.group("z"))]
+        if m.group("ang") is not None:
+            out["ang"] = float(m.group("ang"))
+        if m.group("cell") is not None:
+            out["cell"] = None if m.group("cell") == "none" else f"{int(m.group('cell')) & 0xFFFFFFFF:08X}"
+        for k in ("disabled", "loaded"):
+            if m.group(k) is not None:
+                out[k] = m.group(k).lower() == "true"
+        return out
+    m = PLAYER.match(s)
+    if m:
+        out = {"kind": "player", "pos": [float(m.group("x")), float(m.group("y")), float(m.group("z"))]}
+        if m.group("ang") is not None:
+            out["ang"] = float(m.group("ang"))
+        return out
+    if re.match(r"^(?:\[[^\]]*\]\s*)?FO4SF init\b", s):
+        return {"kind": "init"}
+    return None
+
+
+def read_events(path):
+    """Every parsed event of the log in order (a missing log is an empty list)."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            raw = f.read().splitlines()
+    except OSError:
+        return []
+    return [e for e in (parse_event(s) for s in raw) if e is not None]
+
+
+def wait_ack(path, tag, timeout=10.0):
+    """Wait until an ack line with this tag is in the log; True, or False after timeout seconds."""
+    t0 = time.time()
+    while True:
+        if any(e["kind"] == "ack" and e["tag"] == tag for e in read_events(path)):
+            return True
+        if time.time() - t0 > timeout:
+            return False
+        time.sleep(0.2)
+
+
 def read_lines(path):
     """Every parsed line of the log in order (a missing log is an empty list)."""
     try:
@@ -137,8 +203,24 @@ def main(argv=None):
     p.add_argument("--log", default=None)
     p.add_argument("--timeout", type=float, default=10.0)
     p.add_argument("--min", type=float, default=0.5)
+    p = sub.add_parser("wait-ack")
+    p.add_argument("tag")
+    p.add_argument("--log", default=None)
+    p.add_argument("--timeout", type=float, default=10.0)
+    p = sub.add_parser("events")                           # every parsed line but the timer's, as JSON lines
+    p.add_argument("--log", default=None)
+    p.add_argument("--all", action="store_true", help="the timer's pos lines too")
     a = ap.parse_args(argv)
     log = a.log or default_log()
+    if a.cmd == "wait-ack":
+        ok = wait_ack(log, a.tag, a.timeout)
+        print(json.dumps({"ok": ok, "tag": a.tag}))
+        return 0 if ok else 1
+    if a.cmd == "events":
+        for e in read_events(log):
+            if a.all or e["kind"] != "pos":
+                print(json.dumps(e))
+        return 0
     if a.cmd == "latest":
         print(json.dumps(latest(log, a.max_age)))
     elif a.cmd == "wait-cmd":

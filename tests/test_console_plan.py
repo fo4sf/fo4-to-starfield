@@ -215,7 +215,7 @@ class BridgeProbeLinesTests(unittest.TestCase):
     """The bridge's console lines (2026-10-14): the probe's global functions and a TraceUser acknowledgement pass; any
     other cgf, another log name or a tag with shell characters does not."""
     def test_allowed(self):
-        for c in ('cgf "FO4SF_Probe.Pos" 1065870', 'cgf "FO4SF_Probe.Pos" 33556480', 'cgf "FO4SF_Probe.Ack" "probe-1"',
+        for c in ('cgf "FO4SF_Probe.Pos" 1057678', 'cgf "FO4SF_Probe.Pos" 33556480', 'cgf "FO4SF_Probe.Ack" "probe-1"',
                   'cgf "FO4SF_Probe.Ack" "walk.leg_3"', 'cgf "FO4SF_Probe.Player"', 'cgf "Debug.TraceUser" "fo4sf" "ack 7"',
                   'cgf "Debug.TraceUser" "fo4sf" "before load"'):
             self.assertTrue(cp.allowed(c), c)

@@ -121,3 +121,43 @@ class FileTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EventTests(unittest.TestCase):
+    """The probe's lines (FO4SF_Probe.psc) and acknowledgements beside the timer's position lines."""
+    def test_ack_ref_player_and_init(self):
+        self.assertEqual(bridge_log.parse_event("[21:33:44] ack 7"), None)          # a bare TraceUser without the prefix word
+        self.assertEqual(bridge_log.parse_event("[21:33:44] FO4SF ack probe-1"), {"kind": "ack", "tag": "probe-1"})
+        self.assertEqual(bridge_log.parse_event("FO4SF ack before load"), {"kind": "ack", "tag": "before load"})
+        e = bridge_log.parse_event("[21:35:00] FO4SF ref=1057678 pos=29.100000 48.100000 4.100000 ang=90.000000 "
+                                   "cell=50336243 disabled=False loaded=true")
+        self.assertEqual(e["kind"], "ref")
+        self.assertEqual(e["id"], "0010238E")
+        self.assertEqual(e["pos"], [29.1, 48.1, 4.1])
+        self.assertEqual(e["cell"], "030011F3")
+        self.assertFalse(e["disabled"])
+        self.assertTrue(e["loaded"])
+        self.assertEqual(bridge_log.parse_event("FO4SF ref=12 none"), {"kind": "ref", "id": "0000000C", "none": True})
+        p = bridge_log.parse_event("[1:2:3] FO4SF player pos=1 2 3 ang=4")
+        self.assertEqual((p["kind"], p["pos"], p["ang"]), ("player", [1.0, 2.0, 3.0], 4.0))
+        self.assertEqual(bridge_log.parse_event("[21:28:47] FO4SF init rt=46.830002"), {"kind": "init"})
+        self.assertEqual(bridge_log.parse_event(FULL)["kind"], "pos")
+        self.assertIsNone(bridge_log.parse_event("[21:28:47] fo4sf log opened (PC-64)"))
+
+    def test_events_and_wait_ack_on_a_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "fo4sf.0.log")
+            with open(log, "w", encoding="utf-8") as f:
+                f.write("[1] fo4sf log opened\n[1] FO4SF init rt=1\n" + FULL + "\n[2] FO4SF ack probe-1\n[2] FO4SF ref=5 none\n")
+            kinds = [e["kind"] for e in bridge_log.read_events(log)]
+            self.assertEqual(kinds, ["init", "pos", "ack", "ref"])
+            self.assertTrue(bridge_log.wait_ack(log, "probe-1", timeout=0.3))
+            self.assertFalse(bridge_log.wait_ack(log, "probe-2", timeout=0.3))
+            import io
+            import json
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = bridge_log.main(["events", "--log", log])
+            self.assertEqual(rc, 0)
+            self.assertEqual([json.loads(l)["kind"] for l in buf.getvalue().splitlines()], ["init", "ack", "ref"])

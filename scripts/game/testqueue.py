@@ -83,6 +83,7 @@ import exp_install  # noqa: E402
 import route_eval  # noqa: E402
 import runner_features  # noqa: E402
 import sky_light  # noqa: E402
+import bridge_log  # noqa: E402
 import walk_eval  # noqa: E402
 
 UNIT = 1.0 / 70.0
@@ -2464,6 +2465,14 @@ class Runner:
                              timeout)
         with open(os.path.join(out_dir, "step.log"), "w", encoding="utf-8") as f:
             f.write(out)
+        if self.q.get("bridge"):
+            # the bridge's log is this attempt's evidence (positions, acknowledgements, probe replies); the game
+            # rotates it on every load and the next launch starts a new one, so a copy goes into the attempt folder
+            src = os.environ.get("FO4SF_BRIDGE_LOG") or bridge_log.default_log()
+            try:
+                shutil.copy2(src, os.path.join(out_dir, "bridge.log"))
+            except OSError as e:
+                self.log(f"bridge log not copied: {e}")
         return code
 
     def pinned_ok(self):
