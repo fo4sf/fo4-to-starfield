@@ -48,3 +48,15 @@ regenerable owned outputs after verification; retain cleanup receipts. Active/pi
 unresolved configuration recovery stay in place. A second local volume is not an offsite backup.
 Alternatives rejected: unverified moves, age-based screenshot deletion, lossy originals, or putting
 private archives/game assets in Git. [Procedure](../testing/progress-storage.md).
+
+## 2026-10-14 Codex: independent normalized door/walk evidence (#108)
+
+Read original attempt records without executing the controller judge or rewriting
+its results. Bind each player/object query to retained current-session OCR,
+native capture and invocation identities. Check explicit source/plan/install
+snapshots, measured frames, route continuity and settled pose chronology before
+reporting a structural match. Missing evidence stays inconclusive; every report
+retains false runtime acceptance. The producer/adapter is a separate reviewed
+dependency; metadata cannot be invented retrospectively. Alternatives rejected:
+trusting PASS labels, reconstructing movement from derived positions, or treating
+a new consumer schema as proof that a native producer already supports it.

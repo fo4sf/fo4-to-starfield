@@ -27,3 +27,17 @@ The same reference rule applies after phase-wide capture checks. If another entr
 The October13 Commonwealth smoke had7 matching samples and the baseline had29/30 matching heights, including six repeated roof landings. Retain the northeast probe's+1.8939m mismatch; a tree collision is a supported hypothesis until its source body/surface is traced. All four entries subsequently made an unscored post-probe jump in the wrong frame. The pinned runner's `qstep.ps1` applied the merge offset to judged points but omitted it from `beyond`. Setting the latter to the last local point did not suppress this jump. One native capture showed BOUNDARY REACHED afterwards; it does not measure the correctly placed Commonwealth's size. See [the pinned public handoff](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6136825108).
 
 Keep that runner/campaign and evidence immutable. Claude owns the game-script fix. Require a nonzero-offset regression, independent review and a fresh campaign before further live phases. No sampled landing result establishes continuous walking, door activation, connected interiors, material quality or full-map streaming.
+
+## Individual door and walk attempts
+
+```powershell
+python -B scripts/testing/commonwealth_evidence.py --attempt <retained-attempt-folder>
+```
+
+The command reads `spec.json` and `obs.json`, dispatches the independent audit,
+and returns the same0/1/2 report statuses. It never invokes a controller judge,
+rescores a campaign or writes original evidence. [Continuous evidence](continuous-evidence.md)
+defines the required normalized pins, fresh query/capture bindings, player route
+and settled arrival/facing records. Missing legacy metadata remains inconclusive.
+This normalized protocol is not yet integrated with PR107's current read producer;
+native capture proof and an independently reviewed producer/adapter remain required.

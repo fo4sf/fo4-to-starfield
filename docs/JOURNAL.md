@@ -669,3 +669,18 @@ Temporary restore copies were also individually checked and cleared. Native camp
 source pins, saves, recovery data and Claude's active queues remain at their original paths.
 This is local storage; no offsite backup or game acceptance is claimed. Private archives and
 machine paths are excluded from Git. Shared coordination: #32 comment6159604237.
+
+## 2026-10-14 Codex: independent door/walk attempt audit (#108)
+
+Added a read-only attempt CLI and normalized evidence checks for source/plan/input
+pins, player queries, current-session challenge/capture bindings, merge frames,
+ordered route steps, bridge/border witnesses, settled door/reload XYZ and facing.
+Independent synthetic reviews found incorrect actor selection, command/chronology
+gaps and facing borrowed from another read; regressions now reject those cases.
+The current candidate has59 focused helper regressions plus7 dispatch tests.
+The latest396-test Windows suite exposes an unchanged archive-fingerprint race
+test failure; preserve that finding rather than claim a clean full suite.
+The normalized protocol remains unconnected to the current native producer.
+No original campaign verdict, game script/input, installation or save changed;
+runtime acceptance stays false. Native producer integration, installed-byte proof
+and complete ground/contact validation remain separate gates.
