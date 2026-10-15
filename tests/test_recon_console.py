@@ -1,5 +1,6 @@
 """recon_console.py decodes a console command entry from a synthetic PE32+ image built the way Starfield.exe 1.16.244
-initialises its entries (lea rax / mov [rbp+d], rax; parameter count; static parameter table). No game file is read."""
+initialises its entries (lea rax / mov [rbp+d], rax; parameter count; static parameter table), and the script-function
+table's entries, which it stores through the stack pointer (mov [rsp+d], rax). No game file is read."""
 import os
 import struct
 import sys
@@ -15,9 +16,12 @@ except ImportError:
 
 BASE = 0x140000000
 SECS = {".text": (0x1000, 0x400), ".rdata": (0x2000, 0x800), ".data": (0x3000, 0xC00)}   # va, raw pointer; 0x400 each
+IMPULSE_HELP = "Applies an impulse of the passed magnitude to the reference along a passed axis."
 
 
-def image():
+def image(rsp=False):
+    """rsp=True: the entry is stored through the stack pointer, as Starfield.exe 1.16.244 builds its script-function
+    table (ApplyHavokImpulse: four Float parameters, opcode 0x1251, the byte at +0x20 set)."""
     data = bytearray(0x1000)
     pe = 0x80
     struct.pack_into("<I", data, 0x3C, pe)
@@ -32,29 +36,44 @@ def image():
     strings = {}
     pos = 0x800 + 1
     for s in ("PathToRef", "PTR", "Force actor to path to reference.", "TESObjectREFR", "GetSelf",
-              "Gets the ref ID for the current reference."):
+              "Gets the ref ID for the current reference.", "ApplyHavokImpulse", IMPULSE_HELP, "Float"):
         data[pos:pos + len(s)] = s.encode()
         strings[s] = 0x2000 + pos - 0x800
         pos += len(s) + 1
     struct.pack_into("<QII", data, 0xC00, BASE + strings["TESObjectREFR"], 4, 1)      # one optional reference
+    for k in range(4):                                                                 # four required floats
+        struct.pack_into("<QII", data, 0xC40 + 16 * k, BASE + strings["Float"], 2, 0)
     code, va = bytearray(), 0x1000
 
     def lea(target):
-        code.extend(b"\x48\x8d\x05" + struct.pack("<i", target - (va + len(code) + 7)))
+        code.extend(bytes([0x48, 0x8D, 0x05]) + struct.pack("<i", target - (va + len(code) + 7)))
 
-    def store(d):
-        code.extend(b"\x48\x89\x85" + struct.pack("<i", d))
-    lea(strings["PathToRef"])
-    code.extend(b"\xc7\x85" + struct.pack("<iI", 0x3D20, 0x1D0))                      # opcode
-    store(0x3D10)
-    lea(strings["PTR"])
-    store(0x3D18)
-    lea(strings["Force actor to path to reference."])
-    store(0x3D28)
-    code.extend(b"\xb8\x01\x00\x00\x00" + b"\x66\x89\x85" + struct.pack("<i", 0x3D32))   # one parameter
-    lea(0x3000)
-    store(0x3D38)
-    code.extend(b"\xc3")
+    if rsp:
+        def store(d):                                    # mov [rsp+d32], rax
+            code.extend(bytes([0x48, 0x89, 0x84, 0x24]) + struct.pack("<i", d))
+        lea(strings["ApplyHavokImpulse"])
+        store(0xCD10)
+        code.extend(bytes([0xC7, 0x84, 0x24]) + struct.pack("<iI", 0xCD20, 0x1251))       # opcode
+        lea(strings[IMPULSE_HELP])
+        store(0xCD28)
+        code.extend(bytes([0xC6, 0x84, 0x24]) + struct.pack("<i", 0xCD30) + bytes([1]))   # the byte at +0x20
+        code.extend(bytes([0xB8, 4, 0, 0, 0, 0x66, 0x89, 0x84, 0x24]) + struct.pack("<i", 0xCD32))   # four parameters
+        lea(0x3040)
+        store(0xCD38)
+    else:
+        def store(d):                                    # mov [rbp+d32], rax
+            code.extend(bytes([0x48, 0x89, 0x85]) + struct.pack("<i", d))
+        lea(strings["PathToRef"])
+        code.extend(bytes([0xC7, 0x85]) + struct.pack("<iI", 0x3D20, 0x1D0))              # opcode
+        store(0x3D10)
+        lea(strings["PTR"])
+        store(0x3D18)
+        lea(strings["Force actor to path to reference."])
+        store(0x3D28)
+        code.extend(bytes([0xB8, 1, 0, 0, 0, 0x66, 0x89, 0x85]) + struct.pack("<i", 0x3D32))   # one parameter
+        lea(0x3000)
+        store(0x3D38)
+    code.extend(bytes([0xC3]))
     data[0x400:0x400 + len(code)] = code
     return bytes(data)
 
@@ -68,7 +87,17 @@ class ReconConsoleTests(unittest.TestCase):
         c = got[0]
         self.assertEqual((c["short"], c["opcode"], c["help"]), ("PTR", 0x1D0, "Force actor to path to reference."))
         self.assertEqual(c["params"], [{"type": "TESObjectREFR", "id": 4, "optional": True}])
-        self.assertEqual(img.near("GetSelf")[0][-1], "Gets the ref ID for the current reference.")
+        ctx = img.near("GetSelf")[0]
+        self.assertEqual(ctx[ctx.index("GetSelf") + 1], "Gets the ref ID for the current reference.")
+
+    def test_decodes_a_stack_pointer_entry(self):
+        # the script-function table (ApplyHavokImpulse, SetRigidBodyMass, SetPos) is stored through rsp, not rbp
+        img = recon_console.Image(image(rsp=True))
+        got = img.commands(["ApplyHavokImpulse", "PathToRef"])
+        self.assertEqual(len(got), 1)
+        c = got[0]
+        self.assertEqual((c["name"], c["short"], c["opcode"], c["help"]), ("ApplyHavokImpulse", None, 0x1251, IMPULSE_HELP))
+        self.assertEqual(c["params"], [{"type": "Float", "id": 2, "optional": False}] * 4)
 
     def test_cli_reads_the_file_only(self):
         p = os.path.join(tempfile.mkdtemp(), "fake.exe.bin")

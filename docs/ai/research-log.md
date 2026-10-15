@@ -54,6 +54,93 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   steering, the 0.335 m step, loading and popups at the borders and on the bridge) is **unresolved** until the queue
   `C:\Modding\testqueue\walk_core64c` runs. Why Fallout 4's navmesh passes under those objects is **unresolved**.
 
+## 2026-10-13 Claude: why some converted loose items did not move when the player walked into them
+- Question: converted FO4 loose items are MoveableStatic records with dynamic bodies (2026-10-10 entries below). In the
+  queued tests a trash can and a book moved, a cigarette pack, three books and two bobby-pin boxes did not. The only
+  FAIL was supervised_1011 0007 (FAIL NOTMOVED). In batch_full every movable test was MISSED or skipped by the movable
+  circuit breaker (about 610 tests); judged by the walk's closest approach (the 2026-10-12 fix), 0095 / 0096 / 0099 /
+  0100 were within reach and would be FAIL NOTMOVED. Is it our conversion (fixable), Starfield's character controller
+  (vanilla items the same), or unresolved?
+- Method (read-only, local scripts not in the repo): field dumps (`hktagfile`) of the converted NIFs of the pinned build
+  `integ_1011` (build 2470f876) and of 2,379 vanilla NIFs used by Starfield.esm MiscItem / Book / MoveableStatic records
+  (record list from `SfInspect models`, NIFs from the mesh archives with `fo4sf.ba2` / `nif`); Starfield.esm `COLL`
+  records (the collision matrix) and `MSTT` subrecords of FO4Port.esm and Starfield.esm by a raw group walk; the cell
+  exports' REFR entries; `obs.json` and the screenshots of supervised_1011 0006 / 0007 / 0015 and batch_full 0095-0100;
+  Starfield.exe 1.16.244 (`scripts/recon_console.py`, which now also reads the stack-built script-function entries);
+  the Papyrus sources in `Tools\ContentResources.zip`.
+- Evidence, bodies: all 6,221 vanilla dynamic item bodies have motionType 2, flags 0x8a, qualityId 255,
+  collisionCntrl 0, collisionLookAheadDistance 0, activationPriority 0; 5,389 use the motion properties gravity 1,
+  linear / angular damping 0.1 / 0.05, max speed 100 / 200, deactivation 0.0025 / 0.0025 / 4 passes; 4,788 are on layer
+  4 (CLUTTER). The converted BurntBook01, CigarettePack, BobbyPinBox and TrashcanMetalOffice01 have exactly these values,
+  layer 4, BSXFlags 0x42 with the collision on the root node (vanilla: 1,698 dynamic bodies under BSXFlags 0x42, all on
+  the root node; 4,140 under 0x4A and 36 under 0x6A on child nodes; 347 under 0x4A on the root) and one
+  hknpRefMassDistribution each.
+- Evidence, collision matrix: Starfield.esm `L_CLUTTER` (index 4) collides with `L_CHARCONTROLLER` (30) and
+  `L_BIPED_NO_CC`; `L_DEBRIS_SMALL` (19) does not. The player's controller collides with our items.
+- Evidence, records: our MSTTs carry DATA 04 like vanilla, but OBND all zero and no FLLD (vanilla: real bounds, FLLD 1);
+  the trash can that moved has the same zero OBND.
+- Evidence, masses: converted (FO4's inverse mass): BurntBook01 25 kg, CigarettePack 10 kg, BobbyPinBox 50 kg, trash
+  can 15 kg. Vanilla items of a similar size: BookMedium02 / BookSmall02 10 kg, ContemporaryCigarettesPack01 5 kg
+  (8.5 x 4.6 x 15.7 cm upright; our pack 7 x 3.7 x 14.5 cm upright), Office_NotePad_Stack01 / 02 5 kg (3.8 / 5.7 cm),
+  Office_Folder01 8 kg, DataSlate01 5 kg; vanilla dynamic item masses: median 10 kg, 10th percentile 2 kg. Both games
+  make small clutter heavy; FO4's small items are 2-10 times Starfield's.
+- Evidence, placements (corrected after the verifier of PR #110; the reads are obs.json's): one model moved and did
+  not move. BurntBook01 `217AC5` (Vault 114 0015, scale 0.86) lay on a bench seat 0.45 m above the player's feet at the
+  stand point (item z -0.91, player -1.36); the player climbed onto the bench and ended 0.07 m from where the book had
+  lain (z -0.68), and the book moved 0.46 m and dropped 0.29 m off the bench (`before.png`, `after.png`). The reads fit a
+  side-on hit just as well as the book being walked over and pushed off; they do not tell which. `0FE25A`, `0FE259`,
+  `100D9D` (BostonPublicLibrary02 0095 / 0096 / 0099, scale 1) lay flat on the floor, 4.6 cm thick; the walk passed
+  0.02, about 0.13 and about 0.15 m from them and they moved 0.000 m. Same record, same body. CigarettePack `1CBEF6`
+  (supervised_1011 0007) lay 0.83 m above the player's feet on a desk (`after.png`: the pack on the desktop, the player
+  stopped at the desk 0.67 m from it). BobbyPinBox `1015BB` (0100: item 33.62 68.45 11.78) lay 0.81 m above the
+  player's feet at the stand point, but the walk (32.94 67.36 10.97 to 34.31 71.12 11.25) passed 0.26 m from it and the
+  player rose 0.28 m on the way, ending 0.53 m below it: inside a capsule's reach and height (supported hypothesis), and
+  it moved 0.000 m. BobbyPinBox `100164` (0098) lay level with the player's feet (item z 11.78, player 11.77: the stand
+  point is on the item's own surface); the player moved 0.17 m and stopped 1.45 m short of it, blocked by something
+  else, not by elevation (MISSED). The trash can (moved 2.21 m, 0.64 m tall, lying on its side in FO4) and the tin can
+  of 2026-10-10 (0.56 m) stood on the floor and were hit side-on.
+- Evidence, console: `ApplyHavokImpulse` (opcode 0x1251, four Floats, "Applies an impulse of the passed magnitude to the
+  reference along a passed axis.") and `SetRigidBodyMass` (0x1156, one Float, "Sets the Havok mass for an object.") are
+  in the script-function table, built on the stack like `SetPos` / `PlaceAtMe` / `GetIsID`; `PushActorAway` too (actors).
+  `CallFunction` (`cf`) is a console command (decoded 2026-10-14: "Calls a papyrus function on the targeted ref. First
+  parameter is the function, the rest are parameters", one String and up to seven optional Strings) **verified**;
+  `GetMass` has no console command entry, its name sits among the ObjectReference Papyrus natives (`GetLocRefTypes`,
+  `GetMass`, `GetNthLinkedRef`) **verified**: `cf "ObjectReference.GetMass"` is the only console route to the mass, and
+  whether it reaches the native and prints the value is **unresolved** (the judge needs the number; else MASS).
+  Papyrus `ObjectReference.psc`: `ApplyHavokImpulse(afX, afY, afZ, afMagnitude)`, `float GetMass()`,
+  `SetMotionType(.., abImmediatelySimulate)` ("as if the player bumped into it"). `LC012NASAGravTrigger.psc` uses
+  magnitude = `GetMass()` x 0.25..0.5, so the magnitude is an impulse in kg m/s (supported hypothesis). The exe has the
+  INI setting `fCharacterMaxSlope:HAVOK` and the layer `L_CHARBUMPER` (it collides only with itself and the controller).
+- Status: "the converted items' bodies and records match vanilla MiscItem / MoveableStatic bodies on every motion,
+  layer, quality, flag and BSXFlags field" **verified** (the mass is the one field that differs); "the same converted
+  body moved in one placement (on the Vault 114 bench) and not in another (flat on the library floor)" **verified**
+  (BurntBook01), how it was hit there **unresolved**; "the cigarette pack lay on a desk the walk did not reach"
+  **verified** (reads and screenshot); "the pin box 0098 was blocked short of it, not elevated" **verified** (reads);
+  "the three flat books were walked over and did not move" **verified** (reads); "the pin box 0100 lay on furniture the
+  walk could not reach" **refuted** (the walk passed 0.26 m from it): it is the one NOTMOVED that placement does not
+  explain, a FAIL NOTMOVED under the corrected judge; "Starfield's controller does not push light or small bodies at
+  all" **refuted** as stated (a 25 kg book and 5-15 kg cans moved); "a flat item lower than the step the capsule
+  climbs is pressed down, not pushed, vanilla items too" **supported hypothesis**, weakened (the only book that moved
+  may have been walked over and pushed too); "FO4's higher masses play no part" **unresolved** (the 50 kg pin box 0100,
+  ten times a vanilla box's mass, did not move when the walk passed through it). Both are tested by the staged queue
+  `movable_control_1013b` (vanilla notepads 3.8 / 5.7 cm and a folder 0.7 cm next to ours, the converted book and box
+  again at 5 kg through `SetRigidBodyMass`, judged only when `GetMass` reads 5 kg back, `fCharacterMaxSlope` through
+  `GetINI`).
+- Consequence: no converter change yet. The bodies match vanilla, but whether FO4's masses stop the player pushing small
+  items is unresolved, and answer (a), scale FO4 masses, stays open until `movable_control_1013b` runs. The movable test
+  changes (verifier of PR #110, 2026-10-13): only the walk passes a movable test; a walk that reaches an item and leaves
+  it in place is FAIL NOTMOVED with or without the impulse ladder, which only tells a simulated body (noted in the
+  detail) from one nothing moves (FAIL STUCK); INCONCLUSIVE ELEVATED (final, not counted by the breaker) only for an item
+  more than 0.5 m above the player's highest feet read that the walk came no closer than 0.5 m to, or more than 1.8 m
+  above them. docs/ai/test-queue.md "Movable items: walk, then impulse"; decisions.md 2026-10-13. If the queue shows
+  vanilla items of a size pushed where ours are not, or the 5 kg variants (GetMass read 5) pushed where the full-mass
+  ones are not, mass is the cause: then (a). If `cf "ObjectReference.GetMass"` gets the reply `cf
+  "Actor.PathToReference"` got in N0_cf ("No script named ... is attached to the object", supported hypothesis), the
+  5 kg tests are INCONCLUSIVE MASS and the mass question needs another reading.
+- Correction (verifier of PR #110, 2026-10-13): this entry first said both pin boxes lay 0.81 m up, that the batch_full
+  movable tests were FAILs, that the Vault 114 book was hit side-on, and that the books were walked over at
+  0.02-0.27 m; the reads give the figures above.
+
 ## 2026-10-12 Claude: the Red Rocket cave load door on the converted terrain (slice: working door -> interior -> save)
 - Question: which Fallout 4 load door links RedRocket01 with the Commonwealth, where is it relative to the converted
   terrain of experiment 2d, what does our side hold of it, and how is it written so a player can walk through it and

@@ -983,3 +983,65 @@ to the affected rows and demote stale HEIGHTS issues after reference invalidatio
 Four negative regressions failed before their fixes. Validation:31 evidence tests and308
 full-suite tests pass (2 skips); guard passes. Re-reading completed pinned evidence preserves7/7 smoke and29/30
 baseline heights and all four POST_FRAME findings. Offline only; no game scripts, assets or live control changed.
+
+## 2026-10-13 Claude: small converted items that "did not move" were out of reach or walked over (offline; a live test was running, so no game input)
+- **Not the conversion (verified offline):** the converted BurntBook01, CigarettePack, BobbyPinBox and trash can bodies
+  match vanilla Starfield items on every motion, layer, quality, flag and BSXFlags field (6,221 vanilla dynamic bodies
+  dumped). Starfield's own collision matrix lets the player's controller collide with their layer (CLUTTER).
+- **Most failures were placements** (reads corrected after the verifier of PR #110): the cigarette pack (supervised_1011
+  0007, the only FAIL) lay 0.83 m up on a desk and the player stopped at the desk 0.67 m from it; one bobby-pin box
+  (batch_full 0098) lay level with the player, who was blocked 1.45 m short of it. The three books (batch_full) lay
+  flat on the floor, 4.6 cm thick, and the walk passed 0.02-0.15 m from them. The same book model moved 0.46 m in Vault
+  114, where it lay on a bench the player climbed onto (hit side-on, or walked over and pushed off: the reads do not
+  tell). **One is not a placement:** the other pin box (0100, 50 kg) lay 0.81 m above the feet at the stand point, but
+  the walk passed 0.26 m from it while the player rose 0.28 m, and it did not move. Whether FO4's masses (2-10 times
+  Starfield's for items that size) stop the push is unresolved.
+- **Runner:** only the walk passes a movable test: a walk that reaches an item and leaves it in place is FAIL NOTMOVED,
+  even when `ApplyHavokImpulse` (found in Starfield.exe's script-function table with `scripts/recon_console.py`, which
+  now reads those entries) then moves it; the impulse only adds "the body is simulated", or FAIL STUCK when nothing
+  moves it. INCONCLUSIVE ELEVATED (final, never counted by the breaker) only for an item more than 0.5 m above the
+  player's feet that the walk came no closer than 0.5 m to, or more than 1.8 m above them. New kind `movable_control`
+  (`plan-movable`): an item placed in a vanilla cell, walked over, then pushed; a `SetRigidBodyMass` test is judged only
+  when `GetMass` reads the mass set back. Synthetic tests and sandbox scenarios; runner features `impulse`, `push_judge`.
+- **Staged, not run:** `movable_control_1013b` in QASmoke (replacing `movable_control_1013`, planned before these fixes):
+  five vanilla items (a bin, a cigarette pack, notepad stacks 5.7 and 3.8 cm, a folder) next to our trash can, pack, pin
+  box and book, plus the book and box at 5 kg via `SetRigidBodyMass`. Each test wrote its expectation first. If the
+  vanilla items move where ours do not, or the 5 kg copies (GetMass read 5) move where the originals do not, mass is the
+  cause and the converter should scale FO4 masses.
+
+## 2026-10-14 Claude: PR #110 fix pass checked, the console route to the mass confirmed, suite re-run (offline; no game input)
+- The verifier's three blocking findings are fixed by 18081d6 (only the walk passes a movable test, ELEVATED only when
+  the walk came no closer than 0.5 m to the item, a `SetRigidBodyMass` test judged only on a `GetMass` reading) and its
+  minor findings in the docs. This pass re-checked them against the reads and did the check the second finding asked
+  for: Starfield.exe 1.16.244's command table, read with `scripts/recon_console.py`, has `CallFunction` (`cf`, "Calls a
+  papyrus function on the targeted ref. First parameter is the function, the rest are parameters", one String and up to
+  seven optional Strings) and no console entry for `GetMass` (a Papyrus ObjectReference native), so `cf
+  "ObjectReference.GetMass"` is the only console route to the mass. The 5 kg tests stay in the queue and are
+  INCONCLUSIVE MASS without a number read back (docs/ai/test-queue.md "Movable items", research-log 2026-10-13).
+- Full suite with the qstep sandbox: 1013 tests OK (2 skips); `scripts/guard.py` ok.
+- Queue `movable_control_1013b` (planned at 18081d6, an ancestor of this head, so the runner takes it as it is) is the one
+  to run; `movable_control_1013` is marked superseded in its staging README and must not run.
+## 2026-10-13 Failure summary enhancement (Grok)
+
+convert_batch.py now prints failure counts with percentages and unique-reason totals, and writes
+staging/failure-summary.json (top 10 reasons) for later review. Synthetic test covers the summary
+shape and percentages. Offline only; no game data or format changes. Guard and new test pass.
+
+## 2026-10-13 Codex: preserve evidence before reclaiming storage (#105)
+
+Added a private lossless capsule tool and [storage procedure](testing/progress-storage.md).
+It checks every archived byte against a SHA-256 manifest, rechecks the source, and publishes
+without overwriting an earlier capsule. It never deletes sources. Independent Ptolemy QA
+caught Windows restore-manifest aliases and archive-ancestor junctions; both are fixed with
+regressions. Validation:19 focused tests (1 privilege skip),330 suite tests (3 skips), guard
+and22 independent adversarial cases pass, including a real Windows junction regression.
+
+Private application preserved846 files/87 images in10 verified capsules:265,527,468 original
+bytes stored as185,228,667 archive bytes on a second local volume. A PowerShell restore plus
+independent file hashes verified all10 original files in a selected capsule.191 inactive,
+ignored Codex build outputs were then individually rechecked and removed, reclaiming
+82,490,338 logical bytes on the source volume; archives/index/cleanup receipts retain them.
+Temporary restore copies were also individually checked and cleared. Native campaigns,
+source pins, saves, recovery data and Claude's active queues remain at their original paths.
+This is local storage; no offsite backup or game acceptance is claimed. Private archives and
+machine paths are excluded from Git. Shared coordination: #32 comment6159604237.

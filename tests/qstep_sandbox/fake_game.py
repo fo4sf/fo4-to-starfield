@@ -61,7 +61,16 @@ first live run's garble (garble_count times): the previous read's z, this read's
 for (-2195.27, -1593.51, 99.41); walk_dz: every walk step changes z by that much (the live walk went down the cave
 mouth, so the garble's x and z differ and pass Read-Pos's x == z filter). The sandbox readpos types its nonce
 (fo4sfr<8 hex>) first, as the real one: the console echoes it and replies not found (the reply's wording is a
-supported hypothesis; readpos relies on the echo alone)."""
+supported hypothesis; readpos relies on the echo alone).
+Movable items (movable, movable_control): item_bases {base: {"height", "mass", "fixed"}}: placeatme of such a base puts
+an item (an "actors" entry with item true) at the player's feet on the floor (+ item_offset); an item can also be put in
+"actors" directly (the build's own placed item, read with readpos <ref>). Walking within 0.35 m of an item at least
+push_min_h tall (0.08 m) and not heavier than push_max_kg pushes it 0.5 m ahead; a thinner one is walked over.
+"ApplyHavokImpulse x y z m" on a selected item moves it dv x 0.3 m along the axis when dv = m / mass >= impulse_dv_min
+(1.0; impulse_works false or a fixed item: never); "SetRigidBodyMass <kg>" sets its mass (setmass_reply: the console
+prints that text instead; setmass_noop: accepted without a word and nothing changes); 'cf "ObjectReference.GetMass"'
+prints "GetMass >> <kg>" (a made-up reply format; getmass_reply: that text instead, e.g. the "No script named ... is
+attached to the object" that cf "Actor.PathToReference" got in N0_cf)."""
 import json
 import math
 import os
@@ -144,6 +153,38 @@ def ground_z(s, p):
     return float(g.get("z0", 0.0)) + float(g.get("sx", 0.0)) * p[0] + float(g.get("sy", 0.0)) * p[1]
 
 
+def mass_of(a):
+    return float(a.get("mass_set", a.get("mass", 1.0)))
+
+
+def push_items(s, p, h):
+    """Movable items the walking player touches (within 0.35 m): one at least push_min_h tall (default 0.08 m) and not
+    heavier than push_max_kg is pushed 0.5 m ahead of the player; a thinner one is walked over and stays (the model the
+    staged movable_control queue tests: supported hypothesis, docs/ai/test-queue.md)."""
+    for a in s["actors"].values():
+        if not a.get("item") or a.get("disabled") or a.get("pending") or a.get("fixed"):
+            continue
+        q = a["pos"]
+        if math.hypot(q[0] - p[0], q[1] - p[1]) > 0.35:
+            continue
+        if a.get("height", 0.1) < float(s.get("push_min_h", 0.08)) or mass_of(a) > float(s.get("push_max_kg", 1e9)):
+            continue
+        a["pos"] = [p[0] + 0.5 * math.sin(h), p[1] + 0.5 * math.cos(h), q[2]]
+
+
+def impulse(s, a, w):
+    """ApplyHavokImpulse <x> <y> <z> <magnitude> on a selected item: a speed change of magnitude / mass (kg m/s, the
+    supported hypothesis) of at least impulse_dv_min (default 1.0) moves it dv x 0.3 m along the axis' horizontal part
+    (impulse_works false, or a fixed item: nothing moves)."""
+    ax, ay, mag = float(w[1]), float(w[2]), float(w[4])
+    if a.get("fixed") or not s.get("impulse_works", True) or mag / mass_of(a) < float(s.get("impulse_dv_min", 1.0)):
+        return
+    n = math.hypot(ax, ay) or 1.0
+    d = mag / mass_of(a) * 0.3
+    q = a["pos"]
+    a["pos"] = [q[0] + ax / n * d, q[1] + ay / n * d, q[2]]
+
+
 def walk(s, ms):
     """hold:w: walk along the heading in 5 cm steps, an automatic door in range loads at once."""
     if s.get("walk_blocked") or s.get("popup"):
@@ -174,6 +215,7 @@ def walk(s, ms):
             q[2] = z
         p = q
         s["player"] = p
+        push_items(s, p, h)
         if auto_doors(s):
             return
 
@@ -199,6 +241,7 @@ def select(s, rid):
 def run(s, cmd):
     low = cmd.lower()
     s.setdefault("typed", []).append(cmd)
+    s.setdefault("events", []).append(cmd)                 # "events": the commands with the console's opens and closes
     if low == "clearconsole" and not s.get("clear_fails", True):
         s["log"] = []
         return
@@ -267,8 +310,14 @@ def run(s, cmd):
             return
         rid = f"FF{0x800 + len(s['actors']):06X}"
         p = player_pos(s)
-        s["actors"][rid] = {"base": w[1].upper(), "pos": [p[0] + 0.8, p[1], p[2]],
-                            "pending": bool(s.get("console")) and s.get("spawn_deferred", True)}
+        item = (s.get("item_bases") or {}).get(w[1].upper())
+        if item is not None:                               # a movable item: at the player's feet (+ item_offset)
+            off = s.get("item_offset") or [0.0, 0.0, 0.0]
+            s["actors"][rid] = dict(item, base=w[1].upper(), item=True, pos=[p[0] + off[0], p[1] + off[1], 0.0],
+                                    pending=bool(s.get("console")) and s.get("spawn_deferred", True))
+        else:
+            s["actors"][rid] = {"base": w[1].upper(), "pos": [p[0] + 0.8, p[1], p[2]],
+                                "pending": bool(s.get("console")) and s.get("spawn_deferred", True)}
         s["last"] = rid
         if s.get("faction_lines", True):
             s["log"] += ["GetInFaction >> 0.00"] * 3
@@ -313,6 +362,22 @@ def run(s, cmd):
             a["start"], a["target"], a["cmd_at"] = actor_pos(s, a), True, game_time(s)
         elif kind is not None:
             s["log"].append("Script command not found")
+    elif low.startswith("applyhavokimpulse "):
+        s.setdefault("impulses", []).append({"sel": s.get("sel"), "cmd": cmd})
+        if kind == "actor" and a.get("item"):
+            impulse(s, a, w)
+        elif kind is None:
+            s["log"].append("Missing reference")
+    elif low.startswith("setrigidbodymass "):
+        if s.get("setmass_reply"):                         # the console refuses it (made-up text: the real one is unseen)
+            s["log"].append(s["setmass_reply"])
+        elif kind == "actor" and a.get("item") and not s.get("setmass_noop"):
+            a["mass_set"] = float(w[1])
+    elif low == 'cf "objectreference.getmass"':
+        if s.get("getmass_reply"):
+            s["log"].append(s["getmass_reply"])
+        elif kind == "actor" and a.get("item"):
+            s["log"].append(f"GetMass >> {mass_of(a):.2f}")
     elif low == "disable" and kind is not None:
         if kind == "actor":
             a["pos"], a["target"] = actor_pos(s, a), False
@@ -410,6 +475,7 @@ def main():
             elif k == "key" and v == "grave":
                 now = game_time(s)
                 s["console"] = not s.get("console")
+                s.setdefault("events", []).append("<open>" if s["console"] else "<close>")
                 s["clock"] = {"game": now, "since": None if s["console"] else time.time()}
                 if s["console"]:
                     if s.get("drift_per_open"):            # game time passed since the last console session
@@ -468,6 +534,9 @@ def main():
         elif ref == s.get("anchor_id"):
             s["sel"] = ref                                 # readpos -Ref selects with prid
             print(" ".join(f"{v:.2f}" for v in s["anchor_pos"]))
+        elif ref in s["actors"] and not s["actors"][ref].get("pending"):
+            s["sel"] = ref                                 # a placed item or actor (movable: the build's own item)
+            print(" ".join(f"{v:.2f}" for v in actor_pos(s, s["actors"][ref])))
         else:
             d = next((d for d in s.get("doors", []) if (d.get("ref") or "").upper() == ref), None)
             if d is None:

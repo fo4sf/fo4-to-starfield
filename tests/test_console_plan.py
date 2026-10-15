@@ -65,7 +65,8 @@ class WhitelistTests(unittest.TestCase):
             self.assertTrue(ps.match(c), c)
         for c in BAD:
             self.assertFalse(isinstance(c, str) and ps.match(c), repr(c))
-        self.assertEqual(src.count("Run-Console $preCmds 'pre'"), 4)       # terrain, npc_nav, door_trip and walk
+        # terrain, npc_nav, door_trip, walk and movable_control
+        self.assertEqual(src.count("Run-Console $preCmds 'pre'"), 5)
         self.assertEqual(src.count("Run-Console $postCmds 'post'"), 4)
         self.assertIn("-cnotmatch $consoleOk", src)
 

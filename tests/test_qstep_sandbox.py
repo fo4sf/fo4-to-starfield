@@ -782,5 +782,152 @@ class QstepWalkSandboxTests(SandboxStep, unittest.TestCase):
         self.assertNotIn("holds", self.state)
 
 
+ITEMS = {"0200CE2A": {"height": 0.046, "mass": 25.0},      # converted BurntBook01: flat, 25 kg
+         "002A0D5B": {"height": 0.42, "mass": 10.0},       # vanilla TrashbinGeneric01: tall, 10 kg
+         "0200CE1F": {"height": 0.11, "mass": 50.0}}       # a box too heavy to push at 50 kg in this world
+ITEM = {"label": "C_burntbook", "travel": "coc QASmoke", "base": "0200CE2A", "mass_kg": 25.0, "spot": [-3.0, 4.0, 0.0],
+        "heading": 0, "settle_ms": 0, "spawn_wait_ms": 500, "impulse_wait_ms": 500}
+
+
+def item_world(**extra):
+    return dict({"arrival": [-3.4, -1.1, 0.0], "player": [-3.4, -1.1, 0.0], "land_z": 0.0, "item_bases": ITEMS},
+                **extra)
+
+
+class QstepMovableSandboxTests(SandboxStep, unittest.TestCase):
+    """movable_control and movable with impulses in the real step against simulated items: a tall item is pushed by the
+    walk, a thin one is walked over, ApplyHavokImpulse moves an item when dv = magnitude / mass is large enough."""
+    def item(self, plan=None, world=None, code=0):
+        return self.run_step(test=tq.movable_test(0, dict(ITEM, **(plan or {}))), world=item_world(**(world or {})),
+                             code=code)
+
+    def acted_on(self, cmd):
+        """The prid and GetIsID lines typed before cmd in the same console session (between its open and cmd): cmd was
+        typed on a confirmed selection when they name the item and its base."""
+        ev = self.state["events"]
+        k = ev.index(cmd)
+        opened = len(ev[:k]) - 1 - ev[:k][::-1].index("<open>")
+        return [c for c in ev[opened:k] if c.startswith(("prid ", "GetIsID "))]
+
+    def test_a_tall_item_is_pushed_by_the_walk_and_removed(self):
+        slope = 'GetINI "fCharacterMaxSlope:HAVOK"'
+        v, obs, left = self.item({"label": "V_trashbin", "base": "002A0D5B", "mass_kg": 10.0, "console_pre": [slope]},
+                                 world={"ini": {"fCharacterMaxSlope:HAVOK": 50.0}})
+        self.assertEqual(v[:2], ("PASS", "WALKED"), v[2])
+        self.assertEqual(left, [], obs.get("cleanup"))
+        self.assertIn("player.placeatme 002A0D5B 1", self.typed)
+        self.assertFalse([c for c in self.typed if c.startswith("ApplyHavokImpulse")])    # no ladder after a push
+        self.assertTrue(obs["spawn"]["confirmed"])
+        self.assertEqual(obs["spawn"]["ref"], "FF000800")
+        # the character controller's slope setting is read before the travel, its reply shown with the verdict
+        self.assertLess(self.typed.index(slope), self.typed.index("coc QASmoke"))
+        self.assertEqual(obs["console"][0]["cmd"], slope)
+        self.assertIn("50.0000", v[2])
+
+    def test_a_thin_item_is_walked_over_then_moved_by_the_first_impulse(self):
+        v, obs, left = self.item()
+        self.assertEqual(v[:2], ("PASS", "IMPULSE"), v[2])
+        self.assertIn("player passed 0.00 m from it", v[2])
+        self.assertIn("step 1", v[2])
+        self.assertEqual([c for c in self.typed if c.startswith("ApplyHavokImpulse")], ["ApplyHavokImpulse 0 -0.707 0.707 37.5"])
+        self.assertEqual(self.acted_on("ApplyHavokImpulse 0 -0.707 0.707 37.5"), ["prid FF000800", "GetIsID 0200CE2A"])
+        self.assertEqual(left, [], obs.get("cleanup"))
+        # the player was moved off the spot in the placeatme session, before the game ran again
+        k = self.typed.index("player.placeatme 0200CE2A 1")
+        self.assertEqual(self.typed[k + 1:k + 3], ["player.setpos x -3", "player.setpos y 1"])
+
+    def test_the_ladder_climbs_until_the_item_moves(self):
+        v, obs, _ = self.item(world={"impulse_dv_min": 5.0})
+        self.assertEqual(v[:2], ("PASS", "IMPULSE"), v[2])
+        self.assertIn("dv 6.0 m/s, step 2", v[2])
+        self.assertEqual(len(obs["impulses"]), 2)
+
+    def test_an_item_nothing_moves_is_stuck(self):
+        v, obs, left = self.item(world={"item_bases": dict(ITEMS, **{"0200CE2A": dict(ITEMS["0200CE2A"], fixed=True)})})
+        self.assertEqual(v[:2], ("FAIL", "STUCK"), v[2])
+        self.assertEqual(len(obs["impulses"]), 3)
+        self.assertEqual(left, [], obs.get("cleanup"))
+
+    def test_a_heavy_item_set_light_is_pushed(self):
+        heavy = {"label": "C_box_m5", "base": "0200CE1F", "mass_kg": 50.0, "set_mass_kg": 5}
+        v, obs, _ = self.item(heavy, world={"push_max_kg": 20.0})
+        self.assertEqual(v[:2], ("PASS", "WALKED"), v[2])
+        self.assertIn("[GetMass 5 kg after SetRigidBodyMass 5 (before: 50 kg)]", v[2])
+        self.assertEqual(self.acted_on("SetRigidBodyMass 5"), ["prid FF000800", "GetIsID 0200CE1F"])
+        probe = 'cf "ObjectReference.GetMass"'
+        self.assertEqual(self.typed.count(probe), 2)                          # before and after, quotes intact
+        self.assertIn("GetMass > > 50.00", obs["mass_probe"]["before"])      # the OCR's "> >" for ">>"
+        self.assertIn("GetMass > > 5.00", obs["mass_probe"]["after"])
+        # the reading after the set is in a session of its own, after the console was closed (the game ran), on a
+        # selection confirmed again
+        ev = self.state["events"]
+        k_set = ev.index("SetRigidBodyMass 5")
+        k_after = max(k for k, c in enumerate(ev) if c == probe)
+        opened = max(k for k in range(k_after) if ev[k] == "<open>")
+        self.assertGreater(opened, k_set)
+        self.assertIn("<close>", ev[k_set + 1:opened])
+        self.assertEqual([c for c in ev[opened:k_after] if c.startswith(("prid ", "GetIsID "))],
+                         ["prid FF000800", "GetIsID 0200CE1F"])
+        # the same item at its own mass is not pushed
+        v, obs, _ = self.item(dict(heavy, set_mass_kg=None), world={"push_max_kg": 20.0})
+        self.assertEqual(v[:2], ("PASS", "IMPULSE"), v[2])
+
+    def test_a_mass_that_does_not_change_is_inconclusive(self):
+        # SetRigidBodyMass accepted without a word and nothing changes: the 5 kg copy is the 50 kg box, not pushed, and
+        # moved by an impulse like the original; judged on that it would read "thinness, not mass" (verifier of PR #110)
+        heavy = {"label": "C_box_m5", "base": "0200CE1F", "mass_kg": 50.0, "set_mass_kg": 5}
+        v, obs, left = self.item(heavy, world={"push_max_kg": 20.0, "setmass_noop": True})
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "MASS"), v[2])
+        self.assertIn("GetMass read 50 kg after SetRigidBodyMass 5", v[2])
+        self.assertEqual(left, [], obs.get("cleanup"))
+        # cf cannot reach the native GetMass (as cf "Actor.PathToReference" in N0_cf): nothing is read, nothing judged
+        v, obs, _ = self.item(heavy, world={"push_max_kg": 20.0,
+                                            "getmass_reply": "No script named ObjectReference is attached to the object"})
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "MASS"), v[2])
+        self.assertIn("GetMass was not read after SetRigidBodyMass 5", v[2])
+
+    def test_a_spot_off_the_planned_floor_places_nothing(self):
+        # the player lands 1 m below the planned spot (no open floor there at that height): nothing is placed
+        v, obs, left = self.item({"spot": [-3.0, 4.0, 1.0]})
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "START"), v[2])
+        self.assertFalse([c for c in self.typed if c.startswith("player.placeatme")])
+        self.assertEqual(left, [])
+
+    def test_a_refused_set_mass_is_inconclusive(self):
+        v, obs, _ = self.item({"set_mass_kg": 5}, world={"setmass_reply": 'Script command "SetRigidBodyMass" not found.'})
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "SETMASS"), v[2])
+
+    def test_a_failed_spawn_acts_on_nothing(self):
+        v, obs, left = self.item(world={"spawn_fails": True})
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "SPAWN"), v[2])
+        self.assertFalse([c for c in self.typed if c.startswith(("ApplyHavokImpulse", "disable", "SetRigidBodyMass"))])
+
+    def test_a_bad_spec_types_nothing(self):
+        good = tq.movable_test(0, ITEM)
+        for bad in ({"base": "0200CE2A 1"}, {"travel": "player.moveto 02000800"},
+                    {"impulses": [{"dv": 1.5, "magnitude": 37.5, "cmd": "ApplyHavokImpulse 0 0 1 37.5; disable"}]},
+                    {"set_mass_cmd": "SetRigidBodyMass 5|key:enter"}, {"probe_cmd": 'cf "Game.QuitGame"'},
+                    {"set_mass_cmd": "SetRigidBodyMass 5"},                  # a set mass without its GetMass reading
+                    {"set_mass_cmd": "SetRigidBodyMass 5", "probe_cmd": 'cf "ObjectReference.GetMass"', "mass_wait_ms": 50}):
+            out, _, _ = self.run_step(test=dict(good, **bad), world=item_world(), code=4)
+            self.assertEqual(self.typed, [], bad)
+
+    def test_movable_impulses_act_on_the_builds_item_and_never_remove_it(self):
+        book = {"base": "0200CE2A", "item": True, "pos": [44.92, 87.04, 11.02], "height": 0.046, "mass": 25.0}
+        t = {"id": "0095_movable", "kind": "movable", "cell": "BostonPublicLibrary02", "ref": "0FE25A:Fallout4.esm",
+             "model": "Props\\BurntBook01.nif", "sf_ref": "020049D1", "item": [44.919, 87.038, 11.018],
+             "stand": [44.366, 86.087, 11.118], "heading": 30.2, "walk_ms": 900, "sf_base": "0200CE2A", "mass_kg": 25.0,
+             "impulses": tq.impulse_steps(25.0, 30.2), "impulse_wait_ms": 500}
+        v, obs, left = self.run_step(test=t, world={"actors": {"020049D1": book}, "player": [40.0, 80.0, 11.0]})
+        # walked over, not pushed: FAIL NOTMOVED even though the impulse moved it (only the walk passes a movable test)
+        self.assertEqual(v[:2], ("FAIL", "NOTMOVED"), v[2])
+        self.assertIn("then moved it", v[2])
+        self.assertEqual(left, ["020049D1"])                                # a world item is never disabled
+        self.assertFalse(self.state["actors"]["020049D1"].get("disabled"))
+        imp = [c for c in self.typed if c.startswith("ApplyHavokImpulse")]
+        self.assertEqual(len(imp), 1)
+        self.assertEqual(self.acted_on(imp[0]), ["prid 020049D1", "GetIsID 0200CE2A"])
+
+
 if __name__ == "__main__":
     unittest.main()

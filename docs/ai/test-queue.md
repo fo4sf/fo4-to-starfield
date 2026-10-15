@@ -26,7 +26,8 @@ another window in front of the game, also stops it (or makes it wait for an idle
 | stairs | `routes_<cell>.json` (routes.py) | rose at least 80% of the flight | STUCK, FALL | start not reached, misread |
 | fall | `probe_points.py` floor points | landed within 0.6 m | dropped more than 3 m | landed 0.6-3 m lower, held above, pushed away |
 | door | `routes_<cell>.json`, both sides | crossed the plane after an OPEN this attempt | BLOCKED, NOPROMPT, FALL | already open, misread |
-| movable | manifest `movable` items placed in the cell | item moved at least 5 cm when walked into | did not move although reached; fell | player missed it |
+| movable | manifest `movable` items placed in the cell | item moved at least 5 cm when walked into; with `--impulse`: PASS IMPULSE when only the impulse moved it | did not move although reached (NOTMOVED); STUCK (no impulse moved it either); fell | player missed it; ELEVATED (more than 0.5 m above the player's feet: on furniture; final) |
+| movable_control | `plan-movable` (plan.json, below) | the item placed in a vanilla cell moved when walked over (WALKED) or only under ApplyHavokImpulse (IMPULSE) | STUCK, NOTMOVED, ITEMFELL | start, spawn handle, SetRigidBodyMass refused, the item not at rest before the walk (SETTLE), missed, a read missing |
 | travel | load doors whose XTEL partner is in the same build | arrived within 4 m of the arrival point | no prompt; E did nothing | start not reached, arrived elsewhere |
 | terrain | `plan-terrain` (an experiment's plan.json) | heights within 0.5 m | NOTERRAIN, HEIGHTS | a height not read, moved |
 | npc_nav | `plan-npc` (plan.json, below) | the actor walked to B (a baseline: stayed away without a command) | NONAV, STALLED, FELL, WANDER | spawn / handle / reads failed, warp or early arrival, control or precondition not met |
@@ -651,3 +652,120 @@ the console, `cgf` credited and typed again before the probe); a sky that follow
 3200.0000, 2, no reply, 0; then 0), npc_nav with an unknown setting (NOT FOUND, does not exist), and lines off the
 whitelist (`qqq`, `player.additem`, `tgm`, a `|key:` injection, `coc` in `console_post`): exit 4, nothing typed. Opt-in,
 30-60 s a scenario: `$env:FO4SF_QSTEP_SANDBOX = '1'`.
+
+## Movable items: walk, then impulse (`movable --impulse`, `movable_control`)
+
+Why (docs/ai/research-log.md 2026-10-13): most converted items that did not move lay where the walk could not push
+them, not in bodies that cannot move: a cigarette pack on a desk 0.83 m above the player's feet (the walk ends at the
+desk 0.67 m from it), a pin box the player was blocked 1.45 m short of, three books flat on the floor that the walk
+passed over. One does not fit: a 50 kg pin box 0.81 m above the feet at the stand point that the walk passed 0.26 m
+from (the player rose 0.28 m on the way) did not move. Every motion, layer and flag field of these bodies matches
+vanilla Starfield items; the masses do not (FO4's are 2-10 times as heavy). So (verifier of PR #110, 2026-10-13):
+
+- **Only the walk passes a movable test.** It asks whether the player pushes the item. A walk whose closest approach
+  came within reach (1 m) and left the item in place is FAIL NOTMOVED, with or without the impulse ladder.
+- **ELEVATED** (`movable`): an item that did not move, more than 0.5 m above the player's feet (the higher of the reads
+  before and after the walk, so a player who climbed onto the furniture counts at its height) while the walk came no
+  closer than 0.5 m to it (`CONTACT_M`), or more than 1.8 m above them (`OVERHEAD_M`), is INCONCLUSIVE ELEVATED: final
+  at once and not counted by the circuit breaker (`FINAL_INCONCLUSIVE`). An item the walk passed within 0.5 m of is
+  judged by reach as any other, however high it lies. `CONTACT_M` and `OVERHEAD_M` are not measured from Starfield's
+  capsule (supported hypothesis: a radius of about 0.3-0.4 m plus the item's half-width, a height of about 1.8 m);
+  `CONTACT_M` lies between the readings it must separate, 0.26 m (batch_full 0100, walked through) and 0.67 m
+  (supervised_1011 0007, stopped at the desk).
+- **The impulse ladder** (diagnostic): when the walk moved the item less than 5 cm, `ApplyHavokImpulse <x> <y> <z>
+  <magnitude>` is typed on the item, in its own console session after `prid <ref>` and `GetIsID <base>` read 1 (the
+  npc_nav handle rules), the console is closed for `impulse_wait_ms` (3 s) and the item is read again (same
+  confirmation). Axis: back along the walk (the path the player has just walked, so free) and 45 degrees up.
+  Magnitudes: mass x dv for dv 1.5, 6 and 24 m/s, stopping at the first that moves the item 5 cm (kg m/s: supported
+  hypothesis, `LC012NASAGravTrigger.psc` scales its impulses by `GetMass()`). An impulse that moves it adds "the body
+  is simulated" to the detail of NOTMOVED / ELEVATED / MISSED; FAIL STUCK: every impulse was typed on a confirmed
+  selection and none moved it either. The magnitudes scale with the mass, so the ladder cannot show whether the mass
+  stops the player: `movable_control`'s vanilla items and its `SetRigidBodyMass` copies can.
+- `testqueue.py plan --kinds movable --impulse` adds the ladder to every movable test whose item has a base record in
+  `formids.json` (`MSTT:<EditorID>`, the confirmation's `GetIsID`) and a mass in the manifest. Runner features
+  `impulse` and `push_judge` (the first impulse runner, 91f3d17, passed such an item as PASS IMPULSE).
+
+`movable_control` places an item in a vanilla cell, so a converted item can be compared with vanilla items on the same
+floor. `plan-movable` reads `plan.json` (a list):
+
+```powershell
+& $py scripts\game\testqueue.py plan-movable --staging C:\Modding\staging\<pinned build> `
+      --exp-dir C:\Modding\staging\<experiment with plan.json> --out C:\Modding\testqueue\<queue> --fresh
+```
+
+| field | meaning | default |
+|---|---|---|
+| `label`, `model` | test name; what the item is (the report groups by it) | `item<n>`; the label (a converted item: its FO4 source) |
+| `travel` | `coc <cell editor id>` | required |
+| `base` / `base_edid` | the item's base form id in the load order (8 hex, a vanilla item) or the EditorID of a converted MoveableStatic of the pinned build (its id from `formids.json` and `--plugin-index`, its mass from the manifest) | one of them |
+| `mass_kg` | the body's mass (vanilla: from its NIF) | the manifest's for `base_edid` |
+| `spot`, `heading` | where the item is placed (metres, the cell's frame) and the walk's heading (degrees, as `setangle z`) | required, 0 |
+| `stand_m`, `park_m` | the player starts `stand_m` before the item's read position; waits `park_m` behind the spot while it settles | 1.1, 3.0 |
+| `set_mass_kg` | `SetRigidBodyMass <kg>` on the confirmed selection before the walk, with the `GetMass` probe before it and again after it (the console closed `mass_wait_ms`, a second confirmed selection). A refusal in the console reply is INCONCLUSIVE SETMASS; unless the probe after it reads the mass set (within 5 %, at least 0.25 kg) the test is INCONCLUSIVE MASS, whatever the walk did | none |
+| `mass_probe` | `cf "ObjectReference.GetMass"` on the confirmed selection (always with `set_mass_kg`; `mass_probe: false` with it stops the planning); without `set_mass_kg` its reading is only shown | false |
+| `mass_wait_ms` | the console closed after `SetRigidBodyMass` before the reading | 1000 |
+| `impulse_dv`, `impulse_wait_ms` | the ladder's speed steps (m/s, up to 4; `[]`: none) and the wait after each | [1.5, 6, 24], 3000 |
+| `walk_ms`, `settle_ms`, `drop`, `spawn_wait_ms`, `handle_tol` | hold W; wait after a teleport; teleport height; console closed after `placeatme`; how close to the spot the placed item must lie | 900, 1500, 0.3, 3000, 2.0 |
+| `moved_m`, `reach_m`, `settle_m` | moved; the walk reached the item; at rest before the walk (spawn read vs the read before the walk) | 0.05, 0.6, 0.1 |
+| `console_pre`, `console_post` | whitelisted console lines (section above), e.g. `GetINI "fCharacterMaxSlope:HAVOK"` | none |
+| `fresh`, `expect`, `basis` | as npc_nav; an expectation names the PASS class (`PASS WALKED`, `PASS IMPULSE`) | |
+
+`movable_control` results: PASS WALKED (the walk moved it); PASS IMPULSE (the walk came within `reach_m` and did not
+move it, an impulse did: a measurement of the control, the body is simulated and the walk did not push it); FAIL
+STUCK; FAIL NOTMOVED (no ladder); FAIL ITEMFELL; INCONCLUSIVE MISSED (the walk never came within `reach_m`, whatever an
+impulse did), IMPULSE (the ladder did not finish), START (the player not read at the spot, or not within 0.4 m of its
+height there or at the stand point: not the open floor the plan assumed), SPAWN (handle not confirmed, or the item at
+rest more than 0.5 m from the spot's height), SETMASS, MASS, SETTLE, UNREAD.
+
+One test (`qstep.ps1` kind `movable_control`): `coc`, the arrival read until it settles; the player dropped at the spot;
+(nothing is placed when the player is not within 1 m of the spot and 0.4 m of its height)
+`player.placeatme <base> 1` in its own session and, in the same session (the game paused), the player moved to the
+park point, then the console closed for `spawn_wait_ms` so the item drops onto a free floor; the handle as npc_nav's
+(`plr` alone, `prid <id>` + `GetSelf` must not name another ref, `GetIsID <base>` 1, within `handle_tol` of the spot:
+else INCONCLUSIVE SPAWN and nothing acts on any selection); the `GetMass` probe and `SetRigidBodyMass`, then the
+console closed `mass_wait_ms` and `GetMass` again on a second confirmed selection; the player
+`stand_m` before the item's read position facing `heading`; the item read (confirmed), the walk, the player's and the
+item's reads; the ladder; then `disable`, `GetDisabled`, `markfordelete` on a confirmed selection only. `movable` tests
+never remove anything: their items belong to the build. Runner feature `impulse` (`runner_features.py`): an older
+runner refuses such a queue before launching the game.
+
+Staged (2026-10-13, offline, not run): `movable_control_1013b` (staging and queue folders of that name; planned with
+`--fresh` on `integ_1011`, build 2470f876; it replaces `movable_control_1013`, planned before the verifier's fixes, whose
+5 kg tests would have been judged without a mass reading): in QASmoke on lanes 1.8 m apart (x -12 .. 6, y 4, walking
+north), vanilla TrashbinGeneric01 / ContemporaryCigarettesPack01 / Office_NotePad_Stack02 (5.7 cm) /
+Office_NotePad_Stack01 (3.8 cm) / Office_Folder01 (0.7 cm) next to the converted TrashcanMetalOffice01 / CigarettePack /
+BobbyPinBox / BurntBook01, and the book and the box again at 5 kg (judged only when `GetMass` reads 5 kg back). Each
+test writes its expectation and basis first. Open floor along the lanes is a supported hypothesis: the offline count
+of QASmoke's 156 references for N0 (docs/actors/npc-navigation.md 5.2) leaves nothing in its south room (navmesh x
+-14.8 .. 8.9, y -8.8 .. 14.8, z 0, on 6 x 6 m gravel floor tiles) but the border walls (x -15, x 9, y -8.7), the
+pillars in its two south corners and the ceiling 6 m up, and the lanes (x -12 .. 6, y about 2.9 .. 6) lie 3 m or more
+inside the walls. They were not checked lane by lane nor walked in game; the START / SPAWN height checks turn a lane
+that is not open floor at z 0 into INCONCLUSIVE instead of a result.
+
+Evidence used (Starfield.exe 1.16.244, `scripts/recon_console.py`, which decodes the stack-built script-function entries
+too since 2026-10-13): `ApplyHavokImpulse` opcode 0x1251, Float x4, "Applies an impulse of the passed magnitude to the
+reference along a passed axis."; `SetRigidBodyMass` 0x1156, Float, "Sets the Havok mass for an object."; `SetPos`
+0x1007 (Axis, Float), `PlaceAtMe` 0x1025 (ObjectID, optional Count, Distance, Direction), `GetIsID` (ObjectID),
+`GetSelf` (`this`), `GetDisabled`, `Disable` (optional Integer), `MarkForDelete`, `ForceWeather` (`fw`, Form, optional
+Int) decoded the same way. `CallFunction` (`cf`) is a console command of the same table (decoded 2026-10-14: "Calls a
+papyrus function on the targeted ref. First parameter is the function, the rest are parameters", one String and up to
+seven optional Strings); `GetMass` has no console entry of its own (`recon_console.py` decodes none; `--near` finds its
+name among the ObjectReference Papyrus natives, between `GetLocRefTypes` and `GetNthLinkedRef`), so `cf
+"ObjectReference.GetMass"` is the only console route to the mass, and the judge never assumes its reply: a 5 kg test is
+judged on the number read back, else INCONCLUSIVE MASS. Unresolved until the queue runs: whether the console accepts
+`ApplyHavokImpulse` and `SetRigidBodyMass` on a selected item, the magnitude's unit, and whether `cf
+"ObjectReference.GetMass"` reaches the native function and prints its value at all: `cf "Actor.PathToReference"`
+replied "No script named Actor is attached to the object" (N0_cf, verified), so the same reply for `ObjectReference` is
+a supported hypothesis; it would leave the 5 kg tests INCONCLUSIVE MASS. They stay in the queue (two tests of a few
+minutes each): a reading settles the mass question that nothing else in the queue can, and no reading costs no verdict.
+
+Sandbox (`QstepMovableSandboxTests`; the simulated game pushes an item at least 8 cm tall that the walk passes within
+0.35 m of, walks over a thinner one, and moves an item by an impulse when magnitude / mass reaches 1 m/s): a tall
+vanilla bin pushed by the walk and removed (the `GetINI` line typed before the `coc`, its reply in the verdict); a flat
+book walked over and moved by the first impulse, typed on the confirmed selection; the ladder climbing to its second
+step; a fixed item (FAIL STUCK after three impulses); a 50 kg box not pushed, pushed after `SetRigidBodyMass 5`
+(`GetMass` 50 before, 5 after in a session of its own on a selection confirmed again); a `SetRigidBodyMass` that
+changes nothing and a `GetMass` answered "No script named ObjectReference ..." (both INCONCLUSIVE MASS); a refused
+`SetRigidBodyMass`; a spot 1 m above the floor (nothing placed, START); a failed spawn (nothing acts on any
+selection); bad specs, among them a set mass without its probe (exit 4, nothing typed); a `movable` test of the
+build's own book with the ladder (walked over, moved by the impulse: FAIL NOTMOVED; never disabled).

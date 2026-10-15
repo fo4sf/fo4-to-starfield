@@ -26,8 +26,8 @@ Reviewed #80/#81 -> #79 at29f3b83: tracked rig/clips and small bind rotations;81
 
 Parents #66/#78/#79 remain open, not runtime accepted. Moving collision/cave/save need live tests. #84 replace/unlink races remain; one controller required.
 
-Codex #91 prepares pinned exterior queues. Live October13: smoke7/7, baseline29/30 matching heights; six roofs match, northeast+1.8939m flagged. Sources/installed identities verified; original stage/batch/save preserved. qstep omits the final jump's merge offset: all four post-probes excluded; boundary dialogue cannot measure map limits. Launches held for Claude's reviewed fix/fresh pins. Codex controller until23:35:17Z; runner closed, owner photo session reserved. #94 merged read-only [evidence audit](testing/commonwealth-evidence.md); #96 invalidates heights dependent on replayed references. Walking/connections open. [Public handoff](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6138419102).
+October13: smoke7/7, baseline29/30; six roofs match, northeast+1.8939m remains. #100/e27f6de repairs the final jump; fresh informational15/15, inputs/native captures verified. Four old jumps excluded from map-size claims; walking/connections open. Original campaigns/save preserved. Codex released control and paused its completed monitor; Claude owns live control. #94/#97 [evidence audit](testing/commonwealth-evidence.md). [Results](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6154661951).
 
 ## Coordination
 
-GitHub #29-32 is the inbox/status source. [History](handoff-archive/2026-10-07-codex-history.md). Keep below4KB; link experiments. Preserve staging/multi. Live controls unchanged.
+GitHub #29-32 is the inbox/status source. [History](handoff-archive/2026-10-07-codex-history.md). Keep below4KB. Preserve staging/multi. #105: [verified private archives before cleanup](testing/progress-storage.md). Live controls unchanged.
