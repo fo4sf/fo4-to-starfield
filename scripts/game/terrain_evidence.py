@@ -12,7 +12,7 @@ A PASS needs every one of these. Anything missing is UNREAD, never a pass:
 - reach_m, settle_m and tol_m are finite and nonnegative
 - a null id, time, or position does not hide a later alias; a disagreeing or unparseable alias is unreadable
 - each recorded identifier and timestamp is unique across the whole probe
-- when timestamps are numeric, they must be strictly increasing
+- numeric timestamps must be strictly increasing in the order recorded, across the whole probe; a non-numeric timestamp does not reset that order
 - judge_probe labels are unique nonempty strings
 
 A complete reading on the point at the wrong height is FAIL.
@@ -127,6 +127,27 @@ def _valid_meta(value):
     return False
 
 
+def _observe_timestamp(ts, seen, last_numeric):
+    """Record one timestamp. None means this frame did not record one.
+
+    Returns (reason or None, last_numeric). Numeric values must increase in
+    the order they appear. A non-numeric value stays unique only and does not
+    reset the numeric order, so it cannot hide a later decrease.
+    """
+    if ts is None:
+        return None, last_numeric
+    if not _valid_meta(ts):
+        return "malformed capture timestamp", last_numeric
+    if ts in seen:
+        return "capture timestamp reused", last_numeric
+    seen.add(ts)
+    if isinstance(ts, (int, float)) and not isinstance(ts, bool):
+        if last_numeric is not None and not ts > last_numeric:
+            return "capture timestamps are not strictly increasing", last_numeric
+        last_numeric = ts
+    return None, last_numeric
+
+
 def _hash_ok(value):
     return isinstance(value, str) and _HEX64.fullmatch(value.strip()) is not None
 
@@ -236,20 +257,11 @@ def judge(evidence, reach_m=2.0, settle_m=0.05, tol_m=0.5):
                 return "UNREAD", "capture identifier reused"
             seen_ids.add(ident)
     seen_times = set()
-    last_time = None
+    last_numeric = None
     for ts in times:
-        if ts is not None:
-            if not _valid_meta(ts):
-                return "UNREAD", "malformed capture timestamp"
-            if ts in seen_times:
-                return "UNREAD", "capture timestamp reused"
-            # Strictly increasing timestamps reject out-of-order or duplicated samples.
-            if last_time is not None and not (isinstance(ts, (int, float)) and isinstance(last_time, (int, float)) and ts > last_time):
-                # Non-numeric timestamps are already uniqueness-checked; only numbers get order.
-                if isinstance(ts, (int, float)) and isinstance(last_time, (int, float)):
-                    return "UNREAD", "capture timestamps are not strictly increasing"
-            seen_times.add(ts)
-            last_time = ts
+        reason, last_numeric = _observe_timestamp(ts, seen_times, last_numeric)
+        if reason:
+            return "UNREAD", reason
     tx, ty, expect = target
     ox, oy, oz = shift
     for read in reads:
@@ -283,6 +295,7 @@ def judge_probe(evidence, reach_m=2.0, settle_m=0.05, tol_m=0.5):
     verdicts = []
     probe_ids = set()
     probe_times = set()
+    last_numeric = None
     seen_labels = set()
     for point in points:
         if not isinstance(point, dict):
@@ -317,11 +330,9 @@ def judge_probe(evidence, reach_m=2.0, settle_m=0.05, tol_m=0.5):
                         return "UNREAD", f"{label}: capture identifier reused across probe"
                     probe_ids.add(ident)
                 if ts is not None:
-                    if not _valid_meta(ts):
-                        return "UNREAD", f"{label}: malformed capture timestamp"
-                    if ts in probe_times:
-                        return "UNREAD", f"{label}: capture timestamp reused across probe"
-                    probe_times.add(ts)
+                    reason, last_numeric = _observe_timestamp(ts, probe_times, last_numeric)
+                    if reason:
+                        return "UNREAD", f"{label}: {reason}"
         verdict, why = judge(one, reach_m, settle_m, tol_m)
         rows.append(f"{label} {verdict}")
         verdicts.append(verdict)

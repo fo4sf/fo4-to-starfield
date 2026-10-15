@@ -319,3 +319,44 @@ class TerrainEvidenceTests(unittest.TestCase):
             {"pos": "10.01 -4 105.14", "time": "earlier"},
         ]
         self.assertEqual(oracle.judge(bundle(frames=strings))[0], "PASS")
+        # A non-numeric value must not reset the numeric order.
+        hidden = [
+            {"pos": "10 -4 105.14", "time": 5},
+            {"pos": "10.005 -4 105.14", "time": "note"},
+            {"pos": "10.01 -4 105.14", "time": 1},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=hidden))[0], "UNREAD")
+        still_increasing = [
+            {"pos": "10 -4 105.14", "time": 5},
+            {"pos": "10.005 -4 105.14", "time": "note"},
+            {"pos": "10.01 -4 105.14", "time": 6},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=still_increasing))[0], "PASS")
+
+    def test_numeric_timestamps_increase_across_planned_points(self):
+        # Order is probe-wide. A later point cannot reuse an earlier clock.
+        shared = bundle()
+        evidence = {
+            "pinned": shared["pinned"], "identity": shared["identity"], "ground": "plugin",
+            "offset": [0.0, 0.0, 0.0], "require_offset": True,
+            "points": [
+                {"label": "one", "x": 10.0, "y": -4.0, "expect": 105.14},
+                {"label": "two", "x": 11.0, "y": -4.0, "expect": 105.14},
+            ],
+            "reads": {
+                "one": [
+                    {"pos": "10 -4 105.14", "time": 10},
+                    {"pos": "10.01 -4 105.14", "time": 11},
+                ],
+                "two": [
+                    {"pos": "11 -4 105.14", "time": 1},
+                    {"pos": "11.01 -4 105.14", "time": 2},
+                ],
+            },
+        }
+        self.assertEqual(oracle.judge_probe(evidence)[0], "UNREAD")
+        evidence["reads"]["two"] = [
+            {"pos": "11 -4 105.14", "time": 12},
+            {"pos": "11.01 -4 105.14", "time": 13},
+        ]
+        self.assertEqual(oracle.judge_probe(evidence)[0], "PASS")
