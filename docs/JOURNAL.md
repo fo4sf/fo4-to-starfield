@@ -1135,3 +1135,27 @@ machine paths are excluded from Git. Shared coordination: #32 comment6159604237.
 - **Noticed:** `tests/test_archive_identity.py::test_archive_modified_during_hash_is_rejected` fails under CPU load
   (a timing window) and passes alone; not touched. Grok's headless instance of 19:37 never got a reply (credits at
   100 % until 23:44); it now runs in a visible terminal on the owner's PC.
+
+## 2026-10-15, 23:00-02:30: the walk gate passed; the bridge's first night; fix A refuted (Claude)
+- **Walk gate (R04 part 1) PASSED both ways** (`walk_core64c_1015`, build 2470f876 + core64c, bridge reads):
+  Sanctuary -> Red Rocket 29 legs, 253.8 of 254.33 m, |dz| <= 0.14 m; Red Rocket -> Sanctuary 28 legs, 254.0 m, 7 reads on
+  the north bridge deck, cells crossed in route order; every read from the game's log, the console only to aim.
+  Media: docs/media/walk-s2rr-*.jpg. One attempt aborted at 00:00:03 when something took the foreground (the guard
+  held; the re-run passed).
+- **Bridge, first night:** two reader bugs found by the probe runs and fixed (freshness by the line's clock stamp;
+  planet form ids print negative and did not parse: every planet read saw the last Vault line); `cgf` loads the
+  unattached `FO4SF_Probe` script (three runs); the bridge plugin must load LAST (an earlier line shifted every
+  experiment's load index; cycle.ps1 now runs `bridge_install.py order` before launch). A 330 s poll showed the log is
+  not buffered (a line is on disk within 1 s while the game runs; nothing while paused).
+- **Cave door, A/B (cave_fixA_1015, cave_probes_1015):** fix A (vanilla persistent-cell shape) leaves the persistent
+  door reading its unmerged local position: the player stood 1.0 m from it, no load (**refuted**). The probes'
+  override of exterior cell (-10, 11) makes `coc FO4Core_RedRocketSpawn` land at (50, 50, 12.6), the centre of cell
+  (0, 0): an add-on must not override a core64c exterior cell (**verified twice**; mechanism a supported hypothesis).
+  Next candidates for the door: the WRLD OFST / CLSZ fields, or a temporary door ref in the exterior cell.
+- **Combat (npc_combat_c1_1015):** reply formats verified and the parser fixed (`GetCombatState` prints "The actor's
+  combat state: N.00"; `GetLineOfSight player` prints "<actor> sees / can't see <player>"). Citizen FAIL NOCOMBAT (the
+  negative control, as designed); the vanilla Spacer engaged in attempt 1 (state 2 -> 1, target the player) and not
+  in attempt 2: engagement of a spawned hostile within 30 s is stochastic; the converted raider never engaged and
+  never moved. The gate needs a forced engagement before the raider's result says anything about the conversion.
+- Also: docs/ai/first-run-failures-1014.md (twelve first-run failures, causes, guards); `input.ps1` defaults to the
+  legacy key path; the walk-plan key `bridge` (the deck) and the test flag `bridge_reads` are different things.
