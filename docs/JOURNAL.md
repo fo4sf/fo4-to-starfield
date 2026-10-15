@@ -1027,6 +1027,31 @@ convert_batch.py now prints failure counts with percentages and unique-reason to
 staging/failure-summary.json (top 10 reasons) for later review. Synthetic test covers the summary
 shape and percentages. Offline only; no game data or format changes. Guard and new test pass.
 
+## 2026-10-13 Recoverable configuration publication (Codex, #84)
+
+Four synthetic final-operation races reproduce overwritten/deleted owner edits before the repair.
+Conditional Plugins.txt writes and both removal paths now capture the actual file before comparison,
+publish/restore without replacing a newer target, and retain before/intended files with a prepared
+journal. Hard-link support is tested before capture; unsupported filesystems refuse without moving
+the configuration. Unresolved/crash journals block retries and cannot silently release uninstall
+ownership when the target is absent. Thirty-three focused regressions include real helper-process
+exits after capture/publication, late captured-file writes and recovery/metadata failures.
+
+Independent QA reproduced access failures being treated as absent recovery files. Checked metadata
+inspection and explicit capture-attempt tracking now retain ownership in those cases; three denial
+regressions failed before the correction, and a fourth checks target inspection.
+Validation:344 full Windows tests pass (2 existing skips); guard/diff checks pass. An isolated overlay
+on Claude's pinned129b9ae text sources passes1009 tests (38 existing skips), preserving the advanced
+archive/copy APIs and safe ConcurrentUpdateError classification. Its source/overlay hashes are
+recorded privately; no canonical integration files were edited. Earlier independent QA passed the
+publication/removal paths; final Linnaeus QA PASSes c89795b's retry guard, exception contract and
+recovery notes after the access-error correction. Hosted CI38499957451 passes that code head;
+PR104 is ready for integration. Any subsequent status-only commit leaves the tested helper unchanged.
+The conditional target name can briefly be absent. This preserves recoverable bytes rather than
+claiming compare-and-swap, immutable snapshots or power-loss durability; one controller and a
+closed game remain required. [Recovery procedure](testing/plugin-config-recovery.md).
+Offline synthetic files only: no actual game configuration, deployment or controller was changed.
+
 ## 2026-10-13 Codex: preserve evidence before reclaiming storage (#105)
 
 Added a private lossless capsule tool and [storage procedure](testing/progress-storage.md).
@@ -1196,3 +1221,19 @@ both unchanged media identities pass; GitHub GFM renders the new sections/images
 Independent factual/link QA passed, with draft status made explicit. Guard passed.
 No new unit tests for documentation; hosted CI is checked on the PR. No game,
 runner, installation, queue or save changed.
+
+## 2026-10-15 Codex: integrate configuration recovery with current artifact APIs (#84/PR104)
+
+Merged main d628b56 into PR104 without rewriting history. Source conflict resolved by keeping the
+conditional recovery delegate/early return and removing the unreachable legacy comparison. Merged
+deployer SHA256b881a5278c6626f4e935661a1648a1a493d9b2473a3b0eed56376502b53976e3 equals the reviewed
+current-caller overlay. Artifact builder/identity/copy(expected_sha256)/install ASTs match main;
+configuration/restore/uninstall ASTs match reviewedbf239522. Both documentation histories retained;
+current README, actors, walk, bridge and archive guard unchanged.77 focused/1310 Windows tests
+(70 skips)/guard pass. Independent integration QA/current-head CI are recorded on PR104. Old race,
+access-denial and invalid-whole-module controls remain preserved. The first integration assertion
+incorrectly assumed uninstall was unchanged from main; corrected to its reviewed configuration
+removal behavior, with the failed script retained. No live configuration, deployment, watchdog,
+queue or game changed. Recovery limits remain explicit; source integration is not live application.
+Independent Codex QA (Herschel) passed four invariants: AST composition/current caller compatibility,
+seven-file scope/main preservation and unchanged recovery limits. No blocker or source change required.
