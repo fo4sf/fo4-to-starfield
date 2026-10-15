@@ -838,3 +838,36 @@ class WatchdogTests(unittest.TestCase):
         self.assertNotIn("dangerously", src)
         runbook = open(os.path.join(ROOT, "docs", "ai", "codex-runbook.md"), encoding="utf-8").read()
         self.assertIn("No input to Starfield", runbook)
+
+
+class BridgeQueueTests(unittest.TestCase):
+    """plan-* --bridge: the queue pins the staged bridge's hashes and every test is marked for bridge reads."""
+    def test_apply_bridge_marks_tests_and_pins_hashes(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "Data", "Scripts"))
+            writef(os.path.join(d, "FO4SFBridge.esm"), b"plugin")
+            writef(os.path.join(d, "Data", "Scripts", "FO4SF_Bridge.pex"), b"pex")
+            tests = [{"kind": "walk"}, {"kind": "door_trip"}]
+            extra = tq.apply_bridge(tests, SimpleNamespace(bridge=d))
+            self.assertTrue(all(t["bridge_reads"] for t in tests))
+            self.assertEqual(extra["bridge"]["plugin"], "FO4SFBridge.esm")
+            self.assertEqual(sorted(extra["bridge"]["sha256"]), ["Data\Scripts\FO4SF_Bridge.pex", "FO4SFBridge.esm"]
+                             if os.sep == "\\" else ["Data/Scripts/FO4SF_Bridge.pex", "FO4SFBridge.esm"])
+            self.assertIn("bridge", tq.runner_features.needs(tests))
+            self.assertIsNone(tq.bridge_mismatch(extra["bridge"]))
+            writef(os.path.join(d, "Data", "Scripts", "FO4SF_Bridge.pex"), b"pex-v2")
+            self.assertIn("changed", tq.bridge_mismatch(extra["bridge"]))
+            os.remove(os.path.join(d, "FO4SFBridge.esm"))
+            self.assertIn("missing", tq.bridge_mismatch(extra["bridge"]))
+
+    def test_without_bridge_nothing_is_marked(self):
+        tests = [{"kind": "walk"}]
+        self.assertEqual(tq.apply_bridge(tests, SimpleNamespace(bridge="")), {})
+        self.assertNotIn("bridge_reads", tests[0])
+        self.assertNotIn("bridge", tq.runner_features.needs(tests))
+
+    def test_a_missing_staged_file_stops_the_plan(self):
+        with tempfile.TemporaryDirectory() as d:
+            writef(os.path.join(d, "FO4SFBridge.esm"), b"plugin")
+            with self.assertRaises(SystemExit):
+                tq.apply_bridge([{"kind": "walk"}], SimpleNamespace(bridge=d))

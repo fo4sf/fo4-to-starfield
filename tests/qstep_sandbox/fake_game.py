@@ -582,4 +582,25 @@ def main():
         json.dump(s, f, indent=1)
 
 
+def bridge_line():
+    """SANDBOX bridge (docs/ai/test-queue.md "Bridge"): after every fake-game call, one line to $FO4SF_BRIDGE_LOG as
+    the game's FO4SF_Bridge.psc writes them (the clock prefix, six decimals, "true", a decimal cell id, "none" for the
+    worldspace), so qstep.ps1's Bridge-Read reads the simulated player without a console session."""
+    log = os.environ.get("FO4SF_BRIDGE_LOG")
+    if not log:
+        return
+    with open(P) as f:
+        s = json.load(f)
+    s["bridge_n"] = s.get("bridge_n", 0) + 1
+    p = player_pos(s)
+    cell = 50331649 + sum(ord(c) for c in str(s.get("cell") or "")) % 1000
+    line = (f"[{time.strftime('%H:%M:%S')}] FO4SF rt={time.time() % 100000:.6f} pos={p[0]:.6f} {p[1]:.6f} {p[2]:.6f} "
+            f"ang={float(s.get('heading', 0.0)) % 360:.6f} cell={cell} world=none loaded=true n={s['bridge_n']}")
+    with open(log, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+    with open(P, "w") as f:
+        json.dump(s, f, indent=1)
+
+
 main()
+bridge_line()

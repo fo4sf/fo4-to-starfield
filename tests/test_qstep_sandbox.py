@@ -31,11 +31,11 @@ MARS = {"anchor_id": "02000800", "anchor_pos": [2010.97, -2352.8, 85.14], "arriv
 
 class SandboxStep:
     """Runs the copied qstep.ps1 against the simulated game (mixed into the opt-in test classes below)."""
-    def run_step(self, plan=None, world=None, test=None, code=0):
+    def run_step(self, plan=None, world=None, test=None, code=0, env=None):
         d = tempfile.mkdtemp(prefix="qstep_npc_")
         step_dir = os.path.join(d, "game")
         shutil.copytree(SANDBOX, step_dir)
-        for f in ("qstep.ps1", "parse_npc.py", "parse_getpos.py", "sky_light.py", "walk_eval.py"):
+        for f in ("qstep.ps1", "parse_npc.py", "parse_getpos.py", "sky_light.py", "walk_eval.py", "bridge_log.py"):
             shutil.copy(os.path.join(GAME, f), step_dir)
         state = os.path.join(d, "state.json")
         with open(state, "w") as f:
@@ -47,7 +47,7 @@ class SandboxStep:
         saves = os.path.join(d, "saves")
         os.makedirs(saves)
         env = dict(os.environ, FAKE_STATE=state, FO4SF_PYTHON=sys.executable, FO4SF_NO_FOCUS_STEAL="1", LEGACY="1",
-                   FO4SF_SAVES_DIR=saves)
+                   FO4SF_SAVES_DIR=saves, **(env or {}))
         r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                             os.path.join(step_dir, "qstep.ps1"), "-Spec", spec, "-Out", out],
                            capture_output=True, text=True, env=env, timeout=600)
@@ -70,8 +70,9 @@ class SandboxStep:
         # (Codex's review of PR #107: one shared folder, a read not tied to its own request)
         nonces = [c for c in self.typed if c.startswith("fo4sfr")]
         self.assertEqual(len(nonces), len(set(nonces)))
-        self.assertEqual([r["nonce"] for r in obs.get("read_log", [])], nonces)
-        for r in obs.get("read_log", []):
+        console_reads = [r for r in obs.get("read_log", []) if r.get("via") != "bridge"]   # bridge reads type nothing
+        self.assertEqual([r["nonce"] for r in console_reads], nonces)
+        for r in console_reads:
             with open(os.path.join(out, r["work"], "read.json"), encoding="utf-8-sig") as f:
                 self.assertEqual(json.load(f)["nonce"], r["nonce"])
         # a selection that stayed on the floor static must never get disable (N0_base's spawn session had one)
@@ -692,6 +693,22 @@ class QstepWalkSandboxTests(SandboxStep, unittest.TestCase):
         self.assertIn("cells (-22,-16) -> (-23,-16) -> (-23,-15)", v[2])
         self.assertTrue(self.state["holds"])
         self.assertTrue(all(x["shot"] for x in obs["legs"][::2] if x["action"] == "aim"))
+
+    def test_the_walk_reads_the_bridge_log_and_types_no_getpos(self):
+        # runner feature bridge (2026-10-14): the player's position comes from the game's own log (the sandbox fake
+        # game writes one line per call to $FO4SF_BRIDGE_LOG); the console is only typed into to aim
+        d = tempfile.mkdtemp(prefix="walk_plan_")
+        t = dict(tq.walk_test(0, walk_entry(d), d), bridge_reads=True, bridge_max_age_s=300)
+        log = os.path.join(d, "fo4sf.0.log")
+        v, obs, _ = self.run_step(test=t, world=walk_world(heading_bias=6.0), env={"FO4SF_BRIDGE_LOG": log})
+        self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
+        self.assertEqual(obs["walk_stopped"], "goal")
+        self.assertTrue(all(x["via"] == "bridge" and x["read_how"] == "bridge" for x in obs["legs"]), obs["legs"][0])
+        self.assertFalse([c for c in self.typed if "getpos" in c or c == "ClearConsole"], self.typed)
+        self.assertTrue(obs["read_log"] and all(r.get("via") == "bridge" and r.get("line") for r in obs["read_log"]),
+                        obs["read_log"][:2])
+        self.assertEqual(self.state.get("readpos_calls", 0), 0)
+        self.assertGreater(os.path.getsize(log), 0)
 
     def test_a_straight_run_walks_past_a_waypoint_it_need_not_read(self):
         wps = walk_entry(tempfile.mkdtemp())["waypoints"]

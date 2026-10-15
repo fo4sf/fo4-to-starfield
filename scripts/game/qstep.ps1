@@ -19,6 +19,8 @@ if (-not $env:FO4SF_PYTHON) { $env:FO4SF_PYTHON = 'C:\Modding\venv-render\Script
 $here = $PSScriptRoot
 $i = Join-Path $here 'input.ps1'; $shot = Join-Path $here 'shot.ps1'; $readpos = Join-Path $here 'readpos.ps1'
 $t = Get-Content $Spec -Raw | ConvertFrom-Json
+$script:bridge = [bool]$t.bridge_reads                     # the player's position from the game's own log (Bridge-Read); "bridge" itself is a walk plan's deck
+$script:bridgeMaxAge = $(if ($t.bridge_max_age_s) { [double]$t.bridge_max_age_s } else { 2.0 })   # (the sandbox: longer)
 New-Item -ItemType Directory -Force $Out | Out-Null
 $inv = [Globalization.CultureInfo]::InvariantCulture
 $obs = [ordered]@{ kind = $t.kind; started = (Get-Date).ToString('s') }
@@ -46,7 +48,35 @@ function Console-Open {
 $script:strictReads = $false     # door_trip: readpos -Strict (labelled values of the read's own session only)
 $script:lastHeading = $null      # the heading of the last Read-Pos with -Angle ($null: not read)
 $script:readN = 0                # readpos.ps1 runs so far: each gets its own folder <Out>\reads\NNNN
+function Bridge-Read([bool]$angle = $false, [int]$tries = 3) {
+  # the player's position from the newest line of the bridge's log (bridge_log.py latest: the game's FO4SF_Bridge
+  # script writes one every half second; docs/ai/test-queue.md "Bridge"), not older than $script:bridgeMaxAge s:
+  # "x y z" (the game's six decimals) or $null; the heading to $script:lastHeading when $angle. No console, no
+  # capture: a stale log (the game or its quest not running) is a failed read, never an old position. Every try is
+  # listed in obs.read_log with via = bridge and the line's rt / n (the read's provenance, as readpos's nonce is).
+  $script:lastHeading = $null
+  $cmd = @((Join-Path $here 'bridge_log.py'), 'latest', '--max-age', "$($script:bridgeMaxAge)")
+  if ($env:FO4SF_BRIDGE_LOG) { $cmd += @('--log', $env:FO4SF_BRIDGE_LOG) }     # the sandbox's log
+  for ($n = 0; $n -lt $tries; $n++) {
+    $script:readN++
+    $j = $null
+    try { $j = (& $env:FO4SF_PYTHON @cmd) | ConvertFrom-Json } catch { $j = $null }
+    if (-not $obs.Contains('read_log')) { $obs['read_log'] = @() }
+    $ok = [bool]($j -and $j.ok -and @($j.pos).Count -eq 3)
+    $pos = $(if ($ok) { (@($j.pos) | ForEach-Object { ([double]$_).ToString([Globalization.CultureInfo]::InvariantCulture) }) -join ' ' } else { "fail $($j.why)" })
+    $rec = [ordered]@{ n = $script:readN; via = 'bridge'; ref = ''; nonce = $null; result = $pos }
+    if ($ok) { $rec['rt'] = $j.rt; $rec['line'] = $j.n }
+    $obs['read_log'] += $rec
+    if ($ok) {
+      if ($angle -and $null -ne $j.ang) { $script:lastHeading = [double]$j.ang }
+      return $pos
+    }
+    Start-Sleep -Milliseconds 700
+  }
+  return $null
+}
 function Read-Pos([string]$ref = '', [int]$tries = 3, [bool]$angle = $false) {
+  if ($script:bridge -and -not $ref) { return (Bridge-Read $angle $tries) }   # the player: the bridge; a ref: readpos
   # up to 3 reads: OCR sometimes drops or shifts a column; a read with x == z or a missing value is retried. With
   # $angle (door_trip arrivals) readpos also types player.getangle z: the read returns "x y z" and the heading goes to
   # $script:lastHeading. Every readpos run keeps its capture, OCR text and read.json (its nonce) in its own folder,
@@ -1463,6 +1493,7 @@ switch ($kind) {
       # console OPEN: ClearConsole (its echo marks this session's start for parse_npc.py) and the three getpos; returns
       # "x y z" or $null, the console stays open. parse_npc.py reads nothing before this session's start and gives a
       # position only when all three values are this session's ($script:readHow: its reading, "order" / "inline").
+      if ($script:bridge) { $script:readHow = 'bridge'; return (Bridge-Read $false 1) }   # no console session at all
       Send 'type:ClearConsole|key:enter|wait:500|type:player.getpos x|key:enter|wait:450|type:player.getpos y|key:enter|wait:450|type:player.getpos z|key:enter|wait:700'
       $script:legCmds += @('ClearConsole', 'player.getpos x', 'player.getpos y', 'player.getpos z')
       $cap = Join-Path $Out 'walk_cap.png'; $prep = Join-Path $Out 'walk_prep.png'; $txt = Join-Path $Out 'walk_ocr.txt'
@@ -1482,6 +1513,10 @@ switch ($kind) {
       # first read, the second read of an implausible move). Never readpos.ps1: its parse_getpos.py takes the last X,
       # Y and Z anywhere on screen, so a capture missing this session's Z joined the current x / y with an older
       # session's z (Codex on PR #103); here all three values come from one current session or there is no read.
+      if ($script:bridge) {
+        for ($k = 0; $k -lt $tries; $k++) { $p = Walk-Read; if ($p) { return $p }; Start-Sleep -Milliseconds 400 }
+        return $null
+      }
       for ($k = 0; $k -lt $tries; $k++) {
         Console-Open
         $p = Walk-Read
@@ -1556,17 +1591,22 @@ switch ($kind) {
       $script:legCmds = @()
       $L = [ordered]@{ n = $n; t = [Math]::Round(((Get-Date) - $walkStart).TotalSeconds, 1) }
       $why = Walk-Stop; if ($why) { Stop-Walk $why $L }
-      Console-Open
-      $open = $true
-      $p = Walk-Read; $L['via'] = 'console'; $L['read_how'] = $script:readHow
-      if (-not $p) { Send 'key:grave|wait:600'; $open = $false; $p = Walk-Session 2; $L['via'] = 'console_retry'; $L['read_how'] = $script:readHow }
+      if ($script:bridge) {                                # the bridge: no console session for the read
+        $open = $false
+        $p = Walk-Session 3; $L['via'] = 'bridge'; $L['read_how'] = $script:readHow
+      } else {
+        Console-Open
+        $open = $true
+        $p = Walk-Read; $L['via'] = 'console'; $L['read_how'] = $script:readHow
+        if (-not $p) { Send 'key:grave|wait:600'; $open = $false; $p = Walk-Session 2; $L['via'] = 'console_retry'; $L['read_how'] = $script:readHow }
+      }
       $L['read'] = $p
       $d = Steer $p
       if ($d -and $d.action -eq 'reread') {
         if ($open) { Send 'key:grave|wait:600'; $open = $false }
         Start-Sleep -Milliseconds 500
         $p2 = Walk-Session 2
-        $L['reread'] = $p2; $L['reread_why'] = "$($d.reason)"; $L['reread_via'] = 'console'; $L['reread_how'] = $script:readHow
+        $L['reread'] = $p2; $L['reread_why'] = "$($d.reason)"; $L['reread_via'] = $(if ($script:bridge) { 'bridge' } else { 'console' }); $L['reread_how'] = $script:readHow
         $d = Steer $p2 $true
         if ($d -and ($d.action -in 'aim', 'done' -or "$($d.reason)" -eq 'jump')) { $L['used'] = $p2 }
         $L['confirmed'] = [bool]($d -and $d.confirmed)

@@ -870,5 +870,16 @@ Instead the game writes a file:
     Windows Controlled Folder Access blocks python.exe and powershell.exe in Documents (Defender event 1123), so the
     `[Papyrus]` keys went into the game folder's `Starfield.ini` (backup `Starfield.ini.bak-20261014-212734`);
     `make_bridge.py ini` reports the block and names that fallback.
-- Next: the `walk`, `door_trip` and `npc_nav` reads switch to the bridge (runner feature `bridge`: a position is the
-  newest log line not older than 2 s, a console batch ends with a TraceUser nonce); OCR stays for pop-ups and HUD checks.
+- **Runner feature `bridge`** (`plan`, `plan-terrain`, `plan-npc`, `plan-door`, `plan-walk`, `plan-movable` with
+  `--bridge <staged bridge dir>`): every test of the queue carries `bridge_reads: true` (`bridge` is a walk plan's
+  deck); qstep.ps1's `Read-Pos` for the
+  player and the walk's `Walk-Read` / `Walk-Session` return the newest log line (`bridge_log.py latest`, not older
+  than 2 s; `bridge_max_age_s` in a test raises that for the sandbox), listed in `obs.read_log` with `via: bridge`
+  and the line's `rt` / `n` instead of a readpos nonce; reads of other references (doors, probes, NPCs) still go
+  through readpos. The queue pins the staged bridge (`queue.json "bridge"`: folder, plugin, sha256 of the plugin and
+  the .pex); before every launch the runner checks those hashes and runs `bridge_install.py install` (its own record
+  `Data\FO4SFBridge.install.json`, "FO4SFBridge - Main.ba2" packed like an experiment, "*FO4SFBridge.esm" last in
+  Plugins.txt; idempotent, re-activates after a deploy rewrote Plugins.txt; `exp_install.py uninstall` leaves it).
+  Sandbox: the fake game appends a bridge line to `$FO4SF_BRIDGE_LOG` after every call
+  (`test_the_walk_reads_the_bridge_log_and_types_no_getpos`). Still to come: console batches ending with a TraceUser
+  nonce (`cgf "Debug.TraceUser" "fo4sf" "<nonce>"`) in place of OCR confirmation; OCR stays for pop-ups and HUD checks.

@@ -416,7 +416,11 @@ class ReadPathTests(unittest.TestCase):
         self.assertNotIn("Read-Pos", after)
         self.assertNotIn("Walk-Fallback", walk)
         self.assertEqual(after.count("Walk-Session 2"), 2)             # a failed first read; the second read of a jump
-        for key in ("$L['via'] = 'console'", "$L['via'] = 'console_retry'", "$L['reread_via'] = 'console'",
+        # the bridge (runner feature bridge, 2026-10-14): the same sessions, read from the game's log by Walk-Session;
+        # the walk section itself never calls Bridge-Read, so every leg's read goes through one path
+        self.assertNotIn("Bridge-Read", after)
+        for key in ("$L['via'] = 'console'", "$L['via'] = 'console_retry'", "$L['via'] = 'bridge'",
+                    "$L['reread_via'] = $(if ($script:bridge) { 'bridge' } else { 'console' })",
                     "$L['read_how']", "$L['reread_how']"):
             self.assertIn(key, after)
 

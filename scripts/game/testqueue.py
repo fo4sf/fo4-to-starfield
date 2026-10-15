@@ -422,6 +422,7 @@ def plan(a):
          "commit": subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
          "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]], "tests": tests,
          **({"routes_dir": routes_dir} if routes_dir else {}), **({"routes_sha256": routes_sha} if routes_sha else {})}
+    q.update(apply_bridge(tests, a))
     need = runner_features.needs(tests)
     if need:                                              # e.g. "impulse": an older runner refuses the queue
         q["needs"] = need
@@ -2155,12 +2156,47 @@ def plugin_order_needed(exp_dir, plugins):
     return False
 
 
+BRIDGE_PLUGIN = "FO4SFBridge.esm"
+BRIDGE_PEX = os.path.join("Data", "Scripts", "FO4SF_Bridge.pex")
+
+
+def apply_bridge(tests, a):
+    """plan-* --bridge <staged bridge dir> (docs/ai/test-queue.md "Bridge", 2026-10-14): every test reads the player's
+    position from the bridge's log (qstep.ps1 Bridge-Read, runner feature "bridge"; the console only acts) and the
+    queue records the staged bridge with the sha256 of its plugin and compiled script. The runner checks those hashes
+    and installs the bridge before every launch (bridge_install.py). Returns the queue fields to add ({} without
+    --bridge); marks the tests in place."""
+    d = getattr(a, "bridge", "") or ""
+    if not d:
+        return {}
+    d = os.path.abspath(d)
+    files = {BRIDGE_PLUGIN: os.path.join(d, BRIDGE_PLUGIN), BRIDGE_PEX: os.path.join(d, BRIDGE_PEX)}
+    missing = [k for k, p in files.items() if not os.path.exists(p)]
+    if missing:
+        sys.exit(f"--bridge {d}: missing {missing} (scripts/bridge/make_bridge.py stage)")
+    for t in tests:
+        t["bridge_reads"] = True                              # ("bridge" is taken: a walk plan's bridge deck)
+    return {"bridge": {"dir": d, "plugin": BRIDGE_PLUGIN, "sha256": {k: sha256(p) for k, p in files.items()}}}
+
+
+def bridge_mismatch(br):
+    """Why the staged bridge is not the one the queue pinned (apply_bridge), else None: a missing file or a changed
+    hash (a re-staged bridge after the plan is another bridge)."""
+    for rel, want in (br.get("sha256") or {}).items():
+        p = os.path.join(br["dir"], rel)
+        if not os.path.exists(p):
+            return f"pinned bridge file {p} is missing"
+        if sha256(p) != want:
+            return f"pinned bridge file {p} changed since the plan"
+    return None
+
+
 def queue_extras(tests, a, exp_dir):
     """queue.json "needs" (runner_features.needs) and "pre_launch": the RUNNER's own exp_install.py (a path relative to
     the checkout the runner runs from: testqueue.py starts it there) installs the experiment when --plugins is given, and
     with --needs it refuses when that runner lacks the features (an exp_install.py from before --needs refuses the
-    option itself); without plugins, runner_features.py check does the same."""
-    out = {}
+    option itself); without plugins, runner_features.py check does the same. With --bridge, "bridge" (apply_bridge)."""
+    out = apply_bridge(tests, a)
     need = runner_features.needs(tests)
     if a.plugins and plugin_order_needed(exp_dir, [p.strip() for p in a.plugins.split(",") if p.strip()]):
         need = sorted(set(need) | {"plugin_order"})
@@ -2470,6 +2506,18 @@ class Runner:
             if why:
                 self.log(f"{why}: stopping")
                 return "stop"
+            br = self.q.get("bridge")
+            if br:                                        # the observation bridge, installed before every launch
+                why = bridge_mismatch(br)
+                if why:
+                    self.log(f"{why}: stopping")
+                    return "stop"
+                r = subprocess.run([sys.executable, os.path.join("scripts", "game", "bridge_install.py"), "install",
+                                    "--dir", br["dir"], "--starfield", self.a.starfield],
+                                   capture_output=True, text=True, cwd=REPO)
+                self.log(f"bridge install exit {r.returncode}: {(r.stdout + r.stderr).strip()[-200:]}")
+                if r.returncode != 0:
+                    return "stop"
             pre = self.q.get("pre_launch")
             if pre:                                       # e.g. install a staged experiment only when the game starts
                 r = subprocess.run(pre, capture_output=True, text=True, cwd=REPO)
@@ -2955,6 +3003,9 @@ def main(argv=None):
     pw.add_argument("--install-exp", default="", help="experiment folder those plugins come from (default --exp-dir)")
     pw.add_argument("--only", type=int, default=0, help="keep the first N tests")
     pw.add_argument("--fresh", action="store_true", help="relaunch the game before every test")
+    for sp in (p, pt, pn, pd, pw, pm):                    # the observation bridge for every kind (docs/ai/test-queue.md)
+        sp.add_argument("--bridge", default="", help="staged bridge folder (make_bridge.py stage): positions from the "
+                                                     "game's own log instead of console captures; runner feature bridge")
     for sp in (pt, pn, pd, pw):                           # time of day / weather for every test (docs/ai/test-queue.md)
         sp.add_argument("--time-of-day", type=float, default=None,
                         help="local hour set after the arrival, before the screenshots (12 = noon on any planet)")

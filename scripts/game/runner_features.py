@@ -52,7 +52,11 @@ import sys
 #               by those replies, the walk as detail only. An older runner would drop the key at planning time (unknown
 #               plan keys stop plan-npc) or, given the queue, sample positions only and judge a hostile actor that holds
 #               its ground as a baseline that "stayed away" (N0b_spacer_base, 2026-10-13)
-FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "door_frames", "door_route", "walk", "impulse", "push_judge", "npc_combat")
+# bridge:       the observation bridge (docs/ai/test-queue.md "Bridge"; plan --bridge, 2026-10-14): the player's
+#               position comes from the game's own log (qstep.ps1 Bridge-Read), never from a console capture, and the
+#               runner installs the staged bridge plugin before every launch (bridge_install.py). An older qstep.ps1
+#               would read the console as before and call the result a read of the same test
+FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "door_frames", "door_route", "walk", "impulse", "push_judge", "npc_combat", "bridge")
 
 
 def needs(tests):
@@ -67,6 +71,8 @@ def needs(tests):
             out.add("npc_t0")
         if t.get("combat_reads"):
             out.add("npc_combat")
+        if t.get("bridge_reads"):
+            out.add("bridge")
         if t.get("kind") == "door_trip":
             out.add("door_trip")
             if "moved_m" in t or "activate_m" in t:
