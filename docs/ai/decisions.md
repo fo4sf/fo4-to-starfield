@@ -213,3 +213,15 @@ after each 500 ms step) can miss a short loading screen, and the old step then t
 Alternatives: keep NOLOAD on "near the start, no loading screen" (refuted by QA's synthetic cases); detect loads by
 comparing screenshots (fragile at night and in caves); PASS with a NEAR class (the report's tally counts every PASS as
 one, so the caveat would vanish from the summary).
+
+## 2026-10-14 Codex: bounded report handover from an installed CLI bundle (#109)
+
+Resolve the CLI together with its code-mode host and command runner; an explicit invalid executable or
+malformed configuration refuses handover. Probe supported exec flags before sending the prompt on UTF-8
+stdin. A bounded child must exit successfully and produce a nonempty new report before recording completion.
+Publish that report without replacing a concurrent file; retain failed temporary reports as diagnostics.
+The report job reads existing evidence and preserves verdicts, queues, controller ownership and runner
+exit protocol. It cannot acquire game control through inactivity. Existing watchdog chain policy is unchanged.
+Alternatives rejected: copying one executable without its companions, silently ignoring explicit configuration,
+using a stale report as success, or rescoring live queues. Descendant termination and live integration remain
+separate limits; no watchdog restart is part of this source change.

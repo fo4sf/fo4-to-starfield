@@ -983,3 +983,15 @@ to the affected rows and demote stale HEIGHTS issues after reference invalidatio
 Four negative regressions failed before their fixes. Validation:31 evidence tests and308
 full-suite tests pass (2 skips); guard passes. Re-reading completed pinned evidence preserves7/7 smoke and29/30
 baseline heights and all four POST_FRAME findings. Offline only; no game scripts, assets or live control changed.
+
+## 2026-10-14 Codex: reliable report handovers (#109)
+
+The configured copied CLI lacked its code-mode host. The source helper now requires a complete installed
+bundle, bounded probes/exec, literal Windows argument quoting and UTF-8 stdin. Failed or incomplete jobs
+do not consume the successful handover interval. Independent synthetic QA caught a concurrent report
+publication race and malformed-configuration fallback; both now refuse, retain diagnostics and preserve
+the other writer's report. Validation:31 focused tests and22 independent stub cases pass. The source is
+stacked on cave runner2e3c961; live loop integration remains pending Claude. Separately, an isolated actual
+CLI read-only fixture passed and the owner's runtime config was conditionally bound to that installed
+bundle, with recovery copies retained and timers/queues unchanged. The active watchdog was not restarted.
+No game input, installation or verdict rewriting is claimed.
