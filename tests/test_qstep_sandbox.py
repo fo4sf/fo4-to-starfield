@@ -794,6 +794,7 @@ def item_world(**extra):
                 **extra)
 
 
+@unittest.skipUnless(ENABLED, "opt-in: FO4SF_QSTEP_SANDBOX=1 on Windows")
 class QstepMovableSandboxTests(SandboxStep, unittest.TestCase):
     """movable_control and movable with impulses in the real step against simulated items: a tall item is pushed by the
     walk, a thin one is walked over, ApplyHavokImpulse moves an item when dv = magnitude / mass is large enough."""
