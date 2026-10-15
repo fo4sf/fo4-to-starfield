@@ -1135,3 +1135,22 @@ machine paths are excluded from Git. Shared coordination: #32 comment6159604237.
 - **Noticed:** `tests/test_archive_identity.py::test_archive_modified_during_hash_is_rejected` fails under CPU load
   (a timing window) and passes alone; not touched. Grok's headless instance of 19:37 never got a reply (credits at
   100 % until 23:44); it now runs in a visible terminal on the owner's PC.
+## 2026-10-14 Codex: source-archive read guard (#117, offline tested)
+
+Reproduced a stale archive identity with an equal-size synthetic overwrite and
+deterministically unchanged metadata. The original returns the old digest; the
+guarded Windows reader refuses the writer. Two earlier full-suite failures remain
+preserved rather than replaced by passing retries. Acquisition now denies writes,
+writable mappings and deletion/rename during hashing and the final metadata check;
+existing readers work. The persisted identity format is unchanged. Sources still
+must stay immutable for the entire conversion run; POSIX has no new exclusion.
+
+Independent QA passed21 narrow sharing checks and caught a late stream-construction
+failure that could close a reused descriptor. The context manager now keeps explicit
+descriptor ownership with a non-owning stream; an actual late `io.open` exception and
+descriptor-reuse regression fails before the fix and passes afterward.
+
+Validation:14 focused checks,341 Windows suite tests (3 skips), guard pass. Independent
+ownership re-review passed14 narrow checks including the original late-failure counterexamples;
+hosted Linux CI passed. [Contract and limits](testing/archive-fingerprints.md). No live game,
+source archive, deployment, queue or save was changed.
