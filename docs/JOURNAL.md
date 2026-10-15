@@ -733,3 +733,28 @@ initial test-edit error are retained. Validation:66 focused and414 Windows tests
 failures, three valid controls and three per-read isolation checks; original852 QA
 files remain unchanged. Hosted CI is tracked on the pinned PR update. No native
 game, original campaign, installation, queue or runner script changed.
+
+## 2026-10-15 Codex: current-source review and preservation checkpoint
+
+PR118 source correction de80a97 passes hosted CI38701379123 in addition to66 focused,
+414 Windows tests(3 skips), guard and final12-case independent QA. The native adapter
+still needs separate proof; no existing runtime result was rescored.
+
+Reviewed Grok PR69 f706e77:21 author tests and14 independent alias/time/offset/height
+controls pass; hosted CI38718246758 passes. No remaining blocker in that bounded
+correction scope. Reviewed Claude PR1214a91ba1 merge preservation:13 feature names,
+five experiment kinds and180 nonempty incoming research addition occurrences remain;
+routes_dir/impulse keywords survive.15 console-plan checks and2 actual-PowerShell
+JSON-fake-game walk/STOP scenarios pass. The historical broken FEATURES tuple is
+fixed in the final head. This is no overall runner approval or native acceptance.
+
+Claude's A/B report6187749682 refutes fixA for persistent-reference merging and
+associates the probe-bearing exterior override with a displaced COC. PR119's old
+cluster plan must be revised before reusing those paths. New temporary references
+do not inherently avoid an existing-cell override. Source/plan review only; no
+Codex writer changes, controller input, deployments or new native tests.
+
+Nine completed October15 private capsules reopened/verified:2771 files,
+10,138,473 original bytes in3,878,850 archive bytes. Originals and failed QA/harness
+logs remain; local second-volume preservation is not offsite backup. No cleanup
+deletion or active queue/game/recovery change occurred.
