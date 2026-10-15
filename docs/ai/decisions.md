@@ -48,3 +48,14 @@ regenerable owned outputs after verification; retain cleanup receipts. Active/pi
 unresolved configuration recovery stay in place. A second local volume is not an offsite backup.
 Alternatives rejected: unverified moves, age-based screenshot deletion, lossy originals, or putting
 private archives/game assets in Git. [Procedure](../testing/progress-storage.md).
+
+## 2026-10-14 Codex: Windows read sharing during source fingerprints (#117)
+
+Acquire an existing read-only Windows file handle sharing only reads, then retain it
+through digest and metadata verification. Refuse incompatible writers/mappings and
+do not fall back to permissive sharing. This closes the same-size/equal-metadata
+race without changing persisted identities or reading every archive twice. Preserve
+the immutable-source contract across the conversion run; POSIX metadata checks remain
+best effort. Alternatives rejected: accepting a green retry of the intermittent test,
+timestamp-only detection, or claiming that two hashes create an atomic snapshot.
+[Contract, evidence and limits](../testing/archive-fingerprints.md).
