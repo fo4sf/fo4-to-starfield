@@ -1154,3 +1154,23 @@ Validation:14 focused checks,341 Windows suite tests (3 skips), guard pass. Inde
 ownership re-review passed14 narrow checks including the original late-failure counterexamples;
 hosted Linux CI passed. [Contract and limits](testing/archive-fingerprints.md). No live game,
 source archive, deployment, queue or save was changed.
+
+## 2026-10-15 Codex: preserve bridge deployment recovery (#124, offline tested)
+
+Reproduced an interrupted copy leaving a partial plugin untracked after uninstall
+removed its receipt. The installer now uses exclusive source-validated publication,
+resource verification, file intent/confirmation and activation/profile journals.
+Unknown, changed or unconfirmed files remain with a recoverable receipt. Existing
+complete legacy installations stay compatible after validation.
+
+Independent QA passed43 safety probes and found two P2 gaps: incomplete recovery
+could touch a different current profile, and a completed uninstall retry could
+duplicate a restored inactive line. Both are fixed;17 independent fix probes and7
+targeted tests pass. Claude's bridge-last order change c50e87c is integrated with
+the recovery-aware caller and ownership checks. Final order review pending.
+
+Validation:43 scoped/1301 Windows suite tests (70 skips), guard pass. No source
+installer was deployed, no game/queue/save changed. Cave a1 remains invalid; a
+separate serialized metadata comparison confirms the COC marker is temporary and
+the template grid is INT_MAX, supporting Claude's queued A/B without proving cause.
+[Recovery boundaries](testing/bridge-recovery.md). Historical negative cases retained.

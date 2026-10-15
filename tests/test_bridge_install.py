@@ -298,3 +298,44 @@ class OrderTests(BridgeInstallTests):
         write(self.plugins, b"*FO4SFBridge.esm\r\n*FO4Port.esm\r\n")
         bridge_install.order(self.a)
         self.assertEqual(self.lines(), ["*FO4SFBridge.esm", "*FO4Port.esm"])
+
+    def test_order_rejects_incomplete_recovery_without_config_changes(self):
+        bridge_install.install(self.a)
+        record = self.record()
+        record['complete'] = False
+        bridge_install.deployment.write_manifest(os.path.join(self.data, bridge_install.RECORD), record)
+        before = Path(self.plugins).read_bytes()
+        with self.assertRaisesRegex(ValueError, 'incomplete bridge'):
+            bridge_install.order(self.a)
+        self.assertEqual(Path(self.plugins).read_bytes(), before)
+
+    def test_order_rejects_changed_or_missing_installed_file(self):
+        bridge_install.install(self.a)
+        write(os.path.join(self.data, bridge_install.ARCHIVE), b'changed')
+        before = Path(self.plugins).read_bytes()
+        with self.assertRaisesRegex(ValueError, 'installed bridge changed'):
+            bridge_install.order(self.a)
+        self.assertEqual(Path(self.plugins).read_bytes(), before)
+
+    def test_order_missing_line_failure_is_recoverable(self):
+        bridge_install.install(self.a)
+        write(self.plugins, b'*FO4Port.esm\r\n')
+        before = Path(self.plugins).read_bytes()
+        real_write = exp_install.write_plugins
+        def published_then_fail(*args):
+            real_write(*args)
+            raise OSError('order activation interrupted')
+        with patch.object(exp_install, 'write_plugins', side_effect=published_then_fail):
+            with self.assertRaisesRegex(OSError, 'order activation interrupted'):
+                bridge_install.order(self.a)
+        self.assertFalse(self.record()['complete'])
+        bridge_install.uninstall(self.a)
+        self.assertEqual(Path(self.plugins).read_bytes(), before)
+        self.assertEqual(os.listdir(self.data), [])
+
+    def test_order_then_uninstall_does_not_restore_our_own_active_line(self):
+        bridge_install.install(self.a)
+        write(self.plugins, b'*FO4SFBridge.esm\r\n*FO4Port.esm\r\n')
+        bridge_install.order(self.a)
+        bridge_install.uninstall(self.a)
+        self.assertEqual(self.lines(), ['*FO4Port.esm'])

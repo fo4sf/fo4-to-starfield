@@ -50,8 +50,7 @@ def plugin_line_present(lines, plugin):
 
 
 def activate(plugin, rec, rec_p):
-    """Plugins.txt with "*<plugin>" as its last line (any earlier line for the plugin, active or not, removed and
-    recorded so uninstall can put it back). Returns the record fields."""
+    """Journal before/intended bytes, then activate last; retain cleanup ownership."""
     p = exp_install.plugins_txt()
     original = exp_install.read_bytes(p)
     lines, bom, nl = exp_install.plugin_lines(original)
@@ -137,7 +136,7 @@ def install(a):
         exp_install.require_complete_master(data)
     except (OSError, ValueError) as error:
         sys.exit(f"bridge not installed: {error}")
-    d, plugin_src, pex = staged(a)
+    d, plugin_src, _pex = staged(a)
     source = source_inventory(d)  # every packed file: another script set is another bridge
     targets = {PLUGIN: exp_install.data_path(data, PLUGIN), ARCHIVE: exp_install.data_path(data, ARCHIVE)}
     if os.path.exists(rec_p):
@@ -263,13 +262,23 @@ def order(a):
     if not os.path.exists(rec_p):
         print("bridge not installed: nothing to order")
         return
-    p = exp_install.plugins_txt()
+    rec = read_record(rec_p)
+    if rec.get("complete") is not True or rec.get("cleanup_pending"):
+        raise ValueError("incomplete bridge install: recover before ordering")
+    if not isinstance(rec.get("files"), dict) or set(rec["files"]) != {PLUGIN, ARCHIVE}:
+        raise ValueError("incomplete bridge file coverage: recover before ordering")
+    for relative, expected in rec["files"].items():
+        target = exp_install.data_path(data, relative)
+        if not os.path.isfile(target) or exp_install.digest(target) != expected:
+            raise ValueError(f"installed bridge changed: {relative}")
+    p = validate_profile(rec)
     original = exp_install.read_bytes(p)
     lines, bom, nl = exp_install.plugin_lines(original)
     k = plugin_line_present(lines, PLUGIN)
     if k is None:
-        rec = read_record(rec_p)
-        rec.update(activate(PLUGIN))
+        rec.setdefault("published_files", list(rec["files"]))
+        activate(PLUGIN, rec, rec_p)
+        rec["complete"] = True
         deployment.write_manifest(rec_p, rec)
         print(f"{PLUGIN} was not active: appended last")
         return
