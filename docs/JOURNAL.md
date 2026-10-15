@@ -1167,7 +1167,8 @@ Independent QA passed43 safety probes and found two P2 gaps: incomplete recovery
 could touch a different current profile, and a completed uninstall retry could
 duplicate a restored inactive line. Both are fixed;17 independent fix probes and7
 targeted tests pass. Claude's bridge-last order change c50e87c is integrated with
-the recovery-aware caller and ownership checks. Final order review pending.
+the recovery-aware caller and ownership checks. Final ordering integration passes
+23 independent probes and9 selected tests; hosted CI passes.
 
 Validation:43 scoped/1301 Windows suite tests (70 skips), guard pass. No source
 installer was deployed, no game/queue/save changed. Cave a1 remains invalid; a

@@ -22,7 +22,7 @@ Claude retains controller at #121; c50e87c orders the bridge last. Cave1015 a1 i
 - PR116 head14f1115:1101 Windows tests(44 skips)/guard/CI plus independent QA pass. Report-only CLI repair, no active watchdog restart. #89 exits: unfinished4, protection3, complete/dry-run0.
 - PR118 headb2b8a4f:407 Windows tests(3 skips)/guard/CI and independent QA pass. Native bridge/producer adapter pending; runtime acceptance false. Historical failed suites retained.
 - #122/PR123 head319e131:16 focused/357 Windows tests(3 skips), guard/CI/QA pass. Packets:5795->3634 characters; no measured token saving/model-quality claim. Guardian refused inference during game window. [Use](https://github.com/fo4sf/fo4-to-starfield/pull/123).
-- #124: exclusive validated bridge publication, write-ahead recovery/activation, profile guard and retry-safe cleanup; includes c50e87c order.43 scoped/1301 Windows tests(70 skips)/guard pass; final ordering QA pending. Source-only, undeployed.
+- #124/PR125: exclusive bridge publication, write-ahead recovery/activation, profile-bound retry-safe cleanup; includes c50e87c order.43 scoped/1301 Windows tests(70 skips), guard/CI and final23-probe/9-test QA pass. Source-only, undeployed.
 
 Old batch_full:1109 pending;616 movable tests need fresh plans. #79 overlay waits for release/pins; #84/#104 final configuration races remain.
 
