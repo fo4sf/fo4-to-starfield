@@ -269,3 +269,29 @@ class TerrainEvidenceTests(unittest.TestCase):
             {"label": "", "x": 10.0, "y": -4.0, "expect": 105.14},
         ])
         self.assertEqual(oracle.judge_probe(empty)[0], "UNREAD")
+
+    def test_position_aliases_follow_the_same_rules_as_id_and_time(self):
+        # QA on #69: pos/xyz/position used the first truthy value and ignored the rest.
+        disagree = [
+            {"pos": "10 -4 105.14", "position": "900 900 9"},
+            {"pos": "10.01 -4 105.14", "position": "900 900 9"},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=disagree))[0], "UNREAD")
+        empty_primary = [
+            {"pos": "", "xyz": "10 -4 105.14"},
+            {"pos": "", "xyz": "10.01 -4 105.14"},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=empty_primary))[0], "UNREAD")
+        fallthrough = [
+            {"pos": None, "xyz": "10 -4 105.14"},
+            {"pos": None, "position": "10.01 -4 105.14"},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=fallthrough))[0], "PASS")
+
+    def test_overflowing_numbers_are_unread(self):
+        huge = 10 ** 400
+        frames = [[huge, -4, 105.14], [10.01, -4, 105.14]]
+        self.assertEqual(oracle.judge(bundle(frames=frames))[0], "UNREAD")
+        point = {"x": huge, "y": -4, "expect": 105.14}
+        self.assertEqual(oracle.judge(bundle(point=point))[0], "UNREAD")
+        self.assertEqual(oracle.judge(bundle(), reach_m=huge)[0], "UNREAD")

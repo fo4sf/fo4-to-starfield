@@ -10,7 +10,7 @@ A PASS needs every one of these. Anything missing is UNREAD, never a pass:
 - those frames agree in Z within settle_m
 - the settled height is within tol_m of the expected height, after that offset
 - reach_m, settle_m and tol_m are finite and nonnegative
-- a null id or time does not hide capture/timestamp/t; disagreeing or malformed aliases are unreadable
+- a null id, time, or position does not hide a later alias; a disagreeing or unparseable alias is unreadable
 - each recorded identifier and timestamp is unique across the whole probe
 - judge_probe labels are unique nonempty strings
 
@@ -32,12 +32,12 @@ def _parse_frame(value):
     if isinstance(value, str):
         try:
             parts = [float(x) for x in value.split()]
-        except ValueError:
+        except (ValueError, OverflowError):
             return None
     elif isinstance(value, (list, tuple)) and len(value) == 3:
         try:
             parts = [float(x) for x in value]
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None
     else:
         return None
@@ -46,13 +46,16 @@ def _parse_frame(value):
     return parts
 
 
-def _alias(record, keys):
+def _alias(record, keys, accept=None):
     """First recorded non-null alias. Null does not hide a later alias.
 
     Returns (value, problem). problem is None, "malformed", or "conflict".
     No key, or only nulls, means the collector did not record this field.
     Zero is kept. Two different non-null aliases are a conflict.
+    accept(value) false means this present value is unusable.
     """
+    if accept is None:
+        accept = _valid_meta
     chosen = None
     seen = False
     for key in keys:
@@ -61,7 +64,7 @@ def _alias(record, keys):
         value = record[key]
         if value is None:
             continue
-        if not _valid_meta(value):
+        if not accept(value):
             return None, "malformed"
         if not seen:
             chosen = value
@@ -75,6 +78,7 @@ def _parse_capture(value):
     """Return ((x, y, z), ident, timestamp) or None if the position will not parse.
 
     A dict may carry pos/xyz/position plus id/capture and time/timestamp/t.
+    Null falls through. A present alias that will not parse, or two that disagree, is unreadable.
     Raises _ProvenanceError when an alias is malformed or two aliases disagree.
     """
     ident = None
@@ -90,7 +94,14 @@ def _parse_capture(value):
             raise _ProvenanceError("malformed capture timestamp")
         if time_problem == "conflict":
             raise _ProvenanceError("conflicting capture timestamp")
-        value = value.get("pos") or value.get("xyz") or value.get("position")
+        pos, pos_problem = _alias(
+            value, ("pos", "xyz", "position"), accept=lambda item: _parse_frame(item) is not None
+        )
+        if pos_problem == "malformed":
+            raise _ProvenanceError("malformed position")
+        if pos_problem == "conflict":
+            raise _ProvenanceError("conflicting position")
+        value = pos
     parts = _parse_frame(value)
     if parts is None:
         return None
@@ -123,9 +134,13 @@ def _control(value):
     """Finite nonnegative metres, or None. Booleans are not numbers here."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    if not math.isfinite(value) or value < 0:
+    try:
+        number = float(value)
+    except OverflowError:
         return None
-    return float(value)
+    if not math.isfinite(number) or number < 0:
+        return None
+    return number
 
 
 def _shift(evidence):
