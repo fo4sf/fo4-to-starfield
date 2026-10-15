@@ -38,6 +38,19 @@ class ParseTests(unittest.TestCase):
                   "FO4SF rt=1 pos=1 2", "FO4SF rt=1 pos=a b c", "FO4SF rt=1 pos=1 2 3 cmd=x"):
             self.assertIsNone(bridge_log.parse_line(s), s)
 
+    def test_real_line_of_the_first_run(self):
+        # fo4sf.0.log, 2026-10-14 21:29 (Vault111Cryo of the pinned build): the game prefixes a clock, prints six
+        # decimals, "true" in lower case and "none" for no worldspace in an interior
+        d = bridge_log.parse_line("[21:29:40] FO4SF rt=99.711006 pos=1.531505 -7.385632 -0.851672 ang=0.000000 "
+                                  "cell=50336243 world=none loaded=true n=32")
+        self.assertEqual(d["pos"], [1.531505, -7.385632, -0.851672])
+        self.assertEqual(d["cell"], "030011F3")                # 50336243: FO4Port.esm (03) Vault111Cryo
+        self.assertIsNone(d["world"])
+        self.assertTrue(d["loaded"])
+        self.assertEqual(d["n"], 32)
+        self.assertIsNone(bridge_log.parse_line("[21:28:47] fo4sf log opened (PC-64)"))
+        self.assertIsNone(bridge_log.parse_line("[21:28:47] FO4SF init rt=46.830002"))
+
     def test_negative_cmd_and_int_bool(self):
         d = bridge_log.parse_line("FO4SF rt=1 pos=0 0 0 loaded=1 cmd=-1")
         self.assertTrue(d["loaded"])

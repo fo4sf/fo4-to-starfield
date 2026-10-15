@@ -847,10 +847,28 @@ Instead the game writes a file:
 - `scripts/game/bridge_log.py latest | wait-cmd <n> | wait-move`: the newest line as JSON (stale after 3 s: the game or
   the quest is not running), a wait for the echo of a command, a wait for the player to move. Form ids come back as hex.
 - Staged: `C:\Modding\staging\bridge_t0` (plugin, pex, offline_check.txt all checks pass, plan.json, README.txt).
-- **Go/no-go (in game, in a window the owner declares; not yet run):** install, ini, launch, load a save: `latest` must
-  show `pos`; `set FO4SF_Cmd to 7` then `wait-cmd 7` within a second; hold W for 2 s then `wait-move`. If the user log
-  never appears, the fallback is an SFSE plugin (SFSE 0.2.21 in C:\Modding\tools), not more OCR.
-- After the go: the `walk`, `door_trip` and `npc_nav` reads switch to the bridge (a runner feature `bridge`); OCR stays
-  for pop-ups and HUD checks only. Unresolved until then: whether `Debug.TraceUser` writes on this build (the base
-  script says the Debug functions do nothing "in release console builds"; PC builds have written Papyrus logs since
-  Skyrim: supported hypothesis), the exact float format Papyrus prints, and whether the timer survives a save/load.
+- **Go/no-go: GO (in game, 2026-10-14 21:28-21:36, the owner watching; evidence in `C:\Modding\staging\bridge_t0\evidence`,
+  docs/media/bridge-*.jpg).** Pinned build 2470f876 + FO4SFBridge.esm, launched by cycle.ps1 into FO4Port_Vault111Cryo.
+  - **Lines (verified):** `[21:29:40] FO4SF rt=99.711006 pos=1.531505 -7.385632 -0.851672 ang=0.000000 cell=50336243
+    world=none loaded=true n=32`: one line every 0.66 s (0.5 s timer plus frame alignment), six decimals, `true` in
+    lower case, `none` for the worldspace in an interior, the game's `[HH:MM:SS]` prefix. `OnInit` ran at the main menu
+    (a 93-byte log, rotated to .1) and again when the save loaded. 473 lines in 8 minutes, no Papyrus error for the script.
+  - **Walk (verified):** W held 2 s through input.ps1: y -7.3856 -> -5.7418 (1.64 m) on the log, no capture involved.
+  - **Save and load (verified):** `save fo4sf_bridge_t0` then `load` of it: the quest's state and timer come back
+    (`n` continued at 411, `rt` at 424 s); `OnInit` fires again on the load, so the user log **rotates on every load**
+    (.0 is always the newest; a reader notes `n` / `rt`, never the file).
+  - **Console acknowledgement (verified):** `cgf "Debug.TraceUser" "fo4sf" "ack 7"` typed in the console wrote
+    `[21:33:44] ack 7` into the same log within a second: a console command batch can prove its own execution by
+    ending with such a line (a nonce), and `cgf` is already on the console whitelist.
+  - **The global channel does NOT work (verified, refuted):** `set FO4SF_Cmd to 7` -> "Unknown variable 'FO4SF_Cmd'",
+    `set 04000800 to 7` -> "Unknown variable '04000800'", `help FO4SF_Cmd 4` -> "VIEWER STRINGS NOT AVAILABLE", no
+    match: the game keeps no EditorID strings for this plugin's GLOB (coc still resolves cell EditorIDs). The script
+    reads the global fine (`cmd=0` on its first line), only the console cannot set it. The `FO4SF_Cmd` property stays
+    for a later route (a Papyrus-side setter); the runner uses the TraceUser acknowledgement.
+  - **Keys (verified the hard way):** input.ps1 needs `LEGACY=1` (keybd_event) for the console key and typed text, as
+    every runner script sets; a plain SendInput W still walks. **StarfieldCustom.ini cannot be written by our scripts:**
+    Windows Controlled Folder Access blocks python.exe and powershell.exe in Documents (Defender event 1123), so the
+    `[Papyrus]` keys went into the game folder's `Starfield.ini` (backup `Starfield.ini.bak-20261014-212734`);
+    `make_bridge.py ini` reports the block and names that fallback.
+- Next: the `walk`, `door_trip` and `npc_nav` reads switch to the bridge (runner feature `bridge`: a position is the
+  newest log line not older than 2 s, a console batch ends with a TraceUser nonce); OCR stays for pop-ups and HUD checks.

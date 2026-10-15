@@ -171,17 +171,17 @@ def my_games():
     sys.exit("no My Games\\Starfield folder found")
 
 
-def ini(a):
-    folder = a.my_games or my_games()
-    path = os.path.join(folder, "StarfieldCustom.ini")
+def write_ini(path, dry_run):
+    """The [Papyrus] keys into the ini at path (created when missing; the previous file kept as .bak-<time>).
+    Returns True when the file was (or would be) changed; raises OSError when the folder refuses the write."""
     old = open(path, encoding="utf-8-sig").read() if os.path.exists(path) else ""
     new, changed = ensure_ini(old)
     if not changed:
         print(f"{path}: [Papyrus] logging keys already set")
-        return
-    if a.dry_run:
+        return False
+    if dry_run:
         print(f"{path} would become:\n{new}")
-        return
+        return True
     if os.path.exists(path):
         bak = path + ".bak-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         shutil.copy2(path, bak)
@@ -189,6 +189,25 @@ def ini(a):
     with open(path, "w", encoding="utf-8") as f:
         f.write(new)
     print(f"wrote {path}: [Papyrus] " + " ".join(f"{k}={v}" for k, v in PAPYRUS_KEYS))
+    return True
+
+
+def ini(a):
+    """StarfieldCustom.ini in My Games first; when that folder refuses the write (2026-10-14: Windows Controlled Folder
+    Access blocks python.exe in Documents and reports it as "file not found", Defender event 1123), the game folder's
+    own Starfield.ini takes the keys instead (--game-dir; the game reads it before the My Games overrides)."""
+    folder = a.my_games or my_games()
+    custom = os.path.join(folder, "StarfieldCustom.ini")
+    try:
+        write_ini(custom, a.dry_run)
+        return
+    except OSError as e:
+        print(f"{custom}: cannot write ({e.strerror or e}); Windows Controlled Folder Access blocks our scripts in "
+              f"Documents (allow python.exe there, or create the file by hand). Falling back to the game folder's Starfield.ini")
+    game_ini = os.path.join(a.game_dir, "Starfield.ini")
+    if not os.path.exists(game_ini):
+        sys.exit(f"no {game_ini} either")
+    write_ini(game_ini, a.dry_run)
 
 
 def main(argv=None):
@@ -202,6 +221,7 @@ def main(argv=None):
     s.add_argument("--interval", type=float, default=0.5)
     i = sub.add_parser("ini")
     i.add_argument("--my-games", default="")
+    i.add_argument("--game-dir", default=STARFIELD, help="the fallback ini's folder when My Games refuses the write")
     i.add_argument("--dry-run", action="store_true")
     a = ap.parse_args(argv)
     if a.cmd == "stage":

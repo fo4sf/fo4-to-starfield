@@ -1102,3 +1102,22 @@ machine paths are excluded from Git. Shared coordination: #32 comment6159604237.
 - **PR #69 QA (Grok's oracle, 199cf7d):** needs one change: position aliases (`pos` / `xyz` / `position`) take the first
   truthy value and never compare the rest, so a disagreeing or empty alias still passes; huge ints raise OverflowError
   instead of UNREAD. 272 tests OK, guard ok. Posted on the PR.
+
+## 2026-10-14, 21:28-21:36: the observation bridge works in game (Claude; the owner watching)
+- **Owner's review and decisions** ("FO4SF Mass Review", 14 Oct): D1 a bridge replaces OCR reads, D2 integration-1014
+  lands on main (PR #121; 24 superseded PRs closed), D3 game time only in declared windows, D4 Codex / Grok on R07,
+  R02, R06 after their quota resets; the local agent is a librarian for the lead, not a planner.
+- **Bridge GO:** FO4SFBridge.esm (a global and a start-game-enabled quest carrying `FO4SF_Bridge.psc`, compiled with the
+  game's own PapyrusCompiler against ContentResources.zip) writes `FO4SF rt=.. pos=.. ang=.. cell=.. world=.. loaded=..
+  n=..` to `Logs\Script\User\fo4sf.0.log` every 0.66 s. Verified in one 8-minute session on the pinned build: 473
+  lines, a 2 s walk read as 1.64 m, the timer and state survive a save/load (the log rotates on each load), and
+  `cgf "Debug.TraceUser" "fo4sf" "ack 7"` from the console lands in the same log within a second. Refuted: the console
+  cannot `set` our global (no EditorID strings for the plugin; form ids not accepted by `set`). Details:
+  docs/ai/test-queue.md "Bridge". Media: docs/media/bridge-console-ack-1014.jpg, bridge-vault111-1014.jpg.
+- **Two environment facts:** input.ps1 needs `LEGACY=1` for the console (every runner script sets it; a bare call does
+  not); Windows Controlled Folder Access blocks our scripts from writing in Documents, so the Papyrus logging keys live
+  in the game folder's `Starfield.ini` (backed up).
+- **Earlier tonight:** both walks of walk_core64c_1014 unread (HUD dial split the console lines for OCR; fixed at
+  ccddf80, verified on the captures only); chain stopped; the bridge makes that fix the last OCR repair.
+- **Next:** runner feature `bridge` (positions from the log, console batches acknowledged by a TraceUser nonce) for
+  walk, door_trip and npc_nav; then the three gates in the owner's next window.

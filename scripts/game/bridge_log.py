@@ -23,7 +23,7 @@ import re
 import sys
 import time
 
-LINE = re.compile(r"^FO4SF rt=(?P<rt>-?\d+(?:\.\d+)?)"
+LINE = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF rt=(?P<rt>-?\d+(?:\.\d+)?)"     # "[21:29:40] " prefix: the game's (2026-10-14)
                   r"(?: pos=(?P<x>-?\d+(?:\.\d+)?) (?P<y>-?\d+(?:\.\d+)?) (?P<z>-?\d+(?:\.\d+)?))?"
                   r"(?: ang=(?P<ang>-?\d+(?:\.\d+)?))?"
                   r"(?: cell=(?P<cell>\d+|none))?"
