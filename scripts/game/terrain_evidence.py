@@ -12,6 +12,7 @@ A PASS needs every one of these. Anything missing is UNREAD, never a pass:
 - reach_m, settle_m and tol_m are finite and nonnegative
 - a null id, time, or position does not hide a later alias; a disagreeing or unparseable alias is unreadable
 - each recorded identifier and timestamp is unique across the whole probe
+- when timestamps are numeric, they must be strictly increasing
 - judge_probe labels are unique nonempty strings
 
 A complete reading on the point at the wrong height is FAIL.
@@ -235,13 +236,20 @@ def judge(evidence, reach_m=2.0, settle_m=0.05, tol_m=0.5):
                 return "UNREAD", "capture identifier reused"
             seen_ids.add(ident)
     seen_times = set()
+    last_time = None
     for ts in times:
         if ts is not None:
             if not _valid_meta(ts):
                 return "UNREAD", "malformed capture timestamp"
             if ts in seen_times:
                 return "UNREAD", "capture timestamp reused"
+            # Strictly increasing timestamps reject out-of-order or duplicated samples.
+            if last_time is not None and not (isinstance(ts, (int, float)) and isinstance(last_time, (int, float)) and ts > last_time):
+                # Non-numeric timestamps are already uniqueness-checked; only numbers get order.
+                if isinstance(ts, (int, float)) and isinstance(last_time, (int, float)):
+                    return "UNREAD", "capture timestamps are not strictly increasing"
             seen_times.add(ts)
+            last_time = ts
     tx, ty, expect = target
     ox, oy, oz = shift
     for read in reads:

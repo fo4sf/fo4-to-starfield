@@ -295,3 +295,27 @@ class TerrainEvidenceTests(unittest.TestCase):
         point = {"x": huge, "y": -4, "expect": 105.14}
         self.assertEqual(oracle.judge(bundle(point=point))[0], "UNREAD")
         self.assertEqual(oracle.judge(bundle(), reach_m=huge)[0], "UNREAD")
+
+    def test_timestamps_must_be_strictly_increasing(self):
+        # Numeric timestamps, when recorded, must increase so out-of-order samples cannot pass.
+        decreasing = [
+            {"pos": "10 -4 105.14", "time": 2.0},
+            {"pos": "10.01 -4 105.14", "time": 1.0},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=decreasing))[0], "UNREAD")
+        equal = [
+            {"pos": "10 -4 105.14", "timestamp": 5},
+            {"pos": "10.01 -4 105.14", "timestamp": 5},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=equal))[0], "UNREAD")
+        increasing = [
+            {"pos": "10 -4 105.14", "t": 1},
+            {"pos": "10.01 -4 105.14", "t": 2},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=increasing))[0], "PASS")
+        # Non-numeric timestamps keep uniqueness only (order is not defined).
+        strings = [
+            {"pos": "10 -4 105.14", "time": "later"},
+            {"pos": "10.01 -4 105.14", "time": "earlier"},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=strings))[0], "PASS")
