@@ -19,9 +19,9 @@ Lead reports load-order/bridge telemetry and both-direction Sanctuary-Red Rocket
 
 ## Source / reviewed work
 
-Main4ba5c6a has integration121 and merged131/133;119/126/127/128 are integrated. Source integration is not gameplay acceptance. Latest #32 claims supersede this handoff.
+Mainef3a3ba includes integration121,131/133, bridge125 and current lead/Grok changes. Source integration is not gameplay acceptance. Latest #32 claims supersede this handoff.
 
-- PR10458f0b51, PR116589f1bf, PR125fcdec287: reviewed QA/guard/CI pass; await Claude, no live application. Keep expected_sha256 publication, bridge-last order and no-op exit0.
+- PR10458f0b51/PR116589f1bf: reviewed QA/guard/CI pass; await Claude. Bridge125 merged; preserve expected_sha256 publication, bridge-last order and no-op exit0. No live application by Codex.
 - PR1297511352: probe-free OFST/CLSZ candidate staged; mandatory raw checks pass. Claude owns the unverified native comparison. No probes/exterior override/install/input; retain126's neighbour-probe option.
 - PR1181350d9d: selection/per-read evidence reviewed; native adapter pending, runtime acceptance false. PR123319e131: packets reviewed; model savings unmeasured, Guardian-only coordinated window.
 - #117/PR120 archive fingerprinting, #130/PR131 custom-prefix dependencies and #132/PR133 atomic ID reservations are merged; prior QA/guard/CI pass. No native acceptance follows from these offline fixes. Grok owns R06.

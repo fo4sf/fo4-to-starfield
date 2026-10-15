@@ -1180,6 +1180,27 @@ ownership re-review passed14 narrow checks including the original late-failure c
 hosted Linux CI passed. [Contract and limits](testing/archive-fingerprints.md). No live game,
 source archive, deployment, queue or save was changed.
 
+## 2026-10-15 Codex: preserve bridge deployment recovery (#124, offline tested)
+
+Reproduced an interrupted copy leaving a partial plugin untracked after uninstall
+removed its receipt. The installer now uses exclusive source-validated publication,
+resource verification, file intent/confirmation and activation/profile journals.
+Unknown, changed or unconfirmed files remain with a recoverable receipt. Existing
+complete legacy installations stay compatible after validation.
+
+Independent QA passed43 safety probes and found two P2 gaps: incomplete recovery
+could touch a different current profile, and a completed uninstall retry could
+duplicate a restored inactive line. Both are fixed;17 independent fix probes and7
+targeted tests pass. Claude's bridge-last order change c50e87c is integrated with
+the recovery-aware caller and ownership checks. Final ordering integration passes
+23 independent probes and9 selected tests; hosted CI passes.
+
+Validation:43 scoped/1301 Windows suite tests (70 skips), guard pass. No source
+installer was deployed, no game/queue/save changed. Cave a1 remains invalid; a
+separate serialized metadata comparison confirms the COC marker is temporary and
+the template grid is INT_MAX, supporting Claude's queued A/B without proving cause.
+[Recovery boundaries](testing/bridge-recovery.md). Historical negative cases retained.
+
 ## 2026-10-15 morning: integration-1014 is main; the next window's queues (Claude)
 - **#121 merged (10e7019)** after Codex's bounded merge-preservation review; main 9c291f1 (Codex's archive fingerprint
   guard, #120) merged in first. The runner worktree is pinned on main; new work goes on short branches off main.
@@ -1207,6 +1228,20 @@ both unchanged media identities pass; GitHub GFM renders the new sections/images
 Independent factual/link QA passed, with draft status made explicit. Guard passed.
 No new unit tests for documentation; hosted CI is checked on the PR. No game,
 runner, installation, queue or save changed.
+
+## 2026-10-15 Codex: bridge recovery on consolidated main
+
+Merged main d628b56 into the owned PR125 branch without rewriting history. Resolved
+only documentation conflicts: both append-only journal/decision histories remain;
+current-main concise ownership status is retained. Bridge installer, deployer,
+experiment installer, cycle caller and43 bridge tests have identical Git blobs to
+independently reviewed4c8ded6. Bridge-last/no-op exit0 behavior is unchanged.
+
+43 focused bridge/order/recovery tests and1,305 Windows tests(70 skips) pass.
+Independent five-invariant integration review passes; original source QA remains
+applicable. Guard passes; new-head CI gates ready status. No live profile, archive,
+installation, queue, watchdog, controller input or save changed. Source only,
+undeployed; Claude retains integration/game ownership.
 
 ## 2026-10-15: Codex — reserve stable IDs before plugin output (#132)
 
@@ -1264,3 +1299,30 @@ guard/diff checks. Codex's rerun of the same three independent controls
 passes3/3. The QA agent hit its usage limit; final peer re-review is
 still required before merging. No Claude producer/caller, stage, installation,
 controller or native observations changed.
+## 2026-10-15 afternoon window: R05 slice 1 in game, the raider fights, cave probes crash (Claude)
+
+Chain 12:59-14:39 on the pinned build 2470f876 (runner scripts 10e7019), started on the owner's word while away.
+
+- **R05 slice 1 (`r05_medkit_1015`, core64d, PR #134)**: the native container reference loaded at the planned place. The
+  bridge's probe reply in both game sessions: `FO4SF ref=34220709 pos=-2193.137207 -1548.338501 105.296318 ang=270
+  cell=33557935 disabled=false loaded=true` = local (-993.14, 1151.66, 105.30) + the merge offset (-1200, -2700). Runner
+  verdict INCONCLUSIVE for the runner's own reasons: the console_post echoes were unreadable by OCR (the compass dial
+  crosses the text; the commands executed), and the bridge log stopped at 13:24:09, exactly at the `by_the_kit`
+  teleport, and never resumed in that session, so every later read was stale and the player "stayed" at the arrival.
+  Cause open (console left open, so menu mode pauses the script? the script stalled?); the next run captures HUD
+  visibility right after the teleport. No kit screenshot yet; the owner's open-the-kit check waits for it.
+- **`npc_combat_c2_1015`** (forced `StartCombat player`): the converted FO4 raider PASS ENGAGED from t = 1 s (combat
+  state 1, target 00000014, line of sight 1, 5 of 5 reads); the vanilla Spacer PASS on its second attempt (the first:
+  spawned 6.06 m away against a 6 m confirm limit; widen to 7 m); the uncommanded citizen FAIL NOCOMBAT as designed.
+- **`cave_probes11_1015`** (PR #126's slice variant: merge probes in neighbour cell (-11, 11)): INCONCLUSIVE CRASH twice,
+  the game exited during the `coc` into the world (the bridge's last lines are in the Vault at 14:36:24; arrival never
+  logged). With the COC cell override the arrival moved (cave_core64c_1015); with a neighbour-cell override the game
+  exits. Add-on overrides of core64c exterior cells are out in both forms; the door gate stays on Codex's OFST/CLSZ
+  world-level variant or a temporary door inside core64c's own build.
+- `chain.ps1` ended without its "chain end" line and without the between-queue uninstall (process gone by 14:39);
+  the experiment was uninstalled by hand afterwards. Unexplained; watch the next chain.
+- Merged after a local testing state (main + the PRs: 1093 unit tests with the venv, guard, PluginSpike Release build and
+  its two writer tests): #69 (Grok's oracle), #126, #119, #127, #131, #133. The owner's "script command not found"
+  question answered: `readpos.ps1`'s nonce (first-run-failures row 13).
+
+Coordination correction (Codex, #32 comment6203530521): Claude later confirmed the chain ended and uninstalled normally. An orphan log watcher held overnight.log open; the missing log lines did not prove a cleanup failure. Both original observations and this correction are preserved.
