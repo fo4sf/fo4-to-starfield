@@ -1,35 +1,33 @@
 # R06 navmesh-loss inventory
 
-Converter sources named for this packet: `src/fo4sf/navmesh.py`, `docs/actors/navmesh-conversion.md`.
-Both are absent on `origin/main` at `b83f334`. `src/fo4sf` has no `NAVM`/`NVMI` symbols. There is no conversion path to retain any class.
+Converter sources: `src/fo4sf/navmesh.py`, `docs/actors/navmesh-conversion.md` on `origin/main` at `d628b56`.
+`convert()` cuts FO4 exterior NAVM at Starfield 100 m cells and writes NVNM / NVMI. Cover, ledge types 1/2, unlisted doors, and NVMI traversals are dropped. Do not patch `navmesh.py`.
 
 ## Retain vs drop
 
 | Class | Converter | Pin | Red Rocket sample | Proposed Starfield translation |
 | --- | --- | --- | --- | --- |
-| Triangles and edges | drop | `src/fo4sf/navmesh.py` absent | not counted here | Write SF navmesh vertices, triangles, and adjacency from FO4 NVNM verts/tris |
-| Cover records and cover flags | drop | same | 11,947 cover entries (packet research) | Map cover edges and left/right height flags onto SF cover arrays |
-| Ledge-link types | drop | same | 396 dropped ledge links (packet research) | Map jump-down / drop links onto SF ledge or jump links |
-| Door links | drop | same | not counted here | Map door-triangle links onto SF door portal links |
-| NVMI traversal data | drop | same | not counted here | Map preferred-path / island traversal onto SF navmesh island links |
-| Cell cuts and portal links | drop | same | not counted here | Map cell-cut edges and portal connections onto SF portal geometry |
+| Triangles and edges | retain | `navmesh.py:516-599` `convert()`; `798-819` `piece_arrays()` | 63,875 FO4 tris → 68,132 SF tris in 156 NAVM | Already: verts/70, adjacency, cell-line edges |
+| Cover records and cover flags | drop | `navmesh.py:542` `cover_entries`; `550-551` cover flags; `836` `piece_nvnm` writes `cover=[]` | 11,947 entries, 5,830 triangles | Map FO4 8 B cover + left/right flags onto SF 12 B cover arrays |
+| Ledge-link types | drop | `navmesh.py:659-661` `type != 0` → `fo4_links_ledge_type1_2` | 396 dropped | Map FO4 types 1/2 (jump up/down) onto SF NVMI 60 B traversals (SF links are type 0 only) |
+| Door links | retain if `door_refs` else drop | `navmesh.py:692-703` | 1 kept (`0007895C`), 8 dropped | Keep door triangle + NVMI linked door when the REFR is a converted rigged DOOR |
+| NVMI traversal data | drop | `navmesh.py:840-851` `piece_nvmi(..., traversals=[])`; `convert()` never reads FO4 NVMI | not counted here | Map FO4 ledge / preferred-path traversals onto NVMI 60 B entries; outlines still omitted |
+| Cell cuts and portal links | retain | `navmesh.py:635-638` cell-line; `639-686` type-0 portals | 2,145 cell-line; 1,959 portals (2 no overlap); 749 outside | Already: cell-line pairs + type-0 portal if sub-edges overlap ≥ 1 cm |
 
 ## Labels
 
-- **verified:** `src/fo4sf/navmesh.py` and `docs/actors/navmesh-conversion.md` are missing. Import of `fo4sf.navmesh` fails. Each fixture below goes in as one record and comes out as `None`.
-- **supported hypothesis:** FO4 class names and the proposed SF translations. Red Rocket counts 396 ledge links and 11,947 cover entries, taken from the packet (sample not in git; game not run).
-- **unresolved:** per-class counts for triangles, door links, NVMI, and cell cuts on Red Rocket. Exact SF record field names.
-
-Do not patch `navmesh.py`. Translation stays a proposal until a converter exists.
+- **verified:** `convert()` / `piece_nvnm` / `piece_nvmi` on the six fixtures in `tests/test_navmesh_losses.py`. Import of `fo4sf.navmesh` succeeds on this head.
+- **supported hypothesis:** Red Rocket counts from `docs/actors/navmesh-conversion.md` §2 (sample not in git; game not run).
+- **unresolved:** cover semantics (doc §1.1); FO4 ledge → SF traversal mapping; FO4 NVMI input is unused; per-class door/NVMI/triangle counts beyond the doc table.
 
 ## Fixtures
 
-`tests/test_navmesh_losses.py`: one tiny NAVM per dropped class (triangle mesh, one cover edge, one ledge link, one door link, one NVMI row, one cell-cut/portal). Each asserts the converter returns `None`.
+`tests/test_navmesh_losses.py`: one tiny NAVM per class (triangle mesh, one cover edge, one ledge link, one door link, one NVMI traversal, one cell-cut). Each asserts retain or drop on `convert()` output.
 
 ## Resume note
 
-1. Done: PR #69 at `f226598` (position aliases + OverflowError UNREAD). This inventory and six loss fixtures on `grok/navmesh-losses`.
-2. Converter files are still missing, so every class is a drop.
-3. Next: when `navmesh.py` lands, re-pin this table to file:line and keep the fixtures; update a row to retain only with a passing convert.
+1. Done: re-pinned this table to `navmesh.py` on `d628b56`. Six fixtures now call `convert()`, not `None`.
+2. Cover, ledge types 1/2, doors missing from `door_refs`, and NVMI traversals stay drops.
+3. Next: a converter owner maps ledges → NVMI traversals and cover arrays; Grok does not patch `navmesh.py`.
 4. Fixtures: `tests/test_navmesh_losses.py`.
-5. Do not invent a converter here.
+5. PR #69 stays at `f706e77` / 21 tests, body current, Codex QA passed; not merged here.
