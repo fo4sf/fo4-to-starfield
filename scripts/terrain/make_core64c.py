@@ -1082,11 +1082,12 @@ def terrain_edids(prm):
 def cluster_containers(bases, placed, cluster):
     """R05: the placed references named by cluster["containers"] (by FO4 source key) leave the STAT placement and
     become container entries for TerrainOverlays (the converted model of their base, the given name and vanilla
-    inventory, the reference's cell / position / rotation / scale). Returns (placed without them, containers).
+    inventory, the reference's cell / position / rotation / scale and original reference index).
+    Returns (placed without them, containers). The writer reserves the source's original REFR identity.
     ValueError for a reference that is not placed by this build or is initially disabled."""
     wanted = {c["src"]: c for c in cluster.get("containers", [])}
     keep, containers = [], []
-    for p in placed:
+    for reference_index, p in enumerate(placed):
         c = wanted.pop(p["src"], None)
         if c is None:
             keep.append(p)
@@ -1100,11 +1101,41 @@ def cluster_containers(bases, placed, cluster):
                 raise ValueError(f"{p['src']}: item {it!r} is not <plugin>:<6 hex> with a count")
         b = bases[p["base"]]
         containers.append({"src": p["src"], "edid": f"{EDID_PREFIX}cont_{p['src'].split(':')[0].lower()}",
+                           "reference_index": reference_index,
                            "model": b["model"], "name": c["name"], "items": c["items"],
                            "cell": p["cell"], "pos": p["pos"], "rot": p["rot"], "scale": p["scale"]})
     if wanted:
         raise ValueError(f"references not placed by this build: {sorted(wanted)}")
     return keep, containers
+
+
+def check_reference_slots(objects, ids):
+    """Check declared promotion slots, not native behavior or cross-export persistence."""
+    containers = objects.get("containers") or []
+    if not containers:
+        return
+    total = len(objects["refs"]) + len(containers)
+    indices = [c.get("reference_index") for c in containers]
+    if any(type(i) is not int or not 0 <= i < total for i in indices) or len(set(indices)) != len(indices):
+        raise ValueError("invalid or duplicate original reference_index")
+    order = [r["src"] for r in objects["refs"]]
+    for c in sorted(containers, key=lambda c: c["reference_index"]):
+        order.insert(c["reference_index"], c["src"])
+    if len({src.casefold() for src in order}) != total:
+        raise ValueError("duplicate source reference identity")
+    try:
+        if set(ids["refs"]) != {r["src"] for r in objects["refs"]} or set(ids["containers"]) != {c["src"] for c in containers}:
+            raise ValueError("declared source reference set differs from objects")
+        first = max(int(value, 16) for value in ids["bases"].values()) + 1
+        for slot, src in enumerate(order):
+            value = ids["containers"][src]["ref"] if src in ids["containers"] else ids["refs"][src]
+            if int(value, 16) != first + slot:
+                raise ValueError(f"{src}: declared reference moved from original slot {slot}")
+        new_bases = [int(c["base"], 16) for c in ids["containers"].values()]
+        if len(set(new_bases)) != len(new_bases) or any(base < first + total for base in new_bases):
+            raise ValueError("container base overlaps reserved original identities")
+    except (KeyError, TypeError) as e:
+        raise ValueError("missing or invalid declared reference identities") from e
 
 
 def place_all(a, ov):
@@ -1151,7 +1182,7 @@ def cmd_stage(a):
 
     # --cluster (R05, docs/slice/r05-cluster-plan.md): the listed references leave the STAT placement and become native
     # containers (TerrainOverlays "containers": a CONT base with the converted model and a vanilla inventory, one
-    # temporary REFR), allocated after every other record so the other references keep their ids
+    # temporary REFR reusing its original reference_index); new CONT bases follow all reserved REFRs
     containers = []
     if getattr(a, "cluster", None):
         try:
@@ -1434,6 +1465,14 @@ def cmd_check(a):
 
     def need(cond, what):
         checks.append([what, bool(cond)])
+
+    if objects.get("containers"):
+        try:
+            check_reference_slots(objects, ids)
+        except ValueError as e:
+            need(False, f"declared promotion identity: {e}")
+        else:
+            need(True, "declared source reference slots retained through promotion")
 
     # 1. core64 unchanged: params, Data files, Mars plugin, every core64 record of the main plugin
     need({k: v for k, v in prm.items() if k != "objects"} == cprm and prm.get("objects") == "objects.json",
