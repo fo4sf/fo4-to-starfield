@@ -192,6 +192,34 @@ class QstepNpcSandboxTests(SandboxStep, unittest.TestCase):
         obs = self.check(("PASS", "PASS"), plan={"method": "none", "control": False})
         self.assertEqual(obs["command"], "")
         self.assertFalse([c for c in self.typed if c.lower().startswith(("pathtoref", "cf ", "setplayerteammate"))])
+        self.assertNotIn("GetCombatState", self.typed)                        # no combat reads unless planned
+
+    def test_combat_reads_find_the_hostile_actor_engaged_where_it_stands(self):
+        # the Spacer of 2026-10-13: hostile, in combat with the player, holding its ground. The walk says "stayed away";
+        # the combat manager says ENGAGED, and that is the verdict
+        plan = {"method": "none", "control": False, "combat_reads": True, "npc": "00270255", "reads_s": [0, 2, 4]}
+        obs = self.check(("PASS", "ENGAGED"), plan=plan, world={"hostile": ["00270255"], "speed": 0.0})
+        for s in obs["samples"]:
+            self.assertEqual((s["combat_isid"], s["combat"], s["target"], s["los"]), (1, 1, "00000014", 1), s)
+            self.assertIn("GetCombatTarget", s["combat_ocr"])
+        # the three reads follow the confirmed position capture in the SAME console open, as a second capture with
+        # GetIsID again (nine lines: what the console shows): prid, GetIsID, getpos x/y/z, ClearConsole, GetIsID, them
+        at = [i for i, c in enumerate(self.typed) if c == "GetCombatState"]
+        self.assertEqual(len(at), 2)                                          # once per sample, not at t0 or the removal
+        for i in at:
+            self.assertEqual(self.typed[i - 7:i + 3], ["prid FF000800", "GetIsID 00270255", "getpos x", "getpos y",
+                                                       "getpos z", "ClearConsole", "GetIsID 00270255", "GetCombatState",
+                                                       "GetCombatTarget", "GetLineOfSight player"])
+        self.assertNotIn("StartCombat player", self.typed)
+
+    def test_a_calm_actor_reads_no_combat_and_a_refused_read_is_inconclusive(self):
+        plan = {"method": "none", "control": False, "combat_reads": True, "reads_s": [0, 2, 4]}
+        obs = self.check(("FAIL", "NOCOMBAT"), plan=plan, world={"speed": 0.0})
+        self.assertEqual([(s["combat"], s["target"]) for s in obs["samples"]], [(0, "00000000")] * 2)
+        # the hypothesis fails (the console refuses the commands): the position still reads, the verdict is open
+        obs = self.check(("INCONCLUSIVE", "COMBATREAD"), plan=plan, world={"speed": 0.0, "combat_fmt": "refused"})
+        self.assertEqual([(s["combat"], s["target"], s["los"], s["isid"]) for s in obs["samples"]], [(None, None, None, 1)] * 2)
+        self.assertIn("Script command not found", obs["samples"][0]["combat_ocr"])
 
 
 @unittest.skipUnless(ENABLED, "opt-in: FO4SF_QSTEP_SANDBOX=1 on Windows")

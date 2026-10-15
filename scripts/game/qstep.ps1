@@ -724,6 +724,16 @@ switch ($kind) {
     $pre = @($t.pre | Where-Object { $_ })
     foreach ($c in $pre) { if (@('gnm') -cnotcontains "$c") { "bad pre"; exit 4 } }
     if ($t.anchor -and "$($t.anchor.ref)" -notmatch $hex8) { "bad anchor"; exit 4 }
+    # combat_reads (docs/ai/test-queue.md "Combat engagement"): every sample's session also asks the combat manager,
+    # exactly these three lines (the same table as testqueue.py NPC_COMBAT_READS); their replies are parsed
+    # defensively (parse_npc.py: formats unverified in game) and kept raw. Only with methods none / combat_player.
+    $combatCmds = @('GetCombatState', 'GetCombatTarget', 'GetLineOfSight player')
+    $combatReads = $false
+    if ($null -ne $t.combat_reads) {
+      if ($t.combat_reads -isnot [bool]) { "bad combat_reads"; exit 4 }
+      $combatReads = [bool]$t.combat_reads
+      if ($combatReads -and @('none', 'combat_player') -cnotcontains "$($t.method)") { "bad combat_reads method"; exit 4 }
+    }
     $spawnWait = 2000; if ($null -ne $t.spawn_wait_ms) { $spawnWait = [int]$t.spawn_wait_ms }
     $handleTol = 2.0; if ($null -ne $t.handle_tol) { $handleTol = [double]$t.handle_tol }
     if ($spawnWait -lt 0 -or $spawnWait -gt 30000 -or $handleTol -lt 0.5 -or $handleTol -gt 10) { "bad spawn_wait_ms / handle_tol"; exit 4 }
@@ -747,8 +757,11 @@ switch ($kind) {
       $exp = @(); $typed = @()
       foreach ($c in $cmds) {
         if ($c -eq 'plr') { $exp += 'ref' }
-        elseif ($c -like 'GetIsID *') { $exp += 'isid' } elseif ($c -match '^getpos ([xyz])$') { $exp += $Matches[1] }
+        elseif ($c -match '^GetIsID ([0-9A-Fa-f]{8})$') { $exp += 'isid'; $typed += $Matches[1] }
+        elseif ($c -match '^getpos ([xyz])$') { $exp += $Matches[1] }
         elseif ($c -eq 'GetSelf') { $exp += 'self' } elseif ($c -eq 'GetDisabled') { $exp += 'disabled' }
+        elseif ($c -eq 'GetCombatState') { $exp += 'combat' } elseif ($c -eq 'GetCombatTarget') { $exp += 'target' }
+        elseif ($c -eq 'GetLineOfSight player') { $exp += 'los' }
         elseif ($c -match '^prid ([0-9A-Fa-f]{8})$') { $typed += $Matches[1] }
       }
       $cap = Join-Path $Out "${tag}_cap.png"; $prep = Join-Path $Out "${tag}_prep.png"; $txt = Join-Path $Out "${tag}_ocr.txt"
@@ -787,18 +800,29 @@ switch ($kind) {
       if ("$($r3.pos)" -match $num3) { $p['read'] = "$($r3.pos)" }
       return $p
     }
-    function Select-Npc {
+    function Select-Npc([switch]$Combat) {
       # Opening the console selects what is under the crosshair (supported hypothesis: N0_base's selection was the floor
       # static 0024A824 at A and again at B), so every session selects the actor by its id (prid, the confirmed
       # PickLastRef id) and confirms it: GetIsID <npc> 1 in the same session. Returns with the console OPEN plus its
       # position, or closes the console and returns $null. A second try only repeats the session (an OCR miss).
+      # -Combat: once the selection is confirmed, a second capture in the same console open (the selection stays on
+      # the prid'ed ref while the console is open, as Pick-Npc's captures rely on) types ClearConsole, GetIsID <npc>
+      # again and the combat reads ($combatCmds): nine lines, what the console shows. All of it in one capture would
+      # scroll the GetIsID and position replies off screen (the sandbox showed that). The replies are returned as read
+      # (null when not parsed); combat_isid is that capture's GetIsID (0: another ref answered, the judge drops them).
       if ("$($script:npcRef)" -cnotmatch $ffid) { return $null }
       Console-Open
       foreach ($n in 1, 2) {
         $r = Npc-Capture @("prid $($script:npcRef)", "GetIsID $npc", 'getpos x', 'getpos y', 'getpos z') @('isid', 'pos')
         if ($r -and $r.isid -eq 1) {
           $p = $null; if ("$($r.pos)" -match $num3) { $p = "$($r.pos)" }
-          return [ordered]@{ via = 'prid'; isid = 1; read = $p; how = $r.how; ocr = $r.ocr }
+          $o = [ordered]@{ via = 'prid'; isid = 1; read = $p; how = $r.how; ocr = $r.ocr }
+          if ($Combat) {
+            $c = Npc-Capture (@("GetIsID $npc") + $combatCmds) @('isid') 'npc_combat'
+            $o['combat_isid'] = $c.isid; $o['combat'] = $c.combat; $o['target'] = $c.target; $o['los'] = $c.los
+            $o['combat_ocr'] = $c.ocr
+          }
+          return $o
         }
       }
       Send 'key:grave|wait:600'
@@ -926,12 +950,20 @@ switch ($kind) {
             break
           }
           if ($wait -gt 0) { Start-Sleep -Milliseconds ([int]($wait * 1000)); $game = [double]$s }
-          $r = Select-Npc
+          $r = Select-Npc -Combat:$combatReads
           if ($r) { Send 'key:grave|wait:300' }
           $closedAt = Get-Date
-          $samples += [ordered]@{ t_game = [math]::Round($game, 1); t_wall = [math]::Round(((Get-Date) - $cmdAt).TotalSeconds, 1)
-                                  isid = $(if ($r) { 1 } else { $null }); read = $(if ($r) { $r.read } else { $null })
-                                  via = $(if ($r) { $r.via } else { '' }); shot = (Shot "npc$k.png") }
+          $smp = [ordered]@{ t_game = [math]::Round($game, 1); t_wall = [math]::Round(((Get-Date) - $cmdAt).TotalSeconds, 1)
+                             isid = $(if ($r) { 1 } else { $null }); read = $(if ($r) { $r.read } else { $null })
+                             via = $(if ($r) { $r.via } else { '' }); shot = (Shot "npc$k.png") }
+          if ($combatReads) {
+            # the combat manager's answers on the confirmed selection (parsed, else null), that capture's GetIsID and
+            # its raw OCR
+            $smp['combat_isid'] = $(if ($r) { $r.combat_isid } else { $null })
+            $smp['combat'] = $(if ($r) { $r.combat } else { $null }); $smp['target'] = $(if ($r) { $r.target } else { $null })
+            $smp['los'] = $(if ($r) { $r.los } else { $null }); $smp['combat_ocr'] = $(if ($r) { $r.combat_ocr } else { $null })
+          }
+          $samples += $smp
           $obs['samples'] = $samples; Save-Obs           # after every read: a cut-off keeps what was read
           $k++
         }
