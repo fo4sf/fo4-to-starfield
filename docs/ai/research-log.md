@@ -909,3 +909,17 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
 - Evidence: 0 packed vertices, shared-index entries in triples (2130, start, x), primitives like (3,2,2,2);
   docs/JOURNAL.md "Precombine debris parts" and its correction.
 - Status: **unresolved**. The "thin rods" reading was **refuted** (groups up to ~3 m in every axis).
+
+## 2026-10-14 Claude: the merge offset is not planet-scale linear in the registration (H_ll refuted at a second site)
+- Question (owner's review, proposal P5): can the overlay be registered so that its merge offset is zero, so persistent
+  references, probes and teleports stop needing a frame conversion?
+- **verified** (two measured registrations): World01 at (0.2, 1.2) rad merged at planet cell (+30, -35); exp2b /
+  core64c at (0.3, -1.2) rad merged at (-12, -27). `overlay_grid.predicted_offset` (H_ll, true planet scale from the
+  World01 reference) predicts (-29,902, -47,460) cells for the second site: **refuted** as a global model (it was only
+  ever claimed "near a registration"). Under H_ll a zero offset would need (0.2010324, 1.1990970) rad; that prediction
+  has no support now.
+- **unresolved**: how the engine maps a PNDT CNAM latitude/longitude to a surface cell (a block grid with wrapping, or
+  a coarse quantisation, would give small offsets at both sites). Two cheap discriminating runs when a window allows:
+  the same overlay at (0.2, 1.2) (does it reproduce +30/-35, i.e. is the offset a function of the site alone?) and at
+  (0.3 + 1/33900, -1.2) (one cell north under any linear local model). Until then fix A (vanilla persistent-cell
+  shape, cave_core64c_1015) is the route to persistent references, and the runner keeps converting frames.
