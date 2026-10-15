@@ -1045,3 +1045,32 @@ Temporary restore copies were also individually checked and cleared. Native camp
 source pins, saves, recovery data and Claude's active queues remain at their original paths.
 This is local storage; no offsite backup or game acceptance is claimed. Private archives and
 machine paths are excluded from Git. Shared coordination: #32 comment6159604237.
+
+## 2026-10-13 evening: library stairs STUCKs: mostly the routes; 0002 / 0003 unresolved (Claude, offline)
+
+- **Question (owner):** the player gets stuck on BostonPublicLibrary02's BldDecoSm* stairs (batch_full 0002, 0003, 0006,
+  0007, 0021 STUCK, 0022 FALL) and on Vault 114's cinder blocks (supervised_1011 0010).
+- **Result:** 0006 / 0007 / 0021 / 0022 / supervised 0010 asked for a walk Fallout 4's own collision does not allow: a
+  start wedged in a 0.49 m slot between a wall and a rail (0006 / 0007), a fallen floor chunk across the flight (0021),
+  a walk 2 m past a top that ends in the collapsed floor (0022), a 0.15 m remainder of a buried flight (0010);
+  batch_full 0423 (rebar on the flight) and 0136 (a start 1.5 m over the floor) likewise. The 16 stair models
+  re-converted with this branch read back body for body identical to the pinned build and to FO4's treads; neighbours
+  match FO4 to 2 cm; only the steep stair helpers are flattened, as designed.
+- **Correction after QA (PR #111):** this entry first said all of them were routes. 0002 / 0003 came up onto the gallery
+  slab and stopped 0.01 / 0.05 m before the place where the converted, flattened helper comes up through the slab
+  (0.46 / 0.50 m from FO4's own crossing); the slab lift had worked. Why they stopped is unresolved; the converter's
+  flattening is a live suspect, the old routes' start under the slab another. The offline walk's agreement with the
+  game is 59 of 64 verdicts, 57 also at the same place (0002 had been counted at the wrong place); the 0.35 m capsule
+  radius is an assumption again (0002's push-out was read off the wrong face).
+- **Fixed in the planner:** `routes.py` walks every lane offline (`src/fo4sf/walksim.py`) and keeps the first one a
+  player can climb, or skips the stair with the reason; tilted references are placed Z first, as FO4's precombines show
+  (the old order put the library's debris up to 1 m off). Routes carry what the walk cannot vouch for (a converted
+  helper crossing, movable objects on the lane); `--probes-out` plans probes around each crossing;
+  `scripts/game/stairs_calib.py` replays in-game results and route files. New routes for the 16 cells: 214 (226
+  before); every stair that passed in game is still planned, 13 of them on new lanes (their old routes are queued as
+  controls).
+- **Not run in game.** Routes and probes in `C:\Modding\staging\stairs_fix_1014` (no new plugin or archives); three
+  queues planned (probes, old-route replays, the new routes), readings in
+  [docs/testing/stairs-routes.md](testing/stairs-routes.md). Left open: VltGearDoorStairs01 (no stair helper, 0.3 m
+  treads; STUCK at 1.41 of 3.22 m on 2026-10-09), probably too steep a step for Starfield's controller without a
+  helper (supported hypothesis, V111 2026-10-08): a synthesized helper would be a converter change of its own.

@@ -3,7 +3,11 @@ checkpoint after every test, resume later, and rank the problems found.
 
 usage:
   python testqueue.py plan   --staging <build dir> --out <queue dir> [--cells A,B] [--kinds stairs,door,fall,movable,travel]
-                             [--per-cell 12] [--per-kind N] [--plugin-index 02] [--impulse]
+                             [--per-cell 12] [--per-kind N] [--plugin-index 02] [--impulse] [--routes-prefix routesfull_]
+                             [--routes-dir <dir>]  (route files planned again outside the pinned build, e.g. a
+                             routes.py fix: the build, its plugin hash and deploy stay those of --staging; the queue
+                             keeps its own copy of the route files) [--refs A,B] (only these references, in this
+                             order) [--first A,B] (these references first)
                              --impulse: a movable item the walk did not move is pushed with ApplyHavokImpulse
   python testqueue.py plan-movable --staging <build dir> --exp-dir <dir with plan.json> --out <queue dir> [--fresh]
                              movable_control: an item (vanilla, or a converted one of the build) placed in a vanilla
@@ -65,6 +69,7 @@ import math
 import os
 import re
 import sqlite3
+import shutil
 import subprocess
 import sys
 import time
@@ -264,13 +269,14 @@ def with_extras(t, w, cli):
 
 # ----------------------------------------------------------------------------------------------------------- planning
 def plan_cell(cell, staging, kinds, per_cell, plugin_index, formids, items, all_refs, routes_prefix="routes_",
-              impulse=False):
+              impulse=False, routes_dir=None):
     """Tests for one exported cell, in the owner's priority order: stairs, falls, doors (both sides), movable, travel.
     impulse: a movable test whose walk does not move the item applies the impulse ladder to it (needs the item's base
-    record in formids.json and its mass in the manifest; runner feature "impulse")."""
+    record in formids.json and its mass in the manifest; runner feature "impulse").
+    Route files come from `routes_dir` when given (routes planned again for the same build), else from the staging."""
     name = cell["cell"]
     out = []
-    routes_file = os.path.join(staging, f"{routes_prefix}{name}.json")   # e.g. routesfull_ = routes.py --max 400
+    routes_file = os.path.join(routes_dir or staging, f"{routes_prefix}{name}.json")   # routesfull_ = routes.py --max 400
     routes = load(routes_file, {}).get("routes", [])
     if "stairs" in kinds:
         for k, r in enumerate(routes):
@@ -334,6 +340,25 @@ def plan_cell(cell, staging, kinds, per_cell, plugin_index, formids, items, all_
     return out
 
 
+def order_by_refs(tests, refs="", first=""):
+    """Tests restricted to the references listed in `refs` (comma-separated FormID prefixes such as 0EBED6, the order
+    they are listed in) and/or with those listed in `first` moved to the front in that order, the rest after them in
+    their planned order. A reference with several tests (door sides) keeps them together."""
+    def keys(s):
+        return [k.strip().upper() for k in s.split(",") if k.strip()]
+
+    def rank(t, wanted):
+        ref = str(t.get("ref", "")).split(":")[0].upper()
+        return next((i for i, k in enumerate(wanted) if ref.startswith(k)), None)
+    if keys(refs):
+        tests = [t for t in tests if rank(t, keys(refs)) is not None]
+        tests = sorted(tests, key=lambda t: rank(t, keys(refs)))
+    if keys(first):
+        front = sorted([t for t in tests if rank(t, keys(first)) is not None], key=lambda t: rank(t, keys(first)))
+        tests = front + [t for t in tests if rank(t, keys(first)) is None]
+    return tests
+
+
 def plan(a):
     staging = os.path.abspath(a.staging)
     esm = os.path.join(staging, "FO4Port.esm")
@@ -343,6 +368,9 @@ def plan(a):
     bad = [k for k in kinds if k not in KINDS]
     if bad:
         sys.exit(f"unknown kinds {bad}; known: {KINDS}")
+    routes_dir = os.path.abspath(a.routes_dir) if getattr(a, "routes_dir", "") else None
+    if routes_dir and not glob.glob(os.path.join(routes_dir, f"{a.routes_prefix}*.json")):
+        sys.exit(f"no {a.routes_prefix}*.json route files in {routes_dir}")
     formids = load(os.path.join(staging, "formids.json"), {})
     items = {it["source"].lower(): it for it in load(os.path.join(staging, "manifest.json"), {"items": []})["items"]}
     skip = {"editorids.json", "formids.json", "lighting.json", "merged.json", "manifest.json"}
@@ -361,7 +389,7 @@ def plan(a):
     tests = []
     for c in cells:
         tests += plan_cell(c, staging, kinds, a.per_cell, a.plugin_index, formids, items, all_refs, a.routes_prefix,
-                           impulse=getattr(a, "impulse", False))
+                           routes_dir, impulse=getattr(a, "impulse", False))
     if a.per_kind:                                        # small batches: the first N of each kind in each cell
         seen = {}
         keep = []
@@ -371,12 +399,29 @@ def plan(a):
             if seen[k] <= a.per_kind:
                 keep.append(t)
         tests = keep
+    tests = order_by_refs(tests, getattr(a, "refs", ""), getattr(a, "first", ""))
+    os.makedirs(a.out, exist_ok=True)
+    routes_sha = {}
+    if routes_dir:                     # the queue keeps its own copy: re-planning that folder cannot change this queue
+        own = os.path.join(os.path.abspath(a.out), "routes")
+        os.makedirs(own, exist_ok=True)
+        copied = {}
+        for t in tests:
+            f = t.get("routes_file")
+            if f and f not in copied:
+                copied[f] = os.path.join(own, os.path.basename(f))
+                shutil.copyfile(f, copied[f])
+            if f:
+                t["routes_file"] = copied[f]
+    for f in sorted({t["routes_file"] for t in tests if t.get("routes_file") and os.path.exists(t["routes_file"])}):
+        routes_sha[os.path.basename(f)] = sha256(f)
     for n, t in enumerate(tests):
         t["id"] = f"{n:04d}_{t['kind']}_{t['cell']}_{str(t['ref']).split(':')[0]}" + (f"_s{t['side']}" if t.get("side") else "")
     digest = sha256(esm)
     q = {"created": now(), "staging": staging, "plugin_sha256": digest, "build_id": digest[:8],
          "commit": subprocess.run(["git", "-C", REPO, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
-         "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]], "tests": tests}
+         "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]], "tests": tests,
+         **({"routes_dir": routes_dir} if routes_dir else {}), **({"routes_sha256": routes_sha} if routes_sha else {})}
     need = runner_features.needs(tests)
     if need:                                              # e.g. "impulse": an older runner refuses the queue
         q["needs"] = need
@@ -2848,6 +2893,13 @@ def main(argv=None):
     p.add_argument("--impulse", action="store_true",
                    help="movable: when the walk does not move an item, push it with ApplyHavokImpulse (runner feature "
                         "impulse; docs/ai/test-queue.md \"Movable items: walk, then impulse\")")
+    p.add_argument("--routes-dir", default="", help="take the route files from this folder instead of the staging "
+                   "(routes planned again for the same pinned build by a newer routes.py); the queue copies them into "
+                   "<queue>/routes and records their sha256")
+    p.add_argument("--refs", default="", help="only the tests of these references (comma-separated FormID prefixes), "
+                   "in this order")
+    p.add_argument("--first", default="", help="these references first (comma-separated FormID prefixes, in order), "
+                   "then the rest")
     pt = sub.add_parser("plan-terrain")
     pt.add_argument("--staging", required=True)
     pt.add_argument("--exp-dir", required=True)
