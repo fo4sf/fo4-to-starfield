@@ -26,6 +26,40 @@ same input), and the commit. Use the `optimization` label on the issue or PR.
 
 ## Entries
 
+### 2026-10-15 Codex: bounded parallel relaunch verification (proposal)
+
+`exp_install.py verify_relaunch` reads independent files with at most four workers and 32 queued paths.
+Every installed path and every staged path still receives a fresh full SHA-256 on every invocation, including
+plugins, archives and both names of a hard link. No inode/timestamp cache or `samefile` shortcut is used.
+Installation/preparation keeps its existing serial inventory behavior. Source-only proposal; peer QA and lead
+integration are pending, and no live installation or game input changed.
+
+Measured on this Windows PC, Python 3.14.6, same deterministic NTFS fixture: 512 loose files of 64 KiB plus one
+synthetic plugin, each installed path hard-linked to staging. Actual `verify_relaunch`, baseline main `ef3a3ba`,
+one warm-up pair followed by five samples per version in alternating order:
+
+| | Serial baseline | Bounded parallel proposal |
+|---|---:|---:|
+| Median | 0.683776 s | 0.459595 s |
+| Full content hashes per sample | 1,026 | 1,026 |
+
+This fixture is **32.8% faster** (1.49x); an earlier private harness measured 27.7% on the same file sizes/count.
+No claim follows about the live 51,823-file core64d experiment or end-to-end launch time. Parallel readers may
+add CPU/I/O contention and up to four hash buffers; worker/future counts are bounded, and there is no persisted
+verification cache. This is not an atomic snapshot of a whole mutable tree; staged inputs must remain immutable.
+
+Reproduce without game data or launching anything (PowerShell, from this checkout):
+
+```powershell
+git show ef3a3ba:scripts/game/exp_install.py | Set-Content -Encoding utf8 "$env:TEMP\fo4sf-exp-before.py"
+python -B scripts/testing/benchmark_relaunch.py --before "$env:TEMP\fo4sf-exp-before.py"
+```
+
+The benchmark uses a temporary synthetic fixture and temporary `LOCALAPPDATA`, prints sample timings/code hashes,
+and verifies both versions perform all 1,026 full hashes per invocation. Regressions cover repeated full
+verification, shared-link edits with preserved size/time, a similarly edited packed archive, and worker read
+errors. The initial test's duplicated expected plugin path was corrected; its failed output is preserved.
+
 ### 2026-10-09 Codex: hash archive contents for resume identity (`c74a952`)
 Same deterministic synthetic 64 MiB archive, seven warm-cache runs on the owner's PC. Before: metadata-only
 `archive_identity()` median **0.000170 s**. After: content-hashed `archive_identity()` median **0.049534 s**;

@@ -7,6 +7,7 @@ import struct
 import tempfile
 from types import SimpleNamespace
 import unittest
+from collections import Counter
 from unittest.mock import patch
 from ba2_fixture import general_archive, archive_from_tree
 
@@ -362,6 +363,72 @@ class ExperimentRecoveryTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "source inputs changed"):
                 exp.install(self.args)
             process.assert_called_once()
+
+    def test_relaunch_rehashes_every_installed_and_staged_alias_each_call(self):
+        # Enough files to span batches; no metadata or same-inode cache is safe
+        # when a write through either hard-link name changes the shared bytes.
+        for n in range(70):
+            (self.staging / "Data" / f"synthetic-{n:03}.bin").write_bytes(f"file {n}".encode())
+        exp.install(self.args)
+        source = self.staging / "Data" / self.terrain
+        target = self.data / self.terrain
+        target.unlink()
+        target.hardlink_to(source)
+        paths = [self.staging / "Experiment.esm"]
+        paths += [p for p in (self.staging / "Data").rglob("*") if p.is_file()]
+        paths += [p for p in self.data.rglob("*") if p.is_file() and p.name != exp.RECORD]
+        expected = Counter(os.fspath(p) for p in paths)
+        original_digest = exp.digest
+        for _ in range(2):
+            seen = []
+
+            def counted(path):
+                seen.append(os.fspath(path))
+                return original_digest(path)
+
+            with patch.object(exp, "digest", side_effect=counted):
+                exp.install(self.args)
+            self.assertEqual(Counter(seen), expected)
+
+    def test_relaunch_rejects_hardlinked_edit_with_preserved_size_and_time(self):
+        exp.install(self.args)
+        source = self.staging / "Data" / self.terrain
+        target = self.data / self.terrain
+        target.unlink()
+        target.hardlink_to(source)
+        before = source.stat()
+        source.write_bytes(b"X" * before.st_size)
+        os.utime(source, ns=(before.st_atime_ns, before.st_mtime_ns))
+        self.assertTrue(os.path.samefile(source, target))
+        self.assertEqual(source.stat().st_mtime_ns, before.st_mtime_ns)
+        with self.assertRaisesRegex(SystemExit, "installed experiment file is missing or changed"):
+            exp.install(self.args)
+
+    def test_relaunch_rejects_packed_archive_edit_with_preserved_size_and_time(self):
+        with patch.object(exp.subprocess, "run", side_effect=self.archive_builder()) as process:
+            exp.install(self.args)
+            archive = self.data / "Experiment - Main.ba2"
+            before = archive.stat()
+            payload = archive.read_bytes()
+            archive.write_bytes(payload[:-1] + bytes((payload[-1] ^ 1,)))
+            os.utime(archive, ns=(before.st_atime_ns, before.st_mtime_ns))
+            with self.assertRaisesRegex(SystemExit, "installed experiment file is missing or changed"):
+                exp.install(self.args)
+            process.assert_called_once()
+
+    def test_parallel_source_inventory_reports_worker_read_failure(self):
+        bad = self.staging / "Data" / "unreadable.bin"
+        bad.write_bytes(b"synthetic read failure")
+        original_digest = exp.digest
+
+        def fail_one(path):
+            if Path(path) == bad:
+                raise OSError("synthetic denied read")
+            return original_digest(path)
+
+        with patch.object(exp, "digest", side_effect=fail_one):
+            with self.assertRaisesRegex(OSError, "synthetic denied read"):
+                exp.source_inventory(str(self.staging), ["Experiment.esm"], parallel=True)
 
     def test_changed_terrain_during_packing_is_rejected_before_installation(self):
         build = self.archive_builder()
