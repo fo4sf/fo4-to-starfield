@@ -23,7 +23,7 @@ import re
 import sys
 import time
 
-LINE = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF rt=(?P<rt>-?\d+(?:\.\d+)?)"     # "[21:29:40] " prefix: the game's (2026-10-14)
+LINE = re.compile(r"^(?:\[(?P<clock>[^\]]*)\]\s*)?FO4SF rt=(?P<rt>-?\d+(?:\.\d+)?)"   # "[21:29:40] " prefix: the game's clock
                   r"(?: pos=(?P<x>-?\d+(?:\.\d+)?) (?P<y>-?\d+(?:\.\d+)?) (?P<z>-?\d+(?:\.\d+)?))?"
                   r"(?: ang=(?P<ang>-?\d+(?:\.\d+)?))?"
                   r"(?: cell=(?P<cell>\d+|none))?"
@@ -48,6 +48,8 @@ def parse_line(s):
     if not m:
         return None
     d = {"rt": float(m.group("rt"))}
+    if m.group("clock"):
+        d["clock"] = m.group("clock")
     if m.group("x") is not None:
         d["pos"] = [float(m.group("x")), float(m.group("y")), float(m.group("z"))]
     if m.group("ang") is not None:
@@ -146,16 +148,37 @@ def read_lines(path):
     return out
 
 
+def clock_age(clock, now=None):
+    """Seconds between a line's "[HH:MM:SS]" stamp (the game's clock, the same PC) and now; None for no stamp. The
+    stamp has whole seconds, so an age is 0..1 s coarse; a stamp ahead of now (midnight passed) counts as 24 h less."""
+    m = re.fullmatch(r"(\d{1,2}):(\d{2}):(\d{2})", clock or "")
+    if not m:
+        return None
+    now = time.time() if now is None else now
+    lt = time.localtime(now)
+    secs_now = lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec + (now % 1)
+    secs = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
+    age = secs_now - secs
+    if age < -43200:
+        age += 86400
+    return age
+
+
 def latest(path, max_age=3.0):
-    """The newest line, with ok False when the log is missing, empty or older than max_age seconds (file mtime: the
-    game writes a line every half second while it runs, so a stale file means the game or the quest is not running)."""
+    """The newest line, with ok False when the log is missing, empty or older than max_age seconds. The age is the
+    line's own clock stamp against now (bridge_probe_1015 a1, 2026-10-14: the game stops writing while it is paused,
+    in a loading screen or with the console open, and touches the file without a new line, so the file's mtime said
+    fresh for a 30 s old position); a line without a stamp falls back to the file's mtime."""
     lines = read_lines(path)
     if not lines:
         return {"ok": False, "why": "no bridge lines in " + path}
-    age = time.time() - os.path.getmtime(path)
+    last = lines[-1]
+    age = clock_age(last.get("clock"))
+    if age is None:
+        age = time.time() - os.path.getmtime(path)
     if max_age is not None and age > max_age:
-        return {"ok": False, "why": f"log {age:.1f} s old (max {max_age})", "last": lines[-1]}
-    return dict(lines[-1], ok=True)
+        return {"ok": False, "why": f"newest line {age:.1f} s old (max {max_age})", "last": last}
+    return dict(last, ok=True)
 
 
 def wait_cmd(path, value, timeout=10.0, since_n=None):

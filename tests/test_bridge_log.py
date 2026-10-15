@@ -161,3 +161,34 @@ class EventTests(unittest.TestCase):
                 rc = bridge_log.main(["events", "--log", log])
             self.assertEqual(rc, 0)
             self.assertEqual([json.loads(l)["kind"] for l in buf.getvalue().splitlines()], ["init", "ack", "ref"])
+
+
+class ClockAgeTests(unittest.TestCase):
+    """Freshness by the line's own clock stamp (bridge_probe_1015 a1: the file's mtime said fresh for a 30 s old line)."""
+    def test_clock_age(self):
+        now = time.mktime((2026, 10, 14, 23, 1, 5, 0, 0, -1))
+        self.assertAlmostEqual(bridge_log.clock_age("23:00:37", now), 28.0, places=3)
+        self.assertAlmostEqual(bridge_log.clock_age("23:01:05", now), 0.0, places=3)
+        self.assertAlmostEqual(bridge_log.clock_age("23:01:04", now), 1.0, places=3)
+        midnight = time.mktime((2026, 10, 15, 0, 0, 2, 0, 0, -1))
+        self.assertAlmostEqual(bridge_log.clock_age("23:59:59", midnight), 3.0, places=3)
+        self.assertIsNone(bridge_log.clock_age(None))
+        self.assertIsNone(bridge_log.clock_age("rt=5"))
+
+    def test_latest_uses_the_stamp_not_the_mtime(self):
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "fo4sf.0.log")
+            old = time.strftime("%H:%M:%S", time.localtime(time.time() - 40))
+            with open(log, "w", encoding="utf-8") as f:
+                f.write(f"[{old}] FO4SF rt=1 pos=-10.07 43.95 -10.95 n=7\n")       # the file is new, the line is not
+            r = bridge_log.latest(log, max_age=3)
+            self.assertFalse(r["ok"])
+            self.assertIn("newest line", r["why"])
+            self.assertEqual(r["last"]["n"], 7)
+            now = time.strftime("%H:%M:%S")
+            with open(log, "a", encoding="utf-8") as f:
+                f.write(f"[{now}] FO4SF rt=2 pos=-470.88 -2251.90 0.48 n=8\n")
+            r = bridge_log.latest(log, max_age=3)
+            self.assertTrue(r["ok"])
+            self.assertEqual(r["n"], 8)
+            self.assertEqual(r["clock"], now)

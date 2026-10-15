@@ -48,12 +48,15 @@ function Console-Open {
 $script:strictReads = $false     # door_trip: readpos -Strict (labelled values of the read's own session only)
 $script:lastHeading = $null      # the heading of the last Read-Pos with -Angle ($null: not read)
 $script:readN = 0                # readpos.ps1 runs so far: each gets its own folder <Out>\reads\NNNN
-function Bridge-Read([bool]$angle = $false, [int]$tries = 3) {
+function Bridge-Read([bool]$angle = $false, [int]$tries = 12) {
   # the player's position from the newest line of the bridge's log (bridge_log.py latest: the game's FO4SF_Bridge
   # script writes one every half second; docs/ai/test-queue.md "Bridge"), not older than $script:bridgeMaxAge s:
   # "x y z" (the game's six decimals) or $null; the heading to $script:lastHeading when $angle. No console, no
   # capture: a stale log (the game or its quest not running) is a failed read, never an old position. Every try is
   # listed in obs.read_log with via = bridge and the line's rt / n (the read's provenance, as readpos's nonce is).
+  # Freshness is the line's own clock stamp (bridge_log.py latest), and the tries span about 8 s: the game writes
+  # nothing while paused (a loading screen, the console open), and resumes a few seconds after the console closes
+  # (bridge_probe_1015 a1, 2026-10-14: the first line after a hop came 3 s after the reads had given up).
   $script:lastHeading = $null
   $cmd = @((Join-Path $here 'bridge_log.py'), 'latest', '--max-age', "$($script:bridgeMaxAge)")
   if ($env:FO4SF_BRIDGE_LOG) { $cmd += @('--log', $env:FO4SF_BRIDGE_LOG) }     # the sandbox's log
