@@ -26,8 +26,8 @@ import time
 LINE = re.compile(r"^(?:\[(?P<clock>[^\]]*)\]\s*)?FO4SF rt=(?P<rt>-?\d+(?:\.\d+)?)"   # "[21:29:40] " prefix: the game's clock
                   r"(?: pos=(?P<x>-?\d+(?:\.\d+)?) (?P<y>-?\d+(?:\.\d+)?) (?P<z>-?\d+(?:\.\d+)?))?"
                   r"(?: ang=(?P<ang>-?\d+(?:\.\d+)?))?"
-                  r"(?: cell=(?P<cell>\d+|none))?"
-                  r"(?: world=(?P<world>\d+|none))?"
+                  r"(?: cell=(?P<cell>-?\d+|none))?"             # Papyrus prints a form id as a SIGNED int: a planet
+                  r"(?: world=(?P<world>-?\d+|none))?"           # worldspace of load index FF.. is negative (1015b)
                   r"(?: loaded=(?P<loaded>True|False|true|false|1|0))?"
                   r"(?: cmd=(?P<cmd>-?\d+))?"
                   r"(?: n=(?P<n>\d+))?\s*$")
@@ -68,8 +68,8 @@ def parse_line(s):
 
 
 ACK = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF ack (?P<tag>.+?)\s*$")
-REF = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF ref=(?P<id>\d+)(?: (?P<none>none)| pos=(?P<x>-?\d+(?:\.\d+)?) (?P<y>-?\d+(?:\.\d+)?)"
-                 r" (?P<z>-?\d+(?:\.\d+)?)(?: ang=(?P<ang>-?\d+(?:\.\d+)?))?(?: cell=(?P<cell>\d+|none))?"
+REF = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF ref=(?P<id>-?\d+)(?: (?P<none>none)| pos=(?P<x>-?\d+(?:\.\d+)?) (?P<y>-?\d+(?:\.\d+)?)"
+                 r" (?P<z>-?\d+(?:\.\d+)?)(?: ang=(?P<ang>-?\d+(?:\.\d+)?))?(?: cell=(?P<cell>-?\d+|none))?"
                  r"(?: disabled=(?P<disabled>True|False|true|false))?(?: loaded=(?P<loaded>True|False|true|false))?)\s*$")
 PLAYER = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF player pos=(?P<x>-?\d+(?:\.\d+)?) (?P<y>-?\d+(?:\.\d+)?) (?P<z>-?\d+(?:\.\d+)?)"
                     r"(?: ang=(?P<ang>-?\d+(?:\.\d+)?))?\s*$")
@@ -166,9 +166,9 @@ def clock_age(clock, now=None):
 
 def latest(path, max_age=3.0):
     """The newest line, with ok False when the log is missing, empty or older than max_age seconds. The age is the
-    line's own clock stamp against now (bridge_probe_1015 a1, 2026-10-14: the game stops writing while it is paused,
-    in a loading screen or with the console open, and touches the file without a new line, so the file's mtime said
-    fresh for a 30 s old position); a line without a stamp falls back to the file's mtime."""
+    line's own clock stamp against now (the game stops writing while it is paused: a loading screen, the console open;
+    measured 2026-10-14: a new line is on disk within a second otherwise, the file is not buffered), so a position
+    from before a pause is never taken for a current one; a line without a stamp falls back to the file's mtime."""
     lines = read_lines(path)
     if not lines:
         return {"ok": False, "why": "no bridge lines in " + path}

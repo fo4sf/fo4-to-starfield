@@ -1,4 +1,6 @@
 # usage: input.ps1 -Proc Starfield -Seq "key:enter","wait:1500","type:help foo 4","key:enter"
+# Keys go through keybd_event (the legacy path) unless LEGACY=0: Starfield takes the console key and typed text only that
+# way (2026-10-14: a bare call without LEGACY=1 walked with W but never opened the console; every runner script had set it).
 # steps: key:<name>, type:<text>, wait:<ms>, hold:<key>,<ms>, holdg:<letter>,<ms> (released when the game loses focus,
 #        exit 2, or when a STOP file named in FO4SF_STOP_FILES appears, exit 5), move:<dx>,<dy>, click:<x>,<y>; separated by |
 param([string]$Proc = 'Starfield', [string]$Seq)
@@ -28,9 +30,9 @@ $names = @{ enter=0x0D; esc=0x1B; space=0x20; grave=0xC0; tab=0x09; up=0x26; dow
 function Tap([int]$vk, [bool]$shift = $false) {
   $scan = [In]::MapVirtualKey($vk, 0)
   $ext = $vk -in 0x26,0x28,0x25,0x27
-  if ($shift) { if ($env:LEGACY -eq "1") { [In]::Legacy(0x10, [byte][In]::MapVirtualKey(0x10,0), $false, $false) } else { [In]::Key([In]::MapVirtualKey(0x10,0), $false, $false) }; Start-Sleep -Milliseconds 40 }
-  if ($env:LEGACY -eq "1") { [In]::Legacy([byte]$vk, [byte]$scan, $false, $ext); Start-Sleep -Milliseconds 160; [In]::Legacy([byte]$vk, [byte]$scan, $true, $ext); Start-Sleep -Milliseconds 80 } else { [In]::Key($scan, $false, $ext); Start-Sleep -Milliseconds 160; [In]::Key($scan, $true, $ext); Start-Sleep -Milliseconds 80 }
-  if ($shift) { if ($env:LEGACY -eq "1") { [In]::Legacy(0x10, [byte][In]::MapVirtualKey(0x10,0), $true, $false) } else { [In]::Key([In]::MapVirtualKey(0x10,0), $true, $false) }; Start-Sleep -Milliseconds 40 }
+  if ($shift) { if ($env:LEGACY -ne "0") { [In]::Legacy(0x10, [byte][In]::MapVirtualKey(0x10,0), $false, $false) } else { [In]::Key([In]::MapVirtualKey(0x10,0), $false, $false) }; Start-Sleep -Milliseconds 40 }
+  if ($env:LEGACY -ne "0") { [In]::Legacy([byte]$vk, [byte]$scan, $false, $ext); Start-Sleep -Milliseconds 160; [In]::Legacy([byte]$vk, [byte]$scan, $true, $ext); Start-Sleep -Milliseconds 80 } else { [In]::Key($scan, $false, $ext); Start-Sleep -Milliseconds 160; [In]::Key($scan, $true, $ext); Start-Sleep -Milliseconds 80 }
+  if ($shift) { if ($env:LEGACY -ne "0") { [In]::Legacy(0x10, [byte][In]::MapVirtualKey(0x10,0), $true, $false) } else { [In]::Key([In]::MapVirtualKey(0x10,0), $true, $false) }; Start-Sleep -Milliseconds 40 }
 }
 # FOREGROUND_GUARD: never type into another app. Abort unless the target process owns the foreground window.
 Add-Type @"

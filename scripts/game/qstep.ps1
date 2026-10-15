@@ -79,7 +79,10 @@ function Bridge-Read([bool]$angle = $false, [int]$tries = 12) {
   return $null
 }
 function Read-Pos([string]$ref = '', [int]$tries = 3, [bool]$angle = $false) {
-  if ($script:bridge -and -not $ref) { return (Bridge-Read $angle $tries) }   # the player: the bridge; a ref: readpos
+  # the player: the bridge; a ref: readpos. A caller's small try count (Read-Settled's 3) is a readpos retry budget;
+  # a bridge read needs its ~8 s of patience whatever the caller asked (bridge_probe_1015b: 3 tries gave up 2 s before
+  # the first line after the loading screen)
+  if ($script:bridge -and -not $ref) { return (Bridge-Read $angle ([Math]::Max($tries, 12))) }
   # up to 3 reads: OCR sometimes drops or shifts a column; a read with x == z or a missing value is retried. With
   # $angle (door_trip arrivals) readpos also types player.getangle z: the read returns "x y z" and the heading goes to
   # $script:lastHeading. Every readpos run keeps its capture, OCR text and read.json (its nonce) in its own folder,

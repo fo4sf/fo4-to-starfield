@@ -619,6 +619,8 @@ class ExpPackTests(unittest.TestCase):
 
         def fake_ba2(a, data_root, out, folders=None, fmt="General"):
             from pathlib import Path
+            if os.path.dirname(os.path.abspath(__file__)) not in sys.path:   # tests/ (discover adds it; -m unittest tests.x does not)
+                sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
             from ba2_fixture import archive_from_tree
             writef(out, archive_from_tree(Path(data_root)))
             return out

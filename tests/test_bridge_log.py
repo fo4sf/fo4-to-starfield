@@ -192,3 +192,18 @@ class ClockAgeTests(unittest.TestCase):
             self.assertTrue(r["ok"])
             self.assertEqual(r["n"], 8)
             self.assertEqual(r["clock"], now)
+
+
+class SignedFormIdTests(unittest.TestCase):
+    """bridge_probe_1015b (2026-10-14): on a planet the worldspace's form id printed negative (Papyrus signed int), the
+    line did not parse, and every read saw the last Vault line as the newest one."""
+    def test_planet_line_with_a_negative_world_id(self):
+        d = bridge_log.parse_line("[23:31:07] FO4SF rt=217.383011 pos=-470.882690 -2251.897461 0.404062 ang=90.000000 "
+                                  "cell=636176 world=-16708235 loaded=true n=26")
+        self.assertIsNotNone(d)
+        self.assertEqual(d["pos"], [-470.88269, -2251.897461, 0.404062])
+        self.assertEqual(d["cell"], "0009B510")
+        self.assertEqual(d["world"], f"{-16708235 & 0xFFFFFFFF:08X}")
+        self.assertEqual(d["n"], 26)
+        r = bridge_log.parse_event("FO4SF ref=-5 pos=1 2 3 cell=-16708235")
+        self.assertEqual(r["cell"], f"{-16708235 & 0xFFFFFFFF:08X}")
