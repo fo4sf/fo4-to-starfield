@@ -37,7 +37,19 @@ Load doors (door_trip): doors [{"cell", "pos", "auto", "works", "dest_cell", "de
 loads when the player comes within auto_dist (3 m, Starfield.esm fAutoDoorActivateDistance) while the game runs (a walk
 step, or the console closing after a setpos); a door without "auto" loads on E within 2.5 m, where prompt_visible.py
 says yes. A load moves the player to dest_pos in dest_cell and hides the HUD for load_secs (hud_visible.py says no).
-"player.setangle z <deg>" sets the heading; "hold:w,<ms>" walks walk_speed m/s along it (walk_blocked: not at all).
+"player.setangle z <deg>" sets the heading; "hold:w,<ms>" (and input.ps1's guarded "holdg:w,<ms>") walks walk_speed m/s
+along it (walk_blocked: not at all; heading_bias degrees are added to the heading the player really walks).
+"player.getpos x|y|z" prints "GetPos: X >> <v>" (the player's position; getpos_misread [n, ...]: the n-th x reply, from 1,
+drops its minus sign as the OCR did; getpos_lost [n, ...]: the n-th z reply is not on screen at all). readpos_calls
+counts the readpos.ps1 runs (the walk may use it for the arrival only).
+Ground (walk): ground {"z0", "sx", "sy", "decks": [[x0, y0, x1, y1, z]], "holes": [[x0, y0, x1, y1]],
+"walls": [[x0, y0, x1, y1]], "boundary": [[x0, y0, x1, y1]], "boundary_shift": [dx, dy, dz], "stop_box": [x0, y0, x1, y1]}
+in the game's frame: a walking player stands on the plane z0 + sx * x + sy * y, or on a deck's z inside it; a wall stops
+the walk; a hole drops the player 80 m (no ground); entering a boundary box shows the "BOUNDARY REACHED" box (popup: what
+the centre OCR reads), moves the player by boundary_shift and stops the walk; entering stop_box creates the file
+"stop_file" (the owner's STOP file appearing mid-hold: the sandbox input.ps1 then exits 5 as the real holdg does). A
+player.setpos z lands on that ground at once.
+"popup" prints the popup's text (the sandbox ocr.ps1 with a region), "" when none.
 "player.GetInCell <cell>" prints "GetInCell >> 1.00" / "0.00" for a form id in cell_ids ({id: cell EditorID}), or for
 an EditorID when incell_editor_ids is set; otherwise the console's refusal of the first live run (2026-10-13): "Item
 '<arg>' not found for parameter Cell." and "Compiled script not saved!". "save <name>" writes <name>.sfs (player, cell,
@@ -114,18 +126,53 @@ def auto_doors(s):
     return False
 
 
+def inside(box, p):
+    return box[0] <= p[0] <= box[2] and box[1] <= p[1] <= box[3]
+
+
+POPUP = "BOUNDARY REACHED Open the map to explore another region, or return to your ship. FAST TRAVEL TO SHIP B CANCEL"
+
+
+def ground_z(s, p):
+    """The walk ground under p (module doc), or None when there is none (a hole)."""
+    g = s["ground"]
+    if any(inside(b, p) for b in g.get("holes", [])):
+        return None
+    for d in g.get("decks", []):
+        if inside(d, p):
+            return float(d[4])
+    return float(g.get("z0", 0.0)) + float(g.get("sx", 0.0)) * p[0] + float(g.get("sy", 0.0)) * p[1]
+
+
 def walk(s, ms):
     """hold:w: walk along the heading in 5 cm steps, an automatic door in range loads at once."""
-    if s.get("walk_blocked"):
+    if s.get("walk_blocked") or s.get("popup"):
         return
-    h = math.radians(float(s.get("heading", 0.0)))
+    h = math.radians(float(s.get("heading", 0.0)) + float(s.get("heading_bias", 0.0)))
     dist = float(s.get("walk_speed", 3.0)) * ms / 1000.0
     s["walks"] = s.get("walks", 0) + 1
     p = player_pos(s)
     s["falling"] = None
+    g = s.get("ground")
     dz = float(s.get("walk_dz", 0.0)) / max(1, int(dist / 0.05))
     for _ in range(int(dist / 0.05)):
-        p = [p[0] + 0.05 * math.sin(h), p[1] + 0.05 * math.cos(h), p[2] + dz]
+        q = [p[0] + 0.05 * math.sin(h), p[1] + 0.05 * math.cos(h), p[2] + dz]
+        if g is not None:
+            if any(inside(b, q) for b in g.get("walls", [])):
+                return                                     # blocked: the player stays where it was
+            if any(inside(b, q) for b in g.get("boundary", [])):
+                shift = g.get("boundary_shift") or [0.0, 0.0, 0.0]
+                s["player"] = [q[k] + shift[k] for k in range(3)]
+                s["popup"] = POPUP
+                return
+            if g.get("stop_box") and s.get("stop_file") and inside(g["stop_box"], q):
+                open(s["stop_file"], "a").close()            # the owner's STOP file appears while W is held
+            z = ground_z(s, q)
+            if z is None:
+                s["player"] = [q[0], q[1], q[2] - 80.0]      # fell through: no ground there
+                return
+            q[2] = z
+        p = q
         s["player"] = p
         if auto_doors(s):
             return
@@ -166,6 +213,22 @@ def run(s, cmd):
         s["player"]["xyz".index(w[1])] = float(w[2])
         if w[1] == "z" and s.get("land_z") is not None:    # the player lands at once on ground at land_z
             s["player"][2] = float(s["land_z"])
+        if w[1] == "z" and s.get("ground") is not None:    # ... or on the walk ground
+            z = ground_z(s, s["player"])
+            if z is not None:
+                s["player"][2] = z
+    elif low.startswith("player.getpos "):
+        ax = w[1].upper()
+        v = player_pos(s)["XYZ".index(ax)]
+        if ax == "X":
+            s["getpos_x"] = s.get("getpos_x", 0) + 1
+            if s["getpos_x"] in s.get("getpos_misread", []):
+                v = abs(v)                                   # the OCR dropped the minus sign
+        if ax == "Z":
+            s["getpos_z"] = s.get("getpos_z", 0) + 1
+            if s["getpos_z"] in s.get("getpos_lost", []):
+                return                                       # the reply is not on screen (the OCR lost the line)
+        s["log"].append(f"GetPos: {ax} >> {v:.2f}")
     elif low.startswith("player.setangle z "):
         s["heading"] = float(w[2])
     elif low.startswith("player.getincell "):
@@ -359,8 +422,9 @@ def main():
                     for a in s["actors"].values():
                         a.pop("pending", None)
                     auto_doors(s)                          # a setpos left the player in an automatic door's range
-            elif k == "hold" and v.startswith("w,") and not s.get("console"):
+            elif k in ("hold", "holdg") and v.startswith("w,") and not s.get("console"):
                 walk(s, int(v[2:]))
+                s.setdefault("holds", []).append(int(v[2:]))
             elif k == "key" and v == "e" and not s.get("console"):
                 p = player_pos(s)
                 for d in s.get("doors", []):
@@ -375,6 +439,9 @@ def main():
             lag["left"] -= 1
         else:
             write_png(sys.argv[2], sky(s))
+    elif sys.argv[1] == "popup":
+        print(s.get("popup") or "")
+        return
     elif sys.argv[1] == "screen":
         lines = s["log"][-9:]                              # the console shows about nine lines
         if s.get("layout") == "column":
@@ -387,6 +454,7 @@ def main():
         args = sys.argv[2:]
         angle = "--angle" in args
         ref = next((x.upper() for x in args if x and x != "--angle"), "")
+        s["readpos_calls"] = s.get("readpos_calls", 0) + 1   # the walk must not use readpos.ps1 after the arrival
         if not ref:
             p = player_pos(s)
             g = s.get("garble_after_walks")

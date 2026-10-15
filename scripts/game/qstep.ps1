@@ -29,6 +29,11 @@ function Send($seq) {
   $arg = $seq
   if ($PSVersionTable.PSVersion.Major -lt 7 -or "$PSNativeCommandArgumentPassing" -in '', 'Legacy') { $arg = $seq -replace '"', '\"' }
   powershell -NoProfile -ExecutionPolicy Bypass -File $i -Seq $arg | Out-Null
+  if ($LASTEXITCODE -eq 5) {                             # holdg: a STOP file (walk, FO4SF_STOP_FILES) appeared mid-hold
+    $hit = @("$env:FO4SF_STOP_FILES".Split(';') | Where-Object { $_ -and (Test-Path -LiteralPath $_) })
+    $obs['stopped'] = "STOP file $($hit -join ', ') (during a hold; the key was released)"; $obs['walk_stopped'] = 'stopped'
+    Save-Obs; exit 2
+  }
   if ($LASTEXITCODE -ne 0) { $obs['stopped'] = 'input guard'; Save-Obs; exit 2 }
 }
 function Console-Open {
@@ -1109,6 +1114,219 @@ switch ($kind) {
     $c = In-Cell 'reload_cell'; $R['incell'] = $c.incell; $R['incell_ocr'] = $c.ocr; $R['incell_error'] = $c.error
     $R['shot'] = Shot 'reload.png'
     $obs['reload'] = $R
+  }
+  'walk' {
+    # A continuous walk (docs/terrain/walk-redrocket-sanctuary.md; the controller and the judge are walk_eval.py): coc,
+    # the arrival read until it settles (the overlay's merge offset O = arrival - spawn_local), for a test with "setup"
+    # ONE teleport to the route's start before the walk begins (setup, not walking evidence), then legs until the
+    # controller says done or stop. A leg: one console session (ClearConsole, player.getpos x / y / z, the console OCR'd
+    # with parse_npc.py; a failed read is read again in a fresh session, Walk-Session), the controller's decision on that read (walk_eval.py
+    # steer), "player.setangle z <heading>" typed in the same session, the console closed, W held for hold_ms
+    # (input.ps1 holdg: released at once when the game loses the foreground), then one screenshot: the HUD
+    # (hud_visible.py; gone -> wait up to 20 s for it) and the screen centre's text (ocr.ps1: "BOUNDARY REACHED" stops the
+    # walk; nothing is pressed to close it). Every leg records the console lines it typed: during the walk only
+    # ClearConsole, player.getpos and player.setangle, never a setpos (the judge checks). A screenshot is kept every
+    # shot_every legs and at every event. Everything typed is validated here again.
+    # The owner's stop controls (spec.stop, testqueue.py stop_controls: the runner's STOP files and the Resource
+    # Guardian) are honoured inside the walk: the files before every action (Walk-Stop) and during the hold (input.ps1
+    # holdg, FO4SF_STOP_FILES), the Guardian once per leg (walk_eval.py steer). A stop ends the step like a guard stop:
+    # exit 2, nothing more typed, obs.json with the legs so far and `stopped` (the runner counts no attempt).
+    if ("$($t.travel)" -notmatch '^coc [A-Za-z0-9_]+$') { "bad travel"; exit 4 }
+    function Num-W($v, [double]$def, [double]$lo, [double]$hi, [string]$what) {
+      if ($null -eq $v) { return $def }
+      if ($v -is [bool] -or $v -is [string]) { "bad $what"; exit 4 }
+      $d = [double]$v; if ([double]::IsNaN($d) -or $d -lt $lo -or $d -gt $hi) { "bad $what"; exit 4 }
+      return $d
+    }
+    function Vec-W($v, [int[]]$sizes, [string]$what) {
+      $a = @($v)
+      if ($sizes -notcontains $a.Count) { "bad $what"; exit 4 }
+      $out = @()
+      foreach ($x in $a) {
+        if ($x -isnot [double] -and $x -isnot [int] -and $x -isnot [long] -and $x -isnot [decimal]) { "bad $what"; exit 4 }
+        $d = [double]$x; if ([double]::IsNaN($d) -or [double]::IsInfinity($d) -or [Math]::Abs($d) -gt 1e6) { "bad $what"; exit 4 }
+        $out += $d
+      }
+      return ,$out
+    }
+    $sl = Vec-W $t.spawn_local @(2, 3) 'spawn_local'
+    $wps = @($t.waypoints)
+    if ($wps.Count -lt 2 -or $wps.Count -gt 400) { "bad waypoints"; exit 4 }
+    $W = @(); foreach ($w in $wps) { $W += ,(Vec-W $w @(4, 5) 'waypoint') }      # x, y, z, reach[, keep]
+    $start = Vec-W $t.start @(3) 'start'
+    $maxLegs = [int](Num-W $t.max_legs 60 1 400 'max_legs'); $shotEvery = [int](Num-W $t.shot_every 3 1 50 'shot_every')
+    $drop = Num-W $t.drop 1.0 0 50 'drop'; $settle = [int](Num-W $t.settle_ms 6000 0 30000 'settle_ms')
+    if ($null -ne $t.setup -and $t.setup -isnot [bool]) { "bad setup"; exit 4 }
+    $stopFiles = @()
+    if ($null -ne $t.stop -and $null -ne $t.stop.files) {
+      foreach ($f in @($t.stop.files)) { if ($f -isnot [string] -or -not $f) { "bad stop.files"; exit 4 }; $stopFiles += $f }
+    }
+    $env:FO4SF_STOP_FILES = ($stopFiles -join ';')        # input.ps1 holdg checks them while W is down
+    $lightCmds = Light-Commands
+    $preCmds = Console-List $t.console_pre 'console_pre'; $postCmds = Console-List $t.console_post 'console_post'
+    $wpy = Join-Path $here 'walk_eval.py'; $parse = Join-Path $here 'parse_npc.py'
+    $state = Join-Path $Out 'walk_state.json'
+    $stepStart = Get-Date
+    $budget = if ($t.budget_s) { [double]$t.budget_s } else { 1e9 }
+    function Walk-Left { $budget - ((Get-Date) - $stepStart).TotalSeconds }
+    function Walk-Read {
+      # console OPEN: ClearConsole (its echo marks this session's start for parse_npc.py) and the three getpos; returns
+      # "x y z" or $null, the console stays open. parse_npc.py reads nothing before this session's start and gives a
+      # position only when all three values are this session's ($script:readHow: its reading, "order" / "inline").
+      Send 'type:ClearConsole|key:enter|wait:500|type:player.getpos x|key:enter|wait:450|type:player.getpos y|key:enter|wait:450|type:player.getpos z|key:enter|wait:700'
+      $script:legCmds += @('ClearConsole', 'player.getpos x', 'player.getpos y', 'player.getpos z')
+      $cap = Join-Path $Out 'walk_cap.png'; $prep = Join-Path $Out 'walk_prep.png'; $txt = Join-Path $Out 'walk_ocr.txt'
+      powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'shot_region.ps1') -Out $cap | Out-Null
+      $script:readHow = ''
+      foreach ($th in 135, 140, 130, 145) {
+        & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $cap $prep $th 12 | Out-Null
+        (powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $prep -Scale 1) | Set-Content $txt -Encoding utf8
+        $r = $null
+        try { $r = (& $env:FO4SF_PYTHON $parse $txt '--expect=x,y,z') | ConvertFrom-Json } catch { $r = $null }
+        if ($r -and "$($r.pos)" -match $pos3) { $script:readHow = "$($r.how)"; return "$($r.pos)".Trim() }
+      }
+      return $null
+    }
+    function Walk-Session([int]$tries) {
+      # console CLOSED before and after: up to $tries fresh sessions of the same ClearConsole-marked read (a failed
+      # first read, the second read of an implausible move). Never readpos.ps1: its parse_getpos.py takes the last X,
+      # Y and Z anywhere on screen, so a capture missing this session's Z joined the current x / y with an older
+      # session's z (Codex on PR #103); here all three values come from one current session or there is no read.
+      for ($k = 0; $k -lt $tries; $k++) {
+        Console-Open
+        $p = Walk-Read
+        Send 'key:grave|wait:600'
+        if ($p) { return $p }
+        Start-Sleep -Milliseconds 400
+      }
+      return $null
+    }
+    function Steer([string]$read, [bool]$again = $false) {
+      # walk_eval.py steer: the next action for this read ("none" when unread); $null when it gave no answer
+      $rd = $(if ($read) { $read } else { 'none' })
+      $a = @($wpy, 'steer', '--spec', $Spec, '--state', $state, "--read=$rd")
+      if ($again) { $a += '--reread' }
+      $j = & $env:FO4SF_PYTHON @a
+      try { return ("$j" | ConvertFrom-Json) } catch { return $null }
+    }
+    function Popup-Text([string]$png) {
+      # the screen centre's text (the "BOUNDARY REACHED" box sits there and leaves the HUD on screen, 2026-10-12)
+      $f = Join-Path $Out $png
+      if (-not (Test-Path $f)) { return '' }
+      return ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $f -X 320 -Y 150 -W 640 -H 330 -Scale 2) -join ' ')
+    }
+    function Walk-Stop {
+      # the first STOP file of the spec that exists (cheap: tested before every action of a leg), else ''
+      foreach ($f in $stopFiles) { if (Test-Path -LiteralPath $f) { return "STOP file $f" } }
+      return ''
+    }
+    function Stop-Walk([string]$why, $L) {
+      # a stop control tripped: the unfinished leg and the reason go into obs.json, nothing more is typed, exit 2
+      $L['action'] = 'stop'; $L['reason'] = 'stopped'; $L['cmds'] = $script:legCmds
+      $obs['legs'] = @($legs) + @($L); $obs['walk_stopped'] = 'stopped'; $obs['stopped'] = $why
+      Save-Obs; exit 2
+    }
+
+    # 1. the coc arrival and the overlay's merge offset
+    Run-Console $preCmds 'pre'
+    Console-Open
+    Send "type:$($t.travel)|key:enter|wait:400|key:grave|wait:3000"
+    $w0 = Wait-Hud 90 'hud.png'; $obs['load_s'] = $w0.secs; $obs['hud_back'] = $w0.up
+    Start-Sleep 3
+    $arr = Read-Settled
+    $obs['spawn_read'] = $arr.read; $obs['spawn_settled'] = $arr.settled; $obs['spawn_reads'] = $arr.reads
+    $obs['shot'] = Shot 'arrival.png'
+    Apply-Light $lightCmds "$($obs['shot'])"
+    Run-Console $postCmds 'post'
+    if (-not $arr.settled -or "$($arr.read)" -notmatch $pos3) {
+      $obs['offset_missing'] = 'the arrival was not read or still moving after 5 reads'; Save-Obs; exit 0
+    }
+    $sv = "$($arr.read)".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+    $O = @(([double]$sv[0] - $sl[0]), ([double]$sv[1] - $sl[1]), 0.0)
+    if ($sl.Count -ge 3) { $O[2] = [double]$sv[2] - $sl[2] }
+    $obs['offset'] = $O; $obs['offset_from'] = 'spawn'
+    Save-Obs
+    # 2. setup (the reverse test): one teleport to the route's start, facing the next waypoint, before the walk
+    if ($t.setup) {
+      $h0 = ([Math]::Atan2($W[1][0] - $W[0][0], $W[1][1] - $W[0][1]) * 180.0 / [Math]::PI + 360.0) % 360.0
+      $tgt = @(($start[0] + $O[0]), ($start[1] + $O[1]), ($start[2] + $O[2]))
+      Teleport @($tgt[0], $tgt[1], ($tgt[2] + $drop)) $h0 5
+      Start-Sleep -Milliseconds $settle
+      $s2 = Read-Settled
+      $obs['setup'] = [ordered]@{ target = $tgt; read = $s2.read; settled = $s2.settled; reads = $s2.reads; shot = (Shot 'setup.png') }
+      Save-Obs
+      if (-not $s2.settled -or "$($s2.read)" -notmatch $pos3) { exit 0 }
+    }
+    # 3. the walk
+    $init = & $env:FO4SF_PYTHON $wpy init --spec $Spec --state $state "--offset=$(F $O[0]) $(F $O[1]) $(F $O[2])"
+    if ("$init" -notmatch '"init"') { $obs['walk_stopped'] = 'steer'; $obs['steer_init'] = "$init"; Save-Obs; exit 0 }
+    $legs = @(); $n = 0; $walkStart = Get-Date; $pitched = $false; $stopReason = ''
+    while ($true) {
+      if ((Walk-Left) -lt 150) { $stopReason = 'budget'; break }
+      $script:legCmds = @()
+      $L = [ordered]@{ n = $n; t = [Math]::Round(((Get-Date) - $walkStart).TotalSeconds, 1) }
+      $why = Walk-Stop; if ($why) { Stop-Walk $why $L }
+      Console-Open
+      $open = $true
+      $p = Walk-Read; $L['via'] = 'console'; $L['read_how'] = $script:readHow
+      if (-not $p) { Send 'key:grave|wait:600'; $open = $false; $p = Walk-Session 2; $L['via'] = 'console_retry'; $L['read_how'] = $script:readHow }
+      $L['read'] = $p
+      $d = Steer $p
+      if ($d -and $d.action -eq 'reread') {
+        if ($open) { Send 'key:grave|wait:600'; $open = $false }
+        Start-Sleep -Milliseconds 500
+        $p2 = Walk-Session 2
+        $L['reread'] = $p2; $L['reread_why'] = "$($d.reason)"; $L['reread_via'] = 'console'; $L['reread_how'] = $script:readHow
+        $d = Steer $p2 $true
+        if ($d -and ($d.action -in 'aim', 'done' -or "$($d.reason)" -eq 'jump')) { $L['used'] = $p2 }
+        $L['confirmed'] = [bool]($d -and $d.confirmed)
+      } elseif ($p) { $L['used'] = $p }
+      if (-not $d) { if ($open) { Send 'key:grave|wait:600' }; $L['action'] = 'stop'; $L['reason'] = 'steer'; $L['cmds'] = $script:legCmds
+                     $legs += $L; $obs['legs'] = $legs; $stopReason = 'steer'; break }
+      if ("$($d.reason)" -eq 'stopped') { Stop-Walk "$($d.stopped)" $L }       # a STOP file or the Guardian (steer)
+      $L['action'] = "$($d.action)"; $L['reason'] = "$($d.reason)"; $L['wp'] = $d.wp; $L['local'] = $d.local
+      $event = $false
+      if ($d.action -eq 'aim') {
+        $h = [double]$d.heading; $hold = [int]$d.hold_ms
+        if ([double]::IsNaN($h) -or $h -lt 0 -or $h -gt 360 -or $hold -lt 100 -or $hold -gt 10000) { "bad steer answer"; exit 4 }
+        if (-not $open) { Console-Open; $open = $true }
+        $cmd = "player.setangle z $(([Math]::Round($h, 1)).ToString('0.#', $inv))"
+        $seq = "type:$cmd|key:enter|wait:300"
+        $script:legCmds += $cmd
+        if (-not $pitched) { $seq += '|type:player.setangle x 5|key:enter|wait:300'; $script:legCmds += 'player.setangle x 5'; $pitched = $true }
+        Send "$seq|key:grave|wait:500"; $open = $false
+        $L['heading'] = $h; $L['hold_ms'] = $hold; $L['dist'] = $d.dist; $L['detour'] = [bool]$d.detour; $L['speed'] = $d.speed
+        $why = Walk-Stop; if ($why) { Stop-Walk $why $L }
+        $obs['legs'] = @($legs) + @($L)                   # a stop during the hold (Send) keeps this leg's state
+        Send "holdg:w,$hold|wait:500"
+        # the screen after the walk: HUD and popup
+        $up = Hud-Shown 'walk_last.png'
+        $L['hud'] = [bool]$up
+        $pop = Popup-Text 'walk_last.png'
+        if ($pop -match 'BOUNDARY|REACHED|FAST TRAVEL|PLANET MAP') { $L['popup'] = "$pop".Trim(); $event = $true }
+        if (-not $up) {
+          $event = $true
+          $keep = Join-Path $Out ('walk_{0:D3}_nohud.png' -f $n); Copy-Item (Join-Path $Out 'walk_last.png') $keep -ErrorAction SilentlyContinue
+          $wb = Wait-Hud 20 'walk_hud.png'; $L['hud_gap_s'] = $wb.secs; $L['hud_back'] = [bool]$wb.up
+        }
+        if ($d.detour) { $event = $true }
+        if ((($n % $shotEvery) -eq 0) -or $event) {
+          $name = 'walk_{0:D3}.png' -f $n
+          Copy-Item (Join-Path $Out 'walk_last.png') (Join-Path $Out $name) -ErrorAction SilentlyContinue
+          if (Test-Path (Join-Path $Out $name)) { $L['shot'] = $name }
+        }
+      } elseif ($open) { Send 'key:grave|wait:600'; $open = $false }
+      $L['cmds'] = $script:legCmds
+      $legs += $L; $obs['legs'] = $legs; Save-Obs        # after every leg: a cut-off keeps what was read
+      if ($d.action -ne 'aim') { $stopReason = "$($d.reason)"; break }
+      if ($L['popup'] -and "$($L['popup'])" -match 'BOUNDARY|REACHED') { $stopReason = 'boundary'; break }
+      if ($L['hud'] -eq $false -and -not $L['hud_back']) { $stopReason = 'nohud'; break }
+      $n++
+    }
+    $obs['walk_stopped'] = $stopReason
+    $obs['walk_s'] = [int]((Get-Date) - $walkStart).TotalSeconds
+    $obs['end_shot'] = Shot 'end.png'
+    $obs['step_s'] = [int]((Get-Date) - $stepStart).TotalSeconds
   }
   'recover' {
     # testqueue.py calls this only when nobody touched the PC since its last input: a menu, the Steam overlay or a

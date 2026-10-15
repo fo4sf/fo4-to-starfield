@@ -5,4 +5,10 @@
 param([string]$Proc = 'Starfield', [string]$Seq)
 $env:FAKE_SEQ = $Seq
 & $env:FO4SF_PYTHON (Join-Path $PSScriptRoot 'fake_game.py') type -
+if ($Seq -match 'holdg:') {
+  # as the real holdg: a STOP file (FO4SF_STOP_FILES) that exists once the hold ends counts as one that appeared during
+  # it (fake_game's stop_box writes it while walking): the key is released and the exit code is 5
+  $hit = @("$env:FO4SF_STOP_FILES".Split(';') | Where-Object { $_ -and (Test-Path -LiteralPath $_) })
+  if ($hit) { Write-Error "STOP: $($hit[0]) appeared during a hold (sandbox)"; exit 5 }
+}
 "sent (sandbox)"

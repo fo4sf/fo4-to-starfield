@@ -34,7 +34,10 @@ import sys
 #               (getangle z) and after the load, merge probes. An older runner took "99.74 -2195.27 99.41" for a load
 # door_route:   door_trip legs that walk a planned route from where the player stands (outside.route / inside.route):
 #               no teleport to a start; an older qstep.ps1 would teleport to outside.start instead
-FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "door_frames", "door_route")
+# walk:         the walk kind (plan-walk; docs/terrain/walk-redrocket-sanctuary.md): a continuous walk with real input
+#               over planned waypoints, steered by walk_eval.py, W held by input.ps1's guarded holdg. An older qstep.ps1
+#               ends such a step with "unknown kind" (exit 4) after the game was launched for it
+FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "door_frames", "door_route", "walk")
 
 
 def needs(tests):
@@ -55,6 +58,8 @@ def needs(tests):
                 out.add("door_frames")
             if (t.get("outside") or {}).get("route") or (t.get("inside") or {}).get("route"):
                 out.add("door_route")
+        if t.get("kind") == "walk":
+            out.add("walk")
     return sorted(out)
 
 
