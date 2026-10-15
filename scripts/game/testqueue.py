@@ -2171,6 +2171,10 @@ def apply_bridge(tests, a):
         return {}
     d = os.path.abspath(d)
     files = {BRIDGE_PLUGIN: os.path.join(d, BRIDGE_PLUGIN), BRIDGE_PEX: os.path.join(d, BRIDGE_PEX)}
+    for root, _, names in os.walk(os.path.join(d, "Data")):   # every packed file (FO4SF_Probe.pex and later ones too)
+        for n in names:
+            p = os.path.join(root, n)
+            files[os.path.relpath(p, d)] = p
     missing = [k for k, p in files.items() if not os.path.exists(p)]
     if missing:
         sys.exit(f"--bridge {d}: missing {missing} (scripts/bridge/make_bridge.py stage)")

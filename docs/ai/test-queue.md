@@ -883,3 +883,8 @@ Instead the game writes a file:
   Sandbox: the fake game appends a bridge line to `$FO4SF_BRIDGE_LOG` after every call
   (`test_the_walk_reads_the_bridge_log_and_types_no_getpos`). Still to come: console batches ending with a TraceUser
   nonce (`cgf "Debug.TraceUser" "fo4sf" "<nonce>"`) in place of OCR confirmation; OCR stays for pop-ups and HUD checks.
+- **`FO4SF_Probe.psc` (staged with the bridge, unverified):** global functions for the console's `cgf`:
+  `cgf "FO4SF_Probe.Pos" <decimal form id>` logs that reference's position, heading, cell, disabled and loaded flags
+  (`FO4SF ref=<id> pos=.. ang=.. cell=.. disabled=.. loaded=..`), `cgf "FO4SF_Probe.Ack" "<tag>"` logs `FO4SF ack <tag>`,
+  `cgf "FO4SF_Probe.Player"` the player. If the VM loads an unattached script for cgf (supported hypothesis; the first
+  window tells), door and probe reads of `door_trip` and the NPC reads of `npc_nav` can leave OCR too.

@@ -97,6 +97,10 @@ def install(a):
         sys.exit(f"bridge not installed: {error}")
     d, plugin_src, pex = staged(a)
     source = {PLUGIN: exp_install.digest(plugin_src), PEX: exp_install.digest(pex)}
+    for root, _, names in os.walk(os.path.join(d, "Data")):   # every packed file: another script set is another bridge
+        for n in names:
+            p = os.path.join(root, n)
+            source[os.path.relpath(p, d)] = exp_install.digest(p)
     targets = {PLUGIN: exp_install.data_path(data, PLUGIN), ARCHIVE: exp_install.data_path(data, ARCHIVE)}
     if os.path.exists(rec_p):
         rec = read_record(rec_p)

@@ -69,15 +69,16 @@ def extract_sources(zip_path, work):
 
 
 def compile_script(compiler, src_dir, out_dir):
-    """PapyrusCompiler.exe on FO4SF_Bridge.psc (invoked by its bare name from its own folder: the compiler compares the
-    file name with the Scriptname and rejects a path); the .pex lands in out_dir."""
+    """PapyrusCompiler.exe on every .psc of this folder (FO4SF_Bridge, the quest script; FO4SF_Probe, the console's
+    cgf functions), each invoked by its bare name from this folder (the compiler compares the file name with the
+    Scriptname and rejects a path); the .pex files land in out_dir. Returns the quest script's .pex."""
     os.makedirs(out_dir, exist_ok=True)
-    cmd = [compiler, "FO4SF_Bridge.psc", "-f=Starfield_Papyrus_Flags.flg", f"-i={HERE};{src_dir}", f"-o={out_dir}"]
-    out = run(cmd, cwd=HERE)
-    pex = os.path.join(out_dir, "FO4SF_Bridge.pex")
-    if "Compilation succeeded" not in out or not os.path.exists(pex):
-        sys.exit("the Papyrus compile did not produce FO4SF_Bridge.pex")
-    return pex
+    for name in sorted(f for f in os.listdir(HERE) if f.lower().endswith(".psc")):
+        cmd = [compiler, name, "-f=Starfield_Papyrus_Flags.flg", f"-i={HERE};{src_dir}", f"-o={out_dir}"]
+        out = run(cmd, cwd=HERE)
+        if "Compilation succeeded" not in out or not os.path.exists(os.path.join(out_dir, name[:-4] + ".pex")):
+            sys.exit(f"the Papyrus compile did not produce {name[:-4]}.pex")
+    return os.path.join(out_dir, "FO4SF_Bridge.pex")
 
 
 def stage(a):
