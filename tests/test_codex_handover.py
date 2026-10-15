@@ -182,6 +182,21 @@ $ok | ConvertTo-Json -Compress
 
 @unittest.skipUnless(POWERSHELL, "PowerShell unavailable")
 class ReportPublicationTests(FixtureEnvironment, unittest.TestCase):
+    def test_hidden_nonempty_pending_report_publishes(self):
+        exe = self.bundle(self.root / "fake complete bundle")
+        output = self.root / "new-report.md"
+        log = self.root / "watchdog.log"
+        mark_hidden = "[IO.File]::SetAttributes($Arguments[-2], [IO.FileAttributes]::Hidden)" if os.name == "nt" else ""
+        stub = self.process_stub(exe, exec_hook=mark_hidden)
+        result = json.loads(run_ps(self.prelude((exe,)) + stub + f"""
+$ok = Invoke-CodexHandover -Workspace {ps_literal(self.root)} -Prompt 'synthetic report' `
+  -OutputPath {ps_literal(output)} -LogPath {ps_literal(log)}
+@{{ok=$ok;calls=@($script:fixtureCalls)}} | ConvertTo-Json -Compress
+""", self.env))
+        self.assertTrue(result["ok"], (result, log.read_text(encoding="utf-8-sig")))
+        self.assertEqual(len(result["calls"]), 3)
+        self.assertEqual(output.read_text(), "replacement synthetic report")
+
     def test_report_created_during_probe_is_never_overwritten(self):
         self.assert_publication_refuses("probe")
 
@@ -253,6 +268,7 @@ $log = {ps_literal(self.root / 'watchdog.log')}
 $cfg = Cfg
 $ok = CodexHandOver $cfg 4
 @{{ok=$ok;invalid=$cfg.codex_config_invalid;calls=@($script:fixtureCalls);notes=@($script:fixtureNotes);
+  diagnostic=$(if (Test-Path -LiteralPath $log) {{ [IO.File]::ReadAllText($log) }} else {{ $null }});
   threshold=$cfg.threshold_hours;check=$cfg.check_minutes;every=$cfg.codex_every_hours}} | ConvertTo-Json -Compress
 """, self.env))
 

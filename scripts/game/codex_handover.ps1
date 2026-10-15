@@ -169,7 +169,7 @@ function Invoke-CodexHandover {
     if ($result.TimedOut) { throw "Codex child timed out after $ExecTimeoutMilliseconds ms: $($result.Stderr)" }
     if ($result.ExitCode -ne 0) { throw "Codex child failed (exit $($result.ExitCode)): $($result.Stderr)" }
     if ($result.InputError) { throw "Codex child stdin failed: $($result.InputError)" }
-    if (-not (Test-Path -LiteralPath $pendingPath -PathType Leaf) -or (Get-Item -LiteralPath $pendingPath).Length -eq 0) {
+    if (-not (Test-Path -LiteralPath $pendingPath -PathType Leaf) -or (Get-Item -LiteralPath $pendingPath -Force).Length -eq 0) {
       throw 'Codex child exited 0 without a nonempty new report'
     }
     # The two-argument move refuses an existing destination; do not use a check followed by an overwrite.
