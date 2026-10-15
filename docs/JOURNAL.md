@@ -1159,3 +1159,23 @@ machine paths are excluded from Git. Shared coordination: #32 comment6159604237.
   never moved. The gate needs a forced engagement before the raider's result says anything about the conversion.
 - Also: docs/ai/first-run-failures-1014.md (twelve first-run failures, causes, guards); `input.ps1` defaults to the
   legacy key path; the walk-plan key `bridge` (the deck) and the test flag `bridge_reads` are different things.
+
+## 2026-10-14 Codex: source-archive read guard (#117, offline tested)
+
+Reproduced a stale archive identity with an equal-size synthetic overwrite and
+deterministically unchanged metadata. The original returns the old digest; the
+guarded Windows reader refuses the writer. Two earlier full-suite failures remain
+preserved rather than replaced by passing retries. Acquisition now denies writes,
+writable mappings and deletion/rename during hashing and the final metadata check;
+existing readers work. The persisted identity format is unchanged. Sources still
+must stay immutable for the entire conversion run; POSIX has no new exclusion.
+
+Independent QA passed21 narrow sharing checks and caught a late stream-construction
+failure that could close a reused descriptor. The context manager now keeps explicit
+descriptor ownership with a non-owning stream; an actual late `io.open` exception and
+descriptor-reuse regression fails before the fix and passes afterward.
+
+Validation:14 focused checks,341 Windows suite tests (3 skips), guard pass. Independent
+ownership re-review passed14 narrow checks including the original late-failure counterexamples;
+hosted Linux CI passed. [Contract and limits](testing/archive-fingerprints.md). No live game,
+source archive, deployment, queue or save was changed.
