@@ -278,3 +278,16 @@ the immutable-source contract across the conversion run; POSIX metadata checks r
 best effort. Alternatives rejected: accepting a green retry of the intermittent test,
 timestamp-only detection, or claiming that two hashes create an atomic snapshot.
 [Contract, evidence and limits](../testing/archive-fingerprints.md).
+
+## 2026-10-15 Claude: the leader's state is an append-only ledger; GitHub stays the human-readable bus
+
+The leader core (`src/fo4sf/core/`, to be built per [leader-core.md](leader-core.md)) keeps one append-only
+`leader/ledger.jsonl` of typed events beside the test queues; current state is a fold over it, and existing records
+(queue `results.jsonl`/`state.json`, deploy and install manifests, watchdog state) are imported as events, never
+rewritten. `SKIPPED` and `CIRCUIT_BROKEN` are terminal but undecided outcomes; only an `IN_GAME` `PASS` on the pinned
+build verifies a capability. Why: the 2026-10-14 power cut and the #84 controller races both came from state spread
+over labels, prose and per-queue files; a fold over a ledger resumes without guessing, a truncated last line is the
+worst crash case, and the work-period report generated from the fold cannot drift from the state. Alternatives:
+a SQLite store like `guardian.db` (harder to diff and attach as evidence; a crash mid-write is worse than a
+truncated JSON line); GitHub labels as the state (not machine-checkable, no history of who held the controller);
+rewriting old queue results into a new format (would touch original campaign evidence).
