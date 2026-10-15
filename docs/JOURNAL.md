@@ -9,7 +9,7 @@ sample NIF headers (`scripts/recon.py`, `scripts/recon_physics.py`). About 9 s r
 
 **Result:** see [FORMAT-GAP.md](FORMAT-GAP.md); raw data in [measurements/](measurements/).
 Headlines: plugin form versions 131 vs 581; 116 of 137 record types shared but field overlap mostly
-25–60%; no `LAND` or `SNDR` in Starfield; NIF BS 130 vs 175 with external `.mesh` geometry; Havok packfile vs
+25â€“60%; no `LAND` or `SNDR` in Starfield; NIF BS 130 vs 175 with external `.mesh` geometry; Havok packfile vs
 tagfile; `.bgsm` vs `.mat`/`.cdb`.
 
 **Open questions it raised:** meaning of the `.mesh` header fields (S1); how Starfield custom worldspaces get
@@ -18,7 +18,7 @@ terrain (S5); whether Mutagen's Starfield alpha can write usable plugins (S2).
 **Tooling gathered:** NifSkope (fo76utils) dev11 2025-12-30, xEdit 4.1.5f (includes `xSFEdit`),
 PyNifly V29.1.0, Blender 5.2.2, .NET SDK 9, Starfield Creation Kit (Steam 2722710), SFSE 0.2.21 (manual from Nexus).
 
-**Prior art search:** no public Fallout 4 → Starfield conversion project was found on GitHub or the web.
+**Prior art search:** no public Fallout 4 â†’ Starfield conversion project was found on GitHub or the web.
 Related open tooling is listed in the README.
 
 **Source reading (no code run):** fo76utils/nifskope has `.mesh` readers (`src/io/MeshFile.cpp`), a meshlet
@@ -595,7 +595,7 @@ start, OPEN read from the prompt (`94d6dcb`), idle-camera wake (`76488be`).
   Starfield body from a vanilla donor (as the keyframed door leaves do), with mass from FO4. Until then they're
   reported, not silently changed.
 
-## 2026-10-09 — Codex: checkpoint success-validation parity (#32)
+## 2026-10-09 â€” Codex: checkpoint success-validation parity (#32)
 
 - Verified with synthetic generated NIF/material/texture outputs: a checkpoint with intact output hashes but `fallback_materials: 1` or `door_error` was reused although save rejects it. The new regression fails both cases against baseline `cd94162`.
 - Load and save now share the same success predicate; degraded cached results cause reconversion and do not enter batch expectations.
@@ -607,6 +607,314 @@ open PRs (#34 QA PASS, #35 in progress), local team state, next steps. Removed a
 docs/ai/agent-status.md refreshed from live sources. Shut down: guardian proxy stopped, local model unloaded, no
 background jobs left. Next session: re-run Vault 81 and the library, finish the Prydwen (same pinned build), then
 movable bodies for loose items.
+
+## 2026-10-10 Movable loose items (offline; owner at the PC, so no game input)
+FO4 loose items (one dynamic body: pencils, cans, clipboards) now convert as movable Starfield objects instead of
+fixed obstacles. Evidence and field meanings: docs/ai/research-log.md "how Starfield makes a body movable".
+- **Starfield side, decoded by name** with `hktagfile`: motionType 2, flags 0x8a, mass, a motion-properties entry and
+  a mass distribution (centre, volume of the shape grown by its convex radius, inertia per kg x 1.5: 30 of 30 vanilla
+  boxes). Movable set dressing is a **MoveableStatic** record (a Static never moves; the clutter layer alone does
+  nothing) and the NIF has BSXFlags 0x42.
+- **Converter:** `meshcollision.convert_bodies` writes a lone dynamic FO4 convex body on a vanilla dynamic item's
+  template (`fooddrink_set_container01_empty_lid.nif`, read from the user's install), with FO4's mass and layer and a
+  computed mass distribution; `convert_static` puts it on the root node; the manifest marks the item `movable`; the
+  plugin writer makes it a MoveableStatic (`DATA 4` as vanilla). Default on with `--starfield-data`;
+  `--static-items` turns it off.
+- **Not converted (reported, not hidden):** ragdolls and breakables (several bodies: need constraints, e.g. the Vault
+  114 skeleton), dynamic compound / mesh / sphere bodies, and dynamic bodies on child nodes stay static, listed in
+  `collision_report.dynamic_kept_static`.
+- **Correction:** an old comment in `sfcollision.py` called offset 240 the motion type; it is the collision layer
+  (232 flags, 264 motionType).
+- Offline check: TinCan01 5 kg, Clipboard01 4 kg, Pencil01 0.5 kg read back as dynamic bodies; the skeleton stays
+  static with 17 reasons. Tests 262 OK, guard OK. **Not yet seen in game** (next: build, deploy, push a can).
+- **First in-game attempt (2026-10-10 16:2x), aborted, nothing learned about pushing yet.** Test build
+  `C:\Modding\staging\movable_v111` (Vault 111 only: 219 models, 13 movable = coffee cups, beer bottles, folding chairs,
+  clipboards, tools; 10 dynamic-in-FO4 models kept static with reasons: skeletons, gear-room gate, and compound shapes
+  such as the cardboard box and traffic cone). `cycle.ps1` loaded the save but Starfield's "console commands disable
+  achievements" popup swallowed the `coc`; the follow-up `coc.ps1` was blocked by the focus guard (Explorer had focus;
+  also `FO4SF_PYTHON` was unset, so the HUD check had no Pillow). The owner closed the game. The pinned build
+  (`AC379C53` / `B8080348`) was redeployed and its hashes verified. Next attempt: set `FO4SF_PYTHON`, dismiss the
+  popup inside `cycle.ps1`, and only when the owner is away. Follow-up found by the build: dynamic **compound** bodies
+  (several convex parts: boxes, cones, hammers) are common and need one dynamic compound body, not several.
+- **Movable compounds (offline, owner at the PC).** FO4 loose items made of several convex pieces (cardboard boxes,
+  traffic cones, hammers, wrenches) now convert to one dynamic `hknpCompoundShape` body, laid out exactly as Starfield's
+  273 vanilla movable compounds (research log "Starfield dynamic compound bodies"); their mass distribution is the
+  compound's bounding box as a solid box, as vanilla. Dynamic bodies now use a vanilla compound item as the template
+  (`cb_blackmarketantiquities.nif`). Offline: the cardboard box (9 pieces, 5 kg), traffic cone (8), hammer (2) and
+  wrench (4) read back with bounds, tree leaves and mass matching to 1e-8. Vault 111 test build: **18** movable models
+  (was 13); only multi-body objects stay fixed (3 skeletons, gear-room gate, oxygen tank: they need joints). Tests 266
+  OK. Still not seen in game (the next test waits until the owner is away or says go).
+
+## 2026-10-10 In game: movable items and the Vault 114 skeleton door (owner away, said go)
+Test build `movable_v114` (Vault 114 only, PR #41 code: 97 movable models, 7 of them merged multi-body), entered with
+the fixed `cycle.ps1` (PR #42) and verified at the COC marker (0.0 m).
+- **Door `05C7DC` passes from both sides** (routes 26 and 27, OPEN prompt both): 25.60 -69.71 -> 25.80 -74.80 and
+  25.64 -72.95 -> 25.64 -67.63 (5.1 m and 5.3 m through). Before: blocked from both sides by the skeleton.
+- **The skeleton moved** (one rigid 115 kg body, phase A): placed at 25.39 -72.55 -15.82 (FO4 position / 70), read
+  back with `prid 02002E61` + `getpos` at 24.50 -72.89 -16.70: about 1 m sideways and 0.88 m down. The drop needs a
+  visual check (a lower area, or partly through the floor?); the spot is too dark in screenshots. Open question.
+- **A tin can is pushed by walking into it**: `02002CCB` 25.30 -67.10 -1.31 -> 24.74 -67.17 -1.30 after the
+  player walked into it for 1.6 s. Screenshots are too dark to show it; the console read-back is the evidence.
+- Status: dynamic bodies, MoveableStatic records and the walk-push are **verified in game** (one item, one ragdoll);
+  the skeleton's resting height is **unresolved**.
+- Popup (PR #42): it opens with the console; while the console is open, keys go to the console line; closing the
+  console and pressing E closes it. `coc` from the main menu loads cells without a save, but the blank character is
+  pulled into the new-game start after a few minutes (load screen, hang), so tests keep using the autosave.
+- **Skeleton drop explained (offline; someone was using the PC, so no game input).** The converted skeleton is drawn in
+  its skinned bind pose (standing, 1.88 m tall), while FO4 lays placed skeletons down with per-reference ragdoll data
+  (`XRGD`, 28 bytes per body; research log). So the phase A rigid skeleton spawns standing and topples, which is the
+  ~1 m slide and 0.88 m drop measured in game. Needed: `XRGD` in Fo4Export (Codex) and a posed bake on the converter
+  side (skin weights). Until then skeletons are movable but in the wrong pose; reported, not hidden.
+## 2026-10-10 Claude: load doors between converted cells get their teleport (offline)
+FO4 load doors were kept shut since 2026-10-08. Now `dotnet/PluginSpike` makes every manifest `load_door` a graph-less
+DOOR record (collision unchanged) and, after all cells of a build are placed, writes the Starfield XTEL on both ends of
+every pair whose destination is placed in the same build; both references become persistent, as all 964 vanilla XTEL
+references are (docs/ai/research-log.md 2026-10-10). Unlinked doors stay shut and are listed in `<out>/teleports.json`;
+`PluginSpike teleports FO4Port.esm` lists the written links. Offline only: the pinned 15 cells + a scratch export of
+FortHagen02 give one pair (FortHagen01 `0CD469` <-> FortHagen02 `0CD46A`), read back from the written plugin. Not yet in
+game. Note for the next build: 12 of the 15 pinned cell exports predate the persistent-reference export and hold no
+load-door XTEL at all; re-export them before expecting any door to teleport. Branch `claude/load-door-teleport`.
+
+## 2026-10-11 Claude: load-door teleports checked on the re-exported 16 cells
+Follow-up to 2026-10-10. With the 15 pinned cells and FortHagen02 re-exported (schema 2, C:\Modding\staging\exports_1011),
+the branch writer reports "2 references linked (1 mutual pairs), 28 destinations not in this build, 4 sources not placed,
+0 issues": 34 XTELs, one pair (FortHagen01 `0CD469` <-> FortHagen02 `0CD46A`), the rest lead out of the set or sit on
+marker doors the converter never places. Read back from the written plugin; 0 existing FormIDs changed against the staging
+map. `teleports.json` now lists the unplaced sources too (PluginSpike.Tests asserts it). Still offline, not in game; PR #50
+(docs/ai/research-log.md 2026-10-11).
+## 2026-10-10: the Prydwen's 7 small falls (offline diagnosis, fix not yet built)
+The 7 `FALL` routes of the pinned Prydwen run are two problems, neither a hole in the converted collision
+(details and evidence: docs/ai/research-log.md, same date).
+- Routes 12, 13, 15, 18: the "stairs" `PryPlatformInCornerStairs01/02` are railing frames. Their post bevels gave the
+  planner a fake ramp (ends 0.03 m apart under a 0.91 m rise), and the walk went down the real stair next to them
+  (`PryCatwalkStairsEnt01`), ending where FO4's own steps are. `routes.py` now rejects ramps steeper than 60 degrees
+  end to end (all real ones are at most 46.4).
+- Routes 20, 28, 29: `PryCatwalkStairsEnt02` was converted facing the wrong way. Its NIF root node is turned
+  180 degrees, and the game ignores a root node's transform: FO4's precombined physics matches 89 placements of 15 such
+  models only without it. The converter applied it, so the first flight climbed away from the second and the routes
+  started in mid-air. Now geometry, collision nodes and door pivots leave the root out (`nif.world_transforms
+  placed=True`). This also turns back 43 other models (232 placements across the slice), among them diner counters,
+  Vault 114/95 catwalk frames, desk lamps, posters and the Cambridge `HitDoorSm01/Lg01` doors.
+Next: rebuild, then rerun the Prydwen (routes 12-32 and the regenerated Ent02 routes) and the Cambridge doors in game.
+## 2026-10-10 Launch script hardened after QA (offline; owner at the PC)
+PR #42's QA agent found that `cycle.ps1` pressed E blind when its screen check could not run. Fixed: a failed prompt
+or popup check now stops with exit 5; an activation prompt that stays under the crosshair stops with exit 6; a `coc`
+the popup swallowed is retried only after the console is closed and the popup cleared, with the console line emptied
+first; the cell name is validated before it is typed. New tests: every `scripts/game/*.ps1` must parse (PowerShell's
+parser, skipped where there is none) and `prompt_visible.py` is checked on synthetic screenshots. 258 tests OK on
+this branch.
+- **Launch script waits on the screen, not timers (offline).** `cycle.ps1` now polls a screenshot every 3 s for the main
+  menu text, then for the HUD after Continue and after a blind `coc`, instead of sleeping 30 + 45 + 37 s. The checks
+  were validated on today's saved screenshots (menu text read on the menu shot only; HUD seen in game only). Before:
+  195-210 s per cycle; after: to be measured on the next run (docs/ai/optimization.md).
+
+## 2026-10-11 Overnight: library and Vault 81 re-run on the pinned build (Lead task 4)
+Owner away (PC idle 4.7 h); normal build restored (`AC379C53`), entered with the verified cycle (168 s, from 195-210).
+**Boston Public Library, 67 routes (110 min):** 42 PASS, 10 STUCK, 4 FALL, 5 BLOCKED, 6 UNREAD. Doors 12 of 16 both
+sides, 1 one side (`0FFCA5`), 3 none: the wooden double doors `100196` and `10019C` block from both sides. The deco
+rail stairs (`BldDecoSmRailStairs01L/R`, `03L/R`, `Short01R`) account for 7 STUCK/FALL; brick and block stairs pass.
+**Vault 81, 19 routes:** 16 PASS, 2 BLOCKED, 1 UNOPENED; all 13 stair routes pass; stall doors `19DA38` both sides,
+`19DA3A` / `19DA36` one side each. Results: `run_lib_1011`, `run_v81_1010` (local). Posted on #32.
+## 2026-10-11 Route planner: railings are not stairs; double doors are twins (offline)
+Two findings from the library run, both test-side, not converter bugs:
+- The 7 STUCK/FALL "rail stairs" routes (`BldDecoSmRailStairs*`) were routes on railings: their FO4 collision has no
+  treads at all (6 flat vertices on one level) and no helper; the steps are a separate model. A scan of all 74 "stair"
+  models in the pinned build: 45 carry FO4's RampDummy helper, the other 29 are railings, trims and stairwell walls, and
+  NONE has treads without a helper, so a synthesized helper (built and then dropped today) has no target. The planner
+  now requires 3 tread levels for a model without a helper and skips the rest with a reason (`tread_levels`).
+- The library's "double doors" `100196` + `10019C` are two single-leaf `BldWoodPDbDoor01` references on one spot,
+  rotated 180 degrees, each hinged at its own jamb; the route activated one and hit the other leaf. The planner marks
+  such pairs (`door_twins`, within 0.1 m) and the runner resets and activates the twin leaf too (`+twin:` in the verb).
+Tests: tread levels (steps, railing, helper and underside ignored, 4 cm merge) and twins; 260 OK, guard OK. The
+twin step is untested in game until the next library run.
+
+## 2026-10-11 Queued test runner verified in game; terrain kickoff (Claude)
+- **Runner (PR #59)**: `scripts/game/testqueue.py` + `qstep.ps1`. Supervised batch on the integration build `2470f876`
+  (main + #41 #50 #51 #42 #54, local branch `claude/integration-1011`): launch, dedicated save `fo4sf_test_2470f876`
+  created and loaded, god mode read from the console ("God Mode enabled."), cell arrival verified; 2 stairs PASS,
+  2 falls PASS, 2 doors FAIL (`BldWoodPDoorShutter01` open but the route aims beside the doorway). Six runner bugs found
+  and fixed (kind mapping, tgm reply, ceiling pieces as probe floors, OCR without ">>", Steam popup taking the focus,
+  HUD recovery). The owner closed the game mid-run; movable and travel steps are not verified in game yet.
+- **Queued**: the rest of the supervised batch, then 753 tests on 16 cells (`C:\Modding\testqueue\overnight.ps1`),
+  starting only after 15 min without input.
+- **Terrain**: PR #56 (FO4 2x2 patch at Red Rocket, two decoders agree exactly, borders match, the building sits on the
+  terrain) and PR #57 (Starfield: 430/433 worldspaces use `Data\TERRAIN\<EditorID>.btd`; BTD decoded and re-encoded;
+  experiment 1 staged in `C:\Modding\staging\terrain_exp1`, not deployed). Next blocker: the in-game BTD load test.
+
+## 2026-10-11 afternoon: terrain experiment 1 in game (unattended runner)
+- **Run 1:** loose BTDs. World01 and World02 (record path; record path + name) load on Mars with procedural ground. The heights are identical in both worlds (4.18 / 11.86 / 15.98 / 10.68 m at our 10 / 35 / 22.5 / 5 m pads), so neither used its BTD. World03 (name only, no surface block) hangs on the loading screen.
+- **Cause of run 1:** the loose files were never read. `Starfield.ini` has `sResourceDataDirsFinal=STRINGS\` and there is no StarfieldCustom.ini. The experiment installer now packs the BTDs into the plugin's own `<plugin> - Main.ba2` (`exp_install.py --pack`).
+- **Run 1b:** BTDs packed. World01 reads the same procedural heights again, so the packed BTD isn't used either. Registering World01 on Mars (run 1) moves the spawn onto a real Mars mountainside; the pads read flat at about -2.5 m, still procedural.
+- **Next (queued):** control drops in two vanilla worldspaces via `cow`, at lc001world and akilacity points whose BTD heights are known. These show whether `coc`/`cow` gives BTD terrain at all, or only the planet landing does. Then the Mars-registration variant with packed BTDs, then the test batches.
+
+## 2026-10-11 late afternoon: terrain measuring method validated on vanilla terrain
+- **Console routes into vanilla exteriors:** `coc <exterior cell EditorID>` works (`LC172Ext01`, `LC001Outpost`). `cow`, `coc <worldspace>` and `player.moveto <non-persistent ref>` do not.
+- **Control LC172World** (the template our test worlds are cloned from): the overlay is merged into Mars at offset (-500, -2300, -3.62), read from the persistent COC marker 0010238E. Probes in the overlay's own frame:
+  - match its BTD within **0.02 m** in the centre cell, which the vanilla overlay mask marks as authored;
+  - within 0.3-0.36 m just outside it;
+  - 4-6 m off in the border cells, where the mask blends in procedural terrain.
+- **Method:** anchor-relative probing measures BTD heights exactly where the overlay is authored, and the overlay mask decides where that is.
+- **Research** (`C:\Modding\research\terrain\binding\findings.md`, PR #64): a worldspace's own BTD only applies to an overlay activated on a planet (PNDT CNAM). Our records also differed from vanilla in FNAM size, Location, mask and alignment. The fixed experiments exp1d and exp2b (real Red Rocket heights) are queued after test B.
+
+## 2026-10-11 evening: why our overlay terrain came out flat
+- **In game:** every registered overlay test was perfectly flat at exactly its BTD's minimum height:
+  - exp2b (29x29 Red Rocket BTD, absolute alignment) read -116.00 m at all 14 probes;
+  - World01 / exp1d read -500 m (with relative alignment, -13.94 m).
+  The overlay itself was activated (cells merged at whole-cell offsets).
+- **Offline diagnosis** (two agents; scratch data in `C:\Modding\research\terrain\zero`):
+  - Our BTD layout matches vanilla section by section, and the heights are in every LOD.
+  - The one difference is that all 2,112 vanilla BTDs (Shattered Space's 108 included) and every official plugin Main.ba2 are stored **uncompressed**. Ours were zlib-compressed by Archive2 `-compression=Default`.
+  - The engine reads BTD blocks by offset straight from the archive, so it decoded nothing and used raw 0.
+  - Fix: `exp_install.py` now packs with `-compression=None`.
+- **Next candidates** if that is not all:
+  - `lodsettings/<edid>.lod` (every vanilla overlay has one);
+  - the 29x29 size (the largest vanilla overlay is 14x14).
+- **Queued:** exp2b3 (Red Rocket, stored), then exp1f (World01, stored), then the batches.
+
+## 2026-10-11 evening: native Starfield terrain carries the real Commonwealth heights (Red Rocket)
+- **exp2b3**, our FO4CW_Commonwealth overlay (29x29 Starfield cells of FO4 LAND around Red Rocket, Absolute alignment, registered on Mars, BTD stored uncompressed in the plugin's Main.ba2): 13 of 14 probes match FO4 height / 70 within 0.08 m, including the Red Rocket origin (105.14 m), slopes, an FO4 cell seam and a Starfield block seam. Overlay Z offset 0.01 m.
+  - The 14th probe (resampled_sw) ended 142 m from its target, so it was not measured.
+  - Absolute alignment keeps the real world heights.
+- **Cause of all the earlier flat results:** a zlib-compressed BTD in the BA2. Stored (uncompressed), as vanilla ships it, works.
+- **Next (queued, each test from a fresh launch):**
+  - exp2c: 8,069 real FO4 objects around Red Rocket on this terrain (PR #66);
+  - exp3: four edge-to-edge 14x14 overlays with seam probes (PR #67);
+  - World01 stored; the vanilla NPC navigation control; then the batches.
+- **exp2c, same evening:** the real FO4 objects around Red Rocket (8,069 references, 1,385 converted models, one plugin) stand on the native terrain in game. Textures load from the stored plugin archive.
+  - Test 1 PASS: the terrain probes are still within 0.08 m with the objects placed.
+  - Test 2 PASS: object tops land where FO4 put them, so their collision works: Red Rocket roof 109.73 m (want 109.74), brick building roof 103.87 (103.88), road piece 88.20 (88.21).
+  - Probing 100 m past the overlay raised Starfield's "Boundary Reached" popup, the landing area's limit.
+- **exp3** (four adjacent 14x14-cell overlays, each registered on Mars): probes in the arrival tile read real terrain. Every probe 500-700 m away, in or near a neighbouring tile, hung at the drop height even after 24 s of re-reads, so nothing loads there.
+  - Taken with the "Boundary Reached" popup at the edge of the 29-cell overlay, a landing seems to load only the overlay it arrives in. A Commonwealth made of many small overlays would not be walkable across seams.
+  - The candidate is one large overlay. **terrain_core64** (PR #72: 64x64 cells = 6.4 km covering Sanctuary, Vault 111, Red Rocket and Concord, 6 rays of probes out to 3 km) is queued.
+- **Navmesh (PR #71):** FO4's navmesh around Red Rocket is converted to 156 Starfield NAVM records with a NAVI override. The N1 NPC tests are queued after the vanilla control N0:
+  - N1a: terrain only;
+  - N1c: converted navmesh;
+  - N1b: the runtime generator.
+- **Ground textures (PR #70):** staged. They need a daytime run; every Mars arrival so far was at night.
+
+## 2026-10-11 night: dead man's switch and the huge batch (owner's request)
+- **`scripts/game/watchdog.ps1`** runs detached. It is not reboot-proof yet (the owner was asked about a scheduled task).
+  - After 3 h with no "Claude:" commit and no heartbeat (`C:\Modding\testqueue\claude_heartbeat.txt`), it starts `C:\Modding\testqueue\chain.ps1` itself. No AI is needed; the runner keeps every owner control.
+  - At most every 6 h it calls Codex (`codex exec`, sandbox workspace-write) to follow `docs/ai/codex-runbook.md`: status, reports, one #32 comment, no code changes or game input.
+  - At most 3 chain starts per 6 h. An unfinished required queue goes back to the front of `chain_queue.txt`.
+  - AGENTS.md records the exception.
+- **`batch_full`**, queued last: 1,764 tests on the 16 cells. It covers every route (routes.py `--max 400` -> `routesfull_*.json`) plus 40 falls and 40 movable items per cell, about 30 h.
+- **core64** (one 64x64-cell overlay, 6.4 km) in game: every probe within ~500 m of the arrival is exact (Sanctuary 110.27/110.29, Vault 111 127.09/127.09). Single 1-2 km setpos jumps do not load in time, so a hop variant (300 m steps) is queued next.
+
+## 2026-10-11 late night: the "far terrain does not load" result is a 9x9-cell playable border
+- **core64, all six rays** (one arrival at Red Rocket each, from a fresh launch): every probe up to ~380 m from the arrival reads the FO4 height within 0.01 m (arrival 105.14, Sanctuary 110.27, Vault 111 127.09, Concord 87.09, se_500m 56.92/56.91, ne_500m 113.38/113.37).
+  - The first probe at 500 m straight east, south or west (and 700 m diagonally) raises Starfield's **"Boundary Reached"** popup (screenshot in the test folder). Its position read is garbled, and every later probe stays at its drop height.
+  - The allowed probes span local cells x -14..-7 and y 8..14, and the blocked ones sit 5 cells out. That is a window of about 4 cells around the arrival cell (-10, 11), inside an overlay whose 4,096 cells all exist and whose worldspace bounds (NAM0/NAM9) cover the whole 6.4 km.
+- **Supported hypothesis:** the limit is Starfield's landing-area border, not our data. Starfield.exe has `bBorderRegionsEnabled:General` (set to 0 by the "Border Regions Unlock" mod), `fPlayableAreaX/Y/Z:General`, `uMaximumPlayableAreaWorldCoord:General` and `uPlayableSpaceOverlayCellBuffer:Planet`. The console has `SetINI` and `GetINI`, so a test can change the border for one session without touching an ini file.
+- **This also confounds exp3's "neighbouring overlays do not load" result (500-700 m probes).** That needs a re-run with the border off before the many-overlays option is ruled out.
+- **Runner:** core64b (300 m hops) is paused with a queue STOP. Its second hop would only reach the same border. The next queue reads the settings (`GetINI`), sets `bBorderRegionsEnabled` to 0 after the save loads and before the coc, then repeats the rays and hops.
+- **Fixed:** an open breaker now skips a test before the "fresh" relaunch (one wasted launch per tripped breaker).
+- **Correction, 2026-10-12 00:01: travelling works, so the border limits jumps, not the world.** core64b's north-west ray reached every probe in 300 m hops (11 hops) and PASSED to 2 km:
+  - arrival 105.14, Sanctuary 110.27, Vault 111 127.09, 500 m 114.17 (want 114.17), 1,000 m 202.54 (202.51), 2,000 m 188.45 (188.46);
+  - no "Boundary Reached" on the way.
+- So the popup comes from a **single teleport more than ~4 cells from the current position**, not from a fixed window around the arrival. The 6.4 km overlay streams in as the player moves.
+- exp3's neighbouring-overlay probes were single 500-700 m jumps too, so the seam question is open again and needs a hop run.
+- The other five core64b rays are pending: its STOP is removed, and it needs to go back into `chain_queue.txt`. terrain_core64e (PR #74, one pebble per cell) now only asks whether content changes the single-jump limit, which is low priority.
+
+## 2026-10-12 early morning: navmesh plugin terrain check passes; the vanilla NPC control is not a control yet
+- **exp2d PASS** (Red Rocket terrain + objects + the converted navmesh plugin, PR #71): the ground under all four N1 NPC points (A, B, and A2/B2 across a cell line) reads the expected height within 0.01 m, 5 of 5. The navmesh plugin does not disturb the terrain.
+- **N0, the vanilla NPC control in QASmoke** (actor 002B211C, levelled 0000CF96; A (-8, -4) to B (5, 10), 20 m):
+  - 2 PASS, 3 FAIL, but **no test shows a commanded walk**. Every actor, with or without a command, stayed in the same patch (x -11..0, y -6..2) and never came within 10.8 m of B.
+  - Baseline (no command): wandered 5.4 m towards B, FAIL WANDER.
+  - `PathToRef player`: 6.8 m and 9.0 m towards B, counted as PASS, but that is within the wander.
+  - `cf "Actor.PathToReference" player 1.0`: the console replied "No script named Actor is attached to the object".
+  - `SetPlayerTeammate 1` + `EvaluatePackage`: the actor stood still for 30 s.
+  - The robot visible next to the camera in the sample shots is also there in the no-command baseline. It is most likely the save's companion, not the test actor.
+- **Next for the NPC tests:**
+  - B must be reachable on navmesh from A (supported hypothesis: it is not in QASmoke, or the package overrides PathToRef).
+  - The judge must require arrival (end within a few metres of B) or progress beyond the baseline's wander.
+  - Add `StartCombat player` (a script command in Starfield.exe: "Forces the currently selected reference to initiate combat with the provided actor") as a control method.
+  - The N1 queues still run (moving at all on our terrain with and without navmesh is useful), but their "towards B" verdicts carry the same caveat.
+
+## 2026-10-12 ~02:00: three slice pieces built and reviewed; integration-1012 ready (not yet the chain's runner)
+- **Built and adversarially reviewed overnight.** Each reviewer found blocking problems, and each was fixed.
+  - **PR #73 (daylight, plus the console hook).** `SetLocalTime` is the runner's time-of-day command, with the reply captured.
+    - Light is judged from every probe shot, and NIGHT is retried.
+    - A queue lists the runner features it `needs`, so an older runner refuses it at pre-launch instead of running it without the time.
+    - The test is staged at the site that was night 18 of 18 times (`terrain_exp2b2_noon`); the daylight site was day 13 of 13.
+  - **PR #75 (first converted FO4 NPC):** the Concord raider (FO4 ACHR 00046458, LvlRaider) as one Starfield NPC_ on the Spacer templates.
+    - The record now carries PRPS/STON/EDCT/PRON, which all 7,131 vanilla NPC_ have.
+    - A calm copy is used for the walk tests (N2a), so the peaceful vanilla control is fair. The hostile copy goes to N2b.
+  - **PR #76 (every FO4 exterior object on the 6.4 km core):** 648,358 references of 11,769 models, a 46.1 MB plugin and a 3.63 GiB stored archive (textures capped per kind to stay under 4 GiB).
+    - Object z matches FO4's own terrain at the median, +0.22 m.
+    - The plan uses waypoints so that every teleport moves at most 2 cells per axis.
+- **Teleport rule:** at most 2 cells per axis landed 144 of 145 times; 3 or more cells per axis failed 11 of 28 times (all 6 in core64). The rule is a supported hypothesis from `scripts/terrain/teleport_audit.py`, and "~4 cells" is refuted.
+- **`claude/integration-1012`** merges test-queue, daylight, raider and core64-objects. The unit suite and guard pass.
+  - It has one semantic fix: NPC plans accept the light and console keys.
+  - Queues planned with it: `terrain_core64c`, `terrain_exp2b2_noon` (needs: light), `npc_nav_n2a`, `npc_nav_n2b`. They are not in the chain yet.
+  - The chain still runs integration-1011 (N1c, N1b, then the supervised and full batches). Switching the chain's checkout and adding the queues is the owner's call.
+- **N1a** (vanilla NPC on our terrain, no navmesh): the NPC never moved (0.0 m), as expected without a navmesh. It counts as INCONCLUSIVE only because N0's control did not pass.
+- **N1 (vanilla NPC 002B211C on our Red Rocket terrain, ~03:10): the converted FO4 navmesh carries Starfield's AI.**
+  - **N1a (terrain only, no navmesh):** the NPC never moved in 4 of 4 tests. Every read was the same position to 0.1 m for 30 s.
+  - **N1c (with the converted navmesh, PR #71):** the NPC moved in 4 of 4 tests, 10.5, 7.2, 11.0 and 14.1 m (paths up to 27.6 m), and its z followed the terrain (105.0 to 105.5 m). It also walked about 9.5 m towards the player before any command.
+  - These are **verified movement on converted navmesh**, not commanded navigation: it wandered, as in QASmoke, and never reached B.
+  - The cross-cell test stayed in its own cell (x -2194..-2183, cell line at -2200), so the NAVI edge links across cells are still **unresolved**.
+  - All N1 verdicts read INCONCLUSIVE CONTROL because N0's control is not a control yet. N0b (navmesh-connected points, StartCombat, arrival judging) is being built and reviewed.
+- **N0b, the NPC control redesign (PR #77, reviewed and fixed; merged into integration-1012 at f3dcf5d):**
+  - **Why N0 could not tell commands from wandering:** QASmoke's navmesh (one NAVM, 002BE3AA) is a single 555 m2 area. The old pair was connected by a clear straight path. The actors' own drift (up to 14.06 m from t0, measured in N1c) covered most of the 19 m.
+  - **New design:** a 24 m pair. The approach before the command is capped at 3 m (otherwise INCONCLUSIVE PRECOMMAND). A PASS needs 18 m of approach from t0 or arrival within 3 m. A control counts only with its own queue's baselines.
+  - **Tests:** two citizen baselines, the Spacer baseline, PathToRef and StartCombat.
+  - **Queue:** `npc_nav_n0b` (needs runner feature npc_t0, so integration-1012 or later).
+  - **Re-plans:** the N1 and N2 re-plans are staged as `npc_nav_*_b`. They are planned only after `npc_control.py ready` confirms N0b passed. The earlier `npc_nav_n2a` / `npc_nav_n2b` queues carry a STOP note (superseded).
+- **N1b (the same NPC on our terrain after Starfield's runtime generator `gnm`, no shipped navmesh):** it never moved in 3 of 3 tests where it spawned. The 4th test did not confirm its spawn, twice (INCONCLUSIVE SPAWN, a runner reason).
+  - Reading so far: no navmesh means no movement; `gnm` also gives no movement; the converted FO4 navmesh gives movement in 4 of 4 tests.
+  - Shipping the converted navmesh is the supported route; `gnm` in a plugin worldspace is refuted for this use, to be rechecked with N1b_b against the N0b control.
+  - The chain now runs supervised_1011, then batch_full (integration-1011 runner).
+- **supervised_1011 finished (17 tests: 10 PASS, 5 FAIL, 2 INCONCLUSIVE).** Ranked:
+  1. **Door BLOCKED, 2 tests:** FortHagen01's wooden shutter door (BldWoodPDoorShutter01, 0BD6A1). It shows OPEN, activates and swings, and the prompt flips to CLOSE. But the panel still covers part of the opening, and the player stops 0.9 m before the door plane. Candidates: the door swings only part of the way, or its collision does not follow the animation. Unresolved.
+  2. **Travel NOPROMPT:** FortHagen01 load door 0CD469. The companion stood at the door; the runner now disables it per session (bf01e51, not yet in the chain's runner).
+  3. **Stairs STUCK:** Vault 114 CinderBlockStairs02 (rose 0.10 m, needed 0.12 m).
+  4. **Movable NOTMOVED:** FortHagen01 CigarettePack. The player reached it, but it moved 0.000 m.
+  - The two INCONCLUSIVEs: a fall held 1.5 m above a cave floor, and a movable test the player missed by 2.39 m.
+- The chain now runs **batch_full** (1,764 tests, about 30 h) on integration-1011.
+
+## 2026-10-12 morning: multi-part FO4 doors lost every panel but the first (fixed offline, PR #79)
+- **Cause (verified offline):**
+  - `nif.door_hinge` read only the first node the FO4 `Open` sequence moves.
+  - `convert_door` hung that node alone under the Akila template hinge. Every other panel went under the static frame, with no bone and no body.
+  - The Akila clip has one track.
+  - The FortHagen01 shutter's `Right` panel is one example of a panel that stayed behind.
+- **Blast radius:**
+  - In the 16 pinned cells: 10 door models, 38 placed doors and 76 batch_full door tests. They include the Parsons double door 06CF29, plus high-tech doors with 3 of 4 sliding panels frozen.
+  - In Fallout4.esm: 80 models move geometry outside their first node.
+- **Fix:**
+  - These doors get their own rig plus Open/Close clips built from FO4's keys with CALUMI: one bone, one track and one keyframed collision box per moving part.
+  - Clip keys are offsets from the rest pose, as in 126 vanilla door rigs.
+  - Offline result: 40 of 40 moving parts have tracks and bodies (was 23 of 40). 47 of 57 door models are byte-identical. The overlay plugin differs from integ_1011 in exactly 48 records.
+- **Review notes (pass-with-notes):**
+  - Nested motion is not detected yet (`RRMegaSecurityDoor01` and `Prewar_Locker_Door01`; neither is in the build).
+  - One physics system per panel has no vanilla precedent: every vanilla double door shares one system. This is the largest in-game risk.
+  - Three rigs use FO4's `@#0` name suffix as bone names.
+- **Also:**
+  - The FortHagen shutters are windows (the wall is solid to about 1.03 m), so their walk tests cannot pass; the route planner should skip openings above step height.
+  - It all needs a new pinned build (overlay `integ_1011_doors`) after batch_full. Commands are in docs/spikes/WP-doors-research.md.
+- **Slice: the Red Rocket cave door (PR #78, fixed after review; merged into integration-1012):**
+  - **Source (verified):** in FO4, RedRocket01's door 05E844 and the exterior door 08EB65 are AutoloadDoors (the player walks into a marker) linked to each other. Neither end existed in our build: markers are never placed.
+  - **Plugin:** FO4SliceRedRocket.esm places the vanilla AutoloadDoor_Cave (24F9CE) at both FO4 spots. Its marker is the FO4 marker / 70 within 0.013 %, and the two doors are persistent and teleport-linked both ways.
+    - It sits in the cave mouth 38 m south of exp2d's arrival.
+    - Offline checks pass: 27/27 and 28/28.
+  - **Runner:**
+    - A `door_trip` kind: coc, walk in, read the cell and position, walk out, save, move away, load, read again.
+    - FAIL NOLOAD needs the player still within 3 m of the door with no load seen.
+    - The position is read after every walk step, so a fast loading screen cannot send the player into the void.
+    - `exp_install.py order` puts experiment plugins after their masters.
+  - **Queue:** `slice_redrocket_door_b` (needs door_trip, door_check, plugin_order: integration-1012 at 16e21a4 or later).
+  - **integration-1012 now (16e21a4):** test-queue + #73 + #75 + #76 + #77 + #78 + #79. The unit suite passes (37 opt-in skipped) and guard passes. Its planned queues wait for the owner to switch the chain's runner.
+
+
+## 2026-10-12 - Codex: recoverable installer compatibility for the cave slice (#78/#62)
+
+Offline tested, synthetic files only; no game version/runtime acceptance claimed. #62 rejected the cave queue's --needs and cycle's order command. Combining the original ordering code with recovery also skipped pre-existing/reactivated plugins, accepted disabled masters/cycles and could overwrite a concurrent Plugins.txt edit. The new synthetic compatibility suite reproduced these failures plus plugin-only --pack trying to build an empty archive.
+
+Carried #62's independently reviewed journaled publication, pinned SHA inputs and stored General BA2 coverage/content verifier onto #78. Retained the runner feature gate and ordering CLI; receipts now name every selected plugin. Ordering requires complete/non-cleanup state, unchanged selected plugin files, active masters and satisfiable dependencies; its atomic rewrite compares the original snapshot and refuses concurrent edits. Completed-install cleanup restores owned activation lines by text, so ordering requires no whole-file rollback snapshot update. Install/order/uninstall all refuse an interrupted or cleanup-pending main deployment before mutating its activation snapshot or experiment receipt. Plugin-only --pack keeps its requested mode for relaunch checks and builds no archive. Truncated TES4 headers/subrecords cannot hide a master. Two newer upstream packing fixtures now emit valid synthetic BA2 resources; runner implementation is untouched.
+
+Validation: 14 new compatibility tests, 43 recovery, 9 packed-verifier, 4 terrain/mask packing, 18 upstream door-trip and 81 queue tests pass. Final current-main Windows suite: 882 tests, OK (38 skipped); guard/diff checks pass. Independent Codex QA reproduced both order and uninstall invalidating interrupted main recovery; install/order/uninstall now share the refusal guard. Independent final PASS includes distinct activation snapshots, master recovery and later uninstall retry. Hosted CI at e661977 ran 881 tests and failed solely on the existing #66 Linux filesystem separator lookup; terrain file remains Claude-owned. #84 records inherited final compare/replace/unlink race gaps; no interprocess isolation is claimed. No staging, Plugins.txt, game installation, live input, automation or local-model changes.
 
 ## 2026-10-11 Public README and About refresh (Codex)
 
@@ -634,6 +942,37 @@ This fixes the missing dependency, not the unresolved in-game terrain binding. N
 Validation: main-based255 tests OK (2 Windows skips), guard OK. At #64 head1600603, all11 FO4 LAND synthetic
 tests pass with Pillow12.3.0, including the failing end-to-end plane/preview case. Hosted dependency CI pending.
 
+
+## 2026-10-12 Codex: native-door checkpoints follow rig and clip references
+- Reproduced on #79 (612b78e), using its production synthetic two-panel converter: dropping the skeleton from both the saved files list and output hashes allowed reuse after the staged skeleton was removed.
+- Inventory now independently follows native DOOR skeleton and Open/Close .af/.afx references; missing, changed or invalid dependencies invalidate reuse. Optional extra outputs remain tracked; template doors keep their existing behavior.
+- Preserved reviewed main #34/#35 and staging containment when integrating #79 in a separate Codex worktree. New regressions failed before the fix; seven focused tests and 808 full-suite tests pass (28 skipped, including opt-in sandbox checks). Guard/diff checks pass. No game data, staging, installation or input was touched; runtime multi-part animation remains unverified.
+- Independent Claude review passed the initial fix and identified an optional rig-tag omission: generated references are now followed even without that tag. Added omission and vanilla-template compatibility regressions; final independent review passes (including custom prefixes and mixed vanilla/generated references). Hosted Linux CI separately exposed an existing make_exp2c dependency path issue; a four-lookup patch passed POSIX-only synthetic probes and was prepared for the Claude-owned file without editing it.
+
+## 2026-10-12 Codex: small authored door binds are rotations
+- Synthetic NIF/controller repro: a0.1-degree leaf bind was classified identity by quaternion w alone, so the native first offset retained0.1 degrees even when the closed pose equalled the bind.
+- Identity detection now also checks the vector norm; native preparation shares the predicate. Meaningful small binds get a static parent and identity animated bind; sign-equivalent identity/tiny numerical noise remain supported.
+- Five regression tests failed before correction and now pass. Independent matrix evaluation agrees at every Open/Close frame for three axes, small/large binds, translation and both possible bind/offset composition orders. Full813 tests OK (28 skipped), guard/diff checks pass. Independent QA PASS (boundary/sign, nested hierarchy, cross-axis and synthetic converter routing probes); no DLL, game assets, staging, install or input touched. Runtime playback remains unverified.
+
+
+## 2026-10-12 - Codex: portable terrain dependency filesystem lookups (#66)
+
+Offline tested. The owner says Codex is the only agent currently able to work; the exact dependency_check takeover was announced on #66/#32 before editing. Mesh/NIF, geometry, material and own-texture identifiers carry game-resource backslashes, which Linux treats as literal filename characters. Normalize separators only at the four filesystem lookup boundaries; resource/report names, counts, vanilla membership and terrain/converter behavior remain unchanged.
+
+A synthetic POSIX filesystem regression reproduces both failure modes on Windows: backslash NIF lookup raises FileNotFoundError, and a forward-slash NIF still reports a material missing because its derived lookup contains backslashes. After the fix, both resource separator styles cover missing geometry/own texture/material/NIF, complete coverage and missing/unverified vanilla textures. Existing real-filesystem fixture is retained. 18 focused tests OK (3 skips); full current-main Windows suite 360 tests OK (5 skips), 4.775s; guard/diff checks pass. Linux CI and independent review follow in the PR. No game assets, staging, deployment, game input or automation changed.
+
+
+## 2026-10-12 - Codex: budget-paused game queues must request resume (#88)
+
+Read-only observation: batch_full stopped at its12-hour run budget with1109 tests pending (655 terminal entries included216 BREAKER skips). Runner.run wrote paused state/report but returned0; the existing required-queue chain treats that as completion, rather than retaining it for a later resume. The exact Runner.run exit-status scope was claimed on #88/#32 under current Codex-only availability.
+
+Change: pending work after a budget pause returns4; completed runs and dry-run previews keep0. A complete run can still contain failed/inconclusive tests. Checkpointing, retries, owner/STOP/idle/Guardian checks and game control are unchanged. Two synthetic budget failures reproduce return0 before the fix; four new tests verify test/time limits, pending-only resume, completed/no-budget and dry-run controls. Four focused and81 existing runner tests pass; full suite/independent QA follow.
+
+Measured prior-result intervals: stairs median85s, floors60s, doors100s. Remaining non-movable work estimates~15 active hours, plus waits/retries; the broken movable lane would add more after corrected re-planning. A separate offline133-test diagnostic artifact retains all16 cells and all49 recorded failures, unchanged source payloads/IDs and the old2470f876 plugin pin; estimated3.14 active hours/~3.92 with25% retry margin. This reduced pass does not replace exhaustive acceptance or verify newly staged assets. Source queue/state, live chain/runner/staging/game and automations were not edited or run.
+
+## 2026-10-13 - Codex: corrected diagnostic merge frame in isolated runner
+
+Owner requested continued testing unless Claude needs control. Scoped claim on #32; original af27ce9 runner/campaign remains immutable. qstep's unscored terrain diagnostic now adds the measured X/Y merge offset and uses its computed world drop height. Three synthetic tests evaluate the actual parsed call with a harmless Teleport stub; the two nonzero cases failed before correction. No input helper or game body executes in these tests. Fresh pins and independent QA precede the remaining informational phase; prior boundary captures remain excluded from map-size conclusions.
 ## 2026-10-13 Replayed ground-reference evidence (Codex, #96)
 
 Synthetic reproduction: two entries sharing only their ground-reference capture were inconclusive but still
@@ -645,6 +984,43 @@ Four negative regressions failed before their fixes. Validation:31 evidence test
 full-suite tests pass (2 skips); guard passes. Re-reading completed pinned evidence preserves7/7 smoke and29/30
 baseline heights and all four POST_FRAME findings. Offline only; no game scripts, assets or live control changed.
 
+## 2026-10-13 Claude: small converted items that "did not move" were out of reach or walked over (offline; a live test was running, so no game input)
+- **Not the conversion (verified offline):** the converted BurntBook01, CigarettePack, BobbyPinBox and trash can bodies
+  match vanilla Starfield items on every motion, layer, quality, flag and BSXFlags field (6,221 vanilla dynamic bodies
+  dumped). Starfield's own collision matrix lets the player's controller collide with their layer (CLUTTER).
+- **Most failures were placements** (reads corrected after the verifier of PR #110): the cigarette pack (supervised_1011
+  0007, the only FAIL) lay 0.83 m up on a desk and the player stopped at the desk 0.67 m from it; one bobby-pin box
+  (batch_full 0098) lay level with the player, who was blocked 1.45 m short of it. The three books (batch_full) lay
+  flat on the floor, 4.6 cm thick, and the walk passed 0.02-0.15 m from them. The same book model moved 0.46 m in Vault
+  114, where it lay on a bench the player climbed onto (hit side-on, or walked over and pushed off: the reads do not
+  tell). **One is not a placement:** the other pin box (0100, 50 kg) lay 0.81 m above the feet at the stand point, but
+  the walk passed 0.26 m from it while the player rose 0.28 m, and it did not move. Whether FO4's masses (2-10 times
+  Starfield's for items that size) stop the push is unresolved.
+- **Runner:** only the walk passes a movable test: a walk that reaches an item and leaves it in place is FAIL NOTMOVED,
+  even when `ApplyHavokImpulse` (found in Starfield.exe's script-function table with `scripts/recon_console.py`, which
+  now reads those entries) then moves it; the impulse only adds "the body is simulated", or FAIL STUCK when nothing
+  moves it. INCONCLUSIVE ELEVATED (final, never counted by the breaker) only for an item more than 0.5 m above the
+  player's feet that the walk came no closer than 0.5 m to, or more than 1.8 m above them. New kind `movable_control`
+  (`plan-movable`): an item placed in a vanilla cell, walked over, then pushed; a `SetRigidBodyMass` test is judged only
+  when `GetMass` reads the mass set back. Synthetic tests and sandbox scenarios; runner features `impulse`, `push_judge`.
+- **Staged, not run:** `movable_control_1013b` in QASmoke (replacing `movable_control_1013`, planned before these fixes):
+  five vanilla items (a bin, a cigarette pack, notepad stacks 5.7 and 3.8 cm, a folder) next to our trash can, pack, pin
+  box and book, plus the book and box at 5 kg via `SetRigidBodyMass`. Each test wrote its expectation first. If the
+  vanilla items move where ours do not, or the 5 kg copies (GetMass read 5) move where the originals do not, mass is the
+  cause and the converter should scale FO4 masses.
+
+## 2026-10-14 Claude: PR #110 fix pass checked, the console route to the mass confirmed, suite re-run (offline; no game input)
+- The verifier's three blocking findings are fixed by 18081d6 (only the walk passes a movable test, ELEVATED only when
+  the walk came no closer than 0.5 m to the item, a `SetRigidBodyMass` test judged only on a `GetMass` reading) and its
+  minor findings in the docs. This pass re-checked them against the reads and did the check the second finding asked
+  for: Starfield.exe 1.16.244's command table, read with `scripts/recon_console.py`, has `CallFunction` (`cf`, "Calls a
+  papyrus function on the targeted ref. First parameter is the function, the rest are parameters", one String and up to
+  seven optional Strings) and no console entry for `GetMass` (a Papyrus ObjectReference native), so `cf
+  "ObjectReference.GetMass"` is the only console route to the mass. The 5 kg tests stay in the queue and are
+  INCONCLUSIVE MASS without a number read back (docs/ai/test-queue.md "Movable items", research-log 2026-10-13).
+- Full suite with the qstep sandbox: 1013 tests OK (2 skips); `scripts/guard.py` ok.
+- Queue `movable_control_1013b` (planned at 18081d6, an ancestor of this head, so the runner takes it as it is) is the one
+  to run; `movable_control_1013` is marked superseded in its staging README and must not run.
 ## 2026-10-13 Failure summary enhancement (Grok)
 
 convert_batch.py now prints failure counts with percentages and unique-reason totals, and writes
@@ -669,6 +1045,120 @@ Temporary restore copies were also individually checked and cleared. Native camp
 source pins, saves, recovery data and Claude's active queues remain at their original paths.
 This is local storage; no offsite backup or game acceptance is claimed. Private archives and
 machine paths are excluded from Git. Shared coordination: #32 comment6159604237.
+
+## 2026-10-13 evening: library stairs STUCKs: mostly the routes; 0002 / 0003 unresolved (Claude, offline)
+
+- **Question (owner):** the player gets stuck on BostonPublicLibrary02's BldDecoSm* stairs (batch_full 0002, 0003, 0006,
+  0007, 0021 STUCK, 0022 FALL) and on Vault 114's cinder blocks (supervised_1011 0010).
+- **Result:** 0006 / 0007 / 0021 / 0022 / supervised 0010 asked for a walk Fallout 4's own collision does not allow: a
+  start wedged in a 0.49 m slot between a wall and a rail (0006 / 0007), a fallen floor chunk across the flight (0021),
+  a walk 2 m past a top that ends in the collapsed floor (0022), a 0.15 m remainder of a buried flight (0010);
+  batch_full 0423 (rebar on the flight) and 0136 (a start 1.5 m over the floor) likewise. The 16 stair models
+  re-converted with this branch read back body for body identical to the pinned build and to FO4's treads; neighbours
+  match FO4 to 2 cm; only the steep stair helpers are flattened, as designed.
+- **Correction after QA (PR #111):** this entry first said all of them were routes. 0002 / 0003 came up onto the gallery
+  slab and stopped 0.01 / 0.05 m before the place where the converted, flattened helper comes up through the slab
+  (0.46 / 0.50 m from FO4's own crossing); the slab lift had worked. Why they stopped is unresolved; the converter's
+  flattening is a live suspect, the old routes' start under the slab another. The offline walk's agreement with the
+  game is 59 of 64 verdicts, 57 also at the same place (0002 had been counted at the wrong place); the 0.35 m capsule
+  radius is an assumption again (0002's push-out was read off the wrong face).
+- **Fixed in the planner:** `routes.py` walks every lane offline (`src/fo4sf/walksim.py`) and keeps the first one a
+  player can climb, or skips the stair with the reason; tilted references are placed Z first, as FO4's precombines show
+  (the old order put the library's debris up to 1 m off). Routes carry what the walk cannot vouch for (a converted
+  helper crossing, movable objects on the lane); `--probes-out` plans probes around each crossing;
+  `scripts/game/stairs_calib.py` replays in-game results and route files. New routes for the 16 cells: 214 (226
+  before); every stair that passed in game is still planned, 13 of them on new lanes (their old routes are queued as
+  controls).
+- **Not run in game.** Routes and probes in `C:\Modding\staging\stairs_fix_1014` (no new plugin or archives); three
+  queues planned (probes, old-route replays, the new routes), readings in
+  [docs/testing/stairs-routes.md](testing/stairs-routes.md). Left open: VltGearDoorStairs01 (no stair helper, 0.3 m
+  treads; STUCK at 1.41 of 3.22 m on 2026-10-09), probably too steep a step for Starfield's controller without a
+  helper (supported hypothesis, V111 2026-10-08): a synthesized helper would be a converter change of its own.
+
+## 2026-10-14 evening: integration-1014, the owner's master handoff, tonight's batch (Claude)
+- **Owner's handoff** (`team-handoffs/2026-10-14/FO4SF_Extensive_Research_and_Master_Handoff.md`, local): packets R01-R14, the
+  roles (Claude lead and live game, Codex review / persistent IDs / deployment, Grok oracle and diagnostics), and the claim
+  ladder every report must keep apart: converted, placed, interactive, persistent, campaign-tested.
+- **`claude/integration-1014` (ef30495):** integration-1013 (68adac4) plus the reviewed fix heads #107 2e3c961, #103 4e0ad9d,
+  #110 612a245, #113 b2af212, #112 507c21f, #111 fa9c5b3. Six conflicts resolved by hand (runner FEATURES now
+  door_frames / door_route / walk / impulse / push_judge / npc_combat together; testqueue's plan-walk and plan-movable
+  side by side; the sandbox fake game's walk keeps the ground model and the door branch's `walk_dz`; both research-log
+  entries). One post-merge fix: `plan()` passed `routes_dir` positionally into `impulse`'s slot. Unit suite 1221 OK
+  (69 skipped), qstep sandbox 66 OK (51 min), guard ok, `make_cave_core64c.py check` 11/11 PASS on build 2470f876.
+- **Runner checkout:** `fo4-to-starfield-wt\integ` detached at ef30495 (the branch lives in the session worktree). Queues
+  planned on it: `walk_core64c_1014` (2 walks, needs light + walk, core64c installed by the runner), `cave_core64c_1014`
+  (1 door_trip, fix A plugin, both legs routed), `npc_combat_c1_1014` (3 npc_nav with combat reads), then the three
+  night-site texture queues as optional. Chain started 20:23 MDT with the owner away ("run now, I'm stepping away").
+- **merge_ctrl_lc172 (2026-10-13, read today):** the vanilla persistent COC marker 0010238E reads **merged** (offset
+  -500 / -2300 / -3.62 from its local position, already in door-frames.md); probe lc172_7 matched its BTD height within
+  0.02 m, probe lc172_0 read 6.17 m low standing in a hollow between boulders (pt0.png: supported hypothesis). The
+  FAIL HEIGHTS is the probe spot, not the merge.
+- **R05 plan** (PR #119, docs only): a 12-ref cluster within 21 m of the core64c Red Rocket arrival (medkit container,
+  garage cabinet persistent 0.7 m east of x = -1000, stimpak / newspaper / Cram, the shop terminal and button box, one
+  trigger box, WoodCrate01 -> 02 enable parent plus MetalTable02 as the opposite-state twin), built as an extension of
+  the cave-slice add-on plugin (SliceDoor way, FormIDs 0x810-0x87F), never by inserting bases into TerrainOverlays
+  (its `NewKey()` is a positional counter: one inserted base renumbers 648,358 REFRs). Mutagen 0.55.0-alpha.67 has
+  CONT / ACTI / TERM / MISC / XPRM / XESP but no ActivateParents (verified by a reflection probe). Not implemented.
+- **PR #69 QA (Grok's oracle, 199cf7d):** needs one change: position aliases (`pos` / `xyz` / `position`) take the first
+  truthy value and never compare the rest, so a disagreeing or empty alias still passes; huge ints raise OverflowError
+  instead of UNREAD. 272 tests OK, guard ok. Posted on the PR.
+
+## 2026-10-14, 21:28-21:36: the observation bridge works in game (Claude; the owner watching)
+- **Owner's review and decisions** ("FO4SF Mass Review", 14 Oct): D1 a bridge replaces OCR reads, D2 integration-1014
+  lands on main (PR #121; 24 superseded PRs closed), D3 game time only in declared windows, D4 Codex / Grok on R07,
+  R02, R06 after their quota resets; the local agent is a librarian for the lead, not a planner.
+- **Bridge GO:** FO4SFBridge.esm (a global and a start-game-enabled quest carrying `FO4SF_Bridge.psc`, compiled with the
+  game's own PapyrusCompiler against ContentResources.zip) writes `FO4SF rt=.. pos=.. ang=.. cell=.. world=.. loaded=..
+  n=..` to `Logs\Script\User\fo4sf.0.log` every 0.66 s. Verified in one 8-minute session on the pinned build: 473
+  lines, a 2 s walk read as 1.64 m, the timer and state survive a save/load (the log rotates on each load), and
+  `cgf "Debug.TraceUser" "fo4sf" "ack 7"` from the console lands in the same log within a second. Refuted: the console
+  cannot `set` our global (no EditorID strings for the plugin; form ids not accepted by `set`). Details:
+  docs/ai/test-queue.md "Bridge". Media: docs/media/bridge-console-ack-1014.jpg, bridge-vault111-1014.jpg.
+- **Two environment facts:** input.ps1 needs `LEGACY=1` for the console (every runner script sets it; a bare call does
+  not); Windows Controlled Folder Access blocks our scripts from writing in Documents, so the Papyrus logging keys live
+  in the game folder's `Starfield.ini` (backed up).
+- **Earlier tonight:** both walks of walk_core64c_1014 unread (HUD dial split the console lines for OCR; fixed at
+  ccddf80, verified on the captures only); chain stopped; the bridge makes that fix the last OCR repair.
+- **Next:** runner feature `bridge` (positions from the log, console batches acknowledged by a TraceUser nonce) for
+  walk, door_trip and npc_nav; then the three gates in the owner's next window.
+
+## 2026-10-14, 22:00-23:00: the runner reads the bridge; four queues staged for the next window (Claude)
+- **Runner feature `bridge`** (e22cf82, dde3ec4, ec9bd40, 31da8cf): `plan-* --bridge <staged bridge>` marks every test
+  `bridge_reads` and pins the bridge's files; `bridge_install.py` deploys it before each launch under its own record;
+  qstep's `Read-Pos` for the player and the walk's reads come from the game's log (`obs.read_log` `via: bridge`); the
+  attempt folder keeps a copy of the log (`bridge.log`). Sandbox: the fake game writes a bridge log; the walk passes
+  with bridge reads and types no getpos. The console whitelist takes the bridge's cgf lines (`FO4SF_Probe.Pos / Ack /
+  Player`, `Debug.TraceUser "fo4sf"`); `bridge_log.py events | wait-ack` read the probe's replies.
+- **Staged, not run (owner's window, D3):** `bridge_probe_1015` (vanilla LC172: does cgf load the unattached
+  `FO4SF_Probe` script? five console lines, replies in the log), then `walk_core64c_1015`, `cave_core64c_1015`,
+  `npc_combat_c1_1015`, all with bridge reads on build 2470f876; `chain_queue.txt` lists them in that order.
+- **Noticed:** `tests/test_archive_identity.py::test_archive_modified_during_hash_is_rejected` fails under CPU load
+  (a timing window) and passes alone; not touched. Grok's headless instance of 19:37 never got a reply (credits at
+  100 % until 23:44); it now runs in a visible terminal on the owner's PC.
+
+## 2026-10-15, 23:00-02:30: the walk gate passed; the bridge's first night; fix A refuted (Claude)
+- **Walk gate (R04 part 1) PASSED both ways** (`walk_core64c_1015`, build 2470f876 + core64c, bridge reads):
+  Sanctuary -> Red Rocket 29 legs, 253.8 of 254.33 m, |dz| <= 0.14 m; Red Rocket -> Sanctuary 28 legs, 254.0 m, 7 reads on
+  the north bridge deck, cells crossed in route order; every read from the game's log, the console only to aim.
+  Media: docs/media/walk-s2rr-*.jpg. One attempt aborted at 00:00:03 when something took the foreground (the guard
+  held; the re-run passed).
+- **Bridge, first night:** two reader bugs found by the probe runs and fixed (freshness by the line's clock stamp;
+  planet form ids print negative and did not parse: every planet read saw the last Vault line); `cgf` loads the
+  unattached `FO4SF_Probe` script (three runs); the bridge plugin must load LAST (an earlier line shifted every
+  experiment's load index; cycle.ps1 now runs `bridge_install.py order` before launch). A 330 s poll showed the log is
+  not buffered (a line is on disk within 1 s while the game runs; nothing while paused).
+- **Cave door, A/B (cave_fixA_1015, cave_probes_1015):** fix A (vanilla persistent-cell shape) leaves the persistent
+  door reading its unmerged local position: the player stood 1.0 m from it, no load (**refuted**). The probes'
+  override of exterior cell (-10, 11) makes `coc FO4Core_RedRocketSpawn` land at (50, 50, 12.6), the centre of cell
+  (0, 0): an add-on must not override a core64c exterior cell (**verified twice**; mechanism a supported hypothesis).
+  Next candidates for the door: the WRLD OFST / CLSZ fields, or a temporary door ref in the exterior cell.
+- **Combat (npc_combat_c1_1015):** reply formats verified and the parser fixed (`GetCombatState` prints "The actor's
+  combat state: N.00"; `GetLineOfSight player` prints "<actor> sees / can't see <player>"). Citizen FAIL NOCOMBAT (the
+  negative control, as designed); the vanilla Spacer engaged in attempt 1 (state 2 -> 1, target the player) and not
+  in attempt 2: engagement of a spawned hostile within 30 s is stochastic; the converted raider never engaged and
+  never moved. The gate needs a forced engagement before the raider's result says anything about the conversion.
+- Also: docs/ai/first-run-failures-1014.md (twelve first-run failures, causes, guards); `input.ps1` defaults to the
+  legacy key path; the walk-plan key `bridge` (the deck) and the test flag `bridge_reads` are different things.
 
 ## 2026-10-14 Codex: source-archive read guard (#117, offline tested)
 

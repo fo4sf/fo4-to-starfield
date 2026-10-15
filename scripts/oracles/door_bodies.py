@@ -2,6 +2,8 @@
 
 Missing frame collision is unassessed: fixed visual trim need not be solid.
 Keyframed flags are necessary evidence, not proof that animation/physics works.
+Doors with their own rig (manifest door "rig": "native", multi-part doors) are audited per animated bone: each bone
+that holds geometry needs a moving body on itself or below it; everything else counts as frame.
 """
 import argparse
 import json
@@ -13,7 +15,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from fo4sf import nif, sfcollision, sfnif
 
 
-def audit(data):
+def audit(data, animated_bones=None):
+    """animated_bones: for a door with its own rig (manifest door "rig": "native"), the names of the bones its clips
+    move; each one that holds geometry must carry a moving body on itself or below it. None: template door."""
     f = nif.parse(data)
     result = {"moving_bodies": 0, "frame_bodies": 0, "unassessed": [], "errors": []}
     nodes = {}
@@ -23,12 +27,23 @@ def audit(data):
             if name in nodes:
                 result["errors"].append("duplicate node name: " + name.decode(errors="replace"))
             nodes[name] = i
-    anim = nodes.get(sfnif.DOOR_TEMPLATE["anim_root"])
-    if anim is None:
-        result["errors"].append("expected animation root is absent")
-        return result
-    moving = nif.descendants(f, anim)
-    frame = nif.descendants(f, nodes[b"Frame"]) if b"Frame" in nodes else set()
+    if animated_bones is not None:
+        missing = [n for n in animated_bones if n.encode() not in nodes]
+        if missing or not animated_bones:
+            result["errors"].append("animated bones absent from the model: " + ", ".join(missing))
+            return result
+        branches = {n: nif.descendants(f, nodes[n.encode()]) for n in animated_bones}
+        moving = set().union(*branches.values())
+        root = struct.unpack_from("<I", f.footer, 4)[0] if len(f.footer) >= 8 else 0
+        frame = nif.descendants(f, root) - moving
+    else:
+        anim = nodes.get(sfnif.DOOR_TEMPLATE["anim_root"])
+        if anim is None:
+            result["errors"].append("expected animation root is absent")
+            return result
+        moving = nif.descendants(f, anim)
+        frame = nif.descendants(f, nodes[b"Frame"]) if b"Frame" in nodes else set()
+    bodies = set()
     if moving & frame:
         result["errors"].append("stationary frame is inside the animation tree")
     for i, block in enumerate(f.blocks):
@@ -43,6 +58,8 @@ def audit(data):
             result["unassessed"].append("collision body is outside known door branches")
             continue
         result[group + "_bodies"] += 1
+        if group == "moving":
+            bodies.add(target)
         payload = f.blocks[system]
         size = struct.unpack_from("<I", payload)[0]
         if size != len(payload) - 4:
@@ -60,6 +77,9 @@ def audit(data):
             result["errors"].append(f"{group} box motion type {motion}; expected {expected}")
     if not result["moving_bodies"]:
         result["errors"].append("animated door has no moving collision body")
+    for name, branch in (branches.items() if animated_bones is not None else ()):
+        if any(f.type_of(i) == "BSGeometry" for i in branch) and not branch & bodies:
+            result["errors"].append(f"animated part {name} has geometry but no moving body")
     if frame and not result["frame_bodies"]:
         result["unassessed"].append("fixed frame geometry has no stationary collision body")
     return result
@@ -81,7 +101,8 @@ def main():
             path = (root / item["model"].replace("\\", "/")).resolve()
             if not path.is_relative_to(root):
                 raise ValueError("model path escapes staging meshes")
-            report = audit(path.read_bytes())
+            door = item["door"]
+            report = audit(path.read_bytes(), door.get("animated_bones") if door.get("rig") == "native" else None)
         except (ValueError, IndexError, struct.error, OSError) as error:
             report = {"errors": [str(error)], "unassessed": []}
         reports.append({"source": item["source"], **report})

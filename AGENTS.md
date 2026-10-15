@@ -54,6 +54,7 @@ Optimization is ongoing work, not a one-off. Speed, memory, model/token usage an
 - Local inference goes through the Resource Guardian (tools/ai-team): check `guardian.py status` first; never
   bypass it by calling LM Studio on :1234 directly. While Starfield runs, the GPU is reserved for game tests.
 - Live game control (deploy, cycle, input automation) belongs to Claude (handoff). Others don't send game input.
+  Exception (owner's request, 2026-10-11): when Claude has been inactive past the watchdog threshold, `scripts/game/watchdog.ps1` starts the unattended test chain and hands over to Codex, which follows [docs/ai/codex-runbook.md](docs/ai/codex-runbook.md): watch the chain, read the reports, post to #32; still no game input, deploys or code changes of its own.
 
 ## Where things are
 - Plan and history: docs/PLAN.md, docs/JOURNAL.md, docs/spikes/. Team status: docs/CODEX-HANDOFF.md, #32.
