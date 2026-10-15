@@ -60,3 +60,14 @@ retains false runtime acceptance. The producer/adapter is a separate reviewed
 dependency; metadata cannot be invented retrospectively. Alternatives rejected:
 trusting PASS labels, reconstructing movement from derived positions, or treating
 a new consumer schema as proof that a native producer already supports it.
+
+## 2026-10-14 Codex: Windows read sharing during source fingerprints (#117)
+
+Acquire an existing read-only Windows file handle sharing only reads, then retain it
+through digest and metadata verification. Refuse incompatible writers/mappings and
+do not fall back to permissive sharing. This closes the same-size/equal-metadata
+race without changing persisted identities or reading every archive twice. Preserve
+the immutable-source contract across the conversion run; POSIX metadata checks remain
+best effort. Alternatives rejected: accepting a green retry of the intermittent test,
+timestamp-only detection, or claiming that two hashes create an atomic snapshot.
+[Contract, evidence and limits](../testing/archive-fingerprints.md).

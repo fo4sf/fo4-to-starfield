@@ -14,11 +14,13 @@ Walk both directions over the bridge/cell borders, then enter/exit the cave norm
 
 Core64c snapshot:648,358 references/1,708 populated cells over6.4km; this does not prove an engine maximum or usable gameplay. October13 sampled smoke7/7, baseline29/30 and informational15/15; northeast+1.8939m remains. Four old final jumps were in the wrong frame and remain excluded. Original campaigns/save are immutable; the scoped Codex monitor is paused.
 
-Claude reports load-order dialog correction at68adac4 verified live. Current cave #107 head2e3c961 and walk #103 head4e0ad9d require current-head re-review. Cave persistent-cell fix A remains a runtime hypothesis. Do not repeat superseded plugin-deactivation explanations.
+#117/PR120: Windows fingerprints deny writers/mappings/renames during hashing;14 focused/341 suite (3 skips), guard/CI pass. Independent QA caught a descriptor-ownership bug; fix/re-review pass. Sources stay immutable after return. [Limits](testing/archive-fingerprints.md).
 
-#109 -> draftPR116 at a110ed6: complete CLI/probes, bounded exec and exclusive reports. 32 focused checks, original22 independent cases, late4-case QA and hosted CI pass. One unchanged Windows archive-mutation regression failed (#117); no clean full-suite claim. Active watchdog source was not restarted; only its previously verified executable binding changed, with timers/queues/recovery preserved. #89 exits: unfinished4, protection/prelaunch3, complete/dry-run0.
+Current-head #107/#103/#110 reviews are posted; cave fix A remains unverified. #110 has an exact-reference action/cleanup gap and refused-impulse/stale-mass/elevation findings. Claude owns #121 integration and bridge log reads; no Codex live acceptance.
 
-#108 -> draftPR118 at25b182c: independent normalized door/walk audit. Actor/query/capture, route, frame and pose/chronology gaps corrected; final independent8-case/5-test QA and hosted CI pass. Native producer/adapter still pending; runtime acceptance false. #117 also fails in the396-test Windows suite; preserve it. Old batch_full retains1109 pending; all616 movable tests need fresh planning. #79 overlay build/deploy waits for explicit controller release and fresh pins.
+#109 -> draftPR116 at a110ed6: complete CLI/probes, bounded exec and exclusive reports.32 focused/original22+late4-case QA/CI pass. Historical Windows archive failure preserved; recheck with merged#117. Active watchdog source was not restarted; executable binding/recovery/timers retained. #89 exits: unfinished4, protection/prelaunch3, complete/dry-run0.
+
+#108 -> PR118 at25b182c: normalized door/walk audit; final independent8-case/5-test QA and CI pass. With merged#117:407 Windows tests (3 skips)/guard pass; old396-test failure retained. Native adapter still pending; runtime acceptance false. Old batch_full:1109 pending;616 movable tests need fresh planning. #79 deployment waits for release/pins.
 
 ## Next / coordination
 
