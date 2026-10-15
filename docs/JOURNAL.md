@@ -1239,3 +1239,28 @@ and1281 Windows suite tests(70 skips), guard and diff checks pass. Independent
 Anscombe QA passes three additional controls, including a genuine pre-fix cache
 and backslash namespace. #130 records pinned results; native acceptance is
 outside this correction.
+
+## 2026-10-15: Codex — independent container record evidence (#139)
+
+PR134's count-based check accepted wrong container XYZ/base/scale and missing
+inventory. A separate read-only auditor now binds mapped CONT/REFR records to
+actual bytes, inventory/model/name, transforms, active temporary placement and
+world/cell ancestry. It also compares optional declared baseline ID maps; it
+does not replace full static-reference/dependency checks or native acceptance.
+New reports pin every input and never overwrite an existing report/input path.
+
+Synthetic tests reject the prior corruptions and additional missing,
+aliased, duplicate, nonfinite and wrong-cell evidence. Production audit of
+original core64d0957a285 finds
+the requested container pair but correctly fails235,119 changed baseline ref
+IDs. Input pins and failure are retained, with runtime_accepted always false.
+Initial Jason QA found three defects: current Mutagen inline strings use
+Windows-1252, not UTF-8; a reference physically under a different WRLD could
+pass by using its CELL definition's world; an unknown subrecord could overrun
+its CONT body without rejection. Typed fixture bytes and all three failures
+are retained. Encoding, physical ancestry and strict subrecord bounds are
+corrected;11 author tests and1315 Windows suite tests pass(72 skips), with
+guard/diff checks. Codex's rerun of the same three independent controls
+passes3/3. The QA agent hit its usage limit; final peer re-review is
+still required before merging. No Claude producer/caller, stage, installation,
+controller or native observations changed.
