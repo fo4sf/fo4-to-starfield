@@ -248,6 +248,9 @@ def main():
     reason_counts = Counter(f["reason"].split(":")[0].strip() for f in failures)
     total = len(failures)
     unique = len(reason_counts)
+    attempted = len(items) + total
+    success_pct = 100.0 * len(items) / attempted if attempted else 100.0
+    print(f"  Batch result: {len(items)}/{attempted} succeeded ({success_pct:.1f}%)")
     if total:
         print(f"  Failure summary: {total} failures across {unique} unique top-level reasons")
         print("  Top failure reasons:")
