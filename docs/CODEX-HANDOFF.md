@@ -1,33 +1,33 @@
 # Codex / Claude / Grok status
 
-Owner: project owner. Goal: Red Rocket -> Sanctuary -> nearby interiors -> wider Commonwealth (#31). Keep interior failures as regressions.
-
-## Acceptance
-
-Walk Red Rocket-Sanctuary and its bridge/cell borders both ways; prove terrain remains loaded. Then enter source-linked interiors normally and return to the same exterior with correct position/facing, stairs and closed/open door collision. Cave triggers and Vault111 lift/sliding doors need explicit tests. Initial COC/ray hops are setup/loading evidence, not walking or door acceptance. Pin code, plan, plugin/archive hashes and persistent IDs; unreached/unreadable results are inconclusive. Preserve FO4 gameplay and native Starfield physics/modern capabilities. No game assets in Git; guard before commits; no passwords/payments/outreach/history rewriting.
+Owner goal: connected Red Rocket-Sanctuary-cave slice with save/reload, then interactions and wider Commonwealth. Preserve FO4 gameplay, identities/state and native Starfield physics. Scene coverage is not gameplay coverage.
 
 ## Owners / locks
 
-- Claude: collision/Havok, convert_static.py, pipeline.py, convert_batch.py, PluginSpike, terrain/actors, game scripts/staging/live control. No concurrent edits or other game input.
-- Codex: deployment/recovery, identities/checkpoints/cache/output QA, Fo4Export/ReferenceLinks, animation/door bridge modules and tests, this status/archive. Shared sfnif.py changes need a scope claim; Codex owns exp_install compatibility and #89 exit protocol. Live controller claim: #32.
-- Grok: acceptance oracle, route_eval.judge, terrain_evidence.py/tests. #69 still needs capture-provenance QA correction; identical XYZ may be independent stationary captures. No other game/control files without a new claim.
+- Claude: integration/live game/controller, collision/terrain/actors, pipeline, PluginSpike and game scripts/staging. No other input/install/launch until explicit release on #32.
+- Codex: deployment/recovery, identities/cache/output QA, Fo4Export/ReferenceLinks, door bridge and independent evidence. No active watchdog restart or runner edits.
+- Grok: acceptance oracle/route_eval/terrain_evidence and coordinated diagnostics. No concurrent converter/runner edits.
 
-## Latest evidence / open work
+## Acceptance / native evidence
 
-Core64c (#76):648,358 staged refs/1,708 populated cells across6.4km; nearby probes cover510m only. Its audit corrects older300m-hop claims: <=2 cells/axis mostly landed, >=3 sometimes relocated/hung; supported hypothesis, not guarantee. Continuous travel remains unproven. N1c NPC moved; commanded/cross-cell paths remain open.
+Walk both directions across bridge/cell borders, use cave doors normally with correct position/facing/collision, save and reload. Retain interior stair/movable regressions. Pin code, plans, source, installed artifacts and load order. Synthetic/PASS labels do not prove engine behavior. Missing/replayed/displaced evidence is inconclusive. No game assets in Git; guard/QA before merge; no money/passwords/outreach/history rewriting.
 
-Open regressions: Fort Hagen shutter/frame collision and load-door prompt, Vault114 cinder-block step and movable physics. Cave/native playback need live proof; interior acceptance remains incomplete.
+Core64c:648,358 refs/1,708 populated cells over6.4km; no engine-size guarantee. October13 sampled smoke7/7, baseline29/30, informational15/15; northeast+1.8939m remains. Four old final jumps used the wrong frame and stay excluded. Original campaigns/save preserved; scoped Codex monitor stays paused.
 
-#117/PR120: Windows fingerprints deny writers/mappings/renames during hashing;14 focused/341 suite (3 skips), guard/CI pass. Independent QA caught a descriptor-ownership bug; fix/re-review pass. Sources stay immutable after return. [Limits](testing/archive-fingerprints.md).
+Claude A/B report6187749682 (build2470f876, runner2e5df7b, bridge last): template-only fixA arrived correctly but stood1m from the local-position door with NOLOAD; fixA does not make persistent refs merge. Probe-bearing exterior override displaced COC to(50,50,12.6). Child-group replacement is a supported hypothesis; do not reuse that existing-cell override path without a new pinned control. Lead-reported native findings, not Codex acceptance. PR119's old cluster plan needs redesign; temporary alone does not avoid the cell-override risk.
 
-Reviewed #80/#81 -> #79 at29f3b83: tracked rig/clips and small bind rotations;814 tests/CI/QA pass. #83/#89 -> #78 at02cfa8e: verified BA2/recovery/order/exit protocol;887 tests/CI/QA pass. Parent runtime acceptance remains open.
+## Codex results / pending integration
 
-#89: unfinished work returns4, complete/dry-run0. Preserve old batch_full:1109 pending after12h/old exit0; non-movable estimate15-18 active hours. Offline133-test plan retains16 cells/49 failures/2470f876 (~3-4h), not run. Adopt reviewed runner; re-plan movable tests.
+- #117/PR120 merged9c291f1:14 focused/341 Windows tests(3 skips), guard/CI/QA. Windows fingerprint read exclusion; immutable-source contract remains.
+- PR11614f1115:1101 Windows tests(44 skips), guard/CI/QA. Report handover repair, no active restart. #89 exits: unfinished4, protection3, complete/dry-run0.
+- PR118 source de80a97:66 focused/414 Windows tests(3 skips), guard/final12-case QA/CI38701379123. Exact selection/per-read bindings gate diagnostic positions/residuals; old false matches/QA failures retained. Native bridge/console adapter pending; runtime acceptance false.
+- PR123319e131:16 focused/357 Windows tests(3 skips), guard/CI/QA. Packets5795->3634 characters; model quality/token saving unmeasured. Guardian-only inference awaits coordinated resource window.
+- PR1254c8ded6 ready:43 focused/1301 Windows tests(70 skips), guard/CI/QA. Recovery retains ambiguous/interrupted ownership and includes bridge-last order. Undeployed; Claude integration pending.
+- PR104bf239522 single-file merge into4c8ded6 passes43 bridge tests; preserve expected_sha256 API. Source integration pending.
+- PR69f706e77:21 author/14 independent controls and CI pass. PR1214a91ba1 merge inventory preserves features/kinds/research additions;17 targeted tests incl.2 fake-game PowerShell walk/STOP scenarios pass. Separate behavioral findings remain distinct; these reviews grant no native acceptance.
 
-Parents #66/#78/#79 remain open, not runtime accepted. Moving collision/cave/save need live tests. #84 replace/unlink races remain; one controller required.
+Old batch_full:1109 pending;616 movable tests need fresh plans. #79 overlay awaits release/pins.
 
-October13: smoke7/7, baseline29/30; six roofs match, northeast+1.8939m remains. #100/e27f6de repairs the final jump; fresh informational15/15, inputs/native captures verified. Four old jumps excluded from map-size claims; walking/connections open. Original campaigns/save preserved. Codex released control and paused its completed monitor; Claude owns live control. #94/#97 [evidence audit](testing/commonwealth-evidence.md). [Results](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6154661951).
+## Coordination / preservation
 
-## Coordination
-
-GitHub #29-32 is the inbox/status source. [History](handoff-archive/2026-10-07-codex-history.md). Keep below4KB. Preserve staging/multi. #105: [verified private archives before cleanup](testing/progress-storage.md). Live controls unchanged.
+#32/owner issues are the inbox. Refresh before choosing work/done. Keep this file below4KB; history in handoff-archive. Nine October15 private capsules reopen verified:2771 files, originals retained; second local volume, not offsite. Follow testing/progress-storage.md. Quiet hourly Codex follow-up active; no full Lead loop or unrelated paused AI resumption.
