@@ -1239,3 +1239,29 @@ and1281 Windows suite tests(70 skips), guard and diff checks pass. Independent
 Anscombe QA passes three additional controls, including a genuine pre-fix cache
 and backslash namespace. #130 records pinned results; native acceptance is
 outside this correction.
+
+## 2026-10-15 afternoon window: R05 slice 1 in game, the raider fights, cave probes crash (Claude)
+
+Chain 12:59-14:39 on the pinned build 2470f876 (runner scripts 10e7019), started on the owner's word while away.
+
+- **R05 slice 1 (`r05_medkit_1015`, core64d, PR #134)**: the native container reference loaded at the planned place. The
+  bridge's probe reply in both game sessions: `FO4SF ref=34220709 pos=-2193.137207 -1548.338501 105.296318 ang=270
+  cell=33557935 disabled=false loaded=true` = local (-993.14, 1151.66, 105.30) + the merge offset (-1200, -2700). Runner
+  verdict INCONCLUSIVE for the runner's own reasons: the console_post echoes were unreadable by OCR (the compass dial
+  crosses the text; the commands executed), and the bridge log stopped at 13:24:09, exactly at the `by_the_kit`
+  teleport, and never resumed in that session, so every later read was stale and the player "stayed" at the arrival.
+  Cause open (console left open, so menu mode pauses the script? the script stalled?); the next run captures HUD
+  visibility right after the teleport. No kit screenshot yet; the owner's open-the-kit check waits for it.
+- **`npc_combat_c2_1015`** (forced `StartCombat player`): the converted FO4 raider PASS ENGAGED from t = 1 s (combat
+  state 1, target 00000014, line of sight 1, 5 of 5 reads); the vanilla Spacer PASS on its second attempt (the first:
+  spawned 6.06 m away against a 6 m confirm limit; widen to 7 m); the uncommanded citizen FAIL NOCOMBAT as designed.
+- **`cave_probes11_1015`** (PR #126's slice variant: merge probes in neighbour cell (-11, 11)): INCONCLUSIVE CRASH twice,
+  the game exited during the `coc` into the world (the bridge's last lines are in the Vault at 14:36:24; arrival never
+  logged). With the COC cell override the arrival moved (cave_core64c_1015); with a neighbour-cell override the game
+  exits. Add-on overrides of core64c exterior cells are out in both forms; the door gate stays on Codex's OFST/CLSZ
+  world-level variant or a temporary door inside core64c's own build.
+- `chain.ps1` ended without its "chain end" line and without the between-queue uninstall (process gone by 14:39);
+  the experiment was uninstalled by hand afterwards. Unexplained; watch the next chain.
+- Merged after a local testing state (main + the PRs: 1093 unit tests with the venv, guard, PluginSpike Release build and
+  its two writer tests): #69 (Grok's oracle), #126, #119, #127, #131, #133. The owner's "script command not found"
+  question answered: `readpos.ps1`'s nonce (first-run-failures row 13).
