@@ -115,3 +115,26 @@ class BridgeInstallTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OrderTests(BridgeInstallTests):
+    """bridge_install.py order: the bridge's line goes last right before launch (cave_core64c_1015 a1: it sat first and
+    shifted every experiment's load index)."""
+    def test_order_moves_the_bridge_last_and_is_idempotent(self):
+        bridge_install.install(self.a)
+        write(self.plugins, b"*FO4SFBridge.esm\r\n*FO4TerrainCore.esm\r\n*FO4Port.esm\r\n*FO4SliceRedRocketCore.esm\r\n")
+        bridge_install.order(self.a)
+        self.assertEqual(self.lines(), ["*FO4TerrainCore.esm", "*FO4Port.esm", "*FO4SliceRedRocketCore.esm", "*FO4SFBridge.esm"])
+        bridge_install.order(self.a)                                   # already last: no change
+        self.assertEqual(self.lines(), ["*FO4TerrainCore.esm", "*FO4Port.esm", "*FO4SliceRedRocketCore.esm", "*FO4SFBridge.esm"])
+
+    def test_order_reactivates_a_missing_line(self):
+        bridge_install.install(self.a)
+        write(self.plugins, b"*FO4Port.esm\r\n")
+        bridge_install.order(self.a)
+        self.assertEqual(self.lines(), ["*FO4Port.esm", "*FO4SFBridge.esm"])
+
+    def test_order_without_an_install_does_nothing(self):
+        write(self.plugins, b"*FO4SFBridge.esm\r\n*FO4Port.esm\r\n")
+        bridge_install.order(self.a)
+        self.assertEqual(self.lines(), ["*FO4SFBridge.esm", "*FO4Port.esm"])
