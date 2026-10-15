@@ -1,15 +1,26 @@
-"""Experimental external CALUMI native door writer; no game graph/deployment.
+"""External CALUMI native door writer: a door's own rig and Open/Close clips.
 
 Explicit scale factor and source-local basis required. Outputs are source-derived
 assets and must remain outside the repository. Event data is retained in a
 sidecar for future graph integration, not encoded as working runtime events.
+
+Clip layout follows vanilla Starfield door clips (offline survey of 126 vanilla
+door rigs + open clips read back with CALUMI; docs/ai/research-log.md 2026-10-12):
+only animated bones carry a track, and keys are offsets from the bone's bind
+(translation starts at zero, rotation at identity). Animated bones must have an
+identity bind rotation (door_rig.animated_identity_binds), so the unknown order
+in which the engine composes a rotation offset with the bind cannot matter.
 """
 import ctypes as c
 import math
 import pathlib
 import json
+import tempfile
 import xml.etree.ElementTree as ET
 from .nif import NifError
+from . import door_rig
+
+MOVE_EPSILON = 1e-6     # metres: a translation offset below this is "no translation channel"
 
 
 def prepare(plan, unit_scale, fps=30):
@@ -20,24 +31,39 @@ def prepare(plan, unit_scale, fps=30):
     for i,bone in enumerate(bones):
         if bone['parent'] < -1 or bone['parent'] >= i or abs(bone['bind']['scale']-1)>1e-5:
             raise NifError('native prototype requires ordered bones with unit bind scale')
+    index={bone['node']:i for i,bone in enumerate(bones) if bone.get('node') is not None}
     clips=[]
     for clip in plan['clips']:
         last=round(clip['duration']*fps)
         if not 0<=last<=65535 or abs(last-clip['duration']*fps)>1e-4:
             raise NifError('native door duration is not on the 30 fps grid')
-        by_node={t['node']:t for t in clip['tracks']}
         tracks=[]
-        for bone in bones:
-            source=by_node.get(bone['node'])
-            samples=source['samples'] if source else [{'elapsed':t,**bone['bind']} for t in sorted({0,clip['duration']})]
-            frames={}
-            for sample in samples:
+        for source in clip['tracks']:
+            if source['node'] not in index:
+                raise NifError('door clip track has no rig bone')
+            bone_index=index[source['node']];bone=bones[bone_index];bind=bone['bind']
+            if not door_rig.is_identity_rotation(bind['quaternion_wxyz']):
+                raise NifError('animated door bone needs an identity bind rotation (door_rig.animated_identity_binds)')
+            frames={};previous=None
+            for sample in source['samples']:
                 frame=round(sample['elapsed']*fps)
                 if not 0<=frame<=last or abs(frame-sample['elapsed']*fps)>1e-4:
                     raise NifError('native door sample is not on the 30 fps grid')
-                frames[frame]={'frame':frame,'translation':[x*unit_scale for x in sample['translation_source_units']],
-                               'quaternion_wxyz':sample['quaternion_wxyz'],'scale':sample['scale']}
-            tracks.append({'name':bone['name'],'keys':[frames[f] for f in sorted(frames)]})
+                if abs(sample['scale']-1)>1e-5:
+                    raise NifError('animated door scale is not supported')
+                q=list(sample['quaternion_wxyz']);length=math.sqrt(sum(x*x for x in q))
+                q=[x/length for x in q]
+                if previous is not None and sum(a*b for a,b in zip(q,previous))<0:
+                    q=[-x for x in q]                    # keep one hemisphere: no spurious 360 degree spin
+                previous=q
+                frames[frame]={'frame':frame,'quaternion_wxyz':q,
+                               'translation':[(a-b)*unit_scale for a,b in zip(sample['translation_source_units'],
+                                                                             bind['translation_source_units'])]}
+            keys=[frames[f] for f in sorted(frames)]
+            moves=any(abs(x)>MOVE_EPSILON for k in keys for x in k['translation'])
+            tracks.append({'name':bone['name'],'bone':bone_index,'keys':keys,
+                           'channels':['rotation','translation'] if moves else ['rotation']})
+        tracks.sort(key=lambda t:t['bone'])
         clips.append({'name':clip['name'],'tracks':tracks,'events':clip['events'],'duration':clip['duration']})
     return {'bones':bones,'clips':clips,'unit_scale':unit_scale,'fps':fps}
 
@@ -87,15 +113,17 @@ def export(plan, dll, output, unit_scale):
             anim=bind('CreateAnimationC',[c.c_char_p,c.c_uint],p)(clip['name'].encode(),len(prepared['bones']))
             try:
                 require(anim)
-                for index,track in enumerate(clip['tracks']):
-                    block=bind('CreateAnimBlockC',[c.c_char_p,c.c_int,p],p)(track['name'].encode('utf-8'),index,error)
+                for track in clip['tracks']:
+                    # the block index is the RIG bone index (CALUMI files the block under it and checks the name)
+                    block=bind('CreateAnimBlockC',[c.c_char_p,c.c_int,p],p)(track['name'].encode('utf-8'),track['bone'],error)
                     require(block)
                     try:
                         for key in track['keys']:
                             w,x,y,z=key['quaternion_wxyz']
-                            for kind,args,values in [('Rotation',[c.c_uint16]+[c.c_float]*4,[key['frame'],x,y,z,w]),
-                                    ('Translation',[c.c_uint16]+[c.c_double]*3,[key['frame'],*key['translation']]),
-                                    ('Scalar',[c.c_uint16,c.c_float],[key['frame'],key['scale']])]:
+                            channels=[('Rotation',[c.c_uint16]+[c.c_float]*4,[key['frame'],x,y,z,w])]
+                            if 'translation' in track['channels']:
+                                channels.append(('Translation',[c.c_uint16]+[c.c_double]*3,[key['frame'],*key['translation']]))
+                            for kind,args,values in channels:
                                 entry=bind('Create'+kind+'EntryC',args,p)(*values)
                                 require(entry)
                                 try:require(bind('Add'+kind+'SqToAnimBlockC',[p,p,c.c_uint,b],b)(block,entry,1,True))
@@ -114,3 +142,22 @@ def export(plan, dll, output, unit_scale):
     finally:
         if rig:bind('DeleteSkeletonRigC',[p],b)(rig)
         bind('DeleteStringContainerC',[p],None)(error)
+
+
+# where a door's own rig and clips sit next to its NIF, as in vanilla (<door folder>/characterassets/skeleton.rig,
+# <door folder>/animations/<clip>.af + .afx); the DOOR record's BNAM / CNAM name these paths below Meshes\
+RIG_FILE = 'characterassets/skeleton.rig'
+CLIP_DIR = 'animations'
+
+
+def export_files(plan, dll, unit_scale, exporter=None):
+    """Rig + Open/Close clips + .afx descriptors as {relative path: bytes} (RIG_FILE, CLIP_DIR/<name>.af/.afx).
+    Written through a temporary folder outside the repository; the events sidecar is not part of the result."""
+    exporter=exporter or export
+    with tempfile.TemporaryDirectory(prefix='fo4port-door-') as tmp:
+        prepared=exporter(plan,dll,tmp,unit_scale)
+        out={RIG_FILE:(pathlib.Path(tmp)/'door.rig').read_bytes()}
+        for clip in prepared['clips']:
+            for suffix in ('.af','.afx'):
+                out[f"{CLIP_DIR}/{clip['name']}{suffix}"]=(pathlib.Path(tmp)/(clip['name']+suffix)).read_bytes()
+    return out
