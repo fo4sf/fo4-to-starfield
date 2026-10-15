@@ -83,6 +83,36 @@ class Ba2:
                 self.entries.append(Entry(name, "DX10", width=r[1], height=r[2], mips=r[3], dxgi=r[4], cubemap=r[5], chunks=r[6]))
         self.names = names
         self._index = {self._norm(n): i for i, n in enumerate(names)}
+        self._validate_entries()
+
+    def _validate_entries(self) -> None:
+        """Basic structural validation of entries to catch truncated or corrupt archives early."""
+        if not self.entries:
+            raise Ba2Error(f"{self.path}: archive contains no entries")
+        for i, e in enumerate(self.entries):
+            if not e.name:
+                raise Ba2Error(f"{self.path}: entry {i} has empty name")
+            if e.kind == "GNRL":
+                if e.offset < 0 or e.unpacked < 0 or e.packed < 0:
+                    raise Ba2Error(f"{self.path}: invalid offsets/sizes in GNRL entry {e.name}")
+            elif e.kind == "DX10":
+                if e.width <= 0 or e.height <= 0 or e.mips <= 0:
+                    raise Ba2Error(f"{self.path}: invalid dimensions in DX10 entry {e.name}")
+                if not e.chunks:
+                    raise Ba2Error(f"{self.path}: DX10 entry {e.name} has no chunks")
+
+    def summary(self) -> dict:
+        """Return a short summary of the archive contents."""
+        gnrl = sum(1 for e in self.entries if e.kind == "GNRL")
+        dx10 = sum(1 for e in self.entries if e.kind == "DX10")
+        return {
+            "path": self.path,
+            "version": self.version,
+            "kind": self.kind,
+            "entries": len(self.entries),
+            "general": gnrl,
+            "textures": dx10,
+        }
 
     @staticmethod
     def _norm(n: str) -> str:
