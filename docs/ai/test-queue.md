@@ -827,3 +827,30 @@ changes nothing and a `GetMass` answered "No script named ObjectReference ..." (
 `SetRigidBodyMass`; a spot 1 m above the floor (nothing placed, START); a failed spawn (nothing acts on any
 selection); bad specs, among them a set mass without its probe (exit 4, nothing typed); a `movable` test of the
 build's own book with the ladder (walked over, moved by the impulse: FAIL NOTMOVED; never disabled).
+
+## Bridge: the game reports its own state (`scripts/bridge`, `dotnet/Bridge`, `bridge_log.py`; 2026-10-14)
+The owner's decision D1 of the 14 Oct review: position reads stop going through a screenshot and Windows OCR of the
+console (every read failure of 13-14 Oct was that channel: a lost digit group, a garbled read taken for a load, the
+runner's E on the load-order dialog, the HUD dial splitting console lines into a label column and a value column).
+Instead the game writes a file:
+- `FO4SFBridge.esm` (`dotnet/Bridge build`): GLOB `FO4SF_Cmd` (0x800, not Constant) and QUST `FO4SF_BridgeQuest`
+  (0x801, StartGameEnabled, no stages) carrying the Papyrus script `FO4SF_Bridge` with properties `FO4SF_Cmd` -> the
+  global and `Interval` (0.5 s). VMAD shape as vanilla quests (version 6, object format 2, extra-bind-data 3).
+- `scripts/bridge/FO4SF_Bridge.psc`: `OnInit` opens the user log `fo4sf` and starts a timer; every `OnTimer` writes one
+  line `FO4SF rt=<real time> pos=<x> <y> <z> ang=<heading> cell=<form id> world=<form id> loaded=<bool> [cmd=<n>] n=<count>`
+  with `Debug.TraceUser`; `cmd=` appears on the line after the global changed, so `set FO4SF_Cmd to 7` typed in the
+  console is acknowledged by the game, not by a capture. Compiled with the game's `Tools\Papyrus Compiler` against the
+  base scripts in `Tools\ContentResources.zip` (`make_bridge.py stage` extracts them); the `.pex` ships in
+  `Data\Scripts` of the experiment folder, packed by `exp_install.py --pack` (loose scripts are not read here).
+- Log: `<My Games>\Starfield\Logs\Script\User\fo4sf.0.log`; needs `[Papyrus] bEnableLogging=1 bEnableTrace=1
+  bLoadDebugInformation=1` in `StarfieldCustom.ini` (`make_bridge.py ini`, idempotent, keeps a .bak).
+- `scripts/game/bridge_log.py latest | wait-cmd <n> | wait-move`: the newest line as JSON (stale after 3 s: the game or
+  the quest is not running), a wait for the echo of a command, a wait for the player to move. Form ids come back as hex.
+- Staged: `C:\Modding\staging\bridge_t0` (plugin, pex, offline_check.txt all checks pass, plan.json, README.txt).
+- **Go/no-go (in game, in a window the owner declares; not yet run):** install, ini, launch, load a save: `latest` must
+  show `pos`; `set FO4SF_Cmd to 7` then `wait-cmd 7` within a second; hold W for 2 s then `wait-move`. If the user log
+  never appears, the fallback is an SFSE plugin (SFSE 0.2.21 in C:\Modding\tools), not more OCR.
+- After the go: the `walk`, `door_trip` and `npc_nav` reads switch to the bridge (a runner feature `bridge`); OCR stays
+  for pop-ups and HUD checks only. Unresolved until then: whether `Debug.TraceUser` writes on this build (the base
+  script says the Debug functions do nothing "in release console builds"; PC builds have written Papyrus logs since
+  Skyrim: supported hypothesis), the exact float format Papyrus prints, and whether the timer survives a save/load.
