@@ -253,6 +253,34 @@ def uninstall(a, _recovery=None):
     print("uninstalled")
 
 
+def order(a):
+    """The bridge's line moved to the END of Plugins.txt, right before launch (cycle.ps1 after exp_install order).
+    The bridge has no masters and nothing depends on its load index, but every planned test addresses the experiment's
+    records by load index (plugin_index 02 for the terrain, the cave slice's door 05000800): cave_core64c_1015 a1
+    (2026-10-15) had "*FO4SFBridge.esm" first, every experiment shifted one index up, prid 05000800 hit FO4Port's
+    record and the reads came back from the console's previous selection. Exit 0 whether or not a move was needed."""
+    data, rec_p = record_path(a)
+    if not os.path.exists(rec_p):
+        print("bridge not installed: nothing to order")
+        return
+    p = exp_install.plugins_txt()
+    original = exp_install.read_bytes(p)
+    lines, bom, nl = exp_install.plugin_lines(original)
+    k = plugin_line_present(lines, PLUGIN)
+    if k is None:
+        rec = read_record(rec_p)
+        rec.update(activate(PLUGIN))
+        deployment.write_manifest(rec_p, rec)
+        print(f"{PLUGIN} was not active: appended last")
+        return
+    if k == len(lines) - 1:
+        print(f"{PLUGIN} already last")
+        return
+    new = lines[:k] + lines[k + 1:] + [lines[k]]
+    exp_install.write_plugins(p, new, bom, nl, original)
+    print(f"{PLUGIN} moved from line {k + 1} to the end ({len(new)} lines)")
+
+
 def status(a):
     data, rec_p = record_path(a)
     if not os.path.exists(rec_p):
@@ -265,7 +293,7 @@ def status(a):
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
-    ap.add_argument("cmd", choices=("install", "uninstall", "status"))
+    ap.add_argument("cmd", choices=("install", "uninstall", "status", "order"))
     ap.add_argument("--dir", default="", help="the staged bridge folder (install)")
     ap.add_argument("--starfield", required=True)
     a = ap.parse_args(argv)
@@ -275,6 +303,8 @@ def main(argv=None):
         install(a)
     elif a.cmd == "uninstall":
         uninstall(a)
+    elif a.cmd == "order":
+        order(a)
     else:
         status(a)
 
