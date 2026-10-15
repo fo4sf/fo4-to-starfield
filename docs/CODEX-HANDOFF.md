@@ -18,7 +18,7 @@ Core64c (#76):648,358 staged refs/1,708 populated cells across6.4km; nearby prob
 
 Open regressions: Fort Hagen shutter/frame collision and load-door prompt, Vault114 cinder-block step and movable physics. Cave/native playback need live proof; interior acceptance remains incomplete.
 
-#117: Windows fingerprints deny writers/mappings/renames during hashing;14 focused/341 suite (3 skips), guard pass. QA caught a late descriptor-ownership bug, fixed; final re-review pending. Sources stay immutable after return. [Limits](testing/archive-fingerprints.md).
+#117/PR120: Windows fingerprints deny writers/mappings/renames during hashing;14 focused/341 suite (3 skips), guard/CI pass. Independent QA caught a descriptor-ownership bug; fix/re-review pass. Sources stay immutable after return. [Limits](testing/archive-fingerprints.md).
 
 Reviewed #80/#81 -> #79 at29f3b83: tracked rig/clips and small bind rotations;814 tests/CI/QA pass. #83/#89 -> #78 at02cfa8e: verified BA2/recovery/order/exit protocol;887 tests/CI/QA pass. Parent runtime acceptance remains open.
 

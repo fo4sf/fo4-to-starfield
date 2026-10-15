@@ -685,6 +685,7 @@ failure that could close a reused descriptor. The context manager now keeps expl
 descriptor ownership with a non-owning stream; an actual late `io.open` exception and
 descriptor-reuse regression fails before the fix and passes afterward.
 
-Validation:14 focused checks,341 Windows suite tests (3 skips), guard pass. Final independent
-ownership re-review is pending. [Contract and limits](testing/archive-fingerprints.md). No live game,
+Validation:14 focused checks,341 Windows suite tests (3 skips), guard pass. Independent
+ownership re-review passed14 narrow checks including the original late-failure counterexamples;
+hosted Linux CI passed. [Contract and limits](testing/archive-fingerprints.md). No live game,
 source archive, deployment, queue or save was changed.
