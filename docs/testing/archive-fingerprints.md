@@ -19,8 +19,9 @@ test. Passing an isolated retry did not resolve them.
 The [Microsoft sharing contract](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)
 defines the guard, including writable mappings and deletion/rename access.
 [File-time documentation](https://learn.microsoft.com/en-us/windows/win32/sysinfo/file-times)
-explains why timestamp checks alone cannot supply isolation. CRT descriptor/stream
-ownership is transferred once; failures close whichever layer currently owns it.
+explains why timestamp checks alone cannot supply isolation. The context manager
+owns the CRT descriptor and closes it once; its stream uses `closefd=False`, so a
+late stream-construction failure cannot close a reused, unrelated descriptor.
 
 Run synthetic checks with `python -m unittest discover -s tests -p test_archive_identity.py -v`.
 Windows cases cover equal metadata, an independent reader/writer process, existing

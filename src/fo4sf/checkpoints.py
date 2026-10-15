@@ -15,6 +15,7 @@ import os
 import struct
 from pathlib import Path
 import tempfile
+from contextlib import contextmanager
 
 from . import nif, sfnif
 
@@ -44,6 +45,7 @@ def _hash_open_file(stream):
     return h.hexdigest()
 
 
+@contextmanager
 def _open_archive_windows(path):
     """Deny writers, writable mappings and deletion while this stream is open."""
     import ctypes
@@ -74,13 +76,13 @@ def _open_archive_windows(path):
     except BaseException:
         close_handle(handle)
         raise
-    # open_osfhandle transfers ownership to the CRT descriptor; fdopen then
-    # transfers it to the stream. Close exactly the current owner on failure.
+    # open_osfhandle transfers ownership to the CRT descriptor. Keep explicit
+    # ownership: fdopen may fail after constructing/closing a partial stream.
     try:
-        return os.fdopen(fd, "rb")
-    except BaseException:
+        with os.fdopen(fd, "rb", closefd=False) as stream:
+            yield stream
+    finally:
         os.close(fd)
-        raise
 
 
 def archive_identity(path):

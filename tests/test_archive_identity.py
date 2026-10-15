@@ -4,6 +4,7 @@ import mmap
 from pathlib import Path
 import subprocess
 import shutil
+import io
 import sys
 import tempfile
 import unittest
@@ -163,6 +164,51 @@ for operation in (lambda: p.write_bytes(b'after!'),
         with patch.object(os, "fdopen", side_effect=OSError("stream failure")):
             with self.assertRaisesRegex(OSError, "stream failure"):
                 checkpoints.archive_identity(self.archive)
+        self.assert_released()
+
+    def test_late_stream_failure_does_not_close_an_unrelated_reused_descriptor(self):
+        import msvcrt
+        unrelated = self.archive.with_suffix(".other")
+        unrelated.write_bytes(b"unrelated")
+        real_transfer, real_close = msvcrt.open_osfhandle, os.close
+        guarded, others = [], []
+
+        def transfer(handle, flags):
+            fd = real_transfer(handle, flags)
+            guarded.append(fd)
+            return fd
+
+        def open_other_before_cleanup(fd):
+            # If fdopen already closed fd, the next open reuses its number.
+            # Schedule that interleaving before the guard's final close.
+            if guarded and fd == guarded[0]:
+                others.append(os.open(unrelated, os.O_RDONLY | os.O_BINARY))
+            real_close(fd)
+
+        def late_failure(frame, event, called):
+            if event == "c_return" and called is io.open and frame.f_code is os.fdopen.__code__:
+                sys.setprofile(None)
+                raise MemoryError("late real fdopen failure")
+
+        try:
+            with patch.object(msvcrt, "open_osfhandle", side_effect=transfer), \
+                    patch.object(os, "close", side_effect=open_other_before_cleanup):
+                try:
+                    sys.setprofile(late_failure)
+                    with self.assertRaisesRegex(MemoryError, "late real fdopen failure"):
+                        checkpoints.archive_identity(self.archive)
+                finally:
+                    sys.setprofile(None)
+            self.assertEqual(len(guarded), 1)
+            self.assertEqual(len(others), 1)
+            self.assertNotEqual(guarded[0], others[0])
+            self.assertEqual(os.read(others[0], 9), b"unrelated")
+        finally:
+            for fd in others:
+                try:
+                    real_close(fd)
+                except OSError:
+                    pass
         self.assert_released()
 
     def test_missing_archive_is_not_created(self):

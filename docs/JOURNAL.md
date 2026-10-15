@@ -680,6 +680,11 @@ writable mappings and deletion/rename during hashing and the final metadata chec
 existing readers work. The persisted identity format is unchanged. Sources still
 must stay immutable for the entire conversion run; POSIX has no new exclusion.
 
-Validation:13 focused checks,340 Windows suite tests (3 skips), guard pass. Independent
-QA is pending. [Contract and limits](testing/archive-fingerprints.md). No live game,
+Independent QA passed21 narrow sharing checks and caught a late stream-construction
+failure that could close a reused descriptor. The context manager now keeps explicit
+descriptor ownership with a non-owning stream; an actual late `io.open` exception and
+descriptor-reuse regression fails before the fix and passes afterward.
+
+Validation:14 focused checks,341 Windows suite tests (3 skips), guard pass. Final independent
+ownership re-review is pending. [Contract and limits](testing/archive-fingerprints.md). No live game,
 source archive, deployment, queue or save was changed.
