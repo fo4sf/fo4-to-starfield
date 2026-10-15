@@ -123,7 +123,12 @@ class DiscoveryTests(FixtureEnvironment, unittest.TestCase):
         explicit = self.bundle(self.root / "configured [literal] bundle")
         alternative = self.bundle(self.root / "alternative")
         result = json.loads(self.resolve(ps_literal(explicit), (alternative,)))
-        self.assertEqual(result["exe"], str(explicit))
+        if os.name == "nt":
+            self.assertEqual(result["exe"], str(explicit), result)
+        else:
+            # The application requires a Windows-qualified explicit path, even under Linux PowerShell CI.
+            self.assertIsNone(result["exe"], result)
+            self.assertIn("no fallback", result["error"])
 
     def test_explicit_invalid_never_falls_back(self):
         alternative = self.bundle(self.root / "valid alternative")
@@ -191,12 +196,12 @@ class ReportPublicationTests(FixtureEnvironment, unittest.TestCase):
         stub = self.process_stub(exe, probe_hook=creation if when == "probe" else "",
                                  exec_hook=creation if when == "exec" else "")
         result = json.loads(run_ps(self.prelude((exe,)) + stub + f"""
-$ok = Invoke-CodexHandover -ConfiguredExe {ps_literal(exe)} -Workspace {ps_literal(self.root)} `
+$ok = Invoke-CodexHandover -Workspace {ps_literal(self.root)} `
   -Prompt 'synthetic reporting fixture' -OutputPath {ps_literal(output)} -LogPath {ps_literal(log)}
 @{{ok=$ok;calls=@($script:fixtureCalls)}} | ConvertTo-Json -Compress
 """, self.env))
         self.assertFalse(result["ok"])
-        self.assertEqual(len(result["calls"]), 3)
+        self.assertEqual(len(result["calls"]), 3, (result, log.read_text(encoding="utf-8-sig")))
         self.assertEqual(output.read_text(), "KEEP concurrent synthetic report")
         pending = list(self.root.glob(".codex_handover_*.pending.md"))
         self.assertEqual(len(pending), 1)
@@ -272,14 +277,14 @@ $ok = CodexHandOver $cfg 4
     def test_absent_config_keeps_discovery_and_chain_defaults(self):
         result = self.config_handover(None)
         self.assertFalse(result["invalid"])
-        self.assertTrue(result["ok"])
+        self.assertTrue(result["ok"], result)
         self.assertEqual(len(result["calls"]), 3)
         self.assertEqual((result["threshold"], result["check"], result["every"]), (3, 10, 6))
 
     def test_valid_object_keeps_configured_chain_policy(self):
         result = self.config_handover('{"threshold_hours":9,"check_minutes":11,"codex_every_hours":12}')
         self.assertFalse(result["invalid"])
-        self.assertTrue(result["ok"])
+        self.assertTrue(result["ok"], result)
         self.assertEqual(len(result["calls"]), 3)
         self.assertEqual((result["threshold"], result["check"], result["every"]), (9, 11, 12))
 
