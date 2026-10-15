@@ -1207,3 +1207,18 @@ both unchanged media identities pass; GitHub GFM renders the new sections/images
 Independent factual/link QA passed, with draft status made explicit. Guard passed.
 No new unit tests for documentation; hosted CI is checked on the PR. No game,
 runner, installation, queue or save changed.
+
+## 2026-10-15: Codex — custom-prefix checkpoint dependencies (#130)
+
+Offline synthetic repro on main d628b56: with signature prefix `preview`, the
+checkpoint tracked only model/geometry. Deleting its material and texture still
+returned a reusable result and no final inventory errors. Four new tests produced
+13 failing subcases before correction. Checkpoints now passes the signature's
+prefix into both inventory calls; namespace matching normalizes separators/case.
+Tests cover default/custom/mixed-case/nested prefixes, missing/changed material
+and texture dependencies, and rejecting old incomplete inventories. No pipeline,
+runner, native data, installation or live game changes.27 focused tests(1 skip)
+and1281 Windows suite tests(70 skips), guard and diff checks pass. Independent
+Anscombe QA passes three additional controls, including a genuine pre-fix cache
+and backslash namespace. #130 records pinned results; native acceptance is
+outside this correction.
