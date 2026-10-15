@@ -700,7 +700,8 @@ intentional OCR nonce commands; genuine refusals still remain separate evidence.
 Independent QA found five gaps: wrapped command context, over-collapsed mixed errors,
 selection omissions, malformed readiness observations and padded summaries. All are
 corrected with synthetic regressions; initial negatives are retained.16 focused and
-357 Windows suite tests (3 skips), guard pass; final independent re-review pending.
+357 Windows suite tests (3 skips), guard/hosted CI pass. Independent re-review passes
+all8 counterexamples,4 fix-bound checks and16 focused tests.
 Same captured logs:5795 raw characters ->3634 brief characters; the smaller flawed
 prototype is superseded. No subscription-token or live model-quality claim. A real
 readiness check refused before inference while Claude retained the game window.

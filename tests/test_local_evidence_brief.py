@@ -195,6 +195,10 @@ class LocalSummaryTests(unittest.TestCase):
             payload = json.loads(request.data)
             self.assertNotIn('tools', payload)
             self.assertEqual(payload['model'], 'fo4-qa')
+            self.assertEqual(payload['response_format']['type'], 'json_schema')
+            schema = payload['response_format']['json_schema']['schema']
+            self.assertEqual(schema['properties']['items']['items']['properties']['group_id']['enum'], ['G001'])
+            self.assertEqual(schema['properties']['items']['minItems'], 1)
             self.assertEqual(timeout, 180)
             self.assertFalse(result['acceptance'])
             self.assertTrue(result['untrusted'])

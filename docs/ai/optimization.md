@@ -64,5 +64,5 @@ owner's local-brief-122-20261015 evidence bundle, not in Git.
 This measures reading-text size, not Claude subscription tokens, inference latency
 or summary quality. Optional local-model testing is pending a coordinated resource
 window; its real readiness check refused without an inference request.16 focused and
-357 Windows suite tests (3 skips), guard pass; independent fix re-review pending.
+357 Windows suite tests (3 skips), guard/CI and independent fix re-review pass.
 [Usage and limits](local-evidence-brief.md).

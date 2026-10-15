@@ -27,7 +27,9 @@ Add `--local` in a coordinated local-inference window. The helper requires the
 configured `fo4-qa` model already loaded and measured as loaded; it does not use
 JIT, load/unload a model, download anything or start OpenCode. It checks Guardian
 mode, admission, jobs and game-process observations, then sends one bounded,
-tool-free request through `127.0.0.1:1235`. Missing/malformed observations refuse.
+tool-free request through `127.0.0.1:1235`, using the provider's documented
+[JSON-schema response format](https://lmstudio.ai/docs/developer/openai-compat/structured-output).
+Missing/malformed observations refuse.
 No remote provider, paid fallback, model shell permissions or game control exists.
 
 Model input contains the selected groups and source anchors, not a repository

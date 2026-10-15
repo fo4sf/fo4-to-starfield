@@ -20,7 +20,7 @@ Open regressions: Fort Hagen shutter/frame collision and load-door prompt, Vault
 
 #117/PR120 merged at9c291f1:14 focused/341 Windows tests (3 skips), guard/CI/QA pass. Windows archive read exclusion; immutable-source contract remains. [Limits](testing/archive-fingerprints.md).
 
-#122: local evidence packets for Claude;16 focused/357 Windows tests (3 skips)/guard pass, final QA pending. Marker-only grouping/context corrected;5795 ->3634 characters. No token-saving/model-quality claim or inference during Claude's window. [Use](ai/local-evidence-brief.md).
+#122/PR123: local evidence packets;16 focused/357 Windows tests (3 skips), guard/CI/fix QA pass. Marker grouping/context corrected;5795 ->3634 characters. Model quality/token savings remain unmeasured; no inference in Claude's window. [Use](ai/local-evidence-brief.md).
 
 Reviewed #80/#81 -> #79 at29f3b83: tracked rig/clips and small bind rotations;814 tests/CI/QA pass. #83/#89 -> #78 at02cfa8e: verified BA2/recovery/order/exit protocol;887 tests/CI/QA pass. Parent runtime acceptance remains open.
 
