@@ -1104,6 +1104,24 @@ def seg_dist_xy(a, b, p):
     return math.hypot(a[0] + t * dx - p[0], a[1] + t * dy - p[1])
 
 
+def activate_summary(test, obs):
+    """"[activate ...]" for a terrain test with an "activate" block (qstep.ps1: the container menu opened from the console with
+    prid <ref> + activate player, captured as activate.png and OCR'd): which of the expected words (the container's name, its
+    items) the OCR read. Shown in the detail, never judged: the verdict stays the terrain verdict."""
+    want = test.get("activate")
+    if not want or not obs:
+        return ""
+    a = obs.get("activate") or {}
+    if not a.get("shot"):
+        return f"[activate {want.get('ref')}: no capture]"
+    text = (a.get("ocr") or "").lower()
+    expect = [w for w in (want.get("expect") or []) if w]
+    if expect:
+        found = [w for w in expect if w.lower() in text]
+        return f"[activate {want.get('ref')}: read {found} of {expect}]"
+    return f"[activate {want.get('ref')}: {'text read' if text.strip() else 'nothing read'}]"
+
+
 def judge(test, obs, out_dir):
     """(verdict, reason class, detail) from raw observations. Missing observations are INCONCLUSIVE.
     A test that asked for a time of day or a weather gets its light appended to the detail ("[light: ...]", e.g.
@@ -1115,6 +1133,9 @@ def judge(test, obs, out_dir):
     con, _ = console_plan.summary(test, obs)              # console_pre / console_post replies: shown, never judged
     if con and obs:
         detail = f"{detail} {con}"
+    act = activate_summary(test, obs)
+    if act:
+        detail = f"{detail} {act}"
     lt = light_of(test, obs)
     if lt is None or not obs or obs.get("stopped"):
         return v, cls, detail

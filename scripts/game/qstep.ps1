@@ -734,6 +734,25 @@ switch ($kind) {
       $k++
     }
     $obs['points'] = $pts
+    if ($t.activate) {
+      # activate (R05 interaction acceptance, docs/ai/test-queue.md "Activate"): the container's menu opened from the
+      # console with the player as the activator, no facing and no E: "prid <ref>" selects it in this session, "activate
+      # player" opens its menu once the console closes. The whole screen is captured and OCR'd (the container's name and
+      # items, read by testqueue.py activate_summary, shown and never judged), then the menu is closed with Tab.
+      $aref = "$($t.activate.ref)"
+      if ($aref -notmatch '^[0-9A-Fa-f]{8}$') { "bad activate"; exit 4 }
+      Console-Open
+      Send "type:prid $aref|key:enter|wait:400|type:activate player|key:enter|wait:400|key:grave|wait:2500"
+      $aShot = Shot 'activate.png'; $aTxt = ''
+      if ($aShot) {
+        $aCap = Join-Path $Out 'activate.png'; $aPrep = Join-Path $Out 'activate_prep.png'
+        & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $aCap $aPrep 135 12 | Out-Null
+        $aTxt = ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $aPrep -Scale 1) -join "`n")
+      }
+      $obs['activate'] = [ordered]@{ ref = $aref; shot = $aShot; ocr = $aTxt }; Save-Obs
+      Send 'key:tab|wait:1500'                        # closes the menu when one opened
+      $obs['activate']['closed_shot'] = Shot 'activate_closed.png'; Save-Obs
+    }
     # Unscored plan diagnostic: use the same merged frame/drop height as the judged points.
     Teleport @(([double]$t.beyond.x + $ox), ([double]$t.beyond.y + $oy), $dropz) 90 5
     Start-Sleep -Milliseconds 4500
