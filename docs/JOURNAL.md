@@ -1074,3 +1074,31 @@ machine paths are excluded from Git. Shared coordination: #32 comment6159604237.
   [docs/testing/stairs-routes.md](testing/stairs-routes.md). Left open: VltGearDoorStairs01 (no stair helper, 0.3 m
   treads; STUCK at 1.41 of 3.22 m on 2026-10-09), probably too steep a step for Starfield's controller without a
   helper (supported hypothesis, V111 2026-10-08): a synthesized helper would be a converter change of its own.
+
+## 2026-10-14 evening: integration-1014, the owner's master handoff, tonight's batch (Claude)
+- **Owner's handoff** (`team-handoffs/2026-10-14/FO4SF_Extensive_Research_and_Master_Handoff.md`, local): packets R01-R14, the
+  roles (Claude lead and live game, Codex review / persistent IDs / deployment, Grok oracle and diagnostics), and the claim
+  ladder every report must keep apart: converted, placed, interactive, persistent, campaign-tested.
+- **`claude/integration-1014` (ef30495):** integration-1013 (68adac4) plus the reviewed fix heads #107 2e3c961, #103 4e0ad9d,
+  #110 612a245, #113 b2af212, #112 507c21f, #111 fa9c5b3. Six conflicts resolved by hand (runner FEATURES now
+  door_frames / door_route / walk / impulse / push_judge / npc_combat together; testqueue's plan-walk and plan-movable
+  side by side; the sandbox fake game's walk keeps the ground model and the door branch's `walk_dz`; both research-log
+  entries). One post-merge fix: `plan()` passed `routes_dir` positionally into `impulse`'s slot. Unit suite 1221 OK
+  (69 skipped), qstep sandbox 66 OK (51 min), guard ok, `make_cave_core64c.py check` 11/11 PASS on build 2470f876.
+- **Runner checkout:** `fo4-to-starfield-wt\integ` detached at ef30495 (the branch lives in the session worktree). Queues
+  planned on it: `walk_core64c_1014` (2 walks, needs light + walk, core64c installed by the runner), `cave_core64c_1014`
+  (1 door_trip, fix A plugin, both legs routed), `npc_combat_c1_1014` (3 npc_nav with combat reads), then the three
+  night-site texture queues as optional. Chain started 20:23 MDT with the owner away ("run now, I'm stepping away").
+- **merge_ctrl_lc172 (2026-10-13, read today):** the vanilla persistent COC marker 0010238E reads **merged** (offset
+  -500 / -2300 / -3.62 from its local position, already in door-frames.md); probe lc172_7 matched its BTD height within
+  0.02 m, probe lc172_0 read 6.17 m low standing in a hollow between boulders (pt0.png: supported hypothesis). The
+  FAIL HEIGHTS is the probe spot, not the merge.
+- **R05 plan** (PR #119, docs only): a 12-ref cluster within 21 m of the core64c Red Rocket arrival (medkit container,
+  garage cabinet persistent 0.7 m east of x = -1000, stimpak / newspaper / Cram, the shop terminal and button box, one
+  trigger box, WoodCrate01 -> 02 enable parent plus MetalTable02 as the opposite-state twin), built as an extension of
+  the cave-slice add-on plugin (SliceDoor way, FormIDs 0x810-0x87F), never by inserting bases into TerrainOverlays
+  (its `NewKey()` is a positional counter: one inserted base renumbers 648,358 REFRs). Mutagen 0.55.0-alpha.67 has
+  CONT / ACTI / TERM / MISC / XPRM / XESP but no ActivateParents (verified by a reflection probe). Not implemented.
+- **PR #69 QA (Grok's oracle, 199cf7d):** needs one change: position aliases (`pos` / `xyz` / `position`) take the first
+  truthy value and never compare the rest, so a disagreeing or empty alias still passes; huge ints raise OverflowError
+  instead of UNREAD. 272 tests OK, guard ok. Posted on the PR.
