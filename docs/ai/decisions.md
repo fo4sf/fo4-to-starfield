@@ -267,6 +267,7 @@ analysis); hand-written skip lists for the library and Fort Hagen (do not carry 
 the top floor and walk down (does not test climbing, the owner's complaint); skip every route through a helper crossing
 (would drop the very tests that decide whether the converter's flattening is at fault); change the converter now (not
 before the probes say the crossing is the cause).
+
 ## 2026-10-14 Codex: Windows read sharing during source fingerprints (#117)
 
 Acquire an existing read-only Windows file handle sharing only reads, then retain it

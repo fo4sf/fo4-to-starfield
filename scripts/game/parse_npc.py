@@ -8,10 +8,11 @@ usage: parse_npc.py <ocr text file> [--expect ref,isid,x,y,z] [--typed FF010D65]
             reply), isid (GetIsID), x / y / z (getpos x/y/z), disabled (GetDisabled), self (GetSelf: the id of the
             console's selection, any form id), incell (player.GetInCell <cell>: door_trip, a condition function's
             reply like GetIsID's, "GetInCell >> 1.00": supported hypothesis, not yet seen in game),
-            combat (GetCombatState: a small integer, "GetCombatState >> 1.00" or ">> 1"), target (GetCombatTarget:
-            a form id, "GetCombatTarget >> (00000014)" like GetSelf's reply, or bare / 0x), los (GetLineOfSight player:
-            0 / 1 like GetIsID). The combat replies are unverified in game (npc_nav combat_reads, 2026-10-13): their
-            formats here are hypotheses; what does not parse stays null and the raw OCR is kept, never a guess
+            combat (GetCombatState: the game prints "The actor's combat state: 2.00" on the line after the echo;
+            ">> n" is also read), target (GetCombatTarget: "GetCombatTarget >> (00000014)", or bare / 0x), los
+            (GetLineOfSight player: "<actor> sees <player>" = 1, "<actor> can't see <player>" = 0; ">> 1" also
+            read). Formats verified in game on 2026-10-15 (npc_combat_c1_1015); what does not parse stays null and
+            the raw OCR is kept, never a guess
   --typed   ids this session typed itself (prid <id>, GetIsID <npc>): such an id counts as GetSelf's reply only when it
             is on screen twice, and never as GetCombatTarget's
 
@@ -257,6 +258,19 @@ def parse(raw, expect=("isid", "x", "y", "z", "self", "disabled"), typed=()):
     if got is None:
         got, how = read_inline(text, nums, start), "inline"
     r = {k: got.get(k) for k in ("isid", "x", "y", "z", "disabled", "incell", "combat", "los")}
+    # the combat replies as the game really prints them (npc_combat_c1_1015, 2026-10-15, OCR of every sample):
+    # GetCombatState answers "The actor's combat state: 2.00" on the line after its echo (never ">> n");
+    # GetLineOfSight player answers "<actor> sees <player>" / "<actor> can't see <player>" (the actor's and the
+    # player's names). GetCombatTarget's ">> (00000014)" was as hypothesised. Only after the session start, last one.
+    seg = text[start:] if start is not None else ""
+    if "combat" in expect and r["combat"] is None:
+        hits = [float(m.group(1)) for m in re.finditer(r"combat\s?state\s*[:;]\s*(\d)(?:[.,]\s?\d{1,2})?\b", seg, re.I)]
+        if hits:
+            r["combat"] = hits[-1]
+    if "los" in expect and r["los"] is None:
+        hits = [m.group(1).lower() for m in re.finditer(r"\b(sees|can.?t\s?see|cannot\s?see|does\s?n.?t\s?see)\b", seg, re.I)]
+        if hits:
+            r["los"] = 1.0 if hits[-1] == "sees" else 0.0
     for k in FLAGS + SMALLS:
         if r[k] is not None:
             r[k] = int(r[k])
