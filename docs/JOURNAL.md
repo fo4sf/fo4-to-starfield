@@ -1121,3 +1121,17 @@ machine paths are excluded from Git. Shared coordination: #32 comment6159604237.
   ccddf80, verified on the captures only); chain stopped; the bridge makes that fix the last OCR repair.
 - **Next:** runner feature `bridge` (positions from the log, console batches acknowledged by a TraceUser nonce) for
   walk, door_trip and npc_nav; then the three gates in the owner's next window.
+
+## 2026-10-14, 22:00-23:00: the runner reads the bridge; four queues staged for the next window (Claude)
+- **Runner feature `bridge`** (e22cf82, dde3ec4, ec9bd40, 31da8cf): `plan-* --bridge <staged bridge>` marks every test
+  `bridge_reads` and pins the bridge's files; `bridge_install.py` deploys it before each launch under its own record;
+  qstep's `Read-Pos` for the player and the walk's reads come from the game's log (`obs.read_log` `via: bridge`); the
+  attempt folder keeps a copy of the log (`bridge.log`). Sandbox: the fake game writes a bridge log; the walk passes
+  with bridge reads and types no getpos. The console whitelist takes the bridge's cgf lines (`FO4SF_Probe.Pos / Ack /
+  Player`, `Debug.TraceUser "fo4sf"`); `bridge_log.py events | wait-ack` read the probe's replies.
+- **Staged, not run (owner's window, D3):** `bridge_probe_1015` (vanilla LC172: does cgf load the unattached
+  `FO4SF_Probe` script? five console lines, replies in the log), then `walk_core64c_1015`, `cave_core64c_1015`,
+  `npc_combat_c1_1015`, all with bridge reads on build 2470f876; `chain_queue.txt` lists them in that order.
+- **Noticed:** `tests/test_archive_identity.py::test_archive_modified_during_hash_is_rejected` fails under CPU load
+  (a timing window) and passes alone; not touched. Grok's headless instance of 19:37 never got a reply (credits at
+  100 % until 23:44); it now runs in a visible terminal on the owner's PC.
