@@ -28,6 +28,10 @@ DEPLOYED_FILES = frozenset((PLUGIN, ARCHIVE, TEX_ARCHIVE))
 _UNSET = object()
 
 
+class ConcurrentUpdateError(OSError):
+    """The expected file changed; the guarded replacement did not happen."""
+
+
 def plugins_txt_path():
     return os.path.join(os.environ.get("LOCALAPPDATA", ""), "Starfield", "Plugins.txt")
 
@@ -85,7 +89,7 @@ def atomic_write_bytes(p, content, prefix, expected_current=_UNSET):
                 with open(p, "rb") as existing:
                     current = existing.read()
             if current != expected_current:
-                raise OSError("Plugins.txt changed during update; preserving concurrent edits")
+                raise ConcurrentUpdateError("Plugins.txt changed during update; preserving concurrent edits")
         os.replace(temporary, p)
     finally:
         if os.path.exists(temporary):
@@ -147,7 +151,7 @@ def write_lines(p, lines, original=None):
     atomic_write_bytes(p, render_lines(lines, original), ".fo4port-plugins-", expected_current=original)
 
 
-def build_archive(a, out, folders, fmt):
+def build_archive(a, out, folders, fmt, compression="Default"):
     tool = os.path.join(a.starfield, "Tools", "Archive2", "Archive2.exe")
     if not os.path.exists(tool):
         sys.exit(f"Archive2 not found at {tool} (install the Starfield Creation Kit)")
@@ -155,9 +159,9 @@ def build_archive(a, out, folders, fmt):
     with tempfile.TemporaryDirectory(prefix=".fo4port-archive-", dir=os.path.dirname(os.path.abspath(out))) as temporary:
         fresh = os.path.join(temporary, os.path.basename(out))
         r = subprocess.run([tool, ",".join(folders), f"-create={fresh}", f"-root={a.staging}", f"-format={fmt}",
-                            "-compression=Default"], cwd=a.staging, capture_output=True, text=True)
+                            f"-compression={compression}"], cwd=a.staging, capture_output=True, text=True)
         if r.returncode != 0 or not os.path.isfile(fresh):
-            sys.exit("Archive2 failed (no successful fresh output):\n" + r.stdout + r.stderr)
+            sys.exit("Archive2 failed (no successful fresh output):\n" + (r.stdout or "") + (r.stderr or ""))
         with open(fresh, "rb") as stream:
             head = stream.read(4)
         if os.path.getsize(fresh) < 16 or head != b"BTDX":
@@ -175,14 +179,17 @@ def artifact_identity(path):
     return {"size": size, "sha256": digest.hexdigest()}
 
 
-def copy_new_artifact(src, dst):
+def copy_new_artifact(src, dst, expected_sha256=None):
     """Publish without replacing a target, preferring an atomic same-directory link."""
     fd, temporary = tempfile.mkstemp(prefix=".fo4port-install-", dir=os.path.dirname(dst))
     os.close(fd)
     try:
         shutil.copyfile(src, temporary)
-        if artifact_identity(temporary) != artifact_identity(src):
+        copied = artifact_identity(temporary)
+        if copied != artifact_identity(src):
             raise OSError(f"temporary copy differs from source: {os.path.basename(dst)}")
+        if expected_sha256 is not None and copied["sha256"] != expected_sha256:
+            raise OSError(f"source changed since preflight: {os.path.basename(dst)}")
         # Same-directory hard-link creation is atomic and fails if dst exists.
         try:
             os.link(temporary, dst)

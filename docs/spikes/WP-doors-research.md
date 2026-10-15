@@ -94,6 +94,9 @@ Known limits:
 - The static frame part (`Frame` node) has no collision.
 - Open/close sounds are not set.
 - Sliding vault doors and elevators are excluded (`NOT_HINGED_RE`). They need a sliding template.
+- Only the FIRST node the FO4 `Open` sequence moves rides the template hinge; a second leaf, a shutter's other panel or
+  the other panels of a sliding set stay closed under `Frame`. Addressed offline on 2026-10-12 (in-game test pending),
+  see "Multi-part doors" below.
 ## Sliding doors (2026-10-08, offline research)
 
 **Which vanilla graph do sliding doors use?** `SfInspect graphs` groups every Starfield `DOOR` by its
@@ -160,3 +163,104 @@ field 3 is a frame count (31/61/81/91; 30 fps is assumed, not confirmed); field 
 rig names: the small ship door has `DoorUpper01` / `DoorUpperMesh01` (candidate for FO4's vertically split vault doors),
 the generic door has `DoorPanel01_Point` / `DoorPanel02_Point` (candidate for the sideways elevator doors). Still needed
 before a decoder: which bytes hold per-bone channel masks, then one decoded pose checked against an in-game panel position.
+
+## Multi-part doors (2026-10-12, Claude; offline, in-game test pending)
+
+**Symptom.** FortHagen01's shutter `0BD6A1` (`BldWoodPDoorShutter01`) shows OPEN, flips to CLOSE, and only one of its
+two panels swings (supervised_1011 tests 0004/0005).
+
+**Where the second panel is lost** (evidence and counts: docs/ai/research-log.md, 2026-10-12):
+1. `nif.door_hinge` returns the first node of the FO4 `Open` sequence only (`Left`).
+2. `convert_static.convert_door` hangs that node's shapes under the Akila hinge; every other shape (`Right:30`) goes
+   under the static `Frame` node, with no bone and no body.
+3. The DOOR record points at the Akila rig and clips, whose `open.af` has exactly one track (`Hinge01_Point`), so a
+   second part could not move even if it were there.
+4. `pipeline.Converter` only checked `door_hinge`; `door_motion.inspect` already flagged the door
+   (`requires_additional_motion_support`).
+
+**What vanilla does.** A vanilla double door (`IndIntRmSmWallMid_DoorA01`) uses the same graph
+(`SimpleOpenClose01.agx`) with its own rig (7 bones) and clips: one track per leaf, one body per leaf in its NIF. The
+graph only sequences Open and Close; the parts that move are whatever the rig and clips name. Vanilla clips carry tracks
+for animated bones only, keyed as offsets from the bone's bind.
+
+**Fix.** A rigged door whose `Open` sequence moves geometry outside its first node
+(`convert_static.frozen_door_parts`) is converted by `convert_static.convert_multipart_door` when
+`convert_batch.py --door-anim-dll <CALUMI.Animation.dll>` is given (external library, not distributed; pinned in the
+2026-10-07 Codex history):
+- NIF: `FO4Port_<model>` > the FO4 scene root (its stored transform left out, as for placed models) > one node per FO4
+  node the sequences animate plus their static ancestors and shape parents, named as in FO4 and tagged `sgoKeep`; each
+  shape under its own node; an animated node with a rotated bind gets a static `<name>_Bind` parent so it can keep an
+  identity bind.
+- Collision: one keyframed box per moving node that holds geometry (bone-local, the same box template and vanilla leaf
+  donor as the template doors), so each panel's body follows its panel. Static frame geometry keeps no body, as before.
+- Rig and clips (`native_door.export_files`): `meshes/<model>/characterassets/skeleton.rig` with every node as a bone,
+  `meshes/<model>/animations/Open.af` / `Close.af` (one track per animated node: rotation keys every frame, translation
+  keys when the node slides, offsets from the bind, 30 fps; FO4's own keys and timing) and `.afx` descriptors.
+- Manifest door entry: `rig: native`, origin offset 0 (the NIF keeps FO4's origin), bounds, `skeleton` / `animations`
+  pointing at those files (the plugin writer puts them in BNAM / CNAM, unchanged code), `animated_bones`,
+  `moving_bodies`, `files` (checkpoint inventory).
+- Without `--door-anim-dll` (or if the multi-part build fails: `door_error` says why) the template door is kept and the
+  manifest lists the parts left closed in `door_frozen_parts`. Single-part doors keep the template path unchanged.
+
+Offline checks (16-cell door models re-converted into `C:\Modding\staging\door_two_panels`): 47 of 57 models
+byte-identical to the pinned build, the 10 multi-part models changed; `scripts/oracles/door_panels.py` (new: every FO4
+moving part needs an Open and a Close track and a moving body; `--dll` reads the clips back) goes from 23 of 40 parts to
+40 of 40; `scripts/oracles/door_bodies.py` (now per bone for native doors) 0 errors.
+
+Known limits and unknowns:
+- In game nothing of this is verified yet: whether Starfield loads a rig and clips from our `Main.ba2` (vanilla ones
+  live in `Starfield - Animations.ba2`), the bind-offset convention (from the vanilla survey only), and two separate
+  keyframed physics systems in one NIF (vanilla double doors share one system with a body per leaf).
+- Knobs, handles and latches that FO4 animates get their own small keyframed boxes.
+- Text-key events (FO4 door sounds) are not encoded; DOOR sounds stay unset.
+- Load doors and `NOT_HINGED_RE` doors (vault doors, elevators: 36 records in Fallout4.esm) are unchanged; their FO4 keys
+  (including slides) would work the same way.
+- The FortHagen01 shutters are window shutters (sill 1.08 m above the floor): their walk test cannot pass even with
+  both panels open. The route planner should skip raised openings (leaf bottom above step height); not changed here.
+  `FancyBureauDoor01` is furniture (bureau doors): same.
+
+### In-game test plan (not run)
+
+What a new pinned build changes against `integ_1011`:
+- `FO4Port.esm`: 10 DOOR records (BNAM, CNAM, OBND) and their 38 references (position only: the template doors' origin
+  shift is gone). Nothing else; FormIDs unchanged (checked offline with an overlay plugin, 48 of 54,271 records differ).
+- `FO4Port - Main.ba2`: the 10 door NIFs, 10 rigs, 20 `.af`, 20 `.afx`, and the shape-local meshes of these doors.
+  Textures and materials do not change.
+- A fresh test save: the queue's save is named after the plugin hash, so a new plugin gets one; doors opened in an older
+  save keep their old positions (journal 2026-10-09).
+
+Overlay staging (the pinned build plus only these doors; never write into `integ_1011`), from a worktree of this
+branch:
+```powershell
+$pin = 'C:\Modding\staging\integ_1011'; $doors = 'C:\Modding\staging\door_two_panels'; $ov = 'C:\Modding\staging\integ_1011_doors'
+# 1. door models only (17 s); editor IDs from the pinned build
+New-Item -ItemType Directory $doors; Copy-Item "$pin\editorids.json" $doors
+python scripts\convert_batch.py --fo4-data <FO4 Data> --staging $doors --content-resources <ContentResources.zip> `
+  --texconv <Texconvx64.exe> --collision-template <template.nif> --starfield-data <Starfield Data> `
+  --door-anim-dll <CALUMI.Animation.dll> --cell-json "$pin\merged.json" --types Door --limit 100000
+# 2. copy of the pinned staging + the new door files + overlay manifest
+robocopy $pin $ov /E /XF *.ba2 FO4Port.esm /XD .checkpoints
+robocopy "$doors\meshes" "$ov\meshes" /E; robocopy "$doors\geometries" "$ov\geometries" /E
+python scripts\overlay_manifest.py "$pin\manifest.json" "$doors\manifest.json" "$ov\manifest.json" --native-doors-only
+# 3. plugin (same writer as the pinned build; formids.json came with the copy)
+cd dotnet\PluginSpike; $env:STARFIELD_DATA = '<Starfield Data>'
+dotnet run -c Release -- $ov "$ov\manifest.json" @(Get-ChildItem C:\Modding\staging\exports_1011\*.json | % { "$ov\$($_.Name)" })
+# 4. offline checks before any deploy
+python scripts\oracles\door_panels.py --manifest "$ov\manifest.json" --staging $ov --fo4-data <FO4 Data> --dll <CALUMI.Animation.dll>
+python scripts\oracles\door_bodies.py --manifest "$ov\manifest.json" --staging $ov
+```
+Deploy (`deploy_starfield.py install --staging $ov`) only when the owner or the chain switches the pinned build; the
+running batch_full queue must finish on `integ_1011` first.
+
+Runner tests that verify it (`testqueue.py plan --staging $ov --kinds door --routes-prefix routesfull_`, then keep the
+tests on the 10 models; route files are computed from the FO4 models and positions, so they stay valid):
+- supervised_1011 0004/0005 and batch_full 0334-0337 (`BldWoodPDoorShutter01`, FortHagen01 `0BD6A1` / `0BD69F`): pass =
+  both panels swung in `r*_open.png`; the walk verdict stays BLOCKED (window).
+- batch_full walk tests expected to PASS from both sides: `PaintedWoodDoorDouble01` 0830-0837, 0848-0849 (Parsons
+  `06CF29`), 0852-0855; `BldWoodPDbDoor01` 0071-0072, 0091-0094 (library twins), 0184-0185, 0200-0201, 0627-0628;
+  `IndMetalDbDoor01` 0491-0492, 0507-0508, 0850-0851, 1155-1156, 1159-1160, 1516-1517; `UtilMetalDbDoor01` 0358-0359,
+  0509-0510; `HitDoorSm01` 0190-0199, 0204-0207 and `HitDoorLg01` 0186-0187 (Cambridge: all four panels slide);
+  `SwitchDoorExSmLatch01` 0378-0379, 0475-0476, 0525-0526, 0995-0996, 1265-1266 and `SwitchDoorExSmLatch02` 0360-0361.
+- batch_full 0503-0504 (`FancyBureauDoor01`, furniture): both doors swung in the screenshot; no walk.
+- Controls: a few template doors from the same cells (e.g. `BldWoodPDoor01`, `SubDoor01Right`) must still pass.
+The batch_full results of these 76 tests on `integ_1011` are the before.
