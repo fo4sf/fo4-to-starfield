@@ -5,6 +5,17 @@ Status (2026-10-14, Claude): a bounded implementation plan drawn from a read of 
 
 Worktree pins: `...\scratchpad\integ1014`. V = verified (read/ran), H = supported hypothesis, U = unresolved.
 
+> **Revision 2026-10-15 (after cave_probes_1015 / cave_fixA_1015):** two in-game results change section 2 and 3.
+> (a) An add-on plugin's override of a core64c exterior cell (a child-less copy carrying new references) makes
+> `coc FO4Core_RedRocketSpawn` land at (50, 50, 12.6), the centre of cell (0, 0), instead of the COC marker:
+> verified twice (cave_core64c_1015, cave_probes_1015), absent without the override (cave_fixA_1015, the walks).
+> So the "override of the master REFR" and "exterior cell override" items below are **out**. The cluster's records
+> go into **core64c's own build** (make_core64c.py -> objects.json -> TerrainOverlays, which already writes STAT /
+> DOOR bases and references natively): TerrainOverlays grows native CONT / MISC / ACTI / TERM / XPRM / XESP writing
+> for a declared cluster, with the retained ID map (PluginSpike's identity-keyed formids.json) so the rest of the
+> 648,358 references keep their ids. (b) Fix A (the vanilla persistent-cell shape) does not make our persistent
+> references merge; the persistent-border item waits for the door bridge's answer (WRLD OFST / CLSZ next).
+
 ## 1. Cluster (12 refs, radius 21 m around the arrival (-989.26, 1146.51), SF cells (-10,11)/(-11,11))
 
 | role | FO4 ref | base | why |
