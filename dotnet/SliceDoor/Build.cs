@@ -85,6 +85,7 @@ public static class Build
     {
         using var doc = JsonDocument.Parse(File.ReadAllText(args[1]));
         var p = doc.RootElement;
+        var emptyWorldData = WorldCellData.Requested(p);
         string S(JsonElement e, string k) => e.GetProperty(k).GetString()!;
         var outDir = args[5];
         using var sf = StarfieldMod.CreateFromBinaryOverlay(args[2], StarfieldRelease.Starfield);
@@ -173,6 +174,7 @@ public static class Build
                 probeLines.Add($"probe {o.FormKey} {o.EditorID} {(pr.GetProperty("persistent").GetBoolean() ? "persistent" : "temporary")} in ({g[0]}, {g[1]}) at {o.Position}");
             }
         }
+        if (emptyWorldData) WorldCellData.SetEmpty(w);
         mod.Worldspaces.Add(w);
 
         // interior: the converted cell, a deep copy without its children, plus the door

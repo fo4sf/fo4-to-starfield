@@ -22,14 +22,14 @@ Main now contains #121 integration at10e7019. New work starts from main; source 
 
 - #117/PR120 merged9c291f1: guard/CI/QA pass. Windows fingerprint read exclusion; immutable-source contract remains.
 - PR11614f1115: guard/CI/QA pass; handover repair, no active restart. #89 exits: unfinished4, protection3, complete/dry-run0.
-- PR118 source de80a97/docs1350d9d:66 focused/414 Windows tests(3 skips), guard/final12-case QA/CI. Exact selection and per-read bindings gate diagnostics; old failures retained. Native bridge/console adapter pending; runtime acceptance false.
+- PR118 de80a97/1350d9d:66 focused/414 Windows(3 skips), guard/QA/CI. Selection/read bindings gate diagnostics; failures retained. Native adapter pending; runtime acceptance false.
 - PR123319e131: guard/CI/QA pass. Packets5795->3634 characters; model quality/token saving unmeasured. Guardian-only inference needs a coordinated window.
-- PR1254c8ded6 ready:43 focused/1301 Windows tests(70 skips), guard/CI/QA, undeployed. Claude asks to move onto current main; preserve bridge-last order and no-op exit0. Merge main without history rewriting, then validate current callers before lead integration.
+- PR125fcdec287 READY on main:43 focused/1305 Windows tests(70 skips), guard/CI/final integration QA. Source blobs match reviewed4c8ded6; bridge-last/no-op0 intact. Undeployed; Claude integrates.
 - PR104bf239522:43 current-caller bridge tests pass; retain expected_sha256 API; integration pending.
 - PR69f706e77:21 author/14 independent controls and CI pass. PR121 merge review passes; no general runtime approval.
 
 ## Next / preservation
 
-Owner's October14 README recap with distinct October15 follow-up is ready. Next: current-main PR125 integration, then the bounded OFST/CLSZ SliceDoor option/check/stage packet on #32; no exterior-cell override/probes, deployment or input. R05 plan needs revision. Old batch_full:1109 pending;616 movables need fresh plans. #79 awaits release/pins.
+README recap published PR128/d628b56. Codex OFST/CLSZ packet: zero file-local arrays, no copied pointers;65x65 entries. Stage built;98 QA controls,32/32 raw corruptions rejected. Raw check mandatory; runtime unverified. No probes/exterior overrides/install/input. Claude's PR126 stays separate. R05 revised775b453. Old batch_full:1109 pending;616 movables need new plans. #79 awaits release/pins.
 
-#32/owner issues are the inbox. Refresh before choosing work/done. Keep handoff below4KB; history in handoff-archive. Nine completed private October15 capsules verified:2771 files, originals retained; local second volume, not offsite. Follow testing/progress-storage.md. Quiet hourly Codex follow-up active; other paused AI work stays paused.
+#32/owner issues are the inbox. Refresh before choosing work/done. Keep handoff below4KB; history in handoff-archive. Eleven completed private October15 capsules verified:2787 files, originals retained; local second volume, not offsite. Follow testing/progress-storage.md. Quiet hourly Codex follow-up active; other paused AI work stays paused.

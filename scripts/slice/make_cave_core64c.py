@@ -3,6 +3,7 @@ docs/slice/door-frames.md; the exp2d door it ports: docs/slice/redrocket-door.md
 
     python scripts/slice/make_cave_core64c.py stage --fo4 <Fallout4.esm> --sf-esm <Starfield.esm> --port <pinned build>
            --core <terrain_core64c> --out <slice folder> [--template-world LC172World] [--no-probes]
+           [--empty-world-cell-data]
     python scripts/slice/make_cave_core64c.py check --sf-esm <Starfield.esm> --port <pinned build> --core <terrain_core64c> --out <slice dir>
            --out <slice folder>
 
@@ -32,6 +33,7 @@ import hashlib
 import json
 import math
 import os
+import struct
 import subprocess
 import sys
 import time
@@ -186,7 +188,71 @@ def bind_plan(t, routes, params, anchor=ANCHOR_PROBE, tol=1e-3):
     return out
 
 
+def compare_empty_world_data(master, ours):
+    """Independent raw check: only OFST/CLSZ may differ; absent local exterior cells
+    require zero entries. Bounds are raw metres here (not Mutagen's /4096 view).
+    Returns (ok, detail); malformed/duplicate fields never become a passing exception.
+    """
+    def subs(data):
+        result, pos, big = [], 0, None
+        while pos < len(data):
+            if pos + 6 > len(data):
+                raise ValueError("truncated subrecord header")
+            tag, size = struct.unpack_from("<4sH", data, pos)
+            pos += 6
+            if tag == b"XXXX":
+                if size != 4 or big is not None or pos + 4 > len(data):
+                    raise ValueError("invalid extended size")
+                big = struct.unpack_from("<I", data, pos)[0]
+                pos += 4
+                continue
+            size = size if big is None else big
+            big = None
+            if pos + size > len(data):
+                raise ValueError("truncated subrecord")
+            result.append((tag, data[pos:pos + size]))
+            pos += size
+        if big is not None:
+            raise ValueError("orphan extended size")
+        return result
+
+    try:
+        if master[:2] != ours[:2] or ours[0] != "WRLD":
+            raise ValueError("world type/record flags changed")
+        a, b = subs(master[2]), subs(ours[2])
+        arrays = {b"OFST", b"CLSZ"}
+        if [s for s in a if s[0] not in arrays] != [s for s in b if s[0] not in arrays]:
+            raise ValueError("a world field other than OFST/CLSZ changed")
+
+        def one(tag):
+            found = [v for t, v in b if t == tag]
+            if len(found) != 1:
+                raise ValueError(f"expected exactly one {tag.decode()}")
+            return found[0]
+
+        low, high = struct.unpack("<2f", one(b"NAM0")), struct.unpack("<2f", one(b"NAM9"))
+        grid = [v / 100 for v in (*low, *high)]
+        if any(not math.isfinite(v) or abs(v - round(v)) > 1e-5 or abs(v) > 1_000_000 for v in grid):
+            raise ValueError("world bounds are not finite aligned 100m coordinates")
+        x0, y0, x1, y1 = map(round, grid)
+        columns, rows = x1 - x0 + 1, y1 - y0 + 1
+        if columns <= 0 or rows <= 0 or columns * rows > 1_048_576:
+            raise ValueError("world bounds reversed or too large")
+        length = 4 * columns * rows
+        for tag in sorted(arrays):
+            data = one(tag)
+            if len(data) != length or any(data):
+                raise ValueError(f"{tag.decode()} must have {length} zero bytes, got {len(data)} bytes")
+        return True, f"only OFST/CLSZ differ: {columns}x{rows} absent local cells, {length} zero bytes each"
+    except (ValueError, struct.error) as e:
+        return False, str(e)
+
+
 def cmd_stage(a):
+    if a.empty_world_cell_data and not a.no_probes:
+        raise ValueError("--empty-world-cell-data requires --no-probes (no exterior-cell overrides)")
+    if a.empty_world_cell_data and os.path.lexists(os.path.abspath(a.out)):
+        raise ValueError("empty world-cell-data candidate requires a new output directory; preserve earlier stages")
     t0 = time.time()
     out = os.path.abspath(a.out)
     ev = os.path.join(out, "evidence")
@@ -240,6 +306,8 @@ def cmd_stage(a):
               "interior": {"plugin": "FO4Port.esm", "editor_id": rr.PORT_CELL}, "outside": o_side, "inside": i_side}
     if a.template_world:
         params["persistent_cell"] = {"template_world": a.template_world}
+    if a.empty_world_cell_data:
+        params["world_cell_data"] = {"mode": "empty"}
     if probes_params:
         params["probes"] = probes_params
     with open(os.path.join(out, "slice_params.json"), "w", encoding="utf-8") as f:
@@ -260,6 +328,11 @@ def cmd_stage(a):
     sides = {"outside": outside, "inside": inside}
     # coming back out, the player faces the interior door's XTEL rotation; going in, the exterior door's
     entry = plan_entry(sides, routes, spawn_local, i_side["xtel"]["rot"][2], o_side["xtel"]["rot"][2], probes_plan)
+    if a.empty_world_cell_data:
+        entry.update(label="rr_cave_core64c_ofst", save=SAVE + "_ofst",
+                     basis="unverified field-presence experiment: file-local OFST/CLSZ are zero for absent exterior "
+                           "cells; no template offsets copied. Compare against probe-free fixA (refuted in game). "
+                           "Check current-session door XYZ against local and spawn-derived merged positions.")
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump([entry], f, indent=1)
     expected = {
@@ -270,10 +343,12 @@ def cmd_stage(a):
                     "spawn_local": spawn_local, "plugins": list(CORE_PLUGINS)},
         "plugin": {"file": PLUGIN, "masters": ["Starfield.esm", CORE_PLUGINS[0], "FO4Port.esm"],
                    "formids": {"exterior": "000800", "interior": "000801",
-                               **{f"probe_{'persistent' if p else 'temporary'}": pid for pid, _e, p, _q, _w in PROBES}},
+                               **({f"probe_{'persistent' if p else 'temporary'}": pid for pid, _e, p, _q, _w in PROBES}
+                                  if not a.no_probes else {})},
                    "runtime_ids_supported": {"door": f"{LOAD['slice']}000800", "anchor": f"{LOAD['core']}000800",
                                              "interior_cell": f"{LOAD['port']}{PORT_CELL_ID:06X}"},
-                   "persistent_cell_template": a.template_world or None, "probes": not a.no_probes},
+                   "persistent_cell_template": a.template_world or None, "probes": not a.no_probes,
+                   "world_cell_data": params.get("world_cell_data")},
         "arrival_headings": {"outside": deg(i_side["xtel"]["rot"][2]), "inside": deg(o_side["xtel"]["rot"][2])},
         "outside": outside, "inside": inside, "routes": {k: {x: routes[k].get(x) for x in (
             "length", "level", "end_to_door_m", "final_walk", "capsule_contacts", "drift", "walk_ms")}
@@ -297,6 +372,7 @@ One install = core64c (FO4TerrainCore.esm + FO4TerrainCore_Mars.esm and its Data
 the terrain_core64c staging, no second copy) + {PLUGIN}: the Fallout 4 load door between the Commonwealth and RedRocket01
 as the vanilla automatic cave door AutoloadDoor_Cave (24F9CE:Starfield.esm) at both ends, persistent, XTEL both ways.
 Persistent cell: {('the vanilla shape of ' + a.template_world + "'s persistent cell (door-frames.md fix A)") if a.template_world else 'core64c own record'}; merge probes: {'yes' if p.get('probes') else 'no'}.
+World cell data: {'file-local zero OFST/CLSZ (no exterior cells); field-presence experiment, unverified in game' if a.empty_world_cell_data else 'core64c own fields'}.
 FO4Port.esm (the pinned build) is a master: it must load BEFORE {PLUGIN}; the runner's cycle.ps1 orders it.
 
 Install (game closed; the runner does it):
@@ -310,7 +386,7 @@ Runner (one door_trip test, --fresh):
 The test: coc {COC}, read the arrival (merge offset O), read the door's and the probes' getpos, WALK the outside route
 ({p['outside']['route'][0]} -> ... {len(p['outside']['route'])} points, {e['routes']['outside']['length']} m) to the cave mouth, arrive in RedRocket01
 (facing {p['inside']['arrival_heading']} deg), WALK the inside route ({e['routes']['inside']['length']} m) back to the mouth, arrive outside at the
-XTEL point + O facing {p['outside']['arrival_heading']} deg, save {SAVE}, teleport away, load, the same spot and heading again.
+XTEL point + O facing {p['outside']['arrival_heading']} deg, save {p['save']}, teleport away, load, the same spot and heading again.
 
 Numbers (world frame = FO4 / 70):
   exterior door   {o['door']}  floor {o['door_floor']} ({o['door_floor_owner']}; terrain {o['door_terrain']})
@@ -350,12 +426,18 @@ def cmd_check(a):
     add("raw record set", kinds == {"CELL": 2 + n_cells, "REFR": 2 + len(probes), "WRLD": 1},
         ", ".join(f"{t} {n}" for t, n in kinds.items()))
     template = (params.get("persistent_cell") or {}).get("template_world")
+    world_data = params.get("world_cell_data")
+    if world_data is not None:
+        add("empty world-cell-data option is probe-free", world_data == {"mode": "empty"} and not probes,
+            "requires mode empty and no exterior-cell probes")
     for fid, r in sorted(ours.items()):
         if r[0] == "REFR":
             continue
         if fid >> 24 == 1:
             res = rr.compare_override(core.get(fid, ("missing", 0, b"")), r, 1, 1)
             ok = res == "identical"
+            if world_data is not None and r[0] == "WRLD":
+                ok, res = compare_empty_world_data(core.get(fid, ("missing", 0, b"")), r)
             if not ok and template and r[0] == "CELL" and (r[1] & 0x400):
                 ok, res = True, f"{res}: the persistent cell in {template}'s shape (SliceDoor check compares it)"
             add(f"{r[0]} {fid:08X} = FO4TerrainCore.esm's record", ok, res)
@@ -439,6 +521,8 @@ def main(argv=None):
             s.add_argument("--template-world", default="",
                            help="vanilla world whose persistent cell record shape the override takes (fix A)")
             s.add_argument("--no-probes", action="store_true", help="no XMarker merge probes")
+            s.add_argument("--empty-world-cell-data", action="store_true",
+                           help="experimental file-local zero OFST/CLSZ tables; requires --no-probes")
             s.add_argument("--blocked", default="", help="README status line, e.g. 'persistent-ref placement'")
     a = ap.parse_args(argv)
     return cmd_stage(a) if a.cmd == "stage" else cmd_check(a)

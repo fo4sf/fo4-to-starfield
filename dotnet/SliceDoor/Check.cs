@@ -37,6 +37,7 @@ public static class Check
     {
         using var pdoc = JsonDocument.Parse(File.ReadAllText(args[5]));
         var p = pdoc.RootElement;
+        var emptyWorldData = WorldCellData.Requested(p);
         using var sf = StarfieldMod.CreateFromBinaryOverlay(args[2], StarfieldRelease.Starfield);
         using var exp2 = Build.Open(args[3], "Starfield.esm");
         using var port = Build.Open(args[4], "Starfield.esm");
@@ -77,7 +78,14 @@ public static class Check
         // every exterior reference first (core64c: 648,358)
         var wa = Build.WorldOnly(w0); wa.SubCells.Clear(); wa.TopCell = null;
         var wb = Build.WorldOnly(w); wb.SubCells.Clear(); wb.TopCell = null;
-        Add("world override equals its master's record", wa.Equals(wb), string.Join(", ", Differences(wa, wb)));
+        if (emptyWorldData)
+        {
+            WorldCellData.SetEmpty(wa);
+            Add("world OFST/CLSZ are file-local empty exterior-cell tables", WorldCellData.MatchesEmpty(w),
+                $"expected {WorldCellData.ByteLength(w)} bytes each, OFST {w.OffsetData?.Length}, CLSZ {w.CellSizeData?.Length}; no exterior groups");
+        }
+        Add(emptyWorldData ? "world override equals its master's record except requested empty OFST/CLSZ"
+                           : "world override equals its master's record", wa.Equals(wb), string.Join(", ", Differences(wa, wb)));
         var extCells = w.SubCells.SelectMany(b => b.Items).SelectMany(s => s.Items).ToList();
         Add("world has no exterior cells of its own except the probe cells", extCells.Count == probeCells, $"{extCells.Count} cells");
         foreach (var ec in extCells)

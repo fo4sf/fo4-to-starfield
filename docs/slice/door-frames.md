@@ -101,7 +101,7 @@ Candidate fixes:
 | B | The door as a persistent ref in its exterior cell's persistent children | plugin only | vanilla never does it for worldspaces (0 of 345); probed, not used |
 | C | Temporary refs in exterior cells: the 648,358 core64c objects stand merged (roof drops) | none | **verified** for statics; a load door must be persistent (the CK makes linked doors persistent), so not a door fix; probed as the control |
 | D | Write the door at local + the measured offset (-1200, -2700) | plugin only | fallback only: it depends on the offset staying the same and double-shifts once A works; the XTEL arrival frame question stays |
-| E | WRLD OFST / CLSZ | a TerrainOverlays change and a core64c rebuild | **unresolved**; next if A fails |
+| E | WRLD OFST / CLSZ | optional SliceDoor field-presence candidate; core64c stays unchanged | **unresolved**, offline candidate below |
 
 `SliceDoor build` also takes `"probes"`: XMarkers in an exterior cell, persistent (its persistent children, B) or
 temporary (C). With the door (A) and core64c's anchor (A) they make **the discriminating test**, read by the door_trip
@@ -131,11 +131,58 @@ $env:FO4SF_QSTEP_SANDBOX = '1'; & $py -m unittest tests.test_qstep_sandbox.Qstep
 
 ## 4. Unknowns
 
-1. Whether fix A moves persistent refs in game (section 3); whether the XTEL arrival into our overlay then gets the
-   merge offset (the out leg's UNMERGED / REMERGED).
+1. Fix A was **refuted** in the probe-free October15 native run (below). Whether the file-local OFST/CLSZ presence
+   candidate changes persistent-door placement, and whether the XTEL return receives the merge offset, remain unresolved.
 2. Whether `player.GetInCell <form id>` resolves our cell (not typed unless a plan gives `inside.cell_id`).
 3. The GetAngle reply format (a missing heading makes the trip NOFACING, never PASS).
 4. How often strict reads fail in the cave mouth (the O2 dial over the console lines): a run with many unread steps
    stops its walk early (walk stopped: position unread) and only the last try can load (NEARONLY).
 5. Whether an automatic door fires for a player teleported into its range, or only for one walking in (a2 stood in
    range after a teleport; with A unshown, a2 cannot tell).
+
+## October15 correction and bounded OFST/CLSZ candidate (Codex)
+
+The supported-A language above records the original hypothesis. Claude's probe-free `cave_fixA_1015`
+at build2470f876/runner2e5df7b refuted it: correct COC, ~57m walk, ~1m from the door, **NOLOAD**;
+door XYZ remained local (-994.95,1109.49,98.68). The probe-bearing COC-cell override displaced arrival.
+See [native A/B report](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6187749682).
+This candidate adds no exterior-cell override or probe.
+
+**Verified offline:** Mutagen0.55.0-alpha.67 exposes `OffsetData`/`CellSizeData` as nullable byte slices
+(read-only slices on getters). They are not a merge transform. [Mutagen's export issue](https://github.com/Mutagen-Modding/Mutagen/issues/653)
+and [xEdit's format description](https://github.com/TES5Edit/TES5Edit/issues/1449) describe OFST as
+file-local relative cell offsets. LC172World's WRLD starts at Starfield.esm byte462056759 (1.16.244):
+NAM0=(-200,-200)m, NAM9=(300,300)m, both arrays144 bytes (6x6 u32 entries). All25 nonzero offsets
+were checked against actual CELL signatures and grid coordinates;11 missing cells have zero offset/size.
+The first entry is offset256026, size82, targeting CELL(-2,-2) at462312785. Copying those pointers
+or the vanilla table dimensions into another plugin would be invalid.
+
+`stage --no-probes --empty-world-cell-data` requests `"world_cell_data":{"mode":"empty"}`.
+SliceDoor writes **zero arrays for absent file-local exterior cells**, sized from the master's unchanged
+bounds. Core64c's -3200..3200m bounds yield65x65 entries/16900 bytes per array, including the empty edge.
+The persistent cell is not indexed in these exterior tables. The option rejects probes/exterior groups,
+nonfinite, unaligned, reversed or excessive bounds and an existing stage directory. Default behavior is unchanged.
+Use `--template-world LC172World` to retain the probe-free fixA persistent-cell shape as the comparison baseline.
+
+Typed read-back and an independent raw subrecord check require exact zero tables, dimensions and unchanged
+other WRLD fields; fixed door IDs remain0x800/801. Synthetic Build/Check fixtures reject stale serialized
+pointers, missing/duplicate/wrong-size fields and unrelated changes. No template offset bytes enter outputs.
+The plan has a separate `_ofst` save name and identifies the hypothesis as unverified.
+The guards are complementary: independent QA rejected32/32 corruptions through the raw check, while
+Mutagen alone rejected27/32. Duplicate fields, unknown additions and orphan XXXX can survive typed parsing.
+**Always run the Python staging `check`; SliceDoor's typed-only `check` is insufficient.**
+
+**Unverified in game:** field presence may have no effect on persistent-door merging. Claude must pin the
+candidate and load order, verify COC, current-session reference selection/XYZ and spawn-derived offset,
+then compare the door against local and local+(-1200,-2700) before any walk/return/save-reload claim.
+No deployment or game input is performed by this staging option.
+
+Reproduce synthetic controls without game files:
+
+```powershell
+$env:FO4SF_SLICEDOOR_DOTNET = '1'
+python -B -m unittest tests.test_empty_world_cell_data tests.test_cave_core64c tests.test_slice_redrocket_door
+```
+
+Claude's neighbour-probe PR126 is separate. A three-way caller merge has one adjacent argparse addition
+conflict: retain both `--probe-cell` and `--empty-world-cell-data`. The latter still requires `--no-probes`.

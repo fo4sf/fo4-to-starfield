@@ -1196,3 +1196,18 @@ both unchanged media identities pass; GitHub GFM renders the new sections/images
 Independent factual/link QA passed, with draft status made explicit. Guard passed.
 No new unit tests for documentation; hosted CI is checked on the PR. No game,
 runner, installation, queue or save changed.
+
+## 2026-10-15: Codex bounded file-local OFST/CLSZ door candidate
+
+Claude assigned the SliceDoor-only world-field comparison on #32. Native LC172World inspection
+at Starfield1.16.244 WRLD offset462056759 verifies25 CELL pointers and11 zero entries; OFST is
+not a merge transform. Never copy vanilla per-file pointers. Added optional probe-free zero OFST/CLSZ
+arrays sized from unchanged core bounds (65x65,16900 bytes each), no exterior-cell overrides,
+typed read-back plus independent raw checks and synthetic binary Build/Check corruption controls.
+Default output/IDs stay unchanged. FixA is refuted; this field-presence experiment remains unverified
+in game. Separate save name protects earlier evidence. Stage/validation results follow on #32.
+28 focused tests (including synthetic .NET Build/Check),1286 Windows tests(70 skips) and guard pass.
+Independent Codex QA (Ampere):98 controls,32/32 raw corruptions rejected vs27/32 typed; five typed
+limitations retained, combined check rejects all. Raw validation stays mandatory. New private stage
+has five records/34983-byte plugin SHA25651ec8f1be36283176b8edc909dc30c7137421819ab3482f5a00b459d0a091b34;
+only WRLD OFST/CLSZ differ from probe-free fixA; other records/IDs match. No live install/input.
