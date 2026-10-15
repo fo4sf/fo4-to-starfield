@@ -306,3 +306,31 @@ class CombatStepScriptTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RealReplyFormatTests(unittest.TestCase):
+    """The replies as the game printed them (npc_combat_c1_1015, 2026-10-15, the Spacer in QASmoke)."""
+    REAL = ("Clear Console\nGetlsID 00270255\nGetlsID 1.00\nGetCombatState\nThe actor's combat state: 2.00\n"
+            "GetCombatTarget\nGetCombatTarget > > (00000014)\nGetLineOfSight player\nSpacer can't see aaron\n")
+
+    def P(self, raw):
+        return parse_npc.parse(raw, ["isid", "combat", "target", "los"], ["00270255"])
+
+    def test_sentence_state_target_and_no_line_of_sight(self):
+        r = self.P(self.REAL)
+        self.assertEqual((r["isid"], r["combat"], r["target"], r["los"]), (1, 2, "00000014", 0))
+
+    def test_sees_is_line_of_sight_and_state_one(self):
+        r = self.P(self.REAL.replace("state: 2.00", "state: 1.00").replace("Spacer can't see aaron", "Spacer sees aaron"))
+        self.assertEqual((r["combat"], r["los"]), (1, 1))
+
+    def test_an_older_sessions_sentence_is_not_read(self):
+        older = "GetCombatState\nThe actor's combat state: 3.00\nSpacer sees aaron\n"
+        r = self.P(older + self.REAL.replace("state: 2.00", "state: 0.00"))
+        self.assertEqual((r["combat"], r["los"]), (0, 0))
+
+    def test_no_sentence_stays_null(self):
+        r = self.P(self.REAL.replace("The actor's combat state: 2.00\n", "").replace("Spacer can't see aaron\n", ""))
+        self.assertIsNone(r["combat"])
+        self.assertIsNone(r["los"])
+        self.assertEqual(r["target"], "00000014")
