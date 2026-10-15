@@ -223,7 +223,55 @@ if (Has(prm, "objects"))
         refIds[r.GetProperty("src").GetString()!] = obj.FormKey.ID.ToString("X6");
         nRef++;
     }
-    var ids = new Dictionary<string, object> { ["plugin"] = modKey.FileName.String, ["world"] = world, ["bases"] = baseIds, ["refs"] = refIds };
+    // R05 (docs/slice/r05-cluster-plan.md): "containers", interactive objects of the cluster, each a native CONT base
+    // with the converted model and a vanilla inventory, and one temporary REFR in its cell. Allocated after every
+    // STAT / DOOR base and every REFR above, so the ids of the 648k references stay what they were without a cluster
+    // ({"src", "edid", "model", "name", "items": [{"form": "Starfield.esm:00000F", "count": 25}], "cell", "pos",
+    // "rot", "scale"}; the same reference is left out of "refs" by make_core64c.py).
+    var contIds = new Dictionary<string, object>();
+    if (o.TryGetProperty("containers", out var conts))
+    {
+        foreach (var c in conts.EnumerateArray())
+        {
+            float[] V(string k) => c.GetProperty(k).EnumerateArray().Select(e => e.GetSingle()).ToArray();
+            var cxy = c.GetProperty("cell").EnumerateArray().Select(e => e.GetInt32()).ToArray();
+            if (!cellAt.TryGetValue((cxy[0], cxy[1]), out var cell))
+                throw new InvalidDataException($"container {c.GetProperty("src").GetString()} in cell ({cxy[0]}, {cxy[1]}) outside {world}'s cells");
+            var cont = new Container(NewKey(), release)
+            {
+                EditorID = c.GetProperty("edid").GetString(), Model = new Model { File = c.GetProperty("model").GetString()! },
+                Name = c.GetProperty("name").GetString(),
+            };
+            foreach (var it in c.GetProperty("items").EnumerateArray())
+            {
+                var form = it.GetProperty("form").GetString()!;                     // "<plugin>:<6 hex>"
+                var colon = form.IndexOf(':');
+                var fk = new FormKey(ModKey.FromNameAndExtension(form[..colon]), Convert.ToUInt32(form[(colon + 1)..], 16));
+                cont.Items.Add(new ContainerEntry
+                {
+                    Item = new ContainerItem { Item = new FormLink<IItemGetter>(fk), Count = it.GetProperty("count").GetInt32() },
+                });
+            }
+            mod.Containers.Add(cont);
+            var pos = V("pos");
+            var rot = V("rot");
+            var obj = new PlacedObject(NewKey(), release)
+            {
+                Base = new FormLinkNullable<IPlaceableObjectGetter>(cont.FormKey),
+                Position = new P3Float(pos[0], pos[1], pos[2]),
+                Rotation = new P3Float(rot[0], rot[1], rot[2]),
+            };
+            var scale = c.GetProperty("scale").GetSingle();
+            if (Math.Abs(scale - 1f) > 1e-4) obj.Scale = scale;
+            cell.Temporary.Add(obj);
+            contIds[c.GetProperty("src").GetString()!] = new Dictionary<string, string>
+            {
+                ["base"] = cont.FormKey.ID.ToString("X6"), ["ref"] = obj.FormKey.ID.ToString("X6"),
+            };
+            Console.WriteLine($"  container {cont.EditorID} {cont.FormKey} ({cont.Items.Count} items) -> REFR {obj.FormKey} in cell ({cxy[0]}, {cxy[1]})");
+        }
+    }
+    var ids = new Dictionary<string, object> { ["plugin"] = modKey.FileName.String, ["world"] = world, ["bases"] = baseIds, ["refs"] = refIds, ["containers"] = contIds };
     File.WriteAllText(Path.Combine(outDir, "formids.json"), JsonSerializer.Serialize(ids));
 }
 mod.ModHeader.Stats.NextFormID = next;

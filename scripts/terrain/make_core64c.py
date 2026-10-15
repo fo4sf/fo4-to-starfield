@@ -37,6 +37,7 @@ import glob
 import json
 import math
 import os
+import re
 import shutil
 import statistics
 import struct
@@ -1078,6 +1079,34 @@ def terrain_edids(prm):
     return {e.lower() for e in out}
 
 
+def cluster_containers(bases, placed, cluster):
+    """R05: the placed references named by cluster["containers"] (by FO4 source key) leave the STAT placement and
+    become container entries for TerrainOverlays (the converted model of their base, the given name and vanilla
+    inventory, the reference's cell / position / rotation / scale). Returns (placed without them, containers).
+    ValueError for a reference that is not placed by this build or is initially disabled."""
+    wanted = {c["src"]: c for c in cluster.get("containers", [])}
+    keep, containers = [], []
+    for p in placed:
+        c = wanted.pop(p["src"], None)
+        if c is None:
+            keep.append(p)
+            continue
+        if p.get("disabled"):
+            raise ValueError(f"{p['src']} is initially disabled in FO4; not a container to open")
+        if not c.get("items"):
+            raise ValueError(f"{p['src']}: a container needs items")
+        for it in c["items"]:
+            if not re.fullmatch(r"[A-Za-z0-9_. -]+\.es[mpl]:[0-9A-Fa-f]{6}", str(it.get("form", ""))) or int(it.get("count", 0)) < 1:
+                raise ValueError(f"{p['src']}: item {it!r} is not <plugin>:<6 hex> with a count")
+        b = bases[p["base"]]
+        containers.append({"src": p["src"], "edid": f"{EDID_PREFIX}cont_{p['src'].split(':')[0].lower()}",
+                           "model": b["model"], "name": c["name"], "items": c["items"],
+                           "cell": p["cell"], "pos": p["pos"], "rot": p["rot"], "scale": p["scale"]})
+    if wanted:
+        raise ValueError(f"references not placed by this build: {sorted(wanted)}")
+    return keep, containers
+
+
 def place_all(a, ov):
     sel = load(os.path.join(a.work, "selected.json"))
     man = load(os.path.join(a.work, "convert", "manifest.json"))
@@ -1120,9 +1149,22 @@ def cmd_stage(a):
         sys.exit("the Data tree does not fit one archive below 4 GiB: lower convert_batch --max-texture, or split it "
                  "into region plugins with their own archives (docs/terrain/core64c.md)")
 
+    # --cluster (R05, docs/slice/r05-cluster-plan.md): the listed references leave the STAT placement and become native
+    # containers (TerrainOverlays "containers": a CONT base with the converted model and a vanilla inventory, one
+    # temporary REFR), allocated after every other record so the other references keep their ids
+    containers = []
+    if getattr(a, "cluster", None):
+        try:
+            placed, containers = cluster_containers(bases, placed, load(a.cluster))
+        except ValueError as e:
+            sys.exit(f"--cluster: {e}")
+        print(f"cluster: {len(containers)} container(s) from {os.path.basename(a.cluster)}: "
+              + ", ".join(f"{c['src']} -> {c['edid']} ({len(c['items'])} items)" for c in containers))
     objects = {"world": ov["world"], "edid_prefix": EDID_PREFIX,
                "bases": [{k: b[k] for k in ("edid", "model", "door", "source", "collision") if k in b} for b in bases],
                "refs": [{k: p[k] for k in ("src", "base", "cell", "pos", "rot", "scale", "disabled")} for p in placed]}
+    if containers:
+        objects["containers"] = containers
     save(os.path.join(out, "objects.json"), objects)
     save(os.path.join(out, "overlays_params.json"), dict(prm, objects="objects.json"), indent=1)
     save(os.path.join(out, "skipped.json"), {"counts": exterior.reason_counts(skipped), "types": type_counts(skipped),
@@ -1436,13 +1478,18 @@ def cmd_check(a):
     need(not problems, f"every REFR matches objects.json ({len(problems)} problems: {problems[:3]})")
     need(worst_pos < 1e-3 and worst_rot < 1e-5, f"REFR position / rotation as written (worst {worst_pos:.2e} m, {worst_rot:.2e} rad)")
     refrs = sum(1 for r in recs if r["sig"] == "REFR")
-    need(refrs == len(objects["refs"]) + 2, f"{refrs:,} REFR = {len(objects['refs']):,} objects + COC marker + anchor")
+    conts = objects.get("containers") or []
+    need(refrs == len(objects["refs"]) + 2 + len(conts),
+         f"{refrs:,} REFR = {len(objects['refs']):,} objects + COC marker + anchor" + (f" + {len(conts)} containers" if conts else ""))
+    if conts:
+        cont_recs = [r for r in recs if r["sig"] == "CONT"]
+        need(len(cont_recs) == len(conts), f"{len(cont_recs)} CONT = {len(conts)} cluster containers")
     rep["plugin_records"] = {s: sum(1 for r in recs if r["sig"] == s) for s in sorted({r["sig"] for r in recs})}
     rep["plugin_bytes"] = new["bytes"]
     del new, recs, by, stats
     cells = x2c.walk_cells(os.path.join(out, prm["plugin"]))
     per_cell = {}
-    for r in objects["refs"]:
+    for r in objects["refs"] + list(objects.get("containers") or []):
         per_cell[tuple(r["cell"])] = per_cell.get(tuple(r["cell"]), 0) + 1
     want = dict(per_cell)
     want[tuple(ov["spawn_cell"])] = want.get(tuple(ov["spawn_cell"]), 0) + 1        # + the COC marker
@@ -1681,6 +1728,8 @@ def main():
         s.add_argument("--out", required=True)
         if name == "stage":
             s.add_argument("--sf-esm", default="", help="Starfield.esm: build the plugins with dotnet/TerrainOverlays")
+            s.add_argument("--cluster", default="", help="R05: a cluster json (scripts/terrain/clusters/*.json) whose "
+                           "references become native containers instead of statics")
             s.add_argument("--views", action="store_true",
                            help="add screenshot spots to entry 3 (useful once the runner sets the time of day, PR #73)")
         else:

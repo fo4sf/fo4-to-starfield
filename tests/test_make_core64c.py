@@ -449,3 +449,39 @@ class StageTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClusterTests(unittest.TestCase):
+    """R05: --cluster turns named placed references into native containers for TerrainOverlays."""
+    BASES = [{"edid": "FO4Core_firstaidkitwhite", "model": "fo4core\setdressing\firstaidkit\firstaidkitwhite.nif"},
+             {"edid": "FO4Core_cram", "model": "fo4core\setdressing\foodandfoodware\cram.nif"}]
+    PLACED = [{"src": "19EE52:Fallout4.esm", "base": 0, "cell": [-10, 11], "pos": [-993.14, 1151.66, 105.3], "rot": [0, 0, 1.2], "scale": 1.0, "disabled": False},
+              {"src": "152DA0:Fallout4.esm", "base": 1, "cell": [-10, 11], "pos": [-999.31, 1142.45, 105.76], "rot": [0, 0, 0], "scale": 1.0, "disabled": False},
+              {"src": "000001:Fallout4.esm", "base": 1, "cell": [-10, 12], "pos": [-990, 1201, 105], "rot": [0, 0, 0], "scale": 1.0, "disabled": True}]
+    CLUSTER = {"containers": [{"src": "19EE52:Fallout4.esm", "name": "First Aid Kit",
+                               "items": [{"form": "Starfield.esm:00000F", "count": 25}, {"form": "Starfield.esm:00000A", "count": 1}]}]}
+
+    def test_named_reference_becomes_a_container_and_leaves_the_statics(self):
+        placed, conts = mk.cluster_containers(self.BASES, [dict(p) for p in self.PLACED], self.CLUSTER)
+        self.assertEqual([p["src"] for p in placed], ["152DA0:Fallout4.esm", "000001:Fallout4.esm"])
+        self.assertEqual(len(conts), 1)
+        c = conts[0]
+        self.assertEqual((c["src"], c["edid"], c["name"]), ("19EE52:Fallout4.esm", "FO4Core_cont_19ee52", "First Aid Kit"))
+        self.assertEqual(c["model"], self.BASES[0]["model"])
+        self.assertEqual((c["cell"], c["pos"], c["rot"], c["scale"]), ([-10, 11], [-993.14, 1151.66, 105.3], [0, 0, 1.2], 1.0))
+        self.assertEqual(c["items"][0], {"form": "Starfield.esm:00000F", "count": 25})
+
+    def test_unplaced_disabled_or_malformed_entries_are_errors(self):
+        with self.assertRaisesRegex(ValueError, "not placed"):
+            mk.cluster_containers(self.BASES, [dict(p) for p in self.PLACED], {"containers": [dict(self.CLUSTER["containers"][0], src="ABCDEF:Fallout4.esm")]})
+        with self.assertRaisesRegex(ValueError, "disabled"):
+            mk.cluster_containers(self.BASES, [dict(p) for p in self.PLACED], {"containers": [dict(self.CLUSTER["containers"][0], src="000001:Fallout4.esm")]})
+        with self.assertRaisesRegex(ValueError, "items"):
+            mk.cluster_containers(self.BASES, [dict(p) for p in self.PLACED], {"containers": [dict(self.CLUSTER["containers"][0], items=[])]})
+        with self.assertRaisesRegex(ValueError, "6 hex"):
+            mk.cluster_containers(self.BASES, [dict(p) for p in self.PLACED], {"containers": [dict(self.CLUSTER["containers"][0], items=[{"form": "Credits", "count": 1}])]})
+
+    def test_no_cluster_changes_nothing(self):
+        placed, conts = mk.cluster_containers(self.BASES, [dict(p) for p in self.PLACED], {})
+        self.assertEqual(len(placed), 3)
+        self.assertEqual(conts, [])
