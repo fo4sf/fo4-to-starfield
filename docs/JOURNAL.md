@@ -1179,3 +1179,20 @@ Validation:14 focused checks,341 Windows suite tests (3 skips), guard pass. Inde
 ownership re-review passed14 narrow checks including the original late-failure counterexamples;
 hosted Linux CI passed. [Contract and limits](testing/archive-fingerprints.md). No live game,
 source archive, deployment, queue or save was changed.
+
+## 2026-10-15 Codex: October14 recap and current front-page progress
+
+Owner requested yesterday's progress on GitHub. README separates the October14
+Mountain-time load-order and observation-bridge milestones from October15's
+lead-reported walk/cave results. Corrected the obsolete phase03 hold and superseded
+branch statuses; merged code is distinct from proposed recovery/audit work.
+Reused the tracked Red Rocket walk and Vault111 bridge-session JPEGs unchanged;
+no media added. Captions distinguish scene illustrations from logged measurements.
+No complete-gameplay, ground-texture or native-acceptance claim.
+
+Sources: main10e7019 JOURNAL, bridge session32a5f5b, #32 comments6165570079,
+6154661951 and6187749682, current PR/QA records.24 local link/anchor targets and
+both unchanged media identities pass; GitHub GFM renders the new sections/images.
+Independent factual/link QA passed, with draft status made explicit. Guard passed.
+No new unit tests for documentation; hosted CI is checked on the PR. No game,
+runner, installation, queue or save changed.
