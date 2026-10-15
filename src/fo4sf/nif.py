@@ -195,8 +195,27 @@ def _compose(parent, local):
     return t, r, sp * sl
 
 
-def world_transforms(n: NifFile):
-    """block index -> world (t, R, s), composing every NiNode ancestor from the roots down (footer roots or parentless nodes)."""
+IDENTITY_TRANSFORM = ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0), 1.0)
+
+
+def footer_roots(n: NifFile) -> List[int]:
+    """Scene root block indices listed in the NIF footer (block 0 when the footer lists none)."""
+    try:
+        count, = struct.unpack_from("<I", n.footer, 0)
+        roots = list(struct.unpack_from(f"<{count}i", n.footer, 4)) if count <= 1024 else []
+    except struct.error:
+        roots = []
+    roots = [r for r in roots if 0 <= r < len(n.blocks)]
+    return roots or ([0] if n.blocks else [])
+
+
+def world_transforms(n: NifFile, placed: bool = False):
+    """block index -> world (t, R, s), composing every NiNode ancestor from the roots down (footer roots or parentless nodes).
+
+    placed=True gives the transform a placed reference has in game: the engine sets the scene root's transform from the
+    reference, so the root node's own transform stored in the file is not applied (it counts as identity). Checked for
+    rotated roots against FO4's precombined physics (docs/ai/research-log.md, 2026-10-10): 89 references of 15 models
+    in 6 cells match only with the root ignored. The default keeps the file's own composition."""
     nodes = [i for i in range(len(n.blocks)) if n.type_of(i).endswith("Node") and n.type_of(i) != "BSFaceGenNiNode"]
     parent = {}
     for i in nodes:
@@ -205,24 +224,29 @@ def world_transforms(n: NifFile):
                 parent.setdefault(c, i)
         except struct.error:
             pass
+    roots = set(footer_roots(n)) if placed else set()
     cache = {}
 
     def world(i, depth=0):
         if i in cache:
             return cache[i]
-        local = _av_transform(n.blocks[i])
-        w = local if i not in parent or depth > 64 else _compose(world(parent[i], depth + 1), local)
+        if i in roots:
+            w = IDENTITY_TRANSFORM
+        else:
+            local = _av_transform(n.blocks[i])
+            w = local if i not in parent or depth > 64 else _compose(world(parent[i], depth + 1), local)
         cache[i] = w
         return w
     return world
 
 
-def fo4_trishapes(n: NifFile) -> List[Fo4Shape]:
+def fo4_trishapes(n: NifFile, placed: bool = False) -> List[Fo4Shape]:
     """Decode every BSTriShape / BSSubIndexTriShape block (vertex data and triangles only). The returned translation /
-    rotation / scale are the shape's WORLD transform (all parent NiNodes composed), so geometry lands where FO4 draws it."""
+    rotation / scale are the shape's WORLD transform (all parent NiNodes composed). placed=True leaves out the scene
+    root's own transform, as the game does for a placed reference, so geometry lands where FO4 draws it."""
     if n.bs_version != 130:
         raise NifError(f"fo4_trishapes needs BS 130, got {n.bs_version}")
-    world = world_transforms(n)
+    world = world_transforms(n, placed)
     shapes = []
     for i, blk in enumerate(n.blocks):
         if n.type_of(i) not in ("BSTriShape", "BSSubIndexTriShape", "BSMeshLODTriShape"):
@@ -291,10 +315,11 @@ def descendants(n: NifFile, i: int) -> set:
     return out
 
 
-def door_hinge(n: NifFile) -> Optional[Tuple[int, tuple]]:
+def door_hinge(n: NifFile, placed: bool = False) -> Optional[Tuple[int, tuple]]:
     """(node index, world pivot) of the node an FO4 door's "Open" NiControllerSequence animates first, or None.
     Sequence layout: name, num controlled blocks, array grow by, then per block: interpolator, controller, priority (byte),
-    node name (string index), property type, controller type, controller id, interpolator id."""
+    node name (string index), property type, controller type, controller id, interpolator id.
+    placed: as world_transforms (the pivot of a placed reference, without the scene root's own transform)."""
     for i in range(len(n.blocks)):
         if n.type_of(i) != "NiControllerSequence":
             continue
@@ -305,7 +330,7 @@ def door_hinge(n: NifFile) -> Optional[Tuple[int, tuple]]:
         target, = struct.unpack_from("<i", blk, 12 + 9)
         if not (0 <= target < len(n.strings)):
             return None
-        world = world_transforms(n)
+        world = world_transforms(n, placed)
         for j in range(len(n.blocks)):
             if n.type_of(j) == "NiNode" and struct.unpack_from("<i", n.blocks[j], 0)[0] == target:
                 return j, tuple(world(j)[0])     # only the pivot matters: the swing axis is vertical either way

@@ -13,6 +13,72 @@ leaves a destructive final-operation race; ReplaceFileW with backup is not compa
 and has multiple partial-failure states. No repeated replacement as rollback. Details and
 synthetic acceptance: [configuration recovery](../testing/plugin-config-recovery.md).
 
+## 2026-10-12 Multi-part FO4 doors get their own rig and clips; single-part doors stay on the Akila template (Claude, proposed)
+A rigged FO4 door whose `Open` sequence moves geometry outside its first node (second leaf, shutter panel, sliding
+panel set, latches) is converted with one rig bone per FO4 node, its own `Open`/`Close` clips written with the external
+CALUMI library from FO4's own keys (tracks for animated bones only, keyed from the bind), one keyframed box per moving
+part, and a DOOR record whose BNAM / CNAM point at those files (graph unchanged: `SimpleOpenClose01.agx`). Doors with one
+moving part keep the verified template path. Why: the template rig's clip has one track, so a second part cannot move
+under it; vanilla double doors (`IndIntRmSmWallMid_DoorA01`) are built exactly this way; FO4's keys give the right
+pivots, angles, slides and timing for every part. Keeping single-part doors on the template keeps what already works
+in game while the native rig is unverified. Alternatives: a vanilla two-leaf template (fixed hinge spacing and swing
+that FO4 doors do not share), one DOOR reference per leaf on the Akila template (needs activate-parent links, and the
+mirrored leaf would swing the wrong way), leaving the extra parts static (the bug). Evidence: docs/ai/research-log.md
+2026-10-12; docs/spikes/WP-doors-research.md "Multi-part doors".
+
+## 2026-10-11 FO4 navmesh: one Starfield NAVM per (FO4 navmesh, 100 m cell) and a NAVI holding only our entries (Claude)
+Every Fallout 4 navmesh is cut at Starfield's cell lines into one NAVM per cell it touches (cut points keyed so both
+sides are bit-identical; new links along the lines; FO4's own portals kept as links); the plugin carries a NAVI override
+(`000FF1:Starfield.esm`) with one NVMI per new navmesh (no outline, no traversals). Why: FO4's portals overlap only in
+part, so keeping its navmeshes avoids re-meshing; Red Rocket's navmesh stays one record (a walk on it needs no links and
+no NAVI, the cleanest first test); every official plugin ships a partial NAVI the same way. Alternatives: one merged
+navmesh per cell (re-weld partial portals), no NAVI (cross-navmesh paths probably fail), a full NAVI copy (53.9 MB,
+overriding every vanilla entry), CK generation (not FO4's navmesh; owner time). Evidence:
+docs/actors/navmesh-conversion.md.
+
+## 2026-10-12 Terrain test travel: every teleport at most 2 cells per axis, terrain waypoints instead of hops (Claude, proposed)
+Plans for the terrain runner keep every teleport within 200 m along each axis (at most 2 Starfield cells whatever the
+overlay's merge offset): legs longer than 185 m get open terrain waypoints that are judged like the probes, and
+`hop_m` 200 stays as a safety net. Why: in the overlay runs so far, teleports of at most 2 cells per axis landed 144 of
+145 times and those of 3 or more relocated the player ("Boundary Reached") or hung 11 of 28 times
+(`scripts/terrain/teleport_audit.py`, **supported**); distance alone does not separate them. Waypoints rather than
+hops, because the runner's step timeout (150 + 90 s per point) does not count hops. Alternatives: `hop_m` 200 alone
+(core64c's entry 1 would run past its timeout), splitting entries (at best 79 s of margin), per-axis hops in the
+runner (a runner change, not on the integration branch). Evidence: docs/terrain/core64c.md "Teleport rule".
+
+## 2026-10-12 Whole-core objects: one archive below 4 GiB with capped textures, not a region split (Claude, proposed)
+core64c selects 649,596 convertible Fallout4.esm exterior references of the 64-cell core and places the 648,358 whose
+models convert (1,238 belong to the 118 models that do not) in core64's plugin, and ships every
+converted file in one stored `<plugin> - Main.ba2`, with converted textures capped per kind by dropping top mip levels
+(color 1024, normal 512, rough 256, opacity 512 px; `convert_batch.py --max-texture`, off by default). Why: every large
+vanilla archive stops just below 4 GiB (whether the engine reads past it is unresolved); full resolution needs about
+8.5 GiB; the runner's installer packs one archive; the 11,769 models share 2,632 materials over the whole map, so a
+split into 15 regions of 1.6 km would need 28.8 GiB and its four central regions would still exceed 4 GiB each; C:
+has too little room for a full-resolution build plus its temporary archive. Alternatives: cap 512 everywhere (1.66
+GiB, blurrier albedo), one plugin's Main + Textures archive plus a carrier plugin at full resolution (needs a
+per-plugin installer and an in-game check), region plugins (above). Evidence: docs/terrain/core64c.md.
+
+## 2026-10-11 Commonwealth terrain: one large overlay, a grid of overlays as fallback (Claude, proposed)
+Plan the whole-map terrain as one overlay worldspace holding the playable Commonwealth plus 1 to 2.5 km around it
+(64 to 90 Starfield cells, Absolute alignment), registered on a hidden host planet at a measured lat/long; fall back
+to a grid of 14-cell overlays generated edge to edge if large overlays fail in game. Why: one landing is 100 cells
+(game terrain width, 5-cell buffer), so the full 114-cell LAND grid never fits; a single overlay has no seams, while
+every overlay seam has a 1-cell merge ring of unknown behaviour; both are built by the same generator
+(`scripts/terrain/make_cw_overlays.py`). Alternatives: a custom planet surface made of our blocks (exact far terrain,
+but four unknown height / blend rules and a planet to build), static mesh tiles (exact, but new collision, material
+and LOD pipelines). Gates: an uncompressed rerun of exp2b (exp2b3) must read our BTD heights (exp2b's packed BTD
+read flat at its minimum; cause unresolved, packing is one hypothesis), then exp3 (2 x 2 grid: seams, where the tiles
+sit, measured from heights since our anchors do not merge), then a 64-cell core overlay. Evidence:
+docs/terrain/commonwealth-scale.md.
+
+## 2026-10-11 FO4 terrain heights: own Python reader following fo4land, Mutagen as the cross-check (Claude)
+`src/fo4sf/fo4land.py` reads LAND/VHGT with the algorithm of fo76utils `fo4land` (MIT); `dotnet/Fo4Land` decodes the
+same cells through Mutagen as a second, independent parse. Why: fo4land needs scons + a C++ compiler, which this
+machine lacks and the rules forbid installing; its output is 16-bit normalised (0.81-unit step for the Commonwealth)
+and drops the shared 33rd edge vertex we need for seam checks; Python fits the converter and unittest stack.
+Alternatives: build fo4land (blocked), Mutagen only (C# outside the Python pipeline), extend Codex's Fo4Export
+(not ours). Evidence: docs/terrain/source-patch.md.
+
 ## 2026-10-09 Enforce local concurrency with a proxy, not with prompts
 OpenCode has no cross-agent concurrency limit for a provider. A small stdlib-Python proxy (:1235) in front of
 LM Studio (:1234) admits at most 1 inference request at a time after a resource check, queues the rest, and logs
@@ -48,3 +114,178 @@ any window. Deterministic guards: refuses if the agent was active in the last 10
 was woken in the last 30 min (their usage comes from the owner's plans); every attempt is logged (wakes.jsonl).
 Alternatives: keystrokes into the agents' terminals (focus stealing, wrong-window risk); GitHub comments only (agents
 don't poll while idle).
+
+## 2026-10-10 Movable FO4 objects: MoveableStatic records and one rigid body per multi-body system
+- Decision: FO4 dynamic bodies convert to Starfield MoveableStatic records (never MiscItem: no inventory, no value, no
+  pickup prompt) with vanilla-derived dynamic Havok bodies; a multi-body all-dynamic FO4 system (ragdoll skeleton,
+  breakable, hose-and-tank) becomes ONE rigid compound body with the system's total mass ("phase A"), and systems with
+  any anchored body stay static.
+- Why: pushable objects are FO4 gameplay; MoveableStatic is how Starfield itself places pushable set dressing (431 in
+  Starfield.esm); a rigid merge unblocks doorways today while constraints (joints) are a separate format job.
+- Alternatives: MiscItem (adds pickup/inventory semantics FO4 statics don't have); leaving them static (blocks doors,
+  silently changes gameplay); converting constraints first (weeks; the Vault 114 door needed a fix now). Breakables
+  (`*Dest` models) are included in the merge without a check that their union matches the intact mesh: open.
+## 2026-10-10 Load-door teleports are written by the plugin writer, not left to the ReferenceLinks post-pass
+PluginSpike decides each manifest item's base record type; an XTEL is only valid between DOOR references, and both ends
+are only known once every cell of the build is placed. So PluginSpike makes `load_door` items DOOR records and writes
+the XTEL for each pair placed in the same build (dotnet/PluginSpike/TeleportLinks.cs), moving both ends to the
+persistent group. Codex's ReferenceLinks post-pass (Relationships.Apply) writes the same link when it runs afterwards
+(same values, idempotent) and still reports the unresolved ones. Alternatives: ReferenceLinks only (the STAT -> DOOR
+change is PluginSpike's anyway, and every build would need the second pass); a DOOR for every FO4 Door base (fake doors,
+hatches and trapdoors would become activatable with no destination).
+## 2026-10-10 Place models without the NIF scene root's own transform
+The converter, the route planner and the collision reader compose a model's node transforms from the children of the
+scene root, not from the root itself (`nif.world_transforms(placed=True)`): the engine replaces the root's transform
+with the reference's, so a rotation stored on the FO4 root is not applied in game. Why: `PryCatwalkStairsEnt02` has a
+180-degree root; converting it with the root turned the stairs the wrong way round (Prydwen routes 20/28/29 fell, 19/27/30
+never reached their start), and FO4's own precombined physics matches 89 placements of 15 rooted models only without
+the root (docs/ai/research-log.md, 2026-10-10). Alternatives: apply the root as the file stores it (what we did; wrong
+for 44 of 4,014 converted models, 232 placements); apply it only to models outside precombines (no evidence that the
+engine does, and the stairs are not precombined). The default `world_transforms()` keeps the file's own composition for
+tools that want the file as stored (door rig/motion modules, oracles).
+
+## 2026-10-11 Converted actors: own identity, inherited Starfield behaviour (Claude)
+A converted Fallout 4 NPC_ keeps what makes it that actor: its name, faction intent, weapon, death loot and combat
+style intent. It inherits behaviour from a vanilla Starfield template of the same role through the ACBS template flags:
+traits, stats, AI data and packages, attack data, keywords, scripts, and template slots 13 / 14. The first record
+(`FO4_LvlRaider`, docs/actors/raider-conversion.md) templates directly on NPC_ records (EncSpacer01Template,
+EncSpacerFaceM01), not on the leveled lists, so its look and level are the same in every test.
+Why: Starfield runs the actor with its own systems (reaction radii, combat AI, faces), and the plugin stays small
+(547 B). The behaviour template can be swapped without touching the identity, and a failure in the vanilla control
+cell points at the record, not at the world.
+Alternatives considered:
+- Copying every FO4 field: FO4 AI semantics differ (hostility through aggression rather than faction relations), and
+  FO4 faces and outfits need the skinning milestones.
+- Duplicating a vanilla NPC_ (DeepCopy): carries the vanilla identity, and so hides what the conversion contributes.
+- Templating on LvlSpacer / LCharSpacer: random per spawn, and the spawn may get a generated base that `GetIsID` does
+  not confirm (N0_ptr_lvl).
+Note (2026-10-12): the death item and combat style are written as the record's own, but under xEdit's Skyrim / FO4
+template semantics (a supported hypothesis for Starfield) they go with Traits and AI Data, both inherited, so they are
+probably overridden (docs/actors/raider-conversion.md section 3). Every converted NPC_ also carries PRPS, STON, PRON and
+EDCT and form version 581, as all 7,131 vanilla NPC_ do (copied from the templates it inherits from).
+
+## 2026-10-12 Converted actors are tested calm against calm, hostile against hostile (Claude)
+A commanded walk (PathToRef, SetPlayerTeammate) of a converted actor is tested on a calm probe: the conversion without
+factions, written into the same plugin (`FO4_LvlRaider_Calm`). Its FAILs are gated by the calm vanilla actor of N0 and
+its PASS is credited to the command only when its own baseline stayed away. The hostile conversion is judged without a
+command against the vanilla actor it inherits its behaviour from (N2b: both baselines). The runner measures the approach
+from the spawn read as well as from t0, and every N2 test waits for the first one's spawn (`requires` DECIDED).
+Why: QA on PR #75. With the hostile raider, combat AI would drive any walk, so a PASS said nothing about the command
+and a raider holding its firing distance would have read as a conversion failure against a calm control; StartCombat
+on an actor that is already hostile cannot be told from its own hostility; and t0 comes after the player moved to B.
+Alternatives considered:
+- A hostile vanilla control (the Spacer) for each command: also fair, but every test would then measure combat
+  pursuit, not the command, twice the launches for one question.
+- Console commands that calm the spawned raider (StopCombat, faction changes): unverified in Starfield, and they would
+  add untested console lines to the step.
+- tcai (combat AI off): global, and it would differ from N0's conditions.
+
+## 2026-10-12 NPC navigation control N0b: the walk judged from t0 on a 24 m pair, P = pair - 6 m (Claude, proposed)
+N0 replaced by N0b in QASmoke: A (5.5, -4.5, 0) -> B (-12, 12, 0), 24.05 m, chosen by
+`scripts/actors/navmesh_points.py`; the commanded walk is measured from t0 (new plan keys `precommand_m` 3 m,
+`arrive_progress` P; runner feature `npc_t0`): PASS = within 3 m of the player after coming P = 18 m closer than at
+t0, or 18 m closer at the end; 3 m of approach before the command makes it INCONCLUSIVE PRECOMMAND; a baseline FAILs
+WANDER on 18 m between any two reads; two citizen baselines; the control gate pairs a control with the baselines of its
+own queue. Commands PathToRef and StartCombat on the calm citizen, the hostile Spacer as a baseline; N1 / N2 re-planned
+with the rule of their own pairs, queued only once `npc_control.py ready` says N0b's controls passed. Why: N0's
+actors came 5-9 m towards the old B whatever was typed (the 5 m rule passed wander), and the first N0b plan (18 m north
+pair, 12 m, the integration-1012 judge unchanged) still let pre-command wander count: that judge's pre-command guard
+is min_progress (12 m) and an arrival needs no progress after the command (verifier of PR #77); actors on record moved
+up to 14.1 m from t0 and walked up to 9.5 m towards the player before the command (docs/actors/npc-navigation.md 5.3).
+Alternatives: keep the 18 m pair with the new judge (P 12 m: below the 14.1 m move on record); a baseline-relative
+judge (PASS only a margin beyond the same actor's measured baseline): needs several baselines per actor and pair to
+mean anything; the 18 m pair with a 12 m rule and no runner change: refuted by the finding above.
+
+## 2026-10-12 Fallout 4 marker load doors become the vanilla automatic cave door; experiment plugins load after their masters (Claude)
+A Fallout 4 load door whose model is an editor marker (`AutoloadDoor` 01ED77, `AutoLoadMarker01.nif`, Automatic) is
+written as a reference of Starfield's own `AutoloadDoor_Cave` (24F9CE): same name, flag and marker (the Starfield marker
+is the FO4 one at 1/70, so the FO4 scale carries over), persistent, XTEL to the other end; an exterior end goes into the
+worldspace's persistent cell, as all 45 vanilla overlay-world references of that door and all 345 worldspace XTEL
+references do. The first one is the Red Rocket cave (docs/slice/redrocket-door.md), in a small link plugin that
+masters FO4Port.esm and the terrain experiment instead of changing either. Because the runner's deploy activates
+FO4Port.esm after an experiment's plugins on every launch, cycle.ps1 now runs `exp_install.py order` before the launch:
+every plugin the experiment installed moves after its masters (runner feature `plugin_order`).
+Why: the converter never places marker models, so both ends were missing; vanilla uses this exact door and layout for
+its planet caves, which keeps the unknowns to our overlay's merge, not to the door record.
+Alternatives: a converted FO4Port load door base (a visible door with an E prompt the cave never had); a new DOOR
+copying 24F9CE without its environment script (a configuration vanilla never uses); placing the doors in FO4Port.esm or
+FO4TerrainExp2.esm (would change the pinned build or a measured experiment); leaving the plugin before its master (in
+Fallout 4 / Skyrim a load crash; in Starfield untested).
+
+## 2026-10-12 door_trip: a door "does not work" only from a stand in its range; a PASS needs the walk-in (Claude)
+After QA on PR #78: FAIL NOLOAD needs the player standing (settled) within the door's range (`activate_m`, 3 m) with
+no load and GetInCell not saying the far side; a player never in range is INCONCLUSIVE NOREACH, a contradiction
+INCONCLUSIVE CELLREAD. The step reads the position after every walk step and before E or the last-try teleport, so a
+load that no HUD screenshot caught is counted and never followed by a teleport to the other side's coordinates. A
+trip that loaded only from the last-try teleport is INCONCLUSIVE NEARONLY, because the owner's slice means walking in.
+Before `load` the player is moved back to the coc arrival, so the position shows the reload by itself.
+Why: a wrong FAIL on the slice's main question costs more than a retry; the HUD sampling (one screenshot about 1.5 s
+after each 500 ms step) can miss a short loading screen, and the old step then teleported into the void.
+Alternatives: keep NOLOAD on "near the start, no loading screen" (refuted by QA's synthetic cases); detect loads by
+comparing screenshots (fragile at night and in caves); PASS with a NEAR class (the report's tally counts every PASS as
+one, so the caveat would vanish from the summary).
+
+## 2026-10-13 Movable tests: only the walk passes; furniture the walk did not reach is ELEVATED; the impulse is a diagnostic (Claude)
+A movable test asks whether the player pushes the item, so only the walk passes it. A walk whose closest approach came
+within reach and left the item in place is FAIL NOTMOVED. When planned (`--impulse`), `ApplyHavokImpulse` on the
+confirmed selection (dv 1.5, 6, 24 m/s times its mass) follows: an impulse that moves the item only adds "the body is
+simulated" to the detail, FAIL STUCK when nothing moves it. An item more than 0.5 m above the player's highest feet read
+that the walk came no closer than 0.5 m to (or more than 1.8 m above them) is INCONCLUSIVE ELEVATED (final, never
+counted by the circuit breaker). The converter keeps FO4's masses and bodies unchanged for now. A vanilla-controlled
+queue (`movable_control_1013b`, QASmoke) compares our items with vanilla items of the same size, and the book and the
+box again at 5 kg (`SetRigidBodyMass`, judged only when `GetMass` reads 5 kg back), before any converter change.
+Why: the cigarette pack lay on a desk the walk stopped 0.67 m short of, and three flat books were walked over
+(research-log 2026-10-13); every motion, layer and flag field matches vanilla items. Six inconclusive results in a row
+switched the movable kind off for about 610 tests. The first version of this decision passed an item the walk could
+not push as PASS IMPULSE and made every item 0.5 m up ELEVATED; the verifier of PR #110 showed that the impulse ladder
+cancels the mass by construction (it would hide exactly the failure FO4's heavier items could cause) and that the pin
+box of batch_full 0100, 0.81 m up, lay where the walk passed 0.26 m from it and did not move.
+Alternatives: lighten FO4's masses now (2-10 times Starfield's for small items; unresolved whether mass is the cause:
+the 25 kg book moved, the 50 kg box 0100 did not); a separate non-PASS class for "simulated but not pushed" (the detail
+carries it, and NOTMOVED keeps the class every earlier report used); plan only items the walk can push (needs each
+item's height and floor, and the batch would still not know whether a skipped item's body moves); MiscItem records
+(pick-up and inventory semantics FO4 statics never had, decisions 2026-10-10).
+## 2026-10-13 Codex: verified private evidence capsules before cleanup (#105)
+
+Keep native screenshots and compact reports/source pins together in private lossless capsules,
+with a per-file SHA-256 manifest and an external whole-capsule hash/index. Reopen and verify every
+member plus the unchanged source before publication; never overwrite an existing archive. Linked
+paths and restore-manifest aliases refuse archiving. Reclaim only explicitly identified inactive,
+regenerable owned outputs after verification; retain cleanup receipts. Active/pinned campaigns and
+unresolved configuration recovery stay in place. A second local volume is not an offsite backup.
+Alternatives rejected: unverified moves, age-based screenshot deletion, lossy originals, or putting
+private archives/game assets in Git. [Procedure](../testing/progress-storage.md).
+
+## 2026-10-13 Stairs routes are walked offline before they go to the game (Claude; amended after QA on PR #111)
+`scripts/game/routes.py` writes a stairs route only for a lane that an offline player walk (`src/fo4sf/walksim.py`)
+climbs over FO4's own collision of the stair and its neighbours: a free start, no lift through a floor, at least 80 %
+of the flight, no drop within 0.5 m past the end; otherwise the stair is skipped with the reason. References are placed
+Z first (R = Rx(-x) Ry(-y) Rz(-z)), as FO4's precombined physics shows. What the walk cannot vouch for is written on
+the route instead of hidden: `helper_crossing` (the walk meets a converted stair helper coming up through a floor at a
+place the converter's flattening moved) and `movable_near` (movable objects the walk leaves out); a lane that would
+touch a movable object is the last choice; `--probes-out` plans probes around each helper crossing. Planned routes for
+an unchanged build go into their own folder (`testqueue.py plan --routes-dir`), never into the pinned staging, and a
+queue keeps its own copy of the route files it uses (with their sha256).
+Why: most stairs FAILs in batch_full and supervised_1011 were routes the player could not walk in Fallout 4 either (a
+start wedged between a wall and a rail, against fallen floor chunks or rebar, a walk 2 m past a top that ends in a
+collapsed floor, a 0.15 m "flight"), while the converted collision equals FO4's except the flattened helpers
+([docs/testing/stairs-routes.md](../testing/stairs-routes.md)). A FAIL must point at the port, not at the test. But
+0002 / 0003 stopped at a converted helper's slab crossing that the walk climbs (cause unresolved), so a route the walk
+passes is not a route the port passes: the planner names such places and the queue tests them. The walk gives the
+game's verdict on 59 of 64 recorded stairs results, 57 also at the same place (`scripts/game/stairs_calib.py`).
+Alternatives: keep one centre-line route per stair and read every FAIL by hand (each costs a game run and an offline
+analysis); hand-written skip lists for the library and Fort Hagen (do not carry to new cells); start every route from
+the top floor and walk down (does not test climbing, the owner's complaint); skip every route through a helper crossing
+(would drop the very tests that decide whether the converter's flattening is at fault); change the converter now (not
+before the probes say the crossing is the cause).
+
+## 2026-10-14 Codex: Windows read sharing during source fingerprints (#117)
+
+Acquire an existing read-only Windows file handle sharing only reads, then retain it
+through digest and metadata verification. Refuse incompatible writers/mappings and
+do not fall back to permissive sharing. This closes the same-size/equal-metadata
+race without changing persisted identities or reading every archive twice. Preserve
+the immutable-source contract across the conversion run; POSIX metadata checks remain
+best effort. Alternatives rejected: accepting a green retry of the intermittent test,
+timestamp-only detection, or claiming that two hashes create an atomic snapshot.
+[Contract, evidence and limits](../testing/archive-fingerprints.md).
