@@ -537,9 +537,9 @@ class DoorEvidenceTests(ContinuousFixture):
         self.obs["reload"] = reload
         self.obs["save"] = {"found": True, "name": self.test["save"]}
         probe = self.event("probe", [35, 12, 12], 5)
-        probe.update(ref="01000001", cmds=["ClearConsole", "prid 01000001"] + ["getpos " + k for k in "xyz"])
+        probe.update(ref="01000001", cmds=["ClearConsole", "prid 01000001", "GetSelf"] + ["getpos " + k for k in "xyz"])
         self.rewrite_ocr(probe, lambda text: text.replace("player.getpos ", "getpos ").replace(
-            "\ngetpos x", "\nprid 01000001\ngetpos x", 1))
+            "\ngetpos x", "\nprid 01000001\nGetSelf\nGetSelf >> (01000001)\ngetpos x", 1))
         self.obs["probe_reads"] = [probe]
         self.bind()
 
@@ -558,8 +558,105 @@ class DoorEvidenceTests(ContinuousFixture):
         probe = next(x for x in r["rows"] if x["label"] == "merge_probe.0")
         self.assertEqual(probe["merged_residual_m"], 0)
         self.assertGreater(probe["local_residual_m"], 30)
+        self.assertTrue(probe["selection_verified"])
         self.assertTrue(probe["diagnostic"])
         self.assertFalse(r["runtime_accepted"])
+
+    def test_diagnostic_reference_requires_a_successful_current_selection(self):
+        original = copy.deepcopy(self.obs)
+        text = (self.root / "probe.txt").read_text(encoding="utf-8")
+        changes = {
+            "no native prid": text.replace("prid 01000001\n", ""),
+            "no GetSelf": text.replace("GetSelf\nGetSelf >> (01000001)\n", ""),
+            "echo only": text.replace("GetSelf >> (01000001)\n", ""),
+            "refused prid": text.replace("prid 01000001\n", "prid 01000001\nInvalid object reference.\n"),
+            "wrong selected object": text.replace("GetSelf >> (01000001)", "GetSelf >> (01000002)"),
+            "reply is not echo": text.replace("GetSelf\n", "", 1),
+            "trailing ID residue": text.replace("GetSelf >> (01000001)", "GetSelf >> (01000001) 2"),
+            "ambiguous duplicate": text.replace("GetSelf >> (01000001)", "GetSelf >> (01000001)\nGetSelf >> (01000002)"),
+            "selection changed after proof": text.replace("getpos x\n", "prid 01000002\ngetpos x\n"),
+            "hidden unknown command": text.replace("getpos x\n", "selectanything\ngetpos x\n"),
+            "replayed proof before selection": text.replace("prid 01000001\nGetSelf\nGetSelf >> (01000001)",
+                                                             "GetSelf\nGetSelf >> (01000001)\nprid 01000001"),
+            "late selection proof": text.replace("GetSelf\nGetSelf >> (01000001)\n", "") + "\nGetSelf\nGetSelf >> (01000001)",
+            "fuzzy hex": text.replace("GetSelf >> (01000001)", "GetSelf >> (O1OOOOO1)"),
+        }
+        for label, value in changes.items():
+            with self.subTest(label=label):
+                self.obs = copy.deepcopy(original)
+                probe = self.obs["probe_reads"][0]
+                self.rewrite_ocr(probe, lambda old: value)
+                r = self.inspect()
+                self.assertNotEqual(r["status"], "MATCH", r)
+                self.assertIn("REFERENCE_SELECTION", self.classes(r))
+                row = next(x for x in r["rows"] if x["label"] == "merge_probe.0")
+                self.assertFalse(row["selection_verified"])
+                self.assertIsNone(row["observed"])
+                self.assertNotIn("merged_residual_m", row)
+        self.obs = original
+
+    def test_stale_selection_proof_before_challenge_is_not_borrowed(self):
+        probe = self.obs["probe_reads"][0]
+        proof = "GetSelf\nGetSelf >> (01000001)\n"
+        marker = probe["read_invocation"]["session_marker"]
+        self.rewrite_ocr(probe, lambda text: text.replace(proof, "").replace(marker, proof + marker))
+        self.assertIn("REFERENCE_SELECTION", self.classes())
+
+    def test_typed_selection_proof_is_required_and_not_a_player_command(self):
+        probe = self.obs["probe_reads"][0]
+        probe["cmds"].remove("GetSelf")
+        self.assertIn("COMMANDS", self.classes())
+        probe["cmds"].insert(2, "GetSelf")
+        for event in self.obs["spawn_reads"]:
+            event["cmds"].insert(1, "GetSelf")
+        self.assertIn("COMMANDS", self.classes())
+
+    def test_invalid_diagnostic_command_metadata_cannot_supply_residuals(self):
+        original = copy.deepcopy(self.obs)
+        for cmds in [
+                ["ClearConsole", "prid 01000001", "getpos x", "getpos y", "getpos z"],
+                ["ClearConsole", "prid 01000002", "GetSelf", "getpos x", "getpos y", "getpos z"],
+                ["ClearConsole", "prid 01000001", "GetSelf", "prid 01000002", "getpos x", "getpos y", "getpos z"],
+                ["ClearConsole", "prid 01000001", "getpos x", "getpos y", "getpos z", "GetSelf"]]:
+            with self.subTest(cmds=cmds):
+                self.obs = copy.deepcopy(original)
+                self.obs["probe_reads"][0]["cmds"] = cmds
+                r = self.inspect()
+                self.assertIn("COMMANDS", self.classes(r))
+                row = next(x for x in r["rows"] if x["label"] == "merge_probe.0")
+                self.assertFalse(row["selection_verified"])
+                self.assertIsNone(row["observed"])
+                self.assertNotIn("merged_residual_m", row)
+
+    def test_diagnostic_xyz_disagreement_cannot_supply_residuals(self):
+        probe = self.obs["probe_reads"][0]
+        probe["read"] = "35 12 13"
+        r = self.inspect()
+        self.assertIn("READ_SELECTION", self.classes(r))
+        row = next(x for x in r["rows"] if x["label"] == "merge_probe.0")
+        self.assertFalse(row["selection_verified"])
+        self.assertIsNone(row["observed"])
+        self.assertNotIn("merged_residual_m", row)
+
+    def test_unbound_diagnostic_capture_cannot_supply_residuals(self):
+        original = copy.deepcopy(self.obs)
+        for key, value in [("ocr_sha256", "0" * 64), ("capture_sha256", "0" * 64),
+                           ("ocr_capture_id", "unrelated"), ("source", "not-native"), ("t", None)]:
+            with self.subTest(key=key):
+                self.obs = copy.deepcopy(original)
+                self.obs["probe_reads"][0]["read_invocation"][key] = value
+                r = self.inspect()
+                self.assertNotEqual(r["status"], "MATCH")
+                row = next(x for x in r["rows"] if x["label"] == "merge_probe.0")
+                self.assertFalse(row["selection_verified"])
+                self.assertIsNone(row["observed"])
+                self.assertNotIn("merged_residual_m", row)
+    def test_diagnostic_canonical_case_and_command_prompts_are_supported(self):
+        probe = self.obs["probe_reads"][0]
+        self.rewrite_ocr(probe, lambda text: "\n".join(
+            "> " + line.upper() if line.startswith(("prid ", "getpos ")) or line == "GetSelf"
+            else line.upper() if line.startswith("GetSelf >>") else line for line in text.splitlines()))
+        self.assertEqual(self.inspect()["status"], "MATCH")
 
     def test_route_mode_zero_teleports_and_readable_steps_required(self):
         original = copy.deepcopy(self.obs)

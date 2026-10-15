@@ -71,3 +71,16 @@ the immutable-source contract across the conversion run; POSIX metadata checks r
 best effort. Alternatives rejected: accepting a green retry of the intermittent test,
 timestamp-only detection, or claiming that two hashes create an atomic snapshot.
 [Contract, evidence and limits](../testing/archive-fingerprints.md).
+
+## 2026-10-15 Codex: prove diagnostic reference selection (#108)
+
+Require an exact current-session GetSelf reply between the diagnostic prid and
+ordered object XYZ queries. An echoed selection alone cannot attribute position:
+the prior selection can survive a refusal. Refused, absent, ambiguous or stale
+proof supplies neither an attributed position nor merge residuals. Preserve
+contradictory IDs as mismatch issues. Also require all command, XYZ and provenance
+checks of that individual read to pass before publishing its diagnostics; failures
+in other reads do not erase independently valid diagnostic evidence. Use a strict consumer grammar
+based on the recorded native reply spelling; producer/adapters still need native
+verification. Alternatives rejected: trusting the requested ID, correcting fuzzy
+hexadecimal OCR, or reporting zero residuals from an unidentified object.

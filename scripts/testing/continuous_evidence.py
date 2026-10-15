@@ -24,8 +24,9 @@ ANGLE_LABEL = re.compile(r"^[ \t]*Get[ \t]*Angle[ \t]*:[ \t]*Z\b", re.I)
 ANGLE = re.compile(r"[ \t]*Get[ \t]*Angle[ \t]*:[ \t]*Z[ \t]*>>[ \t]*("
                    + REPLY_NUMBER + r")[ \t]*", re.I)
 SESSION_MARKER = re.compile(r"FO4SF_READ_[0-9a-f]{64}\Z")
+SELF_REPLY = re.compile(r"[ \t]*GetSelf[ \t]*>>[ \t]*\(([0-9a-f]{8})\)[ \t]*", re.I)
 COMMAND = re.compile(r"ClearConsole|(?:player\.)?getpos [xyz]|prid [0-9A-Fa-f]{8}|"
-                     r"player\.getangle z|player\.setangle [xz] " + NUMBER, re.I)
+                     r"GetSelf|player\.getangle z|player\.setangle [xz] " + NUMBER, re.I)
 MAX_EVENTS = 1600
 SCOPES = {
     "source": "pinned bundled source/plan bytes and recorded source commit",
@@ -35,7 +36,7 @@ SCOPES = {
     "captures": "native PNG bytes/physical identity and invocation identities; equal pixels are allowed",
     "continuity": "recorded commands, holds, ordered read geometry and route witnesses",
     "ground": "exact planned file SHA/schema and bridge node witnesses; full ground/contact validation out of scope",
-    "merge_probes": "diagnostic local/merged residuals only",
+    "merge_probes": "exact same-session selected reference before diagnostic local/merged residuals",
     "runtime": "engine, materials, visuals, controls, STOP behavior and full acceptance out of scope",
 }
 
@@ -196,7 +197,38 @@ class _Audit:
         echoes = [line.strip().lstrip("> ").lower() for line in current
                   if COMMAND.fullmatch(line.strip().lstrip("> "))]
         return t, {"xyz": values, "heading": float(heads[0][1])
-                   if len(heads) == 1 and heads[0] is not None else None, "echoes": echoes}
+                   if len(heads) == 1 and heads[0] is not None else None, "echoes": echoes,
+                   "lines": current}
+
+    def diagnostic_selection(self, parsed, ref, label):
+        """Bind object XYZ to one successful selection, never merely an echoed prid.
+
+        Deliberately narrow consumer protocol, not a fuzzy native OCR adapter. The
+        complete ordered block also rules out a refusal or another selection/query
+        between the identity reply and the coordinates.
+        """
+        lines = [line.strip() for line in parsed["lines"] if line.strip()]
+        self_replies = [SELF_REPLY.fullmatch(line) for line in lines
+                        if re.match(r"GetSelf\b.*>>", line, re.I)]
+        if len(self_replies) == 1 and self_replies[0] is not None \
+                and self_replies[0][1].lower() != ref:
+            self.issue("REFERENCE_SELECTION", "GetSelf identifies a different selected reference", label, True)
+            return False
+        if len(lines) != 9 or lines[0].lstrip("> ").lower() != "prid " + ref \
+                or lines[1].lstrip("> ").lower() != "getself" \
+                or len(self_replies) != 1 or self_replies[0] is None \
+                or SELF_REPLY.fullmatch(lines[2]) is None:
+            self.issue("REFERENCE_SELECTION", "need one current prid/GetSelf/reply block before object XYZ", label)
+            return False
+        for n, axis in enumerate("xyz"):
+            query, reply = lines[3 + 2 * n:5 + 2 * n]
+            position = POSITION.fullmatch(reply)
+            if query.lstrip("> ").lower() != "getpos " + axis \
+                    or position is None or position[1].lower() != axis:
+                self.issue("REFERENCE_SELECTION", "object XYZ must follow selection proof without intervening commands",
+                           label)
+                return False
+        return True
 
     def commands(self, event, label, heading=False, diagnostic=False):
         cmds = event.get("cmds")
@@ -218,7 +250,7 @@ class _Audit:
         if diagnostic:
             if not isinstance(ref, str) or not re.fullmatch(r"[0-9a-fA-F]{8}", ref):
                 self.issue("COMMANDS", "invalid diagnostic reference", label)
-            required = ["clearconsole", "prid " + str(ref).lower()] + ["getpos " + k for k in "xyz"]
+            required = ["clearconsole", "prid " + str(ref).lower(), "getself"] + ["getpos " + k for k in "xyz"]
         else:
             required = ["clearconsole"] + ["player.getpos " + k for k in "xyz"]
         if any(c not in lowered for c in required):
@@ -232,6 +264,7 @@ class _Audit:
                        label, True)
 
     def read(self, event, label, key="read", heading=False, commands=True, diagnostic=False):
+        issue_start = len(self.report["issues"])
         self.event_count += 1
         if self.event_count > MAX_EVENTS:
             raise ValueError("too many read events")
@@ -257,9 +290,9 @@ class _Audit:
                 self.issue("OCR_ACTOR", "current-session command echoes do not establish the required actor/XYZ order",
                            label, bool(queries))
             selected = [c[5:] for c in parsed["echoes"] if c.startswith("prid ")]
-            if selected and (not diagnostic or selected != [str(event.get("ref")).lower()]):
+            if (diagnostic and selected != [str(event.get("ref")).lower()]) or (not diagnostic and selected):
                 self.issue("OCR_ACTOR", "current-session object selection contradicts the permitted read actor",
-                           label, True)
+                           label, bool(selected))
         if p is not None and parsed is not None and math.dist(p, parsed["xyz"]) > 0.011:
             self.issue("READ_SELECTION", "reported XYZ disagrees with current-session OCR", label, True)
         h = event.get("heading") if heading else None
@@ -271,7 +304,19 @@ class _Audit:
                 self.issue("FACING", "OCR heading outside 0..360 degrees", label, True)
             elif parsed and abs((h - parsed["heading"] + 180) % 360 - 180) > 0.011:
                 self.issue("FACING", "heading disagrees with OCR", label, True)
-        self.report["rows"].append({"label": label, "observed": p, "t": t, "heading": h})
+        selection_verified = None
+        if diagnostic:
+            ref = str(event.get("ref")).lower()
+            proof = parsed is not None and self.diagnostic_selection(parsed, ref, label)
+            # A correct-looking self reply cannot authorize metadata-derived
+            # residuals when this read's commands, XYZ or capture binding failed.
+            selection_verified = proof and len(self.report["issues"]) == issue_start
+            if not selection_verified:
+                p = None
+        row = {"label": label, "observed": p, "t": t, "heading": h}
+        if diagnostic:
+            row["selection_verified"] = selection_verified
+        self.report["rows"].append(row)
         return p, t, h
 
     def settled(self, owner, label, summary="read", records="reads", heading=False, after=None):

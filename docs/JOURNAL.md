@@ -712,3 +712,24 @@ campaigns. Both decision/journal entries are retained. The fresh Windows suite p
 407 tests (3 skips), guard pass. Historical396-test failure remains in private evidence.
 The native bridge/producer adapter remains a separate integration gate; this does not
 approve a walk, door trip or engine-loaded artifact identity.
+
+## 2026-10-15 Codex: diagnostic selection counterexamples (#108)
+
+At PR118 b2b8a4f, synthetic current-session captures with a refused prid, a wrong
+GetSelf reply or no prid echo all returned MATCH and a zero merged residual.
+The ordinary control also matched. Captures/inputs and all four original reports
+are retained privately; runtime acceptance was false throughout.
+
+Diagnostic reads now require the exact requested reference in a GetSelf reply
+between the current selection and XYZ query/reply block. Missing/refused/stale or
+ambiguous proof is inconclusive; a different exact ID is a mismatch. Unverified
+selection yields no attributed position/residual. Player reads stay qualified.
+The narrow reply grammar follows the existing native-format notes, not an assumed
+producer integration. Independent20-case QA found six rejected reads still exposed
+verified metadata positions/residuals when typed commands, XYZ or OCR binding
+failed. Per-read validation now gates attribution too; failed QA reports and the
+initial test-edit error are retained. Validation:66 focused and414 Windows tests
+(3 skips), guard pass. Independent12-case re-review passes the six retained
+failures, three valid controls and three per-read isolation checks; original852 QA
+files remain unchanged. Hosted CI is tracked on the pinned PR update. No native
+game, original campaign, installation, queue or runner script changed.

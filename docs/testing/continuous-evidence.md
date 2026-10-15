@@ -124,12 +124,53 @@ Those raw outputs do not supply this normalized evidence contract and must not
 be claimed accepted. Missing normalized nonce/facing evidence stays INCONCLUSIVE;
 normalization/protocol agreement and native producer proof remain pending Claude.
 
+Claude's subsequent PR121 at `2e5df7bc26f3442e58689baf019cdfc24c7a8e68`
+also supports player reads from the bridge log; object reference reads still use
+the console path. That log transport is not implemented by this consumer's
+`native_console` schema. It needs a separately reviewed adapter; bridge records
+must not be relabelled as native console captures or given invented challenges.
+
 Command lists must begin with exactly one `ClearConsole`, followed by player
 `getpos` X/Y/Z in order and, for facing reads, `player.getangle z`. Validated turn
 commands remain allowed after the clear. Extra actor selections, duplicated or
 reversed read commands cannot establish the recorded session. Only explicitly
-planned diagnostic probes may use ordered `prid <ref>` and unqualified `getpos`;
+planned diagnostic probes may use ordered `prid <ref>`, `GetSelf` and unqualified `getpos`;
 anchors, route steps, arrivals and reloads require player position evidence.
+
+Diagnostic object reads require this complete block after the invocation challenge:
+
+```text
+prid 01000001
+GetSelf
+GetSelf >> (01000001)
+getpos x
+GetPos: X >> 35.00
+getpos y
+GetPos: Y >> 12.00
+getpos z
+GetPos: Z >> 12.00
+```
+
+The typed command list must also include `GetSelf` between `prid` and the XYZ
+queries. An echoed `prid` is not proof that selection succeeded: a refused
+selection can leave a previous object selected. Exactly one current `GetSelf`
+reply must identify the planned eight-hex-digit reference before the ordered XYZ
+query/reply pairs. Commands are case insensitive and may have console prompts;
+blank lines are allowed. Other nonempty lines, refusal messages, missing,
+duplicated, late or malformed identity replies leave selection inconclusive.
+An exact different identity is a mismatch. OCR-confusable IDs are not repaired.
+Proof before the challenge is never borrowed. Unverified selections return no
+attributed position or merge residual; their row has `selection_verified: false`.
+The same suppression applies if this invocation's typed commands, reported XYZ,
+capture/OCR binding or provenance fails, even when its identity reply looks right.
+The exact binding issue stays in the report; a residual is never computed from
+unbound or contradicted position metadata.
+
+The strict reply spelling above follows the recorded native-format example
+`GetSelf >> (0024a824)` in `scripts/game/parse_npc.py`'s October11 console notes.
+It does not establish a new native producer implementation or promise that every
+capture layout can retain this entire block. Split/other layouts need separately
+verified adapters and remain inconclusive here. No legacy evidence is rewritten.
 
 Facing reads also retain numeric `heading`, a recorded `player.getangle z` command
 and one complete two-decimal `GetAngle: Z >> ...` reply after the same challenge.
