@@ -208,3 +208,64 @@ class TerrainEvidenceTests(unittest.TestCase):
         ]
         verdict, _ = oracle.judge_probe(evidence)
         self.assertEqual(verdict, "PASS")
+
+    def test_null_primary_does_not_hide_alias(self):
+        # QA on #69: id:None used to drop capture, and time:None used to drop timestamp.
+        reused_id = [
+            {"pos": "10 -4 105.14", "id": None, "capture": "reused"},
+            {"pos": "10.01 -4 105.14", "id": None, "capture": "reused"},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=reused_id))[0], "UNREAD")
+        reused_time = [
+            {"pos": "10 -4 105.14", "time": None, "timestamp": 0},
+            {"pos": "10.01 -4 105.14", "time": None, "timestamp": 0},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=reused_time))[0], "UNREAD")
+        malformed_alias = [
+            {"pos": "10 -4 105.14", "id": None, "capture": ["bad"]},
+            {"pos": "10.01 -4 105.14", "id": "ok"},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=malformed_alias))[0], "UNREAD")
+        distinct = [
+            {"pos": "10 -4 105.14", "id": None, "capture": "a"},
+            {"pos": "10.01 -4 105.14", "id": None, "capture": "b"},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=distinct))[0], "PASS")
+        zero_then_one = [
+            {"pos": "10 -4 105.14", "time": None, "timestamp": 0},
+            {"pos": "10.01 -4 105.14", "time": None, "timestamp": 1},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=zero_then_one))[0], "PASS")
+        conflict = [
+            {"pos": "10 -4 105.14", "id": "a", "capture": "b"},
+            {"pos": "10.01 -4 105.14", "id": "c"},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=conflict))[0], "UNREAD")
+        # A null with no later alias is still "not recorded", so identical positions may pass.
+        absent = [
+            {"pos": "10 -4 105.14", "id": None},
+            {"pos": "10.01 -4 105.14", "id": None},
+        ]
+        self.assertEqual(oracle.judge(bundle(frames=absent))[0], "PASS")
+
+    def test_duplicate_and_malformed_plan_labels_are_unread(self):
+        shared = bundle()
+        base = {
+            "pinned": shared["pinned"], "identity": shared["identity"], "ground": "plugin",
+            "reads": {"one": ["10 -4 105.14", "10 -4 105.14"]},
+        }
+        duplicated = dict(base, points=[
+            {"label": "one", "x": 10.0, "y": -4.0, "expect": 105.14},
+            {"label": "one", "x": 11.0, "y": -4.0, "expect": 105.14},
+        ])
+        self.assertEqual(oracle.judge_probe(duplicated)[0], "UNREAD")
+        listed = dict(base, points=[
+            {"label": ["one"], "x": 10.0, "y": -4.0, "expect": 105.14},
+        ])
+        verdict, why = oracle.judge_probe(listed)
+        self.assertEqual(verdict, "UNREAD")
+        self.assertIn("label", why)
+        empty = dict(base, points=[
+            {"label": "", "x": 10.0, "y": -4.0, "expect": 105.14},
+        ])
+        self.assertEqual(oracle.judge_probe(empty)[0], "UNREAD")

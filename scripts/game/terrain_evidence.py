@@ -10,6 +10,9 @@ A PASS needs every one of these. Anything missing is UNREAD, never a pass:
 - those frames agree in Z within settle_m
 - the settled height is within tol_m of the expected height, after that offset
 - reach_m, settle_m and tol_m are finite and nonnegative
+- a null id or time does not hide capture/timestamp/t; disagreeing or malformed aliases are unreadable
+- each recorded identifier and timestamp is unique across the whole probe
+- judge_probe labels are unique nonempty strings
 
 A complete reading on the point at the wrong height is FAIL.
 judge_probe PASSes only when every planned point PASSes. One dropped point
@@ -43,27 +46,61 @@ def _parse_frame(value):
     return parts
 
 
+def _alias(record, keys):
+    """First recorded non-null alias. Null does not hide a later alias.
+
+    Returns (value, problem). problem is None, "malformed", or "conflict".
+    No key, or only nulls, means the collector did not record this field.
+    Zero is kept. Two different non-null aliases are a conflict.
+    """
+    chosen = None
+    seen = False
+    for key in keys:
+        if key not in record:
+            continue
+        value = record[key]
+        if value is None:
+            continue
+        if not _valid_meta(value):
+            return None, "malformed"
+        if not seen:
+            chosen = value
+            seen = True
+        elif value != chosen:
+            return None, "conflict"
+    return chosen, None
+
+
 def _parse_capture(value):
-    """Return ((x, y, z), ident, timestamp) or None. Accepts str/list or dict with pos + optional id/time.
-    Metadata is taken by key presence so zero values are preserved. Unsupported types become None (handled later)."""
+    """Return ((x, y, z), ident, timestamp) or None if the position will not parse.
+
+    A dict may carry pos/xyz/position plus id/capture and time/timestamp/t.
+    Raises _ProvenanceError when an alias is malformed or two aliases disagree.
+    """
     ident = None
     timestamp = None
     if isinstance(value, dict):
-        if "id" in value:
-            ident = value["id"]
-        elif "capture" in value:
-            ident = value["capture"]
-        if "time" in value:
-            timestamp = value["time"]
-        elif "timestamp" in value:
-            timestamp = value["timestamp"]
-        elif "t" in value:
-            timestamp = value["t"]
+        ident, ident_problem = _alias(value, ("id", "capture"))
+        if ident_problem == "malformed":
+            raise _ProvenanceError("malformed capture identifier")
+        if ident_problem == "conflict":
+            raise _ProvenanceError("conflicting capture identifier")
+        timestamp, time_problem = _alias(value, ("time", "timestamp", "t"))
+        if time_problem == "malformed":
+            raise _ProvenanceError("malformed capture timestamp")
+        if time_problem == "conflict":
+            raise _ProvenanceError("conflicting capture timestamp")
         value = value.get("pos") or value.get("xyz") or value.get("position")
     parts = _parse_frame(value)
     if parts is None:
         return None
     return parts, ident, timestamp
+
+
+class _ProvenanceError(Exception):
+    def __init__(self, reason):
+        self.reason = reason
+
 
 def _valid_meta(value):
     """Supported provenance values are None, str, int, or finite float. Others are malformed."""
@@ -162,7 +199,10 @@ def judge(evidence, reach_m=2.0, settle_m=0.05, tol_m=0.5):
     frames = evidence.get("frames")
     if not isinstance(frames, list) or len(frames) < 2:
         return "UNREAD", "fewer than two settled frames"
-    parsed = [_parse_capture(frame) for frame in frames]
+    try:
+        parsed = [_parse_capture(frame) for frame in frames]
+    except _ProvenanceError as err:
+        return "UNREAD", err.reason
     if any(item is None for item in parsed):
         return "UNREAD", "a frame did not parse"
     reads = [item[0] for item in parsed]
@@ -205,7 +245,8 @@ def judge_probe(evidence, reach_m=2.0, settle_m=0.05, tol_m=0.5):
     """Score every planned point. PASS only when each one PASSes.
 
     `points` is the plan. `reads` maps a label to that point's frames.
-    A missing label is UNREAD. Extra labels are ignored, so they cannot fill a gap.
+    Labels must be unique nonempty strings before any point is scored.
+    A missing or duplicate label is UNREAD. Extra labels are ignored, so they cannot fill a gap.
     """
     if not isinstance(evidence, dict):
         return "UNREAD", "evidence is not a record"
@@ -219,10 +260,16 @@ def judge_probe(evidence, reach_m=2.0, settle_m=0.05, tol_m=0.5):
     verdicts = []
     probe_ids = set()
     probe_times = set()
+    seen_labels = set()
     for point in points:
-        if not isinstance(point, dict) or not point.get("label"):
-            return "UNREAD", "a planned point has no label"
-        label = point["label"]
+        if not isinstance(point, dict):
+            return "UNREAD", "planned label is not a nonempty string"
+        label = point.get("label")
+        if not isinstance(label, str) or label == "":
+            return "UNREAD", "planned label is not a nonempty string"
+        if label in seen_labels:
+            return "UNREAD", "planned labels are not unique"
+        seen_labels.add(label)
         one = {key: evidence[key] for key in ("pinned", "identity", "ground", "require_offset", "bodies")
                if key in evidence}
         if "offset" in evidence:
@@ -233,7 +280,10 @@ def judge_probe(evidence, reach_m=2.0, settle_m=0.05, tol_m=0.5):
         frames = one["frames"]
         if isinstance(frames, list):
             for frame in frames:
-                parsed = _parse_capture(frame)
+                try:
+                    parsed = _parse_capture(frame)
+                except _ProvenanceError as err:
+                    return "UNREAD", f"{label}: {err.reason}"
                 if parsed is None:
                     continue
                 _, ident, ts = parsed
