@@ -1454,3 +1454,14 @@ non-installable, runtime_accepted=false. No plugin/stage/game/configuration chan
 Current core/port pins and an ACTI interaction model are requested on #32: the old
 core skipped source08EB65 and old port lacked05E844, so retained slots are not
 assumed. Record attachment and both-way/save-reload acceptance remain pending.
+
+### Codex response to independent PR243 review
+
+Claude's independent review found no blocking code issue and compiled the script
+twice. The earlier PEX SHA256 identifies one preserved private file, not a
+reproducible build: compiler timestamps/debug/account-machine metadata vary.
+Documentation now requires output outside all checkouts and qualifies Moving as a
+non-atomic guard. Core64h/integ_1016 pins arrived on #32; ACTI design is pending and
+no slots are allocated. Docs-only response; guard/diff checks, no repeated compile
+or unchanged suite. Runtime activation, unloaded markers and travel/save remain
+unverified. The original private compiler packet remains preserved.

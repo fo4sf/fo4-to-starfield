@@ -22,7 +22,7 @@ Claude reports October14 load-order/bridge telemetry and October15 both-directio
 Main4ba5c6a has integration121 and merged131/133;119/126/127/128 are integrated. Source integration is not gameplay acceptance. Latest #32 claims supersede this handoff.
 
 - PR10458f0b51, PR116589f1bf, PR125fcdec287: reviewed QA/guard/CI pass; await Claude, no live application. Keep expected_sha256 publication, bridge-last order and no-op exit0.
-- Scripted cave door: Codex's compile-verified player-only MoveTo component, docs/slice/scripted-door.md. Nine compiler controls; not installable/native accepted. Need current core/port pins and ACTI model (#32/6222266367); old cave marker has no retained slot. Claude owns live tests; offset analysis second.
+- PR243: player-only MoveTo component; Claude independent review found no blocking code issue. Docs clarify per-artifact PEX hashes, private output outside checkouts and non-atomic Moving guard. Core64h/integ_1016 pins supplied (#32/6223300086); ACTI design/slot allocation pending. No native acceptance; Claude owns live tests.
 - PR1181350d9d: selection/per-read evidence reviewed; native adapter pending, runtime acceptance false. PR123319e131: packets reviewed; model savings unmeasured, Guardian-only coordinated window.
 - #117/PR120 archive fingerprinting, #130/PR131 custom-prefix dependencies and #132/PR133 atomic ID reservations are merged; prior QA/guard/CI pass. No native acceptance follows from these offline fixes. Grok owns R06.
 - PR1346d7bd988: Codex found235,119 surviving IDs shifted by promotion; container checks accept wrong XYZ/base/scale/inventory. Two raw-plugin/eight checker controls;28 author tests pass. Claude must fix/re-pin before identity-compatible acceptance.
