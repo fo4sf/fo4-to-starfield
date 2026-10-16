@@ -70,7 +70,7 @@ class SandboxStep:
         # (Codex's review of PR #107: one shared folder, a read not tied to its own request)
         nonces = [c for c in self.typed if c.startswith("fo4sfr")]
         self.assertEqual(len(nonces), len(set(nonces)))
-        console_reads = [r for r in obs.get("read_log", []) if r.get("via") != "bridge"]   # bridge reads type nothing
+        console_reads = [r for r in obs.get("read_log", []) if not str(r.get("via", "")).startswith("bridge")]   # bridge / bridge-ref reads type no nonce
         self.assertEqual([r["nonce"] for r in console_reads], nonces)
         for r in console_reads:
             with open(os.path.join(out, r["work"], "read.json"), encoding="utf-8-sig") as f:
@@ -478,6 +478,21 @@ class QstepDoorSandboxTests(SandboxStep, unittest.TestCase):
         self.assertEqual(v[:2], ("PASS", "PASS"), v[2])
         self.assertEqual(obs["door_read"], "-994.95 1109.49 98.68")        # the fake readpos -Ref (prid + getpos)
         self.assertIn("getpos of door 05000800 read -994.95 1109.49 98.68: its unmerged local position", v[2])
+
+    def test_the_door_is_read_through_the_bridge_without_ocr(self):
+        # runner feature bridge for references (2026-10-15): the door's position comes from the probe's reply in the
+        # bridge log (the fake answers cgf "FO4SF_Probe.Pos"); readpos's prid + getpos session is never typed for it
+        o = DOOR["outside"]
+        w = door_world()
+        w["doors"][0].update(ref="05000800", ref_pos=o["door"])
+        t = dict(tq.door_test(0, dict(DOOR, outside=dict(o, ref="05000800"))), bridge_reads=True, bridge_max_age_s=300)
+        log = os.path.join(tempfile.mkdtemp(prefix="door_bridge_"), "fo4sf.0.log")     # the sandbox's own bridge log
+        v, obs, _ = self.run_step(test=t, world=w, env={"FO4SF_BRIDGE_LOG": log})
+        self.assertEqual(v[:2], ("PASS", "PASS"), f"{v[2]} | reads {obs.get('read_log', [])[:6]} | spawn {obs.get('spawn_read')} {obs.get('offset_missing')} | typed {self.typed[:8]}")
+        self.assertEqual([round(float(x), 2) for x in obs["door_read"].split()], [-994.95, 1109.49, 98.68])   # the bridge's decimals
+        refs = [r for r in obs["read_log"] if r.get("ref") == "05000800"]
+        self.assertTrue(refs and all(r["via"] == "bridge-ref" and r.get("line") is not None for r in refs), refs)
+        self.assertNotIn("prid 05000800", self.typed)
 
     def test_a_return_without_the_merge_offset_is_unmerged(self):
         v, obs, _ = self.trip(door_world(unmerged=True))

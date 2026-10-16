@@ -1229,6 +1229,19 @@ Independent factual/link QA passed, with draft status made explicit. Guard passe
 No new unit tests for documentation; hosted CI is checked on the PR. No game,
 runner, installation, queue or save changed.
 
+### 2026-10-15 Codex: preserve original reference slots during R05 promotion (proposal)
+
+PR134 removed a source before sequential allocation; the real parent writer reproduces the later-ID shift on a
+synthetic master. The isolated companion retains original reference_index, reserves all REFR slots and reuses the
+promoted source's key, appending only CONT bases. Canonical Claude checkout/production stages/game are untouched.
+29 producer tests and three actual-writer methods pass (four promotion scenarios and five publication refusals).
+Survivor IDs/record data/cell ownership match; no-cluster output is byte-identical to parent. The declared-slot
+check rejects the parent artifact and accepts the four candidates. Initial anchor-fixture failure is retained.
+Release builds pass; the existing CA1831 inventory-parser warning remains. Peer QA, a fresh full-scale candidate,
+all-ID/raw-record comparison and newly pinned native plans/save tests remain required. Full persistent allocation
+across reordered exports and future promoted bases is still open. See testing/container-reference-identities.md;
+private evidence is test-plans/container-reference-identities-20261015. No native acceptance is claimed.
+
 ## 2026-10-15 Codex: bridge recovery on consolidated main
 
 Merged main d628b56 into the owned PR125 branch without rewriting history. Resolved
@@ -1275,6 +1288,28 @@ Anscombe QA passes three additional controls, including a genuine pre-fix cache
 and backslash namespace. #130 records pinned results; native acceptance is
 outside this correction.
 
+## 2026-10-15: Codex — validate persistent FormID reservations (#137)
+
+Synthetic binary repro on main4ba5c6a: a stored0x01000800 survived in the
+map but serialized as local000800; a uint.MaxValue tombstone wrapped the next
+allocation to zero. Valid sparse IDs round-tripped. Four new writer tests
+produced seven failing subcases before correction, including duplicate JSON
+keys, duplicate inactive reservations, and a failed allocation that still
+published its unusable reservation. Original outputs/logs are retained.
+
+PluginSpike now validates the complete map before constructing records:
+unique decoded keys and values, integer IDs within this writer's000800..FFFFFF
+range, including tombstones. New identities cannot exhaust/wrap the range;
+existing IDs at the limit remain reusable. Save independently validates before
+atomic publication. Invalid/exhausted inputs preserve both prior map bytes and
+plugin bytes. Release build has zero warnings/errors; seven writer checks,
+1308 Windows tests(69 skips), guard and independent Mencius QA pass. QA covers
+direct Save validation, escaped-equivalent duplicate keys and binary IDs on
+an exhausted-map rebuild. Native handling of its one-past-last HEDR.NextFormID
+remains unverified; these are offline controls, not native acceptance.
+No source IDs were repaired/reassigned, no native campaign was rescored, and
+no stages, game installation, controller or input changed.
+
 ## 2026-10-15 afternoon window: R05 slice 1 in game, the raider fights, cave probes crash (Claude)
 
 Chain 12:59-14:39 on the pinned build 2470f876 (runner scripts 10e7019), started on the owner's word while away.
@@ -1315,3 +1350,109 @@ Chain 12:59-14:39 on the pinned build 2470f876 (runner scripts 10e7019), started
   Private evidence: test-plans/relaunch-verification-20261015. Peer QA/integration remain pending.
 - Correction to the earlier afternoon chain note: lead #32/6203530521 reports normal chain cleanup; an orphan
   tail watcher hid the last log lines. Preserve those observations; do not treat missing log text as cleanup failure.
+
+## 2026-10-15 evening chain: the walk holds on core64d, the raider fights twice, the Red Rocket probes do not move (Claude)
+
+Second chain of the day (16:31-19:00, runner scripts 64d30ad, build 2470f876), on the owner's "keep working never stop".
+
+- **walk_core64d_1015 PASS**: Red Rocket -> Sanctuary on core64d (core64c + the native container), 29 legs, 253.9 of
+  254.33 m, |dz| max 0.14 m, every read by the bridge. The R05 build does not regress the walk gate.
+- **npc_combat_c3_1015 / c4_1015**: the vanilla Spacer PASS on its first attempt with the spawn confirm limit at 7 m
+  (6.06 m had failed it in c2); the citizen control FAIL NOCOMBAT as designed; the converted raider INCONCLUSIVE SPAWN
+  twice in c3 (`Item '02F04800' not found`) because c3 was planned without `--install-exp actor_raider2 --plugins
+  FO4ActorRaider.esm` (the bridge log shows FO4Port.esm at load index 03 in c2 and 02 in c3), then **PASS ENGAGED** in
+  c4 with the plugin installed: two runs, two passes.
+- **r05_medkit_1015b / c / e** (two kit-facing probes; c with `time_repin` off; e with no time commands at all): the
+  container reply every time (`ref=34220709 pos=-2193.137207 -1548.338501 105.296318 loaded=true`, eight confirmations
+  today), and every time the player stayed at the arrival through both probes while the bridge read fresh (read 3 at
+  rt 415.9 in b). Not the noon re-typing, not SetLocalTime: on this arrival of our worldspace `player.setpos` has no
+  effect, while the same code moved the player on vanilla LC172World (bridge_probe_1015c). The per-attempt papyrus.log
+  (#144) shows only vanilla location-script noise. Next: `teleport_console` (the teleport's own console session
+  captured: the game's reply to the typed lines) and the `activate` step (#145), both in `r05_medkit_1015d`.
+- Runner: #144 (papyrus.log per attempt) merged; #145 open (activate step + teleport_console); #125 (Codex's
+  bridge-install recovery) merged after a testing state; the runner worktree moves to main after this chain.
+- Lesson of the day, twice: a queue re-planned for one parameter must carry every argument of the queue it replaces
+  (c3), and a log watcher must never hold the chain's log open (the morning's "dead chain").
+
+## 2026-10-15 night: the first FO4 container opened in Starfield; why the Red Rocket probes never moved (Claude)
+
+- **R05 slice 1, interaction**: `r05_medkit_1015d` a1 (20:10, runner f60f4d6 with #145): the activate step selected the
+  kit's reference in one console session (`prid 020A2AA5`, `GetIsID 020A2AA4 >> 1.00` read before anything else was
+  typed: Codex's review), typed `activate player`, and Starfield's container UI opened on the converted FO4 first-aid
+  kit: FIRST AID KIT, Credits 25, Digipick 1, OCR'd as `read ['First Aid Kit', 'Credits', 'Digipick']`
+  (docs/media/r05-firstaidkit-menu-1015.jpg, #156). Record level (the bridge's probe reply, nine times today) and
+  interaction level are done; the owner's own E-press stays the last word.
+- **The probes, explained by the teleport captures** (`teleport_console`, #145): the console accepted `player.setpos z
+  40` without a word. 40 is an absolute height in the worldspace frame and the Red Rocket ground is at 105.26: my
+  acceptance plan had copied LC172's `drop_z 40` (ground at 6), so every probe and the "beyond" jump were sent 65 m
+  underground; the player stayed put, the beyond jump fell out of the world and that is what stopped the bridge in
+  every r05_medkit run. Not the time commands, not the worldspace. `drop_z` 145 from `r05_medkit_1015f` on. Rule:
+  a terrain plan's `drop_z` is absolute; use `drop_above_spawn` when the ground height is not known.
+- **The menu exit**: Starfield's container UI says BACK / HOLD TO EXIT on Tab; the step's tap only went back a level,
+  the menu stayed open, the next console open failed three times and the attempt stopped (INCONCLUSIVE STOPPED).
+  #157: a held Tab (1.2 s), the HUD checked on the closing capture, a second hold when it is not back.
+- Merged after testing states: #145 (activate step, teleport_console, selection proof), #138 (Codex), #156, #157.
+  Codex's #150 (keep the source REFR's id when a static becomes a container) is the next R05 correctness item: my
+  `cluster_containers` removes the kit's placement and appends the container's REFR after every other record, which
+  shifts the ids of the references placed after the kit; Codex's draft keeps the id. Taken when it leaves draft.
+- **`r05_medkit_1015f` / `1015g`** (runner 2e017aa / e26897c): the teleports work at drop 145 and the activation reproduced
+  with the selection proof and the held-Tab exit (the attempt ran to its end). Both kit-side probes landed at 110.2 /
+  110.7 and the arrival probe at 110.49: the station roof and the fuel canopy; the kit is inside the building and the
+  arrival marker under the canopy, so a drop from above lands on them (plan artifacts, not terrain). The selection proof
+  also read the game's `>> 1.00` on the line under the echo once (the OCR splits rows under the compass dial): #158.
+  `r05_medkit_1015h` (core64c's verified probes zref_ground / wp_01 next to the activation) was stopped at 21:01 by the
+  input guard (another window took the foreground: the owner at the PC) and waits for the next window.
+
+## 2026-10-16: core64n navmesh.convert over the 64 x 64 core (Grok)
+
+Offline. `navmesh.convert` on Commonwealth NAVM in FO4 cells -55..54 (same Fallout4.esm as #163,
+sha256 `ae7be31a…`). 7,047 NAVM / 3,439,338 triangles → 12,104 Starfield NAVM / 3,749,066 triangles,
+156,549 cell-line pairs, 134,876 FO4-portal pairs, 0 refused ids. #163 inventory: 1,069 overlay cells
+all still covered (0 lost / 0 reduced). Red Rocket smoke matched exp2d (105 → 156 NAVM, 2,145 / 1,959
+links). Geometry in staging `terrain_core64n_work/navmesh/` (navmesh.json 433,902,356 B), not git.
+Report: docs/actors/navmesh-core64n-convert.md. Not in-game; writer into FO4TerrainCore.esm is Claude.
+
+## 2026-10-16 night: from the slice to the Commonwealth: plan, R06, the navmesh writer, bridge ref reads, the cluster lists (Claude)
+
+The owner's direction (15 Oct 21:30): push Grok, get everything ready for Codex's two items (#150 identity-keeping
+promotion, the door gate), finish the slice, start the whole Commonwealth.
+
+- **What the Commonwealth is from here** (docs/terrain/commonwealth-build-plan.md, #162, decision recorded): the 64 x 64
+  core already covers the playable Commonwealth's exterior (6.4 km; 648,358 references of 11,769 models over 1,708 FO4
+  cells, FO4 cells x -53..33, y -49..41); the scale-up is record classes, interiors and navmesh across it, not more
+  cells; one plugin for the exterior (the record count is far under the 16.7 M FormID space), interiors stay in
+  FO4Port.esm, joined by the door gate.
+- **R06 (Grok, #163 merged)**: FO4 authors 7,047 NAVM / 3,439,338 triangles / 9.08 million m2 over 1,069 of the
+  overlay's cells; `FO4TerrainCore.esm` has **0 NAVM** (664,229 records walked). Every NPC result so far was on
+  interior navmesh or in a vanilla cell. Grok now runs experiment 2d's converter (`navmesh.py convert`) over the whole
+  core (11 export bands, C:\Modding\staging\terrain_core64c_work).
+- **The navmesh writer (#165 merged)**: experiment 2d's NAVM/NAVI writer ported from TerrainExp2 into TerrainOverlays
+  (`overlays_params` `navmesh`, `make_core64c.py stage --navmesh`, `check` 2b), because the NAVM records must come from
+  the core's own build (an add-on override of exterior cells is ruled out in game). Dry run on exp2d's navmesh.json:
+  156 NAVM, 68,132 triangles, 8,208 edge links, NAVI with 156 NVMI, every NAVM parsed back: the same numbers as 2d.
+- **Reference reads through the bridge (#164)**: `Bridge-Ref-Read` types `cgf "FO4SF_Probe.Pos" <ref>` and
+  `bridge_log.py wait-ref --since <mark>` returns the reply written after the mark; readpos's OCR only as the
+  fallback; the sandbox's fake game answers the probe (actors, statics, the anchor, door refs). A door trip in the
+  sandbox passes with every door read `via bridge-ref` and no `prid` typed. Two lessons: a sandbox suite copies the
+  worktree's scripts per test, so the branch under it must not change while it runs (one run voided); `dotnet run`
+  passes `-nologo` / `-v` through to the program (a dry run read "-nologo" as Starfield.esm).
+- **The cluster lists (#166)**: `make_cluster.py` reads the band exports and core64c's placed references: placed by
+  FO4 base type, Static 573,663, StaticCollection 33,199, MovableStatic 12,379, MiscItem 10,770, Furniture 3,890,
+  Flora 3,520, Activator 2,256, Ingestible 1,688, Container 5,212 (of 5,294), Door 1,262; Light 6,275, IdleMarker
+  5,828, BendableSpline 4,982, SoundMarker 878 not placed at all. The containers list: 5,185 entries over **182 distinct
+  FO4 bases** (116 named by the table exactly, 1,636 by prefix, 3,433 by its default), so the writer should make one
+  CONT per FO4 base, not one per reference as the R05 slice did: that change rides on #150.
+- **Loose items (#168)**: `make_cluster.py items`: 12,438 placed MiscItem / Ingestible references over 492 FO4 bases
+  (10,754 + 1,684; 441 named by the table's prefixes). **Doors, measured**: 1,286 exported exterior doors, 373 of them
+  load doors (a destination door reference); 18 lead into the 16 interiors FO4Port.esm has converted (13 cells; 15 of
+  those doors placed by core64c), 355 into interiors not converted yet. So the door gate's first batch is 15 doors and
+  the interior conversion backlog, not the gate, is the long pole of a walkable Commonwealth.
+- **Ready for Codex's return**: the testing state of #150 passes (tests, TerrainOverlays build, guard);
+  `rebuild_core64e.sh` rebuilds the R05 build with the identity-keeping step in one command; the door gate's OFST/CLSZ
+  slice is planned as `cave_ofst_1015` (#129 itself needs Codex's rebase over #126). Grok's #148 was already merged.
+- **One CONT per base (#167, stacked on #150)**: cluster entries carry the FO4 base; `cluster_containers` names the
+  CONT from it, the writer deduplicates CONTs by edid (model must agree), the identity check accepts shared bases;
+  the R05 hand-written entry is unchanged. 31 tests on #150's head; TerrainOverlays builds.
+- Merged tonight: #162, #163, #161, #165, #166 (and the queue of the day before). Open: #164 (sandbox suite running),
+  #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
+- 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.

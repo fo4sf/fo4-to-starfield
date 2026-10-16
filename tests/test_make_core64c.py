@@ -447,5 +447,118 @@ class StageTests(unittest.TestCase):
         self.assertEqual((s["min"], s["median"], s["max"]), (-2.0, 1.0, 3.0))
 
 
+class ContainerPerBaseTests(unittest.TestCase):
+    def test_entries_of_one_base_share_the_cont_edid(self):
+        bases = [{"edid": "FO4Core_x", "model": "m.nif", "source": "s.nif"}]
+        placed = [{"src": "000001:Fallout4.esm", "base": 0, "cell": [0, 0], "pos": [0, 0, 0], "rot": [0, 0, 0], "scale": 1.0},
+                  {"src": "000002:Fallout4.esm", "base": 0, "cell": [0, 0], "pos": [1, 0, 0], "rot": [0, 0, 0], "scale": 1.0},
+                  {"src": "000003:Fallout4.esm", "base": 0, "cell": [0, 0], "pos": [2, 0, 0], "rot": [0, 0, 0], "scale": 1.0}]
+        items = [{"form": "Starfield.esm:00000F", "count": 1}]
+        cluster = {"containers": [{"src": "000001:Fallout4.esm", "name": "A", "items": items, "base": "04B6E9:Fallout4.esm"},
+                                  {"src": "000002:Fallout4.esm", "name": "A", "items": items, "base": "04B6E9:Fallout4.esm"},
+                                  {"src": "000003:Fallout4.esm", "name": "B", "items": items}]}
+        keep, conts = mk.cluster_containers(bases, placed, cluster)
+        self.assertEqual(keep, [])
+        self.assertEqual([c["edid"] for c in conts], ["FO4Core_cont_04b6e9_fallout4", "FO4Core_cont_04b6e9_fallout4", "FO4Core_cont_000003"])
+        self.assertEqual([c["reference_index"] for c in conts], [0, 1, 2])
+
+    def test_the_plugin_is_part_of_the_group_and_metadata_must_agree(self):
+        # Codex's review of #167: 04B6E9:Fallout4.esm and 04B6E9:SomeDLC.esm are two bases; one group, one name and inventory
+        self.assertNotEqual(mk.container_edid("04B6E9:Fallout4.esm", "x"), mk.container_edid("04B6E9:SomeDLC.esm", "x"))
+        self.assertEqual(mk.container_edid(None, "19EE52:Fallout4.esm"), "FO4Core_cont_19ee52")
+        bases = [{"edid": "FO4Core_x", "model": "m.nif", "source": "s.nif"}]
+        placed = [{"src": "000001:Fallout4.esm", "base": 0, "cell": [0, 0], "pos": [0, 0, 0], "rot": [0, 0, 0], "scale": 1.0},
+                  {"src": "000002:Fallout4.esm", "base": 0, "cell": [0, 0], "pos": [1, 0, 0], "rot": [0, 0, 0], "scale": 1.0}]
+        items = [{"form": "Starfield.esm:00000F", "count": 25}]
+        same = {"containers": [{"src": "000001:Fallout4.esm", "name": "A", "items": items, "base": "04B6E9:Fallout4.esm"},
+                               {"src": "000002:Fallout4.esm", "name": "A", "items": [{"form": "starfield.esm:00000F", "count": 25}], "base": "04B6E9:Fallout4.esm"}]}
+        mk.cluster_containers(bases, placed, same)                 # the same inventory, case aside: shared
+        for bad in ({"name": "B", "items": items}, {"name": "A", "items": [{"form": "Starfield.esm:00000F", "count": 99}]}):
+            cl = {"containers": [{"src": "000001:Fallout4.esm", "name": "A", "items": items, "base": "04B6E9:Fallout4.esm"},
+                                 dict(bad, src="000002:Fallout4.esm", base="04B6E9:Fallout4.esm")]}
+            with self.assertRaises(ValueError) as cm:
+                mk.cluster_containers(bases, placed, cl)
+            self.assertIn("different name or inventory", str(cm.exception))
+
+    def test_check_accepts_a_shared_cont_base(self):
+        objects = {"refs": [], "containers": [{"src": "000001:Fallout4.esm", "reference_index": 0}, {"src": "000002:Fallout4.esm", "reference_index": 1}]}
+        ids = {"bases": {"FO4Core_x": "000800"}, "refs": {},
+               "containers": {"000001:Fallout4.esm": {"base": "000803", "ref": "000801"}, "000002:Fallout4.esm": {"base": "000803", "ref": "000802"}}}
+        mk.check_reference_slots(objects, ids)                      # shared base 000803 after the two reserved slots: fine
+        ids["containers"]["000002:Fallout4.esm"]["base"] = "000802"
+        with self.assertRaises(ValueError):
+            mk.check_reference_slots(objects, ids)                  # a base inside the reserved slots is not
+
+class NavmeshInputTests(unittest.TestCase):
+    OV = {"cell_min": -32, "cell_max": 31}
+
+    def test_accepts_exp2d_shaped_input(self):
+        nav = {"navmeshes": [{"cell": [-10, 11], "triangles": [[0, 1, 2]]}, {"cell": [31, -32], "triangles": [[0, 1, 2]]}]}
+        self.assertIs(mk.navmesh_input(nav, self.OV), nav)
+
+    def test_refuses_bad_input(self):
+        for bad, why in (({}, "navmeshes"), ({"navmeshes": []}, "navmeshes"),
+                         ({"navmeshes": [{"cell": [32, 0], "triangles": [[0, 1, 2]]}]}, "outside"),
+                         ({"navmeshes": [{"cell": [0], "triangles": [[0, 1, 2]]}]}, "cell"),
+                         ({"navmeshes": [{"cell": [0, 0], "triangles": []}]}, "triangles")):
+            with self.assertRaises(ValueError, msg=why) as cm:
+                mk.navmesh_input(bad, self.OV)
+            self.assertIn(why, str(cm.exception))
+
+
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClusterTests(unittest.TestCase):
+    """R05: --cluster turns named placed references into native containers for TerrainOverlays."""
+    BASES = [{"edid": "FO4Core_firstaidkitwhite", "model": "fo4core\setdressing\firstaidkit\firstaidkitwhite.nif"},
+             {"edid": "FO4Core_cram", "model": "fo4core\setdressing\foodandfoodware\cram.nif"}]
+    PLACED = [{"src": "19EE52:Fallout4.esm", "base": 0, "cell": [-10, 11], "pos": [-993.14, 1151.66, 105.3], "rot": [0, 0, 1.2], "scale": 1.0, "disabled": False},
+              {"src": "152DA0:Fallout4.esm", "base": 1, "cell": [-10, 11], "pos": [-999.31, 1142.45, 105.76], "rot": [0, 0, 0], "scale": 1.0, "disabled": False},
+              {"src": "000001:Fallout4.esm", "base": 1, "cell": [-10, 12], "pos": [-990, 1201, 105], "rot": [0, 0, 0], "scale": 1.0, "disabled": True}]
+    CLUSTER = {"containers": [{"src": "19EE52:Fallout4.esm", "name": "First Aid Kit",
+                               "items": [{"form": "Starfield.esm:00000F", "count": 25}, {"form": "Starfield.esm:00000A", "count": 1}]}]}
+
+    def test_named_reference_becomes_a_container_and_leaves_the_statics(self):
+        placed, conts = mk.cluster_containers(self.BASES, [dict(p) for p in self.PLACED], self.CLUSTER)
+        self.assertEqual([p["src"] for p in placed], ["152DA0:Fallout4.esm", "000001:Fallout4.esm"])
+        self.assertEqual(len(conts), 1)
+        c = conts[0]
+        self.assertEqual((c["src"], c["edid"], c["name"]), ("19EE52:Fallout4.esm", "FO4Core_cont_19ee52", "First Aid Kit"))
+        self.assertEqual(c["model"], self.BASES[0]["model"])
+        self.assertEqual(c["reference_index"], 0)
+        self.assertEqual((c["cell"], c["pos"], c["rot"], c["scale"]), ([-10, 11], [-993.14, 1151.66, 105.3], [0, 0, 1.2], 1.0))
+        self.assertEqual(c["items"][0], {"form": "Starfield.esm:00000F", "count": 25})
+
+    def test_unplaced_disabled_or_malformed_entries_are_errors(self):
+        with self.assertRaisesRegex(ValueError, "not placed"):
+            mk.cluster_containers(self.BASES, [dict(p) for p in self.PLACED], {"containers": [dict(self.CLUSTER["containers"][0], src="ABCDEF:Fallout4.esm")]})
+        with self.assertRaisesRegex(ValueError, "disabled"):
+            mk.cluster_containers(self.BASES, [dict(p) for p in self.PLACED], {"containers": [dict(self.CLUSTER["containers"][0], src="000001:Fallout4.esm")]})
+        with self.assertRaisesRegex(ValueError, "items"):
+            mk.cluster_containers(self.BASES, [dict(p) for p in self.PLACED], {"containers": [dict(self.CLUSTER["containers"][0], items=[])]})
+        with self.assertRaisesRegex(ValueError, "6 hex"):
+            mk.cluster_containers(self.BASES, [dict(p) for p in self.PLACED], {"containers": [dict(self.CLUSTER["containers"][0], items=[{"form": "Credits", "count": 1}])]})
+
+    def test_no_cluster_changes_nothing(self):
+        placed, conts = mk.cluster_containers(self.BASES, [dict(p) for p in self.PLACED], {})
+        self.assertEqual(len(placed), 3)
+        self.assertEqual(conts, [])
+
+    def test_original_indices_survive_removal_of_multiple_references(self):
+        placed = [dict(p) for p in self.PLACED]
+        placed[-1]["disabled"] = False
+        cluster = {"containers": [self.CLUSTER["containers"][0],
+                    dict(self.CLUSTER["containers"][0], src=placed[-1]["src"])]}
+        kept, conts = mk.cluster_containers(self.BASES, placed, cluster)
+        self.assertEqual([c["reference_index"] for c in conts], [0, 2])
+        objects = {"refs": kept, "containers": conts}
+        ids = {"bases": {"base0": "000900", "base1": "000901"},
+               "refs": {kept[0]["src"]: "000903"},
+               "containers": {conts[0]["src"]: {"base": "000905", "ref": "000902"},
+                              conts[1]["src"]: {"base": "000906", "ref": "000904"}}}
+        mk.check_reference_slots(objects, ids)
+        ids["refs"][kept[0]["src"]] = "000902"  # old allocation reused the removed source's slot
+        with self.assertRaisesRegex(ValueError, "moved"):
+            mk.check_reference_slots(objects, ids)

@@ -205,10 +205,14 @@ def main():
     state_path = os.path.join(a.staging, "build-state.json")
     write_json_atomic(state_path, {"complete": False, "status": "converting"})
     items, failures, reused = [], [], 0
+    attempted_so_far = 0
+    skipped = 0
+    progress_every = 10
     for name in names:
         if len(items) >= a.limit:
             break
         if not a.cell_json and re.search(r"(lod|_dmg|damaged|destr)", name, re.I):
+            skipped += 1
             continue
         r = cache.load(name) if cache else None
         if r is not None:
@@ -226,31 +230,49 @@ def main():
                     cache.save(name, r)
                 except (OSError, ValueError) as e:
                     print(f"  checkpoint unavailable for {name}: {e}")
+        attempted_so_far += 1
         if not r["ok"]:
             failures.append({"nif": name, "reason": r["reason"]})
-            continue
-        eid = editor_id(name, ids)
-        if cache:
-            os.makedirs(a.staging, exist_ok=True)
-            write_json_atomic(os.path.join(a.staging, "editorids.json"), ids)
-        items.append({"editor_id": eid, "model": r["out_name"].replace("/", "\\") + ".nif", "source": name,
-                      "shapes": r["shapes"], "fallback_materials": r["fallback_materials"], "form_index": len(items),
-                      "collision_report": r.get("collision_report") or {}, **({"door": r["door"]} if "door" in r else {}),
-                      **({"load_door": r["load_door"]} if "load_door" in r else {}),
-                      **({"movable": r["movable"]} if "movable" in r else {}),
-                      **({"door_not_opening": r["door_not_opening"]} if "door_not_opening" in r else {}),
-                      **({"door_frozen_parts": r["door_frozen_parts"]} if "door_frozen_parts" in r else {}),
-                      **({"door_error": r["door_error"]} if "door_error" in r else {})})
-        print(f"  ok  {name} -> {eid} (shapes {r['shapes']}, fallback materials {r['fallback_materials']})")
+        else:
+            eid = editor_id(name, ids)
+            if cache:
+                os.makedirs(a.staging, exist_ok=True)
+                write_json_atomic(os.path.join(a.staging, "editorids.json"), ids)
+            items.append({"editor_id": eid, "model": r["out_name"].replace("/", "\\") + ".nif", "source": name,
+                          "shapes": r["shapes"], "fallback_materials": r["fallback_materials"], "form_index": len(items),
+                          "collision_report": r.get("collision_report") or {}, **({"door": r["door"]} if "door" in r else {}),
+                          **({"load_door": r["load_door"]} if "load_door" in r else {}),
+                          **({"movable": r["movable"]} if "movable" in r else {}),
+                          **({"door_not_opening": r["door_not_opening"]} if "door_not_opening" in r else {}),
+                          **({"door_frozen_parts": r["door_frozen_parts"]} if "door_frozen_parts" in r else {}),
+                          **({"door_error": r["door_error"]} if "door_error" in r else {})})
+            print(f"  ok  {name} -> {eid} (shapes {r['shapes']}, fallback materials {r['fallback_materials']})")
+        if attempted_so_far % progress_every == 0:
+            elapsed_now = time.time() - t0
+            rate = attempted_so_far / elapsed_now if elapsed_now > 0 else 0
+            print(f"  progress: {attempted_so_far} attempted ({len(items)} ok, {len(failures)} fail, {skipped} skipped) "
+                  f"in {elapsed_now:.0f}s ({rate:.1f}/s)")
     for f in failures[:15]:
         print("  FAIL", f["nif"], "-", f["reason"][:110])
-    from collections import Counter
+    from collections import Counter, defaultdict
     reason_counts = Counter(f["reason"].split(":")[0].strip() for f in failures)
+    examples = defaultdict(list)
+    for f in failures:
+        top = f["reason"].split(":")[0].strip()
+        if len(examples[top]) < 3:
+            examples[top].append(f["nif"])
     total = len(failures)
     unique = len(reason_counts)
     attempted = len(items) + total
     success_pct = 100.0 * len(items) / attempted if attempted else 100.0
     print(f"  Batch result: {len(items)}/{attempted} succeeded ({success_pct:.1f}%)")
+    elapsed = round(time.time() - t0, 1)
+    print(f"  reused={reused}  seconds={elapsed}")
+    doors = sum(1 for it in items if "door" in it)
+    load_doors = sum(1 for it in items if "load_door" in it)
+    movables = sum(1 for it in items if "movable" in it)
+    total_shapes = sum(it.get("shapes", 0) for it in items)
+    avg_shapes = round(total_shapes / len(items), 1) if items else 0.0
     if total:
         print(f"  Failure summary: {total} failures across {unique} unique top-level reasons")
         print("  Top failure reasons:")
@@ -259,8 +281,9 @@ def main():
             print(f"    {count:4d} ({pct:5.1f}%)  {reason[:80]}")
     else:
         print("  Failure summary: 0 failures")
+    if items:
+        print(f"  Asset mix: doors={doors} load_doors={load_doors} movables={movables} avg_shapes={avg_shapes}")
     # Always persist a compact summary (including the zero case) so tooling sees the latest run
-    elapsed = round(time.time() - t0, 1)
     summary = {
         "generated_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
         "attempted": attempted,
@@ -269,11 +292,19 @@ def main():
         "total_failures": total,
         "unique_reasons": unique,
         "reused": reused,
+        "skipped": skipped,
         "seconds": elapsed,
         "limit": a.limit,
         "pattern": a.pattern,
+        "doors": doors,
+        "load_doors": load_doors,
+        "movables": movables,
+        "total_shapes": total_shapes,
+        "avg_shapes": avg_shapes,
         "top": [{"reason": r, "count": c, "percent": round(100.0 * c / total, 1) if total else 0.0}
                 for r, c in reason_counts.most_common(10)],
+        "reasons": {r: c for r, c in reason_counts.most_common()},
+        "examples": {r: examples[r] for r in reason_counts},
     }
     write_json_atomic(os.path.join(a.staging, "failure-summary.json"), summary)
 
