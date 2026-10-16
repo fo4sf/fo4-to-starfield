@@ -216,10 +216,13 @@ of §6. The after-load activation check stays where it is (cycle.ps1 exit 8 afte
 `objective`, `owner`, `inputs[]`, `dependencies[]` (task ids whose PASS must be in the ledger), `timeout_s`,
 `max_attempts`, `acceptance[]`, `evidence_required[]`, `recovery`, `not_in_scope[]`, and optionally `capability`
 (what a decided IN_GAME result verifies or fails) and `campaign`. A card is refused with the field named when it
-lacks an objective, an owner, an acceptance line or an evidence rule (`"none"` is a choice, an empty list is not),
-when a number is not positive, when it depends on itself or carries an unknown field. `card.events(by)` is the
-`task_queued` line that queues it, the card riding along so a resumed leader re-reads it; `card.not_ready(state)`
-says why it cannot start.
+lacks an objective, an owner, an acceptance line, an evidence rule (`["none"]` is a choice, an empty list is not;
+`card.needs_evidence` is then false) or a recovery line, when a number is not positive, when it depends on itself
+or carries an unknown field. `Worker.queue(card)` writes the `task_queued` line (`card.events(by)`), the card riding
+along; the fold keeps it (`state.cards[id]`, `TaskCard.from_event`) so a resumed leader re-reads it, and that queued
+card is the authority: a card in hand that differs from it, an id queued twice with different cards (the first
+stands, `state.card_conflicts`, a blocker in the report) or a card never queued cannot start, finish or expire
+anything. `card.not_ready(state)` says why it cannot start.
 
 **The result** (`src/fo4sf/core/worker.py`, `WorkerResult`): `task`, `attempt`, `outcome` (§2), `source` (§2),
 `detail`, `evidence[]` (paths, hashes, URLs, read lines), `pins{}` (`commit`, `build_id`, `plugin_sha256`, ...),
@@ -228,16 +231,25 @@ says why it cannot start.
 
 | Rule | Refused when |
 |---|---|
-| the attempt is the card's | `attempt` < 1, beyond `max_attempts`, or not the attempt the ledger shows running |
+| the attempt is the card's | `attempt` < 1, beyond `max_attempts`, not the attempt the ledger shows running; on `start`, an explicit attempt that is not the ledger's next |
 | only PASS / FAIL are decided | an undecided outcome marked `completed` (model.Event refuses the line itself) |
-| a verdict rests on evidence | a PASS or FAIL with no `evidence` while the card requires some |
+| a verdict rests on evidence | a PASS or FAIL with no `evidence` while the card's rule is not `["none"]` |
 | only an IN_GAME PASS verifies | `verified` claimed from any other outcome or source, or for a card without a capability; an OFFLINE PASS is recorded and the fold keeps the capability inconclusive |
+| times are aware | `started`, `finished` or a `now` that is not an ISO timestamp with a zone (a naive local time would age by the zone offset on the first expiry check) |
 | one attempt at a time | `start` while an attempt is running (or lost), after the task completed, or before its dependencies passed |
-| nothing is lost silently | `Worker.expire` turns an attempt past `timeout_s` into an INCONCLUSIVE `task_finished` that says so (`expired: true`) |
+| nothing is lost silently | `Worker.expire` turns an attempt past `timeout_s` into an INCONCLUSIVE `task_finished` that says so (`expired: true`), with the `capability_result` a worker's INCONCLUSIVE would leave |
 
 What a task leaves in the ledger: `task_queued` (the card), `task_started` (`attempt`, `timeout_s`, `started`),
-`task_finished` (`outcome`, `source`, `detail`, `evidence`, `pins`, `completed`), and for a card with a capability
-one `capability_result` per decided or inconclusive attempt (a SKIPPED attempt says nothing about the capability).
+`task_finished` (`outcome`, `source`, `detail`, `evidence`, `pins`, `completed`, `worker` and `verified` as the
+result claimed them), and for a card with a capability one `capability_result` per decided or inconclusive attempt
+(a SKIPPED or CIRCUIT_BROKEN attempt says nothing about the capability). The `task_finished` of such an attempt
+carries the `capability` (and the result's `build_id`) too, and the fold reads the verdict from either line: a
+crash between the two appends loses nothing, and the second line repeats the first.
+
+A known event whose fields the fold cannot read (a writer bug or a hand edit: a dict where a task id belongs, a
+lease whose expiry is not a time) is skipped and listed (`state.bad_events`); the report names it in the blockers
+bullet with its line number, and the rest of the ledger still folds, because the ledger is append-only and the
+writer, not the reader, repairs it.
 
 **The report CLI:** `python scripts/leader_report.py --ledger <leader dir or ledger.jsonl> [--now <ISO>] [--json]`
 prints the owner's eight bullets from the fold (§1), exit 1 with the reason when the ledger is missing or corrupt.
