@@ -1221,3 +1221,15 @@ Windows file sharing and missing optional Mars preparation. Existing deployment/
 identity regressions pass; guard/CI/peer QA are recorded on the PR. Backups and failed attempts are retained for
 verified archiving. No native gameplay or power-loss acceptance. See testing/terrain-output-publication.md and
 private test-plans/terrain-output-publication-20261015. Producer and consumer changes must integrate together.
+
+### 2026-10-15 Codex: full-size promotion/publication author validation
+
+At105a10ca, an isolated pinned core64c candidate preserves all648358 source REFR IDs/11769 base IDs. Raw comparison:
+664228 original records byte-identical; only promoted NAME and TES4 HEDR changed, with one appended CONT/group.
+All original physical group paths/3492 group headers and Mars bytes match. PR146 reader checks the actual container
+binding/inventory/transform/cell with zero ID changes/missing keys; final peer source review remains pending.
+REFR069435 is preserved; CONT0A2AA5 is new. Candidate receipt matches all three published hashes; five original source
+files rechecked unchanged. The2GiB heap OOM is retained; fresh3GiB run18.02s/2.82GiB sampled peak succeeds. Initial
+verifier HEDR assumptions were corrected from raw framing and retained; inherited absolute-count offset-3 unresolved.
+No production install/native input/save change or acceptance. Independent QA, lead integration/new plans/native tests
+remain. Private evidence core64-identity-validation-20261015; see testing/container-reference-identities.md.

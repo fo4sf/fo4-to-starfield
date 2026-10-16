@@ -47,7 +47,11 @@ python -B -m unittest discover -s tests -p test_stage_outputs.py -v
 ```
 
 Private evidence: `test-plans/terrain-output-publication-20261015`. The original mixed-generation failure and corrected
-fault cases are distinct. Full-scale timing/resource use and native gameplay remain unverified.
+fault cases are distinct. A full-size private author run at `105a10ca` also published all three outputs with a
+committed receipt whose hashes match the actual plugin/map/Mars bytes. The initial 2 GiB heap-limited OOM and its
+transaction directory remain intact; a fresh 3 GiB candidate completed in 18.02 s. See
+[full-size identity evidence](container-reference-identities.md#full-size-private-author-validation-october-15-mountain--october-16-utc).
+This does not establish interrupted full-size recovery or native gameplay acceptance; peer QA/integration remain open.
 
 ## Recovery and retention
 

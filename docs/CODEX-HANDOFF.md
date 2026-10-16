@@ -14,7 +14,7 @@ Walk both directions over bridge/cell borders, use cave doors with correct posit
 
 Core64c648358 refs/1708 populated cells across6.4km; no size guarantee. October13 smoke7/7, baseline29/30, informational15/15; northeast+1.8939m remains. Four wrong-frame jumps stay excluded. Old campaigns/save preserved; scoped monitor paused.
 
-Lead reports bridge telemetry, both-direction~254m walks and combat engagement. Independent native acceptance remains open. Cave fixA refuted; exterior-cell overrides displace COC/crash. Keep probe-free129 separate. Latest lead c3 raider test missed its plugin (planning error); c4 is queued by Claude. No combined acceptance claims.
+Lead reports bridge telemetry, both-direction~254m walks and installed c4 raider combat engagement. Independent native acceptance remains open. Cave fixA refuted; exterior-cell overrides displace COC/crash. Keep probe-free129 separate. Lead stages wider navmesh/containers;150 and door gate remain Codex priorities. No combined acceptance claims.
 
 ## Source / proposals
 
@@ -23,7 +23,7 @@ Latest #32 supersedes this handoff. Main ef3a3ba includes131/133/125; this publi
 - 10458f0b51/116589f1bf reviewed QA/guard/CI pass; await lead. 125 merged; preserve expected_sha256 publisher, bridge-last and no-op0. No live application by Codex.
 - 1297511352 staged probe-free candidate; raw checks pass, native effect unverified. No probes/exterior override/install/input. 1181350d9d/123319e131 await native adapter/model measurement gates.
 - 138fa253dc: stored-ID validation/cap reviewed, tests/guard/QA/CI pass; await lead. 1467a3e7a2 container/ID auditor is draft awaiting final peer source review; runtime false.
-- 1346d7bd988 shifts235119 surviving IDs. Codex identity companion now preserves original REFR slots through promotion, including the promoted source. 29 producer/3 actual-writer methods, four serialized promotions/five refusals and parent failure cross-check pass. Peer QA/full-scale build/new plans/native save tests pending; undeployed. General persistent allocation remains open. See testing/container-reference-identities.md.
+- 1346d7bd988 shifts235119 surviving IDs.1506f511b2+153105a10c private full-size candidate preserves648358 source/11769 base IDs;664228 original records byte-identical, only kit NAME/TES4 changed; group ownership/headers intact. PR146 reader passes. Kit REFR069435/CONT0A2AA5; production unchanged. Peer QA/new plans/native tests pending; undeployed. General allocator open. See testing/container-reference-identities.md.
 - 145 review5541048759: planner drops activate; refused selection can activate prior target. 148 review5541155845: output clobbers measurements; NaN can hide loss. Owners retain fixes.
 - Codex publication companion: prepares all outputs privately; journaled rollback/retained snapshots and guards for deployment/experiment/core/cave readers. Mixed-map failure reproduced, eleven new fault/consumer methods pass. QA/integration pending; no native changes. See testing/terrain-output-publication.md.
 - 149ed44dae draft: bounded full-hash reads, synthetic median0.684->0.460s;94 targeted/guard/CI pass. Independent QA/live measurement pending.
