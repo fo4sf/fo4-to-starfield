@@ -157,6 +157,7 @@ if (Has(prm, "objects"))
     // core64c: converted FO4 models and their references, allocated after every overlay record
     using var odoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, prm.GetProperty("objects").GetString()!)));
     var o = odoc.RootElement;
+    var referenceSources = ReferenceIdentityPlan.Order(o);
     string world = o.TryGetProperty("world", out var wj) ? wj.GetString()! : worlds[0].World.EditorID!;
     if (!cellsOf.TryGetValue(world, out var cellAt)) throw new InvalidDataException($"objects.json names world {world}, not an overlay of these params");
     var baseKeys = new List<FormKey>();
@@ -197,6 +198,9 @@ if (Has(prm, "objects"))
         }
         baseIds[edid] = baseKeys[^1].ID.ToString("X6");
     }
+    // Reserve every original slot, including references promoted out of "refs".
+    // A later neighbour must not inherit the promoted source's saved-game ID.
+    var referenceKeys = referenceSources.ToDictionary(src => src, _ => NewKey(), StringComparer.OrdinalIgnoreCase);
     var refIds = new Dictionary<string, string>();
     foreach (var r in o.GetProperty("refs").EnumerateArray())
     {
@@ -206,7 +210,7 @@ if (Has(prm, "objects"))
             throw new InvalidDataException($"reference {r.GetProperty("src").GetString()} in cell ({cxy[0]}, {cxy[1]}) outside {world}'s cells");
         var pos = V("pos");
         var rot = V("rot");
-        var obj = new PlacedObject(NewKey(), release)
+        var obj = new PlacedObject(referenceKeys[r.GetProperty("src").GetString()!], release)
         {
             Base = new FormLinkNullable<IPlaceableObjectGetter>(baseKeys[r.GetProperty("base").GetInt32()]),
             Position = new P3Float(pos[0], pos[1], pos[2]),
@@ -224,10 +228,10 @@ if (Has(prm, "objects"))
         nRef++;
     }
     // R05 (docs/slice/r05-cluster-plan.md): "containers", interactive objects of the cluster, each a native CONT base
-    // with the converted model and a vanilla inventory, and one temporary REFR in its cell. Allocated after every
-    // STAT / DOOR base and every REFR above, so the ids of the 648k references stay what they were without a cluster
+    // with the converted model and a vanilla inventory, and one temporary REFR in its original identity slot.
+    // Only the new CONT bases are allocated after every STAT / DOOR and every reserved REFR above.
     // ({"src", "edid", "model", "name", "items": [{"form": "Starfield.esm:00000F", "count": 25}], "cell", "pos",
-    // "rot", "scale"}; the same reference is left out of "refs" by make_core64c.py).
+    // "rot", "scale", "reference_index"}; the source leaves "refs", but its original index is retained).
     var contIds = new Dictionary<string, object>();
     if (o.TryGetProperty("containers", out var conts))
     {
@@ -256,7 +260,7 @@ if (Has(prm, "objects"))
             mod.Containers.Add(cont);
             var pos = V("pos");
             var rot = V("rot");
-            var obj = new PlacedObject(NewKey(), release)
+            var obj = new PlacedObject(referenceKeys[c.GetProperty("src").GetString()!], release)
             {
                 Base = new FormLinkNullable<IPlaceableObjectGetter>(cont.FormKey),
                 Position = new P3Float(pos[0], pos[1], pos[2]),
@@ -265,6 +269,7 @@ if (Has(prm, "objects"))
             var scale = c.GetProperty("scale").GetSingle();
             if (Math.Abs(scale - 1f) > 1e-4) obj.Scale = scale;
             cell.Temporary.Add(obj);
+            nRef++;
             contIds[c.GetProperty("src").GetString()!] = new Dictionary<string, string>
             {
                 ["base"] = cont.FormKey.ID.ToString("X6"), ["ref"] = obj.FormKey.ID.ToString("X6"),

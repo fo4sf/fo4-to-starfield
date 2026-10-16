@@ -468,6 +468,7 @@ class ClusterTests(unittest.TestCase):
         c = conts[0]
         self.assertEqual((c["src"], c["edid"], c["name"]), ("19EE52:Fallout4.esm", "FO4Core_cont_19ee52", "First Aid Kit"))
         self.assertEqual(c["model"], self.BASES[0]["model"])
+        self.assertEqual(c["reference_index"], 0)
         self.assertEqual((c["cell"], c["pos"], c["rot"], c["scale"]), ([-10, 11], [-993.14, 1151.66, 105.3], [0, 0, 1.2], 1.0))
         self.assertEqual(c["items"][0], {"form": "Starfield.esm:00000F", "count": 25})
 
@@ -485,3 +486,20 @@ class ClusterTests(unittest.TestCase):
         placed, conts = mk.cluster_containers(self.BASES, [dict(p) for p in self.PLACED], {})
         self.assertEqual(len(placed), 3)
         self.assertEqual(conts, [])
+
+    def test_original_indices_survive_removal_of_multiple_references(self):
+        placed = [dict(p) for p in self.PLACED]
+        placed[-1]["disabled"] = False
+        cluster = {"containers": [self.CLUSTER["containers"][0],
+                    dict(self.CLUSTER["containers"][0], src=placed[-1]["src"])]}
+        kept, conts = mk.cluster_containers(self.BASES, placed, cluster)
+        self.assertEqual([c["reference_index"] for c in conts], [0, 2])
+        objects = {"refs": kept, "containers": conts}
+        ids = {"bases": {"base0": "000900", "base1": "000901"},
+               "refs": {kept[0]["src"]: "000903"},
+               "containers": {conts[0]["src"]: {"base": "000905", "ref": "000902"},
+                              conts[1]["src"]: {"base": "000906", "ref": "000904"}}}
+        mk.check_reference_slots(objects, ids)
+        ids["refs"][kept[0]["src"]] = "000902"  # old allocation reused the removed source's slot
+        with self.assertRaisesRegex(ValueError, "moved"):
+            mk.check_reference_slots(objects, ids)

@@ -1196,3 +1196,16 @@ both unchanged media identities pass; GitHub GFM renders the new sections/images
 Independent factual/link QA passed, with draft status made explicit. Guard passed.
 No new unit tests for documentation; hosted CI is checked on the PR. No game,
 runner, installation, queue or save changed.
+
+### 2026-10-15 Codex: preserve original reference slots during R05 promotion (proposal)
+
+PR134 removed a source before sequential allocation; the real parent writer reproduces the later-ID shift on a
+synthetic master. The isolated companion retains original reference_index, reserves all REFR slots and reuses the
+promoted source's key, appending only CONT bases. Canonical Claude checkout/production stages/game are untouched.
+29 producer tests and three actual-writer methods pass (four promotion scenarios and five publication refusals).
+Survivor IDs/record data/cell ownership match; no-cluster output is byte-identical to parent. The declared-slot
+check rejects the parent artifact and accepts the four candidates. Initial anchor-fixture failure is retained.
+Release builds pass; the existing CA1831 inventory-parser warning remains. Peer QA, a fresh full-scale candidate,
+all-ID/raw-record comparison and newly pinned native plans/save tests remain required. Full persistent allocation
+across reordered exports and future promoted bases is still open. See testing/container-reference-identities.md;
+private evidence is test-plans/container-reference-identities-20261015. No native acceptance is claimed.
