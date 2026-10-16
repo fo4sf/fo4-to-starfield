@@ -822,7 +822,7 @@ class ActivatorTerminalPromotionTests(unittest.TestCase):
         keep, promoted = mk.cluster_promote(self.BASES, self.placed(), cl)
         self.assertEqual([p["src"] for p in keep], ["000003:Fallout4.esm"])
         self.assertEqual({k: [e["reference_index"] for e in v] for k, v in promoted.items()},
-                         {"containers": [6], "items": [0], "activators": [1, 3], "terminals": [4, 5], "workshops": [], "benches": []})
+                         {"containers": [6], "items": [0], "activators": [1, 3], "terminals": [4, 5], "workshops": [], "doors": [], "benches": []})
         objects = dict({"refs": keep}, **promoted)
         ids = {"bases": {"a": "000800", "b": "000801", "c": "000802"}, "refs": {"000003:Fallout4.esm": "000805"},
                "containers": {"000007:Fallout4.esm": {"base": "00080A", "ref": "000809"}},
@@ -1192,8 +1192,9 @@ class StationPromotionTests(unittest.TestCase):
         self.assertEqual({k: v[0] for k, v in mk.BENCH_VANILLA.items()}, {k: v["vanilla"] for k, v in mc.BENCH_KINDS.items()})
         self.assertEqual({k: v[1] for k, v in mk.BENCH_VANILLA.items()}, {k: v["wbdt"] for k, v in mc.BENCH_KINDS.items()})
         self.assertEqual((mk.WORKSHOP_TEMPLATE, mk.WORKSHOP_RADIUS_AV), (0x024DC7, 0x063FC5))
-        self.assertEqual(mk.PROMOTED[-1], ("workshops", "ACTI"))
+        self.assertEqual(mk.PROMOTED[-2:], (("workshops", "ACTI"), ("doors", "ACTI")))   # the doors' ACTIs come last (appended)
         self.assertEqual(mk.VANILLA_PROMOTED, (("benches", "FURN"),))
+        self.assertEqual(mk.APPENDED, ("doors",))
         self.assertEqual(mk.master_fid("2B6A63:Starfield.esm"), 0x002B6A63)
         self.assertEqual(mk.master_fid("000800:Other.esm", ("Starfield.esm", "other.ESM")), 0x01000800)
         with self.assertRaisesRegex(ValueError, "not a master"):
@@ -1272,7 +1273,7 @@ class StationPromotionTests(unittest.TestCase):
         keep, promoted = mk.cluster_promote(self.BASES, self.placed(), cl)
         self.assertEqual([p["src"] for p in keep], [])
         self.assertEqual({k: [e["reference_index"] for e in v] for k, v in promoted.items()},
-                         {"containers": [7], "items": [0], "activators": [3], "terminals": [6], "workshops": [1, 2], "benches": [4, 5]})
+                         {"containers": [7], "items": [0], "activators": [3], "terminals": [6], "workshops": [1, 2], "doors": [], "benches": [4, 5]})
         objects = dict({"refs": keep}, **promoted)
         ids = {"bases": {"a": "000800", "b": "000801", "c": "000802"}, "refs": {},
                "containers": {"000008:Fallout4.esm": {"base": "00080B", "ref": "00080A"}},
@@ -1477,4 +1478,167 @@ class StationPromotionTests(unittest.TestCase):
             self.assertEqual(mk.cmd_compare_ids(type("A", (), {"out": os.path.join(t, "new"), "against": os.path.join(t, "old")})()), 0)
             with open(os.path.join(t, "new", "formids_diff.json")) as f:
                 self.assertEqual(json.load(f)["sections"]["navmeshes"]["status"], "differs")
+
+
+class DoorPromotionTests(unittest.TestCase):
+    """Scripted load doors (docs/terrain/scripted-doors.md): --cluster "doors" become ACTI references in their slot
+    with the FO4SF_LoadDoor VMAD and an exterior arrival marker appended after every other record; the identities and
+    the raw records are checked."""
+    BASES = [{"edid": "FO4Core_a", "model": "fo4core\\a.nif"},
+             {"edid": "FO4Core_indmetaldoorload01", "model": "fo4core\\interiors\\industrial\\doors\\indmetaldoorload01.nif"}]
+
+    @staticmethod
+    def placed(n=5, disabled=()):
+        return [{"src": f"{i + 1:06X}:Fallout4.esm", "base": 1 if i in (1, 3) else 0, "cell": [-5, 6], "pos": [-469.85 + i, 636.71, 42.36],
+                 "rot": [0, 0, 2.5812], "scale": 1.0, "disabled": i in disabled} for i in range(n)]
+
+    @staticmethod
+    def entry(i=1, **kw):
+        e = {"src": f"{i + 1:06X}:Fallout4.esm", "base": "018C8B:Fallout4.esm", "editor_id": "IndMetalDoorLoad01",
+             "destination": {"plugin": "FO4Port.esm", "id": "00DEFF", "port_ref": "007D0B", "port_cell": "006C46",
+                             "door": "0EE5D6:Fallout4.esm", "flags": 0,
+                             "arrival": {"pos": [5.449, 17.291, -3.654], "rot": [0, 0, 4.7124]}},
+             "return": {"arrival": {"pos": [-469.444, 636.074, 42.356], "rot": [0, 0, 2.5812]}, "flags": 0}}
+        e.update(kw)
+        return e
+
+    def test_cluster_doors_entries(self):
+        keep, doors = mk.cluster_doors(self.BASES, self.placed(), {"doors": [self.entry()]})
+        self.assertEqual([p["src"] for p in keep], ["000001:Fallout4.esm", "000003:Fallout4.esm", "000004:Fallout4.esm", "000005:Fallout4.esm"])
+        d = doors[0]
+        self.assertEqual((d["src"], d["reference_index"], d["edid"], d["model"], d["name"]),
+                         ("000002:Fallout4.esm", 1, "FO4Core_door_018c8b_fallout4", self.BASES[1]["model"], "Door"))
+        self.assertEqual(d["destination"], {"plugin": "FO4Port.esm", "id": 0xDEFF, "ref": "007D0B", "cell": "006C46",
+                                            "door": "0EE5D6:Fallout4.esm", "arrival": {"pos": [5.449, 17.291, -3.654], "rot": [0, 0, 4.7124]}})
+        self.assertEqual(d["arrival"], {"pos": [-469.444, 636.074, 42.356], "rot": [0, 0, 2.5812], "cell": [-5, 6]})
+        self.assertEqual((d["cell"], d["pos"], d["scale"]), ([-5, 6], [-468.85, 636.71, 42.36], 1.0))
+        _keep, named = mk.cluster_doors(self.BASES, self.placed(), {"doors": [self.entry(name="Metal Door", destination=dict(
+            self.entry()["destination"], id=0x1234))]})
+        self.assertEqual((named[0]["name"], named[0]["destination"]["id"]), ("Metal Door", 0x1234))
+        mk.door_arrivals_inside(doors, {"cell_min": -32, "cell_max": 31})
+        with self.assertRaisesRegex(ValueError, "outside the overlay"):
+            mk.door_arrivals_inside(doors, {"cell_min": 0, "cell_max": 31})
+        # through cluster_promote with another class: one slot plan, a source in two classes refused
+        cl = {"doors": [self.entry()], "activators": [{"src": "000004:Fallout4.esm", "name": "Bell", "base": "0BB1E1:Fallout4.esm"}]}
+        keep, promoted = mk.cluster_promote(self.BASES, self.placed(), cl)
+        self.assertEqual({k: [e["reference_index"] for e in v] for k, v in promoted.items() if v}, {"doors": [1], "activators": [3]})
+        cl["activators"].append({"src": "000002:Fallout4.esm", "name": "Bell", "base": "0BB1E1:Fallout4.esm"})
+        with self.assertRaisesRegex(ValueError, "listed as both an activator and a door"):
+            mk.cluster_promote(self.BASES, self.placed(), cl)
+
+    def test_cluster_doors_refusals(self):
+        def bad(regex, **kw):
+            with self.assertRaisesRegex(ValueError, regex):
+                mk.cluster_doors(self.BASES, self.placed(), {"doors": [self.entry(**kw)]})
+        dest = self.entry()["destination"]
+        bad("needs a destination", destination=None)
+        bad("plugin file name", destination=dict(dest, plugin="sub\\FO4Port.esm"))
+        bad("plugin file name", destination=dict(dest, plugin="notes.txt"))
+        bad("plugin file name", destination=dict(dest, plugin=""))
+        for v in ("000000", 0, 0x1000000, "GGGGGG", "7", None):
+            bad("plugin-local id", destination=dict(dest, id=v))
+        bad("destination ref", destination=dict(dest, port_ref="7D0B"))
+        bad("destination cell", destination={k: v for k, v in dest.items() if k != "port_cell"})
+        bad("arrival needs pos and rot", destination={k: v for k, v in dest.items() if k != "arrival"})
+        bad("arrival needs pos and rot", **{"return": {"arrival": {"pos": [1, 2, 3]}}})
+        bad("three finite numbers", **{"return": {"arrival": {"pos": [1, 2], "rot": [0, 0, 0]}}})
+        bad("three finite numbers", **{"return": {"arrival": {"pos": [1, 2, float("nan")], "rot": [0, 0, 0]}}})
+        bad("not one non-empty line", name="two\nlines")
+        bad("not placed", src="ABCDEF:Fallout4.esm")
+        with self.assertRaisesRegex(ValueError, "disabled"):
+            mk.cluster_doors(self.BASES, self.placed(disabled=(1,)), {"doors": [self.entry()]})
+        with self.assertRaisesRegex(ValueError, "listed twice"):
+            mk.cluster_doors(self.BASES, self.placed(), {"doors": [self.entry(), self.entry()]})
+        other = self.entry(3, destination=dict(dest, id="00DF00", port_ref="007D0A"))
+        with self.assertRaisesRegex(ValueError, "different name / model"):
+            mk.cluster_doors(self.BASES, self.placed(), {"doors": [self.entry(), dict(other, name="Gate")]})
+        with self.assertRaisesRegex(ValueError, "share the destination FO4Port.esm:00DEFF"):
+            mk.cluster_doors(self.BASES, self.placed(), {"doors": [self.entry(), self.entry(3, destination=dict(dest, port_ref="007D0A"))]})
+        with self.assertRaisesRegex(ValueError, "share the interior door"):
+            mk.cluster_doors(self.BASES, self.placed(), {"doors": [self.entry(), self.entry(3, destination=dict(dest, id="00DF00"))]})
+        _keep, two = mk.cluster_doors(self.BASES, self.placed(), {"doors": [self.entry(), other]})
+        self.assertEqual([e["destination"]["id"] for e in two], [0xDEFF, 0xDF00])
+
+    def ids(self):
+        """bases 800..801, slots 802..806 (the door in 803), CONT 807, NAVM 808..809, lights 80A (REFR) + 80B (LIGH),
+        then the door's marker 80C and its ACTI 80D."""
+        objects = {"refs": [{"src": "R1"}, {"src": "R3"}, {"src": "R5"}], "containers": [{"src": "C1", "reference_index": 3}],
+                   "doors": [dict(mk.cluster_doors(self.BASES, self.placed(), {"doors": [self.entry()]})[1][0])],
+                   "lights": [{"src": "L1", "edid": "B"}], "light_bases": [{"edid": "B"}]}
+        ids = {"bases": {"a": "000800", "b": "000801"}, "refs": {"R1": "000802", "R3": "000804", "R5": "000806"},
+               "containers": {"C1": {"base": "000807", "ref": "000805"}},
+               "doors": {"000002:Fallout4.esm": {"base": "00080D", "ref": "000803", "arrival": "00080C"}},
+               "navmeshes": ["000808", "000809"], "lights": {"L1": {"base": "00080B", "ref": "00080A"}}}
+        return objects, ids
+
+    def test_door_identities_after_the_lights_and_the_slot_kept(self):
+        objects, ids = self.ids()
+        mk.check_reference_slots(objects, ids)
+        mk.check_light_identities(objects, ids)                    # the door's appended ids do not count as "other"
+        mk.check_door_identities(objects, ids)
+        mk.check_door_identities({"refs": []}, {})                 # no doors: nothing to check
+        bad = copy.deepcopy(ids)
+        bad["doors"]["000002:Fallout4.esm"]["arrival"] = "00080B"  # before the lights
+        with self.assertRaisesRegex(ValueError, "not new id 00080C"):
+            mk.check_door_identities(objects, bad)
+        bad = copy.deepcopy(ids)
+        bad["doors"]["000002:Fallout4.esm"]["base"] = "00080E"     # not right after the markers
+        with self.assertRaisesRegex(ValueError, "ACTI"):
+            mk.check_door_identities(objects, bad)
+        bad = copy.deepcopy(ids)
+        bad["doors"]["000002:Fallout4.esm"]["ref"] = "000805"      # another slot
+        with self.assertRaisesRegex(ValueError, "moved"):
+            mk.check_reference_slots(objects, bad)
+        bad = copy.deepcopy(ids)
+        bad["doors"]["000002:Fallout4.esm"]["arrival"] = "000806"  # inside the reserved range
+        with self.assertRaisesRegex(ValueError, "arrival marker overlaps"):
+            mk.check_reference_slots(objects, bad)
+        with self.assertRaisesRegex(ValueError, "declared door set"):
+            mk.check_door_identities(objects, dict(ids, doors={}))
+        self.assertEqual(mk.appended_ids(ids), {0x80C, 0x80D})
+        own = 1 << 24
+        recs = [{"sig": s, "fid": own | f, "flags": 0, "fields": []} for s, f in
+                (("STAT", 0x800), ("REFR", 0x803), ("CONT", 0x807), ("NAVM", 0x809), ("REFR", 0x80A), ("LIGH", 0x80B), ("REFR", 0x80C), ("ACTI", 0x80D))]
+        self.assertEqual(mk.lights_after(recs, 1, ids), (0x80A, 0x809))
+        self.assertEqual(mk.doors_after(recs, 1, ids), (0x80C, 0x80B))
+        recs.append({"sig": "REFR", "fid": own | 0x80E, "flags": 0, "fields": []})   # another record after the doors
+        first, last = mk.doors_after(recs, 1, ids)
+        self.assertLess(first, last)
+
+    def test_raw_door_records(self):
+        objects, ids = self.ids()
+        own = 1 << 24
+        e = objects["doors"][0]
+        vm = mk.vmad_patch.load_door_vmad("FO4Port.esm", 0xDEFF)
+        recs = [{"sig": "ACTI", "fid": own | 0x80D, "flags": 0, "fields": [
+                    (b"EDID", b"FO4Core_door_018c8b_fallout4\0"), (b"MODL", e["model"].encode() + b"\0"), (b"FULL", b"Door\0"),
+                    (b"PNAM", bytes.fromhex("cc4c3300")), (b"FNAM", b"\0\0"), (b"JNAM", struct.pack("<H", 360))]},
+                {"sig": "REFR", "fid": own | 0x803, "flags": 0, "fields": [
+                    (b"VMAD", vm), (b"NAME", struct.pack("<I", own | 0x80D)), (b"DATA", struct.pack("<6f", *e["pos"], *e["rot"]))]},
+                {"sig": "REFR", "fid": own | 0x80C, "flags": 0, "fields": [
+                    (b"NAME", struct.pack("<I", mk.XMARKER)), (b"DATA", struct.pack("<6f", *e["arrival"]["pos"], *e["arrival"]["rot"]))]}]
+        self.assertEqual(mk.door_record_problems(recs, own, objects, ids), [])
+        self.assertEqual(mk.promoted_record_check(recs, own, {"refs": [], "doors": objects["doors"]}, ids), [])
+        res = mk.promotion_checks(recs + [{"sig": "REFR", "fid": own | f, "flags": 0, "fields": []} for f in (0x802, 0x804, 0x805, 0x806, 0x7FF)],
+                                  own, {"refs": [{"src": "R1"}, {"src": "R3"}, {"src": "R5"}], "doors": objects["doors"]}, ids,
+                                  {"objects": {"exported": 4, "skipped": {}}})
+        self.assertTrue(all(ok for _w, ok in res), res)
+        self.assertIn("+ 1 door arrival markers", res[0][0])
+        self.assertIn("1 ACTI = 1 distinct doors edids", res[2][0])
+
+        def broken(change):
+            r = copy.deepcopy(recs)
+            change(r)
+            return mk.door_record_problems(r, own, objects, ids)
+        self.assertIn("PNAM", broken(lambda r: r[0]["fields"].__setitem__(3, (b"PNAM", bytes(4))))[0])
+        self.assertIn("carries a VMAD", broken(lambda r: r[0]["fields"].append((b"VMAD", vm)))[0])
+        self.assertIn("REFR VMAD", broken(lambda r: r[1]["fields"].__setitem__(0, (b"VMAD", mk.vmad_patch.load_door_vmad("FO4Port.esm", 0xDF00))))[0])
+        self.assertIn("REFR VMAD", broken(lambda r: r[1]["fields"].__setitem__(0, (b"VMAD", vm + b"\0")))[0])
+        self.assertIn("REFR VMAD", broken(lambda r: r[1]["fields"].pop(0))[0])
+        self.assertIn("VMAD not first", broken(lambda r: r[1]["fields"].reverse())[0])
+        self.assertIn("not XMarker", broken(lambda r: r[2]["fields"].__setitem__(0, (b"NAME", struct.pack("<I", own | 0x800))))[0])
+        self.assertIn("position / rotation", broken(lambda r: r[2]["fields"].append((b"XSCL", struct.pack("<f", 2.0))))[0])
+        self.assertIn("flags", broken(lambda r: r[2].__setitem__("flags", 0x400))[0])
+        self.assertIn("no arrival marker", broken(lambda r: r.pop(2))[0])
+        self.assertIn("not declared", mk.door_record_problems(recs, own, objects, {"doors": {}})[0])
 
