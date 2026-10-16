@@ -113,10 +113,11 @@ these records are exported or the export order changes.
 The integrated legacy writer retains main's order through the lights: ordinary
 promotions, NAVMs, light REFRs, LIGH bases, then scripted-door bases and arrivals.
 Its mixed-output checker counts ordinary and door ACTIs together and checks door
-VMADs/arrivals separately. These ordering checks still describe legacy allocation;
-they are not a persistent-rebuild checker. Production caller/checker integration
-and native saved-game validation remain required before enabling persistence in
-an active stage. Explicit bootstrap must reproduce the entire plugin and map.
+VMADs/arrivals separately. Sequential ordering remains required in legacy mode.
+Persistent checks use the held reservation audit described below instead, while
+retaining raw record checks. Full-stage caller validation, independent QA and
+native saved-game validation remain required before enabling persistence in an
+active stage. Explicit bootstrap must reproduce the entire plugin and map.
 
 ## Audit an existing published identity generation
 
@@ -147,9 +148,9 @@ are not accepted by this audit.
 This is an identity audit, not a raw-record or gameplay verifier. Its JSON report
 explicitly marks `record_fields_checked` and `native_acceptance` false. Keep raw
 record/transform/VMAD checks, full-size validation and native return/save/reload
-tests. The legacy core64c checker still has sequential-order assertions; invoking
-this audit alone does not replace them or enable persistent production rebuilds.
-Independent QA and caller integration remain pending.
+tests. Invoking this standalone command does not replace the normal check. The
+normal checker integration below is source-only and still needs independent QA
+and full-stage validation before production use.
 
 ## Workshops and native crafting benches
 
@@ -186,4 +187,35 @@ acceptance. The .NET identity audit and the normal check's raw-record checks
 remain separate requirements. Source stages must remain immutable under the
 cooperating-writer protocol; repeated hashes are not an atomic snapshot against
 arbitrary simultaneous edits. Asset payloads retain their existing metadata
-checks. Normal-check persistent ordering integration remains pending.
+checks.
+
+## Hold the audit through normal raw checks
+
+For explicit persistent mode, `make_core64c.py check` starts the current writer's
+`--check-identities-held` process. It proves the existing identity generation,
+emits `ready` and holds the producer's publication lease while Python performs
+raw checks. Only sequential reference/base/NAVM/light ordering assertions are
+replaced by reservation proof. Record types, counts, transforms, cell membership,
+door VMADs/arrivals, dependencies and core comparisons remain checked.
+
+After raw checks, Python requests `verify`. The audit rechecks the original
+source/map/parameters, ledger and output generation before releasing its lease
+and emitting `verified`. Python requires that matching response and exit zero
+before publishing reports. EOF cancels; timeout, child exit, changed inputs or
+publication controls prevent report replacement. Cancellation ends only the
+helper process created for this check and does not clear recovery controls.
+Legacy mode retains its existing order checks without starting an audit process.
+
+The lease excludes cooperating producer writes to the audited stage; it does
+not lock external core inputs or hard-linked Data assets against arbitrary edits.
+Those inputs still require the immutable-input protocol. A report records the
+checked generation, not a guarantee that no later write can occur; `verify-data`
+must still validate freshness before use. The identity subreport correctly keeps
+`record_fields_checked` and `native_acceptance` false; raw results are separate.
+
+Nine session regressions use the actual synthetic writer/audit and raw promotion
+checks, including retained door IDs, writer exclusion, missing VMAD, input drift,
+cancellation and an audit crash. Wrapper tests stub the terrain check body; they
+do not establish that a complete production terrain `check` passes. Full-stage
+validation, full-size bootstrap, peer QA and Claude's native door/save tests
+remain gates. No active stage is enabled or migrated by this change.

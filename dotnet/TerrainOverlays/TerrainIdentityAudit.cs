@@ -27,7 +27,7 @@ internal static class TerrainIdentityAudit
             foreach (var item in value.EnumerateArray()) UniqueProperties(item);
     }
 
-    public static object Check(string directory)
+    public static object Check(string directory, Action<object>? whileValidated = null)
     {
         string root = Path.GetFullPath(directory);
         if (!Directory.Exists(root) || new DirectoryInfo(root).LinkTarget != null)
@@ -190,15 +190,25 @@ internal static class TerrainIdentityAudit
                     Coordinate(entries[i].GetProperty("cell")[0]), Coordinate(entries[i].GetProperty("cell")[1]));
             }
             if (map.ValueKind != JsonValueKind.Undefined) Keys(map, sections);
-            foreach (var (path, hash) in inputHashes)
+            void VerifyGeneration()
             {
-                Inside(Path.GetRelativePath(root, path));
-                if (hash != Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)))) throw new IOException("audit input changed");
+                foreach (var (path, hash) in inputHashes)
+                {
+                    Inside(Path.GetRelativePath(root, path));
+                    if (hash != Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)))) throw new IOException("audit input changed");
+                }
+                stable.VerifyUnchanged();
+                if (Exists(pending)) throw new IOException("publication recovery appeared during audit");
             }
-            stable.VerifyUnchanged();
-            if (Exists(pending)) throw new IOException("publication recovery appeared during audit");
-            return new { mode = "persistent-identity-audit", plugin, checked_ids = checkedIds,
+            VerifyGeneration();
+            object report = new { mode = "persistent-identity-audit", plugin, checked_ids = checkedIds,
                 output_count = outputs.Count, artifacts_changed = false, record_fields_checked = false, native_acceptance = false };
+            if (whileValidated != null)
+            {
+                whileValidated(report); // Keep this lease through the caller's raw-record reads.
+                VerifyGeneration();
+            }
+            return report;
         }
         finally { foreach (var doc in docs) doc.Dispose(); }
     }

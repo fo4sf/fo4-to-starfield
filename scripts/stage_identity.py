@@ -30,13 +30,13 @@ def _unique(pairs):
     return value
 
 
-def identity_inputs(directory):
+def identity_inputs(directory, ready=require_ready_stage):
     """Hash the exact local inputs used by core64c check, plus its retained identity ledger.
 
     This is a freshness receipt under the existing immutable-stage/cooperating-writer protocol,
     not a ledger validator or an atomic snapshot against arbitrary concurrent file edits.
     """
-    require_ready_stage(directory)
+    ready(directory)
     root = Path(os.path.abspath(directory))
     _ordinary(root, directory=True)
     files = {}
@@ -87,5 +87,5 @@ def identity_inputs(directory):
         raise ValueError('an existing identity ledger requires explicit persistent_ids')
     for name in sorted(names):
         read(name)
-    require_ready_stage(directory)
+    ready(directory)
     return {'schema': 1, 'files': files}

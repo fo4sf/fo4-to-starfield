@@ -53,6 +53,7 @@ sys.path.insert(0, os.path.join(REPO, "src"))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
 from stage_outputs import require_ready_stage  # noqa: E402
 from stage_identity import identity_inputs  # noqa: E402
+from terrain_identity_session import persistent_verification  # noqa: E402
 from fo4sf import btd, exterior  # noqa: E402
 from fo4sf import terrain_grid as tg  # noqa: E402
 
@@ -98,9 +99,9 @@ def save(path, value, indent=None):
     os.replace(tmp, path)
 
 
-def core_params(core):
+def core_params(core, ready=require_ready_stage):
     """(overlays_params.json, its single overlay) of the staged core64 terrain."""
-    require_ready_stage(core)
+    ready(core)
     prm = load(os.path.join(core, "overlays_params.json"))
     if len(prm["overlays"]) != 1:
         sys.exit(f"{core}: core64c needs exactly one overlay, found {len(prm['overlays'])}")
@@ -2624,22 +2625,14 @@ def archive_dry_run(archive2, out, scratch, files):
             os.remove(path)
 
 
-def cmd_check(a):
-    import make_cw_overlays as cwo
-    t0 = time.time()
-    out = a.out
-    checked_inputs = identity_inputs(out)
-    prm, ov = core_params(out)
-    cprm, _cov = core_params(a.core)
-    plan = load(os.path.join(out, "plan.json"))
-    exp = load(os.path.join(out, "expected.json"))
-    objects = load(os.path.join(out, "objects.json"))
-    ids = load(os.path.join(out, "formids.json"))
-    checks, rep = [], {}
-
+def declared_identity_checks(out, objects, ids, audit=None):
+    """Allocation identities only. Raw record/type/transform/VMAD checks always run separately."""
+    if audit is not None:
+        audit.require_held(out)
+        return [[f"persistent source identities match {audit.report['checked_ids']} retained reservations", True]]
+    checks = []
     def need(cond, what):
         checks.append([what, bool(cond)])
-
     promoted = [e for k, _sig in ALL_PROMOTED for e in (objects.get(k) or [])]
     if promoted:
         try:
@@ -2667,9 +2660,41 @@ def cmd_check(a):
         else:
             need(True, f"{len(lights):,} light REFRs have new ids after ordinary promotions/NAVMs, then "
                        f"{len(objects['light_bases'])} LIGH bases")
+    return checks
+
+
+def cmd_check(a):
+    with persistent_verification(a.out) as audit:
+        rep, man, t0 = check_stage(a, audit)
+        if audit is not None:
+            rep["identity_audit"] = audit.report
+    # The held audit must verify and exit successfully before publishing even a failing raw-check report.
+    return publish_check_report(a.out, rep, man, t0)
+
+
+def check_stage(a, audit=None):
+    import make_cw_overlays as cwo
+    t0 = time.time()
+    out = a.out
+    ready = audit.require_held if audit is not None else require_ready_stage
+    checked_inputs = identity_inputs(out, ready=ready)
+    prm, ov = core_params(out, ready=ready)
+    if (prm.get("persistent_ids") is True) != (audit is not None):
+        raise ValueError("persistent verification mode changed or no held audit was supplied")
+    cprm, _cov = core_params(a.core)
+    plan = load(os.path.join(out, "plan.json"))
+    exp = load(os.path.join(out, "expected.json"))
+    objects = load(os.path.join(out, "objects.json"))
+    ids = load(os.path.join(out, "formids.json"))
+    checks, rep = declared_identity_checks(out, objects, ids, audit), {}
+    def need(cond, what):
+        checks.append([what, bool(cond)])
+    promoted = [e for k, _sig in ALL_PROMOTED for e in (objects.get(k) or [])]
+    lights, doors = objects.get("lights") or [], objects.get("doors") or []
 
     # 1. core64 unchanged: params, Data files, Mars plugin, every core64 record of the main plugin
-    need({k: v for k, v in prm.items() if k not in ("objects", "navmesh")} == cprm and prm.get("objects") == "objects.json"
+    need({k: v for k, v in prm.items() if k not in ("objects", "navmesh", "persistent_ids")}
+         == {k: v for k, v in cprm.items() if k != "persistent_ids"} and prm.get("objects") == "objects.json"
          and prm.get("navmesh") in (None, "navmesh.json"),
          "overlays_params.json = core64's + objects" + (" + navmesh" if prm.get("navmesh") else ""))
     for rel in exp["base_files"] + [prm["mars"]["plugin"]]:
@@ -2718,7 +2743,8 @@ def cmd_check(a):
         last_obj = max((r["fid"] & 0xFFFFFF for r in recs if r["sig"] in ("STAT", "DOOR", "REFR", "CONT", "MISC", "ACTI",
                                                                           "TERM", "TMLM")
                         and r["fid"] & 0xFFFFFF not in light_ids), default=0)
-        need(navms and min(r["fid"] & 0xFFFFFF for r in navms) > last_obj, f"every NAVM FormID after the last object (0x{last_obj:06X})")
+        if audit is None:
+            need(navms and min(r["fid"] & 0xFFFFFF for r in navms) > last_obj, f"every NAVM FormID after the last object (0x{last_obj:06X})")
         nav_ids = load(os.path.join(out, "formids.json")).get("navmeshes", [])
         need(set(nav_ids) == {f"{r['fid'] & 0xFFFFFF:06X}" for r in navms}, f"formids.json names the {len(nav_ids):,} NAVM")
         tri = sum(len(n.get("triangles", [])) for n in navj["navmeshes"])
@@ -2748,9 +2774,10 @@ def cmd_check(a):
         ligh = [r for r in recs if r["sig"] == "LIGH"]
         need(len(ligh) == len(objects["light_bases"]), f"{len(ligh)} LIGH = {len(objects['light_bases'])} light bases "
                                                         f"(one per FO4 base, {len(lights):,} lights)")
-        first_light, last_other = lights_after(recs, len(new["masters"]), ids)
-        need(first_light is not None and first_light > last_other,
-             f"every light record after ordinary promotions/NAVMs (first 0x{first_light or 0:06X}, last preceding 0x{last_other:06X})")
+        if audit is None:
+            first_light, last_other = lights_after(recs, len(new["masters"]), ids)
+            need(first_light is not None and first_light > last_other,
+                 f"every light record after ordinary promotions/NAVMs (first 0x{first_light or 0:06X}, last preceding 0x{last_other:06X})")
         lp = light_record_problems(recs, own, objects, ids)
         need(not lp, f"every LIGH and light REFR matches objects.json ({len(lp)} problems: {lp[:3]})")
     rep["plugin_records"] = {s: sum(1 for r in recs if r["sig"] == s) for s in sorted({r["sig"] for r in recs})}
@@ -2923,10 +2950,15 @@ def cmd_check(a):
              f"Archive2 dry run: {dry.get('bytes', 0) / 2 ** 30:.3f} GiB, {dry.get('entries')} entries, "
              f"{dry.get('packed_entries')} packed ({probs})")
     man = data_manifest(out, [prm["plugin"], prm["mars"]["plugin"]])
-    need(identity_inputs(out) == checked_inputs, "identity and plan inputs unchanged throughout check")
+    need(identity_inputs(out, ready=ready) == checked_inputs, "identity and plan inputs unchanged throughout check")
     rep["checks"] = checks
     rep["pass"] = all(c[1] for c in checks)
     rep["identity_inputs"] = checked_inputs
+    return rep, man, t0
+
+
+def publish_check_report(out, rep, man, t0):
+    checks, checked_inputs = rep["checks"], rep["identity_inputs"]
     save(os.path.join(out, MANIFEST), {"checked": time.strftime("%Y-%m-%dT%H:%M:%S"), "pass": rep["pass"],
                                      "files": man, "identity_inputs": checked_inputs})
     rep["data_manifest"] = {"file": MANIFEST, "files": len(man)}
