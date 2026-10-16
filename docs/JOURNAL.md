@@ -1180,6 +1180,38 @@ ownership re-review passed14 narrow checks including the original late-failure c
 hosted Linux CI passed. [Contract and limits](testing/archive-fingerprints.md). No live game,
 source archive, deployment, queue or save was changed.
 
+## 2026-10-15 Codex: preserve bridge deployment recovery (#124, offline tested)
+
+Reproduced an interrupted copy leaving a partial plugin untracked after uninstall
+removed its receipt. The installer now uses exclusive source-validated publication,
+resource verification, file intent/confirmation and activation/profile journals.
+Unknown, changed or unconfirmed files remain with a recoverable receipt. Existing
+complete legacy installations stay compatible after validation.
+
+Independent QA passed43 safety probes and found two P2 gaps: incomplete recovery
+could touch a different current profile, and a completed uninstall retry could
+duplicate a restored inactive line. Both are fixed;17 independent fix probes and7
+targeted tests pass. Claude's bridge-last order change c50e87c is integrated with
+the recovery-aware caller and ownership checks. Final ordering integration passes
+23 independent probes and9 selected tests; hosted CI passes.
+
+Validation:43 scoped/1301 Windows suite tests (70 skips), guard pass. No source
+installer was deployed, no game/queue/save changed. Cave a1 remains invalid; a
+separate serialized metadata comparison confirms the COC marker is temporary and
+the template grid is INT_MAX, supporting Claude's queued A/B without proving cause.
+[Recovery boundaries](testing/bridge-recovery.md). Historical negative cases retained.
+
+## 2026-10-15 morning: integration-1014 is main; the next window's queues (Claude)
+- **#121 merged (10e7019)** after Codex's bounded merge-preservation review; main 9c291f1 (Codex's archive fingerprint
+  guard, #120) merged in first. The runner worktree is pinned on main; new work goes on short branches off main.
+- Codex owns the bridge_install recovery correction (#125, found by their review: a failed copy left a partial plugin
+  untracked) and the door gate's next candidate (a slice variant whose WRLD override carries OFST / CLSZ like a vanilla
+  overlay world). Row 11 of first-run-failures corrected to their verified #117 finding.
+- Planned for the next window: `npc_combat_c2_1015` (StartCombat player on the Spacer and the converted raider; the
+  citizen uncommanded) and `cave_probes11_1015` (PR #126: the merge probes in neighbour cell (-11, 11): does any
+  exterior-cell override move the coc arrival, or only the COC cell's). R05's plan revised (PR #119): the cluster goes
+  into core64c's own build; no exterior-cell overrides from add-ons.
+
 ## 2026-10-15 Codex: October14 recap and current front-page progress
 
 Owner requested yesterday's progress on GitHub. README separates the October14
@@ -1196,3 +1228,120 @@ both unchanged media identities pass; GitHub GFM renders the new sections/images
 Independent factual/link QA passed, with draft status made explicit. Guard passed.
 No new unit tests for documentation; hosted CI is checked on the PR. No game,
 runner, installation, queue or save changed.
+
+## 2026-10-15 Codex: bridge recovery on consolidated main
+
+Merged main d628b56 into the owned PR125 branch without rewriting history. Resolved
+only documentation conflicts: both append-only journal/decision histories remain;
+current-main concise ownership status is retained. Bridge installer, deployer,
+experiment installer, cycle caller and43 bridge tests have identical Git blobs to
+independently reviewed4c8ded6. Bridge-last/no-op exit0 behavior is unchanged.
+
+43 focused bridge/order/recovery tests and1,305 Windows tests(70 skips) pass.
+Independent five-invariant integration review passes; original source QA remains
+applicable. Guard passes; new-head CI gates ready status. No live profile, archive,
+installation, queue, watchdog, controller input or save changed. Source only,
+undeployed; Claude retains integration/game ownership.
+
+## 2026-10-15: Codex — reserve stable IDs before plugin output (#132)
+
+Synthetic main d628b56 repro: a directory blocking formids.json caused an error
+after a192-byte plugin had already been created without a saved ID map. Two new
+writer tests failed in three cases: creating a new plugin, replacing an existing
+plugin before map failure, and losing reservations when plugin output fails.
+Map publication now flushes a same-directory temporary JSON file and replaces the
+map before plugin writing. Map failure leaves plugin bytes untouched; later
+plugin failure retains IDs for retry. Existing JSON format and tombstones stay.
+No converter/runner, live installation, game input or native data changes. This
+is single-writer identity preservation, not a complete plugin transaction or
+proof of savegame compatibility. Release build has zero warnings/errors;3 writer
+tests,1279 Windows suite tests(69 skips, writer enabled), typed door binary tests
+and guard pass. Independent Locke QA passes locked-map preservation, sparse JSON
+compatibility and missing-Data-setting controls. Original harness assertion
+failure and its correction are retained with results. #132 pins publication.
+
+## 2026-10-15: Codex — custom-prefix checkpoint dependencies (#130)
+
+Offline synthetic repro on main d628b56: with signature prefix `preview`, the
+checkpoint tracked only model/geometry. Deleting its material and texture still
+returned a reusable result and no final inventory errors. Four new tests produced
+13 failing subcases before correction. Checkpoints now passes the signature's
+prefix into both inventory calls; namespace matching normalizes separators/case.
+Tests cover default/custom/mixed-case/nested prefixes, missing/changed material
+and texture dependencies, and rejecting old incomplete inventories. No pipeline,
+runner, native data, installation or live game changes.27 focused tests(1 skip)
+and1281 Windows suite tests(70 skips), guard and diff checks pass. Independent
+Anscombe QA passes three additional controls, including a genuine pre-fix cache
+and backslash namespace. #130 records pinned results; native acceptance is
+outside this correction.
+
+## 2026-10-15: Codex — validate persistent FormID reservations (#137)
+
+Synthetic binary repro on main4ba5c6a: a stored0x01000800 survived in the
+map but serialized as local000800; a uint.MaxValue tombstone wrapped the next
+allocation to zero. Valid sparse IDs round-tripped. Four new writer tests
+produced seven failing subcases before correction, including duplicate JSON
+keys, duplicate inactive reservations, and a failed allocation that still
+published its unusable reservation. Original outputs/logs are retained.
+
+PluginSpike now validates the complete map before constructing records:
+unique decoded keys and values, integer IDs within this writer's000800..FFFFFF
+range, including tombstones. New identities cannot exhaust/wrap the range;
+existing IDs at the limit remain reusable. Save independently validates before
+atomic publication. Invalid/exhausted inputs preserve both prior map bytes and
+plugin bytes. Release build has zero warnings/errors; seven writer checks,
+1308 Windows tests(69 skips), guard and independent Mencius QA pass. QA covers
+direct Save validation, escaped-equivalent duplicate keys and binary IDs on
+an exhausted-map rebuild. Native handling of its one-past-last HEDR.NextFormID
+remains unverified; these are offline controls, not native acceptance.
+No source IDs were repaired/reassigned, no native campaign was rescored, and
+no stages, game installation, controller or input changed.
+
+## 2026-10-15 afternoon window: R05 slice 1 in game, the raider fights, cave probes crash (Claude)
+
+Chain 12:59-14:39 on the pinned build 2470f876 (runner scripts 10e7019), started on the owner's word while away.
+
+- **R05 slice 1 (`r05_medkit_1015`, core64d, PR #134)**: the native container reference loaded at the planned place. The
+  bridge's probe reply in both game sessions: `FO4SF ref=34220709 pos=-2193.137207 -1548.338501 105.296318 ang=270
+  cell=33557935 disabled=false loaded=true` = local (-993.14, 1151.66, 105.30) + the merge offset (-1200, -2700). Runner
+  verdict INCONCLUSIVE for the runner's own reasons: the console_post echoes were unreadable by OCR (the compass dial
+  crosses the text; the commands executed), and the bridge log stopped at 13:24:09, exactly at the `by_the_kit`
+  teleport, and never resumed in that session, so every later read was stale and the player "stayed" at the arrival.
+  Cause open (console left open, so menu mode pauses the script? the script stalled?); the next run captures HUD
+  visibility right after the teleport. No kit screenshot yet; the owner's open-the-kit check waits for it.
+- **`npc_combat_c2_1015`** (forced `StartCombat player`): the converted FO4 raider PASS ENGAGED from t = 1 s (combat
+  state 1, target 00000014, line of sight 1, 5 of 5 reads); the vanilla Spacer PASS on its second attempt (the first:
+  spawned 6.06 m away against a 6 m confirm limit; widen to 7 m); the uncommanded citizen FAIL NOCOMBAT as designed.
+- **`cave_probes11_1015`** (PR #126's slice variant: merge probes in neighbour cell (-11, 11)): INCONCLUSIVE CRASH twice,
+  the game exited during the `coc` into the world (the bridge's last lines are in the Vault at 14:36:24; arrival never
+  logged). With the COC cell override the arrival moved (cave_core64c_1015); with a neighbour-cell override the game
+  exits. Add-on overrides of core64c exterior cells are out in both forms; the door gate stays on Codex's OFST/CLSZ
+  world-level variant or a temporary door inside core64c's own build.
+- `chain.ps1` ended without its "chain end" line and without the between-queue uninstall (process gone by 14:39);
+  the experiment was uninstalled by hand afterwards. Unexplained; watch the next chain.
+- Merged after a local testing state (main + the PRs: 1093 unit tests with the venv, guard, PluginSpike Release build and
+  its two writer tests): #69 (Grok's oracle), #126, #119, #127, #131, #133. The owner's "script command not found"
+  question answered: `readpos.ps1`'s nonce (first-run-failures row 13).
+
+## 2026-10-15 evening chain: the walk holds on core64d, the raider fights twice, the Red Rocket probes do not move (Claude)
+
+Second chain of the day (16:31-19:00, runner scripts 64d30ad, build 2470f876), on the owner's "keep working never stop".
+
+- **walk_core64d_1015 PASS**: Red Rocket -> Sanctuary on core64d (core64c + the native container), 29 legs, 253.9 of
+  254.33 m, |dz| max 0.14 m, every read by the bridge. The R05 build does not regress the walk gate.
+- **npc_combat_c3_1015 / c4_1015**: the vanilla Spacer PASS on its first attempt with the spawn confirm limit at 7 m
+  (6.06 m had failed it in c2); the citizen control FAIL NOCOMBAT as designed; the converted raider INCONCLUSIVE SPAWN
+  twice in c3 (`Item '02F04800' not found`) because c3 was planned without `--install-exp actor_raider2 --plugins
+  FO4ActorRaider.esm` (the bridge log shows FO4Port.esm at load index 03 in c2 and 02 in c3), then **PASS ENGAGED** in
+  c4 with the plugin installed: two runs, two passes.
+- **r05_medkit_1015b / c / e** (two kit-facing probes; c with `time_repin` off; e with no time commands at all): the
+  container reply every time (`ref=34220709 pos=-2193.137207 -1548.338501 105.296318 loaded=true`, eight confirmations
+  today), and every time the player stayed at the arrival through both probes while the bridge read fresh (read 3 at
+  rt 415.9 in b). Not the noon re-typing, not SetLocalTime: on this arrival of our worldspace `player.setpos` has no
+  effect, while the same code moved the player on vanilla LC172World (bridge_probe_1015c). The per-attempt papyrus.log
+  (#144) shows only vanilla location-script noise. Next: `teleport_console` (the teleport's own console session
+  captured: the game's reply to the typed lines) and the `activate` step (#145), both in `r05_medkit_1015d`.
+- Runner: #144 (papyrus.log per attempt) merged; #145 open (activate step + teleport_console); #125 (Codex's
+  bridge-install recovery) merged after a testing state; the runner worktree moves to main after this chain.
+- Lesson of the day, twice: a queue re-planned for one parameter must carry every argument of the queue it replaces
+  (c3), and a log watcher must never hold the chain's log open (the morning's "dead chain").

@@ -279,6 +279,31 @@ best effort. Alternatives rejected: accepting a green retry of the intermittent 
 timestamp-only detection, or claiming that two hashes create an atomic snapshot.
 [Contract, evidence and limits](../testing/archive-fingerprints.md).
 
+## 2026-10-15 Codex: bridge publication and activation keep write-ahead ownership (#124)
+
+Reuse the existing exclusive validated publisher and packed-resource verifier.
+Record file intent before publication, confirmation afterward, and exact current
+profile/activation bytes before changing Plugins.txt. Ambiguous or changed targets
+keep a retryable journal; complete legacy ownership remains compatible. Cleanup
+must be profile-bound and idempotent when a restored inactive line is already
+present. Integrate Claude's bridge-last order caller without replacing its policy.
+Alternatives rejected: direct final-path copies, minting identity from a copied
+file without checking its source, or erasing an incomplete journal with untracked
+artifacts still present. [Recovery boundaries](../testing/bridge-recovery.md).
+
+## 2026-10-15 — Codex: reserve FormIDs before plugin publication (#132)
+
+Persist the complete plain JSON identity map through a flushed same-directory
+temporary file and replacement before PluginSpike writes its plugin. A map error
+must not publish new plugin bytes. A subsequent plugin error keeps reservations,
+including unused keys, so a retry cannot reassign them by conversion order.
+Saving the map afterward left a synthetic plugin with no map on write failure;
+rolling reservations back would permit ID reuse after interrupted builds.
+This assumes one writer and an immutable input map during the run. It does not
+make the plugin itself transactional, provide concurrent-writer exclusion or
+claim power-loss durability/savegame acceptance. Complete build/deploy recovery
+remains a separate control.
+
 ## 2026-10-15 Claude: the leader's state is an append-only ledger; GitHub stays the human-readable bus
 
 The leader core (`src/fo4sf/core/`, to be built per [leader-core.md](leader-core.md)) keeps one append-only

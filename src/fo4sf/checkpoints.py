@@ -161,6 +161,7 @@ def _native_door_outputs(door, out_name):
 
 def output_inventory(staging, result, prefix="fo4port"):
     """Follow NIF geometry/material dependencies and native DOOR rig/clip references."""
+    prefix = prefix.replace("\\", "/").lower()
     model_path = "meshes/" + result["out_name"] + ".nif"
     paths = {model_path}
     door = result.get("door") or {}
@@ -214,6 +215,7 @@ class Checkpoints:
     def __init__(self, staging, signature):
         self.staging = Path(staging)
         self.signature = signature
+        self.prefix = signature.get("prefix", "fo4port")
         self.directory = self.staging / ".checkpoints"
         self.expected = {}
 
@@ -237,7 +239,7 @@ class Checkpoints:
                 return None
             if not reusable_result(result):
                 return None
-            if output_inventory(self.staging, result) != cached["outputs"]:
+            if output_inventory(self.staging, result, prefix=self.prefix) != cached["outputs"]:
                 return None
             self.expected[source] = cached["outputs"]
             return cached["result"]
@@ -249,7 +251,7 @@ class Checkpoints:
             self.path(source).unlink(missing_ok=True)
             return False  # Retry degraded/failing conversions rather than freezing a placeholder.
         try:
-            outputs = output_inventory(self.staging, result)
+            outputs = output_inventory(self.staging, result, prefix=self.prefix)
         except (OSError, ValueError, KeyError, TypeError, struct.error):
             # The batch runner may continue after checkpoint I/O errors. Keep an
             # explicit failed expectation so it cannot publish an unverified build.
