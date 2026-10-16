@@ -1209,3 +1209,15 @@ Release builds pass; the existing CA1831 inventory-parser warning remains. Peer 
 all-ID/raw-record comparison and newly pinned native plans/save tests remain required. Full persistent allocation
 across reordered exports and future promoted bases is still open. See testing/container-reference-identities.md;
 private evidence is test-plans/container-reference-identities-20261015. No native acceptance is claimed.
+
+### 2026-10-15 Codex: recoverable terrain artifact publication (proposal)
+
+At1506f511b2, a real synthetic writer with its final plugin write denied left the old plugin and a new formids map.
+The companion prepares all outputs before publication, retains old/new snapshots and append-only journal records,
+rolls back proven publications and preserves concurrent owner files. Interrupted/ambiguous stages block native
+install, experiment inventory/install, core reads and cave stage/check. Canonical Claude source/stages are untouched.
+Seven new publication fault/success methods and four consumer methods pass, including process exit, owner-created target,
+Windows file sharing and missing optional Mars preparation. Existing deployment/experiment/core/cave and serialized
+identity regressions pass; guard/CI/peer QA are recorded on the PR. Backups and failed attempts are retained for
+verified archiving. No native gameplay or power-loss acceptance. See testing/terrain-output-publication.md and
+private test-plans/terrain-output-publication-20261015. Producer and consumer changes must integrate together.

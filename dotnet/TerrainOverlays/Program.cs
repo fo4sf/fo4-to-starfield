@@ -46,6 +46,10 @@ var templateLoc = sf.Locations.First(l => l.FormKey.ID == 0x3807BE);            
 var modKey = ModKey.FromNameAndExtension(prm.GetProperty("plugin").GetString()!);
 var mod = new StarfieldMod(modKey, release);
 mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
+var outputNames = new List<string> { modKey.FileName.String };
+if (Has(prm, "objects")) outputNames.Add("formids.json");
+if (Has(prm, "mars")) outputNames.Add(prm.GetProperty("mars").GetProperty("plugin").GetString()!);
+using var output = new OutputPublication(outDir, outputNames);
 var overlays = prm.GetProperty("overlays").EnumerateArray().ToList();
 
 // anchors take the first FormIDs, in params order (plan.json names them as 0x800 + index)
@@ -278,13 +282,13 @@ if (Has(prm, "objects"))
         }
     }
     var ids = new Dictionary<string, object> { ["plugin"] = modKey.FileName.String, ["world"] = world, ["bases"] = baseIds, ["refs"] = refIds, ["containers"] = contIds };
-    File.WriteAllText(Path.Combine(outDir, "formids.json"), JsonSerializer.Serialize(ids));
+    File.WriteAllText(output.StagePath("formids.json"), JsonSerializer.Serialize(ids));
 }
 mod.ModHeader.Stats.NextFormID = next;
-var path = Path.Combine(outDir, modKey.FileName);
+var path = output.StagePath(modKey.FileName.String);
 mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(sfData)
     .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full)).Write();
-Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {worlds.Count} overlays, next FormID 0x{next:X}" +
+Console.WriteLine($"prepared {modKey.FileName} ({new FileInfo(path).Length:N0} bytes): {worlds.Count} overlays, next FormID 0x{next:X}" +
                   (Has(prm, "objects") ? $"; objects: {nStat} STAT, {nDoor} DOOR, {nRef} REFR ({nDisabled} initially disabled)" : ""));
 
 if (Has(prm, "mars"))
@@ -303,8 +307,10 @@ if (Has(prm, "mars"))
             Latitude = o.GetProperty("longitude").GetDouble(),     // second f64 = longitude
         });
     mars.ModHeader.Stats.NextFormID = 0x800;
-    var marsPath = Path.Combine(outDir, marsKey.FileName);
+    var marsPath = output.StagePath(marsKey.FileName.String);
     mars.BeginWrite.ToPath(marsPath).WithLoadOrder(sfEsm, modKey)
         .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full), new KeyedMasterStyle(modKey, MasterStyle.Full)).Write();
-    Console.WriteLine($"wrote {marsPath} ({new FileInfo(marsPath).Length:N0} bytes); Mars master worldspaces now {planet.MasterWorldspaces!.Count}");
+    Console.WriteLine($"prepared {marsKey.FileName} ({new FileInfo(marsPath).Length:N0} bytes); Mars master worldspaces now {planet.MasterWorldspaces!.Count}");
 }
+output.Commit();
+Console.WriteLine($"published {outputNames.Count} outputs in {outDir}");

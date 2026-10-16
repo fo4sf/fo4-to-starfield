@@ -4,6 +4,22 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Starfield;
 
+if (args[0] == "--publish-fixture")
+{
+    string root = Path.GetFullPath(args[1]), mode = args[2];
+    string[] names = { "Synthetic.esm", "formids.json", "Registration.esm" };
+    using var publication = new OutputPublication(root, names, step =>
+    {
+        if (step != "published:Synthetic.esm") return;
+        if (mode == "fail") throw new IOException("synthetic failure after first publication");
+        if (mode == "owner") File.WriteAllText(Path.Combine(root, "formids.json"), "owner-created file");
+        if (mode == "crash") Environment.Exit(17);
+    });
+    foreach (string name in names) File.WriteAllText(publication.StagePath(name), "new:" + name);
+    publication.Commit();
+    return;
+}
+
 var key = ModKey.FromNameAndExtension("Starfield.esm");
 var release = StarfieldRelease.Starfield;
 var mod = new StarfieldMod(key, release);
@@ -13,8 +29,11 @@ world.Components.Add(new WorldSpaceOverlayComponent());
 mod.Worldspaces.Add(world);
 mod.SurfaceBlocks.Add(new SurfaceBlock(new FormKey(key, 0x102382), release) { EditorID = "SyntheticTemplateBlock" });
 mod.Locations.Add(new Location(new FormKey(key, 0x3807BE), release) { EditorID = "SyntheticTemplateLocation" });
+bool withMars = args[0] == "--master-with-mars";
+if (withMars)
+    mod.Planets.Add(new Planet(new FormKey(key, 0x900), release) { EditorID = "MarsPlanetData", MasterWorldspaces = new() });
 mod.ModHeader.Stats.NextFormID = 0x3807BF;
-var path = Path.GetFullPath(args[0]);
+var path = Path.GetFullPath(withMars ? args[1] : args[0]);
 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(Path.GetDirectoryName(path)!)
     .WithKnownMasters(new KeyedMasterStyle(key, MasterStyle.Full)).Write();

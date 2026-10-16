@@ -38,11 +38,12 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
-for p in (os.path.join(REPO, "src"), os.path.join(REPO, "scripts", "game"), os.path.join(REPO, "scripts", "terrain"),
+for p in (os.path.join(REPO, "src"), os.path.join(REPO, "scripts"), os.path.join(REPO, "scripts", "game"), os.path.join(REPO, "scripts", "terrain"),
           os.path.join(REPO, "scripts", "actors"), HERE):
     sys.path.insert(0, p)
 import make_redrocket_door as rr  # noqa: E402
 import plan_cave_routes as pcr  # noqa: E402
+from stage_outputs import require_ready_stage  # noqa: E402
 
 PLUGIN = "FO4SliceRedRocketCore.esm"
 CORE_PLUGINS = ("FO4TerrainCore.esm", "FO4TerrainCore_Mars.esm")
@@ -187,6 +188,7 @@ def bind_plan(t, routes, params, anchor=ANCHOR_PROBE, tol=1e-3):
 
 
 def cmd_stage(a):
+    require_ready_stage(a.core)
     t0 = time.time()
     out = os.path.abspath(a.out)
     ev = os.path.join(out, "evidence")
@@ -326,6 +328,7 @@ Uninstall: exp_install.py uninstall.
 
 
 def cmd_check(a):
+    require_ready_stage(a.core)
     out = os.path.abspath(a.out)
     ev = os.path.join(out, "evidence")
     port_esm = os.path.join(a.port, "FO4Port.esm")

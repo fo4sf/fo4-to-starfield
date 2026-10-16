@@ -18,13 +18,14 @@ Lead reports bridge telemetry, both-direction~254m walks and combat engagement. 
 
 ## Source / proposals
 
-Latest #32 supersedes this handoff. Main ef3a3ba includes131/133/125; this identity companion is stacked on1346d7bd988. Canonical Claude checkout is unchanged; lead owns integration.
+Latest #32 supersedes this handoff. Main ef3a3ba includes131/133/125; this publication companion is stacked on1506f511b2. Canonical Claude checkout is unchanged; lead owns integration.
 
 - 10458f0b51/116589f1bf reviewed QA/guard/CI pass; await lead. 125 merged; preserve expected_sha256 publisher, bridge-last and no-op0. No live application by Codex.
 - 1297511352 staged probe-free candidate; raw checks pass, native effect unverified. No probes/exterior override/install/input. 1181350d9d/123319e131 await native adapter/model measurement gates.
 - 138fa253dc: stored-ID validation/cap reviewed, tests/guard/QA/CI pass; await lead. 1467a3e7a2 container/ID auditor is draft awaiting final peer source review; runtime false.
 - 1346d7bd988 shifts235119 surviving IDs. Codex identity companion now preserves original REFR slots through promotion, including the promoted source. 29 producer/3 actual-writer methods, four serialized promotions/five refusals and parent failure cross-check pass. Peer QA/full-scale build/new plans/native save tests pending; undeployed. General persistent allocation remains open. See testing/container-reference-identities.md.
 - 145 review5541048759: planner drops activate; refused selection can activate prior target. 148 review5541155845: output clobbers measurements; NaN can hide loss. Owners retain fixes.
+- Codex publication companion: prepares all outputs privately; journaled rollback/retained snapshots and guards for deployment/experiment/core/cave readers. Mixed-map failure reproduced, eleven new fault/consumer methods pass. QA/integration pending; no native changes. See testing/terrain-output-publication.md.
 - 149ed44dae draft: bounded full-hash reads, synthetic median0.684->0.460s;94 targeted/guard/CI pass. Independent QA/live measurement pending.
 
 ## Next / preservation
