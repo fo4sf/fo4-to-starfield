@@ -36,7 +36,8 @@ class CapabilityState(str, enum.Enum):
     UNTESTED = "untested"
 
 
-# the event types of leader-core.md §1, plus the two the fold needs for bookkeeping
+# the event types of leader-core.md §1, plus the two the fold needs for bookkeeping. A type outside this set is
+# read as an opaque event (kept, ignored by the fold, counted): a ledger written by a newer checkout stays readable
 EVENT_TYPES = frozenset({
     "leader_started", "build_pinned", "plugins_verified",
     "task_assigned", "task_queued", "task_started", "task_finished",
@@ -45,6 +46,10 @@ EVENT_TYPES = frozenset({
     "blocker_opened", "blocker_closed", "recovery_point",
     "ledger_repaired",                      # a partial last line (power cut) was dropped on the next append
 })
+# the field a known event must carry for the fold to index it (a line without it is corrupt, not an event)
+REQUIRED_FIELD = {"task_assigned": "task", "task_queued": "task", "task_started": "task", "task_finished": "task",
+                  "capability_declared": "capability", "capability_result": "capability",
+                  "blocker_opened": "blocker", "blocker_closed": "blocker"}
 
 
 def outcome_from_queue(verdict, cls=""):
@@ -72,6 +77,18 @@ def parse_iso(s):
     return d if d.tzinfo is not None else d.replace(tzinfo=datetime.timezone.utc)
 
 
+def local_to_utc_iso(s):
+    """A runner timestamp (testqueue.now(): local wall clock, no zone) as an aware UTC ISO string, read on the machine
+    that wrote it; an aware or unparsable value is returned unchanged."""
+    try:
+        d = datetime.datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return s
+    if d.tzinfo is not None:
+        return d.isoformat()
+    return d.astimezone().astimezone(datetime.timezone.utc).replace(microsecond=0).isoformat()
+
+
 @dataclass
 class Event:
     """One ledger line: {"t": utc iso, "ev": type, "by": agent, ...fields}."""
@@ -81,8 +98,11 @@ class Event:
     fields: dict = field(default_factory=dict)
 
     def __post_init__(self):
-        if self.ev not in EVENT_TYPES:
-            raise ValueError(f"unknown event type {self.ev!r}")
+        if not isinstance(self.ev, str) or not self.ev.strip():
+            raise ValueError("an event has a type")
+        key = REQUIRED_FIELD.get(self.ev)
+        if key and not self.fields.get(key):
+            raise ValueError(f"{self.ev} needs a {key}")
         if self.ev == "task_finished":
             out = Outcome(self.fields.get("outcome"))   # raises on an unknown outcome
             if self.fields.get("completed") and not out.decided:
@@ -91,9 +111,13 @@ class Event:
             Outcome(self.fields.get("outcome"))
             Source(self.fields.get("source"))
 
+    @property
+    def known(self):
+        return self.ev in EVENT_TYPES
+
     def to_json(self):
-        d = {"t": self.t, "ev": self.ev, "by": self.by}
-        d.update(self.fields)
+        d = dict(self.fields)
+        d.update(t=self.t, ev=self.ev, by=self.by)      # the header wins over a field of the same name
         return json.dumps(d, sort_keys=True)
 
     @classmethod
