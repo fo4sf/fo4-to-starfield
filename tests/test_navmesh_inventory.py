@@ -1,4 +1,5 @@
 """Synthetic tests for navmesh coverage inventory."""
+import errno
 import json
 import os
 import sys
@@ -96,3 +97,40 @@ class NavmeshInventoryTests(unittest.TestCase):
             ])
             self.assertEqual(code, 2)
             self.assertFalse(out_path.exists())
+
+    def test_failed_write_keeps_enospace_and_replaced_owner_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            out = tmp / "report.json"
+            real_fdopen = os.fdopen
+
+            def exploding(fd, *args, **kwargs):
+                handle = real_fdopen(fd, *args, **kwargs)
+
+                def boom(_data):
+                    raise OSError(errno.ENOSPC, "No space left on device")
+
+                handle.write = boom
+                return handle
+
+            with patch.object(inv.os, "fdopen", exploding):
+                with self.assertRaises(OSError) as caught:
+                    inv._write_exclusive(out, "payload")
+            self.assertEqual(caught.exception.errno, errno.ENOSPC)
+            owner = tmp / "owner.json"
+            owner.write_text("owner-bytes")
+            if out.exists():
+                out.unlink()
+            os.replace(owner, out)
+            st = out.stat()
+            inv._unlink_if_owned(out, st.st_dev, 0)
+            self.assertTrue(out.exists())
+            self.assertEqual(out.read_text(), "owner-bytes")
+            other = tmp / "ours.json"
+            other.write_text("ours")
+            ours = other.stat()
+            other.unlink()
+            other.write_text("owner-bytes")
+            inv._unlink_if_owned(other, ours.st_dev, ours.st_ino)
+            self.assertTrue(other.exists())
+            self.assertEqual(other.read_text(), "owner-bytes")

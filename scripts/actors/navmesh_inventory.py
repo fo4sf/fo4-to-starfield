@@ -134,19 +134,51 @@ def _same_file(left: Path, right: Path) -> bool:
     return left_stat.st_dev == right_stat.st_dev and left_stat.st_ino == right_stat.st_ino and left_stat.st_ino != 0
 
 
+def _unlink_if_owned(path: Path, dev, ino) -> None:
+    """Remove path only if it is still the inode we exclusively created."""
+    if not ino:
+        return
+    try:
+        now = path.stat()
+    except OSError:
+        return
+    if now.st_dev == dev and now.st_ino == ino:
+        try:
+            path.unlink()
+        except OSError:
+            return
+
+
 def _write_exclusive(path: Path, text: str) -> None:
     flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
     if hasattr(os, "O_BINARY"):
         flags |= os.O_BINARY
     fd = os.open(path, flags)
+    owned = os.fstat(fd)
+    handle = None
     try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(text)
-            fd = None
+        handle = os.fdopen(fd, "w", encoding="utf-8", newline="\n")
+        fd = None
+        handle.write(text)
+        handle.flush()
     except Exception:
-        path.unlink(missing_ok=True)
+        if handle is not None:
+            try:
+                handle.close()
+            except OSError:
+                pass
+            handle = None
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            fd = None
+        _unlink_if_owned(path, owned.st_dev, owned.st_ino)
         raise
     finally:
+        if handle is not None:
+            handle.close()
         if fd is not None:
             os.close(fd)
 
