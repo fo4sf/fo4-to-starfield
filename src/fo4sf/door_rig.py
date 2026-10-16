@@ -75,6 +75,15 @@ def plan(source, samples_per_second=30, placed=False):
     if any(t['node'] in roots and not _constant_identity_root(t['transform_track'])
            for sequence in report['sequences'] for t in sequence['targets']):
         raise nif.NifError('placed door animates its scene root')
+    for sequence in report['sequences']:
+        targets = sequence['targets']
+        # Validate before removing no-ops, so duplicate root bindings stay errors.
+        if len({t['node'] for t in targets}) != len(targets):
+            raise nif.NifError('duplicate door target')
+        # Identity is already supplied by the placed bind. Retaining this track
+        # would make downstream collision planning mark the static frame and
+        # every descendant as moving solely because the root has a clip track.
+        sequence['targets'] = [t for t in targets if t['node'] not in roots]
     nodes={i for i in range(len(source.blocks)) if source.type_of(i).endswith('Node')}
     parents={}
     for node in sorted(nodes):

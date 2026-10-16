@@ -3,9 +3,10 @@ import math
 import struct
 import unittest
 
-from fo4sf import door_rig, native_door, nif
+from fo4sf import convert_static, door_rig, native_door, nif
 from test_door_motion import fixture
 from test_door_motion_nested import rotation_track, sequence
+import test_door_two_panels as panels
 
 ABSENT = -3.4028234663852886e38
 
@@ -21,13 +22,33 @@ def source(values=None, *, data=-1, close_values=None):
 
 
 class DoorRootIdentityTests(unittest.TestCase):
+    def test_identity_root_does_not_make_a_static_frame_a_moving_box(self):
+        f = panels.door_nif(panels.two_leaves())
+        def convert():
+            count = len([s for s in nif.fo4_trishapes(f) if s.positions and s.triangles])
+            return convert_static.convert_multipart_door(
+                nif.serialize(f), 'fo4port/doors/testdouble', ['Materials\\x.mat']*count,
+                panels.fake_clip_files, collision_template=panels.fake_template(), leaf_physics_donor=panels.donor())
+        baseline_files, baseline_report = convert()
+        track = f.add_block('NiTransformInterpolator', struct.pack('<8fi', *([ABSENT]*7+[1]), -1))
+        root_name = struct.unpack_from('<i', f.blocks[0])[0]
+        target = struct.pack('<iiBiiiii', track, -1, 0, root_name, -1, -1, -1, -1)
+        for index in panels.sequences(f).values():
+            raw = f.blocks[index]
+            name, count, grow = struct.unpack_from('<iII', raw)
+            f.blocks[index] = struct.pack('<iII', name, count+1, grow) + target + raw[12:]
+        files, report = convert()
+        self.assertEqual(report['moving_bodies'], 2)
+        self.assertEqual(report['animated_bones'], ['LeafA', 'LeafB'])
+        self.assertEqual(report, baseline_report)
+        self.assertEqual(files, baseline_files)
+
     def test_absent_channels_use_placed_identity_and_keep_child_motion(self):
         plan = door_rig.plan(source(), placed=True)
         self.assertEqual(plan['bones'][0]['bind'], {
             'translation_source_units': [0, 0, 0], 'quaternion_wxyz': [1, 0, 0, 0], 'scale': 1})
-        track = plan['clips'][0]['tracks'][0]
-        self.assertTrue(all(s['translation_source_units'] == [0, 0, 0] for s in track['samples']))
-        child = plan['clips'][0]['tracks'][1]['samples'][-1]
+        self.assertTrue(all(t['node'] != 0 for c in plan['clips'] for t in c['tracks']))
+        child = plan['clips'][0]['tracks'][0]['samples'][-1]
         self.assertAlmostEqual(child['quaternion_wxyz'][3], math.sqrt(.5), places=6)
         native = native_door.prepare(plan, 1/70)
         self.assertTrue(native)  # Pure in-memory preparation; no DLL or generated assets.
@@ -82,6 +103,12 @@ class DoorRootIdentityTests(unittest.TestCase):
         unknown = f.add_block('NiFloatInterpolator', b'')
         f.blocks[5] = sequence(f, b'Open', [(0, unknown)])
         with self.assertRaisesRegex(nif.NifError, 'scene root'):
+            door_rig.plan(f, placed=True)
+
+    def test_duplicate_identity_root_bindings_stay_refused(self):
+        f = source()
+        f.blocks[5] = sequence(f, b'Open', [(0, -1), (0, -1), (1, rotation_track(f, 90))])
+        with self.assertRaisesRegex(nif.NifError, 'duplicate door target'):
             door_rig.plan(f, placed=True)
 
     def test_nonplaced_root_bind_remains_unchanged(self):
