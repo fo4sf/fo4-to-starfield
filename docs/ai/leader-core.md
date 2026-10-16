@@ -163,7 +163,11 @@ python scripts\game\lease.py status  --dir <leader> [--require Claude] [--json] 
 - `cycle.ps1`: with `FO4SF_LEASE_DIR` set it exits 9 before closing, redeploying or launching anything unless
   `FO4SF_LEASE_OWNER` (default `Claude`) holds the lease; the runner puts its own effective folder and owner into
   the environment of every PowerShell step (`Runner.ps_env`), so `--lease-dir` / `--lease-owner` given as flags
-  reach it too.
+  reach it too, and an exit 9 stops the run (`stopped: lease refused by cycle.ps1 ...`), never a retry per test.
+  `lease.py` reads the folder from `FO4SF_LEASE_DIR` when `--dir` is not given, and `cycle.ps1` relies on that (a
+  folder with a space and a trailing backslash would reach python mangled as an argument). The folder is absolute;
+  the watchdog resolves a relative `lease_dir` against `C:\Modding\testqueue` and strips a trailing backslash, so
+  the watchdog, the chain and the runner read one folder.
 - `watchdog.ps1`: with `lease_dir` in `watchdog.json` (or `FO4SF_LEASE_DIR` as set when the watchdog started),
   Claude's activity is the lease's last claim / renewal / release plus the heartbeat file, not the last `Claude:`
   commit on any branch (the cloud sessions' commits tripped that); a lease held by the watchdog's own `lease_owner`
