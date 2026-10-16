@@ -36,15 +36,44 @@ def quaternion_from_matrix(matrix):
     return [x/length for x in result]
 
 
+def _constant_identity_root(track):
+    """Prove a no-key local track is identity, without sampling animated curves.
+
+    Only exact -FLT_MAX absent channels or finite explicit channels are admitted.
+    Other oversized/nonfinite values must not inherit sample_track's bind fallback.
+    Keyed and unknown interpolators retain the existing placed-root refusal.
+    """
+    if track is None:
+        return True
+    if track.get('type') != 'NiTransformInterpolator' or track.get('data_block') != -1:
+        return False
+    absent = -3.4028234663852886e38
+    channels = [track['translation'], track['quaternion_wxyz'], [track['scale']]]
+    for values in channels:
+        if not (all(v == absent for v in values)
+                or all(math.isfinite(v) and abs(v) < 1e30 for v in values)):
+            return False
+    bind = {'translation_source_units': [0, 0, 0], 'quaternion_wxyz': [1, 0, 0, 0], 'scale': 1}
+    try:
+        # There are no keys: this is evaluation of constants, not a sampled proof.
+        pose = door_clips.sample_track(track, 0, bind)
+    except nif.NifError:
+        return False
+    q = pose['quaternion_wxyz']
+    return (pose['translation_source_units'] == [0, 0, 0] and pose['scale'] == 1
+            and abs(q[0]) == 1 and q[1:] == [0, 0, 0])
+
+
 def plan(source, samples_per_second=30, placed=False):
     """placed=True: the scene root's own stored transform counts as identity, as for a placed reference in game
-    (nif.world_transforms(placed=True); docs/ai/research-log.md 2026-10-10). An animated scene root is then refused:
-    its samples would carry the stored root transform the game leaves out."""
+    (nif.world_transforms(placed=True); docs/ai/research-log.md 2026-10-10). A controlled scene root is refused unless
+    its no-key track is provably identity: other tracks could restore a root transform the game leaves out."""
     report=door_motion.inspect(source)
     if report['issues']:
         raise nif.NifError('door has absent or ambiguous animation bindings')
     roots=set(nif.footer_roots(source)) if placed else set()
-    if roots & {t['node'] for sequence in report['sequences'] for t in sequence['targets']}:
+    if any(t['node'] in roots and not _constant_identity_root(t['transform_track'])
+           for sequence in report['sequences'] for t in sequence['targets']):
         raise nif.NifError('placed door animates its scene root')
     nodes={i for i in range(len(source.blocks)) if source.type_of(i).endswith('Node')}
     parents={}
