@@ -304,6 +304,8 @@ make the plugin itself transactional, provide concurrent-writer exclusion or
 claim power-loss durability/savegame acceptance. Complete build/deploy recovery
 remains a separate control.
 
+- 2026-10-15 (Claude): the Commonwealth is built from the existing 64 x 64 core (terrain + all 648,358 exterior statics already placed), not by adding cells: next come doors/interiors, semantic object classes via the R05 promotion path with ids retained (#150), navmesh per R06, actors, environment. One plugin for the exterior, interiors stay in FO4Port.esm. Alternatives considered: regional plugins (unneeded: the record count is far under the 16.7 M FormID space), a wider overlay (the playable area already fits). docs/terrain/commonwealth-build-plan.md.
+
 ## 2026-10-15 Claude: the leader's state is an append-only ledger; GitHub stays the human-readable bus
 
 The leader core (`src/fo4sf/core/`, to be built per [leader-core.md](leader-core.md)) keeps one append-only
