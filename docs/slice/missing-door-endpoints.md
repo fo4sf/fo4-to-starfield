@@ -18,11 +18,23 @@ original cell exports. STARFIELD_DATA supplies the actual native master. The
 selected source must occur exactly once with type Door, and the base must resolve
 to an active DOOR with local override precedence. A filename or numeric ID alone
 does not prove a usable base.
+Options are checked before input files are opened. Supported spellings are
+`--report-only`, `--allow-unresolved`, `--no-markers` and
+`--door-bases=<map.json>` with a nonempty path. Unknown or malformed options
+refuse the command; `--door-base=` or bare `--door-bases` cannot silently omit
+the endpoint request.
 Every explicitly selected door must also have a source-cell map entry resolving
 to an existing output CELL. This is checked before relationship mutation and is
 not waived by `--allow-unresolved` or `--report-only`: a requested endpoint must
 not silently disappear. Unrelated missing cells retain normal unresolved-report
 behavior, including explicitly permitted partial output.
+
+Thirteen additional actual-CLI controls cover existing selected endpoints: three
+matching/default-scale/roundoff cases preserve plugin and map bytes on repeat;
+ten transform conflicts refuse, including nonfinite data, invalid scales and
+partial/report-only attempts. The three valid outputs are byte-identical before
+and after the conflict check. These are synthetic checks of source-map reuse,
+not evidence of in-game travel or worldspace offset handling.
 
 For a missing reference, the writer reuses its existing source-map reservation,
 or allocates above all existing mapped and occupied IDs. Occupied reservations
@@ -30,13 +42,24 @@ and exhausted IDs refuse. Position is converted using the existing /70 unit
 mapping; rotation, positive scale, initial disabled and open state are preserved.
 The endpoint is placed in its original interior cell's persistent group with
 flag0x400. An existing reference must have that same base and cell and be active;
-the option never silently changes its base. Reapplication preserves identity and
-does not duplicate the endpoint.
+the option never silently changes its base. Before reuse, exported position /70,
+rotation in radians and positive scale must also match the existing reference.
+The absolute tolerance is 0.0001 per component in target metres, radians and scale
+units; omitted XSCL means scale1. Nonfinite values and nonpositive scales refuse.
+This option describes the original interior frame: it does not infer an origin
+offset or reconcile a deliberately relocated endpoint. A conflict refuses strict,
+partial and report-only runs without publishing a plugin or identity map. A valid
+repeat keeps the existing transform and identity; it does not snap roundoff to the
+source values or duplicate the endpoint.
 
 Normal relationship translation follows. No XTEL or reciprocal link is invented.
 Unresolved exported relationships still prevent output unless the existing
 `--allow-unresolved` option explicitly permits a partial build. A partial build
 must not be called a connected cave. Report CreatedDoors counts new references.
+Report Persistent counts references whose persistence flag or child group changed
+in that invocation. Selecting an endpoint and also exporting `persistent: true`
+counts one promotion, not two; reapplying an already-persistent endpoint counts
+zero. It is a change count, not a total of persistent records in the plugin.
 
 Seven original synthetic actual-CLI controls cover allocation, reservation/reapplication,
 non-door bases, wrong source types, occupied IDs, invalid scale and absent source
@@ -49,9 +72,13 @@ additional CLI scenarios: missing map/record in strict and partial modes,
 report-only refusal, and an unrelated missing-cell partial-output control.
 Before the correction, both partial cases silently published without the selected
 door and report-only accepted the omitted selection. These now refuse.
-All thirteen missing-door controls, eleven native-base controls and relationship
+All seventeen missing-door controls, eleven native-base controls and relationship
 binary checks pass. The missing-cell correction still needs peer review; carry it
 into stacked PR253 after review before producing an integrated candidate.
+Four additional argument controls cover the misspelled door option, bare door
+option, empty mapping path and unknown flag. Before validation, three of those
+commands published a plugin despite the malformed request. This follow-up is
+separate from the PR251 merge head and awaits peer review.
 No source stage, installed plugin, game input or save was changed. Integration
 must carry the resulting map forward and separately construct the core-owned
 exterior endpoint and interior return override without a master cycle.
