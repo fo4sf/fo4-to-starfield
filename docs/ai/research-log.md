@@ -756,7 +756,8 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   Full write-up: [docs/terrain/architecture.md](../terrain/architecture.md).
 - Method: raw record walk of both ESMs; new read-only SfInspect commands (`wrld`, `sfbk`, `planetworlds`, `wcells`,
   `form`); index-only listing of the terrain BA2s and a 44-byte header survey of all 2,112 `.btd`; BTD decoder after
-  fo76utils (MIT) checked byte-for-byte on vanilla files; ref-vs-terrain fits; xEdit's Starfield definitions read for
+  fo76utils (MIT) checked on vanilla files (re-encode byte-identical per section and per decompressed block, not per
+  file: the zlib streams differ); ref-vs-terrain fits; xEdit's Starfield definitions read for
   field names; FO4 `LAND.VHGT` decoded for all Commonwealth cells.
 - Evidence: Starfield.esm has 0 `LAND` (Fallout4.esm 37,020). 430/433 WRLD point through an overlay component to an
   SFBK whose `ANAM` is `Data\TERRAIN\<EditorID>.btd`; 72 WRLD are registered by planets (`PNDT.MasterWorldspaces`,
@@ -767,6 +768,15 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   the predicted footprint); whether a plugin worldspace with its own BTD loads, and whether it needs a planet entry,
   **unresolved** until experiment 1 (staged in `C:\Modding\staging\terrain_exp1`, not deployed). Recommendation:
   option A, a dedicated worldspace with a native BTD.
+- Update (in game, 2026-10-11, unattended runner; `C:\Modding\testqueue\terrain_*`): loose files are disabled on this
+  install (`sResourceDataDirsFinal=STRINGS\`), so loose BTDs were never readable (**verified**). A worldspace's own BTD
+  only applies to an overlay activated on a planet (PNDT `CNAM`); unregistered World01 and World02 showed identical
+  procedural ground (**verified**), and World03 (no overlay component) hangs on load (**verified**, twice). Activation
+  merges cells at a whole-cell offset plus a Z offset (LC172World -500 / -2300 m, Z -3.62 m), so "world z = BTD
+  height" is **refuted** in absolute form and **verified** only relative to that offset (0.02 m in LC172World's
+  authored cell). SFBK `FNAM` as "8 connections" is **refuted** (one u16 per BTD cell). Largest overlay BTD in vanilla:
+  14 x 14 cells, not 100. Registered runs with our packed BTD were flat at its raw-0 height; cause (compressed BA2
+  entry) is a **supported hypothesis**, rerun pending. Option A now needs B's planet activation.
 
 ## 2026-10-11 Claude: FO4 terrain source patch
 - Question: can we read absolute Fallout 4 terrain heights for a small patch, and prove them right, by reusing
