@@ -2,7 +2,7 @@
 
 Author: Claude, 2026-10-16. Branch `claude/interior-backlog` (on main 51a162c). Status: **offline census, export,
 ranking and dry-run conversion done; nothing deployed, nothing queued, no game launched.** Data:
-[data/interior-backlog.json](data/interior-backlog.json) (all 203 interiors, every field below). Tool:
+[data/interior-backlog.json](data/interior-backlog.json) (all 203 interiors and the 27 behind them, every field below). Tool:
 `scripts/terrain/interior_backlog.py` (tests: `tests/test_interior_backlog.py`).
 Labels: **verified** = read from the files or commands named here; **supported** = supported hypothesis
 (an extrapolation from measured numbers); **unresolved**. Offline checks are not in-game acceptance.
@@ -14,6 +14,12 @@ Labels: **verified** = read from the files or commands named here; **supported**
   `FO4Port.esm` (integ_1011) already converts; 5 lead into worldspaces, not interiors (Diamond City x2, Goodneighbor
   x1, and two Brotherhood vertibird doors that lead back into the Commonwealth). This reproduces the journal's count of
   2026-10-16 (373 / 18 / 355) from the files, with the tool.
+- **Behind them, 26 more interiors not converted are reached only through other interiors** (**verified**, 43 load
+  doors inside interiors, 46,068 references; section "Second hop" below): 19 behind backlog cells (29 doors, for example
+  MassFusion02 behind rank 7 MassFusion01, seven Institute cells behind rank 79 InstituteConcourse) and 7 behind
+  interiors FO4Port.esm already converts (14 doors, for example ParsonsState02 and 03 behind ParsonsState01). They are
+  not ranked (no exterior door leads into them) and the totals below are for the 190 unless they say otherwise. With
+  them the conversion needs **5,863 models** (306 more), about 15 minutes at the measured rate.
 - **Conversion time is not the long pole** (**supported**). The 190 cells need **5,557 models** that integ_1011 has not
   converted (distinct over the whole backlog: the per-cell sum is 16,065, so shared kit pieces cut the work by 65%). The
   dry runs converted at **0.151 s per model** in fresh stagings, so the whole backlog's models are about **14 minutes**
@@ -24,8 +30,8 @@ Labels: **verified** = read from the files or commands named here; **supported**
   converted cell
   (the owner's log, docs/owner/playtest-issues.md rows 1 to 6: door animations, skinned props, the impact crash), and
   in-game acceptance: batch_full planned 33 to 147 tests per converted cell (median 113) at a median of 61 s between
-  results, about 1.9 hours of game time per cell, so about 360 hours for 190 cells at that depth (**supported**,
-  read from `C:\Modding\testqueue\batch_full`, not run here).
+  results, about 1.9 hours of game time per cell, so about 360 hours for 190 cells at that depth, about 410 hours with
+  the 26 second-hop cells (**supported**, read from `C:\Modding\testqueue\batch_full`, not run here).
 - **Dry run of the top 3 smallest high-value cells** (ranks 8, 19, 20): 443 models in 86.8 s, **0 failures**, three
   plugins written. **The five interiors nearest the slice** (Sanctuary's Jahani basement and the four Concord cells,
   98 to 230 m from Red Rocket / Sanctuary) as one batch: 1,175 models in 157.8 s, **1 failure** (an effect-shader-only
@@ -48,8 +54,11 @@ Labels: **verified** = read from the files or commands named here; **supported**
    to 7.3 s per cell alone (the three timed below), 568 s for all 203 (two, later four, at a time). Every destination
    door the census put in a cell is in that cell's export (the tool refuses otherwise). Repeat exports of the three
    dry-run cells are byte-identical. The exports in `exports_1011` were made by an exporter with one more field
-   (`ragdoll`, null on RedRocket01); every other field of RedRocket01's 795 references, its deferred placements and its
-   teleport dependencies are identical to today's export.
+   (`ragdoll`, from eafae4c on the `codex/xrgd-export` branch, not on main): 4 of RedRocket01's 795 references carry it
+   (OilCan01, NukaColaEmpty, SkeletonBareBody01, SkeletonBareBodyHeadless); every other field of its references, its
+   deferred placements and its teleport dependencies are identical to today's export. convert_batch and PluginSpike do
+   not read the field, so no count here changes; the posed-props work (b9fa8b6, references with FO4 ragdoll data in
+   their own pose) would need every export here redone with that exporter.
 3. **Measures per interior** (`interior_backlog.py plan`): references, deferred placements (actors), lights, distinct
    models; the **convertible models** = the meshes `convert_batch.py --cell-json` converts for that export
    (`convert_batch.cell_candidates`, now one function both use: the default base types, no editor markers, no top-level
@@ -62,13 +71,21 @@ Labels: **verified** = read from the files or commands named here; **supported**
    (exact metres would leave the third key nothing to break); then the larger fraction already converted; then the
    exact distance. In rank order the JSON also gives `adds_models` (what the cell adds given every higher-ranked cell
    is converted first) and `cumulative_new_models`.
-5. **Effort** per cell: `new_models`, `refs_to_place`, `actors_deferred`, `inner_load_doors`, `convert_s_est` (new
+5. **Effort** per cell: `new_models`, `refs_to_place`, `actors_deferred`, `load_doors_in_cell` (every load door inside
+   the cell, its exits back out included; `leads_to_interiors` has the ones that lead on), `convert_s_est` (new
    models x the measured 0.151 s) and a class, a judgment: **S** <= 300 references and <= 50 new models, **M** <= 1,500
    and <= 200, **L** <= 5,000 and <= 600, else **XL**. The backlog: S 35, M 68, L 65, XL 22.
-6. **Enterable**: a cell is enterable when at least one of its exterior doors is placed by the core or is a marker door
-   (the converter never places marker models; decisions.md 2026-10-12 writes them as Starfield's `AutoloadDoor_Cave`).
-   Two backlog cells are not (below). The dry run takes the 3 smallest by references among the first 20 ranked cells
-   that are enterable ("high value" = the top 20).
+6. **Enterable**: a cell is enterable when at least one of its exterior doors is not initially disabled and is placed
+   by the core or is an `AutoLoadMarker01.nif` door (the converter never places marker models; decisions.md 2026-10-12
+   writes those as Starfield's `AutoloadDoor_Cave`; other marker doors, such as `InvisibleDoor01.nif`, have no recorded
+   path). Four backlog cells are not (below). The dry run takes the 3 smallest by references among the first 20 ranked
+   cells that are enterable ("high value" = the top 20).
+7. **Second hop**: from every measured export (backlog and converted), each load door into an interior no exterior door
+   leads into is followed, and that interior exported and measured the same way, until no new interior turns up (here
+   after hop 3; hop 1 = the cells exterior doors lead into; 27 exports, 78 s, the same Fo4Export build). Each such cell
+   gets `reached_from` (the interiors whose doors lead into it), `hop`, `after_rank` (the rank of the earliest-ranked
+   backlog cell it is behind; 0 = behind a converted interior), and `adds_models` / `cumulative_new_models` counted
+   after the whole ranked backlog, in `after_rank` order.
 
 ## The ranking (top 30 of 190; all in the JSON)
 
@@ -110,7 +127,56 @@ no higher-ranked cell already brings. Leads on to = interiors its own load doors
 | 29 | WestonWaterTreatment01 | 3 (3) | 1168 | 5,996 | 746 | 717 | 507 (71%) | 209 | 88 | XL | - |
 | 30 | TrinityChurch01 | 3 (3) | 1777 | 2,619 | 492 | 476 | 331 (70%) | 145 | 68 | L | - |
 
-Cumulative new models along the ranking: top 10 1,196; top 25 2,066; top 50 3,052; top 100 4,434; all 190 5,557.
+Cumulative new models along the ranking: top 10 1,196; top 25 2,066; top 50 3,052; top 100 4,434; all 190 5,557;
+with the 26 second-hop cells 5,863.
+
+The first key counts every exterior load door. The JSON's `entrances` counts distinct positions of the doors that are
+not initially disabled; it differs for 5 cells: USSConstitution01 (rank 4) 6 doors / 4 entrances (two pairs of
+stacked quest-state doors), BostonAirportRuins01 (37) 3 / 2, TheCastle01 (95) 2 / 1, InstituteConcourse (79) 2 / 0 and
+InstituteReactor (158) 1 / 0. Ranked on entrances, USSConstitution01 would fall to rank 10; the ranking keeps the
+requested key.
+
+## Second hop: the interiors reached only through other interiors
+
+27 interiors are reached only through the load doors of other interiors: 26 not converted (below) and `Vault81`
+(converted in integ_1011, behind rank 108 `Vault81Entry`). After rank = reachable once that ranked cell is converted
+(0: behind an interior FO4Port.esm already converts; FO4Port.esm does not hold the far end). Adds = models no ranked
+cell and no earlier row brings.
+
+| After rank | Interior | Hop | Reached from (doors) | Refs | Convertible | Converted | New | Adds | Class |
+|---|---|---|---|---|---|---|---|---|---|
+| 0 | MQ203KelloggsBrain | 2 | GoodneighborTheMemoryDen x2, PrewarVault111, Vault111Cryo | 1,923 | 316 | 178 (56%) | 137 | 40 | L |
+| 0 | ParsonsState02 | 2 | ParsonsState01, ParsonsState03 | 2,848 | 595 | 480 (81%) | 115 | 17 | L |
+| 0 | ParsonsState03 | 2 | ParsonsState01, ParsonsState02 | 2,139 | 449 | 299 (67%) | 150 | 11 | L |
+| 0 | PrydwenHull03 | 2 | PrydwenHull01 | 111 | 53 | 53 (100%) | 0 | 0 | S |
+| 0 | Vault11402 | 2 | Vault114 x2 | 4,248 | 579 | 520 (90%) | 59 | 40 | L |
+| 0 | GoodneighborTheMemoryDen | 3 | MQ203KelloggsBrain x2 | 1,522 | 340 | 261 (77%) | 79 | 13 | L |
+| 0 | PrewarVault111 | 3 | MQ203KelloggsBrain | 970 | 98 | 95 (97%) | 3 | 2 | M |
+| 5 | ccTOSFO4001 | 2 | TheaterHub360 | 1 | 1 | 0 (0%) | 1 | 0 | S |
+| 7 | MassFusion02 | 2 | MassFusion01 | 4,311 | 498 | 363 (73%) | 135 | 4 | L |
+| 76 | SaugusIronworks02 | 2 | SaugusIronworks01 | 787 | 200 | 124 (62%) | 76 | 12 | M |
+| 77 | RailroadHQ01 | 2 | OldNorthChurch01, RailroadHQEscapeTunnel | 1,542 | 410 | 269 (66%) | 141 | 44 | L |
+| 79 | InstituteAdvSystems | 2 | InstituteConcourse, InstituteReactor | 626 | 71 | 13 (18%) | 58 | 6 | M |
+| 79 | InstituteBioScience | 2 | InstituteConcourse, InstituteFEVlab x2, InstituteOldRobotics01 | 1,532 | 162 | 72 (44%) | 90 | 19 | L |
+| 79 | InstituteCave | 2 | InstituteConcourse | 401 | 56 | 39 (70%) | 16 | 3 | M |
+| 79 | InstituteOldRobotics01 | 2 | InstituteBioScience, InstituteConcourse | 2,641 | 407 | 235 (58%) | 172 | 22 | L |
+| 79 | InstituteRobotics | 2 | InstituteConcourse | 222 | 23 | 8 (35%) | 15 | 5 | S |
+| 79 | InstituteSRB | 2 | InstituteConcourse | 525 | 65 | 19 (29%) | 46 | 7 | M |
+| 79 | InstituteFEVlab | 3 | InstituteBioScience x2 | 1,354 | 241 | 187 (78%) | 54 | 7 | M |
+| 105 | RelayTowerInt15B | 2 | RelayTowerInt15A | 163 | 88 | 72 (82%) | 16 | 2 | S |
+| 108 | Vault81Secret | 2 | Vault81, Vault81Entry | 3,989 | 557 | 514 (92%) | 42 | 23 | L |
+| 108 | Vault81HoldingCell | 3 | Vault81 | 31 | 6 | 5 (83%) | 1 | 0 | S |
+| 131 | TheBigDig01 | 2 | GoodneighborBobbisPlace, NHMFreightDepot01 | 7,631 | 869 | 622 (72%) | 247 | 17 | XL |
+| 131 | GoodneighborBobbisPlace | 3 | TheBigDig01 | 614 | 229 | 194 (85%) | 35 | 4 | M |
+| 137 | MedTekResearch02 | 2 | MedTekResearch01 x2 | 3,521 | 434 | 342 (79%) | 92 | 3 | L |
+| 166 | FortStrong02 | 2 | FortStrong01 | 2,281 | 427 | 333 (78%) | 94 | 4 | L |
+| 173 | RelayTowerInt17 | 2 | ShawHighSchool01 | 135 | 64 | 47 (73%) | 17 | 1 | S |
+
+- **verified**: behind backlog cells 19 interiors, 29 doors, 32,307 references, 183 added models; behind converted
+  interiors 7, 14 doors, 13,761 references, 123 added models. Every second-hop candidate model is in the FO4 mesh
+  archives. Effort classes: S 6, M 7, L 12, XL 1.
+- The seven Institute cells (after rank 79) sit behind `InstituteConcourse`, whose exterior doors are all initially
+  disabled (not enterable, below), so they wait on the enable-parent work as well as on rank 79.
 
 ## The interiors nearest the slice
 
@@ -158,11 +224,14 @@ model converts), then PluginSpike into `<staging>\plugin`. The near-slice batch 
 
 ## Odd cells and limits
 
-- **No arrival** (2 cells): `CTEST` (a 26-reference test cell, 4 doors) and `ccZSEFO4002Interior01` (5 references, 3
+- **No arrival** (4 cells): `CTEST` (a 26-reference test cell, 4 doors) and `ccZSEFO4002Interior01` (5 references, 3
   doors). Their 7 exterior doors have `ccZSEF...` / `cEEJFO4002...` bases (FormIDs 0x24A1xx) whose base records carry no
   model, and the depot's archives hold no such meshes (**verified**: no `cc` / `cEEJ` path among 159,856 mesh names).
   They look like Creation Club hooks in this Fallout4.esm, not base-game interiors (**supported**). `TheaterHub360`
-  (rank 5) also leads on into `CTEST` and `ccTOSFO4001`.
+  (rank 5) also leads on into `CTEST` and `ccTOSFO4001`. `InstituteConcourse` (rank 79: `1868BC` AutoloadDoor and
+  `1EB12C` InvisibleLoad01HiddenMinUse) and `InstituteReactor` (rank 158: `1EB12D` InvisibleLoad01HiddenMinUse): every
+  exterior door is initially disabled (**verified** in the bands), and `InvisibleDoor01.nif` is not the AutoloadDoor
+  path decisions.md records. Neither Institute cell is in the top 20, so the dry-run pick is unchanged.
 - **Quest-gated doors**: all 8 exterior doors of rank 1 `zInstituteRotunda` have enable parents; 24 backlog doors have
   one, 4 are initially disabled. Enable parents are not translated yet (docs/CELL-EXPORT.md; build plan section 3), so
   the core places those 8 doors without their condition. Eight backlog editor ids start with `z` (Bethesda's habit for
@@ -172,7 +241,8 @@ model converts), then PluginSpike into `<staging>\plugin`. The near-slice batch 
 - **Interiors behind worldspaces or other interiors**: 3 of integ_1011's 16 interiors are not reached from the core
   at all: `DmndValentines01` (its doors lead into the DiamondCity worldspace), `GoodneighborHotelRexford` (Goodneighbor
   worldspace) and `Vault81` (reached through `Vault81Entry`, a backlog cell). 33 backlog cells lead on into further
-  interiors (44 doors, the "Leads on to" column); those second-hop interiors are not ranked here.
+  interiors (44 doors, the "Leads on to" column): of their 39 targets, 20 are ranked and 2 converted (they also have
+  exterior doors); the other 17 are second-hop cells above (16 not converted, and `Vault81`).
 - **Converted models**: 2,954 of the 5,557 new models were converted by the exterior build (core64g, `fo4core` prefix),
   so the converter handles them; FO4Port.esm would convert its own copies (another prefix, another archive).
 - The ranking's distance is a straight line from the door, not a walking route. DLC interiors are not included (no
@@ -185,8 +255,15 @@ python scripts/terrain/interior_backlog.py doors --work <core64c work> --build <
 # each line of cells.txt (dotnet build -c Release in dotnet/Fo4Export first):
 dotnet dotnet/Fo4Export/bin/Release/net9.0/Fo4Export.dll <Fallout4.esm> export <EditorID> <scratch>\exports\<EditorID>.json
 python scripts/convert_batch.py --fo4-data <FO4 Data> --staging <scratch>\dryrun\<Cell> --content-resources <ContentResources.zip> --texconv <Texconvx64.exe> --collision-template <template.nif> --starfield-data <Starfield Data> --cell-json <scratch>\exports\<Cell>.json --limit 100000
-python scripts/terrain/interior_backlog.py plan --doors <scratch>\doors.json --exports <scratch>\exports --manifest <integ_1011>\manifest.json --converted <integ_1011> --core-build <terrain_core64g> --fo4-data <FO4 Data> --dryrun <scratch>\dryrun\<Cell> ... --json docs/terrain/data/interior-backlog.json --md-table <scratch>\plan.md
+dotnet dotnet/PluginSpike/bin/Release/net9.0/PluginSpike.dll <scratch>\dryrun\<Cell>\plugin <scratch>\dryrun\<Cell>\manifest.json <scratch>\exports\<Cell>.json   # STARFIELD_DATA=<Starfield Data>
+# the near-slice batch: the five exports' refs merged into one {"cell": "merged", "refs": [...]} file, one convert_batch
+# --cell-json <merged.json> into <scratch>\dryrun_batch\near_slice, then PluginSpike with that manifest and all five exports
+python scripts/terrain/interior_backlog.py plan --doors <scratch>\doors.json --exports <scratch>\exports --manifest <integ_1011>\manifest.json --converted <integ_1011> --core-build <terrain_core64g> --fo4-data <FO4 Data> --dryrun <scratch>\dryrun\<Cell> ... --json docs/terrain/data/interior-backlog.json --md-table <scratch>\plan.md --next-cells-txt <scratch>\next.txt
+# export each line of next.txt (the second-hop interiors without an export) the same way and re-run plan, until it is empty
 ```
+
+The tool's placed / skipped count is in the JSON only for a staging named after its cell (the three single-cell dry
+runs); the batch's per-cell counts were compared with its `plugin.log` outside the tool.
 
 Inputs used (read-only): Fallout4.esm 330,745,373 B (sha256 ae7be31a..., the same file as the navmesh inventories),
 the depot's `Fallout4 - Meshes*.ba2`, `terrain_core64c_work\export` (11 bands), `terrain_core64g\objects.json`,

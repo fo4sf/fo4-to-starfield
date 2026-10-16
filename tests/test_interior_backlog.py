@@ -140,6 +140,16 @@ class MeasureTests(unittest.TestCase):
         self.assertEqual(m["_new"], ["meshes\\arch\\new.nif"])
         self.assertEqual(m["leads_to_interiors"], {"(unresolved)": 1, "CellB": 2})   # exterior and self links left out
         self.assertEqual(m["teleports_inside"], 5)
+        self.assertEqual(ib.effort(m)["load_doors_in_cell"], 5)                    # every load door, exits included
+
+    def test_leading_separator_is_the_same_model(self):
+        # convert_batch.cell_candidates and PluginSpike drop a leading separator; the counts and placeable() must too
+        exp = export(CELL_A, "CellA", [ref("1", "Furniture", "\\Furn\\Chair.nif"), ref("2", "Furniture", "Furn\\Chair.nif"),
+                                       ref("3", "Static", "/Arch/Wall.nif")])
+        m = ib.cell_measures(exp, cb.cell_candidates(exp, WANTED), set(), set())
+        self.assertEqual((m["distinct_models"], m["convertible_models"]), (2, 2))
+        man = {"items": [{"source": "meshes\\Furn\\Chair.nif"}, {"source": "meshes\\Arch\\Wall.nif"}]}
+        self.assertEqual(ib.placeable(exp, man)["placed"], 3)
 
     def test_empty_cell_counts_as_converted(self):
         m = ib.cell_measures(export(CELL_A, "CellA", []), [], set(), set())
@@ -247,6 +257,87 @@ class PlanTests(unittest.TestCase):
         self.doors = ib.census(b, placed=set())
         self.assertTrue(next(c for c in self.plan()["backlog"] if c["editor_id"] == "CellA")["enterable"])
 
+    def test_enterable_needs_an_enabled_door_and_a_known_marker(self):
+        b = bands()
+        b[0]["refs"][2]["model"] = "Markers\\Special\\InvisibleDoor01.nif"     # a marker door with no recorded path
+        b[0]["refs"][3]["model"] = "Markers\\AutoLoadMarker01.nif"
+        b[0]["refs"][3]["disabled"] = 2048                                     # the AutoloadDoor is initially disabled
+        b[1]["refs"][0]["disabled"] = 2048                                     # CellB's only door: placed, but disabled
+        self.doors = ib.census(b, placed={"000201:Fallout4.esm"})
+        doc = self.plan()
+        by = {c["editor_id"]: c for c in doc["backlog"]}
+        self.assertEqual(by["CellA"]["doors_marker"], 2)
+        self.assertFalse(by["CellA"]["enterable"])
+        self.assertFalse(by["CellB"]["enterable"])
+        self.assertEqual(doc["totals"]["backlog_not_enterable"], 2)
+        b[0]["refs"][3]["disabled"] = 0
+        self.doors = ib.census(b, placed=set())
+        self.assertTrue({c["editor_id"]: c for c in self.plan()["backlog"]}["CellA"]["enterable"])
+
+    def test_entrances_count_distinct_enabled_positions(self):
+        b = bands()
+        b[0]["refs"][3]["pos"] = list(b[0]["refs"][2]["pos"])                 # CellA's two doors stacked on one spot
+        self.doors = ib.census(b, placed=set())
+        a = {c["editor_id"]: c for c in self.plan()["backlog"]}["CellA"]
+        self.assertEqual((a["doors"], a["entrances"]), (2, 1))
+        b[0]["refs"][2]["disabled"] = 2048
+        b[0]["refs"][3]["disabled"] = 2048
+        self.doors = ib.census(b, placed=set())
+        self.assertEqual({c["editor_id"]: c for c in self.plan()["backlog"]}["CellA"]["entrances"], 0)
+
+    def test_second_hop_interiors_measured_and_counted(self):
+        # CellA (backlog) leads on into CellC, CellC into CellD (hop 3); CellB (converted) into CellE (no export) and
+        # back into CellA; CellD into CellC again (counted as a door, not a new cell)
+        cell_c, cell_d, cell_e = "00C001:Fallout4.esm", "00D001:Fallout4.esm", "00E001:Fallout4.esm"
+        self.exports["CellA"]["teleport_dependencies"] = [dep("00A120:Fallout4.esm", "00C101:Fallout4.esm", cell_c, "CellC")]
+        self.exports["CellB"]["teleport_dependencies"] += [dep("00B120:Fallout4.esm", "00E101:Fallout4.esm", cell_e, "CellE")]
+        self.exports["CellC"] = export(cell_c, "CellC", [ref("00C101:Fallout4.esm", "Door", "D\\C.nif"),
+                                                         ref("c1", "Static", "S\\New.nif"), ref("c2", "Static", "S\\Old.nif")],
+                                       deps=[dep("00C120:Fallout4.esm", "00D101:Fallout4.esm", cell_d, "CellD")])
+        self.exports["CellD"] = export(cell_d, "CellD", [ref("00D101:Fallout4.esm", "Door", "D\\D.nif")],
+                                       deps=[dep("00D120:Fallout4.esm", "00C101:Fallout4.esm", cell_c, "CellC")])
+        doc = self.plan(done={"CellB"}, dry=[{"seconds": 1.0, "attempted": 1}])
+        self.assertEqual([c["editor_id"] for c in doc["backlog"]], ["CellA"])        # still ranked on exterior doors only
+        hop = {c["editor_id"]: c for c in doc["second_hop"]}
+        self.assertEqual([c["editor_id"] for c in doc["second_hop"]], ["CellE", "CellC", "CellD"])   # after_rank 0, 1, 1
+        self.assertEqual((hop["CellE"]["status"], hop["CellE"]["after_rank"], hop["CellE"]["reached_from"]),
+                         ("not_exported", 0, {"CellB": 1}))
+        self.assertEqual((hop["CellC"]["status"], hop["CellC"]["hop"], hop["CellC"]["after_rank"]), ("backlog", 2, 1))
+        self.assertEqual(hop["CellC"]["reached_from"], {"CellA": 1, "CellD": 1})
+        self.assertEqual((hop["CellD"]["hop"], hop["CellD"]["after_rank"]), (3, 1))
+        # CellA brings D\A.nif; CellC brings D\C.nif and S\New.nif (S\Old.nif converted); CellD brings D\D.nif
+        self.assertEqual((hop["CellC"]["new_models"], hop["CellC"]["adds_models"], hop["CellC"]["cumulative_new_models"]),
+                         (2, 2, 3))
+        self.assertEqual((hop["CellD"]["adds_models"], hop["CellD"]["cumulative_new_models"]), (1, 4))
+        self.assertEqual(hop["CellC"]["effort"]["convert_s_est"], 2.0)
+        self.assertNotIn("_new", hop["CellC"])
+        t = doc["totals"]
+        self.assertEqual((t["second_hop_interiors"], t["second_hop_backlog"], t["second_hop_not_exported"],
+                          t["second_hop_converted"], t["second_hop_backlog_through_converted"]), (3, 2, 1, 0, 0))
+        self.assertEqual((t["doors_into_second_hop_backlog"], t["second_hop_backlog_refs"]), (3, 4))
+        self.assertEqual((t["backlog_new_models"], t["second_hop_adds_models"], t["backlog_and_second_hop_new_models"]),
+                         (1, 3, 4))
+        self.assertEqual(t["backlog_and_second_hop_convert_s_est"], 4.0)
+        md = ib.md_table(doc)
+        self.assertIn("| 1 | CellC | 2 | CellA, CellD | 3 |", md)
+        self.assertIn("| 0 | CellE | 2 | CellB | not exported |", md)
+        self.exports["CellD"]["formkey"] = cell_e
+        with self.assertRaisesRegex(ValueError, "export CellD is cell"):
+            self.plan(done={"CellB"})
+        self.exports["CellD"]["formkey"] = cell_d
+        self.exports["CellD"]["refs"] = []
+        with self.assertRaisesRegex(ValueError, "CellD: destination doors not in its export"):
+            self.plan(done={"CellB"})
+
+    def test_archive_check(self):
+        doc = ib.plan(self.doors, self.exports, lambda e: cb.cell_candidates(e, WANTED), {"meshes\\s\\old.nif"}, set(),
+                      set(), archive={"meshes\\d\\a.nif", "meshes\\s\\old.nif"})
+        by = {c["editor_id"]: c for c in doc["backlog"]}
+        self.assertEqual((by["CellA"]["missing_from_archives"], by["CellB"]["missing_from_archives"]), (0, 2))
+        t = doc["totals"]
+        self.assertEqual((t["backlog_cells_with_models_missing_from_archives"], t["backlog_new_models_missing_from_archives"]),
+                         (1, 2))
+
     def test_refuses_missing_wrong_or_incomplete_exports(self):
         with self.assertRaisesRegex(ValueError, "no export"):
             self.plan(exports={"CellA": self.exports["CellA"]})
@@ -300,6 +391,11 @@ class CliTests(unittest.TestCase):
                 self.assertEqual(f.read(), b"CellA\nCellB\n")
             pt = PlanTests()
             pt.setUp()
+            # CellA leads on into CellC (exported), CellC into CellZ (not exported yet)
+            pt.exports["CellA"]["teleport_dependencies"] = [dep("00A120:Fallout4.esm", "00C101:Fallout4.esm",
+                                                                "00C001:Fallout4.esm", "CellC")]
+            pt.exports["CellC"] = export("00C001:Fallout4.esm", "CellC", [ref("00C101:Fallout4.esm", "Door", "D\\C.nif")],
+                                         deps=[dep("00C120:Fallout4.esm", "00F101:Fallout4.esm", "00F001:Fallout4.esm", "CellZ")])
             for eid, e in pt.exports.items():
                 with open(os.path.join(exps, eid + ".json"), "w") as f:
                     json.dump(e, f)
@@ -307,15 +403,27 @@ class CliTests(unittest.TestCase):
                 json.dump({"items": [{"source": "meshes\\S\\Old.nif"}], "failures": []}, f)
             with open(os.path.join(integ, "CellB.json"), "w") as f:
                 json.dump(pt.exports["CellB"], f)
-            js, md = os.path.join(d, "backlog.json"), os.path.join(d, "table.md")
+            st = os.path.join(d, "dryrun", "CellA")                   # a staging named after its cell: placed / skipped
+            os.makedirs(st)
+            with open(os.path.join(st, "manifest.json"), "w") as f:
+                json.dump({"items": [{"source": "meshes\\D\\A.nif"}], "failures": [], "stats": {}, "seconds": 3.0}, f)
+            js, md, nxt = (os.path.join(d, n) for n in ("backlog.json", "table.md", "next.txt"))
             self.assertEqual(ib.main(["plan", "--doors", out, "--exports", exps, "--manifest", os.path.join(integ, "manifest.json"),
-                                      "--converted", integ, "--core-build", build, "--json", js, "--md-table", md]), 0)
+                                      "--converted", integ, "--core-build", build, "--dryrun", st, "--json", js,
+                                      "--md-table", md, "--next-cells-txt", nxt]), 0)
             doc = ib.load(js)
             self.assertEqual([c["editor_id"] for c in doc["backlog"]], ["CellA"])
             self.assertEqual(doc["converted"][0]["in_core_build"], 1)
             self.assertEqual(doc["converted"][0]["doors_placed_by_core"], 1)
             self.assertEqual(len(doc["inputs"]["manifest_sha256"]), 64)
             self.assertTrue(os.path.getsize(md) > 0)
+            self.assertEqual([(c["editor_id"], c["status"]) for c in doc["second_hop"]],
+                             [("CellC", "backlog"), ("CellZ", "not_exported")])
+            with open(nxt, "rb") as f:
+                self.assertEqual(f.read(), b"CellZ\n")
+            dr = doc["dryrun"][0]
+            self.assertEqual((dr["cell"], dr["placed"], dr["skipped"], dr["seconds_per_model"]), ("CellA", 2, 1, 3.0))
+            self.assertEqual(doc["seconds_per_model"], 3.0)
 
 
 if __name__ == "__main__":

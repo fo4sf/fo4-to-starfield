@@ -14,7 +14,7 @@ interior an exterior load door of the core leads into, measures each from its ow
            dotnet dotnet/Fo4Export/bin/Release/net9.0/Fo4Export.dll <Fallout4.esm> export <EditorID> <dir>/<EditorID>.json
   plan   --doors <doors.json> --exports <dir> --manifest <integ manifest.json> --converted <integ staging>
          [--core-build <core64 staging>] [--fo4-data <FO4 Data>] [--dryrun <staging> ...] --json <out.json>
-         [--md-table <out.md>]
+         [--md-table <out.md>] [--next-cells-txt <cells.txt>]
          Per destination interior, from its export (<dir>/<EditorID>.json): references, deferred placements (actors),
          lights, distinct models, the models convert_batch --cell-json would convert (convert_batch.cell_candidates, the
          same rule), how many of those integ_1011's manifest already converted (or failed), the load doors inside it that
@@ -23,6 +23,10 @@ interior an exterior load door of the core leads into, measures each from its ow
          converted earlier makes later ones cheaper). --dryrun takes
          convert_batch stagings of exported cells (manifest.json: seconds, converted, failures) and puts the measured
          rate into the effort estimate.
+         Second hop: the interiors no exterior door leads into but a load door of a measured interior does, followed
+         until no new interior turns up (exports from the same <dir>), are measured the same way and listed apart
+         ("second_hop", after the ranked backlog); --next-cells-txt writes the ones still without an export, to export
+         and re-run.
 
 Ranking (the request's keys, in order): more exterior doors into the cell first; then nearer to Red Rocket or Sanctuary,
 by RING_M rings of the straight-line distance from the cell's nearest exterior door to the nearer landmark (whole metres
@@ -49,7 +53,7 @@ RING_M = 1000.0                  # distance rings for the second ranking key
 # Landmarks (Fallout4.esm, Commonwealth): the Red Rocket building and the Sanctuary map marker, the same references
 # make_cw_overlays.py LANDMARKS names; their positions are read from the band exports.
 LANDMARKS = {"red_rocket": "0211C0:Fallout4.esm", "sanctuary": "072A48:Fallout4.esm"}
-# Effort classes (a judgment, documented in the doc): the largest class whose limits a cell stays within.
+# Effort classes (a judgment, documented in the doc): the smallest class whose limits a cell stays within.
 EFFORT_CLASSES = (("S", 300, 50), ("M", 1500, 200), ("L", 5000, 600))   # (class, max references, max new models)
 DRYRUN_TOP = 20                  # "high value": the first DRYRUN_TOP ranked backlog cells
 DRYRUN_PICK = 3                  # the dry run converts this many of them, the smallest by references
@@ -86,6 +90,13 @@ def door_model_kind(model):
     if not model:
         return "none"
     return "marker" if re.search(r"marker", model, re.I) else "model"
+
+
+def arrival(door):
+    """An enabled exterior door with a recorded arrival: placed by the core build, or an AutoLoadMarker01 door
+    (decisions.md 2026-10-12 writes those as AutoloadDoor_Cave; other marker doors such as InvisibleDoor01 have no
+    recorded path). An initially disabled door is no way in."""
+    return not door["disabled"] and (door["placed"] or bool(re.search(r"autoloadmarker", door["model"] or "", re.I)))
 
 
 def census(bands, placed, landmarks=LANDMARKS):
@@ -142,6 +153,43 @@ def destinations(doors):
     return cells
 
 
+def lead_ons(export):
+    """The interiors an export's own load doors lead into: [(cell formkey, editor id, destination door)], one per door;
+    links into worldspaces, back into the same cell and unresolved ones left out."""
+    out = []
+    for t in export.get("teleport_dependencies", []):
+        c = t.get("destination_cell")
+        if c is not None and c.get("worldspace") is None and c.get("formkey") != export.get("formkey"):
+            out.append((c["formkey"], c.get("editor_id"), t.get("door")))
+    return out
+
+
+def second_hop(start, exports):
+    """The interiors reached only through other interiors: from the exports of `start` (the editor ids of the cells an
+    exterior door leads into), follow every load door of every export into interiors not in `start`, until no new
+    interior turns up (a cell without an export in `exports` is recorded, not followed). Returns {cell formkey:
+    {"formkey", "editor_id", "hop" (2 = behind a first-hop cell), "reached_from": {editor id: doors},
+    "destination_doors"}} in discovery order."""
+    known = {exports[e]["formkey"] for e in start}
+    found, frontier, hop = {}, [(e, exports[e]) for e in sorted(start)], 2
+    while frontier:
+        nxt = []
+        for eid, exp in frontier:
+            for fk, teid, door in lead_ons(exp):
+                if fk in known:
+                    continue
+                s = found.get(fk)
+                if s is None:
+                    s = found[fk] = {"formkey": fk, "editor_id": teid, "hop": hop, "reached_from": Counter(),
+                                     "destination_doors": []}
+                    if teid in exports:
+                        nxt.append((teid, exports[teid]))
+                s["reached_from"][eid] += 1
+                s["destination_doors"].append(door)
+        frontier, hop = nxt, hop + 1
+    return found
+
+
 # ---- per-cell measures ----------------------------------------------------------------------------------------------
 
 def manifest_sets(manifest):
@@ -154,7 +202,7 @@ def cell_measures(export, candidates, converted, failed, core_sources=frozenset(
     """What one interior export holds. candidates: the meshes convert_batch would convert for it (cell_candidates);
     archive: the source keys of every mesh in the FO4 archives (None: not checked)."""
     refs = export.get("refs", [])
-    models = {source_key("meshes\\" + r["model"]) for r in refs if r.get("model")}
+    models = {source_key("meshes\\" + r["model"].lstrip("\\/")) for r in refs if r.get("model")}
     cand = {source_key(c) for c in candidates}
     conv = cand & converted
     fail = (cand - conv) & failed
@@ -186,7 +234,7 @@ def effort(m, seconds_per_model=None):
             cls = name
             break
     out = {"class": cls, "new_models": m["new_models"], "refs_to_place": m["refs"], "actors_deferred": m["actors"],
-           "inner_load_doors": m["teleports_inside"]}
+           "load_doors_in_cell": m["teleports_inside"]}
     if seconds_per_model is not None:
         out["convert_s_est"] = round(m["new_models"] * seconds_per_model, 1)
     return out
@@ -253,7 +301,7 @@ def placeable(export, manifest):
             out["coc_markers"] += 1
         elif r.get("type") == "Light":
             out["light_refs"] += 1
-        elif r.get("model") and source_key("meshes\\" + r["model"]) in have:
+        elif r.get("model") and source_key("meshes\\" + r["model"].lstrip("\\/")) in have:
             out["placed"] += 1
         else:
             out["skipped"] += 1
@@ -312,11 +360,12 @@ def plan(doors_doc, exports, candidates_of, converted, failed, done_cells, core_
         placed_n = sum(1 for d in c["doors"] if d["placed"])
         entry = {"editor_id": eid, "formkey": fk, "status": "converted" if eid in done_cells else "backlog",
                  "doors": len(c["doors"]), "doors_placed_by_core": placed_n,
+                 # distinct positions of the enabled doors (stacked quest-state doors count once; not a ranking key)
+                 "entrances": len({tuple(d["pos"]) for d in c["doors"] if not d["disabled"]}),
                  "doors_marker": kinds.get("marker", 0), "doors_without_model": kinds.get("none", 0),
                  "doors_disabled": sum(1 for d in c["doors"] if d["disabled"]),
                  "doors_enable_parent": sum(1 for d in c["doors"] if d["enable_parent"]),
-                 # an arrival exists or has a recorded path: a door the core placed, or a marker door (decisions.md)
-                 "enterable": placed_n > 0 or kinds.get("marker", 0) > 0,
+                 "enterable": any(arrival(d) for d in c["doors"]),
                  "nearest_m": round(near[0], 1), "nearest_landmark": near[1], "nearest_door": near[2],
                  "distance_m": {k: round(min(metres(d["pos"], p) for d in c["doors"]), 1) for k, p in sorted(landmarks.items())},
                  **m,
@@ -328,7 +377,36 @@ def plan(doors_doc, exports, candidates_of, converted, failed, done_cells, core_
     ranked = rank(backlog)
     picks = pick_dryrun(ranked)
     union = set().union(*(c["_new"] for c in ranked))
-    for c in ranked + done:
+    hops = []                               # interiors reached only through other interiors (second_hop)
+    reach = {c["editor_id"]: c["rank"] for c in ranked}
+    reach.update((c["editor_id"], 0) for c in done)
+    for fk, s in second_hop([c["editor_id"] for c in ranked + done], exports).items():
+        eid = s["editor_id"]
+        # reachable once the earliest-ranked cell leading into it is converted (0: through a converted interior)
+        reach[eid] = after = min(reach[p] for p in s["reached_from"] if p in reach)
+        entry = {"editor_id": eid, "formkey": fk, "status": "not_exported", "hop": s["hop"], "after_rank": after,
+                 "reached_from": dict(sorted(s["reached_from"].items())),
+                 "doors_from_interiors": sum(s["reached_from"].values())}
+        exp = exports.get(eid)
+        if exp is not None:
+            if exp.get("formkey") != fk:
+                raise ValueError(f"export {eid} is cell {exp.get('formkey')}, the doors lead into {fk}")
+            held = {r["formkey"] for r in exp.get("refs", [])}
+            lost = [d for d in s["destination_doors"] if d not in held]
+            if lost:
+                raise ValueError(f"{eid}: destination doors not in its export: {lost}")
+            entry["status"] = "converted" if eid in done_cells else "backlog"
+            entry.update(cell_measures(exp, candidates_of(exp), converted, failed, core_sources, archive))
+            entry["effort"] = effort(entry, rate)
+        hops.append(entry)
+    hops.sort(key=lambda c: (c["after_rank"], c["hop"], c["editor_id"] or ""))
+    seen = set(union)
+    for c in hops:                          # the models each adds after the whole ranked backlog, in this order
+        if c["status"] == "backlog":
+            add = [m for m in c["_new"] if m not in seen]
+            seen.update(add)
+            c["adds_models"], c["cumulative_new_models"] = len(add), len(seen)
+    for c in ranked + done + hops:
         c.pop("_new", None)
     ws = {}
     for d in doors_doc["doors"]:
@@ -346,20 +424,30 @@ def plan(doors_doc, exports, candidates_of, converted, failed, done_cells, core_
               "backlog_new_models_per_cell_sum": sum(c["new_models"] for c in ranked),
               "backlog_new_models_in_core_build": len(union & core_sources),
               "effort_classes": dict(sorted(Counter(c["effort"]["class"] for c in ranked).items()))})
+    hb = [c for c in hops if c["status"] == "backlog"]
+    t.update({"second_hop_interiors": len(hops), "second_hop_converted": sum(1 for c in hops if c["status"] == "converted"),
+              "second_hop_not_exported": sum(1 for c in hops if c["status"] == "not_exported"),
+              "second_hop_backlog": len(hb), "second_hop_backlog_through_converted": sum(1 for c in hb if c["after_rank"] == 0),
+              "doors_into_second_hop_backlog": sum(c["doors_from_interiors"] for c in hb),
+              "second_hop_backlog_refs": sum(c["refs"] for c in hb), "second_hop_adds_models": len(seen) - len(union),
+              "backlog_and_second_hop_new_models": len(seen)})
+    if archive is not None:
+        t["second_hop_new_models_missing_from_archives"] = len(seen - union - archive)
     if rate is not None:
         t["backlog_convert_s_est"] = round(t["backlog_new_models"] * rate, 1)
+        t["backlog_and_second_hop_convert_s_est"] = round(len(seen) * rate, 1)
     return {"note": "scripts/terrain/interior_backlog.py plan: every FO4 interior an exterior load door of the core leads "
-                    "into, ranked (docs/terrain/interior-backlog.md)",
+                    "into, ranked, then the interiors reached only through those (docs/terrain/interior-backlog.md)",
             "rank_key": "doors desc, ring of nearest_m (RING_M) asc, converted_fraction desc, nearest_m asc, editor_id",
             "ring_m": RING_M, "effort_classes": [list(e) for e in EFFORT_CLASSES], "seconds_per_model": rate,
             "landmarks": {k: {"formkey": LANDMARKS.get(k), "pos": v} for k, v in sorted(landmarks.items())},
             "totals": t, "dryrun_pick": [c["editor_id"] for c in picks], "dryrun": list(dryruns),
             "worldspace_destinations": dict(sorted(ws.items())),
-            "backlog": ranked, "converted": sorted(done, key=lambda c: c["editor_id"])}
+            "backlog": ranked, "converted": sorted(done, key=lambda c: c["editor_id"]), "second_hop": hops}
 
 
 def md_table(doc, limit=0):
-    """The ranked backlog as a markdown table."""
+    """The ranked backlog as a markdown table, then the second-hop interiors not converted."""
     rows = ["| # | Interior | Doors (placed) | Nearest m | Refs | Models | Convertible | Converted | New | Adds | Class | Leads on to |",
             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for c in doc["backlog"][:limit or None]:
@@ -368,6 +456,18 @@ def md_table(doc, limit=0):
         rows.append(f"| {c['rank']} | {name} | {c['doors']} ({c['doors_placed_by_core']}) | {c['nearest_m']:.0f} "
                     f"| {c['refs']:,} | {c['distinct_models']:,} | {c['convertible_models']:,} | {c['converted_in_integ']:,} "
                     f"({100 * c['converted_fraction']:.0f}%) | {c['new_models']:,} | {c['adds_models']:,} | {c['effort']['class']} | {on} |")
+    hops = [c for c in doc.get("second_hop", []) if c["status"] != "converted"]
+    if hops:
+        rows += ["", "| After rank | Interior | Hop | Reached from (doors) | Refs | Convertible | Converted | New | Adds | Class |",
+                 "|---|---|---|---|---|---|---|---|---|---|"]
+    for c in hops:
+        frm = ", ".join(f"{k} x{n}" if n > 1 else k for k, n in c["reached_from"].items())
+        if c["status"] == "not_exported":
+            rows.append(f"| {c['after_rank']} | {c['editor_id']} | {c['hop']} | {frm} | not exported | | | | | |")
+            continue
+        rows.append(f"| {c['after_rank']} | {c['editor_id']} | {c['hop']} | {frm} | {c['refs']:,} | {c['convertible_models']:,} "
+                    f"| {c['converted_in_integ']:,} ({100 * c['converted_fraction']:.0f}%) | {c['new_models']:,} "
+                    f"| {c['adds_models']:,} | {c['effort']['class']} |")
     return "\n".join(rows) + "\n"
 
 
@@ -389,6 +489,7 @@ def main(argv=None):
     p.add_argument("--dryrun", nargs="*", default=[])
     p.add_argument("--json", required=True)
     p.add_argument("--md-table", default="")
+    p.add_argument("--next-cells-txt", default="", help="write the second-hop interiors without an export, one per line")
     a = ap.parse_args(argv)
     if a.cmd == "doors":
         paths = sorted(glob.glob(os.path.join(a.work, "export", "band_*.json")))
@@ -411,10 +512,15 @@ def main(argv=None):
     manifest = load(a.manifest)
     converted, failed = manifest_sets(manifest)
     exports = {}
-    for c in destinations(doors_doc["doors"]).values():
-        p = os.path.join(a.exports, c["editor_id"] + ".json")
-        if os.path.exists(p):
-            exports[c["editor_id"]] = load(p)
+    want = [c["editor_id"] for c in destinations(doors_doc["doors"]).values()]
+    while want:                             # the destinations, then each hop of interiors behind them that is exported
+        for eid in want:
+            p = os.path.join(a.exports, eid + ".json")
+            if os.path.exists(p):
+                exports[eid] = load(p)
+        start = [c["editor_id"] for c in destinations(doors_doc["doors"]).values() if c["editor_id"] in exports]
+        want = [s["editor_id"] for s in second_hop(start, exports).values() if s["editor_id"] not in exports
+                and os.path.exists(os.path.join(a.exports, s["editor_id"] + ".json"))]
     core = frozenset()
     if a.core_build:
         core = frozenset(source_key(b["source"]) for b in load(os.path.join(a.core_build, "objects.json"))["bases"])
@@ -442,8 +548,14 @@ def main(argv=None):
     if a.md_table:
         with open(a.md_table, "w", encoding="utf-8", newline="\n") as f:
             f.write(md_table(doc))
+    todo = sorted(c["editor_id"] for c in doc["second_hop"] if c["status"] == "not_exported")
+    if a.next_cells_txt:
+        with open(a.next_cells_txt, "w", encoding="utf-8", newline="\n") as f:
+            f.write("".join(e + "\n" for e in todo))
     print(json.dumps(doc["totals"], indent=1))
     print("dry run pick:", doc["dryrun_pick"])
+    if todo:
+        print(f"{len(todo)} second-hop interiors without an export (export them and re-run):", " ".join(todo))
     return 0
 
 
