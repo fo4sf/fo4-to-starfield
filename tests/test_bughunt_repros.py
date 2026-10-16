@@ -2,7 +2,7 @@
 expectedFailure until its issue is fixed, so the suite stays green and the fix flips the decorator off. Every test is
 synthetic (no game data): the collision ones build a Havok 2014 packfile and a Starfield tagfile template with
 havok_fixtures.py, the navmesh ones use test_navmesh's builders, the texture ones write bytes in a temp folder.
-Each test's docstring starts with its issue number (#203 to #215); the finding's file:line is at main 1b3ba39."""
+Each test's docstring starts with its issue number (#203 to #216); the finding's file:line is at main 1b3ba39."""
 import importlib.util
 import os
 import struct
@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fo4sf import fo4collision as fc  # noqa: E402
-from fo4sf import convert_static, fo4land, meshcollision, pipeline, sfbodies, textures  # noqa: E402
+from fo4sf import convert_static, door_motion, fo4land, meshcollision, pipeline, sfbodies, textures  # noqa: E402
 from fo4sf import navmesh as nm  # noqa: E402
 from fo4sf import nif  # noqa: E402
 import bridge_log  # noqa: E402
@@ -31,7 +31,8 @@ import test_walk_eval as twe  # noqa: E402
 import walk_eval as we  # noqa: E402
 import test_fo4land as tf  # noqa: E402
 import test_navmesh as tn  # noqa: E402
-from test_review_fixes import av_fields  # noqa: E402
+import test_door_two_panels as tdp  # noqa: E402
+from test_review_fixes import av_fields, trishape_block  # noqa: E402
 
 
 def load_script(name):
@@ -326,6 +327,48 @@ class JudgeTests(unittest.TestCase):
         col = ("GetPos: Z > >\n" + n + "\nScript command \"" + n + "\" not found.\nplayer.getpos x\nGetPos: X > >\n"
                "player.getpos y\nGetPos: Y > >\nplayer.getpos z\nGetPos: Z > >\n99.74\n-2195.27\n99.41")   # Y value lost
         self.assertEqual(pg.parse(col, nonce=n), "fail")                       # '99.74 -2195.27 99.41' today
+
+
+class DoorTests(unittest.TestCase):
+    @staticmethod
+    def two_leaf_door():
+        """Root -> Door (animated, constant keys) -> LeafA, LeafB (each with geometry and its own opposite keys)."""
+        ident = (1, 0, 0, 0, 1, 0, 0, 0, 1)
+        f = nif.NifFile(bs_version=130)
+        root, door, a, b = [f.string_index(s) for s in (b"Root", b"Door", b"LeafA", b"LeafB")]
+        f.add_block("NiNode", av_fields(root, (0, 0, 0), ident, 1) + struct.pack("<Ii", 1, 1))
+        f.add_block("NiNode", av_fields(door, (0, 0, 0), ident, 1) + struct.pack("<Iii", 2, 2, 3))
+        f.add_block("NiNode", av_fields(a, (0, -70, 0), ident, 1) + struct.pack("<Ii", 1, 4))
+        f.add_block("NiNode", av_fields(b, (0, 70, 0), ident, 1) + struct.pack("<Ii", 1, 5))
+        for _ in range(2):
+            f.add_block("BSTriShape", trishape_block([(0, 0, 0), (0, 70, 0), (0, 70, 140)], [(0, 1, 2)]))
+
+        def seq(name, keys):
+            interps = []
+            for n, (pos, rk) in keys:
+                d = f.add_block("NiTransformData", tdp.transform_data(rk, None))
+                interps.append(f.add_block("NiTransformInterpolator", struct.pack("<8fi", *pos, 1, 0, 0, 0, 1, d)))
+            targets = b"".join(struct.pack("<iiBiiiii", i, -1, 0, n, -1, -1, -1, -1) for i, (n, _) in zip(interps, keys))
+            f.add_block("NiControllerSequence", struct.pack("<iII", f.string_index(name), len(interps), 0) + targets
+                        + struct.pack("<fiIfffiiH", 1, -1, 2, 1, 0, 1, -1, root, 0))
+        q = tdp.quat_z
+        seq(b"Open", [(door, ((0, 0, 0), [(0, q(0)), (1, q(0))])), (a, ((0, -70, 0), [(0, q(0)), (1, q(-90))])),
+                      (b, ((0, 70, 0), [(0, q(0)), (1, q(90))]))])
+        seq(b"Close", [(door, ((0, 0, 0), [(0, q(0)), (1, q(0))])), (a, ((0, -70, 0), [(0, q(-90)), (1, q(0))])),
+                       (b, ((0, 70, 0), [(0, q(90)), (1, q(0))]))])
+        f.footer = struct.pack("<II", 1, 0)
+        return f
+
+    @unittest.expectedFailure
+    def test_leaves_with_their_own_keys_under_an_animated_parent_need_more_than_one_hinge(self):
+        """#216: door_motion.py:108-113 derives the "outside the single hinge" set from subtree membership only, so two
+        leaves with their own opposite keys under an animated parent read as covered by one hinge; frozen_door_parts is
+        empty, the own-rig path is never taken and convert_door welds both leaves to one pivot."""
+        f = self.two_leaf_door()
+        r = door_motion.inspect(f)
+        self.assertTrue(r["requires_additional_motion_support"], r)
+        self.assertEqual(sorted(r["animated_shapes_outside_single_hinge"]), [4, 5])
+        self.assertNotEqual(convert_static.frozen_door_parts(f), [])
 
 
 if __name__ == "__main__":
