@@ -448,12 +448,16 @@ class Converter:
             return self.neutral
         return self.texture_set_material(diffuse, normal, spec) or self.neutral
 
-    def convert_nif(self, nif_name: str) -> dict:
+    def convert_nif(self, nif_name: str, pose: Optional[dict] = None, out_suffix: str = "") -> dict:
+        """pose / out_suffix: a model for one placed reference (placed_pose): the NIF's bone nodes take these local
+        transforms (its XRGD ragdoll pose) and the model is written as <usual name><out_suffix>. Posed models are never
+        doors (placed_pose leaves door items out)."""
         res = {"nif": nif_name, "ok": False}
         try:
             raw = self.src.mesh(nif_name)
             src = nif.parse(raw)
-            # skinned props (lockers, cabinets, desks: skinned only so drawers/doors can animate) are taken in bind pose
+            # skinned props (lockers, cabinets, desks, skeletons) are converted in the NIF's node pose
+            # (convert_static.pose_skinned_shapes), or in a placed reference's ragdoll pose when `pose` is given
             shapes = [s for s in nif.fo4_trishapes(src) if s.positions and s.triangles]
             if not shapes:
                 raise ValueError("no static BSTriShape geometry")
@@ -463,7 +467,7 @@ class Converter:
             if all(m is None for m in mats):
                 raise ValueError("only effect-shader shapes (glass/glow), skipped")
             rel = re.sub(r"^meshes[\\/]", "", nif_name.replace("\\", "/"), flags=re.I)
-            out_name = f"{self.prefix}/{os.path.splitext(rel)[0].lower()}"
+            out_name = f"{self.prefix}/{os.path.splitext(rel)[0].lower()}{out_suffix.lower()}"
             arch = bool(self.no_collision and self.no_collision.search(nif_name))
             mode = "surfaces" if arch else "box"        # architecture: thin boxes behind flat surfaces; props: one AABB
             # Vegetation, mounds and door-named models (wall plugs around doorways, vault hall pieces, signs) keep FO4's
@@ -487,7 +491,7 @@ class Converter:
             use_box = self.collision_template is not None
             coll_report = {}
             files = None
-            if self.rig_doors and self.door_physics_donor is not None and DOOR_RE.search(nif_name) and not NOT_HINGED_RE.search(nif_name) and not load_door and nif.door_hinge(src):
+            if pose is None and self.rig_doors and self.door_physics_donor is not None and DOOR_RE.search(nif_name) and not NOT_HINGED_RE.search(nif_name) and not load_door and nif.door_hinge(src):
                 # Parts FO4 moves outside the first animated node (second leaf, shutter, other sliding panels) cannot
                 # hang under the template's single hinge: with the CALUMI library such a door gets its own rig and
                 # clips (one track and one keyframed body per part, as vanilla double doors); without it the template
@@ -516,7 +520,7 @@ class Converter:
                             res["door_frozen_parts"] = frozen
                     except Exception as e:               # noqa: BLE001  (falls back to a static door)
                         res["door_error"] = (res["door_error"] + "; " if "door_error" in res else "") + f"{type(e).__name__}: {e}"
-            elif (self.rig_doors and self.door_physics_donor is not None and self.door_anim_dll and animated
+            elif (pose is None and self.rig_doors and self.door_physics_donor is not None and self.door_anim_dll and animated
                   and not load_door and DOOR_RE.search(nif_name) and NOT_HINGED_RE.search(nif_name)):
                 # Sliding, lifting and trapdoor families (vault doors, elevator doors, hatches) cannot hang under the
                 # template's vertical hinge, and no vanilla door moves like them; vanilla sliding doors play the same graph
@@ -543,7 +547,8 @@ class Converter:
                                                       sf_mesh_template=self.sf_mesh_template if use_box else None,
                                                       collision_template=self.collision_template if use_box else None,
                                                       allow_guess=not no_guess,
-                                                      dynamic_template=self.dynamic_template if use_box else None)
+                                                      dynamic_template=self.dynamic_template if use_box else None,
+                                                      pose=pose)
                 if coll_report.get("motion") == "dynamic":
                     res["movable"] = {"mass_kg": coll_report["mass_kg"],
                                       **({"note": coll_report["motion_note"]} if "motion_note" in coll_report else {})}

@@ -4,6 +4,9 @@ usage: python convert_batch.py --fo4-data <Fallout 4 Data dir> --staging <out di
                                --texconv <Texconvx64.exe> --collision-template <vanilla box-collision Starfield .nif>
                                [--pattern "setdressing/(chair|stool)"] [--limit 40] [--manifest manifest.json]
 Writes <staging>/manifest.json: converted items (EditorID + model path for the plugin writer), failures with reasons, stats.
+With --cell-json, references whose FO4 ragdoll data (XRGD) poses their model away from its node pose get a posed model of
+their own (src/fo4sf/placed_pose.py): extra items with "pose": {"kind": "xrgd", "refs": [FO4 FormKeys]}, which the plugin
+writer places for those references only; manifest "poses" counts every reference with ragdoll data. --no-ref-poses: off.
 After conversion, prints the top failure reasons by count (with percentages) and writes failure-summary.json.
 Needs numpy. Deterministic: names are processed in sorted order.
 """
@@ -17,7 +20,7 @@ import time
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-from fo4sf import ba2, checkpoints, convert_static, meshcollision, pipeline, sfcollision, sfnif, textures  # noqa: E402
+from fo4sf import ba2, checkpoints, convert_static, meshcollision, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
 
 
 def checkpoint_signature(a):
@@ -96,7 +99,8 @@ def load_editor_ids(staging):
     if os.path.exists(manifest):
         with open(manifest, encoding="utf-8") as f:
             for item in json.load(f)["items"]:
-                adopt(item["source"], item["editor_id"])
+                if "pose" not in item:          # posed variants share their base's source; their names derive from it
+                    adopt(item["source"], item["editor_id"])
     if len({v.lower() for v in ids.values()}) != len(ids):
         raise ValueError("duplicate editor IDs in persistent source mapping")
     return ids
@@ -115,6 +119,17 @@ def editor_id(source, ids):
             raise ValueError(f"editor ID collision for {key}")
         ids[key] = name
     return ids[key]
+
+
+DEFAULT_CELL_TYPES = "Static,StaticCollection,MovableStatic,Furniture,Door,Activator,Container,MiscItem,Terminal"
+
+
+def cell_candidates(cell, wanted):
+    """The meshes --cell-json converts for one cell export: 'meshes\\' + model of every reference whose base type is in
+    wanted, without editor markers and effect meshes (fog / light volumes), sorted case-insensitively, each once."""
+    return sorted({"meshes\\" + r["model"].lstrip("\\") for r in cell["refs"] if r["model"] and r["type"] in wanted
+                   and not re.search(r"marker|^\\?effects[\\/]", r["model"], re.I)},   # editor markers, fog/light volumes
+                  key=str.lower)
 
 
 def write_json_atomic(path, value):
@@ -151,8 +166,10 @@ def main():
     ap.add_argument("--limit", type=int, default=20)
     ap.add_argument("--max-tris", type=int, default=20000, help="skip meshes with more triangles than this")
     ap.add_argument("--cell-json", default="", help="convert the models placed in a cell exported by dotnet/Fo4Export")
-    ap.add_argument("--types", default="Static,StaticCollection,MovableStatic,Furniture,Door,Activator,Container,MiscItem,Terminal",
-                    help="base record types to take from --cell-json")
+    ap.add_argument("--no-ref-poses", action="store_true",
+                    help="with --cell-json: place every reference with its base's shared model, ignoring FO4 ragdoll "
+                         "poses (XRGD); default: references the pose moves get a posed model of their own")
+    ap.add_argument("--types", default=DEFAULT_CELL_TYPES, help="base record types to take from --cell-json")
     ap.add_argument("--prefix", default="fo4port",
                     help="folder under meshes/, materials/ and textures/ for the converted files (another plugin's own "
                          "archive needs its own prefix, so two archives never hold different files at the same path)")
@@ -195,10 +212,7 @@ def main():
     if a.cell_json:
         with open(a.cell_json, encoding="utf-8-sig") as f:
             cell = json.load(f)
-        wanted = set(a.types.split(","))
-        names = sorted({"meshes\\" + r["model"].lstrip("\\") for r in cell["refs"] if r["model"] and r["type"] in wanted
-                        and not re.search(r"marker|^\\?effects[\\/]", r["model"], re.I)},   # editor markers, fog/light volumes
-                       key=str.lower)
+        names = cell_candidates(cell, set(a.types.split(",")))
     else:
         names = src.mesh_names(a.pattern)
     print(f"{len(names)} candidate meshes; converting up to {a.limit}")
@@ -253,6 +267,42 @@ def main():
             rate = attempted_so_far / elapsed_now if elapsed_now > 0 else 0
             print(f"  progress: {attempted_so_far} attempted ({len(items)} ok, {len(failures)} fail, {skipped} skipped) "
                   f"in {elapsed_now:.0f}s ({rate:.1f}/s)")
+    pose_stats = None
+    if a.cell_json and not a.no_ref_poses:
+        # FO4 ragdoll poses (XRGD): one posed model per distinct pose that moves its model (skeletons lying down)
+        by_source = {source_identity(it["source"]).replace("/", "\\"): it for it in items}
+        variants, pose_stats = placed_pose.plan(cell["refs"], by_source, lambda name: src.mesh(name))
+        for v in variants:
+            base = by_source[source_identity(v.source).replace("/", "\\")]
+            key = f"{v.source}|xrgd:{v.key}"
+            r = cache.load(key) if cache else None
+            if r is not None:
+                reused += 1
+            else:
+                if conv is None:
+                    conv = pipeline.Converter(src, a.staging, a.texconv, a.content_resources, template,
+                                              rig_doors=donor is not None, door_physics_donor=donor,
+                                              sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
+                                              prefix=a.prefix, max_texture=a.max_texture,
+                                              door_anim_dll=a.door_anim_dll or None)
+                r = conv.convert_nif(v.source, pose=v.overrides, out_suffix=v.suffix)
+                if cache:
+                    try:
+                        cache.save(key, r)
+                    except (OSError, ValueError) as e:
+                        print(f"  checkpoint unavailable for {key}: {e}")
+            if not r["ok"]:
+                failures.append({"nif": key, "reason": r["reason"]})
+                pose_stats["posed_refs"] -= len(v.refs)
+                pose_stats["failed_refs"] = pose_stats.get("failed_refs", 0) + len(v.refs)
+                continue
+            items.append({"editor_id": base["editor_id"] + v.suffix, "model": r["out_name"].replace("/", "\\") + ".nif",
+                          "source": v.source, "shapes": r["shapes"], "fallback_materials": r["fallback_materials"],
+                          "form_index": len(items), "collision_report": r.get("collision_report") or {},
+                          **({"movable": r["movable"]} if "movable" in r else {}),
+                          "pose": {"kind": "xrgd", "key": v.key, "refs": sorted(v.refs), "nodes": len(v.overrides),
+                                   "shift_units": round(v.shift, 2)}})
+        print(f"  ragdoll poses: {json.dumps(pose_stats)}")
     for f in failures[:15]:
         print("  FAIL", f["nif"], "-", f["reason"][:110])
     from collections import Counter, defaultdict
@@ -323,7 +373,7 @@ def main():
     if tex_totals is not None:
         stats["textures"] = dict(tex_totals, caps=textures.parse_texture_caps(a.max_texture))
     manifest = {"items": items, "failures": failures, "material_fallbacks": conv.material_errors if conv else {}, "stats": stats,
-                "seconds": round(time.time() - t0, 1)}
+                "seconds": round(time.time() - t0, 1), **({"poses": pose_stats} if pose_stats is not None else {})}
     os.makedirs(a.staging, exist_ok=True)
     write_json_atomic(os.path.join(a.staging, "editorids.json"), ids)
     write_json_atomic(os.path.join(a.staging, "manifest.json"), manifest)

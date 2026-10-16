@@ -7,7 +7,8 @@
 // start open (locks are counted, not written). Manifest items marked `load_door` become
 // graph-less DOOR records; when both ends of a load door pair are placed (both cell exports given), the references get the
 // Starfield teleport link (XTEL) and become persistent (TeleportLinks.cs). Load doors whose other end is not in the build
-// stay shut and are listed in <output dir>/teleports.json.
+// stay shut and are listed in <output dir>/teleports.json. Manifest items with "pose" (an FO4 reference's ragdoll pose baked
+// into a model of its own, scripts/convert_batch.py) are used for the references they list only (PosedBases.cs).
 //
 // FormIDs are STABLE: <output dir>/formids.json maps an identity key to its FormID and is reused on every run, so adding or
 // removing assets never renumbers existing records (saves and cross-references keep working). Keys:
@@ -49,21 +50,27 @@ FormKey Id(string key)
 }
 
 // ---- statics ----------------------------------------------------------------------------------------------------------
-var items = new List<(string editorId, string model, string source, JsonElement? door, JsonElement? loadDoor, bool movable)>();
+var items = new List<(string editorId, string model, string source, JsonElement? door, JsonElement? loadDoor, bool movable,
+                       IReadOnlyList<string> posedRefs)>();
 using var manifestDoc = JsonDocument.Parse(File.ReadAllText(args[1]));
 foreach (var it in manifestDoc.RootElement.GetProperty("items").EnumerateArray())
     items.Add((it.GetProperty("editor_id").GetString()!, it.GetProperty("model").GetString()!, it.GetProperty("source").GetString()!,
                it.TryGetProperty("door", out var dj) ? dj : null, it.TryGetProperty("load_door", out var lj) ? lj : null,
-               it.TryGetProperty("movable", out _)));
+               it.TryGetProperty("movable", out _), PosedBases.RefsOf(it)));
 
 // source FO4 model -> (base record, origin offset in metres). Hinged doors become DOOR records animated by a vanilla door's
 // graph / skeleton / animations; their NIF origin sits at a different point, so references are shifted by origin_offset.
 var bySource = new Dictionary<string, (FormKey key, P3Float offset)>(StringComparer.OrdinalIgnoreCase);
+// FO4 reference FormKey -> the base of its own posed model (manifest "pose"); wins over bySource for that reference
+var byRef = new Dictionary<string, (FormKey key, P3Float offset)>();
 var openingDoors = new HashSet<FormKey>();   // bases of animated (non-load) doors: their references take FO4's open state
 var ownRigDoors = new HashSet<FormKey>();    // manifest rig "native": an opening rig, never a load door (TeleportLinks)
-int doors = 0, loadDoors = 0, movables = 0;
-foreach (var (editorId, model, source, door, loadDoor, movable) in items)
+int doors = 0, loadDoors = 0, movables = 0, posed = 0;
+foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in items)
 {
+    if (posedRefs.Count > 0 && (door is not null || loadDoor is not null))
+        throw new InvalidOperationException($"posed item {editorId} is a door; posed models are statics or movable statics");
+    if (posedRefs.Count > 0) posed++;
     if (loadDoor is JsonElement ld)
     {
         // FO4 load door: a DOOR record with the static-looking converted model (native collision kept, no animation graph).
@@ -95,7 +102,7 @@ foreach (var (editorId, model, source, door, loadDoor, movable) in items)
         // pushable set dressing; a Static never simulates. DATA 4 as every vanilla MSTT checked (SfInspect mstt).
         var ms = new MoveableStatic(Id("MSTT:" + editorId), release) { EditorID = editorId, Model = new Model { File = model }, DATA = 4 };
         mod.MoveableStatics.Add(ms);
-        bySource[source.Replace('/', '\\')] = (ms.FormKey, new P3Float(0, 0, 0));
+        PosedBases.Register(byRef, bySource, source, posedRefs, (ms.FormKey, new P3Float(0, 0, 0)));
         movables++;
         continue;
     }
@@ -132,9 +139,10 @@ foreach (var (editorId, model, source, door, loadDoor, movable) in items)
     }
     var stat = new Static(Id("STAT:" + editorId), release) { EditorID = editorId, Model = new Model { File = model } };
     mod.Statics.Add(stat);
-    bySource[source.Replace('/', '\\')] = (stat.FormKey, new P3Float(0, 0, 0));
+    PosedBases.Register(byRef, bySource, source, posedRefs, (stat.FormKey, new P3Float(0, 0, 0)));
 }
-Console.WriteLine($"{items.Count - doors - loadDoors - movables} statics, {movables} movable statics, {doors} doors, {loadDoors} load doors");
+Console.WriteLine($"{items.Count - doors - loadDoors - movables} statics, {movables} movable statics, {doors} doors, {loadDoors} load doors; " +
+                  $"{posed} of these are posed models for {byRef.Count} references");
 
 // FO4 / Starfield reference rotation (radians): Bethesda angles turn CLOCKWISE seen from the positive axis, so the matrix
 // uses the negated angles; applied X, then Y, then Z. Rotates a door-local offset into the cell. (0 / 180 degree doors are
@@ -185,7 +193,7 @@ foreach (var cdoc in cellDocs)
     var omni = new FormKey(sfEsm, Convert.ToUInt32(Setting(src4, "OMNI_LIGHT", "03D38C"), 16)); // LGT_ShipInterior_Omni_NS_Neutral_2k
     var merge = float.Parse(Setting(src4, "LIGHT_MERGE_M", "3"), System.Globalization.CultureInfo.InvariantCulture);
     var lit = new List<P3Float>();
-    int lights = 0, placed = 0, skipped = 0, disabled = 0, openDoors = 0, lockedDoors = 0;
+    int lights = 0, placed = 0, skipped = 0, disabled = 0, openDoors = 0, lockedDoors = 0, placedPosed = 0;
     foreach (var r in root.GetProperty("refs").EnumerateArray())
     {
         var src = r.GetProperty("formkey").GetString()!;
@@ -207,7 +215,8 @@ foreach (var cdoc in cellDocs)
         }
         else
         {
-            if (model.Length == 0 || !bySource.TryGetValue("meshes\\" + model.TrimStart('\\'), out var bas)) { skipped++; continue; }
+            if (!PosedBases.TryResolve(byRef, bySource, src, model, out var bas)) { skipped++; continue; }
+            if (byRef.ContainsKey(src)) placedPosed++;
             var scale = r.GetProperty("scale").GetSingle();
             var rot = Rot(r.GetProperty("rot"));
             var pos = Pos(r.GetProperty("pos"));
@@ -244,7 +253,7 @@ foreach (var cdoc in cellDocs)
     sub.Cells.Add(cell);
     block.SubBlocks.Add(sub);
     mod.Cells.Records.Add(block);
-    Console.WriteLine($"cell {cellName} {cell.FormKey}: placed {placed} references + {lights} lights ({disabled} initially disabled), skipped {skipped}");
+    Console.WriteLine($"cell {cellName} {cell.FormKey}: placed {placed} references ({placedPosed} with their own posed model) + {lights} lights ({disabled} initially disabled), skipped {skipped}");
     if (openDoors + lockedDoors > 0)
         Console.WriteLine($"  doors: {openDoors} open by default (as in FO4), {lockedDoors} locked in FO4 (lock not written)");
 }
