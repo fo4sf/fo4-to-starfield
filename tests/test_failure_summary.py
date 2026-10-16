@@ -86,6 +86,11 @@ class FailureSummaryTests(unittest.TestCase):
             self.assertIn("seconds", summary)
             self.assertEqual(summary["top"], [])
             self.assertEqual(summary.get("reasons"), {})
+            self.assertEqual(summary["doors"], 0)
+            self.assertEqual(summary["load_doors"], 0)
+            self.assertEqual(summary["movables"], 0)
+            self.assertEqual(summary["total_shapes"], 2)
+            self.assertEqual(summary["avg_shapes"], 1.0)
 
     def test_overwrites_stale_summary_on_successful_rerun(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -130,4 +135,41 @@ class FailureSummaryTests(unittest.TestCase):
             self.assertIn("seconds", summary)
             self.assertEqual(summary["top"], [])
             self.assertEqual(summary.get("reasons"), {})
+            self.assertEqual(summary["doors"], 0)
+            self.assertEqual(summary["total_shapes"], 2)
+            self.assertEqual(summary["avg_shapes"], 1.0)
+
+    def test_asset_mix_counts_doors_and_shapes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            staging = Path(tmp) / "staging"
+            collision = Path(tmp) / "collision.nif"
+            collision.write_bytes(b"synthetic")
+            names = ["meshes/door.nif", "meshes/movable.nif", "meshes/static.nif"]
+            src = SimpleNamespace(mesh_names=lambda pattern: names)
+            converter = SimpleNamespace(stats={}, material_errors={})
+
+            def convert(name):
+                base = {"ok": True, "out_name": "out", "shapes": 3, "fallback_materials": 0}
+                if "door" in name:
+                    base["door"] = True
+                if "movable" in name:
+                    base["movable"] = True
+                return base
+            converter.convert_nif = Mock(side_effect=convert)
+            argv = ["convert_batch.py", "--fo4-data", "unused", "--staging", str(staging),
+                    "--content-resources", "unused", "--texconv", "unused",
+                    "--collision-template", str(collision), "--limit", "10"]
+            with patch.object(sys, "argv", argv), \
+                    patch.object(batch.pipeline, "Fo4Archives", return_value=src), \
+                    patch.object(batch.pipeline, "Converter", return_value=converter), \
+                    patch.object(batch.convert_static, "collision_template_from_nif", return_value=b"template"), \
+                    patch("builtins.print"):
+                batch.main()
+            summary = json.loads((staging / "failure-summary.json").read_text())
+            self.assertEqual(summary["successes"], 3)
+            self.assertEqual(summary["doors"], 1)
+            self.assertEqual(summary["movables"], 1)
+            self.assertEqual(summary["load_doors"], 0)
+            self.assertEqual(summary["total_shapes"], 9)
+            self.assertEqual(summary["avg_shapes"], 3.0)
 
