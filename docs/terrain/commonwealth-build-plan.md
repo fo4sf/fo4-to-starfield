@@ -59,6 +59,20 @@ carries its FO4 base signature; `exterior.py classify`) and emits, per class, th
 Each class is one build (core64e -> f -> g), one `check` extension (counts per class, ids retained), one queue; the
 inventory and text tables are owner decisions, recorded in the cluster files.
 
+Status 2026-10-16 (loose items, branch `claude/items-promotion`; offline only, not in game): a cluster file may carry
+`"items"` (make_cluster.py items) next to `"containers"`. `make_core64c.cluster_items` turns each listed placed
+MiscItem / Ingestible reference into an item entry (edid `FO4Core_misc_<6 hex>_<plugin>` from the FO4 base, the
+converted model of its base, the table's name / value / weight; entries of one edid must agree, disabled or unplaced
+references are refused); `cluster_promote` judges containers and items on the same unpromoted list, so both classes
+share one slot plan (`ReferenceIdentityPlan`, `check_reference_slots`). TerrainOverlays writes one MISC per edid
+(Mutagen 0.55 `MiscItem`: Model, Name, Value, Weight; no bounds, sounds or keywords yet) after every reserved REFR and
+CONT base, and the REFR in the source's own slot; formids.json `"items"` = {src: {base, ref}}. `check` adds: REFR
+total unchanged by promotion, one MISC (and one CONT) per distinct edid, and every promoted REFR bound to its base
+(raw records). Dry run (**verified** offline): the first 200 of 12,438 placed items (492 FO4 bases) on core64c ->
+86 MISC, 648,360 REFR (648,158 objects + 200 items + marker + anchor), all 648,358 sources at core64c's REFR ids,
+check 248/248 PASS. The full 12,438 items with the 5,185 containers promote without a conflict (Python side only).
+Not yet: in-game pick-up (the acceptance above), physics of a converted model as a loose item.
+
 ## 4. Navmesh and actors
 
 R06's numbers decide the path: if the exterior overlay has no NAVM, the options are (a) convert FO4's exterior NAVM

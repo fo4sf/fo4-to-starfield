@@ -41,6 +41,14 @@ def records(path):
     return out
 
 
+def subrecords(payload):
+    pos = 0
+    while pos < len(payload):
+        sig, size = payload[pos:pos + 4], struct.unpack_from('<H', payload, pos + 4)[0]
+        yield sig, payload[pos + 6:pos + 6 + size]
+        pos += 6 + size
+
+
 def without_base(record):
     payload = record[1]
     kept, pos = [], 0
@@ -101,35 +109,61 @@ class TerrainReferenceIdentityTests(unittest.TestCase):
         (stage / f'run-{suffix}.log').write_text(proc.stdout + proc.stderr, encoding='utf-8')
         return proc, stage
 
-    def promote(self, indices):
+    def promote(self, indices, items=()):
         obj = copy.deepcopy(self.objects)
         obj['containers'] = [dict(obj['refs'][i], reference_index=i, edid=f'SyntheticContainer{i}',
                                  model='synthetic.nif', name=f'Synthetic {i}',
                                  items=[{'form': 'Starfield.esm:00000F', 'count': 25}]) for i in indices]
-        obj['refs'] = [r for i, r in enumerate(obj['refs']) if i not in indices]
+        if items:
+            # loose items of one FO4 base: one shared MISC edid (make_core64c.cluster_items)
+            obj['items'] = [dict(obj['refs'][i], reference_index=i, edid='SyntheticMisc', model='synthetic.nif',
+                                 name='Synthetic item', value=7, weight=0.25) for i in items]
+        obj['refs'] = [r for i, r in enumerate(obj['refs']) if i not in indices and i not in items]
         return obj
 
-    def assert_preserved(self, indices, name):
+    def assert_preserved(self, indices, name, items=()):
         before, baseline = self.run_writer(self.objects, f'{name}-before')
-        after, candidate = self.run_writer(self.promote(indices), f'{name}-after')
+        after, candidate = self.run_writer(self.promote(indices, items), f'{name}-after')
         self.assertEqual(before.returncode, 0, before.stderr)
         self.assertEqual(after.returncode, 0, after.stderr)
         old = json.loads((baseline / 'formids.json').read_text())
         new = json.loads((candidate / 'formids.json').read_text())
-        combined = dict(new['refs'], **{src: v['ref'] for src, v in new['containers'].items()})
+        self.assertNotIn('items', old)                 # a build without items keeps its formids.json shape
+        promoted = dict(new['containers'], **new.get('items', {}))
+        combined = dict(new['refs'], **{src: v['ref'] for src, v in promoted.items()})
         self.assertEqual(combined, old['refs'])
         self.assertEqual(new['bases'], old['bases'])
         old_records, new_records = records(baseline / 'Synthetic.esm'), records(candidate / 'Synthetic.esm')
         for src, identity in old['refs'].items():
             key = int(identity, 16)
             self.assertEqual(new_records[key][0], b'REFR')
-            if src in new['containers']:
+            if src in promoted:
                 self.assertEqual(without_base(new_records[key]), without_base(old_records[key]))
+                name = next(d for sig, d in subrecords(new_records[key][1]) if sig == b'NAME')
+                self.assertEqual(struct.unpack_from('<I', name)[0] & 0xFFFFFF, int(promoted[src]['base'], 16))
             else:
                 self.assertEqual(new_records[key], old_records[key])
         for info in new['containers'].values():
             self.assertGreater(int(info['base'], 16), max(old_records))
             self.assertEqual(new_records[int(info['base'], 16)][0], b'CONT')
+        last_cont = max([max(old_records)] + [int(c['base'], 16) for c in new['containers'].values()])
+        for info in new.get('items', {}).values():
+            self.assertGreater(int(info['base'], 16), last_cont)                     # MISC after every CONT
+            self.assertEqual(new_records[int(info['base'], 16)][0], b'MISC')
+        if items:
+            self.assertEqual(len({info['base'] for info in new['items'].values()}), 1)   # one MISC per edid
+            base = new_records[int(next(iter(new['items'].values()))['base'], 16)]
+            fields = dict(subrecords(base[1]))
+            self.assertEqual(fields[b'EDID'], b'SyntheticMisc' + bytes(1))
+            self.assertEqual(fields[b'MODL'], b'synthetic.nif' + bytes(1))
+            self.assertEqual(fields[b'FULL'], b'Synthetic item' + bytes(1))
+            self.assertEqual(struct.unpack('<if', fields[b'DATA'][:8]), (7, 0.25))
+        return new_records
+
+    def test_items_and_containers_mixed_preserve_all_slots(self):
+        recs = self.assert_preserved([1], 'mixed-items', items=(2, 0))
+        self.assertEqual(sum(1 for r in recs.values() if r[0] == b'MISC'), 1)
+        self.assert_preserved([], 'items-only', items=(1,))
 
     def test_middle_promotion_preserves_all_serialized_source_references(self):
         self.assert_preserved([1], 'middle')
@@ -158,6 +192,12 @@ class TerrainReferenceIdentityTests(unittest.TestCase):
         alias = copy.deepcopy(good)
         alias['refs'][0]['src'] = alias['containers'][0]['src'].lower()
         invalid.append(alias)
+        clash = self.promote([1], items=(0,))
+        clash['items'][0]['reference_index'] = 1                     # an item in the container's slot
+        invalid.append(clash)
+        disagree = self.promote([], items=(0, 2))
+        disagree['items'][1]['value'] = 8                            # one MISC edid, two values
+        invalid.append(disagree)
         for objects in invalid:
             proc, _ = self.run_writer(objects, 'refusals')
             self.assertNotEqual(proc.returncode, 0)

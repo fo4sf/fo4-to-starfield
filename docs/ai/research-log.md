@@ -3,6 +3,34 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-16 Claude: BSMeshLODTriShape triangle groups are parts, not alternative LODs (Vault 111 tables without tops)
+- Question: why do Vault 111's NpcTableVaultSit02 tables (`SetDressing\Vault\Vault_Table_02.nif`) show their frames
+  but no tops in the playtest build (integ_1011)?
+- **verified** (source from `Fallout4 - Meshes.ba2` via `fo4sf.ba2`, decoded with `nif.parse`): one
+  BSMeshLODTriShape (block 4, 2,210 vertices, 1,702 triangles, 12 trailing bytes = LOD0/1/2 Size **(684, 0, 1018)**).
+  The 684-triangle LOD0 group holds the top (4 up-facing triangles at z 55-60, 10,467 sq units) and a shelf (z 30-35,
+  7,445); the 1,018-triangle LOD2 group is frame only (129 sq units facing up). The two groups share no vertex and
+  together use all 2,210.
+- **verified**: `nif.fo4_trishapes` kept only the largest group ("triangles hold all LOD levels back to back: keep
+  the most detailed", added 2026-10-07 without evidence). The shipped mesh
+  `integ_1011\geometries\96785ef3080773180767\0f2d4812a8477d5e5f63.mesh` has 1,018 triangles, 666 vertices no
+  triangle uses (exactly the LOD0 group's) and 0.016 m2 facing up above 0.7 m. Converted with the fix: 1,702
+  triangles, 0 unused vertices, 2.153 m2 facing up above 0.7 m. Not a material, alpha or winding problem: the top's
+  triangles were missing from the mesh.
+- **verified** (scan of every NIF in Meshes.ba2 + MeshesExtra.ba2, 63 s): 5,292 BSMeshLODTriShapes in 3,319 NIFs
+  (all in Meshes.ba2; the 95,856 precombined NIFs' LOD shapes store no geometry) have more than one non-empty group.
+  5,290 of them share no vertex between groups and use every vertex exactly once, the layout of one mesh cut into
+  parts; alternative LOD versions would each cover the whole surface, but the old rule dropped a median 42 % of a
+  shape's surface area (up to 98 %, e.g. `IndFrame1024x1024EmptyShapeEdge01.nif` keeps 800 small triangles and drops
+  the 68 that make the panels). nif.xml (fo76utils NifSkope) describes the Skyrim form BSLODTriShape as "visibility
+  control over vertex groups".
+- **supported hypothesis**: the game draws the LOD0 group at every distance and adds the LOD1 / LOD2 groups closer
+  in (NifSkope's renderer is recalled to draw all three at its highest detail level; not checked against source
+  here). Either way the full-detail mesh is all groups, which is what the converter now writes.
+- Scope: 534 of the 4,201 models in integ_1011's manifest lose triangles under the old rule (623 shapes, 187,752 of
+  874,690 triangles); 486 lose at least 10 % of some shape's surface, 345 at least half. Fix: keep every triangle
+  (tests/test_lod_trishape.py). Not yet seen in game: needs a rebuild and the Vault 111 tables checked in a playtest.
+
 ## 2026-10-13 Claude: the first live door_trip runs, and why our persistent refs read unmerged
 - Question: why did the first live Red Rocket cave door runs (queue `slice_door_1013`, exp2d + FO4SliceRedRocket.esm,
   runner 129b9ae) end INCONCLUSIVE UNREAD (a1) and FAIL NOLOAD (a2), and what must change in the runner and the
