@@ -44,7 +44,8 @@ function Stopped { (Test-Path (Join-Path $tq 'STOP_ALL')) -or (Test-Path "$env:L
 function LeaseStatus($cfg) {
   # the controller lease (lease mode): status, holder and last activity, one JSON line from lease.py
   $out = python -I "$repo\scripts\game\lease.py" status --dir $cfg.lease_dir --json 2>$null
-  if ($LASTEXITCODE -ne 0 -or -not $out) { Note "lease status unreadable (lease.py exit $LASTEXITCODE)"; return $null }
+  if (-not $out) { Note "lease status unreadable (no output from lease.py: python not found, or exit $LASTEXITCODE)"; return $null }
+  if ($LASTEXITCODE -ne 0) { Note "lease status unreadable (lease.py exit $LASTEXITCODE)"; return $null }
   try { return ($out | Select-Object -Last 1 | ConvertFrom-Json) } catch { Note "lease status not JSON: $_"; return $null }
 }
 function ClaimLeaseForChain($cfg, $idleH) {
@@ -53,8 +54,14 @@ function ClaimLeaseForChain($cfg, $idleH) {
   # someone else's held lease is never taken; the watchdog's own (a chain that stopped early) is claimed again
   if ($ls -and $ls.status -eq 'held' -and $ls.lease.owner -ne $cfg.lease_owner) { Note "lease held by $($ls.lease.owner) until $($ls.lease.expires): chain not started"; return $false }
   $ttl = [int]([double]$cfg.lease_hours * 3600)
-  $reason = "watchdog: Claude inactive $([Math]::Round($idleH,1)) h past the threshold; no lease held"
-  $out = python -I "$repo\scripts\game\lease.py" claim --dir $cfg.lease_dir --owner $cfg.lease_owner --purpose 'unattended test chain' --ttl $ttl --force --reason $reason 2>&1
+  # --force only where a plain claim would be refused (an expired lease nobody released, an unreadable file): a routine
+  # claim (no lease, released) is recorded as what it is, so the ledger tells a takeover from the normal case
+  $force = @()
+  if (-not $ls -or $ls.status -notin @('none', 'released')) {
+    $reason = "watchdog: Claude inactive $([Math]::Round($idleH,1)) h past the threshold; lease $(if ($ls) { $ls.status } else { 'unreadable' })"
+    $force = @('--force', '--reason', $reason)
+  }
+  $out = python -I "$repo\scripts\game\lease.py" claim --dir $cfg.lease_dir --owner $cfg.lease_owner --purpose 'unattended test chain' --ttl $ttl @force 2>&1
   if ($LASTEXITCODE -ne 0) { Note "lease claim refused ($($out | Select-Object -Last 1)): chain not started"; return $false }
   $env:FO4SF_LEASE_DIR = $cfg.lease_dir; $env:FO4SF_LEASE_OWNER = $cfg.lease_owner   # inherited by chain.ps1 -> testqueue.py, cycle.ps1
   Note "lease claimed as $($cfg.lease_owner) for $ttl s: $($out | Select-Object -Last 1)"
