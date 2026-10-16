@@ -67,7 +67,9 @@ def now_iso():
 
 
 def parse_iso(s):
-    return datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
+    """An ISO timestamp as an aware datetime; one without a zone is taken as UTC (never a TypeError in a comparison)."""
+    d = datetime.datetime.fromisoformat(s.replace("Z", "+00:00"))
+    return d if d.tzinfo is not None else d.replace(tzinfo=datetime.timezone.utc)
 
 
 @dataclass

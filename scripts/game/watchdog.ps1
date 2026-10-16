@@ -11,6 +11,12 @@
 # STOP files and the Resource Guardian stop it. The watchdog itself does nothing while a STOP file exists.
 # Config (optional): C:\Modding\testqueue\watchdog.json  {"threshold_hours": 3, "check_minutes": 10, "codex": true,
 #   "codex_every_hours": 6, "codex_exe": "...\\codex.exe"}.  Log: C:\Modding\testqueue\watchdog.log
+# Controller lease (docs/ai/leader-core.md section 6; opt-in, default off): with "lease_dir" in watchdog.json (or
+# FO4SF_LEASE_DIR set), Claude's activity is the lease's last claim / renewal / release plus the heartbeat file (no git
+# grep: the cloud sessions' "Claude-cloud:" commits are not the PC's activity), the chain is started only after the lease
+# is claimed as "lease_owner" (default watchdog, for "lease_hours", default 8; a lease someone still holds is never
+# taken), and the chain inherits FO4SF_LEASE_DIR / FO4SF_LEASE_OWNER so testqueue.py and cycle.ps1 check that lease.
+# Without "lease_dir" nothing here changes.
 # usage: watchdog.ps1 [-Once]   (-Once: one check and exit, for tests and for a manual "would it fire now?")
 param([switch]$Once, [string]$Config = 'C:\Modding\testqueue\watchdog.json')
 $ErrorActionPreference = 'Continue'
@@ -24,18 +30,49 @@ $heartbeat = Join-Path $tq 'claude_heartbeat.txt'
 function Note($m) { try { "$(Get-Date -Format s) $m" | Add-Content $log -ErrorAction Stop } catch { } }
 function Cfg {
   $c = @{ threshold_hours = 3.0; check_minutes = 10; codex = $true; codex_every_hours = 6.0
-          codex_exe = "$env:USERPROFILE\.codex\.sandbox-bin\codex.exe" }
+          codex_exe = "$env:USERPROFILE\.codex\.sandbox-bin\codex.exe"
+          lease_dir = ''; lease_owner = 'watchdog'; lease_hours = 8.0 }
   if (Test-Path $Config) {
     try { (Get-Content $Config -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $c[$_.Name] = $_.Value } }
     catch { Note "config unreadable, defaults used: $_" }
   }
+  if (-not $c.lease_dir -and $env:FO4SF_LEASE_DIR) { $c.lease_dir = $env:FO4SF_LEASE_DIR }
   return $c
 }
 function Stopped { (Test-Path (Join-Path $tq 'STOP_ALL')) -or (Test-Path "$env:LOCALAPPDATA\fo4-ai-team\state\testqueue.STOP") }
-function ClaudeLast {
-  # newest of: heartbeat file, last "Claude:" commit on any ref (fetch first; a failed fetch keeps the local refs)
+function LeaseStatus($cfg) {
+  # the controller lease (lease mode): status, holder and last activity, one JSON line from lease.py
+  $out = python -I "$repo\scripts\game\lease.py" status --dir $cfg.lease_dir --json 2>$null
+  if ($LASTEXITCODE -ne 0 -or -not $out) { Note "lease status unreadable (lease.py exit $LASTEXITCODE)"; return $null }
+  try { return ($out | Select-Object -Last 1 | ConvertFrom-Json) } catch { Note "lease status not JSON: $_"; return $null }
+}
+function ClaimLeaseForChain($cfg, $idleH) {
+  # lease mode: the chain runs as lease_owner and needs the lease; a lease someone still holds is never taken
+  $ls = LeaseStatus $cfg
+  if ($ls -and $ls.status -eq 'held') { Note "lease held by $($ls.lease.owner) until $($ls.lease.expires): chain not started"; return $false }
+  $ttl = [int]([double]$cfg.lease_hours * 3600)
+  $reason = "watchdog: Claude inactive $([Math]::Round($idleH,1)) h past the threshold; no lease held"
+  $out = python -I "$repo\scripts\game\lease.py" claim --dir $cfg.lease_dir --owner $cfg.lease_owner --purpose 'unattended test chain' --ttl $ttl --force --reason $reason 2>&1
+  if ($LASTEXITCODE -ne 0) { Note "lease claim refused ($($out | Select-Object -Last 1)): chain not started"; return $false }
+  $env:FO4SF_LEASE_DIR = $cfg.lease_dir; $env:FO4SF_LEASE_OWNER = $cfg.lease_owner   # inherited by chain.ps1 -> testqueue.py, cycle.ps1
+  Note "lease claimed as $($cfg.lease_owner) for $ttl s: $($out | Select-Object -Last 1)"
+  return $true
+}
+function ClaudeLast($cfg) {
+  # newest of: heartbeat file, and either the lease's last claim / renewal / release (lease mode) or the last "Claude:"
+  # commit on any ref (fetch first; a failed fetch keeps the local refs)
   $t = [DateTime]::MinValue
   if (Test-Path $heartbeat) { $t = (Get-Item $heartbeat).LastWriteTime }
+  if ($cfg.lease_dir) {
+    $ls = LeaseStatus $cfg
+    if ($ls -and $ls.last_activity) {
+      try {
+        $c = [DateTimeOffset]::Parse($ls.last_activity, [Globalization.CultureInfo]::InvariantCulture).LocalDateTime
+        if ($c -gt $t) { $t = $c }
+      } catch { Note "lease last_activity unparsable: $($ls.last_activity)" }
+    }
+    return $t
+  }
   # fetch with a time limit: a hung fetch (network down) must not freeze the loop
   $job = Start-Job -ScriptBlock { param($r) git -C $r fetch -q origin 2>$null } -ArgumentList $repo
   if (-not (Wait-Job $job -Timeout 60)) { Stop-Job $job; Note "git fetch timed out: local refs used" }
@@ -83,7 +120,7 @@ while ($true) {
   if (Stopped) {
     Note "STOP file present: nothing started"
   } else {
-    $last = ClaudeLast
+    $last = ClaudeLast $cfg
     $idleH = ((Get-Date) - $last).TotalHours
     $st = State
     if ($idleH -ge [double]$cfg.threshold_hours) {
@@ -91,12 +128,16 @@ while ($true) {
       # at most 3 chain starts per 6 hours: a queue that keeps failing at once must not be restarted every check
       $starts = @(if ($st -and $st.starts) { $st.starts | Where-Object { ((Get-Date) - [DateTime]$_).TotalHours -lt 6 } })
       if (-not $running -and (QueueLeft) -gt 0 -and $starts.Count -lt 3) {
-        Note ("Claude inactive {0:N1} h (last {1:s}): starting the test chain" -f $idleH, $last)
-        Start-Process powershell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $tq 'chain.ps1')) `
-                      -WindowStyle Hidden | Out-Null
-        $starts += (Get-Date).ToString('s')
-        SaveState @{ last_codex = $(if ($st) { $st.last_codex } else { $null }); starts = $starts; claude_last = $last.ToString('s') }
-        $st = State
+        $go = $true
+        if ($cfg.lease_dir) { $go = ClaimLeaseForChain $cfg $idleH }   # lease mode: no lease, no chain
+        if ($go) {
+          Note ("Claude inactive {0:N1} h (last {1:s}): starting the test chain" -f $idleH, $last)
+          Start-Process powershell -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $tq 'chain.ps1')) `
+                        -WindowStyle Hidden | Out-Null
+          $starts += (Get-Date).ToString('s')
+          SaveState @{ last_codex = $(if ($st) { $st.last_codex } else { $null }); starts = $starts; claude_last = $last.ToString('s') }
+          $st = State
+        }
       } elseif (-not $running -and (QueueLeft) -gt 0) {
         Note "chain not restarted: 3 starts in the last 6 hours already (see overnight.log)"
       }

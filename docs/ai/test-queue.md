@@ -75,6 +75,12 @@ the walk climbs).
   `--wait-for-idle`; with `--refocus` it then brings its own game window back to the front once, never another app).
   Every step runs with `FO4SF_NO_FOCUS_STEAL=1`, so `input.ps1` refuses to pull the game in front during a test.
 - `queue.json` `"hours"` limits the allowed hours (default `[[0, 24]]`); `--max-hours` and `--max-tests` bound a run.
+- Controller lease (opt-in, default off; docs/ai/leader-core.md section 6): with `FO4SF_LEASE_DIR` set (or `run
+  --lease-dir`), the runner launches nothing and sends no step unless `FO4SF_LEASE_OWNER` (default `Claude`, or
+  `--lease-owner`) holds an unexpired lease in that folder (`python scripts\game\lease.py claim --dir <folder> --owner
+  Claude --purpose "<why>" --ttl 28800`), renews it before every test and stops, resumable, with `stopped: lease ...`
+  when it is gone; `cycle.ps1` then refuses to launch (exit 9) and `watchdog.ps1` reads the lease instead of the last
+  `Claude:` commit. Unset: none of this runs.
 - The build is pinned: `queue.json` records the SHA-256 of `FO4Port.esm`; the runner will not launch a staging folder
   whose plugin changed. The dedicated save `fo4sf_test_<build id>` is created on the first launch and loaded on later ones. After god mode the
   session disables the save's companion (Vasco, Starfield.esm ACHR `000057BE`; qstep kind `companion_off`, confirmed by

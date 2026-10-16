@@ -318,3 +318,17 @@ worst crash case, and the work-period report generated from the fold cannot drif
 a SQLite store like `guardian.db` (harder to diff and attach as evidence; a crash mid-write is worse than a
 truncated JSON line); GitHub labels as the state (not machine-checkable, no history of who held the controller);
 rewriting old queue results into a new format (would touch original campaign evidence).
+
+## 2026-10-16 Claude-cloud: the controller lease is a file beside the ledger, consulted only behind an opt-in switch
+
+`src/fo4sf/core/controller.py` keeps the lease in `<leader>/controller.json` and writes every claim, renewal and
+release to the ledger first (the ledger is the record; the file is the cache the PowerShell scripts read through
+`scripts/game/lease.py`). `testqueue.py run`, `cycle.ps1` and `watchdog.ps1` consult it only when `FO4SF_LEASE_DIR`
+(the watchdog: `lease_dir` in `watchdog.json`) is set; unset, every script behaves as before, so the owner's PC does
+not change until the PC session turns the switch on in a window it watches. Why: the live runner, the chain and the
+watchdog are the PC session's, and a cloud session cannot test them against the game; a default-off switch lets the
+code merge and be read without a behaviour change. An expired lease is ambiguous and refuses every claim but the
+holder's own or a forced one with a reason, because a crash leaves exactly that state and the ledger must say who took
+over and why. Alternatives: a lock file alone (no record of who held it and no expiry: the #84 race again); a fold of
+the ledger in PowerShell (duplicated logic in two languages); a key in the PC's `config.toml` (not in git, and the
+runner reads none today); shipping the wiring on by default (would change the next chain on the PC untested).

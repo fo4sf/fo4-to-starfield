@@ -14,12 +14,23 @@
 # 5 a screen check could not run (nothing pressed), 6 an activation prompt sits under the crosshair (nothing pressed),
 # 7 an installed experiment plugin's master is not active (exp_install.py order; the game is not launched),
 # 8 the experiment plugins are no longer active after the save loaded, or the load order dialog could not be answered
-# with "Current" (loadorder.ps1; nothing tested, the game is left running for the runner to close).
+# with "Current" (loadorder.ps1; nothing tested, the game is left running for the runner to close),
+# 9 no valid controller lease for this owner (only with FO4SF_LEASE_DIR set; nothing closed, deployed or launched).
 param([Parameter(Mandatory)][string]$Staging, [Parameter(Mandatory)][string]$Starfield, [string]$Cell = 'FO4Port_Vault111Cryo',
       [string]$Shot = (Join-Path $env:TEMP 'fo4sf_cycle.png'), [string]$CellJson = '')
 if ($Cell -notmatch '^[A-Za-z0-9_]+$') { "cell name must be letters, digits and underscores (it is typed into the game): $Cell"; exit 1 }
 $repo = Split-Path (Split-Path $PSScriptRoot); $sf = $Starfield
 $i = (Join-Path $PSScriptRoot 'input.ps1'); $env:LEGACY = '1'
+# Controller lease (docs/ai/leader-core.md section 6; opt-in, default off): with FO4SF_LEASE_DIR set, the game is only
+# closed, redeployed and launched while FO4SF_LEASE_OWNER (default Claude) holds an unexpired lease in that folder;
+# otherwise exit 9 before anything is touched. Unset, this block does nothing and the script behaves as before.
+if ($env:FO4SF_LEASE_DIR) {
+  $leaseOwner = if ($env:FO4SF_LEASE_OWNER) { $env:FO4SF_LEASE_OWNER } else { 'Claude' }
+  $leaseOut = python -I "$repo\scripts\game\lease.py" status --dir $env:FO4SF_LEASE_DIR --require $leaseOwner
+  $leaseCode = $LASTEXITCODE
+  $leaseOut | Select-Object -Last 1
+  if ($leaseCode -ne 0) { "no valid controller lease for $leaseOwner in $($env:FO4SF_LEASE_DIR) (lease.py exit $leaseCode): not launching"; exit 9 }
+}
 $p = Get-Process Starfield -ErrorAction SilentlyContinue
 $pidFile = Join-Path $PSScriptRoot 'cycle_pid.txt'           # local only: the PID of the game this script launched
 $own = if (Test-Path $pidFile) { [int](Get-Content $pidFile) } else { 0 }
