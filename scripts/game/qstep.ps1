@@ -759,9 +759,11 @@ switch ($kind) {
       Console-Open
       Send "type:prid $aref|key:enter|wait:400|type:GetIsID $abase|key:enter|wait:700"
       $sel = Read-Console 'activate_sel'
-      # the reply line "GetIsID >> 1.00" (OCR: l/I/1 confusion, the >> sometimes lost); the echo "GetIsID <8 hex>" never
-      # ends in a lone 1, so the line anchor keeps a base id starting with 1 from passing
-      $selected = [bool]("$($sel.ocr)" -match '(?m)Get[Il1]s[Il1]D\s*(?:[>»]\s*[>»]?\s*)?1(?:[.,]\s?0{1,2})?\s*$')
+      # the reply "GetIsID >> 1.00": on the echo's line, or (r05_medkit_1015f: the OCR split the row) as ">> 1.00" on the
+      # line after the echo "GetIsID <8 hex>"; OCR confuses l/I/1 and sometimes loses the >>. The line anchor keeps a
+      # base id that starts with 1 from passing (the echo never ends in a lone 1)
+      $selected = [bool]("$($sel.ocr)" -match '(?m)Get[Il1]s[Il1]D[ 	]*(?:[0-9A-Fa-f]{8}[ 	]*?
+[ 	]*)?(?:[>»][ 	]*[>»]?[ 	]*)?1(?:[.,][ 	]?0{1,2})?[ 	]*$')
       $obs['activate'] = [ordered]@{ ref = $aref; base = $abase; selected = $selected; sel_shot = $sel.shot; sel_ocr = $sel.ocr }
       Save-Obs
       if ($selected) {
