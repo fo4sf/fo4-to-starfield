@@ -652,6 +652,25 @@ class ItemPromotionTests(unittest.TestCase):
         self.assertFalse(res[0])                                                           # one REFR short
 
 
+class ItemValidationReviewTests(unittest.TestCase):
+    # the review of #235: input the writer refuses is refused at stage (value int32, weight float32, -0.0 == 0.0)
+    def _two(self, **first):
+        bases = [{"edid": "FO4Core_x", "model": "m.nif", "source": "s.nif"}]
+        placed = [{"src": f"00000{i}:Fallout4.esm", "base": 0, "cell": [0, 0], "pos": [i, 0, 0], "rot": [0, 0, 0], "scale": 1.0}
+                  for i in (1, 2)]
+        entries = [dict({"src": "000001:Fallout4.esm", "name": "A", "value": 1, "weight": 0.0, "base": "000AAA:Fallout4.esm"}, **first),
+                   {"src": "000002:Fallout4.esm", "name": "A", "value": 1, "weight": -0.0, "base": "000AAA:Fallout4.esm"}]
+        return mk.cluster_items(bases, placed, {"items": entries})
+
+    def test_zero_and_negative_zero_weight_share_one_record(self):
+        keep, items = self._two()
+        self.assertEqual(len({i["edid"] for i in items}), 1)                 # shared, not refused
+
+    def test_out_of_range_value_and_weight_are_refused(self):
+        for bad in ({"value": 2 ** 31}, {"value": -1}, {"weight": 1e39}):
+            with self.assertRaises(ValueError, msg=str(bad)):
+                self._two(**bad)
+
 if __name__ == "__main__":
     unittest.main()
 
