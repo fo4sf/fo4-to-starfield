@@ -213,7 +213,7 @@ def main():
     items, failures, reused = [], [], 0
     attempted_so_far = 0
     skipped = 0
-    progress_every = 10
+    progress_every = 10  # live status every N attempts; includes % of limit and ETA when --limit is set
     for name in names:
         if len(items) >= a.limit:
             break
