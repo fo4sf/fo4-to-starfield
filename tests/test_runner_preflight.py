@@ -17,6 +17,7 @@ import testqueue as tq  # noqa: E402
 import test_testqueue as tt  # noqa: E402
 import test_core_preflight as tcp  # noqa: E402  (FakeProbe)
 from fo4sf.core import controller as c  # noqa: E402
+from fo4sf.core.model import Event  # noqa: E402
 from fo4sf.core.state import Ledger, fold  # noqa: E402
 
 
@@ -73,6 +74,21 @@ class RunnerPreflightTests(unittest.TestCase):
         self.assertTrue(s.blockers["preflight"]["open"])
         self.assertIn("Blockers: preflight: UNKNOWN recovery_save", s.report()[6])
 
+    def test_a_passing_gate_closes_the_blocker_an_earlier_refusal_opened(self):
+        c.Controller(self.leader).claim("Claude", "window", 3600)
+        self.assertEqual(self.runner(probe=tcp.FakeProbe(save=None), preflight=True, lease_dir=self.leader, lease_owner="Claude").run(), 3)
+        led = Ledger(os.path.join(self.leader, "ledger.jsonl"))
+        self.assertTrue(fold(led.read()).blockers["preflight"]["open"])
+        r = self.runner(probe=tcp.FakeProbe(), preflight=True, lease_dir=self.leader, lease_owner="Claude", max_attempts=1)
+        r.run()
+        s = fold(led.read())
+        self.assertFalse(s.blockers["preflight"]["open"])
+        self.assertEqual([e.ev for e in led.read()].count("blocker_closed"), 1)
+        self.assertEqual(s.report()[6], "Blockers: none open")
+        r = self.runner(probe=tcp.FakeProbe(), preflight=True, lease_dir=self.leader, lease_owner="Claude", max_attempts=1)
+        r.run()                                                                     # a second pass closes nothing twice
+        self.assertEqual([e.ev for e in led.read()].count("blocker_closed"), 1)
+
     def test_every_check_passing_lets_the_run_go_on(self):
         r = self.runner(probe=tcp.FakeProbe(), preflight=True, max_attempts=1)
         r.run()
@@ -122,6 +138,60 @@ class ProbeOnThisBoxTests(unittest.TestCase):
             with open(os.path.join(self.d, "Starfield", "Plugins.txt"), "w", encoding="utf-8") as f:
                 f.write("*FO4Port.esm\nFO4SFExp.esm\n")
             self.assertEqual(self.p.plugins_txt_lines(), ["*FO4Port.esm", "FO4SFExp.esm"])
+
+    def test_the_exe_version_decoding(self):
+        import ctypes
+        fixed = (ctypes.c_uint32 * 13)()
+        fixed[0] = 0xFEEF04BD                                                        # VS_FIXEDFILEINFO.dwSignature
+        fixed[2] = (1 << 16) | 16                                                    # dwFileVersionMS: 1.16
+        fixed[3] = (244 << 16) | 0                                                   # dwFileVersionLS: 244.0
+
+        class FakeVersionDll:
+            def GetFileVersionInfoSizeW(self, path, handle):
+                return 64
+
+            def GetFileVersionInfoW(self, path, handle, size, buf):
+                return 1
+
+            def VerQueryValueW(self, buf, sub, ptr, length):
+                ptr._obj.value = ctypes.addressof(fixed)
+                length._obj.value = ctypes.sizeof(fixed)
+                return 1
+        self.assertEqual(tq.exe_file_version("Starfield.exe", _ver=FakeVersionDll()), "1.16.244.0")
+
+        class NoResource(FakeVersionDll):
+            def GetFileVersionInfoSizeW(self, path, handle):
+                return 0
+        self.assertIsNone(tq.exe_file_version("Starfield.exe", _ver=NoResource()))
+
+        class NoValue(FakeVersionDll):
+            def VerQueryValueW(self, buf, sub, ptr, length):
+                return 0
+        self.assertIsNone(tq.exe_file_version("Starfield.exe", _ver=NoValue()))
+
+    def test_the_probe_reads_the_ledger_pin_and_a_staged_plugins_masters(self):
+        import struct
+        leader = os.path.join(self.d, "leader")
+        c.Controller(leader).claim("Claude", "window", 3600)
+        Ledger(os.path.join(leader, "ledger.jsonl")).append(
+            Event("build_pinned", "t", fields={"build_id": "b1", "game_version": "1.16.244.0"}))
+        r = tq.Runner(self.d, tt.args(lease_dir=leader, lease_owner="Claude"), ctl=tt.FakeControls(), step=lambda t, o: 0)
+        self.assertEqual(tq.PreflightProbe(r).ledger_game_version(), "1.16.244.0")
+        exp = os.path.join(self.d, "exp")
+        os.makedirs(exp)
+
+        def sub(sig, payload):
+            return sig + struct.pack("<H", len(payload)) + payload
+        body = sub(b"HEDR", struct.pack("<fII", 0.96, 0, 0x800)) + sub(b"MAST", b"Starfield.esm\0") + sub(b"DATA", bytes(8)) \
+            + sub(b"MAST", b"FO4Port.esm\0") + sub(b"DATA", bytes(8))
+        with open(os.path.join(exp, "FO4SFExp.esm"), "wb") as f:
+            f.write(b"TES4" + struct.pack("<IIIIHH", len(body), 0, 0, 0, 0, 0) + body)
+        q = tt.jload(os.path.join(self.d, "queue.json"))
+        q["experiment_identity"] = {"exp_dir": exp, "plugins": ["FO4SFExp.esm"], "inputs": {}}
+        tt.jdump(q, os.path.join(self.d, "queue.json"))
+        r = tq.Runner(self.d, tt.args(), ctl=tt.FakeControls(), step=lambda t, o: 0)
+        self.assertEqual(tq.PreflightProbe(r).plugin_masters("FO4SFExp.esm"), ["Starfield.esm", "FO4Port.esm"])
+        self.assertEqual(tq.PreflightProbe(r).plugin_masters("Missing.esm"), [])
 
     def test_stop_dirs_guardian_saves_and_the_lease(self):
         dirs = self.p.stop_dirs()

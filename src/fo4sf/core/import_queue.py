@@ -18,7 +18,7 @@ import hashlib
 import json
 import os
 
-from .model import Event, outcome_from_queue
+from .model import Event, local_to_utc_iso, outcome_from_queue
 
 PIN_KEYS = ("build_id", "plugin_sha256", "staging", "commit", "game_version")
 DEPLOY_PLUGIN = "FO4Port.esm"          # deploy_starfield.py PLUGIN: the artifact whose sha256 is the build's pin
@@ -28,14 +28,30 @@ BY = "import"
 def _load(p, default=None):
     if not os.path.exists(p):
         return default
-    with open(p, encoding="utf-8") as f:
+    with open(p, encoding="utf-8-sig") as f:             # utf-8-sig like the runner: a hand-edited file may carry a BOM
         return json.load(f)
 
 
 def _content_src(p, key):
-    """src for a record that is rewritten in place: path plus the sha256 of its bytes (idempotent per content)."""
+    """src for a record that is rewritten in place: path, the sha256 of its bytes and its mtime, so a re-deploy of a
+    build already imported earlier (the same bytes, a new file) is a new event and the pin follows it."""
+    st = os.stat(p)
     with open(p, "rb") as f:
-        return f"{os.path.abspath(p)}@{key}:{hashlib.sha256(f.read()).hexdigest()[:16]}"
+        return f"{os.path.abspath(p)}@{key}:{hashlib.sha256(f.read()).hexdigest()[:16]}@{st.st_mtime_ns}"
+
+
+def pin_src(qdir, q):
+    """src of a queue's build_pinned: the queue.json path plus a digest of the pin fields, so a pin rewritten in place
+    (pin-game-version, a re-plan into the same folder) is a new event."""
+    pins = {k: q[k] for k in PIN_KEYS if q.get(k)}
+    digest = hashlib.sha256(json.dumps(pins, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+    return f"{os.path.join(os.path.abspath(qdir), 'queue.json')}#pin:{digest}"
+
+
+def task_id(campaign, test_id):
+    """The ledger's task id: the queue folder's name and the test id, because the planners repeat test ids across
+    campaigns (0000_terrain_<coc> in every terrain campaign) and two campaigns must never merge in the fold."""
+    return f"{campaign}/{test_id}"
 
 
 def deploy_pins(rec):
@@ -54,7 +70,7 @@ def _rows(p):
     """results.jsonl rows with their 1-based line numbers; a partial last line is not a row."""
     if not os.path.exists(p):
         return []
-    with open(p, encoding="utf-8") as f:
+    with open(p, encoding="utf-8-sig") as f:
         lines = f.read().split("\n")
     out = []
     for i, line in enumerate(lines, 1):
@@ -82,21 +98,24 @@ def import_queue(qdir, ledger, campaign=None):
         nonlocal added
         if src in seen:
             return
-        ledger.append(Event(ev, BY, t=fields.pop("t", None) or q.get("created") or "", fields=dict(fields, src=src)))
+        t = local_to_utc_iso(fields.pop("t", None) or q.get("created") or "")   # the runner writes local wall-clock time
+        ledger.append(Event(ev, BY, t=t, fields=dict(fields, src=src)))
         seen.add(src)
         added += 1
 
     qp = os.path.join(qdir, "queue.json")
-    put("build_pinned", f"{qp}#pin", **{k: q[k] for k in PIN_KEYS if q.get(k)})
+    pins = {k: q[k] for k in PIN_KEYS if q.get(k)}
+    if pins:
+        put("build_pinned", pin_src(qdir, q), **pins)
     for t in q.get("tests", []):
-        put("task_queued", f"{qp}#{t['id']}", task=t["id"], kind=t.get("kind"), cell=t.get("cell"), ref=t.get("ref"),
-            campaign=campaign, build_id=q.get("build_id"))
+        put("task_queued", f"{qp}#{t['id']}", task=task_id(campaign, t["id"]), kind=t.get("kind"), cell=t.get("cell"),
+            ref=t.get("ref"), campaign=campaign, build_id=q.get("build_id"))
     rp = os.path.join(qdir, "results.jsonl")
     for line, r in _rows(rp):
         out = outcome_from_queue(r.get("verdict"), r.get("class"))
-        put("task_finished", f"{rp}:{line}", t=r.get("t"), task=r["id"], outcome=out.value, attempt=r.get("attempt", 0),
-            detail=f"{r.get('class', '')} {r.get('detail', '')}".strip(), source="IN_GAME", campaign=campaign,
-            build_id=q.get("build_id"), evidence=[r["dir"]] if r.get("dir") else [])
+        put("task_finished", f"{rp}:{line}", t=r.get("t"), task=task_id(campaign, r["id"]), outcome=out.value,
+            attempt=r.get("attempt", 0), detail=f"{r.get('class', '')} {r.get('detail', '')}".strip(), source="IN_GAME",
+            campaign=campaign, build_id=q.get("build_id"), evidence=[r["dir"]] if r.get("dir") else [])
     return added
 
 
