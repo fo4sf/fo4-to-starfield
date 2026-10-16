@@ -1465,3 +1465,15 @@ non-atomic guard. Core64h/integ_1016 pins arrived on #32; ACTI design is pending
 no slots are allocated. Docs-only response; guard/diff checks, no repeated compile
 or unchanged suite. Runtime activation, unloaded markers and travel/save remain
 unverified. The original private compiler packet remains preserved.
+## 2026-10-16: Codex persistent-reference inspector identity
+
+A synthetic master override and local persistent reference sharing low ID800 were
+both returned for either000800 or00000800. Keeping the selector's width separate
+fixes this; four new methods expose seven failing cases before, all eight targeted
+methods pass after. Signed/oversized/seven-digit IDs refuse; optional0x supported.
+Preserved OFST cave bytes unchanged: local000800 equals encoded03000800, whereas
+runtime-style05000800 selects nothing. Raw file IDs are not runtime load-order IDs.
+Initial XCLC concern was disproved by the existing tests: unpack_from already
+handles the fixture; no XCLC change made. No writer/stage/game modifications or
+retroactive native rescoring. Private evidence: persistent-ref-selectors-20261016;
+peer QA pending. Merge placement and native travel/save-reload remain unresolved.
