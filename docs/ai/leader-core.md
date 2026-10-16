@@ -208,8 +208,9 @@ The planners write no `game_version` today: the PC session adds `"game_version":
 `queue.json` (or a `build_pinned` event with it) before turning the gate on; until then the check is UNKNOWN by
 design and the gate refuses.
 
-**The switch, default off:** `testqueue.py run --preflight` (or `FO4SF_PREFLIGHT=1`) runs the gate once, right
-after the lease line and before the first launch; the checklist goes to `run.log`, a refusal sets
+**The switch, default off:** `testqueue.py run --preflight` (or `FO4SF_PREFLIGHT=1`, `true` / `yes` / `on` too;
+`--no-preflight` overrides the variable for one run) runs the gate once, right after the lease line and before
+the first launch; the checklist goes to `run.log`, a refusal sets
 `state.json` `status` to `stopped: preflight refused (<check> <status>, ...)` (exit 3, resumable) and appends
 `blocker_opened` (`blocker: preflight`, the failing lines as `evidence`) to the ledger when a lease folder is set;
 a `--dry-run` prints the checklist and refuses the same way; a later pass closes that blocker (`blocker_closed`),

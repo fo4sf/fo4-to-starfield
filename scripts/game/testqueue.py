@@ -62,7 +62,7 @@ when one trips:
   - the preflight gate (opt-in, default off; docs/ai/leader-core.md section 7): with --preflight or FO4SF_PREFLIGHT=1,
     eleven checks (pinned build staged and deployed, experiment as pinned, plugins active, load order, game version,
     lease, STOP files, Resource Guardian, recovery save, log capture) run before the first launch; one FAIL or UNKNOWN
-    refuses the run (status "stopped: preflight refused (...)", the ledger gets a blocker_opened) and a --dry-run
+    refuses the run (status "stopped: preflight refused (...)"; with a lease folder the ledger gets a blocker_opened) and a --dry-run
     prints the checklist either way. Unset: not run.
 A game is only launched when the PC has been idle --min-idle seconds, and only by cycle.ps1 (the runner never touches a
 Starfield the owner started). Every key press still goes through input.ps1's foreground guard, with
@@ -3329,9 +3329,11 @@ def main(argv=None):
                         "empty (the default): the lease is not checked")
     r.add_argument("--lease-owner", default=os.environ.get("FO4SF_LEASE_OWNER") or "Claude",
                    help="the lease owner this runner runs as (default FO4SF_LEASE_OWNER, else Claude)")
-    r.add_argument("--preflight", action="store_true", default=os.environ.get("FO4SF_PREFLIGHT") == "1",
+    r.add_argument("--preflight", action=argparse.BooleanOptionalAction,
+                   default=os.environ.get("FO4SF_PREFLIGHT", "").strip().lower() in ("1", "true", "yes", "on"),
                    help="run the deployment gate before the first launch (docs/ai/leader-core.md section 7); "
-                        "default FO4SF_PREFLIGHT=1; off (the default): not run")
+                        "default on with FO4SF_PREFLIGHT=1 (true / yes / on), --no-preflight turns it off for one run; "
+                        "off (the default): not run")
     for name in ("report", "status"):
         s = sub.add_parser(name)
         s.add_argument("--queue", required=True)
