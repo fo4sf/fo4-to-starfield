@@ -76,7 +76,10 @@ after their spawn, holding their ground; "StartCombat player" does the same for 
 startcombat_fails. GetCombatState / GetCombatTarget / "GetLineOfSight player" reply "GetCombatState >> 1.00",
 "GetCombatTarget >> (00000014)" ("(00000000)" without a target), "GetLineOfSight >> 1.00" (knob los): HYPOTHESES of the
 in-game format; combat_fmt "int" prints "GetCombatState >> 1" and a bare target id, "refused" answers all three with
-"Script command not found"."""
+"Script command not found".
+OCR thresholds: the sandbox ocr_prep.py keeps the threshold of the last prepared capture as "ocr_th"; isid_lost_at
+[th, ...]: an OCR at one of those thresholds does not read the "GetIsID >>" reply lines (core64g_accept_1016 test
+0002: the reply on activate_sel.png was lost at 135, and read at 130 and 145)."""
 import json
 import math
 import os
@@ -562,6 +565,8 @@ def main():
         return
     elif sys.argv[1] == "screen":
         lines = s["log"][-9:]                              # the console shows about nine lines
+        if s.get("ocr_th") in (s.get("isid_lost_at") or []):   # this threshold's OCR loses the reply line
+            lines = [ln for ln in lines if not ln.startswith("GetIsID >>")]
         if s.get("layout") == "column":
             lines = column(lines)
         if s.get("ocr_quirks", True):
