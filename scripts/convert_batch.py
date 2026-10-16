@@ -251,6 +251,8 @@ def main():
     attempted = len(items) + total
     success_pct = 100.0 * len(items) / attempted if attempted else 100.0
     print(f"  Batch result: {len(items)}/{attempted} succeeded ({success_pct:.1f}%)")
+    elapsed = round(time.time() - t0, 1)
+    print(f"  reused={reused}  seconds={elapsed}")
     if total:
         print(f"  Failure summary: {total} failures across {unique} unique top-level reasons")
         print("  Top failure reasons:")
@@ -260,7 +262,6 @@ def main():
     else:
         print("  Failure summary: 0 failures")
     # Always persist a compact summary (including the zero case) so tooling sees the latest run
-    elapsed = round(time.time() - t0, 1)
     summary = {
         "generated_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
         "attempted": attempted,
@@ -274,6 +275,7 @@ def main():
         "pattern": a.pattern,
         "top": [{"reason": r, "count": c, "percent": round(100.0 * c / total, 1) if total else 0.0}
                 for r, c in reason_counts.most_common(10)],
+        "reasons": {r: c for r, c in reason_counts.most_common()},
     }
     write_json_atomic(os.path.join(a.staging, "failure-summary.json"), summary)
 

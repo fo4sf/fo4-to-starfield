@@ -53,6 +53,8 @@ class FailureSummaryTests(unittest.TestCase):
             self.assertEqual(summary["top"][0]["reason"], "missing texture")
             self.assertEqual(summary["top"][0]["count"], 2)
             self.assertAlmostEqual(summary["top"][0]["percent"], 50.0)
+            self.assertIn("reasons", summary)
+            self.assertEqual(summary["reasons"].get("missing texture"), 2)
 
     def test_writes_zero_summary_when_no_failures(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -83,6 +85,7 @@ class FailureSummaryTests(unittest.TestCase):
             self.assertIn("reused", summary)
             self.assertIn("seconds", summary)
             self.assertEqual(summary["top"], [])
+            self.assertEqual(summary.get("reasons"), {})
 
     def test_overwrites_stale_summary_on_successful_rerun(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -126,4 +129,5 @@ class FailureSummaryTests(unittest.TestCase):
             self.assertIn("reused", summary)
             self.assertIn("seconds", summary)
             self.assertEqual(summary["top"], [])
+            self.assertEqual(summary.get("reasons"), {})
 
