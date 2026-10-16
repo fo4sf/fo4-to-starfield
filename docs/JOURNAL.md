@@ -1585,3 +1585,22 @@ controls and six missing-cell controls pass; guard passes. Private evidence is
 retained in test-plans/door-return-main-integration-20261016. Peer review and main
 merge remain pending. This is offline integration, not proof of native travel,
 world offset, return-marker persistence or save/reload.
+
+## 2026-10-16 Codex: prove existing return-link refusal boundaries (offline)
+
+Reproduced Claude's253 review: the conflicting-return fixture fails a new exact
+reason assertion because it introduces a Port-to-Core dependency cycle. Targeting
+a different Port-owned reference reaches the intended existing-XTEL refusal.
+Added matching-return and five independent field conflicts on the winning Core
+override: destination, position, rotation, flags and transition. Eight focused
+controls pass via serialized library inputs and the real CLI; rejected inputs
+produce no output reservation/receipt, valid matching state survives readback,
+and source bytes stay unchanged. `dotnet run --project dotnet/DoorReturn.Tests
+-c Release -- --return-links-only`; no game version exercised.
+
+The deleted-cell fixture loses nullable interior data on serialization; the
+first assertion incorrectly compared that null to zero, failed, and was fixed.
+Its passing control records the actual non-interior refusal and does not claim
+the later deleted-parent branch. Failed and passing evidence is retained in
+door-return-refusal-proof-20261016. No ReturnPatch/production code, active stage,
+game/controller or deployment changes. Peer QA and native acceptance remain open.

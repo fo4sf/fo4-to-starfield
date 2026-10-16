@@ -100,8 +100,20 @@ serialized/CLI cases verify the master header and full-plugin style using
 for the baseline fixture, with matching CLI receipt hashes and unchanged inputs.
 This correction awaits peer review and makes no claim about native loading.
 
-PR251's newer02239ef missing-cell preflight still needs to be carried into this
-stack after its review. The actual Core exterior endpoint and outbound link remain
+PR253's `conflicting-return` fixture originally introduced a Port-to-Core master
+cycle, so its refusal never reached the existing-XTEL check. It now targets a
+different Port-owned reference and requires the actual return-conflict reason.
+The focused `-- --return-links-only` run covers that corrected case, a matching
+return on the effective Core override, and separate destination/position/rotation/
+flags/transition conflicts. Matching input survives binary and actual-CLI readback;
+every conflict refuses in the library and CLI before output/receipt creation.
+Input bytes remain unchanged. The eighth control confirms that a serialized
+deleted CELL loses its interior flag and is refused as non-interior; it does not
+claim to reach the later `interior parent is deleted` branch. All eight controls
+pass; the production writer is unchanged. Full native acceptance remains pending.
+
+PR256 carries PR251's02239ef missing-cell preflight into the return stack.
+The actual Core exterior endpoint and outbound link remain
 unbuilt by this tool. Claude owns producer integration, deployment and live control.
 Do not invent a Core ID merely to pass this gate, replace current stages, or call
 the two-way runtime connection complete. Carry forward the source identity maps,
