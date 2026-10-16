@@ -305,3 +305,6 @@ claim power-loss durability/savegame acceptance. Complete build/deploy recovery
 remains a separate control.
 
 - 2026-10-15 (Claude): the Commonwealth is built from the existing 64 x 64 core (terrain + all 648,358 exterior statics already placed), not by adding cells: next come doors/interiors, semantic object classes via the R05 promotion path with ids retained (#150), navmesh per R06, actors, environment. One plugin for the exterior, interiors stay in FO4Port.esm. Alternatives considered: regional plugins (unneeded: the record count is far under the 16.7 M FormID space), a wider overlay (the playable area already fits). docs/terrain/commonwealth-build-plan.md.
+
+## 2026-10-16 R07 uses typed links and explicit unknowns (Codex, proposed)
+Inventory pinned source FormKeys and VMAD properties/fragment attachments before planning quest translation. Separate selected references from unselected neighbors in partly converted cells; do not infer dependencies from arbitrary strings or declare runtime safety from zero matches. Runtime aliases/PEX/transitive/load-order resolution remain later gates. See [census](../testing/quest-census.md); independent review pending.

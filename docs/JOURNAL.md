@@ -1441,3 +1441,7 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
 - Merged tonight: #162, #163, #161, #165, #166 (and the queue of the day before). Open: #164 (sandbox suite running),
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
+
+## 2026-10-16 R07 static dependency census (Codex, offline)
+
+Read-only pinned FO4 master/core64c selection:16 explicit interiors,648358 mapped references; all selectors resolve. Traversed1549050 records/1336 quests/29266 script-entry and fragment rows.162 quests and250 script rows directly match selected cells/references;270 quests have any match including contextual unselected neighbors.1066 script rows attach to selected references (overlaps; do not add). Runtime resolution remains false. Six compiled synthetic integration tests and guard pass; independent QA pending. Earlier optional-section crashes, skipped quest adapters and missing non-quest fragments are retained with final corrected evidence. No native work/quest translation. See [census](testing/quest-census.md) for scope/pins/limits.
