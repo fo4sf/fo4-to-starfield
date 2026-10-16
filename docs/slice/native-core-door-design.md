@@ -107,6 +107,17 @@ declared impossible. The recommended first implementation follows Claude's direc
 
 ## Decisions for joint review before building
 
+- Choose the relationship-writing path explicitly. A compiled synthetic probe of the existing
+  [ReferenceLinks utility](../../dotnet/ReferenceLinks/Relationships.cs) produces one teleport/no issues for
+  a local DOOR, but zero teleports/one "bases must both be doors" issue when the same typed DOOR belongs to
+  a synthetic master. `IsDoor` checks only `mod.Doors`; the utility also enumerates interior cells. Its source
+  blob is `dc94c7264aa2ab613a966db81d57f7532621c5a4` (identical at the design and probe heads).
+  This verifies an existing utility boundary, not a failure of the proposed direct Core writer. If reusing
+  that utility, it needs typed master-aware base resolution and exterior-cell support, with unknown bases
+  still refused. A separate direct writer must establish those checks independently. No native master
+  record was copied/overridden and no candidate was built by this probe. The command was
+  `dotnet run --project <private>/RelationshipProbe.csproj -c Release --no-launch-profile`; source, output
+  and SDK pins remain in the private `native-door-relationship-probe-20261016` packet.
 - Confirm the three-file ownership above, or choose the smaller diagnostic where Core owns both endpoint references
   in a Port interior-cell override. The latter couples the interior endpoint's lifecycle to Core and is not the
   recommended final content ownership.

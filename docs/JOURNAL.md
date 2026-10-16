@@ -1457,3 +1457,7 @@ not erased. The WRLD field-presence hypothesis is refuted for that candidate. Th
 endpoint, with an interior-only return patch to avoid a master cycle. Source/parent ownership, stable allocation
 and master-aware identity checks require Claude's agreement before building. No producer edit, build or live input.
 Documentation checks: inspection JSON pins/fields, repository links, diff and guard; no behavior changed.
+Follow-up compiled synthetic probe: ReferenceLinks source blob dc94c726 accepts a local DOOR (one teleport,
+zero issues) but refuses a master-owned typed DOOR (zero teleports, one issue). This is an existing interior
+utility boundary, not a result for the proposed direct Core writer. The joint design now requires choosing
+the writing/resolution path explicitly; source/probe outputs retained privately, no producer implementation.
