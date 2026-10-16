@@ -59,11 +59,11 @@ Every queue record is `source = IN_GAME`; `walksim` and `route_eval` results are
 
 | File | Event | Fields read |
 |---|---|---|
-| `<queue>/queue.json` | `build_pinned`, `task_queued` per test | `build_id`, `plugin_sha256`, `staging`, `commit`, `created`, `tests[].id/kind/cell/ref` (`scripts/game/testqueue.py:422`) |
-| `<queue>/results.jsonl` | `task_finished` per row | `id, kind, cell, ref, attempt, verdict, class, detail, dir, t` (`testqueue.py:2681`); last row per id is final |
+| `<queue>/queue.json` | `build_pinned`, `task_queued` per test | `build_id`, `plugin_sha256`, `staging`, `commit`, `game_version` (the pin, `PIN_KEYS`), `created` (the events' time), `tests[].id/kind/cell/ref` (`testqueue.py plan` writes them) |
+| `<queue>/results.jsonl` | `task_finished` per row | `id, attempt, verdict, class, detail, dir, t` (the row the runner appends per attempt; its `kind/cell/ref` repeat the queue's and are not re-read); last row per id is final |
 | `<queue>/state.json` | nothing (reviewed 2026-10-16) | the runner writes a `results.jsonl` row for every attempt, PRECONDITION and BREAKER included, and checkpoints `state.json` in the same step (`testqueue.py` `Runner.run`), so `done`/`attempts` repeat the rows; a task in flight is visible only in the ledger's own `task_started` (T2); the breaker counters, `status` and `updated` are the runner's bookkeeping |
 | `Data/FO4Port.deploy.json` | `build_pinned` | `artifacts[FO4Port.esm].sha256` → `plugin_sha256`, `build_id` = its first 8 hex digits (the derivation of `testqueue.py plan`), `complete` (`scripts/deploy_starfield.py` `install`, `artifact_identity`; the manifest carries no `build_id` of its own) |
-| `Data/FO4SFExp.install.json`, `Data/FO4SFBridge.install.json` | `plugins_verified` (active_after_load from `exp_install.py active`) | `plugins`, `plugins_replaced[].active/original`, `complete`, `pack` (`exp_install.py:492`) |
+| `Data/FO4SFExp.install.json`, `Data/FO4SFBridge.install.json` | `plugins_verified` | `plugins`, `plugins_replaced[].active`, `complete`, `pack` (`exp_install.py` writes them); `active_after_load` is recorded only when the importer is told it (`leader_import.py --active-after-load`, after `exp_install.py active` said so on the PC), else null and the report says "not confirmed after load"; no `sha256` per plugin and no `load_order` come from this record |
 | `watchdog_state.json` | nothing (reviewed 2026-10-16) | it holds chain start times and the last Codex hand-over, not who held the controller or until when; the T2 lease (§6) is the controller record from now on |
 
 Imports are idempotent: an event carries `src` (file path + line for a file that only grows; the queue.json path +
