@@ -2657,6 +2657,9 @@ class Runner:
                                                "-Cell", f"FO4Port_{launch}", "-CellJson", cell_json,
                                                "-Shot", os.path.join(self.qdir, "cycle.png")], 900, steal=True)
             self.log(f"cycle exit {code}: {out.strip().splitlines()[-1] if out.strip() else ''}")
+            if code == 9:                                 # cycle.ps1's own lease check refused (nothing launched): the
+                return ("lease refused by cycle.ps1 (exit 9) although this runner's check passed: the two read "
+                        "different leases; nothing launched")   # run stops, resumable, never a retry per test
             if code != 0:
                 # 7: an installed experiment plugin's master is not active (exp_install.py order): nothing launched
                 return "stop" if code in (2, 3, 5, 6, 7) else "retry"
