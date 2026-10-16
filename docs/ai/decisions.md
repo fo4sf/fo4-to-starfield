@@ -358,3 +358,15 @@ The main7200aa5 station integration uses `workshop` plus EditorID for owned work
 reserve only their source REFRs and continue to reference vanilla master-owned FURNs. Counting those master
 IDs as local allocations rejected a valid mixed door build; allocating replacement bench bases would change
 the native station contract. The audit checks kind, full master identity and the retained REFR reservation.
+
+## 2026-10-16 Codex: hold identity proof across raw terrain checks (proposal)
+
+The .NET audit retains the producer lease while Python checks raw records, then
+revalidates the generation before Python publishes reports. Persistent mode
+substitutes reservation proof only for sequential allocation assertions. Keep
+raw VMAD/transform/type/count/cell checks and legacy ordering. Separate audit and
+raw-check processes without a held lease permit a cooperating rebuild between
+the two; disabling all raw checks would accept malformed records. The protocol
+is ready/verify/verified, with EOF cancellation and owned-child cleanup. External
+assets/core inputs remain subject to immutable-input rules. Full-stage/native
+acceptance and independent QA remain pending; no active-stage migration.

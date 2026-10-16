@@ -52,9 +52,20 @@ using Mutagen.Bethesda.Starfield;
 using Noggog;
 using StarfieldActivator = Mutagen.Bethesda.Starfield.Activator;   // not System.Activator (implicit usings)
 
-if (args.Length == 2 && args[0] == "--check-identities")
+if (args.Length == 2 && args[0] is "--check-identities" or "--check-identities-held")
 {
-    try { Console.WriteLine(JsonSerializer.Serialize(TerrainIdentityAudit.Check(args[1]))); }
+    try
+    {
+        bool held = args[0] == "--check-identities-held";
+        Action<object>? waitForReader = held ? report =>
+        {
+            Console.WriteLine(JsonSerializer.Serialize(new { phase = "ready", report }));
+            Console.Out.Flush();
+            if (Console.ReadLine() != "verify") throw new IOException("identity reader cancelled before verification");
+        } : null;
+        var result = TerrainIdentityAudit.Check(args[1], waitForReader);
+        Console.WriteLine(JsonSerializer.Serialize(held ? (object)new { phase = "verified", report = result } : result));
+    }
     catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or KeyNotFoundException or JsonException or FormatException or OverflowException)
     {
         Console.Error.WriteLine($"identity audit refused: {error.Message}");
@@ -63,7 +74,7 @@ if (args.Length == 2 && args[0] == "--check-identities")
     return;
 }
 if (args.Length is < 2 or > 3 || args.Length == 3 && args[2] != "--bootstrap-identities")
-    throw new ArgumentException("usage: <Starfield.esm> <staging dir> [--bootstrap-identities] OR --check-identities <staging dir>");
+    throw new ArgumentException("usage: <Starfield.esm> <staging dir> [--bootstrap-identities] OR --check-identities[-held] <staging dir>");
 var sfPath = args[0];
 var outDir = args[1];
 var prm = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "overlays_params.json"))).RootElement;

@@ -1718,3 +1718,21 @@ change injected during asset inspection),77 caller tests and5 publication-contro
 and passing synthetic evidence: persistent-door-verification-20261016. This verifies freshness only;
 semantic ledger validation, raw/native acceptance and normal-check persistent ordering/lease integration
 remain separate gates. No active stage, game, installation or other agent checkout changed.
+
+## 2026-10-16 Codex: check persistent door identities under a held lease (offline)
+
+At269/3939dd0 a synthetic persistent workshop insertion left valid door IDs that
+the legacy reference/door/light ordering checks refused. The standalone audit
+proved43 reservations. The normal check now holds that .NET audit's publication
+lease through raw checks and requests final generation verification before
+publishing reports. Only sequential allocation assertions change in persistent
+mode; raw record/type/transform/VMAD/count/dependency checks remain.
+
+Nine new session cases plus9 audit,77 caller,11 receipt and5 publication-control
+tests pass (111 unique tests). Actual synthetic writer contention is refused;
+missing VMAD still fails raw checks; input changes, EOF cancellation and a child
+crash cannot publish a passing report. Prior reports and failures are retained.
+Commands use isolated Python unittest and the Release TerrainOverlays build;
+evidence: persistent-check-lease-20261016. Wrapper tests stub the terrain body,
+so full-stage check, full-size bootstrap, peer QA and native save/door acceptance
+remain unverified. No game version tested, deployment or active-stage changes.
