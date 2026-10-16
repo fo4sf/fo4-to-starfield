@@ -19,6 +19,10 @@ import subprocess
 import sys
 import tempfile
 
+# Keep the shared guard available to direct and isolated CLI invocations.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from stage_outputs import require_ready_stage  # noqa: E402
+
 PLUGIN = "FO4Port.esm"
 ARCHIVE = "FO4Port - Main.ba2"
 TEX_ARCHIVE = "FO4Port - Textures.ba2"
@@ -216,6 +220,7 @@ def copy_new_artifact(src, dst, expected_sha256=None):
 
 
 def install(a):
+    require_ready_stage(a.staging)
     build_state = os.path.join(a.staging, "build-state.json")
     if os.path.exists(build_state):
         with open(build_state, encoding="utf-8") as f:

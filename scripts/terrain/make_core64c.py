@@ -7,7 +7,7 @@
     python scripts/convert_batch.py --cell-json <work>/convert_input.json --staging <work>/convert --prefix fo4core
            --max-texture <cap> --types <printed by select> --limit 1000000 --resume  + the usual converter arguments
     python scripts/terrain/make_core64c.py stage --work <work> --core <terrain_core64> --out <terrain_core64c> --sf-esm <Starfield.esm>
-           [--views] [--cluster <cluster.json: "containers", "items", "activators", "terminals", "lights">] [--navmesh <navmesh.json>]
+           [--views] [--cluster <cluster.json[,doors.json,lights.json]>] [--navmesh <navmesh.json>]
     python scripts/terrain/make_core64c.py check --work <work> --core <terrain_core64> --out <terrain_core64c>
            [--fo4 <Fallout4.esm>] [--fo4-data <FO4 Data>] [--sf-data <Starfield Data>]
     python scripts/terrain/make_core64c.py verify-data --out <terrain_core64c>
@@ -50,14 +50,27 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(REPO, "src"))
+sys.path.insert(0, os.path.join(REPO, "scripts"))
+from stage_outputs import require_ready_stage  # noqa: E402
 from fo4sf import btd, exterior  # noqa: E402
 from fo4sf import terrain_grid as tg  # noqa: E402
 
 sys.path.insert(0, HERE)
 import make_exp2c as x2c  # noqa: E402
 import overlay_records  # noqa: E402
+import vmad_patch  # noqa: E402
 
 EDID_PREFIX = "FO4Core_"
+# Scripted load doors (docs/terrain/scripted-doors.md): the contract of scripts/door_bridge/FO4SF_LoadDoor.psc (PR #243):
+# `Scriptname FO4SF_LoadDoor extends ObjectReference`, `string Property DestinationPlugin Auto`, `int Property
+# DestinationId Auto` (the destination's plugin-local id, 1..0xFFFFFF). tests/test_make_core64c.py reads the .psc.
+DOOR_SCRIPT = "FO4SF_LoadDoor"
+DOOR_PLUGIN_PROPERTY = "DestinationPlugin"
+DOOR_ID_PROPERTY = "DestinationId"
+PORT_PLUGIN = "FO4Port.esm"
+ACTI_MARKER_COLOR = bytes.fromhex("cc4c3300")       # PNAM of every vanilla ACTI (1,347 of 1,463 in Starfield.esm)
+ACTI_FLAGS = b"\0\0"                                # FNAM 0
+ACTI_ACTIVATION_ANGLE = 360                         # JNAM
 ASSET_PREFIX = "fo4core"
 DATA_TREES = ("meshes", "geometries", "materials", "textures")
 # fields of an exported reference that placing, reporting and the plan need (the export has about 25)
@@ -86,6 +99,7 @@ def save(path, value, indent=None):
 
 def core_params(core):
     """(overlays_params.json, its single overlay) of the staged core64 terrain."""
+    require_ready_stage(core)
     prm = load(os.path.join(core, "overlays_params.json"))
     if len(prm["overlays"]) != 1:
         sys.exit(f"{core}: core64c needs exactly one overlay, found {len(prm['overlays'])}")
@@ -1101,6 +1115,112 @@ def item_edid(base, src):
     return promoted_edid("misc", base, src)
 
 
+def door_edid(base, src):
+    """The shared ACTI's editor id of a scripted load door: FO4Core_door_<6 hex>_<plugin> (promoted_edid)."""
+    return promoted_edid("door", base, src)
+
+
+def merge_clusters(paths):
+    """One cluster from several files (stage --cluster a.json,b.json): the lists of every class concatenated; a class
+    in two files is an error (a source listed twice would otherwise slip through as two classes agreeing)."""
+    out, owner = {}, {}
+    for p in paths:
+        c = load(p)
+        for k, v in c.items():
+            if not isinstance(v, list):
+                continue
+            if k in owner:
+                raise ValueError(f"{k} listed in both {owner[k]} and {p}")
+            owner[k] = p
+            out[k] = list(v)
+    return out
+
+
+def model_bounds(data_dir, model):
+    """[[x, y, z] min, max] of a converted model's collision (metres, model frame; src/fo4sf/sfbodies), None without
+    collision bodies: the ACTI's OBND."""
+    from fo4sf import sfbodies
+    with open(os.path.join(data_dir, "meshes", model), "rb") as f:
+        bodies = sfbodies.nif_bodies(f.read())
+    pts = np.array([t for b in bodies for t in b["triangles"]], np.float64).reshape(-1, 3)
+    if not len(pts):
+        return None
+    return [[round(float(v), 4) for v in pts.min(axis=0)], [round(float(v), 4) for v in pts.max(axis=0)]]
+
+
+def _finite3(v):
+    return isinstance(v, (list, tuple)) and len(v) == 3 and all(isinstance(x, (int, float)) and not isinstance(x, bool)
+                                                                and math.isfinite(x) for x in v)
+
+
+def cluster_doors(bases, placed, cluster, cells=None, bounds_of=None):
+    """Scripted load doors (docs/terrain/scripted-doors.md): the placed references named by cluster["doors"] (by FO4
+    source key; make_cluster.py doors) leave the STAT placement and become door entries for TerrainOverlays: the REFR
+    keeps its original reference_index (as containers and items), its base becomes one ACTI per FO4 door base (edid
+    door_edid, the converted model, the FO4 door's name, OBND = bounds_of(model), the collision of the converted mesh,
+    else the entry's FO4 "obnd") and the REFR carries the FO4SF_LoadDoor VMAD pointing at the interior door REFR
+    (destination plugin + plugin-local id); an arrival XMarker REFR is written at the FO4 outside arrival point
+    (arrival_out) with a NEW id after every record. Returns (placed without them, doors).
+    ValueError for a source listed twice, a reference not placed by this build (a missing side: the editor-marker doors
+    have no slot), an initially disabled one, a destination that is not <plugin> + id in 1..0xFFFFFF, a missing or
+    non-finite arrival, an arrival outside `cells` (cell_min, cell_max), a model without bounds, or two entries of one
+    edid that disagree on model, name or bounds (the writer shares one record)."""
+    wanted = {}
+    for e in cluster.get("doors", []):
+        src = e.get("src")
+        if not isinstance(src, str) or not src.strip():
+            raise ValueError(f"door without a source key: {e!r}")
+        if src.casefold() in wanted:
+            raise ValueError(f"{src} is listed twice in doors")
+        wanted[src.casefold()] = e
+    keep, doors = [], []
+    for reference_index, p in enumerate(placed):
+        e = wanted.pop(p["src"].casefold(), None)
+        if e is None:
+            keep.append(p)
+            continue
+        if p.get("disabled"):
+            raise ValueError(f"{p['src']} is initially disabled in FO4; not a door to activate")
+        d = e.get("destination") or {}
+        plugin, local_id = d.get("plugin"), d.get("port_id", d.get("id"))
+        if not isinstance(plugin, str) or not plugin.lower().endswith((".esm", ".esp", ".esl")):
+            raise ValueError(f"{p['src']}: destination plugin {plugin!r} is not a plugin file name")
+        if type(local_id) is not int or not 0 < local_id <= 0xFFFFFF:
+            raise ValueError(f"{p['src']}: destination id {local_id!r} is not a plugin-local id in 1..0xFFFFFF")
+        arr = e.get("arrival_out") or {}
+        if not (_finite3(arr.get("pos")) and _finite3(arr.get("rot"))):
+            raise ValueError(f"{p['src']}: no finite outside arrival (arrival_out pos / rot)")
+        acell = list(tg.sf_cell_of(arr["pos"][0], arr["pos"][1]))
+        if cells is not None and not (cells[0] <= acell[0] <= cells[1] and cells[0] <= acell[1] <= cells[1]):
+            raise ValueError(f"{p['src']}: arrival {arr['pos']} in cell {acell} outside {cells[0]}..{cells[1]}")
+        name = e.get("name") or "Door"
+        if not isinstance(name, str) or not name.strip() or "\n" in name or "\r" in name:
+            raise ValueError(f"{p['src']}: name {name!r} is not one non-empty line")
+        b = bases[p["base"]]
+        obnd = bounds_of(b["model"]) if bounds_of else None
+        if obnd is None:
+            obnd = e.get("obnd")
+        if not (isinstance(obnd, (list, tuple)) and len(obnd) == 2 and _finite3(obnd[0]) and _finite3(obnd[1])
+                and all(lo <= hi for lo, hi in zip(obnd[0], obnd[1]))):
+            raise ValueError(f"{p['src']}: no bounds for {b['model']} (no collision in the converted mesh, no FO4 obnd)")
+        doors.append({"src": p["src"], "edid": door_edid(e.get("base"), p["src"]), "reference_index": reference_index,
+                      "model": b["model"], "name": name, "obnd": [[float(v) for v in obnd[0]], [float(v) for v in obnd[1]]],
+                      "cell": p["cell"], "pos": p["pos"], "rot": p["rot"], "scale": p["scale"],
+                      "rigged": "door" in b,
+                      "script": {"name": DOOR_SCRIPT, "properties": {DOOR_PLUGIN_PROPERTY: plugin, DOOR_ID_PROPERTY: local_id}},
+                      "destination": {"plugin": plugin, "id": local_id, "door": d.get("door"), "cell": d.get("cell")},
+                      "arrival": {"pos": [round(float(v), 5) for v in arr["pos"]], "rot": [float(v) for v in arr["rot"]],
+                                  "cell": acell}})
+    if wanted:
+        raise ValueError(f"references not placed by this build (a missing side has no slot): {sorted(e['src'] for e in wanted.values())}")
+    seen = {}
+    for e in doors:
+        sig = (e["model"].casefold(), e["name"], tuple(tuple(round(v, 4) for v in c) for c in e["obnd"]))
+        first = seen.setdefault(e["edid"], (e["src"], sig))
+        if first[1] != sig:
+            raise ValueError(f"{e['src']} and {first[0]} share door base {e['edid']} with a different model, name or bounds")
+    return keep, doors
+
 def activator_edid(base, src):
     """The shared ACTI's editor id of an activator: FO4Core_acti_<6 hex>_<plugin> (promoted_edid)."""
     return promoted_edid("acti", base, src)
@@ -1289,10 +1409,10 @@ def cluster_terminals(bases, placed, cluster):
 
 
 # objects.json / formids.json key, native base record, in the writer's allocation order (CONT, MISC, ACTI, TERM + TMLM)
-PROMOTED = (("containers", "CONT"), ("items", "MISC"), ("activators", "ACTI"), ("terminals", "TERM"))
+PROMOTED = (("containers", "CONT"), ("items", "MISC"), ("activators", "ACTI"), ("terminals", "TERM"), ("doors", "ACTI"))
 PROMOTE_FN = {"containers": cluster_containers, "items": cluster_items, "activators": cluster_activators,
-              "terminals": cluster_terminals}
-SINGULAR = {"containers": "container", "items": "item", "activators": "activator", "terminals": "terminal"}
+              "terminals": cluster_terminals, "doors": cluster_doors}
+SINGULAR = {"containers": "container", "items": "item", "activators": "activator", "terminals": "terminal", "doors": "door"}
 
 
 def source_key(value):
@@ -1300,8 +1420,8 @@ def source_key(value):
     return str(value).translate(str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"))
 
 
-def cluster_promote(bases, placed, cluster):
-    """--cluster: every promoted class (PROMOTED: containers, items, activators, terminals) from one cluster file, each
+def cluster_promote(bases, placed, cluster, cells=None, bounds_of=None):
+    """--cluster: every promoted class (PROMOTED: containers, items, activators, terminals, doors), each
     judged on the same unpromoted placement list, so every promoted entry's reference_index is its slot in that list
     whichever class it joins. Returns (placed without every promoted reference, {class: entries} for every class).
     ValueError as the class functions, for a source listed in two classes, and for one edid of a class standing for
@@ -1316,7 +1436,8 @@ def cluster_promote(bases, placed, cluster):
                 raise ValueError(f"{e['src']} is listed as both {a} and {b}")
     promoted = {}
     for k, _sig in PROMOTED:
-        _, promoted[k] = PROMOTE_FN[k](bases, placed, cluster)
+        options = {"cells": cells, "bounds_of": bounds_of} if k == "doors" else {}
+        _, promoted[k] = PROMOTE_FN[k](bases, placed, cluster, **options)
         base_of = {e["src"]: e.get("base") for e in cluster.get(k) or []}
         source_of = {}
         for e in promoted[k]:
@@ -1459,6 +1580,125 @@ def promoted_record_check(recs, own_prefix, objects, ids):
     return problems
 
 
+def check_door_identities(objects, ids):
+    """Scripted doors keep their REFR slots (check_reference_slots); their ACTI bases (one per edid, first-use order)
+    and then their arrival markers (doors order) take NEW consecutive ids after every id formids.json declares for the
+    build without doors (bases, reserved REFRs, promoted bases/menus, NAVMs, lights). Legacy allocation check;
+    persistent rebuilds can retain earlier reservations instead. ValueError names the first problem."""
+    doors = objects.get("doors") or []
+    if not doors:
+        return
+    try:
+        got = ids["doors"]
+        if set(got) != {e["src"] for e in doors}:
+            raise ValueError("declared door set differs from objects")
+        others = [int(v, 16) for v in ids["bases"].values()] + [int(v, 16) for v in ids["refs"].values()]
+        others += [int(v, 16) for v in ids.get("navmeshes") or []]
+        for k, v in ids.items():                     # every other promoted class ({src: {"base", "ref", ...}})
+            if k != "doors" and isinstance(v, dict) and v and all(isinstance(x, dict) for x in v.values()):
+                for c in v.values():
+                    others += [int(c[kk], 16) for kk in ("base", "ref", "menu") if kk in c]
+        others += [int(got[e["src"]]["ref"], 16) for e in doors]        # the doors' own reserved REFRs
+        first = max(others) + 1
+        order = list(dict.fromkeys(e["edid"] for e in doors))
+        base_id = {}
+        for e in doors:
+            base_id.setdefault(e["edid"], set()).add(int(got[e["src"]]["base"], 16))
+        a0 = min(min(s) for s in base_id.values())
+        if a0 < first:
+            raise ValueError(f"door ACTI {a0:06X} is not after every other record ({first - 1:06X})")
+        for k, edid in enumerate(order):
+            if base_id[edid] != {a0 + k}:
+                raise ValueError(f"{edid}: ACTI {sorted(base_id[edid])} is not the one new id {a0 + k:06X}")
+        for k, e in enumerate(doors):
+            want = a0 + len(order) + k
+            if int(got[e["src"]]["arrival"], 16) != want:
+                raise ValueError(f"{e['src']}: arrival marker {got[e['src']]['arrival']} is not new id {want:06X}")
+    except (KeyError, TypeError) as e:
+        raise ValueError("missing or invalid declared door identities") from e
+
+
+def door_record_check(recs, own_prefix, objects, ids):
+    """Raw record check of every scripted door (docs/terrain/scripted-doors.md): its ACTI (EDID, FULL = name, MODL,
+    OBND = bounds, PNAM cc4c3300, FNAM 0, JNAM 360), its REFR (temporary, names the ACTI, position / rotation / scale
+    as objects.json, a VMAD that decodes to one Local FO4SF_LoadDoor with DestinationPlugin / DestinationId = the
+    entry's destination) and its arrival marker (temporary XMarker 00003B REFR at the arrival, no VMAD). Returns
+    problems (strings)."""
+    from fo4sf import fo4land
+    by_fid = {r["fid"]: r for r in recs}
+    got = ids.get("doors") or {}
+    problems = []
+
+    def xyz(rec, want, what, src):
+        q = fo4land.parse_ref(rec["fields"])
+        if (q["pos"] is None or max(abs(a - b) for a, b in zip(q["pos"], want["pos"])) > 1e-3
+                or max(abs(a - b) for a, b in zip(q["rot"], want["rot"])) > 1e-5
+                or abs(q["scale"] - want.get("scale", 1.0)) > 1e-4):
+            problems.append(f"{src}: {what} position / rotation / scale differ from objects.json")
+        return q
+
+    for e in objects.get("doors") or []:
+        v = got.get(e["src"])
+        if not isinstance(v, dict) or not all(k in v for k in ("base", "ref", "arrival")):
+            problems.append(f"{e['src']}: not in formids.json doors with base / ref / arrival")
+            continue
+        base_fid, ref_fid, mark_fid = (own_prefix | int(v[k], 16) for k in ("base", "ref", "arrival"))
+        base, rec, mark = by_fid.get(base_fid), by_fid.get(ref_fid), by_fid.get(mark_fid)
+        if base is None or base["sig"] != "ACTI":
+            problems.append(f"{e['src']}: base {base_fid:08X} is not an ACTI")
+        else:
+            if overlay_records.edid(base) != e["edid"]:
+                problems.append(f"{e['src']}: ACTI edid {overlay_records.edid(base)!r} != {e['edid']!r}")
+            if fo4land.zstring(overlay_records.field(base, "FULL", b"")) != e["name"]:
+                problems.append(f"{e['src']}: ACTI name differs from {e['name']!r}")
+            if fo4land.zstring(overlay_records.field(base, "MODL", b"")).casefold() != e["model"].casefold():
+                problems.append(f"{e['src']}: ACTI model differs from {e['model']!r}")
+            ob = overlay_records.field(base, "OBND", b"")
+            want = list(e["obnd"][0]) + list(e["obnd"][1])
+            if len(ob) < 24 or max(abs(a - b) for a, b in zip(struct.unpack_from("<6f", ob), want)) > 1e-3:
+                problems.append(f"{e['src']}: ACTI OBND differs from {e['obnd']}")
+            if overlay_records.field(base, "PNAM", b"") != ACTI_MARKER_COLOR:
+                problems.append(f"{e['src']}: ACTI PNAM {overlay_records.field(base, 'PNAM', b'').hex()}")
+            if overlay_records.field(base, "FNAM", b"") != ACTI_FLAGS:
+                problems.append(f"{e['src']}: ACTI FNAM {overlay_records.field(base, 'FNAM', b'').hex()}")
+            jn = overlay_records.field(base, "JNAM", b"")
+            if len(jn) < 2 or struct.unpack_from("<H", jn)[0] != ACTI_ACTIVATION_ANGLE:
+                problems.append(f"{e['src']}: ACTI JNAM {jn.hex()}")
+            if overlay_records.field(base, "VMAD") is not None:
+                problems.append(f"{e['src']}: ACTI carries a VMAD (the script belongs to the REFR)")
+        if rec is None or rec["sig"] != "REFR":
+            problems.append(f"{e['src']}: no REFR {ref_fid:08X}")
+        else:
+            q = xyz(rec, e, "REFR", e["src"])
+            if q["base"] != base_fid:
+                problems.append(f"{e['src']}: REFR names {q['base']:08X}, declared {base_fid:08X}")
+            if rec["flags"] & overlay_records.PERSISTENT:
+                problems.append(f"{e['src']}: REFR is persistent (a temporary reference reads merged)")
+            vm = overlay_records.field(rec, "VMAD")
+            if vm is None:
+                problems.append(f"{e['src']}: REFR has no VMAD")
+            else:
+                s = e["script"]
+                props, why = vmad_patch.door_properties(vm, s["name"], DOOR_PLUGIN_PROPERTY, DOOR_ID_PROPERTY)
+                want = (s["properties"][DOOR_PLUGIN_PROPERTY], s["properties"][DOOR_ID_PROPERTY])
+                if props is None:
+                    problems.append(f"{e['src']}: VMAD {why}")
+                elif props != want:
+                    problems.append(f"{e['src']}: VMAD properties {props} != {want}")
+                elif (e["destination"]["plugin"], e["destination"]["id"]) != want:
+                    problems.append(f"{e['src']}: script properties {want} != destination {e['destination']}")
+        if mark is None or mark["sig"] != "REFR":
+            problems.append(f"{e['src']}: no arrival REFR {mark_fid:08X}")
+        else:
+            q = xyz(mark, e["arrival"], "arrival marker", e["src"])
+            if q["base"] != overlay_records.XMARKER:
+                problems.append(f"{e['src']}: arrival marker base {q['base']:08X} is not XMarker {overlay_records.XMARKER:08X}")
+            if mark["flags"] & overlay_records.PERSISTENT:
+                problems.append(f"{e['src']}: arrival marker is persistent")
+            if overlay_records.field(mark, "VMAD") is not None:
+                problems.append(f"{e['src']}: arrival marker carries a VMAD")
+    return problems
+
 def terminal_menu_problems(by_fid, own_prefix, term, e, v):
     """A promoted TERM's menu binding (promoted_record_check): DNAM = the declared TMLM, which has the entry's menu
     edid and name, one BSIZ = 1 (when written), one BTXT = the entry's body and no menu item (ISIZ 0 when written)."""
@@ -1485,7 +1725,7 @@ def terminal_menu_problems(by_fid, own_prefix, term, e, v):
 
 def promotion_checks(recs, own_prefix, objects, ids, exp):
     """[what, ok] of the plugin's reference and promoted-base counts (check, section 2): REFR = objects + COC marker +
-    anchor + every promoted entry + lights; that total unchanged by promotion (objects + promoted + lights = every
+    anchor + every promoted entry + lights + door return markers; the source total is unchanged by promotion (objects + promoted + lights = every
     reference stage placed before --cluster plus the lights, which leave the skipped list: exported - skipped); one
     CONT / MISC / ACTI / TERM per distinct edid of its class and one TMLM per terminal edid; and with promotions
     promoted_record_check's bindings."""
@@ -1497,17 +1737,25 @@ def promotion_checks(recs, own_prefix, objects, ids, exp):
     refrs = sum(1 for r in recs if r["sig"] == "REFR")
     out.append([f"{refrs:,} REFR = {len(objects['refs']):,} objects + COC marker + anchor"
                 + "".join(f" + {len(entries[k]):,} {k}" for k, _sig in present)
-                + (f" + {len(lights):,} lights" if lights else ""),
-                refrs == len(objects["refs"]) + 2 + n_promoted + len(lights)])
+                + (f" + {len(lights):,} lights" if lights else "")
+                + (f" + {len(entries['doors']):,} return markers" if entries["doors"] else ""),
+                refrs == len(objects["refs"]) + 2 + n_promoted + len(lights) + len(entries["doors"])])
     unpromoted = exp["objects"]["exported"] - sum(exp["objects"]["skipped"].values())
     out.append([f"REFR total unchanged by promotion: {len(objects['refs']):,} objects + "
                 + " + ".join(f"{len(entries[k]):,} {k}" for k, _sig in (present or PROMOTED[:2]))
                 + (f" + {len(lights):,} lights" if lights else "")
                 + f" = {unpromoted:,} placed", len(objects["refs"]) + n_promoted + len(lights) == unpromoted])
     counted = [(k, sig, entries[k], "edid") for k, sig in PROMOTED] + [("terminals", "TMLM", entries["terminals"], "menu_edid")]
+    checked_signatures = set()
     for key, sig, es, field in counted:
+        if sig in checked_signatures:
+            continue
+        checked_signatures.add(sig)
+        matching = [(k, values, f) for k, s, values, f in counted if s == sig]
+        key = " / ".join(k for k, values, _f in matching if values) or key
+        es = [e for _k, values, _f in matching for e in values]
         n_recs = sum(1 for r in recs if r["sig"] == sig)
-        n_edids = len({e[field].casefold() for e in es})
+        n_edids = sum(len({e[f].casefold() for e in values}) for _k, values, f in matching)
         if es or n_recs:
             what = "edids" if field == "edid" else "menu edids"
             out.append([f"{n_recs:,} {sig} = {n_edids:,} distinct {key} {what} ({len(es):,} {key})", n_recs == n_edids])
@@ -1519,6 +1767,9 @@ def promotion_checks(recs, own_prefix, objects, ids, exp):
                                         "TERM menu and body" if "TERM" in sigs else "") if x)
         out.append([f"every promoted REFR names its {' / '.join(sigs)} (edid, model{'; ' + detail if detail else ''}) at "
                     f"its position ({len(pp)} problems: {pp[:3]})", not pp])
+    if entries["doors"]:
+        pp = door_record_check(recs, own_prefix, objects, ids)
+        out.append([f"scripted door VMADs and return markers ({len(pp)} problems: {pp[:3]})", not pp])
     return out
 
 
@@ -1638,7 +1889,8 @@ def stage_lights(cluster, ov, placed, promoted, skipped):
 def check_light_identities(objects, ids):
     """Light REFRs take new FormIDs after every other record id formids.json declares (bases, reserved REFRs, CONT,
     MISC, ACTI and TERM bases, TMLM menus, NAVMs), consecutive in objects.json order; the LIGH bases follow, consecutive in first-use order, one per
-    edid. ValueError names the first problem."""
+    edid. Scripted door bases/arrivals follow the lights. This checks legacy allocation order, not persistent
+    reservations across rebuilds. ValueError names the first problem."""
     lights, lbases = objects.get("lights") or [], objects.get("light_bases") or []
     if not lights:
         return
@@ -1651,7 +1903,8 @@ def check_light_identities(objects, ids):
         for k, v in ids.items():                     # every promoted class ({src: {"base", "ref"}}: containers, ...)
             if k != "lights" and isinstance(v, dict) and v and all(isinstance(x, dict) for x in v.values()):
                 for c in v.values():                 # (a terminal also names its TMLM "menu")
-                    others += [int(c["base"], 16), int(c["ref"], 16)] + ([int(c["menu"], 16)] if "menu" in c else [])
+                    fields = ("ref",) if k == "doors" else ("base", "ref", "menu")
+                    others += [int(c[f], 16) for f in fields if f in c]
         first = max(others) + 1
         for k, e in enumerate(lights):
             if int(got[e["src"]]["ref"], 16) != first + k:
@@ -1670,15 +1923,16 @@ def check_light_identities(objects, ids):
 
 
 def lights_after(recs, own_index, ids):
-    """(first id of a light record, last id of any other record of this plugin): the LIGHs and the light REFRs
-    (formids.json "lights") must all come after the rest. own_index = the plugin's master count."""
+    """(first light id, last preceding id): legacy LIGH/light REFR ids follow ordinary promotions and NAVMs;
+    scripted door bases/arrivals come later and are excluded. own_index = the plugin's master count."""
     light_refs = {int(v["ref"], 16) for v in (ids.get("lights") or {}).values()}
+    door_new = {int(v[f], 16) for v in (ids.get("doors") or {}).values() for f in ("base", "arrival")}
     own = [r for r in recs if (r["fid"] >> 24) == own_index]
 
     def is_light(r):
         return r["sig"] == "LIGH" or (r["sig"] == "REFR" and r["fid"] & 0xFFFFFF in light_refs)
     first = min((r["fid"] & 0xFFFFFF for r in own if is_light(r)), default=None)
-    last = max((r["fid"] & 0xFFFFFF for r in own if not is_light(r)), default=0)
+    last = max((r["fid"] & 0xFFFFFF for r in own if not is_light(r) and r["fid"] & 0xFFFFFF not in door_new), default=0)
     return first, last
 
 
@@ -1811,17 +2065,19 @@ def cmd_stage(a):
     # line), one base per FO4 base, one temporary REFR per source reusing its original reference_index (one slot plan
     # for every class); the new CONT, MISC, ACTI, then TERM + TMLM records follow all reserved REFRs.
     # Its "lights" (docs/terrain/exterior-lights.md, make_cluster.py lights) were never placed: new light REFRs and
-    # LIGH bases after every other record
+    # LIGH bases after ordinary promotions/NAVMs; scripted-door bases and arrival markers follow them.
     promoted = {k: [] for k, _sig in PROMOTED}
     lights, light_bases = [], []
     if getattr(a, "cluster", None):
-        cluster = load(a.cluster)
         try:
-            placed, promoted = cluster_promote(bases, placed, cluster)
+            cluster = merge_clusters([p for p in a.cluster.split(",") if p])
+            placed, promoted = cluster_promote(bases, placed, cluster,
+                                              cells=(ov["cell_min"], ov["cell_max"]),
+                                              bounds_of=lambda model: model_bounds(os.path.join(out, "Data"), model))
             # exterior lights (docs/terrain/exterior-lights.md): never placed, so new REFR ids after every reserved one
             lights, light_bases, skipped, n_out = stage_lights(cluster, ov, placed,
                                                                [e for es in promoted.values() for e in es], skipped)
-        except ValueError as e:
+        except (ValueError, OSError) as e:
             sys.exit(f"--cluster: {e}")
         new_edids = {e[f].lower() for es in promoted.values() for e in es for f in ("edid", "menu_edid") if f in e}
         new_edids |= {b["edid"].lower() for b in light_bases}
@@ -2143,13 +2399,21 @@ def cmd_check(a):
                  + " + ".join(f"{len(objects.get(k) or []):,} {k}" for k, _sig in PROMOTED if objects.get(k))
                  + ", one slot plan)")
     lights = objects.get("lights") or []
+    doors = objects.get("doors") or []
+    if doors:
+        try:
+            check_door_identities(objects, ids)
+        except ValueError as e:
+            need(False, f"declared door identities: {e}")
+        else:
+            need(True, "scripted door bases and return markers follow existing records")
     if lights:
         try:
             check_light_identities(objects, ids)
         except ValueError as e:
             need(False, f"declared light identities: {e}")
         else:
-            need(True, f"{len(lights):,} light REFRs have new ids after every other record, then "
+            need(True, f"{len(lights):,} light REFRs have new ids after ordinary promotions/NAVMs, then "
                        f"{len(objects['light_bases'])} LIGH bases")
 
     # 1. core64 unchanged: params, Data files, Mars plugin, every core64 record of the main plugin
@@ -2198,6 +2462,7 @@ def cmd_check(a):
         need(len(navms) == len(navj["navmeshes"]), f"{len(navms):,} NAVM = navmesh.json's {len(navj['navmeshes']):,}")
         need(len(navis) == 1, f"one NAVI override ({len(navis)})")
         light_ids = {int(v["ref"], 16) for v in (ids.get("lights") or {}).values()}    # appended after the NAVMs
+        light_ids |= {int(v[f], 16) for v in (ids.get("doors") or {}).values() for f in ("base", "arrival")}
         last_obj = max((r["fid"] & 0xFFFFFF for r in recs if r["sig"] in ("STAT", "DOOR", "REFR", "CONT", "MISC", "ACTI",
                                                                           "TERM", "TMLM")
                         and r["fid"] & 0xFFFFFF not in light_ids), default=0)
@@ -2221,7 +2486,7 @@ def cmd_check(a):
                                                         f"(one per FO4 base, {len(lights):,} lights)")
         first_light, last_other = lights_after(recs, len(new["masters"]), ids)
         need(first_light is not None and first_light > last_other,
-             f"every light record after the build's other records (first 0x{first_light or 0:06X}, last other 0x{last_other:06X})")
+             f"every light record after ordinary promotions/NAVMs (first 0x{first_light or 0:06X}, last preceding 0x{last_other:06X})")
         lp = light_record_problems(recs, own, objects, ids)
         need(not lp, f"every LIGH and light REFR matches objects.json ({len(lp)} problems: {lp[:3]})")
     rep["plugin_records"] = {s: sum(1 for r in recs if r["sig"] == s) for s in sorted({r["sig"] for r in recs})}
@@ -2229,13 +2494,14 @@ def cmd_check(a):
     del new, recs, by, stats
     cells = x2c.walk_cells(os.path.join(out, prm["plugin"]))
     per_cell = {}
-    for r in objects["refs"] + promoted + lights:
+    arrivals = [{"src": d["src"] + " arrival", "cell": d["arrival"]["cell"], "pos": d["arrival"]["pos"]} for d in doors]
+    for r in objects["refs"] + promoted + lights + arrivals:
         per_cell[tuple(r["cell"])] = per_cell.get(tuple(r["cell"]), 0) + 1
     want = dict(per_cell)
     want[tuple(ov["spawn_cell"])] = want.get(tuple(ov["spawn_cell"]), 0) + 1        # + the COC marker
     got = {c["grid"]: len(c["refs"]) for c in cells.values() if c["grid"] is not None and c["refs"]}
     need(got == want, f"REFRs per exterior cell as objects.json ({len(got):,} cells with references)")
-    wrong = [r["src"] for r in objects["refs"] + promoted + lights
+    wrong = [r["src"] for r in objects["refs"] + promoted + lights + arrivals
              if list(r["cell"]) != list(tg.sf_cell_of(r["pos"][0], r["pos"][1]))]
     need(not wrong, f"every reference in the cell of its written position ({len(wrong)} not: {wrong[:5]})")
     rep["cells"] = {"with_refs": len(got), "max_refs": max(got.values()), "densest": sorted(
@@ -2469,11 +2735,11 @@ def main():
         s.add_argument("--out", required=True)
         if name == "stage":
             s.add_argument("--sf-esm", default="", help="Starfield.esm: build the plugins with dotnet/TerrainOverlays")
-            s.add_argument("--cluster", default="", help="R05: a cluster json (scripts/terrain/clusters/*.json, "
+            s.add_argument("--cluster", default="", help="R05: comma-separated cluster json files (scripts/terrain/clusters/*.json, "
                            "make_cluster.py) whose \"containers\" become native CONT, \"items\" native MISC, "
-                           "\"activators\" native ACTI and \"terminals\" native TERM (+ TMLM menu) references instead "
+                           "\"activators\" native ACTI, \"terminals\" native TERM (+ TMLM menu), and \"doors\" scripted ACTI references instead "
                            "of statics (each in its original reference slot), and whose "
-                           "\"lights\" become native LIGH and new light REFRs after every other record")
+                           "\"lights\" become native LIGH and new light REFRs after ordinary promotions/NAVMs; scripted door bases/arrivals follow")
 
             s.add_argument("--navmesh", default="", help="navmesh.json (src/fo4sf/navmesh.py export over the core's FO4 NAVM): "
                            "written as NAVM records in their cells plus the NAVI override (docs/actors/navmesh-conversion.md)")
