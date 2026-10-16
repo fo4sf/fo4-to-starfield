@@ -8,6 +8,7 @@ append() terminates it. Current state is fold(events); nothing here rewrites his
 from dataclasses import dataclass, field
 import os
 
+from .filelock import locked
 from .model import CapabilityState, Event, Outcome, Source, now_iso, parse_iso
 
 
@@ -50,7 +51,13 @@ class Ledger:
         return {e.get("src") for e in self.read() if e.get("src")}
 
     def append(self, event):
+        """Append one line, under the ledger's lock (filelock.py): the repair of a torn tail and the append are one
+        step, so a second writer never sees, or truncates, a line in flight."""
         os.makedirs(os.path.dirname(os.path.abspath(self.path)), exist_ok=True)
+        with locked(self.path + ".lock"):
+            return self._append(event)
+
+    def _append(self, event):
         repaired = None
         if os.path.exists(self.path) and os.path.getsize(self.path):
             with open(self.path, "rb+") as f:
@@ -90,6 +97,7 @@ class LeaderState:
     campaigns: set = field(default_factory=set)
     changes: list = field(default_factory=list)       # leader_started commits seen, in order
     events: int = 0
+    unknown_events: int = 0                           # lines of a type this checkout does not know (kept, not folded)
 
     # ---- controller
     def controller_status(self, now=None):
@@ -116,16 +124,20 @@ class LeaderState:
         return out
 
     # ---- tasks
-    def tasks_by_status(self):
+    def tasks_by_status(self, build_id=None):
+        """Task ids per status; with build_id, only the tasks of that build (the report's queue is the pinned build's;
+        a task that names no build is listed either way)."""
         out = {}
         for tid, t in self.tasks.items():
+            if build_id and t.get("build_id") and t["build_id"] != build_id:
+                continue
             out.setdefault(t["status"], []).append(tid)
         return out
 
     # ---- the eight bullets of the owner's work-period report
     def report(self, now=None):
         caps = self.capabilities_by_state()
-        by = self.tasks_by_status()
+        by = self.tasks_by_status(self.build.get("build_id"))   # the queue of the pinned build, not of every campaign
         pins = ", ".join(f"{k}={v}" for k, v in self.build.items() if v) or "no build pinned"
         plugins = ", ".join(p.get("name", "?") + ("" if p.get("active_after_load") else " (not confirmed after load)")
                             for p in self.plugins) or "none recorded"
@@ -154,6 +166,9 @@ def fold(events, now=None):
     for e in events:
         s.events += 1
         f = e.fields
+        if not e.known:
+            s.unknown_events += 1
+            continue
         if e.ev == "leader_started":
             s.leader = {k: f.get(k) for k in ("commit", "branch", "host", "session")}
             if f.get("commit"):
@@ -177,15 +192,18 @@ def fold(events, now=None):
             t = s.tasks.setdefault(f["task"], {"status": "queued", "outcome": None, "attempt": 0, "detail": ""})
             t["owner"] = f.get("owner", t.get("owner"))
             t["campaign"] = f.get("campaign", t.get("campaign"))
+            t["build_id"] = f.get("build_id", t.get("build_id"))
         elif e.ev == "task_started":
             t = s.tasks.setdefault(f["task"], {"status": "queued", "outcome": None, "attempt": 0, "detail": ""})
             t["status"], t["attempt"] = "running", f.get("attempt", t["attempt"] + 1)
+            t["build_id"] = f.get("build_id", t.get("build_id"))
         elif e.ev == "task_finished":
             out = Outcome(f["outcome"])
             t = s.tasks.setdefault(f["task"], {"status": "queued", "outcome": None, "attempt": 0, "detail": ""})
             t["outcome"], t["detail"] = out.value, f.get("detail", "")
             t["attempt"] = f.get("attempt", t["attempt"])
             t["campaign"] = f.get("campaign", t.get("campaign"))
+            t["build_id"] = f.get("build_id", t.get("build_id"))
             # SKIPPED and CIRCUIT_BROKEN are terminal but never "completed"
             t["status"] = {Outcome.SKIPPED: "skipped", Outcome.CIRCUIT_BROKEN: "circuit_broken",
                            Outcome.INCONCLUSIVE: "inconclusive"}.get(out, "completed")
@@ -213,6 +231,6 @@ def fold(events, now=None):
             if f["blocker"] in s.blockers:
                 s.blockers[f["blocker"]]["open"] = False
         elif e.ev == "recovery_point":
-            s.recovery_points.append({k: f.get(k) for k in ("kind", "path", "sha256", "build_id")} | {"t": e.t})
+            s.recovery_points.append(dict({k: f.get(k) for k in ("kind", "path", "sha256", "build_id")}, t=e.t))
         # ledger_repaired: bookkeeping only
     return s
