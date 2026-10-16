@@ -35,7 +35,7 @@ class SnapshotTests(unittest.TestCase):
         root = tempfile.mkdtemp(prefix="fo4sf_snaps_")             # never the owner's C:\Modding\snapshots
         before = set()
         r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", hot, "-TestFire"],
-                           capture_output=True, text=True, timeout=60)
+                           capture_output=True, text=True, timeout=60, env=dict(os.environ, FO4SF_SNAPSHOT_ROOT=root))
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("pressed", r.stdout)
         import time
