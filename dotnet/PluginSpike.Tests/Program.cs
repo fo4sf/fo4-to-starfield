@@ -139,3 +139,54 @@ try { PosedBases.Register(byRefBases, bySourceBases, "meshes\\SetDressing\\Skel.
 catch (InvalidOperationException) { twice = true; }
 Require(twice && byRefBases["0B:Fallout4.esm"] == "FO4Port_Skel_xrgd_0123456789", "a reference with two posed models was accepted");
 Console.WriteLine("Posed-model base selection checks passed.");
+
+// ---- posed models end to end (PR #244 review): run PluginSpike itself on a synthetic manifest (a shared and a posed
+// MoveableStatic, the posed one last; a posed and a shared Static, the posed one first) and one cell export, then read the
+// written plugin back and check every reference's base. Catches a base path in Program.cs that bypasses PosedBases.
+var spikeDir = Path.Combine(Path.GetTempPath(), "fo4sf-posed-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(spikeDir);
+var oldSfData = Environment.GetEnvironmentVariable("STARFIELD_DATA");
+try
+{
+    File.WriteAllText(Path.Combine(spikeDir, "manifest.json"), """
+{"items":[
+ {"editor_id":"FO4Port_Skel","model":"fo4port\\skel.nif","source":"meshes\\SetDressing\\Skel.nif","movable":{"mass_kg":10}},
+ {"editor_id":"FO4Port_Skel_xrgd_0123456789","model":"fo4port\\skel_xrgd_0123456789.nif","source":"meshes\\SetDressing\\Skel.nif",
+  "movable":{"mass_kg":10},"pose":{"kind":"xrgd","refs":["0A:Fallout4.esm"]}},
+ {"editor_id":"FO4Port_Saw_xrgd_abcdef0123","model":"fo4port\\saw_xrgd_abcdef0123.nif","source":"meshes\\SetDressing\\Saw.nif",
+  "pose":{"kind":"xrgd","refs":["0C:Fallout4.esm"]}},
+ {"editor_id":"FO4Port_Saw","model":"fo4port\\saw.nif","source":"meshes\\SetDressing\\Saw.nif"}]}
+""");
+    string Ref(string fk, string model) =>
+        $$"""{"formkey":"{{fk}}","model":"{{model}}","base_editor_id":"X","type":"Static","scale":1.0,"pos":[0,0,0],"rot":[0,0,0]}""";
+    File.WriteAllText(Path.Combine(spikeDir, "cell.json"), "{\"cell\":\"Posed\",\"refs\":[" + string.Join(",",
+        Ref("0A:Fallout4.esm", "SetDressing\\\\Skel.nif"), Ref("0B:Fallout4.esm", "SetDressing\\\\Skel.nif"),
+        Ref("0C:Fallout4.esm", "SetDressing\\\\Saw.nif"), Ref("0D:Fallout4.esm", "SetDressing\\\\Saw.nif"),
+        Ref("0E:Fallout4.esm", "SetDressing\\\\Other.nif")) + "]}");
+    Environment.SetEnvironmentVariable("STARFIELD_DATA", spikeDir);        // masters come from WithKnownMasters
+    typeof(PosedBases).Assembly.EntryPoint!.Invoke(null, new object[] {
+        new[] { spikeDir, Path.Combine(spikeDir, "manifest.json"), Path.Combine(spikeDir, "cell.json") } });
+    var sfMaster = ModKey.FromNameAndExtension("Starfield.esm");
+    var spikeMasters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+    spikeMasters.Set(new KeyedMasterStyle(sfMaster, MasterStyle.Full));
+    using var written = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(spikeDir, "FO4Port.esm"), release,
+                                                            new BinaryReadParameters { MasterFlagsLookup = spikeMasters });
+    var baseIds = written.MoveableStatics.Select(x => (x.FormKey, x.EditorID)).Concat(written.Statics.Select(x => (x.FormKey, x.EditorID)))
+        .ToDictionary(x => x.FormKey, x => x.EditorID ?? "");
+    Require(written.MoveableStatics.Count == 2 && written.Statics.Count == 2, "expected 2 MSTT and 2 STAT bases");
+    var spikeIds = StableFormIds.Load(Path.Combine(spikeDir, "formids.json"));
+    var refs = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).Single().Temporary
+        .OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey.ID, r => baseIds[r.Base.FormKey]);
+    string BaseOf(string fk) => refs[spikeIds["REFR:FO4Port_Posed:" + fk]];
+    Require(refs.Count == 4 && !spikeIds.ContainsKey("REFR:FO4Port_Posed:0E:Fallout4.esm"), "unconverted reference placed");
+    Require(BaseOf("0A:Fallout4.esm") == "FO4Port_Skel_xrgd_0123456789", "posed MSTT reference not on its posed base");
+    Require(BaseOf("0B:Fallout4.esm") == "FO4Port_Skel", "unposed MSTT reference not on the shared base");
+    Require(BaseOf("0C:Fallout4.esm") == "FO4Port_Saw_xrgd_abcdef0123", "posed STAT reference not on its posed base");
+    Require(BaseOf("0D:Fallout4.esm") == "FO4Port_Saw", "unposed STAT reference not on the shared base");
+}
+finally
+{
+    Environment.SetEnvironmentVariable("STARFIELD_DATA", oldSfData);
+    Directory.Delete(spikeDir, true);
+}
+Console.WriteLine("Posed-model plugin round trip passed.");

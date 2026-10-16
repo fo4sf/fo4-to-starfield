@@ -65,6 +65,11 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
     MuseumOfWitchcraft01 5, ParsonsState01 4, PrydwenHull01 4, RedRocket01 2.
 - Offline end to end: the scratch conversion (35 models + 147 posed models, 0 failures, 54 s) and plugin (275
   references): read back, 147 references sit on their own posed base and 128 on the shared one, 0 wrong.
+- Review fixes (PR #244 review): only a vertex move of 0.5 units or more makes a variant (moved body nodes alone carry
+  only collision), and a multi-body pose with a body on the scene root is refused. **Verified** by rerunning
+  `placed_pose.plan` on the same inputs: 146 posed (`SmallSandbagPile01` 1A4857 drops out: stale entries with a fitting
+  count, vertex shift 0; the review measured its posed collision about 4 m off the pile), 46 unchanged, 48 rejected (the 45 above plus 3 with a
+  root body, which were unchanged before; the shared model either way). Single-body, not-converted and door counts unchanged.
 - Status: cause **verified**; "FO4 shows a placed ragdoll in its XRGD pose" **supported hypothesis** (PR #52's Vault 114
   resting test, the Vault 111 skeletons lie on the floor posed, 1A6737's upside-down reference rotation only makes sense
   posed); how Starfield shows the posed models (and whether the movable posed bodies stay put) **unresolved** until a

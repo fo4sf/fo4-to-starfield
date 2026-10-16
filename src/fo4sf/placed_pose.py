@@ -6,8 +6,9 @@ reference, not in the model (docs/ai/research-log.md 2026-10-11 "XRGD ragdoll po
 model is shared by every reference of its base, so a reference whose pose moves the model gets a variant: the same source
 NIF converted with its bone nodes' local transforms replaced by the entries (convert_static pose=...). The variant is named
 after the base plus a hash of the pose, so equal poses share one variant and a rebuild keeps the name (the plugin writer
-keys its stable FormIDs by editor ID). References whose entries do not fit the model (stale XRGD, no bodies) or leave it
-where the node pose has it keep the shared model; plan() counts each case.
+keys its stable FormIDs by editor ID). References whose entries do not fit the model (stale XRGD, no bodies, a body on the
+scene root) or leave its vertices where the node pose has them (moved body nodes alone would only misplace the collision)
+keep the shared model; plan() counts each case.
 
 Only articulated models are posed (MIN_BODIES: two or more bodies in the system, i.e. skeletons, mannequins, saw horses,
 barriers, chains), the case the decoder's frames were checked on (joint lengths and hinge axes, research log 2026-10-11).
@@ -28,7 +29,8 @@ from typing import Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
 from . import convert_static, nif as nifmod, ragdoll_pose
 
-POSE_EPSILON = 0.5          # game units (7 mm): a pose that moves no vertex and no body node further keeps the shared model
+POSE_EPSILON = 0.5          # game units (7 mm): a pose that moves no vertex further keeps the shared model (body nodes
+                            # alone carry only collision: moving them without the mesh would misplace it, PR #244 review)
 MIN_BODIES = 2              # articulated models only (see above)
 SUFFIX = "_xrgd_"
 
@@ -76,17 +78,20 @@ def _points(n: nifmod.NifFile, pose: Optional[dict]) -> Tuple[List[tuple], Dict[
     return pts, nodes
 
 
-def pose_shift(n: nifmod.NifFile, pose: dict, baseline=None) -> float:
-    """Largest distance (game units) any vertex or body node moves between the node pose and `pose`."""
+def pose_shifts(n: nifmod.NifFile, pose: dict, baseline=None) -> Tuple[float, float]:
+    """(largest vertex move, largest body node move) in game units between the node pose and `pose`."""
     base_pts, base_nodes = baseline or _points(n, None)
     pts, nodes = _points(n, pose)
     if len(pts) != len(base_pts):
-        return math.inf
-    shift = max((math.dist(p, q) for p, q in zip(pts, base_pts)), default=0.0)
-    for node, origin in nodes.items():
-        if node in base_nodes:
-            shift = max(shift, math.dist(origin, base_nodes[node]))
-    return shift
+        return math.inf, math.inf
+    verts = max((math.dist(p, q) for p, q in zip(pts, base_pts)), default=0.0)
+    bodies = max((math.dist(o, base_nodes[k]) for k, o in nodes.items() if k in base_nodes), default=0.0)
+    return verts, bodies
+
+
+def pose_shift(n: nifmod.NifFile, pose: dict, baseline=None) -> float:
+    """Largest distance (game units) any vertex or body node moves between the node pose and `pose`."""
+    return max(pose_shifts(n, pose, baseline))
 
 
 def _reason(e: Exception) -> str:
@@ -99,8 +104,9 @@ def plan(refs: Iterable[Mapping], models: Mapping[str, Mapping], read_nif: Calla
     refs: cell-export references (formkey, model, ragdoll). models: converted manifest items by lower-case source path
     ("meshes\\..."); door and load-door items are never posed. read_nif(source) -> FO4 NIF bytes.
     Returns (variants sorted by source and key, stats): stats counts every reference with ragdoll data once, under
-    posed / unchanged (pose within min_shift of the node pose) / single_body (fewer than min_bodies bodies) / rejected
-    (reason) / not_converted / door."""
+    posed / unchanged (no vertex moves min_shift or more from the node pose; moved body nodes alone do not count) /
+    single_body (fewer than min_bodies bodies) / rejected (reason; also a multi-body pose with a body on the scene root) /
+    not_converted / door."""
     stats = {"refs_with_ragdoll": 0, "posed_refs": 0, "variants": 0, "unchanged": 0, "single_body": 0, "not_converted": 0,
              "door": 0, "rejected": {}}
     parsed: Dict[str, Optional[nifmod.NifFile]] = {}
@@ -152,13 +158,19 @@ def plan(refs: Iterable[Mapping], models: Mapping[str, Mapping], read_nif: Calla
                     unchanged[ident] = "single_body"
                     stats["single_body"] += 1
                     continue
+                if set(overrides) & ({0} | set(nifmod.footer_roots(n))):
+                    # a body on the scene root: the pose would move every shape, but convert_static keeps a root body
+                    # in place (and the root frame of an entry is unchecked), so mesh and collision would part
+                    reject("body on the scene root")
+                    continue
                 if source.lower() not in baselines:
                     baselines[source.lower()] = _points(n, None)
-                shift = pose_shift(n, overrides, baselines[source.lower()])
+                verts, bodies = pose_shifts(n, overrides, baselines[source.lower()])
+                shift = max(verts, bodies)
             except (ragdoll_pose.RagdollPoseError, nifmod.NifError, ValueError) as e:
                 reject(_reason(e))
                 continue
-            if shift < min_shift:
+            if verts < min_shift:           # bodies alone (stale XRGD with a fitting entry count): collision only
                 unchanged[ident] = "unchanged"
                 stats["unchanged"] += 1
                 continue

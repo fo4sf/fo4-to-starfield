@@ -24,7 +24,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from test_fo4skin import IDENT, bone_data_block, instance_block, node_block, shape_block
-from fo4sf import convert_static, meshcollision, nif, placed_pose, ragdoll_pose, sfmesh, sfnif
+from fo4sf import convert_static, meshcollision, nif, pipeline, placed_pose, ragdoll_pose, sfmesh, sfnif
 
 ROOT = Path(__file__).resolve().parents[1]
 HALF_PI = math.pi / 2
@@ -32,27 +32,31 @@ POSE_B = [{"index": 0, "bone_id": 0, "unused": "000000", "pos": [0, 0, 10], "rot
           {"index": 1, "bone_id": 7, "unused": "ab12cd", "pos": [0, 0, 10], "rot": [HALF_PI, 0, 0]}]
 NODE_POSE = [{"index": 0, "bone_id": 0, "unused": "000000", "pos": [0, 0, 10], "rot": [0, 0, 0]},
              {"index": 1, "bone_id": 0, "unused": "000000", "pos": [0, 0, 10], "rot": [0, 0, 0]}]
+# BoneB 30 units out along x (BoneB world (30, 0, 20) instead of (0, 0, 20)): stale XRGD whose entry count still fits
+MOVED_B = [NODE_POSE[0], dict(NODE_POSE[1], pos=[30, 0, 10])]
 
 
 def colobj(target, system, body):
     return struct.pack("<iHiI", target, 0x80, system, body)
 
 
-def rig_nif(root_trans=(0, 0, 0), bone_b_rot=IDENT, single_body=False):
-    """single_body: only BoneA owns a body (block 8 becomes a BSXFlags), as a loose one-body item."""
+def rig_nif(root_trans=(0, 0, 0), bone_b_rot=IDENT, single_body=False, mesh_on_root=False, root_body=False):
+    """single_body: only BoneA owns a body (block 8 becomes a BSXFlags), as a loose one-body item.
+    mesh_on_root: Body (unskinned) and Tag hang under the root, so no bone node carries a vertex (SmallSandbagPile01).
+    root_body: body 0 sits on the scene root instead of BoneA."""
     f = nif.NifFile(bs_version=130, author=b"t\x00", process_script=b"\x00", export_script=b"\x00", max_filepath=b"\x00")
     for s in (b"Root", b"BoneA", b"BoneB", b"Body", b"Tag"):
         f.string_index(s)
-    f.add_block("NiNode", node_block(0, [1, 3], trans=root_trans))
+    f.add_block("NiNode", node_block(0, [1, 3, 7] if mesh_on_root else [1, 3], trans=root_trans))
     f.add_block("NiNode", node_block(1, [2], trans=(0, 0, 10)))
-    f.add_block("NiNode", node_block(2, [7], trans=(0, 0, 10), rot=bone_b_rot))
-    f.add_block("BSTriShape", shape_block(3, [(1.0, 0.0, 5.0), (1.0, 0.0, 25.0), (0.0, 1.0, 15.0)], 4,
-                                          [(1.0, 0, 0, 0), (1.0, 0, 0, 0), (0.5, 0.5, 0, 0)],
-                                          [(0, 0, 0, 0), (1, 0, 0, 0), (0, 1, 0, 0)]))
+    f.add_block("NiNode", node_block(2, [] if mesh_on_root else [7], trans=(0, 0, 10), rot=bone_b_rot))
+    skin = () if mesh_on_root else (4, [(1.0, 0, 0, 0), (1.0, 0, 0, 0), (0.5, 0.5, 0, 0)],
+                                    [(0, 0, 0, 0), (1, 0, 0, 0), (0, 1, 0, 0)])
+    f.add_block("BSTriShape", shape_block(3, [(1.0, 0.0, 5.0), (1.0, 0.0, 25.0), (0.0, 1.0, 15.0)], *skin))
     f.add_block("BSSkin::Instance", instance_block(0, 5, [1, 2]))
     f.add_block("BSSkin::BoneData", bone_data_block([((0, 0, -5, 6), IDENT, (0, 0, -10), 1.0),
                                                      ((0, 0, 5, 6), IDENT, (0, 0, -20), 1.0)]))
-    f.add_block("bhkNPCollisionObject", colobj(1, 9, 0))
+    f.add_block("bhkNPCollisionObject", colobj(0 if root_body else 1, 9, 0))
     f.add_block("BSTriShape", shape_block(4, [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)]))
     if single_body:
         f.add_block("BSXFlags", struct.pack("<iI", -1, 0))
@@ -212,6 +216,51 @@ class PlanTests(unittest.TestCase):
         items = {self.SOURCE.lower(): {"source": self.SOURCE, "editor_id": "FO4Port_Skel", "door": {}}}
         variants, stats = self.plan([self.ref("01:Fallout4.esm", POSE_B)], items)
         self.assertEqual((variants, stats["door"], stats["posed_refs"]), ([], 1, 0))
+
+    def test_a_pose_that_moves_only_body_nodes_keeps_the_shared_model(self):
+        # PR #244 review, SmallSandbagPile01 1A4857: the mesh hangs under the root, so stale entries that still fit the
+        # body count move only the collision bodies (18 units / 4 m off); the shared model is right for that reference
+        raw = rig_nif(mesh_on_root=True)
+        self.assertEqual(placed_pose.pose_shifts(nif.parse(raw), ragdoll_pose.local_overrides(raw, MOVED_B)), (0.0, 30.0))
+        variants, stats = self.plan([self.ref("01:Fallout4.esm", MOVED_B), self.ref("02:Fallout4.esm", MOVED_B)], raw=raw)
+        self.assertEqual((variants, stats["unchanged"], stats["posed_refs"]), ([], 2, 0))
+        variants, _ = self.plan([self.ref("01:Fallout4.esm", MOVED_B)])     # skin and Tag on the bones: they move
+        self.assertEqual(len(variants), 1)
+        self.assertAlmostEqual(variants[0].shift, 30.0, places=4)
+
+    def test_a_body_on_the_scene_root_is_not_posed(self):
+        # convert_static leaves a root body in place while the pose would move every shape: refuse, as for one body
+        moved_root = [dict(NODE_POSE[0], pos=[5, 0, 0]), POSE_B[1]]
+        raw = rig_nif(root_body=True)
+        self.assertEqual(sorted(ragdoll_pose.local_overrides(raw, moved_root)), [0, 2])
+        variants, stats = self.plan([self.ref("01:Fallout4.esm", moved_root)], raw=raw)
+        self.assertEqual((variants, stats["posed_refs"], stats["rejected"]), ([], 0, {"body on the scene root": 1}))
+
+
+class ConverterPoseTests(unittest.TestCase, Close):
+    """pipeline.Converter.convert_nif(pose=, out_suffix=) with the real convert_static (PR #244 review: a converter that
+    dropped the pose passed every other test, since BatchVariantTests stands in for the converter)."""
+
+    def test_posed_model_is_written_beside_the_shared_one_in_the_reference_pose(self):
+        raw = rig_nif()
+        name = "meshes\\SetDressing\\Skel.nif"
+        with tempfile.TemporaryDirectory() as staging:
+            c = pipeline.Converter.__new__(pipeline.Converter)       # no archives, texconv or templates
+            c.src = SimpleNamespace(mesh=lambda _: raw)
+            c.staging, c.prefix, c.no_collision, c.rig_doors, c.door_physics_donor = staging, "fo4port", None, False, None
+            c.collision_template = c.sf_mesh_template = c.dynamic_template = None
+            c.neutral, c._shape_material = "placeholder.mat", Mock(return_value="synthetic.mat")
+            c.stats = {"assets": 0, "failed": 0}
+            shared = c.convert_nif(name)
+            posed = c.convert_nif(name, pose=ragdoll_pose.local_overrides(raw, POSE_B), out_suffix="_xrgd_K")
+            files = {p.relative_to(staging).as_posix(): p.read_bytes() for p in Path(staging).rglob("*") if p.is_file()}
+        self.assertTrue(shared["ok"] and posed["ok"], (shared, posed))
+        self.assertEqual((shared["out_name"], posed["out_name"]), ("fo4port/setdressing/skel", "fo4port/setdressing/skel_xrgd_k"))
+        body, tag = mesh_points(files, shared["out_name"])
+        self.close(body, [(1, 0, 5), (1, 0, 25), (0, 1, 15)])              # the node pose
+        body, tag = mesh_points(files, posed["out_name"])
+        self.close(body, [(1, 0, 5), (1, 5, 20), (0, -2, 17)])              # the reference's pose (module docstring)
+        self.close(tag, [(1, 0, 20), (0, 0, 19), (0, 1, 20)])
 
 
 class BatchVariantTests(unittest.TestCase):
