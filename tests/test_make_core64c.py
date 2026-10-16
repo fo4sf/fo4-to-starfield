@@ -745,13 +745,14 @@ class LightTests(unittest.TestCase):
     CLUSTER = {"light_bases": {"08ADFA:Fallout4.esm": light_base(), "0517B0:Fallout4.esm": light_base(type=2, flicker_effect=0)},
                "lights": [{"src": "000003:Fallout4.esm", "base": "0517B0:Fallout4.esm", "editor_id": "x",
                            "fo4_pos": [-69139.6, 80740.2, 7825.27], "rot": [0, 0, 1.5], "scale": 1.0, "disabled": False,
-                           "radius_delta": -0.5, "lighting": {"fov": -39.2, "fade": 1.6, "near_clip": 0.0}},
+                           "radius_delta": -0.5, "lighting": {"fov": -39.2, "fade": 1.6, "near_clip": 0.0},
+                           "record_flags": 0x30100},
                           {"src": "000001:Fallout4.esm", "base": "08ADFA:Fallout4.esm", "editor_id": "y",
                            "fo4_pos": [700.0, -1400.0, 70.0], "rot": [0, 0, 0], "scale": 1.0, "disabled": True,
-                           "radius_delta": None, "lighting": None},
+                           "radius_delta": None, "lighting": None, "record_flags": 0},
                           {"src": "000002:Fallout4.esm", "base": "0517B0:Fallout4.esm", "editor_id": "x",
                            "fo4_pos": [9999999.0, 0.0, 0.0], "rot": [0, 0, 0], "scale": 1.0, "disabled": False,
-                           "radius_delta": None, "lighting": None}]}
+                           "radius_delta": None, "lighting": None, "record_flags": 0x100}]}
 
     def test_light_edid(self):
         self.assertEqual(mk.light_edid("08ADFA:Fallout4.esm"), "FO4Core_ligh_08adfa_fallout4")
@@ -771,6 +772,8 @@ class LightTests(unittest.TestCase):
         self.assertEqual((e["radius"], e["lighting"], e["edid"]), (-0.5, {"fov": -39.2, "fade": 1.6, "near_clip": 0.0},
                                                                    "FO4Core_ligh_0517b0_fallout4"))
         self.assertEqual((lights[1]["disabled"], lights[1]["lighting"]), (True, None))
+        # the FO4 reference's DoesNotLightWater / NeverFades / DoesNotLightLandscape bits reach objects.json as they are
+        self.assertEqual([e["flags"] for e in lights], [0x30100, 0])
         self.assertEqual([s["formkey"] for s in outside], ["000002:Fallout4.esm"])
         self.assertEqual(outside[0]["reason"], "outside_terrain")
 
@@ -782,6 +785,8 @@ class LightTests(unittest.TestCase):
                  ({**c, "lights": [dict(c["lights"][0], base="111111:Fallout4.esm")]}, [], "not in light_bases"),
                  ({**c, "lights": [dict(c["lights"][0], lighting={"fov": 0, "fade": 2.5, "near_clip": 0})]}, [], "vanilla XLIG"),
                  ({**c, "lights": [dict(c["lights"][0], src="")]}, [], "source key"),
+                 ({**c, "lights": [dict(c["lights"][0], record_flags=0x800)]}, [], "record_flags"),     # not a carried bit
+                 ({**c, "lights": [{k: v for k, v in c["lights"][0].items() if k != "record_flags"}]}, [], "run make_cluster"),
                  ({**c, "light_bases": {"0517B0:Fallout4.esm": light_base(lumens=0)}}, [], "out of range"),
                  ({**c, "light_bases": {"0517B0:Fallout4.esm": {k: v for k, v in light_base().items() if k != "fov"}}}, [], "missing")]
         for cluster, placed, why in cases:
@@ -857,7 +862,7 @@ class LightTests(unittest.TestCase):
         dat2[56], dat2[57] = 0, 1
         edid = "FO4Core_ligh_08adfa_fallout4"
         lobj = {"lights": [{"src": "L1", "edid": edid, "pos": [1, 2, 3], "rot": [0, 0, 0], "scale": 1.0,
-                            "disabled": False, "radius": None, "lighting": None}],
+                            "disabled": False, "radius": None, "lighting": None, "flags": 0x100}],
                 "light_bases": [dict(light_base(), edid=edid)]}
         lids = {"lights": {"L1": {"base": "000909", "ref": "000906"}}}
         raw = [{"sig": "LIGH", "fid": own | 0x909, "flags": 0, "fields": [(b"EDID", edid.encode() + b"\0"), (b"DAT2", bytes(dat2))]},
@@ -871,3 +876,36 @@ class LightTests(unittest.TestCase):
         raw[0]["fields"][1] = (b"DAT2", bytes(dat2))
         raw[1]["flags"] = 0x100
         self.assertEqual(mk.light_record_problems(raw, own, lobj, lids), [])
+        # the REFR carries the FO4 reference's own light bits (the review of #246), not a forced 0x100
+        lobj["lights"][0]["flags"] = 0x30100                       # DoesNotLightWater | NeverFades | DoesNotLightLandscape
+        self.assertTrue(any("flags" in p for p in mk.light_record_problems(raw, own, lobj, lids)))
+        raw[1]["flags"] = 0x30100
+        self.assertEqual(mk.light_record_problems(raw, own, lobj, lids), [])
+        lobj["lights"][0]["flags"] = 0                             # a FO4 light that lights water
+        raw[1]["flags"] = 0x100
+        self.assertTrue(any("flags" in p for p in mk.light_record_problems(raw, own, lobj, lids)))
+        raw[1]["flags"] = 0
+        self.assertEqual(mk.light_record_problems(raw, own, lobj, lids), [])
+
+    def test_raw_record_check_reports_undeclared_lights_instead_of_raising(self):
+        # the review of #246 (P3-2): a formids.json without "lights" (an older or failed build) or a light base no
+        # light uses is a listed problem, so check reports its failed checks instead of stopping with a KeyError
+        edid = "FO4Core_ligh_08adfa_fallout4"
+        lobj = {"lights": [{"src": "L1", "edid": edid, "pos": [1, 2, 3], "rot": [0, 0, 0], "scale": 1.0,
+                            "disabled": False, "radius": None, "lighting": None, "flags": 0x100}],
+                "light_bases": [dict(light_base(), edid=edid), dict(light_base(), edid="FO4Core_ligh_unused")]}
+        problems = mk.light_record_problems([], 1 << 24, lobj, {"bases": {}})
+        self.assertEqual(len(problems), 3, problems)
+        self.assertTrue(all("declared" in p for p in problems))
+
+    def test_promotion_checks_count_the_lights(self):
+        # merged with #235: the REFR total and the export accounting include the lights, which left the skipped list
+        own = 1 << 24
+        objects = {"refs": [{"src": "R1"}], "lights": [{"src": "L1"}, {"src": "L2"}]}
+        recs = [{"sig": "REFR", "fid": own | 0x800 + k, "flags": 0, "fields": []} for k in range(5)]   # + COC, anchor
+        exp = {"objects": {"exported": 5, "skipped": {"no model": 2}}}
+        res = mk.promotion_checks(recs, own, objects, {}, exp)
+        self.assertEqual([ok for _w, ok in res], [True, True], res)
+        self.assertIn("+ 2 lights", res[0][0])
+        res = mk.promotion_checks(recs[:-1], own, objects, {}, exp)
+        self.assertFalse(res[0][1])                                # one light REFR short

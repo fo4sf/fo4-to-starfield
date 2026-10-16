@@ -122,9 +122,11 @@ class LightsTests(unittest.TestCase):
                 light_ref("000005:Fallout4.esm", base="999999:Fallout4.esm"),            # base not in Fallout4.esm
                 light_ref("000006:DLCCoast.esm"),                                         # another plugin's reference
                 ref("000007:Fallout4.esm", typ="Static")]                                 # not a light
-        fields = {1: {"radius_delta": None, "lighting": {"fov": 0, "fade": 3.0, "near_clip": 0}, "emittance": None},
+        fields = {1: {"radius_delta": None, "lighting": {"fov": 0, "fade": 3.0, "near_clip": 0}, "emittance": None,
+                      "flags": 0x30100 | 0x800},                       # FO4 header: the three light bits + disabled
                   2: {"radius_delta": 70.0, "lighting": None, "emittance": 0x1173},
-                  3: {"radius_delta": -35.0, "lighting": {"fov": -10.0, "fade": -0.5, "near_clip": 14.0}, "emittance": None},
+                  3: {"radius_delta": -35.0, "lighting": {"fov": -10.0, "fade": -0.5, "near_clip": 14.0}, "emittance": None,
+                      "flags": 0},
                   4: {"radius_delta": None, "lighting": None, "emittance": None},
                   5: {"radius_delta": None, "lighting": None, "emittance": None}}
         return refs, fields
@@ -135,30 +137,38 @@ class LightsTests(unittest.TestCase):
         self.assertEqual([e["src"] for e in cl["lights"]], ["000001:Fallout4.esm", "000002:Fallout4.esm", "000003:Fallout4.esm"])
         self.assertEqual(set(cl["light_bases"]), {"08ADFA:Fallout4.esm", "0517B0:Fallout4.esm"})
         fire = cl["light_bases"]["08ADFA:Fallout4.esm"]
-        # the fire base's two references have intensities 4.0 and 0.5: the median 2.25 goes into the lumens
-        self.assertEqual(fire["intensity_scale"], 2.25)
-        self.assertEqual(fire["lumens"], round(333.0 * 1.0 * 2.25 * (256 / 70.0) ** 2))
+        # the fire base's two references have intensities 4.0 and 0.5 x (221 / 256)^2 (fade x its XRDS radius squared,
+        # the review of #246): their median goes into the lumens
+        third_i = 0.5 * ((256 - 35) / 256) ** 2
+        scale = (4.0 + third_i) / 2
+        self.assertEqual(fire["intensity_scale"], round(scale, 6))
+        self.assertEqual(fire["lumens"], round(333.0 * 1.0 * scale * (256 / 70.0) ** 2))
         self.assertEqual((fire["editor_id"], fire["flicker_effect"], fire["dropped"]), ("defaultLightFire01NSFlicker", 1, []))
         self.assertEqual(cl["light_bases"]["0517B0:Fallout4.esm"]["dropped"], ["model"])
         first, second, third = cl["lights"]
-        self.assertEqual(first["lighting"]["fade"], 1.6)                     # 4.0 / 2.25 = 1.78: clamped
+        self.assertEqual(first["lighting"]["fade"], 1.6)                     # 4.0 / 2.19 = 1.83: clamped
+        self.assertEqual((first["record_flags"], second["record_flags"], third["record_flags"]), (0x30100, 0, 0))
         self.assertTrue(first["disabled"])
         self.assertEqual(first["fo4_pos"], [700.0, 1400.0, 70.0])             # units, as exported: stage converts
-        self.assertEqual((second["radius_delta"], second["lighting"]), (1.0, None))
-        self.assertEqual(third["lighting"], {"fov": -10.0, "fade": round(0.5 / 2.25, 6), "near_clip": 0.2})
+        self.assertEqual((second["radius_delta"], second["lighting"]), (1.0, None))   # its base's only light: scale = it
+        self.assertEqual(cl["light_bases"]["0517B0:Fallout4.esm"]["intensity_scale"], round((326 / 256) ** 2, 6))
+        self.assertEqual(third["lighting"], {"fov": -10.0, "fade": round(third_i / scale, 6), "near_clip": 0.2})
         self.assertEqual(third["radius_delta"], -0.5)
         self.assertEqual((rep["lights"], rep["distinct bases"], rep["skipped (ambient_only)"],
                           rep["skipped (not found in Fallout4.esm)"], rep["skipped (not a Fallout4.esm light)"]), (3, 2, 1, 1, 1))
         self.assertEqual((rep["fade clamped to the vanilla XLIG range"], rep["emittance (XEMI) not carried"],
                           rep["enable parent not translated"], rep["initially disabled"]), (1, 1, 1, 1))
         self.assertEqual(rep["features not carried (references)"], {"model": 1})
+        self.assertEqual((rep["record flag does not light water (0x100)"], rep["record flag never fades (0x10000)"],
+                          rep["record flag does not light landscape (0x20000)"]), (1, 1, 1))
 
     def test_limit_keeps_the_bases_of_the_kept_lights_and_their_full_scale(self):
         refs, fields = self.refs_and_fields()
         cl, rep = mc.lights(refs, self.BASES, fields, limit=1)
         self.assertEqual([e["src"] for e in cl["lights"]], ["000001:Fallout4.esm"])
         self.assertEqual(list(cl["light_bases"]), ["08ADFA:Fallout4.esm"])
-        self.assertEqual(cl["light_bases"]["08ADFA:Fallout4.esm"]["intensity_scale"], 2.25)   # from both references
+        self.assertEqual(cl["light_bases"]["08ADFA:Fallout4.esm"]["intensity_scale"],          # from both references
+                         round((4.0 + 0.5 * (221 / 256) ** 2) / 2, 6))
         self.assertEqual(rep["cut by --limit"], 2)
 
     def test_cli_reads_fallout4_esm_raw(self):

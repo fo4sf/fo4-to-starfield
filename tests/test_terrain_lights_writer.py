@@ -52,15 +52,17 @@ class TerrainLightsWriterTests(unittest.TestCase):
         obj["light_bases"] = [copy.deepcopy(FIRE), copy.deepcopy(SPOT)]
         obj["lights"] = [
             {"src": "00A001:Fallout4.esm", "edid": FIRE["edid"], "cell": [0, 0], "pos": [5, 5, 3], "rot": [0, 0, 1],
-             "scale": 1.0, "disabled": False, "radius": -0.5, "lighting": {"fov": 0.0, "fade": 1.6, "near_clip": 0.0}},
+             "scale": 1.0, "disabled": False, "radius": -0.5, "lighting": {"fov": 0.0, "fade": 1.6, "near_clip": 0.0},
+             "flags": 0x30100},                                    # FO4's DoesNotLightWater | NeverFades | DoesNotLightLandscape
             {"src": "00A002:Fallout4.esm", "edid": SPOT["edid"], "cell": [1, 1], "pos": [150, 150, 4], "rot": [0.5, 0, 0],
-             "scale": 1.0, "disabled": True, "radius": None, "lighting": None},
+             "scale": 1.0, "disabled": True, "radius": None, "lighting": None, "flags": 0x100},
             {"src": "00A003:Fallout4.esm", "edid": FIRE["edid"], "cell": [0, 1], "pos": [5, 120, 4], "rot": [0, 0, 2],
-             "scale": 1.5, "disabled": False, "radius": 2.0, "lighting": {"fov": -10.0, "fade": 0.25, "near_clip": 0.5}}]
+             "scale": 1.5, "disabled": False, "radius": 2.0, "lighting": {"fov": -10.0, "fade": 0.25, "near_clip": 0.5},
+             "flags": 0}]                                          # a FO4 light that lights water
         return obj
 
-    def build_pair(self, name):
-        base = self.promote([1])                                   # one container: its CONT base must keep its id too
+    def build_pair(self, name, items=()):
+        base = self.promote([1], items)                            # one container: its CONT base must keep its id too
         before, old_stage = self.run_writer(base, f"{name}-before")
         after, new_stage = self.run_writer(self.with_lights(base), f"{name}-after")
         self.assertEqual(before.returncode, 0, before.stderr)
@@ -90,7 +92,7 @@ class TerrainLightsWriterTests(unittest.TestCase):
             self.assertEqual(sig, b"REFR")
             self.assertEqual(tuple(e["cell"]), cells[owner])
             self.assertEqual(struct.unpack("<I", field(payload, b"NAME"))[0], 0x01000000 | int(new["lights"][e["src"]]["base"], 16))
-            self.assertTrue(flags & 0x100)
+            self.assertEqual(flags & 0x30100, e["flags"])           # the FO4 reference's own light bits (#246's review)
             self.assertEqual(bool(flags & 0x800), e["disabled"])
             data = struct.unpack("<6f", field(payload, b"DATA"))
             for u, v in zip(data, e["pos"] + e["rot"]):
@@ -146,6 +148,28 @@ class TerrainLightsWriterTests(unittest.TestCase):
         wrong["lights"][0]["edid"] = SPOT["edid"]
         self.assertTrue(any("base" in p for p in mk.light_record_problems(plugin["records"], 1 << 24, wrong, ids)))
 
+    def test_lights_follow_the_containers_and_items_of_main(self):
+        # merged with #235: a build with a CONT and a MISC promotion keeps every id and byte, the lights come after both
+        old_stage, new_stage = self.build_pair("items", items=(2,))
+        old = json.loads((old_stage / "formids.json").read_text())
+        new = json.loads((new_stage / "formids.json").read_text())
+        for k in ("bases", "refs", "containers", "items"):
+            self.assertEqual(new[k], old[k])
+        old_records, new_records = tri.records(old_stage / "Synthetic.esm"), tri.records(new_stage / "Synthetic.esm")
+        for key, rec in old_records.items():
+            self.assertEqual(new_records[key], rec)
+        misc = [k for k, v in new_records.items() if v[0] == b"MISC"]
+        self.assertEqual(len(misc), 1)
+        first = max(old_records) + 1
+        self.assertGreater(first, misc[0])
+        self.assertEqual(sorted(int(v["ref"], 16) for v in new["lights"].values()), [first, first + 1, first + 2])
+        objects = self.with_lights(self.promote([1], (2,)))
+        mk.check_light_identities(objects, new)
+        mk.check_reference_slots(objects, new)
+        plugin = overlay_records.walk_plugin(str(new_stage / "Synthetic.esm"))
+        self.assertEqual(mk.light_record_problems(plugin["records"], 1 << 24, objects, new), [])
+        self.assertEqual(mk.promoted_record_check(plugin["records"], 1 << 24, objects, new), [])
+
     def test_an_empty_light_list_writes_the_build_without_lights(self):
         base = self.promote([1])
         a, sa = self.run_writer(base, "empty-a")
@@ -185,6 +209,13 @@ class TerrainLightsWriterTests(unittest.TestCase):
         empty_src = copy.deepcopy(good)
         empty_src["lights"][0]["src"] = " "
         invalid.append(empty_src)
+        for flags in (0x800, 0x200, -1, None):                     # only the three carried REFR bits
+            bad_flags = copy.deepcopy(good)
+            bad_flags["lights"][0]["flags"] = flags
+            invalid.append(bad_flags)
+        no_flags = copy.deepcopy(good)
+        del no_flags["lights"][0]["flags"]
+        invalid.append(no_flags)
         for objects in invalid:
             proc, _ = self.run_writer(objects, "light-refusals")
             self.assertNotEqual(proc.returncode, 0)

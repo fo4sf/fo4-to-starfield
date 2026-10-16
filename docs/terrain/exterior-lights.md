@@ -9,7 +9,8 @@ evidence, **unresolved** means open. The owner's playtest found the nights dark:
 
 ```
 python scripts/terrain/make_cluster.py lights --work <core64c work> --fo4 <Fallout4.esm> --out lights.json [--lumens-per-m2 333]
-python scripts/terrain/make_core64c.py stage ... --cluster <cluster with "lights" (and "containers")>
+python scripts/terrain/make_core64c.py stage ... --cluster <cluster with "lights" (and "containers", "items")>
+# --cluster takes one file: the dry run below merged the containers and lights lists by hand (no merge step yet)
 python scripts/terrain/make_core64c.py check ...
 python scripts/terrain/light_census.py --sf-esm <Starfield.esm> --fo4-esm <Fallout4.esm>   # the evidence below
 ```
@@ -25,15 +26,17 @@ python scripts/terrain/light_census.py --sf-esm <Starfield.esm> --fo4-esm <Fallo
 2. **`make_core64c.py stage --cluster`** (`cluster_lights`, `stage_lights`) works in three steps:
    - It converts positions to metres and cells, and drops lights outside the overlay's cells as `outside_terrain`.
    - It names one LIGH per FO4 base, `FO4Core_ligh_<6 hex>_<plugin>`, formed the same way as the container names.
-   - It refuses a light whose source is a placed or promoted reference, a light listed twice, an unknown base, or an
-     XLIG fade outside the vanilla range.
+   - It refuses a light whose source is a placed or promoted (container or item) reference, a light listed twice, an
+     unknown base, an XLIG fade outside the vanilla range, or `record_flags` missing or holding a bit other than
+     0x100 / 0x10000 / 0x20000 (a cluster written before the review of #246: run `make_cluster.py lights` again).
 
    `objects.json` gets `lights` and `light_bases`. The promoted lights leave `skipped.json`, so placed + promoted +
    lights + skipped still add up to the export.
 3. **`TerrainOverlays`** writes the records: `ReferenceIdentityPlan.Lights` validates the input before anything is
    written, then the writer adds the light block after the NAVM block. Each LIGH is a copy of the vanilla
-   `LGT_Interior_Omni_NS_Warm_004_2k` (12A74B:Starfield.esm) with the mapped fields. That light is the most-placed
-   omnidirectional light in vanilla exterior cells (328 placements), so every Starfield-only field (contact shadow
+   `LGT_Interior_Omni_NS_Warm_004_2k` (12A74B:Starfield.esm) with the mapped fields. That light is the second
+   most-placed omnidirectional light in vanilla exterior cells (328 placements; 3AC1EB LGT_Interior_Omni_NS_Red_002_75k
+   has 329, the review of #246), so every Starfield-only field (contact shadow
    component, barndoors, roundness, gobo data, area light, layer, adaptive lighting, volumetric scale) is a vanilla
    value. Its CK object-window filter component is dropped. Each light gets one temporary REFR in its cell.
    `formids.json` gets `"lights": {src: {"base", "ref"}}`, but only when there are lights.
@@ -65,8 +68,9 @@ right after core64g's last NAVM (0A5AA2).
   - the full-scale dry run below compares every `formids.json` entry.
 - **REFRs before bases**, as with containers: the ids a save can hold come first.
 - **Limit (as for CONT bases, docs/testing/container-reference-identities.md).** A later build that adds records in
-  front of the light block moves the whole block. #235's MISC bases sit before the NAVMs, so they would shift the
-  NAVMs and the lights alike, but never onto another record's id. A persistent allocator (#227) would make the
+  front of the light block moves the whole block. #235's MISC bases (merged into this branch) sit before the NAVMs,
+  so a build that adds items shifts the NAVMs and the lights alike, but never onto another record's id; the synthetic
+  writer test builds containers, items and lights together. A persistent allocator (#227) would make the
   light ids stable as well.
 
 ## Field mapping: LIGH base
@@ -77,7 +81,9 @@ exterior bases it agrees field by field with Mutagen.Bethesda.Fallout4 0.55 (**v
 
 The Starfield `DAT2` offsets come from the raw records of six vanilla exterior lights: 07AA05, 0D3DC7, 12A74B, 15AE5B,
 1690FC, 363BEF. They agree with Mutagen.Bethesda.Starfield 0.55's typed values (**verified**). `light_census.py`
-recomputes every count in the tables from raw records, and its numbers equal the Mutagen-based scratch dumps.
+recomputes the counts in the tables from raw records, and its numbers equal the Mutagen-based scratch dumps. Three
+counts are not in its output: 924 (the +48 word), 19,281 (non-zero XLIG FOV) and 328 (template placements); the
+review of #246 recomputed them from raw records and found them correct.
 
 "Shared" in the evidence column means the **21 LIGH records that Starfield.esm holds under the same FormID and
 EditorID as Fallout4.esm**: MuzFlashLightMachineGun, defaultLight01-04, ExplosionLight*, FXFireLight01 and others.
@@ -116,24 +122,35 @@ They show how Bethesda carried FO4 lights over.
 |---|---|---|---|---|
 | NAME | base | the LIGH of its FO4 base | - | - |
 | DATA, XSCL | DATA, XSCL | position / 70, rotation copied, scale if != 1 | same rule as the statics | verified (check) |
-| record flags | - / 0x800 | **0x100 always**, 0x800 = initially disabled (20 refs) | 28,572 of 28,719 vanilla exterior light REFRs carry 0x100 (meaning unknown); 3 vanilla have 0x800 | supported |
-| XRDS (f32) | XRDS (units) | **a radius delta**, / 70 (5,816 refs) | FO4: no XRDS equals its base radius, and the smallest is -0.981 x the base, never at or below -1. Starfield: 10,596 of 24,841 vanilla XRDS are negative (FXFireLight01's refs: -0.836 on a 4 m base) | supported |
+| record flags | 0x100, 0x10000, 0x20000, 0x800 | **carried**: 0x100 DoesNotLightWater (3,238 refs), 0x10000 NeverFades (345), 0x20000 DoesNotLightLandscape (315), 0x800 = initially disabled (20 refs) | the names of `PlacedObject.LightMajorFlag` on the same bits in Mutagen.Bethesda.Fallout4 0.55 and Mutagen.Bethesda.Starfield 0.55.0-alpha.67 (the review of #246); 28,572 of 28,719 vanilla exterior light REFRs carry 0x100, none 0x10000 or 0x20000, so whether the engine honours those two is open; 3 vanilla have 0x800. Not carried: 0x200 CastsShadows (1 ref), 0x4 (57), 0x80 (34), 0x400 persistent (207; temporary, as the statics) | supported |
+| XRDS (f32) | XRDS (units) | **a radius delta**, / 70 (5,816 refs) | FO4: no XRDS equals its base radius, and the smallest is -0.981 x the base, never at or below -1. Starfield: 10,596 of 24,841 vanilla XRDS are negative (FXFireLight01's refs: -0.836 on a 4 m base), but 413 are below -1 x their base radius (451 at -0.99 or below), which a pure delta would make a negative radius (the review of #246) | supported |
 | XLIG FOV +/- | XLIG FOV delta | copied (degrees) | 19,281 vanilla non-zero, e.g. -52.6 on a 120 degree base | supported |
-| XLIG fade | base fade + XLIG fade delta | `ref_intensity / scale`, clamped to [0.01, 1.6] (826 of 6,249 clamp) | every vanilla XLIG fade lies in [0.01, 1.6] (median 0.45), never <= 0: a multiplier, not FO4's +/- delta | hypothesis |
+| XLIG fade | base fade + XLIG fade delta, XRDS radius | `ref_intensity / scale`, clamped to [0.01, 1.6] (1,671 of 6,249 clamp) | every vanilla XLIG fade lies in [0.01, 1.6] (median 0.45), never <= 0: a multiplier. Against it: Mutagen names the field `Fade1PlusMinus` in both games, and FO4's is a delta (3,709 of its 5,833 XLIG fades are negative) | hypothesis |
 | XLIG end distance cap, shadow depth bias, volumetric | - | 0 | FO4: 0 on every Commonwealth light except the bias (1-50); vanilla uses 0 | supported |
 | XLIG near clip | XLIG near clip delta (units) | / 70 | - | supported |
 | XLIG trailing 8 bytes | - | `ab ab ab ab 00 ab ab ab` | 27,305 of 28,070 vanilla XLIG (all 32 bytes) | verified |
 | XEMI (368 refs), enable parent (190) | - | not carried | same as the statics' enable parents | - |
 
-**Intensity scale.** FO4 sets a light's intensity per reference: base fade plus the XLIG fade delta. Relative to the
-base this ratio runs from 0.08 to 15 (p1 to p99) across the Commonwealth. One LIGH per FO4 base cannot hold that range
-in the vanilla XLIG band, so each base takes the **median** ratio of its references (`fo4light.base_scale`) into its
-lumens, and each reference keeps `ratio / median` as its XLIG fade. Three cases follow:
+**Intensity scale.** FO4 sets a light's intensity per reference: base fade plus the XLIG fade delta. Its size is per
+reference too: base radius plus the XRDS delta (5,816 refs; their radius is 0.19x to 4.40x the base's, p10 to p90).
+The lumens rule follows radius^2, so `fo4light.ref_intensity` is the fade ratio times (reference radius / base
+radius)^2 (the review of #246: with the base radius alone, 090C85, 3.66 m + 12.43 m, got 4,871 lm where the rule
+gives about 94,000). Relative to the base this ratio runs from 0.014 to 376 (p1 to p99) across the Commonwealth. One
+LIGH per FO4 base cannot hold that range in the vanilla XLIG band, so each base takes the **median** ratio of its
+references (`fo4light.base_scale`) into its lumens, and each reference keeps `ratio / median` as its XLIG fade. Four
+cases follow:
 
-- **Clamping.** 826 references clamp. If each base kept its own fade, 1,612 would.
-- **References without XLIG.** They get one (fade `1 / median`) when the scale is not 1.
-- **Lumens across the references.** p10 1,224, median 4,356, p90 17,655. The most-placed base, defaultLightFire01NSFlicker
-  (746 refs, scale 3.96), gets 17,655 lm at 3.66 m.
+- **Clamping.** 1,671 references clamp. If each base kept its own fade, 2,041 would. Against the rule at each
+  reference's own radius, 5,298 of 6,249 references are within 2x (2,090 with the base radius alone).
+- **References without XLIG.** They get one (fade `1 / median`, times their radius ratio squared) when that is not 1.
+- **Lumens across the references.** p10 468, median 4,102, p90 68,391. The most-placed base, defaultLightFire01NSFlicker
+  (746 refs whose XRDS shrinks them, scale 0.105), gets 468 lm at 3.66 m.
+- **Beyond the vanilla radii.** The rule's 333 lm/m^2 comes from vanilla radii of 1-8 m. References with a large XRDS
+  extrapolate it: DN156_DriveInProjectorLight (110 m) gets 12,695,923 lm, DiamondCityStadiumLights01NS (64 m)
+  5,434,416 lm, SpotlightSpot01NS (76 refs, 18 m) 1,673,422 lm. The night screenshot should include one of them.
+
+(Numbers from `make_cluster.py lights` on the scratch export with the reviewed rules,
+C:\Modding\scratch\prep-246\light_stats.py and err_stats.py; the full-scale dry run below predates them.)
 
 ## Evidence files
 
@@ -149,7 +166,9 @@ Scratch files, outside the repo, in C:\Modding\scratch\exterior-lights (derived 
 
 ## Full-scale dry run (offline)
 
-core64g's inputs were staged into scratch (`core64g_lights\`) and checked on 2026-10-16:
+core64g's inputs were staged into scratch (`core64g_lights\`) and checked on 2026-10-16, at 4b3918c: before the
+review of #246 carried the FO4 REFR flags and put the XRDS radius into the intensity. Those change the light REFRs'
+flags and XLIG fades and the LIGH lumens, not any FormID or record count; the run was not repeated after them.
 
 - `--core terrain_core64`;
 - `--cluster` = `commonwealth_containers.json` + `commonwealth_lights.json`;
@@ -177,8 +196,13 @@ core64g's inputs were staged into scratch (`core64g_lights\`) and checked on 202
 
 - **Not tested in game.** The acceptance is a night screenshot at Red Rocket and in Sanctuary (the runner sets the
   time of day) next to the same view without lights. Brightness then tunes `--lumens-per-m2`.
-- **XLIG fade semantics are a hypothesis.** If Starfield adds the fade to 1.0 instead of multiplying by it,
-  references come out up to twice as bright. If it ignores the fade, each base shows its median.
+- **XLIG fade semantics are a hypothesis.** If Starfield computes 1 + fade instead of multiplying by it, a reference
+  comes out (1 + fade) / fade too bright: the written fades have p5 0.177, 1,013 are below 0.5 and 176 below 0.1, the
+  minimum is 0.01, so a reference at 0.25 would be 5x too bright and the minimum 101x. If it ignores the fade, each base
+  shows its median. The in-game check should put a dim reference (fade <= 0.2) next to a fade-1.0 reference of the
+  same base, which tells a multiplier from 1 + delta.
+- **Light REFR flags NeverFades / DoesNotLightLandscape** (345 / 315 refs) are carried from FO4, but no vanilla
+  exterior light REFR sets them: whether the engine honours them is open.
 - **Not carried:** light models (bulbs, klaxons, 424 refs), gobos, lens flares, emittance, and FO4 shadow omni and
   hemisphere lights (they become omni lights without shadows).
 - **Unknown cost:** the frame-time cost of 6,249 lights, 5,942 of them omni without shadows, in dense cells

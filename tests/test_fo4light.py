@@ -186,7 +186,7 @@ class MapBaseTests(unittest.TestCase):
 
 
 class MapRefTests(unittest.TestCase):
-    B = {"fade": 2.0}
+    B = {"fade": 2.0, "radius": 140}                               # units: 2 m
 
     def test_intensity_and_median_scale(self):
         self.assertEqual(fo4light.ref_intensity({"lighting": None}, self.B), 1.0)
@@ -199,7 +199,7 @@ class MapRefTests(unittest.TestCase):
         r = {"radius_delta": -70.0, "lighting": {"fov": -39.2, "fade": 1.0, "near_clip": 7.0}}
         m = fo4light.map_ref(r, self.B, scale=1.0)
         self.assertEqual(m["radius_delta"], -1.0)
-        self.assertEqual(m["lighting"], {"fov": -39.2, "fade": 1.5, "near_clip": 0.1})
+        self.assertEqual(m["lighting"], {"fov": -39.2, "fade": 0.375, "near_clip": 0.1})   # 1.5 x (1 m / 2 m)^2
         self.assertFalse(m["fade_clamped"])
         m = fo4light.map_ref({"radius_delta": None, "lighting": {"fov": 0, "fade": 6.0, "near_clip": 0}}, self.B)
         self.assertEqual((m["lighting"]["fade"], m["fade_clamped"]), (fo4light.XLIG_FADE_MAX, True))   # 4.0 -> 1.6
@@ -212,6 +212,35 @@ class MapRefTests(unittest.TestCase):
         self.assertIsNone(fo4light.map_ref({"radius_delta": None, "lighting": None}, self.B)["lighting"])
         m = fo4light.map_ref({"radius_delta": None, "lighting": None}, self.B, scale=4.0)
         self.assertEqual(m["lighting"], {"fov": 0.0, "fade": 0.25, "near_clip": 0.0})
+
+    def test_xrds_radius_enters_the_intensity_squared(self):
+        # the review of #246 (P2-2): lumens follow radius^2, so a reference's own radius (base + XRDS) counts.
+        # 090C85:Fallout4.esm: a 3.66 m base (256 units) + XRDS 12.43 m (870.1 units) = 16.08 m, about 19x the lumens
+        b = {"fade": 1.0, "radius": 256}
+        r = {"radius_delta": 870.1, "lighting": None}
+        self.assertAlmostEqual(fo4light.radius_ratio(r, b), (256 + 870.1) / 256)
+        self.assertAlmostEqual(fo4light.ref_intensity(r, b), ((256 + 870.1) / 256) ** 2)
+        self.assertAlmostEqual(fo4light.ref_intensity(r, b), 19.35, places=2)
+        self.assertEqual(fo4light.radius_ratio({"radius_delta": None}, b), 1.0)
+        self.assertEqual(fo4light.radius_ratio({"radius_delta": -300.0}, b), 0.0)       # never a negative radius
+        # 20E065:Fallout4.esm: 3.66 m - 2.97 m = 0.68 m keeps (0.68 / 3.66)^2 of the base, fade 1 x that
+        self.assertAlmostEqual(fo4light.ref_intensity({"radius_delta": -208.0, "lighting": {"fade": 0.0}}, b),
+                               (48 / 256) ** 2)
+        # a reference with XRDS but no XLIG on an unscaled base gets an XLIG fade for its own size
+        m = fo4light.map_ref({"radius_delta": -70.0, "lighting": None}, self.B, scale=1.0)
+        self.assertEqual(m["lighting"], {"fov": 0.0, "fade": 0.25, "near_clip": 0.0})
+        # the base takes the median of its references' intensities, radius included, into its lumens
+        refs = [{"radius_delta": 140.0, "lighting": None}] * 2 + [{"radius_delta": None, "lighting": None}]
+        self.assertEqual(fo4light.base_scale([fo4light.ref_intensity(x, self.B) for x in refs]), 4.0)
+
+    def test_reference_record_flags_are_carried(self):
+        # the review of #246 (P2-1): DoesNotLightWater 0x100, NeverFades 0x10000, DoesNotLightLandscape 0x20000 (the
+        # Mutagen names in both games) come from the FO4 REFR header; every other header bit stays behind
+        r = {"radius_delta": None, "lighting": None}
+        self.assertEqual(fo4light.map_ref(dict(r, flags=0x30100), self.B)["record_flags"], 0x30100)   # 017C49:Fallout4.esm
+        self.assertEqual(fo4light.map_ref(dict(r, flags=0x0), self.B)["record_flags"], 0)             # lights water
+        self.assertEqual(fo4light.map_ref(dict(r, flags=0x400 | 0x800 | 0x100), self.B)["record_flags"], 0x100)
+        self.assertEqual(fo4light.map_ref(r, self.B)["record_flags"], 0)
 
 
 if __name__ == "__main__":

@@ -193,9 +193,10 @@ def read_light_sources(fo4_esm, refs, world="Commonwealth"):
 def lights(refs, bases, ref_fields, limit=0, lumens_per_m2=fo4light.LUMENS_PER_M2):
     """({"light_bases": {FO4 base formkey: Starfield light fields}, "lights": [...]}, report) for every exported Light
     reference, in FO4 source key order (as exterior.place orders the statics). Each light: src, base (FO4 base formkey),
-    editor_id, fo4_pos (FO4 units, as exported), rot, scale, disabled, radius_delta (metres) and lighting (XLIG) from
-    the reference itself. Core64c never placed a light (exterior.TYPE_REASONS), so a light owns no reference slot:
-    make_core64c.py stage gives it a new REFR after every reserved one. bases / ref_fields: read_light_sources."""
+    editor_id, fo4_pos (FO4 units, as exported), rot, scale, disabled, radius_delta (metres), lighting (XLIG) and
+    record_flags (its FO4 header's DoesNotLightWater / NeverFades / DoesNotLightLandscape bits) from the reference
+    itself. Core64c never placed a light (exterior.TYPE_REASONS), so a light owns no reference slot: make_core64c.py
+    stage gives it a new REFR after every reserved one. bases / ref_fields: read_light_sources."""
     entries, out_bases, rep = [], {}, Counter()
     dropped = Counter()
     found = []
@@ -229,6 +230,9 @@ def lights(refs, bases, ref_fields, limit=0, lumens_per_m2=fo4light.LUMENS_PER_M
         rep["fade clamped to the vanilla XLIG range"] += mr["fade_clamped"]
         rep["with radius delta (XRDS)"] += mr["radius_delta"] is not None
         rep["with XLIG"] += mr["lighting"] is not None
+        for bit, name in ((fo4light.REF_DOES_NOT_LIGHT_WATER, "does not light water"), (fo4light.REF_NEVER_FADES, "never fades"),
+                          (fo4light.REF_DOES_NOT_LIGHT_LANDSCAPE, "does not light landscape")):
+            rep[f"record flag {name} (0x{bit:X})"] += bool(mr["record_flags"] & bit)
         if rf.get("emittance"):
             rep["emittance (XEMI) not carried"] += 1
         if r.get("enable_parent"):
@@ -237,7 +241,7 @@ def lights(refs, bases, ref_fields, limit=0, lumens_per_m2=fo4light.LUMENS_PER_M
         rep["initially disabled"] += disabled
         entries.append({"src": src, "base": bkey, "editor_id": b["edid"], "fo4_pos": [float(v) for v in r["pos"]],
                         "rot": [float(v) for v in r["rot"]], "scale": float(r.get("scale") or 1.0), "disabled": disabled,
-                        "radius_delta": mr["radius_delta"], "lighting": mr["lighting"]})
+                        "radius_delta": mr["radius_delta"], "lighting": mr["lighting"], "record_flags": mr["record_flags"]})
     if limit:
         rep["cut by --limit"] = max(0, len(entries) - limit)
         entries = entries[:limit]

@@ -56,6 +56,14 @@ SF_OMNI, SF_SHADOW_SPOT, SF_NONSHADOW_SPOT = 0, 1, 2
 SF_FLICKER_NONE, SF_FLICKER, SF_PULSE = 0, 1, 2
 # record header flag both Mutagen schemas name Random Anim Start
 RANDOM_ANIM_START = 0x10000
+# Light REFR record header flags, named alike on the same bits by Mutagen.Bethesda.Fallout4 0.55 and
+# Mutagen.Bethesda.Starfield 0.55.0-alpha.67 (PlacedObject.LightMajorFlag): carried from the FO4 reference as they are
+# (the review of #246). Vanilla Starfield sets 0x100 on 28,572 of its 28,719 exterior light REFRs and 0x10000 / 0x20000
+# on none, so whether the engine honours those two on a light is unresolved (an in-game check).
+REF_DOES_NOT_LIGHT_WATER = 0x100
+REF_NEVER_FADES = 0x10000
+REF_DOES_NOT_LIGHT_LANDSCAPE = 0x20000
+REF_FLAGS_CARRIED = REF_DOES_NOT_LIGHT_WATER | REF_NEVER_FADES | REF_DOES_NOT_LIGHT_LANDSCAPE
 
 # Intensity. FO4 lights are colour x fade (FNAM); Starfield lights carry a luminous power in lumens (DAT2 offset 52:
 # LGT_*_2k = 2000, _8k = 8000, _75k = 75000 in Starfield.esm) and no fade field. Over the 4,712 placements of vanilla
@@ -65,10 +73,10 @@ RANDOM_ANIM_START = 0x10000
 LUMENS_PER_M2 = 333.0
 # Starfield REFR XLIG fade: over 28,070 vanilla exterior light REFRs it is never 0 or negative and lies in [0.01, 1.6]
 # (median 0.45): a multiplier, not FO4's +/- delta (supported hypothesis). A FO4 reference's own intensity (base fade
-# + its XLIG delta, relative to the base fade: ref_intensity) spans 0.08 to 15 (p1, p99) over the Commonwealth, wider
-# than that range, so one LIGH per FO4 base takes the MEDIAN intensity of its references into its lumens and each
-# reference keeps intensity / median as its XLIG fade, clamped to the vanilla range (826 of 6,249 clamp, against
-# 1,612 when the base keeps its own fade).
+# + its XLIG delta, relative to the base fade, times (its XRDS radius / the base radius)^2: ref_intensity) spans 0.014
+# to 376 (p1, p99) over the Commonwealth, wider than that range, so one LIGH per FO4 base takes the MEDIAN intensity of
+# its references into its lumens and each reference keeps intensity / median as its XLIG fade, clamped to the vanilla
+# range (1,671 of 6,249 clamp, against 2,041 when the base keeps its own fade).
 XLIG_FADE_MIN, XLIG_FADE_MAX = 0.01, 1.6
 
 
@@ -182,11 +190,23 @@ def _finite(*vals):
     return all(isinstance(v, (int, float)) and math.isfinite(v) for v in vals)
 
 
+def radius_ratio(r, b):
+    """A FO4 light reference's own radius over its base radius: (base radius + XRDS delta) / base radius, 1.0 without
+    XRDS (both in units; no Commonwealth delta reaches -1 x the base: the smallest is -0.981)."""
+    d = r.get("radius_delta")
+    if d is None or not _finite(d, float(b["radius"])) or b["radius"] <= 0:
+        return 1.0
+    return max(b["radius"] + d, 0.0) / b["radius"]
+
+
 def ref_intensity(r, b):
-    """A FO4 light reference's intensity relative to its base: (base fade + XLIG fade delta) / base fade, 1.0 without
-    XLIG. FO4 adds the delta (no Commonwealth reference goes to or below 0: the smallest result is 0.019)."""
+    """A FO4 light reference's luminous power relative to its base: its fade, (base fade + XLIG fade delta) / base fade
+    (1.0 without XLIG; FO4 adds the delta, and no Commonwealth reference goes to or below 0: the smallest is 0.019),
+    times radius_ratio squared, since lumens follow radius^2 (map_base): a reference whose XRDS widens or narrows its
+    base's radius is as bright as a vanilla light of its own size (the review of #246)."""
     lig = r.get("lighting")
-    return (b["fade"] + lig["fade"]) / b["fade"] if lig else 1.0
+    fade = (b["fade"] + lig["fade"]) / b["fade"] if lig else 1.0
+    return fade * radius_ratio(r, b) ** 2
 
 
 def base_scale(intensities):
@@ -257,17 +277,19 @@ def map_base(b, lumens_per_m2=LUMENS_PER_M2, scale=1.0):
 
 def map_ref(r, b, scale=1.0):
     """A FO4 light reference's own light fields (parse_light_ref) against its base (parse_ligh) and the base's scale ->
-    {"radius_delta" (metres) or None, "lighting" {"fov", "fade", "near_clip"} or None, "fade_clamped": bool}. XLIG's
-    fade becomes ref_intensity / scale within XLIG_FADE_MIN..XLIG_FADE_MAX; FOV (degrees) and the near clip delta (to
-    metres) are kept; FO4's end distance cap and volumetric intensity are 0 on every Commonwealth light. A reference
-    without XLIG gets one (FOV and near clip deltas 0) when its base's scale is not 1, so that it keeps its own
+    {"radius_delta" (metres) or None, "lighting" {"fov", "fade", "near_clip"} or None, "fade_clamped": bool,
+    "record_flags": the REF_FLAGS_CARRIED bits of the FO4 REFR header}. XLIG's fade becomes ref_intensity / scale
+    within XLIG_FADE_MIN..XLIG_FADE_MAX; FOV (degrees) and the near clip delta (to metres) are kept; FO4's end distance
+    cap and volumetric intensity are 0 on every Commonwealth light. A reference without XLIG gets one (FOV and near
+    clip deltas 0) when ref_intensity / scale is not 1 (a scaled base, or an XRDS radius), so that it keeps its own
     intensity rather than the base's median."""
-    out = {"radius_delta": None, "lighting": None, "fade_clamped": False}
+    out = {"radius_delta": None, "lighting": None, "fade_clamped": False,
+           "record_flags": int(r.get("flags") or 0) & REF_FLAGS_CARRIED}
     if r.get("radius_delta") is not None and _finite(r["radius_delta"]):
         out["radius_delta"] = round(r["radius_delta"] / UNITS_PER_METRE, 6)
     lig = r.get("lighting")
-    if lig or abs(scale - 1.0) > 1e-9:
-        ratio = ref_intensity(r, b) / scale
+    ratio = ref_intensity(r, b) / scale
+    if lig or abs(ratio - 1.0) > 1e-9:
         fade = min(max(ratio, XLIG_FADE_MIN), XLIG_FADE_MAX)
         out["fade_clamped"] = abs(fade - ratio) > 1e-9
         out["lighting"] = {"fov": round(float(lig["fov"]), 6) if lig else 0.0, "fade": round(fade, 6),

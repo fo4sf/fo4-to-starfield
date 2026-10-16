@@ -7,7 +7,7 @@
     python scripts/convert_batch.py --cell-json <work>/convert_input.json --staging <work>/convert --prefix fo4core
            --max-texture <cap> --types <printed by select> --limit 1000000 --resume  + the usual converter arguments
     python scripts/terrain/make_core64c.py stage --work <work> --core <terrain_core64> --out <terrain_core64c> --sf-esm <Starfield.esm>
-           [--views] [--cluster <cluster.json: "containers" and / or "items">] [--navmesh <navmesh.json>]
+           [--views] [--cluster <cluster.json: "containers", "items" and / or "lights">] [--navmesh <navmesh.json>]
     python scripts/terrain/make_core64c.py check --work <work> --core <terrain_core64> --out <terrain_core64c>
            [--fo4 <Fallout4.esm>] [--fo4-data <FO4 Data>] [--sf-data <Starfield Data>]
     python scripts/terrain/make_core64c.py verify-data --out <terrain_core64c>
@@ -1328,7 +1328,9 @@ def promotion_checks(recs, own_prefix, objects, ids, exp):
 # base mapped to Starfield light fields. Core64c never placed a light (exterior.TYPE_REASONS), so no light owns a
 # reserved slot: TerrainOverlays gives the light REFRs NEW FormIDs after every record of the build without lights
 # (reserved REFRs, CONT and MISC bases, NAVMs), then one LIGH per FO4 base, so every FormID an earlier build had stays put.
-LIGHT_REF_FLAG = 0x100        # on 28,572 of 28,719 vanilla exterior light REFRs (Starfield.esm); meaning unresolved
+# Light REFR header flags carried from the FO4 reference (fo4light.REF_FLAGS_CARRIED; Mutagen's PlacedObject
+# LightMajorFlag in both games): 0x100 DoesNotLightWater, 0x10000 NeverFades, 0x20000 DoesNotLightLandscape
+LIGHT_REF_FLAGS = 0x100 | 0x10000 | 0x20000
 LIGHT_BASE_KEYS = ("time", "radius", "color", "flags", "type", "falloff", "fov", "near_clip", "flicker",
                    "flicker_effect", "lumens", "bounds", "random_anim_start")
 
@@ -1365,7 +1367,8 @@ def check_light_base(key, b):
 def cluster_lights(cluster, ov, placed_srcs):
     """The cluster's "lights" (make_cluster.py lights) as TerrainOverlays entries: (lights, light_bases, skipped).
     lights = [{"src", "edid", "cell", "pos" (metres), "rot", "scale", "disabled", "radius" (delta, metres, or None),
-    "lighting" ({"fov", "fade", "near_clip"} or None)}] in the cluster's order; light_bases = [{"edid", "fo4_base",
+    "lighting" ({"fov", "fade", "near_clip"} or None), "flags" (the FO4 reference's LIGHT_REF_FLAGS bits, from
+    make_cluster.py's "record_flags")}] in the cluster's order; light_bases = [{"edid", "fo4_base",
     <LIGHT_BASE_KEYS>}] in first-use order (the writer's order); skipped = lights outside the overlay's cells.
     ValueError for a light that is also a placed reference, a source listed twice, an unknown base or a bad value."""
     bases = cluster.get("light_bases") or {}
@@ -1405,11 +1408,16 @@ def cluster_lights(cluster, ov, placed_srcs):
             if not (all(_num(lig.get(k)) for k in ("fov", "near_clip")) and _num(lig.get("fade"), 0.01 - 1e-9, 1.6 + 1e-9)):
                 raise ValueError(f"{src}: lighting {lig!r} (fade must lie in the vanilla XLIG range 0.01..1.6)")
             lig = {k: float(lig[k]) for k in ("fov", "fade", "near_clip")}
+        flags = e.get("record_flags")
+        if type(flags) is not int or flags < 0 or flags & ~LIGHT_REF_FLAGS:
+            raise ValueError(f"{src}: record_flags {flags!r} (only the bits 0x{LIGHT_REF_FLAGS:X}; a cluster written "
+                             "before #246's review has none: run make_cluster.py lights again)")
         if key not in used:
             check_light_base(key, bases[key])
             used[key] = dict({k: bases[key][k] for k in LIGHT_BASE_KEYS}, edid=light_edid(key), fo4_base=key)
         lights.append({"src": src, "edid": used[key]["edid"], "cell": list(cell), "pos": [round(v, 5) for v in pos],
-                       "rot": rot, "scale": scale, "disabled": bool(e.get("disabled")), "radius": radius, "lighting": lig})
+                       "rot": rot, "scale": scale, "disabled": bool(e.get("disabled")), "radius": radius, "lighting": lig,
+                       "flags": flags})
     return lights, list(used.values()), skipped
 
 
@@ -1478,14 +1486,18 @@ def lights_after(recs, own_index, ids):
 def light_record_problems(recs, own_prefix, objects, ids):
     """Raw LIGH / light REFR records against objects.json: every LIGH (EDID, DAT2 radius, colour, flags, lumens, type,
     flicker effect; offsets as in Starfield.esm's own DAT2, docs/terrain/exterior-lights.md) and every light REFR (base,
-    position, rotation, scale, flags LIGHT_REF_FLAG and Initially Disabled, XRDS, XLIG fade). Returns problems."""
+    position, rotation, scale, the LIGHT_REF_FLAGS bits and Initially Disabled, XRDS, XLIG fade). Returns problems; a
+    light or light base formids.json does not declare is one (check_light_identities says why), never an exception."""
     from fo4sf import fo4land
     by_fid = {r["fid"]: r for r in recs}
     got = ids.get("lights") or {}
     problems = []
     base_fid = {}
     for b in objects.get("light_bases") or []:
-        any_src = next(e["src"] for e in objects["lights"] if e["edid"] == b["edid"])
+        any_src = next((e["src"] for e in objects.get("lights") or [] if e["edid"] == b["edid"]), None)
+        if not isinstance(got.get(any_src), dict) or "base" not in got[any_src]:
+            problems.append(f"{b['edid']}: no light of this base declared in formids.json")
+            continue
         fid = own_prefix | int(got[any_src]["base"], 16)
         base_fid[b["edid"]] = fid
         rec = by_fid.get(fid)
@@ -1506,6 +1518,9 @@ def light_record_problems(recs, own_prefix, objects, ids):
             problems.append(f"{b['edid']}: DAT2 radius {radius}, colour {list(d[8:11])}, flags 0x{flags:X}, lumens {lumens}, "
                             f"type {d[56]}, flicker {d[57]}")
     for e in objects.get("lights") or []:
+        if not isinstance(got.get(e["src"]), dict) or "ref" not in got[e["src"]]:
+            problems.append(f"{e['src']}: not declared in formids.json lights")
+            continue
         fid = own_prefix | int(got[e["src"]]["ref"], 16)
         rec = by_fid.get(fid)
         if rec is None or rec["sig"] != "REFR":
@@ -1517,7 +1532,7 @@ def light_record_problems(recs, own_prefix, objects, ids):
         if (max(abs(u - v) for u, v in zip(q["pos"], e["pos"])) > 1e-3 or max(abs(u - v) for u, v in zip(q["rot"], e["rot"])) > 1e-5
                 or abs(q["scale"] - e["scale"]) > 1e-4):
             problems.append(f"{e['src']}: position / rotation / scale")
-        if not rec["flags"] & LIGHT_REF_FLAG or bool(rec["flags"] & 0x800) != e["disabled"]:
+        if rec["flags"] & LIGHT_REF_FLAGS != e.get("flags") or bool(rec["flags"] & 0x800) != e["disabled"]:
             problems.append(f"{e['src']}: flags 0x{rec['flags']:X}")
         xrds = overlay_records.field(rec, "XRDS")
         if (xrds is None) != (e["radius"] is None) or (xrds is not None and abs(struct.unpack_from("<f", xrds)[0] - e["radius"]) > 1e-4):
@@ -2251,7 +2266,8 @@ def main():
             s.add_argument("--sf-esm", default="", help="Starfield.esm: build the plugins with dotnet/TerrainOverlays")
             s.add_argument("--cluster", default="", help="R05: a cluster json (scripts/terrain/clusters/*.json, "
                            "make_cluster.py) whose \"containers\" become native CONT and whose \"items\" become native "
-                           "MISC references instead of statics (each in its original reference slot)")
+                           "MISC references instead of statics (each in its original reference slot), and whose "
+                           "\"lights\" become native LIGH and new light REFRs after every other record")
 
             s.add_argument("--navmesh", default="", help="navmesh.json (src/fo4sf/navmesh.py export over the core's FO4 NAVM): "
                            "written as NAVM records in their cells plus the NAVI override (docs/actors/navmesh-conversion.md)")

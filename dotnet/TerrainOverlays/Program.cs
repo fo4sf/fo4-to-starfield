@@ -573,7 +573,9 @@ if (lightsJson is JsonElement lights && lightBasesJson is JsonElement lightBases
         };
         var scale = e.GetProperty("scale").GetSingle();
         if (Math.Abs(scale - 1f) > 1e-4) obj.Scale = scale;
-        obj.MajorRecordFlagsRaw |= 0x100;                  // as 28,572 of the 28,719 vanilla exterior light REFRs
+        // the FO4 reference's own DoesNotLightWater (0x100) / NeverFades (0x10000) / DoesNotLightLandscape (0x20000) bits,
+        // Mutagen's PlacedObject.LightMajorFlag names in both games (ReferenceIdentityPlan.Lights refuses any other bit)
+        obj.MajorRecordFlagsRaw |= (int)e.GetProperty("flags").GetUInt32();
         if (e.GetProperty("disabled").GetBoolean()) obj.MajorRecordFlagsRaw |= 0x800;   // Initially Disabled, as in FO4
         if (e.TryGetProperty("radius", out var rd) && rd.ValueKind == JsonValueKind.Number)
             obj.Radius = rd.GetSingle();                   // XRDS: the radius delta (metres), as FO4's
