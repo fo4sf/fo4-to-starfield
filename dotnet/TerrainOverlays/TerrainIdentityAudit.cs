@@ -95,6 +95,13 @@ internal static class TerrainIdentityAudit
                 if (map.ValueKind != JsonValueKind.Object || !map.EnumerateObject().Select(p => p.Name).ToHashSet(StringComparer.Ordinal)
                     .SetEquals(expected)) throw new InvalidDataException("map/source key sets differ");
             }
+            Dictionary<string, JsonElement> Index(JsonElement map, IEnumerable<string> expected)
+            {
+                Keys(map, expected);
+                // GetProperty scans a JSON object. Index each large section once, not once per source.
+                // Read already rejected duplicate properties; preserve exact ordinal key matching.
+                return map.EnumerateObject().ToDictionary(p => p.Name, p => p.Value, StringComparer.Ordinal);
+            }
             var overlays = prm.GetProperty("overlays").EnumerateArray().ToArray();
             if (overlays.Length == 0) throw new InvalidDataException("audit needs at least one overlay");
             foreach (var o in overlays)
@@ -128,11 +135,11 @@ internal static class TerrainIdentityAudit
                 if (Text(map, "world") != objectWorld) throw new InvalidDataException("map world differs");
                 sections.UnionWith(new[] { "world", "bases", "refs", "containers" });
                 var bases = obj.GetProperty("bases").EnumerateArray().ToArray();
-                Keys(map.GetProperty("bases"), bases.Select(b => Text(b, "edid")));
-                foreach (var b in bases) Match(map.GetProperty("bases").GetProperty(Text(b, "edid")), "base", Text(b, "edid"));
+                var baseIds = Index(map.GetProperty("bases"), bases.Select(b => Text(b, "edid")));
+                foreach (var b in bases) Match(baseIds[Text(b, "edid")], "base", Text(b, "edid"));
                 var refs = obj.GetProperty("refs").EnumerateArray().ToArray();
-                Keys(map.GetProperty("refs"), refs.Select(r => Text(r, "src")));
-                foreach (var r in refs) Match(map.GetProperty("refs").GetProperty(Text(r, "src")), "reference", TerrainStableIds.Source(Text(r, "src")));
+                var refIds = Index(map.GetProperty("refs"), refs.Select(r => Text(r, "src")));
+                foreach (var r in refs) Match(refIds[Text(r, "src")], "reference", TerrainStableIds.Source(Text(r, "src")));
                 foreach (var (name, kind) in new[] { ("containers", "container"), ("items", "item"), ("activators", "activator"),
                          ("terminals", "terminal"), ("workshops", "workshop"), ("doors", "door-base"), ("lights", "light-base") })
                 {
@@ -140,12 +147,11 @@ internal static class TerrainIdentityAudit
                     bool present = name == "containers" || (name is "doors" or "lights" ? entries.Length > 0 : obj.TryGetProperty(name, out _));
                     if (!present) continue;
                     sections.Add(name);
-                    var ids = map.GetProperty(name);
-                    Keys(ids, entries.Select(e => Text(e, "src")));
+                    var ids = Index(map.GetProperty(name), entries.Select(e => Text(e, "src")));
                     foreach (var e in entries)
                     {
                         string src = TerrainStableIds.Source(Text(e, "src"));
-                        var v = ids.GetProperty(Text(e, "src"));
+                        var v = ids[Text(e, "src")];
                         Keys(v, name == "terminals" ? new[] { "ref", "base", "menu" }
                             : name == "doors" ? new[] { "ref", "base", "arrival" } : new[] { "ref", "base" });
                         Match(v.GetProperty("base"), kind, Text(e, "edid"));
@@ -157,11 +163,10 @@ internal static class TerrainIdentityAudit
                 if (obj.TryGetProperty("benches", out var benches))
                 {
                     sections.Add("benches");
-                    var ids = map.GetProperty("benches");
-                    Keys(ids, benches.EnumerateArray().Select(e => Text(e, "src")));
+                    var ids = Index(map.GetProperty("benches"), benches.EnumerateArray().Select(e => Text(e, "src")));
                     foreach (var e in benches.EnumerateArray())
                     {
-                        var v = ids.GetProperty(Text(e, "src"));
+                        var v = ids[Text(e, "src")];
                         Keys(v, new[] { "ref", "base", "kind" });
                         string kind = Text(e, "kind"), vanilla = Text(e, "vanilla");
                         int colon = vanilla.IndexOf(':');

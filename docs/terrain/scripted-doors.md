@@ -169,7 +169,18 @@ their own explicit migration evidence; no existing stage or save was upgraded.
 
 Normal persistent checking holds the writer lease through raw checks and final
 input verification. Retained reservations replace only sequential-ID assertions;
-VMAD, transform, type, counts and cell checks still apply. The full terrain-check
-body, full-size bootstrap, independent integration QA and native return/save/reload
-remain gates. PR272's source-README hardlink and pre-existing-VMAD review findings
-also remain open with Claude; this integration does not change `vmad_patch.py`.
+VMAD, transform, type, counts and cell checks still apply.
+
+The full-size core64j_doors copy now bootstraps with byte-identical main/Mars
+plugins and the entire ID map. The real held-audit/check_stage command initially
+timed out before readiness (120 s). Indexing each source-keyed map section once
+preserves exact key/reservation checks and allows the same command/input to finish:
+260 checks pass, 709,154 reserved IDs verified, 15 doors read back raw, 171.365 s
+wall time (159.4 s raw checks). No readiness timeout or validation was relaxed.
+51,821 copied assets were hash-verified; original stages were not edited.
+
+This covers the existing current-schema generation, not migration to core64k,
+old generic-script stages, or native save compatibility. Optional FO4 LAND/raw
+collision comparisons and Archive2 were not run. Independent combined integration
+QA and native return/save/reload remain gates. The stage-preservation fixes are
+a separate PR277 proposal; this change does not modify vmad_patch.py.

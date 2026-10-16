@@ -1736,3 +1736,14 @@ Commands use isolated Python unittest and the Release TerrainOverlays build;
 evidence: persistent-check-lease-20261016. Wrapper tests stub the terrain body,
 so full-stage check, full-size bootstrap, peer QA and native save/door acceptance
 remain unverified. No game version tested, deployment or active-stage changes.
+
+## 2026-10-16: Codex full-size persistent-door bootstrap and indexed audit (offline)
+
+Exact276/529a36f bootstrapped a copied core64j_doors stage with both plugins and the full
+map byte-identical. Normal held-audit/check_stage then timed out before ready at120s.
+Indexing source-keyed map sections once retains ordinal/duplicate/reservation checks;
+the same command/input now passes260 checks,709,154 IDs and15 raw doors in171.365s.
+13 targeted audit/lease regressions pass (2 new); original assets and failures retained.
+No game/install changes. Optional FO4 LAND/raw collision and Archive2 checks omitted.
+Private evidence: persistent-full-stage-work. Independent QA, changed-core64k identity
+validation and native return/save/reload remain open; see ai/optimization.md.
