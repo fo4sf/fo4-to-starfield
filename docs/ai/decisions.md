@@ -2,13 +2,23 @@
 
 Format: date, decision, why, alternatives considered.
 
+## 2026-10-16 FO4 "open by default" is written on converted doors; FO4 locks are not (Claude, proposed)
+PluginSpike sets `OpenByDefault` (`ONAM`) on every placed reference of an animated, non-load DOOR base whose FO4
+reference is open by default (pinned cells: 47 hinged-door refs; 68 with the sliding doors), so a doorway FO4 shows open
+starts open instead of shut (review of PR #242). FO4 lock data (13 / 23 refs; Vault 111 levels 253 / 254) is counted
+per cell and not written: the keys, terminals and quests that open those doors are not in the build, so a ported lock
+would shut a door nothing can open. Alternatives: port locks with their levels (blocks routes until terminals and keys
+exist), leave both out (FO4-open doorways become shut doors that a never-played rig must open). The route planner
+already treats open-by-default doors as open (`scripts/game/routes.py` `moves_aside`).
+
 ## 2026-10-16 Sliding, lifting and trapdoor FO4 doors get their own rig, not a vanilla sliding template (Claude, proposed)
 FO4 door models matching `NOT_HINGED_RE` (vault, elevator, hatch, ...) that are not load doors are converted like the
 multi-part doors (`convert_multipart_door`: one rig bone per FO4 node, FO4's own Open / Close keys written with CALUMI, a
 keyframed box per moving part) on the vanilla graph `SimpleOpenClose01.agx`, when `--door-anim-dll` is given; without
 it they stay passable. Why: all 123 vanilla door rigs were read back; sliding and lifting doors use the same graph as
-hinged ones and carry their motion in their own rig and clips, but none moves like the FO4 doors: no vanilla door
-panel moves down (the vault doors' lower panel drops 0.98 m) and the vanilla sliding pairs travel 1.00 / 1.50 / 4.00 m
+hinged ones and carry their motion in their own rig and clips, but none moves like the FO4 doors: no vanilla rig
+drops a panel straight down or splits two panels up and down (the vault doors' lower panel drops 0.98 m; the nearest,
+a NASA prototype door, moves two panels 0.52 m down and 0.52 m sideways) and the vanilla sliding pairs travel 1.00 / 1.50 / 4.00 m
 against FO4's 0.64-0.91 m. A template would leave a panel shut or push it 0.09-0.36 m into the wall; FO4's keys give
 the exact travel and timing. Alternatives: `ElvGen_ExSm_DoorInner01` as a template for the elevator doors (9-56 % too
 far), `StsGenIntRmSmWallMid_DoorD01` for the vault doors (upper panel only, the lower one would block), keeping them

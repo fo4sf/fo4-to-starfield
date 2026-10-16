@@ -44,6 +44,17 @@ def add_track(f, sequence, target, controller_type=None, interpolator_type="NiFl
     f.blocks[sequence] = bytes(block)
 
 
+def retype_track(f, sequence, k, interpolator_type, controller_type):
+    """Point controlled block k of a sequence at a new interpolator block of the given type (the old block's payload) and
+    name a controller type: a transform track this code cannot sample (B-spline, an unknown interpolator)."""
+    block = bytearray(f.blocks[sequence])
+    at = 12 + 29 * k
+    old = struct.unpack_from("<i", block, at)[0]
+    struct.pack_into("<i", block, at, f.add_block(interpolator_type, f.blocks[old]))
+    struct.pack_into("<i", block, at + 17, f.string_index(controller_type.encode()))
+    f.blocks[sequence] = bytes(block)
+
+
 def with_shader_tracks(parts):
     """A door whose Open / Close also drive a shader float on a shape (VltDoorRes01A's override-box lights)."""
     f = door_nif(parts)
@@ -74,6 +85,26 @@ class IgnoredTrackTests(unittest.TestCase):
         self.assertEqual([i["target"] for i in door_motion.inspect(f)["issues"]], ["Missing"])
         with self.assertRaisesRegex(nif.NifError, "bindings"):
             door_rig.plan(f, placed=True)
+
+    def test_a_transform_track_this_code_cannot_sample_is_refused_not_dropped(self):
+        # Codex review of #242, P2: an unknown interpolator on a NiTransformController block is not evidence of
+        # non-motion; dropping it would rig the door with PanelA frozen. It stays a track, and the rig plan refuses it.
+        for kind in ("NiBSplineCompTransformInterpolator", "UnknownTransformInterpolator"):
+            f = door_nif(sliding_panels())
+            retype_track(f, sequences(f)[b"Open"], 0, kind, "NiTransformController")
+            report = door_motion.inspect(f)
+            self.assertEqual(report["ignored_targets"], [], kind)
+            self.assertEqual([t["name"] for t in report["sequences"][0]["targets"]], ["PanelA", "PanelB"], kind)
+            self.assertEqual(report["sequences"][0]["targets"][0]["transform_track"]["status"], "unsupported_interpolator")
+            with self.assertRaisesRegex(nif.NifError, "unsupported sampled door interpolator"):
+                door_rig.plan(f, placed=True)
+
+    def test_only_known_non_motion_controllers_are_ignored(self):
+        f = door_nif(sliding_panels())                   # a float track under a controller type nobody has checked
+        add_track(f, sequences(f)[b"Open"], "OverrideBox:0", "SomeFutureController")
+        report = door_motion.inspect(f)
+        self.assertEqual(report["ignored_targets"], [])
+        self.assertEqual([i["target"] for i in report["issues"]], ["OverrideBox:0"])
 
     def test_rig_plan_and_native_door_keep_the_moving_parts_and_say_what_was_left_out(self):
         f = with_shader_tracks(sliding_panels())
@@ -124,6 +155,22 @@ class OpenMotionTests(unittest.TestCase):
         self.assertEqual(row["travel_m"], [0.0, 1.0, 0.0])
         self.assertEqual(row["rotation_deg"], 0.0)
 
+    def test_travel_carries_the_parents_bind_scale(self):
+        # Codex review of #242, P2: a node's keys are in its parent's frame, scale included, so a parent bound at scale 3
+        # makes 70 units of local travel 3 m in model space.
+        def bone(node, name, parent, scale, q=(1.0, 0.0, 0.0, 0.0)):
+            return {"node": node, "name": name, "parent": parent,
+                    "bind": {"translation_source_units": [0.0, 0.0, 0.0], "quaternion_wxyz": list(q), "scale": scale}}
+
+        def sample(x):
+            return {"translation_source_units": [x, 0.0, 0.0], "quaternion_wxyz": [1.0, 0.0, 0.0, 0.0], "scale": 1.0}
+        plan = {"bones": [bone(0, "Root", -1, 3.0), bone(1, "Panel", 0, 1.0)],
+                "clips": [{"name": "Open", "tracks": [{"node": 1, "samples": [sample(0.0), sample(70.0)]}]}]}
+        self.assertEqual(door_rig.open_motion(plan, 1 / 70)[0]["travel_m"], [3.0, 0.0, 0.0])
+        # nested and turned: 2 x 1.5 under a +90 degree z bind, so the panel's +x is the model's +y
+        plan["bones"] = [bone(0, "Root", -1, 2.0), bone(2, "Frame", 0, 1.5, quat_z(90)), bone(1, "Panel", 1, 1.0)]
+        self.assertEqual(door_rig.open_motion(plan, 1 / 70)[0]["travel_m"], [0.0, 3.0, 0.0])
+
     def test_other_clips_are_not_summarised(self):
         plan = door_rig.plan(door_nif(sliding_panels()), placed=True)
         self.assertEqual(len(door_rig.open_motion(plan, 1 / 70, "Close")), 2)
@@ -156,6 +203,42 @@ class VaultDoorConversionTests(unittest.TestCase):
         _, door = convert_static.convert_multipart_door(nif.serialize(f), "fo4port/hatch", ["x.mat"] * count, fake_clip_files,
                                                         collision_template=fake_template(), leaf_physics_donor=donor())
         self.assertEqual((door["animated_bones"], door["moving_bodies"]), (["MetalTrapdoor01"], 1))   # ... yet it moves
+
+
+class RestPoseTests(unittest.TestCase):
+    """Review of #242, P3: the graph shows the bind pose while the door is shut, so on the own-rig route a door whose Open
+    does not start, or whose Close does not end, at its bind pose (BHMarketGateDoor01: bind is Open's end pose;
+    DExtMainGateDoor01: Close ends open) is refused and stays passable instead of sitting open or never closing."""
+
+    def convert(self, parts, **kw):
+        f = door_nif(parts)
+        count = len([s for s in nif.fo4_trishapes(f) if s.positions and s.triangles])
+        return convert_static.convert_multipart_door(nif.serialize(f), "fo4port/gate", ["x.mat"] * count, fake_clip_files,
+                                                     collision_template=fake_template(), leaf_physics_donor=donor(), **kw)
+
+    def test_open_that_starts_away_from_the_bind_pose_is_refused(self):
+        slid = [("Gate", (0, 35, 0), IDENTITY, None, [(0, (0, 105, 0)), (1, (0, 35, 0))])]          # bind = Open's end
+        turned = [("DoorL01", (0, 0, 0), IDENTITY, [(0, quat_z(170)), (1, quat_z(0))], None)]      # 170 degrees off
+        for parts, bone in ((slid, "Gate"), (turned, "DoorL01")):
+            with self.assertRaisesRegex(nif.NifError, f"Open of {bone} does not start at the bind pose"):
+                self.convert(parts, rest_pose_check=True)
+            self.assertEqual(self.convert(parts)[1]["rig"], "native")       # the #79 multi-part route is unchanged
+
+    def test_close_that_ends_away_from_the_bind_pose_is_named(self):
+        def track(name, x):
+            return {"node": 1, "name": name, "samples": [{"translation_source_units": [x, 0.0, 0.0],
+                                                          "quaternion_wxyz": [1.0, 0.0, 0.0, 0.0], "scale": 1.0}]}
+        plan = {"bones": [{"node": 1, "name": "Arm", "parent": -1,
+                           "bind": {"translation_source_units": [0.0, 0.0, 0.0], "quaternion_wxyz": [1.0, 0.0, 0.0, 0.0],
+                                    "scale": 1.0}}],
+                "clips": [{"name": "Open", "tracks": [track("Arm", 0.0)]}, {"name": "Close", "tracks": [track("Arm", 52.0)]}]}
+        self.assertEqual(door_rig.rest_pose_issue(plan), "Close of Arm does not end at the bind pose")
+        plan["clips"][1]["tracks"][0]["samples"][0]["translation_source_units"][0] = 0.1           # within tolerance
+        self.assertIsNone(door_rig.rest_pose_issue(plan))
+
+    def test_the_audited_kinds_pass(self):
+        for parts in (vault_door(), sliding_panels(), trapdoor(), two_leaves()):
+            self.assertEqual(self.convert(parts, rest_pose_check=True)[1]["rig"], "native")
 
 
 class NonHingedRoutingTests(unittest.TestCase):
@@ -194,12 +277,16 @@ class NonHingedRoutingTests(unittest.TestCase):
         static.assert_not_called()
         self.assertEqual(multi.call_args.kwargs["leaf_physics_donor"], b"synthetic donor")
         self.assertEqual(multi.call_args.kwargs["collision_template"], b"synthetic collision")
+        self.assertTrue(multi.call_args.kwargs["rest_pose_check"])
         self.assertEqual(result["door"]["rig"], "native")
         self.assertNotIn("door_not_opening", result)
 
     def test_a_single_part_hatch_and_an_elevator_door_are_routed_the_same_way(self):
         for name, parts in (("meshes/Interiors/Utility/Doors/SyntheticElevatorHatch01.nif", trapdoor()),
-                            ("meshes/Interiors/Vault/Elevator/SyntheticElevatorDoor02.nif", sliding_panels())):
+                            ("meshes/Interiors/Vault/Elevator/SyntheticElevatorDoor02.nif", sliding_panels()),
+                            ("meshes/Architecture/Synthetic/SyntheticMainGateDoor01.nif", sliding_panels()),
+                            ("meshes/Architecture/Buildings/Doors/SyntheticGarageDoor01.nif", vault_door()),
+                            ("meshes/SetDressing/Doors/SyntheticSlidingDoor01.nif", sliding_panels())):
             with tempfile.TemporaryDirectory() as staging:
                 result, single, multi, _ = self.convert(staging, name, parts, "calumi.dll")
             self.assertEqual(result["door"]["rig"], "native", name)

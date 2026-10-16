@@ -521,13 +521,15 @@ class Converter:
                 # Sliding, lifting and trapdoor families (vault doors, elevator doors, hatches) cannot hang under the
                 # template's vertical hinge, and no vanilla door moves like them; vanilla sliding doors play the same graph
                 # (SimpleOpenClose01.agx) with their own rig and clips (docs/spikes/sliding-doors.md). So such a door gets
-                # its own rig and FO4's own keys, as the multi-part doors do. Without the library, or if this fails, it
-                # stays passable (door_not_opening below) and door_error says why.
+                # its own rig and FO4's own keys, as the multi-part doors do. Without the library, or if this fails (also
+                # when its clips do not rest at the bind pose: gates keyed open), it stays passable (door_not_opening
+                # below) and door_error says why.
                 try:
                     from . import native_door
                     files, res["door"] = convert_static.convert_multipart_door(
                         raw, out_name, mats, lambda plan, scale: native_door.export_files(plan, self.door_anim_dll, scale),
-                        collision_template=self.collision_template, leaf_physics_donor=self.door_physics_donor)
+                        collision_template=self.collision_template, leaf_physics_donor=self.door_physics_donor,
+                        rest_pose_check=True)
                 except Exception as e:                   # noqa: BLE001  (falls back to the passable static door)
                     files = None
                     res.pop("door", None)

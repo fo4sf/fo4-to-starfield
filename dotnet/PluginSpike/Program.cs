@@ -3,7 +3,8 @@
 //   dotnet run -- teleports <FO4Port.esm>        read a written plugin back and list its load-door teleport links (offline check)
 // Creates FO4Port.esm with one STAT per converted item and, for each cell export from dotnet/Fo4Export, an interior cell
 // "FO4Port_<cell>" holding every reference whose model was converted, placed at the Fallout 4 position / 70 (metres), same rotation
-// (radians) and scale. Initially-disabled FO4 references stay initially disabled. Manifest items marked `load_door` become
+// (radians) and scale. Initially-disabled FO4 references stay initially disabled; door references FO4 opens by default
+// start open (locks are counted, not written). Manifest items marked `load_door` become
 // graph-less DOOR records; when both ends of a load door pair are placed (both cell exports given), the references get the
 // Starfield teleport link (XTEL) and become persistent (TeleportLinks.cs). Load doors whose other end is not in the build
 // stay shut and are listed in <output dir>/teleports.json.
@@ -58,6 +59,8 @@ foreach (var it in manifestDoc.RootElement.GetProperty("items").EnumerateArray()
 // source FO4 model -> (base record, origin offset in metres). Hinged doors become DOOR records animated by a vanilla door's
 // graph / skeleton / animations; their NIF origin sits at a different point, so references are shifted by origin_offset.
 var bySource = new Dictionary<string, (FormKey key, P3Float offset)>(StringComparer.OrdinalIgnoreCase);
+var openingDoors = new HashSet<FormKey>();   // bases of animated (non-load) doors: their references take FO4's open state
+var ownRigDoors = new HashSet<FormKey>();    // manifest rig "native": an opening rig, never a load door (TeleportLinks)
 int doors = 0, loadDoors = 0, movables = 0;
 foreach (var (editorId, model, source, door, loadDoor, movable) in items)
 {
@@ -122,6 +125,8 @@ foreach (var (editorId, model, source, door, loadDoor, movable) in items)
         bySource[source.Replace('/', '\\')] = (rec.FormKey, new P3Float(o[0].GetSingle(), o[1].GetSingle(), o[2].GetSingle()));
         if (Environment.GetEnvironmentVariable("FO4PORT_DOOR_BASE") is string vb)   // test hook: place a vanilla DOOR instead
             bySource[source.Replace('/', '\\')] = (new FormKey(sfEsm, Convert.ToUInt32(vb, 16)), new P3Float(0, 0, 0));
+        openingDoors.Add(bySource[source.Replace('/', '\\')].key);
+        if (d.TryGetProperty("rig", out var rig) && rig.GetString() == "native") ownRigDoors.Add(rec.FormKey);
         doors++;
         continue;
     }
@@ -180,7 +185,7 @@ foreach (var cdoc in cellDocs)
     var omni = new FormKey(sfEsm, Convert.ToUInt32(Setting(src4, "OMNI_LIGHT", "03D38C"), 16)); // LGT_ShipInterior_Omni_NS_Neutral_2k
     var merge = float.Parse(Setting(src4, "LIGHT_MERGE_M", "3"), System.Globalization.CultureInfo.InvariantCulture);
     var lit = new List<P3Float>();
-    int lights = 0, placed = 0, skipped = 0, disabled = 0;
+    int lights = 0, placed = 0, skipped = 0, disabled = 0, openDoors = 0, lockedDoors = 0;
     foreach (var r in root.GetProperty("refs").EnumerateArray())
     {
         var src = r.GetProperty("formkey").GetString()!;
@@ -215,6 +220,15 @@ foreach (var cdoc in cellDocs)
             };
             if (Math.Abs(scale - 1f) > 1e-4) obj.Scale = scale;
             placed++;
+            if (openingDoors.Contains(bas.key))
+            {
+                // FO4's "open by default" (Fo4Export open_by_default): a doorway FO4 shows open starts open (review of PR
+                // #242: 21 vault / elevator refs, 47 hinged ones). FO4 lock data is NOT written: its keys and terminals
+                // (Vault 111: lock levels 253 / 254) are not in this build, so a lock would shut a door nothing here can
+                // open. Counted and printed instead.
+                if (r.TryGetProperty("open_by_default", out var obd) && obd.ValueKind == JsonValueKind.True) { obj.OpenByDefault = true; openDoors++; }
+                if (r.TryGetProperty("lock_data", out var lk) && lk.ValueKind == JsonValueKind.Object) lockedDoors++;
+            }
         }
         if (r.TryGetProperty("disabled", out var dis) && dis.GetInt32() != 0)
         {
@@ -231,10 +245,12 @@ foreach (var cdoc in cellDocs)
     block.SubBlocks.Add(sub);
     mod.Cells.Records.Add(block);
     Console.WriteLine($"cell {cellName} {cell.FormKey}: placed {placed} references + {lights} lights ({disabled} initially disabled), skipped {skipped}");
+    if (openDoors + lockedDoors > 0)
+        Console.WriteLine($"  doors: {openDoors} open by default (as in FO4), {lockedDoors} locked in FO4 (lock not written)");
 }
 
 // ---- load-door teleports between the cells of this build ---------------------------------------------------------------
-var teleports = TeleportLinks.Apply(mod, placedBySource, cellDocs.Select(d => d.RootElement));
+var teleports = TeleportLinks.Apply(mod, placedBySource, cellDocs.Select(d => d.RootElement), ownRigDoors);
 foreach (var d in cellDocs) d.Dispose();
 Console.WriteLine($"teleports: {teleports.Linked} references linked ({teleports.Pairs} mutual pairs, {teleports.OneWay} one-way), " +
                   $"{teleports.DestinationNotInBuild} destinations not in this build, {teleports.SourceNotPlaced} sources not placed, {teleports.Issues.Count} issues");

@@ -64,24 +64,34 @@ def transform_track(source, index):
     return result
 
 
-# Interpolators that drive a node transform; any other interpolator (float, bool, point3: shader, visibility, particle
-# controllers) animates no geometry position.
-TRANSFORM_INTERPOLATORS = ("NiTransformInterpolator", "NiBlendTransformInterpolator")
+# Controlled blocks known not to move a node. A scan of every FO4 mesh with an Open sequence (review of PR #242) found,
+# besides 1313 NiTransformController + NiTransformInterpolator blocks, only shader float, alpha-test, visibility and
+# particle-emitter controllers on float / bool interpolators (VltDoorRes01A's override-box shapes:
+# BSLightingShaderPropertyFloatController with NiFloatInterpolator). Only these listed kinds are left out; anything else,
+# a transform interpolator this code cannot sample (B-spline, blend) or an unknown type, stays a motion track, so it is
+# refused later (door_clips.sample_track) instead of silently freezing that part.
+NON_TRANSFORM_CONTROLLERS = frozenset((
+    "BSLightingShaderPropertyFloatController", "BSLightingShaderPropertyColorController",
+    "BSLightingShaderPropertyUShortController", "BSEffectShaderPropertyFloatController",
+    "BSEffectShaderPropertyColorController", "BSNiAlphaPropertyTestRefController", "NiAlphaController",
+    "NiVisController", "NiMaterialColorController", "NiPSysEmitterCtlr", "NiPSysEmitterSpeedCtlr"))
+NON_TRANSFORM_INTERPOLATORS = frozenset(("NiFloatInterpolator", "NiBoolInterpolator", "NiBoolTimelineInterpolator",
+                                         "NiPoint3Interpolator", "NiBlendFloatInterpolator", "NiBlendBoolInterpolator",
+                                         "NiBlendPoint3Interpolator"))
 
 
 def _non_transform(source, interpolator, controller_type):
-    """Reason a controlled block does not move a node (shader / visibility / particle controller), or None.
+    """Reason a controlled block does not move a node (a known shader / visibility / particle kind), or None.
 
     ControlledBlock layout (FO4): interpolator, controller, priority, node name, property type, controller type,
-    controller id, interpolator id. FO4's own transform blocks name "NiTransformController"; a block that names another
-    controller type, or links a non-transform interpolator, is not motion (VltDoorRes01A's override-box shapes:
-    BSLightingShaderPropertyFloatController with NiFloatInterpolator)."""
+    controller id, interpolator id. A block is left out only when its interpolator (if any) is a known non-transform kind
+    and its controller type is a known non-transform kind, or, with no controller type, when the interpolator is."""
     kind = source.type_of(interpolator) if 0 <= interpolator < len(source.blocks) else None
-    if controller_type not in (None, "NiTransformController"):
-        return f"controller {controller_type}"
-    if kind is not None and kind not in TRANSFORM_INTERPOLATORS:
-        return f"interpolator {kind}"
-    return None
+    if kind is not None and kind not in NON_TRANSFORM_INTERPOLATORS:
+        return None                     # a transform interpolator, or one nobody has checked: motion
+    if controller_type is None:
+        return f"interpolator {kind}" if kind is not None else None
+    return f"controller {controller_type}" if controller_type in NON_TRANSFORM_CONTROLLERS else None
 
 
 def inspect(source):

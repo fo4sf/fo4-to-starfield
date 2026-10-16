@@ -13,9 +13,13 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   and translation keys of every `.af`); end offsets put in model space with the parent's global bind; FO4 side with
   `door_motion.inspect` / `door_rig.plan` on `Fallout4 - Meshes.ba2`; vanilla collision layout from 9 door NIFs.
 - **verified**: 339 DOOR records, 310 with a graph; 215 use `SimpleOpenClose01.agx`, load variants `*_Load`. Of the 123
-  rigs, 47 slide a bone sideways by 0.25 m or more, 12 lift one, 59 only rotate, 2 are state graphs. Sliding and lifting
-  doors (`ElvGen_ExSm_DoorInner01`, `StsGenIntRmSmWallMid_DoorD01`, `HangarDoor_4x4`) use `SimpleOpenClose01.agx`
-  like hinged ones; the motion is their own rig and clips. No door panel in any vanilla rig moves down 0.25 m or more.
+  rigs, 51 move a bone sideways or diagonally by 0.25 m or more, 12 lift one (5 both), 59 only rotate, 4 move no bone
+  that far, 2 are state graphs (corrected 2026-10-16 after the PR #242 review: the first count, 47 / 12 / 59 / 2, left
+  diagonal moves out). Sliding and lifting doors (`ElvGen_ExSm_DoorInner01`, `StsGenIntRmSmWallMid_DoorD01`,
+  `HangarDoor_4x4`) use `SimpleOpenClose01.agx` like hinged ones; the motion is their own rig and clips. No vanilla rig
+  drops a panel straight down or splits two panels up and down; 5 rigs end a bone 0.25 m or more lower (docking-door
+  release helpers -0.26 m, the ExLg door latch -0.32 m, `LC017NASA_GravDrivePrototype_Door01`'s two panels 0.52 m down
+  and 0.52 m sideways). The first wording here ("no door panel moves down") was wrong.
   Vanilla multi-panel doors keep one physics system with a body per panel (9 of 9 NIFs).
 - **verified** (FO4): vault doors lift the upper panel +2.116 m and drop the lower -0.976 m (V111 also flips 2 floor
   slats 90 degrees); the elevator pairs slide +-0.64 / 0.68 / 0.80 / 0.914 m; the hatch flips 100.5 degrees about -y.
