@@ -426,7 +426,14 @@ if (Has(prm, "objects"))
             var sig = $"{model.ToLowerInvariant()}|{(name == null ? "<none>" : "=" + name)}";
             if (!actiByEdid.TryGetValue(edid, out var acti))
             {
-                acti = new StarfieldActivator(NewKey(), release) { EditorID = edid, Model = new Model { File = model } };
+                // PNAM / FNAM / JNAM as the vanilla majority (Starfield.esm, 1,463 ACTI read raw in the review of #241):
+                // marker colour bytes CC 4C 33 00 in 1,347 (Mutagen writes the alpha last), flags 0 in 1,412,
+                // activation angle 360 in 1,453
+                acti = new StarfieldActivator(NewKey(), release)
+                {
+                    EditorID = edid, Model = new Model { File = model }, MarkerColor = System.Drawing.Color.FromArgb(0, 0xCC, 0x4C, 0x33),
+                    Flags = (StarfieldActivator.Flag)0, ActivationAngle = 360,
+                };
                 if (name != null) acti.Name = name;
                 mod.Activators.Add(acti);
                 actiByEdid[edid] = acti;
@@ -444,8 +451,32 @@ if (Has(prm, "objects"))
     var termByEdid = new Dictionary<string, (Terminal Term, TerminalMenu Menu)>(StringComparer.OrdinalIgnoreCase);
     var termSig = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     var menuEdids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    // Every vanilla TERM is also furniture: the review of #241 read Starfield.esm's 368 raw (MNAM, WBDT, XMRK, PNAM /
+    // FNAM / JNAM / GNAM and keywords in all, an animation graph and SNAM in 367, FTMP in 365); a TERM without them has no
+    // vanilla precedent. Each new TERM therefore carries the furniture block of one vanilla standing terminal, as the
+    // doors carry a vanilla rig: OE_AustinF_DeployMicrobe_Terminal (0155A2:Starfield.esm: FTMP 0FFAD2, XMRK
+    // furn_human_standingterminal.nif, one SNAM marker, MNAM 40000001 = HasModel + InteractionPoint0, WBDT 00, PNAM /
+    // FNAM / JNAM / GNAM, 5 keywords and the HybridStateGraph01 animation graph; that marker model, keyword set and
+    // FTMP are the vanilla majority, 184 / 184 / 182 of 368). Its EDID, bounds, model, name, menu and VMAD
+    // (TerminalScript) are not copied. Whether the player enters terminal mode stays unresolved until the activate step.
+    ITerminalGetter? termTemplate = null;
+    static MemorySlice<byte>? Bytes(ReadOnlyMemorySlice<byte>? s) => s is { } v ? new MemorySlice<byte>(v.ToArray()) : default(MemorySlice<byte>?);
+    void Furnish(Terminal term, ITerminalGetter t)
+    {
+        term.FurnitureTemplate.SetTo(t.FurnitureTemplate.FormKeyNullable);
+        term.MarkerModel = t.MarkerModel;
+        term.MarkerParameters = t.MarkerParameters?.Select(p => p.DeepCopy()).ToExtendedList();
+        term.MarkerFlags = t.MarkerFlags;
+        term.WorkbenchData = Bytes(t.WorkbenchData);
+        term.PNAM = Bytes(t.PNAM); term.FNAM = Bytes(t.FNAM); term.JNAM = Bytes(t.JNAM); term.GNAM = Bytes(t.GNAM);
+        term.Keywords = t.Keywords?.Select(k => (IFormLinkGetter<IKeywordGetter>)new FormLink<IKeywordGetter>(k.FormKey)).ToExtendedList();
+        foreach (var g in t.Components.OfType<IAnimationGraphComponentGetter>()) term.Components.Add(g.DeepCopy());
+    }
     if (o.TryGetProperty("terminals", out var termsJ))
     {
+        if (termsJ.GetArrayLength() > 0)
+            termTemplate = sf.Terminals.FirstOrDefault(t => t.FormKey == new FormKey(sfEsm, 0x0155A2))
+                ?? throw new InvalidDataException("terminals: the template terminal 0155A2:Starfield.esm (OE_AustinF_DeployMicrobe_Terminal) is missing");
         foreach (var c in termsJ.EnumerateArray())
         {
             var src = c.GetProperty("src").GetString()!;
@@ -464,6 +495,7 @@ if (Has(prm, "objects"))
                     EditorID = edid, Model = new Model { File = model }, Name = name,
                     Background = Terminal.BackgroundType.Default,
                 };
+                Furnish(term, termTemplate!);
                 var menu = new TerminalMenu(NewKey(), release)
                 {
                     EditorID = menuEdid, Name = name, INAM = string.Empty,

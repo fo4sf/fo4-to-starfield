@@ -1,4 +1,4 @@
-"""Run the actual terrain writer on a three-record synthetic master, never a game."""
+"""Run the actual terrain writer on a small synthetic master (dotnet/TerrainIdentityFixture), never a game."""
 import copy
 import importlib.util
 import json
@@ -330,6 +330,32 @@ class ActivatorTerminalWriterTests(unittest.TestCase):
         self.assertFalse(mk.promotion_checks(walked['records'], own, wrong, new, exp)[-1][1])
         wrong = self.promote_all(x=lambda o: o['activators'][1].update(name='Quiet'))
         self.assertFalse(mk.promotion_checks(walked['records'], own, wrong, new, exp)[-1][1])
+
+    # the furniture block every vanilla TERM carries (review of #241), as the template terminal of the master has it
+    FURNITURE = (b'BFCB', b'ANAM', b'BNAM', b'CNAM', b'KSIZ', b'KWDA', b'PNAM', b'FNAM', b'JNAM', b'MNAM', b'GNAM',
+                 b'WBDT', b'FTMP', b'XMRK', b'SNAM')
+
+    def test_terminal_carries_the_template_furniture_block_and_activator_the_vanilla_fields(self):
+        proc, stage = self.run_writer(self.promote_all(), 'acti-term-furniture')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        ids = json.loads((stage / 'formids.json').read_text())
+        written = records(stage / 'Synthetic.esm')
+        template = list(subrecords(records(self.master)[0x0155A2][1]))
+        term = list(subrecords(written[int(next(iter(ids['terminals'].values()))['base'], 16)][1]))
+        for sig in self.FURNITURE:
+            want = [d for s, d in template if s == sig]
+            self.assertTrue(want, sig)                                     # the synthetic template has every field
+            self.assertEqual([d for s, d in term if s == sig], want, sig)
+        t = dict(term)
+        self.assertNotIn(b'VMAD', t)                                       # the template's script stays behind
+        self.assertEqual(t[b'OBND'], bytes(24))                            # as every promoted base: no bounds yet
+        self.assertEqual((t[b'EDID'], t[b'MODL'], t[b'FULL']),
+                         (b'FO4Core_term_000102_synthetic\0', b'terminal.nif\0', b'Terminal\0'))
+        self.assertEqual(struct.unpack('<I', t[b'MNAM'])[0], 0x40000001)  # HasModel + InteractionPoint0
+        for src in ('000003:Synthetic.esm', '000004:Synthetic.esm'):     # named and unnamed ACTI
+            a = dict(subrecords(written[int(ids['activators'][src]['base'], 16)][1]))
+            self.assertEqual((a.get(b'PNAM'), a.get(b'FNAM'), a.get(b'JNAM')),
+                             (bytes.fromhex('cc4c3300'), b'\0\0', struct.pack('<H', 360)), src)
 
     def test_bad_activator_or_terminal_inputs_leave_the_plugin_and_map(self):
         good = self.promote_all()

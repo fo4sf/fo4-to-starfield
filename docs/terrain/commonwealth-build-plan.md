@@ -95,9 +95,15 @@ once on core64c's work (5,185 containers + 12,438 items + 2,246 activators + 140
 182 CONT, 492 MISC, 211 ACTI, 91 TERM + 91 TMLM, 648,360 REFR, 12,104 NAVM; all 648,358 sources keep core64g's REFR
 ids, STAT / DOOR / CONT bases keep core64g's ids, MISC 0A2B5B.., ACTI 0A2D47.., TERM / TMLM pairs 0A2E1A..0A2ECF, NAVM
 from 0A2ED0 (they move up by the new bases); plan.json byte-identical to core64g's; check 263/263 PASS (137 s).
-Not yet: activation in game. Vanilla terminals all carry a furniture template, marker model, marker parameters,
-keywords and the TerminalScript VMAD (Starfield.esm: 365 / 368 / 367 / 368 / 368 of 368 TERM); ours carry none of them,
-so whether the player enters terminal mode is **unresolved** until an in-game activate step.
+Vanilla terminals are furniture too (Starfield.esm, 368 TERM read raw in the review of #241, **verified**): marker
+flags, workbench data, marker model, PNAM / FNAM / JNAM / GNAM and keywords in all 368, an animation graph and marker
+parameters in 367, a furniture template in 365, the TerminalScript VMAD in 367. Each new TERM therefore carries the
+furniture block of one vanilla standing terminal, OE_AustinF_DeployMicrobe_Terminal (0155A2: FTMP 0FFAD2, XMRK
+furn_human_standingterminal.nif, one SNAM marker, MNAM 40000001, WBDT 00, 5 keywords, HybridStateGraph01), as the
+doors carry a vanilla rig; not its script, bounds, model or name. Each ACTI carries the vanilla majority PNAM (marker
+colour CC4C33), FNAM 0 and activation angle 360 (1,347 / 1,412 / 1,453 of 1,463 ACTI). FLLD (in every vanilla ACTI and
+TERM) is not written: Mutagen 0.55 does not expose it. Not yet: activation in game, so whether the player enters
+terminal mode, and whether the ACTIs show their prompt, stay **unresolved** until an in-game activate step.
 
 ## 4. Navmesh and actors
 
