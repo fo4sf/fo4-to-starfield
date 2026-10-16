@@ -103,17 +103,25 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
             gained.append({"cell": cell, "sf_triangles": sf_tri, "reason": "new in SF"})
         else:
             unchanged.append(cell)
+    fo4_tris = sum(_measure(fo4[c])[0] for c in fo4 if _measure(fo4[c]))
+    sf_tris = sum(_measure(sf[c])[0] for c in sf if _measure(sf[c]))
+    lost_tris = sum(item["fo4_triangles"] for item in lost)
+    reduced_tris = sum(item.get("fo4_triangles", 0) - item.get("sf_triangles", 0) for item in reduced if "fo4_triangles" in item)
     return {
         "total_fo4_cells": len(fo4),
         "total_sf_cells": len(sf),
+        "total_fo4_triangles": fo4_tris,
+        "total_sf_triangles": sf_tris,
+        "lost_triangles": lost_tris,
+        "reduced_triangles_approx": reduced_tris,
         "lost_coverage": lost,
         "reduced_coverage": reduced,
         "gained_coverage": gained,
         "unknown": unknown,
         "unchanged": len(unchanged),
         "summary": (
-            f"{len(lost)} lost, {len(reduced)} reduced, {len(gained)} gained, "
-            f"{len(unknown)} unknown"
+            f"{len(lost)} lost ({lost_tris} tris), {len(reduced)} reduced, {len(gained)} gained, "
+            f"{len(unknown)} unknown; FO4 tris {fo4_tris} -> SF {sf_tris}"
         ),
     }
 
