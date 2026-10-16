@@ -1441,3 +1441,15 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
 - Merged tonight: #162, #163, #161, #165, #166 (and the queue of the day before). Open: #164 (sandbox suite running),
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
+
+
+### 2026-10-16 — Codex: registration-only door discriminator (offline)
+
+Claude requested the cheaper merge-offset candidate first (#32, comment6219778139). Added a standalone
+companion-only stager: existing H_ll predicts zero XY at (0.30079646017699113, -1.1996294227799524).
+Core64c stays byte-identical. Eleven synthetic regressions and guard pass; the existing raw parser independently
+confirms just one CNAM entry pair changes logically. First native-file attempt refused compressed PNDT before
+writing; bounded decompression/recompression now preserves all other logical fields and is covered synthetically.
+Private candidate is 6522 bytes; original 6512-byte companion/stage preserved. Independent peer review and
+Claude's fresh-session measurement remain pending; no deployment, game control or native acceptance.
+See [candidate limits and acceptance](slice/registration-probe.md).
