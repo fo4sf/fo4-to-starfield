@@ -39,7 +39,58 @@ mod.Terminals.Add(terminal);
 var light = new Light(new FormKey(key, 0x12A74B), release) { EditorID = "SyntheticTemplateLight", Radius = 1, PbrLuminousPowerLm = 1 };
 light.Components.Add(new ObjectWindowFilterComponent { FLTR = "Synthetic/Filter/" });
 mod.Lights.Add(light);
-mod.ModHeader.Stats.NextFormID = 0x3807C1;
+// The stations (docs/terrain/stations.md): the keywords, actor value and pre-placed workshop activator the workshop
+// writer reads (00024DC7's OutpostCategory* keywords only; its other keywords, name, model and radius are decoys), and
+// the four vanilla benches with their bench types, plus a furniture without one and a static, which it must refuse.
+Keyword Kw(uint id, string edid) { var k = new Keyword(new FormKey(key, id), release) { EditorID = edid }; mod.Keywords.Add(k); return k; }
+var mustPersist = Kw(0x04AF68, "MustPersist");
+var workshopKw = Kw(0x054BA7, "WorkshopKeyword");
+var catCrafting = Kw(0x2CFDE6, "OutpostCategoryCrafting");
+var catFurniture = Kw(0x2BE3B5, "OutpostCategoryFurniture");
+var blockFlycam = Kw(0x257536, "OutpostBlockFlycam");
+var catDisplays = Kw(0x397027, "OutpostCategoryDisplays");
+// the four vanilla benches' recipe keywords (what make_core64c.station_master_check binds each kind to)
+var benchKws = new Dictionary<uint, Keyword>
+{
+    [0x2B6A63] = Kw(0x2CE1C0, "SyntheticWorkbenchWeaponKeyword"), [0x2B6A62] = Kw(0x0657FF, "SyntheticWorkbenchArmorKeyword"),
+    [0x2B6A61] = Kw(0x102158, "SyntheticWorkbenchChemlabRecipeKeyword"), [0x2B6A65] = Kw(0x102152, "SyntheticWorkbenchCookingKeyword"),
+};
+var radiusAv = new ActorValueInformation(new FormKey(key, 0x063FC5), release) { EditorID = "OutpostBuildAreaRadius" };
+mod.ActorValueInformation.Add(radiusAv);
+var otherAv = new ActorValueInformation(new FormKey(key, 0x3807C4), release) { EditorID = "SyntheticOtherValue" };
+mod.ActorValueInformation.Add(otherAv);
+var house = new Mutagen.Bethesda.Starfield.Activator(new FormKey(key, 0x024DC7), release)
+{
+    EditorID = "SyntheticPlayerHouseActivator", Name = "Decorate", Model = new Model { File = "synthetic_lever.nif" },
+    Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>>
+    {
+        new FormLink<IKeywordGetter>(mustPersist.FormKey), new FormLink<IKeywordGetter>(workshopKw.FormKey),
+        new FormLink<IKeywordGetter>(catCrafting.FormKey), new FormLink<IKeywordGetter>(catFurniture.FormKey),
+        new FormLink<IKeywordGetter>(blockFlycam.FormKey), new FormLink<IKeywordGetter>(catDisplays.FormKey),
+    },
+    Properties = new Noggog.ExtendedList<ObjectProperty>
+    {
+        new ObjectProperty { ActorValue = new FormLink<IActorValueInformationGetter>(radiusAv.FormKey), Value = 250 },
+        new ObjectProperty { ActorValue = new FormLink<IActorValueInformationGetter>(otherAv.FormKey), Value = 1 },
+    },
+    VirtualMachineAdapter = new VirtualMachineAdapter { Scripts = { new ScriptEntry { Name = "SyntheticDecoyScript" } } },
+};
+mod.Activators.Add(house);
+Furniture Bench(uint id, string edid, Furniture.BenchTypes bench)
+{
+    var f = new Furniture(new FormKey(key, id), release) { EditorID = edid, BenchType = bench, Name = edid, Model = new Model { File = edid + ".nif" } };
+    if (benchKws.TryGetValue(id, out var kw))
+        f.Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>> { new FormLink<IKeywordGetter>(kw.FormKey) };
+    mod.Furniture.Add(f);
+    return f;
+}
+Bench(0x2B6A63, "SyntheticWorkbenchWeapon", Furniture.BenchTypes.Weapons);
+Bench(0x2B6A62, "SyntheticWorkbenchArmor", Furniture.BenchTypes.Armor);
+Bench(0x2B6A61, "SyntheticWorkbenchChem", Furniture.BenchTypes.Alchemy);
+Bench(0x2B6A65, "SyntheticWorkbenchFood", Furniture.BenchTypes.Alchemy);
+Bench(0x3807C5, "SyntheticDecorFurniture", Furniture.BenchTypes.None);
+mod.Statics.Add(new Static(new FormKey(key, 0x3807C6), release) { EditorID = "SyntheticStatic", Model = new Model { File = "synthetic_static.nif" } });
+mod.ModHeader.Stats.NextFormID = 0x3807C7;
 var path = Path.GetFullPath(args[0]);
 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(Path.GetDirectoryName(path)!)
