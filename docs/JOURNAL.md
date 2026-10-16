@@ -1583,3 +1583,54 @@ the in-game look. Tests 273 OK, guard OK (guard now skips `.claude/` agent workt
   models + 147 posed models converted in 54 s, plugin written and read back, 147 references on their posed base, 0
   wrong. Renders: docs/media/posed-props/. Not in game yet; the next interior build needs a full convert (the code
   digest changes the checkpoints).
+
+## 2026-10-16 (afternoon and evening, Mountain time) - Claude: wave 1 merged, stations, the shooting crash found
+
+**Builds.** core64h (exterior + navmesh + 5,185 containers + 12,438 loose items; check 253/253) installed packed for the
+owner at 12:50; the owner confirmed in game that picking up loose items works (~14:30). integ_1016 (the interiors rebuilt
+with #230 collision, #231 LOD triangles, #232 textures: 29 -> 0 collision errors, 54,877 ids unchanged) deployed 13:00.
+integ_1017 (plus #242 vault door rigs through the CALUMI animation dll and #244 posed props: 4,346 models = 4,200 + 146
+posed variants, 55,033 ids with all 54,877 earlier ones unchanged) deployed ~16:25. core64i (every promotion class:
+containers 5,156, items 12,438, activators 2,246, terminals 140, lights 6,249 over 144 LIGH, workshops 29, benches 269 on
+the vanilla Starfield FURN stations; check 263/263) installed packed ~17:35. Owner checks of the stations, lights, vault
+doors and poses are pending.
+
+**Merged** (each with a testing state: full suite, dotnet builds, guard, CI; wave 1 with one combined state of all six
+and an independent adversarial review per PR): #230 #231 #232 #235 #237 #238 #247 #252 (code of conduct) #254 (CodeQL)
+#257 #258 #259 #263 #264 #268 (docs), Codex #243 #245 #248 #251 #253, Grok #250, wave 1 #249 #240 #244 #242 #241 #246,
+stations #266. GitHub code scanning (CodeQL default setup: actions, csharp, python) is on; its two alerts (header
+splitting in the Guardian proxy) fixed in #254; 0 open.
+
+**The shooting crash (owner playtest rows 3 and 18).** Refuted: the impact-material hypothesis (every material-like
+value in our Havok bodies is a vanilla value). Found: Havok's assertion "Unknown primitive type in compressed mesh"
+(hknpCompressedMeshShapeInternals.cpp:939, the int3 at Starfield.exe+0x36F418B in all 7 WER reports since 12 Oct) in
+the compressed-mesh closest-points query of a particle body-collision job. The owner's ProcDump full dump (17.4 GB,
+shooting a Vault 111 cog door) names the shape: vault_cart_01.nif (STAT FO4Port_Vault_Cart_01): numPrimitives 40, one
+data run {0, 40}, yet the query reached primitive index 40: the converted tree's keys reference more primitives than the
+array holds (FO4's key space covers its padding slots); slots with indices[1] == indices[3] (FO4 0xDEAD padding) read as
+an unknown special primitive; FO4 section encoding flags&1 never occurs in vanilla. Affected: 18 of 2,946 mesh-bearing
+interior models, 63 exterior models. Without a debugger the HK_ASSERT's int3 is the crash (straight to desktop, no WER
+entry this afternoon: the engine ends the process). Fix in progress: keys / data runs / primitive array made consistent
+in meshcollision.py, a decoder-simulation checker over every model, reconversion of the affected models.
+
+**The landing-zone boundary (row 17).** "Boundary Reached" is Starfield's native BoundaryMenu (no GMST, no MESG, no
+script). The owner's three setpos lines were pasted as one, so a single 1,549 m jump applied; this repo's runs of 11-12
+Oct showed jumps beyond ~2 cells raise it while 300 m hops reached 2 km with no popup. A real tile edge on foot is
+unproven (hypothesis from exe settings: planet-content blocks 3-4 km + uPlayableSpaceOverlayCellBuffer 5). Permanent
+route: a list of arrival markers per region.
+
+**Doors.** Design pass: first scripted pair = Super Duper Mart (exterior 0EE661 / core slot 02D22C, interior 0EE5D6 /
+Port REFR 01007D0B), both sides real door meshes; the cave and the Vault 111 autoload doors are invisible markers on
+both sides. Step 0 (two Probe functions: Resolve, MoveTo) answers the return-trip and merged-position unknowns in one
+window before any door record exists. Codex's compiled script (#243) is the contract; Codex's native interior half
+(#245 #251 #253) merged. The first build attempt died at 14:51 (unnoticed for three hours); relaunched.
+
+**Stations.** Build mode is engine-side: an ACTI base with WorkshopKeyword (00054BA7) opens workshop mode on activation
+(vanilla pre-placed pattern OutpostPlayerHouseActivator 00024DC7, also in the Neon exterior). FO4 benches map by bench
+type and recipe keyword id onto 2B6A63 weapon / 2B6A62 armor / 2B6A61 chem / 2B6A65 cooking; power armor stations have
+no equivalent. Open in game: whether build mode opens from a temporary REFR in our overlay (vanilla's are persistent).
+
+**Owner playtest rows 10-18** in docs/owner/playtest-issues.md with pictures (the look button: F13 / Ctrl+Alt+L,
+snapshots tagged owner-button). Lessons: a Bash heredoc here turns \\r \\n escapes into real characters (patch through a
+written script; gate commits on tests); a background workflow can die silently (check the transcripts' modification
+times); the owner's three-line console paste became one line (give one line per command).
