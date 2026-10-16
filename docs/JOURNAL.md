@@ -1674,3 +1674,15 @@ comparison and map metadata iteration) are retained in scripted-door-main-integr
 Independent QA, production persistent caller/checker integration, full-size bootstrap and native travel/
 return/save-reload remain pending. PR261 staging/raw-patch review findings remain inherited and gated.
 No live stage, deployment, controller or other agent checkout changed.
+
+## 2026-10-16 Codex: audit persistent door/source IDs without rebuilding (offline)
+
+The legacy checker rejects a valid reordered persistent light reference (00081E, expected sequential00081C).
+New TerrainOverlays --check-identities validates the saved generation using the existing ledger reader's
+checksum/output hashes and compares current source/map identities to reservations. It holds the publication
+lease, refuses existing recovery controls, and never writes artifacts or creates reservations. It reports
+identity evidence only; raw fields and native behavior remain unchecked.9 actual-CLI tests pass, including
+reorder, tombstones, altered/missing bundles, source mismatch, duplicate JSON, Unicode, NAVM and Mars outputs.
+Successful/refused audits preserve the complete synthetic stage file snapshot. Initial test import-alias
+failure retained and corrected. Evidence: persistent-door-audit-20261016. Peer QA, production checker routing,
+full-size runs and native save validation remain pending. No active stage/controller changes.

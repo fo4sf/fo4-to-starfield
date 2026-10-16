@@ -117,3 +117,36 @@ VMADs/arrivals separately. These ordering checks still describe legacy allocatio
 they are not a persistent-rebuild checker. Production caller/checker integration
 and native saved-game validation remain required before enabling persistence in
 an active stage. Explicit bootstrap must reproduce the entire plugin and map.
+
+## Audit an existing published identity generation
+
+The source-only `--check-identities` command validates a completed persistent
+stage without loading Starfield.esm or rebuilding any artifact:
+
+```powershell
+dotnet run --project dotnet/TerrainOverlays -c Release -- --check-identities <stage>
+```
+
+It requires explicit `persistent_ids`, a complete published output bundle and an
+existing ledger. It takes the writer's temporary coordination lease; an existing
+lock or pending recovery journal is refused and preserved. The lease disappears
+when this command finishes. Plugin/map/ledger/source bytes are not changed, and
+the command never bootstraps, repairs or resets identities.
+
+The producer's existing reader checks the ledger schema, checksum, reservations
+and accepted output hashes, including a declared Mars companion. Reusing that
+reader avoids reproducing .NET's JSON escaping/checksum rules in another language.
+The audit compares mapped source references, promoted bases/menus, scripted-door
+arrival markers, lights and NAVM source/cell identities to those reservations.
+Terrain keys must exist and anchors must agree with parameters. Removed IDs may
+remain reserved. Reordered sources do not need sequential IDs. Duplicate JSON
+properties, mismatched source/map sets and changed inputs/outputs are refused.
+Inputs must be ordinary files within the stage; linked or external input paths
+are not accepted by this audit.
+
+This is an identity audit, not a raw-record or gameplay verifier. Its JSON report
+explicitly marks `record_fields_checked` and `native_acceptance` false. Keep raw
+record/transform/VMAD checks, full-size validation and native return/save/reload
+tests. The legacy core64c checker still has sequential-order assertions; invoking
+this audit alone does not replace them or enable persistent production rebuilds.
+Independent QA and caller integration remain pending.

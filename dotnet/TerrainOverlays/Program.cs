@@ -49,8 +49,18 @@ using Mutagen.Bethesda.Starfield;
 using Noggog;
 using StarfieldActivator = Mutagen.Bethesda.Starfield.Activator;   // not System.Activator (implicit usings)
 
+if (args.Length == 2 && args[0] == "--check-identities")
+{
+    try { Console.WriteLine(JsonSerializer.Serialize(TerrainIdentityAudit.Check(args[1]))); }
+    catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or KeyNotFoundException or JsonException or FormatException or OverflowException)
+    {
+        Console.Error.WriteLine($"identity audit refused: {error.Message}");
+        Environment.ExitCode = 1;
+    }
+    return;
+}
 if (args.Length is < 2 or > 3 || args.Length == 3 && args[2] != "--bootstrap-identities")
-    throw new ArgumentException("usage: <Starfield.esm> <staging dir> [--bootstrap-identities]");
+    throw new ArgumentException("usage: <Starfield.esm> <staging dir> [--bootstrap-identities] OR --check-identities <staging dir>");
 var sfPath = args[0];
 var outDir = args[1];
 var prm = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "overlays_params.json"))).RootElement;

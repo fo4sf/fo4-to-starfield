@@ -132,6 +132,16 @@ internal sealed class TerrainStableIds
     }
 
     public uint Reserve(params string[] parts) => ReserveKey(Key(parts), null);
+    // Audit callers hold the same publication lease; looking up a key never reserves or recycles an id.
+    public uint Published(params string[] parts) => ids.TryGetValue(Key(parts), out uint id) ? id
+        : throw new InvalidDataException($"published identity has no reservation: {Key(parts)}");
+    public void VerifyUnchanged()
+    {
+        CheckPath();
+        if (original == null || !File.Exists(path) || !File.ReadAllBytes(path).SequenceEqual(original)
+            || !SameSnapshot(initialOutputs, Snapshot(name => Path.Combine(root, name))))
+            throw new IOException("identity ledger or published outputs changed during audit");
+    }
     public void Anchor(string world, uint expected) => ReserveKey(Key("anchor", world), expected);
     private uint ReserveKey(string key, uint? expected)
     {
