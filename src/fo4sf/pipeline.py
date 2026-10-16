@@ -20,7 +20,8 @@ from . import convert_material as cm
 from . import convert_static, nif, sfcollision, sfmesh, sfnif, textures
 
 DOOR_RE = re.compile(r"[\\/]doors?[\\/]|door[^\\/]*\.nif$", re.I)
-NOT_HINGED_RE = re.compile(r"vault|elevator|garage|gate|hatch|slid", re.I)   # sliding / lifting doors animate differently
+NOT_HINGED_RE = re.compile(r"vault|elevator|garage|gate|hatch|slid", re.I)   # sliding / lifting doors animate differently:
+# never on the hinge template; with door_anim_dll they get their own rig and FO4's keys (docs/spikes/sliding-doors.md)
 # FO4 load doors never swing open into the next space: activating one teleports. A rigged swing opened onto the void behind
 # the wall (Parsons: walked through the entrance door, fell to z -72), so they stay shut and solid with their native
 # collision. The plugin writer (dotnet/PluginSpike) makes them DOOR records and writes the teleport link on both references
@@ -100,7 +101,8 @@ class Converter:
                  dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None):
         self.src, self.staging, self.texconv = src, staging, texconv_exe
         # door_anim_dll: the external CALUMI.Animation library (not distributed). With it, rigged doors that move more
-        # than one part (frozen_door_parts) get their own rig and Open/Close clips instead of the single-hinge template.
+        # than one part (frozen_door_parts) get their own rig and Open/Close clips instead of the single-hinge template,
+        # and sliding / lifting / trapdoor families (NOT_HINGED_RE) get one instead of staying passable.
         self.door_anim_dll = door_anim_dll
         # dynamic_template (a vanilla dynamic convex body, meshcollision.DYNAMIC_TEMPLATE_NIF): FO4 loose items with one
         # dynamic body become movable; their result carries "movable" (plugin writer: MoveableStatic, not Static)
@@ -518,6 +520,24 @@ class Converter:
                             res["door_frozen_parts"] = frozen
                     except Exception as e:               # noqa: BLE001  (falls back to a static door)
                         res["door_error"] = (res["door_error"] + "; " if "door_error" in res else "") + f"{type(e).__name__}: {e}"
+            elif (pose is None and self.rig_doors and self.door_physics_donor is not None and self.door_anim_dll and animated
+                  and not load_door and DOOR_RE.search(nif_name) and NOT_HINGED_RE.search(nif_name)):
+                # Sliding, lifting and trapdoor families (vault doors, elevator doors, hatches) cannot hang under the
+                # template's vertical hinge, and no vanilla door moves like them; vanilla sliding doors play the same graph
+                # (SimpleOpenClose01.agx) with their own rig and clips (docs/spikes/sliding-doors.md). So such a door gets
+                # its own rig and FO4's own keys, as the multi-part doors do. Without the library, or if this fails (also
+                # when its clips do not rest at the bind pose: gates keyed open), it stays passable (door_not_opening
+                # below) and door_error says why.
+                try:
+                    from . import native_door
+                    files, res["door"] = convert_static.convert_multipart_door(
+                        raw, out_name, mats, lambda plan, scale: native_door.export_files(plan, self.door_anim_dll, scale),
+                        collision_template=self.collision_template, leaf_physics_donor=self.door_physics_donor,
+                        rest_pose_check=True)
+                except Exception as e:                   # noqa: BLE001  (falls back to the passable static door)
+                    files = None
+                    res.pop("door", None)
+                    res["door_error"] = f"own rig: {type(e).__name__}: {e}"
             if files is None:
                 if animated and not load_door and DOOR_RE.search(nif_name):
                     use_box = False
