@@ -305,3 +305,26 @@ claim power-loss durability/savegame acceptance. Complete build/deploy recovery
 remains a separate control.
 
 - 2026-10-15 (Claude): the Commonwealth is built from the existing 64 x 64 core (terrain + all 648,358 exterior statics already placed), not by adding cells: next come doors/interiors, semantic object classes via the R05 promotion path with ids retained (#150), navmesh per R06, actors, environment. One plugin for the exterior, interiors stay in FO4Port.esm. Alternatives considered: regional plugins (unneeded: the record count is far under the 16.7 M FormID space), a wider overlay (the playable area already fits). docs/terrain/commonwealth-build-plan.md.
+
+## 2026-10-15 Codex: recoverable terrain output bundles (proposal)
+
+A final plugin sharing-denial reproduced a new ID map paired with an unchanged plugin. Prepare every plugin/map/
+optional Mars output in a private directory; retain previous files and an append-only pending journal through
+publication. Restore proven prior bytes on failure; preserve changed/unproven owner files and block consumers when
+recovery is incomplete. Integrate producer and deployment/experiment/core/cave guards together. This is not an
+atomic multi-file snapshot for arbitrary readers. A torn append retains earlier recovery records; process-exit
+faults are tested, while universal power-loss behavior is not claimed. Immutable inputs/cooperating writers remain
+required off Windows. Transaction histories are retained for verified private archiving, not silently deleted.
+Alternatives: merely swapping plugin/map write order leaves another partial-failure boundary; silently overwriting
+or deleting concurrent files loses evidence. See [protocol/evidence](../testing/terrain-output-publication.md).
+Peer QA and lead integration pending; no production stage/install/game change.
+
+
+## 2026-10-16 Codex: one persistent namespace for terrain IDs (#226, proposal)
+
+Use semantic reservations across terrain, scene and NAVM classes, retain tombstones and save before bundle
+publication under its exclusive lease. Match a ledger to complete old/prepared output hashes so rollback can
+retain reservations without accepting mixed files or an unrelated ledger. Legacy bootstrap must reproduce
+old output bytes; sorted future inputs cannot recover previously assigned IDs. Reject ambiguous NAVM pieces
+without a stable discriminator rather than using array order. Keep activation explicit until peer QA, a pinned
+full-size bootstrap and native save tests; never mutate the owner's installed stage during this work.

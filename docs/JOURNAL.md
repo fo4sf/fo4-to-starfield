@@ -1441,3 +1441,64 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
 - Merged tonight: #162, #163, #161, #165, #166 (and the queue of the day before). Open: #164 (sandbox suite running),
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
+
+### 2026-10-15 Codex: recoverable terrain artifact publication (proposal)
+
+At1506f511b2, a real synthetic writer with its final plugin write denied left the old plugin and a new formids map.
+The companion prepares all outputs before publication, retains old/new snapshots and append-only journal records,
+rolls back proven publications and preserves concurrent owner files. Interrupted/ambiguous stages block native
+install, experiment inventory/install, core reads and cave stage/check. Canonical Claude source/stages are untouched.
+Seven new publication fault/success methods and four consumer methods pass, including process exit, owner-created target,
+Windows file sharing and missing optional Mars preparation. Existing deployment/experiment/core/cave and serialized
+identity regressions pass; guard/CI/peer QA are recorded on the PR. Backups and failed attempts are retained for
+verified archiving. No native gameplay or power-loss acceptance. See testing/terrain-output-publication.md and
+private test-plans/terrain-output-publication-20261015. Producer and consumer changes must integrate together.
+
+### 2026-10-15 Codex: full-size promotion/publication author validation
+
+At105a10ca, an isolated pinned core64c candidate preserves all648358 source REFR IDs/11769 base IDs. Raw comparison:
+664228 original records byte-identical; only promoted NAME and TES4 HEDR changed, with one appended CONT/group.
+All original physical group paths/3492 group headers and Mars bytes match. PR146 reader checks the actual container
+binding/inventory/transform/cell with zero ID changes/missing keys; final peer source review remains pending.
+REFR069435 is preserved; CONT0A2AA5 is new. Candidate receipt matches all three published hashes; five original source
+files rechecked unchanged. The2GiB heap OOM is retained; fresh3GiB run18.02s/2.82GiB sampled peak succeeds. Initial
+verifier HEDR assumptions were corrected from raw framing and retained; inherited absolute-count offset-3 unresolved.
+No production install/native input/save change or acceptance. Independent QA, lead integration/new plans/native tests
+remain. Private evidence core64-identity-validation-20261015; see testing/container-reference-identities.md.
+
+## 2026-10-16: pending publication must checkpoint a runner stop (Codex)
+
+Independent cloud review #191 /5544456464 reproduced the guard's ValueError escaping the in-process runner,
+leaving state at running. Both journal and lease cases fail the new regression on0d04207 with that checkpoint.
+PendingPublication now subclasses OSError, matching the existing caller contract: both cases checkpoint stopped,
+log the cause, preserve controls and perform no launch/input or inventory hash. Five guard and88 runner tests
+pass. Current main aa5b223's mismatch handler has the identical syntax tree. No runner/C# publication/staging
+or game change; corrected-source peer review and lead integration pending. Evidence publication-error-191-20261016.
+
+## 2026-10-16: compiled publication assertions follow the corrected error contract (Codex)
+
+CI38889339558 caught two remaining ValueError expectations in the actual-writer recovery tests. Both errors
+reproduce locally on de205a3; assertions now require PendingPublication. Seven compiled publication and five
+stage-guard tests pass on Windows, including locked-plugin denial, forced exit and concurrent-owner retention.
+Production guard/C# unchanged; hosted CI and corrected-source peer check remain separate gates. Failed and passing
+synthetic evidence retained in publication-ci-153-20261016. No game/install/input or cleanup.
+
+
+## 2026-10-16 Codex: persistent terrain identities (#226, source proposal)
+
+Seven compiled synthetic baselines reproduced reordered/inserted reference and base ID shifts, including a later
+promoted CONT base. New opt-in semantic reservations cover terrain/cells/anchors/bases/REFR/CONT/NAVM in one
+24-bit namespace; tombstones remain. Explicit bootstrap requires every prepared output to equal the old bundle
+byte-for-byte. Checksummed ledgers are bound to complete old/prepared output generations and persisted before
+publication; rollback keeps reservations and crashes retain the recovery block. No active stage was migrated.
+
+Four initial new methods failed before implementation (three failures and missing-ledger error). The first test
+discovery attempt also imported the parent test class and reused its evidence directory; that harness error is
+retained separately and corrected. Sixteen actual-writer/fixture methods now pass, including NAVM byte stability,
+foreign-ledger refusal, publication failure, abrupt exit, live synthetic competing writer and exhaustion. The
+publication dependency is merged forward with current main: NAVM-only formids use staged publication too.
+Independent review, current-head CI, full-size bootstrap/resources and native saves remain gates. The caller must
+explicitly enable persistent_ids; legacy stages are not silently changed. Source and preserved observations are
+private/offline; no install, game/controller input or watchdog changes.
+See [identity protocol](testing/terrain-persistent-identities.md).
+- 2026-10-16, Codex: merged current main into owned PR227 and reproduced four loose-item integration failures with the actual synthetic writer/allocator fixture. A single unnamed MISC reservation produced a ledger that could not reopen; distinct MISC bases collided on that key; item bootstrap could not reopen; malformed new semantic keys were accepted. MISC allocation now names its item identity and new keys pass the reopening schema before reservation. Added rebuild/reorder/later-container/removal/reintroduction and exact-bootstrap controls. Evidence: private persistent-items-227-20261016. No production stage, source game data, caller activation or live input changed. Peer QA remains required; PR176 supplies collision-free caller identities.
