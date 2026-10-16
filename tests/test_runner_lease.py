@@ -31,7 +31,9 @@ def read(p):
 
 class RunnerLeaseTests(unittest.TestCase):
     def setUp(self):
-        self.d = tempfile.mkdtemp()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.d = tmp.name
         tt.make_queue(self.d, n=2)
         self.leader = os.path.join(self.d, "leader")
         self.ctl = tt.FakeControls()
@@ -154,6 +156,47 @@ class RunnerLeaseTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {}, clear=True):
             self.assertNotIn("FO4SF_LEASE_DIR", plain.ps_env())
 
+    def test_cycle_ps1_refusing_the_lease_stops_the_run_instead_of_retrying_every_test(self):
+        c.Controller(self.leader).claim("Claude", "window", 3600)
+        r = self.runner(lease_dir=self.leader, lease_owner="Claude", max_attempts=1)
+        r.session, r.cell, self.ctl.pid = False, None, None                   # no game: it has to be launched
+        calls = []
+
+        def ps(script, args, timeout, steal=False):
+            calls.append(script)
+            return (9, "no valid controller lease for Claude in X (lease.py exit 1): not launching") if script == "cycle.ps1" else (0, "")
+        r._ps = ps
+        with mock.patch.object(tq.Runner, "pinned_ok", return_value=True):    # the staging pin is not the point here
+            self.assertEqual(r.run(), 3)
+        self.assertEqual(calls, ["cycle.ps1"])
+        self.assertTrue(self.status().startswith("stopped: lease refused by cycle.ps1 (exit 9)"), self.status())
+        self.assertEqual(self.calls, [])                                       # no step, no INCONCLUSIVE rows
+        self.assertFalse(os.path.exists(os.path.join(self.d, "results.jsonl")))
+
+    def test_main_reads_the_switches_from_the_environment(self):
+        seen = {}
+
+        class FakeRunner:
+            def __init__(self, qdir, a):
+                seen["qdir"], seen["a"] = qdir, a
+
+            def run(self):
+                return 0
+        env = {"FO4SF_LEASE_DIR": self.leader, "FO4SF_LEASE_OWNER": "watchdog", "FO4SF_PREFLIGHT": "1"}
+        with mock.patch.dict(os.environ, env), mock.patch.object(tq, "Runner", FakeRunner):
+            self.assertEqual(tq.main(["run", "--queue", self.d]), 0)
+        a = seen["a"]
+        self.assertEqual((seen["qdir"], a.lease_dir, a.lease_owner), (self.d, self.leader, "watchdog"))
+        with mock.patch.dict(os.environ, {"FO4SF_LEASE_DIR": "", "FO4SF_LEASE_OWNER": "", "FO4SF_PREFLIGHT": ""}), \
+                mock.patch.object(tq, "Runner", FakeRunner):
+            tq.main(["run", "--queue", self.d])
+        a = seen["a"]
+        self.assertEqual((a.lease_dir, a.lease_owner), ("", "Claude"))                     # off by default
+        with mock.patch.dict(os.environ, env), mock.patch.object(tq, "Runner", FakeRunner):
+            tq.main(["run", "--queue", self.d, "--lease-dir", "", "--lease-owner", "Bob"])   # flags win
+        a = seen["a"]
+        self.assertEqual((a.lease_dir, a.lease_owner), ("", "Bob"))
+
     def test_a_launch_is_gated_before_the_idle_check(self):
         ctl = tt.FakeControls()
         ctl.pid, ctl.idle, ctl.last_sent_tick = None, 5, None    # would otherwise say "owner active"
@@ -174,7 +217,9 @@ class ScriptLeaseBlockTests(unittest.TestCase):
         block = src.index("if ($env:FO4SF_LEASE_DIR) {")
         self.assertLess(block, src.index("Get-Process Starfield"))            # before the running game is looked at
         self.assertLess(block, src.index("deploy_starfield.py\" uninstall"))   # before anything is redeployed
-        self.assertIn("lease.py\" status --dir $env:FO4SF_LEASE_DIR --require $leaseOwner", src)
+        self.assertIn("lease.py\" status --require $leaseOwner", src)        # the folder from the environment (quoting)
+        self.assertNotIn("--dir $env:FO4SF_LEASE_DIR", src)
+        self.assertIn("if ($null -eq $leaseCode -or $leaseCode -ne 0) {", src)   # python missing: fail closed
         self.assertIn("exit 9", src)
         self.assertIn("else { 'Claude' }", src)                                # the default owner
 
@@ -187,6 +232,8 @@ class ScriptLeaseBlockTests(unittest.TestCase):
         self.assertIn("$ls.lease.owner -ne $cfg.lease_owner) {", src)         # its own chain's renewals are not Claude's activity
         self.assertIn("$startLeaseDir = $env:FO4SF_LEASE_DIR", src)             # the start value, not the one it sets for the chain
         self.assertIn("if (-not $c.lease_dir -and $startLeaseDir)", src)
+        self.assertIn("$c.lease_dir = \"$($c.lease_dir)\".TrimEnd('\\')", src)   # one folder for every process
+        self.assertIn("if (-not [IO.Path]::IsPathRooted($c.lease_dir)) { $c.lease_dir = Join-Path $tq $c.lease_dir }", src)
         self.assertIn("if ($cfg.lease_dir) { $go = ClaimLeaseForChain $cfg $idleH }", src)
         self.assertIn("-not $running -and (QueueLeft) -gt 0", src)             # the chain-start rule unchanged
         self.assertIn("$env:FO4SF_LEASE_DIR = $cfg.lease_dir; $env:FO4SF_LEASE_OWNER = $cfg.lease_owner", src)

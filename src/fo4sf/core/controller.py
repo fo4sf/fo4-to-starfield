@@ -224,7 +224,8 @@ class Controller:
 def main(argv=None):
     """lease.py <command> --dir <leader folder> ...; exit 0 ok, 1 refused or not valid, 2 usage."""
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--dir", required=True, help="the leader folder: ledger.jsonl and controller.json live there")
+    common.add_argument("--dir", default=os.environ.get("FO4SF_LEASE_DIR", ""),
+                        help="the leader folder: ledger.jsonl and controller.json live there (default FO4SF_LEASE_DIR)")
     common.add_argument("--by", default="", help="who writes the ledger events (default: the owner given, else lease)")
     ap = argparse.ArgumentParser(prog="lease.py", description="the controller lease (docs/ai/leader-core.md section 6)")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -245,6 +246,8 @@ def main(argv=None):
     s.add_argument("--require", metavar="OWNER", default="")
     s.add_argument("--json", action="store_true", help="one JSON line: status, lease, last_activity, dir")
     a = ap.parse_args(argv)
+    if not a.dir:
+        ap.error("--dir <leader folder> (or FO4SF_LEASE_DIR set)")
     ctl = Controller(a.dir, by=a.by or getattr(a, "owner", "") or "lease")
     try:
         if a.cmd == "claim":
