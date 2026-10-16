@@ -118,6 +118,31 @@ class ContainerRecordTests(unittest.TestCase):
         self.assertEqual(report["containers_checked"], 1)
         self.assertEqual(report["refs_ids_changed"], 0)
 
+    def test_deleted_container_base_or_reference_cannot_pass_as_active(self):
+        for sig, fid, fields in (("CONT", 0x01000803, self.base_fields), ("REFR", 0x01000804, self.ref_fields)):
+            with self.subTest(record=sig):
+                blob = self.blob().replace(record(sig, fid, fields), record(sig, fid, fields, flags=0x20))
+                report = self.audit(blob)
+                self.assertFalse(report["offline_passed"], report)
+                self.assertTrue(any("deleted" in error for error in report["errors"]), report)
+                self.assertFalse(report["runtime_accepted"])
+
+    def test_deleted_cell_or_world_cannot_own_an_active_container(self):
+        parents = (("CELL", 0x01000801, [("XCLC", struct.pack("<ii", 0, 0))]),
+                   ("WRLD", 0x01000800, [("EDID", b"FixtureWorld\0")]))
+        for sig, fid, fields in parents:
+            with self.subTest(record=sig):
+                blob = self.blob().replace(record(sig, fid, fields), record(sig, fid, fields, flags=0x20))
+                report = self.audit(blob)
+                self.assertFalse(report["offline_passed"], report)
+                self.assertTrue(any("deleted" in error for error in report["errors"]), report)
+                self.assertFalse(report["runtime_accepted"])
+
+    def test_unrelated_deleted_static_is_outside_the_container_state_check(self):
+        unrelated = group(0, int.from_bytes(b"STAT", "little"),
+                          record("STAT", 0x01000870, [("EDID", b"UnrelatedStatic\0")], flags=0x20))
+        self.assertTrue(self.audit(self.blob() + unrelated)["offline_passed"])
+
     def test_count_preserving_container_corruptions_fail(self):
         cases = {
             "model": ([(k, b"wrong.nif\0" if k == "MODL" else v) for k, v in self.base_fields], None),

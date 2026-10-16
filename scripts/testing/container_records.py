@@ -13,6 +13,8 @@ import zlib
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from fo4sf import fo4land, terrain_grid  # noqa: E402
 
+_DELETED = 0x20  # Mutagen 0.55.0-alpha.67 StarfieldMajorRecordFlag.Deleted; IsDeleted also verifies this bit.
+
 
 def _one(fields, sig):
     values = [v for s, v in fields if s == sig]
@@ -117,7 +119,9 @@ def _scan(blob, wanted, container_bases):
                         cells[fid] = (world, struct.unpack_from("<ii", grid[0]) if len(grid) == 1 else None)
                     elif sig == b"WRLD":
                         worlds[fid] = _text(_one(fields, b"EDID"))
-                    if fid in wanted:
+                    # Retain the owning records too: a structurally correct placement under a deleted
+                    # CELL/WRLD is not an active container. Unrelated records remain outside this audit.
+                    if fid in wanted or sig in (b"CELL", b"WRLD"):
                         records[fid] = (sig, record_flags, fields, cell, group, world, top)
             off = stop
     walk(24 + hsize, len(blob))
@@ -176,6 +180,10 @@ def audit(blob, objects, ids, *, plugin_name, baseline=None):
                 base, ref = recs[bid], recs[rid]
                 if base[0] != b"CONT" or base[4] != 0 or base[6] != b"CONT" or ref[0] != b"REFR" or ref[6] != b"WRLD":
                     raise ValueError("mapped records are not CONT/REFR")
+                if base[1] & _DELETED:
+                    raise ValueError("container base is deleted")
+                if ref[1] & _DELETED:
+                    raise ValueError("container reference is deleted")
                 if uses[bid] != expected_uses[bid]:
                     errors.append(f"{src}: placed reference count differs for container base")
                 if _text(_one(base[2], b"EDID")) != c["edid"] or _text(_one(base[2], b"FULL")) != c["name"]:
@@ -206,6 +214,10 @@ def audit(blob, objects, ids, *, plugin_name, baseline=None):
                 if ref[1] & (0x400 | 0x800) or ref[4] != 9:
                     errors.append(f"{src}: reference is not active temporary placement")
                 world, grid = cells[ref[3]]
+                if recs[ref[3]][1] & _DELETED:
+                    raise ValueError("owning cell is deleted")
+                if recs[world][1] & _DELETED:
+                    raise ValueError("owning world is deleted")
                 if ref[5] != world or worlds.get(world) != objects["world"] or grid != tuple(c["cell"]) or tuple(c["cell"]) != terrain_grid.sf_cell_of(*pos[:2]):
                     errors.append(f"{src}: world/cell differs")
                 report["containers_checked"] += 1

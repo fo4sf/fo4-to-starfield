@@ -23,6 +23,13 @@ TES4 master order. They compare editor ID, inline Windows-1252 name, model path,
 CNTO inventory entries, reference base, finite local position/rotation, scale,
 active temporary placement, actual world/cell ancestry and cell grid. There
 must be exactly the declared number of placements for each unique container base.
+The CONT, REFR and the actual owning CELL/WRLD must not carry the Deleted flag.
+Four synthetic header-only mutations previously passed despite deletion; they now
+fail with an explicit record-state reason. The bit is verified against the pinned
+Mutagen `0.55.0-alpha.67` SDK: `StarfieldMajorRecordFlag.Deleted == 32`, and a
+synthetic `PlacedObject` with raw flags `0x20` has `IsDeleted == true`. This is an
+auditor regression, not a claim of deletion in the installed game. Deletion on an
+unrelated record is outside the container-state check.
 Multiple entries may share one CONT, but every source keeps its unique REFR and
 every entry's requested name/model/inventory and transform is checked. The report's
 `containers_checked` counts placements; `container_base_records` counts actual CONTs.

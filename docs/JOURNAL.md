@@ -1455,3 +1455,14 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
 - Merged tonight: #162, #163, #161, #165, #166 (and the queue of the day before). Open: #164 (sandbox suite running),
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
+
+## 2026-10-16: reject deleted container records and parents in output evidence (Codex)
+
+PR146's checker could approve a deleted CONT, REFR or owning CELL/WRLD when all other bytes still matched.
+Four header-only synthetic mutations reproduce false passes at50d2bb6. A compiled SDK probe confirms
+Mutagen0.55.0-alpha.67 StarfieldMajorRecordFlag.Deleted=32 and PlacedObject.IsDeleted=true for raw0x20.
+The checker now retains parent record state and rejects these four cases; unrelated deleted statics remain
+outside this check.20 targeted tests pass. Four retained-output CLI controls preserve their previous outcomes
+and exact input hashes, including the full-size150/153 candidate. No producer/build/install/input changed;
+no production deletion is alleged. Final peer QA/integration remain pending. Failures, SDK probe and passing
+observations are preserved privately under container-deleted-state-146-20261016.
