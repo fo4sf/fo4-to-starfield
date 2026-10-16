@@ -34,9 +34,15 @@ def checkpoint_signature(a):
             packages[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
             packages[name] = None
+    def safe_resolve(p):
+        try:
+            return str(p.resolve())
+        except (OSError, ValueError):
+            return str(p)
+
     sig = {"version": 1, "python": sys.version, "packages": packages,
            "archives": [checkpoints.archive_identity(p) for p in archives],
-           "content": {str(p.resolve()): checkpoints.digest(p) for p in
+           "content": {safe_resolve(p): checkpoints.digest(p) for p in
                        [*code, Path(a.texconv), Path(a.content_resources), Path(a.collision_template)]},
            "rig_doors": bool(a.starfield_data), "movable_items": bool(a.starfield_data) and not a.static_items}
     if getattr(a, "prefix", "fo4port") != "fo4port":   # output paths differ; the default keeps existing checkpoints valid
