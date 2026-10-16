@@ -100,6 +100,25 @@ Option (b), our own FURN with the converted FO4 mesh and the vanilla furniture b
   with them. The REFR ids of all 5,156 remaining containers are unchanged. `compare-ids` states this per section.
 - A bench adds no record: its REFR's `NAME` is the master's id (`00 2B6A63`), as the COC marker's and the anchor's.
 
+## Full-scale build (offline, **verified**)
+
+`terrain_core64i` = core64c's work + one cluster of every class (`make_cluster.py merge`: 5,156 containers, 12,438
+items, 2,246 activators, 140 terminals, 6,249 lights over 144 LIGH bases, 29 workshops, 269 benches) + core64h's
+navmesh. The writer: 11,699 STAT, 70 DOOR, 180 CONT, 492 MISC, 211 ACTI, 91 TERM + 91 TMLM, 2 workshop ACTI, 269 bench
+REFRs on the vanilla FURNs, 648,358 REFR, 12,104 NAVM, 144 LIGH + 6,249 light REFRs; `check --sf-data --fo4` 263 of
+263 PASS (146 s), including the station lines (slots retained over the six classes, 213 ACTI = 213 distinct activator
++ workshop edids, 0 FURN of our own, every workshop ACTI with WorkshopKeyword and the radius property, the station
+records against Starfield.esm).
+`compare-ids` against core64h: `bases`, `navi`, `plugin`, `world` identical; `refs` 628,080 same, 0 changed, 2,655
+only in core64h (the activators, terminals and benches, now in their own sections); `containers` 319 same, 4,837
+changed (all keep their REFR id; the CONT base moves down by 1 or 2: the two workshop CONTs are gone), 29 only in
+core64h (the workshops); `items` 12,438 changed (all keep their REFR id; the MISC bases move down by 2); `navmeshes`
+shifted by +0x189 (211 ACTI + 91 TERM + 91 TMLM + 2 workshop ACTI - 2 CONT). The Red Rocket workshop (FO4 054BAE,
+19.3 m from the arrival): REFR `0100D272` (its core64h container slot), temporary, on ACTI `010A2ECE`
+FO4Core_wkshp_0c1aeb_fallout4 with the 8 keywords above and PRPS (OutpostBuildAreaRadius, 250, 0); the garage's
+benches: weapon 1A708B -> `0106AC07` on 002B6A63, armor 178D9F -> `0105CAA4` on 002B6A62, chem 1AB6BE -> `0106BC07`
+on 002B6A61, cooking 178D9D -> `0105CAA3` on 002B6A65, every bench REFR id as core64h's.
+
 ## Acceptance (planned, not run)
 
 Queue `core64i_stations_1016` (`testqueue.py plan-terrain --staging integ_1016 --exp-dir core64i_stations
