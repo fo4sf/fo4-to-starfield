@@ -1,35 +1,25 @@
 # Codex / Claude / Grok status
 
-Goal: connected Red Rocket-Sanctuary-cave slice, save/reload, interactions, then wider Commonwealth. Preserve FO4 gameplay/identities and native Starfield physics. Scene coverage is not gameplay coverage.
+Goal: connected Red Rocket-Sanctuary-cave slice with native physics, interactions and save/reload; coverage is not gameplay acceptance. Latest #32 claims override this snapshot.
 
-## Owners / locks
+## Ownership and controls
 
-- Claude: integration/live controller/game, collision/terrain/actors, pipeline and game scripts/staging. No other live input/install/launch until explicit release on #32.
-- Codex: deployment/recovery, identities/cache/output QA, Fo4Export/ReferenceLinks, door bridge and independent evidence. No watchdog restart.
-- Grok: acceptance oracle/route_eval/terrain_evidence and coordinated diagnostics. No concurrent converter/runner edits.
-- Claude-cloud: offline leader-core model/ledger/importer (#135, PR136). PC Claude keeps live control and integration.
+Claude PC leads and owns game/controller, collision/terrain/actors, pipeline and runner/staging. No Codex launch, close, install, input or active watchdog restart without explicit release. The owner is testing installed core64f; do not adopt that session.
+Codex owns deployment/recovery, identities/cache/output verification and door bridge. Use isolated trees, public exact scopes, preserve concurrent edits. Grok owns assigned oracle/export work. Do not wake paused workers. Local inference only through Guardian in a coordinated no-game window.
+Preserve STOP/Guardian/owner-idle/recovery controls and native failures. No game assets/saves/private settings in Git; no money/passwords/purchases/paid fallback/outreach/history rewriting. Guard before commits, independent QA before integration. Low usage: targeted tests, no unchanged broad reruns or extra agents.
 
-## Acceptance / current evidence
+## Current proposals / evidence
 
-Walk both directions over bridge/cell borders, use cave doors with correct position/facing/collision, save/reload; retain stairs/movables. Pin code/plans/source, installed files and load order. Missing/replayed/displaced evidence is inconclusive. No game assets in Git; guard/QA before merge; no money/passwords/outreach/history rewriting.
-
-Core64c:648,358 refs/1,708 populated cells across6.4km; no engine-size guarantee. October13 smoke7/7, baseline29/30, informational15/15; northeast+1.8939m remains. Four old jumps in the wrong frame stay excluded. Original campaigns/save preserved; scoped Codex monitor paused.
-
-Claude reports October14 load-order/bridge telemetry and October15 both-direction Sanctuary-Red Rocket walks (~254m each). Independent native acceptance remains open. Cave fixA refuted; inherited-cell probe override displaces COC. Mechanism unresolved; require new controls before reuse. Lead reports are not Codex acceptance.
-
-## Source / reviewed work
-
-Main4ba5c6a has integration121 and merged131/133;119/126/127/128 are integrated. Source integration is not gameplay acceptance. Latest #32 claims supersede this handoff.
-
-- PR10458f0b51, PR116589f1bf, PR125fcdec287: reviewed QA/guard/CI pass; await Claude, no live application. Keep expected_sha256 publication, bridge-last order and no-op exit0.
-- PR129 CLOSED: pinned OFST candidate failed NOLOAD/local-only door coordinates; original stages/failures retained.174 native-core design remains separate.2246ba23dd stages a registration-only core64c companion (6522 bytes):11 synthetic tests/guard and independent existing-parser comparison pass. Peer QA/native measurement pending; no deployment. H_ll zero XY is a prediction, not a fix; do not mix with installed core64f. See docs/slice/registration-probe.md and latest #32.
-- PR1181350d9d: selection/per-read evidence reviewed; native adapter pending, runtime acceptance false. PR123319e131: packets reviewed; model savings unmeasured, Guardian-only coordinated window.
-- #117/PR120 archive fingerprinting, #130/PR131 custom-prefix dependencies and #132/PR133 atomic ID reservations are merged; prior QA/guard/CI pass. No native acceptance follows from these offline fixes. Grok owns R06.
-- PR1346d7bd988: Codex found235,119 surviving IDs shifted by promotion; container checks accept wrong XYZ/base/scale/inventory. Two raw-plugin/eight checker controls;28 author tests pass. Claude must fix/re-pin before identity-compatible acceptance.
-- Codex #137: validate stored reservations/cap new IDs before output; seven writer checks,1308 Windows tests(69 skips), guard and independent Mencius QA pass. Ready for lead integration; native exhausted-header behavior unverified.
+- 224 source6ba23dd: registration-only core64c companion staged privately,6522 bytes SHA643c94bb50edb446a610615631f599006e10dfd94028907f5e1fe9ae6a0a498d.11 synthetic tests/guard and existing-parser comparison pass. Only one CNAM coordinate pair changes logically; core untouched. H_ll zero XY remains a hypothesis. Peer QA and Claude fresh-session measurement pending. Not a complete install; never silently mix with core64f. Details: docs/slice/registration-probe.md.
+- 129 CLOSED after native NOLOAD/local-only door coordinates; original stage/failures retained.17482fa121 native-core door design remains the alternative; no core-door implementation or build claimed.
+- 149a17cf17: serial default/opt-in1..4 hashing readers, fresh content checks;98 targeted tests/CI38931485395 pass. Peer correction QA and real-tree tuning pending; no deployment.
+- 153518933a: stopped-checkpoint publication exception correction;12 Windows guard/compiled checks and CI38918409322 pass. Fresh peer correction review pending.
+- 146b9e6a14/1762154d22: independent no-finding reviews and CI pass; container identity/deleted-state checks ready for PC integration, native unverified.
+- 17936dbb1c: Codex review5550543450 reproduced missing Python plus stale LASTEXITCODE0 in reused PowerShell host passing lease guard. Canary blocked game lookup. Claude owns repair; live rollout untested.
+- 10458f0b51/116589f1bf reviewed proposals; no live application/restart. Keep expected_sha256 and bridge-last/no-op0.118 native adapter and123 actual local-model savings remain gated.
 
 ## Next / preservation
 
-Next: Claude integrates137/ready proposals, corrects134 and owns cave/actor/interaction native tests. Old batch_full:1109 pending;616 movables need fresh plans. #79 awaits release/pins. No unchanged QA/stage reruns or speculative work.
-
-#32/owner issues are the inbox; refresh before work/done. Keep below4KB; history in handoff-archive. Evidence indexed/reopen-verified on D:, originals retained; second local volume, not offsite. Follow docs/testing/progress-storage.md. Lower usage: quiet four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused.
+Claude requested registration/core-owned door discriminator first, then ready proposals, R02 persistent IDs and R07 quest census. Latest owner report: some Vault111 slide/gear doors remain pass-through statics; Claude owns animation/pipeline follow-up. No independent native acceptance claimed here.
+Old batch_full1109/616 movable plans remain separately gated. #79 needs new pins/controller release. Do not rerun old campaigns or retrofit evidence.
+46 completed private capsules/6281 files are reopen/source-verified on D:, originals retained; second local volume, not offsite. Latest registration capsule3985e3e835fefb264e2da9ee9d344be1b9e006fd88c7d7bd9443cfe335878845. No cleanup before verified preservation. Four-hour Codex follow-up stays active; completed scoped monitors remain paused. Keep this handoff below4KB and public posts short.
