@@ -1,0 +1,13 @@
+{
+ "note": "make_cluster.py containers: names and vanilla Starfield inventories for promoted FO4 containers, by FO4 base editor id (exact, or 'prefix*'). Items are <plugin>:<6 hex> with a count (Credits 00000F, Digipick 00000A, as R05 slice 1). FO4's leveled lists do not resolve in Starfield; this table is the owner's content decision and grows per class as slices land.",
+ "default": {"name": null, "items": [{"form": "Starfield.esm:00000F", "count": 10}]},
+ "by_editor_id": {
+  "Loot_Prewar_Medkit": {"name": "First Aid Kit", "items": [{"form": "Starfield.esm:00000F", "count": 25}, {"form": "Starfield.esm:00000A", "count": 1}]},
+  "Loot_Medkit*": {"name": "First Aid Kit", "items": [{"form": "Starfield.esm:00000F", "count": 25}, {"form": "Starfield.esm:00000A", "count": 1}]},
+  "Loot_Prewar_*": {"name": null, "items": [{"form": "Starfield.esm:00000F", "count": 15}]},
+  "Loot_Raider_*": {"name": null, "items": [{"form": "Starfield.esm:00000F", "count": 20}, {"form": "Starfield.esm:00000A", "count": 1}]},
+  "Loot_Safe*": {"name": "Safe", "items": [{"form": "Starfield.esm:00000F", "count": 60}, {"form": "Starfield.esm:00000A", "count": 2}]},
+  "Loot_Toolbox*": {"name": "Toolbox", "items": [{"form": "Starfield.esm:00000F", "count": 8}]},
+  "Loot_Trash*": {"name": "Trash Can", "items": [{"form": "Starfield.esm:00000F", "count": 2}]}
+ }
+}
