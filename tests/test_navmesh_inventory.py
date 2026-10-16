@@ -129,8 +129,13 @@ class NavmeshInventoryTests(unittest.TestCase):
             other = tmp / "ours.json"
             other.write_text("ours")
             ours = other.stat()
+            # Keep the original inode linked so POSIX cannot reuse it for the replacement.
+            held = tmp / "held-inode"
+            os.link(other, held)
             other.unlink()
             other.write_text("owner-bytes")
+            replaced = other.stat()
+            self.assertNotEqual((replaced.st_dev, replaced.st_ino), (ours.st_dev, ours.st_ino))
             inv._unlink_if_owned(other, ours.st_dev, ours.st_ino)
             self.assertTrue(other.exists())
             self.assertEqual(other.read_text(), "owner-bytes")
