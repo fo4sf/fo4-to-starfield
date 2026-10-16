@@ -26,6 +26,12 @@ NOT_HINGED_RE = re.compile(r"vault|elevator|garage|gate|hatch|slid", re.I)   # s
 # collision. The plugin writer (dotnet/PluginSpike) makes them DOOR records and writes the teleport link on both references
 # when both ends are placed in the same build; the per-asset "load_door" entry carries the model bounds for that record.
 LOAD_DOOR_RE = re.compile(r"door[^\\/]*load[^\\/]*\.nif$|load[^\\/]*door[^\\/]*\.nif$", re.I)
+# BSLightingShaderProperty flags1 bit 15 (nif.xml Fallout4ShaderPropertyFlags1 "Refraction"): heat shimmer over fires and
+# machines, water streams in sinks and fountains. FO4 draws such a shape as a screen-space distortion; its texture set holds
+# only the distortion normal map (Effects\SmokeVapor01Tile_n.dds in slot 0 and 1), so converted as a surface it showed that
+# BC5 normal map as colour: red/green stripes on Vault 111's gear door. In the 2026-10-11 build these were 9 of 11030
+# lighting shapes, all texture-set shapes; no FO4 .bgsm sets its own refraction byte.
+SLSF1_REFRACTION = 0x8000
 
 
 class Fo4Archives:
@@ -420,6 +426,9 @@ class Converter:
             return self.material(name.decode("latin-1")) or self.neutral
         # no material file: shader type, name, extra data list, controller, flags1, flags2, UV offset, UV scale, texture set
         n_extra, = struct.unpack_from("<I", blk, 8)
+        flags1, = struct.unpack_from("<I", blk, 12 + 4 * n_extra + 4)
+        if flags1 & SLSF1_REFRACTION:
+            return None                                 # distortion only (see SLSF1_REFRACTION): skipped like effect shapes
         ts_ref, = struct.unpack_from("<i", blk, 12 + 4 * n_extra + 4 + 8 + 16)
         if not (0 <= ts_ref < len(src.blocks)) or src.type_of(ts_ref) != "BSShaderTextureSet":
             return self.neutral
