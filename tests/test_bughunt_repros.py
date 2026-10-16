@@ -2,7 +2,7 @@
 expectedFailure until its issue is fixed, so the suite stays green and the fix flips the decorator off. Every test is
 synthetic (no game data): the collision ones build a Havok 2014 packfile and a Starfield tagfile template with
 havok_fixtures.py, the navmesh ones use test_navmesh's builders, the texture ones write bytes in a temp folder.
-The issue number is in each test's docstring; the finding's file:line is at main 1b3ba39."""
+Each test's docstring starts with its issue number (#203 to #212); the finding's file:line is at main 1b3ba39."""
 import importlib.util
 import os
 import struct
@@ -38,7 +38,7 @@ def load_script(name):
 class TextureTests(unittest.TestCase):
     @unittest.expectedFailure
     def test_decode_bc5_accepts_sizes_that_are_not_multiples_of_four(self):
-        """textures.py:71 decode_bc4 / decode_bc5 reshape (h//4, w//4, 4, 4): a 1x1, 2x2, 6x6 or 8x6 texture (one
+        """#203: textures.py:71 decode_bc4 / decode_bc5 reshape (h//4, w//4, 4, 4): a 1x1, 2x2, 6x6 or 8x6 texture (one
         partial block, which _bc_level_bytes counts with (w + 3) // 4) raises ValueError instead of returning planes."""
         block = bytes([200, 100] + [0] * 6) * 2                      # one BC5 block: an R half and a G half
         for w, h in ((2, 2), (1, 1), (6, 6), (4, 2), (8, 6)):
@@ -55,7 +55,7 @@ class TextureTests(unittest.TestCase):
 
     @unittest.expectedFailure
     def test_a_decal_without_a_normal_map_gets_a_flat_normal(self):
-        """pipeline.py:286 hands np.zeros(int8) to textures.write_rg8_snorm, which maps unorm 0..255 (128 = zero);
+        """#204: pipeline.py:286 hands np.zeros(int8) to textures.write_rg8_snorm, which maps unorm 0..255 (128 = zero);
         every texel of the written R8G8_SNORM normal is (-127, -127), a normal tilted hard to -x/-y, not the flat
         (0, 0) that _make_neutral_material writes with np.full(..., 128)."""
         with tempfile.TemporaryDirectory() as tmp:
@@ -81,7 +81,7 @@ class TextureTests(unittest.TestCase):
 class ScriptTests(unittest.TestCase):
     @unittest.expectedFailure
     def test_convert_batch_applies_max_tris(self):
-        """scripts/convert_batch.py:151 parses --max-tris ("skip meshes with more triangles than this") and never
+        """#205: scripts/convert_batch.py:151 parses --max-tris ("skip meshes with more triangles than this") and never
         reads it again: with --max-tris 0 every mesh is still converted and listed as a success."""
         batch = load_script("convert_batch.py")
         with tempfile.TemporaryDirectory() as tmp:
@@ -107,7 +107,7 @@ class ScriptTests(unittest.TestCase):
 
     @unittest.expectedFailure
     def test_convert_asset_without_a_folder_writes_single_separators(self):
-        """scripts/convert_asset.py:50: with --name chair (no folder) tex_rel is 'textures//chair' (strip('/') trims the
+        """#206: scripts/convert_asset.py:50: with --name chair (no folder) tex_rel is 'textures//chair' (strip('/') trims the
         ends only); the DDS files land at textures/chair_<kind>.dds but build_mat gets 'Data\\textures\\\\chair_color.dds',
         a path that is not the written file's. mat_rel on line 79 handles the same case with .replace('//', '/')."""
         ca = load_script("convert_asset.py")
@@ -156,7 +156,7 @@ class ScriptTests(unittest.TestCase):
 class TerrainTests(unittest.TestCase):
     @unittest.expectedFailure
     def test_read_world_lists_the_persistent_references(self):
-        """fo4land.py:202 Plugin.read_world initialises result["persistent"] = [] and nothing appends to it: the
+        """#207: fo4land.py:202 Plugin.read_world initialises result["persistent"] = [] and nothing appends to it: the
         persistent cell goes to "persistent_cell" and its REFR/ACHR to cell["persistent_refs"], so the documented
         top-level list is empty for every world."""
         steps = tf.plane_steps(0, 0)
@@ -173,7 +173,7 @@ class TerrainTests(unittest.TestCase):
 class NavmeshTests(unittest.TestCase):
     @unittest.expectedFailure
     def test_inventory_reduced_triangle_loss_is_never_negative(self):
-        """scripts/actors/navmesh_inventory.py:109: a cell is "reduced" when EITHER the triangle count OR the area fell;
+        """#208: scripts/actors/navmesh_inventory.py:109: a cell is "reduced" when EITHER the triangle count OR the area fell;
         reduced_triangles_approx sums fo4 - sf over those cells, so a cell flagged for an 80 % area loss while the
         triangle count rose 50 % contributes -50 and the headline loss goes negative or cancels real losses."""
         inv = load_script(os.path.join("actors", "navmesh_inventory.py"))
@@ -183,7 +183,7 @@ class NavmeshTests(unittest.TestCase):
 
     @unittest.expectedFailure
     def test_clipped_triangles_counts_only_triangles_that_were_cut(self):
-        """navmesh.py:563: cut = (cx0, cy0) != (cx1, cy1) from a bounding box widened by eps, so a triangle whose edge
+        """#209: navmesh.py:563: cut = (cx0, cy0) != (cx1, cy1) from a bounding box widened by eps, so a triangle whose edge
         lies exactly on a 100 m cell line spans two cell indices and is counted as clipped although it stays whole."""
         pieces, rep = nm.convert([(0x1, nm.parse(tn.fo4_bytes(0x3C, (0, 0), *tn.square(0, 100, 700, 800))))])
         self.assertEqual([(p.cell, len(p.tris)) for p in pieces], [((0, 0), 2)])    # whole, one piece
@@ -206,7 +206,7 @@ class NavmeshTests(unittest.TestCase):
 
     @unittest.expectedFailure
     def test_a_portal_on_or_straddling_a_cell_line_is_linked(self):
-        """navmesh.py:677: convert() joins an FO4 portal inside ONE Starfield cell only; a portal whose two edges sit on
+        """#210: navmesh.py:677: convert() joins an FO4 portal inside ONE Starfield cell only; a portal whose two edges sit on
         the 100 m line (or straddle it by less than FO4's own 0.343 m gap) has its sub-edges in two cells, is never
         linked and is counted as 'fo4_portal_subedge_missing' (4,599 such drops in the committed core64n report), while
         validate() reports 0 errors. Related: #173."""
@@ -242,7 +242,7 @@ class CollisionTests(unittest.TestCase):
 
     @unittest.expectedFailure
     def test_a_declined_multi_body_system_keeps_its_dynamic_body_static(self):
-        """meshcollision.py:958: after rigid_dynamic_body declines a multi-body system (motion["rigid_reported"] = True),
+        """#211: meshcollision.py:958: after rigid_dynamic_body declines a multi-body system (motion["rigid_reported"] = True),
         convert_bodies' `if why and not motion.get("rigid_reported")` falls into the else branch for every body with a
         FO4 mass: with no dynamic template (the native path, convert_static.py:180 passes None whenever the merge was
         attempted) _Tmpl(None) raises TypeError, fo4_native_collision records fo4_collision_error and the whole model
@@ -271,7 +271,7 @@ class CollisionTests(unittest.TestCase):
 
     @unittest.expectedFailure
     def test_decode_sf_mesh_skips_unused_slots_and_degenerate_points_like_the_fo4_reader(self):
-        """meshcollision.py:359: decode_sf_mesh iterates every primitive without the filter fo4collision._compressed_mesh
+        """#212: meshcollision.py:359: decode_sf_mesh iterates every primitive without the filter fo4collision._compressed_mesh
         (line 72) and sfbodies._cms_triangles (line 128) apply; transplant copies FO4's primitive array verbatim, so an
         unused 0xDEAD slot makes it index sharedVertices out of range (IndexError) and a degenerate point (i, i, i, i)
         becomes an extra zero-area triangle, so its count disagrees with the FO4 decode of the same blob."""
