@@ -27,6 +27,7 @@ $wt = $repo
 $log = Join-Path $tq 'watchdog.log'
 $stateFile = Join-Path $tq 'watchdog_state.json'
 $heartbeat = Join-Path $tq 'claude_heartbeat.txt'
+$startLeaseDir = $env:FO4SF_LEASE_DIR   # the value at start: ClaimLeaseForChain sets the variable for the chain, not for Cfg
 function Note($m) { try { "$(Get-Date -Format s) $m" | Add-Content $log -ErrorAction Stop } catch { } }
 function Cfg {
   $c = @{ threshold_hours = 3.0; check_minutes = 10; codex = $true; codex_every_hours = 6.0
@@ -36,7 +37,7 @@ function Cfg {
     try { (Get-Content $Config -Raw | ConvertFrom-Json).PSObject.Properties | ForEach-Object { $c[$_.Name] = $_.Value } }
     catch { Note "config unreadable, defaults used: $_" }
   }
-  if (-not $c.lease_dir -and $env:FO4SF_LEASE_DIR) { $c.lease_dir = $env:FO4SF_LEASE_DIR }
+  if (-not $c.lease_dir -and $startLeaseDir) { $c.lease_dir = $startLeaseDir }
   return $c
 }
 function Stopped { (Test-Path (Join-Path $tq 'STOP_ALL')) -or (Test-Path "$env:LOCALAPPDATA\fo4-ai-team\state\testqueue.STOP") }
@@ -49,7 +50,8 @@ function LeaseStatus($cfg) {
 function ClaimLeaseForChain($cfg, $idleH) {
   # lease mode: the chain runs as lease_owner and needs the lease; a lease someone still holds is never taken
   $ls = LeaseStatus $cfg
-  if ($ls -and $ls.status -eq 'held') { Note "lease held by $($ls.lease.owner) until $($ls.lease.expires): chain not started"; return $false }
+  # someone else's held lease is never taken; the watchdog's own (a chain that stopped early) is claimed again
+  if ($ls -and $ls.status -eq 'held' -and $ls.lease.owner -ne $cfg.lease_owner) { Note "lease held by $($ls.lease.owner) until $($ls.lease.expires): chain not started"; return $false }
   $ttl = [int]([double]$cfg.lease_hours * 3600)
   $reason = "watchdog: Claude inactive $([Math]::Round($idleH,1)) h past the threshold; no lease held"
   $out = python -I "$repo\scripts\game\lease.py" claim --dir $cfg.lease_dir --owner $cfg.lease_owner --purpose 'unattended test chain' --ttl $ttl --force --reason $reason 2>&1
@@ -65,7 +67,8 @@ function ClaudeLast($cfg) {
   if (Test-Path $heartbeat) { $t = (Get-Item $heartbeat).LastWriteTime }
   if ($cfg.lease_dir) {
     $ls = LeaseStatus $cfg
-    if ($ls -and $ls.last_activity) {
+    # the watchdog's own chain renews the lease as it runs: that is not Claude's activity
+    if ($ls -and $ls.last_activity -and $ls.lease -and $ls.lease.owner -ne $cfg.lease_owner) {
       try {
         $c = [DateTimeOffset]::Parse($ls.last_activity, [Globalization.CultureInfo]::InvariantCulture).LocalDateTime
         if ($c -gt $t) { $t = $c }

@@ -8,6 +8,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -42,7 +43,8 @@ class RunnerLeaseTests(unittest.TestCase):
         return r
 
     def status(self):
-        return json.load(open(os.path.join(self.d, "state.json"), encoding="utf-8"))["status"]
+        with open(os.path.join(self.d, "state.json"), encoding="utf-8") as f:
+            return json.load(f)["status"]
 
     def test_without_a_lease_folder_nothing_is_checked(self):
         r = self.runner()                                 # args() has no lease_dir at all (older callers)
@@ -117,6 +119,26 @@ class RunnerLeaseTests(unittest.TestCase):
         self.assertEqual(self.calls, ["0000_fall"])
         self.assertIn("released by Claude", self.status())
 
+    def test_a_transient_renewal_failure_does_not_stop_a_run_whose_lease_is_still_valid(self):
+        ctl = c.Controller(self.leader)
+        ctl.claim("Claude", "chain", 3600)
+        original = c.Controller.renew
+        calls = []
+
+        def flaky(self_, owner, ttl_s=None, now=None):
+            calls.append(1)
+            if len(calls) == 1:
+                raise PermissionError("[WinError 5] controller.json is open in another process")
+            return original(self_, owner, ttl_s, now)
+        with mock.patch.object(c.Controller, "renew", flaky):
+            code = self.runner(lease_dir=self.leader, lease_owner="Claude", max_attempts=1).run()
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.calls), 2)
+        log = read(os.path.join(self.d, "run.log"))
+        self.assertEqual(log.count("lease renewal failed ([WinError 5]"), 1)
+        self.assertIn("still valid, renewing again", log)
+        self.assertEqual(ctl.read().status(), "held")
+
     def test_a_launch_is_gated_before_the_idle_check(self):
         ctl = tt.FakeControls()
         ctl.pid, ctl.idle, ctl.last_sent_tick = None, 5, None    # would otherwise say "owner active"
@@ -144,10 +166,12 @@ class ScriptLeaseBlockTests(unittest.TestCase):
     def test_watchdog_lease_mode_is_off_by_default_and_never_takes_a_held_lease(self):
         src = read(os.path.join(GAME, "watchdog.ps1"))
         self.assertIn("lease_dir = ''; lease_owner = 'watchdog'; lease_hours = 8.0", src)
-        self.assertIn("if (-not $c.lease_dir -and $env:FO4SF_LEASE_DIR)", src)
         self.assertIn("--grep '^Claude'", src)                                 # the old activity source, switch off
         self.assertIn("if ($cfg.lease_dir) {", src)
-        self.assertIn("$ls.status -eq 'held'", src)                            # a held lease is never taken
+        self.assertIn("$ls.status -eq 'held' -and $ls.lease.owner -ne $cfg.lease_owner", src)   # another's held lease is never taken, its own is claimed again
+        self.assertIn("$ls.lease.owner -ne $cfg.lease_owner) {", src)         # its own chain's renewals are not Claude's activity
+        self.assertIn("$startLeaseDir = $env:FO4SF_LEASE_DIR", src)             # the start value, not the one it sets for the chain
+        self.assertIn("if (-not $c.lease_dir -and $startLeaseDir)", src)
         self.assertIn("if ($cfg.lease_dir) { $go = ClaimLeaseForChain $cfg $idleH }", src)
         self.assertIn("-not $running -and (QueueLeft) -gt 0", src)             # the chain-start rule unchanged
         self.assertIn("$env:FO4SF_LEASE_DIR = $cfg.lease_dir; $env:FO4SF_LEASE_OWNER = $cfg.lease_owner", src)

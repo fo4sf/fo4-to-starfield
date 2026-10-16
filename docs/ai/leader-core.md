@@ -139,7 +139,12 @@ so a crash between the two leaves the event in the ledger and the file behind, n
   and the reason and the previous owner go into the ledger;
 - another owner's claim is refused while a lease is `held`, unless forced with a reason;
 - only the holder releases, unless forced with a reason; after a release anyone claims without force;
-- an unreadable lease file counts as ambiguous.
+- an unreadable lease file counts as ambiguous: nothing renews it or takes it quietly, `--force --reason` takes or
+  releases it and the ledger records `unreadable`;
+- every claim, renewal and release reads, decides and writes under the lease's lock file (`controller.json.lock`,
+  `filelock.py`), so two processes reading the same expired lease cannot both walk away with it; on Windows the
+  atomic replace of `controller.json` is retried while another process has the file open for reading, and the
+  runner treats a renewal that failed while the lease on disk is still its own as a warning, not a stop.
 
 **CLI** (what the PowerShell scripts call; `python -I` finds the package through the wrapper):
 ```
@@ -155,11 +160,13 @@ python scripts\game\lease.py status  --dir <leader> [--require Claude] [--json] 
   `stopped: lease ...`) when the lease is missing, someone else's, released or expired; a `--dry-run` reports the same.
 - `cycle.ps1`: with `FO4SF_LEASE_DIR` set it exits 9 before closing, redeploying or launching anything unless
   `FO4SF_LEASE_OWNER` (default `Claude`) holds the lease.
-- `watchdog.ps1`: with `lease_dir` in `watchdog.json` (or `FO4SF_LEASE_DIR`), Claude's activity is the lease's last
-  claim / renewal / release plus the heartbeat file, not the last `Claude:` commit on any branch (the cloud sessions'
-  commits tripped that); the chain is started only after the watchdog claims the lease as `lease_owner` (default
-  `watchdog`) for `lease_hours` (default 8), never while someone holds one; the chain inherits the two variables, so
-  its runner and `cycle.ps1` check that lease.
+- `watchdog.ps1`: with `lease_dir` in `watchdog.json` (or `FO4SF_LEASE_DIR` as set when the watchdog started),
+  Claude's activity is the lease's last claim / renewal / release plus the heartbeat file, not the last `Claude:`
+  commit on any branch (the cloud sessions' commits tripped that); a lease held by the watchdog's own `lease_owner`
+  does not count as Claude's activity, and a chain that stopped early is restarted by claiming that lease again;
+  the chain is started only after the watchdog claims the lease as `lease_owner` (default `watchdog`) for
+  `lease_hours` (default 8), never while someone else holds one; the chain inherits the two variables, so its
+  runner and `cycle.ps1` check that lease.
 - Unset, every script behaves as before this task; the test suite covers both states.
 
 **Turning it on (the PC session, in a window it watches):** create the leader folder; claim the lease for the window

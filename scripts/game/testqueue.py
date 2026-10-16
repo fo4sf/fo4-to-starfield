@@ -2151,6 +2151,7 @@ class LeaseGate:
         self.ctl = controller.Controller(lease_dir, by=f"testqueue:{owner}")
         self.Refused = controller.LeaseRefused
         self.owner, self.dir = owner, self.ctl.dir
+        self.last_warning = None
 
     def blocked(self):
         """None while the owner holds the lease, else the reason (prefix "lease": the run stops, never waits)."""
@@ -2158,10 +2159,16 @@ class LeaseGate:
         return f"lease {why}" if why else None
 
     def renew(self):
-        """None when renewed, else the reason (the lease is gone: the run stops)."""
+        """None when renewed, or when the renewal failed but the lease on disk is still the owner's and unexpired (a
+        transient error, e.g. a Windows sharing violation while another process reads the file: the next test renews
+        again, and the reason is in last_warning for the log); else the reason (the lease is gone: the run stops)."""
+        self.last_warning = None
         try:
             self.ctl.renew(self.owner)
         except (self.Refused, ValueError, OSError) as e:
+            if self.ctl.valid_for(self.owner) is None:
+                self.last_warning = f"lease renewal failed ({e}); the lease on disk is still valid, renewing again before the next test"
+                return None
             return f"lease renewal refused: {e}"
         return None
 
@@ -2800,6 +2807,8 @@ class Runner:
                     return 3
             if self.lease and not a.dry_run:               # keep the lease for the test about to run
                 why = self.lease.renew()
+                if self.lease.last_warning:
+                    self.log(self.lease.last_warning)
                 if why:
                     self.log(f"stopped: {why}")
                     self.checkpoint(f"stopped: {why}")
