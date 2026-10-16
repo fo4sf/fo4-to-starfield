@@ -894,10 +894,12 @@ Instead the game writes a file:
 
 ## Activate (terrain, 2026-10-15)
 
-A terrain test may carry `"activate": {"ref": "<8 hex>", "expect": ["First Aid Kit", "Credits", "Digipick"]}` (R05 slice 1:
+A terrain test may carry `"activate": {"ref": "<8 hex>", "base": "<8 hex>", "expect": ["First Aid Kit", "Credits", "Digipick"]}` (R05 slice 1:
 the native container's reference, load index included). After the probes and before the beyond teleport, the step opens one
-console session, types `prid <ref>` and `activate player`, closes the console (the menu opens with the player as the
-activator: no facing, no E), captures the whole screen as `activate.png`, OCRs it, and closes the menu with Tab
+console session, types `prid <ref>` and `GetIsID <base>` and reads the console: the reply must be 1 (the selection is a
+reference of that base; a refused `prid` leaves the previous selection, which `activate player` would open: Codex's review
+of #145). Only then it types `activate player` and closes the console (the menu opens with the player as the activator: no
+facing, no E); without the proof nothing is activated and `obs.activate.selected` is false, captures the whole screen as `activate.png`, OCRs it, and closes the menu with Tab
 (`activate_closed.png`). The verdict detail gets `[activate <ref>: read [...] of [...]]`, the expected words the OCR found;
 it is shown and never judged, and the owner's own E-press stays the interaction acceptance. Runner feature `activate`
 (`runner_features.py`): an older runner refuses such a queue instead of running it without the step.

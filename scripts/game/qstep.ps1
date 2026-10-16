@@ -748,22 +748,37 @@ switch ($kind) {
     $obs['points'] = $pts
     if ($t.activate) {
       # activate (R05 interaction acceptance, docs/ai/test-queue.md "Activate"): the container's menu opened from the
-      # console with the player as the activator, no facing and no E: "prid <ref>" selects it in this session, "activate
-      # player" opens its menu once the console closes. The whole screen is captured and OCR'd (the container's name and
-      # items, read by testqueue.py activate_summary, shown and never judged), then the menu is closed with Tab.
-      $aref = "$($t.activate.ref)"
-      if ($aref -notmatch '^[0-9A-Fa-f]{8}$') { "bad activate"; exit 4 }
+      # console with the player as the activator, no facing and no E. One console session: "prid <ref>" selects the
+      # reference, "GetIsID <base>" must reply 1 (the selection is a reference of that base; a refused prid leaves the
+      # previous selection, which "activate player" would open: Codex's review of #145), and only then "activate
+      # player"; the console closes and the menu opens. The whole screen is captured and OCR'd (the container's name and
+      # items, read by testqueue.py activate_summary, shown and never judged), then the menu is closed with Tab. Without
+      # the proof nothing is activated and obs.activate says so (selected = false, the console's text kept).
+      $aref = "$($t.activate.ref)"; $abase = "$($t.activate.base)"
+      if ($aref -notmatch '^[0-9A-Fa-f]{8}$' -or $abase -notmatch '^[0-9A-Fa-f]{8}$') { "bad activate"; exit 4 }
       Console-Open
-      Send "type:prid $aref|key:enter|wait:400|type:activate player|key:enter|wait:400|key:grave|wait:2500"
-      $aShot = Shot 'activate.png'; $aTxt = ''
-      if ($aShot) {
-        $aCap = Join-Path $Out 'activate.png'; $aPrep = Join-Path $Out 'activate_prep.png'
-        & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $aCap $aPrep 135 12 | Out-Null
-        $aTxt = ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $aPrep -Scale 1) -join "`n")
+      Send "type:prid $aref|key:enter|wait:400|type:GetIsID $abase|key:enter|wait:700"
+      $sel = Read-Console 'activate_sel'
+      # the reply line "GetIsID >> 1.00" (OCR: l/I/1 confusion, the >> sometimes lost); the echo "GetIsID <8 hex>" never
+      # ends in a lone 1, so the line anchor keeps a base id starting with 1 from passing
+      $selected = [bool]("$($sel.ocr)" -match '(?m)Get[Il1]s[Il1]D\s*(?:[>»]\s*[>»]?\s*)?1(?:[.,]\s?0{1,2})?\s*$')
+      $obs['activate'] = [ordered]@{ ref = $aref; base = $abase; selected = $selected; sel_shot = $sel.shot; sel_ocr = $sel.ocr }
+      Save-Obs
+      if ($selected) {
+        Send "type:activate player|key:enter|wait:400|key:grave|wait:2500"
+        $aShot = Shot 'activate.png'; $aTxt = ''
+        if ($aShot) {
+          $aCap = Join-Path $Out 'activate.png'; $aPrep = Join-Path $Out 'activate_prep.png'
+          & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $aCap $aPrep 135 12 | Out-Null
+          $aTxt = ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $aPrep -Scale 1) -join "`n")
+        }
+        $obs['activate']['shot'] = $aShot; $obs['activate']['ocr'] = $aTxt; Save-Obs
+        Send 'key:tab|wait:1500'                      # closes the menu when one opened
+        $obs['activate']['closed_shot'] = Shot 'activate_closed.png'
+      } else {
+        Send 'key:grave|wait:800'                     # selection not proven: nothing activated
       }
-      $obs['activate'] = [ordered]@{ ref = $aref; shot = $aShot; ocr = $aTxt }; Save-Obs
-      Send 'key:tab|wait:1500'                        # closes the menu when one opened
-      $obs['activate']['closed_shot'] = Shot 'activate_closed.png'; Save-Obs
+      Save-Obs
     }
     # Unscored plan diagnostic: use the same merged frame/drop height as the judged points.
     Teleport @(([double]$t.beyond.x + $ox), ([double]$t.beyond.y + $oy), $dropz) 90 5

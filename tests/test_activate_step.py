@@ -8,7 +8,13 @@ sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
 import runner_features  # noqa: E402
 import testqueue  # noqa: E402
 
-TEST = {"kind": "terrain", "activate": {"ref": "020A2AA5", "expect": ["First Aid Kit", "Credits", "Digipick"]}}
+import json
+import tempfile
+
+TEST = {"kind": "terrain", "activate": {"ref": "020A2AA5", "base": "020A2AA4", "expect": ["First Aid Kit", "Credits", "Digipick"]}}
+PLAN = {"coc": "FO4Core_RedRocketSpawn", "travel": "coc FO4Core_RedRocketSpawn", "label": "r05", "spawn_local": [-989.26, 1146.51, 105.26],
+        "settle_ms": 8000, "z_ref": "kit_south", "drop_z": 40.0, "points": [{"label": "kit_south", "x": -993.1, "y": 1148.6, "expect": 105.26}],
+        "activate": TEST["activate"], "teleport_console": True}
 
 
 class ActivateStepTests(unittest.TestCase):
@@ -30,6 +36,28 @@ class ActivateStepTests(unittest.TestCase):
         obs["activate"]["ocr"] = "MARS\nHEALTH 2/75"
         self.assertEqual(testqueue.activate_summary(TEST, obs),
                          "[activate 020A2AA5: read [] of ['First Aid Kit', 'Credits', 'Digipick']]")
+
+    def test_unproven_selection_activates_nothing(self):
+        obs = {"activate": {"ref": "020A2AA5", "base": "020A2AA4", "selected": False, "sel_ocr": "prid 020A2AA5\nItem not found"}}
+        self.assertEqual(testqueue.activate_summary(TEST, obs),
+                         "[activate 020A2AA5: selection not confirmed (GetIsID 020A2AA4 did not reply 1); nothing activated]")
+
+    def test_planner_carries_and_validates_the_block(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "exp")); os.makedirs(os.path.join(d, "staging"))
+            open(os.path.join(d, "staging", "FO4Port.esm"), "wb").write(b"TES4")
+            open(os.path.join(d, "exp", "plan.json"), "w").write(json.dumps([PLAN]))
+            args = type("A", (), dict(staging=os.path.join(d, "staging"), exp_dir=os.path.join(d, "exp"), out=os.path.join(d, "q"),
+                                      plugin_index="02", launch_cell="Vault111Cryo", only=0, plugins="", starfield="", fresh=True))()
+            testqueue.plan_terrain(args)
+            q = json.load(open(os.path.join(d, "q", "queue.json")))
+            self.assertEqual(q["tests"][0]["activate"], TEST["activate"])
+            self.assertIs(q["tests"][0]["teleport_console"], True)
+            self.assertIn("activate", q["needs"])
+            bad = dict(PLAN, activate={"ref": "020A2AA5", "expect": ["x"]})          # no base: nothing to prove the selection with
+            open(os.path.join(d, "exp", "plan.json"), "w").write(json.dumps([bad]))
+            with self.assertRaises(SystemExit):
+                testqueue.plan_terrain(args)
 
     def test_no_capture_and_no_block(self):
         self.assertEqual(testqueue.activate_summary(TEST, {"activate": {"ref": "020A2AA5", "shot": None}}),
