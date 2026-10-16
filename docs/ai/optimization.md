@@ -26,6 +26,13 @@ same input), and the commit. Use the `optimization` label on the issue or PR.
 
 ## Entries
 
+### 2026-10-09 Codex: hash archive contents for resume identity (`c74a952`)
+Same deterministic synthetic 64 MiB archive, seven warm-cache runs on the owner's PC. Before: metadata-only
+`archive_identity()` median **0.000170 s**. After: content-hashed `archive_identity()` median **0.049534 s**;
+about 291× the fingerprint time, or +0.0494 s per 64 MiB (~1.29 GiB/s observed). The one-time scan per input
+archive closes stale-resume reuse when size and timestamp are preserved. Large archive sets pay this scan on
+each resume invocation; correctness was prioritized over this added startup I/O.
+
 ### 2026-10-09 Claude: model load without memory mapping (local team)
 Before: `lms load qwen3-14b --gpu max` -> LM Studio held 10.5 GB of system RAM for a model fully in VRAM; RAM 88.2%,
 the guardian held every request (restrict/block). After: `tools/ai-team/load_model.py` (tryMmap=false,
@@ -42,3 +49,9 @@ whole long session history replayed) and, in the default read-only sandbox, coul
 After: default is a fresh session with a short brief pointing at #32 / handoff / AGENTS.md, with workspace-write +
 network. `--fork` stays available when the old context is really needed. After (measured): the next fresh-session wake fixed the bug it was briefed on, ran the tests and the guard, and
 opened PR #34 using **54,793 tokens** (99% less than the fork's 5,677,999).
+
+### 2026-10-10 Claude: cycle.ps1 waits on the screen instead of timers (in progress)
+Before (measured today, `cycle.ps1` from close to verified arrival): 195 s (Vault 114 swap, 20:3x) and 210 s (Vault 81,
+18:5x). Fixed timers inside: 30 s after launch, 45 s after Continue, 37 s after a blind `coc` (112 s), plus coc.ps1's
+30 s. Change: poll a screenshot every 3 s for the main menu text, then for the HUD, and go on as soon as it shows (the
+timers stay as the upper bound). After (first run, 2026-10-11 01:3x, library cell, verified arrival): **168 s**, from 195-210 s (-15 to -20%). The per-phase times were swallowed by a pipe on that run; the script now prints them with Write-Host.

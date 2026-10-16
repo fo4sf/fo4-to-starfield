@@ -1,8 +1,13 @@
 """Per-model checkpoints with content-verified generated dependencies.
 
-Archive identity uses resolved path, size and nanosecond modification time.
-Archives must be immutable during a run; replace/touch edited archives before
-resuming. Small tools/templates and converter sources use content hashes.
+Archive identity includes a streaming SHA-256 digest, so same-size edits with
+preserved timestamps invalidate resume data. Archives must remain immutable
+throughout the conversion run. Small tools/templates and converter
+sources also use content hashes.
+
+Windows fingerprints hold a read-sharing handle through the final metadata
+check. Other platforms retain best-effort mutation detection; callers must
+keep source archives immutable on every platform, including after return.
 """
 import hashlib
 import json
@@ -10,6 +15,7 @@ import os
 import struct
 from pathlib import Path
 import tempfile
+from contextlib import contextmanager
 
 from . import nif, sfnif
 
@@ -22,10 +28,81 @@ def digest(path):
     return h.hexdigest()
 
 
+def _stat_identity(stat):
+    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+
+
+def _path_identity(stat):
+    # On Windows, an explicit utime restore can make path and open-handle
+    # ctime reports differ even though the opened file is stable.
+    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+
+
+def _hash_open_file(stream):
+    h = hashlib.sha256()
+    for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+        h.update(chunk)
+    return h.hexdigest()
+
+
+@contextmanager
+def _open_archive_windows(path):
+    """Deny writers, writable mappings and deletion while this stream is open."""
+    import ctypes
+    from ctypes import wintypes
+    import msvcrt
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                           wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD,
+                           wintypes.HANDLE)
+    create_file.restype = wintypes.HANDLE
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = (wintypes.HANDLE,)
+    close_handle.restype = wintypes.BOOL
+    name = str(path)
+    if not name.startswith("\\\\?\\"):
+        name = "\\\\?\\UNC\\" + name[2:] if name.startswith("\\\\") else "\\\\?\\" + name
+    # GENERIC_READ, FILE_SHARE_READ, OPEN_EXISTING, sequential cached reads.
+    # Fail closed on incompatible existing access; never retry with write sharing.
+    handle = create_file(name, 0x80000000, 0x1, None, 3, 0x08000080, None)
+    if handle == wintypes.HANDLE(-1).value:
+        error = ctypes.WinError(ctypes.get_last_error())
+        error.filename = str(path)
+        raise error
+    try:
+        fd = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY | os.O_NOINHERIT)
+    except BaseException:
+        close_handle(handle)
+        raise
+    # open_osfhandle transfers ownership to the CRT descriptor. Keep explicit
+    # ownership: fdopen may fail after constructing/closing a partial stream.
+    try:
+        with os.fdopen(fd, "rb", closefd=False) as stream:
+            yield stream
+    finally:
+        os.close(fd)
+
+
 def archive_identity(path):
     path = Path(path).resolve()
-    stat = path.stat()
-    return [str(path), stat.st_size, stat.st_mtime_ns]
+    with (_open_archive_windows(path) if os.name == "nt" else path.open("rb")) as stream:
+        before = os.fstat(stream.fileno())
+        content_hash = _hash_open_file(stream)
+        after = os.fstat(stream.fileno())
+        current_path = path.stat()
+        if (_stat_identity(before) != _stat_identity(after)
+                or _path_identity(after) != _path_identity(current_path)):
+            raise OSError(f"archive changed while fingerprinting: {path}")
+        return [str(path), after.st_size, content_hash]
+
+
+def reusable_result(result):
+    """Retry degraded/failing conversions rather than freezing a placeholder."""
+    return (result.get("ok") is True
+            and not result.get("fallback_materials")
+            and not result.get("door_error"))
 
 
 def local_path(staging, relative):
@@ -58,10 +135,44 @@ def staged_path(staging, relative):
     return current
 
 
+def _native_door_outputs(door, out_name):
+    """Follow generated DOOR references independently of optional cache metadata."""
+    native = door.get("rig") == "native"
+    generated_root = out_name.replace("\\", "/").split("/", 1)[0].lower() + "/"
+    paths = set()
+    for key in ("skeleton", "animations"):
+        value = door.get(key)
+        generated = isinstance(value, str) and value.replace("\\", "/").lower().startswith(generated_root)
+        if not native and not generated:
+            continue  # Vanilla template references are supplied by the game.
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"native door {key} reference is missing")
+        name = value.replace("\\", "/")
+        if ":" in name or any(part in ("", ".", "..") for part in name.split("/")):
+            raise ValueError(f"native door {key} must be relative to meshes/")
+        relative = "meshes/" + name
+        if key == "skeleton":
+            paths.add(relative)
+        else:
+            paths.update(f"{relative}/{clip}{suffix}"
+                         for clip in ("Open", "Close") for suffix in (".af", ".afx"))
+    return paths
+
+
 def output_inventory(staging, result, prefix="fo4port"):
-    """Follow generated NIF -> mesh/material -> texture dependencies."""
-    paths = {"meshes/" + result["out_name"] + ".nif"}
-    model = nif.parse(staged_path(staging, next(iter(paths))).read_bytes())
+    """Follow NIF geometry/material dependencies and native DOOR rig/clip references."""
+    prefix = prefix.replace("\\", "/").lower()
+    model_path = "meshes/" + result["out_name"] + ".nif"
+    paths = {model_path}
+    door = result.get("door") or {}
+    if not isinstance(door, dict):
+        raise ValueError("door metadata must be a record")
+    door_files = door.get("files") or []
+    if not isinstance(door_files, list) or not all(isinstance(p, str) and p.startswith("meshes/") for p in door_files):
+        raise ValueError("door files must be staging paths below meshes/")
+    paths.update(door_files)
+    paths.update(_native_door_outputs(door, result["out_name"]))
+    model = nif.parse(staged_path(staging, model_path).read_bytes())
     for i, block in enumerate(model.blocks):
         if model.type_of(i) == "BSGeometry":
             for mesh in sfnif.parse_bsgeometry(block).meshes:
@@ -104,6 +215,7 @@ class Checkpoints:
     def __init__(self, staging, signature):
         self.staging = Path(staging)
         self.signature = signature
+        self.prefix = signature.get("prefix", "fo4port")
         self.directory = self.staging / ".checkpoints"
         self.expected = {}
 
@@ -125,9 +237,9 @@ class Checkpoints:
             if any(type(result.get(field)) is not int or result[field] < 0
                    for field in ("shapes", "fallback_materials")):
                 return None
-            if output_inventory(self.staging, result) != cached["outputs"]:
+            if not reusable_result(result):
                 return None
-            if result.get("ok") is not True:
+            if output_inventory(self.staging, result, prefix=self.prefix) != cached["outputs"]:
                 return None
             self.expected[source] = cached["outputs"]
             return cached["result"]
@@ -135,11 +247,11 @@ class Checkpoints:
             return None
 
     def save(self, source, result):
-        if result.get("ok") is not True or result.get("fallback_materials") or result.get("door_error"):
+        if not reusable_result(result):
             self.path(source).unlink(missing_ok=True)
             return False  # Retry degraded/failing conversions rather than freezing a placeholder.
         try:
-            outputs = output_inventory(self.staging, result)
+            outputs = output_inventory(self.staging, result, prefix=self.prefix)
         except (OSError, ValueError, KeyError, TypeError, struct.error):
             # The batch runner may continue after checkpoint I/O errors. Keep an
             # explicit failed expectation so it cannot publish an unverified build.
