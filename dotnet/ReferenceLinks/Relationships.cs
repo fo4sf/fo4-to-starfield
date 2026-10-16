@@ -27,6 +27,8 @@ public static class Relationships
         var report = new LinkReport();
         var cells = mod.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(s => s.Cells).ToDictionary(c => c.FormKey);
         var placed = cells.Values.SelectMany(c => c.Temporary.Concat(c.Persistent)).OfType<PlacedObject>().ToDictionary(r => r.FormKey);
+        var ownerCells = cells.Values.SelectMany(c => c.Temporary.Concat(c.Persistent).OfType<PlacedObject>()
+            .Select(r => (r.FormKey, Cell: c))).ToDictionary(x => x.FormKey, x => x.Cell);
         var sourceRefs = new Dictionary<string, PlacedObject>(StringComparer.OrdinalIgnoreCase);
         var sourceCells = new Dictionary<string, Cell>(StringComparer.OrdinalIgnoreCase);
         var sources = exports.ToArray();
@@ -111,7 +113,8 @@ public static class Relationships
                     if (reference.TryGetProperty("disabled", out var disabled) && disabled.GetInt32() != 0)
                         target.MajorRecordFlagsRaw |= 0x800;
                     if (reference.TryGetProperty("scale", out var scale) && scale.GetSingle() != 1) target.Scale = scale.GetSingle();
-                    cell.Temporary.Add(target); placed.Add(target.FormKey, target); report.CreatedMarkers++;
+                    cell.Temporary.Add(target); placed.Add(target.FormKey, target);
+                    ownerCells.Add(target.FormKey, cell); report.CreatedMarkers++;
                 }
                 if (target == null)
                 {
@@ -143,6 +146,16 @@ public static class Relationships
         }
         static P3Float Pos(JsonElement e) => new(e[0].GetSingle() / 70f, e[1].GetSingle() / 70f, e[2].GetSingle() / 70f);
         static P3Float Rot(JsonElement e) => new(e[0].GetSingle(), e[1].GetSingle(), e[2].GetSingle());
+        void MakeTeleportEndpointPersistent(PlacedObject endpoint)
+        {
+            // Match PluginSpike.TeleportLinks: XTEL resolution requires both
+            // endpoints persistent, even if the export omitted the source flag.
+            var cell = ownerCells[endpoint.FormKey];
+            bool moved = cell.Temporary.Remove(endpoint);
+            if (moved) cell.Persistent.Add(endpoint);
+            if (moved || (endpoint.MajorRecordFlagsRaw & 0x400) == 0) report.Persistent++;
+            endpoint.MajorRecordFlagsRaw |= 0x400;
+        }
         foreach (var export in sources)
         foreach (var reference in export.GetProperty("refs").EnumerateArray())
         {
@@ -210,6 +223,8 @@ public static class Relationships
                         Rotation = Rot(teleport.GetProperty("rot")), Flags = (TeleportDestination.Flag)flags };
                     target.TeleportDestination.Door.SetTo(destination.FormKey);
                     if (transition != null) target.TeleportDestination.TransitionInterior.SetTo(transition.FormKey);
+                    MakeTeleportEndpointPersistent(target);
+                    MakeTeleportEndpointPersistent(destination);
                     report.Teleports++;
                 }
             }

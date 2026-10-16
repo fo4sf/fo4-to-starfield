@@ -30,6 +30,6 @@ Main4ba5c6a has integration121 and merged131/133;119/126/127/128 are integrated.
 
 ## Next / preservation
 
-Owner priority: persistent doors. Codex's ReferenceLinks native-base repair has8 CLI/readback controls; peer QA pending. Core merge/placement and cross-plugin endpoints remain unresolved; Claude retains live tests. PR243 scripted fallback stays separate. No unchanged QA/stage reruns.
+Owner priority: persistent doors. PR245 now resolves native bases and makes both valid XTEL endpoints persistent;11 CLI/readback controls plus refusal/idempotence pass, peer QA pending. Core merge/cross-plugin endpoints remain unresolved; Claude retains live tests. PR243 fallback separate.
 
 #32/owner issues are the inbox; refresh before work/done. Keep below4KB; history in handoff-archive. Evidence indexed/reopen-verified on D:, originals retained; second local volume, not offsite. Follow docs/testing/progress-storage.md. Lower usage: quiet four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused.

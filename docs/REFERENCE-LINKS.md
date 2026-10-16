@@ -35,6 +35,10 @@ Implemented translation:
 - Default-open state applies to resolved, non-deleted DOOR bases.
 - Absolute teleport destinations resolve placed doors and transition cells;
   positions convert from source units to metres and rotations remain radians.
+  Both validated endpoints become persistent (group and flag), even when the
+  exported flag is false or absent. This matches PluginSpike's native XTEL rule;
+  a one-way link does not invent an unexported return link. Refused links do not
+  force persistence; repeating a valid application does not duplicate endpoints.
 
 Native bases are resolved from the actual `Starfield.esm` supplied by
 `STARFIELD_DATA`, even with `--no-markers`. A local override takes precedence:
@@ -43,8 +47,10 @@ semantics. The native DOOR is not cloned and endpoint IDs are not reallocated.
 Without master records, library calls still resolve local doors and refuse unknown
 external bases. Other masters are not implicitly read or guessed.
 
-Eight synthetic CLI cases cover native bases, missing/deleted/non-door records,
-local override precedence and `--no-markers`. Serialized readback checks both
+Eleven synthetic CLI cases cover native bases, missing/deleted/non-door records,
+local override precedence, `--no-markers`, false/absent source persistence and
+one-way endpoints. Library controls also check refusal before promotion and
+idempotent application. Serialized readback checks both
 persistent endpoint groups/flags, reciprocal XTEL and transition-cell identities,
 source transforms, arrival units/rotation, open state and unchanged ID maps/inputs.
 Set `FO4SF_NATIVE_DOOR_EVIDENCE` to a fresh private directory to retain the cases;

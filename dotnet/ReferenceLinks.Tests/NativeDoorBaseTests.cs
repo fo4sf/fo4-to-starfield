@@ -15,13 +15,14 @@ public static class NativeDoorBaseTests
         // Synthetic plugins are retained, including failures, for independent readback.
         Console.WriteLine("Native door evidence: " + root);
         var failures = new List<string>();
-        foreach (var scenario in new[] { "native", "no-markers", "missing", "static", "deleted", "local-deleted", "local-static", "local-door" })
+        foreach (var scenario in new[] { "native", "no-markers", "missing", "static", "deleted", "local-deleted", "local-static", "local-door",
+            "temporary-exports", "missing-persistence", "temporary-oneway" })
         {
             try { Check(root, scenario); }
             catch (Exception e) { failures.Add(scenario + ": " + e.Message); }
         }
         if (failures.Count != 0) throw new InvalidOperationException(string.Join("\n", failures));
-        Console.WriteLine("8 native-door CLI/serialized identity controls passed.");
+        Console.WriteLine("11 native-door CLI/serialized identity controls passed.");
     }
 
     private static void Check(string root, string scenario)
@@ -70,10 +71,16 @@ public static class NativeDoorBaseTests
             File.WriteAllText(path, JsonSerializer.Serialize(new
             {
                 cell = name, formkey = source + "-cell",
-                refs = new[] { new { formkey = source, persistent = true, open_by_default = i == 0,
+                refs = new[] { new { formkey = source, persistent = !scenario.StartsWith("temporary-"), open_by_default = i == 0,
                     teleport_destination = new { door = other, transition_interior = other + "-cell", flags = 2,
                         pos = new[] { 70, 140, 210 }, rot = new[] { 0, 0, 1 } } } }
             }));
+            if (scenario == "missing-persistence" || (scenario == "temporary-oneway" && i == 1))
+            {
+                var node = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path))!;
+                node["refs"]![0]!.AsObject().Remove(scenario == "missing-persistence" ? "persistent" : "teleport_destination");
+                File.WriteAllText(path, node.ToJsonString());
+            }
             exports.Add(path);
         }
         var input = Path.Combine(folder, "Synthetic.esm");
@@ -97,10 +104,10 @@ public static class NativeDoorBaseTests
         File.WriteAllText(Path.Combine(folder, "exit.txt"), process.ExitCode.ToString());
         Require(File.ReadAllBytes(input).SequenceEqual(inputBytes), "input plugin changed");
         Require(File.ReadAllBytes(Path.Combine(folder, "Starfield.esm")).SequenceEqual(vanillaBytes), "master changed");
-        bool success = scenario is "native" or "no-markers" or "local-door";
+        bool success = scenario is "native" or "no-markers" or "local-door" or "temporary-exports" or "missing-persistence" or "temporary-oneway";
         Require(process.ExitCode == (success ? 0 : 2), $"CLI exit {process.ExitCode}, expected {(success ? 0 : 2)}");
         using var report = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "relationships-report.json")));
-        Require(report.RootElement.GetProperty("Teleports").GetInt32() == (success ? 2 : 0), "unexpected teleport count");
+        Require(report.RootElement.GetProperty("Teleports").GetInt32() == (success ? (scenario == "temporary-oneway" ? 1 : 2) : 0), "unexpected teleport count");
         var issues = report.RootElement.GetProperty("Issues").EnumerateArray().ToArray();
         Require(issues.Length == (success ? 0 : 3), "unexpected unresolved relationship count");
         if (!success)
@@ -123,11 +130,16 @@ public static class NativeDoorBaseTests
             Require(obj.FormKey.ID == 0x810 + i && cell.FormKey.ID == 0x800 + i, "endpoint identity or parent changed");
             Require((obj.MajorRecordFlagsRaw & 0x400) != 0 && obj.Base.FormKey == nativeKey, "persistent flag or native base lost");
             Require(obj.Position.X == i + 1 && obj.Rotation.Z == .5f && obj.Scale == .75f, "source transform changed");
+            Require(obj.OpenByDefault == (i == 0), "open state changed");
+            if (scenario == "temporary-oneway" && i == 1)
+            {
+                Require(obj.TeleportDestination == null, "unexported return link invented");
+                continue;
+            }
             var xtel = obj.TeleportDestination!;
             Require(xtel.Door.FormKey == new FormKey(mk, (uint)(0x811 - i)), "reciprocal door link changed");
             Require(xtel.TransitionInterior.FormKey == new FormKey(mk, (uint)(0x801 - i)), "transition cell link changed");
             Require(xtel.Position == new Noggog.P3Float(1, 2, 3) && xtel.Rotation.Z == 1 && (uint)xtel.Flags == 2, "arrival units/rotation/flags lost");
-            Require(obj.OpenByDefault == (i == 0), "open state changed");
         }
         Require(read.Doors.Count == (scenario == "local-door" ? 1 : 0), "native DOOR was cloned or reallocated");
     }

@@ -1456,3 +1456,15 @@ test-plans/native-door-bases-20261016 (before, after and final).
 This optional post-pass remains interior-scoped; PluginSpike owns primary load-door
 writing. No exterior merge fix, live install/input, travel or save/reload acceptance
 is claimed. Peer QA pending; Claude retains native controller.
+
+## 2026-10-16: Codex both persistent teleport endpoints
+
+PR245 follow-up reproduces three serialized failures: explicit false persistence,
+missing persistence and one-way travel all left valid XTEL endpoints temporary.
+The optional ReferenceLinks post-pass now applies the same both-endpoint persistent
+group/flag rule as primary PluginSpike.TeleportLinks, after link validation. No
+return link is invented and IDs/transforms remain unchanged. Eleven CLI/readback
+cases plus library refusal-before-promotion/idempotence and prior relationship
+checks pass; guard passes. Source failures and current evidence retained privately
+at native-door-persistence-20261016. No primary writer, source stage, live input,
+installation or game-state claim. Peer QA and merge/native-save gates remain.
