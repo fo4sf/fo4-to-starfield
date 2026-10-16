@@ -9,6 +9,8 @@ results and a ranked problem list instead of spending its own time driving the g
 $py = 'C:\Modding\venv-render\Scripts\python.exe'
 # 1. plan: one pinned build (staging folder with FO4Port.esm, manifest, formids, cell exports, routes_<cell>.json)
 & $py scripts\game\testqueue.py plan --staging C:\Modding\staging\<build> --out C:\Modding\testqueue\<batch> --per-cell 12
+# 1b. (only with the preflight gate, docs/ai/leader-core.md section 7) pin the game version the gate checks
+& $py scripts\game\testqueue.py pin-game-version --queue C:\Modding\testqueue\<batch>   # or --version 1.16.244.0
 # 2. run (resumable: run the same command again to continue)
 & $py scripts\game\testqueue.py run --queue C:\Modding\testqueue\<batch> --wait-for-idle --refocus --max-hours 8
 # 3. read
