@@ -506,6 +506,152 @@ class NavmeshInputTests(unittest.TestCase):
             self.assertIn(why, str(cm.exception))
 
 
+class ItemPromotionTests(unittest.TestCase):
+    """Loose items (commonwealth-build-plan.md section 3): --cluster "items" become native MISC references, one MISC per
+    FO4 base, in the same slot plan as containers."""
+    BASES = [{"edid": "FO4Core_cram", "model": "fo4core\\setdressing\\cram.nif"},
+             {"edid": "FO4Core_cram_b", "model": "fo4core\\setdressing\\cram_b.nif"},
+             {"edid": "FO4Core_kit", "model": "fo4core\\setdressing\\kit.nif"}]
+
+    @staticmethod
+    def placed(n=5, disabled=()):
+        return [{"src": f"{i + 1:06X}:Fallout4.esm", "base": 0 if i != 4 else 1, "cell": [0, i], "pos": [1.0 + i, 2.0, 3.0],
+                 "rot": [0, 0, 0.5], "scale": 1.0, "disabled": i in disabled} for i in range(n)]
+
+    @staticmethod
+    def item(i, **kw):
+        e = {"src": f"{i + 1:06X}:Fallout4.esm", "name": "Cram", "value": 7, "weight": 0.2, "base": "04B6E9:Fallout4.esm",
+             "editor_id": "CramStack", "kind": "Ingestible", "slot": i}
+        e.update(kw)
+        return e
+
+    def test_items_of_one_base_share_the_misc_and_carry_the_reference(self):
+        cl = {"items": [self.item(1), self.item(3), self.item(2, base=None, name="Can")]}
+        keep, items = mk.cluster_items(self.BASES, self.placed(), cl)
+        self.assertEqual([p["src"] for p in keep], ["000001:Fallout4.esm", "000005:Fallout4.esm"])
+        self.assertEqual([i["edid"] for i in items], ["FO4Core_misc_04b6e9_fallout4", "FO4Core_misc_000003",
+                                                      "FO4Core_misc_04b6e9_fallout4"])
+        self.assertEqual([i["reference_index"] for i in items], [1, 2, 3])
+        it = items[0]
+        self.assertEqual((it["src"], it["model"], it["name"], it["value"], it["weight"]),
+                         ("000002:Fallout4.esm", self.BASES[0]["model"], "Cram", 7, 0.2))
+        self.assertEqual((it["cell"], it["pos"], it["rot"], it["scale"]), ([0, 1], [2.0, 2.0, 3.0], [0, 0, 0.5], 1.0))
+        self.assertEqual(mk.item_edid("04B6E9:Fallout4.esm", "x"), "FO4Core_misc_04b6e9_fallout4")
+        self.assertNotEqual(mk.item_edid("04B6E9:Fallout4.esm", "x"), mk.item_edid("04B6E9:DLCCoast.esm", "x"))
+        self.assertNotEqual(mk.item_edid("04B6E9:Fallout4.esm", "x"), mk.container_edid("04B6E9:Fallout4.esm", "x"))
+        self.assertEqual(mk.cluster_items(self.BASES, self.placed(), {"containers": []}), (self.placed(), []))
+
+    def test_entries_of_one_edid_must_agree(self):
+        for bad, why in (({"name": "Cram (old)"}, "name"), ({"value": 8}, "value"), ({"weight": 0.25}, "weight")):
+            with self.assertRaisesRegex(ValueError, "different name, value, weight or model", msg=why):
+                mk.cluster_items(self.BASES, self.placed(), {"items": [self.item(1), self.item(3, **bad)]})
+        # reference 000005 is placed with another converted model (base 1) under the same FO4 base: refused
+        with self.assertRaisesRegex(ValueError, "different name, value, weight or model"):
+            mk.cluster_items(self.BASES, self.placed(), {"items": [self.item(1), self.item(4)]})
+        mk.cluster_items(self.BASES, self.placed(), {"items": [self.item(1), self.item(3, weight=0.2, value=7)]})
+
+    def test_not_placed_disabled_and_malformed_entries_are_refused(self):
+        with self.assertRaisesRegex(ValueError, "not placed"):
+            mk.cluster_items(self.BASES, self.placed(), {"items": [self.item(1, src="ABCDEF:Fallout4.esm")]})
+        with self.assertRaisesRegex(ValueError, "disabled"):
+            mk.cluster_items(self.BASES, self.placed(disabled=(1,)), {"items": [self.item(1)]})
+        with self.assertRaisesRegex(ValueError, "twice"):
+            mk.cluster_items(self.BASES, self.placed(), {"items": [self.item(1), self.item(1)]})
+        for bad, why in (({"name": None}, "name"), ({"name": " "}, "name"), ({"value": -1}, "value"),
+                         ({"value": 1.5}, "value"), ({"value": True}, "value"), ({"weight": -0.1}, "weight"),
+                         ({"weight": "0.2"}, "weight"), ({"weight": float("nan")}, "weight")):
+            with self.assertRaisesRegex(ValueError, why):
+                mk.cluster_items(self.BASES, self.placed(), {"items": [self.item(1, **bad)]})
+
+    def test_containers_and_items_share_one_slot_plan(self):
+        self.plan()
+
+    def plan(self):
+        """A mixed cluster (one container, two items of one FO4 base) and the identities the writer declares for it."""
+        kit = {"src": "000003:Fallout4.esm", "name": "First Aid Kit", "items": [{"form": "Starfield.esm:00000F", "count": 25}],
+               "base": "04B6E9:Fallout4.esm"}
+        cl = {"containers": [kit], "items": [self.item(3), self.item(0)]}
+        keep, conts, items = mk.cluster_promote(self.BASES, self.placed(), cl)
+        self.assertEqual([p["src"] for p in keep], ["000002:Fallout4.esm", "000005:Fallout4.esm"])
+        self.assertEqual([c["reference_index"] for c in conts], [2])
+        self.assertEqual([i["reference_index"] for i in items], [0, 3])          # slots of the unpromoted list
+        self.assertEqual(conts[0]["edid"], "FO4Core_cont_04b6e9_fallout4")
+        self.assertEqual(items[0]["edid"], "FO4Core_misc_04b6e9_fallout4")
+        with self.assertRaisesRegex(ValueError, "both a container and an item"):
+            mk.cluster_promote(self.BASES, self.placed(), {"containers": [kit], "items": [self.item(2)]})
+        # what the writer declares for that plan: bases 000800..000802, slots 000803..000807, then CONT, then MISC
+        objects = {"refs": keep, "containers": conts, "items": items}
+        ids = {"bases": {"a": "000800", "b": "000801", "c": "000802"},
+               "refs": {"000002:Fallout4.esm": "000804", "000005:Fallout4.esm": "000807"},
+               "containers": {"000003:Fallout4.esm": {"base": "000808", "ref": "000805"}},
+               "items": {"000001:Fallout4.esm": {"base": "000809", "ref": "000803"},
+                         "000004:Fallout4.esm": {"base": "000809", "ref": "000806"}}}
+        mk.check_reference_slots(objects, ids)
+        return objects, ids
+
+    def test_slot_check_refuses_moved_overlapping_or_inconsistent_identities(self):
+        objects, good = self.plan()
+        cases = (
+            ("moved", lambda i: i["items"]["000001:Fallout4.esm"].update(ref="000804") or i["refs"].update({"000002:Fallout4.esm": "000803"})),
+            ("item base overlaps", lambda i: i["items"]["000004:Fallout4.esm"].update(base="000807")),
+            ("other promoted class", lambda i: [v.update(base="000808") for v in i["items"].values()]),
+            ("two bases", lambda i: i["items"]["000004:Fallout4.esm"].update(base="00080A")),
+            ("differs from objects", lambda i: i.pop("items")),
+        )
+        for why, change in cases:
+            ids = json.loads(json.dumps(good))
+            change(ids)
+            with self.assertRaisesRegex(ValueError, why):
+                mk.check_reference_slots(objects, ids)
+        two = json.loads(json.dumps(objects))
+        two["items"][1]["edid"] = "FO4Core_misc_000004"                       # two edids, one declared base: refused
+        with self.assertRaisesRegex(ValueError, "two edids"):
+            mk.check_reference_slots(two, good)
+        dup = json.loads(json.dumps(objects))
+        dup["items"][1]["reference_index"] = 2                                 # the container's slot
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            mk.check_reference_slots(dup, good)
+
+    def test_check_counts_and_record_bindings(self):
+        objects, ids = self.plan()
+        own = 0x01000000
+
+        def z(text):
+            return text.encode("cp1252") + b"\0"
+
+        def refr(fid, base, e):
+            return {"sig": "REFR", "fid": own | fid, "flags": 0,
+                    "fields": [(b"NAME", struct.pack("<I", own | base)), (b"DATA", struct.pack("<6f", *e["pos"], *e["rot"]))]}
+
+        def misc(fid, e, value=None):
+            return {"sig": "MISC", "fid": own | fid, "flags": 0,
+                    "fields": [(b"EDID", z(e["edid"])), (b"MODL", z(e["model"])), (b"FULL", z(e["name"])),
+                               (b"DATA", struct.pack("<if", e["value"] if value is None else value, e["weight"]))]}
+        c, i0, i1 = objects["containers"][0], objects["items"][0], objects["items"][1]
+        recs = [{"sig": "STAT", "fid": own | 0x800 + k, "flags": 0, "fields": []} for k in range(3)]
+        recs += [{"sig": "REFR", "fid": own | 0x804, "flags": 0, "fields": []}, {"sig": "REFR", "fid": own | 0x807, "flags": 0, "fields": []},
+                 refr(0x805, 0x808, c), refr(0x803, 0x809, i0), refr(0x806, 0x809, i1),
+                 {"sig": "CONT", "fid": own | 0x808, "flags": 0, "fields": [(b"EDID", z(c["edid"])), (b"MODL", z(c["model"]))]},
+                 misc(0x809, i0), {"sig": "REFR", "fid": own | 0x80A, "flags": 0, "fields": []},
+                 {"sig": "REFR", "fid": own | 0x80B, "flags": 0, "fields": []}]            # COC marker, anchor
+        exp = {"objects": {"exported": 7, "skipped": {"no model": 2}}}
+        res = mk.promotion_checks(recs, own, objects, ids, exp)
+        self.assertTrue(all(ok for _what, ok in res), res)
+        self.assertEqual(len(res), 5)
+        self.assertIn("1 MISC = 1 distinct items edids (2 items)", [w for w, _ok in res][3])
+        bad = [dict(r) for r in recs]
+        bad[bad.index(next(r for r in bad if r["sig"] == "MISC"))] = misc(0x809, i0, value=99)
+        res = dict((w.split(" (")[0], ok) for w, ok in mk.promotion_checks(bad, own, objects, ids, exp))
+        self.assertFalse(res["every promoted REFR names its CONT / MISC"])
+        two = recs + [dict(misc(0x80C, i1), fid=own | 0x80C)]                             # a second MISC for one edid
+        res = [ok for _w, ok in mk.promotion_checks(two, own, objects, ids, exp)]
+        self.assertEqual(res[:4], [True, True, True, False])
+        res = [ok for _w, ok in mk.promotion_checks(recs, own, objects, ids, {"objects": {"exported": 8, "skipped": {"no model": 2}}})]
+        self.assertEqual(res[:2], [True, False])                                           # a reference lost in promotion
+        res = [ok for _w, ok in mk.promotion_checks(recs[:-1], own, objects, ids, exp)]
+        self.assertFalse(res[0])                                                           # one REFR short
+
+
 if __name__ == "__main__":
     unittest.main()
 
