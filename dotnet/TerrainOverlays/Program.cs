@@ -233,6 +233,7 @@ if (Has(prm, "objects"))
     // ({"src", "edid", "model", "name", "items": [{"form": "Starfield.esm:00000F", "count": 25}], "cell", "pos",
     // "rot", "scale", "reference_index"}; the source leaves "refs", but its original index is retained).
     var contIds = new Dictionary<string, object>();
+    var contByEdid = new Dictionary<string, Container>(StringComparer.OrdinalIgnoreCase);   // one CONT per FO4 base: entries of one base share an edid
     if (o.TryGetProperty("containers", out var conts))
     {
         foreach (var c in conts.EnumerateArray())
@@ -241,23 +242,31 @@ if (Has(prm, "objects"))
             var cxy = c.GetProperty("cell").EnumerateArray().Select(e => e.GetInt32()).ToArray();
             if (!cellAt.TryGetValue((cxy[0], cxy[1]), out var cell))
                 throw new InvalidDataException($"container {c.GetProperty("src").GetString()} in cell ({cxy[0]}, {cxy[1]}) outside {world}'s cells");
-            var cont = new Container(NewKey(), release)
+            var edid = c.GetProperty("edid").GetString()!;
+            var cmodel = c.GetProperty("model").GetString()!;
+            if (!contByEdid.TryGetValue(edid, out var cont))
             {
-                EditorID = c.GetProperty("edid").GetString(), Model = new Model { File = c.GetProperty("model").GetString()! },
-                Name = c.GetProperty("name").GetString(),
-                Items = new ExtendedList<ContainerEntry>(),                        // null by default in Mutagen 0.55
-            };
-            foreach (var it in c.GetProperty("items").EnumerateArray())
-            {
-                var form = it.GetProperty("form").GetString()!;                     // "<plugin>:<6 hex>"
-                var colon = form.IndexOf(':');
-                var fk = new FormKey(ModKey.FromNameAndExtension(form[..colon]), Convert.ToUInt32(form[(colon + 1)..], 16));
-                cont.Items.Add(new ContainerEntry
+                cont = new Container(NewKey(), release)
                 {
-                    Item = new ContainerItem { Item = new FormLink<IItemGetter>(fk), Count = it.GetProperty("count").GetInt32() },
-                });
+                    EditorID = edid, Model = new Model { File = cmodel },
+                    Name = c.GetProperty("name").GetString(),
+                    Items = new ExtendedList<ContainerEntry>(),                    // null by default in Mutagen 0.55
+                };
+                foreach (var it in c.GetProperty("items").EnumerateArray())
+                {
+                    var form = it.GetProperty("form").GetString()!;                 // "<plugin>:<6 hex>"
+                    var colon = form.IndexOf(':');
+                    var fk = new FormKey(ModKey.FromNameAndExtension(form[..colon]), Convert.ToUInt32(form[(colon + 1)..], 16));
+                    cont.Items.Add(new ContainerEntry
+                    {
+                        Item = new ContainerItem { Item = new FormLink<IItemGetter>(fk), Count = it.GetProperty("count").GetInt32() },
+                    });
+                }
+                mod.Containers.Add(cont);
+                contByEdid[edid] = cont;
             }
-            mod.Containers.Add(cont);
+            else if (!string.Equals(cont.Model?.File, cmodel, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException($"container {edid}: two models ({cont.Model?.File} / {cmodel}) under one edid");
             var pos = V("pos");
             var rot = V("rot");
             var obj = new PlacedObject(referenceKeys[c.GetProperty("src").GetString()!], release)
@@ -274,7 +283,8 @@ if (Has(prm, "objects"))
             {
                 ["base"] = cont.FormKey.ID.ToString("X6"), ["ref"] = obj.FormKey.ID.ToString("X6"),
             };
-            Console.WriteLine($"  container {cont.EditorID} {cont.FormKey} ({cont.Items.Count} items) -> REFR {obj.FormKey} in cell ({cxy[0]}, {cxy[1]})");
+            if (contByEdid.Count <= 8 || nRef % 500 == 0)
+                Console.WriteLine($"  container {cont.EditorID} {cont.FormKey} ({cont.Items.Count} items) -> REFR {obj.FormKey} in cell ({cxy[0]}, {cxy[1]})");
         }
     }
     var ids = new Dictionary<string, object> { ["plugin"] = modKey.FileName.String, ["world"] = world, ["bases"] = baseIds, ["refs"] = refIds, ["containers"] = contIds };

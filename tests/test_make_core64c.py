@@ -447,6 +447,31 @@ class StageTests(unittest.TestCase):
         self.assertEqual((s["min"], s["median"], s["max"]), (-2.0, 1.0, 3.0))
 
 
+class ContainerPerBaseTests(unittest.TestCase):
+    def test_entries_of_one_base_share_the_cont_edid(self):
+        bases = [{"edid": "FO4Core_x", "model": "m.nif", "source": "s.nif"}]
+        placed = [{"src": "000001:Fallout4.esm", "base": 0, "cell": [0, 0], "pos": [0, 0, 0], "rot": [0, 0, 0], "scale": 1.0},
+                  {"src": "000002:Fallout4.esm", "base": 0, "cell": [0, 0], "pos": [1, 0, 0], "rot": [0, 0, 0], "scale": 1.0},
+                  {"src": "000003:Fallout4.esm", "base": 0, "cell": [0, 0], "pos": [2, 0, 0], "rot": [0, 0, 0], "scale": 1.0}]
+        items = [{"form": "Starfield.esm:00000F", "count": 1}]
+        cluster = {"containers": [{"src": "000001:Fallout4.esm", "name": "A", "items": items, "base": "04B6E9:Fallout4.esm"},
+                                  {"src": "000002:Fallout4.esm", "name": "A", "items": items, "base": "04B6E9:Fallout4.esm"},
+                                  {"src": "000003:Fallout4.esm", "name": "B", "items": items}]}
+        keep, conts = mk.cluster_containers(bases, placed, cluster)
+        self.assertEqual(keep, [])
+        self.assertEqual([c["edid"] for c in conts], ["FO4Core_cont_04b6e9", "FO4Core_cont_04b6e9", "FO4Core_cont_000003"])
+        self.assertEqual([c["reference_index"] for c in conts], [0, 1, 2])
+
+    def test_check_accepts_a_shared_cont_base(self):
+        objects = {"refs": [], "containers": [{"src": "000001:Fallout4.esm", "reference_index": 0}, {"src": "000002:Fallout4.esm", "reference_index": 1}]}
+        ids = {"bases": {"FO4Core_x": "000800"}, "refs": {},
+               "containers": {"000001:Fallout4.esm": {"base": "000803", "ref": "000801"}, "000002:Fallout4.esm": {"base": "000803", "ref": "000802"}}}
+        mk.check_reference_slots(objects, ids)                      # shared base 000803 after the two reserved slots: fine
+        ids["containers"]["000002:Fallout4.esm"]["base"] = "000802"
+        with self.assertRaises(ValueError):
+            mk.check_reference_slots(objects, ids)                  # a base inside the reserved slots is not
+
+
 if __name__ == "__main__":
     unittest.main()
 

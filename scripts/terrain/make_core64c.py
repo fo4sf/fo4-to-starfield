@@ -1100,7 +1100,10 @@ def cluster_containers(bases, placed, cluster):
             if not re.fullmatch(r"[A-Za-z0-9_. -]+\.es[mpl]:[0-9A-Fa-f]{6}", str(it.get("form", ""))) or int(it.get("count", 0)) < 1:
                 raise ValueError(f"{p['src']}: item {it!r} is not <plugin>:<6 hex> with a count")
         b = bases[p["base"]]
-        containers.append({"src": p["src"], "edid": f"{EDID_PREFIX}cont_{p['src'].split(':')[0].lower()}",
+        # one CONT per FO4 base (make_cluster.py entries carry "base", the FO4 base formkey: 5,185 Commonwealth containers
+        # over 182 bases); an entry without it (the R05 slice's hand-written one) keeps its per-reference CONT
+        group = str(c.get("base") or p["src"]).split(":")[0].lower()
+        containers.append({"src": p["src"], "edid": f"{EDID_PREFIX}cont_{group}",
                            "reference_index": reference_index,
                            "model": b["model"], "name": c["name"], "items": c["items"],
                            "cell": p["cell"], "pos": p["pos"], "rot": p["rot"], "scale": p["scale"]})
@@ -1131,8 +1134,8 @@ def check_reference_slots(objects, ids):
             value = ids["containers"][src]["ref"] if src in ids["containers"] else ids["refs"][src]
             if int(value, 16) != first + slot:
                 raise ValueError(f"{src}: declared reference moved from original slot {slot}")
-        new_bases = [int(c["base"], 16) for c in ids["containers"].values()]
-        if len(set(new_bases)) != len(new_bases) or any(base < first + total for base in new_bases):
+        new_bases = {int(c["base"], 16) for c in ids["containers"].values()}      # shared by the references of one FO4 base
+        if any(base < first + total for base in new_bases):
             raise ValueError("container base overlaps reserved original identities")
     except (KeyError, TypeError) as e:
         raise ValueError("missing or invalid declared reference identities") from e
