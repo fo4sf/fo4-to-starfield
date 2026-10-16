@@ -1,0 +1,5394 @@
+{
+  "total_fo4_cells": 1069,
+  "total_sf_cells": 0,
+  "total_fo4_triangles": 3439338,
+  "total_sf_triangles": 0,
+  "lost_triangles": 3439338,
+  "reduced_triangles_approx": 0,
+  "lost_coverage": [
+    {
+      "cell": "-1,-1",
+      "fo4_triangles": 2652,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,-10",
+      "fo4_triangles": 1741,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,-11",
+      "fo4_triangles": 1598,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,-12",
+      "fo4_triangles": 1159,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,-13",
+      "fo4_triangles": 1515,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,-14",
+      "fo4_triangles": 1756,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,-15",
+      "fo4_triangles": 1198,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,-2",
+      "fo4_triangles": 1192,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,-3",
+      "fo4_triangles": 2492,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,-4",
+      "fo4_triangles": 2659,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,-5",
+      "fo4_triangles": 2342,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,-6",
+      "fo4_triangles": 1666,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,-7",
+      "fo4_triangles": 2931,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,-8",
+      "fo4_triangles": 3086,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,-9",
+      "fo4_triangles": 2915,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,0",
+      "fo4_triangles": 4819,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,1",
+      "fo4_triangles": 4129,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,10",
+      "fo4_triangles": 4582,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,11",
+      "fo4_triangles": 5079,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,12",
+      "fo4_triangles": 4259,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,13",
+      "fo4_triangles": 4639,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,14",
+      "fo4_triangles": 4959,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,15",
+      "fo4_triangles": 639,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,2",
+      "fo4_triangles": 4200,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,3",
+      "fo4_triangles": 3367,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,4",
+      "fo4_triangles": 2558,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,5",
+      "fo4_triangles": 2592,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,6",
+      "fo4_triangles": 3758,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,7",
+      "fo4_triangles": 4348,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,8",
+      "fo4_triangles": 3224,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-1,9",
+      "fo4_triangles": 3273,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-1",
+      "fo4_triangles": 2997,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-10",
+      "fo4_triangles": 3452,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-11",
+      "fo4_triangles": 4020,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-12",
+      "fo4_triangles": 2125,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-13",
+      "fo4_triangles": 1536,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-14",
+      "fo4_triangles": 970,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-15",
+      "fo4_triangles": 1127,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-16",
+      "fo4_triangles": 1577,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-17",
+      "fo4_triangles": 1501,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-18",
+      "fo4_triangles": 1730,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-19",
+      "fo4_triangles": 1527,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-2",
+      "fo4_triangles": 3840,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-20",
+      "fo4_triangles": 1418,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-21",
+      "fo4_triangles": 221,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-3",
+      "fo4_triangles": 3799,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-4",
+      "fo4_triangles": 5804,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-5",
+      "fo4_triangles": 3294,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-6",
+      "fo4_triangles": 3675,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-7",
+      "fo4_triangles": 3410,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-8",
+      "fo4_triangles": 2959,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,-9",
+      "fo4_triangles": 4329,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,0",
+      "fo4_triangles": 4630,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,1",
+      "fo4_triangles": 5373,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,10",
+      "fo4_triangles": 5355,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,11",
+      "fo4_triangles": 6840,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,12",
+      "fo4_triangles": 4035,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,13",
+      "fo4_triangles": 3423,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,14",
+      "fo4_triangles": 5741,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,15",
+      "fo4_triangles": 1443,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,2",
+      "fo4_triangles": 2015,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,3",
+      "fo4_triangles": 4511,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,4",
+      "fo4_triangles": 4874,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,5",
+      "fo4_triangles": 5859,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,6",
+      "fo4_triangles": 6695,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,7",
+      "fo4_triangles": 5245,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,8",
+      "fo4_triangles": 4666,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-10,9",
+      "fo4_triangles": 4587,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-1",
+      "fo4_triangles": 5261,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-10",
+      "fo4_triangles": 3346,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-11",
+      "fo4_triangles": 3429,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-12",
+      "fo4_triangles": 2459,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-13",
+      "fo4_triangles": 1669,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-14",
+      "fo4_triangles": 1065,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-15",
+      "fo4_triangles": 2007,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-16",
+      "fo4_triangles": 1792,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-17",
+      "fo4_triangles": 1988,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-18",
+      "fo4_triangles": 916,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-19",
+      "fo4_triangles": 1327,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-2",
+      "fo4_triangles": 3881,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-20",
+      "fo4_triangles": 1616,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-21",
+      "fo4_triangles": 1573,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-3",
+      "fo4_triangles": 4515,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-4",
+      "fo4_triangles": 5711,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-5",
+      "fo4_triangles": 3465,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-6",
+      "fo4_triangles": 2972,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-7",
+      "fo4_triangles": 2487,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-8",
+      "fo4_triangles": 3048,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,-9",
+      "fo4_triangles": 2859,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,0",
+      "fo4_triangles": 5455,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,1",
+      "fo4_triangles": 4563,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,10",
+      "fo4_triangles": 5626,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,11",
+      "fo4_triangles": 3989,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,12",
+      "fo4_triangles": 5312,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,13",
+      "fo4_triangles": 6046,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,14",
+      "fo4_triangles": 5301,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,15",
+      "fo4_triangles": 931,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,2",
+      "fo4_triangles": 2523,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,3",
+      "fo4_triangles": 2792,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,4",
+      "fo4_triangles": 3053,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,5",
+      "fo4_triangles": 6132,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,6",
+      "fo4_triangles": 6743,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,7",
+      "fo4_triangles": 4698,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,8",
+      "fo4_triangles": 4495,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-11,9",
+      "fo4_triangles": 5237,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-1",
+      "fo4_triangles": 4953,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-10",
+      "fo4_triangles": 3356,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-11",
+      "fo4_triangles": 4499,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-12",
+      "fo4_triangles": 2650,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-13",
+      "fo4_triangles": 1820,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-14",
+      "fo4_triangles": 1598,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-15",
+      "fo4_triangles": 1850,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-16",
+      "fo4_triangles": 1513,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-17",
+      "fo4_triangles": 2064,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-18",
+      "fo4_triangles": 1361,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-19",
+      "fo4_triangles": 1663,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-2",
+      "fo4_triangles": 4489,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-20",
+      "fo4_triangles": 1412,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-21",
+      "fo4_triangles": 2425,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-22",
+      "fo4_triangles": 118,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-3",
+      "fo4_triangles": 4379,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-4",
+      "fo4_triangles": 3799,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-5",
+      "fo4_triangles": 4560,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-6",
+      "fo4_triangles": 3601,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-7",
+      "fo4_triangles": 1674,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-8",
+      "fo4_triangles": 1980,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,-9",
+      "fo4_triangles": 2301,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,0",
+      "fo4_triangles": 4598,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,1",
+      "fo4_triangles": 4335,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,10",
+      "fo4_triangles": 4954,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,11",
+      "fo4_triangles": 5161,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,12",
+      "fo4_triangles": 7507,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,13",
+      "fo4_triangles": 6496,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,14",
+      "fo4_triangles": 5326,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,15",
+      "fo4_triangles": 984,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,2",
+      "fo4_triangles": 3968,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,3",
+      "fo4_triangles": 2761,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,4",
+      "fo4_triangles": 3439,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,5",
+      "fo4_triangles": 6147,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,6",
+      "fo4_triangles": 6068,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,7",
+      "fo4_triangles": 4340,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,8",
+      "fo4_triangles": 5355,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-12,9",
+      "fo4_triangles": 5225,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-1",
+      "fo4_triangles": 3261,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-10",
+      "fo4_triangles": 2025,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-11",
+      "fo4_triangles": 2690,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-12",
+      "fo4_triangles": 2193,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-13",
+      "fo4_triangles": 1654,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-14",
+      "fo4_triangles": 1286,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-15",
+      "fo4_triangles": 1450,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-16",
+      "fo4_triangles": 1722,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-17",
+      "fo4_triangles": 2568,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-18",
+      "fo4_triangles": 2149,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-19",
+      "fo4_triangles": 1598,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-2",
+      "fo4_triangles": 3212,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-20",
+      "fo4_triangles": 1108,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-21",
+      "fo4_triangles": 3059,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-22",
+      "fo4_triangles": 220,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-3",
+      "fo4_triangles": 3136,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-4",
+      "fo4_triangles": 2943,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-5",
+      "fo4_triangles": 2884,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-6",
+      "fo4_triangles": 2976,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-7",
+      "fo4_triangles": 3159,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-8",
+      "fo4_triangles": 3248,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,-9",
+      "fo4_triangles": 2419,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,0",
+      "fo4_triangles": 2277,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,1",
+      "fo4_triangles": 3149,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,10",
+      "fo4_triangles": 4229,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,11",
+      "fo4_triangles": 4924,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,12",
+      "fo4_triangles": 5035,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,13",
+      "fo4_triangles": 5373,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,14",
+      "fo4_triangles": 4633,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,15",
+      "fo4_triangles": 847,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,2",
+      "fo4_triangles": 3973,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,3",
+      "fo4_triangles": 3545,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,4",
+      "fo4_triangles": 3531,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,5",
+      "fo4_triangles": 6309,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,6",
+      "fo4_triangles": 5777,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,7",
+      "fo4_triangles": 2668,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,8",
+      "fo4_triangles": 4894,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-13,9",
+      "fo4_triangles": 6146,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-1",
+      "fo4_triangles": 2278,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-10",
+      "fo4_triangles": 1641,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-11",
+      "fo4_triangles": 2406,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-12",
+      "fo4_triangles": 2782,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-13",
+      "fo4_triangles": 2760,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-14",
+      "fo4_triangles": 2768,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-15",
+      "fo4_triangles": 2030,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-16",
+      "fo4_triangles": 1297,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-17",
+      "fo4_triangles": 1102,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-18",
+      "fo4_triangles": 1161,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-19",
+      "fo4_triangles": 1917,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-2",
+      "fo4_triangles": 2364,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-20",
+      "fo4_triangles": 2202,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-21",
+      "fo4_triangles": 3431,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-22",
+      "fo4_triangles": 274,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-3",
+      "fo4_triangles": 2481,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-4",
+      "fo4_triangles": 2094,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-5",
+      "fo4_triangles": 3106,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-6",
+      "fo4_triangles": 2509,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-7",
+      "fo4_triangles": 2748,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-8",
+      "fo4_triangles": 3683,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,-9",
+      "fo4_triangles": 2601,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,0",
+      "fo4_triangles": 1616,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,1",
+      "fo4_triangles": 2062,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,10",
+      "fo4_triangles": 5976,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,11",
+      "fo4_triangles": 5292,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,12",
+      "fo4_triangles": 5394,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,13",
+      "fo4_triangles": 5097,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,14",
+      "fo4_triangles": 4839,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,15",
+      "fo4_triangles": 1193,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,2",
+      "fo4_triangles": 3343,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,3",
+      "fo4_triangles": 3442,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,4",
+      "fo4_triangles": 3413,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,5",
+      "fo4_triangles": 5612,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,6",
+      "fo4_triangles": 6678,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,7",
+      "fo4_triangles": 4554,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,8",
+      "fo4_triangles": 5165,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-14,9",
+      "fo4_triangles": 6711,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-1",
+      "fo4_triangles": 2751,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-10",
+      "fo4_triangles": 1925,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-11",
+      "fo4_triangles": 1897,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-12",
+      "fo4_triangles": 2916,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-13",
+      "fo4_triangles": 4865,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-14",
+      "fo4_triangles": 3694,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-15",
+      "fo4_triangles": 1811,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-16",
+      "fo4_triangles": 2376,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-17",
+      "fo4_triangles": 964,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-18",
+      "fo4_triangles": 1165,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-19",
+      "fo4_triangles": 1682,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-2",
+      "fo4_triangles": 2841,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-20",
+      "fo4_triangles": 2149,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-21",
+      "fo4_triangles": 3060,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-22",
+      "fo4_triangles": 112,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-3",
+      "fo4_triangles": 2459,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-4",
+      "fo4_triangles": 3052,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-5",
+      "fo4_triangles": 3106,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-6",
+      "fo4_triangles": 2114,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-7",
+      "fo4_triangles": 2195,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-8",
+      "fo4_triangles": 2740,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,-9",
+      "fo4_triangles": 2353,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,0",
+      "fo4_triangles": 2377,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,1",
+      "fo4_triangles": 2470,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,10",
+      "fo4_triangles": 3725,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,11",
+      "fo4_triangles": 3206,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,12",
+      "fo4_triangles": 3168,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,13",
+      "fo4_triangles": 3432,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,14",
+      "fo4_triangles": 3023,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,15",
+      "fo4_triangles": 668,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,2",
+      "fo4_triangles": 2517,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,3",
+      "fo4_triangles": 2765,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,4",
+      "fo4_triangles": 3744,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,5",
+      "fo4_triangles": 4125,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,6",
+      "fo4_triangles": 4530,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,7",
+      "fo4_triangles": 4548,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,8",
+      "fo4_triangles": 3465,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-15,9",
+      "fo4_triangles": 5084,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-16,-10",
+      "fo4_triangles": 3443,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-16,-11",
+      "fo4_triangles": 3142,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-16,-12",
+      "fo4_triangles": 3320,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-16,-13",
+      "fo4_triangles": 3801,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-16,-14",
+      "fo4_triangles": 3599,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-16,-15",
+      "fo4_triangles": 3112,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-16,-16",
+      "fo4_triangles": 2076,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-16,-17",
+      "fo4_triangles": 706,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-16,-18",
+      "fo4_triangles": 1879,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-16,-19",
+      "fo4_triangles": 3240,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-16,-20",
+      "fo4_triangles": 3250,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-16,-21",
+      "fo4_triangles": 2608,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-16,-22",
+      "fo4_triangles": 2,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-16,-4",
+      "fo4_triangles": 15,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-16,-5",
+      "fo4_triangles": 847,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-16,-6",
+      "fo4_triangles": 1608,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-16,-7",
+      "fo4_triangles": 2881,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-16,-8",
+      "fo4_triangles": 2399,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-16,-9",
+      "fo4_triangles": 3246,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-17,-10",
+      "fo4_triangles": 2000,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-17,-11",
+      "fo4_triangles": 2918,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-17,-12",
+      "fo4_triangles": 3316,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-17,-13",
+      "fo4_triangles": 4617,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-17,-14",
+      "fo4_triangles": 3854,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-17,-15",
+      "fo4_triangles": 4232,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-17,-16",
+      "fo4_triangles": 2134,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-17,-17",
+      "fo4_triangles": 1599,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-17,-18",
+      "fo4_triangles": 1900,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-17,-19",
+      "fo4_triangles": 3815,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-17,-20",
+      "fo4_triangles": 4392,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-17,-21",
+      "fo4_triangles": 981,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-17,-7",
+      "fo4_triangles": 11,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-17,-8",
+      "fo4_triangles": 365,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-17,-9",
+      "fo4_triangles": 1234,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-18,-11",
+      "fo4_triangles": 272,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-18,-12",
+      "fo4_triangles": 1862,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-18,-13",
+      "fo4_triangles": 2682,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-18,-14",
+      "fo4_triangles": 3372,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-18,-15",
+      "fo4_triangles": 3153,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-18,-16",
+      "fo4_triangles": 3348,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-18,-17",
+      "fo4_triangles": 1623,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-18,-18",
+      "fo4_triangles": 1870,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-18,-19",
+      "fo4_triangles": 1682,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-18,-20",
+      "fo4_triangles": 596,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-19,-13",
+      "fo4_triangles": 14,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-19,-14",
+      "fo4_triangles": 645,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-19,-15",
+      "fo4_triangles": 49,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,-1",
+      "fo4_triangles": 1980,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,-10",
+      "fo4_triangles": 2274,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,-11",
+      "fo4_triangles": 2177,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,-12",
+      "fo4_triangles": 2256,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,-13",
+      "fo4_triangles": 1775,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,-14",
+      "fo4_triangles": 2183,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,-15",
+      "fo4_triangles": 1841,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,-2",
+      "fo4_triangles": 1315,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,-3",
+      "fo4_triangles": 1383,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,-4",
+      "fo4_triangles": 439,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,-5",
+      "fo4_triangles": 2370,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,-6",
+      "fo4_triangles": 2965,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,-7",
+      "fo4_triangles": 3362,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,-8",
+      "fo4_triangles": 2724,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,-9",
+      "fo4_triangles": 3378,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,0",
+      "fo4_triangles": 3290,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,1",
+      "fo4_triangles": 1806,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,10",
+      "fo4_triangles": 3510,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,11",
+      "fo4_triangles": 3097,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,12",
+      "fo4_triangles": 3251,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,13",
+      "fo4_triangles": 5242,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,14",
+      "fo4_triangles": 5602,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,15",
+      "fo4_triangles": 846,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,2",
+      "fo4_triangles": 2330,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,3",
+      "fo4_triangles": 2882,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,4",
+      "fo4_triangles": 2197,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,5",
+      "fo4_triangles": 3193,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,6",
+      "fo4_triangles": 3292,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,7",
+      "fo4_triangles": 4175,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,8",
+      "fo4_triangles": 2623,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-2,9",
+      "fo4_triangles": 3982,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,-1",
+      "fo4_triangles": 974,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,-10",
+      "fo4_triangles": 2679,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,-11",
+      "fo4_triangles": 1591,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,-12",
+      "fo4_triangles": 1641,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,-13",
+      "fo4_triangles": 1953,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,-14",
+      "fo4_triangles": 3449,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,-15",
+      "fo4_triangles": 3241,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,-16",
+      "fo4_triangles": 55,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,-2",
+      "fo4_triangles": 1714,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,-3",
+      "fo4_triangles": 1798,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,-4",
+      "fo4_triangles": 1611,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,-5",
+      "fo4_triangles": 1727,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,-6",
+      "fo4_triangles": 3242,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,-7",
+      "fo4_triangles": 3706,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,-8",
+      "fo4_triangles": 2286,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,-9",
+      "fo4_triangles": 2240,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,0",
+      "fo4_triangles": 1243,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,1",
+      "fo4_triangles": 2577,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,10",
+      "fo4_triangles": 4083,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,11",
+      "fo4_triangles": 3643,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,12",
+      "fo4_triangles": 4945,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,13",
+      "fo4_triangles": 4736,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,14",
+      "fo4_triangles": 5418,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,15",
+      "fo4_triangles": 1596,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,2",
+      "fo4_triangles": 1807,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,3",
+      "fo4_triangles": 2709,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,4",
+      "fo4_triangles": 1633,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,5",
+      "fo4_triangles": 1944,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,6",
+      "fo4_triangles": 2993,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,7",
+      "fo4_triangles": 4885,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,8",
+      "fo4_triangles": 2559,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-3,9",
+      "fo4_triangles": 3163,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,-1",
+      "fo4_triangles": 1764,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,-10",
+      "fo4_triangles": 3271,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,-11",
+      "fo4_triangles": 2193,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,-12",
+      "fo4_triangles": 1575,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,-13",
+      "fo4_triangles": 1956,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,-14",
+      "fo4_triangles": 2482,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,-15",
+      "fo4_triangles": 1534,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,-16",
+      "fo4_triangles": 423,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,-17",
+      "fo4_triangles": 77,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,-2",
+      "fo4_triangles": 4424,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,-3",
+      "fo4_triangles": 2516,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,-4",
+      "fo4_triangles": 2410,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,-5",
+      "fo4_triangles": 3141,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,-6",
+      "fo4_triangles": 2942,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,-7",
+      "fo4_triangles": 2890,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,-8",
+      "fo4_triangles": 2350,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,-9",
+      "fo4_triangles": 2984,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,0",
+      "fo4_triangles": 2253,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,1",
+      "fo4_triangles": 3382,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,10",
+      "fo4_triangles": 2335,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,11",
+      "fo4_triangles": 4216,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,12",
+      "fo4_triangles": 4590,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,13",
+      "fo4_triangles": 4199,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,14",
+      "fo4_triangles": 5943,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,15",
+      "fo4_triangles": 1012,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,2",
+      "fo4_triangles": 3575,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,3",
+      "fo4_triangles": 2789,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,4",
+      "fo4_triangles": 2286,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,5",
+      "fo4_triangles": 2830,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,6",
+      "fo4_triangles": 2838,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,7",
+      "fo4_triangles": 5078,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,8",
+      "fo4_triangles": 4880,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-4,9",
+      "fo4_triangles": 3635,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,-1",
+      "fo4_triangles": 3169,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,-10",
+      "fo4_triangles": 5026,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,-11",
+      "fo4_triangles": 4392,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,-12",
+      "fo4_triangles": 3122,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,-13",
+      "fo4_triangles": 2273,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,-14",
+      "fo4_triangles": 2581,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,-15",
+      "fo4_triangles": 2797,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,-16",
+      "fo4_triangles": 3993,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,-17",
+      "fo4_triangles": 1720,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,-2",
+      "fo4_triangles": 3870,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,-3",
+      "fo4_triangles": 4542,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,-4",
+      "fo4_triangles": 4694,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,-5",
+      "fo4_triangles": 4242,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,-6",
+      "fo4_triangles": 3180,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,-7",
+      "fo4_triangles": 3196,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,-8",
+      "fo4_triangles": 3646,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,-9",
+      "fo4_triangles": 3824,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,0",
+      "fo4_triangles": 3812,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,1",
+      "fo4_triangles": 4289,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,10",
+      "fo4_triangles": 3976,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,11",
+      "fo4_triangles": 6229,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,12",
+      "fo4_triangles": 5867,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,13",
+      "fo4_triangles": 4879,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,14",
+      "fo4_triangles": 5055,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,15",
+      "fo4_triangles": 1439,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,2",
+      "fo4_triangles": 4154,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,3",
+      "fo4_triangles": 2769,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,4",
+      "fo4_triangles": 2663,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,5",
+      "fo4_triangles": 3763,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,6",
+      "fo4_triangles": 3715,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,7",
+      "fo4_triangles": 3573,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,8",
+      "fo4_triangles": 3119,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-5,9",
+      "fo4_triangles": 3558,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,-1",
+      "fo4_triangles": 5845,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,-10",
+      "fo4_triangles": 3510,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,-11",
+      "fo4_triangles": 4480,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,-12",
+      "fo4_triangles": 3339,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,-13",
+      "fo4_triangles": 3298,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,-14",
+      "fo4_triangles": 4735,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,-15",
+      "fo4_triangles": 5143,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,-16",
+      "fo4_triangles": 5009,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,-17",
+      "fo4_triangles": 4899,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,-18",
+      "fo4_triangles": 648,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,-2",
+      "fo4_triangles": 4904,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,-3",
+      "fo4_triangles": 4964,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,-4",
+      "fo4_triangles": 4471,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,-5",
+      "fo4_triangles": 4326,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,-6",
+      "fo4_triangles": 2895,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,-7",
+      "fo4_triangles": 1813,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,-8",
+      "fo4_triangles": 2099,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,-9",
+      "fo4_triangles": 3164,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,0",
+      "fo4_triangles": 3258,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,1",
+      "fo4_triangles": 3581,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,10",
+      "fo4_triangles": 3470,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,11",
+      "fo4_triangles": 5977,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,12",
+      "fo4_triangles": 6180,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,13",
+      "fo4_triangles": 5154,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,14",
+      "fo4_triangles": 4689,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,15",
+      "fo4_triangles": 1269,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,2",
+      "fo4_triangles": 3446,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,3",
+      "fo4_triangles": 2371,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,4",
+      "fo4_triangles": 3041,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,5",
+      "fo4_triangles": 3202,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,6",
+      "fo4_triangles": 3874,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,7",
+      "fo4_triangles": 3128,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,8",
+      "fo4_triangles": 4247,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-6,9",
+      "fo4_triangles": 4268,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,-1",
+      "fo4_triangles": 6178,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,-10",
+      "fo4_triangles": 2684,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,-11",
+      "fo4_triangles": 2975,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,-12",
+      "fo4_triangles": 3857,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,-13",
+      "fo4_triangles": 5004,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,-14",
+      "fo4_triangles": 4701,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,-15",
+      "fo4_triangles": 3933,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,-16",
+      "fo4_triangles": 4104,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,-17",
+      "fo4_triangles": 3216,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,-18",
+      "fo4_triangles": 3740,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,-19",
+      "fo4_triangles": 296,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,-2",
+      "fo4_triangles": 4643,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,-3",
+      "fo4_triangles": 4583,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,-4",
+      "fo4_triangles": 5158,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,-5",
+      "fo4_triangles": 5501,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,-6",
+      "fo4_triangles": 3890,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,-7",
+      "fo4_triangles": 1555,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,-8",
+      "fo4_triangles": 2884,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,-9",
+      "fo4_triangles": 3633,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,0",
+      "fo4_triangles": 3473,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,1",
+      "fo4_triangles": 3706,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,10",
+      "fo4_triangles": 3408,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,11",
+      "fo4_triangles": 3487,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,12",
+      "fo4_triangles": 6061,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,13",
+      "fo4_triangles": 4144,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,14",
+      "fo4_triangles": 4413,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,15",
+      "fo4_triangles": 747,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,2",
+      "fo4_triangles": 6160,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,3",
+      "fo4_triangles": 2130,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,4",
+      "fo4_triangles": 2644,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,5",
+      "fo4_triangles": 5518,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,6",
+      "fo4_triangles": 4572,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,7",
+      "fo4_triangles": 4278,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,8",
+      "fo4_triangles": 3013,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-7,9",
+      "fo4_triangles": 4188,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,-1",
+      "fo4_triangles": 3335,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,-10",
+      "fo4_triangles": 2846,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,-11",
+      "fo4_triangles": 3066,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,-12",
+      "fo4_triangles": 4014,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,-13",
+      "fo4_triangles": 4849,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,-14",
+      "fo4_triangles": 3697,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,-15",
+      "fo4_triangles": 1972,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,-16",
+      "fo4_triangles": 2106,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,-17",
+      "fo4_triangles": 3351,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,-18",
+      "fo4_triangles": 2791,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,-19",
+      "fo4_triangles": 1645,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,-2",
+      "fo4_triangles": 4667,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,-3",
+      "fo4_triangles": 4398,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,-4",
+      "fo4_triangles": 4432,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,-5",
+      "fo4_triangles": 3429,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,-6",
+      "fo4_triangles": 3597,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,-7",
+      "fo4_triangles": 3567,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,-8",
+      "fo4_triangles": 3683,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,-9",
+      "fo4_triangles": 3577,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,0",
+      "fo4_triangles": 2776,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,1",
+      "fo4_triangles": 3298,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,10",
+      "fo4_triangles": 3450,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,11",
+      "fo4_triangles": 5449,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,12",
+      "fo4_triangles": 5467,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,13",
+      "fo4_triangles": 5665,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,14",
+      "fo4_triangles": 5834,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,15",
+      "fo4_triangles": 1229,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,2",
+      "fo4_triangles": 4138,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,3",
+      "fo4_triangles": 3883,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,4",
+      "fo4_triangles": 4903,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,5",
+      "fo4_triangles": 5718,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,6",
+      "fo4_triangles": 5970,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,7",
+      "fo4_triangles": 4904,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,8",
+      "fo4_triangles": 3702,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-8,9",
+      "fo4_triangles": 4017,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-1",
+      "fo4_triangles": 2951,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-10",
+      "fo4_triangles": 3910,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-11",
+      "fo4_triangles": 3414,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-12",
+      "fo4_triangles": 3392,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-13",
+      "fo4_triangles": 2576,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-14",
+      "fo4_triangles": 3344,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-15",
+      "fo4_triangles": 1602,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-16",
+      "fo4_triangles": 1721,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-17",
+      "fo4_triangles": 1519,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-18",
+      "fo4_triangles": 845,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-19",
+      "fo4_triangles": 1949,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-2",
+      "fo4_triangles": 3974,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-20",
+      "fo4_triangles": 712,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-3",
+      "fo4_triangles": 5743,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-4",
+      "fo4_triangles": 3831,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-5",
+      "fo4_triangles": 4498,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-6",
+      "fo4_triangles": 3962,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-7",
+      "fo4_triangles": 3675,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-8",
+      "fo4_triangles": 3958,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,-9",
+      "fo4_triangles": 4178,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,0",
+      "fo4_triangles": 2403,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,1",
+      "fo4_triangles": 4478,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,10",
+      "fo4_triangles": 3401,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,11",
+      "fo4_triangles": 5517,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,12",
+      "fo4_triangles": 5681,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,13",
+      "fo4_triangles": 4072,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,14",
+      "fo4_triangles": 5387,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,15",
+      "fo4_triangles": 1227,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,2",
+      "fo4_triangles": 3725,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,3",
+      "fo4_triangles": 4408,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,4",
+      "fo4_triangles": 4523,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,5",
+      "fo4_triangles": 5546,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,6",
+      "fo4_triangles": 6258,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,7",
+      "fo4_triangles": 4932,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,8",
+      "fo4_triangles": 5326,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "-9,9",
+      "fo4_triangles": 3718,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,-1",
+      "fo4_triangles": 1909,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,-10",
+      "fo4_triangles": 1572,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,-11",
+      "fo4_triangles": 2057,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,-12",
+      "fo4_triangles": 1592,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,-13",
+      "fo4_triangles": 1769,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,-14",
+      "fo4_triangles": 2141,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,-15",
+      "fo4_triangles": 1075,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,-2",
+      "fo4_triangles": 3427,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,-3",
+      "fo4_triangles": 3132,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,-4",
+      "fo4_triangles": 3892,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,-5",
+      "fo4_triangles": 2794,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,-6",
+      "fo4_triangles": 3868,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,-7",
+      "fo4_triangles": 2781,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,-8",
+      "fo4_triangles": 2493,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,-9",
+      "fo4_triangles": 2602,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,0",
+      "fo4_triangles": 4801,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,1",
+      "fo4_triangles": 3995,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,10",
+      "fo4_triangles": 4496,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,11",
+      "fo4_triangles": 4684,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,12",
+      "fo4_triangles": 4023,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,13",
+      "fo4_triangles": 2483,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,14",
+      "fo4_triangles": 4423,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,15",
+      "fo4_triangles": 1225,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,2",
+      "fo4_triangles": 4512,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,3",
+      "fo4_triangles": 1377,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,4",
+      "fo4_triangles": 1631,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,5",
+      "fo4_triangles": 1528,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,6",
+      "fo4_triangles": 3969,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,7",
+      "fo4_triangles": 3731,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,8",
+      "fo4_triangles": 3731,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "0,9",
+      "fo4_triangles": 3592,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,-1",
+      "fo4_triangles": 3123,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,-10",
+      "fo4_triangles": 3588,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,-11",
+      "fo4_triangles": 2556,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,-12",
+      "fo4_triangles": 1770,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,-13",
+      "fo4_triangles": 2204,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,-14",
+      "fo4_triangles": 2438,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,-15",
+      "fo4_triangles": 2762,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,-2",
+      "fo4_triangles": 2707,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,-3",
+      "fo4_triangles": 2632,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,-4",
+      "fo4_triangles": 2615,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,-5",
+      "fo4_triangles": 4336,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,-6",
+      "fo4_triangles": 3006,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,-7",
+      "fo4_triangles": 3037,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,-8",
+      "fo4_triangles": 2368,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,-9",
+      "fo4_triangles": 3688,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,0",
+      "fo4_triangles": 3106,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,1",
+      "fo4_triangles": 5188,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,10",
+      "fo4_triangles": 3486,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,11",
+      "fo4_triangles": 4116,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,12",
+      "fo4_triangles": 3811,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,13",
+      "fo4_triangles": 3997,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,14",
+      "fo4_triangles": 4494,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,15",
+      "fo4_triangles": 978,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,2",
+      "fo4_triangles": 2257,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,3",
+      "fo4_triangles": 1952,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,4",
+      "fo4_triangles": 2541,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,5",
+      "fo4_triangles": 3378,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,6",
+      "fo4_triangles": 2990,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,7",
+      "fo4_triangles": 3879,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,8",
+      "fo4_triangles": 2586,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "1,9",
+      "fo4_triangles": 4619,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,-1",
+      "fo4_triangles": 3220,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,-10",
+      "fo4_triangles": 5779,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,-11",
+      "fo4_triangles": 4535,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,-12",
+      "fo4_triangles": 2151,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,-13",
+      "fo4_triangles": 3177,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,-14",
+      "fo4_triangles": 2354,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,-15",
+      "fo4_triangles": 1682,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,-2",
+      "fo4_triangles": 3586,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,-3",
+      "fo4_triangles": 2421,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,-4",
+      "fo4_triangles": 4777,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,-5",
+      "fo4_triangles": 6408,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,-6",
+      "fo4_triangles": 5569,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,-7",
+      "fo4_triangles": 2260,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,-8",
+      "fo4_triangles": 3573,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,-9",
+      "fo4_triangles": 3400,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,0",
+      "fo4_triangles": 2750,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,1",
+      "fo4_triangles": 3052,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,10",
+      "fo4_triangles": 3849,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,11",
+      "fo4_triangles": 3417,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,12",
+      "fo4_triangles": 2726,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,13",
+      "fo4_triangles": 2825,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,14",
+      "fo4_triangles": 2369,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,15",
+      "fo4_triangles": 865,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,2",
+      "fo4_triangles": 5033,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,3",
+      "fo4_triangles": 4641,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,4",
+      "fo4_triangles": 4720,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,5",
+      "fo4_triangles": 4097,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,6",
+      "fo4_triangles": 3074,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,7",
+      "fo4_triangles": 2098,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,8",
+      "fo4_triangles": 2815,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "10,9",
+      "fo4_triangles": 3574,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,-1",
+      "fo4_triangles": 6135,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,-10",
+      "fo4_triangles": 3840,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,-11",
+      "fo4_triangles": 4049,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,-12",
+      "fo4_triangles": 2669,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,-13",
+      "fo4_triangles": 2778,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,-14",
+      "fo4_triangles": 2179,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,-15",
+      "fo4_triangles": 1393,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,-2",
+      "fo4_triangles": 3767,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,-3",
+      "fo4_triangles": 2428,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,-4",
+      "fo4_triangles": 4677,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,-5",
+      "fo4_triangles": 6254,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,-6",
+      "fo4_triangles": 6494,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,-7",
+      "fo4_triangles": 2762,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,-8",
+      "fo4_triangles": 2960,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,-9",
+      "fo4_triangles": 4072,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,0",
+      "fo4_triangles": 6263,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,1",
+      "fo4_triangles": 5653,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,10",
+      "fo4_triangles": 4280,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,11",
+      "fo4_triangles": 3415,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,12",
+      "fo4_triangles": 3408,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,13",
+      "fo4_triangles": 3301,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,14",
+      "fo4_triangles": 3119,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,15",
+      "fo4_triangles": 905,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,2",
+      "fo4_triangles": 4190,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,3",
+      "fo4_triangles": 4484,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,4",
+      "fo4_triangles": 4470,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,5",
+      "fo4_triangles": 2400,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,6",
+      "fo4_triangles": 5463,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,7",
+      "fo4_triangles": 5303,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,8",
+      "fo4_triangles": 2511,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "11,9",
+      "fo4_triangles": 3267,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,-1",
+      "fo4_triangles": 5806,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,-10",
+      "fo4_triangles": 3169,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,-11",
+      "fo4_triangles": 2399,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,-12",
+      "fo4_triangles": 2832,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,-13",
+      "fo4_triangles": 2016,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,-14",
+      "fo4_triangles": 2290,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,-15",
+      "fo4_triangles": 1549,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,-2",
+      "fo4_triangles": 7070,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,-3",
+      "fo4_triangles": 6563,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,-4",
+      "fo4_triangles": 6777,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,-5",
+      "fo4_triangles": 5273,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,-6",
+      "fo4_triangles": 7410,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,-7",
+      "fo4_triangles": 6049,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,-8",
+      "fo4_triangles": 4622,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,-9",
+      "fo4_triangles": 4620,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,0",
+      "fo4_triangles": 5573,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,1",
+      "fo4_triangles": 5995,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,10",
+      "fo4_triangles": 3963,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,11",
+      "fo4_triangles": 3326,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,12",
+      "fo4_triangles": 3373,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,13",
+      "fo4_triangles": 3809,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,14",
+      "fo4_triangles": 2196,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,15",
+      "fo4_triangles": 283,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,2",
+      "fo4_triangles": 5689,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,3",
+      "fo4_triangles": 3188,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,4",
+      "fo4_triangles": 2910,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,5",
+      "fo4_triangles": 4256,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,6",
+      "fo4_triangles": 5071,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,7",
+      "fo4_triangles": 5057,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,8",
+      "fo4_triangles": 4049,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "12,9",
+      "fo4_triangles": 2970,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,-1",
+      "fo4_triangles": 4847,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,-10",
+      "fo4_triangles": 2836,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,-11",
+      "fo4_triangles": 1959,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,-12",
+      "fo4_triangles": 1881,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,-13",
+      "fo4_triangles": 3144,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,-14",
+      "fo4_triangles": 2279,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,-15",
+      "fo4_triangles": 1381,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,-2",
+      "fo4_triangles": 6250,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,-3",
+      "fo4_triangles": 6131,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,-4",
+      "fo4_triangles": 5725,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,-5",
+      "fo4_triangles": 5580,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,-6",
+      "fo4_triangles": 5427,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,-7",
+      "fo4_triangles": 4146,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,-8",
+      "fo4_triangles": 5365,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,-9",
+      "fo4_triangles": 4269,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,0",
+      "fo4_triangles": 5047,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,1",
+      "fo4_triangles": 4333,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,10",
+      "fo4_triangles": 3781,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,11",
+      "fo4_triangles": 3319,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,12",
+      "fo4_triangles": 3384,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,13",
+      "fo4_triangles": 4904,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,14",
+      "fo4_triangles": 326,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,15",
+      "fo4_triangles": 10,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,2",
+      "fo4_triangles": 4473,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,3",
+      "fo4_triangles": 2671,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,4",
+      "fo4_triangles": 1921,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,5",
+      "fo4_triangles": 3620,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,6",
+      "fo4_triangles": 5118,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,7",
+      "fo4_triangles": 5518,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,8",
+      "fo4_triangles": 4612,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "13,9",
+      "fo4_triangles": 1867,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,-1",
+      "fo4_triangles": 5650,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,-10",
+      "fo4_triangles": 2598,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,-11",
+      "fo4_triangles": 2500,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,-12",
+      "fo4_triangles": 2426,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,-13",
+      "fo4_triangles": 2228,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,-14",
+      "fo4_triangles": 1797,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,-15",
+      "fo4_triangles": 1365,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,-2",
+      "fo4_triangles": 5679,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,-3",
+      "fo4_triangles": 5569,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,-4",
+      "fo4_triangles": 5721,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,-5",
+      "fo4_triangles": 5176,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,-6",
+      "fo4_triangles": 4920,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,-7",
+      "fo4_triangles": 4881,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,-8",
+      "fo4_triangles": 3989,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,-9",
+      "fo4_triangles": 2702,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,0",
+      "fo4_triangles": 5817,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,1",
+      "fo4_triangles": 5362,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,10",
+      "fo4_triangles": 3037,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,11",
+      "fo4_triangles": 4169,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,12",
+      "fo4_triangles": 4474,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,13",
+      "fo4_triangles": 4852,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,14",
+      "fo4_triangles": 269,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,15",
+      "fo4_triangles": 10,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,2",
+      "fo4_triangles": 6088,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,3",
+      "fo4_triangles": 3567,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,4",
+      "fo4_triangles": 2385,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,5",
+      "fo4_triangles": 2143,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,6",
+      "fo4_triangles": 7509,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,7",
+      "fo4_triangles": 6196,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,8",
+      "fo4_triangles": 5785,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,9",
+      "fo4_triangles": 5487,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,-1",
+      "fo4_triangles": 4553,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,-10",
+      "fo4_triangles": 398,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,-11",
+      "fo4_triangles": 467,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,-12",
+      "fo4_triangles": 351,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,-13",
+      "fo4_triangles": 489,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,-14",
+      "fo4_triangles": 380,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,-15",
+      "fo4_triangles": 298,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,-2",
+      "fo4_triangles": 2337,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,-3",
+      "fo4_triangles": 2360,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,-4",
+      "fo4_triangles": 2907,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,-5",
+      "fo4_triangles": 3235,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,-6",
+      "fo4_triangles": 2066,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,-7",
+      "fo4_triangles": 2365,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,-8",
+      "fo4_triangles": 3003,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,-9",
+      "fo4_triangles": 947,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,0",
+      "fo4_triangles": 2547,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,1",
+      "fo4_triangles": 3743,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,10",
+      "fo4_triangles": 1371,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,11",
+      "fo4_triangles": 1078,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,12",
+      "fo4_triangles": 964,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,13",
+      "fo4_triangles": 1076,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,14",
+      "fo4_triangles": 55,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,15",
+      "fo4_triangles": 1,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,2",
+      "fo4_triangles": 3555,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,3",
+      "fo4_triangles": 1957,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,4",
+      "fo4_triangles": 345,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,5",
+      "fo4_triangles": 196,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,6",
+      "fo4_triangles": 1422,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,7",
+      "fo4_triangles": 1242,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,8",
+      "fo4_triangles": 1312,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "15,9",
+      "fo4_triangles": 1288,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,-1",
+      "fo4_triangles": 3154,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,-10",
+      "fo4_triangles": 2469,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,-11",
+      "fo4_triangles": 2022,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,-12",
+      "fo4_triangles": 3205,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,-13",
+      "fo4_triangles": 2892,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,-14",
+      "fo4_triangles": 4108,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,-15",
+      "fo4_triangles": 2173,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,-2",
+      "fo4_triangles": 3811,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,-3",
+      "fo4_triangles": 4114,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,-4",
+      "fo4_triangles": 9252,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,-5",
+      "fo4_triangles": 6198,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,-6",
+      "fo4_triangles": 3674,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,-7",
+      "fo4_triangles": 2963,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,-8",
+      "fo4_triangles": 2480,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,-9",
+      "fo4_triangles": 2910,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,0",
+      "fo4_triangles": 2106,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,1",
+      "fo4_triangles": 2659,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,10",
+      "fo4_triangles": 4036,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,11",
+      "fo4_triangles": 4978,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,12",
+      "fo4_triangles": 5223,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,13",
+      "fo4_triangles": 5315,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,14",
+      "fo4_triangles": 7881,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,15",
+      "fo4_triangles": 1327,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,2",
+      "fo4_triangles": 3199,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,3",
+      "fo4_triangles": 1316,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,4",
+      "fo4_triangles": 2471,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,5",
+      "fo4_triangles": 4032,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,6",
+      "fo4_triangles": 3883,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,7",
+      "fo4_triangles": 3863,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,8",
+      "fo4_triangles": 3481,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,9",
+      "fo4_triangles": 2722,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,-1",
+      "fo4_triangles": 3941,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,-10",
+      "fo4_triangles": 2365,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,-11",
+      "fo4_triangles": 1561,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,-12",
+      "fo4_triangles": 2526,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,-13",
+      "fo4_triangles": 4814,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,-14",
+      "fo4_triangles": 2353,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,-15",
+      "fo4_triangles": 2584,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,-2",
+      "fo4_triangles": 2323,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,-3",
+      "fo4_triangles": 4530,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,-4",
+      "fo4_triangles": 4298,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,-5",
+      "fo4_triangles": 3888,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,-6",
+      "fo4_triangles": 2508,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,-7",
+      "fo4_triangles": 3515,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,-8",
+      "fo4_triangles": 3323,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,-9",
+      "fo4_triangles": 4426,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,0",
+      "fo4_triangles": 3389,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,1",
+      "fo4_triangles": 2284,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,10",
+      "fo4_triangles": 3696,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,11",
+      "fo4_triangles": 5013,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,12",
+      "fo4_triangles": 4525,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,13",
+      "fo4_triangles": 5164,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,14",
+      "fo4_triangles": 6024,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,15",
+      "fo4_triangles": 1203,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,2",
+      "fo4_triangles": 2013,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,3",
+      "fo4_triangles": 2838,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,4",
+      "fo4_triangles": 2343,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,5",
+      "fo4_triangles": 3850,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,6",
+      "fo4_triangles": 2956,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,7",
+      "fo4_triangles": 2456,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,8",
+      "fo4_triangles": 3023,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "3,9",
+      "fo4_triangles": 2958,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,-1",
+      "fo4_triangles": 2427,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,-10",
+      "fo4_triangles": 2291,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,-11",
+      "fo4_triangles": 1245,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,-12",
+      "fo4_triangles": 2721,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,-13",
+      "fo4_triangles": 6601,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,-14",
+      "fo4_triangles": 2531,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,-15",
+      "fo4_triangles": 1286,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,-2",
+      "fo4_triangles": 2807,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,-3",
+      "fo4_triangles": 2968,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,-4",
+      "fo4_triangles": 2080,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,-5",
+      "fo4_triangles": 2089,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,-6",
+      "fo4_triangles": 2769,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,-7",
+      "fo4_triangles": 3165,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,-8",
+      "fo4_triangles": 3519,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,-9",
+      "fo4_triangles": 2741,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,0",
+      "fo4_triangles": 3014,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,1",
+      "fo4_triangles": 2428,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,10",
+      "fo4_triangles": 3988,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,11",
+      "fo4_triangles": 5128,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,12",
+      "fo4_triangles": 3070,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,13",
+      "fo4_triangles": 4816,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,14",
+      "fo4_triangles": 4153,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,15",
+      "fo4_triangles": 712,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,2",
+      "fo4_triangles": 2436,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,3",
+      "fo4_triangles": 2173,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,4",
+      "fo4_triangles": 1572,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,5",
+      "fo4_triangles": 3981,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,6",
+      "fo4_triangles": 3895,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,7",
+      "fo4_triangles": 3712,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,8",
+      "fo4_triangles": 3525,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "4,9",
+      "fo4_triangles": 2916,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,-1",
+      "fo4_triangles": 3341,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,-10",
+      "fo4_triangles": 4018,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,-11",
+      "fo4_triangles": 2082,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,-12",
+      "fo4_triangles": 1255,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,-13",
+      "fo4_triangles": 1936,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,-14",
+      "fo4_triangles": 1876,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,-15",
+      "fo4_triangles": 1177,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,-2",
+      "fo4_triangles": 2694,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,-3",
+      "fo4_triangles": 1504,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,-4",
+      "fo4_triangles": 1175,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,-5",
+      "fo4_triangles": 921,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,-6",
+      "fo4_triangles": 2851,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,-7",
+      "fo4_triangles": 3610,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,-8",
+      "fo4_triangles": 3691,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,-9",
+      "fo4_triangles": 2085,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,0",
+      "fo4_triangles": 2794,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,1",
+      "fo4_triangles": 3059,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,10",
+      "fo4_triangles": 4490,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,11",
+      "fo4_triangles": 4268,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,12",
+      "fo4_triangles": 3488,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,13",
+      "fo4_triangles": 4877,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,14",
+      "fo4_triangles": 4487,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,15",
+      "fo4_triangles": 999,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,2",
+      "fo4_triangles": 3536,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,3",
+      "fo4_triangles": 3734,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,4",
+      "fo4_triangles": 2591,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,5",
+      "fo4_triangles": 2199,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,6",
+      "fo4_triangles": 3831,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,7",
+      "fo4_triangles": 4339,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,8",
+      "fo4_triangles": 3771,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "5,9",
+      "fo4_triangles": 2853,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,-1",
+      "fo4_triangles": 4448,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,-10",
+      "fo4_triangles": 1937,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,-11",
+      "fo4_triangles": 1435,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,-12",
+      "fo4_triangles": 1920,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,-13",
+      "fo4_triangles": 1435,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,-14",
+      "fo4_triangles": 1302,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,-15",
+      "fo4_triangles": 1039,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,-2",
+      "fo4_triangles": 1352,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,-3",
+      "fo4_triangles": 685,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,-4",
+      "fo4_triangles": 754,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,-5",
+      "fo4_triangles": 1214,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,-6",
+      "fo4_triangles": 1074,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,-7",
+      "fo4_triangles": 3871,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,-8",
+      "fo4_triangles": 2844,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,-9",
+      "fo4_triangles": 1800,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,0",
+      "fo4_triangles": 3032,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,1",
+      "fo4_triangles": 2620,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,10",
+      "fo4_triangles": 2777,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,11",
+      "fo4_triangles": 4104,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,12",
+      "fo4_triangles": 4862,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,13",
+      "fo4_triangles": 3314,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,14",
+      "fo4_triangles": 4260,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,15",
+      "fo4_triangles": 929,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,2",
+      "fo4_triangles": 3814,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,3",
+      "fo4_triangles": 2469,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,4",
+      "fo4_triangles": 1974,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,5",
+      "fo4_triangles": 2491,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,6",
+      "fo4_triangles": 3189,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,7",
+      "fo4_triangles": 3756,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,8",
+      "fo4_triangles": 3380,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "6,9",
+      "fo4_triangles": 4250,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,-1",
+      "fo4_triangles": 3733,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,-10",
+      "fo4_triangles": 3761,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,-11",
+      "fo4_triangles": 2061,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,-12",
+      "fo4_triangles": 2943,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,-13",
+      "fo4_triangles": 2365,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,-14",
+      "fo4_triangles": 1972,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,-15",
+      "fo4_triangles": 1198,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,-2",
+      "fo4_triangles": 3533,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,-3",
+      "fo4_triangles": 2448,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,-4",
+      "fo4_triangles": 2630,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,-5",
+      "fo4_triangles": 6280,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,-6",
+      "fo4_triangles": 3735,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,-7",
+      "fo4_triangles": 2589,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,-8",
+      "fo4_triangles": 1928,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,-9",
+      "fo4_triangles": 2618,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,0",
+      "fo4_triangles": 1705,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,1",
+      "fo4_triangles": 3232,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,10",
+      "fo4_triangles": 3092,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,11",
+      "fo4_triangles": 4890,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,12",
+      "fo4_triangles": 2660,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,13",
+      "fo4_triangles": 5016,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,14",
+      "fo4_triangles": 4044,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,15",
+      "fo4_triangles": 867,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,2",
+      "fo4_triangles": 2566,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,3",
+      "fo4_triangles": 3130,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,4",
+      "fo4_triangles": 2348,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,5",
+      "fo4_triangles": 2565,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,6",
+      "fo4_triangles": 2624,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,7",
+      "fo4_triangles": 3869,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,8",
+      "fo4_triangles": 5455,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "7,9",
+      "fo4_triangles": 3419,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,-1",
+      "fo4_triangles": 1134,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,-10",
+      "fo4_triangles": 3920,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,-11",
+      "fo4_triangles": 2520,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,-12",
+      "fo4_triangles": 1875,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,-13",
+      "fo4_triangles": 1743,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,-14",
+      "fo4_triangles": 1888,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,-15",
+      "fo4_triangles": 1401,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,-2",
+      "fo4_triangles": 2760,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,-3",
+      "fo4_triangles": 4209,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,-4",
+      "fo4_triangles": 4890,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,-5",
+      "fo4_triangles": 6543,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,-6",
+      "fo4_triangles": 5999,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,-7",
+      "fo4_triangles": 1829,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,-8",
+      "fo4_triangles": 2421,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,-9",
+      "fo4_triangles": 2498,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,0",
+      "fo4_triangles": 2340,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,1",
+      "fo4_triangles": 1708,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,10",
+      "fo4_triangles": 3158,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,11",
+      "fo4_triangles": 5258,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,12",
+      "fo4_triangles": 5302,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,13",
+      "fo4_triangles": 4715,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,14",
+      "fo4_triangles": 3601,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,15",
+      "fo4_triangles": 529,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,2",
+      "fo4_triangles": 1671,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,3",
+      "fo4_triangles": 2303,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,4",
+      "fo4_triangles": 2754,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,5",
+      "fo4_triangles": 2482,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,6",
+      "fo4_triangles": 3215,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,7",
+      "fo4_triangles": 2434,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,8",
+      "fo4_triangles": 5120,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "8,9",
+      "fo4_triangles": 3238,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,-1",
+      "fo4_triangles": 1528,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,-10",
+      "fo4_triangles": 1878,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,-11",
+      "fo4_triangles": 2810,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,-12",
+      "fo4_triangles": 1638,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,-13",
+      "fo4_triangles": 1881,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,-14",
+      "fo4_triangles": 2771,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,-15",
+      "fo4_triangles": 1873,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,-2",
+      "fo4_triangles": 1740,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,-3",
+      "fo4_triangles": 2500,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,-4",
+      "fo4_triangles": 5530,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,-5",
+      "fo4_triangles": 5931,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,-6",
+      "fo4_triangles": 5706,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,-7",
+      "fo4_triangles": 1917,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,-8",
+      "fo4_triangles": 2681,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,-9",
+      "fo4_triangles": 2911,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,0",
+      "fo4_triangles": 1815,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,1",
+      "fo4_triangles": 1067,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,10",
+      "fo4_triangles": 3224,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,11",
+      "fo4_triangles": 4617,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,12",
+      "fo4_triangles": 3762,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,13",
+      "fo4_triangles": 3948,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,14",
+      "fo4_triangles": 3787,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,15",
+      "fo4_triangles": 905,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,2",
+      "fo4_triangles": 1313,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,3",
+      "fo4_triangles": 1455,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,4",
+      "fo4_triangles": 2731,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,5",
+      "fo4_triangles": 4184,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,6",
+      "fo4_triangles": 4050,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,7",
+      "fo4_triangles": 1961,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,8",
+      "fo4_triangles": 2327,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "9,9",
+      "fo4_triangles": 2346,
+      "reason": "missing in SF"
+    }
+  ],
+  "reduced_coverage": [],
+  "gained_coverage": [],
+  "example_lost": [
+    "-1,-1",
+    "-1,-10",
+    "-1,-11"
+  ],
+  "example_reduced": [],
+  "unknown": [],
+  "unchanged": 0,
+  "summary": "1069 lost (3439338 tris), 0 reduced, 0 gained, 0 unknown; FO4 tris 3439338 -> SF 0",
+  "totals": {
+    "fo4_overlay_cells_with_navmesh": 1069,
+    "sf_overlay_cells_with_navmesh": 0,
+    "fo4_triangles": 3439338,
+    "sf_triangles": 0,
+    "fo4_area_m2": 9079629.822438,
+    "sf_area_m2": 0.0,
+    "lost_cells": 1069,
+    "reduced_cells": 0,
+    "kept_cells": 0
+  },
+  "worst_cells": [
+    {
+      "cell": "2,-4",
+      "fo4_triangles": 9252,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "2,14",
+      "fo4_triangles": 7881,
+      "reason": "missing in SF"
+    },
+    {
+      "cell": "14,6",
+      "fo4_triangles": 7509,
+      "reason": "missing in SF"
+    }
+  ]
+}

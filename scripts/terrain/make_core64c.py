@@ -37,6 +37,7 @@ import glob
 import json
 import math
 import os
+import re
 import shutil
 import statistics
 import struct
@@ -1078,6 +1079,87 @@ def terrain_edids(prm):
     return {e.lower() for e in out}
 
 
+def container_edid(base, src):
+    """The shared CONT's editor id for a cluster entry: FO4Core_cont_<6 hex>_<plugin> from the FO4 base formkey
+    ("04B6E9:Fallout4.esm" -> FO4Core_cont_04b6e9_fallout4), so the same local id in another plugin is another record;
+    without a base (the R05 slice's entry) the reference's own key, as before (FO4Core_cont_19ee52)."""
+    if not base:
+        return f"{EDID_PREFIX}cont_{str(src).split(':')[0].lower()}"
+    key = str(base)
+    local, _, plugin = key.partition(":")
+    stem = re.sub(r"[^a-z0-9]+", "", plugin.rsplit(".", 1)[0].lower()) or "x"
+    return f"{EDID_PREFIX}cont_{local.lower()}_{stem}"
+
+
+def cluster_containers(bases, placed, cluster):
+    """R05: the placed references named by cluster["containers"] (by FO4 source key) leave the STAT placement and
+    become container entries for TerrainOverlays (the converted model of their base, the given name and vanilla
+    inventory, the reference's cell / position / rotation / scale and original reference index).
+    Returns (placed without them, containers). The writer reserves the source's original REFR identity.
+    ValueError for a reference that is not placed by this build or is initially disabled."""
+    wanted = {c["src"]: c for c in cluster.get("containers", [])}
+    keep, containers = [], []
+    for reference_index, p in enumerate(placed):
+        c = wanted.pop(p["src"], None)
+        if c is None:
+            keep.append(p)
+            continue
+        if p.get("disabled"):
+            raise ValueError(f"{p['src']} is initially disabled in FO4; not a container to open")
+        if not c.get("items"):
+            raise ValueError(f"{p['src']}: a container needs items")
+        for it in c["items"]:
+            if not re.fullmatch(r"[A-Za-z0-9_. -]+\.es[mpl]:[0-9A-Fa-f]{6}", str(it.get("form", ""))) or int(it.get("count", 0)) < 1:
+                raise ValueError(f"{p['src']}: item {it!r} is not <plugin>:<6 hex> with a count")
+        b = bases[p["base"]]
+        # one CONT per FO4 base (make_cluster.py entries carry "base", the FO4 base formkey: 5,185 Commonwealth containers
+        # over 182 bases): the group is the whole formkey, id and plugin (04B6E9:Fallout4.esm and 04B6E9:SomeDLC.esm are
+        # two bases: Codex's review of #167); an entry without "base" (the R05 slice's hand-written one) keeps its
+        # per-reference CONT. Entries of one group must agree on name and items: the writer shares one record.
+        containers.append({"src": p["src"], "edid": container_edid(c.get("base"), p["src"]),
+                           "reference_index": reference_index,
+                           "model": b["model"], "name": c["name"], "items": c["items"],
+                           "cell": p["cell"], "pos": p["pos"], "rot": p["rot"], "scale": p["scale"]})
+    if wanted:
+        raise ValueError(f"references not placed by this build: {sorted(wanted)}")
+    seen = {}
+    for c in containers:
+        sig = (c["name"], tuple(sorted((str(i["form"]).casefold(), int(i["count"])) for i in c["items"])))
+        first = seen.setdefault(c["edid"], (c["src"], sig))
+        if first[1] != sig:
+            raise ValueError(f"{c['src']} and {first[0]} share container {c['edid']} with a different name or inventory")
+    return keep, containers
+
+
+def check_reference_slots(objects, ids):
+    """Check declared promotion slots, not native behavior or cross-export persistence."""
+    containers = objects.get("containers") or []
+    if not containers:
+        return
+    total = len(objects["refs"]) + len(containers)
+    indices = [c.get("reference_index") for c in containers]
+    if any(type(i) is not int or not 0 <= i < total for i in indices) or len(set(indices)) != len(indices):
+        raise ValueError("invalid or duplicate original reference_index")
+    order = [r["src"] for r in objects["refs"]]
+    for c in sorted(containers, key=lambda c: c["reference_index"]):
+        order.insert(c["reference_index"], c["src"])
+    if len({src.casefold() for src in order}) != total:
+        raise ValueError("duplicate source reference identity")
+    try:
+        if set(ids["refs"]) != {r["src"] for r in objects["refs"]} or set(ids["containers"]) != {c["src"] for c in containers}:
+            raise ValueError("declared source reference set differs from objects")
+        first = max(int(value, 16) for value in ids["bases"].values()) + 1
+        for slot, src in enumerate(order):
+            value = ids["containers"][src]["ref"] if src in ids["containers"] else ids["refs"][src]
+            if int(value, 16) != first + slot:
+                raise ValueError(f"{src}: declared reference moved from original slot {slot}")
+        new_bases = {int(c["base"], 16) for c in ids["containers"].values()}      # shared by the references of one FO4 base
+        if any(base < first + total for base in new_bases):
+            raise ValueError("container base overlaps reserved original identities")
+    except (KeyError, TypeError) as e:
+        raise ValueError("missing or invalid declared reference identities") from e
+
+
 def place_all(a, ov):
     sel = load(os.path.join(a.work, "selected.json"))
     man = load(os.path.join(a.work, "convert", "manifest.json"))
@@ -1086,6 +1168,24 @@ def place_all(a, ov):
     for b in bases:
         b["collision"] = x2c.collision_kind(items[b["key"]])
     return bases, placed, skipped_conv, man
+
+
+def navmesh_input(nav, ov):
+    """navmesh.json (src/fo4sf/navmesh.py export) checked for stage --navmesh: a non-empty "navmeshes" list, every entry
+    with a [x, y] cell inside the overlay's cells and a "triangles" list; returns it. ValueError names the first problem
+    (the writer would otherwise fail halfway through a 648,358-reference build)."""
+    if not isinstance(nav, dict) or not isinstance(nav.get("navmeshes"), list) or not nav["navmeshes"]:
+        raise ValueError("not navmesh.export's output (a non-empty navmeshes list)")
+    lo, hi = ov["cell_min"], ov["cell_max"]
+    for i, n in enumerate(nav["navmeshes"]):
+        c = n.get("cell") if isinstance(n, dict) else None
+        if not (isinstance(c, list) and len(c) == 2 and all(isinstance(v, int) for v in c)):
+            raise ValueError(f"navmesh {i}: no [x, y] cell")
+        if not (lo <= c[0] <= hi and lo <= c[1] <= hi):
+            raise ValueError(f"navmesh {i}: cell {c} outside the overlay's cells {lo}..{hi}")
+        if not isinstance(n.get("triangles"), list) or not n["triangles"]:
+            raise ValueError(f"navmesh {i}: no triangles")
+    return nav
 
 
 def cmd_stage(a):
@@ -1120,11 +1220,36 @@ def cmd_stage(a):
         sys.exit("the Data tree does not fit one archive below 4 GiB: lower convert_batch --max-texture, or split it "
                  "into region plugins with their own archives (docs/terrain/core64c.md)")
 
+    # --cluster (R05, docs/slice/r05-cluster-plan.md): the listed references leave the STAT placement and become native
+    # containers (TerrainOverlays "containers": a CONT base with the converted model and a vanilla inventory, one
+    # temporary REFR reusing its original reference_index); new CONT bases follow all reserved REFRs
+    containers = []
+    if getattr(a, "cluster", None):
+        try:
+            placed, containers = cluster_containers(bases, placed, load(a.cluster))
+        except ValueError as e:
+            sys.exit(f"--cluster: {e}")
+        print(f"cluster: {len(containers)} container(s) from {os.path.basename(a.cluster)}: "
+              + ", ".join(f"{c['src']} -> {c['edid']} ({len(c['items'])} items)" for c in containers))
     objects = {"world": ov["world"], "edid_prefix": EDID_PREFIX,
                "bases": [{k: b[k] for k in ("edid", "model", "door", "source", "collision") if k in b} for b in bases],
                "refs": [{k: p[k] for k in ("src", "base", "cell", "pos", "rot", "scale", "disabled")} for p in placed]}
+    if containers:
+        objects["containers"] = containers
     save(os.path.join(out, "objects.json"), objects)
-    save(os.path.join(out, "overlays_params.json"), dict(prm, objects="objects.json"), indent=1)
+    params = dict(prm, objects="objects.json")
+    if getattr(a, "navmesh", ""):
+        # Commonwealth navmesh (docs/terrain/commonwealth-build-plan.md section 4; docs/actors/navmesh-conversion.md):
+        # navmesh.json = src/fo4sf/navmesh.py export over the core's FO4 NAVM (one NAVM per FO4 navmesh and Starfield
+        # cell); TerrainOverlays writes the NAVM records after every object and a NAVI override with one NVMI each
+        try:
+            nav = navmesh_input(load(a.navmesh), ov)
+        except ValueError as e:
+            sys.exit(f"--navmesh: {a.navmesh}: {e}")
+        shutil.copy2(a.navmesh, os.path.join(out, "navmesh.json"))
+        params["navmesh"] = "navmesh.json"
+        print(f"navmesh: {len(nav['navmeshes']):,} NAVM from {a.navmesh}")
+    save(os.path.join(out, "overlays_params.json"), params, indent=1)
     save(os.path.join(out, "skipped.json"), {"counts": exterior.reason_counts(skipped), "types": type_counts(skipped),
                                              "refs": skipped})
     for name in ("preview.png",):
@@ -1393,9 +1518,18 @@ def cmd_check(a):
     def need(cond, what):
         checks.append([what, bool(cond)])
 
+    if objects.get("containers"):
+        try:
+            check_reference_slots(objects, ids)
+        except ValueError as e:
+            need(False, f"declared promotion identity: {e}")
+        else:
+            need(True, "declared source reference slots retained through promotion")
+
     # 1. core64 unchanged: params, Data files, Mars plugin, every core64 record of the main plugin
-    need({k: v for k, v in prm.items() if k != "objects"} == cprm and prm.get("objects") == "objects.json",
-         "overlays_params.json = core64's + objects")
+    need({k: v for k, v in prm.items() if k not in ("objects", "navmesh")} == cprm and prm.get("objects") == "objects.json"
+         and prm.get("navmesh") in (None, "navmesh.json"),
+         "overlays_params.json = core64's + objects" + (" + navmesh" if prm.get("navmesh") else ""))
     for rel in exp["base_files"] + [prm["mars"]["plugin"]]:
         need(os.path.isfile(os.path.join(a.core, *rel.split("/"))) and
              x2c.sha256(os.path.join(out, *rel.split("/"))) == x2c.sha256(os.path.join(a.core, *rel.split("/"))),
@@ -1417,7 +1551,8 @@ def cmd_check(a):
     need(same == len(old["records"]), f"every core64 record unchanged ({same}/{len(old['records'])})")
     old_max = max(r["fid"] & 0xFFFFFF for r in old["records"])
     old_fids = {o["fid"] for o in old["records"]}
-    added = [r for r in new["records"] if r["fid"] not in old_fids]
+    own_index = len(new["masters"])                       # this plugin's own records; an override of a master's record
+    added = [r for r in new["records"] if r["fid"] not in old_fids and (r["fid"] >> 24) == own_index]   # (the NAVI, 000FF1:Starfield.esm) is not "new"
     need(added and min(r["fid"] & 0xFFFFFF for r in added) > old_max,
          f"every new record's FormID after core64's last (0x{old_max:06X})")
     need(new["masters"] == ["Starfield.esm"], f"masters {new['masters']}")
@@ -1428,6 +1563,20 @@ def cmd_check(a):
     recs = new["records"]
     stats = [r for r in recs if r["sig"] in ("STAT", "DOOR")]
     need(len(stats) == len(objects["bases"]), f"{len(stats):,} STAT/DOOR = {len(objects['bases']):,} bases")
+    if prm.get("navmesh"):
+        # 2b. navmesh records (stage --navmesh, docs/actors/navmesh-conversion.md): NAVM count = navmesh.json's, one NAVI
+        # override (000FF1:Starfield.esm), every NAVM after the last object record, formids.json names them
+        navj = load(os.path.join(out, prm["navmesh"]))
+        navms = [r for r in recs if r["sig"] == "NAVM"]
+        navis = [r for r in recs if r["sig"] == "NAVI"]
+        need(len(navms) == len(navj["navmeshes"]), f"{len(navms):,} NAVM = navmesh.json's {len(navj['navmeshes']):,}")
+        need(len(navis) == 1, f"one NAVI override ({len(navis)})")
+        last_obj = max((r["fid"] & 0xFFFFFF for r in recs if r["sig"] in ("STAT", "DOOR", "REFR", "CONT")), default=0)
+        need(navms and min(r["fid"] & 0xFFFFFF for r in navms) > last_obj, f"every NAVM FormID after the last object (0x{last_obj:06X})")
+        nav_ids = load(os.path.join(out, "formids.json")).get("navmeshes", [])
+        need(set(nav_ids) == {f"{r['fid'] & 0xFFFFFF:06X}" for r in navms}, f"formids.json names the {len(nav_ids):,} NAVM")
+        tri = sum(len(n.get("triangles", [])) for n in navj["navmeshes"])
+        rep["navmesh"] = {"navm": len(navms), "navi": len(navis), "triangles": tri, "first_fid": f"{min(r['fid'] & 0xFFFFFF for r in navms):06X}" if navms else None}
     from fo4sf import fo4land
     missing = [m for m in (fo4land.zstring(overlay_records.field(r, "MODL", b"")) for r in stats)
                if not os.path.isfile(os.path.join(out, "Data", "meshes", m))]
@@ -1436,13 +1585,18 @@ def cmd_check(a):
     need(not problems, f"every REFR matches objects.json ({len(problems)} problems: {problems[:3]})")
     need(worst_pos < 1e-3 and worst_rot < 1e-5, f"REFR position / rotation as written (worst {worst_pos:.2e} m, {worst_rot:.2e} rad)")
     refrs = sum(1 for r in recs if r["sig"] == "REFR")
-    need(refrs == len(objects["refs"]) + 2, f"{refrs:,} REFR = {len(objects['refs']):,} objects + COC marker + anchor")
+    conts = objects.get("containers") or []
+    need(refrs == len(objects["refs"]) + 2 + len(conts),
+         f"{refrs:,} REFR = {len(objects['refs']):,} objects + COC marker + anchor" + (f" + {len(conts)} containers" if conts else ""))
+    if conts:
+        cont_recs = [r for r in recs if r["sig"] == "CONT"]
+        need(len(cont_recs) == len(conts), f"{len(cont_recs)} CONT = {len(conts)} cluster containers")
     rep["plugin_records"] = {s: sum(1 for r in recs if r["sig"] == s) for s in sorted({r["sig"] for r in recs})}
     rep["plugin_bytes"] = new["bytes"]
     del new, recs, by, stats
     cells = x2c.walk_cells(os.path.join(out, prm["plugin"]))
     per_cell = {}
-    for r in objects["refs"]:
+    for r in objects["refs"] + list(objects.get("containers") or []):
         per_cell[tuple(r["cell"])] = per_cell.get(tuple(r["cell"]), 0) + 1
     want = dict(per_cell)
     want[tuple(ov["spawn_cell"])] = want.get(tuple(ov["spawn_cell"]), 0) + 1        # + the COC marker
@@ -1681,6 +1835,11 @@ def main():
         s.add_argument("--out", required=True)
         if name == "stage":
             s.add_argument("--sf-esm", default="", help="Starfield.esm: build the plugins with dotnet/TerrainOverlays")
+            s.add_argument("--cluster", default="", help="R05: a cluster json (scripts/terrain/clusters/*.json) whose "
+                           "references become native containers instead of statics")
+
+            s.add_argument("--navmesh", default="", help="navmesh.json (src/fo4sf/navmesh.py export over the core's FO4 NAVM): "
+                           "written as NAVM records in their cells plus the NAVI override (docs/actors/navmesh-conversion.md)")
             s.add_argument("--views", action="store_true",
                            help="add screenshot spots to entry 3 (useful once the runner sets the time of day, PR #73)")
         else:

@@ -1229,6 +1229,19 @@ Independent factual/link QA passed, with draft status made explicit. Guard passe
 No new unit tests for documentation; hosted CI is checked on the PR. No game,
 runner, installation, queue or save changed.
 
+### 2026-10-15 Codex: preserve original reference slots during R05 promotion (proposal)
+
+PR134 removed a source before sequential allocation; the real parent writer reproduces the later-ID shift on a
+synthetic master. The isolated companion retains original reference_index, reserves all REFR slots and reuses the
+promoted source's key, appending only CONT bases. Canonical Claude checkout/production stages/game are untouched.
+29 producer tests and three actual-writer methods pass (four promotion scenarios and five publication refusals).
+Survivor IDs/record data/cell ownership match; no-cluster output is byte-identical to parent. The declared-slot
+check rejects the parent artifact and accepts the four candidates. Initial anchor-fixture failure is retained.
+Release builds pass; the existing CA1831 inventory-parser warning remains. Peer QA, a fresh full-scale candidate,
+all-ID/raw-record comparison and newly pinned native plans/save tests remain required. Full persistent allocation
+across reordered exports and future promoted bases is still open. See testing/container-reference-identities.md;
+private evidence is test-plans/container-reference-identities-20261015. No native acceptance is claimed.
+
 ## 2026-10-15 Codex: bridge recovery on consolidated main
 
 Merged main d628b56 into the owned PR125 branch without rewriting history. Resolved
@@ -1374,3 +1387,57 @@ Second chain of the day (16:31-19:00, runner scripts 64d30ad, build 2470f876), o
   also read the game's `>> 1.00` on the line under the echo once (the OCR splits rows under the compass dial): #158.
   `r05_medkit_1015h` (core64c's verified probes zref_ground / wp_01 next to the activation) was stopped at 21:01 by the
   input guard (another window took the foreground: the owner at the PC) and waits for the next window.
+
+## 2026-10-16: core64n navmesh.convert over the 64 x 64 core (Grok)
+
+Offline. `navmesh.convert` on Commonwealth NAVM in FO4 cells -55..54 (same Fallout4.esm as #163,
+sha256 `ae7be31a…`). 7,047 NAVM / 3,439,338 triangles → 12,104 Starfield NAVM / 3,749,066 triangles,
+156,549 cell-line pairs, 134,876 FO4-portal pairs, 0 refused ids. #163 inventory: 1,069 overlay cells
+all still covered (0 lost / 0 reduced). Red Rocket smoke matched exp2d (105 → 156 NAVM, 2,145 / 1,959
+links). Geometry in staging `terrain_core64n_work/navmesh/` (navmesh.json 433,902,356 B), not git.
+Report: docs/actors/navmesh-core64n-convert.md. Not in-game; writer into FO4TerrainCore.esm is Claude.
+
+## 2026-10-16 night: from the slice to the Commonwealth: plan, R06, the navmesh writer, bridge ref reads, the cluster lists (Claude)
+
+The owner's direction (15 Oct 21:30): push Grok, get everything ready for Codex's two items (#150 identity-keeping
+promotion, the door gate), finish the slice, start the whole Commonwealth.
+
+- **What the Commonwealth is from here** (docs/terrain/commonwealth-build-plan.md, #162, decision recorded): the 64 x 64
+  core already covers the playable Commonwealth's exterior (6.4 km; 648,358 references of 11,769 models over 1,708 FO4
+  cells, FO4 cells x -53..33, y -49..41); the scale-up is record classes, interiors and navmesh across it, not more
+  cells; one plugin for the exterior (the record count is far under the 16.7 M FormID space), interiors stay in
+  FO4Port.esm, joined by the door gate.
+- **R06 (Grok, #163 merged)**: FO4 authors 7,047 NAVM / 3,439,338 triangles / 9.08 million m2 over 1,069 of the
+  overlay's cells; `FO4TerrainCore.esm` has **0 NAVM** (664,229 records walked). Every NPC result so far was on
+  interior navmesh or in a vanilla cell. Grok now runs experiment 2d's converter (`navmesh.py convert`) over the whole
+  core (11 export bands, C:\Modding\staging\terrain_core64c_work).
+- **The navmesh writer (#165 merged)**: experiment 2d's NAVM/NAVI writer ported from TerrainExp2 into TerrainOverlays
+  (`overlays_params` `navmesh`, `make_core64c.py stage --navmesh`, `check` 2b), because the NAVM records must come from
+  the core's own build (an add-on override of exterior cells is ruled out in game). Dry run on exp2d's navmesh.json:
+  156 NAVM, 68,132 triangles, 8,208 edge links, NAVI with 156 NVMI, every NAVM parsed back: the same numbers as 2d.
+- **Reference reads through the bridge (#164)**: `Bridge-Ref-Read` types `cgf "FO4SF_Probe.Pos" <ref>` and
+  `bridge_log.py wait-ref --since <mark>` returns the reply written after the mark; readpos's OCR only as the
+  fallback; the sandbox's fake game answers the probe (actors, statics, the anchor, door refs). A door trip in the
+  sandbox passes with every door read `via bridge-ref` and no `prid` typed. Two lessons: a sandbox suite copies the
+  worktree's scripts per test, so the branch under it must not change while it runs (one run voided); `dotnet run`
+  passes `-nologo` / `-v` through to the program (a dry run read "-nologo" as Starfield.esm).
+- **The cluster lists (#166)**: `make_cluster.py` reads the band exports and core64c's placed references: placed by
+  FO4 base type, Static 573,663, StaticCollection 33,199, MovableStatic 12,379, MiscItem 10,770, Furniture 3,890,
+  Flora 3,520, Activator 2,256, Ingestible 1,688, Container 5,212 (of 5,294), Door 1,262; Light 6,275, IdleMarker
+  5,828, BendableSpline 4,982, SoundMarker 878 not placed at all. The containers list: 5,185 entries over **182 distinct
+  FO4 bases** (116 named by the table exactly, 1,636 by prefix, 3,433 by its default), so the writer should make one
+  CONT per FO4 base, not one per reference as the R05 slice did: that change rides on #150.
+- **Loose items (#168)**: `make_cluster.py items`: 12,438 placed MiscItem / Ingestible references over 492 FO4 bases
+  (10,754 + 1,684; 441 named by the table's prefixes). **Doors, measured**: 1,286 exported exterior doors, 373 of them
+  load doors (a destination door reference); 18 lead into the 16 interiors FO4Port.esm has converted (13 cells; 15 of
+  those doors placed by core64c), 355 into interiors not converted yet. So the door gate's first batch is 15 doors and
+  the interior conversion backlog, not the gate, is the long pole of a walkable Commonwealth.
+- **Ready for Codex's return**: the testing state of #150 passes (tests, TerrainOverlays build, guard);
+  `rebuild_core64e.sh` rebuilds the R05 build with the identity-keeping step in one command; the door gate's OFST/CLSZ
+  slice is planned as `cave_ofst_1015` (#129 itself needs Codex's rebase over #126). Grok's #148 was already merged.
+- **One CONT per base (#167, stacked on #150)**: cluster entries carry the FO4 base; `cluster_containers` names the
+  CONT from it, the writer deduplicates CONTs by edid (model must agree), the identity check accepts shared bases;
+  the R05 hand-written entry is unchanged. 31 tests on #150's head; TerrainOverlays builds.
+- Merged tonight: #162, #163, #161, #165, #166 (and the queue of the day before). Open: #164 (sandbox suite running),
+  #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
+- 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
