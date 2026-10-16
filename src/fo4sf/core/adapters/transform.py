@@ -75,7 +75,11 @@ class Transform:
     def __post_init__(self):
         if len(self.pos) != 3 or len(self.rot) != 3:
             raise ValueError("pos and rot are (x, y, z)")
-        if not self.scale or self.scale <= 0:
+        try:
+            scale = float(self.scale)
+        except (TypeError, ValueError):
+            raise ValueError("scale is positive") from None
+        if not math.isfinite(scale) or scale <= 0:
             raise ValueError("scale is positive")
         object.__setattr__(self, "pos", tuple(float(x) for x in self.pos))
         object.__setattr__(self, "rot", tuple(float(x) for x in self.rot))
