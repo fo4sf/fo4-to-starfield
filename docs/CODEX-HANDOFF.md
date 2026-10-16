@@ -7,7 +7,7 @@ Goal: connected Red Rocket-Sanctuary-cave slice, save/reload, interactions, then
 - Claude: integration/live controller/game, collision/terrain/actors, pipeline and game scripts/staging. No other live input/install/launch until explicit release on #32.
 - Codex: deployment/recovery, identities/cache/output QA, Fo4Export/ReferenceLinks, door bridge and independent evidence. No watchdog restart.
 - Grok: acceptance oracle/route_eval/terrain_evidence and coordinated diagnostics. No concurrent converter/runner edits.
-- Claude-cloud: offline leader-core model/ledger/importer (#135, PR136). PC Claude keeps live control and integration.
+- Claude-cloud: offline leader core, switches default off: #136 ledger, #179 lease, #182 preflight, #185 cards/report, #187 Transform, #193 version pin, #197 runner events, #199 import CLI, #201 escapes; self-review #195, bug hunt #200; reviews #149/#176/#146/#153. No PC, game, merge or controller.
 
 ## Acceptance / current evidence
 
