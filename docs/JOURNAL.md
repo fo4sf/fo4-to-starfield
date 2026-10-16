@@ -1480,3 +1480,22 @@ controls detected. First inefficient audit loop stopped; initial all-unlinked-ba
 are-DOOR assumption disproved/corrected; both preserved. See
 slice/persistent-door-rebuild.md and private persistent-interior-rebuild-20261016.
 No source/game edits, newly connected interiors or native/save acceptance claimed.
+
+## 2026-10-16 — Codex: explicitly selected missing interior door endpoints
+
+ReferenceLinks now accepts --door-bases=JSON keyed by original source reference. Reproduced seven CLI failures: skipped allocation/reservation and ignored invalid selections. Valid selected exported Door records get verified active native/local DOOR bases, stable source-map IDs, persistent grouping, source transforms/disabled/open state; existing conflicting bases/owners and occupied reservations refuse. No guessed bases, synthetic return edges, primary writer changes or live actions. Seven new actual-CLI controls and eleven prior controls plus library/binary checks pass. Peer QA pending; see docs/slice/missing-door-endpoints.md. Private failed/passing fixtures retained under missing-door-endpoints-20261016.
+
+## 2026-10-16 — Codex: actual missing cave endpoint candidate
+
+PR251/code63131c6 exercised against private integ_1016/RedRocket01 snapshots and verified native24F9CE base. Strict mode exit2/no plugin retains missing08EB65 destination; explicitly partial candidate adds05E844 as local00DE5D, preserves54,877 map entries, no XTEL invented. Separate raw parser verifies group/flag/base/transforms/scale and compares all prior records: only header plus three original-export persistent promotions (05F97B/05FAA0/05FAA3), unchanged subrecord bytes. All source pins unchanged. Output cdd69d7b..., private missing-cave-production-20261016; initial wrong net8.0 harness path retained, correctednet9.0 run passes. No stage/install/input change; peer/native/cross-plugin integration pending.
+## 2026-10-16: Codex explicit door selection requires an existing cell
+
+Reproduced Claude's PR251 review finding: `--allow-unresolved` published a plugin
+without an explicitly selected door when its cell map or CELL record was absent;
+report-only also exited successfully for that omitted request. Selection preflight
+now requires the mapped cell before mutation. Six new CLI scenarios pass, including
+unchanged partial behavior for an unrelated missing cell. The targeted executable
+also passes13 missing-door,11 native-base and relationship binary checks; guard and
+diff checks pass. Failed/passing synthetic evidence retained privately in
+test-plans/door-selection-cells-20261016. No real slots, staging, install or game
+input changed; new correction awaits peer QA and carry-forward into stacked253.

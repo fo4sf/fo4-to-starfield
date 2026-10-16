@@ -5,7 +5,7 @@ using Mutagen.Bethesda.Starfield;
 
 if (args.Length < 4)
 {
-    Console.Error.WriteLine("usage: <input.esm> <formids.json> <output dir> <cell.json...> [--report-only] [--allow-unresolved]");
+    Console.Error.WriteLine("usage: <input.esm> <formids.json> <output dir> <cell.json...> [--report-only] [--allow-unresolved] [--door-bases=map.json]");
     Environment.ExitCode = 1;
     return;
 }
@@ -30,7 +30,18 @@ try
         markerBases = vanilla.Statics.Where(s => s.EditorID != null && names.Contains(s.EditorID))
             .ToDictionary(s => s.EditorID!, s => s.FormKey, StringComparer.OrdinalIgnoreCase);
     }
-    var report = Relationships.Apply(mod, ids, exports.Select(x => x.RootElement), markerBases, vanilla);
+    Dictionary<string, FormKey>? doorSelections = null;
+    var doorOptions = args.Where(a => a.StartsWith("--door-bases=", StringComparison.Ordinal)).ToArray();
+    if (doorOptions.Length > 1) throw new InvalidOperationException("duplicate --door-bases option");
+    if (doorOptions.Length == 1)
+    {
+        using var selections = JsonDocument.Parse(File.ReadAllText(doorOptions[0]["--door-bases=".Length..]));
+        doorSelections = new Dictionary<string, FormKey>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in selections.RootElement.EnumerateObject())
+            if (!doorSelections.TryAdd(entry.Name, FormKey.Factory(entry.Value.GetString()!)))
+                throw new InvalidOperationException("duplicate door source selection: " + entry.Name);
+    }
+    var report = Relationships.Apply(mod, ids, exports.Select(x => x.RootElement), markerBases, vanilla, doorSelections);
     Directory.CreateDirectory(args[2]);
     var statePath = Path.Combine(args[2], "build-state.json");
     File.WriteAllText(statePath, JsonSerializer.Serialize(new { complete = false, status = "relationship_translation", unresolved = report.Issues.Count }));
