@@ -7,7 +7,7 @@
     python scripts/convert_batch.py --cell-json <work>/convert_input.json --staging <work>/convert --prefix fo4core
            --max-texture <cap> --types <printed by select> --limit 1000000 --resume  + the usual converter arguments
     python scripts/terrain/make_core64c.py stage --work <work> --core <terrain_core64> --out <terrain_core64c> --sf-esm <Starfield.esm>
-           [--views] [--cluster <cluster.json: "containers", "items", "activators", "terminals">] [--navmesh <navmesh.json>]
+           [--views] [--cluster <cluster.json: "containers", "items", "activators", "terminals", "lights">] [--navmesh <navmesh.json>]
     python scripts/terrain/make_core64c.py check --work <work> --core <terrain_core64> --out <terrain_core64c>
            [--fo4 <Fallout4.esm>] [--fo4-data <FO4 Data>] [--sf-data <Starfield Data>]
     python scripts/terrain/make_core64c.py verify-data --out <terrain_core64c>
@@ -1485,21 +1485,25 @@ def terminal_menu_problems(by_fid, own_prefix, term, e, v):
 
 def promotion_checks(recs, own_prefix, objects, ids, exp):
     """[what, ok] of the plugin's reference and promoted-base counts (check, section 2): REFR = objects + COC marker +
-    anchor + every promoted entry; that total unchanged by promotion (objects + promoted = every reference stage placed
-    before --cluster: exported - skipped); one CONT / MISC / ACTI / TERM per distinct edid of its class and one TMLM
-    per terminal edid; and with promotions promoted_record_check's bindings."""
+    anchor + every promoted entry + lights; that total unchanged by promotion (objects + promoted + lights = every
+    reference stage placed before --cluster plus the lights, which leave the skipped list: exported - skipped); one
+    CONT / MISC / ACTI / TERM per distinct edid of its class and one TMLM per terminal edid; and with promotions
+    promoted_record_check's bindings."""
     entries = {k: objects.get(k) or [] for k, _sig in PROMOTED}
     n_promoted = sum(len(v) for v in entries.values())
     present = [(k, sig) for k, sig in PROMOTED if entries[k]]
+    lights = objects.get("lights") or []
     out = []
     refrs = sum(1 for r in recs if r["sig"] == "REFR")
     out.append([f"{refrs:,} REFR = {len(objects['refs']):,} objects + COC marker + anchor"
-                + "".join(f" + {len(entries[k]):,} {k}" for k, _sig in present),
-                refrs == len(objects["refs"]) + 2 + n_promoted])
+                + "".join(f" + {len(entries[k]):,} {k}" for k, _sig in present)
+                + (f" + {len(lights):,} lights" if lights else ""),
+                refrs == len(objects["refs"]) + 2 + n_promoted + len(lights)])
     unpromoted = exp["objects"]["exported"] - sum(exp["objects"]["skipped"].values())
     out.append([f"REFR total unchanged by promotion: {len(objects['refs']):,} objects + "
                 + " + ".join(f"{len(entries[k]):,} {k}" for k, _sig in (present or PROMOTED[:2]))
-                + f" = {unpromoted:,} placed", len(objects["refs"]) + n_promoted == unpromoted])
+                + (f" + {len(lights):,} lights" if lights else "")
+                + f" = {unpromoted:,} placed", len(objects["refs"]) + n_promoted + len(lights) == unpromoted])
     counted = [(k, sig, entries[k], "edid") for k, sig in PROMOTED] + [("terminals", "TMLM", entries["terminals"], "menu_edid")]
     for key, sig, es, field in counted:
         n_recs = sum(1 for r in recs if r["sig"] == sig)
@@ -1516,6 +1520,227 @@ def promotion_checks(recs, own_prefix, objects, ids, exp):
         out.append([f"every promoted REFR names its {' / '.join(sigs)} (edid, model{'; ' + detail if detail else ''}) at "
                     f"its position ({len(pp)} problems: {pp[:3]})", not pp])
     return out
+
+
+# ------------------------------------------------------------------------------------------------------------ lights
+# Exterior lights (docs/terrain/exterior-lights.md): make_cluster.py lights lists every FO4 Light reference with its
+# base mapped to Starfield light fields. Core64c never placed a light (exterior.TYPE_REASONS), so no light owns a
+# reserved slot: TerrainOverlays gives the light REFRs NEW FormIDs after every record of the build without lights
+# (reserved REFRs, CONT / MISC / ACTI / TERM bases, TMLM menus, NAVMs), then one LIGH per FO4 base, so every FormID an earlier build had stays put.
+# Light REFR header flags carried from the FO4 reference (fo4light.REF_FLAGS_CARRIED; Mutagen's PlacedObject
+# LightMajorFlag in both games): 0x100 DoesNotLightWater, 0x10000 NeverFades, 0x20000 DoesNotLightLandscape
+LIGHT_REF_FLAGS = 0x100 | 0x10000 | 0x20000
+LIGHT_BASE_KEYS = ("time", "radius", "color", "flags", "type", "falloff", "fov", "near_clip", "flicker",
+                   "flicker_effect", "lumens", "bounds", "random_anim_start")
+
+
+def light_edid(base):
+    """The shared LIGH's editor id from the FO4 base formkey ("08ADFA:Fallout4.esm" -> FO4Core_ligh_08adfa_fallout4)."""
+    local, _, plugin = str(base).partition(":")
+    if not re.fullmatch(r"[0-9A-Fa-f]{6}", local) or not plugin:
+        raise ValueError(f"light base {base!r} is not <6 hex>:<plugin>")
+    stem = re.sub(r"[^a-z0-9]+", "", plugin.rsplit(".", 1)[0].lower()) or "x"
+    return f"{EDID_PREFIX}ligh_{local.lower()}_{stem}"
+
+
+def _num(v, lo=-math.inf, hi=math.inf):
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and lo <= v <= hi
+
+
+def check_light_base(key, b):
+    """ValueError unless b holds every Starfield light field TerrainOverlays writes, in range."""
+    missing = [k for k in LIGHT_BASE_KEYS if k not in b]
+    if missing:
+        raise ValueError(f"light base {key}: missing {missing}")
+    if not (_num(b["radius"], 1e-6) and _num(b["lumens"], 1) and float(b["lumens"]).is_integer()
+            and all(type(c) is int and 0 <= c <= 255 for c in b["color"]) and len(b["color"]) == 3
+            and type(b["flags"]) is int and 0 <= b["flags"] < 2 ** 32 and b["type"] in (0, 1, 2)
+            and b["flicker_effect"] in (0, 1, 2) and type(b["time"]) is int
+            and all(_num(b[k]) for k in ("falloff", "fov", "near_clip")) and len(b["flicker"]) == 3
+            and all(_num(v) for v in b["flicker"]) and len(b["bounds"]) == 2
+            and all(len(c) == 3 and all(_num(v) for v in c) for c in b["bounds"])
+            and type(b["random_anim_start"]) is bool):
+        raise ValueError(f"light base {key}: a field out of range ({ {k: b[k] for k in LIGHT_BASE_KEYS} })")
+
+
+def cluster_lights(cluster, ov, placed_srcs):
+    """The cluster's "lights" (make_cluster.py lights) as TerrainOverlays entries: (lights, light_bases, skipped).
+    lights = [{"src", "edid", "cell", "pos" (metres), "rot", "scale", "disabled", "radius" (delta, metres, or None),
+    "lighting" ({"fov", "fade", "near_clip"} or None), "flags" (the FO4 reference's LIGHT_REF_FLAGS bits, from
+    make_cluster.py's "record_flags")}] in the cluster's order; light_bases = [{"edid", "fo4_base",
+    <LIGHT_BASE_KEYS>}] in first-use order (the writer's order); skipped = lights outside the overlay's cells.
+    ValueError for a light that is also a placed reference, a source listed twice, an unknown base or a bad value."""
+    bases = cluster.get("light_bases") or {}
+    placed = {str(s).casefold() for s in placed_srcs}
+    lo, hi = ov["cell_min"], ov["cell_max"]
+    seen, lights, used, skipped = set(), [], {}, []
+    for e in cluster.get("lights") or []:
+        src = e.get("src")
+        if not isinstance(src, str) or not src.strip():
+            raise ValueError(f"light without a source key: {e!r}")
+        if src.casefold() in placed:
+            raise ValueError(f"{src}: a placed reference; a light owns no reserved slot")
+        if src.casefold() in seen:
+            raise ValueError(f"{src}: listed twice")
+        seen.add(src.casefold())
+        if "reference_index" in e:
+            raise ValueError(f"{src}: a light has no original reference_index (core64c never placed it)")
+        key = e.get("base")
+        if key not in bases:
+            raise ValueError(f"{src}: light base {key!r} not in light_bases")
+        pos = exterior.metres(e["fo4_pos"])
+        rot = [float(v) for v in e["rot"]]
+        scale = float(e.get("scale") or 1.0)
+        if not (all(_num(v) for v in pos + tuple(rot)) and _num(scale, 1e-6)):
+            raise ValueError(f"{src}: position, rotation or scale not finite")
+        cell = tg.sf_cell_of(pos[0], pos[1])
+        if not (lo <= cell[0] <= hi and lo <= cell[1] <= hi):
+            skipped.append({"formkey": src, "type": "Light", "base_editor_id": e.get("editor_id"), "model": None,
+                            "exterior_cell": None, "reason": "outside_terrain",
+                            "detail": f"Starfield cell {list(cell)} outside {lo}..{hi}"})
+            continue
+        radius = e.get("radius_delta")
+        if radius is not None and not _num(radius):
+            raise ValueError(f"{src}: radius delta {radius!r}")
+        lig = e.get("lighting")
+        if lig is not None:
+            if not (all(_num(lig.get(k)) for k in ("fov", "near_clip")) and _num(lig.get("fade"), 0.01 - 1e-9, 1.6 + 1e-9)):
+                raise ValueError(f"{src}: lighting {lig!r} (fade must lie in the vanilla XLIG range 0.01..1.6)")
+            lig = {k: float(lig[k]) for k in ("fov", "fade", "near_clip")}
+        flags = e.get("record_flags")
+        if type(flags) is not int or flags < 0 or flags & ~LIGHT_REF_FLAGS:
+            raise ValueError(f"{src}: record_flags {flags!r} (only the bits 0x{LIGHT_REF_FLAGS:X}; a cluster written "
+                             "before #246's review has none: run make_cluster.py lights again)")
+        if key not in used:
+            check_light_base(key, bases[key])
+            used[key] = dict({k: bases[key][k] for k in LIGHT_BASE_KEYS}, edid=light_edid(key), fo4_base=key)
+        lights.append({"src": src, "edid": used[key]["edid"], "cell": list(cell), "pos": [round(v, 5) for v in pos],
+                       "rot": rot, "scale": scale, "disabled": bool(e.get("disabled")), "radius": radius, "lighting": lig,
+                       "flags": flags})
+    return lights, list(used.values()), skipped
+
+
+def stage_lights(cluster, ov, placed, promoted, skipped):
+    """cluster_lights against every placed and promoted (PROMOTED) reference -> (lights, light_bases, skipped,
+    outside): the lights leave `skipped` (where the selection put them, type_not_translated), a light outside the
+    overlay's cells stays in it as outside_terrain, so placed + promoted + lights + skipped still add up to the export."""
+    lights, light_bases, outside = cluster_lights(cluster, ov, [p["src"] for p in placed] + [c["src"] for c in promoted])
+    if not lights and not outside:
+        return lights, light_bases, skipped, 0
+    done = {e["src"] for e in lights} | {s["formkey"] for s in outside}
+    listed = {s["formkey"] for s in skipped}
+    missing = sorted(done - listed)
+    if missing:
+        raise ValueError(f"lights the selection did not skip (not in the export, or placed): {missing[:5]}")
+    return lights, light_bases, [s for s in skipped if s["formkey"] not in done] + outside, len(outside)
+
+
+def check_light_identities(objects, ids):
+    """Light REFRs take new FormIDs after every other record id formids.json declares (bases, reserved REFRs, CONT,
+    MISC, ACTI and TERM bases, TMLM menus, NAVMs), consecutive in objects.json order; the LIGH bases follow, consecutive in first-use order, one per
+    edid. ValueError names the first problem."""
+    lights, lbases = objects.get("lights") or [], objects.get("light_bases") or []
+    if not lights:
+        return
+    try:
+        got = ids["lights"]
+        if set(got) != {e["src"] for e in lights}:
+            raise ValueError("declared light set differs from objects")
+        others = [int(v, 16) for v in ids["bases"].values()] + [int(v, 16) for v in ids["refs"].values()]
+        others += [int(v, 16) for v in ids.get("navmeshes") or []]
+        for k, v in ids.items():                     # every promoted class ({src: {"base", "ref"}}: containers, ...)
+            if k != "lights" and isinstance(v, dict) and v and all(isinstance(x, dict) for x in v.values()):
+                for c in v.values():                 # (a terminal also names its TMLM "menu")
+                    others += [int(c["base"], 16), int(c["ref"], 16)] + ([int(c["menu"], 16)] if "menu" in c else [])
+        first = max(others) + 1
+        for k, e in enumerate(lights):
+            if int(got[e["src"]]["ref"], 16) != first + k:
+                raise ValueError(f"{e['src']}: light REFR {got[e['src']]['ref']} is not new id {first + k:06X}")
+        order = list(dict.fromkeys(e["edid"] for e in lights))
+        if [b["edid"] for b in lbases] != order:
+            raise ValueError("light_bases not in first-use order")
+        base_id = {}
+        for e in lights:
+            base_id.setdefault(e["edid"], set()).add(int(got[e["src"]]["base"], 16))
+        for k, edid in enumerate(order):
+            if base_id[edid] != {first + len(lights) + k}:
+                raise ValueError(f"{edid}: LIGH {sorted(base_id[edid])} is not the one new id {first + len(lights) + k:06X}")
+    except (KeyError, TypeError) as e:
+        raise ValueError("missing or invalid declared light identities") from e
+
+
+def lights_after(recs, own_index, ids):
+    """(first id of a light record, last id of any other record of this plugin): the LIGHs and the light REFRs
+    (formids.json "lights") must all come after the rest. own_index = the plugin's master count."""
+    light_refs = {int(v["ref"], 16) for v in (ids.get("lights") or {}).values()}
+    own = [r for r in recs if (r["fid"] >> 24) == own_index]
+
+    def is_light(r):
+        return r["sig"] == "LIGH" or (r["sig"] == "REFR" and r["fid"] & 0xFFFFFF in light_refs)
+    first = min((r["fid"] & 0xFFFFFF for r in own if is_light(r)), default=None)
+    last = max((r["fid"] & 0xFFFFFF for r in own if not is_light(r)), default=0)
+    return first, last
+
+
+def light_record_problems(recs, own_prefix, objects, ids):
+    """Raw LIGH / light REFR records against objects.json: every LIGH (EDID, DAT2 radius, colour, flags, lumens, type,
+    flicker effect; offsets as in Starfield.esm's own DAT2, docs/terrain/exterior-lights.md) and every light REFR (base,
+    position, rotation, scale, the LIGHT_REF_FLAGS bits and Initially Disabled, XRDS, XLIG fade). Returns problems; a
+    light or light base formids.json does not declare is one (check_light_identities says why), never an exception."""
+    from fo4sf import fo4land
+    by_fid = {r["fid"]: r for r in recs}
+    got = ids.get("lights") or {}
+    problems = []
+    base_fid = {}
+    for b in objects.get("light_bases") or []:
+        any_src = next((e["src"] for e in objects.get("lights") or [] if e["edid"] == b["edid"]), None)
+        if not isinstance(got.get(any_src), dict) or "base" not in got[any_src]:
+            problems.append(f"{b['edid']}: no light of this base declared in formids.json")
+            continue
+        fid = own_prefix | int(got[any_src]["base"], 16)
+        base_fid[b["edid"]] = fid
+        rec = by_fid.get(fid)
+        if rec is None or rec["sig"] != "LIGH":
+            problems.append(f"{b['edid']}: no LIGH {fid:08X}")
+            continue
+        if overlay_records.edid(rec) != b["edid"]:
+            problems.append(f"{b['edid']}: EDID {overlay_records.edid(rec)!r}")
+        d = overlay_records.field(rec, "DAT2", b"")
+        if len(d) < 58:
+            problems.append(f"{b['edid']}: DAT2 of {len(d)} bytes")
+            continue
+        radius, = struct.unpack_from("<f", d, 4)
+        flags, = struct.unpack_from("<I", d, 12)
+        lumens, = struct.unpack_from("<I", d, 52)
+        if (abs(radius - b["radius"]) > 1e-4 or list(d[8:11]) != list(b["color"]) or flags != b["flags"]
+                or lumens != b["lumens"] or d[56] != b["type"] or d[57] != b["flicker_effect"]):
+            problems.append(f"{b['edid']}: DAT2 radius {radius}, colour {list(d[8:11])}, flags 0x{flags:X}, lumens {lumens}, "
+                            f"type {d[56]}, flicker {d[57]}")
+    for e in objects.get("lights") or []:
+        if not isinstance(got.get(e["src"]), dict) or "ref" not in got[e["src"]]:
+            problems.append(f"{e['src']}: not declared in formids.json lights")
+            continue
+        fid = own_prefix | int(got[e["src"]]["ref"], 16)
+        rec = by_fid.get(fid)
+        if rec is None or rec["sig"] != "REFR":
+            problems.append(f"{e['src']}: no REFR {fid:08X}")
+            continue
+        q = fo4land.parse_ref(rec["fields"])
+        if q["base"] != base_fid.get(e["edid"]):
+            problems.append(f"{e['src']}: base {q['base']:08X}")
+        if (max(abs(u - v) for u, v in zip(q["pos"], e["pos"])) > 1e-3 or max(abs(u - v) for u, v in zip(q["rot"], e["rot"])) > 1e-5
+                or abs(q["scale"] - e["scale"]) > 1e-4):
+            problems.append(f"{e['src']}: position / rotation / scale")
+        if rec["flags"] & LIGHT_REF_FLAGS != e.get("flags") or bool(rec["flags"] & 0x800) != e["disabled"]:
+            problems.append(f"{e['src']}: flags 0x{rec['flags']:X}")
+        xrds = overlay_records.field(rec, "XRDS")
+        if (xrds is None) != (e["radius"] is None) or (xrds is not None and abs(struct.unpack_from("<f", xrds)[0] - e["radius"]) > 1e-4):
+            problems.append(f"{e['src']}: XRDS")
+        xlig = overlay_records.field(rec, "XLIG")
+        if (xlig is None) != (e["lighting"] is None) or (xlig is not None and (len(xlig) < 24 or abs(
+                struct.unpack_from("<f", xlig, 4)[0] - e["lighting"]["fade"]) > 1e-4)):
+            problems.append(f"{e['src']}: XLIG")
+    return problems
 
 
 def place_all(a, ov):
@@ -1584,14 +1809,22 @@ def cmd_stage(a):
     # name, value and weight), "activators" (FO4 Activator: an ACTI base with the converted model and the name) and
     # "terminals" (FO4 Terminal: a TERM base with the converted model and the name, with its own TMLM menu of one body
     # line), one base per FO4 base, one temporary REFR per source reusing its original reference_index (one slot plan
-    # for every class); the new CONT, MISC, ACTI, then TERM + TMLM records follow all reserved REFRs
+    # for every class); the new CONT, MISC, ACTI, then TERM + TMLM records follow all reserved REFRs.
+    # Its "lights" (docs/terrain/exterior-lights.md, make_cluster.py lights) were never placed: new light REFRs and
+    # LIGH bases after every other record
     promoted = {k: [] for k, _sig in PROMOTED}
+    lights, light_bases = [], []
     if getattr(a, "cluster", None):
+        cluster = load(a.cluster)
         try:
-            placed, promoted = cluster_promote(bases, placed, load(a.cluster))
+            placed, promoted = cluster_promote(bases, placed, cluster)
+            # exterior lights (docs/terrain/exterior-lights.md): never placed, so new REFR ids after every reserved one
+            lights, light_bases, skipped, n_out = stage_lights(cluster, ov, placed,
+                                                               [e for es in promoted.values() for e in es], skipped)
         except ValueError as e:
             sys.exit(f"--cluster: {e}")
         new_edids = {e[f].lower() for es in promoted.values() for e in es for f in ("edid", "menu_edid") if f in e}
+        new_edids |= {b["edid"].lower() for b in light_bases}
         clash = sorted(new_edids & ({b["edid"].lower() for b in bases} | terrain_edids(prm)))
         if clash:
             sys.exit(f"--cluster: promoted EditorIDs clash with base or core64 records: {clash[:5]}")
@@ -1602,12 +1835,17 @@ def cmd_stage(a):
             return f"{len(entries)} {what} over {edids} base(s)" + (f" ({head}{', ...' if len(entries) > 8 else ''})" if entries else "")
         print(f"cluster {os.path.basename(a.cluster)}: "
               + "; ".join(summary(promoted[k], f"{SINGULAR[k]}(s)") for k, _sig in PROMOTED))
+        if lights or n_out:
+            print(f"cluster: {len(lights):,} light(s) over {len(light_bases)} LIGH bases, {n_out} outside the overlay's cells")
     objects = {"world": ov["world"], "edid_prefix": EDID_PREFIX,
                "bases": [{k: b[k] for k in ("edid", "model", "door", "source", "collision") if k in b} for b in bases],
                "refs": [{k: p[k] for k in ("src", "base", "cell", "pos", "rot", "scale", "disabled")} for p in placed]}
     for k, _sig in PROMOTED:
         if promoted[k]:
             objects[k] = promoted[k]
+    if lights:
+        objects["lights"] = lights
+        objects["light_bases"] = light_bases
     save(os.path.join(out, "objects.json"), objects)
     params = dict(prm, objects="objects.json")
     if getattr(a, "navmesh", ""):
@@ -1674,6 +1912,8 @@ def cmd_stage(a):
                     "enable_parent_not_translated": sum(p["enable_parent"] for p in placed),
                     "collision": {k: sum(1 for p in placed if bases[p["base"]]["collision"] == k)
                                   for k in sorted({b["collision"] for b in bases})},
+                    **({"lights": len(lights), "light_bases": len(light_bases),
+                        "lights_initially_disabled": sum(e["disabled"] for e in lights)} if lights else {}),
                     "skipped": exterior.reason_counts(skipped)},
         "data": {"files": len(files), "bytes": data_bytes, "archive_estimate": archive,
                  "archive_limit": ARCHIVE_LIMIT, "textures": tex,
@@ -1902,6 +2142,15 @@ def cmd_check(a):
             need(True, "declared source reference slots retained through promotion ("
                  + " + ".join(f"{len(objects.get(k) or []):,} {k}" for k, _sig in PROMOTED if objects.get(k))
                  + ", one slot plan)")
+    lights = objects.get("lights") or []
+    if lights:
+        try:
+            check_light_identities(objects, ids)
+        except ValueError as e:
+            need(False, f"declared light identities: {e}")
+        else:
+            need(True, f"{len(lights):,} light REFRs have new ids after every other record, then "
+                       f"{len(objects['light_bases'])} LIGH bases")
 
     # 1. core64 unchanged: params, Data files, Mars plugin, every core64 record of the main plugin
     need({k: v for k, v in prm.items() if k not in ("objects", "navmesh")} == cprm and prm.get("objects") == "objects.json"
@@ -1948,8 +2197,10 @@ def cmd_check(a):
         navis = [r for r in recs if r["sig"] == "NAVI"]
         need(len(navms) == len(navj["navmeshes"]), f"{len(navms):,} NAVM = navmesh.json's {len(navj['navmeshes']):,}")
         need(len(navis) == 1, f"one NAVI override ({len(navis)})")
+        light_ids = {int(v["ref"], 16) for v in (ids.get("lights") or {}).values()}    # appended after the NAVMs
         last_obj = max((r["fid"] & 0xFFFFFF for r in recs if r["sig"] in ("STAT", "DOOR", "REFR", "CONT", "MISC", "ACTI",
-                                                                          "TERM", "TMLM")), default=0)
+                                                                          "TERM", "TMLM")
+                        and r["fid"] & 0xFFFFFF not in light_ids), default=0)
         need(navms and min(r["fid"] & 0xFFFFFF for r in navms) > last_obj, f"every NAVM FormID after the last object (0x{last_obj:06X})")
         nav_ids = load(os.path.join(out, "formids.json")).get("navmeshes", [])
         need(set(nav_ids) == {f"{r['fid'] & 0xFFFFFF:06X}" for r in navms}, f"formids.json names the {len(nav_ids):,} NAVM")
@@ -1964,18 +2215,27 @@ def cmd_check(a):
     need(worst_pos < 1e-3 and worst_rot < 1e-5, f"REFR position / rotation as written (worst {worst_pos:.2e} m, {worst_rot:.2e} rad)")
     for what, good in promotion_checks(recs, own, objects, ids, exp):
         need(good, what)
+    if lights:
+        ligh = [r for r in recs if r["sig"] == "LIGH"]
+        need(len(ligh) == len(objects["light_bases"]), f"{len(ligh)} LIGH = {len(objects['light_bases'])} light bases "
+                                                        f"(one per FO4 base, {len(lights):,} lights)")
+        first_light, last_other = lights_after(recs, len(new["masters"]), ids)
+        need(first_light is not None and first_light > last_other,
+             f"every light record after the build's other records (first 0x{first_light or 0:06X}, last other 0x{last_other:06X})")
+        lp = light_record_problems(recs, own, objects, ids)
+        need(not lp, f"every LIGH and light REFR matches objects.json ({len(lp)} problems: {lp[:3]})")
     rep["plugin_records"] = {s: sum(1 for r in recs if r["sig"] == s) for s in sorted({r["sig"] for r in recs})}
     rep["plugin_bytes"] = new["bytes"]
     del new, recs, by, stats
     cells = x2c.walk_cells(os.path.join(out, prm["plugin"]))
     per_cell = {}
-    for r in objects["refs"] + promoted:
+    for r in objects["refs"] + promoted + lights:
         per_cell[tuple(r["cell"])] = per_cell.get(tuple(r["cell"]), 0) + 1
     want = dict(per_cell)
     want[tuple(ov["spawn_cell"])] = want.get(tuple(ov["spawn_cell"]), 0) + 1        # + the COC marker
     got = {c["grid"]: len(c["refs"]) for c in cells.values() if c["grid"] is not None and c["refs"]}
     need(got == want, f"REFRs per exterior cell as objects.json ({len(got):,} cells with references)")
-    wrong = [r["src"] for r in objects["refs"] + promoted
+    wrong = [r["src"] for r in objects["refs"] + promoted + lights
              if list(r["cell"]) != list(tg.sf_cell_of(r["pos"][0], r["pos"][1]))]
     need(not wrong, f"every reference in the cell of its written position ({len(wrong)} not: {wrong[:5]})")
     rep["cells"] = {"with_refs": len(got), "max_refs": max(got.values()), "densest": sorted(
@@ -2212,7 +2472,8 @@ def main():
             s.add_argument("--cluster", default="", help="R05: a cluster json (scripts/terrain/clusters/*.json, "
                            "make_cluster.py) whose \"containers\" become native CONT, \"items\" native MISC, "
                            "\"activators\" native ACTI and \"terminals\" native TERM (+ TMLM menu) references instead "
-                           "of statics (each in its original reference slot)")
+                           "of statics (each in its original reference slot), and whose "
+                           "\"lights\" become native LIGH and new light REFRs after every other record")
 
             s.add_argument("--navmesh", default="", help="navmesh.json (src/fo4sf/navmesh.py export over the core's FO4 NAVM): "
                            "written as NAVM records in their cells plus the NAVI override (docs/actors/navmesh-conversion.md)")

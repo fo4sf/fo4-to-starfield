@@ -1,5 +1,6 @@
-// Synthetic master with the template identities the real writer requests (the three overlay templates and the
-// terminal whose furniture block every promoted TERM copies, with its own synthetic furniture and keyword).
+// Synthetic master with the template identities the real writer requests (the three overlay templates, the
+// terminal whose furniture block every promoted TERM copies, with its own synthetic furniture and keyword, and the
+// light the exterior lights copy: the light only when lights are written).
 // No game files are read; no mesh, texture, terrain or native record data is copied.
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
@@ -34,6 +35,10 @@ var terminal = new Terminal(new FormKey(key, 0x0155A2), release)
 terminal.FurnitureTemplate.SetTo(furniture.FormKey);
 terminal.Components.Add(new AnimationGraphComponent { ANAM = "synthetic.agx", BNAM = "synthetic/skeleton.rig", CNAM = "synthetic/animations" });
 mod.Terminals.Add(terminal);
+// the light template's identity (12A74B) with a CK object-window filter, which the writer must drop
+var light = new Light(new FormKey(key, 0x12A74B), release) { EditorID = "SyntheticTemplateLight", Radius = 1, PbrLuminousPowerLm = 1 };
+light.Components.Add(new ObjectWindowFilterComponent { FLTR = "Synthetic/Filter/" });
+mod.Lights.Add(light);
 mod.ModHeader.Stats.NextFormID = 0x3807C1;
 var path = Path.GetFullPath(args[0]);
 Directory.CreateDirectory(Path.GetDirectoryName(path)!);

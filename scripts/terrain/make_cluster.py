@@ -9,6 +9,9 @@ table, so the same promotion path runs over all 1,708 cells.
   items      --work <work> --build <core64c staging> --table <json> --out <cluster.json> [--limit N] [--only-known]
   activators --work <work> --build <core64c staging> --out <cluster.json> [--names <json>] [--table <json>] [--limit N]
   terminals  --work <work> --build <core64c staging> --out <cluster.json> [--names <json>] [--table <json>] [--limit N]
+  lights     --work <work> --fo4 <Fallout4.esm> --out <cluster.json> [--limit N] [--lumens-per-m2 K]
+             every exported Light reference (core64c never placed one: no slot) with its FO4 LIGH base read from
+             Fallout4.esm and mapped to Starfield light fields (src/fo4sf/fo4light.py, docs/terrain/exterior-lights.md)
 
 The table (scripts/terrain/clusters/container_table.json): {"default": {"name": ..., "items": [...]}, "by_editor_id": {<FO4 base
 editor id or prefix*>: {"name", "items"}}}. Items are vanilla Starfield forms (<plugin>:<6 hex>, count >= 1), as
@@ -40,6 +43,10 @@ import re
 import sys
 from collections import Counter
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "src"))
+from fo4sf import fo4light  # noqa: E402
+
 CONTAINER_TYPES = ("Container",)                      # Mutagen type names in the export's "type"
 ITEM_TYPES = ("MiscItem", "Ingestible")               # loose items: MISC in Starfield (ALCH as MISC in the first pass)
 ACTIVATOR_TYPES = ("Activator",)                      # ACTI in Starfield
@@ -61,6 +68,9 @@ EXCLUDED_ACTIVATOR_PATTERNS = (
     ("water plane", ("*Water*",)),
     ("default / music activator", ("Default*Activator", "*MusicActivator")),
 )
+
+LIGHT_TYPES = ("Light",)
+FO4_MASTER = "fallout4.esm"                           # light bases and references are read from Fallout4.esm itself
 
 
 def load(p):
@@ -314,6 +324,98 @@ def items(refs, placed, table, limit=0, only_known=False):
                     "value and weight; read by make_core64c.py stage --cluster (items: one MISC per FO4 base)", "items": entries}, dict(rep)
 
 
+def fo4_local_id(formkey):
+    """'08ADFA:Fallout4.esm' -> 0x08ADFA (a Fallout4.esm record's id inside Fallout4.esm), else None."""
+    local, _, plugin = str(formkey or "").partition(":")
+    if plugin.lower() != FO4_MASTER:
+        return None
+    try:
+        return int(local, 16)
+    except ValueError:
+        return None
+
+
+def light_refs(refs):
+    """The exported references whose FO4 base is a Light."""
+    return [r for r in refs if str(r.get("type")) in LIGHT_TYPES]
+
+
+def read_light_sources(fo4_esm, refs, world="Commonwealth"):
+    """(bases {local id: fo4light.parse_ligh}, references {local id: fo4light.parse_light_ref}) for the given light
+    references, read from Fallout4.esm (raw records: the band exports carry no light data)."""
+    from fo4sf import fo4land
+    base_ids = {i for i in (fo4_local_id(r.get("base_formkey")) for r in refs) if i is not None}
+    ref_ids = {i for i in (fo4_local_id(r.get("formkey")) for r in refs) if i is not None}
+    with fo4land.Plugin(fo4_esm) as p:
+        return fo4light.read_bases(p, base_ids), fo4light.read_refs(p, world, ref_ids)
+
+
+def lights(refs, bases, ref_fields, limit=0, lumens_per_m2=fo4light.LUMENS_PER_M2):
+    """({"light_bases": {FO4 base formkey: Starfield light fields}, "lights": [...]}, report) for every exported Light
+    reference, in FO4 source key order (as exterior.place orders the statics). Each light: src, base (FO4 base formkey),
+    editor_id, fo4_pos (FO4 units, as exported), rot, scale, disabled, radius_delta (metres), lighting (XLIG) and
+    record_flags (its FO4 header's DoesNotLightWater / NeverFades / DoesNotLightLandscape bits) from the reference
+    itself. Core64c never placed a light (exterior.TYPE_REASONS), so a light owns no reference slot: make_core64c.py
+    stage gives it a new REFR after every reserved one. bases / ref_fields: read_light_sources."""
+    entries, out_bases, rep = [], {}, Counter()
+    dropped = Counter()
+    found = []
+    for r in sorted(light_refs(refs), key=lambda r: str(r.get("formkey"))):
+        src, bkey = r.get("formkey"), r.get("base_formkey")
+        bid, rid = fo4_local_id(bkey), fo4_local_id(src)
+        if bid is None or rid is None:
+            rep["skipped (not a Fallout4.esm light)"] += 1
+            continue
+        b, rf = bases.get(bid), ref_fields.get(rid)
+        if b is None or rf is None:
+            rep["skipped (not found in Fallout4.esm)"] += 1
+            continue
+        found.append((r, b, rf))
+    # every reference of a base (before --limit) sets the base's scale: the median of their own intensities
+    per_base = {}
+    for r, b, rf in found:
+        per_base.setdefault(r["base_formkey"], []).append(fo4light.ref_intensity(rf, b))
+    scales = {k: fo4light.base_scale(v) for k, v in per_base.items()}
+    for r, b, rf in found:
+        src, bkey = r["formkey"], r["base_formkey"]
+        sf, why, lost = fo4light.map_base(b, lumens_per_m2, scales[bkey])
+        if sf is None:
+            rep[f"skipped ({why})"] += 1
+            continue
+        if bkey not in out_bases:
+            out_bases[bkey] = dict(sf, editor_id=b["edid"], intensity_scale=round(scales[bkey], 6), dropped=lost)
+        for f in lost:
+            dropped[f] += 1
+        mr = fo4light.map_ref(rf, b, scales[bkey])
+        rep["fade clamped to the vanilla XLIG range"] += mr["fade_clamped"]
+        rep["with radius delta (XRDS)"] += mr["radius_delta"] is not None
+        rep["with XLIG"] += mr["lighting"] is not None
+        for bit, name in ((fo4light.REF_DOES_NOT_LIGHT_WATER, "does not light water"), (fo4light.REF_NEVER_FADES, "never fades"),
+                          (fo4light.REF_DOES_NOT_LIGHT_LANDSCAPE, "does not light landscape")):
+            rep[f"record flag {name} (0x{bit:X})"] += bool(mr["record_flags"] & bit)
+        if rf.get("emittance"):
+            rep["emittance (XEMI) not carried"] += 1
+        if r.get("enable_parent"):
+            rep["enable parent not translated"] += 1
+        disabled = r.get("disabled") not in (0, "0", False, None)
+        rep["initially disabled"] += disabled
+        entries.append({"src": src, "base": bkey, "editor_id": b["edid"], "fo4_pos": [float(v) for v in r["pos"]],
+                        "rot": [float(v) for v in r["rot"]], "scale": float(r.get("scale") or 1.0), "disabled": disabled,
+                        "radius_delta": mr["radius_delta"], "lighting": mr["lighting"], "record_flags": mr["record_flags"]})
+    if limit:
+        rep["cut by --limit"] = max(0, len(entries) - limit)
+        entries = entries[:limit]
+        used = {e["base"] for e in entries}
+        out_bases = {k: v for k, v in out_bases.items() if k in used}
+    rep["lights"] = len(entries)
+    rep["distinct bases"] = len(out_bases)
+    rep["features not carried (references)"] = dict(dropped.most_common())
+    return {"note": "make_cluster.py lights: every exported FO4 Light reference with its FO4 LIGH base mapped to Starfield "
+                    "light fields (src/fo4sf/fo4light.py); read by make_core64c.py stage --cluster (one LIGH per FO4 base, "
+                    "new REFR ids after every reserved one)", "lumens_per_m2": lumens_per_m2,
+            "light_bases": out_bases, "lights": entries}, dict(rep)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -342,7 +444,24 @@ def main(argv=None):
         p.add_argument("--names", default="", help="FO4 display names: dotnet/Fo4Land export-names over Fallout4.esm")
         p.add_argument("--table", default="", help="optional name overrides by FO4 base editor id (exact or prefix*)")
         p.add_argument("--limit", type=int, default=0)
+    p = sub.add_parser("lights")
+    p.add_argument("--work", required=True)
+    p.add_argument("--fo4", required=True, help="Fallout4.esm (light bases and the references' own light fields)")
+    p.add_argument("--out", required=True)
+    p.add_argument("--world", default="Commonwealth")
+    p.add_argument("--limit", type=int, default=0, help="keep the first N (FO4 source key order)")
+    p.add_argument("--lumens-per-m2", type=float, default=fo4light.LUMENS_PER_M2,
+                   help="luminous power per square metre of radius at FO4 fade 1 (default: the vanilla exterior median)")
     a = ap.parse_args(argv)
+    if a.cmd == "lights":
+        refs = light_refs(band_refs(a.work))
+        bases, ref_fields = read_light_sources(a.fo4, refs, a.world)
+        cl, rep = lights(refs, bases, ref_fields, a.limit, a.lumens_per_m2)
+        with open(a.out, "w", encoding="utf-8") as f:
+            json.dump(cl, f, indent=1)
+        print(json.dumps(rep, indent=1))
+        print(f"wrote {a.out}: {rep['lights']:,} lights over {rep['distinct bases']} LIGH bases")
+        return 0
     placed = placed_sources(a.build)
     if a.cmd == "report":
         all_c, placed_c = by_type(band_refs(a.work), placed)

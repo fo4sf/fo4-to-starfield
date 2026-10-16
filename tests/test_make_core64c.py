@@ -1,5 +1,6 @@
 """core64c builder (scripts/terrain/make_core64c.py): band selection, size measurement, BTD decoding, local world
 queries, plan entries and ordering, hard-linked staging and the archive estimate, all on synthetic data."""
+import copy
 import importlib.util
 import json
 import math
@@ -962,3 +963,195 @@ class ActivatorTerminalPromotionTests(unittest.TestCase):
         self.assertEqual(mk.record_text("Café".encode("utf-8") + b"\0junk"), "Café")
         self.assertEqual(mk.record_text("Café".encode("cp1252") + b"\0"), "Café")
         self.assertIsNone(mk.record_text(None))
+
+
+def light_base(**kw):
+    b = {"editor_id": "defaultLightFire01NSFlicker", "time": -1, "radius": 3.657143, "color": [237, 168, 122], "flags": 1,
+         "type": 0, "falloff": 1.0, "fov": 90.0, "near_clip": 0.103106, "flicker": [0.36, 0.8, 0.011], "flicker_effect": 1,
+         "lumens": 17655, "bounds": [[-0.1, -0.1, -0.2], [0.1, 0.1, 0.1]], "random_anim_start": False,
+         "intensity_scale": 3.96, "dropped": []}
+    b.update(kw)
+    return b
+
+
+class LightTests(unittest.TestCase):
+    """Exterior lights (docs/terrain/exterior-lights.md): make_cluster.py lights -> objects.json lights for TerrainOverlays."""
+    OV = {"cell_min": -32, "cell_max": 31}
+    CLUSTER = {"light_bases": {"08ADFA:Fallout4.esm": light_base(), "0517B0:Fallout4.esm": light_base(type=2, flicker_effect=0)},
+               "lights": [{"src": "000003:Fallout4.esm", "base": "0517B0:Fallout4.esm", "editor_id": "x",
+                           "fo4_pos": [-69139.6, 80740.2, 7825.27], "rot": [0, 0, 1.5], "scale": 1.0, "disabled": False,
+                           "radius_delta": -0.5, "lighting": {"fov": -39.2, "fade": 1.6, "near_clip": 0.0},
+                           "record_flags": 0x30100},
+                          {"src": "000001:Fallout4.esm", "base": "08ADFA:Fallout4.esm", "editor_id": "y",
+                           "fo4_pos": [700.0, -1400.0, 70.0], "rot": [0, 0, 0], "scale": 1.0, "disabled": True,
+                           "radius_delta": None, "lighting": None, "record_flags": 0},
+                          {"src": "000002:Fallout4.esm", "base": "0517B0:Fallout4.esm", "editor_id": "x",
+                           "fo4_pos": [9999999.0, 0.0, 0.0], "rot": [0, 0, 0], "scale": 1.0, "disabled": False,
+                           "radius_delta": None, "lighting": None, "record_flags": 0x100}]}
+
+    def test_light_edid(self):
+        self.assertEqual(mk.light_edid("08ADFA:Fallout4.esm"), "FO4Core_ligh_08adfa_fallout4")
+        self.assertNotEqual(mk.light_edid("08ADFA:Fallout4.esm"), mk.light_edid("08ADFA:DLCCoast.esm"))
+        with self.assertRaises(ValueError):
+            mk.light_edid("Fire")
+
+    def test_lights_in_metres_and_cells_bases_in_first_use_order(self):
+        lights, bases, outside = mk.cluster_lights(self.CLUSTER, self.OV, ["000009:Fallout4.esm"])
+        self.assertEqual([e["src"] for e in lights], ["000003:Fallout4.esm", "000001:Fallout4.esm"])
+        self.assertEqual([b["edid"] for b in bases], ["FO4Core_ligh_0517b0_fallout4", "FO4Core_ligh_08adfa_fallout4"])
+        self.assertEqual(bases[0]["fo4_base"], "0517B0:Fallout4.esm")
+        self.assertNotIn("dropped", bases[0])                       # report-only keys stay out of objects.json
+        e = lights[0]
+        self.assertEqual(e["pos"], [round(-69139.6 / 70, 5), round(80740.2 / 70, 5), round(7825.27 / 70, 5)])
+        self.assertEqual(e["cell"], list(tg.sf_cell_of(e["pos"][0], e["pos"][1])))
+        self.assertEqual((e["radius"], e["lighting"], e["edid"]), (-0.5, {"fov": -39.2, "fade": 1.6, "near_clip": 0.0},
+                                                                   "FO4Core_ligh_0517b0_fallout4"))
+        self.assertEqual((lights[1]["disabled"], lights[1]["lighting"]), (True, None))
+        # the FO4 reference's DoesNotLightWater / NeverFades / DoesNotLightLandscape bits reach objects.json as they are
+        self.assertEqual([e["flags"] for e in lights], [0x30100, 0])
+        self.assertEqual([s["formkey"] for s in outside], ["000002:Fallout4.esm"])
+        self.assertEqual(outside[0]["reason"], "outside_terrain")
+
+    def test_refusals(self):
+        c = self.CLUSTER
+        cases = [(dict(c), ["000001:fallout4.esm"], "placed reference"),        # a placed (reserved) source, any case
+                 ({**c, "lights": c["lights"] + [dict(c["lights"][0])]}, [], "twice"),
+                 ({**c, "lights": [dict(c["lights"][0], reference_index=4)]}, [], "reference_index"),
+                 ({**c, "lights": [dict(c["lights"][0], base="111111:Fallout4.esm")]}, [], "not in light_bases"),
+                 ({**c, "lights": [dict(c["lights"][0], lighting={"fov": 0, "fade": 2.5, "near_clip": 0})]}, [], "vanilla XLIG"),
+                 ({**c, "lights": [dict(c["lights"][0], src="")]}, [], "source key"),
+                 ({**c, "lights": [dict(c["lights"][0], record_flags=0x800)]}, [], "record_flags"),     # not a carried bit
+                 ({**c, "lights": [{k: v for k, v in c["lights"][0].items() if k != "record_flags"}]}, [], "run make_cluster"),
+                 ({**c, "light_bases": {"0517B0:Fallout4.esm": light_base(lumens=0)}}, [], "out of range"),
+                 ({**c, "light_bases": {"0517B0:Fallout4.esm": {k: v for k, v in light_base().items() if k != "fov"}}}, [], "missing")]
+        for cluster, placed, why in cases:
+            with self.assertRaisesRegex(ValueError, why):
+                mk.cluster_lights(cluster, self.OV, placed)
+        self.assertEqual(mk.cluster_lights({}, self.OV, []), ([], [], []))
+
+    def test_stage_lights_keeps_the_export_accounting(self):
+        skipped = [{"formkey": s, "reason": "type_not_translated"} for s in ("000001:Fallout4.esm", "000002:Fallout4.esm",
+                                                                             "000003:Fallout4.esm", "00000A:Fallout4.esm")]
+        placed = [{"src": "000009:Fallout4.esm"}]
+        lights, bases, left, n_out = mk.stage_lights(self.CLUSTER, self.OV, placed, [], skipped)
+        self.assertEqual(n_out, 1)
+        self.assertEqual(len(placed) + len(lights) + len(left), 1 + len(skipped))
+        self.assertEqual(sorted((s["formkey"], s["reason"]) for s in left),
+                         [("000002:Fallout4.esm", "outside_terrain"), ("00000A:Fallout4.esm", "type_not_translated")])
+        with self.assertRaisesRegex(ValueError, "did not skip"):
+            mk.stage_lights(self.CLUSTER, self.OV, placed, [], skipped[1:])  # a light that is not in this export
+        self.assertEqual(mk.stage_lights({}, self.OV, placed, [], skipped)[2], skipped)
+
+    def ids(self):
+        objects = {"refs": [{"src": "R1"}], "containers": [{"src": "C1", "reference_index": 0}],
+                   "lights": [{"src": "L1", "edid": "B"}, {"src": "L2", "edid": "A"}, {"src": "L3", "edid": "B"}],
+                   "light_bases": [{"edid": "B"}, {"edid": "A"}]}
+        ids = {"bases": {"S": "000900"}, "refs": {"R1": "000902"}, "containers": {"C1": {"base": "000903", "ref": "000901"}},
+               "navmeshes": ["000904", "000905"],
+               "lights": {"L1": {"base": "000909", "ref": "000906"}, "L2": {"base": "00090A", "ref": "000907"},
+                          "L3": {"base": "000909", "ref": "000908"}}}
+        return objects, ids
+
+    def test_light_ids_follow_every_other_record(self):
+        objects, ids = self.ids()
+        mk.check_light_identities(objects, ids)
+        mk.check_light_identities({"refs": []}, {})                 # no lights: nothing to check
+        bad = copy.deepcopy(ids)
+        bad["lights"]["L1"]["ref"] = "000904"                       # inside the NAVM range
+        bad["lights"]["L2"]["ref"], bad["lights"]["L3"]["ref"] = "000905", "000906"
+        with self.assertRaisesRegex(ValueError, "not new id"):
+            mk.check_light_identities(objects, bad)
+        bad = copy.deepcopy(ids)
+        bad["lights"]["L3"]["base"] = "00090A"                      # one edid, two LIGH
+        with self.assertRaisesRegex(ValueError, "LIGH"):
+            mk.check_light_identities(objects, bad)
+        bad = copy.deepcopy(ids)
+        bad["items"] = {"I1": {"base": "000910", "ref": "000911"}}  # a later promoted class (#235) counts as "other"
+        with self.assertRaisesRegex(ValueError, "not new id"):
+            mk.check_light_identities(objects, bad)
+        bad = copy.deepcopy(ids)
+        del bad["lights"]["L2"]
+        with self.assertRaisesRegex(ValueError, "differs"):
+            mk.check_light_identities(objects, bad)
+        swapped = copy.deepcopy(objects)
+        swapped["light_bases"].reverse()
+        with self.assertRaisesRegex(ValueError, "first-use"):
+            mk.check_light_identities(swapped, ids)
+
+    def test_light_ids_follow_terminal_menus(self):
+        # merged with #241: a promoted terminal's TMLM menu is one of the other records, so the lights come after it
+        objects, ids = self.ids()
+        with_menu = copy.deepcopy(ids)
+        with_menu["terminals"] = {"T1": {"base": "000903", "ref": "000901", "menu": "000906"}}
+        with self.assertRaisesRegex(ValueError, "not new id"):
+            mk.check_light_identities(objects, with_menu)
+        for src, v in with_menu["lights"].items():
+            with_menu["lights"][src] = {k: f"{int(x, 16) + 1:06X}" for k, x in v.items()}
+        mk.check_light_identities(objects, with_menu)
+
+    def test_lights_after_and_raw_record_check(self):
+        objects, ids = self.ids()
+        own = 1 << 24
+        recs = [{"sig": "STAT", "fid": own | 0x900, "flags": 0, "fields": []},
+                {"sig": "NAVM", "fid": own | 0x905, "flags": 0, "fields": []},
+                {"sig": "NAVI", "fid": 0x000FF1, "flags": 0, "fields": []},       # an override of a master's record
+                {"sig": "LIGH", "fid": own | 0x909, "flags": 0, "fields": []},
+                {"sig": "REFR", "fid": own | 0x906, "flags": 0x100, "fields": []}]
+        self.assertEqual(mk.lights_after(recs, 1, ids), (0x906, 0x905))
+        recs.append({"sig": "REFR", "fid": own | 0x90B, "flags": 0, "fields": []})  # a non-light record after the lights
+        first, last = mk.lights_after(recs, 1, ids)
+        self.assertLess(first, last)
+        # light_record_problems on hand-made raw records: a LIGH with a wrong lumens value, a REFR without the 0x100 flag
+        dat2 = bytearray(76)
+        struct.pack_into("<ifBBBBI", dat2, 0, -1, 3.657143, 237, 168, 122, 0, 1)
+        struct.pack_into("<I", dat2, 52, 17000)
+        dat2[56], dat2[57] = 0, 1
+        edid = "FO4Core_ligh_08adfa_fallout4"
+        lobj = {"lights": [{"src": "L1", "edid": edid, "pos": [1, 2, 3], "rot": [0, 0, 0], "scale": 1.0,
+                            "disabled": False, "radius": None, "lighting": None, "flags": 0x100}],
+                "light_bases": [dict(light_base(), edid=edid)]}
+        lids = {"lights": {"L1": {"base": "000909", "ref": "000906"}}}
+        raw = [{"sig": "LIGH", "fid": own | 0x909, "flags": 0, "fields": [(b"EDID", edid.encode() + b"\0"), (b"DAT2", bytes(dat2))]},
+               {"sig": "REFR", "fid": own | 0x906, "flags": 0, "fields": [(b"NAME", struct.pack("<I", own | 0x909)),
+                                                                          (b"DATA", struct.pack("<6f", 1, 2, 3, 0, 0, 0))]}]
+        problems = mk.light_record_problems(raw, own, lobj, lids)
+        self.assertEqual(len(problems), 2)
+        self.assertIn("lumens 17000", problems[0])
+        self.assertIn("flags", problems[1])
+        struct.pack_into("<I", dat2, 52, 17655)
+        raw[0]["fields"][1] = (b"DAT2", bytes(dat2))
+        raw[1]["flags"] = 0x100
+        self.assertEqual(mk.light_record_problems(raw, own, lobj, lids), [])
+        # the REFR carries the FO4 reference's own light bits (the review of #246), not a forced 0x100
+        lobj["lights"][0]["flags"] = 0x30100                       # DoesNotLightWater | NeverFades | DoesNotLightLandscape
+        self.assertTrue(any("flags" in p for p in mk.light_record_problems(raw, own, lobj, lids)))
+        raw[1]["flags"] = 0x30100
+        self.assertEqual(mk.light_record_problems(raw, own, lobj, lids), [])
+        lobj["lights"][0]["flags"] = 0                             # a FO4 light that lights water
+        raw[1]["flags"] = 0x100
+        self.assertTrue(any("flags" in p for p in mk.light_record_problems(raw, own, lobj, lids)))
+        raw[1]["flags"] = 0
+        self.assertEqual(mk.light_record_problems(raw, own, lobj, lids), [])
+
+    def test_raw_record_check_reports_undeclared_lights_instead_of_raising(self):
+        # the review of #246 (P3-2): a formids.json without "lights" (an older or failed build) or a light base no
+        # light uses is a listed problem, so check reports its failed checks instead of stopping with a KeyError
+        edid = "FO4Core_ligh_08adfa_fallout4"
+        lobj = {"lights": [{"src": "L1", "edid": edid, "pos": [1, 2, 3], "rot": [0, 0, 0], "scale": 1.0,
+                            "disabled": False, "radius": None, "lighting": None, "flags": 0x100}],
+                "light_bases": [dict(light_base(), edid=edid), dict(light_base(), edid="FO4Core_ligh_unused")]}
+        problems = mk.light_record_problems([], 1 << 24, lobj, {"bases": {}})
+        self.assertEqual(len(problems), 3, problems)
+        self.assertTrue(all("declared" in p for p in problems))
+
+    def test_promotion_checks_count_the_lights(self):
+        # merged with #235: the REFR total and the export accounting include the lights, which left the skipped list
+        own = 1 << 24
+        objects = {"refs": [{"src": "R1"}], "lights": [{"src": "L1"}, {"src": "L2"}]}
+        recs = [{"sig": "REFR", "fid": own | 0x800 + k, "flags": 0, "fields": []} for k in range(5)]   # + COC, anchor
+        exp = {"objects": {"exported": 5, "skipped": {"no model": 2}}}
+        res = mk.promotion_checks(recs, own, objects, {}, exp)
+        self.assertEqual([ok for _w, ok in res], [True, True], res)
+        self.assertIn("+ 2 lights", res[0][0])
+        res = mk.promotion_checks(recs[:-1], own, objects, {}, exp)
+        self.assertFalse(res[0][1])                                # one light REFR short
