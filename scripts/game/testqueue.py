@@ -435,12 +435,6 @@ def plan(a):
     print(f"{len(tests)} tests in {len(cells)} cells on build {q['build_id']}: {counts}")
 
 
-# plan.json fields a terrain test carries as they are (qstep.ps1 terrain): the arrival/offset frame, the drop and hops,
-# the activate block (docs/ai/test-queue.md "Activate") and the teleport_console diagnostic
-TERRAIN_KEYS = ("spawn_local", "anchor", "drop_above_spawn", "settle_ms", "z_ref", "hop_m", "hop_wait_ms", "activate",
-                "teleport_console")
-
-
 def plan_terrain(a):
     """Terrain experiment 1 (docs/terrain/architecture.md on PR #57): three test worldspaces, each with its own BTD
     (flat ground at 10 m and pads at known heights); which height the player lands on shows whether the plugin's
@@ -463,7 +457,9 @@ def plan_terrain(a):
             sys.exit(f"bad travel command in plan.json: {travel!r}")
         tests.append(with_extras({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "",
                                   "ref": w["coc"], "model": w.get("label", ""), "world_coc": w["coc"], "travel": travel,
-                                  **{k: w[k] for k in TERRAIN_KEYS if w.get(k)},
+                                  **{k: w[k] for k in ("spawn_local", "anchor", "drop_above_spawn", "settle_ms",
+                                                       "z_ref", "hop_m", "hop_wait_ms", "activate",
+                                                       "teleport_console") if w.get(k)},
                                   "drop_z": float(w.get("drop_z", 80.0)),
                                   "points": w["points"], "beyond": w.get("beyond") or {"x": w["points"][0]["x"] + 500.0,
                                                                                        "y": w["points"][0]["y"]}},
