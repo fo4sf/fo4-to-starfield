@@ -24,6 +24,11 @@ def read(p):
         return f.read()
 
 
+def quiet_log(r, msg):
+    with open(r.log_p, "a", encoding="utf-8") as f:
+        f.write(f"{tq.now()} {msg}\n")
+
+
 class RunnerLedgerTests(unittest.TestCase):
     def setUp(self):
         self.d = tempfile.mkdtemp()
@@ -34,6 +39,7 @@ class RunnerLedgerTests(unittest.TestCase):
     def runner(self, step, lease=True, **kw):
         extra = dict(lease_dir=self.leader, lease_owner="Claude") if lease else {}
         r = tq.Runner(self.d, tt.args(**extra, **kw), ctl=self.ctl, step=step)
+        r.log = lambda msg: quiet_log(r, msg)             # run.log only: the suite's output stays the result line
         r.session, r.cell = True, "C"
         r._ps = lambda *a, **k: (0, "at the cell")
         return r
