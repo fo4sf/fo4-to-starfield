@@ -3,6 +3,12 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Starfield;
 
+if (args.SequenceEqual(new[] { "--missing-door-cells-only" }))
+{
+    MissingDoorEndpointTests.Run(cellsOnly: true);
+    return;
+}
+
 void Require(bool ok, string message) { if (!ok) throw new InvalidOperationException(message); }
 foreach (var bit in new[] { 1, 2 })
     Require(Enum.GetName(typeof(Mutagen.Bethesda.Fallout4.EnableParent.Flag), bit) == Enum.GetName(typeof(EnableParent.Flag), bit), "enable-parent flag semantics differ between games");

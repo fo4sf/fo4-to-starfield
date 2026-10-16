@@ -7,19 +7,23 @@ using Noggog;
 
 public static class MissingDoorEndpointTests
 {
-    public static void Run()
+    public static void Run(bool cellsOnly = false)
     {
         var root = Environment.GetEnvironmentVariable("FO4SF_MISSING_DOOR_EVIDENCE")
             ?? Path.Combine(Path.GetTempPath(), "fo4sf-missing-doors-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
         var failures = new List<string>();
-        foreach (var scenario in new[] { "allocated", "reserved", "static-base", "wrong-type", "occupied", "invalid-scale", "unknown-source" })
+        var cellScenarios = new[] { "missing-map-strict", "missing-map-partial", "missing-record-strict",
+            "missing-record-partial", "missing-map-report", "unselected-missing-partial" };
+        var scenarios = cellsOnly ? cellScenarios : new[] { "allocated", "reserved", "static-base", "wrong-type",
+            "occupied", "invalid-scale", "unknown-source" }.Concat(cellScenarios).ToArray();
+        foreach (var scenario in scenarios)
         {
             try { Check(root, scenario); }
             catch (Exception e) { failures.Add(scenario + ": " + e.Message); }
         }
         if (failures.Count != 0) throw new InvalidOperationException(string.Join("\n", failures));
-        Console.WriteLine("7 missing-door CLI controls passed; evidence: " + root);
+        Console.WriteLine(scenarios.Length + " missing-door CLI controls passed; evidence: " + root);
     }
 
     static void Check(string root, string scenario)
@@ -42,6 +46,8 @@ public static class MissingDoorEndpointTests
         var block = new CellBlock { BlockNumber = 8, GroupType = GroupTypeEnum.InteriorCellBlock };
         sub.Cells.Add(cell); block.SubBlocks.Add(sub); mod.Cells.Records.Add(block);
         var ids = new Dictionary<string, uint> { ["CELL:FO4Port_Cave"] = 0x800 };
+        if (scenario.StartsWith("missing-map-")) ids.Clear();
+        if (scenario.StartsWith("missing-record-")) sub.Cells.Clear();
         const string source = "05E844:Fallout4.esm";
         const string identity = "REFR:FO4Port_Cave:" + source;
         if (scenario is "reserved" or "occupied") ids[identity] = 0x810;
@@ -61,11 +67,17 @@ public static class MissingDoorEndpointTests
         File.WriteAllText(mapping, JsonSerializer.Serialize(new Dictionary<string, string> {
             [scenario == "unknown-source" ? "FFFFFF:Fallout4.esm" : source] = baseKey.ToString() }));
         var output = Path.Combine(folder, "out");
+        var extraExport = Path.Combine(folder, "unselected.json");
+        if (scenario == "unselected-missing-partial")
+            File.WriteAllText(extraExport, "{\"cell\":\"UnselectedMissing\",\"refs\":[]}");
         int Run(string from, string idMap, string to)
         {
             var start = new ProcessStartInfo("dotnet") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
             start.ArgumentList.Add(typeof(Relationships).Assembly.Location);
             foreach (var arg in new[] { from, idMap, to, export, "--door-bases=" + mapping }) start.ArgumentList.Add(arg);
+            if (scenario.EndsWith("-partial") || scenario.EndsWith("-report")) start.ArgumentList.Add("--allow-unresolved");
+            if (scenario.EndsWith("-report")) start.ArgumentList.Add("--report-only");
+            if (scenario == "unselected-missing-partial") start.ArgumentList.Add(extraExport);
             start.Environment["STARFIELD_DATA"] = folder;
             using var child = Process.Start(start)!;
             var stdout = child.StandardOutput.ReadToEndAsync(); var stderr = child.StandardError.ReadToEndAsync();
@@ -76,9 +88,11 @@ public static class MissingDoorEndpointTests
         }
         var exit = Run(input, map, output);
         Need(File.ReadAllBytes(input).SequenceEqual(original), "input changed");
-        if (scenario is not ("allocated" or "reserved"))
+        Need(File.ReadAllText(map) == JsonSerializer.Serialize(ids), "input map changed");
+        if (scenario is not ("allocated" or "reserved" or "unselected-missing-partial"))
         {
             Need(exit != 0 && !File.Exists(Path.Combine(output, "Synthetic.esm")), "invalid mapping published output");
+            Need(!File.Exists(Path.Combine(output, "formids.json")), "invalid mapping published identities");
             return;
         }
         Need(exit == 0, "valid missing door refused: " + exit);
@@ -93,6 +107,13 @@ public static class MissingDoorEndpointTests
         Need((door.MajorRecordFlagsRaw & 0xC00) == 0xC00 && door.OpenByDefault, "state lost");
         Need(door.Position == new P3Float(1, -2, 3) && door.Rotation.Z == .5f && door.Scale == .75f, "transform lost");
         Need(door.TeleportDestination == null, "invented link");
+        if (scenario == "unselected-missing-partial")
+        {
+            using var report = JsonDocument.Parse(File.ReadAllText(Path.Combine(output, "relationships-report.json")));
+            Need(report.RootElement.GetProperty("CreatedDoors").GetInt32() == 1, "selected door omitted");
+            var issue = report.RootElement.GetProperty("Issues").EnumerateArray().Single();
+            Need(issue.GetProperty("Source").GetString() == "FO4Port_UnselectedMissing", "unrelated unresolved cell hidden");
+        }
         var repeat = Path.Combine(folder, "repeat");
         Need(Run(Path.Combine(output, "Synthetic.esm"), Path.Combine(output, "formids.json"), repeat) == 0, "repeat refused");
         Need(File.ReadAllText(Path.Combine(output, "formids.json")) == File.ReadAllText(Path.Combine(repeat, "formids.json")), "repeat IDs changed");

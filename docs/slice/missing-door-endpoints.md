@@ -18,6 +18,11 @@ original cell exports. STARFIELD_DATA supplies the actual native master. The
 selected source must occur exactly once with type Door, and the base must resolve
 to an active DOOR with local override precedence. A filename or numeric ID alone
 does not prove a usable base.
+Every explicitly selected door must also have a source-cell map entry resolving
+to an existing output CELL. This is checked before relationship mutation and is
+not waived by `--allow-unresolved` or `--report-only`: a requested endpoint must
+not silently disappear. Unrelated missing cells retain normal unresolved-report
+behavior, including explicitly permitted partial output.
 
 For a missing reference, the writer reuses its existing source-map reservation,
 or allocates above all existing mapped and occupied IDs. Occupied reservations
@@ -33,11 +38,20 @@ Unresolved exported relationships still prevent output unless the existing
 `--allow-unresolved` option explicitly permits a partial build. A partial build
 must not be called a connected cave. Report CreatedDoors counts new references.
 
-Seven synthetic actual-CLI controls cover allocation, reservation/reapplication,
+Seven original synthetic actual-CLI controls cover allocation, reservation/reapplication,
 non-door bases, wrong source types, occupied IDs, invalid scale and absent source
 selections. The prior eleven native-base/persistence CLI controls also pass.
 Before implementation all seven new controls failed; evidence is retained
-privately. This is author-tested offline code awaiting independent peer review.
+privately. These are offline checks, not native door acceptance.
+Claude's independent review at b3766eb reproduced the private cave output hash,
+stable map, idempotence and record changes. Its missing-cell finding prompted six
+additional CLI scenarios: missing map/record in strict and partial modes,
+report-only refusal, and an unrelated missing-cell partial-output control.
+Before the correction, both partial cases silently published without the selected
+door and report-only accepted the omitted selection. These now refuse.
+All thirteen missing-door controls, eleven native-base controls and relationship
+binary checks pass. The missing-cell correction still needs peer review; carry it
+into stacked PR253 after review before producing an integrated candidate.
 No source stage, installed plugin, game input or save was changed. Integration
 must carry the resulting map forward and separately construct the core-owned
 exterior endpoint and interior return override without a master cycle.
