@@ -1441,3 +1441,9 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
 - Merged tonight: #162, #163, #161, #165, #166 (and the queue of the day before). Open: #164 (sandbox suite running),
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
+
+## 2026-10-16: Commonwealth door plan (Codex, offline)
+
+Read-only full-key joins over 30 pinned core64c/integ_1011 inputs find 1,286 doors, 373 load doors, 18 links to 16 mapped interiors and 15 already placed core endpoints; zero unresolved destination cells. Three missing endpoint pairs are the Red Rocket cave and two Vault111Cryo entrances. All 18 have reciprocal source links, not native acceptance. Twelve synthetic tests and 18 public-table comparisons pass; guard passes. Final private inventory SHA256 `8a5583dbb96e5d333be527fffa5736871d4e2f68653d9c57cdefbaaddef14b31`. An intermediate stricter-map run refused synthetic `floor` reservations; the explicit auxiliary-key handling and regression now pass. Initial report/failure remain preserved.
+
+See [door plan](testing/commonwealth-door-plan.md): registration-only discriminator first, then persistent core-owned endpoints, acyclic Port/Core/return patch, stable identities and NAVM door links. No build/deploy/input; independent review pending. R07 source preserved separately after Claude reprioritized this task.

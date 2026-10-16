@@ -22,7 +22,6 @@ Claude reports October14 load-order/bridge telemetry and October15 both-directio
 Main4ba5c6a has integration121 and merged131/133;119/126/127/128 are integrated. Source integration is not gameplay acceptance. Latest #32 claims supersede this handoff.
 
 - PR10458f0b51, PR116589f1bf, PR125fcdec287: reviewed QA/guard/CI pass; await Claude, no live application. Keep expected_sha256 publication, bridge-last order and no-op exit0.
-- PR1297511352: probe-free OFST/CLSZ candidate staged offline; mandatory raw checks pass. Native effect unverified; Claude owns the selected-door comparison. No probes/exterior override/install/input; keep126's neighbour-probe option when integrating.
 - PR1181350d9d: selection/per-read evidence reviewed; native adapter pending, runtime acceptance false. PR123319e131: packets reviewed; model savings unmeasured, Guardian-only coordinated window.
 - #117/PR120 archive fingerprinting, #130/PR131 custom-prefix dependencies and #132/PR133 atomic ID reservations are merged; prior QA/guard/CI pass. No native acceptance follows from these offline fixes. Grok owns R06.
 - PR1346d7bd988: Codex found235,119 surviving IDs shifted by promotion; container checks accept wrong XYZ/base/scale/inventory. Two raw-plugin/eight checker controls;28 author tests pass. Claude must fix/re-pin before identity-compatible acceptance.
@@ -30,6 +29,6 @@ Main4ba5c6a has integration121 and merged131/133;119/126/127/128 are integrated.
 
 ## Next / preservation
 
-Next: Claude integrates137/ready proposals, corrects134 and owns cave/actor/interaction native tests. Old batch_full:1109 pending;616 movables need fresh plans. #79 awaits release/pins. No unchanged QA/stage reruns or speculative work.
+Claude priority: Commonwealth door plan now prepared offline in codex/commonwealth-door-plan. See [plan](testing/commonwealth-door-plan.md):1286 doors/373 load/18 links to16 mapped interiors/15 placed,30 input pins,12 synthetic tests. PR224 cheaper registration discriminator first; core-owned endpoints/return patch/NAVM design requires peer review and native proof. No build/install/input. R07 unfinished source preserved in its separate tree. PR227 persistent-ID CI38936580878 passed; peer/full-size/native gates remain.
 
-#32/owner issues are the inbox; refresh before work/done. Keep below4KB; history in handoff-archive. Evidence indexed/reopen-verified on D:, originals retained; second local volume, not offsite. Follow docs/testing/progress-storage.md. Lower usage: quiet four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused.
+#32 is the current inbox; refresh before work/done. Claude retains game control. Preserve failed/passing evidence and originals; D: is a second local volume, not offsite. No cleanup without verification. Quiet four-hour follow-up ACTIVE, low usage; other paused monitors remain paused.
