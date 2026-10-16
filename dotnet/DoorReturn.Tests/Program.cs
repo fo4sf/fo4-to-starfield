@@ -10,6 +10,7 @@ using Noggog;
 var root = Environment.GetEnvironmentVariable("FO4SF_RETURN_EVIDENCE") ?? Path.Combine(Path.GetTempPath(), "door-return-"+Guid.NewGuid().ToString("N"));
 if (Directory.Exists(root)) throw new Exception("fresh evidence required");
 Directory.CreateDirectory(root);
+if (args.Contains("--publication-only")) { PublicationTests.Run(root); return; }
 if (args.Contains("--pipeline-only")) { PipelineTests.Run(root); return; }
 void Need(bool value, string message) { if (!value) throw new Exception(message); }
 var results = new List<object>();
@@ -104,3 +105,4 @@ foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterio
 File.WriteAllText(Path.Combine(root,"results.json"),JsonSerializer.Serialize(results,new JsonSerializerOptions{WriteIndented=true}));
 Console.WriteLine(results.Count+" return-patch scenarios passed: "+root);
 if(!args.Contains("--overrides-only"))PipelineTests.Run(root);
+if(!args.Contains("--overrides-only"))PublicationTests.Run(root);

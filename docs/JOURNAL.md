@@ -1500,3 +1500,7 @@ PR253 adds a joint synthetic CLI check: ReferenceLinks strict refuses missing ex
 ## 2026-10-16 — Codex: preserve effective Core overrides in door return patch
 
 Reproduced PR253 restoring an older Port CELL instead of a newer Core override (failed serialized output retained). ReturnPatch now resolves effective Core cell/reference overrides before validation/copy; cell-only changes inherit the original reference, while moved/temporary/deleted/different-type/duplicate endpoint conflicts refuse. Four focused cases pass, followed by20 boundary cases (3 binary/CLI successes,17 refusals) and the joint pipeline check. Guard/diff pass. Private door-winning-overrides-20261016 retains before/after/regression evidence. Peer QA pending; no game/stage/deployment changes.
+
+## 2026-10-16 — Codex: single-writer claim for door-return output
+
+Actual two-process reproduction found both CLIs exit0 for the same fresh directory at8c42df3 (fourth bounded attempt, different arrival plans). Directory.Exists then CreateDirectory was not exclusive. New same-parent temporary-directory rename claims output atomically; existing empty/populated and concurrent directories refuse without changing prior files. Four focused claim checks and six actual two-process runs pass (one winner each). Independent raw XTEL/hash/receipt verification matches each winner. No unchanged20-case rerun; writer data path unchanged. Evidence before/after retained in door-return-publication-20261016; peer QA pending, no game/stage changes.

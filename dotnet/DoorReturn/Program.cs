@@ -30,7 +30,7 @@ var plan = new ReturnPlan(FormKey.Factory(p.GetProperty("interior").GetString()!
 var mod = ReturnPatch.Build(sf, port, core, plan);
 void VerifyPins() { if (pins.Any(p => Hash(p.Key) != p.Value)) throw new InvalidOperationException("input changed during build"); }
 VerifyPins();
-Directory.CreateDirectory(args[4]);
+OutputDirectory.Claim(args[4]);
 var receipt = Path.Combine(args[4], "build-state.json");
 File.WriteAllText(receipt, "{\"complete\":false}");
 var output = Path.Combine(args[4], ReturnPatch.PatchKey.FileName.String);

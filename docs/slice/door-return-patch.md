@@ -39,6 +39,10 @@ dotnet run --project dotnet/DoorReturn -c Release -- Starfield.esm Port.esm Core
 ```
 
 The .NET9 CLI writes FO4DoorReturn.esm into a previously absent output directory.
+The directory is claimed with a same-parent rename before writing: checking for
+existence and later calling CreateDirectory alone would let two builders reuse it.
+An existing empty or populated directory refuses, including a concurrent winner's
+output. Temporary empty claim directories are removed; failed output is retained.
 It hashes all inputs before reading and rechecks them before and after writing.
 The build-state receipt stays incomplete on failure. The output contains only the
 existing Port CELL and persistent REFR overrides, with XTEL to Core. It allocates
@@ -69,6 +73,13 @@ The Core-override correction reproduced the old builder overwriting a newer cell
 record. Four focused cases cover cell-only inheritance, newer reference transforms/
 state, deletion and loss of persistent placement. All twenty cases plus the joint
 CLI pass after the correction. `-- --overrides-only` selects the four new cases.
+
+Publication regression: two actual CLI processes with distinct arrival plans both
+returned success on one fresh directory before the claim fix. Afterward, six
+two-process runs each had one winner; separate raw XTEL readback and hashes matched
+that winner's plan and receipt. `-- --publication-only` exercises fresh, existing
+empty/populated, and concurrent claims without rerunning animation/relationship
+checks. These publication tests create only synthetic private files.
 
 Current integration boundary: PR251 supplies a private missing interior endpoint
 candidate. The actual Core exterior endpoint and outbound link remain unbuilt by
