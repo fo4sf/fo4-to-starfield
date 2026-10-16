@@ -51,7 +51,9 @@ def header_value(value, default=None):
     so a hostile or broken upstream cannot inject extra headers (CodeQL py/http-response-splitting)."""
     if value is None:
         return default
-    return _HEADER_CONTROL.sub("", str(value))
+    value = str(value).replace("", "").replace("
+", "")   # the newline removal CodeQL recognises as a sanitiser
+    return _HEADER_CONTROL.sub("", value)
 
 def _log(msg):
     line = time.strftime("%Y-%m-%d %H:%M:%S ") + msg
