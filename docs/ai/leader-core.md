@@ -31,7 +31,16 @@ Rules the fold enforces:
   `HYPOTHESIS` result can mark it `failed`/`inconclusive`-pending but never `verified` (brief §6).
 - A controller lease that expired without `controller_released` makes ownership **ambiguous**; nothing that sends game
   input runs until a fresh claim is logged (brief §7).
-- The work-period report (the owner's eight bullets) is generated from the fold, so it cannot drift from the state.
+- The work-period report (the owner's eight bullets) is generated from the fold, so it cannot drift from the state;
+  its "next queue" bullet lists the queued tasks of the **pinned build** (a task that names no build is listed too),
+  so the leftovers of a stopped historic campaign do not follow the owner forever.
+- Task ids in the ledger are `<campaign>/<test id>` (the queue folder's name and the runner's id), because the
+  planners repeat test ids across campaigns (`0000_terrain_<coc>` in every terrain campaign) and two campaigns must
+  never merge in the fold. A card's own id (§8) is already unique.
+- An event of a type this checkout does not know is read as an opaque line (kept, counted, not folded), so a ledger
+  written by a newer checkout stays readable; a known type without its key field (`task`, `capability`, `blocker`)
+  is a corrupt line. Every writer takes the ledger's lock file (`ledger.jsonl.lock`, `filelock.py`) around the
+  repair of a torn tail and the append, so two processes never interleave inside one write.
 
 ## 2. The enums, once
 
@@ -57,10 +66,13 @@ Every queue record is `source = IN_GAME`; `walksim` and `route_eval` results are
 | `Data/FO4SFExp.install.json`, `Data/FO4SFBridge.install.json` | `plugins_verified` (active_after_load from `exp_install.py active`) | `plugins`, `plugins_replaced[].active/original`, `complete`, `pack` (`exp_install.py:492`) |
 | `watchdog_state.json` | `controller_*` (historic, best effort) | heartbeat and hand-over times (`watchdog.ps1:22`) |
 
-Imports are idempotent: an event carries `src` (file path + line for a file that only grows, file path + key for a
-`queue.json` written once, file path + sha256 of the content for the deploy and install records, which are rewritten
-in place by every deploy), and a re-import skips events already present. The importer never writes to the files it
-reads.
+Imports are idempotent: an event carries `src` (file path + line for a file that only grows; the queue.json path +
+a digest of the pin fields, so a pin rewritten in place by `pin-game-version` or a re-plan is a new event; file path
++ content sha256 + mtime for the deploy and install records, which are rewritten in place by every deploy, so a
+re-deploy of a build imported earlier is a new pin), and a re-import skips events already present. The importer
+never writes to the files it reads; it reads them as `utf-8-sig` like the runner (a hand-edited queue may carry a
+BOM) and stores the runner's local wall-clock times (`testqueue.now()`, no zone) as UTC, converted on the machine
+that wrote them.
 
 ## 4. Bounded, resumable tasks (one cloud session each)
 
