@@ -60,7 +60,9 @@ Every queue record is `source = IN_GAME`; `walksim` and `route_eval` results are
 Imports are idempotent: an event carries `src` (file path + line for a file that only grows, file path + key for a
 `queue.json` written once, file path + sha256 of the content for the deploy and install records, which are rewritten
 in place by every deploy), and a re-import skips events already present. The importer never writes to the files it
-reads.
+reads. A `results.jsonl` line that is not a row (a torn line the runner terminated, §10, or a hand edit) is skipped
+and reported as one `ledger_repaired` event keyed by its line; the queue's other rows import. A runner given a lease
+folder writes the same keys live (§10), so importing its queue afterwards adds nothing.
 
 ## 4. Bounded, resumable tasks (one cloud session each)
 
@@ -254,3 +256,24 @@ transpose), `metres` / `units` (70 per metre) and a frozen `Transform(pos m, rot
   the tipped-over boxcar doors), so the interior and door plugins are rebuilt and their door campaigns re-pinned.
 - `routes.ref_matrix` can call the adapter whenever `scripts/game` starts importing `fo4sf.core`; nothing moves.
 - 85 references of 7 models whose precombined matrix matches no order (#102): unresolved; the adapter does not claim them.
+
+## 10. The runner's own events (behind the lease switch)
+
+With a lease folder (§6), `testqueue.py run` writes its events to the ledger in that folder as they happen
+(`src/fo4sf/core/runner_events.py`, pure; `Runner.ledger_event` / `Runner.record` in `scripts/game/testqueue.py`):
+
+| When | Event | Fields |
+|---|---|---|
+| the run starts, once per queue | `build_pinned` | the queue's `build_id`, `plugin_sha256`, `staging`, `commit`, `game_version`; `src = queue.json#pin` |
+| the run starts, once per test | `task_queued` | `task`, `kind`, `cell`, `ref`, `owner` (the lease owner), `campaign` (the queue folder), `build_id`; `src = queue.json#<id>` |
+| an attempt begins | `task_started` | `task`, `attempt`, `owner`, `started`; no `src`: the queue files never record a start, so a resumed run shows it running or lost (§1) |
+| a results row is appended (every attempt; PRECONDITION and BREAKER rows too) | `task_finished` | `outcome` by §2's mapping, `source` IN_GAME, `detail`, `evidence` (the attempt folder), `pins`, `completed` only for PASS / FAIL; `src = results.jsonl:<line>` |
+| the dedicated save is created | `recovery_point` | `kind` save, `path` (the save name), `build_id` |
+
+Rules: an event whose `src` key the ledger already holds is not written again (a resumed run queues nothing twice);
+a failed ledger write is logged once and never stops the run, because the ledger is evidence, not control, and the
+importer (§3) rebuilds the same events from the queue files with the same keys, so a live write that was lost is
+recovered by one `import_queue` and a complete run imports nothing. A torn last line of `results.jsonl` (a power
+cut mid-row) is terminated before the next row is appended, so the two never merge; the torn line stays as
+evidence and the importer reports it. The runner names no capability: that is the leader's call when it reads a
+result. Without a lease folder nothing of this runs.

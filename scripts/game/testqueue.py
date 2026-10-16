@@ -58,7 +58,8 @@ when one trips:
   - allowed hours (queue.json "hours", default all day); --max-hours and --max-tests;
   - the controller lease (opt-in, default off; docs/ai/leader-core.md section 6): with --lease-dir or FO4SF_LEASE_DIR
     set, nothing is launched and no step is sent unless --lease-owner / FO4SF_LEASE_OWNER (default Claude) holds an
-    unexpired lease in that folder (scripts/game/lease.py claim); it is renewed before every test. Unset: not checked;
+    unexpired lease in that folder (scripts/game/lease.py claim); it is renewed before every test, and the runner
+    writes its queue, attempts and results to the ledger in that folder (section 10). Unset: not checked, not written;
   - the preflight gate (opt-in, default off; docs/ai/leader-core.md section 7): with --preflight or FO4SF_PREFLIGHT=1,
     eleven checks (pinned build staged and deployed, experiment as pinned, plugins active, load order, game version,
     lease, STOP files, Resource Guardian, recovery save, log capture) run before the first launch; one FAIL or UNKNOWN
@@ -2152,9 +2153,10 @@ class LeaseGate:
         src = os.path.join(REPO, "src")
         if src not in sys.path:
             sys.path.insert(0, src)
-        from fo4sf.core import controller                 # pure Python; imported only when the switch is on
+        from fo4sf.core import controller, runner_events  # pure Python; imported only when the switch is on
         self.ctl = controller.Controller(lease_dir, by=f"testqueue:{owner}")
         self.Refused = controller.LeaseRefused
+        self.events = runner_events                       # the runner's own ledger events (section 10)
         self.owner, self.dir = owner, self.ctl.dir
 
     def blocked(self):
@@ -2671,6 +2673,7 @@ class Runner:
         lease_dir = getattr(a, "lease_dir", "") or ""     # opt-in (docs/ai/leader-core.md section 6); "" = not checked
         self.lease = LeaseGate(lease_dir, getattr(a, "lease_owner", "") or "Claude") if lease_dir else None
         self.preflight_probe = PreflightProbe              # replaced by a fake in the tests
+        self.ledger_failed, self.ledger_seen = False, None  # section 10: the runner's events, only with a lease folder
 
     def log(self, msg):
         line = f"{now()} {msg}"
@@ -2822,6 +2825,8 @@ class Runner:
             found = glob.glob(os.path.join(saves, f"*{name}*"))
             self.log(f"created the dedicated save {name}: exit {code}, file {'found' if found else 'NOT found'}")
             self.state["save_file"] = bool(found)
+            if found and self.lease:                      # section 10: the save is the build's recovery point
+                self.ledger_event(lambda: self.lease.events.recovery_point(self.q, name, self.ledger_by))
         code = self.step({"kind": "godmode"}, sd)
         obs = load(os.path.join(sd, "obs.json"), {})
         self.log(f"god mode: {obs.get('god')} (reply {obs.get('reply', '')[:60]!r})")
@@ -2898,6 +2903,51 @@ class Runner:
         self.checkpoint(f"stopped: preflight refused ({names})")
         return 3
 
+    @property
+    def ledger_by(self):
+        return f"testqueue:{self.lease.owner}" if self.lease else "testqueue"
+
+    def ledger_event(self, make):
+        """With a lease folder, append the event make() returns to the ledger there, skipping an event whose src key
+        the ledger already holds (a resumed run queues nothing twice). A failure is logged once and never stops the
+        run: the ledger is evidence, not control, and import_queue recovers the events from the queue files."""
+        if not self.lease or self.ledger_failed:
+            return
+        try:
+            if self.ledger_seen is None:
+                self.ledger_seen = self.lease.ctl.ledger.sources()
+            ev = make()
+            if ev is None:
+                return
+            src = ev.get("src")
+            if src and src in self.ledger_seen:
+                return
+            self.lease.ctl.ledger.append(ev)
+            if src:
+                self.ledger_seen.add(src)
+        except (OSError, ValueError) as e:
+            self.ledger_failed = True
+            self.log(f"ledger: {e}: no more events are written this run (import_queue recovers them from the queue files)")
+
+    def record(self, rec):
+        """Append one results.jsonl row (every attempt; PRECONDITION and BREAKER rows too) and, with a lease folder,
+        the matching task_finished event (section 10). A torn last line (a power cut mid-row) is not a row: it is
+        terminated first so the new row starts on its own line, and the importer reports the torn line."""
+        p = os.path.join(self.qdir, "results.jsonl")
+        line, torn = 1, False
+        if os.path.exists(p) and os.path.getsize(p):
+            with open(p, "rb") as f:
+                data = f.read()
+            line, torn = data.count(b"\n") + 1, not data.endswith(b"\n")
+        with open(p, "a", encoding="utf-8") as f:
+            if torn:
+                f.write("\n")
+                line += 1
+            f.write(json.dumps(rec) + "\n")
+        if self.lease:
+            self.ledger_event(lambda: self.lease.events.task_finished(self.qdir, self.q, rec, line, self.ledger_by,
+                                                                       self.lease.owner))
+
     def run(self):
         a = self.a
         self.deadline = time.time() + a.max_hours * 3600
@@ -2921,6 +2971,11 @@ class Runner:
             code = self.preflight()
             if code:
                 return code
+        if self.lease:                                     # section 10: the queue's pin and tests into the ledger, once
+            self.ledger_event(lambda: self.lease.events.build_pinned(self.qdir, self.q, self.ledger_by))
+            for t in tests:
+                self.ledger_event(lambda t=t: self.lease.events.task_queued(self.qdir, self.q, t, self.ledger_by,
+                                                                            self.lease.owner))
         ran = 0
         waits, max_waits = {}, len(tests) * max(a.max_attempts, 1) + 1
         self.qdir_abs = os.path.abspath(self.qdir)
@@ -2948,8 +3003,7 @@ class Runner:
                        "dir": "", "t": now()}
                 if t.get("expect"):
                     rec["expect"] = t["expect"]
-                with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
-                    f.write(json.dumps(rec) + "\n")
+                self.record(rec)
                 self.state["done"][t["id"]] = {"verdict": "INCONCLUSIVE", "class": "PRECONDITION", "attempts": 0}
                 self.checkpoint()
                 self.log(f"{t['id']}: INCONCLUSIVE PRECONDITION {pre}")
@@ -2989,8 +3043,7 @@ class Runner:
                        "attempt": 0, "verdict": "INCONCLUSIVE", "class": "BREAKER",
                        "detail": f"not run: the first {BREAKER} {t['kind']} tests were all inconclusive", "exit": None,
                        "dir": "", "t": now()}
-                with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
-                    f.write(json.dumps(rec) + "\n")
+                self.record(rec)
                 self.state["done"][t["id"]] = {"verdict": "INCONCLUSIVE", "class": "BREAKER", "attempts": 0}
                 self.checkpoint()
                 continue
@@ -3011,6 +3064,9 @@ class Runner:
                     return 3
             n = self.state["attempts"].get(t["id"], 0) + 1
             self.state["attempts"][t["id"]] = n
+            if self.lease:                                # section 10: running or lost until its row is recorded
+                self.ledger_event(lambda: self.lease.events.task_started(self.qdir, self.q, t, n, self.ledger_by,
+                                                                          self.lease.owner))
             out_dir = os.path.join(self.qdir, "tests", t["id"], f"a{n}")
             os.makedirs(out_dir, exist_ok=True)
             lt = None                                     # the sky reading, for tests that asked for a time of day
@@ -3076,8 +3132,7 @@ class Runner:
                 rec["install"] = inst
             if cls == "CONTROL":
                 rec["raw"] = list(raw)                    # the report gates it again (write_report)
-            with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
-                f.write(json.dumps(rec) + "\n")
+            self.record(rec)
             final = verdict != "INCONCLUSIVE" or n >= a.max_attempts or cls in FINAL_INCONCLUSIVE
             if final:
                 self.state["done"][t["id"]] = {"verdict": verdict, "class": cls, "attempts": n}
@@ -3115,7 +3170,13 @@ def write_report(qdir):
     rows = []
     if os.path.exists(os.path.join(qdir, "results.jsonl")):
         with open(os.path.join(qdir, "results.jsonl"), encoding="utf-8") as f:
-            rows = [json.loads(x) for x in f]
+            for x in f:
+                try:
+                    r = json.loads(x)
+                except ValueError:                        # a torn line (a power cut mid-row): not a row (section 10)
+                    continue
+                if isinstance(r, dict) and r.get("id"):
+                    rows.append(r)
     final = {}
     for r in rows:                                        # last attempt per test counts
         final[r["id"]] = r
