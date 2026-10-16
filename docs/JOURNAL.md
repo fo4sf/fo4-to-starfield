@@ -1703,3 +1703,18 @@ and the combined ACTI label were corrected; failures are retained with passing e
 persistent-stations-integration-20261016. Independent QA, production checker routing, full-size bootstrap,
 261's inherited review findings and native travel/return/save-reload remain gated. No active stage,
 installation, game controller or Claude checkout changed.
+
+## 2026-10-16 Codex: bind reuse checks to door identity inputs (offline)
+
+At267/0958585, verify-data reported unchanged after same-size/same-time edits to parameters, objects,
+formids, ledger, NAVM input, plan and expected results. It also accepted absent identity evidence, missing
+map/ledger, incomplete/unknown receipts and a string "false" pass value:13 reproduced false acceptances.
+Check now records content receipts for those inputs and requires the beginning/end receipts to agree.
+Verify-data compares them around asset inspection, retains existing asset metadata checks, and never
+rewrites old reports. Legacy allocation works with a fresh receipt; old reports require a fresh check.
+
+11 new tests (actual CLI for the changed/missing/control/legacy cases, producer contract and an input
+change injected during asset inspection),77 caller tests and5 publication-control tests pass. Failed
+and passing synthetic evidence: persistent-door-verification-20261016. This verifies freshness only;
+semantic ledger validation, raw/native acceptance and normal-check persistent ordering/lease integration
+remain separate gates. No active stage, game, installation or other agent checkout changed.

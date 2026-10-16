@@ -165,3 +165,25 @@ and a scripted door. Reordering and adding/removing/reintroducing stations must
 preserve every old door reference, base and arrival ID. Explicit migration still
 requires byte-identical plugin and map output. This does not migrate core64i or
 establish native crafting, door travel or saved-game behavior.
+
+## Preserve the checked input generation
+
+`make_core64c.py check` records SHA256 and length for its parameters, objects,
+ID map, plan, expected results, declared NAVM input and (when enabled) persistent
+ledger. Inputs must be ordinary files within the stage. Their receipts must match
+at the beginning and end of the check, before a passing report is published.
+
+`verify-data` compares those contents before and after inspecting the existing
+asset/plugin size-and-time inventory. Rewriting an ID map at the same size and
+timestamp no longer reports an unchanged checked tree. Missing/unknown receipts,
+missing inputs, unresolved publication controls, ambiguous paths and a ledger
+with persistence disabled are refused; verification never rewrites a report.
+Legacy allocation is supported with a new content receipt. Old metadata-only
+receipts require a fresh `check`; they are not silently upgraded or accepted.
+
+These receipts establish input freshness, not semantic ledger validity or native
+acceptance. The .NET identity audit and the normal check's raw-record checks
+remain separate requirements. Source stages must remain immutable under the
+cooperating-writer protocol; repeated hashes are not an atomic snapshot against
+arbitrary simultaneous edits. Asset payloads retain their existing metadata
+checks. Normal-check persistent ordering integration remains pending.
