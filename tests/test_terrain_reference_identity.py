@@ -1,11 +1,13 @@
-"""Run the actual terrain writer on a three-record synthetic master, never a game."""
+"""Run the actual terrain writer on a small synthetic master (dotnet/TerrainIdentityFixture), never a game."""
 import copy
+import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
 import struct
 import subprocess
+import sys
 import tempfile
 import unittest
 import zlib
@@ -200,5 +202,176 @@ class TerrainReferenceIdentityTests(unittest.TestCase):
         invalid.append(disagree)
         for objects in invalid:
             proc, _ = self.run_writer(objects, 'refusals')
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertEqual({n: (stage / n).read_bytes() for n in pinned}, pinned)
+
+
+sys.path.insert(0, str(ROOT / 'src'))
+sys.path.insert(0, str(ROOT / 'scripts' / 'terrain'))
+_spec = importlib.util.spec_from_file_location('make_core64c', ROOT / 'scripts' / 'terrain' / 'make_core64c.py')
+mk = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(mk)
+
+
+class ActivatorTerminalWriterTests(unittest.TestCase):
+    """Activators and terminals (commonwealth-build-plan.md section 3) through the actual writer: FO4 Activator ->
+    ACTI, FO4 Terminal -> TERM + its own TMLM menu, in the one slot plan with containers and items; the raw records
+    are read back, and make_core64c's own check (promotion_checks) runs on the written plugin."""
+    BODY = 'FO4 terminal (text not ported yet)'
+
+    run_writer = TerrainReferenceIdentityTests.run_writer
+
+    @classmethod
+    def setUpClass(cls):
+        TerrainReferenceIdentityTests.setUpClass.__func__(cls)          # the same .NET checks, master and writer
+        cells = ([0, 0], [0, 1], [1, 1], [1, 0], [0, 0], [1, 1], [0, 1], [1, 0])
+        poss = ([1, 2, 3], [4, 101, 6], [101, 102, 9], [102, 5, 7], [7, 8, 9], [150, 160, 2], [30, 140, 4], [120, 9, 1])
+        cls.seven = {'world': 'SyntheticWorld', 'bases': [{'edid': 'SyntheticBase', 'model': 'synthetic.nif'},
+                                                          {'edid': 'SyntheticTerminalBase', 'model': 'terminal.nif'}],
+                     'refs': [{'src': f'{i + 1:06X}:Synthetic.esm', 'base': 1 if i in (5, 6) else 0, 'cell': c,
+                               'pos': p, 'rot': [0, 0, i / 10], 'scale': 1 + i / 10, 'disabled': False}
+                              for i, (c, p) in enumerate(zip(cells, poss))]}
+
+    def promote_all(self, **change):
+        """0 container, 1 item, 2 + 4 one named activator base, 3 an activator without a name, 5 + 6 one terminal base;
+        7 stays an ordinary reference."""
+        obj = copy.deepcopy(self.seven)
+        r = obj['refs']
+        obj['containers'] = [dict(r[0], reference_index=0, edid='SyntheticContainer', model='synthetic.nif', name='Box',
+                                  items=[{'form': 'Starfield.esm:00000F', 'count': 25}])]
+        obj['items'] = [dict(r[1], reference_index=1, edid='SyntheticMisc', model='synthetic.nif', name='Can', value=7,
+                             weight=0.25)]
+        obj['activators'] = [dict(r[i], reference_index=i, edid=edid, model='synthetic.nif', name=name)
+                             for i, edid, name in ((2, 'FO4Core_acti_000100_synthetic', 'Bell'),
+                                                   (3, 'FO4Core_acti_000101_synthetic', None),
+                                                   (4, 'FO4Core_acti_000100_synthetic', 'Bell'))]
+        obj['terminals'] = [dict(r[i], reference_index=i, edid='FO4Core_term_000102_synthetic',
+                                 menu_edid='FO4Core_tmlm_000102_synthetic', model='terminal.nif', name='Terminal',
+                                 body=self.BODY) for i in (5, 6)]
+        for k in ('containers', 'items', 'activators', 'terminals'):
+            for e in obj[k]:
+                e.pop('base')
+                e.pop('disabled')
+        obj['refs'] = [r[7]]
+        for k, v in change.items():
+            v(obj) if callable(v) else obj.__setitem__(k, v)
+        return obj
+
+    def test_activators_and_terminals_keep_slots_and_write_native_records(self):
+        before, baseline = self.run_writer(self.seven, 'acti-term-before')
+        after, candidate = self.run_writer(self.promote_all(), 'acti-term-after')
+        self.assertEqual(before.returncode, 0, before.stderr)
+        self.assertEqual(after.returncode, 0, after.stderr)
+        old = json.loads((baseline / 'formids.json').read_text())
+        new = json.loads((candidate / 'formids.json').read_text())
+        for k in ('items', 'activators', 'terminals'):
+            self.assertNotIn(k, old)                   # a build without a class keeps its formids.json shape
+        promoted = {src: v for k in ('containers', 'items', 'activators', 'terminals') for src, v in new[k].items()}
+        self.assertEqual(len(promoted), 7)
+        combined = dict(new['refs'], **{src: v['ref'] for src, v in promoted.items()})
+        self.assertEqual(combined, old['refs'])                                         # every source keeps its REFR id
+        self.assertEqual(new['bases'], old['bases'])
+        old_records, new_records = records(baseline / 'Synthetic.esm'), records(candidate / 'Synthetic.esm')
+        for src, identity in old['refs'].items():
+            key = int(identity, 16)
+            if src not in promoted:
+                self.assertEqual(new_records[key], old_records[key])                    # the ordinary one: unchanged
+                continue
+            self.assertEqual(without_base(new_records[key]), without_base(old_records[key]))
+            name = next(d for sig, d in subrecords(new_records[key][1]) if sig == b'NAME')
+            self.assertEqual(struct.unpack_from('<I', name)[0] & 0xFFFFFF, int(promoted[src]['base'], 16))
+        # allocation: CONT, MISC, the two ACTI, then TERM followed by its TMLM, all after the last reserved REFR
+        cont = int(next(iter(new['containers'].values()))['base'], 16)
+        misc = int(next(iter(new['items'].values()))['base'], 16)
+        acti = sorted({int(v['base'], 16) for v in new['activators'].values()})
+        term = {int(v['base'], 16) for v in new['terminals'].values()}
+        menu = {int(v['menu'], 16) for v in new['terminals'].values()}
+        self.assertEqual((len(acti), len(term), len(menu)), (2, 1, 1))
+        term, menu = term.pop(), menu.pop()
+        self.assertEqual([cont, misc] + acti + [term, menu], list(range(max(old_records) + 1, max(old_records) + 7)))
+        sigs = {k: new_records[k][0] for k in [cont, misc] + acti + [term, menu]}
+        self.assertEqual(list(sigs.values()), [b'CONT', b'MISC', b'ACTI', b'ACTI', b'TERM', b'TMLM'])
+        named = dict(subrecords(new_records[int(new['activators']['000003:Synthetic.esm']['base'], 16)][1]))
+        quiet = dict(subrecords(new_records[int(new['activators']['000004:Synthetic.esm']['base'], 16)][1]))
+        self.assertEqual((named[b'EDID'], named[b'MODL'], named[b'FULL']),
+                         (b'FO4Core_acti_000100_synthetic\0', b'synthetic.nif\0', b'Bell\0'))
+        self.assertNotIn(b'FULL', quiet)                                   # no name in FO4: no FULL here either
+        self.assertEqual(quiet[b'EDID'], b'FO4Core_acti_000101_synthetic\0')
+        t = dict(subrecords(new_records[term][1]))
+        self.assertEqual((t[b'EDID'], t[b'MODL'], t[b'FULL'], t[b'NAM1']),
+                         (b'FO4Core_term_000102_synthetic\0', b'terminal.nif\0', b'Terminal\0', b'\x02'))
+        self.assertEqual(struct.unpack('<I', t[b'DNAM'])[0], 0x01000000 | menu)   # file-local: own records are 01
+        m = list(subrecords(new_records[menu][1]))
+        md = dict(m)
+        self.assertEqual((md[b'EDID'], md[b'FULL'], md[b'TMVT'], md[b'SNAM']),
+                         (b'FO4Core_tmlm_000102_synthetic\0', b'Terminal\0', struct.pack('<I', 1), struct.pack('<I', 0)))
+        self.assertEqual([d for s, d in m if s == b'BTXT'], [self.BODY.encode() + b'\0'])
+        self.assertEqual(md.get(b'TPLT'), b'\x00')
+        self.assertEqual(md.get(b'BSIZ', struct.pack('<I', 1)), struct.pack('<I', 1))
+        self.assertEqual(md.get(b'ISIZ', struct.pack('<I', 0)), struct.pack('<I', 0))
+        (candidate / 'record-layout.json').write_text(json.dumps(
+            {k: [[s.decode(), d.hex()] for s, d in subrecords(new_records[v][1])]
+             for k, v in (('ACTI', acti[0]), ('ACTI_unnamed', acti[1]), ('TERM', term), ('TMLM', menu))}, indent=1))
+        # make_core64c's check on the written plugin: counts and every binding hold
+        objects = self.promote_all()
+        walked = mk.overlay_records.walk_plugin(str(candidate / 'Synthetic.esm'))
+        own = len(walked['masters']) << 24
+        exp = {'objects': {'exported': 8, 'skipped': {}}}
+        mk.check_reference_slots(objects, new)
+        res = mk.promotion_checks(walked['records'], own, objects, new, exp)
+        self.assertTrue(all(ok for _w, ok in res), res)
+        self.assertEqual([w.split(' (')[0] for w, _ok in res][2:],
+                         ['1 CONT = 1 distinct containers edids', '1 MISC = 1 distinct items edids',
+                          '2 ACTI = 2 distinct activators edids', '1 TERM = 1 distinct terminals edids',
+                          '1 TMLM = 1 distinct terminals menu edids',
+                          'every promoted REFR names its CONT / MISC / ACTI / TERM'])
+        # the same check catches a wrong body or a renamed activator in the cluster it is given
+        wrong = self.promote_all(x=lambda o: o['terminals'][1].update(body='other'))
+        self.assertFalse(mk.promotion_checks(walked['records'], own, wrong, new, exp)[-1][1])
+        wrong = self.promote_all(x=lambda o: o['activators'][1].update(name='Quiet'))
+        self.assertFalse(mk.promotion_checks(walked['records'], own, wrong, new, exp)[-1][1])
+
+    # the furniture block every vanilla TERM carries (review of #241), as the template terminal of the master has it
+    FURNITURE = (b'BFCB', b'ANAM', b'BNAM', b'CNAM', b'KSIZ', b'KWDA', b'PNAM', b'FNAM', b'JNAM', b'MNAM', b'GNAM',
+                 b'WBDT', b'FTMP', b'XMRK', b'SNAM')
+
+    def test_terminal_carries_the_template_furniture_block_and_activator_the_vanilla_fields(self):
+        proc, stage = self.run_writer(self.promote_all(), 'acti-term-furniture')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        ids = json.loads((stage / 'formids.json').read_text())
+        written = records(stage / 'Synthetic.esm')
+        template = list(subrecords(records(self.master)[0x0155A2][1]))
+        term = list(subrecords(written[int(next(iter(ids['terminals'].values()))['base'], 16)][1]))
+        for sig in self.FURNITURE:
+            want = [d for s, d in template if s == sig]
+            self.assertTrue(want, sig)                                     # the synthetic template has every field
+            self.assertEqual([d for s, d in term if s == sig], want, sig)
+        t = dict(term)
+        self.assertNotIn(b'VMAD', t)                                       # the template's script stays behind
+        self.assertEqual(t[b'OBND'], bytes(24))                            # as every promoted base: no bounds yet
+        self.assertEqual((t[b'EDID'], t[b'MODL'], t[b'FULL']),
+                         (b'FO4Core_term_000102_synthetic\0', b'terminal.nif\0', b'Terminal\0'))
+        self.assertEqual(struct.unpack('<I', t[b'MNAM'])[0], 0x40000001)  # HasModel + InteractionPoint0
+        for src in ('000003:Synthetic.esm', '000004:Synthetic.esm'):     # named and unnamed ACTI
+            a = dict(subrecords(written[int(ids['activators'][src]['base'], 16)][1]))
+            self.assertEqual((a.get(b'PNAM'), a.get(b'FNAM'), a.get(b'JNAM')),
+                             (bytes.fromhex('cc4c3300'), b'\0\0', struct.pack('<H', 360)), src)
+
+    def test_bad_activator_or_terminal_inputs_leave_the_plugin_and_map(self):
+        good = self.promote_all()
+        proc, stage = self.run_writer(good, 'acti-term-refusals')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        pinned = {n: (stage / n).read_bytes() for n in ('Synthetic.esm', 'formids.json')}
+        invalid = [
+            self.promote_all(x=lambda o: o['terminals'][0].update(body='two\nlines')),
+            self.promote_all(x=lambda o: o['terminals'][1].update(body='')),
+            self.promote_all(x=lambda o: o['terminals'][1].update(name='Other')),            # one TERM edid, two names
+            self.promote_all(x=lambda o: o['activators'][2].update(name='Gong')),           # one ACTI edid, two names
+            self.promote_all(x=lambda o: o['activators'][2].update(model='other.nif')),     # one ACTI edid, two models
+            self.promote_all(x=lambda o: o['terminals'][1].update(edid='FO4Core_term_000103_synthetic')),   # menu shared
+            self.promote_all(x=lambda o: o['terminals'][0].update(reference_index=0)),      # the container's slot
+        ]
+        for objects in invalid:
+            proc, _ = self.run_writer(objects, 'acti-term-refusals')
             self.assertNotEqual(proc.returncode, 0)
             self.assertEqual({n: (stage / n).read_bytes() for n in pinned}, pinned)

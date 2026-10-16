@@ -2,12 +2,12 @@ using System.Text.Json;
 
 // Identity-only planning. Promotion changes the base type, not the source REFR's
 // slot in this export. It is not a persistent allocator for reordered exports.
-// Every promoted class ("containers", "items") is one ordered list of promoted sources:
+// Every promoted class ("containers", "items", "activators", "terminals") is one ordered list of promoted sources:
 // each carries its original reference_index, the remaining "refs" fill the other slots in order.
 internal static class ReferenceIdentityPlan
 {
-    // objects.json keys of the promoted classes (make_core64c.py PROMOTED): CONT, then MISC bases
-    public static readonly string[] PromotedClasses = { "containers", "items" };
+    // objects.json keys of the promoted classes (make_core64c.py PROMOTED): CONT, MISC, ACTI, then TERM (+ TMLM) bases
+    public static readonly string[] PromotedClasses = { "containers", "items", "activators", "terminals" };
 
     public static string[] Order(JsonElement objects)
     {

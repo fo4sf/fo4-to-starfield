@@ -222,5 +222,40 @@ class TerrainLightsWriterTests(unittest.TestCase):
             self.assertEqual({n: (stage / n).read_bytes() for n in pinned}, pinned)
 
 
+class LightsAfterTerminalsWriterTests(unittest.TestCase):
+    """Merged with #241: a build that promotes containers, items, activators and terminals (each TERM with its own TMLM
+    menu) keeps every id and byte when lights are added, and the lights come after the menus."""
+    setUpClass = classmethod(tri.ActivatorTerminalWriterTests.setUpClass.__func__)
+    run_writer = tri.TerrainReferenceIdentityTests.run_writer
+    promote_all = tri.ActivatorTerminalWriterTests.promote_all
+    BODY = tri.ActivatorTerminalWriterTests.BODY
+
+    def test_lights_follow_the_terminal_menus(self):
+        base = self.promote_all()
+        lit = copy.deepcopy(base)
+        lit["light_bases"] = [copy.deepcopy(FIRE)]
+        lit["lights"] = [{"src": "00A001:Fallout4.esm", "edid": FIRE["edid"], "cell": [0, 0], "pos": [5, 5, 3],
+                          "rot": [0, 0, 1], "scale": 1.0, "disabled": False, "radius": None, "lighting": None,
+                          "flags": 0x100}]
+        before, old_stage = self.run_writer(base, "lit-term-before")
+        after, new_stage = self.run_writer(lit, "lit-term-after")
+        self.assertEqual((before.returncode, after.returncode), (0, 0), before.stderr + after.stderr)
+        old = json.loads((old_stage / "formids.json").read_text())
+        new = json.loads((new_stage / "formids.json").read_text())
+        for k in ("bases", "refs", "containers", "items", "activators", "terminals"):
+            self.assertEqual(new[k], old[k])
+        old_records, new_records = tri.records(old_stage / "Synthetic.esm"), tri.records(new_stage / "Synthetic.esm")
+        for key, rec in old_records.items():
+            self.assertEqual(new_records[key], rec)
+        menus = {int(v["menu"], 16) for v in new["terminals"].values()}
+        self.assertEqual(int(new["lights"]["00A001:Fallout4.esm"]["ref"], 16), max(old_records) + 1)
+        self.assertGreater(max(old_records), max(menus) - 1)
+        mk.check_light_identities(lit, new)
+        mk.check_reference_slots(lit, new)
+        plugin = overlay_records.walk_plugin(str(new_stage / "Synthetic.esm"))
+        self.assertEqual(mk.light_record_problems(plugin["records"], 1 << 24, lit, new), [])
+        self.assertEqual(mk.promoted_record_check(plugin["records"], 1 << 24, lit, new), [])
+
+
 if __name__ == "__main__":
     unittest.main()

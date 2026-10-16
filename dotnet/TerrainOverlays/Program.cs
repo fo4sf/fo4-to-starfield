@@ -23,19 +23,21 @@
 // "rot", "scale", "disabled"}]} (metres, radians), as dotnet/TerrainExp2's objects mode. Their FormIDs come after every
 // overlay record, so the terrain records, the anchors and the Mars plugin keep the FormIDs they have without objects;
 // <staging dir>/formids.json lists the new ones. objects.json may also promote placed references to native records
-// (make_core64c.py stage --cluster): "containers" (CONT) and "items" (MISC), each entry in its source's original REFR
-// slot (ReferenceIdentityPlan), the new CONT then MISC bases after every reserved REFR; formids.json "containers" and
-// "items" map each source to {"base", "ref"}.
+// (make_core64c.py stage --cluster): "containers" (CONT), "items" (MISC), "activators" (ACTI) and "terminals" (TERM,
+// each with its own TMLM menu), each entry in its source's original REFR slot (ReferenceIdentityPlan), the new CONT,
+// MISC, ACTI, then TERM + TMLM records after every reserved REFR; formids.json "containers", "items", "activators" and
+// "terminals" map each source to {"base", "ref"} (a terminal also to its "menu").
 // objects.json may also hold "lights" and "light_bases" (exterior lights, docs/terrain/exterior-lights.md: written by
 // make_core64c.py stage from make_cluster.py lights): FO4 Light references, which core64c never placed and which therefore
 // own no reserved slot. Their REFRs take NEW FormIDs after every other record of the plugin (the reserved REFRs, the
-// CONT and MISC bases and the NAVMs), in "lights" order, then one LIGH per FO4 base (a copy of LGT_Interior_Omni_NS_Warm_004_2k,
+// CONT, MISC, ACTI and TERM bases, the TMLM menus and the NAVMs), in "lights" order, then one LIGH per FO4 base (a copy of LGT_Interior_Omni_NS_Warm_004_2k,
 // 12A74B:Starfield.esm, with the mapped fields), so a build with lights keeps every FormID of the build without them.
 using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Starfield;
 using Noggog;
+using StarfieldActivator = Mutagen.Bethesda.Starfield.Activator;   // not System.Activator (implicit usings)
 
 var sfPath = args[0];
 var outDir = args[1];
@@ -159,7 +161,8 @@ foreach (var o in overlays)
                       $"{(cmax - cmin + 1) * (cmax - cmin + 1)} cells {cmin}..{cmax}, COC {coc} in ({spawnCell[0]}, {spawnCell[1]})");
     idx++;
 }
-int nStat = 0, nDoor = 0, nRef = 0, nDisabled = 0, nNav = 0, nNavTri = 0, nNavLink = 0, nNavDoor = 0, nCont = 0, nMisc = 0;
+int nStat = 0, nDoor = 0, nRef = 0, nDisabled = 0, nNav = 0, nNavTri = 0, nNavLink = 0, nNavDoor = 0, nCont = 0, nMisc = 0,
+    nActi = 0, nTerm = 0;
 var refIds = new Dictionary<string, string>();                 // placed reference source -> this plugin's id (6 hex)
 Dictionary<string, object>? ids = null;                        // formids.json
 Dictionary<(int, int), Cell>? objCells = null;                 // the objects' overlay cells
@@ -379,9 +382,165 @@ if (Has(prm, "objects"))
                 Console.WriteLine($"  item {misc.EditorID} {misc.FormKey} ('{misc.Name}', value {misc.Value}, weight {misc.Weight}) -> REFR {obj.FormKey} in cell ({cxy[0]}, {cxy[1]})");
         }
     }
-    nCont = contByEdid.Count; nMisc = miscByEdid.Count;
+    // Activators and terminals (docs/terrain/commonwealth-build-plan.md section 3), promoted exactly as containers and
+    // items: one temporary REFR in the source's original identity slot (reserved above with the others) on one shared
+    // native base per edid, every entry of an edid agreeing on what that base carries.
+    //   "activators": FO4 Activator -> ACTI with the converted model and the name ({"src", "edid", "model", "name" (null:
+    //                 no FULL, as an FO4 activator without one), "cell", "pos", "rot", "scale", "reference_index"})
+    //   "terminals":  FO4 Terminal -> TERM with the converted model and the name, DNAM = its own TMLM menu (allocated
+    //                 right after it): the name and one body text, the entry's "body" (one line), no menu item
+    //                 ({"src", "edid", "menu_edid", "model", "name", "body", "cell", ...})
+    // New ACTI bases follow every MISC, then each TERM with its TMLM. Mutagen 0.55.0-alpha.67, read off the package by
+    // reflection: Activator Name / Model; Terminal Name / Model / Menu / Background; TerminalMenu Name / ShowBodyText /
+    // MenuButtonStyle / Style / INAM / BodyTexts (TerminalMenuBodyText Text / UseTemplatedText) / MenuItems. The TMLM
+    // mirrors vanilla RI04_NyxProgram_Menu_Camden (0788A8:Starfield.esm: TMVT 1 = Document, DNAM 0, SNAM 0 = Windows,
+    // one BTXT, TPLT 0, no item); the TERM's NAM1 = Default (2) as the vanilla terminals.
+    PlacedObject PlacePromoted(JsonElement c, FormKey baseKey, string what)
+    {
+        var src = c.GetProperty("src").GetString()!;
+        var cxy = c.GetProperty("cell").EnumerateArray().Select(e => e.GetInt32()).ToArray();
+        if (!cellAt.TryGetValue((cxy[0], cxy[1]), out var cell))
+            throw new InvalidDataException($"{what} {src} in cell ({cxy[0]}, {cxy[1]}) outside {world}'s cells");
+        float[] V(string k) => c.GetProperty(k).EnumerateArray().Select(e => e.GetSingle()).ToArray();
+        var pos = V("pos");
+        var rot = V("rot");
+        var obj = new PlacedObject(referenceKeys[src], release)
+        {
+            Base = new FormLinkNullable<IPlaceableObjectGetter>(baseKey),
+            Position = new P3Float(pos[0], pos[1], pos[2]),
+            Rotation = new P3Float(rot[0], rot[1], rot[2]),
+        };
+        var scale = c.GetProperty("scale").GetSingle();
+        if (Math.Abs(scale - 1f) > 1e-4) obj.Scale = scale;
+        cell.Temporary.Add(obj);
+        nRef++;
+        return obj;
+    }
+    static string? OneLine(JsonElement c, string k, bool optional)
+    {
+        var v = c.GetProperty(k);
+        if (optional && v.ValueKind == JsonValueKind.Null) return null;
+        var t = v.GetString();
+        if (string.IsNullOrWhiteSpace(t) || t.Contains('\n') || t.Contains('\r'))
+            throw new InvalidDataException($"{c.GetProperty("src").GetString()}: {k} {v} is not one non-empty line");
+        return t;
+    }
+    var actiIds = new Dictionary<string, object>();
+    var actiByEdid = new Dictionary<string, StarfieldActivator>(StringComparer.OrdinalIgnoreCase);
+    var actiSig = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    if (o.TryGetProperty("activators", out var actisJ))
+    {
+        foreach (var c in actisJ.EnumerateArray())
+        {
+            var src = c.GetProperty("src").GetString()!;
+            var edid = c.GetProperty("edid").GetString()!;
+            var model = c.GetProperty("model").GetString()!;
+            var name = OneLine(c, "name", optional: true);
+            var sig = $"{model.ToLowerInvariant()}|{(name == null ? "<none>" : "=" + name)}";
+            if (!actiByEdid.TryGetValue(edid, out var acti))
+            {
+                // PNAM / FNAM / JNAM as the vanilla majority (Starfield.esm, 1,463 ACTI read raw in the review of #241):
+                // marker colour bytes CC 4C 33 00 in 1,347 (Mutagen writes the alpha last), flags 0 in 1,412,
+                // activation angle 360 in 1,453
+                acti = new StarfieldActivator(NewKey(), release)
+                {
+                    EditorID = edid, Model = new Model { File = model }, MarkerColor = System.Drawing.Color.FromArgb(0, 0xCC, 0x4C, 0x33),
+                    Flags = (StarfieldActivator.Flag)0, ActivationAngle = 360,
+                };
+                if (name != null) acti.Name = name;
+                mod.Activators.Add(acti);
+                actiByEdid[edid] = acti;
+                actiSig[edid] = sig;
+            }
+            else if (actiSig[edid] != sig)
+                throw new InvalidDataException($"activator {edid}: {src} asks for {sig} but the shared record is {actiSig[edid]}");
+            var obj = PlacePromoted(c, acti.FormKey, "activator");
+            actiIds[src] = new Dictionary<string, string> { ["base"] = acti.FormKey.ID.ToString("X6"), ["ref"] = obj.FormKey.ID.ToString("X6") };
+            if (actiIds.Count <= 8 || actiIds.Count % 500 == 0)
+                Console.WriteLine($"  activator {acti.EditorID} {acti.FormKey} ('{acti.Name?.String}') -> REFR {obj.FormKey}");
+        }
+    }
+    var termIds = new Dictionary<string, object>();
+    var termByEdid = new Dictionary<string, (Terminal Term, TerminalMenu Menu)>(StringComparer.OrdinalIgnoreCase);
+    var termSig = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    var menuEdids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    // Every vanilla TERM is also furniture: the review of #241 read Starfield.esm's 368 raw (MNAM, WBDT, XMRK, PNAM /
+    // FNAM / JNAM / GNAM and keywords in all, an animation graph and SNAM in 367, FTMP in 365); a TERM without them has no
+    // vanilla precedent. Each new TERM therefore carries the furniture block of one vanilla standing terminal, as the
+    // doors carry a vanilla rig: OE_AustinF_DeployMicrobe_Terminal (0155A2:Starfield.esm: FTMP 0FFAD2, XMRK
+    // furn_human_standingterminal.nif, one SNAM marker, MNAM 40000001 = HasModel + InteractionPoint0, WBDT 00, PNAM /
+    // FNAM / JNAM / GNAM, 5 keywords and the HybridStateGraph01 animation graph; that marker model, keyword set and
+    // FTMP are the vanilla majority, 184 / 184 / 182 of 368). Its EDID, bounds, model, name, menu and VMAD
+    // (TerminalScript) are not copied. Whether the player enters terminal mode stays unresolved until the activate step.
+    ITerminalGetter? termTemplate = null;
+    static MemorySlice<byte>? Bytes(ReadOnlyMemorySlice<byte>? s) => s is { } v ? new MemorySlice<byte>(v.ToArray()) : default(MemorySlice<byte>?);
+    void Furnish(Terminal term, ITerminalGetter t)
+    {
+        term.FurnitureTemplate.SetTo(t.FurnitureTemplate.FormKeyNullable);
+        term.MarkerModel = t.MarkerModel;
+        term.MarkerParameters = t.MarkerParameters?.Select(p => p.DeepCopy()).ToExtendedList();
+        term.MarkerFlags = t.MarkerFlags;
+        term.WorkbenchData = Bytes(t.WorkbenchData);
+        term.PNAM = Bytes(t.PNAM); term.FNAM = Bytes(t.FNAM); term.JNAM = Bytes(t.JNAM); term.GNAM = Bytes(t.GNAM);
+        term.Keywords = t.Keywords?.Select(k => (IFormLinkGetter<IKeywordGetter>)new FormLink<IKeywordGetter>(k.FormKey)).ToExtendedList();
+        foreach (var g in t.Components.OfType<IAnimationGraphComponentGetter>()) term.Components.Add(g.DeepCopy());
+    }
+    if (o.TryGetProperty("terminals", out var termsJ))
+    {
+        if (termsJ.GetArrayLength() > 0)
+            termTemplate = sf.Terminals.FirstOrDefault(t => t.FormKey == new FormKey(sfEsm, 0x0155A2))
+                ?? throw new InvalidDataException("terminals: the template terminal 0155A2:Starfield.esm (OE_AustinF_DeployMicrobe_Terminal) is missing");
+        foreach (var c in termsJ.EnumerateArray())
+        {
+            var src = c.GetProperty("src").GetString()!;
+            var edid = c.GetProperty("edid").GetString()!;
+            var menuEdid = c.GetProperty("menu_edid").GetString()!;
+            var model = c.GetProperty("model").GetString()!;
+            var name = OneLine(c, "name", optional: false)!;
+            var body = OneLine(c, "body", optional: false)!;
+            var sig = $"{model.ToLowerInvariant()}|{menuEdid.ToLowerInvariant()}|{name}|{body}";
+            if (!termByEdid.TryGetValue(edid, out var tm))
+            {
+                if (!menuEdids.Add(menuEdid))
+                    throw new InvalidDataException($"terminal {edid}: menu {menuEdid} already belongs to another terminal");
+                var term = new Terminal(NewKey(), release)
+                {
+                    EditorID = edid, Model = new Model { File = model }, Name = name,
+                    Background = Terminal.BackgroundType.Default,
+                };
+                Furnish(term, termTemplate!);
+                var menu = new TerminalMenu(NewKey(), release)
+                {
+                    EditorID = menuEdid, Name = name, INAM = string.Empty,
+                    ShowBodyText = TerminalMenu.ShowBodyTextOption.Document,
+                    MenuButtonStyle = (TerminalMenu.MenuButtonStyleOption)0,
+                    Style = TerminalMenu.StyleOption.Windows,
+                    BodyTexts = new ExtendedList<TerminalMenuBodyText> { new TerminalMenuBodyText { Text = body, UseTemplatedText = false } },
+                    MenuItems = new ExtendedList<TerminalMenuItem>(),
+                };
+                term.Menu.SetTo(menu.FormKey);
+                mod.Terminals.Add(term);
+                mod.TerminalMenus.Add(menu);
+                termByEdid[edid] = tm = (term, menu);
+                termSig[edid] = sig;
+            }
+            else if (termSig[edid] != sig)
+                throw new InvalidDataException($"terminal {edid}: {src} asks for {sig} but the shared record is {termSig[edid]}");
+            var obj = PlacePromoted(c, tm.Term.FormKey, "terminal");
+            termIds[src] = new Dictionary<string, string>
+            {
+                ["base"] = tm.Term.FormKey.ID.ToString("X6"), ["ref"] = obj.FormKey.ID.ToString("X6"),
+                ["menu"] = tm.Menu.FormKey.ID.ToString("X6"),
+            };
+            if (termIds.Count <= 8 || termIds.Count % 500 == 0)
+                Console.WriteLine($"  terminal {tm.Term.EditorID} {tm.Term.FormKey} ('{tm.Term.Name?.String}', menu {tm.Menu.FormKey}) -> REFR {obj.FormKey}");
+        }
+    }
+    nCont = contByEdid.Count; nMisc = miscByEdid.Count; nActi = actiByEdid.Count; nTerm = termByEdid.Count;
     ids = new Dictionary<string, object> { ["plugin"] = modKey.FileName.String, ["world"] = world, ["bases"] = baseIds, ["refs"] = refIds, ["containers"] = contIds };
     if (o.TryGetProperty("items", out _)) ids["items"] = itemIds;               // a build without items keeps its formids.json bytes
+    if (o.TryGetProperty("activators", out _)) ids["activators"] = actiIds;     // (as without activators / terminals)
+    if (o.TryGetProperty("terminals", out _)) ids["terminals"] = termIds;
 }
 if (Has(prm, "navmesh"))
 {
@@ -602,7 +761,7 @@ var path = Path.Combine(outDir, modKey.FileName);
 mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(sfData)
     .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full)).Write();
 Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {worlds.Count} overlays, next FormID 0x{next:X}" +
-                  (Has(prm, "objects") ? $"; objects: {nStat} STAT, {nDoor} DOOR, {nCont} CONT, {nMisc} MISC, {nRef} REFR ({nDisabled} initially disabled)" : "") +
+                  (Has(prm, "objects") ? $"; objects: {nStat} STAT, {nDoor} DOOR, {nCont} CONT, {nMisc} MISC, {nActi} ACTI, {nTerm} TERM + {nTerm} TMLM, {nRef} REFR ({nDisabled} initially disabled)" : "") +
                   (Has(prm, "navmesh") ? $"; navmesh: {nNav} NAVM, {nNavTri} triangles, {nNavLink} edge links, {nNavDoor} door triangles, NAVI override with {nNav} NVMI" : "") +
                   (nLightRef > 0 ? $"; lights: {nLight} LIGH, {nLightRef} REFR" : ""));
 

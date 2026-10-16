@@ -5,6 +5,9 @@
 //   dotnet run --project dotnet/Fo4Land -- <Fallout4.esm> <WorldEditorId> <xmin> <ymin> <xmax> <ymax> <out.json>
 //   dotnet run --project dotnet/Fo4Land -- <Fallout4.esm> export-exterior <WorldEditorId> <xmin> <ymin> <xmax> <ymax> <out.json>
 //       exterior references as schema v2 placement JSON (ExteriorExport.cs; terrain experiment 2c)
+//   dotnet run --project dotnet/Fo4Land -- <Fallout4.esm> export-names <out.json>
+//       display names of the Activator / Terminal / Container / MiscItem / Ingestible bases (NamesExport.cs;
+//       scripts/terrain/make_cluster.py --names)
 //
 // VHGT layout as documented by fo76utils' fo4land (landdata.cpp): float offset, 33x33 signed byte gradients (row 0 =
 // south, column 0 = west; a row's first byte continues from the previous row's first vertex, the others from the
@@ -14,6 +17,7 @@ using Mutagen.Bethesda;
 using Mutagen.Bethesda.Fallout4;
 
 if (args.Length >= 2 && args[1] == "export-exterior") return ExteriorExport.Run(args);
+if (args.Length >= 2 && args[1] == "export-names") return NamesExport.Run(args);
 if (args.Length != 7)
 {
     Console.Error.WriteLine("usage: Fo4Land <Fallout4.esm> <WorldEditorId> <xmin> <ymin> <xmax> <ymax> <out.json>");
