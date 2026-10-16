@@ -51,3 +51,28 @@ from the shifted build are not made compatible by this proposal.
 This reserves promotion slots within the same ordered export. Reordering/changing the base/terrain/export inputs,
 or preserving already-promoted base IDs across later promotions, still needs a persistent allocator and migration
 policy. Native activation, physics, save/reload behavior and full-scale resource use remain unverified.
+
+## Full source-plugin grouping follow-up
+
+Codex's synthetic review of merged PR167 at `0f128805` found that punctuation and extensions were removed from
+plugin names before grouping. `04B6E9:Some-DLC.esm` and `04B6E9:SomeDLC.esm`, or `SomeDLC.esm` and `SomeDLC.esp`,
+became the same CONT even when both sources were present. The actual writer emitted one CONT for each two-base
+case. The disabled-reference refusal and shared name/inventory agreement checks passed; those are not regressions.
+
+The helper retains existing names for alphanumeric `.esm` masters and the Fallout4 R05 reference-only fallback.
+Other base keys use SHA256 of the entire source identity, including punctuation and extension,
+in a separate `key_` namespace. Reference-only groups from other plugins use a separate `ref_` namespace. An
+explicit source-identity comparison refuses even an injected key collision instead of trusting the digest alone.
+ASCII case-only variants remain one group. Non-ASCII spelling is retained from the canonical source export;
+Python Unicode expansions such as sharp-s to `ss` cannot alias a different plugin. This does not implement an
+independent Unicode filesystem/ModKey name resolver. No C# writer, source reference allocation or map schema changes.
+
+Three unit regressions fail on the parent; the new actual-writer method fails all three plugin-pair subcases there.
+The corrected writer inputs produce two CONT bases while preserving every original REFR ID, non-NAME data,
+flags and cell parent. Existing simple-master/R05 names remain covered. Evidence, including failed attempts, is
+retained privately under `test-plans/container-key-review-167-20261016`; no game files are used.
+
+Regenerate and pin a separate candidate before integration. This does not migrate an earlier mixed-plugin build
+whose source bases were already aliased, nor guarantee stable previously-promoted CONT IDs when the set of bases
+changes. Those require the persistent allocator/migration policy above. Peer review and native acceptance remain
+separate; no installation or save was changed.

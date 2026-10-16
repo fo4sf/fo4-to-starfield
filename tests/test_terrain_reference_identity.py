@@ -139,6 +139,34 @@ class TerrainReferenceIdentityTests(unittest.TestCase):
         self.assert_preserved([2], 'last')
         self.assert_preserved([2, 0], 'multiple-reversed')
 
+    def test_source_plugin_aliases_serialize_distinct_cont_bases_without_moving_refs(self):
+        from test_make_core64c import mk
+        before, baseline = self.run_writer(self.objects, 'plugin-keys-baseline')
+        self.assertEqual(before.returncode, 0, before.stderr)
+        old = json.loads((baseline / 'formids.json').read_text())
+        old_records = records(baseline / 'Synthetic.esm')
+        pairs = [('Some-DLC.esm', 'SomeDLC.esm'), ('SomeDLC.esm', 'SomeDLC.esp'), ('Some_DLC.esm', 'Some.DLC.esm')]
+        for index, plugins in enumerate(pairs):
+            with self.subTest(plugins=plugins):
+                obj = copy.deepcopy(self.objects)
+                cluster = {'containers': [{'src': r['src'], 'base': f'04B6E9:{plugin}', 'name': 'Box',
+                                          'items': [{'form': 'Starfield.esm:00000F', 'count': 1}]}
+                                         for r, plugin in zip(obj['refs'][:2], plugins)]}
+                obj['refs'], obj['containers'] = mk.cluster_containers(obj['bases'], obj['refs'], cluster)
+                proc, stage = self.run_writer(obj, f'plugin-keys-{index}')
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                new = json.loads((stage / 'formids.json').read_text())
+                new_records = records(stage / 'Synthetic.esm')
+                self.assertEqual(len({v['base'] for v in new['containers'].values()}), 2)
+                self.assertEqual(sum(r[0] == b'CONT' for r in new_records.values()), 2)
+                combined = dict(new['refs'], **{src: value['ref'] for src, value in new['containers'].items()})
+                self.assertEqual(combined, old['refs'])
+                for src, value in new['containers'].items():
+                    self.assertEqual(without_base(new_records[int(value['ref'], 16)]),
+                                     without_base(old_records[int(old['refs'][src], 16)]))
+                for src, identity in new['refs'].items():
+                    self.assertEqual(new_records[int(identity, 16)], old_records[int(identity, 16)])
+
     def test_ambiguous_identity_inputs_do_not_replace_existing_plugin_or_map(self):
         good = self.promote([1])
         proc, stage = self.run_writer(good, 'refusals')

@@ -1441,3 +1441,14 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
 - Merged tonight: #162, #163, #161, #165, #166 (and the queue of the day before). Open: #164 (sandbox suite running),
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
+
+## 2026-10-16: preserve full source-plugin identity in container groups (Codex)
+
+Offline synthetic review of merged1670f128805: disabled-reference refusal and metadata agreement work, but
+plugin punctuation/extensions still alias distinct source bases. Three unit controls and all three actual-writer
+plugin-pair subcases reproduce the failure. The identity helper now retains unambiguous legacy names and uses
+the full key for other groups, normalizing ASCII case without Unicode expansion, with a separate collision refusal.
+Four actual-writer methods verify distinct CONTs and preserved original REFR IDs/data/flags/parents.
+See [the identity follow-up](testing/container-reference-identities.md#full-source-plugin-grouping-follow-up).
+No C# writer, production stage, game input or save changed. Peer review/integration remain pending; existing
+mixed-plugin aliases and future promoted-base migrations are not repaired retroactively.

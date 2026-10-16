@@ -34,6 +34,7 @@ Everything this writes stays outside the repo (derived game data).
 """
 import argparse
 import glob
+import hashlib
 import json
 import math
 import os
@@ -1079,16 +1080,30 @@ def terrain_edids(prm):
     return {e.lower() for e in out}
 
 
+def container_source_key(value):
+    """Normalize ASCII case without conflating distinct Unicode plugin spellings (e.g. sharp-s and ss).
+
+    Non-ASCII spelling comes from the canonical source export; do not invent a filesystem/ModKey collation here.
+    """
+    return str(value).translate(str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"))
+
+
 def container_edid(base, src):
-    """The shared CONT's editor id for a cluster entry: FO4Core_cont_<6 hex>_<plugin> from the FO4 base formkey
-    ("04B6E9:Fallout4.esm" -> FO4Core_cont_04b6e9_fallout4), so the same local id in another plugin is another record;
-    without a base (the R05 slice's entry) the reference's own key, as before (FO4Core_cont_19ee52)."""
+    """Keep legacy simple-master/R05 names; otherwise include the full source identity.
+
+    Stripping punctuation or extensions aliases distinct plugins. The hashed namespace contains an underscore,
+    which cannot occur in a legacy alphanumeric master stem. cluster_containers also refuses any key collision.
+    """
     if not base:
-        return f"{EDID_PREFIX}cont_{str(src).split(':')[0].lower()}"
-    key = str(base)
+        key = container_source_key(src)
+        local, _, plugin = key.partition(":")
+        if plugin == "fallout4.esm":                     # preserve the original hand-written R05 identity
+            return f"{EDID_PREFIX}cont_{local}"
+        return f"{EDID_PREFIX}cont_ref_{hashlib.sha256(key.encode('utf-8')).hexdigest()}"
+    key = container_source_key(base)
     local, _, plugin = key.partition(":")
-    stem = re.sub(r"[^a-z0-9]+", "", plugin.rsplit(".", 1)[0].lower()) or "x"
-    return f"{EDID_PREFIX}cont_{local.lower()}_{stem}"
+    suffix = plugin[:-4] if re.fullmatch(r"[a-z0-9]+\.esm", plugin) else "key_" + hashlib.sha256(key.encode("utf-8")).hexdigest()
+    return f"{EDID_PREFIX}cont_{local}_{suffix}"
 
 
 def cluster_containers(bases, placed, cluster):
@@ -1098,7 +1113,7 @@ def cluster_containers(bases, placed, cluster):
     Returns (placed without them, containers). The writer reserves the source's original REFR identity.
     ValueError for a reference that is not placed by this build or is initially disabled."""
     wanted = {c["src"]: c for c in cluster.get("containers", [])}
-    keep, containers = [], []
+    keep, containers, source_by_edid = [], [], {}
     for reference_index, p in enumerate(placed):
         c = wanted.pop(p["src"], None)
         if c is None:
@@ -1116,7 +1131,11 @@ def cluster_containers(bases, placed, cluster):
         # over 182 bases): the group is the whole formkey, id and plugin (04B6E9:Fallout4.esm and 04B6E9:SomeDLC.esm are
         # two bases: Codex's review of #167); an entry without "base" (the R05 slice's hand-written one) keeps its
         # per-reference CONT. Entries of one group must agree on name and items: the writer shares one record.
-        containers.append({"src": p["src"], "edid": container_edid(c.get("base"), p["src"]),
+        edid = container_edid(c.get("base"), p["src"])
+        identity = ("base" if c.get("base") else "reference", container_source_key(c.get("base") or p["src"]))
+        if source_by_edid.setdefault(edid.casefold(), identity) != identity:
+            raise ValueError(f"container {edid} aliases distinct source identities")
+        containers.append({"src": p["src"], "edid": edid,
                            "reference_index": reference_index,
                            "model": b["model"], "name": c["name"], "items": c["items"],
                            "cell": p["cell"], "pos": p["pos"], "rot": p["rot"], "scale": p["scale"]})
