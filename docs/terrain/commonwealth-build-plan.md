@@ -74,6 +74,40 @@ total unchanged by promotion, one MISC (and one CONT) per distinct edid, and eve
 check 248/248 PASS. The full 12,438 items with the 5,185 containers promote without a conflict (Python side only).
 Not yet: in-game pick-up (the acceptance above), physics of a converted model as a loose item.
 
+Status 2026-10-16 (activators and terminals, branch `claude/acti-term-promotion`, stacked on the items branch; offline
+only, not in game): `make_cluster.py activators` / `terminals` list every placed FO4 Activator / Terminal reference
+(over core64c's export: 2,246 activators over 211 FO4 bases, 140 terminals over 91 bases; 10 and 1 initially disabled
+ones stay statics). Names come from FO4's own FULL (`dotnet/Fo4Land export-names`, `--names`): 151 of the 211
+activator bases have one; the other 60 (499 references: spotlights, standpipes, weak planks, elevator meters, security
+gates ...) show no activation prompt in Fallout 4 and get an ACTI without a name; every terminal base is named. Pure
+triggers and markers never reach the list: core64c places no reference without a model or with a marker model, so of
+the 6,669 exported activators the 4,423 left out are, by reason and editor-id pattern (`EXCLUDED_ACTIVATOR_PATTERNS`):
+no model 2,414 (trigger volumes 1,268, package / sandbox primitives 717, zones / areas 363, dummies 24, markers 2,
+water FX 1, other 39 such as radio transmitters and enable markers),
+marker model 1,271 (platform helpers 534, comment / editor markers 429, `DefaultActivator` / music activators 87,
+`DefaultDummy` 85, trigger boxes 82, elevator / lift / breaker masters 43, other 11), conversion failed 421 (oil pools
+399, gnat swarms 19, 3 other), water planes 305, effect meshes 2, initially disabled 10.
+`make_core64c.cluster_activators` / `cluster_terminals` join the one slot plan (`cluster_promote` over all four classes,
+refusing a source in two classes and an edid that would stand for two FO4 sources); TerrainOverlays writes one ACTI
+per FO4 base (Mutagen 0.55 `Activator`: Model, Name) and one TERM per FO4 base (`Terminal`: Model, Name, Menu,
+Background = Default) followed by its own TMLM (`TerminalMenu`: Name, ShowBodyText = Document, Style = Windows, one
+`TerminalMenuBodyText` "FO4 terminal (text not ported yet)", no menu item; the subrecord layout of vanilla
+RI04_NyxProgram_Menu_Camden, 0788A8). `check` counts ACTI / TERM / TMLM per edid and binds every promoted REFR to its
+base, a TERM to its menu and the menu to its one body line. Full-scale dry run (**verified** offline): every class at
+once on core64c's work (5,185 containers + 12,438 items + 2,246 activators + 140 terminals, with core64g's navmesh) ->
+182 CONT, 492 MISC, 211 ACTI, 91 TERM + 91 TMLM, 648,360 REFR, 12,104 NAVM; all 648,358 sources keep core64g's REFR
+ids, STAT / DOOR / CONT bases keep core64g's ids, MISC 0A2B5B.., ACTI 0A2D47.., TERM / TMLM pairs 0A2E1A..0A2ECF, NAVM
+from 0A2ED0 (they move up by the new bases); plan.json byte-identical to core64g's; check 263/263 PASS (137 s).
+Vanilla terminals are furniture too (Starfield.esm, 368 TERM read raw in the review of #241, **verified**): marker
+flags, workbench data, marker model, PNAM / FNAM / JNAM / GNAM and keywords in all 368, an animation graph and marker
+parameters in 367, a furniture template in 365, the TerminalScript VMAD in 367. Each new TERM therefore carries the
+furniture block of one vanilla standing terminal, OE_AustinF_DeployMicrobe_Terminal (0155A2: FTMP 0FFAD2, XMRK
+furn_human_standingterminal.nif, one SNAM marker, MNAM 40000001, WBDT 00, 5 keywords, HybridStateGraph01), as the
+doors carry a vanilla rig; not its script, bounds, model or name. Each ACTI carries the vanilla majority PNAM (marker
+colour CC4C33), FNAM 0 and activation angle 360 (1,347 / 1,412 / 1,453 of 1,463 ACTI). FLLD (in every vanilla ACTI and
+TERM) is not written: Mutagen 0.55 does not expose it. Not yet: activation in game, so whether the player enters
+terminal mode, and whether the ACTIs show their prompt, stay **unresolved** until an in-game activate step.
+
 ## 4. Navmesh and actors
 
 R06's numbers decide the path: if the exterior overlay has no NAVM, the options are (a) convert FO4's exterior NAVM
