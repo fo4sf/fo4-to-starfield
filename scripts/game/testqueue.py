@@ -58,7 +58,12 @@ when one trips:
   - allowed hours (queue.json "hours", default all day); --max-hours and --max-tests;
   - the controller lease (opt-in, default off; docs/ai/leader-core.md section 6): with --lease-dir or FO4SF_LEASE_DIR
     set, nothing is launched and no step is sent unless --lease-owner / FO4SF_LEASE_OWNER (default Claude) holds an
-    unexpired lease in that folder (scripts/game/lease.py claim); it is renewed before every test. Unset: not checked.
+    unexpired lease in that folder (scripts/game/lease.py claim); it is renewed before every test. Unset: not checked;
+  - the preflight gate (opt-in, default off; docs/ai/leader-core.md section 7): with --preflight or FO4SF_PREFLIGHT=1,
+    eleven checks (pinned build staged and deployed, experiment as pinned, plugins active, load order, game version,
+    lease, STOP files, Resource Guardian, recovery save, log capture) run before the first launch; one FAIL or UNKNOWN
+    refuses the run (status "stopped: preflight refused (...)", the ledger gets a blocker_opened) and a --dry-run
+    prints the checklist either way. Unset: not run.
 A game is only launched when the PC has been idle --min-idle seconds, and only by cycle.ps1 (the runner never touches a
 Starfield the owner started). Every key press still goes through input.ps1's foreground guard, with
 FO4SF_NO_FOCUS_STEAL=1 so a step can never pull the game in front of the owner's window.
@@ -2166,6 +2171,120 @@ class LeaseGate:
         return None
 
 
+def exe_file_version(path):
+    """The file version of a Windows executable ("1.16.244.0"); None when not on Windows or not readable."""
+    if os.name != "nt" or not os.path.exists(path):
+        return None
+    try:
+        ver = ctypes.windll.version
+        size = ver.GetFileVersionInfoSizeW(path, None)
+        if not size:
+            return None
+        buf = ctypes.create_string_buffer(size)
+        if not ver.GetFileVersionInfoW(path, 0, size, buf):
+            return None
+        ptr, length = ctypes.c_void_p(), ctypes.c_uint()
+        if not ver.VerQueryValueW(buf, "\\", ctypes.byref(ptr), ctypes.byref(length)) or not ptr.value:
+            return None
+        fixed = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_uint32 * 13)).contents   # VS_FIXEDFILEINFO
+        ms, ls = fixed[2], fixed[3]                                                # dwFileVersionMS, dwFileVersionLS
+        return f"{ms >> 16}.{ms & 0xFFFF}.{ls >> 16}.{ls & 0xFFFF}"
+    except (OSError, AttributeError, ValueError):
+        return None
+
+
+class PreflightProbe:
+    """The readings fo4sf.core.preflight's gate asks for (its module docstring lists them), taken from the PC: the
+    adapter side of T3 (docs/ai/leader-core.md section 7). Built only when `run --preflight` is on. Read-only."""
+
+    def __init__(self, runner):
+        self.r = runner
+        self.queue, self.state = runner.q, runner.state
+        self.starfield = getattr(runner.a, "starfield", "") or ""
+
+    def staged_plugin_sha256(self):
+        esm = os.path.join(self.queue.get("staging") or "", "FO4Port.esm")
+        return sha256(esm) if os.path.exists(esm) else None
+
+    def deploy_manifest(self):
+        p = os.path.join(self.starfield, "Data", "FO4Port.deploy.json")
+        return load(p) if os.path.exists(p) else None
+
+    def experiment_inputs(self, exp_dir, plugins):
+        return exp_install.source_inventory(exp_dir, plugins)
+
+    def install_record(self):
+        if not os.path.exists(os.path.join(self.starfield, "Data", exp_install.RECORD)):
+            return None
+        return installed_identity(self.starfield)
+
+    def plugins_txt_lines(self):
+        local = os.environ.get("LOCALAPPDATA", "")
+        if not local or not os.path.isabs(local):
+            return None
+        p = os.path.join(local, "Starfield", "Plugins.txt")
+        return exp_install.read_plugins(p)[0] if os.path.exists(p) else []
+
+    def plugin_masters(self, name):
+        pin = self.queue.get("experiment_identity") or {}
+        p = os.path.join(pin.get("exp_dir") or "", name)
+        return exp_install.plugin_masters(p) if os.path.exists(p) else []
+
+    def implicit(self, name):
+        return exp_install.implicit(name)
+
+    def game_version(self):
+        return exe_file_version(os.path.join(self.starfield, "Starfield.exe"))
+
+    def ledger_game_version(self):
+        if not self.r.lease:
+            return None
+        from fo4sf.core.state import fold                # on sys.path since the lease gate was built
+        return fold(self.r.lease.ctl.ledger.read()).build.get("game_version")
+
+    def lease_status(self):
+        g = self.r.lease
+        if g is None:
+            return "unknown", "no lease folder (--lease-dir / FO4SF_LEASE_DIR): the gate needs the lease (T2)"
+        why = g.blocked()
+        return ("fail", why) if why else ("ok", f"{g.owner} holds the lease in {g.dir}")
+
+    def stop_dirs(self):
+        out = []
+        for p in stop_files(self.r.qdir):
+            d = os.path.dirname(os.path.abspath(p))
+            out.append((p, os.path.isdir(d), os.path.isdir(d) and os.access(d, os.W_OK)))
+        return out
+
+    def guardian(self):
+        db = os.path.join(Controls.state_dir, "guardian.db")
+        if not os.path.exists(db):
+            return "missing", db
+        return self.r.ctl.guardian_mode(), db
+
+    @staticmethod
+    def saves_dirs():
+        home = os.path.expanduser("~")
+        return [os.path.join(home, "OneDrive", "Documents", "My Games", "Starfield", "Saves"),
+                os.path.join(home, "Documents", "My Games", "Starfield", "Saves")]
+
+    def save_present(self, name):
+        dirs = [d for d in self.saves_dirs() if os.path.isdir(d)]
+        if not dirs:
+            return None
+        return any(glob.glob(os.path.join(d, f"*{name}*")) for d in dirs)
+
+    def ini_texts(self):
+        cands = [os.path.join(os.path.dirname(d), "StarfieldCustom.ini") for d in self.saves_dirs()]
+        cands.append(os.path.join(self.starfield, "Starfield.ini"))
+        out = []
+        for p in cands:
+            if os.path.exists(p):
+                with open(p, encoding="utf-8", errors="replace") as f:
+                    out.append(f.read())
+        return out
+
+
 def stop_files(queue_dir):
     """The STOP files that stop a run: the queue's own, the chain folder's STOP_ALL (the queues of one chain share a
     parent folder; watchdog.ps1 honours the same file) and the state folder's testqueue.STOP."""
@@ -2524,6 +2643,7 @@ class Runner:
         self.log_p = os.path.join(qdir, "run.log")
         lease_dir = getattr(a, "lease_dir", "") or ""     # opt-in (docs/ai/leader-core.md section 6); "" = not checked
         self.lease = LeaseGate(lease_dir, getattr(a, "lease_owner", "") or "Claude") if lease_dir else None
+        self.preflight_probe = PreflightProbe              # replaced by a fake in the tests
 
     def log(self, msg):
         line = f"{now()} {msg}"
@@ -2729,6 +2849,28 @@ class Runner:
                 self.log("idle again: continuing")
                 return True
 
+    def preflight(self):
+        """The deployment gate (fo4sf.core.preflight) before the first launch: the checklist goes to run.log, one FAIL
+        or UNKNOWN refuses the run (exit 3, resumable) and leaves a blocker_opened in the ledger when there is one."""
+        src = os.path.join(REPO, "src")
+        if src not in sys.path:
+            sys.path.insert(0, src)
+        from fo4sf.core import preflight                   # pure Python; imported only when the switch is on
+        rep = preflight.run_gate(self.preflight_probe(self))
+        for line in rep.lines():
+            self.log(line)
+        if rep.ok:
+            return 0
+        names = ", ".join(f"{c.name} {c.status}" for c in rep.failing)
+        if self.lease:
+            try:
+                self.lease.ctl.ledger.append(rep.blocker_event(f"testqueue:{self.lease.owner}"))
+            except (OSError, ValueError) as e:
+                self.log(f"preflight: the blocker could not be written to the ledger: {e}")
+        self.log(f"stopped: preflight refused ({names})")
+        self.checkpoint(f"stopped: preflight refused ({names})")
+        return 3
+
     def run(self):
         a = self.a
         self.deadline = time.time() + a.max_hours * 3600
@@ -2748,6 +2890,10 @@ class Runner:
         if self.lease:
             self.log(f"controller lease: {self.lease.dir}, owner {self.lease.owner} (checked before every launch and "
                      f"test, renewed before every test)")
+        if getattr(a, "preflight", False):                 # opt-in (docs/ai/leader-core.md section 7); off = not run
+            code = self.preflight()
+            if code:
+                return code
         ran = 0
         waits, max_waits = {}, len(tests) * max(a.max_attempts, 1) + 1
         self.qdir_abs = os.path.abspath(self.qdir)
@@ -3147,6 +3293,9 @@ def main(argv=None):
                         "empty (the default): the lease is not checked")
     r.add_argument("--lease-owner", default=os.environ.get("FO4SF_LEASE_OWNER") or "Claude",
                    help="the lease owner this runner runs as (default FO4SF_LEASE_OWNER, else Claude)")
+    r.add_argument("--preflight", action="store_true", default=os.environ.get("FO4SF_PREFLIGHT") == "1",
+                   help="run the deployment gate before the first launch (docs/ai/leader-core.md section 7); "
+                        "default FO4SF_PREFLIGHT=1; off (the default): not run")
     for name in ("report", "status"):
         s = sub.add_parser(name)
         s.add_argument("--queue", required=True)

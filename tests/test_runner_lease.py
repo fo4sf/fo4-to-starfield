@@ -42,7 +42,8 @@ class RunnerLeaseTests(unittest.TestCase):
         return r
 
     def status(self):
-        return json.load(open(os.path.join(self.d, "state.json"), encoding="utf-8"))["status"]
+        with open(os.path.join(self.d, "state.json"), encoding="utf-8") as f:
+            return json.load(f)["status"]
 
     def test_without_a_lease_folder_nothing_is_checked(self):
         r = self.runner()                                 # args() has no lease_dir at all (older callers)
