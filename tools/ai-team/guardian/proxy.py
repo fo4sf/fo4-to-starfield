@@ -47,12 +47,11 @@ _HEADER_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 
 
 def header_value(value, default=None):
-    """An upstream header value made safe for our own response: control characters (CR, LF, NUL ...) removed,
+    """An upstream header value made safe for our own response: CR, LF and other control characters removed,
     so a hostile or broken upstream cannot inject extra headers (CodeQL py/http-response-splitting)."""
     if value is None:
         return default
-    value = str(value).replace("", "").replace("
-", "")   # the newline removal CodeQL recognises as a sanitiser
+    value = str(value).replace("\r", "").replace("\n", "")   # the newline removal CodeQL recognises as a sanitiser
     return _HEADER_CONTROL.sub("", value)
 
 def _log(msg):
