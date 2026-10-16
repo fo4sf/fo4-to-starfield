@@ -773,8 +773,13 @@ switch ($kind) {
           $aTxt = ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $aPrep -Scale 1) -join "`n")
         }
         $obs['activate']['shot'] = $aShot; $obs['activate']['ocr'] = $aTxt; Save-Obs
-        Send 'key:tab|wait:1500'                      # closes the menu when one opened
+        # the container UI's "BACK / HOLD TO EXIT [TAB]": a tap only goes back a level (r05_medkit_1015d a1: the menu
+        # stayed open and the next console open failed), a held Tab exits; a second hold if the HUD is still not back
+        Send 'hold:tab,1200|wait:1500'
         $obs['activate']['closed_shot'] = Shot 'activate_closed.png'
+        if ($obs['activate']['closed_shot'] -and -not (Hud-Shown 'activate_closed.png')) {
+          Send 'hold:tab,1500|wait:1500'; $obs['activate']['closed_retry'] = Shot 'activate_closed2.png'
+        }
       } else {
         Send 'key:grave|wait:800'                     # selection not proven: nothing activated
       }
