@@ -20,8 +20,15 @@ if ($g) {
   $state.game_foreground = ($fpid -eq $g.Id)
 }
 $shot = Join-Path $Out 'screen.png'
-powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'shot.ps1') -Out $shot | Out-Null
-$state.screen = $(if (Test-Path $shot) { 'screen.png' } else { $null })
+# never a stale picture: a reused folder's screen.png goes first, and the capture must exit 0 and leave a new file
+# (Codex's review of #175); without one, screen is null and the tool exits 3
+Remove-Item -LiteralPath $shot -Force -ErrorAction SilentlyContinue
+$shotScript = $(if ($env:FO4SF_SHOT_SCRIPT) { $env:FO4SF_SHOT_SCRIPT } else { Join-Path $here 'shot.ps1' })   # the test's stub
+powershell -NoProfile -ExecutionPolicy Bypass -File $shotScript -Out $shot | Out-Null
+$shotCode = $LASTEXITCODE
+$shotOk = ($shotCode -eq 0) -and (Test-Path -LiteralPath $shot) -and ((Get-Item -LiteralPath $shot).Length -gt 0)
+$state.screen = $(if ($shotOk) { 'screen.png' } else { $null })
+if (-not $shotOk) { $state.screen_error = "shot.ps1 exit $shotCode"; Remove-Item -LiteralPath $shot -Force -ErrorAction SilentlyContinue }
 # the bridge's newest line (any age up to MaxAge: the owner may have paused; the age is reported, never hidden)
 $b = $null
 try { $b = (& $py (Join-Path $here 'bridge_log.py') latest --max-age $MaxAge) | ConvertFrom-Json } catch { $b = $null }
@@ -40,3 +47,4 @@ if (Test-Path $pl) { $state.plugins_txt = @(Get-Content $pl | Where-Object { $_ 
 $state | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $Out 'state.json') -Encoding utf8
 $posTxt = $(if ($state.bridge.pos) { "pos $($state.bridge.pos -join ' ') cell $($state.bridge.cell) world $($state.bridge.world) loaded $($state.bridge.loaded) age $($state.bridge.age_s)s" } else { "bridge: $($state.bridge.why)" })
 "snapshot ${Out}: game=$($state.game_running) foreground=$($state.game_foreground) screen=$($state.screen) | $posTxt"
+if (-not $shotOk) { exit 3 }

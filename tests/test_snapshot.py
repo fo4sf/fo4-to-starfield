@@ -12,6 +12,23 @@ SCRIPT = os.path.join(ROOT, "scripts", "game", "snapshot.ps1")
 
 @unittest.skipUnless(os.name == "nt", "PowerShell and the screen: Windows only")
 class SnapshotTests(unittest.TestCase):
+    def test_a_failed_capture_never_leaves_a_stale_screen(self):
+        # Codex's review of #175: a reused folder held the previous screen.png; the capture's exit code was ignored
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "snap")
+            os.makedirs(out)
+            open(os.path.join(out, "screen.png"), "wb").write(b"OLD!")               # the previous call's picture
+            stub = os.path.join(d, "shot_fails.ps1")
+            open(stub, "w").write("param([string]$Out)\nexit 2\n")
+            env = dict(os.environ, FO4SF_SHOT_SCRIPT=stub)
+            r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", SCRIPT, "-Out", out, "-MaxAge", "1"],
+                               capture_output=True, text=True, timeout=120, env=env)
+            self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+            state = json.load(open(os.path.join(out, "state.json"), encoding="utf-8-sig"))
+            self.assertIsNone(state["screen"])
+            self.assertIn("exit 2", state["screen_error"])
+            self.assertFalse(os.path.exists(os.path.join(out, "screen.png")), "the stale picture must be gone")
+
     def test_writes_state_and_screen_without_a_game(self):
         with tempfile.TemporaryDirectory() as d:
             out = os.path.join(d, "snap")
