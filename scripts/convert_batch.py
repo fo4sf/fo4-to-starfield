@@ -117,6 +117,17 @@ def editor_id(source, ids):
     return ids[key]
 
 
+DEFAULT_CELL_TYPES = "Static,StaticCollection,MovableStatic,Furniture,Door,Activator,Container,MiscItem,Terminal"
+
+
+def cell_candidates(cell, wanted):
+    """The meshes --cell-json converts for one cell export: 'meshes\\' + model of every reference whose base type is in
+    wanted, without editor markers and effect meshes (fog / light volumes), sorted case-insensitively, each once."""
+    return sorted({"meshes\\" + r["model"].lstrip("\\") for r in cell["refs"] if r["model"] and r["type"] in wanted
+                   and not re.search(r"marker|^\\?effects[\\/]", r["model"], re.I)},   # editor markers, fog/light volumes
+                  key=str.lower)
+
+
 def write_json_atomic(path, value):
     fd, temporary = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".fo4port-")
     try:
@@ -150,8 +161,7 @@ def main():
     ap.add_argument("--limit", type=int, default=20)
     ap.add_argument("--max-tris", type=int, default=20000, help="skip meshes with more triangles than this")
     ap.add_argument("--cell-json", default="", help="convert the models placed in a cell exported by dotnet/Fo4Export")
-    ap.add_argument("--types", default="Static,StaticCollection,MovableStatic,Furniture,Door,Activator,Container,MiscItem,Terminal",
-                    help="base record types to take from --cell-json")
+    ap.add_argument("--types", default=DEFAULT_CELL_TYPES, help="base record types to take from --cell-json")
     ap.add_argument("--prefix", default="fo4port",
                     help="folder under meshes/, materials/ and textures/ for the converted files (another plugin's own "
                          "archive needs its own prefix, so two archives never hold different files at the same path)")
@@ -194,10 +204,7 @@ def main():
     if a.cell_json:
         with open(a.cell_json, encoding="utf-8-sig") as f:
             cell = json.load(f)
-        wanted = set(a.types.split(","))
-        names = sorted({"meshes\\" + r["model"].lstrip("\\") for r in cell["refs"] if r["model"] and r["type"] in wanted
-                        and not re.search(r"marker|^\\?effects[\\/]", r["model"], re.I)},   # editor markers, fog/light volumes
-                       key=str.lower)
+        names = cell_candidates(cell, set(a.types.split(",")))
     else:
         names = src.mesh_names(a.pattern)
     print(f"{len(names)} candidate meshes; converting up to {a.limit}")
