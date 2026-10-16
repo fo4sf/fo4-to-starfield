@@ -41,7 +41,7 @@ Only 12 bytes differ inside the selected 16-byte logical pair. The original stag
 
 Claude retains the live controller and decides the resource window. After independent review, use a fresh pinned
 campaign/session and verify the complete dependency/load-order stack and recovery receipts. This candidate is
-based on core64c, **not the owner's installed core64f**; do not silently mix the generations. Measure settled
+based on core64c; do not silently mix it with newer generations. Measure settled
 arrival XY minus the unchanged COC-local XY, then read a freshly selected persistent reference with identity proof.
 Do not infer a zero offset from an unmerged/failed arrival: terrain/temporary-reference placement and actual
 loaded world must also be checked. The outcome may reject or refine the registration hypothesis.
@@ -49,3 +49,46 @@ loaded world must also be checked. The outcome may reject or refine the registra
 If XY is zero, that only passes this placement discriminator. Z, trigger dimensions, collision, facing, both-way
 normal cave travel and save/reload still require their own observations. Do not reuse old saves or call the door
 fixed. If registration still leaves a nonzero frame, preserve the result and evaluate the core-owned-door variant.
+
+## October 16: freshly pinned core64h candidate
+
+The owner prioritized persistent doors. The unchanged staging tool was run against
+core64h with core SHA256 `9d1a84f28cd45376229ffe8b12342ab4a41f1826bc68f57e0be5bc8b44ca54d3`
+and params SHA256 `d3d575e656c66024d92bbae19dfd9bc4ca8d3fd420cf6f0ec94f535929ecb17f`.
+Its baseline Mars companion and proposed replacement are byte-identical to their
+core64c counterparts, but the experiment has **new source pins** and must use a new
+campaign. Nothing in the original stage was modified or installed.
+
+An existing separate parser confirms all masters, record IDs/flags and logical
+fields are unchanged except entry10 of the 11-entry CNAM array: the two coordinates
+above. Core-owned world `000803` remains linked as `01000803` in the companion's
+master table. This is an author-run independent implementation check, not peer QA.
+
+The corrected raw inspector (#248) verified these core64h references:
+
+| Plugin-local ID | Storage | Local XYZ (metres) |
+|---|---|---|
+| `000800` | World persistent cell, persistent flag | -989.2571, 1146.5143, 105.1429 |
+| `0116FB` | Exterior cell temporary children | -993.4615, 1151.8423, 105.3653 |
+| `04BFBF` | Exterior cell temporary children | -993.2505, 1140.1008, 106.2677 |
+
+The latter two are the loose items Claude recently tested. They are valid controls
+only if identity, enabled/available state and current position are established in
+the fresh session **before activation**. Picked-up, missing or moved items are
+inconclusive. Resolve runtime IDs from the actual plugin order; these are local
+IDs, not console IDs. Settled player height is not the configured drop/spawn height.
+
+The (-1200,-2700)m reference remains historical, not a newly observed core64h
+offset. Compare a fresh baseline and candidate using the same pinned stack and
+fresh-save conditions, verify the loaded world/terrain, derive XY offset from
+arrival, and read the persistent/temporary controls with current-session identity
+proof. If both move equally, record that; if only temporary references move, record
+that; missing replies cannot support either conclusion. A registration result
+cannot by itself establish persistent-door activation, both-way XTEL, facing,
+collision, stable saves or whole-map acceptance.
+
+Private packet: `test-plans/registration-core64h-20261016`. Only a companion,
+source/verification metadata and control coordinates are prepared. The core,
+assets, full load order, recovery state and save remain Claude's preflight duties;
+this packet is not a runnable/installable campaign. Peer QA and native measurement
+are pending. Original core64c evidence and all source files remain intact.

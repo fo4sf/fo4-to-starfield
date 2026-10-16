@@ -1453,3 +1453,16 @@ writing; bounded decompression/recompression now preserves all other logical fie
 Private candidate is 6522 bytes; original 6512-byte companion/stage preserved. Independent peer review and
 Claude's fresh-session measurement remain pending; no deployment, game control or native acceptance.
 See [candidate limits and acceptance](slice/registration-probe.md).
+
+## 2026-10-16: Codex current-core persistent placement discriminator
+
+Reused PR224 source unchanged to produce a fresh core64h companion-only candidate.
+Core pin9d1a84f2, paramsd3d575e6; candidate643c94bb is byte-identical to the earlier
+core64c candidate, but input pins are new. Independent existing parser confirms only
+the registration coordinate pair changes; core and all other fields unchanged.
+Corrected inspector248 pins persistent anchor000800 and temporary0116FB/04BFBF
+controls; item state/identity must be proven before activation. Historical offset
+is not a current native measurement. No runnable campaign, deployment, game input,
+new acceptance or unchanged test rerun. Private registration-core64h-20261016 packet
+preserves source metadata, baseline companion, candidate and verification. Claude
+retains full-stack preflight, fresh-session measurements and native door gates.
