@@ -60,7 +60,14 @@ function Bridge-Ref-Read([string]$ref, [int]$tries = 2) {
   $py = Join-Path $here 'bridge_log.py'; $logArg = @(); if ($env:FO4SF_BRIDGE_LOG) { $logArg = @('--log', $env:FO4SF_BRIDGE_LOG) }
   for ($n = 0; $n -lt $tries; $n++) {
     $script:readN++
-    $mark = "$(& $env:FO4SF_PYTHON $py mark @logArg)".Trim(); if ($mark -notmatch '^\d+$') { $mark = '0' }
+    $mark = "$(& $env:FO4SF_PYTHON $py mark @logArg)".Trim(); $markCode = $LASTEXITCODE
+    if ($markCode -ne 0 -or $mark -notmatch '^\d+$') {
+      # no mark, no bridge read: nothing could prove a reply is this read's (Codex's review of #164: a 0 in its place
+      # let an old reply pass); the caller falls back to readpos's OCR
+      if (-not $obs.Contains('read_log')) { $obs['read_log'] = @() }
+      $obs['read_log'] += [ordered]@{ n = $script:readN; via = 'bridge-ref'; ref = $ref; nonce = $null; result = "fail mark ($markCode): $mark" }
+      return $null
+    }
     Console-Open
     Send "type:cgf `"FO4SF_Probe.Pos`" $dec|key:enter|wait:500|key:grave|wait:800"
     $j = $null
