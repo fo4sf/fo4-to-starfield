@@ -491,7 +491,7 @@ class StationWriterTests(unittest.TestCase):
         self.assertTrue(all(ok for _w, ok in res), res)
         self.assertEqual([w.split(' (')[0] for w, _ok in res][2:],
                          ['1 CONT = 1 distinct containers edids', '1 MISC = 1 distinct items edids',
-                          '2 ACTI = 2 distinct activators + workshops edids', '1 TERM = 1 distinct terminals edids',
+                          '2 ACTI = 2 distinct activators / workshops edids', '1 TERM = 1 distinct terminals edids',
                           '1 TMLM = 1 distinct terminals menu edids', '0 FURN of our own',
                           'every promoted REFR names its CONT / MISC / ACTI / TERM / FURN'])
         self.assertEqual(mk.station_master_check(str(self.master), walked['records'], own, objects, new, walked['masters']), [])
