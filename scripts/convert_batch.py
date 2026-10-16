@@ -257,10 +257,18 @@ def main():
             elapsed_now = time.time() - t0
             rate = attempted_so_far / elapsed_now if elapsed_now > 0 else 0
             pct = ""
+            eta = ""
             if a.limit and a.limit > 0:
                 pct = f" ({100.0 * len(items) / a.limit:.0f}% of limit)"
+                if rate > 0 and len(items) < a.limit:
+                    remaining = a.limit - len(items)
+                    eta_s = remaining / rate
+                    if eta_s > 60:
+                        eta = f", ~{eta_s/60:.0f}m left"
+                    elif eta_s > 5:
+                        eta = f", ~{eta_s:.0f}s left"
             print(f"  progress: {attempted_so_far} attempted ({len(items)} ok, {len(failures)} fail, {skipped} skipped) "
-                  f"in {elapsed_now:.0f}s ({rate:.1f}/s){pct}")
+                  f"in {elapsed_now:.0f}s ({rate:.1f}/s){pct}{eta}")
     for f in failures[:15]:
         print("  FAIL", f["nif"], "-", f["reason"][:110])
     from collections import Counter, defaultdict
