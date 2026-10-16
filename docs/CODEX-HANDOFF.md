@@ -30,6 +30,6 @@ Main4ba5c6a has integration121 and merged131/133;119/126/127/128 are integrated.
 
 ## Next / preservation
 
-Owner priority: persistent doors. PR245 now resolves native bases and makes both valid XTEL endpoints persistent;11 CLI/readback controls plus refusal/idempotence pass, peer QA pending. Core merge/cross-plugin endpoints remain unresolved; Claude retains live tests. PR243 fallback separate.
+Owner priority: persistent doors. PR245 repair:11 CLI controls, peer QA pending. integ_1016 audit preserves54,877 map entries/one FortHagen XTEL pair;28 unlinked(20 DOOR/8 STAT),4 absent endpoints incl.cave. See slice/persistent-door-rebuild.md. Merge/cross-plugin/native saves unresolved; Claude owns game.
 
 #32/owner issues are the inbox; refresh before work/done. Keep below4KB; history in handoff-archive. Evidence indexed/reopen-verified on D:, originals retained; second local volume, not offsite. Follow docs/testing/progress-storage.md. Lower usage: quiet four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused.

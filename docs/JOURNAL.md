@@ -1468,3 +1468,15 @@ cases plus library refusal-before-promotion/idempotence and prior relationship
 checks pass; guard passes. Source failures and current evidence retained privately
 at native-door-persistence-20261016. No primary writer, source stage, live input,
 installation or game-state claim. Peer QA and merge/native-save gates remain.
+
+## 2026-10-16: Codex independently inspects rebuilt persistent doors
+
+Pinned integ_1011/integ_1016 raw plugins/maps: all54,877 map entries and master order
+identical. One FortHagen pair remains the only two persistent DOOR/XTEL references;
+endpoint fields/ancestry unchanged. All28 reported unlinked references exist and
+lack XTEL (20 DOOR/8 STAT, all temporary); four reported unplaced source endpoints
+have no map slots, including Red Rocket05E844. Six malformed flag/group/return-edge
+controls detected. First inefficient audit loop stopped; initial all-unlinked-bases-
+are-DOOR assumption disproved/corrected; both preserved. See
+slice/persistent-door-rebuild.md and private persistent-interior-rebuild-20261016.
+No source/game edits, newly connected interiors or native/save acceptance claimed.
