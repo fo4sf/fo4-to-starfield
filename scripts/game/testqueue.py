@@ -2178,12 +2178,13 @@ class LeaseGate:
         return None
 
 
-def exe_file_version(path):
-    """The file version of a Windows executable ("1.16.244.0"); None when not on Windows or not readable."""
-    if os.name != "nt" or not os.path.exists(path):
+def exe_file_version(path, _ver=None):
+    """The file version of a Windows executable ("1.16.244.0"); None when not on Windows or not readable.
+    _ver: the version.dll object (ctypes.windll.version); a test passes a stand-in to exercise the decoding."""
+    if _ver is None and (os.name != "nt" or not os.path.exists(path)):
         return None
     try:
-        ver = ctypes.windll.version
+        ver = _ver if _ver is not None else ctypes.windll.version
         size = ver.GetFileVersionInfoSizeW(path, None)
         if not size:
             return None
@@ -2240,8 +2241,11 @@ class PreflightProbe:
     def implicit(self, name):
         return exp_install.implicit(name)
 
+    def exe_path(self):
+        return os.path.join(self.starfield, "Starfield.exe")
+
     def game_version(self):
-        return exe_file_version(os.path.join(self.starfield, "Starfield.exe"))
+        return exe_file_version(self.exe_path())
 
     def ledger_game_version(self):
         if not self.r.lease:
@@ -2282,8 +2286,10 @@ class PreflightProbe:
         return any(glob.glob(os.path.join(d, f"*{name}*")) for d in dirs)
 
     def ini_texts(self):
-        cands = [os.path.join(os.path.dirname(d), "StarfieldCustom.ini") for d in self.saves_dirs()]
-        cands.append(os.path.join(self.starfield, "Starfield.ini"))
+        """Lowest precedence first: the game folder's Starfield.ini, then StarfieldCustom.ini in My Games (the game
+        reads it after, so its keys override)."""
+        cands = [os.path.join(self.starfield, "Starfield.ini")]
+        cands += [os.path.join(os.path.dirname(d), "StarfieldCustom.ini") for d in self.saves_dirs()]
         out = []
         for p in cands:
             if os.path.exists(p):
@@ -2867,6 +2873,15 @@ class Runner:
         for line in rep.lines():
             self.log(line)
         if rep.ok:
+            if self.lease:                                 # a blocker an earlier refusal opened is closed by this pass
+                try:
+                    from fo4sf.core.state import fold
+                    ledger = self.lease.ctl.ledger
+                    if fold(ledger.read()).blockers.get("preflight", {}).get("open"):
+                        ledger.append(preflight.Event("blocker_closed", f"testqueue:{self.lease.owner}",
+                                                      fields={"blocker": "preflight", "evidence": rep.lines()[:1]}))
+                except (OSError, ValueError) as e:
+                    self.log(f"preflight: the blocker could not be closed in the ledger: {e}")
             return 0
         names = ", ".join(f"{c.name} {c.status}" for c in rep.failing)
         if self.lease:

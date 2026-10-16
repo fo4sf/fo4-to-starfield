@@ -188,15 +188,15 @@ brief's "any unknown → refuse"), and a reading that raises is `UNKNOWN` for th
 |---|---|---|
 | `pin` | the staged `FO4Port.esm` has the queue's `plugin_sha256` | another hash / staging missing or no pin (UNKNOWN) |
 | `deploy` | nothing deployed (cycle.ps1 deploys at the launch) or `Data\FO4Port.deploy.json` complete with the pinned `artifacts[FO4Port.esm].sha256` | interrupted install, another build / no sha in the manifest (UNKNOWN) |
-| `experiment` | no experiment, or the staged experiment's inputs equal the queue's `experiment_identity` and any install record is complete and the same | changed since planning, incomplete or other record / `pre_launch` without a pin, unreadable record (UNKNOWN) |
+| `experiment` | no experiment pinned and none installed, or the staged experiment's inputs equal the queue's `experiment_identity` and any install record is complete and the same | changed since planning, incomplete or other record, an experiment installed although the queue pins none (it would load with the build) / `pre_launch` without a pin, unreadable record (UNKNOWN) |
 | `plugins_active` | every pinned experiment plugin, `FO4Port.esm` and the bridge are active where they are already listed in Plugins.txt (the rest install at the launch) | a listed plugin inactive (Starfield deactivated it on a load) or duplicated / Plugins.txt not locatable (UNKNOWN) |
-| `load_order` | every non-implicit master of a pinned plugin is active (`FO4Port.esm` may still come with the deploy); notes what `exp_install.py order` / `bridge_install.py order` will move at the launch | a master neither active nor implicit (cycle.ps1 would exit 7) / Plugins.txt not locatable (UNKNOWN). The planned `plugin_index` is **not** verified against the game's implicit plugins (which of them the owner's install loads is unresolved) |
+| `load_order` | every non-implicit master of a pinned plugin is active, or is itself a pinned plugin or `FO4Port.esm` (both installed at the launch, and `order` moves the dependant after them); notes what `exp_install.py order` / `bridge_install.py order` will move | a master neither active, nor implicit, nor installed at the launch (cycle.ps1 would exit 7) / Plugins.txt not locatable (UNKNOWN). The planned `plugin_index` is **not** verified against the game's implicit plugins (which of them the owner's install loads is unresolved) |
 | `game_version` | `Starfield.exe`'s file version equals the pin (`queue.json` `game_version`, else the ledger's `build_pinned.game_version`) | differs / no pin or not readable, e.g. not Windows (UNKNOWN) |
 | `lease` | the runner's owner holds the lease (§6) | missing, someone else's, released, expired / no lease folder (UNKNOWN) |
 | `stop_controls` | the queue's `STOP` and the chain's `STOP_ALL` can be created (folders writable); the state folder's too when it exists | a folder missing or not writable / no locations (UNKNOWN) |
 | `guardian` | `guardian.db` present, readable, mode `running` | missing, unreadable, `paused`, `stopped` |
 | `recovery_save` | the dedicated save `fo4sf_test_<build>` present, or not yet created (first launch) | created by an earlier run and gone / Saves folder missing or no save named (UNKNOWN) |
-| `log_capture` | no bridge pinned, or the `[Papyrus]` logging keys set in `StarfieldCustom.ini` or `Starfield.ini` (`make_bridge.py ini`) | keys missing / no ini found (UNKNOWN) |
+| `log_capture` | no bridge pinned, or the `[Papyrus]` logging keys in effect after the game folder's `Starfield.ini` is overridden key by key by `StarfieldCustom.ini` in My Games (`make_bridge.py ini`) | a key off or missing after the overrides / no ini found (UNKNOWN) |
 
 The planners write no `game_version` today: the PC session adds `"game_version": "<Starfield.exe file version>"` to
 `queue.json` (or a `build_pinned` event with it) before turning the gate on; until then the check is UNKNOWN by
@@ -206,5 +206,6 @@ design and the gate refuses.
 after the lease line and before the first launch; the checklist goes to `run.log`, a refusal sets
 `state.json` `status` to `stopped: preflight refused (<check> <status>, ...)` (exit 3, resumable) and appends
 `blocker_opened` (`blocker: preflight`, the failing lines as `evidence`) to the ledger when a lease folder is set;
-a `--dry-run` prints the checklist and refuses the same way. Unset, the gate is not built and the runner is the one
+a `--dry-run` prints the checklist and refuses the same way; a later pass closes that blocker (`blocker_closed`),
+so the report does not carry a refusal that no longer holds. Unset, the gate is not built and the runner is the one
 of §6. The after-load activation check stays where it is (cycle.ps1 exit 8 after `exp_install.py active`).
