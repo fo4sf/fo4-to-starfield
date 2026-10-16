@@ -1,5 +1,23 @@
 # door_trip after the first live runs: strict reads, position frames, facing, routes, and the merge of persistent refs
 
+## October 16 inspector identity correction
+
+The raw `persistent_refs.py --refs` selector keeps identity width: 1-6 hex digits
+mean a reference owned by the inspected plugin; exactly 8 mean the ID encoded in
+that file, including its master-table ordinal. These are **not runtime load-order
+IDs**. An optional `0x` prefix does not change the interpretation. Seven digits,
+signed values and oversized IDs are refused.
+
+Previously, `000800` and `00000800` collapsed to one integer selector, so a master
+override and a local reference sharing low ID `800` could both be returned. A
+synthetic fixture demonstrates two distinct positions incorrectly selected by
+either request. The correction separates these cases; eight targeted tests pass.
+On the preserved OFST cave candidate, `000800` and `03000800` identify the same
+reference; historical runtime-style `05000800` matches no encoded record. The
+candidate bytes were unchanged. This repairs offline inspection, not native
+selection, worldspace merging or door activation. It does not retroactively
+invalidate native observations or validate the refuted OFST/fixA hypothesis below.
+
 Author: Claude (runner role on branch `claude/core64c-cave-door`), 2026-10-13. Stacked on `claude/integration-1013`
 (129b9ae). Starfield 1.16.244. Labels: **verified** = checked here (file, command, number), **supported** = supported
 hypothesis, **unresolved**, **refuted**. Offline checks are not in-game acceptance. Companion page for the core64c door
