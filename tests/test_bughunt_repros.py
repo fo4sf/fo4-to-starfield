@@ -2,8 +2,9 @@
 expectedFailure until its issue is fixed, so the suite stays green and the fix flips the decorator off. Every test is
 synthetic (no game data): the collision ones build a Havok 2014 packfile and a Starfield tagfile template with
 havok_fixtures.py, the navmesh ones use test_navmesh's builders, the texture ones write bytes in a temp folder.
-Each test's docstring starts with its issue number (#203 to #216); the finding's file:line is at main 1b3ba39."""
+Each test's docstring starts with its issue number (#203 to #220); the finding's file:line is at main 1b3ba39."""
 import importlib.util
+import json
 import os
 import struct
 import sys
@@ -25,6 +26,8 @@ from fo4sf import convert_static, door_motion, fo4land, meshcollision, pipeline,
 from fo4sf import navmesh as nm  # noqa: E402
 from fo4sf import nif  # noqa: E402
 import bridge_log  # noqa: E402
+import testqueue as tq  # noqa: E402
+import test_testqueue as tt  # noqa: E402
 import havok_fixtures as hf  # noqa: E402
 import parse_getpos as pg  # noqa: E402
 import test_walk_eval as twe  # noqa: E402
@@ -369,6 +372,85 @@ class DoorTests(unittest.TestCase):
         self.assertTrue(r["requires_additional_motion_support"], r)
         self.assertEqual(sorted(r["animated_shapes_outside_single_hinge"]), [4, 5])
         self.assertNotEqual(convert_static.frozen_door_parts(f), [])
+
+
+class RunnerTests(unittest.TestCase):
+    """testqueue.py's planners, judge and run loop (scripts/game); the runner tests of test_testqueue.py supply the
+    fake controls and the queue builder. Every run here is offline: no game, no PowerShell."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.d = tmp.name
+        self.staging = os.path.join(self.d, "staging")
+        os.makedirs(self.staging)
+        with open(os.path.join(self.staging, "FO4Port.esm"), "wb") as f:
+            f.write(b"TES4")
+
+    def plan(self, kind, entries, name, *extra):
+        exp = os.path.join(self.d, "exp_" + name)
+        os.makedirs(exp)
+        with open(os.path.join(exp, "plan.json"), "w", encoding="utf-8") as f:
+            json.dump(entries, f)                                    # json.dump writes NaN by default, as numpy-fed generators do
+        out = os.path.join(self.d, "q_" + name)
+        with mock.patch("builtins.print"):
+            tq.main([kind, "--staging", self.staging, "--exp-dir", exp, "--out", out, *extra])
+        with open(os.path.join(out, "queue.json"), encoding="utf-8") as f:
+            return out, json.load(f)
+
+    @unittest.expectedFailure
+    def test_plan_movable_pins_the_bridge_it_was_given(self):
+        """#218: testqueue.py:1109 plan_movable calls queue_extras with SimpleNamespace(plugins=""), so apply_bridge
+        never sees --bridge: no bridge pin in queue.json, no bridge_reads on the test, no "bridge" need, and a
+        missing --bridge folder is not refused (the other planners refuse it)."""
+        br = os.path.join(self.d, "bridge")
+        os.makedirs(os.path.join(br, "Data", "Scripts"))
+        with open(os.path.join(br, "FO4SFBridge.esm"), "wb") as f:
+            f.write(b"plugin")
+        with open(os.path.join(br, "Data", "Scripts", "FO4SF_Bridge.pex"), "wb") as f:
+            f.write(b"pex")
+        plan = [{"label": "C_burntbook", "travel": "coc QASmoke", "base": "0200CE2A", "mass_kg": 25.0, "spot": [-3.0, 4.0, 0.0]}]
+        _, q = self.plan("plan-movable", plan, "movable", "--bridge", br)
+        self.assertIn("bridge", q, sorted(q))
+        self.assertTrue(q["tests"][0].get("bridge_reads"), q["tests"][0])
+        self.assertIn("bridge", q.get("needs", []))
+        with self.assertRaises(SystemExit):
+            self.plan("plan-movable", plan, "movable2", "--bridge", os.path.join(self.d, "nowhere"))
+
+    @unittest.expectedFailure
+    def test_terrain_points_are_validated_and_the_judge_never_passes_without_them(self):
+        """#219: testqueue.py:489 plan_terrain copies "points" from plan.json unvalidated; the terrain judge then
+        PASSes a test with no points on a screenshot alone, PASSes a NaN expect with a read 400 m below, and raises
+        TypeError on a string expect (the npc / door / walk / movable planners refuse such values at planning)."""
+        d = os.path.join(self.d, "obs")
+        os.makedirs(d)
+        shot = tt.touch(d, "spawn.png")
+        _, q = self.plan("plan-terrain", [{"coc": "FO4CW_X", "points": [], "beyond": {"x": 0.0, "y": 0.0}}], "nopoints")
+        self.assertNotEqual(tq.judge(q["tests"][0], {"shot": shot}, d)[0], "PASS")
+        _, q = self.plan("plan-terrain", [{"coc": "FO4CW_X", "points": [{"label": "v0", "x": 0.0, "y": 0.0, "expect": float("nan")}]}], "nan")
+        self.assertNotEqual(tq.judge(q["tests"][0], {"shot": shot, "points": [{"read": "0.0 0.0 -400.0"}]}, d)[0], "PASS")
+        _, q = self.plan("plan-terrain", [{"coc": "FO4CW_X", "points": [{"label": "v0", "x": 0.0, "y": 0.0, "expect": "15"}]}], "str")
+        verdict = tq.judge(q["tests"][0], {"shot": shot, "points": [{"read": "0.0 0.0 15.0"}]}, d)   # TypeError today
+        self.assertIn(verdict[0], ("PASS", "FAIL", "INCONCLUSIVE"))
+
+    @unittest.expectedFailure
+    def test_an_open_breaker_never_rewrites_a_test_that_ran(self):
+        """#220: testqueue.py:2994 the open-breaker branch appends a BREAKER row "not run", attempt 0, and sets
+        done[id].attempts = 0 for a test that already ran once (its retry was pending), so its real INCONCLUSIVE
+        attempt vanishes from state.done and the report keeps only "BREAKER 6, not run"."""
+        tt.make_queue(self.d, n=tq.BREAKER)                            # six fall tests, --max-attempts 2
+        r = tq.Runner(self.d, tt.args(max_attempts=2), ctl=tt.FakeControls(), step=lambda t, o: 0)   # never an obs.json
+        r.session, r.cell, r._ps = True, "C", (lambda *a, **k: (0, ""))
+        r.log = lambda msg: None
+        r.run()
+        with open(os.path.join(self.d, "state.json"), encoding="utf-8") as f:
+            st = json.load(f)
+        with open(os.path.join(self.d, "results.jsonl"), encoding="utf-8") as f:
+            rows = [json.loads(x) for x in f if x.strip()]
+        self.assertEqual(st["attempts"]["0000_fall"], 1)
+        self.assertEqual(st["done"]["0000_fall"]["attempts"], st["attempts"]["0000_fall"])
+        last = [x for x in rows if x["id"] == "0000_fall"][-1]
+        self.assertNotEqual((last["attempt"], last["class"]), (0, "BREAKER"), last)
 
 
 if __name__ == "__main__":
