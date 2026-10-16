@@ -19,15 +19,18 @@ var exports = args.Skip(3).Where(p => !p.StartsWith("--")).Select(p => JsonDocum
 try
 {
     var data = Environment.GetEnvironmentVariable("STARFIELD_DATA");
+    // Keep typed native records alive through relationship resolution. --no-markers
+    // suppresses marker creation, not proof of a native DOOR's record type.
+    using var vanilla = data == null ? null : StarfieldMod.CreateFromBinaryOverlay(
+        Path.Combine(data, "Starfield.esm"), StarfieldRelease.Starfield);
     Dictionary<string, FormKey>? markerBases = null;
-    if (data != null && !args.Contains("--no-markers"))
+    if (vanilla != null && !args.Contains("--no-markers"))
     {
-        using var vanilla = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(data, "Starfield.esm"), StarfieldRelease.Starfield);
         var names = new HashSet<string>(new[] { "EnableMarker", "XMarker", "XMarkerHeading", "LightBox" }, StringComparer.OrdinalIgnoreCase);
         markerBases = vanilla.Statics.Where(s => s.EditorID != null && names.Contains(s.EditorID))
             .ToDictionary(s => s.EditorID!, s => s.FormKey, StringComparer.OrdinalIgnoreCase);
     }
-    var report = Relationships.Apply(mod, ids, exports.Select(x => x.RootElement), markerBases);
+    var report = Relationships.Apply(mod, ids, exports.Select(x => x.RootElement), markerBases, vanilla);
     Directory.CreateDirectory(args[2]);
     var statePath = Path.Combine(args[2], "build-state.json");
     File.WriteAllText(statePath, JsonSerializer.Serialize(new { complete = false, status = "relationship_translation", unresolved = report.Issues.Count }));

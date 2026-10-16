@@ -30,6 +30,6 @@ Main4ba5c6a has integration121 and merged131/133;119/126/127/128 are integrated.
 
 ## Next / preservation
 
-Next: Claude integrates137/ready proposals, corrects134 and owns cave/actor/interaction native tests. Old batch_full:1109 pending;616 movables need fresh plans. #79 awaits release/pins. No unchanged QA/stage reruns or speculative work.
+Owner priority: persistent doors. Codex's ReferenceLinks native-base repair has8 CLI/readback controls; peer QA pending. Core merge/placement and cross-plugin endpoints remain unresolved; Claude retains live tests. PR243 scripted fallback stays separate. No unchanged QA/stage reruns.
 
 #32/owner issues are the inbox; refresh before work/done. Keep below4KB; history in handoff-archive. Evidence indexed/reopen-verified on D:, originals retained; second local volume, not offsite. Follow docs/testing/progress-storage.md. Lower usage: quiet four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused.

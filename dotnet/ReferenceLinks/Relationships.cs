@@ -20,7 +20,7 @@ public sealed class LinkReport
 public static class Relationships
 {
     public static LinkReport Apply(StarfieldMod mod, Dictionary<string, uint> ids, IEnumerable<JsonElement> exports,
-        IReadOnlyDictionary<string, FormKey>? markerBases = null)
+        IReadOnlyDictionary<string, FormKey>? markerBases = null, IStarfieldModGetter? doorMaster = null)
     {
         if (ids.Values.Any(id => id == 0 || id >= 0x1000000) || ids.Values.Distinct().Count() != ids.Count)
             throw new InvalidOperationException("source map contains duplicate or invalid full-plugin FormIDs");
@@ -30,7 +30,15 @@ public static class Relationships
         var sourceRefs = new Dictionary<string, PlacedObject>(StringComparer.OrdinalIgnoreCase);
         var sourceCells = new Dictionary<string, Cell>(StringComparer.OrdinalIgnoreCase);
         var sources = exports.ToArray();
-        var occupied = mod.EnumerateMajorRecords().Where(r => r.FormKey.ModKey == mod.ModKey).Select(r => r.FormKey.ID).ToHashSet();
+        // Resolve record type from actual records, not an editor ID or a numeric
+        // base link. Any local override wins, including deletion/type changes.
+        var localRecords = mod.EnumerateMajorRecords().ToDictionary(r => r.FormKey);
+        var doorBases = mod.Doors.Where(d => (d.MajorRecordFlagsRaw & 0x20) == 0).Select(d => d.FormKey).ToHashSet();
+        if (doorMaster != null)
+            foreach (var door in doorMaster.Doors)
+                if (!localRecords.ContainsKey(door.FormKey) && (door.MajorRecordFlagsRaw & 0x20) == 0)
+                    doorBases.Add(door.FormKey);
+        var occupied = localRecords.Keys.Where(k => k.ModKey == mod.ModKey).Select(k => k.ID).ToHashSet();
         var next = ids.Values.Concat(occupied).DefaultIfEmpty(0x7FFu).Max() + 1;
         var needed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var export in sources)
@@ -175,11 +183,11 @@ public static class Relationships
                     target.LinkedReferences.Add(translated);
                 report.LinkedReferences++;
             }
-            bool IsDoor(PlacedObject obj) => mod.Doors.Any(d => d.FormKey == obj.Base.FormKey);
+            bool IsDoor(PlacedObject obj) => doorBases.Contains(obj.Base.FormKey);
             if (reference.TryGetProperty("open_by_default", out var open) && open.GetBoolean())
             {
                 if (IsDoor(target)) { target.OpenByDefault = true; report.OpenState++; }
-                else report.Issues.Add(new(source, "open_by_default", null, "target base is not a converted door"));
+                else report.Issues.Add(new(source, "open_by_default", null, "target base is not a resolved non-deleted door"));
             }
             if (reference.TryGetProperty("teleport_destination", out var teleport) && teleport.ValueKind != JsonValueKind.Null)
             {

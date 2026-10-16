@@ -1441,3 +1441,18 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
 - Merged tonight: #162, #163, #161, #165, #166 (and the queue of the day before). Open: #164 (sandbox suite running),
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
+
+## 2026-10-16: Codex native bases for persistent door relationships
+
+The owner's persistent-door priority led back to PR174's actual ReferenceLinks
+rejection. Synthetic CLI controls reproduce two valid native-base cases rejected
+(exit2), plus a deleted local DOOR override wrongly accepted (exit0). Resolve from
+typed Starfield.esm records with local override precedence; deleted/non-door/missing
+bases now refuse. Eight CLI cases and the existing relationship/binary suite pass.
+Both persistent endpoints retain identity, transforms, grouping, flags, reciprocal
+XTEL/transition links and open state after serialization. Original inputs/map stay
+unchanged. No native DOOR cloning or ID allocation. Evidence retained privately at
+test-plans/native-door-bases-20261016 (before, after and final).
+This optional post-pass remains interior-scoped; PluginSpike owns primary load-door
+writing. No exterior merge fix, live install/input, travel or save/reload acceptance
+is claimed. Peer QA pending; Claude retains native controller.
