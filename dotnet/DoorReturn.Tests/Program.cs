@@ -20,10 +20,34 @@ void CheckMasterHeader(string path)
     bytes.ReadUInt32(); // record payload size
     Need((bytes.ReadUInt32() & 1u) != 0, "serialized TES4 master flag is missing");
 }
+void CheckRefusalCli(string folder, ReturnPlan plan, string reason)
+{
+    var planPath = Path.Combine(folder, "refusal-plan.json");
+    File.WriteAllText(planPath, JsonSerializer.Serialize(new {
+        interior = plan.Interior.ToString(), exterior = plan.Exterior.ToString(),
+        arrival_position = new[] { plan.Position.X, plan.Position.Y, plan.Position.Z },
+        arrival_rotation = new[] { plan.Rotation.X, plan.Rotation.Y, plan.Rotation.Z }, flags = plan.Flags }));
+    var output = Path.Combine(folder, "refused-cli");
+    var start = new ProcessStartInfo("dotnet") {
+        RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
+    start.ArgumentList.Add(typeof(ReturnPatch).Assembly.Location);
+    foreach (var arg in new[] { Path.Combine(folder, "Starfield.esm"), Path.Combine(folder, "Port.esm"),
+                               Path.Combine(folder, "Core.esm"), planPath, output }) start.ArgumentList.Add(arg);
+    using var child = Process.Start(start)!;
+    var stdout = child.StandardOutput.ReadToEndAsync(); var stderr = child.StandardError.ReadToEndAsync();
+    if (!child.WaitForExit(60000)) { child.Kill(true); throw new TimeoutException(); }
+    Task.WaitAll(stdout, stderr);
+    File.WriteAllText(Path.Combine(folder, "refused-cli.log"), stdout.Result + stderr.Result);
+    Need(child.ExitCode != 0 && stderr.Result.Contains(reason), "CLI refused for the wrong reason: " + stderr.Result);
+    Need(!Directory.Exists(output), "refusal published a plugin, receipt or output reservation");
+}
 var results = new List<object>();
-foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterior", "missing-flag", "deleted", "wrong-outbound", "static-base", "conflicting-return", "nan-arrival", "relative-arrival", "port-cycle", "wrong-owner", "deleted-cell", "deleted-world", "wrong-transition", "light-core", "core-cell-override", "core-door-override", "core-door-deleted", "core-door-temporary" }
+var returnLinksOnly = args.Contains("--return-links-only");
+foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterior", "missing-flag", "deleted", "wrong-outbound", "static-base", "conflicting-return", "nan-arrival", "relative-arrival", "port-cycle", "wrong-owner", "deleted-cell", "deleted-world", "wrong-transition", "light-core", "core-cell-override", "core-door-override", "core-door-deleted", "core-door-temporary",
+    "core-return-match", "core-return-target", "core-return-position", "core-return-rotation", "core-return-flags", "core-return-transition" }
+    .Where(s => !returnLinksOnly || s is "conflicting-return" or "deleted-cell" || s.StartsWith("core-return-"))
     .Where(s => !args.Contains("--overrides-only") || s.StartsWith("core-"))
-    .Where(s => !args.Contains("--positive-only") || s is "valid" or "core-cell-override" or "core-door-override")
+    .Where(s => !args.Contains("--positive-only") || s is "valid" or "core-cell-override" or "core-door-override" or "core-return-match")
     .Where(s => !args.Contains("--output-alias-only") || s == "valid"))
 {
     var folder = Path.Combine(root,scenario); Directory.CreateDirectory(folder);
@@ -54,7 +78,8 @@ foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterio
     if (scenario == "deleted") outside.MajorRecordFlagsRaw |= 0x20;
     if (scenario == "wrong-outbound") outside.TeleportDestination.Door.SetTo(new FormKey(portKey,0x811));
     if (scenario == "static-base") core.Statics.Add(new Static(baseKey,StarfieldRelease.Starfield));
-    if (scenario == "conflicting-return") {inside.TeleportDestination=new TeleportDestination();inside.TeleportDestination.Door.SetTo(new FormKey(coreKey,0x821));}
+    // A Port-owned conflicting target must not accidentally create the earlier-rejected Port -> Core cycle.
+    if (scenario == "conflicting-return") {inside.TeleportDestination=new TeleportDestination();inside.TeleportDestination.Door.SetTo(new FormKey(portKey,0x811));}
     if (scenario == "nan-arrival") plan=plan with {Position=new P3Float(float.NaN,0,0)};
     if (scenario == "relative-arrival") plan=plan with {Flags=4};
     if (scenario == "port-cycle") inside.Base.SetTo(new FormKey(coreKey,0x999));
@@ -69,6 +94,16 @@ foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterio
         if(scenario!="core-cell-override")
         {
             var winner=inside.DeepCopy();winner.Position=new P3Float(9,8,7);winner.Scale=.5f;winner.OpenByDefault=false;winner.MajorRecordFlagsRaw=0x400;
+            if (scenario.StartsWith("core-return-"))
+            {
+                winner.TeleportDestination = new TeleportDestination { Position = plan.Position, Rotation = plan.Rotation };
+                winner.TeleportDestination.Door.SetTo(plan.Exterior);
+                if (scenario == "core-return-target") winner.TeleportDestination.Door.SetTo(new FormKey(coreKey, 0x821));
+                if (scenario == "core-return-position") winner.TeleportDestination.Position = new P3Float(-4, 7, 8);
+                if (scenario == "core-return-rotation") winner.TeleportDestination.Rotation = new P3Float(0, 0, .3f);
+                if (scenario == "core-return-flags") winner.TeleportDestination.Flags = (TeleportDestination.Flag)1;
+                if (scenario == "core-return-transition") winner.TeleportDestination.TransitionInterior.SetTo(cell.FormKey);
+            }
             if(scenario=="core-door-deleted")winner.MajorRecordFlagsRaw|=0x20;
             if(scenario=="core-door-temporary")cc.Temporary.Add(winner);else cc.Persistent.Add(winner);
         }
@@ -81,10 +116,17 @@ foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterio
     IStarfieldModDisposableGetter Open(string file)=>StarfieldMod.CreateFromBinaryOverlay(file,StarfieldRelease.Starfield,new BinaryReadParameters {MasterFlagsLookup=lookup});
     using var sfo=Open(Path.Combine(folder,"Starfield.esm"));using var po=Open(Path.Combine(folder,"Port.esm"));using var co=Open(Path.Combine(folder,"Core.esm"));
     var original=Directory.GetFiles(folder,"*.esm").ToDictionary(p=>p,File.ReadAllBytes);
+    var validScenario = scenario is "valid" or "core-cell-override" or "core-door-override" or "core-return-match";
+    if (scenario == "deleted-cell")
+    {
+        var readCell = po.Cells.Records.Single().SubBlocks.Single().Cells.Single();
+        Need((readCell.MajorRecordFlagsRaw & 0x20) != 0 && (readCell.Flags & Cell.Flag.IsInteriorCell) != Cell.Flag.IsInteriorCell,
+             "serialized deleted-cell fixture no longer has the observed missing interior flag");
+    }
     try
     {
         var patch=ReturnPatch.Build(sfo,po,co,plan);
-        Need(scenario is "valid" or "core-cell-override" or "core-door-override","invalid input accepted: "+scenario);
+        Need(validScenario,"invalid input accepted: "+scenario);
         var path=Path.Combine(folder,"FO4DoorReturn.esm");patch.BeginWrite.ToPath(path).WithLoadOrder(keys).WithKnownMasters(styles).Write();
         CheckMasterHeader(path);
         using var read=Open(path);
@@ -92,10 +134,11 @@ foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterio
         Need(read.Worldspaces.Count==0 && read.EnumerateMajorRecords().Count()==2,"patch contains records outside interior CELL/REFR");
         var c=read.Cells.Records.Single().SubBlocks.Single().Cells.Single();var r=c.Persistent.OfType<IPlacedObjectGetter>().Single();
         Need(c.FormKey==cell.FormKey && c.Temporary.Count==0 && c.NavigationMeshes.Count==0,"wrong cell identity/children");
-        var expected=scenario=="core-door-override" ? core.Cells.Records.Single().SubBlocks.Single().Cells.Single().Persistent.OfType<IPlacedObjectGetter>().Single() : inside;
+        var expected=scenario is "core-door-override" or "core-return-match" ? core.Cells.Records.Single().SubBlocks.Single().Cells.Single().Persistent.OfType<IPlacedObjectGetter>().Single() : inside;
         Need(r.FormKey==expected.FormKey && r.Position==expected.Position && r.Rotation==expected.Rotation && r.Scale==expected.Scale && r.MajorRecordFlagsRaw==expected.MajorRecordFlagsRaw && r.OpenByDefault==expected.OpenByDefault,"winning source state changed");
         Need(c.EditorID==(scenario.StartsWith("core-") ? "WinningCoreCave" : "SyntheticCave"),"winning cell override lost");
-        Need(r.TeleportDestination!.Door.FormKey==outside.FormKey && r.TeleportDestination.Position==plan.Position && r.TeleportDestination.Rotation==plan.Rotation,"wrong return link/arrival");
+        Need(r.TeleportDestination!.Door.FormKey==outside.FormKey && r.TeleportDestination.Position==plan.Position && r.TeleportDestination.Rotation==plan.Rotation
+             && (uint)r.TeleportDestination.Flags==plan.Flags && r.TeleportDestination.TransitionInterior.IsNull,"wrong return link/arrival");
         Need(read.ModHeader.MasterReferences.Select(m=>m.Master).SequenceEqual(keys),"wrong master ordering");
         Need(read.EnumerateMajorRecords().All(r=>r.FormKey.ModKey==portKey),"new patch-owned record allocated");
         var planPath=Path.Combine(folder,"plan.json");File.WriteAllText(planPath,JsonSerializer.Serialize(new{interior=plan.Interior.ToString(),exterior=plan.Exterior.ToString(),arrival_position=new[]{-5,7,8},arrival_rotation=new[]{0,0,.2f},flags=0}));
@@ -125,12 +168,17 @@ foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterio
     }
     catch(InvalidDataException e)
     {
-        Need(scenario is not ("valid" or "core-cell-override" or "core-door-override"),"valid pair rejected: "+e.Message);
+        Need(!validScenario,"valid pair rejected: "+e.Message);
+        if (scenario == "conflicting-return" || scenario.StartsWith("core-return-"))
+            Need(e.Message == "existing return XTEL conflicts with requested connection", "conflict fixture missed return validation: " + e.Message);
+        if (scenario == "deleted-cell")
+            Need(e.Message == "Port-owned interior cell required", "serialized deleted-cell refused unexpectedly: " + e.Message);
+        if (scenario is "conflicting-return" or "deleted-cell" || scenario.StartsWith("core-return-")) CheckRefusalCli(folder, plan, e.Message);
         results.Add(new{scenario,result="refused",reason=e.Message});
     }
     Need(original.All(p=>File.ReadAllBytes(p.Key).SequenceEqual(p.Value)),"input files changed");
 }
 File.WriteAllText(Path.Combine(root,"results.json"),JsonSerializer.Serialize(results,new JsonSerializerOptions{WriteIndented=true}));
 Console.WriteLine(results.Count+" return-patch scenarios passed: "+root);
-if(!args.Contains("--overrides-only") && !args.Contains("--positive-only") && !args.Contains("--output-alias-only"))PipelineTests.Run(root);
-if(!args.Contains("--overrides-only") && !args.Contains("--positive-only"))PublicationTests.Run(root);
+if(!returnLinksOnly && !args.Contains("--overrides-only") && !args.Contains("--positive-only") && !args.Contains("--output-alias-only"))PipelineTests.Run(root);
+if(!returnLinksOnly && !args.Contains("--overrides-only") && !args.Contains("--positive-only"))PublicationTests.Run(root);
