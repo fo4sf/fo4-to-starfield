@@ -1345,3 +1345,32 @@ Second chain of the day (16:31-19:00, runner scripts 64d30ad, build 2470f876), o
   bridge-install recovery) merged after a testing state; the runner worktree moves to main after this chain.
 - Lesson of the day, twice: a queue re-planned for one parameter must carry every argument of the queue it replaces
   (c3), and a log watcher must never hold the chain's log open (the morning's "dead chain").
+
+## 2026-10-15 night: the first FO4 container opened in Starfield; why the Red Rocket probes never moved (Claude)
+
+- **R05 slice 1, interaction**: `r05_medkit_1015d` a1 (20:10, runner f60f4d6 with #145): the activate step selected the
+  kit's reference in one console session (`prid 020A2AA5`, `GetIsID 020A2AA4 >> 1.00` read before anything else was
+  typed: Codex's review), typed `activate player`, and Starfield's container UI opened on the converted FO4 first-aid
+  kit: FIRST AID KIT, Credits 25, Digipick 1, OCR'd as `read ['First Aid Kit', 'Credits', 'Digipick']`
+  (docs/media/r05-firstaidkit-menu-1015.jpg, #156). Record level (the bridge's probe reply, nine times today) and
+  interaction level are done; the owner's own E-press stays the last word.
+- **The probes, explained by the teleport captures** (`teleport_console`, #145): the console accepted `player.setpos z
+  40` without a word. 40 is an absolute height in the worldspace frame and the Red Rocket ground is at 105.26: my
+  acceptance plan had copied LC172's `drop_z 40` (ground at 6), so every probe and the "beyond" jump were sent 65 m
+  underground; the player stayed put, the beyond jump fell out of the world and that is what stopped the bridge in
+  every r05_medkit run. Not the time commands, not the worldspace. `drop_z` 145 from `r05_medkit_1015f` on. Rule:
+  a terrain plan's `drop_z` is absolute; use `drop_above_spawn` when the ground height is not known.
+- **The menu exit**: Starfield's container UI says BACK / HOLD TO EXIT on Tab; the step's tap only went back a level,
+  the menu stayed open, the next console open failed three times and the attempt stopped (INCONCLUSIVE STOPPED).
+  #157: a held Tab (1.2 s), the HUD checked on the closing capture, a second hold when it is not back.
+- Merged after testing states: #145 (activate step, teleport_console, selection proof), #138 (Codex), #156, #157.
+  Codex's #150 (keep the source REFR's id when a static becomes a container) is the next R05 correctness item: my
+  `cluster_containers` removes the kit's placement and appends the container's REFR after every other record, which
+  shifts the ids of the references placed after the kit; Codex's draft keeps the id. Taken when it leaves draft.
+- **`r05_medkit_1015f` / `1015g`** (runner 2e017aa / e26897c): the teleports work at drop 145 and the activation reproduced
+  with the selection proof and the held-Tab exit (the attempt ran to its end). Both kit-side probes landed at 110.2 /
+  110.7 and the arrival probe at 110.49: the station roof and the fuel canopy; the kit is inside the building and the
+  arrival marker under the canopy, so a drop from above lands on them (plan artifacts, not terrain). The selection proof
+  also read the game's `>> 1.00` on the line under the echo once (the OCR splits rows under the compass dial): #158.
+  `r05_medkit_1015h` (core64c's verified probes zref_ground / wp_01 next to the activation) was stopped at 21:01 by the
+  input guard (another window took the foreground: the owner at the PC) and waits for the next window.
