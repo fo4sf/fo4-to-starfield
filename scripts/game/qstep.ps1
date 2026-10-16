@@ -241,13 +241,28 @@ function Console-List($list, [string]$what) {
   if ($out.Count -gt 12) { "bad $what"; exit 4 }
   return ,$out
 }
-function Read-Console([string]$name) {
-  # the open console's text: capture its region ($name.png in $Out), prepare and OCR it (as the god mode reply)
-  $cap = Join-Path $Out "$name.png"; $prep = Join-Path $Out "${name}_prep.png"
+# the brightness thresholds ocr_prep.py tries on one console capture, in order: Item-Capture's and the npc steps' four
+# (written out in their loops), used by the activate step's Read-Console
+$ocrThresholds = @(135, 140, 130, 145)
+function Read-Console([string]$name, [int[]]$thresholds = @(135), [string]$until = '') {
+  # the open console's text: capture its region ($name.png in $Out), prepare and OCR it (as the god mode reply).
+  # With $until the same capture (nothing typed again) is prepared and OCR'd at each of $thresholds in turn until the
+  # text matches $until: core64g_accept_1016 test 0002 read "prid 02008C5F / GetIsID 020A2AB2" at 135 without the
+  # reply line that activate_sel.png shows ("GetIsID >> 1.00"), and 130 and 145 read it. Returns the matching text and its
+  # threshold (th), else the first threshold's text and th = $null; ${name}_prep.png is the first threshold's image,
+  # ${name}_prep<th>.png a later one's.
+  $cap = Join-Path $Out "$name.png"
   powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'shot_region.ps1') -Out $cap | Out-Null
-  & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $cap $prep 135 12 | Out-Null
-  $txt = ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $prep -Scale 1) -join "`n")
-  return @{ ocr = $txt; shot = $(if (Test-Path $cap) { "$name.png" } else { $null }) }
+  $first = $null; $hit = $null; $hitTh = $null
+  foreach ($th in $thresholds) {
+    $prep = if ($null -eq $first) { Join-Path $Out "${name}_prep.png" } else { Join-Path $Out "${name}_prep$th.png" }
+    & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $cap $prep $th 12 | Out-Null
+    $txt = ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $prep -Scale 1) -join "`n")
+    if ($null -eq $first) { $first = $txt }
+    if (-not $until -or $txt -match $until) { $hit = $txt; $hitTh = $th; break }
+  }
+  if ($null -eq $hit) { $hit = $first }
+  return @{ ocr = $hit; th = $hitTh; shot = $(if (Test-Path $cap) { "$name.png" } else { $null }) }
 }
 function Run-Console($cmds, [string]$phase) {
   # one console session per command: type it, capture the console, OCR, close. The OCR text and the capture
@@ -796,12 +811,17 @@ switch ($kind) {
       if ($aref -notmatch '^[0-9A-Fa-f]{8}$' -or $abase -notmatch '^[0-9A-Fa-f]{8}$') { "bad activate"; exit 4 }
       Console-Open
       Send "type:prid $aref|key:enter|wait:400|type:GetIsID $abase|key:enter|wait:700"
-      $sel = Read-Console 'activate_sel'
       # the reply "GetIsID >> 1.00": on the echo's line, or (r05_medkit_1015f: the OCR split the row) as ">> 1.00" on the
       # line after the echo "GetIsID <8 hex>"; OCR confuses l/I/1 and sometimes loses the >>. The line anchor keeps a
-      # base id that starts with 1 from passing (the echo never ends in a lone 1)
-      $selected = [bool]("$($sel.ocr)" -match '(?m)Get[Il1]s[Il1]D[ \t]*(?:[0-9A-Fa-f]{8}[ \t]*\r?\n[ \t]*)?(?:[>»][ \t]*[>»]?[ \t]*)?1(?:[.,][ \t]?0{1,2})?[ \t]*$')
-      $obs['activate'] = [ordered]@{ ref = $aref; base = $abase; selected = $selected; sel_shot = $sel.shot; sel_ocr = $sel.ocr }
+      # base id that starts with 1 from passing (the echo never ends in a lone 1). The one capture is read at each OCR
+      # threshold until the reply is found (core64g_accept_1016 0002: lost at 135, "Get ISID > > 1.00" at 140, which the
+      # pattern does not take, read at 130 and 145);
+      # obs.activate.sel_threshold is the threshold that read it (null: none did, sel_ocr is the first threshold's text)
+      $isidReply = '(?m)Get[Il1]s[Il1]D[ \t]*(?:[0-9A-Fa-f]{8}[ \t]*\r?\n[ \t]*)?(?:[>»][ \t]*[>»]?[ \t]*)?1(?:[.,][ \t]?0{1,2})?[ \t]*$'
+      $sel = Read-Console 'activate_sel' $ocrThresholds $isidReply
+      $selected = [bool]("$($sel.ocr)" -match $isidReply)
+      $obs['activate'] = [ordered]@{ ref = $aref; base = $abase; selected = $selected; sel_shot = $sel.shot; sel_ocr = $sel.ocr;
+                                     sel_threshold = $sel.th }
       Save-Obs
       if ($selected) {
         Send "type:activate player|key:enter|wait:400|key:grave|wait:2500"
