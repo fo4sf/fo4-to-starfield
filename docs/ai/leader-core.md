@@ -169,7 +169,9 @@ python scripts\game\lease.py status  --dir <leader> [--require Claude] [--json] 
   folder with a space and a trailing backslash would reach python mangled as an argument). The folder is absolute;
   the watchdog resolves a relative `lease_dir` against `C:\Modding\testqueue` and strips a trailing backslash, so
   the watchdog, the chain and the runner read one folder.
-- `watchdog.ps1`: with `lease_dir` in `watchdog.json` (or `FO4SF_LEASE_DIR` as set when the watchdog started),
+- `watchdog.ps1` (`-Root <folder>` names the folder of `chain.ps1`, `chain_queue.txt`, the log and the state, default
+  `C:\Modding\testqueue`, so a test can run `-Once` against a temp folder): with `lease_dir` in `watchdog.json` (or
+  `FO4SF_LEASE_DIR` as set when the watchdog started),
   Claude's activity is the lease's last claim / renewal / release plus the heartbeat file, not the last `Claude:`
   commit on any branch (the cloud sessions' commits tripped that); a lease held by the watchdog's own `lease_owner`
   does not count as Claude's activity, and a chain that stopped early is restarted by claiming that lease again;

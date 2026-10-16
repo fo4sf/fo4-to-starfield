@@ -17,10 +17,12 @@
 # is claimed as "lease_owner" (default watchdog, for "lease_hours", default 8; a lease someone still holds is never
 # taken), and the chain inherits FO4SF_LEASE_DIR / FO4SF_LEASE_OWNER so testqueue.py and cycle.ps1 check that lease.
 # Without "lease_dir" nothing here changes.
-# usage: watchdog.ps1 [-Once]   (-Once: one check and exit, for tests and for a manual "would it fire now?")
-param([switch]$Once, [string]$Config = 'C:\Modding\testqueue\watchdog.json')
+# usage: watchdog.ps1 [-Once] [-Config <json>] [-Root <folder>]
+#   -Once: one check and exit, for tests and for a manual "would it fire now?"; -Root: the folder that holds chain.ps1,
+#   chain_queue.txt, the log, the state and the heartbeat (default C:\Modding\testqueue; a test points it at a temp folder)
+param([switch]$Once, [string]$Config = 'C:\Modding\testqueue\watchdog.json', [string]$Root = 'C:\Modding\testqueue')
 $ErrorActionPreference = 'Continue'
-$tq = 'C:\Modding\testqueue'
+$tq = $Root
 # the checkout this script runs from (worktrees share one repository, so its refs include every branch)
 $repo = Split-Path (Split-Path $PSScriptRoot)
 $wt = $repo
