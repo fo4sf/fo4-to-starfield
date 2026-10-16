@@ -159,7 +159,9 @@ python scripts\game\lease.py status  --dir <leader> [--require Claude] [--json] 
   else `Claude`): checked before every launch and every test, renewed before every test, the run stops (resumable,
   `stopped: lease ...`) when the lease is missing, someone else's, released or expired; a `--dry-run` reports the same.
 - `cycle.ps1`: with `FO4SF_LEASE_DIR` set it exits 9 before closing, redeploying or launching anything unless
-  `FO4SF_LEASE_OWNER` (default `Claude`) holds the lease.
+  `FO4SF_LEASE_OWNER` (default `Claude`) holds the lease; the runner puts its own effective folder and owner into
+  the environment of every PowerShell step (`Runner.ps_env`), so `--lease-dir` / `--lease-owner` given as flags
+  reach it too.
 - `watchdog.ps1`: with `lease_dir` in `watchdog.json` (or `FO4SF_LEASE_DIR` as set when the watchdog started),
   Claude's activity is the lease's last claim / renewal / release plus the heartbeat file, not the last `Claude:`
   commit on any branch (the cloud sessions' commits tripped that); a lease held by the watchdog's own `lease_owner`

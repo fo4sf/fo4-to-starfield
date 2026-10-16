@@ -2544,11 +2544,20 @@ class Runner:
         self.state["updated"] = now()
         save_atomic(self.state_p, self.state)
 
+    def ps_env(self, steal=False):
+        """The environment of every PowerShell step. With the lease on, cycle.ps1 reads FO4SF_LEASE_DIR / _OWNER: the
+        runner's effective folder and owner go in (a --lease-dir / --lease-owner given as flags would otherwise be
+        invisible to it, and it would launch unchecked, or check another owner's lease)."""
+        env = dict(os.environ, FO4SF_NO_FOCUS_STEAL="0" if steal else "1", LEGACY="1")
+        env.setdefault("FO4SF_PYTHON", sys.executable)
+        if self.lease:
+            env["FO4SF_LEASE_DIR"], env["FO4SF_LEASE_OWNER"] = self.lease.dir, self.lease.owner
+        return env
+
     def _ps(self, script, args, timeout, steal=False):
         # steal=True only for cycle.ps1's launch, which runs after --min-idle of owner inactivity: the new game window
         # has to come to the front once. Every other step refuses to take the foreground (input.ps1 exits 2 instead).
-        env = dict(os.environ, FO4SF_NO_FOCUS_STEAL="0" if steal else "1", LEGACY="1")
-        env.setdefault("FO4SF_PYTHON", sys.executable)
+        env = self.ps_env(steal)
         try:
             r = subprocess.run(PS + [os.path.join(HERE, script)] + args, capture_output=True, text=True, timeout=timeout, env=env)
             code, out = r.returncode, (r.stdout or "") + (r.stderr or "")
