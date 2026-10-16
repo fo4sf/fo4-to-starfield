@@ -97,20 +97,29 @@ public static class Relationships
                 placed.TryGetValue(new FormKey(mod.ModKey, rid), out var target);
                 if (selectedDoors.TryGetValue(source, out var selectedBase))
                 {
+                    var position = Pos(reference.GetProperty("pos"));
+                    var rotation = Rot(reference.GetProperty("rot"));
+                    var scale = reference.TryGetProperty("scale", out var size) ? size.GetSingle() : 1f;
+                    static bool Finite(P3Float p) => float.IsFinite(p.X) && float.IsFinite(p.Y) && float.IsFinite(p.Z);
+                    if (!Finite(position) || !Finite(rotation) || !float.IsFinite(scale) || scale <= 0)
+                        throw new InvalidOperationException("invalid missing-door transform: " + source);
                     if (target != null)
                     {
                         if (target.Base.FormKey != selectedBase || ownerCells[target.FormKey] != cell ||
                             (target.MajorRecordFlagsRaw & 0x20) != 0)
                             throw new InvalidOperationException("door selection conflicts with placed reference: " + source);
+                        // A valid ID/base/cell does not prove this is the selected
+                        // source door. Compare target-space DATA and effective XSCL;
+                        // allow float roundoff, but never move or rescale a conflict.
+                        static bool Near(float a, float b) => float.IsFinite(a) && float.IsFinite(b) && Math.Abs((double)a - b) <= 1e-4;
+                        static bool NearVector(P3Float a, P3Float b) => Near(a.X, b.X) && Near(a.Y, b.Y) && Near(a.Z, b.Z);
+                        var existingScale = target.Scale ?? 1f;
+                        if (!NearVector(target.Position, position) || !NearVector(target.Rotation, rotation)
+                            || existingScale <= 0 || !Near(existingScale, scale))
+                            throw new InvalidOperationException("door selection transform conflicts with placed reference: " + source);
                     }
                     else
                     {
-                        var position = Pos(reference.GetProperty("pos"));
-                        var rotation = Rot(reference.GetProperty("rot"));
-                        var scale = reference.TryGetProperty("scale", out var size) ? size.GetSingle() : 1f;
-                        static bool Finite(P3Float p) => float.IsFinite(p.X) && float.IsFinite(p.Y) && float.IsFinite(p.Z);
-                        if (!Finite(position) || !Finite(rotation) || !float.IsFinite(scale) || scale <= 0)
-                            throw new InvalidOperationException("invalid missing-door transform: " + source);
                         if (ids.ContainsKey(identity))
                         {
                             if (occupied.Contains(rid)) throw new InvalidOperationException("door reservation occupies another record: " + identity);

@@ -30,6 +30,6 @@ Main4ba5c6a has integration121 and merged131/133;119/126/127/128 are integrated.
 
 ## Next / preservation
 
-Owner priority: persistent doors. Mainf27d24e contains25102239ef but not253: its c9f78bf merge landed on the already-merged251 branch. PR256 carries that reviewed return patch plus output-path normalization into main; peer QA pending. Claude owns Super Duper Mart ACTI/VMAD and Step0 Resolve/MoveTo probes; offset/persistence behavior remains unverified. No Codex stage/install/input.
+Owner priority: persistent doors. PR25635b7207 carries the stranded253 return patch into main; PR2551e50733 rejects mistyped selection options. QA pending. Codex door-transform-identity refuses mismatched existing selected-door DATA/scale;13 new CLI controls pass, peer QA pending. Claude owns Mart ACTI/VMAD and Step0 Resolve/MoveTo; native offset/persistence remain unverified. No Codex stage/install/input.
 
 #32/owner issues are the inbox; refresh before work/done. Keep below4KB; history in handoff-archive. Evidence indexed/reopen-verified on D:, originals retained; second local volume, not offsite. Follow docs/testing/progress-storage.md. Lower usage: quiet four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused.

@@ -1547,3 +1547,21 @@ Initial XCLC concern was disproved by the existing tests: unpack_from already
 handles the fixture; no XCLC change made. No writer/stage/game modifications or
 retroactive native rescoring. Private evidence: persistent-ref-selectors-20261016;
 peer QA pending. Merge placement and native travel/save-reload remain unresolved.
+
+## 2026-10-16: Codex selected-door transform identity check
+
+Reproduced PR251 review finding3 on1e50733: a source map can point at an existing
+same-base/same-cell door with different DATA/scale and the explicit selection
+still succeeds. Ten new actual-CLI conflict cases reproduce silent acceptance,
+including partial/report-only and nonfinite/invalid-scale inputs. Reuse now
+validates exported transforms and compares target-space position, rotation and
+effective scale with an absolute0.0001 tolerance. It refuses conflicts without
+moving the reference or publishing plugin/map output. Three valid controls keep
+identity/state/transforms and byte-identical plugin/map output, including repeat
+runs and omitted unity scale. All13 new controls pass; evidence remains private
+under test-plans/door-transform-identity-20261016. Peer QA/native acceptance remain
+pending. No production stage, source map or game input changed.
+
+The focused ReferenceLinks runner also passes17 missing-door and11 native-door
+CLI controls plus relationship binary checks alongside the13 new cases. Guard
+and diff checks pass. Valid output plugin/map hashes match the pre-fix controls.
