@@ -2,12 +2,13 @@
 expectedFailure until its issue is fixed, so the suite stays green and the fix flips the decorator off. Every test is
 synthetic (no game data): the collision ones build a Havok 2014 packfile and a Starfield tagfile template with
 havok_fixtures.py, the navmesh ones use test_navmesh's builders, the texture ones write bytes in a temp folder.
-Each test's docstring starts with its issue number (#203 to #212); the finding's file:line is at main 1b3ba39."""
+Each test's docstring starts with its issue number (#203 to #215); the finding's file:line is at main 1b3ba39."""
 import importlib.util
 import os
 import struct
 import sys
 import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -16,13 +17,18 @@ import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
+sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fo4sf import fo4collision as fc  # noqa: E402
 from fo4sf import convert_static, fo4land, meshcollision, pipeline, sfbodies, textures  # noqa: E402
 from fo4sf import navmesh as nm  # noqa: E402
 from fo4sf import nif  # noqa: E402
+import bridge_log  # noqa: E402
 import havok_fixtures as hf  # noqa: E402
+import parse_getpos as pg  # noqa: E402
+import test_walk_eval as twe  # noqa: E402
+import walk_eval as we  # noqa: E402
 import test_fo4land as tf  # noqa: E402
 import test_navmesh as tn  # noqa: E402
 from test_review_fixes import av_fields  # noqa: E402
@@ -283,6 +289,43 @@ class CollisionTests(unittest.TestCase):
         blob2 = self.mesh_with_odd_primitives([(0, 1, 2, 3), (1, 1, 1, 1)])
         sf2 = meshcollision.transplant(blob2, hf.universal_template())
         self.assertEqual(len(meshcollision.decode_sf_mesh(sf2)), len(fc.decode(blob2)[1]))   # 3 != 2 today
+
+
+class JudgeTests(unittest.TestCase):
+    @unittest.expectedFailure
+    def test_bridge_log_clock_age_is_positive_for_a_stamp_from_yesterday(self):
+        """#213: scripts/game/bridge_log.py:200 clock_age wraps a stamp past midnight only when it is more than 12 h
+        ahead of now, so a stamp 12 to 24 h old gets a negative age and latest(max_age=3) reports the stale line ok."""
+        now = time.mktime((2026, 10, 15, 2, 0, 0, 0, 0, -1))                  # 02:00:00 local
+        self.assertEqual(bridge_log.clock_age("13:00:00", now), 13 * 3600)    # -39600 today
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(time, "time", lambda: now):
+            log = os.path.join(tmp, "fo4sf.0.log")
+            with open(log, "w", encoding="utf-8") as f:
+                f.write("[13:00:00] FO4SF rt=1 pos=-10.07 43.95 -10.95 n=7\n")
+            os.utime(log, (now - 13 * 3600, now - 13 * 3600))
+            r = bridge_log.latest(log, max_age=3)
+        self.assertIs(r["ok"], False, r)
+
+    @unittest.expectedFailure
+    def test_walk_judge_never_passes_a_leg_with_a_recorded_popup(self):
+        """#214: scripts/game/walk_eval.py:440 turns a recorded popup into a FAIL only when its text matches
+        BOUNDARY|REACHED; qstep.ps1 (line 1732) records popups for FAST TRAVEL and PLANET MAP too, and such a leg
+        passes."""
+        t, _ = twe.test_of()
+        obs = twe.good_obs()
+        obs["legs"][2]["popup"] = "PLANET MAP"                                  # what qstep.ps1 records from the centre OCR
+        obs["legs"][2]["shot"] = "walk_002.png"                                 # the event's screenshot is kept
+        self.assertNotEqual(we.judge(t, obs, twe.shot_ok)[0], "PASS")
+
+    @unittest.expectedFailure
+    def test_parse_getpos_with_a_nonce_never_joins_an_older_value(self):
+        """#215: scripts/game/parse_getpos.py:57 cuts the text at the nonce's echo and then runs the bare-number
+        fallback over everything after it; in the column OCR layout an older read's value sits after this read's
+        echo, so with one own value lost the last three numbers are the previous Z plus this X and Z."""
+        n = "fo4sfr1a2b3c4d"
+        col = ("GetPos: Z > >\n" + n + "\nScript command \"" + n + "\" not found.\nplayer.getpos x\nGetPos: X > >\n"
+               "player.getpos y\nGetPos: Y > >\nplayer.getpos z\nGetPos: Z > >\n99.74\n-2195.27\n99.41")   # Y value lost
+        self.assertEqual(pg.parse(col, nonce=n), "fail")                       # '99.74 -2195.27 99.41' today
 
 
 if __name__ == "__main__":
