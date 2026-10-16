@@ -22,7 +22,7 @@ Claude reports October14 load-order/bridge telemetry and October15 both-directio
 Main4ba5c6a has integration121 and merged131/133;119/126/127/128 are integrated. Source integration is not gameplay acceptance. Latest #32 claims supersede this handoff.
 
 - PR10458f0b51, PR116589f1bf, PR125fcdec287: reviewed QA/guard/CI pass; await Claude, no live application. Keep expected_sha256 publication, bridge-last order and no-op exit0.
-- PR1297511352: probe-free OFST/CLSZ candidate staged offline; mandatory raw checks pass. Native effect unverified; Claude owns the selected-door comparison. No probes/exterior override/install/input; keep126's neighbour-probe option when integrating.
+- PR129 closed after native NOLOAD; the earlier OFST/CLSZ candidate is not a fix. Preserve failed evidence; no reuse without a new claim and controls.
 - PR1181350d9d: selection/per-read evidence reviewed; native adapter pending, runtime acceptance false. PR123319e131: packets reviewed; model savings unmeasured, Guardian-only coordinated window.
 - #117/PR120 archive fingerprinting, #130/PR131 custom-prefix dependencies and #132/PR133 atomic ID reservations are merged; prior QA/guard/CI pass. No native acceptance follows from these offline fixes. Grok owns R06.
 - PR1346d7bd988: Codex found235,119 surviving IDs shifted by promotion; container checks accept wrong XYZ/base/scale/inventory. Two raw-plugin/eight checker controls;28 author tests pass. Claude must fix/re-pin before identity-compatible acceptance.
@@ -30,6 +30,6 @@ Main4ba5c6a has integration121 and merged131/133;119/126/127/128 are integrated.
 
 ## Next / preservation
 
-Owner priority: persistent doors. PR251 cave candidate00DE5D preserves54,877 IDs. Selected missing cells refuse partial/report-only. Separate codex/door-cli-options follow-up rejects unknown/malformed switches before input loading;28 CLI controls pass, peer QA pending. See slice/missing-door-endpoints.md. Claude owns Core/ACTI design and native travel/save; no install/slots.
+Owner priority: persistent doors. Mainf27d24e contains25102239ef but not253: its c9f78bf merge landed on the already-merged251 branch. PR256 carries that reviewed return patch plus output-path normalization into main; peer QA pending. Claude owns Super Duper Mart ACTI/VMAD and Step0 Resolve/MoveTo probes; offset/persistence behavior remains unverified. No Codex stage/install/input.
 
 #32/owner issues are the inbox; refresh before work/done. Keep below4KB; history in handoff-archive. Evidence indexed/reopen-verified on D:, originals retained; second local volume, not offsite. Follow docs/testing/progress-storage.md. Lower usage: quiet four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused.
