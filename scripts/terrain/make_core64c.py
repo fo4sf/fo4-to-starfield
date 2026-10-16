@@ -7,7 +7,7 @@
     python scripts/convert_batch.py --cell-json <work>/convert_input.json --staging <work>/convert --prefix fo4core
            --max-texture <cap> --types <printed by select> --limit 1000000 --resume  + the usual converter arguments
     python scripts/terrain/make_core64c.py stage --work <work> --core <terrain_core64> --out <terrain_core64c> --sf-esm <Starfield.esm>
-           [--views] [--cluster <cluster.json: "containers" and / or "items">] [--navmesh <navmesh.json>]
+           [--views] [--cluster <cluster.json: "containers", "items", "activators", "terminals">] [--navmesh <navmesh.json>]
     python scripts/terrain/make_core64c.py check --work <work> --core <terrain_core64> --out <terrain_core64c>
            [--fo4 <Fallout4.esm>] [--fo4-data <FO4 Data>] [--sf-data <Starfield Data>]
     python scripts/terrain/make_core64c.py verify-data --out <terrain_core64c>
@@ -1101,6 +1101,27 @@ def item_edid(base, src):
     return promoted_edid("misc", base, src)
 
 
+def activator_edid(base, src):
+    """The shared ACTI's editor id of an activator: FO4Core_acti_<6 hex>_<plugin> (promoted_edid)."""
+    return promoted_edid("acti", base, src)
+
+
+def terminal_edid(base, src):
+    """The shared TERM's editor id of a terminal: FO4Core_term_<6 hex>_<plugin> (promoted_edid)."""
+    return promoted_edid("term", base, src)
+
+
+def terminal_menu_edid(term_edid):
+    """The editor id of a TERM's own TMLM menu: its edid with "tmlm" for "term" (FO4Core_tmlm_<6 hex>_<plugin>)."""
+    head = f"{EDID_PREFIX}term_"
+    if not term_edid.startswith(head):
+        raise ValueError(f"{term_edid!r} is not a terminal edid")
+    return f"{EDID_PREFIX}tmlm_{term_edid[len(head):]}"
+
+
+TERMINAL_BODY = "FO4 terminal (text not ported yet)"   # as make_cluster.TERMINAL_BODY: one body line per terminal menu
+
+
 def cluster_containers(bases, placed, cluster):
     """R05: the placed references named by cluster["containers"] (by FO4 source key) leave the STAT placement and
     become container entries for TerrainOverlays (the converted model of their base, the given name and vanilla
@@ -1185,28 +1206,134 @@ def cluster_items(bases, placed, cluster):
     return keep, items
 
 
+def one_line(text):
+    """A non-empty single-line string (no line break: the writer copies it into one record field)."""
+    return isinstance(text, str) and bool(text.strip()) and "\n" not in text and "\r" not in text
+
+
+def promoted_entries(placed, cluster, key, what, make):
+    """The placed references named by cluster[key] (by FO4 source key) as promoted entries, in placement order:
+    {"src", "reference_index"} + make(placed reference, cluster entry) + the reference's cell / position / rotation /
+    scale. Returns (placed without them, entries). ValueError for a source listed twice, a reference this build did
+    not place or one initially disabled in FO4 (the writer would give it no slot / an object nobody can use)."""
+    wanted = {}
+    for e in cluster.get(key) or []:
+        if e["src"] in wanted:
+            raise ValueError(f"{e['src']} is listed twice in {key}")
+        wanted[e["src"]] = e
+    keep, out = [], []
+    for reference_index, p in enumerate(placed):
+        e = wanted.pop(p["src"], None)
+        if e is None:
+            keep.append(p)
+            continue
+        if p.get("disabled"):
+            raise ValueError(f"{p['src']} is initially disabled in FO4; not {what} to use")
+        out.append(dict({"src": p["src"], "reference_index": reference_index}, **make(p, e),
+                        cell=p["cell"], pos=p["pos"], rot=p["rot"], scale=p["scale"]))
+    if wanted:
+        raise ValueError(f"references not placed by this build: {sorted(wanted)}")
+    return keep, out
+
+
+def shared_base_agrees(entries, key, fields):
+    """ValueError when two entries of one edid disagree on `fields` (the model compared case-blind): the writer shares
+    one native base record per edid, so a second value would be lost."""
+    seen = {}
+    for e in entries:
+        sig = tuple(e[f].casefold() if f == "model" else e[f] for f in fields)
+        first = seen.setdefault(e["edid"], (e["src"], sig))
+        if first[1] != sig:
+            raise ValueError(f"{e['src']} and {first[0]} share {key} {e['edid']} with a different {' / '.join(fields)}")
+
+
+def cluster_activators(bases, placed, cluster):
+    """Activators (docs/terrain/commonwealth-build-plan.md section 3): the placed references named by
+    cluster["activators"] (make_cluster.py activators: FO4 Activator with a model) leave the STAT placement and become
+    activator entries for TerrainOverlays: one native ACTI per FO4 base (edid FO4Core_acti_<6 hex>_<plugin>,
+    activator_edid) with the converted model of the reference's base and the entry's name (None: an ACTI without a
+    name, as an FO4 activator without FULL), in the reference's cell / position / rotation / scale and original
+    reference index. Returns (placed without them, activators); ValueError as promoted_entries, for a name that is
+    neither None nor a single line, and for two entries of one edid with another name or model."""
+    def make(p, e):
+        name = e.get("name")
+        if name is not None and not one_line(name):
+            raise ValueError(f"{p['src']}: activator name {name!r} is neither none nor one line")
+        return {"edid": activator_edid(e.get("base"), p["src"]), "model": bases[p["base"]]["model"], "name": name}
+    keep, out = promoted_entries(placed, cluster, "activators", "an activator", make)
+    shared_base_agrees(out, "activator", ("name", "model"))
+    return keep, out
+
+
+def cluster_terminals(bases, placed, cluster):
+    """Terminals (docs/terrain/commonwealth-build-plan.md section 3): the placed references named by
+    cluster["terminals"] (make_cluster.py terminals: FO4 Terminal) leave the STAT placement and become terminal entries
+    for TerrainOverlays: one native TERM per FO4 base (edid FO4Core_term_<6 hex>_<plugin>, terminal_edid) with the
+    converted model and the entry's name, and its own TMLM menu (menu_edid) whose single body text is the entry's
+    "body" (default TERMINAL_BODY: the FO4 text is not ported yet), in the reference's cell / position / rotation /
+    scale and original reference index. Returns (placed without them, terminals); ValueError as promoted_entries, for
+    a name or body that is not one non-empty line, and for two entries of one edid with another name, model or body."""
+    def make(p, e):
+        name, body = e.get("name"), e.get("body", TERMINAL_BODY)
+        if not one_line(name):
+            raise ValueError(f"{p['src']}: terminal name {name!r} is not one non-empty line")
+        if not one_line(body):
+            raise ValueError(f"{p['src']}: terminal body {body!r} is not one non-empty line")
+        edid = terminal_edid(e.get("base"), p["src"])
+        return {"edid": edid, "menu_edid": terminal_menu_edid(edid), "model": bases[p["base"]]["model"], "name": name,
+                "body": body}
+    keep, out = promoted_entries(placed, cluster, "terminals", "a terminal", make)
+    shared_base_agrees(out, "terminal", ("name", "model", "body"))
+    return keep, out
+
+
+# objects.json / formids.json key, native base record, in the writer's allocation order (CONT, MISC, ACTI, TERM + TMLM)
+PROMOTED = (("containers", "CONT"), ("items", "MISC"), ("activators", "ACTI"), ("terminals", "TERM"))
+PROMOTE_FN = {"containers": cluster_containers, "items": cluster_items, "activators": cluster_activators,
+              "terminals": cluster_terminals}
+SINGULAR = {"containers": "container", "items": "item", "activators": "activator", "terminals": "terminal"}
+
+
+def source_key(value):
+    """A FO4 source identity compared ASCII-case-blind (Windows plugin names), other spelling kept as exported."""
+    return str(value).translate(str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"))
+
+
 def cluster_promote(bases, placed, cluster):
-    """--cluster: containers (cluster_containers) and loose items (cluster_items) from one cluster file, both judged on the
-    same unpromoted placement list, so every promoted entry's reference_index is its slot in that list whichever class
-    it joins. Returns (placed without every promoted reference, containers, items); ValueError as the two, and for a
-    source listed as both a container and an item."""
-    both = {c["src"] for c in cluster.get("containers", [])} & {i["src"] for i in cluster.get("items", [])}
-    if both:
-        raise ValueError(f"listed as both a container and an item: {sorted(both)[:5]}")
-    _, containers = cluster_containers(bases, placed, cluster)
-    _, items = cluster_items(bases, placed, cluster)
-    promoted = {e["src"] for e in containers} | {e["src"] for e in items}
-    return [p for p in placed if p["src"] not in promoted], containers, items
-
-
-PROMOTED = (("containers", "CONT"), ("items", "MISC"))      # objects.json / formids.json key, native base record
+    """--cluster: every promoted class (PROMOTED: containers, items, activators, terminals) from one cluster file, each
+    judged on the same unpromoted placement list, so every promoted entry's reference_index is its slot in that list
+    whichever class it joins. Returns (placed without every promoted reference, {class: entries} for every class).
+    ValueError as the class functions, for a source listed in two classes, and for one edid of a class standing for
+    two FO4 sources (promoted_edid drops the plugin's punctuation and extension: Codex's review of #235; such an alias
+    would merge two FO4 bases into one record, so it is refused instead)."""
+    listed = {}
+    for k, _sig in PROMOTED:
+        for e in cluster.get(k) or []:
+            other = listed.setdefault(e["src"], k)
+            if other != k:
+                a, b = (("an " if w[0] in "aeiou" else "a ") + w for w in (SINGULAR[other], SINGULAR[k]))
+                raise ValueError(f"{e['src']} is listed as both {a} and {b}")
+    promoted = {}
+    for k, _sig in PROMOTED:
+        _, promoted[k] = PROMOTE_FN[k](bases, placed, cluster)
+        base_of = {e["src"]: e.get("base") for e in cluster.get(k) or []}
+        source_of = {}
+        for e in promoted[k]:
+            b = base_of.get(e["src"])
+            identity = ("base", source_key(b)) if b else ("reference", source_key(e["src"]))
+            first = source_of.setdefault(e["edid"].casefold(), identity)
+            if first != identity:
+                raise ValueError(f"{k}: {e['edid']} would stand for two FO4 sources ({first[1]} and {identity[1]})")
+    gone = {e["src"] for entries in promoted.values() for e in entries}
+    return [p for p in placed if p["src"] not in gone], promoted
 
 
 def check_reference_slots(objects, ids):
-    """Check declared promotion slots, not native behavior or cross-export persistence. Containers and items are one
-    ordered list of promoted sources: with the remaining refs they rebuild the unpromoted order, every promoted source
-    keeps its original slot and every other reference its id; the new bases (CONT, MISC) follow every reserved slot,
-    one base per edid within a class (for entries that name one), no base shared by the two classes."""
+    """Check declared promotion slots, not native behavior or cross-export persistence. Every promoted class (PROMOTED)
+    is one ordered list of promoted sources: with the remaining refs they rebuild the unpromoted order, every promoted
+    source keeps its original slot and every other reference its id; the new bases (CONT, MISC, ACTI, TERM) and the
+    terminals' TMLM menus follow every reserved slot, one base per edid within a class (for entries that name one), no
+    base shared by two classes, and one menu per terminal edid that is no base."""
     promoted = [(k, e) for k, _sig in PROMOTED for e in (objects.get(k) or [])]
     if not promoted:
         return
@@ -1240,23 +1367,57 @@ def check_reference_slots(objects, ids):
             for src, v in (ids.get(k) or {}).items():
                 base = int(v["base"], 16)                     # shared by the references of one FO4 base
                 if base < first + total:
-                    raise ValueError(f"{'container' if k == 'containers' else 'item'} base overlaps reserved original identities")
+                    raise ValueError(f"{SINGULAR[k]} base overlaps reserved original identities")
                 if owner.setdefault(base, (k, edid_of[src]))[0] != k:
-                    raise ValueError(f"{k}: base {v['base']} is also a base of the other promoted class")
+                    raise ValueError(f"{k}: base {v['base']} is also a base of another promoted class ({owner[base][0]})")
                 if edid_of[src] is None:
                     continue
                 if base_of.setdefault(edid_of[src], base) != base:
                     raise ValueError(f"{k}: {edid_of[src]} declared with two bases")
                 if owner[base] != (k, edid_of[src]):
                     raise ValueError(f"{k}: base {v['base']} declared for two edids")
+        edid_of = {e["src"]: e["edid"] for e in (objects.get("terminals") or [])}
+        menu_of = {}
+        for src, v in (ids.get("terminals") or {}).items():
+            menu = int(v["menu"], 16)
+            if menu < first + total:
+                raise ValueError("terminal menu overlaps reserved original identities")
+            if menu in owner:
+                raise ValueError(f"terminal menu {v['menu']} is also a promoted base ({owner[menu][0]})")
+            if menu_of.setdefault(edid_of[src], menu) != menu:
+                raise ValueError(f"terminals: {edid_of[src]} declared with two menus")
+        if len(set(menu_of.values())) != len(menu_of):
+            raise ValueError("terminals: one menu declared for two terminal edids")
     except (KeyError, TypeError) as e:
         raise ValueError("missing or invalid declared reference identities") from e
 
 
+def close(actual, expected, tol):
+    """True when two numbers, or two equally long number lists, are all finite and within tol (NaN never is: a
+    comparison with NaN is False, so a check written as "difference > tol" would pass it; Codex's review of #235)."""
+    a = list(actual) if isinstance(actual, (list, tuple)) else [actual]
+    b = list(expected) if isinstance(expected, (list, tuple)) else [expected]
+    return (len(a) == len(b) and all(type(x) in (int, float) and math.isfinite(x) for x in a + b)
+            and all(abs(x - y) <= tol for x, y in zip(a, b)))
+
+
+def record_text(data):
+    """A plugin's zero-terminated string field (None when absent): UTF-8 when it decodes, else cp1252."""
+    if data is None:
+        return None
+    raw = bytes(data).split(b"\0", 1)[0]
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("cp1252", "replace")
+
+
 def promoted_record_check(recs, own_prefix, objects, ids):
-    """Raw record check of every promoted entry (containers and items): its REFR (formids.json <class>[src]["ref"])
-    names its declared native base, that base is a CONT / MISC with the entry's edid and model (a MISC also its name,
-    value and weight), and position / rotation / scale are as objects.json. Returns problems (strings)."""
+    """Raw record check of every promoted entry (PROMOTED): its REFR (formids.json <class>[src]["ref"]) names its
+    declared native base, that base is a CONT / MISC / ACTI / TERM with the entry's edid and model, a MISC also its
+    name, value and weight, an ACTI its name (no FULL for an entry without one), a TERM its name and, in DNAM, its
+    declared TMLM menu, which carries the menu edid, the name and exactly one body text (BTXT) = the entry's body and no
+    menu item; position / rotation / scale are as objects.json (finite and within tolerance). Returns problems."""
     from fo4sf import fo4land
     by_fid = {r["fid"]: r for r in recs}
     problems = []
@@ -1276,9 +1437,10 @@ def promoted_record_check(recs, own_prefix, objects, ids):
                 continue
             q = fo4land.parse_ref(rec["fields"])
             if q["base"] != base_fid:
-                problems.append(f"{e['src']}: REFR names {q['base']:08X}, declared {base_fid:08X}")
-            if (q["pos"] is None or max(abs(a - b) for a, b in zip(q["pos"], e["pos"])) > 1e-3
-                    or max(abs(a - b) for a, b in zip(q["rot"], e["rot"])) > 1e-5 or abs(q["scale"] - e["scale"]) > 1e-4):
+                named = "no base" if q["base"] is None else f"{q['base']:08X}"         # (a REFR without NAME)
+                problems.append(f"{e['src']}: REFR names {named}, declared {base_fid:08X}")
+            if not (q["pos"] is not None and close(q["pos"], e["pos"], 1e-3) and close(q["rot"], e["rot"], 1e-5)
+                    and close(q["scale"], e["scale"], 1e-4)):
                 problems.append(f"{e['src']}: REFR position / rotation / scale differ from objects.json")
             if overlay_records.edid(base) != e["edid"]:
                 problems.append(f"{e['src']}: {sig} edid {overlay_records.edid(base)!r} != {e['edid']!r}")
@@ -1287,36 +1449,71 @@ def promoted_record_check(recs, own_prefix, objects, ids):
             if sig == "MISC":
                 data = overlay_records.field(base, "DATA", b"")
                 vw = struct.unpack_from("<if", data) if len(data) >= 8 else None
-                if vw is None or vw[0] != e["value"] or abs(vw[1] - e["weight"]) > 1e-6 * max(1.0, e["weight"]):
+                if vw is None or vw[0] != e["value"] or not close(vw[1], e["weight"], 1e-6 * max(1.0, abs(e["weight"]))):
                     problems.append(f"{e['src']}: MISC DATA {vw} != value {e['value']}, weight {e['weight']}")
-                if fo4land.zstring(overlay_records.field(base, "FULL", b"")) != e["name"]:
-                    problems.append(f"{e['src']}: MISC name differs from {e['name']!r}")
+            if sig in ("MISC", "ACTI", "TERM") and record_text(overlay_records.field(base, "FULL")) != e["name"]:
+                problems.append(f"{e['src']}: {sig} name {record_text(overlay_records.field(base, 'FULL'))!r} != {e['name']!r}")
+            if sig == "TERM":
+                problems += terminal_menu_problems(by_fid, own_prefix, base, e, v)
     return problems
+
+
+def terminal_menu_problems(by_fid, own_prefix, term, e, v):
+    """A promoted TERM's menu binding (promoted_record_check): DNAM = the declared TMLM, which has the entry's menu
+    edid and name, one BSIZ = 1 (when written), one BTXT = the entry's body and no menu item (ISIZ 0 when written)."""
+    menu_fid = own_prefix | int(v["menu"], 16)
+    dnam = overlay_records.field(term, "DNAM", b"")
+    if len(dnam) < 4 or struct.unpack_from("<I", dnam)[0] != menu_fid:
+        return [f"{e['src']}: TERM DNAM {dnam.hex()} does not name its menu {menu_fid:08X}"]
+    menu = by_fid.get(menu_fid)
+    if menu is None or menu["sig"] != "TMLM":
+        return [f"{e['src']}: menu {menu_fid:08X} is not a TMLM"]
+    out = []
+    if overlay_records.edid(menu) != e["menu_edid"]:
+        out.append(f"{e['src']}: TMLM edid {overlay_records.edid(menu)!r} != {e['menu_edid']!r}")
+    if record_text(overlay_records.field(menu, "FULL")) != e["name"]:
+        out.append(f"{e['src']}: TMLM name differs from {e['name']!r}")
+    bodies = [record_text(d) for s, d in menu["fields"] if s == b"BTXT"]
+    if bodies != [e["body"]]:
+        out.append(f"{e['src']}: TMLM body texts {bodies!r} != [{e['body']!r}]")
+    counts = {s: struct.unpack_from("<I", d)[0] for s, d in menu["fields"] if s in (b"BSIZ", b"ISIZ") and len(d) >= 4}
+    if counts.get(b"BSIZ", 1) != 1 or counts.get(b"ISIZ", 0) != 0 or any(s == b"ITXT" for s, _d in menu["fields"]):
+        out.append(f"{e['src']}: TMLM counts {counts} (one body, no menu item wanted)")
+    return out
 
 
 def promotion_checks(recs, own_prefix, objects, ids, exp):
     """[what, ok] of the plugin's reference and promoted-base counts (check, section 2): REFR = objects + COC marker +
-    anchor + containers + items; that total unchanged by promotion (objects + promoted = every reference stage placed
-    before --cluster: exported - skipped); one CONT / MISC per distinct container / item edid; and with promotions
-    promoted_record_check's bindings."""
-    conts, items = objects.get("containers") or [], objects.get("items") or []
+    anchor + every promoted entry; that total unchanged by promotion (objects + promoted = every reference stage placed
+    before --cluster: exported - skipped); one CONT / MISC / ACTI / TERM per distinct edid of its class and one TMLM
+    per terminal edid; and with promotions promoted_record_check's bindings."""
+    entries = {k: objects.get(k) or [] for k, _sig in PROMOTED}
+    n_promoted = sum(len(v) for v in entries.values())
+    present = [(k, sig) for k, sig in PROMOTED if entries[k]]
     out = []
     refrs = sum(1 for r in recs if r["sig"] == "REFR")
     out.append([f"{refrs:,} REFR = {len(objects['refs']):,} objects + COC marker + anchor"
-                + (f" + {len(conts):,} containers" if conts else "") + (f" + {len(items):,} items" if items else ""),
-                refrs == len(objects["refs"]) + 2 + len(conts) + len(items)])
+                + "".join(f" + {len(entries[k]):,} {k}" for k, _sig in present),
+                refrs == len(objects["refs"]) + 2 + n_promoted])
     unpromoted = exp["objects"]["exported"] - sum(exp["objects"]["skipped"].values())
-    out.append([f"REFR total unchanged by promotion: {len(objects['refs']):,} objects + {len(conts):,} containers + "
-                f"{len(items):,} items = {unpromoted:,} placed", len(objects["refs"]) + len(conts) + len(items) == unpromoted])
-    for key, sig, entries in (("containers", "CONT", conts), ("items", "MISC", items)):
+    out.append([f"REFR total unchanged by promotion: {len(objects['refs']):,} objects + "
+                + " + ".join(f"{len(entries[k]):,} {k}" for k, _sig in (present or PROMOTED[:2]))
+                + f" = {unpromoted:,} placed", len(objects["refs"]) + n_promoted == unpromoted])
+    counted = [(k, sig, entries[k], "edid") for k, sig in PROMOTED] + [("terminals", "TMLM", entries["terminals"], "menu_edid")]
+    for key, sig, es, field in counted:
         n_recs = sum(1 for r in recs if r["sig"] == sig)
-        n_edids = len({e["edid"].casefold() for e in entries})
-        if entries or n_recs:
-            out.append([f"{n_recs:,} {sig} = {n_edids:,} distinct {key} edids ({len(entries):,} {key})", n_recs == n_edids])
-    if conts or items:
+        n_edids = len({e[field].casefold() for e in es})
+        if es or n_recs:
+            what = "edids" if field == "edid" else "menu edids"
+            out.append([f"{n_recs:,} {sig} = {n_edids:,} distinct {key} {what} ({len(es):,} {key})", n_recs == n_edids])
+    if present:
         pp = promoted_record_check(recs, own_prefix, objects, ids)
-        out.append([f"every promoted REFR names its CONT / MISC (edid, model; MISC name, value, weight) at its "
-                    f"position ({len(pp)} problems: {pp[:3]})", not pp])
+        sigs = [sig for _k, sig in present]
+        detail = "; ".join(x for x in ("names" if set(sigs) - {"CONT"} else "",
+                                        "MISC value, weight" if "MISC" in sigs else "",
+                                        "TERM menu and body" if "TERM" in sigs else "") if x)
+        out.append([f"every promoted REFR names its {' / '.join(sigs)} (edid, model{'; ' + detail if detail else ''}) at "
+                    f"its position ({len(pp)} problems: {pp[:3]})", not pp])
     return out
 
 
@@ -1382,17 +1579,19 @@ def cmd_stage(a):
 
     # --cluster (R05, docs/slice/r05-cluster-plan.md; docs/terrain/commonwealth-build-plan.md section 3): the listed
     # references leave the STAT placement and become native records: "containers" (a CONT base with the converted model
-    # and a vanilla inventory) and "items" (loose FO4 MiscItem / Ingestible: a MISC base with the converted model, a
-    # name, value and weight), one CONT / MISC per FO4 base, one temporary REFR per source reusing its original
-    # reference_index (one slot plan for both classes); the new CONT, then MISC, bases follow all reserved REFRs
-    containers, items = [], []
+    # and a vanilla inventory), "items" (loose FO4 MiscItem / Ingestible: a MISC base with the converted model, a
+    # name, value and weight), "activators" (FO4 Activator: an ACTI base with the converted model and the name) and
+    # "terminals" (FO4 Terminal: a TERM base with the converted model and the name, with its own TMLM menu of one body
+    # line), one base per FO4 base, one temporary REFR per source reusing its original reference_index (one slot plan
+    # for every class); the new CONT, MISC, ACTI, then TERM + TMLM records follow all reserved REFRs
+    promoted = {k: [] for k, _sig in PROMOTED}
     if getattr(a, "cluster", None):
         try:
-            placed, containers, items = cluster_promote(bases, placed, load(a.cluster))
+            placed, promoted = cluster_promote(bases, placed, load(a.cluster))
         except ValueError as e:
             sys.exit(f"--cluster: {e}")
-        clash = sorted({e["edid"].lower() for e in containers + items}
-                       & ({b["edid"].lower() for b in bases} | terrain_edids(prm)))
+        new_edids = {e[f].lower() for es in promoted.values() for e in es for f in ("edid", "menu_edid") if f in e}
+        clash = sorted(new_edids & ({b["edid"].lower() for b in bases} | terrain_edids(prm)))
         if clash:
             sys.exit(f"--cluster: promoted EditorIDs clash with base or core64 records: {clash[:5]}")
 
@@ -1400,14 +1599,14 @@ def cmd_stage(a):
             edids = len({e["edid"] for e in entries})
             head = ", ".join(f"{e['src']} -> {e['edid']}" for e in entries[:8])
             return f"{len(entries)} {what} over {edids} base(s)" + (f" ({head}{', ...' if len(entries) > 8 else ''})" if entries else "")
-        print(f"cluster {os.path.basename(a.cluster)}: {summary(containers, 'container(s)')}; {summary(items, 'item(s)')}")
+        print(f"cluster {os.path.basename(a.cluster)}: "
+              + "; ".join(summary(promoted[k], f"{SINGULAR[k]}(s)") for k, _sig in PROMOTED))
     objects = {"world": ov["world"], "edid_prefix": EDID_PREFIX,
                "bases": [{k: b[k] for k in ("edid", "model", "door", "source", "collision") if k in b} for b in bases],
                "refs": [{k: p[k] for k in ("src", "base", "cell", "pos", "rot", "scale", "disabled")} for p in placed]}
-    if containers:
-        objects["containers"] = containers
-    if items:
-        objects["items"] = items
+    for k, _sig in PROMOTED:
+        if promoted[k]:
+            objects[k] = promoted[k]
     save(os.path.join(out, "objects.json"), objects)
     params = dict(prm, objects="objects.json")
     if getattr(a, "navmesh", ""):
@@ -1466,9 +1665,8 @@ def cmd_stage(a):
         "hypothesis": "FO4 position / 70 = core64 position in metres for terrain and objects alike (core64's origin is "
                       "CW (0, 0)); an object's collision then sits on the BTD as in FO4",
         "objects": {"exported": total, "placed": len(placed), "bases": len(bases),
-                    "promoted": {"containers": len(containers), "items": len(items),
-                                 "container_bases": len({c["edid"] for c in containers}),
-                                 "item_bases": len({i["edid"] for i in items})},
+                    "promoted": dict({k: len(promoted[k]) for k, _sig in PROMOTED},
+                                     **{f"{SINGULAR[k]}_bases": len({e["edid"] for e in promoted[k]}) for k, _sig in PROMOTED}),
                     "doors": sum(1 for b in bases if "door" in b),
                     "initially_disabled": sum(p["disabled"] for p in placed),
                     "fo4_persistent_placed_temporary": sum(p["fo4_persistent"] for p in placed),
@@ -1693,15 +1891,16 @@ def cmd_check(a):
     def need(cond, what):
         checks.append([what, bool(cond)])
 
-    conts, items = objects.get("containers") or [], objects.get("items") or []
-    if conts or items:
+    promoted = [e for k, _sig in PROMOTED for e in (objects.get(k) or [])]
+    if promoted:
         try:
             check_reference_slots(objects, ids)
         except ValueError as e:
             need(False, f"declared promotion identity: {e}")
         else:
-            need(True, "declared source reference slots retained through promotion"
-                 + f" ({len(conts):,} containers + {len(items):,} items, one slot plan)")
+            need(True, "declared source reference slots retained through promotion ("
+                 + " + ".join(f"{len(objects.get(k) or []):,} {k}" for k, _sig in PROMOTED if objects.get(k))
+                 + ", one slot plan)")
 
     # 1. core64 unchanged: params, Data files, Mars plugin, every core64 record of the main plugin
     need({k: v for k, v in prm.items() if k not in ("objects", "navmesh")} == cprm and prm.get("objects") == "objects.json"
@@ -1748,7 +1947,8 @@ def cmd_check(a):
         navis = [r for r in recs if r["sig"] == "NAVI"]
         need(len(navms) == len(navj["navmeshes"]), f"{len(navms):,} NAVM = navmesh.json's {len(navj['navmeshes']):,}")
         need(len(navis) == 1, f"one NAVI override ({len(navis)})")
-        last_obj = max((r["fid"] & 0xFFFFFF for r in recs if r["sig"] in ("STAT", "DOOR", "REFR", "CONT", "MISC")), default=0)
+        last_obj = max((r["fid"] & 0xFFFFFF for r in recs if r["sig"] in ("STAT", "DOOR", "REFR", "CONT", "MISC", "ACTI",
+                                                                          "TERM", "TMLM")), default=0)
         need(navms and min(r["fid"] & 0xFFFFFF for r in navms) > last_obj, f"every NAVM FormID after the last object (0x{last_obj:06X})")
         nav_ids = load(os.path.join(out, "formids.json")).get("navmeshes", [])
         need(set(nav_ids) == {f"{r['fid'] & 0xFFFFFF:06X}" for r in navms}, f"formids.json names the {len(nav_ids):,} NAVM")
@@ -1768,13 +1968,13 @@ def cmd_check(a):
     del new, recs, by, stats
     cells = x2c.walk_cells(os.path.join(out, prm["plugin"]))
     per_cell = {}
-    for r in objects["refs"] + list(conts) + list(items):
+    for r in objects["refs"] + promoted:
         per_cell[tuple(r["cell"])] = per_cell.get(tuple(r["cell"]), 0) + 1
     want = dict(per_cell)
     want[tuple(ov["spawn_cell"])] = want.get(tuple(ov["spawn_cell"]), 0) + 1        # + the COC marker
     got = {c["grid"]: len(c["refs"]) for c in cells.values() if c["grid"] is not None and c["refs"]}
     need(got == want, f"REFRs per exterior cell as objects.json ({len(got):,} cells with references)")
-    wrong = [r["src"] for r in objects["refs"] + list(conts) + list(items)
+    wrong = [r["src"] for r in objects["refs"] + promoted
              if list(r["cell"]) != list(tg.sf_cell_of(r["pos"][0], r["pos"][1]))]
     need(not wrong, f"every reference in the cell of its written position ({len(wrong)} not: {wrong[:5]})")
     rep["cells"] = {"with_refs": len(got), "max_refs": max(got.values()), "densest": sorted(
@@ -2009,8 +2209,9 @@ def main():
         if name == "stage":
             s.add_argument("--sf-esm", default="", help="Starfield.esm: build the plugins with dotnet/TerrainOverlays")
             s.add_argument("--cluster", default="", help="R05: a cluster json (scripts/terrain/clusters/*.json, "
-                           "make_cluster.py) whose \"containers\" become native CONT and whose \"items\" become native "
-                           "MISC references instead of statics (each in its original reference slot)")
+                           "make_cluster.py) whose \"containers\" become native CONT, \"items\" native MISC, "
+                           "\"activators\" native ACTI and \"terminals\" native TERM (+ TMLM menu) references instead "
+                           "of statics (each in its original reference slot)")
 
             s.add_argument("--navmesh", default="", help="navmesh.json (src/fo4sf/navmesh.py export over the core's FO4 NAVM): "
                            "written as NAVM records in their cells plus the NAVI override (docs/actors/navmesh-conversion.md)")
