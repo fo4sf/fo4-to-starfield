@@ -266,6 +266,15 @@ class ReportCliTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("corrupt line", lines[0])
 
+    def test_a_wrongly_shaped_field_is_a_refusal_not_a_traceback(self):
+        # parseable JSON, the key field present, but a dict where a task name belongs: the fold raises TypeError
+        with open(os.path.join(self.dir, "ledger.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps({"t": T0, "ev": "task_finished", "by": "t", "task": {"id": "r05"}, "outcome": "PASS",
+                                "source": "IN_GAME"}) + "\n")
+        code, lines = self.run_cli("--ledger", self.dir)
+        self.assertEqual(code, 1)
+        self.assertIn("cannot read (TypeError", lines[0])
+
     def test_the_wrapper_runs_under_python_isolated(self):
         r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "scripts", "leader_report.py"), "--ledger", self.dir,
                             "--now", "2026-10-16T07:30:00+00:00"], capture_output=True, text=True, timeout=60)

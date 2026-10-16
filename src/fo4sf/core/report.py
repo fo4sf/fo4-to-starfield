@@ -34,6 +34,10 @@ def main(argv=None):
     except (OSError, ValueError) as e:
         print(f"report: {e}")
         return 1
+    except (KeyError, TypeError) as e:                              # a parseable event with a field of the wrong shape
+        print(f"report: the ledger holds an event the fold cannot read ({type(e).__name__}: {e}); "
+              f"the ledger is append-only, so note the line on issue #32 for its writer")
+        return 1
     if a.json:
         print(json.dumps({"bullets": bullets, "events": s.events, "controller": s.controller_status(a.now),
                           "tasks": s.tasks_by_status(), "campaigns": sorted(s.campaigns),
