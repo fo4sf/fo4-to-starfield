@@ -55,7 +55,7 @@ Every queue record is `source = IN_GAME`; `walksim` and `route_eval` results are
 | `<queue>/state.json` | nothing (reviewed 2026-10-16) | the runner writes a `results.jsonl` row for every attempt, PRECONDITION and BREAKER included, and checkpoints `state.json` in the same step (`testqueue.py` `Runner.run`), so `done`/`attempts` repeat the rows; a task in flight is visible only in the ledger's own `task_started` (T2); the breaker counters, `status` and `updated` are the runner's bookkeeping |
 | `Data/FO4Port.deploy.json` | `build_pinned` | `artifacts[FO4Port.esm].sha256` → `plugin_sha256`, `build_id` = its first 8 hex digits (the derivation of `testqueue.py plan`), `complete` (`scripts/deploy_starfield.py` `install`, `artifact_identity`; the manifest carries no `build_id` of its own) |
 | `Data/FO4SFExp.install.json`, `Data/FO4SFBridge.install.json` | `plugins_verified` (active_after_load from `exp_install.py active`) | `plugins`, `plugins_replaced[].active/original`, `complete`, `pack` (`exp_install.py:492`) |
-| `watchdog_state.json` | `controller_*` (historic, best effort) | heartbeat and hand-over times (`watchdog.ps1:22`) |
+| `watchdog_state.json` | nothing (reviewed 2026-10-16) | it holds chain start times and the last Codex hand-over, not who held the controller or until when; the T2 lease (§6) is the controller record from now on |
 
 Imports are idempotent: an event carries `src` (file path + line for a file that only grows, file path + key for a
 `queue.json` written once, file path + sha256 of the content for the deploy and install records, which are rewritten
@@ -63,6 +63,12 @@ in place by every deploy), and a re-import skips events already present. The imp
 reads. A `results.jsonl` line that is not a row (a torn line the runner terminated, §10, or a hand edit) is skipped
 and reported as one `ledger_repaired` event keyed by its line; the queue's other rows import. A runner given a lease
 folder writes the same keys live (§10), so importing its queue afterwards adds nothing.
+
+The command: `python scripts\leader_import.py --ledger <leader dir> --queues C:\Modding\testqueue
+[--deploy <Data\FO4Port.deploy.json>] [--install <Data\FO4SFExp.install.json>] [--active-after-load yes|no]`
+(or `--queue <dir>` per folder): one line per source with the events added, queues first, then the deploy manifest,
+then the install records, so the fold ends on the current build and its plugins; a second run adds nothing; a source
+that cannot be read fails alone (exit 1, the others still import); the eight bullets of the resulting fold follow.
 
 ## 4. Bounded, resumable tasks (one cloud session each)
 
