@@ -1504,3 +1504,15 @@ Reproduced PR253 restoring an older Port CELL instead of a newer Core override (
 ## 2026-10-16 — Codex: single-writer claim for door-return output
 
 Actual two-process reproduction found both CLIs exit0 for the same fresh directory at8c42df3 (fourth bounded attempt, different arrival plans). Directory.Exists then CreateDirectory was not exclusive. New same-parent temporary-directory rename claims output atomically; existing empty/populated and concurrent directories refuse without changing prior files. Four focused claim checks and six actual two-process runs pass (one winner each). Independent raw XTEL/hash/receipt verification matches each winner. No unchanged20-case rerun; writer data path unchanged. Evidence before/after retained in door-return-publication-20261016; peer QA pending, no game/stage changes.
+## 2026-10-16: Codex return patch declares its master status
+
+Reproduced Claude's PR253 review finding on099240e: serialized FO4DoorReturn.esm
+has TES4 flags0 despite its extension. ReturnPatch now sets IsMaster explicitly.
+Three positive library/CLI scenarios pass new raw-header and typed-master checks.
+Independent byte comparison finds only offset8 changed (0 to1) in the baseline
+fixture; all three CLI receipt/input hashes verify. Source relationships and
+publication logic are unchanged, so unrelated refusal/race suites were not rerun.
+Guard/diff checks pass; private failed/passing evidence in
+test-plans/door-return-master-20261016. Correction awaits peer QA. No live install,
+slot allocation or engine-loading claim; stacked25102239ef integration remains
+pending separately.

@@ -78,7 +78,7 @@ public static class ReturnPatch
         Need(old == null || old.Door.FormKey == plan.Exterior && old.Position == plan.Position && old.Rotation == plan.Rotation
             && (uint)old.Flags == plan.Flags && old.TransitionInterior.IsNull, "existing return XTEL conflicts with requested connection");
 
-        var mod = new StarfieldMod(PatchKey, StarfieldRelease.Starfield);
+        var mod = new StarfieldMod(PatchKey, StarfieldRelease.Starfield) { IsMaster = true };
         var cellCopy = inside.cell.DeepCopy(new Cell.TranslationMask(defaultOn: true) {
             Persistent = false, Temporary = false,
             NavigationMeshes = new NavigationMesh.TranslationMask(defaultOn: false, onOverall: false) });

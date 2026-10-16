@@ -13,8 +13,17 @@ Directory.CreateDirectory(root);
 if (args.Contains("--publication-only")) { PublicationTests.Run(root); return; }
 if (args.Contains("--pipeline-only")) { PipelineTests.Run(root); return; }
 void Need(bool value, string message) { if (!value) throw new Exception(message); }
+void CheckMasterHeader(string path)
+{
+    using var bytes = new BinaryReader(File.OpenRead(path));
+    Need(System.Text.Encoding.ASCII.GetString(bytes.ReadBytes(4)) == "TES4", "missing TES4 header");
+    bytes.ReadUInt32(); // record payload size
+    Need((bytes.ReadUInt32() & 1u) != 0, "serialized TES4 master flag is missing");
+}
 var results = new List<object>();
-foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterior", "missing-flag", "deleted", "wrong-outbound", "static-base", "conflicting-return", "nan-arrival", "relative-arrival", "port-cycle", "wrong-owner", "deleted-cell", "deleted-world", "wrong-transition", "light-core", "core-cell-override", "core-door-override", "core-door-deleted", "core-door-temporary" }.Where(s => !args.Contains("--overrides-only") || s.StartsWith("core-")))
+foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterior", "missing-flag", "deleted", "wrong-outbound", "static-base", "conflicting-return", "nan-arrival", "relative-arrival", "port-cycle", "wrong-owner", "deleted-cell", "deleted-world", "wrong-transition", "light-core", "core-cell-override", "core-door-override", "core-door-deleted", "core-door-temporary" }
+    .Where(s => !args.Contains("--overrides-only") || s.StartsWith("core-"))
+    .Where(s => !args.Contains("--positive-only") || s is "valid" or "core-cell-override" or "core-door-override"))
 {
     var folder = Path.Combine(root,scenario); Directory.CreateDirectory(folder);
     var sfKey = ModKey.FromNameAndExtension("Starfield.esm");
@@ -76,7 +85,9 @@ foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterio
         var patch=ReturnPatch.Build(sfo,po,co,plan);
         Need(scenario is "valid" or "core-cell-override" or "core-door-override","invalid input accepted: "+scenario);
         var path=Path.Combine(folder,"FO4DoorReturn.esm");patch.BeginWrite.ToPath(path).WithLoadOrder(keys).WithKnownMasters(styles).Write();
+        CheckMasterHeader(path);
         using var read=Open(path);
+        Need(read.IsMaster && read.MasterStyle == MasterStyle.Full, "return patch must be a full master");
         Need(read.Worldspaces.Count==0 && read.EnumerateMajorRecords().Count()==2,"patch contains records outside interior CELL/REFR");
         var c=read.Cells.Records.Single().SubBlocks.Single().Cells.Single();var r=c.Persistent.OfType<IPlacedObjectGetter>().Single();
         Need(c.FormKey==cell.FormKey && c.Temporary.Count==0 && c.NavigationMeshes.Count==0,"wrong cell identity/children");
@@ -92,6 +103,7 @@ foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterio
         using var child=Process.Start(start)!;var stdout=child.StandardOutput.ReadToEndAsync();var stderr=child.StandardError.ReadToEndAsync();
         if(!child.WaitForExit(60000)){child.Kill(true);throw new TimeoutException();}Task.WaitAll(stdout,stderr);File.WriteAllText(Path.Combine(folder,"cli.log"),stdout.Result+stderr.Result);
         Need(child.ExitCode==0,"CLI failed");
+        CheckMasterHeader(Path.Combine(folder,"cli/FO4DoorReturn.esm"));
         using var receipt=JsonDocument.Parse(File.ReadAllText(Path.Combine(folder,"cli/build-state.json")));Need(receipt.RootElement.GetProperty("complete").GetBoolean(),"CLI receipt incomplete");
         results.Add(new {scenario,result="binary-and-cli-pass"});
     }
@@ -104,5 +116,5 @@ foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterio
 }
 File.WriteAllText(Path.Combine(root,"results.json"),JsonSerializer.Serialize(results,new JsonSerializerOptions{WriteIndented=true}));
 Console.WriteLine(results.Count+" return-patch scenarios passed: "+root);
-if(!args.Contains("--overrides-only"))PipelineTests.Run(root);
-if(!args.Contains("--overrides-only"))PublicationTests.Run(root);
+if(!args.Contains("--overrides-only") && !args.Contains("--positive-only"))PipelineTests.Run(root);
+if(!args.Contains("--overrides-only") && !args.Contains("--positive-only"))PublicationTests.Run(root);

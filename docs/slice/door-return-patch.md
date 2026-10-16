@@ -82,8 +82,17 @@ empty/populated, and concurrent claims without rerunning animation/relationship
 checks. These publication tests create only synthetic private files.
 
 Current integration boundary: PR251 supplies a private missing interior endpoint
-candidate. The actual Core exterior endpoint and outbound link remain unbuilt by
-this tool. Claude owns that producer integration, deployment and live controller.
+candidate. Claude independently reviewed099240e without a blocking data-path
+finding, but found its TES4 master bit absent. The writer now sets IsMaster
+explicitly; the .esm filename alone does not set it in Mutagen. Three positive
+serialized/CLI cases verify the master header and full-plugin style using
+`-- --positive-only`. Separate raw readback shows only byte8 changed (flags0 to1)
+for the baseline fixture, with matching CLI receipt hashes and unchanged inputs.
+This correction awaits peer review and makes no claim about native loading.
+
+PR251's newer02239ef missing-cell preflight still needs to be carried into this
+stack after its review. The actual Core exterior endpoint and outbound link remain
+unbuilt by this tool. Claude owns producer integration, deployment and live control.
 Do not invent a Core ID merely to pass this gate, replace current stages, or call
 the two-way runtime connection complete. Carry forward the source identity maps,
 pin all masters and load order, then test activation, return facing and save/reload
