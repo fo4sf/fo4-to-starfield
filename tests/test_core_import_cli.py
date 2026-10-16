@@ -61,7 +61,8 @@ class ImportCliTests(unittest.TestCase):
         self.assertEqual(len(bullets), 8)
         self.assertIn("build_id=abababab", bullets[4])
         s = fold(Ledger(os.path.join(self.leader, "ledger.jsonl")).read())
-        self.assertEqual({k: v["status"] for k, v in s.tasks.items()}, {"w1": "completed", "w2": "completed", "c1": "circuit_broken"})
+        self.assertEqual({k: v["status"] for k, v in s.tasks.items()},
+                         {"walk_1015/w1": "completed", "walk_1015/w2": "completed", "cave_1015/c1": "circuit_broken"})
         self.assertEqual(s.campaigns, {"walk_1015", "cave_1015"})
         code, lines = self.run_cli("--ledger", self.leader, "--queues", self.parent, "--no-report")
         self.assertEqual(code, 0)
