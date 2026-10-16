@@ -29,6 +29,22 @@ class SnapshotTests(unittest.TestCase):
             self.assertIn("exit 2", state["screen_error"])
             self.assertFalse(os.path.exists(os.path.join(out, "screen.png")), "the stale picture must be gone")
 
+    def test_the_look_button_press_takes_a_snapshot(self):
+        # look_hotkey.ps1 -TestFire runs the press handler once (no hotkey registered): a snapshot appears
+        hot = os.path.join(ROOT, "scripts", "game", "look_hotkey.ps1")
+        before = set(os.listdir(r"C:\Modding\snapshots")) if os.path.isdir(r"C:\Modding\snapshots") else set()
+        r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", hot, "-TestFire"],
+                           capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("pressed", r.stdout)
+        import time
+        for _ in range(30):
+            after = set(os.listdir(r"C:\Modding\snapshots")) if os.path.isdir(r"C:\Modding\snapshots") else set()
+            if after - before:
+                break
+            time.sleep(1)
+        self.assertTrue(after - before, "no new snapshot folder")
+
     def test_writes_state_and_screen_without_a_game(self):
         with tempfile.TemporaryDirectory() as d:
             out = os.path.join(d, "snap")
