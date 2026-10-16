@@ -1375,6 +1375,15 @@ Second chain of the day (16:31-19:00, runner scripts 64d30ad, build 2470f876), o
   `r05_medkit_1015h` (core64c's verified probes zref_ground / wp_01 next to the activation) was stopped at 21:01 by the
   input guard (another window took the foreground: the owner at the PC) and waits for the next window.
 
+## 2026-10-16: core64n navmesh.convert over the 64 x 64 core (Grok)
+
+Offline. `navmesh.convert` on Commonwealth NAVM in FO4 cells -55..54 (same Fallout4.esm as #163,
+sha256 `ae7be31a…`). 7,047 NAVM / 3,439,338 triangles → 12,104 Starfield NAVM / 3,749,066 triangles,
+156,549 cell-line pairs, 134,876 FO4-portal pairs, 0 refused ids. #163 inventory: 1,069 overlay cells
+all still covered (0 lost / 0 reduced). Red Rocket smoke matched exp2d (105 → 156 NAVM, 2,145 / 1,959
+links). Geometry in staging `terrain_core64n_work/navmesh/` (navmesh.json 433,902,356 B), not git.
+Report: docs/actors/navmesh-core64n-convert.md. Not in-game; writer into FO4TerrainCore.esm is Claude.
+
 ## 2026-10-16 night: from the slice to the Commonwealth: plan, R06, the navmesh writer, bridge ref reads, the cluster lists (Claude)
 
 The owner's direction (15 Oct 21:30): push Grok, get everything ready for Codex's two items (#150 identity-keeping
