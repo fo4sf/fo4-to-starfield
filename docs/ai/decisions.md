@@ -278,3 +278,16 @@ the immutable-source contract across the conversion run; POSIX metadata checks r
 best effort. Alternatives rejected: accepting a green retry of the intermittent test,
 timestamp-only detection, or claiming that two hashes create an atomic snapshot.
 [Contract, evidence and limits](../testing/archive-fingerprints.md).
+
+## 2026-10-15 Codex: recoverable terrain output bundles (proposal)
+
+A final plugin sharing-denial reproduced a new ID map paired with an unchanged plugin. Prepare every plugin/map/
+optional Mars output in a private directory; retain previous files and an append-only pending journal through
+publication. Restore proven prior bytes on failure; preserve changed/unproven owner files and block consumers when
+recovery is incomplete. Integrate producer and deployment/experiment/core/cave guards together. This is not an
+atomic multi-file snapshot for arbitrary readers. A torn append retains earlier recovery records; process-exit
+faults are tested, while universal power-loss behavior is not claimed. Immutable inputs/cooperating writers remain
+required off Windows. Transaction histories are retained for verified private archiving, not silently deleted.
+Alternatives: merely swapping plugin/map write order leaves another partial-failure boundary; silently overwriting
+or deleting concurrent files loses evidence. See [protocol/evidence](../testing/terrain-output-publication.md).
+Peer QA and lead integration pending; no production stage/install/game change.

@@ -1209,3 +1209,44 @@ Release builds pass; the existing CA1831 inventory-parser warning remains. Peer 
 all-ID/raw-record comparison and newly pinned native plans/save tests remain required. Full persistent allocation
 across reordered exports and future promoted bases is still open. See testing/container-reference-identities.md;
 private evidence is test-plans/container-reference-identities-20261015. No native acceptance is claimed.
+
+### 2026-10-15 Codex: recoverable terrain artifact publication (proposal)
+
+At1506f511b2, a real synthetic writer with its final plugin write denied left the old plugin and a new formids map.
+The companion prepares all outputs before publication, retains old/new snapshots and append-only journal records,
+rolls back proven publications and preserves concurrent owner files. Interrupted/ambiguous stages block native
+install, experiment inventory/install, core reads and cave stage/check. Canonical Claude source/stages are untouched.
+Seven new publication fault/success methods and four consumer methods pass, including process exit, owner-created target,
+Windows file sharing and missing optional Mars preparation. Existing deployment/experiment/core/cave and serialized
+identity regressions pass; guard/CI/peer QA are recorded on the PR. Backups and failed attempts are retained for
+verified archiving. No native gameplay or power-loss acceptance. See testing/terrain-output-publication.md and
+private test-plans/terrain-output-publication-20261015. Producer and consumer changes must integrate together.
+
+### 2026-10-15 Codex: full-size promotion/publication author validation
+
+At105a10ca, an isolated pinned core64c candidate preserves all648358 source REFR IDs/11769 base IDs. Raw comparison:
+664228 original records byte-identical; only promoted NAME and TES4 HEDR changed, with one appended CONT/group.
+All original physical group paths/3492 group headers and Mars bytes match. PR146 reader checks the actual container
+binding/inventory/transform/cell with zero ID changes/missing keys; final peer source review remains pending.
+REFR069435 is preserved; CONT0A2AA5 is new. Candidate receipt matches all three published hashes; five original source
+files rechecked unchanged. The2GiB heap OOM is retained; fresh3GiB run18.02s/2.82GiB sampled peak succeeds. Initial
+verifier HEDR assumptions were corrected from raw framing and retained; inherited absolute-count offset-3 unresolved.
+No production install/native input/save change or acceptance. Independent QA, lead integration/new plans/native tests
+remain. Private evidence core64-identity-validation-20261015; see testing/container-reference-identities.md.
+
+## 2026-10-16: pending publication must checkpoint a runner stop (Codex)
+
+Independent cloud review #191 /5544456464 reproduced the guard's ValueError escaping the in-process runner,
+leaving state at running. Both journal and lease cases fail the new regression on0d04207 with that checkpoint.
+PendingPublication now subclasses OSError, matching the existing caller contract: both cases checkpoint stopped,
+log the cause, preserve controls and perform no launch/input or inventory hash. Five guard and88 runner tests
+pass. Current main aa5b223's mismatch handler has the identical syntax tree. No runner/C# publication/staging
+or game change; corrected-source peer review and lead integration pending. Evidence publication-error-191-20261016.
+
+## 2026-10-16: compiled publication assertions follow the corrected error contract (Codex)
+
+CI38889339558 caught two remaining ValueError expectations in the actual-writer recovery tests. Both errors
+reproduce locally on de205a3; assertions now require PendingPublication. Seven compiled publication and five
+stage-guard tests pass on Windows, including locked-plugin denial, forced exit and concurrent-owner retention.
+Production guard/C# unchanged; hosted CI and corrected-source peer check remain separate gates. Failed and passing
+synthetic evidence retained in publication-ci-153-20261016. No game/install/input or cleanup.

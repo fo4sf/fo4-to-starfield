@@ -1,34 +1,32 @@
 # Codex / Claude / Grok status
 
-Goal: connected Red Rocket-Sanctuary-cave slice, save/reload, interactions, then wider Commonwealth. Preserve FO4 gameplay/identities and native Starfield physics. Scene coverage is not gameplay coverage.
+Goal: connected Red Rocket-Sanctuary-cave slice, interactions and save/reload, then wider Commonwealth. Preserve FO4 identities/state and Starfield native physics. Coverage is not gameplay acceptance.
 
-## Owners / locks
+## Ownership / controls
 
-- Claude: integration/live controller/game, collision/terrain/actors, pipeline and game scripts/staging. No other live input/install/launch until explicit release on #32.
-- Codex: deployment/recovery, identities/cache/output QA, Fo4Export/ReferenceLinks, door bridge and independent evidence. No watchdog restart.
-- Grok: R06 inventory/oracle and coordinated diagnostics. Claude-cloud: offline leader-core135/136. No duplicate source edits or waking paused workers.
+- Claude PC: live controller/game, collision/terrain/actors, pipeline, runner/game scripts/staging. No Codex launch/close/install/input/watchdog restart without release on #32.
+- Codex: deployment/recovery, identities/cache/output QA, Fo4Export/ReferenceLinks and door bridge. Isolated owned trees; no concurrent overwrites.
+- Grok: oracle/route_eval/terrain_evidence and assigned inventory208/217. Cloud Claude: offline leader-core stack/reviews; switches remain off pending PC decision. Do not resume paused workers.
+- Preserve STOP/Guardian/owner-idle/recovery. No assets/saves/private settings in Git, passwords/money/purchases/outreach/paid fallback. Guard before commits; peer QA before integration.
 
-## Acceptance / evidence
+## Current source / gates
 
-Walk both directions over bridge/cell borders, use cave doors with correct position/facing/collision, save/reload; retain stairs/movables. Pin code/plans/source, installed files/load order. Missing/replayed/displaced evidence is inconclusive. No game assets in Git; guard/QA before merge; no money/passwords/outreach/history rewriting.
+Main aa5b223; latest #32 overrides this handoff.150/167 preserve reference slots/share CONTs;134 superseded.125/131/133/138 merged; source integration is not native acceptance.
 
-Core64c648358 refs/1708 populated cells across6.4km; no size guarantee. October13 smoke7/7, baseline29/30, informational15/15; northeast+1.8939m remains. Four wrong-frame jumps stay excluded. Old campaigns/save preserved; scoped monitor paused.
+-153:191 finding fixed with PendingPublication(OSError);5 guard+88 runner tests pass. CI38889339558 found two stale compiled ValueError assertions, now corrected:7 compiled+5 guard tests pass on Windows, including sharing denial. Production guard/C# unchanged; fresh CI/peer check/PC integration pending.
+-146b9e6a14:20 tests/4 retained-output controls/CI pass; cloud review5544420068 no finding. Rejects deleted container/reference/parents. Ready for PC integration, native unverified.
+-1762154d22:49 tests/guard/CI; cloud review5544379046 no finding. Distinct full source-plugin groups; existing FO4 names/REFR slots retained. Ready for PC integration.
+-17482fa121: joint native-core door design, no implementation/build. Port/Core endpoints +interior return patch; existing ReferenceLinks rejects master-owned DOORs/interior-only traversal verified synthetically. Agree ownership/allocator/typed resolution before build.129 CLOSED after pinned NOLOAD/local-only coordinates; failures retained.
+-149ed44dae: cloud review reports Linux2.8-3.4x slowdown; Windows measurement/worker-count decision pending. No speed-up generalization.
+-10458f0b51/116589f1bf reviewed source; no live application/restart. Keep expected_sha256, bridge-last and no-op0.118 native adapter/123 local-model savings remain gated.
+-175 merged b87f71c after Claude's repair; prior stale-capture failure retained. No Codex native capture claim.
 
-Lead reports bridge telemetry, both-direction~254m walks and combat engagement. Independent native acceptance remains open. Cave fixA refuted; exterior-cell overrides displace COC/crash. Keep probe-free129 separate. Latest lead c3 raider test missed its plugin (planning error); c4 is queued by Claude. No combined acceptance claims.
+## Evidence / next
 
-## Source / proposals
+Core64c648358 refs/1708 populated cells over6.4km; no size guarantee. Old campaigns/save retained, wrong-frame jumps excluded, northeast+1.8939m unresolved. Claude reports both-direction~254m walks and first Red Rocket NPC pathing; no whole-map/cave acceptance follows.
 
-Latest #32 supersedes this handoff. Main ef3a3ba includes131/133/125; this identity companion is stacked on1346d7bd988. Canonical Claude checkout is unchanged; lead owns integration.
+Grok169 export is complete/independently checked:12104 NAVM/3749066 triangles/1069 cells.173 flags1155 existing linked-portal gaps>0.5m, max0.93449m.210 separately reproduces dropped cell-line portals; do not conflate them or change tolerances. Claude owns converter; no duplicate edits.
 
-- 10458f0b51/116589f1bf reviewed QA/guard/CI pass; await lead. 125 merged; preserve expected_sha256 publisher, bridge-last and no-op0. No live application by Codex.
-- 1297511352 staged probe-free candidate; raw checks pass, native effect unverified. No probes/exterior override/install/input. 1181350d9d/123319e131 await native adapter/model measurement gates.
-- 138fa253dc: stored-ID validation/cap reviewed, tests/guard/QA/CI pass; await lead. 1467a3e7a2 container/ID auditor is draft awaiting final peer source review; runtime false.
-- 1346d7bd988 shifts235119 surviving IDs. Codex identity companion now preserves original REFR slots through promotion, including the promoted source. 29 producer/3 actual-writer methods, four serialized promotions/five refusals and parent failure cross-check pass. Peer QA/full-scale build/new plans/native save tests pending; undeployed. General persistent allocation remains open. See testing/container-reference-identities.md.
-- 145 review5541048759: planner drops activate; refused selection can activate prior target. 148 review5541155845: output clobbers measurements; NaN can hide loss. Owners retain fixes.
-- 149ed44dae draft: bounded full-hash reads, synthetic median0.684->0.460s;94 targeted/guard/CI pass. Independent QA/live measurement pending.
+Next: review153 correction; joint door decisions; Windows-only QA179 requested by cloud after confirming tests use no live input. Old batch_full1109 pending/616 movable plans;79 awaits release/pins.
 
-## Next / preservation
-
-Lead reviews/integrates proposals and owns native tests. Old batch_full1109 pending;616 movables need fresh plans. #79 awaits release/pins. No unchanged broad QA/stage reruns.
-
-#32/owner issues are inbox. Keep below4KB. Evidence indexes/capsules verified on D:, originals retained; local, not offsite. Follow testing/progress-storage.md. Quiet four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused. Usage modest.
+#32 is the inbox. Keep <4KB, usage low, targeted tests only. Private D: index/capsules reopen/source-verified; originals retained, local not offsite. No cleanup before verification. Four-hour Codex follow-up ACTIVE; completed scoped monitors stay paused.
