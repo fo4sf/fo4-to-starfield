@@ -1441,3 +1441,16 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
 - Merged tonight: #162, #163, #161, #165, #166 (and the queue of the day before). Open: #164 (sandbox suite running),
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
+
+## 2026-10-16: Codex persistent-reference inspector identity
+
+A synthetic master override and local persistent reference sharing low ID800 were
+both returned for either000800 or00000800. Keeping the selector's width separate
+fixes this; four new methods expose seven failing cases before, all eight targeted
+methods pass after. Signed/oversized/seven-digit IDs refuse; optional0x supported.
+Preserved OFST cave bytes unchanged: local000800 equals encoded03000800, whereas
+runtime-style05000800 selects nothing. Raw file IDs are not runtime load-order IDs.
+Initial XCLC concern was disproved by the existing tests: unpack_from already
+handles the fixture; no XCLC change made. No writer/stage/game modifications or
+retroactive native rescoring. Private evidence: persistent-ref-selectors-20261016;
+peer QA pending. Merge placement and native travel/save-reload remain unresolved.
