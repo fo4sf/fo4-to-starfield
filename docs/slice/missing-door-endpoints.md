@@ -41,3 +41,32 @@ privately. This is author-tested offline code awaiting independent peer review.
 No source stage, installed plugin, game input or save was changed. Integration
 must carry the resulting map forward and separately construct the core-owned
 exterior endpoint and interior return override without a master cycle.
+
+## Current Red Rocket export check (October 16)
+
+Using code63131c6 and a private snapshot of integ_1016 Port
+`1ff6e4dadf59ec0aeae8ee0df79c5d21ca835ca2a0b6876c72a0f630fb41b8fc`,
+the unchanged RedRocket01 export and selected native AutoloadDoor_Cave base
+produce one new endpoint. Source `05E844:Fallout4.esm` receives plugin-local
+`00DE5D` in the **candidate's** persistent map. All54,877 prior entries remain
+identical. This ID is a candidate reservation, not an installed/runtime identity;
+integration must carry forward this map or explicitly reconcile new allocations.
+
+Strict mode refuses with the missing exterior `08EB65:Fallout4.esm` destination
+and publishes no plugin. An explicitly partial output permits raw inspection:
+persistent cell ownership/flag, native base, source position/rotation/scale and
+active state match; XTEL remains absent. Independent raw parsing shows no removed
+records and only the new REFR, TES4 HEDR update, and three existing references'
+persistence/group changes. Those three are sources05F97B,05FAA0,05FAA3; each is
+explicitly persistent in the original export. Their subrecord bytes are unchanged.
+They are additional normal post-pass changes, not a claim of a one-record patch.
+
+Partial output SHA256:
+`cdd69d7bec515fefba1193c2904ab0ab3cc52dc2cf4e8d9aca1fa2620c5a0491`.
+Source plugin/map/export and native master hashes were rechecked unchanged.
+Private evidence lives in `test-plans/missing-cave-production-20261016`, including
+an initial harness failure from assuming net8.0 instead of this project's net9.0;
+that attempt ran no writer. Corrected strict/partial outputs are separate.
+This author-run raw audit is not peer review or native acceptance. No deployment
+package was made, and this unlinked partial candidate must not replace a build
+being used for gameplay tests.
