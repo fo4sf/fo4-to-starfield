@@ -3,9 +3,10 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Starfield;
 
-if (args.SequenceEqual(new[] { "--missing-door-cells-only" }))
+if (args.Length == 1 && args[0] is "--missing-door-cells-only" or "--missing-door-options-only")
 {
-    MissingDoorEndpointTests.Run(cellsOnly: true);
+    MissingDoorEndpointTests.Run(cellsOnly: args[0] == "--missing-door-cells-only",
+        optionsOnly: args[0] == "--missing-door-options-only");
     return;
 }
 

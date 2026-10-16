@@ -18,6 +18,11 @@ original cell exports. STARFIELD_DATA supplies the actual native master. The
 selected source must occur exactly once with type Door, and the base must resolve
 to an active DOOR with local override precedence. A filename or numeric ID alone
 does not prove a usable base.
+Options are checked before input files are opened. Supported spellings are
+`--report-only`, `--allow-unresolved`, `--no-markers` and
+`--door-bases=<map.json>` with a nonempty path. Unknown or malformed options
+refuse the command; `--door-base=` or bare `--door-bases` cannot silently omit
+the endpoint request.
 Every explicitly selected door must also have a source-cell map entry resolving
 to an existing output CELL. This is checked before relationship mutation and is
 not waived by `--allow-unresolved` or `--report-only`: a requested endpoint must
@@ -49,9 +54,13 @@ additional CLI scenarios: missing map/record in strict and partial modes,
 report-only refusal, and an unrelated missing-cell partial-output control.
 Before the correction, both partial cases silently published without the selected
 door and report-only accepted the omitted selection. These now refuse.
-All thirteen missing-door controls, eleven native-base controls and relationship
+All seventeen missing-door controls, eleven native-base controls and relationship
 binary checks pass. The missing-cell correction still needs peer review; carry it
 into stacked PR253 after review before producing an integrated candidate.
+Four additional argument controls cover the misspelled door option, bare door
+option, empty mapping path and unknown flag. Before validation, three of those
+commands published a plugin despite the malformed request. This follow-up is
+separate from the PR251 merge head and awaits peer review.
 No source stage, installed plugin, game input or save was changed. Integration
 must carry the resulting map forward and separately construct the core-owned
 exterior endpoint and interior return override without a master cycle.

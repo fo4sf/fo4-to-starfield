@@ -5,7 +5,18 @@ using Mutagen.Bethesda.Starfield;
 
 if (args.Length < 4)
 {
-    Console.Error.WriteLine("usage: <input.esm> <formids.json> <output dir> <cell.json...> [--report-only] [--allow-unresolved] [--door-bases=map.json]");
+    Console.Error.WriteLine("usage: <input.esm> <formids.json> <output dir> <cell.json...> [--report-only] [--allow-unresolved] [--no-markers] [--door-bases=map.json]");
+    Environment.ExitCode = 1;
+    return;
+}
+// Validate options before opening any input or creating output. A typo must
+// never turn an explicit endpoint request into a successful no-op conversion.
+var flags = new HashSet<string>(new[] { "--report-only", "--allow-unresolved", "--no-markers" }, StringComparer.Ordinal);
+foreach (var option in args.Skip(3).Where(a => a.StartsWith("--", StringComparison.Ordinal)))
+{
+    if (flags.Contains(option) || option.StartsWith("--door-bases=", StringComparison.Ordinal)
+        && !string.IsNullOrWhiteSpace(option["--door-bases=".Length..])) continue;
+    Console.Error.WriteLine("unknown or malformed option: " + option + "; use --door-bases=<map.json> for explicit door selections");
     Environment.ExitCode = 1;
     return;
 }
