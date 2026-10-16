@@ -1151,6 +1151,24 @@ def place_all(a, ov):
     return bases, placed, skipped_conv, man
 
 
+def navmesh_input(nav, ov):
+    """navmesh.json (src/fo4sf/navmesh.py export) checked for stage --navmesh: a non-empty "navmeshes" list, every entry
+    with a [x, y] cell inside the overlay's cells and a "triangles" list; returns it. ValueError names the first problem
+    (the writer would otherwise fail halfway through a 648,358-reference build)."""
+    if not isinstance(nav, dict) or not isinstance(nav.get("navmeshes"), list) or not nav["navmeshes"]:
+        raise ValueError("not navmesh.export's output (a non-empty navmeshes list)")
+    lo, hi = ov["cell_min"], ov["cell_max"]
+    for i, n in enumerate(nav["navmeshes"]):
+        c = n.get("cell") if isinstance(n, dict) else None
+        if not (isinstance(c, list) and len(c) == 2 and all(isinstance(v, int) for v in c)):
+            raise ValueError(f"navmesh {i}: no [x, y] cell")
+        if not (lo <= c[0] <= hi and lo <= c[1] <= hi):
+            raise ValueError(f"navmesh {i}: cell {c} outside the overlay's cells {lo}..{hi}")
+        if not isinstance(n.get("triangles"), list) or not n["triangles"]:
+            raise ValueError(f"navmesh {i}: no triangles")
+    return nav
+
+
 def cmd_stage(a):
     t0 = time.time()
     prm, ov = core_params(a.core)
@@ -1200,7 +1218,19 @@ def cmd_stage(a):
     if containers:
         objects["containers"] = containers
     save(os.path.join(out, "objects.json"), objects)
-    save(os.path.join(out, "overlays_params.json"), dict(prm, objects="objects.json"), indent=1)
+    params = dict(prm, objects="objects.json")
+    if getattr(a, "navmesh", ""):
+        # Commonwealth navmesh (docs/terrain/commonwealth-build-plan.md section 4; docs/actors/navmesh-conversion.md):
+        # navmesh.json = src/fo4sf/navmesh.py export over the core's FO4 NAVM (one NAVM per FO4 navmesh and Starfield
+        # cell); TerrainOverlays writes the NAVM records after every object and a NAVI override with one NVMI each
+        try:
+            nav = navmesh_input(load(a.navmesh), ov)
+        except ValueError as e:
+            sys.exit(f"--navmesh: {a.navmesh}: {e}")
+        shutil.copy2(a.navmesh, os.path.join(out, "navmesh.json"))
+        params["navmesh"] = "navmesh.json"
+        print(f"navmesh: {len(nav['navmeshes']):,} NAVM from {a.navmesh}")
+    save(os.path.join(out, "overlays_params.json"), params, indent=1)
     save(os.path.join(out, "skipped.json"), {"counts": exterior.reason_counts(skipped), "types": type_counts(skipped),
                                              "refs": skipped})
     for name in ("preview.png",):
@@ -1478,8 +1508,9 @@ def cmd_check(a):
             need(True, "declared source reference slots retained through promotion")
 
     # 1. core64 unchanged: params, Data files, Mars plugin, every core64 record of the main plugin
-    need({k: v for k, v in prm.items() if k != "objects"} == cprm and prm.get("objects") == "objects.json",
-         "overlays_params.json = core64's + objects")
+    need({k: v for k, v in prm.items() if k not in ("objects", "navmesh")} == cprm and prm.get("objects") == "objects.json"
+         and prm.get("navmesh") in (None, "navmesh.json"),
+         "overlays_params.json = core64's + objects" + (" + navmesh" if prm.get("navmesh") else ""))
     for rel in exp["base_files"] + [prm["mars"]["plugin"]]:
         need(os.path.isfile(os.path.join(a.core, *rel.split("/"))) and
              x2c.sha256(os.path.join(out, *rel.split("/"))) == x2c.sha256(os.path.join(a.core, *rel.split("/"))),
@@ -1501,7 +1532,8 @@ def cmd_check(a):
     need(same == len(old["records"]), f"every core64 record unchanged ({same}/{len(old['records'])})")
     old_max = max(r["fid"] & 0xFFFFFF for r in old["records"])
     old_fids = {o["fid"] for o in old["records"]}
-    added = [r for r in new["records"] if r["fid"] not in old_fids]
+    own_index = len(new["masters"])                       # this plugin's own records; an override of a master's record
+    added = [r for r in new["records"] if r["fid"] not in old_fids and (r["fid"] >> 24) == own_index]   # (the NAVI, 000FF1:Starfield.esm) is not "new"
     need(added and min(r["fid"] & 0xFFFFFF for r in added) > old_max,
          f"every new record's FormID after core64's last (0x{old_max:06X})")
     need(new["masters"] == ["Starfield.esm"], f"masters {new['masters']}")
@@ -1512,6 +1544,20 @@ def cmd_check(a):
     recs = new["records"]
     stats = [r for r in recs if r["sig"] in ("STAT", "DOOR")]
     need(len(stats) == len(objects["bases"]), f"{len(stats):,} STAT/DOOR = {len(objects['bases']):,} bases")
+    if prm.get("navmesh"):
+        # 2b. navmesh records (stage --navmesh, docs/actors/navmesh-conversion.md): NAVM count = navmesh.json's, one NAVI
+        # override (000FF1:Starfield.esm), every NAVM after the last object record, formids.json names them
+        navj = load(os.path.join(out, prm["navmesh"]))
+        navms = [r for r in recs if r["sig"] == "NAVM"]
+        navis = [r for r in recs if r["sig"] == "NAVI"]
+        need(len(navms) == len(navj["navmeshes"]), f"{len(navms):,} NAVM = navmesh.json's {len(navj['navmeshes']):,}")
+        need(len(navis) == 1, f"one NAVI override ({len(navis)})")
+        last_obj = max((r["fid"] & 0xFFFFFF for r in recs if r["sig"] in ("STAT", "DOOR", "REFR", "CONT")), default=0)
+        need(navms and min(r["fid"] & 0xFFFFFF for r in navms) > last_obj, f"every NAVM FormID after the last object (0x{last_obj:06X})")
+        nav_ids = load(os.path.join(out, "formids.json")).get("navmeshes", [])
+        need(set(nav_ids) == {f"{r['fid'] & 0xFFFFFF:06X}" for r in navms}, f"formids.json names the {len(nav_ids):,} NAVM")
+        tri = sum(len(n.get("triangles", [])) for n in navj["navmeshes"])
+        rep["navmesh"] = {"navm": len(navms), "navi": len(navis), "triangles": tri, "first_fid": f"{min(r['fid'] & 0xFFFFFF for r in navms):06X}" if navms else None}
     from fo4sf import fo4land
     missing = [m for m in (fo4land.zstring(overlay_records.field(r, "MODL", b"")) for r in stats)
                if not os.path.isfile(os.path.join(out, "Data", "meshes", m))]
@@ -1772,6 +1818,9 @@ def main():
             s.add_argument("--sf-esm", default="", help="Starfield.esm: build the plugins with dotnet/TerrainOverlays")
             s.add_argument("--cluster", default="", help="R05: a cluster json (scripts/terrain/clusters/*.json) whose "
                            "references become native containers instead of statics")
+
+            s.add_argument("--navmesh", default="", help="navmesh.json (src/fo4sf/navmesh.py export over the core's FO4 NAVM): "
+                           "written as NAVM records in their cells plus the NAVI override (docs/actors/navmesh-conversion.md)")
             s.add_argument("--views", action="store_true",
                            help="add screenshot spots to entry 3 (useful once the runner sets the time of day, PR #73)")
         else:

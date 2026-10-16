@@ -151,7 +151,11 @@ foreach (var o in overlays)
                       $"{(cmax - cmin + 1) * (cmax - cmin + 1)} cells {cmin}..{cmax}, COC {coc} in ({spawnCell[0]}, {spawnCell[1]})");
     idx++;
 }
-int nStat = 0, nDoor = 0, nRef = 0, nDisabled = 0;
+int nStat = 0, nDoor = 0, nRef = 0, nDisabled = 0, nNav = 0, nNavTri = 0, nNavLink = 0, nNavDoor = 0;
+var refIds = new Dictionary<string, string>();                 // placed reference source -> this plugin's id (6 hex)
+Dictionary<string, object>? ids = null;                        // formids.json
+Dictionary<(int, int), Cell>? objCells = null;                 // the objects' overlay cells
+string? objWorld = null;
 if (Has(prm, "objects"))
 {
     // core64c: converted FO4 models and their references, allocated after every overlay record
@@ -160,6 +164,7 @@ if (Has(prm, "objects"))
     var referenceSources = ReferenceIdentityPlan.Order(o);
     string world = o.TryGetProperty("world", out var wj) ? wj.GetString()! : worlds[0].World.EditorID!;
     if (!cellsOf.TryGetValue(world, out var cellAt)) throw new InvalidDataException($"objects.json names world {world}, not an overlay of these params");
+    objCells = cellAt; objWorld = world;
     var baseKeys = new List<FormKey>();
     var baseIds = new Dictionary<string, string>();
     foreach (var b in o.GetProperty("bases").EnumerateArray())
@@ -201,7 +206,6 @@ if (Has(prm, "objects"))
     // Reserve every original slot, including references promoted out of "refs".
     // A later neighbour must not inherit the promoted source's saved-game ID.
     var referenceKeys = referenceSources.ToDictionary(src => src, _ => NewKey(), StringComparer.OrdinalIgnoreCase);
-    var refIds = new Dictionary<string, string>();
     foreach (var r in o.GetProperty("refs").EnumerateArray())
     {
         float[] V(string k) => r.GetProperty(k).EnumerateArray().Select(e => e.GetSingle()).ToArray();
@@ -287,15 +291,144 @@ if (Has(prm, "objects"))
                 Console.WriteLine($"  container {cont.EditorID} {cont.FormKey} ({cont.Items.Count} items) -> REFR {obj.FormKey} in cell ({cxy[0]}, {cxy[1]})");
         }
     }
-    var ids = new Dictionary<string, object> { ["plugin"] = modKey.FileName.String, ["world"] = world, ["bases"] = baseIds, ["refs"] = refIds, ["containers"] = contIds };
-    File.WriteAllText(Path.Combine(outDir, "formids.json"), JsonSerializer.Serialize(ids));
+    ids = new Dictionary<string, object> { ["plugin"] = modKey.FileName.String, ["world"] = world, ["bases"] = baseIds, ["refs"] = refIds, ["containers"] = contIds };
 }
+if (Has(prm, "navmesh"))
+{
+    // Commonwealth navmesh (docs/actors/navmesh-conversion.md, ported from dotnet/TerrainExp2 2026-10-15): converted
+    // Fallout 4 navmeshes (src/fo4sf/navmesh.py export), one NAVM per (FO4 navmesh, Starfield cell) in that cell's
+    // navmesh group, allocated after every object, plus a NAVI override (000FF1:Starfield.esm) with one NVMI per new
+    // navmesh. Every field is typed in Mutagen except NVMI's Data and Unknown (raw bytes; the worldspace FormID in
+    // Unknown is file-local: Starfield.esm is master 0, this plugin's records are 01xxxxxx). The four Mutagen
+    // 0.55.0-alpha.67 adjustments of experiment 2d (grid lists as one raw array + Unknown3, parent coordinates
+    // y-then-x, the empty MNAM, form version 581) are kept as verified there.
+    using var ndoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, prm.GetProperty("navmesh").GetString()!)));
+    var nroot = ndoc.RootElement;
+    string nworld = nroot.TryGetProperty("world", out var nwj) ? nwj.GetString()! : (objWorld ?? worlds[0].World.EditorID!);
+    if (!cellsOf.TryGetValue(nworld, out var navCells)) throw new InvalidDataException($"navmesh.json names world {nworld}, not an overlay of these params");
+    var navWorld = worlds.First(x => x.World.EditorID == nworld).World;
+    var navs = nroot.GetProperty("navmeshes").EnumerateArray().ToList();
+    var navKeys = navs.Select(_ => NewKey()).ToList();
+    uint worldLocal = 0x01000000u | navWorld.FormKey.ID;
+    var navi = new NavigationMeshInfoMap(new FormKey(sfEsm, 0x000FF1), release)
+    {
+        NavMeshVersion = 17,
+        PreferredPathing = new PreferredPathing(),
+        FormVersion = 581,                                          // Starfield.esm, SFBGS006, BlueprintShips: 581
+    };
+    var navIds = new List<string>();
+    for (int i = 0; i < navs.Count; i++)
+    {
+        var e = navs[i];
+        var cxy = e.GetProperty("cell").EnumerateArray().Select(x => x.GetInt32()).ToArray();
+        if (!navCells.TryGetValue((cxy[0], cxy[1]), out var cell))
+            throw new InvalidDataException($"navmesh {i} in cell ({cxy[0]}, {cxy[1]}) outside {nworld}'s cells");
+        var grid = e.GetProperty("grid");
+        float[] GF(string k) => grid.GetProperty(k).EnumerateArray().Select(x => x.GetSingle()).ToArray();
+        var gsize = GF("size"); var gmin = GF("min"); var gmax = GF("max");
+        var g = new NavmeshGeometry
+        {
+            NavmeshVersion = 17,
+            CrcHash = 0xA5E9A03C,
+            Parent = new WorldspaceNavmeshParent
+            {
+                Parent = new FormLink<IWorldspaceGetter>(navWorld.FormKey),
+                // the file holds grid y, then grid x (every vanilla exterior NAVM matches its cell's XCLC that way);
+                // Mutagen writes Coordinates.X first, so X takes the grid y
+                Coordinates = new P2Int16((short)cxy[1], (short)cxy[0]),
+            },
+            GridSize = (uint)grid.GetProperty("divisor").GetInt32(),
+            GridMaxDistance = new P2Float(gsize[0], gsize[1]),
+            GridMin = new P3Float(gmin[0], gmin[1], gmin[2]),
+            GridMax = new P3Float(gmax[0], gmax[1], gmax[2]),
+            Unknown3 = 0x0008000C,                                   // the trailing 0c 00 08 00 of vanilla records
+        };
+        foreach (var v in e.GetProperty("vertices").EnumerateArray())
+            g.Vertices.Add(new NavmeshVertex { Point = new P3Float(v[0].GetSingle(), v[1].GetSingle(), v[2].GetSingle()), Unknown = v[3].GetInt32() });
+        foreach (var t in e.GetProperty("triangles").EnumerateArray())
+        {
+            g.Triangles.Add(new NavmeshTriangle
+            {
+                Vertices = new P3Int16(t[0].GetInt16(), t[1].GetInt16(), t[2].GetInt16()),
+                EdgeLink_0_1 = t[3].GetInt16(), EdgeLink_1_2 = t[4].GetInt16(), EdgeLink_2_0 = t[5].GetInt16(),
+                Height = t[6].GetSingle(), Unknown = (byte)t[7].GetInt32(),
+                Flags = (NavmeshTriangle.Flag)t[8].GetInt32(), CoverFlags = (ushort)t[9].GetInt32(),
+            });
+            nNavTri++;
+        }
+        var merged = new List<FormKey>();
+        foreach (var l in e.GetProperty("links").EnumerateArray())
+        {
+            var target = navKeys[l[1].GetInt32()];
+            g.EdgeLinks.Add(new EdgeLink
+            {
+                Unknown = l[0].GetInt32(), Mesh = new FormLink<INavigationMeshGetter>(target),
+                TriangleIndex = l[2].GetInt16(), Unknown2 = (sbyte)l[3].GetInt32(),
+            });
+            if (!merged.Contains(target)) merged.Add(target);
+            nNavLink++;
+        }
+        var linkedDoors = new List<LinkedDoor>();
+        foreach (var d in e.GetProperty("doors").EnumerateArray())
+        {
+            var src = d[2].GetString()!;
+            if (!refIds.TryGetValue(src, out var doorId))
+                throw new InvalidDataException($"navmesh {i}: door {src} is not a placed reference of this plugin");
+            var doorKey = new FormKey(modKey, Convert.ToUInt32(doorId, 16));
+            g.DoorTriangles.Add(new DoorTriangle { TriangleBeforeDoor = d[0].GetInt16(), Unknown = unchecked((int)d[1].GetUInt32()), Door = new FormLink<IPlacedObjectGetter>(doorKey) });
+            linkedDoors.Add(new LinkedDoor { Type = d[1].GetUInt32(), Door = new FormLink<IPlacedObjectGetter>(doorKey) });
+            nNavDoor++;
+        }
+        foreach (var wp in e.GetProperty("waypoints").EnumerateArray())
+            g.Waypoints.Add(new NavmeshWaypoint { Location = new P3Float(wp[0].GetSingle(), wp[1].GetSingle(), wp[2].GetSingle()), TriangleIndex = wp[3].GetInt16(), Unknown = wp[4].GetInt32() });
+        // the grid lists with their counts as ONE raw i16 array (navmesh.grid_raw), Unknown3 the trailer (experiment 2d)
+        g.GridArrays.Add(new NavmeshGridArray { GridCell = new ExtendedList<short>(grid.GetProperty("raw").EnumerateArray().Select(x => x.GetInt16())) });
+        cell.NavigationMeshes.Add(new NavigationMesh(navKeys[i], release)
+        {
+            NavmeshGeometry = g,
+            PreCutMapEntries = new ExtendedList<PreCutMapEntry>(),   // the empty MNAM every vanilla NAVM has
+            FormVersion = 581,                                      // as Starfield.esm's newest NAVM and its NAVI
+        });
+        var nv = e.GetProperty("nvmi");
+        var loc = nv.GetProperty("location").EnumerateArray().Select(x => x.GetSingle()).ToArray();
+        var data = new byte[20];
+        BitConverter.TryWriteBytes(data.AsSpan(0, 4), 0u);                       // flags: no outline
+        BitConverter.TryWriteBytes(data.AsSpan(4, 4), loc[0]);
+        BitConverter.TryWriteBytes(data.AsSpan(8, 4), loc[1]);
+        BitConverter.TryWriteBytes(data.AsSpan(12, 4), loc[2]);
+        BitConverter.TryWriteBytes(data.AsSpan(16, 4), 0f);
+        var unk = new byte[22];                                                    // traversals 0, outline 0
+        BitConverter.TryWriteBytes(unk.AsSpan(5, 4), 0xA5E9A03Cu);
+        BitConverter.TryWriteBytes(unk.AsSpan(9, 4), worldLocal);
+        BitConverter.TryWriteBytes(unk.AsSpan(13, 2), (short)cxy[1]);              // grid y, then x
+        BitConverter.TryWriteBytes(unk.AsSpan(15, 2), (short)cxy[0]);
+        unk[17] = (byte)nv.GetProperty("border").GetInt32();
+        var info = new NavigationMapInfo
+        {
+            NavigationMesh = new FormLink<INavigationMeshGetter>(navKeys[i]),
+            Data = new MemorySlice<byte>(data),
+            Unknown = new MemorySlice<byte>(unk),
+        };
+        foreach (var m in merged) info.MergedTo.Add(new FormLink<INavigationMeshGetter>(m));
+        foreach (var ld in linkedDoors) info.LinkedDoors.Add(ld);
+        navi.MapInfos.Add(info);
+        navIds.Add(navKeys[i].ID.ToString("X6"));
+        nNav++;
+    }
+    mod.NavigationMeshInfoMaps.Add(navi);
+    ids ??= new Dictionary<string, object> { ["plugin"] = modKey.FileName.String, ["world"] = nworld };
+    ids["navmeshes"] = navIds;
+    ids["navi"] = "000FF1:Starfield.esm";
+}
+if (ids != null)
+    File.WriteAllText(Path.Combine(outDir, "formids.json"), JsonSerializer.Serialize(ids));
 mod.ModHeader.Stats.NextFormID = next;
 var path = Path.Combine(outDir, modKey.FileName);
 mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(sfData)
     .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full)).Write();
 Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {worlds.Count} overlays, next FormID 0x{next:X}" +
-                  (Has(prm, "objects") ? $"; objects: {nStat} STAT, {nDoor} DOOR, {nRef} REFR ({nDisabled} initially disabled)" : ""));
+                  (Has(prm, "objects") ? $"; objects: {nStat} STAT, {nDoor} DOOR, {nRef} REFR ({nDisabled} initially disabled)" : "") +
+                  (Has(prm, "navmesh") ? $"; navmesh: {nNav} NAVM, {nNavTri} triangles, {nNavLink} edge links, {nNavDoor} door triangles, NAVI override with {nNav} NVMI" : ""));
 
 if (Has(prm, "mars"))
 {

@@ -471,6 +471,22 @@ class ContainerPerBaseTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             mk.check_reference_slots(objects, ids)                  # a base inside the reserved slots is not
 
+class NavmeshInputTests(unittest.TestCase):
+    OV = {"cell_min": -32, "cell_max": 31}
+
+    def test_accepts_exp2d_shaped_input(self):
+        nav = {"navmeshes": [{"cell": [-10, 11], "triangles": [[0, 1, 2]]}, {"cell": [31, -32], "triangles": [[0, 1, 2]]}]}
+        self.assertIs(mk.navmesh_input(nav, self.OV), nav)
+
+    def test_refuses_bad_input(self):
+        for bad, why in (({}, "navmeshes"), ({"navmeshes": []}, "navmeshes"),
+                         ({"navmeshes": [{"cell": [32, 0], "triangles": [[0, 1, 2]]}]}, "outside"),
+                         ({"navmeshes": [{"cell": [0], "triangles": [[0, 1, 2]]}]}, "cell"),
+                         ({"navmeshes": [{"cell": [0, 0], "triangles": []}]}, "triangles")):
+            with self.assertRaises(ValueError, msg=why) as cm:
+                mk.navmesh_input(bad, self.OV)
+            self.assertIn(why, str(cm.exception))
+
 
 if __name__ == "__main__":
     unittest.main()
