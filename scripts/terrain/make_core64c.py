@@ -28,8 +28,8 @@ stage    places the converted references (exterior.place) in the core64 worldspa
 check    raw-walks the plugin (core64 records unchanged, REFRs per cell, bases, positions), object z - terrain z under
          every placed origin (BTD; with --fo4 also FO4's own LAND), every model / geometry / material / texture file,
          every plan point re-derived from the converted collision, every runner teleport (cells per axis) and the
-         step time, archive size; offline_check.json, and data_manifest.json (size and time of every staged file).
-verify-data  is the staged tree still the one check passed? (Data\\ is hard-linked to the conversion work folder.)
+         step time, archive size; offline_check.json, and data_manifest.json (asset/plugin size/time plus identity-input SHA256s).
+verify-data  are staged assets and identity/test inputs still those check passed? Old receipts need a fresh check.
 Everything this writes stays outside the repo (derived game data).
 """
 import argparse
@@ -52,6 +52,7 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(REPO, "src"))
 sys.path.insert(0, os.path.join(REPO, "scripts"))
 from stage_outputs import require_ready_stage  # noqa: E402
+from stage_identity import identity_inputs  # noqa: E402
 from fo4sf import btd, exterior  # noqa: E402
 from fo4sf import terrain_grid as tg  # noqa: E402
 
@@ -2627,6 +2628,7 @@ def cmd_check(a):
     import make_cw_overlays as cwo
     t0 = time.time()
     out = a.out
+    checked_inputs = identity_inputs(out)
     prm, ov = core_params(out)
     cprm, _cov = core_params(a.core)
     plan = load(os.path.join(out, "plan.json"))
@@ -2920,10 +2922,13 @@ def cmd_check(a):
         need(not probs and dry.get("bytes", ARCHIVE_LIMIT) < ARCHIVE_LIMIT,
              f"Archive2 dry run: {dry.get('bytes', 0) / 2 ** 30:.3f} GiB, {dry.get('entries')} entries, "
              f"{dry.get('packed_entries')} packed ({probs})")
+    man = data_manifest(out, [prm["plugin"], prm["mars"]["plugin"]])
+    need(identity_inputs(out) == checked_inputs, "identity and plan inputs unchanged throughout check")
     rep["checks"] = checks
     rep["pass"] = all(c[1] for c in checks)
-    man = data_manifest(out, [prm["plugin"], prm["mars"]["plugin"]])
-    save(os.path.join(out, MANIFEST), {"checked": time.strftime("%Y-%m-%dT%H:%M:%S"), "pass": rep["pass"], "files": man})
+    rep["identity_inputs"] = checked_inputs
+    save(os.path.join(out, MANIFEST), {"checked": time.strftime("%Y-%m-%dT%H:%M:%S"), "pass": rep["pass"],
+                                     "files": man, "identity_inputs": checked_inputs})
     rep["data_manifest"] = {"file": MANIFEST, "files": len(man)}
     rep["seconds"] = round(time.time() - t0, 1)
     save(os.path.join(out, "offline_check.json"), rep, indent=1)
@@ -2960,19 +2965,37 @@ def manifest_diff(old, new):
 
 
 def cmd_verify_data(a):
-    """Is the staged tree still the one `check` passed? Exit 0 only if it passed and nothing changed since."""
+    """Check existing asset metadata and identity-input content receipts; never upgrade an old report."""
     path = os.path.join(a.out, MANIFEST)
     if not os.path.isfile(path):
         print(f"no {MANIFEST}: run make_core64c.py check first")
         return 1
     m = load(path)
+    receipt = m.get("identity_inputs")
+    if not isinstance(receipt, dict) or type(receipt.get("schema")) is not int or receipt["schema"] != 1:
+        print("identity input evidence missing or unsupported: run make_core64c.py check again")
+        return 1
+    try:
+        current_inputs = identity_inputs(a.out)
+    except (OSError, ValueError) as error:
+        print(f"identity inputs unavailable or unproven: {error}")
+        return 1
     prm, _ov = core_params(a.out)
     diff = manifest_diff(m["files"], data_manifest(a.out, [prm["plugin"], prm["mars"]["plugin"]]))
     for k, v in diff.items():
         if v:
             print(f"{len(v)} {k}: {v[:5]}")
-    good = m.get("pass") and not any(diff.values())
-    print(f"{len(m['files']):,} files as checked on {m.get('checked')} (check {'PASS' if m.get('pass') else 'FAIL'}): "
+    same_inputs = receipt == current_inputs
+    if not same_inputs:
+        print("identity or plan inputs differ from the checked contents: run make_core64c.py check again")
+    # Re-read after asset inspection too; never bless a receipt when its inputs changed during verification.
+    try:
+        same_inputs = same_inputs and identity_inputs(a.out) == current_inputs
+    except (OSError, ValueError) as error:
+        print(f"identity inputs changed during verification: {error}")
+        same_inputs = False
+    good = m.get("pass") is True and not any(diff.values()) and same_inputs
+    print(f"{len(m['files']):,} files as checked on {m.get('checked')} (check {'PASS' if m.get('pass') is True else 'FAIL'}): "
           + ("unchanged" if good else "NOT the checked tree"))
     return 0 if good else 1
 
