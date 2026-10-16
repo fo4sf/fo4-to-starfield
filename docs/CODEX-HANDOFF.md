@@ -30,6 +30,6 @@ Main4ba5c6a has integration121 and merged131/133;119/126/127/128 are integrated.
 
 ## Next / preservation
 
-Owner priority: persistent doors. PR251 private cave endpoint00DE5D preserves54,877 IDs; missing Core08EB65 still refuses. Codex door-return branch adds interior-only CELL/REFR return patch requiring real Core outbound XTEL;16 synthetic binary/CLI scenarios pass, peer QA pending. See slice/door-return-patch.md. No production build/install/input; Claude owns Core construction and live travel/save tests.
+Owner priority: persistent doors. PR251 private cave endpoint00DE5D preserves54,877 IDs; missing Core08EB65 still refuses. Codex door-return branch adds interior-only CELL/REFR return patch requiring real Core outbound XTEL;16 boundary scenarios plus joint251->syntheticCore->253 CLI/readback pass, peer QA pending. See slice/door-return-patch.md. No production build/install/input; Claude owns Core construction and live travel/save tests.
 
 #32/owner issues are the inbox; refresh before work/done. Keep below4KB; history in handoff-archive. Evidence indexed/reopen-verified on D:, originals retained; second local volume, not offsite. Follow docs/testing/progress-storage.md. Lower usage: quiet four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused.

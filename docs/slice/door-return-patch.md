@@ -48,6 +48,16 @@ FO4SF_RETURN_EVIDENCE to a fresh private folder to retain fixtures/logs. These a
 author-run Windows checks, not independent QA or game acceptance. The repository's
 existing Python CI does not execute this new .NET test project.
 
+An additional joint CLI test runs the actual ReferenceLinks endpoint writer on
+an empty synthetic interior plus source export and persistent reservations. Strict
+mode refuses its unresolved exterior; explicitly partial output is then paired
+with a synthetic Core outbound fixture and fed directly to the actual DoorReturn
+CLI. Binary readback of both Core and the return patch verifies reciprocal links,
+unchanged source IDs/reservations and transforms, explicit arrival conversion,
+two-record patch scope, and unchanged input bytes. Use `-- --pipeline-only` to run
+this handoff check without repeating the sixteen unchanged boundary cases. The
+synthetic Core fixture exercises the interface, not Claude's real Core producer.
+
 Current integration boundary: PR251 supplies a private missing interior endpoint
 candidate. The actual Core exterior endpoint and outbound link remain unbuilt by
 this tool. Claude owns that producer integration, deployment and live controller.

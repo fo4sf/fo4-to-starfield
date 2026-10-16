@@ -10,6 +10,7 @@ using Noggog;
 var root = Environment.GetEnvironmentVariable("FO4SF_RETURN_EVIDENCE") ?? Path.Combine(Path.GetTempPath(), "door-return-"+Guid.NewGuid().ToString("N"));
 if (Directory.Exists(root)) throw new Exception("fresh evidence required");
 Directory.CreateDirectory(root);
+if (args.Contains("--pipeline-only")) { PipelineTests.Run(root); return; }
 void Need(bool value, string message) { if (!value) throw new Exception(message); }
 var results = new List<object>();
 foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterior", "missing-flag", "deleted", "wrong-outbound", "static-base", "conflicting-return", "nan-arrival", "relative-arrival", "port-cycle", "wrong-owner", "deleted-cell", "deleted-world", "wrong-transition", "light-core" })
@@ -88,3 +89,4 @@ foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterio
 }
 File.WriteAllText(Path.Combine(root,"results.json"),JsonSerializer.Serialize(results,new JsonSerializerOptions{WriteIndented=true}));
 Console.WriteLine("16 return-patch scenarios passed (one serialized/CLI success, fifteen refusals): "+root);
+PipelineTests.Run(root);
