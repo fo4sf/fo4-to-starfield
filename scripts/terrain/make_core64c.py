@@ -1187,10 +1187,10 @@ def cluster_items(bases, placed, cluster):
         name, value, weight = e.get("name"), e.get("value"), e.get("weight")
         if not isinstance(name, str) or not name.strip():
             raise ValueError(f"{p['src']}: an item needs a name")
-        if type(value) is not int or value < 0:
-            raise ValueError(f"{p['src']}: item value {value!r} is not a whole number >= 0")
-        if type(weight) not in (int, float) or not math.isfinite(weight) or weight < 0:
-            raise ValueError(f"{p['src']}: item weight {weight!r} is not a number >= 0")
+        if type(value) is not int or not 0 <= value <= 2 ** 31 - 1:        # the record's DATA value is an int32
+            raise ValueError(f"{p['src']}: item value {value!r} is not a whole number in 0..2147483647")
+        if type(weight) not in (int, float) or not math.isfinite(weight) or weight < 0 or weight > 3.4028234663852886e38:
+            raise ValueError(f"{p['src']}: item weight {weight!r} is not a float32 number >= 0")
         b = bases[p["base"]]
         items.append({"src": p["src"], "edid": item_edid(e.get("base"), p["src"]), "reference_index": reference_index,
                       "model": b["model"], "name": name, "value": value, "weight": float(weight),
@@ -1199,7 +1199,8 @@ def cluster_items(bases, placed, cluster):
         raise ValueError(f"references not placed by this build: {sorted(wanted)}")
     seen = {}
     for it in items:
-        sig = (it["name"], it["value"], it["weight"], it["model"].casefold())
+        sig = (it["name"], it["value"], struct.unpack("<f", struct.pack("<f", it["weight"]))[0] + 0.0,   # float32 as written; -0.0 == 0.0
+               it["model"].casefold())
         first = seen.setdefault(it["edid"], (it["src"], sig))
         if first[1] != sig:
             raise ValueError(f"{it['src']} and {first[0]} share item {it['edid']} with a different name, value, weight or model")
