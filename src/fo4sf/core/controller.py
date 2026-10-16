@@ -18,8 +18,10 @@ import argparse
 import datetime
 import json
 import os
+import time
 from dataclasses import asdict, dataclass
 
+from .filelock import locked
 from .model import Event, now_iso, parse_iso
 from .state import Ledger
 
@@ -66,10 +68,23 @@ class Lease:
         return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
 
 
+class _Unreadable:
+    """What the rules see when controller.json cannot be read: an ambiguous lease nobody can renew or quietly take."""
+    owner, purpose, expires, released, ttl_s = "?", "unreadable", "?", None, DEFAULT_TTL_S
+
+    def __init__(self, why):
+        self.why = why
+
+    def status(self, now=None):
+        return "ambiguous"
+
+
 class Controller:
-    def __init__(self, leader_dir, by=None):
+    def __init__(self, leader_dir, by=None, lock_timeout_s=5.0):
         self.dir = os.path.abspath(leader_dir)
         self.lease_path = os.path.join(self.dir, LEASE_FILE)
+        self.lock_path = self.lease_path + ".lock"       # every claim / renew / release reads and writes under it
+        self.lock_timeout_s = lock_timeout_s
         self.ledger = Ledger(os.path.join(self.dir, LEDGER_FILE))
         self.by = by or "controller"
 
@@ -85,6 +100,14 @@ class Controller:
         lease = self.read()
         return "none" if lease is None else lease.status(now)
 
+    def _current(self, now):
+        """(lease, status) for a decision; an unreadable file is ambiguous (nothing runs on it, --force takes it)."""
+        try:
+            lease = self.read()
+        except ValueError as e:
+            return _Unreadable(str(e)), "ambiguous"
+        return lease, ("none" if lease is None else lease.status(now))
+
     def _write(self, event, lease):
         self.ledger.append(event)                                   # the record first
         os.makedirs(self.dir, exist_ok=True)
@@ -93,7 +116,14 @@ class Controller:
             f.write(lease.to_json() + "\n")
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, self.lease_path)                            # then the cache, atomically
+        for attempt in range(10):                                   # then the cache, atomically; Windows refuses the
+            try:                                                    # replace while another process reads the file
+                os.replace(tmp, self.lease_path)
+                break
+            except PermissionError:
+                if attempt == 9:
+                    raise
+                time.sleep(0.05)
         return lease
 
     def claim(self, owner, purpose, ttl_s=DEFAULT_TTL_S, now=None, force=False, reason=""):
@@ -104,52 +134,68 @@ class Controller:
         if force and not reason.strip():
             raise LeaseRefused("a forced claim needs a reason: it goes into the ledger")
         now = now or now_iso()
-        current = self.read()
-        st = "none" if current is None else current.status(now)
-        fields = {"owner": owner, "purpose": purpose, "ttl_s": int(ttl_s), "forced": bool(force)}
-        if st == "held" and current.owner != owner:
-            if not force:
-                raise LeaseRefused(f"held by {current.owner} until {current.expires} for {current.purpose}")
-            fields.update(previous_owner=current.owner, previous_expires=current.expires, reason=reason)
-        elif st == "ambiguous":
-            gap = int((parse_iso(now) - parse_iso(current.expires)).total_seconds())
-            if current.owner != owner and not force:
-                raise LeaseRefused(f"ambiguous: {current.owner}'s lease expired {current.expires} without a release "
-                                   f"({gap} s ago); {current.owner} releases it, or claim with --force and a reason")
-            fields.update(previous_owner=current.owner, expired_for_s=gap, reason=reason)
-        elif st == "held":                                          # the holder claims again: its own lease replaced
-            fields["previous_expires"] = current.expires
-        expires = (parse_iso(now) + datetime.timedelta(seconds=int(ttl_s))).isoformat()
-        lease = Lease(owner=owner, purpose=purpose, claimed=now, expires=expires, ttl_s=int(ttl_s),
-                      forced=bool(force), reason=reason)
-        return self._write(Event("controller_claimed", self.by, t=now, fields=dict(fields, expires=expires)), lease)
+        os.makedirs(self.dir, exist_ok=True)                        # the lock lives next to the lease file
+        with locked(self.lock_path, timeout_s=self.lock_timeout_s):   # read, decide and write as one step
+            current, st = self._current(now)
+            fields = {"owner": owner, "purpose": purpose, "ttl_s": int(ttl_s), "forced": bool(force)}
+            if st == "held" and current.owner != owner:
+                if not force:
+                    raise LeaseRefused(f"held by {current.owner} until {current.expires} for {current.purpose}")
+                fields.update(previous_owner=current.owner, previous_expires=current.expires, reason=reason)
+            elif st == "ambiguous" and isinstance(current, _Unreadable):
+                if not force:
+                    raise LeaseRefused(self._not_held(current, st, owner))
+                fields.update(previous_owner="unreadable", unreadable=current.why, reason=reason)
+            elif st == "ambiguous":
+                gap = int((parse_iso(now) - parse_iso(current.expires)).total_seconds())
+                if current.owner != owner and not force:
+                    raise LeaseRefused(f"ambiguous: {current.owner}'s lease expired {current.expires} without a release "
+                                       f"({gap} s ago); {current.owner} releases it, or claim with --force and a reason")
+                fields.update(previous_owner=current.owner, expired_for_s=gap, reason=reason)
+            elif st == "held":                                      # the holder claims again: its own lease replaced
+                fields["previous_expires"] = current.expires
+            expires = (parse_iso(now) + datetime.timedelta(seconds=int(ttl_s))).isoformat()
+            lease = Lease(owner=owner, purpose=purpose, claimed=now, expires=expires, ttl_s=int(ttl_s),
+                          forced=bool(force), reason=reason)
+            return self._write(Event("controller_claimed", self.by, t=now, fields=dict(fields, expires=expires)), lease)
 
     def renew(self, owner, ttl_s=None, now=None):
+        if ttl_s is not None and int(ttl_s) <= 0:
+            raise LeaseRefused("the lease's ttl is a positive number of seconds")
         now = now or now_iso()
-        current = self.read()
-        st = "none" if current is None else current.status(now)
-        if st != "held" or current.owner != owner:
-            raise LeaseRefused(self._not_held(current, st, owner))
-        ttl = int(ttl_s or current.ttl_s or DEFAULT_TTL_S)
-        expires = (parse_iso(now) + datetime.timedelta(seconds=ttl)).isoformat()
-        lease = Lease(**dict(asdict(current), expires=expires, renewed=now, ttl_s=ttl))
-        return self._write(Event("controller_renewed", self.by, t=now, fields={"owner": owner, "expires": expires}), lease)
+        os.makedirs(self.dir, exist_ok=True)
+        with locked(self.lock_path, timeout_s=self.lock_timeout_s):
+            current, st = self._current(now)
+            if st != "held" or current.owner != owner:
+                raise LeaseRefused(self._not_held(current, st, owner))
+            ttl = int(ttl_s or current.ttl_s or DEFAULT_TTL_S)
+            expires = (parse_iso(now) + datetime.timedelta(seconds=ttl)).isoformat()
+            lease = Lease(**dict(asdict(current), expires=expires, renewed=now, ttl_s=ttl))
+            return self._write(Event("controller_renewed", self.by, t=now, fields={"owner": owner, "expires": expires}), lease)
 
     def release(self, owner, now=None, force=False, reason=""):
         now = now or now_iso()
-        current = self.read()
-        st = "none" if current is None else current.status(now)
-        if st in ("none", "released"):
-            raise LeaseRefused(self._not_held(current, st, owner))
-        if current.owner != owner:
-            if not force:
-                raise LeaseRefused(f"held by {current.owner}, not {owner}: only the holder releases, or --force with a reason")
-            if not reason.strip():
-                raise LeaseRefused("a forced release needs a reason: it goes into the ledger")
-        lease = Lease(**dict(asdict(current), released=now))
-        ev = Event("controller_released", self.by, t=now, fields={
-            "owner": current.owner, "released_by": owner, "forced": current.owner != owner, "reason": reason})
-        return self._write(ev, lease)
+        os.makedirs(self.dir, exist_ok=True)
+        with locked(self.lock_path, timeout_s=self.lock_timeout_s):
+            current, st = self._current(now)
+            if st in ("none", "released"):
+                raise LeaseRefused(self._not_held(current, st, owner))
+            if isinstance(current, _Unreadable):
+                if not force or not reason.strip():
+                    raise LeaseRefused(self._not_held(current, st, owner))
+                lease = Lease(owner="?", purpose="unreadable", claimed=now, expires=now, released=now, forced=True, reason=reason)
+                ev = Event("controller_released", self.by, t=now, fields={
+                    "owner": "?", "released_by": owner, "forced": True, "reason": reason, "unreadable": current.why})
+                return self._write(ev, lease)
+            if current.owner != owner:
+                if not force:
+                    raise LeaseRefused(f"held by {current.owner}, not {owner}: only the holder releases, or --force with a reason")
+                if not reason.strip():
+                    raise LeaseRefused("a forced release needs a reason: it goes into the ledger")
+            lease = Lease(**dict(asdict(current), released=now))
+            ev = Event("controller_released", self.by, t=now, fields={
+                "owner": current.owner, "released_by": owner, "forced": current.owner != owner, "reason": reason})
+            return self._write(ev, lease)
 
     def valid_for(self, owner, now=None):
         """None while `owner` holds an unexpired lease; else the reason nothing may send input in that name."""
@@ -164,6 +210,8 @@ class Controller:
 
     @staticmethod
     def _not_held(current, st, owner):
+        if isinstance(current, _Unreadable):
+            return f"lease file unreadable ({current.why}): treated as ambiguous; claim with --force and a reason"
         if st == "none":
             return "no lease: claim one first"
         if st == "released":
@@ -228,6 +276,9 @@ def main(argv=None):
                 print(f"valid for {a.require} until {lease.expires}")
         return 0
     except LeaseRefused as e:
+        print(f"refused: {e}")
+        return 1
+    except OSError as e:                                            # the lock held by another process, a disk error
         print(f"refused: {e}")
         return 1
 
