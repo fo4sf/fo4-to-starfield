@@ -383,6 +383,64 @@ class QstepConsoleSandboxTests(SandboxStep, unittest.TestCase):
         self.assertEqual(self.typed, [])
 
 
+# activate (docs/ai/test-queue.md "Activate"): the core64g garage cabinet, a promoted container ref of its own CONT base;
+# the simulated console holds it as a selectable ref (an "actors" entry) next to the probe
+CABINET = {"ref": "02008C5F", "base": "020A2AB2", "expect": ["Prewar Cabinet", "Credits"]}
+
+
+@unittest.skipUnless(ENABLED, "opt-in: FO4SF_QSTEP_SANDBOX=1 on Windows")
+class QstepActivateSandboxTests(SandboxStep, unittest.TestCase):
+    """The activate step's selection proof read from one console capture at each OCR threshold in turn (core64g_accept_1016
+    test 0002: the GetIsID reply on activate_sel.png was lost at 135 and read at 130 and 145)."""
+    def terrain(self, activate=CABINET):
+        return {"id": "0002_terrain_QASmoke", "kind": "terrain", "cell": "", "ref": "QASmoke", "model": "",
+                "world_coc": "QASmoke", "travel": "", "drop_z": 5.0, "settle_ms": 1,
+                "points": [{"label": "p0", "x": 1.0, "y": 1.0, "expect": 5.0}], "beyond": {"x": 3.0, "y": 1.0},
+                "activate": dict(activate)}
+
+    def world(self, **knobs):
+        return dict({"land_z": 5.0, "actors": {"02008C5F": {"base": "020A2AB2", "pos": [1.5, 1.0, 5.0]}}}, **knobs)
+
+    def test_a_reply_lost_at_the_first_thresholds_is_read_at_a_later_one(self):
+        v, obs, _ = self.run_step(test=self.terrain(), world=self.world(isid_lost_at=[135, 140]))
+        a = obs["activate"]
+        self.assertTrue(a["selected"], a["sel_ocr"])                        # the old step: one read at 135, unproven
+        self.assertEqual(a.get("sel_threshold"), 130)
+        self.assertIn("GetlslD 1.00", a["sel_ocr"])
+        self.assertEqual(self.typed.count("prid 02008C5F"), 1)               # the one capture read again, nothing retyped
+        self.assertEqual(self.typed.count("GetIsID 020A2AB2"), 1)
+        self.assertLess(self.typed.index("GetIsID 020A2AB2"), self.typed.index("activate player"))
+        for f in ("activate_sel_prep.png", "activate_sel_prep140.png", "activate_sel_prep130.png"):
+            self.assertTrue(os.path.exists(os.path.join(self.out, f)), f)
+        self.assertFalse(os.path.exists(os.path.join(self.out, "activate_sel_prep145.png")))
+        self.assertNotIn("selection not confirmed", v[2])
+
+    def test_the_first_threshold_reads_it_without_a_second_pass(self):
+        v, obs, _ = self.run_step(test=self.terrain(), world=self.world())
+        self.assertEqual((obs["activate"]["selected"], obs["activate"]["sel_threshold"]), (True, 135))
+        self.assertFalse(os.path.exists(os.path.join(self.out, "activate_sel_prep140.png")))
+        self.assertIn("activate player", self.typed)
+
+    def test_a_reply_lost_at_every_threshold_activates_nothing(self):
+        v, obs, _ = self.run_step(test=self.terrain(), world=self.world(isid_lost_at=[135, 140, 130, 145]))
+        a = obs["activate"]
+        self.assertEqual((a["selected"], a["sel_threshold"]), (False, None))
+        self.assertTrue(a["sel_ocr"].rstrip().endswith("GetlsID 020A2AB2"), a["sel_ocr"])   # the first threshold's text
+        self.assertNotIn("activate player", self.typed)
+        self.assertIn("[activate 02008C5F: selection not confirmed (GetIsID 020A2AB2 did not reply 1); nothing activated]",
+                      v[2])
+
+    def test_a_reference_of_another_base_is_never_activated(self):
+        # GetIsID replies 0.00 at every threshold: four reads, no selection, nothing activated
+        v, obs, _ = self.run_step(test=self.terrain(dict(CABINET, base="020A2AB7")), world=self.world())
+        a = obs["activate"]
+        self.assertEqual((a["selected"], a["sel_threshold"]), (False, None))
+        self.assertIn("0.00", a["sel_ocr"])
+        self.assertNotIn("activate player", self.typed)
+        for th in (140, 130, 145):
+            self.assertTrue(os.path.exists(os.path.join(self.out, f"activate_sel_prep{th}.png")), th)
+
+
 # door_trip (docs/slice/redrocket-door.md): the Red Rocket cave link as staged, in the world's own frame / the interior
 # frame; the simulated overlay is merged at OFF (exp2d's measured offset, rounded)
 OFF = [-1200.0, -2700.0, 0.0]

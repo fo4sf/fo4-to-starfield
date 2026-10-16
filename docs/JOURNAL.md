@@ -1503,6 +1503,64 @@ private/offline; no install, game/controller input or watchdog changes.
 See [identity protocol](testing/terrain-persistent-identities.md).
 - 2026-10-16, Codex: merged current main into owned PR227 and reproduced four loose-item integration failures with the actual synthetic writer/allocator fixture. A single unnamed MISC reservation produced a ledger that could not reopen; distinct MISC bases collided on that key; item bootstrap could not reopen; malformed new semantic keys were accepted. MISC allocation now names its item identity and new keys pass the reopening schema before reservation. Added rebuild/reorder/later-container/removal/reintroduction and exact-bootstrap controls. Evidence: private persistent-items-227-20261016. No production stage, source game data, caller activation or live input changed. Peer QA remains required; PR176 supplies collision-free caller identities.
 
+
+## 2026-10-16: Codex native bases for persistent door relationships
+
+The owner's persistent-door priority led back to PR174's actual ReferenceLinks
+rejection. Synthetic CLI controls reproduce two valid native-base cases rejected
+(exit2), plus a deleted local DOOR override wrongly accepted (exit0). Resolve from
+typed Starfield.esm records with local override precedence; deleted/non-door/missing
+bases now refuse. Eight CLI cases and the existing relationship/binary suite pass.
+Both persistent endpoints retain identity, transforms, grouping, flags, reciprocal
+XTEL/transition links and open state after serialization. Original inputs/map stay
+unchanged. No native DOOR cloning or ID allocation. Evidence retained privately at
+test-plans/native-door-bases-20261016 (before, after and final).
+This optional post-pass remains interior-scoped; PluginSpike owns primary load-door
+writing. No exterior merge fix, live install/input, travel or save/reload acceptance
+is claimed. Peer QA pending; Claude retains native controller.
+
+## 2026-10-16: Codex both persistent teleport endpoints
+
+PR245 follow-up reproduces three serialized failures: explicit false persistence,
+missing persistence and one-way travel all left valid XTEL endpoints temporary.
+The optional ReferenceLinks post-pass now applies the same both-endpoint persistent
+group/flag rule as primary PluginSpike.TeleportLinks, after link validation. No
+return link is invented and IDs/transforms remain unchanged. Eleven CLI/readback
+cases plus library refusal-before-promotion/idempotence and prior relationship
+checks pass; guard passes. Source failures and current evidence retained privately
+at native-door-persistence-20261016. No primary writer, source stage, live input,
+installation or game-state claim. Peer QA and merge/native-save gates remain.
+
+## 2026-10-16: Codex independently inspects rebuilt persistent doors
+
+Pinned integ_1011/integ_1016 raw plugins/maps: all54,877 map entries and master order
+identical. One FortHagen pair remains the only two persistent DOOR/XTEL references;
+endpoint fields/ancestry unchanged. All28 reported unlinked references exist and
+lack XTEL (20 DOOR/8 STAT, all temporary); four reported unplaced source endpoints
+have no map slots, including Red Rocket05E844. Six malformed flag/group/return-edge
+controls detected. First inefficient audit loop stopped; initial all-unlinked-bases-
+are-DOOR assumption disproved/corrected; both preserved. See
+slice/persistent-door-rebuild.md and private persistent-interior-rebuild-20261016.
+No source/game edits, newly connected interiors or native/save acceptance claimed.
+
+## 2026-10-16 — Codex: explicitly selected missing interior door endpoints
+
+ReferenceLinks now accepts --door-bases=JSON keyed by original source reference. Reproduced seven CLI failures: skipped allocation/reservation and ignored invalid selections. Valid selected exported Door records get verified active native/local DOOR bases, stable source-map IDs, persistent grouping, source transforms/disabled/open state; existing conflicting bases/owners and occupied reservations refuse. No guessed bases, synthetic return edges, primary writer changes or live actions. Seven new actual-CLI controls and eleven prior controls plus library/binary checks pass. Peer QA pending; see docs/slice/missing-door-endpoints.md. Private failed/passing fixtures retained under missing-door-endpoints-20261016.
+
+## 2026-10-16 — Codex: actual missing cave endpoint candidate
+
+PR251/code63131c6 exercised against private integ_1016/RedRocket01 snapshots and verified native24F9CE base. Strict mode exit2/no plugin retains missing08EB65 destination; explicitly partial candidate adds05E844 as local00DE5D, preserves54,877 map entries, no XTEL invented. Separate raw parser verifies group/flag/base/transforms/scale and compares all prior records: only header plus three original-export persistent promotions (05F97B/05FAA0/05FAA3), unchanged subrecord bytes. All source pins unchanged. Output cdd69d7b..., private missing-cave-production-20261016; initial wrong net8.0 harness path retained, correctednet9.0 run passes. No stage/install/input change; peer/native/cross-plugin integration pending.
+## 2026-10-16: Codex explicit door selection requires an existing cell
+
+Reproduced Claude's PR251 review finding: `--allow-unresolved` published a plugin
+without an explicitly selected door when its cell map or CELL record was absent;
+report-only also exited successfully for that omitted request. Selection preflight
+now requires the mapped cell before mutation. Six new CLI scenarios pass, including
+unchanged partial behavior for an unrelated missing cell. The targeted executable
+also passes13 missing-door,11 native-base and relationship binary checks; guard and
+diff checks pass. Failed/passing synthetic evidence retained privately in
+test-plans/door-selection-cells-20261016. No real slots, staging, install or game
+input changed; new correction awaits peer QA and carry-forward into stacked253.
 ## 2026-10-16: Codex scripted cave-door compiler packet
 
 Following Claude's #32 request6222158841, added a separate player-only Papyrus
@@ -1549,3 +1607,70 @@ distinct source-plugin identities and byte-identical explicit legacy bootstrap. 
 PR261's independent staging/ownership/VMAD findings remain gates; this patch changes none of those paths.
 Peer review, current-head CI, full-size integration and native travel/save-reload remain required.
 Evidence: private scripted-door-identities-20261016; original failures and passing outputs retained.
+
+## 2026-10-10 Claude: FO4 skin reader and pose bake (offline)
+New `src/fo4sf/fo4skin.py` reads a skinned FO4 shape's skin (bone nodes from `BSSkin::Instance`, skin-to-bone
+transforms and bone-space bounding spheres from `BSSkin::BoneData`, f16 weights and u8 bone slots per vertex) and
+poses its vertices by linear blend skinning. Checked on `SkeletonClothed01.nif` and on all 16,350 skinned shapes in
+the two FO4 mesh archives (0 read errors). Posing the skeleton with its own NIF nodes does **not** give back the stored
+positions (max 64.45 units): its node pose is the bind pose with the root bone turned 45 degrees about X, and the
+ragdoll bodies are in that node pose. With that one rigid transform taken out, the error is 0.000025 units. The
+converter draws skinned shapes from the stored positions but puts collision on the nodes, so mesh and collision
+disagree for 346 placements in the pinned build (95 skeletons; vault sink taps drawn at the model origin). Not
+changed in this PR. Next: pose skinned shapes with `fo4skin` in `convert_nif` (check in game), then pose ragdoll
+skeletons. Evidence: docs/ai/research-log.md.
+
+## 2026-10-10 Skinned props posed as FO4 draws them (offline; owner at the PC touring the library)
+Follow-up to PR #45's finding. `convert_static.pose_skinned_shapes` now bakes the NIF's node pose into every skinned
+shape (linear blend skinning, normals turned with the heaviest bone), so the mesh lands where FO4 draws it and where
+its bone-node collision already is. Real-data check: the Vault 81 sink's tap moves from the floor (model origin) to the
+basin rim (1.13-1.19 m) with its water streams under it; the skeleton's mesh now matches its collision box exactly
+(z 0.29-1.74 m). Animated NIFs are posed too (their rest pose) and flagged `skinned_posed_animated` in the manifest for
+the in-game look. Tests 273 OK, guard OK (guard now skips `.claude/` agent worktrees). Not yet seen in game; expect
+346 placements to shift in the next build (PR #45's scan). Ragdoll pose (XRGD, PR #44 export) comes on top of this.
+
+## 2026-10-11 `XRGD` ragdoll pose decoded (offline, no game input)
+- FO4's per-placement ragdoll data is readable now: one entry per physics body in body order, each replacing its bone
+  node's local transform (parent-node frame, game units), rotation Rx(-x)Ry(-y)Rz(-z) like the NIF itself. Evidence
+  and numbers: research log, same date. `src/fo4sf/ragdoll_pose.pose_bones(nif_bytes, entries)` returns the posed bone
+  world transforms in reference space; 10 synthetic tests.
+- Vault 114: 57 of 62 placements with `XRGD` pose; 53 of them rest on the surface under them (bind pose: 41). The two
+  skeletons by door `05C7DC` lie flat (bones within 13 units of height, hull 1 unit under to 22 above the floor) where
+  the bind pose stood 129 tall. 5 placements carry entries for another model (stale) and are rejected.
+- Next: bake the pose into the converted mesh (skin weights, PR #45 / #46) and the rigid body, rebuild Vault 114, look
+  in game. Side finding to check: the REFR rotation order `routes.ref_matrix` uses offline may be the wrong one
+  (known unknown #7).
+
+## 2026-10-16 Claude: posed props (owner playtest rows 4 c and 5; offline, no game input)
+- Cause, verified: the pinned interior build `integ_1011` was made from `a5bc92e`, which has none of the pose work (PRs
+  #45, #46, #52 were never merged), so every skinned prop was drawn in its skin's bind pose and no reference's ragdoll
+  pose (XRGD) was used. The lab-coat skeleton of rows 4 c and 5 stands for that reason. The rad scanners are not posed
+  models at all: same mesh as FO4, the tilted panel is authored that way and loses FO4's glow quad (a skipped effect
+  shape). Details and counts: research log, same date.
+- This PR carries #45 / #46 / #52 forward onto current `main` and finishes them: skin posed in the placed frame
+  (`world_transforms(placed=True)`, as shapes and bodies), and a posed model of its own for each reference whose XRGD
+  moves an articulated model (`placed_pose`, `PosedBases.cs`). Sampling the animated skinned models' sequences showed
+  the node pose is an animation state of every one of them and the bind pose of none (the elevator's surface hatch lay
+  on the vault floor in the bind pose).
+- 16 interiors: 231 placed references change (180 skinned in the node pose, 147 with their own XRGD pose, 96 both);
+  214 single-body loose items with XRGD stay as they are (unchecked frame for a root body). Offline end to end: 35
+  models + 147 posed models converted in 54 s, plugin written and read back, 147 references on their posed base, 0
+  wrong. Renders: docs/media/posed-props/. Not in game yet; the next interior build needs a full convert (the code
+  digest changes the checkpoints).
+
+## 2026-10-16 Codex: persistent doors with main's activators, terminals and lights (offline)
+
+PR265 integrates pinned main edd2400 into the isolated227/261 combination. Four mixed persistent builds
+refused anonymous ACTI allocations before the fix. Semantic keys now cover ordinary ACTI, TERM/TMLM,
+LIGH bases and complete source identities for light REFRs, alongside the existing door ACTI/arrival keys.
+Legacy allocation keeps lights before scripted bases/arrivals. The combined caller retains every promotion
+class; its raw checker counts ordinary and door ACTIs together, includes return markers, and checks VMADs.
+
+Five mixed-writer tests and21 existing writer tests pass: reorder, insertion/removal/reintroduction,
+separate source masters, exact bootstrap, invalid-input preservation, prior light IDs/bytes and damaged
+record refusals.67 caller and19 cluster tests pass. Legacy plugin/map bytes match before/after for both
+mixed and pre-door builds. Failed observations and two corrected test-harness mistakes (VMAD byte-tag
+comparison and map metadata iteration) are retained in scripted-door-main-integration-20261016.
+Independent QA, production persistent caller/checker integration, full-size bootstrap and native travel/
+return/save-reload remain pending. PR261 staging/raw-patch review findings remain inherited and gated.
+No live stage, deployment, controller or other agent checkout changed.

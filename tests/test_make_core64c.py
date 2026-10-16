@@ -572,8 +572,9 @@ class ItemPromotionTests(unittest.TestCase):
         kit = {"src": "000003:Fallout4.esm", "name": "First Aid Kit", "items": [{"form": "Starfield.esm:00000F", "count": 25}],
                "base": "04B6E9:Fallout4.esm"}
         cl = {"containers": [kit], "items": [self.item(3), self.item(0)]}
-        keep, conts, items, doors = mk.cluster_promote(self.BASES, self.placed(), cl)
-        self.assertEqual(doors, [])
+        keep, promoted = mk.cluster_promote(self.BASES, self.placed(), cl)
+        conts, items = promoted["containers"], promoted["items"]
+        self.assertEqual((promoted["activators"], promoted["terminals"]), ([], []))
         self.assertEqual([p["src"] for p in keep], ["000002:Fallout4.esm", "000005:Fallout4.esm"])
         self.assertEqual([c["reference_index"] for c in conts], [2])
         self.assertEqual([i["reference_index"] for i in items], [0, 3])          # slots of the unpromoted list
@@ -760,7 +761,8 @@ class ScriptedDoorTests(unittest.TestCase):
         000802..000805, CONT 000806, NAVM 000807..000808, then the ACTI 000809 and the arrival marker 00080A)."""
         bounds = {"fo4core\\interiors\\industrial\\doors\\indmetaldoorload01.nif": self.OBND}
         kit = {"src": "152DA0:Fallout4.esm", "name": "Cram", "items": [{"form": "Starfield.esm:00000F", "count": 1}], "base": "0001:Fallout4.esm"}
-        keep, conts, items, doors = mk.cluster_promote(self.BASES, self.placed(), {"containers": [kit], "doors": [self.door()]}, cells=(-32, 31), bounds_of=bounds.get)
+        keep, promoted = mk.cluster_promote(self.BASES, self.placed(), {"containers": [kit], "doors": [self.door()]}, cells=(-32, 31), bounds_of=bounds.get)
+        conts, items, doors = (promoted[k] for k in ("containers", "items", "doors"))
         objects = {"refs": keep, "containers": conts, "items": items, "doors": doors}
         ids = {"bases": {"a": "000800", "b": "000801"},
                "refs": {"130DEC:Fallout4.esm": "000804", "000001:Fallout4.esm": "000805"},
@@ -884,3 +886,428 @@ class ClusterTests(unittest.TestCase):
         ids["refs"][kept[0]["src"]] = "000902"  # old allocation reused the removed source's slot
         with self.assertRaisesRegex(ValueError, "moved"):
             mk.check_reference_slots(objects, ids)
+
+
+class ActivatorTerminalPromotionTests(unittest.TestCase):
+    """Activators and terminals (commonwealth-build-plan.md section 3): --cluster "activators" become native ACTI and
+    "terminals" native TERM references with their own TMLM menu, one base per FO4 base, in the one slot plan."""
+    BASES = [{"edid": "FO4Core_bell", "model": "fo4core\\setdressing\\boats\\bell_01.nif"},
+             {"edid": "FO4Core_terminalon", "model": "fo4core\\furniture\\terminals\\terminalon.nif"},
+             {"edid": "FO4Core_bell_b", "model": "fo4core\\setdressing\\boats\\bell_b.nif"}]
+    BODY = "FO4 terminal (text not ported yet)"
+
+    @staticmethod
+    def placed(n=7, disabled=()):
+        base = {4: 1, 5: 1, 6: 2}
+        return [{"src": f"{i + 1:06X}:Fallout4.esm", "base": base.get(i, 0), "cell": [0, i], "pos": [1.0 + i, 2.0, 3.0],
+                 "rot": [0, 0, 0.5], "scale": 1.0, "disabled": i in disabled} for i in range(n)]
+
+    @staticmethod
+    def acti(i, **kw):
+        e = {"src": f"{i + 1:06X}:Fallout4.esm", "name": "Bell", "base": "0BB1E1:Fallout4.esm", "editor_id": "Bell_Free"}
+        e.update(kw)
+        return e
+
+    @classmethod
+    def term(cls, i, **kw):
+        e = {"src": f"{i + 1:06X}:Fallout4.esm", "name": "Terminal", "body": cls.BODY, "base": "0E1E33:Fallout4.esm",
+             "editor_id": "DefaultTerminalDesk"}
+        e.update(kw)
+        return e
+
+    def test_body_constant_matches_make_cluster(self):
+        import make_cluster as mc
+        self.assertEqual(mk.TERMINAL_BODY, mc.TERMINAL_BODY)
+        self.assertEqual(mk.TERMINAL_BODY, self.BODY)
+
+    def test_activators_of_one_base_share_the_acti_and_carry_the_reference(self):
+        cl = {"activators": [self.acti(1), self.acti(3), self.acti(2, base="0BB1E2:Fallout4.esm", name=None)]}
+        keep, out = mk.cluster_activators(self.BASES, self.placed(), cl)
+        self.assertEqual([p["src"] for p in keep], [f"{i:06X}:Fallout4.esm" for i in (1, 5, 6, 7)])
+        self.assertEqual([e["edid"] for e in out], ["FO4Core_acti_0bb1e1_fallout4", "FO4Core_acti_0bb1e2_fallout4",
+                                                    "FO4Core_acti_0bb1e1_fallout4"])
+        self.assertEqual([e["reference_index"] for e in out], [1, 2, 3])
+        self.assertEqual([e["name"] for e in out], ["Bell", None, "Bell"])                  # None: no FULL
+        e = out[0]
+        self.assertEqual((e["model"], e["cell"], e["pos"], e["rot"], e["scale"]),
+                         (self.BASES[0]["model"], [0, 1], [2.0, 2.0, 3.0], [0, 0, 0.5], 1.0))
+        self.assertEqual(mk.activator_edid(None, "19EE52:Fallout4.esm"), "FO4Core_acti_19ee52")
+        self.assertEqual(mk.cluster_activators(self.BASES, self.placed(), {}), (self.placed(), []))
+
+    def test_terminals_get_a_menu_edid_and_the_body(self):
+        keep, out = mk.cluster_terminals(self.BASES, self.placed(), {"terminals": [self.term(5), self.term(4)]})
+        self.assertEqual(len(keep), 5)
+        self.assertEqual([(e["edid"], e["menu_edid"], e["reference_index"]) for e in out],
+                         [("FO4Core_term_0e1e33_fallout4", "FO4Core_tmlm_0e1e33_fallout4", 4),
+                          ("FO4Core_term_0e1e33_fallout4", "FO4Core_tmlm_0e1e33_fallout4", 5)])
+        self.assertEqual((out[0]["name"], out[0]["body"], out[0]["model"]), ("Terminal", self.BODY, self.BASES[1]["model"]))
+        no_body = self.term(4)
+        del no_body["body"]                                                     # the default body line
+        self.assertEqual(mk.cluster_terminals(self.BASES, self.placed(), {"terminals": [no_body]})[1][0]["body"], self.BODY)
+        with self.assertRaisesRegex(ValueError, "not a terminal edid"):
+            mk.terminal_menu_edid("FO4Core_acti_0e1e33_fallout4")
+
+    def test_bad_entries_are_refused(self):
+        P = self.placed()
+        cases = (
+            (mk.cluster_activators, {"activators": [self.acti(1), self.acti(3, name="Gong")]}, "different name / model"),
+            (mk.cluster_activators, {"activators": [self.acti(1), self.acti(6)]}, "different name / model"),   # another model
+            (mk.cluster_activators, {"activators": [self.acti(1, name="")]}, "neither none nor one line"),
+            (mk.cluster_activators, {"activators": [self.acti(1, name="a\nb")]}, "neither none nor one line"),
+            (mk.cluster_activators, {"activators": [self.acti(1), self.acti(1)]}, "twice"),
+            (mk.cluster_activators, {"activators": [self.acti(1, src="ABCDEF:Fallout4.esm")]}, "not placed"),
+            (mk.cluster_terminals, {"terminals": [self.term(4, name=None)]}, "name"),
+            (mk.cluster_terminals, {"terminals": [self.term(4, body="line one\r\nline two")]}, "body"),
+            (mk.cluster_terminals, {"terminals": [self.term(4, body=" ")]}, "body"),
+            (mk.cluster_terminals, {"terminals": [self.term(4), self.term(5, body="other")]}, "different name / model / body"),
+        )
+        for fn, cl, why in cases:
+            with self.assertRaisesRegex(ValueError, why, msg=cl):
+                fn(self.BASES, P, cl)
+        with self.assertRaisesRegex(ValueError, "disabled"):
+            mk.cluster_terminals(self.BASES, self.placed(disabled=(4,)), {"terminals": [self.term(4)]})
+
+    def plan(self):
+        """A cluster of every class (a container, an item, two activators of one base, two terminals of one base) and
+        the identities the writer declares for it: bases 800..802, slots 803..809, then CONT, MISC, ACTI, TERM, TMLM."""
+        kit = {"src": "000007:Fallout4.esm", "name": "First Aid Kit", "items": [{"form": "Starfield.esm:00000F", "count": 25}],
+               "base": "04B6E9:Fallout4.esm"}
+        can = {"src": "000001:Fallout4.esm", "name": "Can", "value": 1, "weight": 0.1, "base": "059B02:Fallout4.esm"}
+        cl = {"containers": [kit], "items": [can], "activators": [self.acti(3), self.acti(1)],
+              "terminals": [self.term(4), self.term(5)]}
+        keep, promoted = mk.cluster_promote(self.BASES, self.placed(), cl)
+        self.assertEqual([p["src"] for p in keep], ["000003:Fallout4.esm"])
+        self.assertEqual({k: [e["reference_index"] for e in v] for k, v in promoted.items()},
+                         {"containers": [6], "items": [0], "activators": [1, 3], "terminals": [4, 5], "doors": []})
+        objects = dict({"refs": keep}, **promoted)
+        ids = {"bases": {"a": "000800", "b": "000801", "c": "000802"}, "refs": {"000003:Fallout4.esm": "000805"},
+               "containers": {"000007:Fallout4.esm": {"base": "00080A", "ref": "000809"}},
+               "items": {"000001:Fallout4.esm": {"base": "00080B", "ref": "000803"}},
+               "activators": {"000002:Fallout4.esm": {"base": "00080C", "ref": "000804"},
+                              "000004:Fallout4.esm": {"base": "00080C", "ref": "000806"}},
+               "terminals": {"000005:Fallout4.esm": {"base": "00080D", "ref": "000807", "menu": "00080E"},
+                             "000006:Fallout4.esm": {"base": "00080D", "ref": "000808", "menu": "00080E"}}}
+        mk.check_reference_slots(objects, ids)
+        return cl, objects, ids
+
+    def test_every_class_shares_one_slot_plan(self):
+        cl, _objects, _ids = self.plan()
+        for k, other in (("items", "activators"), ("containers", "terminals")):
+            two = json.loads(json.dumps(cl))
+            two[other].append(dict(two[k][0], **({"name": "X", "body": self.BODY} if other == "terminals" else {})))
+            with self.assertRaisesRegex(ValueError, "listed as both an? \\w+ and an? \\w+"):
+                mk.cluster_promote(self.BASES, self.placed(), two)
+
+    def test_an_edid_standing_for_two_fo4_sources_is_refused(self):
+        # promoted_edid strips the plugin's punctuation and extension: A-B.esm and AB.esp both give FO4Core_acti_0bb1e1_ab
+        cl = {"activators": [self.acti(1, base="0BB1E1:A-B.esm"), self.acti(3, base="0BB1E1:AB.esp")]}
+        with self.assertRaisesRegex(ValueError, "two FO4 sources"):
+            mk.cluster_promote(self.BASES, self.placed(), cl)
+        cl = {"activators": [self.acti(1, base="0BB1E1:AB.esm"), self.acti(3, base="0bb1e1:ab.ESM")]}   # ASCII case: one
+        self.assertEqual(len({e["edid"] for e in mk.cluster_promote(self.BASES, self.placed(), cl)[1]["activators"]}), 1)
+
+    def test_slot_check_refuses_bad_menus_and_overlaps(self):
+        _cl, objects, good = self.plan()
+        T5, T6 = "000005:Fallout4.esm", "000006:Fallout4.esm"
+        cases = (
+            ("terminal menu overlaps", lambda i: [v.update(menu="000808") for v in i["terminals"].values()]),
+            ("also a promoted base", lambda i: [v.update(menu="00080C") for v in i["terminals"].values()]),
+            ("two menus", lambda i: i["terminals"][T6].update(menu="00080F")),
+            ("activator base overlaps", lambda i: [v.update(base="000804") for v in i["activators"].values()]),
+            ("another promoted class", lambda i: [v.update(base="00080B") for v in i["activators"].values()]),
+            ("moved", lambda i: i["terminals"][T5].update(ref="000808") or i["terminals"][T6].update(ref="000807")),
+            ("differs from objects", lambda i: i.pop("activators")),
+            ("missing or invalid", lambda i: i["terminals"][T5].pop("menu")),
+        )
+        for why, change in cases:
+            ids = json.loads(json.dumps(good))
+            change(ids)
+            with self.assertRaisesRegex(ValueError, why):
+                mk.check_reference_slots(objects, ids)
+        two = json.loads(json.dumps(objects))                          # two terminal edids, one declared menu
+        two["terminals"][1]["edid"] = "FO4Core_term_0e1e34_fallout4"
+        ids = json.loads(json.dumps(good))
+        ids["terminals"][T6]["base"] = "00080F"
+        with self.assertRaisesRegex(ValueError, "one menu declared for two terminal edids"):
+            mk.check_reference_slots(two, ids)
+
+    def records(self, objects, ids, own=0x01000000, **override):
+        """Raw records the writer would give for plan(): the four STAT-side records only matter for the counts."""
+        def z(text):
+            return text.encode("utf-8") + b"\0"
+
+        def refr(e, v):
+            return {"sig": "REFR", "fid": own | int(v["ref"], 16), "flags": 0,
+                    "fields": [(b"NAME", struct.pack("<I", own | int(v["base"], 16))),
+                               (b"DATA", struct.pack("<6f", *e["pos"], *e["rot"]))]}
+        recs = [{"sig": "REFR", "fid": own | 0x805, "flags": 0, "fields": []}]
+        c = objects["containers"][0]
+        recs.append({"sig": "CONT", "fid": own | 0x80A, "flags": 0, "fields": [(b"EDID", z(c["edid"])), (b"MODL", z(c["model"]))]})
+        i = objects["items"][0]
+        recs.append({"sig": "MISC", "fid": own | 0x80B, "flags": 0, "fields": [
+            (b"EDID", z(i["edid"])), (b"MODL", z(i["model"])), (b"FULL", z(i["name"])), (b"DATA", struct.pack("<if", 1, 0.1))]})
+        a = objects["activators"][0]
+        recs.append({"sig": "ACTI", "fid": own | 0x80C, "flags": 0, "fields": [
+            (b"EDID", z(a["edid"])), (b"MODL", z(a["model"])), (b"FULL", z(override.get("acti_name", a["name"])))]})
+        t = objects["terminals"][0]
+        recs.append({"sig": "TERM", "fid": own | 0x80D, "flags": 0, "fields": [
+            (b"EDID", z(t["edid"])), (b"DNAM", struct.pack("<I", own | override.get("menu", 0x80E))), (b"NAM1", b"\x02"),
+            (b"FULL", z(t["name"])), (b"MODL", z(t["model"]))]})
+        recs.append({"sig": "TMLM", "fid": own | 0x80E, "flags": 0, "fields": [
+            (b"EDID", z(t["menu_edid"])), (b"FULL", z(t["name"])), (b"TMVT", struct.pack("<I", 1)), (b"BSIZ", struct.pack("<I", 1))]
+            + [(b"BTXT", z(b)) for b in override.get("bodies", [t["body"]])]
+            + [(b"TPLT", b"\0"), (b"ISIZ", struct.pack("<I", override.get("isiz", 0)))]})
+        for k in ("containers", "items", "activators", "terminals"):
+            for e in objects[k]:
+                recs.append(refr(e, ids[k][e["src"]]))
+        recs += [{"sig": "REFR", "fid": own | 0x810, "flags": 0, "fields": []},
+                 {"sig": "REFR", "fid": own | 0x811, "flags": 0, "fields": []}]                # COC marker, anchor
+        return recs
+
+    def test_check_counts_and_bindings_of_every_class(self):
+        _cl, objects, ids = self.plan()
+        own, exp = 0x01000000, {"objects": {"exported": 9, "skipped": {"no model": 2}}}
+        res = mk.promotion_checks(self.records(objects, ids), own, objects, ids, exp)
+        self.assertTrue(all(ok for _w, ok in res), res)
+        self.assertEqual([w.split(" (")[0] for w, _ok in res][2:],
+                         ["1 CONT = 1 distinct containers edids", "1 MISC = 1 distinct items edids",
+                          "1 ACTI = 1 distinct activators edids", "1 TERM = 1 distinct terminals edids",
+                          "1 TMLM = 1 distinct terminals menu edids", "every promoted REFR names its CONT / MISC / ACTI / TERM"])
+        self.assertTrue(res[0][0].endswith("+ 1 containers + 1 items + 2 activators + 2 terminals"), res[0][0])
+        for override, why in (({"acti_name": "Gong"}, "ACTI name"), ({"menu": 0x80C}, "does not name its menu"),
+                              ({"bodies": []}, "body texts"), ({"bodies": [self.BODY, self.BODY]}, "body texts"),
+                              ({"bodies": ["other"]}, "body texts"), ({"isiz": 1}, "no menu item")):
+            pp = mk.promoted_record_check(self.records(objects, ids, **override), own, objects, ids)
+            self.assertIn(why, pp[0] if pp else "", override)
+        menuless = [r for r in self.records(objects, ids) if r["sig"] != "TMLM"]
+        res = dict((w.split(" (")[0], ok) for w, ok in mk.promotion_checks(menuless, own, objects, ids, exp))
+        self.assertFalse(res["0 TMLM = 1 distinct terminals menu edids"])
+        self.assertIn("is not a TMLM", " ".join(mk.promoted_record_check(menuless, own, objects, ids)))
+        unnamed = json.loads(json.dumps(objects))
+        for e in unnamed["activators"]:
+            e["name"] = None                                                 # an unnamed ACTI must have no FULL
+        self.assertTrue(mk.promoted_record_check(self.records(objects, ids), own, unnamed, ids))
+
+    def test_nonfinite_values_never_pass_the_record_check(self):
+        """Codex's review of #235: abs(NaN - x) > tol is False, so a NaN in the plugin passed the tolerance tests."""
+        _cl, objects, ids = self.plan()
+        own = 0x01000000
+        self.assertEqual(mk.promoted_record_check(self.records(objects, ids), own, objects, ids), [])
+        nan = float("nan")
+        for channel in range(6):                                            # DATA x, y, z, rx, ry, rz of one REFR
+            recs = self.records(objects, ids)
+            r = next(r for r in recs if r["fid"] == own | 0x806)
+            vals = list(struct.unpack("<6f", r["fields"][1][1]))
+            vals[channel] = nan
+            r["fields"][1] = (b"DATA", struct.pack("<6f", *vals))
+            self.assertTrue(mk.promoted_record_check(recs, own, objects, ids), channel)
+        recs = self.records(objects, ids)
+        next(r for r in recs if r["fid"] == own | 0x806)["fields"].append((b"XSCL", struct.pack("<f", nan)))
+        self.assertTrue(mk.promoted_record_check(recs, own, objects, ids))
+        recs = self.records(objects, ids)
+        m = next(r for r in recs if r["sig"] == "MISC")
+        m["fields"][3] = (b"DATA", struct.pack("<if", 1, nan))
+        self.assertIn("MISC DATA", " ".join(mk.promoted_record_check(recs, own, objects, ids)))
+        bad = json.loads(json.dumps(objects))
+        bad["items"][0]["weight"] = nan                                    # a NaN on the expected side too
+        self.assertIn("MISC DATA", " ".join(mk.promoted_record_check(self.records(objects, ids), own, bad, ids)))
+        self.assertFalse(mk.close([1.0, 2.0], [1.0], 1))                     # lengths must agree
+        self.assertFalse(mk.close(float("inf"), float("inf"), 1))
+        self.assertTrue(mk.close([1.0, 2.0], [1.0005, 2.0], 1e-3))
+
+    def test_record_text_reads_utf8_then_cp1252(self):
+        self.assertEqual(mk.record_text("Café".encode("utf-8") + b"\0junk"), "Café")
+        self.assertEqual(mk.record_text("Café".encode("cp1252") + b"\0"), "Café")
+        self.assertIsNone(mk.record_text(None))
+
+
+def light_base(**kw):
+    b = {"editor_id": "defaultLightFire01NSFlicker", "time": -1, "radius": 3.657143, "color": [237, 168, 122], "flags": 1,
+         "type": 0, "falloff": 1.0, "fov": 90.0, "near_clip": 0.103106, "flicker": [0.36, 0.8, 0.011], "flicker_effect": 1,
+         "lumens": 17655, "bounds": [[-0.1, -0.1, -0.2], [0.1, 0.1, 0.1]], "random_anim_start": False,
+         "intensity_scale": 3.96, "dropped": []}
+    b.update(kw)
+    return b
+
+
+class LightTests(unittest.TestCase):
+    """Exterior lights (docs/terrain/exterior-lights.md): make_cluster.py lights -> objects.json lights for TerrainOverlays."""
+    OV = {"cell_min": -32, "cell_max": 31}
+    CLUSTER = {"light_bases": {"08ADFA:Fallout4.esm": light_base(), "0517B0:Fallout4.esm": light_base(type=2, flicker_effect=0)},
+               "lights": [{"src": "000003:Fallout4.esm", "base": "0517B0:Fallout4.esm", "editor_id": "x",
+                           "fo4_pos": [-69139.6, 80740.2, 7825.27], "rot": [0, 0, 1.5], "scale": 1.0, "disabled": False,
+                           "radius_delta": -0.5, "lighting": {"fov": -39.2, "fade": 1.6, "near_clip": 0.0},
+                           "record_flags": 0x30100},
+                          {"src": "000001:Fallout4.esm", "base": "08ADFA:Fallout4.esm", "editor_id": "y",
+                           "fo4_pos": [700.0, -1400.0, 70.0], "rot": [0, 0, 0], "scale": 1.0, "disabled": True,
+                           "radius_delta": None, "lighting": None, "record_flags": 0},
+                          {"src": "000002:Fallout4.esm", "base": "0517B0:Fallout4.esm", "editor_id": "x",
+                           "fo4_pos": [9999999.0, 0.0, 0.0], "rot": [0, 0, 0], "scale": 1.0, "disabled": False,
+                           "radius_delta": None, "lighting": None, "record_flags": 0x100}]}
+
+    def test_light_edid(self):
+        self.assertEqual(mk.light_edid("08ADFA:Fallout4.esm"), "FO4Core_ligh_08adfa_fallout4")
+        self.assertNotEqual(mk.light_edid("08ADFA:Fallout4.esm"), mk.light_edid("08ADFA:DLCCoast.esm"))
+        with self.assertRaises(ValueError):
+            mk.light_edid("Fire")
+
+    def test_lights_in_metres_and_cells_bases_in_first_use_order(self):
+        lights, bases, outside = mk.cluster_lights(self.CLUSTER, self.OV, ["000009:Fallout4.esm"])
+        self.assertEqual([e["src"] for e in lights], ["000003:Fallout4.esm", "000001:Fallout4.esm"])
+        self.assertEqual([b["edid"] for b in bases], ["FO4Core_ligh_0517b0_fallout4", "FO4Core_ligh_08adfa_fallout4"])
+        self.assertEqual(bases[0]["fo4_base"], "0517B0:Fallout4.esm")
+        self.assertNotIn("dropped", bases[0])                       # report-only keys stay out of objects.json
+        e = lights[0]
+        self.assertEqual(e["pos"], [round(-69139.6 / 70, 5), round(80740.2 / 70, 5), round(7825.27 / 70, 5)])
+        self.assertEqual(e["cell"], list(tg.sf_cell_of(e["pos"][0], e["pos"][1])))
+        self.assertEqual((e["radius"], e["lighting"], e["edid"]), (-0.5, {"fov": -39.2, "fade": 1.6, "near_clip": 0.0},
+                                                                   "FO4Core_ligh_0517b0_fallout4"))
+        self.assertEqual((lights[1]["disabled"], lights[1]["lighting"]), (True, None))
+        # the FO4 reference's DoesNotLightWater / NeverFades / DoesNotLightLandscape bits reach objects.json as they are
+        self.assertEqual([e["flags"] for e in lights], [0x30100, 0])
+        self.assertEqual([s["formkey"] for s in outside], ["000002:Fallout4.esm"])
+        self.assertEqual(outside[0]["reason"], "outside_terrain")
+
+    def test_refusals(self):
+        c = self.CLUSTER
+        cases = [(dict(c), ["000001:fallout4.esm"], "placed reference"),        # a placed (reserved) source, any case
+                 ({**c, "lights": c["lights"] + [dict(c["lights"][0])]}, [], "twice"),
+                 ({**c, "lights": [dict(c["lights"][0], reference_index=4)]}, [], "reference_index"),
+                 ({**c, "lights": [dict(c["lights"][0], base="111111:Fallout4.esm")]}, [], "not in light_bases"),
+                 ({**c, "lights": [dict(c["lights"][0], lighting={"fov": 0, "fade": 2.5, "near_clip": 0})]}, [], "vanilla XLIG"),
+                 ({**c, "lights": [dict(c["lights"][0], src="")]}, [], "source key"),
+                 ({**c, "lights": [dict(c["lights"][0], record_flags=0x800)]}, [], "record_flags"),     # not a carried bit
+                 ({**c, "lights": [{k: v for k, v in c["lights"][0].items() if k != "record_flags"}]}, [], "run make_cluster"),
+                 ({**c, "light_bases": {"0517B0:Fallout4.esm": light_base(lumens=0)}}, [], "out of range"),
+                 ({**c, "light_bases": {"0517B0:Fallout4.esm": {k: v for k, v in light_base().items() if k != "fov"}}}, [], "missing")]
+        for cluster, placed, why in cases:
+            with self.assertRaisesRegex(ValueError, why):
+                mk.cluster_lights(cluster, self.OV, placed)
+        self.assertEqual(mk.cluster_lights({}, self.OV, []), ([], [], []))
+
+    def test_stage_lights_keeps_the_export_accounting(self):
+        skipped = [{"formkey": s, "reason": "type_not_translated"} for s in ("000001:Fallout4.esm", "000002:Fallout4.esm",
+                                                                             "000003:Fallout4.esm", "00000A:Fallout4.esm")]
+        placed = [{"src": "000009:Fallout4.esm"}]
+        lights, bases, left, n_out = mk.stage_lights(self.CLUSTER, self.OV, placed, [], skipped)
+        self.assertEqual(n_out, 1)
+        self.assertEqual(len(placed) + len(lights) + len(left), 1 + len(skipped))
+        self.assertEqual(sorted((s["formkey"], s["reason"]) for s in left),
+                         [("000002:Fallout4.esm", "outside_terrain"), ("00000A:Fallout4.esm", "type_not_translated")])
+        with self.assertRaisesRegex(ValueError, "did not skip"):
+            mk.stage_lights(self.CLUSTER, self.OV, placed, [], skipped[1:])  # a light that is not in this export
+        self.assertEqual(mk.stage_lights({}, self.OV, placed, [], skipped)[2], skipped)
+
+    def ids(self):
+        objects = {"refs": [{"src": "R1"}], "containers": [{"src": "C1", "reference_index": 0}],
+                   "lights": [{"src": "L1", "edid": "B"}, {"src": "L2", "edid": "A"}, {"src": "L3", "edid": "B"}],
+                   "light_bases": [{"edid": "B"}, {"edid": "A"}]}
+        ids = {"bases": {"S": "000900"}, "refs": {"R1": "000902"}, "containers": {"C1": {"base": "000903", "ref": "000901"}},
+               "navmeshes": ["000904", "000905"],
+               "lights": {"L1": {"base": "000909", "ref": "000906"}, "L2": {"base": "00090A", "ref": "000907"},
+                          "L3": {"base": "000909", "ref": "000908"}}}
+        return objects, ids
+
+    def test_light_ids_follow_every_other_record(self):
+        objects, ids = self.ids()
+        mk.check_light_identities(objects, ids)
+        mk.check_light_identities({"refs": []}, {})                 # no lights: nothing to check
+        bad = copy.deepcopy(ids)
+        bad["lights"]["L1"]["ref"] = "000904"                       # inside the NAVM range
+        bad["lights"]["L2"]["ref"], bad["lights"]["L3"]["ref"] = "000905", "000906"
+        with self.assertRaisesRegex(ValueError, "not new id"):
+            mk.check_light_identities(objects, bad)
+        bad = copy.deepcopy(ids)
+        bad["lights"]["L3"]["base"] = "00090A"                      # one edid, two LIGH
+        with self.assertRaisesRegex(ValueError, "LIGH"):
+            mk.check_light_identities(objects, bad)
+        bad = copy.deepcopy(ids)
+        bad["items"] = {"I1": {"base": "000910", "ref": "000911"}}  # a later promoted class (#235) counts as "other"
+        with self.assertRaisesRegex(ValueError, "not new id"):
+            mk.check_light_identities(objects, bad)
+        bad = copy.deepcopy(ids)
+        del bad["lights"]["L2"]
+        with self.assertRaisesRegex(ValueError, "differs"):
+            mk.check_light_identities(objects, bad)
+        swapped = copy.deepcopy(objects)
+        swapped["light_bases"].reverse()
+        with self.assertRaisesRegex(ValueError, "first-use"):
+            mk.check_light_identities(swapped, ids)
+
+    def test_light_ids_follow_terminal_menus(self):
+        # merged with #241: a promoted terminal's TMLM menu is one of the other records, so the lights come after it
+        objects, ids = self.ids()
+        with_menu = copy.deepcopy(ids)
+        with_menu["terminals"] = {"T1": {"base": "000903", "ref": "000901", "menu": "000906"}}
+        with self.assertRaisesRegex(ValueError, "not new id"):
+            mk.check_light_identities(objects, with_menu)
+        for src, v in with_menu["lights"].items():
+            with_menu["lights"][src] = {k: f"{int(x, 16) + 1:06X}" for k, x in v.items()}
+        mk.check_light_identities(objects, with_menu)
+
+    def test_lights_after_and_raw_record_check(self):
+        objects, ids = self.ids()
+        own = 1 << 24
+        recs = [{"sig": "STAT", "fid": own | 0x900, "flags": 0, "fields": []},
+                {"sig": "NAVM", "fid": own | 0x905, "flags": 0, "fields": []},
+                {"sig": "NAVI", "fid": 0x000FF1, "flags": 0, "fields": []},       # an override of a master's record
+                {"sig": "LIGH", "fid": own | 0x909, "flags": 0, "fields": []},
+                {"sig": "REFR", "fid": own | 0x906, "flags": 0x100, "fields": []}]
+        self.assertEqual(mk.lights_after(recs, 1, ids), (0x906, 0x905))
+        recs.append({"sig": "REFR", "fid": own | 0x90B, "flags": 0, "fields": []})  # a non-light record after the lights
+        first, last = mk.lights_after(recs, 1, ids)
+        self.assertLess(first, last)
+        # light_record_problems on hand-made raw records: a LIGH with a wrong lumens value, a REFR without the 0x100 flag
+        dat2 = bytearray(76)
+        struct.pack_into("<ifBBBBI", dat2, 0, -1, 3.657143, 237, 168, 122, 0, 1)
+        struct.pack_into("<I", dat2, 52, 17000)
+        dat2[56], dat2[57] = 0, 1
+        edid = "FO4Core_ligh_08adfa_fallout4"
+        lobj = {"lights": [{"src": "L1", "edid": edid, "pos": [1, 2, 3], "rot": [0, 0, 0], "scale": 1.0,
+                            "disabled": False, "radius": None, "lighting": None, "flags": 0x100}],
+                "light_bases": [dict(light_base(), edid=edid)]}
+        lids = {"lights": {"L1": {"base": "000909", "ref": "000906"}}}
+        raw = [{"sig": "LIGH", "fid": own | 0x909, "flags": 0, "fields": [(b"EDID", edid.encode() + b"\0"), (b"DAT2", bytes(dat2))]},
+               {"sig": "REFR", "fid": own | 0x906, "flags": 0, "fields": [(b"NAME", struct.pack("<I", own | 0x909)),
+                                                                          (b"DATA", struct.pack("<6f", 1, 2, 3, 0, 0, 0))]}]
+        problems = mk.light_record_problems(raw, own, lobj, lids)
+        self.assertEqual(len(problems), 2)
+        self.assertIn("lumens 17000", problems[0])
+        self.assertIn("flags", problems[1])
+        struct.pack_into("<I", dat2, 52, 17655)
+        raw[0]["fields"][1] = (b"DAT2", bytes(dat2))
+        raw[1]["flags"] = 0x100
+        self.assertEqual(mk.light_record_problems(raw, own, lobj, lids), [])
+        # the REFR carries the FO4 reference's own light bits (the review of #246), not a forced 0x100
+        lobj["lights"][0]["flags"] = 0x30100                       # DoesNotLightWater | NeverFades | DoesNotLightLandscape
+        self.assertTrue(any("flags" in p for p in mk.light_record_problems(raw, own, lobj, lids)))
+        raw[1]["flags"] = 0x30100
+        self.assertEqual(mk.light_record_problems(raw, own, lobj, lids), [])
+        lobj["lights"][0]["flags"] = 0                             # a FO4 light that lights water
+        raw[1]["flags"] = 0x100
+        self.assertTrue(any("flags" in p for p in mk.light_record_problems(raw, own, lobj, lids)))
+        raw[1]["flags"] = 0
+        self.assertEqual(mk.light_record_problems(raw, own, lobj, lids), [])
+
+    def test_raw_record_check_reports_undeclared_lights_instead_of_raising(self):
+        # the review of #246 (P3-2): a formids.json without "lights" (an older or failed build) or a light base no
+        # light uses is a listed problem, so check reports its failed checks instead of stopping with a KeyError
+        edid = "FO4Core_ligh_08adfa_fallout4"
+        lobj = {"lights": [{"src": "L1", "edid": edid, "pos": [1, 2, 3], "rot": [0, 0, 0], "scale": 1.0,
+                            "disabled": False, "radius": None, "lighting": None, "flags": 0x100}],
+                "light_bases": [dict(light_base(), edid=edid), dict(light_base(), edid="FO4Core_ligh_unused")]}
+        problems = mk.light_record_problems([], 1 << 24, lobj, {"bases": {}})
+        self.assertEqual(len(problems), 3, problems)
+        self.assertTrue(all("declared" in p for p in problems))
+
+    def test_promotion_checks_count_the_lights(self):
+        # merged with #235: the REFR total and the export accounting include the lights, which left the skipped list
+        own = 1 << 24
+        objects = {"refs": [{"src": "R1"}], "lights": [{"src": "L1"}, {"src": "L2"}]}
+        recs = [{"sig": "REFR", "fid": own | 0x800 + k, "flags": 0, "fields": []} for k in range(5)]   # + COC, anchor
+        exp = {"objects": {"exported": 5, "skipped": {"no model": 2}}}
+        res = mk.promotion_checks(recs, own, objects, {}, exp)
+        self.assertEqual([ok for _w, ok in res], [True, True], res)
+        self.assertIn("+ 2 lights", res[0][0])
+        res = mk.promotion_checks(recs[:-1], own, objects, {}, exp)
+        self.assertFalse(res[0][1])                                # one light REFR short

@@ -2,14 +2,12 @@ using System.Text.Json;
 
 // Identity-only planning. Promotion changes the base type, not the source REFR's
 // slot in this export. It is not a persistent allocator for reordered exports.
-// Every promoted class ("containers", "items") is one ordered list of promoted sources:
+// Every promoted class ("containers", "items", "activators", "terminals", "doors") is one ordered list of promoted sources:
 // each carries its original reference_index, the remaining "refs" fill the other slots in order.
 internal static class ReferenceIdentityPlan
 {
-    // objects.json keys of the promoted classes (make_core64c.py PROMOTED): CONT, then MISC bases; a scripted door
-    // ("doors", docs/terrain/scripted-doors.md) keeps its REFR slot the same way, its ACTI base and arrival marker
-    // come after every other record
-    public static readonly string[] PromotedClasses = { "containers", "items", "doors" };
+    // objects.json keys of the promoted classes (make_core64c.py PROMOTED), including scripted load doors.
+    public static readonly string[] PromotedClasses = { "containers", "items", "activators", "terminals", "doors" };
 
     public static string[] Order(JsonElement objects)
     {
@@ -48,5 +46,44 @@ internal static class ReferenceIdentityPlan
             order[next++] = Source(item);
         }
         return order;
+    }
+
+    // Exterior lights (docs/terrain/exterior-lights.md): core64c never placed a FO4 Light reference, so a light owns no
+    // reserved slot. In legacy mode its REFR takes a NEW id after ordinary promotions/NAVMs, in "lights" order;
+    // scripted door bases/arrival markers follow the lights. Persistent allocation uses separate reservations.
+    // Refused: a light that claims an original reference_index, an empty or repeated source, a source that is also a
+    // reserved one (case-insensitive, as Order), a light whose edid is not in "light_bases", a light base listed twice,
+    // a light whose "flags" hold any bit but the carried REFR ones: 0x100 DoesNotLightWater, 0x10000 NeverFades,
+    // 0x20000 DoesNotLightLandscape (Mutagen's PlacedObject.LightMajorFlag in both games; make_core64c.py LIGHT_REF_FLAGS).
+    public const uint LightRefFlags = 0x100 | 0x10000 | 0x20000;
+
+    public static string[] Lights(JsonElement objects, IEnumerable<string> reserved)
+    {
+        if (!objects.TryGetProperty("lights", out var lights))
+            return Array.Empty<string>();
+        var bases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (objects.TryGetProperty("light_bases", out var lb))
+            foreach (var b in lb.EnumerateArray())
+                if (!bases.Add(b.GetProperty("edid").GetString() ?? ""))
+                    throw new InvalidDataException("light base listed twice");
+        var seen = new HashSet<string>(reserved, StringComparer.OrdinalIgnoreCase);
+        var order = new List<string>();
+        foreach (var item in lights.EnumerateArray())
+        {
+            if (item.TryGetProperty("reference_index", out _))
+                throw new InvalidDataException("a light owns no original reference slot (core64c never placed it)");
+            var source = item.GetProperty("src").GetString();
+            if (string.IsNullOrWhiteSpace(source))
+                throw new InvalidDataException("light source identity is empty");
+            if (!seen.Add(source))
+                throw new InvalidDataException("light source identity repeats a reserved or light source");
+            if (!bases.Contains(item.GetProperty("edid").GetString() ?? ""))
+                throw new InvalidDataException("light names a base that is not in light_bases");
+            if (!item.TryGetProperty("flags", out var flags) || flags.ValueKind != JsonValueKind.Number
+                || !flags.TryGetUInt32(out var bits) || (bits & ~LightRefFlags) != 0)
+                throw new InvalidDataException("light flags must be the FO4 reference's carried REFR bits (0x30100 at most)");
+            order.Add(source);
+        }
+        return order.ToArray();
     }
 }

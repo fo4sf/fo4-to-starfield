@@ -100,3 +100,20 @@ legacy door outputs still require explicit, byte-identical bootstrap before pers
 This integration does not enable persistence in an active stage or change door transforms,
 VMAD properties, physics or script behavior. The scripted staging/raw-patch findings on PR261,
 independent integration QA, full-size bootstrap and native return/save/reload remain gates.
+
+## Mixed promotions and lights
+
+Ordinary ACTI, TERM and TMLM records use `activator`, `terminal` and `terminal-menu`
+keys with their editor IDs. LIGH bases use `light-base` with the editor ID; light
+REFRs use `light-reference` with the full canonical source FormKey. Their separate
+namespaces prevent ordinary activators from sharing a scripted-door reservation.
+All existing reservations, including removed ones, remain occupied when more of
+these records are exported or the export order changes.
+
+The integrated legacy writer retains main's order through the lights: ordinary
+promotions, NAVMs, light REFRs, LIGH bases, then scripted-door bases and arrivals.
+Its mixed-output checker counts ordinary and door ACTIs together and checks door
+VMADs/arrivals separately. These ordering checks still describe legacy allocation;
+they are not a persistent-rebuild checker. Production caller/checker integration
+and native saved-game validation remain required before enabling persistence in
+an active stage. Explicit bootstrap must reproduce the entire plugin and map.
