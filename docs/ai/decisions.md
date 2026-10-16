@@ -305,3 +305,6 @@ claim power-loss durability/savegame acceptance. Complete build/deploy recovery
 remains a separate control.
 
 - 2026-10-15 (Claude): the Commonwealth is built from the existing 64 x 64 core (terrain + all 648,358 exterior statics already placed), not by adding cells: next come doors/interiors, semantic object classes via the R05 promotion path with ids retained (#150), navmesh per R06, actors, environment. One plugin for the exterior, interiors stay in FO4Port.esm. Alternatives considered: regional plugins (unneeded: the record count is far under the 16.7 M FormID space), a wider overlay (the playable area already fits). docs/terrain/commonwealth-build-plan.md.
+
+## 2026-10-16 Commonwealth door inventory and sequencing (Codex, proposed)
+Use full source FormKeys and pinned object/maps/exports to plan each door; keep missing endpoints explicit. Try reviewed PR224 zero-offset registration candidate before broader core ownership. If it does not pass native placement/trip gates, follow PR174's acyclic Port -> Core -> interior-return-patch design, preserving identities and source NAVM door triangles. Do not infer all doors function from the 15 mapped exterior placements. See [plan](../testing/commonwealth-door-plan.md); joint review/native proof pending.
