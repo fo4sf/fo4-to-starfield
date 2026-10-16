@@ -762,8 +762,7 @@ switch ($kind) {
       # the reply "GetIsID >> 1.00": on the echo's line, or (r05_medkit_1015f: the OCR split the row) as ">> 1.00" on the
       # line after the echo "GetIsID <8 hex>"; OCR confuses l/I/1 and sometimes loses the >>. The line anchor keeps a
       # base id that starts with 1 from passing (the echo never ends in a lone 1)
-      $selected = [bool]("$($sel.ocr)" -match '(?m)Get[Il1]s[Il1]D[ 	]*(?:[0-9A-Fa-f]{8}[ 	]*?
-[ 	]*)?(?:[>»][ 	]*[>»]?[ 	]*)?1(?:[.,][ 	]?0{1,2})?[ 	]*$')
+      $selected = [bool]("$($sel.ocr)" -match '(?m)Get[Il1]s[Il1]D[ \t]*(?:[0-9A-Fa-f]{8}[ \t]*\r?\n[ \t]*)?(?:[>»][ \t]*[>»]?[ \t]*)?1(?:[.,][ \t]?0{1,2})?[ \t]*$')
       $obs['activate'] = [ordered]@{ ref = $aref; base = $abase; selected = $selected; sel_shot = $sel.shot; sel_ocr = $sel.ocr }
       Save-Obs
       if ($selected) {
