@@ -1275,6 +1275,28 @@ Anscombe QA passes three additional controls, including a genuine pre-fix cache
 and backslash namespace. #130 records pinned results; native acceptance is
 outside this correction.
 
+## 2026-10-15: Codex — validate persistent FormID reservations (#137)
+
+Synthetic binary repro on main4ba5c6a: a stored0x01000800 survived in the
+map but serialized as local000800; a uint.MaxValue tombstone wrapped the next
+allocation to zero. Valid sparse IDs round-tripped. Four new writer tests
+produced seven failing subcases before correction, including duplicate JSON
+keys, duplicate inactive reservations, and a failed allocation that still
+published its unusable reservation. Original outputs/logs are retained.
+
+PluginSpike now validates the complete map before constructing records:
+unique decoded keys and values, integer IDs within this writer's000800..FFFFFF
+range, including tombstones. New identities cannot exhaust/wrap the range;
+existing IDs at the limit remain reusable. Save independently validates before
+atomic publication. Invalid/exhausted inputs preserve both prior map bytes and
+plugin bytes. Release build has zero warnings/errors; seven writer checks,
+1308 Windows tests(69 skips), guard and independent Mencius QA pass. QA covers
+direct Save validation, escaped-equivalent duplicate keys and binary IDs on
+an exhausted-map rebuild. Native handling of its one-past-last HEDR.NextFormID
+remains unverified; these are offline controls, not native acceptance.
+No source IDs were repaired/reassigned, no native campaign was rescored, and
+no stages, game installation, controller or input changed.
+
 ## 2026-10-15 afternoon window: R05 slice 1 in game, the raider fights, cave probes crash (Claude)
 
 Chain 12:59-14:39 on the pinned build 2470f876 (runner scripts 10e7019), started on the owner's word while away.
@@ -1300,3 +1322,26 @@ Chain 12:59-14:39 on the pinned build 2470f876 (runner scripts 10e7019), started
 - Merged after a local testing state (main + the PRs: 1093 unit tests with the venv, guard, PluginSpike Release build and
   its two writer tests): #69 (Grok's oracle), #126, #119, #127, #131, #133. The owner's "script command not found"
   question answered: `readpos.ps1`'s nonce (first-run-failures row 13).
+
+## 2026-10-15 evening chain: the walk holds on core64d, the raider fights twice, the Red Rocket probes do not move (Claude)
+
+Second chain of the day (16:31-19:00, runner scripts 64d30ad, build 2470f876), on the owner's "keep working never stop".
+
+- **walk_core64d_1015 PASS**: Red Rocket -> Sanctuary on core64d (core64c + the native container), 29 legs, 253.9 of
+  254.33 m, |dz| max 0.14 m, every read by the bridge. The R05 build does not regress the walk gate.
+- **npc_combat_c3_1015 / c4_1015**: the vanilla Spacer PASS on its first attempt with the spawn confirm limit at 7 m
+  (6.06 m had failed it in c2); the citizen control FAIL NOCOMBAT as designed; the converted raider INCONCLUSIVE SPAWN
+  twice in c3 (`Item '02F04800' not found`) because c3 was planned without `--install-exp actor_raider2 --plugins
+  FO4ActorRaider.esm` (the bridge log shows FO4Port.esm at load index 03 in c2 and 02 in c3), then **PASS ENGAGED** in
+  c4 with the plugin installed: two runs, two passes.
+- **r05_medkit_1015b / c / e** (two kit-facing probes; c with `time_repin` off; e with no time commands at all): the
+  container reply every time (`ref=34220709 pos=-2193.137207 -1548.338501 105.296318 loaded=true`, eight confirmations
+  today), and every time the player stayed at the arrival through both probes while the bridge read fresh (read 3 at
+  rt 415.9 in b). Not the noon re-typing, not SetLocalTime: on this arrival of our worldspace `player.setpos` has no
+  effect, while the same code moved the player on vanilla LC172World (bridge_probe_1015c). The per-attempt papyrus.log
+  (#144) shows only vanilla location-script noise. Next: `teleport_console` (the teleport's own console session
+  captured: the game's reply to the typed lines) and the `activate` step (#145), both in `r05_medkit_1015d`.
+- Runner: #144 (papyrus.log per attempt) merged; #145 open (activate step + teleport_console); #125 (Codex's
+  bridge-install recovery) merged after a testing state; the runner worktree moves to main after this chain.
+- Lesson of the day, twice: a queue re-planned for one parameter must carry every argument of the queue it replaces
+  (c3), and a log watcher must never hold the chain's log open (the morning's "dead chain").
