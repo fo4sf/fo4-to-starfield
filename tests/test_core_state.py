@@ -1,6 +1,7 @@
 """Leader core (docs/ai/leader-core.md): synthetic ledgers and queue folders only; nothing touches a game."""
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -8,9 +9,9 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
 
-from fo4sf.core.model import CapabilityState, Event, Outcome, Source, outcome_from_queue  # noqa: E402
+from fo4sf.core.model import CapabilityState, Event, Outcome, Source, local_to_utc_iso, outcome_from_queue  # noqa: E402
 from fo4sf.core.state import Ledger, fold  # noqa: E402
-from fo4sf.core import import_queue as imp  # noqa: E402
+from fo4sf.core import filelock, import_queue as imp  # noqa: E402
 
 
 def ev(kind, **f):
@@ -33,8 +34,35 @@ class ModelTests(unittest.TestCase):
             ev("task_finished", task="a", outcome="SKIPPED", completed=True)
         with self.assertRaises(ValueError):
             ev("task_finished", task="a", outcome="DONE")
+
+    def test_unknown_event_types_are_opaque_and_known_ones_need_their_key(self):
+        e = ev("task_cancelled", task="a", reason="the owner said so")          # a newer checkout's event
+        self.assertFalse(e.known)
+        back = Event.from_json(e.to_json())
+        self.assertEqual((back.ev, back.get("reason")), ("task_cancelled", "the owner said so"))
+        s = fold([ev("task_queued", task="a"), back])
+        self.assertEqual((s.tasks["a"]["status"], s.unknown_events, s.events), ("queued", 1, 2))
+        for kind, key in (("task_finished", "task"), ("task_started", "task"), ("capability_result", "capability"),
+                          ("blocker_opened", "blocker")):
+            with self.assertRaises(ValueError, msg=kind) as cm:
+                ev(kind, outcome="PASS", source="IN_GAME")
+            self.assertIn(f"needs a {key}", str(cm.exception))
         with self.assertRaises(ValueError):
-            ev("made_up_event")
+            Event("", "x")
+
+    def test_the_header_wins_over_a_field_of_the_same_name(self):
+        line = ev("task_finished", task="a", outcome="PASS", ev="controller_claimed", by="mallory").to_json()
+        back = Event.from_json(line)
+        self.assertEqual((back.ev, back.by, back.get("task")), ("task_finished", "test", "a"))
+
+    def test_runner_local_times_are_stored_as_utc(self):
+        self.assertEqual(local_to_utc_iso("2026-10-16T12:00:00+00:00"), "2026-10-16T12:00:00+00:00")
+        self.assertEqual(local_to_utc_iso("not a time"), "not a time")
+        import datetime
+        local = datetime.datetime(2026, 10, 16, 14, 0, 0)
+        expected = local.astimezone().astimezone(datetime.timezone.utc).isoformat()
+        self.assertEqual(local_to_utc_iso("2026-10-16T14:00:00"), expected)
+        self.assertTrue(local_to_utc_iso("2026-10-16T14:00:00").endswith("+00:00"))
 
 
 class LedgerTests(unittest.TestCase):
@@ -57,6 +85,27 @@ class LedgerTests(unittest.TestCase):
         kinds = [e.ev for e in led.read()]
         self.assertEqual(kinds, ["leader_started", "task_started", "ledger_repaired", "task_finished"])
         self.assertIsNone(led.truncated)
+
+    def test_append_takes_the_ledger_lock_and_a_stale_lock_is_taken_over(self):
+        led = Ledger(self.path)
+        led.append(ev("leader_started", commit="abc1234"))
+        lock = self.path + ".lock"
+        self.assertFalse(os.path.exists(lock))                              # released after the append
+        with open(lock, "w") as f:
+            f.write("4242 0\n")
+        os.utime(lock, (0, 0))                                               # a crashed holder, long ago
+        led.append(ev("leader_started", commit="def5678"))                 # taken over
+        self.assertEqual(len(led.read()), 2)
+        self.assertFalse(os.path.exists(lock))
+        with open(lock, "w") as f:
+            f.write("4243 0\n")                                             # a live holder
+        with self.assertRaises(OSError):
+            with filelock.locked(lock, timeout_s=0.1):
+                pass
+        os.unlink(lock)
+        with filelock.locked(lock, timeout_s=0.1):
+            self.assertTrue(os.path.exists(lock))
+        self.assertFalse(os.path.exists(lock))
 
     def test_corrupt_middle_line_raises(self):
         for bad in ("not json", '{"t": "2026-10-15T12:00:00+00:00", "by": "x"}', "[]", '"ev"'):   # not an event
@@ -112,6 +161,20 @@ class FoldTests(unittest.TestCase):
         self.assertEqual(s.capability("walk", "b2"), CapabilityState.UNTESTED)
         s = fold(base + [ev("capability_result", capability="walk", outcome="FAIL", source="IN_GAME")])
         self.assertEqual(s.capability("walk"), CapabilityState.FAILED)
+        # a result pinned to another build stays out of the pinned build's bullets until that build is the pin
+        s = fold(base + [ev("capability_result", capability="walk", outcome="PASS", source="IN_GAME", build_id="b2")])
+        self.assertEqual(s.capability("walk"), CapabilityState.UNTESTED)
+        self.assertNotIn("walk", s.report()[1])
+        s = fold(base + [ev("capability_result", capability="walk", outcome="PASS", source="IN_GAME", build_id="b2"),
+                         ev("build_pinned", build_id="b2")])
+        self.assertEqual(s.capability("walk"), CapabilityState.VERIFIED)
+        self.assertIn("walk", s.report()[1])
+
+    def test_the_queue_bullet_lists_the_pinned_builds_tasks_only(self):
+        s = fold([ev("task_queued", task="old/0000_fall", build_id="b1"), ev("task_queued", task="new/0000_fall", build_id="b2"),
+                  ev("task_queued", task="hand/x"), ev("build_pinned", build_id="b2")])
+        self.assertEqual(s.report()[7], "Next queue: new/0000_fall, hand/x")
+        self.assertEqual(s.tasks_by_status()["queued"], ["old/0000_fall", "new/0000_fall", "hand/x"])
 
     def test_expired_lease_without_release_is_ambiguous(self):
         claim = ev("controller_claimed", owner="Claude", purpose="walk gate", expires="2026-10-15T13:00:00+00:00")
@@ -172,14 +235,41 @@ class ImportTests(unittest.TestCase):
         self.assertEqual(imp.import_queue(self.q, self.led), 0)
         s = fold(self.led.read())
         self.assertEqual(s.build["build_id"], "abababab")
-        self.assertEqual(s.tasks["w1"]["status"], "completed")
-        self.assertEqual(s.tasks["w2"]["status"], "queued")            # its partial row is not a result
-        self.assertEqual(s.tasks["w3"]["status"], "circuit_broken")
+        self.assertEqual(s.tasks["walk_1015/w1"]["status"], "completed")
+        self.assertEqual(s.tasks["walk_1015/w2"]["status"], "queued")  # its partial row is not a result
+        self.assertEqual(s.tasks["walk_1015/w3"]["status"], "circuit_broken")
         self.assertEqual(s.campaigns, {"walk_1015"})
-        self.assertNotIn("w3", s.tasks_by_status().get("completed", []))
+        self.assertNotIn("walk_1015/w3", s.tasks_by_status().get("completed", []))
+        pin = next(e for e in self.led.read() if e.ev == "build_pinned")
+        self.assertTrue(pin.t.endswith("+00:00"), pin.t)                   # the queue's local time stored as UTC
         # the source files were not written to
         with open(os.path.join(self.q, "results.jsonl"), encoding="utf-8") as f:
             self.assertTrue(f.read().endswith('{"id": "w2", "verd'))
+
+    def test_campaigns_with_the_same_test_ids_never_merge(self):
+        d = os.path.dirname(self.q)
+        other = os.path.join(d, "walk_1016")
+        shutil.copytree(self.q, other)
+        with open(os.path.join(other, "results.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"id": "w1", "attempt": 1, "verdict": "FAIL", "class": "FALL", "dir": "w1_a1", "t": "t1"}) + "\n")
+        imp.import_queue(self.q, self.led)
+        imp.import_queue(other, self.led)
+        s = fold(self.led.read())
+        self.assertEqual((s.tasks["walk_1015/w1"]["outcome"], s.tasks["walk_1016/w1"]["outcome"]), ("PASS", "FAIL"))
+        self.assertEqual(s.campaigns, {"walk_1015", "walk_1016"})
+
+    def test_a_pin_rewritten_in_place_is_a_new_event_and_a_bom_is_fine(self):
+        self.assertEqual(imp.import_queue(self.q, self.led), 7)
+        qp = os.path.join(self.q, "queue.json")
+        with open(qp, encoding="utf-8") as f:
+            q = json.load(f)
+        q["game_version"] = "1.16.244.0"
+        with open(qp, "wb") as f:
+            f.write(b"\xef\xbb\xbf" + json.dumps(q).encode("utf-8"))      # pin-game-version, then a hand edit with a BOM
+        self.assertEqual(imp.import_queue(self.q, self.led), 1)               # one new build_pinned, nothing else twice
+        s = fold(self.led.read())
+        self.assertEqual(s.build.get("game_version"), "1.16.244.0")
+        self.assertEqual(len([e for e in self.led.read() if e.ev == "task_queued"]), 3)
 
     def test_install_and_deploy_records(self):
         d = os.path.dirname(self.q)
@@ -217,6 +307,11 @@ class ImportTests(unittest.TestCase):
             json.dump({"plugins": ["FO4SFExp.esm"], "plugins_replaced": [], "complete": True, "pack": "core64d"}, f)
         self.assertEqual(imp.import_install(inst, self.led), 1)
         self.assertEqual([p["name"] for p in fold(self.led.read()).plugins], ["FO4SFExp.esm"])
+        # a re-deploy of the first build (the same bytes, a new file) is a new pin, not "already imported"
+        deploy("ab" * 32)
+        os.utime(dep, (1_800_000_000, 1_800_000_000))
+        self.assertEqual(imp.import_deploy(dep, self.led), 1)
+        self.assertEqual(fold(self.led.read()).build["build_id"], "abababab")
 
     def test_deploy_pins_explicit_keys_win(self):
         self.assertEqual(imp.deploy_pins({"artifacts": {"FO4Port.esm": {"sha256": "ab" * 32}}}),

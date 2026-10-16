@@ -21,7 +21,8 @@ The probe interface (every method may raise; the gate turns an exception into UN
   stop_dirs()                        [(stop file path, folder exists, folder writable), ...]
   guardian()                         (mode: running|paused|stopped|unreadable|missing, database path)
   save_present(name)                 True / False, None when the Saves folder is not there
-  ini_texts()                        the texts of the ini files that exist (StarfieldCustom.ini in My Games, Starfield.ini)
+  ini_texts()                        the texts of the ini files that exist, lowest precedence first (the game folder's
+                                     Starfield.ini, then StarfieldCustom.ini in My Games, which overrides it)
 """
 import os
 import re
@@ -81,8 +82,8 @@ def _active(line):
     return line.strip().startswith("*")
 
 
-def papyrus_logging_on(text):
-    """True when the [Papyrus] section of an ini text sets every key the bridge's user log needs (make_bridge.py ini)."""
+def papyrus_keys(text):
+    """The [Papyrus] keys an ini text sets, lower-cased."""
     section, got = False, {}
     for line in text.splitlines():
         s = line.strip()
@@ -93,7 +94,19 @@ def papyrus_logging_on(text):
             m = re.match(r"\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$", line)
             if m:
                 got[m.group(1).casefold()] = m.group(2)
-    return all(got.get(k.casefold()) == v for k, v in PAPYRUS_KEYS)
+    return got
+
+
+def papyrus_logging_on(texts):
+    """True when the ini files, applied lowest precedence first (Starfield.ini, then StarfieldCustom.ini, which the
+    game reads after it and which overrides key by key), leave every key the bridge's user log needs set
+    (make_bridge.py ini). A single text is accepted too."""
+    if isinstance(texts, str):
+        texts = [texts]
+    effective = {}
+    for text in texts:
+        effective.update(papyrus_keys(text))
+    return all(effective.get(k.casefold()) == v for k, v in PAPYRUS_KEYS)
 
 
 # ---------------------------------------------------------------------------------------------------- the checks
@@ -119,7 +132,10 @@ def check_deploy(p):
     got = ((man.get("artifacts") or {}).get(DEPLOY_PLUGIN) or {}).get("sha256")
     if not got:
         return Check("deploy", UNKNOWN, f"the deploy manifest carries no sha256 for {DEPLOY_PLUGIN}")
-    if want and got != want:
+    if not want:
+        return Check("deploy", PASS, f"deployed {DEPLOY_PLUGIN} is {got[:8]}; the queue pins nothing to compare it with "
+                                     f"(the pin check says so)", want, got)
+    if got != want:
         return Check("deploy", FAIL, f"deployed {DEPLOY_PLUGIN} is {got[:8]}, the queue pinned {want[:8]} (a running game "
                                      f"on it would be judged as the wrong build: uninstall, or launch fresh)", want, got)
     return Check("deploy", PASS, f"deployed {DEPLOY_PLUGIN} is the pinned build {got[:8]}", want, got)
@@ -132,6 +148,13 @@ def check_experiment(p):
         if q.get("pre_launch"):
             return Check("experiment", UNKNOWN, "the queue installs an experiment (pre_launch) but pins no "
                                                 "experiment_identity: nothing can verify what gets installed")
+        rec = p.install_record()
+        if rec is not None:                                   # a leftover of an earlier queue would load with this one
+            if rec.get("error"):
+                return Check("experiment", UNKNOWN, f"an experiment install record exists but cannot be read: {rec['error']}")
+            return Check("experiment", FAIL, f"the queue pins no experiment but one is installed ({rec.get('exp_dir')!r}, "
+                                             f"plugins {rec.get('plugins')}): it would load with this build; "
+                                             f"exp_install.py uninstall, or re-plan with it")
         return Check("experiment", PASS, "no experiment: the pinned build alone")
     now = p.experiment_inputs(pin["exp_dir"], pin["plugins"])
     if now != pin["inputs"]:
@@ -199,15 +222,16 @@ def check_load_order(p):
         return Check("load_order", UNKNOWN, "Plugins.txt cannot be located (LOCALAPPDATA)")
     plugins = _planned_plugins(p)
     pos = {_name(ln): k for k, ln in enumerate(lines) if _active(ln)}
+    installed_at_launch = {n.casefold() for n in plugins} | {DEPLOY_PLUGIN.casefold()}   # exp_install, then the deploy
     missing, reorder = [], []
     for name in plugins:
         for m in p.plugin_masters(name):
             if p.implicit(m):
                 continue
             if m.casefold() not in pos:
-                if m.casefold() == DEPLOY_PLUGIN.casefold() and DEPLOY_PLUGIN.casefold() not in pos:
-                    continue                              # the deploy at the launch activates it; order moves it after
-                missing.append(f"{name} needs {m}")
+                if m.casefold() in installed_at_launch:
+                    continue                              # a sibling of the pin or the deploy: activated at the launch,
+                missing.append(f"{name} needs {m}")       # and exp_install.py order moves the dependant after it
             elif name.casefold() in pos and pos[m.casefold()] > pos[name.casefold()]:
                 reorder.append(f"{name} before its master {m}")
     if missing:
@@ -232,7 +256,9 @@ def check_game_version(p):
                                               'e.g. 1.16.244.0) to queue.json or pin it in the ledger')
     got = p.game_version()
     if not got:
-        return Check("game_version", UNKNOWN, "Starfield.exe's version is not readable here (Windows only)", want)
+        where = getattr(p, "exe_path", lambda: "Starfield.exe")()
+        return Check("game_version", UNKNOWN, f"the version of {where} is not readable: not Windows, not there, or no "
+                                              f"version resource (pin it by hand with pin-game-version --version)", want)
     if str(got).strip() != str(want).strip():
         return Check("game_version", FAIL, f"Starfield.exe is {got}, the pin is {want}", want, got)
     return Check("game_version", PASS, f"Starfield.exe is the pinned {want}", want, got)
@@ -290,11 +316,11 @@ def check_log_capture(p):
     texts = list(p.ini_texts())
     if not texts:
         return Check("log_capture", UNKNOWN, "no StarfieldCustom.ini or Starfield.ini found to check the [Papyrus] keys")
-    if any(papyrus_logging_on(t) for t in texts):
-        return Check("log_capture", PASS, "[Papyrus] logging keys set: the bridge's user log is written")
+    if papyrus_logging_on(texts):
+        return Check("log_capture", PASS, "[Papyrus] logging keys set after the overrides: the bridge's user log is written")
     keys = " ".join(f"{k}={v}" for k, v in PAPYRUS_KEYS)
-    return Check("log_capture", FAIL, f"[Papyrus] {keys} missing from StarfieldCustom.ini and Starfield.ini "
-                                      f"(scripts/bridge/make_bridge.py ini): the bridge's log would stay empty")
+    return Check("log_capture", FAIL, f"[Papyrus] {keys} not in effect after StarfieldCustom.ini's overrides of "
+                                      f"Starfield.ini (scripts/bridge/make_bridge.py ini): the bridge's log would stay empty")
 
 
 CHECK_FUNCS = {"pin": check_pin, "deploy": check_deploy, "experiment": check_experiment,
