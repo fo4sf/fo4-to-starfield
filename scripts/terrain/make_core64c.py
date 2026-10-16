@@ -1590,7 +1590,8 @@ def cmd_check(a):
          f"{refrs:,} REFR = {len(objects['refs']):,} objects + COC marker + anchor" + (f" + {len(conts)} containers" if conts else ""))
     if conts:
         cont_recs = [r for r in recs if r["sig"] == "CONT"]
-        need(len(cont_recs) == len(conts), f"{len(cont_recs)} CONT = {len(conts)} cluster containers")
+        groups = {c["edid"] for c in conts}                      # one CONT per FO4 base (#167): references of a base share it
+        need(len(cont_recs) == len(groups), f"{len(cont_recs)} CONT = {len(groups)} container bases ({len(conts)} cluster containers)")
     rep["plugin_records"] = {s: sum(1 for r in recs if r["sig"] == s) for s in sorted({r["sig"] for r in recs})}
     rep["plugin_bytes"] = new["bytes"]
     del new, recs, by, stats
