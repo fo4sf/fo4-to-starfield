@@ -74,7 +74,8 @@ Actors then follow the raider pattern: converted NPC bases, spawn points from FO
 
 ## 5. Environment
 
-Water (FO4 water planes -> Starfield water), lights (exterior LIGH refs), weather/time (the sky_light ladder works),
+Water (FO4 water planes -> Starfield water), lights (exterior LIGH refs: offline path in
+[exterior-lights.md](exterior-lights.md), 2026-10-16), weather/time (the sky_light ladder works),
 map markers and locations (one Location per overlay now; FO4 map markers -> LCTN/REFR), LOD for the far ring
 (commonwealth-scale.md option d). None gates playability of the core; each is one queue with a screenshot.
 

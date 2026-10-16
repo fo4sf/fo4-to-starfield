@@ -23,6 +23,11 @@
 // "rot", "scale", "disabled"}]} (metres, radians), as dotnet/TerrainExp2's objects mode. Their FormIDs come after every
 // overlay record, so the terrain records, the anchors and the Mars plugin keep the FormIDs they have without objects;
 // <staging dir>/formids.json lists the new ones.
+// objects.json may also hold "lights" and "light_bases" (exterior lights, docs/terrain/exterior-lights.md: written by
+// make_core64c.py stage from make_cluster.py lights): FO4 Light references, which core64c never placed and which therefore
+// own no reserved slot. Their REFRs take NEW FormIDs after every other record of the plugin (the reserved REFRs, the
+// CONT bases and the NAVMs), in "lights" order, then one LIGH per FO4 base (a copy of LGT_Interior_Omni_NS_Warm_004_2k,
+// 12A74B:Starfield.esm, with the mapped fields), so a build with lights keeps every FormID of the build without them.
 using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
@@ -156,12 +161,20 @@ var refIds = new Dictionary<string, string>();                 // placed referen
 Dictionary<string, object>? ids = null;                        // formids.json
 Dictionary<(int, int), Cell>? objCells = null;                 // the objects' overlay cells
 string? objWorld = null;
+string[] lightSources = Array.Empty<string>();                 // exterior lights: written after everything else
+JsonElement? lightsJson = null, lightBasesJson = null;
 if (Has(prm, "objects"))
 {
     // core64c: converted FO4 models and their references, allocated after every overlay record
     using var odoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, prm.GetProperty("objects").GetString()!)));
     var o = odoc.RootElement;
     var referenceSources = ReferenceIdentityPlan.Order(o);
+    lightSources = ReferenceIdentityPlan.Lights(o, referenceSources);           // refused before anything is written
+    if (lightSources.Length > 0)
+    {
+        lightsJson = o.GetProperty("lights").Clone();
+        lightBasesJson = o.GetProperty("light_bases").Clone();
+    }
     string world = o.TryGetProperty("world", out var wj) ? wj.GetString()! : worlds[0].World.EditorID!;
     if (!cellsOf.TryGetValue(world, out var cellAt)) throw new InvalidDataException($"objects.json names world {world}, not an overlay of these params");
     objCells = cellAt; objWorld = world;
@@ -431,6 +444,89 @@ if (Has(prm, "navmesh"))
     ids["navmeshes"] = navIds;
     ids["navi"] = "000FF1:Starfield.esm";
 }
+int nLight = 0, nLightRef = 0;
+if (lightsJson is JsonElement lights && lightBasesJson is JsonElement lightBases)
+{
+    // Exterior lights (docs/terrain/exterior-lights.md). NEW FormIDs after every record above: first the light REFRs in
+    // "lights" order (the identities a save can hold), then the LIGH bases in "light_bases" order (one per FO4 base).
+    // Every Starfield-only field (contact shadow component, barndoors, roundness, gobo data, area light, layer,
+    // adaptive lighting, volumetric scale, the DAT2 value Mutagen calls PbrLightTemperatureK) is the vanilla template's.
+    var templateLight = sf.Lights.FirstOrDefault(l => l.FormKey.ID == 0x12A74B)
+        ?? throw new InvalidDataException("template light 12A74B:Starfield.esm (LGT_Interior_Omni_NS_Warm_004_2k) not in the master");
+    var lightRefKeys = lightSources.Select(_ => NewKey()).ToArray();
+    var lightByEdid = new Dictionary<string, Light>(StringComparer.OrdinalIgnoreCase);
+    foreach (var b in lightBases.EnumerateArray())
+    {
+        float F(string k) => b.GetProperty(k).GetSingle();
+        var rec = (Light)templateLight.Duplicate(NewKey());
+        rec.EditorID = b.GetProperty("edid").GetString();
+        var bb = b.GetProperty("bounds");
+        rec.ObjectBounds = new ObjectBounds
+        {
+            First = new P3Float(bb[0][0].GetSingle(), bb[0][1].GetSingle(), bb[0][2].GetSingle()),
+            Second = new P3Float(bb[1][0].GetSingle(), bb[1][1].GetSingle(), bb[1][2].GetSingle()),
+        };
+        rec.Time = b.GetProperty("time").GetInt32();
+        rec.Radius = F("radius");                                                  // metres
+        var col = b.GetProperty("color");
+        rec.Color = System.Drawing.Color.FromArgb(0, col[0].GetInt32(), col[1].GetInt32(), col[2].GetInt32());
+        rec.Flags = (Light.Flag)b.GetProperty("flags").GetUInt32();
+        rec.Type = (Light.LightType)b.GetProperty("type").GetInt32();
+        rec.FalloffExponent = F("falloff");
+        rec.FOV = F("fov");
+        rec.NearClip = F("near_clip");
+        var fl = b.GetProperty("flicker");
+        rec.FlickerPeriod = fl[0].GetSingle();
+        rec.FlickerIntensityAmplitude = fl[1].GetSingle();
+        rec.FlickerMovementAmplitude = fl[2].GetSingle();
+        rec.FlickerEffect = (Light.FlickerEffectOption)b.GetProperty("flicker_effect").GetInt32();
+        rec.PbrLuminousPowerLm = b.GetProperty("lumens").GetUInt32();
+        rec.MajorRecordFlagsRaw = b.GetProperty("random_anim_start").GetBoolean() ? 0x10000 : 0;   // Random Anim Start
+        rec.Components.RemoveAll(c => c is ObjectWindowFilterComponent);           // CK object-window folder (bookkeeping)
+        mod.Lights.Add(rec);
+        lightByEdid[rec.EditorID!] = rec;
+        nLight++;
+    }
+    var lightIds = new Dictionary<string, Dictionary<string, string>>();
+    int li = 0;
+    foreach (var e in lights.EnumerateArray())
+    {
+        float[] V(string k) => e.GetProperty(k).EnumerateArray().Select(x => x.GetSingle()).ToArray();
+        var src = e.GetProperty("src").GetString()!;
+        var cxy = e.GetProperty("cell").EnumerateArray().Select(x => x.GetInt32()).ToArray();
+        if (objCells == null || !objCells.TryGetValue((cxy[0], cxy[1]), out var cell))
+            throw new InvalidDataException($"light {src} in cell ({cxy[0]}, {cxy[1]}) outside {objWorld}'s cells");
+        var rec = lightByEdid[e.GetProperty("edid").GetString()!];
+        var pos = V("pos");
+        var rot = V("rot");
+        var obj = new PlacedObject(lightRefKeys[li++], release)
+        {
+            Base = new FormLinkNullable<IPlaceableObjectGetter>(rec.FormKey),
+            Position = new P3Float(pos[0], pos[1], pos[2]),
+            Rotation = new P3Float(rot[0], rot[1], rot[2]),
+        };
+        var scale = e.GetProperty("scale").GetSingle();
+        if (Math.Abs(scale - 1f) > 1e-4) obj.Scale = scale;
+        obj.MajorRecordFlagsRaw |= 0x100;                  // as 28,572 of the 28,719 vanilla exterior light REFRs
+        if (e.GetProperty("disabled").GetBoolean()) obj.MajorRecordFlagsRaw |= 0x800;   // Initially Disabled, as in FO4
+        if (e.TryGetProperty("radius", out var rd) && rd.ValueKind == JsonValueKind.Number)
+            obj.Radius = rd.GetSingle();                   // XRDS: the radius delta (metres), as FO4's
+        if (e.TryGetProperty("lighting", out var lg) && lg.ValueKind == JsonValueKind.Object)
+            obj.Lighting = new PlacedObjectLighting
+            {
+                Fov90PlusMinus = lg.GetProperty("fov").GetSingle(),
+                Fade1PlusMinus = lg.GetProperty("fade").GetSingle(),
+                EndDistanceCap = 0, ShadowDepthBias = 0,
+                NearClip = lg.GetProperty("near_clip").GetSingle(),
+                VolumetricIntensity = 0,
+                Unknown1 = 0xABABABAB, Unknown2 = 0xABABAB00,  // the trailing bytes of 27,305 vanilla exterior light XLIGs
+            };
+        cell.Temporary.Add(obj);
+        lightIds[src] = new Dictionary<string, string> { ["base"] = rec.FormKey.ID.ToString("X6"), ["ref"] = obj.FormKey.ID.ToString("X6") };
+        nLightRef++;
+    }
+    ids!["lights"] = lightIds;
+}
 if (ids != null)
     File.WriteAllText(Path.Combine(outDir, "formids.json"), JsonSerializer.Serialize(ids));
 mod.ModHeader.Stats.NextFormID = next;
@@ -439,7 +535,8 @@ mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(sfDa
     .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full)).Write();
 Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {worlds.Count} overlays, next FormID 0x{next:X}" +
                   (Has(prm, "objects") ? $"; objects: {nStat} STAT, {nDoor} DOOR, {nRef} REFR ({nDisabled} initially disabled)" : "") +
-                  (Has(prm, "navmesh") ? $"; navmesh: {nNav} NAVM, {nNavTri} triangles, {nNavLink} edge links, {nNavDoor} door triangles, NAVI override with {nNav} NVMI" : ""));
+                  (Has(prm, "navmesh") ? $"; navmesh: {nNav} NAVM, {nNavTri} triangles, {nNavLink} edge links, {nNavDoor} door triangles, NAVI override with {nNav} NVMI" : "") +
+                  (nLightRef > 0 ? $"; lights: {nLight} LIGH, {nLightRef} REFR" : ""));
 
 if (Has(prm, "mars"))
 {
