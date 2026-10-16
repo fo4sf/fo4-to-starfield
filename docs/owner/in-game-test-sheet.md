@@ -85,7 +85,7 @@ The 16 converted interiors are reached by `coc` (they are not linked to the exte
 
 **The button:** press **F13** (map a spare key to F13 in the Womier software: a macro / key-remap to F13) or
 **Ctrl+Alt+L**. A short beep = the snapshot is taken; Claude's session sees it within seconds and answers. Both keys
-are listened for by `C:\Modding	ools\look\look_hotkey.ps1`, started at every logon from the Startup folder
+are listened for by `C:\Modding\tools\look\look_hotkey.ps1`, started at every logon from the Startup folder
 (`fo4sf-look-hotkey.cmd`; delete it to stop). It types nothing into the game.
 
 **Or say "look"**
