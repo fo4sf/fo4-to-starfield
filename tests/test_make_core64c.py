@@ -459,8 +459,26 @@ class ContainerPerBaseTests(unittest.TestCase):
                                   {"src": "000003:Fallout4.esm", "name": "B", "items": items}]}
         keep, conts = mk.cluster_containers(bases, placed, cluster)
         self.assertEqual(keep, [])
-        self.assertEqual([c["edid"] for c in conts], ["FO4Core_cont_04b6e9", "FO4Core_cont_04b6e9", "FO4Core_cont_000003"])
+        self.assertEqual([c["edid"] for c in conts], ["FO4Core_cont_04b6e9_fallout4", "FO4Core_cont_04b6e9_fallout4", "FO4Core_cont_000003"])
         self.assertEqual([c["reference_index"] for c in conts], [0, 1, 2])
+
+    def test_the_plugin_is_part_of_the_group_and_metadata_must_agree(self):
+        # Codex's review of #167: 04B6E9:Fallout4.esm and 04B6E9:SomeDLC.esm are two bases; one group, one name and inventory
+        self.assertNotEqual(mk.container_edid("04B6E9:Fallout4.esm", "x"), mk.container_edid("04B6E9:SomeDLC.esm", "x"))
+        self.assertEqual(mk.container_edid(None, "19EE52:Fallout4.esm"), "FO4Core_cont_19ee52")
+        bases = [{"edid": "FO4Core_x", "model": "m.nif", "source": "s.nif"}]
+        placed = [{"src": "000001:Fallout4.esm", "base": 0, "cell": [0, 0], "pos": [0, 0, 0], "rot": [0, 0, 0], "scale": 1.0},
+                  {"src": "000002:Fallout4.esm", "base": 0, "cell": [0, 0], "pos": [1, 0, 0], "rot": [0, 0, 0], "scale": 1.0}]
+        items = [{"form": "Starfield.esm:00000F", "count": 25}]
+        same = {"containers": [{"src": "000001:Fallout4.esm", "name": "A", "items": items, "base": "04B6E9:Fallout4.esm"},
+                               {"src": "000002:Fallout4.esm", "name": "A", "items": [{"form": "starfield.esm:00000F", "count": 25}], "base": "04B6E9:Fallout4.esm"}]}
+        mk.cluster_containers(bases, placed, same)                 # the same inventory, case aside: shared
+        for bad in ({"name": "B", "items": items}, {"name": "A", "items": [{"form": "Starfield.esm:00000F", "count": 99}]}):
+            cl = {"containers": [{"src": "000001:Fallout4.esm", "name": "A", "items": items, "base": "04B6E9:Fallout4.esm"},
+                                 dict(bad, src="000002:Fallout4.esm", base="04B6E9:Fallout4.esm")]}
+            with self.assertRaises(ValueError) as cm:
+                mk.cluster_containers(bases, placed, cl)
+            self.assertIn("different name or inventory", str(cm.exception))
 
     def test_check_accepts_a_shared_cont_base(self):
         objects = {"refs": [], "containers": [{"src": "000001:Fallout4.esm", "reference_index": 0}, {"src": "000002:Fallout4.esm", "reference_index": 1}]}

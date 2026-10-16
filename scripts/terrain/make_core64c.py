@@ -1079,6 +1079,18 @@ def terrain_edids(prm):
     return {e.lower() for e in out}
 
 
+def container_edid(base, src):
+    """The shared CONT's editor id for a cluster entry: FO4Core_cont_<6 hex>_<plugin> from the FO4 base formkey
+    ("04B6E9:Fallout4.esm" -> FO4Core_cont_04b6e9_fallout4), so the same local id in another plugin is another record;
+    without a base (the R05 slice's entry) the reference's own key, as before (FO4Core_cont_19ee52)."""
+    if not base:
+        return f"{EDID_PREFIX}cont_{str(src).split(':')[0].lower()}"
+    key = str(base)
+    local, _, plugin = key.partition(":")
+    stem = re.sub(r"[^a-z0-9]+", "", plugin.rsplit(".", 1)[0].lower()) or "x"
+    return f"{EDID_PREFIX}cont_{local.lower()}_{stem}"
+
+
 def cluster_containers(bases, placed, cluster):
     """R05: the placed references named by cluster["containers"] (by FO4 source key) leave the STAT placement and
     become container entries for TerrainOverlays (the converted model of their base, the given name and vanilla
@@ -1101,14 +1113,21 @@ def cluster_containers(bases, placed, cluster):
                 raise ValueError(f"{p['src']}: item {it!r} is not <plugin>:<6 hex> with a count")
         b = bases[p["base"]]
         # one CONT per FO4 base (make_cluster.py entries carry "base", the FO4 base formkey: 5,185 Commonwealth containers
-        # over 182 bases); an entry without it (the R05 slice's hand-written one) keeps its per-reference CONT
-        group = str(c.get("base") or p["src"]).split(":")[0].lower()
-        containers.append({"src": p["src"], "edid": f"{EDID_PREFIX}cont_{group}",
+        # over 182 bases): the group is the whole formkey, id and plugin (04B6E9:Fallout4.esm and 04B6E9:SomeDLC.esm are
+        # two bases: Codex's review of #167); an entry without "base" (the R05 slice's hand-written one) keeps its
+        # per-reference CONT. Entries of one group must agree on name and items: the writer shares one record.
+        containers.append({"src": p["src"], "edid": container_edid(c.get("base"), p["src"]),
                            "reference_index": reference_index,
                            "model": b["model"], "name": c["name"], "items": c["items"],
                            "cell": p["cell"], "pos": p["pos"], "rot": p["rot"], "scale": p["scale"]})
     if wanted:
         raise ValueError(f"references not placed by this build: {sorted(wanted)}")
+    seen = {}
+    for c in containers:
+        sig = (c["name"], tuple(sorted((str(i["form"]).casefold(), int(i["count"])) for i in c["items"])))
+        first = seen.setdefault(c["edid"], (c["src"], sig))
+        if first[1] != sig:
+            raise ValueError(f"{c['src']} and {first[0]} share container {c['edid']} with a different name or inventory")
     return keep, containers
 
 

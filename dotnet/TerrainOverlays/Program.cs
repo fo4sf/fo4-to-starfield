@@ -238,6 +238,14 @@ if (Has(prm, "objects"))
     // "rot", "scale", "reference_index"}; the source leaves "refs", but its original index is retained).
     var contIds = new Dictionary<string, object>();
     var contByEdid = new Dictionary<string, Container>(StringComparer.OrdinalIgnoreCase);   // one CONT per FO4 base: entries of one base share an edid
+    var contSig = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);        // its model, name and inventory: every entry must agree
+    static string ContainerSignature(JsonElement c)
+    {
+        var items = c.GetProperty("items").EnumerateArray()
+            .Select(it => $"{it.GetProperty("form").GetString()!.ToLowerInvariant()}x{it.GetProperty("count").GetInt32()}")
+            .OrderBy(x => x, StringComparer.Ordinal);
+        return $"{c.GetProperty("model").GetString()!.ToLowerInvariant()}|{c.GetProperty("name").GetString()}|{string.Join(",", items)}";
+    }
     if (o.TryGetProperty("containers", out var conts))
     {
         foreach (var c in conts.EnumerateArray())
@@ -268,9 +276,12 @@ if (Has(prm, "objects"))
                 }
                 mod.Containers.Add(cont);
                 contByEdid[edid] = cont;
+                contSig[edid] = ContainerSignature(c);
             }
-            else if (!string.Equals(cont.Model?.File, cmodel, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException($"container {edid}: two models ({cont.Model?.File} / {cmodel}) under one edid");
+            else if (contSig[edid] != ContainerSignature(c))
+                // a shared record carries one model, name and inventory; a different one under the same edid would be
+                // silently lost (Codex's review of #167): the build stops instead
+                throw new InvalidDataException($"container {edid}: {c.GetProperty("src").GetString()} asks for {ContainerSignature(c)} but the shared record is {contSig[edid]}");
             var pos = V("pos");
             var rot = V("rot");
             var obj = new PlacedObject(referenceKeys[c.GetProperty("src").GetString()!], release)
