@@ -137,6 +137,22 @@ class RefReadTests(unittest.TestCase):
             self.assertFalse(r["ok"]); self.assertIn("no such reference", r["why"])
             self.assertEqual(bridge_log.line_count(os.path.join(d, "missing.log")), 0)
 
+    def test_an_unreadable_mark_fails_closed(self):
+        # Codex's review of #164: a mark that cannot be read must never become 0, or an old reply passes for a new read
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "fo4sf.0.log")
+            open(log, "w").write(self.REF + "\n")                       # an old reply is already in the log
+            self.assertEqual(bridge_log.line_count(os.path.join(d, "missing.log")), 0)
+            with self.assertRaises(OSError):
+                bridge_log.line_count(d)                                 # exists, unreadable as a file
+            r = bridge_log.wait_ref(log, "020A2AA5", timeout=0.2, since=None)
+            self.assertFalse(r["ok"]); self.assertIn("no mark", r["why"])
+            import contextlib, io
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(bridge_log.main(["mark", "--log", d]), 2)
+            self.assertTrue(out.getvalue().startswith("fail"))
+
     def test_cli_mark_and_wait_ref(self):
         import contextlib
         import io
@@ -147,7 +163,7 @@ class RefReadTests(unittest.TestCase):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 self.assertEqual(bridge_log.main(["mark", "--log", log]), 0)
-                self.assertEqual(bridge_log.main(["wait-ref", "020A2AA5", "--log", log, "--timeout", "0.2"]), 0)
+                self.assertEqual(bridge_log.main(["wait-ref", "020A2AA5", "--log", log, "--timeout", "0.2", "--since", "0"]), 0)
                 self.assertEqual(bridge_log.main(["wait-ref", "020A2AA5", "--log", log, "--timeout", "0.2", "--since", "1"]), 1)
             lines = out.getvalue().splitlines()
             self.assertEqual(lines[0], "1")
