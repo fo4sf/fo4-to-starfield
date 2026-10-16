@@ -147,3 +147,4 @@ try
 finally { Directory.Delete(directory, true); }
 Console.WriteLine("Relationship translation and binary round-trip synthetic checks passed.");
 NativeDoorBaseTests.Run();
+MissingDoorEndpointTests.Run();

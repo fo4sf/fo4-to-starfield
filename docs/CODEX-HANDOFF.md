@@ -30,6 +30,6 @@ Main4ba5c6a has integration121 and merged131/133;119/126/127/128 are integrated.
 
 ## Next / preservation
 
-Owner priority: persistent doors. PR245 repair:11 CLI controls, peer QA pending. integ_1016 audit preserves54,877 map entries/one FortHagen XTEL pair;28 unlinked(20 DOOR/8 STAT),4 absent endpoints incl.cave. See slice/persistent-door-rebuild.md. Merge/cross-plugin/native saves unresolved; Claude owns game.
+Owner priority: persistent doors. Codex missing-door-endpoints branch adds explicit source/native-base mapping, stable allocation and persistent interior placement;7 new/11 prior CLI controls pass, peer QA pending. See slice/missing-door-endpoints.md. integ_1016 still lacks cave endpoint; no install. Core-owned exterior/return-link integration and native saves unresolved; Claude owns game.
 
 #32/owner issues are the inbox; refresh before work/done. Keep below4KB; history in handoff-archive. Evidence indexed/reopen-verified on D:, originals retained; second local volume, not offsite. Follow docs/testing/progress-storage.md. Lower usage: quiet four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused.

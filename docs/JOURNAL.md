@@ -1480,3 +1480,7 @@ controls detected. First inefficient audit loop stopped; initial all-unlinked-ba
 are-DOOR assumption disproved/corrected; both preserved. See
 slice/persistent-door-rebuild.md and private persistent-interior-rebuild-20261016.
 No source/game edits, newly connected interiors or native/save acceptance claimed.
+
+## 2026-10-16 — Codex: explicitly selected missing interior door endpoints
+
+ReferenceLinks now accepts --door-bases=JSON keyed by original source reference. Reproduced seven CLI failures: skipped allocation/reservation and ignored invalid selections. Valid selected exported Door records get verified active native/local DOOR bases, stable source-map IDs, persistent grouping, source transforms/disabled/open state; existing conflicting bases/owners and occupied reservations refuse. No guessed bases, synthetic return edges, primary writer changes or live actions. Seven new actual-CLI controls and eleven prior controls plus library/binary checks pass. Peer QA pending; see docs/slice/missing-door-endpoints.md. Private failed/passing fixtures retained under missing-door-endpoints-20261016.

@@ -12,6 +12,7 @@ public sealed class LinkReport
     public int Teleports { get; set; }
     public int OpenState { get; set; }
     public int CreatedMarkers { get; set; }
+    public int CreatedDoors { get; set; }
     public int CreatedKeywords { get; set; }
     public int UnplacedSourceReferences { get; set; }
     public List<LinkIssue> Issues { get; } = new();
@@ -20,7 +21,8 @@ public sealed class LinkReport
 public static class Relationships
 {
     public static LinkReport Apply(StarfieldMod mod, Dictionary<string, uint> ids, IEnumerable<JsonElement> exports,
-        IReadOnlyDictionary<string, FormKey>? markerBases = null, IStarfieldModGetter? doorMaster = null)
+        IReadOnlyDictionary<string, FormKey>? markerBases = null, IStarfieldModGetter? doorMaster = null,
+        IReadOnlyDictionary<string, FormKey>? missingDoorBases = null)
     {
         if (ids.Values.Any(id => id == 0 || id >= 0x1000000) || ids.Values.Distinct().Count() != ids.Count)
             throw new InvalidOperationException("source map contains duplicate or invalid full-plugin FormIDs");
@@ -42,6 +44,23 @@ public static class Relationships
                     doorBases.Add(door.FormKey);
         var occupied = localRecords.Keys.Where(k => k.ModKey == mod.ModKey).Select(k => k.ID).ToHashSet();
         var next = ids.Values.Concat(occupied).DefaultIfEmpty(0x7FFu).Max() + 1;
+        // Explicit source-reference selections only: never infer a replacement
+        // from a marker filename or silently replace an already placed base.
+        var selectedDoors = new Dictionary<string, FormKey>(StringComparer.OrdinalIgnoreCase);
+        if (missingDoorBases != null)
+        {
+            var allRefs = sources.SelectMany(e => e.GetProperty("refs").EnumerateArray()).ToArray();
+            foreach (var selection in missingDoorBases)
+            {
+                if (!selectedDoors.TryAdd(selection.Key, selection.Value))
+                    throw new InvalidOperationException("duplicate door source selection");
+                var matches = allRefs.Where(r => string.Equals(r.GetProperty("formkey").GetString(), selection.Key, StringComparison.OrdinalIgnoreCase)).ToArray();
+                if (matches.Length != 1 || !matches[0].TryGetProperty("type", out var kind) || kind.GetString() != "Door")
+                    throw new InvalidOperationException("door selection requires exactly one exported Door: " + selection.Key);
+                if (!doorBases.Contains(selection.Value))
+                    throw new InvalidOperationException("door selection is not a resolved active DOOR: " + selection.Value);
+            }
+        }
         var needed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var export in sources)
         foreach (var r in export.GetProperty("refs").EnumerateArray())
@@ -70,6 +89,44 @@ public static class Relationships
                 var identity = $"REFR:{name}:{source}";
                 ids.TryGetValue(identity, out var rid);
                 placed.TryGetValue(new FormKey(mod.ModKey, rid), out var target);
+                if (selectedDoors.TryGetValue(source, out var selectedBase))
+                {
+                    if (target != null)
+                    {
+                        if (target.Base.FormKey != selectedBase || ownerCells[target.FormKey] != cell ||
+                            (target.MajorRecordFlagsRaw & 0x20) != 0)
+                            throw new InvalidOperationException("door selection conflicts with placed reference: " + source);
+                    }
+                    else
+                    {
+                        var position = Pos(reference.GetProperty("pos"));
+                        var rotation = Rot(reference.GetProperty("rot"));
+                        var scale = reference.TryGetProperty("scale", out var size) ? size.GetSingle() : 1f;
+                        static bool Finite(P3Float p) => float.IsFinite(p.X) && float.IsFinite(p.Y) && float.IsFinite(p.Z);
+                        if (!Finite(position) || !Finite(rotation) || !float.IsFinite(scale) || scale <= 0)
+                            throw new InvalidOperationException("invalid missing-door transform: " + source);
+                        if (ids.ContainsKey(identity))
+                        {
+                            if (occupied.Contains(rid)) throw new InvalidOperationException("door reservation occupies another record: " + identity);
+                        }
+                        else
+                        {
+                            if (next >= 0x1000000) throw new InvalidOperationException("full plugin FormID space exhausted");
+                            rid = next++; ids.Add(identity, rid);
+                        }
+                        target = new PlacedObject(new FormKey(mod.ModKey, rid), StarfieldRelease.Starfield)
+                            { Position = position, Rotation = rotation };
+                        target.Base.SetTo(selectedBase);
+                        if (scale != 1) target.Scale = scale;
+                        if (reference.TryGetProperty("disabled", out var disabledDoor) && disabledDoor.GetInt32() != 0)
+                            target.MajorRecordFlagsRaw |= 0x800;
+                        cell.Temporary.Add(target); placed.Add(target.FormKey, target);
+                        ownerCells.Add(target.FormKey, cell); occupied.Add(rid); report.CreatedDoors++;
+                    }
+                    // This explicit option prepares a load-door endpoint even if
+                    // its other plugin has not been linked yet. No XTEL invented.
+                    MakeTeleportEndpointPersistent(target);
+                }
                 if (target == null && needed.Contains(source) && markerBases != null &&
                     reference.TryGetProperty("base_editor_id", out var baseId) &&
                     markerBases.TryGetValue(baseId.GetString() ?? "", out var markerBase) &&
