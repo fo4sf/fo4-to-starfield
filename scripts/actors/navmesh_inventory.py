@@ -48,7 +48,10 @@ def _measure(record):
     area = record["area"]
     if not _integral_count(triangles) or not _finite_nonneg(area):
         return None
-    return int(triangles), float(area)
+    verts = record.get("vertices")
+    if verts is not None and not _integral_count(verts):
+        return None
+    return int(triangles), float(area), (int(verts) if verts is not None else None)
 
 
 def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) -> dict:
@@ -75,21 +78,21 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
             unknown.append({"cell": cell, "reason": "invalid sf measurement"})
             continue
         if in_fo4 and not in_sf:
-            fo4_tri, _fo4_area = fo4_m
+            fo4_tri, _fo4_area, _fo4_verts = fo4_m
             if fo4_tri > 0:
                 lost.append({"cell": cell, "fo4_triangles": fo4_tri, "reason": "missing in SF"})
             else:
                 unchanged.append(cell)
             continue
         if in_sf and not in_fo4:
-            sf_tri, _sf_area = sf_m
+            sf_tri, _sf_area, _sf_verts = sf_m
             if sf_tri > 0:
                 gained.append({"cell": cell, "sf_triangles": sf_tri, "reason": "new in SF"})
             else:
                 unchanged.append(cell)
             continue
-        fo4_tri, fo4_area = fo4_m
-        sf_tri, sf_area = sf_m
+        fo4_tri, fo4_area, fo4_verts = fo4_m
+        sf_tri, sf_area, sf_verts = sf_m
         if fo4_tri > 0 and sf_tri == 0:
             lost.append({"cell": cell, "fo4_triangles": fo4_tri, "reason": "missing in SF"})
         elif fo4_tri > 0 and (sf_tri < fo4_tri * tri_tol or sf_area < fo4_area * area_tol):
@@ -105,6 +108,8 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
             unchanged.append(cell)
     fo4_tris = sum(_measure(fo4[c])[0] for c in fo4 if _measure(fo4[c]))
     sf_tris = sum(_measure(sf[c])[0] for c in sf if _measure(sf[c]))
+    fo4_verts = sum(m[2] or 0 for c in fo4 if (m := _measure(fo4[c])) and m[2] is not None)
+    sf_verts = sum(m[2] or 0 for c in sf if (m := _measure(sf[c])) and m[2] is not None)
     lost_tris = sum(item["fo4_triangles"] for item in lost)
     # Area-flagged cells can have more SF triangles than FO4; a loss count must not go negative.
     reduced_tris = sum(
@@ -119,6 +124,9 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
         "total_fo4_triangles": fo4_tris,
         "total_sf_triangles": sf_tris,
         "triangle_retention_percent": retention_pct,
+        "total_fo4_vertices": fo4_verts,
+        "total_sf_vertices": sf_verts,
+        "vertex_retention_percent": round(100.0 * sf_verts / fo4_verts, 1) if fo4_verts else 100.0,
         "lost_triangles": lost_tris,
         "reduced_triangles_approx": reduced_tris,
         "lost_coverage": lost,
@@ -131,6 +139,7 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
         "summary": (
             f"{len(lost)} lost ({lost_tris} tris), {len(reduced)} reduced, {len(gained)} gained, "
             f"{len(unknown)} unknown; FO4 tris {fo4_tris} -> SF {sf_tris} ({retention_pct}% retained)"
+            + (f"; verts {fo4_verts} -> {sf_verts}" if fo4_verts or sf_verts else "")
         ),
     }
 
