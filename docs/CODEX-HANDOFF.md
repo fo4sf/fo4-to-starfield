@@ -30,6 +30,6 @@ Main4ba5c6a has integration121 and merged131/133;119/126/127/128 are integrated.
 
 ## Next / preservation
 
-Owner priority: persistent doors. PR251 cave candidate00DE5D preserves54,877 IDs; Claude peer QA reproduced it. Selected missing cells now refuse even partial/report-only;6 new CLI scenarios pass. See slice/missing-door-endpoints.md. Core/return-link integration and native travel/save remain pending with Claude. No install or slot allocation.
+Owner priority: persistent doors. PR253 interior-only return patch: Claude QA at099240e passed. Master-header correction adds raw/CLI checks; fresh correction awaits review. PR25102239ef base carry-forward pending. Real Core outbound link, ACTI design and native travel/save remain Claude-owned; no install/input. See slice/door-return-patch.md.
 
 #32/owner issues are the inbox; refresh before work/done. Keep below4KB; history in handoff-archive. Evidence indexed/reopen-verified on D:, originals retained; second local volume, not offsite. Follow docs/testing/progress-storage.md. Lower usage: quiet four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused.
