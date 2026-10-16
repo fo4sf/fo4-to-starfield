@@ -1,0 +1,12 @@
+{
+ "note": "make_cluster.py items: names, values and weights for promoted FO4 loose items (MiscItem / Ingestible), by FO4 base editor id (exact, or prefix*). The writer makes one MISC per FO4 base with the converted model. Values are credits; weights in kg. The owner's content decision; grows per class.",
+ "default": {"name": null, "value": 5, "weight": 0.5},
+ "by_editor_id": {
+  "Stimpak*": {"name": "Stimpak", "value": 48, "weight": 0.1},
+  "Cram*": {"name": "Cram", "value": 7, "weight": 0.2},
+  "Newspaper*": {"name": "Newspaper", "value": 1, "weight": 0.1},
+  "Caps*": {"name": "Bottlecaps", "value": 1, "weight": 0.0},
+  "BottleCap*": {"name": "Bottlecaps", "value": 1, "weight": 0.0},
+  "Junk*": {"name": null, "value": 3, "weight": 1.0}
+ }
+}

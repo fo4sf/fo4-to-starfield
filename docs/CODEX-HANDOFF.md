@@ -6,31 +6,30 @@ Goal: connected Red Rocket-Sanctuary-cave slice, save/reload, interactions, then
 
 - Claude: integration/live controller/game, collision/terrain/actors, pipeline and game scripts/staging. No other live input/install/launch until explicit release on #32.
 - Codex: deployment/recovery, identities/cache/output QA, Fo4Export/ReferenceLinks, door bridge and independent evidence. No watchdog restart.
-- Grok: acceptance oracle/route_eval/terrain_evidence and coordinated diagnostics. No concurrent converter/runner edits.
-- Claude-cloud: offline leader-core model/ledger/importer (#135, PR136). PC Claude keeps live control and integration.
+- Grok: R06 inventory/oracle and coordinated diagnostics. Claude-cloud: offline leader-core135/136. No duplicate source edits or waking paused workers.
 
-## Acceptance / current evidence
+## Acceptance / evidence
 
-Walk both directions over bridge/cell borders, use cave doors with correct position/facing/collision, save/reload; retain stairs/movables. Pin code/plans/source, installed files and load order. Missing/replayed/displaced evidence is inconclusive. No game assets in Git; guard/QA before merge; no money/passwords/outreach/history rewriting.
+Walk both directions over bridge/cell borders, use cave doors with correct position/facing/collision, save/reload; retain stairs/movables. Pin code/plans/source, installed files/load order. Missing/replayed/displaced evidence is inconclusive. No game assets in Git; guard/QA before merge; no money/passwords/outreach/history rewriting.
 
-Core64c:648,358 refs/1,708 populated cells across6.4km; no size guarantee. October13 smoke7/7, baseline29/30, informational15/15; northeast+1.8939m remains. Four wrong-frame jumps stay excluded. Original campaigns/save preserved; scoped monitor paused.
+Core64c648358 refs/1708 populated cells across6.4km; no size guarantee. October13 smoke7/7, baseline29/30, informational15/15; northeast+1.8939m remains. Four wrong-frame jumps stay excluded. Old campaigns/save preserved; scoped monitor paused.
 
-Lead reports load-order/bridge telemetry and both-direction Sanctuary-Red Rocket walks (~254m each); independent acceptance remains open. Cave fixA refuted; inherited-cell probe override displaces COC. Mechanism unresolved; require new controls. Lead reports are not Codex acceptance.
+Lead reports bridge telemetry, both-direction~254m walks and installed c4 raider combat engagement. Independent native acceptance remains open. Cave fixA refuted; exterior-cell overrides displace COC/crash. Keep probe-free129 separate. Lead stages wider navmesh/containers;150 and door gate remain Codex priorities. No combined acceptance claims.
 
-## Source / reviewed work
+## Source / proposals
 
-Mainef3a3ba includes integration121,131/133, bridge125 and current lead/Grok changes. Source integration is not gameplay acceptance. Latest #32 claims supersede this handoff.
+Latest #32 supersedes this handoff. Main879abbdb includes126/131/133/125/138/164/165; this branch updates146 over main. Canonical Claude checkout is unchanged; lead owns integration.
 
-- PR10458f0b51/PR116589f1bf: reviewed QA/guard/CI pass; await Claude. Bridge125 merged; preserve expected_sha256 publication, bridge-last order and no-op exit0. No live application by Codex.
-- PR1297511352: probe-free OFST/CLSZ candidate staged; mandatory raw checks pass. Claude owns the unverified native comparison. No probes/exterior override/install/input; retain126's neighbour-probe option.
-- PR1181350d9d: selection/per-read evidence reviewed; native adapter pending, runtime acceptance false. PR123319e131: packets reviewed; model savings unmeasured, Guardian-only coordinated window.
-- #117/PR120 archive fingerprinting, #130/PR131 custom-prefix dependencies and #132/PR133 atomic ID reservations are merged; prior QA/guard/CI pass. No native acceptance follows from these offline fixes. Grok owns R06.
-- PR1346d7bd988: Codex found235,119 surviving IDs shifted by promotion; container checks accept wrong XYZ/base/scale/inventory. Two raw-plugin/eight checker controls;28 author tests pass. Claude must fix/re-pin before identity-compatible acceptance.
-- PR138fa253dc/#137: stored ID validation/allocation cap; seven writer/1308 Windows tests(69 skips), guard/Mencius QA/CI pass. Await lead integration; exhausted-header native behavior unverified.
-- Codex #139: independent container auditor; core64d pair matches, baseline fails235119 IDs. QA found encoding/ownership/bounds defects; corrected, three independent controls rerun pass. Final peer review pending (QA quota); no producer/stage changes.
+- 10458f0b51/116589f1bf reviewed QA/guard/CI pass; await lead. 125 merged; preserve expected_sha256 publisher, bridge-last and no-op0. No live application by Codex.
+- 129 integrates126 flags; prior probe-free stage/raw checks retained, native effect unverified. No probes/exterior override/install/input. 1181350d9d/123319e131 await native adapter/model measurement gates.
+- 138 integrated.146 now audits shared CONT bases, exact uses/metadata and promoted baseline IDs.17 tests/four retained-output controls pass; peer QA pending, runtime false.
+- 1346d7bd988 shifts235119 surviving IDs.1506f511b2+153105a10c private full-size candidate preserves648358 source/11769 base IDs;664228 original records byte-identical, only kit NAME/TES4 changed; group ownership/headers intact. PR146 reader passes. Kit REFR069435/CONT0A2AA5; production unchanged. Peer QA/new plans/native tests pending; undeployed. General allocator open. See testing/container-reference-identities.md.
+- 164b58a4ae merged: failed mark replays stale ref (mocked actual PS/reader); needs fail-closed fix.167 review5543192224: shared metadata loss/plugin-key collision, Claude owns source.146 sharing support is awaiting peer QA. Grok169 export counts verified; native/graph acceptance open.
+- Codex publication companion: prepares all outputs privately; journaled rollback/retained snapshots and guards for deployment/experiment/core/cave readers. Mixed-map failure reproduced, eleven new fault/consumer methods pass. QA/integration pending; no native changes. See testing/terrain-output-publication.md.
+- 149ed44dae draft: bounded full-hash reads, synthetic median0.684->0.460s;94 targeted/guard/CI pass. Independent QA/live measurement pending.
 
 ## Next / preservation
 
-Next: finish139; Claude integrates ready proposals, corrects134 and owns native tests. Old batch_full:1109 pending;616 movables need fresh plans. #79 awaits release/pins. No unchanged QA/stage reruns or speculative work.
+Lead reviews/integrates proposals and owns native tests. Old batch_full1109 pending;616 movables need fresh plans. #79 awaits release/pins. No unchanged broad QA/stage reruns.
 
-#32/owner issues are the inbox; refresh before work/done. Keep below4KB; history in handoff-archive. Evidence indexed/verified on D:, originals retained; local, not offsite. Follow docs/testing/progress-storage.md. Quiet four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused.
+#32/owner issues are inbox. Keep below4KB. Evidence indexes/capsules verified on D:, originals retained; local, not offsite. Follow testing/progress-storage.md. Quiet four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused. Usage modest.

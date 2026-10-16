@@ -145,15 +145,29 @@ def audit(blob, objects, ids, *, plugin_name, baseline=None):
             raise ValueError("container sources still appear in ordinary placements")
         if ids["plugin"].lower() != plugin_name.lower() or ids["world"] != objects["world"]:
             raise ValueError("container plugin/world metadata differs")
+        def reference_ids(mapping):
+            result = {src: _local(value) for src, value in mapping["refs"].items()}
+            for src, pair in mapping.get("containers", {}).items():
+                if src in result:
+                    raise ValueError("source appears in both ordinary and promoted references")
+                result[src] = _local(pair["ref"])
+            if len(set(result.values())) != len(result):
+                raise ValueError("declared source reference identities are not unique")
+            return result
+
+        new_references = reference_ids(ids)
         pairs = {src: (_local(ids["containers"][src]["base"]), _local(ids["containers"][src]["ref"])) for src in sources}
-        local_ids = [v for pair in pairs.values() for v in pair]
-        if len(set(local_ids)) != len(local_ids):
-            raise ValueError("container base/reference identities are not unique")
+        base_ids = {pair[0] for pair in pairs.values()}
+        if base_ids & set(new_references.values()):
+            raise ValueError("container base overlaps declared reference identities")
+        local_ids = {v for pair in pairs.values() for v in pair}
         # Master order in the actual header determines file-local link prefixes.
-        masters, recs, cells, worlds, count, uses = _scan(blob, set(local_ids), {p[0] for p in pairs.values()})
+        masters, recs, cells, worlds, count, uses = _scan(blob, local_ids, base_ids)
         own = len(masters) << 24
-        if count != len(conts):
+        expected_uses = Counter(own | pair[0] for pair in pairs.values())
+        if count != len(base_ids):
             errors.append("CONT record count differs from container definitions")
+        report["container_base_records"] = count
         links = {name.lower(): n << 24 for n, name in enumerate(masters + [plugin_name])}
         for c in conts:
             src = c["src"]
@@ -162,8 +176,8 @@ def audit(blob, objects, ids, *, plugin_name, baseline=None):
                 base, ref = recs[bid], recs[rid]
                 if base[0] != b"CONT" or base[4] != 0 or base[6] != b"CONT" or ref[0] != b"REFR" or ref[6] != b"WRLD":
                     raise ValueError("mapped records are not CONT/REFR")
-                if uses[bid] != 1:
-                    errors.append(f"{src}: expected one placed reference to container base")
+                if uses[bid] != expected_uses[bid]:
+                    errors.append(f"{src}: placed reference count differs for container base")
                 if _text(_one(base[2], b"EDID")) != c["edid"] or _text(_one(base[2], b"FULL")) != c["name"]:
                     errors.append(f"{src}: container editor ID/name differs")
                 if _text(_one(base[2], b"MODL")).replace("\\", "/").lower() != c["model"].replace("\\", "/").lower():
@@ -198,14 +212,20 @@ def audit(blob, objects, ids, *, plugin_name, baseline=None):
             except (AttributeError, KeyError, TypeError, ValueError, struct.error, UnicodeError) as error:
                 errors.append(f"{src}: invalid container evidence: {error}")
         if baseline is not None:
-            for category in ("bases", "refs"):
-                old, new = baseline[category], ids[category]
-                changed = [key for key in old.keys() & new.keys() if _local(old[key]) != _local(new[key])]
-                missing = (old.keys() - new.keys()) - (set(sources) if category == "refs" else set())
+            old_references = reference_ids(baseline)
+            old_bases = {key: _local(value) for key, value in baseline["bases"].items()}
+            new_bases = {key: _local(value) for key, value in ids["bases"].items()}
+            for category, old, new in (("bases", old_bases, new_bases), ("refs", old_references, new_references)):
+                changed = [key for key in old.keys() & new.keys() if old[key] != new[key]]
+                missing = old.keys() - new.keys()
                 report[category + "_ids_changed"] = len(changed)
                 report[category + "_ids_missing"] = len(missing)
                 if changed or missing:
                     errors.append(f"baseline {category}: {len(changed)} changed, {len(missing)} missing identities")
+            for src, previous in baseline.get("containers", {}).items():
+                current = ids["containers"].get(src)
+                if current is None or _local(previous["base"]) != _local(current["base"]):
+                    errors.append(f"{src}: baseline promoted container base changed or disappeared")
             if baseline["plugin"].lower() != plugin_name.lower() or baseline["world"] != objects["world"]:
                 errors.append("baseline plugin/world differs")
         report["offline_passed"] = not errors and report["containers_checked"] == len(conts)

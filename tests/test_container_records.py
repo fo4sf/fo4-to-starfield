@@ -53,6 +53,64 @@ class ContainerRecordTests(unittest.TestCase):
     def audit(self, blob=None):
         return cr.audit(self.blob() if blob is None else blob, self.objects, self.ids, plugin_name="Fixture.esm", baseline=self.baseline)
 
+    def shared_pair(self):
+        other = deepcopy(self.objects["containers"][0])
+        other["src"], other["pos"] = "222222:Fallout4.esm", [15., 20., 1.]
+        self.objects["containers"].append(other)
+        self.ids["containers"][other["src"]] = {"base": "000803", "ref": "000806"}
+        self.baseline["refs"][other["src"]] = "000806"
+        fields = [(k, struct.pack("<6f", 15, 20, 1, 0, 0, .5) if k == "DATA" else v) for k, v in self.ref_fields]
+        return self.blob(extra=record("REFR", 0x01000806, fields))
+
+    def test_shared_base_checks_each_preserved_placement(self):
+        report = self.audit(self.shared_pair())
+        self.assertTrue(report["offline_passed"], report)
+        self.assertEqual(report["containers_checked"], 2)
+        self.assertFalse(report["runtime_accepted"])
+
+    def test_promoted_source_cannot_silently_change_its_baseline_reference(self):
+        before = record("REFR", 0x01000804, self.ref_fields)
+        shifted = self.blob().replace(before, record("REFR", 0x01000806, self.ref_fields))
+        self.ids["containers"][self.src]["ref"] = "000806"
+        report = self.audit(shifted)
+        self.assertFalse(report["offline_passed"], report)
+
+    def test_previously_promoted_baseline_preserves_container_base_too(self):
+        del self.baseline["refs"][self.src]
+        self.baseline["containers"] = {self.src: {"base": "000803", "ref": "000804"}}
+        self.assertTrue(self.audit()["offline_passed"])
+        self.baseline["containers"][self.src]["base"] = "000809"
+        self.assertFalse(self.audit()["offline_passed"])
+
+    def test_shared_base_still_checks_each_requested_name_and_inventory(self):
+        blob = self.shared_pair()
+        other = self.objects["containers"][1]
+        other["name"] = "Different kit"
+        report = self.audit(blob)
+        self.assertFalse(report["offline_passed"], report)
+        self.assertTrue(any("editor ID/name differs" in e for e in report["errors"]))
+        other["name"] = self.objects["containers"][0]["name"]
+        other["items"][0]["count"] = 99
+        report = self.audit(blob)
+        self.assertFalse(report["offline_passed"], report)
+        self.assertTrue(any("inventory differs" in e for e in report["errors"]))
+
+    def test_shared_base_requires_exact_placements_and_unique_reference_ids(self):
+        blob = self.shared_pair()
+        extra = record("REFR", 0x01000807, self.ref_fields)
+        report = self.audit(self.blob(extra=record("REFR", 0x01000806,
+            [(k, struct.pack("<6f", 15, 20, 1, 0, 0, .5) if k == "DATA" else v) for k, v in self.ref_fields]) + extra))
+        self.assertFalse(report["offline_passed"], report)
+        self.assertTrue(any("placed reference count differs" in e for e in report["errors"]))
+        self.assertFalse(self.audit(self.blob())["offline_passed"])
+        self.ids["containers"]["222222:Fallout4.esm"]["ref"] = "000804"
+        self.assertFalse(self.audit(blob)["offline_passed"])
+
+    def test_promoted_and_ordinary_sources_cannot_alias_even_without_baseline(self):
+        self.ids["refs"]["654321:Fallout4.esm"] = "000804"
+        report = cr.audit(self.blob(), self.objects, self.ids, plugin_name="Fixture.esm")
+        self.assertFalse(report["offline_passed"], report)
+
     def test_valid_pair_and_declared_baseline_pass_offline_only(self):
         report = self.audit()
         self.assertTrue(report["offline_passed"], report)

@@ -435,6 +435,21 @@ def plan(a):
     print(f"{len(tests)} tests in {len(cells)} cells on build {q['build_id']}: {counts}")
 
 
+def activate_block(a):
+    """The terrain "activate" block of a plan.json entry (docs/ai/test-queue.md "Activate"), validated at planning: ref
+    and base are 8 hex digits (both are typed into the game), expect a list of non-empty strings; anything else stops
+    the plan (Codex's review of #145: the planner must carry and check the block, not drop it)."""
+    if not isinstance(a, dict):
+        sys.exit("activate must be an object {ref, base, expect}")
+    for k in ("ref", "base"):
+        if not re.fullmatch(r"[0-9A-Fa-f]{8}", str(a.get(k, ""))):
+            sys.exit(f"activate.{k} must be 8 hex digits: {a.get(k)!r}")
+    expect = a.get("expect") or []
+    if not isinstance(expect, list) or not all(isinstance(x, str) and x for x in expect):
+        sys.exit("activate.expect must be a list of non-empty strings")
+    return {"ref": str(a["ref"]).upper(), "base": str(a["base"]).upper(), "expect": list(expect)}
+
+
 def plan_terrain(a):
     """Terrain experiment 1 (docs/terrain/architecture.md on PR #57): three test worldspaces, each with its own BTD
     (flat ground at 10 m and pads at known heights); which height the player lands on shows whether the plugin's
@@ -455,10 +470,13 @@ def plan_terrain(a):
         # reference inside the target worldspace does
         if travel and not re.fullmatch(r"(coc|cow) [A-Za-z0-9_]+( -?\d+ -?\d+)?|player\.moveto [0-9A-Fa-f]{8}", travel):
             sys.exit(f"bad travel command in plan.json: {travel!r}")
+        if w.get("activate"):
+            w = dict(w, activate=activate_block(w["activate"]))
         tests.append(with_extras({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "",
                                   "ref": w["coc"], "model": w.get("label", ""), "world_coc": w["coc"], "travel": travel,
                                   **{k: w[k] for k in ("spawn_local", "anchor", "drop_above_spawn", "settle_ms",
-                                                       "z_ref", "hop_m", "hop_wait_ms") if w.get(k)},
+                                                       "z_ref", "hop_m", "hop_wait_ms", "activate",
+                                                       "teleport_console") if w.get(k)},
                                   "drop_z": float(w.get("drop_z", 80.0)),
                                   "points": w["points"], "beyond": w.get("beyond") or {"x": w["points"][0]["x"] + 500.0,
                                                                                        "y": w["points"][0]["y"]}},
@@ -1104,6 +1122,27 @@ def seg_dist_xy(a, b, p):
     return math.hypot(a[0] + t * dx - p[0], a[1] + t * dy - p[1])
 
 
+def activate_summary(test, obs):
+    """"[activate ...]" for a terrain test with an "activate" block (qstep.ps1: the container menu opened from the console with
+    prid <ref> + activate player, captured as activate.png and OCR'd): which of the expected words (the container's name, its
+    items) the OCR read. Shown in the detail, never judged: the verdict stays the terrain verdict."""
+    want = test.get("activate")
+    if not want or not obs:
+        return ""
+    a = obs.get("activate") or {}
+    if a.get("selected") is False:
+        return (f"[activate {want.get('ref')}: selection not confirmed (GetIsID {want.get('base')} did not reply 1); "
+                "nothing activated]")
+    if not a.get("shot"):
+        return f"[activate {want.get('ref')}: no capture]"
+    text = (a.get("ocr") or "").lower()
+    expect = [w for w in (want.get("expect") or []) if w]
+    if expect:
+        found = [w for w in expect if w.lower() in text]
+        return f"[activate {want.get('ref')}: read {found} of {expect}]"
+    return f"[activate {want.get('ref')}: {'text read' if text.strip() else 'nothing read'}]"
+
+
 def judge(test, obs, out_dir):
     """(verdict, reason class, detail) from raw observations. Missing observations are INCONCLUSIVE.
     A test that asked for a time of day or a weather gets its light appended to the detail ("[light: ...]", e.g.
@@ -1115,6 +1154,9 @@ def judge(test, obs, out_dir):
     con, _ = console_plan.summary(test, obs)              # console_pre / console_post replies: shown, never judged
     if con and obs:
         detail = f"{detail} {con}"
+    act = activate_summary(test, obs)
+    if act:
+        detail = f"{detail} {act}"
     lt = light_of(test, obs)
     if lt is None or not obs or obs.get("stopped"):
         return v, cls, detail

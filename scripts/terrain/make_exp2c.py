@@ -74,7 +74,7 @@ CAPSULE = (0.4, 1.8)                     # assumed player cylinder (radius, heig
 # is carried into each exp2c entry unless exp2c sets it itself (ENTRY_OWN), so a key the runner learns later (as z_ref
 # was, after exp2c was first staged) cannot be dropped silently: validate_plan() names any difference.
 RUNNER_KEYS = ("coc", "travel", "label", "anchor", "spawn_local", "drop_above_spawn", "settle_ms", "z_ref", "drop_z",
-               "points", "beyond", "hop_m", "hop_wait_ms")
+               "points", "beyond", "hop_m", "hop_wait_ms", "activate", "teleport_console")
 ENTRY_OWN = ("label", "points", "drop_z", "z_ref", "spawn_local")
 POINT_KEYS = ("label", "x", "y", "expect")
 

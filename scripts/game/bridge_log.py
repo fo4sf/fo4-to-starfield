@@ -122,6 +122,41 @@ def read_events(path):
     return [e for e in (parse_event(s) for s in raw) if e is not None]
 
 
+def line_count(path):
+    """Raw lines in the log now (0 for a missing log): the mark a reference read takes before it types its command,
+    so only a reply written after that counts (an older reply for the same reference never passes for a new read)."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return sum(1 for _ in f)
+    except OSError:
+        return 0
+
+
+def wait_ref(path, ref_hex, timeout=10.0, since=0):
+    """The FO4SF_Probe.Pos reply for this reference (8 hex, load index included) written at or after raw line `since`:
+    {"ok": True, "pos", "ang", "cell", "disabled", "loaded", "line"} or {"ok": False, "why", ...}: "no such reference"
+    (the script answered none: the id is not a loaded reference) or a timeout. Polls every 0.2 s; the reply comes
+    within a second of the console closing (r05_medkit_1015: nine runs)."""
+    want = ref_hex.upper()
+    t0 = time.time()
+    while True:
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                raw = f.read().splitlines()
+        except OSError:
+            raw = []
+        for i in range(max(0, since), len(raw)):
+            ev = parse_event(raw[i])
+            if ev and ev["kind"] == "ref" and ev["id"] == want:
+                if ev.get("none"):
+                    return {"ok": False, "why": f"no such reference {want}", "line": i}
+                return {"ok": True, "pos": ev["pos"], "ang": ev.get("ang"), "cell": ev.get("cell"),
+                        "disabled": ev.get("disabled"), "loaded": ev.get("loaded"), "line": i}
+        if time.time() - t0 > timeout:
+            return {"ok": False, "why": f"no reply for {want} after line {since} in {timeout:g} s"}
+        time.sleep(0.2)
+
+
 def wait_ack(path, tag, timeout=10.0):
     """Wait until an ack line with this tag is in the log; True, or False after timeout seconds."""
     t0 = time.time()
@@ -230,11 +265,25 @@ def main(argv=None):
     p.add_argument("tag")
     p.add_argument("--log", default=None)
     p.add_argument("--timeout", type=float, default=10.0)
+    p = sub.add_parser("mark")                             # the log's raw line count now (wait-ref --since)
+    p.add_argument("--log", default=None)
+    p = sub.add_parser("wait-ref")                         # FO4SF_Probe.Pos reply for a reference (8 hex)
+    p.add_argument("ref")
+    p.add_argument("--log", default=None)
+    p.add_argument("--timeout", type=float, default=10.0)
+    p.add_argument("--since", type=int, default=0)
     p = sub.add_parser("events")                           # every parsed line but the timer's, as JSON lines
     p.add_argument("--log", default=None)
     p.add_argument("--all", action="store_true", help="the timer's pos lines too")
     a = ap.parse_args(argv)
     log = a.log or default_log()
+    if a.cmd == "mark":
+        print(line_count(log))
+        return 0
+    if a.cmd == "wait-ref":
+        r = wait_ref(log, a.ref, a.timeout, a.since)
+        print(json.dumps(r))
+        return 0 if r["ok"] else 1
     if a.cmd == "wait-ack":
         ok = wait_ack(log, a.tag, a.timeout)
         print(json.dumps({"ok": ok, "tag": a.tag}))
