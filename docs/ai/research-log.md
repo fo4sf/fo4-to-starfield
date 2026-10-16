@@ -3,6 +3,73 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-16 Claude: posed props in the pinned interiors (owner playtest rows 4 c and 5)
+- Question: why does the pinned interior build (`integ_1011`) show the Vault 111 radiation scanners with "swung out"
+  panels and the lab-coat skeleton `Vault111SkeletonScientist02` standing, and how many models and references of the
+  16 interiors share the cause?
+- Method: the build's provenance (`integ_1011/build.log` line 1, `git branch --contains`), its `manifest.json`, the 16
+  cell exports, the FO4 NIFs (`nif`, `fo4skin`, `ragdoll_pose`, the door sequence samplers), an offline conversion of
+  every affected model into a scratch folder (`convert_batch.py --cell-json` on the affected references, then
+  `dotnet/PluginSpike`, the plugin read back record by record), flat-shaded renders of the converted meshes as placed
+  ([docs/media/posed-props/](../media/posed-props/)). Census and render scripts stayed in the scratch folder.
+- Cause, **verified**: `integ_1011` was built from `a5bc92e`, which has neither `fo4skin.py` (PR #45) nor the node-pose
+  bake (#46) nor `ragdoll_pose.py` (#52); all three were still open, so `main` drew every skinned shape from its stored
+  positions (the skin's bind pose, `pipeline.convert_nif`: "taken in bind pose") and had no XRGD path at all, although
+  the cell exports carry the `ragdoll` entries (`Vault111Cryo.json` 1A6736: 17 entries). The skeleton's converted mesh
+  box equals its stored positions (z 0.6..131.8 units: standing, arms out), while its merged rigid body sits on the
+  bone nodes (node pose: root bone turned 45 degrees). Posed with the reference's XRGD, the converted mesh lies on the
+  floor: world z -3.4..31.4 at reference z 13.7 (bind 14.3..145.5). `Vault111SkeletonVaultSuit` 1A6737 (reference
+  rotation x = pi, i.e. upside down) runs from 117 below to 100 above the floor in the bind pose and lies at -2.4..19.4
+  posed.
+- Rad scanner, **verified** not a pose problem; the "panels swing out" hypothesis of row 5 is **refuted**:
+  `V111RadScanner01.nif` has no skin (2 BSTriShapes without VF_SKIN), two NiNodes (root, SoundNode), and its four
+  sequences animate only the `GlowPanel:0` effect shader (BSEffectShaderProperty colour / float controllers; the
+  NiMultiTargetTransformController's 4 targets are all -1). The converted mesh's box equals FO4's exactly (x +-15.6,
+  y -25.2..37.0, z 0..185.5). The tall panel is authored 10 degrees off vertical (y 20.2 -> 36.9 over z 88.9 -> 183.6);
+  in FO4 the glow quad (`V111RadScanner01FX_d.dds`) lies on it, and the converter skips that effect shape (neither
+  glass nor grime, `_shape_material`), so the bare slab shows. Its colour textures are in the texture archive.
+- Animated skinned models, **verified** offline: the node pose, not the bind pose, is a state of their animations.
+  Sampling every NiControllerSequence at its start and stop (bones it animates take the sampled local transform, the
+  rest their NIF transform) for the 9 animated models in the census: the stored positions match no state of any
+  sequence (59..6,661 units off), the node pose matches the start of at least one sequence exactly for every skinned
+  shape (VltElevator `stage1`, VltGearDoor01 / 02 `Stage1`, generator `autoPlay`, sinks / fountain `partA`, grenade bouquet,
+  holly shrub). Examples: the elevator's bind pose puts the surface hatch (`Hatch:28`, 7.4 x 7.1 m) on the vault floor
+  (z -8..8); every sequence keeps it at 6,570..6,586 (row 6's yellow square may be this hatch: **supported
+  hypothesis**); its platform is 1,279..1,391 at `stage1` start, -232..-121 in `Stage2Idle` and 1,418..1,530 in the
+  bind pose, so it stays wrong until the elevator animates (row 6). The gear door's walkway is extended with its ramp
+  through the floor in the bind pose and retracted in the node pose (= `Stage1` start; the extended end state of
+  `Stage2` / `Stage3` / `Stage0` is 120 units from the bind pose). Which sequence a graph starts in: **unresolved**.
+- Fix (this PR): skinned shapes are posed with the bone nodes' placed transforms (`world_transforms(placed=True)`, the
+  frame the shapes and collision bodies already use: a moved scene root no longer offsets the skin alone); a reference
+  whose XRGD moves an articulated model (two or more bodies) gets a model of its own built in that pose
+  (`placed_pose.plan`, `convert_static pose=`: the entries replace the bone nodes' local transforms for the skin, the
+  shapes under the nodes and the bodies, so the merged rigid body is posed too), named `<base>_xrgd_<pose hash>`; the
+  plugin writer gives exactly those references that base (`PosedBases.cs`). Single-body items keep the shared model:
+  an entry on the root body would turn the whole item against its reference, which no resting test has checked.
+- Counts (16 interiors: the `integ_1011` manifest and the 16 cell exports, 60,268 references, 47,619 placed with a
+  converted model):
+  - node pose: 97 converted models have skinned shapes, 20 move 2 units or more in the node pose (9 animated), the other
+    77 move less than 0.1; 180 of the 1,192 placed skinned references use the 20 (73 animated): `Vault_Sink_01` 32,
+    `SkeletonClothedVaultsuit` 28, `HollyShrubSmall01Trimmed` 20, `SkeletonClothed01` 17, `SkeletonBareBody01` 17,
+    `Vault_Fountain01` 13, `SkeletonClothed02` 12, `SkeletonClothedScientist` 7, `skeletonclothedarmy02` 7,
+    `skeletonclothedarmy01` 6, `SkeletonClothedScientist02` 5, `PowerArmorFurniture` 4, `SkeletonBareBodyHeadless` 3,
+    `V111Generator02On` 3, one each of `GrenadeBouquet_LongTriple`, `Tricycle01`, `PlayerHouse_Sink01`, `VltGearDoor01`,
+    `VltElevator`, `VltGearDoor02`.
+  - XRGD: 507 references carry ragdoll data. 147 get a posed model (147 distinct poses of 24 models: 112 skeletons,
+    `SawHorse01Dest` 17, `ConstructionBarrier01Dest` 10 / `02Dest` 8, `Jangles01` 3, `Gurney01Cushion` 3, ...,
+    `V111GearRoomGate01` 1); 48 pose within 0.5 units of the node pose (shared model); 214 are single-body loose items
+    (`Pillow01`, `NukaColaBottleEmpty`, `Pen01`, ...) left as they are; 45 are rejected (19 entry count != body count:
+    stale XRGD; 26 models without collision bodies); 53 sit on models that were not converted.
+  - Together 231 placed references change (96 through both): Vault 95 48, Vault 75 35, Vault 114 33, Boston Public
+    Library 30, Vault 81 15, Vault 111 14, FortHagen01 12, SuperDuperMart01 12, FortHagen02 9, CambridgePolymerLabs01 8,
+    MuseumOfWitchcraft01 5, ParsonsState01 4, PrydwenHull01 4, RedRocket01 2.
+- Offline end to end: the scratch conversion (35 models + 147 posed models, 0 failures, 54 s) and plugin (275
+  references): read back, 147 references sit on their own posed base and 128 on the shared one, 0 wrong.
+- Status: cause **verified**; "FO4 shows a placed ragdoll in its XRGD pose" **supported hypothesis** (PR #52's Vault 114
+  resting test, the Vault 111 skeletons lie on the floor posed, 1A6737's upside-down reference rotation only makes sense
+  posed); how Starfield shows the posed models (and whether the movable posed bodies stay put) **unresolved** until a
+  build is looked at in game. Single-body XRGD: **unresolved**.
+
 ## 2026-10-16 Claude: BSMeshLODTriShape triangle groups are parts, not alternative LODs (Vault 111 tables without tops)
 - Question: why do Vault 111's NpcTableVaultSit02 tables (`SetDressing\Vault\Vault_Table_02.nif`) show their frames
   but no tops in the playtest build (integ_1011)?

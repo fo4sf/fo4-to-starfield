@@ -1441,6 +1441,7 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
 - Merged tonight: #162, #163, #161, #165, #166 (and the queue of the day before). Open: #164 (sandbox suite running),
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
+
 ## 2026-10-10 Claude: FO4 skin reader and pose bake (offline)
 New `src/fo4sf/fo4skin.py` reads a skinned FO4 shape's skin (bone nodes from `BSSkin::Instance`, skin-to-bone
 transforms and bone-space bounding spheres from `BSSkin::BoneData`, f16 weights and u8 bone slots per vertex) and
@@ -1473,3 +1474,20 @@ the in-game look. Tests 273 OK, guard OK (guard now skips `.claude/` agent workt
 - Next: bake the pose into the converted mesh (skin weights, PR #45 / #46) and the rigid body, rebuild Vault 114, look
   in game. Side finding to check: the REFR rotation order `routes.ref_matrix` uses offline may be the wrong one
   (known unknown #7).
+
+## 2026-10-16 Claude: posed props (owner playtest rows 4 c and 5; offline, no game input)
+- Cause, verified: the pinned interior build `integ_1011` was made from `a5bc92e`, which has none of the pose work (PRs
+  #45, #46, #52 were never merged), so every skinned prop was drawn in its skin's bind pose and no reference's ragdoll
+  pose (XRGD) was used. The lab-coat skeleton of rows 4 c and 5 stands for that reason. The rad scanners are not posed
+  models at all: same mesh as FO4, the tilted panel is authored that way and loses FO4's glow quad (a skipped effect
+  shape). Details and counts: research log, same date.
+- This PR carries #45 / #46 / #52 forward onto current `main` and finishes them: skin posed in the placed frame
+  (`world_transforms(placed=True)`, as shapes and bodies), and a posed model of its own for each reference whose XRGD
+  moves an articulated model (`placed_pose`, `PosedBases.cs`). Sampling the animated skinned models' sequences showed
+  the node pose is an animation state of every one of them and the bind pose of none (the elevator's surface hatch lay
+  on the vault floor in the bind pose).
+- 16 interiors: 231 placed references change (180 skinned in the node pose, 147 with their own XRGD pose, 96 both);
+  214 single-body loose items with XRGD stay as they are (unchecked frame for a root body). Offline end to end: 35
+  models + 147 posed models converted in 54 s, plugin written and read back, 147 references on their posed base, 0
+  wrong. Renders: docs/media/posed-props/. Not in game yet; the next interior build needs a full convert (the code
+  digest changes the checkpoints).

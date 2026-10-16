@@ -125,14 +125,8 @@ def _entries(ragdoll_entries) -> List[RagdollEntry]:
     return out
 
 
-def pose_bones(fo4_nif_bytes: Union[bytes, nifmod.NifFile], ragdoll_entries, all_nodes: bool = False
-               ) -> Dict[int, BoneTransform]:
-    """{node block index: BoneTransform} of the ragdoll bone nodes (the nodes that own a physics body; every NiNode when
-    all_nodes) after applying the XRGD entries, in NIF / reference space (game units).
-    ragdoll_entries: raw XRGD bytes, RagdollEntry items, cell-export dicts or (position, rotation) pairs.
-    Raises RagdollPoseError when the entries don't fit the NIF (count != number of bodies, as with stale XRGD written
-    for another version of the model), contain non-finite numbers, or a bone node ends up scaled."""
-    n = fo4_nif_bytes if isinstance(fo4_nif_bytes, nifmod.NifFile) else nifmod.parse(fo4_nif_bytes)
+def _posed_entries(n: nifmod.NifFile, ragdoll_entries) -> Tuple[Dict[int, RagdollEntry], set]:
+    """({bone node block: its entry}, bone node blocks) after the checks pose_bones documents."""
     entries = _entries(ragdoll_entries)
     system, body_node = ragdoll_nodes(n)
     expected = system_body_count(n, system)
@@ -146,6 +140,34 @@ def pose_bones(fo4_nif_bytes: Union[bytes, nifmod.NifFile], ragdoll_entries, all
     posed = {node: entries[body] for body, node in body_node.items() if body < len(entries)}
     if len(posed) != len(body_node):
         raise RagdollPoseError("a collision object refers to a body past the ragdoll entries")
+    return posed, set(body_node.values())
+
+
+def local_overrides(fo4_nif: Union[bytes, nifmod.NifFile], ragdoll_entries) -> Dict[int, Tuple[Row, tuple, float]]:
+    """{bone node block: (translation, row-major rotation 9-tuple, scale)}: the local (parent-relative) transforms the
+    XRGD entries give the ragdoll's bone nodes, in nif.world_transforms' form (its local_overrides argument), so shapes,
+    skins and collision bodies can be composed in the placed pose. Scale is the node's own (entries carry none); a
+    scaled bone node is refused as in pose_bones. Same checks and errors as pose_bones."""
+    n = fo4_nif if isinstance(fo4_nif, nifmod.NifFile) else nifmod.parse(fo4_nif)
+    posed, _ = _posed_entries(n, ragdoll_entries)
+    out = {}
+    for node, e in sorted(posed.items()):
+        _, _, s = nifmod._av_transform(n.blocks[node])
+        if abs(s - 1.0) > SCALE_TOLERANCE:
+            raise RagdollPoseError(f"bone node {node} has scale {s:g}; ragdoll bones must be unscaled")
+        out[node] = (tuple(float(v) for v in e.position), euler_matrix(e.rotation), s)
+    return out
+
+
+def pose_bones(fo4_nif_bytes: Union[bytes, nifmod.NifFile], ragdoll_entries, all_nodes: bool = False
+               ) -> Dict[int, BoneTransform]:
+    """{node block index: BoneTransform} of the ragdoll bone nodes (the nodes that own a physics body; every NiNode when
+    all_nodes) after applying the XRGD entries, in NIF / reference space (game units).
+    ragdoll_entries: raw XRGD bytes, RagdollEntry items, cell-export dicts or (position, rotation) pairs.
+    Raises RagdollPoseError when the entries don't fit the NIF (count != number of bodies, as with stale XRGD written
+    for another version of the model), contain non-finite numbers, or a bone node ends up scaled."""
+    n = fo4_nif_bytes if isinstance(fo4_nif_bytes, nifmod.NifFile) else nifmod.parse(fo4_nif_bytes)
+    posed, bones = _posed_entries(n, ragdoll_entries)
     parent = {}
     for i in range(len(n.blocks)):
         if n.type_of(i).endswith("Node") and n.type_of(i) != "BSFaceGenNiNode":
@@ -165,7 +187,6 @@ def pose_bones(fo4_nif_bytes: Union[bytes, nifmod.NifFile], ragdoll_entries, all
         cache[i] = local if i not in parent else nifmod._compose(world(parent[i], depth + 1), local)
         return cache[i]
 
-    bones = set(body_node.values())
     wanted = sorted(bones) if not all_nodes else [i for i in range(len(n.blocks)) if n.type_of(i).endswith("Node")]
     out = {}
     for i in wanted:

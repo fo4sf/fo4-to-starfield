@@ -158,9 +158,11 @@ def apply(xf: Transform, v) -> tuple:
     return tuple(s * (r[3 * a] * v[0] + r[3 * a + 1] * v[1] + r[3 * a + 2] * v[2]) + t[a] for a in range(3))
 
 
-def node_world(n: NifFile, skin: Fo4Skin) -> List[Transform]:
-    """World transforms of the skin's bone nodes as stored in the NIF (one per slot, nif.world_transforms)."""
-    world = world_transforms(n)
+def node_world(n: NifFile, skin: Fo4Skin, world=None) -> List[Transform]:
+    """World transforms of the skin's bone nodes as stored in the NIF (one per slot). world: a nif.world_transforms
+    lookup to use instead of the file's own composition (placed=True for a placed reference, local_overrides for a
+    reference's ragdoll pose)."""
+    world = world or world_transforms(n)
     out = []
     for k, b in enumerate(skin.bones):
         if not (0 <= b < len(n.blocks)) or not n.type_of(b).endswith("Node"):

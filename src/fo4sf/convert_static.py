@@ -129,7 +129,7 @@ def _rigid_ragdoll(src, objs, world, dynamic_template: bytes, motion: dict):
 
 
 def fo4_native_collision(src, universal_template: bytes, report: dict = None, dynamic_template: bytes = None,
-                         motion: dict = None):
+                         motion: dict = None, pose: dict = None):
     """[Starfield single-body physics blobs], one per FO4 collision body (meshcollision.convert_bodies), or None to fall
     back. Unsupported shape classes and malformed data return None and record why. One exception, reported as
     report["skipped_parts"]: precombine debris parts in the undecoded primitive encoding (see convert_bodies) are left
@@ -137,7 +137,9 @@ def fo4_native_collision(src, universal_template: bytes, report: dict = None, dy
     dynamic_template (a vanilla dynamic body): a model whose only collision object sits on the root node and holds
     one dynamic FO4 body becomes movable (motion["dynamic"] = kg, the single blob is that body); so does a model whose
     collision objects share one all-dynamic system (ragdoll skeleton), merged into ONE rigid body (_rigid_ragdoll,
-    report["motion_note"]); dynamic bodies that can't be converted are listed in motion["kept_static"]."""
+    report["motion_note"]); dynamic bodies that can't be converted are listed in motion["kept_static"].
+    pose: {node block: local transform} (nif.world_transforms local_overrides, e.g. a reference's XRGD ragdoll pose):
+    every body sits on its node as posed."""
     from . import meshcollision
     objs = [i for i in range(len(src.blocks)) if src.type_of(i) == "bhkNPCollisionObject"]
     if not objs:
@@ -146,7 +148,7 @@ def fo4_native_collision(src, universal_template: bytes, report: dict = None, dy
     blobs, skipped = [], []
     # placed=True: the game ignores the scene root's own transform (PryCatwalkStairsEnt02's 180-degree root turned the
     # converted stairs the wrong way round; FO4's precombined physics only matches without it).
-    world = nifmod.world_transforms(src, placed=True)
+    world = nifmod.world_transforms(src, placed=True, local_overrides=pose)
     rigid = _rigid_ragdoll(src, objs, world, dynamic_template, motion) if dynamic_template is not None and len(objs) > 1 else None
     if rigid is not None:                            # phase A ragdoll: one rigid movable body on the root node
         if report is not None:
@@ -234,15 +236,19 @@ def fo4_mesh_collision(src, sf_mesh_template: bytes, report: dict = None):
 ANIMATED_BLOCKS = ("NiControllerManager", "NiControllerSequence")
 
 
-def pose_skinned_shapes(src, shapes, report: dict = None):
+def pose_skinned_shapes(src, shapes, report: dict = None, world=None):
     """Skinned shapes posed the way the NIF's nodes stand (fo4skin.node_world), in NIF root space with an identity shape
     transform, so the mesh lands where FO4 draws it and where its bone-node collision is (research log 2026-10-10 "FO4
     skin reader": SkeletonClothed01's root bone is turned 45 degrees from the bind pose; a vault sink's tap is stored at
     the model origin and posed on the basin rim). Normals and tangents turn with each vertex's heaviest bone. The node
     pose is the rest pose of animated NIFs too (controllers move nodes from there; the sink's tap is only right when
     posed), so they are posed as well and counted in report["skinned_posed_animated"] for the in-game check. Unreadable
-    skins keep the stored positions, counted in report["skinned_kept_stored"]."""
+    skins keep the stored positions, counted in report["skinned_kept_stored"].
+    world: the nif.world_transforms lookup the bones are read from; default placed=True, the frame fo4_trishapes(placed=
+    True) and fo4_native_collision use (the scene root's own transform left out), so mesh and bodies stay together.
+    A reference's ragdoll pose (local_overrides) comes in the same way."""
     from . import fo4skin
+    world = world or nifmod.world_transforms(src, placed=True)
     animated = any(src.type_of(i) in ANIMATED_BLOCKS for i in range(len(src.blocks)))
     out, posed, kept, odd_root = [], 0, 0, 0
     ident = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
@@ -252,7 +258,7 @@ def pose_skinned_shapes(src, shapes, report: dict = None):
             continue
         try:
             skin = fo4skin.read_skin(src, s.block)
-            bones = fo4skin.node_world(src, skin) if skin else None
+            bones = fo4skin.node_world(src, skin, world) if skin else None
         except (nifmod.NifError, ValueError, struct.error):
             skin = bones = None
         if skin is None or bones is None:
@@ -293,21 +299,24 @@ def convert_static(fo4_nif: bytes, out_name: str, material_path: str = PLACEHOLD
                    unit_scale: float = UNIT_SCALE, collision_template: bytes = None,
                    material_paths: list = None, collision_mode: str = "box",
                    include_skinned: bool = False, report: dict = None, sf_mesh_template: bytes = None,
-                   allow_guess: bool = True, dynamic_template: bytes = None) -> Dict[str, bytes]:
+                   allow_guess: bool = True, dynamic_template: bytes = None, pose: dict = None) -> Dict[str, bytes]:
     """collision_mode: "box" = one AABB on the root; "surfaces" = thin boxes behind flat surfaces, one body each.
     sf_mesh_template: a vanilla Starfield mesh-collision blob; when given, FO4's own collision mesh is transplanted
     (meshcollision.transplant) and the box methods are only the fallback.
     allow_guess=False: FO4's own collision or nothing, never a guessed box (vegetation, mounds, door frames: a box
     around them would be an invisible wall). A failed native conversion is reported as "fo4-native-failed".
     dynamic_template: FO4 loose items (one dynamic body on the root) become movable: their body goes on the root node
-    and BSXFlags is 0x42 as on vanilla MiscItems; the caller places them as MoveableStatic (report["motion"])."""
+    and BSXFlags is 0x42 as on vanilla MiscItems; the caller places them as MoveableStatic (report["motion"]).
+    pose: {node block: local transform} replacing those nodes' own transforms (ragdoll_pose.local_overrides: a placed
+    reference's XRGD ragdoll pose). Shapes under those nodes, skinned shapes and collision bodies are all built in that
+    pose; the result is a model for that reference only (placed_pose)."""
     src = nifmod.parse(fo4_nif)
-    shapes = [s for s in nifmod.fo4_trishapes(src, placed=True)
+    shapes = [s for s in nifmod.fo4_trishapes(src, placed=True, local_overrides=pose)
               if (include_skinned or not s.skinned) and s.positions and s.triangles]
     if not shapes:
         raise nifmod.NifError("no static BSTriShape geometry found")
-    if include_skinned:
-        shapes = pose_skinned_shapes(src, shapes, report)   # node pose, as FO4 draws placed skinned props
+    if include_skinned:                                       # node pose (or the reference's pose), as FO4 draws them
+        shapes = pose_skinned_shapes(src, shapes, report, nifmod.world_transforms(src, placed=True, local_overrides=pose))
     files, static_shapes, all_pts, all_tris = {}, [], [], []
     for i, s in enumerate(shapes):
         if material_paths and material_paths[i] is None:      # caller asked to drop this shape (e.g. effect shader)
@@ -329,7 +338,8 @@ def convert_static(fo4_nif: bytes, out_name: str, material_path: str = PLACEHOLD
     fo4_has_collision = any(src.type_of(i) == "bhkNPCollisionObject" for i in range(len(src.blocks)))
     if sf_mesh_template is not None and collision_template is not None:
         native = fo4_native_collision(src, sf_mesh_template, report,      # FO4's own bodies as native Starfield bodies
-                                      dynamic_template=dynamic_template, motion=motion)
+                                      dynamic_template=dynamic_template, motion=motion,
+                                      **({"pose": pose} if pose is not None else {}))
     if sf_mesh_template is not None and collision_template is not None and not fo4_has_collision:
         # FO4 gives this model no collision (rubble, debris, paper, signs, posters, plants): the player walks through
         # it there, so it gets none here either. A guessed box would be an invisible wall.

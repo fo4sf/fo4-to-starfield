@@ -106,3 +106,36 @@ try
 }
 finally { Directory.Delete(directory, true); }
 Console.WriteLine("Load-door teleport synthetic checks and binary round-trip passed.");
+
+// ---- posed models (PosedBases): a reference with its own posed model gets that base, every other reference keeps the
+// shared base of its model; malformed or conflicting pose entries fail the build instead of placing the wrong base.
+using var poseManifest = JsonDocument.Parse("""
+{"items":[
+ {"editor_id":"FO4Port_Skel","model":"fo4port\\skel.nif","source":"meshes\\SetDressing\\Skel.nif"},
+ {"editor_id":"FO4Port_Skel_xrgd_0123456789","model":"fo4port\\skel_xrgd_0123456789.nif","source":"meshes\\SetDressing\\Skel.nif",
+  "pose":{"kind":"xrgd","key":"0123456789","refs":["0A:Fallout4.esm","0B:Fallout4.esm"]}},
+ {"editor_id":"FO4Port_Bad","model":"x.nif","source":"meshes\\x.nif","pose":{"kind":"xrgd","refs":[]}}]}
+""");
+var poseItems = poseManifest.RootElement.GetProperty("items").EnumerateArray().ToList();
+Require(PosedBases.RefsOf(poseItems[0]).Count == 0, "ordinary item reported as posed");
+Require(PosedBases.RefsOf(poseItems[1]).SequenceEqual(new[] { "0A:Fallout4.esm", "0B:Fallout4.esm" }), "posed references not read");
+var emptyRefs = false;
+try { PosedBases.RefsOf(poseItems[2]); } catch (InvalidOperationException) { emptyRefs = true; }
+Require(emptyRefs, "a pose without references was accepted");
+var byRefBases = new Dictionary<string, string>();
+var bySourceBases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+foreach (var it in poseItems.Take(2))                                     // posed item first or last: same result
+    PosedBases.Register(byRefBases, bySourceBases, it.GetProperty("source").GetString()!, PosedBases.RefsOf(it),
+                        it.GetProperty("editor_id").GetString()!);
+Require(bySourceBases.Count == 1 && bySourceBases["meshes\\setdressing\\skel.nif"] == "FO4Port_Skel", "posed item replaced the shared base");
+Require(PosedBases.TryResolve(byRefBases, bySourceBases, "0A:Fallout4.esm", "SetDressing\\Skel.nif", out var posedBase)
+        && posedBase == "FO4Port_Skel_xrgd_0123456789", "posed reference did not get its own base");
+Require(PosedBases.TryResolve(byRefBases, bySourceBases, "0C:Fallout4.esm", "SetDressing\\Skel.nif", out var sharedBase)
+        && sharedBase == "FO4Port_Skel", "unposed reference of the same model lost the shared base");
+Require(!PosedBases.TryResolve(byRefBases, bySourceBases, "0D:Fallout4.esm", "SetDressing\\Other.nif", out _)
+        && !PosedBases.TryResolve(byRefBases, bySourceBases, "0E:Fallout4.esm", "", out _), "unconverted model resolved");
+var twice = false;
+try { PosedBases.Register(byRefBases, bySourceBases, "meshes\\SetDressing\\Skel.nif", new[] { "0B:Fallout4.esm" }, "FO4Port_Skel_xrgd_other"); }
+catch (InvalidOperationException) { twice = true; }
+Require(twice && byRefBases["0B:Fallout4.esm"] == "FO4Port_Skel_xrgd_0123456789", "a reference with two posed models was accepted");
+Console.WriteLine("Posed-model base selection checks passed.");
