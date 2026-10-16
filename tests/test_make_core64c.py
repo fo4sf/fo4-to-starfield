@@ -448,6 +448,39 @@ class StageTests(unittest.TestCase):
 
 
 class ContainerPerBaseTests(unittest.TestCase):
+    def test_plugin_punctuation_and_extension_do_not_merge_source_bases(self):
+        plugins = ("SomeDLC.esm", "Some-DLC.esm", "Some_DLC.esm", "Some.DLC.esm", "SomeDLC.esp", "SomeDLC.esl")
+        keys = [mk.container_edid(f"04B6E9:{plugin}", "000001:Fallout4.esm") for plugin in plugins]
+        self.assertEqual(len(set(keys)), len(plugins))
+        for plugin, key in zip(plugins, keys):
+            self.assertEqual(mk.container_edid(f"04b6e9:{plugin.upper()}", "000002:Fallout4.esm"), key)
+
+    def test_existing_simple_master_and_r05_names_stay_stable(self):
+        for plugin, suffix in (("Fallout4.esm", "fallout4"), ("DLCCoast.esm", "dlccoast"), ("DLCNukaWorld.esm", "dlcnukaworld")):
+            self.assertEqual(mk.container_edid(f"04B6E9:{plugin}", "x"), f"FO4Core_cont_04b6e9_{suffix}")
+        self.assertEqual(mk.container_edid(None, "19EE52:Fallout4.esm"), "FO4Core_cont_19ee52")
+
+    def test_unshared_reference_keys_keep_the_source_plugin(self):
+        refs = ("19EE52:Fallout4.esm", "19EE52:SomeDLC.esm", "19EE52:SomeDLC.esp")
+        self.assertEqual(len({mk.container_edid(None, src) for src in refs}), len(refs))
+        self.assertEqual(mk.container_edid(None, refs[-1]), mk.container_edid(None, refs[-1].upper()))
+
+    def test_unicode_expansion_cannot_alias_another_plugin_name(self):
+        self.assertNotEqual(mk.container_edid("04B6E9:Ma\u00dfe.esm", "x"), mk.container_edid("04B6E9:Masse.esm", "x"))
+        self.assertNotEqual(mk.container_edid(None, "19EE52:Ma\u00dfe.esm"), mk.container_edid(None, "19EE52:Masse.esm"))
+
+    def test_key_collision_is_refused_even_when_metadata_matches(self):
+        from unittest.mock import patch
+        bases = [{"model": "synthetic.nif"}]
+        placed = [{"src": f"{i:06X}:Fallout4.esm", "base": 0, "cell": [0, 0], "pos": [0, 0, 0],
+                   "rot": [0, 0, 0], "scale": 1.0} for i in (1, 2)]
+        cluster = {"containers": [{"src": p["src"], "base": base, "name": "Box",
+                                   "items": [{"form": "Starfield.esm:00000F", "count": 1}]}
+                                  for p, base in zip(placed, ("04B6E9:SomeDLC.esm", "04B6E9:Other.esm"))]}
+        with patch.object(mk, "container_edid", return_value="ForcedCollision"):
+            with self.assertRaisesRegex(ValueError, "distinct source identities"):
+                mk.cluster_containers(bases, placed, cluster)
+
     def test_entries_of_one_base_share_the_cont_edid(self):
         bases = [{"edid": "FO4Core_x", "model": "m.nif", "source": "s.nif"}]
         placed = [{"src": "000001:Fallout4.esm", "base": 0, "cell": [0, 0], "pos": [0, 0, 0], "rot": [0, 0, 0], "scale": 1.0},
