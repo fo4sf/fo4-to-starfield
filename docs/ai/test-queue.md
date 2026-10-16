@@ -901,3 +901,10 @@ activator: no facing, no E), captures the whole screen as `activate.png`, OCRs i
 (`activate_closed.png`). The verdict detail gets `[activate <ref>: read [...] of [...]]`, the expected words the OCR found;
 it is shown and never judged, and the owner's own E-press stays the interaction acceptance. Runner feature `activate`
 (`runner_features.py`): an older runner refuses such a queue instead of running it without the step.
+
+### teleport_console (terrain diagnostic, 2026-10-15)
+
+`"teleport_console": true` on a terrain test makes every probe teleport capture its own console session before closing it
+(`tp<n>.png`, OCR in `obs.teleports[n]` with the typed target): the game's reply to `player.setpos` / `setangle`, which
+nothing else records. Added for r05_medkit_1015/b/c/e, where the player stayed at the Red Rocket arrival through every
+probe while the bridge read fresh. Off by default; no effect on the verdict.
