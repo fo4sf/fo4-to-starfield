@@ -5,6 +5,7 @@ usage: python convert_batch.py --fo4-data <Fallout 4 Data dir> --staging <out di
                                [--pattern "setdressing/(chair|stool)"] [--limit 40] [--manifest manifest.json]
 Writes <staging>/manifest.json: converted items (EditorID + model path for the plugin writer), failures with reasons, stats.
 After conversion, prints the top failure reasons by count (with percentages) and writes failure-summary.json.
+Also prints live progress every 10 items (processed/ok/failed/skipped/reused).
 Needs numpy. Deterministic: names are processed in sorted order.
 """
 import argparse
@@ -204,11 +205,15 @@ def main():
     os.makedirs(a.staging, exist_ok=True)
     state_path = os.path.join(a.staging, "build-state.json")
     write_json_atomic(state_path, {"complete": False, "status": "converting"})
-    items, failures, reused = [], [], 0
+    items, failures, reused, skipped = [], [], 0, 0
+    processed = 0
+    progress_interval = 10
     for name in names:
         if len(items) >= a.limit:
             break
+        processed += 1
         if not a.cell_json and re.search(r"(lod|_dmg|damaged|destr)", name, re.I):
+            skipped += 1
             continue
         r = cache.load(name) if cache else None
         if r is not None:
@@ -228,6 +233,8 @@ def main():
                     print(f"  checkpoint unavailable for {name}: {e}")
         if not r["ok"]:
             failures.append({"nif": name, "reason": r["reason"]})
+            if processed % progress_interval == 0:
+                print(f"  progress: {processed}/{len(names)} processed, {len(items)} ok, {len(failures)} failed, {skipped} skipped, {reused} reused")
             continue
         eid = editor_id(name, ids)
         if cache:
@@ -242,6 +249,10 @@ def main():
                       **({"door_frozen_parts": r["door_frozen_parts"]} if "door_frozen_parts" in r else {}),
                       **({"door_error": r["door_error"]} if "door_error" in r else {})})
         print(f"  ok  {name} -> {eid} (shapes {r['shapes']}, fallback materials {r['fallback_materials']})")
+        if processed % progress_interval == 0:
+            print(f"  progress: {processed}/{len(names)} processed, {len(items)} ok, {len(failures)} failed, {skipped} skipped, {reused} reused")
+    if processed % progress_interval != 0:
+        print(f"  progress: {processed}/{len(names)} processed, {len(items)} ok, {len(failures)} failed, {skipped} skipped, {reused} reused")
     for f in failures[:15]:
         print("  FAIL", f["nif"], "-", f["reason"][:110])
     from collections import Counter, defaultdict
@@ -257,7 +268,7 @@ def main():
     success_pct = 100.0 * len(items) / attempted if attempted else 100.0
     print(f"  Batch result: {len(items)}/{attempted} succeeded ({success_pct:.1f}%)")
     elapsed = round(time.time() - t0, 1)
-    print(f"  reused={reused}  seconds={elapsed}")
+    print(f"  reused={reused}  skipped={skipped}  seconds={elapsed}")
     doors = sum(1 for it in items if "door" in it)
     load_doors = sum(1 for it in items if "load_door" in it)
     movables = sum(1 for it in items if "movable" in it)
@@ -282,6 +293,7 @@ def main():
         "total_failures": total,
         "unique_reasons": unique,
         "reused": reused,
+        "skipped": skipped,
         "seconds": elapsed,
         "limit": a.limit,
         "pattern": a.pattern,
