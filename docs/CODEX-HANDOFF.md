@@ -20,6 +20,6 @@ Preserve STOP/Guardian/owner-idle/recovery controls and native failures. No game
 
 ## Next / preservation
 
-Claude requested registration/core-owned door discriminator first, then ready proposals, R02 persistent IDs and R07 quest census. Latest owner report: some Vault111 slide/gear doors remain pass-through statics; Claude owns animation/pipeline follow-up. No independent native acceptance claimed here.
+Owner priority: persistent doors. New core64h registration candidate pinned in registration-core64h-20261016; source core9d1a84f2, candidate643c94bb. Independent parser/control reads pass; no installation/native result. Claude owns fresh-session comparison and full-stack preflight. PR245/248 repair offline prerequisites; PR243 remains fallback.
 Old batch_full1109/616 movable plans remain separately gated. #79 needs new pins/controller release. Do not rerun old campaigns or retrofit evidence.
 46 completed private capsules/6281 files are reopen/source-verified on D:, originals retained; second local volume, not offsite. Latest registration capsule3985e3e835fefb264e2da9ee9d344be1b9e006fd88c7d7bd9443cfe335878845. No cleanup before verified preservation. Four-hour Codex follow-up stays active; completed scoped monitors remain paused. Keep this handoff below4KB and public posts short.
