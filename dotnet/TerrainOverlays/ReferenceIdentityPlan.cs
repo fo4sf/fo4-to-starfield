@@ -6,8 +6,10 @@ using System.Text.Json;
 // each carries its original reference_index, the remaining "refs" fill the other slots in order.
 internal static class ReferenceIdentityPlan
 {
-    // objects.json keys of the promoted classes (make_core64c.py PROMOTED): CONT, then MISC bases
-    public static readonly string[] PromotedClasses = { "containers", "items" };
+    // objects.json keys of the promoted classes (make_core64c.py PROMOTED): CONT, then MISC bases; a scripted door
+    // ("doors", docs/terrain/scripted-doors.md) keeps its REFR slot the same way, its ACTI base and arrival marker
+    // come after every other record
+    public static readonly string[] PromotedClasses = { "containers", "items", "doors" };
 
     public static string[] Order(JsonElement objects)
     {
