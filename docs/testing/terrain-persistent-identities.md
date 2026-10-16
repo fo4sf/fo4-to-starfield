@@ -86,3 +86,17 @@ The caller must provide collision-free source-derived editor IDs; PR176 extends 
 rule to CONT/MISC. This allocator cannot split distinct sources already aliased to one
 editor ID, nor repair a ledger produced by an unreviewed caller using unnamed keys.
 Preserve such stages for investigation instead of deleting the ledger or resetting IDs.
+
+## Scripted door integration
+
+The scripted-door writer's ACTI bases use `["door-base", editor_id]`; each return marker uses
+`["door-arrival", full_source_formkey]`. Door REFRs keep the existing source-reference keys.
+With persistent mode enabled, door reordering, adding another base/marker and removing then
+reintroducing a door preserve all existing IDs. The whole source plugin identity distinguishes
+equal local IDs belonging to different source masters. Removed reservations are never recycled.
+
+Legacy mode retains its allocation order and bytes, including its reorder hazard. Existing
+legacy door outputs still require explicit, byte-identical bootstrap before persistent rebuilds.
+This integration does not enable persistence in an active stage or change door transforms,
+VMAD properties, physics or script behavior. The scripted staging/raw-patch findings on PR261,
+independent integration QA, full-size bootstrap and native return/save/reload remain gates.

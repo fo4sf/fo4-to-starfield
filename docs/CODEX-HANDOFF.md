@@ -1,27 +1,21 @@
 # Codex / Claude / Grok status
 
-Goal: connected Red Rocket-Sanctuary-cave slice with native physics, interactions and save/reload; coverage is not gameplay acceptance. Latest #32 claims override this snapshot.
+Owner goal: connected Red Rocket-Sanctuary-cave slice with Fallout 4 gameplay and Starfield native physics; focus persistent doors. Coverage and offline checks are not gameplay acceptance. Latest issue32 claims override this snapshot.
 
 ## Ownership and controls
 
-Claude PC leads and owns game/controller, collision/terrain/actors, pipeline and runner/staging. No Codex launch, close, install, input or active watchdog restart without explicit release. The owner is testing installed core64f; do not adopt that session.
-Codex owns deployment/recovery, identities/cache/output verification and door bridge. Use isolated trees, public exact scopes, preserve concurrent edits. Grok owns assigned oracle/export work. Do not wake paused workers. Local inference only through Guardian in a coordinated no-game window.
-Preserve STOP/Guardian/owner-idle/recovery controls and native failures. No game assets/saves/private settings in Git; no money/passwords/purchases/paid fallback/outreach/history rewriting. Guard before commits, independent QA before integration. Low usage: targeted tests, no unchanged broad reruns or extra agents.
+Claude leads and owns game/controller, collision/terrain/actors, pipeline and runner/staging. No Codex launch, close, install, input or active watchdog restart without explicit release; never adopt the owner's game. Codex owns deployment/recovery, identities/cache/output verification and door bridge. Use isolated trees and public exact scopes; preserve concurrent edits. Grok owns assigned oracle/export work. No extra agents or waking paused workers. Local inference only through Guardian in a coordinated no-game window.
 
-## Current proposals / evidence
+Preserve STOP/Guardian/owner-idle/recovery controls, failed evidence and original stages. No game assets/saves/private settings in Git; no money/passwords/purchases/paid fallback/outreach/history rewriting. Guard before commits, independent QA before integration. Low usage: targeted checks, no unchanged broad reruns.
 
--226 implementation: owned codex/terrain-persistent-identities, main+153 dependency. Opt-in durable semantic IDs across terrain/base/ref/CONT/NAVM; byte-identical bootstrap, tombstones, output-generation binding and pre-publication persistence.28 targeted identity/publication/guard tests pass; peer QA/CI and full-size/native gates pending. No active stage migrated. See docs/testing/terrain-persistent-identities.md.
+## Persistent-door work
 
-- 224 source6ba23dd: registration-only core64c companion staged privately,6522 bytes SHA643c94bb50edb446a610615631f599006e10dfd94028907f5e1fe9ae6a0a498d.11 synthetic tests/guard and existing-parser comparison pass. Only one CNAM coordinate pair changes logically; core untouched. H_ll zero XY remains a hypothesis. Peer QA and Claude fresh-session measurement pending. Not a complete install; never silently mix with core64f. Details: docs/slice/registration-probe.md.
-- 129 CLOSED after native NOLOAD/local-only door coordinates; original stage/failures retained.17482fa121 native-core door design remains the alternative; no core-door implementation or build claimed.
-- 149a17cf17: serial default/opt-in1..4 hashing readers, fresh content checks;98 targeted tests/CI38931485395 pass. Peer correction QA and real-tree tuning pending; no deployment.
-- 153518933a: stopped-checkpoint publication exception correction;12 Windows guard/compiled checks and CI38918409322 pass. Fresh peer correction review pending.
-- 146b9e6a14/1762154d22: independent no-finding reviews and CI pass; container identity/deleted-state checks ready for PC integration, native unverified.
-- 17936dbb1c: Codex review5550543450 reproduced missing Python plus stale LASTEXITCODE0 in reused PowerShell host passing lease guard. Canary blocked game lookup. Claude owns repair; live rollout untested.
--104/116 reviewed, no live activation.118/123 native/model gates pending; preserve expected_sha256 and bridge-last/no-op0.
+- Codex isolated branch codex/scripted-door-identities combines227/6e7fc62 and261/9f57a64 without changing their branches. Four synthetic persistent-door builds refused unnamed allocations; legacy reorder swapped ACTI/arrival IDs. New door-base/editor-ID and door-arrival/full-source keys cover those records. Five new writer checks pass, including reorder, insertion/removal/reintroduction, distinct source masters and byte-identical explicit bootstrap. Existing publication/identity protocols retained. Peer QA required; nothing installed or migrated.
+- PR261 has three reproduced review findings: linked source README overwritten; low24 lookup accepts a master-owned reference; existing VMAD replaced before the later checker refuses. This integration inherits that source unchanged. Claude owns those fixes and the native Mart Step0/return/save-reload gate. Historical merge offsets are not current measurements.
+- PR242/4eb3fc1 door/pose merge integration:11 independent controls,7 targeted Python tests and actual PluginSpike binary/state/XTEL checks pass. Native rig/collision/travel/save behavior remains unverified. Earlier motion review at b4bd673 stands.
+- PR262/4ab2d99 persistence-count fix:9 state/repeat controls and3 byte-identical CLI comparisons; CI/CodeQL pass, independent QA pending. PR260 transform reuse and255 CLI refusal remain source proposals. PR256 carries the reviewed return patch to main after253 merged only into a branch; native XTEL and scripted routes remain separate.
+- PR227 persistent IDs still needs full-size/bootstrap resources, caller/checker integration and native save validation. Existing stages require explicit byte-identical migration; never reset ledgers or silently renumber old saves. Adding regional markers must preserve existing door destinations.
 
-## Next / preservation
+## Preservation / next
 
-Claude requested registration/core-owned door discriminator first, then ready proposals, R02 persistent IDs and R07 quest census. Latest owner report: some Vault111 slide/gear doors remain pass-through statics; Claude owns animation/pipeline follow-up. No independent native acceptance claimed here.
-Old batch_full1109/616 movable plans remain separately gated. #79 needs new pins/controller release. Do not rerun old campaigns or retrofit evidence.
-Codex227: MISC semantic reservations/current-main integration:21 persistent writer methods pass; evidence persistent-items-227-20261016. Peer QA pending. D: index has reopen/source-verified capsules; originals retained, not offsite. No cleanup before preservation. Four-hour follow-up active; scoped monitors paused.
+Private failing/passing evidence: test-plans/scripted-door-identities-20261016 and the242/261 review packets. Verify archives before cleanup; D: is a second local volume, not offsite. Originals retained. Continue useful owned work after inbox refresh; scoped test monitors stay paused and the low-usage follow-up stays active until the owner pauses it.
