@@ -1441,3 +1441,10 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
 - Merged tonight: #162, #163, #161, #165, #166 (and the queue of the day before). Open: #164 (sandbox suite running),
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
+
+
+## 2026-10-16: Codex, nested door motion coverage (#216)
+
+Offline tested with synthetic NIF BS130 only; no game runtime tested. Before: five failing assertions across seven regression tests, including opposite nested leaves and Close-only child motion. After: 112 door tests pass (`unittest discover -s tests -p test_door*.py` with src/tests import paths); the unchanged Claude PR202 3a9689a DoorTests regression also passes when called directly without expectedFailure handling.
+
+`door_motion.inspect` preserves explicit descendant interpolators as requiring additional motion support. The legacy coverage key feeds the existing frozen-parts/multipart caller without pipeline edits; a separate nested-shape list explains the result. Constant or unsupported child tracks conservatively require support because equivalence to the stored bind is not proven. No claim that every flagged track actually moves, or that multipart export/native behavior succeeds. Null child tracks and unanimated descendants retain prior routing. Failed and passing logs retained privately; independent peer QA and in-game acceptance remain pending.
