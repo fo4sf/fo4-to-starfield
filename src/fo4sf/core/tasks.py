@@ -52,10 +52,17 @@ class TaskCard:
                 raise CardError(f"{name}: a positive integer")
         if self.id in self.dependencies:
             raise CardError("dependencies: a card cannot depend on itself")
-        for name in ("capability", "campaign", "recovery"):
+        if not isinstance(self.recovery, str) or not self.recovery.strip():
+            raise CardError("recovery: a card says how a second session continues (a non-empty string)")
+        for name in ("capability", "campaign"):
             v = getattr(self, name)
             if v is not None and (not isinstance(v, str) or not v.strip()):
                 raise CardError(f"{name}: a non-empty string or absent")
+
+    @property
+    def needs_evidence(self):
+        """False when the card's evidence rule is the one word "none": a decided result may then carry no evidence."""
+        return not (len(self.evidence_required) == 1 and self.evidence_required[0].strip().casefold() == "none")
 
     def to_dict(self):
         return asdict(self)
@@ -82,6 +89,14 @@ class TaskCard:
             d = json.loads(text)
         except ValueError as e:
             raise CardError(f"not JSON: {e}") from None
+        return cls.from_dict(d)
+
+    @classmethod
+    def from_event(cls, event):
+        """The card riding on a task_queued event (or the fold's `cards[id]` dict); CardError when there is none."""
+        d = event if isinstance(event, dict) else event.get("card")
+        if not d:
+            raise CardError("no card on this event")
         return cls.from_dict(d)
 
     def events(self, by, t=None):

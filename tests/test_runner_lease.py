@@ -5,6 +5,7 @@ Windows, tests/test_game_scripts.py). Synthetic data; no game, no Windows calls.
 import datetime
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -139,6 +140,20 @@ class RunnerLeaseTests(unittest.TestCase):
         self.assertIn("still valid, renewing again", log)
         self.assertEqual(ctl.read().status(), "held")
 
+    def test_the_runner_hands_its_lease_to_cycle_ps1(self):
+        r = self.runner(lease_dir=self.leader, lease_owner="Bob")                 # flags, nothing in the environment
+        with mock.patch.dict(os.environ, {"FO4SF_LEASE_DIR": "C:\\elsewhere", "FO4SF_LEASE_OWNER": "Claude"}):
+            env = r.ps_env(steal=True)
+        self.assertEqual((env["FO4SF_LEASE_DIR"], env["FO4SF_LEASE_OWNER"]), (r.lease.dir, "Bob"))   # the effective ones
+        self.assertEqual((env["FO4SF_NO_FOCUS_STEAL"], env["LEGACY"]), ("0", "1"))
+        plain = self.runner()                                                      # no lease: nothing added, nothing removed
+        with mock.patch.dict(os.environ, {"FO4SF_LEASE_DIR": "C:\\elsewhere"}, clear=False):
+            env = plain.ps_env()
+        self.assertEqual(env["FO4SF_LEASE_DIR"], "C:\\elsewhere")
+        self.assertEqual(env["FO4SF_NO_FOCUS_STEAL"], "1")
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertNotIn("FO4SF_LEASE_DIR", plain.ps_env())
+
     def test_a_launch_is_gated_before_the_idle_check(self):
         ctl = tt.FakeControls()
         ctl.pid, ctl.idle, ctl.last_sent_tick = None, 5, None    # would otherwise say "owner active"
@@ -176,6 +191,24 @@ class ScriptLeaseBlockTests(unittest.TestCase):
         self.assertIn("-not $running -and (QueueLeft) -gt 0", src)             # the chain-start rule unchanged
         self.assertIn("$env:FO4SF_LEASE_DIR = $cfg.lease_dir; $env:FO4SF_LEASE_OWNER = $cfg.lease_owner", src)
         self.assertLess(src.index("$go = ClaimLeaseForChain"), src.index("starting the test chain"))
+        self.assertIn("if (-not $ls -or $ls.status -notin @('none', 'released')) {", src)   # --force only for a takeover
+        self.assertIn("--ttl $ttl @force 2>&1", src)
+        self.assertNotIn("--ttl $ttl --force", src)
+        self.assertIn("if (-not $out) { Note \"lease status unreadable (no output", src)   # python missing: said so
+
+    @unittest.skipUnless(os.name == "nt" and shutil.which("powershell"), "runs cycle.ps1's refusing path on Windows only")
+    def test_cycle_ps1_exits_9_without_a_lease_before_touching_anything(self):
+        # the refusing path needs no game: an empty lease folder, exit 9 before Get-Process / the deploy
+        import subprocess
+        empty = tempfile.mkdtemp()
+        env = dict(os.environ, FO4SF_LEASE_DIR=empty, FO4SF_LEASE_OWNER="Claude")
+        r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", os.path.join(GAME, "cycle.ps1"),
+                            "-Staging", os.path.join(empty, "no-staging"), "-Starfield", os.path.join(empty, "no-game")],
+                           capture_output=True, text=True, timeout=120, env=env)
+        self.assertEqual(r.returncode, 9, r.stdout + r.stderr)
+        self.assertIn("not valid for Claude", r.stdout)
+        self.assertIn("not launching", r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(empty, "no-game")))       # nothing deployed, nothing created
 
     def test_lease_wrapper_runs_the_controller_cli(self):
         import subprocess
