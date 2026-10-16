@@ -7,5 +7,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../TerrainOverlays/TerrainOverlays.csproj" />
+    <Compile Include="../TerrainOverlays/OutputPublication.cs" Link="OutputPublication.cs" />
   </ItemGroup>
 </Project>
