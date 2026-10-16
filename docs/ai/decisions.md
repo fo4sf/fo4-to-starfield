@@ -354,3 +354,15 @@ timeout into an INCONCLUSIVE result that says so. Why: the brief's cards were pr
 the last weeks were a result nobody could trace to evidence and a run nobody could tell apart from a lost one; data
 with rules closes both. Alternatives: free-form result dicts (what the queue rows are today; the importer keeps
 reading those unchanged); a scheduler that retries on its own (a retry is a decision the leader records, not a loop).
+
+## 2026-10-16 Claude-cloud: the core carries one reference matrix, in #102's Z-first order, and leaves the old copies in place
+
+`src/fo4sf/core/adapters/transform.py` is the core's only `ref_matrix` (`R = Rx(-x) Ry(-y) Rz(-z)`, the order PR #102
+verified on 146,463 of 146,728 tilted precombined references and on 52 of 52 core64c readings); a parity test pins
+where the two Python copies agree (`routes.py` everywhere, `exterior.py` on heading-only rotations) and where they do
+not. `exterior.ref_matrix` and `PluginSpike.RotateOffset` stay X first on purpose: switching either moves every
+tilted placement or every rigged door hinge, which is a re-staged build, a rebuilt plugin and re-pinned campaigns,
+so each is its own PR by the PC session (leader-core.md §9 lists the cost). Why not fix them now: a cloud session
+cannot rebuild or re-pin, and a silently changed `objects.json` would invalidate pinned evidence. Alternatives:
+one shared function imported by both scripts today (ties `scripts/game` to `fo4sf.core` before the PC session has
+decided the import path); keeping the order as a parameter (two orders in the core is the bug #102 found).
