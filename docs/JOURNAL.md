@@ -1452,3 +1452,14 @@ Four actual-writer methods verify distinct CONTs and preserved original REFR IDs
 See [the identity follow-up](testing/container-reference-identities.md#full-source-plugin-grouping-follow-up).
 No C# writer, production stage, game input or save changed. Peer review/integration remain pending; existing
 mixed-plugin aliases and future promoted-base migrations are not repaired retroactively.
+
+### 2026-10-16: Codex extends full-source grouping to MISC
+
+Merged current main into the owned PR176 branch after PR235 introduced shared CONT/MISC
+promotion. Resolved the identity helper conflict by preserving both class wrappers and
+full canonical source keys; added the same explicit collision refusal to loose items.
+Five synthetic methods produce 13 failing subcases on PR235's reviewed caller; all58
+focused Python checks pass with the fix. The compiled-writer tests now include three
+MISC source-plugin pairs, preserving original reference slots and serialized placement.
+Private evidence: promoted-identity-176-20261016. No writer source, staging or live changes;
+independent review remains required. This does not fix the separate NaN output-check finding.

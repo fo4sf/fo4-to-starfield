@@ -76,3 +76,14 @@ Regenerate and pin a separate candidate before integration. This does not migrat
 whose source bases were already aliased, nor guarantee stable previously-promoted CONT IDs when the set of bases
 changes. Those require the persistent allocator/migration policy above. Peer review and native acceptance remain
 separate; no installation or save was changed.
+
+### Loose-item integration after PR235
+
+The shared `promoted_edid` now applies this identity rule to both CONT and MISC.
+Both callers compare the complete canonical source key before sharing an editor ID;
+an injected hash/name collision is refused even when all gameplay metadata agrees.
+Existing Fallout4.esm names, reference-only R05 names and ASCII case-only sharing remain.
+The new synthetic item writer checks three formerly colliding plugin pairs and preserves
+all original REFR IDs, non-NAME bytes, flags and cell parents. This does not migrate
+already-aliased saves or supply persistent promoted-base IDs across changed exports.
+PR235's independent malformed-output checks are a separate follow-up.

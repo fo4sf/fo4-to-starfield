@@ -30,8 +30,8 @@ Main16a1d2d includes150/167 identity-preserving container promotion and165 navme
 
 ## Next / preservation
 
-Codex follow-up: source-plugin grouping alias fixed offline; peer review pending. No C# writer/staging/input changes.
+Codex176: current-main integration extends full source identities to CONT/MISC;58 Python/6 writer tests pass. Evidence: promoted-identity-176-20261016. Peer QA/native acceptance pending; no C# source/live edits.
 
 Next: joint door review; Claude owns NPC/container chain. Grok follow-up:173 source endpoint comparison. Old batch_full1109 pending;616 movables need fresh plans. #79 awaits release/pins. No unchanged QA/stage reruns.
 
-#32 is the inbox; refresh before work/done. Keep below4KB. D: index37 capsules/5503 files reopen/source-verified, originals retained; local, not offsite. Follow docs/testing/progress-storage.md. Low usage/four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused.
+#32 is the inbox; refresh before work/done. Keep below4KB. D: index holds reopen/source-verified evidence; originals retained, local not offsite. Follow docs/testing/progress-storage.md. Low usage/four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused.
