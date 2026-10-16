@@ -22,11 +22,14 @@
 // {"world": <overlay world EditorID>, "bases": [{"edid", "model", "door"?}], "refs": [{"src", "base", "cell", "pos",
 // "rot", "scale", "disabled"}]} (metres, radians), as dotnet/TerrainExp2's objects mode. Their FormIDs come after every
 // overlay record, so the terrain records, the anchors and the Mars plugin keep the FormIDs they have without objects;
-// <staging dir>/formids.json lists the new ones.
+// <staging dir>/formids.json lists the new ones. objects.json may also promote placed references to native records
+// (make_core64c.py stage --cluster): "containers" (CONT) and "items" (MISC), each entry in its source's original REFR
+// slot (ReferenceIdentityPlan), the new CONT then MISC bases after every reserved REFR; formids.json "containers" and
+// "items" map each source to {"base", "ref"}.
 // objects.json may also hold "lights" and "light_bases" (exterior lights, docs/terrain/exterior-lights.md: written by
 // make_core64c.py stage from make_cluster.py lights): FO4 Light references, which core64c never placed and which therefore
 // own no reserved slot. Their REFRs take NEW FormIDs after every other record of the plugin (the reserved REFRs, the
-// CONT bases and the NAVMs), in "lights" order, then one LIGH per FO4 base (a copy of LGT_Interior_Omni_NS_Warm_004_2k,
+// CONT and MISC bases and the NAVMs), in "lights" order, then one LIGH per FO4 base (a copy of LGT_Interior_Omni_NS_Warm_004_2k,
 // 12A74B:Starfield.esm, with the mapped fields), so a build with lights keeps every FormID of the build without them.
 using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
@@ -156,7 +159,7 @@ foreach (var o in overlays)
                       $"{(cmax - cmin + 1) * (cmax - cmin + 1)} cells {cmin}..{cmax}, COC {coc} in ({spawnCell[0]}, {spawnCell[1]})");
     idx++;
 }
-int nStat = 0, nDoor = 0, nRef = 0, nDisabled = 0, nNav = 0, nNavTri = 0, nNavLink = 0, nNavDoor = 0;
+int nStat = 0, nDoor = 0, nRef = 0, nDisabled = 0, nNav = 0, nNavTri = 0, nNavLink = 0, nNavDoor = 0, nCont = 0, nMisc = 0;
 var refIds = new Dictionary<string, string>();                 // placed reference source -> this plugin's id (6 hex)
 Dictionary<string, object>? ids = null;                        // formids.json
 Dictionary<(int, int), Cell>? objCells = null;                 // the objects' overlay cells
@@ -315,7 +318,70 @@ if (Has(prm, "objects"))
                 Console.WriteLine($"  container {cont.EditorID} {cont.FormKey} ({cont.Items.Count} items) -> REFR {obj.FormKey} in cell ({cxy[0]}, {cxy[1]})");
         }
     }
+    // Loose items (docs/terrain/commonwealth-build-plan.md section 3): "items", FO4 MiscItem / Ingestible references
+    // promoted exactly as containers: one native MISC base per edid (one per FO4 base; every entry of an edid must
+    // agree on model, name, value and weight) and one temporary REFR in the source's original identity slot (reserved
+    // above together with the containers'). The new MISC bases are allocated after every reserved REFR and CONT base.
+    // ({"src", "edid", "model", "name", "value", "weight", "cell", "pos", "rot", "scale", "reference_index"}; Mutagen
+    // 0.55.0-alpha.67 MiscItem: Model, Name, Value (int), Weight (float), read off the package by reflection.)
+    var itemIds = new Dictionary<string, object>();
+    var miscByEdid = new Dictionary<string, MiscItem>(StringComparer.OrdinalIgnoreCase);
+    var miscSig = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    static string ItemSignature(JsonElement c) =>
+        $"{c.GetProperty("model").GetString()!.ToLowerInvariant()}|{c.GetProperty("name").GetString()}|" +
+        $"{c.GetProperty("value").GetInt32()}|{BitConverter.SingleToUInt32Bits(c.GetProperty("weight").GetSingle()):X8}";
+    if (o.TryGetProperty("items", out var itemsJ))
+    {
+        foreach (var c in itemsJ.EnumerateArray())
+        {
+            float[] V(string k) => c.GetProperty(k).EnumerateArray().Select(e => e.GetSingle()).ToArray();
+            var src = c.GetProperty("src").GetString()!;
+            var cxy = c.GetProperty("cell").EnumerateArray().Select(e => e.GetInt32()).ToArray();
+            if (!cellAt.TryGetValue((cxy[0], cxy[1]), out var cell))
+                throw new InvalidDataException($"item {src} in cell ({cxy[0]}, {cxy[1]}) outside {world}'s cells");
+            var edid = c.GetProperty("edid").GetString()!;
+            if (!miscByEdid.TryGetValue(edid, out var misc))
+            {
+                var name = c.GetProperty("name").GetString();
+                int value = c.GetProperty("value").GetInt32();
+                float weight = c.GetProperty("weight").GetSingle();
+                if (string.IsNullOrWhiteSpace(name) || value < 0 || !float.IsFinite(weight) || weight < 0)
+                    throw new InvalidDataException($"item {src}: needs a name, a value >= 0 and a weight >= 0");
+                misc = new MiscItem(NewKey(), release)
+                {
+                    EditorID = edid, Model = new Model { File = c.GetProperty("model").GetString()! },
+                    Name = name, Value = value, Weight = weight,
+                };
+                mod.MiscItems.Add(misc);
+                miscByEdid[edid] = misc;
+                miscSig[edid] = ItemSignature(c);
+            }
+            else if (miscSig[edid] != ItemSignature(c))
+                // one shared record carries one model, name, value and weight (as containers, Codex's review of #167)
+                throw new InvalidDataException($"item {edid}: {src} asks for {ItemSignature(c)} but the shared record is {miscSig[edid]}");
+            var pos = V("pos");
+            var rot = V("rot");
+            var obj = new PlacedObject(referenceKeys[src], release)
+            {
+                Base = new FormLinkNullable<IPlaceableObjectGetter>(misc.FormKey),
+                Position = new P3Float(pos[0], pos[1], pos[2]),
+                Rotation = new P3Float(rot[0], rot[1], rot[2]),
+            };
+            var scale = c.GetProperty("scale").GetSingle();
+            if (Math.Abs(scale - 1f) > 1e-4) obj.Scale = scale;
+            cell.Temporary.Add(obj);
+            nRef++;
+            itemIds[src] = new Dictionary<string, string>
+            {
+                ["base"] = misc.FormKey.ID.ToString("X6"), ["ref"] = obj.FormKey.ID.ToString("X6"),
+            };
+            if (itemIds.Count <= 8 || itemIds.Count % 500 == 0)
+                Console.WriteLine($"  item {misc.EditorID} {misc.FormKey} ('{misc.Name}', value {misc.Value}, weight {misc.Weight}) -> REFR {obj.FormKey} in cell ({cxy[0]}, {cxy[1]})");
+        }
+    }
+    nCont = contByEdid.Count; nMisc = miscByEdid.Count;
     ids = new Dictionary<string, object> { ["plugin"] = modKey.FileName.String, ["world"] = world, ["bases"] = baseIds, ["refs"] = refIds, ["containers"] = contIds };
+    if (o.TryGetProperty("items", out _)) ids["items"] = itemIds;               // a build without items keeps its formids.json bytes
 }
 if (Has(prm, "navmesh"))
 {
@@ -534,7 +600,7 @@ var path = Path.Combine(outDir, modKey.FileName);
 mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(sfData)
     .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full)).Write();
 Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {worlds.Count} overlays, next FormID 0x{next:X}" +
-                  (Has(prm, "objects") ? $"; objects: {nStat} STAT, {nDoor} DOOR, {nRef} REFR ({nDisabled} initially disabled)" : "") +
+                  (Has(prm, "objects") ? $"; objects: {nStat} STAT, {nDoor} DOOR, {nCont} CONT, {nMisc} MISC, {nRef} REFR ({nDisabled} initially disabled)" : "") +
                   (Has(prm, "navmesh") ? $"; navmesh: {nNav} NAVM, {nNavTri} triangles, {nNavLink} edge links, {nNavDoor} door triangles, NAVI override with {nNav} NVMI" : "") +
                   (nLightRef > 0 ? $"; lights: {nLight} LIGH, {nLightRef} REFR" : ""));
 
