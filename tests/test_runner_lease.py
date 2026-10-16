@@ -29,6 +29,11 @@ def read(p):
         return f.read()
 
 
+def quiet_log(r, msg):
+    with open(r.log_p, "a", encoding="utf-8") as f:
+        f.write(f"{tq.now()} {msg}\n")
+
+
 class RunnerLeaseTests(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
@@ -41,6 +46,7 @@ class RunnerLeaseTests(unittest.TestCase):
 
     def runner(self, **kw):
         r = tq.Runner(self.d, tt.args(**kw), ctl=self.ctl, step=lambda t, o: self.calls.append(t["id"]) or 0)
+        r.log = lambda msg: quiet_log(r, msg)             # run.log only: the suite's output stays the result line
         r.session, r.cell = True, "C"                     # game already set up in the test cell
         r._ps = lambda *a, **k: (0, "at the cell")        # never a real PowerShell here
         return r
@@ -235,6 +241,8 @@ class ScriptLeaseBlockTests(unittest.TestCase):
         self.assertIn("$c.lease_dir = \"$($c.lease_dir)\".TrimEnd('\\')", src)   # one folder for every process
         self.assertIn("if (-not [IO.Path]::IsPathRooted($c.lease_dir)) { $c.lease_dir = Join-Path $tq $c.lease_dir }", src)
         self.assertIn("if ($cfg.lease_dir) { $go = ClaimLeaseForChain $cfg $idleH }", src)
+        self.assertIn("[string]$Root = 'C:\\Modding\\testqueue')", src)         # the default root unchanged
+        self.assertIn("$tq = $Root", src)
         self.assertIn("-not $running -and (QueueLeft) -gt 0", src)             # the chain-start rule unchanged
         self.assertIn("$env:FO4SF_LEASE_DIR = $cfg.lease_dir; $env:FO4SF_LEASE_OWNER = $cfg.lease_owner", src)
         self.assertLess(src.index("$go = ClaimLeaseForChain"), src.index("starting the test chain"))
@@ -242,6 +250,30 @@ class ScriptLeaseBlockTests(unittest.TestCase):
         self.assertIn("--ttl $ttl @force 2>&1", src)
         self.assertNotIn("--ttl $ttl --force", src)
         self.assertIn("if (-not $out) { Note \"lease status unreadable (no output", src)   # python missing: said so
+
+    @unittest.skipUnless(os.name == "nt" and shutil.which("powershell"), "runs watchdog.ps1 -Once on Windows only")
+    def test_watchdog_once_in_lease_mode_never_takes_a_held_lease(self):
+        # a temp root (log, state, chain_queue.txt with one queue), a temp config in lease mode with threshold 0 and
+        # no Codex, the lease held by Claude: one check must log the held lease and start no chain (there is no
+        # chain.ps1 in the temp root, so a wrong start would also fail loudly in the log)
+        import subprocess
+        root = tempfile.mkdtemp()
+        leader = os.path.join(root, "leader")
+        c.Controller(leader).claim("Claude", "window", 3600)
+        with open(os.path.join(root, "chain_queue.txt"), "w", encoding="utf-8") as f:
+            f.write(os.path.join(root, "q1") + "\n")
+        cfg = os.path.join(root, "watchdog.json")
+        with open(cfg, "w", encoding="utf-8") as f:
+            json.dump({"lease_dir": leader, "threshold_hours": 0, "check_minutes": 1, "codex": False}, f)
+        r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", os.path.join(GAME, "watchdog.ps1"),
+                            "-Once", "-Config", cfg, "-Root", root], capture_output=True, text=True, timeout=180)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        log = read(os.path.join(root, "watchdog.log"))
+        self.assertIn("lease held by Claude", log)
+        self.assertIn("chain not started", log)
+        self.assertNotIn("starting the test chain", log)
+        self.assertFalse(os.path.exists(os.path.join(root, "watchdog_state.json")))   # no start recorded
+        self.assertEqual(c.Controller(leader).read().owner, "Claude")                 # the lease untouched
 
     @unittest.skipUnless(os.name == "nt" and shutil.which("powershell"), "runs cycle.ps1's refusing path on Windows only")
     def test_cycle_ps1_exits_9_without_a_lease_before_touching_anything(self):
