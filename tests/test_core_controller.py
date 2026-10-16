@@ -235,14 +235,28 @@ class CliTests(unittest.TestCase):
         self.assertEqual((j["status"], j["lease"], j["last_activity"]), ("none", None, None))
         self.assertEqual(self.run_cli("claim", "--dir", self.dir, "--owner", "watchdog", "--purpose", "chain",
                                       "--ttl", "1", "--force", "--reason", "idle")[0], 0)
-        import time
-        time.sleep(1.1)
-        j = json.loads(self.run_cli("status", "--dir", self.dir, "--json")[1])
+        later = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=5)).isoformat()
+        with mock.patch.object(c, "now_iso", return_value=later):                   # the clock, not a sleep
+            j = json.loads(self.run_cli("status", "--dir", self.dir, "--json")[1])
         self.assertEqual(j["status"], "ambiguous")
-        code, out = self.run_cli("claim", "--dir", self.dir, "--owner", "Claude", "--purpose", "window")
-        self.assertEqual((code, out[:8]), (1, "refused:"))
-        self.assertEqual(self.run_cli("claim", "--dir", self.dir, "--owner", "Claude", "--purpose", "window",
-                                      "--force", "--reason", "the owner is back")[0], 0)
+        with mock.patch.object(c, "now_iso", return_value=later):
+            code, out = self.run_cli("claim", "--dir", self.dir, "--owner", "Claude", "--purpose", "window")
+            self.assertEqual((code, out[:8]), (1, "refused:"))
+            self.assertEqual(self.run_cli("claim", "--dir", self.dir, "--owner", "Claude", "--purpose", "window",
+                                          "--force", "--reason", "the owner is back")[0], 0)
+        self.assertEqual(json.loads(self.run_cli("status", "--dir", self.dir, "--json")[1])["status"], "held")
+
+    def test_the_dir_comes_from_the_environment_when_not_given(self):
+        with mock.patch.dict(os.environ, {"FO4SF_LEASE_DIR": ""}):
+            with self.assertRaises(SystemExit) as cm:
+                self.run_cli("status")
+            self.assertEqual(cm.exception.code, 2)
+        with mock.patch.dict(os.environ, {"FO4SF_LEASE_DIR": self.dir}):
+            self.assertEqual(self.run_cli("claim", "--owner", "Claude", "--purpose", "p")[0], 0)
+            self.assertEqual(self.run_cli("status", "--require", "Claude")[0], 0)
+            self.assertEqual(json.loads(self.run_cli("status", "--json")[1])["lease"]["owner"], "Claude")
+        self.assertEqual(c.Controller(self.dir).read().owner, "Claude")
+
 
 
 if __name__ == "__main__":
