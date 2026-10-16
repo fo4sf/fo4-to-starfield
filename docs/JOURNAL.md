@@ -1229,6 +1229,19 @@ Independent factual/link QA passed, with draft status made explicit. Guard passe
 No new unit tests for documentation; hosted CI is checked on the PR. No game,
 runner, installation, queue or save changed.
 
+### 2026-10-15 Codex: preserve original reference slots during R05 promotion (proposal)
+
+PR134 removed a source before sequential allocation; the real parent writer reproduces the later-ID shift on a
+synthetic master. The isolated companion retains original reference_index, reserves all REFR slots and reuses the
+promoted source's key, appending only CONT bases. Canonical Claude checkout/production stages/game are untouched.
+29 producer tests and three actual-writer methods pass (four promotion scenarios and five publication refusals).
+Survivor IDs/record data/cell ownership match; no-cluster output is byte-identical to parent. The declared-slot
+check rejects the parent artifact and accepts the four candidates. Initial anchor-fixture failure is retained.
+Release builds pass; the existing CA1831 inventory-parser warning remains. Peer QA, a fresh full-scale candidate,
+all-ID/raw-record comparison and newly pinned native plans/save tests remain required. Full persistent allocation
+across reordered exports and future promoted bases is still open. See testing/container-reference-identities.md;
+private evidence is test-plans/container-reference-identities-20261015. No native acceptance is claimed.
+
 ## 2026-10-15 Codex: bridge recovery on consolidated main
 
 Merged main d628b56 into the owned PR125 branch without rewriting history. Resolved
@@ -1411,6 +1424,15 @@ Second chain of the day (16:31-19:00, runner scripts 64d30ad, build 2470f876), o
   `r05_medkit_1015h` (core64c's verified probes zref_ground / wp_01 next to the activation) was stopped at 21:01 by the
   input guard (another window took the foreground: the owner at the PC) and waits for the next window.
 
+## 2026-10-16: core64n navmesh.convert over the 64 x 64 core (Grok)
+
+Offline. `navmesh.convert` on Commonwealth NAVM in FO4 cells -55..54 (same Fallout4.esm as #163,
+sha256 `ae7be31a…`). 7,047 NAVM / 3,439,338 triangles → 12,104 Starfield NAVM / 3,749,066 triangles,
+156,549 cell-line pairs, 134,876 FO4-portal pairs, 0 refused ids. #163 inventory: 1,069 overlay cells
+all still covered (0 lost / 0 reduced). Red Rocket smoke matched exp2d (105 → 156 NAVM, 2,145 / 1,959
+links). Geometry in staging `terrain_core64n_work/navmesh/` (navmesh.json 433,902,356 B), not git.
+Report: docs/actors/navmesh-core64n-convert.md. Not in-game; writer into FO4TerrainCore.esm is Claude.
+
 ## 2026-10-16 night: from the slice to the Commonwealth: plan, R06, the navmesh writer, bridge ref reads, the cluster lists (Claude)
 
 The owner's direction (15 Oct 21:30): push Grok, get everything ready for Codex's two items (#150 identity-keeping
@@ -1466,3 +1488,4 @@ outside this check.20 targeted tests pass. Four retained-output CLI controls pre
 and exact input hashes, including the full-size150/153 candidate. No producer/build/install/input changed;
 no production deletion is alleged. Final peer QA/integration remain pending. Failures, SDK probe and passing
 observations are preserved privately under container-deleted-state-146-20261016.
+- 2026-10-16, Codex: extended PR146's independent raw-plugin audit with explicit MISC item mode, retaining default CONT behavior. Actual value/float32 weight, record shape and existing placement/state/ancestry checks are verified separately from the producer. Reproduced the old container mode ignoring an item-map REFR alias; shared map checks now include both promoted classes.28 synthetic methods and3 CLI controls against preserved actual-writer fixtures pass. Evidence: private item-audit-146-20261016. No game files/stages/install/input changed. Peer QA required; item pickup and native save behavior are unverified.

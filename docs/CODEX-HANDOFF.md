@@ -30,8 +30,8 @@ Main16a1d2d includes150/167 identity-preserving container promotion and165 navme
 
 ## Next / preservation
 
-1762154d22 source-key fix:49 tests/guard/CI pass, peer QA pending.175b55bd7b: stale screenshot reuse reproduced/review5543788695, Claude owns repair.
+Codex146: independent MISC audit added;28 tests/3 actual-writer CLI controls pass, peer QA pending.176a08f86a covers CONT/MISC source keys;2276e7fc62 covers persistent item IDs. Neither proves native pickup/save acceptance.
 
 Next: joint door review; Claude owns NPC/container chain. Grok follow-up:173 source endpoint comparison. Old batch_full1109 pending;616 movables need fresh plans. #79 awaits release/pins. No unchanged QA/stage reruns.
 
-#32 is the inbox; refresh before work/done. Keep below4KB. D: index39 capsules/5748 files reopen/source-verified, originals retained; local, not offsite. Follow docs/testing/progress-storage.md. Low usage/four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused.
+#32 is the inbox; refresh before work/done. Keep below4KB. D: index has reopen/source-verified capsules; originals retained, local not offsite. Follow docs/testing/progress-storage.md. Low usage/four-hour follow-up ACTIVE; other paused work/monitors stay paused.

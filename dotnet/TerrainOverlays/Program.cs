@@ -22,7 +22,10 @@
 // {"world": <overlay world EditorID>, "bases": [{"edid", "model", "door"?}], "refs": [{"src", "base", "cell", "pos",
 // "rot", "scale", "disabled"}]} (metres, radians), as dotnet/TerrainExp2's objects mode. Their FormIDs come after every
 // overlay record, so the terrain records, the anchors and the Mars plugin keep the FormIDs they have without objects;
-// <staging dir>/formids.json lists the new ones.
+// <staging dir>/formids.json lists the new ones. objects.json may also promote placed references to native records
+// (make_core64c.py stage --cluster): "containers" (CONT) and "items" (MISC), each entry in its source's original REFR
+// slot (ReferenceIdentityPlan), the new CONT then MISC bases after every reserved REFR; formids.json "containers" and
+// "items" map each source to {"base", "ref"}.
 using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
@@ -151,7 +154,7 @@ foreach (var o in overlays)
                       $"{(cmax - cmin + 1) * (cmax - cmin + 1)} cells {cmin}..{cmax}, COC {coc} in ({spawnCell[0]}, {spawnCell[1]})");
     idx++;
 }
-int nStat = 0, nDoor = 0, nRef = 0, nDisabled = 0, nNav = 0, nNavTri = 0, nNavLink = 0, nNavDoor = 0;
+int nStat = 0, nDoor = 0, nRef = 0, nDisabled = 0, nNav = 0, nNavTri = 0, nNavLink = 0, nNavDoor = 0, nCont = 0, nMisc = 0;
 var refIds = new Dictionary<string, string>();                 // placed reference source -> this plugin's id (6 hex)
 Dictionary<string, object>? ids = null;                        // formids.json
 Dictionary<(int, int), Cell>? objCells = null;                 // the objects' overlay cells
@@ -161,6 +164,7 @@ if (Has(prm, "objects"))
     // core64c: converted FO4 models and their references, allocated after every overlay record
     using var odoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, prm.GetProperty("objects").GetString()!)));
     var o = odoc.RootElement;
+    var referenceSources = ReferenceIdentityPlan.Order(o);
     string world = o.TryGetProperty("world", out var wj) ? wj.GetString()! : worlds[0].World.EditorID!;
     if (!cellsOf.TryGetValue(world, out var cellAt)) throw new InvalidDataException($"objects.json names world {world}, not an overlay of these params");
     objCells = cellAt; objWorld = world;
@@ -202,6 +206,9 @@ if (Has(prm, "objects"))
         }
         baseIds[edid] = baseKeys[^1].ID.ToString("X6");
     }
+    // Reserve every original slot, including references promoted out of "refs".
+    // A later neighbour must not inherit the promoted source's saved-game ID.
+    var referenceKeys = referenceSources.ToDictionary(src => src, _ => NewKey(), StringComparer.OrdinalIgnoreCase);
     foreach (var r in o.GetProperty("refs").EnumerateArray())
     {
         float[] V(string k) => r.GetProperty(k).EnumerateArray().Select(e => e.GetSingle()).ToArray();
@@ -210,7 +217,7 @@ if (Has(prm, "objects"))
             throw new InvalidDataException($"reference {r.GetProperty("src").GetString()} in cell ({cxy[0]}, {cxy[1]}) outside {world}'s cells");
         var pos = V("pos");
         var rot = V("rot");
-        var obj = new PlacedObject(NewKey(), release)
+        var obj = new PlacedObject(referenceKeys[r.GetProperty("src").GetString()!], release)
         {
             Base = new FormLinkNullable<IPlaceableObjectGetter>(baseKeys[r.GetProperty("base").GetInt32()]),
             Position = new P3Float(pos[0], pos[1], pos[2]),
@@ -227,7 +234,141 @@ if (Has(prm, "objects"))
         refIds[r.GetProperty("src").GetString()!] = obj.FormKey.ID.ToString("X6");
         nRef++;
     }
-    ids = new Dictionary<string, object> { ["plugin"] = modKey.FileName.String, ["world"] = world, ["bases"] = baseIds, ["refs"] = refIds };
+    // R05 (docs/slice/r05-cluster-plan.md): "containers", interactive objects of the cluster, each a native CONT base
+    // with the converted model and a vanilla inventory, and one temporary REFR in its original identity slot.
+    // Only the new CONT bases are allocated after every STAT / DOOR and every reserved REFR above.
+    // ({"src", "edid", "model", "name", "items": [{"form": "Starfield.esm:00000F", "count": 25}], "cell", "pos",
+    // "rot", "scale", "reference_index"}; the source leaves "refs", but its original index is retained).
+    var contIds = new Dictionary<string, object>();
+    var contByEdid = new Dictionary<string, Container>(StringComparer.OrdinalIgnoreCase);   // one CONT per FO4 base: entries of one base share an edid
+    var contSig = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);        // its model, name and inventory: every entry must agree
+    static string ContainerSignature(JsonElement c)
+    {
+        var items = c.GetProperty("items").EnumerateArray()
+            .Select(it => $"{it.GetProperty("form").GetString()!.ToLowerInvariant()}x{it.GetProperty("count").GetInt32()}")
+            .OrderBy(x => x, StringComparer.Ordinal);
+        return $"{c.GetProperty("model").GetString()!.ToLowerInvariant()}|{c.GetProperty("name").GetString()}|{string.Join(",", items)}";
+    }
+    if (o.TryGetProperty("containers", out var conts))
+    {
+        foreach (var c in conts.EnumerateArray())
+        {
+            float[] V(string k) => c.GetProperty(k).EnumerateArray().Select(e => e.GetSingle()).ToArray();
+            var cxy = c.GetProperty("cell").EnumerateArray().Select(e => e.GetInt32()).ToArray();
+            if (!cellAt.TryGetValue((cxy[0], cxy[1]), out var cell))
+                throw new InvalidDataException($"container {c.GetProperty("src").GetString()} in cell ({cxy[0]}, {cxy[1]}) outside {world}'s cells");
+            var edid = c.GetProperty("edid").GetString()!;
+            var cmodel = c.GetProperty("model").GetString()!;
+            if (!contByEdid.TryGetValue(edid, out var cont))
+            {
+                cont = new Container(NewKey(), release)
+                {
+                    EditorID = edid, Model = new Model { File = cmodel },
+                    Name = c.GetProperty("name").GetString(),
+                    Items = new ExtendedList<ContainerEntry>(),                    // null by default in Mutagen 0.55
+                };
+                foreach (var it in c.GetProperty("items").EnumerateArray())
+                {
+                    var form = it.GetProperty("form").GetString()!;                 // "<plugin>:<6 hex>"
+                    var colon = form.IndexOf(':');
+                    var fk = new FormKey(ModKey.FromNameAndExtension(form[..colon]), Convert.ToUInt32(form[(colon + 1)..], 16));
+                    cont.Items.Add(new ContainerEntry
+                    {
+                        Item = new ContainerItem { Item = new FormLink<IItemGetter>(fk), Count = it.GetProperty("count").GetInt32() },
+                    });
+                }
+                mod.Containers.Add(cont);
+                contByEdid[edid] = cont;
+                contSig[edid] = ContainerSignature(c);
+            }
+            else if (contSig[edid] != ContainerSignature(c))
+                // a shared record carries one model, name and inventory; a different one under the same edid would be
+                // silently lost (Codex's review of #167): the build stops instead
+                throw new InvalidDataException($"container {edid}: {c.GetProperty("src").GetString()} asks for {ContainerSignature(c)} but the shared record is {contSig[edid]}");
+            var pos = V("pos");
+            var rot = V("rot");
+            var obj = new PlacedObject(referenceKeys[c.GetProperty("src").GetString()!], release)
+            {
+                Base = new FormLinkNullable<IPlaceableObjectGetter>(cont.FormKey),
+                Position = new P3Float(pos[0], pos[1], pos[2]),
+                Rotation = new P3Float(rot[0], rot[1], rot[2]),
+            };
+            var scale = c.GetProperty("scale").GetSingle();
+            if (Math.Abs(scale - 1f) > 1e-4) obj.Scale = scale;
+            cell.Temporary.Add(obj);
+            nRef++;
+            contIds[c.GetProperty("src").GetString()!] = new Dictionary<string, string>
+            {
+                ["base"] = cont.FormKey.ID.ToString("X6"), ["ref"] = obj.FormKey.ID.ToString("X6"),
+            };
+            if (contByEdid.Count <= 8 || nRef % 500 == 0)
+                Console.WriteLine($"  container {cont.EditorID} {cont.FormKey} ({cont.Items.Count} items) -> REFR {obj.FormKey} in cell ({cxy[0]}, {cxy[1]})");
+        }
+    }
+    // Loose items (docs/terrain/commonwealth-build-plan.md section 3): "items", FO4 MiscItem / Ingestible references
+    // promoted exactly as containers: one native MISC base per edid (one per FO4 base; every entry of an edid must
+    // agree on model, name, value and weight) and one temporary REFR in the source's original identity slot (reserved
+    // above together with the containers'). The new MISC bases are allocated after every reserved REFR and CONT base.
+    // ({"src", "edid", "model", "name", "value", "weight", "cell", "pos", "rot", "scale", "reference_index"}; Mutagen
+    // 0.55.0-alpha.67 MiscItem: Model, Name, Value (int), Weight (float), read off the package by reflection.)
+    var itemIds = new Dictionary<string, object>();
+    var miscByEdid = new Dictionary<string, MiscItem>(StringComparer.OrdinalIgnoreCase);
+    var miscSig = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    static string ItemSignature(JsonElement c) =>
+        $"{c.GetProperty("model").GetString()!.ToLowerInvariant()}|{c.GetProperty("name").GetString()}|" +
+        $"{c.GetProperty("value").GetInt32()}|{BitConverter.SingleToUInt32Bits(c.GetProperty("weight").GetSingle()):X8}";
+    if (o.TryGetProperty("items", out var itemsJ))
+    {
+        foreach (var c in itemsJ.EnumerateArray())
+        {
+            float[] V(string k) => c.GetProperty(k).EnumerateArray().Select(e => e.GetSingle()).ToArray();
+            var src = c.GetProperty("src").GetString()!;
+            var cxy = c.GetProperty("cell").EnumerateArray().Select(e => e.GetInt32()).ToArray();
+            if (!cellAt.TryGetValue((cxy[0], cxy[1]), out var cell))
+                throw new InvalidDataException($"item {src} in cell ({cxy[0]}, {cxy[1]}) outside {world}'s cells");
+            var edid = c.GetProperty("edid").GetString()!;
+            if (!miscByEdid.TryGetValue(edid, out var misc))
+            {
+                var name = c.GetProperty("name").GetString();
+                int value = c.GetProperty("value").GetInt32();
+                float weight = c.GetProperty("weight").GetSingle();
+                if (string.IsNullOrWhiteSpace(name) || value < 0 || !float.IsFinite(weight) || weight < 0)
+                    throw new InvalidDataException($"item {src}: needs a name, a value >= 0 and a weight >= 0");
+                misc = new MiscItem(NewKey(), release)
+                {
+                    EditorID = edid, Model = new Model { File = c.GetProperty("model").GetString()! },
+                    Name = name, Value = value, Weight = weight,
+                };
+                mod.MiscItems.Add(misc);
+                miscByEdid[edid] = misc;
+                miscSig[edid] = ItemSignature(c);
+            }
+            else if (miscSig[edid] != ItemSignature(c))
+                // one shared record carries one model, name, value and weight (as containers, Codex's review of #167)
+                throw new InvalidDataException($"item {edid}: {src} asks for {ItemSignature(c)} but the shared record is {miscSig[edid]}");
+            var pos = V("pos");
+            var rot = V("rot");
+            var obj = new PlacedObject(referenceKeys[src], release)
+            {
+                Base = new FormLinkNullable<IPlaceableObjectGetter>(misc.FormKey),
+                Position = new P3Float(pos[0], pos[1], pos[2]),
+                Rotation = new P3Float(rot[0], rot[1], rot[2]),
+            };
+            var scale = c.GetProperty("scale").GetSingle();
+            if (Math.Abs(scale - 1f) > 1e-4) obj.Scale = scale;
+            cell.Temporary.Add(obj);
+            nRef++;
+            itemIds[src] = new Dictionary<string, string>
+            {
+                ["base"] = misc.FormKey.ID.ToString("X6"), ["ref"] = obj.FormKey.ID.ToString("X6"),
+            };
+            if (itemIds.Count <= 8 || itemIds.Count % 500 == 0)
+                Console.WriteLine($"  item {misc.EditorID} {misc.FormKey} ('{misc.Name}', value {misc.Value}, weight {misc.Weight}) -> REFR {obj.FormKey} in cell ({cxy[0]}, {cxy[1]})");
+        }
+    }
+    nCont = contByEdid.Count; nMisc = miscByEdid.Count;
+    ids = new Dictionary<string, object> { ["plugin"] = modKey.FileName.String, ["world"] = world, ["bases"] = baseIds, ["refs"] = refIds, ["containers"] = contIds };
+    if (o.TryGetProperty("items", out _)) ids["items"] = itemIds;               // a build without items keeps its formids.json bytes
 }
 if (Has(prm, "navmesh"))
 {
@@ -363,7 +504,7 @@ var path = Path.Combine(outDir, modKey.FileName);
 mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(sfData)
     .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full)).Write();
 Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {worlds.Count} overlays, next FormID 0x{next:X}" +
-                  (Has(prm, "objects") ? $"; objects: {nStat} STAT, {nDoor} DOOR, {nRef} REFR ({nDisabled} initially disabled)" : "") +
+                  (Has(prm, "objects") ? $"; objects: {nStat} STAT, {nDoor} DOOR, {nCont} CONT, {nMisc} MISC, {nRef} REFR ({nDisabled} initially disabled)" : "") +
                   (Has(prm, "navmesh") ? $"; navmesh: {nNav} NAVM, {nNavTri} triangles, {nNavLink} edge links, {nNavDoor} door triangles, NAVI override with {nNav} NVMI" : ""));
 
 if (Has(prm, "mars"))

@@ -241,9 +241,10 @@ def world_transforms(n: NifFile, placed: bool = False):
 
 
 def fo4_trishapes(n: NifFile, placed: bool = False) -> List[Fo4Shape]:
-    """Decode every BSTriShape / BSSubIndexTriShape block (vertex data and triangles only). The returned translation /
-    rotation / scale are the shape's WORLD transform (all parent NiNodes composed). placed=True leaves out the scene
-    root's own transform, as the game does for a placed reference, so geometry lands where FO4 draws it."""
+    """Decode every BSTriShape / BSSubIndexTriShape / BSMeshLODTriShape block (vertex data and all triangles). The
+    returned translation / rotation / scale are the shape's WORLD transform (all parent NiNodes composed). placed=True
+    leaves out the scene root's own transform, as the game does for a placed reference, so geometry lands where FO4
+    draws it."""
     if n.bs_version != 130:
         raise NifError(f"fo4_trishapes needs BS 130, got {n.bs_version}")
     world = world_transforms(n, placed)
@@ -288,13 +289,12 @@ def fo4_trishapes(n: NifFile, placed: bool = False) -> List[Fo4Shape]:
             if attrs & VF_COLOR:
                 col.append(tuple(blk[q:q + 4])); q += 4
         p += vsize * nvert
+        # Every triangle, also for a BSMeshLODTriShape. Its three trailing counts (LOD0/1/2 Size) split the list into
+        # consecutive groups that are disjoint PARTS of one object (nif.xml: "visibility control over vertex groups"),
+        # not alternative versions of it: across FO4's Meshes.ba2, 5,290 of 5,292 multi-group shapes share no vertex
+        # between groups and use every vertex once, and Vault_Table_02's top lives only in its LOD0 group. Keeping just
+        # the largest group lost table tops, shelves and wall panels (docs/ai/research-log.md, 2026-10-16).
         tris = list(struct.iter_unpack("<HHH", blk[p:p + ntri * 6]))
-        if n.type_of(i) == "BSMeshLODTriShape" and len(blk) >= p + ntri * 6 + 12:
-            sizes = struct.unpack_from("<3I", blk, p + ntri * 6)
-            if sum(sizes) == ntri and max(sizes) > 0:   # triangles hold all LOD levels back to back: keep the most detailed
-                k = max(range(3), key=lambda j: sizes[j])
-                start = sum(sizes[:k])
-                tris = tris[start:start + sizes[k]]
         name = n.strings[name_idx] if 0 <= name_idx < len(n.strings) else b""
         tr, rot, scale = world(i)
         shapes.append(Fo4Shape(name, tr, rot, scale, shader, alpha, skin, pos, uv, nor, tan, col, tris,

@@ -123,21 +123,24 @@ def read_events(path):
 
 
 def line_count(path):
-    """Raw lines in the log now (0 for a missing log): the mark a reference read takes before it types its command,
-    so only a reply written after that counts (an older reply for the same reference never passes for a new read)."""
-    try:
-        with open(path, encoding="utf-8", errors="replace") as f:
-            return sum(1 for _ in f)
-    except OSError:
+    """Raw lines in the log now: the mark a reference read takes before it types its command, so only a reply written
+    after that counts (an older reply for the same reference never passes for a new read). A missing log is 0 (there
+    is no older reply to mistake); a log that exists but cannot be read raises OSError, and the read must fail, never
+    take 0 (Codex's review of #164: 0 would let the old reply pass)."""
+    if not os.path.exists(path):
         return 0
+    with open(path, encoding="utf-8", errors="replace") as f:
+        return sum(1 for _ in f)
 
 
-def wait_ref(path, ref_hex, timeout=10.0, since=0):
+def wait_ref(path, ref_hex, timeout=10.0, since=None):
     """The FO4SF_Probe.Pos reply for this reference (8 hex, load index included) written at or after raw line `since`:
     {"ok": True, "pos", "ang", "cell", "disabled", "loaded", "line"} or {"ok": False, "why", ...}: "no such reference"
     (the script answered none: the id is not a loaded reference) or a timeout. Polls every 0.2 s; the reply comes
     within a second of the console closing (r05_medkit_1015: nine runs)."""
     want = ref_hex.upper()
+    if since is None or since < 0:                        # no mark: nothing proves a reply is this read's
+        return {"ok": False, "why": f"no mark for {want}: the read is not proven fresh"}
     t0 = time.time()
     while True:
         try:
@@ -145,7 +148,7 @@ def wait_ref(path, ref_hex, timeout=10.0, since=0):
                 raw = f.read().splitlines()
         except OSError:
             raw = []
-        for i in range(max(0, since), len(raw)):
+        for i in range(since, len(raw)):
             ev = parse_event(raw[i])
             if ev and ev["kind"] == "ref" and ev["id"] == want:
                 if ev.get("none"):
@@ -271,14 +274,18 @@ def main(argv=None):
     p.add_argument("ref")
     p.add_argument("--log", default=None)
     p.add_argument("--timeout", type=float, default=10.0)
-    p.add_argument("--since", type=int, default=0)
+    p.add_argument("--since", type=int, required=True, help="the mark (bridge_log.py mark) taken before the command")
     p = sub.add_parser("events")                           # every parsed line but the timer's, as JSON lines
     p.add_argument("--log", default=None)
     p.add_argument("--all", action="store_true", help="the timer's pos lines too")
     a = ap.parse_args(argv)
     log = a.log or default_log()
     if a.cmd == "mark":
-        print(line_count(log))
+        try:
+            print(line_count(log))
+        except OSError as e:
+            print(f"fail {e}")                            # exit 2: the caller must not read through the bridge
+            return 2
         return 0
     if a.cmd == "wait-ref":
         r = wait_ref(log, a.ref, a.timeout, a.since)

@@ -18,6 +18,26 @@ overwritten. Exit0 means the requested offline comparisons passed, exit1 means
 a mismatch or invalid evidence, exit2 means the report could not be published.
 Every result has `runtime_accepted: false`.
 
+Use `--kind items` to audit loose MISC items; the default remains `containers`.
+Each report names its `audit_kind` and verifies that class's records only. A mixed
+stage needs separate container and item reports. MISC checks compare exact
+eight-byte DATA value/weight, finite float32 weight, editor ID/name/model, reference
+binding and the same placement/state/ancestry checks described below. Expected
+weights are rounded to the serialized float32 representation before comparison.
+Missing, duplicated, truncated or oversized DATA fields fail.
+
+Declared reference identities include ordinary refs and both promoted classes,
+even in a single-class audit. Duplicate identities across classes or shared
+CONT/MISC base IDs fail. Optional baseline comparisons preserve both classes'
+existing promoted bases. This catches map aliasing; it does not prove that a caller
+derived distinct editor IDs from distinct full source plugin identities (PR176),
+or that an item can be picked up in game.
+
+Item mode has eight synthetic methods, including nonfinite transforms/weights,
+malformed DATA, invalid expected values and mixed-map aliases. Three CLI controls
+against preserved actual-writer synthetic outputs pass: mixed containers, mixed
+items and items-only. No game files or new stage builds were used.
+
 Checks bind each source container to its mapped CONT/REFR pair using the actual
 TES4 master order. They compare editor ID, inline Windows-1252 name, model path,
 CNTO inventory entries, reference base, finite local position/rotation, scale,

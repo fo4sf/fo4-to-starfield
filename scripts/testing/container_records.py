@@ -1,4 +1,4 @@
-"""Read-only audit of TerrainOverlays container records; never native acceptance."""
+"""Read-only audit of TerrainOverlays container or loose-item records; never native acceptance."""
 import argparse
 from collections import Counter
 import hashlib
@@ -67,12 +67,12 @@ def _vector(value, size):
     return value
 
 
-def _scan(blob, wanted, container_bases):
+def _scan(blob, wanted, container_bases, base_signature=b"CONT"):
     if len(blob) < 24 or blob[:4] != b"TES4":
         raise ValueError("not a complete plugin header")
     hsize, flags = struct.unpack_from("<II", blob, 4)
     if 24 + hsize > len(blob) or flags & 0x80:
-        raise ValueError("truncated or localized plugin; inline container names required")
+        raise ValueError("truncated or localized plugin; inline names required")
     masters = [_text(v) for s, v in _fields(blob[24:24 + hsize]) if s == b"MAST"]
     if len(set(m.lower() for m in masters)) != len(masters):
         raise ValueError("duplicate masters")
@@ -106,7 +106,7 @@ def _scan(blob, wanted, container_bases):
                 if fid in seen:
                     raise ValueError(f"duplicate plugin record {fid:08X}")
                 seen.add(fid)
-                if sig == b"CONT":
+                if sig == base_signature:
                     cont_count += 1
                 if fid in wanted or sig in (b"CELL", b"WRLD", b"REFR"):
                     fields = _fields(fo4land.record_data(blob, off))
@@ -128,78 +128,98 @@ def _scan(blob, wanted, container_bases):
     return masters, records, cells, worlds, cont_count, uses
 
 
-def audit(blob, objects, ids, *, plugin_name, baseline=None):
-    """Compare actual container bytes plus optional declared baseline maps.
+def audit(blob, objects, ids, *, plugin_name, baseline=None, kind="containers"):
+    """Compare one promoted record class plus optional declared baseline maps.
 
-    Ordinary static geometry, external item types/assets and engine behavior are
+    Ordinary static geometry, other promoted classes, assets and engine behavior are
     outside this audit; retain the existing full reference/dependency checks.
     """
-    report = {"offline_passed": False, "runtime_accepted": False, "errors": [],
-              "containers_checked": 0, "baseline_maps_checked": baseline is not None,
+    report = {"offline_passed": False, "runtime_accepted": False, "errors": [], "audit_kind": kind,
+              kind + "_checked": 0, "baseline_maps_checked": baseline is not None,
               "plugin_sha256": hashlib.sha256(blob).hexdigest()}
     errors = report["errors"]
     try:
-        conts = objects["containers"]
+        if kind not in ("containers", "items"):
+            raise ValueError("audit kind must be containers or items")
+        noun, signature = ("container", b"CONT") if kind == "containers" else ("item", b"MISC")
+        conts = objects[kind]
         if not isinstance(conts, list) or not conts:
-            raise ValueError("no explicit container entries to audit")
+            raise ValueError("no explicit promoted entries to audit")
         sources = [c["src"] for c in conts]
-        if len(set(sources)) != len(sources) or set(ids["containers"]) != set(sources):
-            raise ValueError("container sources/mapping do not match uniquely")
+        if len(set(sources)) != len(sources) or set(ids[kind]) != set(sources):
+            raise ValueError("promoted sources/mapping do not match uniquely")
         if set(sources) & {r["src"] for r in objects["refs"]}:
-            raise ValueError("container sources still appear in ordinary placements")
+            raise ValueError("promoted sources still appear in ordinary placements")
         if ids["plugin"].lower() != plugin_name.lower() or ids["world"] != objects["world"]:
-            raise ValueError("container plugin/world metadata differs")
+            raise ValueError("promoted plugin/world metadata differs")
         def reference_ids(mapping):
             result = {src: _local(value) for src, value in mapping["refs"].items()}
-            for src, pair in mapping.get("containers", {}).items():
-                if src in result:
-                    raise ValueError("source appears in both ordinary and promoted references")
-                result[src] = _local(pair["ref"])
+            for category in ("containers", "items"):
+                for src, pair in mapping.get(category, {}).items():
+                    if src in result:
+                        raise ValueError("source appears in both ordinary and promoted references")
+                    result[src] = _local(pair["ref"])
             if len(set(result.values())) != len(result):
                 raise ValueError("declared source reference identities are not unique")
             return result
 
         new_references = reference_ids(ids)
-        pairs = {src: (_local(ids["containers"][src]["base"]), _local(ids["containers"][src]["ref"])) for src in sources}
+        pairs = {src: (_local(ids[kind][src]["base"]), _local(ids[kind][src]["ref"])) for src in sources}
         base_ids = {pair[0] for pair in pairs.values()}
         if base_ids & set(new_references.values()):
-            raise ValueError("container base overlaps declared reference identities")
+            raise ValueError("promoted base overlaps declared reference identities")
+        other_kind = "items" if kind == "containers" else "containers"
+        other_bases = {_local(pair["base"]) for pair in ids.get(other_kind, {}).values()}
+        if base_ids & other_bases:
+            raise ValueError("promoted classes share a base identity")
         local_ids = {v for pair in pairs.values() for v in pair}
         # Master order in the actual header determines file-local link prefixes.
-        masters, recs, cells, worlds, count, uses = _scan(blob, local_ids, base_ids)
+        masters, recs, cells, worlds, count, uses = _scan(blob, local_ids, base_ids, signature)
         own = len(masters) << 24
         expected_uses = Counter(own | pair[0] for pair in pairs.values())
         if count != len(base_ids):
-            errors.append("CONT record count differs from container definitions")
-        report["container_base_records"] = count
+            errors.append(f"{signature.decode()} record count differs from {noun} definitions")
+        report[noun + "_base_records"] = count
         links = {name.lower(): n << 24 for n, name in enumerate(masters + [plugin_name])}
         for c in conts:
             src = c["src"]
             try:
                 bid, rid = (own | v for v in pairs[src])
                 base, ref = recs[bid], recs[rid]
-                if base[0] != b"CONT" or base[4] != 0 or base[6] != b"CONT" or ref[0] != b"REFR" or ref[6] != b"WRLD":
-                    raise ValueError("mapped records are not CONT/REFR")
+                if base[0] != signature or base[4] != 0 or base[6] != signature or ref[0] != b"REFR" or ref[6] != b"WRLD":
+                    raise ValueError(f"mapped records are not {signature.decode()}/REFR")
                 if base[1] & _DELETED:
-                    raise ValueError("container base is deleted")
+                    raise ValueError("promoted base is deleted")
                 if ref[1] & _DELETED:
-                    raise ValueError("container reference is deleted")
+                    raise ValueError("promoted reference is deleted")
                 if uses[bid] != expected_uses[bid]:
-                    errors.append(f"{src}: placed reference count differs for container base")
+                    errors.append(f"{src}: placed reference count differs for promoted base")
                 if _text(_one(base[2], b"EDID")) != c["edid"] or _text(_one(base[2], b"FULL")) != c["name"]:
-                    errors.append(f"{src}: container editor ID/name differs")
+                    errors.append(f"{src}: promoted editor ID/name differs")
                 if _text(_one(base[2], b"MODL")).replace("\\", "/").lower() != c["model"].replace("\\", "/").lower():
-                    errors.append(f"{src}: container model differs")
-                actual = Counter(struct.unpack("<Ii", v) for s, v in base[2] if s == b"CNTO")
-                expected = Counter()
-                for item in c["items"]:
-                    plugin, local = item["form"].rsplit(":", 1)
-                    count = item["count"]
-                    if type(count) is not int or not 1 <= count <= 0x7FFFFFFF:
-                        raise ValueError("invalid inventory count")
-                    expected[(links[plugin.lower()] | _local(local), count)] += 1
-                if not expected or actual != expected:
-                    errors.append(f"{src}: inventory differs")
+                    errors.append(f"{src}: promoted model differs")
+                if kind == "containers":
+                    actual = Counter(struct.unpack("<Ii", v) for s, v in base[2] if s == b"CNTO")
+                    expected = Counter()
+                    for item in c["items"]:
+                        plugin, local = item["form"].rsplit(":", 1)
+                        count = item["count"]
+                        if type(count) is not int or not 1 <= count <= 0x7FFFFFFF:
+                            raise ValueError("invalid inventory count")
+                        expected[(links[plugin.lower()] | _local(local), count)] += 1
+                    if not expected or actual != expected:
+                        errors.append(f"{src}: inventory differs")
+                else:
+                    value, weight = struct.unpack("<if", _one(base[2], b"DATA"))
+                    expected_value, expected_weight = c["value"], c["weight"]
+                    if type(expected_value) is not int or not 0 <= expected_value <= 0x7FFFFFFF:
+                        raise ValueError("invalid expected item value")
+                    expected_weight = _vector([expected_weight], 1)[0]
+                    if expected_weight < 0 or expected_weight > 3.4028234663852886e38:
+                        raise ValueError("invalid expected item weight")
+                    expected_weight = struct.unpack("<f", struct.pack("<f", expected_weight))[0]
+                    if value != expected_value or not math.isfinite(weight) or weight != expected_weight:
+                        errors.append(f"{src}: item value/weight differs")
                 if struct.unpack("<I", _one(ref[2], b"NAME"))[0] != bid:
                     errors.append(f"{src}: reference base differs")
                 data = struct.unpack("<6f", _one(ref[2], b"DATA"))
@@ -220,9 +240,9 @@ def audit(blob, objects, ids, *, plugin_name, baseline=None):
                     raise ValueError("owning world is deleted")
                 if ref[5] != world or worlds.get(world) != objects["world"] or grid != tuple(c["cell"]) or tuple(c["cell"]) != terrain_grid.sf_cell_of(*pos[:2]):
                     errors.append(f"{src}: world/cell differs")
-                report["containers_checked"] += 1
+                report[kind + "_checked"] += 1
             except (AttributeError, KeyError, TypeError, ValueError, struct.error, UnicodeError) as error:
-                errors.append(f"{src}: invalid container evidence: {error}")
+                errors.append(f"{src}: invalid promoted evidence: {error}")
         if baseline is not None:
             old_references = reference_ids(baseline)
             old_bases = {key: _local(value) for key, value in baseline["bases"].items()}
@@ -234,13 +254,14 @@ def audit(blob, objects, ids, *, plugin_name, baseline=None):
                 report[category + "_ids_missing"] = len(missing)
                 if changed or missing:
                     errors.append(f"baseline {category}: {len(changed)} changed, {len(missing)} missing identities")
-            for src, previous in baseline.get("containers", {}).items():
-                current = ids["containers"].get(src)
-                if current is None or _local(previous["base"]) != _local(current["base"]):
-                    errors.append(f"{src}: baseline promoted container base changed or disappeared")
+            for category in ("containers", "items"):
+                for src, previous in baseline.get(category, {}).items():
+                    current = ids.get(category, {}).get(src)
+                    if current is None or _local(previous["base"]) != _local(current["base"]):
+                        errors.append(f"{src}: baseline promoted {category} base changed or disappeared")
             if baseline["plugin"].lower() != plugin_name.lower() or baseline["world"] != objects["world"]:
                 errors.append("baseline plugin/world differs")
-        report["offline_passed"] = not errors and report["containers_checked"] == len(conts)
+        report["offline_passed"] = not errors and report[kind + "_checked"] == len(conts)
     except (AttributeError, KeyError, TypeError, ValueError, struct.error, UnicodeError, OverflowError, zlib.error, RecursionError) as error:
         errors.append(f"invalid audit inputs/plugin: {error}")
     return report
@@ -260,6 +281,7 @@ def main():
     for name in ("plugin", "objects", "ids", "out"):
         parser.add_argument("--" + name, required=True)
     parser.add_argument("--baseline-ids")
+    parser.add_argument("--kind", choices=("containers", "items"), default="containers")
     args = parser.parse_args()
     pins = {}
     try:
@@ -270,7 +292,7 @@ def main():
         def document(path):
             return json.loads(read(path).decode("utf-8-sig"), object_pairs_hook=_unique)
         report = audit(read(args.plugin), document(args.objects), document(args.ids), plugin_name=Path(args.plugin).name,
-                       baseline=document(args.baseline_ids) if args.baseline_ids else None)
+                       baseline=document(args.baseline_ids) if args.baseline_ids else None, kind=args.kind)
     except (OSError, ValueError) as error:
         report = {"offline_passed": False, "runtime_accepted": False, "errors": [str(error)]}
     report["input_sha256"] = pins

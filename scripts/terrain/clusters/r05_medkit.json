@@ -1,0 +1,7 @@
+{
+ "note": "R05 interactive slice 1 (docs/slice/r05-cluster-plan.md): the Red Rocket first-aid kit as a native Starfield container. make_core64c.py stage --cluster takes this file: the listed FO4 references leave the STAT placement and become CONT bases (the converted model) with a vanilla inventory, allocated after every other record. Items are vanilla Starfield forms (<plugin>:<6 hex>): Credits 00000F, Digipick 00000A.",
+ "containers": [
+  {"src": "19EE52:Fallout4.esm", "name": "First Aid Kit",
+   "items": [{"form": "Starfield.esm:00000F", "count": 25}, {"form": "Starfield.esm:00000A", "count": 1}]}
+ ]
+}

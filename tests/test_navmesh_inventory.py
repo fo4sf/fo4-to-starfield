@@ -40,7 +40,34 @@ class NavmeshInventoryTests(unittest.TestCase):
         self.assertEqual(len(report["gained_coverage"]), 1)
         self.assertEqual(report["unchanged"], 1)
         self.assertEqual(report["unknown"], [])
+        self.assertEqual(report["lost_triangles"], 100)
+        self.assertEqual(report["reduced_triangles_approx"], 12)
         self.assertIn("1 lost", report["summary"])
+
+    def test_reduced_triangle_loss_is_never_negative(self):
+        # #208: reduced when either triangles or area fell; count only positive triangle losses.
+        report = inv.inventory(
+            {"c": {"triangles": 100, "area": 50.0}},
+            {"c": {"triangles": 150, "area": 10.0}},
+        )
+        self.assertEqual([item["cell"] for item in report["reduced_coverage"]], ["c"])
+        self.assertEqual(report["reduced_triangles_approx"], 0)
+
+        mixed = inv.inventory(
+            {
+                "gain": {"triangles": 100, "area": 50.0},
+                "loss": {"triangles": 80, "area": 40.0},
+            },
+            {
+                "gain": {"triangles": 150, "area": 10.0},
+                "loss": {"triangles": 20, "area": 10.0},
+            },
+        )
+        self.assertEqual(
+            [item["cell"] for item in mixed["reduced_coverage"]],
+            ["gain", "loss"],
+        )
+        self.assertEqual(mixed["reduced_triangles_approx"], 60)
 
     def test_cli_writes_report(self):
         with tempfile.TemporaryDirectory() as tmp:
