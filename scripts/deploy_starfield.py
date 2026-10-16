@@ -345,6 +345,11 @@ def uninstall(a):
     print(f"removing {m['files']} and Plugins.txt entries {m['plugins_added']}")
     if a.dry_run:
         return
+    # Persist recovery intent before the first deletion, including abrupt exits.
+    # Keep complete as install provenance: changing it would select a different
+    # Plugins.txt restoration path and invalidate legacy publication ownership.
+    m["cleanup_pending"] = True
+    write_manifest(man_path, m)
     remaining, errors = [], []
     published = m.get("published_files", [])
     published = {item for item in published if isinstance(item, str)} if isinstance(published, list) else set()
