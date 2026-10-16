@@ -1482,3 +1482,22 @@ reproduce locally on de205a3; assertions now require PendingPublication. Seven c
 stage-guard tests pass on Windows, including locked-plugin denial, forced exit and concurrent-owner retention.
 Production guard/C# unchanged; hosted CI and corrected-source peer check remain separate gates. Failed and passing
 synthetic evidence retained in publication-ci-153-20261016. No game/install/input or cleanup.
+
+
+## 2026-10-16 Codex: persistent terrain identities (#226, source proposal)
+
+Seven compiled synthetic baselines reproduced reordered/inserted reference and base ID shifts, including a later
+promoted CONT base. New opt-in semantic reservations cover terrain/cells/anchors/bases/REFR/CONT/NAVM in one
+24-bit namespace; tombstones remain. Explicit bootstrap requires every prepared output to equal the old bundle
+byte-for-byte. Checksummed ledgers are bound to complete old/prepared output generations and persisted before
+publication; rollback keeps reservations and crashes retain the recovery block. No active stage was migrated.
+
+Four initial new methods failed before implementation (three failures and missing-ledger error). The first test
+discovery attempt also imported the parent test class and reused its evidence directory; that harness error is
+retained separately and corrected. Sixteen actual-writer/fixture methods now pass, including NAVM byte stability,
+foreign-ledger refusal, publication failure, abrupt exit, live synthetic competing writer and exhaustion. The
+publication dependency is merged forward with current main: NAVM-only formids use staged publication too.
+Independent review, current-head CI, full-size bootstrap/resources and native saves remain gates. The caller must
+explicitly enable persistent_ids; legacy stages are not silently changed. Source and preserved observations are
+private/offline; no install, game/controller input or watchdog changes.
+See [identity protocol](testing/terrain-persistent-identities.md).

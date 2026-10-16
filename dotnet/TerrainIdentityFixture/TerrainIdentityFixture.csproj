@@ -8,5 +8,6 @@
   <ItemGroup>
     <ProjectReference Include="../TerrainOverlays/TerrainOverlays.csproj" />
     <Compile Include="../TerrainOverlays/OutputPublication.cs" Link="OutputPublication.cs" />
+    <Compile Include="../TerrainOverlays/TerrainStableIds.cs" Link="TerrainStableIds.cs" />
   </ItemGroup>
 </Project>

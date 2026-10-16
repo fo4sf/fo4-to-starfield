@@ -318,3 +318,13 @@ required off Windows. Transaction histories are retained for verified private ar
 Alternatives: merely swapping plugin/map write order leaves another partial-failure boundary; silently overwriting
 or deleting concurrent files loses evidence. See [protocol/evidence](../testing/terrain-output-publication.md).
 Peer QA and lead integration pending; no production stage/install/game change.
+
+
+## 2026-10-16 Codex: one persistent namespace for terrain IDs (#226, proposal)
+
+Use semantic reservations across terrain, scene and NAVM classes, retain tombstones and save before bundle
+publication under its exclusive lease. Match a ledger to complete old/prepared output hashes so rollback can
+retain reservations without accepting mixed files or an unrelated ledger. Legacy bootstrap must reproduce
+old output bytes; sorted future inputs cannot recover previously assigned IDs. Reject ambiguous NAVM pieces
+without a stable discriminator rather than using array order. Keep activation explicit until peer QA, a pinned
+full-size bootstrap and native save tests; never mutate the owner's installed stage during this work.

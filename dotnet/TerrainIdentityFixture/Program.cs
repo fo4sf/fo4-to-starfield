@@ -4,6 +4,33 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Starfield;
 
+if (args[0] == "--stable-fixture")
+{
+    string root = Path.GetFullPath(args[1]), mode = args[2];
+    string[] names = { "Synthetic.esm", "formids.json" };
+    using var publication = new OutputPublication(root, names, step =>
+    {
+        if (mode == "fail" && step == "published:Synthetic.esm")
+            throw new IOException("synthetic publication failure after reservations persisted");
+    });
+    if (mode == "hold")
+    {
+        File.WriteAllText(Path.Combine(root, "fixture-lease-ready"), "ready");
+        Console.ReadLine();
+        return;
+    }
+    var stable = TerrainStableIds.Open(root, "Synthetic.esm", true, false, names)!;
+    stable.Reserve("reference", TerrainStableIds.Source("000001:Synthetic.esm"));
+    if (mode == "exhaust") stable.Anchor("last", 0xFFFFFF);
+    if (mode != "seed") stable.Reserve("reference", TerrainStableIds.Source("000002:Synthetic.esm"));
+    foreach (string name in names) File.WriteAllText(publication.StagePath(name), mode + ":" + name);
+    if (mode == "mutate") File.WriteAllText(Path.Combine(root, TerrainStableIds.FileName), "external owner bytes");
+    stable.PersistBeforePublication(publication.StagePath);
+    if (mode == "crash") Environment.Exit(17);
+    publication.Commit();
+    return;
+}
+
 if (args[0] == "--publish-fixture")
 {
     string root = Path.GetFullPath(args[1]), mode = args[2];
