@@ -344,3 +344,13 @@ the PC, and a check that raises must become one UNKNOWN line, not a crash of the
 preflight in cycle.ps1 (not testable here, and the runner needs the result in its log and the ledger); making the
 gate always-on (would refuse every current queue, none pins a game version); verifying the absolute load index
 against the game's implicit plugins (which of them the owner's install loads is unresolved: left as a note).
+
+## 2026-10-16 Claude-cloud: task cards and worker results are validated data; a lost attempt expires, never vanishes
+
+`src/fo4sf/core/tasks.py` and `worker.py` make the §4 card and the worker's result typed records the ledger checks
+before it takes them (an undecided outcome never completes, a PASS or FAIL carries evidence, only an IN_GAME PASS
+may claim `verified`, one attempt at a time, dependencies by PASS), and `Worker.expire` turns an attempt past its
+timeout into an INCONCLUSIVE result that says so. Why: the brief's cards were prose, and the two failure modes of
+the last weeks were a result nobody could trace to evidence and a run nobody could tell apart from a lost one; data
+with rules closes both. Alternatives: free-form result dicts (what the queue rows are today; the importer keeps
+reading those unchanged); a scheduler that retries on its own (a retry is a decision the leader records, not a loop).

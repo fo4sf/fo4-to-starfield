@@ -101,8 +101,8 @@ Each card has the fields the brief requires. Status is kept on the task's GitHub
 - **Switch (2026-10-16):** `testqueue.py run --preflight` / `FO4SF_PREFLIGHT=1`, off by default; nothing on the PC
   changes until the PC session turns it on (§7). Implemented by Claude-cloud in #180 (`src/fo4sf/core/preflight.py`).
 
-After T3: `core/tasks.py` + `core/worker.py` (result contract), then the `Transform` adapter carrying the Z-first
-rotation fix (#102), then other adapters only when a gameplay gate needs them.
+After T3: `core/tasks.py` + `core/worker.py` (result contract; done 2026-10-16 by Claude-cloud, #183, §8), then the
+`Transform` adapter carrying the Z-first rotation fix (#102), then other adapters only when a gameplay gate needs them.
 
 ## 5. Starting a task as a cloud session
 
@@ -189,3 +189,37 @@ after the lease line and before the first launch; the checklist goes to `run.log
 `blocker_opened` (`blocker: preflight`, the failing lines as `evidence`) to the ledger when a lease folder is set;
 a `--dry-run` prints the checklist and refuses the same way. Unset, the gate is not built and the runner is the one
 of §6. The after-load activation check stays where it is (cycle.ps1 exit 8 after `exp_install.py active`).
+
+## 8. Task cards and the worker result contract
+
+**The card** (`src/fo4sf/core/tasks.py`, `TaskCard`): data with exactly the fields of the §4 cards: `id`,
+`objective`, `owner`, `inputs[]`, `dependencies[]` (task ids whose PASS must be in the ledger), `timeout_s`,
+`max_attempts`, `acceptance[]`, `evidence_required[]`, `recovery`, `not_in_scope[]`, and optionally `capability`
+(what a decided IN_GAME result verifies or fails) and `campaign`. A card is refused with the field named when it
+lacks an objective, an owner, an acceptance line or an evidence rule (`"none"` is a choice, an empty list is not),
+when a number is not positive, when it depends on itself or carries an unknown field. `card.events(by)` is the
+`task_queued` line that queues it, the card riding along so a resumed leader re-reads it; `card.not_ready(state)`
+says why it cannot start.
+
+**The result** (`src/fo4sf/core/worker.py`, `WorkerResult`): `task`, `attempt`, `outcome` (§2), `source` (§2),
+`detail`, `evidence[]` (paths, hashes, URLs, read lines), `pins{}` (`commit`, `build_id`, `plugin_sha256`, ...),
+`started`, `finished`, `by`, `verified` (the worker's claim). `violations(card, result)` lists every breach and
+`Worker.finish` writes nothing while one exists:
+
+| Rule | Refused when |
+|---|---|
+| the attempt is the card's | `attempt` < 1, beyond `max_attempts`, or not the attempt the ledger shows running |
+| only PASS / FAIL are decided | an undecided outcome marked `completed` (model.Event refuses the line itself) |
+| a verdict rests on evidence | a PASS or FAIL with no `evidence` while the card requires some |
+| only an IN_GAME PASS verifies | `verified` claimed from any other outcome or source, or for a card without a capability; an OFFLINE PASS is recorded and the fold keeps the capability inconclusive |
+| one attempt at a time | `start` while an attempt is running (or lost), after the task completed, or before its dependencies passed |
+| nothing is lost silently | `Worker.expire` turns an attempt past `timeout_s` into an INCONCLUSIVE `task_finished` that says so (`expired: true`) |
+
+What a task leaves in the ledger: `task_queued` (the card), `task_started` (`attempt`, `timeout_s`, `started`),
+`task_finished` (`outcome`, `source`, `detail`, `evidence`, `pins`, `completed`), and for a card with a capability
+one `capability_result` per decided or inconclusive attempt (a SKIPPED attempt says nothing about the capability).
+
+**The report CLI:** `python scripts/leader_report.py --ledger <leader dir or ledger.jsonl> [--now <ISO>] [--json]`
+prints the owner's eight bullets from the fold (§1), exit 1 with the reason when the ledger is missing or corrupt.
+The capability bullets are those of the pinned build (`build_pinned`); results pinned to another `build_id` stay out
+of "newly worked in game" until that build is the pin.
