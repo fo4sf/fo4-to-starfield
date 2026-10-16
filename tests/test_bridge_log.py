@@ -119,6 +119,41 @@ class FileTests(unittest.TestCase):
         self.assertEqual(json.loads(buf.getvalue())["cmd"], 7)
 
 
+class RefReadTests(unittest.TestCase):
+    REF = "[13:11:03] FO4SF ref=34220709 pos=-2193.137207 -1548.338501 105.296318 ang=270.000000 cell=33557935 disabled=false loaded=true"
+
+    def test_wait_ref_only_after_the_mark(self):
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "fo4sf.0.log")
+            open(log, "w").write("[13:11:00] FO4SF rt=1 pos=0 0 0 n=1\n" + self.REF + "\n")
+            self.assertEqual(bridge_log.line_count(log), 2)
+            r = bridge_log.wait_ref(log, "020A2AA5", timeout=0.3, since=0)
+            self.assertTrue(r["ok"]); self.assertEqual(r["pos"], [-2193.137207, -1548.338501, 105.296318])
+            self.assertTrue(r["loaded"]); self.assertFalse(r["disabled"]); self.assertEqual(r["line"], 1)
+            r = bridge_log.wait_ref(log, "020A2AA5", timeout=0.3, since=2)       # the old reply is not this read's
+            self.assertFalse(r["ok"]); self.assertIn("no reply", r["why"])
+            open(log, "a").write("[13:11:09] FO4SF ref=34220709 none\n")
+            r = bridge_log.wait_ref(log, "020a2aa5", timeout=0.3, since=2)
+            self.assertFalse(r["ok"]); self.assertIn("no such reference", r["why"])
+            self.assertEqual(bridge_log.line_count(os.path.join(d, "missing.log")), 0)
+
+    def test_cli_mark_and_wait_ref(self):
+        import contextlib
+        import io
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "fo4sf.0.log")
+            open(log, "w").write(self.REF + "\n")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(bridge_log.main(["mark", "--log", log]), 0)
+                self.assertEqual(bridge_log.main(["wait-ref", "020A2AA5", "--log", log, "--timeout", "0.2"]), 0)
+                self.assertEqual(bridge_log.main(["wait-ref", "020A2AA5", "--log", log, "--timeout", "0.2", "--since", "1"]), 1)
+            lines = out.getvalue().splitlines()
+            self.assertEqual(lines[0], "1")
+            self.assertTrue(json.loads(lines[1])["ok"]); self.assertFalse(json.loads(lines[2])["ok"])
+
+
 if __name__ == "__main__":
     unittest.main()
 

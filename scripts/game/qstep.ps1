@@ -48,6 +48,33 @@ function Console-Open {
 $script:strictReads = $false     # door_trip: readpos -Strict (labelled values of the read's own session only)
 $script:lastHeading = $null      # the heading of the last Read-Pos with -Angle ($null: not read)
 $script:readN = 0                # readpos.ps1 runs so far: each gets its own folder <Out>\reads\NNNN
+function Bridge-Ref-Read([string]$ref, [int]$tries = 2) {
+  # a reference's position through the bridge, no OCR (docs/ai/test-queue.md "Bridge", 2026-10-15): one console session
+  # types cgf "FO4SF_Probe.Pos" <decimal ref> (FO4SF_Probe.psc replies "FO4SF ref=.. pos=.. loaded=.." in the bridge's
+  # log: verified in game, nine R05 runs) and bridge_log.py wait-ref returns the first reply written after the mark
+  # taken before the command (an older reply never passes for this read). "x y z" in the game's frame (the numbers
+  # getpos prints) or $null, when the caller falls back to readpos. obs.read_log: via = bridge-ref, the log line.
+  if ($ref -notmatch '^[0-9A-Fa-f]{8}$') { return $null }
+  $u = [Convert]::ToUInt32($ref, 16); $dec = [int64]$u
+  if ($u -gt 2147483647) { $dec = $dec - 4294967296 }   # the script takes a Papyrus int: load index FF.. is negative
+  $py = Join-Path $here 'bridge_log.py'; $logArg = @(); if ($env:FO4SF_BRIDGE_LOG) { $logArg = @('--log', $env:FO4SF_BRIDGE_LOG) }
+  for ($n = 0; $n -lt $tries; $n++) {
+    $script:readN++
+    $mark = "$(& $env:FO4SF_PYTHON $py mark @logArg)".Trim(); if ($mark -notmatch '^\d+$') { $mark = '0' }
+    Console-Open
+    Send "type:cgf `"FO4SF_Probe.Pos`" $dec|key:enter|wait:500|key:grave|wait:800"
+    $j = $null
+    try { $j = (& $env:FO4SF_PYTHON $py wait-ref $ref --since $mark --timeout 8 @logArg) | ConvertFrom-Json } catch { $j = $null }
+    if (-not $obs.Contains('read_log')) { $obs['read_log'] = @() }
+    $ok = [bool]($j -and $j.ok -and @($j.pos).Count -eq 3)
+    $pos = $(if ($ok) { (@($j.pos) | ForEach-Object { ([double]$_).ToString([Globalization.CultureInfo]::InvariantCulture) }) -join ' ' } else { "fail $($j.why)" })
+    $rec = [ordered]@{ n = $script:readN; via = 'bridge-ref'; ref = $ref; nonce = $null; result = $pos }
+    if ($ok) { $rec['line'] = $j.line; $rec['loaded'] = $j.loaded }
+    $obs['read_log'] += $rec
+    if ($ok) { return $pos }
+  }
+  return $null
+}
 function Bridge-Read([bool]$angle = $false, [int]$tries = 12) {
   # the player's position from the newest line of the bridge's log (bridge_log.py latest: the game's FO4SF_Bridge
   # script writes one every half second; docs/ai/test-queue.md "Bridge"), not older than $script:bridgeMaxAge s:
@@ -83,6 +110,10 @@ function Read-Pos([string]$ref = '', [int]$tries = 3, [bool]$angle = $false) {
   # a bridge read needs its ~8 s of patience whatever the caller asked (bridge_probe_1015b: 3 tries gave up 2 s before
   # the first line after the loading screen)
   if ($script:bridge -and -not $ref) { return (Bridge-Read $angle ([Math]::Max($tries, 12))) }
+  if ($script:bridge -and $ref) {                       # a reference: the bridge's probe reply; readpos's OCR only if it fails
+    $br = Bridge-Ref-Read $ref
+    if ($null -ne $br) { return $br }
+  }
   # up to 3 reads: OCR sometimes drops or shifts a column; a read with x == z or a missing value is retried. With
   # $angle (door_trip arrivals) readpos also types player.getangle z: the read returns "x y z" and the heading goes to
   # $script:lastHeading. Every readpos run keeps its capture, OCR text and read.json (its nonce) in its own folder,
