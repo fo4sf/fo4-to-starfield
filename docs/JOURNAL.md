@@ -1456,3 +1456,13 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
 - Merged tonight: #162, #163, #161, #165, #166 (and the queue of the day before). Open: #164 (sandbox suite running),
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
+
+## 2026-10-16: serial verification default, measured opt-in readers (Codex)
+
+PR149/188 peer review found Linux scheduling overhead; default is now serial, with explicit --verify-workers1-4.
+Both installed/staged inventories use that count and retain fresh full hashes. Four new methods reproduce missing
+configuration/default behavior before the revision;55 experiment tests pass after. On the same synthetic Windows
+fixture, serial0.522->0.529s (+1.3%), two0.515->0.405s (-21.3%), four0.521->0.362s (-30.6%);1,026 hashes every
+invocation. See optimization.md for exact commands/samples and limits. Real-tree timing remains pending a lead
+resource window. Merged main forward without rewriting history; retained both journal branches. No install/game,
+controller, watchdog or source-stage changes. Evidence relaunch-workers-149-20261016; corrected-source peer QA pending.

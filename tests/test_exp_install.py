@@ -379,7 +379,8 @@ class ExperimentRecoveryTests(unittest.TestCase):
         paths += [p for p in self.data.rglob("*") if p.is_file() and p.name != exp.RECORD]
         expected = Counter(os.fspath(p) for p in paths)
         original_digest = exp.digest
-        for _ in range(2):
+        for workers in (1, 2, 4, 4):
+            self.args.verify_workers = workers
             seen = []
 
             def counted(path):
@@ -391,6 +392,7 @@ class ExperimentRecoveryTests(unittest.TestCase):
             self.assertEqual(Counter(seen), expected)
 
     def test_relaunch_rejects_hardlinked_edit_with_preserved_size_and_time(self):
+        self.args.verify_workers = 4
         exp.install(self.args)
         source = self.staging / "Data" / self.terrain
         target = self.data / self.terrain
@@ -405,6 +407,7 @@ class ExperimentRecoveryTests(unittest.TestCase):
             exp.install(self.args)
 
     def test_relaunch_rejects_packed_archive_edit_with_preserved_size_and_time(self):
+        self.args.verify_workers = 4
         with patch.object(exp.subprocess, "run", side_effect=self.archive_builder()) as process:
             exp.install(self.args)
             archive = self.data / "Experiment - Main.ba2"
@@ -428,7 +431,38 @@ class ExperimentRecoveryTests(unittest.TestCase):
 
         with patch.object(exp, "digest", side_effect=fail_one):
             with self.assertRaisesRegex(OSError, "synthetic denied read"):
-                exp.source_inventory(str(self.staging), ["Experiment.esm"], parallel=True)
+                exp.source_inventory(str(self.staging), ["Experiment.esm"], workers=4)
+
+    def test_relaunch_defaults_to_serial_without_creating_a_pool(self):
+        exp.install(self.args)
+        with patch.object(exp, 'ThreadPoolExecutor', side_effect=AssertionError('serial default must not create readers')):
+            exp.install(self.args)
+
+    def test_relaunch_worker_setting_reaches_installed_and_staged_checks(self):
+        (self.staging / 'Data/second.bin').write_bytes(b'another synthetic file')
+        exp.install(self.args)
+        self.args.verify_workers = 2
+        with patch.object(exp, 'ThreadPoolExecutor', wraps=exp.ThreadPoolExecutor) as pools:
+            exp.install(self.args)
+        self.assertEqual([call.kwargs['max_workers'] for call in pools.call_args_list], [2, 2])
+
+    def test_invalid_worker_counts_refuse_before_any_digest(self):
+        for workers in (0, 5, -1, True, '2', 1.5):
+            with self.subTest(workers=workers), patch.object(exp, 'digest', side_effect=AssertionError('must not read')):
+                with self.assertRaisesRegex(ValueError, 'workers'):
+                    list(exp._hash_files([('x', 'unused')], workers=workers))
+
+    def test_worker_cli_defaults_bounds_and_explicit_value(self):
+        command = ['install', '--starfield', 'synthetic-game', '--exp-dir', 'synthetic-stage']
+        for flags, expected in (([], 1), (['--verify-workers', '4'], 4)):
+            with patch.object(exp, 'install') as install:
+                exp.main(command + flags)
+                self.assertEqual(install.call_args.args[0].verify_workers, expected)
+        for value in ('0', '5', 'two'):
+            with patch.object(exp, 'install') as install:
+                with self.assertRaises(SystemExit):
+                    exp.main(command + ['--verify-workers', value])
+                install.assert_not_called()
 
     def test_changed_terrain_during_packing_is_rejected_before_installation(self):
         build = self.archive_builder()

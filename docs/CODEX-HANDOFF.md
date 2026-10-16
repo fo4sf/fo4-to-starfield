@@ -13,11 +13,11 @@ Goal: connected Red Rocket-Sanctuary-cave slice, interactions and save/reload, t
 
 Main aa5b223; latest #32 overrides this handoff.150/167 preserve reference slots/share CONTs;134 superseded.125/131/133/138 merged; source integration is not native acceptance.
 
--153:191 finding fixed with PendingPublication(OSError);5 guard+88 runner tests pass. CI38889339558 found two stale compiled ValueError assertions, now corrected:7 compiled+5 guard tests pass on Windows, including sharing denial. Production guard/C# unchanged; fresh CI/peer check/PC integration pending.
+-153518933a: PendingPublication(OSError) records a stopped checkpoint.12 Windows guard/compiled tests and CI38918409322 pass; prior88 runner checks retained. Fresh peer check/PC integration pending.
 -146b9e6a14:20 tests/4 retained-output controls/CI pass; cloud review5544420068 no finding. Rejects deleted container/reference/parents. Ready for PC integration, native unverified.
 -1762154d22:49 tests/guard/CI; cloud review5544379046 no finding. Distinct full source-plugin groups; existing FO4 names/REFR slots retained. Ready for PC integration.
 -17482fa121: joint native-core door design, no implementation/build. Port/Core endpoints +interior return patch; existing ReferenceLinks rejects master-owned DOORs/interior-only traversal verified synthetically. Agree ownership/allocator/typed resolution before build.129 CLOSED after pinned NOLOAD/local-only coordinates; failures retained.
--149ed44dae: cloud review reports Linux2.8-3.4x slowdown; Windows measurement/worker-count decision pending. No speed-up generalization.
+-149: peer Linux slowdown addressed by serial default/explicit --verify-workers1-4,32-path batches. Windows synthetic serial+1.3%, two-21.3%, four-30.6%, all1026 hashes retained.55 tests pass; fresh peer QA and real-tree/resource-window measurement pending. Undeployed.
 -10458f0b51/116589f1bf reviewed source; no live application/restart. Keep expected_sha256, bridge-last and no-op0.118 native adapter/123 local-model savings remain gated.
 -175 merged b87f71c after Claude's repair; prior stale-capture failure retained. No Codex native capture claim.
 
@@ -27,6 +27,8 @@ Core64c648358 refs/1708 populated cells over6.4km; no size guarantee. Old campai
 
 Grok169 export is complete/independently checked:12104 NAVM/3749066 triangles/1069 cells.173 flags1155 existing linked-portal gaps>0.5m, max0.93449m.210 separately reproduces dropped cell-line portals; do not conflate them or change tolerances. Claude owns converter; no duplicate edits.
 
-Next: review153 correction; joint door decisions; Windows-only QA179 requested by cloud after confirming tests use no live input. Old batch_full1109 pending/616 movable plans;79 awaits release/pins.
+17936dbb1c: review5550543450 covers52 Python/parser+2 instrumented PS refusals. P2: missing Python in reused host with prior LASTEXITCODE0 passes lease guard; game-lookup canary caught it. Claude owns repair. No live actions/original -File argv claim.
+
+Next: peer149/153 corrections; joint door decisions. Old batch_full1109 pending/616 movable plans;79 awaits release/pins.
 
 #32 is the inbox. Keep <4KB, usage low, targeted tests only. Private D: index/capsules reopen/source-verified; originals retained, local not offsite. No cleanup before verification. Four-hour Codex follow-up ACTIVE; completed scoped monitors stay paused.

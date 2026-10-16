@@ -28,7 +28,8 @@ same input), and the commit. Use the `optimization` label on the issue or PR.
 
 ### 2026-10-15 Codex: bounded parallel relaunch verification (proposal)
 
-`exp_install.py verify_relaunch` reads independent files with at most four workers and 32 queued paths.
+The original proposal read independent files with four workers and 32 queued paths. The October16 revision below
+keeps serial verification as the default and makes additional workers opt-in.
 Every installed path and every staged path still receives a fresh full SHA-256 on every invocation, including
 plugins, archives and both names of a hard link. No inode/timestamp cache or `samefile` shortcut is used.
 Installation/preparation keeps its existing serial inventory behavior. Source-only proposal; peer QA and lead
@@ -59,6 +60,42 @@ The benchmark uses a temporary synthetic fixture and temporary `LOCALAPPDATA`, p
 and verifies both versions perform all 1,026 full hashes per invocation. Regressions cover repeated full
 verification, shared-link edits with preserved size/time, a similarly edited packed archive, and worker read
 errors. The initial test's duplicated expected plugin path was corrected; its failed output is preserved.
+
+### 2026-10-16 Codex: opt-in verification workers after cross-platform review
+
+Independent Claude-cloud review5544352968 of `ed44dae` retained the correctness checks but measured a Linux
+slowdown of2.8-3.4x on the same small-file benchmark. Four readers are therefore no longer the default.
+`exp_install.py install --verify-workers N` accepts1-4, defaults to1, and passes the setting to both relaunch
+inventories. One reader takes the serial path without constructing an executor; higher counts retain the32-path
+batch bound. Invalid counts refuse before hashing. Installation preparation still uses a serial inventory.
+No timestamp/inode/cache shortcut was introduced; every alias is fully hashed on every relaunch in every mode.
+
+Current Windows PC, Python3.14.6, same deterministic512 x64KiB hard-linked fixture plus one synthetic plugin;
+baseline `ef3a3ba`, one warm-up then three alternating before/after samples per worker setting:
+
+| Readers | Serial baseline median | Revised median | Change |
+|---|---:|---:|---:|
+| 1 (default) | 0.522256 s | 0.529201 s | +1.3% |
+| 2 (opt-in) | 0.514531 s | 0.405128 s | -21.3% |
+| 4 (opt-in) | 0.521183 s | 0.361561 s | -30.6% |
+
+All18 measured invocations perform1,026 content hashes each. The serial result is not a speed-up; small timing
+differences are not a workload guarantee. These synthetic timings do not resolve the live51,823-file experiment's
+performance or contention with the game. That measurement requires a PC-lead resource window; it was not run here.
+Do not enable extra readers merely from this table. No runtime configuration, install or game control changed.
+
+Reproduce with the baseline file prepared by the command above:
+
+```powershell
+python -B scripts/testing/benchmark_relaunch.py --before "$env:TEMP\fo4sf-exp-before.py" --runs 3 --workers 1
+python -B scripts/testing/benchmark_relaunch.py --before "$env:TEMP\fo4sf-exp-before.py" --runs 3 --workers 2
+python -B scripts/testing/benchmark_relaunch.py --before "$env:TEMP\fo4sf-exp-before.py" --runs 3 --workers 4
+```
+
+Four new regression methods fail before this revision, then pass: serial default with no executor, the requested
+count on both inventories, invalid direct-call counts and CLI bounds/default. Existing checks exercise fresh hashes
+with1/2/4 readers, repeat4, and preserve rejection of same-size/time hard-link/archive edits and worker read errors.
+Private before/after evidence: `relaunch-workers-149-20261016`; independent correction review remains required.
 
 ### 2026-10-09 Codex: hash archive contents for resume identity (`c74a952`)
 Same deterministic synthetic 64 MiB archive, seven warm-cache runs on the owner's PC. Before: metadata-only
