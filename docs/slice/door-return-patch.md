@@ -81,6 +81,16 @@ that winner's plan and receipt. `-- --publication-only` exercises fresh, existin
 empty/populated, and concurrent claims without rerunning animation/relationship
 checks. These publication tests create only synthetic private files.
 
+The output path is normalized once for the CLI check and all writes; the atomic
+claim also normalizes callers' paths. Trailing native/alternate separators,
+repeated separators and relative paths identify the same directory without
+mistaking the output itself for its parent. `-- --output-alias-only` runs a real
+CLI build with trailing separators, a canonical-path retry that must preserve
+the plugin/receipt, and publication controls including competing path spellings.
+Before this correction the CLI created an empty output directory and then failed
+to claim it. Existing directories remain refused; no failed output is removed.
+This separate follow-up awaits independent review and changes no door records.
+
 Current integration boundary: PR251 supplies a private missing interior endpoint
 candidate. Claude independently reviewed099240e without a blocking data-path
 finding, but found its TES4 master bit absent. The writer now sets IsMaster

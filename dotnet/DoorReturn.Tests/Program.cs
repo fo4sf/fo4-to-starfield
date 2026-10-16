@@ -23,7 +23,8 @@ void CheckMasterHeader(string path)
 var results = new List<object>();
 foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterior", "missing-flag", "deleted", "wrong-outbound", "static-base", "conflicting-return", "nan-arrival", "relative-arrival", "port-cycle", "wrong-owner", "deleted-cell", "deleted-world", "wrong-transition", "light-core", "core-cell-override", "core-door-override", "core-door-deleted", "core-door-temporary" }
     .Where(s => !args.Contains("--overrides-only") || s.StartsWith("core-"))
-    .Where(s => !args.Contains("--positive-only") || s is "valid" or "core-cell-override" or "core-door-override"))
+    .Where(s => !args.Contains("--positive-only") || s is "valid" or "core-cell-override" or "core-door-override")
+    .Where(s => !args.Contains("--output-alias-only") || s == "valid"))
 {
     var folder = Path.Combine(root,scenario); Directory.CreateDirectory(folder);
     var sfKey = ModKey.FromNameAndExtension("Starfield.esm");
@@ -99,12 +100,27 @@ foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterio
         Need(read.EnumerateMajorRecords().All(r=>r.FormKey.ModKey==portKey),"new patch-owned record allocated");
         var planPath=Path.Combine(folder,"plan.json");File.WriteAllText(planPath,JsonSerializer.Serialize(new{interior=plan.Interior.ToString(),exterior=plan.Exterior.ToString(),arrival_position=new[]{-5,7,8},arrival_rotation=new[]{0,0,.2f},flags=0}));
         var start=new ProcessStartInfo("dotnet"){RedirectStandardOutput=true,RedirectStandardError=true,UseShellExecute=false};start.ArgumentList.Add(typeof(ReturnPatch).Assembly.Location);
-        foreach(var arg in new[]{Path.Combine(folder,"Starfield.esm"),Path.Combine(folder,"Port.esm"),Path.Combine(folder,"Core.esm"),planPath,Path.Combine(folder,"cli")})start.ArgumentList.Add(arg);
+        var cliOutput = Path.Combine(folder,"cli") + (args.Contains("--output-alias-only") ? new string(Path.DirectorySeparatorChar, 3) : "");
+        foreach(var arg in new[]{Path.Combine(folder,"Starfield.esm"),Path.Combine(folder,"Port.esm"),Path.Combine(folder,"Core.esm"),planPath,cliOutput})start.ArgumentList.Add(arg);
         using var child=Process.Start(start)!;var stdout=child.StandardOutput.ReadToEndAsync();var stderr=child.StandardError.ReadToEndAsync();
         if(!child.WaitForExit(60000)){child.Kill(true);throw new TimeoutException();}Task.WaitAll(stdout,stderr);File.WriteAllText(Path.Combine(folder,"cli.log"),stdout.Result+stderr.Result);
         Need(child.ExitCode==0,"CLI failed");
         CheckMasterHeader(Path.Combine(folder,"cli/FO4DoorReturn.esm"));
         using var receipt=JsonDocument.Parse(File.ReadAllText(Path.Combine(folder,"cli/build-state.json")));Need(receipt.RootElement.GetProperty("complete").GetBoolean(),"CLI receipt incomplete");
+        if (args.Contains("--output-alias-only"))
+        {
+            var canonical = Path.Combine(folder,"cli");
+            var published = Directory.GetFiles(canonical).ToDictionary(p => p, File.ReadAllBytes);
+            start.ArgumentList[start.ArgumentList.Count - 1] = canonical;
+            using var retry = Process.Start(start)!;
+            var retryOut = retry.StandardOutput.ReadToEndAsync(); var retryErr = retry.StandardError.ReadToEndAsync();
+            if (!retry.WaitForExit(60000)) { retry.Kill(true); throw new TimeoutException(); }
+            Task.WaitAll(retryOut,retryErr);
+            File.WriteAllText(Path.Combine(folder,"retry.log"), retryOut.Result + retryErr.Result);
+            Need(retry.ExitCode != 0, "CLI accepted an already-owned output through its canonical alias");
+            Need(Directory.GetFiles(canonical).Length == published.Count && published.All(p => File.ReadAllBytes(p.Key).SequenceEqual(p.Value)),
+                "CLI retry changed the published plugin or receipt");
+        }
         results.Add(new {scenario,result="binary-and-cli-pass"});
     }
     catch(InvalidDataException e)
@@ -116,5 +132,5 @@ foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterio
 }
 File.WriteAllText(Path.Combine(root,"results.json"),JsonSerializer.Serialize(results,new JsonSerializerOptions{WriteIndented=true}));
 Console.WriteLine(results.Count+" return-patch scenarios passed: "+root);
-if(!args.Contains("--overrides-only") && !args.Contains("--positive-only"))PipelineTests.Run(root);
+if(!args.Contains("--overrides-only") && !args.Contains("--positive-only") && !args.Contains("--output-alias-only"))PipelineTests.Run(root);
 if(!args.Contains("--overrides-only") && !args.Contains("--positive-only"))PublicationTests.Run(root);

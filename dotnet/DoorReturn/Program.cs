@@ -7,7 +7,8 @@ using Mutagen.Bethesda.Starfield;
 using Noggog;
 
 if (args.Length != 5) throw new ArgumentException("usage: <Starfield.esm> <Port.esm> <Core.esm> <return-plan.json> <fresh-output-dir>");
-if (Directory.Exists(args[4])) throw new InvalidOperationException("output directory already exists");
+var outputDirectory = OutputDirectory.Normalize(args[4]);
+if (Directory.Exists(outputDirectory)) throw new InvalidOperationException("output directory already exists");
 string Hash(string path) { using var f = File.OpenRead(path); return Convert.ToHexString(SHA256.HashData(f)).ToLowerInvariant(); }
 var pins = args.Take(4).ToDictionary(Path.GetFullPath, Hash);
 var keys = args.Take(3).Select(p => ModKey.FromFileName(Path.GetFileName(p))).ToArray();
@@ -30,10 +31,10 @@ var plan = new ReturnPlan(FormKey.Factory(p.GetProperty("interior").GetString()!
 var mod = ReturnPatch.Build(sf, port, core, plan);
 void VerifyPins() { if (pins.Any(p => Hash(p.Key) != p.Value)) throw new InvalidOperationException("input changed during build"); }
 VerifyPins();
-OutputDirectory.Claim(args[4]);
-var receipt = Path.Combine(args[4], "build-state.json");
+OutputDirectory.Claim(outputDirectory);
+var receipt = Path.Combine(outputDirectory, "build-state.json");
 File.WriteAllText(receipt, "{\"complete\":false}");
-var output = Path.Combine(args[4], ReturnPatch.PatchKey.FileName.String);
+var output = Path.Combine(outputDirectory, ReturnPatch.PatchKey.FileName.String);
 mod.BeginWrite.ToPath(output).WithLoadOrder(keys).WithKnownMasters(styles).Write();
 VerifyPins();
 File.WriteAllText(receipt, JsonSerializer.Serialize(new { complete = true, input_sha256 = pins,

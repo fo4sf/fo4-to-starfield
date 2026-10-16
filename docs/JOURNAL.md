@@ -1516,3 +1516,14 @@ Guard/diff checks pass; private failed/passing evidence in
 test-plans/door-return-master-20261016. Correction awaits peer QA. No live install,
 slot allocation or engine-loading claim; stacked25102239ef integration remains
 pending separately.
+## 2026-10-16: Codex return-patch output path normalization
+
+Reproduced PR253's trailing-separator finding on a6cab39: the actual CLI creates
+the requested output directory as its own parent, then fails the atomic claim.
+A separate follow-up normalizes the path for checking, claiming and writing.
+Targeted actual-CLI build/retry and publication checks pass: trailing native/alt/
+repeated separators, relative paths, unchanged filesystem-root normalization,
+preserved existing outputs, exactly one winner for competing path spellings,
+and no temporary claim leftovers. Failed/passing evidence is retained privately
+in test-plans/door-output-path-20261016. Guard/diff pass; peer QA pending. No door
+relationships, staged inputs, game files or controller input changed.
