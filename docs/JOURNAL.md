@@ -1442,6 +1442,86 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
 
+## 2026-10-16: Codex native bases for persistent door relationships
+
+The owner's persistent-door priority led back to PR174's actual ReferenceLinks
+rejection. Synthetic CLI controls reproduce two valid native-base cases rejected
+(exit2), plus a deleted local DOOR override wrongly accepted (exit0). Resolve from
+typed Starfield.esm records with local override precedence; deleted/non-door/missing
+bases now refuse. Eight CLI cases and the existing relationship/binary suite pass.
+Both persistent endpoints retain identity, transforms, grouping, flags, reciprocal
+XTEL/transition links and open state after serialization. Original inputs/map stay
+unchanged. No native DOOR cloning or ID allocation. Evidence retained privately at
+test-plans/native-door-bases-20261016 (before, after and final).
+This optional post-pass remains interior-scoped; PluginSpike owns primary load-door
+writing. No exterior merge fix, live install/input, travel or save/reload acceptance
+is claimed. Peer QA pending; Claude retains native controller.
+
+## 2026-10-16: Codex both persistent teleport endpoints
+
+PR245 follow-up reproduces three serialized failures: explicit false persistence,
+missing persistence and one-way travel all left valid XTEL endpoints temporary.
+The optional ReferenceLinks post-pass now applies the same both-endpoint persistent
+group/flag rule as primary PluginSpike.TeleportLinks, after link validation. No
+return link is invented and IDs/transforms remain unchanged. Eleven CLI/readback
+cases plus library refusal-before-promotion/idempotence and prior relationship
+checks pass; guard passes. Source failures and current evidence retained privately
+at native-door-persistence-20261016. No primary writer, source stage, live input,
+installation or game-state claim. Peer QA and merge/native-save gates remain.
+
+## 2026-10-16: Codex independently inspects rebuilt persistent doors
+
+Pinned integ_1011/integ_1016 raw plugins/maps: all54,877 map entries and master order
+identical. One FortHagen pair remains the only two persistent DOOR/XTEL references;
+endpoint fields/ancestry unchanged. All28 reported unlinked references exist and
+lack XTEL (20 DOOR/8 STAT, all temporary); four reported unplaced source endpoints
+have no map slots, including Red Rocket05E844. Six malformed flag/group/return-edge
+controls detected. First inefficient audit loop stopped; initial all-unlinked-bases-
+are-DOOR assumption disproved/corrected; both preserved. See
+slice/persistent-door-rebuild.md and private persistent-interior-rebuild-20261016.
+No source/game edits, newly connected interiors or native/save acceptance claimed.
+
+## 2026-10-16 — Codex: explicitly selected missing interior door endpoints
+
+ReferenceLinks now accepts --door-bases=JSON keyed by original source reference. Reproduced seven CLI failures: skipped allocation/reservation and ignored invalid selections. Valid selected exported Door records get verified active native/local DOOR bases, stable source-map IDs, persistent grouping, source transforms/disabled/open state; existing conflicting bases/owners and occupied reservations refuse. No guessed bases, synthetic return edges, primary writer changes or live actions. Seven new actual-CLI controls and eleven prior controls plus library/binary checks pass. Peer QA pending; see docs/slice/missing-door-endpoints.md. Private failed/passing fixtures retained under missing-door-endpoints-20261016.
+
+## 2026-10-16 — Codex: actual missing cave endpoint candidate
+
+PR251/code63131c6 exercised against private integ_1016/RedRocket01 snapshots and verified native24F9CE base. Strict mode exit2/no plugin retains missing08EB65 destination; explicitly partial candidate adds05E844 as local00DE5D, preserves54,877 map entries, no XTEL invented. Separate raw parser verifies group/flag/base/transforms/scale and compares all prior records: only header plus three original-export persistent promotions (05F97B/05FAA0/05FAA3), unchanged subrecord bytes. All source pins unchanged. Output cdd69d7b..., private missing-cave-production-20261016; initial wrong net8.0 harness path retained, correctednet9.0 run passes. No stage/install/input change; peer/native/cross-plugin integration pending.
+## 2026-10-16: Codex explicit door selection requires an existing cell
+
+Reproduced Claude's PR251 review finding: `--allow-unresolved` published a plugin
+without an explicitly selected door when its cell map or CELL record was absent;
+report-only also exited successfully for that omitted request. Selection preflight
+now requires the mapped cell before mutation. Six new CLI scenarios pass, including
+unchanged partial behavior for an unrelated missing cell. The targeted executable
+also passes13 missing-door,11 native-base and relationship binary checks; guard and
+diff checks pass. Failed/passing synthetic evidence retained privately in
+test-plans/door-selection-cells-20261016. No real slots, staging, install or game
+input changed; new correction awaits peer QA and carry-forward into stacked253.
+## 2026-10-16: Codex scripted cave-door compiler packet
+
+Following Claude's #32 request6222158841, added a separate player-only Papyrus
+MoveTo candidate using plugin-local GetFormFromFile destinations, plus a compiler
+wrapper that refuses stale output, failed compilation and input drift. Real CK
+compile produces1713 bytes (a59e24848b7c3d74158a5cbca84c95ebd9eb70f886550496634ddb1f6eb9fcfc).
+Nine synthetic compiler-boundary tests pass; these do not emulate activation or
+travel. Private receipts in test-plans/scripted-door-20261016. Compilation remains
+non-installable, runtime_accepted=false. No plugin/stage/game/configuration changed.
+Current core/port pins and an ACTI interaction model are requested on #32: the old
+core skipped source08EB65 and old port lacked05E844, so retained slots are not
+assumed. Record attachment and both-way/save-reload acceptance remain pending.
+
+### Codex response to independent PR243 review
+
+Claude's independent review found no blocking code issue and compiled the script
+twice. The earlier PEX SHA256 identifies one preserved private file, not a
+reproducible build: compiler timestamps/debug/account-machine metadata vary.
+Documentation now requires output outside all checkouts and qualifies Moving as a
+non-atomic guard. Core64h/integ_1016 pins arrived on #32; ACTI design is pending and
+no slots are allocated. Docs-only response; guard/diff checks, no repeated compile
+or unchanged suite. Runtime activation, unloaded markers and travel/save remain
+unverified. The original private compiler packet remains preserved.
 ## 2026-10-16: Codex persistent-reference inspector identity
 
 A synthetic master override and local persistent reference sharing low ID800 were
