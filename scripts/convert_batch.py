@@ -246,11 +246,22 @@ def main():
         print("  FAIL", f["nif"], "-", f["reason"][:110])
     from collections import Counter
     reason_counts = Counter(f["reason"].split(":")[0].strip() for f in failures)
+    examples = {}
+    for f in failures:
+        top = f["reason"].split(":")[0].strip()
+        examples.setdefault(top, [])
+        if len(examples[top]) < 3:
+            examples[top].append(f["nif"])
     total = len(failures)
     unique = len(reason_counts)
     attempted = len(items) + total
     success_pct = 100.0 * len(items) / attempted if attempted else 100.0
     print(f"  Batch result: {len(items)}/{attempted} succeeded ({success_pct:.1f}%)")
+    doors = sum(1 for it in items if "door" in it)
+    load_doors = sum(1 for it in items if "load_door" in it)
+    movables = sum(1 for it in items if "movable" in it)
+    total_shapes = sum(it.get("shapes", 0) for it in items)
+    avg_shapes = round(total_shapes / len(items), 1) if items else 0.0
     if total:
         print(f"  Failure summary: {total} failures across {unique} unique top-level reasons")
         print("  Top failure reasons:")
@@ -259,6 +270,8 @@ def main():
             print(f"    {count:4d} ({pct:5.1f}%)  {reason[:80]}")
     else:
         print("  Failure summary: 0 failures")
+    if items:
+        print(f"  Asset mix: doors={doors} load_doors={load_doors} movables={movables} avg_shapes={avg_shapes}")
     # Always persist a compact summary (including the zero case) so tooling sees the latest run
     elapsed = round(time.time() - t0, 1)
     summary = {
@@ -272,7 +285,13 @@ def main():
         "seconds": elapsed,
         "limit": a.limit,
         "pattern": a.pattern,
-        "top": [{"reason": r, "count": c, "percent": round(100.0 * c / total, 1) if total else 0.0}
+        "doors": doors,
+        "load_doors": load_doors,
+        "movables": movables,
+        "total_shapes": total_shapes,
+        "avg_shapes": avg_shapes,
+        "top": [{"reason": r, "count": c, "percent": round(100.0 * c / total, 1) if total else 0.0,
+                 "examples": examples.get(r, [])}
                 for r, c in reason_counts.most_common(10)],
     }
     write_json_atomic(os.path.join(a.staging, "failure-summary.json"), summary)
