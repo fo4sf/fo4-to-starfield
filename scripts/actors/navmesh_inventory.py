@@ -117,6 +117,8 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
         "lost_coverage": lost,
         "reduced_coverage": reduced,
         "gained_coverage": gained,
+        "example_lost": [item["cell"] for item in lost[:3]],
+        "example_reduced": [item["cell"] for item in reduced[:3]],
         "unknown": unknown,
         "unchanged": len(unchanged),
         "summary": (
