@@ -54,6 +54,8 @@ carries its FO4 base signature; `exterior.py classify`) and emits, per class, th
 | CONT (containers) | CONT + REFR at the original slot, inventory from a fixed vanilla table per container kind (FO4 leveled lists do not resolve) | band exports | activate step on a sample per kind |
 | MISC / ALCH / AMMO / BOOK (loose items) | MISC (ALCH as MISC first) | band exports | a pick-up step (activate; inventory count read) |
 | ACTI / TERM | Activator / Terminal with one text line | band exports | activate step |
+| CONT WorkshopWorkbench (settlement workshops) | ACTI build station at the original slot: WorkshopKeyword + OutpostPlayerHouseActivator's category keywords, PRPS build radius ([stations.md](stations.md)) | band exports + Fallout4.esm (workshopscript VMAD) | activate step: the build-mode HUD |
+| FURN crafting benches (weapon / armor / chem / cooking) | REFR to the vanilla Starfield bench of the kind at the original slot (no record of ours; power armor stays a static) | band exports + Fallout4.esm (WBDT) | activate step: the bench menu |
 | Enable parents, triggers | XESP on REFRs; primitives | R05 plan sections 1-3 | the R05 slice-2 pair test |
 | Persistent-on-border | the vanilla persistent-cell shape | R05 plan | door_trip probes |
 
@@ -107,6 +109,21 @@ doors carry a vanilla rig; not its script, bounds, model or name. Each ACTI carr
 colour CC4C33), FNAM 0 and activation angle 360 (1,347 / 1,412 / 1,453 of 1,463 ACTI). FLLD (in every vanilla ACTI and
 TERM) is not written: Mutagen 0.55 does not expose it. Not yet: activation in game, so whether the player enters
 terminal mode, and whether the ACTIs show their prompt, stay **unresolved** until an in-game activate step.
+
+Status 2026-10-16 (stations, branch `claude/stations-promotion`, on the wave-1 classes; offline only, not in game;
+[stations.md](stations.md)): `make_cluster.py workshops` lists the 29 placed settlement workshops of the core (FO4
+CONT `0C1AEB` WorkshopWorkbench x 28, `246F86` WorkshopWorkbenchNonSettlement x 1: the two container bases with the
+`workshopscript` VMAD, read raw from Fallout4.esm; the container table now skips them) and `benches` the 269 placed
+crafting stations with a kind (weapon 65, armor 43, chem 43, cooking 118 over 10 FO4 bases; 75 power armor stations and
+frames skipped with the reason). `cluster_workshops` / `cluster_benches` join the one slot plan. TerrainOverlays
+writes one ACTI per workshop base in the vanilla pre-placed pattern (OutpostPlayerHouseActivator 00024DC7:
+WorkshopKeyword + its OutpostCategory* keywords read from the master, PRPS OutpostBuildAreaRadius 250, no VMAD) after
+the TERM + TMLM block, and binds each bench REFR to the vanilla Starfield bench of its kind (2B6A63 / 2B6A62 / 2B6A61
+/ 2B6A65: the same bench type and, armor / chem / cooking, the same recipe keyword id as FO4's, **verified** raw).
+`check` binds the records raw and against Starfield.esm; `compare-ids` reports formids.json against the input build.
+Build: `terrain_core64i` (containers + items + activators + terminals + lights + workshops + benches + navmesh); queue
+`core64i_stations_1016` planned (activate on the Red Rocket workshop and weapon bench). Whether build mode and the
+bench menu open from our overlay stays **unresolved** until the queue runs.
 
 ## 4. Navmesh and actors
 
