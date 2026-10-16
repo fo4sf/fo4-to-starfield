@@ -143,8 +143,9 @@ def main():
                     help="keep FO4 loose items fixed (default with --starfield-data: movable, as in FO4)")
     ap.add_argument("--door-anim-dll", default="",
                     help="external CALUMI.Animation.dll (not distributed): with --starfield-data, doors that move more "
-                         "than one part (double doors, shutters, sliding panel sets) get their own rig and Open/Close "
-                         "clips; without it they keep the single-hinge template and list the parts that stay closed")
+                         "than one part (double doors, shutters, sliding panel sets) and sliding / lifting / trapdoor "
+                         "doors (vault, elevator, hatch) get their own rig and Open/Close clips; without it the first "
+                         "keep the single-hinge template and list the parts that stay closed, the second stay passable")
     ap.add_argument("--resume", action="store_true", help="reuse content-verified per-model checkpoints")
     ap.add_argument("--pattern", default=r"^meshes[\\/]setdressing[\\/]")
     ap.add_argument("--limit", type=int, default=20)

@@ -463,5 +463,8 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
             "rig": "native",
             "animated_bones": sorted({bones[i]["name"] for i in range(len(bones)) if bones[i]["node"] in animated}),
             "moving_bodies": len(collision),
+            "open_motion": door_rig.open_motion(plan, unit_scale),
             "files": sorted(f"meshes/{out_name}/{relative}" for relative in extra)}
+    if plan.get("ignored_tracks"):                  # shader / visibility tracks FO4 also plays: not ported, said so
+        door["ignored_tracks"] = sorted({f'{t["target"]} ({t["reason"]})' for t in plan["ignored_tracks"]})
     return files, door

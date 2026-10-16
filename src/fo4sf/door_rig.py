@@ -89,7 +89,9 @@ def plan(source, samples_per_second=30, placed=False):
         attachments.append({'shape':shape,'bone':indices[parents[shape]],
                             'local_transform':{'translation_source_units':list(t),'rotation_row_major':list(r),'scale':s}})
     clips=[door_clips.sample_sequence(sequence,binds,samples_per_second) for sequence in report['sequences']]
-    return {'space':'source_local','bones':bones,'attachments':attachments,'clips':clips}
+    # shader / visibility / particle tracks animate no node and stay out of the rig; listed so a manifest can say so
+    return {'space':'source_local','bones':bones,'attachments':attachments,'clips':clips,
+            'ignored_tracks':[dict(t) for t in report['ignored_targets']]}
 
 
 def _qmul(a,b):
@@ -150,3 +152,31 @@ def animated_identity_binds(plan):
         clips.append({**clip,'tracks':tracks})
     attachments=[{**a,'bone':remap[a['bone']]} for a in plan['attachments']]
     return {**plan,'bones':bones,'attachments':attachments,'clips':clips}
+
+
+def open_motion(plan, unit_scale, clip_name='Open'):
+    """What each animated part does over a clip, for the manifest and offline checks: one row per track with its end
+    offset in metres and its rotation in degrees (axis as a unit vector), both in model space (the bone's parent bind
+    applied), from the first to the last sample. A vault door's upper panel reads travel_m [0, 0, 2.12]."""
+    bones=plan['bones']
+    world=[]
+    for bone in bones:
+        q=bone['bind']['quaternion_wxyz']
+        world.append(list(q) if bone['parent']==-1 else _qmul(world[bone['parent']],q))
+    index={bone['node']:i for i,bone in enumerate(bones) if bone.get('node') is not None}
+    rows=[]
+    for clip in plan['clips']:
+        if clip['name']!=clip_name:continue
+        for track in clip['tracks']:
+            i=index[track['node']];parent=bones[i]['parent']
+            frame=world[parent] if parent!=-1 else [1.0,0.0,0.0,0.0]
+            first,last=track['samples'][0],track['samples'][-1]
+            offset=[(b-a)*unit_scale for a,b in zip(first['translation_source_units'],last['translation_source_units'])]
+            q0=first['quaternion_wxyz'];q1=last['quaternion_wxyz']
+            relative=_qmul(q1,[q0[0],-q0[1],-q0[2],-q0[3]])          # parent-space rotation taking the first pose to the last
+            w=max(-1.0,min(1.0,abs(relative[0])));s=math.sqrt(max(0.0,1-w*w))
+            axis=[x/s*(1 if relative[0]>=0 else -1) for x in relative[1:]] if s>1e-6 else None
+            rows.append({'bone':bones[i]['name'],'travel_m':[round(x,4) for x in _qrotate(frame,offset)],
+                         'rotation_deg':round(math.degrees(2*math.acos(w)),2),
+                         'axis':[round(x,4) for x in _qrotate(frame,axis)] if axis else None})
+    return rows
