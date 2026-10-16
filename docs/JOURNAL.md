@@ -1288,6 +1288,41 @@ Anscombe QA passes three additional controls, including a genuine pre-fix cache
 and backslash namespace. #130 records pinned results; native acceptance is
 outside this correction.
 
+## 2026-10-15: Codex — independent container record evidence (#139)
+
+PR134's count-based check accepted wrong container XYZ/base/scale and missing
+inventory. A separate read-only auditor now binds mapped CONT/REFR records to
+actual bytes, inventory/model/name, transforms, active temporary placement and
+world/cell ancestry. It also compares optional declared baseline ID maps; it
+does not replace full static-reference/dependency checks or native acceptance.
+New reports pin every input and never overwrite an existing report/input path.
+
+Synthetic tests reject the prior corruptions and additional missing,
+aliased, duplicate, nonfinite and wrong-cell evidence. Production audit of
+original core64d0957a285 finds
+the requested container pair but correctly fails235,119 changed baseline ref
+IDs. Input pins and failure are retained, with runtime_accepted always false.
+Initial Jason QA found three defects: current Mutagen inline strings use
+Windows-1252, not UTF-8; a reference physically under a different WRLD could
+pass by using its CELL definition's world; an unknown subrecord could overrun
+its CONT body without rejection. Typed fixture bytes and all three failures
+are retained. Encoding, physical ancestry and strict subrecord bounds are
+corrected;11 author tests and1315 Windows suite tests pass(72 skips), with
+guard/diff checks. Codex's rerun of the same three independent controls
+passes3/3. The QA agent hit its usage limit; final peer re-review is
+still required before merging. No Claude producer/caller, stage, installation,
+controller or native observations changed.
+
+### 2026-10-15 Codex: shared container verification and promoted baseline identities
+
+Three regressions fail on7a3e7a2: valid two-REFR/one-CONT output is refused; a promoted source's REFR can shift
+unnoticed; an existing promoted CONT base can change unnoticed. The auditor now counts unique bases and exact
+declared placements, verifies every placement's metadata, combines ordinary/promoted baseline reference maps and
+retains old promoted base IDs.17 focused tests pass, including conflicting name/inventory, extra/missing uses and
+reference aliases. Four retained-output CLI controls pass: full-size150/153 and equal-metadata167 accepted offline;
+167's name/count conflicts rejected for the correct reason. No producer rebuild, stage mutation, game input or
+retroactive rescoring. Main879abbdb is merged without history rewriting; both journal histories are retained.
+Guard/current-head CI and independent source review gate readiness; no extra agent under the owner's usage request.
 ## 2026-10-15: Codex — validate persistent FormID reservations (#137)
 
 Synthetic binary repro on main4ba5c6a: a stored0x01000800 survived in the
@@ -1336,6 +1371,7 @@ Chain 12:59-14:39 on the pinned build 2470f876 (runner scripts 10e7019), started
   its two writer tests): #69 (Grok's oracle), #126, #119, #127, #131, #133. The owner's "script command not found"
   question answered: `readpos.ps1`'s nonce (first-run-failures row 13).
 
+Coordination correction (Codex, #32 comment6203530521): Claude later confirmed the chain ended and uninstalled normally. An orphan log watcher held overnight.log open; the missing log lines did not prove a cleanup failure. Both original observations and this correction are preserved.
 ## 2026-10-15 evening chain: the walk holds on core64d, the raider fights twice, the Red Rocket probes do not move (Claude)
 
 Second chain of the day (16:31-19:00, runner scripts 64d30ad, build 2470f876), on the owner's "keep working never stop".
@@ -1441,3 +1477,15 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
 - Merged tonight: #162, #163, #161, #165, #166 (and the queue of the day before). Open: #164 (sandbox suite running),
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
+
+## 2026-10-16: reject deleted container records and parents in output evidence (Codex)
+
+PR146's checker could approve a deleted CONT, REFR or owning CELL/WRLD when all other bytes still matched.
+Four header-only synthetic mutations reproduce false passes at50d2bb6. A compiled SDK probe confirms
+Mutagen0.55.0-alpha.67 StarfieldMajorRecordFlag.Deleted=32 and PlacedObject.IsDeleted=true for raw0x20.
+The checker now retains parent record state and rejects these four cases; unrelated deleted statics remain
+outside this check.20 targeted tests pass. Four retained-output CLI controls preserve their previous outcomes
+and exact input hashes, including the full-size150/153 candidate. No producer/build/install/input changed;
+no production deletion is alleged. Final peer QA/integration remain pending. Failures, SDK probe and passing
+observations are preserved privately under container-deleted-state-146-20261016.
+- 2026-10-16, Codex: extended PR146's independent raw-plugin audit with explicit MISC item mode, retaining default CONT behavior. Actual value/float32 weight, record shape and existing placement/state/ancestry checks are verified separately from the producer. Reproduced the old container mode ignoring an item-map REFR alias; shared map checks now include both promoted classes.28 synthetic methods and3 CLI controls against preserved actual-writer fixtures pass. Evidence: private item-audit-146-20261016. No game files/stages/install/input changed. Peer QA required; item pickup and native save behavior are unverified.
