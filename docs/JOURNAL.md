@@ -1448,3 +1448,17 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
 Offline tested with synthetic NIF BS130 only; no game runtime tested. Before: five failing assertions across seven regression tests, including opposite nested leaves and Close-only child motion. After: 112 door tests pass (`unittest discover -s tests -p test_door*.py` with src/tests import paths); the unchanged Claude PR202 3a9689a DoorTests regression also passes when called directly without expectedFailure handling.
 
 `door_motion.inspect` preserves explicit descendant interpolators as requiring additional motion support. The legacy coverage key feeds the existing frozen-parts/multipart caller without pipeline edits; a separate nested-shape list explains the result. Constant or unsupported child tracks conservatively require support because equivalence to the stored bind is not proven. No claim that every flagged track actually moves, or that multipart export/native behavior succeeds. Null child tracks and unanimated descendants retain prior routing. Failed and passing logs retained privately; independent peer QA and in-game acceptance remain pending.
+
+
+## 2026-10-16: Codex, constant identity scene-root tracks
+
+The PR234 source audit found Prewar_Locker_Door01 blocked by the placed-root guard. Its Open/Close root NiTransformInterpolators have no NiTransformData, exact -FLT_MAX translation/quaternion absence and scale1. No temporal curve exists: resolving these constants against the placed identity bind proves identity for all times. Allow this case (including explicit identity/null tracks); retain keyed, nonidentity, unsupported, nonfinite and malformed-channel refusal. No curve is approved by sampled endpoints.
+
+Nine new synthetic tests cover child motion/native preparation, explicit/absent defaults, both clip directions, retained stored-root behavior outside placed mode, and malformed/moving/unknown/keyed controls. Before: four positive-case errors; after:121 targeted door tests pass. Source SHA256575b0a8d2fedcd7d958c701b410003491df97fc586d4b2766555e1de7913fbbb re-read identical. Placed rig and native preparation now pass in memory; the child Door samples approximately94.44 degrees on Open and94.13 on Close while root stays identity. No DLL export, output assets, deployment or game input. This removes an offline blocker, not a native acceptance gate; peer QA remains required.
+
+
+## 2026-10-16: Codex, remove proven no-op root tracks before collision classification
+
+Follow-through on draft PR236 f3b8cfc reproduced an introduced interaction: keeping an identity scene-root track made convert_multipart_door classify static frame geometry as moving, adding a third body to the synthetic two-leaf fixture. The planner now validates duplicate bindings then omits proven identity root tracks; root bones, static attachments and child tracks remain. No collision/converter implementation changed.
+
+The actual converter now produces byte-identical synthetic files/reports with or without the inert root controller: two moving leaf bodies, no additional frame body. Duplicate-root refusal remains tested.123 door tests and guard pass. The pinned locker source also converts in memory with only Door animated and only Door receiving one body, using synthetic material/collision donors/clip writer. No generated assets saved, external native export, installation or game input. Existing static-frame collision policy is unchanged and is not validated as correct. Failed draft evidence retained; peer QA and native acceptance remain pending.

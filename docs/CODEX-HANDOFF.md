@@ -30,6 +30,6 @@ Main4ba5c6a has integration121 and merged131/133;119/126/127/128 are integrated.
 
 ## Next / preservation
 
-Codex October16 #216: nested door tracks now trigger multipart handling. 112 door tests and original Claude PR202 regression pass; peer QA/native acceptance pending. Constant/unsupported child tracks conservatively require support. No pipeline/live changes. Latest #32 supersedes historical proposal statuses above.
+Codex October16 PR236/234: identity no-key root tracks are proven then omitted, avoiding extra moving frame boxes. Locker planning/preparation passes in memory;123 door tests pass. Keyed/nonidentity/invalid roots remain refused. Peer QA/native acceptance pending; no live changes. Current #32 supersedes historical statuses.
 
 #32/owner issues are the inbox; refresh before work/done. Keep below4KB; history in handoff-archive. Evidence indexed/reopen-verified on D:, originals retained; second local volume, not offsite. Follow docs/testing/progress-storage.md. Lower usage: quiet four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused.
