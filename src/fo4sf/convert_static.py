@@ -441,7 +441,8 @@ def _apply(transform, point):
 
 
 def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, clip_files, unit_scale: float = UNIT_SCALE,
-                           collision_template: bytes = None, leaf_physics_donor: bytes = None) -> Tuple[Dict[str, bytes], dict]:
+                           collision_template: bytes = None, leaf_physics_donor: bytes = None,
+                           rest_pose_check: bool = False) -> Tuple[Dict[str, bytes], dict]:
     """FO4 door whose "Open" sequence moves geometry under more than one node (frozen_door_parts: double doors,
     shutters, sliding panel sets) -> Starfield door with its OWN rig and clips, as vanilla double doors have
     (IndIntRmSmWallMid_DoorA01: one rig bone and one clip track per leaf, one keyframed body per leaf).
@@ -454,7 +455,9 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
     with the external CALUMI library); they are stored next to the NIF under meshes/<out_name>/.
     material_paths: one per shape of nif.fo4_trishapes(src) with geometry, None = left out (effect shaders, markers).
     The NIF keeps FO4's origin, so the reference needs no offset. Returns (files, door) where door is the manifest entry
-    (origin_offset, anim_graph, bounds, skeleton, animations, rig, animated_bones, moving_bodies, files)."""
+    (origin_offset, anim_graph, bounds, skeleton, animations, rig, animated_bones, moving_bodies, files).
+    rest_pose_check: refuse a door whose Open does not start, or whose Close does not end, at the bind pose
+    (door_rig.rest_pose_issue; the sliding / lifting route, which takes every NOT_HINGED_RE door)."""
     from . import door_model, door_rig, native_door
     if collision_template is None or leaf_physics_donor is None:
         raise ValueError("multi-part door needs the box template and a keyframed donor body")
@@ -462,6 +465,8 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
     plan = door_rig.animated_identity_binds(door_rig.plan(src, placed=True))
     if sorted(c["name"] for c in plan["clips"]) != ["Close", "Open"]:
         raise nifmod.NifError("door needs exactly one Open and one Close sequence")   # the graph plays both
+    if rest_pose_check and (issue := door_rig.rest_pose_issue(plan)):
+        raise nifmod.NifError(issue)
     base = out_name.rsplit("/", 1)[-1]
     lowered = [b["name"].lower() for b in plan["bones"]] + [("FO4Port_" + base).lower()]
     if len(set(lowered)) != len(lowered):           # Bethesda node-name lookups have ignored case in earlier engines
@@ -533,5 +538,8 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
             "rig": "native",
             "animated_bones": sorted({bones[i]["name"] for i in range(len(bones)) if bones[i]["node"] in animated}),
             "moving_bodies": len(collision),
+            "open_motion": door_rig.open_motion(plan, unit_scale),
             "files": sorted(f"meshes/{out_name}/{relative}" for relative in extra)}
+    if plan.get("ignored_tracks"):                  # shader / visibility tracks FO4 also plays: not ported, said so
+        door["ignored_tracks"] = sorted({f'{t["target"]} ({t["reason"]})' for t in plan["ignored_tracks"]})
     return files, door

@@ -75,6 +75,40 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   posed); how Starfield shows the posed models (and whether the movable posed bodies stay put) **unresolved** until a
   build is looked at in game. Single-body XRGD: **unresolved**.
 
+## 2026-10-16 Claude: which vanilla doors slide or lift, and can one drive the FO4 vault / elevator doors? (owner rows 1, 6)
+- Question: the 10 FO4 door bases the pinned build leaves passable (`door_not_opening`: V111Door01, V111DoorSpecial01,
+  VltDoorRes01A/B/C, VltElevatorDoor02, VltElevatorDoorCarInt02, UtilMetalElevatorIn01/Out01/Hatch01; 106 placed refs in
+  the 16 cells): is there a vanilla Starfield door whose rig moves like each of them, as the Akila rig drives hinged
+  leaves?
+- Method (read-only; extracted files only under `C:\Modding\scratch\slide_doors`): `SfInspect doortsv` (every DOOR's
+  ANAM / BNAM / CNAM); each of the 123 distinct rig + clip folders read back with CALUMI (rig bones, per-track rotation
+  and translation keys of every `.af`); end offsets put in model space with the parent's global bind; FO4 side with
+  `door_motion.inspect` / `door_rig.plan` on `Fallout4 - Meshes.ba2`; vanilla collision layout from 9 door NIFs.
+- **verified**: 339 DOOR records, 310 with a graph; 215 use `SimpleOpenClose01.agx`, load variants `*_Load`. Of the 123
+  rigs, 51 move a bone sideways or diagonally by 0.25 m or more, 12 lift one (5 both), 59 only rotate, 4 move no bone
+  that far, 2 are state graphs (corrected 2026-10-16 after the PR #242 review: the first count, 47 / 12 / 59 / 2, left
+  diagonal moves out). Sliding and lifting doors (`ElvGen_ExSm_DoorInner01`, `StsGenIntRmSmWallMid_DoorD01`,
+  `HangarDoor_4x4`) use `SimpleOpenClose01.agx` like hinged ones; the motion is their own rig and clips. No vanilla rig
+  drops a panel straight down or splits two panels up and down; 5 rigs end a bone 0.25 m or more lower (docking-door
+  release helpers -0.26 m, the ExLg door latch -0.32 m, `LC017NASA_GravDrivePrototype_Door01`'s two panels 0.52 m down
+  and 0.52 m sideways). The first wording here ("no door panel moves down") was wrong.
+  Vanilla multi-panel doors keep one physics system with a body per panel (9 of 9 NIFs).
+- **verified** (FO4): vault doors lift the upper panel +2.116 m and drop the lower -0.976 m (V111 also flips 2 floor
+  slats 90 degrees); the elevator pairs slide +-0.64 / 0.68 / 0.80 / 0.914 m; the hatch flips 100.5 degrees about -y.
+  VltDoorRes01A/B/C failed `door_rig.plan` only because their Open / Close also drive a shader float
+  (`BSLightingShaderPropertyFloatController` on the override-box shapes), which `inspect` reported as a binding issue.
+- Result: no vanilla rig reproduces any of the 10 (elevator pairs travel 1.00 / 1.50 / 4.00 m: 9-56 % too far; no
+  downward panel for the vault doors). Implemented instead: own rig + FO4 keys (the #79 multi-part path) for
+  `NOT_HINGED_RE` doors when `--door-anim-dll` is given; non-transform tracks listed, not issues; manifest
+  `open_motion`. **verified offline**: without the library byte-identical to main (57 door models); with it the 10
+  doors rig (CALUMI read-back of our clips gives FO4's offsets), door_panels 72 of 72 parts move, door_bodies 0 errors,
+  plugin overlay: 10 STAT -> 10 DOOR, 106 REFR change only their base. In game: **unresolved** (our rig and clips have
+  never played; #79's doors neither).
+- Elevator: **verified** what vanilla uses (`ElevatorMasterScript` 2 refs with a `PlatformHelperFree01` helper driven
+  by graph variables; `MovingPlatformMasterScript` 22 refs moving a helper with `TranslateToRef` between floor markers,
+  parts attached by AttachRef; load elevators). That the in-cell ride can be built from records only is a **supported
+  hypothesis**; the surface exit waits for the interior-exterior door gate. Details: docs/spikes/sliding-doors.md.
+
 ## 2026-10-16 Claude: BSMeshLODTriShape triangle groups are parts, not alternative LODs (Vault 111 tables without tops)
 - Question: why do Vault 111's NpcTableVaultSit02 tables (`SetDressing\Vault\Vault_Table_02.nif`) show their frames
   but no tops in the playtest build (integ_1011)?
