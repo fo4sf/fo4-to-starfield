@@ -64,7 +64,7 @@ class TerrainOutputPublicationTests(unittest.TestCase):
         recovery = path / journal[-1]['recovery_directory']
         self.assertEqual((recovery / 'old/formids.json').read_bytes(), old['formids.json'])
         self.assertEqual((recovery / 'new/formids.json').read_bytes(), b'new:formids.json')
-        with self.assertRaisesRegex(ValueError, 'publication is pending'):
+        with self.assertRaisesRegex(stage_outputs.PendingPublication, 'publication is pending'):
             stage_outputs.require_ready_stage(path)
 
     def test_abrupt_exit_retains_durable_recovery_state(self):
@@ -75,7 +75,7 @@ class TerrainOutputPublicationTests(unittest.TestCase):
         for name, value in old.items():
             self.assertEqual((recovery / 'old' / name).read_bytes(), value)
         self.assertEqual((path / 'Synthetic.esm').read_bytes(), b'new:Synthetic.esm')
-        with self.assertRaisesRegex(ValueError, 'publication is pending'):
+        with self.assertRaisesRegex(stage_outputs.PendingPublication, 'publication is pending'):
             stage_outputs.require_ready_stage(path)
         again = subprocess.run([self.fixture_type.dotnet, str(self.fixture), '--publish-fixture', str(path), 'normal'],
                                capture_output=True, text=True)

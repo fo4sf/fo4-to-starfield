@@ -50,6 +50,9 @@ receipts are retained when `FO4SF_IDENTITY_EVIDENCE_DIR` names a new scratch dir
 imports. Deployment, experiment, core, cave and serialized-reference regressions are also run. .NET 9 SDK/runtime is
 required for the actual writer tests; native Windows sharing denial skips explicitly on other platforms.
 The #191 correction passes five stage-guard tests and 88 synthetic runner tests; C# publication code is unchanged.
+CI then caught two compiled recovery tests still expecting the former `ValueError`. Both now require the exact
+`PendingPublication` type. All seven actual-writer publication tests and five stage-guard tests pass on Windows,
+including the native sharing-denial test. The production guard and C# code did not change in this follow-up.
 Cloud peer review found the publication/rollback protocol sound by reading; fresh review of this correction and
 PC integration remain separate gates. Interrupted full-size rollback remains unmeasured.
 

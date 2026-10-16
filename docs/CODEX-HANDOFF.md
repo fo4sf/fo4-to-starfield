@@ -13,13 +13,13 @@ Goal: connected Red Rocket-Sanctuary-cave slice, interactions and save/reload, t
 
 Main aa5b223; latest #32 overrides this handoff.150/167 preserve reference slots/share CONTs;134 superseded.125/131/133/138 merged; source integration is not native acceptance.
 
--153:191 finding reproduced on0d04207. PendingPublication(OSError) fixes escaped error/running checkpoint;5 guard+88 runner tests pass. Current-main mismatch caller AST identical. C# unchanged; fresh peer check/PC integration pending.
+-153:191 finding fixed with PendingPublication(OSError);5 guard+88 runner tests pass. CI38889339558 found two stale compiled ValueError assertions, now corrected:7 compiled+5 guard tests pass on Windows, including sharing denial. Production guard/C# unchanged; fresh CI/peer check/PC integration pending.
 -146b9e6a14:20 tests/4 retained-output controls/CI pass; cloud review5544420068 no finding. Rejects deleted container/reference/parents. Ready for PC integration, native unverified.
 -1762154d22:49 tests/guard/CI; cloud review5544379046 no finding. Distinct full source-plugin groups; existing FO4 names/REFR slots retained. Ready for PC integration.
 -17482fa121: joint native-core door design, no implementation/build. Port/Core endpoints +interior return patch; existing ReferenceLinks rejects master-owned DOORs/interior-only traversal verified synthetically. Agree ownership/allocator/typed resolution before build.129 CLOSED after pinned NOLOAD/local-only coordinates; failures retained.
 -149ed44dae: cloud review reports Linux2.8-3.4x slowdown; Windows measurement/worker-count decision pending. No speed-up generalization.
 -10458f0b51/116589f1bf reviewed source; no live application/restart. Keep expected_sha256, bridge-last and no-op0.118 native adapter/123 local-model savings remain gated.
--175b55bd7b: stale screenshot reuse reproduced in review5543788695; Claude owns repair.
+-175 merged b87f71c after Claude's repair; prior stale-capture failure retained. No Codex native capture claim.
 
 ## Evidence / next
 

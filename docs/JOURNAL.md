@@ -1242,3 +1242,11 @@ PendingPublication now subclasses OSError, matching the existing caller contract
 log the cause, preserve controls and perform no launch/input or inventory hash. Five guard and88 runner tests
 pass. Current main aa5b223's mismatch handler has the identical syntax tree. No runner/C# publication/staging
 or game change; corrected-source peer review and lead integration pending. Evidence publication-error-191-20261016.
+
+## 2026-10-16: compiled publication assertions follow the corrected error contract (Codex)
+
+CI38889339558 caught two remaining ValueError expectations in the actual-writer recovery tests. Both errors
+reproduce locally on de205a3; assertions now require PendingPublication. Seven compiled publication and five
+stage-guard tests pass on Windows, including locked-plugin denial, forced exit and concurrent-owner retention.
+Production guard/C# unchanged; hosted CI and corrected-source peer check remain separate gates. Failed and passing
+synthetic evidence retained in publication-ci-153-20261016. No game/install/input or cleanup.
