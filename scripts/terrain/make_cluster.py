@@ -12,10 +12,23 @@ table, so the same promotion path runs over all 1,708 cells.
   lights     --work <work> --fo4 <Fallout4.esm> --out <cluster.json> [--limit N] [--lumens-per-m2 K]
              every exported Light reference (core64c never placed one: no slot) with its FO4 LIGH base read from
              Fallout4.esm and mapped to Starfield light fields (src/fo4sf/fo4light.py, docs/terrain/exterior-lights.md)
+  workshops  --work <work> --build <core64c staging> --fo4 <Fallout4.esm> --out <cluster.json> [--limit N]
+             every placed FO4 settlement workshop: a Container reference whose base carries the workshopscript VMAD
+             script in Fallout4.esm (CONT WorkshopWorkbench 0C1AEB and WorkshopWorkbenchNonSettlement 246F86 in the
+             core; docs/terrain/stations.md). One ACTI per FO4 base in the game, FULL WORKSHOP_NAME, build radius
+             WORKSHOP_RADIUS_M. The container table must skip these bases (a source in two classes is refused).
+  benches    --work <work> --build <core64c staging> --fo4 <Fallout4.esm> --table <json> --out <cluster.json> [--limit N]
+             every placed FO4 crafting station: a Furniture reference whose base has a WBDT bench type in Fallout4.esm,
+             with a kind from the table (scripts/terrain/clusters/bench_table.json: weapon / armor / chem / cooking ->
+             the vanilla Starfield bench of BENCH_KINDS). Power armor stations (no Starfield bench type 8), kinds the
+             table leaves null and bench types without a table entry are listed under "bench_skipped" with the reason.
+  merge      --out <cluster.json> <cluster.json> ...
+             one cluster file from several (a class key in two inputs is refused): stage --cluster takes one file
 
 The table (scripts/terrain/clusters/container_table.json): {"default": {"name": ..., "items": [...]}, "by_editor_id": {<FO4 base
 editor id or prefix*>: {"name", "items"}}}. Items are vanilla Starfield forms (<plugin>:<6 hex>, count >= 1), as
 make_core64c.cluster_containers requires; FO4's leveled lists do not resolve, so the table is a content decision of the owner.
+An entry {"skip": "<why>"} leaves the base out of the containers list (the settlement workshops: another class).
 Only references the build placed (objects.json refs by source key) are listed: a reference core64c skipped has no slot.
 A build that already promoted some classes still lists them: placed_sources rebuilds the unpromoted placement order from
 every promoted entry's reference_index.
@@ -45,9 +58,23 @@ from collections import Counter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "src"))
-from fo4sf import fo4light  # noqa: E402
+from fo4sf import fo4light, fo4station  # noqa: E402
 
 CONTAINER_TYPES = ("Container",)                      # Mutagen type names in the export's "type"
+WORKSHOP_TYPES = ("Container",)                       # FO4's settlement workshop is a CONT with the workshopscript VMAD
+WORKSHOP_SCRIPT = "workshopscript"                    # (Fallout4.esm CONT 0C1AEB WorkshopWorkbench, 246F86 NonSettlement)
+WORKSHOP_NAME = "Workshop"                            # the ACTI's FULL in Starfield (docs/terrain/stations.md)
+WORKSHOP_RADIUS_M = 250.0                             # PRPS OutpostBuildAreaRadius: vanilla OutpostPlayerHouseActivator's 250
+WORKSHOP_KEYWORD = 0x054BA7                           # KYWD WorkshopKeyword, the same id in Fallout4.esm and Starfield.esm
+BENCH_TYPES = ("Furniture",)                          # a crafting station is a FURN with a WBDT bench type
+# kind -> the vanilla Starfield bench of that kind (docs/terrain/stations.md: the same WBDT bench type and, armor / chem /
+# cooking, the same recipe keyword id as FO4's bench; weapons recipes name Starfield-only WorkbenchWeaponKeyword 2CE1C0)
+BENCH_KINDS = {"weapon": {"vanilla": "2B6A63:Starfield.esm", "wbdt": 2, "name": "Weapon Workbench"},
+               "armor": {"vanilla": "2B6A62:Starfield.esm", "wbdt": 7, "name": "Spacesuit Workbench"},
+               "chem": {"vanilla": "2B6A61:Starfield.esm", "wbdt": 5, "name": "Pharmaceutical Lab"},
+               "cooking": {"vanilla": "2B6A65:Starfield.esm", "wbdt": 5, "name": "Cooking Station"}}
+WBDT_NAMES = {0: "none", 1: "create object", 2: "weapons", 3: "enchanting", 4: "enchanting experiment", 5: "alchemy",
+              6: "alchemy experiment", 7: "armor", 8: "power armor", 9: "robot mod", 11: "research"}
 ITEM_TYPES = ("MiscItem", "Ingestible")               # loose items: MISC in Starfield (ALCH as MISC in the first pass)
 ACTIVATOR_TYPES = ("Activator",)                      # ACTI in Starfield
 TERMINAL_TYPES = ("Terminal",)                        # TERM (+ one TMLM menu) in Starfield
@@ -89,12 +116,13 @@ def band_refs(work):
             yield r
 
 
-PROMOTED_KEYS = ("containers", "items", "activators", "terminals")   # objects.json classes make_core64c promotes
+PROMOTED_KEYS = ("containers", "items", "activators", "terminals", "workshops", "benches")   # objects.json classes make_core64c promotes
 
 
 def placed_sources(build):
     """The source keys core64c placed, in placement order: objects.json refs, with every promoted entry (containers,
-    items, activators, terminals) back in its reference_index slot (the order stage placed them in before --cluster)."""
+    items, activators, terminals, workshops, benches) back in its reference_index slot (the order stage placed them
+    in before --cluster)."""
     o = load(os.path.join(build, "objects.json"))
     order = [r["src"] for r in o["refs"]]
     for i, src in sorted((e["reference_index"], e["src"]) for k in PROMOTED_KEYS for e in (o.get(k) or [])):
@@ -189,6 +217,19 @@ def excluded_report(left_out, top=6):
     return out
 
 
+def left_out_reason(r, order, skipped):
+    """Why a placed-class entry leaves an exported reference out, or None: not placed (the build's skipped.json reason
+    when known), initially disabled, placed without a model / with a marker model."""
+    src, model = r.get("formkey"), str(r.get("model") or "")
+    if src not in order:
+        return skipped.get(src) or ("no_model" if not model else "not placed")
+    if r.get("disabled") not in (0, "0", False, None):
+        return "initially disabled"
+    if not model or MARKER_RE.search(model):
+        return "placed without a model / with a marker model"
+    return None
+
+
 def promoted_class(refs, placed, types, what, table=None, names=None, skipped=None, limit=0, missing_name=None,
                    extra=None):
     """(entries, report, left_out) for every placed reference whose FO4 base type is in `types`, in placement order:
@@ -202,15 +243,7 @@ def promoted_class(refs, placed, types, what, table=None, names=None, skipped=No
         if str(r.get("type")) not in types:
             continue
         src, edid = r.get("formkey"), str(r.get("base_editor_id") or "")
-        model = str(r.get("model") or "")
-        if src not in order:
-            why = skipped.get(src) or ("no_model" if not model else "not placed")
-        elif r.get("disabled") not in (0, "0", False, None):
-            why = "initially disabled"
-        elif not model or MARKER_RE.search(model):
-            why = "placed without a model / with a marker model"
-        else:
-            why = None
+        why = left_out_reason(r, order, skipped)
         if why:
             rep[f"left out: {why}"] += 1
             left_out.append((why, edid))
@@ -274,6 +307,9 @@ def containers(refs, placed, table, limit=0, only_known=False):
         rep[f"table {how}"] += 1
         if entry is None or (only_known and how == "default"):
             rep["skipped (no table entry)" if entry is None else "skipped (default only)"] += 1
+            continue
+        if entry.get("skip"):                                 # another class owns the base (the settlement workshops)
+            rep[f"skipped by the table ({entry['skip']})"] += 1
             continue
         entries.append({"src": src, "name": entry.get("name") or humanize(edid), "items": entry["items"],
                         "base": r.get("base_formkey"), "editor_id": edid, "slot": order[src]})
@@ -416,6 +452,141 @@ def lights(refs, bases, ref_fields, limit=0, lumens_per_m2=fo4light.LUMENS_PER_M
             "light_bases": out_bases, "lights": entries}, dict(rep)
 
 
+def station_bases(fo4_esm, refs):
+    """{FO4 base local id: fo4station.parse_base} for every Container / Furniture reference's base, read raw from
+    Fallout4.esm (the exports carry no script, keyword or bench type). Bases of other plugins are not read."""
+    ids = {fo4_local_id(r.get("base_formkey")) for r in refs if str(r.get("type")) in WORKSHOP_TYPES + BENCH_TYPES}
+    return fo4station.read_bases(fo4_esm, ids - {None}, ("CONT", "FURN"))
+
+
+def workshops(refs, placed, bases, skipped=None, limit=0):
+    """({"workshops": [...], "excluded": ...}, report): every placed FO4 Container reference whose base carries the
+    workshopscript VMAD script (bases: station_bases), in placement order: src, name (WORKSHOP_NAME), base, editor_id,
+    radius (WORKSHOP_RADIUS_M, metres), slot. Other containers are counted; the exported workshops left out are listed
+    by reason (excluded_report). The writer makes one ACTI per FO4 base with the converted workbench model."""
+    order = {src: i for i, src in enumerate(placed)}
+    skipped = skipped or {}
+    entries, rep, left_out = [], Counter(), []
+    for r in refs:
+        if str(r.get("type")) not in WORKSHOP_TYPES:
+            continue
+        b = bases.get(fo4_local_id(r.get("base_formkey")))
+        if b is None:
+            rep["container base not in Fallout4.esm"] += 1
+            continue
+        if "scripts_error" in b:
+            rep[f"container base with an unreadable VMAD ({b['scripts_error']})"] += 1
+            continue
+        if not fo4station.has_script(b, WORKSHOP_SCRIPT):
+            rep["containers without the workshop script"] += 1
+            continue
+        src, edid = r.get("formkey"), str(r.get("base_editor_id") or "")
+        rep["with WorkshopKeyword in the FO4 KWDA"] += WORKSHOP_KEYWORD in (b.get("keywords") or [])
+        why = left_out_reason(r, order, skipped)
+        if why:
+            rep[f"left out: {why}"] += 1
+            left_out.append((why, edid))
+            continue
+        entries.append({"src": src, "name": WORKSHOP_NAME, "base": r.get("base_formkey"), "editor_id": edid,
+                        "radius": WORKSHOP_RADIUS_M, "slot": order[src]})
+    entries.sort(key=lambda e: e["slot"])
+    if limit:
+        rep["cut by --limit"] = max(0, len(entries) - limit)
+        entries = entries[:limit]
+    rep["workshops"] = len(entries)
+    rep["distinct bases"] = len({e["base"] for e in entries})
+    return {"note": "make_cluster.py workshops: every placed FO4 settlement workshop (Container with the workshopscript "
+                    "VMAD in Fallout4.esm); read by make_core64c.py stage --cluster (one ACTI per FO4 base, WorkshopKeyword + "
+                    "the OutpostCategory keywords of OutpostPlayerHouseActivator, PRPS OutpostBuildAreaRadius)",
+            "workshops": entries, "excluded": excluded_report(left_out)}, rep
+
+
+def bench_reason(edid, wbdt, table):
+    """(kind, reason) for a FO4 crafting station: the table's kind for the editor id when it names one of BENCH_KINDS
+    with the base's WBDT bench type, else None and why (no table entry, a kind the table leaves null with its reason,
+    an unknown kind, a kind whose bench type is not the base's)."""
+    entry, _how = table_entry(table, edid)
+    what = f"FO4 bench type {wbdt} ({WBDT_NAMES.get(wbdt, '?')})"
+    if entry is None:
+        return None, f"unknown kind: no table entry for {edid} ({what})"
+    kind = entry.get("kind")
+    if kind is None:
+        return None, f"{entry.get('reason') or 'left out by the table'} ({what})"
+    if kind not in BENCH_KINDS:
+        return None, f"unknown kind {kind!r} in the table ({what})"
+    if BENCH_KINDS[kind]["wbdt"] != wbdt:
+        return None, (f"table kind {kind} (bench type {BENCH_KINDS[kind]['wbdt']}) disagrees with the base's {what}")
+    return kind, None
+
+
+def benches(refs, placed, bases, table, skipped=None, limit=0):
+    """({"kinds": ..., "benches": [...], "bench_skipped": [...], "excluded": ...}, report): every placed FO4 Furniture
+    reference whose base has a WBDT bench type (bases: station_bases) and a kind from the table (bench_reason), in
+    placement order: src, kind, vanilla (the Starfield bench of that kind), base, editor_id, wbdt, slot. Furniture
+    without a bench type is counted; a crafting station without a kind is listed in bench_skipped with its reason
+    (power armor, unknown kinds); placed ones left out are in excluded. The writer binds the REFR to the vanilla FURN."""
+    order = {src: i for i, src in enumerate(placed)}
+    skipped = skipped or {}
+    entries, rep, left_out, bench_skipped = [], Counter(), [], []
+    for r in refs:
+        if str(r.get("type")) not in BENCH_TYPES:
+            continue
+        b = bases.get(fo4_local_id(r.get("base_formkey")))
+        if b is None:
+            rep["furniture base not in Fallout4.esm"] += 1
+            continue
+        wbdt = b.get("wbdt") or 0
+        if wbdt == 0:
+            rep["furniture that is no crafting station (WBDT 0)"] += 1
+            continue
+        src, edid = r.get("formkey"), str(r.get("base_editor_id") or "")
+        kind, reason = bench_reason(edid, wbdt, table)
+        if reason:
+            rep[f"skipped: {reason.split(' (')[0]}"] += 1
+            bench_skipped.append({"src": src, "base": r.get("base_formkey"), "editor_id": edid, "wbdt": wbdt, "reason": reason})
+            continue
+        why = left_out_reason(r, order, skipped)
+        if why:
+            rep[f"left out: {why}"] += 1
+            left_out.append((why, edid))
+            continue
+        entries.append({"src": src, "kind": kind, "vanilla": BENCH_KINDS[kind]["vanilla"], "base": r.get("base_formkey"),
+                        "editor_id": edid, "wbdt": wbdt, "slot": order[src]})
+        rep[kind] += 1
+    entries.sort(key=lambda e: e["slot"])
+    if limit:
+        rep["cut by --limit"] = max(0, len(entries) - limit)
+        entries = entries[:limit]
+    rep["benches"] = len(entries)
+    rep["distinct bases"] = len({e["base"] for e in entries})
+    rep["bench_skipped"] = len(bench_skipped)
+    return {"note": "make_cluster.py benches: every placed FO4 crafting station (Furniture with a WBDT bench type in "
+                    "Fallout4.esm) with a kind from the bench table; read by make_core64c.py stage --cluster (the REFR keeps "
+                    "its slot on the vanilla Starfield bench of its kind, no record of our own)",
+            "kinds": {k: v["vanilla"] for k, v in BENCH_KINDS.items()}, "benches": entries, "bench_skipped": bench_skipped,
+            "excluded": excluded_report(left_out)}, rep
+
+
+MERGE_KEYS = ("containers", "items", "activators", "terminals", "lights", "light_bases", "lumens_per_m2", "workshops",
+              "benches")                              # what stage --cluster reads; reports (excluded, ...) are dropped
+
+
+def merge(clusters):
+    """One cluster for stage --cluster from several make_cluster outputs ({path or label: loaded json}): the MERGE_KEYS
+    of each, a note naming the inputs. ValueError for a key present in two inputs (the lists are not concatenated:
+    one generator run per class)."""
+    out, owner = {"note": "make_cluster.py merge: " + " + ".join(str(k) for k in clusters)}, {}
+    for label, c in clusters.items():
+        for k in MERGE_KEYS:
+            if k not in c:
+                continue
+            if k in owner:
+                raise ValueError(f"{k!r} is in both {owner[k]} and {label}")
+            owner[k] = label
+            out[k] = c[k]
+    return out
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -452,7 +623,28 @@ def main(argv=None):
     p.add_argument("--limit", type=int, default=0, help="keep the first N (FO4 source key order)")
     p.add_argument("--lumens-per-m2", type=float, default=fo4light.LUMENS_PER_M2,
                    help="luminous power per square metre of radius at FO4 fade 1 (default: the vanilla exterior median)")
+    for cmd in ("workshops", "benches"):
+        p = sub.add_parser(cmd)
+        p.add_argument("--work", required=True)
+        p.add_argument("--build", required=True)
+        p.add_argument("--fo4", required=True, help="Fallout4.esm: the bases' VMAD scripts and WBDT bench types")
+        p.add_argument("--out", required=True)
+        p.add_argument("--limit", type=int, default=0)
+        if cmd == "benches":
+            p.add_argument("--table", required=True, help="scripts/terrain/clusters/bench_table.json: editor id -> kind")
+    p = sub.add_parser("merge")
+    p.add_argument("--out", required=True)
+    p.add_argument("inputs", nargs="+", help="cluster files to merge (one class per input)")
     a = ap.parse_args(argv)
+    if a.cmd == "merge":
+        try:
+            cl = merge({os.path.basename(p): load(p) for p in a.inputs})
+        except ValueError as e:
+            sys.exit(f"merge: {e}")
+        with open(a.out, "w", encoding="utf-8") as f:
+            json.dump(cl, f, indent=1)
+        print(f"wrote {a.out}: " + ", ".join(f"{k} {len(v):,}" for k, v in cl.items() if isinstance(v, (list, dict))))
+        return 0
     if a.cmd == "lights":
         refs = light_refs(band_refs(a.work))
         bases, ref_fields = read_light_sources(a.fo4, refs, a.world)
@@ -468,6 +660,23 @@ def main(argv=None):
         print(f"placed {sum(placed_c.values()):,} of {sum(all_c.values()):,} exported references")
         for t, n in all_c.most_common():
             print(f"  {t:<18} exported {n:>8,}  placed {placed_c.get(t, 0):>8,}")
+        return 0
+    if a.cmd in ("workshops", "benches"):
+        refs = [r for r in band_refs(a.work) if str(r.get("type")) in WORKSHOP_TYPES + BENCH_TYPES]
+        bases = station_bases(a.fo4, refs)
+        if a.cmd == "workshops":
+            cl, rep = workshops(refs, placed, bases, skipped_reasons(a.build), a.limit)
+        else:
+            cl, rep = benches(refs, placed, bases, load(a.table), skipped_reasons(a.build), a.limit)
+        with open(a.out, "w", encoding="utf-8") as f:
+            json.dump(cl, f, indent=1)
+        print(json.dumps(rep, indent=1))
+        for reason, v in cl["excluded"].items():
+            print(f"left out, {reason}: {v['refs']:,}")
+            for label, pat in v["patterns"].items():
+                print(f"  {label:<34} {pat['refs']:>6,}  " + ", ".join(f"{e} {n}" for e, n in pat["editor_ids"].items()))
+        print(f"wrote {a.out}: {rep[a.cmd]:,} {a.cmd} over {rep['distinct bases']:,} FO4 bases"
+              + (f", {rep['bench_skipped']:,} crafting stations skipped (bench_skipped)" if a.cmd == "benches" else ""))
         return 0
     if a.cmd in ("activators", "terminals"):
         fn = activators if a.cmd == "activators" else terminals

@@ -1119,7 +1119,22 @@ def terminal_menu_edid(term_edid):
     return f"{EDID_PREFIX}tmlm_{term_edid[len(head):]}"
 
 
+def workshop_edid(base, src):
+    """The shared ACTI's editor id of a settlement workshop: FO4Core_wkshp_<6 hex>_<plugin> (promoted_edid)."""
+    return promoted_edid("wkshp", base, src)
+
+
 TERMINAL_BODY = "FO4 terminal (text not ported yet)"   # as make_cluster.TERMINAL_BODY: one body line per terminal menu
+# Stations (docs/terrain/stations.md), as make_cluster.py: the workshop ACTI's FULL and build radius (PRPS
+# OutpostBuildAreaRadius, metres: the vanilla OutpostPlayerHouseActivator's 250), the Starfield records the check binds to
+WORKSHOP_NAME = "Workshop"
+WORKSHOP_RADIUS_M = 250.0
+WORKSHOP_KEYWORD = 0x054BA7         # KYWD WorkshopKeyword (Starfield.esm; the same id in Fallout4.esm)
+WORKSHOP_RADIUS_AV = 0x063FC5       # AVIF OutpostBuildAreaRadius
+WORKSHOP_TEMPLATE = 0x024DC7        # ACTI OutpostPlayerHouseActivator: the OutpostCategory* keywords the writer copies
+# bench kind -> (the vanilla Starfield bench, its WBDT bench type, the recipe keyword its COBJs name), as make_cluster.BENCH_KINDS
+BENCH_VANILLA = {"weapon": ("2B6A63:Starfield.esm", 2, 0x2CE1C0), "armor": ("2B6A62:Starfield.esm", 7, 0x0657FF),
+                 "chem": ("2B6A61:Starfield.esm", 5, 0x102158), "cooking": ("2B6A65:Starfield.esm", 5, 0x102152)}
 
 
 def cluster_containers(bases, placed, cluster):
@@ -1288,11 +1303,57 @@ def cluster_terminals(bases, placed, cluster):
     return keep, out
 
 
-# objects.json / formids.json key, native base record, in the writer's allocation order (CONT, MISC, ACTI, TERM + TMLM)
-PROMOTED = (("containers", "CONT"), ("items", "MISC"), ("activators", "ACTI"), ("terminals", "TERM"))
+def cluster_workshops(bases, placed, cluster):
+    """Settlement workshops (docs/terrain/stations.md): the placed references named by cluster["workshops"]
+    (make_cluster.py workshops: FO4 Container with the workshopscript VMAD) leave the STAT placement and become workshop
+    entries for TerrainOverlays: one native ACTI per FO4 base (edid FO4Core_wkshp_<6 hex>_<plugin>, workshop_edid) with
+    the converted workbench model, the entry's name (default WORKSHOP_NAME) and build radius in metres (default
+    WORKSHOP_RADIUS_M; PRPS OutpostBuildAreaRadius), in the reference's cell / position / rotation / scale and original
+    reference index; the writer adds WorkshopKeyword and the OutpostCategory keywords of the vanilla
+    OutpostPlayerHouseActivator, read from Starfield.esm. Returns (placed without them, workshops); ValueError as
+    promoted_entries, for a name that is not one line, a radius that is not a finite number > 0, and for two entries of
+    one edid with another name, model or radius."""
+    def make(p, e):
+        name, radius = e.get("name", WORKSHOP_NAME), e.get("radius", WORKSHOP_RADIUS_M)
+        if not one_line(name):
+            raise ValueError(f"{p['src']}: workshop name {name!r} is not one non-empty line")
+        if type(radius) not in (int, float) or not math.isfinite(radius) or radius <= 0 or radius > 3.4028234663852886e38:
+            raise ValueError(f"{p['src']}: workshop radius {radius!r} is not a float32 number > 0")
+        return {"edid": workshop_edid(e.get("base"), p["src"]), "model": bases[p["base"]]["model"], "name": name,
+                "radius": float(radius)}
+    keep, out = promoted_entries(placed, cluster, "workshops", "a workshop", make)
+    shared_base_agrees(out, "workshop", ("name", "model", "radius"))
+    return keep, out
+
+
+def cluster_benches(bases, placed, cluster):
+    """Crafting stations (docs/terrain/stations.md): the placed references named by cluster["benches"]
+    (make_cluster.py benches: FO4 Furniture with a WBDT bench type and a kind from the bench table) leave the STAT
+    placement and become bench entries for TerrainOverlays: the REFR keeps its slot and its base becomes the VANILLA
+    Starfield bench of the entry's kind (BENCH_VANILLA: weapon / armor / chem / cooking), position / rotation / scale
+    from the source; no record of our own ("fo4_model" records the converted model the STAT placement used). Returns
+    (placed without them, benches); ValueError as promoted_entries, for a kind outside BENCH_VANILLA and for a "vanilla"
+    that is not the kind's bench."""
+    def make(p, e):
+        kind = e.get("kind")
+        if kind not in BENCH_VANILLA:
+            raise ValueError(f"{p['src']}: bench kind {kind!r} is not one of {', '.join(BENCH_VANILLA)}")
+        vanilla = e.get("vanilla", BENCH_VANILLA[kind][0])
+        if source_key(vanilla) != source_key(BENCH_VANILLA[kind][0]):
+            raise ValueError(f"{p['src']}: vanilla {vanilla!r} is not the {kind} bench {BENCH_VANILLA[kind][0]}")
+        return {"kind": kind, "vanilla": BENCH_VANILLA[kind][0], "fo4_model": bases[p["base"]]["model"]}
+    return promoted_entries(placed, cluster, "benches", "a bench", make)
+
+
+# objects.json / formids.json key, native base record, in the writer's allocation order (CONT, MISC, ACTI, TERM + TMLM,
+# then the workshops' ACTI); VANILLA_PROMOTED: classes whose REFR binds to a record of the master (no base of our own)
+PROMOTED = (("containers", "CONT"), ("items", "MISC"), ("activators", "ACTI"), ("terminals", "TERM"), ("workshops", "ACTI"))
+VANILLA_PROMOTED = (("benches", "FURN"),)
+ALL_PROMOTED = PROMOTED + VANILLA_PROMOTED
 PROMOTE_FN = {"containers": cluster_containers, "items": cluster_items, "activators": cluster_activators,
-              "terminals": cluster_terminals}
-SINGULAR = {"containers": "container", "items": "item", "activators": "activator", "terminals": "terminal"}
+              "terminals": cluster_terminals, "workshops": cluster_workshops, "benches": cluster_benches}
+SINGULAR = {"containers": "container", "items": "item", "activators": "activator", "terminals": "terminal",
+            "workshops": "workshop", "benches": "bench"}
 
 
 def source_key(value):
@@ -1300,26 +1361,39 @@ def source_key(value):
     return str(value).translate(str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"))
 
 
+def master_fid(formkey, masters=("Starfield.esm",)):
+    """The file-local form id of a master's record ("2B6A63:Starfield.esm" -> 0x002B6A63 with Starfield.esm as master
+    0), as a REFR of this plugin names it. ValueError for a plugin that is not a master."""
+    local, _, plugin = str(formkey).partition(":")
+    names = [m.casefold() for m in masters]
+    if plugin.casefold() not in names:
+        raise ValueError(f"{formkey}: {plugin} is not a master of this plugin ({', '.join(masters)})")
+    return (names.index(plugin.casefold()) << 24) | int(local, 16)
+
+
 def cluster_promote(bases, placed, cluster):
-    """--cluster: every promoted class (PROMOTED: containers, items, activators, terminals) from one cluster file, each
-    judged on the same unpromoted placement list, so every promoted entry's reference_index is its slot in that list
-    whichever class it joins. Returns (placed without every promoted reference, {class: entries} for every class).
-    ValueError as the class functions, for a source listed in two classes, and for one edid of a class standing for
-    two FO4 sources (promoted_edid drops the plugin's punctuation and extension: Codex's review of #235; such an alias
-    would merge two FO4 bases into one record, so it is refused instead)."""
+    """--cluster: every promoted class (ALL_PROMOTED: containers, items, activators, terminals, workshops, benches)
+    from one cluster file, each judged on the same unpromoted placement list, so every promoted entry's
+    reference_index is its slot in that list whichever class it joins. Returns (placed without every promoted
+    reference, {class: entries} for every class). ValueError as the class functions, for a source listed in two
+    classes, and for one edid of a class standing for two FO4 sources (promoted_edid drops the plugin's punctuation
+    and extension: Codex's review of #235; such an alias would merge two FO4 bases into one record, so it is refused
+    instead)."""
     listed = {}
-    for k, _sig in PROMOTED:
+    for k, _sig in ALL_PROMOTED:
         for e in cluster.get(k) or []:
             other = listed.setdefault(e["src"], k)
             if other != k:
                 a, b = (("an " if w[0] in "aeiou" else "a ") + w for w in (SINGULAR[other], SINGULAR[k]))
                 raise ValueError(f"{e['src']} is listed as both {a} and {b}")
     promoted = {}
-    for k, _sig in PROMOTED:
+    for k, _sig in ALL_PROMOTED:
         _, promoted[k] = PROMOTE_FN[k](bases, placed, cluster)
         base_of = {e["src"]: e.get("base") for e in cluster.get(k) or []}
         source_of = {}
         for e in promoted[k]:
+            if "edid" not in e:                               # a vanilla-base class names no record of its own
+                continue
             b = base_of.get(e["src"])
             identity = ("base", source_key(b)) if b else ("reference", source_key(e["src"]))
             first = source_of.setdefault(e["edid"].casefold(), identity)
@@ -1330,12 +1404,13 @@ def cluster_promote(bases, placed, cluster):
 
 
 def check_reference_slots(objects, ids):
-    """Check declared promotion slots, not native behavior or cross-export persistence. Every promoted class (PROMOTED)
-    is one ordered list of promoted sources: with the remaining refs they rebuild the unpromoted order, every promoted
-    source keeps its original slot and every other reference its id; the new bases (CONT, MISC, ACTI, TERM) and the
-    terminals' TMLM menus follow every reserved slot, one base per edid within a class (for entries that name one), no
-    base shared by two classes, and one menu per terminal edid that is no base."""
-    promoted = [(k, e) for k, _sig in PROMOTED for e in (objects.get(k) or [])]
+    """Check declared promotion slots, not native behavior or cross-export persistence. Every promoted class
+    (ALL_PROMOTED) is one ordered list of promoted sources: with the remaining refs they rebuild the unpromoted order,
+    every promoted source keeps its original slot and every other reference its id; the new bases (CONT, MISC, ACTI,
+    TERM, the workshops' ACTI) and the terminals' TMLM menus follow every reserved slot, one base per edid within a
+    class (for entries that name one), no base shared by two classes, and one menu per terminal edid that is no base;
+    a bench declares its kind's vanilla base (BENCH_VANILLA), no base of this plugin."""
+    promoted = [(k, e) for k, _sig in ALL_PROMOTED for e in (objects.get(k) or [])]
     if not promoted:
         return
     total = len(objects["refs"]) + len(promoted)
@@ -1351,7 +1426,7 @@ def check_reference_slots(objects, ids):
         declared = {}
         if set(ids["refs"]) != {r["src"] for r in objects["refs"]}:
             raise ValueError("declared source reference set differs from objects")
-        for k, _sig in PROMOTED:
+        for k, _sig in ALL_PROMOTED:
             have = ids.get(k) or {}
             if set(have) != {e["src"] for e in (objects.get(k) or [])}:
                 raise ValueError(f"declared {k} source reference set differs from objects")
@@ -1361,6 +1436,14 @@ def check_reference_slots(objects, ids):
             value = declared[src]["ref"] if src in declared else ids["refs"][src]
             if int(value, 16) != first + slot:
                 raise ValueError(f"{src}: declared reference moved from original slot {slot}")
+        for k, _sig in VANILLA_PROMOTED:
+            for e in objects.get(k) or []:
+                if source_key(e["vanilla"]) != source_key(BENCH_VANILLA[e["kind"]][0]):
+                    raise ValueError(f"{k}: {e['src']} vanilla {e['vanilla']} is not the {e['kind']} bench")
+                v = ids[k][e["src"]]
+                if source_key(v["base"]) != source_key(e["vanilla"]) or v.get("kind") != e["kind"]:
+                    raise ValueError(f"{k}: {e['src']} declared on {v['base']} ({v.get('kind')}), not its vanilla "
+                                     f"{e['vanilla']} ({e['kind']})")
         owner = {}                                            # new base -> (class, edid)
         for k, _sig in PROMOTED:
             edid_of = {e["src"]: e.get("edid") for e in (objects.get(k) or [])}
@@ -1413,29 +1496,44 @@ def record_text(data):
         return raw.decode("cp1252", "replace")
 
 
-def promoted_record_check(recs, own_prefix, objects, ids):
-    """Raw record check of every promoted entry (PROMOTED): its REFR (formids.json <class>[src]["ref"]) names its
+def promoted_record_check(recs, own_prefix, objects, ids, masters=("Starfield.esm",)):
+    """Raw record check of every promoted entry (ALL_PROMOTED): its REFR (formids.json <class>[src]["ref"]) names its
     declared native base, that base is a CONT / MISC / ACTI / TERM with the entry's edid and model, a MISC also its
     name, value and weight, an ACTI its name (no FULL for an entry without one), a TERM its name and, in DNAM, its
     declared TMLM menu, which carries the menu edid, the name and exactly one body text (BTXT) = the entry's body and no
-    menu item; position / rotation / scale are as objects.json (finite and within tolerance). Returns problems."""
+    menu item, a workshop ACTI its name, WorkshopKeyword in KWDA, PRPS OutpostBuildAreaRadius = its radius and no
+    VMAD (workshop_problems); a bench REFR names its vanilla FURN of the master (master_fid), which lives outside this
+    plugin; position / rotation / scale are as objects.json (finite and within tolerance). Returns problems."""
     from fo4sf import fo4land
     by_fid = {r["fid"]: r for r in recs}
     problems = []
-    for k, sig in PROMOTED:
+    for k, sig in ALL_PROMOTED:
         for e in objects.get(k) or []:
             v = (ids.get(k) or {}).get(e["src"])
             if v is None:
                 problems.append(f"{e['src']}: not in formids.json {k}")
                 continue
-            ref_fid, base_fid = own_prefix | int(v["ref"], 16), own_prefix | int(v["base"], 16)
-            rec, base = by_fid.get(ref_fid), by_fid.get(base_fid)
+            ref_fid = own_prefix | int(v["ref"], 16)
+            rec = by_fid.get(ref_fid)
             if rec is None or rec["sig"] != "REFR":
                 problems.append(f"{e['src']}: no REFR {ref_fid:08X}")
                 continue
-            if base is None or base["sig"] != sig:
-                problems.append(f"{e['src']}: base {base_fid:08X} is not a {sig}")
-                continue
+            if k in dict(VANILLA_PROMOTED):
+                if source_key(v["base"]) != source_key(e["vanilla"]) or v.get("kind") != e["kind"]:
+                    problems.append(f"{e['src']}: declared on {v['base']} ({v.get('kind')}), objects.json names {e['vanilla']} ({e['kind']})")
+                    continue
+                try:
+                    base_fid = master_fid(v["base"], masters)
+                except ValueError as err:
+                    problems.append(f"{e['src']}: {err}")
+                    continue
+                base = None
+            else:
+                base_fid = own_prefix | int(v["base"], 16)
+                base = by_fid.get(base_fid)
+                if base is None or base["sig"] != sig:
+                    problems.append(f"{e['src']}: base {base_fid:08X} is not a {sig}")
+                    continue
             q = fo4land.parse_ref(rec["fields"])
             if q["base"] != base_fid:
                 named = "no base" if q["base"] is None else f"{q['base']:08X}"         # (a REFR without NAME)
@@ -1443,6 +1541,8 @@ def promoted_record_check(recs, own_prefix, objects, ids):
             if not (q["pos"] is not None and close(q["pos"], e["pos"], 1e-3) and close(q["rot"], e["rot"], 1e-5)
                     and close(q["scale"], e["scale"], 1e-4)):
                 problems.append(f"{e['src']}: REFR position / rotation / scale differ from objects.json")
+            if base is None:
+                continue
             if overlay_records.edid(base) != e["edid"]:
                 problems.append(f"{e['src']}: {sig} edid {overlay_records.edid(base)!r} != {e['edid']!r}")
             if fo4land.zstring(overlay_records.field(base, "MODL", b"")).casefold() != e["model"].casefold():
@@ -1456,6 +1556,89 @@ def promoted_record_check(recs, own_prefix, objects, ids):
                 problems.append(f"{e['src']}: {sig} name {record_text(overlay_records.field(base, 'FULL'))!r} != {e['name']!r}")
             if sig == "TERM":
                 problems += terminal_menu_problems(by_fid, own_prefix, base, e, v)
+            if k == "workshops":
+                problems += workshop_problems(base, e, masters)
+    return problems
+
+
+def record_keywords(rec):
+    """The KWDA form ids of a raw record (file-local), [] without KWDA."""
+    d = overlay_records.field(rec, "KWDA", b"")
+    return list(struct.unpack_from(f"<{len(d) // 4}I", d))
+
+
+def record_properties(rec):
+    """The PRPS object properties of a raw record as [(actor value, value, curve table)], [] without PRPS."""
+    d = overlay_records.field(rec, "PRPS", b"")
+    return [struct.unpack_from("<IfI", d, i) for i in range(0, len(d) - 11, 12)]
+
+
+def workshop_problems(acti, e, masters=("Starfield.esm",)):
+    """A promoted workshop ACTI (promoted_record_check): KWDA carries WorkshopKeyword (WORKSHOP_KEYWORD of the master),
+    PRPS carries OutpostBuildAreaRadius (WORKSHOP_RADIUS_AV) = the entry's radius, no VMAD (the vanilla pre-placed
+    workshop, OutpostPlayerHouseActivator, has none)."""
+    out = []
+    kw, av = master_fid(f"{WORKSHOP_KEYWORD:06X}:Starfield.esm", masters), master_fid(f"{WORKSHOP_RADIUS_AV:06X}:Starfield.esm", masters)
+    if kw not in record_keywords(acti):
+        out.append(f"{e['src']}: ACTI KWDA {[f'{k:08X}' for k in record_keywords(acti)]} lacks WorkshopKeyword {kw:08X}")
+    radius = [p[1] for p in record_properties(acti) if p[0] == av]
+    if len(radius) != 1 or not close(radius[0], e["radius"], 1e-4 * max(1.0, abs(e["radius"]))):
+        out.append(f"{e['src']}: ACTI PRPS OutpostBuildAreaRadius {radius} != {e['radius']}")
+    if overlay_records.field(acti, "VMAD") is not None:
+        out.append(f"{e['src']}: ACTI carries a VMAD (the vanilla pre-placed workshop has none)")
+    return out
+
+
+def station_master_check(sf_esm, recs, own_prefix, objects, ids, masters=("Starfield.esm",)):
+    """The station records against Starfield.esm itself (raw, src/fo4sf/fo4station): every workshop ACTI's KWDA is
+    exactly WorkshopKeyword (KYWD WORKSHOP_KEYWORD, edid WorkshopKeyword) followed by the OutpostCategory* keywords the
+    vanilla OutpostPlayerHouseActivator (WORKSHOP_TEMPLATE) carries, in its order, its PRPS names AVIF
+    OutpostBuildAreaRadius; every bench kind's vanilla base is a FURN whose WBDT bench type and recipe keyword are the
+    kind's (BENCH_VANILLA). Returns problems; [] without stations."""
+    from fo4sf import fo4station
+    workshops, benches = objects.get("workshops") or [], objects.get("benches") or []
+    if not workshops and not benches:
+        return []
+    problems = []
+    wanted = {WORKSHOP_TEMPLATE, WORKSHOP_KEYWORD, WORKSHOP_RADIUS_AV} | {int(v[0].split(":")[0], 16) for v in BENCH_VANILLA.values()}
+    sf = fo4station.read_bases(sf_esm, wanted, ("ACTI", "KYWD", "AVIF", "FURN"))
+    house = sf.get(WORKSHOP_TEMPLATE)
+    kyw = fo4station.read_bases(sf_esm, (house or {}).get("keywords") or [], ("KYWD",))
+    if workshops:
+        if house is None or house["type"] != "ACTI":
+            problems.append(f"Starfield.esm: no ACTI {WORKSHOP_TEMPLATE:06X} (OutpostPlayerHouseActivator)")
+        if (sf.get(WORKSHOP_KEYWORD) or {}).get("edid") != "WorkshopKeyword":
+            problems.append(f"Starfield.esm: KYWD {WORKSHOP_KEYWORD:06X} is not WorkshopKeyword")
+        if (sf.get(WORKSHOP_RADIUS_AV) or {}).get("edid") != "OutpostBuildAreaRadius":
+            problems.append(f"Starfield.esm: AVIF {WORKSHOP_RADIUS_AV:06X} is not OutpostBuildAreaRadius")
+        categories = [k for k in (house or {}).get("keywords") or [] if (kyw.get(k) or {}).get("edid", "").startswith("OutpostCategory")]
+        if not categories:
+            problems.append(f"Starfield.esm: ACTI {WORKSHOP_TEMPLATE:06X} carries no OutpostCategory keyword")
+        want = [master_fid(f"{k:06X}:Starfield.esm", masters) for k in [WORKSHOP_KEYWORD] + categories]
+        by_fid = {r["fid"]: r for r in recs}
+        seen = set()
+        for e in workshops:
+            v = (ids.get("workshops") or {}).get(e["src"])
+            if v is None or v["base"] in seen:
+                continue
+            seen.add(v["base"])
+            acti = by_fid.get(own_prefix | int(v["base"], 16))
+            if acti is None:
+                continue                                          # promoted_record_check reports it
+            got = record_keywords(acti)
+            if got != want:
+                problems.append(f"{e['edid']}: KWDA {[f'{k:08X}' for k in got]} != WorkshopKeyword + "
+                                f"{[(kyw.get(k) or {}).get('edid') for k in categories]}")
+            if [p[0] for p in record_properties(acti)] != [master_fid(f"{WORKSHOP_RADIUS_AV:06X}:Starfield.esm", masters)]:
+                problems.append(f"{e['edid']}: PRPS {record_properties(acti)} is not one OutpostBuildAreaRadius property")
+    for kind in sorted({e["kind"] for e in benches}):
+        key, wbdt, recipe = BENCH_VANILLA[kind]
+        b = sf.get(int(key.split(":")[0], 16))
+        if b is None or b["type"] != "FURN":
+            problems.append(f"{kind}: {key} is not a FURN of Starfield.esm")
+        elif b.get("wbdt") != wbdt or recipe not in (b.get("keywords") or []):
+            problems.append(f"{kind}: {key} ({b['edid']}) WBDT {b.get('wbdt')} / KWDA {[f'{k:06X}' for k in b['keywords']]} "
+                            f"is not bench type {wbdt} with keyword {recipe:06X}")
     return problems
 
 
@@ -1489,9 +1672,9 @@ def promotion_checks(recs, own_prefix, objects, ids, exp):
     reference stage placed before --cluster plus the lights, which leave the skipped list: exported - skipped); one
     CONT / MISC / ACTI / TERM per distinct edid of its class and one TMLM per terminal edid; and with promotions
     promoted_record_check's bindings."""
-    entries = {k: objects.get(k) or [] for k, _sig in PROMOTED}
+    entries = {k: objects.get(k) or [] for k, _sig in ALL_PROMOTED}
     n_promoted = sum(len(v) for v in entries.values())
-    present = [(k, sig) for k, sig in PROMOTED if entries[k]]
+    present = [(k, sig) for k, sig in ALL_PROMOTED if entries[k]]
     lights = objects.get("lights") or []
     out = []
     refrs = sum(1 for r in recs if r["sig"] == "REFR")
@@ -1504,22 +1687,90 @@ def promotion_checks(recs, own_prefix, objects, ids, exp):
                 + " + ".join(f"{len(entries[k]):,} {k}" for k, _sig in (present or PROMOTED[:2]))
                 + (f" + {len(lights):,} lights" if lights else "")
                 + f" = {unpromoted:,} placed", len(objects["refs"]) + n_promoted + len(lights) == unpromoted])
-    counted = [(k, sig, entries[k], "edid") for k, sig in PROMOTED] + [("terminals", "TMLM", entries["terminals"], "menu_edid")]
+    # one record per distinct edid of a signature; classes sharing a signature (activators and workshops: ACTI) count together
+    counted = []
+    for sig in dict.fromkeys(sig for _k, sig in PROMOTED):
+        classes = [k for k, s in PROMOTED if s == sig]
+        named = [k for k in classes if entries[k]] or classes[:1]
+        counted.append((" + ".join(named), sig, [e for k in classes for e in entries[k]], "edid"))
+    counted.append(("terminals", "TMLM", entries["terminals"], "menu_edid"))
     for key, sig, es, field in counted:
         n_recs = sum(1 for r in recs if r["sig"] == sig)
         n_edids = len({e[field].casefold() for e in es})
         if es or n_recs:
             what = "edids" if field == "edid" else "menu edids"
             out.append([f"{n_recs:,} {sig} = {n_edids:,} distinct {key} {what} ({len(es):,} {key})", n_recs == n_edids])
+    for key, sig in VANILLA_PROMOTED:
+        n_recs = sum(1 for r in recs if r["sig"] == sig)
+        if entries[key] or n_recs:
+            kinds = sorted({e["kind"] for e in entries[key]})
+            out.append([f"{n_recs} {sig} of our own ({len(entries[key]):,} {key} bind to the vanilla {sig} of "
+                        f"{len(kinds)} kinds: {', '.join(kinds)})", n_recs == 0])
     if present:
         pp = promoted_record_check(recs, own_prefix, objects, ids)
-        sigs = [sig for _k, sig in present]
+        sigs = list(dict.fromkeys(sig for _k, sig in present))
         detail = "; ".join(x for x in ("names" if set(sigs) - {"CONT"} else "",
                                         "MISC value, weight" if "MISC" in sigs else "",
-                                        "TERM menu and body" if "TERM" in sigs else "") if x)
+                                        "TERM menu and body" if "TERM" in sigs else "",
+                                        "workshop keyword, radius" if entries["workshops"] else "",
+                                        "bench vanilla base" if entries["benches"] else "") if x)
         out.append([f"every promoted REFR names its {' / '.join(sigs)} (edid, model{'; ' + detail if detail else ''}) at "
                     f"its position ({len(pp)} problems: {pp[:3]})", not pp])
     return out
+
+
+def formids_diff(old, new):
+    """Section by section, how a build's formids.json differs from an input build's ({section: {"status", ...}}):
+    "identical"; "added" / "removed" (the section only in one); for a {src: ...} section the entries kept with the
+    same value, those with another value ("changed", with up to three examples), those only in one side; for a list
+    (the navmeshes) "shifted" when every id moved by one constant, else "differs". Facts for the report, no verdict."""
+    out = {}
+    for k in sorted(set(old) | set(new), key=str):
+        if k not in old:
+            out[k] = {"status": "added", "count": len(new[k]) if isinstance(new[k], (dict, list)) else None}
+        elif k not in new:
+            out[k] = {"status": "removed", "count": len(old[k]) if isinstance(old[k], (dict, list)) else None}
+        elif old[k] == new[k]:
+            out[k] = {"status": "identical", "count": len(old[k]) if isinstance(old[k], (dict, list)) else None}
+        elif isinstance(old[k], dict) and isinstance(new[k], dict):
+            same = sorted(s for s in old[k] if s in new[k] and old[k][s] == new[k][s])
+            changed = sorted(s for s in old[k] if s in new[k] and old[k][s] != new[k][s])
+            out[k] = {"status": "changed", "same": len(same), "changed": len(changed),
+                      "only_old": len(set(old[k]) - set(new[k])), "only_new": len(set(new[k]) - set(old[k])),
+                      "examples": [{"src": s, "old": old[k][s], "new": new[k][s]} for s in changed[:3]],
+                      "only_old_examples": sorted(set(old[k]) - set(new[k]))[:3]}
+            if changed and all(isinstance(old[k][s], dict) and isinstance(new[k][s], dict) for s in changed):
+                # a promoted class: how many changed entries keep their REFR id (only the base moved)
+                out[k]["ref_kept"] = sum(1 for s in changed if old[k][s].get("ref") == new[k][s].get("ref"))
+        elif isinstance(old[k], list) and isinstance(new[k], list) and len(old[k]) == len(new[k]) and old[k] and all(
+                isinstance(v, str) for v in old[k] + new[k]):
+            deltas = {int(b, 16) - int(a, 16) for a, b in zip(old[k], new[k])}
+            out[k] = ({"status": "shifted", "count": len(old[k]), "by": deltas.pop()} if len(deltas) == 1
+                      else {"status": "differs", "count": len(old[k])})
+        else:
+            out[k] = {"status": "differs"}
+    return out
+
+
+def cmd_compare_ids(a):
+    """formids.json of --out against --against's, section by section (formids_diff); printed, and written to
+    --out/formids_diff.json. Exit 0 always: the facts are the result."""
+    old, new = load(os.path.join(a.against, "formids.json")), load(os.path.join(a.out, "formids.json"))
+    diff = formids_diff(old, new)
+    save(os.path.join(a.out, "formids_diff.json"), {"against": os.path.abspath(a.against), "sections": diff}, indent=1)
+    for k, d in diff.items():
+        line = f"  {k:<12} {d['status']}"
+        if d["status"] == "changed":
+            line += (f": {d['same']:,} same, {d['changed']:,} changed"
+                     + (f" ({d['ref_kept']:,} of them keep their ref)" if "ref_kept" in d else "")
+                     + f", {d['only_old']:,} only in {os.path.basename(a.against)}, "
+                     f"{d['only_new']:,} only here; examples {d['examples']}; only there {d['only_old_examples']}")
+        elif d["status"] == "shifted":
+            line += f": {d['count']:,} ids, every one + 0x{d['by']:X}"
+        elif d.get("count") is not None:
+            line += f" ({d['count']:,})"
+        print(line)
+    return 0
 
 
 # ------------------------------------------------------------------------------------------------------------ lights
@@ -1650,8 +1901,9 @@ def check_light_identities(objects, ids):
         others += [int(v, 16) for v in ids.get("navmeshes") or []]
         for k, v in ids.items():                     # every promoted class ({src: {"base", "ref"}}: containers, ...)
             if k != "lights" and isinstance(v, dict) and v and all(isinstance(x, dict) for x in v.values()):
-                for c in v.values():                 # (a terminal also names its TMLM "menu")
-                    others += [int(c["base"], 16), int(c["ref"], 16)] + ([int(c["menu"], 16)] if "menu" in c else [])
+                for c in v.values():                 # (a terminal also names its TMLM "menu"; a bench a master's base)
+                    others += [int(c["ref"], 16)] + ([int(c["base"], 16)] if ":" not in c["base"] else [])
+                    others += [int(c["menu"], 16)] if "menu" in c else []
         first = max(others) + 1
         for k, e in enumerate(lights):
             if int(got[e["src"]]["ref"], 16) != first + k:
@@ -1806,13 +2058,16 @@ def cmd_stage(a):
     # --cluster (R05, docs/slice/r05-cluster-plan.md; docs/terrain/commonwealth-build-plan.md section 3): the listed
     # references leave the STAT placement and become native records: "containers" (a CONT base with the converted model
     # and a vanilla inventory), "items" (loose FO4 MiscItem / Ingestible: a MISC base with the converted model, a
-    # name, value and weight), "activators" (FO4 Activator: an ACTI base with the converted model and the name) and
+    # name, value and weight), "activators" (FO4 Activator: an ACTI base with the converted model and the name),
     # "terminals" (FO4 Terminal: a TERM base with the converted model and the name, with its own TMLM menu of one body
-    # line), one base per FO4 base, one temporary REFR per source reusing its original reference_index (one slot plan
-    # for every class); the new CONT, MISC, ACTI, then TERM + TMLM records follow all reserved REFRs.
+    # line), "workshops" (FO4 settlement workshop: an ACTI base with the workbench model, WorkshopKeyword, the outpost
+    # category keywords and a build radius; docs/terrain/stations.md), one base per FO4 base, one temporary REFR per
+    # source reusing its original reference_index (one slot plan for every class); the new CONT, MISC, ACTI, TERM + TMLM,
+    # then the workshops' ACTI records follow all reserved REFRs. "benches" (FO4 crafting station) keep their REFR
+    # slot on the VANILLA Starfield bench of their kind: no record of our own.
     # Its "lights" (docs/terrain/exterior-lights.md, make_cluster.py lights) were never placed: new light REFRs and
     # LIGH bases after every other record
-    promoted = {k: [] for k, _sig in PROMOTED}
+    promoted = {k: [] for k, _sig in ALL_PROMOTED}
     lights, light_bases = [], []
     if getattr(a, "cluster", None):
         cluster = load(a.cluster)
@@ -1834,13 +2089,14 @@ def cmd_stage(a):
             head = ", ".join(f"{e['src']} -> {e['edid']}" for e in entries[:8])
             return f"{len(entries)} {what} over {edids} base(s)" + (f" ({head}{', ...' if len(entries) > 8 else ''})" if entries else "")
         print(f"cluster {os.path.basename(a.cluster)}: "
-              + "; ".join(summary(promoted[k], f"{SINGULAR[k]}(s)") for k, _sig in PROMOTED))
+              + "; ".join(summary(promoted[k], f"{SINGULAR[k]}(s)") for k, _sig in PROMOTED)
+              + f"; {len(promoted['benches'])} bench(es) on {len({e['vanilla'] for e in promoted['benches']})} vanilla base(s)")
         if lights or n_out:
             print(f"cluster: {len(lights):,} light(s) over {len(light_bases)} LIGH bases, {n_out} outside the overlay's cells")
     objects = {"world": ov["world"], "edid_prefix": EDID_PREFIX,
                "bases": [{k: b[k] for k in ("edid", "model", "door", "source", "collision") if k in b} for b in bases],
                "refs": [{k: p[k] for k in ("src", "base", "cell", "pos", "rot", "scale", "disabled")} for p in placed]}
-    for k, _sig in PROMOTED:
+    for k, _sig in ALL_PROMOTED:
         if promoted[k]:
             objects[k] = promoted[k]
     if lights:
@@ -1904,8 +2160,9 @@ def cmd_stage(a):
         "hypothesis": "FO4 position / 70 = core64 position in metres for terrain and objects alike (core64's origin is "
                       "CW (0, 0)); an object's collision then sits on the BTD as in FO4",
         "objects": {"exported": total, "placed": len(placed), "bases": len(bases),
-                    "promoted": dict({k: len(promoted[k]) for k, _sig in PROMOTED},
-                                     **{f"{SINGULAR[k]}_bases": len({e["edid"] for e in promoted[k]}) for k, _sig in PROMOTED}),
+                    "promoted": dict({k: len(promoted[k]) for k, _sig in ALL_PROMOTED},
+                                     **{f"{SINGULAR[k]}_bases": len({e["edid"] for e in promoted[k]}) for k, _sig in PROMOTED},
+                                     **{f"{SINGULAR[k]}_bases": len({e["vanilla"] for e in promoted[k]}) for k, _sig in VANILLA_PROMOTED}),
                     "doors": sum(1 for b in bases if "door" in b),
                     "initially_disabled": sum(p["disabled"] for p in placed),
                     "fo4_persistent_placed_temporary": sum(p["fo4_persistent"] for p in placed),
@@ -2132,7 +2389,7 @@ def cmd_check(a):
     def need(cond, what):
         checks.append([what, bool(cond)])
 
-    promoted = [e for k, _sig in PROMOTED for e in (objects.get(k) or [])]
+    promoted = [e for k, _sig in ALL_PROMOTED for e in (objects.get(k) or [])]
     if promoted:
         try:
             check_reference_slots(objects, ids)
@@ -2140,7 +2397,7 @@ def cmd_check(a):
             need(False, f"declared promotion identity: {e}")
         else:
             need(True, "declared source reference slots retained through promotion ("
-                 + " + ".join(f"{len(objects.get(k) or []):,} {k}" for k, _sig in PROMOTED if objects.get(k))
+                 + " + ".join(f"{len(objects.get(k) or []):,} {k}" for k, _sig in ALL_PROMOTED if objects.get(k))
                  + ", one slot plan)")
     lights = objects.get("lights") or []
     if lights:
@@ -2215,6 +2472,18 @@ def cmd_check(a):
     need(worst_pos < 1e-3 and worst_rot < 1e-5, f"REFR position / rotation as written (worst {worst_pos:.2e} m, {worst_rot:.2e} rad)")
     for what, good in promotion_checks(recs, own, objects, ids, exp):
         need(good, what)
+    stations = (objects.get("workshops") or []) + (objects.get("benches") or [])
+    if stations:
+        # the station records against Starfield.esm itself (docs/terrain/stations.md): the workshop keywords and PRPS
+        # as the vanilla pre-placed workshop's, every bench kind's vanilla FURN with its bench type and recipe keyword
+        sf_esm = os.path.join(a.sf_data, "Starfield.esm") if a.sf_data else ""
+        if not os.path.isfile(sf_esm):
+            need(False, f"stations ({len(stations):,}): Starfield.esm needed for the vanilla record check (check --sf-data)")
+        else:
+            sp = station_master_check(sf_esm, recs, own, objects, ids, new["masters"])
+            need(not sp, f"stations: workshop ACTI keywords = WorkshopKeyword + OutpostPlayerHouseActivator's OutpostCategory "
+                         f"set and PRPS OutpostBuildAreaRadius, bench vanilla FURNs with their bench type and recipe keyword, "
+                         f"read from Starfield.esm ({len(sp)} problems: {sp[:3]})")
     if lights:
         ligh = [r for r in recs if r["sig"] == "LIGH"]
         need(len(ligh) == len(objects["light_bases"]), f"{len(ligh)} LIGH = {len(objects['light_bases'])} light bases "
@@ -2471,8 +2740,9 @@ def main():
             s.add_argument("--sf-esm", default="", help="Starfield.esm: build the plugins with dotnet/TerrainOverlays")
             s.add_argument("--cluster", default="", help="R05: a cluster json (scripts/terrain/clusters/*.json, "
                            "make_cluster.py) whose \"containers\" become native CONT, \"items\" native MISC, "
-                           "\"activators\" native ACTI and \"terminals\" native TERM (+ TMLM menu) references instead "
-                           "of statics (each in its original reference slot), and whose "
+                           "\"activators\" native ACTI, \"terminals\" native TERM (+ TMLM menu), \"workshops\" native "
+                           "ACTI build stations and \"benches\" references to the vanilla Starfield bench of their "
+                           "kind, instead of statics (each in its original reference slot), and whose "
                            "\"lights\" become native LIGH and new light REFRs after every other record")
 
             s.add_argument("--navmesh", default="", help="navmesh.json (src/fo4sf/navmesh.py export over the core's FO4 NAVM): "
@@ -2487,9 +2757,12 @@ def main():
             s.add_argument("--scratch", default="", help="folder for the Archive2 dry run (deleted afterwards)")
     s = sub.add_parser("verify-data", help="is the staged tree still the one check passed (sizes and times)?")
     s.add_argument("--out", required=True)
+    s = sub.add_parser("compare-ids", help="formids.json of --out against another build's, section by section (facts)")
+    s.add_argument("--out", required=True)
+    s.add_argument("--against", required=True, help="the input build (e.g. the one the cluster was generated from)")
     a = ap.parse_args()
     return {"select": cmd_select, "measure": cmd_measure, "stage": cmd_stage, "check": cmd_check,
-            "verify-data": cmd_verify_data}[a.cmd](a)
+            "verify-data": cmd_verify_data, "compare-ids": cmd_compare_ids}[a.cmd](a)
 
 
 if __name__ == "__main__":
