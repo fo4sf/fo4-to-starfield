@@ -2,6 +2,19 @@
 
 Format: date, decision, why, alternatives considered.
 
+## 2026-10-16 Sliding, lifting and trapdoor FO4 doors get their own rig, not a vanilla sliding template (Claude, proposed)
+FO4 door models matching `NOT_HINGED_RE` (vault, elevator, hatch, ...) that are not load doors are converted like the
+multi-part doors (`convert_multipart_door`: one rig bone per FO4 node, FO4's own Open / Close keys written with CALUMI, a
+keyframed box per moving part) on the vanilla graph `SimpleOpenClose01.agx`, when `--door-anim-dll` is given; without
+it they stay passable. Why: all 123 vanilla door rigs were read back; sliding and lifting doors use the same graph as
+hinged ones and carry their motion in their own rig and clips, but none moves like the FO4 doors: no vanilla door
+panel moves down (the vault doors' lower panel drops 0.98 m) and the vanilla sliding pairs travel 1.00 / 1.50 / 4.00 m
+against FO4's 0.64-0.91 m. A template would leave a panel shut or push it 0.09-0.36 m into the wall; FO4's keys give
+the exact travel and timing. Alternatives: `ElvGen_ExSm_DoorInner01` as a template for the elevator doors (9-56 % too
+far), `StsGenIntRmSmWallMid_DoorD01` for the vault doors (upper panel only, the lower one would block), keeping them
+passable (the owner's row 1). Risk shared with #79: our rig and clips have not played in game. Evidence:
+docs/spikes/sliding-doors.md.
+
 ## 2026-10-12 Multi-part FO4 doors get their own rig and clips; single-part doors stay on the Akila template (Claude, proposed)
 A rigged FO4 door whose `Open` sequence moves geometry outside its first node (second leaf, shutter panel, sliding
 panel set, latches) is converted with one rig bone per FO4 node, its own `Open`/`Close` clips written with the external
