@@ -34,9 +34,15 @@ def checkpoint_signature(a):
             packages[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
             packages[name] = None
+    def safe_resolve(p):
+        try:
+            return str(p.resolve())
+        except (OSError, ValueError):
+            return str(p)
+
     sig = {"version": 1, "python": sys.version, "packages": packages,
            "archives": [checkpoints.archive_identity(p) for p in archives],
-           "content": {str(p.resolve()): checkpoints.digest(p) for p in
+           "content": {safe_resolve(p): checkpoints.digest(p) for p in
                        [*code, Path(a.texconv), Path(a.content_resources), Path(a.collision_template)]},
            "rig_doors": bool(a.starfield_data), "movable_items": bool(a.starfield_data) and not a.static_items}
     if getattr(a, "prefix", "fo4port") != "fo4port":   # output paths differ; the default keeps existing checkpoints valid
@@ -207,7 +213,7 @@ def main():
     items, failures, reused = [], [], 0
     attempted_so_far = 0
     skipped = 0
-    progress_every = 10
+    progress_every = 10  # live status every N attempts; includes % of limit and ETA when --limit is set
     for name in names:
         if len(items) >= a.limit:
             break
@@ -250,8 +256,19 @@ def main():
         if attempted_so_far % progress_every == 0:
             elapsed_now = time.time() - t0
             rate = attempted_so_far / elapsed_now if elapsed_now > 0 else 0
+            pct = ""
+            eta = ""
+            if a.limit and a.limit > 0:
+                pct = f" ({100.0 * len(items) / a.limit:.0f}% of limit)"
+                if rate > 0 and len(items) < a.limit:
+                    remaining = a.limit - len(items)
+                    eta_s = remaining / rate
+                    if eta_s > 60:
+                        eta = f", ~{eta_s/60:.0f}m left"
+                    elif eta_s > 5:
+                        eta = f", ~{eta_s:.0f}s left"
             print(f"  progress: {attempted_so_far} attempted ({len(items)} ok, {len(failures)} fail, {skipped} skipped) "
-                  f"in {elapsed_now:.0f}s ({rate:.1f}/s)")
+                  f"in {elapsed_now:.0f}s ({rate:.1f}/s){pct}{eta}")
     for f in failures[:15]:
         print("  FAIL", f["nif"], "-", f["reason"][:110])
     from collections import Counter, defaultdict
