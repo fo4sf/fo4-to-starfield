@@ -1454,3 +1454,52 @@ Initial XCLC concern was disproved by the existing tests: unpack_from already
 handles the fixture; no XCLC change made. No writer/stage/game modifications or
 retroactive native rescoring. Private evidence: persistent-ref-selectors-20261016;
 peer QA pending. Merge placement and native travel/save-reload remain unresolved.
+## 2026-10-10 Claude: FO4 skin reader and pose bake (offline)
+New `src/fo4sf/fo4skin.py` reads a skinned FO4 shape's skin (bone nodes from `BSSkin::Instance`, skin-to-bone
+transforms and bone-space bounding spheres from `BSSkin::BoneData`, f16 weights and u8 bone slots per vertex) and
+poses its vertices by linear blend skinning. Checked on `SkeletonClothed01.nif` and on all 16,350 skinned shapes in
+the two FO4 mesh archives (0 read errors). Posing the skeleton with its own NIF nodes does **not** give back the stored
+positions (max 64.45 units): its node pose is the bind pose with the root bone turned 45 degrees about X, and the
+ragdoll bodies are in that node pose. With that one rigid transform taken out, the error is 0.000025 units. The
+converter draws skinned shapes from the stored positions but puts collision on the nodes, so mesh and collision
+disagree for 346 placements in the pinned build (95 skeletons; vault sink taps drawn at the model origin). Not
+changed in this PR. Next: pose skinned shapes with `fo4skin` in `convert_nif` (check in game), then pose ragdoll
+skeletons. Evidence: docs/ai/research-log.md.
+
+## 2026-10-10 Skinned props posed as FO4 draws them (offline; owner at the PC touring the library)
+Follow-up to PR #45's finding. `convert_static.pose_skinned_shapes` now bakes the NIF's node pose into every skinned
+shape (linear blend skinning, normals turned with the heaviest bone), so the mesh lands where FO4 draws it and where
+its bone-node collision already is. Real-data check: the Vault 81 sink's tap moves from the floor (model origin) to the
+basin rim (1.13-1.19 m) with its water streams under it; the skeleton's mesh now matches its collision box exactly
+(z 0.29-1.74 m). Animated NIFs are posed too (their rest pose) and flagged `skinned_posed_animated` in the manifest for
+the in-game look. Tests 273 OK, guard OK (guard now skips `.claude/` agent worktrees). Not yet seen in game; expect
+346 placements to shift in the next build (PR #45's scan). Ragdoll pose (XRGD, PR #44 export) comes on top of this.
+
+## 2026-10-11 `XRGD` ragdoll pose decoded (offline, no game input)
+- FO4's per-placement ragdoll data is readable now: one entry per physics body in body order, each replacing its bone
+  node's local transform (parent-node frame, game units), rotation Rx(-x)Ry(-y)Rz(-z) like the NIF itself. Evidence
+  and numbers: research log, same date. `src/fo4sf/ragdoll_pose.pose_bones(nif_bytes, entries)` returns the posed bone
+  world transforms in reference space; 10 synthetic tests.
+- Vault 114: 57 of 62 placements with `XRGD` pose; 53 of them rest on the surface under them (bind pose: 41). The two
+  skeletons by door `05C7DC` lie flat (bones within 13 units of height, hull 1 unit under to 22 above the floor) where
+  the bind pose stood 129 tall. 5 placements carry entries for another model (stale) and are rejected.
+- Next: bake the pose into the converted mesh (skin weights, PR #45 / #46) and the rigid body, rebuild Vault 114, look
+  in game. Side finding to check: the REFR rotation order `routes.ref_matrix` uses offline may be the wrong one
+  (known unknown #7).
+
+## 2026-10-16 Claude: posed props (owner playtest rows 4 c and 5; offline, no game input)
+- Cause, verified: the pinned interior build `integ_1011` was made from `a5bc92e`, which has none of the pose work (PRs
+  #45, #46, #52 were never merged), so every skinned prop was drawn in its skin's bind pose and no reference's ragdoll
+  pose (XRGD) was used. The lab-coat skeleton of rows 4 c and 5 stands for that reason. The rad scanners are not posed
+  models at all: same mesh as FO4, the tilted panel is authored that way and loses FO4's glow quad (a skipped effect
+  shape). Details and counts: research log, same date.
+- This PR carries #45 / #46 / #52 forward onto current `main` and finishes them: skin posed in the placed frame
+  (`world_transforms(placed=True)`, as shapes and bodies), and a posed model of its own for each reference whose XRGD
+  moves an articulated model (`placed_pose`, `PosedBases.cs`). Sampling the animated skinned models' sequences showed
+  the node pose is an animation state of every one of them and the bind pose of none (the elevator's surface hatch lay
+  on the vault floor in the bind pose).
+- 16 interiors: 231 placed references change (180 skinned in the node pose, 147 with their own XRGD pose, 96 both);
+  214 single-body loose items with XRGD stay as they are (unchecked frame for a root body). Offline end to end: 35
+  models + 147 posed models converted in 54 s, plugin written and read back, 147 references on their posed base, 0
+  wrong. Renders: docs/media/posed-props/. Not in game yet; the next interior build needs a full convert (the code
+  digest changes the checkpoints).
