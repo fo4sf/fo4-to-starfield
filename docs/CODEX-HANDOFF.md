@@ -30,6 +30,6 @@ Main4ba5c6a has integration121 and merged131/133;119/126/127/128 are integrated.
 
 ## Next / preservation
 
-Owner priority: persistent doors. Codex missing-door-endpoints branch adds explicit source/native-base mapping, stable allocation and persistent interior placement;7 new/11 prior CLI controls pass, peer QA pending. See slice/missing-door-endpoints.md. PR251 private integ_1016 candidate adds cave00DE5D; strict refuses missing08EB65,54,877 IDs unchanged,3 source-persistent promotions. No install. Core-owned exterior/return-link integration and native saves unresolved; Claude owns game.
+Owner priority: persistent doors. PR251 cave candidate00DE5D preserves54,877 IDs; Claude peer QA reproduced it. Selected missing cells now refuse even partial/report-only;6 new CLI scenarios pass. See slice/missing-door-endpoints.md. Core/return-link integration and native travel/save remain pending with Claude. No install or slot allocation.
 
 #32/owner issues are the inbox; refresh before work/done. Keep below4KB; history in handoff-archive. Evidence indexed/reopen-verified on D:, originals retained; second local volume, not offsite. Follow docs/testing/progress-storage.md. Lower usage: quiet four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused.

@@ -49,16 +49,22 @@ public static class Relationships
         var selectedDoors = new Dictionary<string, FormKey>(StringComparer.OrdinalIgnoreCase);
         if (missingDoorBases != null)
         {
-            var allRefs = sources.SelectMany(e => e.GetProperty("refs").EnumerateArray()).ToArray();
+            var allRefs = sources.SelectMany(e => e.GetProperty("refs").EnumerateArray()
+                .Select(r => (Export: e, Reference: r))).ToArray();
             foreach (var selection in missingDoorBases)
             {
                 if (!selectedDoors.TryAdd(selection.Key, selection.Value))
                     throw new InvalidOperationException("duplicate door source selection");
-                var matches = allRefs.Where(r => string.Equals(r.GetProperty("formkey").GetString(), selection.Key, StringComparison.OrdinalIgnoreCase)).ToArray();
-                if (matches.Length != 1 || !matches[0].TryGetProperty("type", out var kind) || kind.GetString() != "Door")
+                var matches = allRefs.Where(r => string.Equals(r.Reference.GetProperty("formkey").GetString(), selection.Key, StringComparison.OrdinalIgnoreCase)).ToArray();
+                if (matches.Length != 1 || !matches[0].Reference.TryGetProperty("type", out var kind) || kind.GetString() != "Door")
                     throw new InvalidOperationException("door selection requires exactly one exported Door: " + selection.Key);
                 if (!doorBases.Contains(selection.Value))
                     throw new InvalidOperationException("door selection is not a resolved active DOOR: " + selection.Value);
+                // An explicit endpoint request must be actionable before any
+                // mutation. Partial relationship output cannot waive it.
+                var cellIdentity = "CELL:FO4Port_" + matches[0].Export.GetProperty("cell").GetString();
+                if (!ids.TryGetValue(cellIdentity, out var cellId) || !cells.ContainsKey(new FormKey(mod.ModKey, cellId)))
+                    throw new InvalidOperationException("door selection target cell is absent: " + selection.Key + " in " + cellIdentity);
             }
         }
         var needed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
