@@ -284,8 +284,8 @@ With a lease folder (§6), `testqueue.py run` writes its events to the ledger in
 
 | When | Event | Fields |
 |---|---|---|
-| the run starts, once per queue | `build_pinned` | the queue's `build_id`, `plugin_sha256`, `staging`, `commit`, `game_version`; `src = queue.json#pin` |
-| the run starts, once per test | `task_queued` | `task`, `kind`, `cell`, `ref`, `owner` (the lease owner), `campaign` (the queue folder), `build_id`; `src = queue.json#<id>` |
+| the run starts, once per queue | `build_pinned` | the queue's `build_id`, `plugin_sha256`, `staging`, `commit`, `game_version`; `src = queue.json#pin:<digest of the pin fields>` (§3: a rewritten pin is a new event) |
+| the run starts, once per test | `task_queued` | `task` (`<queue folder>/<test id>`, §1), `kind`, `cell`, `ref`, `owner` (the lease owner), `campaign` (the queue folder), `build_id`; `src = queue.json#<id>` |
 | an attempt begins | `task_started` | `task`, `attempt`, `owner`, `started`; no `src`: the queue files never record a start, so a resumed run shows it running or lost (§1) |
 | a results row is appended (every attempt; PRECONDITION and BREAKER rows too) | `task_finished` | `outcome` by §2's mapping, `source` IN_GAME, `detail`, `evidence` (the attempt folder), `pins`, `completed` only for PASS / FAIL; `src = results.jsonl:<line>` |
 | the dedicated save is created | `recovery_point` | `kind` save, `path` (the save name), `build_id` |
