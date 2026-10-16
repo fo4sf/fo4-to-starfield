@@ -2,6 +2,7 @@
 import copy
 import json
 import unittest
+import test_terrain_stable_doors as stable_doors
 
 import test_terrain_reference_identity as fixture
 import test_terrain_stable_ids as stable
@@ -14,7 +15,7 @@ class TerrainStableMixedTests(unittest.TestCase):
     run_writer = stable.TerrainStableIdentityTests.run_writer
     build = stable.TerrainStableIdentityTests.build
     promote_all = fixture.ActivatorTerminalWriterTests.promote_all
-    with_doors = doors.TerrainDoorsWriterTests.with_doors
+    with_doors = stable_doors.selected_doors
     with_lights = lights.TerrainLightsWriterTests.with_lights
     BODY = fixture.ActivatorTerminalWriterTests.BODY
 
@@ -52,8 +53,8 @@ class TerrainStableMixedTests(unittest.TestCase):
         for key, record in original.items():
             if key != int(door['ref'], 16):
                 self.assertEqual(written[key], record)
-        self.assertGreater(int(door['base'], 16), max(original))
-        self.assertGreater(int(door['arrival'], 16), int(door['base'], 16))
+        self.assertGreater(int(door['arrival'], 16), max(original))
+        self.assertGreater(int(door['base'], 16), int(door['arrival'], 16))
 
         mk = doors.mk
         plugin = doors.overlay_records.walk_plugin(str(stage / 'Synthetic.esm'))
@@ -100,6 +101,8 @@ class TerrainStableMixedTests(unittest.TestCase):
             extra.update(src=f'{i + 1:06X}:Synthetic.esm', reference_index=i, edid=extra['edid'] + '_new')
             if kind == 'terminals':
                 extra['menu_edid'] += '_new'
+            if kind == 'doors':
+                extra['destination']['id'] = 0xDF10
             changed[kind].insert(0, extra)
         extra = copy.deepcopy(changed['lights'][0])
         extra.update(src='00A004:Other.esm', edid=extra['edid'] + '_new')

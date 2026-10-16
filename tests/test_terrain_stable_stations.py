@@ -2,6 +2,7 @@
 import copy
 import json
 import unittest
+import test_terrain_stable_doors as stable_doors
 
 import test_terrain_reference_identity as fixture
 import test_terrain_stable_ids as stable
@@ -15,7 +16,7 @@ class TerrainStableStationTests(unittest.TestCase):
     run_writer = stable.TerrainStableIdentityTests.run_writer
     build = stable.TerrainStableIdentityTests.build
     promote_all = fixture.StationWriterTests.promote_all
-    with_doors = door_fixture.TerrainDoorsWriterTests.with_doors
+    with_doors = stable_doors.selected_doors
     with_lights = light_fixture.TerrainLightsWriterTests.with_lights
     BODY = fixture.StationWriterTests.BODY
     snapshot = staticmethod(audit_fixture.TerrainIdentityAuditTests.snapshot)

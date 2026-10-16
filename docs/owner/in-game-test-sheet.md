@@ -4,8 +4,8 @@ For the owner, by Claude (2026-10-16). Every line below is a console command (op
 the grave key `` ` ``; close it the same way). Copy a line, paste it into the console, Enter. Nothing here changes your
 saves on disk unless you save; the test save `fo4sf_test_2470f876` is the runner's and can be overwritten.
 
-**What is installed for you right now:** `terrain_core64h` = the whole playable Commonwealth exterior (64 x 64 cells,
-648,358 placed objects) + its navmesh (12,104 NAVM) + all 5,185 containers and 12,438 loose items as real Starfield containers and items + the converted
+**What is installed for you right now:** `terrain_core64i` = the whole playable Commonwealth exterior (64 x 64 cells,
+648,358 placed objects) + its navmesh (12,104 NAVM) + 5,156 containers and 12,438 loose items as real Starfield containers and items, 2,246 activators, 140 terminals, 6,249 exterior lights, 29 workshops (build stations) and 269 crafting benches; interiors = `integ_1017` (vault door rigs, posed skeletons and scanners) + the converted
 raider (`FO4ActorRaider.esm`), on top of the pinned interior build `FO4Port.esm` and the observation bridge
 `FO4SFBridge.esm`. Section 8 says what is known not to work yet. If Starfield shows a "load order changed" dialog at
 start, choose **Current**.
@@ -110,3 +110,17 @@ documents the issue with them. Keep the game in the foreground when you say it.
 - **Far terrain** beyond the 64-cell core is Mars.
 - **NPCs**: only the ones you spawn; no encounters, no schedules, no quests.
 - The exterior cells are big (100 m): a teleport over 200 m in one go can misbehave; hop.
+
+## 8. Stations, lights and terminals (core64i, 16 Oct evening)
+
+Form ids below use your load index `03` for FO4TerrainCore.esm. The benches use Starfield's own station records, so
+pressing E on them should open the vanilla crafting menu.
+
+| Command | What it does |
+|---|---|
+| walk into the Red Rocket garage, look at the workbench, press E | The workshop is a build station now: expect Starfield's build mode (the outpost build HUD). It is 19 m from the arrival. |
+| `prid 0300D272` then `activate player` | The same workshop from the console, if E gives no prompt. |
+| Sanctuary: `prid 03005C51` then `activate player` | Sanctuary's workshop (by the player's house). |
+| Sanctuary benches: `prid 0306BC2B` (weapon), `prid 03069B60` (spacesuit), `prid 0306BC06` (pharmaceutical), `prid 0305CAA7` (cooking), each followed by `activate player` | The four crafting stations nearest the Sanctuary centre; each should open its vanilla crafting menu. Walking up and pressing E is the same test. |
+| `set gamehour to 22` | Night: 6,249 exterior lights are placed; look at Red Rocket and Sanctuary (a flickering fire, the station's lamps). `set gamehour to 12` brings the day back. |
+| any terminal: press E | 140 terminals are native TERM records with one menu line; the open question is whether terminal mode starts. |
