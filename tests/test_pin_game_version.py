@@ -20,7 +20,9 @@ from fo4sf.core import preflight as pf  # noqa: E402
 
 class PinGameVersionTests(unittest.TestCase):
     def setUp(self):
-        self.d = tempfile.mkdtemp()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.d = tmp.name
         tt.make_queue(self.d, n=1)
 
     def queue(self):
@@ -32,6 +34,17 @@ class PinGameVersionTests(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             code = tq.main(["pin-game-version", "--queue", self.d, *argv])
         return code, out.getvalue().strip()
+
+    def test_an_empty_queue_json_is_named_as_such(self):
+        with open(os.path.join(self.d, "queue.json"), "w", encoding="utf-8") as f:
+            f.write("{}")
+        with self.assertRaises(SystemExit) as cm:
+            self.pin("--version", "1.16.244.0")
+        self.assertIn("holds no queue", str(cm.exception))
+        other = os.path.join(self.d, "nowhere")
+        with self.assertRaises(SystemExit) as cm:
+            tq.main(["pin-game-version", "--queue", other, "--version", "1.16.244.0"])
+        self.assertIn("no queue.json in", str(cm.exception))
 
     def test_pins_by_version_and_the_gate_reads_it(self):
         before = self.queue()

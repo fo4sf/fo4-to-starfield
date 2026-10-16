@@ -2188,7 +2188,7 @@ def pin_game_version(a):
     qp = os.path.join(a.queue, "queue.json")
     q = load(qp)
     if not q:
-        sys.exit(f"no queue.json in {a.queue}")
+        sys.exit(f"{qp} holds no queue (no object)" if os.path.exists(qp) else f"no queue.json in {a.queue}")
     version = (a.version or "").strip()
     if not version:
         version = exe_file_version(os.path.join(a.starfield, "Starfield.exe")) or ""
