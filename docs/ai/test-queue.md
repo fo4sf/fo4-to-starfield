@@ -892,6 +892,16 @@ Instead the game writes a file:
   `cgf "FO4SF_Probe.Player"` the player. If the VM loads an unattached script for cgf (supported hypothesis; the first
   window tells), door and probe reads of `door_trip` and the NPC reads of `npc_nav` can leave OCR too.
 
+## Reference reads through the bridge (2026-10-15)
+
+With the runner feature `bridge`, a reference's position (door_trip doors and probes, npc_nav anchors) is read without
+the console's OCR: qstep.ps1 `Bridge-Ref-Read` takes the log's line count (`bridge_log.py mark`), types
+`cgf "FO4SF_Probe.Pos" <decimal ref>` in one console session, and `bridge_log.py wait-ref <ref> --since <mark>` returns
+the first `FO4SF ref=.. pos=.. loaded=..` reply written after it (never an older reply for the same reference). The id
+is typed as a Papyrus int (load index FF.. is negative). A failed bridge read (no reply in 8 s, or `none`: not a loaded
+reference) falls back to `readpos.ps1`'s OCR, so an older bridge plugin still reads; `obs.read_log` says which path
+each read took (`via`: `bridge-ref` or the readpos nonce).
+
 ## Activate (terrain, 2026-10-15)
 
 A terrain test may carry `"activate": {"ref": "<8 hex>", "base": "<8 hex>", "expect": ["First Aid Kit", "Credits", "Digipick"]}` (R05 slice 1:
