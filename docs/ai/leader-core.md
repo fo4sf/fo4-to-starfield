@@ -200,8 +200,8 @@ brief's "any unknown → refuse"), and a reading that raises is `UNKNOWN` for th
 | `log_capture` | no bridge pinned, or the `[Papyrus]` logging keys in effect after the game folder's `Starfield.ini` is overridden key by key by `StarfieldCustom.ini` in My Games (`make_bridge.py ini`) | a key off or missing after the overrides / no ini found (UNKNOWN) |
 
 The planners write no `game_version`: pin it after planning with `testqueue.py pin-game-version --queue <dir>`
-(reads the game folder's `Starfield.exe` on Windows, or `--version 1.16.244.0`; a different existing pin needs
-`--force`), or record a `build_pinned` event with it; until then the check is UNKNOWN by design and the gate refuses.
+(reads the game folder's `Starfield.exe` on Windows, or `--version 1.16.244.0`, always four numbers as the file
+version reads; a different existing pin needs `--force`), or record a `build_pinned` event with it; until then the check is UNKNOWN by design and the gate refuses.
 
 **The switch, default off:** `testqueue.py run --preflight` (or `FO4SF_PREFLIGHT=1`) runs the gate once, right
 after the lease line and before the first launch; the checklist goes to `run.log`, a refusal sets

@@ -2178,7 +2178,7 @@ class LeaseGate:
         return None
 
 
-GAME_VERSION = re.compile(r"\d+(\.\d+){1,3}")
+GAME_VERSION = re.compile(r"\d+(\.\d+){3}")        # four parts, as Starfield.exe's file version reads (1.16.244.0)
 
 
 def pin_game_version(a):
@@ -2195,7 +2195,8 @@ def pin_game_version(a):
         if not version:
             sys.exit("Starfield.exe's version is not readable here (Windows only): pass --version")
     if not GAME_VERSION.fullmatch(version):
-        sys.exit(f"not a version: {version!r} (digits and dots, e.g. 1.16.244.0)")
+        sys.exit(f"not a four-part file version: {version!r} (Starfield.exe's reads as four numbers, e.g. 1.16.244.0; "
+                 f"a shorter pin could never match it)")
     have = q.get("game_version")
     if have and have != version and not a.force:
         sys.exit(f"queue.json already pins game_version {have}; --force replaces it with {version}")

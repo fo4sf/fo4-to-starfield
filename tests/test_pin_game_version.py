@@ -49,9 +49,10 @@ class PinGameVersionTests(unittest.TestCase):
         self.assertEqual(self.pin("--version", "1.16.244.0")[0], 0)        # the same pin again is fine
 
     def test_refusals(self):
-        with self.assertRaises(SystemExit) as cm:
-            self.pin("--version", "1.16.244.0 beta")
-        self.assertIn("not a version", str(cm.exception))
+        for bad in ("1.16.244.0 beta", "1.16.244", "1.16", "v1.16.244.0"):
+            with self.assertRaises(SystemExit) as cm:
+                self.pin("--version", bad)
+            self.assertIn("four-part", str(cm.exception))
         self.assertNotIn("game_version", self.queue())
         self.pin("--version", "1.16.244.0")
         with self.assertRaises(SystemExit) as cm:
