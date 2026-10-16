@@ -28,7 +28,9 @@ def read(p):
 
 class RunnerPreflightTests(unittest.TestCase):
     def setUp(self):
-        self.d = tempfile.mkdtemp()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.d = tmp.name
         tt.make_queue(self.d, n=2)
         self.leader = os.path.join(self.d, "leader")
         self.ctl = tt.FakeControls()
@@ -112,7 +114,9 @@ class ProbeOnThisBoxTests(unittest.TestCase):
     """The PC-side readings that can be taken anywhere: paths, absent files, the lease, the Guardian database."""
 
     def setUp(self):
-        self.d = tempfile.mkdtemp()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.d = tmp.name
         tt.make_queue(self.d, n=1)
         self.r = tq.Runner(self.d, tt.args(starfield=os.path.join(self.d, "game")), ctl=tt.FakeControls(), step=lambda t, o: 0)
         self.p = tq.PreflightProbe(self.r)
@@ -121,7 +125,8 @@ class ProbeOnThisBoxTests(unittest.TestCase):
         self.assertIsNone(self.p.staged_plugin_sha256())             # make_queue stages no FO4Port.esm
         self.assertIsNone(self.p.deploy_manifest())
         self.assertIsNone(self.p.install_record())
-        self.assertEqual(self.p.ini_texts(), [])
+        with mock.patch.object(tq.PreflightProbe, "saves_dirs", return_value=[os.path.join(self.d, "saves")]):
+            self.assertEqual(self.p.ini_texts(), [])                   # never the owner's real My Games folder
         self.assertEqual(self.p.plugin_masters("FO4SFExp.esm"), [])
         self.assertTrue(self.p.implicit("Starfield.esm"))
         self.assertFalse(self.p.implicit("FO4Port.esm"))
@@ -138,6 +143,35 @@ class ProbeOnThisBoxTests(unittest.TestCase):
             with open(os.path.join(self.d, "Starfield", "Plugins.txt"), "w", encoding="utf-8") as f:
                 f.write("*FO4Port.esm\nFO4SFExp.esm\n")
             self.assertEqual(self.p.plugins_txt_lines(), ["*FO4Port.esm", "FO4SFExp.esm"])
+
+    @unittest.skipUnless(os.name == "nt", "reads a real version resource through version.dll: Windows only")
+    def test_the_exe_version_of_a_real_windows_dll(self):
+        import re
+        dll = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "kernel32.dll")
+        v = tq.exe_file_version(dll)
+        self.assertIsNotNone(v, dll)
+        self.assertTrue(re.fullmatch(r"\d+\.\d+\.\d+\.\d+", v), v)
+        self.assertIsNone(tq.exe_file_version(os.path.join(self.d, "missing.exe")))
+
+    def test_main_reads_the_preflight_switch_from_the_environment(self):
+        seen = {}
+
+        class FakeRunner:
+            def __init__(self, qdir, a):
+                seen["a"] = a
+
+            def run(self):
+                return 0
+        for value, want in (("1", True), ("true", True), ("YES", True), ("on", True), ("0", False), ("", False), ("maybe", False)):
+            with mock.patch.dict(os.environ, {"FO4SF_PREFLIGHT": value}), mock.patch.object(tq, "Runner", FakeRunner):
+                tq.main(["run", "--queue", self.d])
+            self.assertIs(seen["a"].preflight, want, value)
+        with mock.patch.dict(os.environ, {"FO4SF_PREFLIGHT": "1"}), mock.patch.object(tq, "Runner", FakeRunner):
+            tq.main(["run", "--queue", self.d, "--no-preflight"])           # the flag turns it off for one run
+        self.assertIs(seen["a"].preflight, False)
+        with mock.patch.dict(os.environ, {"FO4SF_PREFLIGHT": ""}), mock.patch.object(tq, "Runner", FakeRunner):
+            tq.main(["run", "--queue", self.d, "--preflight"])
+        self.assertIs(seen["a"].preflight, True)
 
     def test_the_exe_version_decoding(self):
         import ctypes

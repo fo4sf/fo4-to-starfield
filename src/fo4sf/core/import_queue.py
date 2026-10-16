@@ -10,11 +10,12 @@ Sources and the field names they are read with (verified against main 16a1d2d):
   Data/FO4Port.deploy.json   artifacts[FO4Port.esm].sha256 (deploy_starfield.py artifact_identity) -> plugin_sha256,
                              build_id = its first 8 hex digits (as testqueue.py plan derives it), complete;
                              explicit pin keys (PIN_KEYS) win when a manifest carries them
-Every event carries src = "<file>:<line>" (a row of a file that only grows), "<file>#<key>" (a queue.json, written
-once) or "<file>@<sha256 of the file>" (a record rewritten in place: a new deploy or install is a new event); an
-import skips src keys already in the ledger. A runner given a lease folder writes the same keys live
-(runner_events.py, leader-core.md §10), so importing its queue afterwards adds nothing: the import is the recovery
-path when a live write was lost.
+Every event carries src = "<file>:<line>" (a row of a file that only grows), "<file>#<test id>" or
+"<file>#pin:<digest of the pin fields>" (a queue.json: a rewritten pin is a new event) or
+"<file>@<key>:<first 16 hex of the content's sha256>@<mtime ns>" (a record rewritten in place: a new deploy or
+install is a new event, a re-deploy of the same bytes too); an import skips src keys already in the ledger. A runner
+given a lease folder writes the same keys live (runner_events.py, leader-core.md §10), so importing its queue
+afterwards adds nothing: the import is the recovery path when a live write was lost.
 """
 import hashlib
 import json

@@ -24,12 +24,14 @@ $i = (Join-Path $PSScriptRoot 'input.ps1'); $env:LEGACY = '1'
 # Controller lease (docs/ai/leader-core.md section 6; opt-in, default off): with FO4SF_LEASE_DIR set, the game is only
 # closed, redeployed and launched while FO4SF_LEASE_OWNER (default Claude) holds an unexpired lease in that folder;
 # otherwise exit 9 before anything is touched. Unset, this block does nothing and the script behaves as before.
+# lease.py reads the folder from FO4SF_LEASE_DIR itself: passed as an argument, a folder with a space and a trailing
+# backslash would reach python mangled (PowerShell 5.1 quoting) and the check could fail open.
 if ($env:FO4SF_LEASE_DIR) {
   $leaseOwner = if ($env:FO4SF_LEASE_OWNER) { $env:FO4SF_LEASE_OWNER } else { 'Claude' }
-  $leaseOut = python -I "$repo\scripts\game\lease.py" status --dir $env:FO4SF_LEASE_DIR --require $leaseOwner
+  $leaseOut = python -I "$repo\scripts\game\lease.py" status --require $leaseOwner
   $leaseCode = $LASTEXITCODE
   $leaseOut | Select-Object -Last 1
-  if ($leaseCode -ne 0) { "no valid controller lease for $leaseOwner in $($env:FO4SF_LEASE_DIR) (lease.py exit $leaseCode): not launching"; exit 9 }
+  if ($null -eq $leaseCode -or $leaseCode -ne 0) { "no valid controller lease for $leaseOwner in $($env:FO4SF_LEASE_DIR) (lease.py exit $leaseCode): not launching"; exit 9 }
 }
 $p = Get-Process Starfield -ErrorAction SilentlyContinue
 $pidFile = Join-Path $PSScriptRoot 'cycle_pid.txt'           # local only: the PID of the game this script launched
