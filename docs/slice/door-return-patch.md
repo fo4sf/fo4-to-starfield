@@ -15,6 +15,13 @@ conflicting existing returns, nonfinite transforms and relative-position flags
 refuse. Initially disabled/open state is preserved; structural success is not proof
 the door is usable in game.
 
+Core loads after Port, so any Core override of the selected interior cell or
+reference is the effective source. The patch preserves that newer state instead
+of restoring the original Port copy. A cell-only override still inherits Port's
+unchanged reference. A reference override must remain in the original interior's
+persistent group; deleted, moved, temporary, different-type or duplicate overrides
+refuse. Existing return-link conflicts are checked against the effective reference.
+
 Example plan syntax, with synthetic identities and target-engine units/radians:
 
 ```json
@@ -40,8 +47,8 @@ navmeshes. Cell and reference state are deep-copied; reference position/rotation
 scale, disabled/open flags and identity remain unchanged. The arrival plan is
 explicit: this tool neither derives nor validates live merge offsets or floor height.
 
-Sixteen synthetic cases pass: one serialized two-way connection and actual CLI
-receipt, fifteen invalid-input refusals. Readback checks exact record scope,
+Twenty synthetic cases pass: three serialized two-way connections and actual CLI
+receipts, seventeen invalid-input refusals. Readback checks exact record scope,
 master order, identity, grouping, transforms and flags. Input bytes are unchanged.
 Run `dotnet run --project dotnet/DoorReturn.Tests -c Release`; optionally set
 FO4SF_RETURN_EVIDENCE to a fresh private folder to retain fixtures/logs. These are
@@ -57,6 +64,11 @@ unchanged source IDs/reservations and transforms, explicit arrival conversion,
 two-record patch scope, and unchanged input bytes. Use `-- --pipeline-only` to run
 this handoff check without repeating the sixteen unchanged boundary cases. The
 synthetic Core fixture exercises the interface, not Claude's real Core producer.
+
+The Core-override correction reproduced the old builder overwriting a newer cell
+record. Four focused cases cover cell-only inheritance, newer reference transforms/
+state, deletion and loss of persistent placement. All twenty cases plus the joint
+CLI pass after the correction. `-- --overrides-only` selects the four new cases.
 
 Current integration boundary: PR251 supplies a private missing interior endpoint
 candidate. The actual Core exterior endpoint and outbound link remain unbuilt by

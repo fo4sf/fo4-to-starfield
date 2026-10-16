@@ -28,6 +28,27 @@ public static class ReturnPatch
                          select (block, sub, cell, obj)).ToArray();
         Need(interiors.Length == 1, "interior endpoint must occur once in a persistent interior group");
         var inside = interiors[0];
+        // Core loads after Port. Copy the effective cell/reference state, never
+        // restore an older Port record over a newer override in the input stack.
+        var cellOverrides = (from block in core.Cells.Records from sub in block.SubBlocks from cell in sub.Cells
+                             where cell.FormKey == inside.cell.FormKey select (block, sub, cell)).ToArray();
+        Need(cellOverrides.Length <= 1, "duplicate Core override of the interior cell");
+        var refOverrides = core.EnumerateMajorRecords().Where(r => r.FormKey == plan.Interior).ToArray();
+        Need(refOverrides.Length <= 1, "duplicate Core override of the interior endpoint");
+        if (refOverrides.Length != 0)
+        {
+            Need(refOverrides[0] is IPlacedObjectGetter && cellOverrides.Length == 1,
+                "Core endpoint override changed type or interior parent");
+            var c = cellOverrides[0];
+            var matches = c.cell.Persistent.OfType<IPlacedObjectGetter>().Where(r => r.FormKey == plan.Interior).ToArray();
+            Need(matches.Length == 1, "Core endpoint override must remain in the original persistent interior group");
+            inside = (c.block, c.sub, c.cell, matches[0]);
+        }
+        else if (cellOverrides.Length == 1)
+        {
+            var c = cellOverrides[0];
+            inside = (c.block, c.sub, c.cell, inside.obj);
+        }
         Need(inside.cell.FormKey.ModKey == port.ModKey && (inside.cell.Flags & Cell.Flag.IsInteriorCell) == Cell.Flag.IsInteriorCell, "Port-owned interior cell required");
         Need((inside.cell.MajorRecordFlagsRaw & 0x20) == 0, "interior parent is deleted");
         var exteriors = (from world in core.Worldspaces where world.TopCell != null

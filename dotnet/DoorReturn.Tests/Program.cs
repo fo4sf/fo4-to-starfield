@@ -13,7 +13,7 @@ Directory.CreateDirectory(root);
 if (args.Contains("--pipeline-only")) { PipelineTests.Run(root); return; }
 void Need(bool value, string message) { if (!value) throw new Exception(message); }
 var results = new List<object>();
-foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterior", "missing-flag", "deleted", "wrong-outbound", "static-base", "conflicting-return", "nan-arrival", "relative-arrival", "port-cycle", "wrong-owner", "deleted-cell", "deleted-world", "wrong-transition", "light-core" })
+foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterior", "missing-flag", "deleted", "wrong-outbound", "static-base", "conflicting-return", "nan-arrival", "relative-arrival", "port-cycle", "wrong-owner", "deleted-cell", "deleted-world", "wrong-transition", "light-core", "core-cell-override", "core-door-override", "core-door-deleted", "core-door-temporary" }.Where(s => !args.Contains("--overrides-only") || s.StartsWith("core-")))
 {
     var folder = Path.Combine(root,scenario); Directory.CreateDirectory(folder);
     var sfKey = ModKey.FromNameAndExtension("Starfield.esm");
@@ -52,6 +52,18 @@ foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterio
     if (scenario == "deleted-world") world.MajorRecordFlagsRaw |= 0x20;
     if (scenario == "wrong-transition") outside.TeleportDestination.TransitionInterior.SetTo(new FormKey(portKey,0x801));
     if (scenario == "light-core") core.IsSmallMaster = true;
+    if (scenario.StartsWith("core-"))
+    {
+        var cc=cell.DeepCopy();cc.Persistent.Clear();cc.Temporary.Clear();cc.EditorID="WinningCoreCave";
+        if(scenario!="core-cell-override")
+        {
+            var winner=inside.DeepCopy();winner.Position=new P3Float(9,8,7);winner.Scale=.5f;winner.OpenByDefault=false;winner.MajorRecordFlagsRaw=0x400;
+            if(scenario=="core-door-deleted")winner.MajorRecordFlagsRaw|=0x20;
+            if(scenario=="core-door-temporary")cc.Temporary.Add(winner);else cc.Persistent.Add(winner);
+        }
+        var cb=new CellBlock{BlockNumber=8,GroupType=GroupTypeEnum.InteriorCellBlock};var cs=new CellSubBlock{BlockNumber=4,GroupType=GroupTypeEnum.InteriorCellSubBlock};
+        cs.Cells.Add(cc);cb.SubBlocks.Add(cs);core.Cells.Records.Add(cb);
+    }
     var keys = new[]{sfKey,portKey,coreKey};var styles=keys.Select(k=>new KeyedMasterStyle(k,MasterStyle.Full)).ToArray();
     foreach (var mod in new[]{sf,port,core}) mod.BeginWrite.ToPath(Path.Combine(folder,mod.ModKey.FileName.String)).WithLoadOrder(keys.Where(k=>k!=mod.ModKey)).WithKnownMasters(styles).Write();
     var lookup=new Cache<IModMasterStyledGetter,ModKey>(m=>m.ModKey);foreach(var s in styles)lookup.Set(s);
@@ -61,13 +73,15 @@ foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterio
     try
     {
         var patch=ReturnPatch.Build(sfo,po,co,plan);
-        Need(scenario=="valid","invalid input accepted: "+scenario);
+        Need(scenario is "valid" or "core-cell-override" or "core-door-override","invalid input accepted: "+scenario);
         var path=Path.Combine(folder,"FO4DoorReturn.esm");patch.BeginWrite.ToPath(path).WithLoadOrder(keys).WithKnownMasters(styles).Write();
         using var read=Open(path);
         Need(read.Worldspaces.Count==0 && read.EnumerateMajorRecords().Count()==2,"patch contains records outside interior CELL/REFR");
         var c=read.Cells.Records.Single().SubBlocks.Single().Cells.Single();var r=c.Persistent.OfType<IPlacedObjectGetter>().Single();
         Need(c.FormKey==cell.FormKey && c.Temporary.Count==0 && c.NavigationMeshes.Count==0,"wrong cell identity/children");
-        Need(r.FormKey==inside.FormKey && r.Position==inside.Position && r.Rotation==inside.Rotation && r.Scale==inside.Scale && r.MajorRecordFlagsRaw==inside.MajorRecordFlagsRaw && r.OpenByDefault,"source state changed");
+        var expected=scenario=="core-door-override" ? core.Cells.Records.Single().SubBlocks.Single().Cells.Single().Persistent.OfType<IPlacedObjectGetter>().Single() : inside;
+        Need(r.FormKey==expected.FormKey && r.Position==expected.Position && r.Rotation==expected.Rotation && r.Scale==expected.Scale && r.MajorRecordFlagsRaw==expected.MajorRecordFlagsRaw && r.OpenByDefault==expected.OpenByDefault,"winning source state changed");
+        Need(c.EditorID==(scenario.StartsWith("core-") ? "WinningCoreCave" : "SyntheticCave"),"winning cell override lost");
         Need(r.TeleportDestination!.Door.FormKey==outside.FormKey && r.TeleportDestination.Position==plan.Position && r.TeleportDestination.Rotation==plan.Rotation,"wrong return link/arrival");
         Need(read.ModHeader.MasterReferences.Select(m=>m.Master).SequenceEqual(keys),"wrong master ordering");
         Need(read.EnumerateMajorRecords().All(r=>r.FormKey.ModKey==portKey),"new patch-owned record allocated");
@@ -82,11 +96,11 @@ foreach (var scenario in new[] { "valid", "missing-exterior", "temporary-exterio
     }
     catch(InvalidDataException e)
     {
-        Need(scenario!="valid","valid pair rejected: "+e.Message);
+        Need(scenario is not ("valid" or "core-cell-override" or "core-door-override"),"valid pair rejected: "+e.Message);
         results.Add(new{scenario,result="refused",reason=e.Message});
     }
     Need(original.All(p=>File.ReadAllBytes(p.Key).SequenceEqual(p.Value)),"input files changed");
 }
 File.WriteAllText(Path.Combine(root,"results.json"),JsonSerializer.Serialize(results,new JsonSerializerOptions{WriteIndented=true}));
-Console.WriteLine("16 return-patch scenarios passed (one serialized/CLI success, fifteen refusals): "+root);
-PipelineTests.Run(root);
+Console.WriteLine(results.Count+" return-patch scenarios passed: "+root);
+if(!args.Contains("--overrides-only"))PipelineTests.Run(root);

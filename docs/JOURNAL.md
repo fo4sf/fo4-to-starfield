@@ -1496,3 +1496,7 @@ Standalone dotnet/DoorReturn validates a Core-owned persistent outbound endpoint
 ## 2026-10-16 — Codex: joint persistent-door CLI handoff
 
 PR253 adds a joint synthetic CLI check: ReferenceLinks strict refuses missing exterior, explicit partial writes the source-mapped persistent endpoint, a synthetic Core outbound fixture references its saved identity, actual DoorReturn CLI writes the return. Readback of both serialized Core and patch verifies reciprocal targets, preserved reserved IDs (including unrelated reservation), transformed source state, arrival and exact two-record interior scope; input bytes unchanged. Targeted --pipeline-only passes; sixteen boundary cases unchanged/not rerun. Guard passes. This validates component interfaces, not the real Core producer or gameplay. Initial and final private packets retained; peer QA pending.
+
+## 2026-10-16 — Codex: preserve effective Core overrides in door return patch
+
+Reproduced PR253 restoring an older Port CELL instead of a newer Core override (failed serialized output retained). ReturnPatch now resolves effective Core cell/reference overrides before validation/copy; cell-only changes inherit the original reference, while moved/temporary/deleted/different-type/duplicate endpoint conflicts refuse. Four focused cases pass, followed by20 boundary cases (3 binary/CLI successes,17 refusals) and the joint pipeline check. Guard/diff pass. Private door-winning-overrides-20261016 retains before/after/regression evidence. Peer QA pending; no game/stage/deployment changes.
