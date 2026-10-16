@@ -46,6 +46,10 @@ class FailureSummaryTests(unittest.TestCase):
             summary = json.loads(summary_path.read_text())
             self.assertEqual(summary["total_failures"], 4)
             self.assertEqual(summary["unique_reasons"], 2)
+            self.assertIn("reused", summary)
+            self.assertIn("seconds", summary)
+            self.assertEqual(summary["limit"], 10)
+            self.assertIn("pattern", summary)
             self.assertEqual(summary["top"][0]["reason"], "missing texture")
             self.assertEqual(summary["top"][0]["count"], 2)
             self.assertAlmostEqual(summary["top"][0]["percent"], 50.0)
@@ -76,6 +80,8 @@ class FailureSummaryTests(unittest.TestCase):
             summary = json.loads(summary_path.read_text())
             self.assertEqual(summary["total_failures"], 0)
             self.assertEqual(summary["unique_reasons"], 0)
+            self.assertIn("reused", summary)
+            self.assertIn("seconds", summary)
             self.assertEqual(summary["top"], [])
 
     def test_overwrites_stale_summary_on_successful_rerun(self):
@@ -117,5 +123,7 @@ class FailureSummaryTests(unittest.TestCase):
             summary = json.loads((staging / "failure-summary.json").read_text())
             self.assertEqual(summary["total_failures"], 0)
             self.assertEqual(summary["unique_reasons"], 0)
+            self.assertIn("reused", summary)
+            self.assertIn("seconds", summary)
             self.assertEqual(summary["top"], [])
 

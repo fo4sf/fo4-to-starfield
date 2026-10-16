@@ -279,6 +279,18 @@ best effort. Alternatives rejected: accepting a green retry of the intermittent 
 timestamp-only detection, or claiming that two hashes create an atomic snapshot.
 [Contract, evidence and limits](../testing/archive-fingerprints.md).
 
+## 2026-10-15 Codex: bridge publication and activation keep write-ahead ownership (#124)
+
+Reuse the existing exclusive validated publisher and packed-resource verifier.
+Record file intent before publication, confirmation afterward, and exact current
+profile/activation bytes before changing Plugins.txt. Ambiguous or changed targets
+keep a retryable journal; complete legacy ownership remains compatible. Cleanup
+must be profile-bound and idempotent when a restored inactive line is already
+present. Integrate Claude's bridge-last order caller without replacing its policy.
+Alternatives rejected: direct final-path copies, minting identity from a copied
+file without checking its source, or erasing an incomplete journal with untracked
+artifacts still present. [Recovery boundaries](../testing/bridge-recovery.md).
+
 ## 2026-10-15 — Codex: reserve FormIDs before plugin publication (#132)
 
 Persist the complete plain JSON identity map through a flushed same-directory

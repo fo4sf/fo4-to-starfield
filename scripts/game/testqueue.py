@@ -2416,6 +2416,23 @@ def install_mismatch(q, inst):
     return None
 
 
+def copy_attempt_logs(bridge_src, out_dir, log):
+    """Copy this attempt's evidence logs next to its captures: the bridge's log as bridge.log, and the game's newest
+    Papyrus log (Logs/Script/Papyrus.0.log, two folders up from the bridge log) as papyrus.log when it exists: a
+    script error there is what stops the bridge mid-attempt (r05_medkit_1015: it stopped at a teleport and the
+    session's Papyrus log had rotated away before anyone read it). The game rotates both on every load."""
+    try:
+        shutil.copy2(bridge_src, os.path.join(out_dir, "bridge.log"))
+    except OSError as e:
+        log(f"bridge log not copied: {e}")
+    papyrus = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(bridge_src))), "Papyrus.0.log")
+    if os.path.exists(papyrus):
+        try:
+            shutil.copy2(papyrus, os.path.join(out_dir, "papyrus.log"))
+        except OSError as e:
+            log(f"papyrus log not copied: {e}")
+
+
 class Runner:
     def __init__(self, qdir, a, ctl=None, step=None):
         self.qdir, self.a = qdir, a
@@ -2469,10 +2486,7 @@ class Runner:
             # the bridge's log is this attempt's evidence (positions, acknowledgements, probe replies); the game
             # rotates it on every load and the next launch starts a new one, so a copy goes into the attempt folder
             src = os.environ.get("FO4SF_BRIDGE_LOG") or bridge_log.default_log()
-            try:
-                shutil.copy2(src, os.path.join(out_dir, "bridge.log"))
-            except OSError as e:
-                self.log(f"bridge log not copied: {e}")
+            copy_attempt_logs(src, out_dir, self.log)
         return code
 
     def pinned_ok(self):

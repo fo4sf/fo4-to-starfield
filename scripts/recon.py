@@ -310,7 +310,7 @@ def main():
     for t, s in cmp_["schema_by_type"].items():
         print(f"  {t}: fo4={s['fo4_count']:>7} sf={s['sf_count']:>7} overlap={s['subrecord_overlap']}")
     for lab, inv in [("FO4", fo4_ba2), ("SF", sf_ba2)]:
-        print(f"\n{lab} archives: " + ", ".join(sorted({f'v{a['version']}/{a['type']}/c{a['compression_method']}' for a in inv['archives']})))
+        print(f"\n{lab} archives: " + ", ".join(sorted({f"v{a['version']}/{a['type']}/c{a['compression_method']}" for a in inv['archives']})))
         print(f"{lab} top extensions: " + ", ".join(f"{e}:{n}" for e, n in list(inv["extension_totals"].items())[:25]))
         for s in inv["nif_samples"]:
             print(f"  NIF {s['name']}: bs={s.get('bs_version')} uv={s.get('user_version')} "
