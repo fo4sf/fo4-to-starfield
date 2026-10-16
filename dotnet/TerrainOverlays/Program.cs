@@ -32,19 +32,19 @@
 // "ref", "kind"}.
 // objects.json may also hold "lights" and "light_bases" (exterior lights, docs/terrain/exterior-lights.md: written by
 // make_core64c.py stage from make_cluster.py lights): FO4 Light references, which core64c never placed and which therefore
-// own no reserved slot. In legacy mode their REFRs take NEW FormIDs after the preceding records (the reserved REFRs, the
+// own no reserved slot. Their REFRs take NEW FormIDs after every other record of the plugin (the reserved REFRs, the
 // CONT, MISC, ACTI and TERM bases, the TMLM menus and the NAVMs), in "lights" order, then one LIGH per FO4 base (a copy of LGT_Interior_Omni_NS_Warm_004_2k,
-// 12A74B:Starfield.esm, with the mapped fields). Scripted door bases/arrival markers follow the lights. Persistent mode
-// keeps prior reservations across changed exports; legacy mode preserves the preceding record IDs only.
-
-// "doors" (scripted load doors, docs/terrain/scripted-doors.md, make_core64c.py stage --cluster from make_cluster.py doors):
-// the door REFR keeps its original slot too, its base is one ACTI per FO4 door base (EditorID, FULL = name, MODL = the
-// converted mesh, OBND = "obnd", PNAM cc4c3300, FNAM 0, JNAM 360) and the REFR carries a VMAD (version 6, object format 2)
-// with the Local script "script".name and its string / int properties (FO4SF_LoadDoor: DestinationPlugin "FO4Port.esm" +
-// DestinationId = the interior door's plugin-local id); a temporary XMarker (00003B:Starfield.esm) REFR stands at the
-// outside arrival point ("arrival": pos, rot, cell). The ACTI bases (first-use order) and then the arrival markers (doors
-// order) take NEW FormIDs after every other record of the plugin, the NAVMs included, so a build with doors keeps every
-// FormID of the build without them; formids.json "doors" maps each source to {"base", "ref", "arrival"}.
+// 12A74B:Starfield.esm, with the mapped fields), so a build with lights keeps every FormID of the build without them.
+// objects.json may also hold "doors" (scripted load doors, docs/terrain/scripted-doors.md: written by make_core64c.py
+// stage from make_cluster.py doors): FO4 exterior load doors whose destination lies in a converted interior. The door
+// REFR keeps its slot (as every promoted class) and carries a VMAD attaching FO4SF_LoadDoor (scripts/door_bridge, PR
+// #243) with the edited properties DestinationPlugin (string) and DestinationId (int, the interior arrival marker's
+// plugin-local id); its base is one ACTI per FO4 door base (the converted door mesh, FULL the entry's name, PNAM /
+// FNAM / JNAM as the activators'). Each door also places an exterior ARRIVAL marker (XMarker 00003B:Starfield.esm,
+// temporary, in the cell of the FO4 arrival point) where the interior door's MoveTo lands the player. The markers take
+// NEW FormIDs after every other record of the plugin (the lights included), in "doors" order, then the door ACTIs in
+// first-use order, so a build with doors keeps every FormID of the build without them; formids.json "doors" maps each
+// source to {"base", "ref", "arrival"}.
 using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
@@ -211,17 +211,19 @@ var refIds = new Dictionary<string, string>();                 // placed referen
 Dictionary<string, object>? ids = null;                        // formids.json
 Dictionary<(int, int), Cell>? objCells = null;                 // the objects' overlay cells
 string? objWorld = null;
-Dictionary<string, FormKey>? referenceKeys = null;             // every reserved REFR slot (ReferenceIdentityPlan.Order)
-JsonElement? doorsJson = null;                                 // scripted bases/arrivals: after NAVMs and lights
-string[] lightSources = Array.Empty<string>();                 // exterior lights: after NAVMs, before scripted bases/arrivals
+string[] lightSources = Array.Empty<string>();                 // exterior lights: written after everything else
 JsonElement? lightsJson = null, lightBasesJson = null;
+// scripted load doors: the REFRs are placed with the objects (reserved slots); their ACTI bases and arrival markers
+// are allocated after the lights
+var doorEntries = new List<(string Src, PlacedObject Obj, string Edid, string Model, string Name, int[] ArrivalCell, float[] ArrivalPos, float[] ArrivalRot)>();
+var doorIds = new Dictionary<string, object>();
+var doorRefIds = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);   // door source -> its REFR id: a navmesh door triangle may name it
 if (Has(prm, "objects"))
 {
     // core64c: converted FO4 models and their references, allocated after every overlay record
     using var odoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, prm.GetProperty("objects").GetString()!)));
     var o = odoc.RootElement;
     var referenceSources = ReferenceIdentityPlan.Order(o);
-    if (o.TryGetProperty("doors", out var dj)) doorsJson = dj.Clone();
     lightSources = ReferenceIdentityPlan.Lights(o, referenceSources);           // refused before anything is written
     if (lightSources.Length > 0)
     {
@@ -271,7 +273,7 @@ if (Has(prm, "objects"))
     }
     // Reserve every original slot, including references promoted out of "refs".
     // A later neighbour must not inherit the promoted source's saved-game ID.
-    referenceKeys = referenceSources.ToDictionary(src => src, src => NewKey("reference", stable == null ? src : TerrainStableIds.Source(src)),  StringComparer.OrdinalIgnoreCase);
+    var referenceKeys = referenceSources.ToDictionary(src => src, src => NewKey("reference", stable == null ? src : TerrainStableIds.Source(src)), StringComparer.OrdinalIgnoreCase);
     foreach (var r in o.GetProperty("refs").EnumerateArray())
     {
         float[] V(string k) => r.GetProperty(k).EnumerateArray().Select(e => e.GetSingle()).ToArray();
@@ -280,7 +282,7 @@ if (Has(prm, "objects"))
             throw new InvalidDataException($"reference {r.GetProperty("src").GetString()} in cell ({cxy[0]}, {cxy[1]}) outside {world}'s cells");
         var pos = V("pos");
         var rot = V("rot");
-        var obj = new PlacedObject(referenceKeys![r.GetProperty("src").GetString()!], release)
+        var obj = new PlacedObject(referenceKeys[r.GetProperty("src").GetString()!], release)
         {
             Base = new FormLinkNullable<IPlaceableObjectGetter>(baseKeys[r.GetProperty("base").GetInt32()]),
             Position = new P3Float(pos[0], pos[1], pos[2]),
@@ -350,7 +352,7 @@ if (Has(prm, "objects"))
                 throw new InvalidDataException($"container {edid}: {c.GetProperty("src").GetString()} asks for {ContainerSignature(c)} but the shared record is {contSig[edid]}");
             var pos = V("pos");
             var rot = V("rot");
-            var obj = new PlacedObject(referenceKeys![c.GetProperty("src").GetString()!], release)
+            var obj = new PlacedObject(referenceKeys[c.GetProperty("src").GetString()!], release)
             {
                 Base = new FormLinkNullable<IPlaceableObjectGetter>(cont.FormKey),
                 Position = new P3Float(pos[0], pos[1], pos[2]),
@@ -411,7 +413,7 @@ if (Has(prm, "objects"))
                 throw new InvalidDataException($"item {edid}: {src} asks for {ItemSignature(c)} but the shared record is {miscSig[edid]}");
             var pos = V("pos");
             var rot = V("rot");
-            var obj = new PlacedObject(referenceKeys![src], release)
+            var obj = new PlacedObject(referenceKeys[src], release)
             {
                 Base = new FormLinkNullable<IPlaceableObjectGetter>(misc.FormKey),
                 Position = new P3Float(pos[0], pos[1], pos[2]),
@@ -663,13 +665,14 @@ if (Has(prm, "objects"))
     var benchIds = new Dictionary<string, object>();
     if (o.TryGetProperty("benches", out var benchJ))
     {
+        var benchKinds = new Dictionary<string, uint> { ["weapon"] = 0x2B6A63, ["armor"] = 0x2B6A62, ["chem"] = 0x2B6A61, ["cooking"] = 0x2B6A65 };
         var furnOk = new Dictionary<uint, string>();
         foreach (var c in benchJ.EnumerateArray())
         {
             var src = c.GetProperty("src").GetString()!;
             var kind = c.GetProperty("kind").GetString() ?? "";
             var vanilla = c.GetProperty("vanilla").GetString() ?? "";
-            if (!ReferenceIdentityPlan.BenchKinds.TryGetValue(kind, out var want))
+            if (!benchKinds.TryGetValue(kind, out var want))
                 throw new InvalidDataException($"bench {src}: kind '{kind}' is not weapon / armor / chem / cooking");
             var colon = vanilla.IndexOf(':');
             if (colon < 1 || !uint.TryParse(vanilla[..colon], System.Globalization.NumberStyles.HexNumber, null, out var id)
@@ -691,6 +694,55 @@ if (Has(prm, "objects"))
                 Console.WriteLine($"  bench {kind} {src} -> REFR {obj.FormKey} on {vanilla}");
         }
     }
+    // Scripted load doors (docs/terrain/scripted-doors.md): FO4 exterior load doors into converted interiors
+    // ({"src", "edid", "model", "name", "destination": {"plugin", "id", "ref", "cell"}, "arrival": {"pos", "rot", "cell"},
+    // "cell", "pos", "rot", "scale", "reference_index"}). The REFR is placed here, temporary in its reserved slot, with
+    // the VMAD (Mutagen 0.55.0-alpha.67 VirtualMachineAdapter, version 6 / object format 2, one local ScriptEntry
+    // FO4SF_LoadDoor, ScriptStringProperty DestinationPlugin + ScriptIntProperty DestinationId, both Edited: the layout
+    // of Starfield.esm's own REFR VMADs, read back raw by the design pass). Its ACTI base (one per edid: entries of an
+    // edid must agree on model and name) and its arrival marker are allocated after the lights, below; the base link
+    // is set then. Refused: a destination that is not a plugin file name with an id in 1..0xFFFFFF, two doors sharing
+    // one destination, an arrival marker outside the overlay's cells.
+    if (o.TryGetProperty("doors", out var doorsJ))
+    {
+        var doorSig = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var destSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var c in doorsJ.EnumerateArray())
+        {
+            var src = c.GetProperty("src").GetString()!;
+            var edid = c.GetProperty("edid").GetString()!;
+            var model = c.GetProperty("model").GetString()!;
+            var name = OneLine(c, "name", optional: false)!;
+            var dest = c.GetProperty("destination");
+            var plugin = dest.GetProperty("plugin").GetString() ?? "";
+            if (string.IsNullOrWhiteSpace(plugin) || plugin.IndexOfAny(new[] { '\\', '/', '\n', '\r' }) >= 0)
+                throw new InvalidDataException($"door {src}: destination plugin '{plugin}' is not a plugin file name");
+            if (!dest.GetProperty("id").TryGetInt32(out var destId) || destId <= 0 || destId > 0xFFFFFF)
+                throw new InvalidDataException($"door {src}: destination id {dest.GetProperty("id")} is not a plugin-local id in 1..0xFFFFFF");
+            if (!destSeen.Add($"{plugin}:{destId:X6}"))
+                throw new InvalidDataException($"door {src}: destination {plugin}:{destId:X6} already belongs to another door");
+            var sig = $"{model.ToLowerInvariant()}|{name}";
+            if (doorSig.TryGetValue(edid, out var have))
+            {
+                if (have != sig) throw new InvalidDataException($"door {edid}: {src} asks for {sig} but the shared record is {have}");
+            }
+            else doorSig[edid] = sig;
+            var arr = c.GetProperty("arrival");
+            float[] A(string k) => arr.GetProperty(k).EnumerateArray().Select(e => e.GetSingle()).ToArray();
+            var acell = arr.GetProperty("cell").EnumerateArray().Select(e => e.GetInt32()).ToArray();
+            if (!cellAt.ContainsKey((acell[0], acell[1])))
+                throw new InvalidDataException($"door {src}: arrival marker in cell ({acell[0]}, {acell[1]}) outside {world}'s cells");
+            var obj = PlacePromoted(c, FormKey.Null, "door");                   // the ACTI base is linked after the lights
+            var vmad = new VirtualMachineAdapter { Version = 6, ObjectFormat = 2 };
+            var script = new ScriptEntry { Name = "FO4SF_LoadDoor", Flags = ScriptEntry.Flag.Local };
+            script.Properties.Add(new ScriptStringProperty { Name = "DestinationPlugin", Flags = ScriptProperty.Flag.Edited, Data = plugin });
+            script.Properties.Add(new ScriptIntProperty { Name = "DestinationId", Flags = ScriptProperty.Flag.Edited, Data = destId });
+            vmad.Scripts.Add(script);
+            obj.VirtualMachineAdapter = vmad;
+            doorEntries.Add((src, obj, edid, model, name, acell, A("pos"), A("rot")));
+            doorRefIds[src] = obj.FormKey.ID.ToString("X6");
+        }
+    }
     nCont = contByEdid.Count; nMisc = miscByEdid.Count; nActi = actiByEdid.Count; nTerm = termByEdid.Count; nWkshp = wkshpByEdid.Count;
     ids = new Dictionary<string, object> { ["plugin"] = modKey.FileName.String, ["world"] = world, ["bases"] = baseIds, ["refs"] = refIds, ["containers"] = contIds };
     if (o.TryGetProperty("items", out _)) ids["items"] = itemIds;               // a build without items keeps its formids.json bytes
@@ -698,6 +750,7 @@ if (Has(prm, "objects"))
     if (o.TryGetProperty("terminals", out _)) ids["terminals"] = termIds;
     if (o.TryGetProperty("workshops", out _)) ids["workshops"] = wkshpIds;       // (and without workshops / benches)
     if (o.TryGetProperty("benches", out _)) ids["benches"] = benchIds;
+    if (o.TryGetProperty("doors", out _)) ids["doors"] = doorIds;               // filled after the lights
 }
 if (Has(prm, "navmesh"))
 {
@@ -781,7 +834,8 @@ if (Has(prm, "navmesh"))
         foreach (var d in e.GetProperty("doors").EnumerateArray())
         {
             var src = d[2].GetString()!;
-            if (!refIds.TryGetValue(src, out var doorId))
+            // a FO4 load door promoted to a scripted door keeps its REFR id: the door triangle links to the same record
+            if (!refIds.TryGetValue(src, out var doorId) && !doorRefIds.TryGetValue(src, out doorId))
                 throw new InvalidDataException($"navmesh {i}: door {src} is not a placed reference of this plugin");
             var doorKey = new FormKey(modKey, Convert.ToUInt32(doorId, 16));
             g.DoorTriangles.Add(new DoorTriangle { TriangleBeforeDoor = d[0].GetInt16(), Unknown = unchecked((int)d[1].GetUInt32()), Door = new FormLink<IPlacedObjectGetter>(doorKey) });
@@ -843,9 +897,8 @@ if (lightsJson is JsonElement lights && lightBasesJson is JsonElement lightBases
     foreach (var b in lightBases.EnumerateArray())
     {
         float F(string k) => b.GetProperty(k).GetSingle();
-        var edid = b.GetProperty("edid").GetString()!;
-        var rec = (Light)templateLight.Duplicate(NewKey("light-base", edid));
-        rec.EditorID = edid;
+        var rec = (Light)templateLight.Duplicate(NewKey("light-base", b.GetProperty("edid").GetString()!));
+        rec.EditorID = b.GetProperty("edid").GetString();
         var bb = b.GetProperty("bounds");
         rec.ObjectBounds = new ObjectBounds
         {
@@ -915,157 +968,45 @@ if (lightsJson is JsonElement lights && lightBasesJson is JsonElement lightBases
     }
     ids!["lights"] = lightIds;
 }
-int nDoorActi = 0, nDoorRef = 0;
-if (doorsJson is JsonElement doors)
+int nDoorActi = 0;
+if (doorEntries.Count > 0)
 {
-    // Scripted load doors (docs/terrain/scripted-doors.md). The door REFR sits in its reserved slot (referenceKeys);
-    // the ACTI bases (one per edid, first-use order) and then the arrival XMarkers (doors order) take NEW FormIDs after
-    // every record above, the NAVMs included. Every input is checked before the first record is allocated, so a refused
-    // objects.json leaves the plugin and formids.json unwritten.
-    // ({"src", "edid", "model", "name", "obnd": [[x, y, z], [x, y, z]], "cell", "pos", "rot", "scale", "reference_index",
-    //   "script": {"name", "properties": {<string property>: "<plugin>", <int property>: <plugin-local id>}},
-    //   "arrival": {"pos", "rot", "cell"}}; the VMAD layout is the one Starfield.esm's own REFR scripts carry: version 6,
-    //   object format 2, script status 0 Local, property status 1 Edited, string = uint16 length + chars, int = int32.)
-    var cellAt = objCells ?? throw new InvalidDataException("doors need objects");
-    var entries = doors.EnumerateArray().ToList();
-    static string DoorSignature(JsonElement d)
+    // Scripted load doors, the appended records: first one arrival XMarker REFR per door (temporary, in the cell of
+    // the FO4 arrival point: where the interior door's MoveTo lands the player), in "doors" order, then one ACTI per
+    // door edid in first-use order (the converted door mesh, FULL the name, PNAM / FNAM / JNAM as the activators:
+    // the vanilla majority), and the door REFRs placed above take that ACTI as base.
+    var markerKeys = doorEntries.Select(d => NewKey("door-arrival", stable == null ? d.Src : TerrainStableIds.Source(d.Src))).ToList();
+    var doorActi = new Dictionary<string, StarfieldActivator>(StringComparer.OrdinalIgnoreCase);
+    for (int i = 0; i < doorEntries.Count; i++)
     {
-        var ob = d.GetProperty("obnd");
-        var b = string.Join(",", ob.EnumerateArray().SelectMany(c => c.EnumerateArray()).Select(v => v.GetSingle().ToString("R")));
-        return $"{d.GetProperty("model").GetString()!.ToLowerInvariant()}|{d.GetProperty("name").GetString()}|{b}";
-    }
-    var sigOf = new Dictionary<string, (string Src, string Sig)>(StringComparer.OrdinalIgnoreCase);
-    var edidOrder = new List<string>();
-    foreach (var d in entries)
-    {
-        var src = d.GetProperty("src").GetString()!;
-        var edid = d.GetProperty("edid").GetString()!;
-        var name = d.GetProperty("name").GetString();
-        if (string.IsNullOrWhiteSpace(name) || name.Contains('\n') || name.Contains('\r'))
-            throw new InvalidDataException($"door {src}: name {name} is not one non-empty line");
-        var ob = d.GetProperty("obnd");
-        if (ob.GetArrayLength() != 2 || ob.EnumerateArray().Any(c => c.GetArrayLength() != 3))
-            throw new InvalidDataException($"door {src}: obnd is not [[x, y, z], [x, y, z]]");
-        for (int k = 0; k < 3; k++)
-            if (!(ob[0][k].GetSingle() <= ob[1][k].GetSingle()))
-                throw new InvalidDataException($"door {src}: obnd min > max");
-        var sig = DoorSignature(d);
-        if (!sigOf.TryGetValue(edid, out var first)) { sigOf[edid] = (src, sig); edidOrder.Add(edid); }
-        else if (first.Sig != sig)
-            throw new InvalidDataException($"door {edid}: {src} asks for {sig} but the shared record ({first.Src}) is {first.Sig}");
-        var script = d.GetProperty("script");
-        if (string.IsNullOrWhiteSpace(script.GetProperty("name").GetString()))
-            throw new InvalidDataException($"door {src}: script without a name");
-        int nProps = 0;
-        foreach (var p in script.GetProperty("properties").EnumerateObject())
+        var d = doorEntries[i];
+        if (!doorActi.TryGetValue(d.Edid, out var acti))
         {
-            if (string.IsNullOrWhiteSpace(p.Name)) throw new InvalidDataException($"door {src}: script property without a name");
-            if (p.Value.ValueKind == JsonValueKind.String)
+            acti = new StarfieldActivator(NewKey("door-base", d.Edid), release)
             {
-                if (string.IsNullOrWhiteSpace(p.Value.GetString())) throw new InvalidDataException($"door {src}: {p.Name} is empty");
-            }
-            else if (p.Value.ValueKind == JsonValueKind.Number)
-            {
-                if (!p.Value.TryGetInt32(out var iv) || iv <= 0 || iv > 0xFFFFFF)
-                    throw new InvalidDataException($"door {src}: {p.Name} {p.Value} is not a plugin-local id in 1..0xFFFFFF");
-            }
-            else throw new InvalidDataException($"door {src}: {p.Name} is neither a string nor an int");
-            nProps++;
+                EditorID = d.Edid, Model = new Model { File = d.Model }, Name = d.Name,
+                MarkerColor = System.Drawing.Color.FromArgb(0, 0xCC, 0x4C, 0x33),
+                Flags = (StarfieldActivator.Flag)0, ActivationAngle = 360,
+            };
+            mod.Activators.Add(acti);
+            doorActi[d.Edid] = acti;
+            nDoorActi++;
         }
-        if (nProps == 0) throw new InvalidDataException($"door {src}: script without properties");
-        var acxy = d.GetProperty("arrival").GetProperty("cell").EnumerateArray().Select(x => x.GetInt32()).ToArray();
-        if (!cellAt.ContainsKey((acxy[0], acxy[1])))
-            throw new InvalidDataException($"door {src}: arrival in cell ({acxy[0]}, {acxy[1]}) outside {objWorld}'s cells");
-        var cxy = d.GetProperty("cell").EnumerateArray().Select(x => x.GetInt32()).ToArray();
-        if (!cellAt.ContainsKey((cxy[0], cxy[1])))
-            throw new InvalidDataException($"door {src}: in cell ({cxy[0]}, {cxy[1]}) outside {objWorld}'s cells");
-        if (referenceKeys == null || !referenceKeys.ContainsKey(src))
-            throw new InvalidDataException($"door {src}: no reserved reference slot");
-    }
-    var actiByEdid = new Dictionary<string, Mutagen.Bethesda.Starfield.Activator>(StringComparer.OrdinalIgnoreCase);
-    foreach (var edid in edidOrder)
-    {
-        var d = entries.First(e => string.Equals(e.GetProperty("edid").GetString(), edid, StringComparison.OrdinalIgnoreCase));
-        var ob = d.GetProperty("obnd");
-        // PNAM / FNAM / JNAM as the vanilla majority (Starfield.esm, 1,463 ACTI read raw in the design pass: marker colour
-        // bytes CC 4C 33 00 in 1,347, flags 0 in 1,412, activation angle 360 in 1,453); no VMAD on the base: the script
-        // goes on each REFR with its own destination, so one ACTI serves every door of a FO4 base
-        var acti = new Mutagen.Bethesda.Starfield.Activator(NewKey("door-base", edid), release)
+        d.Obj.Base = new FormLinkNullable<IPlaceableObjectGetter>(acti.FormKey);
+        var marker = new PlacedObject(markerKeys[i], release)
         {
-            EditorID = edid, Name = d.GetProperty("name").GetString(),
-            Model = new Model { File = d.GetProperty("model").GetString()! },
-            ObjectBounds = new ObjectBounds
-            {
-                First = new P3Float(ob[0][0].GetSingle(), ob[0][1].GetSingle(), ob[0][2].GetSingle()),
-                Second = new P3Float(ob[1][0].GetSingle(), ob[1][1].GetSingle(), ob[1][2].GetSingle()),
-            },
-            Flags = 0, MarkerColor = System.Drawing.Color.FromArgb(0x00, 0xCC, 0x4C, 0x33), ActivationAngle = 360,
+            Base = new FormLinkNullable<IPlaceableObjectGetter>(new FormKey(sfEsm, 0x00003B)),            // XMarker
+            Position = new P3Float(d.ArrivalPos[0], d.ArrivalPos[1], d.ArrivalPos[2]),
+            Rotation = new P3Float(d.ArrivalRot[0], d.ArrivalRot[1], d.ArrivalRot[2]),
         };
-        mod.Activators.Add(acti);
-        actiByEdid[edid] = acti;
-        nDoorActi++;
-    }
-    var doorIds = new Dictionary<string, Dictionary<string, string>>();
-    var placedDoors = new List<(JsonElement Entry, PlacedObject Ref, Mutagen.Bethesda.Starfield.Activator Acti)>();
-    foreach (var d in entries)
-    {
-        float[] V(JsonElement e, string k) => e.GetProperty(k).EnumerateArray().Select(x => x.GetSingle()).ToArray();
-        var src = d.GetProperty("src").GetString()!;
-        var cxy = d.GetProperty("cell").EnumerateArray().Select(x => x.GetInt32()).ToArray();
-        var pos = V(d, "pos");
-        var rot = V(d, "rot");
-        var obj = new PlacedObject(referenceKeys![src], release)
+        objCells![(d.ArrivalCell[0], d.ArrivalCell[1])].Temporary.Add(marker);
+        doorIds[d.Src] = new Dictionary<string, string>
         {
-            Base = new FormLinkNullable<IPlaceableObjectGetter>(actiByEdid[d.GetProperty("edid").GetString()!].FormKey),
-            Position = new P3Float(pos[0], pos[1], pos[2]),
-            Rotation = new P3Float(rot[0], rot[1], rot[2]),
+            ["base"] = acti.FormKey.ID.ToString("X6"), ["ref"] = d.Obj.FormKey.ID.ToString("X6"), ["arrival"] = marker.FormKey.ID.ToString("X6"),
         };
-        var scale = d.GetProperty("scale").GetSingle();
-        if (Math.Abs(scale - 1f) > 1e-4) obj.Scale = scale;
-        var script = d.GetProperty("script");
-        var vmad = new VirtualMachineAdapter { Version = 6, ObjectFormat = 2 };
-        var entry = new ScriptEntry { Name = script.GetProperty("name").GetString()!, Flags = ScriptEntry.Flag.Local };
-        foreach (var p in script.GetProperty("properties").EnumerateObject())
-        {
-            if (p.Value.ValueKind == JsonValueKind.String)
-                entry.Properties.Add(new ScriptStringProperty { Name = p.Name, Flags = ScriptProperty.Flag.Edited, Data = p.Value.GetString()! });
-            else
-                entry.Properties.Add(new ScriptIntProperty { Name = p.Name, Flags = ScriptProperty.Flag.Edited, Data = p.Value.GetInt32() });
-        }
-        vmad.Scripts.Add(entry);
-        obj.VirtualMachineAdapter = vmad;
-        cellAt[(cxy[0], cxy[1])].Temporary.Add(obj);
-        placedDoors.Add((d, obj, actiByEdid[d.GetProperty("edid").GetString()!]));
-        nRef++; nDoorRef++;
+        Console.WriteLine($"  door {d.Src} -> REFR {d.Obj.FormKey} on ACTI {acti.FormKey} {acti.EditorID} ('{d.Name}'), arrival marker {marker.FormKey} " +
+                          $"in cell ({d.ArrivalCell[0]}, {d.ArrivalCell[1]}) at ({d.ArrivalPos[0]}, {d.ArrivalPos[1]}, {d.ArrivalPos[2]})");
     }
-    foreach (var (d, obj, acti) in placedDoors)
-    {
-        float[] V(JsonElement e, string k) => e.GetProperty(k).EnumerateArray().Select(x => x.GetSingle()).ToArray();
-        var src = d.GetProperty("src").GetString()!;
-        var arrival = d.GetProperty("arrival");
-        var acxy = arrival.GetProperty("cell").EnumerateArray().Select(x => x.GetInt32()).ToArray();
-        var apos = V(arrival, "pos");
-        var arot = V(arrival, "rot");
-        var marker = new PlacedObject(NewKey("door-arrival", stable == null ? src : TerrainStableIds.Source(src)), release)
-        {
-            Base = new FormLinkNullable<IPlaceableObjectGetter>(new FormKey(sfEsm, 0x00003B)),   // XMarker (STAT)
-            Position = new P3Float(apos[0], apos[1], apos[2]),
-            Rotation = new P3Float(arot[0], arot[1], arot[2]),
-        };
-        cellAt[(acxy[0], acxy[1])].Temporary.Add(marker);                 // temporary: reads merged, as every core64 object
-        nRef++;
-        doorIds[src] = new Dictionary<string, string>
-        {
-            ["base"] = acti.FormKey.ID.ToString("X6"), ["ref"] = obj.FormKey.ID.ToString("X6"),
-            ["arrival"] = marker.FormKey.ID.ToString("X6"),
-        };
-        var props = string.Join(", ", obj.VirtualMachineAdapter!.Scripts[0].Properties.Select(p =>
-            p is ScriptStringProperty sp ? $"{p.Name}='{sp.Data}'" : p is ScriptIntProperty ip ? $"{p.Name}={ip.Data}" : p.Name));
-        Console.WriteLine($"  door {src}: ACTI {acti.FormKey} '{acti.Name}' {acti.Model?.File} -> REFR {obj.FormKey} in cell " +
-                          $"({d.GetProperty("cell")[0].GetInt32()}, {d.GetProperty("cell")[1].GetInt32()}) with {obj.VirtualMachineAdapter.Scripts[0].Name} " +
-                          $"({props}); arrival XMarker {marker.FormKey} at ({apos[0]}, {apos[1]}, {apos[2]}) in cell ({acxy[0]}, {acxy[1]})");
-    }
-    ids!["doors"] = doorIds;
 }
 if (ids != null)
     File.WriteAllText(output.StagePath("formids.json"), JsonSerializer.Serialize(ids));
@@ -1078,7 +1019,7 @@ Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {worlds
                   (Has(prm, "objects") ? $"; objects: {nStat} STAT, {nDoor} DOOR, {nCont} CONT, {nMisc} MISC, {nActi} ACTI, {nTerm} TERM + {nTerm} TMLM, {nWkshp} workshop ACTI, {nBench} bench REFR on vanilla FURN, {nRef} REFR ({nDisabled} initially disabled)" : "") +
                   (Has(prm, "navmesh") ? $"; navmesh: {nNav} NAVM, {nNavTri} triangles, {nNavLink} edge links, {nNavDoor} door triangles, NAVI override with {nNav} NVMI" : "") +
                   (nLightRef > 0 ? $"; lights: {nLight} LIGH, {nLightRef} REFR" : "") +
-                  (nDoorRef > 0 ? $"; doors: {nDoorActi} ACTI, {nDoorRef} scripted REFR + {nDoorRef} arrival markers" : ""));
+                  (doorEntries.Count > 0 ? $"; doors: {doorEntries.Count} scripted REFR on {nDoorActi} ACTI, {doorEntries.Count} arrival markers" : ""));
 
 if (Has(prm, "mars"))
 {
@@ -1099,8 +1040,9 @@ if (Has(prm, "mars"))
     var marsPath = output.StagePath(marsKey.FileName.String);
     mars.BeginWrite.ToPath(marsPath).WithLoadOrder(sfEsm, modKey)
         .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full), new KeyedMasterStyle(modKey, MasterStyle.Full)).Write();
-    Console.WriteLine($"prepared {marsKey.FileName} ({new FileInfo(marsPath).Length:N0} bytes); Mars master worldspaces now {planet.MasterWorldspaces!.Count}");
+    Console.WriteLine($"wrote {marsPath} ({new FileInfo(marsPath).Length:N0} bytes); Mars master worldspaces now {planet.MasterWorldspaces!.Count}");
 }
+
 stable?.PersistBeforePublication(output.StagePath);
 output.Commit();
 Console.WriteLine($"published {outputNames.Count} outputs in {outDir}");

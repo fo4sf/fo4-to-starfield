@@ -7,10 +7,6 @@ table, so the same promotion path runs over all 1,708 cells.
   report     --work <work> --build <core64c staging>                     counts of placed references by FO4 base type
   containers --work <work> --build <core64c staging> --table <json> --out <cluster.json> [--limit N] [--only-known]
   items      --work <work> --build <core64c staging> --table <json> --out <cluster.json> [--limit N] [--only-known]
-  doors      --work <work> --build <core64c staging> --port <FO4Port staging> --exports <interior cell exports>
-             --out <cluster.json> [--fo4 <Fallout4.esm> --fo4-data <FO4 Data>] [--only <src,...>] [--limit N]
-             every exterior load door whose XTEL destination lies in a converted interior (docs/terrain/scripted-doors.md)
-
   activators --work <work> --build <core64c staging> --out <cluster.json> [--names <json>] [--table <json>] [--limit N]
   terminals  --work <work> --build <core64c staging> --out <cluster.json> [--names <json>] [--table <json>] [--limit N]
   lights     --work <work> --fo4 <Fallout4.esm> --out <cluster.json> [--limit N] [--lumens-per-m2 K]
@@ -26,6 +22,15 @@ table, so the same promotion path runs over all 1,708 cells.
              with a kind from the table (scripts/terrain/clusters/bench_table.json: weapon / armor / chem / cooking ->
              the vanilla Starfield bench of BENCH_KINDS). Power armor stations (no Starfield bench type 8), kinds the
              table leaves null and bench types without a table entry are listed under "bench_skipped" with the reason.
+  doors      --work <work> --build <core64c staging> --port <integ staging> --out <cluster.json> [--names <json>] [--limit N]
+             every exterior load door (a Door reference with an XTEL) whose destination door lies in a converted
+             interior of the port staging (FO4Port.esm, formids.json, the cell exports): the scripted door pair of
+             docs/terrain/scripted-doors.md. Both sides must exist as placed references (the exterior in the build's
+             objects.json, the interior in the port's formids.json); a door whose side is missing (the editor-marker
+             doors: the Red Rocket cave, the Vault 111 autoload doors) is listed under "door_skipped" with the reason
+             and never promoted. Each entry carries the FO4 base and models, both arrival points (XTEL arrival / 70,
+             rotation) and flags, the interior door's port id and cell, and the interior arrival marker's id, which
+             vmad_patch.py port allocates as the port plugin's next free id + k (read from its header here).
   merge      --out <cluster.json> <cluster.json> ...
              one cluster file from several (a class key in two inputs is refused): stage --cluster takes one file
 
@@ -56,15 +61,15 @@ import fnmatch
 import glob
 import json
 import os
-import struct
-
 import re
 import sys
 from collections import Counter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "src"))
+sys.path.insert(0, HERE)
 from fo4sf import fo4light, fo4station  # noqa: E402
+import vmad_patch  # noqa: E402
 
 CONTAINER_TYPES = ("Container",)                      # Mutagen type names in the export's "type"
 WORKSHOP_TYPES = ("Container",)                       # FO4's settlement workshop is a CONT with the workshopscript VMAD
@@ -105,10 +110,6 @@ EXCLUDED_ACTIVATOR_PATTERNS = (
 LIGHT_TYPES = ("Light",)
 FO4_MASTER = "fallout4.esm"                           # light bases and references are read from Fallout4.esm itself
 
-DOOR_TYPES = ("Door",)
-FO4_UNITS_PER_M = 70.0                                # core64: FO4 position / 70 = metres (docs/terrain/core64c.md)
-PORT_PLUGIN = "FO4Port.esm"
-
 
 def load(p):
     with open(p, encoding="utf-8-sig") as f:
@@ -126,7 +127,7 @@ def band_refs(work):
             yield r
 
 
-PROMOTED_KEYS = ("containers", "items", "activators", "terminals", "workshops", "benches")   # objects.json classes make_core64c promotes
+PROMOTED_KEYS = ("containers", "items", "activators", "terminals", "workshops", "benches", "doors")   # objects.json classes make_core64c promotes
 
 
 def placed_sources(build):
@@ -370,189 +371,6 @@ def items(refs, placed, table, limit=0, only_known=False):
                     "value and weight; read by make_core64c.py stage --cluster (items: one MISC per FO4 base)", "items": entries}, dict(rep)
 
 
-# ------------------------------------------------------------------------------------------------------------- doors
-def metres(v):
-    return [round(float(x) / FO4_UNITS_PER_M, 5) for x in v]
-
-
-def read_strings(data):
-    """{string id: text} of a Bethesda .STRINGS file (count, data size, [id, offset] directory, then zstrings)."""
-    count, _size = struct.unpack_from("<II", data, 0)
-    base = 8 + count * 8
-    out = {}
-    for i in range(count):
-        sid, off = struct.unpack_from("<II", data, 8 + i * 8)
-        out[sid] = data[base + off:].split(b"\0", 1)[0].decode("cp1252", "replace")
-    return out
-
-
-def fo4_door_bases(fo4_esm, fo4_data, wanted):
-    """{FO4 base id (int): {"name", "obnd" (metres, [lo, hi]), "fnam"}} of the DOOR records in `wanted`, read raw
-    from Fallout4.esm (src/fo4sf/fo4land). Fallout4.esm is localized: FULL holds a string id resolved through
-    Strings\\Fallout4_en.STRINGS of "Fallout4 - Interface.ba2" under fo4_data (name None when it cannot be read)."""
-    from fo4sf import fo4land
-    strings = None
-    try:
-        from fo4sf import ba2
-        arc = ba2.Ba2(os.path.join(fo4_data, "Fallout4 - Interface.ba2"))
-        strings = read_strings(arc.read("strings/fallout4_en.strings"))
-    except (OSError, ValueError, KeyError, ImportError):
-        strings = None
-    out = {}
-    with fo4land.Plugin(fo4_esm) as pl:
-        localized = bool(struct.unpack_from("<I", pl.buf, 8)[0] & 0x80)
-        grp = pl.top_group(b"DOOR")
-        if grp is None:
-            return out
-        for item in fo4land.iter_items(pl.buf, grp[0], grp[1]):
-            if item[0] == "GRUP" or item[3] not in wanted:
-                continue
-            typ, off, _flags, fid = item
-            rec = {"name": None, "obnd": None, "fnam": None}
-            for sig, d in fo4land.iter_subrecords(fo4land.record_data(pl.buf, off)):
-                if sig == b"FULL" and len(d) >= 4:
-                    if localized:
-                        sid = struct.unpack_from("<I", d)[0]
-                        rec["name"] = strings.get(sid) if strings else None
-                    else:
-                        rec["name"] = fo4land.zstring(d)
-                elif sig == b"OBND" and len(d) >= 12:
-                    b = struct.unpack_from("<6h", d)
-                    rec["obnd"] = [metres(b[:3]), metres(b[3:])]
-                elif sig == b"FNAM" and len(d) >= 1:
-                    rec["fnam"] = d[0]
-            out[fid] = rec
-    return out
-
-
-def interior_index(exports_dir):
-    """The converted interiors' cell exports: {cell name: export}, and {door formkey (casefold): (cell name, ref)} over
-    their placed refs (deferred refs are not in FO4Port.esm)."""
-    cells, doors = {}, {}
-    for p in sorted(glob.glob(os.path.join(exports_dir, "*.json"))):
-        e = load(p)
-        if not isinstance(e, dict) or "refs" not in e or "cell" not in e:
-            continue
-        cells[e["cell"]] = e
-        for r in e["refs"]:
-            if str(r.get("type")) in DOOR_TYPES:
-                doors[str(r["formkey"]).casefold()] = (e["cell"], r)
-    return cells, doors
-
-
-def port_refrs(port_esm):
-    """{local id (int): record type} of every record of FO4Port.esm (raw walk), so a formids.json key counts only
-    when its REFR was written."""
-    from fo4sf import fo4land
-    out = {}
-    with fo4land.Plugin(port_esm) as pl:
-        def walk(start, end):
-            for item in fo4land.iter_items(pl.buf, start, end):
-                if item[0] == "GRUP":
-                    walk(item[1] + 24, item[2])
-                else:
-                    out[item[3] & 0xFFFFFF] = item[0].decode("ascii", "replace")
-        walk(pl.body, len(pl.buf))
-    return out
-
-
-def doors(refs, placed, skipped, bases, port_ids, port_recs, interiors, fo4_bases=None, only=None, limit=0):
-    """({"doors": [...], "unplaced": [...]}, report): every exterior load door of the bands whose XTEL destination door
-    is a placed reference of a converted interior export. A door is listed under "doors" (promotable) when both sides
-    exist in the plugins: the exterior REFR is placed by the build (objects.json refs: `placed` = {src: slot}) and the
-    interior REFR is in FO4Port.esm (formids.json "REFR:FO4Port_<cell>:<door>" and the record written); otherwise
-    under "unplaced" with the reason (the editor-marker doors: the cave, the Vault 111 autoload doors).
-    Entry: src, editor_id, base (FO4 base formkey), model (FO4), fo4_pos / rot / scale, pos (metres), exterior_cell,
-    name (the FO4 base's FULL, else "Door"), obnd (the FO4 base's bounds in metres, or None), fnam, slot, core_base
-    ({edid, model} of the converted STAT / DOOR the build placed), destination {door, cell, port_key, port_id (int),
-    port_cell_id, plugin}, arrival_in (the exterior door's XTEL: pos / rot inside), arrival_out (the interior door's
-    XTEL: pos / rot outside), xtel_flags {out, in}, reciprocal."""
-    only_set = {s.casefold() for s in only} if only else None
-    skip_by = {str(s.get("formkey", "")).casefold(): s for s in skipped}
-    entries, unplaced, rep = [], [], Counter()
-    for r in refs:
-        if str(r.get("type")) not in DOOR_TYPES:
-            continue
-        td = r.get("teleport_destination")
-        if not td or not td.get("door"):
-            rep["doors without XTEL"] += 1
-            continue
-        rep["load doors"] += 1
-        dest = str(td["door"])
-        hit = interiors.get(dest.casefold())
-        if hit is None:
-            rep["destination not a converted interior"] += 1
-            continue
-        cell_name, iref = hit
-        src = str(r["formkey"])
-        if only_set is not None and src.casefold() not in only_set:
-            rep["not in --only"] += 1
-            continue
-        base_key = str(r.get("base_formkey") or "")
-        fb = (fo4_bases or {}).get(int(base_key.split(":")[0], 16)) if base_key else None
-        ret = iref.get("teleport_destination") or {}
-        port_key = next((k for k in port_ids if k.casefold() == f"REFR:FO4Port_{cell_name}:{dest}".casefold()), None)
-        port_id = port_ids.get(port_key) if port_key else None
-        entry = {"src": src, "editor_id": str(r.get("base_editor_id") or ""), "base": base_key,
-                 "model": r.get("model") or "", "fo4_pos": list(r["pos"]), "rot": [float(v) for v in r["rot"]],
-                 "scale": float(r.get("scale") or 1.0), "pos": metres(r["pos"]), "exterior_cell": r.get("exterior_cell"),
-                 "name": (fb or {}).get("name") or "Door", "obnd": (fb or {}).get("obnd"), "fnam": (fb or {}).get("fnam"),
-                 "disabled": bool(r.get("disabled")), "enable_parent": r.get("enable_parent"), "lock": r.get("lock_data"),
-                 "slot": None, "core_base": None,
-                 "destination": {"door": dest, "cell": cell_name, "port_key": port_key, "port_id": port_id,
-                                 "port_cell_id": port_ids.get(f"CELL:FO4Port_{cell_name}"), "plugin": PORT_PLUGIN,
-                                 "interior_base": iref.get("base_editor_id"), "interior_model": iref.get("model"),
-                                 "interior_pos": metres(iref["pos"]), "interior_rot": [float(v) for v in iref["rot"]]},
-                 "arrival_in": {"fo4_pos": list(td["pos"]), "pos": metres(td["pos"]), "rot": [float(v) for v in td["rot"]]},
-                 "arrival_out": ({"fo4_pos": list(ret["pos"]), "pos": metres(ret["pos"]), "rot": [float(v) for v in ret["rot"]]}
-                                 if ret.get("pos") else None),
-                 "xtel_flags": {"out": td.get("flags"), "in": ret.get("flags")},
-                 "reciprocal": bool(ret.get("door") and str(ret["door"]).casefold() == src.casefold())}
-        reasons = []
-        slot = placed.get(src)
-        if slot is None:
-            s = skip_by.get(src.casefold())
-            reasons.append("exterior side not placed by the build" + (f": {s['reason']} ({s.get('detail')})" if s else ""))
-        else:
-            entry["slot"] = slot
-            b = bases[slot] if isinstance(slot, int) and bases else None
-            if b is not None:
-                entry["core_base"] = b
-        if port_id is None:
-            reasons.append(f"interior side not in FO4Port.esm formids.json (REFR:FO4Port_{cell_name}:{dest})")
-        elif port_recs is not None and port_recs.get(int(port_id)) != "REFR":
-            reasons.append(f"interior side {port_key} = {int(port_id):06X} is not a REFR of FO4Port.esm")
-        if entry["arrival_out"] is None:
-            reasons.append("interior door has no XTEL back (no outside arrival)")
-        if reasons:
-            entry["reason"] = "; ".join(reasons)
-            unplaced.append(entry)
-            rep["unplaced"] += 1
-            continue
-        entries.append(entry)
-    entries.sort(key=lambda e: e["slot"])
-    if limit:
-        rep["cut by --limit"] = max(0, len(entries) - limit)
-        entries = entries[:limit]
-    rep["doors"] = len(entries)
-    rep["distinct bases"] = len({e["base"] for e in entries})
-    rep["interiors"] = len({e["destination"]["cell"] for e in entries})
-    return {"note": "make_cluster.py doors: every exterior load door of the core whose destination is a placed door of "
-                    "a converted interior, with both arrival points; read by make_core64c.py stage --cluster (doors: "
-                    "ACTI + FO4SF_LoadDoor VMAD + arrival marker) and make_port_doors.py (the interior side)",
-            "doors": entries, "unplaced": unplaced}, dict(rep)
-
-
-def build_bases(build):
-    """{reference slot: {"edid", "model"}} of the base each placed reference of objects.json uses."""
-    o = load(os.path.join(build, "objects.json"))
-    bases = o["bases"]
-    out = {}
-    for i, r in enumerate(o["refs"]):
-        b = bases[r["base"]]
-        out[i] = {"edid": b["edid"], "model": b["model"], "door": "door" in b, "collision": b.get("collision")}
-    return out
-
 def fo4_local_id(formkey):
     """'08ADFA:Fallout4.esm' -> 0x08ADFA (a Fallout4.esm record's id inside Fallout4.esm), else None."""
     local, _, plugin = str(formkey or "").partition(":")
@@ -760,8 +578,134 @@ def benches(refs, placed, bases, table, skipped=None, limit=0):
             "excluded": excluded_report(left_out)}, rep
 
 
+DOOR_TYPES = ("Door",)
+DOOR_NAME = "Door"                                    # the ACTI's FULL when --names gives the FO4 base none
+PORT_PREFIX = "FO4Port_"                              # the port's CELL editor ids: FO4Port_<FO4 cell editor id>
+
+
+def port_index(port):
+    """What the interior staging knows about doors: {"plugin": its .esm, "next": its next free local id (vmad_patch),
+    "cells": {port CELL edid: local id}, "refs": {FO4 formkey: (port CELL edid, local id)} for every placed REFR,
+    "exported": {FO4 formkey: (port CELL edid, exported reference)} for every reference of the converted cells'
+    exports (<FO4 cell edid>.json beside the plugin), placed or not}."""
+    name = vmad_patch.plugin_in(port)
+    ids = load(os.path.join(port, "formids.json"))
+    cells, refs = {}, {}
+    for k, v in ids.items():
+        parts = k.split(":")
+        if parts[0] == "CELL":
+            cells[parts[1]] = v
+        elif parts[0] == "REFR" and len(parts) == 4:
+            refs[f"{parts[2]}:{parts[3]}"] = (parts[1], v)
+    exported = {}
+    for cell_edid in cells:
+        p = os.path.join(port, cell_edid[len(PORT_PREFIX):] + ".json") if cell_edid.startswith(PORT_PREFIX) else ""
+        if not p or not os.path.isfile(p):
+            continue
+        for r in load(p).get("refs", []):
+            exported[r.get("formkey")] = (cell_edid, r)
+    return {"plugin": name, "next": vmad_patch.next_local_id(os.path.join(port, name)), "cells": cells, "refs": refs,
+            "exported": exported}
+
+
+def placed_models(build, srcs):
+    """{source key: converted model} of the wanted placed references (objects.json refs -> bases)."""
+    o = load(os.path.join(build, "objects.json"))
+    want = set(srcs)
+    return {r["src"]: o["bases"][r["base"]]["model"] for r in o["refs"] if r["src"] in want}
+
+
+def door_pair(r, order, skipped, port):
+    """(reason or None, interior export ref or None) for an exterior load door against the build and the port: the
+    destination must be a reference of a converted interior (else None, None: not a door of this list); both sides
+    must be placed (the exterior by the build, the interior in the port's plugin) and link back to each other."""
+    dest = (r.get("teleport_destination") or {}).get("door")
+    if not dest or dest not in port["exported"]:
+        return None, None
+    cell_edid, inner = port["exported"][dest]
+    src = r.get("formkey")
+    missing = []
+    if src not in order:
+        missing.append(f"exterior side not placed by the build ({skipped.get(src) or 'not placed'})")
+    if dest not in port["refs"]:
+        why = "marker model" if MARKER_RE.search(str(inner.get("model") or "")) else "not placed"
+        missing.append(f"interior side missing in the port ({why}: {dest} of {cell_edid})")
+    if missing:
+        return "; ".join(missing), inner
+    back = (inner.get("teleport_destination") or {}).get("door")
+    if back != src:
+        return f"not reciprocal (interior door {dest} links to {back}, not back to this door)", inner
+    if r.get("disabled") not in (0, "0", False, None):
+        return "initially disabled", inner
+    return None, inner
+
+
+def doors(refs, placed, port, build=None, names=None, skipped=None, limit=0):
+    """({"doors_port": {...}, "doors": [...], "door_skipped": [...]}, report): every exterior Door reference with an
+    XTEL into a converted interior of the port (port_index), in placement order (door_pair): src, base, editor_id,
+    model (FO4), converted_model (the build's, when given), name (--names or DOOR_NAME), fo4_pos, rot, scale, slot,
+    "destination" {plugin, door (the interior FO4 door), cell (port CELL edid), port_ref / port_cell (local ids, 6
+    hex), arrival {pos (metres), rot} = the exterior door's XTEL arrival inside, flags, id = the interior arrival
+    marker's local id (port next + k)} and "return" {arrival = the interior door's XTEL arrival outside, flags}.
+    Doors with a missing side are in door_skipped with the reason."""
+    from fo4sf import exterior
+    order = {src: i for i, src in enumerate(placed)}
+    names, skipped = names or {}, skipped or {}
+    entries, rep, left = [], Counter(), []
+    for r in refs:
+        if str(r.get("type")) not in DOOR_TYPES:
+            continue
+        tel = r.get("teleport_destination")
+        if not tel:
+            rep["doors without an XTEL"] += 1
+            continue
+        why, inner = door_pair(r, order, skipped, port)
+        if inner is None:
+            rep["destination not a converted interior"] += 1
+            continue
+        src, edid = r.get("formkey"), str(r.get("base_editor_id") or "")
+        if why:
+            rep[f"left out: {why.split(' (')[0]}"] += 1
+            left.append({"src": src, "base": r.get("base_formkey"), "editor_id": edid, "model": r.get("model"),
+                         "destination": tel.get("door"), "cell": port["exported"][tel["door"]][0], "reason": why})
+            continue
+        cell_edid, port_ref = port["refs"][tel["door"]]
+        name = names.get(r.get("base_formkey")) or DOOR_NAME               # the FO4 FULL when --names has it, else "Door"
+        rep["name from fo4" if name != DOOR_NAME else "name 'Door'"] += 1
+        back = inner["teleport_destination"]
+        entries.append({"src": src, "base": r.get("base_formkey"), "editor_id": edid, "model": r.get("model"),
+                        "name": name or DOOR_NAME, "fo4_pos": [float(v) for v in r["pos"]], "rot": [float(v) for v in r["rot"]],
+                        "scale": float(r.get("scale") or 1.0), "slot": order[src],
+                        "destination": {"plugin": port["plugin"], "door": tel["door"], "cell": cell_edid,
+                                        "port_ref": f"{port_ref:06X}", "port_cell": f"{port['cells'][cell_edid]:06X}",
+                                        "arrival": {"pos": [round(v, 6) for v in exterior.metres(tel["pos"])],
+                                                    "rot": [float(v) for v in tel["rot"]]},
+                                        "flags": int(tel.get("flags") or 0)},
+                        "return": {"arrival": {"pos": [round(v, 6) for v in exterior.metres(back["pos"])],
+                                               "rot": [float(v) for v in back["rot"]]},
+                                   "flags": int(back.get("flags") or 0)}})
+    entries.sort(key=lambda e: e["slot"])
+    if limit:
+        rep["cut by --limit"] = max(0, len(entries) - limit)
+        entries = entries[:limit]
+    if build:
+        models = placed_models(build, [e["src"] for e in entries])
+        for e in entries:
+            e["converted_model"] = models.get(e["src"])
+    for k, e in enumerate(entries):
+        e["destination"]["id"] = f"{port['next'] + k:06X}"
+    rep["doors"] = len(entries)
+    rep["distinct bases"] = len({e["base"] for e in entries})
+    rep["door_skipped"] = len(left)
+    return {"note": "make_cluster.py doors: every exterior load door into a converted interior of the port, both sides "
+                    "placed; read by make_core64c.py stage --cluster (one ACTI per FO4 door base, the REFR in its slot with "
+                    "the FO4SF_LoadDoor VMAD, an exterior arrival XMarker) and vmad_patch.py port (the interior side)",
+            "doors_port": {"plugin": port["plugin"], "next": f"{port['next']:06X}", "cells": len(port["cells"])},
+            "doors": entries, "door_skipped": left}, dict(rep)
+
+
 MERGE_KEYS = ("containers", "items", "activators", "terminals", "lights", "light_bases", "lumens_per_m2", "workshops",
-              "benches")                              # what stage --cluster reads; reports (excluded, ...) are dropped
+              "benches", "doors", "doors_port")        # what stage --cluster reads; reports (excluded, ...) are dropped
 
 
 def merge(clusters):
@@ -800,17 +744,6 @@ def main(argv=None):
     p.add_argument("--out", required=True)
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--only-known", action="store_true")
-    p = sub.add_parser("doors")
-    p.add_argument("--work", required=True)
-    p.add_argument("--build", required=True, help="the core staging (objects.json, formids.json, skipped.json)")
-    p.add_argument("--port", required=True, help="the interiors staging (FO4Port.esm, formids.json)")
-    p.add_argument("--exports", required=True, help="the interior cell exports (<Cell>.json) FO4Port.esm was built from")
-    p.add_argument("--out", required=True)
-    p.add_argument("--fo4", default="", help="Fallout4.esm: the door bases' FULL name and bounds")
-    p.add_argument("--fo4-data", default="", help="FO4 Data (Fallout4 - Interface.ba2: the localized FULL strings)")
-    p.add_argument("--only", default="", help="comma-separated source keys to keep (e.g. 0EE661:Fallout4.esm)")
-    p.add_argument("--limit", type=int, default=0)
-
     for cmd in ("activators", "terminals"):
         p = sub.add_parser(cmd)
         p.add_argument("--work", required=True)
@@ -836,10 +769,36 @@ def main(argv=None):
         p.add_argument("--limit", type=int, default=0)
         if cmd == "benches":
             p.add_argument("--table", required=True, help="scripts/terrain/clusters/bench_table.json: editor id -> kind")
+    p = sub.add_parser("doors")
+    p.add_argument("--work", required=True)
+    p.add_argument("--build", required=True)
+    p.add_argument("--port", required=True, help="the interior staging: FO4Port.esm, formids.json, <cell>.json exports")
+    p.add_argument("--out", required=True)
+    p.add_argument("--names", default="", help="FO4 display names (dotnet/Fo4Land export-names); else every door is 'Door'")
+    p.add_argument("--limit", type=int, default=0)
     p = sub.add_parser("merge")
     p.add_argument("--out", required=True)
     p.add_argument("inputs", nargs="+", help="cluster files to merge (one class per input)")
     a = ap.parse_args(argv)
+    if a.cmd == "doors":
+        try:
+            port = port_index(a.port)
+        except (ValueError, OSError) as e:
+            sys.exit(f"--port {a.port}: {e}")
+        refs = [r for r in band_refs(a.work) if str(r.get("type")) in DOOR_TYPES]
+        cl, rep = doors(refs, placed_sources(a.build), port, a.build, load_names(a.names), skipped_reasons(a.build), a.limit)
+        with open(a.out, "w", encoding="utf-8") as f:
+            json.dump(cl, f, indent=1)
+        print(json.dumps(rep, indent=1))
+        for e in cl["doors"]:
+            d = e["destination"]
+            print(f"  {e['src']} {e['editor_id']} slot {e['slot']} -> {d['cell']} {d['door']} (port REFR {d['port_ref']}, "
+                  f"marker {d['id']}) arrival in {d['arrival']['pos']} out {e['return']['arrival']['pos']}")
+        for s in cl["door_skipped"]:
+            print(f"  skipped {s['src']} {s['editor_id']} -> {s['cell']}: {s['reason']}")
+        print(f"wrote {a.out}: {rep['doors']} doors over {rep['distinct bases']} FO4 bases, {rep['door_skipped']} skipped "
+              f"(port {port['plugin']}, markers from {port['next']:06X})")
+        return 0
     if a.cmd == "merge":
         try:
             cl = merge({os.path.basename(p): load(p) for p in a.inputs})
@@ -859,35 +818,6 @@ def main(argv=None):
         print(f"wrote {a.out}: {rep['lights']:,} lights over {rep['distinct bases']} LIGH bases")
         return 0
     placed = placed_sources(a.build)
-    if a.cmd == "doors":
-        order = {src: i for i, src in enumerate(placed)}
-        skipped = load(os.path.join(a.build, "skipped.json")).get("refs", [])
-        ids_path = os.path.join(a.build, "formids.json")
-        core_ids = load(ids_path).get("refs", {}) if os.path.isfile(ids_path) else {}
-        port_ids = load(os.path.join(a.port, "formids.json"))
-        port_recs = port_refrs(os.path.join(a.port, PORT_PLUGIN)) if os.path.isfile(os.path.join(a.port, PORT_PLUGIN)) else None
-        _cells, interiors = interior_index(a.exports)
-        refs = list(band_refs(a.work))
-        fo4_bases = None
-        if a.fo4:
-            wanted = {int(str(r.get("base_formkey", "0:x")).split(":")[0], 16) for r in refs
-                      if str(r.get("type")) in DOOR_TYPES and r.get("base_formkey")}
-            fo4_bases = fo4_door_bases(a.fo4, a.fo4_data, wanted)
-        only = [s for s in a.only.split(",") if s.strip()] or None
-        cl, rep = doors(refs, order, skipped, build_bases(a.build), port_ids, port_recs, interiors, fo4_bases, only, a.limit)
-        for e in cl["doors"] + cl["unplaced"]:
-            e["core_id"] = core_ids.get(e["src"])
-        with open(a.out, "w", encoding="utf-8") as f:
-            json.dump(cl, f, indent=1)
-        print(json.dumps(rep, indent=1))
-        for e in cl["doors"]:
-            d = e["destination"]
-            print(f"  {e['src']} {e['editor_id']} slot {e['slot']} ({e['core_id']}) -> {d['cell']} {d['door']} = "
-                  f"{PORT_PLUGIN} {int(d['port_id']):06X}; out {e['arrival_out']['pos']} in {e['arrival_in']['pos']}")
-        for e in cl["unplaced"]:
-            print(f"  UNPLACED {e['src']} {e['editor_id']} -> {e['destination']['cell']}: {e['reason']}")
-        print(f"wrote {a.out}: {rep['doors']} doors, {rep.get('unplaced', 0)} unplaced")
-        return 0
     if a.cmd == "report":
         all_c, placed_c = by_type(band_refs(a.work), placed)
         print(f"placed {sum(placed_c.values()):,} of {sum(all_c.values()):,} exported references")

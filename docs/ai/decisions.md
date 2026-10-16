@@ -370,3 +370,18 @@ the two; disabling all raw checks would accept malformed records. The protocol
 is ready/verify/verified, with EOF cancellation and owned-child cleanup. External
 assets/core inputs remain subject to immutable-input rules. Full-stage/native
 acceptance and independent QA remain pending; no active-stage migration.
+
+- 2026-10-16 (Claude): FO4 exterior load doors into the converted interiors become scripted doors (docs/terrain/scripted-doors.md): every record stays temporary on the exterior side (the overlay merge), the door REFR keeps its slot on an ACTI with the converted door mesh and carries the FO4SF_LoadDoor VMAD (PR #243: DestinationPlugin + DestinationId, resolved at run time, no master link between the plugins), each side gets an arrival XMarker at the FO4 XTEL point (exterior: temporary, appended after the lights with the ACTIs; interior: persistent, so it resolves from outside). The exterior side is written by Mutagen (its VMAD bytes equal the raw codec's and vanilla's), the interior side by a raw record-level patch of a copy of the pinned FO4Port.esm (scripts/terrain/vmad_patch.py), proved by a byte diff of every other record. Alternatives rejected: a vanilla XTEL door (persistent references read unmerged, 4 in-game runs); MoveTo onto the interior door itself (temporary: unresolvable from outside, and the player would land in the mesh); rewriting FO4Port.esm with Mutagen (no byte-level proof that nothing else moved); allocating the door ACTIs with the other promoted bases (would shift every NAVM and light id of core64i). Open until Step 0 runs in game: whether a temporary exterior marker resolves from inside (else a persistent twin plus the (-1200, -2700) offset).
+
+### 2026-10-16 - current door schema with persistent identities (Codex)
+
+Integrate PR272's destination schema and marker-before-ACTI legacy order with
+PR273's persistent reservations, transactional publication and held audit. The
+old generic-script/OBND caller is not compatible with the current writer; keeping
+both argparse door commands also breaks every make_cluster command. Retain the
+current producer/helpers and adapt the identity tests, rather than silently
+changing existing IDs or weakening raw checks. A separately built exact272
+writer produces identical synthetic plugin/map bytes; explicit bootstrap and
+subsequent reorder preserve that generation. Old-schema stages, full-size and
+native save compatibility remain unverified. Peer QA is required before lead
+integration; original stages and Claude's source checkout remain untouched.

@@ -8,13 +8,24 @@ import test_terrain_stable_ids as stable
 import test_terrain_doors_writer as doors
 
 
+def selected_doors(self, objects, indices=(2,)):
+    obj = copy.deepcopy(objects)
+    selected = {self.objects['refs'][i]['src']: i for i in indices}
+    refs = {r['src']: r for r in obj['refs']}
+    obj['doors'] = [doors.TerrainDoorsWriterTests.door(refs[src], i, 0xDEFF + n,
+                      arrival=tuple(refs[src]['pos']))
+                    for n, (src, i) in enumerate(selected.items())]
+    obj['refs'] = [r for r in obj['refs'] if r['src'] not in selected]
+    return obj
+
+
 class TerrainStableDoorTests(unittest.TestCase):
     setUpClass = classmethod(fixture.TerrainReferenceIdentityTests.setUpClass.__func__)
     setUp = stable.TerrainStableIdentityTests.setUp
     run_writer = stable.TerrainStableIdentityTests.run_writer
     build = stable.TerrainStableIdentityTests.build
     promote = fixture.TerrainReferenceIdentityTests.promote
-    with_doors = doors.TerrainDoorsWriterTests.with_doors
+    with_doors = selected_doors
 
     def pair(self):
         obj = self.with_doors(self.promote([1]), (2, 0))
@@ -49,6 +60,7 @@ class TerrainStableDoorTests(unittest.TestCase):
         added = copy.deepcopy(obj)
         new_door = copy.deepcopy(added['doors'][0])
         new_door.update(src='000004:Synthetic.esm', edid='NewDoorBase', reference_index=3)
+        new_door['destination']['id'] = 0xDF10  # each return endpoint belongs to one exterior door
         added['doors'].insert(0, new_door)
         second, _ = self.build(added, 'persistent-door-growth')
         for src, ids in first['doors'].items():

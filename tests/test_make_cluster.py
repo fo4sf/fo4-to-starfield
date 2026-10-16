@@ -97,117 +97,6 @@ class ItemsTests(unittest.TestCase):
         self.assertEqual([e["name"] for e in cl["items"]], ["Stimpak"])
 
 
-
-class DoorsTests(unittest.TestCase):
-    """doors: exterior load doors whose XTEL destination is a placed door of a converted interior, both sides checked."""
-    PORT = {"CELL:FO4Port_SuperDuperMart01": 27718, "REFR:FO4Port_SuperDuperMart01:0EE5D6:Fallout4.esm": 32011,
-            "CELL:FO4Port_RedRocket01": 9016}
-    PORT_RECS = {27718: "CELL", 32011: "REFR", 9016: "CELL"}
-
-    @staticmethod
-    def interiors():
-        sdm = {"cell": "SuperDuperMart01", "formkey": "0320A2:Fallout4.esm", "refs": [
-            {"formkey": "0EE5D6:Fallout4.esm", "type": "Door", "base_editor_id": "IndMetalDoorLoad02", "model": "Interiors\\IndMetalDoorLoad02.nif",
-             "pos": [448, 1216, -256], "rot": [0, 0, 4.7123895],
-             "teleport_destination": {"door": "0EE661:Fallout4.esm", "pos": [-32861.09, 44525.188, 2964.9192], "rot": [0, 0, 2.5812104], "flags": 0}}]}
-        rr = {"cell": "RedRocket01", "formkey": "05E62F:Fallout4.esm", "refs": [
-            {"formkey": "05E844:Fallout4.esm", "type": "Door", "base_editor_id": "AutoloadDoor", "model": "AutoLoadMarker01.nif", "pos": [-116.135, 169.106, 0], "rot": [0, 0, 5.7596],
-             "teleport_destination": {"door": "08EB65:Fallout4.esm", "pos": [-69687.12, 77290, 6984], "rot": [0, 0, -3.1081858], "flags": 0}}]}
-        return sdm, rr
-
-    @staticmethod
-    def exterior(fk="0EE661:Fallout4.esm", dest="0EE5D6:Fallout4.esm", **kw):
-        r = {"formkey": fk, "type": "Door", "base_editor_id": "IndMetalDoorLoad01", "base_formkey": "018C8B:Fallout4.esm",
-             "model": "Interiors\\IndMetalDoorLoad01.nif", "pos": [-32889.703, 44569.62, 2964.9192], "rot": [0, 0, 2.5812104], "scale": 1,
-             "disabled": 0, "persistent": True, "exterior_cell": [-9, 10],
-             "teleport_destination": {"door": dest, "pos": [381.42923, 1210.3624, -255.75], "rot": [0, 0, 4.7123895], "flags": 0}}
-        r.update(kw)
-        return r
-
-    def index(self):
-        sdm, rr = self.interiors()
-        return {r["formkey"].casefold(): (e["cell"], r) for e in (sdm, rr) for r in e["refs"]}
-
-    def test_both_sides_present_lists_the_door_with_both_arrivals(self):
-        refs = [self.exterior(), self.exterior("08EB65:Fallout4.esm", "05E844:Fallout4.esm", base_editor_id="AutoloadDoor", model="AutoLoadMarker01.nif"),
-                self.exterior("111111:Fallout4.esm", "222222:Fallout4.esm"),                      # into an unconverted interior
-                self.exterior("333333:Fallout4.esm", teleport_destination=None), ref("444444:Fallout4.esm")]
-        placed = {"0EE661:Fallout4.esm": 161262}
-        skipped = [{"formkey": "08EB65:Fallout4.esm", "reason": "editor_marker", "detail": "editor marker model AutoLoadMarker01.nif"}]
-        bases = {161262: {"edid": "FO4Core_indmetaldoorload01", "model": "fo4core\\x.nif", "door": False, "collision": "fo4-native"}}
-        fo4 = {0x018C8B: {"name": "Door", "obnd": [[-0.8, -0.22857, 0.0], [0.8, 0.11429, 2.51429]], "fnam": 0}}
-        cl, rep = mc.doors(refs, placed, skipped, bases, self.PORT, self.PORT_RECS, self.index(), fo4)
-        self.assertEqual((rep["load doors"], rep["destination not a converted interior"], rep["doors"], rep["unplaced"]), (3, 1, 1, 1))
-        d = cl["doors"][0]
-        self.assertEqual((d["src"], d["slot"], d["name"], d["base"], d["core_base"]["edid"]), ("0EE661:Fallout4.esm", 161262, "Door", "018C8B:Fallout4.esm", "FO4Core_indmetaldoorload01"))
-        self.assertEqual(d["pos"], [-469.8529, 636.70886, 42.35599])
-        self.assertEqual(d["destination"]["port_id"], 32011)
-        self.assertEqual(d["destination"]["port_key"], "REFR:FO4Port_SuperDuperMart01:0EE5D6:Fallout4.esm")
-        self.assertEqual((d["destination"]["cell"], d["destination"]["port_cell_id"]), ("SuperDuperMart01", 27718))
-        self.assertEqual(d["arrival_in"]["pos"], [5.44899, 17.29089, -3.65357])
-        self.assertEqual(d["arrival_out"]["pos"], [-469.44414, 636.07411, 42.35599])
-        self.assertEqual((d["arrival_out"]["rot"][2], d["xtel_flags"], d["reciprocal"]), (2.5812104, {"out": 0, "in": 0}, True))
-        self.assertEqual(d["obnd"], fo4[0x018C8B]["obnd"])
-        u = cl["unplaced"][0]
-        self.assertEqual(u["src"], "08EB65:Fallout4.esm")
-        self.assertIn("editor_marker", u["reason"])
-        self.assertIn("interior side not in FO4Port.esm", u["reason"])
-        # without Fallout4.esm the name is "Door" and the bounds None; --only and --limit
-        cl2, _ = mc.doors(refs, placed, skipped, bases, self.PORT, self.PORT_RECS, self.index())
-        self.assertEqual((cl2["doors"][0]["name"], cl2["doors"][0]["obnd"]), ("Door", None))
-        cl3, rep3 = mc.doors(refs, placed, skipped, bases, self.PORT, self.PORT_RECS, self.index(), only=["0ee661:fallout4.esm"])
-        self.assertEqual((len(cl3["doors"]), rep3["not in --only"]), (1, 1))
-        cl4, _rep4 = mc.doors(refs, placed, skipped, bases, self.PORT, self.PORT_RECS, self.index(), limit=0)
-        self.assertEqual(len(cl4["doors"]), 1)
-
-    def test_a_port_key_without_its_record_is_a_missing_side(self):
-        refs = [self.exterior()]
-        placed = {"0EE661:Fallout4.esm": 5}
-        bases = {5: {"edid": "e", "model": "m", "door": False, "collision": None}}
-        cl, rep = mc.doors(refs, placed, [], bases, self.PORT, {27718: "CELL"}, self.index())
-        self.assertEqual((rep["doors"], rep["unplaced"]), (0, 1))
-        self.assertIn("is not a REFR", cl["unplaced"][0]["reason"])
-        cl, _ = mc.doors(refs, placed, [], bases, self.PORT, None, self.index())              # no plugin to read: trusted
-        self.assertEqual(len(cl["doors"]), 1)
-        sdm, _rr = self.interiors()
-        sdm["refs"][0]["teleport_destination"] = None
-        idx = {r["formkey"].casefold(): (sdm["cell"], r) for r in sdm["refs"]}
-        cl, _ = mc.doors(refs, placed, [], bases, self.PORT, self.PORT_RECS, idx)
-        self.assertIn("no XTEL back", cl["unplaced"][0]["reason"])
-
-    def test_read_strings(self):
-        import struct
-        entries = [(0x14F6B, b"Door\0"), (0x1AA16, b"Auto Door\0")]
-        data_part = b"".join(t for _, t in entries)
-        directory, off = b"", 0
-        for sid, t in entries:
-            directory += struct.pack("<II", sid, off)
-            off += len(t)
-        blob = struct.pack("<II", len(entries), len(data_part)) + directory + data_part
-        self.assertEqual(mc.read_strings(blob), {0x14F6B: "Door", 0x1AA16: "Auto Door"})
-
-    def test_cli_on_synthetic_folders(self):
-        with tempfile.TemporaryDirectory() as d:
-            os.makedirs(os.path.join(d, "work", "export"))
-            os.makedirs(os.path.join(d, "build"))
-            os.makedirs(os.path.join(d, "port"))
-            os.makedirs(os.path.join(d, "exports"))
-            json.dump({"refs": [self.exterior(), ref("444444:Fallout4.esm")]}, open(os.path.join(d, "work", "export", "band_5_14.json"), "w"))
-            json.dump({"bases": [{"edid": "FO4Core_indmetaldoorload01", "model": "fo4core\\x.nif"}],
-                       "refs": [{"src": "444444:Fallout4.esm", "base": 0}, {"src": "0EE661:Fallout4.esm", "base": 0}]}, open(os.path.join(d, "build", "objects.json"), "w"))
-            json.dump({"refs": {"0EE661:Fallout4.esm": "02D22C", "444444:Fallout4.esm": "000900"}}, open(os.path.join(d, "build", "formids.json"), "w"))
-            json.dump({"refs": []}, open(os.path.join(d, "build", "skipped.json"), "w"))
-            json.dump(self.PORT, open(os.path.join(d, "port", "formids.json"), "w"))
-            sdm, rr = self.interiors()
-            json.dump(sdm, open(os.path.join(d, "exports", "SuperDuperMart01.json"), "w"))
-            json.dump(rr, open(os.path.join(d, "exports", "RedRocket01.json"), "w"))
-            out = os.path.join(d, "doors.json")
-            self.assertEqual(mc.main(["doors", "--work", os.path.join(d, "work"), "--build", os.path.join(d, "build"), "--port", os.path.join(d, "port"),
-                                      "--exports", os.path.join(d, "exports"), "--out", out]), 0)
-            cl = json.load(open(out))
-            self.assertEqual([(e["src"], e["slot"], e["core_id"]) for e in cl["doors"]], [("0EE661:Fallout4.esm", 1, "02D22C")])
-            self.assertEqual(cl["unplaced"], [])
-
 def dump(value, path):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(value, f)
@@ -582,14 +471,14 @@ class StationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "'items' is in both c.json and d.json"):
             mc.merge({"c.json": c, "d.json": {"items": []}})
         self.assertEqual(mc.MERGE_KEYS, ("containers", "items", "activators", "terminals", "lights", "light_bases",
-                                         "lumens_per_m2", "workshops", "benches"))
+                                         "lumens_per_m2", "workshops", "benches", "doors", "doors_port"))
 
     def test_placed_sources_know_the_station_classes(self):
         with tempfile.TemporaryDirectory() as d:
             dump({"refs": [{"src": "B"}], "workshops": [{"src": "A", "reference_index": 0}],
                   "benches": [{"src": "C", "reference_index": 2}]}, os.path.join(d, "objects.json"))
             self.assertEqual(mc.placed_sources(d), ["A", "B", "C"])
-        self.assertEqual(mc.PROMOTED_KEYS, ("containers", "items", "activators", "terminals", "workshops", "benches"))
+        self.assertEqual(mc.PROMOTED_KEYS, ("containers", "items", "activators", "terminals", "workshops", "benches", "doors"))
 
     def test_cli_on_synthetic_bands_and_esm(self):
         with tempfile.TemporaryDirectory() as d:
@@ -614,6 +503,137 @@ class StationTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 mc.main(["merge", "--out", m, w, os.path.join(d, "w2.json")])
 
+
+
+class DoorsTests(unittest.TestCase):
+    """make_cluster.py doors (docs/terrain/scripted-doors.md): every exterior load door into a converted interior whose
+    both sides are placed, with both arrival points, the port ids and the promised interior marker id; a door with a
+    missing side is listed with the reason; merge and placed_sources know the class."""
+    PORT = "FO4Port.esm"
+
+    @staticmethod
+    def door(fk, dest, pos, arrival, base="018C8B:Fallout4.esm", edid="IndMetalDoorLoad01", rot=2.5812, flags=0,
+             model="Interiors\\Industrial\\Doors\\IndMetalDoorLoad01.nif"):
+        r = ref(fk, typ="Door", edid=edid, base=base)
+        r.update(model=model, pos=list(pos), rot=[0, 0, rot], scale=1,
+                 teleport_destination={"door": dest, "pos": list(arrival), "rot": [0, 0, 4.7124], "flags": flags})
+        return r
+
+    def bands(self):
+        return [self.door("0EE661:Fallout4.esm", "0EE5D6:Fallout4.esm", (-32889.703, 44569.62, 2964.9192), (381.42923, 1210.3624, -255.75)),
+                self.door("0EED8A:Fallout4.esm", "0EE5B6:Fallout4.esm", (-34479.016, 42113.668, 3228.919), (1679.779, -1422.672, 0),
+                          base="077CFC:Fallout4.esm", edid="PaintedWoodDoorDoubleLoadA01", flags=2),
+                self.door("08EB65:Fallout4.esm", "05E844:Fallout4.esm", (-69646.37, 77664.305, 6907.905), (3.448, -463.539, -0.436),
+                          base="01ED77:Fallout4.esm", edid="AutoloadDoor", model="AutoLoadMarker01.nif"),      # the cave: both sides markers
+                self.door("000010:Fallout4.esm", "000011:Fallout4.esm", (100, 100, 0), (0, 0, 0)),                # not reciprocal
+                self.door("000020:Fallout4.esm", "000021:Fallout4.esm", (100, 200, 0), (0, 0, 0)),                # interior not placed
+                self.door("000030:Fallout4.esm", "000031:Fallout4.esm", (100, 300, 0), (0, 0, 0)),                # not a converted interior
+                dict(self.door("000040:Fallout4.esm", "000041:Fallout4.esm", (100, 400, 0), (0, 0, 0)), teleport_destination=None),
+                ref("000050:Fallout4.esm", typ="Static")]
+
+    @staticmethod
+    def inner(fk, back, pos, arrival, model="Interiors\\Industrial\\Doors\\IndMetalDoorLoad02.nif"):
+        return {"formkey": fk, "type": "Door", "base_editor_id": "IndMetalDoorLoad02", "base_formkey": "0C9717:Fallout4.esm",
+                "model": model, "pos": list(pos), "rot": [0, 0, 4.7124], "scale": 1, "disabled": 0,
+                "teleport_destination": {"door": back, "pos": list(arrival), "rot": [0, 0, 2.5812], "flags": 0}}
+
+    def port_folder(self, d):
+        from test_vmad_patch import tiny_plugin
+        port = os.path.join(d, "integ")
+        os.makedirs(port)
+        with open(os.path.join(port, self.PORT), "wb") as f:
+            f.write(tiny_plugin())                                               # next free id 0x804
+        dump({"CELL:FO4Port_SuperDuperMart01": 0x6C46, "REFR:FO4Port_SuperDuperMart01:0EE5D6:Fallout4.esm": 0x7D0B,
+              "REFR:FO4Port_SuperDuperMart01:0EE5B6:Fallout4.esm": 0x7D0A, "CELL:FO4Port_RedRocket01": 0x2338,
+              "CELL:FO4Port_Other": 0x900, "REFR:FO4Port_Other:000011:Fallout4.esm": 0x901},
+             os.path.join(port, "formids.json"))
+        dump({"cell": "SuperDuperMart01", "refs": [
+            self.inner("0EE5D6:Fallout4.esm", "0EE661:Fallout4.esm", (448, 1216, -256), (-32861.09, 44525.188, 2964.9192)),
+            self.inner("0EE5B6:Fallout4.esm", "0EED8A:Fallout4.esm", (1743.5, -1479.8, 0), (-34496.33, 42037.707, 3229.325))]},
+             os.path.join(port, "SuperDuperMart01.json"))
+        dump({"cell": "RedRocket01", "refs": [self.inner("05E844:Fallout4.esm", "08EB65:Fallout4.esm", (-116.1, 169.1, 0),
+                                                         (-69687.12, 77290, 6984), model="AutoLoadMarker01.nif")]},
+             os.path.join(port, "RedRocket01.json"))
+        dump({"cell": "Other", "refs": [self.inner("000011:Fallout4.esm", "000012:Fallout4.esm", (0, 0, 0), (0, 0, 0)),
+                                        self.inner("000021:Fallout4.esm", "000020:Fallout4.esm", (0, 0, 0), (0, 0, 0))]},
+             os.path.join(port, "Other.json"))
+        return port
+
+    PLACED = ["000050:Fallout4.esm", "0EED8A:Fallout4.esm", "000010:Fallout4.esm", "0EE661:Fallout4.esm", "000020:Fallout4.esm",
+              "000030:Fallout4.esm", "000040:Fallout4.esm"]
+
+    def test_doors_with_both_sides_and_the_skipped_with_their_reason(self):
+        with tempfile.TemporaryDirectory() as d:
+            port = mc.port_index(self.port_folder(d))
+        self.assertEqual((port["plugin"], port["next"]), (self.PORT, 0x804))
+        self.assertEqual(port["refs"]["0EE5D6:Fallout4.esm"], ("FO4Port_SuperDuperMart01", 0x7D0B))
+        self.assertIn("05E844:Fallout4.esm", port["exported"])
+        cl, rep = mc.doors(self.bands(), self.PLACED, port, skipped={"08EB65:Fallout4.esm": "editor_marker"})
+        self.assertEqual([e["src"] for e in cl["doors"]], ["0EED8A:Fallout4.esm", "0EE661:Fallout4.esm"])   # placement order
+        e = cl["doors"][1]
+        self.assertEqual((e["base"], e["editor_id"], e["name"], e["slot"]), ("018C8B:Fallout4.esm", "IndMetalDoorLoad01", "Door", 3))
+        self.assertEqual(e["fo4_pos"], [-32889.703, 44569.62, 2964.9192])
+        d = e["destination"]
+        self.assertEqual((d["plugin"], d["door"], d["cell"], d["port_ref"], d["port_cell"], d["flags"]),
+                         (self.PORT, "0EE5D6:Fallout4.esm", "FO4Port_SuperDuperMart01", "007D0B", "006C46", 0))
+        self.assertEqual(d["arrival"]["pos"], [round(v / 70.0, 6) for v in (381.42923, 1210.3624, -255.75)])
+        self.assertEqual(d["arrival"]["rot"], [0, 0, 4.7124])
+        self.assertEqual(e["return"]["arrival"]["pos"], [round(v / 70.0, 6) for v in (-32861.09, 44525.188, 2964.9192)])
+        self.assertEqual(e["return"]["arrival"]["rot"], [0, 0, 2.5812])
+        self.assertEqual([x["destination"]["id"] for x in cl["doors"]], ["000804", "000805"])   # port next + k, in order
+        self.assertEqual(cl["doors"][0]["destination"]["flags"], 2)
+        self.assertEqual(cl["doors_port"], {"plugin": self.PORT, "next": "000804", "cells": 3})
+        skipped = {s["src"]: s["reason"] for s in cl["door_skipped"]}
+        self.assertEqual(set(skipped), {"08EB65:Fallout4.esm", "000010:Fallout4.esm", "000020:Fallout4.esm"})
+        self.assertIn("exterior side not placed by the build (editor_marker)", skipped["08EB65:Fallout4.esm"])
+        self.assertIn("interior side missing in the port (marker model", skipped["08EB65:Fallout4.esm"])
+        self.assertIn("not reciprocal (interior door 000011:Fallout4.esm links to 000012:Fallout4.esm", skipped["000010:Fallout4.esm"])
+        self.assertEqual(rep["left out: not reciprocal"], 1)
+        self.assertIn("interior side missing in the port (not placed", skipped["000020:Fallout4.esm"])
+        self.assertEqual((rep["doors"], rep["distinct bases"], rep["door_skipped"], rep["doors without an XTEL"],
+                          rep["destination not a converted interior"]), (2, 2, 3, 1, 1))
+        # --names gives the FO4 FULL; a limit keeps the first and renumbers nothing
+        cl2, _rep = mc.doors(self.bands(), self.PLACED, port, names={"018C8B:Fallout4.esm": "Metal Door"}, limit=1)
+        self.assertEqual([(x["src"], x["name"], x["destination"]["id"]) for x in cl2["doors"]], [("0EED8A:Fallout4.esm", "Door", "000804")])
+        cl3, _rep = mc.doors(self.bands(), self.PLACED, port, names={"018C8B:Fallout4.esm": "Metal Door"})
+        self.assertEqual(cl3["doors"][1]["name"], "Metal Door")
+
+    def test_cli_merge_and_placed_sources(self):
+        with tempfile.TemporaryDirectory() as d:
+            port = self.port_folder(d)
+            os.makedirs(os.path.join(d, "work", "export"))
+            os.makedirs(os.path.join(d, "build"))
+            dump({"refs": self.bands()}, os.path.join(d, "work", "export", "band_5_14.json"))
+            conv = "fo4core\\interiors\\industrial\\doors\\indmetaldoorload01.nif"
+            dump({"bases": [{"edid": "FO4Core_a", "model": "fo4core\\a.nif"}, {"edid": "FO4Core_indmetaldoorload01", "model": conv}],
+                  "refs": [{"src": s, "base": 1 if s == "0EE661:Fallout4.esm" else 0} for s in self.PLACED]},
+                 os.path.join(d, "build", "objects.json"))
+            dump({"refs": [{"formkey": "08EB65:Fallout4.esm", "reason": "editor_marker"}]}, os.path.join(d, "build", "skipped.json"))
+            out = os.path.join(d, "doors.json")
+            self.assertEqual(mc.main(["doors", "--work", os.path.join(d, "work"), "--build", os.path.join(d, "build"),
+                                      "--port", port, "--out", out]), 0)
+            cl = read(out)
+            self.assertEqual([e["src"] for e in cl["doors"]], ["0EED8A:Fallout4.esm", "0EE661:Fallout4.esm"])
+            self.assertEqual(cl["doors"][1]["converted_model"], conv)
+            self.assertEqual(len(cl["door_skipped"]), 3)
+            merged = os.path.join(d, "merged.json")
+            dump({"containers": [{"src": "X"}]}, os.path.join(d, "c.json"))
+            self.assertEqual(mc.main(["merge", "--out", merged, os.path.join(d, "c.json"), out]), 0)
+            m = read(merged)
+            self.assertEqual(set(m) - {"note"}, {"containers", "doors", "doors_port"})
+            self.assertEqual(m["doors_port"]["next"], "000804")
+            dump(cl, os.path.join(d, "doors2.json"))
+            with self.assertRaises(SystemExit):                                   # the class twice (two inputs)
+                mc.main(["merge", "--out", merged, out, os.path.join(d, "doors2.json")])
+            # a build that promoted doors puts them back in their slots
+            dump({"refs": [{"src": s} for s in self.PLACED if s != "0EE661:Fallout4.esm"],
+                  "doors": [{"src": "0EE661:Fallout4.esm", "reference_index": 3}]}, os.path.join(d, "build", "objects.json"))
+            self.assertEqual(mc.placed_sources(os.path.join(d, "build")), self.PLACED)
+            self.assertIn("doors", mc.PROMOTED_KEYS)
+            self.assertIn("doors", mc.MERGE_KEYS)
+            with self.assertRaisesRegex(SystemExit, "--port"):                    # no plugin in the folder
+                mc.main(["doors", "--work", os.path.join(d, "work"), "--build", os.path.join(d, "build"),
+                         "--port", os.path.join(d, "build"), "--out", out])
 
 
 if __name__ == "__main__":
