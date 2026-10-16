@@ -46,19 +46,21 @@ Mapping from today's `testqueue.py` records (`verdict`, `class`): `PASS`→`PASS
 any other `INCONCLUSIVE` class (`CONTROL`, `UNREAD`, `NOSHOT`, `NIGHT`, …) →`INCONCLUSIVE`, class kept in `detail`.
 Every queue record is `source = IN_GAME`; `walksim` and `route_eval` results are `SIMULATED` / `OFFLINE`.
 
-## 3. What gets imported, from where (verified field names, repo `main` d628b56)
+## 3. What gets imported, from where (verified field names, repo `main` d628b56; re-checked on 16a1d2d, 2026-10-16)
 
 | File | Event | Fields read |
 |---|---|---|
 | `<queue>/queue.json` | `build_pinned`, `task_queued` per test | `build_id`, `plugin_sha256`, `staging`, `commit`, `created`, `tests[].id/kind/cell/ref` (`scripts/game/testqueue.py:422`) |
 | `<queue>/results.jsonl` | `task_finished` per row | `id, kind, cell, ref, attempt, verdict, class, detail, dir, t` (`testqueue.py:2681`); last row per id is final |
-| `<queue>/state.json` | `task_started` / breaker state | `done`, `breaker`, `attempts`, `crashes`, `status`, `updated`, `save_file` |
-| `Data/FO4Port.deploy.json` | `build_pinned` | the deploy manifest (`scripts/deploy_starfield.py:25`) |
+| `<queue>/state.json` | nothing (reviewed 2026-10-16) | the runner writes a `results.jsonl` row for every attempt, PRECONDITION and BREAKER included, and checkpoints `state.json` in the same step (`testqueue.py` `Runner.run`), so `done`/`attempts` repeat the rows; a task in flight is visible only in the ledger's own `task_started` (T2); the breaker counters, `status` and `updated` are the runner's bookkeeping |
+| `Data/FO4Port.deploy.json` | `build_pinned` | `artifacts[FO4Port.esm].sha256` → `plugin_sha256`, `build_id` = its first 8 hex digits (the derivation of `testqueue.py plan`), `complete` (`scripts/deploy_starfield.py` `install`, `artifact_identity`; the manifest carries no `build_id` of its own) |
 | `Data/FO4SFExp.install.json`, `Data/FO4SFBridge.install.json` | `plugins_verified` (active_after_load from `exp_install.py active`) | `plugins`, `plugins_replaced[].active/original`, `complete`, `pack` (`exp_install.py:492`) |
 | `watchdog_state.json` | `controller_*` (historic, best effort) | heartbeat and hand-over times (`watchdog.ps1:22`) |
 
-Imports are idempotent: an event carries `src` (file path + line or sha256), and a re-import skips events already
-present. The importer never writes to the files it reads.
+Imports are idempotent: an event carries `src` (file path + line for a file that only grows, file path + key for a
+`queue.json` written once, file path + sha256 of the content for the deploy and install records, which are rewritten
+in place by every deploy), and a re-import skips events already present. The importer never writes to the files it
+reads.
 
 ## 4. Bounded, resumable tasks (one cloud session each)
 

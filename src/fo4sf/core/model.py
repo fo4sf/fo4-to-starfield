@@ -97,6 +97,8 @@ class Event:
     @classmethod
     def from_json(cls, line):
         d = json.loads(line)
+        if not isinstance(d, dict) or "ev" not in d:        # valid JSON but not an event: corrupt, like bad JSON
+            raise ValueError('a ledger line is a JSON object with an "ev" field')
         return cls(ev=d.pop("ev"), by=d.pop("by", ""), t=d.pop("t", ""), fields=d)
 
     def get(self, key, default=None):

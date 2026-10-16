@@ -1,13 +1,22 @@
 """The append-only ledger and the fold that turns it into the leader's state (docs/ai/leader-core.md §1).
 
 A power cut can leave a partial last line: read() treats it as "not an event" and the next append() drops it and
-records a ledger_repaired event, so the file never holds a corrupt line in the middle. Current state is fold(events);
-nothing here rewrites history.
+records a ledger_repaired event, so the file never holds a corrupt line in the middle. A last line that is a whole
+event and only lacks its newline (the cut came after the closing brace) is an event for both: read() counts it and
+append() terminates it. Current state is fold(events); nothing here rewrites history.
 """
 from dataclasses import dataclass, field
 import os
 
 from .model import CapabilityState, Event, Outcome, Source, now_iso, parse_iso
+
+
+def _is_event(line):
+    try:
+        Event.from_json(line)
+        return True
+    except ValueError:
+        return False
 
 
 class Ledger:
@@ -46,13 +55,17 @@ class Ledger:
         if os.path.exists(self.path) and os.path.getsize(self.path):
             with open(self.path, "rb+") as f:
                 f.seek(-1, os.SEEK_END)
-                if f.read(1) != b"\n":                       # a partial last line: drop it, remember what was dropped
+                if f.read(1) != b"\n":                       # the last line has no newline: a write was cut short
                     f.seek(0)
                     data = f.read()
                     keep = data.rfind(b"\n") + 1
-                    repaired = data[keep:].decode("utf-8", "replace")
-                    f.seek(keep)
-                    f.truncate()
+                    tail = data[keep:].decode("utf-8", "replace")
+                    if _is_event(tail):                      # a whole event, only its newline is missing: terminate it
+                        f.write(b"\n")                       # (read() already counts it; dropping it would lose it)
+                    else:                                    # a partial line: drop it, remember what was dropped
+                        repaired = tail
+                        f.seek(keep)
+                        f.truncate()
         with open(self.path, "a", encoding="utf-8") as f:
             if repaired is not None:
                 f.write(Event("ledger_repaired", event.by, fields={"dropped": repaired}).to_json() + "\n")

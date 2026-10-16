@@ -1,19 +1,27 @@
 """Import existing records into the ledger as events; never write to the files read (docs/ai/leader-core.md §3).
 
-Sources and the field names they are read with (verified against main d628b56):
+Sources and the field names they are read with (verified against main 16a1d2d):
   <queue>/queue.json      build_id, plugin_sha256, staging, commit, created, tests[].id/kind/cell/ref
   <queue>/results.jsonl   id, kind, cell, ref, attempt, verdict, class, detail, dir, t   (last row per id is final)
-  <queue>/state.json      done, breaker, status, updated
+  <queue>/state.json      not read: the runner writes a results row for every attempt (PRECONDITION and BREAKER
+                          included) and checkpoints state.json together with it, so done/attempts repeat the rows;
+                          breaker counters, status and updated are the runner's own bookkeeping
   Data/FO4SFExp.install.json, Data/FO4SFBridge.install.json   plugins, plugins_replaced[].active, complete, pack
-  Data/FO4Port.deploy.json                                      whatever pin keys it carries (see PIN_KEYS)
-Every event carries src = "<file>:<line>" or "<file>#<key>"; an import skips src keys already in the ledger.
+  Data/FO4Port.deploy.json   artifacts[FO4Port.esm].sha256 (deploy_starfield.py artifact_identity) -> plugin_sha256,
+                             build_id = its first 8 hex digits (as testqueue.py plan derives it), complete;
+                             explicit pin keys (PIN_KEYS) win when a manifest carries them
+Every event carries src = "<file>:<line>" (a row of a file that only grows), "<file>#<key>" (a queue.json, written
+once) or "<file>@<sha256 of the file>" (a record rewritten in place: a new deploy or install is a new event); an
+import skips src keys already in the ledger.
 """
+import hashlib
 import json
 import os
 
 from .model import Event, outcome_from_queue
 
 PIN_KEYS = ("build_id", "plugin_sha256", "staging", "commit", "game_version")
+DEPLOY_PLUGIN = "FO4Port.esm"          # deploy_starfield.py PLUGIN: the artifact whose sha256 is the build's pin
 BY = "import"
 
 
@@ -22,6 +30,24 @@ def _load(p, default=None):
         return default
     with open(p, encoding="utf-8") as f:
         return json.load(f)
+
+
+def _content_src(p, key):
+    """src for a record that is rewritten in place: path plus the sha256 of its bytes (idempotent per content)."""
+    with open(p, "rb") as f:
+        return f"{os.path.abspath(p)}@{key}:{hashlib.sha256(f.read()).hexdigest()[:16]}"
+
+
+def deploy_pins(rec):
+    """The pin a deploy manifest carries. deploy_starfield.py install writes no build_id: the pin is the installed
+    plugin's sha256 under artifacts[FO4Port.esm], and build_id is its first 8 hex digits, the derivation
+    testqueue.py plan uses (build_id = digest[:8]). Explicit pin keys win when a manifest carries them."""
+    pins = {k: rec[k] for k in PIN_KEYS if rec.get(k)}
+    sha = ((rec.get("artifacts") or {}).get(DEPLOY_PLUGIN) or {}).get("sha256")
+    if sha:
+        pins.setdefault("plugin_sha256", sha)
+        pins.setdefault("build_id", sha[:8])
+    return pins
 
 
 def _rows(p):
@@ -81,7 +107,7 @@ def import_install(record_path, ledger, active_after_load=None):
         return 0
     names = list(rec.get("plugins") or [])
     names += [x["active"].lstrip("*").strip() for x in rec.get("plugins_replaced", []) if x.get("active")]
-    src = f"{os.path.abspath(record_path)}#plugins"
+    src = _content_src(record_path, "plugins")
     if src in ledger.sources():
         return 0
     ledger.append(Event("plugins_verified", BY, fields={
@@ -91,15 +117,17 @@ def import_install(record_path, ledger, active_after_load=None):
 
 
 def import_deploy(manifest_path, ledger):
-    """The deploy manifest -> one build_pinned event with whichever pin keys it carries."""
+    """The deploy manifest -> one build_pinned event (deploy_pins); an install the deployer did not complete says so."""
     rec = _load(manifest_path)
     if not rec:
         return 0
-    src = f"{os.path.abspath(manifest_path)}#pin"
+    src = _content_src(manifest_path, "pin")
     if src in ledger.sources():
         return 0
-    pins = {k: rec[k] for k in PIN_KEYS if rec.get(k)}
+    pins = deploy_pins(rec)
     if not pins:
         return 0
+    if "complete" in rec:
+        pins["complete"] = bool(rec["complete"])
     ledger.append(Event("build_pinned", BY, fields=dict(pins, src=src)))
     return 1
