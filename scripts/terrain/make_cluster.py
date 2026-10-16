@@ -6,6 +6,7 @@ table, so the same promotion path runs over all 1,708 cells.
 
   report     --work <work> --build <core64c staging>                     counts of placed references by FO4 base type
   containers --work <work> --build <core64c staging> --table <json> --out <cluster.json> [--limit N] [--only-known]
+  items      --work <work> --build <core64c staging> --table <json> --out <cluster.json> [--limit N] [--only-known]
 
 The table (scripts/terrain/clusters/container_table.json): {"default": {"name": ..., "items": [...]}, "by_editor_id": {<FO4 base
 editor id or prefix*>: {"name", "items"}}}. Items are vanilla Starfield forms (<plugin>:<6 hex>, count >= 1), as
@@ -20,6 +21,7 @@ import sys
 from collections import Counter
 
 CONTAINER_TYPES = ("Container",)                      # Mutagen type names in the export's "type"
+ITEM_TYPES = ("MiscItem", "Ingestible")               # loose items: MISC in Starfield (ALCH as MISC in the first pass)
 
 
 def load(p):
@@ -116,6 +118,43 @@ def containers(refs, placed, table, limit=0, only_known=False):
                     "vanilla inventory; read by make_core64c.py stage --cluster", "containers": entries}, dict(rep)
 
 
+def items(refs, placed, table, limit=0, only_known=False):
+    """({"items": [...]}, report) for every placed reference whose FO4 base is a MiscItem or Ingestible, in placement
+    order: src, name (the table's or the humanized editor id), value and weight (the table's), base, editor_id, kind
+    (the export's type), slot. The writer makes one MISC per FO4 base (as containers: #167) with the converted model."""
+    order = {src: i for i, src in enumerate(placed)}
+    entries, rep = [], Counter()
+    for r in refs:
+        kind = str(r.get("type"))
+        if kind not in ITEM_TYPES:
+            continue
+        src = r.get("formkey")
+        if src not in order:
+            rep["not placed"] += 1
+            continue
+        if r.get("disabled") not in (0, "0", False, None):
+            rep["initially disabled"] += 1
+            continue
+        edid = str(r.get("base_editor_id") or "")
+        entry, how = table_entry(table, edid)
+        rep[f"table {how}"] += 1
+        if entry is None or (only_known and how == "default"):
+            rep["skipped (no table entry)" if entry is None else "skipped (default only)"] += 1
+            continue
+        entries.append({"src": src, "name": entry.get("name") or humanize(edid), "value": int(entry.get("value", 0)),
+                        "weight": float(entry.get("weight", 0.0)), "base": r.get("base_formkey"), "editor_id": edid,
+                        "kind": kind, "slot": order[src]})
+        rep[kind] += 1
+    entries.sort(key=lambda e: e["slot"])
+    if limit:
+        rep["cut by --limit"] = max(0, len(entries) - limit)
+        entries = entries[:limit]
+    rep["items"] = len(entries)
+    rep["distinct bases"] = len({e["base"] for e in entries})
+    return {"note": "make_cluster.py items: every placed MiscItem / Ingestible reference of the core with the table's name, "
+                    "value and weight; read by make_core64c.py stage --cluster (items: one MISC per FO4 base)", "items": entries}, dict(rep)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -129,6 +168,13 @@ def main(argv=None):
     p.add_argument("--out", required=True)
     p.add_argument("--limit", type=int, default=0, help="keep the first N (placement order): a slice before the whole core")
     p.add_argument("--only-known", action="store_true", help="skip references the table only covers by its default entry")
+    p = sub.add_parser("items")
+    p.add_argument("--work", required=True)
+    p.add_argument("--build", required=True)
+    p.add_argument("--table", required=True)
+    p.add_argument("--out", required=True)
+    p.add_argument("--limit", type=int, default=0)
+    p.add_argument("--only-known", action="store_true")
     a = ap.parse_args(argv)
     placed = placed_sources(a.build)
     if a.cmd == "report":
@@ -138,11 +184,16 @@ def main(argv=None):
             print(f"  {t:<18} exported {n:>8,}  placed {placed_c.get(t, 0):>8,}")
         return 0
     table = load(a.table)
-    cl, rep = containers(band_refs(a.work), placed, table, a.limit, a.only_known)
+    if a.cmd == "items":
+        cl, rep = items(band_refs(a.work), placed, table, a.limit, a.only_known)
+        key = "items"
+    else:
+        cl, rep = containers(band_refs(a.work), placed, table, a.limit, a.only_known)
+        key = "containers"
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(cl, f, indent=1)
     print(json.dumps(rep, indent=1))
-    print(f"wrote {a.out}: {rep['containers']:,} containers")
+    print(f"wrote {a.out}: {rep[key]:,} {key}")
     return 0
 
 

@@ -78,5 +78,22 @@ class ContainersTests(unittest.TestCase):
             self.assertEqual(mc.main(["report", "--work", os.path.join(d, "work"), "--build", os.path.join(d, "build")]), 0)
 
 
+class ItemsTests(unittest.TestCase):
+    TABLE = {"default": {"name": None, "value": 5, "weight": 0.5},
+             "by_editor_id": {"Stimpak*": {"name": "Stimpak", "value": 48, "weight": 0.1}}}
+
+    def test_misc_and_ingestible_in_placement_order(self):
+        placed = ["000002:Fallout4.esm", "000001:Fallout4.esm"]
+        refs = [ref("000001:Fallout4.esm", typ="Ingestible", edid="Stimpak", base="23736:Fallout4.esm"),
+                ref("000002:Fallout4.esm", typ="MiscItem", edid="Junk_Can", base="0001:Fallout4.esm"),
+                ref("000003:Fallout4.esm", typ="Container")]
+        cl, rep = mc.items(refs, placed, self.TABLE)
+        self.assertEqual([(e["src"], e["name"], e["value"], e["kind"]) for e in cl["items"]],
+                         [("000002:Fallout4.esm", "Junk Can", 5, "MiscItem"), ("000001:Fallout4.esm", "Stimpak", 48, "Ingestible")])
+        self.assertEqual((rep["items"], rep["MiscItem"], rep["Ingestible"], rep["distinct bases"]), (2, 1, 1, 2))
+        cl, rep = mc.items(refs, placed, self.TABLE, only_known=True)
+        self.assertEqual([e["name"] for e in cl["items"]], ["Stimpak"])
+
+
 if __name__ == "__main__":
     unittest.main()
