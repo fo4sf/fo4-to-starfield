@@ -908,7 +908,9 @@ A terrain test may carry `"activate": {"ref": "<8 hex>", "base": "<8 hex>", "exp
 the native container's reference, load index included). After the probes and before the beyond teleport, the step opens one
 console session, types `prid <ref>` and `GetIsID <base>` and reads the console: the reply must be 1 (the selection is a
 reference of that base; a refused `prid` leaves the previous selection, which `activate player` would open: Codex's review
-of #145). Only then it types `activate player` and closes the console (the menu opens with the player as the activator: no
+of #145). The one capture is OCR'd at the thresholds 135, 140, 130 and 145 in turn until the reply is read (Item-Capture's
+four; core64g_accept_1016 test 0002 lost the reply row at 135 although `activate_sel.png` shows `GetIsID >> 1.00`);
+`obs.activate.sel_threshold` is the threshold that read it (null: none did). Only then it types `activate player` and closes the console (the menu opens with the player as the activator: no
 facing, no E); without the proof nothing is activated and `obs.activate.selected` is false, captures the whole screen as `activate.png`, OCRs it, and closes the menu with a held Tab, the UI's hold-to-exit (a tap only goes back a level;
 `activate_closed.png`, a second hold when the HUD is not back). The verdict detail gets `[activate <ref>: read [...] of [...]]`, the expected words the OCR found;
 it is shown and never judged, and the owner's own E-press stays the interaction acceptance. Runner feature `activate`

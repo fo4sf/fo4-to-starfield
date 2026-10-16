@@ -40,6 +40,9 @@ Every exterior DOOR reference of core64c that links to an interior already in `F
 slice's `ReferenceLinks` writes it) once the door gate passes. Order: the doors whose interiors exist, by distance from
 Red Rocket; a `door_trip` queue per batch of doors (the runner's door_route already walks a list). Interiors that are
 not converted yet are left as locked doors (vanilla "inaccessible" behaviour), never as holes.
+The backlog of interiors not converted yet (190 behind 350 load doors, and 26 more reached only through other
+interiors), ranked and dry-run converted:
+[interior-backlog.md](interior-backlog.md).
 
 ## 3. Semantic objects across the core (generalising R05)
 
