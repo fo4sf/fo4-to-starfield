@@ -1499,6 +1499,19 @@ also passes13 missing-door,11 native-base and relationship binary checks; guard 
 diff checks pass. Failed/passing synthetic evidence retained privately in
 test-plans/door-selection-cells-20261016. No real slots, staging, install or game
 input changed; new correction awaits peer QA and carry-forward into stacked253.
+## 2026-10-16: Codex explicit door CLI option validation
+
+Reproduced PR251's independent review finding on02239ef: `--door-base=...`, bare
+`--door-bases` and an unknown flag all exited successfully and published output.
+The first two omitted the explicitly intended endpoint. A separate follow-up
+branch now validates the known options and nonempty mapping path before loading
+inputs. Four argument controls pass; this preserves the documented flag syntax.
+Targeted validation passes17 missing-door and11 native-base CLI controls plus
+relationship binary checks, guard and diff. A private absent-input probe confirms
+the argument error takes precedence without creating any output.
+Failed/passing synthetic fixtures remain private at
+test-plans/door-cli-options-20261016. No merge head, source stage, actual FormID
+allocation, game installation or input was changed; peer QA remains pending.
 ## 2026-10-16: Codex scripted cave-door compiler packet
 
 Following Claude's #32 request6222158841, added a separate player-only Papyrus

@@ -7,7 +7,7 @@ using Noggog;
 
 public static class MissingDoorEndpointTests
 {
-    public static void Run(bool cellsOnly = false)
+    public static void Run(bool cellsOnly = false, bool optionsOnly = false)
     {
         var root = Environment.GetEnvironmentVariable("FO4SF_MISSING_DOOR_EVIDENCE")
             ?? Path.Combine(Path.GetTempPath(), "fo4sf-missing-doors-" + Guid.NewGuid().ToString("N"));
@@ -15,8 +15,9 @@ public static class MissingDoorEndpointTests
         var failures = new List<string>();
         var cellScenarios = new[] { "missing-map-strict", "missing-map-partial", "missing-record-strict",
             "missing-record-partial", "missing-map-report", "unselected-missing-partial" };
-        var scenarios = cellsOnly ? cellScenarios : new[] { "allocated", "reserved", "static-base", "wrong-type",
-            "occupied", "invalid-scale", "unknown-source" }.Concat(cellScenarios).ToArray();
+        var optionScenarios = new[] { "misspelled-door-option", "bare-door-option", "empty-door-option", "unknown-option" };
+        var scenarios = cellsOnly ? cellScenarios : optionsOnly ? optionScenarios : new[] { "allocated", "reserved", "static-base", "wrong-type",
+            "occupied", "invalid-scale", "unknown-source" }.Concat(cellScenarios).Concat(optionScenarios).ToArray();
         foreach (var scenario in scenarios)
         {
             try { Check(root, scenario); }
@@ -74,7 +75,13 @@ public static class MissingDoorEndpointTests
         {
             var start = new ProcessStartInfo("dotnet") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
             start.ArgumentList.Add(typeof(Relationships).Assembly.Location);
-            foreach (var arg in new[] { from, idMap, to, export, "--door-bases=" + mapping }) start.ArgumentList.Add(arg);
+            var doorOption = scenario switch {
+                "misspelled-door-option" => "--door-base=" + mapping,
+                "bare-door-option" => "--door-bases",
+                "empty-door-option" => "--door-bases=",
+                _ => "--door-bases=" + mapping };
+            foreach (var arg in new[] { from, idMap, to, export, doorOption }) start.ArgumentList.Add(arg);
+            if (scenario == "unknown-option") start.ArgumentList.Add("--allow-unresolve");
             if (scenario.EndsWith("-partial") || scenario.EndsWith("-report")) start.ArgumentList.Add("--allow-unresolved");
             if (scenario.EndsWith("-report")) start.ArgumentList.Add("--report-only");
             if (scenario == "unselected-missing-partial") start.ArgumentList.Add(extraExport);
