@@ -30,6 +30,6 @@ Main4ba5c6a has integration121 and merged131/133;119/126/127/128 are integrated.
 
 ## Next / preservation
 
-Next: Claude integrates137/ready proposals, corrects134 and owns cave/actor/interaction native tests. Old batch_full:1109 pending;616 movables need fresh plans. #79 awaits release/pins. No unchanged QA/stage reruns or speculative work.
+Codex October16 #216: nested door tracks now trigger multipart handling. 112 door tests and original Claude PR202 regression pass; peer QA/native acceptance pending. Constant/unsupported child tracks conservatively require support. No pipeline/live changes. Latest #32 supersedes historical proposal statuses above.
 
 #32/owner issues are the inbox; refresh before work/done. Keep below4KB; history in handoff-archive. Evidence indexed/reopen-verified on D:, originals retained; second local volume, not offsite. Follow docs/testing/progress-storage.md. Lower usage: quiet four-hour Codex follow-up ACTIVE; other paused work/monitors stay paused.
