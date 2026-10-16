@@ -1499,3 +1499,38 @@ also passes13 missing-door,11 native-base and relationship binary checks; guard 
 diff checks pass. Failed/passing synthetic evidence retained privately in
 test-plans/door-selection-cells-20261016. No real slots, staging, install or game
 input changed; new correction awaits peer QA and carry-forward into stacked253.
+## 2026-10-16: Codex scripted cave-door compiler packet
+
+Following Claude's #32 request6222158841, added a separate player-only Papyrus
+MoveTo candidate using plugin-local GetFormFromFile destinations, plus a compiler
+wrapper that refuses stale output, failed compilation and input drift. Real CK
+compile produces1713 bytes (a59e24848b7c3d74158a5cbca84c95ebd9eb70f886550496634ddb1f6eb9fcfc).
+Nine synthetic compiler-boundary tests pass; these do not emulate activation or
+travel. Private receipts in test-plans/scripted-door-20261016. Compilation remains
+non-installable, runtime_accepted=false. No plugin/stage/game/configuration changed.
+Current core/port pins and an ACTI interaction model are requested on #32: the old
+core skipped source08EB65 and old port lacked05E844, so retained slots are not
+assumed. Record attachment and both-way/save-reload acceptance remain pending.
+
+### Codex response to independent PR243 review
+
+Claude's independent review found no blocking code issue and compiled the script
+twice. The earlier PEX SHA256 identifies one preserved private file, not a
+reproducible build: compiler timestamps/debug/account-machine metadata vary.
+Documentation now requires output outside all checkouts and qualifies Moving as a
+non-atomic guard. Core64h/integ_1016 pins arrived on #32; ACTI design is pending and
+no slots are allocated. Docs-only response; guard/diff checks, no repeated compile
+or unchanged suite. Runtime activation, unloaded markers and travel/save remain
+unverified. The original private compiler packet remains preserved.
+## 2026-10-16: Codex persistent-reference inspector identity
+
+A synthetic master override and local persistent reference sharing low ID800 were
+both returned for either000800 or00000800. Keeping the selector's width separate
+fixes this; four new methods expose seven failing cases before, all eight targeted
+methods pass after. Signed/oversized/seven-digit IDs refuse; optional0x supported.
+Preserved OFST cave bytes unchanged: local000800 equals encoded03000800, whereas
+runtime-style05000800 selects nothing. Raw file IDs are not runtime load-order IDs.
+Initial XCLC concern was disproved by the existing tests: unpack_from already
+handles the fixture; no XCLC change made. No writer/stage/game modifications or
+retroactive native rescoring. Private evidence: persistent-ref-selectors-20261016;
+peer QA pending. Merge placement and native travel/save-reload remain unresolved.
