@@ -1,0 +1,5347 @@
+{
+  "-19,-15": {
+    "triangles": 49,
+    "area": 147.218907,
+    "vertices": 0
+  },
+  "-19,-14": {
+    "triangles": 645,
+    "area": 1672.492583,
+    "vertices": 225
+  },
+  "-19,-13": {
+    "triangles": 14,
+    "area": 34.542768,
+    "vertices": 0
+  },
+  "-18,-20": {
+    "triangles": 596,
+    "area": 1058.210712,
+    "vertices": 243
+  },
+  "-18,-19": {
+    "triangles": 1682,
+    "area": 3193.677714,
+    "vertices": 921
+  },
+  "-18,-18": {
+    "triangles": 1870,
+    "area": 5923.046433,
+    "vertices": 1476
+  },
+  "-18,-17": {
+    "triangles": 1623,
+    "area": 8666.641311,
+    "vertices": 2183
+  },
+  "-18,-16": {
+    "triangles": 3348,
+    "area": 6576.298219,
+    "vertices": 1770
+  },
+  "-18,-15": {
+    "triangles": 3153,
+    "area": 6791.470784,
+    "vertices": 4612
+  },
+  "-18,-14": {
+    "triangles": 3372,
+    "area": 7996.47056,
+    "vertices": 1413
+  },
+  "-18,-13": {
+    "triangles": 2682,
+    "area": 5279.892478,
+    "vertices": 3284
+  },
+  "-18,-12": {
+    "triangles": 1862,
+    "area": 3922.81899,
+    "vertices": 1037
+  },
+  "-18,-11": {
+    "triangles": 272,
+    "area": 863.13705,
+    "vertices": 0
+  },
+  "-17,-21": {
+    "triangles": 981,
+    "area": 829.293615,
+    "vertices": 0
+  },
+  "-17,-20": {
+    "triangles": 4392,
+    "area": 6922.616705,
+    "vertices": 4882
+  },
+  "-17,-19": {
+    "triangles": 3815,
+    "area": 9520.346607,
+    "vertices": 883
+  },
+  "-17,-18": {
+    "triangles": 1900,
+    "area": 9576.066557,
+    "vertices": 1014
+  },
+  "-17,-17": {
+    "triangles": 1599,
+    "area": 9048.401037,
+    "vertices": 1300
+  },
+  "-17,-16": {
+    "triangles": 2134,
+    "area": 7738.428129,
+    "vertices": 598
+  },
+  "-17,-15": {
+    "triangles": 4232,
+    "area": 7936.543285,
+    "vertices": 4206
+  },
+  "-17,-14": {
+    "triangles": 3854,
+    "area": 8077.036666,
+    "vertices": 1937
+  },
+  "-17,-13": {
+    "triangles": 4617,
+    "area": 8379.44237,
+    "vertices": 3091
+  },
+  "-17,-12": {
+    "triangles": 3316,
+    "area": 8373.411824,
+    "vertices": 1715
+  },
+  "-17,-11": {
+    "triangles": 2918,
+    "area": 7932.264615,
+    "vertices": 2901
+  },
+  "-17,-10": {
+    "triangles": 2000,
+    "area": 5680.210485,
+    "vertices": 2211
+  },
+  "-17,-9": {
+    "triangles": 1234,
+    "area": 2884.542722,
+    "vertices": 167
+  },
+  "-17,-8": {
+    "triangles": 365,
+    "area": 1298.475946,
+    "vertices": 0
+  },
+  "-17,-7": {
+    "triangles": 11,
+    "area": 14.959287,
+    "vertices": 0
+  },
+  "-16,-22": {
+    "triangles": 2,
+    "area": 10.46565,
+    "vertices": 0
+  },
+  "-16,-21": {
+    "triangles": 2608,
+    "area": 7163.667649,
+    "vertices": 2073
+  },
+  "-16,-20": {
+    "triangles": 3250,
+    "area": 9927.837675,
+    "vertices": 1292
+  },
+  "-16,-19": {
+    "triangles": 3240,
+    "area": 9590.396403,
+    "vertices": 2925
+  },
+  "-16,-18": {
+    "triangles": 1879,
+    "area": 8370.7005,
+    "vertices": 1901
+  },
+  "-16,-17": {
+    "triangles": 706,
+    "area": 8164.299783,
+    "vertices": 634
+  },
+  "-16,-16": {
+    "triangles": 2076,
+    "area": 8419.937678,
+    "vertices": 4081
+  },
+  "-16,-15": {
+    "triangles": 3112,
+    "area": 8347.104346,
+    "vertices": 2237
+  },
+  "-16,-14": {
+    "triangles": 3599,
+    "area": 6899.632784,
+    "vertices": 1547
+  },
+  "-16,-13": {
+    "triangles": 3801,
+    "area": 7009.719302,
+    "vertices": 3230
+  },
+  "-16,-12": {
+    "triangles": 3320,
+    "area": 7434.461568,
+    "vertices": 2396
+  },
+  "-16,-11": {
+    "triangles": 3142,
+    "area": 9047.124517,
+    "vertices": 2490
+  },
+  "-16,-10": {
+    "triangles": 3443,
+    "area": 8714.069651,
+    "vertices": 2147
+  },
+  "-16,-9": {
+    "triangles": 3246,
+    "area": 8296.13545,
+    "vertices": 3376
+  },
+  "-16,-8": {
+    "triangles": 2399,
+    "area": 9370.990335,
+    "vertices": 4202
+  },
+  "-16,-7": {
+    "triangles": 2881,
+    "area": 8443.381158,
+    "vertices": 1146
+  },
+  "-16,-6": {
+    "triangles": 1608,
+    "area": 5111.099513,
+    "vertices": 1231
+  },
+  "-16,-5": {
+    "triangles": 847,
+    "area": 1913.704249,
+    "vertices": 509
+  },
+  "-16,-4": {
+    "triangles": 15,
+    "area": 43.220941,
+    "vertices": 0
+  },
+  "-15,-22": {
+    "triangles": 112,
+    "area": 335.181345,
+    "vertices": 513
+  },
+  "-15,-21": {
+    "triangles": 3060,
+    "area": 9811.566472,
+    "vertices": 2272
+  },
+  "-15,-20": {
+    "triangles": 2149,
+    "area": 9706.659598,
+    "vertices": 717
+  },
+  "-15,-19": {
+    "triangles": 1682,
+    "area": 9757.810942,
+    "vertices": 1032
+  },
+  "-15,-18": {
+    "triangles": 1165,
+    "area": 5733.911667,
+    "vertices": 530
+  },
+  "-15,-17": {
+    "triangles": 964,
+    "area": 5188.655207,
+    "vertices": 1030
+  },
+  "-15,-16": {
+    "triangles": 2376,
+    "area": 6599.162892,
+    "vertices": 1590
+  },
+  "-15,-15": {
+    "triangles": 1811,
+    "area": 8415.186954,
+    "vertices": 1087
+  },
+  "-15,-14": {
+    "triangles": 3694,
+    "area": 9422.415323,
+    "vertices": 2615
+  },
+  "-15,-13": {
+    "triangles": 4865,
+    "area": 9389.799123,
+    "vertices": 4917
+  },
+  "-15,-12": {
+    "triangles": 2916,
+    "area": 9376.987915,
+    "vertices": 3031
+  },
+  "-15,-11": {
+    "triangles": 1897,
+    "area": 9320.365078,
+    "vertices": 1793
+  },
+  "-15,-10": {
+    "triangles": 1925,
+    "area": 8320.483923,
+    "vertices": 2832
+  },
+  "-15,-9": {
+    "triangles": 2353,
+    "area": 8933.059262,
+    "vertices": 1327
+  },
+  "-15,-8": {
+    "triangles": 2740,
+    "area": 9041.592072,
+    "vertices": 2447
+  },
+  "-15,-7": {
+    "triangles": 2195,
+    "area": 8961.500917,
+    "vertices": 2685
+  },
+  "-15,-6": {
+    "triangles": 2114,
+    "area": 8657.93028,
+    "vertices": 2841
+  },
+  "-15,-5": {
+    "triangles": 3106,
+    "area": 8216.832713,
+    "vertices": 4750
+  },
+  "-15,-4": {
+    "triangles": 3052,
+    "area": 8401.688578,
+    "vertices": 2649
+  },
+  "-15,-3": {
+    "triangles": 2459,
+    "area": 8569.431232,
+    "vertices": 3086
+  },
+  "-15,-2": {
+    "triangles": 2841,
+    "area": 8566.883695,
+    "vertices": 3200
+  },
+  "-15,-1": {
+    "triangles": 2751,
+    "area": 8358.69508,
+    "vertices": 2692
+  },
+  "-15,0": {
+    "triangles": 2377,
+    "area": 8346.870651,
+    "vertices": 3173
+  },
+  "-15,1": {
+    "triangles": 2470,
+    "area": 7898.700602,
+    "vertices": 1626
+  },
+  "-15,2": {
+    "triangles": 2517,
+    "area": 8095.02474,
+    "vertices": 2771
+  },
+  "-15,3": {
+    "triangles": 2765,
+    "area": 7911.639118,
+    "vertices": 1136
+  },
+  "-15,4": {
+    "triangles": 3744,
+    "area": 7428.655492,
+    "vertices": 4416
+  },
+  "-15,5": {
+    "triangles": 4125,
+    "area": 6522.691973,
+    "vertices": 1825
+  },
+  "-15,6": {
+    "triangles": 4530,
+    "area": 6331.617107,
+    "vertices": 2155
+  },
+  "-15,7": {
+    "triangles": 4548,
+    "area": 5870.131203,
+    "vertices": 4990
+  },
+  "-15,8": {
+    "triangles": 3465,
+    "area": 6287.081917,
+    "vertices": 1273
+  },
+  "-15,9": {
+    "triangles": 5084,
+    "area": 6074.590767,
+    "vertices": 3796
+  },
+  "-15,10": {
+    "triangles": 3725,
+    "area": 6059.848721,
+    "vertices": 3133
+  },
+  "-15,11": {
+    "triangles": 3206,
+    "area": 5455.783665,
+    "vertices": 1300
+  },
+  "-15,12": {
+    "triangles": 3168,
+    "area": 5141.735237,
+    "vertices": 2600
+  },
+  "-15,13": {
+    "triangles": 3432,
+    "area": 5733.020384,
+    "vertices": 2485
+  },
+  "-15,14": {
+    "triangles": 3023,
+    "area": 5854.882649,
+    "vertices": 3955
+  },
+  "-15,15": {
+    "triangles": 668,
+    "area": 1164.511404,
+    "vertices": 7
+  },
+  "-14,-22": {
+    "triangles": 274,
+    "area": 596.941995,
+    "vertices": 1034
+  },
+  "-14,-21": {
+    "triangles": 3431,
+    "area": 9958.060446,
+    "vertices": 0
+  },
+  "-14,-20": {
+    "triangles": 2202,
+    "area": 9882.107549,
+    "vertices": 2017
+  },
+  "-14,-19": {
+    "triangles": 1917,
+    "area": 9938.072729,
+    "vertices": 744
+  },
+  "-14,-18": {
+    "triangles": 1161,
+    "area": 7583.907261,
+    "vertices": 544
+  },
+  "-14,-17": {
+    "triangles": 1102,
+    "area": 5073.756673,
+    "vertices": 702
+  },
+  "-14,-16": {
+    "triangles": 1297,
+    "area": 9038.366795,
+    "vertices": 331
+  },
+  "-14,-15": {
+    "triangles": 2030,
+    "area": 9249.325908,
+    "vertices": 1345
+  },
+  "-14,-14": {
+    "triangles": 2768,
+    "area": 9763.720105,
+    "vertices": 595
+  },
+  "-14,-13": {
+    "triangles": 2760,
+    "area": 8948.816158,
+    "vertices": 207
+  },
+  "-14,-12": {
+    "triangles": 2782,
+    "area": 9356.52351,
+    "vertices": 2475
+  },
+  "-14,-11": {
+    "triangles": 2406,
+    "area": 9016.832847,
+    "vertices": 2378
+  },
+  "-14,-10": {
+    "triangles": 1641,
+    "area": 8180.22244,
+    "vertices": 1040
+  },
+  "-14,-9": {
+    "triangles": 2601,
+    "area": 8428.075759,
+    "vertices": 1308
+  },
+  "-14,-8": {
+    "triangles": 3683,
+    "area": 8747.452509,
+    "vertices": 3272
+  },
+  "-14,-7": {
+    "triangles": 2748,
+    "area": 8550.409247,
+    "vertices": 1010
+  },
+  "-14,-6": {
+    "triangles": 2509,
+    "area": 8674.602715,
+    "vertices": 1016
+  },
+  "-14,-5": {
+    "triangles": 3106,
+    "area": 8699.221236,
+    "vertices": 778
+  },
+  "-14,-4": {
+    "triangles": 2094,
+    "area": 8509.828428,
+    "vertices": 2546
+  },
+  "-14,-3": {
+    "triangles": 2481,
+    "area": 8857.410658,
+    "vertices": 1706
+  },
+  "-14,-2": {
+    "triangles": 2364,
+    "area": 8963.221975,
+    "vertices": 827
+  },
+  "-14,-1": {
+    "triangles": 2278,
+    "area": 8382.311539,
+    "vertices": 2536
+  },
+  "-14,0": {
+    "triangles": 1616,
+    "area": 9321.131586,
+    "vertices": 1916
+  },
+  "-14,1": {
+    "triangles": 2062,
+    "area": 9700.142897,
+    "vertices": 2176
+  },
+  "-14,2": {
+    "triangles": 3343,
+    "area": 9512.071137,
+    "vertices": 1921
+  },
+  "-14,3": {
+    "triangles": 3442,
+    "area": 9786.373787,
+    "vertices": 1651
+  },
+  "-14,4": {
+    "triangles": 3413,
+    "area": 9062.930004,
+    "vertices": 2437
+  },
+  "-14,5": {
+    "triangles": 5612,
+    "area": 9014.810776,
+    "vertices": 3812
+  },
+  "-14,6": {
+    "triangles": 6678,
+    "area": 9319.92128,
+    "vertices": 4359
+  },
+  "-14,7": {
+    "triangles": 4554,
+    "area": 9585.148059,
+    "vertices": 4330
+  },
+  "-14,8": {
+    "triangles": 5165,
+    "area": 8587.759996,
+    "vertices": 4671
+  },
+  "-14,9": {
+    "triangles": 6711,
+    "area": 9584.14213,
+    "vertices": 1612
+  },
+  "-14,10": {
+    "triangles": 5976,
+    "area": 8852.242657,
+    "vertices": 3180
+  },
+  "-14,11": {
+    "triangles": 5292,
+    "area": 9059.975347,
+    "vertices": 4951
+  },
+  "-14,12": {
+    "triangles": 5394,
+    "area": 8776.991298,
+    "vertices": 2891
+  },
+  "-14,13": {
+    "triangles": 5097,
+    "area": 9152.938683,
+    "vertices": 2762
+  },
+  "-14,14": {
+    "triangles": 4839,
+    "area": 9657.348817,
+    "vertices": 4087
+  },
+  "-14,15": {
+    "triangles": 1193,
+    "area": 1892.392719,
+    "vertices": 10
+  },
+  "-13,-22": {
+    "triangles": 220,
+    "area": 283.510143,
+    "vertices": 1501
+  },
+  "-13,-21": {
+    "triangles": 3059,
+    "area": 9803.063069,
+    "vertices": 803
+  },
+  "-13,-20": {
+    "triangles": 1108,
+    "area": 10101.845109,
+    "vertices": 746
+  },
+  "-13,-19": {
+    "triangles": 1598,
+    "area": 9791.413028,
+    "vertices": 999
+  },
+  "-13,-18": {
+    "triangles": 2149,
+    "area": 9151.657515,
+    "vertices": 806
+  },
+  "-13,-17": {
+    "triangles": 2568,
+    "area": 6582.274268,
+    "vertices": 2707
+  },
+  "-13,-16": {
+    "triangles": 1722,
+    "area": 8867.782252,
+    "vertices": 2627
+  },
+  "-13,-15": {
+    "triangles": 1450,
+    "area": 8997.533373,
+    "vertices": 1403
+  },
+  "-13,-14": {
+    "triangles": 1286,
+    "area": 8859.711804,
+    "vertices": 582
+  },
+  "-13,-13": {
+    "triangles": 1654,
+    "area": 9697.324873,
+    "vertices": 876
+  },
+  "-13,-12": {
+    "triangles": 2193,
+    "area": 9426.766842,
+    "vertices": 3465
+  },
+  "-13,-11": {
+    "triangles": 2690,
+    "area": 9205.846222,
+    "vertices": 1406
+  },
+  "-13,-10": {
+    "triangles": 2025,
+    "area": 8598.878168,
+    "vertices": 1889
+  },
+  "-13,-9": {
+    "triangles": 2419,
+    "area": 8812.565091,
+    "vertices": 1193
+  },
+  "-13,-8": {
+    "triangles": 3248,
+    "area": 9150.249372,
+    "vertices": 4103
+  },
+  "-13,-7": {
+    "triangles": 3159,
+    "area": 7899.381002,
+    "vertices": 5254
+  },
+  "-13,-6": {
+    "triangles": 2976,
+    "area": 8474.821196,
+    "vertices": 4324
+  },
+  "-13,-5": {
+    "triangles": 2884,
+    "area": 9469.344358,
+    "vertices": 2965
+  },
+  "-13,-4": {
+    "triangles": 2943,
+    "area": 8556.334917,
+    "vertices": 3282
+  },
+  "-13,-3": {
+    "triangles": 3136,
+    "area": 8668.90507,
+    "vertices": 3898
+  },
+  "-13,-2": {
+    "triangles": 3212,
+    "area": 8629.839197,
+    "vertices": 2610
+  },
+  "-13,-1": {
+    "triangles": 3261,
+    "area": 9171.238087,
+    "vertices": 3242
+  },
+  "-13,0": {
+    "triangles": 2277,
+    "area": 8693.103616,
+    "vertices": 901
+  },
+  "-13,1": {
+    "triangles": 3149,
+    "area": 8733.37167,
+    "vertices": 2757
+  },
+  "-13,2": {
+    "triangles": 3973,
+    "area": 9190.194465,
+    "vertices": 5892
+  },
+  "-13,3": {
+    "triangles": 3545,
+    "area": 9623.70574,
+    "vertices": 2675
+  },
+  "-13,4": {
+    "triangles": 3531,
+    "area": 10031.38206,
+    "vertices": 5292
+  },
+  "-13,5": {
+    "triangles": 6309,
+    "area": 10278.894757,
+    "vertices": 5872
+  },
+  "-13,6": {
+    "triangles": 5777,
+    "area": 9676.381882,
+    "vertices": 1962
+  },
+  "-13,7": {
+    "triangles": 2668,
+    "area": 9718.516659,
+    "vertices": 1235
+  },
+  "-13,8": {
+    "triangles": 4894,
+    "area": 9299.205393,
+    "vertices": 5423
+  },
+  "-13,9": {
+    "triangles": 6146,
+    "area": 9376.641663,
+    "vertices": 3939
+  },
+  "-13,10": {
+    "triangles": 4229,
+    "area": 9628.124836,
+    "vertices": 2557
+  },
+  "-13,11": {
+    "triangles": 4924,
+    "area": 8584.189855,
+    "vertices": 7550
+  },
+  "-13,12": {
+    "triangles": 5035,
+    "area": 7912.217507,
+    "vertices": 2674
+  },
+  "-13,13": {
+    "triangles": 5373,
+    "area": 8656.414822,
+    "vertices": 3884
+  },
+  "-13,14": {
+    "triangles": 4633,
+    "area": 9628.988175,
+    "vertices": 3921
+  },
+  "-13,15": {
+    "triangles": 847,
+    "area": 1931.92628,
+    "vertices": 1246
+  },
+  "-12,-22": {
+    "triangles": 118,
+    "area": 341.452092,
+    "vertices": 0
+  },
+  "-12,-21": {
+    "triangles": 2425,
+    "area": 7984.543282,
+    "vertices": 1539
+  },
+  "-12,-20": {
+    "triangles": 1412,
+    "area": 9891.861351,
+    "vertices": 1514
+  },
+  "-12,-19": {
+    "triangles": 1663,
+    "area": 9808.888708,
+    "vertices": 1386
+  },
+  "-12,-18": {
+    "triangles": 1361,
+    "area": 9279.229137,
+    "vertices": 1792
+  },
+  "-12,-17": {
+    "triangles": 2064,
+    "area": 8374.236233,
+    "vertices": 1444
+  },
+  "-12,-16": {
+    "triangles": 1513,
+    "area": 9219.138753,
+    "vertices": 1065
+  },
+  "-12,-15": {
+    "triangles": 1850,
+    "area": 8425.045673,
+    "vertices": 1924
+  },
+  "-12,-14": {
+    "triangles": 1598,
+    "area": 9509.828476,
+    "vertices": 1308
+  },
+  "-12,-13": {
+    "triangles": 1820,
+    "area": 9586.318775,
+    "vertices": 1459
+  },
+  "-12,-12": {
+    "triangles": 2650,
+    "area": 9741.010953,
+    "vertices": 756
+  },
+  "-12,-11": {
+    "triangles": 4499,
+    "area": 9190.457782,
+    "vertices": 2097
+  },
+  "-12,-10": {
+    "triangles": 3356,
+    "area": 7860.198785,
+    "vertices": 3958
+  },
+  "-12,-9": {
+    "triangles": 2301,
+    "area": 9203.190564,
+    "vertices": 2641
+  },
+  "-12,-8": {
+    "triangles": 1980,
+    "area": 8847.600685,
+    "vertices": 1048
+  },
+  "-12,-7": {
+    "triangles": 1674,
+    "area": 8940.001817,
+    "vertices": 645
+  },
+  "-12,-6": {
+    "triangles": 3601,
+    "area": 8839.141413,
+    "vertices": 2044
+  },
+  "-12,-5": {
+    "triangles": 4560,
+    "area": 10076.171252,
+    "vertices": 4265
+  },
+  "-12,-4": {
+    "triangles": 3799,
+    "area": 8947.632076,
+    "vertices": 8
+  },
+  "-12,-3": {
+    "triangles": 4379,
+    "area": 9103.422482,
+    "vertices": 4803
+  },
+  "-12,-2": {
+    "triangles": 4489,
+    "area": 9155.401572,
+    "vertices": 4221
+  },
+  "-12,-1": {
+    "triangles": 4953,
+    "area": 9098.14201,
+    "vertices": 4859
+  },
+  "-12,0": {
+    "triangles": 4598,
+    "area": 8963.00554,
+    "vertices": 3638
+  },
+  "-12,1": {
+    "triangles": 4335,
+    "area": 8617.82962,
+    "vertices": 2911
+  },
+  "-12,2": {
+    "triangles": 3968,
+    "area": 9016.114605,
+    "vertices": 1691
+  },
+  "-12,3": {
+    "triangles": 2761,
+    "area": 9160.431148,
+    "vertices": 2408
+  },
+  "-12,4": {
+    "triangles": 3439,
+    "area": 10024.423832,
+    "vertices": 2619
+  },
+  "-12,5": {
+    "triangles": 6147,
+    "area": 9661.901179,
+    "vertices": 4456
+  },
+  "-12,6": {
+    "triangles": 6068,
+    "area": 8562.794182,
+    "vertices": 4511
+  },
+  "-12,7": {
+    "triangles": 4340,
+    "area": 9252.719325,
+    "vertices": 2932
+  },
+  "-12,8": {
+    "triangles": 5355,
+    "area": 9484.63659,
+    "vertices": 6065
+  },
+  "-12,9": {
+    "triangles": 5225,
+    "area": 9530.737977,
+    "vertices": 4212
+  },
+  "-12,10": {
+    "triangles": 4954,
+    "area": 9167.931419,
+    "vertices": 2616
+  },
+  "-12,11": {
+    "triangles": 5161,
+    "area": 9359.566078,
+    "vertices": 3338
+  },
+  "-12,12": {
+    "triangles": 7507,
+    "area": 10426.613793,
+    "vertices": 5787
+  },
+  "-12,13": {
+    "triangles": 6496,
+    "area": 8932.195654,
+    "vertices": 2019
+  },
+  "-12,14": {
+    "triangles": 5326,
+    "area": 9191.90238,
+    "vertices": 3808
+  },
+  "-12,15": {
+    "triangles": 984,
+    "area": 2008.106114,
+    "vertices": 1346
+  },
+  "-11,-21": {
+    "triangles": 1573,
+    "area": 4717.564795,
+    "vertices": 341
+  },
+  "-11,-20": {
+    "triangles": 1616,
+    "area": 9724.876003,
+    "vertices": 1211
+  },
+  "-11,-19": {
+    "triangles": 1327,
+    "area": 9757.077232,
+    "vertices": 499
+  },
+  "-11,-18": {
+    "triangles": 916,
+    "area": 9889.18978,
+    "vertices": 512
+  },
+  "-11,-17": {
+    "triangles": 1988,
+    "area": 9127.727217,
+    "vertices": 1175
+  },
+  "-11,-16": {
+    "triangles": 1792,
+    "area": 9120.758198,
+    "vertices": 3027
+  },
+  "-11,-15": {
+    "triangles": 2007,
+    "area": 9209.024184,
+    "vertices": 870
+  },
+  "-11,-14": {
+    "triangles": 1065,
+    "area": 9215.065004,
+    "vertices": 1047
+  },
+  "-11,-13": {
+    "triangles": 1669,
+    "area": 9827.523692,
+    "vertices": 643
+  },
+  "-11,-12": {
+    "triangles": 2459,
+    "area": 9116.394811,
+    "vertices": 2869
+  },
+  "-11,-11": {
+    "triangles": 3429,
+    "area": 8853.906178,
+    "vertices": 3097
+  },
+  "-11,-10": {
+    "triangles": 3346,
+    "area": 8695.619789,
+    "vertices": 2765
+  },
+  "-11,-9": {
+    "triangles": 2859,
+    "area": 9729.518515,
+    "vertices": 1079
+  },
+  "-11,-8": {
+    "triangles": 3048,
+    "area": 9517.223887,
+    "vertices": 2705
+  },
+  "-11,-7": {
+    "triangles": 2487,
+    "area": 9460.173346,
+    "vertices": 969
+  },
+  "-11,-6": {
+    "triangles": 2972,
+    "area": 9526.813227,
+    "vertices": 1579
+  },
+  "-11,-5": {
+    "triangles": 3465,
+    "area": 10249.698702,
+    "vertices": 2395
+  },
+  "-11,-4": {
+    "triangles": 5711,
+    "area": 9555.489257,
+    "vertices": 5818
+  },
+  "-11,-3": {
+    "triangles": 4515,
+    "area": 8918.532075,
+    "vertices": 4283
+  },
+  "-11,-2": {
+    "triangles": 3881,
+    "area": 9430.322742,
+    "vertices": 3054
+  },
+  "-11,-1": {
+    "triangles": 5261,
+    "area": 9934.53612,
+    "vertices": 1466
+  },
+  "-11,0": {
+    "triangles": 5455,
+    "area": 9497.517317,
+    "vertices": 3409
+  },
+  "-11,1": {
+    "triangles": 4563,
+    "area": 9467.639154,
+    "vertices": 2879
+  },
+  "-11,2": {
+    "triangles": 2523,
+    "area": 9585.108733,
+    "vertices": 2065
+  },
+  "-11,3": {
+    "triangles": 2792,
+    "area": 9701.620201,
+    "vertices": 1260
+  },
+  "-11,4": {
+    "triangles": 3053,
+    "area": 9543.021719,
+    "vertices": 955
+  },
+  "-11,5": {
+    "triangles": 6132,
+    "area": 10183.341311,
+    "vertices": 4274
+  },
+  "-11,6": {
+    "triangles": 6743,
+    "area": 9397.945876,
+    "vertices": 1625
+  },
+  "-11,7": {
+    "triangles": 4698,
+    "area": 8881.952952,
+    "vertices": 4445
+  },
+  "-11,8": {
+    "triangles": 4495,
+    "area": 9549.991853,
+    "vertices": 1177
+  },
+  "-11,9": {
+    "triangles": 5237,
+    "area": 9750.324828,
+    "vertices": 1104
+  },
+  "-11,10": {
+    "triangles": 5626,
+    "area": 9064.917202,
+    "vertices": 3406
+  },
+  "-11,11": {
+    "triangles": 3989,
+    "area": 9122.416333,
+    "vertices": 2245
+  },
+  "-11,12": {
+    "triangles": 5312,
+    "area": 9476.98311,
+    "vertices": 3571
+  },
+  "-11,13": {
+    "triangles": 6046,
+    "area": 9551.066973,
+    "vertices": 4349
+  },
+  "-11,14": {
+    "triangles": 5301,
+    "area": 9526.691406,
+    "vertices": 2918
+  },
+  "-11,15": {
+    "triangles": 931,
+    "area": 1954.22156,
+    "vertices": 2321
+  },
+  "-10,-21": {
+    "triangles": 221,
+    "area": 449.371721,
+    "vertices": 0
+  },
+  "-10,-20": {
+    "triangles": 1418,
+    "area": 8492.26321,
+    "vertices": 1218
+  },
+  "-10,-19": {
+    "triangles": 1527,
+    "area": 9977.823799,
+    "vertices": 2467
+  },
+  "-10,-18": {
+    "triangles": 1730,
+    "area": 9409.879396,
+    "vertices": 335
+  },
+  "-10,-17": {
+    "triangles": 1501,
+    "area": 9783.069291,
+    "vertices": 816
+  },
+  "-10,-16": {
+    "triangles": 1577,
+    "area": 9533.579939,
+    "vertices": 760
+  },
+  "-10,-15": {
+    "triangles": 1127,
+    "area": 9267.714783,
+    "vertices": 741
+  },
+  "-10,-14": {
+    "triangles": 970,
+    "area": 9653.376186,
+    "vertices": 1203
+  },
+  "-10,-13": {
+    "triangles": 1536,
+    "area": 9567.364048,
+    "vertices": 1846
+  },
+  "-10,-12": {
+    "triangles": 2125,
+    "area": 9417.979379,
+    "vertices": 1340
+  },
+  "-10,-11": {
+    "triangles": 4020,
+    "area": 8985.361372,
+    "vertices": 1301
+  },
+  "-10,-10": {
+    "triangles": 3452,
+    "area": 8835.023897,
+    "vertices": 1076
+  },
+  "-10,-9": {
+    "triangles": 4329,
+    "area": 8778.86099,
+    "vertices": 4204
+  },
+  "-10,-8": {
+    "triangles": 2959,
+    "area": 8873.986998,
+    "vertices": 735
+  },
+  "-10,-7": {
+    "triangles": 3410,
+    "area": 9230.898964,
+    "vertices": 951
+  },
+  "-10,-6": {
+    "triangles": 3675,
+    "area": 10874.768483,
+    "vertices": 5154
+  },
+  "-10,-5": {
+    "triangles": 3294,
+    "area": 12476.775236,
+    "vertices": 5849
+  },
+  "-10,-4": {
+    "triangles": 5804,
+    "area": 10762.892827,
+    "vertices": 3019
+  },
+  "-10,-3": {
+    "triangles": 3799,
+    "area": 8851.62877,
+    "vertices": 1842
+  },
+  "-10,-2": {
+    "triangles": 3840,
+    "area": 8956.89774,
+    "vertices": 993
+  },
+  "-10,-1": {
+    "triangles": 2997,
+    "area": 9247.105435,
+    "vertices": 2891
+  },
+  "-10,0": {
+    "triangles": 4630,
+    "area": 12266.418314,
+    "vertices": 4352
+  },
+  "-10,1": {
+    "triangles": 5373,
+    "area": 10061.486973,
+    "vertices": 5319
+  },
+  "-10,2": {
+    "triangles": 2015,
+    "area": 8186.713369,
+    "vertices": 1743
+  },
+  "-10,3": {
+    "triangles": 4511,
+    "area": 9037.515029,
+    "vertices": 2544
+  },
+  "-10,4": {
+    "triangles": 4874,
+    "area": 9285.419858,
+    "vertices": 2839
+  },
+  "-10,5": {
+    "triangles": 5859,
+    "area": 10300.888596,
+    "vertices": 6908
+  },
+  "-10,6": {
+    "triangles": 6695,
+    "area": 9734.205467,
+    "vertices": 3191
+  },
+  "-10,7": {
+    "triangles": 5245,
+    "area": 9380.578963,
+    "vertices": 5522
+  },
+  "-10,8": {
+    "triangles": 4666,
+    "area": 9439.346439,
+    "vertices": 3457
+  },
+  "-10,9": {
+    "triangles": 4587,
+    "area": 9549.0799,
+    "vertices": 4687
+  },
+  "-10,10": {
+    "triangles": 5355,
+    "area": 8603.00845,
+    "vertices": 4077
+  },
+  "-10,11": {
+    "triangles": 6840,
+    "area": 9493.694387,
+    "vertices": 5303
+  },
+  "-10,12": {
+    "triangles": 4035,
+    "area": 9656.382596,
+    "vertices": 1150
+  },
+  "-10,13": {
+    "triangles": 3423,
+    "area": 9626.281679,
+    "vertices": 3237
+  },
+  "-10,14": {
+    "triangles": 5741,
+    "area": 8793.101796,
+    "vertices": 4414
+  },
+  "-10,15": {
+    "triangles": 1443,
+    "area": 1908.499031,
+    "vertices": 0
+  },
+  "-9,-20": {
+    "triangles": 712,
+    "area": 2574.464867,
+    "vertices": 476
+  },
+  "-9,-19": {
+    "triangles": 1949,
+    "area": 9456.658681,
+    "vertices": 809
+  },
+  "-9,-18": {
+    "triangles": 845,
+    "area": 9511.446624,
+    "vertices": 294
+  },
+  "-9,-17": {
+    "triangles": 1519,
+    "area": 9125.522658,
+    "vertices": 1248
+  },
+  "-9,-16": {
+    "triangles": 1721,
+    "area": 8985.918504,
+    "vertices": 2237
+  },
+  "-9,-15": {
+    "triangles": 1602,
+    "area": 9567.636123,
+    "vertices": 782
+  },
+  "-9,-14": {
+    "triangles": 3344,
+    "area": 9265.775855,
+    "vertices": 1816
+  },
+  "-9,-13": {
+    "triangles": 2576,
+    "area": 9342.391575,
+    "vertices": 3227
+  },
+  "-9,-12": {
+    "triangles": 3392,
+    "area": 8607.415216,
+    "vertices": 1751
+  },
+  "-9,-11": {
+    "triangles": 3414,
+    "area": 9499.485251,
+    "vertices": 5049
+  },
+  "-9,-10": {
+    "triangles": 3910,
+    "area": 8873.326259,
+    "vertices": 4114
+  },
+  "-9,-9": {
+    "triangles": 4178,
+    "area": 11595.298605,
+    "vertices": 3611
+  },
+  "-9,-8": {
+    "triangles": 3958,
+    "area": 10466.086202,
+    "vertices": 4377
+  },
+  "-9,-7": {
+    "triangles": 3675,
+    "area": 10505.32774,
+    "vertices": 4729
+  },
+  "-9,-6": {
+    "triangles": 3962,
+    "area": 8974.182078,
+    "vertices": 4631
+  },
+  "-9,-5": {
+    "triangles": 4498,
+    "area": 10065.764827,
+    "vertices": 2382
+  },
+  "-9,-4": {
+    "triangles": 3831,
+    "area": 8514.957478,
+    "vertices": 1321
+  },
+  "-9,-3": {
+    "triangles": 5743,
+    "area": 9031.408292,
+    "vertices": 5261
+  },
+  "-9,-2": {
+    "triangles": 3974,
+    "area": 8345.775648,
+    "vertices": 5788
+  },
+  "-9,-1": {
+    "triangles": 2951,
+    "area": 9154.06472,
+    "vertices": 1717
+  },
+  "-9,0": {
+    "triangles": 2403,
+    "area": 9669.90774,
+    "vertices": 1389
+  },
+  "-9,1": {
+    "triangles": 4478,
+    "area": 12672.425823,
+    "vertices": 2950
+  },
+  "-9,2": {
+    "triangles": 3725,
+    "area": 9937.063168,
+    "vertices": 5079
+  },
+  "-9,3": {
+    "triangles": 4408,
+    "area": 9419.646642,
+    "vertices": 2201
+  },
+  "-9,4": {
+    "triangles": 4523,
+    "area": 8899.802057,
+    "vertices": 2601
+  },
+  "-9,5": {
+    "triangles": 5546,
+    "area": 10968.857693,
+    "vertices": 4093
+  },
+  "-9,6": {
+    "triangles": 6258,
+    "area": 9651.08559,
+    "vertices": 3160
+  },
+  "-9,7": {
+    "triangles": 4932,
+    "area": 9349.758232,
+    "vertices": 5269
+  },
+  "-9,8": {
+    "triangles": 5326,
+    "area": 9519.119476,
+    "vertices": 2628
+  },
+  "-9,9": {
+    "triangles": 3718,
+    "area": 9301.728148,
+    "vertices": 3792
+  },
+  "-9,10": {
+    "triangles": 3401,
+    "area": 7387.551671,
+    "vertices": 3980
+  },
+  "-9,11": {
+    "triangles": 5517,
+    "area": 8237.925136,
+    "vertices": 2948
+  },
+  "-9,12": {
+    "triangles": 5681,
+    "area": 9109.435332,
+    "vertices": 5188
+  },
+  "-9,13": {
+    "triangles": 4072,
+    "area": 9133.151837,
+    "vertices": 2031
+  },
+  "-9,14": {
+    "triangles": 5387,
+    "area": 8966.406367,
+    "vertices": 7430
+  },
+  "-9,15": {
+    "triangles": 1227,
+    "area": 1930.447633,
+    "vertices": 0
+  },
+  "-8,-19": {
+    "triangles": 1645,
+    "area": 5733.882027,
+    "vertices": 1360
+  },
+  "-8,-18": {
+    "triangles": 2791,
+    "area": 9511.099026,
+    "vertices": 2285
+  },
+  "-8,-17": {
+    "triangles": 3351,
+    "area": 9400.027956,
+    "vertices": 2911
+  },
+  "-8,-16": {
+    "triangles": 2106,
+    "area": 9046.810022,
+    "vertices": 1397
+  },
+  "-8,-15": {
+    "triangles": 1972,
+    "area": 9550.291695,
+    "vertices": 2843
+  },
+  "-8,-14": {
+    "triangles": 3697,
+    "area": 8445.796862,
+    "vertices": 4352
+  },
+  "-8,-13": {
+    "triangles": 4849,
+    "area": 9311.183291,
+    "vertices": 5478
+  },
+  "-8,-12": {
+    "triangles": 4014,
+    "area": 11523.536323,
+    "vertices": 4399
+  },
+  "-8,-11": {
+    "triangles": 3066,
+    "area": 9386.057865,
+    "vertices": 1071
+  },
+  "-8,-10": {
+    "triangles": 2846,
+    "area": 9158.646287,
+    "vertices": 2402
+  },
+  "-8,-9": {
+    "triangles": 3577,
+    "area": 9516.600212,
+    "vertices": 2040
+  },
+  "-8,-8": {
+    "triangles": 3683,
+    "area": 9394.320892,
+    "vertices": 4775
+  },
+  "-8,-7": {
+    "triangles": 3567,
+    "area": 8911.654551,
+    "vertices": 1204
+  },
+  "-8,-6": {
+    "triangles": 3597,
+    "area": 8454.224019,
+    "vertices": 3079
+  },
+  "-8,-5": {
+    "triangles": 3429,
+    "area": 8717.326941,
+    "vertices": 4114
+  },
+  "-8,-4": {
+    "triangles": 4432,
+    "area": 9684.506778,
+    "vertices": 1291
+  },
+  "-8,-3": {
+    "triangles": 4398,
+    "area": 9426.938245,
+    "vertices": 2478
+  },
+  "-8,-2": {
+    "triangles": 4667,
+    "area": 8283.98754,
+    "vertices": 4840
+  },
+  "-8,-1": {
+    "triangles": 3335,
+    "area": 9633.460102,
+    "vertices": 2832
+  },
+  "-8,0": {
+    "triangles": 2776,
+    "area": 9774.778008,
+    "vertices": 2353
+  },
+  "-8,1": {
+    "triangles": 3298,
+    "area": 9855.682361,
+    "vertices": 2581
+  },
+  "-8,2": {
+    "triangles": 4138,
+    "area": 10680.55512,
+    "vertices": 3618
+  },
+  "-8,3": {
+    "triangles": 3883,
+    "area": 9622.63809,
+    "vertices": 2995
+  },
+  "-8,4": {
+    "triangles": 4903,
+    "area": 8834.800362,
+    "vertices": 3788
+  },
+  "-8,5": {
+    "triangles": 5718,
+    "area": 10641.738903,
+    "vertices": 8063
+  },
+  "-8,6": {
+    "triangles": 5970,
+    "area": 9465.724444,
+    "vertices": 1159
+  },
+  "-8,7": {
+    "triangles": 4904,
+    "area": 9284.45371,
+    "vertices": 4584
+  },
+  "-8,8": {
+    "triangles": 3702,
+    "area": 9271.337011,
+    "vertices": 4607
+  },
+  "-8,9": {
+    "triangles": 4017,
+    "area": 9191.562062,
+    "vertices": 2993
+  },
+  "-8,10": {
+    "triangles": 3450,
+    "area": 8639.840489,
+    "vertices": 3276
+  },
+  "-8,11": {
+    "triangles": 5449,
+    "area": 9514.868747,
+    "vertices": 2572
+  },
+  "-8,12": {
+    "triangles": 5467,
+    "area": 9397.499701,
+    "vertices": 5273
+  },
+  "-8,13": {
+    "triangles": 5665,
+    "area": 8385.43215,
+    "vertices": 4277
+  },
+  "-8,14": {
+    "triangles": 5834,
+    "area": 8879.544135,
+    "vertices": 2984
+  },
+  "-8,15": {
+    "triangles": 1229,
+    "area": 1983.512725,
+    "vertices": 1342
+  },
+  "-7,-19": {
+    "triangles": 296,
+    "area": 756.922691,
+    "vertices": 22
+  },
+  "-7,-18": {
+    "triangles": 3740,
+    "area": 8522.180094,
+    "vertices": 2874
+  },
+  "-7,-17": {
+    "triangles": 3216,
+    "area": 9288.41182,
+    "vertices": 4167
+  },
+  "-7,-16": {
+    "triangles": 4104,
+    "area": 9064.954291,
+    "vertices": 3006
+  },
+  "-7,-15": {
+    "triangles": 3933,
+    "area": 8074.097874,
+    "vertices": 4363
+  },
+  "-7,-14": {
+    "triangles": 4701,
+    "area": 8716.18234,
+    "vertices": 1429
+  },
+  "-7,-13": {
+    "triangles": 5004,
+    "area": 9037.711704,
+    "vertices": 3806
+  },
+  "-7,-12": {
+    "triangles": 3857,
+    "area": 9011.363255,
+    "vertices": 3112
+  },
+  "-7,-11": {
+    "triangles": 2975,
+    "area": 8108.547585,
+    "vertices": 3133
+  },
+  "-7,-10": {
+    "triangles": 2684,
+    "area": 9021.117073,
+    "vertices": 3377
+  },
+  "-7,-9": {
+    "triangles": 3633,
+    "area": 8975.711041,
+    "vertices": 829
+  },
+  "-7,-8": {
+    "triangles": 2884,
+    "area": 9591.016415,
+    "vertices": 1137
+  },
+  "-7,-7": {
+    "triangles": 1555,
+    "area": 9496.736707,
+    "vertices": 368
+  },
+  "-7,-6": {
+    "triangles": 3890,
+    "area": 9506.077142,
+    "vertices": 2955
+  },
+  "-7,-5": {
+    "triangles": 5501,
+    "area": 9185.932976,
+    "vertices": 5470
+  },
+  "-7,-4": {
+    "triangles": 5158,
+    "area": 8993.42014,
+    "vertices": 0
+  },
+  "-7,-3": {
+    "triangles": 4583,
+    "area": 8382.912845,
+    "vertices": 4136
+  },
+  "-7,-2": {
+    "triangles": 4643,
+    "area": 8984.331423,
+    "vertices": 7027
+  },
+  "-7,-1": {
+    "triangles": 6178,
+    "area": 9382.635253,
+    "vertices": 2849
+  },
+  "-7,0": {
+    "triangles": 3473,
+    "area": 7848.035089,
+    "vertices": 2232
+  },
+  "-7,1": {
+    "triangles": 3706,
+    "area": 9510.74223,
+    "vertices": 3760
+  },
+  "-7,2": {
+    "triangles": 6160,
+    "area": 12769.281375,
+    "vertices": 2007
+  },
+  "-7,3": {
+    "triangles": 2130,
+    "area": 8937.242587,
+    "vertices": 921
+  },
+  "-7,4": {
+    "triangles": 2644,
+    "area": 9769.407691,
+    "vertices": 2615
+  },
+  "-7,5": {
+    "triangles": 5518,
+    "area": 10627.852739,
+    "vertices": 1392
+  },
+  "-7,6": {
+    "triangles": 4572,
+    "area": 9479.776437,
+    "vertices": 3104
+  },
+  "-7,7": {
+    "triangles": 4278,
+    "area": 9422.897601,
+    "vertices": 3180
+  },
+  "-7,8": {
+    "triangles": 3013,
+    "area": 9623.209189,
+    "vertices": 3659
+  },
+  "-7,9": {
+    "triangles": 4188,
+    "area": 9604.904412,
+    "vertices": 0
+  },
+  "-7,10": {
+    "triangles": 3408,
+    "area": 9274.240373,
+    "vertices": 1775
+  },
+  "-7,11": {
+    "triangles": 3487,
+    "area": 7452.04542,
+    "vertices": 4164
+  },
+  "-7,12": {
+    "triangles": 6061,
+    "area": 8436.44713,
+    "vertices": 3675
+  },
+  "-7,13": {
+    "triangles": 4144,
+    "area": 9410.356218,
+    "vertices": 3984
+  },
+  "-7,14": {
+    "triangles": 4413,
+    "area": 9637.573156,
+    "vertices": 3221
+  },
+  "-7,15": {
+    "triangles": 747,
+    "area": 2036.415008,
+    "vertices": 0
+  },
+  "-6,-18": {
+    "triangles": 648,
+    "area": 3020.449748,
+    "vertices": 1052
+  },
+  "-6,-17": {
+    "triangles": 4899,
+    "area": 9224.391369,
+    "vertices": 2252
+  },
+  "-6,-16": {
+    "triangles": 5009,
+    "area": 9291.703221,
+    "vertices": 2599
+  },
+  "-6,-15": {
+    "triangles": 5143,
+    "area": 8838.5975,
+    "vertices": 2701
+  },
+  "-6,-14": {
+    "triangles": 4735,
+    "area": 9207.443814,
+    "vertices": 2469
+  },
+  "-6,-13": {
+    "triangles": 3298,
+    "area": 9306.044084,
+    "vertices": 4333
+  },
+  "-6,-12": {
+    "triangles": 3339,
+    "area": 9241.161862,
+    "vertices": 3821
+  },
+  "-6,-11": {
+    "triangles": 4480,
+    "area": 9627.265637,
+    "vertices": 1995
+  },
+  "-6,-10": {
+    "triangles": 3510,
+    "area": 9744.724219,
+    "vertices": 2552
+  },
+  "-6,-9": {
+    "triangles": 3164,
+    "area": 9428.556154,
+    "vertices": 1684
+  },
+  "-6,-8": {
+    "triangles": 2099,
+    "area": 9429.409434,
+    "vertices": 1299
+  },
+  "-6,-7": {
+    "triangles": 1813,
+    "area": 9639.490873,
+    "vertices": 813
+  },
+  "-6,-6": {
+    "triangles": 2895,
+    "area": 9222.488947,
+    "vertices": 2884
+  },
+  "-6,-5": {
+    "triangles": 4326,
+    "area": 8988.871175,
+    "vertices": 8055
+  },
+  "-6,-4": {
+    "triangles": 4471,
+    "area": 8571.712958,
+    "vertices": 2545
+  },
+  "-6,-3": {
+    "triangles": 4964,
+    "area": 8193.3997,
+    "vertices": 4179
+  },
+  "-6,-2": {
+    "triangles": 4904,
+    "area": 8968.333295,
+    "vertices": 6359
+  },
+  "-6,-1": {
+    "triangles": 5845,
+    "area": 8033.150859,
+    "vertices": 1637
+  },
+  "-6,0": {
+    "triangles": 3258,
+    "area": 8116.692595,
+    "vertices": 1481
+  },
+  "-6,1": {
+    "triangles": 3581,
+    "area": 9554.738983,
+    "vertices": 2069
+  },
+  "-6,2": {
+    "triangles": 3446,
+    "area": 13170.544622,
+    "vertices": 3683
+  },
+  "-6,3": {
+    "triangles": 2371,
+    "area": 9772.819978,
+    "vertices": 793
+  },
+  "-6,4": {
+    "triangles": 3041,
+    "area": 9535.424265,
+    "vertices": 3033
+  },
+  "-6,5": {
+    "triangles": 3202,
+    "area": 9189.562553,
+    "vertices": 3592
+  },
+  "-6,6": {
+    "triangles": 3874,
+    "area": 8552.859172,
+    "vertices": 1780
+  },
+  "-6,7": {
+    "triangles": 3128,
+    "area": 9683.967874,
+    "vertices": 3074
+  },
+  "-6,8": {
+    "triangles": 4247,
+    "area": 9899.079132,
+    "vertices": 3378
+  },
+  "-6,9": {
+    "triangles": 4268,
+    "area": 9594.302671,
+    "vertices": 4300
+  },
+  "-6,10": {
+    "triangles": 3470,
+    "area": 9566.400084,
+    "vertices": 2397
+  },
+  "-6,11": {
+    "triangles": 5977,
+    "area": 9007.957524,
+    "vertices": 5829
+  },
+  "-6,12": {
+    "triangles": 6180,
+    "area": 8786.440514,
+    "vertices": 1559
+  },
+  "-6,13": {
+    "triangles": 5154,
+    "area": 9543.209779,
+    "vertices": 2967
+  },
+  "-6,14": {
+    "triangles": 4689,
+    "area": 9539.209966,
+    "vertices": 4796
+  },
+  "-6,15": {
+    "triangles": 1269,
+    "area": 2032.126491,
+    "vertices": 2834
+  },
+  "-5,-17": {
+    "triangles": 1720,
+    "area": 6079.789849,
+    "vertices": 861
+  },
+  "-5,-16": {
+    "triangles": 3993,
+    "area": 9150.250035,
+    "vertices": 5128
+  },
+  "-5,-15": {
+    "triangles": 2797,
+    "area": 9711.944273,
+    "vertices": 2578
+  },
+  "-5,-14": {
+    "triangles": 2581,
+    "area": 9711.157079,
+    "vertices": 2879
+  },
+  "-5,-13": {
+    "triangles": 2273,
+    "area": 9542.455337,
+    "vertices": 3875
+  },
+  "-5,-12": {
+    "triangles": 3122,
+    "area": 9252.77745,
+    "vertices": 2546
+  },
+  "-5,-11": {
+    "triangles": 4392,
+    "area": 9800.646916,
+    "vertices": 1574
+  },
+  "-5,-10": {
+    "triangles": 5026,
+    "area": 9493.323121,
+    "vertices": 2591
+  },
+  "-5,-9": {
+    "triangles": 3824,
+    "area": 9665.293297,
+    "vertices": 6418
+  },
+  "-5,-8": {
+    "triangles": 3646,
+    "area": 9565.243696,
+    "vertices": 3006
+  },
+  "-5,-7": {
+    "triangles": 3196,
+    "area": 9275.982656,
+    "vertices": 2175
+  },
+  "-5,-6": {
+    "triangles": 3180,
+    "area": 9281.834124,
+    "vertices": 1826
+  },
+  "-5,-5": {
+    "triangles": 4242,
+    "area": 7622.431304,
+    "vertices": 2457
+  },
+  "-5,-4": {
+    "triangles": 4694,
+    "area": 9253.76353,
+    "vertices": 3680
+  },
+  "-5,-3": {
+    "triangles": 4542,
+    "area": 8572.589404,
+    "vertices": 2729
+  },
+  "-5,-2": {
+    "triangles": 3870,
+    "area": 8876.256562,
+    "vertices": 2606
+  },
+  "-5,-1": {
+    "triangles": 3169,
+    "area": 8306.930498,
+    "vertices": 2062
+  },
+  "-5,0": {
+    "triangles": 3812,
+    "area": 9135.219894,
+    "vertices": 3279
+  },
+  "-5,1": {
+    "triangles": 4289,
+    "area": 8818.694428,
+    "vertices": 6196
+  },
+  "-5,2": {
+    "triangles": 4154,
+    "area": 9531.867365,
+    "vertices": 1616
+  },
+  "-5,3": {
+    "triangles": 2769,
+    "area": 11536.68123,
+    "vertices": 2172
+  },
+  "-5,4": {
+    "triangles": 2663,
+    "area": 8488.729345,
+    "vertices": 3397
+  },
+  "-5,5": {
+    "triangles": 3763,
+    "area": 9434.958796,
+    "vertices": 5444
+  },
+  "-5,6": {
+    "triangles": 3715,
+    "area": 6831.076111,
+    "vertices": 2935
+  },
+  "-5,7": {
+    "triangles": 3573,
+    "area": 9579.019148,
+    "vertices": 1545
+  },
+  "-5,8": {
+    "triangles": 3119,
+    "area": 9555.076179,
+    "vertices": 889
+  },
+  "-5,9": {
+    "triangles": 3558,
+    "area": 9426.112372,
+    "vertices": 3498
+  },
+  "-5,10": {
+    "triangles": 3976,
+    "area": 9335.382873,
+    "vertices": 3660
+  },
+  "-5,11": {
+    "triangles": 6229,
+    "area": 9500.901771,
+    "vertices": 1879
+  },
+  "-5,12": {
+    "triangles": 5867,
+    "area": 9405.045404,
+    "vertices": 4262
+  },
+  "-5,13": {
+    "triangles": 4879,
+    "area": 9594.89421,
+    "vertices": 3470
+  },
+  "-5,14": {
+    "triangles": 5055,
+    "area": 9495.767528,
+    "vertices": 2380
+  },
+  "-5,15": {
+    "triangles": 1439,
+    "area": 2009.842916,
+    "vertices": 1498
+  },
+  "-4,-17": {
+    "triangles": 77,
+    "area": 408.80477,
+    "vertices": 0
+  },
+  "-4,-16": {
+    "triangles": 423,
+    "area": 6716.22779,
+    "vertices": 102
+  },
+  "-4,-15": {
+    "triangles": 1534,
+    "area": 9628.589143,
+    "vertices": 2304
+  },
+  "-4,-14": {
+    "triangles": 2482,
+    "area": 9380.490173,
+    "vertices": 937
+  },
+  "-4,-13": {
+    "triangles": 1956,
+    "area": 9563.089018,
+    "vertices": 0
+  },
+  "-4,-12": {
+    "triangles": 1575,
+    "area": 9737.635537,
+    "vertices": 779
+  },
+  "-4,-11": {
+    "triangles": 2193,
+    "area": 9569.22818,
+    "vertices": 1882
+  },
+  "-4,-10": {
+    "triangles": 3271,
+    "area": 9384.69634,
+    "vertices": 2227
+  },
+  "-4,-9": {
+    "triangles": 2984,
+    "area": 9357.144532,
+    "vertices": 1886
+  },
+  "-4,-8": {
+    "triangles": 2350,
+    "area": 9498.423789,
+    "vertices": 543
+  },
+  "-4,-7": {
+    "triangles": 2890,
+    "area": 9241.823209,
+    "vertices": 2689
+  },
+  "-4,-6": {
+    "triangles": 2942,
+    "area": 8497.636427,
+    "vertices": 2417
+  },
+  "-4,-5": {
+    "triangles": 3141,
+    "area": 7295.233916,
+    "vertices": 2711
+  },
+  "-4,-4": {
+    "triangles": 2410,
+    "area": 6794.163347,
+    "vertices": 435
+  },
+  "-4,-3": {
+    "triangles": 2516,
+    "area": 6224.314188,
+    "vertices": 2495
+  },
+  "-4,-2": {
+    "triangles": 4424,
+    "area": 9249.832238,
+    "vertices": 1781
+  },
+  "-4,-1": {
+    "triangles": 1764,
+    "area": 7115.528308,
+    "vertices": 1911
+  },
+  "-4,0": {
+    "triangles": 2253,
+    "area": 6587.58704,
+    "vertices": 1427
+  },
+  "-4,1": {
+    "triangles": 3382,
+    "area": 7233.401208,
+    "vertices": 2055
+  },
+  "-4,2": {
+    "triangles": 3575,
+    "area": 8146.939287,
+    "vertices": 4766
+  },
+  "-4,3": {
+    "triangles": 2789,
+    "area": 10196.382977,
+    "vertices": 3039
+  },
+  "-4,4": {
+    "triangles": 2286,
+    "area": 13908.062819,
+    "vertices": 1751
+  },
+  "-4,5": {
+    "triangles": 2830,
+    "area": 13439.987913,
+    "vertices": 2533
+  },
+  "-4,6": {
+    "triangles": 2838,
+    "area": 12696.33216,
+    "vertices": 3130
+  },
+  "-4,7": {
+    "triangles": 5078,
+    "area": 11705.532337,
+    "vertices": 4467
+  },
+  "-4,8": {
+    "triangles": 4880,
+    "area": 12071.531749,
+    "vertices": 3441
+  },
+  "-4,9": {
+    "triangles": 3635,
+    "area": 10426.961968,
+    "vertices": 3901
+  },
+  "-4,10": {
+    "triangles": 2335,
+    "area": 11442.533331,
+    "vertices": 236
+  },
+  "-4,11": {
+    "triangles": 4216,
+    "area": 8135.482005,
+    "vertices": 2098
+  },
+  "-4,12": {
+    "triangles": 4590,
+    "area": 9583.452255,
+    "vertices": 4264
+  },
+  "-4,13": {
+    "triangles": 4199,
+    "area": 9198.987758,
+    "vertices": 1995
+  },
+  "-4,14": {
+    "triangles": 5943,
+    "area": 9303.475034,
+    "vertices": 3936
+  },
+  "-4,15": {
+    "triangles": 1012,
+    "area": 1678.346226,
+    "vertices": 0
+  },
+  "-3,-16": {
+    "triangles": 55,
+    "area": 392.51917,
+    "vertices": 0
+  },
+  "-3,-15": {
+    "triangles": 3241,
+    "area": 7980.381362,
+    "vertices": 2748
+  },
+  "-3,-14": {
+    "triangles": 3449,
+    "area": 9221.473596,
+    "vertices": 2348
+  },
+  "-3,-13": {
+    "triangles": 1953,
+    "area": 9534.346213,
+    "vertices": 2817
+  },
+  "-3,-12": {
+    "triangles": 1641,
+    "area": 8970.710349,
+    "vertices": 2514
+  },
+  "-3,-11": {
+    "triangles": 1591,
+    "area": 9298.535069,
+    "vertices": 1790
+  },
+  "-3,-10": {
+    "triangles": 2679,
+    "area": 9631.045338,
+    "vertices": 1647
+  },
+  "-3,-9": {
+    "triangles": 2240,
+    "area": 9551.974616,
+    "vertices": 1738
+  },
+  "-3,-8": {
+    "triangles": 2286,
+    "area": 9497.473142,
+    "vertices": 2911
+  },
+  "-3,-7": {
+    "triangles": 3706,
+    "area": 9441.466509,
+    "vertices": 2886
+  },
+  "-3,-6": {
+    "triangles": 3242,
+    "area": 7385.364186,
+    "vertices": 2691
+  },
+  "-3,-5": {
+    "triangles": 1727,
+    "area": 5552.757671,
+    "vertices": 811
+  },
+  "-3,-4": {
+    "triangles": 1611,
+    "area": 4353.377759,
+    "vertices": 3315
+  },
+  "-3,-3": {
+    "triangles": 1798,
+    "area": 5695.365957,
+    "vertices": 2668
+  },
+  "-3,-2": {
+    "triangles": 1714,
+    "area": 9740.340706,
+    "vertices": 2397
+  },
+  "-3,-1": {
+    "triangles": 974,
+    "area": 7877.070597,
+    "vertices": 445
+  },
+  "-3,0": {
+    "triangles": 1243,
+    "area": 7852.667005,
+    "vertices": 2200
+  },
+  "-3,1": {
+    "triangles": 2577,
+    "area": 8554.364249,
+    "vertices": 1429
+  },
+  "-3,2": {
+    "triangles": 1807,
+    "area": 7602.796417,
+    "vertices": 1594
+  },
+  "-3,3": {
+    "triangles": 2709,
+    "area": 9313.899197,
+    "vertices": 2303
+  },
+  "-3,4": {
+    "triangles": 1633,
+    "area": 9536.204985,
+    "vertices": 356
+  },
+  "-3,5": {
+    "triangles": 1944,
+    "area": 12003.382087,
+    "vertices": 3082
+  },
+  "-3,6": {
+    "triangles": 2993,
+    "area": 9809.421317,
+    "vertices": 24
+  },
+  "-3,7": {
+    "triangles": 4885,
+    "area": 9163.949281,
+    "vertices": 4697
+  },
+  "-3,8": {
+    "triangles": 2559,
+    "area": 9164.249258,
+    "vertices": 1675
+  },
+  "-3,9": {
+    "triangles": 3163,
+    "area": 9381.939225,
+    "vertices": 1860
+  },
+  "-3,10": {
+    "triangles": 4083,
+    "area": 11293.443359,
+    "vertices": 3127
+  },
+  "-3,11": {
+    "triangles": 3643,
+    "area": 9685.5756,
+    "vertices": 1937
+  },
+  "-3,12": {
+    "triangles": 4945,
+    "area": 8629.827447,
+    "vertices": 3233
+  },
+  "-3,13": {
+    "triangles": 4736,
+    "area": 9004.173521,
+    "vertices": 3274
+  },
+  "-3,14": {
+    "triangles": 5418,
+    "area": 9996.911145,
+    "vertices": 3897
+  },
+  "-3,15": {
+    "triangles": 1596,
+    "area": 2267.318272,
+    "vertices": 1721
+  },
+  "-2,-15": {
+    "triangles": 1841,
+    "area": 6815.758367,
+    "vertices": 1469
+  },
+  "-2,-14": {
+    "triangles": 2183,
+    "area": 9381.13073,
+    "vertices": 3469
+  },
+  "-2,-13": {
+    "triangles": 1775,
+    "area": 9445.886052,
+    "vertices": 2771
+  },
+  "-2,-12": {
+    "triangles": 2256,
+    "area": 9046.302096,
+    "vertices": 1764
+  },
+  "-2,-11": {
+    "triangles": 2177,
+    "area": 8927.913669,
+    "vertices": 2026
+  },
+  "-2,-10": {
+    "triangles": 2274,
+    "area": 8698.713913,
+    "vertices": 1894
+  },
+  "-2,-9": {
+    "triangles": 3378,
+    "area": 10941.47816,
+    "vertices": 4711
+  },
+  "-2,-8": {
+    "triangles": 2724,
+    "area": 9084.19066,
+    "vertices": 2395
+  },
+  "-2,-7": {
+    "triangles": 3362,
+    "area": 9169.842531,
+    "vertices": 4093
+  },
+  "-2,-6": {
+    "triangles": 2965,
+    "area": 8437.491092,
+    "vertices": 4051
+  },
+  "-2,-5": {
+    "triangles": 2370,
+    "area": 5290.268327,
+    "vertices": 2566
+  },
+  "-2,-4": {
+    "triangles": 439,
+    "area": 1222.701385,
+    "vertices": 859
+  },
+  "-2,-3": {
+    "triangles": 1383,
+    "area": 5291.801722,
+    "vertices": 2153
+  },
+  "-2,-2": {
+    "triangles": 1315,
+    "area": 9598.1609,
+    "vertices": 1803
+  },
+  "-2,-1": {
+    "triangles": 1980,
+    "area": 7534.70868,
+    "vertices": 1419
+  },
+  "-2,0": {
+    "triangles": 3290,
+    "area": 7196.670693,
+    "vertices": 2080
+  },
+  "-2,1": {
+    "triangles": 1806,
+    "area": 6413.635165,
+    "vertices": 1350
+  },
+  "-2,2": {
+    "triangles": 2330,
+    "area": 7359.836277,
+    "vertices": 4566
+  },
+  "-2,3": {
+    "triangles": 2882,
+    "area": 8308.450902,
+    "vertices": 1791
+  },
+  "-2,4": {
+    "triangles": 2197,
+    "area": 9423.626236,
+    "vertices": 1746
+  },
+  "-2,5": {
+    "triangles": 3193,
+    "area": 11754.165766,
+    "vertices": 2198
+  },
+  "-2,6": {
+    "triangles": 3292,
+    "area": 9747.350077,
+    "vertices": 4034
+  },
+  "-2,7": {
+    "triangles": 4175,
+    "area": 9374.293163,
+    "vertices": 1832
+  },
+  "-2,8": {
+    "triangles": 2623,
+    "area": 9389.270459,
+    "vertices": 1263
+  },
+  "-2,9": {
+    "triangles": 3982,
+    "area": 8891.275959,
+    "vertices": 2544
+  },
+  "-2,10": {
+    "triangles": 3510,
+    "area": 9523.789056,
+    "vertices": 2920
+  },
+  "-2,11": {
+    "triangles": 3097,
+    "area": 11463.818389,
+    "vertices": 4148
+  },
+  "-2,12": {
+    "triangles": 3251,
+    "area": 12217.37793,
+    "vertices": 4614
+  },
+  "-2,13": {
+    "triangles": 5242,
+    "area": 10897.921876,
+    "vertices": 2685
+  },
+  "-2,14": {
+    "triangles": 5602,
+    "area": 10125.038816,
+    "vertices": 4111
+  },
+  "-2,15": {
+    "triangles": 846,
+    "area": 1847.713337,
+    "vertices": 904
+  },
+  "-1,-15": {
+    "triangles": 1198,
+    "area": 7002.238538,
+    "vertices": 1285
+  },
+  "-1,-14": {
+    "triangles": 1756,
+    "area": 9389.915841,
+    "vertices": 702
+  },
+  "-1,-13": {
+    "triangles": 1515,
+    "area": 9258.120521,
+    "vertices": 1725
+  },
+  "-1,-12": {
+    "triangles": 1159,
+    "area": 9724.837264,
+    "vertices": 321
+  },
+  "-1,-11": {
+    "triangles": 1598,
+    "area": 9372.166633,
+    "vertices": 1622
+  },
+  "-1,-10": {
+    "triangles": 1741,
+    "area": 7925.8731,
+    "vertices": 1008
+  },
+  "-1,-9": {
+    "triangles": 2915,
+    "area": 8167.957241,
+    "vertices": 2959
+  },
+  "-1,-8": {
+    "triangles": 3086,
+    "area": 9605.879871,
+    "vertices": 3285
+  },
+  "-1,-7": {
+    "triangles": 2931,
+    "area": 9196.945039,
+    "vertices": 667
+  },
+  "-1,-6": {
+    "triangles": 1666,
+    "area": 8172.096024,
+    "vertices": 1736
+  },
+  "-1,-5": {
+    "triangles": 2342,
+    "area": 5425.828374,
+    "vertices": 3273
+  },
+  "-1,-4": {
+    "triangles": 2659,
+    "area": 6106.136703,
+    "vertices": 910
+  },
+  "-1,-3": {
+    "triangles": 2492,
+    "area": 6618.510165,
+    "vertices": 1097
+  },
+  "-1,-2": {
+    "triangles": 1192,
+    "area": 9829.583926,
+    "vertices": 2507
+  },
+  "-1,-1": {
+    "triangles": 2652,
+    "area": 8091.056064,
+    "vertices": 1891
+  },
+  "-1,0": {
+    "triangles": 4819,
+    "area": 6578.617123,
+    "vertices": 3959
+  },
+  "-1,1": {
+    "triangles": 4129,
+    "area": 7108.376897,
+    "vertices": 6817
+  },
+  "-1,2": {
+    "triangles": 4200,
+    "area": 8080.517811,
+    "vertices": 2338
+  },
+  "-1,3": {
+    "triangles": 3367,
+    "area": 9028.3312,
+    "vertices": 1078
+  },
+  "-1,4": {
+    "triangles": 2558,
+    "area": 9272.905988,
+    "vertices": 3495
+  },
+  "-1,5": {
+    "triangles": 2592,
+    "area": 9559.551151,
+    "vertices": 1974
+  },
+  "-1,6": {
+    "triangles": 3758,
+    "area": 9517.41066,
+    "vertices": 1623
+  },
+  "-1,7": {
+    "triangles": 4348,
+    "area": 9267.666135,
+    "vertices": 2780
+  },
+  "-1,8": {
+    "triangles": 3224,
+    "area": 9318.031865,
+    "vertices": 3641
+  },
+  "-1,9": {
+    "triangles": 3273,
+    "area": 9077.117277,
+    "vertices": 1723
+  },
+  "-1,10": {
+    "triangles": 4582,
+    "area": 7841.349484,
+    "vertices": 3506
+  },
+  "-1,11": {
+    "triangles": 5079,
+    "area": 9390.205298,
+    "vertices": 2171
+  },
+  "-1,12": {
+    "triangles": 4259,
+    "area": 9493.556004,
+    "vertices": 1977
+  },
+  "-1,13": {
+    "triangles": 4639,
+    "area": 8985.189598,
+    "vertices": 3168
+  },
+  "-1,14": {
+    "triangles": 4959,
+    "area": 9002.093215,
+    "vertices": 4121
+  },
+  "-1,15": {
+    "triangles": 639,
+    "area": 1767.97914,
+    "vertices": 0
+  },
+  "0,-15": {
+    "triangles": 1075,
+    "area": 6880.517508,
+    "vertices": 1996
+  },
+  "0,-14": {
+    "triangles": 2141,
+    "area": 9731.292097,
+    "vertices": 746
+  },
+  "0,-13": {
+    "triangles": 1769,
+    "area": 8262.442355,
+    "vertices": 2217
+  },
+  "0,-12": {
+    "triangles": 1592,
+    "area": 9481.938805,
+    "vertices": 1268
+  },
+  "0,-11": {
+    "triangles": 2057,
+    "area": 8949.32055,
+    "vertices": 2195
+  },
+  "0,-10": {
+    "triangles": 1572,
+    "area": 9525.78851,
+    "vertices": 1589
+  },
+  "0,-9": {
+    "triangles": 2602,
+    "area": 9154.150928,
+    "vertices": 774
+  },
+  "0,-8": {
+    "triangles": 2493,
+    "area": 9308.209922,
+    "vertices": 2780
+  },
+  "0,-7": {
+    "triangles": 2781,
+    "area": 8069.720892,
+    "vertices": 884
+  },
+  "0,-6": {
+    "triangles": 3868,
+    "area": 8174.882022,
+    "vertices": 2155
+  },
+  "0,-5": {
+    "triangles": 2794,
+    "area": 6723.811108,
+    "vertices": 3732
+  },
+  "0,-4": {
+    "triangles": 3892,
+    "area": 8905.929377,
+    "vertices": 2899
+  },
+  "0,-3": {
+    "triangles": 3132,
+    "area": 6566.337466,
+    "vertices": 3706
+  },
+  "0,-2": {
+    "triangles": 3427,
+    "area": 8469.140959,
+    "vertices": 2488
+  },
+  "0,-1": {
+    "triangles": 1909,
+    "area": 9369.089642,
+    "vertices": 2027
+  },
+  "0,0": {
+    "triangles": 4801,
+    "area": 7078.817063,
+    "vertices": 3785
+  },
+  "0,1": {
+    "triangles": 3995,
+    "area": 5935.271227,
+    "vertices": 2287
+  },
+  "0,2": {
+    "triangles": 4512,
+    "area": 9284.225831,
+    "vertices": 4045
+  },
+  "0,3": {
+    "triangles": 1377,
+    "area": 9109.106184,
+    "vertices": 1210
+  },
+  "0,4": {
+    "triangles": 1631,
+    "area": 9746.314475,
+    "vertices": 860
+  },
+  "0,5": {
+    "triangles": 1528,
+    "area": 9287.692689,
+    "vertices": 1375
+  },
+  "0,6": {
+    "triangles": 3969,
+    "area": 9555.083894,
+    "vertices": 1855
+  },
+  "0,7": {
+    "triangles": 3731,
+    "area": 9117.425806,
+    "vertices": 2151
+  },
+  "0,8": {
+    "triangles": 3731,
+    "area": 9086.213397,
+    "vertices": 3898
+  },
+  "0,9": {
+    "triangles": 3592,
+    "area": 9418.102117,
+    "vertices": 1799
+  },
+  "0,10": {
+    "triangles": 4496,
+    "area": 8806.861479,
+    "vertices": 2360
+  },
+  "0,11": {
+    "triangles": 4684,
+    "area": 9389.259284,
+    "vertices": 3640
+  },
+  "0,12": {
+    "triangles": 4023,
+    "area": 9513.434744,
+    "vertices": 3472
+  },
+  "0,13": {
+    "triangles": 2483,
+    "area": 9875.352021,
+    "vertices": 605
+  },
+  "0,14": {
+    "triangles": 4423,
+    "area": 9055.791404,
+    "vertices": 1200
+  },
+  "0,15": {
+    "triangles": 1225,
+    "area": 1884.12436,
+    "vertices": 1082
+  },
+  "1,-15": {
+    "triangles": 2762,
+    "area": 6619.08197,
+    "vertices": 2442
+  },
+  "1,-14": {
+    "triangles": 2438,
+    "area": 9499.533837,
+    "vertices": 0
+  },
+  "1,-13": {
+    "triangles": 2204,
+    "area": 9572.271682,
+    "vertices": 4093
+  },
+  "1,-12": {
+    "triangles": 1770,
+    "area": 9343.132254,
+    "vertices": 607
+  },
+  "1,-11": {
+    "triangles": 2556,
+    "area": 9004.668328,
+    "vertices": 2356
+  },
+  "1,-10": {
+    "triangles": 3588,
+    "area": 9166.243995,
+    "vertices": 3567
+  },
+  "1,-9": {
+    "triangles": 3688,
+    "area": 8701.607944,
+    "vertices": 3594
+  },
+  "1,-8": {
+    "triangles": 2368,
+    "area": 8957.509766,
+    "vertices": 2709
+  },
+  "1,-7": {
+    "triangles": 3037,
+    "area": 8602.641233,
+    "vertices": 3506
+  },
+  "1,-6": {
+    "triangles": 3006,
+    "area": 7564.567333,
+    "vertices": 2018
+  },
+  "1,-5": {
+    "triangles": 4336,
+    "area": 7307.982425,
+    "vertices": 5555
+  },
+  "1,-4": {
+    "triangles": 2615,
+    "area": 4469.530261,
+    "vertices": 1790
+  },
+  "1,-3": {
+    "triangles": 2632,
+    "area": 7436.346167,
+    "vertices": 3126
+  },
+  "1,-2": {
+    "triangles": 2707,
+    "area": 5966.042177,
+    "vertices": 3504
+  },
+  "1,-1": {
+    "triangles": 3123,
+    "area": 7776.041545,
+    "vertices": 2629
+  },
+  "1,0": {
+    "triangles": 3106,
+    "area": 8512.851821,
+    "vertices": 3775
+  },
+  "1,1": {
+    "triangles": 5188,
+    "area": 10743.123768,
+    "vertices": 4309
+  },
+  "1,2": {
+    "triangles": 2257,
+    "area": 7155.279566,
+    "vertices": 3956
+  },
+  "1,3": {
+    "triangles": 1952,
+    "area": 8940.167544,
+    "vertices": 1716
+  },
+  "1,4": {
+    "triangles": 2541,
+    "area": 8278.144511,
+    "vertices": 3813
+  },
+  "1,5": {
+    "triangles": 3378,
+    "area": 8775.983165,
+    "vertices": 2297
+  },
+  "1,6": {
+    "triangles": 2990,
+    "area": 8282.598312,
+    "vertices": 1630
+  },
+  "1,7": {
+    "triangles": 3879,
+    "area": 8829.246406,
+    "vertices": 4459
+  },
+  "1,8": {
+    "triangles": 2586,
+    "area": 7562.829495,
+    "vertices": 2946
+  },
+  "1,9": {
+    "triangles": 4619,
+    "area": 9500.599217,
+    "vertices": 3189
+  },
+  "1,10": {
+    "triangles": 3486,
+    "area": 9583.579402,
+    "vertices": 1812
+  },
+  "1,11": {
+    "triangles": 4116,
+    "area": 9399.606701,
+    "vertices": 5485
+  },
+  "1,12": {
+    "triangles": 3811,
+    "area": 9589.402287,
+    "vertices": 1361
+  },
+  "1,13": {
+    "triangles": 3997,
+    "area": 9275.140489,
+    "vertices": 3828
+  },
+  "1,14": {
+    "triangles": 4494,
+    "area": 8149.048664,
+    "vertices": 5463
+  },
+  "1,15": {
+    "triangles": 978,
+    "area": 1719.456145,
+    "vertices": 0
+  },
+  "2,-15": {
+    "triangles": 2173,
+    "area": 6694.480933,
+    "vertices": 2175
+  },
+  "2,-14": {
+    "triangles": 4108,
+    "area": 9344.190237,
+    "vertices": 5070
+  },
+  "2,-13": {
+    "triangles": 2892,
+    "area": 9654.978539,
+    "vertices": 1431
+  },
+  "2,-12": {
+    "triangles": 3205,
+    "area": 9876.332233,
+    "vertices": 2332
+  },
+  "2,-11": {
+    "triangles": 2022,
+    "area": 10836.863452,
+    "vertices": 1167
+  },
+  "2,-10": {
+    "triangles": 2469,
+    "area": 11254.149911,
+    "vertices": 3900
+  },
+  "2,-9": {
+    "triangles": 2910,
+    "area": 10777.710392,
+    "vertices": 4047
+  },
+  "2,-8": {
+    "triangles": 2480,
+    "area": 9056.496697,
+    "vertices": 1403
+  },
+  "2,-7": {
+    "triangles": 2963,
+    "area": 10490.265785,
+    "vertices": 3087
+  },
+  "2,-6": {
+    "triangles": 3674,
+    "area": 11544.989762,
+    "vertices": 5882
+  },
+  "2,-5": {
+    "triangles": 6198,
+    "area": 10274.734679,
+    "vertices": 5868
+  },
+  "2,-4": {
+    "triangles": 9252,
+    "area": 12286.889557,
+    "vertices": 9379
+  },
+  "2,-3": {
+    "triangles": 4114,
+    "area": 8662.81416,
+    "vertices": 2958
+  },
+  "2,-2": {
+    "triangles": 3811,
+    "area": 6821.669479,
+    "vertices": 4000
+  },
+  "2,-1": {
+    "triangles": 3154,
+    "area": 6036.777776,
+    "vertices": 1935
+  },
+  "2,0": {
+    "triangles": 2106,
+    "area": 8739.886692,
+    "vertices": 2018
+  },
+  "2,1": {
+    "triangles": 2659,
+    "area": 7939.417873,
+    "vertices": 2218
+  },
+  "2,2": {
+    "triangles": 3199,
+    "area": 8072.275279,
+    "vertices": 4523
+  },
+  "2,3": {
+    "triangles": 1316,
+    "area": 7685.372298,
+    "vertices": 327
+  },
+  "2,4": {
+    "triangles": 2471,
+    "area": 8566.42898,
+    "vertices": 1557
+  },
+  "2,5": {
+    "triangles": 4032,
+    "area": 8914.549763,
+    "vertices": 4677
+  },
+  "2,6": {
+    "triangles": 3883,
+    "area": 8778.32862,
+    "vertices": 2102
+  },
+  "2,7": {
+    "triangles": 3863,
+    "area": 8441.811913,
+    "vertices": 4508
+  },
+  "2,8": {
+    "triangles": 3481,
+    "area": 8142.012388,
+    "vertices": 2987
+  },
+  "2,9": {
+    "triangles": 2722,
+    "area": 8223.456673,
+    "vertices": 2055
+  },
+  "2,10": {
+    "triangles": 4036,
+    "area": 9207.375272,
+    "vertices": 2673
+  },
+  "2,11": {
+    "triangles": 4978,
+    "area": 9097.496273,
+    "vertices": 1339
+  },
+  "2,12": {
+    "triangles": 5223,
+    "area": 8850.342897,
+    "vertices": 8563
+  },
+  "2,13": {
+    "triangles": 5315,
+    "area": 8183.208427,
+    "vertices": 2806
+  },
+  "2,14": {
+    "triangles": 7881,
+    "area": 8210.731738,
+    "vertices": 7226
+  },
+  "2,15": {
+    "triangles": 1327,
+    "area": 1898.709279,
+    "vertices": 0
+  },
+  "3,-15": {
+    "triangles": 2584,
+    "area": 6812.431879,
+    "vertices": 2839
+  },
+  "3,-14": {
+    "triangles": 2353,
+    "area": 9971.75974,
+    "vertices": 2848
+  },
+  "3,-13": {
+    "triangles": 4814,
+    "area": 9073.837485,
+    "vertices": 3853
+  },
+  "3,-12": {
+    "triangles": 2526,
+    "area": 12472.696918,
+    "vertices": 3615
+  },
+  "3,-11": {
+    "triangles": 1561,
+    "area": 9735.657711,
+    "vertices": 1003
+  },
+  "3,-10": {
+    "triangles": 2365,
+    "area": 9831.722577,
+    "vertices": 921
+  },
+  "3,-9": {
+    "triangles": 4426,
+    "area": 9245.321716,
+    "vertices": 2269
+  },
+  "3,-8": {
+    "triangles": 3323,
+    "area": 7304.636004,
+    "vertices": 3748
+  },
+  "3,-7": {
+    "triangles": 3515,
+    "area": 6934.28875,
+    "vertices": 1940
+  },
+  "3,-6": {
+    "triangles": 2508,
+    "area": 7430.065597,
+    "vertices": 1924
+  },
+  "3,-5": {
+    "triangles": 3888,
+    "area": 9548.136143,
+    "vertices": 2329
+  },
+  "3,-4": {
+    "triangles": 4298,
+    "area": 7267.95622,
+    "vertices": 2117
+  },
+  "3,-3": {
+    "triangles": 4530,
+    "area": 7638.979048,
+    "vertices": 7443
+  },
+  "3,-2": {
+    "triangles": 2323,
+    "area": 5454.4216,
+    "vertices": 2190
+  },
+  "3,-1": {
+    "triangles": 3941,
+    "area": 10810.068629,
+    "vertices": 4659
+  },
+  "3,0": {
+    "triangles": 3389,
+    "area": 8053.163953,
+    "vertices": 3278
+  },
+  "3,1": {
+    "triangles": 2284,
+    "area": 7660.031903,
+    "vertices": 1419
+  },
+  "3,2": {
+    "triangles": 2013,
+    "area": 7560.154827,
+    "vertices": 1587
+  },
+  "3,3": {
+    "triangles": 2838,
+    "area": 9166.023253,
+    "vertices": 2556
+  },
+  "3,4": {
+    "triangles": 2343,
+    "area": 9348.053618,
+    "vertices": 938
+  },
+  "3,5": {
+    "triangles": 3850,
+    "area": 9183.378491,
+    "vertices": 3535
+  },
+  "3,6": {
+    "triangles": 2956,
+    "area": 9315.777502,
+    "vertices": 2684
+  },
+  "3,7": {
+    "triangles": 2456,
+    "area": 7730.735293,
+    "vertices": 2519
+  },
+  "3,8": {
+    "triangles": 3023,
+    "area": 8951.303014,
+    "vertices": 25
+  },
+  "3,9": {
+    "triangles": 2958,
+    "area": 8557.491718,
+    "vertices": 2925
+  },
+  "3,10": {
+    "triangles": 3696,
+    "area": 9465.691675,
+    "vertices": 3348
+  },
+  "3,11": {
+    "triangles": 5013,
+    "area": 9437.268061,
+    "vertices": 3350
+  },
+  "3,12": {
+    "triangles": 4525,
+    "area": 9573.814707,
+    "vertices": 1762
+  },
+  "3,13": {
+    "triangles": 5164,
+    "area": 8778.976186,
+    "vertices": 1941
+  },
+  "3,14": {
+    "triangles": 6024,
+    "area": 8162.326181,
+    "vertices": 4172
+  },
+  "3,15": {
+    "triangles": 1203,
+    "area": 1755.936154,
+    "vertices": 0
+  },
+  "4,-15": {
+    "triangles": 1286,
+    "area": 6786.057431,
+    "vertices": 1215
+  },
+  "4,-14": {
+    "triangles": 2531,
+    "area": 8936.328741,
+    "vertices": 791
+  },
+  "4,-13": {
+    "triangles": 6601,
+    "area": 12003.73475,
+    "vertices": 5859
+  },
+  "4,-12": {
+    "triangles": 2721,
+    "area": 9838.590467,
+    "vertices": 3262
+  },
+  "4,-11": {
+    "triangles": 1245,
+    "area": 9696.213871,
+    "vertices": 1028
+  },
+  "4,-10": {
+    "triangles": 2291,
+    "area": 9747.799709,
+    "vertices": 839
+  },
+  "4,-9": {
+    "triangles": 2741,
+    "area": 9791.525996,
+    "vertices": 2629
+  },
+  "4,-8": {
+    "triangles": 3519,
+    "area": 7952.300485,
+    "vertices": 1290
+  },
+  "4,-7": {
+    "triangles": 3165,
+    "area": 6304.066199,
+    "vertices": 2958
+  },
+  "4,-6": {
+    "triangles": 2769,
+    "area": 7969.03555,
+    "vertices": 3239
+  },
+  "4,-5": {
+    "triangles": 2089,
+    "area": 7349.179357,
+    "vertices": 2947
+  },
+  "4,-4": {
+    "triangles": 2080,
+    "area": 8532.974664,
+    "vertices": 907
+  },
+  "4,-3": {
+    "triangles": 2968,
+    "area": 6529.098903,
+    "vertices": 2259
+  },
+  "4,-2": {
+    "triangles": 2807,
+    "area": 5896.123264,
+    "vertices": 4343
+  },
+  "4,-1": {
+    "triangles": 2427,
+    "area": 6570.726104,
+    "vertices": 2788
+  },
+  "4,0": {
+    "triangles": 3014,
+    "area": 6316.677102,
+    "vertices": 4313
+  },
+  "4,1": {
+    "triangles": 2428,
+    "area": 9267.25384,
+    "vertices": 473
+  },
+  "4,2": {
+    "triangles": 2436,
+    "area": 9330.780947,
+    "vertices": 2900
+  },
+  "4,3": {
+    "triangles": 2173,
+    "area": 9489.533399,
+    "vertices": 1041
+  },
+  "4,4": {
+    "triangles": 1572,
+    "area": 9542.290207,
+    "vertices": 1153
+  },
+  "4,5": {
+    "triangles": 3981,
+    "area": 8822.952302,
+    "vertices": 2651
+  },
+  "4,6": {
+    "triangles": 3895,
+    "area": 9228.523482,
+    "vertices": 2098
+  },
+  "4,7": {
+    "triangles": 3712,
+    "area": 9083.628302,
+    "vertices": 1857
+  },
+  "4,8": {
+    "triangles": 3525,
+    "area": 8673.483116,
+    "vertices": 2347
+  },
+  "4,9": {
+    "triangles": 2916,
+    "area": 9745.631827,
+    "vertices": 2022
+  },
+  "4,10": {
+    "triangles": 3988,
+    "area": 9434.685325,
+    "vertices": 2553
+  },
+  "4,11": {
+    "triangles": 5128,
+    "area": 9086.281577,
+    "vertices": 3172
+  },
+  "4,12": {
+    "triangles": 3070,
+    "area": 9572.952032,
+    "vertices": 596
+  },
+  "4,13": {
+    "triangles": 4816,
+    "area": 9097.281963,
+    "vertices": 2804
+  },
+  "4,14": {
+    "triangles": 4153,
+    "area": 8520.88325,
+    "vertices": 2851
+  },
+  "4,15": {
+    "triangles": 712,
+    "area": 1359.673099,
+    "vertices": 975
+  },
+  "5,-15": {
+    "triangles": 1177,
+    "area": 8250.86789,
+    "vertices": 1274
+  },
+  "5,-14": {
+    "triangles": 1876,
+    "area": 9787.946422,
+    "vertices": 2131
+  },
+  "5,-13": {
+    "triangles": 1936,
+    "area": 9354.758574,
+    "vertices": 618
+  },
+  "5,-12": {
+    "triangles": 1255,
+    "area": 9874.201188,
+    "vertices": 1052
+  },
+  "5,-11": {
+    "triangles": 2082,
+    "area": 9762.607085,
+    "vertices": 698
+  },
+  "5,-10": {
+    "triangles": 4018,
+    "area": 9363.128857,
+    "vertices": 5969
+  },
+  "5,-9": {
+    "triangles": 2085,
+    "area": 9593.962836,
+    "vertices": 1864
+  },
+  "5,-8": {
+    "triangles": 3691,
+    "area": 8772.171466,
+    "vertices": 5071
+  },
+  "5,-7": {
+    "triangles": 3610,
+    "area": 7066.010583,
+    "vertices": 3246
+  },
+  "5,-6": {
+    "triangles": 2851,
+    "area": 7807.970719,
+    "vertices": 1763
+  },
+  "5,-5": {
+    "triangles": 921,
+    "area": 8710.3779,
+    "vertices": 776
+  },
+  "5,-4": {
+    "triangles": 1175,
+    "area": 10603.091009,
+    "vertices": 571
+  },
+  "5,-3": {
+    "triangles": 1504,
+    "area": 9682.040644,
+    "vertices": 1379
+  },
+  "5,-2": {
+    "triangles": 2694,
+    "area": 7791.172952,
+    "vertices": 2807
+  },
+  "5,-1": {
+    "triangles": 3341,
+    "area": 9305.464424,
+    "vertices": 1680
+  },
+  "5,0": {
+    "triangles": 2794,
+    "area": 8175.911416,
+    "vertices": 2236
+  },
+  "5,1": {
+    "triangles": 3059,
+    "area": 7132.999358,
+    "vertices": 2966
+  },
+  "5,2": {
+    "triangles": 3536,
+    "area": 9237.208998,
+    "vertices": 3145
+  },
+  "5,3": {
+    "triangles": 3734,
+    "area": 8889.96017,
+    "vertices": 2632
+  },
+  "5,4": {
+    "triangles": 2591,
+    "area": 9526.097208,
+    "vertices": 1097
+  },
+  "5,5": {
+    "triangles": 2199,
+    "area": 8473.313295,
+    "vertices": 2352
+  },
+  "5,6": {
+    "triangles": 3831,
+    "area": 9500.118566,
+    "vertices": 307
+  },
+  "5,7": {
+    "triangles": 4339,
+    "area": 9148.463787,
+    "vertices": 4628
+  },
+  "5,8": {
+    "triangles": 3771,
+    "area": 9094.387497,
+    "vertices": 4637
+  },
+  "5,9": {
+    "triangles": 2853,
+    "area": 9343.76705,
+    "vertices": 4129
+  },
+  "5,10": {
+    "triangles": 4490,
+    "area": 9271.172639,
+    "vertices": 2986
+  },
+  "5,11": {
+    "triangles": 4268,
+    "area": 9036.869125,
+    "vertices": 1701
+  },
+  "5,12": {
+    "triangles": 3488,
+    "area": 9504.306414,
+    "vertices": 2539
+  },
+  "5,13": {
+    "triangles": 4877,
+    "area": 8743.906475,
+    "vertices": 2294
+  },
+  "5,14": {
+    "triangles": 4487,
+    "area": 8744.773152,
+    "vertices": 5509
+  },
+  "5,15": {
+    "triangles": 999,
+    "area": 1699.979622,
+    "vertices": 41
+  },
+  "6,-15": {
+    "triangles": 1039,
+    "area": 6570.937092,
+    "vertices": 455
+  },
+  "6,-14": {
+    "triangles": 1302,
+    "area": 9667.648838,
+    "vertices": 1566
+  },
+  "6,-13": {
+    "triangles": 1435,
+    "area": 9232.922835,
+    "vertices": 1766
+  },
+  "6,-12": {
+    "triangles": 1920,
+    "area": 9886.986864,
+    "vertices": 1192
+  },
+  "6,-11": {
+    "triangles": 1435,
+    "area": 9685.621459,
+    "vertices": 1043
+  },
+  "6,-10": {
+    "triangles": 1937,
+    "area": 9256.426925,
+    "vertices": 913
+  },
+  "6,-9": {
+    "triangles": 1800,
+    "area": 9301.578107,
+    "vertices": 1011
+  },
+  "6,-8": {
+    "triangles": 2844,
+    "area": 9593.331703,
+    "vertices": 1190
+  },
+  "6,-7": {
+    "triangles": 3871,
+    "area": 10015.834436,
+    "vertices": 1472
+  },
+  "6,-6": {
+    "triangles": 1074,
+    "area": 9379.11016,
+    "vertices": 1316
+  },
+  "6,-5": {
+    "triangles": 1214,
+    "area": 8047.554965,
+    "vertices": 1125
+  },
+  "6,-4": {
+    "triangles": 754,
+    "area": 9930.816464,
+    "vertices": 678
+  },
+  "6,-3": {
+    "triangles": 685,
+    "area": 9226.776677,
+    "vertices": 337
+  },
+  "6,-2": {
+    "triangles": 1352,
+    "area": 7944.591608,
+    "vertices": 1909
+  },
+  "6,-1": {
+    "triangles": 4448,
+    "area": 9621.696561,
+    "vertices": 2152
+  },
+  "6,0": {
+    "triangles": 3032,
+    "area": 7247.605938,
+    "vertices": 868
+  },
+  "6,1": {
+    "triangles": 2620,
+    "area": 6122.184004,
+    "vertices": 2364
+  },
+  "6,2": {
+    "triangles": 3814,
+    "area": 7216.567436,
+    "vertices": 1719
+  },
+  "6,3": {
+    "triangles": 2469,
+    "area": 9441.603324,
+    "vertices": 1065
+  },
+  "6,4": {
+    "triangles": 1974,
+    "area": 9510.089603,
+    "vertices": 369
+  },
+  "6,5": {
+    "triangles": 2491,
+    "area": 9411.254551,
+    "vertices": 1858
+  },
+  "6,6": {
+    "triangles": 3189,
+    "area": 9301.248653,
+    "vertices": 2623
+  },
+  "6,7": {
+    "triangles": 3756,
+    "area": 9248.234613,
+    "vertices": 4583
+  },
+  "6,8": {
+    "triangles": 3380,
+    "area": 9205.519989,
+    "vertices": 2184
+  },
+  "6,9": {
+    "triangles": 4250,
+    "area": 9087.87906,
+    "vertices": 2773
+  },
+  "6,10": {
+    "triangles": 2777,
+    "area": 9620.69692,
+    "vertices": 1126
+  },
+  "6,11": {
+    "triangles": 4104,
+    "area": 9514.941363,
+    "vertices": 2013
+  },
+  "6,12": {
+    "triangles": 4862,
+    "area": 9005.296523,
+    "vertices": 3843
+  },
+  "6,13": {
+    "triangles": 3314,
+    "area": 8873.607095,
+    "vertices": 3540
+  },
+  "6,14": {
+    "triangles": 4260,
+    "area": 8323.618028,
+    "vertices": 2727
+  },
+  "6,15": {
+    "triangles": 929,
+    "area": 1305.090194,
+    "vertices": 478
+  },
+  "7,-15": {
+    "triangles": 1198,
+    "area": 6011.251672,
+    "vertices": 921
+  },
+  "7,-14": {
+    "triangles": 1972,
+    "area": 9744.412497,
+    "vertices": 1271
+  },
+  "7,-13": {
+    "triangles": 2365,
+    "area": 9813.473745,
+    "vertices": 1308
+  },
+  "7,-12": {
+    "triangles": 2943,
+    "area": 9730.478925,
+    "vertices": 1376
+  },
+  "7,-11": {
+    "triangles": 2061,
+    "area": 9479.584452,
+    "vertices": 1441
+  },
+  "7,-10": {
+    "triangles": 3761,
+    "area": 8965.914137,
+    "vertices": 2325
+  },
+  "7,-9": {
+    "triangles": 2618,
+    "area": 9974.373094,
+    "vertices": 1310
+  },
+  "7,-8": {
+    "triangles": 1928,
+    "area": 9949.665543,
+    "vertices": 1338
+  },
+  "7,-7": {
+    "triangles": 2589,
+    "area": 10204.879545,
+    "vertices": 1340
+  },
+  "7,-6": {
+    "triangles": 3735,
+    "area": 10035.596634,
+    "vertices": 3031
+  },
+  "7,-5": {
+    "triangles": 6280,
+    "area": 9868.645975,
+    "vertices": 2272
+  },
+  "7,-4": {
+    "triangles": 2630,
+    "area": 9832.339045,
+    "vertices": 1832
+  },
+  "7,-3": {
+    "triangles": 2448,
+    "area": 8813.37464,
+    "vertices": 2129
+  },
+  "7,-2": {
+    "triangles": 3533,
+    "area": 11317.644876,
+    "vertices": 3626
+  },
+  "7,-1": {
+    "triangles": 3733,
+    "area": 9271.33987,
+    "vertices": 3098
+  },
+  "7,0": {
+    "triangles": 1705,
+    "area": 9522.196401,
+    "vertices": 2688
+  },
+  "7,1": {
+    "triangles": 3232,
+    "area": 8301.161588,
+    "vertices": 2921
+  },
+  "7,2": {
+    "triangles": 2566,
+    "area": 8783.701419,
+    "vertices": 3063
+  },
+  "7,3": {
+    "triangles": 3130,
+    "area": 9662.960534,
+    "vertices": 2661
+  },
+  "7,4": {
+    "triangles": 2348,
+    "area": 10175.205021,
+    "vertices": 2149
+  },
+  "7,5": {
+    "triangles": 2565,
+    "area": 8448.880698,
+    "vertices": 3749
+  },
+  "7,6": {
+    "triangles": 2624,
+    "area": 9601.301116,
+    "vertices": 1762
+  },
+  "7,7": {
+    "triangles": 3869,
+    "area": 8994.465843,
+    "vertices": 4323
+  },
+  "7,8": {
+    "triangles": 5455,
+    "area": 9107.192139,
+    "vertices": 4461
+  },
+  "7,9": {
+    "triangles": 3419,
+    "area": 9096.772014,
+    "vertices": 2198
+  },
+  "7,10": {
+    "triangles": 3092,
+    "area": 9634.7671,
+    "vertices": 1918
+  },
+  "7,11": {
+    "triangles": 4890,
+    "area": 8801.93962,
+    "vertices": 5646
+  },
+  "7,12": {
+    "triangles": 2660,
+    "area": 4914.157179,
+    "vertices": 1051
+  },
+  "7,13": {
+    "triangles": 5016,
+    "area": 8903.252166,
+    "vertices": 3360
+  },
+  "7,14": {
+    "triangles": 4044,
+    "area": 8593.450247,
+    "vertices": 4975
+  },
+  "7,15": {
+    "triangles": 867,
+    "area": 1622.080117,
+    "vertices": 249
+  },
+  "8,-15": {
+    "triangles": 1401,
+    "area": 4466.278827,
+    "vertices": 1494
+  },
+  "8,-14": {
+    "triangles": 1888,
+    "area": 9234.602045,
+    "vertices": 1287
+  },
+  "8,-13": {
+    "triangles": 1743,
+    "area": 9783.291078,
+    "vertices": 2580
+  },
+  "8,-12": {
+    "triangles": 1875,
+    "area": 9210.88659,
+    "vertices": 2776
+  },
+  "8,-11": {
+    "triangles": 2520,
+    "area": 9017.078958,
+    "vertices": 1782
+  },
+  "8,-10": {
+    "triangles": 3920,
+    "area": 8777.026077,
+    "vertices": 4070
+  },
+  "8,-9": {
+    "triangles": 2498,
+    "area": 9921.141827,
+    "vertices": 1271
+  },
+  "8,-8": {
+    "triangles": 2421,
+    "area": 10011.373216,
+    "vertices": 1302
+  },
+  "8,-7": {
+    "triangles": 1829,
+    "area": 8035.779183,
+    "vertices": 937
+  },
+  "8,-6": {
+    "triangles": 5999,
+    "area": 10010.889566,
+    "vertices": 2895
+  },
+  "8,-5": {
+    "triangles": 6543,
+    "area": 9970.614181,
+    "vertices": 5254
+  },
+  "8,-4": {
+    "triangles": 4890,
+    "area": 10016.348062,
+    "vertices": 4027
+  },
+  "8,-3": {
+    "triangles": 4209,
+    "area": 8987.560094,
+    "vertices": 1675
+  },
+  "8,-2": {
+    "triangles": 2760,
+    "area": 9548.568576,
+    "vertices": 1741
+  },
+  "8,-1": {
+    "triangles": 1134,
+    "area": 8409.758868,
+    "vertices": 1135
+  },
+  "8,0": {
+    "triangles": 2340,
+    "area": 9593.040961,
+    "vertices": 1271
+  },
+  "8,1": {
+    "triangles": 1708,
+    "area": 9014.416608,
+    "vertices": 2502
+  },
+  "8,2": {
+    "triangles": 1671,
+    "area": 8812.245414,
+    "vertices": 3095
+  },
+  "8,3": {
+    "triangles": 2303,
+    "area": 9229.473256,
+    "vertices": 1571
+  },
+  "8,4": {
+    "triangles": 2754,
+    "area": 8754.49178,
+    "vertices": 2768
+  },
+  "8,5": {
+    "triangles": 2482,
+    "area": 9234.321949,
+    "vertices": 3367
+  },
+  "8,6": {
+    "triangles": 3215,
+    "area": 10047.423618,
+    "vertices": 0
+  },
+  "8,7": {
+    "triangles": 2434,
+    "area": 9380.288616,
+    "vertices": 2943
+  },
+  "8,8": {
+    "triangles": 5120,
+    "area": 9268.370726,
+    "vertices": 4135
+  },
+  "8,9": {
+    "triangles": 3238,
+    "area": 9089.790595,
+    "vertices": 3554
+  },
+  "8,10": {
+    "triangles": 3158,
+    "area": 9390.34782,
+    "vertices": 1070
+  },
+  "8,11": {
+    "triangles": 5258,
+    "area": 8650.799097,
+    "vertices": 3558
+  },
+  "8,12": {
+    "triangles": 5302,
+    "area": 8987.062851,
+    "vertices": 3655
+  },
+  "8,13": {
+    "triangles": 4715,
+    "area": 9538.157985,
+    "vertices": 3444
+  },
+  "8,14": {
+    "triangles": 3601,
+    "area": 9794.24057,
+    "vertices": 1672
+  },
+  "8,15": {
+    "triangles": 529,
+    "area": 1435.907707,
+    "vertices": 0
+  },
+  "9,-15": {
+    "triangles": 1873,
+    "area": 6255.283728,
+    "vertices": 1582
+  },
+  "9,-14": {
+    "triangles": 2771,
+    "area": 9980.212539,
+    "vertices": 1116
+  },
+  "9,-13": {
+    "triangles": 1881,
+    "area": 10003.828306,
+    "vertices": 1063
+  },
+  "9,-12": {
+    "triangles": 1638,
+    "area": 9877.005013,
+    "vertices": 979
+  },
+  "9,-11": {
+    "triangles": 2810,
+    "area": 8234.355967,
+    "vertices": 2802
+  },
+  "9,-10": {
+    "triangles": 1878,
+    "area": 8710.465282,
+    "vertices": 1058
+  },
+  "9,-9": {
+    "triangles": 2911,
+    "area": 9816.803722,
+    "vertices": 1735
+  },
+  "9,-8": {
+    "triangles": 2681,
+    "area": 9865.713269,
+    "vertices": 1387
+  },
+  "9,-7": {
+    "triangles": 1917,
+    "area": 9893.096264,
+    "vertices": 696
+  },
+  "9,-6": {
+    "triangles": 5706,
+    "area": 9953.792194,
+    "vertices": 4423
+  },
+  "9,-5": {
+    "triangles": 5931,
+    "area": 9998.313367,
+    "vertices": 2186
+  },
+  "9,-4": {
+    "triangles": 5530,
+    "area": 10023.079184,
+    "vertices": 973
+  },
+  "9,-3": {
+    "triangles": 2500,
+    "area": 9755.738674,
+    "vertices": 2632
+  },
+  "9,-2": {
+    "triangles": 1740,
+    "area": 9339.52446,
+    "vertices": 2615
+  },
+  "9,-1": {
+    "triangles": 1528,
+    "area": 9734.408908,
+    "vertices": 636
+  },
+  "9,0": {
+    "triangles": 1815,
+    "area": 9459.280014,
+    "vertices": 1306
+  },
+  "9,1": {
+    "triangles": 1067,
+    "area": 9296.077255,
+    "vertices": 424
+  },
+  "9,2": {
+    "triangles": 1313,
+    "area": 9462.68369,
+    "vertices": 2676
+  },
+  "9,3": {
+    "triangles": 1455,
+    "area": 9718.00068,
+    "vertices": 1518
+  },
+  "9,4": {
+    "triangles": 2731,
+    "area": 9992.15787,
+    "vertices": 1585
+  },
+  "9,5": {
+    "triangles": 4184,
+    "area": 9377.617722,
+    "vertices": 1817
+  },
+  "9,6": {
+    "triangles": 4050,
+    "area": 9089.655472,
+    "vertices": 3435
+  },
+  "9,7": {
+    "triangles": 1961,
+    "area": 9356.956879,
+    "vertices": 2349
+  },
+  "9,8": {
+    "triangles": 2327,
+    "area": 8980.778619,
+    "vertices": 3249
+  },
+  "9,9": {
+    "triangles": 2346,
+    "area": 7319.210621,
+    "vertices": 3853
+  },
+  "9,10": {
+    "triangles": 3224,
+    "area": 8440.716643,
+    "vertices": 2510
+  },
+  "9,11": {
+    "triangles": 4617,
+    "area": 9371.515681,
+    "vertices": 3050
+  },
+  "9,12": {
+    "triangles": 3762,
+    "area": 8873.67891,
+    "vertices": 2910
+  },
+  "9,13": {
+    "triangles": 3948,
+    "area": 8495.62424,
+    "vertices": 1193
+  },
+  "9,14": {
+    "triangles": 3787,
+    "area": 8001.250983,
+    "vertices": 2288
+  },
+  "9,15": {
+    "triangles": 905,
+    "area": 1418.904634,
+    "vertices": 1583
+  },
+  "10,-15": {
+    "triangles": 1682,
+    "area": 6255.258053,
+    "vertices": 1114
+  },
+  "10,-14": {
+    "triangles": 2354,
+    "area": 10022.429643,
+    "vertices": 1099
+  },
+  "10,-13": {
+    "triangles": 3177,
+    "area": 9914.888214,
+    "vertices": 2508
+  },
+  "10,-12": {
+    "triangles": 2151,
+    "area": 8251.797917,
+    "vertices": 1064
+  },
+  "10,-11": {
+    "triangles": 4535,
+    "area": 8556.06145,
+    "vertices": 2910
+  },
+  "10,-10": {
+    "triangles": 5779,
+    "area": 9884.491679,
+    "vertices": 2663
+  },
+  "10,-9": {
+    "triangles": 3400,
+    "area": 10024.699283,
+    "vertices": 1607
+  },
+  "10,-8": {
+    "triangles": 3573,
+    "area": 9863.276372,
+    "vertices": 1856
+  },
+  "10,-7": {
+    "triangles": 2260,
+    "area": 10121.227924,
+    "vertices": 1099
+  },
+  "10,-6": {
+    "triangles": 5569,
+    "area": 10000.09852,
+    "vertices": 1984
+  },
+  "10,-5": {
+    "triangles": 6408,
+    "area": 9958.620136,
+    "vertices": 3704
+  },
+  "10,-4": {
+    "triangles": 4777,
+    "area": 9928.28348,
+    "vertices": 2841
+  },
+  "10,-3": {
+    "triangles": 2421,
+    "area": 8706.485231,
+    "vertices": 1763
+  },
+  "10,-2": {
+    "triangles": 3586,
+    "area": 8977.902642,
+    "vertices": 2737
+  },
+  "10,-1": {
+    "triangles": 3220,
+    "area": 9450.657809,
+    "vertices": 2119
+  },
+  "10,0": {
+    "triangles": 2750,
+    "area": 9936.893043,
+    "vertices": 431
+  },
+  "10,1": {
+    "triangles": 3052,
+    "area": 8792.243567,
+    "vertices": 2333
+  },
+  "10,2": {
+    "triangles": 5033,
+    "area": 9468.748308,
+    "vertices": 1684
+  },
+  "10,3": {
+    "triangles": 4641,
+    "area": 10005.284155,
+    "vertices": 837
+  },
+  "10,4": {
+    "triangles": 4720,
+    "area": 9936.276238,
+    "vertices": 2623
+  },
+  "10,5": {
+    "triangles": 4097,
+    "area": 9194.853028,
+    "vertices": 2929
+  },
+  "10,6": {
+    "triangles": 3074,
+    "area": 8904.150916,
+    "vertices": 2043
+  },
+  "10,7": {
+    "triangles": 2098,
+    "area": 8390.159191,
+    "vertices": 2491
+  },
+  "10,8": {
+    "triangles": 2815,
+    "area": 9306.11028,
+    "vertices": 475
+  },
+  "10,9": {
+    "triangles": 3574,
+    "area": 8850.452568,
+    "vertices": 2240
+  },
+  "10,10": {
+    "triangles": 3849,
+    "area": 8617.976553,
+    "vertices": 1234
+  },
+  "10,11": {
+    "triangles": 3417,
+    "area": 8739.444845,
+    "vertices": 3168
+  },
+  "10,12": {
+    "triangles": 2726,
+    "area": 8809.474237,
+    "vertices": 2550
+  },
+  "10,13": {
+    "triangles": 2825,
+    "area": 9430.161467,
+    "vertices": 1642
+  },
+  "10,14": {
+    "triangles": 2369,
+    "area": 9640.184868,
+    "vertices": 2976
+  },
+  "10,15": {
+    "triangles": 865,
+    "area": 2137.185307,
+    "vertices": 49
+  },
+  "11,-15": {
+    "triangles": 1393,
+    "area": 6106.115641,
+    "vertices": 1431
+  },
+  "11,-14": {
+    "triangles": 2179,
+    "area": 9913.334315,
+    "vertices": 907
+  },
+  "11,-13": {
+    "triangles": 2778,
+    "area": 9443.644917,
+    "vertices": 1874
+  },
+  "11,-12": {
+    "triangles": 2669,
+    "area": 9016.569945,
+    "vertices": 1508
+  },
+  "11,-11": {
+    "triangles": 4049,
+    "area": 9227.484054,
+    "vertices": 1919
+  },
+  "11,-10": {
+    "triangles": 3840,
+    "area": 9365.98038,
+    "vertices": 2427
+  },
+  "11,-9": {
+    "triangles": 4072,
+    "area": 9696.496743,
+    "vertices": 2757
+  },
+  "11,-8": {
+    "triangles": 2960,
+    "area": 9848.152081,
+    "vertices": 2555
+  },
+  "11,-7": {
+    "triangles": 2762,
+    "area": 10011.413311,
+    "vertices": 3003
+  },
+  "11,-6": {
+    "triangles": 6494,
+    "area": 9959.07806,
+    "vertices": 3580
+  },
+  "11,-5": {
+    "triangles": 6254,
+    "area": 9973.751199,
+    "vertices": 1029
+  },
+  "11,-4": {
+    "triangles": 4677,
+    "area": 10008.881173,
+    "vertices": 913
+  },
+  "11,-3": {
+    "triangles": 2428,
+    "area": 8772.468178,
+    "vertices": 1919
+  },
+  "11,-2": {
+    "triangles": 3767,
+    "area": 9823.879537,
+    "vertices": 4429
+  },
+  "11,-1": {
+    "triangles": 6135,
+    "area": 10009.721043,
+    "vertices": 4353
+  },
+  "11,0": {
+    "triangles": 6263,
+    "area": 9983.629877,
+    "vertices": 4584
+  },
+  "11,1": {
+    "triangles": 5653,
+    "area": 8946.410676,
+    "vertices": 4472
+  },
+  "11,2": {
+    "triangles": 4190,
+    "area": 7650.328776,
+    "vertices": 2195
+  },
+  "11,3": {
+    "triangles": 4484,
+    "area": 8481.847306,
+    "vertices": 3501
+  },
+  "11,4": {
+    "triangles": 4470,
+    "area": 8326.690658,
+    "vertices": 3605
+  },
+  "11,5": {
+    "triangles": 2400,
+    "area": 9322.427707,
+    "vertices": 3379
+  },
+  "11,6": {
+    "triangles": 5463,
+    "area": 9864.732449,
+    "vertices": 2040
+  },
+  "11,7": {
+    "triangles": 5303,
+    "area": 9380.076651,
+    "vertices": 3859
+  },
+  "11,8": {
+    "triangles": 2511,
+    "area": 8847.565525,
+    "vertices": 3115
+  },
+  "11,9": {
+    "triangles": 3267,
+    "area": 8833.347537,
+    "vertices": 5892
+  },
+  "11,10": {
+    "triangles": 4280,
+    "area": 9035.359649,
+    "vertices": 1197
+  },
+  "11,11": {
+    "triangles": 3415,
+    "area": 8694.864839,
+    "vertices": 2782
+  },
+  "11,12": {
+    "triangles": 3408,
+    "area": 8276.796992,
+    "vertices": 1496
+  },
+  "11,13": {
+    "triangles": 3301,
+    "area": 8713.476555,
+    "vertices": 1611
+  },
+  "11,14": {
+    "triangles": 3119,
+    "area": 7785.699021,
+    "vertices": 3532
+  },
+  "11,15": {
+    "triangles": 905,
+    "area": 1746.152418,
+    "vertices": 0
+  },
+  "12,-15": {
+    "triangles": 1549,
+    "area": 6101.678014,
+    "vertices": 436
+  },
+  "12,-14": {
+    "triangles": 2290,
+    "area": 9994.413945,
+    "vertices": 1254
+  },
+  "12,-13": {
+    "triangles": 2016,
+    "area": 9429.493323,
+    "vertices": 1709
+  },
+  "12,-12": {
+    "triangles": 2832,
+    "area": 9311.248941,
+    "vertices": 1740
+  },
+  "12,-11": {
+    "triangles": 2399,
+    "area": 9843.045034,
+    "vertices": 984
+  },
+  "12,-10": {
+    "triangles": 3169,
+    "area": 9850.021702,
+    "vertices": 3395
+  },
+  "12,-9": {
+    "triangles": 4620,
+    "area": 9995.629357,
+    "vertices": 1716
+  },
+  "12,-8": {
+    "triangles": 4622,
+    "area": 9970.267084,
+    "vertices": 2401
+  },
+  "12,-7": {
+    "triangles": 6049,
+    "area": 10010.000408,
+    "vertices": 1003
+  },
+  "12,-6": {
+    "triangles": 7410,
+    "area": 9797.993444,
+    "vertices": 3989
+  },
+  "12,-5": {
+    "triangles": 5273,
+    "area": 9973.332143,
+    "vertices": 4778
+  },
+  "12,-4": {
+    "triangles": 6777,
+    "area": 9731.378073,
+    "vertices": 2535
+  },
+  "12,-3": {
+    "triangles": 6563,
+    "area": 10014.20895,
+    "vertices": 6284
+  },
+  "12,-2": {
+    "triangles": 7070,
+    "area": 9932.365942,
+    "vertices": 1570
+  },
+  "12,-1": {
+    "triangles": 5806,
+    "area": 9710.329601,
+    "vertices": 2256
+  },
+  "12,0": {
+    "triangles": 5573,
+    "area": 9989.812433,
+    "vertices": 2152
+  },
+  "12,1": {
+    "triangles": 5995,
+    "area": 10014.093791,
+    "vertices": 2089
+  },
+  "12,2": {
+    "triangles": 5689,
+    "area": 10029.322449,
+    "vertices": 4251
+  },
+  "12,3": {
+    "triangles": 3188,
+    "area": 9447.02092,
+    "vertices": 2681
+  },
+  "12,4": {
+    "triangles": 2910,
+    "area": 8480.80262,
+    "vertices": 643
+  },
+  "12,5": {
+    "triangles": 4256,
+    "area": 8551.134354,
+    "vertices": 5900
+  },
+  "12,6": {
+    "triangles": 5071,
+    "area": 9989.759337,
+    "vertices": 2061
+  },
+  "12,7": {
+    "triangles": 5057,
+    "area": 9824.86059,
+    "vertices": 1924
+  },
+  "12,8": {
+    "triangles": 4049,
+    "area": 8400.835776,
+    "vertices": 1834
+  },
+  "12,9": {
+    "triangles": 2970,
+    "area": 8857.739276,
+    "vertices": 3890
+  },
+  "12,10": {
+    "triangles": 3963,
+    "area": 8107.11264,
+    "vertices": 4330
+  },
+  "12,11": {
+    "triangles": 3326,
+    "area": 8232.901745,
+    "vertices": 1088
+  },
+  "12,12": {
+    "triangles": 3373,
+    "area": 8664.458463,
+    "vertices": 2710
+  },
+  "12,13": {
+    "triangles": 3809,
+    "area": 9675.425818,
+    "vertices": 842
+  },
+  "12,14": {
+    "triangles": 2196,
+    "area": 7577.159393,
+    "vertices": 2217
+  },
+  "12,15": {
+    "triangles": 283,
+    "area": 2218.017256,
+    "vertices": 986
+  },
+  "13,-15": {
+    "triangles": 1381,
+    "area": 6314.583082,
+    "vertices": 1343
+  },
+  "13,-14": {
+    "triangles": 2279,
+    "area": 9938.740352,
+    "vertices": 1355
+  },
+  "13,-13": {
+    "triangles": 3144,
+    "area": 9861.626165,
+    "vertices": 1195
+  },
+  "13,-12": {
+    "triangles": 1881,
+    "area": 8905.036532,
+    "vertices": 2073
+  },
+  "13,-11": {
+    "triangles": 1959,
+    "area": 8365.460576,
+    "vertices": 1379
+  },
+  "13,-10": {
+    "triangles": 2836,
+    "area": 10003.386291,
+    "vertices": 506
+  },
+  "13,-9": {
+    "triangles": 4269,
+    "area": 9960.985061,
+    "vertices": 1558
+  },
+  "13,-8": {
+    "triangles": 5365,
+    "area": 10528.980706,
+    "vertices": 4925
+  },
+  "13,-7": {
+    "triangles": 4146,
+    "area": 9942.017047,
+    "vertices": 1051
+  },
+  "13,-6": {
+    "triangles": 5427,
+    "area": 9952.006127,
+    "vertices": 3393
+  },
+  "13,-5": {
+    "triangles": 5580,
+    "area": 9958.283305,
+    "vertices": 3048
+  },
+  "13,-4": {
+    "triangles": 5725,
+    "area": 9964.787983,
+    "vertices": 4415
+  },
+  "13,-3": {
+    "triangles": 6131,
+    "area": 9971.229235,
+    "vertices": 3434
+  },
+  "13,-2": {
+    "triangles": 6250,
+    "area": 9971.492799,
+    "vertices": 2272
+  },
+  "13,-1": {
+    "triangles": 4847,
+    "area": 9909.587866,
+    "vertices": 2805
+  },
+  "13,0": {
+    "triangles": 5047,
+    "area": 10008.974429,
+    "vertices": 1951
+  },
+  "13,1": {
+    "triangles": 4333,
+    "area": 9972.17722,
+    "vertices": 2994
+  },
+  "13,2": {
+    "triangles": 4473,
+    "area": 9967.417733,
+    "vertices": 2033
+  },
+  "13,3": {
+    "triangles": 2671,
+    "area": 10105.001942,
+    "vertices": 1195
+  },
+  "13,4": {
+    "triangles": 1921,
+    "area": 8385.215339,
+    "vertices": 1396
+  },
+  "13,5": {
+    "triangles": 3620,
+    "area": 8999.510637,
+    "vertices": 1369
+  },
+  "13,6": {
+    "triangles": 5118,
+    "area": 10017.005463,
+    "vertices": 3662
+  },
+  "13,7": {
+    "triangles": 5518,
+    "area": 9340.083556,
+    "vertices": 2137
+  },
+  "13,8": {
+    "triangles": 4612,
+    "area": 10051.322832,
+    "vertices": 3617
+  },
+  "13,9": {
+    "triangles": 1867,
+    "area": 9195.0307,
+    "vertices": 603
+  },
+  "13,10": {
+    "triangles": 3781,
+    "area": 9011.47201,
+    "vertices": 2977
+  },
+  "13,11": {
+    "triangles": 3319,
+    "area": 7577.078918,
+    "vertices": 2865
+  },
+  "13,12": {
+    "triangles": 3384,
+    "area": 7607.892697,
+    "vertices": 3221
+  },
+  "13,13": {
+    "triangles": 4904,
+    "area": 9933.682472,
+    "vertices": 3797
+  },
+  "13,14": {
+    "triangles": 326,
+    "area": 9307.848019,
+    "vertices": 35
+  },
+  "13,15": {
+    "triangles": 10,
+    "area": 2943.488575,
+    "vertices": 29
+  },
+  "14,-15": {
+    "triangles": 1365,
+    "area": 6260.963692,
+    "vertices": 478
+  },
+  "14,-14": {
+    "triangles": 1797,
+    "area": 9995.15288,
+    "vertices": 1406
+  },
+  "14,-13": {
+    "triangles": 2228,
+    "area": 9926.644417,
+    "vertices": 1346
+  },
+  "14,-12": {
+    "triangles": 2426,
+    "area": 9832.68898,
+    "vertices": 1979
+  },
+  "14,-11": {
+    "triangles": 2500,
+    "area": 9838.892152,
+    "vertices": 1359
+  },
+  "14,-10": {
+    "triangles": 2598,
+    "area": 9838.302141,
+    "vertices": 1525
+  },
+  "14,-9": {
+    "triangles": 2702,
+    "area": 10021.481837,
+    "vertices": 1910
+  },
+  "14,-8": {
+    "triangles": 3989,
+    "area": 9987.443597,
+    "vertices": 1379
+  },
+  "14,-7": {
+    "triangles": 4881,
+    "area": 9999.539104,
+    "vertices": 4229
+  },
+  "14,-6": {
+    "triangles": 4920,
+    "area": 9932.477793,
+    "vertices": 2835
+  },
+  "14,-5": {
+    "triangles": 5176,
+    "area": 9984.223194,
+    "vertices": 2810
+  },
+  "14,-4": {
+    "triangles": 5721,
+    "area": 9999.26963,
+    "vertices": 3344
+  },
+  "14,-3": {
+    "triangles": 5569,
+    "area": 9934.487041,
+    "vertices": 1092
+  },
+  "14,-2": {
+    "triangles": 5679,
+    "area": 9980.447347,
+    "vertices": 5234
+  },
+  "14,-1": {
+    "triangles": 5650,
+    "area": 9921.322012,
+    "vertices": 3233
+  },
+  "14,0": {
+    "triangles": 5817,
+    "area": 9981.322364,
+    "vertices": 5233
+  },
+  "14,1": {
+    "triangles": 5362,
+    "area": 9941.400497,
+    "vertices": 2052
+  },
+  "14,2": {
+    "triangles": 6088,
+    "area": 9872.639561,
+    "vertices": 5067
+  },
+  "14,3": {
+    "triangles": 3567,
+    "area": 8809.849204,
+    "vertices": 2421
+  },
+  "14,4": {
+    "triangles": 2385,
+    "area": 8918.314802,
+    "vertices": 3191
+  },
+  "14,5": {
+    "triangles": 2143,
+    "area": 9355.057812,
+    "vertices": 1728
+  },
+  "14,6": {
+    "triangles": 7509,
+    "area": 9847.837065,
+    "vertices": 1151
+  },
+  "14,7": {
+    "triangles": 6196,
+    "area": 9785.539846,
+    "vertices": 4765
+  },
+  "14,8": {
+    "triangles": 5785,
+    "area": 9936.393032,
+    "vertices": 2094
+  },
+  "14,9": {
+    "triangles": 5487,
+    "area": 9670.889972,
+    "vertices": 5077
+  },
+  "14,10": {
+    "triangles": 3037,
+    "area": 8722.113157,
+    "vertices": 2632
+  },
+  "14,11": {
+    "triangles": 4169,
+    "area": 8755.567554,
+    "vertices": 3050
+  },
+  "14,12": {
+    "triangles": 4474,
+    "area": 9544.219398,
+    "vertices": 1711
+  },
+  "14,13": {
+    "triangles": 4852,
+    "area": 9996.538776,
+    "vertices": 2659
+  },
+  "14,14": {
+    "triangles": 269,
+    "area": 8595.127044,
+    "vertices": 43
+  },
+  "14,15": {
+    "triangles": 10,
+    "area": 2585.122627,
+    "vertices": 18
+  },
+  "15,-15": {
+    "triangles": 298,
+    "area": 1338.723265,
+    "vertices": 341
+  },
+  "15,-14": {
+    "triangles": 380,
+    "area": 2142.932245,
+    "vertices": 0
+  },
+  "15,-13": {
+    "triangles": 489,
+    "area": 2170.044082,
+    "vertices": 0
+  },
+  "15,-12": {
+    "triangles": 351,
+    "area": 2160.013061,
+    "vertices": 0
+  },
+  "15,-11": {
+    "triangles": 467,
+    "area": 2141.760204,
+    "vertices": 0
+  },
+  "15,-10": {
+    "triangles": 398,
+    "area": 2146.557755,
+    "vertices": 342
+  },
+  "15,-9": {
+    "triangles": 947,
+    "area": 3248.796735,
+    "vertices": 1966
+  },
+  "15,-8": {
+    "triangles": 3003,
+    "area": 8031.085714,
+    "vertices": 543
+  },
+  "15,-7": {
+    "triangles": 2365,
+    "area": 8016.308623,
+    "vertices": 660
+  },
+  "15,-6": {
+    "triangles": 2066,
+    "area": 7960.436856,
+    "vertices": 1538
+  },
+  "15,-5": {
+    "triangles": 3235,
+    "area": 8014.458964,
+    "vertices": 1108
+  },
+  "15,-4": {
+    "triangles": 2907,
+    "area": 7933.957502,
+    "vertices": 2065
+  },
+  "15,-3": {
+    "triangles": 2360,
+    "area": 8030.234592,
+    "vertices": 2439
+  },
+  "15,-2": {
+    "triangles": 2337,
+    "area": 8054.909388,
+    "vertices": 799
+  },
+  "15,-1": {
+    "triangles": 4553,
+    "area": 7985.889116,
+    "vertices": 1970
+  },
+  "15,0": {
+    "triangles": 2547,
+    "area": 7710.942214,
+    "vertices": 529
+  },
+  "15,1": {
+    "triangles": 3743,
+    "area": 7928.514133,
+    "vertices": 1486
+  },
+  "15,2": {
+    "triangles": 3555,
+    "area": 7933.496308,
+    "vertices": 2717
+  },
+  "15,3": {
+    "triangles": 1957,
+    "area": 7276.986954,
+    "vertices": 1235
+  },
+  "15,4": {
+    "triangles": 345,
+    "area": 2685.553785,
+    "vertices": 793
+  },
+  "15,5": {
+    "triangles": 196,
+    "area": 2121.874286,
+    "vertices": 1745
+  },
+  "15,6": {
+    "triangles": 1422,
+    "area": 2158.785306,
+    "vertices": 1471
+  },
+  "15,7": {
+    "triangles": 1242,
+    "area": 2185.822041,
+    "vertices": 990
+  },
+  "15,8": {
+    "triangles": 1312,
+    "area": 2164.897959,
+    "vertices": 1069
+  },
+  "15,9": {
+    "triangles": 1288,
+    "area": 2178.873469,
+    "vertices": 0
+  },
+  "15,10": {
+    "triangles": 1371,
+    "area": 2030.321901,
+    "vertices": 0
+  },
+  "15,11": {
+    "triangles": 1078,
+    "area": 2161.775204,
+    "vertices": 954
+  },
+  "15,12": {
+    "triangles": 964,
+    "area": 2146.429388,
+    "vertices": 0
+  },
+  "15,13": {
+    "triangles": 1076,
+    "area": 2156.878367,
+    "vertices": 1013
+  },
+  "15,14": {
+    "triangles": 55,
+    "area": 2308.455469,
+    "vertices": 0
+  },
+  "15,15": {
+    "triangles": 1,
+    "area": 372.428558,
+    "vertices": 0
+  }
+}

@@ -7,6 +7,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "slice"))
@@ -24,6 +25,26 @@ ROUTES = {"outside": {"route": [[-989.2571, 1146.5143, 105.2609], [-982.7571, 11
           "inside": {"route": [[0.0493, -6.622, 0.2442], [-0.9507, -1.622, 0.6809], [-0.9507, -0.122, 0.5021]],
                      "walk_ms": 10300}}
 SPAWN = [-989.2571, 1146.5143, 105.2609]
+
+
+class CaveCore64cOptionTests(unittest.TestCase):
+    def parse_stage(self, *options):
+        with mock.patch.object(mk, "cmd_stage", return_value=0) as stage:
+            self.assertEqual(mk.main(["stage", "--sf-esm", "source.esm", "--fo4", "fo4.esm",
+                                      "--port", "port", "--core", "core", "--out", "candidate", *options]), 0)
+        return stage.call_args.args[0]
+
+    def test_probe_free_world_fields_option_survives_neighbor_probe_merge(self):
+        args = self.parse_stage("--no-probes", "--empty-world-cell-data")
+        self.assertTrue(args.no_probes)
+        self.assertTrue(args.empty_world_cell_data)
+        self.assertIsNone(args.probe_cell)
+
+    def test_neighbor_probe_option_survives_world_fields_merge(self):
+        args = self.parse_stage("--probe-cell", "-11", "11")
+        self.assertEqual(args.probe_cell, [-11, 11])
+        self.assertFalse(args.no_probes)
+        self.assertFalse(args.empty_world_cell_data)
 
 
 class CaveCore64cPlanTests(unittest.TestCase):

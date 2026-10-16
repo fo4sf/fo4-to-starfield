@@ -299,9 +299,14 @@ def cmd_stage(a):
     if not (routes["outside"].get("route") and routes["inside"].get("route")):
         sys.exit("no walking route to a door (routes.json)")
     # 4. the plugin
+    # --probe-cell X Y: the probes shifted by whole cells into another exterior cell (cave_probes_1015, 2026-10-15: an
+    # override of the COC cell (-10, 11) moved the coc arrival to (50, 50); does an override of a neighbour cell?)
+    cell = tuple(a.probe_cell) if getattr(a, "probe_cell", None) else PROBE_CELL
+    shift = (100.0 * (cell[0] - PROBE_CELL[0]), 100.0 * (cell[1] - PROBE_CELL[1]))
+    probes = [(pid, edid, pers, [pos[0] + shift[0], pos[1] + shift[1], pos[2]], what) for pid, edid, pers, pos, what in PROBES]
     probes_params = [] if a.no_probes else [
-        {"id": pid, "edid": edid, "base": XMARKER, "cell": list(PROBE_CELL), "pos": list(pos), "persistent": pers}
-        for pid, edid, pers, pos, _what in PROBES]
+        {"id": pid, "edid": edid, "base": XMARKER, "cell": list(cell), "pos": list(pos), "persistent": pers}
+        for pid, edid, pers, pos, _what in probes]
     params = {"plugin": PLUGIN, "door_base": rr.DOOR_BASE, "world": {"plugin": CORE_PLUGINS[0], "editor_id": WORLD},
               "interior": {"plugin": "FO4Port.esm", "editor_id": rr.PORT_CELL}, "outside": o_side, "inside": i_side}
     if a.template_world:
@@ -323,7 +328,7 @@ def cmd_stage(a):
     print(f"core64c Data: {ln} linked, {kp} already linked")
     # 6. plan, expectations, README
     probes_plan = [] if a.no_probes else (
-        [{"ref": f"{LOAD['slice']}{pid}", "local": list(pos), "what": what} for pid, _e, _p, pos, what in PROBES]
+        [{"ref": f"{LOAD['slice']}{pid}", "local": list(pos), "what": what} for pid, _e, _p, pos, what in probes]
         + [dict(ANCHOR_PROBE)])
     sides = {"outside": outside, "inside": inside}
     # coming back out, the player faces the interior door's XTEL rotation; going in, the exterior door's
@@ -523,6 +528,8 @@ def main(argv=None):
             s.add_argument("--no-probes", action="store_true", help="no XMarker merge probes")
             s.add_argument("--empty-world-cell-data", action="store_true",
                            help="experimental file-local zero OFST/CLSZ tables; requires --no-probes")
+            s.add_argument("--probe-cell", type=int, nargs=2, default=None, metavar=("X", "Y"),
+                           help="put the probes in this exterior cell instead of the COC cell (-10, 11), shifted by whole cells")
             s.add_argument("--blocked", default="", help="README status line, e.g. 'persistent-ref placement'")
     a = ap.parse_args(argv)
     return cmd_stage(a) if a.cmd == "stage" else cmd_check(a)
