@@ -64,7 +64,7 @@ The kit is inside the station, on the wall. The runner opened it from the consol
 
 | Line | What happens |
 |---|---|
-| `cgf "FO4SF_Probe.Pos" 33989685` | The bridge script logs the kit reference's position and whether it is loaded to `Documents\My Games\Starfield\Logs\Script\User\fo4sf.0.log` (`FO4SF ref=... pos=... loaded=true`). Claude reads that log. |
+| `cgf "FO4SF_Probe.Pos" 33985589` | The bridge script logs the kit reference's position and whether it is loaded to `Documents\My Games\Starfield\Logs\Script\User\fo4sf.0.log` (`FO4SF ref=... pos=... loaded=true`). Claude reads that log. |
 | `cgf "FO4SF_Probe.Player"` | The same for you. |
 | `player.getpos x` (`y`, `z`) | Your position on the console (what the runner's OCR used to read). |
 | `GetInCell FO4Core_RedRocketSpawn` | `>> 1.00` in the arrival cell. |
