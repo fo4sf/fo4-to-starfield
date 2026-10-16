@@ -328,3 +328,15 @@ claim power-loss durability/savegame acceptance. Complete build/deploy recovery
 remains a separate control.
 
 - 2026-10-15 (Claude): the Commonwealth is built from the existing 64 x 64 core (terrain + all 648,358 exterior statics already placed), not by adding cells: next come doors/interiors, semantic object classes via the R05 promotion path with ids retained (#150), navmesh per R06, actors, environment. One plugin for the exterior, interiors stay in FO4Port.esm. Alternatives considered: regional plugins (unneeded: the record count is far under the 16.7 M FormID space), a wider overlay (the playable area already fits). docs/terrain/commonwealth-build-plan.md.
+
+## 2026-10-16 Converted compressed meshes must pass the decoder simulation (Claude)
+- Decision: src/fo4sf/meshcheck.py (CLI scripts/oracles/collision_mesh_keys.py) walks every compressed mesh of a
+  converted NIF as Starfield's hknp decoder does and a build with violations is not deployed. The converter writes
+  what vanilla meshes have and nothing else: one SIMD leaf per primitive, primitive slots the decoder cannot type
+  replaced by a neighbour copy, FO4's special-primitive section flag cleared, primitiveStoresIsFlatConvex 0xFF; every
+  other FO4 byte is copied as before (docs/ai/research-log.md 2026-10-16).
+- Why: the owner's crashes since 10-12 are this decoder reading our per-triangle SIMD keys as primitives (vault_cart_01:
+  key 79 + 1 -> primitive 40 of 40). Vanilla gives one invariant set to test against (837 of 837 meshes).
+- Alternatives: dropping bodies with FO4 special primitives (loses the precombines' collision), re-encoding the trees
+  (no vanilla evidence that the engine wants anything but what it has), leaving the flat-convex byte at FO4's 0 (a
+  code path no vanilla asset exercises).

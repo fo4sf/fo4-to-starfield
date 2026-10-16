@@ -133,7 +133,8 @@ def fo4_native_collision(src, universal_template: bytes, report: dict = None, dy
     """[Starfield single-body physics blobs], one per FO4 collision body (meshcollision.convert_bodies), or None to fall
     back. Unsupported shape classes and malformed data return None and record why. One exception, reported as
     report["skipped_parts"]: precombine debris parts in the undecoded primitive encoding (see convert_bodies) are left
-    out and the rest of the model keeps its native bodies.
+    out and the rest of the model keeps its native bodies. report["mesh_fixes"]: what a mesh body needed for
+    Starfield's decoder (meshcollision._emit_mesh: primitive slots replaced, FO4 section flags cleared).
     dynamic_template (a vanilla dynamic body): a model whose only collision object sits on the root node and holds
     one dynamic FO4 body becomes movable (motion["dynamic"] = kg, the single blob is that body); so does a model whose
     collision objects share one all-dynamic system (ragdoll skeleton), merged into ONE rigid body (_rigid_ragdoll,
@@ -145,7 +146,7 @@ def fo4_native_collision(src, universal_template: bytes, report: dict = None, dy
     if not objs:
         return None
     motion = {} if motion is None else motion
-    blobs, skipped = [], []
+    blobs, skipped, notes = [], [], []
     # placed=True: the game ignores the scene root's own transform (PryCatwalkStairsEnt02's 180-degree root turned the
     # converted stairs the wrong way round; FO4's precombined physics only matches without it).
     world = nifmod.world_transforms(src, placed=True, local_overrides=pose)
@@ -182,7 +183,7 @@ def fo4_native_collision(src, universal_template: bytes, report: dict = None, dy
             dyn = dynamic_template if (len(objs) == 1 and target == 0) else None
             new = meshcollision.convert_bodies(src.blocks[data][4:4 + n], universal_template,
                                                select=[body] if shared > 1 else None, node_rot=tuple(rot),
-                                               skipped=skipped, dynamic_template=dyn, motion=motion)
+                                               skipped=skipped, dynamic_template=dyn, motion=motion, notes=notes)
             node = place or ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
             for b in new:
                 if isinstance(b, tuple):                 # rotated compound instance: node transform * instance
@@ -199,6 +200,8 @@ def fo4_native_collision(src, universal_template: bytes, report: dict = None, dy
             return None
     if report is not None and skipped:
         report["skipped_parts"] = skipped
+    if report is not None and notes:                     # what a mesh body needed for Starfield's decoder
+        report["mesh_fixes"] = notes
     if report is not None and blobs:
         report["source"] = "fo4-native"
         report["bodies"] = len(blobs)
