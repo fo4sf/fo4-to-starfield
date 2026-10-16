@@ -17,6 +17,10 @@ class ActivateStepTests(unittest.TestCase):
         self.assertIn("activate", runner_features.needs([TEST]))
         self.assertNotIn("activate", runner_features.needs([{"kind": "terrain"}]))
 
+    def test_plan_terrain_carries_the_block(self):
+        self.assertIn("activate", testqueue.TERRAIN_KEYS)
+        self.assertIn("teleport_console", testqueue.TERRAIN_KEYS)
+
     def test_summary_lists_the_words_read(self):
         obs = {"activate": {"ref": "020A2AA5", "shot": "activate.png", "ocr": "FIRST AID KIT\nCredits 25\nDigipick 1"}}
         self.assertEqual(testqueue.activate_summary(TEST, obs),
