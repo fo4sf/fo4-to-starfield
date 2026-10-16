@@ -38,6 +38,12 @@ function Cfg {
     catch { Note "config unreadable, defaults used: $_" }
   }
   if (-not $c.lease_dir -and $startLeaseDir) { $c.lease_dir = $startLeaseDir }
+  if ($c.lease_dir) {
+    # one folder for the watchdog, the chain and the runner: absolute, no trailing backslash (quoting), a relative
+    # one resolved here against C:\Modding\testqueue rather than against each process's own working directory
+    $c.lease_dir = "$($c.lease_dir)".TrimEnd('\')
+    if (-not [IO.Path]::IsPathRooted($c.lease_dir)) { $c.lease_dir = Join-Path $tq $c.lease_dir }
+  }
   return $c
 }
 function Stopped { (Test-Path (Join-Path $tq 'STOP_ALL')) -or (Test-Path "$env:LOCALAPPDATA\fo4-ai-team\state\testqueue.STOP") }
