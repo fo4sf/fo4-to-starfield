@@ -26,6 +26,15 @@ refuses a pending journal or lease before native deployment, experiment install/
 cave stage/check operations. Integrate producer and consumer guards together. Legacy stages without markers retain
 their behavior. Old runners that lack these guards must not consume an in-progress or interrupted new publication.
 
+The guard raises `PendingPublication`, an `OSError` subclass, for either control path. The runner's existing
+`experiment_mismatch` handler can then record a stopped checkpoint and log the unavailable stage instead of
+crashing with `state.json` still at `running`. Independent review #191 reproduced that former `ValueError`
+failure. Both journal and lease cases now stop before any launch/input or inventory hashing and preserve the
+control bytes. The tested caller has the same syntax tree as current main `aa5b223`'s mismatch handler.
+
+Planning helpers are outside the guarded consumer list: plan only against a quiescent pinned stage. This error
+contract fix does not turn planning or arbitrary path readers into a coherent snapshot.
+
 Windows read-sharing handles deny writable opens/mappings while allowing guarded renames. Other platforms retain
 the immutable-input/cooperating-writer requirement. The tests establish process/IO failure behavior, not a universal
 power-loss guarantee. No automatic recovery may overwrite an owner's concurrent file or silently remove a journal.
@@ -40,6 +49,9 @@ receipts are retained when `FO4SF_IDENTITY_EVIDENCE_DIR` names a new scratch dir
 `test_stage_outputs.py` checks early consumer refusal, malformed/directory markers, legacy input and isolated CLI
 imports. Deployment, experiment, core, cave and serialized-reference regressions are also run. .NET 9 SDK/runtime is
 required for the actual writer tests; native Windows sharing denial skips explicitly on other platforms.
+The #191 correction passes five stage-guard tests and 88 synthetic runner tests; C# publication code is unchanged.
+Cloud peer review found the publication/rollback protocol sound by reading; fresh review of this correction and
+PC integration remain separate gates. Interrupted full-size rollback remains unmeasured.
 
 ```powershell
 python -B -m unittest discover -s tests -p test_terrain_output_publication.py -v

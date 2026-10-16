@@ -1233,3 +1233,12 @@ files rechecked unchanged. The2GiB heap OOM is retained; fresh3GiB run18.02s/2.8
 verifier HEDR assumptions were corrected from raw framing and retained; inherited absolute-count offset-3 unresolved.
 No production install/native input/save change or acceptance. Independent QA, lead integration/new plans/native tests
 remain. Private evidence core64-identity-validation-20261015; see testing/container-reference-identities.md.
+
+## 2026-10-16: pending publication must checkpoint a runner stop (Codex)
+
+Independent cloud review #191 /5544456464 reproduced the guard's ValueError escaping the in-process runner,
+leaving state at running. Both journal and lease cases fail the new regression on0d04207 with that checkpoint.
+PendingPublication now subclasses OSError, matching the existing caller contract: both cases checkpoint stopped,
+log the cause, preserve controls and perform no launch/input or inventory hash. Five guard and88 runner tests
+pass. Current main aa5b223's mismatch handler has the identical syntax tree. No runner/C# publication/staging
+or game change; corrected-source peer review and lead integration pending. Evidence publication-error-191-20261016.
