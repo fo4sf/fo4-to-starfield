@@ -14,6 +14,7 @@ SHA = "ab" * 32
 OTHER = "cd" * 32
 PAPYRUS_OK = "[General]\nsLanguage=en\n[Papyrus]\nbEnableLogging=1\nbEnableTrace=1\nbLoadDebugInformation=1\n"
 PAPYRUS_OFF = "[Papyrus]\nbEnableLogging=0\nbEnableTrace=1\n"
+PAPYRUS_PARTIAL = "[Papyrus]\nbEnableLogging=1\n"
 
 
 class FakeProbe:
@@ -111,7 +112,7 @@ class GateTests(unittest.TestCase):
         self.assertIsInstance(ev, Event)
         self.assertEqual((ev.ev, ev.fields["blocker"], ev.fields["checks"]["game_version"]), ("blocker_opened", "preflight", "UNKNOWN"))
         self.assertEqual(len(ev.fields["evidence"]), 1)
-        self.assertIn("Windows only", ev.fields["evidence"][0])
+        self.assertIn("not readable", ev.fields["evidence"][0])
 
     def test_a_reading_that_raises_is_unknown_and_the_rest_still_run(self):
         rep = pf.run_gate(FakeProbe(inputs=OSError("disk gone"), queue=pinned()))
@@ -137,6 +138,8 @@ class CheckTests(unittest.TestCase):
         c = one("deploy", manifest={"complete": True, "artifacts": {"FO4Port.esm": {"sha256": OTHER}}})
         self.assertEqual(c.status, pf.FAIL)
         self.assertIn("wrong build", c.detail)
+        c = one("deploy", queue={"staging": "x"})                                    # nothing pinned: say so, no claim
+        self.assertEqual((c.status, "pins nothing" in c.detail), (pf.PASS, True))
         self.assertEqual(one("deploy", manifest={"complete": True, "artifacts": {}}).status, pf.UNKNOWN)
 
     def test_experiment(self):
@@ -145,6 +148,11 @@ class CheckTests(unittest.TestCase):
         c = one("experiment", queue=pinned(), inputs={"FO4SFExp.esm": OTHER})
         self.assertEqual(c.status, pf.FAIL)
         self.assertIn("changed since planning", c.detail)
+        leftover = {"exp_dir": "C:/staging/terrain_core64c", "plugins": ["FO4TerrainCore.esm"], "source_inputs": {}, "complete": True}
+        c = one("experiment", record=leftover)                                     # a plain plan queue, an old install
+        self.assertEqual(c.status, pf.FAIL)
+        self.assertIn("pins no experiment but one is installed", c.detail)
+        self.assertEqual(one("experiment", record={"error": "PermissionError"}).status, pf.UNKNOWN)
         q = pinned()
         del q["experiment_identity"]
         q["pre_launch"] = ["python", "exp_install.py"]
@@ -185,6 +193,12 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(c.observed, ["fo4sfexp.esm", "fo4port.esm", "fo4terraincore.esm"])
         c = one("load_order", queue=pinned(), masters={"FO4SFExp.esm": ["FO4Port.esm"]}, lines=["*FO4SFExp.esm"])
         self.assertEqual(c.status, pf.PASS)                                          # FO4Port.esm comes with the deploy
+        q = pinned()
+        q["experiment_identity"]["plugins"] = ["FO4TerrainCore.esm", "FO4SliceRedRocketCore.esm"]
+        c = one("load_order", queue=q, masters={"FO4SliceRedRocketCore.esm": ["FO4TerrainCore.esm", "FO4Port.esm"]}, lines=[])
+        self.assertEqual(c.status, pf.PASS)                                          # a sibling of the pin installs at the launch
+        c = one("load_order", queue=q, masters={"FO4SliceRedRocketCore.esm": ["Other.esm"]}, lines=[])
+        self.assertEqual(c.status, pf.FAIL)
         c = one("load_order", queue=pinned(bridge={"dir": "b"}), lines=["*FO4SFBridge.esm", "*FO4Port.esm"])
         self.assertEqual(c.status, pf.PASS)
         self.assertIn("the bridge is not last", c.detail)
@@ -196,7 +210,9 @@ class CheckTests(unittest.TestCase):
         del q["game_version"]
         self.assertEqual(one("game_version", queue=q).status, pf.UNKNOWN)
         self.assertEqual(one("game_version", queue=q, ledger_version="1.16.244.0").status, pf.PASS)
-        self.assertEqual(one("game_version", version=None).status, pf.UNKNOWN)
+        c = one("game_version", version=None)
+        self.assertEqual(c.status, pf.UNKNOWN)
+        self.assertIn("pin-game-version --version", c.detail)
         c = one("game_version", version="1.17.0.0")
         self.assertEqual((c.status, c.expected, c.observed), (pf.FAIL, "1.16.244.0", "1.17.0.0"))
 
@@ -236,6 +252,10 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(c.status, pf.FAIL)
         self.assertIn("make_bridge.py ini", c.detail)
         self.assertEqual(one("log_capture", queue=pinned(bridge={"dir": "b"}), inis=[PAPYRUS_OFF, PAPYRUS_OK]).status, pf.PASS)
+        # the override (last) turns logging off although the game folder's ini (first) sets it: not in effect
+        self.assertEqual(one("log_capture", queue=pinned(bridge={"dir": "b"}), inis=[PAPYRUS_OK, PAPYRUS_OFF]).status, pf.FAIL)
+        # an override that sets only one key leaves the others from the game folder's ini in effect
+        self.assertEqual(one("log_capture", queue=pinned(bridge={"dir": "b"}), inis=[PAPYRUS_OK, PAPYRUS_PARTIAL]).status, pf.PASS)
 
     def test_papyrus_keys_parse(self):
         self.assertTrue(pf.papyrus_logging_on(PAPYRUS_OK))
@@ -243,6 +263,9 @@ class CheckTests(unittest.TestCase):
         self.assertFalse(pf.papyrus_logging_on(PAPYRUS_OFF))
         self.assertFalse(pf.papyrus_logging_on("[General]\nbEnableLogging=1\nbEnableTrace=1\nbLoadDebugInformation=1\n"))
         self.assertFalse(pf.papyrus_logging_on(""))
+        self.assertTrue(pf.papyrus_logging_on([PAPYRUS_OK]))
+        self.assertFalse(pf.papyrus_logging_on([PAPYRUS_OK, PAPYRUS_OFF]))
+        self.assertEqual(pf.papyrus_keys(PAPYRUS_OFF), {"benablelogging": "0", "benabletrace": "1"})
 
 
 if __name__ == "__main__":

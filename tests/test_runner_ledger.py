@@ -66,22 +66,26 @@ class RunnerLedgerTests(unittest.TestCase):
         self.assertTrue(all(e.by == "testqueue:Claude" for e in evs if e.ev.startswith("task")))
         pin = next(e for e in evs if e.ev == "build_pinned")
         self.assertEqual((pin.get("build_id"), pin.get("plugin_sha256")), ("abcd1234", "x"))
-        self.assertEqual(pin.get("src"), os.path.join(self.d, "queue.json") + "#pin")
+        self.assertEqual(pin.get("src"), imp.pin_src(self.d, tt.jload(os.path.join(self.d, "queue.json"))))
+        self.assertTrue(pin.get("src").startswith(os.path.join(self.d, "queue.json") + "#pin:"))
         queued = [e for e in evs if e.ev == "task_queued"]
         self.assertEqual([e.get("src") for e in queued], [os.path.join(self.d, "queue.json") + f"#{i:04d}_fall" for i in range(3)])
         self.assertEqual(queued[0].get("owner"), "Claude")
         finished = [e for e in evs if e.ev == "task_finished"]
         self.assertEqual([e.get("src") for e in finished], [os.path.join(self.d, "results.jsonl") + f":{n}" for n in (1, 2, 3, 4)])
+        camp = os.path.basename(self.d)
         self.assertEqual([(e.get("task"), e.get("attempt"), e.get("outcome"), e.get("completed")) for e in finished],
-                         [("0000_fall", 1, "INCONCLUSIVE", False), ("0001_fall", 1, "FAIL", True),
-                          ("0002_fall", 1, "PASS", True), ("0000_fall", 2, "INCONCLUSIVE", False)])
+                         [(f"{camp}/0000_fall", 1, "INCONCLUSIVE", False), (f"{camp}/0001_fall", 1, "FAIL", True),
+                          (f"{camp}/0002_fall", 1, "PASS", True), (f"{camp}/0000_fall", 2, "INCONCLUSIVE", False)])
+        self.assertEqual([e.get("task") for e in queued], [f"{camp}/{i:04d}_fall" for i in range(3)])
+        self.assertEqual([e.get("task") for e in evs if e.ev == "task_started"][0], f"{camp}/0000_fall")
         self.assertTrue(finished[1].get("evidence")[0].endswith(os.path.join("0001_fall", "a1")))
         self.assertEqual(finished[1].get("pins"), {"build_id": "abcd1234", "commit": "0" * 40, "plugin_sha256": "x"})
         self.assertIn("FALL", finished[1].get("detail"))
         s = fold(evs)
         self.assertEqual({k: (v["status"], v["outcome"], v["attempt"]) for k, v in s.tasks.items()},
-                         {"0000_fall": ("inconclusive", "INCONCLUSIVE", 2), "0001_fall": ("completed", "FAIL", 1),
-                          "0002_fall": ("completed", "PASS", 1)})
+                         {f"{camp}/0000_fall": ("inconclusive", "INCONCLUSIVE", 2), f"{camp}/0001_fall": ("completed", "FAIL", 1),
+                          f"{camp}/0002_fall": ("completed", "PASS", 1)})
         self.assertEqual(s.campaigns, {os.path.basename(self.d)})
         self.assertEqual(s.build["build_id"], "abcd1234")
         self.assertEqual(s.report()[7], "Next queue: empty")
@@ -104,13 +108,14 @@ class RunnerLedgerTests(unittest.TestCase):
         c.Controller(self.leader).claim("Claude", "window", 3600)
         self.runner(lambda t, o: 0, max_attempts=1).run()
         s = fold(self.events())
-        self.assertEqual(s.tasks["0000_fall"]["status"], "skipped")                     # PRECONDITION
-        self.assertEqual(s.tasks[f"{n - 1:04d}_fall"]["status"], "circuit_broken")       # BREAKER
-        self.assertEqual(s.tasks["0001_fall"]["status"], "inconclusive")
+        camp = os.path.basename(self.d)
+        self.assertEqual(s.tasks[f"{camp}/0000_fall"]["status"], "skipped")             # PRECONDITION
+        self.assertEqual(s.tasks[f"{camp}/{n - 1:04d}_fall"]["status"], "circuit_broken")   # BREAKER
+        self.assertEqual(s.tasks[f"{camp}/0001_fall"]["status"], "inconclusive")
         self.assertEqual(s.tasks_by_status().get("completed"), None)
         finished = [e for e in self.events() if e.ev == "task_finished"]
         self.assertFalse(any(e.get("completed") for e in finished))
-        self.assertEqual([e.get("attempt") for e in finished if e.get("task") == "0000_fall"], [0])
+        self.assertEqual([e.get("attempt") for e in finished if e.get("task") == f"{camp}/0000_fall"], [0])
         self.assertEqual(imp.import_queue(self.d, Ledger(os.path.join(self.leader, "ledger.jsonl"))), 0)
 
     def test_a_resumed_run_queues_nothing_twice_and_starts_count_up(self):
