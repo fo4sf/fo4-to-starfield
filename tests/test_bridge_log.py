@@ -1,5 +1,7 @@
 """bridge_log.py: the observation bridge's log lines (synthetic; the real log is written by FO4SF_Bridge.psc)."""
 import os
+import json
+import subprocess
 import sys
 import tempfile
 import time
@@ -313,3 +315,61 @@ class ProbeLineTests(unittest.TestCase):
             ev = [e for e in bridge_log.read_events(log) if e["kind"] != "pos"]
             self.assertEqual([e["kind"] for e in ev], ["ack", "resolve", "target", "moveto", "moveto", "moveto", "ref"])
             self.assertEqual([e.get("phase") for e in ev if e["kind"] == "moveto"], ["before", "after", "settled"])
+
+
+class ProbeKindCaseTests(unittest.TestCase):
+    """Native probe event names can differ in case from the source spelling."""
+
+    def test_case_variants_normalize_only_the_event_kind(self):
+        for kind, variants in (("resolve", ("resolve", "Resolve", "RESOLVE", "rEsOlVe")),
+                               ("target", ("target", "Target", "TARGET", "tArGeT")),
+                               ("moveto", ("moveto", "MoveTo", "MOVETO", "mOvEtO"))):
+            for variant in variants:
+                with self.subTest(kind=variant):
+                    line = f"[12:00:00] FO4SF {variant} plugin=MiXeD.esm id=8 form=none"
+                    self.assertEqual(bridge_log.parse_event(line),
+                                     {"kind": kind, "plugin": "MiXeD.esm", "id": 8, "form": None})
+
+    def test_resolved_identity_and_payload_case_are_preserved(self):
+        line = ("FO4SF Resolve plugin=MiXeD.esm id=8 form=33554440 ref=true pos=1 2 3 ang=90 "
+                "cell=33554441 cellname=Test Cell world=-2 worldname=MiXeDWorld disabled=false loaded=false")
+        self.assertEqual(bridge_log.parse_event(line),
+                         {"kind": "resolve", "plugin": "MiXeD.esm", "id": 8, "form": "02000008",
+                          "ref": True, "pos": [1., 2., 3.], "ang": 90., "cell": "02000009",
+                          "cellname": "Test Cell", "world": "FFFFFFFE", "worldname": "MiXeDWorld",
+                          "disabled": False, "loaded": False})
+
+    def test_mixed_case_target_and_refused_move_remain_negative(self):
+        target = bridge_log.parse_event("FO4SF Target plugin=Test.esm id=9 form=33554441 ref=false")
+        self.assertEqual(target, {"kind": "target", "plugin": "Test.esm", "id": 9,
+                                  "form": "02000009", "ref": False})
+        move = bridge_log.parse_event("FO4SF MoveTo plugin=Test.esm id=9 offset=4 5 6 phase=refused")
+        self.assertEqual(move, {"kind": "moveto", "plugin": "Test.esm", "id": 9,
+                                "offset": [4., 5., 6.], "phase": "refused"})
+
+    def test_kind_case_does_not_relax_prefix_keys_or_values(self):
+        for line in ("fo4sf Resolve plugin=Test.esm id=8 form=none",
+                     "FO4SF ResolveX plugin=Test.esm id=8 form=none",
+                     "FO4SF Resolve PLUGIN=Test.esm id=8 form=none",
+                     "FO4SF Resolve plugin=Test.esm id=8 ref=tru",
+                     "FO4SF Resolve plugin=Test.esm id=8 pos=1 2",
+                     "FO4SF Resolve form=none",
+                     "FO4SF MoveTo"):
+            with self.subTest(line=line):
+                self.assertIsNone(bridge_log.parse_event(line))
+
+    def test_events_cli_keeps_mixed_case_replies_and_order(self):
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "probe.log")
+            with open(log, "w", encoding="utf-8") as f:
+                f.write("\n".join(["FO4SF ack synthetic-probe", FULL,
+                                   "FO4SF Resolve plugin=MiXeD.esm id=8 form=none",
+                                   "FO4SF Target plugin=MiXeD.esm id=8 form=none",
+                                   "FO4SF MoveTo plugin=MiXeD.esm id=8 offset=0 0 0 phase=refused"]))
+            result = subprocess.run([sys.executable, "-I", "-B", bridge_log.__file__, "events", "--log", log],
+                                    capture_output=True, text=True, check=True)
+            events = [json.loads(line) for line in result.stdout.splitlines()]
+            self.assertEqual([e["kind"] for e in events], ["ack", "resolve", "target", "moveto"])
+            self.assertEqual(events[1]["plugin"], "MiXeD.esm")
+            self.assertIsNone(events[1]["form"])
+            self.assertEqual(events[3]["phase"], "refused")

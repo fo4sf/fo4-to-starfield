@@ -120,7 +120,9 @@ def parse_event(s):
     return parse_probe(s)
 
 
-PROBE = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF (?P<kind>resolve|target|moveto) (?P<rest>[a-z]+=.*?)\s*$")
+# Native logs include "Resolve" even when the source spells the kind "resolve".
+# Accept case only for the event name; preserve the prefix, field keys and payload.
+PROBE = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF (?P<kind>(?ai:resolve|target|moveto)) (?P<rest>[a-z]+=.*?)\s*$")
 _IDS = ("form", "cell", "world")                           # signed decimal form ids (or none) -> 8 hex
 _BOOLS = ("ref", "disabled", "loaded")
 _VECS = ("pos", "offset")
@@ -131,7 +133,8 @@ def parse_probe(s):
     """A FO4SF_Probe.Resolve / MoveTo line (module doc) as {"kind": resolve | target | moveto, "plugin", "id" (the
     plugin-local id, int), and what the line has of: "form" (8 hex, None for none), "ref", "pos", "ang", "cell" /
     "world" (8 hex or None), "cellname" / "worldname" (str, "" when the game kept no editor id), "disabled", "loaded",
-    "offset", "phase"}; None for anything else or a torn line (a value that does not parse)."""
+    "offset", "phase"}; None for anything else or a torn line (a value that does not parse).
+    Event names accept ASCII case variants and are returned lowercase; payload text is unchanged."""
     m = PROBE.match(s.strip())
     if not m:
         return None
@@ -143,7 +146,7 @@ def parse_probe(s):
             fields[key] = [v] if v else []
         elif key is not None and tok:
             fields[key].append(tok)
-    out = {"kind": m.group("kind")}
+    out = {"kind": m.group("kind").lower()}
     try:
         for k, vals in fields.items():
             v = " ".join(vals)

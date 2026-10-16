@@ -1634,3 +1634,18 @@ no equivalent. Open in game: whether build mode opens from a temporary REFR in o
 snapshots tagged owner-button). Lessons: a Bash heredoc here turns \\r \\n escapes into real characters (patch through a
 written script; gate commits on tests); a background workflow can die silently (check the transcripts' modification
 times); the owner's three-line console paste became one line (give one line per command).
+
+## 2026-10-16: Codex native door-probe event case (offline)
+
+At main180c484, the read-only `bridge_log.py events` CLI discarded all3 captured `FO4SF Resolve`
+replies in Claude's door_probe_1017/0000/a1 (producerbe394bddd). Source spells the event lowercase;
+the native log capitalizes it. Cause of that case difference is unresolved. Accept ASCII case
+variants of resolve/target/moveto only, normalize kind, preserve payload case, identities and refusals.
+All27 targeted bridge-log tests pass (5 new;12 failing subcases before repair). Reparse recovers3/3.
+No game launched, installed artifacts changed or original evidence rescored; independent QA pending.
+
+Read-only audit: anchor matches local coordinates; temporary Stimpak matches local+measured spawn
+offset, but Is3DLoaded=false fails the documented positive control; far door returns form=none.
+The terrain PASS does not approve Step0, cold-interior lookup, MoveTo, return or save/reload.
+Parser repair does not establish the cause of the separate console OCR echo timeout. Native images,
+logs, declared build pins and before/after evidence stay in the private door-probe-audit packet.
