@@ -85,8 +85,43 @@ class MatrixTests(unittest.TestCase):
         self.assertEqual((t.rot, t.scale), ((0.0, 0.0, 1.5), 1.0))
         with self.assertRaises(ValueError):
             tf.Transform((0, 0), (0, 0, 0))
-        with self.assertRaises(ValueError):
-            tf.Transform((0, 0, 0), (0, 0, 0), 0)
+        for bad in (0, -1, float("nan"), float("inf"), -float("inf"), "big", None):
+            with self.assertRaises(ValueError, msg=bad):
+                tf.Transform((0, 0, 0), (0, 0, 0), bad)
+
+    def test_the_record_is_frozen_and_hashes_by_value(self):
+        t = tf.Transform((1, 2, 3), (0, 0, 1), 2)
+        with self.assertRaises(AttributeError):
+            t.scale = 3
+        with self.assertRaises(AttributeError):
+            t.pos = (0, 0, 0)
+        same = tf.Transform((1.0, 2.0, 3.0), (0.0, 0.0, 1.0), 2.0)
+        self.assertEqual(t, same)
+        self.assertEqual(hash(t), hash(same))
+        self.assertEqual(len({t, same}), 1)
+        self.assertEqual((type(t.pos), type(t.scale)), (tuple, float))
+
+    def test_the_csharp_rotate_offset_is_x_first_as_documented(self):
+        # dotnet/PluginSpike/Program.cs RotateOffset, transliterated line by line (the C# copy is not changed here,
+        # section 9 documents its cost): it equals exterior.ref_matrix (X first) and differs from the adapter
+        def rotate_offset(v, r, scale):
+            cx, sx, cy, sy, cz, sz = (math.cos(-r[0]), math.sin(-r[0]), math.cos(-r[1]), math.sin(-r[1]),
+                                      math.cos(-r[2]), math.sin(-r[2]))
+            x, y, z = (c * scale for c in v)
+            y1, z1 = y * cx - z * sx, y * sx + z * cx            # about X
+            x2, z2 = x * cy + z1 * sy, -x * sy + z1 * cy          # about Y
+            x3, y3 = x2 * cz - y1 * sz, x2 * sz + y1 * cz         # about Z
+            return (x3, y3, z2)
+        v = (120.0, -35.0, 70.0)
+        for rot in GRID + [ROCK]:
+            cs = rotate_offset(v, rot, 1.0)
+            ext = tuple(float(c) for c in exterior.to_world(v, (0.0, 0.0, 0.0), rot, 1.0))
+            self.assertTrue(close(cs, ext, 1e-9), rot)
+        tilted = [rot for rot in GRID if rot[0] or rot[1]]
+        differs = sum(1 for rot in tilted if not close(rotate_offset(v, rot, 1.0), tf.to_world(v, (0, 0, 0), rot, 1.0), 1e-6))
+        self.assertGreater(differs, len(tilted) // 2)
+        for rot in [(0, 0, a) for a in ANGLES]:                   # heading-only: all three agree
+            self.assertTrue(close(rotate_offset(v, rot, 1.0), tf.to_world(v, (0, 0, 0), rot, 1.0), 1e-9), rot)
 
     def test_the_adapter_imports_no_numpy(self):
         with open(os.path.join(ROOT, "src", "fo4sf", "core", "adapters", "transform.py"), encoding="utf-8") as f:

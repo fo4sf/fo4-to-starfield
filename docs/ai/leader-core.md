@@ -269,7 +269,9 @@ it, the X-first plan missing `ne_500m` by 1.89 m). With it: `apply`, `to_world`,
 transpose), `metres` / `units` (70 per metre) and a frozen `Transform(pos m, rot rad, scale)` with `world()` /
 `local()`. Pure Python; every new core consumer places a reference through it and nowhere else.
 
-**Parity today** (`tests/test_core_transform.py` keeps this true on every push):
+**Parity today** (`tests/test_core_transform.py` keeps this true on every push, the C# row through a line-by-line
+transliteration of `RotateOffset`; `exterior.ref_matrix`'s docstring still says routes.py shares its X-first
+matrix, which has not been true since 2026-10-13: for the PC session to fix when it switches exterior):
 
 | Copy | Order | Agrees with the adapter |
 |---|---|---|
