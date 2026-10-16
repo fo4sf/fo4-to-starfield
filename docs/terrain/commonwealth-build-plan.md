@@ -63,6 +63,13 @@ R06's numbers decide the path: if the exterior overlay has no NAVM, the options 
 per cell into the overlay's cells (the interior converter exists), (b) a generated navmesh from the landed statics,
 (c) rely on Starfield's procedural pathing on planet terrain (unknown whether it exists for overlays: **unresolved**).
 Gate: an npc_nav queue on the exterior (Red Rocket -> Sanctuary, the walked route) before any actor placement.
+
+Status 2026-10-16: R06 (Grok, #163) found **0 NAVM** in FO4TerrainCore.esm against FO4's 7,047 NAVM / 3,439,338
+triangles over 1,069 of the overlay's cells, so (a) is the path, and its pieces exist: `src/fo4sf/navmesh.py convert`
+(experiment 2d) and the NAVM/NAVI writer, now in `TerrainOverlays` (`overlays_params` `navmesh`, `make_core64c.py
+stage --navmesh navmesh.json`): on exp2d's input it writes the same 156 NAVM / 68,132 triangles / 8,208 edge links and
+every NAVM parses back. Grok runs the converter over the whole core; the build is core64 + objects + navmesh, then
+the exterior npc_nav gate.
 Actors then follow the raider pattern: converted NPC bases, spawn points from FO4's placed ACHR/LVLN, combat reads.
 
 ## 5. Environment

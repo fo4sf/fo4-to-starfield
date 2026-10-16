@@ -350,6 +350,24 @@ def run(s, cmd):
         fmt = s.get("self_fmt", "paren")
         if kind is not None and fmt != "none":
             s["log"].append(f"GetSelf >> {s['sel']}" if fmt == "hex" else f"GetSelf >> ({s['sel'].lower()})")
+    elif low.startswith('cgf "fo4sf_probe.pos" '):
+        # SANDBOX bridge: FO4SF_Probe.Pos replies in the bridge log (the real game: FO4SF_Probe.psc), nothing on the
+        # console; the id is a Papyrus int (negative for load index FF..); an unknown id answers "none"
+        try:
+            dec = int(w[-1])
+        except ValueError:
+            dec = None
+        rid = f"{dec & 0xFFFFFFFF:08X}" if dec is not None else ""
+        if rid and rid == s.get("anchor_id"):
+            rp = s["anchor_pos"]
+        elif rid in s["actors"]:
+            rp = actor_pos(s, s["actors"][rid])
+        elif rid in statics(s):
+            rp = statics(s)[rid]["pos"]
+        else:                                              # a door's ref: its ref_pos, as the fake readpos prints it
+            doors = [d for d in s.get("doors", []) if str(d.get("ref", "")).upper() == rid]
+            rp = (doors[0].get("ref_pos") or doors[0]["pos"]) if doors else None
+        bridge_ref_line(s, dec, rp)
     elif low.startswith("getpos "):
         sel = s.get("sel")
         if sel is not None and sel == s.get("anchor_id"):
@@ -580,6 +598,21 @@ def main():
                 print(" ".join(f"{v:.2f}" for v in d.get("ref_pos") or d["pos"]))
     with open(P, "w") as f:
         json.dump(s, f, indent=1)
+
+
+def bridge_ref_line(s, dec, rp):
+    """A FO4SF_Probe.Pos reply in the bridge log, as the real script writes it (no reply without a bridge log)."""
+    log = os.environ.get("FO4SF_BRIDGE_LOG")
+    if not log or dec is None:
+        return
+    if rp is None:
+        line = f"[{time.strftime('%H:%M:%S')}] FO4SF ref={dec} none"
+    else:
+        cell = 50331649 + sum(ord(c) for c in str(s.get("cell") or "")) % 1000
+        line = (f"[{time.strftime('%H:%M:%S')}] FO4SF ref={dec} pos={rp[0]:.6f} {rp[1]:.6f} {rp[2]:.6f} ang=0.000000 "
+                f"cell={cell} disabled=false loaded=true")
+    with open(log, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
 
 
 def bridge_line():
