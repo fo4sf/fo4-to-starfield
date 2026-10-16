@@ -20,6 +20,7 @@ import argparse
 import http.client
 import json
 import os
+import re
 import signal
 import sys
 import threading
@@ -40,6 +41,18 @@ CFG = {}
 UPSTREAM = None
 SHUTDOWN = [None]
 
+
+
+_HEADER_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def header_value(value, default=None):
+    """An upstream header value made safe for our own response: CR, LF and other control characters removed,
+    so a hostile or broken upstream cannot inject extra headers (CodeQL py/http-response-splitting)."""
+    if value is None:
+        return default
+    value = str(value).replace("\r", "").replace("\n", "")   # the newline removal CodeQL recognises as a sanitiser
+    return _HEADER_CONTROL.sub("", value)
 
 def _log(msg):
     line = time.strftime("%Y-%m-%d %H:%M:%S ") + msg
@@ -89,7 +102,7 @@ class Handler(BaseHTTPRequestHandler):
                     obj.setdefault("data", []).append({"id": alias, "object": "model", "owned_by": "guardian-alias"})
                 data = json.dumps(obj).encode()
             self.send_response(r.status)
-            self.send_header("Content-Type", r.getheader("Content-Type", "application/json"))
+            self.send_header("Content-Type", header_value(r.getheader("Content-Type"), "application/json"))
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
@@ -188,7 +201,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(r.status)
             for k in ("Content-Type",):
                 if r.getheader(k):
-                    self.send_header(k, r.getheader(k))
+                    self.send_header(k, header_value(r.getheader(k)))
             if stream:
                 self.send_header("Transfer-Encoding", "chunked")
                 self.end_headers()
