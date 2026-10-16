@@ -7,6 +7,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
@@ -108,16 +109,71 @@ class LeaseRuleTests(unittest.TestCase):
         with self.assertRaises(c.LeaseRefused):
             self.ctl.release("Claude", now=at(2))                        # already released
 
-    def test_unreadable_lease_file_blocks(self):
+    def test_unreadable_lease_file_blocks_and_only_force_takes_it(self):
         self.ctl.claim("Claude", "walk gate", 3600, now=T0)
+        for bad in ('{"owner": "Claude"}', "not json", ""):
+            with open(self.ctl.lease_path, "w", encoding="utf-8") as f:
+                f.write(bad)
+            with self.assertRaises(ValueError):
+                self.ctl.read()
+            self.assertIn("unreadable", self.ctl.valid_for("Claude", at(1)))
+            with self.assertRaises(c.LeaseRefused) as cm:
+                self.ctl.renew("Claude", now=at(1))
+            self.assertIn("unreadable", str(cm.exception))
+            with self.assertRaises(c.LeaseRefused):
+                self.ctl.claim("Claude", "again", 60, now=at(1))                     # not even the old holder, quietly
+            with self.assertRaises(c.LeaseRefused):
+                self.ctl.release("owner", now=at(1), force=True)                    # force needs a reason
+        lease = self.ctl.claim("Claude", "again", 600, now=at(2), force=True, reason="the file was corrupt")
+        self.assertEqual((lease.owner, self.ctl.status(at(3))), ("Claude", "held"))
+        ev, f = self.events()[-1]
+        self.assertEqual((ev, f["previous_owner"], f["forced"]), ("controller_claimed", "unreadable", True))
+        self.assertIn("unreadable", f)
         with open(self.ctl.lease_path, "w", encoding="utf-8") as f:
-            f.write('{"owner": "Claude"}')
-        with self.assertRaises(ValueError):
-            self.ctl.read()
-        self.assertIn("unreadable", self.ctl.valid_for("Claude", at(1)))
-        with open(self.ctl.lease_path, "w", encoding="utf-8") as f:
-            f.write("not json")
-        self.assertIn("unreadable", self.ctl.valid_for("Claude", at(1)))
+            f.write("")
+        released = self.ctl.release("owner", now=at(4), force=True, reason="wiping a corrupt file")
+        self.assertEqual((released.released, self.ctl.status(at(5))), (at(4), "released"))
+        self.ctl.claim("Codex", "review", 600, now=at(6))                          # anyone claims after a release
+
+    def test_renew_refuses_a_non_positive_ttl(self):
+        self.ctl.claim("Claude", "walk gate", 3600, now=T0)
+        for ttl in (0, -5):
+            with self.assertRaises(c.LeaseRefused) as cm:
+                self.ctl.renew("Claude", ttl_s=ttl, now=at(10))
+            self.assertIn("positive", str(cm.exception))
+        self.assertEqual(self.ctl.read().expires, at(60))                           # untouched
+        self.assertEqual(self.ctl.renew("Claude", now=at(10)).expires, at(70))     # None: the lease's own ttl
+
+    def test_every_change_runs_under_the_lease_lock(self):
+        self.ctl.claim("Claude", "walk gate", 3600, now=T0)
+        self.assertFalse(os.path.exists(self.ctl.lock_path))                       # released after the write
+        quick = c.Controller(self.dir, by="test", lock_timeout_s=0.1)
+        with open(quick.lock_path, "w") as f:
+            f.write("4242 0\n")                                                     # a live holder
+        for call in (lambda: quick.claim("Codex", "x", 60, now=at(1), force=True, reason="r"),
+                     lambda: quick.renew("Claude", now=at(1)),
+                     lambda: quick.release("Claude", now=at(1))):
+            with self.assertRaises(OSError):
+                call()
+        self.assertEqual(self.ctl.read().owner, "Claude")                           # nothing changed meanwhile
+        os.utime(quick.lock_path, (0, 0))                                            # a crashed holder, long ago
+        quick.renew("Claude", now=at(2))                                             # taken over
+        self.assertFalse(os.path.exists(quick.lock_path))
+
+    def test_the_file_behind_the_ledger_is_the_documented_crash_state(self):
+        # the ledger is the record, the file its cache: a crash between the two writes leaves the event in the ledger
+        # and the file behind; status reads the file, the fold reads the ledger
+        self.ctl.claim("Claude", "walk gate", 3600, now=T0)
+        original = os.replace
+
+        def crash(src, dst):
+            raise RuntimeError("power cut between the two writes")
+        with mock.patch.object(c.os, "replace", crash):
+            with self.assertRaises(RuntimeError):
+                self.ctl.release("Claude", now=at(10))
+        self.assertEqual(self.ctl.status(at(11)), "held")                           # the file is behind
+        self.assertEqual(fold(self.ctl.ledger.read()).controller_status(at(11)), "released")   # the record is ahead
+        self.assertEqual(os.replace, original)
 
     def test_naive_timestamps_read_as_utc(self):
         self.assertEqual(parse_iso("2026-10-16T12:00:00"), parse_iso(T0))
@@ -160,6 +216,19 @@ class CliTests(unittest.TestCase):
         from fo4sf.core.state import Ledger
         self.assertEqual([(e.ev, e.by) for e in Ledger(os.path.join(self.dir, "ledger.jsonl")).read()],
                          [("controller_claimed", "Claude"), ("controller_renewed", "Claude"), ("controller_released", "Claude")])
+
+    def test_cli_forces_a_claim_over_an_unreadable_file(self):
+        self.assertEqual(self.run_cli("claim", "--dir", self.dir, "--owner", "Claude", "--purpose", "p")[0], 0)
+        with open(os.path.join(self.dir, "controller.json"), "w", encoding="utf-8") as f:
+            f.write("")
+        code, out = self.run_cli("renew", "--dir", self.dir, "--owner", "Claude")
+        self.assertEqual((code, out[:8]), (1, "refused:"))
+        self.assertIn("unreadable", out)
+        code, out = self.run_cli("claim", "--dir", self.dir, "--owner", "Claude", "--purpose", "p", "--force", "--reason", "corrupt")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(json.loads(self.run_cli("status", "--dir", self.dir, "--json")[1])["status"], "held")
+        code, out = self.run_cli("renew", "--dir", self.dir, "--owner", "Claude", "--ttl", "0")
+        self.assertEqual((code, out[:8]), (1, "refused:"))
 
     def test_status_json_without_a_lease_and_forced_claim(self):
         j = json.loads(self.run_cli("status", "--dir", self.dir, "--json")[1])

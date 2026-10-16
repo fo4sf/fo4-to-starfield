@@ -31,7 +31,16 @@ Rules the fold enforces:
   `HYPOTHESIS` result can mark it `failed`/`inconclusive`-pending but never `verified` (brief §6).
 - A controller lease that expired without `controller_released` makes ownership **ambiguous**; nothing that sends game
   input runs until a fresh claim is logged (brief §7).
-- The work-period report (the owner's eight bullets) is generated from the fold, so it cannot drift from the state.
+- The work-period report (the owner's eight bullets) is generated from the fold, so it cannot drift from the state;
+  its "next queue" bullet lists the queued tasks of the **pinned build** (a task that names no build is listed too),
+  so the leftovers of a stopped historic campaign do not follow the owner forever.
+- Task ids in the ledger are `<campaign>/<test id>` (the queue folder's name and the runner's id), because the
+  planners repeat test ids across campaigns (`0000_terrain_<coc>` in every terrain campaign) and two campaigns must
+  never merge in the fold. A card's own id (§8) is already unique.
+- An event of a type this checkout does not know is read as an opaque line (kept, counted, not folded), so a ledger
+  written by a newer checkout stays readable; a known type without its key field (`task`, `capability`, `blocker`)
+  is a corrupt line. Every writer takes the ledger's lock file (`ledger.jsonl.lock`, `filelock.py`) around the
+  repair of a torn tail and the append, so two processes never interleave inside one write.
 
 ## 2. The enums, once
 
@@ -57,10 +66,13 @@ Every queue record is `source = IN_GAME`; `walksim` and `route_eval` results are
 | `Data/FO4SFExp.install.json`, `Data/FO4SFBridge.install.json` | `plugins_verified` (active_after_load from `exp_install.py active`) | `plugins`, `plugins_replaced[].active/original`, `complete`, `pack` (`exp_install.py:492`) |
 | `watchdog_state.json` | `controller_*` (historic, best effort) | heartbeat and hand-over times (`watchdog.ps1:22`) |
 
-Imports are idempotent: an event carries `src` (file path + line for a file that only grows, file path + key for a
-`queue.json` written once, file path + sha256 of the content for the deploy and install records, which are rewritten
-in place by every deploy), and a re-import skips events already present. The importer never writes to the files it
-reads.
+Imports are idempotent: an event carries `src` (file path + line for a file that only grows; the queue.json path +
+a digest of the pin fields, so a pin rewritten in place by `pin-game-version` or a re-plan is a new event; file path
++ content sha256 + mtime for the deploy and install records, which are rewritten in place by every deploy, so a
+re-deploy of a build imported earlier is a new pin), and a re-import skips events already present. The importer
+never writes to the files it reads; it reads them as `utf-8-sig` like the runner (a hand-edited queue may carry a
+BOM) and stores the runner's local wall-clock times (`testqueue.now()`, no zone) as UTC, converted on the machine
+that wrote them.
 
 ## 4. Bounded, resumable tasks (one cloud session each)
 
@@ -130,7 +142,12 @@ so a crash between the two leaves the event in the ledger and the file behind, n
   and the reason and the previous owner go into the ledger;
 - another owner's claim is refused while a lease is `held`, unless forced with a reason;
 - only the holder releases, unless forced with a reason; after a release anyone claims without force;
-- an unreadable lease file counts as ambiguous.
+- an unreadable lease file counts as ambiguous: nothing renews it or takes it quietly, `--force --reason` takes or
+  releases it and the ledger records `unreadable`;
+- every claim, renewal and release reads, decides and writes under the lease's lock file (`controller.json.lock`,
+  `filelock.py`), so two processes reading the same expired lease cannot both walk away with it; on Windows the
+  atomic replace of `controller.json` is retried while another process has the file open for reading, and the
+  runner treats a renewal that failed while the lease on disk is still its own as a warning, not a stop.
 
 **CLI** (what the PowerShell scripts call; `python -I` finds the package through the wrapper):
 ```
@@ -146,11 +163,13 @@ python scripts\game\lease.py status  --dir <leader> [--require Claude] [--json] 
   `stopped: lease ...`) when the lease is missing, someone else's, released or expired; a `--dry-run` reports the same.
 - `cycle.ps1`: with `FO4SF_LEASE_DIR` set it exits 9 before closing, redeploying or launching anything unless
   `FO4SF_LEASE_OWNER` (default `Claude`) holds the lease.
-- `watchdog.ps1`: with `lease_dir` in `watchdog.json` (or `FO4SF_LEASE_DIR`), Claude's activity is the lease's last
-  claim / renewal / release plus the heartbeat file, not the last `Claude:` commit on any branch (the cloud sessions'
-  commits tripped that); the chain is started only after the watchdog claims the lease as `lease_owner` (default
-  `watchdog`) for `lease_hours` (default 8), never while someone holds one; the chain inherits the two variables, so
-  its runner and `cycle.ps1` check that lease.
+- `watchdog.ps1`: with `lease_dir` in `watchdog.json` (or `FO4SF_LEASE_DIR` as set when the watchdog started),
+  Claude's activity is the lease's last claim / renewal / release plus the heartbeat file, not the last `Claude:`
+  commit on any branch (the cloud sessions' commits tripped that); a lease held by the watchdog's own `lease_owner`
+  does not count as Claude's activity, and a chain that stopped early is restarted by claiming that lease again;
+  the chain is started only after the watchdog claims the lease as `lease_owner` (default `watchdog`) for
+  `lease_hours` (default 8), never while someone else holds one; the chain inherits the two variables, so its
+  runner and `cycle.ps1` check that lease.
 - Unset, every script behaves as before this task; the test suite covers both states.
 
 **Turning it on (the PC session, in a window it watches):** create the leader folder; claim the lease for the window
@@ -170,15 +189,15 @@ brief's "any unknown → refuse"), and a reading that raises is `UNKNOWN` for th
 |---|---|---|
 | `pin` | the staged `FO4Port.esm` has the queue's `plugin_sha256` | another hash / staging missing or no pin (UNKNOWN) |
 | `deploy` | nothing deployed (cycle.ps1 deploys at the launch) or `Data\FO4Port.deploy.json` complete with the pinned `artifacts[FO4Port.esm].sha256` | interrupted install, another build / no sha in the manifest (UNKNOWN) |
-| `experiment` | no experiment, or the staged experiment's inputs equal the queue's `experiment_identity` and any install record is complete and the same | changed since planning, incomplete or other record / `pre_launch` without a pin, unreadable record (UNKNOWN) |
+| `experiment` | no experiment pinned and none installed, or the staged experiment's inputs equal the queue's `experiment_identity` and any install record is complete and the same | changed since planning, incomplete or other record, an experiment installed although the queue pins none (it would load with the build) / `pre_launch` without a pin, unreadable record (UNKNOWN) |
 | `plugins_active` | every pinned experiment plugin, `FO4Port.esm` and the bridge are active where they are already listed in Plugins.txt (the rest install at the launch) | a listed plugin inactive (Starfield deactivated it on a load) or duplicated / Plugins.txt not locatable (UNKNOWN) |
-| `load_order` | every non-implicit master of a pinned plugin is active (`FO4Port.esm` may still come with the deploy); notes what `exp_install.py order` / `bridge_install.py order` will move at the launch | a master neither active nor implicit (cycle.ps1 would exit 7) / Plugins.txt not locatable (UNKNOWN). The planned `plugin_index` is **not** verified against the game's implicit plugins (which of them the owner's install loads is unresolved) |
+| `load_order` | every non-implicit master of a pinned plugin is active, or is itself a pinned plugin or `FO4Port.esm` (both installed at the launch, and `order` moves the dependant after them); notes what `exp_install.py order` / `bridge_install.py order` will move | a master neither active, nor implicit, nor installed at the launch (cycle.ps1 would exit 7) / Plugins.txt not locatable (UNKNOWN). The planned `plugin_index` is **not** verified against the game's implicit plugins (which of them the owner's install loads is unresolved) |
 | `game_version` | `Starfield.exe`'s file version equals the pin (`queue.json` `game_version`, else the ledger's `build_pinned.game_version`) | differs / no pin or not readable, e.g. not Windows (UNKNOWN) |
 | `lease` | the runner's owner holds the lease (§6) | missing, someone else's, released, expired / no lease folder (UNKNOWN) |
 | `stop_controls` | the queue's `STOP` and the chain's `STOP_ALL` can be created (folders writable); the state folder's too when it exists | a folder missing or not writable / no locations (UNKNOWN) |
 | `guardian` | `guardian.db` present, readable, mode `running` | missing, unreadable, `paused`, `stopped` |
 | `recovery_save` | the dedicated save `fo4sf_test_<build>` present, or not yet created (first launch) | created by an earlier run and gone / Saves folder missing or no save named (UNKNOWN) |
-| `log_capture` | no bridge pinned, or the `[Papyrus]` logging keys set in `StarfieldCustom.ini` or `Starfield.ini` (`make_bridge.py ini`) | keys missing / no ini found (UNKNOWN) |
+| `log_capture` | no bridge pinned, or the `[Papyrus]` logging keys in effect after the game folder's `Starfield.ini` is overridden key by key by `StarfieldCustom.ini` in My Games (`make_bridge.py ini`) | a key off or missing after the overrides / no ini found (UNKNOWN) |
 
 The planners write no `game_version`: pin it after planning with `testqueue.py pin-game-version --queue <dir>`
 (reads the game folder's `Starfield.exe` on Windows, or `--version 1.16.244.0`; a different existing pin needs
@@ -188,7 +207,8 @@ The planners write no `game_version`: pin it after planning with `testqueue.py p
 after the lease line and before the first launch; the checklist goes to `run.log`, a refusal sets
 `state.json` `status` to `stopped: preflight refused (<check> <status>, ...)` (exit 3, resumable) and appends
 `blocker_opened` (`blocker: preflight`, the failing lines as `evidence`) to the ledger when a lease folder is set;
-a `--dry-run` prints the checklist and refuses the same way. Unset, the gate is not built and the runner is the one
+a `--dry-run` prints the checklist and refuses the same way; a later pass closes that blocker (`blocker_closed`),
+so the report does not carry a refusal that no longer holds. Unset, the gate is not built and the runner is the one
 of §6. The after-load activation check stays where it is (cycle.ps1 exit 8 after `exp_install.py active`).
 
 ## 8. Task cards and the worker result contract
