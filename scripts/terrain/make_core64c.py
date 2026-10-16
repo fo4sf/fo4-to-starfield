@@ -1448,7 +1448,8 @@ def cmd_check(a):
     need(same == len(old["records"]), f"every core64 record unchanged ({same}/{len(old['records'])})")
     old_max = max(r["fid"] & 0xFFFFFF for r in old["records"])
     old_fids = {o["fid"] for o in old["records"]}
-    added = [r for r in new["records"] if r["fid"] not in old_fids]
+    own_index = len(new["masters"])                       # this plugin's own records; an override of a master's record
+    added = [r for r in new["records"] if r["fid"] not in old_fids and (r["fid"] >> 24) == own_index]   # (the NAVI, 000FF1:Starfield.esm) is not "new"
     need(added and min(r["fid"] & 0xFFFFFF for r in added) > old_max,
          f"every new record's FormID after core64's last (0x{old_max:06X})")
     need(new["masters"] == ["Starfield.esm"], f"masters {new['masters']}")
