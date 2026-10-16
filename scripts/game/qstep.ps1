@@ -231,7 +231,8 @@ function Light-Commands {
 # console_pre (after the save has loaded, before the travel) and console_post (after the arrival, before the probes or
 # the spawn): only lines that match this whitelist are typed (the same pattern as console_plan.py PATTERN; .NET \z, so a
 # trailing newline never passes); a bad line ends the step with exit 4 before anything is typed.
-$consoleOk = '^(?:GetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}"|SetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}" -?\d{1,9}(?:\.\d{1,6})?|SetLocalTime (?:1?\d|2[0-3])(?:\.\d{1,2})?(?: 1)?|cgf "Game\.SetLocalTime" (?:1?\d|2[0-3])(?:\.\d{1,2})?|fw [0-9A-Fa-f]{8}(?: 1)?|cgf "FO4SF_Probe\.Pos" \d{1,10}|cgf "FO4SF_Probe\.Ack" "[A-Za-z0-9_.-]{1,40}"|cgf "FO4SF_Probe\.Player"|cgf "Debug\.TraceUser" "fo4sf" "[A-Za-z0-9_ .-]{1,60}")\z'
+$consoleOk = '^(?:GetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}"|SetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}" -?\d{1,9}(?:\.\d{1,6})?|SetLocalTime (?:1?\d|2[0-3])(?:\.\d{1,2})?(?: 1)?|cgf "Game\.SetLocalTime" (?:1?\d|2[0-3])(?:\.\d{1,2})?|fw [0-9A-Fa-f]{8}(?: 1)?|cgf "FO4SF_Probe\.Pos" \d{1,10}|cgf "FO4SF_Probe\.Ack" "[A-Za-z0-9_.-]{1,40}"|cgf "FO4SF_Probe\.Player"|cgf "Debug\.TraceUser" "fo4sf" "[A-Za-z0-9_ .-]{1,60}"|cgf "FO4SF_Probe\.Resolve" "[A-Za-z0-9_.-]{1,60}\.es[mpl]" \d{1,8}|cgf "FO4SF_Probe\.MoveTo" "[A-Za-z0-9_.-]{1,60}\.es[mpl]" \d{1,8} -?\d{1,5}(?:\.\d{1,3})? -?\d{1,5}(?:\.\d{1,3})? -?\d{1,5}(?:\.\d{1,3})?)\z'
+$moveToPrefix = 'cgf "FO4SF_Probe.MoveTo" '      # console_plan.MOVETO_PREFIX: Run-Console waits for the HUD after it
 function Console-List($list, [string]$what) {
   $out = @()
   foreach ($c in @($list | Where-Object { $null -ne $_ })) {
@@ -276,7 +277,17 @@ function Run-Console($cmds, [string]$phase) {
     Send "type:$c|key:enter|wait:900"
     $r = Read-Console "console_$k"
     Send 'key:grave|wait:800'
-    $obs['console'] += [ordered]@{ phase = $phase; cmd = $c; ocr = $r.ocr; shot = $r.shot }
+    $rec = [ordered]@{ phase = $phase; cmd = $c; ocr = $r.ocr; shot = $r.shot }
+    if ($c.StartsWith($moveToPrefix)) {
+      # FO4SF_Probe.MoveTo (the scripted door's Step 0, 2026-10-16) can load another cell: wait for the HUD before the
+      # next console session (Console-Open would find the loading screen and end the step), then 3 s of game time for
+      # the script's "phase=settled" line (Utility.Wait 1.0 counts only while no menu is open). hud_back false: a
+      # popup or a load that did not end in 90 s (console_<k>_hud.png shows which); the next Console-Open decides.
+      $w = Wait-Hud 90 "console_${k}_hud.png"
+      $rec['hud_back'] = [bool]$w.up; $rec['load_s'] = $w.secs; $rec['hud_shot'] = "console_${k}_hud.png"
+      if ($w.up) { Start-Sleep 3 }
+    }
+    $obs['console'] += $rec
     Save-Obs
   }
 }
