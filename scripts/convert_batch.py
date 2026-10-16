@@ -244,8 +244,13 @@ def main():
         print(f"  ok  {name} -> {eid} (shapes {r['shapes']}, fallback materials {r['fallback_materials']})")
     for f in failures[:15]:
         print("  FAIL", f["nif"], "-", f["reason"][:110])
-    from collections import Counter
+    from collections import Counter, defaultdict
     reason_counts = Counter(f["reason"].split(":")[0].strip() for f in failures)
+    examples = defaultdict(list)
+    for f in failures:
+        top = f["reason"].split(":")[0].strip()
+        if len(examples[top]) < 3:
+            examples[top].append(f["nif"])
     total = len(failures)
     unique = len(reason_counts)
     attempted = len(items) + total
@@ -288,6 +293,7 @@ def main():
         "top": [{"reason": r, "count": c, "percent": round(100.0 * c / total, 1) if total else 0.0}
                 for r, c in reason_counts.most_common(10)],
         "reasons": {r: c for r, c in reason_counts.most_common()},
+        "examples": {r: examples[r] for r in reason_counts},
     }
     write_json_atomic(os.path.join(a.staging, "failure-summary.json"), summary)
 
