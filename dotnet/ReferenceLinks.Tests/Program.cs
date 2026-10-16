@@ -3,6 +3,12 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Starfield;
 
+if (args.SequenceEqual(new[] { "--persistence-count-only" }))
+{
+    PersistenceCountTests.Run();
+    return;
+}
+
 if (args.SequenceEqual(new[] { "--selected-door-transforms-only" }))
 {
     SelectedDoorTransformTests.Run();
@@ -162,3 +168,4 @@ Console.WriteLine("Relationship translation and binary round-trip synthetic chec
 NativeDoorBaseTests.Run();
 MissingDoorEndpointTests.Run();
 SelectedDoorTransformTests.Run();
+PersistenceCountTests.Run();

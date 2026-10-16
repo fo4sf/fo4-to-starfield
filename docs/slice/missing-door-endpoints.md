@@ -56,6 +56,10 @@ Normal relationship translation follows. No XTEL or reciprocal link is invented.
 Unresolved exported relationships still prevent output unless the existing
 `--allow-unresolved` option explicitly permits a partial build. A partial build
 must not be called a connected cave. Report CreatedDoors counts new references.
+Report Persistent counts references whose persistence flag or child group changed
+in that invocation. Selecting an endpoint and also exporting `persistent: true`
+counts one promotion, not two; reapplying an already-persistent endpoint counts
+zero. It is a change count, not a total of persistent records in the plugin.
 
 Seven original synthetic actual-CLI controls cover allocation, reservation/reapplication,
 non-door bases, wrong source types, occupied IDs, invalid scale and absent source

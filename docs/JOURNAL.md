@@ -1565,3 +1565,16 @@ pending. No production stage, source map or game input changed.
 The focused ReferenceLinks runner also passes17 missing-door and11 native-door
 CLI controls plus relationship binary checks alongside the13 new cases. Guard
 and diff checks pass. Valid output plugin/map hashes match the pre-fix controls.
+
+## 2026-10-16: Codex persistence reports count actual changes
+
+PR251 review finding4 reproduced: selected + source-persistent counts one door
+twice, and unchanged repeat conversions still count a promotion. The exported
+persistent path now increments only when the child group or0x400 flag changes,
+matching the existing teleport/selected-endpoint path. Placement/state code is
+otherwise unchanged. Nine first/repeat controls cover selected and ordinary
+references, flag-only/group-only repairs and creation. Three actual CLI reports
+change1 to0 on unchanged inputs while plugin/map bytes remain identical. Guard
+passes. The initial synthetic harness int/uint compilation error is retained;
+corrected pre-fix controls reproduce the count failure. Evidence is private at
+test-plans/door-persistence-count-20261016. Independent QA pending; no stage/input.
