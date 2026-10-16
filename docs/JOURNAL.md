@@ -1336,6 +1336,21 @@ Chain 12:59-14:39 on the pinned build 2470f876 (runner scripts 10e7019), started
   its two writer tests): #69 (Grok's oracle), #126, #119, #127, #131, #133. The owner's "script command not found"
   question answered: `readpos.ps1`'s nonce (first-run-failures row 13).
 
+### 2026-10-15 Codex: relaunch verification scheduling proposal
+
+- Lead packet #32/6203656044 measured 3:51-3:54 verification on 51,823 live files. Those are lead measurements,
+  not a before/after for this proposal. No live game/install changed by Codex.
+- Independent synthetic Windows fixture, actual verify_relaunch: five alternating warm samples, median
+  0.683776s serial -> 0.459595s bounded parallel (-32.8%); all 1,026 full hashes retained per invocation.
+  Four readers/32 queued paths, no inode/metadata/cross-call cache. Serial installation inventory unchanged.
+- 51 experiment recovery tests plus 43 bridge tests pass; four new controls cover repeated hashing, changed
+  hard-linked bytes with preserved size/time, edited packed archives and worker read errors. Initial duplicated
+  expected plugin path in the test was corrected; its failed output is retained.
+- Portable synthetic benchmark in scripts/testing/benchmark_relaunch.py; details in docs/ai/optimization.md.
+  Private evidence: test-plans/relaunch-verification-20261015. Peer QA/integration remain pending.
+- Correction to the earlier afternoon chain note: lead #32/6203530521 reports normal chain cleanup; an orphan
+  tail watcher hid the last log lines. Preserve those observations; do not treat missing log text as cleanup failure.
+
 ## 2026-10-15 evening chain: the walk holds on core64d, the raider fights twice, the Red Rocket probes do not move (Claude)
 
 Second chain of the day (16:31-19:00, runner scripts 64d30ad, build 2470f876), on the owner's "keep working never stop".
@@ -1441,3 +1456,13 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
 - Merged tonight: #162, #163, #161, #165, #166 (and the queue of the day before). Open: #164 (sandbox suite running),
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
+
+## 2026-10-16: serial verification default, measured opt-in readers (Codex)
+
+PR149/188 peer review found Linux scheduling overhead; default is now serial, with explicit --verify-workers1-4.
+Both installed/staged inventories use that count and retain fresh full hashes. Four new methods reproduce missing
+configuration/default behavior before the revision;55 experiment tests pass after. On the same synthetic Windows
+fixture, serial0.522->0.529s (+1.3%), two0.515->0.405s (-21.3%), four0.521->0.362s (-30.6%);1,026 hashes every
+invocation. See optimization.md for exact commands/samples and limits. Real-tree timing remains pending a lead
+resource window. Merged main forward without rewriting history; retained both journal branches. No install/game,
+controller, watchdog or source-stage changes. Evidence relaunch-workers-149-20261016; corrected-source peer QA pending.

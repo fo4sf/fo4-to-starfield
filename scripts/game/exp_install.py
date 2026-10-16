@@ -18,7 +18,9 @@ Plugins.txt rewrite. It refuses missing/disabled masters, cycles, changed plugin
 """
 import argparse
 import base64
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
+from itertools import islice
 import json
 import os
 import shutil
@@ -284,16 +286,52 @@ def data_path(data, rel):
     return target
 
 
-def source_inventory(exp_dir, plugins):
+def _verify_workers(workers):
+    if isinstance(workers, bool) or not isinstance(workers, int) or not 1 <= workers <= 4:
+        raise ValueError('verification workers must be an integer between 1 and 4')
+    return workers
+
+
+def _hash_files(files, *, workers=1):
+    """Hash every named file afresh, serial by default; up to four readers/32 queued paths.
+
+    No inode, timestamp or cross-call digest cache: even hard-linked aliases are
+    checked against their recorded contents. Ordered results keep reports stable.
+    """
+    def hash_one(item):
+        name, path = item
+        return name, digest(path)
+
+    workers = _verify_workers(workers)
+    if workers == 1:
+        for item in files:
+            yield hash_one(item)
+        return
+    files = iter(files)
+    batch = list(islice(files, 32))
+    if len(batch) <= 1:
+        for item in batch:
+            yield hash_one(item)
+        return
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="fo4sf-verify") as pool:
+        while batch:
+            yield from pool.map(hash_one, batch)
+            batch = list(islice(files, 32))
+
+
+def source_inventory(exp_dir, plugins, *, workers=1):
     """Pin staged inputs, including loose inputs used to build a packed archive."""
+    workers = _verify_workers(workers)
     inputs = {"plugin/" + name: digest(os.path.join(exp_dir, name)) for name in plugins}
     data = os.path.join(exp_dir, "Data")
-    for root, dirs, files in os.walk(data):
-        dirs.sort()
-        for name in sorted(files):
-            path = os.path.join(root, name)
-            relative = os.path.relpath(path, data).replace("\\", "/")
-            inputs["Data/" + relative] = digest(path)
+    def loose_files():
+        for root, dirs, files in os.walk(data):
+            dirs.sort()
+            for name in sorted(files):
+                path = os.path.join(root, name)
+                relative = os.path.relpath(path, data).replace("\\", "/")
+                yield "Data/" + relative, path
+    inputs.update(_hash_files(loose_files(), workers=workers))
     return inputs
 
 
@@ -319,6 +357,7 @@ def plan_activation(lines, plugins):
 
 
 def verify_relaunch(a, data, plugins, packed, rec):
+    workers = _verify_workers(getattr(a, 'verify_workers', 1))
     if packed and rec.get("packing_policy") != PACKING_POLICY:
         sys.exit("experiment packing policy changed or is unknown; uninstall before relaunching")
     active = {line.strip()[1:].casefold() for line in read_plugins(plugins_txt())[0]
@@ -327,13 +366,18 @@ def verify_relaunch(a, data, plugins, packed, rec):
         sys.exit("experiment plugin is inactive; recover the installation before relaunching")
     if packed and os.path.splitext(plugins[0])[0] + " - Main.ba2" not in rec["files"]:
         sys.exit("packed experiment archive is not recorded; uninstall before relaunching")
-    for relative, identity in rec["files"].items():
-        target = data_path(data, relative)
-        if not os.path.isfile(target) or digest(target) != identity:
+    def installed_files():
+        for relative in rec["files"]:
+            target = data_path(data, relative)
+            if not os.path.isfile(target):
+                sys.exit(f"installed experiment file is missing or changed: {relative}")
+            yield relative, target
+    for relative, identity in _hash_files(installed_files(), workers=workers):
+        if identity != rec["files"][relative]:
             sys.exit(f"installed experiment file is missing or changed: {relative}")
     if rec.get("source_inputs") is None:
         sys.exit("legacy experiment input identity is unavailable; uninstall before relaunching")
-    if source_inventory(a.exp_dir, plugins) != rec["source_inputs"]:
+    if source_inventory(a.exp_dir, plugins, workers=workers) != rec["source_inputs"]:
         sys.exit("experiment source inputs changed; uninstall before relaunching")
 
 
@@ -575,6 +619,8 @@ def main(argv=None):
     ap.add_argument("--starfield", required=True)
     ap.add_argument("--plugins", default="", help="comma-separated plugin file names to activate")
     ap.add_argument("--pack", action="store_true", help="install the staged Data tree as '<first plugin> - Main.ba2'")
+    ap.add_argument("--verify-workers", type=int, choices=range(1, 5), default=1,
+                    help="full-content relaunch verification readers (default: 1, serial); opt in after measuring")
     ap.add_argument("--needs", default="", help="runner features the queue needs (runner_features.py); refuse without")
     a = ap.parse_args(argv)
     if a.cmd == "install":
