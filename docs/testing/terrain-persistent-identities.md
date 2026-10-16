@@ -32,7 +32,7 @@ is required. This does not repair saves made with previously shifted IDs.
 ## Identity and recovery contract
 
 - One 24-bit allocation space covers anchors, WRLD/SFBK/LCTN, exterior/persistent cells, COC markers, converted
-  bases, source REFRs, promoted CONT bases and NAVM pieces. Existing keys retain their IDs; new keys append above
+  bases, source REFRs, promoted CONT/MISC bases and NAVM pieces. Existing keys retain their IDs; new keys append above
   the high-water mark. Removed keys remain reserved, so reintroduction recovers their old IDs.
 - Keys encode separate semantic parts as JSON arrays, avoiding delimiter ambiguity. Source identities preserve
   the complete six-digit local ID and full plugin filename, punctuation, extension and non-ASCII spelling.
@@ -73,3 +73,16 @@ These fixtures are small and synthetic. They do not prove full-size memory/perfo
 header behavior, historical production migration, engine loading, doors, physics or save compatibility. Peer QA
 must review the merged publication path and allocator together before integration. A fresh pinned native
 campaign and explicit save/reload tests remain Claude's responsibility.
+
+## Loose-item integration
+
+MISC bases use the semantic key `["item", editor_id]`, separate from containers and
+static/door bases. New reservations must pass the same key-schema check as reopened
+ledgers, so an omitted identity cannot be published and then rejected on the next build.
+Item IDs survive reordered entries, later container promotion, insertion, removal and
+reintroduction. Existing legacy item stages still require byte-identical explicit bootstrap.
+
+The caller must provide collision-free source-derived editor IDs; PR176 extends that
+rule to CONT/MISC. This allocator cannot split distinct sources already aliased to one
+editor ID, nor repair a ledger produced by an unreviewed caller using unnamed keys.
+Preserve such stages for investigation instead of deleting the ledger or resetting IDs.

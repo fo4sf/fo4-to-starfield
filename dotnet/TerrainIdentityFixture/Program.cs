@@ -20,6 +20,19 @@ if (args[0] == "--stable-fixture")
         return;
     }
     var stable = TerrainStableIds.Open(root, "Synthetic.esm", true, false, names)!;
+    if (mode == "invalid-keys")
+    {
+        string[][] invalid = { Array.Empty<string>(), new[] { "unknown", "value" },
+            new[] { "reference", "not-a-source" }, new[] { "cell", "world", "01", "0" },
+            new[] { "item", "value", "extra" } };
+        foreach (var parts in invalid)
+        {
+            bool refused = false;
+            try { stable.Reserve(parts); }
+            catch (InvalidDataException) { refused = true; }
+            if (!refused) throw new InvalidOperationException("invalid semantic key was reserved");
+        }
+    }
     stable.Reserve("reference", TerrainStableIds.Source("000001:Synthetic.esm"));
     if (mode == "exhaust") stable.Anchor("last", 0xFFFFFF);
     if (mode != "seed") stable.Reserve("reference", TerrainStableIds.Source("000002:Synthetic.esm"));

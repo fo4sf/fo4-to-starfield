@@ -24,4 +24,4 @@ Preserve STOP/Guardian/owner-idle/recovery controls and native failures. No game
 
 Claude requested registration/core-owned door discriminator first, then ready proposals, R02 persistent IDs and R07 quest census. Latest owner report: some Vault111 slide/gear doors remain pass-through statics; Claude owns animation/pipeline follow-up. No independent native acceptance claimed here.
 Old batch_full1109/616 movable plans remain separately gated. #79 needs new pins/controller release. Do not rerun old campaigns or retrofit evidence.
-47 completed private capsules/6335 files are reopen/source-verified on D:, originals retained; second local volume, not offsite. No cleanup before verified preservation. Four-hour Codex follow-up stays active; completed scoped monitors remain paused. Keep this handoff below4KB and public posts short.
+Codex227: MISC semantic reservations/current-main integration:21 persistent writer methods pass; evidence persistent-items-227-20261016. Peer QA pending. D: index has reopen/source-verified capsules; originals retained, not offsite. No cleanup before preservation. Four-hour follow-up active; scoped monitors paused.

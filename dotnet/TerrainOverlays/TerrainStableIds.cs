@@ -21,7 +21,9 @@ internal sealed class TerrainStableIds
     private static string Key(params string[] parts)
     {
         if (parts.Any(string.IsNullOrWhiteSpace)) throw new InvalidDataException("empty semantic identity part");
-        return JsonSerializer.Serialize(parts.Select(Fold).ToArray());
+        var canonical = parts.Select(Fold).ToArray();
+        if (!ValidKey(canonical)) throw new InvalidDataException("invalid semantic identity key");
+        return JsonSerializer.Serialize(canonical);
     }
 
     public static string Source(string source)
@@ -120,7 +122,7 @@ internal sealed class TerrainStableIds
             && n.ToString(System.Globalization.CultureInfo.InvariantCulture) == v;
         return p[0] switch
         {
-            "anchor" or "block" or "location" or "world" or "coc" or "persistent-cell" or "base" or "container" => p.Length == 2,
+            "anchor" or "block" or "location" or "world" or "coc" or "persistent-cell" or "base" or "container" or "item" => p.Length == 2,
             "reference" => p.Length == 2 && Source(p[1]) == p[1],
             "cell" => p.Length == 4 && Coordinate(p[2]) && Coordinate(p[3]),
             "navmesh" => p.Length == 5 && Source(p[2]) == p[2] && Coordinate(p[3]) && Coordinate(p[4]),

@@ -955,8 +955,13 @@ def convert_bodies(fo4_blob: bytes, template_blob: bytes, select: Optional[List[
                 why = f"shape has {len(parts)} part(s) of kind {'/'.join(kinds)} (convex parts only)"
             elif dynamic_template is None:
                 why = "dynamic body not allowed here (collision on a child node, or no dynamic template)"
-            if why and not motion.get("rigid_reported"):   # the rigid merge already explained this system
-                motion.setdefault("kept_static", []).append(f"body {k} ({mass:.3g} kg): {why}")
+            if why:                                        # stays static; the reason is recorded once per system
+                # rigid_reported: the rigid merge already explained this system, so add no second reason. It must not
+                # make the body dynamic: with no template that crashed (_dynamic_body(None): "TypeError: object of type
+                # 'NoneType' has no len()") and the model lost all its FO4 bodies (29 models in integ_1011, the
+                # Vault 111 gear-room gates among them).
+                if not motion.get("rigid_reported"):
+                    motion.setdefault("kept_static", []).append(f"body {k} ({mass:.3g} kg): {why}")
             else:
                 dynamic = True
                 motion["dynamic"] = mass
@@ -1127,6 +1132,8 @@ def _dynamic_body(template_blob: bytes, p: hkpackfile.Packfile, parts, filt: int
     """One dynamic body on the vanilla dynamic template: its system, material, body cinfo (motion type, flags, user data
     as vanilla) and motion properties; FO4's convex part(s) (several: one compound shape), collision layer and mass; a
     computed mass distribution (one convex: the grown hull; a compound: its aabb as a solid box, as vanilla)."""
+    if not template_blob:
+        raise hkpackfile.PackfileError("dynamic body needs the vanilla dynamic template (none given)")
     t = _Tmpl(template_blob)
     T_PSD, T_MAT = t.type("hknpPhysicsSystemData"), t.type("hknpMaterial")
     T_BODY, T_MP = t.type("hknpPhysicsSystemData::bodyCinfoWithAttachment"), t.type("hknpMotionProperties")

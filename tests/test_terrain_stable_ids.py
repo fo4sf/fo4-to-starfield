@@ -86,6 +86,63 @@ class TerrainStableIdentityTests(fixture.TerrainReferenceIdentityTests):
         self.assertFalse((other / 'terrain-stable-ids.json').exists())
         self.assertEqual(original, {name: (other / name).read_bytes() for name in original})
 
+    def test_single_misc_ledger_reopens_and_reserves_named_identity(self):
+        obj = self.promote([], items=(0,))
+        first, stage = self.build(obj, 'single-misc-ledger')
+        keys = [json.loads(k) for k in json.loads((stage / 'terrain-stable-ids.json').read_bytes())['reservations']]
+        self.assertIn(['item', 'syntheticmisc'], keys)
+        self.assertNotIn([], keys)
+        second, _ = self.build(obj, 'single-misc-ledger')
+        self.assertEqual(first, second)
+
+    def test_distinct_misc_survive_reordering_later_containers_and_reintroduction(self):
+        def promoted(containers=()):
+            obj = self.promote(containers, items=(0, 2))
+            for item in obj['items']:
+                item['edid'] += str(item['reference_index'])
+            return obj
+
+        obj = promoted()
+        first, stage = self.build(obj, 'misc-permutations')
+        self.assertEqual(len({v['base'] for v in first['items'].values()}), 2)
+        obj['items'].reverse()
+        second, _ = self.build(obj, 'misc-permutations')
+        self.assertEqual(first, second)
+        with_cont = promoted((1,))
+        third, _ = self.build(with_cont, 'misc-permutations')
+        self.assertEqual(first['items'], third['items'])
+        added = copy.deepcopy(with_cont)
+        added['items'].insert(0, dict(added['items'][0], src='000004:Synthetic.esm',
+                                     edid='NewItem', reference_index=3))
+        fourth, _ = self.build(added, 'misc-permutations')
+        self.assertEqual(third['items'], {k: fourth['items'][k] for k in third['items']})
+        reservations = json.loads((stage / 'terrain-stable-ids.json').read_bytes())['reservations']
+        removed, _ = self.build(with_cont, 'misc-permutations')
+        self.assertEqual(removed, third)
+        self.assertEqual(json.loads((stage / 'terrain-stable-ids.json').read_bytes())['reservations'], reservations)
+        restored, _ = self.build(added, 'misc-permutations')
+        self.assertEqual(restored, fourth)
+
+    def test_existing_misc_bootstrap_is_byte_identical_and_reopens(self):
+        self.params['persistent_ids'] = False
+        obj = self.promote([1], items=(0, 2))
+        before, stage = self.build(obj, 'misc-bootstrap')
+        old = {name: (stage / name).read_bytes() for name in ('Synthetic.esm', 'formids.json')}
+        self.params['persistent_ids'] = True
+        after, _ = self.build(obj, 'misc-bootstrap', bootstrap=True)
+        self.assertEqual(before, after)
+        self.assertEqual(old, {name: (stage / name).read_bytes() for name in old})
+        again, _ = self.build(obj, 'misc-bootstrap')
+        self.assertEqual(after, again)
+
+    def test_invalid_semantic_keys_are_refused_before_reservation(self):
+        stage = self.root / 'invalid-new-keys'
+        result = self.stable_fixture(stage, 'invalid-keys')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        ledger = json.loads((stage / 'terrain-stable-ids.json').read_bytes())
+        self.assertEqual(len(ledger['reservations']), 2)
+        self.assertEqual(self.stable_fixture(stage, 'retry').returncode, 0)
+
     def test_corrupt_missing_map_and_disabled_mode_refuse(self):
         _, stage = self.build(self.objects, 'map-refusals')
         path = stage / 'terrain-stable-ids.json'
