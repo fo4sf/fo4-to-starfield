@@ -23,10 +23,13 @@
 // "rot", "scale", "disabled"}]} (metres, radians), as dotnet/TerrainExp2's objects mode. Their FormIDs come after every
 // overlay record, so the terrain records, the anchors and the Mars plugin keep the FormIDs they have without objects;
 // <staging dir>/formids.json lists the new ones. objects.json may also promote placed references to native records
-// (make_core64c.py stage --cluster): "containers" (CONT), "items" (MISC), "activators" (ACTI) and "terminals" (TERM,
-// each with its own TMLM menu), each entry in its source's original REFR slot (ReferenceIdentityPlan), the new CONT,
-// MISC, ACTI, then TERM + TMLM records after every reserved REFR; formids.json "containers", "items", "activators" and
-// "terminals" map each source to {"base", "ref"} (a terminal also to its "menu").
+// (make_core64c.py stage --cluster): "containers" (CONT), "items" (MISC), "activators" (ACTI), "terminals" (TERM,
+// each with its own TMLM menu) and "workshops" (ACTI build stations, docs/terrain/stations.md), each entry in its
+// source's original REFR slot (ReferenceIdentityPlan), the new CONT, MISC, ACTI, TERM + TMLM, then the workshops' ACTI
+// records after every reserved REFR; formids.json "containers", "items", "activators", "terminals" and "workshops" map
+// each source to {"base", "ref"} (a terminal also to its "menu"). "benches" keep their slot on the VANILLA Starfield
+// bench of their kind (no record of our own); formids.json "benches" maps each to {"base": "<6 hex>:Starfield.esm",
+// "ref", "kind"}.
 // objects.json may also hold "lights" and "light_bases" (exterior lights, docs/terrain/exterior-lights.md: written by
 // make_core64c.py stage from make_cluster.py lights): FO4 Light references, which core64c never placed and which therefore
 // own no reserved slot. In legacy mode their REFRs take NEW FormIDs after the preceding records (the reserved REFRs, the
@@ -192,7 +195,7 @@ foreach (var o in overlays)
     idx++;
 }
 int nStat = 0, nDoor = 0, nRef = 0, nDisabled = 0, nNav = 0, nNavTri = 0, nNavLink = 0, nNavDoor = 0, nCont = 0, nMisc = 0,
-    nActi = 0, nTerm = 0;
+    nActi = 0, nTerm = 0, nWkshp = 0, nBench = 0;
 var refIds = new Dictionary<string, string>();                 // placed reference source -> this plugin's id (6 hex)
 Dictionary<string, object>? ids = null;                        // formids.json
 Dictionary<(int, int), Cell>? objCells = null;                 // the objects' overlay cells
@@ -569,11 +572,121 @@ if (Has(prm, "objects"))
                 Console.WriteLine($"  terminal {tm.Term.EditorID} {tm.Term.FormKey} ('{tm.Term.Name?.String}', menu {tm.Menu.FormKey}) -> REFR {obj.FormKey}");
         }
     }
-    nCont = contByEdid.Count; nMisc = miscByEdid.Count; nActi = actiByEdid.Count; nTerm = termByEdid.Count;
+    // Workshops (docs/terrain/stations.md): FO4's settlement workshops (CONT WorkshopWorkbench and its NonSettlement
+    // twin, both with the workshopscript VMAD) become the build station Starfield ships pre-placed, in the pattern of
+    // OutpostPlayerHouseActivator (00024DC7: no script, WorkshopKeyword + OutpostCategory* keywords, PRPS
+    // OutpostBuildAreaRadius; placed in the Neon exterior as Neon_PlayerCrateWorkshopRef): one ACTI per FO4 base with the
+    // converted workbench model, FULL the entry's name, the keywords WorkshopKeyword (00054BA7) then the OutpostCategory*
+    // keywords 00024DC7 carries, in its order (read from the master, never typed), PRPS OutpostBuildAreaRadius (AVIF
+    // 00063FC5) = the entry's radius (metres), no VMAD; the REFR temporary in its slot, as every promoted class.
+    // ({"src", "edid", "model", "name", "radius", "cell", "pos", "rot", "scale", "reference_index"}; Mutagen
+    // 0.55.0-alpha.67 Activator: Keywords, Properties [ObjectProperty { ActorValue, Value, CurveTable }].)
+    // The new ACTI bases follow the TERM + TMLM block.
+    var wkshpIds = new Dictionary<string, object>();
+    var wkshpByEdid = new Dictionary<string, StarfieldActivator>(StringComparer.OrdinalIgnoreCase);
+    var wkshpSig = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    if (o.TryGetProperty("workshops", out var wkshpJ))
+    {
+        List<IFormLinkGetter<IKeywordGetter>> stationKeywords = new();
+        FormKey radiusAv = default;
+        if (wkshpJ.GetArrayLength() > 0)
+        {
+            var house = sf.Activators.FirstOrDefault(x => x.FormKey == new FormKey(sfEsm, 0x024DC7))
+                ?? throw new InvalidDataException("workshops: the template activator 00024DC7 (OutpostPlayerHouseActivator) is missing from the master");
+            var kwEdid = sf.Keywords.ToDictionary(k => k.FormKey, k => k.EditorID ?? "");
+            var workshopKw = new FormKey(sfEsm, 0x054BA7);
+            if (!kwEdid.TryGetValue(workshopKw, out var kwName) || kwName != "WorkshopKeyword")
+                throw new InvalidDataException("workshops: KYWD 00054BA7 of the master is not WorkshopKeyword");
+            var av = sf.ActorValueInformation.FirstOrDefault(x => x.FormKey == new FormKey(sfEsm, 0x063FC5));
+            if (av == null || av.EditorID != "OutpostBuildAreaRadius")
+                throw new InvalidDataException("workshops: AVIF 00063FC5 of the master is not OutpostBuildAreaRadius");
+            radiusAv = av.FormKey;
+            var categories = (house.Keywords ?? Enumerable.Empty<IFormLinkGetter<IKeywordGetter>>())
+                .Where(k => kwEdid.TryGetValue(k.FormKey, out var n) && n.StartsWith("OutpostCategory", StringComparison.Ordinal)).ToList();
+            if (categories.Count == 0)
+                throw new InvalidDataException("workshops: OutpostPlayerHouseActivator carries no OutpostCategory keyword");
+            stationKeywords.Add(new FormLink<IKeywordGetter>(workshopKw));
+            stationKeywords.AddRange(categories.Select(k => (IFormLinkGetter<IKeywordGetter>)new FormLink<IKeywordGetter>(k.FormKey)));
+            Console.WriteLine($"  workshops: keywords {string.Join(", ", stationKeywords.Select(k => kwEdid[k.FormKey]))}; PRPS {av.EditorID}");
+        }
+        foreach (var c in wkshpJ.EnumerateArray())
+        {
+            var src = c.GetProperty("src").GetString()!;
+            var edid = c.GetProperty("edid").GetString()!;
+            var model = c.GetProperty("model").GetString()!;
+            var name = OneLine(c, "name", optional: false)!;
+            var radius = c.GetProperty("radius").GetSingle();
+            if (!float.IsFinite(radius) || radius <= 0)
+                throw new InvalidDataException($"workshop {src}: radius {radius} is not a finite number > 0");
+            var sig = $"{model.ToLowerInvariant()}|{name}|{BitConverter.SingleToUInt32Bits(radius):X8}";
+            if (!wkshpByEdid.TryGetValue(edid, out var acti))
+            {
+                acti = new StarfieldActivator(NewKey("workshop", edid), release)
+                {
+                    EditorID = edid, Model = new Model { File = model }, Name = name,
+                    MarkerColor = System.Drawing.Color.FromArgb(0, 0xCC, 0x4C, 0x33),     // as the activators above
+                    Flags = (StarfieldActivator.Flag)0, ActivationAngle = 360,
+                    Keywords = new ExtendedList<IFormLinkGetter<IKeywordGetter>>(stationKeywords),
+                    Properties = new ExtendedList<ObjectProperty>
+                    {
+                        new ObjectProperty { ActorValue = new FormLink<IActorValueInformationGetter>(radiusAv), Value = radius },
+                    },
+                };
+                mod.Activators.Add(acti);
+                wkshpByEdid[edid] = acti;
+                wkshpSig[edid] = sig;
+            }
+            else if (wkshpSig[edid] != sig)
+                throw new InvalidDataException($"workshop {edid}: {src} asks for {sig} but the shared record is {wkshpSig[edid]}");
+            var obj = PlacePromoted(c, acti.FormKey, "workshop");
+            wkshpIds[src] = new Dictionary<string, string> { ["base"] = acti.FormKey.ID.ToString("X6"), ["ref"] = obj.FormKey.ID.ToString("X6") };
+            Console.WriteLine($"  workshop {acti.EditorID} {acti.FormKey} ('{acti.Name?.String}', radius {radius} m) -> REFR {obj.FormKey} in cell ({c.GetProperty("cell")[0]}, {c.GetProperty("cell")[1]})");
+        }
+    }
+    // Benches (docs/terrain/stations.md): FO4 crafting stations keep their REFR slot and take the VANILLA Starfield bench
+    // of their kind as base (WorkbenchWeapon 2B6A63, WorkbenchArmor 2B6A62, WorkbenchChem 2B6A61, WorkbenchFood 2B6A65:
+    // the same WBDT bench type as FO4's bench and, armor / chem / cooking, the same recipe keyword id), so no record of
+    // ours is added and no FormID moves. ({"src", "kind", "vanilla", "cell", "pos", "rot", "scale", "reference_index"}.)
+    // Refused: a kind outside the four, a vanilla id that is not that kind's, one that is not a FURN of the master, or a
+    // FURN without a bench type (WBDT 0: no crafting menu).
+    var benchIds = new Dictionary<string, object>();
+    if (o.TryGetProperty("benches", out var benchJ))
+    {
+        var furnOk = new Dictionary<uint, string>();
+        foreach (var c in benchJ.EnumerateArray())
+        {
+            var src = c.GetProperty("src").GetString()!;
+            var kind = c.GetProperty("kind").GetString() ?? "";
+            var vanilla = c.GetProperty("vanilla").GetString() ?? "";
+            if (!ReferenceIdentityPlan.BenchKinds.TryGetValue(kind, out var want))
+                throw new InvalidDataException($"bench {src}: kind '{kind}' is not weapon / armor / chem / cooking");
+            var colon = vanilla.IndexOf(':');
+            if (colon < 1 || !uint.TryParse(vanilla[..colon], System.Globalization.NumberStyles.HexNumber, null, out var id)
+                || !string.Equals(vanilla[(colon + 1)..], sfEsm.FileName.String, StringComparison.OrdinalIgnoreCase) || id != want)
+                throw new InvalidDataException($"bench {src}: vanilla '{vanilla}' is not the {kind} bench {want:X6}:{sfEsm.FileName}");
+            if (!furnOk.ContainsKey(id))
+            {
+                var furn = sf.Furniture.FirstOrDefault(f => f.FormKey == new FormKey(sfEsm, id))
+                    ?? throw new InvalidDataException($"bench {src}: {vanilla} is not a FURN of the master");
+                if ((furn.BenchType ?? Furniture.BenchTypes.None) == Furniture.BenchTypes.None)
+                    throw new InvalidDataException($"bench {src}: {vanilla} ({furn.EditorID}) has no bench type (WBDT 0): not a crafting station");
+                furnOk[id] = furn.EditorID ?? "";
+                Console.WriteLine($"  bench kind {kind}: vanilla FURN {furn.FormKey} {furn.EditorID} ({furn.BenchType})");
+            }
+            var obj = PlacePromoted(c, new FormKey(sfEsm, id), "bench");
+            benchIds[src] = new Dictionary<string, string> { ["base"] = vanilla, ["ref"] = obj.FormKey.ID.ToString("X6"), ["kind"] = kind };
+            nBench++;
+            if (nBench <= 8 || nBench % 100 == 0)
+                Console.WriteLine($"  bench {kind} {src} -> REFR {obj.FormKey} on {vanilla}");
+        }
+    }
+    nCont = contByEdid.Count; nMisc = miscByEdid.Count; nActi = actiByEdid.Count; nTerm = termByEdid.Count; nWkshp = wkshpByEdid.Count;
     ids = new Dictionary<string, object> { ["plugin"] = modKey.FileName.String, ["world"] = world, ["bases"] = baseIds, ["refs"] = refIds, ["containers"] = contIds };
     if (o.TryGetProperty("items", out _)) ids["items"] = itemIds;               // a build without items keeps its formids.json bytes
     if (o.TryGetProperty("activators", out _)) ids["activators"] = actiIds;     // (as without activators / terminals)
     if (o.TryGetProperty("terminals", out _)) ids["terminals"] = termIds;
+    if (o.TryGetProperty("workshops", out _)) ids["workshops"] = wkshpIds;       // (and without workshops / benches)
+    if (o.TryGetProperty("benches", out _)) ids["benches"] = benchIds;
 }
 if (Has(prm, "navmesh"))
 {
@@ -951,7 +1064,7 @@ var path = output.StagePath(modKey.FileName.String);
 mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(sfData)
     .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full)).Write();
 Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {worlds.Count} overlays, next FormID 0x{next:X}" +
-                  (Has(prm, "objects") ? $"; objects: {nStat} STAT, {nDoor} DOOR, {nCont} CONT, {nMisc} MISC, {nActi} ACTI, {nTerm} TERM + {nTerm} TMLM, {nRef} REFR ({nDisabled} initially disabled)" : "") +
+                  (Has(prm, "objects") ? $"; objects: {nStat} STAT, {nDoor} DOOR, {nCont} CONT, {nMisc} MISC, {nActi} ACTI, {nTerm} TERM + {nTerm} TMLM, {nWkshp} workshop ACTI, {nBench} bench REFR on vanilla FURN, {nRef} REFR ({nDisabled} initially disabled)" : "") +
                   (Has(prm, "navmesh") ? $"; navmesh: {nNav} NAVM, {nNavTri} triangles, {nNavLink} edge links, {nNavDoor} door triangles, NAVI override with {nNav} NVMI" : "") +
                   (nLightRef > 0 ? $"; lights: {nLight} LIGH, {nLightRef} REFR" : "") +
                   (nDoorRef > 0 ? $"; doors: {nDoorActi} ACTI, {nDoorRef} scripted REFR + {nDoorRef} arrival markers" : ""));

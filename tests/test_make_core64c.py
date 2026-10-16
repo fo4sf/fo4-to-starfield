@@ -978,7 +978,7 @@ class ActivatorTerminalPromotionTests(unittest.TestCase):
         keep, promoted = mk.cluster_promote(self.BASES, self.placed(), cl)
         self.assertEqual([p["src"] for p in keep], ["000003:Fallout4.esm"])
         self.assertEqual({k: [e["reference_index"] for e in v] for k, v in promoted.items()},
-                         {"containers": [6], "items": [0], "activators": [1, 3], "terminals": [4, 5], "doors": []})
+                         {"containers": [6], "items": [0], "activators": [1, 3], "terminals": [4, 5], "workshops": [], "benches": [], "doors": []})
         objects = dict({"refs": keep}, **promoted)
         ids = {"bases": {"a": "000800", "b": "000801", "c": "000802"}, "refs": {"000003:Fallout4.esm": "000805"},
                "containers": {"000007:Fallout4.esm": {"base": "00080A", "ref": "000809"}},
@@ -1311,3 +1311,325 @@ class LightTests(unittest.TestCase):
         self.assertIn("+ 2 lights", res[0][0])
         res = mk.promotion_checks(recs[:-1], own, objects, {}, exp)
         self.assertFalse(res[0][1])                                # one light REFR short
+
+
+class StationPromotionTests(unittest.TestCase):
+    """Stations (docs/terrain/stations.md): --cluster "workshops" become native ACTI build stations (one per FO4 base,
+    WorkshopKeyword + outpost categories, PRPS build radius) and "benches" keep their slot on the vanilla Starfield
+    bench of their kind, both in the one slot plan with the other classes."""
+    BASES = [{"edid": "FO4Core_workbenchgarage01", "model": "fo4core\\setdressing\\garage\\workbenchgarage01.nif"},
+             {"edid": "FO4Core_workbenchweaponsa", "model": "fo4core\\furniture\\workstations\\workbenchweaponsa.nif"},
+             {"edid": "FO4Core_workstationarmorb01", "model": "fo4core\\furniture\\workstations\\workstationarmorb01.nif"}]
+
+    @staticmethod
+    def placed(n=8, disabled=()):
+        base = {4: 1, 5: 2, 6: 1}
+        return [{"src": f"{i + 1:06X}:Fallout4.esm", "base": base.get(i, 0), "cell": [0, i], "pos": [1.0 + i, 2.0, 3.0],
+                 "rot": [0, 0, 0.5], "scale": 1.0, "disabled": i in disabled} for i in range(n)]
+
+    @staticmethod
+    def wk(i, **kw):
+        e = {"src": f"{i + 1:06X}:Fallout4.esm", "name": "Workshop", "radius": 250.0, "base": "0C1AEB:Fallout4.esm",
+             "editor_id": "WorkshopWorkbench"}
+        e.update(kw)
+        return e
+
+    @staticmethod
+    def bench(i, kind="weapon", **kw):
+        van = mk.BENCH_VANILLA.get(kind, ("2B6A63:Starfield.esm", 2))
+        e = {"src": f"{i + 1:06X}:Fallout4.esm", "kind": kind, "vanilla": van[0], "base": "17B3A4:Fallout4.esm",
+             "editor_id": "workbenchWeaponsA", "wbdt": van[1]}
+        e.update(kw)
+        return e
+
+    def test_constants_match_make_cluster(self):
+        import make_cluster as mc
+        self.assertEqual((mk.WORKSHOP_NAME, mk.WORKSHOP_RADIUS_M, mk.WORKSHOP_KEYWORD), (mc.WORKSHOP_NAME, mc.WORKSHOP_RADIUS_M, mc.WORKSHOP_KEYWORD))
+        self.assertEqual({k: v[0] for k, v in mk.BENCH_VANILLA.items()}, {k: v["vanilla"] for k, v in mc.BENCH_KINDS.items()})
+        self.assertEqual({k: v[1] for k, v in mk.BENCH_VANILLA.items()}, {k: v["wbdt"] for k, v in mc.BENCH_KINDS.items()})
+        self.assertEqual((mk.WORKSHOP_TEMPLATE, mk.WORKSHOP_RADIUS_AV), (0x024DC7, 0x063FC5))
+        self.assertEqual(mk.PROMOTED[-2:], (("workshops", "ACTI"), ("doors", "ACTI")))
+        self.assertEqual(mk.VANILLA_PROMOTED, (("benches", "FURN"),))
+        self.assertEqual(mk.master_fid("2B6A63:Starfield.esm"), 0x002B6A63)
+        self.assertEqual(mk.master_fid("000800:Other.esm", ("Starfield.esm", "other.ESM")), 0x01000800)
+        with self.assertRaisesRegex(ValueError, "not a master"):
+            mk.master_fid("2B6A63:Fallout4.esm")
+
+    def test_workshops_of_one_base_share_the_acti_and_carry_name_and_radius(self):
+        cl = {"workshops": [self.wk(1), self.wk(3), self.wk(2, base="246F86:Fallout4.esm")]}
+        keep, out = mk.cluster_workshops(self.BASES, self.placed(), cl)
+        self.assertEqual([p["src"] for p in keep], [f"{i:06X}:Fallout4.esm" for i in (1, 5, 6, 7, 8)])
+        self.assertEqual([e["edid"] for e in out], ["FO4Core_wkshp_0c1aeb_fallout4", "FO4Core_wkshp_246f86_fallout4",
+                                                    "FO4Core_wkshp_0c1aeb_fallout4"])
+        self.assertEqual([(e["reference_index"], e["name"], e["radius"], e["model"]) for e in out],
+                         [(1, "Workshop", 250.0, self.BASES[0]["model"]), (2, "Workshop", 250.0, self.BASES[0]["model"]),
+                          (3, "Workshop", 250.0, self.BASES[0]["model"])])
+        self.assertEqual((out[0]["cell"], out[0]["pos"], out[0]["rot"], out[0]["scale"]), ([0, 1], [2.0, 2.0, 3.0], [0, 0, 0.5], 1.0))
+        bare = {"src": "000002:Fallout4.esm", "base": "0C1AEB:Fallout4.esm"}                   # defaults: name and radius
+        self.assertEqual([(e["name"], e["radius"]) for e in mk.cluster_workshops(self.BASES, self.placed(), {"workshops": [bare]})[1]],
+                         [("Workshop", 250.0)])
+        self.assertEqual(mk.workshop_edid(None, "054BAE:Fallout4.esm"), "FO4Core_wkshp_054bae")
+
+    def test_benches_bind_to_the_vanilla_bench_of_their_kind(self):
+        cl = {"benches": [self.bench(4), self.bench(5, "armor", base="12EA9B:Fallout4.esm", editor_id="WorkbenchArmorA"),
+                          self.bench(6, "chem"), self.bench(0, "cooking")]}
+        keep, out = mk.cluster_benches(self.BASES, self.placed(), cl)
+        self.assertEqual([p["src"] for p in keep], [f"{i:06X}:Fallout4.esm" for i in (2, 3, 4, 8)])
+        self.assertEqual([(e["reference_index"], e["kind"], e["vanilla"], e["fo4_model"]) for e in out],
+                         [(0, "cooking", "2B6A65:Starfield.esm", self.BASES[0]["model"]),
+                          (4, "weapon", "2B6A63:Starfield.esm", self.BASES[1]["model"]),
+                          (5, "armor", "2B6A62:Starfield.esm", self.BASES[2]["model"]),
+                          (6, "chem", "2B6A61:Starfield.esm", self.BASES[1]["model"])])
+        self.assertNotIn("edid", out[0])                                   # no record of our own
+        no_vanilla = self.bench(4)
+        del no_vanilla["vanilla"]
+        self.assertEqual(mk.cluster_benches(self.BASES, self.placed(), {"benches": [no_vanilla]})[1][0]["vanilla"], "2B6A63:Starfield.esm")
+        self.assertEqual(mk.cluster_benches(self.BASES, self.placed(), {"benches": [self.bench(4, vanilla="2b6a63:starfield.ESM")]})[1][0]["vanilla"],
+                         "2B6A63:Starfield.esm")
+
+    def test_bad_entries_are_refused(self):
+        P = self.placed()
+        cases = (
+            (mk.cluster_workshops, {"workshops": [self.wk(1), self.wk(3, radius=60.0)]}, "different name / model / radius"),
+            (mk.cluster_workshops, {"workshops": [self.wk(1), self.wk(3, name="Settlement")]}, "different name / model / radius"),
+            (mk.cluster_workshops, {"workshops": [self.wk(1), self.wk(4)]}, "different name / model / radius"),   # another model
+            (mk.cluster_workshops, {"workshops": [self.wk(1, name="a\nb")]}, "not one non-empty line"),
+            (mk.cluster_workshops, {"workshops": [self.wk(1, name="")]}, "not one non-empty line"),
+            (mk.cluster_workshops, {"workshops": [self.wk(1, radius=0)]}, "float32 number > 0"),
+            (mk.cluster_workshops, {"workshops": [self.wk(1, radius=-5.0)]}, "float32 number > 0"),
+            (mk.cluster_workshops, {"workshops": [self.wk(1, radius=float("nan"))]}, "float32 number > 0"),
+            (mk.cluster_workshops, {"workshops": [self.wk(1, radius="250")]}, "float32 number > 0"),
+            (mk.cluster_workshops, {"workshops": [self.wk(1), self.wk(1)]}, "twice"),
+            (mk.cluster_workshops, {"workshops": [self.wk(1, src="ABCDEF:Fallout4.esm")]}, "not placed"),
+            (mk.cluster_benches, {"benches": [self.bench(4, kind="power")]}, "not one of weapon, armor, chem, cooking"),
+            (mk.cluster_benches, {"benches": [self.bench(4, kind=None)]}, "not one of"),
+            (mk.cluster_benches, {"benches": [self.bench(4, vanilla="2B6A62:Starfield.esm")]}, "not the weapon bench"),
+            (mk.cluster_benches, {"benches": [self.bench(4, vanilla="2B6A63:Fallout4.esm")]}, "not the weapon bench"),
+            (mk.cluster_benches, {"benches": [self.bench(4), self.bench(4)]}, "twice"),
+        )
+        for fn, cl, why in cases:
+            with self.assertRaisesRegex(ValueError, why, msg=cl):
+                fn(self.BASES, P, cl)
+        with self.assertRaisesRegex(ValueError, "disabled"):
+            mk.cluster_benches(self.BASES, self.placed(disabled=(4,)), {"benches": [self.bench(4)]})
+        with self.assertRaisesRegex(ValueError, "disabled"):
+            mk.cluster_workshops(self.BASES, self.placed(disabled=(1,)), {"workshops": [self.wk(1)]})
+
+    def plan(self):
+        """Every class at once (a container, an item, an activator, a terminal, two workshops of one base, two benches)
+        and the identities the writer declares: bases 800..802, slots 803..80A, then CONT, MISC, ACTI, TERM, TMLM,
+        the workshops' ACTI; the benches declare the vanilla bench."""
+        kit = {"src": "000008:Fallout4.esm", "name": "Kit", "items": [{"form": "Starfield.esm:00000F", "count": 25}], "base": "04B6E9:Fallout4.esm"}
+        can = {"src": "000001:Fallout4.esm", "name": "Can", "value": 1, "weight": 0.1, "base": "059B02:Fallout4.esm"}
+        bell = {"src": "000004:Fallout4.esm", "name": "Bell", "base": "0BB1E1:Fallout4.esm"}
+        term = {"src": "000007:Fallout4.esm", "name": "Terminal", "base": "0E1E33:Fallout4.esm"}
+        cl = {"containers": [kit], "items": [can], "activators": [bell], "terminals": [term],
+              "workshops": [self.wk(1), self.wk(2)], "benches": [self.bench(4), self.bench(5, "armor")]}
+        keep, promoted = mk.cluster_promote(self.BASES, self.placed(), cl)
+        self.assertEqual([p["src"] for p in keep], [])
+        self.assertEqual({k: [e["reference_index"] for e in v] for k, v in promoted.items()},
+                         {"containers": [7], "items": [0], "activators": [3], "terminals": [6], "workshops": [1, 2], "benches": [4, 5], "doors": []})
+        objects = dict({"refs": keep}, **promoted)
+        ids = {"bases": {"a": "000800", "b": "000801", "c": "000802"}, "refs": {},
+               "containers": {"000008:Fallout4.esm": {"base": "00080B", "ref": "00080A"}},
+               "items": {"000001:Fallout4.esm": {"base": "00080C", "ref": "000803"}},
+               "activators": {"000004:Fallout4.esm": {"base": "00080D", "ref": "000806"}},
+               "terminals": {"000007:Fallout4.esm": {"base": "00080E", "ref": "000809", "menu": "00080F"}},
+               "workshops": {"000002:Fallout4.esm": {"base": "000810", "ref": "000804"},
+                             "000003:Fallout4.esm": {"base": "000810", "ref": "000805"}},
+               "benches": {"000005:Fallout4.esm": {"base": "2B6A63:Starfield.esm", "ref": "000807", "kind": "weapon"},
+                           "000006:Fallout4.esm": {"base": "2B6A62:Starfield.esm", "ref": "000808", "kind": "armor"}}}
+        mk.check_reference_slots(objects, ids)
+        return cl, objects, ids
+
+    def test_every_class_shares_one_slot_plan(self):
+        cl, _objects, _ids = self.plan()
+        for k, other in (("workshops", "containers"), ("benches", "activators"), ("containers", "workshops"), ("items", "benches")):
+            two = json.loads(json.dumps(cl))
+            e = dict(two[k][0])
+            if other == "benches":
+                e.update(kind="weapon")
+            if other == "containers":
+                e.update(items=[{"form": "Starfield.esm:00000F", "count": 1}], name="X")
+            two[other].append(e)
+            with self.assertRaisesRegex(ValueError, "listed as both an? \\w+ and an? \\w+"):
+                mk.cluster_promote(self.BASES, self.placed(), two)
+        cl = {"workshops": [self.wk(1, base="0C1AEB:A-B.esm"), self.wk(2, base="0C1AEB:AB.esp")]}
+        with self.assertRaisesRegex(ValueError, "two FO4 sources"):
+            mk.cluster_promote(self.BASES, self.placed(), cl)
+
+    def test_slot_check_refuses_bad_station_identities(self):
+        _cl, objects, good = self.plan()
+        W2, B5 = "000003:Fallout4.esm", "000005:Fallout4.esm"
+        cases = (
+            ("moved", lambda i: i["workshops"][W2].update(ref="000805") or i["benches"][B5].update(ref="000804")
+             or i["workshops"]["000002:Fallout4.esm"].update(ref="000807")),
+            ("workshop base overlaps", lambda i: [v.update(base="000809") for v in i["workshops"].values()]),
+            ("another promoted class", lambda i: [v.update(base="00080D") for v in i["workshops"].values()]),   # the activators' ACTI
+            ("two bases", lambda i: i["workshops"][W2].update(base="000811")),
+            ("not its vanilla", lambda i: i["benches"][B5].update(base="2B6A62:Starfield.esm")),
+            ("not its vanilla", lambda i: i["benches"][B5].update(kind="armor")),
+            ("differs from objects", lambda i: i.pop("benches")),
+            ("differs from objects", lambda i: i["workshops"].pop(W2)),
+            ("missing or invalid", lambda i: i["benches"][B5].pop("base")),
+        )
+        for why, change in cases:
+            ids = json.loads(json.dumps(good))
+            change(ids)
+            with self.assertRaisesRegex(ValueError, why, msg=why):
+                mk.check_reference_slots(objects, ids)
+        two = json.loads(json.dumps(objects))                     # a bench whose cluster entry names another kind's vanilla
+        two["benches"][0]["vanilla"] = "2B6A62:Starfield.esm"
+        with self.assertRaisesRegex(ValueError, "not the weapon bench"):
+            mk.check_reference_slots(two, good)
+
+    def records(self, objects, ids, own=0x01000000, **override):
+        """Raw records the writer would give for plan(): the station records in full, the rest as the counts need."""
+        def z(text):
+            return text.encode("utf-8") + b"\0"
+
+        def refr(e, v):
+            base = own | int(v["base"], 16) if ":" not in v["base"] else mk.master_fid(v["base"])
+            return {"sig": "REFR", "fid": own | int(v["ref"], 16), "flags": 0,
+                    "fields": [(b"NAME", struct.pack("<I", override.get("bench_base", base) if ":" in v["base"] else base)),
+                               (b"DATA", struct.pack("<6f", *e["pos"], *e["rot"]))]}
+        c, i, a, t, w = (objects[k][0] for k in ("containers", "items", "activators", "terminals", "workshops"))
+        recs = [{"sig": "CONT", "fid": own | 0x80B, "flags": 0, "fields": [(b"EDID", z(c["edid"])), (b"MODL", z(c["model"]))]},
+                {"sig": "MISC", "fid": own | 0x80C, "flags": 0, "fields": [(b"EDID", z(i["edid"])), (b"MODL", z(i["model"])), (b"FULL", z(i["name"])), (b"DATA", struct.pack("<if", 1, 0.1))]},
+                {"sig": "ACTI", "fid": own | 0x80D, "flags": 0, "fields": [(b"EDID", z(a["edid"])), (b"MODL", z(a["model"])), (b"FULL", z(a["name"]))]},
+                {"sig": "TERM", "fid": own | 0x80E, "flags": 0, "fields": [(b"EDID", z(t["edid"])), (b"DNAM", struct.pack("<I", own | 0x80F)), (b"NAM1", b"\x02"), (b"FULL", z(t["name"])), (b"MODL", z(t["model"]))]},
+                {"sig": "TMLM", "fid": own | 0x80F, "flags": 0, "fields": [(b"EDID", z(t["menu_edid"])), (b"FULL", z(t["name"])), (b"TMVT", struct.pack("<I", 1)), (b"BSIZ", struct.pack("<I", 1)), (b"BTXT", z(t["body"])), (b"TPLT", b"\0"), (b"ISIZ", struct.pack("<I", 0))]}]
+        kwda = override.get("kwda", [0x054BA7, 0x2CFDE6, 0x2BE3B5])
+        prps = override.get("prps", [(0x063FC5, w["radius"], 0)])
+        wk = {"sig": "ACTI", "fid": own | 0x810, "flags": 0, "fields": [
+            (b"EDID", z(w["edid"])), (b"FULL", z(override.get("wk_name", w["name"]))), (b"MODL", z(w["model"])),
+            (b"KSIZ", struct.pack("<I", len(kwda))), (b"KWDA", struct.pack(f"<{len(kwda)}I", *kwda)),
+            (b"PRPS", b"".join(struct.pack("<IfI", *p) for p in prps))]}
+        if override.get("vmad"):
+            wk["fields"].insert(1, (b"VMAD", b"\x06\x00\x02\x00\x00\x00"))
+        recs.append(wk)
+        if override.get("furn"):
+            recs.append({"sig": "FURN", "fid": own | 0x811, "flags": 0, "fields": [(b"EDID", z("FO4Core_furn_x"))]})
+        for k in ("containers", "items", "activators", "terminals", "workshops", "benches"):
+            for e in objects[k]:
+                recs.append(refr(e, ids[k][e["src"]]))
+        recs += [{"sig": "REFR", "fid": own | 0x812, "flags": 0, "fields": []},
+                 {"sig": "REFR", "fid": own | 0x813, "flags": 0, "fields": []}]                # COC marker, anchor
+        return recs
+
+    def test_check_counts_and_bindings_of_the_stations(self):
+        _cl, objects, ids = self.plan()
+        own, exp = 0x01000000, {"objects": {"exported": 9, "skipped": {"no model": 1}}}
+        res = mk.promotion_checks(self.records(objects, ids), own, objects, ids, exp)
+        self.assertTrue(all(ok for _w, ok in res), res)
+        self.assertEqual([w.split(" (")[0] for w, _ok in res][2:],
+                         ["1 CONT = 1 distinct containers edids", "1 MISC = 1 distinct items edids",
+                          "2 ACTI = 2 distinct activators / workshops edids", "1 TERM = 1 distinct terminals edids",
+                          "1 TMLM = 1 distinct terminals menu edids", "0 FURN of our own",
+                          "every promoted REFR names its CONT / MISC / ACTI / TERM / FURN"])
+        self.assertTrue(res[0][0].endswith("+ 1 containers + 1 items + 1 activators + 1 terminals + 2 workshops + 2 benches"), res[0][0])
+        self.assertIn("workshop keyword, radius; bench vanilla base", res[-1][0])
+        self.assertIn("2 benches bind to the vanilla FURN of 2 kinds: armor, weapon", res[-2][0])
+        for override, why in (({"kwda": [0x2CFDE6, 0x2BE3B5]}, "lacks WorkshopKeyword"),
+                              ({"prps": [(0x063FC5, 150.0, 0)]}, "OutpostBuildAreaRadius"),
+                              ({"prps": []}, "OutpostBuildAreaRadius"),
+                              ({"prps": [(0x063FC5, 250.0, 0), (0x063FC5, 250.0, 0)]}, "OutpostBuildAreaRadius"),
+                              ({"vmad": True}, "carries a VMAD"),
+                              ({"wk_name": "Decorate"}, "ACTI name"),
+                              ({"bench_base": 0x002B6A62}, "REFR names 002B6A62")):
+            pp = mk.promoted_record_check(self.records(objects, ids, **override), own, objects, ids)
+            self.assertTrue(pp and why in pp[0], (override, pp))
+        res = dict((w.split(" (")[0], ok) for w, ok in mk.promotion_checks(self.records(objects, ids, furn=True), own, objects, ids, exp))
+        self.assertFalse(res["1 FURN of our own"])                         # a FURN of our own is not this design
+        other, other_obj = json.loads(json.dumps(ids)), json.loads(json.dumps(objects))
+        other["benches"]["000005:Fallout4.esm"]["base"] = "2B6A63:Fallout4.esm"    # not a master of the plugin
+        self.assertIn("objects.json names", mk.promoted_record_check(self.records(objects, ids), own, objects, other)[0])
+        other_obj["benches"][0]["vanilla"] = "2B6A63:Fallout4.esm"
+        self.assertIn("not a master", mk.promoted_record_check(self.records(objects, ids), own, other_obj, other)[0])
+
+    @staticmethod
+    def synthetic_starfield(path, **change):
+        """A synthetic Starfield.esm with the station records make_core64c.station_master_check binds to."""
+        from test_fo4light import record, group
+        tes4 = b"TES4" + struct.pack("<IIIIHH", 0, 0, 0, 0, 131, 0)
+        kw = [(0x04AF68, b"MustPersist"), (0x054BA7, change.get("wk_edid", b"WorkshopKeyword")), (0x2CFDE6, b"OutpostCategoryCrafting"),
+              (0x2BE3B5, b"OutpostCategoryFurniture"), (0x257536, b"OutpostBlockFlycam")]
+        house_kw = [k for k, _e in kw]
+        actis = group(b"ACTI", 0, [record(b"ACTI", 0x024DC7, [(b"EDID", b"OutpostPlayerHouseActivator\0"),
+                                                               (b"KWDA", struct.pack(f"<{len(house_kw)}I", *house_kw)),
+                                                               (b"PRPS", struct.pack("<IfI", 0x063FC5, 250.0, 0))])])
+        kywds = group(b"KYWD", 0, [record(b"KYWD", k, [(b"EDID", e + b"\0")]) for k, e in kw])
+        avifs = group(b"AVIF", 0, [record(b"AVIF", 0x063FC5, [(b"EDID", b"OutpostBuildAreaRadius\0")])])
+        benches = [(0x2B6A63, b"WorkbenchWeapon", 2, 0x2CE1C0), (0x2B6A62, b"WorkbenchArmor", 7, 0x0657FF),
+                   (0x2B6A61, b"WorkbenchChem", 5, 0x102158), (0x2B6A65, b"WorkbenchFood", change.get("food_wbdt", 5), 0x102152)]
+        furns = group(b"FURN", 0, [record(b"FURN", i, [(b"EDID", e + b"\0"), (b"KWDA", struct.pack("<I", r)), (b"WBDT", bytes([w, 0]))],
+                                          compress=(i == 0x2B6A62)) for i, e, w, r in benches])
+        with open(path, "wb") as f:
+            f.write(tes4 + actis + kywds + avifs + furns)
+
+    def test_station_master_check_against_a_synthetic_starfield(self):
+        _cl, objects, ids = self.plan()
+        own = 0x01000000
+        with tempfile.TemporaryDirectory() as d:
+            esm = os.path.join(d, "Starfield.esm")
+            self.synthetic_starfield(esm)
+            self.assertEqual(mk.station_master_check(esm, self.records(objects, ids), own, objects, ids), [])
+            self.assertEqual(mk.station_master_check(esm, [], own, {"refs": []}, {}), [])          # no stations: nothing to check
+            # the category keywords must be exactly the template's, in its order, after WorkshopKeyword
+            for kwda, why in (([0x054BA7, 0x2BE3B5, 0x2CFDE6], "KWDA"), ([0x054BA7, 0x2CFDE6], "KWDA"),
+                              ([0x054BA7, 0x04AF68, 0x2CFDE6, 0x2BE3B5], "KWDA"), ([0x2CFDE6, 0x2BE3B5, 0x054BA7], "KWDA")):
+                pp = mk.station_master_check(esm, self.records(objects, ids, kwda=kwda), own, objects, ids)
+                self.assertTrue(pp and why in pp[0], (kwda, pp))
+            pp = mk.station_master_check(esm, self.records(objects, ids, prps=[(0x063FC5, 250.0, 0), (0x3807C4, 1.0, 0)]), own, objects, ids)
+            self.assertIn("not one OutpostBuildAreaRadius", pp[0])
+            self.synthetic_starfield(esm, food_wbdt=0)                        # a kind's vanilla bench without a bench type
+            cooking = json.loads(json.dumps(objects))
+            cooking["benches"][1].update(kind="cooking", vanilla="2B6A65:Starfield.esm")
+            cids = json.loads(json.dumps(ids))
+            cids["benches"]["000006:Fallout4.esm"].update(base="2B6A65:Starfield.esm", kind="cooking")
+            pp = mk.station_master_check(esm, self.records(cooking, cids), own, cooking, cids)
+            self.assertEqual(len(pp), 1)
+            self.assertIn("cooking: 2B6A65:Starfield.esm (WorkbenchFood) WBDT 0", pp[0])
+            self.synthetic_starfield(esm, wk_edid=b"NotTheWorkshopKeyword")
+            self.assertIn("not WorkshopKeyword", mk.station_master_check(esm, self.records(objects, ids), own, objects, ids)[0])
+
+    def test_light_identities_skip_a_vanilla_bench_base(self):
+        objects = {"lights": [{"src": "L1", "edid": "FO4Core_ligh_a"}], "light_bases": [{"edid": "FO4Core_ligh_a"}]}
+        ids = {"bases": {"x": "000800"}, "refs": {"R": "000801"},
+               "benches": {"B": {"base": "2B6A63:Starfield.esm", "ref": "000802", "kind": "weapon"}},
+               "workshops": {"W": {"base": "000804", "ref": "000803"}},
+               "lights": {"L1": {"base": "000806", "ref": "000805"}}}
+        mk.check_light_identities(objects, ids)                              # the bench's master base is no id of ours
+        ids["lights"]["L1"] = {"base": "000805", "ref": "000804"}
+        with self.assertRaises(ValueError):
+            mk.check_light_identities(objects, ids)
+
+    def test_formids_diff_sections(self):
+        old = {"plugin": "P.esm", "bases": {"a": "000800"}, "refs": {"r1": "000801", "r2": "000802"},
+               "containers": {"c1": {"base": "000900", "ref": "000803"}, "w1": {"base": "000901", "ref": "000804"}},
+               "navmeshes": ["000A00", "000A01"], "navi": "000FF1:Starfield.esm"}
+        new = {"plugin": "P.esm", "bases": {"a": "000800"}, "refs": {"r1": "000801", "r2": "000802"},
+               "containers": {"c1": {"base": "000900", "ref": "000803"}},
+               "workshops": {"w1": {"base": "000902", "ref": "000804"}},
+               "navmeshes": ["000A02", "000A03"], "navi": "000FF1:Starfield.esm"}
+        d = mk.formids_diff(old, new)
+        self.assertEqual({k: v["status"] for k, v in d.items()},
+                         {"plugin": "identical", "bases": "identical", "refs": "identical", "containers": "changed",
+                          "workshops": "added", "navmeshes": "shifted", "navi": "identical"})
+        self.assertEqual((d["containers"]["same"], d["containers"]["changed"], d["containers"]["only_old"], d["containers"]["only_new"],
+                          d["containers"]["only_old_examples"]), (1, 0, 1, 0, ["w1"]))
+        self.assertEqual((d["navmeshes"]["by"], d["navmeshes"]["count"], d["refs"]["count"], d["workshops"]["count"]), (2, 2, 2, 1))
+        new["navmeshes"] = ["000A02", "000A05"]
+        new["containers"]["c1"]["base"] = "000905"
+        d = mk.formids_diff(old, new)
+        self.assertEqual((d["navmeshes"]["status"], d["containers"]["changed"], d["containers"]["examples"][0]["src"],
+                          d["containers"]["ref_kept"]), ("differs", 1, "c1", 1))
+        self.assertNotIn("ref_kept", mk.formids_diff({"refs": {"a": "1"}}, {"refs": {"a": "2"}})["refs"])
+        with tempfile.TemporaryDirectory() as t:
+            for n, v in (("old", old), ("new", new)):
+                os.makedirs(os.path.join(t, n))
+                with open(os.path.join(t, n, "formids.json"), "w") as f:
+                    json.dump(v, f)
+            self.assertEqual(mk.cmd_compare_ids(type("A", (), {"out": os.path.join(t, "new"), "against": os.path.join(t, "old")})()), 0)
+            with open(os.path.join(t, "new", "formids_diff.json")) as f:
+                self.assertEqual(json.load(f)["sections"]["navmeshes"]["status"], "differs")

@@ -375,3 +375,152 @@ class ActivatorTerminalWriterTests(unittest.TestCase):
             proc, _ = self.run_writer(objects, 'acti-term-refusals')
             self.assertNotEqual(proc.returncode, 0)
             self.assertEqual({n: (stage / n).read_bytes() for n in pinned}, pinned)
+
+
+
+class StationWriterTests(unittest.TestCase):
+    """Stations (docs/terrain/stations.md) through the actual writer on the synthetic master: FO4 settlement workshops ->
+    ACTI build stations (WorkshopKeyword + the OutpostCategory keywords of the master's 00024DC7, PRPS build radius,
+    no VMAD), FO4 crafting stations -> REFRs on the master's vanilla benches, in the one slot plan with the other four
+    classes; the raw records are read back and make_core64c's checks run on the written plugin."""
+    BODY = 'FO4 terminal (text not ported yet)'
+
+    run_writer = TerrainReferenceIdentityTests.run_writer
+
+    @classmethod
+    def setUpClass(cls):
+        TerrainReferenceIdentityTests.setUpClass.__func__(cls)
+        cells = ([0, 0], [0, 1], [1, 1], [1, 0], [0, 0], [1, 1], [0, 1], [1, 0], [0, 0], [1, 1])
+        poss = ([1, 2, 3], [4, 101, 6], [101, 102, 9], [102, 5, 7], [7, 8, 9], [150, 160, 2], [30, 140, 4], [120, 9, 1], [9, 9, 9], [130, 170, 3])
+        cls.ten = {'world': 'SyntheticWorld',
+                   'bases': [{'edid': 'SyntheticBase', 'model': 'synthetic.nif'}, {'edid': 'SyntheticTerminalBase', 'model': 'terminal.nif'},
+                             {'edid': 'SyntheticWorkbench', 'model': 'workbenchgarage01.nif'}, {'edid': 'SyntheticBench', 'model': 'bench.nif'}],
+                   'refs': [{'src': f'{i + 1:06X}:Synthetic.esm', 'base': {3: 1, 4: 2, 5: 2, 6: 3, 7: 3, 8: 3}.get(i, 0), 'cell': c,
+                             'pos': p, 'rot': [0, 0, i / 10], 'scale': 1 + i / 10, 'disabled': False}
+                            for i, (c, p) in enumerate(zip(cells, poss))]}
+
+    def promote_all(self, **change):
+        """0 container, 1 item, 2 activator, 3 terminal, 4 + 5 one workshop base, 6 weapon / 7 armor / 8 chem bench;
+        9 stays an ordinary reference."""
+        obj = copy.deepcopy(self.ten)
+        r = obj['refs']
+        obj['containers'] = [dict(r[0], reference_index=0, edid='SyntheticContainer', model='synthetic.nif', name='Box',
+                                  items=[{'form': 'Starfield.esm:00000F', 'count': 25}])]
+        obj['items'] = [dict(r[1], reference_index=1, edid='SyntheticMisc', model='synthetic.nif', name='Can', value=7, weight=0.25)]
+        obj['activators'] = [dict(r[2], reference_index=2, edid='FO4Core_acti_000100_synthetic', model='synthetic.nif', name='Bell')]
+        obj['terminals'] = [dict(r[3], reference_index=3, edid='FO4Core_term_000102_synthetic', menu_edid='FO4Core_tmlm_000102_synthetic',
+                                 model='terminal.nif', name='Terminal', body=self.BODY)]
+        obj['workshops'] = [dict(r[i], reference_index=i, edid='FO4Core_wkshp_0c1aeb_synthetic', model='workbenchgarage01.nif',
+                                 name='Workshop', radius=250.0) for i in (4, 5)]
+        obj['benches'] = [dict(r[i], reference_index=i, kind=kind, vanilla=vanilla, fo4_model='bench.nif')
+                          for i, kind, vanilla in ((6, 'weapon', '2B6A63:Starfield.esm'), (7, 'armor', '2B6A62:Starfield.esm'),
+                                                   (8, 'chem', '2B6A61:Starfield.esm'))]
+        for k in ('containers', 'items', 'activators', 'terminals', 'workshops', 'benches'):
+            for e in obj[k]:
+                e.pop('base')
+                e.pop('disabled')
+        obj['refs'] = [r[9]]
+        for k, v in change.items():
+            v(obj) if callable(v) else obj.__setitem__(k, v)
+        return obj
+
+    def test_stations_keep_slots_and_write_the_vanilla_pattern(self):
+        before, baseline = self.run_writer(self.ten, 'stations-before')
+        after, candidate = self.run_writer(self.promote_all(), 'stations-after')
+        self.assertEqual(before.returncode, 0, before.stderr)
+        self.assertEqual(after.returncode, 0, after.stderr)
+        old = json.loads((baseline / 'formids.json').read_text())
+        new = json.loads((candidate / 'formids.json').read_text())
+        for k in ('workshops', 'benches'):
+            self.assertNotIn(k, old)                       # a build without stations keeps its formids.json shape
+        promoted = {src: v for k in ('containers', 'items', 'activators', 'terminals', 'workshops', 'benches') for src, v in new[k].items()}
+        self.assertEqual(len(promoted), 9)
+        combined = dict(new['refs'], **{src: v['ref'] for src, v in promoted.items()})
+        self.assertEqual(combined, old['refs'])                                         # every source keeps its REFR id
+        self.assertEqual(new['bases'], old['bases'])
+        old_records, new_records = records(baseline / 'Synthetic.esm'), records(candidate / 'Synthetic.esm')
+        vanilla = {'000007:Synthetic.esm': 0x2B6A63, '000008:Synthetic.esm': 0x2B6A62, '000009:Synthetic.esm': 0x2B6A61}
+        for src, identity in old['refs'].items():
+            key = int(identity, 16)
+            if src not in promoted:
+                self.assertEqual(new_records[key], old_records[key])
+                continue
+            self.assertEqual(without_base(new_records[key]), without_base(old_records[key]))
+            name = struct.unpack_from('<I', next(d for sig, d in subrecords(new_records[key][1]) if sig == b'NAME'))[0]
+            if src in vanilla:
+                self.assertEqual(name, vanilla[src])                                    # file-local: the master is 00
+            else:
+                self.assertEqual(name & 0xFFFFFF, int(promoted[src]['base'], 16))
+        # formids.json: the benches name the vanilla base and their kind, the workshops share one ACTI
+        self.assertEqual(new['benches']['000007:Synthetic.esm'], {'base': '2B6A63:Starfield.esm', 'ref': old['refs']['000007:Synthetic.esm'], 'kind': 'weapon'})
+        self.assertEqual({v['kind'] for v in new['benches'].values()}, {'weapon', 'armor', 'chem'})
+        wk = {int(v['base'], 16) for v in new['workshops'].values()}
+        self.assertEqual(len(wk), 1)
+        wk = wk.pop()
+        # allocation: CONT, MISC, ACTI, TERM, TMLM, then the workshops' ACTI, all after the last reserved REFR; no FURN of ours
+        cont = int(next(iter(new['containers'].values()))['base'], 16)
+        misc = int(next(iter(new['items'].values()))['base'], 16)
+        acti = int(next(iter(new['activators'].values()))['base'], 16)
+        term = int(next(iter(new['terminals'].values()))['base'], 16)
+        menu = int(next(iter(new['terminals'].values()))['menu'], 16)
+        self.assertEqual([cont, misc, acti, term, menu, wk], list(range(max(old_records) + 1, max(old_records) + 7)))
+        self.assertEqual([new_records[k][0] for k in (cont, misc, acti, term, menu, wk)], [b'CONT', b'MISC', b'ACTI', b'TERM', b'TMLM', b'ACTI'])
+        self.assertEqual(sum(1 for r in new_records.values() if r[0] == b'FURN'), 0)
+        # the workshop ACTI: name, model, WorkshopKeyword then the master's OutpostCategory keywords in 00024DC7's order
+        # (MustPersist and OutpostBlockFlycam, its other keywords, are not copied), one PRPS OutpostBuildAreaRadius = 250,
+        # no VMAD (00024DC7's decoy script stays behind), the vanilla ACTI majority fields as the activators
+        w = list(subrecords(new_records[wk][1]))
+        wd = dict(w)
+        self.assertEqual((wd[b'EDID'], wd[b'MODL'], wd[b'FULL']), (b'FO4Core_wkshp_0c1aeb_synthetic\0', b'workbenchgarage01.nif\0', b'Workshop\0'))
+        self.assertEqual(wd[b'KSIZ'], struct.pack('<I', 4))
+        self.assertEqual(wd[b'KWDA'], struct.pack('<4I', 0x054BA7, 0x2CFDE6, 0x2BE3B5, 0x397027))
+        self.assertEqual(wd[b'PRPS'], struct.pack('<IfI', 0x063FC5, 250.0, 0))
+        self.assertNotIn(b'VMAD', wd)
+        self.assertEqual((wd.get(b'PNAM'), wd.get(b'FNAM'), wd.get(b'JNAM')), (bytes.fromhex('cc4c3300'), b'\0\0', struct.pack('<H', 360)))
+        self.assertEqual(wd[b'OBND'], bytes(24))
+        (candidate / 'record-layout.json').write_text(json.dumps(
+            {'ACTI_workshop': [[s.decode(), d.hex()] for s, d in w],
+             'REFR_bench': [[s.decode(), d.hex()] for s, d in subrecords(new_records[int(new['benches']['000007:Synthetic.esm']['ref'], 16)][1])]}, indent=1))
+        # make_core64c's checks on the written plugin: slots, counts, every binding, the master's station records
+        objects = self.promote_all()
+        walked = mk.overlay_records.walk_plugin(str(candidate / 'Synthetic.esm'))
+        own = len(walked['masters']) << 24
+        exp = {'objects': {'exported': 10, 'skipped': {}}}
+        mk.check_reference_slots(objects, new)
+        res = mk.promotion_checks(walked['records'], own, objects, new, exp)
+        self.assertTrue(all(ok for _w, ok in res), res)
+        self.assertEqual([w.split(' (')[0] for w, _ok in res][2:],
+                         ['1 CONT = 1 distinct containers edids', '1 MISC = 1 distinct items edids',
+                          '2 ACTI = 2 distinct activators / workshops edids', '1 TERM = 1 distinct terminals edids',
+                          '1 TMLM = 1 distinct terminals menu edids', '0 FURN of our own',
+                          'every promoted REFR names its CONT / MISC / ACTI / TERM / FURN'])
+        self.assertEqual(mk.station_master_check(str(self.master), walked['records'], own, objects, new, walked['masters']), [])
+        wrong = self.promote_all(x=lambda o: o['workshops'][1].update(radius=60.0))
+        self.assertFalse(mk.promotion_checks(walked['records'], own, wrong, new, exp)[-1][1])
+        wrong = self.promote_all(x=lambda o: o['benches'][0].update(kind='armor', vanilla='2B6A62:Starfield.esm'))
+        self.assertFalse(mk.promotion_checks(walked['records'], own, wrong, new, exp)[-1][1])
+
+    def test_bad_station_inputs_leave_the_plugin_and_map(self):
+        good = self.promote_all()
+        proc, stage = self.run_writer(good, 'stations-refusals')
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        pinned = {n: (stage / n).read_bytes() for n in ('Synthetic.esm', 'formids.json')}
+        invalid = [
+            self.promote_all(x=lambda o: o['benches'][0].update(kind='power')),                          # no such kind
+            self.promote_all(x=lambda o: o['benches'][0].update(vanilla='2B6A62:Starfield.esm')),        # another kind's bench
+            self.promote_all(x=lambda o: o['benches'][0].update(vanilla='3807C5:Starfield.esm')),        # a FURN without a bench type
+            self.promote_all(x=lambda o: o['benches'][0].update(vanilla='3807C6:Starfield.esm')),        # a STAT
+            self.promote_all(x=lambda o: o['benches'][0].update(vanilla='2B6A63:Synthetic.esm')),        # not the master
+            self.promote_all(x=lambda o: o['benches'][0].update(reference_index=0)),                     # the container's slot
+            self.promote_all(x=lambda o: o['workshops'][1].update(radius=60.0)),                         # one ACTI edid, two radii
+            self.promote_all(x=lambda o: o['workshops'][1].update(name='Settlement')),                   # one ACTI edid, two names
+            self.promote_all(x=lambda o: o['workshops'][0].update(radius=0.0)),
+            self.promote_all(x=lambda o: o['workshops'][0].update(radius=-1.0)),
+            self.promote_all(x=lambda o: o['workshops'][0].update(name='two\nlines')),
+            self.promote_all(x=lambda o: o['workshops'][0].update(name='')),
+            self.promote_all(x=lambda o: o['workshops'][0].update(reference_index=6)),                   # a bench's slot
+        ]
+        for objects in invalid:
+            proc, _ = self.run_writer(objects, 'stations-refusals')
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertEqual({n: (stage / n).read_bytes() for n in pinned}, pinned)

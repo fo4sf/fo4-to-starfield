@@ -134,7 +134,7 @@ internal static class TerrainIdentityAudit
                 Keys(map.GetProperty("refs"), refs.Select(r => Text(r, "src")));
                 foreach (var r in refs) Match(map.GetProperty("refs").GetProperty(Text(r, "src")), "reference", TerrainStableIds.Source(Text(r, "src")));
                 foreach (var (name, kind) in new[] { ("containers", "container"), ("items", "item"), ("activators", "activator"),
-                         ("terminals", "terminal"), ("doors", "door-base"), ("lights", "light-base") })
+                         ("terminals", "terminal"), ("workshops", "workshop"), ("doors", "door-base"), ("lights", "light-base") })
                 {
                     var entries = Entries(obj, name);
                     bool present = name == "containers" || (name is "doors" or "lights" ? entries.Length > 0 : obj.TryGetProperty(name, out _));
@@ -152,6 +152,25 @@ internal static class TerrainIdentityAudit
                         Match(v.GetProperty("ref"), name == "lights" ? "light-reference" : "reference", src);
                         if (name == "terminals") Match(v.GetProperty("menu"), "terminal-menu", Text(e, "menu_edid"));
                         if (name == "doors") Match(v.GetProperty("arrival"), "door-arrival", src);
+                    }
+                }
+                if (obj.TryGetProperty("benches", out var benches))
+                {
+                    sections.Add("benches");
+                    var ids = map.GetProperty("benches");
+                    Keys(ids, benches.EnumerateArray().Select(e => Text(e, "src")));
+                    foreach (var e in benches.EnumerateArray())
+                    {
+                        var v = ids.GetProperty(Text(e, "src"));
+                        Keys(v, new[] { "ref", "base", "kind" });
+                        string kind = Text(e, "kind"), vanilla = Text(e, "vanilla");
+                        int colon = vanilla.IndexOf(':');
+                        if (Text(v, "kind") != kind || Text(v, "base") != vanilla
+                            || !ReferenceIdentityPlan.BenchKinds.TryGetValue(kind, out var expected)
+                            || colon < 1 || !uint.TryParse(vanilla[..colon], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var id)
+                            || id != expected || !vanilla[(colon + 1)..].Equals("Starfield.esm", StringComparison.OrdinalIgnoreCase))
+                            throw new InvalidDataException($"bench identity differs: {Text(e, "src")}");
+                        Match(v.GetProperty("ref"), "reference", TerrainStableIds.Source(Text(e, "src")));
                     }
                 }
                 if (Entries(obj, "lights").Length > 0)

@@ -1686,3 +1686,20 @@ reorder, tombstones, altered/missing bundles, source mismatch, duplicate JSON, U
 Successful/refused audits preserve the complete synthetic stage file snapshot. Initial test import-alias
 failure retained and corrected. Evidence: persistent-door-audit-20261016. Peer QA, production checker routing,
 full-size runs and native save validation remain pending. No active stage/controller changes.
+
+## 2026-10-16 Codex: persistent doors alongside workshops and benches (offline)
+
+PR267 integrates pinned main7200aa5 (266). Three persistent station cases refused anonymous workshop
+allocation; the legacy mixed door check also rejected a vanilla bench FormKey as a local hex ID. Workshop
+bases now have semantic reservations. Benches retain their source REFR and vanilla FURN links; the audit
+checks source/kind/master without allocating replacement bases. Legacy door/light checks count only their
+local references. Mixed ACTI counts include ordinary activators, workshops and scripted doors.
+
+Four new actual-writer tests pass: reorder/growth/removal/reintroduction preserves old door destinations;
+explicit bootstrap preserves plugin/map bytes; changed bench kind/master is refused without mutation;
+legacy lights and existing records survive door addition. A separate build with main7200aa5's original
+writer gives identical legacy station plugin/map bytes. Merge-time assertion expectations for added classes
+and the combined ACTI label were corrected; failures are retained with passing evidence in
+persistent-stations-integration-20261016. Independent QA, production checker routing, full-size bootstrap,
+261's inherited review findings and native travel/return/save-reload remain gated. No active stage,
+installation, game controller or Claude checkout changed.

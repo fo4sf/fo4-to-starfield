@@ -150,3 +150,18 @@ record/transform/VMAD checks, full-size validation and native return/save/reload
 tests. The legacy core64c checker still has sequential-order assertions; invoking
 this audit alone does not replace them or enable persistent production rebuilds.
 Independent QA and caller integration remain pending.
+
+## Workshops and native crafting benches
+
+The main7200aa5 integration adds `workshop` reservations by base EditorID.
+Each placed workshop and bench retains its full source `reference` reservation.
+Bench bases remain vanilla Starfield FURN FormKeys; they do not consume local
+base IDs. The audit checks each bench's source, kind and master-owned base,
+including the writer's accepted hex padding and case-insensitive master name.
+Legacy light/door checks exclude those external base IDs from local allocation.
+
+Mixed synthetic builds cover workshops, benches, ordinary promotions, lights
+and a scripted door. Reordering and adding/removing/reintroducing stations must
+preserve every old door reference, base and arrival ID. Explicit migration still
+requires byte-identical plugin and map output. This does not migrate core64i or
+establish native crafting, door travel or saved-game behavior.
