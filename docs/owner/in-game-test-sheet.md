@@ -4,11 +4,14 @@ For the owner, by Claude (2026-10-16). Every line below is a console command (op
 the grave key `` ` ``; close it the same way). Copy a line, paste it into the console, Enter. Nothing here changes your
 saves on disk unless you save; the test save `fo4sf_test_2470f876` is the runner's and can be overwritten.
 
-**What is installed for you right now:** `terrain_core64f` = the whole playable Commonwealth exterior (64 x 64 cells,
-648,358 placed objects) + its navmesh (12,104 NAVM) + the Red Rocket first-aid kit as a real container + the converted
+**What is installed for you right now:** `terrain_core64h` = the whole playable Commonwealth exterior (64 x 64 cells,
+648,358 placed objects) + its navmesh (12,104 NAVM) + all 5,185 containers and 12,438 loose items as real Starfield containers and items + the converted
 raider (`FO4ActorRaider.esm`), on top of the pinned interior build `FO4Port.esm` and the observation bridge
 `FO4SFBridge.esm`. Section 8 says what is known not to work yet. If Starfield shows a "load order changed" dialog at
 start, choose **Current**.
+
+**Form ids in this sheet** start with `03`, the load index of `FO4TerrainCore.esm` in your load order (FO4Port.esm is
+`02`). The runner's own sessions load it at `02`, so its logs show `02...` for the same objects.
 
 ## 1. Get there
 
@@ -45,7 +48,8 @@ The kit is inside the station, on the wall. The runner opened it from the consol
 | Line | What happens |
 |---|---|
 | walk in, look at the kit, press **E** | The container menu: FIRST AID KIT, Credits 25, Digipick 1 (the vanilla inventory the build gives it). This is the one thing the runner cannot do: a real activation by the player. |
-| `prid 02069435` then `GetIsID 020A2AA5` | Selects the kit's reference; the reply `GetIsID >> 1.00` proves the selection (the runner's rule before it activates anything). |
+| `prid 03069435` then `GetIsID 030A2AB7` | Selects the kit's reference; the reply `GetIsID >> 1.00` proves the selection (the runner's rule before it activates anything). |
+| `prid 030116FB` then `activate player` | Picks up the Stimpak 7 m from the arrival (a converted loose item); the one thing the runner could not confirm is that it lands in your inventory. |
 | `activate player` | Opens the kit's menu from the console (after the two lines above), wherever you stand. Hold **Tab** to leave the menu (a tap only goes back one level). |
 
 ## 4. NPCs walk here (the exterior navmesh gate, passed 2026-10-16)
@@ -64,7 +68,7 @@ The kit is inside the station, on the wall. The runner opened it from the consol
 
 | Line | What happens |
 |---|---|
-| `cgf "FO4SF_Probe.Pos" 33985589` | The bridge script logs the kit reference's position and whether it is loaded to `Documents\My Games\Starfield\Logs\Script\User\fo4sf.0.log` (`FO4SF ref=... pos=... loaded=true`). Claude reads that log. |
+| `cgf "FO4SF_Probe.Pos" 50762805` | The bridge script logs the kit reference's position and whether it is loaded to `Documents\My Games\Starfield\Logs\Script\User\fo4sf.0.log` (`FO4SF ref=... pos=... loaded=true`). Claude reads that log. |
 | `cgf "FO4SF_Probe.Player"` | The same for you. |
 | `player.getpos x` (`y`, `z`) | Your position on the console (what the runner's OCR used to read). |
 | `GetInCell FO4Core_RedRocketSpawn` | `>> 1.00` in the arrival cell. |
