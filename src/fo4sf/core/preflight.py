@@ -11,7 +11,10 @@ The probe interface (every method may raise; the gate turns an exception into UN
   staged_plugin_sha256()             sha256 of the staged FO4Port.esm, None when it is not there
   deploy_manifest()                  Data/FO4Port.deploy.json as a dict, None when nothing is deployed
   experiment_inputs(exp_dir, plugins)  exp_install.source_inventory of the staged experiment
-  install_record()                   Data/FO4SFExp.install.json as {exp_dir, plugins, source_inputs, complete}, None when absent
+  install_record()                   Data/FO4SFExp.install.json as {exp_dir, plugins, files, source_inputs, complete,
+                                     cleanup_pending}, None when absent
+  data_file_sha256(rel)              sha256 of <game>/Data/<rel> (the deployed FO4Port.esm, an installed experiment
+                                     file), None when it is not there
   plugins_txt_lines()                the lines of Plugins.txt ([] when the file does not exist yet), None when it cannot be located
   plugin_masters(name)               the masters of a staged experiment plugin (TES4 MAST)
   implicit(name)                     True for a plugin the game loads on its own (Starfield.esm, SFBGS*, ...)
@@ -127,11 +130,27 @@ def check_deploy(p):
     man = p.deploy_manifest()
     if man is None:
         return Check("deploy", PASS, "nothing deployed: cycle.ps1 deploys the pinned staging at the launch")
-    if man.get("complete") is not True:
+    if man.get("complete") is not True or man.get("cleanup_pending"):
         return Check("deploy", FAIL, "an interrupted install sits in the game folder (deploy_starfield.py uninstall first)")
-    got = ((man.get("artifacts") or {}).get(DEPLOY_PLUGIN) or {}).get("sha256")
+    # deploy_starfield.py uninstall removes what it can, keeps a changed artifact and the manifest, complete still true
+    # (Codex on #182): the manifest's files are what it still owns, its artifacts what the deploy published, and the
+    # record is no proof the plugin is there, so its bytes are read (the archives, GB-sized, are judged by the inventory)
+    arts = man.get("artifacts") or {}
+    files = man.get("files")
+    if isinstance(files, list) and arts and set(files) != set(arts):
+        gone = sorted(set(arts) - set(files))
+        return Check("deploy", FAIL, f"a half-finished uninstall: {', '.join(gone)} removed, {', '.join(sorted(files)) or 'nothing'} "
+                                     f"kept (deploy_starfield.py uninstall again, then launch fresh)", sorted(arts), sorted(files))
+    got = (arts.get(DEPLOY_PLUGIN) or {}).get("sha256")
     if not got:
         return Check("deploy", UNKNOWN, f"the deploy manifest carries no sha256 for {DEPLOY_PLUGIN}")
+    now = p.data_file_sha256(DEPLOY_PLUGIN)
+    if now is None:
+        return Check("deploy", FAIL, f"the manifest says {DEPLOY_PLUGIN} is deployed but Data\\{DEPLOY_PLUGIN} is not there (a stale "
+                                     f"record: deploy_starfield.py uninstall, then launch fresh)", got, None)
+    if now != got:
+        return Check("deploy", FAIL, f"deployed {DEPLOY_PLUGIN} is {now[:8]} on disk, the manifest recorded {got[:8]}: changed "
+                                     f"since the deploy (deploy_starfield.py uninstall, then launch fresh)", got, now)
     if not want:
         return Check("deploy", PASS, f"deployed {DEPLOY_PLUGIN} is {got[:8]}; the queue pins nothing to compare it with "
                                      f"(the pin check says so)", want, got)
@@ -168,13 +187,36 @@ def check_experiment(p):
         return Check("experiment", UNKNOWN, f"install record unreadable: {rec['error']}")
     if rec.get("complete") is not True:
         return Check("experiment", FAIL, "the experiment install record is incomplete (exp_install.py uninstall first)")
+    if rec.get("cleanup_pending"):                           # exp_install.py uninstall removed some files, kept a changed
+        return Check("experiment", FAIL, "the experiment's uninstall did not finish (cleanup pending: some files gone, "
+                                         "some kept; the record stays complete): exp_install.py uninstall again")
     if os.path.normcase(os.path.abspath(rec.get("exp_dir") or "")) != os.path.normcase(os.path.abspath(pin["exp_dir"])):
         return Check("experiment", FAIL, f"installed experiment {rec.get('exp_dir')!r} is not the pinned {pin['exp_dir']!r}")
     if [str(x).casefold() for x in rec.get("plugins") or []] != [x.casefold() for x in pin["plugins"]]:
         return Check("experiment", FAIL, f"installed plugins {rec.get('plugins')} are not the pinned {pin['plugins']}")
     if (rec.get("source_inputs") or {}) != pin["inputs"]:
         return Check("experiment", FAIL, "the installed experiment's inputs are not the pinned ones (re-install)")
-    return Check("experiment", PASS, "staged and installed experiment are the pinned one")
+    # the staged inputs say what was installed from, not what is installed: the record's files are the installed
+    # inventory (exp_install.py verify_relaunch checks the same on a relaunch), and each must be on disk as recorded
+    files = rec.get("files")
+    if not isinstance(files, dict):
+        return Check("experiment", UNKNOWN, "the install record lists no installed files (a legacy record: exp_install.py "
+                                            "uninstall, then re-install)")
+    owned = {str(k).casefold() for k in files}
+    missing = [x for x in pin["plugins"] if x.casefold() not in owned]
+    if missing:
+        return Check("experiment", FAIL, f"the install record owns no installed {missing}: a half-finished uninstall or a "
+                                         f"stale record (exp_install.py uninstall, then re-install)", pin["plugins"], sorted(files))
+    for rel, h in files.items():
+        now = p.data_file_sha256(rel)
+        if now is None:
+            return Check("experiment", FAIL, f"installed experiment file missing: Data\\{rel} (exp_install.py uninstall, "
+                                             f"then re-install)", h, None)
+        if now != h:
+            return Check("experiment", FAIL, f"installed experiment file changed since the install: {rel} (exp_install.py "
+                                             f"uninstall, then re-install)", h, now)
+    return Check("experiment", PASS, f"staged and installed experiment are the pinned one; {len(files)} installed file(s) "
+                                     f"on disk as recorded")
 
 
 def _planned_plugins(p):

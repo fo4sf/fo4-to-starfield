@@ -5,6 +5,7 @@ Windows, tests/test_game_scripts.py). Synthetic data; no game, no Windows calls.
 import datetime
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -228,6 +229,18 @@ class ScriptLeaseBlockTests(unittest.TestCase):
         self.assertIn("if ($null -eq $leaseCode -or $leaseCode -ne 0) {", src)   # python missing: fail closed
         self.assertIn("exit 9", src)
         self.assertIn("else { 'Claude' }", src)                                # the default owner
+        # QA on #179: python that cannot be resolved leaves $LASTEXITCODE as it was, and a reused host had a 0 there; the
+        # gate resolves python first, clears the stale code (the global one: a plain assignment would shadow what native
+        # commands set), catches an invocation error and reads only lease.py's own fresh exit code
+        gate = src[block:src.index("Get-Process Starfield")]
+        self.assertIn("if (-not (Get-Command python -ErrorAction SilentlyContinue)) {", gate)
+        self.assertIn("cannot be checked: not launching\"; exit 9 }", gate)
+        self.assertIn("$global:LASTEXITCODE = $null", gate)
+        self.assertIn("try { $leaseOut = python -I \"$repo\\scripts\\game\\lease.py\" status --require $leaseOwner; $leaseCode = $LASTEXITCODE }", gate)
+        self.assertIn("catch { $leaseOut = \"lease.py could not be run: $_\"; $leaseCode = $null }", gate)
+        self.assertLess(gate.index("Get-Command python"), gate.index("$global:LASTEXITCODE = $null"))
+        self.assertLess(gate.index("$global:LASTEXITCODE = $null"), gate.index("lease.py\" status --require"))
+        self.assertIsNone(re.search(r"(?<![:\w])\$LASTEXITCODE\s*=", src))   # never a script-scope shadow of it
 
     def test_watchdog_lease_mode_is_off_by_default_and_never_takes_a_held_lease(self):
         src = read(os.path.join(GAME, "watchdog.ps1"))
@@ -288,6 +301,42 @@ class ScriptLeaseBlockTests(unittest.TestCase):
         self.assertIn("not valid for Claude", r.stdout)
         self.assertIn("not launching", r.stdout)
         self.assertFalse(os.path.exists(os.path.join(empty, "no-game")))       # nothing deployed, nothing created
+
+    @unittest.skipUnless(os.name == "nt" and shutil.which("powershell"), "runs cycle.ps1 in a reused PowerShell host on Windows only")
+    def test_cycle_ps1_in_a_reused_host_fails_closed_when_python_cannot_run(self):
+        # QA on #179: a host that already ran a command has $LASTEXITCODE = 0; python missing from PATH raised
+        # CommandNotFoundException and left that 0 in place, so the old guard passed and the game lookup was reached.
+        # Here cycle.ps1 runs with & inside a wrapper script (one host, not -File) over an empty lease folder; the
+        # wrapper's Get-Process is a canary that exits 77 instead of looking at the game, so a gate that fails open is
+        # seen as exit 77 and never as a launch.
+        import subprocess
+        empty, host = tempfile.mkdtemp(), tempfile.mkdtemp()
+        cycle = os.path.join(GAME, "cycle.ps1")
+
+        def q(s):
+            return "'" + s.replace("'", "''") + "'"
+
+        def reused_host(prelude):
+            wrapper = os.path.join(host, "reused_host.ps1")
+            with open(wrapper, "w", encoding="utf-8-sig") as f:
+                f.write("function Get-Process { 'canary: Get-Process reached, the gate failed open'; exit 77 }\n"
+                        + prelude + "\n$global:LASTEXITCODE = 0\n"
+                        + "& " + q(cycle) + " -Staging " + q(os.path.join(empty, "no-staging"))
+                        + " -Starfield " + q(os.path.join(empty, "no-game")) + "\nexit $LASTEXITCODE\n")
+            env = dict(os.environ, FO4SF_LEASE_DIR=empty, FO4SF_LEASE_OWNER="Claude")
+            return subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", wrapper],
+                                  capture_output=True, text=True, timeout=120, env=env)
+        # python not resolvable (a PATH without it): refused before anything is invoked
+        r = reused_host("$env:PATH = Join-Path $env:SystemRoot 'System32'")
+        self.assertEqual(r.returncode, 9, r.stdout + r.stderr)
+        self.assertIn("python not found", r.stdout)
+        self.assertNotIn("canary", r.stdout)
+        # python resolvable but setting no exit code (a shim): the host's stale 0 must not count as lease.py's exit 0
+        r = reused_host("function python { }")
+        self.assertEqual(r.returncode, 9, r.stdout + r.stderr)
+        self.assertIn("(lease.py exit ): not launching", r.stdout)
+        self.assertNotIn("canary", r.stdout)
+        self.assertFalse(os.path.exists(os.path.join(empty, "no-game")))
 
     def test_lease_wrapper_runs_the_controller_cli(self):
         import subprocess

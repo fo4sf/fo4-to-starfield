@@ -209,6 +209,24 @@ class FoldTests(unittest.TestCase):
         other = ev("controller_renewed", owner="Codex", expires="2026-10-15T20:00:00+00:00")
         self.assertEqual(fold([claim, other]).controller_status("2026-10-15T13:30:00+00:00"), "ambiguous")
 
+    def test_plugins_verified_merges_by_name(self):
+        exp = ev("plugins_verified", plugins=[{"name": "FO4SFExp.esm", "active_after_load": None}])
+        bridge = ev("plugins_verified", plugins=[{"name": "FO4SFBridge.esm", "active_after_load": None}])
+        s = fold([ev("build_pinned", build_id="b1"), exp, bridge])
+        self.assertEqual([p["name"] for p in s.plugins], ["FO4SFExp.esm", "FO4SFBridge.esm"])   # one event per record, both kept
+        # a later check of one plugin updates it in place (name matched without case); an unknown never erases a known value
+        later = ev("plugins_verified", plugins=[{"name": "fo4sfexp.esm", "active_after_load": True}])
+        s = fold([exp, bridge, later, exp])
+        self.assertEqual([(p["name"], p["active_after_load"]) for p in s.plugins],
+                         [("FO4SFExp.esm", True), ("FO4SFBridge.esm", None)])
+        # a full snapshot replaces the list; a new pin clears it
+        snap = ev("plugins_verified", replace=True, plugins=[{"name": "FO4SFBridge.esm", "active_after_load": True}],
+                  load_order=["FO4SFBridge.esm"])
+        s = fold([exp, bridge, snap])
+        self.assertEqual([p["name"] for p in s.plugins], ["FO4SFBridge.esm"])
+        self.assertEqual(s.load_order, ["FO4SFBridge.esm"])
+        self.assertEqual(fold([exp, bridge, ev("build_pinned", build_id="b2")]).plugins, [])
+
     def test_report_has_the_eight_bullets(self):
         s = fold([ev("leader_started", commit="8cae1db"), ev("build_pinned", build_id="b1", commit="d628b56"),
                   ev("plugins_verified", plugins=[{"name": "FO4SFExp.esm", "active_after_load": True}]),
@@ -333,6 +351,32 @@ class ImportTests(unittest.TestCase):
         os.utime(dep, (1_800_000_000, 1_800_000_000))
         self.assertEqual(imp.import_deploy(dep, self.led), 1)
         self.assertEqual(fold(self.led.read()).build["build_id"], "abababab")
+
+    def test_install_record_shapes(self):
+        d = os.path.dirname(self.q)
+        bridge = os.path.join(d, "FO4SFBridge.install.json")       # bridge_install.py: one `plugin`
+        with open(bridge, "w", encoding="utf-8") as f:
+            json.dump({"schema": 2, "plugin": "FO4SFBridge.esm", "files": {}, "complete": True}, f)
+        old = os.path.join(d, "FO4SFExp.install.json")             # exp_install.py before 270b0ec: `plugins_added` only
+        with open(old, "w", encoding="utf-8") as f:
+            json.dump({"plugins_added": ["*FO4SFExp.esm"], "plugins_replaced": [], "complete": True}, f)
+        self.assertEqual(imp.import_install(old, self.led, active_after_load=True), 1)
+        self.assertEqual(imp.import_install(bridge, self.led), 1)
+        s = fold(self.led.read())
+        self.assertEqual([p["name"] for p in s.plugins], ["FO4SFExp.esm", "FO4SFBridge.esm"])   # both records, both plugins
+        self.assertIn("plugins: FO4SFExp.esm, FO4SFBridge.esm (not confirmed after load)", s.report()[4])
+        # a current exp record names the plugin in `plugins` and `plugins_added` alike: once, and the known
+        # active_after_load survives an import that does not know it
+        with open(old, "w", encoding="utf-8") as f:
+            json.dump({"plugins": ["FO4SFExp.esm"], "plugins_added": ["*FO4SFExp.esm"], "plugins_replaced": [],
+                       "complete": True, "pack": "core64d"}, f)
+        self.assertEqual(imp.import_install(old, self.led), 1)
+        s = fold(self.led.read())
+        self.assertEqual([(p["name"], p["active_after_load"]) for p in s.plugins],
+                         [("FO4SFExp.esm", True), ("FO4SFBridge.esm", None)])
+        self.assertEqual(imp.record_plugins({"plugins": ["A.esm"], "plugins_added": ["*a.esm", "*B.esm"], "plugin": "C.esm",
+                                             "plugins_replaced": [{"active": "*D.esm", "original": ""}, "junk"]}),
+                         ["A.esm", "B.esm", "C.esm", "D.esm"])
 
     def test_deploy_pins_explicit_keys_win(self):
         self.assertEqual(imp.deploy_pins({"artifacts": {"FO4Port.esm": {"sha256": "ab" * 32}}}),
