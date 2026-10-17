@@ -65,7 +65,8 @@ def parse(raw, nonce=None):
     """'x y z' (2 decimals) from OCR'd console text, or 'fail'. With a nonce only the text after its echo (the OCR's
     column layout lists the labels, the echo among them, before the values, so the bare-number fallback still works,
     but only when the screen's lone values are exactly as many as its labels waiting for one and the last three such
-    labels are this read's X, Y, Z: an older reply's label before the echo has its value after it too, #215)."""
+    labels are X, Y, Z after the echo: an older reply's label before the echo has its value after it too, #215; the
+    GetPos count alone is met by the command echoes, Codex on PR #322)."""
     full = raw
     if nonce is not None:
         raw = after_nonce(raw, nonce)
@@ -80,8 +81,9 @@ def parse(raw, nonce=None):
     if len(vals) < 3 and len(re.findall(r"Get\s?Pos", raw, re.I)) >= 3:
         bare = bare_values(raw)
         waiting = waiting_labels(full)
-        if nonce is not None and (len(bare_values(full)) != len(waiting) or waiting[-3:] != list("XYZ")):
-            bare = []                                     # a value lost: the last three would mix two reads
+        if nonce is not None and (len(bare_values(full)) != len(waiting) or waiting[-3:] != list("XYZ")
+                                  or waiting_labels(raw)[-3:] != list("XYZ")):
+            bare = []                                     # a value lost, or a reply label older than this request
         if len(bare) >= 3:
             vals = dict(zip("XYZ", bare[-3:]))
     return " ".join(f"{vals[k]:.2f}" for k in "XYZ") if len(vals) == 3 else "fail"

@@ -127,6 +127,16 @@ class NonceTests(unittest.TestCase):
         self.assertEqual(pg.parse(col, nonce=NONCE), "fail")
         whole = col.replace("\n99.74\n-2195.27\n99.41", "\n99.74\n-2195.27\n-1593.51\n99.41")   # every value read
         self.assertEqual(pg.parse(whole, nonce=NONCE), "-2195.27 -1593.51 99.41")
+        # Codex on PR #322: an X (or X, Y, or all three) reply label from before this read's echo, its values still
+        # on screen, the current replies lost: the echoes alone made up the GetPos count
+        cur = {"X": "GetPos: X > >\n", "Y": "GetPos: Y > >\n", "Z": "GetPos: Z > >\n"}
+        vals = "100.11\n200.22\n300.33"
+        for old in ("X", "XY", "XYZ"):
+            text = ("".join(cur[a] for a in old) + NONCE + "\n" + "".join(
+                f"player.getpos {a.lower()}\n" + ("" if a in old else cur[a]) for a in "XYZ") + vals)
+            self.assertEqual(pg.parse(text, nonce=NONCE), "fail", text)
+        text = NONCE + "\n" + "".join(f"player.getpos {a.lower()}\n" + cur[a] for a in "XYZ") + vals
+        self.assertEqual(pg.parse(text, nonce=NONCE), "100.11 200.22 300.33")      # the current column control
 
     def test_the_angle_after_its_own_nonce(self):
         n2 = "fo4sfr9e8d7c6b"
