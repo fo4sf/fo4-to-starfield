@@ -38,13 +38,17 @@
 // objects.json may also hold "doors" (scripted load doors, docs/terrain/scripted-doors.md: written by make_core64c.py
 // stage from make_cluster.py doors): FO4 exterior load doors whose destination lies in a converted interior. The door
 // REFR keeps its slot (as every promoted class) and carries a VMAD attaching FO4SF_LoadDoor (scripts/door_bridge, PR
-// #243) with the edited properties DestinationPlugin (string) and DestinationId (int, the interior arrival marker's
-// plugin-local id); its base is one ACTI per FO4 door base (the converted door mesh, FULL the entry's name, PNAM /
-// FNAM / JNAM as the activators'). Each door also places an exterior ARRIVAL marker (XMarker 00003B:Starfield.esm,
-// temporary, in the cell of the FO4 arrival point) where the interior door's MoveTo lands the player. The markers take
-// NEW FormIDs after every other record of the plugin (the lights included), in "doors" order, then the door ACTIs in
-// first-use order, so a build with doors keeps every FormID of the build without them; formids.json "doors" maps each
-// source to {"base", "ref", "arrival"}.
+// #243) with the edited properties DestinationPlugin (string), DestinationId (int, the interior arrival marker's
+// plugin-local id) and DestinationX / DestinationY / DestinationZ (float, that marker's position: destination.arrival,
+// interior coordinates; Codex's PR #291 applies them with SetPosition after the MoveTo); its base is one ACTI per FO4
+// door base (the converted door mesh, FULL the entry's name, PNAM / FNAM / JNAM as the activators'). Each door also
+// places an exterior ARRIVAL marker (XMarker 00003B:Starfield.esm at the FO4 arrival point) where the interior door's
+// MoveTo lands the player: PERSISTENT (0x400) in the world's persistent cell, beside the anchor, because a temporary
+// reference of an unloaded cell does not resolve through Game.GetFormFromFile from inside (door_trip_sdm_1018) and
+// vanilla keeps every persistent worldspace reference there (Starfield.esm 16,057 of 16,057, Fallout4.esm 33,571 of
+// 33,571). The markers take NEW FormIDs after every other record of the plugin (the lights included), in "doors"
+// order, then the door ACTIs in first-use order, so a build with doors keeps every FormID of the build without them;
+// formids.json "doors" maps each source to {"base", "ref", "arrival"}.
 using System.Text.Json;
 using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
@@ -667,11 +671,13 @@ if (Has(prm, "objects"))
     // ({"src", "edid", "model", "name", "destination": {"plugin", "id", "ref", "cell"}, "arrival": {"pos", "rot", "cell"},
     // "cell", "pos", "rot", "scale", "reference_index"}). The REFR is placed here, temporary in its reserved slot, with
     // the VMAD (Mutagen 0.55.0-alpha.67 VirtualMachineAdapter, version 6 / object format 2, one local ScriptEntry
-    // FO4SF_LoadDoor, ScriptStringProperty DestinationPlugin + ScriptIntProperty DestinationId, both Edited: the layout
-    // of Starfield.esm's own REFR VMADs, read back raw by the design pass). Its ACTI base (one per edid: entries of an
+    // FO4SF_LoadDoor, ScriptStringProperty DestinationPlugin + ScriptIntProperty DestinationId + ScriptFloatProperty
+    // DestinationX / Y / Z (destination.arrival.pos: the interior marker's position), all Edited: the layout of
+    // Starfield.esm's own REFR VMADs, read back raw by the design pass). Its ACTI base (one per edid: entries of an
     // edid must agree on model and name) and its arrival marker are allocated after the lights, below; the base link
-    // is set then. Refused: a destination that is not a plugin file name with an id in 1..0xFFFFFF, two doors sharing
-    // one destination, an arrival marker outside the overlay's cells.
+    // is set then. Refused: a destination that is not a plugin file name with an id in 1..0xFFFFFF or whose arrival
+    // position is not three finite numbers, two doors sharing one destination, an arrival marker outside the overlay's
+    // cells.
     if (o.TryGetProperty("doors", out var doorsJ))
     {
         var doorSig = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -690,6 +696,9 @@ if (Has(prm, "objects"))
                 throw new InvalidDataException($"door {src}: destination id {dest.GetProperty("id")} is not a plugin-local id in 1..0xFFFFFF");
             if (!destSeen.Add($"{plugin}:{destId:X6}"))
                 throw new InvalidDataException($"door {src}: destination {plugin}:{destId:X6} already belongs to another door");
+            var destPos = dest.GetProperty("arrival").GetProperty("pos").EnumerateArray().Select(e => e.GetSingle()).ToArray();
+            if (destPos.Length != 3 || destPos.Any(v => !float.IsFinite(v)))
+                throw new InvalidDataException($"door {src}: destination arrival position is not three finite numbers");
             var sig = $"{model.ToLowerInvariant()}|{name}";
             if (doorSig.TryGetValue(edid, out var have))
             {
@@ -706,6 +715,9 @@ if (Has(prm, "objects"))
             var script = new ScriptEntry { Name = "FO4SF_LoadDoor", Flags = ScriptEntry.Flag.Local };
             script.Properties.Add(new ScriptStringProperty { Name = "DestinationPlugin", Flags = ScriptProperty.Flag.Edited, Data = plugin });
             script.Properties.Add(new ScriptIntProperty { Name = "DestinationId", Flags = ScriptProperty.Flag.Edited, Data = destId });
+            string[] axes = { "DestinationX", "DestinationY", "DestinationZ" };
+            for (int k = 0; k < 3; k++)
+                script.Properties.Add(new ScriptFloatProperty { Name = axes[k], Flags = ScriptProperty.Flag.Edited, Data = destPos[k] });
             vmad.Scripts.Add(script);
             obj.VirtualMachineAdapter = vmad;
             doorEntries.Add((src, obj, edid, model, name, acell, A("pos"), A("rot")));
@@ -937,10 +949,12 @@ if (lightsJson is JsonElement lights && lightBasesJson is JsonElement lightBases
 int nDoorActi = 0;
 if (doorEntries.Count > 0)
 {
-    // Scripted load doors, the appended records: first one arrival XMarker REFR per door (temporary, in the cell of
-    // the FO4 arrival point: where the interior door's MoveTo lands the player), in "doors" order, then one ACTI per
+    // Scripted load doors, the appended records: first one arrival XMarker REFR per door (where the interior door's
+    // MoveTo lands the player: PERSISTENT, in the world's persistent cell beside the anchor, at the FO4 arrival point's
+    // local position; the arrival cell was checked against the overlay above), in "doors" order, then one ACTI per
     // door edid in first-use order (the converted door mesh, FULL the name, PNAM / FNAM / JNAM as the activators:
     // the vanilla majority), and the door REFRs placed above take that ACTI as base.
+    var persistentCell = worlds.First(x => x.World.EditorID == objWorld).World.TopCell!;
     var markerKeys = doorEntries.Select(_ => NewKey()).ToList();
     var doorActi = new Dictionary<string, StarfieldActivator>(StringComparer.OrdinalIgnoreCase);
     for (int i = 0; i < doorEntries.Count; i++)
@@ -965,13 +979,14 @@ if (doorEntries.Count > 0)
             Position = new P3Float(d.ArrivalPos[0], d.ArrivalPos[1], d.ArrivalPos[2]),
             Rotation = new P3Float(d.ArrivalRot[0], d.ArrivalRot[1], d.ArrivalRot[2]),
         };
-        objCells![(d.ArrivalCell[0], d.ArrivalCell[1])].Temporary.Add(marker);
+        marker.MajorRecordFlagsRaw |= 0x400;                                     // Persistent
+        persistentCell.Persistent.Add(marker);
         doorIds[d.Src] = new Dictionary<string, string>
         {
             ["base"] = acti.FormKey.ID.ToString("X6"), ["ref"] = d.Obj.FormKey.ID.ToString("X6"), ["arrival"] = marker.FormKey.ID.ToString("X6"),
         };
         Console.WriteLine($"  door {d.Src} -> REFR {d.Obj.FormKey} on ACTI {acti.FormKey} {acti.EditorID} ('{d.Name}'), arrival marker {marker.FormKey} " +
-                          $"in cell ({d.ArrivalCell[0]}, {d.ArrivalCell[1]}) at ({d.ArrivalPos[0]}, {d.ArrivalPos[1]}, {d.ArrivalPos[2]})");
+                          $"persistent in {persistentCell.FormKey} (over cell ({d.ArrivalCell[0]}, {d.ArrivalCell[1]})) at ({d.ArrivalPos[0]}, {d.ArrivalPos[1]}, {d.ArrivalPos[2]})");
     }
 }
 if (ids != null)

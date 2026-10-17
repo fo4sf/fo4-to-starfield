@@ -1,8 +1,9 @@
 """Scripted load doors through the actual terrain writer (dotnet/TerrainOverlays) on the synthetic master of
 test_terrain_reference_identity (dotnet/TerrainIdentityFixture), never a game: the door REFR keeps its slot and carries
-the FO4SF_LoadDoor VMAD byte for byte as scripts/terrain/vmad_patch.py encodes it, the arrival markers take new ids
-after every other record (the lights included), one ACTI per door base follows, and make_core64c's own checks pass on
-the written plugin (docs/terrain/scripted-doors.md)."""
+the FO4SF_LoadDoor VMAD byte for byte as scripts/terrain/vmad_patch.py encodes it (DestinationX / Y / Z = the interior
+marker's position), the arrival markers take new ids after every other record (the lights included) and are PERSISTENT
+references of the world's persistent cell (with the anchor), one ACTI per door base follows, and make_core64c's own
+checks pass on the written plugin (docs/terrain/scripted-doors.md)."""
 import copy
 import importlib.util
 import json
@@ -24,6 +25,7 @@ mk = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mk)
 
 subrecords, field = tlw.subrecords, tlw.field
+INSIDE = (5.449, 17.291, -3.654)          # the interior arrival marker of door(): the exterior VMAD's DestinationX / Y / Z
 
 
 class TerrainDoorsWriterTests(unittest.TestCase):
@@ -35,7 +37,7 @@ class TerrainDoorsWriterTests(unittest.TestCase):
     def door(r, index, dest_id, edid="FO4Core_door_018c8b_synthetic", name="Door", arrival=(150.0, 160.0, 2.0), model="synthetic.nif"):
         return dict(r, reference_index=index, edid=edid, model=model, name=name,
                     destination={"plugin": "FO4Port.esm", "id": dest_id, "ref": "007D0B", "cell": "006C46",
-                                 "door": "0EE5D6:Fallout4.esm", "arrival": {"pos": [5.449, 17.291, -3.654], "rot": [0, 0, 4.7124]}},
+                                 "door": "0EE5D6:Fallout4.esm", "arrival": {"pos": list(INSIDE), "rot": [0, 0, 4.7124]}},
                     arrival={"pos": list(arrival), "rot": [0, 0, 2.5812], "cell": [int(arrival[0] // 100), int(arrival[1] // 100)]})
 
     def with_doors(self, objects, change=None):
@@ -86,22 +88,37 @@ class TerrainDoorsWriterTests(unittest.TestCase):
             self.assertEqual(r[0], b"REFR")
             sigs = [s for s, _d in subrecords(r[1])]
             self.assertEqual(sigs[:2], [b"VMAD", b"NAME"])
-            self.assertEqual(field(r[1], b"VMAD"), vmad_patch.load_door_vmad("FO4Port.esm", dest))
-            self.assertEqual(vmad_patch.load_door_destination(field(r[1], b"VMAD")), ("FO4Port.esm", dest))
+            self.assertEqual(field(r[1], b"VMAD"), vmad_patch.load_door_vmad("FO4Port.esm", dest, INSIDE))
+            plugin, local_id, pos = vmad_patch.load_door_target(field(r[1], b"VMAD"))
+            self.assertEqual((plugin, local_id), ("FO4Port.esm", dest))
+            self.assertEqual(pos, tuple(struct.unpack("<3f", struct.pack("<3f", *INSIDE))))   # float32 of the JSON values
             self.assertEqual(struct.unpack("<I", field(r[1], b"NAME"))[0], 0x01000000 | acti)
             self.assertEqual(r[3] & 0x400, 0)                      # temporary
-        # the markers: XMarker of the master, at the arrival point, temporary, in the arrival's own cell
-        cells = {k: v[1] for k, v in new_records.items() if v[0] == b"CELL"}
-        for m, pos, cell in ((m1, (150.0, 160.0, 2.0), (1, 1)), (m2, (30.0, 140.0, 4.0), (0, 1))):
+        # the markers: XMarker of the master, at the arrival point, PERSISTENT, in the world's persistent cell (the
+        # anchor's: no XCLC), its persistent children group
+        anchor = new_records[0x800]
+        self.assertEqual((anchor[0], anchor[3] & 0x400), (b"REFR", 0x400))
+        self.assertIsNone(field(new_records[anchor[2]][1], b"XCLC"))   # the anchor's cell is the persistent cell
+        groups = mk.door_marker_groups(str(new_stage / "Synthetic.esm"), {0x01000000 | m for m in (m1, m2, 0x800)})
+        for m, pos in ((m1, (150.0, 160.0, 2.0)), (m2, (30.0, 140.0, 4.0))):
             r = new_records[m]
             self.assertEqual(r[0], b"REFR")
             self.assertEqual(struct.unpack("<I", field(r[1], b"NAME"))[0], 0x0000003B)
             self.assertEqual(struct.unpack("<6f", field(r[1], b"DATA"))[:3], pos)
             self.assertAlmostEqual(struct.unpack("<6f", field(r[1], b"DATA"))[5], 2.5812, places=5)
-            self.assertEqual(r[3], 0)
+            self.assertEqual(r[3], 0x400)
             self.assertIsNone(field(r[1], b"XSCL"))
-            grid = struct.unpack("<2i", field(cells[r[2]], b"XCLC")[:8])
-            self.assertEqual(grid, cell)
+            self.assertEqual(r[2], anchor[2])
+            self.assertEqual(groups[0x01000000 | m], {"cell": 0x01000000 | anchor[2], "grid": None, "group": 8})
+        self.assertEqual(mk.door_marker_placement(groups, [0x01000000 | m1, 0x01000000 | m2], 0x01000800), [])
+        # every exterior cell holds exactly what it held before the doors (the markers are not in one)
+        cells_before = mk.x2c.walk_cells(str(old_stage / "Synthetic.esm"))
+        cells_after = mk.x2c.walk_cells(str(new_stage / "Synthetic.esm"))
+        self.assertEqual({c["grid"]: len(c["refs"]) for c in cells_after.values() if c["grid"] is not None},
+                         {c["grid"]: len(c["refs"]) for c in cells_before.values() if c["grid"] is not None})
+        top = [c for c in cells_after.values() if c["grid"] is None]
+        self.assertEqual(len(top), 1)
+        self.assertEqual(sorted(f & 0xFFFFFF for f in top[0]["refs"]), sorted([0x800, m1, m2]))
         # the ACTI: the door mesh, FULL, the vanilla majority PNAM / FNAM / JNAM, no VMAD
         a = dict(subrecords(new_records[acti][1]))
         self.assertEqual(new_records[acti][0], b"ACTI")
@@ -132,6 +149,8 @@ class TerrainDoorsWriterTests(unittest.TestCase):
         self.assertFalse(mk.promotion_checks(walked["records"], own, wrong, new, {"objects": {"exported": 6, "skipped": {}}})[-1][1])
         wrong = self.with_doors(base, lambda o: o["doors"][1]["arrival"].update(pos=[30.0, 140.0, 5.0]))
         self.assertTrue(mk.door_record_problems(walked["records"], own, wrong, new))
+        wrong = self.with_doors(base, lambda o: o["doors"][0]["destination"]["arrival"].update(pos=[5.449, 17.291, -2.654]))
+        self.assertIn("REFR VMAD", mk.door_record_problems(walked["records"], own, wrong, new)[0])   # another inside point
 
     def test_a_navmesh_door_triangle_may_name_a_scripted_door(self):
         """The core's manhole door 042908 is a navmesh door triangle (core64i's navmesh.json): a promoted door keeps
@@ -183,6 +202,9 @@ class TerrainDoorsWriterTests(unittest.TestCase):
             self.with_doors(base, lambda o: o["doors"][1]["arrival"].update(cell=[5, 5])),            # outside the overlay
             self.with_doors(base, lambda o: o["doors"][1].update(reference_index=0)),                 # the container's slot
             self.with_doors(base, lambda o: o["doors"][0].update(name="two\nlines")),
+            self.with_doors(base, lambda o: o["doors"][0]["destination"]["arrival"].update(pos=[5.449, 17.291])),   # two axes
+            self.with_doors(base, lambda o: o["doors"][0]["destination"]["arrival"].update(pos=[5.449, 17.291, 1e39])),  # not a float32
+            self.with_doors(base, lambda o: o["doors"][0]["destination"].pop("arrival")),            # no inside point
         ]
         for objects in invalid:
             proc, _ = self.run_writer(objects, "doors-refusals")
