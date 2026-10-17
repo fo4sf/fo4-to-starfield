@@ -2314,6 +2314,7 @@ LIGHT_WAIT_MS = 4000    # qstep.ps1's wait after such a command before the scree
 LIGHT_PROBE_S = 4       # terrain with light: the measure of every probe shot
 REPIN_S = 8             # terrain, time_repin: the time command typed again in every probe's teleport session
 CONSOLE_CMD_S = 35      # one console_pre / console_post command: open, ~45 characters, capture, OCR, close
+MOVETO_S = 100          # after a FO4SF_Probe.MoveTo line: qstep.ps1 waits up to 90 s for the HUD (a cell load), then 3 s
 HOP_S = 40              # one intermediate terrain hop: console open, five setpos / setangle lines, close
 
 
@@ -2337,9 +2338,11 @@ def step_timeout(test):
     capture and OCR, close), twice light_wait_ms, two screenshots and their measures: LIGHT_TRY_S each, worst case (the
     ladder stops early); terrain also measures every probe shot (LIGHT_PROBE_S) and types the time command again before
     every probe (REPIN_S, time_repin).
-    console_pre / console_post: CONSOLE_CMD_S per command (console open, typing, capture, OCR, close)."""
+    console_pre / console_post: CONSOLE_CMD_S per command (console open, typing, capture, OCR, close), and MOVETO_S
+    more for each FO4SF_Probe.MoveTo line (the HUD wait after it)."""
     light = len(sky_light.commands(test)) * (LIGHT_TRY_S + 2 * test.get("light_wait_ms", LIGHT_WAIT_MS) / 1000)
     light += CONSOLE_CMD_S * sum(len(test.get(k) or []) for k in console_plan.CONSOLE_KEYS)
+    light += MOVETO_S * sum(1 for k in console_plan.CONSOLE_KEYS for c in test.get(k) or [] if console_plan.is_moveto(c))
     if test.get("kind") == "terrain":
         # a terrain drop takes about a minute per point (teleport, fall, OCR read): 300 s cut experiment 1 off; a
         # settle_ms above the step's default 4.5 s adds to every point (core64 2026-10-11: 10-12 s settle, 103-114 s a

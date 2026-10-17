@@ -12,9 +12,17 @@ is loaded, cmd the value of the global FO4SF_Cmd when it changed since the previ
 usage: bridge_log.py latest [--log <file>] [--max-age 3]      the newest line as JSON, or {"ok": false, "why": ...}
        bridge_log.py wait-cmd <value> [--log <file>] [--timeout 10]    wait until a line echoes cmd=<value>
        bridge_log.py wait-move [--log <file>] [--timeout 10] [--min 0.5]  wait until pos moved >= min from the first line
+       bridge_log.py events [--log <file>] [--all]     every probe line (ack, ref, player, resolve, target, moveto, init)
 The game rewrites the log on every launch (Papyrus.0.log rotation applies to user logs too): callers note the line
 count or rt they start from, never the file's mtime alone. Papyrus prints floats with six decimals and bools as True /
 False; both forms are accepted, as are missing fields (older script versions).
+FO4SF_Probe.Resolve / MoveTo (the scripted door's Step 0, 2026-10-16) write key=value lines:
+    FO4SF resolve plugin=FO4TerrainCore.esm id=2048 form=33556480 ref=true pos=-989.257080 1146.514282 105.142899
+          ang=0.000000 cell=33560581 cellname= world=-16707575 worldname= disabled=false loaded=true
+    FO4SF resolve plugin=FO4TerrainCore.esm id=184876 form=none
+    FO4SF target ...   (MoveTo's own lookup of its destination, the same fields)
+    FO4SF moveto plugin=FO4TerrainCore.esm id=2048 offset=-1200.000000 -2700.000000 0.000000 phase=after pos=.. ang=..
+          cell=.. cellname=.. world=.. worldname=.. loaded=..       (phase before | after | settled | refused)
 """
 import argparse
 import json
@@ -67,7 +75,7 @@ def parse_line(s):
     return d
 
 
-ACK = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF ack (?P<tag>.+?)\s*$")
+ACK = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF ack (?P<tag>.+?)\s*$", re.I)
 REF = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF ref=(?P<id>-?\d+)(?: (?P<none>none)| pos=(?P<x>-?\d+(?:\.\d+)?) (?P<y>-?\d+(?:\.\d+)?)"
                  r" (?P<z>-?\d+(?:\.\d+)?)(?: ang=(?P<ang>-?\d+(?:\.\d+)?))?(?: cell=(?P<cell>-?\d+|none))?"
                  r"(?: disabled=(?P<disabled>True|False|true|false))?(?: loaded=(?P<loaded>True|False|true|false))?)\s*$")
@@ -109,7 +117,57 @@ def parse_event(s):
         return out
     if re.match(r"^(?:\[[^\]]*\]\s*)?FO4SF init\b", s):
         return {"kind": "init"}
-    return None
+    return parse_probe(s)
+
+
+PROBE = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF (?P<kind>resolve|target|moveto) (?P<rest>[a-z]+=.*?)\s*$", re.I)
+_IDS = ("form", "cell", "world")                           # signed decimal form ids (or none) -> 8 hex
+_BOOLS = ("ref", "disabled", "loaded")
+_VECS = ("pos", "offset")
+_NUM = r"-?\d+(?:\.\d+)?"
+
+
+def parse_probe(s):
+    """A FO4SF_Probe.Resolve / MoveTo line (module doc) as {"kind": resolve | target | moveto, "plugin", "id" (the
+    plugin-local id, int), and what the line has of: "form" (8 hex, None for none), "ref", "pos", "ang", "cell" /
+    "world" (8 hex or None), "cellname" / "worldname" (str, "" when the game kept no editor id), "disabled", "loaded",
+    "offset", "phase"}; None for anything else or a torn line (a value that does not parse)."""
+    m = PROBE.match(s.strip())
+    if not m:
+        return None
+    fields, key = {}, None
+    for tok in m.group("rest").split(" "):
+        k, eq, v = tok.partition("=")
+        if eq and re.fullmatch(r"[a-z]+", k):
+            key = k
+            fields[key] = [v] if v else []
+        elif key is not None and tok:
+            fields[key].append(tok)
+    out = {"kind": m.group("kind").lower()}
+    try:
+        for k, vals in fields.items():
+            v = " ".join(vals)
+            if k == "id":
+                out[k] = int(v)
+            elif k in _IDS:
+                out[k] = None if v == "none" else f"{int(v) & 0xFFFFFFFF:08X}"
+            elif k in _BOOLS:
+                if v.lower() not in ("true", "false"):
+                    return None
+                out[k] = v.lower() == "true"
+            elif k in _VECS:
+                if len(vals) != 3 or not all(re.fullmatch(_NUM, x) for x in vals):
+                    return None
+                out[k] = [float(x) for x in vals]
+            elif k == "ang":
+                out[k] = float(v)
+            else:                                          # plugin, cellname, worldname, phase
+                out[k] = v
+    except ValueError:
+        return None
+    if "plugin" not in out or "id" not in out:
+        return None
+    return out
 
 
 def read_events(path):
