@@ -3,6 +3,26 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-17 Grok: 3D surface map for this testing stage (ROADMAP §3 item 1)
+- Question: what Starfield's surface map draws from, why the Commonwealth overlay would show Mars, and whether an
+  overlay world can appear there from our plugin and locally generated files; go/no-go for a 3D map this stage.
+- Method: pinned `terrain_core64k` read-only (`fo4land.Plugin` on `FO4TerrainCore.esm` / `_Mars.esm`, walk of staged
+  `Data\`); cross-check [map-markers.md](../terrain/map-markers.md), [overlay-records.md](../terrain/overlay-records.md),
+  [architecture.md](../terrain/architecture.md), journal 11 Oct lodsettings note. No game input.
+- Surface map, **supported**: May 2024 3D map draws the current loading zone (overlay BTD + planet procgen + world
+  object LOD). WRLD `MapData` is all zero; there is no separate map-mesh group. World object LOD is
+  `lodsettings/<edid>.lod` + `meshes/lod/generated/…_lod_0..3.nif`, not converted FO4 `*_lod.nif`.
+- Why Mars, **verified** on core64k: LCTN `01000802` parent `SSol_PMars_Surface` `0001B736`, LocTypeOverlay; WRLD
+  overlay SNAM 0 / PNAM 4; Mars PNDT `0003F59A` 11 `CNAM` entries, last lat 0.3 lon −1.2 WRLD `01000803`. Staged Data:
+  BTD 103,172,485 B, overlay mask present, **0** `lodsettings`, **0** `meshes/lod/generated`, **315**
+  `meshes/fo4core/lod`. LCSR/LCID still empty.
+- Overlay on the 3D map, **supported**: unique overlays already activate and merge (owner walked core64k). Vanilla
+  cities of the same family show on the surface map. Marker + CK object LOD still required for the acceptance
+  screenshot. Map camera sampling overlay BTD vs planet SFTR is **unresolved** until Claude's screenshot.
+- GO: this note; then #296 LCSR tail `0xFFFFFFFF` and Claude screenshot; then CK object-LOD trial (ROADMAP item 3).
+  NOT go: custom map renderer, unparent from Mars, FO4 `.bto`, treating `fo4core/lod` as world LOD.
+  Doc: [docs/terrain/surface-map.md](../terrain/surface-map.md).
+
 ## 2026-10-17 Grok: overlay map markers / fast travel (owner playtest row 7)
 - Question: why the Commonwealth overlay has no map / fast-travel data, and whether restoring a vanilla marker chain
   is the first writer change (Claude 04:07 packet, after textures and FLOR).
