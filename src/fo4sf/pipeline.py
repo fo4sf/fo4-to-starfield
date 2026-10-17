@@ -98,8 +98,12 @@ class Converter:
                  collision_template: Optional[bytes] = None, prefix: str = "fo4port",
                  no_collision_pattern: str = r"^meshes[\\/](architecture|interiors|scol)[\\/]", rig_doors: bool = False,
                  door_physics_donor: Optional[bytes] = None, sf_mesh_template: Optional[bytes] = None,
-                 dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None):
+                 dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None,
+                 spec_mask_roughness: bool = False):
         self.src, self.staging, self.texconv = src, staging, texconv_exe
+        # spec_mask_roughness: roughness also follows FO4's specular mask (smooth-spec R), not only its gloss (G); off by
+        # default so existing builds and checkpoints keep their textures (owner's Vault 111 floor report, 2026-10-17)
+        self.spec_mask_roughness = spec_mask_roughness
         # door_anim_dll: the external CALUMI.Animation library (not distributed). With it, rigged doors that move more
         # than one part (frozen_door_parts) get their own rig and Open/Close clips instead of the single-hinge template,
         # and sliding / lifting / trapdoor families (NOT_HINGED_RE) get one instead of staying passable.
@@ -296,8 +300,9 @@ class Converter:
             textures.write_rg8_snorm(os.path.join(tmp, "n_in.dds"), nr, ng)
             textures.texconv(self.texconv, os.path.join(tmp, "n_in.dds"), tmp, "BC5_SNORM")
             if s is not None:
-                _sr, sg = _plane_pair(s, tmp, self.texconv)
-                rough = textures.roughness_from_smoothness(sg, smoothness, spec_mult)
+                sr, sg = _plane_pair(s, tmp, self.texconv)
+                rough = textures.roughness_from_smoothness(sg, smoothness, spec_mult,
+                                                           mask=sr if self.spec_mask_roughness else None)
             else:                                          # no spec map: uniformly fairly rough
                 rough = np.full((max(4, nr.shape[0] // 4), max(4, nr.shape[1] // 4)), 190, dtype=np.uint8)
             textures.write_r8(os.path.join(tmp, "r_in.dds"), rough)
