@@ -63,7 +63,7 @@ Every queue record is `source = IN_GAME`; `walksim` and `route_eval` results are
 | `<queue>/results.jsonl` | `task_finished` per row | `id, kind, cell, ref, attempt, verdict, class, detail, dir, t` (`testqueue.py:2681`); last row per id is final |
 | `<queue>/state.json` | nothing (reviewed 2026-10-16) | the runner writes a `results.jsonl` row for every attempt, PRECONDITION and BREAKER included, and checkpoints `state.json` in the same step (`testqueue.py` `Runner.run`), so `done`/`attempts` repeat the rows; a task in flight is visible only in the ledger's own `task_started` (T2); the breaker counters, `status` and `updated` are the runner's bookkeeping |
 | `Data/FO4Port.deploy.json` | `build_pinned` | `artifacts[FO4Port.esm].sha256` → `plugin_sha256`, `build_id` = its first 8 hex digits (the derivation of `testqueue.py plan`), `complete` (`scripts/deploy_starfield.py` `install`, `artifact_identity`; the manifest carries no `build_id` of its own) |
-| `Data/FO4SFExp.install.json`, `Data/FO4SFBridge.install.json` | `plugins_verified` (active_after_load from `exp_install.py active`) | `plugins`, `plugins_replaced[].active/original`, `complete`, `pack` (`exp_install.py:492`) |
+| `Data/FO4SFExp.install.json`, `Data/FO4SFBridge.install.json` | `plugins_verified`, one per record (active_after_load from `exp_install.py active`) | `plugins` (since 270b0ec), `plugins_added` (`*Name` lines, the only key before 2026-10-12), `plugin` (the bridge record's one plugin), `plugins_replaced[].active`, `complete`, `pack` (`exp_install.py:522`, `bridge_install.py:168`); the fold merges the events by plugin name, so Exp and Bridge together name both plugins |
 | `watchdog_state.json` | `controller_*` (historic, best effort) | heartbeat and hand-over times (`watchdog.ps1:22`) |
 
 Imports are idempotent: an event carries `src` (file path + line for a file that only grows; the queue.json path +
@@ -168,7 +168,9 @@ python scripts\game\lease.py status  --dir <leader> [--require Claude] [--json] 
   `lease.py` reads the folder from `FO4SF_LEASE_DIR` when `--dir` is not given, and `cycle.ps1` relies on that (a
   folder with a space and a trailing backslash would reach python mangled as an argument). The folder is absolute;
   the watchdog resolves a relative `lease_dir` against `C:\Modding\testqueue` and strips a trailing backslash, so
-  the watchdog, the chain and the runner read one folder.
+  the watchdog, the chain and the runner read one folder. `python` that cannot be resolved or started counts as no
+  lease (exit 9): the gate resolves `python` first, clears `$LASTEXITCODE` and reads only `lease.py`'s own fresh exit
+  code, so in a reused host (`& cycle.ps1` after another command) an earlier 0 cannot pass it (QA on #179).
 - `watchdog.ps1` (`-Root <folder>` names the folder of `chain.ps1`, `chain_queue.txt`, the log and the state, default
   `C:\Modding\testqueue`, so a test can run `-Once` against a temp folder): with `lease_dir` in `watchdog.json` (or
   `FO4SF_LEASE_DIR` as set when the watchdog started),
@@ -196,8 +198,8 @@ brief's "any unknown → refuse"), and a reading that raises is `UNKNOWN` for th
 | Check | PASS when | FAIL / UNKNOWN when |
 |---|---|---|
 | `pin` | the staged `FO4Port.esm` has the queue's `plugin_sha256` | another hash / staging missing or no pin (UNKNOWN) |
-| `deploy` | nothing deployed (cycle.ps1 deploys at the launch) or `Data\FO4Port.deploy.json` complete with the pinned `artifacts[FO4Port.esm].sha256` | interrupted install, another build / no sha in the manifest (UNKNOWN) |
-| `experiment` | no experiment pinned and none installed, or the staged experiment's inputs equal the queue's `experiment_identity` and any install record is complete and the same | changed since planning, incomplete or other record, an experiment installed although the queue pins none (it would load with the build) / `pre_launch` without a pin, unreadable record (UNKNOWN) |
+| `deploy` | nothing deployed (cycle.ps1 deploys at the launch) or `Data\FO4Port.deploy.json` complete, still owning every artifact it published (`files` = `artifacts`), with `Data\FO4Port.esm` on disk at the manifest's and the pinned `artifacts[FO4Port.esm].sha256` | interrupted install or cleanup pending, a half-finished uninstall (artifacts removed, a changed one kept, the manifest still `complete`), `FO4Port.esm` missing or changed on disk, another build / no sha in the manifest (UNKNOWN) |
+| `experiment` | no experiment pinned and none installed, or the staged experiment's inputs equal the queue's `experiment_identity` and any install record is complete, has no cleanup pending, is the same and owns every pinned plugin, every file it owns on disk at its recorded sha256 | changed since planning, incomplete record or cleanup pending (a half-finished `exp_install.py uninstall`), other record, a pinned plugin the record no longer owns, an installed file missing or changed, an experiment installed although the queue pins none (it would load with the build) / `pre_launch` without a pin, unreadable record, a legacy record without a file inventory (UNKNOWN) |
 | `plugins_active` | every pinned experiment plugin, `FO4Port.esm` and the bridge are active where they are already listed in Plugins.txt (the rest install at the launch) | a listed plugin inactive (Starfield deactivated it on a load) or duplicated / Plugins.txt not locatable (UNKNOWN) |
 | `load_order` | every non-implicit master of a pinned plugin is active, or is itself a pinned plugin or `FO4Port.esm` (both installed at the launch, and `order` moves the dependant after them); notes what `exp_install.py order` / `bridge_install.py order` will move | a master neither active, nor implicit, nor installed at the launch (cycle.ps1 would exit 7) / Plugins.txt not locatable (UNKNOWN). The planned `plugin_index` is **not** verified against the game's implicit plugins (which of them the owner's install loads is unresolved) |
 | `game_version` | `Starfield.exe`'s file version equals the pin (`queue.json` `game_version`, else the ledger's `build_pinned.game_version`) | differs / no pin or not readable, e.g. not Windows (UNKNOWN) |

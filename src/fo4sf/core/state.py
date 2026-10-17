@@ -210,8 +210,25 @@ def _fold_one(s, e):
         s.build = {k: f.get(k) for k in ("build_id", "plugin_sha256", "staging", "commit", "game_version") if f.get(k)}
         s.plugins, s.load_order = [], []
     elif e.ev == "plugins_verified":
-        s.plugins = list(f.get("plugins") or [])
-        s.load_order = list(f.get("load_order") or [])
+        # one event per install record (Exp, Bridge) or per check: merged by plugin name, the newer entry wins
+        # field by field except that an unknown (null) never erases a known value; `replace: true` is a full
+        # snapshot; a new pin (build_pinned) clears everything
+        if f.get("replace"):
+            s.plugins, s.load_order = [], []
+        for p in f.get("plugins") or []:
+            name = str(p.get("name") or "") if isinstance(p, dict) else ""
+            if not name:
+                continue
+            for i, q in enumerate(s.plugins):
+                if str(q.get("name", "")).casefold() == name.casefold():
+                    merged = dict(q)
+                    merged.update({k: v for k, v in p.items() if v is not None and k != "name"})
+                    s.plugins[i] = merged
+                    break
+            else:
+                s.plugins.append(dict(p))
+        if "load_order" in f:
+            s.load_order = list(f.get("load_order") or [])
     elif e.ev == "controller_claimed":
         parse_iso(f["expires"])                                     # a lease without a readable expiry is no lease
         s.controller = {"owner": f["owner"], "purpose": f.get("purpose"), "expires": f["expires"],
