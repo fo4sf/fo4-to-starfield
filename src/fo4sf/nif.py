@@ -55,8 +55,11 @@ class NifFile:
     def summary(self) -> dict:
         """Return a short summary of the NIF contents for debugging conversion issues."""
         type_counts = {}
-        for t in self.block_types:
-            type_counts[t] = self.block_type_index.count(self.block_types.index(t))
+        ntypes = len(self.block_types)
+        for idx in self.block_type_index:
+            if 0 <= idx < ntypes:
+                t = self.block_types[idx]
+                type_counts[t] = type_counts.get(t, 0) + 1
         return {
             "bs_version": self.bs_version,
             "blocks": len(self.blocks),

@@ -60,6 +60,30 @@ class TestNifSummary(unittest.TestCase):
         self.assertEqual(s["footer_bytes"], 3)
         self.assertIn("NiNode", s["type_counts"])
 
+    def test_summary_counts_repeated_type_table_names(self):
+        n = NifFile()
+        n.blocks = [b"a", b"b"]
+        n.block_types = ["NiNode", "NiNode"]
+        n.block_type_index = [0, 1]
+        s = n.summary()
+        self.assertEqual(s["blocks"], 2)
+        self.assertEqual(s["type_counts"], {"NiNode": 2})
+
+
+class TestBa2PayloadBounds(unittest.TestCase):
+    def test_validate_rejects_gnrl_offset_past_eof(self):
+        data = bytearray(general_archive({"meshes/test.nif": b"NIFDATA"}))
+        extra = 8
+        data[24 + extra + 16:24 + extra + 24] = (1_000_000).to_bytes(8, "little")
+        with tempfile.NamedTemporaryFile(suffix=".ba2", delete=False) as f:
+            f.write(data)
+            path = f.name
+        try:
+            with self.assertRaises(Ba2Error):
+                Ba2(path)
+        finally:
+            os.unlink(path)
+
 
 if __name__ == "__main__":
     unittest.main()
