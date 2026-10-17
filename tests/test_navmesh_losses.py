@@ -101,3 +101,20 @@ class NavmeshLossTests(unittest.TestCase):
         pieces, rep = nm.convert([fo4(0xA, verts, tris)])
         self.assertGreaterEqual(rep["links"]["cell_line"], 1)
         self.assertEqual(len(pieces), 2)
+
+
+class ClippedCountTests(unittest.TestCase):
+    def test_touching_cell_line_not_counted_as_clipped(self):
+        # Triangle fully inside one 100m cell (game units /70), bbox may touch line due to eps but no cut
+        verts = [(3500.0, 3500.0, 0.0), (6999.0, 3500.0, 0.0), (3500.0, 6999.0, 0.0)]
+        tris = [((0, 1, 2), (-1, -1, -1), 3.4e38, FOUND)]
+        pieces, rep = nm.convert([fo4(0xB, verts, tris)])
+        self.assertEqual(rep["clipped_triangles"], 0)
+        self.assertGreaterEqual(rep["triangles"], 1)
+
+    def test_straddling_triangle_is_counted(self):
+        # Triangle that actually crosses a 100 m cell line (7000 game units)
+        verts = [(3500.0, 3500.0, 0.0), (10500.0, 3500.0, 0.0), (3500.0, 10500.0, 0.0)]
+        tris = [((0, 1, 2), (-1, -1, -1), 3.4e38, FOUND)]
+        pieces, rep = nm.convert([fo4(0xC, verts, tris)])
+        self.assertGreater(rep["clipped_triangles"], 0)
