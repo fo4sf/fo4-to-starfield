@@ -12,6 +12,8 @@
 //   dotnet run -- <Starfield.esm> npcfind <substr>   NPC_ by EditorID or race EditorID
 //   dotnet run -- <Starfield.esm> npc <hex,hex>      all fields of NPC_ records (verifies the FormIDs exist)
 //   dotnet run -- <Starfield.esm> props <Class>      Mutagen's Starfield schema for a record class (Npc, NavmeshGeometry)
+//   dotnet run -- <Starfield.esm> doortsv            one TSV row per DOOR: graph (ANAM), rig (BNAM), clip folder (CNAM), flags
+//   dotnet run -- <Starfield.esm> scripted <Script>  bases and placed refs with that script (base, graph, linked-ref keywords)
 using Mutagen.Bethesda.Plugins.Cache;
 using Mutagen.Bethesda.Starfield;
 
@@ -98,6 +100,16 @@ switch (args[1])
             Console.WriteLine($"{g.Count(),5}  {g.Key}");
             foreach (var x in g.Take(4))
                 Console.WriteLine($"         {x.d.EditorID}  {x.d.FormKey}  {x.d.Model?.File}  rig={x.agc!.BNAM}");
+        }
+        break;
+    case "doortsv":  // read-only: one TSV row per DOOR (graph ANAM, rig BNAM, clip folder CNAM, flags) for the sliding-door survey
+        Console.WriteLine("editor_id\tformkey\tmodel\tanam\tbnam\tcnam\tflags\tkeywords");
+        foreach (var d in mod.Doors)
+        {
+            var agc = d.Components.OfType<IAnimationGraphComponentGetter>().FirstOrDefault();
+            Console.WriteLine(string.Join("\t", d.EditorID ?? "", d.FormKey.ToString(), d.Model?.File?.ToString() ?? "",
+                agc?.ANAM ?? "", agc?.BNAM ?? "", agc?.CNAM ?? "", d.Flags.ToString(),
+                string.Join("|", d.Keywords?.Select(k => k.FormKey.ToString()) ?? Array.Empty<string>())));
         }
         break;
     case "doorprops":
@@ -346,6 +358,36 @@ switch (args[1])
             Console.WriteLine($"     -> {dest.c.EditorID} {dest.r.FormKey} persistent={dest.persistent} base={dd?.EditorID} destpos=({dest.r.Position.X:F2},{dest.r.Position.Y:F2},{dest.r.Position.Z:F2}) destrotZ={dest.r.Rotation.Z:F3}");
             Console.WriteLine($"     XTEL pos=({t.Position.X:F2},{t.Position.Y:F2},{t.Position.Z:F2}) rot=({t.Rotation.X:F3},{t.Rotation.Y:F3},{t.Rotation.Z:F3}) flags={t.Flags} transition={t.TransitionInterior.FormKey} back={(dest.r.TeleportDestination?.Door.FormKey == r.FormKey)}");
         }
+        break;
+    }
+    case "scripted":   // read-only: scripted <ScriptName>: base records and placed objects whose VMAD names the script, with each
+                       // placed object's base type, model, animation graph and linked-ref keywords (how vanilla wires elevators)
+    {
+        var script = args[2];
+        bool Has(IVirtualMachineAdapterGetter? v) => v?.Scripts.Any(s => string.Equals(s.Name, script, StringComparison.OrdinalIgnoreCase)) == true;
+        foreach (var r in mod.EnumerateMajorRecords())
+            if (r is not IPlacedObjectGetter && r.GetType().GetProperty("VirtualMachineAdapter")?.GetValue(r) is IVirtualMachineAdapterGetter bv && Has(bv))
+                Console.WriteLine($"base {r.GetType().Name.Replace("BinaryOverlay", "")} {r.FormKey} {r.EditorID}");
+        int shown = 0, total = 0;
+        void ShowScripted(ICellGetter c, IPlacedObjectGetter r)
+        {
+            if (!Has(r.VirtualMachineAdapter)) return;
+            total++;
+            if (shown++ >= 12) return;
+            var b = cache.TryResolve<Mutagen.Bethesda.Plugins.Records.IMajorRecordGetter>(r.Base.FormKey, out var br) ? br : null;
+            var agc = (b?.GetType().GetProperty("Components")?.GetValue(b) as System.Collections.IEnumerable)?.OfType<IAnimationGraphComponentGetter>().FirstOrDefault();
+            var model = (b as IModeledGetter)?.Model?.File?.ToString() ?? "";
+            var links = string.Join(", ", r.LinkedReferences.Select(l =>
+                (cache.TryResolve<IKeywordGetter>(l.KeywordOrReference.FormKey, out var k) ? k.EditorID : l.KeywordOrReference.FormKey.ToString()) + "->" + l.Reference.FormKey));
+            Console.WriteLine($"ref {c.EditorID} {r.FormKey} base={b?.GetType().Name.Replace("BinaryOverlay", "")} {b?.EditorID} model={model} graph={agc?.ANAM} rig={agc?.BNAM} clips={agc?.CNAM}");
+            Console.WriteLine($"    links: {links}");
+        }
+        foreach (var c in cells)
+            foreach (var r in c.Persistent.Concat(c.Temporary).OfType<IPlacedObjectGetter>()) ShowScripted(c, r);
+        foreach (var w in mod.Worldspaces)
+            foreach (var c in w.SubCells.SelectMany(b => b.Items).SelectMany(b => b.Items).Concat(w.TopCell != null ? new[] { w.TopCell } : Array.Empty<ICellGetter>()))
+                foreach (var r in c.Persistent.Concat(c.Temporary).OfType<IPlacedObjectGetter>()) ShowScripted(c, r);
+        Console.WriteLine($"placed objects with {script}: {total}");
         break;
     }
     case "doorrec":   // one DOOR record by EditorID substring: every property, for comparing a load door with a hinged door

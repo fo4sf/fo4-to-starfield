@@ -37,9 +37,12 @@ public static class TeleportLinks
 {
     public const float UnitsPerMetre = 70f;   // same as PluginSpike positions
 
-    /// <summary>placed: source Fallout 4 reference FormKey (as exported) -> the placed Starfield reference and its cell.</summary>
+    /// <summary>placed: source Fallout 4 reference FormKey (as exported) -> the placed Starfield reference and its cell.
+    /// ownRig: DOOR bases with their own opening rig (manifest rig "native"). An FO4 load reference that shares such a
+    /// door's model (the vault / utility elevator load doors) would get an XTEL on a door that plays an opening graph;
+    /// until it has its own load record it is reported, not linked (review of PR #242).</summary>
     public static TeleportReport Apply(StarfieldMod mod, IReadOnlyDictionary<string, (PlacedObject obj, Cell cell)> placed,
-        IEnumerable<JsonElement> exports)
+        IEnumerable<JsonElement> exports, IReadOnlySet<FormKey>? ownRig = null)
     {
         var report = new TeleportReport();
         var doors = mod.Doors.Select(d => d.FormKey).ToHashSet();
@@ -72,6 +75,8 @@ public static class TeleportLinks
                 { report.Issues.Add(new(source, doorKey, "relative-position XTEL not implemented")); continue; }
                 if (!IsDoor(from.obj))
                 { report.Issues.Add(new(source, doorKey, "source base is not a DOOR record (model not marked load_door in the manifest)")); continue; }
+                if (ownRig?.Contains(from.obj.Base.FormKey) == true)
+                { report.Issues.Add(new(source, doorKey, "source DOOR has its own opening rig (manifest rig native), not a load-door record")); continue; }
                 if (!IsDoor(to.obj)) { report.Issues.Add(new(source, doorKey, "destination base is not a DOOR record")); continue; }
                 var pos = tel.GetProperty("pos");
                 var rot = tel.GetProperty("rot");

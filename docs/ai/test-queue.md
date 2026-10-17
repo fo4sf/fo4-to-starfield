@@ -305,7 +305,12 @@ at most 12 per list):
 - the time-of-day / weather lines: `SetLocalTime <h> [1]`, `cgf "Game.SetLocalTime" <h>` (h 0..23.99), `fw <8 hex> [1]`;
 - the bridge's lines (2026-10-14, "Bridge" below): `cgf "FO4SF_Probe.Pos" <decimal form id>`, `cgf "FO4SF_Probe.Ack" "<tag>"`,
   `cgf "FO4SF_Probe.Player"`, `cgf "Debug.TraceUser" "fo4sf" "<text>"` (tags `[A-Za-z0-9_.-]{1,40}`); their replies are
-  lines of the bridge's log, not console text (the OCR'd reply is kept as for any line).
+  lines of the bridge's log, not console text (the OCR'd reply is kept as for any line);
+- the scripted door's Step 0 (2026-10-16): `cgf "FO4SF_Probe.Resolve" "<plugin>" <id>` and
+  `cgf "FO4SF_Probe.MoveTo" "<plugin>" <id> <dx> <dy> <dz>` (plugin `[A-Za-z0-9_.-]{1,60}.esm|esp|esl`, the plugin-local
+  id in decimal, offsets `-?\d{1,5}(.\d{1,3})?` m). A MoveTo can load another cell, so after it the step waits up to 90 s
+  for the HUD before the next line (`obs.console[k]`: `hud_back`, `load_s`, `console_<k>_hud.png`; `MOVETO_S` in the
+  step timeout). Runner feature `probe_moveto`: an older runner refuses such a queue before launching.
 
 Anything else (`qqq`, `player.additem ...`, `coc ...`, `tgm`, a `;` or `|` inside a line, unquoted names, curly quotes, a
 trailing newline) is refused; `tests/test_console_plan.py` lists the cases.
@@ -902,6 +907,17 @@ Instead the game writes a file:
   (`FO4SF ref=<id> pos=.. ang=.. cell=.. disabled=.. loaded=..`), `cgf "FO4SF_Probe.Ack" "<tag>"` logs `FO4SF ack <tag>`,
   `cgf "FO4SF_Probe.Player"` the player. If the VM loads an unattached script for cgf (supported hypothesis; the first
   window tells), door and probe reads of `door_trip` and the NPC reads of `npc_nav` can leave OCR too.
+- **`FO4SF_Probe.Resolve` / `MoveTo` (2026-10-16, staged in `C:\Modding\staging\bridge_t2`, not run in game yet):** the
+  scripted door's Step 0 (docs/slice/scripted-door.md). `Resolve(plugin, id)` logs what `Game.GetFormFromFile(id, plugin)`
+  returns for a plugin-local id (`FO4SF resolve plugin=.. id=.. form=<runtime id>|none [ref=true|false pos=.. ang=..
+  cell=.. cellname=.. world=.. worldname=.. disabled=.. loaded=..]`); `MoveTo(plugin, id, dx, dy, dz)` looks the
+  reference up the same way (`FO4SF target ...`), moves the player there plus the offset as `FO4SF_LoadDoor.psc` does
+  (match rotation, no rotated offset) and logs the player before, right after and one second of game time after
+  (`FO4SF moveto plugin=.. id=.. offset=dx dy dz phase=before|after|settled|refused pos=.. ang=.. cell=.. cellname=..
+  world=.. worldname=.. loaded=..`). `cellname` / `worldname` come from the DebugOnly `GetFormEditorID`, asked in a
+  function of its own (empty where the game keeps no editor id). `bridge_log.py events` parses all of them. Pos, Ack
+  and Player are unchanged; `make_bridge.py stage` compiles every `.psc` of `scripts/bridge` and keeps the sources
+  beside the stage.
 
 ## Reference reads through the bridge (2026-10-15)
 
@@ -919,7 +935,9 @@ A terrain test may carry `"activate": {"ref": "<8 hex>", "base": "<8 hex>", "exp
 the native container's reference, load index included). After the probes and before the beyond teleport, the step opens one
 console session, types `prid <ref>` and `GetIsID <base>` and reads the console: the reply must be 1 (the selection is a
 reference of that base; a refused `prid` leaves the previous selection, which `activate player` would open: Codex's review
-of #145). Only then it types `activate player` and closes the console (the menu opens with the player as the activator: no
+of #145). The one capture is OCR'd at the thresholds 135, 140, 130 and 145 in turn until the reply is read (Item-Capture's
+four; core64g_accept_1016 test 0002 lost the reply row at 135 although `activate_sel.png` shows `GetIsID >> 1.00`);
+`obs.activate.sel_threshold` is the threshold that read it (null: none did). Only then it types `activate player` and closes the console (the menu opens with the player as the activator: no
 facing, no E); without the proof nothing is activated and `obs.activate.selected` is false, captures the whole screen as `activate.png`, OCRs it, and closes the menu with a held Tab, the UI's hold-to-exit (a tap only goes back a level;
 `activate_closed.png`, a second hold when the HUD is not back). The verdict detail gets `[activate <ref>: read [...] of [...]]`, the expected words the OCR found;
 it is shown and never judged, and the owner's own E-press stays the interaction acceptance. Runner feature `activate`
