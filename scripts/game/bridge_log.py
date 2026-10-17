@@ -75,7 +75,7 @@ def parse_line(s):
     return d
 
 
-ACK = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF ack (?P<tag>.+?)\s*$")
+ACK = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF ack (?P<tag>.+?)\s*$", re.I)
 REF = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF ref=(?P<id>-?\d+)(?: (?P<none>none)| pos=(?P<x>-?\d+(?:\.\d+)?) (?P<y>-?\d+(?:\.\d+)?)"
                  r" (?P<z>-?\d+(?:\.\d+)?)(?: ang=(?P<ang>-?\d+(?:\.\d+)?))?(?: cell=(?P<cell>-?\d+|none))?"
                  r"(?: disabled=(?P<disabled>True|False|true|false))?(?: loaded=(?P<loaded>True|False|true|false))?)\s*$")
@@ -120,7 +120,7 @@ def parse_event(s):
     return parse_probe(s)
 
 
-PROBE = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF (?P<kind>resolve|target|moveto) (?P<rest>[a-z]+=.*?)\s*$")
+PROBE = re.compile(r"^(?:\[[^\]]*\]\s*)?FO4SF (?P<kind>resolve|target|moveto) (?P<rest>[a-z]+=.*?)\s*$", re.I)
 _IDS = ("form", "cell", "world")                           # signed decimal form ids (or none) -> 8 hex
 _BOOLS = ("ref", "disabled", "loaded")
 _VECS = ("pos", "offset")
@@ -143,7 +143,7 @@ def parse_probe(s):
             fields[key] = [v] if v else []
         elif key is not None and tok:
             fields[key].append(tok)
-    out = {"kind": m.group("kind")}
+    out = {"kind": m.group("kind").lower()}
     try:
         for k, vals in fields.items():
             v = " ".join(vals)
