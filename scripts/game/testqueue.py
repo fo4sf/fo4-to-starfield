@@ -435,6 +435,21 @@ def plan(a):
     print(f"{len(tests)} tests in {len(cells)} cells on build {q['build_id']}: {counts}")
 
 
+def activate_block(a):
+    """The terrain "activate" block of a plan.json entry (docs/ai/test-queue.md "Activate"), validated at planning: ref
+    and base are 8 hex digits (both are typed into the game), expect a list of non-empty strings; anything else stops
+    the plan (Codex's review of #145: the planner must carry and check the block, not drop it)."""
+    if not isinstance(a, dict):
+        sys.exit("activate must be an object {ref, base, expect}")
+    for k in ("ref", "base"):
+        if not re.fullmatch(r"[0-9A-Fa-f]{8}", str(a.get(k, ""))):
+            sys.exit(f"activate.{k} must be 8 hex digits: {a.get(k)!r}")
+    expect = a.get("expect") or []
+    if not isinstance(expect, list) or not all(isinstance(x, str) and x for x in expect):
+        sys.exit("activate.expect must be a list of non-empty strings")
+    return {"ref": str(a["ref"]).upper(), "base": str(a["base"]).upper(), "expect": list(expect)}
+
+
 def plan_terrain(a):
     """Terrain experiment 1 (docs/terrain/architecture.md on PR #57): three test worldspaces, each with its own BTD
     (flat ground at 10 m and pads at known heights); which height the player lands on shows whether the plugin's
@@ -455,10 +470,13 @@ def plan_terrain(a):
         # reference inside the target worldspace does
         if travel and not re.fullmatch(r"(coc|cow) [A-Za-z0-9_]+( -?\d+ -?\d+)?|player\.moveto [0-9A-Fa-f]{8}", travel):
             sys.exit(f"bad travel command in plan.json: {travel!r}")
+        if w.get("activate"):
+            w = dict(w, activate=activate_block(w["activate"]))
         tests.append(with_extras({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "",
                                   "ref": w["coc"], "model": w.get("label", ""), "world_coc": w["coc"], "travel": travel,
                                   **{k: w[k] for k in ("spawn_local", "anchor", "drop_above_spawn", "settle_ms",
-                                                       "z_ref", "hop_m", "hop_wait_ms") if w.get(k)},
+                                                       "z_ref", "hop_m", "hop_wait_ms", "activate",
+                                                       "teleport_console") if w.get(k)},
                                   "drop_z": float(w.get("drop_z", 80.0)),
                                   "points": w["points"], "beyond": w.get("beyond") or {"x": w["points"][0]["x"] + 500.0,
                                                                                        "y": w["points"][0]["y"]}},
@@ -1104,6 +1122,27 @@ def seg_dist_xy(a, b, p):
     return math.hypot(a[0] + t * dx - p[0], a[1] + t * dy - p[1])
 
 
+def activate_summary(test, obs):
+    """"[activate ...]" for a terrain test with an "activate" block (qstep.ps1: the container menu opened from the console with
+    prid <ref> + activate player, captured as activate.png and OCR'd): which of the expected words (the container's name, its
+    items) the OCR read. Shown in the detail, never judged: the verdict stays the terrain verdict."""
+    want = test.get("activate")
+    if not want or not obs:
+        return ""
+    a = obs.get("activate") or {}
+    if a.get("selected") is False:
+        return (f"[activate {want.get('ref')}: selection not confirmed (GetIsID {want.get('base')} did not reply 1); "
+                "nothing activated]")
+    if not a.get("shot"):
+        return f"[activate {want.get('ref')}: no capture]"
+    text = (a.get("ocr") or "").lower()
+    expect = [w for w in (want.get("expect") or []) if w]
+    if expect:
+        found = [w for w in expect if w.lower() in text]
+        return f"[activate {want.get('ref')}: read {found} of {expect}]"
+    return f"[activate {want.get('ref')}: {'text read' if text.strip() else 'nothing read'}]"
+
+
 def judge(test, obs, out_dir):
     """(verdict, reason class, detail) from raw observations. Missing observations are INCONCLUSIVE.
     A test that asked for a time of day or a weather gets its light appended to the detail ("[light: ...]", e.g.
@@ -1115,6 +1154,9 @@ def judge(test, obs, out_dir):
     con, _ = console_plan.summary(test, obs)              # console_pre / console_post replies: shown, never judged
     if con and obs:
         detail = f"{detail} {con}"
+    act = activate_summary(test, obs)
+    if act:
+        detail = f"{detail} {act}"
     lt = light_of(test, obs)
     if lt is None or not obs or obs.get("stopped"):
         return v, cls, detail
@@ -2229,6 +2271,7 @@ LIGHT_WAIT_MS = 4000    # qstep.ps1's wait after such a command before the scree
 LIGHT_PROBE_S = 4       # terrain with light: the measure of every probe shot
 REPIN_S = 8             # terrain, time_repin: the time command typed again in every probe's teleport session
 CONSOLE_CMD_S = 35      # one console_pre / console_post command: open, ~45 characters, capture, OCR, close
+MOVETO_S = 100          # after a FO4SF_Probe.MoveTo line: qstep.ps1 waits up to 90 s for the HUD (a cell load), then 3 s
 HOP_S = 40              # one intermediate terrain hop: console open, five setpos / setangle lines, close
 
 
@@ -2252,9 +2295,11 @@ def step_timeout(test):
     capture and OCR, close), twice light_wait_ms, two screenshots and their measures: LIGHT_TRY_S each, worst case (the
     ladder stops early); terrain also measures every probe shot (LIGHT_PROBE_S) and types the time command again before
     every probe (REPIN_S, time_repin).
-    console_pre / console_post: CONSOLE_CMD_S per command (console open, typing, capture, OCR, close)."""
+    console_pre / console_post: CONSOLE_CMD_S per command (console open, typing, capture, OCR, close), and MOVETO_S
+    more for each FO4SF_Probe.MoveTo line (the HUD wait after it)."""
     light = len(sky_light.commands(test)) * (LIGHT_TRY_S + 2 * test.get("light_wait_ms", LIGHT_WAIT_MS) / 1000)
     light += CONSOLE_CMD_S * sum(len(test.get(k) or []) for k in console_plan.CONSOLE_KEYS)
+    light += MOVETO_S * sum(1 for k in console_plan.CONSOLE_KEYS for c in test.get(k) or [] if console_plan.is_moveto(c))
     if test.get("kind") == "terrain":
         # a terrain drop takes about a minute per point (teleport, fall, OCR read): 300 s cut experiment 1 off; a
         # settle_ms above the step's default 4.5 s adds to every point (core64 2026-10-11: 10-12 s settle, 103-114 s a
@@ -2416,6 +2461,23 @@ def install_mismatch(q, inst):
     return None
 
 
+def copy_attempt_logs(bridge_src, out_dir, log):
+    """Copy this attempt's evidence logs next to its captures: the bridge's log as bridge.log, and the game's newest
+    Papyrus log (Logs/Script/Papyrus.0.log, two folders up from the bridge log) as papyrus.log when it exists: a
+    script error there is what stops the bridge mid-attempt (r05_medkit_1015: it stopped at a teleport and the
+    session's Papyrus log had rotated away before anyone read it). The game rotates both on every load."""
+    try:
+        shutil.copy2(bridge_src, os.path.join(out_dir, "bridge.log"))
+    except OSError as e:
+        log(f"bridge log not copied: {e}")
+    papyrus = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(bridge_src))), "Papyrus.0.log")
+    if os.path.exists(papyrus):
+        try:
+            shutil.copy2(papyrus, os.path.join(out_dir, "papyrus.log"))
+        except OSError as e:
+            log(f"papyrus log not copied: {e}")
+
+
 class Runner:
     def __init__(self, qdir, a, ctl=None, step=None):
         self.qdir, self.a = qdir, a
@@ -2469,10 +2531,7 @@ class Runner:
             # the bridge's log is this attempt's evidence (positions, acknowledgements, probe replies); the game
             # rotates it on every load and the next launch starts a new one, so a copy goes into the attempt folder
             src = os.environ.get("FO4SF_BRIDGE_LOG") or bridge_log.default_log()
-            try:
-                shutil.copy2(src, os.path.join(out_dir, "bridge.log"))
-            except OSError as e:
-                self.log(f"bridge log not copied: {e}")
+            copy_attempt_logs(src, out_dir, self.log)
         return code
 
     def pinned_ok(self):

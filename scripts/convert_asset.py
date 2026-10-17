@@ -47,7 +47,7 @@ def main():
 
     base = a.name.rsplit("/", 1)
     folder, stem = (base[0], base[1]) if len(base) == 2 else ("", base[0])
-    tex_rel = f"textures/{folder}/{stem}".strip("/")
+    tex_rel = f"textures/{folder}/{stem}".replace("//", "/").strip("/")
     out = {}
     with tempfile.TemporaryDirectory() as tmp:
         # colour: DXT5/BC1 sRGB -> BC1_SRGB

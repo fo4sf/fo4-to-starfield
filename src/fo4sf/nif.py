@@ -226,13 +226,15 @@ def footer_roots(n: NifFile) -> List[int]:
     return roots or ([0] if n.blocks else [])
 
 
-def world_transforms(n: NifFile, placed: bool = False):
+def world_transforms(n: NifFile, placed: bool = False, local_overrides: Optional[dict] = None):
     """block index -> world (t, R, s), composing every NiNode ancestor from the roots down (footer roots or parentless nodes).
 
     placed=True gives the transform a placed reference has in game: the engine sets the scene root's transform from the
     reference, so the root node's own transform stored in the file is not applied (it counts as identity). Checked for
     rotated roots against FO4's precombined physics (docs/ai/research-log.md, 2026-10-10): 89 references of 15 models
-    in 6 cells match only with the root ignored. The default keeps the file's own composition."""
+    in 6 cells match only with the root ignored. The default keeps the file's own composition.
+    local_overrides: {block: (t, R, s)} replaces those blocks' own (parent-relative) transforms, e.g. a placed reference's
+    ragdoll pose (ragdoll_pose.local_overrides); an override on a scene root wins over placed=True."""
     nodes = [i for i in range(len(n.blocks)) if n.type_of(i).endswith("Node") and n.type_of(i) != "BSFaceGenNiNode"]
     parent = {}
     for i in nodes:
@@ -242,12 +244,16 @@ def world_transforms(n: NifFile, placed: bool = False):
         except struct.error:
             pass
     roots = set(footer_roots(n)) if placed else set()
+    overrides = dict(local_overrides or {})
     cache = {}
 
     def world(i, depth=0):
         if i in cache:
             return cache[i]
-        if i in roots:
+        if i in overrides:
+            local = overrides[i]
+            w = local if i not in parent or depth > 64 else _compose(world(parent[i], depth + 1), local)
+        elif i in roots:
             w = IDENTITY_TRANSFORM
         else:
             local = _av_transform(n.blocks[i])
@@ -257,13 +263,14 @@ def world_transforms(n: NifFile, placed: bool = False):
     return world
 
 
-def fo4_trishapes(n: NifFile, placed: bool = False) -> List[Fo4Shape]:
-    """Decode every BSTriShape / BSSubIndexTriShape block (vertex data and triangles only). The returned translation /
-    rotation / scale are the shape's WORLD transform (all parent NiNodes composed). placed=True leaves out the scene
-    root's own transform, as the game does for a placed reference, so geometry lands where FO4 draws it."""
+def fo4_trishapes(n: NifFile, placed: bool = False, local_overrides: Optional[dict] = None) -> List[Fo4Shape]:
+    """Decode every BSTriShape / BSSubIndexTriShape / BSMeshLODTriShape block (vertex data and all triangles). The
+    returned translation / rotation / scale are the shape's WORLD transform (all parent NiNodes composed). placed=True
+    leaves out the scene root's own transform, as the game does for a placed reference, so geometry lands where FO4
+    draws it. local_overrides: as world_transforms (shapes under an overridden node follow it)."""
     if n.bs_version != 130:
         raise NifError(f"fo4_trishapes needs BS 130, got {n.bs_version}")
-    world = world_transforms(n, placed)
+    world = world_transforms(n, placed, local_overrides)
     shapes = []
     for i, blk in enumerate(n.blocks):
         if n.type_of(i) not in ("BSTriShape", "BSSubIndexTriShape", "BSMeshLODTriShape"):
@@ -305,13 +312,12 @@ def fo4_trishapes(n: NifFile, placed: bool = False) -> List[Fo4Shape]:
             if attrs & VF_COLOR:
                 col.append(tuple(blk[q:q + 4])); q += 4
         p += vsize * nvert
+        # Every triangle, also for a BSMeshLODTriShape. Its three trailing counts (LOD0/1/2 Size) split the list into
+        # consecutive groups that are disjoint PARTS of one object (nif.xml: "visibility control over vertex groups"),
+        # not alternative versions of it: across FO4's Meshes.ba2, 5,290 of 5,292 multi-group shapes share no vertex
+        # between groups and use every vertex once, and Vault_Table_02's top lives only in its LOD0 group. Keeping just
+        # the largest group lost table tops, shelves and wall panels (docs/ai/research-log.md, 2026-10-16).
         tris = list(struct.iter_unpack("<HHH", blk[p:p + ntri * 6]))
-        if n.type_of(i) == "BSMeshLODTriShape" and len(blk) >= p + ntri * 6 + 12:
-            sizes = struct.unpack_from("<3I", blk, p + ntri * 6)
-            if sum(sizes) == ntri and max(sizes) > 0:   # triangles hold all LOD levels back to back: keep the most detailed
-                k = max(range(3), key=lambda j: sizes[j])
-                start = sum(sizes[:k])
-                tris = tris[start:start + sizes[k]]
         name = n.strings[name_idx] if 0 <= name_idx < len(n.strings) else b""
         tr, rot, scale = world(i)
         shapes.append(Fo4Shape(name, tr, rot, scale, shader, alpha, skin, pos, uv, nor, tan, col, tris,

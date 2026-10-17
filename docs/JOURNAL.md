@@ -1180,6 +1180,38 @@ ownership re-review passed14 narrow checks including the original late-failure c
 hosted Linux CI passed. [Contract and limits](testing/archive-fingerprints.md). No live game,
 source archive, deployment, queue or save was changed.
 
+## 2026-10-15 Codex: preserve bridge deployment recovery (#124, offline tested)
+
+Reproduced an interrupted copy leaving a partial plugin untracked after uninstall
+removed its receipt. The installer now uses exclusive source-validated publication,
+resource verification, file intent/confirmation and activation/profile journals.
+Unknown, changed or unconfirmed files remain with a recoverable receipt. Existing
+complete legacy installations stay compatible after validation.
+
+Independent QA passed43 safety probes and found two P2 gaps: incomplete recovery
+could touch a different current profile, and a completed uninstall retry could
+duplicate a restored inactive line. Both are fixed;17 independent fix probes and7
+targeted tests pass. Claude's bridge-last order change c50e87c is integrated with
+the recovery-aware caller and ownership checks. Final ordering integration passes
+23 independent probes and9 selected tests; hosted CI passes.
+
+Validation:43 scoped/1301 Windows suite tests (70 skips), guard pass. No source
+installer was deployed, no game/queue/save changed. Cave a1 remains invalid; a
+separate serialized metadata comparison confirms the COC marker is temporary and
+the template grid is INT_MAX, supporting Claude's queued A/B without proving cause.
+[Recovery boundaries](testing/bridge-recovery.md). Historical negative cases retained.
+
+## 2026-10-15 morning: integration-1014 is main; the next window's queues (Claude)
+- **#121 merged (10e7019)** after Codex's bounded merge-preservation review; main 9c291f1 (Codex's archive fingerprint
+  guard, #120) merged in first. The runner worktree is pinned on main; new work goes on short branches off main.
+- Codex owns the bridge_install recovery correction (#125, found by their review: a failed copy left a partial plugin
+  untracked) and the door gate's next candidate (a slice variant whose WRLD override carries OFST / CLSZ like a vanilla
+  overlay world). Row 11 of first-run-failures corrected to their verified #117 finding.
+- Planned for the next window: `npc_combat_c2_1015` (StartCombat player on the Spacer and the converted raider; the
+  citizen uncommanded) and `cave_probes11_1015` (PR #126: the merge probes in neighbour cell (-11, 11): does any
+  exterior-cell override move the coc arrival, or only the COC cell's). R05's plan revised (PR #119): the cluster goes
+  into core64c's own build; no exterior-cell overrides from add-ons.
+
 ## 2026-10-15 Codex: October14 recap and current front-page progress
 
 Owner requested yesterday's progress on GitHub. README separates the October14
@@ -1196,3 +1228,522 @@ both unchanged media identities pass; GitHub GFM renders the new sections/images
 Independent factual/link QA passed, with draft status made explicit. Guard passed.
 No new unit tests for documentation; hosted CI is checked on the PR. No game,
 runner, installation, queue or save changed.
+
+### 2026-10-15 Codex: preserve original reference slots during R05 promotion (proposal)
+
+PR134 removed a source before sequential allocation; the real parent writer reproduces the later-ID shift on a
+synthetic master. The isolated companion retains original reference_index, reserves all REFR slots and reuses the
+promoted source's key, appending only CONT bases. Canonical Claude checkout/production stages/game are untouched.
+29 producer tests and three actual-writer methods pass (four promotion scenarios and five publication refusals).
+Survivor IDs/record data/cell ownership match; no-cluster output is byte-identical to parent. The declared-slot
+check rejects the parent artifact and accepts the four candidates. Initial anchor-fixture failure is retained.
+Release builds pass; the existing CA1831 inventory-parser warning remains. Peer QA, a fresh full-scale candidate,
+all-ID/raw-record comparison and newly pinned native plans/save tests remain required. Full persistent allocation
+across reordered exports and future promoted bases is still open. See testing/container-reference-identities.md;
+private evidence is test-plans/container-reference-identities-20261015. No native acceptance is claimed.
+
+## 2026-10-15 Codex: bridge recovery on consolidated main
+
+Merged main d628b56 into the owned PR125 branch without rewriting history. Resolved
+only documentation conflicts: both append-only journal/decision histories remain;
+current-main concise ownership status is retained. Bridge installer, deployer,
+experiment installer, cycle caller and43 bridge tests have identical Git blobs to
+independently reviewed4c8ded6. Bridge-last/no-op exit0 behavior is unchanged.
+
+43 focused bridge/order/recovery tests and1,305 Windows tests(70 skips) pass.
+Independent five-invariant integration review passes; original source QA remains
+applicable. Guard passes; new-head CI gates ready status. No live profile, archive,
+installation, queue, watchdog, controller input or save changed. Source only,
+undeployed; Claude retains integration/game ownership.
+
+## 2026-10-15: Codex — reserve stable IDs before plugin output (#132)
+
+Synthetic main d628b56 repro: a directory blocking formids.json caused an error
+after a192-byte plugin had already been created without a saved ID map. Two new
+writer tests failed in three cases: creating a new plugin, replacing an existing
+plugin before map failure, and losing reservations when plugin output fails.
+Map publication now flushes a same-directory temporary JSON file and replaces the
+map before plugin writing. Map failure leaves plugin bytes untouched; later
+plugin failure retains IDs for retry. Existing JSON format and tombstones stay.
+No converter/runner, live installation, game input or native data changes. This
+is single-writer identity preservation, not a complete plugin transaction or
+proof of savegame compatibility. Release build has zero warnings/errors;3 writer
+tests,1279 Windows suite tests(69 skips, writer enabled), typed door binary tests
+and guard pass. Independent Locke QA passes locked-map preservation, sparse JSON
+compatibility and missing-Data-setting controls. Original harness assertion
+failure and its correction are retained with results. #132 pins publication.
+
+## 2026-10-15: Codex — custom-prefix checkpoint dependencies (#130)
+
+Offline synthetic repro on main d628b56: with signature prefix `preview`, the
+checkpoint tracked only model/geometry. Deleting its material and texture still
+returned a reusable result and no final inventory errors. Four new tests produced
+13 failing subcases before correction. Checkpoints now passes the signature's
+prefix into both inventory calls; namespace matching normalizes separators/case.
+Tests cover default/custom/mixed-case/nested prefixes, missing/changed material
+and texture dependencies, and rejecting old incomplete inventories. No pipeline,
+runner, native data, installation or live game changes.27 focused tests(1 skip)
+and1281 Windows suite tests(70 skips), guard and diff checks pass. Independent
+Anscombe QA passes three additional controls, including a genuine pre-fix cache
+and backslash namespace. #130 records pinned results; native acceptance is
+outside this correction.
+
+## 2026-10-15: Codex — validate persistent FormID reservations (#137)
+
+Synthetic binary repro on main4ba5c6a: a stored0x01000800 survived in the
+map but serialized as local000800; a uint.MaxValue tombstone wrapped the next
+allocation to zero. Valid sparse IDs round-tripped. Four new writer tests
+produced seven failing subcases before correction, including duplicate JSON
+keys, duplicate inactive reservations, and a failed allocation that still
+published its unusable reservation. Original outputs/logs are retained.
+
+PluginSpike now validates the complete map before constructing records:
+unique decoded keys and values, integer IDs within this writer's000800..FFFFFF
+range, including tombstones. New identities cannot exhaust/wrap the range;
+existing IDs at the limit remain reusable. Save independently validates before
+atomic publication. Invalid/exhausted inputs preserve both prior map bytes and
+plugin bytes. Release build has zero warnings/errors; seven writer checks,
+1308 Windows tests(69 skips), guard and independent Mencius QA pass. QA covers
+direct Save validation, escaped-equivalent duplicate keys and binary IDs on
+an exhausted-map rebuild. Native handling of its one-past-last HEDR.NextFormID
+remains unverified; these are offline controls, not native acceptance.
+No source IDs were repaired/reassigned, no native campaign was rescored, and
+no stages, game installation, controller or input changed.
+
+## 2026-10-15 afternoon window: R05 slice 1 in game, the raider fights, cave probes crash (Claude)
+
+Chain 12:59-14:39 on the pinned build 2470f876 (runner scripts 10e7019), started on the owner's word while away.
+
+- **R05 slice 1 (`r05_medkit_1015`, core64d, PR #134)**: the native container reference loaded at the planned place. The
+  bridge's probe reply in both game sessions: `FO4SF ref=34220709 pos=-2193.137207 -1548.338501 105.296318 ang=270
+  cell=33557935 disabled=false loaded=true` = local (-993.14, 1151.66, 105.30) + the merge offset (-1200, -2700). Runner
+  verdict INCONCLUSIVE for the runner's own reasons: the console_post echoes were unreadable by OCR (the compass dial
+  crosses the text; the commands executed), and the bridge log stopped at 13:24:09, exactly at the `by_the_kit`
+  teleport, and never resumed in that session, so every later read was stale and the player "stayed" at the arrival.
+  Cause open (console left open, so menu mode pauses the script? the script stalled?); the next run captures HUD
+  visibility right after the teleport. No kit screenshot yet; the owner's open-the-kit check waits for it.
+- **`npc_combat_c2_1015`** (forced `StartCombat player`): the converted FO4 raider PASS ENGAGED from t = 1 s (combat
+  state 1, target 00000014, line of sight 1, 5 of 5 reads); the vanilla Spacer PASS on its second attempt (the first:
+  spawned 6.06 m away against a 6 m confirm limit; widen to 7 m); the uncommanded citizen FAIL NOCOMBAT as designed.
+- **`cave_probes11_1015`** (PR #126's slice variant: merge probes in neighbour cell (-11, 11)): INCONCLUSIVE CRASH twice,
+  the game exited during the `coc` into the world (the bridge's last lines are in the Vault at 14:36:24; arrival never
+  logged). With the COC cell override the arrival moved (cave_core64c_1015); with a neighbour-cell override the game
+  exits. Add-on overrides of core64c exterior cells are out in both forms; the door gate stays on Codex's OFST/CLSZ
+  world-level variant or a temporary door inside core64c's own build.
+- `chain.ps1` ended without its "chain end" line and without the between-queue uninstall (process gone by 14:39);
+  the experiment was uninstalled by hand afterwards. Unexplained; watch the next chain.
+- Merged after a local testing state (main + the PRs: 1093 unit tests with the venv, guard, PluginSpike Release build and
+  its two writer tests): #69 (Grok's oracle), #126, #119, #127, #131, #133. The owner's "script command not found"
+  question answered: `readpos.ps1`'s nonce (first-run-failures row 13).
+
+## 2026-10-15 evening chain: the walk holds on core64d, the raider fights twice, the Red Rocket probes do not move (Claude)
+
+Second chain of the day (16:31-19:00, runner scripts 64d30ad, build 2470f876), on the owner's "keep working never stop".
+
+- **walk_core64d_1015 PASS**: Red Rocket -> Sanctuary on core64d (core64c + the native container), 29 legs, 253.9 of
+  254.33 m, |dz| max 0.14 m, every read by the bridge. The R05 build does not regress the walk gate.
+- **npc_combat_c3_1015 / c4_1015**: the vanilla Spacer PASS on its first attempt with the spawn confirm limit at 7 m
+  (6.06 m had failed it in c2); the citizen control FAIL NOCOMBAT as designed; the converted raider INCONCLUSIVE SPAWN
+  twice in c3 (`Item '02F04800' not found`) because c3 was planned without `--install-exp actor_raider2 --plugins
+  FO4ActorRaider.esm` (the bridge log shows FO4Port.esm at load index 03 in c2 and 02 in c3), then **PASS ENGAGED** in
+  c4 with the plugin installed: two runs, two passes.
+- **r05_medkit_1015b / c / e** (two kit-facing probes; c with `time_repin` off; e with no time commands at all): the
+  container reply every time (`ref=34220709 pos=-2193.137207 -1548.338501 105.296318 loaded=true`, eight confirmations
+  today), and every time the player stayed at the arrival through both probes while the bridge read fresh (read 3 at
+  rt 415.9 in b). Not the noon re-typing, not SetLocalTime: on this arrival of our worldspace `player.setpos` has no
+  effect, while the same code moved the player on vanilla LC172World (bridge_probe_1015c). The per-attempt papyrus.log
+  (#144) shows only vanilla location-script noise. Next: `teleport_console` (the teleport's own console session
+  captured: the game's reply to the typed lines) and the `activate` step (#145), both in `r05_medkit_1015d`.
+- Runner: #144 (papyrus.log per attempt) merged; #145 open (activate step + teleport_console); #125 (Codex's
+  bridge-install recovery) merged after a testing state; the runner worktree moves to main after this chain.
+- Lesson of the day, twice: a queue re-planned for one parameter must carry every argument of the queue it replaces
+  (c3), and a log watcher must never hold the chain's log open (the morning's "dead chain").
+
+## 2026-10-15 night: the first FO4 container opened in Starfield; why the Red Rocket probes never moved (Claude)
+
+- **R05 slice 1, interaction**: `r05_medkit_1015d` a1 (20:10, runner f60f4d6 with #145): the activate step selected the
+  kit's reference in one console session (`prid 020A2AA5`, `GetIsID 020A2AA4 >> 1.00` read before anything else was
+  typed: Codex's review), typed `activate player`, and Starfield's container UI opened on the converted FO4 first-aid
+  kit: FIRST AID KIT, Credits 25, Digipick 1, OCR'd as `read ['First Aid Kit', 'Credits', 'Digipick']`
+  (docs/media/r05-firstaidkit-menu-1015.jpg, #156). Record level (the bridge's probe reply, nine times today) and
+  interaction level are done; the owner's own E-press stays the last word.
+- **The probes, explained by the teleport captures** (`teleport_console`, #145): the console accepted `player.setpos z
+  40` without a word. 40 is an absolute height in the worldspace frame and the Red Rocket ground is at 105.26: my
+  acceptance plan had copied LC172's `drop_z 40` (ground at 6), so every probe and the "beyond" jump were sent 65 m
+  underground; the player stayed put, the beyond jump fell out of the world and that is what stopped the bridge in
+  every r05_medkit run. Not the time commands, not the worldspace. `drop_z` 145 from `r05_medkit_1015f` on. Rule:
+  a terrain plan's `drop_z` is absolute; use `drop_above_spawn` when the ground height is not known.
+- **The menu exit**: Starfield's container UI says BACK / HOLD TO EXIT on Tab; the step's tap only went back a level,
+  the menu stayed open, the next console open failed three times and the attempt stopped (INCONCLUSIVE STOPPED).
+  #157: a held Tab (1.2 s), the HUD checked on the closing capture, a second hold when it is not back.
+- Merged after testing states: #145 (activate step, teleport_console, selection proof), #138 (Codex), #156, #157.
+  Codex's #150 (keep the source REFR's id when a static becomes a container) is the next R05 correctness item: my
+  `cluster_containers` removes the kit's placement and appends the container's REFR after every other record, which
+  shifts the ids of the references placed after the kit; Codex's draft keeps the id. Taken when it leaves draft.
+- **`r05_medkit_1015f` / `1015g`** (runner 2e017aa / e26897c): the teleports work at drop 145 and the activation reproduced
+  with the selection proof and the held-Tab exit (the attempt ran to its end). Both kit-side probes landed at 110.2 /
+  110.7 and the arrival probe at 110.49: the station roof and the fuel canopy; the kit is inside the building and the
+  arrival marker under the canopy, so a drop from above lands on them (plan artifacts, not terrain). The selection proof
+  also read the game's `>> 1.00` on the line under the echo once (the OCR splits rows under the compass dial): #158.
+  `r05_medkit_1015h` (core64c's verified probes zref_ground / wp_01 next to the activation) was stopped at 21:01 by the
+  input guard (another window took the foreground: the owner at the PC) and waits for the next window.
+
+## 2026-10-16: core64n navmesh.convert over the 64 x 64 core (Grok)
+
+Offline. `navmesh.convert` on Commonwealth NAVM in FO4 cells -55..54 (same Fallout4.esm as #163,
+sha256 `ae7be31a…`). 7,047 NAVM / 3,439,338 triangles → 12,104 Starfield NAVM / 3,749,066 triangles,
+156,549 cell-line pairs, 134,876 FO4-portal pairs, 0 refused ids. #163 inventory: 1,069 overlay cells
+all still covered (0 lost / 0 reduced). Red Rocket smoke matched exp2d (105 → 156 NAVM, 2,145 / 1,959
+links). Geometry in staging `terrain_core64n_work/navmesh/` (navmesh.json 433,902,356 B), not git.
+Report: docs/actors/navmesh-core64n-convert.md. Not in-game; writer into FO4TerrainCore.esm is Claude.
+
+## 2026-10-16 night: from the slice to the Commonwealth: plan, R06, the navmesh writer, bridge ref reads, the cluster lists (Claude)
+
+The owner's direction (15 Oct 21:30): push Grok, get everything ready for Codex's two items (#150 identity-keeping
+promotion, the door gate), finish the slice, start the whole Commonwealth.
+
+- **What the Commonwealth is from here** (docs/terrain/commonwealth-build-plan.md, #162, decision recorded): the 64 x 64
+  core already covers the playable Commonwealth's exterior (6.4 km; 648,358 references of 11,769 models over 1,708 FO4
+  cells, FO4 cells x -53..33, y -49..41); the scale-up is record classes, interiors and navmesh across it, not more
+  cells; one plugin for the exterior (the record count is far under the 16.7 M FormID space), interiors stay in
+  FO4Port.esm, joined by the door gate.
+- **R06 (Grok, #163 merged)**: FO4 authors 7,047 NAVM / 3,439,338 triangles / 9.08 million m2 over 1,069 of the
+  overlay's cells; `FO4TerrainCore.esm` has **0 NAVM** (664,229 records walked). Every NPC result so far was on
+  interior navmesh or in a vanilla cell. Grok now runs experiment 2d's converter (`navmesh.py convert`) over the whole
+  core (11 export bands, C:\Modding\staging\terrain_core64c_work).
+- **The navmesh writer (#165 merged)**: experiment 2d's NAVM/NAVI writer ported from TerrainExp2 into TerrainOverlays
+  (`overlays_params` `navmesh`, `make_core64c.py stage --navmesh`, `check` 2b), because the NAVM records must come from
+  the core's own build (an add-on override of exterior cells is ruled out in game). Dry run on exp2d's navmesh.json:
+  156 NAVM, 68,132 triangles, 8,208 edge links, NAVI with 156 NVMI, every NAVM parsed back: the same numbers as 2d.
+- **Reference reads through the bridge (#164)**: `Bridge-Ref-Read` types `cgf "FO4SF_Probe.Pos" <ref>` and
+  `bridge_log.py wait-ref --since <mark>` returns the reply written after the mark; readpos's OCR only as the
+  fallback; the sandbox's fake game answers the probe (actors, statics, the anchor, door refs). A door trip in the
+  sandbox passes with every door read `via bridge-ref` and no `prid` typed. Two lessons: a sandbox suite copies the
+  worktree's scripts per test, so the branch under it must not change while it runs (one run voided); `dotnet run`
+  passes `-nologo` / `-v` through to the program (a dry run read "-nologo" as Starfield.esm).
+- **The cluster lists (#166)**: `make_cluster.py` reads the band exports and core64c's placed references: placed by
+  FO4 base type, Static 573,663, StaticCollection 33,199, MovableStatic 12,379, MiscItem 10,770, Furniture 3,890,
+  Flora 3,520, Activator 2,256, Ingestible 1,688, Container 5,212 (of 5,294), Door 1,262; Light 6,275, IdleMarker
+  5,828, BendableSpline 4,982, SoundMarker 878 not placed at all. The containers list: 5,185 entries over **182 distinct
+  FO4 bases** (116 named by the table exactly, 1,636 by prefix, 3,433 by its default), so the writer should make one
+  CONT per FO4 base, not one per reference as the R05 slice did: that change rides on #150.
+- **Loose items (#168)**: `make_cluster.py items`: 12,438 placed MiscItem / Ingestible references over 492 FO4 bases
+  (10,754 + 1,684; 441 named by the table's prefixes). **Doors, measured**: 1,286 exported exterior doors, 373 of them
+  load doors (a destination door reference); 18 lead into the 16 interiors FO4Port.esm has converted (13 cells; 15 of
+  those doors placed by core64c), 355 into interiors not converted yet. So the door gate's first batch is 15 doors and
+  the interior conversion backlog, not the gate, is the long pole of a walkable Commonwealth.
+- **Ready for Codex's return**: the testing state of #150 passes (tests, TerrainOverlays build, guard);
+  `rebuild_core64e.sh` rebuilds the R05 build with the identity-keeping step in one command; the door gate's OFST/CLSZ
+  slice is planned as `cave_ofst_1015` (#129 itself needs Codex's rebase over #126). Grok's #148 was already merged.
+- **One CONT per base (#167, stacked on #150)**: cluster entries carry the FO4 base; `cluster_containers` names the
+  CONT from it, the writer deduplicates CONTs by edid (model must agree), the identity check accepts shared bases;
+  the R05 hand-written entry is unchanged. 31 tests on #150's head; TerrainOverlays builds.
+- Merged tonight: #162, #163, #161, #165, #166 (and the queue of the day before). Open: #164 (sandbox suite running),
+  #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
+- 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
+
+## 2026-10-16: Codex native bases for persistent door relationships
+
+The owner's persistent-door priority led back to PR174's actual ReferenceLinks
+rejection. Synthetic CLI controls reproduce two valid native-base cases rejected
+(exit2), plus a deleted local DOOR override wrongly accepted (exit0). Resolve from
+typed Starfield.esm records with local override precedence; deleted/non-door/missing
+bases now refuse. Eight CLI cases and the existing relationship/binary suite pass.
+Both persistent endpoints retain identity, transforms, grouping, flags, reciprocal
+XTEL/transition links and open state after serialization. Original inputs/map stay
+unchanged. No native DOOR cloning or ID allocation. Evidence retained privately at
+test-plans/native-door-bases-20261016 (before, after and final).
+This optional post-pass remains interior-scoped; PluginSpike owns primary load-door
+writing. No exterior merge fix, live install/input, travel or save/reload acceptance
+is claimed. Peer QA pending; Claude retains native controller.
+
+## 2026-10-16: Codex both persistent teleport endpoints
+
+PR245 follow-up reproduces three serialized failures: explicit false persistence,
+missing persistence and one-way travel all left valid XTEL endpoints temporary.
+The optional ReferenceLinks post-pass now applies the same both-endpoint persistent
+group/flag rule as primary PluginSpike.TeleportLinks, after link validation. No
+return link is invented and IDs/transforms remain unchanged. Eleven CLI/readback
+cases plus library refusal-before-promotion/idempotence and prior relationship
+checks pass; guard passes. Source failures and current evidence retained privately
+at native-door-persistence-20261016. No primary writer, source stage, live input,
+installation or game-state claim. Peer QA and merge/native-save gates remain.
+
+## 2026-10-16: Codex independently inspects rebuilt persistent doors
+
+Pinned integ_1011/integ_1016 raw plugins/maps: all54,877 map entries and master order
+identical. One FortHagen pair remains the only two persistent DOOR/XTEL references;
+endpoint fields/ancestry unchanged. All28 reported unlinked references exist and
+lack XTEL (20 DOOR/8 STAT, all temporary); four reported unplaced source endpoints
+have no map slots, including Red Rocket05E844. Six malformed flag/group/return-edge
+controls detected. First inefficient audit loop stopped; initial all-unlinked-bases-
+are-DOOR assumption disproved/corrected; both preserved. See
+slice/persistent-door-rebuild.md and private persistent-interior-rebuild-20261016.
+No source/game edits, newly connected interiors or native/save acceptance claimed.
+
+## 2026-10-16 — Codex: explicitly selected missing interior door endpoints
+
+ReferenceLinks now accepts --door-bases=JSON keyed by original source reference. Reproduced seven CLI failures: skipped allocation/reservation and ignored invalid selections. Valid selected exported Door records get verified active native/local DOOR bases, stable source-map IDs, persistent grouping, source transforms/disabled/open state; existing conflicting bases/owners and occupied reservations refuse. No guessed bases, synthetic return edges, primary writer changes or live actions. Seven new actual-CLI controls and eleven prior controls plus library/binary checks pass. Peer QA pending; see docs/slice/missing-door-endpoints.md. Private failed/passing fixtures retained under missing-door-endpoints-20261016.
+
+## 2026-10-16 — Codex: actual missing cave endpoint candidate
+
+PR251/code63131c6 exercised against private integ_1016/RedRocket01 snapshots and verified native24F9CE base. Strict mode exit2/no plugin retains missing08EB65 destination; explicitly partial candidate adds05E844 as local00DE5D, preserves54,877 map entries, no XTEL invented. Separate raw parser verifies group/flag/base/transforms/scale and compares all prior records: only header plus three original-export persistent promotions (05F97B/05FAA0/05FAA3), unchanged subrecord bytes. All source pins unchanged. Output cdd69d7b..., private missing-cave-production-20261016; initial wrong net8.0 harness path retained, correctednet9.0 run passes. No stage/install/input change; peer/native/cross-plugin integration pending.
+## 2026-10-16: Codex explicit door selection requires an existing cell
+
+Reproduced Claude's PR251 review finding: `--allow-unresolved` published a plugin
+without an explicitly selected door when its cell map or CELL record was absent;
+report-only also exited successfully for that omitted request. Selection preflight
+now requires the mapped cell before mutation. Six new CLI scenarios pass, including
+unchanged partial behavior for an unrelated missing cell. The targeted executable
+also passes13 missing-door,11 native-base and relationship binary checks; guard and
+diff checks pass. Failed/passing synthetic evidence retained privately in
+test-plans/door-selection-cells-20261016. No real slots, staging, install or game
+input changed; new correction awaits peer QA and carry-forward into stacked253.
+## 2026-10-16: Codex scripted cave-door compiler packet
+
+Following Claude's #32 request6222158841, added a separate player-only Papyrus
+MoveTo candidate using plugin-local GetFormFromFile destinations, plus a compiler
+wrapper that refuses stale output, failed compilation and input drift. Real CK
+compile produces1713 bytes (a59e24848b7c3d74158a5cbca84c95ebd9eb70f886550496634ddb1f6eb9fcfc).
+Nine synthetic compiler-boundary tests pass; these do not emulate activation or
+travel. Private receipts in test-plans/scripted-door-20261016. Compilation remains
+non-installable, runtime_accepted=false. No plugin/stage/game/configuration changed.
+Current core/port pins and an ACTI interaction model are requested on #32: the old
+core skipped source08EB65 and old port lacked05E844, so retained slots are not
+assumed. Record attachment and both-way/save-reload acceptance remain pending.
+
+### Codex response to independent PR243 review
+
+Claude's independent review found no blocking code issue and compiled the script
+twice. The earlier PEX SHA256 identifies one preserved private file, not a
+reproducible build: compiler timestamps/debug/account-machine metadata vary.
+Documentation now requires output outside all checkouts and qualifies Moving as a
+non-atomic guard. Core64h/integ_1016 pins arrived on #32; ACTI design is pending and
+no slots are allocated. Docs-only response; guard/diff checks, no repeated compile
+or unchanged suite. Runtime activation, unloaded markers and travel/save remain
+unverified. The original private compiler packet remains preserved.
+## 2026-10-16: Codex persistent-reference inspector identity
+
+A synthetic master override and local persistent reference sharing low ID800 were
+both returned for either000800 or00000800. Keeping the selector's width separate
+fixes this; four new methods expose seven failing cases before, all eight targeted
+methods pass after. Signed/oversized/seven-digit IDs refuse; optional0x supported.
+Preserved OFST cave bytes unchanged: local000800 equals encoded03000800, whereas
+runtime-style05000800 selects nothing. Raw file IDs are not runtime load-order IDs.
+Initial XCLC concern was disproved by the existing tests: unpack_from already
+handles the fixture; no XCLC change made. No writer/stage/game modifications or
+retroactive native rescoring. Private evidence: persistent-ref-selectors-20261016;
+peer QA pending. Merge placement and native travel/save-reload remain unresolved.
+## 2026-10-10 Claude: FO4 skin reader and pose bake (offline)
+New `src/fo4sf/fo4skin.py` reads a skinned FO4 shape's skin (bone nodes from `BSSkin::Instance`, skin-to-bone
+transforms and bone-space bounding spheres from `BSSkin::BoneData`, f16 weights and u8 bone slots per vertex) and
+poses its vertices by linear blend skinning. Checked on `SkeletonClothed01.nif` and on all 16,350 skinned shapes in
+the two FO4 mesh archives (0 read errors). Posing the skeleton with its own NIF nodes does **not** give back the stored
+positions (max 64.45 units): its node pose is the bind pose with the root bone turned 45 degrees about X, and the
+ragdoll bodies are in that node pose. With that one rigid transform taken out, the error is 0.000025 units. The
+converter draws skinned shapes from the stored positions but puts collision on the nodes, so mesh and collision
+disagree for 346 placements in the pinned build (95 skeletons; vault sink taps drawn at the model origin). Not
+changed in this PR. Next: pose skinned shapes with `fo4skin` in `convert_nif` (check in game), then pose ragdoll
+skeletons. Evidence: docs/ai/research-log.md.
+
+## 2026-10-10 Skinned props posed as FO4 draws them (offline; owner at the PC touring the library)
+Follow-up to PR #45's finding. `convert_static.pose_skinned_shapes` now bakes the NIF's node pose into every skinned
+shape (linear blend skinning, normals turned with the heaviest bone), so the mesh lands where FO4 draws it and where
+its bone-node collision already is. Real-data check: the Vault 81 sink's tap moves from the floor (model origin) to the
+basin rim (1.13-1.19 m) with its water streams under it; the skeleton's mesh now matches its collision box exactly
+(z 0.29-1.74 m). Animated NIFs are posed too (their rest pose) and flagged `skinned_posed_animated` in the manifest for
+the in-game look. Tests 273 OK, guard OK (guard now skips `.claude/` agent worktrees). Not yet seen in game; expect
+346 placements to shift in the next build (PR #45's scan). Ragdoll pose (XRGD, PR #44 export) comes on top of this.
+
+## 2026-10-11 `XRGD` ragdoll pose decoded (offline, no game input)
+- FO4's per-placement ragdoll data is readable now: one entry per physics body in body order, each replacing its bone
+  node's local transform (parent-node frame, game units), rotation Rx(-x)Ry(-y)Rz(-z) like the NIF itself. Evidence
+  and numbers: research log, same date. `src/fo4sf/ragdoll_pose.pose_bones(nif_bytes, entries)` returns the posed bone
+  world transforms in reference space; 10 synthetic tests.
+- Vault 114: 57 of 62 placements with `XRGD` pose; 53 of them rest on the surface under them (bind pose: 41). The two
+  skeletons by door `05C7DC` lie flat (bones within 13 units of height, hull 1 unit under to 22 above the floor) where
+  the bind pose stood 129 tall. 5 placements carry entries for another model (stale) and are rejected.
+- Next: bake the pose into the converted mesh (skin weights, PR #45 / #46) and the rigid body, rebuild Vault 114, look
+  in game. Side finding to check: the REFR rotation order `routes.ref_matrix` uses offline may be the wrong one
+  (known unknown #7).
+
+## 2026-10-16 Claude: posed props (owner playtest rows 4 c and 5; offline, no game input)
+- Cause, verified: the pinned interior build `integ_1011` was made from `a5bc92e`, which has none of the pose work (PRs
+  #45, #46, #52 were never merged), so every skinned prop was drawn in its skin's bind pose and no reference's ragdoll
+  pose (XRGD) was used. The lab-coat skeleton of rows 4 c and 5 stands for that reason. The rad scanners are not posed
+  models at all: same mesh as FO4, the tilted panel is authored that way and loses FO4's glow quad (a skipped effect
+  shape). Details and counts: research log, same date.
+- This PR carries #45 / #46 / #52 forward onto current `main` and finishes them: skin posed in the placed frame
+  (`world_transforms(placed=True)`, as shapes and bodies), and a posed model of its own for each reference whose XRGD
+  moves an articulated model (`placed_pose`, `PosedBases.cs`). Sampling the animated skinned models' sequences showed
+  the node pose is an animation state of every one of them and the bind pose of none (the elevator's surface hatch lay
+  on the vault floor in the bind pose).
+- 16 interiors: 231 placed references change (180 skinned in the node pose, 147 with their own XRGD pose, 96 both);
+  214 single-body loose items with XRGD stay as they are (unchecked frame for a root body). Offline end to end: 35
+  models + 147 posed models converted in 54 s, plugin written and read back, 147 references on their posed base, 0
+  wrong. Renders: docs/media/posed-props/. Not in game yet; the next interior build needs a full convert (the code
+  digest changes the checkpoints).
+
+## 2026-10-16 (afternoon and evening, Mountain time) - Claude: wave 1 merged, stations, the shooting crash found
+
+**Builds.** core64h (exterior + navmesh + 5,185 containers + 12,438 loose items; check 253/253) installed packed for the
+owner at 12:50; the owner confirmed in game that picking up loose items works (~14:30). integ_1016 (the interiors rebuilt
+with #230 collision, #231 LOD triangles, #232 textures: 29 -> 0 collision errors, 54,877 ids unchanged) deployed 13:00.
+integ_1017 (plus #242 vault door rigs through the CALUMI animation dll and #244 posed props: 4,346 models = 4,200 + 146
+posed variants, 55,033 ids with all 54,877 earlier ones unchanged) deployed ~16:25. core64i (every promotion class:
+containers 5,156, items 12,438, activators 2,246, terminals 140, lights 6,249 over 144 LIGH, workshops 29, benches 269 on
+the vanilla Starfield FURN stations; check 263/263) installed packed ~17:35. Owner checks of the stations, lights, vault
+doors and poses are pending.
+
+**Merged** (each with a testing state: full suite, dotnet builds, guard, CI; wave 1 with one combined state of all six
+and an independent adversarial review per PR): #230 #231 #232 #235 #237 #238 #247 #252 (code of conduct) #254 (CodeQL)
+#257 #258 #259 #263 #264 #268 (docs), Codex #243 #245 #248 #251 #253, Grok #250, wave 1 #249 #240 #244 #242 #241 #246,
+stations #266. GitHub code scanning (CodeQL default setup: actions, csharp, python) is on; its two alerts (header
+splitting in the Guardian proxy) fixed in #254; 0 open.
+
+**The shooting crash (owner playtest rows 3 and 18).** Refuted: the impact-material hypothesis (every material-like
+value in our Havok bodies is a vanilla value). Found: Havok's assertion "Unknown primitive type in compressed mesh"
+(hknpCompressedMeshShapeInternals.cpp:939, the int3 at Starfield.exe+0x36F418B in all 7 WER reports since 12 Oct) in
+the compressed-mesh closest-points query of a particle body-collision job. The owner's ProcDump full dump (17.4 GB,
+shooting a Vault 111 cog door) names the shape: vault_cart_01.nif (STAT FO4Port_Vault_Cart_01): numPrimitives 40, one
+data run {0, 40}, yet the query reached primitive index 40: the converted tree's keys reference more primitives than the
+array holds (FO4's key space covers its padding slots); slots with indices[1] == indices[3] (FO4 0xDEAD padding) read as
+an unknown special primitive; FO4 section encoding flags&1 never occurs in vanilla. Affected: 18 of 2,946 mesh-bearing
+interior models, 63 exterior models. Without a debugger the HK_ASSERT's int3 is the crash (straight to desktop, no WER
+entry this afternoon: the engine ends the process). Fix in progress: keys / data runs / primitive array made consistent
+in meshcollision.py, a decoder-simulation checker over every model, reconversion of the affected models.
+
+**The landing-zone boundary (row 17).** "Boundary Reached" is Starfield's native BoundaryMenu (no GMST, no MESG, no
+script). The owner's three setpos lines were pasted as one, so a single 1,549 m jump applied; this repo's runs of 11-12
+Oct showed jumps beyond ~2 cells raise it while 300 m hops reached 2 km with no popup. A real tile edge on foot is
+unproven (hypothesis from exe settings: planet-content blocks 3-4 km + uPlayableSpaceOverlayCellBuffer 5). Permanent
+route: a list of arrival markers per region.
+
+**Doors.** Design pass: first scripted pair = Super Duper Mart (exterior 0EE661 / core slot 02D22C, interior 0EE5D6 /
+Port REFR 01007D0B), both sides real door meshes; the cave and the Vault 111 autoload doors are invisible markers on
+both sides. Step 0 (two Probe functions: Resolve, MoveTo) answers the return-trip and merged-position unknowns in one
+window before any door record exists. Codex's compiled script (#243) is the contract; Codex's native interior half
+(#245 #251 #253) merged. The first build attempt died at 14:51 (unnoticed for three hours); relaunched.
+
+**Stations.** Build mode is engine-side: an ACTI base with WorkshopKeyword (00054BA7) opens workshop mode on activation
+(vanilla pre-placed pattern OutpostPlayerHouseActivator 00024DC7, also in the Neon exterior). FO4 benches map by bench
+type and recipe keyword id onto 2B6A63 weapon / 2B6A62 armor / 2B6A61 chem / 2B6A65 cooking; power armor stations have
+no equivalent. Open in game: whether build mode opens from a temporary REFR in our overlay (vanilla's are persistent).
+
+**Owner playtest rows 10-18** in docs/owner/playtest-issues.md with pictures (the look button: F13 / Ctrl+Alt+L,
+snapshots tagged owner-button). Lessons: a Bash heredoc here turns \\r \\n escapes into real characters (patch through a
+written script; gate commits on tests); a background workflow can die silently (check the transcripts' modification
+times); the owner's three-line console paste became one line (give one line per command).
+
+## 2026-10-17: Grok map-marker research (playtest row 7)
+
+Starfield 1.16.244. Offline walk of `Starfield.esm` and pinned `FO4TerrainCore.esm`. Starfield has no `MAPM` group;
+markers are `REFR` of STAT `MapMarker` `00000010` with empty `XMRK`. `LCSR` is 5 × u32 (`LCRT`, `REFR`, `WRLD`, 0,
+`0xFFFFFFFF`). LC172WorldLocation already has MapMarkerRefType → persistent `REFR` `003E5E12` and `LCID` that ref.
+`TerrainOverlays` Duplicate-copies that location then clears `MasterSpecialReferences` / `MasterInitiallyDisabledReferences`,
+so the pinned overlay LCTN has empty `LCSR`/`LCID` and 0 MapMarker refs among 654,600 `REFR`.
+
+Plan: restore one persistent MapMarker at the Red Rocket COC with LC172 `FNAM`/`TNAM`, one `LCSR` + `LCID`; do not stamp
+a PCM landing overlay. Frontier hang after that restore is **unresolved** (Claude in-game). FO4 `XMRK` **unresolved**.
+Evidence: [docs/terrain/map-markers.md](terrain/map-markers.md), `src/fo4sf/map_markers.py`, `tests/test_map_markers.py`.
+## 2026-10-16 (night, Mountain time) - Claude: Step 0 probes and the first scripted door
+
+**Probes (queues door_probe_1017 and door_probe_1017e; bridge_t2; core64i / core64k; Starfield 1.16.244).**
+(a) From the Red Rocket exterior: `Game.GetFormFromFile(id, plugin)` with a plugin-local id works; the persistent
+anchor 0x800 resolves at its unmerged position (-989.26, 1146.51) in world 0x02000803 (our base WRLD, not the runtime
+instance); a loaded temporary reference resolves at its merged position; a temporary reference in an unloaded cell
+returns none. (b) From inside FO4Port_RedRocket01: the anchor resolves, both temporary exterior references return none.
+(c) `MoveTo` onto the anchor from inside puts the player at the anchor's unmerged coordinates in a fresh runtime world
+and he falls (no terrain there: y 1146 lies outside the overlay's merged extent). (d) The same with offsets
+(-1200, -2700, 0): identical landing, offsets ignored across the world switch (the single far console jump afterwards
+raised Boundary Reached). (e) `MoveTo` onto the anchor, then fifteen console hops of <= 200 m to the merged Red Rocket
+spot: the player stood at (-2189.30, -1553.54, 110.49) in cell 0x02000DAF of that same runtime world, z steady for 28
+samples: the world a persistent reference drops you into is the overlay instance; only the persistent reference's own
+coordinates are unmerged.
+
+**First scripted door (queue door_trip_sdm_1018; core64k + integ_1018_doors + bridge_t3 with FO4SF_LoadDoor.pex).**
+Forward: four 182 m hops to the Super Duper Mart door (merged -1654.44, -2059.93), `prid 0202D22B`, GetIsID of the
+ACTI 020A770B = 1, `activate player`: Papyrus logged `requested fo4port.esm:57087` and `MoveTo returned`; the player
+then stood on the interior arrival marker (5.449, 17.291, -3.637) in cell 0x04006C46 for six steady samples. PASS.
+Return from inside: `refused: destination unavailable or self` (the temporary exterior marker does not resolve from
+an interior); the player stayed. EXPECTED-REFUSED.
+
+**Design that follows.** Exterior arrival markers become persistent; the door script keeps `MoveTo` for the cell /
+world switch and adds a `SetPosition` to the destination's merged coordinates (properties per door). Codex owns the
+script change; the writer change is Claude's. Evidence folders: C:\Modding\testqueue\door_probe_1017,
+door_probe_1017e, door_trip_sdm_1018 (bridge.log, papyrus.log, obs.json, judge outputs). Lesson: the bridge log's
+probe lines are case-sensitive to the game's spelling (`FO4SF Resolve`); the reader is case-insensitive since #282.
+
+## 2026-10-17 - Claude: the "flat grey floor" in Vault 111 is the water plane (owner playtest row 20)
+
+**Question.** Owner snapshot 20261017-000312 (bridge position -57.91, -7.11, -1.943 in Vault111Cryo, integ_1018 build):
+the floor is one flat light-grey surface, no tile or grid detail, white under the flashlight. Which model, which
+material, why flat? (Offline only; nothing launched.)
+
+**Finding (verified offline, one in-game read).** It is not a floor model's texture. The surface is the placed
+`Water\Water1024.nif` (ref 02D27E, base Water1024IntPondDarkCalm, FO4 position -3832, -200, -136 = -54.743, -2.857,
+-1.943 m), a 14.63 m square (UV 0..1) over the gear room's sunken pit:
+- The player's z (-1.942875) equals the plane's top (-136/70 = -1.942857) to 2e-5 m. The earlier snapshots 000241 and
+  000257 read z 0.0009 and 0.0 on the room floor and show the normal dark vault tiles. The pit's real floor is the
+  `V111FloorCementDirty01` shape of `V111GearRoom01` at z -2.38 (the blue generator `GreebGenerator01` stands on it at
+  z -2.40, 9.2 m ahead, 16 deg left of the view heading: where the screenshot shows it); the plane hides it.
+- FO4's `Water1024.nif` has one BSTriShape with a `BSWaterShaderProperty` (no texture set, no .bgsm: FO4 draws it
+  from the WATR record) and one convex body, 14.63 x 14.63 x 14.63 m below the plane, layer 11 = L_WATER ("a water area
+  phantom"). `Converter._shape_material` returns the neutral fallback for every shader that is not a
+  BSLightingShaderProperty or BSEffectShaderProperty, so the quad became `_neutral.mat`: a 16 x 16 uniform grey colour
+  texture (decoded luma std 0.00), a flat normal map, one roughness value. That is "flat grey, no detail", opaque, at
+  water level. Manifest: `fo4port\water\water1024.nif`, shapes 1, fallback_materials 1, collision_report bodies 1.
+- The converted body keeps layer 11 with the template's hknpMaterial (materialId 0, flags 0, triggerType 0). In
+  Starfield's COLL records L_WATER (layer 11) lists L_CHARCONTROLLER among its collision partners and L_CHARCONTROLLER
+  lists L_WATER; Fallout4.esm has the same pairing, yet an FO4 player does not stand on water. The FO4 water body is
+  the one body here with cinfo flags 0x10 (the room's static and stair-helper bodies have 0); the converter writes
+  the template's 0. What bit 0x10 does is **unresolved** (hypothesis: it is what keeps the FO4 body from being solid).
+  What is verified is the result: in Starfield the player stood on the sheet, 0.44 m above the pit floor. Same cause
+  as T10 in docs/ai/test-gaps-2026-10-13.md (the Red Rocket cave pond is a 5.1 m L_WATER box).
+- Not the other candidates: the pit floor's own converted material is fine (`v111floorcementdirty01.mat`: colour,
+  normal and roughness exist in the archive; the colour map decodes to the same mean RGB and spread as FO4's
+  `V111FloorCementDirty01_d.dds`, 161/156/140, std 12.5). No palette material is involved (#289: the shapes under the
+  player have no BGSM and no greyscale-to-palette flag). No texture failed conversion. It is not a lighting effect.
+
+**Fix.** The exterior path already leaves placed water planes out (`exterior.WATER_RE`); the interior path did not
+(interior-backlog.md had it as "unresolved whether they look wrong in game"; now resolved). `convert_batch.cell_candidates`
+now drops `Water\` models too, so the model is not converted and the plugin writer places no reference for it (PluginSpike
+counts a reference as skipped when its model has no manifest item). Five of the 16 interior exports place a Water1024
+(Vault111Cryo, Vault75, RedRocket01, CambridgePolymerLabs01, MuseumOfWitchcraft01). Result: a dry pit, as FO4 minus its
+0.44 m of water. Real water is a separate feature (FO4 water type -> Starfield water), not attempted. Test:
+`CellCandidatesTests.test_water_planes_out_like_the_exterior_path` (fails without the change; also asserts the exterior
+classifier agrees). Before/after reconversion of the two refs (room + plane): the before manifest is byte-identical to
+integ_1018's (water1024.nif, `_neutral.mat`, gear room all equal by sha256); the after manifest holds the room only.
+
+**Not verified.** In game: that after a rebuild the player stands at the pit floor (z about -2.38) and sees the cement
+texture. The first read after the rebuild is the proof; the T10 PHANTOM test covers the cave pond.
+
+## 2026-10-17: Grok 3D surface-map research (ROADMAP §3 item 1)
+
+Starfield 1.16.244. Offline. Pinned `terrain_core64k`: LCTN parent `SSol_PMars_Surface`, overlay SNAM 0 / PNAM 4, Mars
+PNDT 11 entries including our WRLD; no `lodsettings`; 0 `meshes/lod/generated`; 315 converted FO4 LOD NIFs under
+`meshes/fo4core/lod`. The 3D surface map is the May 2024 loading-zone camera, not a mesh we author. GO: marker (#296
+after LCSR `FFFFFFFF`) then CK object LOD; NOT go: custom planet or map renderer this stage.
+Evidence: [docs/terrain/surface-map.md](terrain/surface-map.md), `src/fo4sf/surface_map.py`, `tests/test_surface_map.py`.
+## 2026-10-17: Codex raw light-patch bounds (offline)
+
+Independent PR302 review reproduced a malformed DAT2 declaration extending beyond
+its LIGH into a following STAT: scale changed four STAT bytes, then check returned
+CHECK PASS. Both commands now validate record/group containment and all LIGH
+subrecords before accepting lumens offsets; malformed trailing fields and duplicate
+DAT2 are refused. The checker validates both files. The scaling rule is unchanged.
+
+Synthetic reproduction only, no game versions or installed outputs tested.
+Seventeen focused tests passed initially; the selected three-method baseline run
+produced five failed assertions against the old implementation. This was not a
+run of every new test against old code. Valid trailing fields remain supported.
+Guard/whitespace pass. Failure/pass evidence is privately retained; independent
+QA pending. No game data, staging changes or native brightness claim.
+
+Claude's independent review at 7a31d64 confirmed valid-output parity in 12 synthetic
+comparisons and requested a regression for validating checker input B. Added one
+test with two cases: A valid, B duplicate-DAT2 or overrun, identical total size and
+record layout. Both reject before byte/lumens comparison and retain both inputs.
+Removing only B validation causes both cases to fail. All 31 focused light-patch
+and FO4-light tests pass; guard and whitespace checks pass. Production source is
+unchanged; final test-delta review is pending. No native or staging run.

@@ -48,6 +48,40 @@ function Console-Open {
 $script:strictReads = $false     # door_trip: readpos -Strict (labelled values of the read's own session only)
 $script:lastHeading = $null      # the heading of the last Read-Pos with -Angle ($null: not read)
 $script:readN = 0                # readpos.ps1 runs so far: each gets its own folder <Out>\reads\NNNN
+function Bridge-Ref-Read([string]$ref, [int]$tries = 2) {
+  # a reference's position through the bridge, no OCR (docs/ai/test-queue.md "Bridge", 2026-10-15): one console session
+  # types cgf "FO4SF_Probe.Pos" <decimal ref> (FO4SF_Probe.psc replies "FO4SF ref=.. pos=.. loaded=.." in the bridge's
+  # log: verified in game, nine R05 runs) and bridge_log.py wait-ref returns the first reply written after the mark
+  # taken before the command (an older reply never passes for this read). "x y z" in the game's frame (the numbers
+  # getpos prints) or $null, when the caller falls back to readpos. obs.read_log: via = bridge-ref, the log line.
+  if ($ref -notmatch '^[0-9A-Fa-f]{8}$') { return $null }
+  $u = [Convert]::ToUInt32($ref, 16); $dec = [int64]$u
+  if ($u -gt 2147483647) { $dec = $dec - 4294967296 }   # the script takes a Papyrus int: load index FF.. is negative
+  $py = Join-Path $here 'bridge_log.py'; $logArg = @(); if ($env:FO4SF_BRIDGE_LOG) { $logArg = @('--log', $env:FO4SF_BRIDGE_LOG) }
+  for ($n = 0; $n -lt $tries; $n++) {
+    $script:readN++
+    $mark = "$(& $env:FO4SF_PYTHON $py mark @logArg)".Trim(); $markCode = $LASTEXITCODE
+    if ($markCode -ne 0 -or $mark -notmatch '^\d+$') {
+      # no mark, no bridge read: nothing could prove a reply is this read's (Codex's review of #164: a 0 in its place
+      # let an old reply pass); the caller falls back to readpos's OCR
+      if (-not $obs.Contains('read_log')) { $obs['read_log'] = @() }
+      $obs['read_log'] += [ordered]@{ n = $script:readN; via = 'bridge-ref'; ref = $ref; nonce = $null; result = "fail mark ($markCode): $mark" }
+      return $null
+    }
+    Console-Open
+    Send "type:cgf `"FO4SF_Probe.Pos`" $dec|key:enter|wait:500|key:grave|wait:800"
+    $j = $null
+    try { $j = (& $env:FO4SF_PYTHON $py wait-ref $ref --since $mark --timeout 8 @logArg) | ConvertFrom-Json } catch { $j = $null }
+    if (-not $obs.Contains('read_log')) { $obs['read_log'] = @() }
+    $ok = [bool]($j -and $j.ok -and @($j.pos).Count -eq 3)
+    $pos = $(if ($ok) { (@($j.pos) | ForEach-Object { ([double]$_).ToString([Globalization.CultureInfo]::InvariantCulture) }) -join ' ' } else { "fail $($j.why)" })
+    $rec = [ordered]@{ n = $script:readN; via = 'bridge-ref'; ref = $ref; nonce = $null; result = $pos }
+    if ($ok) { $rec['line'] = $j.line; $rec['loaded'] = $j.loaded }
+    $obs['read_log'] += $rec
+    if ($ok) { return $pos }
+  }
+  return $null
+}
 function Bridge-Read([bool]$angle = $false, [int]$tries = 12) {
   # the player's position from the newest line of the bridge's log (bridge_log.py latest: the game's FO4SF_Bridge
   # script writes one every half second; docs/ai/test-queue.md "Bridge"), not older than $script:bridgeMaxAge s:
@@ -83,6 +117,10 @@ function Read-Pos([string]$ref = '', [int]$tries = 3, [bool]$angle = $false) {
   # a bridge read needs its ~8 s of patience whatever the caller asked (bridge_probe_1015b: 3 tries gave up 2 s before
   # the first line after the loading screen)
   if ($script:bridge -and -not $ref) { return (Bridge-Read $angle ([Math]::Max($tries, 12))) }
+  if ($script:bridge -and $ref) {                       # a reference: the bridge's probe reply; readpos's OCR only if it fails
+    $br = Bridge-Ref-Read $ref
+    if ($null -ne $br) { return $br }
+  }
   # up to 3 reads: OCR sometimes drops or shifts a column; a read with x == z or a missing value is retried. With
   # $angle (door_trip arrivals) readpos also types player.getangle z: the read returns "x y z" and the heading goes to
   # $script:lastHeading. Every readpos run keeps its capture, OCR text and read.json (its nonce) in its own folder,
@@ -144,13 +182,24 @@ function Wait-Hud([int]$maxSec, [string]$name = 'hud.png') {
   return @{ up = $up; secs = [int]((Get-Date) - $t0).TotalSeconds }
 }
 function F($x) { ([double]$x).ToString('0.###', $inv) }
+$script:tpCapture = $false; $script:tpN = 0        # terrain teleport_console: capture each teleport's console session
 function Teleport($pos, $heading, $pitch = 10, [string]$first = '') {
-  # $first: a light command Apply-Light found working (from its validated table), typed in the same console session
+  # $first: a light command Apply-Light found working (from its validated table), typed in the same console session.
+  # With $script:tpCapture (terrain "teleport_console": true, 2026-10-15: r05_medkit_1015/b/c/e, where player.setpos
+  # left the player at the arrival) the session's console is captured and OCR'd before it closes (tp<n>.png,
+  # obs.teleports): the game's own reply to the typed lines is the evidence nothing else keeps.
   Console-Open
   $pre = ''; if ($first) { $pre = "type:$first|key:enter|wait:400|" }
-  Send ($pre + "type:player.setpos x $(F $pos[0])|key:enter|wait:350|type:player.setpos y $(F $pos[1])|key:enter|wait:350|" +
-        "type:player.setpos z $(F $pos[2])|key:enter|wait:350|type:player.setangle z $(F $heading)|key:enter|wait:350|" +
-        "type:player.setangle x $pitch|key:enter|wait:400|key:grave|wait:1800")
+  $typed = ($pre + "type:player.setpos x $(F $pos[0])|key:enter|wait:350|type:player.setpos y $(F $pos[1])|key:enter|wait:350|" +
+            "type:player.setpos z $(F $pos[2])|key:enter|wait:350|type:player.setangle z $(F $heading)|key:enter|wait:350|" +
+            "type:player.setangle x $pitch|key:enter|wait:400")
+  if ($script:tpCapture) {
+    Send $typed
+    $script:tpN++; $r = Read-Console "tp$($script:tpN)"
+    if (-not $obs.Contains('teleports')) { $obs['teleports'] = @() }
+    $obs['teleports'] += [ordered]@{ n = $script:tpN; target = @($pos | ForEach-Object { F $_ }); ocr = $r.ocr; shot = $r.shot }; Save-Obs
+    Send 'key:grave|wait:1800'
+  } else { Send ($typed + '|key:grave|wait:1800') }
 }
 
 # Time of day and weather (terrain and npc_nav; docs/ai/test-queue.md "Time of day and weather", sky_light.py). Every
@@ -182,7 +231,8 @@ function Light-Commands {
 # console_pre (after the save has loaded, before the travel) and console_post (after the arrival, before the probes or
 # the spawn): only lines that match this whitelist are typed (the same pattern as console_plan.py PATTERN; .NET \z, so a
 # trailing newline never passes); a bad line ends the step with exit 4 before anything is typed.
-$consoleOk = '^(?:GetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}"|SetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}" -?\d{1,9}(?:\.\d{1,6})?|SetLocalTime (?:1?\d|2[0-3])(?:\.\d{1,2})?(?: 1)?|cgf "Game\.SetLocalTime" (?:1?\d|2[0-3])(?:\.\d{1,2})?|fw [0-9A-Fa-f]{8}(?: 1)?|cgf "FO4SF_Probe\.Pos" \d{1,10}|cgf "FO4SF_Probe\.Ack" "[A-Za-z0-9_.-]{1,40}"|cgf "FO4SF_Probe\.Player"|cgf "Debug\.TraceUser" "fo4sf" "[A-Za-z0-9_ .-]{1,60}")\z'
+$consoleOk = '^(?:GetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}"|SetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}" -?\d{1,9}(?:\.\d{1,6})?|SetLocalTime (?:1?\d|2[0-3])(?:\.\d{1,2})?(?: 1)?|cgf "Game\.SetLocalTime" (?:1?\d|2[0-3])(?:\.\d{1,2})?|fw [0-9A-Fa-f]{8}(?: 1)?|cgf "FO4SF_Probe\.Pos" \d{1,10}|cgf "FO4SF_Probe\.Ack" "[A-Za-z0-9_.-]{1,40}"|cgf "FO4SF_Probe\.Player"|cgf "Debug\.TraceUser" "fo4sf" "[A-Za-z0-9_ .-]{1,60}"|cgf "FO4SF_Probe\.Resolve" "[A-Za-z0-9_.-]{1,60}\.es[mpl]" \d{1,8}|cgf "FO4SF_Probe\.MoveTo" "[A-Za-z0-9_.-]{1,60}\.es[mpl]" \d{1,8} -?\d{1,5}(?:\.\d{1,3})? -?\d{1,5}(?:\.\d{1,3})? -?\d{1,5}(?:\.\d{1,3})?)\z'
+$moveToPrefix = 'cgf "FO4SF_Probe.MoveTo" '      # console_plan.MOVETO_PREFIX: Run-Console waits for the HUD after it
 function Console-List($list, [string]$what) {
   $out = @()
   foreach ($c in @($list | Where-Object { $null -ne $_ })) {
@@ -192,13 +242,28 @@ function Console-List($list, [string]$what) {
   if ($out.Count -gt 12) { "bad $what"; exit 4 }
   return ,$out
 }
-function Read-Console([string]$name) {
-  # the open console's text: capture its region ($name.png in $Out), prepare and OCR it (as the god mode reply)
-  $cap = Join-Path $Out "$name.png"; $prep = Join-Path $Out "${name}_prep.png"
+# the brightness thresholds ocr_prep.py tries on one console capture, in order: Item-Capture's and the npc steps' four
+# (written out in their loops), used by the activate step's Read-Console
+$ocrThresholds = @(135, 140, 130, 145)
+function Read-Console([string]$name, [int[]]$thresholds = @(135), [string]$until = '') {
+  # the open console's text: capture its region ($name.png in $Out), prepare and OCR it (as the god mode reply).
+  # With $until the same capture (nothing typed again) is prepared and OCR'd at each of $thresholds in turn until the
+  # text matches $until: core64g_accept_1016 test 0002 read "prid 02008C5F / GetIsID 020A2AB2" at 135 without the
+  # reply line that activate_sel.png shows ("GetIsID >> 1.00"), and 130 and 145 read it. Returns the matching text and its
+  # threshold (th), else the first threshold's text and th = $null; ${name}_prep.png is the first threshold's image,
+  # ${name}_prep<th>.png a later one's.
+  $cap = Join-Path $Out "$name.png"
   powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'shot_region.ps1') -Out $cap | Out-Null
-  & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $cap $prep 135 12 | Out-Null
-  $txt = ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $prep -Scale 1) -join "`n")
-  return @{ ocr = $txt; shot = $(if (Test-Path $cap) { "$name.png" } else { $null }) }
+  $first = $null; $hit = $null; $hitTh = $null
+  foreach ($th in $thresholds) {
+    $prep = if ($null -eq $first) { Join-Path $Out "${name}_prep.png" } else { Join-Path $Out "${name}_prep$th.png" }
+    & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $cap $prep $th 12 | Out-Null
+    $txt = ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $prep -Scale 1) -join "`n")
+    if ($null -eq $first) { $first = $txt }
+    if (-not $until -or $txt -match $until) { $hit = $txt; $hitTh = $th; break }
+  }
+  if ($null -eq $hit) { $hit = $first }
+  return @{ ocr = $hit; th = $hitTh; shot = $(if (Test-Path $cap) { "$name.png" } else { $null }) }
 }
 function Run-Console($cmds, [string]$phase) {
   # one console session per command: type it, capture the console, OCR, close. The OCR text and the capture
@@ -212,7 +277,17 @@ function Run-Console($cmds, [string]$phase) {
     Send "type:$c|key:enter|wait:900"
     $r = Read-Console "console_$k"
     Send 'key:grave|wait:800'
-    $obs['console'] += [ordered]@{ phase = $phase; cmd = $c; ocr = $r.ocr; shot = $r.shot }
+    $rec = [ordered]@{ phase = $phase; cmd = $c; ocr = $r.ocr; shot = $r.shot }
+    if ($c.StartsWith($moveToPrefix)) {
+      # FO4SF_Probe.MoveTo (the scripted door's Step 0, 2026-10-16) can load another cell: wait for the HUD before the
+      # next console session (Console-Open would find the loading screen and end the step), then 3 s of game time for
+      # the script's "phase=settled" line (Utility.Wait 1.0 counts only while no menu is open). hud_back false: a
+      # popup or a load that did not end in 90 s (console_<k>_hud.png shows which); the next Console-Open decides.
+      $w = Wait-Hud 90 "console_${k}_hud.png"
+      $rec['hud_back'] = [bool]$w.up; $rec['load_s'] = $w.secs; $rec['hud_shot'] = "console_${k}_hud.png"
+      if ($w.up) { Start-Sleep 3 }
+    }
+    $obs['console'] += $rec
     Save-Obs
   }
 }
@@ -694,6 +769,7 @@ switch ($kind) {
     Save-Obs
     # drop_above_spawn: drop height relative to the arrival (terrain height unknown in a relocated world);
     # settle_ms: wait before reading (a 60 m fall at Mars gravity takes about 6 s)
+    $script:tpCapture = [bool]$t.teleport_console      # diagnostic: each teleport's console captured (obs.teleports)
     $dropz = [double]$t.drop_z + $oz                # drop_z is in the worldspace's own frame
     if ($t.drop_above_spawn -and $obs['spawn_read']) {
       $sv = "$($obs['spawn_read'])".Trim().Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
@@ -734,6 +810,51 @@ switch ($kind) {
       $k++
     }
     $obs['points'] = $pts
+    if ($t.activate) {
+      # activate (R05 interaction acceptance, docs/ai/test-queue.md "Activate"): the container's menu opened from the
+      # console with the player as the activator, no facing and no E. One console session: "prid <ref>" selects the
+      # reference, "GetIsID <base>" must reply 1 (the selection is a reference of that base; a refused prid leaves the
+      # previous selection, which "activate player" would open: Codex's review of #145), and only then "activate
+      # player"; the console closes and the menu opens. The whole screen is captured and OCR'd (the container's name and
+      # items, read by testqueue.py activate_summary, shown and never judged), then the menu is closed with Tab. Without
+      # the proof nothing is activated and obs.activate says so (selected = false, the console's text kept).
+      $aref = "$($t.activate.ref)"; $abase = "$($t.activate.base)"
+      if ($aref -notmatch '^[0-9A-Fa-f]{8}$' -or $abase -notmatch '^[0-9A-Fa-f]{8}$') { "bad activate"; exit 4 }
+      Console-Open
+      Send "type:prid $aref|key:enter|wait:400|type:GetIsID $abase|key:enter|wait:700"
+      # the reply "GetIsID >> 1.00": on the echo's line, or (r05_medkit_1015f: the OCR split the row) as ">> 1.00" on the
+      # line after the echo "GetIsID <8 hex>"; OCR confuses l/I/1 and sometimes loses the >>. The line anchor keeps a
+      # base id that starts with 1 from passing (the echo never ends in a lone 1). The one capture is read at each OCR
+      # threshold until the reply is found (core64g_accept_1016 0002: lost at 135, "Get ISID > > 1.00" at 140, which the
+      # pattern does not take, read at 130 and 145);
+      # obs.activate.sel_threshold is the threshold that read it (null: none did, sel_ocr is the first threshold's text)
+      $isidReply = '(?m)Get[Il1]s[Il1]D[ \t]*(?:[0-9A-Fa-f]{8}[ \t]*\r?\n[ \t]*)?(?:[>»][ \t]*[>»]?[ \t]*)?1(?:[.,][ \t]?0{1,2})?[ \t]*$'
+      $sel = Read-Console 'activate_sel' $ocrThresholds $isidReply
+      $selected = [bool]("$($sel.ocr)" -match $isidReply)
+      $obs['activate'] = [ordered]@{ ref = $aref; base = $abase; selected = $selected; sel_shot = $sel.shot; sel_ocr = $sel.ocr;
+                                     sel_threshold = $sel.th }
+      Save-Obs
+      if ($selected) {
+        Send "type:activate player|key:enter|wait:400|key:grave|wait:2500"
+        $aShot = Shot 'activate.png'; $aTxt = ''
+        if ($aShot) {
+          $aCap = Join-Path $Out 'activate.png'; $aPrep = Join-Path $Out 'activate_prep.png'
+          & $env:FO4SF_PYTHON (Join-Path $here 'ocr_prep.py') $aCap $aPrep 135 12 | Out-Null
+          $aTxt = ((powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ocr.ps1') -Image $aPrep -Scale 1) -join "`n")
+        }
+        $obs['activate']['shot'] = $aShot; $obs['activate']['ocr'] = $aTxt; Save-Obs
+        # the container UI's "BACK / HOLD TO EXIT [TAB]": a tap only goes back a level (r05_medkit_1015d a1: the menu
+        # stayed open and the next console open failed), a held Tab exits; a second hold if the HUD is still not back
+        Send 'hold:tab,1200|wait:1500'
+        $obs['activate']['closed_shot'] = Shot 'activate_closed.png'
+        if ($obs['activate']['closed_shot'] -and -not (Hud-Shown 'activate_closed.png')) {
+          Send 'hold:tab,1500|wait:1500'; $obs['activate']['closed_retry'] = Shot 'activate_closed2.png'
+        }
+      } else {
+        Send 'key:grave|wait:800'                     # selection not proven: nothing activated
+      }
+      Save-Obs
+    }
     # Unscored plan diagnostic: use the same merged frame/drop height as the judged points.
     Teleport @(([double]$t.beyond.x + $ox), ([double]$t.beyond.y + $oy), $dropz) 90 5
     Start-Sleep -Milliseconds 4500
