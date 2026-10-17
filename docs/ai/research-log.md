@@ -3,6 +3,21 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-17 Grok: FO4 FLOR harvest -> Starfield FLOR (playtest row 14)
+
+- Question: what Starfield record harvests like FO4 flora, and how many placed plants the core would promote.
+- Method: raw walk of `Starfield.esm` 1.16.244 `FLOR` group (`fo4land.Plugin`); keyword / `PFIG` targets resolved to
+  EDID; `terrain_core64c_work_fix3/selected.json` type counts (read-only). `Fallout4.esm` is not on this machine.
+- Starfield, **verified**: 300 `FLOR`. Harvest fields are still `PFIG` (ingredient) and `PFPC` (four seasonal
+  percentages). 169 carry `FloraTypeOrganic` 00222E03; 106 of those also `OutpostCanDomesticate` 002AC11D. Crop
+  templates `FloraMaizeCrop01` 000EC886 (and wheat) `PFIG` `OrgCommonNutrient_Seed` 00260DF2. `PNAM` `CC 4C 33 00` and
+  `JNAM` 360 match the ACTI marker colour / activation angle TerrainOverlays already writes.
+- Core placed flora, **verified**: 3,520 refs, 48 bases, converted as STAT. Crops: tato 320, mutfruit 328, gourd 251,
+  corn 230, melon 199, tarberry 134, razorgrain 106.
+- FO4 `PFIG` per base: **unresolved** (no `Fallout4.esm`). Shared field names make a native FLOR promotion
+  **supported**. In-game harvest on a converted FO4 mesh: **unresolved**.
+- Plan: [docs/terrain/flora.md](../terrain/flora.md). Not built yet.
+
 ## 2026-10-16 Claude: posed props in the pinned interiors (owner playtest rows 4 c and 5)
 - Question: why does the pinned interior build (`integ_1011`) show the Vault 111 radiation scanners with "swung out"
   panels and the lab-coat skeleton `Vault111SkeletonScientist02` standing, and how many models and references of the

@@ -1634,3 +1634,13 @@ no equivalent. Open in game: whether build mode opens from a temporary REFR in o
 snapshots tagged owner-button). Lessons: a Bash heredoc here turns \\r \\n escapes into real characters (patch through a
 written script; gate commits on tests); a background workflow can die silently (check the transcripts' modification
 times); the owner's three-line console paste became one line (give one line per command).
+
+## 2026-10-17: Grok FLOR harvest research (offline, row 14)
+
+Starfield.esm 1.16.244 still has `FLOR` as the harvest record: 300 bases, `PFIG` ingredient + `PFPC` seasons.
+Organic crop template `FloraMaizeCrop01` (keywords `FloraTypeOrganic` + `OutpostCanDomesticate`, seed item
+`OrgCommonNutrient_Seed`). Core64c selected 3,520 Flora refs / 48 bases, currently STAT. Plan: one Starfield FLOR
+per FO4 flora base, cloned from the maize crop, converted model, REFR keeps its slot
+([docs/terrain/flora.md](terrain/flora.md)). `Fallout4.esm` not on this machine, so FO4 ingredients are not mapped
+yet (default seed). No promotion code in this entry; in-game harvest is Claude's after a scratch overlay.
+
