@@ -77,6 +77,31 @@ class TerrainMapMarkerWriterTests(unittest.TestCase):
         self.assertEqual(recs[marker][0], b"REFR")
         self.assertEqual(recs[marker][3] & 0xC00, 0xC00)
 
+    def test_params_map_markers_write_one_chain_each(self):
+        # the four-marker loop (make_core64c stage "map_markers"), judged by make_core64c check's map_marker_problems
+        import copy
+        import importlib.util
+        sys.path.insert(0, str(ROOT / "scripts" / "terrain"))
+        spec = importlib.util.spec_from_file_location("make_core64c", ROOT / "scripts" / "terrain" / "make_core64c.py")
+        mk = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mk)
+        params = copy.deepcopy(self.params)
+        ov = params["overlays"][0]
+        ov["map_markers"] = [{"tag": "RedRocket", "name": "Red Rocket Truck Stop", "pos": ov["spawn"], "cell": [0, 0]},
+                             {"tag": "Sanctuary", "name": "Sanctuary Hills", "pos": [150.0, 50.0, 1.0], "cell": [1, 0]},
+                             {"tag": "Concord", "name": "Concord", "pos": [50.0, 150.0, 1.5], "cell": [0, 1]}]
+        saved, self.params = self.params, params
+        try:
+            proc, stage = self.run_writer(self.objects, "map-marker-params")
+        finally:
+            self.params = saved
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        ids = json.loads((stage / "formids.json").read_text())
+        self.assertEqual(sorted(ids["map_marker_refs"]["SyntheticWorld"]), ["Concord", "RedRocket", "Sanctuary"])
+        self.assertEqual(ids["map_markers"]["SyntheticWorld"], ids["map_marker_refs"]["SyntheticWorld"]["RedRocket"])
+        new = mk.overlay_records.walk_plugin(stage / "Synthetic.esm")
+        self.assertEqual(mk.map_marker_problems(new["records"], len(new["masters"]), ov, ids), [])
+
     def test_missing_template_skips_map_marker_restore(self):
         identity = tri.TerrainReferenceIdentityTests()
         identity.dotnet = self.dotnet
