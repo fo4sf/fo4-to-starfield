@@ -170,6 +170,8 @@ def main():
     ap.add_argument("--pattern", default=r"^meshes[\\/]setdressing[\\/]")
     ap.add_argument("--limit", type=int, default=20)
     ap.add_argument("--max-tris", type=int, default=20000, help="skip meshes with more triangles than this")
+    ap.add_argument("--retry-failures", action="store_true",
+                    help="only process NIFs that failed in the previous run (from failure-summary.json)")
     ap.add_argument("--cell-json", default="", help="convert the models placed in a cell exported by dotnet/Fo4Export")
     ap.add_argument("--no-ref-poses", action="store_true",
                     help="with --cell-json: place every reference with its base's shared model, ignoring FO4 ragdoll "
@@ -220,6 +222,16 @@ def main():
         names = cell_candidates(cell, set(a.types.split(",")))
     else:
         names = src.mesh_names(a.pattern)
+    if a.retry_failures:
+        summary_path = os.path.join(a.staging, "failure-summary.json")
+        if os.path.exists(summary_path):
+            with open(summary_path, encoding="utf-8") as f:
+                prev = json.load(f)
+            failed = set(prev.get("failed_nifs", []))
+            names = [n for n in names if n in failed]
+            print(f"  retry-failures: narrowed to {len(names)} previous failures")
+        else:
+            print("  retry-failures: no previous failure-summary.json; processing all")
     print(f"{len(names)} candidate meshes; converting up to {a.limit}")
     os.makedirs(a.staging, exist_ok=True)
     state_path = os.path.join(a.staging, "build-state.json")
@@ -363,6 +375,7 @@ def main():
                 for r, c in reason_counts.most_common(10)],
         "reasons": {r: c for r, c in reason_counts.most_common()},
         "examples": {r: examples[r] for r in reason_counts},
+        "failed_nifs": [f["nif"] for f in failures],
     }
     write_json_atomic(os.path.join(a.staging, "failure-summary.json"), summary)
 
