@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -27,6 +28,19 @@ class ExperimentReceiptTests(unittest.TestCase):
     def receipts(self):
         return [json.loads(gzip.decompress(p.read_bytes()))
                 for p in self.history.glob("*.json.gz")]
+
+    def test_isolated_runner_commands_import_with_empty_game(self):
+        for command in ("active", "order"):
+            with self.subTest(command=command):
+                result = subprocess.run(
+                    [sys.executable, "-I", "-B", exp.__file__, command,
+                     "--starfield", self.args.starfield],
+                    cwd=self.root, capture_output=True, text=True, timeout=30,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("nothing installed", result.stdout)
+        self.assertFalse(self.history.exists())
+        self.assertEqual(self.plugins.read_bytes(), self.original)
 
     def test_uninstall_retains_install_identities_outside_game_and_stage(self):
         exp.install(self.args)

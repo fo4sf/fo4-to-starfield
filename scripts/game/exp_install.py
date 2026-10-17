@@ -29,6 +29,8 @@ import tempfile
 
 # Reuse the converter deployer's tested atomic writes and no-overwrite publication.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# cycle.ps1 uses isolated Python, which omits this script's own directory.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import deploy_starfield as deployment  # noqa: E402
 from verify_packed_experiment import verify_archive  # noqa: E402
 from experiment_receipts import preserve_receipt  # noqa: E402
