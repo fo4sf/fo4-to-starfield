@@ -561,13 +561,13 @@ def convert(fo4: List[Tuple[int, "Nvnm"]], door_refs=None, units_per_metre=UNITS
             h = FLT_MAX if not math.isfinite(h) or abs(h) > NO_CEILING else h / units_per_metre
             new_flags = fl & ~(LINK_MASK | F_DOOR | F_WATER)
             cut = (cx0, cy0) != (cx1, cy1)
-            if cut:
-                rep["clipped_triangles"] += 1
+            actually_clipped = False
             for cx in range(cx0, cx1 + 1):
                 for cy in range(cy0, cy1 + 1):
                     poly = base
                     if cut:
                         X0, Y0 = cx * cell_m, cy * cell_m
+                        original_len = len(poly)
                         for axis, value, ge in ((0, X0, True), (0, X0 + cell_m, False), (1, Y0, True),
                                                 (1, Y0 + cell_m, False)):
                             poly = clipper.clip(poly, axis, value, ge, idx)
@@ -580,6 +580,8 @@ def convert(fo4: List[Tuple[int, "Nvnm"]], door_refs=None, units_per_metre=UNITS
                         while len(dedup) > 1 and dedup[0].key == dedup[-1].key:
                             dedup.pop()
                         poly = dedup
+                        if len(poly) != original_len or any(p.key[0] != "v" for p in poly):
+                            actually_clipped = True
                     if len(poly) < 3:
                         continue
                     fan = _fan(poly, min_area)
@@ -597,6 +599,8 @@ def convert(fo4: List[Tuple[int, "Nvnm"]], door_refs=None, units_per_metre=UNITS
                         pc.tri_src.append(ti)
                         pc.flags.append(new_flags)
                         pc.heights.append(h)
+            if actually_clipped:
+                rep["clipped_triangles"] += 1
     # adjacency inside each piece, open edges for the cross-piece links
     open_edges: Dict[tuple, list] = {}
     for pk, pc in pieces.items():
