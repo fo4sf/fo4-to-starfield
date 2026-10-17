@@ -11,9 +11,7 @@ Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved 
 
 ## Latest reviewed door evidence
 
-- Saved `door_probe_1017` uses interior build d2b2af17 and bridge_t2. From inside, persistent anchor 2048 resolves at base-world coordinates; temporary exterior references do not resolve in these attempts. No universal limit is proven.
-- Probes (c)/(d): MoveTo enters a generated exterior but lands at unshifted XY (-989.26,1146.51). In (d), requested offset (-1200,-2700,0) is logged yet arrival is unchanged; Z falls105.29 to24.11. Cause remains unresolved. [Pinned independent review](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6229374094).
-- Later (d) runner teleports show BOUNDARY REACHED and unread heights. Exclude them from map-size/door acceptance. Probe (c)'s height PASS calibrates against its own single sample; it does not prove a correct landing.
+- Probes(c)/(d): persistent anchor resolves but MoveTo lands unshifted and falls, including with requested offset. Temporary targets do not resolve in those attempts. Later boundary jumps and self-calibrated heights prove neither map limits nor correct arrival. [Pinned evidence](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6229374094).
 - Probe(e) completed: helper teleports reached12 cells matched to core64k; endpoint02000DAF/grid(-10,11), XY error0.057m, height+5.227m (FAIL HEIGHTS). Screenshots do not establish correct Red Rocket scenery. No door/round-trip acceptance. Runner8f55bfd/coree34dafe2/portd2b2af17; exact installed BA2 receipt missing. [Preserved result](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6229854224).
 - New core64k / integ_1018_doors pairing passed49 raw offline checks with15 interior persistent and15 exterior temporary markers. It is distinct from the probe build; bridge_t3/native SDM acceptance is not established by that audit.
 - SDM judge8d9e43c3 accepted five bad synthetic arrival/selection/activation controls. Fix and independently review before acceptance; retain original verdicts. See #32 comment6229054238.
@@ -28,6 +26,6 @@ Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved 
 
 ## Preservation / cadence
 
-Failed/passing capsules are reopened/source-verified on a second local volume, not offsite. Both obsolete work directories are backed up; cleanup/free-space receipts remain with Claude. Codex deleted nothing. Preserve STOP, Guardian, owner-idle, recovery and saves; never publish game assets/private settings. See testing/progress-storage.md.
+Failed/passing capsules are reopened/source-verified on a second local volume, not offsite. Claude owns cleanup/free-space receipts; Codex deleted nothing. Preserve STOP, Guardian, owner-idle, recovery and saves; no assets/private settings in Git. See testing/progress-storage.md.
 
 Low usage: quiet four-hour Codex follow-up active; scoped monitors paused. Read changed evidence, avoid unchanged retests, guard before commits. History: #32, PRs and Git.
