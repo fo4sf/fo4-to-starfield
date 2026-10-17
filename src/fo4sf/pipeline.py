@@ -129,6 +129,7 @@ class Converter:
         self._blend_cache: Dict[str, bool] = {}
         self._glass_template = None
         self._decal_template = None
+        self._two_sided_template = None
         self.content_resources = content_resources
         self.neutral = self._make_neutral_material()
 
@@ -201,7 +202,7 @@ class Converter:
         rel = re.sub(r"^materials[\\/]", "", bgsm_path.replace("\\", "/"), flags=re.I)
         return self._convert_texture_set(os.path.splitext(rel)[0].lower(), b.diffuse, b.normal, b.smooth_spec,
                                          smoothness=b.smoothness, spec_mult=b.spec_mult,
-                                         alpha_test=b.alpha_test, alpha_ref=b.alpha_ref)
+                                         alpha_test=b.alpha_test, alpha_ref=b.alpha_ref, two_sided=b.two_sided)
 
     def decal_material(self, bgsm_path: str) -> Optional[str]:
         """Alpha-blended FO4 material -> Starfield decal material (or None: the shape is skipped, as before decals)."""
@@ -262,10 +263,13 @@ class Converter:
 
     def _convert_texture_set(self, stem: str, diffuse: str, normal: str, spec: str,
                              smoothness: float = 1.0, spec_mult: float = 1.0,
-                             alpha_test: bool = False, alpha_ref: int = 128, decal: bool = False) -> str:
+                             alpha_test: bool = False, alpha_ref: int = 128, decal: bool = False,
+                             two_sided: bool = False) -> str:
         """FO4 diffuse / normal / smooth-spec textures -> Starfield colour / normal / rough DDS + a .mat. Spec is optional.
         decal: alpha-blended overlay; the diffuse alpha always becomes the opacity map and the .mat is cloned from the
-        vanilla decal template (cm.DECAL_TEMPLATE_MAT) so it blends over the surface behind it."""
+        vanilla decal template (cm.DECAL_TEMPLATE_MAT) so it blends over the surface behind it.
+        alpha_test / two_sided with a real opacity map: clone ConduitKit01TwoSided (shader TwoSided1Layer) instead of
+        the opaque metal template, which ignored the cutout and drew leaf cards as black slabs."""
         import numpy as np
         tex_rel = f"textures/{self.prefix}/{stem}"
         d, n = self.src.texture(diffuse), (self.src.texture(normal) if normal else None)
@@ -276,7 +280,7 @@ class Converter:
         with tempfile.TemporaryDirectory() as tmp:
             open(os.path.join(tmp, "d.dds"), "wb").write(d)
             opacity = None
-            if alpha_test or decal:                        # cutout / blend: the diffuse alpha becomes a BC4 opacity map
+            if alpha_test or decal or two_sided:           # cutout / blend / two-sided cards: diffuse alpha -> BC4 opacity
                 open(os.path.join(tmp, "a.dds"), "wb").write(d)
                 textures.texconv(self.texconv, os.path.join(tmp, "a.dds"), tmp, "R8G8B8A8_UNORM", ("-m", "1"))
                 raw_a = open(os.path.join(tmp, "a.dds"), "rb").read()
@@ -314,6 +318,14 @@ class Converter:
             mat = cm.build_from_template(self._decal_template, "FO4Port_" + re.sub(r"[^a-z0-9]+", "_", stem),
                                          {"Albedo": out["color"], "Normal": out["normal"], "Roughness": out["rough"],
                                           "Opacity": out["opacity"]})
+        elif out.get("opacity"):
+            # leaf cards / vines / fences: TwoSided1Layer honours slot-2 opacity; MetalIronCast01 did not
+            if self._two_sided_template is None:
+                self._two_sided_template = cm.read_template_path(self.content_resources, cm.TWO_SIDED_TEMPLATE_MAT)
+            mat = cm.build_from_template(self._two_sided_template, "FO4Port_" + re.sub(r"[^a-z0-9]+", "_", stem),
+                                         {"Albedo": out["color"], "Normal": out["normal"], "Roughness": out["rough"],
+                                          "Opacity": out["opacity"]},
+                                         alpha_threshold=alpha_ref / 255.0, metalness=0.0)
         else:
             mat = cm.build_mat(self.template_mat, "FO4Port_" + re.sub(r"[^a-z0-9]+", "_", stem), out["color"], out["normal"],
                                out["rough"], opacity=out.get("opacity"), alpha_threshold=alpha_ref / 255.0)

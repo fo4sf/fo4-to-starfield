@@ -1634,3 +1634,14 @@ no equivalent. Open in game: whether build mode opens from a temporary REFR in o
 snapshots tagged owner-button). Lessons: a Bash heredoc here turns \\r \\n escapes into real characters (patch through a
 written script; gate commits on tests); a background workflow can die silently (check the transcripts' modification
 times); the owner's three-line console paste became one line (give one line per command).
+
+## 2026-10-17: Grok playtest textures, row 11 vines (offline)
+
+Starfield 1.16.244, convert dir `terrain_core64c_work_fix3` (read-only). Hanging vines (`vinehanging06/07`,
+`vinecreeper*`) use `vine.mat`: opacity slot 2 and AlphaSettings were already written, but the material still clones
+`MetalIronCast01` / `PlasticPlainSmooth01` (one-sided opaque). Vanilla foliage uses `TwoSided1Layer`.
+`Summary.Layer1.Textures` had no Opacity key. `vine_color.dds` luma 3.8 because 85% of the card is BC1-black
+cutout. Converter now clones `ConduitKit01TwoSided.mat` whenever an opacity map exists, writes Summary Opacity, and
+zeroes metalness. Synthetic tests in `tests/test_materials.py`. In-game check is Claude's after a reconvert of the
+vine family into a scratch folder. Rows 13 (bright wall albedo luma 184) and 15 (dark canvasswap luma 29) are
+separate root causes, not this PR.

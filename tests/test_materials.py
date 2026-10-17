@@ -14,12 +14,20 @@ except ImportError:  # pragma: no cover
     np = None
 
 
-def fake_bgsm(diffuse="a/b_d.dds", normal="a/b_n.dds", spec="a/b_s.dds"):
-    head = b"BGSM" + struct.pack("<II4f", 2, 3, 0.0, 0.0, 1.0, 1.0) + b"\x00" * 20
+def fake_bgsm(diffuse="a/b_d.dds", normal="a/b_n.dds", spec="a/b_s.dds",
+              alpha_blend=0, alpha_test=0, alpha_ref=128, decal=0, two_sided=0):
+    # pad past header bytes 32/41/42/47/48 (blend, alpha ref, alpha test, decal, two-sided) so the texture
+    # strings start after the flags, matching real v2 BGSM files
+    head = bytearray(b"BGSM" + struct.pack("<II4f", 2, 3, 0.0, 0.0, 1.0, 1.0) + b"\x00" * 30)
+    head[32] = alpha_blend
+    head[41] = alpha_ref
+    head[42] = alpha_test
+    head[47] = decal
+    head[48] = two_sided
     def s(t):
         b = t.encode() + b"\0"
         return struct.pack("<I", len(b)) + b
-    return head + s(diffuse) + s(normal) + s(spec) + s("") + s("env/c.dds") + s("") + b"\x00" * 40
+    return bytes(head) + s(diffuse) + s(normal) + s(spec) + s("") + s("env/c.dds") + s("") + b"\x00" * 40
 
 
 class BgsmTests(unittest.TestCase):
@@ -32,6 +40,18 @@ class BgsmTests(unittest.TestCase):
     def test_rejects_other_files(self):
         with self.assertRaises(ValueError):
             cm.parse_bgsm(b"BGEM" + b"\0" * 40)
+
+    def test_parse_alpha_test_two_sided_and_ref(self):
+        b = cm.parse_bgsm(fake_bgsm(alpha_test=1, alpha_ref=92, two_sided=1))
+        self.assertTrue(b.alpha_test)
+        self.assertTrue(b.two_sided)
+        self.assertEqual(b.alpha_ref, 92)
+        self.assertFalse(b.alpha_blend)
+        self.assertFalse(b.decal)
+        plain = cm.parse_bgsm(fake_bgsm())
+        self.assertFalse(plain.alpha_test)
+        self.assertFalse(plain.two_sided)
+        self.assertEqual(plain.alpha_ref, 128)
 
 
 def mini_template():
@@ -88,6 +108,26 @@ class MatTests(unittest.TestCase):
         self.assertEqual(cm.dump_mat(a), cm.dump_mat(b))
         self.assertNotEqual(a["Objects"][1]["ID"], c["Objects"][1]["ID"])
 
+    def test_build_mat_opacity_writes_slot_two_and_summary(self):
+        t = mini_template()
+        t["Objects"][0]["Components"].append(
+            {"Type": "BSMaterial::LayerID", "Index": 0, "Data": {"ID": "res:LAYER"}})
+        t["Objects"][1]["Components"].append(
+            {"Type": "BSMaterial::MRTextureFile", "Index": 0, "Data": {"FileName": "Data\\old_color.dds"}})
+        m = cm.build_mat(t, "FO4Port_Vine", "Data\\v_color.dds", "Data\\v_normal.dds", "Data\\v_rough.dds",
+                         opacity="Data\\v_opacity.dds", alpha_threshold=0.361)
+        files = [(c.get("Index"), c.get("Data", {}).get("FileName"))
+                 for o in m["Objects"] for c in o.get("Components", [])
+                 if c.get("Type") == "BSMaterial::MRTextureFile"]
+        self.assertIn((2, "Data\\v_opacity.dds"), files)
+        alpha = [c["Data"] for o in m["Objects"] for c in o.get("Components", [])
+                 if c.get("Type") == "BSMaterial::AlphaSettingsComponent"]
+        self.assertEqual(alpha, [{"AlphaTestThreshold": "0.361", "HasOpacity": "true"}])
+        op = m["Summary"]["Layer1"]["Textures"]["Opacity"]
+        self.assertEqual(op["File"], "Data\\v_opacity.dds")
+        self.assertFalse(op["UseReplacement"])
+        self.assertNotIn("Opacity", t["Summary"]["Layer1"]["Textures"])   # template not mutated
+
 
 class GlassTests(unittest.TestCase):
     def test_parse_bgem_base_and_normal(self):
@@ -112,6 +152,35 @@ class GlassTests(unittest.TestCase):
         self.assertEqual(m["Objects"][1]["Components"][1]["Data"]["Color"]["Data"]["Value"]["Data"]["x"], "0.2")
         self.assertNotEqual(m["Objects"][1]["ID"], t["Objects"][1]["ID"])
         self.assertEqual(m["Objects"][0]["Components"][0]["Data"]["Name"], "FO4Port_Glass")
+
+    def test_build_from_template_alpha_threshold_and_metalness(self):
+        t = {"Objects": [
+                {"Components": [
+                    {"Type": "BSComponentDB::CTName", "Data": {"Name": "Old"}, "Index": 0},
+                    {"Type": "BSMaterial::AlphaSettingsComponent", "Index": 0,
+                     "Data": {"AlphaTestThreshold": "0.2", "HasOpacity": "true"}}], "Parent": "p"},
+                {"ID": "res:00000001:00000002:00000003", "Parent": "q", "Components": [
+                    {"Type": "BSMaterial::MRTextureFile", "Index": 0, "Data": {"FileName": "Data\\old_color.dds"}},
+                    {"Type": "BSMaterial::MRTextureFile", "Index": 2, "Data": {"FileName": "Data\\old_opacity.dds"}},
+                    {"Type": "BSMaterial::TextureReplacement", "Index": 4,
+                     "Data": {"Color": {"Data": {"Value": {"Data": {"x": "1", "y": "1", "z": "1", "w": "1"}}}}}}]}],
+             "Summary": {"Layer1": {"Textures": {
+                 "Albedo": {"File": "Data\\old_color.dds"},
+                 "Opacity": {"File": "Data\\old_opacity.dds", "Replacement": {"x": 1}, "UseReplacement": False},
+                 "Metalness": {"File": "Data\\old_metal.dds", "UseReplacement": False}}}}}
+        m = cm.build_from_template(t, "FO4Port_Vine",
+                                   {"Albedo": "Data\\v_color.dds", "Opacity": "Data\\v_opacity.dds"},
+                                   alpha_threshold=0.361, metalness=0.0)
+        self.assertEqual(m["Summary"]["Layer1"]["Textures"]["Albedo"]["File"], "Data\\v_color.dds")
+        self.assertEqual(m["Summary"]["Layer1"]["Textures"]["Opacity"]["File"], "Data\\v_opacity.dds")
+        self.assertEqual(m["Objects"][1]["Components"][1]["Data"]["FileName"], "Data\\v_opacity.dds")
+        self.assertEqual(m["Objects"][0]["Components"][1]["Data"]["AlphaTestThreshold"], "0.361")
+        self.assertEqual(m["Objects"][0]["Components"][1]["Data"]["HasOpacity"], "true")
+        self.assertEqual(m["Summary"]["Layer1"]["Textures"]["Metalness"]["Replacement"]["x"], 0.0)
+        self.assertTrue(m["Summary"]["Layer1"]["Textures"]["Metalness"]["UseReplacement"])
+        self.assertEqual(m["Objects"][1]["Components"][2]["Data"]["Color"]["Data"]["Value"]["Data"]["x"], "0")
+        self.assertEqual(m["Objects"][0]["Components"][0]["Data"]["Name"], "FO4Port_Vine")
+        self.assertEqual(t["Objects"][0]["Components"][1]["Data"]["AlphaTestThreshold"], "0.2")  # template not mutated
 
 
 @unittest.skipUnless(np, "numpy not installed")

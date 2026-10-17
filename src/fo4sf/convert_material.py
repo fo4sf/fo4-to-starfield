@@ -158,11 +158,19 @@ def build_mat(template: dict, name: str, albedo: str, normal: str, rough: str,
     m = layer["Textures"]["Metalness"]
     m["Replacement"] = {"w": 1, "x": metalness, "y": metalness, "z": metalness}
     m["UseReplacement"] = True
+    if opacity:
+        # vanilla foliage (GrassTropicalPlant01, FloraBaseLeafyGreen01) names Opacity here as well as slot 2;
+        # the metal template has no such key, so the engine never saw the cutout map
+        layer["Textures"]["Opacity"] = {"File": opacity,
+                                        "Replacement": {"w": 1, "x": 1, "y": 1, "z": 1},
+                                        "UseReplacement": False}
     return mat
 
 
 GLASS_TEMPLATE_MAT = "Materials/SetDressing/Outpost/Mine/OPMineMaskBox01Glass.mat"   # 1LayerEffectGlassNoFrost, own textures
 DECAL_TEMPLATE_MAT = "Materials/Architecture/City/Akila/Decal/AKDecalPrintedTechWall01.mat"   # 1LayerStandardDecal, albedo/normal/rough/opacity
+# two-sided alpha cutout (leaf cards, vines, chain-link): shader model TwoSided1Layer, opacity in slot 2 + Summary
+TWO_SIDED_TEMPLATE_MAT = "Materials/SetDressing/ConduitKit01TwoSided.mat"
 
 
 def parse_bgem_textures(d: bytes):
@@ -200,10 +208,13 @@ def read_template_path(content_resources_zip: str, path: str) -> dict:
         return json.loads(z.read(name).decode("utf-8-sig"))
 
 
-def build_from_template(template: dict, name: str, files: dict, opacity_value: float = None) -> dict:
+def build_from_template(template: dict, name: str, files: dict, opacity_value: float = None,
+                        alpha_threshold: float = None, metalness: float = None) -> dict:
     """Clone any single-layer vanilla material: every texture path the template's Summary names under Albedo / Normal /
     Roughness / ... is replaced by files[slot] (slots not given keep the template's file), object IDs are remapped (as in
-    build_mat) and, for glass, the opacity replacement value is set."""
+    build_mat) and, for glass, the opacity replacement value is set. alpha_threshold writes AlphaSettingsComponent
+    (cutouts). metalness, when given, forces the metalness replacement like build_mat (two-sided foliage must not keep
+    the conduit kit's metal map)."""
     old_layer = template["Summary"]["Layer1"]["Textures"]
     repl = {old_layer[k]["File"]: v for k, v in files.items() if k in old_layer and old_layer[k].get("File")}
     mat = json.loads(json.dumps(template))
@@ -235,6 +246,24 @@ def build_from_template(template: dict, name: str, files: dict, opacity_value: f
                 if c.get("Type") == "BSMaterial::TextureReplacement" and c.get("Index") == 2:
                     c["Data"]["Color"]["Data"]["Value"]["Data"].update(
                         {"x": str(opacity_value), "y": str(opacity_value), "z": str(opacity_value)})
+    if alpha_threshold is not None:
+        for o in mat["Objects"]:
+            for c in o.get("Components", []):
+                if c.get("Type") == "BSMaterial::AlphaSettingsComponent":
+                    c.setdefault("Data", {})
+                    c["Data"]["AlphaTestThreshold"] = f"{alpha_threshold:.3f}"
+                    c["Data"]["HasOpacity"] = "true"
+    if metalness is not None:
+        tex = mat["Summary"]["Layer1"].get("Textures") or {}
+        if "Metalness" in tex:
+            tex["Metalness"]["Replacement"] = {"w": 1, "x": metalness, "y": metalness, "z": metalness}
+            tex["Metalness"]["UseReplacement"] = True
+        for o in mat["Objects"]:
+            for c in o.get("Components", []):
+                if c.get("Type") == "BSMaterial::TextureReplacement" and c.get("Index") == METALNESS_SLOT:
+                    d = c["Data"]["Color"]["Data"]["Value"]["Data"]
+                    d["x"] = d["y"] = d["z"] = _num(metalness)
+                    c["Data"]["Enabled"] = "true"
     return mat
 
 
