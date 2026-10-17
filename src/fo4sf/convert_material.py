@@ -39,6 +39,8 @@ class Bgsm:
     two_sided: bool = False        # header byte 48
     smoothness: float = 1.0        # scales the spec map's gloss channel (v2: 32 bytes after the 9 texture strings)
     spec_mult: float = 1.0
+    palette_color: bool = False    # v2 byte 62: bGrayscaleToPaletteColor (Material-Editor BaseMaterialFile)
+    palette_scale: float = 1.0     # fGrayscaleToPaletteScale; last float before the trailing skew byte
 
 
 def parse_bgsm(d: bytes) -> Bgsm:
@@ -85,9 +87,16 @@ def parse_bgsm(d: bytes) -> Bgsm:
             if not (0.0 <= mult <= 100.0):
                 mult = 1.0
     flags = d[32], d[42], d[47], d[48]
+    palette_color = bool(d[62]) if len(d) > 62 else False
+    palette_scale = 1.0
+    if version == 2 and len(d) >= 5:
+        scale, = struct.unpack_from("<f", d, len(d) - 5)
+        if 0.0 <= scale <= 1.0:
+            palette_scale = scale
     return Bgsm(version, bool(tiles & 2), bool(tiles & 1), (uo, vo), (us, vs), *out,
                 alpha_blend=bool(flags[0]), alpha_test=bool(flags[1]), decal=bool(flags[2]), two_sided=bool(flags[3]),
-                smoothness=smooth, spec_mult=mult, alpha_ref=d[41])
+                smoothness=smooth, spec_mult=mult, alpha_ref=d[41],
+                palette_color=palette_color, palette_scale=palette_scale)
 
 
 def read_template(content_resources_zip: str) -> dict:

@@ -1637,12 +1637,17 @@ times); the owner's three-line console paste became one line (give one line per 
 
 ## 2026-10-17: Grok playtest textures, row 15 greyscale-to-palette (offline)
 
-Starfield 1.16.244, convert dir `terrain_core64c_work_fix3` (read-only). Museum of Freedom `pictureframe03` canvas
-maps (`paintinggeneric_canvasswap`, `canvaspainting01`) decode to luma 29 max 59; `brassplaque` texset colour luma
-15 max 59. FO4 GreyscaleToPalette_Color (nif.xml flags1 bit 4 = 0x10; BGSM 4th texture string) was parsed and
-never applied, so the index maps shipped as albedo. Converter now bakes the palette lookup into the colour map
-(red channel of the diffuse as U, middle row of the palette as V) before BC1. Texture-set slot 3 is only used when
-the flag is set (it is also height). Synthetic tests: palette lookup, BGSM string, flag gating, cache identity.
-In-game check is Claude's after a scratch reconvert of the frame/plaque family. Vertex-colour V and
-GreyscaleToPalette_Alpha are not this PR. Row 11 vines are PR #288; row 13 walls (bright albedo luma 184) remain
+Starfield 1.16.244, convert dir `terrain_core64c_work_fix3` (read-only). FO4 GreyscaleToPalette_Color (nif.xml
+flags1 bit 4 = 0x10; BGSM `bGrayscaleToPaletteColor` byte 62) was parsed and never applied, so index maps
+shipped as albedo. Converter now bakes the palette lookup into the colour map (green channel as U,
+`fGrayscaleToPaletteScale` as V) before BC1. Texture-set slot 3 is only used when the NIF flag is set.
+A greyscale string with the flag off is not a palette (ConcreteRoadHW01 names a cubemap there). A named
+palette that is missing from the archives is a conversion error, not a grey albedo. Synthetic tests:
+palette lookup, flag/scale parse, flag gating, missing-palette failure, cache identity.
+
+Row 15 frames/plaque are **not** palette materials (Claude review, vanilla BA2s): both painting BGSMs have
+an empty greyscale string and byte 62 = 0; BrassPlaque flags1 has bit 0x10 clear and slot 4 is a cubemap.
+This PR does not change those outputs. The frames need per-reference material swaps (MODS/XMSP), which
+nothing in this repo reads. In-game check of real palette materials is Claude's after a scratch reconvert.
+Vertex-colour V and GreyscaleToPalette_Alpha are not this PR. Row 11 vines are PR #288; row 13 walls remain
 a separate root cause.

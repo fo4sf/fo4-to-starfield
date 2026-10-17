@@ -217,12 +217,12 @@ def texconv(texconv_exe, src, out_dir, fmt, extra=()):
 
 # ---- Fallout 4 spec/gloss -> Starfield PBR -------------------------------------------------
 
-def apply_greyscale_palette(index_rgb, palette_rgba):
-    """FO4 GreyscaleToPalette_Color: sample the palette with the index map's red channel as U.
+def apply_greyscale_palette(index_rgb, palette_rgba, scale=1.0):
+    """FO4 GreyscaleToPalette_Color: sample the palette with the index map's green channel as U.
 
-    Palettes are typically 256 texels wide (one colour per 8-bit index). V is the middle row:
-    the converter does not bake vertex-colour V, so a 1-row ramp uses row 0 and a taller LUT
-    uses the centre row. Returns HxWx3 uint8 RGB; the caller keeps the index map's alpha.
+    NifSkope fo4_default.frag uses greyscaleMap(baseMap.g, paletteScale * vertex.r). Without
+    vertex colours the row is clamp(round(scale * H - 0.5)). Returns HxWx3 uint8 RGB; the
+    caller keeps the index map's alpha.
     """
     index = np.asarray(index_rgb)
     pal = np.asarray(palette_rgba)
@@ -235,12 +235,14 @@ def apply_greyscale_palette(index_rgb, palette_rgba):
     ph, pw = pal.shape[0], pal.shape[1]
     if ph < 1 or pw < 1:
         raise ValueError("palette is empty")
-    red = index[..., 0].astype(np.int32)
+    src = index[..., 1] if index.shape[-1] >= 2 else index[..., 0]
+    u8 = src.astype(np.int32)
     if pw == 256:
-        u = np.clip(red, 0, 255)
+        u = np.clip(u8, 0, 255)
     else:
-        u = np.clip((red * (pw - 1) + 127) // 255, 0, pw - 1)
-    v = min(ph // 2, ph - 1)
+        u = np.clip((u8 * (pw - 1) + 127) // 255, 0, pw - 1)
+    scale = max(0.0, min(1.0, float(scale)))
+    v = int(np.clip(np.round(scale * ph - 0.5), 0, ph - 1))
     return np.ascontiguousarray(pal[v, u, :3], dtype=np.uint8)
 
 

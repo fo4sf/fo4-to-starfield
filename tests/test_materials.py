@@ -14,12 +14,16 @@ except ImportError:  # pragma: no cover
     np = None
 
 
-def fake_bgsm(diffuse="a/b_d.dds", normal="a/b_n.dds", spec="a/b_s.dds", greyscale=""):
-    head = b"BGSM" + struct.pack("<II4f", 2, 3, 0.0, 0.0, 1.0, 1.0) + b"\x00" * 20
+def fake_bgsm(diffuse="a/b_d.dds", normal="a/b_n.dds", spec="a/b_s.dds", greyscale="",
+              palette_color=0, palette_scale=1.0):
+    # v2 header is 63 bytes: bGrayscaleToPaletteColor is byte 62, texture strings start at 63
+    head = bytearray(b"BGSM" + struct.pack("<II4f", 2, 3, 0.0, 0.0, 1.0, 1.0) + b"\x00" * 35)
+    head[62] = palette_color
     def s(t):
         b = t.encode() + b"\0"
         return struct.pack("<I", len(b)) + b
-    return head + s(diffuse) + s(normal) + s(spec) + s(greyscale) + s("env/c.dds") + s("") + b"\x00" * 40
+    return bytes(head) + s(diffuse) + s(normal) + s(spec) + s(greyscale) + s("env/c.dds") + s("") \
+        + b"\x00" * 40 + struct.pack("<fB", palette_scale, 0)
 
 
 class BgsmTests(unittest.TestCase):
@@ -32,6 +36,16 @@ class BgsmTests(unittest.TestCase):
     def test_parse_greyscale_texture(self):
         b = cm.parse_bgsm(fake_bgsm(greyscale="a/b_p.dds"))
         self.assertEqual(b.greyscale, "a/b_p.dds")
+        self.assertFalse(b.palette_color)
+        self.assertEqual(b.palette_scale, 1.0)
+
+    def test_parse_palette_flag_and_scale(self):
+        on = cm.parse_bgsm(fake_bgsm(greyscale="a/b_p.dds", palette_color=1, palette_scale=0.12))
+        self.assertTrue(on.palette_color)
+        self.assertAlmostEqual(on.palette_scale, 0.12, places=5)
+        off = cm.parse_bgsm(fake_bgsm(greyscale="a/b_p.dds", palette_color=0, palette_scale=0.5))
+        self.assertFalse(off.palette_color)
+        self.assertAlmostEqual(off.palette_scale, 0.5, places=5)
 
     def test_rejects_other_files(self):
         with self.assertRaises(ValueError):
@@ -157,8 +171,8 @@ class TextureTests(unittest.TestCase):
         pal[0, 10] = (255, 0, 0, 255)
         pal[0, 200] = (0, 255, 0, 255)
         index = np.zeros((2, 2, 4), np.uint8)
-        index[0, 0, 0] = 10
-        index[0, 1, 0] = 200
+        index[0, 0, :2] = 10
+        index[0, 1, :2] = 200
         index[1, 0] = (10, 10, 10, 128)     # alpha is ignored; caller keeps it
         out = textures.apply_greyscale_palette(index, pal)
         self.assertEqual(out.shape, (2, 2, 3))
@@ -167,14 +181,18 @@ class TextureTests(unittest.TestCase):
         self.assertEqual(out[1, 0].tolist(), [255, 0, 0])
         self.assertEqual(out[1, 1].tolist(), [0, 0, 0])
 
-    def test_greyscale_palette_uses_middle_row(self):
+    def test_greyscale_palette_row_follows_scale(self):
         pal = np.zeros((4, 256, 3), np.uint8)
         pal[0, 5] = (1, 0, 0)
-        pal[2, 5] = (0, 9, 0)               # ph // 2 == 2
-        pal[3, 5] = (0, 0, 1)
+        pal[3, 5] = (0, 0, 9)               # scale 1.0 -> round(4 - 0.5) clipped to last row
         index = np.full((1, 1, 3), 5, np.uint8)
-        out = textures.apply_greyscale_palette(index, pal)
-        self.assertEqual(out[0, 0].tolist(), [0, 9, 0])
+        out = textures.apply_greyscale_palette(index, pal, scale=1.0)
+        self.assertEqual(out[0, 0].tolist(), [0, 0, 9])
+        pal256 = np.zeros((256, 16, 3), np.uint8)
+        pal256[30, 0] = (1, 2, 3)           # scale 0.12 -> round(0.12 * 256 - 0.5) == 30
+        index0 = np.zeros((1, 1, 3), np.uint8)
+        out = textures.apply_greyscale_palette(index0, pal256, scale=0.12)
+        self.assertEqual(out[0, 0].tolist(), [1, 2, 3])
 
     def test_greyscale_palette_scales_narrow_ramp(self):
         pal = np.array([[[10, 20, 30], [40, 50, 60]]], dtype=np.uint8)

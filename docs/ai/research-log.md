@@ -5,25 +5,24 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
 
 ## 2026-10-17 Grok: greyscale-to-palette bake (playtest row 15)
 
-- Question: why Museum of Freedom picture frames and the brass plaque render as flat grey-black boards.
-- Method: converted NIFs and DDS under `C:\Modding\staging\terrain_core64c_work_fix3\convert` (read-only),
-  `paintinggeneric_canvasswap.mat` / `canvaspainting01.mat` / `brassplaque_d_8b698f56.mat`, texconv decode of
-  colour maps, nif.xml `Fallout4ShaderPropertyFlags1` bit 4 (`GreyscaleToPalette_Color` = 0x10). Vanilla FO4
-  `Fallout4 - Materials.ba2` is not on this machine (Steam Data is Vortex-modded), so live `.bgsm` strings were
-  not re-parsed; BGSM slot 4 is already named `greyscale` in `parse_bgsm` and was unused.
-- Frames, **supported hypothesis**: `pictureframe03` canvas colour maps
-  `paintinggeneric_canvasswap_color.dds` and `canvaspainting01_color.dds` are identical, luma 29 max 59. Converted
-  as regular albedo they are dark grey boards. FO4 paints those canvases with GreyscaleToPalette: the diffuse is an
-  index map, the 4th BGSM texture is a colour ramp. Starfield has no matching shader, so the lookup has to be baked
-  into the colour map (same idea as smoothness -> roughness).
-- Plaque, **supported hypothesis**: `brassplaque` went through `texture_set_material` (no `.bgsm`); colour luma 15
-  max 59. Slot 3 of a texture set is greyscale *or* height, so the bake is gated on flags1 bit 0x10. Whether that
-  NIF sets the flag is **unresolved** until a vanilla FO4 NIF is read.
-- V is the middle row of the palette. Vertex-colour V is **unresolved** (converted house interior meshes have 0
-  vertex colours; frames/plaques were not checked for them). GreyscaleToPalette_Alpha (bit 0x20) is not baked.
-- WP10 Hotel Rexford pink-purple walls are the same family; not re-checked here.
-- Status: converter gap **verified** (greyscale parsed, never applied). In-game colour after a scratch reconvert
-  **unresolved** (Claude; no reconvert into the pinned work_fix3 tree).
+- Question: why Museum of Freedom picture frames and the brass plaque render as flat grey-black boards, and
+  whether a greyscale-to-palette bake is the fix.
+- Method: converted NIFs and DDS under `C:\Modding\staging\terrain_core64c_work_fix3\convert` (read-only);
+  Claude's review against vanilla FO4 BA2s at depot_377163; Material-Editor `BaseMaterialFile` (byte 62) and
+  NifSkope `fo4_default.frag`.
+- Row 15 frames/plaque, **verified not palette materials** (Claude, vanilla BA2s):
+  `PaintingGeneric_CanvasSwap.BGSM` / `CanvasPainting01.BGSM` have empty greyscale and byte 62 = 0;
+  `BrassPlaque.nif` flags1 `0x80400281` (bit 0x10 clear), slot 4 a cubemap. Before/after this bake they are
+  byte-identical. The frames are a per-reference material swap (`PaintingGeneric*` / `PaintingAbstract*`);
+  nothing in this repo reads MODS/XMSP. That is the row 15 root cause and is outside this PR.
+- Converter gap, **verified** on other materials: 278 v2 BGSMs have the greyscale string **and** the flag.
+  5 have the string with the flag off (e.g. `ConcreteRoadHW01.BGSM` names a cubemap). Gating on the string
+  alone made that road a fallback. Bake is gated on byte 62 / NIF flags1 0x10.
+- Lookup, **supported hypothesis**: U = green channel, V = `clamp(round(scale * H - 0.5))` from
+  `fGrayscaleToPaletteScale` (BGSM last float). Vertex-colour V is **unresolved**. A missing palette texture
+  is a conversion error. GreyscaleToPalette_Alpha (bit 0x20) is not baked.
+- Status: bake is for flagged palette materials. Row 15 needs material swaps, not this PR. In-game colour
+  after a scratch reconvert **unresolved** (Claude).
 
 ## 2026-10-16 Claude: posed props in the pinned interiors (owner playtest rows 4 c and 5)
 - Question: why does the pinned interior build (`integ_1011`) show the Vault 111 radiation scanners with "swung out"

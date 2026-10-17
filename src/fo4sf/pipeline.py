@@ -34,9 +34,10 @@ LOAD_DOOR_RE = re.compile(r"door[^\\/]*load[^\\/]*\.nif$|load[^\\/]*door[^\\/]*\
 # lighting shapes, all texture-set shapes; no FO4 .bgsm sets its own refraction byte.
 SLSF1_REFRACTION = 0x8000
 # nif.xml Fallout4ShaderPropertyFlags1 bit 4: GreyscaleToPalette_Color. The lighting shader
-# samples BSShaderTextureSet slot 3 (or the BGSM greyscale string) as a colour ramp, using the
-# diffuse red channel as U. Starfield has no matching shader, so the converter bakes the lookup
-# into the colour map. Slot 3 is also height, so texture-set shapes only bake when this flag is set.
+# samples BSShaderTextureSet slot 3 (or the BGSM greyscale string when byte 62 is set) as a colour
+# ramp, using the diffuse green channel as U and GrayscaleToPaletteScale as V. Starfield has no
+# matching shader, so the converter bakes the lookup into the colour map. Slot 3 is also height,
+# so texture-set shapes only bake when this flag is set.
 SLSF1_GREYSCALE_TO_PALETTE_COLOR = 0x10
 
 
@@ -204,10 +205,11 @@ class Converter:
         if not (b.diffuse and b.normal):
             raise ValueError("material lacks diffuse/normal textures")
         rel = re.sub(r"^materials[\\/]", "", bgsm_path.replace("\\", "/"), flags=re.I)
+        gs = b.greyscale if b.palette_color and b.greyscale else None
         return self._convert_texture_set(os.path.splitext(rel)[0].lower(), b.diffuse, b.normal, b.smooth_spec,
                                          smoothness=b.smoothness, spec_mult=b.spec_mult,
                                          alpha_test=b.alpha_test, alpha_ref=b.alpha_ref,
-                                         greyscale=b.greyscale or None)
+                                         greyscale=gs, palette_scale=b.palette_scale)
 
     def decal_material(self, bgsm_path: str) -> Optional[str]:
         """Alpha-blended FO4 material -> Starfield decal material (or None: the shape is skipped, as before decals)."""
@@ -273,19 +275,22 @@ class Converter:
     def _convert_texture_set(self, stem: str, diffuse: str, normal: str, spec: str,
                              smoothness: float = 1.0, spec_mult: float = 1.0,
                              alpha_test: bool = False, alpha_ref: int = 128, decal: bool = False,
-                             greyscale: str = None) -> str:
+                             greyscale: str = None, palette_scale: float = 1.0) -> str:
         """FO4 diffuse / normal / smooth-spec textures -> Starfield colour / normal / rough DDS + a .mat. Spec is optional.
         decal: alpha-blended overlay; the diffuse alpha always becomes the opacity map and the .mat is cloned from the
         vanilla decal template (cm.DECAL_TEMPLATE_MAT) so it blends over the surface behind it.
-        greyscale: FO4 palette texture; when present and in the archives, the colour map is the palette lookup (red of
-        the diffuse as U, middle row as V) baked before BC1, because Starfield has no GreyscaleToPalette shader."""
+        greyscale: FO4 palette texture, only when the BGSM/NIF palette flag is on. The colour map is the palette
+        lookup (green of the diffuse as U, GrayscaleToPaletteScale as V) baked before BC1; a named but missing
+        palette is an error, not a plain grey material."""
         import numpy as np
-        tex_rel = f"textures/{self.prefix}/{stem}"
         d, n = self.src.texture(diffuse), (self.src.texture(normal) if normal else None)
         s = self.src.texture(spec) if spec else None
         g = self.src.texture(greyscale) if greyscale else None
         if d is None or (n is None and not decal):         # decals (effect grime) may have no normal map: flat normal
             raise FileNotFoundError("diffuse or normal texture missing from archives")
+        if greyscale and g is None:
+            raise FileNotFoundError(f"palette texture missing from archives: {greyscale}")
+        tex_rel = f"textures/{self.prefix}/{stem}"
         out = {}
         with tempfile.TemporaryDirectory() as tmp:
             open(os.path.join(tmp, "d.dds"), "wb").write(d)
@@ -301,7 +306,7 @@ class Converter:
                 idx = idx.reshape(hd["height"], hd["width"], 4).copy()
                 pal = np.frombuffer(raw_g[hg["data_offset"]:hg["data_offset"] + hg["width"] * hg["height"] * 4], np.uint8)
                 pal = pal.reshape(hg["height"], hg["width"], 4)
-                rgb = textures.apply_greyscale_palette(idx, pal)
+                rgb = textures.apply_greyscale_palette(idx, pal, scale=palette_scale)
                 rgba = np.dstack([rgb, idx[:, :, 3]])
                 textures.write_dds_dx10(os.path.join(tmp, "d.dds"), hd["width"], hd["height"],
                                         textures.DXGI_R8G8B8A8_UNORM, np.ascontiguousarray(rgba).tobytes(), 4)
