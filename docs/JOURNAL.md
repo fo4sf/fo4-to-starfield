@@ -1725,3 +1725,25 @@ PNDT 11 entries including our WRLD; no `lodsettings`; 0 `meshes/lod/generated`; 
 `meshes/fo4core/lod`. The 3D surface map is the May 2024 loading-zone camera, not a mesh we author. GO: marker (#296
 after LCSR `FFFFFFFF`) then CK object LOD; NOT go: custom planet or map renderer this stage.
 Evidence: [docs/terrain/surface-map.md](terrain/surface-map.md), `src/fo4sf/surface_map.py`, `tests/test_surface_map.py`.
+## 2026-10-17: Codex raw light-patch bounds (offline)
+
+Independent PR302 review reproduced a malformed DAT2 declaration extending beyond
+its LIGH into a following STAT: scale changed four STAT bytes, then check returned
+CHECK PASS. Both commands now validate record/group containment and all LIGH
+subrecords before accepting lumens offsets; malformed trailing fields and duplicate
+DAT2 are refused. The checker validates both files. The scaling rule is unchanged.
+
+Synthetic reproduction only, no game versions or installed outputs tested.
+Seventeen focused tests passed initially; the selected three-method baseline run
+produced five failed assertions against the old implementation. This was not a
+run of every new test against old code. Valid trailing fields remain supported.
+Guard/whitespace pass. Failure/pass evidence is privately retained; independent
+QA pending. No game data, staging changes or native brightness claim.
+
+Claude's independent review at 7a31d64 confirmed valid-output parity in 12 synthetic
+comparisons and requested a regression for validating checker input B. Added one
+test with two cases: A valid, B duplicate-DAT2 or overrun, identical total size and
+record layout. Both reject before byte/lumens comparison and retain both inputs.
+Removing only B validation causes both cases to fail. All 31 focused light-patch
+and FO4-light tests pass; guard and whitespace checks pass. Production source is
+unchanged; final test-delta review is pending. No native or staging run.

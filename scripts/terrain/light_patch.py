@@ -37,18 +37,32 @@ def scaled(lumens, factor):
 def walk(buf):
     """Every record in file order: (sig, off, size, flags, fid). Groups are recursed into and returned as ('GRUP', off,
     group size, gtype, label as int) so that a group header change shows up in the structure comparison."""
+    if len(buf) < 24 or buf[:4] != b"TES4":
+        raise ValueError("missing or truncated TES4 header")
     hsize = struct.unpack_from("<I", buf, 4)[0]
+    if 24 + hsize > len(buf):
+        raise ValueError("TES4 payload exceeds file bounds")
     out = [("TES4", 0, hsize, struct.unpack_from("<I", buf, 8)[0], 0)]
 
     def go(start, end):
+        cursor = start
         for item in fo4land.iter_items(buf, start, end):
             if item[0] == "GRUP":
                 _g, off, end_off, label, gtype = item
+                if end_off < off + 24 or end_off > end:
+                    raise ValueError(f"group at {off} exceeds enclosing bounds or is shorter than its header")
                 out.append(("GRUP", off, end_off - off, gtype, struct.unpack_from("<I", label)[0]))
                 go(off + 24, end_off)
+                cursor = end_off
             else:
                 typ, off, flags, fid = item
-                out.append((typ.decode("ascii", "replace"), off, struct.unpack_from("<I", buf, off + 4)[0], flags, fid))
+                size = struct.unpack_from("<I", buf, off + 4)[0]
+                if off + 24 + size > end:
+                    raise ValueError(f"record {fid:08X} exceeds enclosing bounds")
+                out.append((typ.decode("ascii", "replace"), off, size, flags, fid))
+                cursor = off + 24 + size
+        if cursor != end:
+            raise ValueError(f"truncated record/group header at {cursor}")
     go(24 + hsize, len(buf))
     return out
 
@@ -63,14 +77,21 @@ def lumens_windows(buf, items):
         if flags & COMPRESSED:
             raise ValueError(f"LIGH {fid:08X} is compressed: this patch only rewrites uncompressed records")
         p, end, found = off + 24, off + 24 + size, None
-        while p + 6 <= end:
+        if off < 0 or p > end or end > len(buf):
+            raise ValueError(f"LIGH {fid:08X} exceeds buffer bounds")
+        while p < end:
+            if p + 6 > end:
+                raise ValueError(f"LIGH {fid:08X} has a truncated subrecord header")
             s = bytes(buf[p:p + 4])
             n = struct.unpack_from("<H", buf, p + 4)[0]
+            if p + 6 + n > end:
+                raise ValueError(f"LIGH {fid:08X} subrecord exceeds its record bounds")
             if s == b"XXXX":
                 raise ValueError(f"LIGH {fid:08X} has an XXXX field: not written by our builds")
             if s == b"DAT2":
+                if found is not None:
+                    raise ValueError(f"LIGH {fid:08X} has duplicate DAT2 fields")
                 found = (p + 6, n)
-                break
             p += 6 + n
         if found is None or found[1] < DAT2_MIN:
             raise ValueError(f"LIGH {fid:08X}: DAT2 {'missing' if found is None else str(found[1]) + ' bytes'}")
@@ -143,16 +164,17 @@ def cmd_check(a):
     if len(A) != len(B):
         print(f"FAIL: sizes differ ({len(A)} vs {len(B)} bytes)")
         return 1
-    ia, ib = walk(A), walk(B)
+    try:
+        ia, ib = walk(A), walk(B)
+        wins = lumens_windows(A, ia)
+        lumens_windows(B, ib)
+    except ValueError as e:
+        print(f"FAIL: {e}")
+        return 1
     if ia != ib:
         n = next((i for i, (x, y) in enumerate(zip(ia, ib)) if x != y), min(len(ia), len(ib)))
         print(f"FAIL: record sets differ ({len(ia)} vs {len(ib)} items; first difference at item {n}: "
               f"{ia[n] if n < len(ia) else None} vs {ib[n] if n < len(ib) else None})")
-        return 1
-    try:
-        wins = lumens_windows(A, ia)
-    except ValueError as e:
-        print(f"FAIL: {e}")
         return 1
     allowed = {}
     for off, fid in wins:
