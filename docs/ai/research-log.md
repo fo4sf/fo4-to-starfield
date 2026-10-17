@@ -3,6 +3,30 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-17 Grok: overlay map markers / fast travel (owner playtest row 7)
+- Question: why the Commonwealth overlay has no map / fast-travel data, and whether restoring a vanilla marker chain
+  is the first writer change (Claude 04:07 packet, after textures and FLOR).
+- Method: raw walk of `Starfield.esm` 1.16.244 (`fo4land.Plugin`, no Mutagen) for top groups, STAT MapMarker, LCTN
+  `LCSR`/`LCID`, LC172 and LandingOverlay01; read-only walk of pinned `FO4TerrainCore.esm`; writer
+  `dotnet/TerrainOverlays/Program.cs` Duplicate of `LC172WorldLocation` then `MasterSpecialReferences.Clear()`.
+- Map markers, **verified**: Starfield has no `MAPM` group (176 top groups). Markers are `REFR` of STAT `MapMarker`
+  `00000010` with empty `XMRK`, `FNAM`/`TNAM`/`UNAM`. LC172 persistent `REFR` `003E5E12`: `NAME` `00000010`, empty
+  `XMRK`, `FNAM` `0x1B`, `TNAM` `0x17`, flags `00000C00`.
+- Location link, **verified**: `LCSR` is 5 × u32 (`LCRT`, `REFR`, `WRLD`, 0, `0xFFFFFFFF`). LC172WorldLocation
+  `003807BE` has two rows (Landmark_SnowGlobe_RefType `00009A42` → `00009A32`, MapMarkerRefType `0002271F` →
+  `003E5E12`) and `LCID` `003E5E12`. LandingOverlay01Location adds ShipLandingMarkerRefType / `_Large` on the pad.
+  Mutagen names: `MasterSpecialReferences` = `LCSR`, `MasterInitiallyDisabledReferences` = `LCID`.
+- Our overlay, **verified**: writer clears both lists after Duplicate; pinned LCTN `FO4Core_CommonwealthLocation`
+  `01000802` has empty `LCSR`/`LCID`; 654,600 `REFR`, 0 `XMRK`, 0 MapMarker `NAME`. One COC marker at overlay-local
+  (−989.257, 1146.514, 107.143).
+- Playtest hang, **supported hypothesis**: missing MapMarker/`LCSR` is why the overlay does not match LC172 on the
+  planet map. Whether restoring one marker unsticks Frontier travel (a ship location) is **unresolved** until Claude
+  runs a scratch overlay.
+- FO4 `XMRK` bytes: **unresolved** (`Fallout4.esm` not on this machine).
+- GO: one persistent MapMarker at the Red Rocket COC, LC172 `FNAM`/`TNAM`, `LCSR` MapMarkerRefType + `LCID`; do not
+  stamp a PCM landing overlay. NOT go: FO4 marker promotion, ship pads, swapping unique overlay for landing overlay.
+  Doc: [docs/terrain/map-markers.md](../terrain/map-markers.md).
+
 ## 2026-10-16 Claude: posed props in the pinned interiors (owner playtest rows 4 c and 5)
 - Question: why does the pinned interior build (`integ_1011`) show the Vault 111 radiation scanners with "swung out"
   panels and the lab-coat skeleton `Vault111SkeletonScientist02` standing, and how many models and references of the
