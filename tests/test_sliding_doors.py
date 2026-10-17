@@ -196,20 +196,6 @@ class VaultDoorConversionTests(unittest.TestCase):
         self.assertEqual([r["bone"] for r in door["open_motion"]], ["Door Upper", "Lower"])
         self.assertEqual(door["open_motion"][0]["travel_m"][2], round(148 / 70, 4))
 
-    def test_opening_closing_sequences_alias_to_open_close(self):
-        """FO4 Default2StateActivator ACTI (RedRGarageDoor) names clips Opening/Closing; the graph plays Open/Close
-        (docs/terrain/garage-button.md)."""
-        f = door_nif(sliding_panels(), open_name=b"Opening", close_name=b"Closing")
-        names = [c["name"] for c in door_rig.plan(f, placed=True)["clips"]]
-        self.assertEqual(sorted(names), ["Close", "Open"])
-        count = len([s for s in nif.fo4_trishapes(f) if s.positions and s.triangles])
-        files, door = convert_static.convert_multipart_door(nif.serialize(f), "fo4core/garage", ["x.mat"] * count,
-                                                            fake_clip_files, collision_template=fake_template(),
-                                                            leaf_physics_donor=donor())
-        self.assertIn("meshes/fo4core/garage/animations/Open.af", files)
-        self.assertIn("meshes/fo4core/garage/animations/Close.af", files)
-        self.assertEqual(door["rig"], "native")
-
     def test_a_trapdoor_has_one_part_and_still_gets_its_own_rig(self):
         f = door_nif(trapdoor())
         self.assertEqual(convert_static.frozen_door_parts(f), [])            # nothing outside the first node ...

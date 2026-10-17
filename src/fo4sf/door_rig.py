@@ -88,27 +88,10 @@ def plan(source, samples_per_second=30, placed=False):
         t,r,s=nif._av_transform(source.blocks[shape])
         attachments.append({'shape':shape,'bone':indices[parents[shape]],
                             'local_transform':{'translation_source_units':list(t),'rotation_row_major':list(r),'scale':s}})
-    clips=alias_clips([door_clips.sample_sequence(sequence,binds,samples_per_second) for sequence in report['sequences']])
+    clips=[door_clips.sample_sequence(sequence,binds,samples_per_second) for sequence in report['sequences']]
     # shader / visibility / particle tracks animate no node and stay out of the rig; listed so a manifest can say so
     return {'space':'source_local','bones':bones,'attachments':attachments,'clips':clips,
             'ignored_tracks':[dict(t) for t in report['ignored_targets']]}
-
-
-# Starfield SimpleOpenClose01.agx plays Open / Close. FO4 Default2StateActivator ACTI (Red Rocket garage) name those
-# sequences Opening / Closing; rest poses (Opened / Closed / Stage1 / Alternate*) are dropped.
-CLIP_ALIAS = {"Opening": "Open", "Closing": "Close"}
-
-
-def alias_clips(clips):
-    """Keep one Open and one Close clip, renaming Opening/Closing; drop other sequences."""
-    out, seen = [], set()
-    for clip in clips:
-        name = CLIP_ALIAS.get(clip["name"], clip["name"])
-        if name not in ("Open", "Close") or name in seen:
-            continue
-        out.append({**clip, "name": name})
-        seen.add(name)
-    return out
 
 
 def _qmul(a,b):

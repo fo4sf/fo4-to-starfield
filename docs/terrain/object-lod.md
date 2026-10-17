@@ -8,9 +8,9 @@ BTD (LOD0–4, already authored). **Object LOD is separate.**
 ## Vanilla (**verified**, Starfield 1.16.244)
 
 `Starfield - LODMeshes.ba2`: 20,400 files = 19,535 `meshes/lod/generated/…_lod_{0-3}.nif` (cities included), **864**
-`lodsettings/<world>.lod`, 1 `distantlod/lodruntimedb.bgsdb`. Every `.lod` is **20 bytes** (e.g. `lc172world` /
-`landingoverlay01` `FE FF FF FF FE FF FF FF 08 00…`; `newatlantis` `DD FF FF FF C5 FF FF FF 88 00…`) — cell min/size,
-**supported**. FO4 object LOD is `.bto` (FORMAT-GAP); not this format.
+`lodsettings/<world>.lod`, 1 `distantlod/lodruntimedb.bgsdb`. **861 of 864** `.lod` files are **20 bytes** (2 are 22, 1
+is 16); e.g. `lc172world` / `landingoverlay01` `FE FF FF FF FE FF FF FF 08 00…`; `newatlantis`
+`DD FF FF FF C5 FF FF FF 88 00…` — cell min/size, **supported**. FO4 object LOD is `.bto` (FORMAT-GAP); not this format.
 
 Pinned core64k `Data\` has **zero** `.lod` / `meshes/lod`. Overlay objects are full STAT/ACTI only, so past the loaded
 window Starfield draws BTD terrain and nothing else. Matches the walk.
@@ -23,7 +23,8 @@ owner’s `setini "fLODFadeOutMultObjects:LOD" 15` is a fade-multiplier experime
 
 ## Tooling
 
-CK generates object LOD. This repo has no writer. Per-mesh `sfmesh` LOD index arrays are not world object LOD.
+CK is the **hypothesized** generator of object LOD (plan step 1 is the spike). This repo has no writer. Per-mesh
+`sfmesh` LOD index arrays are not world object LOD.
 
 ## Plan (no build now)
 

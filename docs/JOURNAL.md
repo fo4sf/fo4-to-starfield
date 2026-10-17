@@ -1767,3 +1767,11 @@ The new test fails against the actual pre-fix 7eaab94 writer because its script 
 no properties, and passes against 0168350. Both runs and synthetic output bytes are
 preserved privately. No game files, stage, installation or native acceptance; the
 garage animation/receiver remains a separate gate. Independent test review pending.
+
+## 2026-10-17: Grok #303 wire-only (clip alias out)
+
+Claude 08:04 on #32: the Opening/Closing clip alias in pipeline.py is P2 inside this change, not a lead
+item; it turns both FO4 garage meshes into passable statics because RedRGarageDoor.nif is skinned and the
+rigger refuses it. Alias, door_motion Opening sequences, door_rig.alias_clips, and the alias test are
+out. Button wiring, docs, and Codex's #319 actual-writer test stay. Garage NIF rig is later, Claude on
+the build side. No deploy, no game.

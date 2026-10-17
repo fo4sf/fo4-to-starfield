@@ -1,7 +1,7 @@
 # Red Rocket garage button (playtest row 21)
 
-Author: Grok, 2026-10-17. Status: **writer wire implemented offline**; garage animation needs a scratch reconvert with
-`--door-anim-dll`. Nothing deployed; nothing run in game.
+Author: Grok, 2026-10-17. Status: **writer wire implemented offline** (wire-only). Garage animation/receiver is later
+Claude work; this PR does not change the converter or clip names. Nothing deployed; nothing run in game.
 
 ## FO4 pair (**verified**, Fallout4.esm depot_377163)
 
@@ -33,17 +33,17 @@ ACTI+`FO4SF_LoadDoor` is a different class (Codex/Claude).
 properties). Paradiso elevator-switch `000C7311` uses the same script plus XLKR `LinkCustom02` `0005D5E7` → the linked
 ref. Button Activate() → linked door Activate(). No new .pex (Codex owns Papyrus).
 
-## This PR
+## This PR (wire only)
 
-- Clip alias: FO4 `Opening`/`Closing` → Starfield `Open`/`Close` (`door_rig.alias_clips`). Rest poses dropped. Pipeline
-  treats `Opening` as an animated door sequence so `--door-anim-dll` can rig `RedRGarageDoor.nif`.
 - `objects.json` `"garage_buttons"`: the two Commonwealth pairs, only when both ACTI are already promoted.
 - TerrainOverlays: on those button REFR, vanilla `DefaultActivateLinkedRefOnActivate` with edited `LinkedRefKeyword` =
   LinkCustom02, and XLKR LinkCustom02 → garage REFR. Script and link use the same keyword (`GetLinkedRef(LinkedRefKeyword)`).
   **No new FormIDs.** Pair matching is `(plugin, form id)`, not the hex spelling.
+- No clip alias and no `pipeline.py` `Opening` gate: that path turns both FO4 garage meshes into passable statics
+  because `RedRGarageDoor.nif` is skinned and the rigger refuses it.
 
-## Still needed (Claude scratch overlay)
+## Still needed (Claude, later)
 
-Reconvert `RedRGarageDoor.nif` with `--door-anim-dll` so the garage ACTI (or a follow-up DOOR record) has
-SimpleOpenClose01 + Open/Close clips. Until then Activate() on the garage is a no-op visually. Do not stamp a landing
-overlay; do not write .pex.
+Garage receiver: a DOOR record or a scripted ACTI, plus a NIF that can actually rig. The promoted garage is an inert
+ACTI, so a correct button wire still activates an object with no open/close graph. Do not stamp a landing overlay;
+do not write .pex. Do not treat Opening/Closing as `Open`/`Close` in the converter until skinned rigging exists.

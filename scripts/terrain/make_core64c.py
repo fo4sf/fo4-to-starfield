@@ -1155,7 +1155,7 @@ def cluster_garage_buttons(activators):
     """Pairs of already-promoted ACTI whose FO4 XAPR wired a RedRGarageDoor to a RedR_ButtonBox.
 
     Keys are (plugin, form id): a 6-hex Fallout4.esm source matches the 8-hex pair spelling; Other.esm with the same
-    id does not. Two different spellings of one identity keep the first; two sources that collide raise ValueError.
+    id does not. Two different spellings of one identity raise ValueError; identical keys keep the first.
     """
     by_id = {}
     for e in activators:
