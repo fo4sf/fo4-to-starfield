@@ -89,6 +89,30 @@ class LightPatchBoundsTests(unittest.TestCase):
         field = b"DAT2" + struct.pack("<H", 58) + dat2(2827)
         self.assert_refused(self.raw_light(field + field))
 
+    def test_check_validates_second_input_before_byte_comparison(self):
+        field = b"DAT2" + struct.pack("<H", 58) + dat2(2827)
+        tail = b"JUNK" + struct.pack("<H", 58) + dat2(2827)
+        original = self.raw_light(field + tail)
+        for bad_tail, reason in (
+                (b"DAT2" + tail[4:], "duplicate DAT2"),
+                (b"JUNK" + struct.pack("<H", 59) + tail[6:], "subrecord exceeds its record bounds")):
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as folder:
+                modified = self.raw_light(field + bad_tail)
+                self.assertEqual(len(original), len(modified))
+                self.assertEqual(lp.walk(original), lp.walk(modified))
+                self.assertEqual(len(lp.lumens_windows(original, lp.walk(original))), 1)
+                src, dst = os.path.join(folder, "a.esm"), os.path.join(folder, "b.esm")
+                for path, raw in ((src, original), (dst, modified)):
+                    with open(path, "wb") as stream:
+                        stream.write(raw)
+                code, out, _err = run("check", "--a", src, "--b", dst, "--factor", "1")
+                self.assertEqual(code, 1, out)
+                self.assertIn(reason, out)
+                self.assertNotIn("records:", out, "reject malformed B before comparing lumens/bytes")
+                for path, raw in ((src, original), (dst, modified)):
+                    with open(path, "rb") as stream:
+                        self.assertEqual(stream.read(), raw)
+
     def test_truncated_tes4_header_or_payload(self):
         self.assert_refused(b"TES4")
         self.assert_refused(plugin()[:24])

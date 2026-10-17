@@ -1727,7 +1727,16 @@ subrecords before accepting lumens offsets; malformed trailing fields and duplic
 DAT2 are refused. The checker validates both files. The scaling rule is unchanged.
 
 Synthetic reproduction only, no game versions or installed outputs tested.
-Seventeen focused tests pass; three regression methods produce five failed
-assertions against the old implementation. Valid trailing fields remain supported.
+Seventeen focused tests passed initially; the selected three-method baseline run
+produced five failed assertions against the old implementation. This was not a
+run of every new test against old code. Valid trailing fields remain supported.
 Guard/whitespace pass. Failure/pass evidence is privately retained; independent
 QA pending. No game data, staging changes or native brightness claim.
+
+Claude's independent review at 7a31d64 confirmed valid-output parity in 12 synthetic
+comparisons and requested a regression for validating checker input B. Added one
+test with two cases: A valid, B duplicate-DAT2 or overrun, identical total size and
+record layout. Both reject before byte/lumens comparison and retain both inputs.
+Removing only B validation causes both cases to fail. All 31 focused light-patch
+and FO4-light tests pass; guard and whitespace checks pass. Production source is
+unchanged; final test-delta review is pending. No native or staging run.
