@@ -142,9 +142,25 @@ def record_plugins(rec):
     return names
 
 
+def record_sha256(rec, name):
+    """The sha256 an install record holds for one of its plugins: `files` (rel path or name -> digest, exp_install.py:541,
+    bridge_install.py:180) or the bridge's `source_sha256`; None when the record does not name one."""
+    want = name.casefold()
+    for key in ("files", "source_sha256"):
+        d = rec.get(key)
+        if not isinstance(d, dict):
+            continue
+        for rel, h in d.items():
+            if str(rel).replace("\\", "/").rsplit("/", 1)[-1].casefold() == want and isinstance(h, str) and h:
+                return h
+    return None
+
+
 def import_install(record_path, ledger, active_after_load=None):
     """An FO4SFExp/FO4SFBridge install record -> one plugins_verified event (active_after_load unknown unless given).
-    The fold merges these by plugin name, so the Exp and the Bridge record together name both plugins."""
+    The event names its record (`source`, the file name) and each plugin's sha256 from the record, so the fold merges
+    the Exp and the Bridge record into one list, drops a plugin a rewritten record no longer lists, and starts the load
+    confirmation over when a plugin's file changed (state.merge_plugins)."""
     rec = _load(record_path)
     if not rec:
         return 0
@@ -153,7 +169,8 @@ def import_install(record_path, ledger, active_after_load=None):
     if src in ledger.sources():
         return 0
     ledger.append(Event("plugins_verified", BY, fields={
-        "plugins": [{"name": n, "active_after_load": active_after_load} for n in names],
+        "plugins": [{"name": n, "sha256": record_sha256(rec, n), "active_after_load": active_after_load} for n in names],
+        "source": os.path.basename(record_path),
         "complete": rec.get("complete"), "pack": rec.get("pack"), "src": src}))
     return 1
 

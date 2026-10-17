@@ -183,6 +183,44 @@ def _apply_capability(s, f):
     # SKIPPED / CIRCUIT_BROKEN: no change (untested stays untested)
 
 
+def merge_plugins(s, f):
+    """A plugins_verified event into the state. One event per install record (`source` names the record) or per check;
+    entries merge by plugin name (case-insensitive). A record's event owns the names it lists: a name the same source
+    listed before and omits now is removed (a record rewritten without that plugin, or emptied), entries of other
+    sources stay. For a name already present the new entry wins field by field; an unknown (null) keeps the known value
+    only while the plugin's identity is the same: a different `sha256` is a different file, so nothing known about the
+    old one carries over and its load confirmation starts again from unknown unless the event states one. `replace:
+    true` is a full snapshot; a new pin (build_pinned) clears everything. A deleted record writes no event."""
+    if f.get("replace"):
+        s.plugins, s.load_order = [], []
+    entries = [dict(p) for p in (f.get("plugins") or []) if isinstance(p, dict) and str(p.get("name") or "").strip()]
+    owner = f.get("source") or None
+    names = {str(p["name"]).casefold() for p in entries}
+    if owner:
+        s.plugins = [q for q in s.plugins if q.get("source") != owner or str(q.get("name", "")).casefold() in names]
+    for p in entries:
+        if owner:
+            p["source"] = owner
+        name = str(p["name"]).casefold()
+        for i, q in enumerate(s.plugins):
+            if str(q.get("name", "")).casefold() != name:
+                continue
+            changed = p.get("sha256") is not None and q.get("sha256") is not None and p["sha256"] != q["sha256"]
+            if changed:
+                merged = dict(p, name=q["name"])
+                if not merged.get("source") and q.get("source"):
+                    merged["source"] = q["source"]
+            else:
+                merged = dict(q)
+                merged.update({k: v for k, v in p.items() if v is not None and k != "name"})
+            s.plugins[i] = merged
+            break
+        else:
+            s.plugins.append(p)
+    if "load_order" in f:
+        s.load_order = list(f.get("load_order") or [])
+
+
 def fold(events, now=None):
     """Current state from the events, in order. Enforces the rules of leader-core.md §1. A known event whose fields
     the fold cannot read (a missing or wrongly shaped field from a writer bug or a hand edit) is skipped and listed
@@ -210,25 +248,7 @@ def _fold_one(s, e):
         s.build = {k: f.get(k) for k in ("build_id", "plugin_sha256", "staging", "commit", "game_version") if f.get(k)}
         s.plugins, s.load_order = [], []
     elif e.ev == "plugins_verified":
-        # one event per install record (Exp, Bridge) or per check: merged by plugin name, the newer entry wins
-        # field by field except that an unknown (null) never erases a known value; `replace: true` is a full
-        # snapshot; a new pin (build_pinned) clears everything
-        if f.get("replace"):
-            s.plugins, s.load_order = [], []
-        for p in f.get("plugins") or []:
-            name = str(p.get("name") or "") if isinstance(p, dict) else ""
-            if not name:
-                continue
-            for i, q in enumerate(s.plugins):
-                if str(q.get("name", "")).casefold() == name.casefold():
-                    merged = dict(q)
-                    merged.update({k: v for k, v in p.items() if v is not None and k != "name"})
-                    s.plugins[i] = merged
-                    break
-            else:
-                s.plugins.append(dict(p))
-        if "load_order" in f:
-            s.load_order = list(f.get("load_order") or [])
+        merge_plugins(s, f)
     elif e.ev == "controller_claimed":
         parse_iso(f["expires"])                                     # a lease without a readable expiry is no lease
         s.controller = {"owner": f["owner"], "purpose": f.get("purpose"), "expires": f["expires"],
