@@ -38,9 +38,11 @@ must be regenerated to acquire this previously omitted metadata. The current
 ReferenceLinks translator reports each non-null activation block in `refs` as
 untranslated, including references with no placed target. It does not infer
 enable-parent/linked-reference substitutes or install activation scripts.
-Consequently, re-exported cells containing these blocks make the default
-ReferenceLinks run exit 2 without writing a plugin. `--allow-unresolved` permits
-an explicitly partial output; it does not implement the activation behavior.
+These blocks produce counted, listed warnings and permit default ReferenceLinks
+output with fidelity `partial_with_warnings`. `--strict-activation-parents` instead
+refuses output with exit 2; `--allow-unresolved` explicitly overrides that gate.
+Neither mode implements the activation behavior, and other unresolved links
+continue to block default output.
 
 Exporting source state is separate from applying it in Starfield. ReferenceLinks
 translates selected enable/link/teleport and door-state relationships and reports

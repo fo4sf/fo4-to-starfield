@@ -16,6 +16,7 @@ public sealed class LinkReport
     public int CreatedKeywords { get; set; }
     public int UnplacedSourceReferences { get; set; }
     public List<LinkIssue> Issues { get; } = new();
+    public List<LinkIssue> Warnings { get; } = new();
 }
 
 public static class Relationships
@@ -224,7 +225,7 @@ public static class Relationships
         {
             var source = reference.GetProperty("formkey").GetString()!;
             if (reference.TryGetProperty("activate_parents", out var activation) && activation.ValueKind != JsonValueKind.Null)
-                report.Issues.Add(new(source, "activate_parents", null,
+                report.Warnings.Add(new(source, "activate_parents", null,
                     "activation-parent flags, references and delays retained in source export; translation not implemented"));
             if (!sourceRefs.TryGetValue(source, out var target)) continue;
             if (reference.TryGetProperty("enable_parent", out var parent) && parent.ValueKind != JsonValueKind.Null)

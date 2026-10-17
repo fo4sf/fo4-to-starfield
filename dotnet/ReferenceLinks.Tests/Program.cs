@@ -3,6 +3,11 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Starfield;
 
+if (args.SequenceEqual(new[] { "--activation-only" }))
+{
+    ActivationParentTests.Run();
+    return;
+}
 if (args.SequenceEqual(new[] { "--missing-door-cells-only" }))
 {
     MissingDoorEndpointTests.Run(cellsOnly: true);
@@ -145,7 +150,8 @@ foreach (var metadata in new[] { "{\"flags\":129,\"parents\":[{\"reference\":\"p
         "{\"cell\":\"First\",\"refs\":[{\"formkey\":\"child\"" + field +
         "},{\"formkey\":\"unplaced-activation\"" + field + "}]}");
     var activationReport = Relationships.Apply(mod, ids, new[] { activationSource.RootElement });
-    var issues = activationReport.Issues.Where(i => i.Field == "activate_parents").ToArray();
+    var issues = activationReport.Warnings.Where(i => i.Field == "activate_parents").ToArray();
+    Require(!activationReport.Issues.Any(i => i.Field == "activate_parents"), "activation metadata blocks default output");
     if (metadata is "null" or "absent")
         Require(issues.Length == 0, "absent activation metadata invented a warning");
     else
@@ -179,3 +185,4 @@ finally { Directory.Delete(directory, true); }
 Console.WriteLine("Relationship translation and binary round-trip synthetic checks passed.");
 NativeDoorBaseTests.Run();
 MissingDoorEndpointTests.Run();
+ActivationParentTests.Run();

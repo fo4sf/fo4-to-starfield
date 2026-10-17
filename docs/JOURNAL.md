@@ -1737,3 +1737,16 @@ integ_1018's (water1024.nif, `_neutral.mat`, gear room all equal by sha256); the
 
 **Not verified.** In game: that after a rebuild the player stands at the pit floor (z about -2.38) and sees the cement
 texture. The first read after the rebuild is the proof; the T10 PHANTOM test covers the cave pond.
+
+## 2026-10-17 — Codex: activation-parent warnings keep interior exports usable (#305)
+
+Claude requested nonblocking, counted warnings for preserved activation-parent metadata.
+The previous default returned exit 2 for a synthetic cell with a non-null activation block;
+the new eight-case CLI regression reproduced that before the change. ReferenceLinks now
+lists these blocks in `Warnings` and stderr, retains all source data, and writes
+`partial_with_warnings` rather than claiming complete relationship fidelity. Strict callers
+can select `--strict-activation-parents`; `--allow-unresolved` explicitly overrides that gate.
+Missing enable-parent targets and other existing issues still block default publication.
+Report-only never publishes a plugin or marks the build complete. Synthetic output is reopened
+to check identities and that no activation behavior or substitute link was invented.
+This is offline export policy, not a native door/activation fix. Delta peer QA remains required.
