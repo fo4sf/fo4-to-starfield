@@ -66,6 +66,20 @@ class ProductionCacheTests(unittest.TestCase):
         self.assertEqual(c._convert_texture_set.call_count, 2)
         self.assertAlmostEqual(c._convert_texture_set.call_args.kwargs.get("palette_scale"), 0.12, places=5)
 
+    def test_near_half_palette_scales_do_not_share_cache(self):
+        # Codex 5560482169: float32 neighbors of 0.5 both became ".5f" 0.50000.
+        c = self.converter
+        lo, hi = 0.4999989867210388, 0.5000010132789612
+        a = c.texture_set_material("textures/a.dds", "textures/n.dds", "textures/s.dds",
+                                   greyscale="textures/p.dds", palette_scale=lo)
+        b = c.texture_set_material("textures/a.dds", "textures/n.dds", "textures/s.dds",
+                                   greyscale="textures/p.dds", palette_scale=hi)
+        self.assertNotEqual(a, b)
+        self.assertEqual(c._convert_texture_set.call_count, 2)
+        self.assertEqual(a, c.texture_set_material("textures/a.dds", "textures/n.dds", "textures/s.dds",
+                                                   greyscale="textures/p.dds", palette_scale=lo))
+        self.assertEqual(c._convert_texture_set.call_count, 2)
+
     def test_failure_is_cached_and_different_texture_can_succeed(self):
         c = self.converter
         c._convert_texture_set.side_effect = [FileNotFoundError("missing normal"), "good.mat"]

@@ -66,6 +66,15 @@ def lighting_palette_scale(blk: bytes) -> float:
     return 1.0
 
 
+def _palette_scale_ident(scale: float) -> str:
+    """Lossless cache token for the clamped FO4 palette scale (IEEE float32 bits).
+
+    `.5f` aliases distinct float32 values around 0.5 that select different palette rows.
+    """
+    s = max(0.0, min(1.0, float(scale)))
+    return struct.pack(">f", s).hex()
+
+
 class Fo4Archives:
     def __init__(self, data_dir: str):
         self.meshes, self.materials, self.textures = [], [], []
@@ -284,7 +293,7 @@ class Converter:
         parts = [diffuse, normal, spec]
         if greyscale:
             parts.append(greyscale)
-            parts.append(f"{float(palette_scale):.5f}")
+            parts.append(_palette_scale_ident(palette_scale))
         ident = "|".join(x.replace("\\", "/").lower() for x in parts)      # every input is part of identity
         stem = os.path.splitext(stem)[0] + "_" + hashlib.sha1(ident.encode()).hexdigest()[:8]
         key = "texset:" + stem

@@ -202,6 +202,14 @@ class TextureTests(unittest.TestCase):
         out = textures.apply_greyscale_palette(index0, pal256, scale=0.12)
         self.assertEqual(out[0, 0].tolist(), [1, 2, 3])
 
+    def test_near_half_scales_select_distinct_two_row_palette(self):
+        pal = np.array([[[255, 0, 0]], [[0, 0, 255]]], dtype=np.uint8)
+        index = np.zeros((1, 1, 3), np.uint8)
+        lo = textures.apply_greyscale_palette(index, pal, scale=0.4999989867210388)
+        hi = textures.apply_greyscale_palette(index, pal, scale=0.5000010132789612)
+        self.assertEqual(lo[0, 0].tolist(), [255, 0, 0])
+        self.assertEqual(hi[0, 0].tolist(), [0, 0, 255])
+
     def test_greyscale_palette_scales_narrow_ramp(self):
         pal = np.array([[[10, 20, 30], [40, 50, 60]]], dtype=np.uint8)
         index = np.array([[[0], [255]]], dtype=np.uint8)
