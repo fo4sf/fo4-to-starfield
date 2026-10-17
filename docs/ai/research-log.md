@@ -3,6 +3,26 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-17 Grok: 3D surface map for this testing stage (ROADMAP §3 item 1)
+- Question: what Starfield's surface map draws from, why the Commonwealth overlay would show Mars, and whether an
+  overlay world can appear there from our plugin and locally generated files; go/no-go for a 3D map this stage.
+- Method: pinned `terrain_core64k` read-only (`fo4land.Plugin` on `FO4TerrainCore.esm` / `_Mars.esm`, walk of staged
+  `Data\`); cross-check [map-markers.md](../terrain/map-markers.md), [overlay-records.md](../terrain/overlay-records.md),
+  [architecture.md](../terrain/architecture.md), journal 11 Oct lodsettings note. No game input.
+- Surface map, **supported**: May 2024 3D map draws the current loading zone (overlay BTD + planet procgen + world
+  object LOD). WRLD `MapData` is all zero; there is no separate map-mesh group. World object LOD is
+  `lodsettings/<edid>.lod` + `meshes/lod/generated/…_lod_0..3.nif`, not converted FO4 `*_lod.nif`.
+- Why Mars, **verified** on core64k: LCTN `01000802` parent `SSol_PMars_Surface` `0001B736`, LocTypeOverlay; WRLD
+  overlay SNAM 0 / PNAM 4; Mars PNDT `0003F59A` 11 `CNAM` entries, last lat 0.3 lon −1.2 WRLD `01000803`. Staged Data:
+  BTD 103,172,485 B, overlay mask present, **0** `lodsettings`, **0** `meshes/lod/generated`, **315**
+  `meshes/fo4core/lod`. LCSR/LCID still empty.
+- Overlay on the 3D map, **supported**: unique overlays already activate and merge (owner walked core64k). Vanilla
+  cities of the same family show on the surface map. Marker + CK object LOD still required for the acceptance
+  screenshot. Map camera sampling overlay BTD vs planet SFTR is **unresolved** until Claude's screenshot.
+- GO: this note; then #296 LCSR tail `0xFFFFFFFF` and Claude screenshot; then CK object-LOD trial (ROADMAP item 3).
+  NOT go: custom map renderer, unparent from Mars, FO4 `.bto`, treating `fo4core/lod` as world LOD.
+  Doc: [docs/terrain/surface-map.md](../terrain/surface-map.md).
+
 ## 2026-10-17 Grok: overlay map markers / fast travel (owner playtest row 7)
 - Question: why the Commonwealth overlay has no map / fast-travel data, and whether restoring a vanilla marker chain
   is the first writer change (Claude 04:07 packet, after textures and FLOR).
@@ -1230,3 +1250,65 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
 - **unresolved**: what primitiveStoresIsFlatConvex changes in the engine (the crashing function does not read it; vanilla
   quads with it set are not flat or convex). The converter now writes the vanilla value so no vanilla-untested code
   path is exercised.
+
+## 2026-10-17 Claude: why the player walks through the Vault 111 gear-room gates (static bodies on layer 55)
+- Question: the gear-room gates (`V111GearRoomGate01` in Vault111Cryo, `02` in Vault114) let the player through in
+  integ_1018 (playtest row 19) although since #230 their NIFs hold FO4's native bodies. Wrong place, wrong filter
+  word, or something the engine refuses?
+- Method: FO4 source (hkpackfile) and the deployed blobs (hktagfile, the session's hkdump.py) side by side, hull
+  vertices transformed through the collision nodes; COLL records of Fallout4.esm and Starfield.esm; every body of
+  every vanilla Starfield NIF (Meshes01 + MeshesPatch: 40,613 files with physics, 46,413 bodies, 50 s) and of every
+  FO4 NIF (Meshes + MeshesExtra: 63,327 files, 218,882 bodies); the Starfield.esm records placing the only vanilla
+  layer-55 models. Scratch: C:\Modding\scratch\gatefix (gate_dump.txt, coll_records.json, full_scan_*.json).
+- **verified** (geometry): each leaf's FO4 body cinfo equals its node transform (GateR at (-7.082, -0.044, 0.719) m,
+  z -90 deg), so the converter's identity body on a node with that transform puts the hulls where FO4 has them: top
+  rail x -7.10..-7.06, y -0.08..1.28, z 0.80..1.03 m, lower stub z 0.40..0.79 m (render leaf z 0.39..1.05); the XRGD
+  variant (`_xrgd_e3c6933a65`) lifts both by 0.147 m as the reference's pose does. The two leaves span the whole
+  2.78 m opening at x -47.76 m world; the owner's bridge positions (00:02:57 at -44.84, -4.00; 00:03:12 at -57.91)
+  cross that line through the middle. integ_1011's 39 guessed boxes sat there too (0x1, hknpBoxShape); whether the
+  owner walked through those is **unresolved** (row 6 reported the elevator, not a walk).
+- **verified** (the word): the leaves' only difference from a working static is `collisionFilterInfo` 0x8037 (layer 55
+  L_CLUTTER_NOCUT + bit 15); flags 0, collisionCntrl 0, quality 255, hknpConvexShape flags 0x43, material and
+  motionType 0 are the template's, as on vanilla statics and on BldDecoSmStairsBlock03's helper hull (a convex body
+  on a child Collision node, climbed in batch_full 0004).
+- **verified** (COLL): in both ESMs layer 55 lists 30 L_CHARCONTROLLER and 30 lists 55 (so does 1), GNAM 0 for 55
+  and 0x4 for 4 / 29 / 2 (the navmesh-cutting layers). The layer matrix alone does not explain a pass-through.
+- **verified** (vanilla use): Starfield writes layer 55 on 4 bodies in 2 files only, `na_lobbyoffice_reception_
+  turnstile_01_door01a/b.nif`, static, word 0x8037 exactly; they are STAT records (00040DD7/8) placed 29 times across
+  New Atlantis lobby walkways (e.g. four turnstiles in a row at y -33.39, refs 000C1BEA..F2). Bit 15 on L_STATIC is
+  walked on: `nathemastbase_01..04(_grass).nif` (the MAST plaza) are one 0x8001 body each; stair helpers carry 0x801f.
+  FO4 writes layer 55 on 9 bodies in 4 files, all dynamic hinged leaves (the two gates, CarHulk01 doors, BollardDest01).
+  Static bodies on 4 / 29 are common in both games (asteroid caves on 0x1d; static ladders and ingots on 0x4).
+- **supported hypothesis** (the cause): Starfield's character controller passes through a static body on layer 55,
+  as it must through the turnstile leaves; FO4's gate is passable too, but by swinging (10 kg leaves on hinges).
+  Freezing the leaves (joints not converted) on that layer gives a ghost gate. Fix: a body we write static on layer 55
+  becomes 1 L_STATIC, the layer alone (meshcollision.static_filter; report "relayered"); every other word is kept.
+  Blast radius in integ_1018: the 3 gate NIFs (12 leaf bodies), nothing else. The drop-in NIFs in
+  C:\Modding\scratch\gatefix\after differ from the deployed ones by 2 bytes per leaf blob (0x8037 -> 0x0001).
+- In-game check (one walk): from the owner's spot (-44.8, -4.0, 0) walk west along y -4.0; PASS = stopped at
+  x about -47.4 (capsule 0.35 m before the rail at -47.76), FAIL = x beyond -48. The diagnostic variant
+  `after\variant_bit15_cleared` (0x0037, layer kept) tells layer from bit if wanted. The gate then blocks the walkway to
+  the exit elevator (1.18 m rail, jumpable with the pack); a swinging gate needs the hinge conversion.
+
+## 2026-10-17 Claude: spike B4, mission anatomy, the Vault 111 exit, grab mass limits (offline)
+- Question: what the cut-down "When Freedom Calls" needs (input to Codex's QUST / DIAL / INFO / PACK design), what
+  Preston adds beyond the converted raider, how FO4 runs the Vault 111 exit, and which grab limits apply to carrying.
+- Method: read-only. The repo's fo4land.Plugin walker and ba2 reader on Fallout4.esm, `Fallout4 - Voices.ba2` (voice
+  files per INFO) and `Fallout4 - Misc.ba2` (call lists of the compiled scripts); Mutagen `ActorRaider fo4-dump` as a
+  cross-check; GMST groups of both ESMs; the setting initializers in both executables; Starfield's vanilla Papyrus
+  sources. Full tables: docs/spikes/B4-mission-anatomy.md.
+- **verified:** the mission is four quests: Min00 001A001C (name, 19 stages, 14 objectives, 20 external aliases),
+  MQ102 0001CC2A (the driver, also the Vault 111 exit), DN092 0001D806 (the fight), DialogueConcordArea 000179F3 (255
+  DIAL, 397 INFO, Preston's 102 lines, the reward of 100 caps and 50 fusion cells). The 7 counted raiders are placed
+  ACHRs in ConcordMuseum01, 4 of them initially disabled. Preston (NPC_ 00019FD9, voice NPCMPrestonGarvey) has 2,421
+  base-game voice files over 2,264 INFOs in 99 quests and no default package list.
+- **verified:** FO4 ends the elevator ride with an automatic load door (Vault111InteriorAutoLoadDoorREF 0001F180, base
+  AutoloadDoorNoText FNAM 0x42, to 000998E3); the cog door's Stage2 is played by MQ03QuestScript on the console's
+  "stage4" animation event. Verdict: GO for a scripted load door in place of the ride and for the cog door as a door
+  rig; NO-GO for B1 on an activator rig.
+- **verified:** neither ESM sets fGrabMaxWeightWalking / Running; both exes default to 100 / 50 (Starfield also
+  fGrabRagdollMaxWeightWalking 200, fZKeyActorMassTheshold 6). **supported hypothesis:** the converted items measured
+  on 13 Oct (10-50 kg) are under the walking limit, so mass alone should not block a walking grab; the owner's
+  SetRigidBodyMass test plus `SetGS fGrabMaxWeightWalking 1000` decides it. No converter change.
+- **unresolved:** Preston's friendly Starfield template; whether quest targets route through our scripted doors; the
+  cog door's clip in game; whether the cut-down quest may force combat (FO4 does, DN092 stages 13 / 76).
