@@ -31,6 +31,7 @@ import tempfile
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import deploy_starfield as deployment  # noqa: E402
 from verify_packed_experiment import verify_archive  # noqa: E402
+from experiment_receipts import preserve_receipt  # noqa: E402
 
 RECORD = "FO4SFExp.install.json"
 PACKING_POLICY = "general-stored-verified-v2"
@@ -344,6 +345,10 @@ def cleanup(data, rec_p, rec):
     p = plugins_txt()
     if os.path.normcase(os.path.abspath(rec.get("plugins_txt", p))) != os.path.normcase(os.path.abspath(p)):
         raise ValueError("recorded Plugins.txt does not match the current user path")
+    # Preserve the full written identity inventory before cleanup narrows or
+    # removes it. History is private evidence, never an active recovery journal.
+    history = preserve_receipt(rec_p)
+    print(f"preserved experiment receipt: {history}")
     errors = []
     try:
         if not rec.get("complete", True):
