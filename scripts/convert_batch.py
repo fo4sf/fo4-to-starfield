@@ -8,6 +8,7 @@ With --cell-json, references whose FO4 ragdoll data (XRGD) poses their model awa
 their own (src/fo4sf/placed_pose.py): extra items with "pose": {"kind": "xrgd", "refs": [FO4 FormKeys]}, which the plugin
 writer places for those references only; manifest "poses" counts every reference with ragdoll data. --no-ref-poses: off.
 After conversion, prints the top failure reasons by count (with percentages) and writes failure-summary.json.
+With --dry-run, lists the models that would be converted (after filters and limit) and exits without writing files or starting a Converter.
 Needs numpy. Deterministic: names are processed in sorted order.
 """
 import argparse
@@ -169,6 +170,8 @@ def main():
     ap.add_argument("--resume", action="store_true", help="reuse content-verified per-model checkpoints")
     ap.add_argument("--pattern", default=r"^meshes[\\/]setdressing[\\/]")
     ap.add_argument("--limit", type=int, default=20)
+    ap.add_argument("--dry-run", action="store_true",
+                    help="list the models that would be converted (after filters and limit) and exit; no files written, no Converter started")
     ap.add_argument("--max-tris", type=int, default=20000, help="skip meshes with more triangles than this")
     ap.add_argument("--cell-json", default="", help="convert the models placed in a cell exported by dotnet/Fo4Export")
     ap.add_argument("--no-ref-poses", action="store_true",
@@ -221,6 +224,20 @@ def main():
     else:
         names = src.mesh_names(a.pattern)
     print(f"{len(names)} candidate meshes; converting up to {a.limit}")
+    if a.dry_run:
+        planned = []
+        for name in names:
+            if len(planned) >= a.limit:
+                break
+            if not a.cell_json and re.search(r"(lod|_dmg|damaged|destr)", name, re.I):
+                continue
+            planned.append(name)
+        print(f"dry-run: would process {len(planned)} models (limit {a.limit})")
+        for p in planned[:20]:
+            print(f"  {p}")
+        if len(planned) > 20:
+            print(f"  ... and {len(planned) - 20} more")
+        return
     os.makedirs(a.staging, exist_ok=True)
     state_path = os.path.join(a.staging, "build-state.json")
     write_json_atomic(state_path, {"complete": False, "status": "converting"})
