@@ -1,6 +1,6 @@
 """leader_import.py: existing records into the ledger as events, from the command line (docs/ai/leader-core.md §3).
 
-python scripts/leader_import.py --ledger <leader dir or ledger.jsonl> [--queue <dir>]... [--queues <parent dir>]
+python scripts/leader_import.py --ledger <leader dir or ledger.jsonl> [--queue <dir>]... [--queues <parent dir>]...
                                 [--deploy <Data/FO4Port.deploy.json>] [--install <Data/FO4SFExp.install.json>]...
                                 [--active-after-load yes|no] [--no-report]
 One line per source with the number of events added, in the order queues, deploy manifest, install records (so the
@@ -13,9 +13,12 @@ different build (the other sources still import; nothing of a failed source is w
 eight-bullet report of the resulting fold.
 """
 import argparse
+import datetime
+import json
 import os
 
 from .import_queue import import_deploy, import_install, import_queue
+from .model import parse_iso
 from .state import Ledger, fold
 
 LEDGER_FILE = "ledger.jsonl"
@@ -36,12 +39,40 @@ def queue_folders(parent):
     return yes, no
 
 
+def queue_created(q):
+    """When a queue was planned: queue.json's `created` (testqueue.py plan writes it), else the file's mtime; a queue
+    whose queue.json cannot be read sorts first (it fails on its own line, before anything that matters)."""
+    path = os.path.join(q, "queue.json")
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            created = json.load(f).get("created")
+        if created:
+            return parse_iso(str(created))
+        return datetime.datetime.fromtimestamp(os.path.getmtime(path), datetime.timezone.utc)
+    except (OSError, ValueError, TypeError, AttributeError):
+        return datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
+
+
+def in_planning_order(queues):
+    """The queues found under --queues parents, oldest first, so the newest queue's pin is the fold's current build
+    (until a deploy manifest follows); folder names say nothing about age (walk_core64g_1016 sorted after
+    door_trip_sdm_round, planned a day later). Explicit --queue folders keep the order they were given in."""
+    seen, out = set(), []
+    for q in queues:
+        key = os.path.normcase(os.path.abspath(q))
+        if key not in seen:
+            seen.add(key)
+            out.append(q)
+    return sorted(out, key=lambda q: (queue_created(q), os.path.normcase(os.path.abspath(q))))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="leader_import.py",
                                  description="existing queue, install and deploy records into the leader's ledger (section 3)")
     ap.add_argument("--ledger", required=True, help="the leader folder (ledger.jsonl inside) or the ledger file")
     ap.add_argument("--queue", action="append", default=[], metavar="DIR", help="a queue folder (repeatable)")
-    ap.add_argument("--queues", default=None, metavar="PARENT", help="every child folder with a queue.json (e.g. the testqueue folder)")
+    ap.add_argument("--queues", action="append", default=[], metavar="PARENT",
+                    help="every child folder with a queue.json (e.g. the testqueue folder; repeatable, one per drive)")
     ap.add_argument("--deploy", default=None, metavar="MANIFEST", help="Data/FO4Port.deploy.json")
     ap.add_argument("--install", action="append", default=[], metavar="RECORD",
                     help="Data/FO4SFExp.install.json or Data/FO4SFBridge.install.json (repeatable)")
@@ -63,18 +94,20 @@ def main(argv=None):
         total += n
         print(f"{label}: {n} event(s) added")
 
-    queues = list(a.queue)
-    if a.queues:
-        if not os.path.isdir(a.queues):
+    queues, found = list(a.queue), []            # --queue folders in the order given; a parent's children oldest first
+    for parent in a.queues:
+        if not os.path.isdir(parent):
             failed += 1
-            print(f"{a.queues}: not a folder")
+            print(f"{parent}: not a folder")
         else:
-            yes, no = queue_folders(a.queues)
-            queues += yes
+            yes, no = queue_folders(parent)
+            found += yes
             for p in no:
                 print(f"{p}: skipped (no queue.json)")
     if not a.queue and not a.queues and not a.install and not a.deploy:
         ap.error("nothing to import: give --queue, --queues, --deploy or --install")
+    given = {os.path.normcase(os.path.abspath(q)) for q in queues}
+    queues += [q for q in in_planning_order(found) if os.path.normcase(os.path.abspath(q)) not in given]
     for q in queues:
         source(f"queue {q}", lambda q=q: import_queue(q, ledger))
     if a.deploy:

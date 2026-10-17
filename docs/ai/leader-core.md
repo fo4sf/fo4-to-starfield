@@ -32,6 +32,9 @@ Rules the fold enforces:
 - A controller lease that expired without `controller_released` makes ownership **ambiguous**; nothing that sends game
   input runs until a fresh claim is logged (brief §7).
 - The work-period report (the owner's eight bullets) is generated from the fold, so it cannot drift from the state;
+  its "newly worked", "failed" and "untested" bullets also count the **pinned build's tests** (passed, failed, not
+  decided: skipped, circuit broken, inconclusive), since runner results name no capability and a failed or skipped
+  test must never read as success;
   its "next queue" bullet lists the queued tasks of the **pinned build** (a task that names no build is listed too),
   so the leftovers of a stopped historic campaign do not follow the owner forever.
 - Task ids in the ledger are `<campaign>/<test id>` (the queue folder's name and the runner's id), because the
@@ -77,10 +80,11 @@ that wrote them. A `results.jsonl` line that is not a row (a torn line the runne
 is skipped and reported as one `ledger_repaired` event keyed by its line; the queue's other rows import. A runner
 given a lease folder writes the same keys live (§10), so importing its queue afterwards adds nothing.
 
-The command: `python scripts\leader_import.py --ledger <leader dir> --queues C:\Modding\testqueue
+The command: `python scripts\leader_import.py --ledger <leader dir> --queues C:\Modding\testqueue [--queues D:\Modding\testqueue]
 [--deploy <Data\FO4Port.deploy.json>] [--install <Data\FO4SFExp.install.json>] [--active-after-load yes|no]`
-(or `--queue <dir>` per folder): one line per source with the events added, queues first, then the deploy manifest,
-then the install records, so the fold ends on the current build and its plugins; a second run adds nothing; a source
+(or `--queue <dir>` per folder, in the order given): one line per source with the events added, queues first (a
+parent's queues oldest first by `queue.json` `created`, never by folder name, so the newest queue's pin is the current
+build), then the deploy manifest, then the install records, so the fold ends on the current build and its plugins; a second run adds nothing; a source
 that cannot be read, that does not exist, or that is not the record its writer produces fails alone, before anything
 of it is written (exit 1, the others still import): a `queue.json` has a `tests` list, an install record names its
 `plugins` (exp) or `plugin` (bridge), a deploy manifest has an `artifacts` object and pins a build
@@ -282,7 +286,8 @@ writer, not the reader, repairs it.
 
 **The report CLI:** `python scripts/leader_report.py --ledger <leader dir or ledger.jsonl> [--now <ISO>] [--json]`
 prints the owner's eight bullets from the fold (§1), exit 1 with the reason when the ledger is missing or corrupt.
-The capability bullets are those of the pinned build (`build_pinned`); results pinned to another `build_id` stay out
+The capability bullets are those of the pinned build (`build_pinned`), and they also count that build's tests
+(`tests passed: N (...)`, `tests failed: N (...)`, `tests not decided: ...`); results pinned to another `build_id` stay out
 of "newly worked in game" until that build is the pin.
 
 ## 9. The Transform adapter: one reference matrix, in #102's order

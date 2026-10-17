@@ -75,6 +75,36 @@ class ImportCliTests(unittest.TestCase):
         self.assertIn("total: 0 event(s) added", lines[-1])
         self.assertFalse(any(ln.startswith("- ") for ln in lines))
 
+    def test_two_parents_both_import_and_the_newest_queue_pins_the_build(self):
+        # R1 (the campaign on the owner's real records, 2026-10-17): C:\Modding\testqueue and D:\Modding\testqueue in
+        # one command; a second --queues used to replace the first silently and still exit 0
+        other = os.path.join(self.d, "D", "testqueue")
+        os.makedirs(other)
+        q3 = write_queue(other, "a_sorts_first_but_is_newest", ["d1"], [("d1", "PASS", "")], build="cdcdcdcd")
+        with open(os.path.join(q3, "queue.json"), encoding="utf-8") as f:
+            rec = json.load(f)
+        rec["created"] = "2026-10-17T09:00:00"
+        with open(os.path.join(q3, "queue.json"), "w", encoding="utf-8") as f:
+            json.dump(rec, f)
+        code, lines = self.run_cli("--ledger", self.leader, "--queues", self.parent, "--queues", other, "--no-report")
+        self.assertEqual(code, 0, lines)
+        self.assertIn(f"queue {q3}: 3 event(s) added", lines)
+        self.assertIn(f"queue {self.q1}: 5 event(s) added", lines)
+        self.assertIn(f"queue {self.q2}: 3 event(s) added", lines)
+        # R2: a parent's queues import oldest first by queue.json `created`, not by folder name, so the fold's current
+        # build is the newest queue's (walk_core64g_1016 used to beat door_trip_sdm_round, planned a day later)
+        order = [ln for ln in lines if ln.startswith("queue ")]
+        self.assertTrue(order[-1].startswith(f"queue {q3}:"), order)
+        s = fold(Ledger(os.path.join(self.leader, "ledger.jsonl")).read())
+        self.assertEqual(s.build["build_id"], "cdcdcdcd")
+        self.assertEqual(sorted(s.campaigns), ["a_sorts_first_but_is_newest", "cave_1015", "walk_1015"])
+        # an explicit --queue keeps the order it was given in, and a folder named twice imports once
+        code, lines = self.run_cli("--ledger", os.path.join(self.d, "L2"), "--queue", q3, "--queue", self.q2,
+                                   "--queues", other, "--no-report")
+        self.assertEqual([ln for ln in lines if ln.startswith("queue ")][:2],
+                         [f"queue {q3}: 3 event(s) added", f"queue {self.q2}: 3 event(s) added"])
+        self.assertEqual(sum(ln.startswith(f"queue {q3}:") for ln in lines), 1)
+
     def test_an_unreadable_source_fails_alone_and_exits_one(self):
         with open(os.path.join(self.q2, "queue.json"), "w", encoding="utf-8") as f:
             f.write("{not json")
