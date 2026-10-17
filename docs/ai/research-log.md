@@ -16,7 +16,8 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   corn 230, melon 199, tarberry 134, razorgrain 106.
 - FO4 `PFIG` per base: **unresolved** (no `Fallout4.esm`). Shared field names make a native FLOR promotion
   **supported**. In-game harvest on a converted FO4 mesh: **unresolved**.
-- Plan: [docs/terrain/flora.md](../terrain/flora.md). Not built yet.
+- Plan: [docs/terrain/flora.md](../terrain/flora.md). Promotion class built on `grok/flor-research` (make_cluster
+  `flora`, `cluster_flora`, TerrainOverlays Duplicate of FloraMaizeCrop01). Overlay not run in game.
 
 ## 2026-10-16 Claude: posed props in the pinned interiors (owner playtest rows 4 c and 5)
 - Question: why does the pinned interior build (`integ_1011`) show the Vault 111 radiation scanners with "swung out"

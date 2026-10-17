@@ -9,7 +9,7 @@ internal static class ReferenceIdentityPlan
     // objects.json keys of the promoted classes (make_core64c.py ALL_PROMOTED): CONT, MISC, ACTI, TERM (+ TMLM), then the
     // workshops' ACTI bases; a bench binds to a vanilla FURN of the master and adds no base; a scripted load door keeps
     // its slot too, its ACTI base and arrival marker are allocated after everything else (docs/terrain/scripted-doors.md)
-    public static readonly string[] PromotedClasses = { "containers", "items", "activators", "terminals", "workshops", "benches", "doors" };
+    public static readonly string[] PromotedClasses = { "containers", "items", "activators", "terminals", "workshops", "flora", "benches", "doors" };
 
     public static string[] Order(JsonElement objects)
     {

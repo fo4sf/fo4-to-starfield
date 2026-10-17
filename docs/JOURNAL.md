@@ -1642,5 +1642,6 @@ Organic crop template `FloraMaizeCrop01` (keywords `FloraTypeOrganic` + `Outpost
 `OrgCommonNutrient_Seed`). Core64c selected 3,520 Flora refs / 48 bases, currently STAT. Plan: one Starfield FLOR
 per FO4 flora base, cloned from the maize crop, converted model, REFR keeps its slot
 ([docs/terrain/flora.md](terrain/flora.md)). `Fallout4.esm` not on this machine, so FO4 ingredients are not mapped
-yet (default seed). No promotion code in this entry; in-game harvest is Claude's after a scratch overlay.
+yet (default seed). Promotion class follows: `make_cluster.py flora`, `cluster_flora` (edid `FO4Core_flor_*`),
+TerrainOverlays clones `FloraMaizeCrop01` and sets EDID/FULL/MODL. In-game harvest is Claude's after a scratch overlay.
 

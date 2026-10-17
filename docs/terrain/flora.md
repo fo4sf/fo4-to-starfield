@@ -1,8 +1,9 @@
 # Flora: FO4 harvestable plants (FLOR) -> Starfield FLOR
 
-Author: Grok, 2026-10-17. Status: **research, offline**. No promotion class is written yet; nothing deployed; nothing
-run in game. Labels as in the other terrain docs: **verified** = read from files, **supported** = hypothesis with
-evidence, **unresolved** = open. Owner playtest row 14 (Sanctuary melon plants placed as statics).
+Author: Grok, 2026-10-17. Status: **implemented, offline**. Listing + cluster + TerrainOverlays writer are on
+`grok/flor-research` (PR #290). Nothing deployed; nothing run in game. Labels as in the other terrain docs:
+**verified** = read from files, **supported** = hypothesis with evidence, **unresolved** = open. Owner playtest row
+14 (Sanctuary melon plants placed as statics).
 
 ## What hangs today
 
@@ -59,7 +60,7 @@ is missing). Byte-level FO4 fields are **unresolved** until that master is reada
 - FO4 workshop food resources are a separate workshop-layer on some of these bases; outpost domestication is the
   Starfield analogue (`OutpostCanDomesticate`), not required for a one-shot harvest.
 
-## Path (plan, not built)
+## Path (built; overlay not run in game)
 
 Same shape as [stations.md](stations.md): one native Starfield base per FO4 base; the REFR keeps its slot.
 
