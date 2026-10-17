@@ -7,7 +7,7 @@ Writes <staging>/manifest.json: converted items (EditorID + model path for the p
 With --cell-json, references whose FO4 ragdoll data (XRGD) poses their model away from its node pose get a posed model of
 their own (src/fo4sf/placed_pose.py): extra items with "pose": {"kind": "xrgd", "refs": [FO4 FormKeys]}, which the plugin
 writer places for those references only; manifest "poses" counts every reference with ragdoll data. --no-ref-poses: off.
-After conversion, prints the top failure reasons by count (with percentages) and writes failure-summary.json.
+After conversion, prints the top failure reasons by count (with percentages), items-per-second rate, and writes failure-summary.json.
 Needs numpy. Deterministic: names are processed in sorted order.
 """
 import argparse
@@ -323,7 +323,8 @@ def main():
     success_pct = 100.0 * len(items) / attempted if attempted else 100.0
     print(f"  Batch result: {len(items)}/{attempted} succeeded ({success_pct:.1f}%)")
     elapsed = round(time.time() - t0, 1)
-    print(f"  reused={reused}  seconds={elapsed}")
+    rate = round(len(items) / elapsed, 2) if elapsed > 0 else 0.0
+    print(f"  reused={reused}  seconds={elapsed}  rate={rate} items/s")
     doors = sum(1 for it in items if "door" in it)
     load_doors = sum(1 for it in items if "load_door" in it)
     movables = sum(1 for it in items if "movable" in it)
@@ -352,6 +353,7 @@ def main():
         "reused": reused,
         "skipped": skipped,
         "seconds": elapsed,
+        "items_per_second": rate,
         "limit": a.limit,
         "pattern": a.pattern,
         "doors": doors,
