@@ -1635,6 +1635,17 @@ snapshots tagged owner-button). Lessons: a Bash heredoc here turns \\r \\n escap
 written script; gate commits on tests); a background workflow can die silently (check the transcripts' modification
 times); the owner's three-line console paste became one line (give one line per command).
 
+## 2026-10-17: Grok map-marker research (playtest row 7)
+
+Starfield 1.16.244. Offline walk of `Starfield.esm` and pinned `FO4TerrainCore.esm`. Starfield has no `MAPM` group;
+markers are `REFR` of STAT `MapMarker` `00000010` with empty `XMRK`. `LCSR` is 5 × u32 (`LCRT`, `REFR`, `WRLD`, 0,
+`0xFFFFFFFF`). LC172WorldLocation already has MapMarkerRefType → persistent `REFR` `003E5E12` and `LCID` that ref.
+`TerrainOverlays` Duplicate-copies that location then clears `MasterSpecialReferences` / `MasterInitiallyDisabledReferences`,
+so the pinned overlay LCTN has empty `LCSR`/`LCID` and 0 MapMarker refs among 654,600 `REFR`.
+
+Plan: restore one persistent MapMarker at the Red Rocket COC with LC172 `FNAM`/`TNAM`, one `LCSR` + `LCID`; do not stamp
+a PCM landing overlay. Frontier hang after that restore is **unresolved** (Claude in-game). FO4 `XMRK` **unresolved**.
+Evidence: [docs/terrain/map-markers.md](terrain/map-markers.md), `src/fo4sf/map_markers.py`, `tests/test_map_markers.py`.
 ## 2026-10-16 (night, Mountain time) - Claude: Step 0 probes and the first scripted door
 
 **Probes (queues door_probe_1017 and door_probe_1017e; bridge_t2; core64i / core64k; Starfield 1.16.244).**
