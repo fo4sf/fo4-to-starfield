@@ -84,8 +84,8 @@ class NavmeshLossTests(unittest.TestCase):
         self.assertEqual(rep["kept"]["doors"], 0)
         self.assertEqual(pieces[0].doors, [])
 
-    def test_one_nvmi_traversal_row_is_dropped(self):
-        # in: {"nvmi": [{"from_mesh": 1, "to_mesh": 2, "tri": 0}]} — convert() never reads FO4 NVMI
+    def test_piece_nvmi_emits_empty_traversals(self):
+        # convert() never reads FO4 NVMI; piece_nvmi always emits empty traversals/outline
         pieces, _ = nm.convert([fo4(0xA, *tri())])
         info = nm.piece_nvmi(pieces[0], 0x100, 0x3C, [0x100])
         self.assertEqual(info.traversals, [])

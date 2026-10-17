@@ -22,7 +22,9 @@ Converter sources: `src/fo4sf/navmesh.py`, `docs/actors/navmesh-conversion.md` o
 
 ## Fixtures
 
-`tests/test_navmesh_losses.py`: one tiny NAVM per class (triangle mesh, one cover edge, one ledge link, one door link, one NVMI traversal, one cell-cut). Each asserts retain or drop on `convert()` output.
+`tests/test_navmesh_losses.py`: one tiny NAVM per class for geometry, cover, ledge, unmapped-door and cell-cut; those
+assert retain or drop on `convert()` output. `test_piece_nvmi_emits_empty_traversals` does not feed an FO4 NVMI row
+(`convert()` never reads FO4 NVMI); it asserts `piece_nvmi` emits empty traversals/outline.
 
 ## Resume note
 
@@ -30,4 +32,4 @@ Converter sources: `src/fo4sf/navmesh.py`, `docs/actors/navmesh-conversion.md` o
 2. Cover, ledge types 1/2, doors missing from `door_refs`, and NVMI traversals stay drops.
 3. Next: a converter owner maps ledges → NVMI traversals and cover arrays; Grok does not patch `navmesh.py`.
 4. Fixtures: `tests/test_navmesh_losses.py`.
-5. PR #69 stays at `f706e77` / 21 tests, body current, Codex QA passed; not merged here.
+5. Historical: PR #69 (pos/xyz aliases) is already merged; this note does not depend on it.
