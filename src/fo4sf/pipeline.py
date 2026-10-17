@@ -98,8 +98,10 @@ class Converter:
                  collision_template: Optional[bytes] = None, prefix: str = "fo4port",
                  no_collision_pattern: str = r"^meshes[\\/](architecture|interiors|scol)[\\/]", rig_doors: bool = False,
                  door_physics_donor: Optional[bytes] = None, sf_mesh_template: Optional[bytes] = None,
-                 dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None):
+                 dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None,
+                 max_tris: int = 20000):
         self.src, self.staging, self.texconv = src, staging, texconv_exe
+        self.max_tris = max_tris
         # door_anim_dll: the external CALUMI.Animation library (not distributed). With it, rigged doors that move more
         # than one part (frozen_door_parts) get their own rig and Open/Close clips instead of the single-hinge template,
         # and sliding / lifting / trapdoor families (NOT_HINGED_RE) get one instead of staying passable.
@@ -461,6 +463,9 @@ class Converter:
             shapes = [s for s in nif.fo4_trishapes(src) if s.positions and s.triangles]
             if not shapes:
                 raise ValueError("no static BSTriShape geometry")
+            total_tris = sum(len(s.triangles) for s in shapes)
+            if total_tris > self.max_tris:
+                raise ValueError(f"too many triangles ({total_tris} > {self.max_tris})")
             mats: List[Optional[str]] = []
             for s in shapes:
                 mats.append(self._shape_material(src, s))

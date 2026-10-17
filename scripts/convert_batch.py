@@ -2,12 +2,13 @@
 
 usage: python convert_batch.py --fo4-data <Fallout 4 Data dir> --staging <out dir> --content-resources <ContentResources.zip>
                                --texconv <Texconvx64.exe> --collision-template <vanilla box-collision Starfield .nif>
-                               [--pattern "setdressing/(chair|stool)"] [--limit 40] [--manifest manifest.json]
+                               [--pattern "setdressing/(chair|stool)"] [--limit 40] [--max-tris 20000] [--manifest manifest.json]
 Writes <staging>/manifest.json: converted items (EditorID + model path for the plugin writer), failures with reasons, stats.
 With --cell-json, references whose FO4 ragdoll data (XRGD) poses their model away from its node pose get a posed model of
 their own (src/fo4sf/placed_pose.py): extra items with "pose": {"kind": "xrgd", "refs": [FO4 FormKeys]}, which the plugin
 writer places for those references only; manifest "poses" counts every reference with ragdoll data. --no-ref-poses: off.
 After conversion, prints the top failure reasons by count (with percentages) and writes failure-summary.json.
+--max-tris skips any mesh whose total triangle count exceeds the limit (default 20000) with reason "too many triangles".
 Needs numpy. Deterministic: names are processed in sorted order.
 """
 import argparse
@@ -243,7 +244,7 @@ def main():
                                           rig_doors=donor is not None, door_physics_donor=donor,
                                           sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
                                           prefix=a.prefix, max_texture=a.max_texture,
-                                          door_anim_dll=a.door_anim_dll or None)
+                                          door_anim_dll=a.door_anim_dll or None, max_tris=a.max_tris)
             r = conv.convert_nif(name)
             if cache:
                 try:
