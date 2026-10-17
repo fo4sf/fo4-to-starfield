@@ -143,6 +143,27 @@ class FoldTests(unittest.TestCase):
                          {"a": "skipped", "b": "circuit_broken", "c": "completed"})
         self.assertEqual(s.tasks_by_status().get("completed"), ["c"])
 
+    def test_a_tasks_results_fold_in_row_order_not_in_append_order(self):
+        """An import that recovers a lost live write appends an older results row after a newer result (§3, §10), so
+        the fold orders a task's results by their results.jsonl line: the recovered older row never replaces the
+        retry's verdict, a later row wins whatever its attempt number (a BREAKER row is attempt 0), and a result
+        without a row (a worker's) still folds in append order."""
+        rp = "C:\\Modding\\testqueue\\walk\\results.jsonl"
+        older = ev("task_finished", task="walk/w1", outcome="INCONCLUSIVE", attempt=1, detail="NOOBS", src=rp + ":1")
+        newer = ev("task_finished", task="walk/w1", outcome="PASS", attempt=2, completed=True, src=rp + ":2")
+        for order in ((older, newer), (newer, older)):
+            s = fold([ev("task_queued", task="walk/w1"), *order])
+            t = s.tasks["walk/w1"]
+            self.assertEqual((t["status"], t["outcome"], t["attempt"], t["detail"]), ("completed", "PASS", 2, ""))
+            self.assertEqual((s.events, s.bad_events), (3, []))               # the older row is kept and counted
+        breaker = ev("task_finished", task="walk/w1", outcome="CIRCUIT_BROKEN", attempt=0, src=rp + ":7")
+        for order in ((older, newer, breaker), (breaker, older, newer)):
+            t = fold(list(order)).tasks["walk/w1"]
+            self.assertEqual((t["status"], t["attempt"]), ("circuit_broken", 0))
+        worker = ev("task_finished", task="walk/w1", outcome="FAIL", attempt=3)
+        self.assertEqual(fold([newer, worker]).tasks["walk/w1"]["outcome"], "FAIL")
+        self.assertEqual(fold([worker, newer]).tasks["walk/w1"]["outcome"], "PASS")
+
     def test_only_an_in_game_pass_verifies(self):
         base = [ev("build_pinned", build_id="b1"), ev("capability_declared", capability="walk")]
         self.assertEqual(fold(base).capability("walk"), CapabilityState.UNTESTED)
@@ -187,6 +208,50 @@ class FoldTests(unittest.TestCase):
         # a renewal by someone else does not extend the holder's lease
         other = ev("controller_renewed", owner="Codex", expires="2026-10-15T20:00:00+00:00")
         self.assertEqual(fold([claim, other]).controller_status("2026-10-15T13:30:00+00:00"), "ambiguous")
+
+    def test_plugins_verified_merges_by_name(self):
+        exp = ev("plugins_verified", plugins=[{"name": "FO4SFExp.esm", "active_after_load": None}])
+        bridge = ev("plugins_verified", plugins=[{"name": "FO4SFBridge.esm", "active_after_load": None}])
+        s = fold([ev("build_pinned", build_id="b1"), exp, bridge])
+        self.assertEqual([p["name"] for p in s.plugins], ["FO4SFExp.esm", "FO4SFBridge.esm"])   # one event per record, both kept
+        # a later check of one plugin updates it in place (name matched without case); an unknown keeps the known value
+        # while nothing says the file changed
+        later = ev("plugins_verified", plugins=[{"name": "fo4sfexp.esm", "active_after_load": True}])
+        s = fold([exp, bridge, later, exp])
+        self.assertEqual([(p["name"], p["active_after_load"]) for p in s.plugins],
+                         [("FO4SFExp.esm", True), ("FO4SFBridge.esm", None)])
+        # a different sha256 is a different file: its load confirmation starts over (Codex on #136, 4ac6d46); an
+        # explicit False stands; the same sha256 keeps the confirmation
+        a = ev("plugins_verified", plugins=[{"name": "FO4SFExp.esm", "sha256": "aa" * 32, "active_after_load": True}])
+        b = ev("plugins_verified", plugins=[{"name": "FO4SFExp.esm", "sha256": "bb" * 32, "active_after_load": None}])
+        s = fold([a, b])
+        self.assertEqual([(p["sha256"], p["active_after_load"]) for p in s.plugins], [("bb" * 32, None)])
+        self.assertIn("FO4SFExp.esm (not confirmed after load)", s.report()[4])
+        same = ev("plugins_verified", plugins=[{"name": "FO4SFExp.esm", "sha256": "aa" * 32, "active_after_load": None}])
+        self.assertEqual(fold([a, same]).plugins[0]["active_after_load"], True)
+        off = ev("plugins_verified", plugins=[{"name": "FO4SFExp.esm", "sha256": "aa" * 32, "active_after_load": False}])
+        self.assertIs(fold([a, off]).plugins[0]["active_after_load"], False)
+        # a record's event owns the names it lists: a rewritten record drops a plugin, an emptied one drops them all,
+        # another record's entries stay; an event without a source removes nothing
+        exp2 = ev("plugins_verified", source="FO4SFExp.install.json",
+                  plugins=[{"name": "FO4SFExp.esm", "active_after_load": True}, {"name": "FO4TerrainCore.esm", "active_after_load": True}])
+        br = ev("plugins_verified", source="FO4SFBridge.install.json", plugins=[{"name": "FO4SFBridge.esm", "active_after_load": True}])
+        exp3 = ev("plugins_verified", source="FO4SFExp.install.json", plugins=[{"name": "FO4SFExp.esm", "active_after_load": True}])
+        s = fold([exp2, br, exp3])
+        self.assertEqual([p["name"] for p in s.plugins], ["FO4SFExp.esm", "FO4SFBridge.esm"])
+        self.assertEqual([p.get("source") for p in s.plugins], ["FO4SFExp.install.json", "FO4SFBridge.install.json"])
+        s = fold([exp2, br, ev("plugins_verified", source="FO4SFExp.install.json", plugins=[])])
+        self.assertEqual([p["name"] for p in s.plugins], ["FO4SFBridge.esm"])
+        s = fold([exp2, br, ev("plugins_verified", plugins=[{"name": "FO4SFBridge.esm", "active_after_load": False}])])
+        self.assertEqual([p["name"] for p in s.plugins], ["FO4SFExp.esm", "FO4TerrainCore.esm", "FO4SFBridge.esm"])
+        self.assertEqual(s.plugins[2]["source"], "FO4SFBridge.install.json")
+        # a full snapshot replaces the list; a new pin clears it
+        snap = ev("plugins_verified", replace=True, plugins=[{"name": "FO4SFBridge.esm", "active_after_load": True}],
+                  load_order=["FO4SFBridge.esm"])
+        s = fold([exp, bridge, snap])
+        self.assertEqual([p["name"] for p in s.plugins], ["FO4SFBridge.esm"])
+        self.assertEqual(s.load_order, ["FO4SFBridge.esm"])
+        self.assertEqual(fold([exp, bridge, ev("build_pinned", build_id="b2")]).plugins, [])
 
     def test_report_has_the_eight_bullets(self):
         s = fold([ev("leader_started", commit="8cae1db"), ev("build_pinned", build_id="b1", commit="d628b56"),
@@ -312,6 +377,72 @@ class ImportTests(unittest.TestCase):
         os.utime(dep, (1_800_000_000, 1_800_000_000))
         self.assertEqual(imp.import_deploy(dep, self.led), 1)
         self.assertEqual(fold(self.led.read()).build["build_id"], "abababab")
+
+    def test_install_record_shapes(self):
+        d = os.path.dirname(self.q)
+        bridge = os.path.join(d, "FO4SFBridge.install.json")       # bridge_install.py: one `plugin`
+        with open(bridge, "w", encoding="utf-8") as f:
+            json.dump({"schema": 2, "plugin": "FO4SFBridge.esm", "files": {}, "complete": True}, f)
+        old = os.path.join(d, "FO4SFExp.install.json")             # exp_install.py before 270b0ec: `plugins_added` only
+        with open(old, "w", encoding="utf-8") as f:
+            json.dump({"plugins_added": ["*FO4SFExp.esm"], "plugins_replaced": [], "complete": True}, f)
+        self.assertEqual(imp.import_install(old, self.led, active_after_load=True), 1)
+        self.assertEqual(imp.import_install(bridge, self.led), 1)
+        s = fold(self.led.read())
+        self.assertEqual([p["name"] for p in s.plugins], ["FO4SFExp.esm", "FO4SFBridge.esm"])   # both records, both plugins
+        self.assertIn("plugins: FO4SFExp.esm, FO4SFBridge.esm (not confirmed after load)", s.report()[4])
+        # a current exp record names the plugin in `plugins` and `plugins_added` alike: once, and the known
+        # active_after_load survives an import that does not know it
+        with open(old, "w", encoding="utf-8") as f:
+            json.dump({"plugins": ["FO4SFExp.esm"], "plugins_added": ["*FO4SFExp.esm"], "plugins_replaced": [],
+                       "complete": True, "pack": "core64d"}, f)
+        self.assertEqual(imp.import_install(old, self.led), 1)
+        s = fold(self.led.read())
+        self.assertEqual([(p["name"], p["active_after_load"]) for p in s.plugins],
+                         [("FO4SFExp.esm", True), ("FO4SFBridge.esm", None)])
+        self.assertEqual(imp.record_plugins({"plugins": ["A.esm"], "plugins_added": ["*a.esm", "*B.esm"], "plugin": "C.esm",
+                                             "plugins_replaced": [{"active": "*D.esm", "original": ""}, "junk"]}),
+                         ["A.esm", "B.esm", "C.esm", "D.esm"])
+
+    def test_install_record_identity_and_ownership(self):
+        d = os.path.dirname(self.q)
+        exp = os.path.join(d, "FO4SFExp.install.json")
+        bridge = os.path.join(d, "FO4SFBridge.install.json")
+
+        def write(path, body):
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(body, f)
+        # the record's file digests ride on the event; the bridge record keeps its plugin's digest in source_sha256
+        write(exp, {"plugins": ["FO4SFExp.esm", "FO4TerrainCore.esm"], "plugins_replaced": [], "complete": True,
+                    "files": {"FO4SFExp.esm": "aa" * 32, "FO4SFExp - Main.ba2": "cc" * 32, "FO4TerrainCore.esm": "dd" * 32}})
+        write(bridge, {"schema": 2, "plugin": "FO4SFBridge.esm", "source_sha256": {"FO4SFBridge.esm": "ee" * 32},
+                       "files": {"FO4SFBridge - Main.ba2": "ff" * 32}, "complete": True})
+        self.assertEqual(imp.import_install(exp, self.led, active_after_load=True), 1)
+        self.assertEqual(imp.import_install(bridge, self.led, active_after_load=True), 1)
+        s = fold(self.led.read())
+        self.assertEqual([(p["name"], p["sha256"], p["active_after_load"], p["source"]) for p in s.plugins],
+                         [("FO4SFExp.esm", "aa" * 32, True, "FO4SFExp.install.json"),
+                          ("FO4TerrainCore.esm", "dd" * 32, True, "FO4SFExp.install.json"),
+                          ("FO4SFBridge.esm", "ee" * 32, True, "FO4SFBridge.install.json")])
+        # the same receipt rewritten with a new plugin file and no load check: that plugin is unconfirmed again, the
+        # unchanged one keeps its confirmation, the bridge is untouched (Codex on #136, 4ac6d46, first P2)
+        write(exp, {"plugins": ["FO4SFExp.esm", "FO4TerrainCore.esm"], "plugins_replaced": [], "complete": True,
+                    "files": {"FO4SFExp.esm": "ab" * 32, "FO4SFExp - Main.ba2": "cc" * 32, "FO4TerrainCore.esm": "dd" * 32}})
+        self.assertEqual(imp.import_install(exp, self.led), 1)
+        s = fold(self.led.read())
+        self.assertEqual([(p["name"], p["active_after_load"]) for p in s.plugins],
+                         [("FO4SFExp.esm", None), ("FO4TerrainCore.esm", True), ("FO4SFBridge.esm", True)])
+        self.assertIn("FO4SFExp.esm (not confirmed after load), FO4TerrainCore.esm, FO4SFBridge.esm", s.report()[4])
+        # the receipt rewritten without Terrain: Terrain goes, the bridge record's entry stays (second P2); an emptied
+        # receipt drops the rest of its own entries and nothing else
+        write(exp, {"plugins": ["FO4SFExp.esm"], "plugins_replaced": [], "complete": True, "files": {"FO4SFExp.esm": "ab" * 32}})
+        self.assertEqual(imp.import_install(exp, self.led), 1)
+        self.assertEqual([p["name"] for p in fold(self.led.read()).plugins], ["FO4SFExp.esm", "FO4SFBridge.esm"])
+        write(exp, {"plugins": [], "plugins_added": [], "plugins_replaced": [], "complete": True, "files": {}})
+        self.assertEqual(imp.import_install(exp, self.led), 1)
+        self.assertEqual([p["name"] for p in fold(self.led.read()).plugins], ["FO4SFBridge.esm"])
+        self.assertEqual(imp.record_sha256({"files": {"Data\\Sub\\X.esm": "11" * 32}}, "x.esm"), "11" * 32)
+        self.assertIsNone(imp.record_sha256({"files": "junk"}, "x.esm"))
 
     def test_deploy_pins_explicit_keys_win(self):
         self.assertEqual(imp.deploy_pins({"artifacts": {"FO4Port.esm": {"sha256": "ab" * 32}}}),

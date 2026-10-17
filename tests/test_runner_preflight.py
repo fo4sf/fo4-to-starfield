@@ -2,11 +2,14 @@
 run; on, the checklist goes to run.log before the first launch and one FAIL or UNKNOWN stops the run before any step,
 in a dry run too, with a blocker_opened in the ledger when there is one. The PC-side probe is exercised on this box
 only where it reads nothing Windows-specific. Synthetic data; no game."""
+import contextlib
+import io
 import json
 import os
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -17,8 +20,11 @@ import testqueue as tq  # noqa: E402
 import test_testqueue as tt  # noqa: E402
 import test_core_preflight as tcp  # noqa: E402  (FakeProbe)
 from fo4sf.core import controller as c  # noqa: E402
+from fo4sf.core import preflight as pf  # noqa: E402
 from fo4sf.core.model import Event  # noqa: E402
 from fo4sf.core.state import Ledger, fold  # noqa: E402
+
+deploy = tq.exp_install.deployment                        # scripts/deploy_starfield.py, as exp_install imports it
 
 
 def read(p):
@@ -139,6 +145,102 @@ class ProbeOnThisBoxTests(unittest.TestCase):
         with open(os.path.join(self.d, "FO4Port.esm"), "wb") as f:
             f.write(b"TES4")
         self.assertEqual(self.p.staged_plugin_sha256(), tq.sha256(os.path.join(self.d, "FO4Port.esm")))
+        self.assertIsNone(self.p.data_file_sha256("FO4Port.esm"))      # no game folder at all
+        os.makedirs(os.path.join(self.d, "game", "Data", "Terrain"))
+        with open(os.path.join(self.d, "game", "Data", "Terrain", "W.btd"), "wb") as f:
+            f.write(b"BTDB")
+        self.assertEqual(self.p.data_file_sha256(os.path.join("Terrain", "W.btd")), tq.sha256(os.path.join(self.d, "game", "Data", "Terrain", "W.btd")))
+        self.assertIsNone(self.p.data_file_sha256("FO4Port.esm"))
+        with self.assertRaises(ValueError):                               # a record naming a path outside Data: UNKNOWN
+            self.p.data_file_sha256(os.path.join("..", "Starfield.exe"))
+
+    def pin(self, **fields):
+        """The queue with these fields, read by a fresh probe (the Runner loads queue.json once)."""
+        q = tt.jload(os.path.join(self.d, "queue.json"))
+        q.update(fields)
+        tt.jdump(q, os.path.join(self.d, "queue.json"))
+        r = tq.Runner(self.d, tt.args(starfield=os.path.join(self.d, "game")), ctl=tt.FakeControls(), step=lambda t, o: 0)
+        return tq.PreflightProbe(r)
+
+    def test_a_half_finished_deploy_uninstall_fails_the_deploy_check(self):
+        # Codex on #182: deploy_starfield.py uninstall with a changed archive removes FO4Port.esm, keeps the archive and
+        # the manifest (complete still true, the plugin's historical hash still in artifacts); the gate passed on it
+        data = os.path.join(self.d, "game", "Data")
+        os.makedirs(data)
+        esm, ba2 = os.path.join(data, deploy.PLUGIN), os.path.join(data, deploy.ARCHIVE)
+        with open(esm, "wb") as f:
+            f.write(b"TES4" + bytes(32))
+        with open(ba2, "wb") as f:
+            f.write(b"BTDX" + bytes(32))
+        pt = os.path.join(self.d, "Plugins.txt")
+        with open(pt, "w", encoding="utf-8") as f:
+            f.write("*Other.esm\n*FO4Port.esm\n")
+        sha = tq.sha256(esm)
+        man = {"files": [deploy.PLUGIN, deploy.ARCHIVE], "published_files": [deploy.PLUGIN, deploy.ARCHIVE], "plugins_txt": pt,
+               "plugins_added": [], "plugins_replaced": [], "complete": True, "plugins_restore_pending": False,
+               "artifacts": {deploy.PLUGIN: deploy.artifact_identity(esm), deploy.ARCHIVE: deploy.artifact_identity(ba2)}}
+        deploy.write_manifest(os.path.join(data, deploy.MANIFEST), man)
+        p = self.pin(plugin_sha256=sha)
+        self.assertEqual(pf.check_deploy(p).status, pf.PASS)              # the complete deploy of the pinned build
+        with open(ba2, "ab") as f:
+            f.write(b"!")                                                  # the archive changed: uninstall preserves it
+        with mock.patch.object(deploy, "plugins_txt_path", return_value=pt), contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(SystemExit, "uninstall incomplete"):
+                deploy.uninstall(SimpleNamespace(starfield=os.path.join(self.d, "game"), dry_run=False))
+        self.assertFalse(os.path.exists(esm))
+        left = p.deploy_manifest()
+        self.assertEqual((left["complete"], left["files"], left["artifacts"][deploy.PLUGIN]["sha256"]), (True, [deploy.ARCHIVE], sha))
+        c = pf.check_deploy(p)
+        self.assertEqual(c.status, pf.FAIL, c.detail)
+        self.assertIn("half-finished uninstall: FO4Port.esm removed", c.detail)
+        rep = pf.run_gate(p, ["pin", "deploy"])                            # the staging copy is intact: pin alone says nothing
+        self.assertEqual({x.name: x.status for x in rep.checks}["deploy"], pf.FAIL)
+        with open(os.path.join(data, deploy.MANIFEST), "w", encoding="utf-8") as f:
+            json.dump(dict(man, files=[deploy.PLUGIN, deploy.ARCHIVE]), f)       # a stale record claiming both: the bytes decide
+        c = pf.check_deploy(p)
+        self.assertEqual((c.status, "is not there" in c.detail), (pf.FAIL, True))
+
+    def test_a_half_finished_experiment_uninstall_fails_the_experiment_check(self):
+        # Codex on #182: exp_install.py uninstall with a changed terrain file removes the plugin, keeps the file and the
+        # record (complete true, cleanup_pending true, source_inputs still the staged ones); installed_identity dropped
+        # the flag and the gate compared staged inputs only
+        staging, game = os.path.join(self.d, "exp"), os.path.join(self.d, "game")
+        os.makedirs(os.path.join(staging, "Data", "Terrain"))
+        os.makedirs(os.path.join(game, "Data"))
+        with open(os.path.join(staging, "FO4SFExp.esm"), "wb") as f:
+            f.write(b"TES4" + bytes(16))
+        with open(os.path.join(staging, "Data", "Terrain", "W.btd"), "wb") as f:
+            f.write(b"BTDB")
+        local = os.path.join(self.d, "local")
+        os.makedirs(os.path.join(local, "Starfield"))
+        with open(os.path.join(local, "Starfield", "Plugins.txt"), "wb") as f:
+            f.write(b"*FO4Port.esm\r\n")
+        a = SimpleNamespace(starfield=game, exp_dir=staging, plugins="FO4SFExp.esm", pack=False)
+        with mock.patch.dict(os.environ, {"LOCALAPPDATA": local}), contextlib.redirect_stdout(io.StringIO()):
+            tq.exp_install.install(a)
+            p = self.pin(experiment_identity=tq.experiment_identity(staging, ["FO4SFExp.esm"]))
+            self.assertEqual(pf.check_experiment(p).status, pf.PASS)    # the pinned experiment, installed and intact
+            with open(os.path.join(game, "Data", "Terrain", "W.btd"), "ab") as f:
+                f.write(b"!")                                              # an installed file changed: uninstall preserves it
+            with self.assertRaisesRegex(SystemExit, "uninstall incomplete"):
+                tq.exp_install.uninstall(a)
+        self.assertFalse(os.path.exists(os.path.join(game, "Data", "FO4SFExp.esm")))
+        inst = tq.installed_identity(game)
+        self.assertEqual((inst["complete"], inst["cleanup_pending"], list(inst["files"])), (True, True, [os.path.join("Terrain", "W.btd")]))
+        self.assertEqual(inst["source_inputs"], p.queue["experiment_identity"]["inputs"])
+        self.assertEqual(p.install_record(), inst)                        # the probe carries the flag through
+        c = pf.check_experiment(p)
+        self.assertEqual(c.status, pf.FAIL, c.detail)
+        self.assertIn("cleanup pending", c.detail)
+        self.assertIn("cleanup pending", tq.install_mismatch(p.queue, inst))   # and a result on it is INCONCLUSIVE INSTALL
+        rec_p = os.path.join(game, "Data", tq.exp_install.RECORD)
+        with open(rec_p, encoding="utf-8") as f:
+            rec = json.load(f)
+        rec.pop("cleanup_pending")
+        with open(rec_p, "w", encoding="utf-8") as f:
+            json.dump(rec, f)                                              # the flag lost: the inventory still says so
+        c = pf.check_experiment(p)
+        self.assertEqual((c.status, "owns no installed ['FO4SFExp.esm']" in c.detail), (pf.FAIL, True))
 
     def test_plugins_txt_location(self):
         with mock.patch.dict(os.environ, {"LOCALAPPDATA": ""}):

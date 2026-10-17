@@ -238,6 +238,48 @@ class RunnerLedgerTests(unittest.TestCase):
         rows, corrupt = imp._rows(os.path.join(self.d, "results.jsonl"))
         self.assertEqual(([line for line, _ in rows], corrupt), ([2, 3, 4], [(1, torn)]))
 
+    def test_a_row_recovered_by_an_import_never_replaces_a_newer_retry(self):
+        """A lost task_finished write, a resumed run whose retry passes and is written live, then the import that
+        recovers the lost row: the recovered older result stays in the ledger as evidence, but the fold keeps the
+        retry's PASS, exactly as a fresh import of the same files reads them (Codex finding, PR #197)."""
+        c.Controller(self.leader).claim("Claude", "window", 3600)
+        calls = []
+
+        def step(test, out):                                              # a1: nothing observed (retried); a2: landed
+            calls.append(out)
+            return 0 if len(calls) == 1 else tt.RunnerTests.landing(None, 0.1)(test, out)
+        original = Ledger.append
+
+        def lossy(self_, e):
+            if e.ev == "task_finished":
+                raise OSError("write lost")
+            return original(self_, e)
+        with mock.patch.object(Ledger, "append", lossy):
+            self.assertEqual(self.runner(step, max_tests=1).run(), 4)    # attempt 1 ran; its row's event was lost
+        live = Ledger(os.path.join(self.leader, "ledger.jsonl"))
+        self.assertEqual([e.ev for e in live.read() if e.ev.startswith("task_")], ["task_queued"] * 3 + ["task_started"])
+        self.assertEqual(self.runner(step, max_tests=1).run(), 4)        # resumed: attempt 2 PASS, written live
+        camp = os.path.basename(self.d)
+        tid = f"{camp}/0000_fall"
+        rows = [json.loads(x) for x in read(os.path.join(self.d, "results.jsonl")).splitlines()]
+        self.assertEqual([(r["id"], r["attempt"], r["verdict"]) for r in rows],
+                         [("0000_fall", 1, "INCONCLUSIVE"), ("0000_fall", 2, "PASS")])
+        before = fold(live.read()).tasks[tid]
+        self.assertEqual((before["status"], before["outcome"], before["attempt"]), ("completed", "PASS", 2))
+        self.assertEqual(imp.import_queue(self.d, live), 1)               # only the lost row's event is new
+        evs = live.read()
+        finished = [e for e in evs if e.ev == "task_finished"]
+        self.assertEqual([(e.by, e.get("attempt"), e.get("outcome"), e.get("src").rsplit(":", 1)[1]) for e in finished],
+                         [("testqueue:Claude", 2, "PASS", "2"), ("import", 1, "INCONCLUSIVE", "1")])   # append-only: kept as is
+        after = fold(evs).tasks[tid]
+        self.assertEqual((after["status"], after["outcome"], after["attempt"]), ("completed", "PASS", 2))
+        self.assertEqual(fold(evs).tasks_by_status().get("completed"), [tid])
+        # the repaired live ledger and a fresh import of the same untouched files tell the same story
+        fresh = Ledger(os.path.join(self.d, "fresh", "ledger.jsonl"))
+        self.assertEqual(imp.import_queue(self.d, fresh), 1 + 3 + 2)
+        self.assertEqual({k: (v["status"], v["outcome"], v["attempt"]) for k, v in fold(fresh.read()).tasks.items()},
+                         {k: (v["status"], v["outcome"], v["attempt"]) for k, v in fold(evs).tasks.items()})
+
 
 if __name__ == "__main__":
     unittest.main()

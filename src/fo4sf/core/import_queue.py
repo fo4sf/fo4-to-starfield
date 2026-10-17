@@ -16,11 +16,12 @@ Every event carries src = "<file>:<line>" (a row of a file that only grows), "<f
 "<file>@<key>:<first 16 hex of the content's sha256>@<mtime ns>" (a record rewritten in place: a new deploy or
 install is a new event, a re-deploy of the same bytes too); an import skips src keys already in the ledger. A runner
 given a lease folder writes the same keys live (runner_events.py, leader-core.md §10), so importing its queue
-afterwards adds nothing: the import is the recovery path when a live write was lost.
+afterwards adds nothing: the import is the recovery path when a live write was lost. A recovered row lands after the
+results written since it was lost, so the fold (state.py) orders a task's results by row, never by ledger position.
 
 A requested source must exist and be the record its writer produces: a JSON object whose top level carries the key
-that tells the three records apart (SHAPES: a queue.json has a `tests` list, an install record names its `plugins`
-or `plugin`, a deploy manifest has an `artifacts` object and pins a build). A missing file (FileNotFoundError) or
+that tells the three records apart (SHAPES: a queue.json has a `tests` list, an install record names its `plugins`,
+`plugins_added` or `plugin`, a deploy manifest has an `artifacts` object and pins a build). A missing file (FileNotFoundError) or
 anything else (ValueError) fails the source before anything of it is written: the CLI says FAILED and exits 1, the
 other sources still import. A mistyped recovery path, or a deploy manifest given as --install, must never read as
 "already imported" or as a record with no plugins. What may be absent inside a valid record (no results.jsonl yet,
@@ -41,8 +42,9 @@ BY = "import"
 
 SHAPES = {                              # the top-level key its writer always sets, the one that tells the records apart
     "queue.json": (lambda r: isinstance(r.get("tests"), list), "a tests list (testqueue.py plan writes one)"),
-    "install record": (lambda r: isinstance(r.get("plugins"), list) or (isinstance(r.get("plugin"), str) and r["plugin"]),
-                       "a plugins list (exp_install.py) or a plugin (bridge_install.py)"),
+    "install record": (lambda r: isinstance(r.get("plugins"), list) or isinstance(r.get("plugins_added"), list)
+                       or (isinstance(r.get("plugin"), str) and r["plugin"]),
+                       "a plugins or plugins_added list (exp_install.py) or a plugin (bridge_install.py)"),
     "deploy manifest": (lambda r: isinstance(r.get("artifacts"), dict), "an artifacts object (deploy_starfield.py install writes one)"),
 }
 
@@ -196,19 +198,56 @@ def import_queue(qdir, ledger, campaign=None):
     return added
 
 
+def record_plugins(rec):
+    """The plugin names an install record carries, in every shape the writers used: `plugins` (exp_install.py since
+    270b0ec, 2026-10-12), `plugins_added` (`*Name` lines: every exp_install.py record, and the only key before 270b0ec),
+    `plugin` (bridge_install.py, one plugin) and `plugins_replaced[].active`; in that order, each name once."""
+    names, seen = [], set()
+
+    def add(n):
+        n = str(n or "").lstrip("*").strip()
+        if n and n.casefold() not in seen:
+            seen.add(n.casefold())
+            names.append(n)
+    for n in rec.get("plugins") or []:
+        add(n)
+    for n in rec.get("plugins_added") or []:
+        add(n)
+    add(rec.get("plugin"))
+    for x in rec.get("plugins_replaced") or []:
+        if isinstance(x, dict):
+            add(x.get("active"))
+    return names
+
+
+def record_sha256(rec, name):
+    """The sha256 an install record holds for one of its plugins: `files` (rel path or name -> digest, exp_install.py:541,
+    bridge_install.py:180) or the bridge's `source_sha256`; None when the record does not name one."""
+    want = name.casefold()
+    for key in ("files", "source_sha256"):
+        d = rec.get(key)
+        if not isinstance(d, dict):
+            continue
+        for rel, h in d.items():
+            if str(rel).replace("\\", "/").rsplit("/", 1)[-1].casefold() == want and isinstance(h, str) and h:
+                return h
+    return None
+
+
 def import_install(record_path, ledger, active_after_load=None):
     """An FO4SFExp/FO4SFBridge install record -> one plugins_verified event (active_after_load unknown unless given).
-    exp_install.py records list `plugins`; a bridge_install.py record names the one `plugin` it activated."""
+    The event names its record (`source`, the file name) and each plugin's sha256 from the record, so the fold merges
+    the Exp and the Bridge record into one list, drops a plugin a rewritten record no longer lists, and starts the load
+    confirmation over when a plugin's file changed (state.merge_plugins). exp_install.py records list `plugins` (older
+    ones only `plugins_added`); a bridge_install.py record names the one `plugin` it activated."""
     rec = _record(record_path, "install record")
-    names = list(rec.get("plugins") or [])
-    if rec.get("plugin"):
-        names.append(rec["plugin"])
-    names += [x["active"].lstrip("*").strip() for x in rec.get("plugins_replaced", []) if x.get("active")]
+    names = record_plugins(rec)
     src = _content_src(record_path, "plugins")
     if src in ledger.sources():
         return 0
     ledger.append(Event("plugins_verified", BY, fields={
-        "plugins": [{"name": n, "active_after_load": active_after_load} for n in names],
+        "plugins": [{"name": n, "sha256": record_sha256(rec, n), "active_after_load": active_after_load} for n in names],
+        "source": os.path.basename(record_path),
         "complete": rec.get("complete"), "pack": rec.get("pack"), "src": src}))
     return 1
 
