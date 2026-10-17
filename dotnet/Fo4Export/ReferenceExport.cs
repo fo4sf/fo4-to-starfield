@@ -3,6 +3,16 @@ using Mutagen.Bethesda.Fallout4;
 /// <summary>Loss-conscious placement JSON; relationships are retained for later translators.</summary>
 public static class ReferenceExport
 {
+    private static object? ActivationParents(IActivateParentsGetter? block) => block == null ? null : new
+    {
+        flags = (uint)block.Flags,
+        parents = block.Parents.Select(parent => new
+        {
+            reference = parent.Reference.IsNull ? null : parent.Reference.FormKey.ToString(),
+            delay = parent.Delay,
+        }).ToArray(),
+    };
+
     public static object Build(IPlacedObjectGetter r, string type, string baseEditorId, string model, bool persistent)
     {
         var parent = r.EnableParent;
@@ -43,6 +53,7 @@ public static class ReferenceExport
                 reference = parent.Reference.IsNull ? null : parent.Reference.FormKey.ToString(),
                 flags = (uint)parent.Flags,
             },
+            activate_parents = ActivationParents(r.ActivateParents),
             linked_references = r.LinkedReferences.Select(link => new
             {
                 keyword_or_reference = link.KeywordOrReference.IsNull ? null : link.KeywordOrReference.FormKey.ToString(),
@@ -73,6 +84,7 @@ public static class ReferenceExport
             reference = r.EnableParent.Reference.IsNull ? null : r.EnableParent.Reference.FormKey.ToString(),
             flags = (uint)r.EnableParent.Flags,
         },
+        activate_parents = ActivationParents(r.ActivateParents),
         linked_references = r.LinkedReferences.Select(link => new
         {
             keyword_or_reference = link.KeywordOrReference.IsNull ? null : link.KeywordOrReference.FormKey.ToString(),

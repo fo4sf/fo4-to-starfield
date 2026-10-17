@@ -223,6 +223,9 @@ public static class Relationships
         foreach (var reference in export.GetProperty("refs").EnumerateArray())
         {
             var source = reference.GetProperty("formkey").GetString()!;
+            if (reference.TryGetProperty("activate_parents", out var activation) && activation.ValueKind != JsonValueKind.Null)
+                report.Issues.Add(new(source, "activate_parents", null,
+                    "activation-parent flags, references and delays retained in source export; translation not implemented"));
             if (!sourceRefs.TryGetValue(source, out var target)) continue;
             if (reference.TryGetProperty("enable_parent", out var parent) && parent.ValueKind != JsonValueKind.Null)
             {
