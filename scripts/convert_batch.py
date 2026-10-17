@@ -20,7 +20,7 @@ import time
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
+from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, nif, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
 
 
 def checkpoint_signature(a):
@@ -238,6 +238,19 @@ def main():
         if r is not None:
             reused += 1
         else:
+            # apply --max-tris: skip overly complex meshes before full conversion
+            if a.max_tris > 0:
+                try:
+                    raw = src.mesh(name)
+                    parsed = nif.parse(raw)
+                    shapes = [s for s in nif.fo4_trishapes(parsed) if s.positions and s.triangles]
+                    total_tris = sum(len(s.triangles) for s in shapes)
+                    if total_tris > a.max_tris:
+                        skipped += 1
+                        print(f"  skip {name}: {total_tris} triangles > max {a.max_tris}")
+                        continue
+                except Exception as e:
+                    print(f"  could not pre-check tris for {name}: {e}")
             if conv is None:
                 conv = pipeline.Converter(src, a.staging, a.texconv, a.content_resources, template,
                                           rig_doors=donor is not None, door_physics_donor=donor,
