@@ -318,7 +318,11 @@ def build_simd_tree(leaves, leaf_root: bool = True) -> bytes:
 
 def decode_sf_mesh(sf_blob: bytes):
     """Triangles of the first hknpCompressedMeshShapeData in a Starfield tagfile, decoded with Starfield's section fields
-    (used to verify transplants round-trip; also handy for vanilla collision)."""
+    (used to verify transplants round-trip; also handy for vanilla collision).
+
+    Skips unused primitive slots (indices >= section vertex limit, including 0xDEAD) and degenerate points
+    (all four indices equal), matching fo4collision and sfbodies so transplanted meshes round-trip the same triangles.
+    """
     tf = hktagfile.Tagfile(sf_blob)
     b, D = tf.blob, tf.data_start
     T_DATA = _type(tf, "hknpCompressedMeshShapeData")
@@ -338,7 +342,7 @@ def decode_sf_mesh(sf_blob: bytes):
     dmax = struct.unpack_from("<3f", b, tree + 32)
     sec_at, nsec = arr("sections")
     prim_at, _ = arr("primitives")
-    sidx_at, _ = arr("sharedVerticesIndex")
+    sidx_at, nsidx = arr("sharedVerticesIndex")
     pack_at, _ = arr("packedVertices")
     shar_at, nshared = arr("sharedVertices")
     shared = []
@@ -347,12 +351,15 @@ def decode_sf_mesh(sf_blob: bytes):
         q = (v & 0x1FFFFF, (v >> 21) & 0x1FFFFF, v >> 42)
         bits = (0x1FFFFF, 0x1FFFFF, 0x3FFFFF)
         shared.append(tuple(dmin[a] + q[a] * (dmax[a] - dmin[a]) / bits[a] for a in range(3)))
+    firsts = [struct.unpack_from("<I", b, sec_at + 96 * s + 76)[0] for s in range(nsec)]
     tris = []
     for s in range(nsec):
         so = sec_at + 96 * s
         off, scale = struct.unpack_from("<3f", b, so + 48), struct.unpack_from("<3f", b, so + 60)
         first_packed, first_shared, first_prim, _ = struct.unpack_from("<4I", b, so + 72)
         npacked, nprim = b[so + 88], b[so + 89]
+        nsh = (firsts[s + 1] if s + 1 < nsec else nsidx) - first_shared
+        limit = npacked + max(0, nsh)
 
         def vert(i):
             if i < npacked:
@@ -363,6 +370,8 @@ def decode_sf_mesh(sf_blob: bytes):
             return shared[j]
         for k in range(nprim):
             i0, i1, i2, i3 = b[prim_at + 4 * (first_prim + k):prim_at + 4 * (first_prim + k) + 4]
+            if max(i0, i1, i2, i3) >= limit or i0 == i1 == i2 == i3:  # unused (0xDEAD) slot or degenerate point
+                continue
             tris.append((vert(i0), vert(i1), vert(i2)))
             if i2 != i3:
                 tris.append((vert(i0), vert(i2), vert(i3)))
