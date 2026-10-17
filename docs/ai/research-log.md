@@ -3,6 +3,28 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-17 Grok: greyscale-to-palette bake (playtest row 15)
+
+- Question: why Museum of Freedom picture frames and the brass plaque render as flat grey-black boards.
+- Method: converted NIFs and DDS under `C:\Modding\staging\terrain_core64c_work_fix3\convert` (read-only),
+  `paintinggeneric_canvasswap.mat` / `canvaspainting01.mat` / `brassplaque_d_8b698f56.mat`, texconv decode of
+  colour maps, nif.xml `Fallout4ShaderPropertyFlags1` bit 4 (`GreyscaleToPalette_Color` = 0x10). Vanilla FO4
+  `Fallout4 - Materials.ba2` is not on this machine (Steam Data is Vortex-modded), so live `.bgsm` strings were
+  not re-parsed; BGSM slot 4 is already named `greyscale` in `parse_bgsm` and was unused.
+- Frames, **supported hypothesis**: `pictureframe03` canvas colour maps
+  `paintinggeneric_canvasswap_color.dds` and `canvaspainting01_color.dds` are identical, luma 29 max 59. Converted
+  as regular albedo they are dark grey boards. FO4 paints those canvases with GreyscaleToPalette: the diffuse is an
+  index map, the 4th BGSM texture is a colour ramp. Starfield has no matching shader, so the lookup has to be baked
+  into the colour map (same idea as smoothness -> roughness).
+- Plaque, **supported hypothesis**: `brassplaque` went through `texture_set_material` (no `.bgsm`); colour luma 15
+  max 59. Slot 3 of a texture set is greyscale *or* height, so the bake is gated on flags1 bit 0x10. Whether that
+  NIF sets the flag is **unresolved** until a vanilla FO4 NIF is read.
+- V is the middle row of the palette. Vertex-colour V is **unresolved** (converted house interior meshes have 0
+  vertex colours; frames/plaques were not checked for them). GreyscaleToPalette_Alpha (bit 0x20) is not baked.
+- WP10 Hotel Rexford pink-purple walls are the same family; not re-checked here.
+- Status: converter gap **verified** (greyscale parsed, never applied). In-game colour after a scratch reconvert
+  **unresolved** (Claude; no reconvert into the pinned work_fix3 tree).
+
 ## 2026-10-16 Claude: posed props in the pinned interiors (owner playtest rows 4 c and 5)
 - Question: why does the pinned interior build (`integ_1011`) show the Vault 111 radiation scanners with "swung out"
   panels and the lab-coat skeleton `Vault111SkeletonScientist02` standing, and how many models and references of the

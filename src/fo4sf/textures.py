@@ -217,6 +217,33 @@ def texconv(texconv_exe, src, out_dir, fmt, extra=()):
 
 # ---- Fallout 4 spec/gloss -> Starfield PBR -------------------------------------------------
 
+def apply_greyscale_palette(index_rgb, palette_rgba):
+    """FO4 GreyscaleToPalette_Color: sample the palette with the index map's red channel as U.
+
+    Palettes are typically 256 texels wide (one colour per 8-bit index). V is the middle row:
+    the converter does not bake vertex-colour V, so a 1-row ramp uses row 0 and a taller LUT
+    uses the centre row. Returns HxWx3 uint8 RGB; the caller keeps the index map's alpha.
+    """
+    index = np.asarray(index_rgb)
+    pal = np.asarray(palette_rgba)
+    if index.ndim == 2:
+        index = index[..., np.newaxis]
+    if pal.ndim != 3 or pal.shape[2] < 3:
+        raise ValueError("palette must be HxWx3 or HxWx4")
+    if index.ndim != 3:
+        raise ValueError("index must be HxW or HxWxC")
+    ph, pw = pal.shape[0], pal.shape[1]
+    if ph < 1 or pw < 1:
+        raise ValueError("palette is empty")
+    red = index[..., 0].astype(np.int32)
+    if pw == 256:
+        u = np.clip(red, 0, 255)
+    else:
+        u = np.clip((red * (pw - 1) + 127) // 255, 0, pw - 1)
+    v = min(ph // 2, ph - 1)
+    return np.ascontiguousarray(pal[v, u, :3], dtype=np.uint8)
+
+
 def roughness_from_smoothness(g, smoothness: float = 1.0, spec_mult: float = 1.0):
     """FO4 gloss (0..255, 255 = mirror) -> Starfield roughness (255 = fully rough).
     The material's smoothness scalar multiplies the gloss map (FO4 cave rock: map all 255, smoothness 0.5). Starfield has no

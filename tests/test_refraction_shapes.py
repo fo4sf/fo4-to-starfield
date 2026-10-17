@@ -40,6 +40,8 @@ def converter():
 
 SMOKE = [b"textures\\Effects\\SmokeVapor01Tile_n.dds", b"textures\\Effects\\SmokeVapor01Tile_n.dds"] + [b""] * 8
 SURFACE = [b"textures\\a\\x_d.dds", b"textures\\a\\x_n.dds", b"", b"", b"", b"", b"", b"textures\\a\\x_s.dds", b"", b""]
+PALETTE = [b"textures\\a\\x_d.dds", b"textures\\a\\x_n.dds", b"", b"textures\\a\\x_p.dds",
+           b"", b"", b"", b"textures\\a\\x_s.dds", b"", b""]
 
 
 class RefractionShapeTests(unittest.TestCase):
@@ -66,6 +68,22 @@ class RefractionShapeTests(unittest.TestCase):
         c = converter()
         src, shape = lighting_shape(HEAT_SHIMMER_FLAGS1 & ~pipeline.SLSF1_REFRACTION, SMOKE)
         self.assertEqual(c._shape_material(src, shape), "materials\\fo4port\\texsets\\x.mat")
+
+    def test_greyscale_flag_passes_slot_3_as_palette(self):
+        c = converter()
+        src, shape = lighting_shape(SURFACE_FLAGS1 | pipeline.SLSF1_GREYSCALE_TO_PALETTE_COLOR, PALETTE)
+        self.assertEqual(c._shape_material(src, shape), "materials\\fo4port\\texsets\\x.mat")
+        c.texture_set_material.assert_called_once_with(
+            "textures\\a\\x_d.dds", "textures\\a\\x_n.dds", "textures\\a\\x_s.dds",
+            greyscale="textures\\a\\x_p.dds")
+
+    def test_slot_3_without_the_flag_is_not_a_palette(self):
+        # slot 3 is also height; only GreyscaleToPalette_Color (0x10) bakes it
+        c = converter()
+        src, shape = lighting_shape(SURFACE_FLAGS1, PALETTE)
+        self.assertEqual(c._shape_material(src, shape), "materials\\fo4port\\texsets\\x.mat")
+        c.texture_set_material.assert_called_once_with(
+            "textures\\a\\x_d.dds", "textures\\a\\x_n.dds", "textures\\a\\x_s.dds")
 
     def test_bgsm_shape_is_left_to_its_material_file(self):
         # with a .bgsm the material file, not the NIF block, sets the shader in FO4; no FO4 .bgsm sets refraction

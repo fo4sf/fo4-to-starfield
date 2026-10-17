@@ -231,7 +231,7 @@ class DryConverter:
         return self.dims_cache[n.lower()]
 
     def _texture_set(self, stem, diffuse, normal, spec, smoothness=1.0, spec_mult=1.0, alpha_test=False,
-                     alpha_ref=128, decal=False):
+                     alpha_ref=128, decal=False, greyscale=None):
         d = self.dims(diffuse)
         n = self.dims(normal) if normal else None
         s = self.dims(spec) if spec else None

@@ -14,12 +14,12 @@ except ImportError:  # pragma: no cover
     np = None
 
 
-def fake_bgsm(diffuse="a/b_d.dds", normal="a/b_n.dds", spec="a/b_s.dds"):
+def fake_bgsm(diffuse="a/b_d.dds", normal="a/b_n.dds", spec="a/b_s.dds", greyscale=""):
     head = b"BGSM" + struct.pack("<II4f", 2, 3, 0.0, 0.0, 1.0, 1.0) + b"\x00" * 20
     def s(t):
         b = t.encode() + b"\0"
         return struct.pack("<I", len(b)) + b
-    return head + s(diffuse) + s(normal) + s(spec) + s("") + s("env/c.dds") + s("") + b"\x00" * 40
+    return head + s(diffuse) + s(normal) + s(spec) + s(greyscale) + s("env/c.dds") + s("") + b"\x00" * 40
 
 
 class BgsmTests(unittest.TestCase):
@@ -28,6 +28,10 @@ class BgsmTests(unittest.TestCase):
         self.assertEqual((b.diffuse, b.normal, b.smooth_spec, b.envmap), ("a/b_d.dds", "a/b_n.dds", "a/b_s.dds", "env/c.dds"))
         self.assertEqual(b.uv_scale, (1.0, 1.0))
         self.assertTrue(b.tile_u and b.tile_v)
+
+    def test_parse_greyscale_texture(self):
+        b = cm.parse_bgsm(fake_bgsm(greyscale="a/b_p.dds"))
+        self.assertEqual(b.greyscale, "a/b_p.dds")
 
     def test_rejects_other_files(self):
         with self.assertRaises(ValueError):
@@ -147,6 +151,37 @@ class TextureTests(unittest.TestCase):
             self.assertEqual(r.shape, (h, w))
             self.assertEqual(g.shape, (h, w))
             self.assertTrue((r == 42).all() and (g == 42).all())
+
+    def test_greyscale_palette_lookup_256_wide(self):
+        pal = np.zeros((1, 256, 4), np.uint8)
+        pal[0, 10] = (255, 0, 0, 255)
+        pal[0, 200] = (0, 255, 0, 255)
+        index = np.zeros((2, 2, 4), np.uint8)
+        index[0, 0, 0] = 10
+        index[0, 1, 0] = 200
+        index[1, 0] = (10, 10, 10, 128)     # alpha is ignored; caller keeps it
+        out = textures.apply_greyscale_palette(index, pal)
+        self.assertEqual(out.shape, (2, 2, 3))
+        self.assertEqual(out[0, 0].tolist(), [255, 0, 0])
+        self.assertEqual(out[0, 1].tolist(), [0, 255, 0])
+        self.assertEqual(out[1, 0].tolist(), [255, 0, 0])
+        self.assertEqual(out[1, 1].tolist(), [0, 0, 0])
+
+    def test_greyscale_palette_uses_middle_row(self):
+        pal = np.zeros((4, 256, 3), np.uint8)
+        pal[0, 5] = (1, 0, 0)
+        pal[2, 5] = (0, 9, 0)               # ph // 2 == 2
+        pal[3, 5] = (0, 0, 1)
+        index = np.full((1, 1, 3), 5, np.uint8)
+        out = textures.apply_greyscale_palette(index, pal)
+        self.assertEqual(out[0, 0].tolist(), [0, 9, 0])
+
+    def test_greyscale_palette_scales_narrow_ramp(self):
+        pal = np.array([[[10, 20, 30], [40, 50, 60]]], dtype=np.uint8)
+        index = np.array([[[0], [255]]], dtype=np.uint8)
+        out = textures.apply_greyscale_palette(index, pal)
+        self.assertEqual(out[0, 0].tolist(), [10, 20, 30])
+        self.assertEqual(out[0, 1].tolist(), [40, 50, 60])
 
     def test_roughness_scaled_by_material_smoothness(self):
         g = np.array([[255, 255]], dtype=np.uint8)

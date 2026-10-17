@@ -1634,3 +1634,15 @@ no equivalent. Open in game: whether build mode opens from a temporary REFR in o
 snapshots tagged owner-button). Lessons: a Bash heredoc here turns \\r \\n escapes into real characters (patch through a
 written script; gate commits on tests); a background workflow can die silently (check the transcripts' modification
 times); the owner's three-line console paste became one line (give one line per command).
+
+## 2026-10-17: Grok playtest textures, row 15 greyscale-to-palette (offline)
+
+Starfield 1.16.244, convert dir `terrain_core64c_work_fix3` (read-only). Museum of Freedom `pictureframe03` canvas
+maps (`paintinggeneric_canvasswap`, `canvaspainting01`) decode to luma 29 max 59; `brassplaque` texset colour luma
+15 max 59. FO4 GreyscaleToPalette_Color (nif.xml flags1 bit 4 = 0x10; BGSM 4th texture string) was parsed and
+never applied, so the index maps shipped as albedo. Converter now bakes the palette lookup into the colour map
+(red channel of the diffuse as U, middle row of the palette as V) before BC1. Texture-set slot 3 is only used when
+the flag is set (it is also height). Synthetic tests: palette lookup, BGSM string, flag gating, cache identity.
+In-game check is Claude's after a scratch reconvert of the frame/plaque family. Vertex-colour V and
+GreyscaleToPalette_Alpha are not this PR. Row 11 vines are PR #288; row 13 walls (bright albedo luma 184) remain
+a separate root cause.
