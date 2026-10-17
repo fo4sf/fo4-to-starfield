@@ -10,7 +10,8 @@ become completed-install evidence.
 The default directory is `%LOCALAPPDATA%/FO4SF/experiment-receipts` (on systems
 without LOCALAPPDATA, `~/.local/state/FO4SF/experiment-receipts`). Set the absolute
 private `FO4SF_EXPERIMENT_RECEIPTS` environment path before invoking the deployer
-to use a different volume. Game and staging directories are refused. This change
+to use a different volume. Game and staging directories, including the physical
+Data directory behind a junction/symlink, are refused. This change
 does not modify the active runner's environment or install anything.
 
 Snapshots are compressed and content-addressed, so identical receipts are

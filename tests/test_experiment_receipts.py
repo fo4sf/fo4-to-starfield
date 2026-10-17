@@ -2,7 +2,9 @@
 import gzip
 import hashlib
 import json
+import os
 from pathlib import Path
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -178,6 +180,31 @@ class ExperimentReceiptTests(unittest.TestCase):
                     exp.uninstall(self.args)
             self.assertFalse(root.exists())
         self.assertTrue((self.data / "Experiment.esm").exists())
+
+    def test_history_refuses_physical_data_directory_behind_a_link(self):
+        external = self.root / "physical-data"
+        external.mkdir()
+        self.data.rmdir()  # Fixture's empty directory only; no recursive delete.
+        if os.name == "nt":
+            made = subprocess.run(["cmd", "/c", "mklink", "/J", str(self.data), str(external)],
+                                  capture_output=True)
+            if made.returncode:
+                self.data.mkdir()
+                self.skipTest("native junction creation unavailable")
+            self.addCleanup(os.rmdir, self.data)  # Remove junction, never its target.
+        else:
+            self.data.symlink_to(external, target_is_directory=True)
+            self.addCleanup(self.data.unlink)
+        self.assertEqual(self.data.resolve(), external)
+        exp.install(self.args)
+        plugins = self.plugins.read_bytes()
+        destination = external / "receipts"
+        with patch.dict("os.environ", {"FO4SF_EXPERIMENT_RECEIPTS": str(destination)}):
+            with self.assertRaisesRegex(SystemExit, "outside"):
+                exp.uninstall(self.args)
+        self.assertFalse(destination.exists())
+        self.assertTrue((self.data / "Experiment.esm").exists())
+        self.assertEqual(self.plugins.read_bytes(), plugins)
 
 
 if __name__ == "__main__":

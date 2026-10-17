@@ -47,7 +47,9 @@ def preserve_receipt(record_path):
     if not isinstance(record, dict):
         raise ValueError("experiment receipt must be an object")
     root = receipt_directory()
-    excluded = [source.parent.parent.resolve()]
+    # Data itself can be a directory junction to a different volume. Excluding
+    # only the logical game root would allow history inside that linked Data.
+    excluded = [source.parent.parent.resolve(), source.parent.resolve()]
     if record.get("exp_dir"):
         excluded.append(Path(record["exp_dir"]).resolve())
     if any(root.is_relative_to(path) for path in excluded):
