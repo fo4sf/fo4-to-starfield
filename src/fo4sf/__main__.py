@@ -1,20 +1,25 @@
 """fo4sf CLI entry point.
 
-python -m fo4sf status   # report config and basic coverage
+python -m fo4sf status   # report config paths, versions, and basic existence checks
 """
 import argparse
 import sys
 
-from .config import load_config, status_summary
+from .config import load_config, status_summary, ConfigError
 
 
 def cmd_status(args):
-    cfg = load_config(args.config)
+    try:
+        cfg = load_config(args.config)
+    except ConfigError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return 1
     print("fo4sf status")
     print(status_summary(cfg))
     # Placeholder coverage until a real manifest exists
     print("manifest: none (run a conversion to create one)")
     print("coverage: T0 placeholders only (no assets converted in this environment)")
+    return 0
 
 
 def main(argv=None):
@@ -24,8 +29,7 @@ def main(argv=None):
     st = sub.add_parser("status", help="print config summary and coverage")
     st.set_defaults(func=cmd_status)
     args = parser.parse_args(argv)
-    args.func(args)
-    return 0
+    return args.func(args)
 
 
 if __name__ == "__main__":

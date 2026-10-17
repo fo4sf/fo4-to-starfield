@@ -30,9 +30,35 @@ def load_config(path: Optional[str] = None) -> dict:
 
 
 def status_summary(cfg: dict) -> str:
-    """One-line summary of configured paths."""
-    fo4 = cfg.get("fo4", {}).get("data_dirs", ["(not set)"])
-    sf = cfg.get("starfield", {}).get("data_dir", "(not set)")
+    """Multi-line summary of configured paths and versions, with existence checks."""
+    lines = []
+    fo4_dirs = cfg.get("fo4", {}).get("data_dirs", [])
+    fo4_ver = cfg.get("fo4", {}).get("version", "(not set)")
+    if fo4_dirs:
+        fo4_path = fo4_dirs[0]
+        exists = "exists" if Path(fo4_path).is_dir() else "MISSING"
+        lines.append(f"FO4 data: {fo4_path} ({exists}); version: {fo4_ver}")
+    else:
+        lines.append("FO4 data: (not set)")
+
+    sf_dir = cfg.get("starfield", {}).get("data_dir", "(not set)")
+    sf_ver = cfg.get("starfield", {}).get("version", "(not set)")
+    if sf_dir != "(not set)":
+        exists = "exists" if Path(sf_dir).is_dir() else "MISSING"
+        lines.append(f"Starfield data: {sf_dir} ({exists}); version: {sf_ver}")
+    else:
+        lines.append("Starfield data: (not set)")
+
     work = cfg.get("paths", {}).get("work_dir", "(not set)")
     staging = cfg.get("paths", {}).get("staging_dir", "(not set)")
-    return f"FO4 data: {fo4[0] if fo4 else '(none)'}; SF data: {sf}; work: {work}; staging: {staging}"
+    if work != "(not set)":
+        exists = "exists" if Path(work).is_dir() else "MISSING"
+        lines.append(f"work_dir: {work} ({exists})")
+    else:
+        lines.append("work_dir: (not set)")
+    if staging != "(not set)":
+        exists = "exists" if Path(staging).is_dir() else "MISSING"
+        lines.append(f"staging_dir: {staging} ({exists})")
+    else:
+        lines.append("staging_dir: (not set)")
+    return "\n".join(lines)
