@@ -105,6 +105,54 @@ class ImportCliTests(unittest.TestCase):
                          [f"queue {q3}: 3 event(s) added", f"queue {self.q2}: 3 event(s) added"])
         self.assertEqual(sum(ln.startswith(f"queue {q3}:") for ln in lines), 1)
 
+    def test_a_local_created_time_and_a_utc_file_time_order_on_one_clock(self):
+        # Codex P2 on dca24a1: `created` is the planner's local wall clock (no zone); read as UTC and compared with a
+        # UTC mtime, a queue planned at 10:00 Mountain (16:00Z) sorted before a queue whose file is from 13:00Z, so the
+        # older queue imported last and pinned the wrong build. The host's zone is pretended to be UTC-6 here so the
+        # test means the same on a UTC CI runner and on the owner's PC.
+        import datetime
+        from unittest import mock
+        other = os.path.join(self.d, "D", "testqueue")
+        os.makedirs(other)
+        new_local = write_queue(other, "new_local", ["d1"], [("d1", "PASS", "")], build="bbbbbbbb")
+        with open(os.path.join(new_local, "queue.json"), encoding="utf-8") as f:
+            rec = json.load(f)
+        rec["created"] = "2026-10-17T10:00:00"
+        with open(os.path.join(new_local, "queue.json"), "w", encoding="utf-8") as f:
+            json.dump(rec, f)
+        old_mtime = write_queue(other, "old_mtime", ["d1"], [("d1", "FAIL", "x")], build="aaaaaaaa")
+        with open(os.path.join(old_mtime, "queue.json"), encoding="utf-8") as f:
+            rec = json.load(f)
+        del rec["created"]
+        with open(os.path.join(old_mtime, "queue.json"), "w", encoding="utf-8") as f:
+            json.dump(rec, f)
+        at = datetime.datetime(2026, 10, 17, 13, 0, tzinfo=datetime.timezone.utc).timestamp()
+        os.utime(os.path.join(old_mtime, "queue.json"), (at, at))
+
+        def mountain(s):   # what model.local_to_utc_iso does on a UTC-6 machine
+            d = datetime.datetime.fromisoformat(str(s).replace("Z", "+00:00"))
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=datetime.timezone(datetime.timedelta(hours=-6)))
+            return d.astimezone(datetime.timezone.utc).isoformat()
+
+        self.assertIs(cli.local_to_utc_iso, __import__("fo4sf.core.model", fromlist=["x"]).local_to_utc_iso)
+        with mock.patch.object(cli, "local_to_utc_iso", mountain):
+            self.assertEqual(cli.queue_created(new_local).isoformat(), "2026-10-17T16:00:00+00:00")
+            self.assertEqual(cli.queue_created(old_mtime).isoformat(), "2026-10-17T13:00:00+00:00")
+            code, lines = self.run_cli("--ledger", self.leader, "--queues", other, "--no-report")
+        self.assertEqual(code, 0, lines)
+        order = [ln for ln in lines if ln.startswith("queue ")]
+        self.assertEqual([ln.split(":")[0] for ln in order], [f"queue {old_mtime}", f"queue {new_local}"])
+        s = fold(Ledger(os.path.join(self.leader, "ledger.jsonl")).read())
+        self.assertEqual(s.build["build_id"], "bbbbbbbb")
+        # an aware `created` is taken as written, whatever the zone (and without the pretended host zone)
+        with open(os.path.join(new_local, "queue.json"), encoding="utf-8") as f:
+            rec = json.load(f)
+        rec["created"] = "2026-10-17T10:00:00-06:00"
+        with open(os.path.join(new_local, "queue.json"), "w", encoding="utf-8") as f:
+            json.dump(rec, f)
+        self.assertEqual(cli.queue_created(new_local), datetime.datetime(2026, 10, 17, 16, 0, tzinfo=datetime.timezone.utc))
+
     def test_an_unreadable_source_fails_alone_and_exits_one(self):
         with open(os.path.join(self.q2, "queue.json"), "w", encoding="utf-8") as f:
             f.write("{not json")

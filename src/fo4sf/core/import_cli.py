@@ -18,7 +18,7 @@ import json
 import os
 
 from .import_queue import import_deploy, import_install, import_queue
-from .model import parse_iso
+from .model import local_to_utc_iso, parse_iso
 from .state import Ledger, fold
 
 LEDGER_FILE = "ledger.jsonl"
@@ -40,14 +40,17 @@ def queue_folders(parent):
 
 
 def queue_created(q):
-    """When a queue was planned: queue.json's `created` (testqueue.py plan writes it), else the file's mtime; a queue
-    whose queue.json cannot be read sorts first (it fails on its own line, before anything that matters)."""
+    """When a queue was planned, as an aware UTC time: queue.json's `created` (testqueue.py plan writes the local wall
+    clock with no zone, like every runner time, so it goes through local_to_utc_iso first), else the file's mtime (UTC
+    already); a queue whose queue.json cannot be read sorts first (it fails on its own line, before anything that
+    matters). Never compare a naive `created` with an mtime: on a Mountain-time PC 10:00 local is 16:00Z, and read as
+    10:00Z it sorted before a 13:00Z file, so the older queue imported last and pinned the wrong build."""
     path = os.path.join(q, "queue.json")
     try:
         with open(path, encoding="utf-8-sig") as f:
             created = json.load(f).get("created")
         if created:
-            return parse_iso(str(created))
+            return parse_iso(local_to_utc_iso(str(created)))
         return datetime.datetime.fromtimestamp(os.path.getmtime(path), datetime.timezone.utc)
     except (OSError, ValueError, TypeError, AttributeError):
         return datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)

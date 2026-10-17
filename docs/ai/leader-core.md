@@ -83,8 +83,9 @@ given a lease folder writes the same keys live (§10), so importing its queue af
 The command: `python scripts\leader_import.py --ledger <leader dir> --queues C:\Modding\testqueue [--queues D:\Modding\testqueue]
 [--deploy <Data\FO4Port.deploy.json>] [--install <Data\FO4SFExp.install.json>] [--active-after-load yes|no]`
 (or `--queue <dir>` per folder, in the order given): one line per source with the events added, queues first (a
-parent's queues oldest first by `queue.json` `created`, never by folder name, so the newest queue's pin is the current
-build), then the deploy manifest, then the install records, so the fold ends on the current build and its plugins; a second run adds nothing; a source
+parent's queues oldest first by `queue.json` `created`, read as the planner's local wall clock like every runner time
+and compared in UTC with the file time of a queue that has none, never by folder name, so the newest queue's pin is the
+current build), then the deploy manifest, then the install records, so the fold ends on the current build and its plugins; a second run adds nothing; a source
 that cannot be read, that does not exist, or that is not the record its writer produces fails alone, before anything
 of it is written (exit 1, the others still import): a `queue.json` has a `tests` list, an install record names its
 `plugins` (exp) or `plugin` (bridge), a deploy manifest has an `artifacts` object and pins a build
