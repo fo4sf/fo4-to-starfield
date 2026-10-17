@@ -1681,3 +1681,16 @@ Row 21: FO4 garage is an ACTI with XAPR to the button, not a DOOR. Writer wires 
 Opening→Open / Closing→Close so `--door-anim-dll` can rig the garage NIF; Claude scratch overlay for that reconvert.
 Row 24: object LOD research only (`lodsettings` + generated `_lod_0..3`); do not raise the cell buffer.
 [docs/terrain/garage-button.md](terrain/garage-button.md), [docs/terrain/object-lod.md](terrain/object-lod.md).
+
+## 2026-10-17: Codex production garage-link regression (offline)
+
+Added an actual TerrainOverlays writer test for #303. Two synthetic builds, without
+and with the button link, must retain all existing identity-map sections and record
+IDs, changing only the button REFR. Its serialized VMAD must carry edited
+LinkedRefKeyword = Starfield.esm:05D5E7 (alias -1); the one XLKR must use that same
+keyword and the garage REFR in the output plugin, not the ACTI base.
+
+The new test fails against the actual pre-fix 7eaab94 writer because its script has
+no properties, and passes against 0168350. Both runs and synthetic output bytes are
+preserved privately. No game files, stage, installation or native acceptance; the
+garage animation/receiver remains a separate gate. Independent test review pending.
