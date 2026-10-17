@@ -1113,7 +1113,8 @@ def plan_movable(a):
          "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]],
          "launch_cell": a.launch_cell, "experiment": os.path.abspath(a.exp_dir),
          "tests": [dict(t, fresh=True) if a.fresh else t for t in (tests[:a.only] if a.only else tests)]}
-    q.update(queue_extras(q["tests"], SimpleNamespace(plugins="", bridge=getattr(a, "bridge", "")), a.exp_dir))   # --bridge kept (#218)
+    # --bridge too (#218: dropped here, so the queue had no bridge pin, no bridge_reads and no "bridge" need)
+    q.update(queue_extras(q["tests"], SimpleNamespace(plugins="", bridge=getattr(a, "bridge", "")), a.exp_dir))
     os.makedirs(a.out, exist_ok=True)
     save_atomic(os.path.join(a.out, "queue.json"), q)
     print(f"{len(q['tests'])} movable_control tests (experiment {a.exp_dir}) on build {q['build_id']}"

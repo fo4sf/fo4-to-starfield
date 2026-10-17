@@ -31,8 +31,8 @@ deck with reads before and after it, nothing but the walk's own console commands
 screenshots exist. FAIL classes: BOUNDARY (the popup), FELL (through the terrain, or off the route's surface, e.g. the
 bridge), HEIGHTS (below the ground by more than z_tol), JUMP (a confirmed move no walk makes), OFFROUTE, STUCK.
 Everything else that keeps it from a PASS is INCONCLUSIVE (POPUP (any other popup), UNREAD, READ, OFFGROUND, HUDGAP,
-NOHUD, NOTREACHED, CROSSING, BRIDGE, NOSHOT, TYPED, START, ANCHOR, GROUND; LEGS and EVIDENCE when the leg records themselves cannot be
-trusted: evidence_problem, checked before any geometry).
+NOHUD, NOTREACHED, CROSSING, BRIDGE, NOSHOT, TYPED, START, ANCHOR, GROUND; LEGS and EVIDENCE when the leg records
+themselves cannot be trusted: evidence_problem, checked before any geometry).
 """
 import argparse
 import hashlib
