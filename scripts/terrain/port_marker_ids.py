@@ -153,6 +153,14 @@ def _plan(state, sources):
     return Plan(raw, _digest(raw), {s: state["reservations"][s] for s in sources})
 
 
+def validate_state(raw, expected_sha256):
+    """Read externally pinned reservation bytes without touching any files."""
+    _require(_digest(raw) == expected_sha256, "reservation state hash mismatch")
+    state = _json(raw)
+    _validate(state)
+    return state
+
+
 def bootstrap(base_raw, base_map_raw, patched_raw, patched_map_raw, doors, *, plugin, core_plugin):
     """Import an existing checked generation; never infer IDs from new door order."""
     base = _snapshot(base_raw, base_map_raw, plugin)
@@ -204,9 +212,7 @@ def reserve(state_raw, expected_sha256, base_raw, base_map_raw, sources, *, plug
     Supports unchanged bases and append-only base growth. Existing base records
     or source IDs changing need a separately reviewed migration, not guessing.
     """
-    _require(_digest(state_raw) == expected_sha256, "reservation state hash mismatch")
-    state = _json(state_raw)
-    _validate(state)
+    state = validate_state(state_raw, expected_sha256)
     before = state["base"]
     after = _snapshot(base_raw, base_map_raw, plugin)
     _require(before["plugin"] == after["plugin"] and before["masters"] == after["masters"], "plugin lineage changed")
