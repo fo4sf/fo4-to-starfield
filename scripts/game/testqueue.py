@@ -2178,6 +2178,34 @@ class LeaseGate:
         return None
 
 
+GAME_VERSION = re.compile(r"\d+(\.\d+){3}")        # four parts, as Starfield.exe's file version reads (1.16.244.0)
+
+
+def pin_game_version(a):
+    """pin-game-version: write queue.json "game_version", the pin the preflight gate's game_version check compares
+    Starfield.exe's file version against (docs/ai/leader-core.md section 7). The value comes from --version or, on
+    Windows, from the game folder's Starfield.exe; a different pin already in the queue needs --force."""
+    qp = os.path.join(a.queue, "queue.json")
+    q = load(qp)
+    if not q:
+        sys.exit(f"{qp} holds no queue (no object)" if os.path.exists(qp) else f"no queue.json in {a.queue}")
+    version = (a.version or "").strip()
+    if not version:
+        version = exe_file_version(os.path.join(a.starfield, "Starfield.exe")) or ""
+        if not version:
+            sys.exit("Starfield.exe's version is not readable here (Windows only): pass --version")
+    if not GAME_VERSION.fullmatch(version):
+        sys.exit(f"not a four-part file version: {version!r} (Starfield.exe's reads as four numbers, e.g. 1.16.244.0; "
+                 f"a shorter pin could never match it)")
+    have = q.get("game_version")
+    if have and have != version and not a.force:
+        sys.exit(f"queue.json already pins game_version {have}; --force replaces it with {version}")
+    q["game_version"] = version
+    save_atomic(qp, q)
+    print(f"game_version {version} pinned in {qp}" + (f" (was {have})" if have and have != version else ""))
+    return 0
+
+
 def exe_file_version(path, _ver=None):
     """The file version of a Windows executable ("1.16.244.0"); None when not on Windows or not readable.
     _ver: the version.dll object (ctypes.windll.version); a test passes a stand-in to exercise the decoding."""
@@ -3348,7 +3376,16 @@ def main(argv=None):
     for name in ("report", "status"):
         s = sub.add_parser(name)
         s.add_argument("--queue", required=True)
+    pg = sub.add_parser("pin-game-version", help="record Starfield.exe's file version in queue.json: the pin the "
+                                                 "preflight gate's game_version check compares against (section 7)")
+    pg.add_argument("--queue", required=True)
+    pg.add_argument("--version", default="", help="the version to pin, e.g. 1.16.244.0; default: read from "
+                                                   "--starfield's Starfield.exe (Windows)")
+    pg.add_argument("--starfield", default=r"D:\SteamLibrary\steamapps\common\Starfield")
+    pg.add_argument("--force", action="store_true", help="replace a different pin already in the queue")
     a = ap.parse_args(argv)
+    if a.cmd == "pin-game-version":
+        return pin_game_version(a)
     if a.cmd == "plan":
         return plan(a)
     if a.cmd == "plan-terrain":
