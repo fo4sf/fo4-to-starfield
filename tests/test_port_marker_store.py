@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -114,6 +115,52 @@ class PortMarkerStoreTests(unittest.TestCase):
         self.assertEqual(evidence, {p.name: p.read_bytes() for p in self.folder.glob("*-*.json")})
         self.assertEqual(committed.assignments["000003:synthetic.esm"], 0x806)
 
+    @unittest.skipUnless(os.name == "nt", "Windows reader sharing semantics")
+    def test_windows_reader_release_allows_replacement_within_the_same_lease(self):
+        ready, release = self.root / "reader-ready", self.root / "reader-release"
+        script = '''
+import sys,time
+from pathlib import Path
+with open(sys.argv[1], 'rb'):
+    Path(sys.argv[2]).write_text('ready')
+    until=time.monotonic()+10
+    while not Path(sys.argv[3]).exists() and time.monotonic()<until: time.sleep(0.01)
+'''
+        proc = subprocess.Popen([sys.executable, "-I", "-B", "-c", script,
+                                 str(self.folder / "state.json"), str(ready), str(release)],
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        real_replace, failures = os.replace, []
+
+        def release_on_real_sharing_error(*args):
+            try:
+                return real_replace(*args)
+            except PermissionError as error:
+                failures.append(getattr(error, "winerror", None))
+                release.write_text("close reader", encoding="utf-8")
+                raise
+
+        try:
+            until = time.monotonic() + 5
+            while not ready.exists() and proc.poll() is None and time.monotonic() < until:
+                time.sleep(0.01)
+            self.assertTrue(ready.exists(), "reader did not open state")
+            with mock.patch.object(os, "replace", side_effect=release_on_real_sharing_error):
+                with store.session(self.folder, self.initial.sha256) as writer:
+                    plan = self.reserve(writer)
+            self.assertTrue(failures, "control did not encounter a real Windows sharing error")
+            self.assertEqual((self.folder / "state.json").read_bytes(), plan.state)
+            self.assertFalse(store._pending(self.folder))
+        finally:
+            release.write_text("close reader", encoding="utf-8")
+            try:
+                stdout, stderr = proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                stdout, stderr = proc.communicate(timeout=5)
+            (self.root / "reader-process.json").write_text(json.dumps(
+                {"exit": proc.returncode, "stdout": stdout, "stderr": stderr,
+                 "sharing_errors": failures}), encoding="utf-8")
+
     def test_restored_intermediate_state_is_also_superseded(self):
         with store.session(self.folder, self.initial.sha256) as writer:
             middle = self.reserve(writer)
@@ -127,6 +174,58 @@ class PortMarkerStoreTests(unittest.TestCase):
         with store.session(self.folder, latest.sha256) as writer:
             next_plan = self.reserve(writer, ["000005:Synthetic.esm"])
         self.assertEqual(next_plan.assignments["000005:synthetic.esm"], 0x808)
+
+    def test_exhausted_replacement_retry_preserves_explicit_recovery(self):
+        with mock.patch.object(store, "_retryable_replace_error", return_value=True), \
+                mock.patch.object(store, "_REPLACE_RETRIES", 2), \
+                mock.patch.object(store.time, "sleep") as sleep, \
+                mock.patch.object(os, "replace", side_effect=PermissionError("reader held")) as replace:
+            with self.assertRaises(PermissionError):
+                with store.session(self.folder, self.initial.sha256) as writer:
+                    self.reserve(writer)
+        self.assertEqual(replace.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+        self.assertEqual((self.folder / "state.json").read_bytes(), self.initial.state)
+        pending = store._pending(self.folder)
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(len(list(self.folder.glob("pending-*.json"))), 1)
+        after = pending[0][0]["after"]
+        store.recover(self.folder, before_sha256=self.initial.sha256, after_sha256=after)
+        with store.session(self.folder, after) as writer:
+            next_plan = self.reserve(writer, ["000004:Synthetic.esm"])
+        self.assertEqual(next_plan.assignments["000004:synthetic.esm"], 0x807)
+
+    def test_unrelated_replace_error_does_not_retry(self):
+        with mock.patch.object(store, "_retryable_replace_error", return_value=False), \
+                mock.patch.object(store.time, "sleep") as sleep, \
+                mock.patch.object(os, "replace", side_effect=PermissionError("not a sharing error")) as replace:
+            with self.assertRaises(PermissionError):
+                with store.session(self.folder, self.initial.sha256) as writer:
+                    self.reserve(writer)
+        self.assertEqual(replace.call_count, 1)
+        sleep.assert_not_called()
+
+    def test_retry_rechecks_state_and_pending_bytes_before_replacement(self):
+        for target in ("state", "pending"):
+            with self.subTest(target=target):
+                def change_during_wait(_delay):
+                    path = (self.folder / "state.json" if target == "state"
+                            else next(self.folder.glob("pending-*.json")))
+                    path.write_bytes(b"concurrent edit")
+
+                with mock.patch.object(store, "_retryable_replace_error", return_value=True), \
+                        mock.patch.object(store.time, "sleep", side_effect=change_during_wait), \
+                        mock.patch.object(os, "replace", side_effect=PermissionError("reader held")) as replace:
+                    with self.assertRaisesRegex(store.RecoveryRequired, "state changed before replacement"):
+                        with store.session(self.folder, self.initial.sha256) as writer:
+                            self.reserve(writer)
+                self.assertEqual(replace.call_count, 1)
+                edited = (self.folder / "state.json" if target == "state"
+                          else next(self.folder.glob("pending-*.json")))
+                self.assertEqual(edited.read_bytes(), b"concurrent edit")
+                # Preserve this fixture and use a distinct synthetic store for the next case.
+                self.folder = self.root / ("store-after-" + target)
+                self.initial = self.initialize()
 
     def test_completion_without_its_intent_cannot_hide_a_rollback(self):
         with store.session(self.folder, self.initial.sha256) as writer:

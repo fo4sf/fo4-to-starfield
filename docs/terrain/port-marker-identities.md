@@ -71,6 +71,16 @@ is not a CAS against actors bypassing the lease. File fsync/flush and
 same-directory replacement are used; process interruption tests do not establish
 hardware power-loss or network-filesystem guarantees.
 
+On Windows, replacement retries access/sharing/lock errors at most20 times with
+50ms between attempts, under the same writer lease. Each attempt rechecks the
+lease, current state and prepared bytes. Retry exhaustion preserves the intent
+and temporary file for explicit recovery; permanent access problems are not
+hidden. Other replacement errors fail immediately. Read state under the lease;
+resume from the saved checked plan/paired receipt pin instead of racing a fresh
+hash of state.json outside it. Keep the store outside staging trees that are
+hard-linked into new builds. Immediately before paired publication, repeat the
+same reserve call to reverify the current state (normally a no-op).
+
 ## Validation and remaining integration
 
 Thirteen focused synthetic tests cover raw bootstrap, reorder/insert/remove/
@@ -86,6 +96,9 @@ Four additional regressions reproduce and reject restored initial/intermediate
 state, a completion whose intent is missing, and recovery to a superseded
 endpoint. The first two formerly allowed a reserved ID to be issued again;
 the latest intact state still advances without reusing those IDs.
+A real Windows reader process reproduces the replacement failure and succeeds
+after closing during retry. Portable controls cover retry exhaustion plus
+recovery, immediate unrelated failure, and concurrent edits during retry.
 
 A read-only production check imports all 15 markers from `integ_1017_doors`
 against the original `integ_1017` and `terrain_core64j_doors` inputs. Reversing

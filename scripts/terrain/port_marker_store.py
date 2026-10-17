@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import time
 import uuid
 
 import port_marker_ids as ids
@@ -22,6 +23,10 @@ class BusyError(OSError):
 
 class RecoveryRequired(OSError):
     pass
+
+
+_REPLACE_RETRIES = 20
+_REPLACE_DELAY = 0.05
 
 
 def _sha(raw):
@@ -156,15 +161,30 @@ def _pending(root, superseded_sha256=None):
     return pending
 
 
+def _retryable_replace_error(error):
+    return os.name == "nt" and getattr(error, "winerror", None) in (5, 32, 33)
+
+
 def _replace_state(root, prepared, verify, expected):
     temporary = root / f"pending-{uuid.uuid4().hex}.json"
     _write_once(temporary, prepared)
     _sync_directory(root)
-    verify()
-    if _read(root / "state.json") != expected:
-        raise RecoveryRequired("reservation state changed before replacement")
-    # Writers must share the lease. This is not a CAS against actors bypassing it.
-    os.replace(temporary, root / "state.json")
+    for attempt in range(_REPLACE_RETRIES + 1):
+        verify()
+        if _read(root / "state.json") != expected:
+            raise RecoveryRequired("reservation state changed before replacement")
+        if _read(temporary) != prepared:
+            raise RecoveryRequired("pending reservation state changed before replacement")
+        try:
+            # Writers must share the lease. Not a CAS against actors bypassing it.
+            os.replace(temporary, root / "state.json")
+            break
+        except PermissionError as error:
+            if not _retryable_replace_error(error) or attempt == _REPLACE_RETRIES:
+                raise
+            # Windows readers often omit FILE_SHARE_DELETE. Keep the lease and
+            # durable intent while allowing a short-lived reader to close.
+            time.sleep(_REPLACE_DELAY)
     _sync_directory(root)
 
 
