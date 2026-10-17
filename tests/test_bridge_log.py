@@ -228,6 +228,13 @@ class ClockAgeTests(unittest.TestCase):
         self.assertIsNone(bridge_log.clock_age(None))
         self.assertIsNone(bridge_log.clock_age("rt=5"))
 
+    def test_clock_age_is_positive_for_a_stamp_from_yesterday(self):
+        # Issue #213: a stamp 12-24h ago (afternoon when now is early morning) must be positive.
+        now = time.mktime((2026, 10, 17, 2, 0, 0, 0, 0, -1))  # 02:00
+        age = bridge_log.clock_age("13:00:00", now)
+        self.assertGreater(age, 0)
+        self.assertAlmostEqual(age, 13 * 3600, delta=1)  # 13h ago
+
     def test_latest_uses_the_stamp_not_the_mtime(self):
         with tempfile.TemporaryDirectory() as d:
             log = os.path.join(d, "fo4sf.0.log")
