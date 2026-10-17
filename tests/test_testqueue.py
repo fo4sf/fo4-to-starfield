@@ -336,6 +336,25 @@ class BreakerTests(unittest.TestCase):
         done = jload(os.path.join(d, "state.json"))["done"]
         self.assertEqual(sum(v["class"] == "BREAKER" for v in done.values()), 12 - tq.BREAKER)
 
+    def test_an_open_breaker_never_rewrites_a_test_that_ran(self):
+        # #220: with --max-attempts 2 the six first attempts open the breaker; each pending retry was then recorded as
+        # a BREAKER row "not run", attempt 0, which replaced the real INCONCLUSIVE attempt as the test's last row
+        d = tempfile.mkdtemp()
+        make_queue(d, n=tq.BREAKER)
+        r = tq.Runner(d, args(max_attempts=2), ctl=FakeControls(), step=lambda t, o: 0)   # never an obs.json
+        r.session, r.cell, r._ps = True, "C", (lambda *a, **k: (0, ""))
+        r.log = lambda msg: None
+        r.run()
+        st = jload(os.path.join(d, "state.json"))
+        with open(os.path.join(d, "results.jsonl"), encoding="utf-8") as f:
+            rows = [json.loads(x) for x in f if x.strip()]
+        for t in st["done"]:
+            last = [x for x in rows if x["id"] == t][-1]
+            self.assertEqual(st["done"][t]["attempts"], st["attempts"][t], t)
+            self.assertEqual(st["done"][t]["attempts"], last["attempt"], t)
+            self.assertNotEqual(last["class"], "BREAKER", last)
+            self.assertEqual((st["done"][t]["verdict"], st["done"][t]["class"]), (last["verdict"], last["class"]))
+
     def test_a_kind_with_a_verdict_keeps_running(self):
         d = tempfile.mkdtemp()
         make_queue(d, n=10)

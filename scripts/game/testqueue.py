@@ -2788,6 +2788,24 @@ class Runner:
             # an open breaker skips the test before any launch (core64 2026-10-11: a "fresh" test relaunched the game
             # only to be skipped)
             br = self.state.setdefault("breaker", {})
+            if br.get(t["kind"], {}).get("open") and self.state["attempts"].get(t["id"]):
+                # a pending retry of a test that already ran: its real attempt stands, only the retry is skipped (#220:
+                # a "not run" BREAKER row, attempt 0, replaced it as the last row per id in the report and the ledger)
+                last = {}
+                with open(os.path.join(self.qdir, "results.jsonl"), encoding="utf-8") as f:
+                    for x in f:
+                        try:
+                            r = json.loads(x)
+                        except ValueError:
+                            continue
+                        if isinstance(r, dict) and r.get("id") == t["id"]:
+                            last = r
+                self.state["done"][t["id"]] = {"verdict": last.get("verdict", "INCONCLUSIVE"),
+                                               "class": last.get("class", "UNREAD"),
+                                               "attempts": self.state["attempts"][t["id"]], "retry": "BREAKER"}
+                self.log(f"{t['id']}: retry skipped, the {t['kind']} breaker is open; its last attempt stands")
+                self.checkpoint()
+                continue
             if br.get(t["kind"], {}).get("open"):
                 rec = {"id": t["id"], "kind": t["kind"], "cell": t["cell"], "ref": t["ref"], "model": t.get("model", ""),
                        "attempt": 0, "verdict": "INCONCLUSIVE", "class": "BREAKER",
