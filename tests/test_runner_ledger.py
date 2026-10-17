@@ -3,6 +3,7 @@
 such a run and recovers the rows when a live write was lost. Synthetic data; no game, no Windows calls."""
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -36,9 +37,9 @@ class RunnerLedgerTests(unittest.TestCase):
         self.leader = os.path.join(self.d, "leader")
         self.ctl = tt.FakeControls()
 
-    def runner(self, step, lease=True, **kw):
+    def runner(self, step, lease=True, qdir=None, **kw):
         extra = dict(lease_dir=self.leader, lease_owner="Claude") if lease else {}
-        r = tq.Runner(self.d, tt.args(**extra, **kw), ctl=self.ctl, step=step)
+        r = tq.Runner(qdir or self.d, tt.args(**extra, **kw), ctl=self.ctl, step=step)
         r.log = lambda msg: quiet_log(r, msg)             # run.log only: the suite's output stays the result line
         r.session, r.cell = True, "C"
         r._ps = lambda *a, **k: (0, "at the cell")
@@ -176,6 +177,48 @@ class RunnerLedgerTests(unittest.TestCase):
         # the recovery path: the importer rebuilds the run from the files
         self.assertEqual(imp.import_queue(self.d, Ledger(os.path.join(self.leader, "ledger.jsonl"))), 1 + 3 + 3)
         self.assertEqual(sorted(v["status"] for v in fold(self.events()).tasks.values()), ["completed"] * 3)
+
+    def test_a_queue_rebuilt_under_a_bound_name_writes_nothing_live(self):
+        # the ledger binds this folder's name to an archived queue of another build (imported, or run live earlier):
+        # the live writer refuses like the importer (import_queue.bind), so the two never fold into one task; the run
+        # itself completes and its rows stay in results.jsonl
+        c.Controller(self.leader).claim("Claude", "window", 3600)
+        name = os.path.basename(self.d)
+        archived = os.path.join(self.d, "archive", name)
+        os.makedirs(archived)
+        tt.make_queue(archived, n=1)
+        q = tt.jload(os.path.join(archived, "queue.json"))
+        q["build_id"] = "ffffffff"
+        tt.jdump(q, os.path.join(archived, "queue.json"))
+        with open(os.path.join(archived, "results.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"id": "0000_fall", "attempt": 1, "verdict": "FAIL", "class": "FALL", "dir": "x", "t": "t1"}) + "\n")
+        ledger = Ledger(os.path.join(self.leader, "ledger.jsonl"))
+        self.assertEqual(imp.import_queue(archived, ledger), 3)
+        code = self.runner(tt.RunnerTests.landing(None, 0.1), max_attempts=1).run()      # build abcd1234, the same name
+        self.assertEqual(code, 0)
+        self.assertEqual(len(read(os.path.join(self.d, "results.jsonl")).splitlines()), 3)   # the run itself completed
+        log = read(os.path.join(self.d, "run.log"))
+        self.assertEqual(log.count("ledger: campaign"), 1)
+        self.assertIn(f"campaign {name!r} is already bound to", log)
+        self.assertIn("holds build abcd1234", log)
+        self.assertIn("nothing of this run is written to the ledger", log)
+        self.assertTrue(all(e.by == "import" for e in self.events() if e.ev.startswith("task") or e.ev == "build_pinned"))
+        s = fold(self.events())
+        self.assertEqual({k: (v["outcome"], v["build_id"]) for k, v in s.tasks.items()}, {f"{name}/0000_fall": ("FAIL", "ffffffff")})
+        with self.assertRaises(imp.CampaignBound):                                        # and the importer refuses it too
+            imp.import_queue(self.d, ledger)
+        # the bound queue relocated (the same build under the same name) writes live under its campaign
+        moved = os.path.join(self.d, "moved", name)
+        shutil.copytree(archived, moved)
+        code = self.runner(tt.RunnerTests.landing(None, 0.1), max_attempts=1, qdir=moved).run()
+        self.assertEqual(code, 0)
+        self.assertNotIn("ledger:", read(os.path.join(moved, "run.log")))
+        live = [e for e in self.events() if e.by == "testqueue:Claude" and e.ev.startswith("task")]
+        self.assertEqual([e.ev for e in live], ["task_queued", "task_started", "task_finished"])   # new path: new src keys
+        self.assertEqual(live[2].get("src"), os.path.join(moved, "results.jsonl") + ":2")
+        s = fold(self.events())
+        self.assertEqual({k: (v["outcome"], v["build_id"]) for k, v in s.tasks.items()}, {f"{name}/0000_fall": ("PASS", "ffffffff")})
+        self.assertEqual(s.campaigns, {name})
 
     def test_a_torn_results_tail_is_terminated_and_reported_not_merged(self):
         torn = '{"id": "0000_fall", "kind": "fall", "verd'

@@ -2955,13 +2955,18 @@ class Runner:
 
     def ledger_event(self, make):
         """With a lease folder, append the event make() returns to the ledger there, skipping an event whose src key
-        the ledger already holds (a resumed run queues nothing twice). A failure is logged once and never stops the
-        run: the ledger is evidence, not control, and import_queue recovers the events from the queue files."""
+        the ledger already holds (a resumed run queues nothing twice). Before the first event the ledger is read once
+        and runner_events.check_binding refuses a queue folder whose name the ledger already binds to another folder
+        with a different build (the importer's rule): nothing of such a run is written, so the two queues never fold
+        into one task. A failure is logged once and never stops the run: the ledger is evidence, not control, and
+        import_queue recovers the events from the queue files."""
         if not self.lease or self.ledger_failed:
             return
         try:
             if self.ledger_seen is None:
-                self.ledger_seen = self.lease.ctl.ledger.sources()
+                events = self.lease.ctl.ledger.read()
+                self.lease.events.check_binding(events, self.qdir, self.q)   # section 10: a rebuilt queue under a bound name
+                self.ledger_seen = {e.get("src") for e in events if e.get("src")}
             ev = make()
             if ev is None:
                 return
@@ -2973,7 +2978,10 @@ class Runner:
                 self.ledger_seen.add(src)
         except (OSError, ValueError) as e:
             self.ledger_failed = True
-            self.log(f"ledger: {e}: no more events are written this run (import_queue recovers them from the queue files)")
+            if isinstance(e, self.lease.events.CampaignBound):
+                self.log(f"ledger: {e}: nothing of this run is written to the ledger")
+            else:
+                self.log(f"ledger: {e}: no more events are written this run (import_queue recovers them from the queue files)")
 
     def record(self, rec):
         """Append one results.jsonl row (every attempt; PRECONDITION and BREAKER rows too) and, with a lease folder,
