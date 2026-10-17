@@ -13,7 +13,10 @@ Sources and the field names they are read with (verified against main 16a1d2d):
 Every event carries src = "<file>:<line>" (a row of a file that only grows), "<file>#<test id>" or
 "<file>#pin:<digest of the pin fields>" (a queue.json: a rewritten pin is a new event) or
 "<file>@<key>:<first 16 hex of the content's sha256>@<mtime ns>" (a record rewritten in place: a new deploy or
-install is a new event, a re-deploy of the same bytes too); an import skips src keys already in the ledger.
+install is a new event, a re-deploy of the same bytes too); an import skips src keys already in the ledger. A runner
+given a lease folder writes the same keys live (runner_events.py, leader-core.md §10), so importing its queue
+afterwards adds nothing: the import is the recovery path when a live write was lost. A recovered row lands after the
+results written since it was lost, so the fold (state.py) orders a task's results by row, never by ledger position.
 """
 import hashlib
 import json
@@ -68,21 +71,27 @@ def deploy_pins(rec):
 
 
 def _rows(p):
-    """results.jsonl rows with their 1-based line numbers; a partial last line is not a row."""
+    """(rows, corrupt): results.jsonl rows with their 1-based line numbers, and the complete lines that are not rows.
+    A partial last line (the row in flight when the power went) is not a row and is not reported; a complete line
+    that does not parse (a torn line the runner terminated before its next row, leader-core.md §10, or a hand edit)
+    is skipped and reported, never a reason to refuse the queue's other rows."""
     if not os.path.exists(p):
-        return []
+        return [], []
     with open(p, encoding="utf-8-sig") as f:
         lines = f.read().split("\n")
-    out = []
+    out, corrupt = [], []
     for i, line in enumerate(lines, 1):
         if not line.strip():
             continue
         try:
-            out.append((i, json.loads(line)))
+            r = json.loads(line)
+            if not isinstance(r, dict) or not r.get("id"):
+                raise ValueError("not a results row")
+            out.append((i, r))
         except ValueError:
             if i < len(lines):                           # only the last line may be partial
-                raise ValueError(f"{p}: corrupt line {i}")
-    return out
+                corrupt.append((i, line))
+    return out, corrupt
 
 
 def import_queue(qdir, ledger, campaign=None):
@@ -112,7 +121,10 @@ def import_queue(qdir, ledger, campaign=None):
         put("task_queued", f"{qp}#{t['id']}", task=task_id(campaign, t["id"]), kind=t.get("kind"), cell=t.get("cell"),
             ref=t.get("ref"), campaign=campaign, build_id=q.get("build_id"))
     rp = os.path.join(qdir, "results.jsonl")
-    for line, r in _rows(rp):
+    rows, corrupt = _rows(rp)
+    for line, text in corrupt:                               # a line that is not a row: the ledger says so, once
+        put("ledger_repaired", f"{rp}:{line}", dropped=text[:200], reason="results.jsonl line is not a row")
+    for line, r in rows:
         out = outcome_from_queue(r.get("verdict"), r.get("class"))
         put("task_finished", f"{rp}:{line}", t=r.get("t"), task=task_id(campaign, r["id"]), outcome=out.value,
             attempt=r.get("attempt", 0), detail=f"{r.get('class', '')} {r.get('detail', '')}".strip(), source="IN_GAME",

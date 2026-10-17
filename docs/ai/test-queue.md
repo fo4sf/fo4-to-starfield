@@ -82,7 +82,8 @@ the walk climbs).
   `--lease-owner`) holds an unexpired lease in that folder (`python scripts\game\lease.py claim --dir <folder> --owner
   Claude --purpose "<why>" --ttl 28800`), renews it before every test and stops, resumable, with `stopped: lease ...`
   when it is gone; `cycle.ps1` then refuses to launch (exit 9) and `watchdog.ps1` reads the lease instead of the last
-  `Claude:` commit. Unset: none of this runs.
+  `Claude:` commit; the runner also writes its queue, attempts and results to the ledger in that folder (section 10),
+  so `python scripts\leader_report.py --ledger <folder>` shows the live state. Unset: none of this runs.
 - Preflight gate (opt-in, default off; docs/ai/leader-core.md section 7): `run --preflight` (or `FO4SF_PREFLIGHT=1`;
   `--no-preflight` overrides the variable for one run) runs eleven checks before the first launch (pinned build staged and deployed, experiment as pinned, plugins active,
   load order, game version, lease, STOP files, Resource Guardian, recovery save, log capture); one FAIL or UNKNOWN
