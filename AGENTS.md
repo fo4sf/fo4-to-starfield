@@ -1,5 +1,9 @@
 # AGENTS.md: rules for every AI agent working on fo4-to-starfield
 
+> **Outside reviewer, forker, or an AI assistant asked to review this repository?** Start with
+> [docs/ai/for-ai-reviewers.md](docs/ai/for-ai-reviewers.md): what the project is, where the evidence lives,
+> what looks wrong but is deliberate, and how outside pull requests are explained to the owner before any merge.
+
 Applies to all agents: the local OpenCode team (Lead, Implementation, Research, QA) and the remote agents (Claude,
 Codex, Grok, ChatGPT). It adds to [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/CODEX-HANDOFF.md](docs/CODEX-HANDOFF.md);
 where they say more, they win. Owner: dasscooby.

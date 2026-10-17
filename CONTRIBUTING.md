@@ -1,5 +1,7 @@
 # Contributing
 
+Everyone taking part, people and AI agents alike, follows the [code of conduct](CODE_OF_CONDUCT.md).
+
 Thanks for looking. This project is deliberately split into small, self-contained pieces so you can finish
 one in a sitting.
 
