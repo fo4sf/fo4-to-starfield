@@ -255,7 +255,10 @@ def clock_age(clock, now=None):
     secs_now = lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec + (now % 1)
     secs = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
     age = secs_now - secs
-    if age < -43200:
+    # Stamps are in the past. A negative age means the stamp is from the previous day
+    # (or a small clock skew). Treat any negative as yesterday by adding 24h.
+    # The old threshold of -12h missed afternoon stamps when now is early morning.
+    if age < 0:
         age += 86400
     return age
 
