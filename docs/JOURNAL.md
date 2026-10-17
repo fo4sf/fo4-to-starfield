@@ -1646,3 +1646,30 @@ so the pinned overlay LCTN has empty `LCSR`/`LCID` and 0 MapMarker refs among 65
 Plan: restore one persistent MapMarker at the Red Rocket COC with LC172 `FNAM`/`TNAM`, one `LCSR` + `LCID`; do not stamp
 a PCM landing overlay. Frontier hang after that restore is **unresolved** (Claude in-game). FO4 `XMRK` **unresolved**.
 Evidence: [docs/terrain/map-markers.md](terrain/map-markers.md), `src/fo4sf/map_markers.py`, `tests/test_map_markers.py`.
+## 2026-10-16 (night, Mountain time) - Claude: Step 0 probes and the first scripted door
+
+**Probes (queues door_probe_1017 and door_probe_1017e; bridge_t2; core64i / core64k; Starfield 1.16.244).**
+(a) From the Red Rocket exterior: `Game.GetFormFromFile(id, plugin)` with a plugin-local id works; the persistent
+anchor 0x800 resolves at its unmerged position (-989.26, 1146.51) in world 0x02000803 (our base WRLD, not the runtime
+instance); a loaded temporary reference resolves at its merged position; a temporary reference in an unloaded cell
+returns none. (b) From inside FO4Port_RedRocket01: the anchor resolves, both temporary exterior references return none.
+(c) `MoveTo` onto the anchor from inside puts the player at the anchor's unmerged coordinates in a fresh runtime world
+and he falls (no terrain there: y 1146 lies outside the overlay's merged extent). (d) The same with offsets
+(-1200, -2700, 0): identical landing, offsets ignored across the world switch (the single far console jump afterwards
+raised Boundary Reached). (e) `MoveTo` onto the anchor, then fifteen console hops of <= 200 m to the merged Red Rocket
+spot: the player stood at (-2189.30, -1553.54, 110.49) in cell 0x02000DAF of that same runtime world, z steady for 28
+samples: the world a persistent reference drops you into is the overlay instance; only the persistent reference's own
+coordinates are unmerged.
+
+**First scripted door (queue door_trip_sdm_1018; core64k + integ_1018_doors + bridge_t3 with FO4SF_LoadDoor.pex).**
+Forward: four 182 m hops to the Super Duper Mart door (merged -1654.44, -2059.93), `prid 0202D22B`, GetIsID of the
+ACTI 020A770B = 1, `activate player`: Papyrus logged `requested fo4port.esm:57087` and `MoveTo returned`; the player
+then stood on the interior arrival marker (5.449, 17.291, -3.637) in cell 0x04006C46 for six steady samples. PASS.
+Return from inside: `refused: destination unavailable or self` (the temporary exterior marker does not resolve from
+an interior); the player stayed. EXPECTED-REFUSED.
+
+**Design that follows.** Exterior arrival markers become persistent; the door script keeps `MoveTo` for the cell /
+world switch and adds a `SetPosition` to the destination's merged coordinates (properties per door). Codex owns the
+script change; the writer change is Claude's. Evidence folders: C:\Modding\testqueue\door_probe_1017,
+door_probe_1017e, door_trip_sdm_1018 (bridge.log, papyrus.log, obs.json, judge outputs). Lesson: the bridge log's
+probe lines are case-sensitive to the game's spelling (`FO4SF Resolve`); the reader is case-insensitive since #282.
