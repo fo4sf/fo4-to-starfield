@@ -210,6 +210,8 @@ def fo4_native_collision(src, universal_template: bytes, report: dict = None, dy
         report["mass_kg"] = round(motion["dynamic"], 4)
     if report is not None and motion.get("kept_static"):
         report["dynamic_kept_static"] = motion["kept_static"]
+    if report is not None and motion.get("relayered"):      # frozen L_CLUTTER_NOCUT leaves written as L_STATIC
+        report["relayered"] = motion["relayered"]
     return blobs or None
 
 
