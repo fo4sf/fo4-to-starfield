@@ -9,7 +9,8 @@ param([string]$Out = '', [string]$Note = '', [double]$MaxAge = 900)
 $ErrorActionPreference = 'Continue'
 $here = $PSScriptRoot
 $py = if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'C:\Modding\venv-render\Scripts\python.exe' }
-if (-not $Out) { $Out = Join-Path 'C:\Modding\snapshots' (Get-Date -Format 'yyyyMMdd-HHmmss') }
+$root = $(if ($env:FO4SF_SNAPSHOT_ROOT) { $env:FO4SF_SNAPSHOT_ROOT } else { 'C:\Modding\snapshots' })   # tests: a temp root
+if (-not $Out) { $Out = Join-Path $root (Get-Date -Format 'yyyyMMdd-HHmmss') }
 New-Item -ItemType Directory -Force $Out | Out-Null
 $state = [ordered]@{ taken = (Get-Date -Format s); note = $Note; game_running = $false; game_foreground = $null }
 $g = Get-Process Starfield -ErrorAction SilentlyContinue

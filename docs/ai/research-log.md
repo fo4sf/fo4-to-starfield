@@ -3,6 +3,184 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-17 Grok: 3D surface map for this testing stage (ROADMAP §3 item 1)
+- Question: what Starfield's surface map draws from, why the Commonwealth overlay would show Mars, and whether an
+  overlay world can appear there from our plugin and locally generated files; go/no-go for a 3D map this stage.
+- Method: pinned `terrain_core64k` read-only (`fo4land.Plugin` on `FO4TerrainCore.esm` / `_Mars.esm`, walk of staged
+  `Data\`); cross-check [map-markers.md](../terrain/map-markers.md), [overlay-records.md](../terrain/overlay-records.md),
+  [architecture.md](../terrain/architecture.md), journal 11 Oct lodsettings note. No game input.
+- Surface map, **supported**: May 2024 3D map draws the current loading zone (overlay BTD + planet procgen + world
+  object LOD). WRLD `MapData` is all zero; there is no separate map-mesh group. World object LOD is
+  `lodsettings/<edid>.lod` + `meshes/lod/generated/…_lod_0..3.nif`, not converted FO4 `*_lod.nif`.
+- Why Mars, **verified** on core64k: LCTN `01000802` parent `SSol_PMars_Surface` `0001B736`, LocTypeOverlay; WRLD
+  overlay SNAM 0 / PNAM 4; Mars PNDT `0003F59A` 11 `CNAM` entries, last lat 0.3 lon −1.2 WRLD `01000803`. Staged Data:
+  BTD 103,172,485 B, overlay mask present, **0** `lodsettings`, **0** `meshes/lod/generated`, **315**
+  `meshes/fo4core/lod`. LCSR/LCID still empty.
+- Overlay on the 3D map, **supported**: unique overlays already activate and merge (owner walked core64k). Vanilla
+  cities of the same family show on the surface map. Marker + CK object LOD still required for the acceptance
+  screenshot. Map camera sampling overlay BTD vs planet SFTR is **unresolved** until Claude's screenshot.
+- GO: this note; then #296 LCSR tail `0xFFFFFFFF` and Claude screenshot; then CK object-LOD trial (ROADMAP item 3).
+  NOT go: custom map renderer, unparent from Mars, FO4 `.bto`, treating `fo4core/lod` as world LOD.
+  Doc: [docs/terrain/surface-map.md](../terrain/surface-map.md).
+
+## 2026-10-17 Grok: overlay map markers / fast travel (owner playtest row 7)
+- Question: why the Commonwealth overlay has no map / fast-travel data, and whether restoring a vanilla marker chain
+  is the first writer change (Claude 04:07 packet, after textures and FLOR).
+- Method: raw walk of `Starfield.esm` 1.16.244 (`fo4land.Plugin`, no Mutagen) for top groups, STAT MapMarker, LCTN
+  `LCSR`/`LCID`, LC172 and LandingOverlay01; read-only walk of pinned `FO4TerrainCore.esm`; writer
+  `dotnet/TerrainOverlays/Program.cs` Duplicate of `LC172WorldLocation` then `MasterSpecialReferences.Clear()`.
+- Map markers, **verified**: Starfield has no `MAPM` group (176 top groups). Markers are `REFR` of STAT `MapMarker`
+  `00000010` with empty `XMRK`, `FNAM`/`TNAM`/`UNAM`. LC172 persistent `REFR` `003E5E12`: `NAME` `00000010`, empty
+  `XMRK`, `FNAM` `0x1B`, `TNAM` `0x17`, flags `00000C00`.
+- Location link, **verified**: `LCSR` is 5 × u32 (`LCRT`, `REFR`, `WRLD`, 0, `0xFFFFFFFF`). LC172WorldLocation
+  `003807BE` has two rows (Landmark_SnowGlobe_RefType `00009A42` → `00009A32`, MapMarkerRefType `0002271F` →
+  `003E5E12`) and `LCID` `003E5E12`. LandingOverlay01Location adds ShipLandingMarkerRefType / `_Large` on the pad.
+  Mutagen names: `MasterSpecialReferences` = `LCSR`, `MasterInitiallyDisabledReferences` = `LCID`.
+- Our overlay, **verified**: writer clears both lists after Duplicate; pinned LCTN `FO4Core_CommonwealthLocation`
+  `01000802` has empty `LCSR`/`LCID`; 654,600 `REFR`, 0 `XMRK`, 0 MapMarker `NAME`. One COC marker at overlay-local
+  (−989.257, 1146.514, 107.143).
+- Playtest hang, **supported hypothesis**: missing MapMarker/`LCSR` is why the overlay does not match LC172 on the
+  planet map. Whether restoring one marker unsticks Frontier travel (a ship location) is **unresolved** until Claude
+  runs a scratch overlay.
+- FO4 `XMRK` bytes: **unresolved** (`Fallout4.esm` not on this machine).
+- GO: one persistent MapMarker at the Red Rocket COC, LC172 `FNAM`/`TNAM`, `LCSR` MapMarkerRefType + `LCID`; do not
+  stamp a PCM landing overlay. NOT go: FO4 marker promotion, ship pads, swapping unique overlay for landing overlay.
+  Doc: [docs/terrain/map-markers.md](../terrain/map-markers.md).
+
+## 2026-10-16 Claude: posed props in the pinned interiors (owner playtest rows 4 c and 5)
+- Question: why does the pinned interior build (`integ_1011`) show the Vault 111 radiation scanners with "swung out"
+  panels and the lab-coat skeleton `Vault111SkeletonScientist02` standing, and how many models and references of the
+  16 interiors share the cause?
+- Method: the build's provenance (`integ_1011/build.log` line 1, `git branch --contains`), its `manifest.json`, the 16
+  cell exports, the FO4 NIFs (`nif`, `fo4skin`, `ragdoll_pose`, the door sequence samplers), an offline conversion of
+  every affected model into a scratch folder (`convert_batch.py --cell-json` on the affected references, then
+  `dotnet/PluginSpike`, the plugin read back record by record), flat-shaded renders of the converted meshes as placed
+  ([docs/media/posed-props/](../media/posed-props/)). Census and render scripts stayed in the scratch folder.
+- Cause, **verified**: `integ_1011` was built from `a5bc92e`, which has neither `fo4skin.py` (PR #45) nor the node-pose
+  bake (#46) nor `ragdoll_pose.py` (#52); all three were still open, so `main` drew every skinned shape from its stored
+  positions (the skin's bind pose, `pipeline.convert_nif`: "taken in bind pose") and had no XRGD path at all, although
+  the cell exports carry the `ragdoll` entries (`Vault111Cryo.json` 1A6736: 17 entries). The skeleton's converted mesh
+  box equals its stored positions (z 0.6..131.8 units: standing, arms out), while its merged rigid body sits on the
+  bone nodes (node pose: root bone turned 45 degrees). Posed with the reference's XRGD, the converted mesh lies on the
+  floor: world z -3.4..31.4 at reference z 13.7 (bind 14.3..145.5). `Vault111SkeletonVaultSuit` 1A6737 (reference
+  rotation x = pi, i.e. upside down) runs from 117 below to 100 above the floor in the bind pose and lies at -2.4..19.4
+  posed.
+- Rad scanner, **verified** not a pose problem; the "panels swing out" hypothesis of row 5 is **refuted**:
+  `V111RadScanner01.nif` has no skin (2 BSTriShapes without VF_SKIN), two NiNodes (root, SoundNode), and its four
+  sequences animate only the `GlowPanel:0` effect shader (BSEffectShaderProperty colour / float controllers; the
+  NiMultiTargetTransformController's 4 targets are all -1). The converted mesh's box equals FO4's exactly (x +-15.6,
+  y -25.2..37.0, z 0..185.5). The tall panel is authored 10 degrees off vertical (y 20.2 -> 36.9 over z 88.9 -> 183.6);
+  in FO4 the glow quad (`V111RadScanner01FX_d.dds`) lies on it, and the converter skips that effect shape (neither
+  glass nor grime, `_shape_material`), so the bare slab shows. Its colour textures are in the texture archive.
+- Animated skinned models, **verified** offline: the node pose, not the bind pose, is a state of their animations.
+  Sampling every NiControllerSequence at its start and stop (bones it animates take the sampled local transform, the
+  rest their NIF transform) for the 9 animated models in the census: the stored positions match no state of any
+  sequence (59..6,661 units off), the node pose matches the start of at least one sequence exactly for every skinned
+  shape (VltElevator `stage1`, VltGearDoor01 / 02 `Stage1`, generator `autoPlay`, sinks / fountain `partA`, grenade bouquet,
+  holly shrub). Examples: the elevator's bind pose puts the surface hatch (`Hatch:28`, 7.4 x 7.1 m) on the vault floor
+  (z -8..8); every sequence keeps it at 6,570..6,586 (row 6's yellow square may be this hatch: **supported
+  hypothesis**); its platform is 1,279..1,391 at `stage1` start, -232..-121 in `Stage2Idle` and 1,418..1,530 in the
+  bind pose, so it stays wrong until the elevator animates (row 6). The gear door's walkway is extended with its ramp
+  through the floor in the bind pose and retracted in the node pose (= `Stage1` start; the extended end state of
+  `Stage2` / `Stage3` / `Stage0` is 120 units from the bind pose). Which sequence a graph starts in: **unresolved**.
+- Fix (this PR): skinned shapes are posed with the bone nodes' placed transforms (`world_transforms(placed=True)`, the
+  frame the shapes and collision bodies already use: a moved scene root no longer offsets the skin alone); a reference
+  whose XRGD moves an articulated model (two or more bodies) gets a model of its own built in that pose
+  (`placed_pose.plan`, `convert_static pose=`: the entries replace the bone nodes' local transforms for the skin, the
+  shapes under the nodes and the bodies, so the merged rigid body is posed too), named `<base>_xrgd_<pose hash>`; the
+  plugin writer gives exactly those references that base (`PosedBases.cs`). Single-body items keep the shared model:
+  an entry on the root body would turn the whole item against its reference, which no resting test has checked.
+- Counts (16 interiors: the `integ_1011` manifest and the 16 cell exports, 60,268 references, 47,619 placed with a
+  converted model):
+  - node pose: 97 converted models have skinned shapes, 20 move 2 units or more in the node pose (9 animated), the other
+    77 move less than 0.1; 180 of the 1,192 placed skinned references use the 20 (73 animated): `Vault_Sink_01` 32,
+    `SkeletonClothedVaultsuit` 28, `HollyShrubSmall01Trimmed` 20, `SkeletonClothed01` 17, `SkeletonBareBody01` 17,
+    `Vault_Fountain01` 13, `SkeletonClothed02` 12, `SkeletonClothedScientist` 7, `skeletonclothedarmy02` 7,
+    `skeletonclothedarmy01` 6, `SkeletonClothedScientist02` 5, `PowerArmorFurniture` 4, `SkeletonBareBodyHeadless` 3,
+    `V111Generator02On` 3, one each of `GrenadeBouquet_LongTriple`, `Tricycle01`, `PlayerHouse_Sink01`, `VltGearDoor01`,
+    `VltElevator`, `VltGearDoor02`.
+  - XRGD: 507 references carry ragdoll data. 147 get a posed model (147 distinct poses of 24 models: 112 skeletons,
+    `SawHorse01Dest` 17, `ConstructionBarrier01Dest` 10 / `02Dest` 8, `Jangles01` 3, `Gurney01Cushion` 3, ...,
+    `V111GearRoomGate01` 1); 48 pose within 0.5 units of the node pose (shared model); 214 are single-body loose items
+    (`Pillow01`, `NukaColaBottleEmpty`, `Pen01`, ...) left as they are; 45 are rejected (19 entry count != body count:
+    stale XRGD; 26 models without collision bodies); 53 sit on models that were not converted.
+  - Together 231 placed references change (96 through both): Vault 95 48, Vault 75 35, Vault 114 33, Boston Public
+    Library 30, Vault 81 15, Vault 111 14, FortHagen01 12, SuperDuperMart01 12, FortHagen02 9, CambridgePolymerLabs01 8,
+    MuseumOfWitchcraft01 5, ParsonsState01 4, PrydwenHull01 4, RedRocket01 2.
+- Offline end to end: the scratch conversion (35 models + 147 posed models, 0 failures, 54 s) and plugin (275
+  references): read back, 147 references sit on their own posed base and 128 on the shared one, 0 wrong.
+- Review fixes (PR #244 review): only a vertex move of 0.5 units or more makes a variant (moved body nodes alone carry
+  only collision), and a multi-body pose with a body on the scene root is refused. **Verified** by rerunning
+  `placed_pose.plan` on the same inputs: 146 posed (`SmallSandbagPile01` 1A4857 drops out: stale entries with a fitting
+  count, vertex shift 0; the review measured its posed collision about 4 m off the pile), 46 unchanged, 48 rejected (the 45 above plus 3 with a
+  root body, which were unchanged before; the shared model either way). Single-body, not-converted and door counts unchanged.
+- Status: cause **verified**; "FO4 shows a placed ragdoll in its XRGD pose" **supported hypothesis** (PR #52's Vault 114
+  resting test, the Vault 111 skeletons lie on the floor posed, 1A6737's upside-down reference rotation only makes sense
+  posed); how Starfield shows the posed models (and whether the movable posed bodies stay put) **unresolved** until a
+  build is looked at in game. Single-body XRGD: **unresolved**.
+
+## 2026-10-16 Claude: which vanilla doors slide or lift, and can one drive the FO4 vault / elevator doors? (owner rows 1, 6)
+- Question: the 10 FO4 door bases the pinned build leaves passable (`door_not_opening`: V111Door01, V111DoorSpecial01,
+  VltDoorRes01A/B/C, VltElevatorDoor02, VltElevatorDoorCarInt02, UtilMetalElevatorIn01/Out01/Hatch01; 106 placed refs in
+  the 16 cells): is there a vanilla Starfield door whose rig moves like each of them, as the Akila rig drives hinged
+  leaves?
+- Method (read-only; extracted files only under `C:\Modding\scratch\slide_doors`): `SfInspect doortsv` (every DOOR's
+  ANAM / BNAM / CNAM); each of the 123 distinct rig + clip folders read back with CALUMI (rig bones, per-track rotation
+  and translation keys of every `.af`); end offsets put in model space with the parent's global bind; FO4 side with
+  `door_motion.inspect` / `door_rig.plan` on `Fallout4 - Meshes.ba2`; vanilla collision layout from 9 door NIFs.
+- **verified**: 339 DOOR records, 310 with a graph; 215 use `SimpleOpenClose01.agx`, load variants `*_Load`. Of the 123
+  rigs, 51 move a bone sideways or diagonally by 0.25 m or more, 12 lift one (5 both), 59 only rotate, 4 move no bone
+  that far, 2 are state graphs (corrected 2026-10-16 after the PR #242 review: the first count, 47 / 12 / 59 / 2, left
+  diagonal moves out). Sliding and lifting doors (`ElvGen_ExSm_DoorInner01`, `StsGenIntRmSmWallMid_DoorD01`,
+  `HangarDoor_4x4`) use `SimpleOpenClose01.agx` like hinged ones; the motion is their own rig and clips. No vanilla rig
+  drops a panel straight down or splits two panels up and down; 5 rigs end a bone 0.25 m or more lower (docking-door
+  release helpers -0.26 m, the ExLg door latch -0.32 m, `LC017NASA_GravDrivePrototype_Door01`'s two panels 0.52 m down
+  and 0.52 m sideways). The first wording here ("no door panel moves down") was wrong.
+  Vanilla multi-panel doors keep one physics system with a body per panel (9 of 9 NIFs).
+- **verified** (FO4): vault doors lift the upper panel +2.116 m and drop the lower -0.976 m (V111 also flips 2 floor
+  slats 90 degrees); the elevator pairs slide +-0.64 / 0.68 / 0.80 / 0.914 m; the hatch flips 100.5 degrees about -y.
+  VltDoorRes01A/B/C failed `door_rig.plan` only because their Open / Close also drive a shader float
+  (`BSLightingShaderPropertyFloatController` on the override-box shapes), which `inspect` reported as a binding issue.
+- Result: no vanilla rig reproduces any of the 10 (elevator pairs travel 1.00 / 1.50 / 4.00 m: 9-56 % too far; no
+  downward panel for the vault doors). Implemented instead: own rig + FO4 keys (the #79 multi-part path) for
+  `NOT_HINGED_RE` doors when `--door-anim-dll` is given; non-transform tracks listed, not issues; manifest
+  `open_motion`. **verified offline**: without the library byte-identical to main (57 door models); with it the 10
+  doors rig (CALUMI read-back of our clips gives FO4's offsets), door_panels 72 of 72 parts move, door_bodies 0 errors,
+  plugin overlay: 10 STAT -> 10 DOOR, 106 REFR change only their base. In game: **unresolved** (our rig and clips have
+  never played; #79's doors neither).
+- Elevator: **verified** what vanilla uses (`ElevatorMasterScript` 2 refs with a `PlatformHelperFree01` helper driven
+  by graph variables; `MovingPlatformMasterScript` 22 refs moving a helper with `TranslateToRef` between floor markers,
+  parts attached by AttachRef; load elevators). That the in-cell ride can be built from records only is a **supported
+  hypothesis**; the surface exit waits for the interior-exterior door gate. Details: docs/spikes/sliding-doors.md.
+
+## 2026-10-16 Claude: BSMeshLODTriShape triangle groups are parts, not alternative LODs (Vault 111 tables without tops)
+- Question: why do Vault 111's NpcTableVaultSit02 tables (`SetDressing\Vault\Vault_Table_02.nif`) show their frames
+  but no tops in the playtest build (integ_1011)?
+- **verified** (source from `Fallout4 - Meshes.ba2` via `fo4sf.ba2`, decoded with `nif.parse`): one
+  BSMeshLODTriShape (block 4, 2,210 vertices, 1,702 triangles, 12 trailing bytes = LOD0/1/2 Size **(684, 0, 1018)**).
+  The 684-triangle LOD0 group holds the top (4 up-facing triangles at z 55-60, 10,467 sq units) and a shelf (z 30-35,
+  7,445); the 1,018-triangle LOD2 group is frame only (129 sq units facing up). The two groups share no vertex and
+  together use all 2,210.
+- **verified**: `nif.fo4_trishapes` kept only the largest group ("triangles hold all LOD levels back to back: keep
+  the most detailed", added 2026-10-07 without evidence). The shipped mesh
+  `integ_1011\geometries\96785ef3080773180767\0f2d4812a8477d5e5f63.mesh` has 1,018 triangles, 666 vertices no
+  triangle uses (exactly the LOD0 group's) and 0.016 m2 facing up above 0.7 m. Converted with the fix: 1,702
+  triangles, 0 unused vertices, 2.153 m2 facing up above 0.7 m. Not a material, alpha or winding problem: the top's
+  triangles were missing from the mesh.
+- **verified** (scan of every NIF in Meshes.ba2 + MeshesExtra.ba2, 63 s): 5,292 BSMeshLODTriShapes in 3,319 NIFs
+  (all in Meshes.ba2; the 95,856 precombined NIFs' LOD shapes store no geometry) have more than one non-empty group.
+  5,290 of them share no vertex between groups and use every vertex exactly once, the layout of one mesh cut into
+  parts; alternative LOD versions would each cover the whole surface, but the old rule dropped a median 42 % of a
+  shape's surface area (up to 98 %, e.g. `IndFrame1024x1024EmptyShapeEdge01.nif` keeps 800 small triangles and drops
+  the 68 that make the panels). nif.xml (fo76utils NifSkope) describes the Skyrim form BSLODTriShape as "visibility
+  control over vertex groups".
+- **supported hypothesis**: the game draws the LOD0 group at every distance and adds the LOD1 / LOD2 groups closer
+  in (NifSkope's renderer is recalled to draw all three at its highest detail level; not checked against source
+  here). Either way the full-detail mesh is all groups, which is what the converter now writes.
+- Scope: 534 of the 4,201 models in integ_1011's manifest lose triangles under the old rule (623 shapes, 187,752 of
+  874,690 triangles); 486 lose at least 10 % of some shape's surface, 345 at least half. Fix: keep every triangle
+  (tests/test_lod_trishape.py). Not yet seen in game: needs a rebuild and the Vault 111 tables checked in a playtest.
+
 ## 2026-10-13 Claude: the first live door_trip runs, and why our persistent refs read unmerged
 - Question: why did the first live Red Rocket cave door runs (queue `slice_door_1013`, exp2d + FO4SliceRedRocket.esm,
   runner 129b9ae) end INCONCLUSIVE UNREAD (a1) and FAIL NOLOAD (a2), and what must change in the runner and the
@@ -321,6 +499,58 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   `C:\Modding\staging\npc_nav_n0b`, queue `npc_nav_n0b`). Also found: QASmoke's 16 ceiling panels (rotation 0, 90,
   270 degrees) lie flat only when rotated Z first; `fo4sf.exterior.ref_matrix` (X, Y, Z) stands them on edge
   (**unresolved** for references that combine Y and Z rotations; no effect on this analysis).
+## 2026-10-11 Claude: `XRGD` ragdoll pose decoded (bone world transforms from per-placement data)
+- Question: which body each 28-byte `XRGD` entry belongs to, what its position / rotation are relative to, and the
+  Euler convention (follow-up of "why the converted skeleton spawns standing", below).
+- Method: all 8,919 `XRGD` subrecords of Fallout4.esm (75,292 entries; local script: linear record walk, zlib records)
+  against the node trees, `hknpPhysicsSystemData` bodies and constraints of the placed models (`nif`, `hkpackfile`;
+  `SkeletonClothed01.nif`, `SkeletonBareBody01.nif`, the destructible saw horses and barriers). Acceptance on the 62
+  Vault 114 placements (cell `0428E4`) with ragdoll data, the floor taken from the cell's static collision
+  (`routes.walkable_triangles`). Implementation: `src/fo4sf/ragdoll_pose.py` (`pose_bones`), 10 synthetic tests.
+- Evidence (order): entry k belongs to physics body k (the `body` field of the `bhkNPCollisionObject` that attaches it
+  to a node, i.e. the system's body-cinfo order); the clothed skeleton's 17 collision objects are bodies 0..16 in block
+  order (TorsoLower, LeftUpperLeg, LeftLowerLeg, LeftFoot, RightUpperLeg, ..., LeftHand). Entry count = body count
+  for 57 of the 62 placements; the other 5 carry entries for a different model (`Sawhorse01`: 6 entries, 1 body;
+  `TrashCanMetal` 2/1; two `MetalBarrel01Fire*_Static` 3/1; `TrapGrenadeBouquet` 40/27): stale data, rejected.
+  The first 4 bytes of an entry are uninitialised memory, not a bone id: ESM-wide the u8 is 0 in 71% of the entries
+  and the 3 bytes after it are non-zero in 45%, often ASCII fragments of file paths (`617465 69616c 5c4d61 576561`
+  = "ate", "ial", "\Ma", "Wea"); only 314 of 8,919 records happen to count 0..n-1.
+- Evidence (frame): an entry replaces its body's node **local** transform (relative to the parent node; to the
+  reference for a node under the root). For the 69 Vault 114 joints whose parent node is also a body, |entry position|
+  equals the NIF bone length (relative error mean 0.36%, median 0.11%, max 3.7%: joint slack of a settled ragdoll)
+  and the entry sits 0.12 units (mean; max 0.89) from the NIF local translation. 8 bodies (gear-room gate, oxygen
+  tank, skeletons) with a non-trivial bind rotation kept their NIF translation to 0.01 units; 6 of them also keep the
+  NIF rotation exactly (0.0001 rad), the other 2 turned in place (0.72 rad). The skeleton's constraints use the same frame: pivot A is
+  the child node origin, pivot B the child's NIF local translation in the parent (c8: B (-0.100, 0.027, -0.191) m =
+  LeftUpperLegBone01 (-6.99, 1.87, -13.39) units), B's axes are the child's local rotation columns (z, y, -x). Shape
+  vertices are in the node frame (a leg hull spans z -0.8..30.7 along its node with the child joint at 32.9; the torso
+  hull lies at z -18.9..-0.6 under the pelvis node); the body cinfo position is the node origin for torso / skull
+  bodies and the hull centre for limbs, and is not needed for posing.
+- Evidence (Euler): R = Rx(-x) Ry(-y) Rz(-z), the NIF's own NiMatrix3 convention. Of the 8 unmoved bodies above
+  (selected by position only), 6 match their NIF rotation within 0.002 rad under this order; 4 under
+  Ry(-y)Rx(-x)Rz(-z), 2 under Rz(-z)Ry(-y)Rx(-x) and Rz(-z)Rx(-x)Ry(-y), 0 under Rz(z)Ry(y)Rx(x) and Rx(x)Ry(y)Rz(z)
+  (mean errors 0.11 / 0.15 / 1.46 / 1.46 / 2.15 / 2.99 rad). The 29
+  posed limited hinges (knees, elbows, saw-horse legs): the hinge axis of the child frame mapped by the posed local
+  rotation meets the parent's axis within 0.08 deg median (mean 0.60, max 5.8); the three alternatives 1.4-9.8 deg
+  median, 13-77 max.
+- Acceptance (57 posed placements, game units): the lowest posed collision point is within +/-3 of the surface under
+  it for **53 of 57** (bind pose: 41), and within +/-3 of the placement's floor for 44 (median -0.01; bind 35).
+  Skeletons: `05C942` (SkeletonClothed, placed z -1107.4, floor -1120) posed bones span z -1115.5..-1102.7 (spread
+  12.8, pelvis->skull -12 deg), hull from 1.1 below to 21.7 above the floor, where the bind pose stands 129 tall;
+  `05C94F` spread 10.9, hull -0.75..21.5; `1B4E17` -1.6..34.1; `1B4F92` rests 150 above the cave floor on the stone
+  coffin beside it (clearance -0.36). The 4 of 57 off their surface are saw horses / a barrier posed partly through
+  FO4 geometry (`171007`: 4.9 under the floor) or with no surface found under the lowest point.
+- Side finding (REFR `DATA` rotation order): placing the cell's 164 tilted placements (|rx| or |ry| > 0.05 rad: 149
+  loose items, 15 ragdolls) with each of the 12 Euler orders, Rx(-x)Ry(-y)Rz(-z) rests the most of them on their
+  support (gap within +/-3: 129 of 164, median |gap| 0.56) against 100 (median 1.60) for the project's
+  `routes.ref_matrix` order Rz(-z)Ry(-y)Rx(-x). **Supported hypothesis**; `routes.py` is not changed here (the route
+  runs are its in-game check). Known unknown #7.
+- Status: entry order = body index, entry = node local transform in the parent frame, Euler Rx(-x)Ry(-y)Rz(-z):
+  **verified** offline (bind-exact entries and hinge axes on real data, floor test on 57 placements). First 4 bytes
+  are garbage: **verified** (ESM-wide). Whether Starfield shows the posed skeletons lying as FO4 does: **unresolved**
+  until the pose is baked into the converted mesh and body (needs the skin weights of PR #45 / #46) and seen in game.
+  Both skeleton NIFs have an identity root; `pose_bones` composes a root transform like any node: **unresolved** for
+  models with a non-identity root.
 
 ## 2026-10-10 Claude: how Starfield makes a body movable
 - Question: what must a converted body and record carry so Starfield simulates it (FO4 loose items, known unknown #6)?
@@ -874,6 +1104,72 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   worldspace": **supported hypothesis**. Runtime generation for plugin worldspaces (`gnm`, seed markers): **unresolved**,
   probes N1-N3. Meaning of the vertex i32, triangle byte 20, cover and trailing fields: **unresolved**. FO4 navmesh
   conversion for Red Rocket: **supported hypothesis** (FO4 cell (-17,19) lies inside one 100 m Starfield cell).
+## 2026-10-10 Claude: skinned props are drawn in the node pose (converter now bakes it)
+- Question: FO4 skinned props (skeletons, sinks) were converted in their stored bind pose; is that what FO4 shows?
+- Method: `convert_static.pose_skinned_shapes` (fo4skin, PR #45) on the real files, stored vs posed vertex heights.
+- Evidence: `Vault_Sink_01.nif`: the tap is stored at the model origin (z -0.03..0.03 m) and posed on the basin rim
+  (1.13..1.19 m), the two water-stream shapes posed falling from it (0.82..1.07 m); stored, they sit in the floor.
+  `SkeletonClothed01.nif`: posed z 0.29..1.74 m and y -0.53..0.92 m, the same box as its 17 bone nodes / converted
+  collision (0.30..1.74, -0.54..0.92); stored it stands 0.01..1.88 m with collision 0.3 m above its feet.
+- Status: "FO4 draws placed skinned props in the NIF's node pose": **supported hypothesis** (the sink makes no sense
+  otherwise; the skeleton's collision agrees; not yet seen in game). Animated NIFs (NiControllerManager) are posed too:
+  the node pose is their rest pose; **unresolved** whether every animated prop looks right (counted in the manifest as
+  `skinned_posed_animated` for the in-game check). The pinned build has 2,272 skinned placements, 346 of which move by
+  2 units or more (PR #45's scan).
+
+## 2026-10-10 Claude: FO4 skin reader (BSSkin::Instance, BSSkin::BoneData, vertex weights) and pose bake
+- Question: where does a skinned FO4 shape keep its bone nodes, skin-to-bone transforms and per-vertex weights, and
+  does posing it with the NIF's own bone nodes give back its stored positions? (Prerequisite for posing ragdoll
+  skeletons; reader and linear blend skinning in `src/fo4sf/fo4skin.py`.)
+- Method: decoded `Meshes\SetDressing\Skeletons\SkeletonClothed01.nif` (`Fallout4 - Meshes.ba2`, 51 blocks; skinned
+  shapes `Skeleton:0` block 40 and `Shirt:0` block 45), then ran the reader over every skinned shape in
+  `Fallout4 - Meshes.ba2` and `Fallout4 - MeshesExtra.ba2` (local scripts, not in the repo).
+- Layouts in SkeletonClothed01:
+  - `BSSkin::Instance` (blocks 41, 46; 84 bytes): skeleton root i32 @0 = 0 (root NiNode), bone data ref @4 = 42 / 47,
+    bone count u32 @8 = 17, 17 i32 bone node refs @12 (TorsoLowerBone01 ... RightHandBone01), count u32 @80 = 0.
+    84 = 12 + 4 x 17 + 4.
+  - `BSSkin::BoneData` (blocks 42, 47; 1160 bytes): count u32 @0 = 17, then 17 entries of 68 bytes: sphere centre xyz +
+    radius @+0, rotation 9 f32 @+16, translation 3 f32 @+52, scale f32 @+64. 1160 = 4 + 68 x 17.
+  - Vertex skin data: descriptor `0x7b00065430209` (`Skeleton:0`: 36-byte vertex, attributes 0x7b, skin nibble
+    (bits 28-31) 6, so byte 24) and `0x5b00050430208` (`Shirt:0`: 32 bytes, no colour, skin at byte 20): 4 f16 weights,
+    then 4 u8 bone slots. Vertex 0 of `Skeleton:0`: weights (0.693, 0.307, 0, 0), slots (8, 7) = TorsoUpperBone01,
+    TorsoMidBone01.
+- Rotation convention: bone world x skin-to-bone gives one and the same transform for all 17 bones when the stored
+  rotation is read row-major like NiAVObject in nif.py (spread 0.00004 units, 0 in rotation); read transposed, the
+  bones disagree (rotation entries off by 0.68 to 0.78). Bounding spheres are in bone space: 7,108 of 7,112 weighted
+  vertex/bone pairs are inside in bone space (worst overshoot 0.023 units), 113 of 7,112 in skin space.
+- Weights: per-vertex sums 0.999695 to 1.000244 (f16 rounding), 1 to 3 influences, no vertex without weight.
+- Pose: posing with `nif.world_transforms` does **not** give the stored positions here: max error 64.45 units
+  (`Skeleton:0`) and 61.46 (`Shirt:0`), mean about 20. The node pose isn't the bind pose: the 16 child bones' local
+  transforms equal the bind pose exactly (difference 0), only the root bone TorsoLowerBone01 is turned 45.0 degrees
+  more about +X around its own origin (-0.105, -2.558, 84.044). With that one rigid transform taken out, posed vs
+  stored max error is 0.000025 units for both shapes. Posing with the bind pose (inverse skin-to-bone) gives back the
+  stored positions to 0.000026 units (0.028 without weight normalisation). `pose_vertices` takes 5 ms for 5,503
+  vertices.
+- The ragdoll is authored in the node pose: in the skeleton's `hknpPhysicsSystemData`, all 17 body rotations
+  (quaternion x, y, z, w) equal their bone node's world rotation (entries within 0.0001; transposed, up to 1.58 off),
+  and body origins are 0.01 to 12.4 units from the bone node origins, vs up to 63.8 from the bind-pose bones.
+- Archive scan (159,856 NIFs, 60 s): 3,588 NIFs with 16,350 skinned shapes (15,325 BSSubIndexTriShape, 1,025
+  BSTriShape) read with 0 errors (instance and bone data sizes match their counts in every block). Skin offset nibble
+  = offset from walking the preceding vertex fields in all 15,727 shapes the walk covers (the other 623 are FaceGen
+  shapes with eye data, 0x100); 0 mismatches. Every skin-to-bone scale is 1. The instance's trailing array has 0
+  entries (4,557 instances) or one per bone (11,793, all FaceGen heads), 12 bytes each; all 53,452 values are
+  (0, 1, 1). 57 vertices in 11 shapes have no weight; none is used by a triangle (`pose_vertices` lets such a vertex
+  follow its first slot). Node pose vs bind pose per shape: identical for 616, one rigid offset shared by all bones for
+  9,606, bones disagree (a real pose) for 6,128.
+- Converter impact (not changed here): `pipeline.convert_nif` draws skinned shapes from their stored (bind pose)
+  positions but puts collision bodies on the bone nodes (node pose). Example: `Vault_Sink_01.nif`'s `tap:0` is stored
+  as a 2 x 2 x 4 unit piece at the model origin (z -2.1 to 2.1); posed with the node pose it sits on the basin rim
+  (z 79.4 to 83.5; the unskinned basin tops out at 83.6). Of the 701 skinned models outside Actors, Armor and Weapons,
+  523 have a skinned shape that the node pose moves 2 units or more. In the pinned `multi_next` cells, 346 of 2,272
+  placements of models with skinned shapes use such a model: 95 skeletons (9 models, e.g. 28
+  `SkeletonClothedVaultSuit`, 15 `SkeletonClothed01`), 32 `vault_sink_01`, 13 `vault_fountain01`, ...
+- Status: the three layouts **verified** (SkeletonClothed01 plus the 16,350-shape scan); row-major skin-to-bone rotation
+  **verified** (17 of 17 bones in two shapes); bounding spheres in bone space **verified**. "FO4 draws placed skinned
+  models in the node pose, so the converter should pose them": **supported hypothesis** (ragdoll bodies and the sink
+  tap fit it; no in-game check; animated models such as doors and elevators depend on their controllers).
+  **Unresolved:** the meaning of the instance's trailing (0, 1, 1) vectors, and whether FO4 renormalises f16 weights
+  (0.028 units at most here).
 
 ## 2026-10-09 Claude: which FO4 collision bodies are movable?
 - Question: how does an FO4 `bhkPhysicsSystem` mark a body as movable (pushable), so the converter can stop turning
@@ -923,3 +1219,71 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   the same overlay at (0.2, 1.2) (does it reproduce +30/-35, i.e. is the offset a function of the site alone?) and at
   (0.3 + 1/33900, -1.2) (one cell north under any linear local model). Until then fix A (vanilla persistent-cell
   shape, cave_core64c_1015) is the route to persistent references, and the runner keeps converting frames.
+
+## 2026-10-16 Claude: Starfield's compressed-mesh decoder and our SIMD tree keys (the collision crash)
+- Question: why does Havok assert "Unknown primitive type in compressed mesh" (hknpCompressedMeshShapeInternals.cpp:939,
+  Starfield.exe+0x36F418B, every WER report since 10-12) and why did the owner's crash dump show the closest-points
+  query of vault_cart_01's mesh (40 primitives, one data run {0, 40}) searching the data runs for primitive 40?
+- Method: FO4 source (hkpackfile) and converted blob (hktagfile) of vault_cart_01 side by side; 837 vanilla compressed
+  meshes (random 1,500-NIF sample of Starfield - Meshes01.ba2) decoded the same way; src/fo4sf/meshcheck.py.
+- **verified** (837 of 837 vanilla meshes, 0 exceptions): the SIMD tree holds ONE leaf per primitive with key
+  section << 8 | primitive << 1 (triangle bit 0), unique, one for every primitive of every section; the per-section
+  Aabb4BytesCodec tree (leaf when hiData bit 0 clear, primitive = hiData >> 1, right child at +(hiData & 0xFE)) names
+  every primitive once; the data runs (value u16, index u8, count u8) cover 0..numPrimitives-1 exactly; section flags
+  always 0; primitiveStoresIsFlatConvex (tree + 60) always 0xFF; no primitive has indices[1] == indices[3];
+  numPrimitiveKeys = triangles + 2 x quads and maxKeyValue = the last primitive's key (the key SPACE keeps the triangle
+  bit; only the tree leaves drop it). FO4 (vault_cart_01) uses the same tree codec, key space and header values.
+- **verified** (our builds): fo4collision.compressed_mesh_keys gave the SIMD tree one leaf per TRIANGLE, so every quad
+  also had an odd key: vault_cart_01 had keys 0..79 for primitives 0..39. integ_1017: 2,947 of 4,346 models,
+  181,738 odd keys, 4,045 of them the last primitive of a section; terrain_core64h: 7,861 of 11,769 models, 761,426
+  odd keys, 13,650 past the end (C:\Modding\scratch\meshkeys\baseline_*.json).
+- **supported hypothesis** (the crash dump: index 40 = (79 + 1) >> 1 for a 40-primitive section; the stale assert
+  frame on v111rpit2raisedmid01, 3 primitives, keys 0..5; vanilla never has odd keys): the decoder takes a leaf key K
+  as the primitive's first triangle and K + 1 as a quad's second one, so an odd K steps into the next primitive slot
+  (an FO4 DE AD DE AD slot asserts; past the end of the section the data-run search returns NULL: the owner's AV).
+- **verified** (35 sections in integ_1017 and core64h): FO4 section flag bit 0 is set exactly on the sections that
+  hold FO4's own special primitives (a, b, b, b) with b outside the section's vertex slots; vanilla has neither.
+  Their meaning is **unresolved**; the converter replaces them (and DE AD DE AD slots) with a copy of the nearest valid
+  primitive of the section and clears the flag, so the section is byte-for-byte in the vanilla shape.
+- **unresolved**: what primitiveStoresIsFlatConvex changes in the engine (the crashing function does not read it; vanilla
+  quads with it set are not flat or convex). The converter now writes the vanilla value so no vanilla-untested code
+  path is exercised.
+
+## 2026-10-17 Claude: why the player walks through the Vault 111 gear-room gates (static bodies on layer 55)
+- Question: the gear-room gates (`V111GearRoomGate01` in Vault111Cryo, `02` in Vault114) let the player through in
+  integ_1018 (playtest row 19) although since #230 their NIFs hold FO4's native bodies. Wrong place, wrong filter
+  word, or something the engine refuses?
+- Method: FO4 source (hkpackfile) and the deployed blobs (hktagfile, the session's hkdump.py) side by side, hull
+  vertices transformed through the collision nodes; COLL records of Fallout4.esm and Starfield.esm; every body of
+  every vanilla Starfield NIF (Meshes01 + MeshesPatch: 40,613 files with physics, 46,413 bodies, 50 s) and of every
+  FO4 NIF (Meshes + MeshesExtra: 63,327 files, 218,882 bodies); the Starfield.esm records placing the only vanilla
+  layer-55 models. Scratch: C:\Modding\scratch\gatefix (gate_dump.txt, coll_records.json, full_scan_*.json).
+- **verified** (geometry): each leaf's FO4 body cinfo equals its node transform (GateR at (-7.082, -0.044, 0.719) m,
+  z -90 deg), so the converter's identity body on a node with that transform puts the hulls where FO4 has them: top
+  rail x -7.10..-7.06, y -0.08..1.28, z 0.80..1.03 m, lower stub z 0.40..0.79 m (render leaf z 0.39..1.05); the XRGD
+  variant (`_xrgd_e3c6933a65`) lifts both by 0.147 m as the reference's pose does. The two leaves span the whole
+  2.78 m opening at x -47.76 m world; the owner's bridge positions (00:02:57 at -44.84, -4.00; 00:03:12 at -57.91)
+  cross that line through the middle. integ_1011's 39 guessed boxes sat there too (0x1, hknpBoxShape); whether the
+  owner walked through those is **unresolved** (row 6 reported the elevator, not a walk).
+- **verified** (the word): the leaves' only difference from a working static is `collisionFilterInfo` 0x8037 (layer 55
+  L_CLUTTER_NOCUT + bit 15); flags 0, collisionCntrl 0, quality 255, hknpConvexShape flags 0x43, material and
+  motionType 0 are the template's, as on vanilla statics and on BldDecoSmStairsBlock03's helper hull (a convex body
+  on a child Collision node, climbed in batch_full 0004).
+- **verified** (COLL): in both ESMs layer 55 lists 30 L_CHARCONTROLLER and 30 lists 55 (so does 1), GNAM 0 for 55
+  and 0x4 for 4 / 29 / 2 (the navmesh-cutting layers). The layer matrix alone does not explain a pass-through.
+- **verified** (vanilla use): Starfield writes layer 55 on 4 bodies in 2 files only, `na_lobbyoffice_reception_
+  turnstile_01_door01a/b.nif`, static, word 0x8037 exactly; they are STAT records (00040DD7/8) placed 29 times across
+  New Atlantis lobby walkways (e.g. four turnstiles in a row at y -33.39, refs 000C1BEA..F2). Bit 15 on L_STATIC is
+  walked on: `nathemastbase_01..04(_grass).nif` (the MAST plaza) are one 0x8001 body each; stair helpers carry 0x801f.
+  FO4 writes layer 55 on 9 bodies in 4 files, all dynamic hinged leaves (the two gates, CarHulk01 doors, BollardDest01).
+  Static bodies on 4 / 29 are common in both games (asteroid caves on 0x1d; static ladders and ingots on 0x4).
+- **supported hypothesis** (the cause): Starfield's character controller passes through a static body on layer 55,
+  as it must through the turnstile leaves; FO4's gate is passable too, but by swinging (10 kg leaves on hinges).
+  Freezing the leaves (joints not converted) on that layer gives a ghost gate. Fix: a body we write static on layer 55
+  becomes 1 L_STATIC, the layer alone (meshcollision.static_filter; report "relayered"); every other word is kept.
+  Blast radius in integ_1018: the 3 gate NIFs (12 leaf bodies), nothing else. The drop-in NIFs in
+  C:\Modding\scratch\gatefix\after differ from the deployed ones by 2 bytes per leaf blob (0x8037 -> 0x0001).
+- In-game check (one walk): from the owner's spot (-44.8, -4.0, 0) walk west along y -4.0; PASS = stopped at
+  x about -47.4 (capsule 0.35 m before the rail at -47.76), FAIL = x beyond -48. The diagnostic variant
+  `after\variant_bit15_cleared` (0x0037, layer kept) tells layer from bit if wanted. The gate then blocks the walkway to
+  the exit elevator (1.18 m rail, jumpable with the pack); a swinging gate needs the hinge conversion.
