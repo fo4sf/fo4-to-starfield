@@ -640,6 +640,27 @@ class PlanJsonTests(unittest.TestCase):
         self.assertEqual(jload(os.path.join(out, "queue.json"))["tests"][0]["points"],
                          [{"label": "v0", "x": 0.0, "y": 2.0, "expect": 15.0}])
 
+    def test_plan_movable_pins_the_bridge_it_was_given(self):
+        # #218: plan_movable built queue_extras' options without --bridge: no pin, no bridge_reads, no "bridge" need,
+        # and a missing bridge folder was not refused
+        d = tempfile.mkdtemp()
+        writef(os.path.join(d, "FO4Port.esm"), b"TES4")
+        br = os.path.join(d, "bridge")
+        os.makedirs(os.path.join(br, "Data", "Scripts"))
+        writef(os.path.join(br, "FO4SFBridge.esm"), b"plugin")
+        writef(os.path.join(br, "Data", "Scripts", "FO4SF_Bridge.pex"), b"pex")
+        jdump([{"label": "C_burntbook", "travel": "coc QASmoke", "base": "0200CE2A", "mass_kg": 25.0,
+                "spot": [-3.0, 4.0, 0.0]}], os.path.join(d, "plan.json"))
+        out = os.path.join(d, "q")
+        with mock.patch("builtins.print"):
+            tq.main(["plan-movable", "--staging", d, "--exp-dir", d, "--out", out, "--bridge", br])
+        q = jload(os.path.join(out, "queue.json"))
+        self.assertIn("bridge", q)
+        self.assertTrue(q["tests"][0].get("bridge_reads"))
+        self.assertIn("bridge", q.get("needs", []))
+        with self.assertRaises(SystemExit), mock.patch("builtins.print"):
+            tq.main(["plan-movable", "--staging", d, "--exp-dir", d, "--out", out, "--bridge", os.path.join(d, "no")])
+
     def test_the_terrain_judge_never_passes_a_test_without_usable_points(self):
         # #219: a queue planned before the check: no points judged PASS on a screenshot alone, a NaN expect passed a
         # read 400 m below, a string expect raised TypeError
