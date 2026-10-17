@@ -243,7 +243,8 @@ def main():
                                           rig_doors=donor is not None, door_physics_donor=donor,
                                           sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
                                           prefix=a.prefix, max_texture=a.max_texture,
-                                          door_anim_dll=a.door_anim_dll or None)
+                                          door_anim_dll=a.door_anim_dll or None,
+                                          max_tris=a.max_tris)
             r = conv.convert_nif(name)
             if cache:
                 try:
@@ -252,7 +253,12 @@ def main():
                     print(f"  checkpoint unavailable for {name}: {e}")
         attempted_so_far += 1
         if not r["ok"]:
-            failures.append({"nif": name, "reason": r["reason"]})
+            reason = r.get("reason", "")
+            if "too many triangles" in reason:
+                skipped += 1
+                print(f"  skip {name}: {reason}")
+            else:
+                failures.append({"nif": name, "reason": reason})
         else:
             eid = editor_id(name, ids)
             if cache:
@@ -289,7 +295,8 @@ def main():
                                               rig_doors=donor is not None, door_physics_donor=donor,
                                               sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
                                               prefix=a.prefix, max_texture=a.max_texture,
-                                              door_anim_dll=a.door_anim_dll or None)
+                                              door_anim_dll=a.door_anim_dll or None,
+                                              max_tris=a.max_tris)
                 r = conv.convert_nif(v.source, pose=v.overrides, out_suffix=v.suffix)
                 if cache:
                     try:
@@ -297,9 +304,14 @@ def main():
                     except (OSError, ValueError) as e:
                         print(f"  checkpoint unavailable for {key}: {e}")
             if not r["ok"]:
-                failures.append({"nif": key, "reason": r["reason"]})
-                pose_stats["posed_refs"] -= len(v.refs)
-                pose_stats["failed_refs"] = pose_stats.get("failed_refs", 0) + len(v.refs)
+                reason = r.get("reason", "")
+                if "too many triangles" in reason:
+                    skipped += 1
+                    print(f"  skip {key}: {reason}")
+                else:
+                    failures.append({"nif": key, "reason": reason})
+                    pose_stats["posed_refs"] -= len(v.refs)
+                    pose_stats["failed_refs"] = pose_stats.get("failed_refs", 0) + len(v.refs)
                 continue
             items.append({"editor_id": base["editor_id"] + v.suffix, "model": r["out_name"].replace("/", "\\") + ".nif",
                           "source": v.source, "shapes": r["shapes"], "fallback_materials": r["fallback_materials"],

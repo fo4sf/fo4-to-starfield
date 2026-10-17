@@ -98,12 +98,14 @@ class Converter:
                  collision_template: Optional[bytes] = None, prefix: str = "fo4port",
                  no_collision_pattern: str = r"^meshes[\\/](architecture|interiors|scol)[\\/]", rig_doors: bool = False,
                  door_physics_donor: Optional[bytes] = None, sf_mesh_template: Optional[bytes] = None,
-                 dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None):
+                 dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None,
+                 max_tris: Optional[int] = None):
         self.src, self.staging, self.texconv = src, staging, texconv_exe
         # door_anim_dll: the external CALUMI.Animation library (not distributed). With it, rigged doors that move more
         # than one part (frozen_door_parts) get their own rig and Open/Close clips instead of the single-hinge template,
         # and sliding / lifting / trapdoor families (NOT_HINGED_RE) get one instead of staying passable.
         self.door_anim_dll = door_anim_dll
+        self.max_tris = max_tris
         # dynamic_template (a vanilla dynamic convex body, meshcollision.DYNAMIC_TEMPLATE_NIF): FO4 loose items with one
         # dynamic body become movable; their result carries "movable" (plugin writer: MoveableStatic, not Static)
         self.dynamic_template = dynamic_template
@@ -461,6 +463,11 @@ class Converter:
             shapes = [s for s in nif.fo4_trishapes(src) if s.positions and s.triangles]
             if not shapes:
                 raise ValueError("no static BSTriShape geometry")
+            max_tris = getattr(self, "max_tris", None)
+            if max_tris is not None:
+                n_tris = sum(len(s.triangles) for s in shapes)
+                if n_tris > max_tris:
+                    raise ValueError(f"too many triangles ({n_tris} > {max_tris})")
             mats: List[Optional[str]] = []
             for s in shapes:
                 mats.append(self._shape_material(src, s))
