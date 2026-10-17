@@ -19,8 +19,11 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   5 have the string with the flag off (e.g. `ConcreteRoadHW01.BGSM` names a cubemap). Gating on the string
   alone made that road a fallback. Bake is gated on byte 62 / NIF flags1 0x10.
 - Lookup, **supported hypothesis**: U = green channel, V = `clamp(round(scale * H - 0.5))` from
-  `fGrayscaleToPaletteScale` (BGSM last float). Vertex-colour V is **unresolved**. A missing palette texture
-  is a conversion error. GreyscaleToPalette_Alpha (bit 0x20) is not baked.
+  `fGrayscaleToPaletteScale` (BGSM last float) or the NIF lighting-shader scale (nif.xml after rimlight;
+  optional backlight when rim is FLT_MAX). Texture-set cache identity includes that scale. Vertex-colour V
+  is **unresolved**. A missing palette texture is a conversion error. GreyscaleToPalette_Alpha (bit 0x20)
+  is not baked. v2 `parse_bgsm` reads texture strings at byte 63 so a decoy `.dds` in the header cannot
+  steal the greyscale slot.
 - Status: bake is for flagged palette materials. Row 15 needs material swaps, not this PR. In-game colour
   after a scratch reconvert **unresolved** (Claude).
 

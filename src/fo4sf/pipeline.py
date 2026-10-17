@@ -39,6 +39,31 @@ SLSF1_REFRACTION = 0x8000
 # matching shader, so the converter bakes the lookup into the colour map. Slot 3 is also height,
 # so texture-set shapes only bake when this flag is set.
 SLSF1_GREYSCALE_TO_PALETTE_COLOR = 0x10
+# nif.xml FO4 BSLightingShaderProperty: after the texture-set ref come emissive/root/clamp/alpha/
+# refraction/smoothness/spec, then Subsurface Rolloff, Rimlight Power, optional Backlight Power
+# when rim is FLT_MAX, then Grayscale to Palette Scale.
+_FO4_RIM_FLT_MAX = 3.402823e38
+
+
+def lighting_palette_scale(blk: bytes) -> float:
+    """FO4 lighting-shader Grayscale to Palette Scale, or 1.0 when the tail is absent/unreadable."""
+    if len(blk) < 16:
+        return 1.0
+    n_extra, = struct.unpack_from("<I", blk, 8)
+    tail = 12 + 4 * n_extra + 4 + 8 + 16 + 4
+    rim_off = tail + 56
+    if len(blk) < rim_off + 8:
+        return 1.0
+    rim, = struct.unpack_from("<f", blk, rim_off)
+    scale_off = rim_off + 4
+    if _FO4_RIM_FLT_MAX <= rim < float("inf"):
+        scale_off += 4
+        if len(blk) < scale_off + 4:
+            return 1.0
+    scale, = struct.unpack_from("<f", blk, scale_off)
+    if 0.0 <= scale <= 1.0:
+        return scale
+    return 1.0
 
 
 class Fo4Archives:
@@ -252,18 +277,20 @@ class Converter:
                 self.material_errors[key] = f"{type(e).__name__}: {e}"
         return self._materials[key]
 
-    def texture_set_material(self, diffuse: str, normal: str, spec: str, greyscale: str = None) -> Optional[str]:
-        """Material for a shape that names its textures directly (BSShaderTextureSet, no .bgsm). Cached by diffuse path."""
+    def texture_set_material(self, diffuse: str, normal: str, spec: str, greyscale: str = None,
+                             palette_scale: float = 1.0) -> Optional[str]:
+        """Material for a shape that names its textures directly (BSShaderTextureSet, no .bgsm). Cached by inputs."""
         stem = "texsets/" + re.sub(r"^textures[\\/]", "", diffuse.replace("\\", "/"), flags=re.I).lower()
         parts = [diffuse, normal, spec]
         if greyscale:
             parts.append(greyscale)
+            parts.append(f"{float(palette_scale):.5f}")
         ident = "|".join(x.replace("\\", "/").lower() for x in parts)      # every input is part of identity
         stem = os.path.splitext(stem)[0] + "_" + hashlib.sha1(ident.encode()).hexdigest()[:8]
         key = "texset:" + stem
         if key not in self._materials:
             try:
-                extra = {"greyscale": greyscale} if greyscale else {}
+                extra = {"greyscale": greyscale, "palette_scale": palette_scale} if greyscale else {}
                 self._materials[key] = self._convert_texture_set(stem, diffuse, normal, spec, **extra)
                 self.stats["materials_ok"] += 1
             except Exception as e:                        # noqa: BLE001
@@ -482,7 +509,8 @@ class Converter:
         if not (diffuse and normal):
             return self.neutral
         if flags1 & SLSF1_GREYSCALE_TO_PALETTE_COLOR and len(paths) > 3 and paths[3]:
-            return self.texture_set_material(diffuse, normal, spec, greyscale=paths[3]) or self.neutral
+            return self.texture_set_material(diffuse, normal, spec, greyscale=paths[3],
+                                             palette_scale=lighting_palette_scale(blk)) or self.neutral
         return self.texture_set_material(diffuse, normal, spec) or self.neutral
 
     def convert_nif(self, nif_name: str, pose: Optional[dict] = None, out_suffix: str = "") -> dict:

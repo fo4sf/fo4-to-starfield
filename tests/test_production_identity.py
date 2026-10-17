@@ -54,6 +54,18 @@ class ProductionCacheTests(unittest.TestCase):
         self.assertEqual(c._convert_texture_set.call_count, 2)
         self.assertEqual(c._convert_texture_set.call_args.kwargs.get("greyscale"), "textures/p.dds")
 
+    def test_nif_palette_scale_changes_material_identity(self):
+        c = self.converter
+        a = c.texture_set_material("textures/a.dds", "textures/n.dds", "textures/s.dds",
+                                   greyscale="textures/p.dds", palette_scale=1.0)
+        b = c.texture_set_material("textures/a.dds", "textures/n.dds", "textures/s.dds",
+                                   greyscale="textures/p.dds", palette_scale=0.12)
+        self.assertNotEqual(a, b)
+        self.assertEqual(a, c.texture_set_material("textures/a.dds", "textures/n.dds", "textures/s.dds",
+                                                   greyscale="textures/p.dds", palette_scale=1.0))
+        self.assertEqual(c._convert_texture_set.call_count, 2)
+        self.assertAlmostEqual(c._convert_texture_set.call_args.kwargs.get("palette_scale"), 0.12, places=5)
+
     def test_failure_is_cached_and_different_texture_can_succeed(self):
         c = self.converter
         c._convert_texture_set.side_effect = [FileNotFoundError("missing normal"), "good.mat"]

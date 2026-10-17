@@ -48,14 +48,20 @@ def parse_bgsm(d: bytes) -> Bgsm:
         raise ValueError("not a BGSM file")
     version, tiles = struct.unpack_from("<II", d, 4)
     uo, vo, us, vs = struct.unpack_from("<4f", d, 12)
-    # the texture block starts at the first length-prefixed string that ends in .dds/.tga (before it: flags/floats)
+    # v2: header is 63 bytes (bGrayscaleToPaletteColor at 62); strings start at 63. Scanning for the
+    # first .dds/.tga hits decoy strings in that header (PipeRifle, CurvedPistolGrip, and two others).
     start = None
-    for off in range(8, len(d) - 8):
-        ln, = struct.unpack_from("<I", d, off)
-        if 4 < ln < 260 and off + 4 + ln <= len(d) and d[off + 3 + ln] == 0 \
-                and d[off + 4:off + 3 + ln].lower().endswith((b".dds", b".tga")):
-            start = off
-            break
+    if version == 2:
+        if len(d) < 71:
+            raise ValueError("truncated v2 BGSM")
+        start = 63
+    else:
+        for off in range(8, len(d) - 8):
+            ln, = struct.unpack_from("<I", d, off)
+            if 4 < ln < 260 and off + 4 + ln <= len(d) and d[off + 3 + ln] == 0 \
+                    and d[off + 4:off + 3 + ln].lower().endswith((b".dds", b".tga")):
+                start = off
+                break
     if start is None:
         raise ValueError("no texture paths found")
     out, pos = [], start

@@ -47,6 +47,14 @@ class BgsmTests(unittest.TestCase):
         self.assertFalse(off.palette_color)
         self.assertAlmostEqual(off.palette_scale, 0.5, places=5)
 
+    def test_v2_texture_strings_start_at_byte_63(self):
+        decoy = bytearray(fake_bgsm(greyscale="real_p.dds", palette_color=1))
+        decoy[28:38] = struct.pack("<I", 6) + b"x.dds\0"
+        b = cm.parse_bgsm(bytes(decoy))
+        self.assertEqual(b.diffuse, "a/b_d.dds")
+        self.assertEqual(b.greyscale, "real_p.dds")
+        self.assertTrue(b.palette_color)
+
     def test_rejects_other_files(self):
         with self.assertRaises(ValueError):
             cm.parse_bgsm(b"BGEM" + b"\0" * 40)

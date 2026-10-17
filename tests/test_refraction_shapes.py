@@ -17,12 +17,19 @@ HEAT_SHIMMER_FLAGS1 = 0x80408000     # VltGearDoor01 m_HeatShimmer:0 (ZBuffer te
 SURFACE_FLAGS1 = 0x80400281          # V111RadScanner01:0 (specular, env map, cast shadows, own emit, ZBuffer test)
 
 
-def lighting_shape(flags1, textures, name=b"", n_extra=0):
+def lighting_shape(flags1, textures, name=b"", n_extra=0, palette_scale=None, rim_flt_max=False):
     """A NIF holding one lighting shader property (block 0) and its texture set (block 1); returns (nif, shape)."""
     n = nif.NifFile()
     name_idx = n.string_index(name) if name else -1
     shader = struct.pack("<Ii I", 1, name_idx, n_extra) + struct.pack(f"<{n_extra}i", *range(5, 5 + n_extra))
     shader += struct.pack("<iII", -1, flags1, 0x1) + struct.pack("<4f", 0, 0, 1, 1) + struct.pack("<i", 1)
+    if palette_scale is not None:
+        rim = struct.unpack("<f", b"\xff\xff\x7f\x7f")[0] if rim_flt_max else 2.0
+        shader += struct.pack("<3ff i I 3f 3f 3f",
+                              0, 0, 0, 1.0, -1, 0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, rim)
+        if rim_flt_max:
+            shader += struct.pack("<f", 0.0)
+        shader += struct.pack("<f", float(palette_scale))
     n.add_block("BSLightingShaderProperty", shader)
     texset = struct.pack("<I", len(textures)) + b"".join(struct.pack("<I", len(t)) + t for t in textures)
     n.add_block("BSShaderTextureSet", texset)
@@ -75,7 +82,25 @@ class RefractionShapeTests(unittest.TestCase):
         self.assertEqual(c._shape_material(src, shape), "materials\\fo4port\\texsets\\x.mat")
         c.texture_set_material.assert_called_once_with(
             "textures\\a\\x_d.dds", "textures\\a\\x_n.dds", "textures\\a\\x_s.dds",
-            greyscale="textures\\a\\x_p.dds")
+            greyscale="textures\\a\\x_p.dds", palette_scale=1.0)
+
+    def test_nif_palette_scale_is_passed_and_cached(self):
+        c = converter()
+        src, shape = lighting_shape(SURFACE_FLAGS1 | pipeline.SLSF1_GREYSCALE_TO_PALETTE_COLOR, PALETTE,
+                                    palette_scale=0.12)
+        c._shape_material(src, shape)
+        args, kwargs = c.texture_set_material.call_args
+        self.assertEqual(args, ("textures\\a\\x_d.dds", "textures\\a\\x_n.dds", "textures\\a\\x_s.dds"))
+        self.assertEqual(kwargs.get("greyscale"), "textures\\a\\x_p.dds")
+        self.assertAlmostEqual(kwargs.get("palette_scale"), 0.12, places=5)
+
+    def test_nif_palette_scale_after_flt_max_rimlight(self):
+        c = converter()
+        src, shape = lighting_shape(SURFACE_FLAGS1 | pipeline.SLSF1_GREYSCALE_TO_PALETTE_COLOR, PALETTE,
+                                    palette_scale=0.25, rim_flt_max=True)
+        c._shape_material(src, shape)
+        kwargs = c.texture_set_material.call_args.kwargs
+        self.assertAlmostEqual(kwargs.get("palette_scale"), 0.25, places=5)
 
     def test_slot_3_without_the_flag_is_not_a_palette(self):
         # slot 3 is also height; only GreyscaleToPalette_Color (0x10) bakes it
