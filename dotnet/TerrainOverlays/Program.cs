@@ -725,11 +725,18 @@ if (Has(prm, "objects"))
             var doorSrc = pair.GetProperty("door").GetString()!;
             if (!actiBySrc.TryGetValue(buttonSrc, out var button) || !actiBySrc.TryGetValue(doorSrc, out var door))
                 throw new InvalidDataException($"garage_buttons: {buttonSrc} / {doorSrc} are not promoted activators");
+            var kw = new FormKey(sfEsm, 0x5D5E7);                                  // LinkCustom02; script GetLinkedRef(LinkedRefKeyword)
             var vmad = new VirtualMachineAdapter { Version = 6, ObjectFormat = 2 };
-            vmad.Scripts.Add(new ScriptEntry { Name = "DefaultActivateLinkedRefOnActivate" });
+            var script = new ScriptEntry { Name = "DefaultActivateLinkedRefOnActivate" };
+            script.Properties.Add(new ScriptObjectProperty
+            {
+                Name = "LinkedRefKeyword", Flags = ScriptProperty.Flag.Edited,
+                Object = new FormLink<IStarfieldMajorRecordGetter>(kw), Alias = -1, Unused = 0,
+            });
+            vmad.Scripts.Add(script);
             button.VirtualMachineAdapter = vmad;
             var link = new LinkedReferences();
-            link.KeywordOrReference.SetTo(new FormKey(sfEsm, 0x5D5E7));            // LinkCustom02
+            link.KeywordOrReference.SetTo(kw);
             link.Reference.SetTo(door.FormKey);
             button.LinkedReferences.Add(link);
             garageIds.Add(new Dictionary<string, string> { ["button"] = button.FormKey.ID.ToString("X6"), ["door"] = door.FormKey.ID.ToString("X6") });

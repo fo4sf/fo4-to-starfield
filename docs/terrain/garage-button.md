@@ -38,8 +38,9 @@ ref. Button Activate() → linked door Activate(). No new .pex (Codex owns Papyr
 - Clip alias: FO4 `Opening`/`Closing` → Starfield `Open`/`Close` (`door_rig.alias_clips`). Rest poses dropped. Pipeline
   treats `Opening` as an animated door sequence so `--door-anim-dll` can rig `RedRGarageDoor.nif`.
 - `objects.json` `"garage_buttons"`: the two Commonwealth pairs, only when both ACTI are already promoted.
-- TerrainOverlays: on those button REFR, vanilla `DefaultActivateLinkedRefOnActivate` + XLKR LinkCustom02 → garage
-  REFR. **No new FormIDs.**
+- TerrainOverlays: on those button REFR, vanilla `DefaultActivateLinkedRefOnActivate` with edited `LinkedRefKeyword` =
+  LinkCustom02, and XLKR LinkCustom02 → garage REFR. Script and link use the same keyword (`GetLinkedRef(LinkedRefKeyword)`).
+  **No new FormIDs.** Pair matching is `(plugin, form id)`, not the hex spelling.
 
 ## Still needed (Claude scratch overlay)
 

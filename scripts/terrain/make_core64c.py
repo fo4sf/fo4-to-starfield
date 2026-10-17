@@ -1127,27 +1127,64 @@ def workshop_edid(base, src):
 
 
 # Red Rocket garage button -> door (playtest row 21, docs/terrain/garage-button.md). FO4 XAPR is not in the cluster
-# export; these two Commonwealth pairs are the whole set. src compared on the 6-hex form id.
+# export; these two Commonwealth pairs are the whole set. Matched on (plugin, numeric id), not the hex spelling.
 GARAGE_BUTTON_PAIRS = (
     ("00056331:Fallout4.esm", "00056BBA:Fallout4.esm"),   # garage, button (Red Rocket shop)
     ("000866C7:Fallout4.esm", "000866C0:Fallout4.esm"),   # the other Commonwealth RedRGarageDoor
 )
+GARAGE_SCRIPT = "DefaultActivateLinkedRefOnActivate"   # vanilla; GetLinkedRef(LinkedRefKeyword)
+GARAGE_SCRIPT_PROPERTY = "LinkedRefKeyword"
+GARAGE_LINK_KEYWORD = 0x5D5E7                         # KYWD LinkCustom02; XLKR and the VMAD property must agree
 
 
-def src_hex(src):
-    """Last 6 hex digits of a FO4 source key (00056BBA:Fallout4.esm -> 056BBA)."""
-    return str(src).split(":")[0].upper().zfill(8)[-6:]
+def source_identity(src):
+    """(plugin.casefold(), numeric form id) of a FO4 source key. ValueError if the key is not <hex>:<plugin>."""
+    local, sep, plugin = str(src).partition(":")
+    if not sep or not local or not plugin:
+        raise ValueError(f"{src}: not a plugin-local form key")
+    try:
+        fid = int(local, 16)
+    except ValueError as e:
+        raise ValueError(f"{src}: form id is not hex") from e
+    if fid <= 0 or fid > 0xFFFFFF:
+        raise ValueError(f"{src}: form id {fid:#x} is not in 1..0xFFFFFF")
+    return (plugin.casefold(), fid)
 
 
 def cluster_garage_buttons(activators):
-    """Pairs of already-promoted ACTI whose FO4 XAPR wired a RedRGarageDoor to a RedR_ButtonBox."""
-    by_hex = {src_hex(e["src"]): e["src"] for e in activators}
+    """Pairs of already-promoted ACTI whose FO4 XAPR wired a RedRGarageDoor to a RedR_ButtonBox.
+
+    Keys are (plugin, form id): a 6-hex Fallout4.esm source matches the 8-hex pair spelling; Other.esm with the same
+    id does not. Two different spellings of one identity keep the first; two sources that collide raise ValueError.
+    """
+    by_id = {}
+    for e in activators:
+        ident = source_identity(e["src"])
+        have = by_id.get(ident)
+        if have is not None and source_key(have) != source_key(e["src"]):
+            raise ValueError(f"garage_buttons: {e['src']} and {have} are the same FO4 source")
+        by_id.setdefault(ident, e["src"])
     out = []
     for door, button in GARAGE_BUTTON_PAIRS:
-        d, b = src_hex(door), src_hex(button)
-        if d in by_hex and b in by_hex:
-            out.append({"door": by_hex[d], "button": by_hex[b]})
+        d, b = source_identity(door), source_identity(button)
+        if d in by_id and b in by_id:
+            out.append({"door": by_id[d], "button": by_id[b]})
     return out
+
+
+def garage_button_vmad(keyword=GARAGE_LINK_KEYWORD):
+    """REFR VMAD bytes: DefaultActivateLinkedRefOnActivate with edited LinkedRefKeyword = keyword (Starfield master 0)."""
+    return vmad_patch.encode([{
+        "name": GARAGE_SCRIPT, "status": vmad_patch.STATUS_LOCAL, "properties": [{
+            "name": GARAGE_SCRIPT_PROPERTY, "type": vmad_patch.T_OBJECT, "status": vmad_patch.PROP_EDITED,
+            "value": {"form": keyword, "alias": -1},
+        }],
+    }])
+
+
+def garage_button_xlkr(door_fid, keyword=GARAGE_LINK_KEYWORD):
+    """XLKR payload: keyword then the garage REFR (little-endian form ids)."""
+    return struct.pack("<II", keyword, door_fid)
 
 
 def door_edid(base, src):

@@ -986,16 +986,36 @@ class GarageButtonTests(unittest.TestCase):
             {"door": "00056331:Fallout4.esm", "button": "00056BBA:Fallout4.esm"},
             {"door": "000866C7:Fallout4.esm", "button": "000866C0:Fallout4.esm"}])
         self.assertEqual(mk.cluster_garage_buttons([{"src": "00056BBA:Fallout4.esm"}]), [])
-        self.assertEqual(mk.src_hex("56BBA:Fallout4.esm"), "056BBA")
-        self.assertEqual(mk.src_hex("00056BBA:Fallout4.esm"), "056BBA")
+        short = [{"src": "056331:Fallout4.esm"}, {"src": "056BBA:Fallout4.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(short), [
+            {"door": "056331:Fallout4.esm", "button": "056BBA:Fallout4.esm"}])
 
-    def test_writer_uses_vanilla_activate_linked_ref(self):
+    def test_pairs_keep_plugin_identity(self):
+        foreign = [{"src": "00056331:Other.esm"}, {"src": "00056BBA:Other.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(foreign), [])
+        mixed = [{"src": "00056331:Fallout4.esm"}, {"src": "00056BBA:Other.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(mixed), [])
+        shadow = [{"src": "00056331:Fallout4.esm"}, {"src": "00056BBA:Fallout4.esm"},
+                  {"src": "00056331:Other.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(shadow), [
+            {"door": "00056331:Fallout4.esm", "button": "00056BBA:Fallout4.esm"}])
+        with self.assertRaisesRegex(ValueError, "same FO4 source"):
+            mk.cluster_garage_buttons([{"src": "00056331:Fallout4.esm"}, {"src": "056331:Fallout4.esm"}])
+
+    def test_vmad_linked_ref_keyword_matches_xlkr(self):
+        door = 0x01000DB0
+        vmad = mk.garage_button_vmad()
+        xlkr = mk.garage_button_xlkr(door)
+        props = mk.vmad_patch.decode(vmad)["scripts"][0]["properties"]
+        self.assertEqual(props[0]["name"], mk.GARAGE_SCRIPT_PROPERTY)
+        self.assertEqual(props[0]["value"]["form"], mk.GARAGE_LINK_KEYWORD)
+        self.assertEqual(struct.unpack("<II", xlkr), (mk.GARAGE_LINK_KEYWORD, door))
         path = os.path.join(root, "dotnet", "TerrainOverlays", "Program.cs")
         with open(path, encoding="utf-8") as fh:
             src = fh.read()
-        self.assertIn("DefaultActivateLinkedRefOnActivate", src)
+        self.assertIn("LinkedRefKeyword", src)
         self.assertIn("0x5D5E7", src)
-        self.assertIn("garage_buttons", src)
+        self.assertIn("DefaultActivateLinkedRefOnActivate", src)
 
 
 class LightTests(unittest.TestCase):
