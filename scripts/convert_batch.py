@@ -151,12 +151,19 @@ def write_json_atomic(path, value):
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--fo4-data", required=True)
-    ap.add_argument("--staging", required=True)
-    ap.add_argument("--content-resources", required=True)
-    ap.add_argument("--texconv", required=True)
-    ap.add_argument("--collision-template", required=True)
+    ap = argparse.ArgumentParser(
+        description="Convert many Fallout 4 statics from the game's archives into a Starfield staging folder."
+    )
+    ap.add_argument("--fo4-data", required=True,
+                    help="Path to the Fallout 4 Data directory containing the .ba2 archives")
+    ap.add_argument("--staging", required=True,
+                    help="Output directory for the converted Starfield staging files and manifests")
+    ap.add_argument("--content-resources", required=True,
+                    help="Path to ContentResources.zip (or equivalent) providing Starfield base resources")
+    ap.add_argument("--texconv", required=True,
+                    help="Path to Texconvx64.exe for converting textures")
+    ap.add_argument("--collision-template", required=True,
+                    help="Path to a vanilla Starfield .nif providing a box-collision template")
     ap.add_argument("--starfield-data", default="",
                     help="Starfield Data folder: enables opening doors (needs the vanilla door body as a keyframed donor)")
     ap.add_argument("--static-items", action="store_true",
@@ -167,8 +174,10 @@ def main():
                          "doors (vault, elevator, hatch) get their own rig and Open/Close clips; without it the first "
                          "keep the single-hinge template and list the parts that stay closed, the second stay passable")
     ap.add_argument("--resume", action="store_true", help="reuse content-verified per-model checkpoints")
-    ap.add_argument("--pattern", default=r"^meshes[\\/]setdressing[\\/]")
-    ap.add_argument("--limit", type=int, default=20)
+    ap.add_argument("--pattern", default=r"^meshes[\\/]setdressing[\\/]",
+                    help="Regex pattern matching mesh paths to convert (default: setdressing meshes)")
+    ap.add_argument("--limit", type=int, default=20,
+                    help="Maximum number of models to convert in this run (default: 20)")
     ap.add_argument("--max-tris", type=int, default=20000, help="skip meshes with more triangles than this")
     ap.add_argument("--cell-json", default="", help="convert the models placed in a cell exported by dotnet/Fo4Export")
     ap.add_argument("--no-ref-poses", action="store_true",
