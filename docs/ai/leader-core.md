@@ -110,6 +110,8 @@ Each card has the fields the brief requires. Status is kept on the task's GitHub
   STOP/Guardian reachable, recovery save and log capture on. Any unknown → refuse, ledger says why.
 - **Owner:** Claude. **Dependencies:** T1, T2. **Acceptance:** each check has a synthetic pass and fail test; the
   gate is called by `testqueue.py run` before the first launch (dry-run shows the checklist).
+- **Switch (2026-10-16):** `testqueue.py run --preflight` / `FO4SF_PREFLIGHT=1`, off by default; nothing on the PC
+  changes until the PC session turns it on (§7). Implemented by Claude-cloud in #180 (`src/fo4sf/core/preflight.py`).
 
 After T3: `core/tasks.py` + `core/worker.py` (result contract), then the `Transform` adapter carrying the Z-first
 rotation fix (#102), then other adapters only when a gameplay gate needs them.
@@ -183,3 +185,38 @@ python scripts\game\lease.py status  --dir <leader> [--require Claude] [--json] 
 (`claim --owner Claude --purpose ... --ttl <seconds>`); set `FO4SF_LEASE_DIR` for the shell that starts the chain, or
 `"lease_dir"` in `watchdog.json` for the watchdog; release at the end of the window. Turning it off is unsetting the
 variable / removing the key; the ledger keeps the history either way.
+
+## 7. The preflight gate (T3) and its switch
+
+`src/fo4sf/core/preflight.py` is pure Python: its checks read nothing, a *probe* supplies the readings (the runner's
+`PreflightProbe` in `scripts/game/testqueue.py` reads the PC; the tests use a fake), so every Windows-only reading
+(Plugins.txt under `%LOCALAPPDATA%`, `Starfield.exe`'s version, the Saves folder, the ini files, the Guardian
+database) sits in the adapter. Every check is `PASS`, `FAIL` or `UNKNOWN`; **one `FAIL` or `UNKNOWN` refuses** (the
+brief's "any unknown → refuse"), and a reading that raises is `UNKNOWN` for that check, never a crash.
+
+| Check | PASS when | FAIL / UNKNOWN when |
+|---|---|---|
+| `pin` | the staged `FO4Port.esm` has the queue's `plugin_sha256` | another hash / staging missing or no pin (UNKNOWN) |
+| `deploy` | nothing deployed (cycle.ps1 deploys at the launch) or `Data\FO4Port.deploy.json` complete, still owning every artifact it published (`files` = `artifacts`), with `Data\FO4Port.esm` on disk at the manifest's and the pinned `artifacts[FO4Port.esm].sha256` | interrupted install or cleanup pending, a half-finished uninstall (artifacts removed, a changed one kept, the manifest still `complete`), `FO4Port.esm` missing or changed on disk, another build / no sha in the manifest (UNKNOWN) |
+| `experiment` | no experiment pinned and none installed, or the staged experiment's inputs equal the queue's `experiment_identity` and any install record is complete, has no cleanup pending, is the same and owns every pinned plugin, every file it owns on disk at its recorded sha256 | changed since planning, incomplete record or cleanup pending (a half-finished `exp_install.py uninstall`), other record, a pinned plugin the record no longer owns, an installed file missing or changed, an experiment installed although the queue pins none (it would load with the build) / `pre_launch` without a pin, unreadable record, a legacy record without a file inventory (UNKNOWN) |
+| `plugins_active` | every pinned experiment plugin, `FO4Port.esm` and the bridge are active where they are already listed in Plugins.txt (the rest install at the launch) | a listed plugin inactive (Starfield deactivated it on a load) or duplicated / Plugins.txt not locatable (UNKNOWN) |
+| `load_order` | every non-implicit master of a pinned plugin is active, or is itself a pinned plugin or `FO4Port.esm` (both installed at the launch, and `order` moves the dependant after them); notes what `exp_install.py order` / `bridge_install.py order` will move | a master neither active, nor implicit, nor installed at the launch (cycle.ps1 would exit 7) / Plugins.txt not locatable (UNKNOWN). The planned `plugin_index` is **not** verified against the game's implicit plugins (which of them the owner's install loads is unresolved) |
+| `game_version` | `Starfield.exe`'s file version equals the pin (`queue.json` `game_version`, else the ledger's `build_pinned.game_version`) | differs / no pin or not readable, e.g. not Windows (UNKNOWN) |
+| `lease` | the runner's owner holds the lease (§6) | missing, someone else's, released, expired / no lease folder (UNKNOWN) |
+| `stop_controls` | the queue's `STOP` and the chain's `STOP_ALL` can be created (folders writable); the state folder's too when it exists | a folder missing or not writable / no locations (UNKNOWN) |
+| `guardian` | `guardian.db` present, readable, mode `running` | missing, unreadable, `paused`, `stopped` |
+| `recovery_save` | the dedicated save `fo4sf_test_<build>` present, or not yet created (first launch) | created by an earlier run and gone / Saves folder missing or no save named (UNKNOWN) |
+| `log_capture` | no bridge pinned, or the `[Papyrus]` logging keys in effect after the game folder's `Starfield.ini` is overridden key by key by `StarfieldCustom.ini` in My Games (`make_bridge.py ini`) | a key off or missing after the overrides / no ini found (UNKNOWN) |
+
+The planners write no `game_version` today: the PC session adds `"game_version": "<Starfield.exe file version>"` to
+`queue.json` (or a `build_pinned` event with it) before turning the gate on; until then the check is UNKNOWN by
+design and the gate refuses.
+
+**The switch, default off:** `testqueue.py run --preflight` (or `FO4SF_PREFLIGHT=1`, `true` / `yes` / `on` too;
+`--no-preflight` overrides the variable for one run) runs the gate once, right after the lease line and before
+the first launch; the checklist goes to `run.log`, a refusal sets
+`state.json` `status` to `stopped: preflight refused (<check> <status>, ...)` (exit 3, resumable) and appends
+`blocker_opened` (`blocker: preflight`, the failing lines as `evidence`) to the ledger when a lease folder is set;
+a `--dry-run` prints the checklist and refuses the same way; a later pass closes that blocker (`blocker_closed`),
+so the report does not carry a refusal that no longer holds. Unset, the gate is not built and the runner is the one
+of §6. The after-load activation check stays where it is (cycle.ps1 exit 8 after `exp_install.py active`).
