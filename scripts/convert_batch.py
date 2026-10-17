@@ -2,7 +2,7 @@
 
 usage: python convert_batch.py --fo4-data <Fallout 4 Data dir> --staging <out dir> --content-resources <ContentResources.zip>
                                --texconv <Texconvx64.exe> --collision-template <vanilla box-collision Starfield .nif>
-                               [--pattern "setdressing/(chair|stool)"] [--limit 40] [--manifest manifest.json]
+                               [--pattern "setdressing/(chair|stool)"] [--limit 40] [--max-tris 20000] [--manifest manifest.json]
 Writes <staging>/manifest.json: converted items (EditorID + model path for the plugin writer), failures with reasons, stats.
 With --cell-json, references whose FO4 ragdoll data (XRGD) poses their model away from its node pose get a posed model of
 their own (src/fo4sf/placed_pose.py): extra items with "pose": {"kind": "xrgd", "refs": [FO4 FormKeys]}, which the plugin
@@ -20,7 +20,7 @@ import time
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
+from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, nif, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
 
 
 def checkpoint_signature(a):
@@ -49,6 +49,8 @@ def checkpoint_signature(a):
     caps = textures.parse_texture_caps(getattr(a, "max_texture", ""))
     if caps:                                            # capped outputs differ; no cap keeps existing checkpoints valid
         sig["max_texture"] = caps
+    if getattr(a, "max_tris", 20000) != 20000:          # different skip limit produces different item set
+        sig["max_tris"] = a.max_tris
     return sig
 
 
@@ -119,6 +121,17 @@ def editor_id(source, ids):
             raise ValueError(f"editor ID collision for {key}")
         ids[key] = name
     return ids[key]
+
+
+def triangle_count(src_archives, nif_name: str) -> int:
+    """Cheap triangle count for the --max-tris skip: parse the NIF and sum triangles of static shapes.
+    Returns 0 on parse failure or no geometry (the conversion will fail or skip later)."""
+    try:
+        raw = src_archives.mesh(nif_name)
+        n = nif.parse(raw)
+        return sum(len(s.triangles) for s in nif.fo4_trishapes(n) if s.positions and s.triangles)
+    except Exception:
+        return 0
 
 
 DEFAULT_CELL_TYPES = "Static,StaticCollection,MovableStatic,Furniture,Door,Activator,Container,MiscItem,Terminal"
@@ -233,6 +246,10 @@ def main():
             break
         if not a.cell_json and re.search(r"(lod|_dmg|damaged|destr)", name, re.I):
             skipped += 1
+            continue
+        if a.max_tris and triangle_count(src, name) > a.max_tris:
+            skipped += 1
+            failures.append({"nif": name, "reason": f"exceeds --max-tris {a.max_tris}"})
             continue
         r = cache.load(name) if cache else None
         if r is not None:
