@@ -472,6 +472,7 @@ def plan_terrain(a):
             sys.exit(f"bad travel command in plan.json: {travel!r}")
         if w.get("activate"):
             w = dict(w, activate=activate_block(w["activate"]))
+        w = dict(w, points=terrain_points(w.get("points")))
         tests.append(with_extras({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "",
                                   "ref": w["coc"], "model": w.get("label", ""), "world_coc": w["coc"], "travel": travel,
                                   **{k: w[k] for k in ("spawn_local", "anchor", "drop_above_spawn", "settle_ms",
@@ -509,6 +510,20 @@ def plan_terrain(a):
     save_atomic(os.path.join(a.out, "queue.json"), q)
     print(f"{len(q['tests'])} terrain tests (experiment {a.exp_dir}) on build {q['build_id']}"
           + (f", needs runner features {', '.join(q['needs'])}" if q.get("needs") else ""))
+
+
+def terrain_points(points):
+    """plan.json's terrain "points": a non-empty list of {label, x, y, expect} with finite numbers, like the other
+    planners' _vec / _num (#219: an empty list made the judge's checks vacuous, a NaN expect never failed)."""
+    if not isinstance(points, list) or not points:
+        sys.exit(f"bad points in plan.json (want a non-empty list of {{label, x, y, expect}}): {points!r}")
+    out = []
+    for p in points:
+        if not isinstance(p, dict):
+            sys.exit(f"bad point in plan.json: {p!r}")
+        out.append(dict(p, label=str(p.get("label") or f"p{len(out)}"),
+                        **{k: _num(p, k, None, -1e6, 1e6) for k in ("x", "y", "expect")}))
+    return out
 
 
 def _vec(v, sizes, what):
@@ -1228,6 +1243,12 @@ def judge_kind(test, obs, out_dir):
         return "INCONCLUSIVE", "ELSEWHERE", f"ended {d:.1f} m from the arrival point"
     if kind == "terrain":
         # heights measured by dropping the player onto known terrain pads (terrain experiment 1, PR #57)
+        planned = test.get("points")
+        if not planned or not all(isinstance(p, dict) and all(
+                isinstance(p.get(k), (int, float)) and not isinstance(p.get(k), bool) and math.isfinite(p[k])
+                for k in ("x", "y", "expect")) for p in planned):
+            # a queue planned before plan-terrain checked its points (#219): nothing to judge a height against
+            return "INCONCLUSIVE", "PLAN", f"the test has no points or a non-numeric one: {planned!r:.120}"
         pts = obs.get("points") or []
         reads = [(p, parse3(o.get("read")) if isinstance(o, dict) else None) for p, o in zip(test["points"], pts)]
         if len(reads) < len(test["points"]) or any(r is None for _, r in reads) or not shot_ok(obs.get("shot")):

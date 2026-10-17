@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from types import SimpleNamespace
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -602,6 +603,34 @@ class PlanJsonTests(unittest.TestCase):
         jdump([{"coc": "bad name; quit", "points": []}], os.path.join(d, "plan.json"))
         with self.assertRaises(SystemExit):               # typed into the console: letters, digits, _ only
             tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])
+
+    def test_terrain_points_are_validated(self):
+        # #219: no points, a NaN / missing / non-numeric value are refused at planning, like the other planners
+        d = tempfile.mkdtemp()
+        writef(os.path.join(d, "FO4Port.esm"), b"TES4")
+        out = os.path.join(d, "q")
+        for points in ([], None, ["v0"], [{"label": "v0", "x": 0.0, "y": 0.0, "expect": float("nan")}],
+                       [{"label": "v0", "x": 0.0, "y": 0.0}], [{"label": "v0", "x": 0.0, "y": 0.0, "expect": "high"}]):
+            jdump([{"coc": "FO4CW_X", "points": points, "beyond": {"x": 0.0, "y": 0.0}}], os.path.join(d, "plan.json"))
+            with self.assertRaises(SystemExit, msg=points), mock.patch("builtins.print"):
+                tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])
+        jdump([{"coc": "FO4CW_X", "points": [{"label": "v0", "x": 0, "y": "2", "expect": "15"}]}],
+              os.path.join(d, "plan.json"))
+        with mock.patch("builtins.print"):
+            tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])
+        self.assertEqual(jload(os.path.join(out, "queue.json"))["tests"][0]["points"],
+                         [{"label": "v0", "x": 0.0, "y": 2.0, "expect": 15.0}])
+
+    def test_the_terrain_judge_never_passes_a_test_without_usable_points(self):
+        # #219: a queue planned before the check: no points judged PASS on a screenshot alone, a NaN expect passed a
+        # read 400 m below, a string expect raised TypeError
+        d = tempfile.mkdtemp()
+        writef(os.path.join(d, "spawn.png"), b"x" * 2000)
+        for points, reads in (([], []), ([{"label": "v0", "x": 0.0, "y": 0.0, "expect": float("nan")}], ["0 0 -400"]),
+                              ([{"label": "v0", "x": 0.0, "y": 0.0, "expect": "15"}], ["0 0 15"])):
+            test = {"id": "0000_terrain_X", "kind": "terrain", "points": points}
+            obs = {"shot": "spawn.png", "points": [{"read": r} for r in reads]}
+            self.assertEqual(tq.judge(test, obs, d)[:2], ("INCONCLUSIVE", "PLAN"), points)
 
 
 class ExpPackTests(unittest.TestCase):
