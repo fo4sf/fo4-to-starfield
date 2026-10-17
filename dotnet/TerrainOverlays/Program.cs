@@ -628,10 +628,9 @@ if (Has(prm, "objects"))
     }
     // Flora (docs/terrain/flora.md): FO4 Flora -> native Starfield FLOR, one base per FO4 base, cloned from
     // FloraMaizeCrop01 (000EC886: keywords FloraTypeOrganic + OutpostCanDomesticate, PFIG OrgCommonNutrient_Seed,
-    // PNAM/FNAM/JNAM/PFPC/PRPS of the crop template). Mutagen 0.55.0-alpha.67 Flora models Name / Model / Keywords /
-    // bounds only (no Ingredient/PFIG); Duplicate of the maize crop keeps the unmodeled harvest fields, then we set
-    // EditorID, Name, Model. When Mutagen exposes Ingredient, the entry's ingredient form is written; otherwise the
-    // template PFIG stays (the default 00260DF2) and a non-default ingredient is refused.
+    // PNAM/FNAM/JNAM/PFPC/PRPS of the crop template). Mutagen 0.55.0-alpha.67 Flora.Ingredient writes PFIG
+    // (default seed and a custom MISC both serialize; a STAT ingredient is refused before publication). Duplicate
+    // of the maize crop keeps the rest of the harvest fields, then we set EditorID, Name, Model, Ingredient.
     // ({"src", "edid", "model", "name", "ingredient", "cell", "pos", "rot", "scale", "reference_index"}.)
     var florIds = new Dictionary<string, object>();
     var florByEdid = new Dictionary<string, Flora>(StringComparer.OrdinalIgnoreCase);
@@ -673,7 +672,7 @@ if (Has(prm, "objects"))
                     setTo?.Invoke(link, new object[] { ingKey });
                 }
                 else if (ingKey != defaultIng)
-                    throw new InvalidDataException($"flora {edid}: Mutagen Flora has no Ingredient; non-default PFIG {ingStr} needs a byte patch (template keeps OrgCommonNutrient_Seed)");
+                    throw new InvalidDataException($"flora {edid}: Mutagen Flora has no Ingredient property; cannot write non-default PFIG {ingStr}");
                 mod.Florae.Add(flor);
                 florByEdid[edid] = flor;
                 florSig[edid] = sig;

@@ -8,9 +8,10 @@ Author: Grok, 2026-10-17. Status: **implemented, offline**. Listing + cluster + 
 ## What hangs today
 
 `exterior.CONVERT_TYPES` includes `Flora`, so every placed FO4 plant is converted as a **STAT** (visuals only). Core
-`selected.json` (`terrain_core64c_work_fix3`, read-only): **3,520** Flora references of **48** bases, of 649,596
-converted refs. They are not a promotion class (`objects.json` has containers / items / activators / terminals /
-workshops / benches / doors / lights; no flora). Activating a melon does nothing.
+`selected.json` (`terrain_core64c_work_fix3`, read-only): **3,520** Flora references of **48** bases before
+exclusion (2 initially-disabled refs dropped, so **3,518** / **47** in the writer; FloraInstituteGourdVine01
+leaves), of 649,596 converted refs. They are not a promotion class (`objects.json` has containers / items /
+activators / terminals / workshops / benches / doors / lights; no flora). Activating a melon does nothing.
 
 Crop counts in that core (editor id contains the crop name): tato 320, mutfruit 328, gourd 251, corn 230, melon 199,
 tarberry 134, razorgrain 106. Also wild / decorative flora (HubFlower 504, BloodLeaf 303, glowing fungus 345, ferns,
@@ -48,8 +49,10 @@ Activate prompt: `ATTX` is a localization id on vanilla records (28041 on BloodS
 
 ## FO4 FLOR
 
-`Fallout4.esm` is **not on this machine** (Steam Data is Vortex-modded and has no `Fallout4.esm`; `D:/fo4-vanilla/Data`
-is missing). Byte-level FO4 fields are **unresolved** until that master is readable.
+`Fallout4.esm` is on this machine at the Steam depot path lights / workshops / benches already use
+(`C:/Program Files (x86)/Steam/steamapps/content/app_377160/depot_377163/Data/Fallout4.esm`; **verified** exists,
+330,745,373 bytes). A produce table is still **unresolved** as a product mapping: this writer and vanilla Starfield
+`PFIG` take `MISC` / `LVLI`; FO4 harvest items are `ALCH`.
 
 **Supported** (shared field names that Starfield still uses, CK / UESP naming, the 48 editor ids in `selected.json`):
 
@@ -85,10 +88,9 @@ python scripts/terrain/make_core64c.py stage ... --cluster cluster.json
    `FloraTypeOrganic`, `PFIG` the declared ingredient, `MODL` the converted model. Against `Starfield.esm`: the
    ingredient exists (MISC or LVLI).
 
-Mutagen 0.55.0-alpha.67 **does** model `Mutagen.Bethesda.Starfield.Flora` (Name, Model, Keywords, bounds). Its xml
-does not list an Ingredient/`PFIG` property. `IHarvestTarget` is `MiscItem` and `LeveledItem`, which matches the
-vanilla `PFIG` targets. Writer spike: copy `FloraMaizeCrop01` from the master and set Name / Model / EditorID;
-read the copy back raw and check `PFIG` is still the seed. If Mutagen drops `PFIG`, clone the record bytes instead.
+Mutagen 0.55.0-alpha.67 `Flora.Ingredient` **does** write `PFIG`: the default seed `00260DF2` and a custom MISC
+(`000055AF`) both serialize; a STAT ingredient is refused before the plugin is published. `IHarvestTarget` is
+`MiscItem` and `LeveledItem`, which matches the vanilla `PFIG` targets. No byte patch is needed for these cases.
 
 ## Why not the other shapes
 

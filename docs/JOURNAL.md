@@ -1639,9 +1639,10 @@ times); the owner's three-line console paste became one line (give one line per 
 
 Starfield.esm 1.16.244 still has `FLOR` as the harvest record: 300 bases, `PFIG` ingredient + `PFPC` seasons.
 Organic crop template `FloraMaizeCrop01` (keywords `FloraTypeOrganic` + `OutpostCanDomesticate`, seed item
-`OrgCommonNutrient_Seed`). Core64c selected 3,520 Flora refs / 48 bases, currently STAT. Plan: one Starfield FLOR
-per FO4 flora base, cloned from the maize crop, converted model, REFR keeps its slot
-([docs/terrain/flora.md](terrain/flora.md)). `Fallout4.esm` not on this machine, so FO4 ingredients are not mapped
-yet (default seed). Promotion class follows: `make_cluster.py flora`, `cluster_flora` (edid `FO4Core_flor_*`),
-TerrainOverlays clones `FloraMaizeCrop01` and sets EDID/FULL/MODL. In-game harvest is Claude's after a scratch overlay.
+`OrgCommonNutrient_Seed`). Core64c selected 3,520 Flora refs / 48 bases before exclusion (writer 3,518 / 47).
+Mutagen 0.55.0-alpha.67 `Flora.Ingredient` writes `PFIG` (default seed and a custom MISC); a STAT ingredient is
+refused; no byte patch. `Fallout4.esm` is at depot_377163; a produce table is still unresolved because Starfield
+`PFIG` is MISC/LVLI, not FO4 ALCH. Promotion class: `make_cluster.py flora`, `cluster_flora` (edid `FO4Core_flor_*`),
+TerrainOverlays Duplicate of `FloraMaizeCrop01`. In-game harvest is Claude's after a scratch overlay
+([docs/terrain/flora.md](terrain/flora.md)).
 
