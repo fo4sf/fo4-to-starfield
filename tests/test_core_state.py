@@ -143,6 +143,27 @@ class FoldTests(unittest.TestCase):
                          {"a": "skipped", "b": "circuit_broken", "c": "completed"})
         self.assertEqual(s.tasks_by_status().get("completed"), ["c"])
 
+    def test_a_tasks_results_fold_in_row_order_not_in_append_order(self):
+        """An import that recovers a lost live write appends an older results row after a newer result (§3, §10), so
+        the fold orders a task's results by their results.jsonl line: the recovered older row never replaces the
+        retry's verdict, a later row wins whatever its attempt number (a BREAKER row is attempt 0), and a result
+        without a row (a worker's) still folds in append order."""
+        rp = "C:\\Modding\\testqueue\\walk\\results.jsonl"
+        older = ev("task_finished", task="walk/w1", outcome="INCONCLUSIVE", attempt=1, detail="NOOBS", src=rp + ":1")
+        newer = ev("task_finished", task="walk/w1", outcome="PASS", attempt=2, completed=True, src=rp + ":2")
+        for order in ((older, newer), (newer, older)):
+            s = fold([ev("task_queued", task="walk/w1"), *order])
+            t = s.tasks["walk/w1"]
+            self.assertEqual((t["status"], t["outcome"], t["attempt"], t["detail"]), ("completed", "PASS", 2, ""))
+            self.assertEqual((s.events, s.bad_events), (3, []))               # the older row is kept and counted
+        breaker = ev("task_finished", task="walk/w1", outcome="CIRCUIT_BROKEN", attempt=0, src=rp + ":7")
+        for order in ((older, newer, breaker), (breaker, older, newer)):
+            t = fold(list(order)).tasks["walk/w1"]
+            self.assertEqual((t["status"], t["attempt"]), ("circuit_broken", 0))
+        worker = ev("task_finished", task="walk/w1", outcome="FAIL", attempt=3)
+        self.assertEqual(fold([newer, worker]).tasks["walk/w1"]["outcome"], "FAIL")
+        self.assertEqual(fold([worker, newer]).tasks["walk/w1"]["outcome"], "PASS")
+
     def test_only_an_in_game_pass_verifies(self):
         base = [ev("build_pinned", build_id="b1"), ev("capability_declared", capability="walk")]
         self.assertEqual(fold(base).capability("walk"), CapabilityState.UNTESTED)

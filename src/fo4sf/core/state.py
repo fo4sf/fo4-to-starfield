@@ -4,6 +4,12 @@ A power cut can leave a partial last line: read() treats it as "not an event" an
 records a ledger_repaired event, so the file never holds a corrupt line in the middle. A last line that is a whole
 event and only lacks its newline (the cut came after the closing brace) is an event for both: read() counts it and
 append() terminates it. Current state is fold(events); nothing here rewrites history.
+
+A task's results are ordered by their results.jsonl row (the `src` of a task_finished, `<file>:<line>`), not by their
+place in the ledger: an import that recovers a lost live write appends an older row after the results written since
+(leader-core.md §3, §10), and that recovered row must never replace a retry's verdict. The raw event stays; the fold of
+the repaired ledger equals the fold of a fresh import of the same files. A result without a row (a worker's, §8) folds
+in append order, as before.
 """
 from dataclasses import dataclass, field
 import os
@@ -96,6 +102,7 @@ class LeaderState:
     declared: set = field(default_factory=set)
     blockers: dict = field(default_factory=dict)      # name -> {evidence, owner, open}
     recovery_points: list = field(default_factory=list)
+    result_rows: dict = field(default_factory=dict)   # task -> (results file, line) of the result that stands (§3)
     campaigns: set = field(default_factory=set)
     changes: list = field(default_factory=list)       # leader_started commits seen, in order
     events: int = 0
@@ -183,6 +190,15 @@ def _apply_capability(s, f):
     # SKIPPED / CIRCUIT_BROKEN: no change (untested stays untested)
 
 
+def _result_row(src):
+    """(file, line) of a task_finished that came from a results.jsonl row (`<file>:<line>`, import_queue.py and
+    runner_events.py write the same key), else None: a worker's result has no row and folds in append order."""
+    if not isinstance(src, str):
+        return None
+    path, _, line = src.rpartition(":")
+    return (path, int(line)) if path and line.isdigit() else None
+
+
 def fold(events, now=None):
     """Current state from the events, in order. Enforces the rules of leader-core.md §1. A known event whose fields
     the fold cannot read (a missing or wrongly shaped field from a writer bug or a hand edit) is skipped and listed
@@ -240,6 +256,13 @@ def _fold_one(s, e):
     elif e.ev == "task_finished":
         out = Outcome(f["outcome"])
         t = s.tasks.setdefault(f["task"], {"status": "queued", "outcome": None, "attempt": 0, "detail": ""})
+        if f.get("campaign"):
+            s.campaigns.add(f["campaign"])
+        row, last = _result_row(f.get("src")), s.result_rows.get(f["task"])
+        if row and last and row[0] == last[0] and row[1] < last[1]:
+            return                      # an older row recovered by an import after a newer result: evidence, not state
+        if row:
+            s.result_rows[f["task"]] = row
         t["outcome"], t["detail"] = out.value, f.get("detail", "")
         t["attempt"] = f.get("attempt", t["attempt"])
         t["campaign"] = f.get("campaign", t.get("campaign"))
@@ -247,8 +270,6 @@ def _fold_one(s, e):
         # SKIPPED and CIRCUIT_BROKEN are terminal but never "completed"
         t["status"] = {Outcome.SKIPPED: "skipped", Outcome.CIRCUIT_BROKEN: "circuit_broken",
                        Outcome.INCONCLUSIVE: "inconclusive"}.get(out, "completed")
-        if f.get("campaign"):
-            s.campaigns.add(f["campaign"])
         if f.get("capability") and f.get("source"):                 # a worker's result names the card's capability
             _apply_capability(s, f)                                 # (§8: the capability_result that follows repeats it)
     elif e.ev == "capability_declared":

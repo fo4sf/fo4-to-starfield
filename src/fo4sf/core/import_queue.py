@@ -15,7 +15,8 @@ Every event carries src = "<file>:<line>" (a row of a file that only grows), "<f
 "<file>@<key>:<first 16 hex of the content's sha256>@<mtime ns>" (a record rewritten in place: a new deploy or
 install is a new event, a re-deploy of the same bytes too); an import skips src keys already in the ledger. A runner
 given a lease folder writes the same keys live (runner_events.py, leader-core.md §10), so importing its queue
-afterwards adds nothing: the import is the recovery path when a live write was lost.
+afterwards adds nothing: the import is the recovery path when a live write was lost. A recovered row lands after the
+results written since it was lost, so the fold (state.py) orders a task's results by row, never by ledger position.
 """
 import hashlib
 import json
