@@ -20,7 +20,7 @@ import time
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
+from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, nif, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
 
 
 def checkpoint_signature(a):
@@ -228,12 +228,26 @@ def main():
     attempted_so_far = 0
     skipped = 0
     progress_every = 10
-    for name in names:
+    total_candidates = len(names)
+    for i, name in enumerate(names):
         if len(items) >= a.limit:
             break
         if not a.cell_json and re.search(r"(lod|_dmg|damaged|destr)", name, re.I):
             skipped += 1
             continue
+        # Early triangle-count check so --max-tris actually skips before full convert
+        if a.max_tris and a.max_tris > 0:
+            raw = src.mesh(name)
+            if raw:
+                try:
+                    parsed = nif.parse(raw)
+                    tri_count = sum(len(s.triangles) for s in nif.fo4_trishapes(parsed) if s.triangles)
+                    if tri_count > a.max_tris:
+                        skipped += 1
+                        print(f"  skip {name}: {tri_count} tris > {a.max_tris}")
+                        continue
+                except Exception:
+                    pass  # fall through; convert will report the real reason
         r = cache.load(name) if cache else None
         if r is not None:
             reused += 1
@@ -270,8 +284,10 @@ def main():
         if attempted_so_far % progress_every == 0:
             elapsed_now = time.time() - t0
             rate = attempted_so_far / elapsed_now if elapsed_now > 0 else 0
+            done_pct = 100.0 * (i + 1) / total_candidates if total_candidates else 0
+            eta = (total_candidates - (i + 1)) / rate if rate > 0 else 0
             print(f"  progress: {attempted_so_far} attempted ({len(items)} ok, {len(failures)} fail, {skipped} skipped) "
-                  f"in {elapsed_now:.0f}s ({rate:.1f}/s)")
+                  f"in {elapsed_now:.0f}s ({rate:.1f}/s, {done_pct:.0f}%, eta {eta:.0f}s)")
     pose_stats = None
     if a.cell_json and not a.no_ref_poses:
         # FO4 ragdoll poses (XRGD): one posed model per distinct pose that moves its model (skeletons lying down)
