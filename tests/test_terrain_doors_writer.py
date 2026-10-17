@@ -1,7 +1,7 @@
 """Scripted load doors through the actual terrain writer (dotnet/TerrainOverlays) on the synthetic master of
 test_terrain_reference_identity (dotnet/TerrainIdentityFixture), never a game: the door REFR keeps its slot and carries
 the FO4SF_LoadDoor VMAD byte for byte as scripts/terrain/vmad_patch.py encodes it (DestinationX / Y / Z = the interior
-marker's position), the arrival markers take new ids after every other record (the lights included) and are PERSISTENT
+marker's position, then UseDestinationPosition true: six properties), the arrival markers take new ids after every other record (the lights included) and are PERSISTENT
 references of the world's persistent cell (with the anchor), one ACTI per door base follows, and make_core64c's own
 checks pass on the written plugin (docs/terrain/scripted-doors.md)."""
 import copy
@@ -92,6 +92,12 @@ class TerrainDoorsWriterTests(unittest.TestCase):
             plugin, local_id, pos = vmad_patch.load_door_target(field(r[1], b"VMAD"))
             self.assertEqual((plugin, local_id), ("FO4Port.esm", dest))
             self.assertEqual(pos, tuple(struct.unpack("<3f", struct.pack("<3f", *INSIDE))))   # float32 of the JSON values
+            # Mutagen's six properties, in vmad_patch's order, the bool true (decoded by the independent codec)
+            props = vmad_patch.decode(field(r[1], b"VMAD"))["scripts"][0]["properties"]
+            self.assertEqual([(p["name"], p["type"], p["status"]) for p in props],
+                             [("DestinationPlugin", 2, 1), ("DestinationId", 3, 1), ("DestinationX", 4, 1),
+                              ("DestinationY", 4, 1), ("DestinationZ", 4, 1), ("UseDestinationPosition", 5, 1)])
+            self.assertIs(props[5]["value"], True)
             self.assertEqual(struct.unpack("<I", field(r[1], b"NAME"))[0], 0x01000000 | acti)
             self.assertEqual(r[3] & 0x400, 0)                      # temporary
         # the markers: XMarker of the master, at the arrival point, PERSISTENT, in the world's persistent cell (the

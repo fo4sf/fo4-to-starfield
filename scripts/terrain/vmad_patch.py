@@ -12,18 +12,19 @@ record-level byte diff of the two plugins. Per door of the core build's objects.
   - the interior door REFR (destination.ref, temporary in its CELL) gains a VMAD attaching FO4SF_LoadDoor with
     DestinationPlugin = the core plugin's file name, DestinationId = the exterior ARRIVAL marker's local id (the
     core's formids.json "doors"[src]["arrival"]: a PERSISTENT XMarker in the overlay world's persistent cell) and
-    DestinationX / Y / Z = that marker's MERGED position (its written position + merge_offset): the return trip;
+    DestinationX / Y / Z = that marker's MERGED position (its written position + merge_offset) and
+    UseDestinationPosition = true (the script applies the coordinates only with it): the return trip;
   - a PERSISTENT XMarker REFR (the interior ARRIVAL marker, where the exterior door's MoveTo lands the player) at the
     FO4 arrival point of the exterior door's XTEL (destination.arrival, metres), in the CELL's persistent children
     group (created when the cell has none), with the local id the cluster promised (destination.id = the pinned
     plugin's next free id + k, make_cluster.py doors): the exterior door's VMAD already names it (and carries its
-    position as DestinationX / Y / Z).
+    position as DestinationX / Y / Z with UseDestinationPosition true).
 A temporary destination does not resolve from the other side (an unloaded cell's temporary references are not in
 memory: Game.GetFormFromFile returns None and the script refuses; seen in game for the exterior marker 0A76FD,
 C:\\Modding\\testqueue\\door_trip_sdm_1018), so both markers are persistent. Interiors have no overlay merge, so a
 persistent reference reads its written position there (docs/terrain/overlay-records.md); a MoveTo onto a persistent
 reference of the overlay lands at its UNMERGED position, and a SetPosition to the merged one afterwards puts the
-player into the merged world (door probe (e)): hence the three coordinates.
+player into the merged world (door probe (e)): hence the three coordinates and the bool that turns them on.
 
 VMAD layout (verified on Starfield.esm 1.16.244 by the design pass, 60 REFR VMADs; the same layout Mutagen wrote):
   int16 version 6 | uint16 object format 2 | uint16 script count
@@ -31,6 +32,8 @@ VMAD layout (verified on Starfield.esm 1.16.244 by the design pass, 60 REFR VMAD
   per property: uint16 name length + name | uint8 type | uint8 status (1 edited, 3 removed) | value
   value: 1 object = uint16 0, int16 alias -1, uint32 form id; 2 string = uint16 length + chars; 3 int = int32;
          4 float = f32; 5 bool = u8; 11..15 arrays = uint32 count + elements (read, never written here)
+A door's properties: DestinationPlugin (2), DestinationId (3) and, for a destination position, DestinationX / Y / Z (4)
+then UseDestinationPosition (5, value 1): six, all status 1 (edited); a door without a position has the first two.
 Nothing follows the last property on a REFR (no fragments). Everything this writes stays outside the repo.
 """
 import argparse
@@ -48,10 +51,14 @@ from fo4sf import fo4land  # noqa: E402
 VERSION, OBJECT_FORMAT = 6, 2
 SCRIPT = "FO4SF_LoadDoor"                       # scripts/door_bridge/FO4SF_LoadDoor.psc (PR #243): the contract
 PROP_PLUGIN, PROP_ID = "DestinationPlugin", "DestinationId"
-# The arrival position (float, edited), applied with SetPosition after a successful MoveTo: the names of Codex's
-# FO4SF_LoadDoor extension (PR #291, a draft on 2026-10-17, not on main yet; its UseDestinationPosition bool is not
-# written here: docs/terrain/scripted-doors.md "Return trip").
+# The arrival position (float, edited), applied with SetPosition after a successful MoveTo, and the explicit opt-in
+# that gates it (bool, edited, true): the names and types of Codex's FO4SF_LoadDoor extension (PR #291, a draft on
+# 2026-10-17, not on main yet: scripts/door_bridge/FO4SF_LoadDoor.psc there declares the bool before the three floats;
+# Papyrus binds VMAD properties by name, so the order is cosmetic and the reader accepts both). The script ignores
+# the coordinates unless the bool is true (zero is a valid coordinate, so the bool, not the values, is the switch):
+# a door carries all four properties or none, written DestinationX / Y / Z, then UseDestinationPosition (the sixth).
 PROP_POSITION = ("DestinationX", "DestinationY", "DestinationZ")
+PROP_USE_POSITION = "UseDestinationPosition"
 # The overlay merge: a reference of the overlay world is drawn at its written (local) position + the overlay's
 # planet_target_cell (overlays_params.json, cells) x CELL_M, z unchanged. MERGE_MEASURED is the only offset measured in
 # game: spawn read - spawn_local in seven core64 / core64b runs (-1200.0029, -2700.0043; make_core64c.CORE64_OFFSET)
@@ -182,7 +189,9 @@ def _position(position):
 def load_door_scripts(plugin, local_id, position=None):
     """The one script entry of a scripted load door: FO4SF_LoadDoor, local (the base carries no script), every
     property edited: DestinationPlugin (string), DestinationId (int, the plugin-local id 1..0xFFFFFF) and, with a
-    position, DestinationX / DestinationY / DestinationZ (float: where SetPosition puts the player after the MoveTo)."""
+    position, DestinationX / DestinationY / DestinationZ (float: where SetPosition puts the player after the MoveTo)
+    and UseDestinationPosition (bool, true: the script's opt-in; without it the floats are ignored). Six properties
+    with a position, two without."""
     plugin = str(plugin)
     if not plugin.strip() or "\n" in plugin or "\r" in plugin or any(c in plugin for c in "\\/"):
         raise ValueError(f"destination plugin {plugin!r} is not a plain file name")
@@ -193,6 +202,7 @@ def load_door_scripts(plugin, local_id, position=None):
     if position is not None:
         props += [{"name": n, "type": T_FLOAT, "status": PROP_EDITED, "value": v}
                   for n, v in zip(PROP_POSITION, _position(position))]
+        props.append({"name": PROP_USE_POSITION, "type": T_BOOL, "status": PROP_EDITED, "value": True})
     return [{"name": SCRIPT, "status": STATUS_LOCAL, "properties": props}]
 
 
@@ -204,7 +214,11 @@ def load_door_vmad(plugin, local_id, position=None):
 def load_door_target(vmad):
     """(plugin, id, position) of a scripted load door's VMAD, position = (x, y, z) floats or None for the two-property
     door; ValueError unless it is exactly load_door_vmad's shape (version 6, format 2, one local FO4SF_LoadDoor script
-    with the edited properties in that order: DestinationPlugin, DestinationId[, DestinationX, Y, Z])."""
+    with the edited properties in that order: DestinationPlugin, DestinationId[, DestinationX, Y, Z,
+    UseDestinationPosition]). The position is returned only with its opt-in: UseDestinationPosition (bool) must be
+    present and true whenever the three floats are (the script ignores the floats otherwise, so a door without it
+    would pass a position check and never use the position), and it never stands without them. The script's own
+    declaration order (the bool before the floats) is read too: Papyrus binds VMAD properties by name."""
     d = decode(vmad)
     if (d["version"], d["format"]) != (VERSION, OBJECT_FORMAT):
         raise ValueError(f"version {d['version']} format {d['format']}")
@@ -215,13 +229,23 @@ def load_door_target(vmad):
         raise ValueError(f"script {s['name']!r} status {s['status']}")
     shape = [(p["name"], p["type"], p["status"]) for p in s["properties"]]
     base = [(PROP_PLUGIN, T_STRING, PROP_EDITED), (PROP_ID, T_INT, PROP_EDITED)]
-    if shape not in (base, base + [(n, T_FLOAT, PROP_EDITED) for n in PROP_POSITION]):
+    floats = [(n, T_FLOAT, PROP_EDITED) for n in PROP_POSITION]
+    use = (PROP_USE_POSITION, T_BOOL, PROP_EDITED)
+    if shape == base + floats:
+        raise ValueError(f"properties {shape}: DestinationX / Y / Z without {PROP_USE_POSITION} (the script ignores "
+                         f"the position unless it is true)")
+    if shape not in (base, base + floats + [use], base + [use] + floats):
         raise ValueError(f"properties {shape}")
     plugin, local_id = s["properties"][0]["value"], s["properties"][1]["value"]
     if not 1 <= local_id <= MAX_LOCAL_ID:
         raise ValueError(f"destination id {local_id} outside 1..0x{MAX_LOCAL_ID:06X}")
-    position = tuple(p["value"] for p in s["properties"][2:]) or None
-    if position is not None and not all(math.isfinite(v) for v in position):
+    if shape == base:
+        return plugin, local_id, None
+    by_name = {p["name"]: p["value"] for p in s["properties"]}
+    if by_name[PROP_USE_POSITION] is not True:
+        raise ValueError(f"{PROP_USE_POSITION} is false: the script ignores DestinationX / Y / Z")
+    position = tuple(by_name[n] for n in PROP_POSITION)
+    if not all(math.isfinite(v) for v in position):
         raise ValueError(f"destination position {position} not finite")
     return plugin, local_id, position
 
@@ -594,12 +618,12 @@ def cmd_port(a):
              f"core build {a.core} ({core_plugin}). The plugin is {a.port}'s with, per door:",
              "  the interior door REFR + VMAD FO4SF_LoadDoor (DestinationPlugin = the core plugin, DestinationId = the",
              "  exterior arrival marker, a persistent XMarker of the overlay's persistent cell; DestinationX / Y / Z = its",
-             f"  MERGED position: written position + {tuple(merge)}), and one PERSISTENT XMarker REFR at the FO4 arrival",
+             f"  MERGED position: written position + {tuple(merge)}; UseDestinationPosition = true), and one PERSISTENT XMarker REFR at the FO4 arrival",
              "  point inside (the exterior door's destination). Every other record is byte-identical (vmad_patch.py",
              "  check). doors.json lists them.",
              "The script FO4SF_LoadDoor.pex must be in an active plugin's archive (the core stage's Data tree); loose",
-             "scripts are not read on this install (docs/slice/scripted-door.md). The three coordinates need a script",
-             "that declares them (PR #291, a draft: it applies them only with UseDestinationPosition, not written here).",
+             "scripts are not read on this install (docs/slice/scripted-door.md). The three coordinates and the bool need a",
+             "script that declares them (PR #291, a draft: it applies them only with UseDestinationPosition, written true).",
              "NOT deployed, NOT queued."]
     for d in report["doors"]:
         lines.append(f"  {d['src']} {d['cell_edid']}: door REFR {d['interior_door']} -> {core_plugin}:{d['return_destination']['id']} "
@@ -624,7 +648,8 @@ def check_port(before, after, doors, core_plugin=None, merge=None):
     """[what, ok] of a patched port against its pinned input: masters, every record but the door REFRs byte-identical
     (sig, flags, fields, group path), each door REFR identical but for the inserted VMAD, which decodes to the script,
     the destination (the core's arrival marker when core_plugin is given) and the return position DestinationX / Y / Z
-    (that marker's objects.json position + merge when merge is given; present in any case), the markers (and nothing
+    (that marker's objects.json position + merge when merge is given; present in any case, with UseDestinationPosition
+    true: load_door_target refuses a VMAD whose floats lack the bool), the markers (and nothing
     else) new: persistent XMarker REFRs in their cell's persistent group at the arrival points, HEDR counts."""
     checks = []
 
@@ -660,7 +685,7 @@ def check_port(before, after, doors, core_plugin=None, merge=None):
         good = (isinstance(dest, tuple) and dest[2] is not None and (want is None or dest[:2] == want)
                 and (back is None or same_position(dest[2], back)) and at == [1 if nf[0][0] == b"EDID" else 0])
         shown = dest if not isinstance(dest, tuple) or dest[2] is None else (*dest[:2], [round(v, 4) for v in dest[2]])
-        need(good, f"{e['src']}: VMAD {SCRIPT} -> {shown} (expected {want or 'any'} at "
+        need(good, f"{e['src']}: VMAD {SCRIPT} -> {shown} with {PROP_USE_POSITION} true (expected {want or 'any'} at "
                    f"{[round(v, 4) for v in back] if back else 'a position'}; {vm[0].hex() if vm else 'none'})")
     for fid, e in markers.items():
         n = new.get(fid)
@@ -734,7 +759,8 @@ def cmd_decode(a):
             print(f"not a {SCRIPT} door VMAD ({err})")
         else:
             print(f"{SCRIPT}: {PROP_PLUGIN} {plugin}, {PROP_ID} {local_id} (0x{local_id:06X}), "
-                  + (", ".join(f"{n} {v!r}" for n, v in zip(PROP_POSITION, position)) if position else "no destination position"))
+                  + (", ".join(f"{n} {v!r}" for n, v in zip(PROP_POSITION, position)) + f", {PROP_USE_POSITION} True"
+                     if position else "no destination position"))
     return 0
 
 

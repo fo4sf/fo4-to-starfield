@@ -39,8 +39,9 @@
 // stage from make_cluster.py doors): FO4 exterior load doors whose destination lies in a converted interior. The door
 // REFR keeps its slot (as every promoted class) and carries a VMAD attaching FO4SF_LoadDoor (scripts/door_bridge, PR
 // #243) with the edited properties DestinationPlugin (string), DestinationId (int, the interior arrival marker's
-// plugin-local id) and DestinationX / DestinationY / DestinationZ (float, that marker's position: destination.arrival,
-// interior coordinates; Codex's PR #291 applies them with SetPosition after the MoveTo); its base is one ACTI per FO4
+// plugin-local id), DestinationX / DestinationY / DestinationZ (float, that marker's position: destination.arrival,
+// interior coordinates) and UseDestinationPosition (bool, true: Codex's PR #291 applies the coordinates with
+// SetPosition after the MoveTo only when it is true); its base is one ACTI per FO4
 // door base (the converted door mesh, FULL the entry's name, PNAM / FNAM / JNAM as the activators'). Each door also
 // places an exterior ARRIVAL marker (XMarker 00003B:Starfield.esm at the FO4 arrival point) where the interior door's
 // MoveTo lands the player: PERSISTENT (0x400) in the world's persistent cell, beside the anchor, because a temporary
@@ -672,7 +673,8 @@ if (Has(prm, "objects"))
     // "cell", "pos", "rot", "scale", "reference_index"}). The REFR is placed here, temporary in its reserved slot, with
     // the VMAD (Mutagen 0.55.0-alpha.67 VirtualMachineAdapter, version 6 / object format 2, one local ScriptEntry
     // FO4SF_LoadDoor, ScriptStringProperty DestinationPlugin + ScriptIntProperty DestinationId + ScriptFloatProperty
-    // DestinationX / Y / Z (destination.arrival.pos: the interior marker's position), all Edited: the layout of
+    // DestinationX / Y / Z (destination.arrival.pos: the interior marker's position) + ScriptBoolProperty
+    // UseDestinationPosition (true: the script ignores the three floats otherwise), all Edited: the layout of
     // Starfield.esm's own REFR VMADs, read back raw by the design pass). Its ACTI base (one per edid: entries of an
     // edid must agree on model and name) and its arrival marker are allocated after the lights, below; the base link
     // is set then. Refused: a destination that is not a plugin file name with an id in 1..0xFFFFFF or whose arrival
@@ -718,6 +720,7 @@ if (Has(prm, "objects"))
             string[] axes = { "DestinationX", "DestinationY", "DestinationZ" };
             for (int k = 0; k < 3; k++)
                 script.Properties.Add(new ScriptFloatProperty { Name = axes[k], Flags = ScriptProperty.Flag.Edited, Data = destPos[k] });
+            script.Properties.Add(new ScriptBoolProperty { Name = "UseDestinationPosition", Flags = ScriptProperty.Flag.Edited, Data = true });
             vmad.Scripts.Add(script);
             obj.VirtualMachineAdapter = vmad;
             doorEntries.Add((src, obj, edid, model, name, acell, A("pos"), A("rot")));

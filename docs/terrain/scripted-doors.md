@@ -19,16 +19,18 @@ The scripted door keeps every record temporary and moves the player with Papyrus
 activation it resolves `Game.GetFormFromFile(DestinationId, DestinationPlugin)` and calls `MoveTo` on it. The
 contract: `DestinationPlugin` (string, the plugin's file name) and `DestinationId` (int, the destination reference's
 plugin-local id, 1..0xFFFFFF); since 2026-10-17 also `DestinationX` / `DestinationY` / `DestinationZ` (float: where
-the player is put with `SetPosition` after the MoveTo, see "Return trip" below). No plugin masters the other.
+the player is put with `SetPosition` after the MoveTo, see "Return trip" below) and `UseDestinationPosition` (bool:
+the script applies the three floats only when it is true; zero is a valid coordinate, so the bool, not the values,
+is the switch). No plugin masters the other.
 
 Per door, this build writes:
 
 | side | record | where | what |
 | --- | --- | --- | --- |
 | exterior (FO4TerrainCore.esm) | ACTI `FO4Core_door_<6 hex>_<plugin>` | appended after the lights, one per FO4 door base | the converted door mesh (collision as the STAT it replaces), FULL "Door" (FO4's door names are localized string ids; `--names` can give the FULL), PNAM cc4c3300, FNAM 0, JNAM 360 (the activators' vanilla majority) |
-| exterior | the door REFR | **its original slot** (as every promoted class) | base = that ACTI; VMAD: one local script FO4SF_LoadDoor, `DestinationPlugin` = "FO4Port.esm", `DestinationId` = the interior arrival marker, `DestinationX/Y/Z` = that marker's position (interior coordinates, as its DATA) |
+| exterior | the door REFR | **its original slot** (as every promoted class) | base = that ACTI; VMAD: one local script FO4SF_LoadDoor, `DestinationPlugin` = "FO4Port.esm", `DestinationId` = the interior arrival marker, `DestinationX/Y/Z` = that marker's position (interior coordinates, as its DATA), `UseDestinationPosition` = true |
 | exterior | arrival marker REFR | new id after every other record (lights included), in the world's **persistent cell** (beside the anchor) | XMarker 00003B:Starfield.esm, **persistent** (0x400, since 2026-10-17), at the interior door's FO4 XTEL arrival / 70 (local coordinates) with its heading: where the interior door's MoveTo lands the player |
-| interior (FO4Port.esm, `vmad_patch.py port`) | the door REFR 01007D0B-style | unchanged record + VMAD | `DestinationPlugin` = "FO4TerrainCore.esm", `DestinationId` = the exterior arrival marker, `DestinationX/Y/Z` = that marker's **merged** position: local x - 1200, y - 2700, z unchanged |
+| interior (FO4Port.esm, `vmad_patch.py port`) | the door REFR 01007D0B-style | unchanged record + VMAD | `DestinationPlugin` = "FO4TerrainCore.esm", `DestinationId` = the exterior arrival marker, `DestinationX/Y/Z` = that marker's **merged** position: local x - 1200, y - 2700, z unchanged, `UseDestinationPosition` = true |
 | interior | arrival marker REFR | the port plugin's next free id + k, in the CELL's **persistent** children group | XMarker, persistent, at the exterior door's FO4 XTEL arrival / 70 with its heading: where the exterior door's MoveTo lands the player |
 
 Why both destinations are persistent markers and not the doors themselves: a temporary reference of an unloaded
@@ -71,7 +73,7 @@ python scripts/terrain/vmad_patch.py check --port <integ_1017> --out <integ_1017
    every other record including the lights (`check_door_identities`, `doors_after`), ACTI count = distinct door
    edids (with the activators and workshops: one line per signature), and per door the ACTI fields, the REFR's VMAD
    decoded back to the script and every property value (DestinationX / Y / Z = the entry's destination.arrival
-   position), the marker's base, position, rotation and persistent flag (`door_record_problems`); the markers sit in
+   position, UseDestinationPosition present and true: floats without the bool are refused), the marker's base, position, rotation and persistent flag (`door_record_problems`); the markers sit in
    the persistent children of the world's persistent cell with the anchor and nothing else there
    (`door_marker_groups`, `door_marker_placement`), over the overlay's cells, and no longer count in the per-cell REFR
    totals.
@@ -92,10 +94,16 @@ that normalizes records: the record-level byte diff is the proof that nothing el
 
 `int16 version 6 | uint16 object format 2 | uint16 script count`; per script `uint16 length + name | uint8 status
 (0 local) | uint16 property count`; per property `uint16 length + name | uint8 type | uint8 status (1 edited) | value`
-(2 string = `uint16 length + chars`, 3 int = int32, 4 float = f32). Since 2026-10-17 the property count is 5 and
-`0c00 "DestinationX" 04 01 <f32>`, then Y and Z, follow DestinationId (`vmad_patch.load_door_vmad(plugin, id,
-position)`; Mutagen's ScriptFloatProperty writes the same bytes: tests/test_terrain_doors_writer.py); the decoder
-(`vmad_patch.load_door_target`) reads both shapes and returns the position or None, the checks require it. The
+(2 string = `uint16 length + chars`, 3 int = int32, 4 float = f32, 5 bool = u8). Since 2026-10-17 a door with a
+destination position has six properties: `0c00 "DestinationX" 04 01 <f32>`, then Y and Z, follow DestinationId, and
+`1600 "UseDestinationPosition" 05 01 01` is the sixth (`vmad_patch.load_door_vmad(plugin, id, position)`; Mutagen's
+ScriptFloatProperty and ScriptBoolProperty write the same bytes: tests/test_terrain_doors_writer.py). The decoder
+(`vmad_patch.load_door_target`) reads the six-property shape and returns the position, or the two-property shape and
+returns None; floats without the bool (the five-property VMAD this writer wrote before the bool) or a false bool are
+refused, and the checks require the position. Papyrus binds a VMAD property by name and type, so the order is
+cosmetic: PR #291's psc declares the bool before the three floats, this writer puts it sixth, the reader takes both
+(`test_property_names_and_types_are_the_scripts_declarations` compares the names and types with the psc once #291 is
+in the tree). The
 80-byte reference of the design pass (FO4Port.esm:0x2339):
 `0600 0200 0100 0e00 "FO4SF_LoadDoor" 00 0200 1100 "DestinationPlugin" 02 01 0b00 "FO4Port.esm" 0d00 "DestinationId"
 03 01 39230000`; `vmad_patch.encode` reproduces it and `decode` reads Starfield.esm's own
@@ -177,18 +185,20 @@ next 0xDEF9 -> 0xDF08. The Super Duper Mart side:
   Fallout4.esm 33,571 of 33,571, 0 in an exterior cell's persistent children (**verified**,
   `C:\Modding\scratch\doorreturn\survey_persistent.py <esm>`: a raw GRUP walk counting worldspace REFRs by group type
   and whether an exterior block (types 4 / 5) is above them).
-- Both door VMADs carry `DestinationX` / `DestinationY` / `DestinationZ` (float, edited, after DestinationId). The
+- Both door VMADs carry `DestinationX` / `DestinationY` / `DestinationZ` (float, edited, after DestinationId) and,
+  since the restage of 2026-10-17 below, `UseDestinationPosition` (bool, edited, true) as the sixth property. The
   exterior door: the interior marker's position (objects.json destination.arrival.pos, the marker's DATA, interior
   coordinates). The interior door: the exterior marker's **merged** position, its written position + `merge_offset`:
   overlays_params.json `planet_target_cell` of the world ([-12, -27]) x 100 m = (-1200, -2700), z unchanged; any
   other offset is refused (`vmad_patch.MERGE_MEASURED`, the only one measured: seven core64 / core64b spawn reads and
-  probe (e)). The names are those of Codex's FO4SF_LoadDoor extension, PR #291, a draft (not on main on 2026-10-17);
-  #291 also has a bool `UseDestinationPosition` that this writer does not write (see "Open").
+  probe (e)). The names are those of Codex's FO4SF_LoadDoor extension, PR #291, a draft (not on main on 2026-10-17):
+  its `UseDestinationPosition` bool gates the `SetPosition`, so both writers set it (see "Restage with the bool").
 
 **Build `C:\Modding\staging\terrain_core64l`** (offline, **verified**; `C:\Modding\scratch\doorreturn\*.log`, commit
 b1b0e26): `make_core64c.py stage --work terrain_core64c_work_fix3 --core terrain_core64 --out terrain_core64l --sf-esm
 <Starfield.esm> --cluster C:\Modding\scratch\core64k3\commonwealth_cluster_k.json --navmesh terrain_core64i\navmesh.json`
-(core64k's stage command with another --out): FO4TerrainCore.esm 193,631,182 bytes (core64k + 900 = 15 doors x 3
+(core64k's stage command with another --out; as first staged, with five properties, before the bool: restaged
+below): FO4TerrainCore.esm 193,631,182 bytes (core64k + 900 = 15 doors x 3
 properties x 20 bytes), next FormID 0xA7711 as core64k. `check --sf-data`: 265 of 265 PASS (core64k: 264 of 264; the
 new line: "15 door arrival markers in the persistent children of FO4Core_Commonwealth's persistent cell, the anchor's
 (16 REFRs there = anchor + markers), each over the overlay's cells"). Oracle `collision_mesh_keys.py Data\meshes`:
@@ -209,18 +219,49 @@ the three floats appended to the same two properties, TES4 identical.
 
 The Super Duper Mart pair, raw (`sdm_records.py`, `vmad_patch.py decode`):
 
-- exterior door REFR `0102D22B` (temporary, cell 01000EEB, flags 0): VMAD `0600 0200 0100 0e00 "FO4SF_LoadDoor" 00
-  0500 ... "DestinationPlugin" 02 01 "FO4Port.esm" ... "DestinationId" 03 01 ffde0000 0c00 "DestinationX" 04 01
-  1e5eae40 0c00 "DestinationY" 04 01 bf538a41 0c00 "DestinationZ" 04 01 1bd469c0` = FO4Port.esm 57087 (0x00DEFF) at
-  (5.448989, 17.290892, -3.653571): the same float bytes as that marker's DATA.
+- exterior door REFR `0102D22B` (temporary, cell 01000EEB, flags 0): VMAD (167 bytes) `0600 0200 0100 0e00
+  "FO4SF_LoadDoor" 00 0600 ... "DestinationPlugin" 02 01 "FO4Port.esm" ... "DestinationId" 03 01 ffde0000 0c00
+  "DestinationX" 04 01 1e5eae40 0c00 "DestinationY" 04 01 bf538a41 0c00 "DestinationZ" 04 01 1bd469c0 1600
+  "UseDestinationPosition" 05 01 01` = FO4Port.esm 57087 (0x00DEFF) at (5.448989, 17.290892, -3.653571): the same float
+  bytes as that marker's DATA, and the bool true (restaged with the bool, see below).
 - exterior marker REFR `010A76FD`: flags 0x400, group path WRLD children 01000803 -> cell children 01001805 ->
   persistent children 01001805 (with the anchor 01000800); NAME 0000003B (XMarker), DATA (-469.44415, 636.0741,
   42.355988) rot z 2.58121, as in core64k (where it was flags 0 in cell 01000EEB's temporary children).
-- interior door REFR `01007D0B` (integ_1018_doors2): VMAD (147 bytes) `... "DestinationPlugin" 02 01
+- interior door REFR `01007D0B` (integ_1018_doors2): VMAD (174 bytes) `... "DestinationPlugin" 02 01
   "FO4TerrainCore.esm" ... "DestinationId" 03 01 fd760a00 ... "DestinationX" 04 01 36aed0c4 ... "DestinationY" 04 01
-  d0fe00c5 ... "DestinationZ" 04 01 886c2942` = FO4TerrainCore.esm 685821 (0x0A76FD) at (-1669.4441, -2063.9258,
-  42.355988) = the marker's local position + (-1200, -2700, 0); NAME and DATA as before.
+  d0fe00c5 ... "DestinationZ" 04 01 886c2942 1600 "UseDestinationPosition" 05 01 01` = FO4TerrainCore.esm 685821
+  (0x0A76FD) at (-1669.4441, -2063.9258, 42.355988) = the marker's local position + (-1200, -2700, 0), bool true; NAME
+  and DATA as before.
 - interior marker REFR `0100DEFF`: unchanged from integ_1018_doors (flags 0x400, the cell's persistent children).
+
+### Restage with the bool (2026-10-17)
+
+PR #291's script applies `DestinationX/Y/Z` only when `UseDestinationPosition` is true, and the five-property VMADs
+above carried no bool, so the script would have taken the plain MoveTo path and ignored the coordinates. Both writers
+now add `UseDestinationPosition` (type 5 bool, status 1 edited, value 1) as the sixth property, right after
+`DestinationZ`: the exterior VMAD in dotnet/TerrainOverlays (Mutagen `ScriptBoolProperty`), the interior one in
+`vmad_patch.py`. #291's psc declares the bool before the three floats; the names and types match, the order does not,
+which Papyrus does not care about (it binds by name), and the reader takes both. `load_door_target` refuses a VMAD
+with the floats and no bool, with a false bool, or with the bool and no floats; `check_port` and
+`make_core64c.door_record_problems` fail on those shapes; the two-property door stays readable.
+
+Both builds were regenerated from this code (the old folders moved aside, not deleted):
+
+- `terrain_core64l`: the same `stage` command as above. FO4TerrainCore.esm 193,631,587 bytes (the first staging +
+  405 = 15 doors x 27 bytes for `1600 "UseDestinationPosition" 05 01 01`; core64k + 1,305), sha256 391f3d3c30e4....
+  `check --sf-data`: **265 of 265** PASS. Oracle `collision_mesh_keys.py`: 11,768 NIFs, 0 violations. `compare-ids
+  --against terrain_core64k`: every section identical, `doors` (15) included; formids.json, objects.json, plan.json and
+  FO4TerrainCore_Mars.esm are byte-identical (sha256) to core64k's and to the first core64l's. Raw record diff against
+  the first core64l (`core_rawdiff.py`): 683,794 records both, 683,779 identical in bytes and group, exactly the 15 door
+  REFRs differ (the VMAD), none regrouped, TES4 identical.
+- `integ_1018_doors2` = `vmad_patch.py port --port integ_1018 --core terrain_core64l`: FO4Port.esm 4,087,389 bytes (+405
+  against the first port), sha256 945528ce02dc...; `check` PASS, **49 of 49**.
+- An independent raw read (stdlib only, `C:\Modding\scratch\usedest\raw_vmad_check.py`): all 30 door VMADs (15 per
+  side) are the six-property shape, every status edited, the bool 1, the values recomputed from objects.json and
+  overlays_params.json.
+
+Logs: `C:\Modding\scratch\usedest\*.log`. Still no script in game reads these properties: the PEX must ride an
+active plugin's archive and #291 is a draft.
 
 ## Open (Step 0 in game decides)
 
@@ -236,8 +277,8 @@ The Super Duper Mart pair, raw (`sdm_records.py`, `vmad_patch.py decode`):
 - The return trip in game: MoveTo onto a persistent exterior marker, then one SetPosition of 1.2 / 2.7 km. Probe (e)
   moved the player there in 15 setpos hops of at most 180 m per axis (single jumps of 3 cells or more raised
   "Boundary Reached" or hung in earlier runs); one large SetPosition from a script is untested (PR #291 says so too).
-- PR #291 (Codex, draft) applies `DestinationX/Y/Z` only when its bool `UseDestinationPosition` is true. This writer
-  writes the three floats only; with #291 as drafted the interior doors need
-  `UseDestinationPosition` = true (type 5, edited) as a sixth property before the return trip uses the coordinates.
+- PR #291 (Codex, draft) applies `DestinationX/Y/Z` only when its bool `UseDestinationPosition` is true. Both writers
+  now write that bool (true, sixth property, "Restage with the bool"); the script itself is not on main yet, and its
+  declaration order (the bool before the floats) differs from the written order, which binds by name.
 - FO4SF_LoadDoor.pex must be packed into an active plugin's archive (loose scripts are not read on this install): the
   stage does not place it; the deploy step must.

@@ -1133,7 +1133,8 @@ def door_edid(base, src):
 
 # Scripted load doors (docs/terrain/scripted-doors.md; make_cluster.py doors): the door REFR keeps its slot on an ACTI
 # with the converted door mesh and carries the FO4SF_LoadDoor VMAD (DestinationPlugin / DestinationId: the interior
-# arrival marker of the port plugin; DestinationX / Y / Z: that marker's position, interior coordinates); an exterior
+# arrival marker of the port plugin; DestinationX / Y / Z: that marker's position, interior coordinates, with
+# UseDestinationPosition true, the script's opt-in for them); an exterior
 # arrival XMarker (the interior door's destination: PERSISTENT, in the overlay world's persistent cell, so it resolves
 # from inside) takes a new REFR id after every other record, then the ACTI bases, so every id of the build without
 # doors stays put.
@@ -2106,7 +2107,8 @@ def door_record_problems(recs, own_prefix, objects, ids):
     base and placement): every door ACTI carries PNAM cc4c3300, FNAM 0 and JNAM 360 (the vanilla majority, as the
     activators) and no VMAD; every door REFR a VMAD that decodes to one local FO4SF_LoadDoor script whose edited
     DestinationPlugin / DestinationId are the entry's destination and DestinationX / Y / Z its destination.arrival
-    position (the interior marker's, vmad_patch.load_door_target); every arrival marker (formids.json
+    position (the interior marker's), with UseDestinationPosition true (vmad_patch.load_door_target: the six-property
+    shape; floats without the bool, or a false bool, are refused); every arrival marker (formids.json
     doors[src]["arrival"]) a PERSISTENT (0x400), enabled REFR of XMarker at the arrival position / rotation, no scale
     (its group: check's door_marker_groups). Returns problems, never an exception."""
     from fo4sf import fo4land
@@ -2529,11 +2531,11 @@ def readme(out, prm, ov, plan, exp):
         lines += ["", f"Scripted load doors (docs/terrain/scripted-doors.md): {o['promoted']['doors']} exterior load doors into converted",
                   f"interiors over {o['promoted']['door_bases']} ACTI bases (the converted door mesh, FULL 'Door'), each REFR in its slot with the",
                   "FO4SF_LoadDoor VMAD (DestinationPlugin / DestinationId = the interior arrival marker of the port plugin,",
-                  "DestinationX / Y / Z = its position) and an exterior arrival XMarker, PERSISTENT in the world's persistent cell",
+                  "DestinationX / Y / Z = its position, UseDestinationPosition true) and an exterior arrival XMarker, PERSISTENT in the world's persistent cell",
                   "(new ids after every other record; formids.json \"doors\" {src: {base, ref, arrival}}).",
                   "The interior side: scripts/terrain/vmad_patch.py port over the pinned port staging (its return VMAD carries the",
-                  "exterior marker's merged position). The script FO4SF_LoadDoor.pex (PR #243; the coordinates need PR #291's",
-                  "properties) must ride an active plugin's archive: not staged here."]
+                  "exterior marker's merged position, UseDestinationPosition true). The script FO4SF_LoadDoor.pex (PR #243; the",
+                  "coordinates need PR #291's properties) must ride an active plugin's archive: not staged here."]
     lines += ["", "Files: " + ", ".join(pl) + ", Data\\ (core64's BTD, its meshes\\terrain copy and mask; converted meshes,",
               "geometries, materials, textures under fo4core\\), objects.json, formids.json, skipped.json, plan.json,",
               "expected.json, offline_check.json (make_core64c.py check). Uninstall: exp_install.py uninstall.",

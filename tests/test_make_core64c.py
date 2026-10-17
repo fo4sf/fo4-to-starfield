@@ -1642,6 +1642,23 @@ class DoorPromotionTests(unittest.TestCase):
             "FO4Port.esm", 0xDEFF, [inside[1], inside[0], inside[2]]))))[0])
         self.assertEqual(broken(lambda r: r[1]["fields"].__setitem__(0, (b"VMAD", mk.vmad_patch.load_door_vmad(
             "FO4Port.esm", 0xDEFF, [inside[0] + 4e-4, inside[1], inside[2]])))), [])          # float32 rounding is tolerated
+        # the six-property shape: the bool UseDestinationPosition must be there and true whenever the floats are
+        props = mk.vmad_patch.load_door_scripts("FO4Port.esm", 0xDEFF, inside)[0]["properties"]
+        self.assertEqual([p["name"] for p in props][2:], ["DestinationX", "DestinationY", "DestinationZ", "UseDestinationPosition"])
+        self.assertEqual(vm, mk.vmad_patch.encode([{"name": "FO4SF_LoadDoor", "status": 0, "properties": props}]))
+
+        def with_props(kept):
+            blob = mk.vmad_patch.encode([{"name": "FO4SF_LoadDoor", "status": 0, "properties": kept}])
+            return broken(lambda r: r[1]["fields"].__setitem__(0, (b"VMAD", blob)))
+        self.assertEqual(with_props(props), [])
+        self.assertEqual(with_props(props[:2] + [props[5]] + props[2:5]), [])             # the script's declaration order
+        for kept in (props[:5],                                                           # floats, no bool: the old writer
+                     props[:5] + [dict(props[5], value=False)],                           # the bool false
+                     props[:2] + [props[5]],                                              # the bool without the floats
+                     props[:2] + [dict(props[5], value=False)] + props[2:5],
+                     props[:5] + [dict(props[5], type=3, value=1)]):                      # the bool an int
+            self.assertIn("REFR VMAD", with_props(kept)[0])
+        self.assertIn("without UseDestinationPosition", with_props(props[:5])[0])
         self.assertIn("REFR VMAD", broken(lambda r: r[1]["fields"].__setitem__(0, (b"VMAD", vm + b"\0")))[0])
         self.assertIn("REFR VMAD", broken(lambda r: r[1]["fields"].pop(0))[0])
         self.assertIn("VMAD not first", broken(lambda r: r[1]["fields"].reverse())[0])
