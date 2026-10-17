@@ -4,8 +4,8 @@ For the owner, by Claude (2026-10-16). Every line below is a console command (op
 the grave key `` ` ``; close it the same way). Copy a line, paste it into the console, Enter. Nothing here changes your
 saves on disk unless you save; the test save `fo4sf_test_2470f876` is the runner's and can be overwritten.
 
-**What is installed for you right now:** `terrain_core64i` = the whole playable Commonwealth exterior (64 x 64 cells,
-648,358 placed objects) + its navmesh (12,104 NAVM) + 5,156 containers and 12,438 loose items as real Starfield containers and items, 2,246 activators, 140 terminals, 6,249 exterior lights, 29 workshops (build stations) and 269 crafting benches; interiors = `integ_1017` (vault door rigs, posed skeletons and scanners) + the converted
+**What is installed for you right now:** `terrain_core64k` = the whole playable Commonwealth exterior (64 x 64 cells,
+648,358 placed objects) + its navmesh (12,104 NAVM) + 5,156 containers and 12,438 loose items as real Starfield containers and items, 2,246 activators, 140 terminals, 6,249 exterior lights, 29 workshops (build stations) and 269 crafting benches; interiors = `integ_1018` (vault door rigs, posed skeletons and scanners, the shooting-crash collision fix #274; the exterior carries the same fix) + the converted
 raider (`FO4ActorRaider.esm`), on top of the pinned interior build `FO4Port.esm` and the observation bridge
 `FO4SFBridge.esm`. Section 8 says what is known not to work yet. If Starfield shows a "load order changed" dialog at
 start, choose **Current**.
@@ -48,8 +48,8 @@ The kit is inside the station, on the wall. The runner opened it from the consol
 | Line | What happens |
 |---|---|
 | walk in, look at the kit, press **E** | The container menu: FIRST AID KIT, Credits 25, Digipick 1 (the vanilla inventory the build gives it). This is the one thing the runner cannot do: a real activation by the player. |
-| `prid 03069435` then `GetIsID 030A2AB7` | Selects the kit's reference; the reply `GetIsID >> 1.00` proves the selection (the runner's rule before it activates anything). |
-| `prid 030116FB` then `activate player` | Picks up the Stimpak 7 m from the arrival (a converted loose item); the one thing the runner could not confirm is that it lands in your inventory. |
+| `prid 03069420` then `GetIsID 030A2A9D` | Selects the kit's reference; the reply `GetIsID >> 1.00` proves the selection (the runner's rule before it activates anything). |
+| `prid 030116FA` then `activate player` | Picks up the Stimpak 7 m from the arrival (a converted loose item); the one thing the runner could not confirm is that it lands in your inventory. |
 | `activate player` | Opens the kit's menu from the console (after the two lines above), wherever you stand. Hold **Tab** to leave the menu (a tap only goes back one level). |
 
 ## 4. NPCs walk here (the exterior navmesh gate, passed 2026-10-16)
@@ -68,7 +68,7 @@ The kit is inside the station, on the wall. The runner opened it from the consol
 
 | Line | What happens |
 |---|---|
-| `cgf "FO4SF_Probe.Pos" 50762805` | The bridge script logs the kit reference's position and whether it is loaded to `Documents\My Games\Starfield\Logs\Script\User\fo4sf.0.log` (`FO4SF ref=... pos=... loaded=true`). Claude reads that log. |
+| `cgf "FO4SF_Probe.Pos" 50762784` | The bridge script logs the kit reference's position and whether it is loaded to `Documents\My Games\Starfield\Logs\Script\User\fo4sf.0.log` (`FO4SF ref=... pos=... loaded=true`). Claude reads that log. |
 | `cgf "FO4SF_Probe.Player"` | The same for you. |
 | `player.getpos x` (`y`, `z`) | Your position on the console (what the runner's OCR used to read). |
 | `GetInCell FO4Core_RedRocketSpawn` | `>> 1.00` in the arrival cell. |
@@ -111,7 +111,7 @@ documents the issue with them. Keep the game in the foreground when you say it.
 - **NPCs**: only the ones you spawn; no encounters, no schedules, no quests.
 - The exterior cells are big (100 m): a teleport over 200 m in one go can misbehave; hop.
 
-## 8. Stations, lights and terminals (core64i, 16 Oct evening)
+## 8. Stations, lights and terminals (core64k, 16 Oct night)
 
 Form ids below use your load index `03` for FO4TerrainCore.esm. The benches use Starfield's own station records, so
 pressing E on them should open the vanilla crafting menu.
@@ -119,8 +119,8 @@ pressing E on them should open the vanilla crafting menu.
 | Command | What it does |
 |---|---|
 | walk into the Red Rocket garage, look at the workbench, press E | The workshop is a build station now: expect Starfield's build mode (the outpost build HUD). It is 19 m from the arrival. |
-| `prid 0300D272` then `activate player` | The same workshop from the console, if E gives no prompt. |
-| Sanctuary: `prid 03005C51` then `activate player` | Sanctuary's workshop (by the player's house). |
-| Sanctuary benches: `prid 0306BC2B` (weapon), `prid 03069B60` (spacesuit), `prid 0306BC06` (pharmaceutical), `prid 0305CAA7` (cooking), each followed by `activate player` | The four crafting stations nearest the Sanctuary centre; each should open its vanilla crafting menu. Walking up and pressing E is the same test. |
+| `prid 0300D271` then `activate player` | The same workshop from the console, if E gives no prompt. |
+| Sanctuary: `prid 03005C50` then `activate player` | Sanctuary's workshop (by the player's house). |
+| Sanctuary benches: `prid 0306BC16` (weapon), `prid 03069B4B` (spacesuit), `prid 0306BBF1` (pharmaceutical), `prid 0305CA9A` (cooking), each followed by `activate player` | The four crafting stations nearest the Sanctuary centre; each should open its vanilla crafting menu. Walking up and pressing E is the same test. |
 | `set gamehour to 22` | Night: 6,249 exterior lights are placed; look at Red Rocket and Sanctuary (a flickering fire, the station's lamps). `set gamehour to 12` brings the day back. |
 | any terminal: press E | 140 terminals are native TERM records with one menu line; the open question is whether terminal mode starts. |

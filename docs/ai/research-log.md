@@ -1175,3 +1175,32 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   the same overlay at (0.2, 1.2) (does it reproduce +30/-35, i.e. is the offset a function of the site alone?) and at
   (0.3 + 1/33900, -1.2) (one cell north under any linear local model). Until then fix A (vanilla persistent-cell
   shape, cave_core64c_1015) is the route to persistent references, and the runner keeps converting frames.
+
+## 2026-10-16 Claude: Starfield's compressed-mesh decoder and our SIMD tree keys (the collision crash)
+- Question: why does Havok assert "Unknown primitive type in compressed mesh" (hknpCompressedMeshShapeInternals.cpp:939,
+  Starfield.exe+0x36F418B, every WER report since 10-12) and why did the owner's crash dump show the closest-points
+  query of vault_cart_01's mesh (40 primitives, one data run {0, 40}) searching the data runs for primitive 40?
+- Method: FO4 source (hkpackfile) and converted blob (hktagfile) of vault_cart_01 side by side; 837 vanilla compressed
+  meshes (random 1,500-NIF sample of Starfield - Meshes01.ba2) decoded the same way; src/fo4sf/meshcheck.py.
+- **verified** (837 of 837 vanilla meshes, 0 exceptions): the SIMD tree holds ONE leaf per primitive with key
+  section << 8 | primitive << 1 (triangle bit 0), unique, one for every primitive of every section; the per-section
+  Aabb4BytesCodec tree (leaf when hiData bit 0 clear, primitive = hiData >> 1, right child at +(hiData & 0xFE)) names
+  every primitive once; the data runs (value u16, index u8, count u8) cover 0..numPrimitives-1 exactly; section flags
+  always 0; primitiveStoresIsFlatConvex (tree + 60) always 0xFF; no primitive has indices[1] == indices[3];
+  numPrimitiveKeys = triangles + 2 x quads and maxKeyValue = the last primitive's key (the key SPACE keeps the triangle
+  bit; only the tree leaves drop it). FO4 (vault_cart_01) uses the same tree codec, key space and header values.
+- **verified** (our builds): fo4collision.compressed_mesh_keys gave the SIMD tree one leaf per TRIANGLE, so every quad
+  also had an odd key: vault_cart_01 had keys 0..79 for primitives 0..39. integ_1017: 2,947 of 4,346 models,
+  181,738 odd keys, 4,045 of them the last primitive of a section; terrain_core64h: 7,861 of 11,769 models, 761,426
+  odd keys, 13,650 past the end (C:\Modding\scratch\meshkeys\baseline_*.json).
+- **supported hypothesis** (the crash dump: index 40 = (79 + 1) >> 1 for a 40-primitive section; the stale assert
+  frame on v111rpit2raisedmid01, 3 primitives, keys 0..5; vanilla never has odd keys): the decoder takes a leaf key K
+  as the primitive's first triangle and K + 1 as a quad's second one, so an odd K steps into the next primitive slot
+  (an FO4 DE AD DE AD slot asserts; past the end of the section the data-run search returns NULL: the owner's AV).
+- **verified** (35 sections in integ_1017 and core64h): FO4 section flag bit 0 is set exactly on the sections that
+  hold FO4's own special primitives (a, b, b, b) with b outside the section's vertex slots; vanilla has neither.
+  Their meaning is **unresolved**; the converter replaces them (and DE AD DE AD slots) with a copy of the nearest valid
+  primitive of the section and clears the flag, so the section is byte-for-byte in the vanilla shape.
+- **unresolved**: what primitiveStoresIsFlatConvex changes in the engine (the crashing function does not read it; vanilla
+  quads with it set are not flat or convex). The converter now writes the vanilla value so no vanilla-untested code
+  path is exercised.
