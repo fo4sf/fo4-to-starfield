@@ -1204,3 +1204,42 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
 - **unresolved**: what primitiveStoresIsFlatConvex changes in the engine (the crashing function does not read it; vanilla
   quads with it set are not flat or convex). The converter now writes the vanilla value so no vanilla-untested code
   path is exercised.
+
+## 2026-10-17 Claude: why the player walks through the Vault 111 gear-room gates (static bodies on layer 55)
+- Question: the gear-room gates (`V111GearRoomGate01` in Vault111Cryo, `02` in Vault114) let the player through in
+  integ_1018 (playtest row 19) although since #230 their NIFs hold FO4's native bodies. Wrong place, wrong filter
+  word, or something the engine refuses?
+- Method: FO4 source (hkpackfile) and the deployed blobs (hktagfile, the session's hkdump.py) side by side, hull
+  vertices transformed through the collision nodes; COLL records of Fallout4.esm and Starfield.esm; every body of
+  every vanilla Starfield NIF (Meshes01 + MeshesPatch: 40,613 files with physics, 46,413 bodies, 50 s) and of every
+  FO4 NIF (Meshes + MeshesExtra: 63,327 files, 218,882 bodies); the Starfield.esm records placing the only vanilla
+  layer-55 models. Scratch: C:\Modding\scratch\gatefix (gate_dump.txt, coll_records.json, full_scan_*.json).
+- **verified** (geometry): each leaf's FO4 body cinfo equals its node transform (GateR at (-7.082, -0.044, 0.719) m,
+  z -90 deg), so the converter's identity body on a node with that transform puts the hulls where FO4 has them: top
+  rail x -7.10..-7.06, y -0.08..1.28, z 0.80..1.03 m, lower stub z 0.40..0.79 m (render leaf z 0.39..1.05); the XRGD
+  variant (`_xrgd_e3c6933a65`) lifts both by 0.147 m as the reference's pose does. The two leaves span the whole
+  2.78 m opening at x -47.76 m world; the owner's bridge positions (00:02:57 at -44.84, -4.00; 00:03:12 at -57.91)
+  cross that line through the middle. integ_1011's 39 guessed boxes sat there too (0x1, hknpBoxShape); whether the
+  owner walked through those is **unresolved** (row 6 reported the elevator, not a walk).
+- **verified** (the word): the leaves' only difference from a working static is `collisionFilterInfo` 0x8037 (layer 55
+  L_CLUTTER_NOCUT + bit 15); flags 0, collisionCntrl 0, quality 255, hknpConvexShape flags 0x43, material and
+  motionType 0 are the template's, as on vanilla statics and on BldDecoSmStairsBlock03's helper hull (a convex body
+  on a child Collision node, climbed in batch_full 0004).
+- **verified** (COLL): in both ESMs layer 55 lists 30 L_CHARCONTROLLER and 30 lists 55 (so does 1), GNAM 0 for 55
+  and 0x4 for 4 / 29 / 2 (the navmesh-cutting layers). The layer matrix alone does not explain a pass-through.
+- **verified** (vanilla use): Starfield writes layer 55 on 4 bodies in 2 files only, `na_lobbyoffice_reception_
+  turnstile_01_door01a/b.nif`, static, word 0x8037 exactly; they are STAT records (00040DD7/8) placed 29 times across
+  New Atlantis lobby walkways (e.g. four turnstiles in a row at y -33.39, refs 000C1BEA..F2). Bit 15 on L_STATIC is
+  walked on: `nathemastbase_01..04(_grass).nif` (the MAST plaza) are one 0x8001 body each; stair helpers carry 0x801f.
+  FO4 writes layer 55 on 9 bodies in 4 files, all dynamic hinged leaves (the two gates, CarHulk01 doors, BollardDest01).
+  Static bodies on 4 / 29 are common in both games (asteroid caves on 0x1d; static ladders and ingots on 0x4).
+- **supported hypothesis** (the cause): Starfield's character controller passes through a static body on layer 55,
+  as it must through the turnstile leaves; FO4's gate is passable too, but by swinging (10 kg leaves on hinges).
+  Freezing the leaves (joints not converted) on that layer gives a ghost gate. Fix: a body we write static on layer 55
+  becomes 1 L_STATIC, the layer alone (meshcollision.static_filter; report "relayered"); every other word is kept.
+  Blast radius in integ_1018: the 3 gate NIFs (12 leaf bodies), nothing else. The drop-in NIFs in
+  C:\Modding\scratch\gatefix\after differ from the deployed ones by 2 bytes per leaf blob (0x8037 -> 0x0001).
+- In-game check (one walk): from the owner's spot (-44.8, -4.0, 0) walk west along y -4.0; PASS = stopped at
+  x about -47.4 (capsule 0.35 m before the rail at -47.76), FAIL = x beyond -48. The diagnostic variant
+  `after\variant_bit15_cleared` (0x0037, layer kept) tells layer from bit if wanted. The gate then blocks the walkway to
+  the exit elevator (1.18 m rail, jumpable with the pack); a swinging gate needs the hinge conversion.
