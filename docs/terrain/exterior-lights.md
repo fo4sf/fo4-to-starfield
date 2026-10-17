@@ -192,7 +192,48 @@ flags and XLIG fades and the LIGH lumens, not any FormID or record count; the ru
   exterior cells. 5,816 carry XRDS, 5,998 XLIG, 20 are initially disabled, all 6,249 have flag 0x100. By type:
   5,942 omni, 281 non-shadow spot, 26 shadow spot.
 
+## Calibration (17 Oct)
+
+The owner's night check of core64k / core64l: "the lights are very bright". A read-only comparison with the vanilla
+exterior placements (Starfield.esm 1.16.244, omnidirectional lights) found why:
+
+- Our lights are `LUMENS_PER_M2` (333, the vanilla median of base lumens / radius^2) x FO4's fade (median 1.0), written
+  into the LIGH. Vanilla placements dim their bases with an XLIG fade of median 0.45, which ours (clamped to
+  0.01..1.6) cannot make up for, because the base already carries the full 333.
+- Omni lumens x fade, median: ours 2,827, vanilla exterior 1,234 (2.3x). Lumens per m^2 of radius, median: ours 211,
+  vanilla 78 (2.7x).
+- Flags, template fields, radii and overlap are within the vanilla band; only the intensity is off.
+
+Proposal: scale every LIGH base's lumens by **0.375**, which is what `--lumens-per-m2 125` would have written. A full
+exterior rebuild takes hours, so it is applied as a raw record patch of the finished plugin
+(`scripts/terrain/light_patch.py`), and the build default stays 333 until the owner has looked at a night.
+
+Recipe (the original staging is never written to; several stagings share files by hard links):
+
+1. `python scripts/terrain/light_patch.py scale --in <staging>\FO4TerrainCore.esm --out <new staging>\FO4TerrainCore.esm
+   --factor 0.375 --objects <staging>\objects.json --objects-out <new staging>\objects.json`. Every LIGH's DAT2 lumens
+   (u32 at offset 52) becomes `max(1, round(lumens * 0.375))`; nothing else changes. It refuses a compressed LIGH, an
+   existing `--out` and `--out` = `--in`. The objects copy has the same scaling on `light_bases[*].lumens` and a
+   `"lumens_scale": 0.375` key, so `make_core64c.py check` (which compares the raw LIGH to objects.json) stays consistent.
+2. `python scripts/terrain/light_patch.py check --a <staging>\FO4TerrainCore.esm --b <new staging>\FO4TerrainCore.esm
+   --factor 0.375`: same record count, signatures, FormIDs, flags, sizes and groups, and only LIGH DAT2 bytes 52..56 differ,
+   each equal to the rule. Exit 1 otherwise.
+3. Every other file of the new staging is a hard link of the old one (formids.json, plan.json, the Mars plugin, Data\),
+   then `make_core64c.py check --core <core64> --sf-data <Starfield Data> --out <new staging>`.
+
+terrain_core64l_l125 is that build of terrain_core64l: 144 LIGH, lumens min 153 -> 57, median 4,587 -> 1,720, max
+12,695,923 -> 4,760,971. It is not installed by this change; the owner's check is `set gamehour to 22` at the Red Rocket
+garage and the Diamond City gate (in-game-test-sheet.md, section 8).
+
 ## Not done / open
+
+The raw patcher validates group/record containment and complete LIGH subrecord
+framing before accepting writable lumens offsets. Truncated payloads, undersized
+groups, duplicate DAT2 fields and malformed fields after DAT2 are refused; `check`
+validates both inputs. This closes a synthetic case where a DAT2 length reached
+into the next STAT record and both scale/check previously accepted the edit.
+Malformed input is rejected before the plugin output is created. These structural
+checks do not validate the brightness calibration or establish native acceptance.
 
 - **Not tested in game.** The acceptance is a night screenshot at Red Rocket and in Sanctuary (the runner sets the
   time of day) next to the same view without lights. Brightness then tunes `--lumens-per-m2`.

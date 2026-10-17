@@ -65,6 +65,24 @@ class CellCandidatesTests(unittest.TestCase):
         self.assertEqual(names, ["meshes\\a\\SubEffects\\d.nif", "meshes\\Arch\\Wall.nif", "meshes\\Furn\\Chair.nif"])
         self.assertEqual(cb.cell_candidates(cell, {"Flora"}), ["meshes\\Plants\\Fern.nif"])
 
+    def test_water_planes_out_like_the_exterior_path(self):
+        """A placed Water\\*.nif is a BSWaterShaderProperty quad: converted as a static it is a flat grey sheet (the neutral
+        fallback material) and its L_WATER body is a solid floor for the player (Vault 111 gear pit, owner playtest row 20).
+        The exterior path already skips it (exterior.WATER_RE); the interior path must agree, and only for the top-level
+        water folder: scum, debris and the water cooler are ordinary lighting-shader models and stay."""
+        from fo4sf import exterior
+        planes = ["Water\\Water1024.nif", "\\Water\\TroughBathWater.nif", "water/Water2048.nif"]
+        keepers = ["Landscape\\Water\\MarshScumm01.nif", "SetDressing\\WaterCooler\\WaterCooler01.nif",
+                   "Architecture\\Waterfront\\Dock01.nif", "SetDressing\\Plumbing\\Watercolor.nif"]
+        cell = {"refs": [ref(str(i), "Activator", m) for i, m in enumerate(planes + keepers)]}
+        self.assertEqual(cb.cell_candidates(cell, WANTED),
+                         sorted(["meshes\\" + m.lstrip("\\") for m in keepers], key=str.lower))
+        # the two paths give the same verdict for every model above (Activator is a type both convert)
+        for m in planes:
+            self.assertEqual(exterior.classify(ref("1", "Activator", m))[1], "water", m)
+        for m in keepers:
+            self.assertEqual(exterior.classify(ref("1", "Activator", m))[0], "convert", m)
+
 
 class CensusTests(unittest.TestCase):
     def test_doors_kinds_placed_and_landmarks(self):
