@@ -1635,6 +1635,23 @@ snapshots tagged owner-button). Lessons: a Bash heredoc here turns \\r \\n escap
 written script; gate commits on tests); a background workflow can die silently (check the transcripts' modification
 times); the owner's three-line console paste became one line (give one line per command).
 
+## 2026-10-17: Grok playtest textures, row 15 greyscale-to-palette (offline)
+
+Starfield 1.16.244, convert dir `terrain_core64c_work_fix3` (read-only). FO4 GreyscaleToPalette_Color (nif.xml
+flags1 bit 4 = 0x10; BGSM `bGrayscaleToPaletteColor` byte 62) was parsed and never applied, so index maps
+shipped as albedo. Converter now bakes the palette lookup into the colour map (green channel as U,
+`fGrayscaleToPaletteScale` as V) before BC1. Texture-set slot 3 is only used when the NIF flag is set.
+A greyscale string with the flag off is not a palette (ConcreteRoadHW01 names a cubemap there). A named
+palette that is missing from the archives is a conversion error, not a grey albedo. Synthetic tests:
+palette lookup, flag/scale parse, flag gating, missing-palette failure, cache identity.
+
+Row 15 frames/plaque are **not** palette materials (Claude review, vanilla BA2s): both painting BGSMs have
+an empty greyscale string and byte 62 = 0; BrassPlaque flags1 has bit 0x10 clear and slot 4 is a cubemap.
+This PR does not change those outputs. The frames need per-reference material swaps (MODS/XMSP), which
+nothing in this repo reads. In-game check of real palette materials is Claude's after a scratch reconvert.
+Vertex-colour V and GreyscaleToPalette_Alpha are not this PR. Row 11 vines are PR #288; row 13 walls remain
+a separate root cause.
+
 ## 2026-10-17: Grok map-marker research (playtest row 7)
 
 Starfield 1.16.244. Offline walk of `Starfield.esm` and pinned `FO4TerrainCore.esm`. Starfield has no `MAPM` group;
@@ -1725,6 +1742,7 @@ PNDT 11 entries including our WRLD; no `lodsettings`; 0 `meshes/lod/generated`; 
 `meshes/fo4core/lod`. The 3D surface map is the May 2024 loading-zone camera, not a mesh we author. GO: marker (#296
 after LCSR `FFFFFFFF`) then CK object LOD; NOT go: custom planet or map renderer this stage.
 Evidence: [docs/terrain/surface-map.md](terrain/surface-map.md), `src/fo4sf/surface_map.py`, `tests/test_surface_map.py`.
+
 ## 2026-10-17: Codex raw light-patch bounds (offline)
 
 Independent PR302 review reproduced a malformed DAT2 declaration extending beyond
