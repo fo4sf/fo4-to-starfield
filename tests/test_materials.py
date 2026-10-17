@@ -133,6 +133,21 @@ class TextureTests(unittest.TestCase):
         plane = textures.decode_bc4(blocks, 8, 4)
         self.assertTrue((plane[:, :4] == 10).all() and (plane[:, 4:] == 90).all())
 
+    def test_decode_bc4_bc5_accepts_partial_blocks(self):
+        # One solid block repeated enough times for the padded grid; crop must match requested size.
+        solid = bytes([42, 42]) + b"\x00" * 6
+        for w, h in ((1, 1), (2, 2), (3, 5), (4, 2), (5, 6), (6, 6), (8, 6)):
+            bw, bh = (w + 3) // 4, (h + 3) // 4
+            data4 = solid * (bw * bh)
+            plane = textures.decode_bc4(data4, w, h)
+            self.assertEqual(plane.shape, (h, w))
+            self.assertTrue((plane == 42).all())
+            data5 = (solid + solid) * (bw * bh)
+            r, g = textures.decode_bc5(data5, w, h)
+            self.assertEqual(r.shape, (h, w))
+            self.assertEqual(g.shape, (h, w))
+            self.assertTrue((r == 42).all() and (g == 42).all())
+
     def test_roughness_scaled_by_material_smoothness(self):
         g = np.array([[255, 255]], dtype=np.uint8)
         self.assertEqual(textures.roughness_from_smoothness(g, 0.5).tolist(), [[127, 127]])      # 255 - 127.5 -> 127
