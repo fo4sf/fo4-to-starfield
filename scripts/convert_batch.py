@@ -150,6 +150,54 @@ def write_json_atomic(path, value):
             os.remove(temporary)
 
 
+def retry_failed_nifs(summary):
+    """Exact previous-failure identities, or None if the summary cannot drive a retry."""
+    names = summary.get("failed_nifs") if isinstance(summary, dict) else None
+    if not isinstance(names, list) or any(not isinstance(n, str) or not n for n in names):
+        return None
+    seen, ordered = set(), []
+    for n in names:
+        if n not in seen:
+            seen.add(n)
+            ordered.append(n)
+    return ordered
+
+
+def merge_retry_stage(prior, new_items, new_failures, pending_nifs):
+    """Keep prior successes; fold this retry in by source; drop only proven successful retries."""
+    prior = prior if isinstance(prior, dict) else {}
+    items = [dict(it) for it in (prior.get("items") or []) if isinstance(it, dict) and it.get("source")]
+    by_source = {it["source"]: i for i, it in enumerate(items)}
+    next_index = max((it.get("form_index", -1) for it in items), default=-1) + 1
+    for it in new_items:
+        row = dict(it)
+        src = row.get("source")
+        if not src:
+            continue
+        if src in by_source:
+            row["form_index"] = items[by_source[src]].get("form_index", by_source[src])
+            items[by_source[src]] = row
+        else:
+            row["form_index"] = next_index
+            next_index += 1
+            by_source[src] = len(items)
+            items.append(row)
+    succeeded = {it["source"] for it in new_items if it.get("source")}
+    now_fail = {f["nif"]: f for f in new_failures if isinstance(f, dict) and f.get("nif")}
+    prior_fail = {f["nif"]: f for f in (prior.get("failures") or []) if isinstance(f, dict) and f.get("nif")}
+    failures = []
+    for n in pending_nifs:
+        if n in succeeded:
+            continue
+        if n in now_fail:
+            failures.append(now_fail[n])
+        elif n in prior_fail:
+            failures.append(prior_fail[n])
+        else:
+            failures.append({"nif": n, "reason": "unattempted retry"})
+    return items, failures
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fo4-data", required=True)
@@ -222,16 +270,28 @@ def main():
         names = cell_candidates(cell, set(a.types.split(",")))
     else:
         names = src.mesh_names(a.pattern)
+    pending_retry = None
+    prior_manifest = None
     if a.retry_failures:
         summary_path = os.path.join(a.staging, "failure-summary.json")
-        if os.path.exists(summary_path):
-            with open(summary_path, encoding="utf-8") as f:
-                prev = json.load(f)
-            failed = set(prev.get("failed_nifs", []))
-            names = [n for n in names if n in failed]
-            print(f"  retry-failures: narrowed to {len(names)} previous failures")
-        else:
-            print("  retry-failures: no previous failure-summary.json; processing all")
+        if not os.path.exists(summary_path):
+            sys.exit(f"--retry-failures: missing {summary_path}; stage not changed")
+        with open(summary_path, encoding="utf-8") as f:
+            prev_summary_raw = f.read()
+        try:
+            prev_summary = json.loads(prev_summary_raw)
+        except json.JSONDecodeError:
+            sys.exit("--retry-failures: failure-summary.json is not JSON; stage not changed")
+        pending_retry = retry_failed_nifs(prev_summary)
+        if pending_retry is None:
+            sys.exit("--retry-failures: failure-summary.json has no failed_nifs list; stage not changed")
+        failed = set(pending_retry)
+        names = [n for n in names if n in failed]
+        print(f"  retry-failures: narrowed to {len(names)} previous failures")
+        man_path = os.path.join(a.staging, "manifest.json")
+        if os.path.exists(man_path):
+            with open(man_path, encoding="utf-8") as f:
+                prior_manifest = json.load(f)
     print(f"{len(names)} candidate meshes; converting up to {a.limit}")
     os.makedirs(a.staging, exist_ok=True)
     state_path = os.path.join(a.staging, "build-state.json")
@@ -377,6 +437,21 @@ def main():
         "examples": {r: examples[r] for r in reason_counts},
         "failed_nifs": [f["nif"] for f in failures],
     }
+    if pending_retry is not None:
+        items, failures = merge_retry_stage(prior_manifest or {}, items, failures, pending_retry)
+        total = len(failures)
+        unique = len(Counter(f["reason"].split(":")[0].strip() for f in failures))
+        attempted = len(items) + total
+        success_pct = 100.0 * len(items) / attempted if attempted else 100.0
+        summary["attempted"] = attempted
+        summary["successes"] = len(items)
+        summary["success_percent"] = round(success_pct, 1)
+        summary["total_failures"] = total
+        summary["unique_reasons"] = unique
+        summary["failed_nifs"] = [f["nif"] for f in failures]
+        summary["top"] = [{"reason": r, "count": c, "percent": round(100.0 * c / total, 1) if total else 0.0}
+                          for r, c in Counter(f["reason"].split(":")[0].strip() for f in failures).most_common(10)]
+        summary["reasons"] = {r: c for r, c in Counter(f["reason"].split(":")[0].strip() for f in failures).most_common()}
     write_json_atomic(os.path.join(a.staging, "failure-summary.json"), summary)
 
     tex_totals = None
@@ -397,7 +472,9 @@ def main():
     os.makedirs(a.staging, exist_ok=True)
     write_json_atomic(os.path.join(a.staging, "editorids.json"), ids)
     write_json_atomic(os.path.join(a.staging, "manifest.json"), manifest)
-    write_json_atomic(state_path, {"complete": True, "status": "finished", "assets": len(items), "failed": len(failures)})
+    finished = not (pending_retry is not None and failures)
+    write_json_atomic(state_path, {"complete": finished, "status": "finished" if finished else "retry_pending",
+                                   "assets": len(items), "failed": len(failures)})
     print(json.dumps({"converted": len(items), **stats, "seconds": manifest["seconds"]}))
 
 
