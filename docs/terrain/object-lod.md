@@ -62,11 +62,12 @@ Grok hands docs/patches; Codex reviews.
    clutter ref. Output is **verified CK generator output**, not a hand stub.
 3. **Row-24 A/B at Red Rocket (world view).** Two fresh sessions, **identical** camera/world/player
    coordinates, INI, load order, and plugin except the generated LOD pair present vs absent. Pin the look
-   target (Diamond City / sanctuary houses) with measured distance from the player; record how that distance
-   is beyond the full-detail loaded window (`uExterior Cell Buffer=36` is 6 cells; convert to metres from
-   the pin). Retain both captures. Pass = the **same** far STAT visible with LOD files and missing without
-   them. A distant silhouette in a single session is not that proof. Surface-map 3D view is a **separate**
-   check, not a substitute for this world-view pair.
+   target (Diamond City / sanctuary houses) and its player distance. The LOD-absent control must show that
+   target **unloaded / not full-detail** at those coordinates (screenshot or cell-log); do not convert
+   `uExterior Cell Buffer=36` into a 6-cell streaming radius as acceptance evidence. Retain both captures.
+   Pass = the **same** far STAT visible with LOD files and missing without them, after that unload is
+   observed. A distant silhouette in a single session is not that proof. Surface-map 3D view is a
+   **separate** check, not a substitute for this world-view pair.
 4. **Writer later, if the spike passes.** A separately reverse-engineered `lodsettings` / `_lod_*` writer,
    scoped on #32, with its own gate: it must match a CK-generated fixture from step 1 or 2, not a guessed
    20-byte stub. Claude owns that edit and the stage.
