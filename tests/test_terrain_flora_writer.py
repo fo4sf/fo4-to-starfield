@@ -3,6 +3,7 @@ test_terrain_reference_identity (dotnet/TerrainIdentityFixture), never a game: d
 serialize to PFIG; a STAT ingredient is refused before publication (docs/terrain/flora.md)."""
 import copy
 import json
+from pathlib import Path
 import struct
 import sys
 import unittest
