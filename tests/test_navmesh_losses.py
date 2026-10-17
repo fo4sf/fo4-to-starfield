@@ -91,6 +91,23 @@ class NavmeshLossTests(unittest.TestCase):
         self.assertEqual(info.traversals, [])
         self.assertIsNone(info.outline)
 
+
+    def test_touching_cell_line_is_not_counted_as_clipped(self):
+        # Triangle entirely in cell 0 (metres) but touches the cell line; should not count as clipped
+        # 100 m = 7000 FO4 units
+        verts = [(6900.0, 100.0, 0.0), (6999.0, 100.0, 0.0), (6950.0, 200.0, 0.0)]
+        tris = [((0, 1, 2), (-1, -1, -1), 3.4e38, FOUND)]
+        pieces, rep = nm.convert([fo4(0xA, verts, tris)])
+        self.assertEqual(rep["clipped_triangles"], 0)
+        self.assertEqual(len(pieces), 1)
+        self.assertEqual(len(pieces[0].tris), 1)
+
+    def test_straddling_cell_line_is_counted_as_clipped(self):
+        verts = [(6900.0, 100.0, 0.0), (7100.0, 100.0, 0.0), (7000.0, 200.0, 0.0)]
+        tris = [((0, 1, 2), (-1, -1, -1), 3.4e38, FOUND)]
+        pieces, rep = nm.convert([fo4(0xA, verts, tris)])
+        self.assertEqual(rep["clipped_triangles"], 1)
+        self.assertEqual(len(pieces), 2)
     def test_one_cell_cut_portal_is_retained(self):
         # in: {"cell_cuts": [{"edge": (0, 1)}], "portals": [{"to_cell": 0xABCD, "edge": (0, 1)}]}
         verts = [(-70.0, 0.0, 0.0), (70.0, 0.0, 0.0), (70.0, 70.0, 0.0), (-70.0, 70.0, 0.0)]
