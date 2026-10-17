@@ -114,7 +114,8 @@ Each card has the fields the brief requires. Status is kept on the task's GitHub
   changes until the PC session turns it on (§7). Implemented by Claude-cloud in #180 (`src/fo4sf/core/preflight.py`).
 
 After T3: `core/tasks.py` + `core/worker.py` (result contract; done 2026-10-16 by Claude-cloud, #183, §8), then the
-`Transform` adapter carrying the Z-first rotation fix (#102), then other adapters only when a gameplay gate needs them.
+`Transform` adapter carrying the Z-first rotation fix (#102; done 2026-10-16 by Claude-cloud, #186, §9), then other
+adapters only when a gameplay gate needs them.
 
 ## 5. Starting a task as a cloud session
 
@@ -266,3 +267,35 @@ writer, not the reader, repairs it.
 prints the owner's eight bullets from the fold (§1), exit 1 with the reason when the ledger is missing or corrupt.
 The capability bullets are those of the pinned build (`build_pinned`); results pinned to another `build_id` stay out
 of "newly worked in game" until that build is the pin.
+
+## 9. The Transform adapter: one reference matrix, in #102's order
+
+`src/fo4sf/core/adapters/transform.py` holds the core's only `ref_matrix(rot)`: Bethesda angles turn clockwise seen
+from the positive axis, so the matrix uses the negated angles, and the model turns about **Z first, then Y, then X**
+(fixed axes), `R = Rx(-x) Ry(-y) Rz(-z)`. That is the order PR #102 verified on FO4's own precombined references
+(146,463 of 146,728 tilted references with a unique instance; 52 of 52 core64c in-game readings within 0.05 m under
+it, the X-first plan missing `ne_500m` by 1.89 m). With it: `apply`, `to_world`, `to_local` (the inverse is the
+transpose), `metres` / `units` (70 per metre) and a frozen `Transform(pos m, rot rad, scale)` with `world()` /
+`local()`. Pure Python; every new core consumer places a reference through it and nowhere else.
+
+**Parity today** (`tests/test_core_transform.py` keeps this true on every push, the C# row through a line-by-line
+transliteration of `RotateOffset`; `exterior.ref_matrix`'s docstring still says routes.py shares its X-first
+matrix, which has not been true since 2026-10-13: for the PC session to fix when it switches exterior):
+
+| Copy | Order | Agrees with the adapter |
+|---|---|---|
+| `scripts/game/routes.py` `ref_matrix` (used by `scripts/game/stairs_calib.py`) | Z first since 2026-10-13 | on every rotation (grid of 512, and #102's RockCliff05 example) |
+| `src/fo4sf/exterior.py` `ref_matrix` / `to_world` (used by the exterior placement, `scripts/actors/navmesh_points.py`, `scripts/terrain/make_exp2d.py`) | X first, `R = Rz(-z) Ry(-y) Rx(-x)` | on heading-only rotations; differs on tilted ones (the 24 m top of RockCliff05 lands 10.2 m apart, 0.42 in the matrix) |
+| `dotnet/PluginSpike/Program.cs` `RotateOffset` (door-local offsets: rigged door hinges) | X first (applied X, then Y, then Z) | same as `exterior.ref_matrix`; **not changed here** |
+
+**What is deliberately not changed, and what each switch costs (the PC session's calls, one PR and one rebuild each):**
+- `exterior.ref_matrix`: switching it to the adapter is one line, but every placement and navmesh point of a tilted
+  reference moves (332,641 of core64c's 648,358 references have an x or y rotation): the core build, the exp2d-style
+  navmesh input and every plan made from `objects.json` have to be re-staged and re-pinned, and the campaigns that
+  read tilted objects (the northeast probe, the maples, the cliffs) re-planned. The 52-reading agreement in #102 says
+  the adapter's order is the game's, so the switch is a correction, not a guess.
+- `PluginSpike.RotateOffset`: port the order (apply Z, then Y, then X, i.e. `y1`/`z1` about Z first) with a C# test
+  against the adapter's numbers; #102 counts 156 of core64c's 759 rigged doors off by more than 1 cm (up to 9.17 m,
+  the tipped-over boxcar doors), so the interior and door plugins are rebuilt and their door campaigns re-pinned.
+- `routes.ref_matrix` can call the adapter whenever `scripts/game` starts importing `fo4sf.core`; nothing moves.
+- 85 references of 7 models whose precombined matrix matches no order (#102): unresolved; the adapter does not claim them.
