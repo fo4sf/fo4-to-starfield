@@ -201,6 +201,9 @@ class Plugin:
         wfid, start, end, wfields = self.find_world(edid)
         result = {"world_fid": wfid, "world_fields": wfields, "cells": {}, "persistent": []}
         self._walk_world(start, end, cells, refs, result, None, in_block=False)
+        # Collect the world's persistent references from the special persistent cell.
+        if "persistent_cell" in result:
+            result["persistent"] = result["persistent_cell"].get("persistent_refs", [])
         return result
 
     def _walk_world(self, start, end, wanted, refs, result, cell, in_block):
