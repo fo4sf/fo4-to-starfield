@@ -123,4 +123,5 @@ pressing E on them should open the vanilla crafting menu.
 | Sanctuary: `prid 03005C50` then `activate player` | Sanctuary's workshop (by the player's house). |
 | Sanctuary benches: `prid 0306BC16` (weapon), `prid 03069B4B` (spacesuit), `prid 0306BBF1` (pharmaceutical), `prid 0305CA9A` (cooking), each followed by `activate player` | The four crafting stations nearest the Sanctuary centre; each should open its vanilla crafting menu. Walking up and pressing E is the same test. |
 | `set gamehour to 22` | Night: 6,249 exterior lights are placed; look at Red Rocket and Sanctuary (a flickering fire, the station's lamps). `set gamehour to 12` brings the day back. |
+| dim lights variant | If the night lights look too bright, the dim variant is `terrain_core64l_l125` (every light's lumens x0.375, nothing else changed): `set gamehour to 22` at the Red Rocket garage and at the Diamond City gate, and say which looks right. |
 | any terminal: press E | 140 terminals are native TERM records with one menu line; the open question is whether terminal mode starts. |
