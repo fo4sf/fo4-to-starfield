@@ -153,6 +153,15 @@ class TextureTests(unittest.TestCase):
         self.assertEqual(textures.roughness_from_smoothness(g, 0.5).tolist(), [[127, 127]])      # 255 - 127.5 -> 127
         self.assertEqual(textures.roughness_from_smoothness(g, 1.0, 0.25).tolist(), [[127, 127]])  # sqrt(0.25) = 0.5
 
+    def test_roughness_follows_the_specular_mask_when_given(self):
+        # Vault 111 FloorTiles01 (owner, 2026-10-17): mask R about 63, gloss G about 178 came out at roughness 77 (glossy)
+        g = np.array([[178, 178, 255]], dtype=np.uint8)
+        r = np.array([[63, 255, 0]], dtype=np.uint8)
+        self.assertEqual(textures.roughness_from_smoothness(g).tolist(), [[77, 77, 0]])                # gloss alone
+        self.assertEqual(textures.roughness_from_smoothness(g, mask=r).tolist(), [[167, 77, 255]])    # 178 x sqrt(63/255)
+        with self.assertRaises(ValueError):
+            textures.roughness_from_smoothness(g, mask=np.zeros((2, 2), np.uint8))
+
     def test_roughness_and_green_flip(self):
         g = np.array([[0, 255, 100]], dtype=np.uint8)
         self.assertEqual(textures.roughness_from_smoothness(g).tolist(), [[255, 0, 155]])
