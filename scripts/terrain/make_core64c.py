@@ -94,6 +94,15 @@ def core_params(core):
     return prm, prm["overlays"][0]
 
 
+def core_params_view(prm):
+    """core64c's overlays_params.json without what stage adds to core64's: objects, navmesh, each overlay's
+    map_markers (check compares the rest with core64's)."""
+    out = {k: v for k, v in prm.items() if k not in ("objects", "navmesh")}
+    if "overlays" in out:
+        out["overlays"] = [{k: v for k, v in o.items() if k != "map_markers"} for o in out["overlays"]]
+    return out
+
+
 def slim(ref):
     out = {k: ref.get(k) for k in SLIM_KEYS}
     out["enable_parent"] = ref.get("enable_parent")
@@ -1783,13 +1792,15 @@ def promotion_checks(recs, own_prefix, objects, ids, exp):
     present = [(k, sig) for k, sig in ALL_PROMOTED if entries[k]]
     lights = objects.get("lights") or []
     markers = len(entries["doors"])                   # one exterior arrival XMarker REFR per door
+    map_refs = len(map_marker_ids(ids))               # the map markers (docs/terrain/map-markers.md)
     out = []
     refrs = sum(1 for r in recs if r["sig"] == "REFR")
     out.append([f"{refrs:,} REFR = {len(objects['refs']):,} objects + COC marker + anchor"
                 + "".join(f" + {len(entries[k]):,} {k}" for k, _sig in present)
                 + (f" + {len(lights):,} lights" if lights else "")
-                + (f" + {markers} door arrival markers" if markers else ""),
-                refrs == len(objects["refs"]) + 2 + n_promoted + len(lights) + markers])
+                + (f" + {markers} door arrival markers" if markers else "")
+                + (f" + {map_refs} map markers" if map_refs else ""),
+                refrs == len(objects["refs"]) + 2 + n_promoted + len(lights) + markers + map_refs])
     unpromoted = exp["objects"]["exported"] - sum(exp["objects"]["skipped"].values())
     out.append([f"REFR total unchanged by promotion: {len(objects['refs']):,} objects + "
                 + " + ".join(f"{len(entries[k]):,} {k}" for k, _sig in (present or PROMOTED[:2]))
@@ -2030,6 +2041,8 @@ def ids_before(ids, appended):
     out = [int(v, 16) for v in ids["bases"].values()] + [int(v, 16) for v in ids["refs"].values()]
     out += [int(v, 16) for v in ids.get("navmeshes") or []]
     for k, v in ids.items():                         # every promoted class ({src: {"base", "ref"}}: containers, ...)
+        if k == "map_marker_refs":                   # {world: {tag: id}}, after everything: map_marker_ids
+            continue
         if isinstance(v, dict) and v and all(isinstance(x, dict) for x in v.values()):
             for c in v.values():                     # (a terminal also names its TMLM "menu"; a bench a master's base)
                 if k in appended:
@@ -2792,9 +2805,10 @@ def cmd_check(a):
                        f"record (lights included), then {len({e['edid'] for e in doors})} door ACTI bases")
 
     # 1. core64 unchanged: params, Data files, Mars plugin, every core64 record of the main plugin
-    need({k: v for k, v in prm.items() if k not in ("objects", "navmesh")} == cprm and prm.get("objects") == "objects.json"
+    need(core_params_view(prm) == cprm and prm.get("objects") == "objects.json"
          and prm.get("navmesh") in (None, "navmesh.json"),
-         "overlays_params.json = core64's + objects" + (" + navmesh" if prm.get("navmesh") else ""))
+         "overlays_params.json = core64's + objects" + (" + navmesh" if prm.get("navmesh") else "")
+         + (" + map markers" if any("map_markers" in o for o in prm["overlays"]) else ""))
     for rel in exp["base_files"] + [prm["mars"]["plugin"]]:
         need(os.path.isfile(os.path.join(a.core, *rel.split("/"))) and
              x2c.sha256(os.path.join(out, *rel.split("/"))) == x2c.sha256(os.path.join(a.core, *rel.split("/"))),
