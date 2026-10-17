@@ -68,6 +68,21 @@ class ArrivalContractTests(unittest.TestCase):
         self.assertIn("DestinationId", trace)
         self.assertNotRegex(self.code, r'"[^"\n]*(?:PASS|success)[^"\n]*"')
 
+    def test_requested_coordinates_do_not_depend_on_an_open_user_log(self):
+        guarded = re.search(r"if UseDestinationPosition\s+(.*?)\s+endif", self.activate, re.S)[1]
+        before_position = guarded.split("akActionRef.SetPosition(", 1)[0]
+        strings = dict(re.findall(r"string (\w+) = ([^\n]+)", before_position))
+        def requests(pattern):
+            arguments = re.findall(pattern, before_position)
+            expressions = [strings.get(arg.strip(), arg.strip()) for arg in arguments]
+            return [expr for expr in expressions if '"FO4SF_LoadDoor requested_position="' in expr]
+        normal = requests(r"Debug.Trace\(([^\n]+)\)")
+        user = requests(r'Debug.TraceUser\("fo4sf", ([^\n]+)\)')
+        self.assertEqual(len(normal), 1, "requested coordinates must reach the normal log without the bridge quest")
+        self.assertEqual(normal, user)
+        for axis in "XYZ":
+            self.assertIn("Destination" + axis, normal[0])
+
 
 if __name__ == "__main__":
     unittest.main()

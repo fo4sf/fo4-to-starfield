@@ -18,6 +18,10 @@ without proving that assumption. No angle change is added: MoveTo still requests
 the marker's rotation. This candidate makes one SetPosition call; it does not
 implement staged hops or suppress boundary dialogs.
 
+With the flag off, the marker, before-move and after-move diagnostics still run.
+The marker can report the base world while the player reports a runtime instance;
+equality between those world IDs is not a success check.
+
 MoveTo has no success return. This source implements call ordering, not a
 verified-success gate. Both MoveTo and SetPosition completion can leave an
 incorrect arrival. The new properties must remain disabled outside a reviewed
@@ -29,9 +33,16 @@ height equivalence.
 
 Traces record the marker, player before MoveTo, player after MoveTo and (when
 enabled) player after SetPosition, plus requested coordinates, destination
-plugin/local ID, reference ID, XYZ, heading, parent cell and world. They go to
-the normal trace and the `fo4sf` user log. These are observations, not settled
+plugin/local ID, reference ID, XYZ, heading, parent cell and world. All phase and
+requested-position lines go to the normal Papyrus trace. They also reach the
+`fo4sf` user log when the bridge quest has opened it; the normal trace works
+without that quest. These are observations, not settled
 positions or PASS verdicts. No producer parser/evidence schema changes here.
+
+Compilation receipts pin each exact private PEX artifact, source and compiler
+inputs. The compiler embeds timestamps, so separate compilations need not have
+the same PEX hash. Compare source and assembly contracts across independent
+builds; use the individual PEX hash to identify the artifact actually tested.
 
 Native acceptance still requires actual door activation, correct scene and
 runtime frame, settled surface and facing, a return trip, state preservation and

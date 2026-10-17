@@ -42,7 +42,9 @@ Event OnActivate(ObjectReference akActionRef)
         ; Experimental: the writer must supply this runtime instance's measured
         ; merged arrival, never a guessed or globally reused merge offset.
         ; MoveTo is void; completion alone cannot certify the target world.
-        Debug.TraceUser("fo4sf", "FO4SF_LoadDoor requested_position=" + DestinationX + " " + DestinationY + " " + DestinationZ)
+        string requestedPosition = "FO4SF_LoadDoor requested_position=" + DestinationX + " " + DestinationY + " " + DestinationZ
+        Debug.Trace(requestedPosition)
+        Debug.TraceUser("fo4sf", requestedPosition)
         akActionRef.SetPosition(DestinationX, DestinationY, DestinationZ)
         TracePosition("after_position", akActionRef)
     endif
