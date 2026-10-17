@@ -2226,6 +2226,11 @@ class PreflightProbe:
             return None
         return installed_identity(self.starfield)
 
+    def data_file_sha256(self, rel):
+        data = os.path.join(self.starfield, "Data")
+        p = exp_install.data_path(data, rel)                 # inside Data only; outside raises (UNKNOWN for the check)
+        return sha256(p) if os.path.isfile(p) else None
+
     def plugins_txt_lines(self):
         local = os.environ.get("LOCALAPPDATA", "")
         if not local or not os.path.isabs(local):
@@ -2582,8 +2587,9 @@ def walk_timeout(test, light=0.0):
 
 def installed_identity(starfield):
     """What exp_install.py says is installed (its record in the game's Data folder: the staged folder, the plugins and
-    the sha256 of every installed file, the packed archive included, and of every staged input), pinned with every
-    walk result and checked against the queue's experiment_identity; {"error": ...} when it cannot be read. Read only."""
+    the sha256 of every installed file, the packed archive included, and of every staged input, and whether an
+    uninstall is half done: cleanup_pending), pinned with every walk result and checked against the queue's
+    experiment_identity; {"error": ...} when it cannot be read. Read only."""
     p = os.path.join(starfield or "", "Data", exp_install.RECORD)
     try:
         with open(p, encoding="utf-8") as f:
@@ -2592,7 +2598,7 @@ def installed_identity(starfield):
         return {"error": f"{type(e).__name__}: {e}"}
     return {"exp_dir": r.get("exp_dir"), "plugins": r.get("plugins"), "files": r.get("files"),
             "source_inputs": r.get("source_inputs"), "packing_policy": r.get("packing_policy"),
-            "complete": r.get("complete")}
+            "complete": r.get("complete"), "cleanup_pending": r.get("cleanup_pending")}
 
 
 def experiment_identity(exp_dir, plugins):
@@ -2615,6 +2621,8 @@ def install_mismatch(q, inst):
         return f"no install record: {inst.get('error') if inst else 'nothing read'}"
     if inst.get("complete") is not True:
         return "the experiment install record is incomplete"
+    if inst.get("cleanup_pending"):
+        return "the experiment install record is incomplete: its uninstall did not finish (cleanup pending)"
     if os.path.normcase(os.path.abspath(inst.get("exp_dir") or "")) != os.path.normcase(pin["exp_dir"]):
         return f"installed experiment {inst.get('exp_dir')!r} is not the pinned {pin['exp_dir']!r}"
     if [str(p).casefold() for p in inst.get("plugins") or []] != [p.casefold() for p in pin["plugins"]]:
