@@ -36,7 +36,8 @@ Rules the fold enforces:
   so the leftovers of a stopped historic campaign do not follow the owner forever.
 - Task ids in the ledger are `<campaign>/<test id>` (the queue folder's name and the runner's id), because the
   planners repeat test ids across campaigns (`0000_terrain_<coc>` in every terrain campaign) and two campaigns must
-  never merge in the fold. A card's own id (§8) is already unique.
+  never merge in the fold; the importer refuses a second folder of the same name that carries a different build (§3).
+  A card's own id (§8) is already unique.
 - An event of a type this checkout does not know is read as an opaque line (kept, counted, not folded), so a ledger
   written by a newer checkout stays readable; a known type without its key field (`task`, `capability`, `blocker`)
   is a corrupt line. Every writer takes the ledger's lock file (`ledger.jsonl.lock`, `filelock.py`) around the
@@ -80,7 +81,11 @@ The command: `python scripts\leader_import.py --ledger <leader dir> --queues C:\
 [--deploy <Data\FO4Port.deploy.json>] [--install <Data\FO4SFExp.install.json>] [--active-after-load yes|no]`
 (or `--queue <dir>` per folder): one line per source with the events added, queues first, then the deploy manifest,
 then the install records, so the fold ends on the current build and its plugins; a second run adds nothing; a source
-that cannot be read fails alone (exit 1, the others still import); the eight bullets of the resulting fold follow.
+that cannot be read, or that does not exist or is not a JSON object at the top level, fails alone (exit 1, the others
+still import; a mistyped path never reads as "already imported", while a planned queue with no `results.jsonl` yet is
+fine); a queue folder whose name the ledger already binds to another folder with a different build is refused the same
+way (a different queue under the same name is a different campaign: rename the folder), while the same queue relocated
+or archived, same build, imports under its campaign; the eight bullets of the resulting fold follow.
 
 ## 4. Bounded, resumable tasks (one cloud session each)
 

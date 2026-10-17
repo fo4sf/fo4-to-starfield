@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -16,13 +17,16 @@ from fo4sf.core import import_cli as cli  # noqa: E402
 from fo4sf.core.state import Ledger, fold  # noqa: E402
 
 
-def write_queue(d, name, tests, rows):
+def write_queue(d, name, tests, rows, build="abababab"):
+    """A planned queue folder; rows=None is a queue that never ran (no results.jsonl yet)."""
     q = os.path.join(d, name)
     os.makedirs(q)
     with open(os.path.join(q, "queue.json"), "w", encoding="utf-8") as f:
-        json.dump({"created": "2026-10-15T10:00:00", "staging": "C:/staging", "plugin_sha256": "ab" * 32,
-                   "build_id": "abababab", "commit": "d628b56",
+        json.dump({"created": "2026-10-15T10:00:00", "staging": "C:/staging", "plugin_sha256": build[:2] * 32,
+                   "build_id": build, "commit": "d628b56",
                    "tests": [{"id": t, "kind": "travel", "cell": "C", "ref": "0x1"} for t in tests]}, f)
+    if rows is None:
+        return q
     with open(os.path.join(q, "results.jsonl"), "w", encoding="utf-8") as f:
         for t, verdict, cls in rows:
             f.write(json.dumps({"id": t, "kind": "travel", "cell": "C", "ref": "0x1", "attempt": 1, "verdict": verdict,
@@ -82,6 +86,56 @@ class ImportCliTests(unittest.TestCase):
         code, lines = self.run_cli("--ledger", self.leader, "--queues", os.path.join(self.d, "nowhere"))
         self.assertEqual(code, 1)
         self.assertIn("not a folder", lines[0])
+
+    def test_a_requested_source_that_does_not_exist_fails_alone(self):
+        # a mistyped recovery path must never read as "already imported": FAILED, exit 1, the valid queue still imports
+        gone = os.path.join(self.d, "nonexistent")
+        code, lines = self.run_cli("--ledger", self.leader, "--queue", gone, "--queue", self.q1, "--install", gone,
+                                   "--deploy", gone, "--no-report")
+        self.assertEqual(code, 1, lines)
+        self.assertIn(f"queue {self.q1}: 5 event(s) added", lines)
+        for label in (f"queue {gone}", f"install {gone}", f"deploy {gone}"):
+            self.assertTrue(any(ln.startswith(f"{label}: FAILED: FileNotFoundError") for ln in lines), (label, lines))
+        self.assertFalse(any("0 event(s) added" in ln for ln in lines[:-1]), lines)
+        self.assertIn("total: 5 event(s) added", lines[-1])
+        self.assertIn("3 source(s) failed", lines[-1])
+        # a file that exists but is not a record (its top level is not an object) fails the same way
+        with open(os.path.join(self.q2, "queue.json"), "w", encoding="utf-8") as f:
+            json.dump(["not", "a", "queue"], f)
+        code, lines = self.run_cli("--ledger", self.leader, "--queue", self.q2, "--no-report")
+        self.assertEqual(code, 1, lines)
+        self.assertTrue(any(ln.startswith(f"queue {self.q2}: FAILED: ValueError") for ln in lines), lines)
+        # absence inside a valid queue is not an error: a planned queue that never ran has no results.jsonl
+        planned = write_queue(self.d, "planned_1017", ["p1"], None)
+        code, lines = self.run_cli("--ledger", self.leader, "--queue", planned, "--no-report")
+        self.assertEqual(code, 0, lines)
+        self.assertEqual(lines[0], f"queue {planned}: 2 event(s) added")                     # pin + 1 test
+        self.assertEqual(fold(Ledger(os.path.join(self.leader, "ledger.jsonl")).read()).tasks["planned_1017/p1"]["status"], "queued")
+
+    def test_two_folders_with_one_name_and_different_builds_never_fold_as_one_campaign(self):
+        a = write_queue(os.path.join(self.d, "a"), "door_trip", ["door_1"], [("door_1", "FAIL", "FALL")], build="aaaaaaaa")
+        b = write_queue(os.path.join(self.d, "b"), "door_trip", ["door_1"], [("door_1", "PASS", "")], build="bbbbbbbb")
+        code, lines = self.run_cli("--ledger", self.leader, "--queue", a, "--queue", b, "--no-report")
+        self.assertEqual(code, 1, lines)
+        self.assertEqual(lines[0], f"queue {a}: 3 event(s) added")
+        self.assertTrue(lines[1].startswith(f"queue {b}: FAILED: ValueError"), lines)
+        self.assertIn("door_trip", lines[1])
+        self.assertIn("bbbbbbbb", lines[1])
+        self.assertIn("1 source(s) failed", lines[-1])
+        ledger = Ledger(os.path.join(self.leader, "ledger.jsonl"))
+        self.assertEqual(len(ledger.read()), 3)                                               # nothing of b was written
+        s = fold(ledger.read())
+        self.assertEqual({k: (v["outcome"], v["build_id"]) for k, v in s.tasks.items()}, {"door_trip/door_1": ("FAIL", "aaaaaaaa")})
+        # the same queue relocated (archived: same name, same build) still imports under its campaign, and the
+        # original folder stays idempotent
+        archived = os.path.join(self.d, "archive", "door_trip")
+        shutil.copytree(a, archived)
+        code, lines = self.run_cli("--ledger", self.leader, "--queue", archived, "--queue", a, "--no-report")
+        self.assertEqual(code, 0, lines)
+        self.assertEqual(lines[:2], [f"queue {archived}: 3 event(s) added", f"queue {a}: 0 event(s) added"])
+        s = fold(ledger.read())
+        self.assertEqual({k: (v["outcome"], v["build_id"]) for k, v in s.tasks.items()}, {"door_trip/door_1": ("FAIL", "aaaaaaaa")})
+        self.assertEqual(s.campaigns, {"door_trip"})
 
     def test_deploy_and_install_records_after_the_queues(self):
         dep = os.path.join(self.d, "FO4Port.deploy.json")

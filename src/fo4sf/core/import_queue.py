@@ -16,6 +16,12 @@ Every event carries src = "<file>:<line>" (a row of a file that only grows), "<f
 install is a new event, a re-deploy of the same bytes too); an import skips src keys already in the ledger. A runner
 given a lease folder writes the same keys live (runner_events.py, leader-core.md §10), so importing its queue
 afterwards adds nothing: the import is the recovery path when a live write was lost.
+
+A requested source must exist and hold a JSON object (a missing file or a list at the top level raises, the CLI says
+FAILED and exits 1): a mistyped recovery path must never read as "already imported". What may be absent inside a valid
+record (no results.jsonl yet, no tests, no pin) is not an error. A queue folder's name is its campaign (task_id), so a
+second folder of the same name that carries a different build is refused (ValueError) before its rows could fold into
+the first campaign's tasks; the same queue relocated or archived (the same build) imports under its campaign.
 """
 import hashlib
 import json
@@ -28,11 +34,16 @@ DEPLOY_PLUGIN = "FO4Port.esm"          # deploy_starfield.py PLUGIN: the artifac
 BY = "import"
 
 
-def _load(p, default=None):
+def _record(p, what):
+    """The JSON object a requested source file holds. A missing file, or a top level that is not an object, raises
+    (FileNotFoundError / ValueError: the CLI reports the source FAILED and exits 1, the other sources still import)."""
     if not os.path.exists(p):
-        return default
+        raise FileNotFoundError(f"{what} not found: {p}")
     with open(p, encoding="utf-8-sig") as f:             # utf-8-sig like the runner: a hand-edited file may carry a BOM
-        return json.load(f)
+        rec = json.load(f)
+    if not isinstance(rec, dict):
+        raise ValueError(f"{what} is not a JSON object: {p}")
+    return rec
 
 
 def _content_src(p, key):
@@ -55,6 +66,19 @@ def task_id(campaign, test_id):
     """The ledger's task id: the queue folder's name and the test id, because the planners repeat test ids across
     campaigns (0000_terrain_<coc> in every terrain campaign) and two campaigns must never merge in the fold."""
     return f"{campaign}/{test_id}"
+
+
+def bound_to(events, campaign):
+    """(queue folders, build ids) the ledger already binds to `campaign`: the src keys and build_id of its task_queued
+    and task_finished events, written by the importer and the live runner alike (runner_events.py)."""
+    folders, builds = set(), set()
+    for e in events:
+        if e.ev in ("task_queued", "task_finished") and e.get("campaign") == campaign and e.get("src"):
+            src = e.get("src")
+            file = src.rsplit("#", 1)[0] if "#" in src else src.rsplit(":", 1)[0]   # queue.json#<id> / results.jsonl:<line>
+            folders.add(os.path.dirname(file))
+            builds.add(e.get("build_id"))
+    return folders, builds
 
 
 def deploy_pins(rec):
@@ -96,11 +120,16 @@ def _rows(p):
 def import_queue(qdir, ledger, campaign=None):
     """One queue folder -> build_pinned, task_queued per test, task_finished per result row. Returns events added."""
     qdir = os.path.abspath(qdir)
-    q = _load(os.path.join(qdir, "queue.json"))
-    if not q:
-        return 0
+    q = _record(os.path.join(qdir, "queue.json"), "queue.json")
     campaign = campaign or os.path.basename(qdir.rstrip("\\/"))
-    seen = ledger.sources()
+    events = ledger.read()
+    seen = {e.get("src") for e in events if e.get("src")}
+    folders, builds = bound_to(events, campaign)
+    if folders and qdir not in folders and q.get("build_id") not in builds:
+        # another folder of this name, another build: a distinct queue whose rows would fold into this campaign's tasks
+        raise ValueError(f"campaign {campaign!r} is already bound to {', '.join(sorted(folders))} (build "
+                         f"{', '.join(sorted(str(b) for b in builds))}); {qdir} holds build {q.get('build_id')}: a different "
+                         f"queue under the same folder name is a different campaign, rename the folder before importing it")
     added = 0
 
     def put(ev, src, **fields):
@@ -133,9 +162,7 @@ def import_queue(qdir, ledger, campaign=None):
 
 def import_install(record_path, ledger, active_after_load=None):
     """An FO4SFExp/FO4SFBridge install record -> one plugins_verified event (active_after_load unknown unless given)."""
-    rec = _load(record_path)
-    if not rec:
-        return 0
+    rec = _record(record_path, "install record")
     names = list(rec.get("plugins") or [])
     names += [x["active"].lstrip("*").strip() for x in rec.get("plugins_replaced", []) if x.get("active")]
     src = _content_src(record_path, "plugins")
@@ -149,9 +176,7 @@ def import_install(record_path, ledger, active_after_load=None):
 
 def import_deploy(manifest_path, ledger):
     """The deploy manifest -> one build_pinned event (deploy_pins); an install the deployer did not complete says so."""
-    rec = _load(manifest_path)
-    if not rec:
-        return 0
+    rec = _record(manifest_path, "deploy manifest")
     src = _content_src(manifest_path, "pin")
     if src in ledger.sources():
         return 0
