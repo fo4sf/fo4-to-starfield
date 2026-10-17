@@ -81,6 +81,11 @@ The default refuses to write a plugin while unresolved relationships remain. A
 is recorded in `build-state.json`. `--no-markers` disables marker recreation.
 `--allow-unresolved` explicitly emits a partial plugin and records its unresolved
 count and partial fidelity; this is for research, not proof of complete gameplay.
+This includes every non-null `activate_parents` block in newly exported `refs`,
+even an empty block or a reference with no placed target. Until activation-parent
+translation exists, such cells exit 2 without a plugin by default; opting into
+`--allow-unresolved` records `partial_explicitly_allowed` instead of silently
+discarding the relationship.
 
 The output includes an updated `formids.json` reserving marker identities. Preserve
 that map in subsequent writer/postprocessor runs, or newly added base records
