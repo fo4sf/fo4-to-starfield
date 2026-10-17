@@ -1717,3 +1717,17 @@ integ_1018's (water1024.nif, `_neutral.mat`, gear room all equal by sha256); the
 
 **Not verified.** In game: that after a rebuild the player stands at the pit floor (z about -2.38) and sees the cement
 texture. The first read after the rebuild is the proof; the T10 PHANTOM test covers the cave pond.
+
+## 2026-10-17: Codex raw light-patch bounds (offline)
+
+Independent PR302 review reproduced a malformed DAT2 declaration extending beyond
+its LIGH into a following STAT: scale changed four STAT bytes, then check returned
+CHECK PASS. Both commands now validate record/group containment and all LIGH
+subrecords before accepting lumens offsets; malformed trailing fields and duplicate
+DAT2 are refused. The checker validates both files. The scaling rule is unchanged.
+
+Synthetic reproduction only, no game versions or installed outputs tested.
+Seventeen focused tests pass; three regression methods produce five failed
+assertions against the old implementation. Valid trailing fields remain supported.
+Guard/whitespace pass. Failure/pass evidence is privately retained; independent
+QA pending. No game data, staging changes or native brightness claim.

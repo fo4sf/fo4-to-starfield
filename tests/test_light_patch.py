@@ -52,6 +52,84 @@ def run(*argv):
     return code, out.getvalue(), err.getvalue()
 
 
+class LightPatchBoundsTests(unittest.TestCase):
+    def assert_refused(self, raw):
+        with tempfile.TemporaryDirectory() as folder:
+            src, dst = os.path.join(folder, "source.esm"), os.path.join(folder, "output.esm")
+            with open(src, "wb") as stream:
+                stream.write(raw)
+            code, _out, _err = run("scale", "--in", src, "--out", dst, "--factor", "0.375")
+            self.assertNotEqual(code, 0)
+            self.assertFalse(os.path.exists(dst), "malformed input must not publish output")
+            code, out, _err = run("check", "--a", src, "--b", src, "--factor", "1")
+            self.assertNotEqual(code, 0, out)
+            self.assertNotIn("CHECK PASS", out)
+            with open(src, "rb") as stream:
+                self.assertEqual(stream.read(), raw)
+
+    @staticmethod
+    def raw_light(payload):
+        header = vp.record_bytes(b"TES4", 0, 1, [(b"HEDR", struct.pack("<fII", 0.96, 2, 0x902))]).serialize()
+        record = bytearray(vp.record_bytes(b"LIGH", OWN | 0x900, 0, []).serialize())
+        struct.pack_into("<I", record, 4, len(payload))
+        neighbor = vp.record_bytes(b"STAT", OWN | 0x901, 0, [(b"DATA", bytes([17]) * 120)]).serialize()
+        return header + record + payload + neighbor
+
+    def test_dat2_cannot_write_into_following_non_light_record(self):
+        # The old parser treats four bytes of the following STAT as light lumens.
+        self.assert_refused(self.raw_light(b"DAT2" + struct.pack("<H", 58)))
+
+    def test_validate_fields_after_dat2_instead_of_stopping_early(self):
+        valid = b"DAT2" + struct.pack("<H", 58) + dat2(2827)
+        for tail in (b"BAD", b"JUNK" + struct.pack("<H", 100), b"XXXX" + struct.pack("<H", 4) + bytes(4)):
+            with self.subTest(tail=tail):
+                self.assert_refused(self.raw_light(valid + tail))
+
+    def test_duplicate_dat2_is_ambiguous(self):
+        field = b"DAT2" + struct.pack("<H", 58) + dat2(2827)
+        self.assert_refused(self.raw_light(field + field))
+
+    def test_truncated_tes4_header_or_payload(self):
+        self.assert_refused(b"TES4")
+        self.assert_refused(plugin()[:24])
+
+    def test_trailing_partial_record_header(self):
+        self.assert_refused(plugin() + b"LIGH")
+
+    def test_record_payload_cannot_extend_outside_its_group(self):
+        raw = bytearray(plugin())
+        off = next(off for sig, off, _size, _flags, _fid in lp.walk(raw) if sig == "LIGH")
+        struct.pack_into("<I", raw, off + 4, len(raw) - off - 24)
+        self.assert_refused(raw)
+
+    def test_groups_cannot_overlap_parent_or_make_no_progress(self):
+        raw = plugin()
+        off = next(off for sig, off, _size, _flags, _fid in lp.walk(raw) if sig == "GRUP")
+        for size in (0, 23, len(raw) + 1):
+            with self.subTest(size=size):
+                bad = bytearray(raw)
+                struct.pack_into("<I", bad, off + 4, size)
+                self.assert_refused(bad)
+
+    def test_record_payload_cannot_extend_beyond_file(self):
+        raw = bytearray(plugin())
+        off = next(off for sig, off, _size, _flags, _fid in lp.walk(raw) if sig == "LIGH")
+        struct.pack_into("<I", raw, off + 4, len(raw))
+        self.assert_refused(raw)
+
+    def test_valid_fields_after_dat2_remain_unchanged(self):
+        raw = self.raw_light(b"DAT2" + struct.pack("<H", 58) + dat2(2827) + b"JUNK" + struct.pack("<H", 3) + b"abc")
+        with tempfile.TemporaryDirectory() as folder:
+            src, dst = os.path.join(folder, "source.esm"), os.path.join(folder, "output.esm")
+            with open(src, "wb") as stream:
+                stream.write(raw)
+            self.assertEqual(run("scale", "--in", src, "--out", dst, "--factor", "0.375")[0], 0)
+            self.assertEqual(run("check", "--a", src, "--b", dst, "--factor", "0.375")[0], 0)
+            with open(dst, "rb") as stream:
+                result = stream.read()
+            self.assertIn(b"JUNK\x03\x00abc", result)
+
+
 class LightPatchTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
