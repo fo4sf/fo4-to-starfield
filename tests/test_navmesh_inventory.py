@@ -166,3 +166,20 @@ class NavmeshInventoryTests(unittest.TestCase):
             inv._unlink_if_owned(other, ours.st_dev, ours.st_ino)
             self.assertTrue(other.exists())
             self.assertEqual(other.read_text(), "owner-bytes")
+    def test_vertex_retention_when_present(self):
+        fo4 = {"c": {"triangles": 10, "area": 5.0, "vertices": 20}}
+        sf = {"c": {"triangles": 8, "area": 4.0, "vertices": 16}}
+        report = inv.inventory(fo4, sf)
+        self.assertEqual(report["total_fo4_vertices"], 20)
+        self.assertEqual(report["total_sf_vertices"], 16)
+        self.assertEqual(report["vertex_retention_percent"], 80.0)
+        self.assertIn("verts 20 -> 16", report["summary"])
+
+    def test_vertices_ignored_when_absent(self):
+        fo4 = {"c": {"triangles": 10, "area": 5.0}}
+        sf = {"c": {"triangles": 8, "area": 4.0}}
+        report = inv.inventory(fo4, sf)
+        self.assertEqual(report["total_fo4_vertices"], 0)
+        self.assertEqual(report["total_sf_vertices"], 0)
+        self.assertNotIn("verts", report["summary"])
+
