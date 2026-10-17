@@ -171,10 +171,11 @@ class ImportCliTests(unittest.TestCase):
         code, lines = self.run_cli("--ledger", self.leader, "--deploy", inst, "--install", dep, "--no-report")
         self.assertEqual(code, 1, lines)
         self.assertTrue(lines[0].startswith(f"deploy {inst}: FAILED: ValueError: deploy manifest lacks an artifacts object"), lines)
-        self.assertTrue(lines[1].startswith(f"install {dep}: FAILED: ValueError: install record lacks a plugins list"), lines)
+        self.assertTrue(lines[1].startswith(f"install {dep}: FAILED: ValueError: install record lacks a plugins or plugins_added list"), lines)
         self.assertEqual(lines[-1], f"total: 0 event(s) added to {ledger.path}; 2 source(s) failed")
         self.assertEqual(len(ledger.read()), 2)                                               # nothing was written
-        self.assertEqual(fold(ledger.read()).plugins, [{"name": "FO4SFExp.esm", "active_after_load": True}])   # the plugins stand
+        self.assertEqual([(p["name"], p["active_after_load"]) for p in fold(ledger.read()).plugins],
+                         [("FO4SFExp.esm", True)])                                                  # the plugins stand
         # a queue.json that is an object of another shape ({}, an install record, a test without an id) is not a queue
         qp = os.path.join(self.q2, "queue.json")
         for shape, why in (({}, "lacks a tests list"), ({"plugins": ["FO4SFExp.esm"], "complete": True}, "lacks a tests list"),
@@ -213,7 +214,9 @@ class ImportCliTests(unittest.TestCase):
         self.assertEqual(lines[:3], [f"queue {self.q1}: 5 event(s) added", f"deploy {dep}: 1 event(s) added", f"install {inst}: 1 event(s) added"])
         s = fold(Ledger(os.path.join(self.leader, "ledger.jsonl")).read())
         self.assertEqual(s.build, {"build_id": "efefefef", "plugin_sha256": "ef" * 32})   # the deploy is the current pin
-        self.assertEqual(s.plugins, [{"name": "FO4SFExp.esm", "active_after_load": True}])
+        # the entry also names its record and the sha256 the record holds for the plugin (none in this synthetic one)
+        self.assertEqual([(p["name"], p["active_after_load"], p["source"], p["sha256"]) for p in s.plugins],
+                         [("FO4SFExp.esm", True, "FO4SFExp.install.json", None)])
         self.assertIn("plugins: FO4SFExp.esm", [ln for ln in lines if ln.startswith("- Pins")][0])
         self.assertEqual(self.run_cli("--ledger", self.leader, "--queue", self.q1, "--deploy", dep, "--install", inst)[1][-9],
                          f"total: 0 event(s) added to {os.path.join(self.leader, 'ledger.jsonl')}")
