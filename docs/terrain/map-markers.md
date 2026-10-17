@@ -13,7 +13,7 @@ landing overlay carries.
 
 Pinned `FO4TerrainCore.esm` (`terrain_core64k`, read-only):
 
-- LCTN `01000802` `FO4Core_CommonwealthLocation`: `LCSR` absent (0 bytes), `LCID` absent, `FULL` "Commonwealth 00 (FO4
+- LCTN `01000802` `FO4Core_CommonwealthLocation`: `LCSR` and `LCID` present with 0-byte payloads, `FULL` "Commonwealth 00 (FO4
   terrain)", `KWDA` `002CA99D` (`LocTypeOverlay`), `PNAM` `0001B736` (`SSol_PMars_Surface`).
 - WRLD `FO4Core_Commonwealth` `XLCN` that location (already documented in [overlay-records.md](overlay-records.md) §2).
 - 654,600 `REFR`: **0** carry `XMRK`, **0** `NAME` a MapMarker STAT (`00000010` / long / short / medium-long).
@@ -35,7 +35,7 @@ A typical unique-overlay marker (LC172 persistent `REFR` `003E5E12`):
 
 | Field | Value |
 |---|---|
-| flags | `00000C00` |
+| flags | `00000C00` (Persistent `0x400` + Initially Disabled `0x800`) |
 | `NAME` | `00000010` MapMarker |
 | `XMRK` | empty payload |
 | `FNAM` | `1b000000` (u32 `0x1B`) |
@@ -52,8 +52,12 @@ A typical unique-overlay marker (LC172 persistent `REFR` `003E5E12`):
 `LCSR` is a repeated 20-byte (5 × u32) stride:
 
 ```
-LCRT formid, REFR formid, WRLD formid, 0, 0xFFFFFFFF
+LCRT formid, REFR formid, WRLD formid, grid (two i16, Y then X), 0xFFFFFFFF
 ```
+
+The 4th dword is the marker's cell as two i16, Y then X (Mutagen `LocationCellStaticReference.Grid`). The 5th is
+Mutagen `Unknown = -1` (`0xFFFFFFFF` on every vanilla MapMarkerRefType row). The constructor default is 0; the
+writer sets Grid from `spawn_cell` and Unknown to -1.
 
 `LCID` is often the map-marker `REFR`. Mutagen: `MasterSpecialReferences` = `LCSR`,
 `MasterInitiallyDisabledReferences` = `LCID`.

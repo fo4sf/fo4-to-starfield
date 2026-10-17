@@ -978,19 +978,23 @@ if (doorEntries.Count > 0)
 }
 // One MapMarker per overlay (docs/terrain/map-markers.md): Duplicate LC172's persistent MapMarker REFR 003E5E12
 // so empty XMRK / FNAM 0x1B / TNAM 0x17 stay vanilla; park it at the COC; fill LCSR MapMarkerRefType + LCID
-// that the location Duplicate cleared. New FormIDs after doors/lights so object IDs stay.
-var srcMapMarker = sf.EnumerateMajorRecords<IPlacedObjectGetter>().First(r => r.FormKey.ID == 0x3E5E12);
+// that the location Duplicate cleared. New FormIDs after doors/lights so object IDs stay. Skip when the master
+// has no 003E5E12 (synthetic identity fixture) so existing writer tests keep their FormIDs.
+var srcMapMarker = sf.EnumerateMajorRecords<IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey.ID == 0x3E5E12);
 int nMap = 0;
 var mapIds = new Dictionary<string, string>();
-foreach (var (w, o) in worlds)
+if (srcMapMarker == null)
+    Console.WriteLine("  map marker: template REFR 003E5E12 missing from the master; skipping");
+else foreach (var (w, o) in worlds)
 {
     var loc = mod.Locations.First(l => l.EditorID == o.GetProperty("location").GetString());
     var spawn = o.GetProperty("spawn").EnumerateArray().Select(e => e.GetSingle()).ToArray();
+    var spawnCell = o.GetProperty("spawn_cell").EnumerateArray().Select(e => e.GetInt32()).ToArray();
     var marker = (PlacedObject)srcMapMarker.Duplicate(NewKey());
     marker.EditorID = w.EditorID + "MapMarker";
     marker.Position = new P3Float(spawn[0], spawn[1], spawn[2]);
     marker.Rotation = new P3Float(0, 0, 0);
-    marker.MajorRecordFlagsRaw |= 0x400;                                     // Persistent
+    marker.MajorRecordFlagsRaw |= 0xC00;                                     // Persistent 0x400 + Initially Disabled 0x800 (LC172 003E5E12)
     marker.LinkedReferences?.Clear();                                        // drop LC172's XLKR into a vanilla ref
     if (marker.MapMarker != null)
         marker.MapMarker.Name = "Red Rocket";
@@ -1001,6 +1005,8 @@ foreach (var (w, o) in worlds)
         LocationRefType = new FormLink<ILocationReferenceTypeGetter>(new FormKey(sfEsm, 0x2271F)),  // MapMarkerRefType
         Marker = new FormLink<IPlacedObjectGetter>(marker.FormKey),
         Location = new FormLink<IWorldspaceGetter>(w.FormKey),
+        Grid = new P2Int16((short)spawnCell[0], (short)spawnCell[1]),         // Mutagen writes Y then X; Unknown -1 is vanilla 0xFFFFFFFF
+        Unknown = -1,
     });
     loc.MasterInitiallyDisabledReferences ??= new ExtendedList<IFormLinkGetter<IPlacedGetter>>();
     loc.MasterInitiallyDisabledReferences.Add(new FormLink<IPlacedGetter>(marker.FormKey));
