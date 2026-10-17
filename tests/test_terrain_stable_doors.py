@@ -78,8 +78,16 @@ class TerrainStableDoorTests(unittest.TestCase):
     def test_legacy_door_bootstrap_is_byte_identical_then_reorder_is_stable(self):
         self.params['persistent_ids'] = False
         obj = self.pair()
+        # Different targets, including zero, must stay attached to their source
+        # door when allocation changes from legacy order to persistent identities.
+        obj['doors'][1]['destination']['arrival']['pos'] = [0.0, -123.5, 42.25]
         first, stage = self.build(obj, 'door-bootstrap')
         self.assert_persistent_marker_layout(stage, obj, first)
+        def vmads():
+            written = fixture.records(stage / 'Synthetic.esm')
+            return {src: dict(fixture.subrecords(written[int(v['ref'], 16)][1]))[b'VMAD']
+                    for src, v in first['doors'].items()}
+        original_vmads = vmads()
         original = {n: (stage / n).read_bytes() for n in ('Synthetic.esm', 'formids.json')}
         self.params['persistent_ids'] = True
         second, _ = self.build(obj, 'door-bootstrap', bootstrap=True)
@@ -90,6 +98,7 @@ class TerrainStableDoorTests(unittest.TestCase):
         third, _ = self.build(obj, 'door-bootstrap')
         self.assertEqual(first, third)
         self.assert_persistent_marker_layout(stage, obj, third)
+        self.assertEqual(original_vmads, vmads())
 
     def assert_persistent_marker_layout(self, stage, objects, ids):
         """A stable ID must continue naming the persistent return marker after reordering."""
