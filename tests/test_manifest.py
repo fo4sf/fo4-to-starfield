@@ -36,6 +36,20 @@ class TestManifest(unittest.TestCase):
             s = summarize_manifest(items)
             self.assertEqual(s["by_type"]["CELL"], 1)
 
+    def test_null_item_is_manifest_error_with_index(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "m.json"
+            p.write_text(json.dumps([None]), encoding="utf-8")
+            with self.assertRaisesRegex(ManifestError, r"item 0"):
+                load_manifest(p)
+
+    def test_null_item_in_items_form_is_manifest_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "m.json"
+            p.write_text(json.dumps({"items": [{"type": "STAT"}, None]}), encoding="utf-8")
+            with self.assertRaisesRegex(ManifestError, r"item 1"):
+                load_manifest(p)
+
 
 if __name__ == "__main__":
     unittest.main()

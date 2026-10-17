@@ -48,16 +48,50 @@ staging_dir = "/tmp/staging"
 @unittest.skipUnless(tomllib, "tomllib requires Python 3.11+")
 class TestCLI(unittest.TestCase):
     def test_status_missing_config(self):
+        old = os.getcwd()
         with tempfile.TemporaryDirectory() as td:
             os.chdir(td)
-            rc = main(["status"])
-            self.assertEqual(rc, 1)
+            try:
+                rc = main(["status"])
+                self.assertEqual(rc, 1)
+            finally:
+                os.chdir(old)
+        self.assertEqual(os.getcwd(), old)
 
     def test_status_ok(self):
         with tempfile.TemporaryDirectory() as td:
             cfg = Path(td) / "config.toml"
             cfg.write_text('[paths]\nwork_dir = "/tmp/w"\n')
             with patch("sys.stdout") as mock_out:
+                rc = main(["--config", str(cfg), "status"])
+            self.assertEqual(rc, 0)
+
+    def test_status_explicit_missing_manifest_is_nonzero(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "config.toml"
+            cfg.write_text('[paths]\nwork_dir = "/tmp/w"\n')
+            missing = Path(td) / "no-manifest.json"
+            with patch("sys.stdout"), patch("sys.stderr"):
+                rc = main(["--config", str(cfg), "status", "--manifest", str(missing)])
+            self.assertEqual(rc, 1)
+
+    def test_status_explicit_invalid_manifest_is_nonzero(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "config.toml"
+            cfg.write_text('[paths]\nwork_dir = "/tmp/w"\n')
+            bad = Path(td) / "manifest.json"
+            bad.write_text("{", encoding="utf-8")
+            with patch("sys.stdout"), patch("sys.stderr"):
+                rc = main(["--config", str(cfg), "status", "--manifest", str(bad)])
+            self.assertEqual(rc, 1)
+
+    def test_status_auto_missing_manifest_is_zero(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / "config.toml"
+            work = Path(td) / "work"
+            work.mkdir()
+            cfg.write_text(f'[paths]\nwork_dir = "{work.as_posix()}"\n')
+            with patch("sys.stdout"):
                 rc = main(["--config", str(cfg), "status"])
             self.assertEqual(rc, 0)
 

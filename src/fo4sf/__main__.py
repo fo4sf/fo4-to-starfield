@@ -29,36 +29,36 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"  work_dir: {paths.get('work_dir', 'missing')}")
     print(f"  staging_dir: {paths.get('staging_dir', 'missing')}")
 
-    # Optional manifest coverage (look in staging_dir or work_dir)
-    manifest_path = None
+    if args.manifest:
+        return _print_manifest(Path(args.manifest))
+
+    # Optional auto-discovery in staging_dir or work_dir
     for key in ("staging_dir", "work_dir"):
         d = paths.get(key)
         if d:
             cand = Path(d) / "manifest.json"
             if cand.is_file():
-                manifest_path = cand
-                break
-    if args.manifest:
-        manifest_path = Path(args.manifest)
+                return _print_manifest(cand)
+    print("  Manifest: not found (run a conversion stage to generate one)")
+    return 0
 
-    if manifest_path and manifest_path.is_file():
-        try:
-            items = load_manifest(manifest_path)
-            summary = summarize_manifest(items)
-            print(f"\n  Manifest: {manifest_path} ({summary['total']} items)")
-            if summary["by_type"]:
-                print("  By type:")
-                for k, v in sorted(summary["by_type"].items()):
-                    print(f"    {k}: {v}")
-            if summary["by_tier"]:
-                print("  By fidelity tier:")
-                for k, v in sorted(summary["by_tier"].items()):
-                    print(f"    {k}: {v}")
-        except ManifestError as e:
-            print(f"  manifest error: {e}", file=sys.stderr)
-    else:
-        print("  Manifest: not found (run a conversion stage to generate one)")
 
+def _print_manifest(manifest_path: Path) -> int:
+    try:
+        items = load_manifest(manifest_path)
+    except ManifestError as e:
+        print(f"  manifest error: {e}", file=sys.stderr)
+        return 1
+    summary = summarize_manifest(items)
+    print(f"\n  Manifest: {manifest_path} ({summary['total']} items)")
+    if summary["by_type"]:
+        print("  By type:")
+        for k, v in sorted(summary["by_type"].items()):
+            print(f"    {k}: {v}")
+    if summary["by_tier"]:
+        print("  By fidelity tier:")
+        for k, v in sorted(summary["by_tier"].items()):
+            print(f"    {k}: {v}")
     return 0
 
 

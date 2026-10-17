@@ -24,10 +24,15 @@ def load_manifest(path: str | Path) -> list[dict[str, Any]]:
         raise ManifestError(f"invalid JSON in {p}: {e}") from e
 
     if isinstance(data, list):
-        return data
-    if isinstance(data, dict) and "items" in data and isinstance(data["items"], list):
-        return data["items"]
-    raise ManifestError("manifest must be a list or an object with an 'items' list")
+        items = data
+    elif isinstance(data, dict) and "items" in data and isinstance(data["items"], list):
+        items = data["items"]
+    else:
+        raise ManifestError("manifest must be a list or an object with an 'items' list")
+    for i, it in enumerate(items):
+        if not isinstance(it, dict):
+            raise ManifestError(f"manifest item {i} is not an object")
+    return items
 
 
 def summarize_manifest(items: list[dict[str, Any]]) -> dict[str, Any]:
