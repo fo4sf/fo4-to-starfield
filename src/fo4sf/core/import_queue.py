@@ -119,13 +119,35 @@ def import_queue(qdir, ledger, campaign=None):
     return added
 
 
+def record_plugins(rec):
+    """The plugin names an install record carries, in every shape the writers used: `plugins` (exp_install.py since
+    270b0ec, 2026-10-12), `plugins_added` (`*Name` lines: every exp_install.py record, and the only key before 270b0ec),
+    `plugin` (bridge_install.py, one plugin) and `plugins_replaced[].active`; in that order, each name once."""
+    names, seen = [], set()
+
+    def add(n):
+        n = str(n or "").lstrip("*").strip()
+        if n and n.casefold() not in seen:
+            seen.add(n.casefold())
+            names.append(n)
+    for n in rec.get("plugins") or []:
+        add(n)
+    for n in rec.get("plugins_added") or []:
+        add(n)
+    add(rec.get("plugin"))
+    for x in rec.get("plugins_replaced") or []:
+        if isinstance(x, dict):
+            add(x.get("active"))
+    return names
+
+
 def import_install(record_path, ledger, active_after_load=None):
-    """An FO4SFExp/FO4SFBridge install record -> one plugins_verified event (active_after_load unknown unless given)."""
+    """An FO4SFExp/FO4SFBridge install record -> one plugins_verified event (active_after_load unknown unless given).
+    The fold merges these by plugin name, so the Exp and the Bridge record together name both plugins."""
     rec = _load(record_path)
     if not rec:
         return 0
-    names = list(rec.get("plugins") or [])
-    names += [x["active"].lstrip("*").strip() for x in rec.get("plugins_replaced", []) if x.get("active")]
+    names = record_plugins(rec)
     src = _content_src(record_path, "plugins")
     if src in ledger.sources():
         return 0
