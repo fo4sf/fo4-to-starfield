@@ -9,6 +9,9 @@ table, so the same promotion path runs over all 1,708 cells.
   items      --work <work> --build <core64c staging> --table <json> --out <cluster.json> [--limit N] [--only-known]
   activators --work <work> --build <core64c staging> --out <cluster.json> [--names <json>] [--table <json>] [--limit N]
   terminals  --work <work> --build <core64c staging> --out <cluster.json> [--names <json>] [--table <json>] [--limit N]
+  flora      --work <work> --build <core64c staging> --out <cluster.json> [--names <json>] [--table <json>] [--limit N]
+             every placed FO4 Flora reference with a model (docs/terrain/flora.md): one FLOR per FO4 base, converted
+             model, FULL the name, PFIG the table's ingredient or OrgCommonNutrient_Seed 00260DF2:Starfield.esm.
   lights     --work <work> --fo4 <Fallout4.esm> --out <cluster.json> [--limit N] [--lumens-per-m2 K]
              every exported Light reference (core64c never placed one: no slot) with its FO4 LIGH base read from
              Fallout4.esm and mapped to Starfield light fields (src/fo4sf/fo4light.py, docs/terrain/exterior-lights.md)
@@ -90,6 +93,8 @@ ITEM_TYPES = ("MiscItem", "Ingestible")               # loose items: MISC in Sta
 ACTIVATOR_TYPES = ("Activator",)                      # ACTI in Starfield
 TERMINAL_TYPES = ("Terminal",)                        # TERM (+ one TMLM menu) in Starfield
 TERMINAL_BODY = "FO4 terminal (text not ported yet)"  # the single body line of every promoted terminal's menu
+FLORA_TYPES = ("Flora",)                              # FLOR in Starfield (docs/terrain/flora.md)
+FLORA_INGREDIENT = "00260DF2:Starfield.esm"           # OrgCommonNutrient_Seed: maize crop PFIG until FO4 mapping
 MARKER_RE = re.compile(r"marker", re.I)               # as src/fo4sf/exterior.MARKER_RE: an editor-marker model
 
 # The report's grouping of the activators the list leaves out (first match wins; case-insensitive fnmatch on the FO4
@@ -127,13 +132,13 @@ def band_refs(work):
             yield r
 
 
-PROMOTED_KEYS = ("containers", "items", "activators", "terminals", "workshops", "benches", "doors")   # objects.json classes make_core64c promotes
+PROMOTED_KEYS = ("containers", "items", "activators", "terminals", "workshops", "flora", "benches", "doors")   # objects.json classes make_core64c promotes
 
 
 def placed_sources(build):
     """The source keys core64c placed, in placement order: objects.json refs, with every promoted entry (containers,
-    items, activators, terminals, workshops, benches) back in its reference_index slot (the order stage placed them
-    in before --cluster)."""
+    items, activators, terminals, workshops, flora, benches, doors) back in its reference_index slot (the order stage
+    placed them in before --cluster)."""
     o = load(os.path.join(build, "objects.json"))
     order = [r["src"] for r in o["refs"]]
     for i, src in sorted((e["reference_index"], e["src"]) for k in PROMOTED_KEYS for e in (o.get(k) or [])):
@@ -296,6 +301,27 @@ def terminals(refs, placed, table=None, names=None, skipped=None, limit=0):
     return {"note": "make_cluster.py terminals: every placed FO4 Terminal reference of the core with its name and a "
                     "one-line menu body (the FO4 text is not ported yet); read by make_core64c.py stage --cluster (one "
                     "TERM + TMLM per FO4 base with the converted model)", "terminals": entries, "excluded": excl}, rep
+
+
+def flora(refs, placed, table=None, names=None, skipped=None, limit=0):
+    """({"flora": [...], "excluded": ...}, report): every placed FO4 Flora reference with a model, in placement order
+    (promoted_class; humanized editor id when --names lists a base without FULL), each with ingredient (the table's, or
+    FLORA_INGREDIENT: OrgCommonNutrient_Seed until FO4 PFIG is readable). The writer makes one FLOR per FO4 base cloned
+    from FloraMaizeCrop01, with the converted model, the name, and that PFIG."""
+    entries, rep, left_out = promoted_class(refs, placed, FLORA_TYPES, "flora", table, names, skipped, limit)
+    for e in entries:
+        if not e["name"]:
+            e["name"] = humanize(e["editor_id"])
+            e["name_from"] = "editor id"
+        entry = (table_entry(table, e["editor_id"])[0] if table else None) or {}
+        ing = entry.get("ingredient") or FLORA_INGREDIENT
+        if not isinstance(ing, str) or ":" not in ing:
+            raise ValueError(f"{e['editor_id']}: flora ingredient {ing!r} is not a formkey (hex:plugin)")
+        e["ingredient"] = ing
+    excl = excluded_report(left_out)
+    return {"note": "make_cluster.py flora: every placed FO4 Flora reference of the core with its name and harvest "
+                    "ingredient; read by make_core64c.py stage --cluster (one FLOR per FO4 base cloned from "
+                    "FloraMaizeCrop01 with the converted model)", "flora": entries, "excluded": excl}, rep
 
 
 def containers(refs, placed, table, limit=0, only_known=False):
@@ -705,7 +731,7 @@ def doors(refs, placed, port, build=None, names=None, skipped=None, limit=0):
 
 
 MERGE_KEYS = ("containers", "items", "activators", "terminals", "lights", "light_bases", "lumens_per_m2", "workshops",
-              "benches", "doors", "doors_port")        # what stage --cluster reads; reports (excluded, ...) are dropped
+              "flora", "benches", "doors", "doors_port")  # what stage --cluster reads; reports (excluded, ...) are dropped
 
 
 def merge(clusters):
@@ -744,13 +770,13 @@ def main(argv=None):
     p.add_argument("--out", required=True)
     p.add_argument("--limit", type=int, default=0)
     p.add_argument("--only-known", action="store_true")
-    for cmd in ("activators", "terminals"):
+    for cmd in ("activators", "terminals", "flora"):
         p = sub.add_parser(cmd)
         p.add_argument("--work", required=True)
         p.add_argument("--build", required=True)
         p.add_argument("--out", required=True)
         p.add_argument("--names", default="", help="FO4 display names: dotnet/Fo4Land export-names over Fallout4.esm")
-        p.add_argument("--table", default="", help="optional name overrides by FO4 base editor id (exact or prefix*)")
+        p.add_argument("--table", default="", help="optional name / ingredient overrides by FO4 base editor id (exact or prefix*)")
         p.add_argument("--limit", type=int, default=0)
     p = sub.add_parser("lights")
     p.add_argument("--work", required=True)
@@ -841,8 +867,8 @@ def main(argv=None):
         print(f"wrote {a.out}: {rep[a.cmd]:,} {a.cmd} over {rep['distinct bases']:,} FO4 bases"
               + (f", {rep['bench_skipped']:,} crafting stations skipped (bench_skipped)" if a.cmd == "benches" else ""))
         return 0
-    if a.cmd in ("activators", "terminals"):
-        fn = activators if a.cmd == "activators" else terminals
+    if a.cmd in ("activators", "terminals", "flora"):
+        fn = {"activators": activators, "terminals": terminals, "flora": flora}[a.cmd]
         cl, rep = fn(band_refs(a.work), placed, load(a.table) if a.table else None, load_names(a.names),
                      skipped_reasons(a.build), a.limit)
         with open(a.out, "w", encoding="utf-8") as f:

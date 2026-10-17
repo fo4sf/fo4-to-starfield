@@ -822,7 +822,7 @@ class ActivatorTerminalPromotionTests(unittest.TestCase):
         keep, promoted = mk.cluster_promote(self.BASES, self.placed(), cl)
         self.assertEqual([p["src"] for p in keep], ["000003:Fallout4.esm"])
         self.assertEqual({k: [e["reference_index"] for e in v] for k, v in promoted.items()},
-                         {"containers": [6], "items": [0], "activators": [1, 3], "terminals": [4, 5], "workshops": [], "doors": [], "benches": []})
+                         {"containers": [6], "items": [0], "activators": [1, 3], "terminals": [4, 5], "workshops": [], "flora": [], "doors": [], "benches": []})
         objects = dict({"refs": keep}, **promoted)
         ids = {"bases": {"a": "000800", "b": "000801", "c": "000802"}, "refs": {"000003:Fallout4.esm": "000805"},
                "containers": {"000007:Fallout4.esm": {"base": "00080A", "ref": "000809"}},
@@ -963,6 +963,102 @@ class ActivatorTerminalPromotionTests(unittest.TestCase):
         self.assertEqual(mk.record_text("Café".encode("utf-8") + b"\0junk"), "Café")
         self.assertEqual(mk.record_text("Café".encode("cp1252") + b"\0"), "Café")
         self.assertIsNone(mk.record_text(None))
+
+
+class FloraPromotionTests(unittest.TestCase):
+    """Harvestable plants (docs/terrain/flora.md): --cluster "flora" become native FLOR with PFIG the ingredient."""
+    BASES = [{"edid": "FO4Core_melon", "model": "fo4core\\setdressing\\flora\\florawildmelonvine01.nif"},
+             {"edid": "FO4Core_tato", "model": "fo4core\\setdressing\\flora\\floratatoplant01.nif"}]
+    ING = "00260DF2:Starfield.esm"
+
+    @staticmethod
+    def placed(n=5, disabled=()):
+        return [{"src": f"{i + 1:06X}:Fallout4.esm", "base": 0 if i < 3 else 1, "cell": [0, i],
+                 "pos": [1.0 + i, 2.0, 3.0], "rot": [0, 0, 0.5], "scale": 1.0, "disabled": i in disabled}
+                for i in range(n)]
+
+    @classmethod
+    def plant(cls, i, **kw):
+        e = {"src": f"{i + 1:06X}:Fallout4.esm", "name": "Melon Vine", "base": "01C25E:Fallout4.esm",
+             "editor_id": "FloraWildMelonVine01", "ingredient": cls.ING}
+        e.update(kw)
+        return e
+
+    def test_flora_of_one_base_share_the_flor_and_carry_the_ingredient(self):
+        cl = {"flora": [self.plant(1), self.plant(0), self.plant(3, base="01C25F:Fallout4.esm", name="Tato")]}
+        keep, out = mk.cluster_flora(self.BASES, self.placed(), cl)
+        self.assertEqual([p["src"] for p in keep], ["000003:Fallout4.esm", "000005:Fallout4.esm"])
+        self.assertEqual([e["edid"] for e in out],
+                         ["FO4Core_flor_01c25e_fallout4", "FO4Core_flor_01c25e_fallout4", "FO4Core_flor_01c25f_fallout4"])
+        self.assertEqual([e["reference_index"] for e in out], [0, 1, 3])
+        self.assertEqual([e["ingredient"] for e in out], [self.ING, self.ING, self.ING])
+        e = out[0]
+        self.assertEqual((e["model"], e["name"], e["cell"], e["pos"]),
+                         (self.BASES[0]["model"], "Melon Vine", [0, 0], [1.0, 2.0, 3.0]))
+        self.assertEqual(mk.flora_edid(None, "01C25E:Fallout4.esm"), "FO4Core_flor_01c25e")
+        self.assertEqual(mk.cluster_flora(self.BASES, self.placed(), {}), (self.placed(), []))
+        no_ing = self.plant(0)
+        del no_ing["ingredient"]
+        self.assertEqual(mk.cluster_flora(self.BASES, self.placed(), {"flora": [no_ing]})[1][0]["ingredient"], self.ING)
+        import make_cluster as mc
+        self.assertEqual(mk.FLORA_INGREDIENT, mc.FLORA_INGREDIENT)
+
+    def test_bad_flora_entries_are_refused(self):
+        P = self.placed()
+        cases = (
+            {"flora": [self.plant(0), self.plant(1, name="Gourd")]},
+            {"flora": [self.plant(0), self.plant(3)]},
+            {"flora": [self.plant(0, name="")]},
+            {"flora": [self.plant(0, name="a\nb")]},
+            {"flora": [self.plant(0, name=None)]},
+            {"flora": [self.plant(0), self.plant(0)]},
+            {"flora": [self.plant(0, src="ABCDEF:Fallout4.esm")]},
+            {"flora": [self.plant(0, ingredient="not-a-form")]},
+            {"flora": [self.plant(0, ingredient="00260DF2:Fallout4.esm")]},
+        )
+        for cl in cases:
+            with self.assertRaises(ValueError, msg=cl):
+                mk.cluster_flora(self.BASES, P, cl)
+        with self.assertRaisesRegex(ValueError, "disabled"):
+            mk.cluster_flora(self.BASES, self.placed(disabled=(0,)), {"flora": [self.plant(0)]})
+
+    def test_flora_joins_the_one_slot_plan(self):
+        cl = {"flora": [self.plant(2)], "activators": [{"src": "000001:Fallout4.esm", "name": "Bell",
+                                                        "base": "0BB1E1:Fallout4.esm"}]}
+        keep, promoted = mk.cluster_promote(self.BASES, self.placed(), cl)
+        self.assertEqual({k: [e["reference_index"] for e in v] for k, v in promoted.items() if v},
+                         {"flora": [2], "activators": [0]})
+        cl["activators"].append({"src": "000003:Fallout4.esm", "name": "Bell", "base": "0BB1E1:Fallout4.esm"})
+        with self.assertRaisesRegex(ValueError, "listed as both an activator and a flora"):
+            mk.cluster_promote(self.BASES, self.placed(), cl)
+
+    def test_flora_record_check_wants_organic_keyword_and_pfig(self):
+        keep, out = mk.cluster_flora(self.BASES, self.placed(), {"flora": [self.plant(0)]})
+        objects = {"refs": keep, "flora": out}
+        ids = {"bases": {"a": "000800"}, "refs": {p["src"]: f"{0x802 + i:06X}" for i, p in enumerate(keep)},
+               "flora": {out[0]["src"]: {"base": "000810", "ref": "000801"}}}
+        own = 0x01000000
+
+        def z(text):
+            return text.encode("utf-8") + b"\0"
+
+        recs = [{"sig": "REFR", "fid": own | 0x801, "flags": 0,
+                 "fields": [(b"NAME", struct.pack("<I", own | 0x810)),
+                            (b"DATA", struct.pack("<6f", *out[0]["pos"], *out[0]["rot"]))]},
+                {"sig": "FLOR", "fid": own | 0x810, "flags": 0, "fields": [
+                    (b"EDID", z(out[0]["edid"])), (b"FULL", z(out[0]["name"])), (b"MODL", z(out[0]["model"])),
+                    (b"KSIZ", struct.pack("<I", 1)), (b"KWDA", struct.pack("<I", 0x00222E03)),
+                    (b"PFIG", struct.pack("<I", 0x00260DF2))]}]
+        recs += [{"sig": "REFR", "fid": own | int(v, 16), "flags": 0, "fields": []} for v in ids["refs"].values()]
+        recs += [{"sig": "REFR", "fid": own | 0x820, "flags": 0, "fields": []},
+                 {"sig": "REFR", "fid": own | 0x821, "flags": 0, "fields": []}]
+        self.assertEqual(mk.promoted_record_check(recs, own, objects, ids), [])
+        recs_no_pfig = [dict(r) for r in recs]
+        recs_no_pfig[1] = dict(recs[1], fields=[f for f in recs[1]["fields"] if f[0] != b"PFIG"])
+        self.assertTrue(any("PFIG" in p for p in mk.promoted_record_check(recs_no_pfig, own, objects, ids)))
+        recs_no_kw = [dict(r) for r in recs]
+        recs_no_kw[1] = dict(recs[1], fields=[f for f in recs[1]["fields"] if f[0] not in (b"KWDA", b"KSIZ")])
+        self.assertTrue(any("FloraTypeOrganic" in p for p in mk.promoted_record_check(recs_no_kw, own, objects, ids)))
 
 
 def light_base(**kw):
@@ -1192,7 +1288,8 @@ class StationPromotionTests(unittest.TestCase):
         self.assertEqual({k: v[0] for k, v in mk.BENCH_VANILLA.items()}, {k: v["vanilla"] for k, v in mc.BENCH_KINDS.items()})
         self.assertEqual({k: v[1] for k, v in mk.BENCH_VANILLA.items()}, {k: v["wbdt"] for k, v in mc.BENCH_KINDS.items()})
         self.assertEqual((mk.WORKSHOP_TEMPLATE, mk.WORKSHOP_RADIUS_AV), (0x024DC7, 0x063FC5))
-        self.assertEqual(mk.PROMOTED[-2:], (("workshops", "ACTI"), ("doors", "ACTI")))   # the doors' ACTIs come last (appended)
+        self.assertEqual(mk.PROMOTED[-3:], (("workshops", "ACTI"), ("flora", "FLOR"), ("doors", "ACTI")))  # doors last (appended)
+        self.assertEqual(mk.FLORA_INGREDIENT, mc.FLORA_INGREDIENT)
         self.assertEqual(mk.VANILLA_PROMOTED, (("benches", "FURN"),))
         self.assertEqual(mk.APPENDED, ("doors",))
         self.assertEqual(mk.master_fid("2B6A63:Starfield.esm"), 0x002B6A63)
@@ -1273,7 +1370,7 @@ class StationPromotionTests(unittest.TestCase):
         keep, promoted = mk.cluster_promote(self.BASES, self.placed(), cl)
         self.assertEqual([p["src"] for p in keep], [])
         self.assertEqual({k: [e["reference_index"] for e in v] for k, v in promoted.items()},
-                         {"containers": [7], "items": [0], "activators": [3], "terminals": [6], "workshops": [1, 2], "doors": [], "benches": [4, 5]})
+                         {"containers": [7], "items": [0], "activators": [3], "terminals": [6], "workshops": [1, 2], "flora": [], "doors": [], "benches": [4, 5]})
         objects = dict({"refs": keep}, **promoted)
         ids = {"bases": {"a": "000800", "b": "000801", "c": "000802"}, "refs": {},
                "containers": {"000008:Fallout4.esm": {"base": "00080B", "ref": "00080A"}},
