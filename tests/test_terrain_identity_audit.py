@@ -52,6 +52,25 @@ class TerrainIdentityAuditTests(unittest.TestCase):
         report = self.audit(stage)
         self.assertEqual(report['output_count'], 2)
 
+    def test_large_reference_section_keeps_exact_source_lookup_after_reorder(self):
+        obj = copy.deepcopy(self.objects)
+        template = obj['refs'][0]
+        obj['refs'] = [dict(template, src=f'{0x100000 + i:06X}:Synthetic.esm',
+                            cell=[0, 0], pos=[1 + i % 20, 2 + i % 30, 3]) for i in range(8192)]
+        _, stage = self.build(obj, 'audit-many-refs')
+        first = self.audit(stage)
+        self.assertGreaterEqual(first['checked_ids'], 8192)
+        obj['refs'].reverse()
+        (stage / 'objects.json').write_text(json.dumps(obj), encoding='utf-8')
+        self.assertEqual(self.audit(stage), first)
+
+    def test_source_key_case_mismatch_is_not_hidden_by_indexing(self):
+        obj = self.mixed()
+        _, stage = self.build(obj, 'audit-key-case')
+        obj['doors'][0]['src'] = obj['doors'][0]['src'].lower()
+        (stage / 'objects.json').write_text(json.dumps(obj), encoding='utf-8')
+        self.audit(stage, False, 'map/source key sets differ')
+
     def test_removed_light_reservations_remain_valid_tombstones(self):
         obj = self.mixed()
         added = copy.deepcopy(obj)

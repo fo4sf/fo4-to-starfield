@@ -3,6 +3,30 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-17 Grok: overlay map markers / fast travel (owner playtest row 7)
+- Question: why the Commonwealth overlay has no map / fast-travel data, and whether restoring a vanilla marker chain
+  is the first writer change (Claude 04:07 packet, after textures and FLOR).
+- Method: raw walk of `Starfield.esm` 1.16.244 (`fo4land.Plugin`, no Mutagen) for top groups, STAT MapMarker, LCTN
+  `LCSR`/`LCID`, LC172 and LandingOverlay01; read-only walk of pinned `FO4TerrainCore.esm`; writer
+  `dotnet/TerrainOverlays/Program.cs` Duplicate of `LC172WorldLocation` then `MasterSpecialReferences.Clear()`.
+- Map markers, **verified**: Starfield has no `MAPM` group (176 top groups). Markers are `REFR` of STAT `MapMarker`
+  `00000010` with empty `XMRK`, `FNAM`/`TNAM`/`UNAM`. LC172 persistent `REFR` `003E5E12`: `NAME` `00000010`, empty
+  `XMRK`, `FNAM` `0x1B`, `TNAM` `0x17`, flags `00000C00`.
+- Location link, **verified**: `LCSR` is 5 × u32 (`LCRT`, `REFR`, `WRLD`, 0, `0xFFFFFFFF`). LC172WorldLocation
+  `003807BE` has two rows (Landmark_SnowGlobe_RefType `00009A42` → `00009A32`, MapMarkerRefType `0002271F` →
+  `003E5E12`) and `LCID` `003E5E12`. LandingOverlay01Location adds ShipLandingMarkerRefType / `_Large` on the pad.
+  Mutagen names: `MasterSpecialReferences` = `LCSR`, `MasterInitiallyDisabledReferences` = `LCID`.
+- Our overlay, **verified**: writer clears both lists after Duplicate; pinned LCTN `FO4Core_CommonwealthLocation`
+  `01000802` has empty `LCSR`/`LCID`; 654,600 `REFR`, 0 `XMRK`, 0 MapMarker `NAME`. One COC marker at overlay-local
+  (−989.257, 1146.514, 107.143).
+- Playtest hang, **supported hypothesis**: missing MapMarker/`LCSR` is why the overlay does not match LC172 on the
+  planet map. Whether restoring one marker unsticks Frontier travel (a ship location) is **unresolved** until Claude
+  runs a scratch overlay.
+- FO4 `XMRK` bytes: **unresolved** (`Fallout4.esm` not on this machine).
+- GO: one persistent MapMarker at the Red Rocket COC, LC172 `FNAM`/`TNAM`, `LCSR` MapMarkerRefType + `LCID`; do not
+  stamp a PCM landing overlay. NOT go: FO4 marker promotion, ship pads, swapping unique overlay for landing overlay.
+  Doc: [docs/terrain/map-markers.md](../terrain/map-markers.md).
+
 ## 2026-10-16 Claude: posed props in the pinned interiors (owner playtest rows 4 c and 5)
 - Question: why does the pinned interior build (`integ_1011`) show the Vault 111 radiation scanners with "swung out"
   panels and the lab-coat skeleton `Vault111SkeletonScientist02` standing, and how many models and references of the
@@ -1175,3 +1199,71 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   the same overlay at (0.2, 1.2) (does it reproduce +30/-35, i.e. is the offset a function of the site alone?) and at
   (0.3 + 1/33900, -1.2) (one cell north under any linear local model). Until then fix A (vanilla persistent-cell
   shape, cave_core64c_1015) is the route to persistent references, and the runner keeps converting frames.
+
+## 2026-10-16 Claude: Starfield's compressed-mesh decoder and our SIMD tree keys (the collision crash)
+- Question: why does Havok assert "Unknown primitive type in compressed mesh" (hknpCompressedMeshShapeInternals.cpp:939,
+  Starfield.exe+0x36F418B, every WER report since 10-12) and why did the owner's crash dump show the closest-points
+  query of vault_cart_01's mesh (40 primitives, one data run {0, 40}) searching the data runs for primitive 40?
+- Method: FO4 source (hkpackfile) and converted blob (hktagfile) of vault_cart_01 side by side; 837 vanilla compressed
+  meshes (random 1,500-NIF sample of Starfield - Meshes01.ba2) decoded the same way; src/fo4sf/meshcheck.py.
+- **verified** (837 of 837 vanilla meshes, 0 exceptions): the SIMD tree holds ONE leaf per primitive with key
+  section << 8 | primitive << 1 (triangle bit 0), unique, one for every primitive of every section; the per-section
+  Aabb4BytesCodec tree (leaf when hiData bit 0 clear, primitive = hiData >> 1, right child at +(hiData & 0xFE)) names
+  every primitive once; the data runs (value u16, index u8, count u8) cover 0..numPrimitives-1 exactly; section flags
+  always 0; primitiveStoresIsFlatConvex (tree + 60) always 0xFF; no primitive has indices[1] == indices[3];
+  numPrimitiveKeys = triangles + 2 x quads and maxKeyValue = the last primitive's key (the key SPACE keeps the triangle
+  bit; only the tree leaves drop it). FO4 (vault_cart_01) uses the same tree codec, key space and header values.
+- **verified** (our builds): fo4collision.compressed_mesh_keys gave the SIMD tree one leaf per TRIANGLE, so every quad
+  also had an odd key: vault_cart_01 had keys 0..79 for primitives 0..39. integ_1017: 2,947 of 4,346 models,
+  181,738 odd keys, 4,045 of them the last primitive of a section; terrain_core64h: 7,861 of 11,769 models, 761,426
+  odd keys, 13,650 past the end (C:\Modding\scratch\meshkeys\baseline_*.json).
+- **supported hypothesis** (the crash dump: index 40 = (79 + 1) >> 1 for a 40-primitive section; the stale assert
+  frame on v111rpit2raisedmid01, 3 primitives, keys 0..5; vanilla never has odd keys): the decoder takes a leaf key K
+  as the primitive's first triangle and K + 1 as a quad's second one, so an odd K steps into the next primitive slot
+  (an FO4 DE AD DE AD slot asserts; past the end of the section the data-run search returns NULL: the owner's AV).
+- **verified** (35 sections in integ_1017 and core64h): FO4 section flag bit 0 is set exactly on the sections that
+  hold FO4's own special primitives (a, b, b, b) with b outside the section's vertex slots; vanilla has neither.
+  Their meaning is **unresolved**; the converter replaces them (and DE AD DE AD slots) with a copy of the nearest valid
+  primitive of the section and clears the flag, so the section is byte-for-byte in the vanilla shape.
+- **unresolved**: what primitiveStoresIsFlatConvex changes in the engine (the crashing function does not read it; vanilla
+  quads with it set are not flat or convex). The converter now writes the vanilla value so no vanilla-untested code
+  path is exercised.
+
+## 2026-10-17 Claude: why the player walks through the Vault 111 gear-room gates (static bodies on layer 55)
+- Question: the gear-room gates (`V111GearRoomGate01` in Vault111Cryo, `02` in Vault114) let the player through in
+  integ_1018 (playtest row 19) although since #230 their NIFs hold FO4's native bodies. Wrong place, wrong filter
+  word, or something the engine refuses?
+- Method: FO4 source (hkpackfile) and the deployed blobs (hktagfile, the session's hkdump.py) side by side, hull
+  vertices transformed through the collision nodes; COLL records of Fallout4.esm and Starfield.esm; every body of
+  every vanilla Starfield NIF (Meshes01 + MeshesPatch: 40,613 files with physics, 46,413 bodies, 50 s) and of every
+  FO4 NIF (Meshes + MeshesExtra: 63,327 files, 218,882 bodies); the Starfield.esm records placing the only vanilla
+  layer-55 models. Scratch: C:\Modding\scratch\gatefix (gate_dump.txt, coll_records.json, full_scan_*.json).
+- **verified** (geometry): each leaf's FO4 body cinfo equals its node transform (GateR at (-7.082, -0.044, 0.719) m,
+  z -90 deg), so the converter's identity body on a node with that transform puts the hulls where FO4 has them: top
+  rail x -7.10..-7.06, y -0.08..1.28, z 0.80..1.03 m, lower stub z 0.40..0.79 m (render leaf z 0.39..1.05); the XRGD
+  variant (`_xrgd_e3c6933a65`) lifts both by 0.147 m as the reference's pose does. The two leaves span the whole
+  2.78 m opening at x -47.76 m world; the owner's bridge positions (00:02:57 at -44.84, -4.00; 00:03:12 at -57.91)
+  cross that line through the middle. integ_1011's 39 guessed boxes sat there too (0x1, hknpBoxShape); whether the
+  owner walked through those is **unresolved** (row 6 reported the elevator, not a walk).
+- **verified** (the word): the leaves' only difference from a working static is `collisionFilterInfo` 0x8037 (layer 55
+  L_CLUTTER_NOCUT + bit 15); flags 0, collisionCntrl 0, quality 255, hknpConvexShape flags 0x43, material and
+  motionType 0 are the template's, as on vanilla statics and on BldDecoSmStairsBlock03's helper hull (a convex body
+  on a child Collision node, climbed in batch_full 0004).
+- **verified** (COLL): in both ESMs layer 55 lists 30 L_CHARCONTROLLER and 30 lists 55 (so does 1), GNAM 0 for 55
+  and 0x4 for 4 / 29 / 2 (the navmesh-cutting layers). The layer matrix alone does not explain a pass-through.
+- **verified** (vanilla use): Starfield writes layer 55 on 4 bodies in 2 files only, `na_lobbyoffice_reception_
+  turnstile_01_door01a/b.nif`, static, word 0x8037 exactly; they are STAT records (00040DD7/8) placed 29 times across
+  New Atlantis lobby walkways (e.g. four turnstiles in a row at y -33.39, refs 000C1BEA..F2). Bit 15 on L_STATIC is
+  walked on: `nathemastbase_01..04(_grass).nif` (the MAST plaza) are one 0x8001 body each; stair helpers carry 0x801f.
+  FO4 writes layer 55 on 9 bodies in 4 files, all dynamic hinged leaves (the two gates, CarHulk01 doors, BollardDest01).
+  Static bodies on 4 / 29 are common in both games (asteroid caves on 0x1d; static ladders and ingots on 0x4).
+- **supported hypothesis** (the cause): Starfield's character controller passes through a static body on layer 55,
+  as it must through the turnstile leaves; FO4's gate is passable too, but by swinging (10 kg leaves on hinges).
+  Freezing the leaves (joints not converted) on that layer gives a ghost gate. Fix: a body we write static on layer 55
+  becomes 1 L_STATIC, the layer alone (meshcollision.static_filter; report "relayered"); every other word is kept.
+  Blast radius in integ_1018: the 3 gate NIFs (12 leaf bodies), nothing else. The drop-in NIFs in
+  C:\Modding\scratch\gatefix\after differ from the deployed ones by 2 bytes per leaf blob (0x8037 -> 0x0001).
+- In-game check (one walk): from the owner's spot (-44.8, -4.0, 0) walk west along y -4.0; PASS = stopped at
+  x about -47.4 (capsule 0.35 m before the rail at -47.76), FAIL = x beyond -48. The diagnostic variant
+  `after\variant_bit15_cleared` (0x0037, layer kept) tells layer from bit if wanted. The gate then blocks the walkway to
+  the exit elevator (1.18 m rail, jumpable with the pack); a swinging gate needs the hinge conversion.

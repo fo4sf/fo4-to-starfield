@@ -219,3 +219,33 @@ cancellation and an audit crash. Wrapper tests stub the terrain check body; they
 do not establish that a complete production terrain `check` passes. Full-stage
 validation, full-size bootstrap, peer QA and Claude's native door/save tests
 remain gates. No active stage is enabled or migrated by this change.
+
+## Compatibility with the persistent return-marker writer
+
+The integration of identity stack `c909301` with return writer `3446a99`
+retains both source-keyed `door-arrival` reservations and the return writer's
+world-persistent cell. Selecting either side of their allocation conflict alone
+would lose one requirement. The arrival marker keeps its ID, DATA and source
+identity while acquiring the persistent flag and the anchor's parent cell.
+Both door writers now emit `UseDestinationPosition=True` with their three
+coordinates. The combined branch includes the reviewed script `9ffce95`, and
+the property-name/type contract runs against that script without skipping.
+
+On the retained two-door fixture (with lights and a container), the combined
+legacy writer produces exactly the return writer's plugin and map bytes.
+Explicit identity bootstrap preserves both files byte-for-byte. Reordering
+doors and lights then preserves every mapped ID; raw marker flags, group
+placement and VMAD values still pass, and the read-only audit proves all27
+reservations. The bootstrap regression checks marker placement before migration,
+after migration and after reordered export. Different destination coordinates,
+including zero, remain attached to their source doors; their VMAD bytes remain
+identical across reordering. These record-field checks are separate from the
+identity-only audit, which correctly keeps `record_fields_checked` false.
+
+This is synthetic compatibility evidence. The earlier full-size core64j result
+belongs to `c909301`; it is not validation of a newly rebuilt core64l or later
+stage. Combined peer QA, a fresh full-size migration and native return/save
+tests remain pending. Enabling the coordinate correction closes the earlier
+writer/script contract gap; it does not prove that a far SetPosition succeeds.
+The native test must pin the PEX actually packaged in the active archive and
+check the resulting position, world/cell, facing and saved state.
