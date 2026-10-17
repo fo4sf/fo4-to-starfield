@@ -1735,6 +1735,14 @@ integ_1018's (water1024.nif, `_neutral.mat`, gear room all equal by sha256); the
 **Not verified.** In game: that after a rebuild the player stands at the pit floor (z about -2.38) and sees the cement
 texture. The first read after the rebuild is the proof; the T10 PHANTOM test covers the cave pond.
 
+## 2026-10-17: Grok 3D surface-map research (ROADMAP §3 item 1)
+
+Starfield 1.16.244. Offline. Pinned `terrain_core64k`: LCTN parent `SSol_PMars_Surface`, overlay SNAM 0 / PNAM 4, Mars
+PNDT 11 entries including our WRLD; no `lodsettings`; 0 `meshes/lod/generated`; 315 converted FO4 LOD NIFs under
+`meshes/fo4core/lod`. The 3D surface map is the May 2024 loading-zone camera, not a mesh we author. GO: marker (#296
+after LCSR `FFFFFFFF`) then CK object LOD; NOT go: custom planet or map renderer this stage.
+Evidence: [docs/terrain/surface-map.md](terrain/surface-map.md), `src/fo4sf/surface_map.py`, `tests/test_surface_map.py`.
+
 ## 2026-10-17: Codex raw light-patch bounds (offline)
 
 Independent PR302 review reproduced a malformed DAT2 declaration extending beyond
