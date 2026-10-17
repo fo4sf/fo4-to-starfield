@@ -109,7 +109,7 @@ def inspect(source):
         name, count = struct.unpack_from("<iI", block)
         if not 0 <= name < len(source.strings):
             raise nif.NifError("invalid sequence name")
-        if source.strings[name] not in (b"Open", b"Close"):
+        if source.strings[name] not in (b"Open", b"Close", b"Opening", b"Closing"):
             continue
         if 12 + 29 * count > len(block):
             raise nif.NifError("truncated door controlled-block list")
@@ -141,7 +141,8 @@ def inspect(source):
                           "timing": sequence_timing(source, block, count)})
     hinge = nif.door_hinge(source)
     selected = shapes & nif.descendants(source, hinge[0]) if hinge else set()
-    animated = {shape for seq in sequences if seq["name"] == "Open" for target in seq["targets"] for shape in target["shape_blocks"]}
+    animated = {shape for seq in sequences if seq["name"] in ("Open", "Opening")
+                for target in seq["targets"] for shape in target["shape_blocks"]}
     return {"sequences": sequences, "issues": issues, "ignored_targets": ignored,
             "single_hinge_node": hinge[0] if hinge else None,
             "single_hinge_shape_blocks": sorted(selected), "all_animated_shape_blocks": sorted(animated),

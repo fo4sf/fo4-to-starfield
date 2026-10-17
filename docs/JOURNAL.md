@@ -1673,3 +1673,11 @@ world switch and adds a `SetPosition` to the destination's merged coordinates (p
 script change; the writer change is Claude's. Evidence folders: C:\Modding\testqueue\door_probe_1017,
 door_probe_1017e, door_trip_sdm_1018 (bridge.log, papyrus.log, obs.json, judge outputs). Lesson: the bridge log's
 probe lines are case-sensitive to the game's spelling (`FO4SF Resolve`); the reader is case-insensitive since #282.
+
+## 2026-10-17: Grok playtest 21/24 (garage button + object LOD)
+
+Row 21: FO4 garage is an ACTI with XAPR to the button, not a DOOR. Writer wires vanilla
+`DefaultActivateLinkedRefOnActivate` + XLKR LinkCustom02 on the two Commonwealth pairs (no new FormIDs). Clip alias
+Opening→Open / Closing→Close so `--door-anim-dll` can rig the garage NIF; Claude scratch overlay for that reconvert.
+Row 24: object LOD research only (`lodsettings` + generated `_lod_0..3`); do not raise the cell buffer.
+[docs/terrain/garage-button.md](terrain/garage-button.md), [docs/terrain/object-lod.md](terrain/object-lod.md).

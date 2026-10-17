@@ -974,6 +974,30 @@ def light_base(**kw):
     return b
 
 
+class GarageButtonTests(unittest.TestCase):
+    """Playtest row 21: the two Commonwealth RedRGarageDoor / RedR_ButtonBox pairs (docs/terrain/garage-button.md)."""
+
+    def test_pairs_only_when_both_activators_are_promoted(self):
+        shop = [{"src": "00056331:Fallout4.esm"}, {"src": "00056BBA:Fallout4.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(shop), [
+            {"door": "00056331:Fallout4.esm", "button": "00056BBA:Fallout4.esm"}])
+        self.assertEqual(mk.cluster_garage_buttons(shop + [{"src": "000866C7:Fallout4.esm"},
+                                                           {"src": "000866C0:Fallout4.esm"}]), [
+            {"door": "00056331:Fallout4.esm", "button": "00056BBA:Fallout4.esm"},
+            {"door": "000866C7:Fallout4.esm", "button": "000866C0:Fallout4.esm"}])
+        self.assertEqual(mk.cluster_garage_buttons([{"src": "00056BBA:Fallout4.esm"}]), [])
+        self.assertEqual(mk.src_hex("56BBA:Fallout4.esm"), "056BBA")
+        self.assertEqual(mk.src_hex("00056BBA:Fallout4.esm"), "056BBA")
+
+    def test_writer_uses_vanilla_activate_linked_ref(self):
+        path = os.path.join(root, "dotnet", "TerrainOverlays", "Program.cs")
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn("DefaultActivateLinkedRefOnActivate", src)
+        self.assertIn("0x5D5E7", src)
+        self.assertIn("garage_buttons", src)
+
+
 class LightTests(unittest.TestCase):
     """Exterior lights (docs/terrain/exterior-lights.md): make_cluster.py lights -> objects.json lights for TerrainOverlays."""
     OV = {"cell_min": -32, "cell_max": 31}

@@ -1126,6 +1126,30 @@ def workshop_edid(base, src):
     return promoted_edid("wkshp", base, src)
 
 
+# Red Rocket garage button -> door (playtest row 21, docs/terrain/garage-button.md). FO4 XAPR is not in the cluster
+# export; these two Commonwealth pairs are the whole set. src compared on the 6-hex form id.
+GARAGE_BUTTON_PAIRS = (
+    ("00056331:Fallout4.esm", "00056BBA:Fallout4.esm"),   # garage, button (Red Rocket shop)
+    ("000866C7:Fallout4.esm", "000866C0:Fallout4.esm"),   # the other Commonwealth RedRGarageDoor
+)
+
+
+def src_hex(src):
+    """Last 6 hex digits of a FO4 source key (00056BBA:Fallout4.esm -> 056BBA)."""
+    return str(src).split(":")[0].upper().zfill(8)[-6:]
+
+
+def cluster_garage_buttons(activators):
+    """Pairs of already-promoted ACTI whose FO4 XAPR wired a RedRGarageDoor to a RedR_ButtonBox."""
+    by_hex = {src_hex(e["src"]): e["src"] for e in activators}
+    out = []
+    for door, button in GARAGE_BUTTON_PAIRS:
+        d, b = src_hex(door), src_hex(button)
+        if d in by_hex and b in by_hex:
+            out.append({"door": by_hex[d], "button": by_hex[b]})
+    return out
+
+
 def door_edid(base, src):
     """The shared ACTI's editor id of a scripted load door: FO4Core_door_<6 hex>_<plugin> (promoted_edid)."""
     return promoted_edid("door", base, src)
@@ -2320,6 +2344,10 @@ def cmd_stage(a):
     for k, _sig in ALL_PROMOTED:
         if promoted[k]:
             objects[k] = promoted[k]
+    garage_buttons = cluster_garage_buttons(promoted.get("activators") or [])
+    if garage_buttons:
+        objects["garage_buttons"] = garage_buttons
+        print(f"cluster: {len(garage_buttons)} garage button pair(s) (DefaultActivateLinkedRefOnActivate + XLKR)")
     if lights:
         objects["lights"] = lights
         objects["light_bases"] = light_bases

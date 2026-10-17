@@ -487,7 +487,7 @@ class Converter:
             # or rigging failed) cannot open: keep it passable rather than a closed wall, and say so.
             seq_names = [struct.unpack_from("<i", src.blocks[i], 0)[0] for i in range(len(src.blocks))
                          if src.type_of(i) == "NiControllerSequence"]
-            animated = any(0 <= s < len(src.strings) and src.strings[s] == b"Open" for s in seq_names)
+            animated = any(0 <= s < len(src.strings) and src.strings[s] in (b"Open", b"Opening") for s in seq_names)
             use_box = self.collision_template is not None
             coll_report = {}
             files = None

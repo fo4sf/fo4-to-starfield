@@ -61,7 +61,7 @@ def sequences(f):
             if f.type_of(i) == "NiControllerSequence"}
 
 
-def door_nif(parts, root_rotation=IDENTITY, static_shape=True, extra_targets=()):
+def door_nif(parts, root_rotation=IDENTITY, static_shape=True, extra_targets=(), open_name=b"Open", close_name=b"Close"):
     """FO4-style door: root -> one node per part (name, position, bind rotation, rotation keys, translation keys), each with
     a 70 x 140 unit leaf shape; plus an optional static frame shape on the root. "Open" (1 s) animates every part (and
     extra_targets, names of nodes without geometry); "Close" plays the same keys backwards."""
@@ -83,8 +83,8 @@ def door_nif(parts, root_rotation=IDENTITY, static_shape=True, extra_targets=())
         f.add_block("BSTriShape", trishape_block([(0, 0, 0), (0, 70, 0), (0, 70, 140), (2, 0, 140)], [(0, 1, 2), (0, 2, 3)]))
     if static_shape:
         f.add_block("BSTriShape", trishape_block([(-5, -80, 0), (-5, 80, 0), (-5, 80, 150)], [(0, 1, 2)]))
-    sequence_block(f, b"Open", root_name, parts, names, extra)
-    sequence_block(f, b"Close", root_name, [(n, p, r, reverse(rk), reverse(tk)) for n, p, r, rk, tk in parts], names, extra)
+    sequence_block(f, open_name, root_name, parts, names, extra)
+    sequence_block(f, close_name, root_name, [(n, p, r, reverse(rk), reverse(tk)) for n, p, r, rk, tk in parts], names, extra)
     f.footer = struct.pack("<II", 1, 0)
     return f
 

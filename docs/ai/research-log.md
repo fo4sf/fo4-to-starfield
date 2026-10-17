@@ -3,6 +3,17 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-17 Grok: Red Rocket garage button (playtest row 21) and object LOD (row 24)
+- Row 21, **verified**: FO4 button `056BBA` is `Default1StateActivator`; garage `056331` is ACTI `Default2StateActivator`
+  with XAPR→button. core64k promotes both as inert ACTI. Native wire: vanilla `DefaultActivateLinkedRefOnActivate` +
+  XLKR `LinkCustom02` `0005D5E7` (Paradiso `000C7311`; debug ACTI `002CBE61` has the script name and no extra
+  properties). Writer implements that on the two Commonwealth pairs; no new FormIDs, no .pex.
+- Garage animation, **supported**: sequences are Opening/Closing, not Open/Close. `door_rig.alias_clips` maps them so
+  `--door-anim-dll` can rig `RedRGarageDoor.nif`. Until that reconvert, Activate() on the garage is visual no-op.
+- Row 24, **verified**: object LOD is `lodsettings/*.lod` (20 bytes) + `meshes/lod/generated/…_lod_0..3.nif`; core64k
+  has none. `uExterior Cell Buffer=36` is not the product fix. Plan: CK generate on a tiny overlay (Claude); no build
+  now. Docs: [garage-button.md](../terrain/garage-button.md), [object-lod.md](../terrain/object-lod.md).
+
 ## 2026-10-17 Grok: overlay map markers / fast travel (owner playtest row 7)
 - Question: why the Commonwealth overlay has no map / fast-travel data, and whether restoring a vanilla marker chain
   is the first writer change (Claude 04:07 packet, after textures and FLOR).
