@@ -38,7 +38,8 @@ def verify_copy(path, raw):
 def preserve_receipt(record_path):
     """Create/reopen a content-addressed copy; never replace existing history.
 
-    Failure is propagated before the caller changes Plugins.txt or game files.
+    Failure is propagated; an install rollback may proceed only while retaining
+    the full active recovery receipt. Ordinary uninstall waits for preservation.
     The active recovery record remains the only input to cleanup/resumption.
     """
     source = Path(record_path)
@@ -52,8 +53,15 @@ def preserve_receipt(record_path):
     excluded = [source.parent.parent.resolve(), source.parent.resolve()]
     if record.get("exp_dir"):
         excluded.append(Path(record["exp_dir"]).resolve())
-    if any(root.is_relative_to(path) for path in excluded):
-        raise ValueError("historical receipts must be outside the game and staging directories")
+    # Text ancestry alone misses Windows extended/UNC spellings of the same
+    # directory. Check existing ancestors by physical identity before mkdir.
+    physical = [path for path in excluded if path.exists()]
+    within = any(root.is_relative_to(path) for path in excluded)
+    if not within:
+        within = any(ancestor.samefile(path) for ancestor in (root, *root.parents)
+                     if ancestor.exists() for path in physical)
+    if within:
+        raise ValueError("historical receipts must be outside the game and this experiment's staged directory")
     root.mkdir(parents=True, exist_ok=True)
     name = hashlib.sha256(raw).hexdigest() + ".json.gz"
     target = root / name

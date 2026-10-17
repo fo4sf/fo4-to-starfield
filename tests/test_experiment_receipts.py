@@ -81,6 +81,98 @@ class ExperimentReceiptTests(unittest.TestCase):
         exp.uninstall(self.args)
         self.assertEqual(len(self.receipts()), 1)
 
+    def fail_final_install_write(self, mutation=None):
+        """Fail after publication/activation, retaining the last durable journal."""
+        write = exp.deployment.write_manifest
+        def fail(path, record):
+            if record.get("complete"):
+                self.before_rollback = Path(path).read_bytes()
+                if mutation:
+                    mutation()
+                raise OSError("final record write failed")
+            return write(path, record)
+        return patch.object(exp.deployment, "write_manifest", side_effect=fail)
+
+    def test_failed_install_rolls_back_when_history_full_and_retains_full_receipt(self):
+        with self.fail_final_install_write(), patch.object(
+                exp, "preserve_receipt", side_effect=OSError("history volume full")):
+            with self.assertRaisesRegex(SystemExit, "was rolled back.*preservation pending"):
+                exp.install(self.args)
+        record = self.data / exp.RECORD
+        self.assertEqual(record.read_bytes(), self.before_rollback)
+        self.assertEqual(set(json.loads(record.read_bytes())["files"]),
+                         {"Experiment.esm", str(self.terrain)})
+        self.assertFalse(json.loads(record.read_bytes())["complete"])
+        self.assertEqual(self.plugins.read_bytes(), self.original)
+        self.assertEqual(list(self.data.rglob("*")), [record])
+        self.assertEqual(self.receipts(), [])
+        exp.uninstall(self.args)
+        self.assertEqual(set(self.receipts()[0]["files"]),
+                         {"Experiment.esm", str(self.terrain)})
+        self.assertEqual(list(self.data.iterdir()), [])
+
+    def test_failed_install_with_history_failure_preserves_changed_file(self):
+        plugin = self.data / "Experiment.esm"
+        def edit():
+            plugin.write_bytes(b"owner changed plugin")
+        with self.fail_final_install_write(edit), patch.object(
+                exp, "preserve_receipt", side_effect=OSError("history volume full")):
+            with self.assertRaisesRegex(SystemExit, "rollback incomplete.*file changed"):
+                exp.install(self.args)
+        self.assertEqual(plugin.read_bytes(), b"owner changed plugin")
+        self.assertEqual(self.plugins.read_bytes(), self.original)
+        self.assertFalse((self.data / self.terrain).exists())
+        self.assertEqual((self.data / exp.RECORD).read_bytes(), self.before_rollback)
+        plugin.write_bytes((self.staging / "Experiment.esm").read_bytes())
+        exp.uninstall(self.args)
+        self.assertEqual(len(self.receipts()), 1)
+        self.assertEqual(list(self.data.iterdir()), [])
+
+    def test_failed_install_with_history_failure_preserves_concurrent_config(self):
+        edited = b"# owner edit\r\n*Other.esm\r\n"
+        with self.fail_final_install_write(lambda: self.plugins.write_bytes(edited)), patch.object(
+                exp, "preserve_receipt", side_effect=OSError("history volume full")):
+            with self.assertRaisesRegex(SystemExit, "rollback incomplete"):
+                exp.install(self.args)
+        self.assertEqual(self.plugins.read_bytes(), edited)
+        record = self.data / exp.RECORD
+        self.assertEqual(record.read_bytes(), self.before_rollback)
+        self.assertEqual(list(self.data.rglob("*")), [record])
+
+    def test_failed_install_will_not_rollback_after_receipt_changes(self):
+        replacement = b'{"concurrent":"receipt edit"}'
+        def fail_history(path):
+            Path(path).write_bytes(replacement)
+            raise OSError("history volume full")
+        with self.fail_final_install_write(), patch.object(exp, "preserve_receipt", side_effect=fail_history):
+            with self.assertRaisesRegex(SystemExit, "rollback incomplete.*receipt changed"):
+                exp.install(self.args)
+        self.assertEqual((self.data / exp.RECORD).read_bytes(), replacement)
+        self.assertTrue((self.data / "Experiment.esm").exists())
+        self.assertTrue((self.data / self.terrain).exists())
+        self.assertIn(b"*Experiment.esm", self.plugins.read_bytes())
+
+    def test_failed_publication_journal_write_keeps_evidence_while_undoing_known_copies(self):
+        record = self.data / exp.RECORD
+        write = exp.deployment.write_manifest
+        def fail(path, state):
+            if len(state.get("published_files", [])) == 2:
+                self.before_rollback = Path(path).read_bytes()
+                raise OSError("publication journal write failed")
+            return write(path, state)
+        with patch.object(exp.deployment, "write_manifest", side_effect=fail), patch.object(
+                exp, "preserve_receipt", side_effect=OSError("history volume full")):
+            with self.assertRaisesRegex(SystemExit, "was rolled back.*preservation pending"):
+                exp.install(self.args)
+        self.assertEqual(record.read_bytes(), self.before_rollback)
+        self.assertEqual(len(json.loads(record.read_bytes())["files"]), 2)
+        self.assertEqual(len(json.loads(record.read_bytes())["published_files"]), 1)
+        self.assertEqual(list(self.data.rglob("*")), [record])
+        self.assertEqual(self.plugins.read_bytes(), self.original)
+        exp.uninstall(self.args)
+        self.assertEqual(len(self.receipts()[0]["files"]), 2)
+        self.assertEqual(list(self.data.iterdir()), [])
+
     def test_existing_corrupt_history_refuses_cleanup_without_overwrite(self):
         exp.install(self.args)
         record = self.data / exp.RECORD
@@ -193,6 +285,33 @@ class ExperimentReceiptTests(unittest.TestCase):
                 with self.assertRaisesRegex(SystemExit, "outside"):
                     exp.uninstall(self.args)
             self.assertFalse(root.exists())
+        self.assertTrue((self.data / "Experiment.esm").exists())
+
+    @unittest.skipUnless(os.name == "nt", "Windows extended path syntax")
+    def test_history_refuses_extended_path_alias_of_game_data(self):
+        exp.install(self.args)
+        root = "\\\\?\\" + str(self.data / "receipts")
+        with patch.dict("os.environ", {"FO4SF_EXPERIMENT_RECEIPTS": root}):
+            with self.assertRaisesRegex(SystemExit, "outside"):
+                exp.uninstall(self.args)
+        self.assertFalse((self.data / "receipts").exists())
+        self.assertTrue((self.data / "Experiment.esm").exists())
+
+    @unittest.skipUnless(os.name == "nt", "Windows local administrative share alias")
+    def test_history_refuses_unc_alias_of_game_data_when_available(self):
+        drive = self.data.drive.rstrip(":")
+        alias = Path("\\\\localhost\\" + drive + "$\\" + str(self.data)[3:])
+        try:
+            reachable = alias.is_dir() and alias.samefile(self.data)
+        except OSError:
+            reachable = False
+        if not reachable:
+            self.skipTest("local share unavailable; no credentials or settings changed")
+        exp.install(self.args)
+        with patch.dict("os.environ", {"FO4SF_EXPERIMENT_RECEIPTS": str(alias / "receipts")}):
+            with self.assertRaisesRegex(SystemExit, "outside"):
+                exp.uninstall(self.args)
+        self.assertFalse((self.data / "receipts").exists())
         self.assertTrue((self.data / "Experiment.esm").exists())
 
     def test_history_refuses_physical_data_directory_behind_a_link(self):
