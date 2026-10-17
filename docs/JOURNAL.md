@@ -1747,3 +1747,10 @@ record layout. Both reject before byte/lumens comparison and retain both inputs.
 Removing only B validation causes both cases to fail. All 31 focused light-patch
 and FO4-light tests pass; guard and whitespace checks pass. Production source is
 unchanged; final test-delta review is pending. No native or staging run.
+
+## 2026-10-17: Grok basic status CLI
+
+Offline. Added `python -m fo4sf status` (src/fo4sf/__main__.py, config.py) that
+prints configured FO4/Starfield/work/staging paths from config.toml or "(not set)".
+Synthetic tests in tests/test_config_cli.py pass. tomllib/tomli fallback for
+Python 3.10. No game files, no conversion, no in-game claim. PR #327.
