@@ -2,19 +2,21 @@
 of docs/slice/door-frames.md, section 3).
 
     python scripts/slice/persistent_refs.py <plugin.esm> --worlds LC172World,OEJP006CaveWorld [--refs 10238E,24F9CE]
-           [--masters n] [--out report.json]
+           [--out report.json]
 
 For each named worldspace (EditorID): the WRLD record's subrecord types, its persistent cell (the CELL directly in the
 world's children group, before the exterior blocks) with its subrecords and XCLC, and every reference in it: group
 (the world's persistent cell, or an exterior cell's persistent / temporary children), record flags, base, position,
-subrecord types. --refs also reports where the given reference form ids (file-local, 6 hex digits; or 8 with the load
-index) are, whatever world they are in. The walk follows the GRUP tree (types 1 world children, 4 / 5 exterior blocks,
+subrecord types. --refs also reports where the given reference form ids are: 1-6 hex digits select this plugin's own
+local ID; exactly 8 select the full ID encoded in the file, including its master-table index (NOT runtime load order).
+An optional 0x prefix does not affect digit count. Seven digits are ambiguous and refused. The walk follows the GRUP tree (types 1 world children, 4 / 5 exterior blocks,
 6 cell children, 8 persistent children, 9 temporary children) and decompresses only the records it reports.
 Pure stdlib; game data stays outside the repo.
 """
 import argparse
 import json
 import mmap
+import re
 import struct
 import zlib
 
@@ -80,7 +82,13 @@ def summarize_ref(buf, pos, fid, stack, cell_of):
 def walk(path, worlds=(), refs=()):
     """The report (module doc)."""
     want_worlds = {w.lower() for w in worlds}
-    want_refs = {int(r, 16) & 0xFFFFFF if len(r) <= 6 else int(r, 16) for r in refs}
+    local_refs, exact_refs = set(), set()
+    for ref in refs:
+        match = re.fullmatch(r"(?:0[xX])?([0-9a-fA-F]{1,6}|[0-9a-fA-F]{8})", ref)
+        if match is None:
+            raise ValueError(f"invalid reference selector {ref!r}: use 1-6 local or 8 exact file-ID hex digits")
+        digits = match.group(1)
+        (local_refs if len(digits) <= 6 else exact_refs).add(int(digits, 16))
     rep = {"plugin": path, "worlds": {}, "refs": []}
     with open(path, "rb") as f, mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as buf:
         hsize = struct.unpack_from("<I", buf, 4)[0]
@@ -127,7 +135,7 @@ def walk(path, worlds=(), refs=()):
             elif typ in (b"REFR", b"ACHR"):
                 w = world_of.get(in_world[1]) if in_world else None
                 local = fid & 0xFFFFFF
-                hit = fid in want_refs or (local in want_refs and (fid >> 24) == local_index)
+                hit = fid in exact_refs or (local in local_refs and (fid >> 24) == local_index)
                 if w is not None or hit:
                     cell_group = next((s for s in reversed(stack) if s[0] in (8, 9)), None)
                     gtype = cell_group[0] if (w is not None and cell_group is not None) else None

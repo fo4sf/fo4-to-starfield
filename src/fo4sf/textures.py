@@ -62,20 +62,29 @@ def _bc4_block_values(blocks):
 
 
 def _blocks_to_plane(values, width, height):
-    bw, bh = width // 4, height // 4
+    """Map block values (shape (n_blocks, 16)) into a (height, width) plane.
+    Partial edge blocks (width or height not a multiple of 4) are decoded fully then cropped.
+    """
+    bw = (width + 3) // 4
+    bh = (height + 3) // 4
     v = values.reshape(bh, bw, 4, 4)                     # block row, block col, y in block, x in block
-    return v.transpose(0, 2, 1, 3).reshape(height, width)
+    full = v.transpose(0, 2, 1, 3).reshape(bh * 4, bw * 4)
+    return full[:height, :width]
 
 
 def decode_bc4(data: bytes, width: int, height: int):
-    n = (width // 4) * (height // 4)
+    bw = (width + 3) // 4
+    bh = (height + 3) // 4
+    n = bw * bh
     blocks = np.frombuffer(data[:n * 8], dtype=np.uint8).reshape(n, 8)
     return _blocks_to_plane(_bc4_block_values(blocks), width, height)
 
 
 def decode_bc5(data: bytes, width: int, height: int):
     """Returns (R, G) planes, uint8."""
-    n = (width // 4) * (height // 4)
+    bw = (width + 3) // 4
+    bh = (height + 3) // 4
+    n = bw * bh
     blocks = np.frombuffer(data[:n * 16], dtype=np.uint8).reshape(n, 16)
     return (_blocks_to_plane(_bc4_block_values(blocks[:, :8]), width, height),
             _blocks_to_plane(_bc4_block_values(blocks[:, 8:]), width, height))

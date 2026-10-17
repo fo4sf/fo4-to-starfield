@@ -25,9 +25,11 @@ class FakeProbe:
                       "plugin_index": "02", "game_version": "1.16.244.0"}
         self.state = {}
         self.staged = SHA
-        self.manifest = {"complete": True, "artifacts": {"FO4Port.esm": {"sha256": SHA}}}
+        self.manifest = {"complete": True, "files": ["FO4Port.esm", "FO4Port - Main.ba2"], "plugins_restore_pending": True,
+                         "artifacts": {"FO4Port.esm": {"sha256": SHA}, "FO4Port - Main.ba2": {"sha256": "ee" * 32}}}
         self.inputs = {"FO4SFExp.esm": "11" * 32}
         self.record = None
+        self.data_files = {"FO4Port.esm": SHA, "FO4SFExp.esm": "11" * 32}      # what is on disk under Data
         self.lines = ["*FO4Port.esm"]
         self.masters = {}
         self.version = "1.16.244.0"
@@ -52,6 +54,9 @@ class FakeProbe:
 
     def install_record(self):
         return self.record
+
+    def data_file_sha256(self, rel):
+        return self.data_files.get(rel)
 
     def plugins_txt_lines(self):
         return self.lines
@@ -135,12 +140,30 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(one("deploy").status, pf.PASS)
         self.assertEqual(one("deploy", manifest=None).status, pf.PASS)              # deployed at the launch
         self.assertEqual(one("deploy", manifest={"complete": False, "artifacts": {}}).status, pf.FAIL)
-        c = one("deploy", manifest={"complete": True, "artifacts": {"FO4Port.esm": {"sha256": OTHER}}})
+        c = one("deploy", manifest={"complete": True, "artifacts": {"FO4Port.esm": {"sha256": OTHER}}}, data_files={"FO4Port.esm": OTHER})
         self.assertEqual(c.status, pf.FAIL)
         self.assertIn("wrong build", c.detail)
         c = one("deploy", queue={"staging": "x"})                                    # nothing pinned: say so, no claim
         self.assertEqual((c.status, "pins nothing" in c.detail), (pf.PASS, True))
         self.assertEqual(one("deploy", manifest={"complete": True, "artifacts": {}}).status, pf.UNKNOWN)
+        # Codex on #182: deploy_starfield.py uninstall removed FO4Port.esm, kept a changed archive and the manifest,
+        # complete still true with the plugin's old hash: the record is no proof the pinned plugin is in the game folder
+        half = dict(FakeProbe().manifest, files=["FO4Port - Main.ba2"])
+        c = one("deploy", manifest=half, data_files={})
+        self.assertEqual(c.status, pf.FAIL)
+        self.assertIn("half-finished uninstall: FO4Port.esm removed", c.detail)
+        self.assertEqual((c.expected, c.observed), (["FO4Port - Main.ba2", "FO4Port.esm"], ["FO4Port - Main.ba2"]))
+        c = one("deploy", manifest=dict(FakeProbe().manifest, files=[]), data_files={})   # the files gone, the manifest not
+        self.assertEqual((c.status, "nothing kept" in c.detail), (pf.FAIL, True))
+        self.assertEqual(one("deploy", manifest=dict(FakeProbe().manifest, cleanup_pending=True)).status, pf.FAIL)
+        c = one("deploy", data_files={})                                             # a stale record: the plugin is not there
+        self.assertEqual((c.status, "is not there" in c.detail), (pf.FAIL, True))
+        c = one("deploy", data_files={"FO4Port.esm": OTHER})                        # on disk not what the manifest recorded
+        self.assertEqual((c.status, "changed since the deploy" in c.detail, c.observed), (pf.FAIL, True, OTHER))
+        self.assertEqual(one("deploy", manifest=dict(FakeProbe().manifest, plugins_restore_pending=False)).status, pf.PASS)
+        legacy = {"complete": True, "artifacts": {"FO4Port.esm": {"sha256": SHA}}}   # no files list: judged by the bytes
+        self.assertEqual(one("deploy", manifest=legacy).status, pf.PASS)
+        self.assertEqual(one("deploy", manifest=legacy, data_files={}).status, pf.FAIL)
 
     def test_experiment(self):
         self.assertEqual(one("experiment").status, pf.PASS)                       # no experiment at all
@@ -157,13 +180,33 @@ class CheckTests(unittest.TestCase):
         del q["experiment_identity"]
         q["pre_launch"] = ["python", "exp_install.py"]
         self.assertEqual(one("experiment", queue=q).status, pf.UNKNOWN)
-        good = {"exp_dir": "C:/staging/exp", "plugins": ["FO4SFExp.esm"], "source_inputs": {"FO4SFExp.esm": "11" * 32}, "complete": True}
+        good = {"exp_dir": "C:/staging/exp", "plugins": ["FO4SFExp.esm"], "source_inputs": {"FO4SFExp.esm": "11" * 32},
+                "files": {"FO4SFExp.esm": "11" * 32}, "complete": True, "cleanup_pending": None}
         self.assertEqual(one("experiment", queue=pinned(), record=good).status, pf.PASS)
         self.assertEqual(one("experiment", queue=pinned(), record=dict(good, complete=False)).status, pf.FAIL)
         self.assertEqual(one("experiment", queue=pinned(), record=dict(good, exp_dir="C:/staging/other")).status, pf.FAIL)
         self.assertEqual(one("experiment", queue=pinned(), record=dict(good, plugins=["Other.esm"])).status, pf.FAIL)
         self.assertEqual(one("experiment", queue=pinned(), record=dict(good, source_inputs={})).status, pf.FAIL)
         self.assertEqual(one("experiment", queue=pinned(), record={"error": "PermissionError"}).status, pf.UNKNOWN)
+        # Codex on #182: exp_install.py uninstall removed the plugin, kept a changed file and the record, complete still
+        # true and cleanup_pending set, the staged inputs still the pinned ones: the record is not the installed inventory
+        half = dict(good, cleanup_pending=True, files={"Terrain/W.btd": "22" * 32})
+        c = one("experiment", queue=pinned(), record=half, data_files={"Terrain/W.btd": "22" * 32})
+        self.assertEqual((c.status, "cleanup pending" in c.detail), (pf.FAIL, True))
+        c = one("experiment", queue=pinned(), record=dict(good, files={"Terrain/W.btd": "22" * 32}),   # the flag lost too
+                data_files={"Terrain/W.btd": "22" * 32})
+        self.assertEqual((c.status, "owns no installed ['FO4SFExp.esm']" in c.detail), (pf.FAIL, True))
+        c = one("experiment", queue=pinned(), record=good, data_files={})            # a stale record: the plugin is gone
+        self.assertEqual((c.status, "file missing" in c.detail), (pf.FAIL, True))
+        c = one("experiment", queue=pinned(), record=good, data_files={"FO4SFExp.esm": OTHER})
+        self.assertEqual((c.status, "changed since the install" in c.detail, c.observed), (pf.FAIL, True, OTHER))
+        self.assertEqual(one("experiment", queue=pinned(), record=dict(good, files=None)).status, pf.UNKNOWN)
+        # a healthy record keeps plugins_restore_pending (exp_install.py never clears it after a completed activation)
+        self.assertEqual(one("experiment", queue=pinned(), record=dict(good, plugins_restore_pending=True)).status, pf.PASS)
+        packed = dict(good, files={"FO4SFExp.esm": "11" * 32, "FO4SFExp - Main.ba2": "33" * 32})
+        self.assertEqual(one("experiment", queue=pinned(), record=packed,
+                             data_files={"FO4SFExp.esm": "11" * 32, "FO4SFExp - Main.ba2": "33" * 32}).status, pf.PASS)
+        self.assertEqual(one("experiment", queue=pinned(), record=packed, data_files={"FO4SFExp.esm": "11" * 32}).status, pf.FAIL)
 
     def test_plugins_active(self):
         self.assertEqual(one("plugins_active", lines=None).status, pf.UNKNOWN)
