@@ -129,24 +129,27 @@ def _rigid_ragdoll(src, objs, world, dynamic_template: bytes, motion: dict):
 
 
 def fo4_native_collision(src, universal_template: bytes, report: dict = None, dynamic_template: bytes = None,
-                         motion: dict = None):
+                         motion: dict = None, pose: dict = None):
     """[Starfield single-body physics blobs], one per FO4 collision body (meshcollision.convert_bodies), or None to fall
     back. Unsupported shape classes and malformed data return None and record why. One exception, reported as
     report["skipped_parts"]: precombine debris parts in the undecoded primitive encoding (see convert_bodies) are left
-    out and the rest of the model keeps its native bodies.
+    out and the rest of the model keeps its native bodies. report["mesh_fixes"]: what a mesh body needed for
+    Starfield's decoder (meshcollision._emit_mesh: primitive slots replaced, FO4 section flags cleared).
     dynamic_template (a vanilla dynamic body): a model whose only collision object sits on the root node and holds
     one dynamic FO4 body becomes movable (motion["dynamic"] = kg, the single blob is that body); so does a model whose
     collision objects share one all-dynamic system (ragdoll skeleton), merged into ONE rigid body (_rigid_ragdoll,
-    report["motion_note"]); dynamic bodies that can't be converted are listed in motion["kept_static"]."""
+    report["motion_note"]); dynamic bodies that can't be converted are listed in motion["kept_static"].
+    pose: {node block: local transform} (nif.world_transforms local_overrides, e.g. a reference's XRGD ragdoll pose):
+    every body sits on its node as posed."""
     from . import meshcollision
     objs = [i for i in range(len(src.blocks)) if src.type_of(i) == "bhkNPCollisionObject"]
     if not objs:
         return None
     motion = {} if motion is None else motion
-    blobs, skipped = [], []
+    blobs, skipped, notes = [], [], []
     # placed=True: the game ignores the scene root's own transform (PryCatwalkStairsEnt02's 180-degree root turned the
     # converted stairs the wrong way round; FO4's precombined physics only matches without it).
-    world = nifmod.world_transforms(src, placed=True)
+    world = nifmod.world_transforms(src, placed=True, local_overrides=pose)
     rigid = _rigid_ragdoll(src, objs, world, dynamic_template, motion) if dynamic_template is not None and len(objs) > 1 else None
     if rigid is not None:                            # phase A ragdoll: one rigid movable body on the root node
         if report is not None:
@@ -180,7 +183,7 @@ def fo4_native_collision(src, universal_template: bytes, report: dict = None, dy
             dyn = dynamic_template if (len(objs) == 1 and target == 0) else None
             new = meshcollision.convert_bodies(src.blocks[data][4:4 + n], universal_template,
                                                select=[body] if shared > 1 else None, node_rot=tuple(rot),
-                                               skipped=skipped, dynamic_template=dyn, motion=motion)
+                                               skipped=skipped, dynamic_template=dyn, motion=motion, notes=notes)
             node = place or ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
             for b in new:
                 if isinstance(b, tuple):                 # rotated compound instance: node transform * instance
@@ -197,6 +200,8 @@ def fo4_native_collision(src, universal_template: bytes, report: dict = None, dy
             return None
     if report is not None and skipped:
         report["skipped_parts"] = skipped
+    if report is not None and notes:                     # what a mesh body needed for Starfield's decoder
+        report["mesh_fixes"] = notes
     if report is not None and blobs:
         report["source"] = "fo4-native"
         report["bodies"] = len(blobs)
@@ -205,6 +210,8 @@ def fo4_native_collision(src, universal_template: bytes, report: dict = None, dy
         report["mass_kg"] = round(motion["dynamic"], 4)
     if report is not None and motion.get("kept_static"):
         report["dynamic_kept_static"] = motion["kept_static"]
+    if report is not None and motion.get("relayered"):      # frozen L_CLUTTER_NOCUT leaves written as L_STATIC
+        report["relayered"] = motion["relayered"]
     return blobs or None
 
 
@@ -231,23 +238,90 @@ def fo4_mesh_collision(src, sf_mesh_template: bytes, report: dict = None):
     return None
 
 
+ANIMATED_BLOCKS = ("NiControllerManager", "NiControllerSequence")
+
+
+def pose_skinned_shapes(src, shapes, report: dict = None, world=None):
+    """Skinned shapes posed the way the NIF's nodes stand (fo4skin.node_world), in NIF root space with an identity shape
+    transform, so the mesh lands where FO4 draws it and where its bone-node collision is (research log 2026-10-10 "FO4
+    skin reader": SkeletonClothed01's root bone is turned 45 degrees from the bind pose; a vault sink's tap is stored at
+    the model origin and posed on the basin rim). Normals and tangents turn with each vertex's heaviest bone. The node
+    pose is the rest pose of animated NIFs too (controllers move nodes from there; the sink's tap is only right when
+    posed), so they are posed as well and counted in report["skinned_posed_animated"] for the in-game check. Unreadable
+    skins keep the stored positions, counted in report["skinned_kept_stored"].
+    world: the nif.world_transforms lookup the bones are read from; default placed=True, the frame fo4_trishapes(placed=
+    True) and fo4_native_collision use (the scene root's own transform left out), so mesh and bodies stay together.
+    A reference's ragdoll pose (local_overrides) comes in the same way."""
+    from . import fo4skin
+    world = world or nifmod.world_transforms(src, placed=True)
+    animated = any(src.type_of(i) in ANIMATED_BLOCKS for i in range(len(src.blocks)))
+    out, posed, kept, odd_root = [], 0, 0, 0
+    ident = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
+    for s in shapes:
+        if not s.skinned:
+            out.append(s)
+            continue
+        try:
+            skin = fo4skin.read_skin(src, s.block)
+            bones = fo4skin.node_world(src, skin, world) if skin else None
+        except (nifmod.NifError, ValueError, struct.error):
+            skin = bones = None
+        if skin is None or bones is None:
+            kept += 1
+            out.append(s)
+            continue
+        if skin.skeleton_root not in (0, -1):            # untested case (QA on PR #45): every vanilla file checked roots at block 0
+            odd_root += 1
+        positions = fo4skin.pose_vertices(s.positions, skin, bones)
+        rots = [r for _, r, _ in fo4skin.skin_transforms(skin, bones)]
+
+        def turn(vecs):
+            res = []
+            for v, ws, ks in zip(vecs, skin.weights, skin.indices):
+                r = rots[ks[max(range(len(ws)), key=lambda j: ws[j])]]
+                d = (r[0] * v[0] + r[1] * v[1] + r[2] * v[2], r[3] * v[0] + r[4] * v[1] + r[5] * v[2],
+                     r[6] * v[0] + r[7] * v[1] + r[8] * v[2])
+                ln = (d[0] ** 2 + d[1] ** 2 + d[2] ** 2) ** 0.5 or 1.0
+                res.append((d[0] / ln, d[1] / ln, d[2] / ln))
+            return res
+        out.append(replace(s, positions=positions, normals=turn(s.normals) if s.normals else s.normals,
+                           tangents=turn(s.tangents) if s.tangents else s.tangents,
+                           translation=(0.0, 0.0, 0.0), rotation=ident, scale=1.0))
+        posed += 1
+    if report is not None:
+        if posed:
+            report["skinned_posed"] = posed
+            if animated:
+                report["skinned_posed_animated"] = posed
+        if kept:
+            report["skinned_kept_stored"] = kept
+        if odd_root:
+            report["skinned_root_not_block0"] = odd_root   # posed in NIF root space anyway; flagged for the in-game look
+    return out
+
+
 def convert_static(fo4_nif: bytes, out_name: str, material_path: str = PLACEHOLDER_MATERIAL,
                    unit_scale: float = UNIT_SCALE, collision_template: bytes = None,
                    material_paths: list = None, collision_mode: str = "box",
                    include_skinned: bool = False, report: dict = None, sf_mesh_template: bytes = None,
-                   allow_guess: bool = True, dynamic_template: bytes = None) -> Dict[str, bytes]:
+                   allow_guess: bool = True, dynamic_template: bytes = None, pose: dict = None) -> Dict[str, bytes]:
     """collision_mode: "box" = one AABB on the root; "surfaces" = thin boxes behind flat surfaces, one body each.
     sf_mesh_template: a vanilla Starfield mesh-collision blob; when given, FO4's own collision mesh is transplanted
     (meshcollision.transplant) and the box methods are only the fallback.
     allow_guess=False: FO4's own collision or nothing, never a guessed box (vegetation, mounds, door frames: a box
     around them would be an invisible wall). A failed native conversion is reported as "fo4-native-failed".
     dynamic_template: FO4 loose items (one dynamic body on the root) become movable: their body goes on the root node
-    and BSXFlags is 0x42 as on vanilla MiscItems; the caller places them as MoveableStatic (report["motion"])."""
+    and BSXFlags is 0x42 as on vanilla MiscItems; the caller places them as MoveableStatic (report["motion"]).
+    pose: {node block: local transform} replacing those nodes' own transforms (ragdoll_pose.local_overrides: a placed
+    reference's XRGD ragdoll pose). Shapes under those nodes, skinned shapes and collision bodies are all built in that
+    pose; the result is a model for that reference only (placed_pose)."""
     src = nifmod.parse(fo4_nif)
-    shapes = [s for s in nifmod.fo4_trishapes(src, placed=True)
+    shapes = [s for s in nifmod.fo4_trishapes(src, placed=True, local_overrides=pose)
               if (include_skinned or not s.skinned) and s.positions and s.triangles]
     if not shapes:
         raise nifmod.NifError("no static BSTriShape geometry found")
+    if include_skinned:                                       # node pose (or the reference's pose), as FO4 draws them
+        shapes = pose_skinned_shapes(src, shapes, report, nifmod.world_transforms(src, placed=True, local_overrides=pose))
     files, static_shapes, all_pts, all_tris = {}, [], [], []
     for i, s in enumerate(shapes):
         if material_paths and material_paths[i] is None:      # caller asked to drop this shape (e.g. effect shader)
@@ -269,7 +343,8 @@ def convert_static(fo4_nif: bytes, out_name: str, material_path: str = PLACEHOLD
     fo4_has_collision = any(src.type_of(i) == "bhkNPCollisionObject" for i in range(len(src.blocks)))
     if sf_mesh_template is not None and collision_template is not None:
         native = fo4_native_collision(src, sf_mesh_template, report,      # FO4's own bodies as native Starfield bodies
-                                      dynamic_template=dynamic_template, motion=motion)
+                                      dynamic_template=dynamic_template, motion=motion,
+                                      **({"pose": pose} if pose is not None else {}))
     if sf_mesh_template is not None and collision_template is not None and not fo4_has_collision:
         # FO4 gives this model no collision (rubble, debris, paper, signs, posters, plants): the player walks through
         # it there, so it gets none here either. A guessed box would be an invisible wall.
@@ -371,7 +446,8 @@ def _apply(transform, point):
 
 
 def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, clip_files, unit_scale: float = UNIT_SCALE,
-                           collision_template: bytes = None, leaf_physics_donor: bytes = None) -> Tuple[Dict[str, bytes], dict]:
+                           collision_template: bytes = None, leaf_physics_donor: bytes = None,
+                           rest_pose_check: bool = False) -> Tuple[Dict[str, bytes], dict]:
     """FO4 door whose "Open" sequence moves geometry under more than one node (frozen_door_parts: double doors,
     shutters, sliding panel sets) -> Starfield door with its OWN rig and clips, as vanilla double doors have
     (IndIntRmSmWallMid_DoorA01: one rig bone and one clip track per leaf, one keyframed body per leaf).
@@ -384,7 +460,9 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
     with the external CALUMI library); they are stored next to the NIF under meshes/<out_name>/.
     material_paths: one per shape of nif.fo4_trishapes(src) with geometry, None = left out (effect shaders, markers).
     The NIF keeps FO4's origin, so the reference needs no offset. Returns (files, door) where door is the manifest entry
-    (origin_offset, anim_graph, bounds, skeleton, animations, rig, animated_bones, moving_bodies, files)."""
+    (origin_offset, anim_graph, bounds, skeleton, animations, rig, animated_bones, moving_bodies, files).
+    rest_pose_check: refuse a door whose Open does not start, or whose Close does not end, at the bind pose
+    (door_rig.rest_pose_issue; the sliding / lifting route, which takes every NOT_HINGED_RE door)."""
     from . import door_model, door_rig, native_door
     if collision_template is None or leaf_physics_donor is None:
         raise ValueError("multi-part door needs the box template and a keyframed donor body")
@@ -392,6 +470,8 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
     plan = door_rig.animated_identity_binds(door_rig.plan(src, placed=True))
     if sorted(c["name"] for c in plan["clips"]) != ["Close", "Open"]:
         raise nifmod.NifError("door needs exactly one Open and one Close sequence")   # the graph plays both
+    if rest_pose_check and (issue := door_rig.rest_pose_issue(plan)):
+        raise nifmod.NifError(issue)
     base = out_name.rsplit("/", 1)[-1]
     lowered = [b["name"].lower() for b in plan["bones"]] + [("FO4Port_" + base).lower()]
     if len(set(lowered)) != len(lowered):           # Bethesda node-name lookups have ignored case in earlier engines
@@ -463,5 +543,8 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
             "rig": "native",
             "animated_bones": sorted({bones[i]["name"] for i in range(len(bones)) if bones[i]["node"] in animated}),
             "moving_bodies": len(collision),
+            "open_motion": door_rig.open_motion(plan, unit_scale),
             "files": sorted(f"meshes/{out_name}/{relative}" for relative in extra)}
+    if plan.get("ignored_tracks"):                  # shader / visibility tracks FO4 also plays: not ported, said so
+        door["ignored_tracks"] = sorted({f'{t["target"]} ({t["reason"]})' for t in plan["ignored_tracks"]})
     return files, door

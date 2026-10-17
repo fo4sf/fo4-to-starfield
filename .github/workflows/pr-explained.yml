@@ -1,0 +1,33 @@
+# Outside pull requests (from forks) must explain themselves before the owner is asked to decide on them:
+# the body needs the template's "In plain words", "Why" and "AI assistance" sections filled in.
+# Read-only: it checks the pull request's own text and never checks out or runs the fork's code.
+name: pr-explained
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+permissions:
+  contents: read
+jobs:
+  explained:
+    if: github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: The pull request explains itself
+        env:
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          python3 - <<'PY'
+          import os, re, sys
+          body = os.environ.get("BODY") or ""
+          missing = []
+          for head in ("In plain words", "Why", "AI assistance"):
+              m = re.search(r"^##\s*" + re.escape(head) + r"\s*$(.*?)(?=^##\s|\Z)", body, re.M | re.S)
+              text = re.sub(r"<!--.*?-->", "", m.group(1), flags=re.S).strip() if m else ""
+              if not text:
+                  missing.append(head)
+          if missing:
+              print("Thanks for the pull request. Before the owner reviews it, please fill in these sections of the "
+                    "template (plain words are fine): " + ", ".join(missing) + ". See docs/ai/for-ai-reviewers.md.")
+              sys.exit(1)
+          print("explained: ok")
+          PY
