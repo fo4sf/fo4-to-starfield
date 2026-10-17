@@ -12,6 +12,8 @@ file has an exp_install.py that refuses the unknown option, so even it stops bef
 """
 import sys
 
+import console_plan
+
 # light:   time_of_day / weather (sky_light.py): the time ladder with OCR'd replies and second shots, the probe shots'
 #          light, the time command typed again before every terrain probe
 # console: console_pre / console_post (console_plan.py)
@@ -52,11 +54,17 @@ import sys
 #               by those replies, the walk as detail only. An older runner would drop the key at planning time (unknown
 #               plan keys stop plan-npc) or, given the queue, sample positions only and judge a hostile actor that holds
 #               its ground as a baseline that "stayed away" (N0b_spacer_base, 2026-10-13)
+# activate:     terrain "activate" block (docs/ai/test-queue.md "Activate", 2026-10-15): the container menu opened from
+#               the console (prid + activate player) after the probes, captured and OCR'd; an older qstep.ps1 would
+#               skip it and the queue would report nothing about the container
 # bridge:       the observation bridge (docs/ai/test-queue.md "Bridge"; plan --bridge, 2026-10-14): the player's
 #               position comes from the game's own log (qstep.ps1 Bridge-Read), never from a console capture, and the
 #               runner installs the staged bridge plugin before every launch (bridge_install.py). An older qstep.ps1
 #               would read the console as before and call the result a read of the same test
-FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "door_frames", "door_route", "walk", "impulse", "push_judge", "npc_combat", "bridge")
+# probe_moveto: console lines cgf "FO4SF_Probe.Resolve" / "FO4SF_Probe.MoveTo" (the scripted door's Step 0,
+#               2026-10-16): on the whitelist, and the HUD waited for after a MoveTo (it can load another cell). An
+#               older qstep.ps1 refuses the line (exit 4) only after the game was launched for the test
+FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "door_frames", "door_route", "walk", "impulse", "push_judge", "npc_combat", "bridge", "activate", "probe_moveto")
 
 
 def needs(tests):
@@ -67,12 +75,16 @@ def needs(tests):
             out.add("light")
         if t.get("console_pre") or t.get("console_post"):
             out.add("console")
+        if console_plan.uses_probe_travel(t):
+            out.add("probe_moveto")
         if "precommand_m" in t or "arrive_progress" in t:
             out.add("npc_t0")
         if t.get("combat_reads"):
             out.add("npc_combat")
         if t.get("bridge_reads"):
             out.add("bridge")
+        if t.get("activate"):
+            out.add("activate")
         if t.get("kind") == "door_trip":
             out.add("door_trip")
             if "moved_m" in t or "activate_m" in t:

@@ -1,0 +1,114 @@
+{
+  "overlay": {
+    "world": "FO4Core_Commonwealth",
+    "starfield_cells": {
+      "min": -32,
+      "max": 31,
+      "n": 4096
+    },
+    "fo4_cells": {
+      "min": -55,
+      "max": 54,
+      "n": 12100
+    },
+    "units_per_metre": 70.0,
+    "starfield_cell_m": 100.0
+  },
+  "fo4": {
+    "file": {
+      "name": "Fallout4.esm",
+      "size": 330745373,
+      "sha256": "ae7be31a59052f926474a767d9dbfbcc7f19af4ad2070491f7f40d821b2520eb"
+    },
+    "world": "Commonwealth",
+    "records": 7047,
+    "parsed": 7047,
+    "triangles": 3439338,
+    "triangles_in_overlay": 3439338,
+    "parse_errors": 0,
+    "overlay_cells_with_navmesh": 1069,
+    "overlay_triangles": 3439338,
+    "overlay_area_m2": 9079629.822438
+  },
+  "sf": {
+    "navm_records": 0,
+    "overlay_cells_with_navmesh": 0,
+    "overlay_triangles": 0,
+    "overlay_area_m2": 0,
+    "plugins": {
+      "terrain": {
+        "file": {
+          "name": "FO4TerrainCore.esm",
+          "size": 46114630,
+          "sha256": "924e182bb9b8c7894ed9ef4e743a328d8961955547debb5888e47a8a901fd927"
+        },
+        "records": {
+          "CELL": 4097,
+          "DOOR": 70,
+          "LCTN": 1,
+          "REFR": 648360,
+          "SFBK": 1,
+          "STAT": 11699,
+          "WRLD": 1
+        },
+        "navm": 0,
+        "worlds": [
+          {
+            "formid": "01000803",
+            "edid": "FO4Core_Commonwealth"
+          }
+        ],
+        "cells": [],
+        "world_walk": {
+          "records": 0,
+          "parsed": 0,
+          "triangles": 0,
+          "triangles_in_overlay": 0,
+          "parse_errors": 0
+        },
+        "cell_count": 4097
+      },
+      "slice": {
+        "file": {
+          "name": "FO4SliceRedRocketCore.esm",
+          "size": 1563,
+          "sha256": "a44a4c3761089d8aa08692ef36f56bfe6386c25487ee9a3e854ee27cc3cf5ec8"
+        },
+        "records": {
+          "CELL": 3,
+          "REFR": 4,
+          "WRLD": 1
+        },
+        "navm": 0,
+        "worlds": [
+          {
+            "formid": "01000803",
+            "edid": "FO4Core_Commonwealth"
+          }
+        ],
+        "cells": [
+          {
+            "formid": "02002338",
+            "edid": "FO4Port_RedRocket01"
+          },
+          {
+            "formid": "01001805",
+            "edid": ""
+          },
+          {
+            "formid": "01000DAF",
+            "edid": "FO4Core_RedRocketSpawn"
+          }
+        ],
+        "world_walk": {
+          "records": 0,
+          "parsed": 0,
+          "triangles": 0,
+          "triangles_in_overlay": 0,
+          "parse_errors": 0
+        },
+        "cell_count": 3
+      }
+    }
+  }
+}
