@@ -10,7 +10,9 @@
 //   SFBK <world>Block      copy of OverlayBlockLC172World (102382): ANAM = the tile's BTD, DNAM n x n, ENAM = shared
 //                          height range, FNAM = one raw u16 per BTD cell (SW-corner sample), INAM/HNAM alignment
 //   LCTN <world>Location   copy of LC172WorldLocation (3807BE): keyword LocTypeOverlay, parent SSol_PMars_Surface; one
-//                          per overlay (the CK warns when two overlays share a location)
+//                          per overlay (the CK warns when two overlays share a location). Duplicate clears LCSR/LCID
+//                          (LC172's map-marker chain); one MapMarker REFR is restored at the COC after doors/lights
+//                          (docs/terrain/map-markers.md).
 //   WRLD <world>           copy of LC172World (02DF8C) minus cells/offsets/location; overlay component -> the SFBK;
 //                          object bounds = the BTD; every exterior cell of the BTD (empty), the COC cell with a
 //                          COCMarkerHeading 2 m above the ground, a persistent XMarker anchor in the persistent cell
@@ -974,6 +976,40 @@ if (doorEntries.Count > 0)
                           $"in cell ({d.ArrivalCell[0]}, {d.ArrivalCell[1]}) at ({d.ArrivalPos[0]}, {d.ArrivalPos[1]}, {d.ArrivalPos[2]})");
     }
 }
+// One MapMarker per overlay (docs/terrain/map-markers.md): Duplicate LC172's persistent MapMarker REFR 003E5E12
+// so empty XMRK / FNAM 0x1B / TNAM 0x17 stay vanilla; park it at the COC; fill LCSR MapMarkerRefType + LCID
+// that the location Duplicate cleared. New FormIDs after doors/lights so object IDs stay.
+var srcMapMarker = sf.EnumerateMajorRecords<IPlacedObjectGetter>().First(r => r.FormKey.ID == 0x3E5E12);
+int nMap = 0;
+var mapIds = new Dictionary<string, string>();
+foreach (var (w, o) in worlds)
+{
+    var loc = mod.Locations.First(l => l.EditorID == o.GetProperty("location").GetString());
+    var spawn = o.GetProperty("spawn").EnumerateArray().Select(e => e.GetSingle()).ToArray();
+    var marker = (PlacedObject)srcMapMarker.Duplicate(NewKey());
+    marker.EditorID = w.EditorID + "MapMarker";
+    marker.Position = new P3Float(spawn[0], spawn[1], spawn[2]);
+    marker.Rotation = new P3Float(0, 0, 0);
+    marker.MajorRecordFlagsRaw |= 0x400;                                     // Persistent
+    marker.LinkedReferences?.Clear();                                        // drop LC172's XLKR into a vanilla ref
+    if (marker.MapMarker != null)
+        marker.MapMarker.Name = "Red Rocket";
+    w.TopCell!.Persistent.Add(marker);
+    loc.MasterSpecialReferences ??= new ExtendedList<LocationCellStaticReference>();
+    loc.MasterSpecialReferences.Add(new LocationCellStaticReference
+    {
+        LocationRefType = new FormLink<ILocationReferenceTypeGetter>(new FormKey(sfEsm, 0x2271F)),  // MapMarkerRefType
+        Marker = new FormLink<IPlacedObjectGetter>(marker.FormKey),
+        Location = new FormLink<IWorldspaceGetter>(w.FormKey),
+    });
+    loc.MasterInitiallyDisabledReferences ??= new ExtendedList<IFormLinkGetter<IPlacedGetter>>();
+    loc.MasterInitiallyDisabledReferences.Add(new FormLink<IPlacedGetter>(marker.FormKey));
+    mapIds[w.EditorID!] = marker.FormKey.ID.ToString("X6");
+    nMap++;
+    Console.WriteLine($"  map marker {marker.EditorID} REFR {marker.FormKey} at ({spawn[0]}, {spawn[1]}, {spawn[2]}) LCSR MapMarkerRefType on {loc.EditorID}");
+}
+if (ids != null && mapIds.Count > 0)
+    ids["map_markers"] = mapIds;
 if (ids != null)
     File.WriteAllText(Path.Combine(outDir, "formids.json"), JsonSerializer.Serialize(ids));
 mod.ModHeader.Stats.NextFormID = next;
@@ -984,7 +1020,8 @@ Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {worlds
                   (Has(prm, "objects") ? $"; objects: {nStat} STAT, {nDoor} DOOR, {nCont} CONT, {nMisc} MISC, {nActi} ACTI, {nTerm} TERM + {nTerm} TMLM, {nWkshp} workshop ACTI, {nBench} bench REFR on vanilla FURN, {nRef} REFR ({nDisabled} initially disabled)" : "") +
                   (Has(prm, "navmesh") ? $"; navmesh: {nNav} NAVM, {nNavTri} triangles, {nNavLink} edge links, {nNavDoor} door triangles, NAVI override with {nNav} NVMI" : "") +
                   (nLightRef > 0 ? $"; lights: {nLight} LIGH, {nLightRef} REFR" : "") +
-                  (doorEntries.Count > 0 ? $"; doors: {doorEntries.Count} scripted REFR on {nDoorActi} ACTI, {doorEntries.Count} arrival markers" : ""));
+                  (doorEntries.Count > 0 ? $"; doors: {doorEntries.Count} scripted REFR on {nDoorActi} ACTI, {doorEntries.Count} arrival markers" : "") +
+                  (nMap > 0 ? $"; map markers: {nMap}" : ""));
 
 if (Has(prm, "mars"))
 {

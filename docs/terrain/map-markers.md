@@ -1,7 +1,7 @@
 # Map markers: overlay location chain (playtest row 7)
 
-Author: Grok, 2026-10-17. Status: **research + plan, offline**. Nothing written into the overlay plugin; nothing run
-in game. Labels as in the other terrain docs: **verified** = read from files, **supported** = hypothesis with
+Author: Grok, 2026-10-17. Status: **implemented, offline**. TerrainOverlays restores one MapMarker + LCSR/LCID per
+overlay (`grok/map-marker-restore`). Nothing deployed; nothing run in game. Labels as in the other terrain docs: **verified** = read from files, **supported** = hypothesis with
 evidence, **unresolved** = open. Owner playtest row 7 (fast travel to The Frontier from the overlay map hung). Plan
 section 5 of [commonwealth-build-plan.md](commonwealth-build-plan.md): "FO4 map markers -> LCTN/REFR".
 
@@ -131,17 +131,18 @@ Core `selected.json` does not list a MapMarker type (FO4 markers are not a conve
 
 ## Plan
 
-### GO (next PR, writer + synthetic tests; Claude scratch overlay for in-game)
+### GO (this PR, writer; Claude scratch overlay for in-game)
 
-One persistent MapMarker `REFR` in the Commonwealth overlay:
+One persistent MapMarker `REFR` in the Commonwealth overlay, written **after** doors/lights so reserved object FormIDs
+stay:
 
-- `NAME` STAT `00000010`, empty `XMRK`, `FNAM` `0x1B` and `TNAM` `0x17` (LC172, because we Duplicate that location, not
-  a landing overlay).
-- Position: the Red Rocket COC (`FO4Core_RedRocketSpawnMarker`), overlay-local metres, same cell.
-- After the existing `MasterSpecialReferences.Clear()` (that drop of LC172's snow-globe `LCSR` and LC172's own marker
-  form id stays; those refs are not in our world), append one `LCSR` `MapMarkerRefType` → that `REFR` → our WRLD, and
-  `LCID` that `REFR`.
-- Tests: `LCSR` 20-byte stride, empty `XMRK`, `LCID` matches the marker; the snow-globe `LCSR` is not copied.
+- Duplicate LC172's persistent MapMarker `REFR` `003E5E12` (keeps empty `XMRK`, `FNAM` `0x1B`, `TNAM` `0x17`), `NAME`
+  STAT `00000010`.
+- Position: the Red Rocket COC spawn, overlay-local metres; persistent in the world's `TopCell` (same list as the
+  XMarker anchor). `FULL` "Red Rocket". LC172's `XLKR` is cleared.
+- After the existing `MasterSpecialReferences.Clear()` (LC172's snow-globe `LCSR` and LC172's own marker form id stay
+  dropped; those refs are not in our world), append one `LCSR` `MapMarkerRefType` → that `REFR` → our WRLD, and `LCID`
+  that `REFR`. `formids.json` `"map_markers"` maps world editor id → REFR id.
 
 Do **not** stamp a PCM 3 × 3 landing overlay over the unique 64-cell Commonwealth overlay. Do **not** add ship pads
 or `LinkShipLandingOverlayMapMarker` in this first change.
