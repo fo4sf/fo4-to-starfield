@@ -268,8 +268,10 @@ class Converter:
         """FO4 diffuse / normal / smooth-spec textures -> Starfield colour / normal / rough DDS + a .mat. Spec is optional.
         decal: alpha-blended overlay; the diffuse alpha always becomes the opacity map and the .mat is cloned from the
         vanilla decal template (cm.DECAL_TEMPLATE_MAT) so it blends over the surface behind it.
-        alpha_test / two_sided with a real opacity map: clone ConduitKit01TwoSided (shader TwoSided1Layer) instead of
-        the opaque metal template, which ignored the cutout and drew leaf cards as black slabs."""
+        alpha_test with a real opacity map: clone ConduitKit01TwoSided (shader TwoSided1Layer) instead of
+        the opaque metal template, which ignored the cutout and drew leaf cards as black slabs.
+        two_sided is accepted for DryConverter's signature; opacity still requires alpha_test or decal
+        (FO4 two-sided materials without alpha test are not cutouts)."""
         import numpy as np
         tex_rel = f"textures/{self.prefix}/{stem}"
         d, n = self.src.texture(diffuse), (self.src.texture(normal) if normal else None)
@@ -280,7 +282,7 @@ class Converter:
         with tempfile.TemporaryDirectory() as tmp:
             open(os.path.join(tmp, "d.dds"), "wb").write(d)
             opacity = None
-            if alpha_test or decal or two_sided:           # cutout / blend / two-sided cards: diffuse alpha -> BC4 opacity
+            if alpha_test or decal:                        # FO4 alpha is opacity only when alpha-tested or a decal
                 open(os.path.join(tmp, "a.dds"), "wb").write(d)
                 textures.texconv(self.texconv, os.path.join(tmp, "a.dds"), tmp, "R8G8B8A8_UNORM", ("-m", "1"))
                 raw_a = open(os.path.join(tmp, "a.dds"), "rb").read()

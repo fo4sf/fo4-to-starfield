@@ -1,4 +1,5 @@
 """Synthetic tests for the material / texture converters. Texture tests need numpy and are skipped without it."""
+import json
 import os
 import struct
 import sys
@@ -181,6 +182,58 @@ class GlassTests(unittest.TestCase):
         self.assertEqual(m["Objects"][1]["Components"][2]["Data"]["Color"]["Data"]["Value"]["Data"]["x"], "0")
         self.assertEqual(m["Objects"][0]["Components"][0]["Data"]["Name"], "FO4Port_Vine")
         self.assertEqual(t["Objects"][0]["Components"][1]["Data"]["AlphaTestThreshold"], "0.2")  # template not mutated
+
+    def test_build_from_template_creates_metalness_replacement_when_absent(self):
+        """ConduitKit01TwoSided has MRTextureFile index 4 and no TextureReplacement; Summary-only zero is not enough."""
+        t = {"Objects": [
+                {"Components": [{"Type": "BSComponentDB::CTName", "Data": {"Name": "Old"}, "Index": 0}], "Parent": "p"},
+                {"ID": "res:00000001:00000002:00000003", "Parent": "q", "Components": [
+                    {"Type": "BSMaterial::MRTextureFile", "Index": 0, "Data": {"FileName": "Data\\old_color.dds"}},
+                    {"Type": "BSMaterial::MRTextureFile", "Index": 2, "Data": {"FileName": "Data\\old_opacity.dds"}},
+                    {"Type": "BSMaterial::MRTextureFile", "Index": 4, "Data": {"FileName": "Data\\conduit_metal.dds"}}]}],
+             "Summary": {"Layer1": {"Textures": {
+                 "Albedo": {"File": "Data\\old_color.dds"},
+                 "Metalness": {"File": "Data\\conduit_metal.dds", "UseReplacement": False}}}}}
+        m = cm.build_from_template(t, "FO4Port_Vine", {"Albedo": "Data\\v_color.dds"}, metalness=0.0)
+        files = [(c.get("Index"), c.get("Data", {}).get("FileName"))
+                 for o in m["Objects"] for c in o.get("Components", [])
+                 if c.get("Type") == "BSMaterial::MRTextureFile"]
+        self.assertNotIn(4, [i for i, _ in files])
+        self.assertNotIn("conduit_metal.dds", str(files))
+        reps = [c for o in m["Objects"] for c in o.get("Components", [])
+                if c.get("Type") == "BSMaterial::TextureReplacement" and c.get("Index") == 4]
+        self.assertEqual(len(reps), 1)
+        self.assertEqual(reps[0]["Data"]["Enabled"], "true")
+        self.assertEqual(reps[0]["Data"]["Color"]["Data"]["Value"]["Data"]["x"], "0")
+        self.assertEqual(m["Summary"]["Layer1"]["Textures"]["Metalness"]["File"], "")
+        self.assertTrue(m["Summary"]["Layer1"]["Textures"]["Metalness"]["UseReplacement"])
+        self.assertEqual(len(t["Objects"][1]["Components"]), 3)  # template not mutated
+
+    def test_conduit_two_sided_template_gets_metalness_replacement(self):
+        """When ContentResources.zip is present, the real two-sided template has no index-4 replacement."""
+        zips = [
+            os.path.join(r"C:\Program Files (x86)\Steam\steamapps\common\Starfield", "Tools", "ContentResources.zip"),
+            os.path.join(r"D:\SteamLibrary\steamapps\common\Starfield", "Tools", "ContentResources.zip"),
+        ]
+        zip_path = next((p for p in zips if os.path.isfile(p)), None)
+        if zip_path is None:
+            self.skipTest("ContentResources.zip not installed")
+        tmpl = cm.read_template_path(zip_path, cm.TWO_SIDED_TEMPLATE_MAT)
+        before = json.dumps(tmpl)
+        reps_before = [c for o in tmpl["Objects"] for c in o.get("Components", [])
+                       if c.get("Type") == "BSMaterial::TextureReplacement" and c.get("Index") == 4]
+        self.assertEqual(reps_before, [])
+        m = cm.build_from_template(tmpl, "FO4Port_Vine", {}, metalness=0.0)
+        files = [(c.get("Index"), c.get("Data", {}).get("FileName"))
+                 for o in m["Objects"] for c in o.get("Components", [])
+                 if c.get("Type") == "BSMaterial::MRTextureFile"]
+        self.assertNotIn(4, [i for i, _ in files])
+        reps = [c for o in m["Objects"] for c in o.get("Components", [])
+                if c.get("Type") == "BSMaterial::TextureReplacement" and c.get("Index") == 4]
+        self.assertEqual(len(reps), 1)
+        self.assertEqual(reps[0]["Data"]["Enabled"], "true")
+        self.assertEqual(reps[0]["Data"]["Color"]["Data"]["Value"]["Data"]["x"], "0")
+        self.assertEqual(json.dumps(tmpl), before)
 
 
 @unittest.skipUnless(np, "numpy not installed")

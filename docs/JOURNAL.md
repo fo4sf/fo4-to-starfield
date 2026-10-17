@@ -1645,3 +1645,13 @@ cutout. Converter now clones `ConduitKit01TwoSided.mat` whenever an opacity map 
 zeroes metalness. Synthetic tests in `tests/test_materials.py`. In-game check is Claude's after a reconvert of the
 vine family into a scratch folder. Rows 13 (bright wall albedo luma 184) and 15 (dark canvasswap luma 29) are
 separate root causes, not this PR.
+
+## 2026-10-17: Grok #288 review fixes (offline)
+
+Codex/Claude on a77edfa: `build_from_template(..., metalness=0)` only updated an existing TextureReplacement
+index 4. ConduitKit01TwoSided has none (only MRTextureFile index 4 = conduit metal), so vine.mat kept the metal
+map and Summary said UseReplacement/0 — the 2026-10-08 metallic-summary shape. Now the writer drops that metal
+file and appends an enabled replacement (MetalIronCast01's shape). Opacity maps stay gated on `alpha_test or
+decal`; `two_sided` alone no longer cuts out cars/glass (40 FO4 two-sided materials without alpha test).
+DryConverter._texture_set accepts `two_sided` so a core64c dry run no longer TypeErrors every BGSM. One-sided
+FO4 cutouts (hair, chain-link) still clone TwoSided1Layer when they have an opacity map. In-game still Claude.

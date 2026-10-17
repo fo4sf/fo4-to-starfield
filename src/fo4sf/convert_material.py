@@ -108,6 +108,49 @@ def _num(v: float) -> str:
     return f"{v:g}"
 
 
+def _metalness_replacement(value: float) -> dict:
+    """Enabled constant metalness at slot 4, matching MetalIronCast01 (ConduitKit01TwoSided has none)."""
+    n = _num(value)
+    return {"Data": {"Color": {"Data": {"Value": {"Data": {"w": "1", "x": n, "y": n, "z": n},
+                                                  "Type": "XMFLOAT4"}},
+                               "Type": "BSMaterial::Color", "Version": 1},
+                     "Enabled": "true"},
+            "Index": METALNESS_SLOT, "Type": "BSMaterial::TextureReplacement"}
+
+
+def _force_metalness(mat: dict, metalness: float) -> None:
+    """Write Summary + an enabled TextureReplacement index 4; drop any MRTextureFile metal map.
+
+    ConduitKit01TwoSided has the metal map and no replacement; updating only existing replacements
+    left the conduit metal texture in the set while Summary said UseReplacement/0.
+    """
+    tex = mat["Summary"]["Layer1"].get("Textures") or {}
+    if "Metalness" in tex:
+        tex["Metalness"]["File"] = ""
+        tex["Metalness"]["Replacement"] = {"w": 1, "x": metalness, "y": metalness, "z": metalness}
+        tex["Metalness"]["UseReplacement"] = True
+    n = _num(metalness)
+    for o in mat["Objects"]:
+        comps = o.get("Components") or []
+        if not comps:
+            continue
+        updated, has_texfiles, kept = False, False, []
+        for c in comps:
+            if c.get("Type") == "BSMaterial::MRTextureFile":
+                has_texfiles = True
+                if c.get("Index") == METALNESS_SLOT:
+                    continue
+            if c.get("Type") == "BSMaterial::TextureReplacement" and c.get("Index") == METALNESS_SLOT:
+                d = c["Data"]["Color"]["Data"]["Value"]["Data"]
+                d["x"] = d["y"] = d["z"] = n
+                c["Data"]["Enabled"] = "true"
+                updated = True
+            kept.append(c)
+        if has_texfiles and not updated:
+            kept.append(_metalness_replacement(metalness))
+        o["Components"] = kept
+
+
 def build_mat(template: dict, name: str, albedo: str, normal: str, rough: str,
               tint=(1.0, 1.0, 1.0, 0.0), metalness: float = 0.0, opacity: str = None, alpha_threshold: float = 0.5) -> dict:
     """tint: x, y, z = colour, w = how strongly the tint replaces the albedo texture (1.0 = flat colour, texture
@@ -254,16 +297,7 @@ def build_from_template(template: dict, name: str, files: dict, opacity_value: f
                     c["Data"]["AlphaTestThreshold"] = f"{alpha_threshold:.3f}"
                     c["Data"]["HasOpacity"] = "true"
     if metalness is not None:
-        tex = mat["Summary"]["Layer1"].get("Textures") or {}
-        if "Metalness" in tex:
-            tex["Metalness"]["Replacement"] = {"w": 1, "x": metalness, "y": metalness, "z": metalness}
-            tex["Metalness"]["UseReplacement"] = True
-        for o in mat["Objects"]:
-            for c in o.get("Components", []):
-                if c.get("Type") == "BSMaterial::TextureReplacement" and c.get("Index") == METALNESS_SLOT:
-                    d = c["Data"]["Color"]["Data"]["Value"]["Data"]
-                    d["x"] = d["y"] = d["z"] = _num(metalness)
-                    c["Data"]["Enabled"] = "true"
+        _force_metalness(mat, metalness)
     return mat
 
 

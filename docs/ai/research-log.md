@@ -20,6 +20,10 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   alpha < 128, BC1-black in the cutout); opaque texels still only luma 26. Without a two-sided cutout shader the
   metal material draws the whole card, which is black. Fix: clone `ConduitKit01TwoSided.mat` when an opacity map
   exists, write Summary Opacity, force metalness 0 so the conduit metal map does not leak.
+  **Correction (review #288):** forcing metalness 0 only updated Summary plus an existing TextureReplacement
+  index 4. The real ConduitKit01TwoSided template has no such component (verified in ContentResources.zip), so
+  the conduit MRTextureFile/index 4 stayed. The writer now creates the enabled replacement and drops that file.
+  Opacity generation is gated on `alpha_test or decal`; `two_sided` alone is not a cutout.
 - Row 13 walls, **supported hypothesis**: `res01playerhouseinteriorrr.nif` wall shapes use
   `metalpanelsresidential01rr` (colour luma 184) and `wallpanelmetalrubble02` (luma 164), 0 fallbacks. These are
   bright beige maps, not missing colour (Starfield missing colour is flat white). Separate from the vine shader bug.
