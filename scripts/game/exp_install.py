@@ -29,8 +29,11 @@ import tempfile
 
 # Reuse the converter deployer's tested atomic writes and no-overwrite publication.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# cycle.ps1 uses isolated Python, which omits this script's own directory.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import deploy_starfield as deployment  # noqa: E402
 from verify_packed_experiment import verify_archive  # noqa: E402
+from experiment_receipts import preserve_receipt  # noqa: E402
 
 RECORD = "FO4SFExp.install.json"
 PACKING_POLICY = "general-stored-verified-v2"
@@ -338,13 +341,37 @@ def verify_relaunch(a, data, plugins, packed, rec):
         sys.exit("experiment source inputs changed; uninstall before relaunching")
 
 
-def cleanup(data, rec_p, rec):
+class RollbackReceiptPending(OSError):
+    """Confirmed publications were undone, but the original receipt is retained."""
+
+
+def cleanup(data, rec_p, rec, *, rollback=False):
     """Undo confirmed publications; preserve changed/unproven files and a retryable journal."""
     targets = {rel: data_path(data, rel) for rel in rec["files"]}
     directories = {rel: data_path(data, rel) for rel in rec["dirs"]}
     p = plugins_txt()
     if os.path.normcase(os.path.abspath(rec.get("plugins_txt", p))) != os.path.normcase(os.path.abspath(p)):
         raise ValueError("recorded Plugins.txt does not match the current user path")
+    # Preserve the full written identity inventory before cleanup narrows or
+    # removes it. History is private evidence, never an active recovery journal.
+    before = read_bytes(rec_p) if rollback else None
+    history_error = None
+    try:
+        history = preserve_receipt(rec_p)
+        print(f"preserved experiment receipt: {history}")
+    except (OSError, ValueError) as error:
+        if not rollback:
+            raise
+        if before is None or read_bytes(rec_p) != before:
+            raise OSError("active experiment receipt changed; rollback refused") from error
+        written = json.loads(before)
+        if not isinstance(written, dict) or written.get("complete") is not False:
+            raise OSError("rollback requires an incomplete recovery receipt") from error
+        # A history outage must not leave a failed install enabled. The caller
+        # still knows which files it actually published, even if its final
+        # journal write failed. Undo only those unchanged publications, keeping
+        # the FULL durable receipt byte-for-byte until history can be retried.
+        history_error = error
     errors = []
     try:
         if not rec.get("complete", True):
@@ -388,6 +415,11 @@ def cleanup(data, rec_p, rec):
                 os.rmdir(full)
         except OSError as e:
             errors.append(str(e))
+    if history_error is not None:
+        pending = f"receipt preservation pending at {rec_p}: {history_error}"
+        if errors:
+            raise OSError(f"{pending}; {'; '.join(errors)}")
+        raise RollbackReceiptPending(pending)
     if errors:
         rec["cleanup_pending"] = True
         deployment.write_manifest(rec_p, rec)
@@ -542,9 +574,11 @@ def _install(a, packing_dir=None):
     except Exception as e:
         rec["complete"] = False
         try:
-            cleanup(data, rec_p, rec)
+            cleanup(data, rec_p, rec, rollback=True)
+        except RollbackReceiptPending as recovery:
+            sys.exit(f"install failed and was rolled back: {e}; {recovery}")
         except (OSError, ValueError) as recovery:
-            sys.exit(f"install failed: {e}; {recovery}")
+            sys.exit(f"install failed: {e}; rollback incomplete (game may remain modified): {recovery}")
         sys.exit(f"install failed and was rolled back: {e}")
     print(f"installed {len(rec['files'])} files, plugins {plugins}")
 

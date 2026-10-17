@@ -20,7 +20,7 @@ import time
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-from fo4sf import ba2, checkpoints, convert_static, meshcollision, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
+from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
 
 
 def checkpoint_signature(a):
@@ -126,9 +126,14 @@ DEFAULT_CELL_TYPES = "Static,StaticCollection,MovableStatic,Furniture,Door,Activ
 
 def cell_candidates(cell, wanted):
     """The meshes --cell-json converts for one cell export: 'meshes\\' + model of every reference whose base type is in
-    wanted, without editor markers and effect meshes (fog / light volumes), sorted case-insensitively, each once."""
+    wanted, without editor markers, effect meshes (fog / light volumes) and placed water planes, sorted
+    case-insensitively, each once. A water plane (Water\\*.nif: a BSWaterShaderProperty quad plus an L_WATER body) is out
+    for the reason the exterior path already leaves it out (exterior.WATER_RE): as a static it is an opaque flat grey sheet
+    (the neutral fallback material) AND a solid floor, because the converted L_WATER body supports the player (Vault 111
+    gear pit: the player stood on the sheet 0.44 m above the real floor; docs/JOURNAL.md 2026-10-17)."""
     return sorted({"meshes\\" + r["model"].lstrip("\\") for r in cell["refs"] if r["model"] and r["type"] in wanted
-                   and not re.search(r"marker|^\\?effects[\\/]", r["model"], re.I)},   # editor markers, fog/light volumes
+                   and not re.search(r"marker|^\\?effects[\\/]", r["model"], re.I)   # editor markers, fog/light volumes
+                   and not exterior.WATER_RE.search(r["model"])},                    # water planes (see the docstring)
                   key=str.lower)
 
 
@@ -330,6 +335,8 @@ def main():
         for reason, count in reason_counts.most_common(5):
             pct = 100.0 * count / total
             print(f"    {count:4d} ({pct:5.1f}%)  {reason[:80]}")
+            if examples[reason]:
+                print(f"      examples: {', '.join(examples[reason][:3])}")
     else:
         print("  Failure summary: 0 failures")
     if items:

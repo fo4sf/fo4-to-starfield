@@ -1799,6 +1799,17 @@ snapshots tagged owner-button). Lessons: a Bash heredoc here turns \\r \\n escap
 written script; gate commits on tests); a background workflow can die silently (check the transcripts' modification
 times); the owner's three-line console paste became one line (give one line per command).
 
+## 2026-10-17: Grok map-marker research (playtest row 7)
+
+Starfield 1.16.244. Offline walk of `Starfield.esm` and pinned `FO4TerrainCore.esm`. Starfield has no `MAPM` group;
+markers are `REFR` of STAT `MapMarker` `00000010` with empty `XMRK`. `LCSR` is 5 × u32 (`LCRT`, `REFR`, `WRLD`, 0,
+`0xFFFFFFFF`). LC172WorldLocation already has MapMarkerRefType → persistent `REFR` `003E5E12` and `LCID` that ref.
+`TerrainOverlays` Duplicate-copies that location then clears `MasterSpecialReferences` / `MasterInitiallyDisabledReferences`,
+so the pinned overlay LCTN has empty `LCSR`/`LCID` and 0 MapMarker refs among 654,600 `REFR`.
+
+Plan: restore one persistent MapMarker at the Red Rocket COC with LC172 `FNAM`/`TNAM`, one `LCSR` + `LCID`; do not stamp
+a PCM landing overlay. Frontier hang after that restore is **unresolved** (Claude in-game). FO4 `XMRK` **unresolved**.
+Evidence: [docs/terrain/map-markers.md](terrain/map-markers.md), `src/fo4sf/map_markers.py`, `tests/test_map_markers.py`.
 ## 2026-10-16 (night, Mountain time) - Claude: Step 0 probes and the first scripted door
 
 **Probes (queues door_probe_1017 and door_probe_1017e; bridge_t2; core64i / core64k; Starfield 1.16.244).**
@@ -1826,3 +1837,61 @@ world switch and adds a `SetPosition` to the destination's merged coordinates (p
 script change; the writer change is Claude's. Evidence folders: C:\Modding\testqueue\door_probe_1017,
 door_probe_1017e, door_trip_sdm_1018 (bridge.log, papyrus.log, obs.json, judge outputs). Lesson: the bridge log's
 probe lines are case-sensitive to the game's spelling (`FO4SF Resolve`); the reader is case-insensitive since #282.
+
+## 2026-10-17 - Claude: the "flat grey floor" in Vault 111 is the water plane (owner playtest row 20)
+
+**Question.** Owner snapshot 20261017-000312 (bridge position -57.91, -7.11, -1.943 in Vault111Cryo, integ_1018 build):
+the floor is one flat light-grey surface, no tile or grid detail, white under the flashlight. Which model, which
+material, why flat? (Offline only; nothing launched.)
+
+**Finding (verified offline, one in-game read).** It is not a floor model's texture. The surface is the placed
+`Water\Water1024.nif` (ref 02D27E, base Water1024IntPondDarkCalm, FO4 position -3832, -200, -136 = -54.743, -2.857,
+-1.943 m), a 14.63 m square (UV 0..1) over the gear room's sunken pit:
+- The player's z (-1.942875) equals the plane's top (-136/70 = -1.942857) to 2e-5 m. The earlier snapshots 000241 and
+  000257 read z 0.0009 and 0.0 on the room floor and show the normal dark vault tiles. The pit's real floor is the
+  `V111FloorCementDirty01` shape of `V111GearRoom01` at z -2.38 (the blue generator `GreebGenerator01` stands on it at
+  z -2.40, 9.2 m ahead, 16 deg left of the view heading: where the screenshot shows it); the plane hides it.
+- FO4's `Water1024.nif` has one BSTriShape with a `BSWaterShaderProperty` (no texture set, no .bgsm: FO4 draws it
+  from the WATR record) and one convex body, 14.63 x 14.63 x 14.63 m below the plane, layer 11 = L_WATER ("a water area
+  phantom"). `Converter._shape_material` returns the neutral fallback for every shader that is not a
+  BSLightingShaderProperty or BSEffectShaderProperty, so the quad became `_neutral.mat`: a 16 x 16 uniform grey colour
+  texture (decoded luma std 0.00), a flat normal map, one roughness value. That is "flat grey, no detail", opaque, at
+  water level. Manifest: `fo4port\water\water1024.nif`, shapes 1, fallback_materials 1, collision_report bodies 1.
+- The converted body keeps layer 11 with the template's hknpMaterial (materialId 0, flags 0, triggerType 0). In
+  Starfield's COLL records L_WATER (layer 11) lists L_CHARCONTROLLER among its collision partners and L_CHARCONTROLLER
+  lists L_WATER; Fallout4.esm has the same pairing, yet an FO4 player does not stand on water. The FO4 water body is
+  the one body here with cinfo flags 0x10 (the room's static and stair-helper bodies have 0); the converter writes
+  the template's 0. What bit 0x10 does is **unresolved** (hypothesis: it is what keeps the FO4 body from being solid).
+  What is verified is the result: in Starfield the player stood on the sheet, 0.44 m above the pit floor. Same cause
+  as T10 in docs/ai/test-gaps-2026-10-13.md (the Red Rocket cave pond is a 5.1 m L_WATER box).
+- Not the other candidates: the pit floor's own converted material is fine (`v111floorcementdirty01.mat`: colour,
+  normal and roughness exist in the archive; the colour map decodes to the same mean RGB and spread as FO4's
+  `V111FloorCementDirty01_d.dds`, 161/156/140, std 12.5). No palette material is involved (#289: the shapes under the
+  player have no BGSM and no greyscale-to-palette flag). No texture failed conversion. It is not a lighting effect.
+
+**Fix.** The exterior path already leaves placed water planes out (`exterior.WATER_RE`); the interior path did not
+(interior-backlog.md had it as "unresolved whether they look wrong in game"; now resolved). `convert_batch.cell_candidates`
+now drops `Water\` models too, so the model is not converted and the plugin writer places no reference for it (PluginSpike
+counts a reference as skipped when its model has no manifest item). Five of the 16 interior exports place a Water1024
+(Vault111Cryo, Vault75, RedRocket01, CambridgePolymerLabs01, MuseumOfWitchcraft01). Result: a dry pit, as FO4 minus its
+0.44 m of water. Real water is a separate feature (FO4 water type -> Starfield water), not attempted. Test:
+`CellCandidatesTests.test_water_planes_out_like_the_exterior_path` (fails without the change; also asserts the exterior
+classifier agrees). Before/after reconversion of the two refs (room + plane): the before manifest is byte-identical to
+integ_1018's (water1024.nif, `_neutral.mat`, gear room all equal by sha256); the after manifest holds the room only.
+
+**Not verified.** In game: that after a rebuild the player stands at the pit floor (z about -2.38) and sees the cement
+texture. The first read after the rebuild is the proof; the T10 PHANTOM test covers the cave pond.
+
+
+## 2026-10-17: Codex persistent-ID integration with merged return writer (offline)
+
+PR279 is merged with main0147710, which contains the reviewed PR297 return writer.
+The only manual conflict was the handoff; retained the newer branch evidence and
+updated merged status. TerrainOverlays source is byte-identical to reviewed3fab4b8.
+No new runner/bridge change relative to main; exp_install retains its two existing
+stage-readiness checks. Fifty-four targeted checks pass without skips: stage
+readiness, experiment install/recovery, actual-writer legacy/bootstrap byte parity
+and stable IDs through reorder/remove/reintroduce. Guard/whitespace pass.
+Independent integration review and a fresh full-size migration remain pending;
+older migration evidence does not accept the current native build. No stage,
+game installation or controller input changed. Synthetic logs/pins retained privately.
