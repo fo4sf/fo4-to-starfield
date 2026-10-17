@@ -102,6 +102,55 @@ class PortMarkerStoreTests(unittest.TestCase):
         self.assertEqual(child.returncode, 0, child.stderr)
         self.assertIn("acquired", child.stdout)
 
+    def test_restored_initial_state_cannot_reissue_a_committed_marker(self):
+        with store.session(self.folder, self.initial.sha256) as writer:
+            committed = self.reserve(writer)
+        evidence = {p.name: p.read_bytes() for p in self.folder.glob("*-*.json")}
+        (self.folder / "state.json").write_bytes(self.initial.state)
+        with self.assertRaisesRegex(store.RecoveryRequired, "superseded"):
+            with store.session(self.folder, self.initial.sha256) as writer:
+                self.reserve(writer, ["000004:Synthetic.esm"])
+        self.assertEqual((self.folder / "state.json").read_bytes(), self.initial.state)
+        self.assertEqual(evidence, {p.name: p.read_bytes() for p in self.folder.glob("*-*.json")})
+        self.assertEqual(committed.assignments["000003:synthetic.esm"], 0x806)
+
+    def test_restored_intermediate_state_is_also_superseded(self):
+        with store.session(self.folder, self.initial.sha256) as writer:
+            middle = self.reserve(writer)
+            latest = self.reserve(writer, ["000004:Synthetic.esm"])
+        (self.folder / "state.json").write_bytes(middle.state)
+        with self.assertRaisesRegex(store.RecoveryRequired, "superseded"):
+            with store.session(self.folder, middle.sha256):
+                self.fail("old intermediate generation accepted")
+        self.assertEqual((self.folder / "state.json").read_bytes(), middle.state)
+        (self.folder / "state.json").write_bytes(latest.state)
+        with store.session(self.folder, latest.sha256) as writer:
+            next_plan = self.reserve(writer, ["000005:Synthetic.esm"])
+        self.assertEqual(next_plan.assignments["000005:synthetic.esm"], 0x808)
+
+    def test_completion_without_its_intent_cannot_hide_a_rollback(self):
+        with store.session(self.folder, self.initial.sha256) as writer:
+            self.reserve(writer)
+        intent = next(self.folder.glob("intent-*.json"))
+        intent.rename(self.root / "preserved-missing-intent.json")
+        (self.folder / "state.json").write_bytes(self.initial.state)
+        with self.assertRaisesRegex(store.RecoveryRequired, "completion.*intent"):
+            with store.session(self.folder, self.initial.sha256):
+                self.fail("completion receipt was ignored")
+        self.assertEqual((self.folder / "state.json").read_bytes(), self.initial.state)
+
+    def test_recovery_cannot_restore_an_endpoint_superseded_by_later_reservations(self):
+        with store.session(self.folder, self.initial.sha256) as writer:
+            middle = self.reserve(writer)
+            latest = self.reserve(writer, ["000004:Synthetic.esm"])
+        token, _ = store._intent(self.initial.sha256, middle.sha256)
+        (self.folder / f"committed-{token}.json").rename(self.root / "preserved-missing-completion.json")
+        (self.folder / "state.json").write_bytes(self.initial.state)
+        with self.assertRaisesRegex(store.RecoveryRequired, "superseded"):
+            store.recover(self.folder, before_sha256=self.initial.sha256, after_sha256=middle.sha256)
+        self.assertEqual((self.folder / "state.json").read_bytes(), self.initial.state)
+        self.assertEqual((self.folder / f"prepared-{latest.sha256}.json").read_bytes(), latest.state)
+
     def interrupted(self, phase):
         planned = ids.reserve(self.initial.state, self.initial.sha256, self.f.base,
                               fixture.encoded(self.f.mapping), ["000003:Synthetic.esm"], plugin="FO4Port.esm")

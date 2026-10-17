@@ -126,8 +126,9 @@ def _intent(before, after):
     return _sha(raw), raw
 
 
-def _pending(root):
+def _pending(root, superseded_sha256=None):
     pending = []
+    completions = set()
     for path in root.glob("intent-*.json"):
         raw = _read(path)
         data = ids._json(raw)
@@ -141,12 +142,17 @@ def _pending(root):
         token, expected = _intent(data["before"], data["after"])
         if raw != expected or path.name != f"intent-{token}.json":
             raise RecoveryRequired("reservation intent identity differs")
+        if data["before"] == superseded_sha256:
+            raise RecoveryRequired("reservation state was superseded by a journaled transition")
         complete = root / f"committed-{token}.json"
+        completions.add(complete.name)
         if os.path.lexists(complete):
             if _read(complete) != raw:
                 raise RecoveryRequired("reservation completion evidence differs")
         else:
             pending.append((data, token, raw))
+    if any(path.name not in completions for path in root.glob("committed-*.json")):
+        raise RecoveryRequired("reservation completion has no matching intent")
     return pending
 
 
@@ -194,7 +200,7 @@ class Writer:
         self._verify_lease()
         if _read(self.root / "state.json") != self.raw:
             raise RecoveryRequired("reservation state changed during session")
-        if _pending(self.root):
+        if _pending(self.root, superseded_sha256=_sha(self.raw)):
             raise RecoveryRequired("reservation preparation requires explicit recovery")
 
     def reserve(self, base_raw, base_map_raw, sources, *, plugin):
@@ -239,7 +245,8 @@ def recover(directory, *, before_sha256, after_sha256):
     planned reservations instead of making their IDs available to another source.
     """
     with _lease(directory) as (root, verify):
-        pending = _pending(root)
+        # Do not recover an older endpoint over reservations made after it.
+        pending = _pending(root, superseded_sha256=after_sha256)
         if len(pending) != 1:
             raise RecoveryRequired("expected exactly one unresolved reservation preparation")
         data, token, intent = pending[0]

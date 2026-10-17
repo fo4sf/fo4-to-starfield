@@ -55,7 +55,15 @@ for exactly one unresolved intent. It verifies both preserved states and an
 append-only transition, completes state publication if necessary, and records
 completion without deleting evidence. Even a failure before state replacement
 retains the proposed reservations after recovery. Old pins refuse after a new
-generation commits. This recovery never installs or repairs plugins.
+generation commits. Restoring old state bytes and their old pin also refuses
+when retained journal evidence shows a transition out of that state. A completion
+without its intent refuses, and recovery cannot publish an endpoint superseded
+by a later transition. Evidence is retained; the store does not silently choose
+or restore a generation. This recovery never installs or repairs plugins.
+
+A rollback of the entire store, including its journal, cannot be detected from
+those rolled-back bytes alone. The production caller must bind the expected
+latest state hash to independently preserved paired-output/recovery receipts.
 
 Locks protect cooperating writers. A direct edit detected while the session
 is active refuses without overwriting that edit; the final filesystem replace
@@ -74,6 +82,10 @@ replacement, explicit recovery, missing/partial initialization, altered recovery
 evidence, direct edits and hardlinked state refusal. A reproduced recovery gap
 initially allowed newly assigned IDs below the prior reserved range; the fixed
 transition check refuses it. Its failing and passing evidence is retained.
+Four additional regressions reproduce and reject restored initial/intermediate
+state, a completion whose intent is missing, and recovery to a superseded
+endpoint. The first two formerly allowed a reserved ID to be issued again;
+the latest intact state still advances without reusing those IDs.
 
 A read-only production check imports all 15 markers from `integ_1017_doors`
 against the original `integ_1017` and `terrain_core64j_doors` inputs. Reversing
