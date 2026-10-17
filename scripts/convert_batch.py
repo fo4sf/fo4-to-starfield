@@ -330,6 +330,8 @@ def main():
         for reason, count in reason_counts.most_common(5):
             pct = 100.0 * count / total
             print(f"    {count:4d} ({pct:5.1f}%)  {reason[:80]}")
+            if examples[reason]:
+                print(f"      examples: {', '.join(examples[reason][:3])}")
     else:
         print("  Failure summary: 0 failures")
     if items:
