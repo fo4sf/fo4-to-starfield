@@ -18,13 +18,15 @@ from fo4sf.core.state import Ledger, fold  # noqa: E402
 
 
 def write_queue(d, name, tests, rows, build="abababab"):
-    """A planned queue folder; rows=None is a queue that never ran (no results.jsonl yet)."""
+    """A planned queue folder; rows=None is a queue that never ran (no results.jsonl yet); build=None a hand-made
+    queue.json without a pin."""
     q = os.path.join(d, name)
     os.makedirs(q)
+    rec = {"created": "2026-10-15T10:00:00", "tests": [{"id": t, "kind": "travel", "cell": "C", "ref": "0x1"} for t in tests]}
+    if build:
+        rec.update(staging="C:/staging", plugin_sha256=build[:2] * 32, build_id=build, commit="d628b56")
     with open(os.path.join(q, "queue.json"), "w", encoding="utf-8") as f:
-        json.dump({"created": "2026-10-15T10:00:00", "staging": "C:/staging", "plugin_sha256": build[:2] * 32,
-                   "build_id": build, "commit": "d628b56",
-                   "tests": [{"id": t, "kind": "travel", "cell": "C", "ref": "0x1"} for t in tests]}, f)
+        json.dump(rec, f)
     if rows is None:
         return q
     with open(os.path.join(q, "results.jsonl"), "w", encoding="utf-8") as f:
@@ -118,7 +120,7 @@ class ImportCliTests(unittest.TestCase):
         code, lines = self.run_cli("--ledger", self.leader, "--queue", a, "--queue", b, "--no-report")
         self.assertEqual(code, 1, lines)
         self.assertEqual(lines[0], f"queue {a}: 3 event(s) added")
-        self.assertTrue(lines[1].startswith(f"queue {b}: FAILED: ValueError"), lines)
+        self.assertTrue(lines[1].startswith(f"queue {b}: FAILED: CampaignBound"), lines)      # a ValueError the runner tells apart
         self.assertIn("door_trip", lines[1])
         self.assertIn("bbbbbbbb", lines[1])
         self.assertIn("1 source(s) failed", lines[-1])
@@ -136,6 +138,67 @@ class ImportCliTests(unittest.TestCase):
         s = fold(ledger.read())
         self.assertEqual({k: (v["outcome"], v["build_id"]) for k, v in s.tasks.items()}, {"door_trip/door_1": ("FAIL", "aaaaaaaa")})
         self.assertEqual(s.campaigns, {"door_trip"})
+
+    def test_an_unpinned_queue_never_matches_a_bound_name(self):
+        # without a build nothing tells a relocated copy from a different queue: a second folder of the name is refused
+        a = write_queue(os.path.join(self.d, "a"), "hand_made", ["h1"], [("h1", "PASS", "")], build=None)
+        b = write_queue(os.path.join(self.d, "b"), "hand_made", ["h1"], [("h1", "FAIL", "FALL")], build=None)
+        code, lines = self.run_cli("--ledger", self.leader, "--queue", a, "--queue", b, "--no-report")
+        self.assertEqual(code, 1, lines)
+        self.assertEqual(lines[0], f"queue {a}: 2 event(s) added")                            # no pin: 1 test + 1 row
+        self.assertTrue(lines[1].startswith(f"queue {b}: FAILED: CampaignBound"), lines)
+        self.assertIn("holds build None", lines[1])
+        ledger = Ledger(os.path.join(self.leader, "ledger.jsonl"))
+        self.assertEqual(len(ledger.read()), 2)
+        self.assertEqual({k: (v["outcome"], v["build_id"]) for k, v in fold(ledger.read()).tasks.items()}, {"hand_made/h1": ("PASS", None)})
+        code, lines = self.run_cli("--ledger", self.leader, "--queue", a, "--no-report")       # the same folder again is fine
+        self.assertEqual((code, lines[0]), (0, f"queue {a}: 0 event(s) added"))
+
+    def test_a_source_of_another_shape_fails_alone_and_writes_nothing(self):
+        # a file that exists and is a JSON object but not the record its writer produces (the expected top-level
+        # schema): it must never read as "already imported", nor as a record with no plugins that clobbers the fold
+        dep = os.path.join(self.d, "FO4Port.deploy.json")
+        with open(dep, "w", encoding="utf-8") as f:
+            json.dump({"files": ["FO4Port.esm"], "complete": True, "artifacts": {"FO4Port.esm": {"size": 1, "sha256": "ef" * 32}}}, f)
+        inst = os.path.join(self.d, "FO4SFExp.install.json")
+        with open(inst, "w", encoding="utf-8") as f:
+            json.dump({"plugins": ["FO4SFExp.esm"], "plugins_replaced": [], "complete": True, "pack": "core64d"}, f)
+        code, lines = self.run_cli("--ledger", self.leader, "--deploy", dep, "--install", inst, "--active-after-load", "yes", "--no-report")
+        self.assertEqual(code, 0, lines)
+        ledger = Ledger(os.path.join(self.leader, "ledger.jsonl"))
+        self.assertEqual(len(ledger.read()), 2)
+        # the two recovery paths swapped: the install record as --deploy, the deploy manifest as --install
+        code, lines = self.run_cli("--ledger", self.leader, "--deploy", inst, "--install", dep, "--no-report")
+        self.assertEqual(code, 1, lines)
+        self.assertTrue(lines[0].startswith(f"deploy {inst}: FAILED: ValueError: deploy manifest lacks an artifacts object"), lines)
+        self.assertTrue(lines[1].startswith(f"install {dep}: FAILED: ValueError: install record lacks a plugins list"), lines)
+        self.assertEqual(lines[-1], f"total: 0 event(s) added to {ledger.path}; 2 source(s) failed")
+        self.assertEqual(len(ledger.read()), 2)                                               # nothing was written
+        self.assertEqual(fold(ledger.read()).plugins, [{"name": "FO4SFExp.esm", "active_after_load": True}])   # the plugins stand
+        # a queue.json that is an object of another shape ({}, an install record, a test without an id) is not a queue
+        qp = os.path.join(self.q2, "queue.json")
+        for shape, why in (({}, "lacks a tests list"), ({"plugins": ["FO4SFExp.esm"], "complete": True}, "lacks a tests list"),
+                           ({"build_id": "abababab", "tests": [{"kind": "travel"}]}, "test without an id")):
+            with open(qp, "w", encoding="utf-8") as f:
+                json.dump(shape, f)
+            code, lines = self.run_cli("--ledger", self.leader, "--queue", self.q2, "--no-report")
+            self.assertEqual(code, 1, (shape, lines))
+            self.assertTrue(lines[0].startswith(f"queue {self.q2}: FAILED: ValueError: queue.json {why}"), (shape, lines))
+        self.assertEqual(len(ledger.read()), 2)
+        # a deploy manifest that pins nothing (no FO4Port.esm among its artifacts) is a failure, never zero events
+        with open(dep, "w", encoding="utf-8") as f:
+            json.dump({"files": [], "complete": True, "artifacts": {"FO4Port - Main.ba2": {"size": 1, "sha256": "cd" * 32}}}, f)
+        code, lines = self.run_cli("--ledger", self.leader, "--deploy", dep, "--no-report")
+        self.assertEqual(code, 1, lines)
+        self.assertTrue(lines[0].startswith(f"deploy {dep}: FAILED: ValueError: deploy manifest pins nothing"), lines)
+        # a bridge record names the one plugin it activated (bridge_install.py writes `plugin`, never `plugins`)
+        bridge = os.path.join(self.d, "FO4SFBridge.install.json")
+        with open(bridge, "w", encoding="utf-8") as f:
+            json.dump({"schema": 2, "plugin": "FO4SFBridge.esm", "source_sha256": {}, "files": {}, "published_files": [], "complete": True}, f)
+        code, lines = self.run_cli("--ledger", self.leader, "--install", bridge, "--no-report")
+        self.assertEqual(code, 0, lines)
+        self.assertEqual(lines[0], f"install {bridge}: 1 event(s) added")
+        self.assertEqual([p["name"] for p in ledger.read()[-1].get("plugins")], ["FO4SFBridge.esm"])
 
     def test_deploy_and_install_records_after_the_queues(self):
         dep = os.path.join(self.d, "FO4Port.deploy.json")

@@ -5,11 +5,14 @@ results without a re-import.
 Every event that has a file counterpart carries the same `src` key import_queue.py uses (`queue.json#pin:<digest of
 the pin fields>`, `queue.json#<id>`, `results.jsonl:<line>`) and the same campaign-scoped task id (`<queue folder
 name>/<test id>`, import_queue.task_id), so a later import of the same folder adds nothing: the importer is the
-recovery path when a live write was lost. Pure Python; nothing here reads or writes a file.
+recovery path when a live write was lost. Before its first event a run checks, with the ledger's events it was handed,
+that its folder's name is not already bound to another folder with a different build (check_binding, the importer's
+own rule): a queue rebuilt under an archived queue's name writes nothing live and the runner's log says so, so the
+two never fold into one task. Pure Python; nothing here reads or writes a file.
 """
 import os
 
-from .import_queue import PIN_KEYS, pin_src, task_id
+from .import_queue import PIN_KEYS, CampaignBound, bind, pin_src, task_id   # CampaignBound: the runner's log tells it apart
 from .model import Event, now_iso, outcome_from_queue
 
 SOURCE = "IN_GAME"                      # every queue row is an in-game result (leader-core.md §2)
@@ -17,6 +20,16 @@ SOURCE = "IN_GAME"                      # every queue row is an in-game result (
 
 def campaign_of(qdir):
     return os.path.basename(os.path.abspath(qdir).rstrip("\\/"))
+
+
+def check_binding(events, qdir, q):
+    """Before this run's first event: refuse (CampaignBound, a ValueError) a queue folder whose campaign name the
+    ledger's `events` already bind to another folder with a different build, or that has no build to compare
+    (import_queue.bind, the importer's rule), so a queue rebuilt under an archived queue's name never folds into its
+    tasks live either. The runner then writes nothing for this run and logs why; the queue files keep the results,
+    and the importer accepts the folder once it is renamed. The same folder, or the same queue relocated (same build),
+    passes."""
+    bind(events, qdir, q, campaign_of(qdir))
 
 
 def queue_src(qdir, key):

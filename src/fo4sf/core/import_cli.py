@@ -6,9 +6,11 @@ python scripts/leader_import.py --ledger <leader dir or ledger.jsonl> [--queue <
 One line per source with the number of events added, in the order queues, deploy manifest, install records (so the
 fold ends on the current build and its plugins); idempotent (a second run adds nothing: every event carries the
 importer's src key, the same key a runner with a lease folder writes live, §10); never writes to the files it reads;
-exit 1 when a source could not be read, does not exist, or is a queue folder whose name the ledger already binds to
-another folder with a different build (the other sources still import), 0 otherwise; ends with the eight-bullet report
-of the resulting fold.
+exit 1 when a source could not be read, does not exist, is not the record its writer produces (a queue.json without a
+`tests` list, an install record without `plugins` or `plugin`, a deploy manifest without `artifacts` or one that pins
+nothing: import_queue.SHAPES), or is a queue folder whose name the ledger already binds to another folder with a
+different build (the other sources still import; nothing of a failed source is written), 0 otherwise; ends with the
+eight-bullet report of the resulting fold.
 """
 import argparse
 import os
