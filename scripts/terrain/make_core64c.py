@@ -1133,8 +1133,11 @@ def door_edid(base, src):
 
 # Scripted load doors (docs/terrain/scripted-doors.md; make_cluster.py doors): the door REFR keeps its slot on an ACTI
 # with the converted door mesh and carries the FO4SF_LoadDoor VMAD (DestinationPlugin / DestinationId: the interior
-# arrival marker of the port plugin); an exterior arrival XMarker (the interior door's destination) takes a new
-# REFR id after every other record, then the ACTI bases, so every id of the build without doors stays put.
+# arrival marker of the port plugin; DestinationX / Y / Z: that marker's position, interior coordinates, with
+# UseDestinationPosition true, the script's opt-in for them); an exterior
+# arrival XMarker (the interior door's destination: PERSISTENT, in the overlay world's persistent cell, so it resolves
+# from inside) takes a new REFR id after every other record, then the ACTI bases, so every id of the build without
+# doors stays put.
 DOOR_NAME = "Door"                  # the ACTI's FULL when the cluster names none (FO4's door FULLs are localized ids)
 XMARKER = overlay_records.XMARKER   # STAT XMarker 00003B:Starfield.esm (verified raw: EDID XMarker, markerx.nif)
 
@@ -1391,7 +1394,8 @@ def door_destination(src, d):
 def door_arrival(src, a):
     """The checked exterior arrival point of a scripted door, {"pos" (metres), "rot", "cell"} from a cluster entry's
     "return" {"arrival": {"pos", "rot"}} (the interior door's FO4 XTEL arrival / 70): where the interior door's
-    MoveTo lands the player; the marker's cell is its own (it may differ from the door's)."""
+    MoveTo lands the player. The marker is persistent in the world's persistent cell; "cell" is the grid cell under
+    its position (it may differ from the door's) and must be one of the overlay's."""
     try:
         pos = [float(v) for v in a["pos"]]
         rot = [float(v) for v in a["rot"]]
@@ -1431,7 +1435,8 @@ def cluster_doors(bases, placed, cluster):
 
 
 def door_arrivals_inside(doors, ov):
-    """ValueError for a door whose arrival marker falls outside the overlay's cells (the writer has no cell for it)."""
+    """ValueError for a door whose arrival marker falls outside the overlay's cells (off the overlay's terrain; the
+    writer refuses it too)."""
     lo, hi = ov["cell_min"], ov["cell_max"]
     for e in doors:
         c = e["arrival"]["cell"]
@@ -2101,9 +2106,11 @@ def door_record_problems(recs, own_prefix, objects, ids):
     """Raw door records against objects.json (beyond promoted_record_check's ACTI edid / model / name and the REFR's
     base and placement): every door ACTI carries PNAM cc4c3300, FNAM 0 and JNAM 360 (the vanilla majority, as the
     activators) and no VMAD; every door REFR a VMAD that decodes to one local FO4SF_LoadDoor script whose edited
-    DestinationPlugin / DestinationId are the entry's destination (vmad_patch.load_door_destination); every arrival
-    marker (formids.json doors[src]["arrival"]) a temporary REFR of XMarker at the arrival position / rotation, no
-    scale. Returns problems, never an exception."""
+    DestinationPlugin / DestinationId are the entry's destination and DestinationX / Y / Z its destination.arrival
+    position (the interior marker's), with UseDestinationPosition true (vmad_patch.load_door_target: the six-property
+    shape; floats without the bool, or a false bool, are refused); every arrival marker (formids.json
+    doors[src]["arrival"]) a PERSISTENT (0x400), enabled REFR of XMarker at the arrival position / rotation, no scale
+    (its group: check's door_marker_groups). Returns problems, never an exception."""
     from fo4sf import fo4land
     by_fid = {r["fid"]: r for r in recs}
     got = ids.get("doors") or {}
@@ -2126,11 +2133,11 @@ def door_record_problems(recs, own_prefix, objects, ids):
         else:
             vm = [d for s, d in rec["fields"] if s == b"VMAD"]
             try:
-                dest = vmad_patch.load_door_destination(vm[0]) if len(vm) == 1 else None
+                dest = vmad_patch.load_door_target(vm[0]) if len(vm) == 1 else None
             except ValueError as err:
                 dest = f"bad: {err}"
-            want = (e["destination"]["plugin"], int(e["destination"]["id"]))
-            if dest != want:
+            want = (e["destination"]["plugin"], int(e["destination"]["id"]), e["destination"]["arrival"]["pos"])
+            if not (isinstance(dest, tuple) and dest[:2] == want[:2] and vmad_patch.same_position(dest[2], want[2])):
                 problems.append(f"{e['src']}: REFR VMAD {dest} != {want}")
             if vm and [s for s, _d in rec["fields"]][:2] not in ([b"VMAD", b"NAME"], [b"EDID", b"VMAD"]):
                 problems.append(f"{e['src']}: VMAD not first after EDID ({[s.decode() for s, _d in rec['fields']][:3]})")
@@ -2145,8 +2152,50 @@ def door_record_problems(recs, own_prefix, objects, ids):
         if not (q["pos"] is not None and close(q["pos"], a["pos"], 1e-3) and close(q["rot"], a["rot"], 1e-5)
                 and overlay_records.field(mk, "XSCL") is None):
             problems.append(f"{e['src']}: arrival marker position / rotation / scale differ from objects.json")
-        if mk["flags"] & (0x400 | 0x800):
-            problems.append(f"{e['src']}: arrival marker flags 0x{mk['flags']:X} (temporary and enabled wanted)")
+        if mk["flags"] & (0x400 | 0x800) != 0x400:
+            problems.append(f"{e['src']}: arrival marker flags 0x{mk['flags']:X} (persistent and enabled wanted)")
+    return problems
+
+
+def door_marker_groups(path, fids):
+    """{fid: {"cell": its CELL's id, "grid": (x, y) or None (the world's persistent cell has no XCLC), "group": 8
+    persistent / 9 temporary children}} of the wanted REFRs, from the plugin's group structure (raw walk)."""
+    from fo4sf import fo4land
+    buf = overlay_records.read_bytes(path)
+    hsize = struct.unpack_from("<I", buf, 4)[0]
+    grids, out = {}, {}
+
+    def walk(start, end, cell, gtype):
+        for item in fo4land.iter_items(buf, start, end):
+            if item[0] == "GRUP":
+                _g, off, gend, label, gt = item
+                if gt == 6:
+                    walk(off + 24, gend, struct.unpack("<I", label)[0], gt)
+                else:
+                    walk(off + 24, gend, cell, gt if gt in (8, 9) else gtype)
+                continue
+            typ, off, _flags, fid = item
+            if typ == b"CELL":
+                grids[fid] = next((struct.unpack_from("<ii", d) for s, d in fo4land.iter_subrecords(fo4land.record_data(buf, off))
+                                   if s == b"XCLC"), None)
+            elif typ == b"REFR" and fid in fids:
+                out[fid] = {"cell": cell, "grid": grids.get(cell), "group": gtype}
+    walk(24 + hsize, len(buf), None, None)
+    return out
+
+
+def door_marker_placement(where, markers, anchor):
+    """Problems of the door arrival markers' placement (door_marker_groups of the markers and the anchor): each in the
+    persistent children group (8) of the world's persistent cell, the anchor's cell (no grid)."""
+    problems = []
+    home = where.get(anchor, {}).get("cell")
+    if home is None or where[anchor]["grid"] is not None:
+        problems.append(f"the anchor {anchor:08X} is not in the world's persistent cell ({where.get(anchor)})")
+    for fid in markers:
+        w = where.get(fid)
+        if w is None or w["cell"] != home or w["grid"] is not None or w["group"] != 8:
+            problems.append(f"marker {fid:08X}: {w} (wanted the persistent children of the persistent cell "
+                            f"{home if home is None else f'{home:08X}'})")
     return problems
 
 
@@ -2481,10 +2530,12 @@ def readme(out, prm, ov, plan, exp):
     if o["promoted"].get("doors"):
         lines += ["", f"Scripted load doors (docs/terrain/scripted-doors.md): {o['promoted']['doors']} exterior load doors into converted",
                   f"interiors over {o['promoted']['door_bases']} ACTI bases (the converted door mesh, FULL 'Door'), each REFR in its slot with the",
-                  "FO4SF_LoadDoor VMAD (DestinationPlugin / DestinationId = the interior arrival marker of the port plugin) and an",
-                  "exterior arrival XMarker (new ids after every other record; formids.json \"doors\" {src: {base, ref, arrival}}).",
-                  "The interior side: scripts/terrain/vmad_patch.py port over the pinned port staging. The script",
-                  "FO4SF_LoadDoor.pex (PR #243) must ride an active plugin's archive: not staged here."]
+                  "FO4SF_LoadDoor VMAD (DestinationPlugin / DestinationId = the interior arrival marker of the port plugin,",
+                  "DestinationX / Y / Z = its position, UseDestinationPosition true) and an exterior arrival XMarker, PERSISTENT in the world's persistent cell",
+                  "(new ids after every other record; formids.json \"doors\" {src: {base, ref, arrival}}).",
+                  "The interior side: scripts/terrain/vmad_patch.py port over the pinned port staging (its return VMAD carries the",
+                  "exterior marker's merged position, UseDestinationPosition true). The script FO4SF_LoadDoor.pex (PR #243; the",
+                  "coordinates need PR #291's properties) must ride an active plugin's archive: not staged here."]
     lines += ["", "Files: " + ", ".join(pl) + ", Data\\ (core64's BTD, its meshes\\terrain copy and mask; converted meshes,",
               "geometries, materials, textures under fo4core\\), objects.json, formids.json, skipped.json, plan.json,",
               "expected.json, offline_check.json (make_core64c.py check). Uninstall: exp_install.py uninstall.",
@@ -2749,17 +2800,31 @@ def cmd_check(a):
     rep["plugin_bytes"] = new["bytes"]
     del new, recs, by, stats
     cells = x2c.walk_cells(os.path.join(out, prm["plugin"]))
-    markers = [{"src": e["src"] + " arrival", "cell": e["arrival"]["cell"], "pos": e["arrival"]["pos"]} for e in doors]
     per_cell = {}
-    for r in objects["refs"] + promoted + lights + markers:
+    for r in objects["refs"] + promoted + lights:
         per_cell[tuple(r["cell"])] = per_cell.get(tuple(r["cell"]), 0) + 1
     want = dict(per_cell)
     want[tuple(ov["spawn_cell"])] = want.get(tuple(ov["spawn_cell"]), 0) + 1        # + the COC marker
     got = {c["grid"]: len(c["refs"]) for c in cells.values() if c["grid"] is not None and c["refs"]}
     need(got == want, f"REFRs per exterior cell as objects.json ({len(got):,} cells with references)")
-    wrong = [r["src"] for r in objects["refs"] + promoted + lights + markers
+    wrong = [r["src"] for r in objects["refs"] + promoted + lights
              if list(r["cell"]) != list(tg.sf_cell_of(r["pos"][0], r["pos"][1]))]
     need(not wrong, f"every reference in the cell of its written position ({len(wrong)} not: {wrong[:5]})")
+    if doors:
+        # the exterior arrival markers are persistent references of the world's persistent cell (with the anchor):
+        # the interior door's GetFormFromFile resolves them from inside (a temporary one did not, door_trip_sdm_1018)
+        anchor = own | ov["anchor"]["form_id"]
+        mfids = [own | int(v["arrival"], 16) for v in (ids.get("doors") or {}).values()]
+        where = door_marker_groups(os.path.join(out, prm["plugin"]), set(mfids) | {anchor})
+        wp = door_marker_placement(where, mfids, anchor)
+        persistent = [c for c in cells.values() if c["grid"] is None]
+        outside = [e["src"] for e in doors if not (ov["cell_min"] <= e["arrival"]["cell"][0] <= ov["cell_max"]
+                                                   and ov["cell_min"] <= e["arrival"]["cell"][1] <= ov["cell_max"]
+                                                   and list(e["arrival"]["cell"]) == list(tg.sf_cell_of(*e["arrival"]["pos"][:2])))]
+        need(not wp and not outside and len(persistent) == 1 and sorted(persistent[0]["refs"]) == sorted([anchor] + mfids),
+             f"{len(mfids)} door arrival markers in the persistent children of {ov['world']}'s persistent cell, the anchor's "
+             f"({len(persistent[0]['refs']) if len(persistent) == 1 else '?'} REFRs there = anchor + markers), each over "
+             f"the overlay's cells ({len(wp)} problems: {wp[:3]}; outside {outside[:3]})")
     rep["cells"] = {"with_refs": len(got), "max_refs": max(got.values()), "densest": sorted(
         ([list(k), v] for k, v in got.items()), key=lambda kv: -kv[1])[:5]}
     deps = x2c.dependency_check(os.path.join(out, "Data"), [b["model"] for b in objects["bases"]], prefix=ASSET_PREFIX,

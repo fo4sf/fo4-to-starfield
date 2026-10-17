@@ -62,7 +62,7 @@ Labels: **verified** = read from the files or commands named here; **supported**
 3. **Measures per interior** (`interior_backlog.py plan`): references, deferred placements (actors), lights, distinct
    models; the **convertible models** = the meshes `convert_batch.py --cell-json` converts for that export
    (`convert_batch.cell_candidates`, now one function both use: the default base types, no editor markers, no top-level
-   `effects\`); how many integ_1011's `manifest.json` converted or failed; how many the exterior build converted
+   `effects\`, no placed water planes `Water\`); how many integ_1011's `manifest.json` converted or failed; how many the exterior build converted
    (core64g's bases); how many no FO4 mesh archive holds; the load doors inside that lead on to other interiors.
    Check (**verified**): for each of the 13 converted cells, convertible = converted + failed in integ_1011 and new = 0,
    so the rule reproduces the integ build's model set exactly.
@@ -218,7 +218,11 @@ model converts), then PluginSpike into `<staging>\plugin`. The near-slice batch 
   far ends are exterior doors of the core, which a separate plugin holds. Joining them is the door gate.
 - The near-slice batch converted 2 water planes (`Water\Water1024.nif`, `Water\TroughBathWater.nif`) with a fallback
   material; the exterior path leaves placed water out (exterior.py `WATER_RE`, an opaque sheet otherwise), the
-  interior path does not (**verified** in the manifest; whether they look wrong in game is **unresolved**).
+  interior path did not (**verified** in the manifest). They do look wrong in game (owner playtest 2026-10-17, Vault 111
+  gear pit): the plane draws as a flat grey sheet AND the player stands on it, because its L_WATER body is solid (see
+  JOURNAL 2026-10-17). `convert_batch.cell_candidates` now drops placed `Water\` models like the exterior path does, so
+  the "convertible = converted + failed" check above holds for integ_1011 and earlier builds, not for a rebuild: it
+  no longer lists Water1024 (5 of the 16 interior exports place one).
 - The rate varies with the models (0.31 s per model for the rubble-heavy raider camp, 0.13 in the batch); a run's
   seconds include opening the archives and templates once, so a batch costs less per model than single cells.
 
