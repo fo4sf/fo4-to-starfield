@@ -225,6 +225,9 @@ class ClockAgeTests(unittest.TestCase):
         self.assertAlmostEqual(bridge_log.clock_age("23:01:04", now), 1.0, places=3)
         midnight = time.mktime((2026, 10, 15, 0, 0, 2, 0, 0, -1))
         self.assertAlmostEqual(bridge_log.clock_age("23:59:59", midnight), 3.0, places=3)
+        # #213: a stamp 13 h in the past must not read as negative (yesterday)
+        early = time.mktime((2026, 10, 15, 2, 0, 0, 0, 0, -1))
+        self.assertAlmostEqual(bridge_log.clock_age("13:00:00", early), 13 * 3600, places=0)
         self.assertIsNone(bridge_log.clock_age(None))
         self.assertIsNone(bridge_log.clock_age("rt=5"))
 

@@ -255,7 +255,9 @@ def clock_age(clock, now=None):
     secs_now = lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec + (now % 1)
     secs = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
     age = secs_now - secs
-    if age < -43200:
+    if age < 0:
+        # Stamp is in the future relative to today's clock (or yesterday after midnight).
+        # Treat as previous day so ages stay non-negative; game stamps are never more than ~24h old.
         age += 86400
     return age
 
