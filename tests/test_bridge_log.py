@@ -347,9 +347,8 @@ class ProbeKindCaseTests(unittest.TestCase):
         self.assertEqual(move, {"kind": "moveto", "plugin": "Test.esm", "id": 9,
                                 "offset": [4., 5., 6.], "phase": "refused"})
 
-    def test_kind_case_does_not_relax_prefix_keys_or_values(self):
-        for line in ("fo4sf Resolve plugin=Test.esm id=8 form=none",
-                     "FO4SF ResolveX plugin=Test.esm id=8 form=none",
+    def test_kind_case_does_not_relax_keys_or_values(self):
+        for line in ("FO4SF ResolveX plugin=Test.esm id=8 form=none",
                      "FO4SF Resolve PLUGIN=Test.esm id=8 form=none",
                      "FO4SF Resolve plugin=Test.esm id=8 ref=tru",
                      "FO4SF Resolve plugin=Test.esm id=8 pos=1 2",
@@ -358,11 +357,26 @@ class ProbeKindCaseTests(unittest.TestCase):
             with self.subTest(line=line):
                 self.assertIsNone(bridge_log.parse_event(line))
 
+    def test_prefix_case_retains_the_merged_parser_contract(self):
+        self.assertEqual(bridge_log.parse_event("fo4sf Resolve plugin=MiXeD.esm id=8 form=none"),
+                         {"kind": "resolve", "plugin": "MiXeD.esm", "id": 8, "form": None})
+
+    def test_ack_case_preserves_exact_tag_identity(self):
+        for event in ("ack", "Ack", "ACK"):
+            self.assertEqual(bridge_log.parse_event(f"[12:00:00] FO4SF {event} Run-AbC"),
+                             {"kind": "ack", "tag": "Run-AbC"})
+        with tempfile.TemporaryDirectory() as d:
+            log = os.path.join(d, "ack.log")
+            with open(log, "w", encoding="utf-8") as f:
+                f.write("FO4SF Ack Run-AbC\n")
+            self.assertTrue(bridge_log.wait_ack(log, "Run-AbC", timeout=0))
+            self.assertFalse(bridge_log.wait_ack(log, "run-abc", timeout=0))
+
     def test_events_cli_keeps_mixed_case_replies_and_order(self):
         with tempfile.TemporaryDirectory() as d:
             log = os.path.join(d, "probe.log")
             with open(log, "w", encoding="utf-8") as f:
-                f.write("\n".join(["FO4SF ack synthetic-probe", FULL,
+                f.write("\n".join(["FO4SF Ack synthetic-probe", FULL,
                                    "FO4SF Resolve plugin=MiXeD.esm id=8 form=none",
                                    "FO4SF Target plugin=MiXeD.esm id=8 form=none",
                                    "FO4SF MoveTo plugin=MiXeD.esm id=8 offset=0 0 0 phase=refused"]))
