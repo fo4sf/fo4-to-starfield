@@ -1674,6 +1674,26 @@ script change; the writer change is Claude's. Evidence folders: C:\Modding\testq
 door_probe_1017e, door_trip_sdm_1018 (bridge.log, papyrus.log, obs.json, judge outputs). Lesson: the bridge log's
 probe lines are case-sensitive to the game's spelling (`FO4SF Resolve`); the reader is case-insensitive since #282.
 
+## 2026-10-17: Codex activation-parent metadata preservation (offline)
+
+Grok's [garage-button investigation](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6230797494)
+identified dropped activation relationships. A synthetic Fo4Export regression first failed because
+`activate_parents` was absent. The shared interior/exterior serializer now retains the raw flags,
+ordered source FormKeys and float32 delays, including deferred actors, null links and empty blocks.
+ReferenceLinks reports non-null blocks as untranslated even when a reference has no placed target;
+it neither invents native wiring nor changes existing links/identities.
+
+Verified with Mutagen Fallout4 0.55.0-alpha.67 and synthetic records: the generated REFR's XAPD
+contains byte `81`; its three XAPR payloads are eight bytes each, preserve distinct own/master/null
+parent IDs, and store delay 0.1 as float32 `3DCCCCCD`. The production binary-overlay getter retains
+the same metadata. `dotnet run --project dotnet/Fo4Export.Tests -c Release` and
+`dotnet run --project dotnet/ReferenceLinks.Tests -c Release` pass; the latter also passes its existing
+11 native-door and 13 missing-door CLI controls. `dotnet build dotnet/Fo4Land -c Release` succeeds
+without warnings, confirming the shared exterior producer compiles; no full exterior export was run.
+Initial harness compilation and missing-restore failures are retained alongside the reproduced
+missing-field failure and passing results in private evidence. Guard passes. No installed data,
+native garage animation, scripts or game control changed; independent review remains pending.
+
 ## 2026-10-17 - Claude: the "flat grey floor" in Vault 111 is the water plane (owner playtest row 20)
 
 **Question.** Owner snapshot 20261017-000312 (bridge position -57.91, -7.11, -1.943 in Vault111Cryo, integ_1018 build):
