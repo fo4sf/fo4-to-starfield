@@ -165,7 +165,9 @@ python scripts\game\lease.py status  --dir <leader> [--require Claude] [--json] 
   `lease.py` reads the folder from `FO4SF_LEASE_DIR` when `--dir` is not given, and `cycle.ps1` relies on that (a
   folder with a space and a trailing backslash would reach python mangled as an argument). The folder is absolute;
   the watchdog resolves a relative `lease_dir` against `C:\Modding\testqueue` and strips a trailing backslash, so
-  the watchdog, the chain and the runner read one folder.
+  the watchdog, the chain and the runner read one folder. `python` that cannot be resolved or started counts as no
+  lease (exit 9): the gate resolves `python` first, clears `$LASTEXITCODE` and reads only `lease.py`'s own fresh exit
+  code, so in a reused host (`& cycle.ps1` after another command) an earlier 0 cannot pass it (QA on #179).
 - `watchdog.ps1` (`-Root <folder>` names the folder of `chain.ps1`, `chain_queue.txt`, the log and the state, default
   `C:\Modding\testqueue`, so a test can run `-Once` against a temp folder): with `lease_dir` in `watchdog.json` (or
   `FO4SF_LEASE_DIR` as set when the watchdog started),
