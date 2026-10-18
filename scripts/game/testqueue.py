@@ -123,7 +123,10 @@ BREAKER = 6          # inconclusive attempts in a row, with no PASS/FAIL yet, th
 # the player stopped at the desk 0.67 m from it), or above the player's head. The same walk from the same stand point
 # stops at the same furniture however often it is retried, and the step itself worked. An item the walk passed through
 # (batch_full 0100: 0.26 m from the walk, 0.53 m above the highest feet read) is not ELEVATED: FAIL NOTMOVED
-FINAL_INCONCLUSIVE = ("CONTROL", "PRECONDITION", "ELEVATED")
+# NOBASE (movable_control): placeatme found no such base form ("Item '0200CEDF' not found for parameter Object ID",
+# movable_1019 2026-10-18: the queue was planned for plugin index 02 while FO4Port loaded at 05 in the runner's session);
+# the same id fails the same way on every attempt
+FINAL_INCONCLUSIVE = ("CONTROL", "PRECONDITION", "ELEVATED", "NOBASE")
 NO_BREAKER = ("CRASH", "NOCELL", "NIGHT")
 
 # npc_nav (PR #61 docs/actors/npc-navigation.md 3.4): what qstep.ps1 types on the verified console selection to make the
@@ -1023,7 +1026,7 @@ def plan_walk(a):
 MOVABLE_PLAN_KEYS = frozenset((
     "label", "model", "travel", "base", "base_edid", "mass_kg", "set_mass_kg", "mass_probe", "mass_wait_ms", "spot",
     "heading", "stand_m", "park_m", "walk_ms", "settle_ms", "spawn_wait_ms", "handle_tol", "drop", "impulse_dv",
-    "impulse_wait_ms", "moved_m", "reach_m", "settle_m", "fresh", "expect", "basis") + console_plan.CONSOLE_KEYS)
+    "impulse_wait_ms", "impulse_control", "moved_m", "reach_m", "settle_m", "fresh", "expect", "basis") + console_plan.CONSOLE_KEYS)
 
 
 def movable_test(n, w, formids=None, items=None, plugin_index="02"):
@@ -1100,6 +1103,12 @@ def movable_test(n, w, formids=None, items=None, plugin_index="02"):
         t["probe_cmd"] = MASS_PROBE
     # the ladder's magnitudes are for the mass the body has during the test
     t["impulses"] = impulse_steps(t.get("set_mass_kg", mass), heading, dvs) if dvs else []
+    if w.get("impulse_control"):
+        # a control: the ladder runs after the walk even when the walk moved the item, so the queue shows whether
+        # ApplyHavokImpulse moves a vanilla body at all (judge_push: detail only; the walk still decides the verdict)
+        if not dvs:
+            sys.exit(f"{label}: impulse_control needs an impulse ladder (impulse_dv is empty)")
+        t["impulse_control"] = True
     if w.get("fresh"):
         t["fresh"] = True
     for k in ("expect", "basis"):
@@ -1318,7 +1327,18 @@ def judge_kind(test, obs, out_dir):
 
 
 CLEAR_ECHO = re.compile(r"C[Il1|]ear\s?Conso[Il1|]e", re.I)          # ClearConsole's echo, as parse_npc.py reads it
+NO_BASE = re.compile(r"not\s?found\s?for\s?param", re.I)     # placeatme <id> 1 with an id the game does not know
 REFUSED = re.compile(r"not\s?found|unknown|invalid|missing|error|failed|cannot|can't", re.I)
+
+
+def placeatme_no_base(ocr):
+    """The placeatme session's OCR says the base form does not exist: after its last ClearConsole echo and its
+    placeatme echo (older lines stay on screen above them)."""
+    text = str(ocr or "")
+    starts = [m.end() for m in CLEAR_ECHO.finditer(text)]
+    text = text[starts[-1]:] if starts else text
+    k = re.search(r"p[Il1|]aceatme", text, re.I)
+    return bool(k and NO_BASE.search(text[k.end():]))
 
 
 def console_refused(ocr):
@@ -1359,6 +1379,23 @@ def impulse_outcome(test, obs, start):
     return "incomplete", "; ".join(why)
 
 
+def impulse_control_note(test, obs, start):
+    """The ladder of an impulse_control test after a walk that moved the item: whether ApplyHavokImpulse moved this
+    vanilla body (the positive control an item's FAIL STUCK is read against). Detail only."""
+    if not test.get("impulse_control"):
+        return ""
+    imp = impulse_outcome(test, obs, start)
+    if imp is None or imp[0] == "incomplete":
+        return f"; impulse control: the ladder did not finish ({imp[1] if imp else 'none planned'})"
+    if imp[0] == "moved":
+        _, k, d, _drop, rec = imp
+        return (f"; impulse control: ApplyHavokImpulse {rec.get('magnitude')} (dv {rec.get('dv')} m/s, step {k + 1}) "
+                f"moved it {d:.2f} m")
+    top = max(r.get("dv", 0) for r in test["impulses"])
+    return (f"; impulse control: {imp[1]} impulses up to dv {top} m/s did not move it either: in this queue a FAIL "
+            f"STUCK does not show a body that does not respond")
+
+
 def judge_push(test, obs, shot_ok):
     """movable (an item of the build, walked into) and movable_control (an item placed in a vanilla cell): the walk,
     then, when it did not move the item, the impulse ladder.
@@ -1393,7 +1430,8 @@ def judge_push(test, obs, shot_ok):
         if near < reach:
             reach, how = near, f"player passed {near:.2f} m from it (walked {math.hypot(pe[0] - ps[0], pe[1] - ps[1]):.1f} m)"
     if moved >= test.get("moved_m", MOVE_M):
-        return "PASS", "WALKED" if control else "PASS", f"item moved {moved:.2f} m" + (f" ({how})" if control else "")
+        return "PASS", "WALKED" if control else "PASS", (f"item moved {moved:.2f} m" + (f" ({how})" if control else "")
+                                                         + impulse_control_note(test, obs, a_))
     walk = f"{how} but it moved {moved:.3f} m"
     imp = impulse_outcome(test, obs, a_)
     note = ""
@@ -1452,6 +1490,23 @@ def mass_read(ocr):
     return vals[0], ""
 
 
+NO_OBJREF_SCRIPT = re.compile(r"no\s?script\s?named\s?Object\s?Reference", re.I)
+
+
+def unreadable_mass(ocr):
+    """The GetMass probe's own session says the console cannot run it at all: after this session's ClearConsole, the
+    probe's echo, then "No script named ObjectReference is attached to the object" (movable_1019c). No reading will
+    ever come, unlike a reply OCR missed. Any other refusal, or the refusal without the probe's echo before it, is
+    not this case."""
+    text = str(ocr or "")
+    starts = [m.end() for m in CLEAR_ECHO.finditer(text)]
+    if not starts:
+        return False
+    text = text[starts[-1]:]
+    echo = MASS_ECHO.search(text)
+    return bool(echo and NO_OBJREF_SCRIPT.search(text[echo.end():]))
+
+
 def mass_ok(read, want):
     """GetMass read the mass SetRigidBodyMass set: within 5 %, at least 0.25 kg."""
     return read is not None and abs(read - want) <= max(0.25, 0.05 * want)
@@ -1460,10 +1515,11 @@ def mass_ok(read, want):
 def judge_movable_control(test, obs, shot_ok):
     """movable_control: the player at the spot (within 1 m, and SPOT_Z_M of its height: on the floor there), the item
     placed and its handle confirmed (PickLastRef's id, GetSelf, GetIsID <base> 1, within handle_tol of the spot and
-    SPAWN_Z_M of its height), the player at the stand point on the same floor; with set_mass_kg, SetRigidBodyMass typed
-    and not refused and GetMass read back as the mass set (else INCONCLUSIVE MASS: a mass that did not change would
-    otherwise read as "thinness, not mass"); the item at rest before the walk (its spawn read and its read before the
-    walk within settle_m); then judge_push."""
+    SPAWN_Z_M of its height), the player at the stand point on the same floor; the item at rest before the walk (its
+    spawn read and its read before the walk within settle_m; checked before any mass rule, so settling never reads as
+    a push); with set_mass_kg, SetRigidBodyMass typed and not refused and GetMass read back as the mass set (else
+    INCONCLUSIVE MASS: a mass that did not change would otherwise read as "thinness, not mass"; when the probe itself
+    cannot run, unreadable_mass, only a move is judged); then judge_push."""
     sp = parse3(obs.get("player_spot"))
     spot = test["spot"]
     if sp is None or math.hypot(sp[0] - spot[0], sp[1] - spot[1]) > 1.0:
@@ -1472,6 +1528,11 @@ def judge_movable_control(test, obs, shot_ok):
         return "INCONCLUSIVE", "START", (f"the player was read {sp[2] - spot[2]:+.2f} m from the spot's height: not on "
                                          f"the open floor planned there ({obs.get('player_spot')})")
     s = obs.get("spawn") or {}
+    if not s.get("confirmed") and placeatme_no_base(s.get("place_ocr")):
+        base = str(test.get("base") or "")
+        return "INCONCLUSIVE", "NOBASE", (f"placeatme {base}: the game has no such form, so nothing was placed. The queue "
+                                          f"was planned for plugin index {base[:2]}; re-plan with the --plugin-index the "
+                                          f"plugin has in the runner's load order")
     if not s.get("confirmed"):
         return "INCONCLUSIVE", "SPAWN", f"the placed item's handle was not confirmed: {s.get('why') or 'no spawn read'}"
     r0 = parse3(s.get("read"))
@@ -1482,6 +1543,10 @@ def judge_movable_control(test, obs, shot_ok):
     if ps is not None and abs(ps[2] - spot[2]) > SPOT_Z_M:
         return "INCONCLUSIVE", "START", (f"the player was read {ps[2] - spot[2]:+.2f} m from the spot's height at the "
                                          f"stand point: the walk would not start on the spot's floor")
+    b = parse3(obs.get("item_before"))
+    if r0 is not None and b is not None and math.dist(r0, b) > test.get("settle_m", 0.1):
+        return "INCONCLUSIVE", "SETTLE", (f"the item was still moving before the walk: {math.dist(r0, b):.2f} m between "
+                                          f"its spawn read and its read before the walk")
     mass_note = ""
     if test.get("set_mass_cmd"):
         m = obs.get("set_mass") or {}
@@ -1497,6 +1562,17 @@ def judge_movable_control(test, obs, shot_ok):
         else:
             after, why = mass_read(probe["after"])
         was = f" (before: {_fmt(before, 2)} kg)" if before is not None else ""
+        if after is None and unreadable_mass(probe.get("after")):
+            # the probe cannot read any mass (movable_1019c 2026-10-18, verified: cf "ObjectReference.GetMass" answers
+            # "No script named ObjectReference is attached to the object"). Decided 2026-10-18 (decisions.md): a move
+            # stands, since the set mass can only have made it lighter or left it as it was; no move cannot tell an
+            # unchanged mass from a heavy one, so it stays INCONCLUSIVE MASS
+            v, c, d = judge_push(test, obs, shot_ok)
+            unread = f" [mass not read back: GetMass is not reachable from the console ({why})]"
+            if v == "PASS":
+                return v, c, d + unread
+            return "INCONCLUSIVE", "MASS", (f"{v} {c} with {test['set_mass_cmd']} typed but its mass not read back: "
+                                            f"a mass that did not take reads the same; {d}")
         if after is None:
             return "INCONCLUSIVE", "MASS", (f"GetMass was not read after {test['set_mass_cmd']}: {why}{was}; the mass "
                                             f"the walk met is unknown")
@@ -1504,10 +1580,6 @@ def judge_movable_control(test, obs, shot_ok):
             return "INCONCLUSIVE", "MASS", (f"GetMass read {_fmt(after, 2)} kg after {test['set_mass_cmd']}{was}: the "
                                             f"mass set did not take")
         mass_note = f" [GetMass {_fmt(after, 2)} kg after {test['set_mass_cmd']}{was}]"
-    b = parse3(obs.get("item_before"))
-    if r0 is not None and b is not None and math.dist(r0, b) > test.get("settle_m", 0.1):
-        return "INCONCLUSIVE", "SETTLE", (f"the item was still moving before the walk: {math.dist(r0, b):.2f} m between "
-                                          f"its spawn read and its read before the walk")
     v, c, d = judge_push(test, obs, shot_ok)
     return v, c, d + mass_note
 
@@ -2446,6 +2518,30 @@ def blocked_reason(ctl, q, launching=False, min_idle=900, lease=None):
     return None
 
 
+FOREGROUND_THIEF = re.compile(r"foreground window belongs to '([^']*)'")
+POPUP_RETRIES = 2       # a test whose step lost the focus to a popup runs again this often in one run
+
+
+def unused_name(prefix):
+    """prefix1, prefix2, ...: the first that does not exist yet (a resumed run's counters start again at 0, and an
+    existing archive is never replaced, Codex on #341 at 446b5a9)."""
+    k = 1
+    while os.path.exists(f"{prefix}{k}"):
+        k += 1
+    return f"{prefix}{k}"
+
+
+def foreground_thief(out_dir):
+    """The window input.ps1 found in front when it refused to send input (its ABORT line in the attempt's step.log),
+    or None."""
+    try:
+        with open(os.path.join(out_dir, "step.log"), encoding="utf-8", errors="replace") as f:
+            m = FOREGROUND_THIEF.findall(f.read())
+    except OSError:
+        return None
+    return m[-1] if m else None
+
+
 def planned_on_other_code(commit):
     """A warning when the queue was planned at a commit this runner's checkout does not contain (planned from another
     worktree or branch: its plan may use behaviour this runner's qstep.ps1 does not have), else None."""
@@ -2613,8 +2709,8 @@ def movable_timeout(test):
     """Worst case of a movable / movable_control step: every impulse is one confirmed selection (Select-Item: up to two
     sessions), the impulse line in its own capture, impulse_wait_ms with the console closed and a confirmed read (two
     sessions). movable_control adds the coc arrival read until it settles, the player to the spot and its read, the
-    placeatme session with the player's move to the park point, spawn_wait_ms, the handle (plr; prid + GetSelf; GetIsID +
-    getpos), the GetMass probe and SetRigidBodyMass (one selection and a capture each; after SetRigidBodyMass the console
+    placeatme session with the player's move to the park point, spawn_wait_ms, the handle (plr, once more after 2 s when
+    it named no id; prid + GetSelf; GetIsID + getpos), the GetMass probe and SetRigidBodyMass (one selection and a capture each; after SetRigidBodyMass the console
     closed MASS_WAIT_MS, a second selection and the probe again), the player to the stand point and its read, the
     confirmed reads before and after the walk, and the removal (a selection, disable, markfordelete)."""
     per_imp = 4 * NPC_SESSION_S + test.get("impulse_wait_ms", 3000) / 1000 + 10
@@ -2628,6 +2724,7 @@ def movable_timeout(test):
              + 2 * (30 + test.get("settle_ms", 1500) / 1000 + NPC_READ_S)   # the player to the spot and to the stand
              + NPC_SESSION_S + 15 + test.get("spawn_wait_ms", 3000) / 1000    # placeatme, the move to the park point
              + 3 * NPC_SESSION_S + 10                           # the handle: plr; prid + GetSelf; GetIsID + getpos
+             + NPC_SESSION_S + 2                                # plr again after 2 s when it named no FFxxxxxx id
              + mass
              + 2 * (2 * NPC_SESSION_S) + 10                     # the item read before and after the walk, two shots
              + test.get("walk_ms", 900) / 1000 + 2 + NPC_READ_S  # the walk and the player's read after it
@@ -2770,6 +2867,7 @@ class Runner:
         self.step = step or self._step
         self.cell = None                                  # cell the player is verified to be in
         self.session = False                              # game set up by this run (save loaded, god mode)
+        self.popups = {}                                  # test id -> steps rerun after a popup took the focus
         self.log_p = os.path.join(qdir, "run.log")
         lease_dir = getattr(a, "lease_dir", "") or ""     # opt-in (docs/ai/leader-core.md section 6); "" = not checked
         self.lease = LeaseGate(lease_dir, getattr(a, "lease_owner", "") or "Claude") if lease_dir else None
@@ -3031,13 +3129,19 @@ class Runner:
 
     def ledger_event(self, make):
         """With a lease folder, append the event make() returns to the ledger there, skipping an event whose src key
-        the ledger already holds (a resumed run queues nothing twice). A failure is logged once and never stops the
-        run: the ledger is evidence, not control, and import_queue recovers the events from the queue files."""
+        the ledger already holds (a resumed run queues nothing twice). Before the first event the ledger is read once
+        and runner_events.check_binding refuses a queue folder whose name the ledger already binds to another folder
+        holding another queue: another build, another plan or results that disagree (the importer's rule): nothing of such a run is written, so the two queues never fold
+        into one task. A failure is logged once and never stops the run: the ledger is evidence, not control, and
+        import_queue recovers the events from the queue files."""
         if not self.lease or self.ledger_failed:
             return
         try:
             if self.ledger_seen is None:
-                self.ledger_seen = self.lease.ctl.ledger.sources()
+                events = self.lease.ctl.ledger.read()
+                rows = self.lease.events.results_rows(os.path.join(self.qdir, "results.jsonl"))[0]
+                self.lease.events.check_binding(events, self.qdir, self.q, rows)   # section 10: a rebuilt queue under a bound name
+                self.ledger_seen = {e.get("src") for e in events if e.get("src")}
             ev = make()
             if ev is None:
                 return
@@ -3049,7 +3153,10 @@ class Runner:
                 self.ledger_seen.add(src)
         except (OSError, ValueError) as e:
             self.ledger_failed = True
-            self.log(f"ledger: {e}: no more events are written this run (import_queue recovers them from the queue files)")
+            if isinstance(e, self.lease.events.CampaignBound):
+                self.log(f"ledger: {e}: nothing of this run is written to the ledger")
+            else:
+                self.log(f"ledger: {e}: no more events are written this run (import_queue recovers them from the queue files)")
 
     def record(self, rec):
         """Append one results.jsonl row (every attempt; PRECONDITION and BREAKER rows too) and, with a lease folder,
@@ -3210,6 +3317,10 @@ class Runner:
                 self.ledger_event(lambda: self.lease.events.task_started(self.qdir, self.q, t, n, self.ledger_by,
                                                                           self.lease.owner))
             out_dir = os.path.join(self.qdir, "tests", t["id"], f"a{n}")
+            if os.path.isdir(out_dir) and os.listdir(out_dir):
+                # an attempt that was not counted (the owner took over mid-step, then the run stopped or was resumed)
+                # left its evidence here: kept beside the new attempt, never overwritten
+                os.rename(out_dir, unused_name(f"{out_dir}_interrupted"))
             os.makedirs(out_dir, exist_ok=True)
             lt = None                                     # the sky reading, for tests that asked for a time of day
             con = []                                      # console_pre / console_post replies (parsed OCR)
@@ -3223,9 +3334,27 @@ class Runner:
                 pid_before = self.ctl.game_pid()
                 code = self.step(t, out_dir)
                 self.game_used = True
-                if code == 2:                             # the owner took the foreground mid-step: not an attempt
+                if code == 2:                             # the foreground was lost mid-step: not an attempt
                     self.state["attempts"][t["id"]] = n - 1
                     self.cell = None
+                    who = foreground_thief(out_dir)
+                    # no keyboard/mouse input since the runner's last one: a window took the focus by itself (the AMD
+                    # auto-updater did, movable_1019c 2026-10-18), not the owner: take the game back and run the test
+                    # again, at most POPUP_RETRIES times per test
+                    popup = self.ctl.last_sent_tick is not None and not self.ctl.foreign_input()
+                    pops = self.popups.get(t["id"], 0)
+                    if popup and self.a.refocus and pops < POPUP_RETRIES and self.ctl.refocus_game():
+                        self.popups[t["id"]] = pops + 1
+                        # the rerun reuses the attempt number, so this interrupted attempt's folder (step.log, obs.json,
+                        # screenshots) is kept beside it before the rerun would write into it (Codex on #341 at f2fe7bf)
+                        os.rename(out_dir, unused_name(f"{out_dir}_popup"))
+                        self.log(f"{t['id']}: {who or 'another window'} took the focus mid-step without owner input "
+                                 f"(popup): game brought back to the front, the test runs again")
+                        self.ctl.mark_sent()
+                        pending.append(t)
+                        continue
+                    if who and popup:
+                        self.log(f"{t['id']}: {who} took the focus mid-step without owner input")
                     if self.wait_or_stop("owner switched windows during a step"):
                         pending.append(t)                 # run it again later in this run
                         continue
