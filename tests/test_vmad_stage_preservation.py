@@ -53,6 +53,9 @@ class DoorStagePreservationTests(unittest.TestCase):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(before, self.snapshot(self.port))
         self.assertFalse((self.out / 'doors_check.json').exists(), 'old acceptance report was carried into new stage')
+        report = json.loads((self.out / 'doors.json').read_text(encoding='utf-8'))
+        merged = [round(v, 4) for v in report['doors'][0]['return_destination']['merged']]
+        self.assertIn(f'at {merged}, marker', (self.out / 'README.txt').read_text(encoding='utf-8'))
         p = self.cli('check')
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertEqual(before, self.snapshot(self.port))
@@ -94,7 +97,7 @@ class DoorStagePreservationTests(unittest.TestCase):
         plugin.set_vmad(fixture.OWN | 0x803, vp.encode([]))
         before = plugin.serialize()
         entries = [fixture.door_entry(), fixture.door_entry(src='000002:Synthetic.esm', dest_id=0x805, ref='000803')]
-        edits = vp.port_edits('FO4TerrainCore.esm', entries, 'FO4Port.esm', 0x804)
+        edits = vp.port_edits('FO4TerrainCore.esm', entries, 'FO4Port.esm', 0x804, vp.MERGE_MEASURED)
         with self.assertRaisesRegex(ValueError, 'existing VMAD'):
             vp.patch_port(plugin, edits, 1)
         self.assertEqual(plugin.serialize(), before)
