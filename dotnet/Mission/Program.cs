@@ -28,6 +28,8 @@
 //        EditorID, name, race; for fo4 also each placed ACHR of it in the Commonwealth (core frame, FO4 / 70) and in
 //        interior cells. Finds Codsworth's placement and a Starfield robot body to stand in for him (ROADMAP B2).
 //   quests <Starfield.esm> [faction regex]  (read only: QuestType keywords with counts and examples, matching factions)
+//   infos <Starfield.esm> <voice type EDID regex>  (read only: the INFOs whose id, EditorIDs or conditions match (first 12), with their
+//        DIAL's type fields, response WEMFile values and conditions, so Codsworth's lines copy the vanilla pattern)
 //   selftest <scratch dir>
 //        synthetic masters (a Starfield.esm with the Credits MISC, a core with the world, a raider plugin with the calm
 //        probe) and a synthetic points.json; write + check against them. No game file is read.
@@ -60,6 +62,7 @@ try
                                                        Mission.ArgOrNull(args, "--codsworth-model")),
         "npcs" when args.Length >= 4 => Mission.Npcs(args[1], args[2], args[3]),
         "quests" when args.Length >= 2 => Mission.Quests(args[1], args.Length >= 3 ? args[2] : "."),
+        "infos" when args.Length >= 3 => Mission.Infos(args[1], args[2]),
         "selftest" when args.Length >= 2 => Mission.SelfTest(args[1]),
         _ => Mission.Usage(),
     };
@@ -104,7 +107,7 @@ static class Mission
 
     public static int Usage()
     {
-        Console.Error.WriteLine("usage: see the header of dotnet/Mission/Program.cs (points | write | check | npcs | quests | selftest)");
+        Console.Error.WriteLine("usage: see the header of dotnet/Mission/Program.cs (points | write | check | npcs | quests | infos | selftest)");
         return 2;
     }
     public static string? ArgOrNull(string[] a, string name) { var i = Array.IndexOf(a, name); return i >= 0 && i + 1 < a.Length ? a[i + 1] : null; }
@@ -130,6 +133,30 @@ static class Mission
         var rx = new System.Text.RegularExpressions.Regex(factionPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         foreach (var f in sf.Factions.Where(f => f.EditorID is not null && rx.IsMatch(f.EditorID)).Take(40))
             Console.WriteLine($"FACT {f.FormKey.ID:X6} {f.EditorID} relations={f.Relations.Count}");
+        return 0;
+    }
+
+    // ---------------------------------------------------------------- infos (read only)
+
+    public static int Infos(string sfPath, string voicePattern)
+    {
+        using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
+        var cache = sf.ToImmutableLinkCache<SF.IStarfieldMod, SF.IStarfieldModGetter>();
+        var rx = new System.Text.RegularExpressions.Regex(voicePattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        string Ed(FormKey fk) => fk.IsNull ? "-" : cache.TryResolve<IMajorRecordGetter>(fk, out var r) ? $"{r.EditorID}({fk.ID:X6})" : $"?{fk.ID:X6}";
+        int n = 0;
+        foreach (var t in sf.Quests.SelectMany(q => q.DialogTopics))
+            foreach (var info in t.Responses)
+            {
+                var text = string.Join(" | ", info.Responses.Select(r => $"wem={r.WEMFile:X8} emo={Ed(r.Emotion.FormKey)} '{r.ResponseText?.String}'"));
+                var conds = string.Join("; ", info.Conditions.Select(c => $"{c.Data.GetType().Name.Replace("ConditionData", "")} {c.CompareOperator} {(c as SF.IConditionFloatGetter)?.ComparisonValue} runon={c.Data.RunOnType} flags={c.Flags} " +
+                                                                         string.Join(",", c.Data.GetType().GetProperties().Where(p => p.Name.EndsWith("Parameter") || p.Name.Contains("OrList")).Select(p => $"{p.Name}={p.GetValue(c.Data)}"))));
+                if (!rx.IsMatch(conds) && !rx.IsMatch(t.EditorID ?? "") && !rx.IsMatch(info.EditorID ?? "") && !rx.IsMatch(info.FormKey.ID.ToString("X6"))) continue;
+                if (n++ >= 12) continue;
+                Console.WriteLine($"INFO {info.FormKey.ID:X6} {info.EditorID} flags={info.Flags?.Flags} speaker={Ed(info.Speaker.FormKey)} [{text}] conds [{conds}]");
+                Console.WriteLine($"  DIAL {t.FormKey.ID:X6} {t.EditorID} quest={Ed(t.Quest.FormKey)} category={t.Category} subtype={t.Subtype} name={t.SubtypeName} topicflags={t.TopicFlags} priority={t.Priority} branch={Ed(t.Branch.FormKey)} infos={t.Responses.Count}");
+            }
+        Console.WriteLine($"{n} INFO(s) matched");
         return 0;
     }
 
