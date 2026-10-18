@@ -242,7 +242,11 @@ class RunnerLedgerTests(unittest.TestCase):
         with self.assertRaises(imp.CampaignBound):                                    # the same plan, a row that differs
             rev.check_binding(events, b, q, pass_row)
         rev.check_binding(events, b, q, rev.results_rows(os.path.join(a, "results.jsonl"))[0])   # a relocation
-        rev.check_binding(events, b, q)                                               # nothing run there yet
+        # nothing run there yet: an empty copy would run the bound tests again under the campaign and could turn its
+        # FAIL into a PASS (Codex on #199 at 05e8439), so it is refused like the importer refuses it
+        for rows in (None, []):
+            with self.assertRaises(imp.CampaignBound):
+                rev.check_binding(events, b, q, rows)
         self.assertEqual(rev.task_queued(b, q, q["tests"][0], "x", "Claude").get("queue_id"), imp.queue_identity(q))
 
     def test_a_torn_results_tail_is_terminated_and_reported_not_merged(self):

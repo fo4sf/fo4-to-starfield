@@ -94,8 +94,10 @@ of it is written (exit 1, the others still import): a `queue.json` has a `tests`
 whose name the ledger already binds to another folder with a different build, no build to compare, or another plan, is refused
 the same way (`CampaignBound`: a different queue under the same name is a different campaign, rename the folder), while
 the same queue relocated or archived imports under its campaign: same build, same plan (`queue_identity`: the planned
-queue's created time, build pin and tests, carried as `queue_id` on its task events) and results that agree line for
-line with the rows already imported (one build is not enough: two queues planned against it can test other refs); the eight bullets of the resulting fold
+queue's created time, build pin and tests, carried as `queue_id` on its task events) and results that hold every row
+already imported and agree with it line for line (one build is not enough: two queues planned against it can test
+other refs; a copy without the bound rows, or with fewer, is refused by the importer and the live runner alike,
+since once bound it would import or run without any row comparison and could turn a FAIL into a PASS); the eight bullets of the resulting fold
 follow.
 
 ## 4. Bounded, resumable tasks (one cloud session each)
