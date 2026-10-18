@@ -93,8 +93,8 @@ def dump_sf_nif(out, arch, meshes, name):
                 line += f" first={tuple(round(v, 4) for v in struct.unpack_from('<17f', b, 4))}"
         out.append(line)
     world = nifmod.world_transforms(n)
-    nodes = [(name_of(n, i), tuple(round(v, 3) for v in world[i][0])) for i in range(len(n.blocks))
-             if n.type_of(i) in ("NiNode", "BSFadeNode") and i in world]
+    nodes = [(name_of(n, i), tuple(round(v, 3) for v in world(i)[0])) for i in range(len(n.blocks))
+             if n.type_of(i) in ("NiNode", "BSFadeNode")]
     out.append(f"  node world positions: {nodes[:40]}")
 
 
