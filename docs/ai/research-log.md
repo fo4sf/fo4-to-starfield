@@ -1313,7 +1313,13 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
 
 ## 2026-10-17 Grok: object-LOD CK command and .lod format (external)
 - Question: which CK command generates object LOD for a worldspace/overlay, and what is the on-disk .lod layout.
-- Method: web search of modding.wiki, Reddit r/starfieldmods, Nexus, and the Bethesda-LOD-File-Generator repo (extraction support for Starfield added 2024-07-14). No game files inspected this turn.
-- **supported hypothesis:** `CreationKit.exe -MockWorldSpaceLOD:<Plugin>.esp <WorldspaceEDID>` writes `Data\LODSettings\<edid>.lod` and terrain/object meshes under `Data\Meshes\Terrain\<Worldspace>\` (or the runtime `meshes/lod/generated/` pair). Community reports confirm the flag; output path needs the spike to pin for overlays.
-- **supported hypothesis:** 20-byte .lod is `int32 minX, minY, size, 0, 0`. NewAtlantis hex `DD FF FF FF C5 FF FF FF 88 00 00 00 ...` = minX=-35, minY=-59, size=136. Size derivation has noted inconsistencies; CK fixture is the gate, not a hand stub. Matches the 861/864 count in the object-LOD plan.
-- Labels: supported hypothesis (external sources, not yet CK-run on this overlay). Plan updated in docs/terrain/object-lod.md. No writer, no hand-authored files.
+- Method: [r/starfieldmods 1ntdwu9](https://www.reddit.com/r/starfieldmods/comments/1ntdwu9/) (primary firsthand
+  procedure) and [ConvertFromLOD.cs](https://github.com/UnknownExplorer13/Bethesda-LOD-File-Generator/blob/01380dce14898a3a2ebea41ef151b094d4d83e11/Bethesda%20LOD%20File%20Generator/ConvertFromLOD.cs)
+  at `01380dce14898a3a2ebea41ef151b094d4d83e11`. No CK run this turn.
+- **supported hypothesis:** `-MockWorldSpaceLOD:<SavedPluginName> <WorldspaceEDID>` after refs are on a LOD-enabled
+  layer and the plugin is saved. Community-supported until the installed CK spike. Use the saved filename/extension;
+  do not assume `.esp`. Missing output without that pin is inconclusive.
+- **supported hypothesis:** 20-byte `.lod` is five int32 (`minX, minY, size, 0, 0`). NewAtlantis hex =
+  minX=-35, minY=-59, size=136. The extractor also has a 16-byte legacy layout and rejects other lengths;
+  22-byte vanilla files are inspect-only. Creation/size derivation **unresolved**. CK fixture is the gate.
+- Labels: supported hypothesis. Plan in docs/terrain/object-lod.md. No writer, no hand-authored files.
