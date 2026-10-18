@@ -87,3 +87,7 @@ The new synthetic item writer checks three formerly colliding plugin pairs and p
 all original REFR IDs, non-NAME bytes, flags and cell parents. This does not migrate
 already-aliased saves or supply persistent promoted-base IDs across changed exports.
 PR235's independent malformed-output checks are a separate follow-up.
+
+### Current-main integration, October 18
+
+Main now routes activators, terminals and workshops through the shared naming helper too. The merge preserves those callers. Previously colliding punctuation/extension pairs must produce distinct bases while retaining reference slots; injected name collisions must still be refused. The compiled writer controls exercise CONT/MISC plus ACTI/TERM/workshop records and terminal menu identities. This remains synthetic identity evidence, not native interaction or a migration of previously aliased saves.

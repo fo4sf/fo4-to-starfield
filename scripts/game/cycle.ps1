@@ -14,12 +14,32 @@
 # 5 a screen check could not run (nothing pressed), 6 an activation prompt sits under the crosshair (nothing pressed),
 # 7 an installed experiment plugin's master is not active (exp_install.py order; the game is not launched),
 # 8 the experiment plugins are no longer active after the save loaded, or the load order dialog could not be answered
-# with "Current" (loadorder.ps1; nothing tested, the game is left running for the runner to close).
+# with "Current" (loadorder.ps1; nothing tested, the game is left running for the runner to close),
+# 9 no valid controller lease for this owner, or python could not run the check (only with FO4SF_LEASE_DIR set;
+# nothing closed, deployed or launched).
 param([Parameter(Mandatory)][string]$Staging, [Parameter(Mandatory)][string]$Starfield, [string]$Cell = 'FO4Port_Vault111Cryo',
       [string]$Shot = (Join-Path $env:TEMP 'fo4sf_cycle.png'), [string]$CellJson = '')
 if ($Cell -notmatch '^[A-Za-z0-9_]+$') { "cell name must be letters, digits and underscores (it is typed into the game): $Cell"; exit 1 }
 $repo = Split-Path (Split-Path $PSScriptRoot); $sf = $Starfield
 $i = (Join-Path $PSScriptRoot 'input.ps1'); $env:LEGACY = '1'
+# Controller lease (docs/ai/leader-core.md section 6; opt-in, default off): with FO4SF_LEASE_DIR set, the game is only
+# closed, redeployed and launched while FO4SF_LEASE_OWNER (default Claude) holds an unexpired lease in that folder;
+# otherwise exit 9 before anything is touched. Unset, this block does nothing and the script behaves as before.
+# lease.py reads the folder from FO4SF_LEASE_DIR itself: passed as an argument, a folder with a space and a trailing
+# backslash would reach python mangled (PowerShell 5.1 quoting) and the check could fail open.
+# The gate fails closed on the invocation itself, not only on lease.py's exit code (QA on #179): python that cannot be
+# resolved raises CommandNotFoundException and leaves $LASTEXITCODE as it was, so in a reused host (& cycle.ps1 after
+# another command) an earlier 0 passed the old guard. Now python is resolved first, the stale code is cleared, an
+# invocation error is caught, and only lease.py's own fresh exit 0 launches.
+if ($env:FO4SF_LEASE_DIR) {
+  $leaseOwner = if ($env:FO4SF_LEASE_OWNER) { $env:FO4SF_LEASE_OWNER } else { 'Claude' }
+  if (-not (Get-Command python -ErrorAction SilentlyContinue)) { "python not found: the controller lease for $leaseOwner in $($env:FO4SF_LEASE_DIR) cannot be checked: not launching"; exit 9 }
+  $global:LASTEXITCODE = $null   # global: native commands set the global variable, a plain assignment here would shadow it
+  try { $leaseOut = python -I "$repo\scripts\game\lease.py" status --require $leaseOwner; $leaseCode = $LASTEXITCODE }
+  catch { $leaseOut = "lease.py could not be run: $_"; $leaseCode = $null }
+  $leaseOut | Select-Object -Last 1
+  if ($null -eq $leaseCode -or $leaseCode -ne 0) { "no valid controller lease for $leaseOwner in $($env:FO4SF_LEASE_DIR) (lease.py exit $leaseCode): not launching"; exit 9 }
+}
 $p = Get-Process Starfield -ErrorAction SilentlyContinue
 $pidFile = Join-Path $PSScriptRoot 'cycle_pid.txt'           # local only: the PID of the game this script launched
 $own = if (Test-Path $pidFile) { [int](Get-Content $pidFile) } else { 0 }

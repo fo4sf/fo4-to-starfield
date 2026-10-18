@@ -99,6 +99,9 @@ Known limits:
   see "Multi-part doors" below.
 ## Sliding doors (2026-10-08, offline research)
 
+**Superseded 2026-10-16** by [sliding-doors.md](sliding-doors.md): survey of all 123 vanilla door rigs read back with
+CALUMI, no vanilla rig matches the FO4 vault or elevator doors, and these doors now get their own rig and FO4's keys.
+
 **Which vanilla graph do sliding doors use?** `SfInspect graphs` groups every Starfield `DOOR` by its
 `AnimationGraphComponent`. 215 doors use `SimpleOpenClose01.agx`. That includes the hinged Akila door
 *and* the sliding ship interior doors (`ShpGenIntPerSmWallMid_ExSm_Door01`, rig `ships\gen\interiors\animated\doors\...`).
@@ -213,7 +216,8 @@ Known limits and unknowns:
   keyframed physics systems in one NIF (vanilla double doors share one system with a body per leaf).
 - Knobs, handles and latches that FO4 animates get their own small keyframed boxes.
 - Text-key events (FO4 door sounds) are not encoded; DOOR sounds stay unset.
-- Load doors and `NOT_HINGED_RE` doors (vault doors, elevators: 36 records in Fallout4.esm) are unchanged; their FO4 keys
+- Load doors and `NOT_HINGED_RE` doors (vault doors, elevators: 36 records in Fallout4.esm) are unchanged (2026-10-16:
+  `NOT_HINGED_RE` doors now take this path too, [sliding-doors.md](sliding-doors.md)); their FO4 keys
   (including slides) would work the same way.
 - The FortHagen01 shutters are window shutters (sill 1.08 m above the floor): their walk test cannot pass even with
   both panels open. The route planner should skip raised openings (leaf bottom above step height); not changed here.

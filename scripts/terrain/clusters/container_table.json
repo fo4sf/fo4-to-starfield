@@ -8,6 +8,8 @@
   "Loot_Raider_*": {"name": null, "items": [{"form": "Starfield.esm:00000F", "count": 20}, {"form": "Starfield.esm:00000A", "count": 1}]},
   "Loot_Safe*": {"name": "Safe", "items": [{"form": "Starfield.esm:00000F", "count": 60}, {"form": "Starfield.esm:00000A", "count": 2}]},
   "Loot_Toolbox*": {"name": "Toolbox", "items": [{"form": "Starfield.esm:00000F", "count": 8}]},
-  "Loot_Trash*": {"name": "Trash Can", "items": [{"form": "Starfield.esm:00000F", "count": 2}]}
+  "Loot_Trash*": {"name": "Trash Can", "items": [{"form": "Starfield.esm:00000F", "count": 2}]},
+  "WorkshopWorkbench": {"skip": "settlement workshop: promoted as a workshop (make_cluster.py workshops), not a container"},
+  "WorkshopWorkbenchNonSettlement": {"skip": "settlement workshop: promoted as a workshop (make_cluster.py workshops), not a container"}
  }
 }
