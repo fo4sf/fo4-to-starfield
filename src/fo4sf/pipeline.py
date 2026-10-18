@@ -17,7 +17,7 @@ from typing import Dict, List, Optional
 
 from . import ba2 as ba2mod
 from . import convert_material as cm
-from . import convert_static, nif, sfcollision, sfmesh, sfnif, textures
+from . import convert_static, door_rig, nif, sfcollision, sfmesh, sfnif, textures
 
 DOOR_RE = re.compile(r"[\\/]doors?[\\/]|door[^\\/]*\.nif$", re.I)
 NOT_HINGED_RE = re.compile(r"vault|elevator|garage|gate|hatch|slid", re.I)   # sliding / lifting doors animate differently:
@@ -595,7 +595,11 @@ class Converter:
             use_box = self.collision_template is not None
             coll_report = {}
             files = None
-            if pose is None and self.rig_doors and self.door_physics_donor is not None and DOOR_RE.search(nif_name) and not NOT_HINGED_RE.search(nif_name) and not aliases and not load_door and nif.door_hinge(src):
+            # not hinged: by name (vault, elevator, garage, gate, hatch, sliding) or by its Open motion (parts that travel
+            # without turning: a sliding door named like any other, RedRPedDoor.nif)
+            not_hinged = bool(NOT_HINGED_RE.search(nif_name)) or (animated and pose is None and self.rig_doors
+                                                                  and DOOR_RE.search(nif_name) and door_rig.slides(src))
+            if pose is None and self.rig_doors and self.door_physics_donor is not None and DOOR_RE.search(nif_name) and not not_hinged and not aliases and not load_door and nif.door_hinge(src):
                 # Parts FO4 moves outside the first animated node (second leaf, shutter, other sliding panels) cannot
                 # hang under the template's single hinge: with the CALUMI library such a door gets its own rig and
                 # clips (one track and one keyframed body per part, as vanilla double doors); without it the template
@@ -626,7 +630,7 @@ class Converter:
                         res["door_error"] = (res["door_error"] + "; " if "door_error" in res else "") + f"{type(e).__name__}: {e}"
             elif (pose is None and self.rig_doors and self.door_physics_donor is not None and self.door_anim_dll
                   and (animated or aliases) and not load_door
-                  and (aliases or (DOOR_RE.search(nif_name) and NOT_HINGED_RE.search(nif_name)))):
+                  and (aliases or (DOOR_RE.search(nif_name) and not_hinged))):
                 # Sliding, lifting and trapdoor families (vault doors, elevator doors, hatches) cannot hang under the
                 # template's vertical hinge, and no vanilla door moves like them; vanilla sliding doors play the same graph
                 # (SimpleOpenClose01.agx) with their own rig and clips (docs/spikes/sliding-doors.md). So such a door gets
