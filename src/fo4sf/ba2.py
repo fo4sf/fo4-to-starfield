@@ -123,6 +123,33 @@ class Ba2:
             "textures": dx10,
         }
 
+    def largest_entries(self, n: int = 10) -> list:
+        """Return the n largest entries by unpacked size, useful for conversion planning.
+
+        Each item is a dict with name, kind, unpacked bytes, and packed bytes (0 if uncompressed).
+        For DX10 textures the unpacked size is the sum of chunk unpacked sizes (excluding the DDS header).
+        """
+        def unpacked_of(e: Entry) -> int:
+            if e.kind == "GNRL":
+                return e.unpacked
+            return sum(c[2] for c in (e.chunks or []))   # c[2] is unpacked
+
+        def packed_of(e: Entry) -> int:
+            if e.kind == "GNRL":
+                return e.packed or e.unpacked
+            return sum((c[1] or c[2]) for c in (e.chunks or []))
+
+        ranked = sorted(self.entries, key=unpacked_of, reverse=True)[:n]
+        return [
+            {
+                "name": e.name,
+                "kind": e.kind,
+                "unpacked": unpacked_of(e),
+                "packed": packed_of(e),
+            }
+            for e in ranked
+        ]
+
     @staticmethod
     def _norm(n: str) -> str:
         return n.replace("/", "\\").lower().lstrip("\\")

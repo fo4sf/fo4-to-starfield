@@ -352,7 +352,11 @@ class ProbeOnThisBoxTests(unittest.TestCase):
         os.makedirs(saves)
         with mock.patch.object(tq.PreflightProbe, "saves_dirs", staticmethod(lambda: [saves])):
             self.assertFalse(self.p.save_present("fo4sf_test_abcd1234"))
-            with open(os.path.join(saves, "Save12_fo4sf_test_abcd1234_x.sfs"), "wb") as f:
+            for other in ("fo4sf_test_abcd1234.sfs.bak", "fo4sf_test_abcd1234_s100.sfs"):   # not the dedicated save
+                with open(os.path.join(saves, other), "wb") as f:
+                    f.write(b"")
+            self.assertFalse(self.p.save_present("fo4sf_test_abcd1234"))
+            with open(os.path.join(saves, "fo4sf_test_abcd1234.sfs"), "wb") as f:     # what `save <name>` writes
                 f.write(b"")
             self.assertTrue(self.p.save_present("fo4sf_test_abcd1234"))
         self.assertEqual(self.p.lease_status()[0], "unknown")
