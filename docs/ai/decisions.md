@@ -342,6 +342,16 @@ remains a separate control.
   (no vanilla evidence that the engine wants anything but what it has), leaving the flat-convex byte at FO4's 0 (a
   code path no vanilla asset exercises).
 - 2026-10-16 (Claude): FO4 exterior load doors into the converted interiors become scripted doors (docs/terrain/scripted-doors.md): every record stays temporary on the exterior side (the overlay merge), the door REFR keeps its slot on an ACTI with the converted door mesh and carries the FO4SF_LoadDoor VMAD (PR #243: DestinationPlugin + DestinationId, resolved at run time, no master link between the plugins), each side gets an arrival XMarker at the FO4 XTEL point (exterior: temporary, appended after the lights with the ACTIs; interior: persistent, so it resolves from outside). The exterior side is written by Mutagen (its VMAD bytes equal the raw codec's and vanilla's), the interior side by a raw record-level patch of a copy of the pinned FO4Port.esm (scripts/terrain/vmad_patch.py), proved by a byte diff of every other record. Alternatives rejected: a vanilla XTEL door (persistent references read unmerged, 4 in-game runs); MoveTo onto the interior door itself (temporary: unresolvable from outside, and the player would land in the mesh); rewriting FO4Port.esm with Mutagen (no byte-level proof that nothing else moved); allocating the door ACTIs with the other promoted bases (would shift every NAVM and light id of core64i). Open until Step 0 runs in game: whether a temporary exterior marker resolves from inside (else a persistent twin plus the (-1200, -2700) offset).
+
+### 2026-10-16 - preserve door-stage inputs before output (Codex)
+
+A hard-linked README/report can overwrite the pinned source through the new
+folder. Exclude generated names and replace generated files atomically; checking
+an older hard-linked report must also detach it. Refuse any existing selected
+REFR VMAD before changing the plugin, rather than erase or implicitly merge
+unreviewed behavior. Validate marker-map collisions and disjoint output paths
+before copying. Full-directory transactional publication remains separate.
+
 - 2026-10-17 (Claude): the door return trip, writer side (docs/terrain/scripted-doors.md "Return trip"). Step 0 answered in game: the temporary exterior marker 0A76FD does not resolve from inside (door_trip_sdm_1018, `FO4SF_LoadDoor refused`), and a MoveTo onto a persistent overlay reference lands at its unmerged position, from where a setpos to the merged one stands on the overlay (probe (e)). So each exterior arrival marker itself becomes persistent (flag 0x400, same id: the slot and append rules of #272 and formids.json stay as they were) in the overlay world's persistent cell beside the anchor, and both door VMADs gain DestinationX / Y / Z (float, edited; the names of Codex's draft PR #291): the exterior door the interior marker's position, the interior door the exterior marker's merged position = local + overlays_params planet_target_cell x 100 m, refused unless it equals the measured (-1200, -2700, 0). Why the world's persistent cell and not the exterior cell's persistent children: the only persistent overlay reference seen to resolve and MoveTo in game is the anchor there, and vanilla keeps every persistent worldspace reference there (Starfield.esm 16,057 of 16,057, Fallout4.esm 33,571 of 33,571; 0 in an exterior cell's persistent children; read raw with C:\Modding\scratch\doorreturn\survey_persistent.py). Alternatives rejected: a persistent twin beside the temporary marker (a fourth id per door for no use: nothing resolves the temporary one); a marker written at local + offset (supported, not run: the MoveTo lands at the written position in the unmerged instance, 2.95 km from the door's terrain there, and the position leaves the overlay's cells); the offset as a bare constant (it follows the overlay's registration: a build registered elsewhere is refused until measured).
 - 2026-10-17 (Claude): both door VMADs now carry `UseDestinationPosition` (bool, edited, true) as the sixth property, right after DestinationZ (docs/terrain/scripted-doors.md "Restage with the bool"). Why: PR #291's FO4SF_LoadDoor applies DestinationX/Y/Z with SetPosition only when that bool is true (zero is a valid coordinate, so the values cannot be the switch), so the five-property VMADs staged earlier the same day would have kept the plain MoveTo and ignored the coordinates. The reader (`vmad_patch.load_door_target`, hence `check_port` and `make_core64c.door_record_problems`) refuses floats without the bool, a false bool and the bool without floats; the two-property door stays valid. #291's psc declares the bool before the floats: the names and types match, the order differs, and Papyrus binds VMAD properties by name, so the reader takes both orders and the writer keeps the sixth position. terrain_core64l and integ_1018_doors2 were regenerated (265 of 265, 49 of 49; formids, objects and plan byte-identical to core64k). Alternative rejected: leaving the bool out (the psc defaults it to False, so the coordinates would never be applied).
 - 2026-10-17 (Claude): exterior light lumens scaled 0.375 as a raw patch (terrain_core64l_l125) pending the owner's night check; the build default stays 333 until then. Alternatives: a full rebuild with --lumens-per-m2 125 (hours); a patch plugin (a second master). docs/terrain/exterior-lights.md "Calibration (17 Oct)".
@@ -407,3 +417,20 @@ so each is its own PR by the PC session (leader-core.md §9 lists the cost). Why
 cannot rebuild or re-pin, and a silently changed `objects.json` would invalidate pinned evidence. Alternatives:
 one shared function imported by both scripts today (ties `scripts/game` to `fo4sf.core` before the PC session has
 decided the import path); keeping the order as a parameter (two orders in the core is the bug #102 found).
+
+## 2026-10-18 Claude-cloud: SetRigidBodyMass tests when GetMass cannot be read
+- **Decision:** a movable_control test with `set_mass_kg` whose GetMass probe answers "No script named ..." is judged
+  on a move only. PASS WALKED or PASS IMPULSE stands, with "mass not read back" in the detail. No move stays
+  INCONCLUSIVE MASS.
+- **Why:** in movable_1019c, `cf "ObjectReference.GetMass"` answered "No script named ObjectReference is attached to
+  the object" (**verified**), so the old rule ("judged only when GetMass reads the mass set back") would leave every
+  5 kg test unjudged forever. The set mass can only have made the body lighter or left it unchanged:
+  - A move shows the body moves at a mass no higher than its own.
+  - No move cannot tell a mass that did not take from a heavy body, which is the verifier's "thinness, not mass"
+    concern on PR #110, so a non-move is still not judged.
+- **Alternatives:**
+  - Drop the 5 kg tests: this loses the one comparison that can show mass is the cause.
+  - Judge both ways: this risks a false "mass is not the cause".
+  - Find another GetMass route: none is known (no console command; the CallFunction route refuses).
+- Taken under the owner's standing rule (2026-10-18 03:56Z) that threads take their recommended option on reversible
+  choices.
