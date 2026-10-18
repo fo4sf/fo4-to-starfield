@@ -139,13 +139,14 @@ def _plane_pair(dds: bytes, tmp: str, texconv_exe: str):
 
 class Converter:
     door_anim_dll: Optional[str] = None
+    mass_scale: float = 1.0  # class default so Converter.__new__ tests still pass mass_scale into convert_static
 
     def __init__(self, src: Fo4Archives, staging: str, texconv_exe: str, content_resources: str,
                  collision_template: Optional[bytes] = None, prefix: str = "fo4port",
                  no_collision_pattern: str = r"^meshes[\\/](architecture|interiors|scol)[\\/]", rig_doors: bool = False,
                  door_physics_donor: Optional[bytes] = None, sf_mesh_template: Optional[bytes] = None,
                  dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None,
-                 spec_mask_roughness: bool = False):
+                 spec_mask_roughness: bool = False, mass_scale: float = 1.0):
         self.src, self.staging, self.texconv = src, staging, texconv_exe
         # spec_mask_roughness: roughness also follows FO4's specular mask (smooth-spec R), not only its gloss (G); off by
         # default so existing builds and checkpoints keep their textures (owner's Vault 111 floor report, 2026-10-17)
@@ -157,6 +158,7 @@ class Converter:
         # dynamic_template (a vanilla dynamic convex body, meshcollision.DYNAMIC_TEMPLATE_NIF): FO4 loose items with one
         # dynamic body become movable; their result carries "movable" (plugin writer: MoveableStatic, not Static)
         self.dynamic_template = dynamic_template
+        self.mass_scale = convert_static.require_mass_scale(mass_scale)
         # max_texture: optional size cap per texture kind (textures.parse_texture_caps: '1024' or 'color=1024,...'); the
         # converted DDS loses its top mip levels until it fits (textures.cap_dds). Off by default: FO4Port keeps full
         # resolution. When set, texture_log records every texture's full and written size.
@@ -651,7 +653,7 @@ class Converter:
                                                       collision_template=self.collision_template if use_box else None,
                                                       allow_guess=not no_guess,
                                                       dynamic_template=self.dynamic_template if use_box else None,
-                                                      pose=pose)
+                                                      pose=pose, mass_scale=self.mass_scale)
                 if coll_report.get("motion") == "dynamic":
                     res["movable"] = {"mass_kg": coll_report["mass_kg"],
                                       **({"note": coll_report["motion_note"]} if "motion_note" in coll_report else {})}
