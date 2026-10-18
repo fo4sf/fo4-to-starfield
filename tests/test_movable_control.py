@@ -305,9 +305,21 @@ class MovableControlJudgeTests(unittest.TestCase):
             v, c, d = self.judge(obs, t)
             self.assertEqual((v, c), ("INCONCLUSIVE", "MASS"), d)
             self.assertIn("its mass not read back: a mass that did not take reads the same", d)
-        # a refusal printed before this session's ClearConsole is an older session's, not this probe's
-        self.assertFalse(tq.unreadable_mass('No script named X Clear Console cf "ObjectReference.GetMass"'))
+        # Codex on #343 at 069d525: the exception needs this session's GetMass echo, then ObjectReference's refusal
         self.assertTrue(tq.unreadable_mass(nos["after"]))
+        for other in ('No script named X Clear Console cf "ObjectReference.GetMass"',          # an older session's
+                      'Clear Console cf "Actor.PathToReference" No script named Actor is attached to the object',
+                      "No script named ObjectReference is attached to the object",           # no echo, no session
+                      "Clear Console No script named ObjectReference is attached to the object"):
+            with self.subTest(other=other):
+                self.assertFalse(tq.unreadable_mass(other))
+                v, c, d = self.judge(control_obs(self.d, mass_probe={"after": other}, set_mass=typed,
+                                                 item_after="-3.00 6.10 0.00"), t)
+                self.assertEqual((v, c), ("INCONCLUSIVE", "MASS"), d)
+        # an item still settling before the walk is SETTLE before any mass rule (Codex's first case)
+        drift = control_obs(self.d, mass_probe=nos, set_mass=typed, item_before="-3.00 4.50 0.00",
+                            item_after="-3.00 6.10 0.00")
+        self.assertEqual(self.judge(drift, t)[:2], ("INCONCLUSIVE", "SETTLE"))
 
     def test_mass_read(self):
         self.assertEqual(tq.mass_read('Clear Console cf "ObjectReference.GetMass" GetMass >> 5.00'), (5.0, ""))

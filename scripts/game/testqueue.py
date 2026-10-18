@@ -1457,12 +1457,21 @@ def mass_read(ocr):
     return vals[0], ""
 
 
+NO_OBJREF_SCRIPT = re.compile(r"no\s?script\s?named\s?Object\s?Reference", re.I)
+
+
 def unreadable_mass(ocr):
-    """The probe's own session says the console cannot run it at all ("No script named ObjectReference is attached to
-    the object"): no reading will ever come, unlike a reply OCR missed."""
+    """The GetMass probe's own session says the console cannot run it at all: after this session's ClearConsole, the
+    probe's echo, then "No script named ObjectReference is attached to the object" (movable_1019c). No reading will
+    ever come, unlike a reply OCR missed. Any other refusal, or the refusal without the probe's echo before it, is
+    not this case."""
     text = str(ocr or "")
     starts = [m.end() for m in CLEAR_ECHO.finditer(text)]
-    return bool(NO_SCRIPT.search(text[starts[-1]:] if starts else text))
+    if not starts:
+        return False
+    text = text[starts[-1]:]
+    echo = MASS_ECHO.search(text)
+    return bool(echo and NO_OBJREF_SCRIPT.search(text[echo.end():]))
 
 
 def mass_ok(read, want):
@@ -1473,10 +1482,11 @@ def mass_ok(read, want):
 def judge_movable_control(test, obs, shot_ok):
     """movable_control: the player at the spot (within 1 m, and SPOT_Z_M of its height: on the floor there), the item
     placed and its handle confirmed (PickLastRef's id, GetSelf, GetIsID <base> 1, within handle_tol of the spot and
-    SPAWN_Z_M of its height), the player at the stand point on the same floor; with set_mass_kg, SetRigidBodyMass typed
-    and not refused and GetMass read back as the mass set (else INCONCLUSIVE MASS: a mass that did not change would
-    otherwise read as "thinness, not mass"); the item at rest before the walk (its spawn read and its read before the
-    walk within settle_m); then judge_push."""
+    SPAWN_Z_M of its height), the player at the stand point on the same floor; the item at rest before the walk (its
+    spawn read and its read before the walk within settle_m; checked before any mass rule, so settling never reads as
+    a push); with set_mass_kg, SetRigidBodyMass typed and not refused and GetMass read back as the mass set (else
+    INCONCLUSIVE MASS: a mass that did not change would otherwise read as "thinness, not mass"; when the probe itself
+    cannot run, unreadable_mass, only a move is judged); then judge_push."""
     sp = parse3(obs.get("player_spot"))
     spot = test["spot"]
     if sp is None or math.hypot(sp[0] - spot[0], sp[1] - spot[1]) > 1.0:
@@ -1495,6 +1505,10 @@ def judge_movable_control(test, obs, shot_ok):
     if ps is not None and abs(ps[2] - spot[2]) > SPOT_Z_M:
         return "INCONCLUSIVE", "START", (f"the player was read {ps[2] - spot[2]:+.2f} m from the spot's height at the "
                                          f"stand point: the walk would not start on the spot's floor")
+    b = parse3(obs.get("item_before"))
+    if r0 is not None and b is not None and math.dist(r0, b) > test.get("settle_m", 0.1):
+        return "INCONCLUSIVE", "SETTLE", (f"the item was still moving before the walk: {math.dist(r0, b):.2f} m between "
+                                          f"its spawn read and its read before the walk")
     mass_note = ""
     if test.get("set_mass_cmd"):
         m = obs.get("set_mass") or {}
@@ -1528,10 +1542,6 @@ def judge_movable_control(test, obs, shot_ok):
             return "INCONCLUSIVE", "MASS", (f"GetMass read {_fmt(after, 2)} kg after {test['set_mass_cmd']}{was}: the "
                                             f"mass set did not take")
         mass_note = f" [GetMass {_fmt(after, 2)} kg after {test['set_mass_cmd']}{was}]"
-    b = parse3(obs.get("item_before"))
-    if r0 is not None and b is not None and math.dist(r0, b) > test.get("settle_m", 0.1):
-        return "INCONCLUSIVE", "SETTLE", (f"the item was still moving before the walk: {math.dist(r0, b):.2f} m between "
-                                          f"its spawn read and its read before the walk")
     v, c, d = judge_push(test, obs, shot_ok)
     return v, c, d + mass_note
 
