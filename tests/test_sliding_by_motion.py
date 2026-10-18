@@ -135,11 +135,26 @@ class SkinnedPanelTests(unittest.TestCase):
         self.assertEqual(door["rebound_skinned_pieces"], 2)
         self.assertEqual(door["moving_bodies"], 2)                       # a piece on each panel
 
+    def test_weights_split_over_slots_of_one_bone_still_count_as_rigid(self):
+        f = door_nif(sliding_panels())
+        panel_a = node_names(f)["PanelA"]
+        _, shapes, read_skin = self.skinned(f, panel_a, (0.5, 0.5, 0.0, 0.0), second=panel_a)
+
+        def skin(src, block):
+            k = read_skin(src, block)
+            return k and replace(k, indices=[(0, 1, 0, 0)] * len(k.weights))
+        self.assertEqual(self.convert(f, shapes, skin)[1]["rig"], "native")
+
     def test_blended_or_off_rig_skins_still_refuse_the_door(self):
         f = door_nif(sliding_panels())
-        for bone, weights in ((node_names(f)["PanelA"], (0.6, 0.4, 0.0, 0.0)), (0, (1.0, 0.0, 0.0, 0.0)),
-                              (len(f.blocks) - 1, (1.0, 0.0, 0.0, 0.0))):
-            _, shapes, read_skin = self.skinned(f, bone, weights)
+        names = node_names(f)
+        for bone, weights in ((names["PanelA"], (0.6, 0.4, 0.0, 0.0)), (names["PanelA"], (0.995, 0.005, 0.0, 0.0)),
+                              (0, (1.0, 0.0, 0.0, 0.0)), (len(f.blocks) - 1, (1.0, 0.0, 0.0, 0.0))):
+            _, shapes, read_skin = self.skinned(f, bone, weights, second=names["PanelB"] if weights[1] else None)
+            if weights[1]:                                               # vertex weights across PanelA and PanelB
+                inner = read_skin
+                read_skin = (lambda inner: lambda src, block: (lambda k: k and replace(
+                    k, indices=[(0, 1, 0, 0)] * len(k.weights)))(inner(src, block)))(inner)
             if bone == 0:                                                # the root is a rig bone: rebinding is fine
                 self.assertEqual(self.convert(f, shapes, read_skin)[1]["rig"], "native")
                 continue

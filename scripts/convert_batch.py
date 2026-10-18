@@ -155,6 +155,17 @@ def static_body_models(cell):
                   key=str.lower)
 
 
+def checkpoint_key(key, name, load_models, static_models):
+    """The checkpoint identity of one conversion: the mesh (or posed-variant) key plus the record-driven classes that
+    change its output (load door, static body), so a cell export that reclassifies a mesh is a cache miss (Codex review
+    of #354: a RoofHatch01 primed without an XTEL was reused, without load_door, after its XTEL appeared). A mesh in
+    neither class keeps its plain key, so existing checkpoints stay valid."""
+    low = name.replace("/", "\\").lower()
+    tags = [t for t, models in (("load_door", load_models), ("static_body", static_models))
+            if low in {m.replace("/", "\\").lower() for m in models}]
+    return "|".join([key] + tags)
+
+
 def write_json_atomic(path, value):
     fd, temporary = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".fo4port-")
     try:
@@ -264,7 +275,8 @@ def main():
         if not a.cell_json and re.search(r"(lod|_dmg|damaged|destr)", name, re.I):
             skipped += 1
         else:
-            r = cache.load(name) if cache else None
+            ckey = checkpoint_key(name, name, load_models, static_models)
+            r = cache.load(ckey) if cache else None
             if r is not None:
                 reused += 1
             else:
@@ -280,7 +292,7 @@ def main():
                 r = conv.convert_nif(name)
                 if cache:
                     try:
-                        cache.save(name, r)
+                        cache.save(ckey, r)
                     except (OSError, ValueError) as e:
                         print(f"  checkpoint unavailable for {name}: {e}")
             attempted_so_far += 1
@@ -312,7 +324,7 @@ def main():
         variants, pose_stats = placed_pose.plan(cell["refs"], by_source, lambda name: src.mesh(name))
         for v in variants:
             base = by_source[source_identity(v.source).replace("/", "\\")]
-            key = f"{v.source}|xrgd:{v.key}"
+            key = checkpoint_key(f"{v.source}|xrgd:{v.key}", v.source, load_models, static_models)
             r = cache.load(key) if cache else None
             if r is not None:
                 reused += 1

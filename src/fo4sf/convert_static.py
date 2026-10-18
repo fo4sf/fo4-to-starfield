@@ -461,13 +461,18 @@ def _apply(transform, point):
     return tuple(s * (r[3 * i] * point[0] + r[3 * i + 1] * point[1] + r[3 * i + 2] * point[2]) + t[i] for i in range(3))
 
 
+RIGID_SKIN_TOLERANCE = 1e-3   # weight a rigid vertex may put on other bones: half-float rounding, not a blend
+# (Codex on #354: 0.995 / 0.005 across two bones was accepted and drifted 5 cm from real skinning at 10 m of travel)
+
+
 def rigid_skinned_parts(src, shape, bones):
     """A skinned door shape whose every drawn vertex follows one bone fully, cut into one piece per bone and re-expressed
     in that bone's space so the rig carries each piece as an ordinary attachment: [(bone index, shape), ...] or None.
     Weight 1 on one bone makes skinning bone_world * skin_to_bone, so bone-local positions are skin_to_bone(stored) and a
     piece moves exactly as FO4 draws it, at any pose (RedRPedDoor.nif, PC check 2026-10-18: Door:0 is wholly on b_Door,
-    Door:7 has 363 vertices on b_Door and 118 on b_Handle, none blended). Blended vertices, a triangle across two bones
-    or a bone outside the rig give None."""
+    Door:7 has 363 vertices on b_Door and 118 on b_Handle, none blended). A vertex putting more than
+    RIGID_SKIN_TOLERANCE of its weight on other bones (a blend), a triangle across two bones or a bone outside the rig
+    give None."""
     from . import fo4skin
     try:
         skin = fo4skin.read_skin(src, shape.block)
@@ -477,14 +482,19 @@ def rigid_skinned_parts(src, shape, bones):
         return None
     slot_of = {}
     for v in {i for t in shape.triangles for i in t}:
-        ws, ks = skin.weights[v], skin.indices[v]
-        total = sum(ws)
+        per_bone = {}                              # weights summed per bone node (two slots may name one bone)
+        for w, k in zip(skin.weights[v], skin.indices[v]):
+            if w:
+                if not 0 <= k < len(skin.bones):
+                    return None
+                per_bone.setdefault(skin.bones[k], [0.0, k])[0] += w
+        total = sum(w for w, _ in per_bone.values())
         if total <= 0:
             return None
-        top = max(range(len(ws)), key=lambda j: ws[j])
-        if ws[top] / total < 0.99 or not 0 <= ks[top] < len(skin.bones):
+        bone = max(per_bone, key=lambda b: per_bone[b][0])
+        if total - per_bone[bone][0] > RIGID_SKIN_TOLERANCE * total:     # a real blend, however small: refuse
             return None
-        slot_of[v] = ks[top]
+        slot_of[v] = per_bone[bone][1]
     by_slot = {}
     for t in shape.triangles:
         slots = {slot_of[i] for i in t}
