@@ -974,6 +974,17 @@ def walk_test(n, w, exp_dir):
     return with_extras(t, w, {})
 
 
+def speedmult_tests(tests, a):
+    """--speedmult: every test reads the player's speedmult, sets it to 100 and reads it again before the travel
+    (console_plan.SPEEDMULT_PRE); the judge makes a test that does not start at 100 INCONCLUSIVE RUNCOND."""
+    if not getattr(a, "speedmult", False):
+        return tests
+    try:
+        return [console_plan.with_speedmult(t) for t in tests]
+    except ValueError as e:
+        sys.exit(str(e))
+
+
 def plan_walk(a):
     """walk tests from <exp-dir>/plan.json (a list, or {"tests": [...]}); see walk_test."""
     staging = os.path.abspath(a.staging)
@@ -991,6 +1002,7 @@ def plan_walk(a):
                  "pinned here and checked against the install record when a result is recorded")
     cli = light_cli(a)
     tests = [with_extras(walk_test(n, w, os.path.abspath(a.exp_dir)), w, cli) for n, w in enumerate(src)]
+    tests = speedmult_tests(tests, a)
     digest = sha256(esm)
     world = os.path.abspath(a.install_exp or a.exp_dir)   # the terrain experiment the walk happens on
     try:
@@ -1115,7 +1127,7 @@ def plan_movable(a):
         sys.exit(f"no movable_control tests in {os.path.join(a.exp_dir, 'plan.json')} (a list of test objects)")
     formids = load(os.path.join(staging, "formids.json"), {})
     items = {it["source"].lower(): it for it in load(os.path.join(staging, "manifest.json"), {"items": []})["items"]}
-    tests = [movable_test(n, w, formids, items, a.plugin_index) for n, w in enumerate(src)]
+    tests = speedmult_tests([movable_test(n, w, formids, items, a.plugin_index) for n, w in enumerate(src)], a)
     labels = [t["ref"] for t in tests]
     if len(set(labels)) != len(labels):
         sys.exit(f"duplicate labels in plan.json: {sorted({x for x in labels if labels.count(x) > 1})}")
@@ -1179,7 +1191,14 @@ def judge(test, obs, out_dir):
     median, else the arrival camera after the commands) becomes INCONCLUSIVE NIGHT, or INCONCLUSIVE LIGHT when nothing
     was read; both are retried (another arrival can read differently). A FAIL stays a FAIL."""
     v, cls, detail = judge_kind(test, obs, out_dir)
-    con, _ = console_plan.summary(test, obs)              # console_pre / console_post replies: shown, never judged
+    sm = console_plan.speedmult_condition(test, obs) if obs and not obs.get("stopped") else None
+    if sm is not None and not sm[0] and v in ("PASS", "FAIL"):
+        # the run condition (console_plan.speedmult_condition): a walk at another speed is not a walk at the speed its
+        # limits assume, whatever the judge made of it; the kind's verdict is kept in the detail
+        v, cls, detail = "INCONCLUSIVE", "RUNCOND", f"{sm[1]}; the judge said {v} {cls}: {detail}"
+    elif sm is not None:
+        detail = f"{detail} [{sm[1]}]"
+    con, _ = console_plan.summary(test, obs)              # other console replies: shown, never judged
     if con and obs:
         detail = f"{detail} {con}"
     act = activate_summary(test, obs)
@@ -2071,7 +2090,42 @@ def control_gate(qdir, q, test, verdict, cls, detail):
     return "INCONCLUSIVE", "CONTROL", f"{'; '.join(refused)}; {raw}"
 
 
+def dedicated_save(saves, name):
+    """The dedicated save's file (the console's `save <name>` writes <name>.sfs), matched by its exact name, any case;
+    None when there is none. The old glob *<name>* also took fo4sf_test_<id>.sfs.bak (a save set aside by hand,
+    2026-10-17: the runner kept loading the save it was meant to replace) and fo4sf_test_<id>_s100.sfs."""
+    want = f"{name}.sfs".casefold()
+    try:
+        names = os.listdir(saves)
+    except OSError:
+        return None
+    return next((os.path.join(saves, n) for n in sorted(names) if n.casefold() == want), None)
+
+
 # ----------------------------------------------------------------------------------------------------------- controls
+TICK_FRESH_S = 900     # a chain's next queue starts within seconds of the last one's input; an older tick is stale
+
+
+def read_tick_file(path, now_wall, tick_now):
+    """The runner's last input tick from last_sent_tick.txt ("<tick> <unix time written>"), or None when there is
+    none to trust: no file, the old format without a time (its age is unknown), written more than TICK_FRESH_S ago or
+    in the future, or a tick after the current one (the PC restarted since). A stale tick is not ignored for safety
+    alone: compared with any input the owner gave since, it reads as foreign input and stops the run before it starts.
+    tick_now is called only for a fresh record (GetTickCount, Windows)."""
+    try:
+        with open(path) as f:
+            parts = f.read().split()
+        tick, written = int(parts[0]), float(parts[1])
+    except (OSError, ValueError, IndexError):
+        return None
+    if not 0 <= now_wall - written <= TICK_FRESH_S:
+        return None
+    ago = (tick_now() - tick) & 0xFFFFFFFF                 # ms since the tick, wrapping as GetTickCount does
+    if ago > (now_wall - written + 60) * 1000:             # more than the wall clock says: a restart or a reused file
+        return None
+    return tick
+
+
 class Controls:
     """The owner's PC-use controls and the game process (Windows). Replaced by a fake in the unit tests."""
     state_dir = os.environ.get("FO4_AI_TEAM_STATE") or os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"),
@@ -2079,13 +2133,11 @@ class Controls:
 
     def __init__(self, queue_dir):
         self.queue_dir = queue_dir
-        # shared by the queues of one chain (same parent folder): input sent by the previous queue is not the owner's
+        # shared by the queues of one chain (same parent folder): input sent by the previous queue is not the owner's.
+        # Only a fresh tick counts (read_tick_file): one left by a run that ended earlier made every later run in that
+        # folder stop at once with "owner input detected" (2026-10-17, D:\Modding\testqueue_1019)
         self.tick_file = os.path.join(os.path.dirname(os.path.abspath(queue_dir)), "last_sent_tick.txt")
-        self.last_sent_tick = None
-        try:
-            self.last_sent_tick = int(open(self.tick_file).read().strip())
-        except (OSError, ValueError):
-            pass
+        self.last_sent_tick = read_tick_file(self.tick_file, time.time(), self._tick)
 
     def stop_file(self):
         for p in stop_files(self.queue_dir):
@@ -2125,7 +2177,9 @@ class Controls:
         self.last_sent_tick = self._tick()
         try:
             with open(self.tick_file, "w") as f:
-                f.write(str(self.last_sent_tick))
+                # the tick and when it was written (wall clock, unrounded: a time rounded up and read back at once
+                # looked future-dated to read_tick_file)
+                f.write(f"{self.last_sent_tick} {time.time()!r}")
         except OSError:
             pass
 
@@ -2359,7 +2413,7 @@ class PreflightProbe:
         dirs = [d for d in self.saves_dirs() if os.path.isdir(d)]
         if not dirs:
             return None
-        return any(glob.glob(os.path.join(d, f"*{name}*")) for d in dirs)
+        return any(dedicated_save(d, name) for d in dirs)          # the runner's own rule: <name>.sfs exactly
 
     def ini_texts(self):
         """Lowest precedence first: the game folder's Starfield.ini, then StarfieldCustom.ini in My Games (the game
@@ -2920,13 +2974,13 @@ class Runner:
         name = self.q["save"]
         sd = os.path.join(self.qdir, "_session")
         os.makedirs(sd, exist_ok=True)
-        if glob.glob(os.path.join(saves, f"*{name}*")):
+        if dedicated_save(saves, name):
             code = self.step({"kind": "load", "name": name}, sd)
             self.log(f"loaded the dedicated save {name}: exit {code}")
             self.cell = None                              # the save's cell; coc follows
         else:
             code = self.step({"kind": "save", "name": name}, sd)
-            found = glob.glob(os.path.join(saves, f"*{name}*"))
+            found = dedicated_save(saves, name)
             self.log(f"created the dedicated save {name}: exit {code}, file {'found' if found else 'NOT found'}")
             self.state["save_file"] = bool(found)
             if found and self.lease:                      # section 10: the save is the build's recovery point
@@ -3022,13 +3076,19 @@ class Runner:
 
     def ledger_event(self, make):
         """With a lease folder, append the event make() returns to the ledger there, skipping an event whose src key
-        the ledger already holds (a resumed run queues nothing twice). A failure is logged once and never stops the
-        run: the ledger is evidence, not control, and import_queue recovers the events from the queue files."""
+        the ledger already holds (a resumed run queues nothing twice). Before the first event the ledger is read once
+        and runner_events.check_binding refuses a queue folder whose name the ledger already binds to another folder
+        holding another queue: another build, another plan or results that disagree (the importer's rule): nothing of such a run is written, so the two queues never fold
+        into one task. A failure is logged once and never stops the run: the ledger is evidence, not control, and
+        import_queue recovers the events from the queue files."""
         if not self.lease or self.ledger_failed:
             return
         try:
             if self.ledger_seen is None:
-                self.ledger_seen = self.lease.ctl.ledger.sources()
+                events = self.lease.ctl.ledger.read()
+                rows = self.lease.events.results_rows(os.path.join(self.qdir, "results.jsonl"))[0]
+                self.lease.events.check_binding(events, self.qdir, self.q, rows)   # section 10: a rebuilt queue under a bound name
+                self.ledger_seen = {e.get("src") for e in events if e.get("src")}
             ev = make()
             if ev is None:
                 return
@@ -3040,7 +3100,10 @@ class Runner:
                 self.ledger_seen.add(src)
         except (OSError, ValueError) as e:
             self.ledger_failed = True
-            self.log(f"ledger: {e}: no more events are written this run (import_queue recovers them from the queue files)")
+            if isinstance(e, self.lease.events.CampaignBound):
+                self.log(f"ledger: {e}: nothing of this run is written to the ledger")
+            else:
+                self.log(f"ledger: {e}: no more events are written this run (import_queue recovers them from the queue files)")
 
     def record(self, rec):
         """Append one results.jsonl row (every attempt; PRECONDITION and BREAKER rows too) and, with a lease folder,
@@ -3496,6 +3559,9 @@ def main(argv=None):
     pm.add_argument("--plugin-index", default="02")
     pm.add_argument("--only", type=int, default=0, help="keep the first N tests")
     pm.add_argument("--fresh", action="store_true", help="relaunch the game before every test")
+    pm.add_argument("--speedmult", action="store_true",
+                    help="read the player's speedmult, set it to 100 and read it again before every test's travel; a "
+                         "test that does not start at 100 is INCONCLUSIVE RUNCOND (runner feature speedmult)")
     pw = sub.add_parser("plan-walk", help="walk tests (a continuous walk over planned waypoints) from <exp-dir>\\plan.json "
                                           "(docs/terrain/walk-redrocket-sanctuary.md)")
     pw.add_argument("--staging", required=True)
@@ -3508,6 +3574,9 @@ def main(argv=None):
     pw.add_argument("--install-exp", default="", help="experiment folder those plugins come from (default --exp-dir)")
     pw.add_argument("--only", type=int, default=0, help="keep the first N tests")
     pw.add_argument("--fresh", action="store_true", help="relaunch the game before every test")
+    pw.add_argument("--speedmult", action="store_true",
+                    help="read the player's speedmult, set it to 100 and read it again before every test's travel; a "
+                         "test that does not start at 100 is INCONCLUSIVE RUNCOND (runner feature speedmult)")
     for sp in (p, pt, pn, pd, pw, pm):                    # the observation bridge for every kind (docs/ai/test-queue.md)
         sp.add_argument("--bridge", default="", help="staged bridge folder (make_bridge.py stage): positions from the "
                                                      "game's own log instead of console captures; runner feature bridge")

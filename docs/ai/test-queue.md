@@ -320,6 +320,14 @@ at most 12 per list):
   id in decimal, offsets `-?\d{1,5}(.\d{1,3})?` m). A MoveTo can load another cell, so after it the step waits up to 90 s
   for the HUD before the next line (`obs.console[k]`: `hud_back`, `load_s`, `console_<k>_hud.png`; `MOVETO_S` in the
   step timeout). Runner feature `probe_moveto`: an older runner refuses such a queue before launching.
+- the walk's run condition (2026-10-17): `player.getav speedmult` and `player.setav speedmult 100` (no other value).
+  `plan-walk` / `plan-movable --speedmult` put `player.getav speedmult`, `player.setav speedmult 100`,
+  `player.getav speedmult` first in every test's `console_pre`. The judge (`console_plan.speedmult_condition`) reads
+  the last value before the travel (reply `GetActorValue: SpeedMult >> <n>`, **supported hypothesis**, not yet seen in a
+  Starfield capture): anything but 100 (within 0.5), or no value read, turns a PASS or FAIL into INCONCLUSIVE `RUNCOND`
+  with the kind's verdict and every read in the detail. Why: the first automated walk on 1d4591b6 moved about 14 m/s
+  against the calibrated 4.6 m/s and was judged STUCK and JUMP; a speedmult the save brought is the suspected cause. The
+  reset lasts the session only: the runner never saves after the start. Runner feature `speedmult`.
 
 Anything else (`qqq`, `player.additem ...`, `coc ...`, `tgm`, a `;` or `|` inside a line, unquoted names, curly quotes, a
 trailing newline) is refused; `tests/test_console_plan.py` lists the cases.

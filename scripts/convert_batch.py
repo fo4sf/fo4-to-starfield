@@ -46,6 +46,8 @@ def checkpoint_signature(a):
         sig["prefix"] = a.prefix
     if getattr(a, "door_anim_dll", "") and a.starfield_data:   # multi-part doors get their own rig and clips
         sig["door_anim_dll"] = checkpoints.digest(Path(a.door_anim_dll))
+    if getattr(a, "spec_mask_roughness", False):        # rougher outputs differ; off keeps existing checkpoints valid
+        sig["spec_mask_roughness"] = True
     caps = textures.parse_texture_caps(getattr(a, "max_texture", ""))
     if caps:                                            # capped outputs differ; no cap keeps existing checkpoints valid
         sig["max_texture"] = caps
@@ -182,6 +184,9 @@ def main():
                     help="cap converted textures by dropping top mip levels: one size for every kind ('1024') or per "
                          "kind ('color=1024,normal=512,rough=256,opacity=512'); default: full resolution. The full and "
                          "written size of every texture go to <staging>/texture_log.json")
+    ap.add_argument("--spec-mask-roughness", action="store_true",
+                    help="roughness also follows FO4's specular mask (smooth-spec R), so dull surfaces with high gloss "
+                         "stay rough; default off (the gloss alone, as every build so far)")
     a = ap.parse_args()
     if not re.fullmatch(r"[a-z0-9_]+", a.prefix):
         ap.error("--prefix: lower-case letters, digits and _ only")
@@ -243,7 +248,8 @@ def main():
                                               rig_doors=donor is not None, door_physics_donor=donor,
                                               sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
                                               prefix=a.prefix, max_texture=a.max_texture,
-                                              door_anim_dll=a.door_anim_dll or None)
+                                              door_anim_dll=a.door_anim_dll or None,
+                                              spec_mask_roughness=a.spec_mask_roughness)
                 r = conv.convert_nif(name)
                 if cache:
                     try:
@@ -289,7 +295,8 @@ def main():
                                               rig_doors=donor is not None, door_physics_donor=donor,
                                               sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
                                               prefix=a.prefix, max_texture=a.max_texture,
-                                              door_anim_dll=a.door_anim_dll or None)
+                                              door_anim_dll=a.door_anim_dll or None,
+                                              spec_mask_roughness=a.spec_mask_roughness)
                 r = conv.convert_nif(v.source, pose=v.overrides, out_suffix=v.suffix)
                 if cache:
                     try:
