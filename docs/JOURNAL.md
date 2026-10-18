@@ -1646,6 +1646,12 @@ so the pinned overlay LCTN has empty `LCSR`/`LCID` and 0 MapMarker refs among 65
 Plan: restore one persistent MapMarker at the Red Rocket COC with LC172 `FNAM`/`TNAM`, one `LCSR` + `LCID`; do not stamp
 a PCM landing overlay. Frontier hang after that restore is **unresolved** (Claude in-game). FO4 `XMRK` **unresolved**.
 Evidence: [docs/terrain/map-markers.md](terrain/map-markers.md), `src/fo4sf/map_markers.py`, `tests/test_map_markers.py`.
+
+Writer (same day, `grok/map-marker-restore`): TerrainOverlays Duplicates LC172's MapMarker `REFR` `003E5E12`, sets it
+persistent+initially-disabled (`0xC00`) at the COC spawn, `FULL` "Red Rocket", `LCSR` MapMarkerRefType + `LCID` with
+Grid from spawn_cell and Unknown -1 (`0xFFFFFFFF` tail). Skips when the master has no `003E5E12`. New FormIDs after
+doors/lights. In-game overlay: Claude.
+
 ## 2026-10-16 (night, Mountain time) - Claude: Step 0 probes and the first scripted door
 
 **Probes (queues door_probe_1017 and door_probe_1017e; bridge_t2; core64i / core64k; Starfield 1.16.244).**
