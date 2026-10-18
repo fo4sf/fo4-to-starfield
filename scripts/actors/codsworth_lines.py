@@ -39,6 +39,16 @@ def read_ilstrings(data: bytes) -> dict:
     return out
 
 
+def ctda_true_when_matched(d: bytes) -> bool:
+    """A GetIsID CTDA that holds when the speaker IS the target: byte 0 high 3 bits are the operator (0 ==, 1 !=, 2 >,
+    3 >=, 4 <, 5 <=), bit 0x04 means the comparison value is a global (not decoded: refused), f32 value at byte 4."""
+    flags = d[0]
+    if flags & 0x04:
+        return False
+    op, value = flags >> 5, struct.unpack_from("<f", d, 4)[0]
+    return {0: value == 1.0, 1: value == 0.0, 2: 0.0 <= value < 1.0, 3: 0.0 < value <= 1.0}.get(op, False)
+
+
 def quests(p: Plugin) -> dict:
     span = p.top_group(b"QUST")
     out = {}
@@ -95,7 +105,7 @@ def infos(p: Plugin, stats: Counter = None):
                 number = None
             elif s == b"CTDA" and len(d) >= 16:
                 func, = struct.unpack_from("<H", d, 8)
-                if func == GET_IS_ID:
+                if func == GET_IS_ID and ctda_true_when_matched(d):
                     ids.append(struct.unpack_from("<I", d, 12)[0])
         yield (*topic, fid, responses, ids)
 
