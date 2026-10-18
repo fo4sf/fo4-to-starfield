@@ -71,7 +71,7 @@ def cmd_probe(a):
 
 
 def cmd_extract(a):
-    with open(a.lines, encoding="utf-8") as f:
+    with open(a.lines, encoding="utf-8", newline="") as f:
         rows = list(csv.DictReader(f, delimiter="\t"))
     chosen = pick(rows, a.count, a.infos.split(",") if a.infos else None)
     arch = Ba2(a.voices)

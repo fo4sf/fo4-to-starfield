@@ -13,6 +13,7 @@ parameter 1 at byte 12. ILSTRINGS: u32 count, u32 data size, count x (u32 id, u3
 Writes <out>/codsworth_lines.tsv and prints counts per quest and topic subtype plus a suggested first batch.
 """
 import argparse
+import csv
 import os
 import struct
 import sys
@@ -150,10 +151,10 @@ def main(argv=None):
         print("expected but not in the archive, e.g.:", missing, "archive sample:",
               sorted(f for f in files if f.startswith(VOICE_DIR))[:3])
     os.makedirs(a.out, exist_ok=True)
-    with open(os.path.join(a.out, "codsworth_lines.tsv"), "w", encoding="utf-8") as f:
-        f.write("quest\tsubtype\ttopic\tinfo\tresponse\tvoice\ttext\n")
-        for r in rows:
-            f.write("\t".join(str(v) for v in r) + "\n")
+    with open(os.path.join(a.out, "codsworth_lines.tsv"), "w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f, delimiter="\t")          # quotes tabs, newlines and quotes; read back with csv (voice tool)
+        w.writerow(["quest", "subtype", "topic", "info", "response", "voice", "text"])
+        w.writerows(rows)
     print(f"{len(rows)} voiced Codsworth responses")
     print("by quest:", dict(Counter(r[0] for r in rows).most_common(15)))
     print("by subtype:", dict(Counter(r[1] for r in rows).most_common(20)))

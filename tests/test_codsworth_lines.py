@@ -68,7 +68,7 @@ class CodsworthLinesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             d = Path(d)
             (d / "Fallout4.esm").write_bytes(esm)
-            (d / "Fallout4_en.ILSTRINGS").write_bytes(ilstrings({1: "Good morning, mum!", 2: "No file", 3: "Sir!", 4: "Generic"}))
+            (d / "Fallout4_en.ILSTRINGS").write_bytes(ilstrings({1: "Good morning, mum!\nSecond\tline \"quoted\"", 2: "No file", 3: "Sir!", 4: "Generic"}))
             (d / "v.ba2").write_bytes(general_archive({
                 "Sound\\Voice\\Fallout4.esm\\RobotMrHandy\\00000011_1.fuz": b"x",
                 "Sound\\Voice\\Fallout4.esm\\RobotMrHandy\\00000031_1.fuz": b"x",
@@ -79,11 +79,16 @@ class CodsworthLinesTest(unittest.TestCase):
                 "Sound\\Voice\\Fallout4.esm\\RobotMrHandy\\00000025_1.fuz": b"x"}))
             self.assertEqual(cl.main(["--esm", str(d / "Fallout4.esm"), "--voices", str(d / "v.ba2"), "--strings", str(d),
                                       "--out", str(d / "out")]), 0)
-            rows = (d / "out" / "codsworth_lines.tsv").read_text(encoding="utf-8").splitlines()[1:]
+            import csv
+            with open(d / "out" / "codsworth_lines.tsv", encoding="utf-8", newline="") as f:
+                read = list(csv.DictReader(f, delimiter="\t"))
+            rows = ["\t".join(r.values()) for r in read]
         self.assertEqual([r.split("\t")[3] for r in rows], ["00000031", "00000011", "00000021", "00000024"])
         # 12 has no file, 22 no condition, 23 GetIsID == 0 (excludes him); 24 GetIsID != 0 (him); 25 run on Target (not the speaker)
         self.assertTrue(rows[0].startswith("COMCodsworth\tGREE"))                # quest from the enclosing group
-        self.assertTrue(rows[1].endswith("Good morning, mum!"))
+        self.assertEqual(read[1]["text"], 'Good morning, mum!\nSecond\tline "quoted"')   # exact round trip
+        self.assertEqual((read[1]["info"], read[1]["response"], read[1]["voice"]),
+                         ("00000011", "1", "sound\\voice\\fallout4.esm\\robotmrhandy\\00000011_1.fuz"))
 
 
 if __name__ == "__main__":
