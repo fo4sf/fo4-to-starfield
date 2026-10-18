@@ -653,6 +653,18 @@ class ItemPromotionTests(unittest.TestCase):
         self.assertEqual(res[:2], [True, False])                                           # a reference lost in promotion
         res = [ok for _w, ok in mk.promotion_checks(recs[:-1], own, objects, ids, exp)]
         self.assertFalse(res[0])                                                           # one REFR short
+        marked = dict(ids, map_marker_refs={"W": {"RedRocket": "00080C", "Concord": "00080D"}})
+        res = mk.promotion_checks(recs + [{"sig": "REFR", "fid": own | 0x80C + k, "flags": 0, "fields": []}
+                                          for k in range(2)], own, objects, marked, exp)
+        self.assertTrue(res[0][1] and "2 map markers" in res[0][0], res[0])            # the map markers counted
+        self.assertFalse(mk.promotion_checks(recs, own, objects, marked, exp)[0][1])
+
+    def test_params_view_leaves_out_map_markers(self):
+        core = {"plugin": "P.esm", "overlays": [{"world": "W", "spawn": [1, 2, 3]}]}
+        staged = {"plugin": "P.esm", "objects": "objects.json",
+                  "overlays": [{"world": "W", "spawn": [1, 2, 3], "map_markers": [{"tag": "RedRocket"}]}]}
+        self.assertEqual(mk.core_params_view(staged), core)
+        self.assertNotEqual(mk.core_params_view(dict(staged, overlays=[{"world": "X", "map_markers": []}])), core)
 
 
 class ItemValidationReviewTests(unittest.TestCase):
@@ -1614,6 +1626,16 @@ class DoorPromotionTests(unittest.TestCase):
                "doors": {"000002:Fallout4.esm": {"base": "00080D", "ref": "000803", "arrival": "00080C"}},
                "navmeshes": ["000808", "000809"], "lights": {"L1": {"base": "00080B", "ref": "00080A"}}}
         return objects, ids
+
+    def test_map_markers_after_the_doors_keep_the_identity_checks(self):
+        # the PC's full cluster build (#328): formids.json map_marker_refs {world: {tag: id}} is not a promoted class
+        objects, ids = self.ids()
+        ids["map_markers"] = {"W": "00080E"}
+        ids["map_marker_refs"] = {"W": {"RedRocket": "00080E", "Sanctuary": "00080F"}}
+        mk.check_reference_slots(objects, ids)
+        mk.check_light_identities(objects, ids)
+        mk.check_door_identities(objects, ids)
+        self.assertNotIn(0x80E, mk.ids_before(ids, mk.APPENDED))
 
     def test_door_identities_after_the_lights_and_the_slot_kept(self):
         objects, ids = self.ids()

@@ -56,8 +56,10 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   planet map. Whether restoring one marker unsticks Frontier travel (a ship location) is **unresolved** until Claude
   runs a scratch overlay.
 - FO4 `XMRK` bytes: **unresolved** (`Fallout4.esm` not on this machine).
-- GO: one persistent MapMarker at the Red Rocket COC, LC172 `FNAM`/`TNAM`, `LCSR` MapMarkerRefType + `LCID`; do not
-  stamp a PCM landing overlay. NOT go: FO4 marker promotion, ship pads, swapping unique overlay for landing overlay.
+- GO, **implemented offline**: TerrainOverlays Duplicates LC172 MapMarker `003E5E12`, parks it at the COC in
+  `TopCell.Persistent`, fills `LCSR` MapMarkerRefType + `LCID`; FormIDs after doors/lights. Do not stamp a PCM landing
+  overlay. NOT go: FO4 marker promotion, ship pads, swapping unique overlay for landing overlay. In-game icon / Frontier
+  hang: **unresolved** until Claude's scratch overlay.
   Doc: [docs/terrain/map-markers.md](../terrain/map-markers.md).
 
 ## 2026-10-16 Claude: posed props in the pinned interiors (owner playtest rows 4 c and 5)
