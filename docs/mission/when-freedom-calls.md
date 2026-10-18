@@ -96,13 +96,13 @@ template run without its outpost, and how he behaves (sandbox, hover, idle). No 
 Check in game: travel to Sanctuary; a robot named Codsworth hovers near his house, does not attack, and stays.
 
 **His voice (18 Oct, from the Codsworth thread, PR #361):** `stage --codsworth-voice <codsworth_voice.py output>` reads
-lines.tsv, gives each line a WEMFile id (0F4C0001 on) and copies its `<info>_<response>.wem` to
+lines.tsv, gives each line a WEMFile id (00F4C001 on, below 0x01000000 like vanilla's) and copies its `<info>_<response>.wem` to
 `sound\voice\fo4sfmission.esm\robotminibota\<wemfile>.wem` (he inherits RobotMiniBotA). The writer adds DIAL
-FO4SF_CodsworthHellos (0x820, Misc / Hello) in the mission quest with one INFO per line (0x821 on, Random and
-CanMoveWhileGreeting), each said only by him (GetIsID on the subject), "sir" lines to a male player and "mum" lines to a
-female one (GetIsSex on the target). **Supported hypothesis:** vanilla voice files are named by the response's WEMFile, not
-by the INFO id (the PC's `infos` dump: no INFO 0E6020 exists, yet starfield.esm\robotminibota\000e6020.wem does, and the
-mini bot's INFOs carry WEMFile values such as 00124CBB). **Unresolved:** whether Wwise 2026 .wem files decode in game.
+FO4SF_CodsworthHellos (0x820, Misc / Hello) in the mission quest with one INFO per line (0x821 on, flags Random as
+vanilla's mini bot Hellos), each said only by him (GetIsID on the subject), "sir" lines to a male player and "mum" lines to a
+female one (GetIsSex on the target). **Verified** (the PC's `infos wem:...` dump): all 20
+starfield.esm\robotminibota .wem names are the WEMFile of a vanilla INFO, e.g. BE_KT03's survey bot Hellos (DIAL 025C46,
+Misc / Hello, INFO flags Random, WEMFile 00D8DA42 and others); they are not INFO form ids (0E6020 is a REFR). **Unresolved:** whether Wwise 2026 .wem files decode in game.
 
 **His own model (18 Oct, from the Codsworth thread, PR #361):** `make_mission.py stage --codsworth-assets <convert_codsworth.py
 output>` copies its meshes, geometries, materials and textures into the stage's Data (not its report) and pins each in

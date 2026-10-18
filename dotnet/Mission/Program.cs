@@ -93,8 +93,8 @@ static class Mission
     // only that ARMA, set as his WNAM. Ids follow the ACHR.
     public const uint CodsworthArmaId = 0x812, CodsworthSkinId = 0x813, MiniBotArmaId = 0x081886, MiniBotSkinId = 0x3FFD3A;
     // his voice (Codsworth thread, PR #361): a Hello DIAL in the mission quest with one INFO per FO4 line, said by him
-    // only. Each response's WEMFile names its .wem (supported hypothesis from vanilla: no INFO 0E6020 exists, but
-    // starfield.esm\robotminibota\000e6020.wem does, so the files are named by WEMFile, not by INFO id).
+    // only. Each response's WEMFile names its .wem: verified on the PC, all 20 starfield.esm\robotminibota\*.wem names
+    // are the WEMFile (8 lowercase hex digits) of an INFO, e.g. BE_KT03's Hellos (DIAL 025C46, Misc / Hello, flags Random).
     public const uint CodsworthDialId = 0x820, FirstCodsworthInfoId = 0x821;
     public const string CodsworthDialEdid = "FO4SF_CodsworthHellos";
     public const string CodsworthArmaEdid = "FO4_AA_Codsworth", CodsworthSkinEdid = "FO4_Skin_Codsworth",
@@ -520,7 +520,7 @@ static class Mission
                 var info = new SF.DialogResponses(new FormKey(modKey, id++), SF.StarfieldRelease.Starfield)
                 {
                     EditorID = $"FO4SF_Codsworth_{l.Fo4Info}_{l.Response}",
-                    Flags = new SF.DialogResponseFlags { Flags = (short)(SF.DialogResponses.Flag.Random | SF.DialogResponses.Flag.CanMoveWhileGreeting) },
+                    Flags = new SF.DialogResponseFlags { Flags = (short)SF.DialogResponses.Flag.Random },   // as vanilla's mini bot Hellos (BE_KT03)
                 };
                 info.Responses.Add(new SF.DialogResponse { ResponseText = l.Text, WEMFile = l.Wem });
                 info.Conditions.AddRange(VoiceConditions(cods.FormKey, l.Sex));

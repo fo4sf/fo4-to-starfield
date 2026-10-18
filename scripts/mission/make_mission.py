@@ -49,8 +49,8 @@ SCRIPT = "FO4SF_Min00Quest"
 ASSET_DIRS = ("meshes", "geometries", "materials", "textures")
 CODSWORTH_MESH = "fo4port\\actors\\codsworth\\codsworth.nif"
 # his voice (scripts/actors/codsworth_voice.py, PR #361): lines.tsv plus wem\Windows\<info>_<response>.wem. Each line
-# gets a WEMFile id and its file is named by it under his voice type's folder (supported hypothesis from the vanilla
-# layout: starfield.esm\robotminibota\000e6020.wem exists, no INFO 0E6020 does). He inherits RobotMiniBotA.
+# gets a WEMFile id and its file is named by it under his voice type's folder (verified on the PC: all 20 vanilla
+# robotminibota names are INFO WEMFile values, all below 0x01000000, so ours are too). He inherits RobotMiniBotA.
 VOICE_DIR = "sound/voice/" + PLUGIN.lower() + "/robotminibota"
 FIRST_WEM = 0x00F4C001
 STAGES = (10, 20, 30, 40, 200)
