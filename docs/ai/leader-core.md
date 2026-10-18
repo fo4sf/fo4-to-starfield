@@ -91,9 +91,11 @@ of it is written (exit 1, the others still import): a `queue.json` has a `tests`
 `plugins` (exp) or `plugin` (bridge), a deploy manifest has an `artifacts` object and pins a build
 (`import_queue.SHAPES`), so a mistyped path never reads as "already imported" and a deploy manifest given as
 `--install` never reads as "no plugins", while a planned queue with no `results.jsonl` yet is fine; a queue folder
-whose name the ledger already binds to another folder with a different build, or with no build to compare, is refused
+whose name the ledger already binds to another folder with a different build, no build to compare, or another plan, is refused
 the same way (`CampaignBound`: a different queue under the same name is a different campaign, rename the folder), while
-the same queue relocated or archived, same build, imports under its campaign; the eight bullets of the resulting fold
+the same queue relocated or archived imports under its campaign: same build, same plan (`queue_identity`: the planned
+queue's created time, build pin and tests, carried as `queue_id` on its task events) and results that agree line for
+line with the rows already imported (one build is not enough: two queues planned against it can test other refs); the eight bullets of the resulting fold
 follow.
 
 ## 4. Bounded, resumable tasks (one cloud session each)

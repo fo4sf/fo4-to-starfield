@@ -220,6 +220,31 @@ class RunnerLedgerTests(unittest.TestCase):
         self.assertEqual({k: (v["outcome"], v["build_id"]) for k, v in s.tasks.items()}, {f"{name}/0000_fall": ("PASS", "ffffffff")})
         self.assertEqual(s.campaigns, {name})
 
+    def test_the_live_check_needs_the_same_plan_and_agreeing_rows(self):
+        # runner_events.check_binding is the importer's rule (Codex review 5558689652): the same build is not enough
+        from fo4sf.core import runner_events as rev
+        name = "door_trip"
+        a = os.path.join(self.d, "a", name)
+        os.makedirs(a)
+        q = {"created": "2026-10-15T10:00:00", "build_id": "aaaaaaaa", "plugin_sha256": "aa" * 32,
+             "tests": [{"id": "door_1", "kind": "door_trip", "ref": "0x100"}]}
+        tt.jdump(q, os.path.join(a, "queue.json"))
+        with open(os.path.join(a, "results.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"id": "door_1", "attempt": 1, "verdict": "FAIL", "class": "FALL", "dir": "x", "t": "t1"}) + "\n")
+        ledger = Ledger(os.path.join(self.leader, "ledger.jsonl"))
+        imp.import_queue(a, ledger)
+        events = ledger.read()
+        b = os.path.join(self.d, "b", name)
+        other = dict(q, tests=[{"id": "door_1", "kind": "door_trip", "ref": "0x200"}])
+        with self.assertRaises(imp.CampaignBound):                                    # another plan, one build
+            rev.check_binding(events, b, other)
+        pass_row = [(1, {"id": "door_1", "attempt": 1, "verdict": "PASS", "class": ""})]
+        with self.assertRaises(imp.CampaignBound):                                    # the same plan, a row that differs
+            rev.check_binding(events, b, q, pass_row)
+        rev.check_binding(events, b, q, rev.results_rows(os.path.join(a, "results.jsonl"))[0])   # a relocation
+        rev.check_binding(events, b, q)                                               # nothing run there yet
+        self.assertEqual(rev.task_queued(b, q, q["tests"][0], "x", "Claude").get("queue_id"), imp.queue_identity(q))
+
     def test_a_torn_results_tail_is_terminated_and_reported_not_merged(self):
         torn = '{"id": "0000_fall", "kind": "fall", "verd'
         with open(os.path.join(self.d, "results.jsonl"), "w", encoding="utf-8") as f:

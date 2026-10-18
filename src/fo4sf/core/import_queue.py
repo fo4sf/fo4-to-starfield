@@ -25,10 +25,13 @@ that tells the three records apart (SHAPES: a queue.json has a `tests` list, an 
 anything else (ValueError) fails the source before anything of it is written: the CLI says FAILED and exits 1, the
 other sources still import. A mistyped recovery path, or a deploy manifest given as --install, must never read as
 "already imported" or as a record with no plugins. What may be absent inside a valid record (no results.jsonl yet,
-no pin) is not an error. A queue folder's name is its campaign (task_id), so a second folder of the same name that
-carries a different build, or no build, is refused (CampaignBound) before its rows could fold into the first
-campaign's tasks, by the importer and by the lease runner's live writes alike (runner_events.check_binding); the
-same queue relocated or archived (the same build) imports under its campaign.
+no pin) is not an error. A queue folder's name is its campaign (task_id), so a second folder of the same name is
+refused (CampaignBound) before its rows could fold into the first campaign's tasks, by the importer and by the lease
+runner's live writes alike (runner_events.check_binding), unless it is the same queue relocated or archived: the same
+build, the same plan (queue_identity: the planned queue's created time, its build pin and its tests, carried as
+`queue_id` on every task_queued / task_finished event) and results that agree, line for line, with the rows already
+imported from the bound folder. Build equality alone is not enough: two queues planned against one build can test
+other refs or routes (Codex review 5558689652).
 """
 import hashlib
 import json
@@ -49,8 +52,19 @@ SHAPES = {                              # the top-level key its writer always se
 }
 
 
+IDENTITY_PIN = ("build_id", "plugin_sha256")   # the build itself; staging, commit and game_version may be re-pinned in place
+
+
 class CampaignBound(ValueError):
-    """A queue folder whose campaign name the ledger already binds to another folder with a different build."""
+    """A queue folder whose campaign name the ledger already binds to another folder holding another queue."""
+
+
+def queue_identity(q):
+    """The planned queue's identity, which relocating or archiving the folder does not change: the first 16 hex digits
+    of the sha256 of its `created` time, its build (IDENTITY_PIN) and its tests as planned. Two queues planned against
+    one build differ in their tests or their created time; a re-pin in place (pin-game-version) keeps the identity."""
+    ident = {"created": q.get("created"), "pin": {k: q.get(k) for k in IDENTITY_PIN}, "tests": q.get("tests")}
+    return hashlib.sha256(json.dumps(ident, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:16]
 
 
 def _record(p, what):
@@ -93,32 +107,56 @@ def task_id(campaign, test_id):
 
 
 def bound_to(events, campaign):
-    """(queue folders, build ids) the ledger already binds to `campaign`: the src keys and build_id of its task_queued
-    and task_finished events, written by the importer and the live runner alike (runner_events.py). Folders are
-    os.path.normcase'd, so a Windows path spelled in another case is the same folder."""
-    folders, builds = set(), set()
+    """(queue folders, build ids, queue identities, rows) the ledger already binds to `campaign`: the src keys,
+    build_id and queue_id of its task_queued and task_finished events, written by the importer and the live runner
+    alike (runner_events.py), and {results line: (task, outcome, attempt)} of its task_finished rows. Folders are
+    os.path.normcase'd, so a Windows path spelled in another case is the same folder. Events written before queue_id
+    existed add None to the identities."""
+    folders, builds, ids, rows = set(), set(), set(), {}
     for e in events:
         if e.ev in ("task_queued", "task_finished") and e.get("campaign") == campaign and e.get("src"):
             src = e.get("src")
             file = src.rsplit("#", 1)[0] if "#" in src else src.rsplit(":", 1)[0]   # queue.json#<id> / results.jsonl:<line>
             folders.add(os.path.normcase(os.path.dirname(file)))
             builds.add(e.get("build_id"))
-    return folders, builds
+            ids.add(e.get("queue_id"))
+            if e.ev == "task_finished" and "#" not in src and src.rsplit(":", 1)[-1].isdigit():
+                rows.setdefault(int(src.rsplit(":", 1)[-1]), (e.get("task"), e.get("outcome"), e.get("attempt", 0)))
+    return folders, builds, ids, rows
 
 
-def bind(events, qdir, q, campaign):
-    """Refuse (CampaignBound) `qdir` when the ledger's `events` already bind `campaign` to another folder and this
-    queue's build is not among the builds bound there, or it has none (without a build nothing tells a relocated
-    copy from a different queue): a different queue under the same folder name is a different campaign and its rows
-    must not fold into this one's tasks. Called before anything of the queue is written, by import_queue and by the
-    lease runner's first live event (runner_events.check_binding). The same folder again, or the same queue relocated
-    or archived (the same build, another path), passes."""
-    folders, builds = bound_to(events, campaign)
+def bind(events, qdir, q, campaign, rows=None):
+    """Refuse (CampaignBound) `qdir` when the ledger's `events` already bind `campaign` to another folder and this is
+    not the same queue relocated: its build is not among the builds bound there, or it has none (without a build
+    nothing tells a relocated copy from a different queue); its queue_identity is not the one bound (another plan
+    against the same build: other refs, routes or tests, or a bound ledger written before queue identities); or one
+    of its results `rows` ([(line, row)], results.jsonl) disagrees with the row the ledger holds for that line (a
+    copy that was run apart). A different queue under the same folder name is a different campaign and its rows must
+    not fold into this one's tasks. Called before anything of the queue is written, by import_queue and by the lease
+    runner's first live event (runner_events.check_binding). The same folder again, or the same queue relocated or
+    archived (same build, same plan, rows that agree), passes."""
+    folders, builds, ids, bound_rows = bound_to(events, campaign)
     here, build = os.path.normcase(os.path.abspath(qdir)), q.get("build_id")
-    if folders and here not in folders and (not build or build not in builds):
-        raise CampaignBound(f"campaign {campaign!r} is already bound to {', '.join(sorted(folders))} (build "
-                            f"{', '.join(sorted(str(b) for b in builds))}); {qdir} holds build {build}: a different queue "
-                            f"under the same folder name is a different campaign, rename the folder before importing or running it")
+    if not folders or here in folders:
+        return
+    where = f"campaign {campaign!r} is already bound to {', '.join(sorted(folders))}"
+    rename = "a different queue under the same folder name is a different campaign, rename the folder before importing or running it"
+    if not build or build not in builds:
+        raise CampaignBound(f"{where} (build {', '.join(sorted(str(b) for b in builds))}); {qdir} holds build {build}: "
+                            f"{rename}")
+    qid = queue_identity(q)
+    if qid not in ids:
+        known = ", ".join(sorted(str(i) for i in ids if i)) or "none recorded"
+        raise CampaignBound(f"{where} (build {build}, queue identity {known}); {qdir} holds the same build but another "
+                            f"plan (queue identity {qid}: its created time or tests differ): {rename}")
+    for line, r in rows or []:
+        have = bound_rows.get(line)
+        if have is None:
+            continue
+        mine = (task_id(campaign, r["id"]), outcome_from_queue(r.get("verdict"), r.get("class")).value, r.get("attempt", 0))
+        if mine != have:
+            raise CampaignBound(f"{where}; {qdir} holds the same plan but its results.jsonl line {line} reads {mine}, the "
+                                f"ledger's {have}: a copy that ran apart, not a relocation; {rename}")
 
 
 def deploy_pins(rec):
@@ -167,7 +205,10 @@ def import_queue(qdir, ledger, campaign=None):
             raise ValueError(f"queue.json test without an id: {str(t)[:80]} ({qp})")
     campaign = campaign or os.path.basename(qdir.rstrip("\\/"))
     events = ledger.read()
-    bind(events, qdir, q, campaign)                      # another folder of this name, another build: nothing is written
+    rp = os.path.join(qdir, "results.jsonl")
+    rows, corrupt = _rows(rp)
+    bind(events, qdir, q, campaign, rows)                # another folder of this name, another queue: nothing is written
+    qid = queue_identity(q)
     seen = {e.get("src") for e in events if e.get("src")}
     added = 0
 
@@ -185,16 +226,14 @@ def import_queue(qdir, ledger, campaign=None):
         put("build_pinned", pin_src(qdir, q), **pins)
     for t in q["tests"]:
         put("task_queued", f"{qp}#{t['id']}", task=task_id(campaign, t["id"]), kind=t.get("kind"), cell=t.get("cell"),
-            ref=t.get("ref"), campaign=campaign, build_id=q.get("build_id"))
-    rp = os.path.join(qdir, "results.jsonl")
-    rows, corrupt = _rows(rp)
+            ref=t.get("ref"), campaign=campaign, build_id=q.get("build_id"), queue_id=qid)
     for line, text in corrupt:                               # a line that is not a row: the ledger says so, once
         put("ledger_repaired", f"{rp}:{line}", dropped=text[:200], reason="results.jsonl line is not a row")
     for line, r in rows:
         out = outcome_from_queue(r.get("verdict"), r.get("class"))
         put("task_finished", f"{rp}:{line}", t=r.get("t"), task=task_id(campaign, r["id"]), outcome=out.value,
             attempt=r.get("attempt", 0), detail=f"{r.get('class', '')} {r.get('detail', '')}".strip(), source="IN_GAME",
-            campaign=campaign, build_id=q.get("build_id"), evidence=[r["dir"]] if r.get("dir") else [])
+            campaign=campaign, build_id=q.get("build_id"), queue_id=qid, evidence=[r["dir"]] if r.get("dir") else [])
     return added
 
 
