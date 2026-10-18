@@ -64,7 +64,7 @@ ASSET_PREFIX = "fo4core"
 DATA_TREES = ("meshes", "geometries", "materials", "textures")
 # fields of an exported reference that placing, reporting and the plan need (the export has about 25)
 SLIM_KEYS = ("formkey", "type", "base_editor_id", "base_formkey", "model", "pos", "rot", "scale", "disabled",
-             "persistent", "exterior_cell")
+             "persistent", "exterior_cell", "open_by_default")
 # Every large vanilla Starfield archive stops just below 4 GiB (Starfield - Textures02, Meshes01, Voices01, ...:
 # 4,294,061,043 to 4,294,946,755 bytes, never more; read-only directory listing, 2026-10-11): Bethesda's own archives
 # split at 2^32 bytes. Whether the engine reads an archive beyond 4 GiB is unresolved, so one archive stays below it.
@@ -2524,7 +2524,8 @@ def cmd_stage(a):
                   f"arrival marker at {e['arrival']['pos']} rot {e['arrival']['rot']} cell {e['arrival']['cell']}")
     objects = {"world": ov["world"], "edid_prefix": EDID_PREFIX,
                "bases": [{k: b[k] for k in ("edid", "model", "door", "source", "collision") if k in b} for b in bases],
-               "refs": [{k: p[k] for k in ("src", "base", "cell", "pos", "rot", "scale", "disabled")} for p in placed]}
+               "refs": [{k: p[k] for k in ("src", "base", "cell", "pos", "rot", "scale", "disabled", "open_by_default")
+                         if k in p} for p in placed]}
     for k, _sig in ALL_PROMOTED:
         if promoted[k]:
             objects[k] = promoted[k]
