@@ -299,6 +299,42 @@ class MovableControlJudgeTests(unittest.TestCase):
         self.assertTrue(tq.mass_ok(19.2, 20.0) and not tq.mass_ok(18.9, 20.0) and not tq.mass_ok(None, 5.0))
 
 
+class ImpulseControlTests(unittest.TestCase):
+    # movable_1019c (2026-10-18): two converted items FAIL STUCK, but no impulse had ever been typed on a vanilla item
+    # (the V_ controls moved on the walk, so their ladder never ran). impulse_control runs it anyway: the positive
+    # control a STUCK is read against
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.t = tq.movable_test(0, dict(ITEM, label="V_trashbin", base="002A0D5B", mass_kg=10.0, impulse_control=True))
+
+    def test_the_plan_marks_the_control_and_needs_the_feature(self):
+        self.assertTrue(self.t["impulse_control"])
+        self.assertNotIn("impulse_control", tq.movable_test(0, ITEM))
+        self.assertIn("impulse_control", runner_features.FEATURES)
+        self.assertEqual(runner_features.needs([self.t]), ["impulse", "impulse_control", "push_judge"])
+        with self.assertRaises(SystemExit):
+            tq.movable_test(0, dict(ITEM, impulse_control=True, impulse_dv=[]))
+
+    def test_the_walk_decides_and_the_ladder_is_detail(self):
+        walked = dict(item_after="-3.00 6.10 0.00")
+        v, c, d = tq.judge(self.t, control_obs(self.d, impulses=[imp("-3.00 4.90 0.00")], **walked), self.d)
+        self.assertEqual((v, c), ("PASS", "WALKED"), d)
+        self.assertIn("impulse control: ApplyHavokImpulse 37.5 (dv 1.5 m/s, step 1) moved it 1.20 m", d)
+        v, c, d = tq.judge(self.t, control_obs(self.d, impulses=[imp("-3.00 6.10 0.00")] * 3, **walked), self.d)
+        self.assertEqual((v, c), ("PASS", "WALKED"), d)
+        self.assertIn("did not move it either: in this queue a FAIL STUCK does not show a body that does not respond", d)
+        v, c, d = tq.judge(self.t, control_obs(self.d, **walked), self.d)
+        self.assertIn("impulse control: the ladder did not finish (no impulse was applied)", d)
+        # without the key nothing is added (an older plan reads as before)
+        v, c, d = tq.judge(tq.movable_test(0, ITEM), control_obs(self.d, **walked), self.d)
+        self.assertNotIn("impulse control", d)
+
+    def test_qstep_runs_the_ladder_after_any_walk_of_a_control(self):
+        with open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8") as f:
+            src = f.read()
+        self.assertIn("($d -lt $min -or $t.impulse_control -eq $true)) { Push-Impulses", src)
+
+
 class MovablePlanTests(unittest.TestCase):
     def test_plan_entry_fields(self):
         t = tq.movable_test(3, dict(ITEM, heading=90, fresh=True, expect="PASS IMPULSE", basis="b"))

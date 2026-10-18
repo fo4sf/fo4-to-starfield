@@ -1011,7 +1011,7 @@ def plan_walk(a):
 MOVABLE_PLAN_KEYS = frozenset((
     "label", "model", "travel", "base", "base_edid", "mass_kg", "set_mass_kg", "mass_probe", "mass_wait_ms", "spot",
     "heading", "stand_m", "park_m", "walk_ms", "settle_ms", "spawn_wait_ms", "handle_tol", "drop", "impulse_dv",
-    "impulse_wait_ms", "moved_m", "reach_m", "settle_m", "fresh", "expect", "basis") + console_plan.CONSOLE_KEYS)
+    "impulse_wait_ms", "impulse_control", "moved_m", "reach_m", "settle_m", "fresh", "expect", "basis") + console_plan.CONSOLE_KEYS)
 
 
 def movable_test(n, w, formids=None, items=None, plugin_index="02"):
@@ -1088,6 +1088,12 @@ def movable_test(n, w, formids=None, items=None, plugin_index="02"):
         t["probe_cmd"] = MASS_PROBE
     # the ladder's magnitudes are for the mass the body has during the test
     t["impulses"] = impulse_steps(t.get("set_mass_kg", mass), heading, dvs) if dvs else []
+    if w.get("impulse_control"):
+        # a control: the ladder runs after the walk even when the walk moved the item, so the queue shows whether
+        # ApplyHavokImpulse moves a vanilla body at all (judge_push: detail only; the walk still decides the verdict)
+        if not dvs:
+            sys.exit(f"{label}: impulse_control needs an impulse ladder (impulse_dv is empty)")
+        t["impulse_control"] = True
     if w.get("fresh"):
         t["fresh"] = True
     for k in ("expect", "basis"):
@@ -1340,6 +1346,23 @@ def impulse_outcome(test, obs, start):
     return "incomplete", "; ".join(why)
 
 
+def impulse_control_note(test, obs, start):
+    """The ladder of an impulse_control test after a walk that moved the item: whether ApplyHavokImpulse moved this
+    vanilla body (the positive control an item's FAIL STUCK is read against). Detail only."""
+    if not test.get("impulse_control"):
+        return ""
+    imp = impulse_outcome(test, obs, start)
+    if imp is None or imp[0] == "incomplete":
+        return f"; impulse control: the ladder did not finish ({imp[1] if imp else 'none planned'})"
+    if imp[0] == "moved":
+        _, k, d, _drop, rec = imp
+        return (f"; impulse control: ApplyHavokImpulse {rec.get('magnitude')} (dv {rec.get('dv')} m/s, step {k + 1}) "
+                f"moved it {d:.2f} m")
+    top = max(r.get("dv", 0) for r in test["impulses"])
+    return (f"; impulse control: {imp[1]} impulses up to dv {top} m/s did not move it either: in this queue a FAIL "
+            f"STUCK does not show a body that does not respond")
+
+
 def judge_push(test, obs, shot_ok):
     """movable (an item of the build, walked into) and movable_control (an item placed in a vanilla cell): the walk,
     then, when it did not move the item, the impulse ladder.
@@ -1374,7 +1397,8 @@ def judge_push(test, obs, shot_ok):
         if near < reach:
             reach, how = near, f"player passed {near:.2f} m from it (walked {math.hypot(pe[0] - ps[0], pe[1] - ps[1]):.1f} m)"
     if moved >= test.get("moved_m", MOVE_M):
-        return "PASS", "WALKED" if control else "PASS", f"item moved {moved:.2f} m" + (f" ({how})" if control else "")
+        return "PASS", "WALKED" if control else "PASS", (f"item moved {moved:.2f} m" + (f" ({how})" if control else "")
+                                                         + impulse_control_note(test, obs, a_))
     walk = f"{how} but it moved {moved:.3f} m"
     imp = impulse_outcome(test, obs, a_)
     note = ""

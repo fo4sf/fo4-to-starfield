@@ -785,6 +785,7 @@ floor. `plan-movable` reads `plan.json` (a list):
 | `mass_probe` | `cf "ObjectReference.GetMass"` on the confirmed selection (always with `set_mass_kg`; `mass_probe: false` with it stops the planning); without `set_mass_kg` its reading is only shown | false |
 | `mass_wait_ms` | the console closed after `SetRigidBodyMass` before the reading | 1000 |
 | `impulse_dv`, `impulse_wait_ms` | the ladder's speed steps (m/s, up to 4; `[]`: none) and the wait after each | [1.5, 6, 24], 3000 |
+| `impulse_control` | a control (a vanilla item): the ladder runs after the walk even when the walk moved it, shown in the detail only (the walk decides the verdict); runner feature `impulse_control`. A FAIL STUCK means a body that does not respond only when a control's impulse moved it in the same queue (movable_1019c, 2026-10-18: two converted items STUCK, no impulse ever typed on a vanilla item) | off |
 | `walk_ms`, `settle_ms`, `drop`, `spawn_wait_ms`, `handle_tol` | hold W; wait after a teleport; teleport height; console closed after `placeatme`; how close to the spot the placed item must lie | 900, 1500, 0.3, 3000, 2.0 |
 | `moved_m`, `reach_m`, `settle_m` | moved; the walk reached the item; at rest before the walk (spawn read vs the read before the walk) | 0.05, 0.6, 0.1 |
 | `console_pre`, `console_post` | whitelisted console lines (section above), e.g. `GetINI "fCharacterMaxSlope:HAVOK"` | none |
