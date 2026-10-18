@@ -50,11 +50,12 @@ class CodsworthLinesTest(unittest.TestCase):
     def test_picks_codsworth_lines_with_files(self):
         esm = (record(b"TES4", 0, [field(b"HEDR", bytes(12))])
                + group(b"QUST", 0, [record(b"QUST", 0x100, [field(b"EDID", b"COMCodsworth\0")]),
+                                    group(struct.pack("<I", 0x100), 10, [record(b"DLBR", 0x101, [])]),
                                     record(b"QUST", 0x200, [field(b"EDID", b"DialogueGeneric\0")])])
                + group(b"DIAL", 0, [
                    record(b"DIAL", 0x10, [field(b"EDID", b"CodsHello\0"), field(b"QNAM", struct.pack("<I", 0x100)),
                                           field(b"SNAM", b"HELO")]),
-                   group(struct.pack("<I", 0x10), 7, [info(0x11, 1), info(0x12, 2)]),
+                   group(struct.pack("<I", 0x10), 7, [info(0x11, 1), group(b"\0\0\0\0", 7, []), info(0x12, 2)]),
                    record(b"DIAL", 0x20, [field(b"QNAM", struct.pack("<I", 0x200)), field(b"SNAM", b"IDAT")]),
                    group(struct.pack("<I", 0x20), 7, [info(0x21, 3, ctda_npc=0x0179FF), info(0x22, 4)]),
                ]))

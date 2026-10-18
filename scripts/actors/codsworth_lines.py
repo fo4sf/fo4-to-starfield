@@ -43,8 +43,9 @@ def quests(p: Plugin) -> dict:
     span = p.top_group(b"QUST")
     out = {}
     if span:
-        for typ, off, _fl, fid in iter_items(p.buf, *span):
-            if typ == b"QUST":
+        for item in iter_items(p.buf, *span):              # groups (quest children) are 5-tuples: skipped
+            if item[0] == b"QUST":
+                off, fid = item[1], item[3]
                 out[fid] = next((zstring(d) for s, d in iter_subrecords(record_data(p.buf, off)) if s == b"EDID"), "")
     return out
 
@@ -67,9 +68,10 @@ def infos(p: Plugin):
                     edid = zstring(d)
             topic = (q, sub, edid)
         elif item[0] == "GRUP" and item[4] == 7 and topic:
-            for typ, off, _fl, fid in iter_items(p.buf, item[1] + 24, item[2]):
-                if typ != b"INFO":
+            for child in iter_items(p.buf, item[1] + 24, item[2]):
+                if child[0] != b"INFO":
                     continue
+                off, fid = child[1], child[3]
                 responses, ids, number = [], [], None
                 for s, d in iter_subrecords(record_data(p.buf, off)):
                     if s == b"TRDT" and len(d) > 12:
