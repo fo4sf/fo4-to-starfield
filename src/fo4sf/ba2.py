@@ -9,6 +9,7 @@ Starfield v3 (LZ4) textures are not supported (raises); v1/v2 zlib and uncompres
 import os
 import struct
 import zlib
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -122,6 +123,26 @@ class Ba2:
             "general": gnrl,
             "textures": dx10,
         }
+
+    def by_extension(self) -> dict:
+        """Return extension -> {'count': int, 'unpacked': int, 'packed': int} for conversion planning.
+
+        Extension is lowercased, including the dot; files with no extension use '(none)'.
+        For DX10 entries the sizes are the sum of chunk sizes.
+        """
+        stats = defaultdict(lambda: {"count": 0, "unpacked": 0, "packed": 0})
+        for e in self.entries:
+            ext = os.path.splitext(e.name)[1].lower() or "(none)"
+            stats[ext]["count"] += 1
+            if e.kind == "GNRL":
+                stats[ext]["unpacked"] += e.unpacked
+                stats[ext]["packed"] += e.packed or e.unpacked
+            else:
+                unp = sum(up for _, _, up, _, _ in (e.chunks or []))
+                pkd = sum(pk or up for _, pk, up, _, _ in (e.chunks or []))
+                stats[ext]["unpacked"] += unp
+                stats[ext]["packed"] += pkd
+        return dict(stats)
 
     @staticmethod
     def _norm(n: str) -> str:
