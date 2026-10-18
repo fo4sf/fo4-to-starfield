@@ -9,7 +9,7 @@
 //        and Codsworth's Sanctuary placement (ACHR 0001CA7D of NPC_ 000179FF, in the world's persistent cell).
 //        Positions in metres in the core's frame: FO4 position / 70 (make_core64c.py: "position = FO4 position / 70").
 //   write <Starfield.esm> <FO4TerrainCore.esm> <FO4ActorRaider.esm> <points.json> <out dir> [--plugin FO4SFMission.esm]
-//         [--world FO4Core_Commonwealth] [--no-alias] [--codsworth-body OutpostRobotMiniBotA_Garden] [--no-codsworth]
+//         [--world FO4Core_Commonwealth] [--no-alias] [--codsworth-body OutpostRobotMiniBotA_Garden] [--no-codsworth] [--codsworth-model <mesh under Meshes>]
 //        the plugin: Preston (NPC_, a copy of the raider plugin's calm probe FO4_LvlRaider_Calm under Preston's name,
 //        Essential and Unique), the raiders and Preston as persistent ACHRs in the core world's persistent cell (a
 //        WRLD + persistent CELL override of the core, holding only our references), and the quest FO4SF_Min00
@@ -19,7 +19,9 @@
 //        Codsworth (ROADMAP B2 stretch; a Mr. Handy has no Starfield skeleton): a copy of the Starfield robot NPC_
 //        named by --codsworth-body under his name, Essential and Unique, without its factions and scripts, placed
 //        persistent at his Fallout 4 spot in Sanctuary. No dialogue or voice yet. --no-codsworth leaves him out.
-//   check <plugin> <Starfield.esm> <FO4TerrainCore.esm> <FO4ActorRaider.esm> [--no-alias] [--no-codsworth]
+//   check <plugin> <Starfield.esm> <FO4TerrainCore.esm> <FO4ActorRaider.esm> [--no-alias] [--no-codsworth] [--codsworth-model <mesh>]
+//        --codsworth-model: his own model, ARMA FO4_AA_Codsworth (a copy of AA_MiniBotA_Gardening with that mesh) in
+//        ARMO FO4_Skin_Codsworth (a copy of Skin_MiniBotA_Gardening with only it), set as his skin (WNAM); check requires them
 //        reads the plugin back and checks every record and link the script and the quest rely on (exit 1 on a problem).
 //   npcs <plugin.esm> <fo4 | sf> <regex>
 //        read only: every NPC_ whose EditorID, name or race EditorID matches the regex (case-insensitive): FormKey,
@@ -34,6 +36,8 @@ using System.Globalization;
 using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Assets;
+using Mutagen.Bethesda.Starfield.Assets;
 using Mutagen.Bethesda.Plugins.Binary.Parameters;
 using Mutagen.Bethesda.Plugins.Cache;
 using Mutagen.Bethesda.Plugins.Records;
@@ -50,8 +54,10 @@ try
         "points" when args.Length >= 3 => Mission.Points(args[1], args[2], Mission.Opt(args, "--radius", 120f), (int)Mission.Opt(args, "--max", 8f)),
         "write" when args.Length >= 6 => Mission.Write(args[1], args[2], args[3], args[4], args[5], Mission.Arg(args, "--plugin", Mission.Plugin),
                                                        Mission.Arg(args, "--world", Mission.World), !args.Contains("--no-alias"),
-                                                       args.Contains("--no-codsworth") ? null : Mission.Arg(args, "--codsworth-body", Mission.CodsworthBody)),
-        "check" when args.Length >= 5 => Mission.Check(args[1], args[2], args[3], args[4], !args.Contains("--no-alias"), !args.Contains("--no-codsworth")),
+                                                       args.Contains("--no-codsworth") ? null : Mission.Arg(args, "--codsworth-body", Mission.CodsworthBody),
+                                                       Mission.ArgOrNull(args, "--codsworth-model")),
+        "check" when args.Length >= 5 => Mission.Check(args[1], args[2], args[3], args[4], !args.Contains("--no-alias"), !args.Contains("--no-codsworth"),
+                                                       Mission.ArgOrNull(args, "--codsworth-model")),
         "npcs" when args.Length >= 4 => Mission.Npcs(args[1], args[2], args[3]),
         "quests" when args.Length >= 2 => Mission.Quests(args[1], args.Length >= 3 ? args[2] : "."),
         "selftest" when args.Length >= 2 => Mission.SelfTest(args[1]),
@@ -80,6 +86,11 @@ static class Mission
     // lookup (Starfield.esm 04297C OutpostRobotMiniBotA_Garden "Garden Mini Bot", MiniBotARace: a hovering robot)
     public const uint CodsworthFo4Ref = 0x01CA7D, CodsworthFo4Npc = 0x0179FF, CodsworthNpcId = 0x810, CodsworthRefId = 0x811;
     public const string CodsworthEdid = "FO4_Codsworth", CodsworthBody = "OutpostRobotMiniBotA_Garden";
+    // his own model (Codsworth thread, PR #361): an ARMA copied from the mini bot's with the FO4 mesh, a skin ARMO with
+    // only that ARMA, set as his WNAM. Ids follow the ACHR.
+    public const uint CodsworthArmaId = 0x812, CodsworthSkinId = 0x813, MiniBotArmaId = 0x081886, MiniBotSkinId = 0x3FFD3A;
+    public const string CodsworthArmaEdid = "FO4_AA_Codsworth", CodsworthSkinEdid = "FO4_Skin_Codsworth",
+                        MiniBotArmaEdid = "AA_MiniBotA_Gardening", MiniBotSkinEdid = "Skin_MiniBotA_Gardening";
     // the stages and objectives the script drives (FO4SF_Min00Quest.psc); objective indices are Min00's own
     public static readonly ushort[] Stages = { 10, 20, 30, 40, 200 };
     public static readonly (ushort Index, string Fallback, bool TargetsPreston)[] Objectives =
@@ -96,6 +107,7 @@ static class Mission
         Console.Error.WriteLine("usage: see the header of dotnet/Mission/Program.cs (points | write | check | npcs | quests | selftest)");
         return 2;
     }
+    public static string? ArgOrNull(string[] a, string name) { var i = Array.IndexOf(a, name); return i >= 0 && i + 1 < a.Length ? a[i + 1] : null; }
     public static string Arg(string[] a, string name, string dflt) { var i = Array.IndexOf(a, name); return i >= 0 && i + 1 < a.Length ? a[i + 1] : dflt; }
     public static float Opt(string[] a, string name, float dflt) => float.Parse(Arg(a, name, dflt.ToString(CultureInfo.InvariantCulture)), CultureInfo.InvariantCulture);
     static string F(float v) => v.ToString("0.###", CultureInfo.InvariantCulture);
@@ -314,7 +326,7 @@ static class Mission
     static float[] Floats(JsonElement e) => e.EnumerateArray().Select(x => x.GetSingle()).ToArray();
 
     public static int Write(string sfPath, string corePath, string raiderPath, string pointsPath, string outDir, string plugin,
-                            string worldEdid, bool alias, string? codsworthBody = CodsworthBody)
+                            string worldEdid, bool alias, string? codsworthBody = CodsworthBody, string? codsworthModel = null)
     {
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         using var m = Open(sfPath, corePath, raiderPath);
@@ -384,6 +396,32 @@ static class Mission
             cods.Flags = (cods.Flags | SF.Npc.Flag.Essential | SF.Npc.Flag.Unique) & ~SF.Npc.Flag.Respawn;
             cods.Factions.Clear();                                          // nothing makes him hostile or an outpost worker
             cods.VirtualMachineAdapter = null;                              // the outpost bot's scripts expect an outpost
+            if (codsworthModel is not null)
+            {
+                var aa = m.Sf.ArmorAddons.FirstOrDefault(x => x.FormKey == new FormKey(SfEsm, MiniBotArmaId) && x.EditorID == MiniBotArmaEdid)
+                         ?? throw new Refusal($"Starfield.esm {MiniBotArmaId:X6} is not the ARMA {MiniBotArmaEdid}");
+                var sk = m.Sf.Armors.FirstOrDefault(x => x.FormKey == new FormKey(SfEsm, MiniBotSkinId) && x.EditorID == MiniBotSkinEdid)
+                         ?? throw new Refusal($"Starfield.esm {MiniBotSkinId:X6} is not the ARMO {MiniBotSkinEdid}");
+                var arma = (SF.ArmorAddon)aa.Duplicate(new FormKey(modKey, CodsworthArmaId));
+                arma.EditorID = CodsworthArmaEdid;
+                int set = 0;
+                foreach (var g in new[] { arma.WorldModel?.Male, arma.WorldModel?.Female })
+                    if (g?.File?.GivenPath is { Length: > 0 } given)                 // only the models the mini bot has
+                        { g.File = new AssetLink<StarfieldModelAssetType>(ModelPath(given, codsworthModel)); set++; }
+                if (set == 0) throw new Refusal($"{MiniBotArmaEdid} has no world model to replace");
+                var skin = (SF.Armor)sk.Duplicate(new FormKey(modKey, CodsworthSkinId));
+                skin.EditorID = CodsworthSkinEdid;
+                var entry = new SF.ArmorAddonModel
+                {
+                    AddonIndex = skin.Armatures.FirstOrDefault()?.AddonIndex ?? 0,      // the mini bot's first entry's index
+                    ArmorAddon = new FormLinkNullable<SF.IArmorAddonGetter>(arma.FormKey),
+                };
+                skin.Armatures.Clear();
+                skin.Armatures.Add(entry);
+                cods.Skin.SetTo(skin.FormKey);
+                mod.ArmorAddons.Add(arma);
+                mod.Armors.Add(skin);
+            }
             mod.Npcs.Add(cods);
             codsRef = Ach(CodsworthRefId, cods.FormKey, "FO4SF_CodsworthREF", cj);
         }
@@ -433,7 +471,7 @@ static class Mission
         quest.VirtualMachineAdapter.Scripts.Add(script);
         mod.Quests.Add(quest);
 
-        mod.ModHeader.Stats.NextFormID = cods is null ? next : CodsworthRefId + 1;
+        mod.ModHeader.Stats.NextFormID = cods is null ? next : codsworthModel is null ? CodsworthRefId + 1 : CodsworthSkinId + 1;
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, plugin);
         var lo = new[] { SfEsm, m.Core.ModKey, m.Raider.ModKey };
@@ -443,7 +481,8 @@ static class Mission
                           $"({Stages.Length} stages, {quest.Objectives.Count} objectives, {(alias ? "alias PrestonGarvey" : "no alias")}); " +
                           $"NPC_ {PrestonEdid} {npc.FormKey} \"{npc.Name}\"; ACHR Preston {prestonRef.FormKey} at {Show(prestonRef.Position)}; " +
                           $"{raiderRefs.Count} raider ACHR(s) of {raiderNpc.EditorID}; " +
-                          (cods is null ? "no Codsworth; " : $"NPC_ {CodsworthEdid} {cods.FormKey} \"{cods.Name}\" body {codsworthBody}, ACHR {codsRef!.FormKey} at {Show(codsRef.Position)}; ") +
+                          (cods is null ? "no Codsworth; " : $"NPC_ {CodsworthEdid} {cods.FormKey} \"{cods.Name}\" body {codsworthBody}, ACHR {codsRef!.FormKey} at {Show(codsRef.Position)}" +
+                                            (codsworthModel is null ? "; " : $", skin {CodsworthSkinEdid} model {codsworthModel}; ")) +
                           $"WRLD {w.EditorID} {w.FormKey} persistent CELL {cell.FormKey} overridden");
         return 0;
     }
@@ -452,7 +491,17 @@ static class Mission
 
     // ---------------------------------------------------------------- check
 
-    public static int Check(string pluginPath, string sfPath, string corePath, string raiderPath, bool alias, bool codsworth = true)
+    /// The model path written the way the vanilla one is: with its "Meshes\" prefix when it has one (rel is relative to
+    /// Data\Meshes).
+    public static string ModelPath(string vanilla, string rel)
+    {
+        rel = rel.Replace('/', '\\').TrimStart('\\');
+        if (rel.StartsWith("meshes\\", StringComparison.OrdinalIgnoreCase)) rel = rel[7..];
+        return vanilla.StartsWith("meshes\\", StringComparison.OrdinalIgnoreCase) ? vanilla[..7] + rel : rel;
+    }
+
+    public static int Check(string pluginPath, string sfPath, string corePath, string raiderPath, bool alias, bool codsworth = true,
+                            string? codsworthModel = null)
     {
         using var m = Open(sfPath, corePath, raiderPath);
         using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, SF.StarfieldRelease.Starfield, Styles(SfEsm, m.Core.ModKey, m.Raider.ModKey));
@@ -498,6 +547,23 @@ static class Mission
             Need(cods is not null && m.Cache.TryResolve<SF.IRaceGetter>(cods.Race.FormKey, out _), "Codsworth's race does not resolve");
             Need(codsRef is not null && codsRef.Base.FormKey == cods?.FormKey, "ACHR 0x811 is not Codsworth");
         }
+        var arma = plug.ArmorAddons.FirstOrDefault(x => x.FormKey == new FormKey(key, CodsworthArmaId));
+        var skin = plug.Armors.FirstOrDefault(x => x.FormKey == new FormKey(key, CodsworthSkinId));
+        if (codsworth && codsworthModel is not null)
+        {
+            var files = new[] { arma?.WorldModel?.Male, arma?.WorldModel?.Female }.Select(g => g?.File?.GivenPath).OfType<string>().Where(f => f.Length > 0).ToList();
+            Console.WriteLine($"  ARMA {arma?.EditorID} race {arma?.Race.FormKey} models [{string.Join(", ", files)}]; ARMO {skin?.EditorID} " +
+                              $"armatures [{string.Join(", ", skin?.Armatures.Select(x => x.ArmorAddon.FormKey.ToString()) ?? [])}]");
+            Need(arma is { EditorID: CodsworthArmaEdid } && files.Count > 0 &&
+                 files.All(f => f.Replace('/', '\\').EndsWith(ModelPath("", codsworthModel), StringComparison.OrdinalIgnoreCase)),
+                 $"ARMA 0x{CodsworthArmaId:X} is not {CodsworthArmaEdid} with the model {codsworthModel}");
+            Need(arma is not null && m.Cache.TryResolve<SF.IRaceGetter>(arma.Race.FormKey, out _), "Codsworth's ARMA race does not resolve");
+            Need(skin is { EditorID: CodsworthSkinEdid } && skin.Armatures.Count == 1 && skin.Armatures[0].ArmorAddon.FormKey == arma?.FormKey,
+                 $"ARMO 0x{CodsworthSkinId:X} is not {CodsworthSkinEdid} with only his ARMA");
+            Need(cods?.Skin.FormKey == skin?.FormKey && skin is not null, "Codsworth's skin (WNAM) is not his ARMO");
+        }
+        else Need(arma is null && skin is null && (cods is null || cods.Skin.FormKey != new FormKey(key, CodsworthSkinId)),
+                  "a build without --codsworth-model carries Codsworth's ARMA or ARMO");
         Need(refs.All(r => r.FormKey.ID < CodsworthNpcId || r.FormKey.ID == CodsworthRefId), "an ACHR outside Preston, the raiders and Codsworth");
         Need(raiders.Count > 0 && raiders.All(r => r.Base.FormKey == new FormKey(m.Raider.ModKey, RaiderId)), "no raider ACHR on FO4_LvlRaider");
 
@@ -563,6 +629,15 @@ static class Mission
         bot.VirtualMachineAdapter = new SF.VirtualMachineAdapter { Version = 6, ObjectFormat = 2 };
         bot.VirtualMachineAdapter.Scripts.Add(new SF.ScriptEntry { Name = "OutpostBotScript" });
         sf.Npcs.Add(bot);
+        // the mini bot's look: an ARMA with a model and the skin ARMO that lists it (Codsworth's own model is copied from them)
+        var aa = new SF.ArmorAddon(new FormKey(SfEsm, MiniBotArmaId), rel) { EditorID = MiniBotArmaEdid, Race = new FormLinkNullable<SF.IRaceGetter>(race.FormKey) };
+        aa.WorldModel = new GenderedItem<SF.Model?>(new SF.Model { File = new AssetLink<StarfieldModelAssetType>("Meshes\\Actors\\MiniBot\\MiniBotA.nif") }, null);
+        sf.ArmorAddons.Add(aa);
+        var sk = new SF.Armor(new FormKey(SfEsm, MiniBotSkinId), rel) { EditorID = MiniBotSkinEdid };
+        sk.Armatures.Add(new SF.ArmorAddonModel { AddonIndex = 0, ArmorAddon = new FormLinkNullable<SF.IArmorAddonGetter>(aa.FormKey) });
+        sk.Armatures.Add(new SF.ArmorAddonModel { AddonIndex = 1, ArmorAddon = new FormLinkNullable<SF.IArmorAddonGetter>(aa.FormKey) });
+        sf.Armors.Add(sk);
+        bot.Skin.SetTo(sk.FormKey);
         sf.ModHeader.Stats.NextFormID = 0x800;
         var sfPath = Path.Combine(dir, "Starfield.esm");
         sf.BeginWrite.ToPath(sfPath).WithNoLoadOrder().NoCheckIfLowerRangeDisallowed().Write();
@@ -612,6 +687,19 @@ static class Mission
             if (rc != 0) return rc;
             if (Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, true, true) == 0)
                 { Console.WriteLine("FAIL  check passed a build without Codsworth when he was expected"); return 1; }
+        }
+        {   // Codsworth's own model: written, checked, and a model build is not a plain one (nor the other way round)
+            var o = Path.Combine(outDir, "model");
+            const string model = "fo4port\\actors\\codsworth\\codsworth.nif";
+            int rc = Write(sfPath, corePath, raiderPath, pointsPath, o, Plugin, World, true, CodsworthBody, model);
+            if (rc == 0) rc = Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, true, true, model);
+            if (rc != 0) return rc;
+            if (Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, true, true) == 0)
+                { Console.WriteLine("FAIL  check passed a model build as a plain one"); return 1; }
+            if (Check(Path.Combine(outDir, "alias", Plugin), sfPath, corePath, raiderPath, true, true, model) == 0)
+                { Console.WriteLine("FAIL  check passed a plain build as a model one"); return 1; }
+            if (ModelPath("Meshes\\Actors\\x.nif", "Meshes\\" + model) != "Meshes\\" + model || ModelPath("Actors\\x.nif", model) != model)
+                { Console.WriteLine("FAIL  ModelPath does not follow the vanilla prefix"); return 1; }
         }
         // mutations of the default output, each of which check must reject (Codex review 5564480667)
         var good = Path.Combine(outDir, "alias", Plugin);

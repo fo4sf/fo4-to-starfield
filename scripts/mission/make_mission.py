@@ -43,6 +43,10 @@ REPO = os.path.abspath(os.path.join(HERE, "..", ".."))
 PROJECT = os.path.join(REPO, "dotnet", "Mission")
 PLUGIN = "FO4SFMission.esm"
 SCRIPT = "FO4SF_Min00Quest"
+# Codsworth's own model (scripts/actors/convert_codsworth.py, PR #361): the asset folders stage copies into Data and the
+# mesh the plugin's ARMA names (relative to Data\Meshes)
+ASSET_DIRS = ("meshes", "geometries", "materials", "textures")
+CODSWORTH_MESH = "fo4port\\actors\\codsworth\\codsworth.nif"
 STAGES = (10, 20, 30, 40, 200)
 # the script properties dotnet/Mission writes (Program.cs, Write): a renamed property would leave the script unbound
 PROPERTIES = ("Preston", "Raiders", "Credits")
@@ -122,6 +126,12 @@ def stage(a):
     run(tool + ["points", a.fo4, points])
     alias = [] if a.alias else ["--no-alias"]
     cods = [] if a.codsworth else ["--no-codsworth"]
+    assets = {}
+    if getattr(a, "codsworth_assets", None):
+        if not a.codsworth:
+            sys.exit("--codsworth-assets needs Codsworth (drop --no-codsworth)")
+        assets = copy_assets(a.codsworth_assets, os.path.join(out, "Data"))
+        cods = ["--codsworth-model", CODSWORTH_MESH]
     run(tool + ["write", a.starfield, a.core, a.raider, points, out, "--plugin", PLUGIN] + alias + cods)
     check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield, a.core, a.raider] + alias + cods)
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
@@ -139,6 +149,7 @@ def stage(a):
             "script": SCRIPT, "script_sha256": sha256(pex), "alias": a.alias, "masters_sha256": masters, "stages": list(STAGES),
             "raiders": [r["src"] for r in pts["raiders"]], "preston": pts["preston"],
             "codsworth": pts.get("codsworth") if a.codsworth else None,
+            "assets": {rel: sha256(os.path.join(out, "Data", rel)) for rel in sorted(assets)},
             "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_mission.0.log"}
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
@@ -160,6 +171,24 @@ Uninstall: exp_install.py uninstall.
 """)
     os.replace(out, final)
     print(f"staged {final}: {PLUGIN}, {os.path.relpath(pex, out)}, offline_check.txt, plan.json, README.txt")
+
+
+def copy_assets(src, data):
+    """Copies the asset folders (ASSET_DIRS) of a convert_codsworth.py output into data; anything else there (its
+    report) stays out. Refuses a source without the mesh the plugin names. Returns the copied paths, relative to data."""
+    mesh = os.path.join(src, "meshes", *CODSWORTH_MESH.split("\\"))
+    if not os.path.isfile(mesh):
+        sys.exit(f"--codsworth-assets {src} has no meshes\\{CODSWORTH_MESH}")
+    copied = []
+    for d in ASSET_DIRS:
+        root = os.path.join(src, d)
+        for dirpath, _, files in os.walk(root):
+            for name in files:
+                rel = os.path.relpath(os.path.join(dirpath, name), src)
+                os.makedirs(os.path.join(data, os.path.dirname(rel)), exist_ok=True)
+                shutil.copy2(os.path.join(src, rel), os.path.join(data, rel))
+                copied.append(rel.replace(os.sep, "/"))
+    return copied
 
 
 def pin_masters(paths):
@@ -193,6 +222,8 @@ def verify_dir(exp_dir, plan, raider=None):
 
     same("plugin", os.path.join(exp_dir, plan["plugin"]), plan["plugin_sha256"])
     same("script", os.path.join(exp_dir, "Data", "Scripts", plan["script"] + ".pex"), plan["script_sha256"])
+    for rel, want in plan.get("assets", {}).items():
+        same("asset", os.path.join(exp_dir, "Data", *rel.split("/")), want)
     for name, want in plan["masters_sha256"].items():
         path = os.path.join(exp_dir, name)
         if not os.path.isfile(path) and raider and name.lower() == os.path.basename(raider).lower():
@@ -228,16 +259,20 @@ def fold(a):
     out = new_partial(final, create=False)
     shutil.copytree(a.core_dir, out)
     shutil.copy2(os.path.join(a.mission, plan["plugin"]), os.path.join(out, plan["plugin"]))
-    os.makedirs(os.path.join(out, "Data", "Scripts"), exist_ok=True)
-    shutil.copy2(os.path.join(a.mission, "Data", "Scripts", plan["script"] + ".pex"),
-                 os.path.join(out, "Data", "Scripts", plan["script"] + ".pex"))
+    for rel in ["Scripts/" + plan["script"] + ".pex"] + sorted(plan.get("assets", {})):
+        dst = os.path.join(out, "Data", *rel.split("/"))
+        if os.path.exists(dst):
+            sys.exit(f"fold refused: the core set already has Data/{rel} (attempt kept in {out})")
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(os.path.join(a.mission, "Data", *rel.split("/")), dst)
     problems = verify_dir(out, plan, a.raider)
     if problems:
         for p in problems:
             print("FAIL  " + p)
         sys.exit(f"fold refused: {len(problems)} problem(s); nothing published (attempt kept in {out})")
     os.replace(out, final)
-    print(f"folded {final}: {a.core_dir} + {plan['plugin']} + Data\\Scripts\\{plan['script']}.pex; verify ok")
+    print(f"folded {final}: {a.core_dir} + {plan['plugin']} + Data\\Scripts\\{plan['script']}.pex"
+          f" + {len(plan.get('assets', {}))} Codsworth asset(s); verify ok")
     return 0
 
 
@@ -297,6 +332,8 @@ def main(argv=None):
     s.add_argument("--content-resources", default=os.path.join(STARFIELD, "Tools", "ContentResources.zip"))
     s.add_argument("--no-alias", dest="alias", action="store_false")
     s.add_argument("--no-codsworth", dest="codsworth", action="store_false", help="leave Codsworth out of the plugin")
+    s.add_argument("--codsworth-assets", default=None,
+                   help="a convert_codsworth.py output folder: his own model (ARMA, skin ARMO) and its files in Data")
     g = sub.add_parser("log")
     g.add_argument("--file", default=LOG)
     v = sub.add_parser("verify")

@@ -95,6 +95,14 @@ small hovering robot, not a companion with quests like Vasco). **Unresolved:** w
 template run without its outpost, and how he behaves (sandbox, hover, idle). No dialogue or voice yet (WP-15).
 Check in game: travel to Sanctuary; a robot named Codsworth hovers near his house, does not attack, and stays.
 
+**His own model (18 Oct, from the Codsworth thread, PR #361):** `make_mission.py stage --codsworth-assets <convert_codsworth.py
+output>` copies its meshes, geometries, materials and textures into the stage's Data (not its report) and pins each in
+plan.json; the writer adds ARMA FO4_AA_Codsworth (0x812, a copy of Starfield.esm 081886 AA_MiniBotA_Gardening with the
+mesh fo4port\actors\codsworth\codsworth.nif, written with the vanilla path's prefix) and ARMO FO4_Skin_Codsworth
+(0x813, a copy of 3FFD3A Skin_MiniBotA_Gardening listing only that ARMA) as his WNAM; check requires them. fold carries
+the files, verify checks them. **Supported hypothesis:** the experiment archive is one stored General BA2, and the
+textures in it load from there (the port uses a DDS archive); a missing texture would show on him in game.
+
 ## Commands (on the PC)
 
 `exp_install.py` holds one experiment at a time, so the mission goes in with the core set: `fold` copies the core's

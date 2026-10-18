@@ -260,6 +260,43 @@ class StageAndInstallTests(unittest.TestCase):
             self.assertIn("--no-codsworth", writes[0])
             self.assertIn("--no-codsworth", writes[1])   # check expects the same mode (Codex review 5564480667)
 
+    def test_codsworth_assets_reach_the_writer_fold_and_verify(self):
+        """The Codsworth thread's model (PR #361): stage copies the asset folders (not the report), names the mesh to the
+        writer and check, pins each file in the plan; fold carries them and verify catches a changed one."""
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "codsworth_1018b")
+            files = {"meshes/fo4port/actors/codsworth/codsworth.nif": b"nif", "geometries/ab/cd.mesh": b"mesh",
+                     "materials/fo4port/texsets/actors/handy/body.mat": b"mat",
+                     "textures/fo4port/actors/handy/body_color.dds": b"dds", "codsworth_report.json": b"{}"}
+            for rel, b in files.items():
+                _write(os.path.join(src, *rel.split("/")), b)
+            out, writes = os.path.join(d, "m"), []
+            self.fake_stage(d, out, extra=["--codsworth-assets", src], writes=writes)
+            for cmd in writes:
+                self.assertEqual(cmd[cmd.index("--codsworth-model") + 1], make_mission.CODSWORTH_MESH)
+            with open(os.path.join(out, "plan.json"), encoding="utf-8") as f:
+                plan = json.load(f)
+            self.assertEqual(sorted(plan["assets"]), sorted(r for r in files if r != "codsworth_report.json"))
+            core_dir = os.path.join(d, "coreset")
+            _write(os.path.join(core_dir, "FO4TerrainCore.esm"), b"core")
+            folded = os.path.join(d, "folded")
+            raider = os.path.join(d, "FO4ActorRaider.esm")
+            self.assertEqual(make_mission.main(["fold", "--mission", out, "--core-dir", core_dir, "--out", folded,
+                                                "--raider", raider]), 0)
+            nif = os.path.join(folded, "Data", "meshes", "fo4port", "actors", "codsworth", "codsworth.nif")
+            self.assertTrue(os.path.isfile(nif))
+            self.assertFalse(os.path.exists(os.path.join(folded, "Data", "codsworth_report.json")))
+            _write(nif, b"other")
+            self.assertEqual(make_mission.main(["verify", "--exp-dir", folded, "--plan", os.path.join(out, "plan.json"),
+                                                "--raider", raider]), 1)
+
+    def test_codsworth_assets_need_the_mesh(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "empty")
+            os.makedirs(src)
+            with self.assertRaises(SystemExit):
+                self.fake_stage(d, os.path.join(d, "m"), extra=["--codsworth-assets", src])
+
     def snapshot(self, root):
         got = {}
         for base, _, files in os.walk(root):
