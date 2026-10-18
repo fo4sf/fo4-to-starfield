@@ -1,6 +1,7 @@
 """Read-only audit of completed Commonwealth phase observations.
 
 --campaign <prepared folder> --phase <phase name>
+--attempt <completed attempt folder containing spec.json and obs.json>
 Exit0: observations match; exit1: mismatch; exit2: incomplete/unusable evidence.
 These exits never establish walking, visual quality or runtime acceptance.
 """
@@ -14,6 +15,10 @@ import re
 import sys
 
 from PIL import Image
+
+# Isolated Python excludes the script directory. Load only our trusted sibling,
+# never a same-named module from the observation/current working directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 
 NAME = re.compile(r"[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_-])?\Z")
@@ -280,13 +285,46 @@ def inspect_phase(root, phase):
             'expected_points': sum(len(t['points']) for t in queue['tests']), 'entries': entries}
 
 
+def inspect_attempt(folder):
+    """Read observations directly; never rerun the controller's judge or write its records."""
+    folder = Path(folder)
+    if folder.is_symlink():
+        raise ValueError('linked attempt folder')
+    test, spec_identity = snapshot(folder, 'spec.json')
+    obs, observation_identity = snapshot(folder, 'obs.json')
+    kind = test.get('kind')
+    if obs.get('kind') != kind:
+        raise ValueError('observation kind differs from planned test')
+    if kind == 'terrain':
+        entry = inspect_test(test, obs, folder)
+    elif kind in ('door_trip', 'walk'):
+        from continuous_evidence import inspect_door_trip, inspect_walk
+        entry = (inspect_door_trip if kind == 'door_trip' else inspect_walk)(test, obs, folder)
+    else:
+        raise ValueError(f'unsupported evidence kind: {kind!r}')
+    issues = entry.get('issues')
+    if not isinstance(issues, list) or any(not isinstance(issue, dict)
+            or issue.get('status') not in ('MISMATCH', 'INCONCLUSIVE') for issue in issues):
+        raise ValueError('invalid audit issue inventory')
+    status = 'INCONCLUSIVE' if any(issue['status'] == 'INCONCLUSIVE' for issue in issues) else 'MISMATCH' if issues else 'MATCH'
+    return {'status': status, 'kind': kind, 'runtime_accepted': False,
+            'scope': 'independent observation/capture audit; manual image and installed-input review still required',
+            'spec': spec_identity, 'observation': observation_identity, 'entry': entry}
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--campaign', type=Path, required=True)
-    parser.add_argument('--phase', required=True)
+    sources = parser.add_mutually_exclusive_group(required=True)
+    sources.add_argument('--campaign', type=Path)
+    sources.add_argument('--attempt', type=Path)
+    parser.add_argument('--phase')
     args = parser.parse_args(argv)
+    if args.campaign is not None and not args.phase:
+        parser.error('--campaign requires --phase')
+    if args.attempt is not None and args.phase:
+        parser.error('--phase applies only to --campaign')
     try:
-        report = inspect_phase(args.campaign, args.phase)
+        report = inspect_attempt(args.attempt) if args.attempt is not None else inspect_phase(args.campaign, args.phase)
         serialized = json.dumps(report, indent=2, allow_nan=False)
     except (OSError, ValueError, TypeError, KeyError, OverflowError) as error:
         print(json.dumps({'status': 'INCONCLUSIVE', 'runtime_accepted': False, 'error': str(error)}))

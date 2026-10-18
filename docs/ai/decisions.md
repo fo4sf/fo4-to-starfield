@@ -291,6 +291,18 @@ the top floor and walk down (does not test climbing, the owner's complaint); ski
 (would drop the very tests that decide whether the converter's flattening is at fault); change the converter now (not
 before the probes say the crossing is the cause).
 
+## 2026-10-14 Codex: independent normalized door/walk evidence (#108)
+
+Read original attempt records without executing the controller judge or rewriting
+its results. Bind each player/object query to retained current-session OCR,
+native capture and invocation identities. Check explicit source/plan/install
+snapshots, measured frames, route continuity and settled pose chronology before
+reporting a structural match. Missing evidence stays inconclusive; every report
+retains false runtime acceptance. The producer/adapter is a separate reviewed
+dependency; metadata cannot be invented retrospectively. Alternatives rejected:
+trusting PASS labels, reconstructing movement from derived positions, or treating
+a new consumer schema as proof that a native producer already supports it.
+
 ## 2026-10-14 Codex: Windows read sharing during source fingerprints (#117)
 
 Acquire an existing read-only Windows file handle sharing only reads, then retain it
@@ -407,3 +419,16 @@ so each is its own PR by the PC session (leader-core.md §9 lists the cost). Why
 cannot rebuild or re-pin, and a silently changed `objects.json` would invalidate pinned evidence. Alternatives:
 one shared function imported by both scripts today (ties `scripts/game` to `fo4sf.core` before the PC session has
 decided the import path); keeping the order as a parameter (two orders in the core is the bug #102 found).
+
+## 2026-10-15 Codex: prove diagnostic reference selection (#108)
+
+Require an exact current-session GetSelf reply between the diagnostic prid and
+ordered object XYZ queries. An echoed selection alone cannot attribute position:
+the prior selection can survive a refusal. Refused, absent, ambiguous or stale
+proof supplies neither an attributed position nor merge residuals. Preserve
+contradictory IDs as mismatch issues. Also require all command, XYZ and provenance
+checks of that individual read to pass before publishing its diagnostics; failures
+in other reads do not erase independently valid diagnostic evidence. Use a strict consumer grammar
+based on the recorded native reply spelling; producer/adapters still need native
+verification. Alternatives rejected: trusting the requested ID, correcting fuzzy
+hexadecimal OCR, or reporting zero residuals from an unidentified object.

@@ -1160,6 +1160,21 @@ machine paths are excluded from Git. Shared coordination: #32 comment6159604237.
 - Also: docs/ai/first-run-failures-1014.md (twelve first-run failures, causes, guards); `input.ps1` defaults to the
   legacy key path; the walk-plan key `bridge` (the deck) and the test flag `bridge_reads` are different things.
 
+## 2026-10-14 Codex: independent door/walk attempt audit (#108)
+
+Added a read-only attempt CLI and normalized evidence checks for source/plan/input
+pins, player queries, current-session challenge/capture bindings, merge frames,
+ordered route steps, bridge/border witnesses, settled door/reload XYZ and facing.
+Independent synthetic reviews found incorrect actor selection, command/chronology
+gaps and facing borrowed from another read; regressions now reject those cases.
+The current candidate has59 focused helper regressions plus7 dispatch tests.
+The latest396-test Windows suite exposes an unchanged archive-fingerprint race
+test failure; preserve that finding rather than claim a clean full suite.
+The normalized protocol remains unconnected to the current native producer.
+No original campaign verdict, game script/input, installation or save changed;
+runtime acceptance stays false. Native producer integration, installed-byte proof
+and complete ground/contact validation remain separate gates.
+
 ## 2026-10-14 Codex: source-archive read guard (#117, offline tested)
 
 Reproduced a stale archive identity with an equal-size synthetic overwrite and
@@ -1781,3 +1796,72 @@ item; it turns both FO4 garage meshes into passable statics because RedRGarageDo
 rigger refuses it. Alias, door_motion Opening sequences, door_rig.alias_clips, and the alias test are
 out. Button wiring, docs, and Codex's #319 actual-writer test stay. Garage NIF rig is later, Claude on
 the build side. No deploy, no game.
+
+## 2026-10-15 Codex: recheck the evidence audit with merged archive fix
+
+Merged main at9c291f1 into PR118 without changing its evidence protocol or original
+campaigns. Both decision/journal entries are retained. The fresh Windows suite passes
+407 tests (3 skips), guard pass. Historical396-test failure remains in private evidence.
+The native bridge/producer adapter remains a separate integration gate; this does not
+approve a walk, door trip or engine-loaded artifact identity.
+
+## 2026-10-15 Codex: diagnostic selection counterexamples (#108)
+
+At PR118 b2b8a4f, synthetic current-session captures with a refused prid, a wrong
+GetSelf reply or no prid echo all returned MATCH and a zero merged residual.
+The ordinary control also matched. Captures/inputs and all four original reports
+are retained privately; runtime acceptance was false throughout.
+
+Diagnostic reads now require the exact requested reference in a GetSelf reply
+between the current selection and XYZ query/reply block. Missing/refused/stale or
+ambiguous proof is inconclusive; a different exact ID is a mismatch. Unverified
+selection yields no attributed position/residual. Player reads stay qualified.
+The narrow reply grammar follows the existing native-format notes, not an assumed
+producer integration. Independent20-case QA found six rejected reads still exposed
+verified metadata positions/residuals when typed commands, XYZ or OCR binding
+failed. Per-read validation now gates attribution too; failed QA reports and the
+initial test-edit error are retained. Validation:66 focused and414 Windows tests
+(3 skips), guard pass. Independent12-case re-review passes the six retained
+failures, three valid controls and three per-read isolation checks; original852 QA
+files remain unchanged. Hosted CI is tracked on the pinned PR update. No native
+game, original campaign, installation, queue or runner script changed.
+
+## 2026-10-15 Codex: current-source review and preservation checkpoint
+
+PR118 source correction de80a97 passes hosted CI38701379123 in addition to66 focused,
+414 Windows tests(3 skips), guard and final12-case independent QA. The native adapter
+still needs separate proof; no existing runtime result was rescored.
+
+Reviewed Grok PR69 f706e77:21 author tests and14 independent alias/time/offset/height
+controls pass; hosted CI38718246758 passes. No remaining blocker in that bounded
+correction scope. Reviewed Claude PR1214a91ba1 merge preservation:13 feature names,
+five experiment kinds and180 nonempty incoming research addition occurrences remain;
+routes_dir/impulse keywords survive.15 console-plan checks and2 actual-PowerShell
+JSON-fake-game walk/STOP scenarios pass. The historical broken FEATURES tuple is
+fixed in the final head. This is no overall runner approval or native acceptance.
+
+Claude's A/B report6187749682 refutes fixA for persistent-reference merging and
+associates the probe-bearing exterior override with a displaced COC. PR119's old
+cluster plan must be revised before reusing those paths. New temporary references
+do not inherently avoid an existing-cell override. Source/plan review only; no
+Codex writer changes, controller input, deployments or new native tests.
+
+Nine completed October15 private capsules reopened/verified:2771 files,
+10,138,473 original bytes in3,878,850 archive bytes. Originals and failed QA/harness
+logs remain; local second-volume preservation is not offsite backup. No cleanup
+deletion or active queue/game/recovery change occurred.
+
+### 2026-10-18 Codex: isolated door/walk audit entry point (PR118)
+
+Merged main697bc07, preserving both documentation histories. Six original
+consumer/test/usage blobs initially matched1350d9d;104 in-process tests passed.
+Actual isolated CLI then failed importing continuous_evidence: unit tests had
+already inserted its directory into sys.path. Three new subprocess cases reproduce
+the failure. The entry point now inserts its own resolved script directory,
+never the evidence working directory. The negative fixture includes an untrusted
+same-named module there.105 focused tests and six separate real CLI synthetic
+controls pass: valid walk/door, wrong or missing reference selection, teleport,
+missing capture. Source inputs remain unchanged; invalid selection supplies no
+attributed position/residual; runtime and acceptance gates remain false.
+Original failure and passing evidence retained privately. Guard/owned diff pass.
+Independent delta QA and native producer/adapter agreement remain pending.
