@@ -6,7 +6,8 @@
 Source Meshes\\Actors\\Robot\\CharacterAssets\\MrHandy.nif (Torso, Legs, HandyShell, Arms:0, Arms:1; 63 skin bones),
 template Meshes\\Actors\\MiniBotA\\Mesh\\minibota_base\\minibota_mesh.nif (one weight per vertex; bones C_Chassis,
 C_Arm1-3, C_Base, C_Axle, C_Hatch), both verified on the PC 2026-10-18 (codsworth_dump.py). Materials and textures go
-through pipeline.Converter exactly as the statics do. Writes into <staging>:
+through pipeline.Converter exactly as the statics do. Everything is built in <staging>.partial, which is renamed to
+<staging> only once complete; <staging> must be new or empty, so an earlier stage is never overwritten. Writes:
     meshes/fo4port/actors/codsworth/codsworth.nif, geometries/<hash>/<hash>.mesh, materials/..., textures/...
     codsworth_report.json
 Bone map: Pelvis (the thruster) -> C_Base, everything else -> C_Chassis. With --animate-arms the three arm chains
@@ -17,6 +18,7 @@ import argparse
 import glob
 import json
 import os
+import shutil
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
@@ -61,12 +63,26 @@ def main(argv=None):
     p.add_argument("--template", default=TEMPLATE)
     p.add_argument("--animate-arms", action="store_true")
     a = p.parse_args(argv)
+    if os.path.exists(a.staging) and os.listdir(a.staging):
+        raise SystemExit(f"{a.staging} is not empty: give a new staging folder (an earlier stage is never overwritten)")
+    partial = a.staging.rstrip("\\/") + ".partial"
+    if os.path.exists(partial):
+        shutil.rmtree(partial)                                              # a failed earlier attempt, never published
+    report = build(a, partial)
+    if os.path.exists(a.staging):
+        os.rmdir(a.staging)                                                 # empty (checked above)
+    os.replace(partial, a.staging)                                          # publish only the complete stage
+    print(json.dumps({k: report[k] for k in ("template_geometry", "template_bones", "groups", "bound", "detached", "pose")},
+                     indent=1)[:6000])
+    return 0
 
+
+def build(a, staging):
     src = pipeline.Fo4Archives(a.fo4_data)
     raw = src.mesh(SOURCE)
     if raw is None:
         raise SystemExit(f"{SOURCE} not found in {a.fo4_data}")
-    conv = pipeline.Converter(src, a.staging, a.texconv, a.content_resources)
+    conv = pipeline.Converter(src, staging, a.texconv, a.content_resources)
     fo4 = nif.parse(raw)
     materials = {}
     for s in nif.fo4_trishapes(fo4, placed=True):
@@ -78,17 +94,15 @@ def main(argv=None):
     files = {f"meshes/{OUT_NAME}.nif": res.nif}
     files.update({f"geometries/{d}/{f}.mesh": data for (d, f), data in res.meshes.items()})
     for rel, data in files.items():
-        dst = os.path.join(a.staging, *rel.split("/"))
+        dst = os.path.join(staging, *rel.split("/"))
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         with open(dst, "wb") as f:
             f.write(data)
     report = {"source": SOURCE, "template": a.template, "animate_arms": a.animate_arms, "materials": materials,
               "files": sorted(files), **res.report}
-    with open(os.path.join(a.staging, "codsworth_report.json"), "w") as f:
+    with open(os.path.join(staging, "codsworth_report.json"), "w") as f:
         json.dump(report, f, indent=1)
-    print(json.dumps({k: report[k] for k in ("template_geometry", "template_bones", "groups", "bound", "detached", "pose")},
-                     indent=1)[:6000])
-    return 0
+    return report
 
 
 if __name__ == "__main__":

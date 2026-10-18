@@ -158,7 +158,10 @@ def rebind(template_nif: bytes, fo4_nif: bytes, bone_for: Callable[[Optional[str
 
     meshes: Dict[Tuple[str, str], bytes] = {}
     new_children = [c for c in parents[parent] if c not in geoms]          # detach every template geometry
-    report["detached"] = [_name(t, c) for c in parents[parent] if c in geoms and c != tgt]
+    report["detached"] = sorted({_name(t, c) for ch in parents.values() for c in ch if c in geoms and c != tgt})
+    for node, ch in parents.items():                                       # wherever it hangs, not only beside tgt
+        if node != parent and any(c in geoms for c in ch):
+            _set_children(t, node, [c for c in ch if c not in geoms])
     bone_data0 = t.blocks[data]
     for k, (mat, members) in enumerate(groups.items()):
         merged = _merge(members)
