@@ -96,6 +96,16 @@ class ItemsTests(unittest.TestCase):
         cl, rep = mc.items(refs, placed, self.TABLE, only_known=True)
         self.assertEqual([e["name"] for e in cl["items"]], ["Stimpak"])
 
+    def test_world_weapon_becomes_a_pick_up_item(self):
+        # owner, 2026-10-17: the tire iron before the Red Rocket bridge was a static; FO4 WEAP references are items now
+        placed = ["000004:Fallout4.esm"]
+        refs = [ref("000004:Fallout4.esm", typ="Weapon", edid="TireIron", base="0D1EB0:Fallout4.esm")]
+        table = mc.load(os.path.join(ROOT, "scripts", "terrain", "clusters", "item_table.json"))
+        cl, rep = mc.items(refs, placed, table)
+        self.assertEqual([(e["src"], e["name"], e["kind"]) for e in cl["items"]],
+                         [("000004:Fallout4.esm", "Tire Iron", "Weapon")])
+        self.assertEqual((rep["items"], rep["Weapon"], rep["table prefix"]), (1, 1, 1))
+
 
 def dump(value, path):
     with open(path, "w", encoding="utf-8") as f:
@@ -202,6 +212,66 @@ class ActivatorTerminalTests(unittest.TestCase):
             self.assertEqual(cl["excluded"]["no_model"]["patterns"]["zone / area"]["refs"], 1)
             self.assertEqual(mc.main(["terminals"] + common + ["--out", out]), 0)
             self.assertEqual([e["name"] for e in read(out)["terminals"]], ["Zeke's Terminal"])
+
+
+class FloraTests(unittest.TestCase):
+    """FO4 Flora -> Starfield FLOR listing (docs/terrain/flora.md)."""
+
+    @staticmethod
+    def f(fk, edid="FloraWildMelonVine01", base="01C25E:Fallout4.esm",
+          model="SetDressing\\Flora\\FloraWildMelonVine01.nif", **kw):
+        r = ref(fk, typ="Flora", edid=edid, base=base)
+        r.update(model=model, **kw)
+        return r
+
+    def test_flora_in_placement_order_with_default_ingredient(self):
+        placed = ["000002:Fallout4.esm", "000001:Fallout4.esm", "000003:Fallout4.esm"]
+        refs = [self.f("000001:Fallout4.esm"),
+                self.f("000002:Fallout4.esm", edid="FloraTatoPlant01", base="01C25F:Fallout4.esm"),
+                self.f("000003:Fallout4.esm", edid="FloraHubFlower01", base="01C260:Fallout4.esm"),
+                self.f("000004:Fallout4.esm", model=""),
+                ref("000005:Fallout4.esm", typ="Static")]
+        names = {"01C25E:Fallout4.esm": "Melon Vine", "01C25F:Fallout4.esm": None}
+        cl, rep = mc.flora(refs, placed, None, names, {})
+        self.assertEqual([(e["src"], e["name"], e["name_from"], e["ingredient"]) for e in cl["flora"]],
+                         [("000002:Fallout4.esm", "Flora Tato Plant01", "editor id", mc.FLORA_INGREDIENT),
+                          ("000001:Fallout4.esm", "Melon Vine", "fo4", mc.FLORA_INGREDIENT),
+                          ("000003:Fallout4.esm", "Flora Hub Flower01", "editor id", mc.FLORA_INGREDIENT)])
+        self.assertEqual([e["slot"] for e in cl["flora"]], [0, 1, 2])
+        self.assertEqual((rep["flora"], rep["distinct bases"]), (3, 3))
+        self.assertEqual(mc.FLORA_INGREDIENT, "00260DF2:Starfield.esm")
+        self.assertEqual(cl["excluded"]["no_model"]["refs"], 1)
+
+    def test_flora_table_overrides_ingredient_and_name(self):
+        placed = ["000001:Fallout4.esm", "000002:Fallout4.esm"]
+        refs = [self.f("000001:Fallout4.esm"),
+                self.f("000002:Fallout4.esm", edid="FloraTatoPlant01", base="01C25F:Fallout4.esm")]
+        table = {"by_editor_id": {"FloraWildMelon*": {"name": "Melon", "ingredient": "00055AF:Starfield.esm"}}}
+        cl, _rep = mc.flora(refs, placed, table)
+        self.assertEqual([(e["name"], e["ingredient"], e["name_from"]) for e in cl["flora"]],
+                         [("Melon", "00055AF:Starfield.esm", "table"),
+                          ("Flora Tato Plant01", mc.FLORA_INGREDIENT, "editor id")])
+        with self.assertRaisesRegex(ValueError, "formkey"):
+            mc.flora(refs, placed, {"by_editor_id": {"FloraWildMelon*": {"ingredient": 1}}})
+
+    def test_cli_flora_on_synthetic_bands(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, "work", "export"))
+            os.makedirs(os.path.join(d, "build"))
+            band = {"refs": [self.f("000001:Fallout4.esm"),
+                             self.f("000002:Fallout4.esm", edid="FloraDummy", model="markers\\MarkerDummy01.nif")]}
+            dump(band, os.path.join(d, "work", "export", "band_-5_4.json"))
+            dump({"refs": [{"src": "000001:Fallout4.esm"}]}, os.path.join(d, "build", "objects.json"))
+            dump({"plugin": "Fallout4.esm", "names": {"01C25E:Fallout4.esm": {"type": "Flora", "editor_id": "x",
+                                                                              "name": "Melon Vine"}}},
+                 os.path.join(d, "names.json"))
+            out = os.path.join(d, "f.json")
+            self.assertEqual(mc.main(["flora", "--work", os.path.join(d, "work"), "--build", os.path.join(d, "build"),
+                                      "--names", os.path.join(d, "names.json"), "--out", out]), 0)
+            cl = read(out)
+            self.assertEqual([(e["src"], e["name"], e["ingredient"]) for e in cl["flora"]],
+                             [("000001:Fallout4.esm", "Melon Vine", mc.FLORA_INGREDIENT)])
+            self.assertEqual(cl["excluded"]["not placed"]["refs"], 1)
 
 
 def fo4_base(edid="defaultLightFire01NSFlicker", fade=1.0, flags=0x9, radius=256, model=None):
@@ -471,14 +541,14 @@ class StationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "'items' is in both c.json and d.json"):
             mc.merge({"c.json": c, "d.json": {"items": []}})
         self.assertEqual(mc.MERGE_KEYS, ("containers", "items", "activators", "terminals", "lights", "light_bases",
-                                         "lumens_per_m2", "workshops", "benches", "doors", "doors_port"))
+                                         "lumens_per_m2", "workshops", "flora", "benches", "doors", "doors_port"))
 
     def test_placed_sources_know_the_station_classes(self):
         with tempfile.TemporaryDirectory() as d:
             dump({"refs": [{"src": "B"}], "workshops": [{"src": "A", "reference_index": 0}],
                   "benches": [{"src": "C", "reference_index": 2}]}, os.path.join(d, "objects.json"))
             self.assertEqual(mc.placed_sources(d), ["A", "B", "C"])
-        self.assertEqual(mc.PROMOTED_KEYS, ("containers", "items", "activators", "terminals", "workshops", "benches", "doors"))
+        self.assertEqual(mc.PROMOTED_KEYS, ("containers", "items", "activators", "terminals", "workshops", "flora", "benches", "doors"))
 
     def test_cli_on_synthetic_bands_and_esm(self):
         with tempfile.TemporaryDirectory() as d:

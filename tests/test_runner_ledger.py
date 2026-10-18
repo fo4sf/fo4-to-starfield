@@ -3,6 +3,7 @@
 such a run and recovers the rows when a live write was lost. Synthetic data; no game, no Windows calls."""
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -36,9 +37,9 @@ class RunnerLedgerTests(unittest.TestCase):
         self.leader = os.path.join(self.d, "leader")
         self.ctl = tt.FakeControls()
 
-    def runner(self, step, lease=True, **kw):
+    def runner(self, step, lease=True, qdir=None, **kw):
         extra = dict(lease_dir=self.leader, lease_owner="Claude") if lease else {}
-        r = tq.Runner(self.d, tt.args(**extra, **kw), ctl=self.ctl, step=step)
+        r = tq.Runner(qdir or self.d, tt.args(**extra, **kw), ctl=self.ctl, step=step)
         r.log = lambda msg: quiet_log(r, msg)             # run.log only: the suite's output stays the result line
         r.session, r.cell = True, "C"
         r._ps = lambda *a, **k: (0, "at the cell")
@@ -142,16 +143,16 @@ class RunnerLedgerTests(unittest.TestCase):
 
         def step(test, out):
             if test.get("kind") == "save":
-                tt.touch(saves, "Save1_" + test["name"] + ".sfs")
+                tt.touch(saves, test["name"] + ".sfs")                   # what the console's `save <name>` writes
                 return 0
             if test.get("kind") in ("godmode", "companion_off", "load"):
                 tt.jdump({"god": True, "reply": "ok"}, os.path.join(out, "obs.json"))
                 return 0
             return tt.RunnerTests.landing(None, 0.1)(test, out)
         r.step = step
+        real = tq.dedicated_save
         with mock.patch.object(os.path, "isdir", lambda p: True if p.endswith("Saves") else os.path.exists(p)):
-            with mock.patch("glob.glob", lambda pat: [os.path.join(saves, "Save1_fo4sf_test_abcd1234.sfs")]
-                            if "fo4sf_test_abcd1234" in pat and os.path.exists(os.path.join(saves, "Save1_fo4sf_test_abcd1234.sfs")) else []):
+            with mock.patch.object(tq, "dedicated_save", lambda _dir, name: real(saves, name)):   # the test's Saves folder
                 r.run()
         points = [e for e in self.events() if e.ev == "recovery_point"]
         self.assertEqual([(e.get("kind"), e.get("path"), e.get("build_id")) for e in points],
@@ -176,6 +177,77 @@ class RunnerLedgerTests(unittest.TestCase):
         # the recovery path: the importer rebuilds the run from the files
         self.assertEqual(imp.import_queue(self.d, Ledger(os.path.join(self.leader, "ledger.jsonl"))), 1 + 3 + 3)
         self.assertEqual(sorted(v["status"] for v in fold(self.events()).tasks.values()), ["completed"] * 3)
+
+    def test_a_queue_rebuilt_under_a_bound_name_writes_nothing_live(self):
+        # the ledger binds this folder's name to an archived queue of another build (imported, or run live earlier):
+        # the live writer refuses like the importer (import_queue.bind), so the two never fold into one task; the run
+        # itself completes and its rows stay in results.jsonl
+        c.Controller(self.leader).claim("Claude", "window", 3600)
+        name = os.path.basename(self.d)
+        archived = os.path.join(self.d, "archive", name)
+        os.makedirs(archived)
+        tt.make_queue(archived, n=1)
+        q = tt.jload(os.path.join(archived, "queue.json"))
+        q["build_id"] = "ffffffff"
+        tt.jdump(q, os.path.join(archived, "queue.json"))
+        with open(os.path.join(archived, "results.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"id": "0000_fall", "attempt": 1, "verdict": "FAIL", "class": "FALL", "dir": "x", "t": "t1"}) + "\n")
+        ledger = Ledger(os.path.join(self.leader, "ledger.jsonl"))
+        self.assertEqual(imp.import_queue(archived, ledger), 3)
+        code = self.runner(tt.RunnerTests.landing(None, 0.1), max_attempts=1).run()      # build abcd1234, the same name
+        self.assertEqual(code, 0)
+        self.assertEqual(len(read(os.path.join(self.d, "results.jsonl")).splitlines()), 3)   # the run itself completed
+        log = read(os.path.join(self.d, "run.log"))
+        self.assertEqual(log.count("ledger: campaign"), 1)
+        self.assertIn(f"campaign {name!r} is already bound to", log)
+        self.assertIn("holds build abcd1234", log)
+        self.assertIn("nothing of this run is written to the ledger", log)
+        self.assertTrue(all(e.by == "import" for e in self.events() if e.ev.startswith("task") or e.ev == "build_pinned"))
+        s = fold(self.events())
+        self.assertEqual({k: (v["outcome"], v["build_id"]) for k, v in s.tasks.items()}, {f"{name}/0000_fall": ("FAIL", "ffffffff")})
+        with self.assertRaises(imp.CampaignBound):                                        # and the importer refuses it too
+            imp.import_queue(self.d, ledger)
+        # the bound queue relocated (the same build under the same name) writes live under its campaign
+        moved = os.path.join(self.d, "moved", name)
+        shutil.copytree(archived, moved)
+        code = self.runner(tt.RunnerTests.landing(None, 0.1), max_attempts=1, qdir=moved).run()
+        self.assertEqual(code, 0)
+        self.assertNotIn("ledger:", read(os.path.join(moved, "run.log")))
+        live = [e for e in self.events() if e.by == "testqueue:Claude" and e.ev.startswith("task")]
+        self.assertEqual([e.ev for e in live], ["task_queued", "task_started", "task_finished"])   # new path: new src keys
+        self.assertEqual(live[2].get("src"), os.path.join(moved, "results.jsonl") + ":2")
+        s = fold(self.events())
+        self.assertEqual({k: (v["outcome"], v["build_id"]) for k, v in s.tasks.items()}, {f"{name}/0000_fall": ("PASS", "ffffffff")})
+        self.assertEqual(s.campaigns, {name})
+
+    def test_the_live_check_needs_the_same_plan_and_agreeing_rows(self):
+        # runner_events.check_binding is the importer's rule (Codex review 5558689652): the same build is not enough
+        from fo4sf.core import runner_events as rev
+        name = "door_trip"
+        a = os.path.join(self.d, "a", name)
+        os.makedirs(a)
+        q = {"created": "2026-10-15T10:00:00", "build_id": "aaaaaaaa", "plugin_sha256": "aa" * 32,
+             "tests": [{"id": "door_1", "kind": "door_trip", "ref": "0x100"}]}
+        tt.jdump(q, os.path.join(a, "queue.json"))
+        with open(os.path.join(a, "results.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"id": "door_1", "attempt": 1, "verdict": "FAIL", "class": "FALL", "dir": "x", "t": "t1"}) + "\n")
+        ledger = Ledger(os.path.join(self.leader, "ledger.jsonl"))
+        imp.import_queue(a, ledger)
+        events = ledger.read()
+        b = os.path.join(self.d, "b", name)
+        other = dict(q, tests=[{"id": "door_1", "kind": "door_trip", "ref": "0x200"}])
+        with self.assertRaises(imp.CampaignBound):                                    # another plan, one build
+            rev.check_binding(events, b, other)
+        pass_row = [(1, {"id": "door_1", "attempt": 1, "verdict": "PASS", "class": ""})]
+        with self.assertRaises(imp.CampaignBound):                                    # the same plan, a row that differs
+            rev.check_binding(events, b, q, pass_row)
+        rev.check_binding(events, b, q, rev.results_rows(os.path.join(a, "results.jsonl"))[0])   # a relocation
+        # nothing run there yet: an empty copy would run the bound tests again under the campaign and could turn its
+        # FAIL into a PASS (Codex on #199 at 05e8439), so it is refused like the importer refuses it
+        for rows in (None, []):
+            with self.assertRaises(imp.CampaignBound):
+                rev.check_binding(events, b, q, rows)
+        self.assertEqual(rev.task_queued(b, q, q["tests"][0], "x", "Claude").get("queue_id"), imp.queue_identity(q))
 
     def test_a_torn_results_tail_is_terminated_and_reported_not_merged(self):
         torn = '{"id": "0000_fall", "kind": "fall", "verd'

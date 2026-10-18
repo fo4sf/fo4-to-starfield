@@ -2,11 +2,13 @@
 
 **Bring Fallout 4 into Starfield's Creation Engine 2 through a measured, repeatable conversion toolchain.** The goal is to preserve Fallout 4 gameplay while using Starfield's native physics and modern engine capabilities. Experimental interiors already load in Starfield; the full game conversion is unfinished.
 
+**New here and want to play or test it?** Start with [docs/PLAY-AND-TEST.md](docs/PLAY-AND-TEST.md): download, build, install, play and report, step by step.
+
 Reviewing or forking with an AI assistant? Point it at [docs/ai/for-ai-reviewers.md](docs/ai/for-ai-reviewers.md) first.
 
 Converters read **your own copies of both games** and generate local outputs. No game files or conversion pack are distributed. Existing in-game screenshots depict Bethesda-owned visuals and are excluded from the project's code license.
 
-[Latest progress](#latest-progress--2026-10-17) · [Roadmap](docs/ROADMAP.md) · [Progress dashboard](https://claude.ai/artifact/SjY6rgmjtdmN8ryjxAUxAp) · [Run an installed build](#run-an-installed-build-windows) · [Cell commands](#visit-converted-cells) · [Live updates](https://github.com/fo4sf/fo4-to-starfield/issues/32) · [Contribute](CONTRIBUTING.md)
+[Latest progress](#latest-progress--2026-10-17) · [Roadmap](docs/ROADMAP.md) · [Progress dashboard](https://claude.ai/artifact/SjY6rgmjtdmN8ryjxAUxAp) · [Play and test (newcomers)](docs/PLAY-AND-TEST.md) · [Run an installed build](#run-an-installed-build-windows) · [Cell commands](#visit-converted-cells) · [Live updates](https://github.com/fo4sf/fo4-to-starfield/issues/32) · [Contribute](CONTRIBUTING.md)
 
 ## Latest progress — 2026-10-17
 
@@ -155,7 +157,7 @@ python scripts/guard.py
 
 `scripts/convert_batch.py` converts groups of statics and now prints the top failure reasons by count (with percentages) after a run and writes failure-summary.json, making common issues easier to spot and process programmatically.
 
-To reproduce measurements, install the tools listed in [setup](docs/SETUP.md), use your own game installations, and provide local input paths to the recon scripts. Keep generated data and converted assets outside this repository. Read [contributing](CONTRIBUTING.md) before opening a pull request.
+To play or test the port, follow [docs/PLAY-AND-TEST.md](docs/PLAY-AND-TEST.md). To reproduce measurements, install the tools listed in [setup](docs/SETUP.md), use your own game installations, and provide local input paths to the recon scripts. Keep generated data and converted assets outside this repository. Read [contributing](CONTRIBUTING.md) before opening a pull request.
 
 ## Safety and project rules
 
