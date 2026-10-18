@@ -1,0 +1,199 @@
+# Play and test the port: a guide for newcomers
+
+You found the Fallout 4 to Starfield project and want to try it. This page takes you from download to walking around
+the converted Commonwealth in Starfield, and to sending a useful report when something is wrong.
+
+Read this first: **the port is an unfinished research build.** The Commonwealth exterior, 16 interiors and some doors
+run natively in Starfield, but there is no quest, no story start and no one-click installer. What works and what
+doesn't is in the [README](../README.md#latest-progress--2026-10-17), the [roadmap](ROADMAP.md) and the live list of
+playtest findings, [docs/owner/playtest-issues.md](owner/playtest-issues.md).
+
+**Nothing converted is downloadable.** The repository holds code and documentation only. The converters read *your own*
+copies of both games and write the converted files on your PC. No game files, converted plugins or archives are
+published, and none may be uploaded to issues or pull requests (see [Safety](../README.md#safety-and-project-rules)).
+
+## 1. What you need
+
+| Need | Version | Why |
+|---|---|---|
+| Windows PC | 10 or 11 | The install and test scripts are PowerShell and Windows Python. |
+| Fallout 4 (Steam) | **1.10.163**, with all DLC | Only its data is read. The port assumes every DLC of both games. |
+| Starfield (Steam) | **1.16.244** | The Microsoft Store / Game Pass build is not supported. |
+| Starfield Creation Kit | Steam app 2722710 | Its `Archive2` packs the converted files into `.ba2` archives. |
+| Python | 3.12 or newer, with numpy and Pillow | The converters and installers. |
+| .NET SDK | 9.x | The plugin writers in `dotnet/`. |
+| `texconv` | the copy shipped in xEdit's `Edit Scripts` | Texture compression. |
+
+The full list, with download links for the optional tools, is [docs/SETUP.md](SETUP.md). Test in a **separate
+Starfield save**, never your main one.
+
+## 2. Download
+
+Either download the ZIP (on GitHub: **Code → Download ZIP**, then unzip it somewhere outside your game folders) or clone it:
+
+```powershell
+git clone https://github.com/fo4sf/fo4-to-starfield.git
+cd fo4-to-starfield
+python -m venv ..\fo4sf-venv
+..\fo4sf-venv\Scripts\python.exe -m pip install -r requirements-ci.txt
+```
+
+Check that the download is complete and working (offline; it touches neither game):
+
+```powershell
+..\fo4sf-venv\Scripts\python.exe -m unittest discover -s tests
+..\fo4sf-venv\Scripts\python.exe scripts\guard.py
+```
+
+Then copy `config.example.toml` to `config.toml` and fill in your paths. `work_dir` and `staging_dir` must be outside the
+repository. If your Fallout 4 `Data` folder has mods in it, point `fo4.data_dirs` at a clean copy of the vanilla files
+(base game plus DLC) instead.
+
+## 3. Build your converted files
+
+There is no single build command yet; a launcher that does this is on the [roadmap](ROADMAP.md). Today each part has
+its own documented pipeline, and each writes a **staging folder** (a folder holding a plugin and its files) outside the
+repository:
+
+| Part | What it gives you | How to build it |
+|---|---|---|
+| Interiors (`FO4Port.esm`) | Vault 111, Red Rocket, Super Duper Mart, the library and 12 more cells | `scripts/convert_batch.py` per cell; steps in [docs/terrain/interior-backlog.md](terrain/interior-backlog.md) |
+| Commonwealth exterior (`FO4TerrainCore.esm`, `FO4TerrainCore_Mars.esm`) | The 64 x 64 cell exterior with its objects and navmesh | The rebuild steps at the end of [docs/terrain/core64c.md](terrain/core64c.md) |
+| Observation bridge (`FO4SFBridge.esm`) | Lets the report tool and the test runner read your position and cell | `dotnet run --project dotnet/Bridge -- build --out <bridge staging folder>` plus its Papyrus script; [docs/ai/test-queue.md](ai/test-queue.md), section "Bridge" |
+
+Expect this part to take time and to need the tools in section 1. If you only want to report what you see, you can skip
+building and help by reviewing screenshots and evidence in [issue #32](https://github.com/fo4sf/fo4-to-starfield/issues/32).
+
+## 4. Install and turn it on
+
+Every installer is reversible: it refuses to overwrite existing files, writes a record of what it added into Starfield's
+`Data` folder, and its `uninstall` removes exactly that. Close Starfield first. In PowerShell, from the repository folder:
+
+```powershell
+$py = '..\fo4sf-venv\Scripts\python.exe'
+$sf = '<your Starfield folder, e.g. D:\SteamLibrary\steamapps\common\Starfield>'
+```
+
+Interiors (packs the archives with Archive2, copies them and `FO4Port.esm`, and switches the plugin on in `Plugins.txt`):
+
+```powershell
+& $py scripts\deploy_starfield.py install --staging "<interior staging folder>" --starfield $sf
+```
+
+The exterior, or any other experiment folder (only the plugins named after `--plugins` are switched on):
+
+```powershell
+& $py scripts\game\exp_install.py install --exp-dir "<exterior staging folder>" --starfield $sf --plugins FO4TerrainCore.esm,FO4TerrainCore_Mars.esm --pack
+```
+
+The observation bridge:
+
+```powershell
+& $py scripts\game\bridge_install.py install --dir "<bridge staging folder>" --starfield $sf
+```
+
+See what is installed:
+
+```powershell
+& $py scripts\game\exp_install.py status --starfield $sf
+& $py scripts\game\bridge_install.py status --starfield $sf
+```
+
+When Starfield starts and shows a **"load order changed"** dialog, choose **Current**. Saving that dialog can switch the
+port's plugins off. After you have loaded a save, close the game and check that they stayed on (0 means all active,
+8 means some were switched off):
+
+```powershell
+& $py scripts\game\exp_install.py active --starfield $sf
+```
+
+Take everything off again:
+
+```powershell
+& $py scripts\game\exp_install.py uninstall --starfield $sf
+& $py scripts\game\bridge_install.py uninstall --starfield $sf
+& $py scripts\deploy_starfield.py uninstall --starfield $sf
+```
+
+## 5. Play
+
+Start Starfield from Steam (or `Start-Process "steam://rungameid/1716740"` in PowerShell) and load your test save. The
+converted places are reached from the console: press the key left of **1** to open it, type one line, press Enter,
+and press the same key to close it.
+
+| Where | Console line |
+|---|---|
+| Red Rocket, outside (the exterior's arrival point) | `coc FO4Core_RedRocketSpawn` |
+| Vault 111 | `coc FO4Port_Vault111Cryo` |
+| Super Duper Mart | `coc FO4Port_SuperDuperMart01` |
+| Red Rocket cave | `coc FO4Port_RedRocket01` |
+| Boston Public Library | `coc FO4Port_BostonPublicLibrary02` |
+| Vault 81 | `coc FO4Port_Vault81` |
+| Parsons State | `coc FO4Port_ParsonsState01` |
+
+The full list of 16 interiors and more lines to try (containers, crafting benches, spawning a vanilla NPC that walks
+on the converted navmesh) is [docs/owner/in-game-test-sheet.md](owner/in-game-test-sheet.md).
+
+From Red Rocket you can walk north-west down the road, over the bridge and up into Sanctuary Hills, about 250 m; that walk
+has passed in both directions. Useful while exploring:
+
+| Line | What it does |
+|---|---|
+| `SetLocalTime 12` / `SetLocalTime 21` | Noon / dusk. |
+| `player.getpos x` (then `y`, `z`) | Your position, in metres. Include it in reports. |
+| `tgm` | God mode (no damage). |
+| `tcl` | Fly through walls; `tcl` again to land. Use it when a roof or wall traps you. |
+
+Good to know:
+
+- A single teleport of more than about 200 m can throw "Boundary Reached". Go in hops.
+- If loading a save drops you back to the main menu, a plugin the build needs is missing or switched off. Run the
+  `status` and `active` checks in section 4.
+- Some exterior doors do nothing yet; use `coc` for interiors. Nights may look too bright or too dark; lighting is being
+  calibrated.
+
+## 6. Report what you find
+
+The report kit takes a screenshot and saves where you were, so a report can be traced to an exact spot. It types
+nothing into the game and sends nothing anywhere.
+
+1. In the downloaded folder, double-click `tools\report-kit\Start-ReportHotkey.cmd` and keep its window open (minimised)
+   while you play.
+2. In game, press **Ctrl+Alt+L** for a screenshot (one beep), or **Ctrl+Alt+K** for a screenshot plus a box that asks
+   what is wrong. Type one sentence and press **Save**.
+3. Each press makes a folder in `Documents\FO4SF Reports\<date-time>\` with `screen.png`, `description.txt` and
+   `state.json` (your position and cell, when the bridge is installed).
+4. Open a **Player report** on GitHub: **Issues → New issue → Player report**. Attach `screen.png` and paste your
+   description and the useful lines of `state.json`. **Read `state.json` first**: it can contain folder paths with
+   your Windows user name; delete those lines.
+
+If the box doesn't appear over the game, switch Starfield to borderless or windowed, or press Alt+Tab once. More detail:
+[docs/community/reporting-tool.md](community/reporting-tool.md).
+
+A good report says, in one line per thing you checked:
+
+```
+step | cell | ref | action | observed | PASS/FAIL/INCONCLUSIVE | screenshot | save
+```
+
+For example: `door fwd | FO4Core_RedRocketSpawn -> FO4Port_SuperDuperMart01 | 0302D22B | E on door | loaded inside at
+marker | PASS | door_fwd_1.png | fo4sf_manual_door_inside`.
+
+Say whether you saw it in game or only read it from a file. If you used `tcl`, `tgm`, `coc` or `player.setpos` during a
+walk, say so: a teleport means the walk was not continuous, so it can't count as a walking result.
+
+Reports are reviewed by the project owner before anyone acts on them; until then they keep the `needs-triage` label.
+
+## 7. Automated tests (optional, advanced)
+
+The repository also has an unattended test runner that launches the game, drives it from the console and judges each
+test PASS, FAIL or INCONCLUSIVE with screenshots and logs. It takes over your keyboard and screen while it runs, so
+only start it on a PC you are not using. How it works and how to plan a queue: [scripts/game/README.md](../scripts/game/README.md)
+and [docs/ai/test-queue.md](ai/test-queue.md).
+
+## 8. Getting help and contributing
+
+- Live progress and exact build pins: [issue #32](https://github.com/fo4sf/fo4-to-starfield/issues/32).
+- Code changes: [CONTRIBUTING.md](../CONTRIBUTING.md). Every change needs synthetic tests and must pass
+  `python scripts/guard.py`.
+- Reviewing with an AI assistant: point it at [docs/ai/for-ai-reviewers.md](ai/for-ai-reviewers.md).
