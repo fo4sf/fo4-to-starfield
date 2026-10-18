@@ -6,7 +6,8 @@
 // Starfield-native way the core already uses for the Red Rocket garage button (#303): the PARENT reference gets vanilla
 // DefaultActivateLinkedRefOnActivate (its LinkedRefKeyword = LinkCustom02 0005D5E7) and a linked reference (XLKR) with
 // that keyword to the child. The script activates one linked reference, so a parent that drives more than one child is
-// reported and left unwired (a partial wire would look like a working machine that stops halfway). Not carried: the
+// reported and left unwired (a partial wire would look like a working machine that stops halfway), counting children
+// that were not converted. Not carried: the
 // delay, and FO4's "parent activate only" flag (bit 0: the child cannot be used directly); both are counted.
 // Only parents the player can use get the wire: promoted activators and terminals, and opening (non-load) doors.
 using System.Text.Json;
@@ -44,7 +45,10 @@ public static class ActivationChains
                 var child = r.GetProperty("formkey").GetString()!;
                 report.ChildrenWithParents++;
                 if ((ap.GetProperty("flags").GetUInt32() & 1) != 0) report.ParentActivateOnly++;
-                if (!placed.ContainsKey(child)) { report.ChildNotPlaced++; continue; }
+                // every source edge is kept, placed child or not: a parent's whole FO4 fanout decides whether it can be
+                // wired, so a machine whose second child was not converted is not cut down to a one-child wire
+                // (Codex's review of #357)
+                if (!placed.ContainsKey(child)) report.ChildNotPlaced++;
                 foreach (var p in ap.GetProperty("parents").EnumerateArray())
                 {
                     var parent = p.GetProperty("reference").GetString();
@@ -61,16 +65,20 @@ public static class ActivationChains
         foreach (var (parent, children) in byParent.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         {
             var obj = placed[parent].obj;
+            var missing = children.Where(c => !placed.ContainsKey(c.child)).Select(c => c.child).ToList();
             string? why = !usableBases.Contains(obj.Base.FormKey) ? "parent is not an activator, terminal or opening door"
                         : children.Count > 1 ? $"parent drives {children.Count} children (one linked ref per script)"
+                        : missing.Count > 0 ? "child not placed"
                         : obj.VirtualMachineAdapter != null ? "parent already carries a script"
                         : null;
             if (why != null)
             {
                 if (why.StartsWith("parent is not")) report.ParentNotUsable += children.Count;
                 else if (why.StartsWith("parent drives")) report.ParentDrivesSeveral += children.Count;
-                else report.ParentHasScript += children.Count;
-                foreach (var (child, _) in children) report.Unwired.Add($"{parent} -> {child}: {why}");
+                else if (why.StartsWith("parent already")) report.ParentHasScript += children.Count;
+                // "child not placed" is already counted per child above
+                foreach (var (child, _) in children)
+                    report.Unwired.Add($"{parent} -> {child}: {why}" + (missing.Contains(child) && why != "child not placed" ? " (child not placed)" : ""));
                 continue;
             }
             var (target, delay) = children[0];

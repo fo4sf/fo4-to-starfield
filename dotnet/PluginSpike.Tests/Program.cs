@@ -10,6 +10,8 @@ using Mutagen.Bethesda.Starfield;
 using Noggog;
 
 void Require(bool ok, string message) { if (!ok) throw new InvalidOperationException(message); }
+// an asset path as written, with either separator (Mutagen gives back Windows separators on Windows: Codex, #357)
+static string? AssetPath(object? file) => file?.ToString()?.Replace('\\', '/');
 var release = StarfieldRelease.Starfield;
 var modKey = ModKey.FromNameAndExtension("Synthetic.esm");
 FormKey Key(uint id) => new(modKey, id);
@@ -319,7 +321,10 @@ Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed."
             R("000901", "Container", "crate.nif"), R("000902", "MiscItem", "can.nif"), R("000903", "MiscItem", "can.nif"),
             R("000904", "Activator", "switch.nif"), R("000905", "Terminal", "term.nif", Parents("0009FF", 0)),
             R("000906", "Door", "d.nif", Parents("000904", 0.5f), 1), R("000908", "Static", "wall.nif", Parents("000901", 0)),
-            R("000909", "Furniture", "chair.nif"), R("00090A", "Furniture", "chair.nif")) + "]}");
+            R("000909", "Furniture", "chair.nif"), R("00090A", "Furniture", "chair.nif"),
+            // a second switch drives two FO4 doors, one of them not converted (no model in the manifest): no partial wire
+            R("00090B", "Activator", "switch.nif"), R("00090C", "Door", "d.nif", Parents("00090B", 0)),
+            R("00090D", "Door", "unconverted.nif", Parents("00090B", 0))) + "]}");
         string Promote(string canName) => $$"""
 {"starfield_esm": {{JsonSerializer.Serialize(sfPath)}},
  "containers":[{"src":"000901:Fallout4.esm","edid":"FO4Port_cont_A","name":"Crate","items":[{"form":"Starfield.esm:00000F","count":10}]},
@@ -327,7 +332,8 @@ Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed."
                {"src":"000907:Fallout4.esm","edid":"FO4Port_cont_A","name":"Crate","items":[{"form":"Starfield.esm:00000F","count":10}]}],
  "items":[{"src":"000902:Fallout4.esm","edid":"FO4Port_misc_B","name":"Can","value":1,"weight":0.5},
           {"src":"000903:Fallout4.esm","edid":"FO4Port_misc_B","name":"{{canName}}","value":1,"weight":0.5}],
- "activators":[{"src":"000904:Fallout4.esm","edid":"FO4Port_acti_C","name":null}],
+ "activators":[{"src":"000904:Fallout4.esm","edid":"FO4Port_acti_C","name":null},
+               {"src":"00090B:Fallout4.esm","edid":"FO4Port_acti_C","name":null}],
  "terminals":[{"src":"000905:Fallout4.esm","edid":"FO4Port_term_E","menu_edid":"FO4Port_tmlm_E","name":"Terminal","body":"FO4 terminal"}],
  "furniture":[{"src":"000909:Fallout4.esm","edid":"FO4Port_furn_F","name":"Chair","template":"0027D5",
                "markers":[{"offset":[0,-0.2,0],"rotation_z":180},{"offset":[0.5,-0.2,0],"rotation_z":180}]},
@@ -352,15 +358,15 @@ Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed."
             FormKey BaseOf(string fo4) => refs[new FormKey(port, ids[$"REFR:FO4Port_Promo:{fo4}:Fallout4.esm"])].Base.FormKey;
             var cont = written.Containers.Single();
             Require(BaseOf("000901") == cont.FormKey && cont.FormKey.ID == ids["CONT:FO4Port_cont_A"], "container not on its CONT");
-            Require(cont.Model?.File?.ToString() == "Meshes/fo4port/crate.nif" && cont.Name!.String == "Crate"
+            Require(AssetPath(cont.Model?.File) == "Meshes/fo4port/crate.nif" && cont.Name!.String == "Crate"
                     && cont.Items!.Single().Item.Count == 10 && cont.Items!.Single().Item.Item.FormKey == new FormKey(sfKey, 0x00000F),
                     "CONT model, name or inventory wrong");
             var misc = written.MiscItems.Single();
             Require(BaseOf("000902") == misc.FormKey && BaseOf("000903") == misc.FormKey, "the two items do not share one MISC");
-            Require(misc.Model?.File?.ToString() == "Meshes/fo4port/can.nif" && misc.Name!.String == "Can" && misc.Value == 1 && misc.Weight == 0.5f,
+            Require(AssetPath(misc.Model?.File) == "Meshes/fo4port/can.nif" && misc.Name!.String == "Can" && misc.Value == 1 && misc.Weight == 0.5f,
                     "MISC model, name, value or weight wrong");
             var acti = written.Activators.Single();
-            Require(BaseOf("000904") == acti.FormKey && acti.Name == null && acti.Model?.File?.ToString() == "Meshes/fo4port/switch.nif",
+            Require(BaseOf("000904") == acti.FormKey && acti.Name == null && AssetPath(acti.Model?.File) == "Meshes/fo4port/switch.nif",
                     "activator not on a nameless ACTI with its model");
             var term = written.Terminals.Single();
             var menu = written.TerminalMenus.Single();
@@ -371,7 +377,7 @@ Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed."
             // chairs: copies of the vanilla template with our model, the FO4 name and FO4's marker places
             var chair = written.Furniture.Single(f => f.FormKey == BaseOf("000909"));
             var stool = written.Furniture.Single(f => f.FormKey == BaseOf("00090A"));
-            Require(chair.EditorID == "FO4Port_furn_F" && chair.Model?.File?.ToString() == "Meshes/fo4port/chair.nif" && chair.Name!.String == "Chair"
+            Require(chair.EditorID == "FO4Port_furn_F" && AssetPath(chair.Model?.File) == "Meshes/fo4port/chair.nif" && chair.Name!.String == "Chair"
                     && chair.MarkerModel == "Markers\\FurnitureMarkers\\ChairNeutral_Free_Marker.nif" && chair.Keywords!.Single().FormKey == marker.FormKey,
                     "chair not a copy of the template with our model and name");
             Require(chair.MarkerParameters!.Count == 2 && chair.MarkerEntryPoints!.Count == 2
@@ -385,16 +391,22 @@ Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed."
                     && wire.LinkedReferences.Single().Reference.FormKey == RefOf("000906").FormKey
                     && wire.LinkedReferences.Single().KeywordOrReference.FormKey == new FormKey(sfKey, 0x5D5E7),
                     "switch -> door activation chain not written");
+            Require(RefOf("00090B").VirtualMachineAdapter == null && RefOf("00090B").LinkedReferences.Count == 0
+                    && RefOf("00090C").VirtualMachineAdapter == null,
+                    "a switch whose second FO4 child was not converted got a partial one-child wire");
             Require(RefOf("000901").VirtualMachineAdapter == null && RefOf("000901").LinkedReferences.Count == 0,
                     "a container (not a usable parent) got an activation wire");
             Require(written.Statics.Any(s => s.FormKey == BaseOf("000908")) && written.Statics.Count == 5
                     && written.MoveableStatics.Count == 1, "unlisted wall moved, or the promoted models' own bases missing");
         }
         var text = log.ToString();
-        Require(text.Contains("promotions: 1 activators, 1 containers, 2 furniture, 2 items, 1 kept (door base), 1 terminals; 1 listed but not placed"),
+        var unwired = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "activation.json"))).RootElement.ToString();
+        Require(unwired.Contains("00090D:Fallout4.esm: parent drives 2 children (one linked ref per script) (child not placed)"),
+                "the unconverted child of a two-child switch is not named in activation.json:\n" + unwired);
+        Require(text.Contains("promotions: 2 activators, 1 containers, 2 furniture, 2 items, 1 kept (door base), 1 terminals; 1 listed but not placed"),
                 "promotions not reported:\n" + text);
-        Require(text.Contains("activation chains: 1 wired; unwired: 1 parent not placed, 1 parent not usable, 0 parent drives several, " +
-                              "0 parent already scripted, 0 child not placed; 1 delays and 1 parent-activate-only flags not carried"),
+        Require(text.Contains("activation chains: 1 wired; unwired: 1 parent not placed, 1 parent not usable, 2 parent drives several, " +
+                              "0 parent already scripted, 1 child not placed; 1 delays and 1 parent-activate-only flags not carried"),
                 "activation chains not reported:\n" + text);
         // a second build keeps every FormID; a disagreeing entry of one edid stops it
         var before = File.ReadAllText(Path.Combine(outDir, "formids.json"));
