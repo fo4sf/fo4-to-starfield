@@ -27,6 +27,36 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
 - Status: bake is for flagged palette materials. Row 15 needs material swaps, not this PR. In-game colour
   after a scratch reconvert **unresolved** (Claude).
 
+## 2026-10-17 Grok: playtest rows 11/13/15 materials (core64c convert, work_fix3)
+
+- Question: why hanging vines at Red Rocket are black jagged strands (row 11), Sanctuary interior walls washed
+  white (row 13), and Museum of Freedom picture frames / brass plaque are grey-black boards (row 15).
+- Method: converted NIFs under `C:\Modding\staging\terrain_core64c_work_fix3\convert` (read-only), `vine.mat` /
+  house / frame / plaque `.mat` files, `texture_log.json`, `manifest.json` (0 fallbacks on these models), texconv
+  decode of the colour DDS, vanilla Starfield templates in `ContentResources.zip`
+  (`GrassTropicalPlant01`, `FloraBaseLeafyGreen01`, `ConduitKit01TwoSided` / `TwoSided1Layer`).
+- Row 11 vines, **verified**: `vinehanging06/07` and `vinecreepermed01` all use `materials\fo4core\landscape\plants\vine.mat`.
+  That file already has slot-2 `vine_opacity.dds` and `AlphaSettingsComponent {AlphaTestThreshold 0.361, HasOpacity true}`
+  (BGSM alpha test was converted). It still parents `PlasticPlainSmooth01` via the `MetalIronCast01` clone;
+  `Summary.Layer1.Textures` has no `Opacity` key. Vanilla foliage parents `TwoSided1Layer` /
+  `TranslucentTwoSided1Layer` / `VegetationTranslucent1Layer` and names Opacity in Summary. `two_sided` is parsed from
+  BGSM byte 48 and was never passed to `_convert_texture_set`. `vine_color.dds` luma mean 3.8 (85% of texels
+  alpha < 128, BC1-black in the cutout); opaque texels still only luma 26. Without a two-sided cutout shader the
+  metal material draws the whole card, which is black. Fix: clone `ConduitKit01TwoSided.mat` when an opacity map
+  exists, write Summary Opacity, force metalness 0 so the conduit metal map does not leak.
+  **Correction (review #288):** forcing metalness 0 only updated Summary plus an existing TextureReplacement
+  index 4. The real ConduitKit01TwoSided template has no such component (verified in ContentResources.zip), so
+  the conduit MRTextureFile/index 4 stayed. The writer now creates the enabled replacement and drops that file.
+  Opacity generation is gated on `alpha_test or decal`; `two_sided` alone is not a cutout.
+- Row 13 walls, **supported hypothesis**: `res01playerhouseinteriorrr.nif` wall shapes use
+  `metalpanelsresidential01rr` (colour luma 184) and `wallpanelmetalrubble02` (luma 164), 0 fallbacks. These are
+  bright beige maps, not missing colour (Starfield missing colour is flat white). Separate from the vine shader bug.
+- Row 15 frames / plaque, **supported hypothesis**: `pictureframe03` canvas
+  `paintinggeneric_canvasswap_color.dds` and `canvaspainting01_color.dds` are identical, luma 29 max 59; plaque
+  texset colour luma 15 max 59. Converted as regular albedo, they are dark grey boards. `canvasswap` names a
+  greyscale-to-palette path the converter does not implement. Separate root cause from vines.
+- Power armor on that roof is out of this pass (skinned rest pose / furniture class).
+
 ## 2026-10-17 Grok: Red Rocket garage button (playtest row 21) and object LOD (row 24)
 - Row 21, **verified**: FO4 button `056BBA` is `Default1StateActivator`; garage `056331` is ACTI `Default2StateActivator`
   with XAPR→button. core64k promotes both as inert ACTI. Native wire: vanilla `DefaultActivateLinkedRefOnActivate` +
@@ -1349,3 +1379,34 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   SetRigidBodyMass test plus `SetGS fGrabMaxWeightWalking 1000` decides it. No converter change.
 - **unresolved:** Preston's friendly Starfield template; whether quest targets route through our scripted doors; the
   cog door's clip in game; whether the cut-down quest may force combat (FO4 does, DN092 stages 13 / 76).
+
+## 2026-10-18 Claude-cloud: converted interiors get no natural (sky) light, only placed lights
+- Report (owner, 18 Oct 00:58Z): "where there is lights stuff looks really good, but ... the natural lighting doesn't
+  affect textures yet so it's really dark". His snapshot a minute earlier (`C:\Modding\snapshots\20261017-185720`,
+  owner button, interior cell 050049B4 = the Boston Public Library on the installed integ_1019_doors set) shows the hall
+  black except where the helmet lamp falls; the lamp-lit wall reads correctly (texture, normal, roughness fine).
+- **verified (code):** the interior writer (dotnet/PluginSpike/Program.cs, cell loop) gives every converted interior the
+  same light set-up, whatever FO4 had: lighting template KreetBase01LGTtemplate 06BCF8 (underground) unless
+  lighting.json says otherwise, image space 122393, and EnvironmentMap `Data\Textures\cubemaps\blackcube.dds`
+  (journal 2026-10-08, chosen to stop the pink wash from a bright default sky). FO4's own cell lighting (XCLL ambient,
+  directional and directional-ambient colours, fog, its lighting template) is never exported (Fo4Export wrote only refs),
+  so the window-lit FO4 interiors and the vaults get the same light set-up. (Correction, PC check 18 Oct: the installed
+  integ_1019 lighting.json sets ShipInteriorLT 006658 for every cell through `"*"`, so the library already had the
+  brighter template; only the black cubemap is in question.)
+- **supported hypothesis:** the black cubemap removes the image-based (sky) light a Starfield PBR surface gets, and the
+  underground template adds little ambient, so a surface away from a placed light is near black. Not a material bug:
+  the same materials look right under the lamp and under the exterior sun (playtest row 11 picture).
+- **unresolved:** the exterior at night. The overlay worldspace copies LC172World (Mars) and its cells set no lighting,
+  so night there is Mars's own night; no capture compares a converted object with vanilla ground at night yet.
+- **verified (PC, 18 Oct, SfInspect envmaps on Starfield.esm):** 302 vanilla interiors use blackcube.dds too (11,176
+  set none, 425 LGT_CubeMap_ShipEditor_001, 25 Cell_CaveCube); hall-type cube Cell_HiTechHallCube.dds is used once
+  (ssPirateShip01Interior). A black cubemap alone is therefore not proof of the cause; the in-game A/B decides. If the
+  hall cube leaves the library dark, the next suspects are the template's ambient and the image space.
+- Comparison build (PC, offline, not installed): integ_1019_liblight_doors, FO4Port.esm 5204188f, one record changed
+  against integ_1019_doors (CELL FO4Port_BostonPublicLibrary02 XEMP blackcube -> Cell_HiTechHallCube); a control
+  rebuild with nothing set is byte-identical to integ_1019.
+- Change (this branch): Fo4Export writes the FO4 cell's lighting block (cell XCLL + template, by reflection) into each
+  export; SfInspect `envmaps` lists the environment maps vanilla interiors use; ENV_MAP is a per-cell lighting.json key.
+  Next: pick a dim vanilla interior cubemap and a brighter template from `envmaps` / `templates`, rebuild the library
+  only with `{"BostonPublicLibrary02": {"ENV_MAP": "<vanilla>", "LIGHTING_TEMPLATE": "006658"}}` and compare in game
+  against the current build, then map FO4's ambient level to the template per cell.
