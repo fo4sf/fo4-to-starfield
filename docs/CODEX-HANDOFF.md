@@ -1,34 +1,38 @@
 # Codex / Claude / Grok status
 
-Goal: connected Red Rocket-Sanctuary-cave slice, interactions and save/reload, then wider Commonwealth. Preserve FO4 identities/state and Starfield native physics. Coverage is not gameplay acceptance.
+Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved identities/state and native Starfield physics. Persistent doors first. Read current [#32 claims](https://github.com/fo4sf/fo4-to-starfield/issues/32) first.
 
-## Ownership / controls
+## Owners / locks
 
-- Claude PC: live controller/game, collision/terrain/actors, pipeline, runner/game scripts/staging. No Codex launch/close/install/input/watchdog restart without release on #32.
-- Codex: deployment/recovery, identities/cache/output QA, Fo4Export/ReferenceLinks and door bridge. Isolated owned trees; no concurrent overwrites.
-- Grok: oracle/route_eval/terrain_evidence and assigned inventory208/217. Cloud Claude: offline leader-core stack/reviews; switches remain off pending PC decision. Do not resume paused workers.
-- Preserve STOP/Guardian/owner-idle/recovery. No assets/saves/private settings in Git, passwords/money/purchases/outreach/paid fallback. Guard before commits; peer QA before integration.
+- Claude: integration, live game/controller, terrain/collision/actors, pipeline, runner and staging. No other launch, close, install or input without explicit release. No Codex watchdog restart.
+- Codex: deployment/recovery, identities/cache/output QA, Fo4Export/ReferenceLinks, door bridge and independent evidence. Agree shared producer/caller scope before edits; use an isolated owned tree.
+- Grok: materials/textures, FLOR research, then fast travel/map markers per #32; coordinate acceptance/diagnostics. Claude runs native tests.
+- Claude-cloud: offline leader-core/model work; PC Claude retains live control. Do not wake paused work.
 
-## Current source / gates
+## Latest reviewed door evidence
 
-Main aa5b223; latest #32 overrides this handoff.150/167 preserve reference slots/share CONTs;134 superseded.125/131/133/138 merged; source integration is not native acceptance.
+- Probes(c)/(d): persistent anchor resolves but MoveTo lands unshifted and falls, including with requested offset. Temporary targets do not resolve in those attempts. Later boundary jumps and self-calibrated heights prove neither map limits nor correct arrival. [Pinned evidence](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6229374094).
+- Probe(e) completed: helper teleports reached12 cells matched to core64k; endpoint02000DAF/grid(-10,11), XY error0.057m, height+5.227m (FAIL HEIGHTS). Screenshots do not establish correct Red Rocket scenery. No door/round-trip acceptance. Runner8f55bfd/coree34dafe2/portd2b2af17; exact installed BA2 receipt missing. [Preserved result](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6229854224).
+- SDM forward5cfb682e: console activation followed by12 stable readings in04006C46 at(5.449,17.291,-3.637), heading270, and visible interior. Later terrain-beyond teleport uses exterior coordinates inside that room and causes a fall. Separate harness defect from arrival. [Evidence](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6229965617).
+- SDM return completed: exterior target685821 resolves none; activation is refused, then13 stable readings remain in04006C46/world none. Generic height PASS is not a round-trip pass; the separate EXPECTED-REFUSED result agrees. Controller closed its owned game/uninstalled normally. Both attempts are privately preserved; walking/return/save-reload remain gates. Claude owns persistent exterior markers and candidate PR291 integration after peer QA. [Independent result](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6230125731).
+- SDM judge8d9e43c3 accepted five bad synthetic arrival/selection/activation controls. Fix and independently review before acceptance; retain original verdicts. See #32 comment6229054238.
 
--153518933a: PendingPublication(OSError) records a stopped checkpoint.12 Windows guard/compiled tests and CI38918409322 pass; prior88 runner checks retained. Fresh peer check/PC integration pending.
--146b9e6a14:20 tests/4 retained-output controls/CI pass; cloud review5544420068 no finding. Rejects deleted container/reference/parents. Ready for PC integration, native unverified.
--1762154d22:49 tests/guard/CI; cloud review5544379046 no finding. Distinct full source-plugin groups; existing FO4 names/REFR slots retained. Ready for PC integration.
--17482fa121: joint native-core door design, no implementation/build. Port/Core endpoints +interior return patch; existing ReferenceLinks rejects master-owned DOORs/interior-only traversal verified synthetically. Agree ownership/allocator/typed resolution before build.129 CLOSED after pinned NOLOAD/local-only coordinates; failures retained.
--149: peer Linux slowdown addressed by serial default/explicit --verify-workers1-4,32-path batches. Windows synthetic serial+1.3%, two-21.3%, four-30.6%, all1026 hashes retained.55 tests pass; fresh peer QA and real-tree/resource-window measurement pending. Undeployed.
--10458f0b51/116589f1bf reviewed source; no live application/restart. Keep expected_sha256, bridge-last and no-op0.118 native adapter/123 local-model savings remain gated.
--175 merged b87f71c after Claude's repair; prior stale-capture failure retained. No Codex native capture claim.
+## Source work / next gates
 
-## Evidence / next
+- Codex PR149 relaunch verification merges main697bc07, retaining serial-default full-content hashing, opt-in1-4 readers and main receipt/rollback safeguards. 128 targeted verification/recovery/receipt/bridge tests pass; no active-install benchmark or general speed claim. No watchdog restart, deployment or game control; independent merge QA required.
 
-Core64c648358 refs/1708 populated cells over6.4km; no size guarantee. Old campaigns/save retained, wrong-frame jumps excluded, northeast+1.8939m unresolved. Claude reports both-direction~254m walks and first Red Rocket NPC pathing; no whole-map/cave acceptance follows.
+- Codex light-patch bounds PR315: Claude independently reviewed the source and found no blocking implementation defect. Added the requested second-input-only malformed-LIGH test: both negative cases fail if B validation is removed; 31 focused light/FO4-light checks pass. Earlier selected baseline run had five failed assertions across three methods. Source-only, final test-delta review pending; no brightness-policy/stage/game changes.
 
-Grok169 export is complete/independently checked:12104 NAVM/3749066 triangles/1069 cells.173 flags1155 existing linked-portal gaps>0.5m, max0.93449m.210 separately reproduces dropped cell-line portals; do not conflate them or change tolerances. Claude owns converter; no duplicate edits.
+- Draft PR2919ffce95: Claude reviewed13062b6 with no blocking script defect. Logging delta sends requested XYZ to normal trace without the bridge quest;16 focused checks/CK compile/assembly/guard/CI pass, delta QA pending. Writer must emit UseDestinationPosition=True plus three floats and update its strict VMAD reader. MoveTo is void; far-placement/boundary, native activation/return/save gates remain. Undeployed. Each private PEX hash pins an artifact, not byte-reproducible compilation.
+- #280 / PR281f6d15bf: fixes Claude's Windows sharing/stale-state P2s;30 focused tests/guard/CI pass. Independent delta QA pending. Production callers remain unintegrated; require shared reservations/hash, retained IDs, base-growth/HEDR checks and paired recovery. Full-store rollback still needs an external latest-state pin.
+- PR293 is merged at37f2820 after Claude delta QA5556622216. Follow-up on codex/rollback-completion-receipt addresses its retry P2: successful history-outage rollback checkpoints the exact original receipt bytes and completed outcome; retry archives/retires metadata without touching later file/config edits. Incomplete rollback retains guarded cleanup. The active check now refuses pending recovery even if a plugin is reactivated.81 targeted tests/guard pass; independent QA/CI pending, source-only. No existing live receipt is upgraded or reconstructed.
+- PR276529a36f and PR2770c5d397 remain awaiting QA/integration. PR2793fab4b8 combines persistent IDs with reviewed writer3446a99 and merged arrival script9ffce95;30 distinct targeted checks, exact synthetic bootstrap parity and CI39010241871 pass. Combined peer QA, a fresh full-size migration and native return/save remain gates. PR278 regressions are merged.
+- Grok review gates: PR288a77edfa lacks actual donor metalness override; Claude also reproduced unwanted opacity from two-sided-only materials and a broken dry-converter keyword call. PR289d7b8188 ignores palette-enable/missing palette. PR29689cc91d writes LCSR tail0 instead of templateFFFFFFFF (three actual-writer cases). Fixes pending; PR284/285 reviews remain scoped.
+- PR290454856e offline QA: seven focused tests and native-template writer controls pass; promotion keeps reference IDs and writes default/custom PFIG correctly. Contrary to its docs, the Ingredient setter works. Invalid harvest target refused before output. Native harvest/visual/reset remains untested; see the pinned PR review.
+- Future streaming/launcher plan: [#286](https://github.com/fo4sf/fo4-to-starfield/issues/286). Existing6.4km coverage/short walks do not prove whole-map travel. Keep persistent doors first; launcher alone cannot remove engine limits.
 
-17936dbb1c: review5550543450 covers52 Python/parser+2 instrumented PS refusals. P2: missing Python in reused host with prior LASTEXITCODE0 passes lease guard; game-lookup canary caught it. Claude owns repair. No live actions/original -File argv claim.
+## Preservation / cadence
 
-Next: peer149/153 corrections; joint door decisions. Old batch_full1109 pending/616 movable plans;79 awaits release/pins.
+Failed/passing capsules are reopened/source-verified on a second local volume, not offsite. Claude owns cleanup/free-space receipts; Codex deleted nothing. Preserve STOP, Guardian, owner-idle, recovery and saves; no assets/private settings in Git. See testing/progress-storage.md.
 
-#32 is the inbox. Keep <4KB, usage low, targeted tests only. Private D: index/capsules reopen/source-verified; originals retained, local not offsite. No cleanup before verification. Four-hour Codex follow-up ACTIVE; completed scoped monitors stay paused.
+Low usage: quiet four-hour Codex follow-up active; scoped monitors paused. Read changed evidence, avoid unchanged retests, guard before commits. History: #32, PRs and Git.

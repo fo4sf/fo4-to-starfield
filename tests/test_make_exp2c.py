@@ -367,6 +367,25 @@ class PluginWalkTests(unittest.TestCase):
         problems, _, _ = mk.ref_record_check(walked["records"], 0x01000000, objects, ids)
         self.assertIn("A: no REFR 01000A05", problems)
 
+    def test_nonfinite_values_are_reported(self):
+        """Review of #241: max() drops a NaN and abs(NaN - x) > tol is False, so a NaN in any ordinary REFR passed."""
+        nan, objects, ids = float("nan"), *self.objects()
+        for channel in range(7):                                            # DATA x, y, z, rx, ry, rz, then XSCL
+            walked, _ = self.walk(plugin(refr(0x01000A00, 0x01000B00, (-150.5, 250.25, 100.0))))
+            r = next(r for r in walked["records"] if r["fid"] == 0x01000A00)
+            if channel < 6:
+                vals = [-150.5, 250.25, 100.0, 0, 0, 0]
+                vals[channel] = nan
+                r["fields"] = [(s, struct.pack("<6f", *vals) if s == b"DATA" else d) for s, d in r["fields"]]
+            else:
+                r["fields"] = list(r["fields"]) + [(b"XSCL", struct.pack("<f", nan))]
+            problems, _, _ = mk.ref_record_check(walked["records"], 0x01000000, objects, ids)
+            self.assertIn("A: position / rotation / scale not finite", problems, channel)
+        bad = json.loads(json.dumps(objects))
+        bad["refs"][1]["pos"][2] = nan                                      # a NaN on the expected side too
+        problems, _, _ = mk.ref_record_check(walked["records"], 0x01000000, bad, ids)
+        self.assertIn("B: position / rotation / scale not finite", problems)
+
 
 class DependencyTests(unittest.TestCase):
     def test_resource_names_resolve_on_a_posix_filesystem(self):
