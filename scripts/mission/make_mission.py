@@ -28,6 +28,7 @@ Install (the install session, game closed, on the owner's words): fold, then ver
   python scripts/game/exp_install.py install --exp-dir <folded dir> --starfield <game> --plugins <the core set's list>,FO4SFMission.esm --pack
 """
 import argparse
+import csv
 import datetime
 import hashlib
 import json
@@ -47,6 +48,11 @@ SCRIPT = "FO4SF_Min00Quest"
 # mesh the plugin's ARMA names (relative to Data\Meshes)
 ASSET_DIRS = ("meshes", "geometries", "materials", "textures")
 CODSWORTH_MESH = "fo4port\\actors\\codsworth\\codsworth.nif"
+# his voice (scripts/actors/codsworth_voice.py, PR #361): lines.tsv plus wem\Windows\<info>_<response>.wem. Each line
+# gets a WEMFile id and its file is named by it under his voice type's folder (supported hypothesis from the vanilla
+# layout: starfield.esm\robotminibota\000e6020.wem exists, no INFO 0E6020 does). He inherits RobotMiniBotA.
+VOICE_DIR = "sound/voice/" + PLUGIN.lower() + "/robotminibota"
+FIRST_WEM = 0x0F4C0001
 STAGES = (10, 20, 30, 40, 200)
 # the script properties dotnet/Mission writes (Program.cs, Write): a renamed property would leave the script unbound
 PROPERTIES = ("Preston", "Raiders", "Credits")
@@ -126,12 +132,18 @@ def stage(a):
     run(tool + ["points", a.fo4, points])
     alias = [] if a.alias else ["--no-alias"]
     cods = [] if a.codsworth else ["--no-codsworth"]
-    assets = {}
+    assets = set()
     if getattr(a, "codsworth_assets", None):
         if not a.codsworth:
             sys.exit("--codsworth-assets needs Codsworth (drop --no-codsworth)")
-        assets = copy_assets(a.codsworth_assets, os.path.join(out, "Data"))
+        assets = set(copy_assets(a.codsworth_assets, os.path.join(out, "Data")))
         cods = ["--codsworth-model", CODSWORTH_MESH]
+    if getattr(a, "codsworth_voice", None):
+        if not a.codsworth:
+            sys.exit("--codsworth-voice needs Codsworth (drop --no-codsworth)")
+        voice_json = os.path.join(work, "voice.json")
+        assets |= set(copy_voice(a.codsworth_voice, os.path.join(out, "Data"), voice_json))
+        cods = cods + ["--codsworth-voice", voice_json]
     run(tool + ["write", a.starfield, a.core, a.raider, points, out, "--plugin", PLUGIN] + alias + cods)
     check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield, a.core, a.raider] + alias + cods)
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
@@ -188,6 +200,38 @@ def copy_assets(src, data):
                 os.makedirs(os.path.join(data, os.path.dirname(rel)), exist_ok=True)
                 shutil.copy2(os.path.join(src, rel), os.path.join(data, rel))
                 copied.append(rel.replace(os.sep, "/"))
+    return copied
+
+
+def copy_voice(src, data, voice_json):
+    """Reads src/lines.tsv, finds each line's src/wem/**/<info>_<response>.wem, copies it to data/VOICE_DIR/<wem>.wem
+    with the line's WEMFile id (FIRST_WEM on, 8 lowercase hex digits) and writes voice.json for the writer. A line that
+    says "sir" is for a male player, "mum" for a female one. Returns the copied paths, relative to data."""
+    with open(os.path.join(src, "lines.tsv"), encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f, delimiter="\t"))
+    wems = {}
+    for dirpath, _, files in os.walk(os.path.join(src, "wem")):
+        for name in files:
+            if name.lower().endswith(".wem"):
+                wems.setdefault(name.lower(), []).append(os.path.join(dirpath, name))
+    lines, copied = [], []
+    for i, r in enumerate(rows):
+        want = f"{r['info'].lower()}_{r['response']}.wem"
+        hits = wems.get(want, [])
+        if len(hits) != 1:
+            sys.exit(f"--codsworth-voice: {len(hits)} files named {want} under {os.path.join(src, 'wem')}")
+        wem = f"{FIRST_WEM + i:08x}"
+        text = r["text"]
+        sex = "male" if re.search(r"\bsir\b", text, re.I) else "female" if re.search(r"\bmum\b", text, re.I) else None
+        rel = f"{VOICE_DIR}/{wem}.wem"
+        os.makedirs(os.path.join(data, *VOICE_DIR.split("/")), exist_ok=True)
+        shutil.copy2(hits[0], os.path.join(data, *rel.split("/")))
+        copied.append(rel)
+        lines.append({"info": r["info"], "response": int(r["response"]), "text": text, "wem": wem, "sex": sex})
+    if not lines:
+        sys.exit(f"--codsworth-voice: {src}/lines.tsv has no lines")
+    with open(voice_json, "w", encoding="utf-8") as f:
+        json.dump(lines, f, indent=1)
     return copied
 
 
@@ -332,6 +376,8 @@ def main(argv=None):
     s.add_argument("--content-resources", default=os.path.join(STARFIELD, "Tools", "ContentResources.zip"))
     s.add_argument("--no-alias", dest="alias", action="store_false")
     s.add_argument("--no-codsworth", dest="codsworth", action="store_false", help="leave Codsworth out of the plugin")
+    s.add_argument("--codsworth-voice", default=None,
+                   help="a codsworth_voice.py output folder (lines.tsv, wem): his Hello lines and their .wem files")
     s.add_argument("--codsworth-assets", default=None,
                    help="a convert_codsworth.py output folder: his own model (ARMA, skin ARMO) and its files in Data")
     g = sub.add_parser("log")

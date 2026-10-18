@@ -290,6 +290,45 @@ class StageAndInstallTests(unittest.TestCase):
             self.assertEqual(make_mission.main(["verify", "--exp-dir", folded, "--plan", os.path.join(out, "plan.json"),
                                                 "--raider", raider]), 1)
 
+    def test_codsworth_voice_reaches_the_writer_and_the_plan(self):
+        """His voice (PR #361): each lines.tsv row's <info>_<response>.wem is copied under his voice type's folder, named
+        by its WEMFile id; voice.json carries the text and the sex rule ("sir" male, "mum" female) to the writer."""
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "voice")
+            rows = [("000F1F6E", "1", "Yes?"), ("000F1F78", "1", "Sir?"), ("000F1F80", "1", "Right away, mum.")]
+            os.makedirs(src)
+            with open(os.path.join(src, "lines.tsv"), "w", encoding="utf-8", newline="") as f:
+                f.write("quest\tsubtype\ttopic\tinfo\tresponse\tvoice\ttext\n")
+                for info, resp, text in rows:
+                    f.write(f"COMCodsworth\tHELO\tCOMCodsworthHellos\t{info}\t{resp}\tv.fuz\t{text}\n")
+                    _write(os.path.join(src, "wem", "Windows", f"{info.lower()}_{resp}.wem"), info.encode())
+            out, writes = os.path.join(d, "m"), []
+            self.fake_stage(d, out, extra=["--codsworth-voice", src], writes=writes)
+            voice_json = writes[0][writes[0].index("--codsworth-voice") + 1]
+            self.assertEqual(writes[1][writes[1].index("--codsworth-voice") + 1], voice_json)
+            with open(os.path.join(out, "plan.json"), encoding="utf-8") as f:
+                plan = json.load(f)
+            base = make_mission.VOICE_DIR
+            self.assertEqual(sorted(plan["assets"]), [f"{base}/0f4c0001.wem", f"{base}/0f4c0002.wem", f"{base}/0f4c0003.wem"])
+            with open(os.path.join(out, "Data", *base.split("/"), "0f4c0002.wem"), "rb") as f:
+                self.assertEqual(f.read(), b"000F1F78")
+
+    def test_voice_sex_rule_and_missing_file(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = os.path.join(d, "voice")
+            os.makedirs(src)
+            with open(os.path.join(src, "lines.tsv"), "w", encoding="utf-8", newline="") as f:
+                f.write("info\tresponse\ttext\nAA\t1\tYes, sir.\nBB\t1\tMum!\nCC\t1\tSirius\n")
+            for n in ("aa_1", "bb_1", "cc_1"):
+                _write(os.path.join(src, "wem", f"{n}.wem"), b"x")
+            vj = os.path.join(d, "voice.json")
+            make_mission.copy_voice(src, os.path.join(d, "data"), vj)
+            with open(vj, encoding="utf-8") as f:
+                self.assertEqual([l["sex"] for l in json.load(f)], ["male", "female", None])
+            os.remove(os.path.join(src, "wem", "bb_1.wem"))
+            with self.assertRaises(SystemExit):
+                make_mission.copy_voice(src, os.path.join(d, "data2"), vj)
+
     def test_codsworth_assets_need_the_mesh(self):
         with tempfile.TemporaryDirectory() as d:
             src = os.path.join(d, "empty")

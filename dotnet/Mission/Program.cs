@@ -57,9 +57,9 @@ try
         "write" when args.Length >= 6 => Mission.Write(args[1], args[2], args[3], args[4], args[5], Mission.Arg(args, "--plugin", Mission.Plugin),
                                                        Mission.Arg(args, "--world", Mission.World), !args.Contains("--no-alias"),
                                                        args.Contains("--no-codsworth") ? null : Mission.Arg(args, "--codsworth-body", Mission.CodsworthBody),
-                                                       Mission.ArgOrNull(args, "--codsworth-model")),
+                                                       Mission.ArgOrNull(args, "--codsworth-model"), Mission.ArgOrNull(args, "--codsworth-voice")),
         "check" when args.Length >= 5 => Mission.Check(args[1], args[2], args[3], args[4], !args.Contains("--no-alias"), !args.Contains("--no-codsworth"),
-                                                       Mission.ArgOrNull(args, "--codsworth-model")),
+                                                       Mission.ArgOrNull(args, "--codsworth-model"), Mission.ArgOrNull(args, "--codsworth-voice")),
         "npcs" when args.Length >= 4 => Mission.Npcs(args[1], args[2], args[3]),
         "quests" when args.Length >= 2 => Mission.Quests(args[1], args.Length >= 3 ? args[2] : "."),
         "infos" when args.Length >= 3 => Mission.Infos(args[1], args[2]),
@@ -92,6 +92,11 @@ static class Mission
     // his own model (Codsworth thread, PR #361): an ARMA copied from the mini bot's with the FO4 mesh, a skin ARMO with
     // only that ARMA, set as his WNAM. Ids follow the ACHR.
     public const uint CodsworthArmaId = 0x812, CodsworthSkinId = 0x813, MiniBotArmaId = 0x081886, MiniBotSkinId = 0x3FFD3A;
+    // his voice (Codsworth thread, PR #361): a Hello DIAL in the mission quest with one INFO per FO4 line, said by him
+    // only. Each response's WEMFile names its .wem (supported hypothesis from vanilla: no INFO 0E6020 exists, but
+    // starfield.esm\robotminibota\000e6020.wem does, so the files are named by WEMFile, not by INFO id).
+    public const uint CodsworthDialId = 0x820, FirstCodsworthInfoId = 0x821;
+    public const string CodsworthDialEdid = "FO4SF_CodsworthHellos";
     public const string CodsworthArmaEdid = "FO4_AA_Codsworth", CodsworthSkinEdid = "FO4_Skin_Codsworth",
                         MiniBotArmaEdid = "AA_MiniBotA_Gardening", MiniBotSkinEdid = "Skin_MiniBotA_Gardening";
     // the stages and objectives the script drives (FO4SF_Min00Quest.psc); objective indices are Min00's own
@@ -353,7 +358,8 @@ static class Mission
     static float[] Floats(JsonElement e) => e.EnumerateArray().Select(x => x.GetSingle()).ToArray();
 
     public static int Write(string sfPath, string corePath, string raiderPath, string pointsPath, string outDir, string plugin,
-                            string worldEdid, bool alias, string? codsworthBody = CodsworthBody, string? codsworthModel = null)
+                            string worldEdid, bool alias, string? codsworthBody = CodsworthBody, string? codsworthModel = null,
+                            string? codsworthVoice = null)
     {
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         using var m = Open(sfPath, corePath, raiderPath);
@@ -496,9 +502,35 @@ static class Mission
             Script = new SF.ScriptEntry { Name = "", Flags = SF.ScriptEntry.Flag.Local },
         };
         quest.VirtualMachineAdapter.Scripts.Add(script);
+        var lines = codsworthVoice is null ? [] : VoiceLines(codsworthVoice);
+        if (lines.Count > 0)
+        {
+            if (cods is null) throw new Refusal("--codsworth-voice needs Codsworth (drop --no-codsworth)");
+            var dial = new SF.DialogTopic(new FormKey(modKey, CodsworthDialId), SF.StarfieldRelease.Starfield)
+            {
+                EditorID = CodsworthDialEdid, Quest = new FormLink<SF.IQuestGetter>(quest.FormKey), Priority = 50,
+                Category = SF.DialogTopic.CategoryEnum.Misc, Subtype = SF.DialogTopic.SubtypeEnum.Hello,
+                SubtypeName = SF.DialogTopic.SubtypeNameEnum.Hello,
+            };
+            uint id = FirstCodsworthInfoId;
+            foreach (var l in lines)
+            {
+                var info = new SF.DialogResponses(new FormKey(modKey, id++), SF.StarfieldRelease.Starfield)
+                {
+                    EditorID = $"FO4SF_Codsworth_{l.Fo4Info}_{l.Response}",
+                    Flags = new SF.DialogResponseFlags { Flags = (short)(SF.DialogResponses.Flag.Random | SF.DialogResponses.Flag.CanMoveWhileGreeting) },
+                };
+                info.Responses.Add(new SF.DialogResponse { ResponseText = l.Text, WEMFile = l.Wem });
+                info.Conditions.AddRange(VoiceConditions(cods.FormKey, l.Sex));
+                dial.Responses.Add(info);
+                (dial.TopicInfoList ??= new()).Add(new FormLink<SF.IDialogResponsesGetter>(info.FormKey));
+            }
+            quest.DialogTopics.Add(dial);
+        }
         mod.Quests.Add(quest);
 
-        mod.ModHeader.Stats.NextFormID = cods is null ? next : codsworthModel is null ? CodsworthRefId + 1 : CodsworthSkinId + 1;
+        mod.ModHeader.Stats.NextFormID = lines.Count > 0 ? FirstCodsworthInfoId + (uint)lines.Count
+                                       : cods is null ? next : codsworthModel is null ? CodsworthRefId + 1 : CodsworthSkinId + 1;
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, plugin);
         var lo = new[] { SfEsm, m.Core.ModKey, m.Raider.ModKey };
@@ -518,6 +550,38 @@ static class Mission
 
     // ---------------------------------------------------------------- check
 
+    public record VoiceLine(string Fo4Info, int Response, string Text, uint Wem, string? Sex);
+
+    /// voice.json from make_mission.py stage: [{"info", "response", "text", "wem" (8 hex digits), "sex" (male, female or null)}]
+    public static List<VoiceLine> VoiceLines(string path)
+    {
+        using var doc = JsonDocument.Parse(File.ReadAllText(path));
+        var lines = doc.RootElement.EnumerateArray().Select(e => new VoiceLine(
+            e.GetProperty("info").GetString()!, e.GetProperty("response").GetInt32(), e.GetProperty("text").GetString()!,
+            uint.Parse(e.GetProperty("wem").GetString()!, NumberStyles.HexNumber, CultureInfo.InvariantCulture),
+            e.TryGetProperty("sex", out var sx) && sx.ValueKind == JsonValueKind.String ? sx.GetString() : null)).ToList();
+        if (lines.Count == 0 || lines.Count > 0x7D0) throw new Refusal($"{path}: {lines.Count} voice lines");
+        if (lines.Select(l => l.Wem).Distinct().Count() != lines.Count) throw new Refusal($"{path}: two lines share a wem id");
+        if (lines.Any(l => string.IsNullOrWhiteSpace(l.Text) || l.Sex is not (null or "male" or "female"))) throw new Refusal($"{path}: a line has no text or a bad sex");
+        return lines;
+    }
+
+    /// Said by Codsworth only (GetIsID on the subject); "sir" lines to a male player, "mum" lines to a female one
+    /// (GetIsSex on the target, the player he greets).
+    public static List<SF.Condition> VoiceConditions(FormKey codsworth, string? sex)
+    {
+        var id = new SF.GetIsIDConditionData { RunOnType = SF.Condition.RunOnType.Subject };
+        id.FirstParameter.Link.SetTo(codsworth);
+        var list = new List<SF.Condition> { new SF.ConditionFloat { CompareOperator = SF.CompareOperator.EqualTo, ComparisonValue = 1, Data = id } };
+        if (sex is not null)
+            list.Add(new SF.ConditionFloat
+            {
+                CompareOperator = SF.CompareOperator.EqualTo, ComparisonValue = 1,
+                Data = new SF.GetIsSexConditionData { RunOnType = SF.Condition.RunOnType.Target, FirstParameter = sex == "male" ? MaleFemaleGender.Male : MaleFemaleGender.Female },
+            });
+        return list;
+    }
+
     /// The model path written the way the vanilla one is: with its "Meshes\" prefix when it has one (rel is relative to
     /// Data\Meshes).
     public static string ModelPath(string vanilla, string rel)
@@ -528,7 +592,7 @@ static class Mission
     }
 
     public static int Check(string pluginPath, string sfPath, string corePath, string raiderPath, bool alias, bool codsworth = true,
-                            string? codsworthModel = null)
+                            string? codsworthModel = null, string? codsworthVoice = null)
     {
         using var m = Open(sfPath, corePath, raiderPath);
         using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, SF.StarfieldRelease.Starfield, Styles(SfEsm, m.Core.ModKey, m.Raider.ModKey));
@@ -603,6 +667,30 @@ static class Mission
             Need(q.EditorID == QuestEdid && q.Data is not null && q.Data.Flags.HasFlag(SF.Quest.Flag.StartGameEnabled), "the quest is not FO4SF_Min00, start game enabled");
             Need(q.QuestType.FormKey == new FormKey(SfEsm, QuestTypeSideId), $"the quest's QuestType is not {QuestTypeSideEdid} (it would not show in the Missions tab)");
             Need(q.Stages.Select(s => s.Index).SequenceEqual(Stages), "stages differ from the script's");
+            var dials = q.DialogTopics.ToList();
+            if (codsworthVoice is null) Need(dials.Count == 0, "a build without --codsworth-voice carries dialogue");
+            else
+            {
+                var want = VoiceLines(codsworthVoice);
+                var dial = dials.FirstOrDefault(d => d.FormKey == new FormKey(key, CodsworthDialId));
+                Console.WriteLine($"  DIAL {dial?.EditorID} {dial?.Category}/{dial?.Subtype}/{dial?.SubtypeName} infos {dial?.Responses.Count}; " +
+                                  $"first: {string.Join(" | ", dial?.Responses.Take(2).Select(i => $"{i.FormKey.ID:X6} wem {i.Responses.FirstOrDefault()?.WEMFile:x8} '{i.Responses.FirstOrDefault()?.ResponseText?.String}' conds {i.Conditions.Count}") ?? [])}");
+                Need(dials.Count == 1 && dial is { EditorID: CodsworthDialEdid, Subtype: SF.DialogTopic.SubtypeEnum.Hello, SubtypeName: SF.DialogTopic.SubtypeNameEnum.Hello }
+                     && dial.Quest.FormKey == q.FormKey, $"DIAL 0x{CodsworthDialId:X} is not his Hello topic in the quest");
+                var infos = dial?.Responses.ToList() ?? [];
+                Need(infos.Count == want.Count && (dial!.TopicInfoList ?? []).Select(t => t.FormKey).SequenceEqual(infos.Select(i => i.FormKey)), "his INFOs differ from voice.json or the topic's list");
+                for (int i = 0; i < Math.Min(infos.Count, want.Count); i++)
+                {
+                    var info = infos[i];
+                    var r = info.Responses.Count == 1 ? info.Responses[0] : null;
+                    bool saidByHim = info.Conditions.Any(c => c.Data is SF.IGetIsIDConditionDataGetter g && g.RunOnType == SF.Condition.RunOnType.Subject
+                                                             && g.FirstParameter.Link.FormKey == cods?.FormKey && (c as SF.IConditionFloatGetter)?.ComparisonValue == 1);
+                    var sexes = info.Conditions.Select(c => c.Data).OfType<SF.IGetIsSexConditionDataGetter>().Select(g => g.FirstParameter).ToList();
+                    bool sexOk = want[i].Sex is null ? sexes.Count == 0 : sexes.Count == 1 && sexes[0] == (want[i].Sex == "male" ? MaleFemaleGender.Male : MaleFemaleGender.Female);
+                    Need(info.FormKey.ID == FirstCodsworthInfoId + i && r is not null && r.WEMFile == want[i].Wem && r.ResponseText?.String == want[i].Text
+                         && saidByHim && sexOk, $"INFO 0x{FirstCodsworthInfoId + i:X} is not line {want[i].Fo4Info}_{want[i].Response} (text, wem, said by Codsworth, sex)");
+                }
+            }
             Need(q.Stages.LastOrDefault()?.LogEntries.Any(l => l.Flags?.HasFlag(SF.QuestLogEntry.Flag.CompleteQuest) == true) == true, "stage 200 does not complete the quest");
             Need(q.Objectives.Select(o => o.Index).SequenceEqual(Objectives.Select(o => o.Index)), "objectives differ from the script's");
             Need(q.Objectives.All(o => !string.IsNullOrWhiteSpace(o.DisplayText?.String) && !o.DisplayText!.String!.Contains('<')), "an objective has no text or an FO4 text token");
@@ -739,6 +827,42 @@ static class Mission
             }
             if (ModelPath("Meshes\\Actors\\x.nif", "Meshes\\" + model) != "Meshes\\" + model || ModelPath("Actors\\x.nif", model) != model)
                 { Console.WriteLine("FAIL  ModelPath does not follow the vanilla prefix"); return 1; }
+        }
+        {   // his voice: a Hello DIAL with one INFO per line, said by him, "sir"/"mum" lines by the player's sex
+            var voice = Path.Combine(dir, "voice.json");
+            File.WriteAllText(voice, """
+                [{"info": "000F1F6E", "response": 1, "text": "Yes?", "wem": "0F4C0001", "sex": null},
+                 {"info": "000F1F78", "response": 1, "text": "Sir?", "wem": "0F4C0002", "sex": "male"},
+                 {"info": "000F1F80", "response": 1, "text": "Mum?", "wem": "0F4C0003", "sex": "female"}]
+                """);
+            var o = Path.Combine(outDir, "voice");
+            int rc = Write(sfPath, corePath, raiderPath, pointsPath, o, Plugin, World, true, CodsworthBody, null, voice);
+            if (rc == 0) rc = Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, true, true, null, voice);
+            if (rc != 0) return rc;
+            if (Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, true, true) == 0)
+                { Console.WriteLine("FAIL  check passed a voice build as a plain one"); return 1; }
+            if (Check(Path.Combine(outDir, "alias", Plugin), sfPath, corePath, raiderPath, true, true, null, voice) == 0)
+                { Console.WriteLine("FAIL  check passed a plain build as a voice one"); return 1; }
+            var voiceMutations = new (string Name, Action<SF.StarfieldMod> Edit)[]
+            {
+                ("a line's wem changed", m => m.Quests.First().DialogTopics[0].Responses[1].Responses[0].WEMFile = 0x0F4C0009),
+                ("a line said by anyone", m => m.Quests.First().DialogTopics[0].Responses[0].Conditions.Clear()),
+                ("a sir line for either sex", m => m.Quests.First().DialogTopics[0].Responses[1].Conditions.RemoveAt(1)),
+                ("a line's text changed", m => m.Quests.First().DialogTopics[0].Responses[2].Responses[0].ResponseText = "Sir?"),
+            };
+            foreach (var (name, edit) in voiceMutations)
+            {
+                var mod = SF.StarfieldMod.CreateFromBinary(Path.Combine(o, Plugin), rel, Styles(SfEsm, coreKey, raiderKey));
+                edit(mod);
+                var md = Path.Combine(outDir, "voice_mutated");
+                Directory.CreateDirectory(md);
+                var lo = new[] { SfEsm, coreKey, raiderKey };
+                mod.BeginWrite.ToPath(Path.Combine(md, Plugin)).WithLoadOrder(lo)
+                    .WithKnownMasters(lo.Select(k => new KeyedMasterStyle(k, MasterStyle.Full)).ToArray()).Write();
+                if (Check(Path.Combine(md, Plugin), sfPath, corePath, raiderPath, true, true, null, voice) == 0)
+                    { Console.WriteLine($"FAIL  check passed a mutation: {name}"); return 1; }
+                Console.WriteLine($"mutation rejected: {name}");
+            }
         }
         // mutations of the default output, each of which check must reject (Codex review 5564480667)
         var good = Path.Combine(outDir, "alias", Plugin);
