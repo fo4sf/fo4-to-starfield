@@ -50,7 +50,9 @@ Event OnQuestInit()
     Debug.OpenUserLog(LogName)
     Trace("init raiders=" + Raiders.Length)
     RegisterForRemoteEvent(Preston, "OnActivate")
+    Preston.IgnoreFriendlyHits(True)                     ; a stray shot in the fight must not turn him (in game 18 Oct 15:16)
     SetStage(10)
+    SetActive(True)                                      ; tracked, so the objectives show (in game 18 Oct: none seen)
     StartTimer(1.0, 1)
 EndEvent
 
@@ -58,6 +60,7 @@ Event OnStageSet(int auiStageID, int auiItemID)
     Trace("stage " + auiStageID)
     if auiStageID == 10
         SetObjectiveDisplayed(10)
+        Debug.Notification("When Freedom Calls: find the Last Minutemen")
     elseif auiStageID == 20
         SetObjectiveCompleted(10)
         SetObjectiveDisplayed(85)
@@ -70,7 +73,6 @@ Event OnStageSet(int auiStageID, int auiItemID)
         SetObjectiveCompleted(86)
         Game.GetPlayer().AddItem(Credits, RewardCount)
         Trace("reward credits=" + RewardCount)
-        SetStage(200)
     elseif auiStageID == 200
         Debug.Notification("When Freedom Calls: complete")
         CancelTimer(1)
@@ -136,7 +138,16 @@ Event OnTimer(int aiTimerID)
     if ticks % 5 == 0
         Trace("status stage=" + stage + " dead=" + dead + "/" + Raiders.Length + " nearest_raider=" + nearest + " preston=" + dp + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ())
     endif
-    if GetStage() < 200                                  ; stage 40 sets 200 (and cancels the timer) in OnStageSet
+    if Preston.GetCombatTarget() == player               ; he never fights the player (in game 18 Oct: "treats me like an enemy")
+        Preston.StopCombat()
+        Trace("preston was targeting the player: stopcombat")
+    endif
+    if GetStage() == 40                                  ; in game 18 Oct the status stayed at 40 after the reward: set 200
+        SetStage(200)                                    ; from here, not from inside OnStageSet(40)
+        CompleteQuest()
+        Trace("complete stage=" + GetStage())
+    endif
+    if GetStage() < 200                                  ; stage 200 cancels the timer in OnStageSet
         StartTimer(1.0, 1)
     endif
 EndEvent

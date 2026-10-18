@@ -25,6 +25,7 @@
 //        read only: every NPC_ whose EditorID, name or race EditorID matches the regex (case-insensitive): FormKey,
 //        EditorID, name, race; for fo4 also each placed ACHR of it in the Commonwealth (core frame, FO4 / 70) and in
 //        interior cells. Finds Codsworth's placement and a Starfield robot body to stand in for him (ROADMAP B2).
+//   quests <Starfield.esm> [faction regex]  (read only: QuestType keywords with counts and examples, matching factions)
 //   selftest <scratch dir>
 //        synthetic masters (a Starfield.esm with the Credits MISC, a core with the world, a raider plugin with the calm
 //        probe) and a synthetic points.json; write + check against them. No game file is read.
@@ -52,6 +53,7 @@ try
                                                        args.Contains("--no-codsworth") ? null : Mission.Arg(args, "--codsworth-body", Mission.CodsworthBody)),
         "check" when args.Length >= 5 => Mission.Check(args[1], args[2], args[3], args[4], !args.Contains("--no-alias"), !args.Contains("--no-codsworth")),
         "npcs" when args.Length >= 4 => Mission.Npcs(args[1], args[2], args[3]),
+        "quests" when args.Length >= 2 => Mission.Quests(args[1], args.Length >= 3 ? args[2] : "."),
         "selftest" when args.Length >= 2 => Mission.SelfTest(args[1]),
         _ => Mission.Usage(),
     };
@@ -88,12 +90,33 @@ static class Mission
 
     public static int Usage()
     {
-        Console.Error.WriteLine("usage: see the header of dotnet/Mission/Program.cs (points | write | check | npcs | selftest)");
+        Console.Error.WriteLine("usage: see the header of dotnet/Mission/Program.cs (points | write | check | npcs | quests | selftest)");
         return 2;
     }
     public static string Arg(string[] a, string name, string dflt) { var i = Array.IndexOf(a, name); return i >= 0 && i + 1 < a.Length ? a[i + 1] : dflt; }
     public static float Opt(string[] a, string name, float dflt) => float.Parse(Arg(a, name, dflt.ToString(CultureInfo.InvariantCulture)), CultureInfo.InvariantCulture);
     static string F(float v) => v.ToString("0.###", CultureInfo.InvariantCulture);
+
+    // ---------------------------------------------------------------- quests (read only)
+
+    /// Which QuestType keyword (QTYP) Starfield's quests carry, with counts and examples, and the factions whose EDID
+    /// matches the pattern: in game 18 Oct the mission ran to stage 40 but never showed in the Missions tab (it has no
+    /// quest type), and Preston (no factions) turned on the player.
+    public static int Quests(string sfPath, string factionPattern)
+    {
+        using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
+        var cache = sf.ToImmutableLinkCache<SF.IStarfieldMod, SF.IStarfieldModGetter>();
+        string Kw(FormKey fk) => fk.IsNull ? "-" : cache.TryResolve<SF.IKeywordGetter>(fk, out var k) ? $"{k.EditorID}({fk.ID:X6})" : $"?{fk.ID:X6}";
+        foreach (var g in sf.Quests.GroupBy(q => (Kw(q.QuestType.FormKey), Kw(q.QuestGroup.FormKey))).OrderByDescending(g => g.Count()))
+        {
+            var ex = g.Where(q => q.Name?.String is { Length: > 0 }).Take(4).Select(q => $"{q.EditorID} '{q.Name?.String}' flags={q.Data?.Flags} obj={q.Objectives.Count}");
+            Console.WriteLine($"QTYP {g.Key.Item1} group {g.Key.Item2}: {g.Count()} quests; e.g. {string.Join("; ", ex)}");
+        }
+        var rx = new System.Text.RegularExpressions.Regex(factionPattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        foreach (var f in sf.Factions.Where(f => f.EditorID is not null && rx.IsMatch(f.EditorID)).Take(40))
+            Console.WriteLine($"FACT {f.FormKey.ID:X6} {f.EditorID} relations={f.Relations.Count}");
+        return 0;
+    }
 
     // ---------------------------------------------------------------- npcs (read only)
 

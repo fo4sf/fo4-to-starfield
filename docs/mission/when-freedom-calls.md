@@ -71,6 +71,16 @@ radius < gap < offset length - radius and model the rule: no-op, partial, retry,
 run time (FF0054C8 in the log), so no fixed form id can name it in a property. A player standing outdoors in another
 world within 800 of (-2011, -1697) before the mission is done would pull the actors there.
 
+**Third run, 18 Oct 15:15 local (wfc6, 6911ef9), verified from the PC's read of the logs:** every actor moved with
+`fails=0` (after the move, d = 174 to 229 from the player), raider 3 was put into combat at 57, all 5 died, and the
+status reached stage 40 twice, after which the user reloaded. Codsworth was moved a second time at 15:17:44: his position
+read his local spot again (supported hypothesis: he went back to his editor location), and the per-actor rule moved him
+back. Open from the user's report: the quest never showed in the Missions tab, Preston "treats me like an enemy", and
+the status stayed at stage 40 after the reward. Changes: `SetActive`, a stage-10 notification, Preston
+`IgnoreFriendlyHits` plus `StopCombat` if he targets the player, and 40 to 200 set from the timer with `CompleteQuest`.
+The quest record has no QuestType keyword (Starfield's QTYP, a KYWD); `dotnet/Mission quests` lists the vanilla ones
+to choose from (read only).
+
 ## Codsworth (2026-10-18)
 
 The owner asked for a Codsworth test. A Mr. Handy has no Starfield skeleton (ROADMAP B2), so the first one is a
