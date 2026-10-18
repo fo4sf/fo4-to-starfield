@@ -1310,3 +1310,7 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   SetRigidBodyMass test plus `SetGS fGrabMaxWeightWalking 1000` decides it. No converter change.
 - **unresolved:** Preston's friendly Starfield template; whether quest targets route through our scripted doors; the
   cog door's clip in game; whether the cut-down quest may force combat (FO4 does, DN092 stages 13 / 76).
+
+## 2026-10-18 Grok: activation field census helpers (#336)
+- Added src/fo4sf/activation.py: parse_activation extracts VMAD scripts (reusing fo4station.vmad_scripts), XLKR linked refs, XAPR activate parents, XESP enable parent, XAPD flags from a REFR field list.
+- Synthetic tests in tests/test_activation.py pass. No game data. Next: wire into a cell-level census script once the Gold Ribbon cell is located by Claude, and map FO4 scripts/properties to Starfield equivalents.
