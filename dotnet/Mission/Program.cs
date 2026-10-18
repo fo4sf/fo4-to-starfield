@@ -71,6 +71,9 @@ static class Mission
     public const uint QuestId = 0x800, PrestonNpcId = 0x801, PrestonRefId = 0x802, FirstRaiderRefId = 0x803;
     public const uint CalmProbeId = 0xF04801, RaiderId = 0xF04800;        // FO4ActorRaider.esm (docs/actors/raider-conversion.md)
     public const uint CreditsId = 0x00000F;                                // Starfield.esm MISC "Credits"
+    // QTYP: the Missions-tab category. In game 18 Oct the quest ran to stage 40 but never showed there; it had none.
+    // `quests` on the PC: 118 vanilla quests carry QuestTypeSideQuest 047600 (e.g. FFNeonZ09 "Balancing the Books").
+    public const uint QuestTypeSideId = 0x047600; public const string QuestTypeSideEdid = "QuestTypeSideQuest";
     public const uint MuseumCell = 0x017DF7, Commonwealth = 0x00003C, PrestonFo4 = 0x019FD9, Min00 = 0x1A001C;
     public const int PrestonAlias = 0;
     // Codsworth: his FO4 ACHR and NPC_; ours after the raiders' range (0x803 .. 0x80F); the body from the PC's npcs
@@ -323,6 +326,8 @@ static class Mission
         // the links the script needs, each checked by type and EditorID before anything is written
         if (!m.Cache.TryResolve<SF.IMiscItemGetter>(new FormKey(SfEsm, CreditsId), out var credits) || credits.EditorID != "Credits")
             throw new Refusal("Starfield.esm 00000F is not the MISC Credits");
+        if (!m.Cache.TryResolve<SF.IKeywordGetter>(new FormKey(SfEsm, QuestTypeSideId), out var qtyp) || qtyp.EditorID != QuestTypeSideEdid)
+            throw new Refusal($"Starfield.esm {QuestTypeSideId:X6} is not the KYWD {QuestTypeSideEdid}");
         var calm = m.Raider.Npcs.FirstOrDefault(n => n.FormKey.ID == CalmProbeId && n.EditorID == "FO4_LvlRaider_Calm")
                    ?? throw new Refusal($"{m.Raider.ModKey} has no F04801 FO4_LvlRaider_Calm");
         var raiderNpc = m.Raider.Npcs.FirstOrDefault(n => n.FormKey.ID == RaiderId && n.EditorID == "FO4_LvlRaider")
@@ -391,6 +396,7 @@ static class Mission
             EditorID = QuestEdid, Name = pts.GetProperty("quest_name").GetString(), FormVersion = 581, Version2 = 12,
             Data = new SF.QuestData { Flags = SF.Quest.Flag.StartGameEnabled | SF.Quest.Flag.RunOnce | SF.Quest.Flag.DisplaysInHud, Priority = 50 },
         };
+        quest.QuestType.SetTo(qtyp.FormKey);
         foreach (var s in Stages)
         {
             var st = new SF.QuestStage { Index = s };
@@ -502,6 +508,7 @@ static class Mission
             Console.WriteLine($"  QUST {q.EditorID} \"{q.Name?.String}\" flags {q.Data?.Flags} stages [{string.Join(",", q.Stages.Select(s => s.Index))}] " +
                               $"objectives [{string.Join("; ", q.Objectives.Select(o => $"{o.Index} \"{o.DisplayText?.String}\" targets {o.Targets.Count}"))}] aliases {q.Aliases?.Count ?? 0}");
             Need(q.EditorID == QuestEdid && q.Data is not null && q.Data.Flags.HasFlag(SF.Quest.Flag.StartGameEnabled), "the quest is not FO4SF_Min00, start game enabled");
+            Need(q.QuestType.FormKey == new FormKey(SfEsm, QuestTypeSideId), $"the quest's QuestType is not {QuestTypeSideEdid} (it would not show in the Missions tab)");
             Need(q.Stages.Select(s => s.Index).SequenceEqual(Stages), "stages differ from the script's");
             Need(q.Stages.LastOrDefault()?.LogEntries.Any(l => l.Flags?.HasFlag(SF.QuestLogEntry.Flag.CompleteQuest) == true) == true, "stage 200 does not complete the quest");
             Need(q.Objectives.Select(o => o.Index).SequenceEqual(Objectives.Select(o => o.Index)), "objectives differ from the script's");
@@ -545,6 +552,7 @@ static class Mission
         var sf = new SF.StarfieldMod(SfEsm, rel);
         sf.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
         sf.MiscItems.Add(new SF.MiscItem(new FormKey(SfEsm, CreditsId), rel) { EditorID = "Credits" });
+        sf.Keywords.Add(new SF.Keyword(new FormKey(SfEsm, QuestTypeSideId), rel) { EditorID = QuestTypeSideEdid });
         // the Codsworth body: a robot with a race, a faction and a script, which the copy must drop (race kept)
         var race = new SF.Race(new FormKey(SfEsm, 0x900), rel) { EditorID = "MiniBotARace" };
         sf.Races.Add(race);
@@ -621,6 +629,7 @@ static class Mission
             ("Codsworth script property removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "Codsworth")),
             ("Codsworth has a faction", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].Factions.Add(
                 new SF.RankPlacement { Faction = new FormLink<SF.IFactionGetter>(new FormKey(SfEsm, 0x901)) })),
+            ("quest has no QuestType", m => m.Quests.First().QuestType.Clear()),
         };
         foreach (var (name, edit) in mutations)
         {

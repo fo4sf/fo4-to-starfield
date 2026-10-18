@@ -45,18 +45,34 @@ float Property TalkRadius = 3.0 Auto Const
 string LogName = "fo4sf_mission"
 int ticks = 0
 int relocateFails = 0
+int applied = 0
 
 Event OnQuestInit()
     Debug.OpenUserLog(LogName)
     Trace("init raiders=" + Raiders.Length)
     RegisterForRemoteEvent(Preston, "OnActivate")
     Preston.IgnoreFriendlyHits(True)                     ; a stray shot in the fight must not turn him (in game 18 Oct 15:16)
-    SetStage(10)
+    AdvanceTo(10)
     SetActive(True)                                      ; tracked, so the objectives show (in game 18 Oct: none seen)
     StartTimer(1.0, 1)
 EndEvent
 
+Function AdvanceTo(int n)
+{SetStage, then the stage's actions. In game 18 Oct the stages reached 40 but OnStageSet never ran (no "stage" line, no
+ objectives, no reward), so the actions do not rely on it; it still calls Apply, and Apply runs each stage once.}
+    SetStage(n)
+    Apply(n)
+EndFunction
+
 Event OnStageSet(int auiStageID, int auiItemID)
+    Apply(auiStageID)
+EndEvent
+
+Function Apply(int auiStageID)
+    if auiStageID <= applied
+        return
+    endif
+    applied = auiStageID
     Trace("stage " + auiStageID)
     if auiStageID == 10
         SetObjectiveDisplayed(10)
@@ -78,13 +94,13 @@ Event OnStageSet(int auiStageID, int auiItemID)
         Debug.Notification("When Freedom Calls: complete")
         CancelTimer(1)
     endif
-EndEvent
+EndFunction
 
 Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akActionRef)
     if akSender == Preston && akActionRef == Game.GetPlayer()
         Trace("preston activated at stage " + GetStage())
         if GetStage() == 30
-            SetStage(40)
+            AdvanceTo(40)
         endif
     endif
 EndEvent
@@ -133,7 +149,7 @@ Event OnTimer(int aiTimerID)
         else
             stage = 40
         endif
-        SetStage(stage)
+        AdvanceTo(stage)
     endwhile
     ticks += 1
     if ticks % 5 == 0
@@ -144,11 +160,11 @@ Event OnTimer(int aiTimerID)
         Trace("preston was targeting the player: stopcombat")
     endif
     if GetStage() == 40                                  ; in game 18 Oct the status stayed at 40 after the reward: set 200
-        SetStage(200)                                    ; from here, not from inside OnStageSet(40)
+        AdvanceTo(200)
         CompleteQuest()
         Trace("complete stage=" + GetStage())
     endif
-    if GetStage() < 200                                  ; stage 200 cancels the timer in OnStageSet
+    if GetStage() < 200                                  ; stage 200 cancels the timer (Apply)
         StartTimer(1.0, 1)
     endif
 EndEvent

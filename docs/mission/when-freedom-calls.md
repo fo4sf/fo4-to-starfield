@@ -79,7 +79,10 @@ back. Open from the user's report: the quest never showed in the Missions tab, P
 the status stayed at stage 40 after the reward. Changes: `SetActive`, a stage-10 notification, Preston
 `IgnoreFriendlyHits` plus `StopCombat` if he targets the player, and 40 to 200 set from the timer with `CompleteQuest`.
 The quest record has no QuestType keyword (Starfield's QTYP, a KYWD); `dotnet/Mission quests` lists the vanilla ones
-to choose from (read only).
+to choose from (read only). **Verified** on the PC: 118 vanilla quests carry QuestTypeSideQuest (047600), e.g.
+FFNeonZ09 "Balancing the Books"; the writer now sets it and check requires it. The PC's log also had no "stage" line at
+all: OnStageSet never ran (unresolved why), so no objective, notification or reward happened. The stage actions now run
+from `AdvanceTo` (SetStage, then `Apply`), with OnStageSet as a second caller; `Apply` runs each stage once.
 
 ## Codsworth (2026-10-18)
 
