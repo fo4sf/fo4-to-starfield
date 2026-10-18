@@ -148,3 +148,16 @@ class Ba2:
                 raw = f.read(pk or up)
                 out.append(zlib.decompress(raw) if pk else raw)
             return b"".join(out)
+
+    def total_unpacked_estimate(self) -> int:
+        """Rough estimate of total unpacked size in bytes (for planning conversions)."""
+        total = 0
+        for e in self.entries:
+            if e.kind == "GNRL":
+                total += e.unpacked or e.packed or 0
+            elif e.kind == "DX10":
+                # Approximate: width*height*mips * average bytes per pixel (BC7 ~1, etc.)
+                bpp = 1  # conservative
+                for off, pk, up, _s, _e in (e.chunks or []):
+                    total += up or pk or 0
+        return total
