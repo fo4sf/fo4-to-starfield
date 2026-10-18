@@ -265,6 +265,33 @@ class RunnerTests(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(a1, "obs.json")))
         self.assertFalse(os.path.exists(os.path.join(a1, "step.log")) and "AMDAutoUpdate" in readf(os.path.join(a1, "step.log")))
 
+    def test_a_resumed_run_keeps_every_interrupted_attempt(self):
+        # Codex on #341 at 446b5a9: a second Runner (resumed after a stop) starts its popup count again; its archive
+        # must not reuse a1_popup1, which already holds the first run's interrupted attempt
+        self.ctl.last_sent_tick = 1000
+        a1 = os.path.join(self.d, "tests", "0000_fall", "a1")
+        calls = [0]
+
+        def popup_then_stop(test, out):
+            calls[0] += 1
+            with open(os.path.join(out, "step.log"), "w", encoding="utf-8") as f:
+                f.write(f"run {calls[0]}: foreground window belongs to 'AMDAutoUpdate', not 'Starfield'\n")
+            if calls[0] == 2:
+                self.ctl.foreign = True                   # the owner typed: the first run stops here
+            return 2
+        self.assertEqual(self.runner(popup_then_stop, refocus=True).run(), 3)
+        self.ctl.foreign = False
+        self.assertEqual(self.runner(popup_then_stop, refocus=True, max_tests=1).run() in (0, 3, 4), True)
+        # every interrupted attempt's step.log is still on disk: none was overwritten by a rerun or the resumed run
+        logs = []
+        for root, _dirs, files in os.walk(os.path.join(self.d, "tests")):
+            logs += [readf(os.path.join(root, f)) for f in files if f == "step.log"]
+        self.assertEqual(sorted(x.split(":")[0] for x in logs), sorted(f"run {k}" for k in range(1, calls[0] + 1)))
+        self.assertIn("run 1:", readf(os.path.join(a1 + "_popup1", "step.log")))
+        kept = sorted(x for x in os.listdir(os.path.dirname(a1)) if x.startswith("a1_popup"))
+        self.assertGreaterEqual(len(kept), 2, kept)                    # the resumed run's popup got a fresh name
+        self.assertEqual(tq.unused_name(a1 + "_popup"), a1 + f"_popup{len(kept) + 1}")
+
     def test_a_popup_rerun_is_capped_and_owner_input_still_stops(self):
         self.ctl.last_sent_tick = 1000
         n = [0]

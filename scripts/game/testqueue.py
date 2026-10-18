@@ -2415,6 +2415,15 @@ FOREGROUND_THIEF = re.compile(r"foreground window belongs to '([^']*)'")
 POPUP_RETRIES = 2       # a test whose step lost the focus to a popup runs again this often in one run
 
 
+def unused_name(prefix):
+    """prefix1, prefix2, ...: the first that does not exist yet (a resumed run's counters start again at 0, and an
+    existing archive is never replaced, Codex on #341 at 446b5a9)."""
+    k = 1
+    while os.path.exists(f"{prefix}{k}"):
+        k += 1
+    return f"{prefix}{k}"
+
+
 def foreground_thief(out_dir):
     """The window input.ps1 found in front when it refused to send input (its ABORT line in the attempt's step.log),
     or None."""
@@ -3192,6 +3201,10 @@ class Runner:
                 self.ledger_event(lambda: self.lease.events.task_started(self.qdir, self.q, t, n, self.ledger_by,
                                                                           self.lease.owner))
             out_dir = os.path.join(self.qdir, "tests", t["id"], f"a{n}")
+            if os.path.isdir(out_dir) and os.listdir(out_dir):
+                # an attempt that was not counted (the owner took over mid-step, then the run stopped or was resumed)
+                # left its evidence here: kept beside the new attempt, never overwritten
+                os.rename(out_dir, unused_name(f"{out_dir}_interrupted"))
             os.makedirs(out_dir, exist_ok=True)
             lt = None                                     # the sky reading, for tests that asked for a time of day
             con = []                                      # console_pre / console_post replies (parsed OCR)
@@ -3218,7 +3231,7 @@ class Runner:
                         self.popups[t["id"]] = pops + 1
                         # the rerun reuses the attempt number, so this interrupted attempt's folder (step.log, obs.json,
                         # screenshots) is kept beside it before the rerun would write into it (Codex on #341 at f2fe7bf)
-                        os.replace(out_dir, f"{out_dir}_popup{pops + 1}")
+                        os.rename(out_dir, unused_name(f"{out_dir}_popup"))
                         self.log(f"{t['id']}: {who or 'another window'} took the focus mid-step without owner input "
                                  f"(popup): game brought back to the front, the test runs again")
                         self.ctl.mark_sent()

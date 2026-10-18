@@ -79,7 +79,9 @@ the walk climbs).
 - A window that takes the focus mid-step with no keyboard or mouse input since the runner's last (a popup: the AMD
   auto-updater, movable_1019c 2026-10-18) is not the owner: with `--refocus` the game is brought back and the test runs
   again at the end of the queue, not counted as an attempt, at most `POPUP_RETRIES` (2) times per test. The log names
-  the window from `input.ps1`'s ABORT line in the attempt's `step.log`.
+  the window from `input.ps1`'s ABORT line in the attempt's `step.log`. The interrupted attempt's folder is kept as
+  `a<n>_popup<k>`, and any uncounted attempt's folder found at the start of a new attempt (the owner took over, then a
+  resume) as `a<n>_interrupted<k>`, each with the first unused k: no evidence is overwritten.
 - `queue.json` `"hours"` limits the allowed hours (default `[[0, 24]]`); `--max-hours` and `--max-tests` bound a run.
 - Controller lease (opt-in, default off; docs/ai/leader-core.md section 6): with `FO4SF_LEASE_DIR` set (or `run
   --lease-dir`), the runner launches nothing and sends no step unless `FO4SF_LEASE_OWNER` (default `Claude`, or
