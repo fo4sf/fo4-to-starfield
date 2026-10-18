@@ -44,13 +44,13 @@ def plugin(path, door_base, cell_id, cell_edid, refs, exterior, base_sig=b"DOOR"
         f.write(tes4.serialize() + vp.Group(base_sig, 0, bytes(8), [door]).serialize() + top.serialize())
 
 
-def build(d, port_marker_target=0x900, ext_base=0x700):
+def build(d, port_marker_target=0x900, ext_base=0x700, back=None):
     """core dir (objects / formids / plan / overlays_params + FO4TerrainCore.esm) and port dir (FO4Port.esm)."""
     core, port = os.path.join(d, "core"), os.path.join(d, "port")
     os.makedirs(core)
     os.makedirs(port)
     out_arrival = [-469.444, 636.074, 42.356]
-    back = vp.merged(out_arrival, MERGE)
+    back = back or vp.merged(out_arrival, MERGE)
     plugin(os.path.join(core, "FO4TerrainCore.esm"), 0x700, 0x7FF, "FO4Core_Cell", [
         refr(OWN | 0x701, OWN | ext_base, [-470.0, 650.0, 42.0], vp.load_door_vmad("FO4Port.esm", port_marker_target)),
         refr(OWN | 0x702, 0x000034, out_arrival)], exterior=True, base_sig=b"ACTI")
@@ -110,6 +110,13 @@ class StageTests(unittest.TestCase):
         self.assertIn("leads to FO4Port.esm:000901", str(cm.exception))
         self.assertFalse(os.path.exists(os.path.join(d, "out")))
 
+    def test_a_vmad_return_position_off_the_marker_is_refused(self):
+        d = tempfile.mkdtemp()                         # Codex #358: the VMAD under test is not the oracle
+        core, port, _ = build(d, back=[12345.0, 23456.0, 34567.0])
+        with self.assertRaises(SystemExit) as cm:
+            stage(core, port, os.path.join(d, "out"))
+        self.assertIn("is not its marker's merged position", str(cm.exception))
+
     def test_a_base_that_moved_is_refused(self):
         d = tempfile.mkdtemp()
         core, port, _ = build(d, ext_base=0x800)
@@ -144,41 +151,64 @@ EXP_IN = {"ack": "door-fwd-0", "pos": [5.449, 17.291, -3.654], "cell": "02000801
           "resolve": {"plugin": "FO4Port.esm", "id": 2304, "index": "02"}}
 EXP_OUT = {"ack": "door-ret-0", "pos": [-1669.444, -2063.926, 42.356], "cell": None, "world": "exterior",
            "resolve": {"plugin": "FO4TerrainCore.esm", "id": 1794, "index": "03"}}
-CELL = str(0x02000801)
+CELL, WORLD, ACT = str(0x02000801), "-16707575", {"activate": {"selected": True}}
+
+
+def pos(x, y, z, cell=CELL, world="none", loaded="true"):
+    return f"FO4SF rt=9.0 pos={x} {y} {z} ang=0 cell={cell} world={world} loaded={loaded} n=9"
+
+
+def res(plugin, local, index, cell=CELL, world="none"):
+    return (f"FO4SF resolve plugin={plugin} id={local} form={(index << 24) | local} ref=true pos=1 2 3 ang=0 "
+            f"cell={cell} cellname=x world={world} worldname= disabled=false loaded=true")
+
+
+IN_OK = ("FO4SF ack door-fwd-0", res("FO4Port.esm", 2304, 2), pos(5.6, 17.0, -3.6))
+OUT_OK = ("FO4SF ack door-ret-0", res("FO4TerrainCore.esm", 1794, 3, cell="-5", world=WORLD),
+          pos(-1668, -2062, 42.5, cell="-5", world=WORLD))
+
+
+def verdict(lines, exp, obs=ACT):
+    v, why, _ = dr.judge_test(log(*lines), obs, exp)
+    return v, why.split(":")[0]
 
 
 class JudgeTests(unittest.TestCase):
     def test_in_passes_on_the_marker_in_the_interior_cell(self):
-        ev = log(f"FO4SF rt=1.0 pos=-1660 -2060 42 ang=0 cell=-1 world=-16707575 loaded=true n=1",
-                 "FO4SF ack door-fwd-0",
-                 f"FO4SF resolve plugin=FO4Port.esm id=2304 form={0x02000900} ref=true pos=5.4 17.3 -3.6 ang=0 "
-                 f"cell={CELL} cellname=x world=none worldname= disabled=false loaded=true",
-                 f"FO4SF rt=9.0 pos=5.6 17.0 -3.6 ang=0 cell={CELL} world=none loaded=true n=9")
-        self.assertEqual(dr.judge_test(ev, {"activate": {"selected": True}}, EXP_IN)[0], "PASS")
+        self.assertEqual(verdict(IN_OK, EXP_IN)[0], "PASS")
 
     def test_in_fails_when_the_player_stayed_outside(self):
-        ev = log("FO4SF ack door-fwd-0", "FO4SF rt=9.0 pos=-1660 -2060 42 ang=0 cell=-5 world=-16707575 loaded=true n=9")
-        v, why, _ = dr.judge_test(ev, {}, EXP_IN)
-        self.assertEqual((v, why.split(":")[0]), ("FAIL", "STAYED"))
+        self.assertEqual(verdict(IN_OK[:2] + (pos(-1660, -2060, 42, cell="-5", world=WORLD),), EXP_IN), ("FAIL", "STAYED"))
 
-    def test_out_passes_near_the_merged_marker_and_fails_far(self):
-        ok = log("FO4SF ack door-ret-0", "FO4SF rt=9.0 pos=-1668 -2062 42.5 ang=0 cell=-5 world=-16707575 loaded=true n=9")
-        self.assertEqual(dr.judge_test(ok, {}, EXP_OUT)[0], "PASS")
-        far = log("FO4SF ack door-ret-0", "FO4SF rt=9.0 pos=-469 636 42 ang=0 cell=-5 world=-16707575 loaded=true n=9")
-        self.assertEqual(dr.judge_test(far, {}, EXP_OUT)[1].split(":")[0], "WRONG_PLACE")
-        inside = log("FO4SF ack door-ret-0", f"FO4SF rt=9.0 pos=5 17 -3 ang=0 cell={CELL} world=none loaded=true n=9")
-        self.assertEqual(dr.judge_test(inside, {}, EXP_OUT)[1].split(":")[0], "STAYED")
+    def test_out_passes_near_the_merged_marker_in_its_world_and_fails_far_or_inside(self):
+        self.assertEqual(verdict(OUT_OK, EXP_OUT)[0], "PASS")
+        self.assertEqual(verdict(OUT_OK[:2] + (pos(-469, 636, 42, cell="-5", world=WORLD),), EXP_OUT),
+                         ("FAIL", "WRONG_PLACE"))
+        self.assertEqual(verdict(OUT_OK[:2] + (pos(5, 17, -3),), EXP_OUT), ("FAIL", "STAYED"))
 
-    def test_never_a_pass_without_activation_ack_position_or_the_planned_index(self):
-        self.assertEqual(dr.judge_test([], {"activate": {"selected": False}}, EXP_IN)[1].split(":")[0], "NOT_ACTIVATED")
-        self.assertEqual(dr.judge_test([], {}, EXP_IN)[1].split(":")[0], "NO_ACK")
-        self.assertEqual(dr.judge_test(log("FO4SF ack door-fwd-0"), {}, EXP_IN)[1].split(":")[0], "NO_POSITION")
-        wrong = log("FO4SF ack door-fwd-0",
-                    f"FO4SF resolve plugin=FO4Port.esm id=2304 form={0x05000900} ref=true pos=5.4 17.3 -3.6 ang=0 "
-                    f"cell={CELL} cellname=x world=none worldname= disabled=false loaded=true",
-                    f"FO4SF rt=9.0 pos=5.6 17.0 -3.6 ang=0 cell={CELL} world=none loaded=true n=9")
-        v, why, _ = dr.judge_test(wrong, {}, EXP_IN)
-        self.assertEqual((v, why.split(":")[0]), ("INCONCLUSIVE", "INDEX"))
+    def test_missing_proof_is_never_a_pass(self):
+        self.assertEqual(verdict(IN_OK, EXP_IN, {"activate": {"selected": False}}), ("INCONCLUSIVE", "NOT_ACTIVATED"))
+        for obs in ({}, {"activate": {}}, None):                         # Codex #358: absence is not success
+            self.assertEqual(verdict(IN_OK, EXP_IN, obs), ("INCONCLUSIVE", "NOT_ACTIVATED"))
+        self.assertEqual(verdict(IN_OK[1:], EXP_IN), ("INCONCLUSIVE", "NO_ACK"))
+        self.assertEqual(verdict((IN_OK[0], IN_OK[2]), EXP_IN), ("INCONCLUSIVE", "NO_RESOLVE"))
+        self.assertEqual(verdict((IN_OK[1], IN_OK[0], IN_OK[2]), EXP_IN), ("INCONCLUSIVE", "NO_RESOLVE"))  # before the ack
+        self.assertEqual(verdict(IN_OK[:2], EXP_IN), ("INCONCLUSIVE", "NO_POSITION"))
+        self.assertEqual(verdict((IN_OK[0], res("FO4Port.esm", 2304, 5), IN_OK[2]), EXP_IN), ("INCONCLUSIVE", "INDEX"))
+
+    def test_unloaded_or_non_finite_readings_and_plans_are_inconclusive(self):
+        self.assertEqual(verdict(IN_OK[:2] + (pos(5.6, 17.0, -3.6, loaded="false"),), EXP_IN), ("INCONCLUSIVE", "UNSETTLED"))
+        self.assertEqual(verdict(IN_OK, dict(EXP_IN, pos=[float("nan"), 17.291, -3.654])), ("INCONCLUSIVE", "BAD_PLAN"))
+        self.assertEqual(dr.judge_test(log(*IN_OK), ACT, EXP_IN, tol=float("nan"))[1].split(":")[0], "BAD_PLAN")
+
+    def test_contradictory_targets_are_inconclusive(self):
+        other = (OUT_OK[0], res("FO4TerrainCore.esm", 1794, 3, cell="-5", world=str(0xFF011009 - (1 << 32))),
+                 pos(-1668, -2062, 42.5, cell="-5", world="42"))
+        self.assertEqual(verdict(other, EXP_OUT), ("INCONCLUSIVE", "WORLD"))     # Codex #358: not mere truthiness
+        self.assertEqual(verdict((OUT_OK[0], res("FO4TerrainCore.esm", 1794, 3, cell="-5"), OUT_OK[2]), EXP_OUT),
+                         ("INCONCLUSIVE", "TARGET"))
+        self.assertEqual(verdict((IN_OK[0], res("FO4Port.esm", 2304, 2, cell="7"), IN_OK[2]), EXP_IN),
+                         ("INCONCLUSIVE", "TARGET"))
 
     def test_judge_reads_the_latest_attempt_of_each_test(self):
         d = tempfile.mkdtemp()
@@ -189,12 +219,13 @@ class JudgeTests(unittest.TestCase):
         with open(os.path.join(d, "rounds.json"), "w") as f:
             json.dump({"tol_m": 3.0, "tests": [dict(EXP_IN, test=0, leg="in", cell_edid="X"),
                                                dict(EXP_OUT, test=1, leg="out", cell_edid="X")]}, f)
-        for a, line in (("a1", "FO4SF rt=1 pos=0 0 0 ang=0 cell=-5 world=-1 loaded=true n=1"),
-                        ("a2", f"FO4SF rt=9 pos=5.5 17.2 -3.6 ang=0 cell={CELL} world=none loaded=true n=9")):
+        for a, last in (("a1", pos(0, 0, 0, cell="-5", world=WORLD)), ("a2", IN_OK[2])):
             p = os.path.join(d, "tests", q["tests"][0]["id"], a)
             os.makedirs(p)
             with open(os.path.join(p, "bridge.log"), "w") as f:
-                f.write("FO4SF ack door-fwd-0\n" + line + "\n")
+                f.write("\n".join(IN_OK[:2] + (last,)) + "\n")
+            with open(os.path.join(p, "obs.json"), "w") as f:
+                json.dump(ACT, f)
         with redirect_stdout(io.StringIO()):
             rows = dr.judge(dr.argparse.Namespace(queue=d, rounds=""))
         self.assertEqual([(r["verdict"], r.get("attempt")) for r in rows], [("PASS", "a2"), ("NOT_RUN", None)])

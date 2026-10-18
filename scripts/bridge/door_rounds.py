@@ -20,10 +20,12 @@ usage:
          --bridge <installed bridge staging>          (no --plugins: the installed set stays as it is)
   python scripts/game/testqueue.py run --queue <queue> --max-attempts 1
   python scripts/bridge/door_rounds.py judge --queue <queue> [--rounds <out>/rounds.json]
-      PASS: the player's last bridge line after the test's ack is within TOL_M of the arrival marker (in the
-      interior's cell going in, in the exterior world coming out). FAIL WRONG_PLACE / STAYED otherwise; INCONCLUSIVE
-      when the runner did not activate (the GetIsID proof failed: obs.json), the log has no line after the ack, or a
-      resolve line shows another load index than planned (INDEX: re-plan with the right --core-index / --port-index).
+      PASS needs every proof: the runner's activation (obs.json activate.selected true), the test's ack, the
+      destination marker resolved after it at the planned index, a loaded player position after it in the marker's
+      cell (in) or the world it resolves in (out), within TOL_M of the marker (its record position; out: + the
+      build's merge, never the VMAD under test). FAIL STAYED / WRONG_PLACE when the player is elsewhere; missing or
+      contradictory evidence is INCONCLUSIVE (NOT_ACTIVATED, NO_ACK, NO_RESOLVE, INDEX: re-plan with the right
+      indices, NO_POSITION, UNSETTLED, TARGET, WORLD, BAD_PLAN).
 Game data stays outside the repo; nothing here touches the game or its install.
 """
 import argparse
@@ -58,6 +60,7 @@ INTERIOR_DROP_M = 1.5            # the interior drop: just above the marker (the
 # the scripted exterior load doors are ACTI bases in the core (make_core64c: the FO4SF_LoadDoor VMAD does the load, PC
 # read of fdd3f0a5 on 2026-10-18: 0A7756 ACTI FO4Core_door_01f65a_fallout4); the port's interior doors are DOOR bases
 DOOR_BASES = ("DOOR", "ACTI")
+VMAD_TOL_M = 0.01               # a door's VMAD return position against its marker's merged position
 TOL_M = 3.0                      # judge_door_trip.py's 3 m
 
 
@@ -72,6 +75,12 @@ def save(p, obj):
 
 
 # ------------------------------------------------------------------------------------------------------------ plugins
+def finite(v, n=3):
+    """True for a list of n finite numbers."""
+    return isinstance(v, (list, tuple)) and len(v) == n and all(
+        isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x) for x in v)
+
+
 def fields(flags, data):
     if flags & COMPRESSED:
         data = zlib.decompress(data[4:])
@@ -156,7 +165,14 @@ def door_round(e, core, port, merge):
     cell_edid = port.edid(inside["cell"])
     if not cell_edid or not re.fullmatch(r"[A-Za-z0-9_]+", cell_edid):
         raise ValueError(f"interior cell {inside['cell']:06X} has no usable editor id for coc ({cell_edid!r})")
-    merged = list(back) if back is not None else vmad_patch.merged(outside["pos"], merge)
+    for what, v in (("exterior arrival marker", outside["pos"]), ("interior arrival marker", inside["pos"])):
+        if not finite(v):
+            raise ValueError(f"{what} has a position that is not three finite numbers: {v}")
+    # the expectation is the marker's own record + the build's measured merge, never the VMAD under test (Codex, #358)
+    merged = vmad_patch.merged(outside["pos"], merge)
+    if back is not None and not vmad_patch.same_position(back, merged, VMAD_TOL_M):
+        raise ValueError(f"interior door {int_ref:06X}'s VMAD return position {[round(v, 4) for v in back]} is not its "
+                         f"marker's merged position {[round(v, 4) for v in merged]}")
     return {"src": e["src"], "cell_edid": cell_edid, "cell": f"{inside['cell']:06X}",
             "exterior": {"door": f"{ext_ref:06X}", "base": f"{ext_base:06X}", "arrival": f"{ext_arrival:06X}",
                          "arrival_local": [round(v, 4) for v in outside["pos"]],
@@ -313,30 +329,51 @@ def latest_attempt(qdir, test_id):
 
 
 def judge_test(events, obs, exp, tol=TOL_M):
-    """(verdict, why, last position event) of one leg from its bridge events and obs.json."""
+    """(verdict, why, last position event) of one leg from its attempt's bridge events and obs.json. PASS needs every
+    proof present: the runner's activation (obs.json activate.selected true), the test's ack, the destination marker
+    resolved after it at the planned index, a loaded player position after it, in the marker's cell (in) or world (out)
+    and within tol. Missing or contradictory evidence is INCONCLUSIVE, never a PASS (Codex's review of #358)."""
+    if not finite(exp.get("pos")) or not (isinstance(tol, (int, float)) and math.isfinite(tol) and tol > 0):
+        return "INCONCLUSIVE", f"BAD_PLAN: expected position {exp.get('pos')} or tolerance {tol} is not finite", None
     act = (obs or {}).get("activate")
-    if isinstance(act, dict) and act.get("selected") is False:
-        return "INCONCLUSIVE", "NOT_ACTIVATED: the runner's GetIsID proof failed, nothing was activated", None
-    for e in events:
-        if e.get("kind") == "resolve" and e.get("plugin", "").casefold() == exp["resolve"]["plugin"].casefold() \
-                and e.get("id") == exp["resolve"]["id"] and e.get("form"):
-            if e["form"][:2] != exp["resolve"]["index"]:
-                return "INCONCLUSIVE", (f"INDEX: {exp['resolve']['plugin']} loads at {e['form'][:2]}, planned "
-                                        f"{exp['resolve']['index']}: re-plan"), None
+    if not isinstance(act, dict) or act.get("selected") is not True:
+        why = ("the runner's GetIsID proof failed, nothing was activated" if isinstance(act, dict)
+               and act.get("selected") is False else "obs.json holds no proof that the door was activated")
+        return "INCONCLUSIVE", f"NOT_ACTIVATED: {why}", None
     at = next((i for i, e in enumerate(events) if e.get("kind") == "ack" and e.get("tag") == exp["ack"]), None)
     if at is None:
         return "INCONCLUSIVE", f"NO_ACK: no 'FO4SF ack {exp['ack']}' (console or bridge failed)", None
-    pos = [e for e in events[at + 1:] if e.get("kind") == "pos" and e.get("pos")]
+    after = events[at + 1:]
+    want = exp["resolve"]
+    target = next((e for e in after if e.get("kind") == "resolve" and e.get("id") == want["id"]
+                   and str(e.get("plugin", "")).casefold() == want["plugin"].casefold()), None)
+    if target is None or not target.get("form") or target.get("ref") is not True:
+        return "INCONCLUSIVE", f"NO_RESOLVE: {want['plugin']}:{want['id']:06X} not resolved to a reference after the ack", None
+    if target["form"][:2] != want["index"]:
+        return "INCONCLUSIVE", (f"INDEX: {want['plugin']} loads at {target['form'][:2]}, planned {want['index']}: "
+                                f"re-plan"), None
+    pos = [e for e in after if e.get("kind") == "pos" and e.get("pos") is not None]
     if not pos:
         return "INCONCLUSIVE", "NO_POSITION: no bridge position line after the ack", None
     last = pos[-1]
+    if not finite(last["pos"]) or last.get("loaded") is not True:
+        return "INCONCLUSIVE", f"UNSETTLED: the last position {last['pos']} has loaded={last.get('loaded')}", last
     dxy = math.dist(last["pos"][:2], exp["pos"][:2])
     dz = abs(last["pos"][2] - exp["pos"][2])
-    if exp["cell"] and last.get("cell") != exp["cell"]:
-        where = "STAYED" if last.get("world") else "WRONG_PLACE"
-        return "FAIL", f"{where}: cell {last.get('cell')}, want {exp['cell']} ({dxy:.1f} m off)", last
-    if exp["world"] and not last.get("world"):
-        return "FAIL", f"STAYED: still in an interior (cell {last.get('cell')})", last
+    if exp["cell"]:                                       # in: the interior's cell, as planned and as resolved
+        if target.get("cell") != exp["cell"]:
+            return "INCONCLUSIVE", f"TARGET: the marker resolves in cell {target.get('cell')}, planned {exp['cell']}", last
+        if last.get("cell") != exp["cell"]:
+            where = "STAYED" if last.get("world") else "WRONG_PLACE"
+            return "FAIL", f"{where}: cell {last.get('cell')}, want {exp['cell']} ({dxy:.1f} m off)", last
+    else:                                                 # out: the world the marker resolves in, this session
+        if not target.get("world"):
+            return "INCONCLUSIVE", "TARGET: the exterior marker resolves in no world", last
+        if not last.get("world"):
+            return "FAIL", f"STAYED: still in an interior (cell {last.get('cell')})", last
+        if last["world"] != target["world"]:
+            return "INCONCLUSIVE", (f"WORLD: the player is in world {last['world']}, the marker resolves in "
+                                    f"{target['world']} ({dxy:.1f} m off)"), last
     if dxy > tol or dz > tol:
         return "FAIL", f"WRONG_PLACE: {dxy:.1f} m off in xy, {dz:.1f} m in z (tolerance {tol} m)", last
     return "PASS", f"{dxy:.2f} m off in xy, {dz:.2f} m in z", last

@@ -22,9 +22,9 @@ installed before it writes a test.
 The runner turns the save's companion off at the start of every session unless the queue says `"companion": "keep"`;
 these queues leave it off.
 
-Every check the stage makes is against the installed plugins: the door REFR exists, its base is the DOOR the build
-names, its `FO4SF_LoadDoor` VMAD leads to the other side's marker, and both markers exist. A door that fails a check
-is listed under `skipped` in rounds.json, with the reason, and is not planned.
+Every check the stage makes is against the installed plugins: the door REFR exists, its base is the one the build
+names (a DOOR, or an ACTI as the core writes its exterior load doors), its `FO4SF_LoadDoor` VMAD leads to the other
+side's marker, and both markers exist. A door that fails a check is listed under `skipped` in rounds.json, with the reason, and is not planned.
 
 ## How to run (PC, game closed)
 
@@ -39,9 +39,17 @@ is listed under `skipped` in rounds.json, with the reason, and is not planned.
 5. Judge it: `python scripts\bridge\door_rounds.py judge --queue <queue>`. This writes door_rounds_judge.json into the
    queue folder.
 
-The judge never gives a PASS without three things: the runner's activation, the test's ack line, and a bridge
-position after that ack. A resolve line whose load index differs from the plan makes the result INCONCLUSIVE (INDEX),
-not a FAIL. Re-plan with the right indices.
+The judge gives a PASS only with every proof from the test's own attempt:
+- the runner's activation (obs.json `activate.selected` true);
+- the test's ack line;
+- the destination marker resolved after the ack, at the planned load index;
+- a loaded player position after the ack, in the marker's cell (going in) or in the world the marker resolves in
+  (coming out), within 3 m.
+
+The expected spot is the marker's own record position. Coming out, the core's measured merge offset is added to it.
+The door's VMAD position is never the expectation: the stage refuses a door whose VMAD return position is more than
+1 cm off its marker's merged position. Missing or contradictory evidence is INCONCLUSIVE, never a PASS. INDEX means
+the plan used the wrong load indices: re-plan.
 
 ## Not covered
 
