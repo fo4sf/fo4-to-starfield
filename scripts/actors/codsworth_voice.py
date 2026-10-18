@@ -6,7 +6,7 @@
                  --lines <codsworth_lines.tsv> --count 20 --out <dir> [--rate 44100]
              first N rows of the suggested batch (or --infos 0001A2B3,...) -> <dir>\\fuz, <dir>\\wav, <dir>\\lines.tsv.
     wem:     python scripts/actors/codsworth_voice.py wem --wwise-console <WwiseConsole.exe> --out <dir> [--conversion <name>]
-             a scratch Wwise project in <dir>\\wwise, then convert-external-source on every <dir>\\wav file -> <dir>\\wem.
+             a scratch Wwise project in <dir>\\wwise\\CodsworthVoice, then convert-external-source on every <dir>\\wav file -> <dir>\\wem.
 
 .fuz layout (UESP "FUZ file"; checked by this script on each file): "FUZE", u32 version, u32 lip size, lip data, then
 an xWMA RIFF. The xWMA is handed to ffmpeg (its xwma demuxer) and written as 16-bit mono PCM. Lip data is not used: the
@@ -98,8 +98,8 @@ def cmd_extract(a):
 
 
 def cmd_wem(a):
-    proj_dir = os.path.join(a.out, "wwise")
-    proj = os.path.join(proj_dir, "CodsworthVoice.wproj")
+    # WwiseConsole requires <dir>\\<Name>\\<Name>.wproj (PC, Wwise 2026.1.3, 2026-10-18)
+    proj = os.path.join(os.path.abspath(a.out), "wwise", "CodsworthVoice", "CodsworthVoice.wproj")
     if not os.path.exists(proj):
         subprocess.run([a.wwise_console, "create-new-project", proj, "--platform", "Windows", "--quiet"], check=True)
     wav_dir = os.path.abspath(os.path.join(a.out, "wav"))
