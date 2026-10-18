@@ -1656,6 +1656,17 @@ snapshots tagged owner-button). Lessons: a Bash heredoc here turns \\r \\n escap
 written script; gate commits on tests); a background workflow can die silently (check the transcripts' modification
 times); the owner's three-line console paste became one line (give one line per command).
 
+## 2026-10-17: Grok playtest textures, row 11 vines (offline)
+
+Starfield 1.16.244, convert dir `terrain_core64c_work_fix3` (read-only). Hanging vines (`vinehanging06/07`,
+`vinecreeper*`) use `vine.mat`: opacity slot 2 and AlphaSettings were already written, but the material still clones
+`MetalIronCast01` / `PlasticPlainSmooth01` (one-sided opaque). Vanilla foliage uses `TwoSided1Layer`.
+`Summary.Layer1.Textures` had no Opacity key. `vine_color.dds` luma 3.8 because 85% of the card is BC1-black
+cutout. Converter now clones `ConduitKit01TwoSided.mat` whenever an opacity map exists, writes Summary Opacity, and
+zeroes metalness. Synthetic tests in `tests/test_materials.py`. In-game check is Claude's after a reconvert of the
+vine family into a scratch folder. Rows 13 (bright wall albedo luma 184) and 15 (dark canvasswap luma 29) are
+separate root causes, not this PR.
+
 ## 2026-10-17: Grok map-marker research (playtest row 7)
 
 Starfield 1.16.244. Offline walk of `Starfield.esm` and pinned `FO4TerrainCore.esm`. Starfield has no `MAPM` group;
@@ -1752,6 +1763,7 @@ PNDT 11 entries including our WRLD; no `lodsettings`; 0 `meshes/lod/generated`; 
 `meshes/fo4core/lod`. The 3D surface map is the May 2024 loading-zone camera, not a mesh we author. GO: marker (#296
 after LCSR `FFFFFFFF`) then CK object LOD; NOT go: custom planet or map renderer this stage.
 Evidence: [docs/terrain/surface-map.md](terrain/surface-map.md), `src/fo4sf/surface_map.py`, `tests/test_surface_map.py`.
+
 ## 2026-10-17: Codex raw light-patch bounds (offline)
 
 Independent PR302 review reproduced a malformed DAT2 declaration extending beyond
@@ -1774,6 +1786,16 @@ record layout. Both reject before byte/lumens comparison and retain both inputs.
 Removing only B validation causes both cases to fail. All 31 focused light-patch
 and FO4-light tests pass; guard and whitespace checks pass. Production source is
 unchanged; final test-delta review is pending. No native or staging run.
+
+## 2026-10-17: Grok #288 review fixes (offline)
+
+Codex/Claude on a77edfa: `build_from_template(..., metalness=0)` only updated an existing TextureReplacement
+index 4. ConduitKit01TwoSided has none (only MRTextureFile index 4 = conduit metal), so vine.mat kept the metal
+map and Summary said UseReplacement/0 — the 2026-10-08 metallic-summary shape. Now the writer drops that metal
+file and appends an enabled replacement (MetalIronCast01's shape). Opacity maps stay gated on `alpha_test or
+decal`; `two_sided` alone no longer cuts out cars/glass (40 FO4 two-sided materials without alpha test).
+DryConverter._texture_set accepts `two_sided` so a core64c dry run no longer TypeErrors every BGSM. One-sided
+FO4 cutouts (hair, chain-link) still clone TwoSided1Layer when they have an opacity map. In-game still Claude.
 
 ## 2026-10-17: Grok playtest 21/24 (garage button + object LOD)
 

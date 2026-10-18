@@ -139,11 +139,31 @@ class MeasureTests(unittest.TestCase):
         dry = mk.DryConverter(src)
         dry._texture_set("set1", "a_d.dds", "a_n.dds", "a_s.dds", alpha_test=True)
         dry._texture_set("set2", "a_d.dds", "a_n.dds", "")
+        dry._texture_set("set_ts", "a_d.dds", "a_n.dds", "", two_sided=True)
         self.assertEqual(dry.outputs["set1"], [("color", "BC1", 1024, 512), ("normal", "BC5", 512, 512),
                                                ("rough", "BC4", 256, 256), ("opacity", "BC4", 1024, 512)])
         self.assertEqual(dry.outputs["set2"][2], ("rough", "BC4", 128, 128))      # no spec: a quarter of the normal
+        self.assertNotIn("opacity", [k for k, *_ in dry.outputs["set_ts"]])       # two_sided alone is not a cutout
         with self.assertRaises(FileNotFoundError):
             dry._texture_set("set3", "missing_d.dds", "a_n.dds", "")
+
+        class Src:
+            def __init__(self):
+                self.textures = [Arc()]
+
+            def material(self, path):
+                head = bytearray(b"BGSM" + struct.pack("<II4f", 2, 3, 0.0, 0.0, 1.0, 1.0) + b"\x00" * 30)
+                head[48] = 1
+                def s(t):
+                    b = t.encode() + b"\0"
+                    return struct.pack("<I", len(b)) + b
+                return bytes(head) + s("a_d.dds") + s("a_n.dds") + s("") + s("") + s("") + s("") + b"\x00" * 40
+
+        dry2 = mk.DryConverter(Src())
+        got = dry2.conv.material("materials/car00.bgsm")
+        self.assertIsNotNone(got)
+        self.assertEqual(dry2.conv.stats["materials_fallback"], 0)
+        self.assertNotIn("opacity", [k for k, *_ in dry2.outputs["car00"]])
 
 
 class TerrainTests(unittest.TestCase):

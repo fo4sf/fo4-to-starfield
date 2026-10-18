@@ -3,6 +3,36 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-17 Grok: playtest rows 11/13/15 materials (core64c convert, work_fix3)
+
+- Question: why hanging vines at Red Rocket are black jagged strands (row 11), Sanctuary interior walls washed
+  white (row 13), and Museum of Freedom picture frames / brass plaque are grey-black boards (row 15).
+- Method: converted NIFs under `C:\Modding\staging\terrain_core64c_work_fix3\convert` (read-only), `vine.mat` /
+  house / frame / plaque `.mat` files, `texture_log.json`, `manifest.json` (0 fallbacks on these models), texconv
+  decode of the colour DDS, vanilla Starfield templates in `ContentResources.zip`
+  (`GrassTropicalPlant01`, `FloraBaseLeafyGreen01`, `ConduitKit01TwoSided` / `TwoSided1Layer`).
+- Row 11 vines, **verified**: `vinehanging06/07` and `vinecreepermed01` all use `materials\fo4core\landscape\plants\vine.mat`.
+  That file already has slot-2 `vine_opacity.dds` and `AlphaSettingsComponent {AlphaTestThreshold 0.361, HasOpacity true}`
+  (BGSM alpha test was converted). It still parents `PlasticPlainSmooth01` via the `MetalIronCast01` clone;
+  `Summary.Layer1.Textures` has no `Opacity` key. Vanilla foliage parents `TwoSided1Layer` /
+  `TranslucentTwoSided1Layer` / `VegetationTranslucent1Layer` and names Opacity in Summary. `two_sided` is parsed from
+  BGSM byte 48 and was never passed to `_convert_texture_set`. `vine_color.dds` luma mean 3.8 (85% of texels
+  alpha < 128, BC1-black in the cutout); opaque texels still only luma 26. Without a two-sided cutout shader the
+  metal material draws the whole card, which is black. Fix: clone `ConduitKit01TwoSided.mat` when an opacity map
+  exists, write Summary Opacity, force metalness 0 so the conduit metal map does not leak.
+  **Correction (review #288):** forcing metalness 0 only updated Summary plus an existing TextureReplacement
+  index 4. The real ConduitKit01TwoSided template has no such component (verified in ContentResources.zip), so
+  the conduit MRTextureFile/index 4 stayed. The writer now creates the enabled replacement and drops that file.
+  Opacity generation is gated on `alpha_test or decal`; `two_sided` alone is not a cutout.
+- Row 13 walls, **supported hypothesis**: `res01playerhouseinteriorrr.nif` wall shapes use
+  `metalpanelsresidential01rr` (colour luma 184) and `wallpanelmetalrubble02` (luma 164), 0 fallbacks. These are
+  bright beige maps, not missing colour (Starfield missing colour is flat white). Separate from the vine shader bug.
+- Row 15 frames / plaque, **supported hypothesis**: `pictureframe03` canvas
+  `paintinggeneric_canvasswap_color.dds` and `canvaspainting01_color.dds` are identical, luma 29 max 59; plaque
+  texset colour luma 15 max 59. Converted as regular albedo, they are dark grey boards. `canvasswap` names a
+  greyscale-to-palette path the converter does not implement. Separate root cause from vines.
+- Power armor on that roof is out of this pass (skinned rest pose / furniture class).
+
 ## 2026-10-17 Grok: Red Rocket garage button (playtest row 21) and object LOD (row 24)
 - Row 21, **verified**: FO4 button `056BBA` is `Default1StateActivator`; garage `056331` is ACTI `Default2StateActivator`
   with XAPR→button. core64k promotes both as inert ACTI. Native wire: vanilla `DefaultActivateLinkedRefOnActivate` +
