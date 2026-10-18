@@ -41,9 +41,12 @@ def read_ilstrings(data: bytes) -> dict:
 
 def ctda_true_when_matched(d: bytes) -> bool:
     """A GetIsID CTDA that holds when the speaker IS the target: byte 0 high 3 bits are the operator (0 ==, 1 !=, 2 >,
-    3 >=, 4 <, 5 <=), bit 0x04 means the comparison value is a global (not decoded: refused), f32 value at byte 4."""
+    3 >=, 4 <, 5 <=), bit 0x04 means the comparison value is a global (not decoded: refused), f32 value at byte 4;
+    Run On u32 at byte 20 must be 0 (Subject = the speaker; Target, Reference and the rest are refused)."""
     flags = d[0]
     if flags & 0x04:
+        return False
+    if len(d) < 24 or struct.unpack_from("<I", d, 20)[0] != 0:         # Run On (byte 20): only 0 Subject, the speaker
         return False
     op, value = flags >> 5, struct.unpack_from("<f", d, 4)[0]
     return {0: value == 1.0, 1: value == 0.0, 2: 0.0 <= value < 1.0, 3: 0.0 < value <= 1.0}.get(op, False)
