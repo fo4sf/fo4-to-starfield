@@ -123,7 +123,10 @@ BREAKER = 6          # inconclusive attempts in a row, with no PASS/FAIL yet, th
 # the player stopped at the desk 0.67 m from it), or above the player's head. The same walk from the same stand point
 # stops at the same furniture however often it is retried, and the step itself worked. An item the walk passed through
 # (batch_full 0100: 0.26 m from the walk, 0.53 m above the highest feet read) is not ELEVATED: FAIL NOTMOVED
-FINAL_INCONCLUSIVE = ("CONTROL", "PRECONDITION", "ELEVATED")
+# NOBASE (movable_control): placeatme found no such base form ("Item '0200CEDF' not found for parameter Object ID",
+# movable_1019 2026-10-18: the queue was planned for plugin index 02 while FO4Port loaded at 05 in the runner's session);
+# the same id fails the same way on every attempt
+FINAL_INCONCLUSIVE = ("CONTROL", "PRECONDITION", "ELEVATED", "NOBASE")
 NO_BREAKER = ("CRASH", "NOCELL", "NIGHT")
 
 # npc_nav (PR #61 docs/actors/npc-navigation.md 3.4): what qstep.ps1 types on the verified console selection to make the
@@ -1324,7 +1327,18 @@ def judge_kind(test, obs, out_dir):
 
 
 CLEAR_ECHO = re.compile(r"C[Il1|]ear\s?Conso[Il1|]e", re.I)          # ClearConsole's echo, as parse_npc.py reads it
+NO_BASE = re.compile(r"not\s?found\s?for\s?param", re.I)     # placeatme <id> 1 with an id the game does not know
 REFUSED = re.compile(r"not\s?found|unknown|invalid|missing|error|failed|cannot|can't", re.I)
+
+
+def placeatme_no_base(ocr):
+    """The placeatme session's OCR says the base form does not exist: after its last ClearConsole echo and its
+    placeatme echo (older lines stay on screen above them)."""
+    text = str(ocr or "")
+    starts = [m.end() for m in CLEAR_ECHO.finditer(text)]
+    text = text[starts[-1]:] if starts else text
+    k = re.search(r"p[Il1|]aceatme", text, re.I)
+    return bool(k and NO_BASE.search(text[k.end():]))
 
 
 def console_refused(ocr):
@@ -1514,6 +1528,11 @@ def judge_movable_control(test, obs, shot_ok):
         return "INCONCLUSIVE", "START", (f"the player was read {sp[2] - spot[2]:+.2f} m from the spot's height: not on "
                                          f"the open floor planned there ({obs.get('player_spot')})")
     s = obs.get("spawn") or {}
+    if not s.get("confirmed") and placeatme_no_base(s.get("place_ocr")):
+        base = str(test.get("base") or "")
+        return "INCONCLUSIVE", "NOBASE", (f"placeatme {base}: the game has no such form, so nothing was placed. The queue "
+                                          f"was planned for plugin index {base[:2]}; re-plan with the --plugin-index the "
+                                          f"plugin has in the runner's load order")
     if not s.get("confirmed"):
         return "INCONCLUSIVE", "SPAWN", f"the placed item's handle was not confirmed: {s.get('why') or 'no spawn read'}"
     r0 = parse3(s.get("read"))
@@ -2499,6 +2518,30 @@ def blocked_reason(ctl, q, launching=False, min_idle=900, lease=None):
     return None
 
 
+FOREGROUND_THIEF = re.compile(r"foreground window belongs to '([^']*)'")
+POPUP_RETRIES = 2       # a test whose step lost the focus to a popup runs again this often in one run
+
+
+def unused_name(prefix):
+    """prefix1, prefix2, ...: the first that does not exist yet (a resumed run's counters start again at 0, and an
+    existing archive is never replaced, Codex on #341 at 446b5a9)."""
+    k = 1
+    while os.path.exists(f"{prefix}{k}"):
+        k += 1
+    return f"{prefix}{k}"
+
+
+def foreground_thief(out_dir):
+    """The window input.ps1 found in front when it refused to send input (its ABORT line in the attempt's step.log),
+    or None."""
+    try:
+        with open(os.path.join(out_dir, "step.log"), encoding="utf-8", errors="replace") as f:
+            m = FOREGROUND_THIEF.findall(f.read())
+    except OSError:
+        return None
+    return m[-1] if m else None
+
+
 def planned_on_other_code(commit):
     """A warning when the queue was planned at a commit this runner's checkout does not contain (planned from another
     worktree or branch: its plan may use behaviour this runner's qstep.ps1 does not have), else None."""
@@ -2666,8 +2709,8 @@ def movable_timeout(test):
     """Worst case of a movable / movable_control step: every impulse is one confirmed selection (Select-Item: up to two
     sessions), the impulse line in its own capture, impulse_wait_ms with the console closed and a confirmed read (two
     sessions). movable_control adds the coc arrival read until it settles, the player to the spot and its read, the
-    placeatme session with the player's move to the park point, spawn_wait_ms, the handle (plr; prid + GetSelf; GetIsID +
-    getpos), the GetMass probe and SetRigidBodyMass (one selection and a capture each; after SetRigidBodyMass the console
+    placeatme session with the player's move to the park point, spawn_wait_ms, the handle (plr, once more after 2 s when
+    it named no id; prid + GetSelf; GetIsID + getpos), the GetMass probe and SetRigidBodyMass (one selection and a capture each; after SetRigidBodyMass the console
     closed MASS_WAIT_MS, a second selection and the probe again), the player to the stand point and its read, the
     confirmed reads before and after the walk, and the removal (a selection, disable, markfordelete)."""
     per_imp = 4 * NPC_SESSION_S + test.get("impulse_wait_ms", 3000) / 1000 + 10
@@ -2681,6 +2724,7 @@ def movable_timeout(test):
              + 2 * (30 + test.get("settle_ms", 1500) / 1000 + NPC_READ_S)   # the player to the spot and to the stand
              + NPC_SESSION_S + 15 + test.get("spawn_wait_ms", 3000) / 1000    # placeatme, the move to the park point
              + 3 * NPC_SESSION_S + 10                           # the handle: plr; prid + GetSelf; GetIsID + getpos
+             + NPC_SESSION_S + 2                                # plr again after 2 s when it named no FFxxxxxx id
              + mass
              + 2 * (2 * NPC_SESSION_S) + 10                     # the item read before and after the walk, two shots
              + test.get("walk_ms", 900) / 1000 + 2 + NPC_READ_S  # the walk and the player's read after it
@@ -2823,6 +2867,7 @@ class Runner:
         self.step = step or self._step
         self.cell = None                                  # cell the player is verified to be in
         self.session = False                              # game set up by this run (save loaded, god mode)
+        self.popups = {}                                  # test id -> steps rerun after a popup took the focus
         self.log_p = os.path.join(qdir, "run.log")
         lease_dir = getattr(a, "lease_dir", "") or ""     # opt-in (docs/ai/leader-core.md section 6); "" = not checked
         self.lease = LeaseGate(lease_dir, getattr(a, "lease_owner", "") or "Claude") if lease_dir else None
@@ -3272,6 +3317,10 @@ class Runner:
                 self.ledger_event(lambda: self.lease.events.task_started(self.qdir, self.q, t, n, self.ledger_by,
                                                                           self.lease.owner))
             out_dir = os.path.join(self.qdir, "tests", t["id"], f"a{n}")
+            if os.path.isdir(out_dir) and os.listdir(out_dir):
+                # an attempt that was not counted (the owner took over mid-step, then the run stopped or was resumed)
+                # left its evidence here: kept beside the new attempt, never overwritten
+                os.rename(out_dir, unused_name(f"{out_dir}_interrupted"))
             os.makedirs(out_dir, exist_ok=True)
             lt = None                                     # the sky reading, for tests that asked for a time of day
             con = []                                      # console_pre / console_post replies (parsed OCR)
@@ -3285,9 +3334,27 @@ class Runner:
                 pid_before = self.ctl.game_pid()
                 code = self.step(t, out_dir)
                 self.game_used = True
-                if code == 2:                             # the owner took the foreground mid-step: not an attempt
+                if code == 2:                             # the foreground was lost mid-step: not an attempt
                     self.state["attempts"][t["id"]] = n - 1
                     self.cell = None
+                    who = foreground_thief(out_dir)
+                    # no keyboard/mouse input since the runner's last one: a window took the focus by itself (the AMD
+                    # auto-updater did, movable_1019c 2026-10-18), not the owner: take the game back and run the test
+                    # again, at most POPUP_RETRIES times per test
+                    popup = self.ctl.last_sent_tick is not None and not self.ctl.foreign_input()
+                    pops = self.popups.get(t["id"], 0)
+                    if popup and self.a.refocus and pops < POPUP_RETRIES and self.ctl.refocus_game():
+                        self.popups[t["id"]] = pops + 1
+                        # the rerun reuses the attempt number, so this interrupted attempt's folder (step.log, obs.json,
+                        # screenshots) is kept beside it before the rerun would write into it (Codex on #341 at f2fe7bf)
+                        os.rename(out_dir, unused_name(f"{out_dir}_popup"))
+                        self.log(f"{t['id']}: {who or 'another window'} took the focus mid-step without owner input "
+                                 f"(popup): game brought back to the front, the test runs again")
+                        self.ctl.mark_sent()
+                        pending.append(t)
+                        continue
+                    if who and popup:
+                        self.log(f"{t['id']}: {who} took the focus mid-step without owner input")
                     if self.wait_or_stop("owner switched windows during a step"):
                         pending.append(t)                 # run it again later in this run
                         continue
