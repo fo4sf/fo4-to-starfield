@@ -55,6 +55,9 @@ HOP_WAIT_MS = 7000
 SETTLE_MS = 14000
 STAND_ABOVE_M = 30.0             # the exterior drop starts at least this far above the arrival marker
 INTERIOR_DROP_M = 1.5            # the interior drop: just above the marker (the SDM return: expect + 1.5)
+# the scripted exterior load doors are ACTI bases in the core (make_core64c: the FO4SF_LoadDoor VMAD does the load, PC
+# read of fdd3f0a5 on 2026-10-18: 0A7756 ACTI FO4Core_door_01f65a_fallout4); the port's interior doors are DOOR bases
+DOOR_BASES = ("DOOR", "ACTI")
 TOL_M = 3.0                      # judge_door_trip.py's 3 m
 
 
@@ -138,13 +141,13 @@ def door_round(e, core, port, merge):
     door = check_ref(core, ext_ref, "exterior door")
     if door["base"] != ext_base:
         raise ValueError(f"exterior door {ext_ref:06X} has base {door['base_full']:08X}, the build says {ext_base:06X}")
-    if core.ref(ext_base) is None or core.ref(ext_base)["sig"] != "DOOR":
-        raise ValueError(f"exterior door base {ext_base:06X} is not a DOOR of the installed {core.name}")
+    if core.ref(ext_base) is None or core.ref(ext_base)["sig"] not in DOOR_BASES:
+        raise ValueError(f"exterior door base {ext_base:06X} is not a DOOR or ACTI of the installed {core.name}")
     check_target(door, f"exterior door {ext_ref:06X}", port.name, marker)
     inside = check_ref(port, marker, "interior arrival marker")
     idoor = check_ref(port, int_ref, "interior door")
-    if idoor["base"] is None or port.ref(idoor["base"]) is None or port.ref(idoor["base"])["sig"] != "DOOR":
-        raise ValueError(f"interior door {int_ref:06X}'s base {idoor['base_full']} is not a DOOR of {port.name}")
+    if idoor["base"] is None or port.ref(idoor["base"]) is None or port.ref(idoor["base"])["sig"] not in DOOR_BASES:
+        raise ValueError(f"interior door {int_ref:06X}'s base {idoor['base_full']} is not a DOOR or ACTI of {port.name}")
     if inside["cell"] is None or inside["cell"] != idoor["cell"]:
         raise ValueError(f"interior marker {marker:06X} (cell {inside['cell']}) and door {int_ref:06X} (cell "
                          f"{idoor['cell']}) are not in one cell")

@@ -29,10 +29,10 @@ def refr(fid, base, pos, vmad=None):
     return rec(b"REFR", fid, fs + [(b"DATA", struct.pack("<6f", *pos, 0, 0, 0))])
 
 
-def plugin(path, door_base, cell_id, cell_edid, refs, exterior):
+def plugin(path, door_base, cell_id, cell_edid, refs, exterior, base_sig=b"DOOR"):
     """A one-master plugin: a DOOR base, one cell (exterior: in a WRLD-less block; enough for the group path) whose
     temporary group holds `refs`."""
-    door = rec(b"DOOR", OWN | door_base, [(b"EDID", b"Door\0")])
+    door = rec(base_sig, OWN | door_base, [(b"EDID", b"Door\0")])
     cell = rec(b"CELL", OWN | cell_id, [(b"EDID", cell_edid.encode() + b"\0"), (b"DATA", struct.pack("<I", 0 if exterior else 1))])
     temp = vp.Group(struct.pack("<I", OWN | cell_id), vp.GROUP_TEMPORARY, bytes(8), refs)
     children = vp.Group(struct.pack("<I", OWN | cell_id), vp.GROUP_CELL_CHILDREN, bytes(8), [temp])
@@ -41,7 +41,7 @@ def plugin(path, door_base, cell_id, cell_edid, refs, exterior):
     hedr = struct.pack("<fII", 0.96, 3 + len(refs), 0xFFFF)
     tes4 = vp.record_bytes(b"TES4", 0, 0x1, [(b"HEDR", hedr), (b"MAST", b"Starfield.esm\0")])
     with open(path, "wb") as f:
-        f.write(tes4.serialize() + vp.Group(b"DOOR", 0, bytes(8), [door]).serialize() + top.serialize())
+        f.write(tes4.serialize() + vp.Group(base_sig, 0, bytes(8), [door]).serialize() + top.serialize())
 
 
 def build(d, port_marker_target=0x900, ext_base=0x700):
@@ -53,7 +53,7 @@ def build(d, port_marker_target=0x900, ext_base=0x700):
     back = vp.merged(out_arrival, MERGE)
     plugin(os.path.join(core, "FO4TerrainCore.esm"), 0x700, 0x7FF, "FO4Core_Cell", [
         refr(OWN | 0x701, OWN | ext_base, [-470.0, 650.0, 42.0], vp.load_door_vmad("FO4Port.esm", port_marker_target)),
-        refr(OWN | 0x702, 0x000034, out_arrival)], exterior=True)
+        refr(OWN | 0x702, 0x000034, out_arrival)], exterior=True, base_sig=b"ACTI")
     plugin(os.path.join(port, "FO4Port.esm"), 0x800, 0x801, "FO4Port_SuperDuperMart01", [
         refr(OWN | 0x802, OWN | 0x800, [6.4, 17.37, -3.66], vp.load_door_vmad("FO4TerrainCore.esm", 0x702, back)),
         refr(OWN | 0x900, 0x000034, [5.449, 17.291, -3.654])], exterior=False)
