@@ -196,6 +196,23 @@ class BatchCapTests(unittest.TestCase):
             a.max_texture = "1024"
             self.assertEqual(batch.checkpoint_signature(a)["max_texture"], {k: 1024 for k in textures.TEXTURE_KINDS})
 
+    def test_spec_mask_flag_reaches_the_converter_and_the_signature(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            seen, _manifest, _staging = self.run_batch(tmp, [])
+            self.assertIs(seen["spec_mask_roughness"], False)
+        with tempfile.TemporaryDirectory() as tmp:
+            seen, _manifest, _staging = self.run_batch(tmp, ["--spec-mask-roughness"])
+            self.assertIs(seen["spec_mask_roughness"], True)
+        a = SimpleNamespace(fo4_data="", starfield_data="", texconv="t", content_resources="c", collision_template="x",
+                            prefix="fo4port", max_texture="", spec_mask_roughness=False)
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(batch.checkpoints, "digest", return_value="d"), \
+                patch.object(batch.checkpoints, "archive_identity", return_value={}):
+            a.fo4_data = tmp
+            self.assertNotIn("spec_mask_roughness", batch.checkpoint_signature(a))
+            a.spec_mask_roughness = True
+            self.assertIs(batch.checkpoint_signature(a)["spec_mask_roughness"], True)
+
 
 if __name__ == "__main__":
     unittest.main()

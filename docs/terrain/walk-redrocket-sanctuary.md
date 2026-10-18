@@ -186,9 +186,11 @@ off the bridge deck onto the river bed), `HEIGHTS` (below every known ground by 
 `JUMP` (an implausible move that a second read confirmed: a relocation), `OFFROUTE` (more than 10 m from the route),
 `STUCK` (the controller's stuck: no movement after two side steps, or no progress along the route in 6 legs).
 
-**INCONCLUSIVE** (retried once, never a PASS): `UNREAD` (a leg not read), `READ` (an implausible move not confirmed),
+**INCONCLUSIVE** (retried once, never a PASS): `POPUP` (any other recorded popup, e.g. FAST TRAVEL or PLANET MAP), `UNREAD` (a leg not read), `READ` (an implausible move not confirmed),
 `OFFGROUND` (above every known surface by more than 0.6 m: standing on something not converted, or mid-step),
-`HUDGAP`, `NOHUD`, `NOTREACHED` (leg or time budget used up short of the goal), `CROSSING` (a planned border not crossed
+`HUDGAP`, `NOHUD`, `NOTREACHED` (leg or time budget used up short of the goal), `RUNCOND` (planned with
+`--speedmult`: the player's speedmult was not read as 100 before the travel, so the speed model and the JUMP / STUCK
+limits did not hold; testqueue.py judge, docs/ai/test-queue.md), `CROSSING` (a planned border not crossed
 between two consecutive reads, in route order), `BRIDGE`, `NOSHOT`, `TYPED` (anything else typed during the walk, e.g. a recovery teleport), `START`
 (the reverse test's setup landing not read or more than 3 m off; the first leg read more than `start_tol` from the
 arrival / the landing), `ANCHOR` (no merge offset: the arrival not read, not settled, or the recorded offset not the

@@ -65,5 +65,46 @@ class SnapshotTests(unittest.TestCase):
             self.assertIn("bridge", state)
 
 
+    def run_snapshot(self, out, answer):
+        env = dict(os.environ, FO4SF_ASK_ANSWER=answer)          # stands in for the typed text: no window opens
+        return subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", SCRIPT, "-Out", out,
+                               "-MaxAge", "1", "-Ask"], capture_output=True, text=True, timeout=120, env=env)
+
+    def test_ask_saves_the_description_with_the_capture(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "snap")
+            r = self.run_snapshot(out, "the door at Red Rocket does not open")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("described=yes", r.stdout)
+            state = json.load(open(os.path.join(out, "state.json"), encoding="utf-8-sig"))
+            self.assertEqual(state["description"], "the door at Red Rocket does not open")
+            self.assertEqual(open(os.path.join(out, "description.txt"), encoding="utf-8-sig").read().strip(),
+                             "the door at Red Rocket does not open")
+            self.assertTrue(os.path.exists(os.path.join(out, "screen.png")))
+
+    def test_screenshot_only_when_the_box_is_left_empty(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "snap")
+            r = self.run_snapshot(out, "   ")
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            state = json.load(open(os.path.join(out, "state.json"), encoding="utf-8-sig"))
+            self.assertIsNone(state["description"])
+            self.assertFalse(os.path.exists(os.path.join(out, "description.txt")))
+
+    def test_the_ask_setting_switches_the_main_key(self):
+        hot = os.path.join(ROOT, "scripts", "game", "look_hotkey.ps1")
+        d = tempfile.mkdtemp(prefix="fo4sf_ask_")                 # the presses' snapshots land here after the test returns
+        env = dict(os.environ, FO4SF_LOOK_SETTINGS=os.path.join(d, "look.settings.json"),
+                   FO4SF_SNAPSHOT_ROOT=d, FO4SF_ASK_ANSWER=" ")   # " ": Windows drops an empty variable
+        ps = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", hot]
+        run = lambda *a: subprocess.run(ps + list(a), capture_output=True, text=True, timeout=60, env=env)
+        self.assertIn("ask=False", run("-TestFire").stdout, "off by default: screenshots only")
+        self.assertEqual(run("-SetAsk", "on").returncode, 0)
+        self.assertIn("ask=True", run("-TestFire").stdout)
+        self.assertIn("ask=True", run("-TestAsk").stdout, "the second key always asks")
+        run("-SetAsk", "off")
+        self.assertIn("ask=False", run("-TestFire").stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
