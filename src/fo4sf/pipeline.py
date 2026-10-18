@@ -51,6 +51,30 @@ SLSF1_GREYSCALE_TO_PALETTE_COLOR = 0x10
 _FO4_RIM_FLT_MAX = 3.402823e38
 
 
+# nif.xml Fallout4ShaderPropertyFlags2 bit 5: Vertex_Colors. FO4 multiplies the texture alpha by the vertex alpha.
+SLSF2_VERTEX_COLORS = 0x20
+
+
+def vertex_alpha_scale(blk: bytes, shape) -> Optional[float]:
+    """Peak vertex alpha of a lighting-shader shape as an opacity factor (0..1, in steps of 16/255), or None when the
+    shape has no vertex colours or reaches full alpha. Debris-pile floor decals (DebrisPileLargeConc01-06 Decals:10)
+    peak at vertex alpha 48, so FO4 draws them as a faint overlay; the Starfield decal gets that as a fixed factor
+    (the per-vertex fade at the rims is not reproduced)."""
+    colors = getattr(shape, "colors", None)
+    if not colors or len(blk) < 12:
+        return None
+    n_extra, = struct.unpack_from("<I", blk, 8)
+    if len(blk) < 12 + 4 * n_extra + 12:
+        return None
+    flags2, = struct.unpack_from("<I", blk, 12 + 4 * n_extra + 8)
+    if not flags2 & SLSF2_VERTEX_COLORS:
+        return None
+    peak = max(c[3] for c in colors)
+    if peak >= 255:
+        return None
+    return max(16, min(240, (peak + 15) // 16 * 16)) / 255.0
+
+
 def lighting_palette_scale(blk: bytes) -> float:
     """FO4 lighting-shader Grayscale to Palette Scale, or 1.0 when the tail is absent/unreadable."""
     if len(blk) < 16:
@@ -258,11 +282,14 @@ class Converter:
                                          alpha_test=b.alpha_test, alpha_ref=b.alpha_ref,
                                          greyscale=gs, palette_scale=b.palette_scale, two_sided=b.two_sided)
 
-    def decal_material(self, bgsm_path: str) -> Optional[str]:
-        """Alpha-blended FO4 material -> Starfield decal material (or None: the shape is skipped, as before decals)."""
+    def decal_material(self, bgsm_path: str, opacity_scale: float = 1.0) -> Optional[str]:
+        """Alpha-blended FO4 material -> Starfield decal material (or None: the shape is skipped, as before decals).
+        opacity_scale < 1: the shape's peak vertex alpha (see vertex_alpha_scale); the opacity map is multiplied by it
+        and the material gets its own name (_aNNN), so other shapes of the same .bgsm keep full opacity."""
         m = re.search(r"materials[\\/].*", bgsm_path, re.I)
         bgsm_path = m.group(0) if m else bgsm_path
-        key = "decal:" + bgsm_path.replace("/", "\\").lower()
+        scaled = opacity_scale < 1.0
+        key = "decal:" + bgsm_path.replace("/", "\\").lower() + (f"|a{round(opacity_scale * 255)}" if scaled else "")
         if key not in self._materials:
             try:
                 raw = self.src.material(bgsm_path)
@@ -272,9 +299,11 @@ class Converter:
                 if not (b.diffuse and b.normal):
                     raise ValueError("material lacks diffuse/normal textures")
                 rel = re.sub(r"^materials[\\/]", "", bgsm_path.replace("\\", "/"), flags=re.I)
-                self._materials[key] = self._convert_texture_set("decals/" + os.path.splitext(rel)[0].lower(), b.diffuse,
-                                                                 b.normal, b.smooth_spec, smoothness=b.smoothness,
-                                                                 spec_mult=b.spec_mult, decal=True)
+                stem = "decals/" + os.path.splitext(rel)[0].lower() + (f"_a{round(opacity_scale * 255)}" if scaled else "")
+                extra = {"opacity_scale": opacity_scale} if scaled else {}
+                self._materials[key] = self._convert_texture_set(stem, b.diffuse, b.normal, b.smooth_spec,
+                                                                 smoothness=b.smoothness, spec_mult=b.spec_mult,
+                                                                 decal=True, **extra)
                 self.stats["materials_ok"] += 1
             except Exception as e:                        # noqa: BLE001
                 self._materials[key] = None
@@ -325,7 +354,7 @@ class Converter:
                              smoothness: float = 1.0, spec_mult: float = 1.0,
                              alpha_test: bool = False, alpha_ref: int = 128, decal: bool = False,
                              greyscale: str = None, palette_scale: float = 1.0,
-                             two_sided: bool = False) -> str:
+                             two_sided: bool = False, opacity_scale: float = 1.0) -> str:
         """FO4 diffuse / normal / smooth-spec textures -> Starfield colour / normal / rough DDS + a .mat. Spec is optional.
         decal: alpha-blended overlay; the diffuse alpha always becomes the opacity map and the .mat is cloned from the
         vanilla decal template (cm.DECAL_TEMPLATE_MAT) so it blends over the surface behind it.
@@ -335,7 +364,8 @@ class Converter:
         alpha_test with a real opacity map: clone ConduitKit01TwoSided (shader TwoSided1Layer) instead of
         the opaque metal template, which ignored the cutout and drew leaf cards as black slabs.
         two_sided is accepted for DryConverter's signature; opacity still requires alpha_test or decal
-        (FO4 two-sided materials without alpha test are not cutouts)."""
+        (FO4 two-sided materials without alpha test are not cutouts).
+        opacity_scale: multiplies the opacity map (decals only; a shape's peak vertex alpha, see vertex_alpha_scale)."""
         import numpy as np
         d, n = self.src.texture(diffuse), (self.src.texture(normal) if normal else None)
         s = self.src.texture(spec) if spec else None
@@ -373,6 +403,8 @@ class Converter:
                 px = np.frombuffer(raw_a[ha["data_offset"]:ha["data_offset"] + ha["width"] * ha["height"] * 4], np.uint8)
                 alpha = px.reshape(ha["height"], ha["width"], 4)[:, :, 3].copy()
                 if decal or alpha.min() < 250:            # only if the texture really has a cutout
+                    if opacity_scale < 1.0:
+                        alpha = np.round(alpha * opacity_scale).astype(np.uint8)
                     textures.write_r8(os.path.join(tmp, "o_in.dds"), alpha)
                     textures.texconv(self.texconv, os.path.join(tmp, "o_in.dds"), tmp, "BC4_UNORM")
                     opacity = "o_in.dds"
@@ -480,7 +512,11 @@ class Converter:
         if key not in self._blend_cache:
             raw = self.src.material(key)
             try:
-                self._blend_cache[key] = bool(raw) and cm.parse_bgsm(raw).alpha_blend
+                b = cm.parse_bgsm(raw) if raw else None
+                # blended, or a decal that is alpha-tested: FO4 draws both as overlays in its decal pass. Drawn opaque,
+                # BldFloorConcDebris02Alpha (decal, alpha test ref 6, texture alpha never below 28) showed its
+                # transparent texels, which are black, as hard black patches (research log 2026-10-18)
+                self._blend_cache[key] = bool(b) and (b.alpha_blend or (b.decal and b.alpha_test))
             except Exception:                         # noqa: BLE001
                 self._blend_cache[key] = False
         return self._blend_cache[key]
@@ -522,6 +558,9 @@ class Converter:
         name = src.strings[idx] if 0 <= idx < len(src.strings) else b""
         if name.lower().endswith(b".bgsm"):
             if self._is_blended(name.decode("latin-1")):
+                scale = vertex_alpha_scale(blk, s)
+                if scale is not None:                      # faded by vertex alpha (debris-pile floor decals)
+                    return self.decal_material(name.decode("latin-1"), opacity_scale=scale)
                 return self.decal_material(name.decode("latin-1"))   # overlay shells (cracks, grime): decal; None = skip
             return self.material(name.decode("latin-1")) or self.neutral
         # no material file: shader type, name, extra data list, controller, flags1, flags2, UV offset, UV scale, texture set
