@@ -214,7 +214,8 @@ EndFunction
 Function MoveOver(Actor a, Actor player, float px, float py, float pz, string what)
 {Moves one actor when the player is within RelocateRadius of its merged spot and it is still farther than RelocateGap;
  counts a move that leaves it farther than RelocateGap as failed.}
-    if player.GetDistance(a) < RelocateGap
+    float before = player.GetDistance(a)                  ; float max: another world; finite: this world (the world proof)
+    if before < RelocateGap
         return                                            ; already where the player is
     endif
     float x = a.GetPositionX() + MergeOffsetX
@@ -230,7 +231,7 @@ Function MoveOver(Actor a, Actor player, float px, float py, float pz, string wh
     if d >= RelocateGap
         relocateFails += 1
     endif
-    Trace("moved " + what + " to " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " target " + x + " " + y + " " + z + " d=" + d + " fails=" + relocateFails)
+    Trace("moved " + what + " to " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " target " + x + " " + y + " " + z + " before=" + before + " d=" + d + " fails=" + relocateFails)
 EndFunction
 
 Function Trace(string msg)
