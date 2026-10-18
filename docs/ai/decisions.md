@@ -373,3 +373,15 @@ holder's own or a forced one with a reason, because a crash leaves exactly that 
 over and why. Alternatives: a lock file alone (no record of who held it and no expiry: the #84 race again); a fold of
 the ledger in PowerShell (duplicated logic in two languages); a key in the PC's `config.toml` (not in git, and the
 runner reads none today); shipping the wiring on by default (would change the next chain on the PC untested).
+
+## 2026-10-16 Claude-cloud: the preflight gate reads through a probe, refuses on UNKNOWN, and ships off
+
+`src/fo4sf/core/preflight.py` keeps every check pure (a probe object supplies the readings; the runner's
+`PreflightProbe` reads the PC, the tests a fake), so the Windows-only readings never enter the core and every check
+has a synthetic PASS and FAIL. A reading the probe cannot give is UNKNOWN and refuses like FAIL, as the owner's brief
+asks; that includes a game version nobody pinned yet, so turning the gate on is a deliberate step by the PC session
+(pin the version, set `--preflight`). Why a probe and not direct reads: the same functions must run on Linux CI and on
+the PC, and a check that raises must become one UNKNOWN line, not a crash of the runner. Alternatives: a PowerShell
+preflight in cycle.ps1 (not testable here, and the runner needs the result in its log and the ledger); making the
+gate always-on (would refuse every current queue, none pins a game version); verifying the absolute load index
+against the game's implicit plugins (which of them the owner's install loads is unresolved: left as a note).
