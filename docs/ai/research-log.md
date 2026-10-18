@@ -3,6 +3,27 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-17 Grok: FO4 FLOR harvest -> Starfield FLOR (playtest row 14)
+
+- Question: what Starfield record harvests like FO4 flora, and how many placed plants the core would promote.
+- Method: raw walk of `Starfield.esm` 1.16.244 `FLOR` group (`fo4land.Plugin`); keyword / `PFIG` targets resolved to
+  EDID; `terrain_core64c_work_fix3/selected.json` type counts (read-only). `Fallout4.esm` is at the Steam
+  depot_377163 path (**verified** exists).
+- Starfield, **verified**: 300 `FLOR`. Harvest fields are still `PFIG` (ingredient) and `PFPC` (four seasonal
+  percentages). 169 carry `FloraTypeOrganic` 00222E03; 106 of those also `OutpostCanDomesticate` 002AC11D. Crop
+  templates `FloraMaizeCrop01` 000EC886 (and wheat) `PFIG` `OrgCommonNutrient_Seed` 00260DF2. `PNAM` `CC 4C 33 00` and
+  `JNAM` 360 match the ACTI marker colour / activation angle TerrainOverlays already writes.
+- Core placed flora, **verified**: 3,520 refs, 48 bases before exclusion; writer emits 3,518 / 47 (2 initially
+  disabled dropped, FloraInstituteGourdVine01 leaves). Crops: tato 320, mutfruit 328, gourd 251, corn 230, melon
+  199, tarberry 134, razorgrain 106.
+- Mutagen `Flora.Ingredient`, **verified** on 0.55.0-alpha.67: default seed and custom MISC both serialize to
+  `PFIG`; a STAT ingredient is refused. No byte patch.
+- FO4 `PFIG` per base: master **verified** present; a produce table is **unresolved** (FO4 targets are ALCH,
+  Starfield `PFIG` is MISC/LVLI). Shared field names make a native FLOR promotion **supported**. In-game harvest
+  on a converted FO4 mesh: **unresolved**.
+- Plan: [docs/terrain/flora.md](../terrain/flora.md). Promotion class built on `grok/flor-research` (make_cluster
+  `flora`, `cluster_flora`, TerrainOverlays Duplicate of FloraMaizeCrop01). Overlay not run in game.
+
 ## 2026-10-17 Grok: greyscale-to-palette bake (playtest row 15)
 
 - Question: why Museum of Freedom picture frames and the brass plaque render as flat grey-black boards, and
