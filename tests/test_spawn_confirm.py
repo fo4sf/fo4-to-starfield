@@ -55,6 +55,29 @@ class SourceTests(unittest.TestCase):
         self.assertIn("+ NPC_SESSION_S + 2                                # plr again", body)
 
 
+class NoBaseTests(unittest.TestCase):
+    # the movable_1019 run's place_ocr of 0001_movable_control_C_trashcan (2026-10-18, both attempts), verbatim
+    PLACE = ("player.getpos ... Clear Console player. placeatme 0200CEDF 1 Item '0200CEDF' not found for parameter "
+             "Object ID. Compiled script not saved!")
+    T = tq.movable_test(0, {"label": "C_trashcan", "travel": "coc QASmoke", "base": "0200CEDF", "mass_kg": 1.0,
+                            "spot": [-10.2, 4.0, 0.0], "heading": 0})
+
+    def obs(self, place):
+        return {"player_spot": "-10.2 4.0 0.0", "spawn": {"confirmed": False, "why": "PickLastRef gave no FFxxxxxx id",
+                                                          "place_ocr": place}}
+
+    def test_an_unknown_base_is_nobase_and_final(self):
+        v, cls, detail = tq.judge_movable_control(self.T, self.obs(self.PLACE), True)
+        self.assertEqual((v, cls), ("INCONCLUSIVE", "NOBASE"))
+        self.assertIn("plugin index 02", detail)
+        self.assertIn("NOBASE", tq.FINAL_INCONCLUSIVE)
+
+    def test_only_this_sessions_placeatme_counts(self):
+        older = "Item '0200CE44' not found for parameter Object ID. ClearConsole player.placeatme 002A0D5B 1"
+        self.assertEqual(tq.judge_movable_control(self.T, self.obs(older), True)[1], "SPAWN")
+        self.assertEqual(tq.judge_movable_control(self.T, self.obs(""), True)[1], "SPAWN")
+
+
 @unittest.skipUnless(PWSH, "PowerShell not installed")
 class SelfOtherTests(unittest.TestCase):
     def test_zero_and_nothing_are_no_other_ref(self):

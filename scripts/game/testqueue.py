@@ -114,7 +114,10 @@ BREAKER = 6          # inconclusive attempts in a row, with no PASS/FAIL yet, th
 # the player stopped at the desk 0.67 m from it), or above the player's head. The same walk from the same stand point
 # stops at the same furniture however often it is retried, and the step itself worked. An item the walk passed through
 # (batch_full 0100: 0.26 m from the walk, 0.53 m above the highest feet read) is not ELEVATED: FAIL NOTMOVED
-FINAL_INCONCLUSIVE = ("CONTROL", "PRECONDITION", "ELEVATED")
+# NOBASE (movable_control): placeatme found no such base form ("Item '0200CEDF' not found for parameter Object ID",
+# movable_1019 2026-10-18: the queue was planned for plugin index 02 while FO4Port loaded at 05 in the runner's session);
+# the same id fails the same way on every attempt
+FINAL_INCONCLUSIVE = ("CONTROL", "PRECONDITION", "ELEVATED", "NOBASE")
 NO_BREAKER = ("CRASH", "NOCELL", "NIGHT")
 
 # npc_nav (PR #61 docs/actors/npc-navigation.md 3.4): what qstep.ps1 types on the verified console selection to make the
@@ -1290,7 +1293,18 @@ def judge_kind(test, obs, out_dir):
 
 
 CLEAR_ECHO = re.compile(r"C[Il1|]ear\s?Conso[Il1|]e", re.I)          # ClearConsole's echo, as parse_npc.py reads it
+NO_BASE = re.compile(r"not\s?found\s?for\s?param", re.I)     # placeatme <id> 1 with an id the game does not know
 REFUSED = re.compile(r"not\s?found|unknown|invalid|missing|error|failed|cannot|can't", re.I)
+
+
+def placeatme_no_base(ocr):
+    """The placeatme session's OCR says the base form does not exist: after its last ClearConsole echo and its
+    placeatme echo (older lines stay on screen above them)."""
+    text = str(ocr or "")
+    starts = [m.end() for m in CLEAR_ECHO.finditer(text)]
+    text = text[starts[-1]:] if starts else text
+    k = re.search(r"p[Il1|]aceatme", text, re.I)
+    return bool(k and NO_BASE.search(text[k.end():]))
 
 
 def console_refused(ocr):
@@ -1444,6 +1458,11 @@ def judge_movable_control(test, obs, shot_ok):
         return "INCONCLUSIVE", "START", (f"the player was read {sp[2] - spot[2]:+.2f} m from the spot's height: not on "
                                          f"the open floor planned there ({obs.get('player_spot')})")
     s = obs.get("spawn") or {}
+    if not s.get("confirmed") and placeatme_no_base(s.get("place_ocr")):
+        base = str(test.get("base") or "")
+        return "INCONCLUSIVE", "NOBASE", (f"placeatme {base}: the game has no such form, so nothing was placed. The queue "
+                                          f"was planned for plugin index {base[:2]}; re-plan with the --plugin-index the "
+                                          f"plugin has in the runner's load order")
     if not s.get("confirmed"):
         return "INCONCLUSIVE", "SPAWN", f"the placed item's handle was not confirmed: {s.get('why') or 'no spawn read'}"
     r0 = parse3(s.get("read"))

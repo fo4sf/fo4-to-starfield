@@ -791,7 +791,9 @@ One test (`qstep.ps1` kind `movable_control`): `coc`, the arrival read until it 
 `player.placeatme <base> 1` in its own session and, in the same session (the game paused), the player moved to the
 park point, then the console closed for `spawn_wait_ms` so the item drops onto a free floor; the handle as npc_nav's
 (`plr` alone, `prid <id>` + `GetSelf` must not name another ref, `GetIsID <base>` 1, within `handle_tol` of the spot:
-else INCONCLUSIVE SPAWN and nothing acts on any selection); the `GetMass` probe and `SetRigidBodyMass`, then the
+else INCONCLUSIVE SPAWN and nothing acts on any selection; when `placeatme` itself answered "not found for parameter",
+INCONCLUSIVE NOBASE, final: the base id is wrong for this load order, e.g. a queue planned with `--plugin-index 02`
+while the plugin loads at 05, verified in movable_1019 on 2026-10-18); the `GetMass` probe and `SetRigidBodyMass`, then the
 console closed `mass_wait_ms` and `GetMass` again on a second confirmed selection; the player
 `stand_m` before the item's read position facing `heading`; the item read (confirmed), the walk, the player's and the
 item's reads; the ladder; then `disable`, `GetDisabled`, `markfordelete` on a confirmed selection only. `movable` tests
