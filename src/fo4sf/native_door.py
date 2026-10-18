@@ -23,6 +23,12 @@ from . import door_rig
 MOVE_EPSILON = 1e-6     # metres: a translation offset below this is "no translation channel"
 
 
+# frames off the 30 fps grid still accepted: FO4 stores clip times as float32, so the cog door's 43 1/3 s Stage2 reads
+# 43.333343505859375 s = 1300.0003 frames (PC build 01ee50e); a thousandth of a frame is far above that rounding and far
+# below a real off-grid key
+GRID_TOLERANCE = 1e-3
+
+
 def prepare(plan, unit_scale, fps=30):
     if not math.isfinite(unit_scale) or unit_scale <= 0 or fps != 30:
         raise NifError('native prototype requires positive unit scale and 30 fps')
@@ -35,7 +41,7 @@ def prepare(plan, unit_scale, fps=30):
     clips=[]
     for clip in plan['clips']:
         last=round(clip['duration']*fps)
-        if not 0<=last<=65535 or abs(last-clip['duration']*fps)>1e-4:
+        if not 0<=last<=65535 or abs(last-clip['duration']*fps)>GRID_TOLERANCE:
             raise NifError('native door duration is not on the 30 fps grid')
         tracks=[]
         for source in clip['tracks']:
@@ -47,7 +53,7 @@ def prepare(plan, unit_scale, fps=30):
             frames={};previous=None
             for sample in source['samples']:
                 frame=round(sample['elapsed']*fps)
-                if not 0<=frame<=last or abs(frame-sample['elapsed']*fps)>1e-4:
+                if not 0<=frame<=last or abs(frame-sample['elapsed']*fps)>GRID_TOLERANCE:
                     raise NifError('native door sample is not on the 30 fps grid')
                 if abs(sample['scale']-1)>1e-5:
                     raise NifError('animated door scale is not supported')

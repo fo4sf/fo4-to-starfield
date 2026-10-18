@@ -1,4 +1,6 @@
 """Synthetic experiment receipt retention, without a live installation."""
+import base64
+import copy
 import gzip
 import hashlib
 import json
@@ -93,13 +95,28 @@ class ExperimentReceiptTests(unittest.TestCase):
             return write(path, record)
         return patch.object(exp.deployment, "write_manifest", side_effect=fail)
 
+    def assert_original_checkpoint(self):
+        rec = json.loads((self.data / exp.RECORD).read_bytes())
+        proof = rec.pop("rollback_completed")
+        raw = base64.b64decode(proof["original_receipt_b64"], validate=True)
+        self.assertEqual(raw, self.before_rollback)
+        self.assertEqual(proof["original_sha256"], hashlib.sha256(raw).hexdigest())
+        self.assertEqual(rec, json.loads(self.before_rollback))
+
+    def rollback_with_history_outage(self):
+        with self.fail_final_install_write(), patch.object(
+                exp, "preserve_receipt", side_effect=OSError("history volume full")):
+            with self.assertRaisesRegex(SystemExit, "was rolled back.*run uninstall.*runner remains blocked"):
+                exp.install(self.args)
+        self.assert_original_checkpoint()
+
     def test_failed_install_rolls_back_when_history_full_and_retains_full_receipt(self):
         with self.fail_final_install_write(), patch.object(
                 exp, "preserve_receipt", side_effect=OSError("history volume full")):
             with self.assertRaisesRegex(SystemExit, "was rolled back.*preservation pending"):
                 exp.install(self.args)
         record = self.data / exp.RECORD
-        self.assertEqual(record.read_bytes(), self.before_rollback)
+        self.assert_original_checkpoint()
         self.assertEqual(set(json.loads(record.read_bytes())["files"]),
                          {"Experiment.esm", str(self.terrain)})
         self.assertFalse(json.loads(record.read_bytes())["complete"])
@@ -127,6 +144,141 @@ class ExperimentReceiptTests(unittest.TestCase):
         exp.uninstall(self.args)
         self.assertEqual(len(self.receipts()), 1)
         self.assertEqual(list(self.data.iterdir()), [])
+
+    def test_completed_rollback_retry_preserves_later_configuration_edits(self):
+        self.rollback_with_history_outage()
+        edited = self.original + b"*OwnerAddedLater.esm\r\n"
+        self.plugins.write_bytes(edited)
+        exp.uninstall(self.args)
+        self.assertEqual(self.plugins.read_bytes(), edited)
+        self.assertEqual(list(self.data.iterdir()), [])
+        raw = base64.b64decode(self.receipts()[0]["rollback_completed"]["original_receipt_b64"], validate=True)
+        self.assertEqual(raw, self.before_rollback)
+        # Finishing the receipt no longer traps the next installation.
+        exp.install(self.args)
+        exp.uninstall(self.args)
+        self.assertEqual(self.plugins.read_bytes(), edited)
+
+    def test_completed_rollback_retry_preserves_recreated_files_even_if_identical(self):
+        plugin = self.data / "Experiment.esm"
+        for payload in (b"owner's replacement", (self.staging / "Experiment.esm").read_bytes()):
+            with self.subTest(payload=payload):
+                self.rollback_with_history_outage()
+                plugin.write_bytes(payload)
+                exp.uninstall(self.args)
+                self.assertEqual(plugin.read_bytes(), payload)
+                self.assertFalse((self.data / exp.RECORD).exists())
+                plugin.unlink()  # This fixture's recreated file only.
+
+    def test_completed_rollback_waits_for_history_without_rewriting_checkpoint(self):
+        self.rollback_with_history_outage()
+        record = self.data / exp.RECORD
+        before = record.read_bytes()
+        edited = self.original + b"# edited after rollback\r\n"
+        self.plugins.write_bytes(edited)
+        with patch.object(exp, "preserve_receipt", side_effect=OSError("still unavailable")):
+            with self.assertRaisesRegex(SystemExit, "still unavailable"):
+                exp.uninstall(self.args)
+        self.assertEqual(record.read_bytes(), before)
+        self.assertEqual(self.plugins.read_bytes(), edited)
+        exp.uninstall(self.args)
+        self.assertEqual(self.plugins.read_bytes(), edited)
+
+    def test_completed_checkpoint_still_blocks_runner_until_retired(self):
+        self.rollback_with_history_outage()
+        # A later owner action may reactivate the same plugin. That does not
+        # complete recovery or make this old experiment safe to launch.
+        self.plugins.write_bytes(self.original + b"*Experiment.esm\r\n")
+        for command, expected in (("active", 8), ("order", 6)):
+            with self.subTest(command=command):
+                result = subprocess.run([sys.executable, "-I", "-B", exp.__file__, command,
+                                         "--starfield", self.args.starfield], cwd=self.root,
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                self.assertIn("incomplete", result.stdout + result.stderr)
+
+    def test_failed_checkpoint_removal_can_retry_without_replaying_cleanup(self):
+        self.rollback_with_history_outage()
+        record = self.data / exp.RECORD
+        before = record.read_bytes()
+        with patch.object(exp.os, "remove", side_effect=OSError("receipt in use")):
+            with self.assertRaisesRegex(SystemExit, "receipt in use"):
+                exp.uninstall(self.args)
+        self.assertEqual(record.read_bytes(), before)
+        plugin = self.data / "Experiment.esm"
+        plugin.write_bytes(b"later owner file")
+        exp.uninstall(self.args)
+        self.assertEqual(plugin.read_bytes(), b"later owner file")
+        self.assertFalse(record.exists())
+
+    def test_completion_checkpoint_corruption_blocks_retirement(self):
+        self.rollback_with_history_outage()
+        record = self.data / exp.RECORD
+        good = json.loads(record.read_bytes())
+        mutations = [
+            lambda r: r.update(files={}),
+            lambda r: r.update(complete=True),
+            lambda r: r.update(rollback_completed=None),
+            lambda r: r["rollback_completed"].update(schema=True),
+            lambda r: r["rollback_completed"].update(original_sha256="0" * 64),
+            lambda r: r["rollback_completed"].update(original_receipt_b64="not base64!"),
+        ]
+        for i, mutation in enumerate(mutations):
+            with self.subTest(case=i):
+                changed = copy.deepcopy(good)
+                mutation(changed)
+                raw = json.dumps(changed).encode()
+                record.write_bytes(raw)
+                with self.assertRaisesRegex(SystemExit, "invalid rollback completion checkpoint"):
+                    exp.uninstall(self.args)
+                self.assertEqual(record.read_bytes(), raw)
+                self.assertEqual(self.plugins.read_bytes(), self.original)
+                self.assertEqual(self.receipts(), [])
+
+    def test_checkpoint_write_failure_keeps_original_receipt_and_recovery_instructions(self):
+        real = exp.deployment.atomic_write_bytes
+        def fail(path, content, prefix, **kwargs):
+            if prefix == ".fo4sfexp-rollback-":
+                raise OSError("completion volume full")
+            return real(path, content, prefix, **kwargs)
+        with self.fail_final_install_write(), patch.object(exp.deployment, "atomic_write_bytes", side_effect=fail), \
+                patch.object(exp, "preserve_receipt", side_effect=OSError("history volume full")):
+            with self.assertRaisesRegex(SystemExit, "was rolled back.*checkpoint unavailable.*leave Plugins.txt"):
+                exp.install(self.args)
+        self.assertEqual((self.data / exp.RECORD).read_bytes(), self.before_rollback)
+        self.assertEqual(self.plugins.read_bytes(), self.original)
+        self.assertFalse((self.data / "Experiment.esm").exists())
+        exp.uninstall(self.args)
+        self.assertEqual(list(self.data.iterdir()), [])
+
+    def test_checkpoint_publication_preserves_a_concurrent_receipt_edit(self):
+        real = exp.deployment.atomic_write_bytes
+        changed = b'{"concurrent": "receipt edit"}'
+        def edit(path, content, prefix, **kwargs):
+            if prefix == ".fo4sfexp-rollback-":
+                Path(path).write_bytes(changed)
+            return real(path, content, prefix, **kwargs)
+        with self.fail_final_install_write(), patch.object(exp.deployment, "atomic_write_bytes", side_effect=edit), \
+                patch.object(exp, "preserve_receipt", side_effect=OSError("history volume full")):
+            with self.assertRaisesRegex(SystemExit, "was rolled back.*checkpoint unavailable"):
+                exp.install(self.args)
+        self.assertEqual((self.data / exp.RECORD).read_bytes(), changed)
+        self.assertEqual(self.plugins.read_bytes(), self.original)
+
+    def test_checkpoint_retirement_preserves_a_concurrent_receipt_edit(self):
+        self.rollback_with_history_outage()
+        record = self.data / exp.RECORD
+        original = exp.preserve_receipt
+        changed = b'{"concurrent": "receipt edit"}'
+        def edit(path):
+            result = original(path)
+            record.write_bytes(changed)
+            return result
+        with patch.object(exp, "preserve_receipt", side_effect=edit):
+            with self.assertRaisesRegex(SystemExit, "completion retirement refused"):
+                exp.uninstall(self.args)
+        self.assertEqual(record.read_bytes(), changed)
+        self.assertEqual(self.plugins.read_bytes(), self.original)
 
     def test_failed_install_with_history_failure_preserves_concurrent_config(self):
         edited = b"# owner edit\r\n*Other.esm\r\n"
@@ -164,7 +316,7 @@ class ExperimentReceiptTests(unittest.TestCase):
                 exp, "preserve_receipt", side_effect=OSError("history volume full")):
             with self.assertRaisesRegex(SystemExit, "was rolled back.*preservation pending"):
                 exp.install(self.args)
-        self.assertEqual(record.read_bytes(), self.before_rollback)
+        self.assert_original_checkpoint()
         self.assertEqual(len(json.loads(record.read_bytes())["files"]), 2)
         self.assertEqual(len(json.loads(record.read_bytes())["published_files"]), 1)
         self.assertEqual(list(self.data.rglob("*")), [record])

@@ -275,6 +275,55 @@ class TextureTests(unittest.TestCase):
         self.assertEqual(textures.roughness_from_smoothness(g, 0.5).tolist(), [[127, 127]])      # 255 - 127.5 -> 127
         self.assertEqual(textures.roughness_from_smoothness(g, 1.0, 0.25).tolist(), [[127, 127]])  # sqrt(0.25) = 0.5
 
+    def test_roughness_follows_the_specular_mask_when_given(self):
+        # Vault 111 FloorTiles01 (owner, 2026-10-17): mask R about 63, gloss G about 178 came out at roughness 77 (glossy)
+        g = np.array([[178, 178, 255]], dtype=np.uint8)
+        r = np.array([[63, 255, 0]], dtype=np.uint8)
+        self.assertEqual(textures.roughness_from_smoothness(g).tolist(), [[77, 77, 0]])                # gloss alone
+        self.assertEqual(textures.roughness_from_smoothness(g, mask=r).tolist(), [[167, 77, 255]])    # 178 x sqrt(63/255)
+        with self.assertRaises(ValueError):
+            textures.roughness_from_smoothness(g, mask=np.zeros((2, 2), np.uint8))
+
+    def test_converter_takes_the_mask_from_the_spec_red_plane_and_changes_only_roughness(self):
+        # Codex QA on #329: the production path, not only the helper. texconv and the BC decode are stubbed; the spec
+        # map's planes are R 63 (mask) and G 178 (gloss), as Vault 111 FloorTiles01.
+        import tempfile
+        from unittest.mock import patch
+        from fo4sf import pipeline
+        planes = {b"N": (np.full((4, 4), 128, np.uint8), np.full((4, 4), 128, np.uint8)),
+                  b"S": (np.full((4, 4), 63, np.uint8), np.full((4, 4), 178, np.uint8))}
+
+        class Src:
+            def texture(self, path):
+                return {"d.dds": b"D", "n.dds": b"N", "s.dds": b"S"}[path]
+
+        def run(flag):
+            with tempfile.TemporaryDirectory() as tmp:
+                c = pipeline.Converter.__new__(pipeline.Converter)
+                c.src, c.staging, c.texconv, c.prefix = Src(), tmp, "texconv", "fo4port"
+                c.texture_caps, c.texture_log, c.template_mat = {}, {}, {}
+                c.spec_mask_roughness = flag
+
+                def fake_texconv(_exe, src, _out, _fmt, _extra=()):
+                    if not os.path.exists(src):
+                        raise AssertionError(src)
+
+                with patch.object(pipeline, "_plane_pair", side_effect=lambda raw, *_: planes[raw]), \
+                        patch.object(pipeline.textures, "texconv", side_effect=fake_texconv), \
+                        patch.object(pipeline.cm, "build_mat", return_value={}), \
+                        patch.object(pipeline.cm, "dump_mat", return_value="mat"):
+                    c._convert_texture_set("floor", "d.dds", "n.dds", "s.dds")
+                out = {}
+                for kind in ("color", "normal", "rough"):
+                    with open(os.path.join(tmp, "textures", "fo4port", f"floor_{kind}.dds"), "rb") as f:
+                        out[kind] = f.read()
+                return out
+
+        off, on = run(False), run(True)
+        rough = lambda raw: raw[textures.read_dds_header(raw)["data_offset"]:][:1]  # noqa: E731
+        self.assertEqual((rough(off["rough"]), rough(on["rough"])), (bytes([77]), bytes([167])))
+        self.assertEqual((off["color"], off["normal"]), (on["color"], on["normal"]))
+
     def test_roughness_and_green_flip(self):
         g = np.array([[0, 255, 100]], dtype=np.uint8)
         self.assertEqual(textures.roughness_from_smoothness(g).tolist(), [[255, 0, 155]])
