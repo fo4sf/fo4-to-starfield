@@ -14,6 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from fo4sf import fo4land, terrain_grid  # noqa: E402
 
 _DELETED = 0x20  # Mutagen 0.55.0-alpha.67 StarfieldMajorRecordFlag.Deleted; IsDeleted also verifies this bit.
+_PROMOTED_REFERENCES = ("containers", "items", "activators", "terminals", "workshops", "benches", "doors")
+# Benches reference a vanilla full FormKey, not a plugin-local owned base ID.
+_OWNED_BASES = tuple(kind for kind in _PROMOTED_REFERENCES if kind != "benches")
 
 
 def _one(fields, sig):
@@ -154,7 +157,7 @@ def audit(blob, objects, ids, *, plugin_name, baseline=None, kind="containers"):
             raise ValueError("promoted plugin/world metadata differs")
         def reference_ids(mapping):
             result = {src: _local(value) for src, value in mapping["refs"].items()}
-            for category in ("containers", "items"):
+            for category in _PROMOTED_REFERENCES:
                 for src, pair in mapping.get(category, {}).items():
                     if src in result:
                         raise ValueError("source appears in both ordinary and promoted references")
@@ -168,8 +171,8 @@ def audit(blob, objects, ids, *, plugin_name, baseline=None, kind="containers"):
         base_ids = {pair[0] for pair in pairs.values()}
         if base_ids & set(new_references.values()):
             raise ValueError("promoted base overlaps declared reference identities")
-        other_kind = "items" if kind == "containers" else "containers"
-        other_bases = {_local(pair["base"]) for pair in ids.get(other_kind, {}).values()}
+        other_bases = {_local(pair["base"]) for category in _OWNED_BASES if category != kind
+                       for pair in ids.get(category, {}).values()}
         if base_ids & other_bases:
             raise ValueError("promoted classes share a base identity")
         local_ids = {v for pair in pairs.values() for v in pair}
@@ -254,7 +257,7 @@ def audit(blob, objects, ids, *, plugin_name, baseline=None, kind="containers"):
                 report[category + "_ids_missing"] = len(missing)
                 if changed or missing:
                     errors.append(f"baseline {category}: {len(changed)} changed, {len(missing)} missing identities")
-            for category in ("containers", "items"):
+            for category in _OWNED_BASES:
                 for src, previous in baseline.get(category, {}).items():
                     current = ids.get(category, {}).get(src)
                     if current is None or _local(previous["base"]) != _local(current["base"]):

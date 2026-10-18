@@ -40,6 +40,9 @@ Every exterior DOOR reference of core64c that links to an interior already in `F
 slice's `ReferenceLinks` writes it) once the door gate passes. Order: the doors whose interiors exist, by distance from
 Red Rocket; a `door_trip` queue per batch of doors (the runner's door_route already walks a list). Interiors that are
 not converted yet are left as locked doors (vanilla "inaccessible" behaviour), never as holes.
+The backlog of interiors not converted yet (190 behind 350 load doors, and 26 more reached only through other
+interiors), ranked and dry-run converted:
+[interior-backlog.md](interior-backlog.md).
 
 ## 3. Semantic objects across the core (generalising R05)
 
@@ -51,6 +54,8 @@ carries its FO4 base signature; `exterior.py classify`) and emits, per class, th
 | CONT (containers) | CONT + REFR at the original slot, inventory from a fixed vanilla table per container kind (FO4 leveled lists do not resolve) | band exports | activate step on a sample per kind |
 | MISC / ALCH / AMMO / BOOK (loose items) | MISC (ALCH as MISC first) | band exports | a pick-up step (activate; inventory count read) |
 | ACTI / TERM | Activator / Terminal with one text line | band exports | activate step |
+| CONT WorkshopWorkbench (settlement workshops) | ACTI build station at the original slot: WorkshopKeyword + OutpostPlayerHouseActivator's category keywords, PRPS build radius ([stations.md](stations.md)) | band exports + Fallout4.esm (workshopscript VMAD) | activate step: the build-mode HUD |
+| FURN crafting benches (weapon / armor / chem / cooking) | REFR to the vanilla Starfield bench of the kind at the original slot (no record of ours; power armor stays a static) | band exports + Fallout4.esm (WBDT) | activate step: the bench menu |
 | Enable parents, triggers | XESP on REFRs; primitives | R05 plan sections 1-3 | the R05 slice-2 pair test |
 | Persistent-on-border | the vanilla persistent-cell shape | R05 plan | door_trip probes |
 
@@ -71,6 +76,55 @@ total unchanged by promotion, one MISC (and one CONT) per distinct edid, and eve
 check 248/248 PASS. The full 12,438 items with the 5,185 containers promote without a conflict (Python side only).
 Not yet: in-game pick-up (the acceptance above), physics of a converted model as a loose item.
 
+Status 2026-10-16 (activators and terminals, branch `claude/acti-term-promotion`, stacked on the items branch; offline
+only, not in game): `make_cluster.py activators` / `terminals` list every placed FO4 Activator / Terminal reference
+(over core64c's export: 2,246 activators over 211 FO4 bases, 140 terminals over 91 bases; 10 and 1 initially disabled
+ones stay statics). Names come from FO4's own FULL (`dotnet/Fo4Land export-names`, `--names`): 151 of the 211
+activator bases have one; the other 60 (499 references: spotlights, standpipes, weak planks, elevator meters, security
+gates ...) show no activation prompt in Fallout 4 and get an ACTI without a name; every terminal base is named. Pure
+triggers and markers never reach the list: core64c places no reference without a model or with a marker model, so of
+the 6,669 exported activators the 4,423 left out are, by reason and editor-id pattern (`EXCLUDED_ACTIVATOR_PATTERNS`):
+no model 2,414 (trigger volumes 1,268, package / sandbox primitives 717, zones / areas 363, dummies 24, markers 2,
+water FX 1, other 39 such as radio transmitters and enable markers),
+marker model 1,271 (platform helpers 534, comment / editor markers 429, `DefaultActivator` / music activators 87,
+`DefaultDummy` 85, trigger boxes 82, elevator / lift / breaker masters 43, other 11), conversion failed 421 (oil pools
+399, gnat swarms 19, 3 other), water planes 305, effect meshes 2, initially disabled 10.
+`make_core64c.cluster_activators` / `cluster_terminals` join the one slot plan (`cluster_promote` over all four classes,
+refusing a source in two classes and an edid that would stand for two FO4 sources); TerrainOverlays writes one ACTI
+per FO4 base (Mutagen 0.55 `Activator`: Model, Name) and one TERM per FO4 base (`Terminal`: Model, Name, Menu,
+Background = Default) followed by its own TMLM (`TerminalMenu`: Name, ShowBodyText = Document, Style = Windows, one
+`TerminalMenuBodyText` "FO4 terminal (text not ported yet)", no menu item; the subrecord layout of vanilla
+RI04_NyxProgram_Menu_Camden, 0788A8). `check` counts ACTI / TERM / TMLM per edid and binds every promoted REFR to its
+base, a TERM to its menu and the menu to its one body line. Full-scale dry run (**verified** offline): every class at
+once on core64c's work (5,185 containers + 12,438 items + 2,246 activators + 140 terminals, with core64g's navmesh) ->
+182 CONT, 492 MISC, 211 ACTI, 91 TERM + 91 TMLM, 648,360 REFR, 12,104 NAVM; all 648,358 sources keep core64g's REFR
+ids, STAT / DOOR / CONT bases keep core64g's ids, MISC 0A2B5B.., ACTI 0A2D47.., TERM / TMLM pairs 0A2E1A..0A2ECF, NAVM
+from 0A2ED0 (they move up by the new bases); plan.json byte-identical to core64g's; check 263/263 PASS (137 s).
+Vanilla terminals are furniture too (Starfield.esm, 368 TERM read raw in the review of #241, **verified**): marker
+flags, workbench data, marker model, PNAM / FNAM / JNAM / GNAM and keywords in all 368, an animation graph and marker
+parameters in 367, a furniture template in 365, the TerminalScript VMAD in 367. Each new TERM therefore carries the
+furniture block of one vanilla standing terminal, OE_AustinF_DeployMicrobe_Terminal (0155A2: FTMP 0FFAD2, XMRK
+furn_human_standingterminal.nif, one SNAM marker, MNAM 40000001, WBDT 00, 5 keywords, HybridStateGraph01), as the
+doors carry a vanilla rig; not its script, bounds, model or name. Each ACTI carries the vanilla majority PNAM (marker
+colour CC4C33), FNAM 0 and activation angle 360 (1,347 / 1,412 / 1,453 of 1,463 ACTI). FLLD (in every vanilla ACTI and
+TERM) is not written: Mutagen 0.55 does not expose it. Not yet: activation in game, so whether the player enters
+terminal mode, and whether the ACTIs show their prompt, stay **unresolved** until an in-game activate step.
+
+Status 2026-10-16 (stations, branch `claude/stations-promotion`, on the wave-1 classes; offline only, not in game;
+[stations.md](stations.md)): `make_cluster.py workshops` lists the 29 placed settlement workshops of the core (FO4
+CONT `0C1AEB` WorkshopWorkbench x 28, `246F86` WorkshopWorkbenchNonSettlement x 1: the two container bases with the
+`workshopscript` VMAD, read raw from Fallout4.esm; the container table now skips them) and `benches` the 269 placed
+crafting stations with a kind (weapon 65, armor 43, chem 43, cooking 118 over 10 FO4 bases; 75 power armor stations and
+frames skipped with the reason). `cluster_workshops` / `cluster_benches` join the one slot plan. TerrainOverlays
+writes one ACTI per workshop base in the vanilla pre-placed pattern (OutpostPlayerHouseActivator 00024DC7:
+WorkshopKeyword + its OutpostCategory* keywords read from the master, PRPS OutpostBuildAreaRadius 250, no VMAD) after
+the TERM + TMLM block, and binds each bench REFR to the vanilla Starfield bench of its kind (2B6A63 / 2B6A62 / 2B6A61
+/ 2B6A65: the same bench type and, armor / chem / cooking, the same recipe keyword id as FO4's, **verified** raw).
+`check` binds the records raw and against Starfield.esm; `compare-ids` reports formids.json against the input build.
+Build: `terrain_core64i` (containers + items + activators + terminals + lights + workshops + benches + navmesh); queue
+`core64i_stations_1016` planned (activate on the Red Rocket workshop and weapon bench). Whether build mode and the
+bench menu open from our overlay stays **unresolved** until the queue runs.
+
 ## 4. Navmesh and actors
 
 R06's numbers decide the path: if the exterior overlay has no NAVM, the options are (a) convert FO4's exterior NAVM
@@ -88,8 +142,10 @@ Actors then follow the raider pattern: converted NPC bases, spawn points from FO
 
 ## 5. Environment
 
-Water (FO4 water planes -> Starfield water), lights (exterior LIGH refs), weather/time (the sky_light ladder works),
-map markers and locations (one Location per overlay now; FO4 map markers -> LCTN/REFR), LOD for the far ring
+Water (FO4 water planes -> Starfield water), lights (exterior LIGH refs: offline path in
+[exterior-lights.md](exterior-lights.md), 2026-10-16), weather/time (the sky_light ladder works),
+map markers and locations (one Location per overlay now; FO4 map markers -> LCTN/REFR; research and first writer
+plan in [map-markers.md](map-markers.md)), LOD for the far ring
 (commonwealth-scale.md option d). None gates playability of the core; each is one queue with a screenshot.
 
 ## 6. Quests, scripts, DLC

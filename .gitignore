@@ -35,3 +35,4 @@ bin/
 obj/
 .vs/
 scripts/game/cycle_pid.txt
+scripts/game/look.settings.json

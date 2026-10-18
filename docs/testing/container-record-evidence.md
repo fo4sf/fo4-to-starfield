@@ -110,3 +110,11 @@ earlier reports remain unchanged; no producer or native game was run.
 Final independent source review remains required. These checks cannot reconstruct
 omitted canonical FO4 base identities, prove every ordinary record's bytes, or
 establish native activation/save compatibility.
+
+## Mixed-class map identity integration, October 18
+
+Declared source-reference uniqueness and optional baseline reference comparisons now include ordinary refs plus containers, items, activators, terminals, workshops, benches and doors. A selected CONT/MISC base cannot overlap any of those source references or another declared plugin-owned promoted base. Baseline base comparisons also include the plugin-owned promoted classes. Vanilla bench base keys remain full external FormKeys and are not interpreted as local base IDs.
+
+This extends declared-map consistency, not raw-content acceptance: only the selected CONT/MISC class is compared against serialized records. Unselected class content, auxiliary terminal menu/door arrival identities, and unknown future map sections still need their own verification; this is not a complete map allocator audit.
+
+Thirty-eight subcases exposed old false passes for new-class aliases, duplicate sources and baseline reference drift. Seven new test methods cover these plus changed promoted bases, malformed reference IDs and valid external bench keys. All35 distinct audit tests pass. One current actual-writer test creates a mixed CONT/MISC/ACTI/TERM build; both read-only CLI audits pass, each pinning four inputs. Deliberately aliasing an ACTI reference to the selected CONT/MISC reference passes the old auditor and is refused by the corrected one. Failed/passing evidence is preserved privately; no game assets, native tests or producer changes.

@@ -12,7 +12,12 @@ Whitelist (docs/ai/test-queue.md "Console commands before and after the travel";
   cgf "FO4SF_Probe.Ack" "<tag>"             position / an acknowledgement / the player, as lines of the bridge's log
   cgf "FO4SF_Probe.Player"
   cgf "Debug.TraceUser" "fo4sf" "<text>"    a line of the bridge's log, the game's own acknowledgement of the console
-names and sections [A-Za-z0-9_]{1,64}, hours 0..23.99, numbers -?\\d{1,9}(.\\d{1,6})?, tags [A-Za-z0-9_.-]{1,40}.
+  cgf "FO4SF_Probe.Resolve" "<plugin>" <id>     the scripted door's Step 0 (2026-10-16): what Game.GetFormFromFile
+  cgf "FO4SF_Probe.MoveTo" "<plugin>" <id> <dx> <dy> <dz>   returns for a plugin-local id, and the player moved to it
+                                            (plus the offset) as FO4SF_LoadDoor.psc moves the player: MoveTo can load
+                                            another cell, so qstep.ps1 waits for the HUD after it (is_moveto)
+names and sections [A-Za-z0-9_]{1,64}, hours 0..23.99, numbers -?\\d{1,9}(.\\d{1,6})?, tags [A-Za-z0-9_.-]{1,40},
+plugins [A-Za-z0-9_.-]{1,60}.esm|esp|esl, plugin-local ids \\d{1,8} (decimal), offsets -?\\d{1,5}(.\\d{1,3})? (metres).
 
 Replies (parsed at judge time from the OCR, best effort; the raw OCR and the capture are always kept): GetINI prints
 "INISetting <name:Section> >> <value>" (formats %i / %u / %.4f / '%s' / NOT FOUND in the exe: supported hypothesis);
@@ -23,19 +28,39 @@ import re
 
 NAME = r"[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}"
 HOUR = r"(?:1?\d|2[0-3])(?:\.\d{1,2})?"
+PLUGIN = r"[A-Za-z0-9_.-]{1,60}\.es[mpl]"
+OFFSET = r"-?\d{1,5}(?:\.\d{1,3})?"
 PATTERN = (rf'GetINI "{NAME}"|SetINI "{NAME}" -?\d{{1,9}}(?:\.\d{{1,6}})?|SetLocalTime {HOUR}(?: 1)?'
            rf'|cgf "Game\.SetLocalTime" {HOUR}|fw [0-9A-Fa-f]{{8}}(?: 1)?'
            # the bridge's probe functions and a TraceUser acknowledgement (docs/ai/test-queue.md "Bridge"): they only
            # write lines to the bridge's user log; the decimal form id, a tag of letters, digits, _ . -
            rf'|cgf "FO4SF_Probe\.Pos" \d{{1,10}}|cgf "FO4SF_Probe\.Ack" "[A-Za-z0-9_.-]{{1,40}}"|cgf "FO4SF_Probe\.Player"'
-           rf'|cgf "Debug\.TraceUser" "fo4sf" "[A-Za-z0-9_ .-]{{1,60}}"')
+           rf'|cgf "Debug\.TraceUser" "fo4sf" "[A-Za-z0-9_ .-]{{1,60}}"'
+           # the scripted door's Step 0 (FO4SF_Probe.Resolve / MoveTo): a plugin file name in quotes, the plugin-local
+           # decimal id, and for MoveTo three offsets in metres (typed with a decimal point: whether the console turns
+           # "0" into a float argument is not known)
+           rf'|cgf "FO4SF_Probe\.Resolve" "{PLUGIN}" \d{{1,8}}'
+           rf'|cgf "FO4SF_Probe\.MoveTo" "{PLUGIN}" \d{{1,8}} {OFFSET} {OFFSET} {OFFSET}')
 CONSOLE_RE = re.compile(PATTERN)
+MOVETO_PREFIX = 'cgf "FO4SF_Probe.MoveTo" '
+PROBE_TRAVEL_PREFIXES = ('cgf "FO4SF_Probe.Resolve" ', MOVETO_PREFIX)
 CONSOLE_KEYS = ("console_pre", "console_post")
 MAX_COMMANDS = 12
 
 
 def allowed(cmd):
     return isinstance(cmd, str) and CONSOLE_RE.fullmatch(cmd) is not None
+
+
+def is_moveto(cmd):
+    """A whitelisted FO4SF_Probe.MoveTo line: it may load another cell, so the step waits for the HUD after it."""
+    return allowed(cmd) and cmd.startswith(MOVETO_PREFIX)
+
+
+def uses_probe_travel(test):
+    """Whether a planned test types FO4SF_Probe.Resolve / MoveTo (runner feature probe_moveto)."""
+    return any(isinstance(c, str) and c.startswith(PROBE_TRAVEL_PREFIXES)
+               for k in CONSOLE_KEYS for c in (test.get(k) or []))
 
 
 def console_fields(w, fail):
@@ -51,7 +76,8 @@ def console_fields(w, fail):
             if not allowed(c):
                 fail(f"{key}: {c!r} is not an allowed console command (GetINI \"<name>:<Section>\", "
                      f"SetINI \"<name>:<Section>\" <number>, SetLocalTime <h> [1], cgf \"Game.SetLocalTime\" <h>, "
-                     f"fw <8 hex> [1], cgf \"FO4SF_Probe.Pos|Ack|Player\" ..., cgf \"Debug.TraceUser\" \"fo4sf\" \"<text>\")")
+                     f"fw <8 hex> [1], cgf \"FO4SF_Probe.Pos|Ack|Player\" ..., cgf \"Debug.TraceUser\" \"fo4sf\" \"<text>\", "
+                     f"cgf \"FO4SF_Probe.Resolve\" \"<plugin>\" <id>, cgf \"FO4SF_Probe.MoveTo\" \"<plugin>\" <id> <dx> <dy> <dz>)")
         out[key] = list(v)
     return out
 
