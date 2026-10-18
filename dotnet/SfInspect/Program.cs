@@ -2,6 +2,7 @@
 //   dotnet run -- <Starfield.esm> cells <substr>     interior cells (EditorID contains substr) + lighting template
 //   dotnet run -- <Starfield.esm> lights <substr>    LIGH records (EditorID contains substr) + radius/colour
 //   dotnet run -- <Starfield.esm> templates          lighting templates in use by interior cells (most used first)
+//   dotnet run -- <Starfield.esm> envmaps            interior cells' environment maps (most used first) + a sample cell
 //   dotnet run -- <Starfield.esm> models "<a>|<b>"   every record (any type) using a model whose path contains a or b
 // Terrain (read-only, docs/terrain/architecture.md):
 //   wrld [substr]            every WRLD with terrain/planet/parent fields      sfbk [substr]   every SurfaceBlock (BTD path, sizes)
@@ -40,6 +41,11 @@ switch (args[1])
         foreach (var g in cells.Where(c => !c.LightingTemplate.IsNull).GroupBy(c => c.LightingTemplate.FormKey)
                      .OrderByDescending(g => g.Count()).Take(25))
             Console.WriteLine($"{g.Count(),5}  {g.Key}  {Name(g.Key)}  e.g. {g.First().EditorID}");
+        break;
+    case "envmaps":
+        foreach (var g in cells.GroupBy(c => c.EnvironmentMap?.ToString() ?? "").OrderByDescending(g => g.Count()).Take(30))
+            Console.WriteLine($"{g.Count(),5}  env='{g.Key}'  e.g. {g.First().EditorID} template={Name(g.First().LightingTemplate.FormKey)} " +
+                $"imagespace={g.First().ImageSpace.FormKey}");
         break;
     case "statics":
         foreach (var s in mod.Statics.Where(s => (s.EditorID ?? "").Contains(args[2], StringComparison.OrdinalIgnoreCase)).Take(30))
