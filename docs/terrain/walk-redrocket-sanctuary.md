@@ -186,7 +186,7 @@ off the bridge deck onto the river bed), `HEIGHTS` (below every known ground by 
 `JUMP` (an implausible move that a second read confirmed: a relocation), `OFFROUTE` (more than 10 m from the route),
 `STUCK` (the controller's stuck: no movement after two side steps, or no progress along the route in 6 legs).
 
-**INCONCLUSIVE** (retried once, never a PASS): `UNREAD` (a leg not read), `READ` (an implausible move not confirmed),
+**INCONCLUSIVE** (retried once, never a PASS): `POPUP` (any other recorded popup, e.g. FAST TRAVEL or PLANET MAP), `UNREAD` (a leg not read), `READ` (an implausible move not confirmed),
 `OFFGROUND` (above every known surface by more than 0.6 m: standing on something not converted, or mid-step),
 `HUDGAP`, `NOHUD`, `NOTREACHED` (leg or time budget used up short of the goal), `CROSSING` (a planned border not crossed
 between two consecutive reads, in route order), `BRIDGE`, `NOSHOT`, `TYPED` (anything else typed during the walk, e.g. a recovery teleport), `START`
