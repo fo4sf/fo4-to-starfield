@@ -31,3 +31,7 @@ CK is the **hypothesized** generator of object LOD (plan step 1 is the spike). T
 1. Tiny overlay + CK object-LOD generate as a go/no-go (Claude window).
 2. Only then a `lodsettings` stub named for `FO4Core_Commonwealth` plus generated `_lod_0..3` for large STAT.
 3. Do not port FO4 `.bto` until that spike. No INI change in the product path.
+
+## Stub implementation notes (Grok, 2026-10-18)
+
+A minimal lodsettings writer can emit the 20-byte header observed in vanilla .lod files (cell min/size as little-endian i32s followed by a u16 count). Full mesh LOD generation still requires CK spike.
