@@ -15,6 +15,12 @@ except ImportError:
 
 class DecalNormalTests(unittest.TestCase):
     @unittest.skipIf(np is None, "numpy required")
+    def test_flat_normal_planes_are_128(self):
+        r, g = textures.flat_normal_planes(8, 8)
+        self.assertTrue(np.all(r == 128) and np.all(g == 128))
+        self.assertEqual(r.shape, (8, 8))
+
+    @unittest.skipIf(np is None, "numpy required")
     def test_unorm_128_is_flat_signed_zero(self):
         """The pipeline must pass unorm 128 (not zeros) so write_rg8_snorm emits (0, 0)."""
         r = np.full((4, 4), 128, dtype=np.uint8)
