@@ -1,15 +1,35 @@
 """Minimal CLI for fo4-to-starfield.
 
-python -m fo4sf status   # print config summary and optional manifest coverage (requires config.toml)
+python -m fo4sf status   # print config summary, optional manifest coverage, and latest progress note
 """
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
 from .config import ConfigError, load_config
 from .manifest import ManifestError, load_manifest, summarize_manifest
+
+
+def _latest_progress() -> str:
+    """Extract the 'Latest progress' section from README.md if present."""
+    readme = Path(__file__).resolve().parents[2] / "README.md"
+    if not readme.is_file():
+        return "README.md not found"
+    text = readme.read_text(encoding="utf-8")
+    m = re.search(r"## Latest progress.*?(?=\n## |\Z)", text, re.DOTALL)
+    if not m:
+        return "no Latest progress section"
+    lines = m.group(0).strip().splitlines()
+    # Keep the heading + first few non-empty content lines for a short summary
+    summary = []
+    for line in lines[:12]:
+        summary.append(line)
+        if len(summary) >= 8 and line.startswith("|"):
+            break
+    return "\n".join(summary)
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -28,6 +48,9 @@ def cmd_status(args: argparse.Namespace) -> int:
     paths = cfg.get("paths", {})
     print(f"  work_dir: {paths.get('work_dir', 'missing')}")
     print(f"  staging_dir: {paths.get('staging_dir', 'missing')}")
+
+    print("\n  Latest progress (from README):")
+    print("  " + _latest_progress().replace("\n", "\n  "))
 
     if args.manifest:
         return _print_manifest(Path(args.manifest))
@@ -67,7 +90,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_status = sub.add_parser("status", help="show configuration summary and manifest coverage")
+    p_status = sub.add_parser("status", help="show configuration summary, manifest coverage, and latest progress")
     p_status.add_argument("--manifest", help="explicit path to manifest.json")
     p_status.set_defaults(func=cmd_status)
 
