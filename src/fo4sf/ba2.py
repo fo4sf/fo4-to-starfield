@@ -110,6 +110,23 @@ class Ba2:
                     if off > self._size or off + chunk > self._size:
                         raise Ba2Error(f"{self.path}: DX10 entry {e.name} chunk is outside the file")
 
+
+    def extension_counts(self) -> dict:
+        """Return a dict of file extension (lowercase, no dot) to count of entries.
+        Useful for conversion planning: how many .nif, .dds, .hkx, etc.
+        Entries without a dot are counted under the empty string.
+        """
+        from collections import Counter
+        counts = Counter()
+        for e in self.entries:
+            name = e.name
+            if "." in name:
+                ext = name.rsplit(".", 1)[-1].lower()
+            else:
+                ext = ""
+            counts[ext] += 1
+        return dict(counts)
+
     def summary(self) -> dict:
         """Return a short summary of the archive contents."""
         gnrl = sum(1 for e in self.entries if e.kind == "GNRL")
