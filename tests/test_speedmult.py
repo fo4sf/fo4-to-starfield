@@ -68,6 +68,14 @@ class ReplyTests(unittest.TestCase):
         self.assertEqual(cp.reply(cp.SPEEDMULT_GET, ocr)["status"], "unread")
         self.assertEqual(cp.reply(cp.SPEEDMULT_GET, "")["status"], "unread")
 
+    def test_a_reply_without_the_echo_is_not_read(self):
+        r = cp.reply(cp.SPEEDMULT_GET, "GetActorValue: SpeedMult >> 100.00")
+        self.assertEqual((r["status"], r["note"]), ("unread", "echo not read"))
+
+    def test_only_a_number_is_a_value(self):
+        for text in ("'garbled'", "NOT FOUND", "abc"):
+            self.assertEqual(cp.reply(cp.SPEEDMULT_GET, got(text))["status"], "unread", text)
+
 
 class ConditionTests(unittest.TestCase):
     T = cp.with_speedmult({"kind": "walk", "console_pre": ["SetLocalTime 12"]})
@@ -97,6 +105,20 @@ class ConditionTests(unittest.TestCase):
         self.assertFalse(cp.speedmult_condition(self.T, con())[0])
         self.assertFalse(cp.speedmult_condition(self.T, {})[0])
 
+    def test_the_planned_final_read_must_be_there(self):
+        ok, why = cp.speedmult_condition(self.T, con((cp.SPEEDMULT_GET, got("100.00")), (cp.SPEEDMULT_SET, "")))
+        self.assertFalse(ok)
+        self.assertIn("not read before the travel (100, set 100, not typed)", why)
+        # a read typed in another command's place does not stand in for it
+        self.assertFalse(cp.speedmult_condition(self.T, con((cp.SPEEDMULT_GET, got("100.00")),
+                                                            (cp.SPEEDMULT_GET, got("100.00")),
+                                                            (cp.SPEEDMULT_GET, got("100.00"))))[0])
+
+    def test_old_text_without_the_echo_does_not_pass(self):
+        old = "GetActorValue: SpeedMult >> 100.00"
+        self.assertFalse(cp.speedmult_condition(self.T, con((cp.SPEEDMULT_GET, old), (cp.SPEEDMULT_SET, ""),
+                                                            (cp.SPEEDMULT_GET, old)))[0])
+
 
 class JudgeTests(unittest.TestCase):
     T = dict(cp.with_speedmult({"kind": "walk", "id": "0000_walk_x"}), expect="PASS")
@@ -120,6 +142,15 @@ class JudgeTests(unittest.TestCase):
 
     def test_an_inconclusive_keeps_its_own_class(self):
         self.assertEqual(self.judge(("INCONCLUSIVE", "UNREAD", "no leg"), "300.00")[:2], ("INCONCLUSIVE", "UNREAD"))
+
+    def test_a_missing_final_read_is_inconclusive(self):
+        obs = con((cp.SPEEDMULT_GET, got("100.00")), (cp.SPEEDMULT_SET, ""))
+        with mock.patch.object(tq, "judge_kind", return_value=("PASS", "PASS", "goal reached")):
+            self.assertEqual(tq.judge(self.T, obs, tempfile.gettempdir())[:2], ("INCONCLUSIVE", "RUNCOND"))
+
+    def test_malformed_ocr_is_inconclusive_not_an_error(self):
+        v, cls, _ = self.judge(("PASS", "PASS", "goal reached"), "'garbled'")
+        self.assertEqual((v, cls), ("INCONCLUSIVE", "RUNCOND"))
 
 
 class PlannerTests(unittest.TestCase):
@@ -162,8 +193,20 @@ class TickFileTests(unittest.TestCase):
 
     def test_mark_sent_writes_the_time(self):
         src = readf(os.path.join(ROOT, "scripts", "game", "testqueue.py"), encoding="utf-8")
-        self.assertIn('f.write(f"{self.last_sent_tick} {time.time():.0f}")', src)
+        self.assertIn('f.write(f"{self.last_sent_tick} {time.time()!r}")', src)
         self.assertIn("read_tick_file(self.tick_file, time.time(), self._tick)", src)
+
+    def test_a_tick_written_and_read_back_at_once_counts(self):
+        queue = os.path.join(os.path.dirname(self.p), "q")
+        with mock.patch.object(tq.Controls, "_tick", staticmethod(lambda: 5000000)), \
+                mock.patch.object(tq.time, "time", return_value=1000.75):
+            tq.Controls(queue).mark_sent()
+        with mock.patch.object(tq.Controls, "_tick", staticmethod(lambda: 5000050)), \
+                mock.patch.object(tq.time, "time", return_value=1000.80):
+            self.assertEqual(tq.Controls(queue).last_sent_tick, 5000000)     # rounded to 1001 it read as the future
+        self.assertIsNone(tq.read_tick_file(self.p.replace("last_sent_tick", "x"), 1000.8, lambda: 5000050))
+        with open(os.path.join(os.path.dirname(self.p), "last_sent_tick.txt")) as f:
+            self.assertEqual(f.read(), "5000000 1000.75")
 
 
 class DedicatedSaveTests(unittest.TestCase):

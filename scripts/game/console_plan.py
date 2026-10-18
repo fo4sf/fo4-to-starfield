@@ -137,6 +137,7 @@ def _after(text, needle, start=0):
 
 
 VALUE_RE = re.compile(r"\s*>\s*>\s*(NOT\s*FOUND|'[^']*'|-?\d+(?:[.,]\d+)?)", re.I)
+SPEED_RE = re.compile(r"\s*>\s*>\s*(-?\d+(?:[.,]\d+)?)")          # numbers only: a speedmult is never a string
 
 
 def reply(cmd, ocr):
@@ -168,13 +169,15 @@ def reply(cmd, ocr):
                 ("" if echo is not None else " (echo not read)")}
     if cmd == SPEEDMULT_GET:
         # "GetActorValue: SpeedMult >> 100.00" (supported hypothesis: the form Fallout 4 and Skyrim print, not yet
-        # seen in a Starfield capture); the number after ">>" behind the actor value's name, read after the echo
+        # seen in a Starfield capture); a number after ">>" behind the actor value's name, read only after the
+        # command's echo (text without the echo may be an earlier command's reply still on the console)
+        if echo is None:
+            return {"status": "unread", "value": None, "note": "echo not read"}
         at = _after(ocr, "SpeedMult >", start)
-        v = VALUE_RE.match(ocr, at - 1) if at is not None else None
-        if v and not re.fullmatch(r"NOT\s*FOUND", v.group(1), re.I):
+        v = SPEED_RE.match(ocr, at - 1) if at is not None else None
+        if v:
             return {"status": "value", "value": v.group(1).replace(",", "."), "note": ""}
-        return {"status": "unread", "value": None, "note": "no SpeedMult reply read" +
-                ("" if echo is not None else " (echo not read)")}
+        return {"status": "unread", "value": None, "note": "no SpeedMult reply read"}
     if cmd.startswith(("SetLocalTime", "cgf")):
         err = re.search(r"SetLocalTime\s*only\s*works\s*on\s*a\s*planet|Invalid\s*time\s*[-\d.,]*\s*passed", ocr[start:],
                         re.I)
@@ -214,22 +217,35 @@ def summary(test, obs):
 
 def speedmult_condition(test, obs):
     """The run condition of a test whose console_pre reads the speedmult: None when it reads none; else
-    (ok, detail): ok when the LAST read before the travel is the default 100 (within SPEEDMULT_TOL). Every read is
-    named in the detail (the first one, before a reset, is what the save brought). An unread value is not ok: the
-    walk's speed model and its JUMP / STUCK limits assume 100 (docs/terrain/walk-redrocket-sanctuary.md)."""
-    if SPEEDMULT_GET not in (test.get("console_pre") or []):
+    (ok, detail): ok only when every planned speedmult command up to the LAST planned read was typed, in its planned
+    place, and that last read is a number at the default 100 (within SPEEDMULT_TOL). Every read is named in the
+    detail (the first one, before a reset, is what the save brought). A missing, untyped or unread final read is not
+    ok: the walk's speed model and its JUMP / STUCK limits assume 100 (docs/terrain/walk-redrocket-sanctuary.md)."""
+    planned = list(test.get("console_pre") or [])
+    if SPEEDMULT_GET not in planned:
         return None
+    final = max(i for i, c in enumerate(planned) if c == SPEEDMULT_GET)
     got = [x for x in (obs or {}).get("console") or [] if isinstance(x, dict) and x.get("phase") == "pre"]
-    reads = []
-    for x in got:
-        if x.get("cmd") == SPEEDMULT_GET:
-            r = reply(SPEEDMULT_GET, x.get("ocr"))
-            reads.append(float(r["value"]) if r["status"] == "value" else None)
-        elif x.get("cmd") == SPEEDMULT_SET:
+    reads, last = [], None
+    for i, cmd in enumerate(planned[:final + 1]):
+        if cmd not in (SPEEDMULT_GET, SPEEDMULT_SET):
+            continue
+        x = got[i] if i < len(got) else None
+        if x is None or x.get("cmd") != cmd:
+            reads.append("not typed")
+            last = None
+            continue
+        if cmd == SPEEDMULT_SET:
             reads.append("set 100")
-    shown = ", ".join("unread" if r is None else r if isinstance(r, str) else f"{r:g}" for r in reads) or "nothing typed"
-    last = next((r for r in reversed(reads) if not isinstance(r, str)), "none")
-    if last == "none":
+            continue
+        r = reply(SPEEDMULT_GET, x.get("ocr"))
+        try:
+            last = float(r["value"]) if r["status"] == "value" else None
+        except (TypeError, ValueError):
+            last = None
+        reads.append("unread" if last is None else f"{last:g}")
+    shown = ", ".join(reads)
+    if "not typed" in reads:
         return False, f"speedmult not read before the travel ({shown})"
     if last is None:
         return False, f"speedmult unread at the start ({shown})"

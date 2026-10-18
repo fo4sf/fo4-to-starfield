@@ -2127,7 +2127,9 @@ class Controls:
         self.last_sent_tick = self._tick()
         try:
             with open(self.tick_file, "w") as f:
-                f.write(f"{self.last_sent_tick} {time.time():.0f}")       # the tick and when it was written (wall clock)
+                # the tick and when it was written (wall clock, unrounded: a time rounded up and read back at once
+                # looked future-dated to read_tick_file)
+                f.write(f"{self.last_sent_tick} {time.time()!r}")
         except OSError:
             pass
 
