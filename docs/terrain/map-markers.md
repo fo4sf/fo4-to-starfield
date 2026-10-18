@@ -162,6 +162,35 @@ or `LinkShipLandingOverlayMapMarker` in this first change.
 Second PR: add the landing-overlay `XLKR` (`LinkShipLandingOverlayMapMarker` from a pad to the marker) **without**
 swapping the world type. Still no PCM stamp. Claude runs the game.
 
+## Commonwealth markers (Claude-cloud, 2026-10-17, stacked on #296)
+
+Status: **offline, verified by synthetic tests only**; the writer change is not built in the cloud (no .NET there) and
+nothing has run in game.
+
+`make_core64c.py stage` now writes the overlay's `map_markers` into `overlays_params.json`
+(`fo4sf.map_markers.overlay_markers`), and `TerrainOverlays` writes one MapMarker REFR, one `LCSR` MapMarkerRefType row
+and one `LCID` entry per entry, in this order, after every other record:
+
+| Tag | Map name | FO4 source | Position (local m) |
+|---|---|---|---|
+| RedRocket | Red Rocket Truck Stop | building `000211C0` | the COC arrival (`FO4Core_RedRocketSpawnMarker`), as #296 |
+| Sanctuary | Sanctuary Hills | map marker `00072A48` | FO4 position / 70, z = BTD ground |
+| Vault111 | Vault 111 | map marker `0009F272` | FO4 position / 70, z = BTD ground |
+| Concord | Concord | map marker `00082138` | FO4 position / 70, z = BTD ground |
+
+FO4 positions are the ones `make_cw_overlays.py` already uses as probe landmarks (read from Fallout4.esm). A marker less
+than 200 m inside the overlay stops the stage. Without `map_markers` (core64 itself, exp builds) the writer keeps #296's
+single marker at the COC. The first marker keeps #296's EditorID and `formids.json` `map_markers`; all of them are in
+`formids.json` `map_marker_refs` {world: {tag: id}}.
+
+`make_core64c.py check` judges them (`map_marker_problems`): MapMarker NAME, XMRK, persistent, position, one `LCSR` row per
+marker with tail `0xFFFFFFFF`, `LCID`, ids after every other record. It also stops counting the markers against the
+door rules (doors after everything, the persistent cell holds anchor + door markers) and compares core64's Location
+without its `LCSR` / `LCID`: before this, a door build with #296's marker would have failed `check`.
+
+The FO4 map names, the `FNAM` bits (fast travel, discovered) and the `TNAM` icon type stay LC172's (`0x1B`, `0x17`):
+whether the icons show undiscovered, and which icon they draw, is **unresolved** until the in-game check.
+
 ## Acceptance
 
 Claude: scratch overlay from this writer, `coc` Red Rocket, open the planet / overlay map, confirm one icon at the

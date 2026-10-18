@@ -11,8 +11,8 @@
 //                          height range, FNAM = one raw u16 per BTD cell (SW-corner sample), INAM/HNAM alignment
 //   LCTN <world>Location   copy of LC172WorldLocation (3807BE): keyword LocTypeOverlay, parent SSol_PMars_Surface; one
 //                          per overlay (the CK warns when two overlays share a location). Duplicate clears LCSR/LCID
-//                          (LC172's map-marker chain); one MapMarker REFR is restored at the COC after doors/lights
-//                          (docs/terrain/map-markers.md).
+//                          (LC172's map-marker chain); MapMarker REFRs (params "map_markers", else one at the COC)
+//                          are restored after doors/lights (docs/terrain/map-markers.md).
 //   WRLD <world>           copy of LC172World (02DF8C) minus cells/offsets/location; overlay component -> the SFBK;
 //                          object bounds = the BTD; every exterior cell of the BTD (empty), the COC cell with a
 //                          COCMarkerHeading 2 m above the ground, a persistent XMarker anchor in the persistent cell
@@ -994,46 +994,67 @@ if (doorEntries.Count > 0)
                           $"persistent in {persistentCell.FormKey} (over cell ({d.ArrivalCell[0]}, {d.ArrivalCell[1]})) at ({d.ArrivalPos[0]}, {d.ArrivalPos[1]}, {d.ArrivalPos[2]})");
     }
 }
-// One MapMarker per overlay (docs/terrain/map-markers.md): Duplicate LC172's persistent MapMarker REFR 003E5E12
-// so empty XMRK / FNAM 0x1B / TNAM 0x17 stay vanilla; park it at the COC; fill LCSR MapMarkerRefType + LCID
-// that the location Duplicate cleared. New FormIDs after doors/lights so object IDs stay. Skip when the master
-// has no 003E5E12 (synthetic identity fixture) so existing writer tests keep their FormIDs.
+// Map markers (docs/terrain/map-markers.md): Duplicate LC172's persistent MapMarker REFR 003E5E12 so empty XMRK /
+// FNAM 0x1B / TNAM 0x17 stay vanilla; one per entry of the overlay's "map_markers" (make_core64c stage: Red Rocket at
+// the COC, Sanctuary, Vault 111, Concord), else one at the COC; fill LCSR MapMarkerRefType + LCID that the location
+// Duplicate cleared. New FormIDs after doors/lights so object IDs stay, in params order. Skip when the master has no
+// 003E5E12 (synthetic identity fixture) so existing writer tests keep their FormIDs.
 var srcMapMarker = sf.EnumerateMajorRecords<IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey.ID == 0x3E5E12);
 int nMap = 0;
-var mapIds = new Dictionary<string, string>();
+var mapIds = new Dictionary<string, string>();                               // world -> first marker (the COC one)
+var mapRefIds = new Dictionary<string, Dictionary<string, string>>();        // world -> tag -> marker
 if (srcMapMarker == null)
     Console.WriteLine("  map marker: template REFR 003E5E12 missing from the master; skipping");
 else foreach (var (w, o) in worlds)
 {
     var loc = mod.Locations.First(l => l.EditorID == o.GetProperty("location").GetString());
-    var spawn = o.GetProperty("spawn").EnumerateArray().Select(e => e.GetSingle()).ToArray();
-    var spawnCell = o.GetProperty("spawn_cell").EnumerateArray().Select(e => e.GetInt32()).ToArray();
-    var marker = (PlacedObject)srcMapMarker.Duplicate(NewKey());
-    marker.EditorID = w.EditorID + "MapMarker";
-    marker.Position = new P3Float(spawn[0], spawn[1], spawn[2]);
-    marker.Rotation = new P3Float(0, 0, 0);
-    marker.MajorRecordFlagsRaw |= 0xC00;                                     // Persistent 0x400 + Initially Disabled 0x800 (LC172 003E5E12)
-    marker.LinkedReferences?.Clear();                                        // drop LC172's XLKR into a vanilla ref
-    if (marker.MapMarker != null)
-        marker.MapMarker.Name = "Red Rocket";
-    w.TopCell!.Persistent.Add(marker);
-    loc.MasterSpecialReferences ??= new ExtendedList<LocationCellStaticReference>();
-    loc.MasterSpecialReferences.Add(new LocationCellStaticReference
+    var entries = new List<(string Tag, string Name, float[] Pos, int[] Cell)>();
+    if (o.TryGetProperty("map_markers", out var mj) && mj.ValueKind == JsonValueKind.Array)
+        foreach (var m in mj.EnumerateArray())
+            entries.Add((m.GetProperty("tag").GetString()!, m.GetProperty("name").GetString()!,
+                         m.GetProperty("pos").EnumerateArray().Select(e => e.GetSingle()).ToArray(),
+                         m.GetProperty("cell").EnumerateArray().Select(e => e.GetInt32()).ToArray()));
+    else
+        entries.Add(("", "Red Rocket",
+                     o.GetProperty("spawn").EnumerateArray().Select(e => e.GetSingle()).ToArray(),
+                     o.GetProperty("spawn_cell").EnumerateArray().Select(e => e.GetInt32()).ToArray()));
+    var tags = new Dictionary<string, string>();
+    for (int i = 0; i < entries.Count; i++)
     {
-        LocationRefType = new FormLink<ILocationReferenceTypeGetter>(new FormKey(sfEsm, 0x2271F)),  // MapMarkerRefType
-        Marker = new FormLink<IPlacedObjectGetter>(marker.FormKey),
-        Location = new FormLink<IWorldspaceGetter>(w.FormKey),
-        Grid = new P2Int16((short)spawnCell[0], (short)spawnCell[1]),         // Mutagen writes Y then X; Unknown -1 is vanilla 0xFFFFFFFF
-        Unknown = -1,
-    });
-    loc.MasterInitiallyDisabledReferences ??= new ExtendedList<IFormLinkGetter<IPlacedGetter>>();
-    loc.MasterInitiallyDisabledReferences.Add(new FormLink<IPlacedGetter>(marker.FormKey));
-    mapIds[w.EditorID!] = marker.FormKey.ID.ToString("X6");
-    nMap++;
-    Console.WriteLine($"  map marker {marker.EditorID} REFR {marker.FormKey} at ({spawn[0]}, {spawn[1]}, {spawn[2]}) LCSR MapMarkerRefType on {loc.EditorID}");
+        var (tag, name, pos, cell) = entries[i];
+        var marker = (PlacedObject)srcMapMarker.Duplicate(NewKey());
+        marker.EditorID = w.EditorID + "MapMarker" + (i == 0 ? "" : tag);       // the first keeps #296's EditorID
+        marker.Position = new P3Float(pos[0], pos[1], pos[2]);
+        marker.Rotation = new P3Float(0, 0, 0);
+        marker.MajorRecordFlagsRaw |= 0xC00;                                 // Persistent 0x400 + Initially Disabled 0x800 (LC172 003E5E12)
+        marker.LinkedReferences?.Clear();                                    // drop LC172's XLKR into a vanilla ref
+        if (marker.MapMarker != null)
+            marker.MapMarker.Name = name;
+        w.TopCell!.Persistent.Add(marker);
+        loc.MasterSpecialReferences ??= new ExtendedList<LocationCellStaticReference>();
+        loc.MasterSpecialReferences.Add(new LocationCellStaticReference
+        {
+            LocationRefType = new FormLink<ILocationReferenceTypeGetter>(new FormKey(sfEsm, 0x2271F)),  // MapMarkerRefType
+            Marker = new FormLink<IPlacedObjectGetter>(marker.FormKey),
+            Location = new FormLink<IWorldspaceGetter>(w.FormKey),
+            Grid = new P2Int16((short)cell[0], (short)cell[1]),               // Mutagen writes Y then X; Unknown -1 is vanilla 0xFFFFFFFF
+            Unknown = -1,
+        });
+        loc.MasterInitiallyDisabledReferences ??= new ExtendedList<IFormLinkGetter<IPlacedGetter>>();
+        loc.MasterInitiallyDisabledReferences.Add(new FormLink<IPlacedGetter>(marker.FormKey));
+        if (i == 0)
+            mapIds[w.EditorID!] = marker.FormKey.ID.ToString("X6");
+        tags[tag == "" ? "RedRocket" : tag] = marker.FormKey.ID.ToString("X6");
+        nMap++;
+        Console.WriteLine($"  map marker {marker.EditorID} \"{name}\" REFR {marker.FormKey} at ({pos[0]}, {pos[1]}, {pos[2]}) cell ({cell[0]}, {cell[1]}) LCSR MapMarkerRefType on {loc.EditorID}");
+    }
+    mapRefIds[w.EditorID!] = tags;
 }
 if (ids != null && mapIds.Count > 0)
+{
     ids["map_markers"] = mapIds;
+    ids["map_marker_refs"] = mapRefIds;
+}
 if (ids != null)
     File.WriteAllText(Path.Combine(outDir, "formids.json"), JsonSerializer.Serialize(ids));
 mod.ModHeader.Stats.NextFormID = next;
