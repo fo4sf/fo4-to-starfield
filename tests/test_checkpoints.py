@@ -227,6 +227,14 @@ class CheckpointTests(unittest.TestCase):
             self.assertFalse(cache.save("bad.nif", {**result, "fallback_materials": 1}))
             self.assertIsNone(cache.load("bad.nif"))
 
+    def test_changed_mass_scale_cannot_reuse(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = generated(tmp)
+            cache = checkpoints.Checkpoints(tmp, {})
+            cache.save("chair.nif", result)
+            self.assertIsNotNone(cache.load("chair.nif"))
+            self.assertIsNone(checkpoints.Checkpoints(tmp, {"mass_scale": 0.2}).load("chair.nif"))
+
     def test_corrupt_checkpoint_and_escape_are_cache_misses(self):
         with tempfile.TemporaryDirectory() as tmp:
             result, _ = generated(tmp)
