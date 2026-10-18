@@ -1308,3 +1308,26 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   x about -47.4 (capsule 0.35 m before the rail at -47.76), FAIL = x beyond -48. The diagnostic variant
   `after\variant_bit15_cleared` (0x0037, layer kept) tells layer from bit if wanted. The gate then blocks the walkway to
   the exit elevator (1.18 m rail, jumpable with the pack); a swinging gate needs the hinge conversion.
+
+## 2026-10-17 Claude: spike B4, mission anatomy, the Vault 111 exit, grab mass limits (offline)
+- Question: what the cut-down "When Freedom Calls" needs (input to Codex's QUST / DIAL / INFO / PACK design), what
+  Preston adds beyond the converted raider, how FO4 runs the Vault 111 exit, and which grab limits apply to carrying.
+- Method: read-only. The repo's fo4land.Plugin walker and ba2 reader on Fallout4.esm, `Fallout4 - Voices.ba2` (voice
+  files per INFO) and `Fallout4 - Misc.ba2` (call lists of the compiled scripts); Mutagen `ActorRaider fo4-dump` as a
+  cross-check; GMST groups of both ESMs; the setting initializers in both executables; Starfield's vanilla Papyrus
+  sources. Full tables: docs/spikes/B4-mission-anatomy.md.
+- **verified:** the mission is four quests: Min00 001A001C (name, 19 stages, 14 objectives, 20 external aliases),
+  MQ102 0001CC2A (the driver, also the Vault 111 exit), DN092 0001D806 (the fight), DialogueConcordArea 000179F3 (255
+  DIAL, 397 INFO, Preston's 102 lines, the reward of 100 caps and 50 fusion cells). The 7 counted raiders are placed
+  ACHRs in ConcordMuseum01, 4 of them initially disabled. Preston (NPC_ 00019FD9, voice NPCMPrestonGarvey) has 2,421
+  base-game voice files over 2,264 INFOs in 99 quests and no default package list.
+- **verified:** FO4 ends the elevator ride with an automatic load door (Vault111InteriorAutoLoadDoorREF 0001F180, base
+  AutoloadDoorNoText FNAM 0x42, to 000998E3); the cog door's Stage2 is played by MQ03QuestScript on the console's
+  "stage4" animation event. Verdict: GO for a scripted load door in place of the ride and for the cog door as a door
+  rig; NO-GO for B1 on an activator rig.
+- **verified:** neither ESM sets fGrabMaxWeightWalking / Running; both exes default to 100 / 50 (Starfield also
+  fGrabRagdollMaxWeightWalking 200, fZKeyActorMassTheshold 6). **supported hypothesis:** the converted items measured
+  on 13 Oct (10-50 kg) are under the walking limit, so mass alone should not block a walking grab; the owner's
+  SetRigidBodyMass test plus `SetGS fGrabMaxWeightWalking 1000` decides it. No converter change.
+- **unresolved:** Preston's friendly Starfield template; whether quest targets route through our scripted doors; the
+  cog door's clip in game; whether the cut-down quest may force combat (FO4 does, DN092 stages 13 / 76).

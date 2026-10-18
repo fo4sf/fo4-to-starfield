@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from types import SimpleNamespace
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -335,6 +336,25 @@ class BreakerTests(unittest.TestCase):
         done = jload(os.path.join(d, "state.json"))["done"]
         self.assertEqual(sum(v["class"] == "BREAKER" for v in done.values()), 12 - tq.BREAKER)
 
+    def test_an_open_breaker_never_rewrites_a_test_that_ran(self):
+        # #220: with --max-attempts 2 the six first attempts open the breaker; each pending retry was then recorded as
+        # a BREAKER row "not run", attempt 0, which replaced the real INCONCLUSIVE attempt as the test's last row
+        d = tempfile.mkdtemp()
+        make_queue(d, n=tq.BREAKER)
+        r = tq.Runner(d, args(max_attempts=2), ctl=FakeControls(), step=lambda t, o: 0)   # never an obs.json
+        r.session, r.cell, r._ps = True, "C", (lambda *a, **k: (0, ""))
+        r.log = lambda msg: None
+        r.run()
+        st = jload(os.path.join(d, "state.json"))
+        with open(os.path.join(d, "results.jsonl"), encoding="utf-8") as f:
+            rows = [json.loads(x) for x in f if x.strip()]
+        for t in st["done"]:
+            last = [x for x in rows if x["id"] == t][-1]
+            self.assertEqual(st["done"][t]["attempts"], st["attempts"][t], t)
+            self.assertEqual(st["done"][t]["attempts"], last["attempt"], t)
+            self.assertNotEqual(last["class"], "BREAKER", last)
+            self.assertEqual((st["done"][t]["verdict"], st["done"][t]["class"]), (last["verdict"], last["class"]))
+
     def test_a_kind_with_a_verdict_keeps_running(self):
         d = tempfile.mkdtemp()
         make_queue(d, n=10)
@@ -602,6 +622,55 @@ class PlanJsonTests(unittest.TestCase):
         jdump([{"coc": "bad name; quit", "points": []}], os.path.join(d, "plan.json"))
         with self.assertRaises(SystemExit):               # typed into the console: letters, digits, _ only
             tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])
+
+    def test_terrain_points_are_validated(self):
+        # #219: no points, a NaN / missing / non-numeric value are refused at planning, like the other planners
+        d = tempfile.mkdtemp()
+        writef(os.path.join(d, "FO4Port.esm"), b"TES4")
+        out = os.path.join(d, "q")
+        for points in ([], None, ["v0"], [{"label": "v0", "x": 0.0, "y": 0.0, "expect": float("nan")}],
+                       [{"label": "v0", "x": 0.0, "y": 0.0}], [{"label": "v0", "x": 0.0, "y": 0.0, "expect": "high"}]):
+            jdump([{"coc": "FO4CW_X", "points": points, "beyond": {"x": 0.0, "y": 0.0}}], os.path.join(d, "plan.json"))
+            with self.assertRaises(SystemExit, msg=points), mock.patch("builtins.print"):
+                tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])
+        jdump([{"coc": "FO4CW_X", "points": [{"label": "v0", "x": 0, "y": "2", "expect": "15"}]}],
+              os.path.join(d, "plan.json"))
+        with mock.patch("builtins.print"):
+            tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])
+        self.assertEqual(jload(os.path.join(out, "queue.json"))["tests"][0]["points"],
+                         [{"label": "v0", "x": 0.0, "y": 2.0, "expect": 15.0}])
+
+    def test_plan_movable_pins_the_bridge_it_was_given(self):
+        # #218: plan_movable built queue_extras' options without --bridge: no pin, no bridge_reads, no "bridge" need,
+        # and a missing bridge folder was not refused
+        d = tempfile.mkdtemp()
+        writef(os.path.join(d, "FO4Port.esm"), b"TES4")
+        br = os.path.join(d, "bridge")
+        os.makedirs(os.path.join(br, "Data", "Scripts"))
+        writef(os.path.join(br, "FO4SFBridge.esm"), b"plugin")
+        writef(os.path.join(br, "Data", "Scripts", "FO4SF_Bridge.pex"), b"pex")
+        jdump([{"label": "C_burntbook", "travel": "coc QASmoke", "base": "0200CE2A", "mass_kg": 25.0,
+                "spot": [-3.0, 4.0, 0.0]}], os.path.join(d, "plan.json"))
+        out = os.path.join(d, "q")
+        with mock.patch("builtins.print"):
+            tq.main(["plan-movable", "--staging", d, "--exp-dir", d, "--out", out, "--bridge", br])
+        q = jload(os.path.join(out, "queue.json"))
+        self.assertIn("bridge", q)
+        self.assertTrue(q["tests"][0].get("bridge_reads"))
+        self.assertIn("bridge", q.get("needs", []))
+        with self.assertRaises(SystemExit), mock.patch("builtins.print"):
+            tq.main(["plan-movable", "--staging", d, "--exp-dir", d, "--out", out, "--bridge", os.path.join(d, "no")])
+
+    def test_the_terrain_judge_never_passes_a_test_without_usable_points(self):
+        # #219: a queue planned before the check: no points judged PASS on a screenshot alone, a NaN expect passed a
+        # read 400 m below, a string expect raised TypeError
+        d = tempfile.mkdtemp()
+        writef(os.path.join(d, "spawn.png"), b"x" * 2000)
+        for points, reads in (([], []), ([{"label": "v0", "x": 0.0, "y": 0.0, "expect": float("nan")}], ["0 0 -400"]),
+                              ([{"label": "v0", "x": 0.0, "y": 0.0, "expect": "15"}], ["0 0 15"])):
+            test = {"id": "0000_terrain_X", "kind": "terrain", "points": points}
+            obs = {"shot": "spawn.png", "points": [{"read": r} for r in reads]}
+            self.assertEqual(tq.judge(test, obs, d)[:2], ("INCONCLUSIVE", "PLAN"), points)
 
 
 class ExpPackTests(unittest.TestCase):
