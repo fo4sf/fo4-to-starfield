@@ -5,16 +5,20 @@
 //        reads Fallout 4 only: where the Museum of Freedom's front door puts the player outside (the XTEL arrival of
 //        the interior door in ConcordMuseum01 00017DF7 that leads to the Commonwealth), the Concord raiders around it
 //        (placed ACHRs whose base EditorID contains "Raider", enabled at start, within --radius m of that point),
-//        Preston's name (NPC_ 00019FD9) and the Min00 texts the plugin shows (quest name, objectives 10 / 85 / 86).
+//        Preston's name (NPC_ 00019FD9) and the Min00 texts the plugin shows (quest name, objectives 10 / 85 / 86);
+//        and Codsworth's Sanctuary placement (ACHR 0001CA7D of NPC_ 000179FF, in the world's persistent cell).
 //        Positions in metres in the core's frame: FO4 position / 70 (make_core64c.py: "position = FO4 position / 70").
 //   write <Starfield.esm> <FO4TerrainCore.esm> <FO4ActorRaider.esm> <points.json> <out dir> [--plugin FO4SFMission.esm]
-//         [--world FO4Core_Commonwealth] [--no-alias]
+//         [--world FO4Core_Commonwealth] [--no-alias] [--codsworth-body OutpostRobotMiniBotA_Garden] [--no-codsworth]
 //        the plugin: Preston (NPC_, a copy of the raider plugin's calm probe FO4_LvlRaider_Calm under Preston's name,
 //        Essential and Unique), the raiders and Preston as persistent ACHRs in the core world's persistent cell (a
 //        WRLD + persistent CELL override of the core, holding only our references), and the quest FO4SF_Min00
 //        (start game enabled; stages 10 / 20 / 30 / 40 / 200; objectives 10 / 85 / 86) carrying the script
 //        FO4SF_Min00Quest (scripts/mission/FO4SF_Min00Quest.psc) with its properties. --no-alias drops the Preston
 //        reference alias and the objective targets (no quest markers): the fallback when the alias is suspected.
+//        Codsworth (ROADMAP B2 stretch; a Mr. Handy has no Starfield skeleton): a copy of the Starfield robot NPC_
+//        named by --codsworth-body under his name, Essential and Unique, without its factions and scripts, placed
+//        persistent at his Fallout 4 spot in Sanctuary. No dialogue or voice yet. --no-codsworth leaves him out.
 //   check <plugin> <Starfield.esm> <FO4TerrainCore.esm> <FO4ActorRaider.esm> [--no-alias]
 //        reads the plugin back and checks every record and link the script and the quest rely on (exit 1 on a problem).
 //   npcs <plugin.esm> <fo4 | sf> <regex>
@@ -44,7 +48,8 @@ try
     {
         "points" when args.Length >= 3 => Mission.Points(args[1], args[2], Mission.Opt(args, "--radius", 120f), (int)Mission.Opt(args, "--max", 8f)),
         "write" when args.Length >= 6 => Mission.Write(args[1], args[2], args[3], args[4], args[5], Mission.Arg(args, "--plugin", Mission.Plugin),
-                                                       Mission.Arg(args, "--world", Mission.World), !args.Contains("--no-alias")),
+                                                       Mission.Arg(args, "--world", Mission.World), !args.Contains("--no-alias"),
+                                                       args.Contains("--no-codsworth") ? null : Mission.Arg(args, "--codsworth-body", Mission.CodsworthBody)),
         "check" when args.Length >= 5 => Mission.Check(args[1], args[2], args[3], args[4], !args.Contains("--no-alias")),
         "npcs" when args.Length >= 4 => Mission.Npcs(args[1], args[2], args[3]),
         "selftest" when args.Length >= 2 => Mission.SelfTest(args[1]),
@@ -66,6 +71,10 @@ static class Mission
     public const uint CreditsId = 0x00000F;                                // Starfield.esm MISC "Credits"
     public const uint MuseumCell = 0x017DF7, Commonwealth = 0x00003C, PrestonFo4 = 0x019FD9, Min00 = 0x1A001C;
     public const int PrestonAlias = 0;
+    // Codsworth: his FO4 ACHR and NPC_; ours after the raiders' range (0x803 .. 0x80F); the body from the PC's npcs
+    // lookup (Starfield.esm 04297C OutpostRobotMiniBotA_Garden "Garden Mini Bot", MiniBotARace: a hovering robot)
+    public const uint CodsworthFo4Ref = 0x01CA7D, CodsworthFo4Npc = 0x0179FF, CodsworthNpcId = 0x810, CodsworthRefId = 0x811;
+    public const string CodsworthEdid = "FO4_Codsworth", CodsworthBody = "OutpostRobotMiniBotA_Garden";
     // the stages and objectives the script drives (FO4SF_Min00Quest.psc); objective indices are Min00's own
     public static readonly ushort[] Stages = { 10, 20, 30, 40, 200 };
     public static readonly (ushort Index, string Fallback, bool TargetsPreston)[] Objectives =
@@ -195,6 +204,18 @@ static class Mission
             objectives[o.Index.ToString(CultureInfo.InvariantCulture)] =
                 Text(min00?.Objectives.FirstOrDefault(x => x.Index == o.Index)?.DisplayText, o.Fallback);
 
+        object? codsworth = null;
+        if (placed.TryGetValue(new FormKey(fo4Key, CodsworthFo4Ref), out var cw) && cw is F4.IPlacedNpcGetter cn &&
+            cn.Base.FormKey == new FormKey(fo4Key, CodsworthFo4Npc))
+        {
+            cache.TryResolve<F4.INpcGetter>(cn.Base.FormKey, out var cb);
+            codsworth = new Dictionary<string, object?>
+            {
+                ["src"] = $"{cn.FormKey.ID:X6}", ["name"] = Text(cb?.Name, "Codsworth"),
+                ["pos"] = new[] { cn.Position.X / Units, cn.Position.Y / Units, cn.Position.Z / Units },
+                ["rot"] = new[] { cn.Rotation.X, cn.Rotation.Y, cn.Rotation.Z },
+            };
+        }
         var doc = new Dictionary<string, object?>
         {
             ["source"] = Path.GetFileName(fo4Path),
@@ -213,11 +234,13 @@ static class Mission
                 ["pos"] = new[] { r.R.Position.X / Units, r.R.Position.Y / Units, r.R.Position.Z / Units },
                 ["rot"] = new[] { r.R.Rotation.X, r.R.Rotation.Y, r.R.Rotation.Z },
             }).ToList(),
+            ["codsworth"] = codsworth,
         };
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPath))!);
         File.WriteAllText(outPath, JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true }));
         Console.WriteLine($"wrote {outPath}: museum door {front.FormKey.ID:X6} -> arrival ({F(ax)}, {F(ay)}, {F(az)}) m; " +
-                          $"{raiders.Count} raider(s): " + string.Join(", ", raiders.Select(r => $"{r.R.FormKey.ID:X6} {r.R.EditorID} {r.BaseEdid} {F(r.D)} m")));
+                          $"{raiders.Count} raider(s): " + string.Join(", ", raiders.Select(r => $"{r.R.FormKey.ID:X6} {r.R.EditorID} {r.BaseEdid} {F(r.D)} m")) +
+                          (codsworth is null ? "; no Codsworth ACHR 01CA7D" : $"; Codsworth {CodsworthFo4Ref:X6}"));
         return 0;
     }
 
@@ -265,7 +288,7 @@ static class Mission
     static float[] Floats(JsonElement e) => e.EnumerateArray().Select(x => x.GetSingle()).ToArray();
 
     public static int Write(string sfPath, string corePath, string raiderPath, string pointsPath, string outDir, string plugin,
-                            string worldEdid, bool alias)
+                            string worldEdid, bool alias, string? codsworthBody = CodsworthBody)
     {
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
         using var m = Open(sfPath, corePath, raiderPath);
@@ -318,6 +341,24 @@ static class Mission
         uint next = FirstRaiderRefId;
         foreach (var r in pts.GetProperty("raiders").EnumerateArray())
             raiderRefs.Add(Ach(next++, raiderNpc.FormKey, $"FO4SF_Min00_Raider_{r.GetProperty("src").GetString()}", r));
+        if (next > CodsworthNpcId) throw new Refusal($"{raiderRefs.Count} raiders overrun 0x{CodsworthNpcId:X} (Codsworth's id)");
+        SF.Npc? cods = null;
+        SF.PlacedNpc? codsRef = null;
+        if (codsworthBody is not null)
+        {
+            if (!pts.TryGetProperty("codsworth", out var cj) || cj.ValueKind != JsonValueKind.Object)
+                throw new Refusal("points.json has no codsworth (rerun points, or write --no-codsworth)");
+            var body = m.Sf.Npcs.FirstOrDefault(n => n.EditorID == codsworthBody)
+                       ?? throw new Refusal($"Starfield.esm has no NPC_ {codsworthBody} (the Codsworth body)");
+            cods = (SF.Npc)body.Duplicate(new FormKey(modKey, CodsworthNpcId));
+            cods.EditorID = CodsworthEdid;
+            cods.Name = cj.GetProperty("name").GetString();
+            cods.Flags = (cods.Flags | SF.Npc.Flag.Essential | SF.Npc.Flag.Unique) & ~SF.Npc.Flag.Respawn;
+            cods.Factions.Clear();                                          // nothing makes him hostile or an outpost worker
+            cods.VirtualMachineAdapter = null;                              // the outpost bot's scripts expect an outpost
+            mod.Npcs.Add(cods);
+            codsRef = Ach(CodsworthRefId, cods.FormKey, "FO4SF_CodsworthREF", cj);
+        }
         mod.Worldspaces.Add(w);
 
         // the quest
@@ -362,7 +403,7 @@ static class Mission
         quest.VirtualMachineAdapter.Scripts.Add(script);
         mod.Quests.Add(quest);
 
-        mod.ModHeader.Stats.NextFormID = next;
+        mod.ModHeader.Stats.NextFormID = cods is null ? next : CodsworthRefId + 1;
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, plugin);
         var lo = new[] { SfEsm, m.Core.ModKey, m.Raider.ModKey };
@@ -371,7 +412,9 @@ static class Mission
         Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): QUST {QuestEdid} {quest.FormKey} \"{quest.Name}\" " +
                           $"({Stages.Length} stages, {quest.Objectives.Count} objectives, {(alias ? "alias PrestonGarvey" : "no alias")}); " +
                           $"NPC_ {PrestonEdid} {npc.FormKey} \"{npc.Name}\"; ACHR Preston {prestonRef.FormKey} at {Show(prestonRef.Position)}; " +
-                          $"{raiderRefs.Count} raider ACHR(s) of {raiderNpc.EditorID}; WRLD {w.EditorID} {w.FormKey} persistent CELL {cell.FormKey} overridden");
+                          $"{raiderRefs.Count} raider ACHR(s) of {raiderNpc.EditorID}; " +
+                          (cods is null ? "no Codsworth; " : $"NPC_ {CodsworthEdid} {cods.FormKey} \"{cods.Name}\" body {codsworthBody}, ACHR {codsRef!.FormKey} at {Show(codsRef.Position)}; ") +
+                          $"WRLD {w.EditorID} {w.FormKey} persistent CELL {cell.FormKey} overridden");
         return 0;
     }
 
@@ -411,7 +454,19 @@ static class Mission
         }
         var preston = refs.FirstOrDefault(r => r.FormKey.ID == PrestonRefId);
         Need(preston is not null && preston.Base.FormKey == npc?.FormKey, "ACHR 0x802 is not Preston");
-        var raiders = refs.Where(r => r.FormKey.ID >= FirstRaiderRefId).ToList();
+        var raiders = refs.Where(r => r.FormKey.ID >= FirstRaiderRefId && r.FormKey.ID < CodsworthNpcId).ToList();
+        var cods = plug.Npcs.FirstOrDefault(n => n.FormKey == new FormKey(key, CodsworthNpcId));
+        var codsRef = refs.FirstOrDefault(r => r.FormKey.ID == CodsworthRefId);
+        if (cods is not null || codsRef is not null)
+        {
+            Console.WriteLine($"  NPC_ {cods?.EditorID} \"{cods?.Name?.String}\" race {cods?.Race.FormKey} factions {cods?.Factions.Count} scripts {(cods?.VirtualMachineAdapter is null ? 0 : 1)}");
+            Need(cods is { EditorID: CodsworthEdid } && cods.Flags.HasFlag(SF.Npc.Flag.Essential) && cods.Factions.Count == 0 &&
+                 cods.VirtualMachineAdapter is null && !string.IsNullOrWhiteSpace(cods.Name?.String),
+                 "NPC_ 0x810 is not an essential, named FO4_Codsworth without factions and scripts");
+            Need(cods is not null && m.Cache.TryResolve<SF.IRaceGetter>(cods.Race.FormKey, out _), "Codsworth's race does not resolve");
+            Need(codsRef is not null && codsRef.Base.FormKey == cods?.FormKey, "ACHR 0x811 is not Codsworth");
+        }
+        Need(refs.All(r => r.FormKey.ID < CodsworthNpcId || r.FormKey.ID == CodsworthRefId), "an ACHR outside Preston, the raiders and Codsworth");
         Need(raiders.Count > 0 && raiders.All(r => r.Base.FormKey == new FormKey(m.Raider.ModKey, RaiderId)), "no raider ACHR on FO4_LvlRaider");
 
         var q = plug.Quests.FirstOrDefault(x => x.FormKey == new FormKey(key, QuestId));
@@ -460,6 +515,16 @@ static class Mission
         var sf = new SF.StarfieldMod(SfEsm, rel);
         sf.ModHeader.Flags |= SF.StarfieldModHeader.HeaderFlag.Master;
         sf.MiscItems.Add(new SF.MiscItem(new FormKey(SfEsm, CreditsId), rel) { EditorID = "Credits" });
+        // the Codsworth body: a robot with a race, a faction and a script, which the copy must drop (race kept)
+        var race = new SF.Race(new FormKey(SfEsm, 0x900), rel) { EditorID = "MiniBotARace" };
+        sf.Races.Add(race);
+        var faction = new SF.Faction(new FormKey(SfEsm, 0x901), rel) { EditorID = "OutpostFaction" };
+        sf.Factions.Add(faction);
+        var bot = new SF.Npc(new FormKey(SfEsm, 0x902), rel) { EditorID = CodsworthBody, Name = "Garden Mini Bot", Race = new FormLink<SF.IRaceGetter>(race.FormKey) };
+        bot.Factions.Add(new SF.RankPlacement { Faction = new FormLink<SF.IFactionGetter>(faction.FormKey), Rank = 0 });
+        bot.VirtualMachineAdapter = new SF.VirtualMachineAdapter { Version = 6, ObjectFormat = 2 };
+        bot.VirtualMachineAdapter.Scripts.Add(new SF.ScriptEntry { Name = "OutpostBotScript" });
+        sf.Npcs.Add(bot);
         sf.ModHeader.Stats.NextFormID = 0x800;
         var sfPath = Path.Combine(dir, "Starfield.esm");
         sf.BeginWrite.ToPath(sfPath).WithNoLoadOrder().NoCheckIfLowerRangeDisallowed().Write();
@@ -490,7 +555,8 @@ static class Mission
          "objectives": {"10": "Find the Last Minutemen", "85": "Kill the Raiders", "86": "Talk to Preston Garvey"},
          "preston": {"src": "01E2EA:XTEL", "pos": [-880.5, 1050.25, 90.0], "rot": [0, 0, 1.5]},
          "raiders": [{"src": "046458", "pos": [-829.06, 1008.31, 88.09], "rot": [0, 0, 0.5]},
-                     {"src": "046459", "pos": [-835.0, 1012.0, 88.5], "rot": [0, 0, 0.0]}]}
+                     {"src": "046459", "pos": [-835.0, 1012.0, 88.5], "rot": [0, 0, 0.0]}],
+         "codsworth": {"src": "01CA7D", "name": "Codsworth", "pos": [-1146.709, 1293.837, 111.734], "rot": [0, 0, 2.356]}}
         """);
         var outDir = Path.Combine(dir, "out");
         foreach (var alias in new[] { true, false })
@@ -499,6 +565,12 @@ static class Mission
             int rc = Write(sfPath, corePath, raiderPath, pointsPath, o, Plugin, World, alias);
             if (rc != 0) return rc;
             rc = Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, alias);
+            if (rc != 0) return rc;
+        }
+        {   // the fallback without Codsworth still writes and checks
+            var o = Path.Combine(outDir, "nocodsworth");
+            int rc = Write(sfPath, corePath, raiderPath, pointsPath, o, Plugin, World, true, null);
+            if (rc == 0) rc = Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, true);
             if (rc != 0) return rc;
         }
         if (StripTokens("Kill the Raiders (<Global=MQ102FirstRaiderCount>/<Global=MQ102FirstRaiderTotal>)") != "Kill the Raiders")

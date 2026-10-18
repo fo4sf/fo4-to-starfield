@@ -13,6 +13,8 @@ offline on synthetic masters only; not yet run on the real game files or in game
 | NPC_ `FO4_PrestonGarvey` 0x801 | the raider plugin's calm probe (no factions, Spacer template) under Preston's Fallout 4 name, Essential, Unique: Preston's identity on a Starfield stand-in body, as ROADMAP B2 allows while the face pipeline is open |
 | ACHR 0x802 | Preston, at the point where Fallout 4 puts the player outside the Museum of Freedom's front door |
 | ACHR 0x803 on | up to 8 raiders (FO4_LvlRaider) at Fallout 4's own Concord positions: the enabled placed raiders within 120 m of that door, without the dead-body loot placements (Loot_Corpse*, Starts Dead) |
+| NPC_ `FO4_Codsworth` 0x810 | Codsworth (ROADMAP B2 stretch): a copy of Starfield's `OutpostRobotMiniBotA_Garden` (04297C, "Garden Mini Bot", MiniBotARace, a hovering robot) under his Fallout 4 name, Essential, Unique, without its factions and scripts; `write --codsworth-body EDID` picks another body, `--no-codsworth` leaves him out |
+| ACHR 0x811 | Codsworth at Fallout 4's own Sanctuary placement, ACHR 01CA7D of NPC_ 0179FF: (-1146.709, 1293.837, 111.734) m, rot z 2.356 |
 | WRLD + CELL override | the core world `FO4Core_Commonwealth` and its persistent cell, holding only the ACHRs above |
 
 Positions are Fallout 4's divided by 70, the core's frame (make_core64c.py). Because the plugin copies the core's world
@@ -43,6 +45,17 @@ summarises it (exit 0 when stage 200 was reached).
 - **Unresolved:** whether the engine fills the alias and shows the markers from these records; whether persistent
   actors added to the core's persistent cell by a later plugin load there; the quest flags (StartGameEnabled,
   RunOnce, DisplaysInHud) were chosen, not copied from a vanilla quest.
+
+## Codsworth (2026-10-18)
+
+The owner asked for a Codsworth test. A Mr. Handy has no Starfield skeleton (ROADMAP B2), so the first one is a
+Starfield robot body under his name at his own spot. **Verified** by `dotnet/Mission npcs` on the PC (read only):
+Fallout4.esm NPC_ 0179FF `Codsworth` (HandyRace) has one placed ACHR, 01CA7D, in the Commonwealth's persistent cell
+at the core-frame position above (about 30 m from the walk route's Sanctuary goal); Starfield.esm has no Mr. Handy
+(the robot races are ModelARace, ModelSRace and MiniBotARace). The Garden Mini Bot was chosen as the closest look (a
+small hovering robot, not a companion with quests like Vasco). **Unresolved:** whether the bot's AI packages and
+template run without its outpost, and how he behaves (sandbox, hover, idle). No dialogue or voice yet (WP-15).
+Check in game: travel to Sanctuary; a robot named Codsworth hovers near his house, does not attack, and stays.
 
 ## Commands (on the PC)
 

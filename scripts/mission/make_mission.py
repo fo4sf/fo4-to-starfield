@@ -121,7 +121,8 @@ def stage(a):
     points = os.path.join(work, "points.json")
     run(tool + ["points", a.fo4, points])
     alias = [] if a.alias else ["--no-alias"]
-    run(tool + ["write", a.starfield, a.core, a.raider, points, out, "--plugin", PLUGIN] + alias)
+    cods = [] if a.codsworth else ["--no-codsworth"]
+    run(tool + ["write", a.starfield, a.core, a.raider, points, out, "--plugin", PLUGIN] + alias + cods)
     check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield, a.core, a.raider] + alias)
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
         f.write(check)
@@ -137,6 +138,7 @@ def stage(a):
     plan = {"kind": "mission", "plugin": PLUGIN, "plugin_sha256": sha256(os.path.join(out, PLUGIN)),
             "script": SCRIPT, "script_sha256": sha256(pex), "alias": a.alias, "masters_sha256": masters, "stages": list(STAGES),
             "raiders": [r["src"] for r in pts["raiders"]], "preston": pts["preston"],
+            "codsworth": pts.get("codsworth") if a.codsworth else None,
             "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_mission.0.log"}
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
@@ -146,6 +148,7 @@ def stage(a):
 {PLUGIN} (sha256 {plan['plugin_sha256']}): QUST FO4SF_Min00 (start game enabled), NPC_ FO4_PrestonGarvey, Preston's ACHR
 at the museum door's outside arrival {pts['preston']['pos']} m, {len(pts['raiders'])} raider ACHRs of FO4_LvlRaider at
 Fallout 4's Concord positions ({raiders}), all persistent in the core world's persistent cell (WRLD override).
+Codsworth: {"NPC_ FO4_Codsworth (a Starfield robot body under his name) at his Sanctuary spot " + str(plan["codsworth"]["pos"]) + " m" if plan["codsworth"] else "left out (--no-codsworth)"}.
 Masters (must match the installed files): {json.dumps(masters)}. Rebuild after any core change.
 Data\\Scripts\\{SCRIPT}.pex compiled from {SCRIPT}.psc (beside this file).
 Install (game closed): exp_install.py holds one experiment, so fold this stage into a copy of the core set and
@@ -293,6 +296,7 @@ def main(argv=None):
     s.add_argument("--compiler", default=os.path.join(STARFIELD, "Tools", "Papyrus Compiler", "PapyrusCompiler.exe"))
     s.add_argument("--content-resources", default=os.path.join(STARFIELD, "Tools", "ContentResources.zip"))
     s.add_argument("--no-alias", dest="alias", action="store_false")
+    s.add_argument("--no-codsworth", dest="codsworth", action="store_false", help="leave Codsworth out of the plugin")
     g = sub.add_parser("log")
     g.add_argument("--file", default=LOG)
     v = sub.add_parser("verify")

@@ -121,12 +121,15 @@ def _write(path, data):
 class StageAndInstallTests(unittest.TestCase):
     """Codex review 5563368986: a failed rebuild keeps the earlier stage; the pins are checked before install."""
 
-    def fake_stage(self, d, out, fail_at=None, during_check=None):
+    def fake_stage(self, d, out, fail_at=None, during_check=None, extra=(), writes=None):
         def fake_run(cmd, cwd=None):
             if "points" in cmd:
                 with open(cmd[-1], "w", encoding="utf-8") as f:
-                    json.dump({"raiders": [{"src": "046458", "dist_m": 18.9}], "preston": {"pos": [1, 2, 3]}}, f)
+                    json.dump({"raiders": [{"src": "046458", "dist_m": 18.9}], "preston": {"pos": [1, 2, 3]},
+                               "codsworth": {"src": "01CA7D", "name": "Codsworth", "pos": [4, 5, 6], "rot": [0, 0, 1]}}, f)
             elif "write" in cmd:
+                if writes is not None:
+                    writes.append(cmd)
                 _write(os.path.join(cmd[cmd.index("write") + 5], make_mission.PLUGIN), b"plugin-" + out.encode())
             elif "check" in cmd:
                 if during_check:
@@ -150,7 +153,25 @@ class StageAndInstallTests(unittest.TestCase):
                 z.writestr("Scripts/Source/Starfield_Papyrus_Flags.flg", "")
         with mock.patch.object(make_mission, "run", side_effect=fake_run):
             make_mission.main(["stage", "--out", out, "--fo4", "f4", "--starfield", "sf", "--core", core,
-                               "--raider", raider, "--compiler", "compiler", "--content-resources", zf])
+                               "--raider", raider, "--compiler", "compiler", "--content-resources", zf, *extra])
+
+    def test_codsworth_is_in_the_plan_by_default(self):
+        with tempfile.TemporaryDirectory() as d:
+            out, writes = os.path.join(d, "m"), []
+            self.fake_stage(d, out, writes=writes)
+            with open(os.path.join(out, "plan.json"), encoding="utf-8") as f:
+                plan = json.load(f)
+            self.assertEqual(plan["codsworth"]["src"], "01CA7D")
+            self.assertNotIn("--no-codsworth", writes[0])
+
+    def test_no_codsworth_reaches_the_writer_and_the_plan(self):
+        with tempfile.TemporaryDirectory() as d:
+            out, writes = os.path.join(d, "m"), []
+            self.fake_stage(d, out, extra=["--no-codsworth"], writes=writes)
+            with open(os.path.join(out, "plan.json"), encoding="utf-8") as f:
+                plan = json.load(f)
+            self.assertIsNone(plan["codsworth"])
+            self.assertIn("--no-codsworth", writes[0])
 
     def snapshot(self, root):
         got = {}
