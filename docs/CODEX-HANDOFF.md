@@ -19,6 +19,8 @@ Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved 
 
 ## Source work / next gates
 
+- Codex PR229 historical core64c Commonwealth door inventory is merged onto main697bc07 for integration review. Planner/source-key tests unchanged fromb9aeae3; 12 focused planner checks pass; independent merge-delta QA pending. Historical registration-first ordering does not override current #32 control or establish native acceptance; newer campaigns require fresh pins.
+
 - Codex light-patch bounds PR315: Claude independently reviewed the source and found no blocking implementation defect. Added the requested second-input-only malformed-LIGH test: both negative cases fail if B validation is removed; 31 focused light/FO4-light checks pass. Earlier selected baseline run had five failed assertions across three methods. Source-only, final test-delta review pending; no brightness-policy/stage/game changes.
 
 - Draft PR2919ffce95: Claude reviewed13062b6 with no blocking script defect. Logging delta sends requested XYZ to normal trace without the bridge quest;16 focused checks/CK compile/assembly/guard/CI pass, delta QA pending. Writer must emit UseDestinationPosition=True plus three floats and update its strict VMAD reader. MoveTo is void; far-placement/boundary, native activation/return/save gates remain. Undeployed. Each private PEX hash pins an artifact, not byte-reproducible compilation.
