@@ -59,6 +59,13 @@ when the player is within 3 km of Preston's merged spot and still cannot reach h
 `moved <who> to ... target ...` and `relocated preston=<m>`. **Unresolved** until the next run: that MoveTo with an
 offset lands an actor in the merged world's cell at that spot.
 
+**Second run, 18 Oct 14:40 local (wfc5b, the 13:32 autosave):** `relocate not needed preston=4061.8`, then status lines
+at the museum street (x -2035 to -2352, y -1397 to -1676) with Preston and the nearest raider 2,839 to 2,944 away, the
+offset's length (2,955); stage stayed 10. **Supported hypothesis:** this time the actors were in the player's world but
+at their local spot, so a finite distance does not mean "already moved". Relocate now decides by position: the player
+within `RelocateRadius` (800) of Preston's position + the offset and Preston farther than `RelocateGap` (1,500). A test
+pins radius < gap < offset length - radius.
+
 ## Codsworth (2026-10-18)
 
 The owner asked for a Codsworth test. A Mr. Handy has no Starfield skeleton (ROADMAP B2), so the first one is a

@@ -139,6 +139,18 @@ class RelocateContractTests(unittest.TestCase):
         code = "\n".join(line.split(";")[0] for line in code.splitlines())
         self.assertIsNone(re.search(r"\d[eE][-+]?\d", code))
 
+    def test_relocate_decides_by_position(self):
+        """In game 18 Oct 14:40 the unmoved actors read a finite distance of about 2,955 (the offset's length), and the
+        "finite means reachable" test skipped the move: the gap must sit between the radius and that length."""
+        with open(PSC, encoding="utf-8") as f:
+            psc = f.read()
+        num = lambda name: float(re.search(r"float Property %s = (-?[\d.]+) Auto Const" % name, psc).group(1))
+        offset = (num("MergeOffsetX") ** 2 + num("MergeOffsetY") ** 2) ** 0.5
+        radius, gap = num("RelocateRadius"), num("RelocateGap")
+        self.assertLess(radius, gap)
+        self.assertLess(gap, offset - radius)
+        self.assertNotIn("1000000000", psc)
+
     def test_codsworth_is_an_optional_property(self):
         with open(PSC, encoding="utf-8") as f:
             psc = f.read()

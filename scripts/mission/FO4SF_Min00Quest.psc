@@ -25,9 +25,13 @@ float Property MergeOffsetY = -2700.0 Auto Const
  at their LOCAL position in the base world (probe (a), 16 Oct; in game 18 Oct: GetDistance to Preston stayed at float max
  with the player standing on his merged spot), so the quest moves its actors over once (Relocate).}
 
-float Property RelocateRadius = 3000.0 Auto Const
-{Relocate when the player is within this many metres of Preston's merged spot (the merged Commonwealth, not another
- world that happens to be loaded).}
+float Property RelocateRadius = 800.0 Auto Const
+{Relocate only when the player is within this many units of Preston's merged spot (his position + the merge offset),
+ so another world that happens to be loaded never triggers it.}
+
+float Property RelocateGap = 1500.0 Auto Const
+{...and Preston is farther than this from the player. Unmoved he reads float max (another world, 18 Oct 13:25) or about
+ 2,955 (the offset's length: same world at his local spot, 18 Oct 14:40); moved he is within RelocateRadius.}
 
 int Property RewardCount = 100 Auto Const
 {Fallout 4 gives 100 caps (DialogueConcordArea stage 40).}
@@ -156,30 +160,24 @@ int Function NextStage(int stage, int dead, int total, bool fighting, bool atPre
 EndFunction
 
 Function Relocate(Actor player)
-{Moves Preston, the raiders and Codsworth from their unmerged local position in the base world to the same spot in the
- merged world the player walks in, once the player is there: each actor's local position + the merge offset, z kept
- (MoveTo onto the player with the difference as the offset, the verified MoveTo form of FO4SF_LoadDoor and FO4SF_Probe).
- Skipped while the actors are already reachable (GetDistance finite) or the player is elsewhere.}
-    if player.GetDistance(Preston) < 1000000000.0         ; another world reads as float max (3.4e38)
-        relocated = true                                  ; same world already: nothing to move
-        Trace("relocate not needed preston=" + player.GetDistance(Preston))
-        return
-    endif
+{Moves Preston, the raiders and Codsworth from their unmerged local position to the same spot in the merged world the
+ player walks in: each actor's local position + the merge offset, z kept (MoveTo onto the player with the difference as
+ the offset, the verified MoveTo form of FO4SF_LoadDoor and FO4SF_Probe). Decided by position, not by GetDistance
+ alone: in game 18 Oct 14:40 the unmoved actors read a finite distance (same world, local spot), and the old
+ "finite means reachable" test skipped the move.}
     float px = player.GetPositionX()
     float py = player.GetPositionY()
     float pz = player.GetPositionZ()
-    float tx = Preston.GetPositionX() + MergeOffsetX
-    float ty = Preston.GetPositionY() + MergeOffsetY
-    float dx = px - tx
-    float dy = py - ty
-    if dx < 0.0
-        dx = -dx
+    float dx = px - (Preston.GetPositionX() + MergeOffsetX)
+    float dy = py - (Preston.GetPositionY() + MergeOffsetY)
+    if dx * dx + dy * dy > RelocateRadius * RelocateRadius
+        return                                            ; not at the museum street yet
     endif
-    if dy < 0.0
-        dy = -dy
-    endif
-    if dx > RelocateRadius || dy > RelocateRadius
-        return                                            ; not in the merged Commonwealth yet
+    float dp = player.GetDistance(Preston)
+    if dp < RelocateGap
+        relocated = true                                  ; already where the player is: nothing to move
+        Trace("relocate not needed preston=" + dp)
+        return
     endif
     MoveOver(Preston, player, px, py, pz, "preston")
     int i = 0
