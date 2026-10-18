@@ -241,8 +241,9 @@ ignored unless `-b` is given, so if this variant misses a breakpoint crash on yo
 project). The filter means it only catches that one exception, not crashes in general.
 
 - **Wait for the dump to finish.** A full dump is large (the owner's was about 17 GB). With `-n 1`, ProcDump writes one
-  dump and then exits, so the dump is complete when ProcDump has exited and the Command Prompt is back. Don't close
-  the window before that; a half-written dump is useless.
+  dump and then exits. The dump is complete only when ProcDump has printed that the dump completed (with the size it
+  wrote) and no write error, and then exited. An exit without that line (after Ctrl+C, an attach or access error, or
+  a full disk) means there is no usable dump. Don't close the window before then; a half-written dump is useless.
 - **Stop watching** with **Ctrl+C** in ProcDump's window. That is ProcDump's graceful stop: it resumes the game if a
   capture is running. Don't kill ProcDump with Task Manager or `taskkill`, which can cut a dump off halfway.
 - **Never upload a dump** to GitHub or anywhere else: it holds the game's memory and can hold personal data. In the report,
