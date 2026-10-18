@@ -974,6 +974,50 @@ def light_base(**kw):
     return b
 
 
+class GarageButtonTests(unittest.TestCase):
+    """Playtest row 21: the two Commonwealth RedRGarageDoor / RedR_ButtonBox pairs (docs/terrain/garage-button.md)."""
+
+    def test_pairs_only_when_both_activators_are_promoted(self):
+        shop = [{"src": "00056331:Fallout4.esm"}, {"src": "00056BBA:Fallout4.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(shop), [
+            {"door": "00056331:Fallout4.esm", "button": "00056BBA:Fallout4.esm"}])
+        self.assertEqual(mk.cluster_garage_buttons(shop + [{"src": "000866C7:Fallout4.esm"},
+                                                           {"src": "000866C0:Fallout4.esm"}]), [
+            {"door": "00056331:Fallout4.esm", "button": "00056BBA:Fallout4.esm"},
+            {"door": "000866C7:Fallout4.esm", "button": "000866C0:Fallout4.esm"}])
+        self.assertEqual(mk.cluster_garage_buttons([{"src": "00056BBA:Fallout4.esm"}]), [])
+        short = [{"src": "056331:Fallout4.esm"}, {"src": "056BBA:Fallout4.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(short), [
+            {"door": "056331:Fallout4.esm", "button": "056BBA:Fallout4.esm"}])
+
+    def test_pairs_keep_plugin_identity(self):
+        foreign = [{"src": "00056331:Other.esm"}, {"src": "00056BBA:Other.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(foreign), [])
+        mixed = [{"src": "00056331:Fallout4.esm"}, {"src": "00056BBA:Other.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(mixed), [])
+        shadow = [{"src": "00056331:Fallout4.esm"}, {"src": "00056BBA:Fallout4.esm"},
+                  {"src": "00056331:Other.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(shadow), [
+            {"door": "00056331:Fallout4.esm", "button": "00056BBA:Fallout4.esm"}])
+        with self.assertRaisesRegex(ValueError, "same FO4 source"):
+            mk.cluster_garage_buttons([{"src": "00056331:Fallout4.esm"}, {"src": "056331:Fallout4.esm"}])
+
+    def test_vmad_linked_ref_keyword_matches_xlkr(self):
+        door = 0x01000DB0
+        vmad = mk.garage_button_vmad()
+        xlkr = mk.garage_button_xlkr(door)
+        props = mk.vmad_patch.decode(vmad)["scripts"][0]["properties"]
+        self.assertEqual(props[0]["name"], mk.GARAGE_SCRIPT_PROPERTY)
+        self.assertEqual(props[0]["value"]["form"], mk.GARAGE_LINK_KEYWORD)
+        self.assertEqual(struct.unpack("<II", xlkr), (mk.GARAGE_LINK_KEYWORD, door))
+        path = os.path.join(root, "dotnet", "TerrainOverlays", "Program.cs")
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn("LinkedRefKeyword", src)
+        self.assertIn("0x5D5E7", src)
+        self.assertIn("DefaultActivateLinkedRefOnActivate", src)
+
+
 class LightTests(unittest.TestCase):
     """Exterior lights (docs/terrain/exterior-lights.md): make_cluster.py lights -> objects.json lights for TerrainOverlays."""
     OV = {"cell_min": -32, "cell_max": 31}
@@ -1609,13 +1653,14 @@ class DoorPromotionTests(unittest.TestCase):
         objects, ids = self.ids()
         own = 1 << 24
         e = objects["doors"][0]
-        vm = mk.vmad_patch.load_door_vmad("FO4Port.esm", 0xDEFF)
+        inside = e["destination"]["arrival"]["pos"]                # the interior marker: the exterior door's position
+        vm = mk.vmad_patch.load_door_vmad("FO4Port.esm", 0xDEFF, inside)
         recs = [{"sig": "ACTI", "fid": own | 0x80D, "flags": 0, "fields": [
                     (b"EDID", b"FO4Core_door_018c8b_fallout4\0"), (b"MODL", e["model"].encode() + b"\0"), (b"FULL", b"Door\0"),
                     (b"PNAM", bytes.fromhex("cc4c3300")), (b"FNAM", b"\0\0"), (b"JNAM", struct.pack("<H", 360))]},
                 {"sig": "REFR", "fid": own | 0x803, "flags": 0, "fields": [
                     (b"VMAD", vm), (b"NAME", struct.pack("<I", own | 0x80D)), (b"DATA", struct.pack("<6f", *e["pos"], *e["rot"]))]},
-                {"sig": "REFR", "fid": own | 0x80C, "flags": 0, "fields": [
+                {"sig": "REFR", "fid": own | 0x80C, "flags": 0x400, "fields": [
                     (b"NAME", struct.pack("<I", mk.XMARKER)), (b"DATA", struct.pack("<6f", *e["arrival"]["pos"], *e["arrival"]["rot"]))]}]
         self.assertEqual(mk.door_record_problems(recs, own, objects, ids), [])
         self.assertEqual(mk.promoted_record_check(recs, own, {"refs": [], "doors": objects["doors"]}, ids), [])
@@ -1632,13 +1677,77 @@ class DoorPromotionTests(unittest.TestCase):
             return mk.door_record_problems(r, own, objects, ids)
         self.assertIn("PNAM", broken(lambda r: r[0]["fields"].__setitem__(3, (b"PNAM", bytes(4))))[0])
         self.assertIn("carries a VMAD", broken(lambda r: r[0]["fields"].append((b"VMAD", vm)))[0])
-        self.assertIn("REFR VMAD", broken(lambda r: r[1]["fields"].__setitem__(0, (b"VMAD", mk.vmad_patch.load_door_vmad("FO4Port.esm", 0xDF00))))[0])
+        self.assertIn("REFR VMAD", broken(lambda r: r[1]["fields"].__setitem__(0, (b"VMAD", mk.vmad_patch.load_door_vmad("FO4Port.esm", 0xDF00, inside))))[0])
+        # the destination position: missing (the two-property door of #272), another point, an axis swapped
+        self.assertIn("REFR VMAD", broken(lambda r: r[1]["fields"].__setitem__(0, (b"VMAD", mk.vmad_patch.load_door_vmad("FO4Port.esm", 0xDEFF))))[0])
+        self.assertIn("REFR VMAD", broken(lambda r: r[1]["fields"].__setitem__(0, (b"VMAD", mk.vmad_patch.load_door_vmad(
+            "FO4Port.esm", 0xDEFF, [inside[0], inside[1], inside[2] + 0.01]))))[0])
+        self.assertIn("REFR VMAD", broken(lambda r: r[1]["fields"].__setitem__(0, (b"VMAD", mk.vmad_patch.load_door_vmad(
+            "FO4Port.esm", 0xDEFF, [inside[1], inside[0], inside[2]]))))[0])
+        self.assertEqual(broken(lambda r: r[1]["fields"].__setitem__(0, (b"VMAD", mk.vmad_patch.load_door_vmad(
+            "FO4Port.esm", 0xDEFF, [inside[0] + 4e-4, inside[1], inside[2]])))), [])          # float32 rounding is tolerated
+        # the six-property shape: the bool UseDestinationPosition must be there and true whenever the floats are
+        props = mk.vmad_patch.load_door_scripts("FO4Port.esm", 0xDEFF, inside)[0]["properties"]
+        self.assertEqual([p["name"] for p in props][2:], ["DestinationX", "DestinationY", "DestinationZ", "UseDestinationPosition"])
+        self.assertEqual(vm, mk.vmad_patch.encode([{"name": "FO4SF_LoadDoor", "status": 0, "properties": props}]))
+
+        def with_props(kept):
+            blob = mk.vmad_patch.encode([{"name": "FO4SF_LoadDoor", "status": 0, "properties": kept}])
+            return broken(lambda r: r[1]["fields"].__setitem__(0, (b"VMAD", blob)))
+        self.assertEqual(with_props(props), [])
+        self.assertEqual(with_props(props[:2] + [props[5]] + props[2:5]), [])             # the script's declaration order
+        for kept in (props[:5],                                                           # floats, no bool: the old writer
+                     props[:5] + [dict(props[5], value=False)],                           # the bool false
+                     props[:2] + [props[5]],                                              # the bool without the floats
+                     props[:2] + [dict(props[5], value=False)] + props[2:5],
+                     props[:5] + [dict(props[5], type=3, value=1)]):                      # the bool an int
+            self.assertIn("REFR VMAD", with_props(kept)[0])
+        self.assertIn("without UseDestinationPosition", with_props(props[:5])[0])
         self.assertIn("REFR VMAD", broken(lambda r: r[1]["fields"].__setitem__(0, (b"VMAD", vm + b"\0")))[0])
         self.assertIn("REFR VMAD", broken(lambda r: r[1]["fields"].pop(0))[0])
         self.assertIn("VMAD not first", broken(lambda r: r[1]["fields"].reverse())[0])
         self.assertIn("not XMarker", broken(lambda r: r[2]["fields"].__setitem__(0, (b"NAME", struct.pack("<I", own | 0x800))))[0])
         self.assertIn("position / rotation", broken(lambda r: r[2]["fields"].append((b"XSCL", struct.pack("<f", 2.0))))[0])
-        self.assertIn("flags", broken(lambda r: r[2].__setitem__("flags", 0x400))[0])
+        self.assertIn("flags", broken(lambda r: r[2].__setitem__("flags", 0))[0])          # temporary: no longer the door's marker
+        self.assertIn("flags", broken(lambda r: r[2].__setitem__("flags", 0xC00))[0])      # persistent but initially disabled
         self.assertIn("no arrival marker", broken(lambda r: r.pop(2))[0])
         self.assertIn("not declared", mk.door_record_problems(recs, own, objects, {"doors": {}})[0])
+
+    def test_marker_groups_and_placement(self):
+        """door_marker_groups reads where a REFR sits (raw group walk); door_marker_placement wants every arrival marker
+        in the persistent children of the world's persistent cell, the anchor's, not in an exterior cell."""
+        vp = mk.vmad_patch
+        own = 1 << 24
+
+        def ref(fid, flags):
+            return vp.record_bytes(b"REFR", own | fid, flags, [(b"NAME", struct.pack("<I", mk.XMARKER)),
+                                                                (b"DATA", struct.pack("<6f", 1, 2, 3, 0, 0, 0))])
+
+        def children(cell, groups):
+            return vp.Group(struct.pack("<I", own | cell), 6, bytes(8),
+                            [vp.Group(struct.pack("<I", own | cell), t, bytes(8), refs) for t, refs in groups])
+        wrld = vp.record_bytes(b"WRLD", own | 0x803, 0, [(b"EDID", b"W\0")])
+        pcell = vp.record_bytes(b"CELL", own | 0x900, 0x400, [(b"DATA", b"\0\0")])
+        xcell = vp.record_bytes(b"CELL", own | 0x901, 0, [(b"XCLC", struct.pack("<iiI", 1, 2, 0))])
+        block = vp.Group(struct.pack("<hh", 0, 0), 4, bytes(8), [vp.Group(struct.pack("<hh", 0, 0), 5, bytes(8), [
+            xcell, children(0x901, [(8, [ref(0x80E, 0x400)]), (9, [ref(0x80D, 0)])])])])
+        world = vp.Group(struct.pack("<I", own | 0x803), 1, bytes(8),
+                         [pcell, children(0x900, [(8, [ref(0x800, 0x400), ref(0x80C, 0x400)]), (9, [ref(0x80F, 0)])]), block])
+        top = vp.Group(b"WRLD", 0, bytes(8), [wrld, world])
+        tes4 = vp.record_bytes(b"TES4", 0, 1, [(b"HEDR", struct.pack("<fII", 0.96, 9, 0x910)), (b"MAST", b"Starfield.esm\0")])
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "Synthetic.esm")
+            with open(path, "wb") as f:
+                f.write(tes4.serialize() + top.serialize())
+            fids = {own | f for f in (0x800, 0x80C, 0x80D, 0x80E, 0x80F)}
+            where = mk.door_marker_groups(path, fids)
+        self.assertEqual(where[own | 0x80C], {"cell": own | 0x900, "grid": None, "group": 8})
+        self.assertEqual(where[own | 0x80D], {"cell": own | 0x901, "grid": (1, 2), "group": 9})
+        self.assertEqual(where[own | 0x80E], {"cell": own | 0x901, "grid": (1, 2), "group": 8})
+        self.assertEqual(mk.door_marker_placement(where, [own | 0x80C], own | 0x800), [])
+        self.assertIn("marker 0100080E", mk.door_marker_placement(where, [own | 0x80E], own | 0x800)[0])  # an exterior cell's persistent group
+        self.assertIn("marker 0100080D", mk.door_marker_placement(where, [own | 0x80D], own | 0x800)[0])  # temporary in an exterior cell
+        self.assertIn("marker 0100080F", mk.door_marker_placement(where, [own | 0x80F], own | 0x800)[0])  # temporary in the persistent cell
+        self.assertIn("marker 01000811", mk.door_marker_placement(where, [own | 0x811], own | 0x800)[0])  # not written
+        self.assertIn("the anchor", mk.door_marker_placement(where, [own | 0x80C], own | 0x80D)[0])       # the anchor in an exterior cell
 

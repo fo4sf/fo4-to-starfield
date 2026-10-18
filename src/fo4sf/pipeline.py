@@ -290,9 +290,9 @@ class Converter:
             textures.texconv(self.texconv, os.path.join(tmp, "d.dds"), tmp, "BC1_UNORM_SRGB", ("-srgbi",))
             if n is not None:
                 nr, ng = _plane_pair(n, tmp, self.texconv)
-            else:                                          # flat: x = y = 0 in signed form
-                nr = np.zeros((4, 4), dtype=np.int8)
-                ng = np.zeros((4, 4), dtype=np.int8)
+            else:                                          # flat: unorm 128 maps to signed 0
+                nr = np.full((4, 4), 128, dtype=np.uint8)
+                ng = np.full((4, 4), 128, dtype=np.uint8)
             textures.write_rg8_snorm(os.path.join(tmp, "n_in.dds"), nr, ng)
             textures.texconv(self.texconv, os.path.join(tmp, "n_in.dds"), tmp, "BC5_SNORM")
             if s is not None:

@@ -361,8 +361,14 @@ def decode_sf_mesh(sf_blob: bytes):
                 return tuple(off[a] + q[a] * scale[a] for a in range(3))
             j, = struct.unpack_from("<H", b, sidx_at + 2 * (first_shared + i - npacked))
             return shared[j]
+        # Match FO4 reader: skip unused 0xDEAD slots and degenerate points (issue #212).
+        # SF sections store numPacked at +88; shared indices start after that. Use a conservative
+        # limit of packed + 255 to reject high sentinel values without needing per-section shared count.
+        limit = npacked + 255
         for k in range(nprim):
             i0, i1, i2, i3 = b[prim_at + 4 * (first_prim + k):prim_at + 4 * (first_prim + k) + 4]
+            if max(i0, i1, i2, i3) >= limit or i0 == i1 == i2 == i3:
+                continue
             tris.append((vert(i0), vert(i1), vert(i2)))
             if i2 != i3:
                 tris.append((vert(i0), vert(i2), vert(i3)))
@@ -967,6 +973,24 @@ def _emit_mesh(w: "_Writer", t: _Tmpl, p: hkpackfile.Packfile, d: int, pos=(0.0,
 # FO4 and Starfield collision layers share indices 0-36 and 38-42, 44-56 (COLL records); 37 and 43 differ.
 FO4_BODY_FILTER = 20                                  # FO4 hknpBodyCinfo collisionFilterInfo (layer in the low 7 bits)
 UNMAPPED_LAYERS = {37: "L_DOORDETECTION", 43: "L_CUSTOMPICK1"}
+L_STATIC, L_CLUTTER_NOCUT = 1, 55
+
+
+def static_filter(filt: int) -> Tuple[int, Optional[str]]:
+    """collisionFilterInfo for a FO4 body written as a STATIC Starfield body: (word, note or None).
+    FO4's word is kept, flag bits included (vanilla statics carry 0x8001 too: the New Atlantis MAST plaza,
+    nathemastbase_01..04, is one 0x8001 body each and is walked on), except layer 55 L_CLUTTER_NOCUT. FO4 puts that
+    layer only on pushable hinged leaves (9 bodies in 63,327 NIFs, all dynamic: V111GearRoomGate01/02, CarHulk01's
+    doors, BollardDest01), and a static body on it is exactly what Starfield's walk-through turnstile leaves carry
+    (na_lobbyoffice_reception_turnstile_01_door01a/b: STAT records placed across lobby walkways, word 0x8037, the only
+    layer-55 bodies among 46,413 vanilla ones). The character controller passes through such a body although the COLL
+    tables pair 55 with 30 (the Vault 111 gear-room gate in integ_1018, playtest row 19; research log 2026-10-17).
+    A leaf we freeze (its joints are not converted) must block like a static gate, so it becomes 1 L_STATIC, written
+    as the layer alone like 35,339 of 35,367 vanilla static L_STATIC bodies."""
+    if (filt & 0x7F) == L_CLUTTER_NOCUT:
+        return L_STATIC, (f"filter {filt:#06x} (layer 55 L_CLUTTER_NOCUT, a pushable leaf in FO4) -> {L_STATIC:#x} "
+                          "L_STATIC: a frozen leaf must block; static layer-55 bodies are walk-through in Starfield")
+    return filt, None
 
 
 def convert_bodies(fo4_blob: bytes, template_blob: bytes, select: Optional[List[int]] = None,
@@ -1045,6 +1069,9 @@ def convert_bodies(fo4_blob: bytes, template_blob: bytes, select: Optional[List[
         if dynamic:
             out.append(_dynamic_body(dynamic_template, p, parts, filt, mass))
             continue
+        static_filt, relayered = static_filter(filt)          # a frozen L_CLUTTER_NOCUT leaf blocks as L_STATIC
+        if relayered and motion is not None and parts:
+            motion.setdefault("relayered", []).append(f"body {k}: {relayered}")
         for kind, obj, R, tr in parts:
             w = _Writer()
             i_psd = w.add(T_PSD, 0x10, t.item_bytes("hknpPhysicsSystemData"), 1)
@@ -1053,7 +1080,7 @@ def convert_bodies(fo4_blob: bytes, template_blob: bytes, select: Optional[List[
             struct.pack_into("<H", body, t.field(T_BODY, "materialId").offset, 0)
             struct.pack_into("<4f", body, t.field(T_BODY, "position").offset, 0.0, 0.0, 0.0, 0.0)
             struct.pack_into("<4f", body, t.field(T_BODY, "orientation").offset, 0.0, 0.0, 0.0, 1.0)
-            struct.pack_into("<I", body, t.field(T_BODY, "collisionFilterInfo").offset, filt)
+            struct.pack_into("<I", body, t.field(T_BODY, "collisionFilterInfo").offset, static_filt)
             i_body = w.add(T_BODY, 0x20, body, 1)
             w.ptr(t.field(T_PSD, "materials").type, i_psd, t.field(T_PSD, "materials").offset, i_mat)
             w.ptr(t.field(T_PSD, "bodyCinfos").type, i_psd, t.field(T_PSD, "bodyCinfos").offset, i_body)
