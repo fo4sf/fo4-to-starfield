@@ -1663,6 +1663,12 @@ so the pinned overlay LCTN has empty `LCSR`/`LCID` and 0 MapMarker refs among 65
 Plan: restore one persistent MapMarker at the Red Rocket COC with LC172 `FNAM`/`TNAM`, one `LCSR` + `LCID`; do not stamp
 a PCM landing overlay. Frontier hang after that restore is **unresolved** (Claude in-game). FO4 `XMRK` **unresolved**.
 Evidence: [docs/terrain/map-markers.md](terrain/map-markers.md), `src/fo4sf/map_markers.py`, `tests/test_map_markers.py`.
+
+Writer (same day, `grok/map-marker-restore`): TerrainOverlays Duplicates LC172's MapMarker `REFR` `003E5E12`, sets it
+persistent+initially-disabled (`0xC00`) at the COC spawn, `FULL` "Red Rocket", `LCSR` MapMarkerRefType + `LCID` with
+Grid from spawn_cell and Unknown -1 (`0xFFFFFFFF` tail). Skips when the master has no `003E5E12`. New FormIDs after
+doors/lights. In-game overlay: Claude.
+
 ## 2026-10-16 (night, Mountain time) - Claude: Step 0 probes and the first scripted door
 
 **Probes (queues door_probe_1017 and door_probe_1017e; bridge_t2; core64i / core64k; Starfield 1.16.244).**
@@ -1765,3 +1771,31 @@ record layout. Both reject before byte/lumens comparison and retain both inputs.
 Removing only B validation causes both cases to fail. All 31 focused light-patch
 and FO4-light tests pass; guard and whitespace checks pass. Production source is
 unchanged; final test-delta review is pending. No native or staging run.
+
+## 2026-10-17: Grok playtest 21/24 (garage button + object LOD)
+
+Row 21: FO4 garage is an ACTI with XAPR to the button, not a DOOR. Writer wires vanilla
+`DefaultActivateLinkedRefOnActivate` + XLKR LinkCustom02 on the two Commonwealth pairs (no new FormIDs).
+Row 24: object LOD research only (`lodsettings` + generated `_lod_0..3`); do not raise the cell buffer.
+[docs/terrain/garage-button.md](terrain/garage-button.md), [docs/terrain/object-lod.md](terrain/object-lod.md).
+
+## 2026-10-17: Codex production garage-link regression (offline)
+
+Added an actual TerrainOverlays writer test for #303. Two synthetic builds, without
+and with the button link, must retain all existing identity-map sections and record
+IDs, changing only the button REFR. Its serialized VMAD must carry edited
+LinkedRefKeyword = Starfield.esm:05D5E7 (alias -1); the one XLKR must use that same
+keyword and the garage REFR in the output plugin, not the ACTI base.
+
+The new test fails against the actual pre-fix 7eaab94 writer because its script has
+no properties, and passes against 0168350. Both runs and synthetic output bytes are
+preserved privately. No game files, stage, installation or native acceptance; the
+garage animation/receiver remains a separate gate. Independent test review pending.
+
+## 2026-10-17: Grok #303 wire-only (clip alias out)
+
+Claude 08:04 on #32: the Opening/Closing clip alias in pipeline.py is P2 inside this change, not a lead
+item; it turns both FO4 garage meshes into passable statics because RedRGarageDoor.nif is skinned and the
+rigger refuses it. Alias, door_motion Opening sequences, door_rig.alias_clips, and the alias test are
+out. Button wiring, docs, and Codex's #319 actual-writer test stay. Garage NIF rig is later, Claude on
+the build side. No deploy, no game.

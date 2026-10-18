@@ -26,6 +26,12 @@ NOT_HINGED_RE = re.compile(r"vault|elevator|garage|gate|hatch|slid", re.I)   # s
 # the wall (Parsons: walked through the entrance door, fell to z -72), so they stay shut and solid with their native
 # collision. The plugin writer (dotnet/PluginSpike) makes them DOOR records and writes the teleport link on both references
 # when both ends are placed in the same build; the per-asset "load_door" entry carries the model bounds for that record.
+# Animated FO4 objects that open like a door but name their clips otherwise (model basename -> {FO4 sequence: door clip}):
+# the Vault 111 cog door VltGearDoor01, an Activator whose quest plays Stage2 (43.3 s: the cog rolls back and aside, the
+# catwalk slides out; docs/spikes/B4-mission-anatomy.md "cog door": GO as a door rig). It gets its own rig with Stage2 as
+# Open and Stage2 backwards as Close; the plugin writer makes it a DOOR as any rigged model. Its skinned shapes cannot ride
+# a rig and are left out (listed in the manifest). If the rig fails it stays the solid static it was, never passable.
+OWN_RIG_ALIASES = {"vltgeardoor01.nif": {"Stage2": "Open"}}
 LOAD_DOOR_RE = re.compile(r"door[^\\/]*load[^\\/]*\.nif$|load[^\\/]*door[^\\/]*\.nif$", re.I)
 # BSLightingShaderProperty flags1 bit 15 (nif.xml Fallout4ShaderPropertyFlags1 "Refraction"): heat shimmer over fires and
 # machines, water streams in sinks and fountains. FO4 draws such a shape as a screen-space distortion; its texture set holds
@@ -138,8 +144,12 @@ class Converter:
                  collision_template: Optional[bytes] = None, prefix: str = "fo4port",
                  no_collision_pattern: str = r"^meshes[\\/](architecture|interiors|scol)[\\/]", rig_doors: bool = False,
                  door_physics_donor: Optional[bytes] = None, sf_mesh_template: Optional[bytes] = None,
-                 dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None):
+                 dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None,
+                 spec_mask_roughness: bool = False):
         self.src, self.staging, self.texconv = src, staging, texconv_exe
+        # spec_mask_roughness: roughness also follows FO4's specular mask (smooth-spec R), not only its gloss (G); off by
+        # default so existing builds and checkpoints keep their textures (owner's Vault 111 floor report, 2026-10-17)
+        self.spec_mask_roughness = spec_mask_roughness
         # door_anim_dll: the external CALUMI.Animation library (not distributed). With it, rigged doors that move more
         # than one part (frozen_door_parts) get their own rig and Open/Close clips instead of the single-hinge template,
         # and sliding / lifting / trapdoor families (NOT_HINGED_RE) get one instead of staying passable.
@@ -367,8 +377,9 @@ class Converter:
             textures.write_rg8_snorm(os.path.join(tmp, "n_in.dds"), nr, ng)
             textures.texconv(self.texconv, os.path.join(tmp, "n_in.dds"), tmp, "BC5_SNORM")
             if s is not None:
-                _sr, sg = _plane_pair(s, tmp, self.texconv)
-                rough = textures.roughness_from_smoothness(sg, smoothness, spec_mult)
+                sr, sg = _plane_pair(s, tmp, self.texconv)
+                rough = textures.roughness_from_smoothness(sg, smoothness, spec_mult,
+                                                           mask=sr if self.spec_mask_roughness else None)
             else:                                          # no spec map: uniformly fairly rough
                 rough = np.full((max(4, nr.shape[0] // 4), max(4, nr.shape[1] // 4)), 190, dtype=np.uint8)
             textures.write_r8(os.path.join(tmp, "r_in.dds"), rough)
@@ -562,10 +573,13 @@ class Converter:
             seq_names = [struct.unpack_from("<i", src.blocks[i], 0)[0] for i in range(len(src.blocks))
                          if src.type_of(i) == "NiControllerSequence"]
             animated = any(0 <= s < len(src.strings) and src.strings[s] == b"Open" for s in seq_names)
+            aliases = OWN_RIG_ALIASES.get(re.split(r"[\\/]", nif_name)[-1].lower())
+            if aliases and not any(0 <= s < len(src.strings) and src.strings[s].decode("latin-1") in aliases for s in seq_names):
+                aliases = None                           # not the model the table means (no such clip)
             use_box = self.collision_template is not None
             coll_report = {}
             files = None
-            if pose is None and self.rig_doors and self.door_physics_donor is not None and DOOR_RE.search(nif_name) and not NOT_HINGED_RE.search(nif_name) and not load_door and nif.door_hinge(src):
+            if pose is None and self.rig_doors and self.door_physics_donor is not None and DOOR_RE.search(nif_name) and not NOT_HINGED_RE.search(nif_name) and not aliases and not load_door and nif.door_hinge(src):
                 # Parts FO4 moves outside the first animated node (second leaf, shutter, other sliding panels) cannot
                 # hang under the template's single hinge: with the CALUMI library such a door gets its own rig and
                 # clips (one track and one keyframed body per part, as vanilla double doors); without it the template
@@ -594,8 +608,9 @@ class Converter:
                             res["door_frozen_parts"] = frozen
                     except Exception as e:               # noqa: BLE001  (falls back to a static door)
                         res["door_error"] = (res["door_error"] + "; " if "door_error" in res else "") + f"{type(e).__name__}: {e}"
-            elif (pose is None and self.rig_doors and self.door_physics_donor is not None and self.door_anim_dll and animated
-                  and not load_door and DOOR_RE.search(nif_name) and NOT_HINGED_RE.search(nif_name)):
+            elif (pose is None and self.rig_doors and self.door_physics_donor is not None and self.door_anim_dll
+                  and (animated or aliases) and not load_door
+                  and (aliases or (DOOR_RE.search(nif_name) and NOT_HINGED_RE.search(nif_name)))):
                 # Sliding, lifting and trapdoor families (vault doors, elevator doors, hatches) cannot hang under the
                 # template's vertical hinge, and no vanilla door moves like them; vanilla sliding doors play the same graph
                 # (SimpleOpenClose01.agx) with their own rig and clips (docs/spikes/sliding-doors.md). So such a door gets
@@ -607,13 +622,13 @@ class Converter:
                     files, res["door"] = convert_static.convert_multipart_door(
                         raw, out_name, mats, lambda plan, scale: native_door.export_files(plan, self.door_anim_dll, scale),
                         collision_template=self.collision_template, leaf_physics_donor=self.door_physics_donor,
-                        rest_pose_check=True)
+                        rest_pose_check=True, aliases=aliases, drop_skinned=bool(aliases))
                 except Exception as e:                   # noqa: BLE001  (falls back to the passable static door)
                     files = None
                     res.pop("door", None)
                     res["door_error"] = f"own rig: {type(e).__name__}: {e}"
             if files is None:
-                if animated and not load_door and DOOR_RE.search(nif_name):
+                if animated and not aliases and not load_door and DOOR_RE.search(nif_name):
                     use_box = False
                     res["door_not_opening"] = "open animation not ported: passable"
                 files = convert_static.convert_static(raw, out_name, material_paths=mats, collision_mode=mode,

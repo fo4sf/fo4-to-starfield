@@ -27,6 +27,19 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
 - Status: bake is for flagged palette materials. Row 15 needs material swaps, not this PR. In-game colour
   after a scratch reconvert **unresolved** (Claude).
 
+## 2026-10-17 Grok: Red Rocket garage button (playtest row 21) and object LOD (row 24)
+- Row 21, **verified**: FO4 button `056BBA` is `Default1StateActivator`; garage `056331` is ACTI `Default2StateActivator`
+  with XAPR→button. core64k promotes both as inert ACTI. Native wire: vanilla `DefaultActivateLinkedRefOnActivate` +
+  XLKR `LinkCustom02` `0005D5E7` (Paradiso `000C7311`; debug ACTI `002CBE61` has the script name and no extra
+  properties). Writer implements that on the two Commonwealth pairs; no new FormIDs, no .pex.
+- Garage animation, **supported**: sequences are Opening/Closing, not Open/Close. **Not in this PR**: treating
+  `Opening` as an animated door in `pipeline.py` turns both FO4 garage meshes into passable statics because
+  `RedRGarageDoor.nif` is skinned and the rigger refuses it. Garage NIF rig is a later Claude build item.
+- Row 24, **verified**: object LOD is `lodsettings/*.lod` (861 of 864 are 20 bytes; 2 are 22, 1 is 16) +
+  `meshes/lod/generated/…_lod_0..3.nif`; core64k has none. `uExterior Cell Buffer=36` is not the product fix. Plan:
+  CK generate on a tiny overlay (Claude; **hypothesis** that CK is the generator); no build now. Docs:
+  [garage-button.md](../terrain/garage-button.md), [object-lod.md](../terrain/object-lod.md).
+
 ## 2026-10-17 Grok: 3D surface map for this testing stage (ROADMAP §3 item 1)
 - Question: what Starfield's surface map draws from, why the Commonwealth overlay would show Mars, and whether an
   overlay world can appear there from our plugin and locally generated files; go/no-go for a 3D map this stage.
@@ -67,8 +80,10 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   planet map. Whether restoring one marker unsticks Frontier travel (a ship location) is **unresolved** until Claude
   runs a scratch overlay.
 - FO4 `XMRK` bytes: **unresolved** (`Fallout4.esm` not on this machine).
-- GO: one persistent MapMarker at the Red Rocket COC, LC172 `FNAM`/`TNAM`, `LCSR` MapMarkerRefType + `LCID`; do not
-  stamp a PCM landing overlay. NOT go: FO4 marker promotion, ship pads, swapping unique overlay for landing overlay.
+- GO, **implemented offline**: TerrainOverlays Duplicates LC172 MapMarker `003E5E12`, parks it at the COC in
+  `TopCell.Persistent`, fills `LCSR` MapMarkerRefType + `LCID`; FormIDs after doors/lights. Do not stamp a PCM landing
+  overlay. NOT go: FO4 marker promotion, ship pads, swapping unique overlay for landing overlay. In-game icon / Frontier
+  hang: **unresolved** until Claude's scratch overlay.
   Doc: [docs/terrain/map-markers.md](../terrain/map-markers.md).
 
 ## 2026-10-16 Claude: posed props in the pinned interiors (owner playtest rows 4 c and 5)

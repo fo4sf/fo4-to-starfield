@@ -246,12 +246,20 @@ def apply_greyscale_palette(index_rgb, palette_rgba, scale=1.0):
     return np.ascontiguousarray(pal[v, u, :3], dtype=np.uint8)
 
 
-def roughness_from_smoothness(g, smoothness: float = 1.0, spec_mult: float = 1.0):
+def roughness_from_smoothness(g, smoothness: float = 1.0, spec_mult: float = 1.0, mask=None):
     """FO4 gloss (0..255, 255 = mirror) -> Starfield roughness (255 = fully rough).
     The material's smoothness scalar multiplies the gloss map (FO4 cave rock: map all 255, smoothness 0.5). Starfield has no
-    specular multiplier, so a weak FO4 specular (spec_mult < 1) is approximated by scaling gloss by sqrt(spec_mult)."""
+    specular multiplier, so a weak FO4 specular (spec_mult < 1) is approximated by scaling gloss by sqrt(spec_mult).
+    mask: optional FO4 specular mask (the smooth-spec R plane, 0..255), applied per pixel the same way (gloss x
+    sqrt(mask / 255)): a dull FO4 surface with high gloss but a low mask (Vault 111 FloorTiles01: R 63, G 178) is not
+    turned into a glossy one. Off unless the caller passes it (Converter spec_mask_roughness)."""
     k = max(0.0, min(1.0, smoothness)) * max(0.0, min(1.0, spec_mult)) ** 0.5
-    return (255 - np.round(g.astype(np.float32) * k)).clip(0, 255).astype(np.uint8)
+    gloss = g.astype(np.float32) * k
+    if mask is not None:
+        if mask.shape != g.shape:
+            raise ValueError(f"specular mask {mask.shape} and gloss {g.shape} differ")
+        gloss = gloss * np.sqrt(mask.astype(np.float32) / 255.0)
+    return (255 - np.round(gloss)).clip(0, 255).astype(np.uint8)
 
 
 def flip_green(g):
