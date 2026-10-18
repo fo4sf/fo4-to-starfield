@@ -4,6 +4,8 @@ import json
 import math
 from pathlib import Path
 import struct
+import subprocess
+import sys
 import tempfile
 import unittest
 import zlib
@@ -150,6 +152,25 @@ class RegistrationProbeTests(unittest.TestCase):
             with patch.object(m, "patch_registration", side_effect=mutate), self.assertRaisesRegex(ValueError, "source changed"):
                 m.stage(source, out)
             self.assertFalse(out.exists())
+
+    def test_cli_keeps_private_report_in_output_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "private-source-sentinel"
+            out = Path(tmp) / "private-output-sentinel"
+            self.fixture(source)
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts/slice/stage_registration_probe.py"),
+                 "--source-stage", str(source), "--out", str(out)],
+                capture_output=True, text=True, encoding="utf-8")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = json.loads((out / "registration-probe.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["source_stage"], str(source.resolve()))
+            self.assertEqual(report["source_pins"]["Core.esm"], m.pin((source / "Core.esm").read_bytes()))
+            self.assertEqual(report["candidate"]["Mars.esm"], m.pin((out / "Mars.esm").read_bytes()))
+            self.assertFalse(report["native_accepted"])
+            self.assertFalse(report["complete_installation"])
+            self.assertEqual(result.stderr, "")
+            self.assertEqual(result.stdout, "Registration candidate staged; inspect registration-probe.json in the requested output directory.\n")
 
     def test_plain_filenames_only(self):
         for name in ("../Core.esm", "sub/Core.esm", "sub\\Core.esm", "C:Core.esm", "..", ""):

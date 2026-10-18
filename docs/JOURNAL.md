@@ -1911,3 +1911,12 @@ out. Button wiring, docs, and Codex's #319 actual-writer test stay. Garage NIF r
 the build side. No deploy, no game.
 
 - **2026-10-18 Codex PR176 main merge:** retained six owned identity functions and109 current-main function bodies (excluding docs). Updated two stale ACTI/workshop tests from expecting punctuation aliases to checking distinct bases/original slots, retaining injected-collision refusal.89 initial Python passes plus two corrected reruns cover91 cases; eight actual-writer tests pass, including new ACTI/TERM/workshop identity, NAME/ref-slot and terminal-menu controls. Six parent-main helper alias counterexamples reproduced. Two existing C# warnings remain. Original failures and synthetic outputs retained privately; no live stage or save migration, independent integration QA pending.
+
+## 2026-10-18: Codex registration-probe CLI keeps private details in its manifest
+
+PR224 readiness review found CodeQL117607375068 on the full staging report printed to stdout.
+An actual CLI subprocess regression reproduced that output. The CLI now prints a constant completion
+message; the private registration-probe.json retains source paths, input/candidate pins and acceptance
+limits. Twelve focused synthetic tests and guard pass. Mainf90961a was merged with both parent
+document additions retained. Peer delta QA and current CI remain required. No existing private
+candidate, source game file, installation or native measurement changed.

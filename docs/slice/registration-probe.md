@@ -19,6 +19,8 @@ python -I scripts/slice/stage_registration_probe.py --source-stage <pinned-core6
 ```
 
 The output is **not a complete installation**: it contains only a replacement companion and a manifest.
+The CLI prints a completion message. Full source paths, input pins and experiment details stay in
+the private `registration-probe.json` file; read that file for preflight and evidence.
 There is no deployment command, runnable game plan or copied full terrain tree. Use a separate new directory;
 existing outputs and baseline-child destinations are refused. The manifest pins the source params, core and
 original companion, resolves the core-owned WRLD identity through the companion master list, and records the
