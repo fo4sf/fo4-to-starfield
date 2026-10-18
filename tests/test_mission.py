@@ -121,7 +121,7 @@ def _write(path, data):
 class StageAndInstallTests(unittest.TestCase):
     """Codex review 5563368986: a failed rebuild keeps the earlier stage; the pins are checked before install."""
 
-    def fake_stage(self, d, out, fail_at=None):
+    def fake_stage(self, d, out, fail_at=None, during_check=None):
         def fake_run(cmd, cwd=None):
             if "points" in cmd:
                 with open(cmd[-1], "w", encoding="utf-8") as f:
@@ -129,6 +129,8 @@ class StageAndInstallTests(unittest.TestCase):
             elif "write" in cmd:
                 _write(os.path.join(cmd[cmd.index("write") + 5], make_mission.PLUGIN), b"plugin-" + out.encode())
             elif "check" in cmd:
+                if during_check:
+                    during_check()
                 if fail_at == "check":
                     sys.exit("check exit 1")
                 return "all checks pass"
@@ -173,6 +175,28 @@ class StageAndInstallTests(unittest.TestCase):
                 self.fake_stage(d, second, fail_at="check")     # a failed rebuild publishes nothing
             self.assertFalse(os.path.exists(second))
             self.assertEqual(self.snapshot(first), before)
+            # the failed attempt is kept, and a retry neither reuses nor deletes it
+            failed = [n for n in os.listdir(d) if n.startswith("wfc2.partial-")]
+            self.assertEqual(len(failed), 1)
+            _write(os.path.join(d, failed[0], "failed-run.txt"), b"evidence")
+            kept = self.snapshot(os.path.join(d, failed[0]))
+            with self.assertRaises(SystemExit):
+                self.fake_stage(d, second, fail_at="check")
+            self.assertEqual(self.snapshot(os.path.join(d, failed[0])), kept)
+            self.assertEqual(len([n for n in os.listdir(d) if n.startswith("wfc2.partial-")]), 2)
+            self.fake_stage(d, second)                          # and a good retry still publishes
+            self.assertTrue(os.path.exists(os.path.join(second, "plan.json")))
+            self.assertEqual(self.snapshot(os.path.join(d, failed[0])), kept)
+
+    def test_master_changed_during_build_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            core = os.path.join(d, "FO4TerrainCore.esm")
+            _write(core, b"core A")
+            out = os.path.join(d, "wfc1")
+            with self.assertRaises(SystemExit) as e:
+                self.fake_stage(d, out, during_check=lambda: _write(core, b"core B"))
+            self.assertIn("changed during the build", str(e.exception))
+            self.assertFalse(os.path.exists(out))
 
     def test_fold_and_verify(self):
         with tempfile.TemporaryDirectory() as d:

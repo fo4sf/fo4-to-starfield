@@ -8,13 +8,15 @@ usage:
       2. dotnet/Mission write + check: FO4SFMission.esm against the given core and raider plugins (offline_check.txt);
       3. the Papyrus compile of FO4SF_Min00Quest.psc against every base script of ContentResources.zip;
       4. plan.json (the plugin's, the script's and the masters' SHA-256) and README.txt.
-      The stage is built in <out>.partial and renamed to <out> only when every step passed; an existing <out> is
-      refused, so a failed rebuild never touches an earlier stage.
+      The masters are hashed BEFORE the build and again before publication: a core or raider plugin that changed
+      during the build is refused. The stage is built in a new <out>.partial-<time>-<pid> folder (never reused or
+      deleted: a failed attempt stays as evidence) and renamed to <out> only when every step passed; an existing
+      <out> is refused, so a failed rebuild never touches an earlier stage.
   python make_mission.py fold --mission <stage dir> --core-dir <core experiment dir> --out <new experiment dir>
                               [--raider <FO4ActorRaider.esm>]
       exp_install.py holds one experiment at a time, so the mission goes in WITH the core set: a copy of the core's
       experiment folder plus FO4SFMission.esm and Data\Scripts\FO4SF_Min00Quest.pex, written only after verify
-      passes on the result (built in <out>.partial; an existing <out> is refused).
+      passes on the result (built in a new <out>.partial-<time>-<pid>, kept on failure; an existing <out> is refused).
   python make_mission.py verify --exp-dir <experiment dir> --plan <stage dir>\plan.json [--raider <FO4ActorRaider.esm>]
       the install preflight: FO4SFMission.esm and the .pex in <exp-dir> match the plan's hashes, FO4TerrainCore.esm
       in <exp-dir> and FO4ActorRaider.esm (in <exp-dir>, else --raider) match the masters the plugin was built
@@ -111,10 +113,8 @@ def stage(a):
     final = os.path.abspath(a.out)
     if os.path.exists(final):
         sys.exit(f"{final} exists: stage into a new folder (an earlier stage is never overwritten)")
-    out = final + ".partial"
-    if os.path.exists(out):
-        shutil.rmtree(out)                                   # a failed earlier attempt of this same new folder
-    os.makedirs(out)
+    masters = pin_masters((a.core, a.raider))            # the bytes the build reads, hashed before it starts
+    out = new_partial(final)
     work = os.path.join(out, "work")
     os.makedirs(work, exist_ok=True)
     tool = ["dotnet", "run", "-c", "Release", "--project", PROJECT, "--"]
@@ -130,7 +130,10 @@ def stage(a):
     shutil.copy(os.path.join(HERE, SCRIPT + ".psc"), os.path.join(out, SCRIPT + ".psc"))
     with open(points, encoding="utf-8") as f:
         pts = json.load(f)
-    masters = {os.path.basename(p): sha256(p) for p in (a.core, a.raider)}
+    drift = [f"{n}: {masters[n]} at the start, {h} now" for n, h in pin_masters((a.core, a.raider)).items()
+             if h != masters[n]]
+    if drift:
+        sys.exit("a master changed during the build, nothing published (" + "; ".join(drift) + f"); attempt kept in {out}")
     plan = {"kind": "mission", "plugin": PLUGIN, "plugin_sha256": sha256(os.path.join(out, PLUGIN)),
             "script": SCRIPT, "script_sha256": sha256(pex), "alias": a.alias, "masters_sha256": masters, "stages": list(STAGES),
             "raiders": [r["src"] for r in pts["raiders"]], "preston": pts["preston"],
@@ -154,6 +157,23 @@ Uninstall: exp_install.py uninstall.
 """)
     os.replace(out, final)
     print(f"staged {final}: {PLUGIN}, {os.path.relpath(pex, out)}, offline_check.txt, plan.json, README.txt")
+
+
+def pin_masters(paths):
+    """{file name: SHA-256} of the masters the plugin is built against."""
+    return {os.path.basename(p): sha256(p) for p in paths}
+
+
+def new_partial(final, create=True):
+    """A new, unique attempt folder beside final (<final>.partial-<UTC time>-<pid>[-n]); never an existing one, so an
+    earlier failed attempt or another writer's folder is never reused or deleted."""
+    base = f"{final}.partial-{datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S')}-{os.getpid()}"
+    out, n = base, 1
+    while os.path.exists(out):
+        out, n = f"{base}-{n}", n + 1
+    if create:
+        os.makedirs(out)
+    return out
 
 
 def verify_dir(exp_dir, plan, raider=None):
@@ -200,23 +220,19 @@ def fold(a):
     if os.path.exists(final):
         sys.exit(f"{final} exists: fold into a new folder")
     plan = load_plan(os.path.join(a.mission, "plan.json"))
-    out = final + ".partial"
-    if os.path.exists(out):
-        shutil.rmtree(out)
-    shutil.copytree(a.core_dir, out)
-    if os.path.exists(os.path.join(out, plan["plugin"])):
-        shutil.rmtree(out)
+    if os.path.exists(os.path.join(a.core_dir, plan["plugin"])):
         sys.exit(f"{a.core_dir} already holds {plan['plugin']}")
+    out = new_partial(final, create=False)
+    shutil.copytree(a.core_dir, out)
     shutil.copy2(os.path.join(a.mission, plan["plugin"]), os.path.join(out, plan["plugin"]))
     os.makedirs(os.path.join(out, "Data", "Scripts"), exist_ok=True)
     shutil.copy2(os.path.join(a.mission, "Data", "Scripts", plan["script"] + ".pex"),
                  os.path.join(out, "Data", "Scripts", plan["script"] + ".pex"))
     problems = verify_dir(out, plan, a.raider)
     if problems:
-        shutil.rmtree(out)
         for p in problems:
             print("FAIL  " + p)
-        sys.exit(f"fold refused: {len(problems)} problem(s); nothing written")
+        sys.exit(f"fold refused: {len(problems)} problem(s); nothing published (attempt kept in {out})")
     os.replace(out, final)
     print(f"folded {final}: {a.core_dir} + {plan['plugin']} + Data\\Scripts\\{plan['script']}.pex; verify ok")
     return 0
