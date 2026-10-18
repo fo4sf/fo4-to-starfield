@@ -178,18 +178,36 @@ def item_identity(it):
     return (key, "", "")
 
 
-def retry_success_nifs(items):
-    names = set()
-    for it in items:
-        ident = item_identity(it)
-        if not ident:
-            continue
-        src = it["source"]
-        if ident[1]:
-            names.add(f"{src}|{ident[1]}:{ident[2]}")
-        else:
-            names.add(src)
-    return names
+def retry_nif_identity(nif):
+    """Canonical identity for a failed_nifs / failure nif string. Pose rows are source|kind:key."""
+    if not isinstance(nif, str) or not nif:
+        return None
+    if "|" in nif:
+        src, rest = nif.split("|", 1)
+        if ":" in rest:
+            kind, pk = rest.split(":", 1)
+            if src and kind and pk != "":
+                return (source_identity(src), kind, str(pk))
+    return (source_identity(nif), "", "")
+
+
+def retry_pending_idents(pending):
+    return {ident for ident in (retry_nif_identity(n) for n in pending) if ident}
+
+
+def retry_pending_sources(pending):
+    """Base NIF sources a retry must convert, including parents of pose-only pending keys."""
+    return {ident[0] for ident in retry_pending_idents(pending)}
+
+
+def _failure_by_identity(rows):
+    out = {}
+    for f in rows:
+        if isinstance(f, dict) and f.get("nif"):
+            ident = retry_nif_identity(f["nif"])
+            if ident:
+                out[ident] = f
+    return out
 
 
 def extend_pending_from_manifest(pending, prior):
@@ -230,21 +248,26 @@ def merge_retry_stage(prior, new_items, new_failures, pending_nifs):
             next_index += 1
             by_id[ident] = len(items)
             items.append(row)
-    succeeded = retry_success_nifs(new_items)
-    now_fail = {f["nif"]: f for f in new_failures if isinstance(f, dict) and f.get("nif")}
-    prior_fail = {f["nif"]: f for f in (prior.get("failures") or []) if isinstance(f, dict) and f.get("nif")}
+    succeeded = {item_identity(it) for it in new_items if item_identity(it)}
+    now_fail = _failure_by_identity(new_failures)
+    prior_fail = _failure_by_identity(prior.get("failures") or [])
     failures = []
     seen = set()
-    for n in pending_nifs:
-        if n in seen:
+    ordered = list(pending_nifs)
+    for f in new_failures:
+        if isinstance(f, dict) and f.get("nif"):
+            ordered.append(f["nif"])
+    for n in ordered:
+        ident = retry_nif_identity(n)
+        if not ident or ident in seen:
             continue
-        seen.add(n)
-        if n in succeeded:
+        seen.add(ident)
+        if ident in succeeded:
             continue
-        if n in now_fail:
-            failures.append(now_fail[n])
-        elif n in prior_fail:
-            failures.append(prior_fail[n])
+        if ident in now_fail:
+            failures.append(now_fail[ident])
+        elif ident in prior_fail:
+            failures.append(prior_fail[ident])
         else:
             failures.append({"nif": n, "reason": "unattempted retry"})
     return items, failures
@@ -342,8 +365,8 @@ def main():
             with open(man_path, encoding="utf-8") as f:
                 prior_manifest = json.load(f)
         pending_retry = extend_pending_from_manifest(pending_retry, prior_manifest or {})
-        failed = set(pending_retry)
-        names = [n for n in names if n in failed]
+        pending_sources = retry_pending_sources(pending_retry)
+        names = [n for n in names if source_identity(n) in pending_sources]
         print(f"  retry-failures: narrowed to {len(names)} previous failures")
     print(f"{len(names)} candidate meshes; converting up to {a.limit}")
     os.makedirs(a.staging, exist_ok=True)
@@ -402,7 +425,12 @@ def main():
         # FO4 ragdoll poses (XRGD): one posed model per distinct pose that moves its model (skeletons lying down)
         by_source = {source_identity(it["source"]).replace("/", "\\"): it for it in items}
         variants, pose_stats = placed_pose.plan(cell["refs"], by_source, lambda name: src.mesh(name))
+        pending_idents = retry_pending_idents(pending_retry) if pending_retry is not None else None
         for v in variants:
+            pose_ident = (source_identity(v.source), "xrgd", str(v.key))
+            base_ident = (source_identity(v.source), "", "")
+            if pending_idents is not None and pose_ident not in pending_idents and base_ident not in pending_idents:
+                continue
             base = by_source[source_identity(v.source).replace("/", "\\")]
             key = f"{v.source}|xrgd:{v.key}"
             r = cache.load(key) if cache else None

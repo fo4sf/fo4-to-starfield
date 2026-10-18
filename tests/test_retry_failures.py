@@ -197,6 +197,91 @@ class RetryFailuresTests(unittest.TestCase):
         self.assertEqual(man["failures"], [])
         self.assertTrue(json.loads((self.staging / "build-state.json").read_text())["complete"])
 
+    def _cell(self, models):
+        cell_path = Path(self.tmp.name) / "cell.json"
+        refs = [{"formkey": f"{i+1:02d}:Fallout4.esm", "type": "Static", "model": m}
+                for i, m in enumerate(models)]
+        cell_path.write_text(json.dumps({"cell": "C", "refs": refs}), encoding="utf-8")
+        return cell_path
+
+    def _plan_for(self, keys):
+        def plan(refs, by_source, mesh):
+            variants = []
+            for it in by_source.values():
+                src = it["source"].replace("\\", "/").lower()
+                key = keys[src]
+                variants.append(SimpleNamespace(
+                    source=it["source"], key=key, suffix="_xrgd_" + key,
+                    refs=["01:Fallout4.esm"], overrides={1: object()}, shift=2.0))
+            return variants, {"posed_refs": len(variants), "variants": len(variants),
+                              "refs_with_ragdoll": len(variants), "unchanged": 0, "single_body": 0}
+        return plan
+
+    def test_retry_keeps_new_pose_failure_when_base_succeeds(self):
+        b = "meshes\\fail1.nif"
+        extra = ["--cell-json", str(self._cell(["fail1.nif"])), "--limit", "10"]
+        plan = self._plan_for({"meshes/fail1.nif": "bbbb222222"})
+
+        def convert_initial(name, pose=None, out_suffix=""):
+            return {"ok": False, "reason": "boom:" + name}
+
+        run_main(self.staging, self.collision, [b], convert_initial, extra=extra, plan=plan)
+        prior = json.loads((self.staging / "manifest.json").read_text())
+        self.assertEqual(prior["items"], [])
+        self.assertEqual([f["nif"] for f in prior["failures"]], [b])
+
+        def convert_retry(name, pose=None, out_suffix=""):
+            if pose is not None:
+                return {"ok": False, "reason": "pose-boom:" + name}
+            return convert_ok(name, pose, out_suffix)
+
+        run_main(self.staging, self.collision, [b], convert_retry,
+                 extra=["--retry-failures", *extra], plan=plan)
+        man = json.loads((self.staging / "manifest.json").read_text())
+        self.assertEqual([it["source"] for it in man["items"]], [b])
+        self.assertNotIn("pose", man["items"][0])
+        self.assertEqual([f["nif"] for f in man["failures"]], [b + "|xrgd:bbbb222222"])
+        summary = json.loads((self.staging / "failure-summary.json").read_text())
+        self.assertEqual(summary["failed_nifs"], [b + "|xrgd:bbbb222222"])
+        self.assertFalse(json.loads((self.staging / "build-state.json").read_text())["complete"])
+
+    def test_pose_only_retry_resolves_base_and_aliases(self):
+        b, c = "meshes\\fail1.nif", "meshes\\fail2.nif"
+        extra = ["--cell-json", str(self._cell(["fail1.nif", "fail2.nif"])), "--limit", "10"]
+        plan = self._plan_for({"meshes/fail1.nif": "bbbb222222", "meshes/fail2.nif": "cccc333333"})
+
+        def convert_initial(name, pose=None, out_suffix=""):
+            if pose is not None:
+                return {"ok": False, "reason": "pose-boom:" + name}
+            return convert_ok(name, pose, out_suffix)
+
+        run_main(self.staging, self.collision, [b, c], convert_initial, extra=extra, plan=plan)
+        prior = json.loads((self.staging / "manifest.json").read_text())
+        self.assertEqual([it["source"] for it in prior["items"]], [b, c])
+        self.assertEqual([f["nif"] for f in prior["failures"]],
+                         [b + "|xrgd:bbbb222222", c + "|xrgd:cccc333333"])
+        prior_ids = [(it["form_index"], it["editor_id"]) for it in prior["items"]]
+        summary_path = self.staging / "failure-summary.json"
+        summary = json.loads(summary_path.read_text())
+        summary["failed_nifs"] = [n.replace("\\", "/") for n in summary["failed_nifs"]]
+        summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+        convert = run_main(self.staging, self.collision, [b, c], convert_ok,
+                           extra=["--retry-failures", *extra], plan=plan)
+        posed = [call for call in convert.call_args_list if call.kwargs.get("pose") is not None]
+        self.assertEqual({call.args[0] for call in posed}, {b, c})
+        man = json.loads((self.staging / "manifest.json").read_text())
+        self.assertEqual(len(man["items"]), 4)
+        self.assertEqual([it["source"] for it in man["items"]], [b, c, b, c])
+        self.assertNotIn("pose", man["items"][0])
+        self.assertNotIn("pose", man["items"][1])
+        self.assertEqual(man["items"][2]["pose"]["key"], "bbbb222222")
+        self.assertEqual(man["items"][3]["pose"]["key"], "cccc333333")
+        self.assertEqual([(it["form_index"], it["editor_id"]) for it in man["items"][:2]], prior_ids)
+        self.assertEqual(man["failures"], [])
+        self.assertEqual(json.loads((self.staging / "failure-summary.json").read_text())["failed_nifs"], [])
+        self.assertTrue(json.loads((self.staging / "build-state.json").read_text())["complete"])
+
 
 if __name__ == "__main__":
     unittest.main()
