@@ -52,6 +52,23 @@ class NifFile:
             self.max_string_len = max(self.max_string_len, len(s))
         return self.strings.index(s)
 
+    def summary(self) -> dict:
+        """Return a short summary of the NIF contents for debugging conversion issues."""
+        type_counts = {}
+        ntypes = len(self.block_types)
+        for idx in self.block_type_index:
+            if 0 <= idx < ntypes:
+                t = self.block_types[idx]
+                type_counts[t] = type_counts.get(t, 0) + 1
+        return {
+            "bs_version": self.bs_version,
+            "blocks": len(self.blocks),
+            "block_types": len(self.block_types),
+            "strings": len(self.strings),
+            "type_counts": type_counts,
+            "footer_bytes": len(self.footer),
+        }
+
 
 def _short(d, p):
     n = d[p]
@@ -209,13 +226,15 @@ def footer_roots(n: NifFile) -> List[int]:
     return roots or ([0] if n.blocks else [])
 
 
-def world_transforms(n: NifFile, placed: bool = False):
+def world_transforms(n: NifFile, placed: bool = False, local_overrides: Optional[dict] = None):
     """block index -> world (t, R, s), composing every NiNode ancestor from the roots down (footer roots or parentless nodes).
 
     placed=True gives the transform a placed reference has in game: the engine sets the scene root's transform from the
     reference, so the root node's own transform stored in the file is not applied (it counts as identity). Checked for
     rotated roots against FO4's precombined physics (docs/ai/research-log.md, 2026-10-10): 89 references of 15 models
-    in 6 cells match only with the root ignored. The default keeps the file's own composition."""
+    in 6 cells match only with the root ignored. The default keeps the file's own composition.
+    local_overrides: {block: (t, R, s)} replaces those blocks' own (parent-relative) transforms, e.g. a placed reference's
+    ragdoll pose (ragdoll_pose.local_overrides); an override on a scene root wins over placed=True."""
     nodes = [i for i in range(len(n.blocks)) if n.type_of(i).endswith("Node") and n.type_of(i) != "BSFaceGenNiNode"]
     parent = {}
     for i in nodes:
@@ -225,12 +244,16 @@ def world_transforms(n: NifFile, placed: bool = False):
         except struct.error:
             pass
     roots = set(footer_roots(n)) if placed else set()
+    overrides = dict(local_overrides or {})
     cache = {}
 
     def world(i, depth=0):
         if i in cache:
             return cache[i]
-        if i in roots:
+        if i in overrides:
+            local = overrides[i]
+            w = local if i not in parent or depth > 64 else _compose(world(parent[i], depth + 1), local)
+        elif i in roots:
             w = IDENTITY_TRANSFORM
         else:
             local = _av_transform(n.blocks[i])
@@ -240,14 +263,14 @@ def world_transforms(n: NifFile, placed: bool = False):
     return world
 
 
-def fo4_trishapes(n: NifFile, placed: bool = False) -> List[Fo4Shape]:
+def fo4_trishapes(n: NifFile, placed: bool = False, local_overrides: Optional[dict] = None) -> List[Fo4Shape]:
     """Decode every BSTriShape / BSSubIndexTriShape / BSMeshLODTriShape block (vertex data and all triangles). The
     returned translation / rotation / scale are the shape's WORLD transform (all parent NiNodes composed). placed=True
     leaves out the scene root's own transform, as the game does for a placed reference, so geometry lands where FO4
-    draws it."""
+    draws it. local_overrides: as world_transforms (shapes under an overridden node follow it)."""
     if n.bs_version != 130:
         raise NifError(f"fo4_trishapes needs BS 130, got {n.bs_version}")
-    world = world_transforms(n, placed)
+    world = world_transforms(n, placed, local_overrides)
     shapes = []
     for i, blk in enumerate(n.blocks):
         if n.type_of(i) not in ("BSTriShape", "BSSubIndexTriShape", "BSMeshLODTriShape"):
