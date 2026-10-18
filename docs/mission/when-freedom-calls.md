@@ -23,7 +23,8 @@ record, it is rebuilt whenever FO4TerrainCore.esm changes; plan.json records the
 A one-second check replaces Fallout 4's triggers, scenes and fragments:
 
 1. Stage 10 at start: "Find the Last Minutemen" (marker on Preston).
-2. A living raider within 60 m of the player that is not fighting is put into combat with the player (Fallout 4's
+2. The fight counts as started as soon as any raider fights or is dead, whoever started it (a quest that starts or
+   reloads mid-fight still advances). A living raider within 60 m of the player that is not fighting is put into combat with the player (Fallout 4's
    DN092 does the same with StartCombat; our raider never engaged unprompted, npc_combat_c1, and engaged when forced,
    npc_combat_c2/c4): stage 20, "Kill the Raiders".
 3. Every raider dead: stage 30, "Talk to Preston Garvey".
@@ -45,9 +46,18 @@ summarises it (exit 0 when stage 200 was reached).
 
 ## Commands (on the PC)
 
+`exp_install.py` holds one experiment at a time, so the mission goes in with the core set: `fold` copies the core's
+experiment folder and adds the plugin and the script; `verify` (run by `fold`, and again before install) refuses a
+plugin, script, core or raider plugin whose SHA-256 differs from the stage's plan.json. A stage or fold never
+overwrites an existing folder; a failed one publishes nothing.
+
 ```powershell
-& $py scripts\mission\make_mission.py stage --out D:\Modding\staging\mission_wfc1 --fo4 $f4\Fallout4.esm `
-      --core <core staging>\FO4TerrainCore.esm --raider $sf\Data\FO4ActorRaider.esm
-& $py scripts\game\exp_install.py install --exp-dir D:\Modding\staging\mission_wfc1 --starfield $sf --plugins FO4SFMission.esm --pack
+& $py scripts\mission\make_mission.py stage --out D:\Modding\staging\mission_wfcN --fo4 $f4\Fallout4.esm `
+      --core <core experiment dir>\FO4TerrainCore.esm --raider $sf\Data\FO4ActorRaider.esm
+& $py scripts\mission\make_mission.py fold --mission D:\Modding\staging\mission_wfcN --core-dir <core experiment dir> `
+      --out <core experiment dir>_mission --raider $sf\Data\FO4ActorRaider.esm
+& $py scripts\mission\make_mission.py verify --exp-dir <core experiment dir>_mission --plan D:\Modding\staging\mission_wfcN\plan.json --raider $sf\Data\FO4ActorRaider.esm
+# the swap, on the owner's words: the core set's usual install with --exp-dir <core experiment dir>_mission and
+# FO4SFMission.esm appended to its --plugins list (--pack), then exp_install.py order
 & $py scripts\mission\make_mission.py log
 ```

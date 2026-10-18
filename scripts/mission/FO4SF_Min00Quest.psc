@@ -73,6 +73,7 @@ Event OnTimer(int aiTimerID)
     Actor player = Game.GetPlayer()
     int stage = GetStage()
     int dead = 0
+    bool fighting = false
     float nearest = -1.0
     int i = 0
     while i < Raiders.Length
@@ -84,35 +85,56 @@ Event OnTimer(int aiTimerID)
             if nearest < 0.0 || d < nearest
                 nearest = d
             endif
-            ; FO4's forced fight: a living raider near the player that is not fighting is put into combat
-            if stage >= 10 && stage < 30 && d < EngageRadius && r.Is3DLoaded() && r.GetCombatState() == 0
+            if r.GetCombatState() != 0
+                fighting = true
+            elseif stage < 30 && d < EngageRadius && r.Is3DLoaded()
+                ; FO4's forced fight: a living raider near the player that is not fighting is put into combat
                 r.StartCombat(player)
+                fighting = true
                 Trace("startcombat raider " + i + " d=" + d)
-                if stage == 10
-                    SetStage(20)
-                    stage = 20
-                endif
             endif
         endif
         i += 1
     endwhile
-    if stage == 20 && dead == Raiders.Length
-        SetStage(30)
-        stage = 30
-    endif
     float dp = player.GetDistance(Preston)
-    if stage == 30 && dp < TalkRadius
-        SetStage(40)
-        stage = 40
-    endif
+    int target = NextStage(stage, dead, Raiders.Length, fighting, dp < TalkRadius)
+    ; every stage on the way is set in order, so each one's objectives and log line happen
+    while stage < target && stage < 40
+        if stage < 20
+            stage = 20
+        elseif stage < 30
+            stage = 30
+        else
+            stage = 40
+        endif
+        SetStage(stage)
+    endwhile
     ticks += 1
     if ticks % 5 == 0
         Trace("status stage=" + stage + " dead=" + dead + "/" + Raiders.Length + " nearest_raider=" + nearest + " preston=" + dp + " pos=" + player.GetPositionX() + " " + player.GetPositionY() + " " + player.GetPositionZ())
     endif
-    if stage < 200
+    if GetStage() < 200                                  ; stage 40 sets 200 (and cancels the timer) in OnStageSet
         StartTimer(1.0, 1)
     endif
 EndEvent
+
+int Function NextStage(int stage, int dead, int total, bool fighting, bool atPreston)
+{The stage the encounter has reached, whoever started the fight (scripts/mission/make_mission.py next_stage is the
+ same rule, tested there): the fight counts as started when a raider fights or is dead, so a quest that starts or
+ reloads mid-fight, or after the raiders died between two checks, still advances; all raiders dead is stage 30;
+ standing at Preston after that is stage 40. Never goes back.}
+    int s = stage
+    if s < 20 && (fighting || dead > 0)
+        s = 20
+    endif
+    if s < 30 && total > 0 && dead == total
+        s = 30
+    endif
+    if s == 30 && atPreston
+        s = 40
+    endif
+    return s
+EndFunction
 
 Function Trace(string msg)
     Debug.TraceUser(LogName, "FO4SF_MISSION rt=" + Utility.GetCurrentRealTime() + " " + msg)

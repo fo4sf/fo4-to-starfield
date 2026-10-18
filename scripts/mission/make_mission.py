@@ -7,13 +7,23 @@ usage:
       1. dotnet/Mission points: Fallout 4's Concord raiders and the museum door's outside arrival (points.json);
       2. dotnet/Mission write + check: FO4SFMission.esm against the given core and raider plugins (offline_check.txt);
       3. the Papyrus compile of FO4SF_Min00Quest.psc against every base script of ContentResources.zip;
-      4. plan.json and README.txt with the masters' SHA-256: the plugin copies the core's world record, so it must be
-         rebuilt whenever FO4TerrainCore.esm changes (install refuses a plan whose core hash differs).
+      4. plan.json (the plugin's, the script's and the masters' SHA-256) and README.txt.
+      The stage is built in <out>.partial and renamed to <out> only when every step passed; an existing <out> is
+      refused, so a failed rebuild never touches an earlier stage.
+  python make_mission.py fold --mission <stage dir> --core-dir <core experiment dir> --out <new experiment dir>
+                              [--raider <FO4ActorRaider.esm>]
+      exp_install.py holds one experiment at a time, so the mission goes in WITH the core set: a copy of the core's
+      experiment folder plus FO4SFMission.esm and Data\Scripts\FO4SF_Min00Quest.pex, written only after verify
+      passes on the result (built in <out>.partial; an existing <out> is refused).
+  python make_mission.py verify --exp-dir <experiment dir> --plan <stage dir>\plan.json [--raider <FO4ActorRaider.esm>]
+      the install preflight: FO4SFMission.esm and the .pex in <exp-dir> match the plan's hashes, FO4TerrainCore.esm
+      in <exp-dir> and FO4ActorRaider.esm (in <exp-dir>, else --raider) match the masters the plugin was built
+      against (it copies the core's world record). Exit 1 on any mismatch or missing file: install only after exit 0.
   python make_mission.py log [--file <fo4sf_mission.0.log>]
       the mission's user log as a summary: stages reached in order, the last status line, the reward; exit 0 when
       stage 200 was reached, 1 otherwise.
-Install (the runner or the install session, game closed):
-  python scripts/game/exp_install.py install --exp-dir <out> --starfield <game> --plugins FO4SFMission.esm --pack
+Install (the install session, game closed, on the owner's words): fold, then verify, then
+  python scripts/game/exp_install.py install --exp-dir <folded dir> --starfield <game> --plugins <the core set's list>,FO4SFMission.esm --pack
 """
 import argparse
 import datetime
@@ -98,8 +108,13 @@ def stage(a):
         props = mandatory_properties(f.read())
     if tuple(props) != PROPERTIES:
         sys.exit(f"{SCRIPT}.psc properties {props} differ from what dotnet/Mission writes {list(PROPERTIES)}")
-    out = os.path.abspath(a.out)
-    os.makedirs(out, exist_ok=True)
+    final = os.path.abspath(a.out)
+    if os.path.exists(final):
+        sys.exit(f"{final} exists: stage into a new folder (an earlier stage is never overwritten)")
+    out = final + ".partial"
+    if os.path.exists(out):
+        shutil.rmtree(out)                                   # a failed earlier attempt of this same new folder
+    os.makedirs(out)
     work = os.path.join(out, "work")
     os.makedirs(work, exist_ok=True)
     tool = ["dotnet", "run", "-c", "Release", "--project", PROJECT, "--"]
@@ -117,7 +132,7 @@ def stage(a):
         pts = json.load(f)
     masters = {os.path.basename(p): sha256(p) for p in (a.core, a.raider)}
     plan = {"kind": "mission", "plugin": PLUGIN, "plugin_sha256": sha256(os.path.join(out, PLUGIN)),
-            "script": SCRIPT, "alias": a.alias, "masters_sha256": masters, "stages": list(STAGES),
+            "script": SCRIPT, "script_sha256": sha256(pex), "alias": a.alias, "masters_sha256": masters, "stages": list(STAGES),
             "raiders": [r["src"] for r in pts["raiders"]], "preston": pts["preston"],
             "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_mission.0.log"}
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
@@ -130,13 +145,95 @@ at the museum door's outside arrival {pts['preston']['pos']} m, {len(pts['raider
 Fallout 4's Concord positions ({raiders}), all persistent in the core world's persistent cell (WRLD override).
 Masters (must match the installed files): {json.dumps(masters)}. Rebuild after any core change.
 Data\\Scripts\\{SCRIPT}.pex compiled from {SCRIPT}.psc (beside this file).
-Install (game closed): python scripts\\game\\exp_install.py install --exp-dir "{out}" --starfield <game> --plugins {PLUGIN} --pack
+Install (game closed): exp_install.py holds one experiment, so fold this stage into a copy of the core set and
+verify it first: python scripts\\mission\\make_mission.py fold --mission "{final}" --core-dir <core experiment dir> --out <new dir>
 Logging needs the [Papyrus] keys of make_bridge.py ini (already set where the bridge runs).
 In game: load a save, walk to Concord. The HUD shows the objectives; the log {plan['log']} gets each stage and a
 status line every 5 s. Read it: python scripts\\mission\\make_mission.py log
 Uninstall: exp_install.py uninstall.
 """)
-    print(f"staged {out}: {PLUGIN}, {os.path.relpath(pex, out)}, offline_check.txt, plan.json, README.txt")
+    os.replace(out, final)
+    print(f"staged {final}: {PLUGIN}, {os.path.relpath(pex, out)}, offline_check.txt, plan.json, README.txt")
+
+
+def verify_dir(exp_dir, plan, raider=None):
+    """Problems (a list of strings, empty when the experiment folder may be installed) of an experiment folder against
+    a mission plan: the plugin and the script are the staged ones, the core and the raider plugin the ones it was
+    built against."""
+    problems = []
+
+    def same(label, path, want):
+        if not os.path.isfile(path):
+            problems.append(f"{label}: {path} missing")
+        elif sha256(path) != want:
+            problems.append(f"{label}: {path} sha256 {sha256(path)} is not the plan's {want}")
+
+    same("plugin", os.path.join(exp_dir, plan["plugin"]), plan["plugin_sha256"])
+    same("script", os.path.join(exp_dir, "Data", "Scripts", plan["script"] + ".pex"), plan["script_sha256"])
+    for name, want in plan["masters_sha256"].items():
+        path = os.path.join(exp_dir, name)
+        if not os.path.isfile(path) and raider and name.lower() == os.path.basename(raider).lower():
+            path = raider
+        same(f"master {name}", path, want)
+    return problems
+
+
+def load_plan(path):
+    with open(path, encoding="utf-8") as f:
+        plan = json.load(f)
+    missing = [k for k in ("plugin", "plugin_sha256", "script", "script_sha256", "masters_sha256") if k not in plan]
+    if missing or plan.get("kind") != "mission":
+        sys.exit(f"{path} is not a mission plan (missing {missing})")
+    return plan
+
+
+def verify(a):
+    problems = verify_dir(a.exp_dir, load_plan(a.plan), a.raider)
+    for p in problems:
+        print("FAIL  " + p)
+    print("verify: ok" if not problems else f"verify: {len(problems)} problem(s); do not install")
+    return 0 if not problems else 1
+
+
+def fold(a):
+    final = os.path.abspath(a.out)
+    if os.path.exists(final):
+        sys.exit(f"{final} exists: fold into a new folder")
+    plan = load_plan(os.path.join(a.mission, "plan.json"))
+    out = final + ".partial"
+    if os.path.exists(out):
+        shutil.rmtree(out)
+    shutil.copytree(a.core_dir, out)
+    if os.path.exists(os.path.join(out, plan["plugin"])):
+        shutil.rmtree(out)
+        sys.exit(f"{a.core_dir} already holds {plan['plugin']}")
+    shutil.copy2(os.path.join(a.mission, plan["plugin"]), os.path.join(out, plan["plugin"]))
+    os.makedirs(os.path.join(out, "Data", "Scripts"), exist_ok=True)
+    shutil.copy2(os.path.join(a.mission, "Data", "Scripts", plan["script"] + ".pex"),
+                 os.path.join(out, "Data", "Scripts", plan["script"] + ".pex"))
+    problems = verify_dir(out, plan, a.raider)
+    if problems:
+        shutil.rmtree(out)
+        for p in problems:
+            print("FAIL  " + p)
+        sys.exit(f"fold refused: {len(problems)} problem(s); nothing written")
+    os.replace(out, final)
+    print(f"folded {final}: {a.core_dir} + {plan['plugin']} + Data\\Scripts\\{plan['script']}.pex; verify ok")
+    return 0
+
+
+def next_stage(stage, dead, total, fighting, at_preston):
+    """The script's NextStage (FO4SF_Min00Quest.psc), the same rule in Python so it can be tested: the fight counts as
+    started when a raider fights or is dead (whoever started it, a reload mid-fight included), all dead is 30,
+    standing at Preston after that is 40; it never goes back."""
+    s = stage
+    if s < 20 and (fighting or dead > 0):
+        s = 20
+    if s < 30 and total > 0 and dead == total:
+        s = 30
+    if s == 30 and at_preston:
+        s = 40
+    return s
 
 
 def summarize(lines):
@@ -182,10 +279,23 @@ def main(argv=None):
     s.add_argument("--no-alias", dest="alias", action="store_false")
     g = sub.add_parser("log")
     g.add_argument("--file", default=LOG)
+    v = sub.add_parser("verify")
+    v.add_argument("--exp-dir", required=True)
+    v.add_argument("--plan", required=True)
+    v.add_argument("--raider", default=None)
+    fo = sub.add_parser("fold")
+    fo.add_argument("--mission", required=True)
+    fo.add_argument("--core-dir", required=True)
+    fo.add_argument("--out", required=True)
+    fo.add_argument("--raider", default=None)
     a = p.parse_args(argv)
     if a.cmd == "stage":
         stage(a)
         return 0
+    if a.cmd == "verify":
+        return verify(a)
+    if a.cmd == "fold":
+        return fold(a)
     return log(a)
 
 
