@@ -7,8 +7,8 @@
     python scripts/convert_batch.py --cell-json <work>/convert_input.json --staging <work>/convert --prefix fo4core
            --max-texture <cap> --types <printed by select> --limit 1000000 --resume  + the usual converter arguments
     python scripts/terrain/make_core64c.py stage --work <work> --core <terrain_core64> --out <terrain_core64c> --sf-esm <Starfield.esm>
-           [--views] [--cluster <cluster.json: "containers", "items", "activators", "terminals", "workshops", "benches",
-           "lights", "doors">] [--navmesh <navmesh.json>]
+           [--views] [--cluster <cluster.json: "containers", "items", "activators", "terminals", "workshops", "flora",
+           "benches", "lights", "doors">] [--navmesh <navmesh.json>]
     python scripts/terrain/make_core64c.py check --work <work> --core <terrain_core64> --out <terrain_core64c>
            [--fo4 <Fallout4.esm>] [--fo4-data <FO4 Data>] [--sf-data <Starfield Data>]
     python scripts/terrain/make_core64c.py verify-data --out <terrain_core64c>
@@ -1148,6 +1148,11 @@ def workshop_edid(base, src):
     return promoted_edid("wkshp", base, src)
 
 
+def flora_edid(base, src):
+    """The shared FLOR's editor id of a harvestable plant: FO4Core_flor_<6 hex>_<plugin> (promoted_edid)."""
+    return promoted_edid("flor", base, src)
+
+
 # Red Rocket garage button -> door (playtest row 21, docs/terrain/garage-button.md). FO4 XAPR is not in the cluster
 # export; these two Commonwealth pairs are the whole set. Matched on (plugin, numeric id), not the hex spelling.
 GARAGE_BUTTON_PAIRS = (
@@ -1435,6 +1440,34 @@ def cluster_workshops(bases, placed, cluster):
     return keep, out
 
 
+FLORA_INGREDIENT = "00260DF2:Starfield.esm"     # OrgCommonNutrient_Seed: FloraMaizeCrop01 PFIG until FO4 mapping
+FLORA_ORGANIC_KW = 0x222E03                     # KYWD FloraTypeOrganic
+FLORA_TEMPLATE = 0xEC886                        # FloraMaizeCrop01
+
+
+def cluster_flora(bases, placed, cluster):
+    """Harvestable plants (docs/terrain/flora.md): the placed references named by cluster["flora"] (make_cluster.py
+    flora: FO4 Flora with a model) leave the STAT placement and become flora entries for TerrainOverlays: one native
+    FLOR per FO4 base (edid FO4Core_flor_<6 hex>_<plugin>, flora_edid) cloned from FloraMaizeCrop01, with the converted
+    model of the reference's base, the entry's name, and PFIG the entry's ingredient (default FLORA_INGREDIENT), in the
+    reference's cell / position / rotation / scale and original reference index. Returns (placed without them, flora);
+    ValueError as promoted_entries, for a name that is not one non-empty line, an ingredient that is not a
+    Starfield.esm formkey, and for two entries of one edid with another name, model or ingredient."""
+    def make(p, e):
+        name, ing = e.get("name"), e.get("ingredient", FLORA_INGREDIENT)
+        if not one_line(name):
+            raise ValueError(f"{p['src']}: flora name {name!r} is not one non-empty line")
+        try:
+            master_fid(ing)
+        except (TypeError, ValueError) as err:
+            raise ValueError(f"{p['src']}: flora ingredient {ing!r} is not a Starfield.esm formkey") from err
+        return {"edid": flora_edid(e.get("base"), p["src"]), "model": bases[p["base"]]["model"], "name": name,
+                "ingredient": ing}
+    keep, out = promoted_entries(placed, cluster, "flora", "flora", make)
+    shared_base_agrees(out, "flora", ("name", "model", "ingredient"))
+    return keep, out
+
+
 def cluster_benches(bases, placed, cluster):
     """Crafting stations (docs/terrain/stations.md): the placed references named by cluster["benches"]
     (make_cluster.py benches: FO4 Furniture with a WBDT bench type and a kind from the bench table) leave the STAT
@@ -1536,18 +1569,18 @@ def door_arrivals_inside(doors, ov):
 
 
 # objects.json / formids.json key, native base record, in the writer's allocation order (CONT, MISC, ACTI, TERM + TMLM,
-# then the workshops' ACTI; the doors' ACTI and arrival markers come last, after the lights); VANILLA_PROMOTED: classes
-# whose REFR binds to a record of the master (no base of our own)
+# then the workshops' ACTI, then flora FLOR; the doors' ACTI and arrival markers come last, after the lights);
+# VANILLA_PROMOTED: classes whose REFR binds to a record of the master (no base of our own)
 PROMOTED = (("containers", "CONT"), ("items", "MISC"), ("activators", "ACTI"), ("terminals", "TERM"), ("workshops", "ACTI"),
-            ("doors", "ACTI"))
+            ("flora", "FLOR"), ("doors", "ACTI"))
 VANILLA_PROMOTED = (("benches", "FURN"),)
 ALL_PROMOTED = PROMOTED + VANILLA_PROMOTED
 APPENDED = ("doors",)               # promoted classes whose bases (and markers) are allocated after everything else
 PROMOTE_FN = {"containers": cluster_containers, "items": cluster_items, "activators": cluster_activators,
-              "terminals": cluster_terminals, "workshops": cluster_workshops, "benches": cluster_benches,
-              "doors": cluster_doors}
+              "terminals": cluster_terminals, "workshops": cluster_workshops, "flora": cluster_flora,
+              "benches": cluster_benches, "doors": cluster_doors}
 SINGULAR = {"containers": "container", "items": "item", "activators": "activator", "terminals": "terminal",
-            "workshops": "workshop", "benches": "bench", "doors": "door"}
+            "workshops": "workshop", "flora": "flora", "benches": "bench", "doors": "door"}
 
 
 def source_key(value):
@@ -1566,8 +1599,8 @@ def master_fid(formkey, masters=("Starfield.esm",)):
 
 
 def cluster_promote(bases, placed, cluster):
-    """--cluster: every promoted class (ALL_PROMOTED: containers, items, activators, terminals, workshops, benches)
-    from one cluster file, each judged on the same unpromoted placement list, so every promoted entry's
+    """--cluster: every promoted class (ALL_PROMOTED: containers, items, activators, terminals, workshops, flora,
+    benches, doors) from one cluster file, each judged on the same unpromoted placement list, so every promoted entry's
     reference_index is its slot in that list whichever class it joins. Returns (placed without every promoted
     reference, {class: entries} for every class). ValueError as the class functions, for a source listed in two
     classes, and for one edid of a class standing for two FO4 sources. Full-source promoted names avoid punctuation
@@ -1747,12 +1780,14 @@ def promoted_record_check(recs, own_prefix, objects, ids, masters=("Starfield.es
                 vw = struct.unpack_from("<if", data) if len(data) >= 8 else None
                 if vw is None or vw[0] != e["value"] or not close(vw[1], e["weight"], 1e-6 * max(1.0, abs(e["weight"]))):
                     problems.append(f"{e['src']}: MISC DATA {vw} != value {e['value']}, weight {e['weight']}")
-            if sig in ("MISC", "ACTI", "TERM") and record_text(overlay_records.field(base, "FULL")) != e["name"]:
+            if sig in ("MISC", "ACTI", "TERM", "FLOR") and record_text(overlay_records.field(base, "FULL")) != e["name"]:
                 problems.append(f"{e['src']}: {sig} name {record_text(overlay_records.field(base, 'FULL'))!r} != {e['name']!r}")
             if sig == "TERM":
                 problems += terminal_menu_problems(by_fid, own_prefix, base, e, v)
             if k == "workshops":
                 problems += workshop_problems(base, e, masters)
+            if k == "flora":
+                problems += flora_problems(base, e, masters)
     problems += door_record_problems(recs, own_prefix, objects, ids)
     return problems
 
@@ -1782,6 +1817,21 @@ def workshop_problems(acti, e, masters=("Starfield.esm",)):
         out.append(f"{e['src']}: ACTI PRPS OutpostBuildAreaRadius {radius} != {e['radius']}")
     if overlay_records.field(acti, "VMAD") is not None:
         out.append(f"{e['src']}: ACTI carries a VMAD (the vanilla pre-placed workshop has none)")
+    return out
+
+
+def flora_problems(rec, e, masters=("Starfield.esm",)):
+    """A promoted FLOR (promoted_record_check): KWDA carries FloraTypeOrganic (FLORA_ORGANIC_KW of the master), PFIG
+    is the entry's ingredient (a master formid)."""
+    out = []
+    organic = master_fid(f"{FLORA_ORGANIC_KW:06X}:Starfield.esm", masters)
+    if organic not in record_keywords(rec):
+        out.append(f"{e['src']}: FLOR KWDA {[f'{k:08X}' for k in record_keywords(rec)]} lacks FloraTypeOrganic {organic:08X}")
+    pfig = overlay_records.field(rec, "PFIG", b"")
+    want = master_fid(e["ingredient"], masters)
+    have = struct.unpack_from("<I", pfig)[0] if len(pfig) >= 4 else None
+    if have != want:
+        out.append(f"{e['src']}: FLOR PFIG {None if have is None else f'{have:08X}'} != {want:08X} ({e['ingredient']})")
     return out
 
 
@@ -1913,6 +1963,7 @@ def promotion_checks(recs, own_prefix, objects, ids, exp):
                                         "MISC value, weight" if "MISC" in sigs else "",
                                         "TERM menu and body" if "TERM" in sigs else "",
                                         "workshop keyword, radius" if entries["workshops"] else "",
+                                        "flora PFIG and FloraTypeOrganic" if entries["flora"] else "",
                                         "bench vanilla base" if entries["benches"] else "",
                                         "door VMAD and arrival marker" if entries["doors"] else "") if x)
         out.append([f"every promoted REFR names its {' / '.join(sigs)} (edid, model{'; ' + detail if detail else ''}) at "
@@ -2505,9 +2556,11 @@ def cmd_stage(a):
     # name, value and weight), "activators" (FO4 Activator: an ACTI base with the converted model and the name),
     # "terminals" (FO4 Terminal: a TERM base with the converted model and the name, with its own TMLM menu of one body
     # line), "workshops" (FO4 settlement workshop: an ACTI base with the workbench model, WorkshopKeyword, the outpost
-    # category keywords and a build radius; docs/terrain/stations.md), one base per FO4 base, one temporary REFR per
-    # source reusing its original reference_index (one slot plan for every class); the new CONT, MISC, ACTI, TERM + TMLM,
-    # then the workshops' ACTI records follow all reserved REFRs. "benches" (FO4 crafting station) keep their REFR
+    # category keywords and a build radius; docs/terrain/stations.md), "flora" (FO4 Flora: a FLOR base cloned from
+    # FloraMaizeCrop01 with the converted model, the name and PFIG the ingredient; docs/terrain/flora.md), one base per
+    # FO4 base, one temporary REFR per source reusing its original reference_index (one slot plan for every class); the
+    # new CONT, MISC, ACTI, TERM + TMLM, then the workshops' ACTI and flora FLOR records follow all reserved REFRs.
+    # "benches" (FO4 crafting station) keep their REFR
     # slot on the VANILLA Starfield bench of their kind: no record of our own.
     # Its "lights" (docs/terrain/exterior-lights.md, make_cluster.py lights) were never placed: new light REFRs and
     # LIGH bases after every other record

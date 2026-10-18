@@ -1656,6 +1656,17 @@ snapshots tagged owner-button). Lessons: a Bash heredoc here turns \\r \\n escap
 written script; gate commits on tests); a background workflow can die silently (check the transcripts' modification
 times); the owner's three-line console paste became one line (give one line per command).
 
+## 2026-10-17: Grok FLOR harvest research (offline, row 14)
+
+Starfield.esm 1.16.244 still has `FLOR` as the harvest record: 300 bases, `PFIG` ingredient + `PFPC` seasons.
+Organic crop template `FloraMaizeCrop01` (keywords `FloraTypeOrganic` + `OutpostCanDomesticate`, seed item
+`OrgCommonNutrient_Seed`). Core64c selected 3,520 Flora refs / 48 bases before exclusion (writer 3,518 / 47).
+Mutagen 0.55.0-alpha.67 `Flora.Ingredient` writes `PFIG` (default seed and a custom MISC); a STAT ingredient is
+refused; no byte patch. `Fallout4.esm` is at depot_377163; a produce table is still unresolved because Starfield
+`PFIG` is MISC/LVLI, not FO4 ALCH. Promotion class: `make_cluster.py flora`, `cluster_flora` (edid `FO4Core_flor_*`),
+TerrainOverlays Duplicate of `FloraMaizeCrop01`. In-game harvest is Claude's after a scratch overlay
+([docs/terrain/flora.md](terrain/flora.md)).
+
 ## 2026-10-17: Grok playtest textures, row 15 greyscale-to-palette (offline)
 
 Starfield 1.16.244, convert dir `terrain_core64c_work_fix3` (read-only). FO4 GreyscaleToPalette_Color (nif.xml
