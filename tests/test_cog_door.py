@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from fo4sf import convert_static, door_clips, door_motion, door_rig, nif  # noqa: E402
+from fo4sf import convert_static, door_clips, door_motion, door_rig, native_door, nif  # noqa: E402
 from test_collision import fake_template  # noqa: E402
 from test_door_two_panels import door_nif, donor, fake_clip_files, sequences, sliding_panels  # noqa: E402
 import test_sliding_doors  # noqa: E402
@@ -77,6 +77,22 @@ class CogDoorPlanTests(unittest.TestCase):
         door.block_types.append("NiParticleSystem")
         door.block_type_index[[i for i in range(len(door.blocks)) if door.type_of(i) == "NiNode"][-1]] = len(door.block_types) - 1
         self.assertTrue(door_motion.inspect(door)["issues"])
+
+    def test_the_float32_length_of_stage2_is_on_the_30_fps_grid(self):
+        # PC build 01ee50e: Stage2 stops at float32(43 1/3 s) = 1300.0003 frames, refused as off the grid
+        def stopping_at(stop):
+            f = cog_nif()
+            i = sequences(f)[b"Stage2"]
+            block = bytearray(f.blocks[i])
+            count = struct.unpack_from("<I", block, 4)[0]
+            struct.pack_into("<f", block, 12 + 29 * count + 20, stop)
+            f.blocks[i] = bytes(block)
+            return door_rig.plan(f, placed=True, aliases=ALIASES)
+        prepared = native_door.prepare(stopping_at(43.333343505859375), 0.01)     # the value the PC read
+        self.assertEqual([round(c["duration"] * 30, 3) for c in prepared["clips"]], [1300.0, 1300.0])
+        self.assertTrue({k["frame"] for t in prepared["clips"][1]["tracks"] for k in t["keys"]} >= {0, 1300})
+        with self.assertRaisesRegex(nif.NifError, "not on the 30 fps grid"):
+            native_door.prepare(stopping_at(43.34), 0.01)
 
     def test_close_is_open_played_backwards(self):
         plan = door_rig.plan(cog_nif(), placed=True, aliases=ALIASES)
