@@ -123,7 +123,7 @@ def stage(a):
     alias = [] if a.alias else ["--no-alias"]
     cods = [] if a.codsworth else ["--no-codsworth"]
     run(tool + ["write", a.starfield, a.core, a.raider, points, out, "--plugin", PLUGIN] + alias + cods)
-    check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield, a.core, a.raider] + alias)
+    check = run(tool + ["check", os.path.join(out, PLUGIN), a.starfield, a.core, a.raider] + alias + cods)
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
         f.write(check)
     src = extract_sources(a.content_resources, work)

@@ -19,7 +19,7 @@
 //        Codsworth (ROADMAP B2 stretch; a Mr. Handy has no Starfield skeleton): a copy of the Starfield robot NPC_
 //        named by --codsworth-body under his name, Essential and Unique, without its factions and scripts, placed
 //        persistent at his Fallout 4 spot in Sanctuary. No dialogue or voice yet. --no-codsworth leaves him out.
-//   check <plugin> <Starfield.esm> <FO4TerrainCore.esm> <FO4ActorRaider.esm> [--no-alias]
+//   check <plugin> <Starfield.esm> <FO4TerrainCore.esm> <FO4ActorRaider.esm> [--no-alias] [--no-codsworth]
 //        reads the plugin back and checks every record and link the script and the quest rely on (exit 1 on a problem).
 //   npcs <plugin.esm> <fo4 | sf> <regex>
 //        read only: every NPC_ whose EditorID, name or race EditorID matches the regex (case-insensitive): FormKey,
@@ -50,7 +50,7 @@ try
         "write" when args.Length >= 6 => Mission.Write(args[1], args[2], args[3], args[4], args[5], Mission.Arg(args, "--plugin", Mission.Plugin),
                                                        Mission.Arg(args, "--world", Mission.World), !args.Contains("--no-alias"),
                                                        args.Contains("--no-codsworth") ? null : Mission.Arg(args, "--codsworth-body", Mission.CodsworthBody)),
-        "check" when args.Length >= 5 => Mission.Check(args[1], args[2], args[3], args[4], !args.Contains("--no-alias")),
+        "check" when args.Length >= 5 => Mission.Check(args[1], args[2], args[3], args[4], !args.Contains("--no-alias"), !args.Contains("--no-codsworth")),
         "npcs" when args.Length >= 4 => Mission.Npcs(args[1], args[2], args[3]),
         "selftest" when args.Length >= 2 => Mission.SelfTest(args[1]),
         _ => Mission.Usage(),
@@ -422,7 +422,7 @@ static class Mission
 
     // ---------------------------------------------------------------- check
 
-    public static int Check(string pluginPath, string sfPath, string corePath, string raiderPath, bool alias)
+    public static int Check(string pluginPath, string sfPath, string corePath, string raiderPath, bool alias, bool codsworth = true)
     {
         using var m = Open(sfPath, corePath, raiderPath);
         using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, SF.StarfieldRelease.Starfield, Styles(SfEsm, m.Core.ModKey, m.Raider.ModKey));
@@ -457,12 +457,14 @@ static class Mission
         var raiders = refs.Where(r => r.FormKey.ID >= FirstRaiderRefId && r.FormKey.ID < CodsworthNpcId).ToList();
         var cods = plug.Npcs.FirstOrDefault(n => n.FormKey == new FormKey(key, CodsworthNpcId));
         var codsRef = refs.FirstOrDefault(r => r.FormKey.ID == CodsworthRefId);
-        if (cods is not null || codsRef is not null)
+        if (!codsworth) Need(cods is null && codsRef is null, "a --no-codsworth build carries Codsworth");
+        else
         {
             Console.WriteLine($"  NPC_ {cods?.EditorID} \"{cods?.Name?.String}\" race {cods?.Race.FormKey} factions {cods?.Factions.Count} scripts {(cods?.VirtualMachineAdapter is null ? 0 : 1)}");
-            Need(cods is { EditorID: CodsworthEdid } && cods.Flags.HasFlag(SF.Npc.Flag.Essential) && cods.Factions.Count == 0 &&
+            Need(cods is { EditorID: CodsworthEdid } && cods.Flags.HasFlag(SF.Npc.Flag.Essential) && cods.Flags.HasFlag(SF.Npc.Flag.Unique) &&
+                 !cods.Flags.HasFlag(SF.Npc.Flag.Respawn) && cods.Factions.Count == 0 &&
                  cods.VirtualMachineAdapter is null && !string.IsNullOrWhiteSpace(cods.Name?.String),
-                 "NPC_ 0x810 is not an essential, named FO4_Codsworth without factions and scripts");
+                 "NPC_ 0x810 is not an essential, unique, non-respawning, named FO4_Codsworth without factions and scripts");
             Need(cods is not null && m.Cache.TryResolve<SF.IRaceGetter>(cods.Race.FormKey, out _), "Codsworth's race does not resolve");
             Need(codsRef is not null && codsRef.Base.FormKey == cods?.FormKey, "ACHR 0x811 is not Codsworth");
         }
@@ -570,8 +572,39 @@ static class Mission
         {   // the fallback without Codsworth still writes and checks
             var o = Path.Combine(outDir, "nocodsworth");
             int rc = Write(sfPath, corePath, raiderPath, pointsPath, o, Plugin, World, true, null);
-            if (rc == 0) rc = Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, true);
+            if (rc == 0) rc = Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, true, false);
             if (rc != 0) return rc;
+            if (Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, true, true) == 0)
+                { Console.WriteLine("FAIL  check passed a build without Codsworth when he was expected"); return 1; }
+        }
+        // mutations of the default output, each of which check must reject (Codex review 5564480667)
+        var good = Path.Combine(outDir, "alias", Plugin);
+        var mutations = new (string Name, Action<SF.StarfieldMod> Edit)[]
+        {
+            ("Codsworth NPC_ and ACHR removed", m =>
+            {
+                m.Npcs.Remove(new FormKey(m.ModKey, CodsworthNpcId));
+                m.Worldspaces.First().TopCell!.Persistent.RemoveAll(r => r.FormKey.ID == CodsworthRefId);
+            }),
+            ("Codsworth ACHR removed", m => m.Worldspaces.First().TopCell!.Persistent.RemoveAll(r => r.FormKey.ID == CodsworthRefId)),
+            ("Codsworth not Essential", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].Flags &= ~SF.Npc.Flag.Essential),
+            ("Codsworth not Unique", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].Flags &= ~SF.Npc.Flag.Unique),
+            ("Codsworth respawns", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].Flags |= SF.Npc.Flag.Respawn),
+            ("Codsworth has a faction", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].Factions.Add(
+                new SF.RankPlacement { Faction = new FormLink<SF.IFactionGetter>(new FormKey(SfEsm, 0x901)) })),
+        };
+        foreach (var (name, edit) in mutations)
+        {
+            var mod = SF.StarfieldMod.CreateFromBinary(good, rel, Styles(SfEsm, coreKey, raiderKey));
+            edit(mod);
+            var md = Path.Combine(outDir, "mutated");
+            Directory.CreateDirectory(md);
+            var mp = Path.Combine(md, Plugin);
+            var lo = new[] { SfEsm, coreKey, raiderKey };
+            mod.BeginWrite.ToPath(mp).WithLoadOrder(lo).WithKnownMasters(lo.Select(k => new KeyedMasterStyle(k, MasterStyle.Full)).ToArray()).Write();
+            if (Check(mp, sfPath, corePath, raiderPath, true, true) == 0)
+                { Console.WriteLine($"FAIL  check passed a mutated plugin: {name}"); return 1; }
+            Console.WriteLine($"mutation rejected: {name}");
         }
         if (StripTokens("Kill the Raiders (<Global=MQ102FirstRaiderCount>/<Global=MQ102FirstRaiderTotal>)") != "Kill the Raiders")
             { Console.WriteLine("FAIL  StripTokens"); return 1; }

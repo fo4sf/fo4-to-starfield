@@ -132,6 +132,8 @@ class StageAndInstallTests(unittest.TestCase):
                     writes.append(cmd)
                 _write(os.path.join(cmd[cmd.index("write") + 5], make_mission.PLUGIN), b"plugin-" + out.encode())
             elif "check" in cmd:
+                if writes is not None:
+                    writes.append(cmd)
                 if during_check:
                     during_check()
                 if fail_at == "check":
@@ -163,6 +165,8 @@ class StageAndInstallTests(unittest.TestCase):
                 plan = json.load(f)
             self.assertEqual(plan["codsworth"]["src"], "01CA7D")
             self.assertNotIn("--no-codsworth", writes[0])
+            self.assertIn("check", writes[1])
+            self.assertNotIn("--no-codsworth", writes[1])
 
     def test_no_codsworth_reaches_the_writer_and_the_plan(self):
         with tempfile.TemporaryDirectory() as d:
@@ -172,6 +176,7 @@ class StageAndInstallTests(unittest.TestCase):
                 plan = json.load(f)
             self.assertIsNone(plan["codsworth"])
             self.assertIn("--no-codsworth", writes[0])
+            self.assertIn("--no-codsworth", writes[1])   # check expects the same mode (Codex review 5564480667)
 
     def snapshot(self, root):
         got = {}
