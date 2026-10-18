@@ -235,6 +235,12 @@ class ClockAgeTests(unittest.TestCase):
         self.assertGreater(age, 0)
         self.assertAlmostEqual(age, 13 * 3600, delta=1)  # 13h ago
 
+    def test_clock_age_treats_small_future_skew_as_old(self):
+        # A stamp 1s in the future (clock skew) becomes ~24h old so latest() rejects it as not fresh.
+        now = time.mktime((2026, 10, 17, 2, 0, 0, 0, 0, -1))
+        age = bridge_log.clock_age("02:00:01", now)
+        self.assertAlmostEqual(age, 86399.0, delta=1)
+
     def test_latest_uses_the_stamp_not_the_mtime(self):
         with tempfile.TemporaryDirectory() as d:
             log = os.path.join(d, "fo4sf.0.log")
