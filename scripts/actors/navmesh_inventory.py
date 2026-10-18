@@ -106,12 +106,19 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
     fo4_tris = sum(_measure(fo4[c])[0] for c in fo4 if _measure(fo4[c]))
     sf_tris = sum(_measure(sf[c])[0] for c in sf if _measure(sf[c]))
     lost_tris = sum(item["fo4_triangles"] for item in lost)
-    reduced_tris = sum(item.get("fo4_triangles", 0) - item.get("sf_triangles", 0) for item in reduced if "fo4_triangles" in item)
+    # Area-flagged cells can have more SF triangles than FO4; a loss count must not go negative.
+    reduced_tris = sum(
+        max(0, item["fo4_triangles"] - item.get("sf_triangles", 0))
+        for item in reduced
+        if "fo4_triangles" in item
+    )
+    retention_pct = round(100.0 * sf_tris / fo4_tris, 1) if fo4_tris else 100.0
     return {
         "total_fo4_cells": len(fo4),
         "total_sf_cells": len(sf),
         "total_fo4_triangles": fo4_tris,
         "total_sf_triangles": sf_tris,
+        "triangle_retention_percent": retention_pct,
         "lost_triangles": lost_tris,
         "reduced_triangles_approx": reduced_tris,
         "lost_coverage": lost,
@@ -122,8 +129,8 @@ def inventory(fo4: dict, sf: dict, area_tol: float = 0.5, tri_tol: float = 0.5) 
         "unknown": unknown,
         "unchanged": len(unchanged),
         "summary": (
-            f"{len(lost)} lost ({lost_tris} tris), {len(reduced)} reduced, {len(gained)} gained, "
-            f"{len(unknown)} unknown; FO4 tris {fo4_tris} -> SF {sf_tris}"
+            f"{len(lost)} lost ({lost_tris} tris), {len(reduced)} reduced ({reduced_tris} tris approx), {len(gained)} gained, "
+            f"{len(unknown)} unknown; FO4 tris {fo4_tris} -> SF {sf_tris} ({retention_pct}% retained)"
         ),
     }
 

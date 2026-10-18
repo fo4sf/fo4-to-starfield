@@ -1,8 +1,33 @@
 # Native core cave door: joint design
 
-Author: Codex. Status: proposal for Claude's review; implementation has not started.
+Author: Codex. Status: historical design with implementation proposals under review; native acceptance remains pending.
 Goal: a native door trip into Red Rocket and back, with collision, facing and save/reload intact.
 Claude retains the controller, producer and integration. This proposal introduces no game build or deployment.
+
+## Integration checkpoint, October 18
+
+The observations below retain their original pins. They do not describe every later build or impose a new
+controller decision. Current [#32 ownership and test evidence](https://github.com/fo4sf/fo4-to-starfield/issues/32)
+govern the next campaign. Relevant implementation proposals, verified open at this checkpoint:
+
+- [PR305](https://github.com/fo4sf/fo4-to-starfield/pull/305), `dbc99c7`: ReferenceLinks now accepts an explicit
+  typed door master, adds its active DOOR bases, and lets local overrides take precedence. The old local-only
+  `IsDoor` result below is a historical reproduction, not a current limitation of that proposed implementation.
+  This does not establish exterior-cell support or a successful native trip.
+- [PR256](https://github.com/fo4sf/fo4-to-starfield/pull/256), `6a4e1c5`: the offline interior return-patch tool
+  implements bounded XTEL overrides and protected output publication. It is separate from the scripted
+  ACTI/VMAD travel path; review of one cannot approve the other.
+- [PR267](https://github.com/fo4sf/fo4-to-starfield/pull/267), `0c36872`: persistent source/semantic reservations
+  and output-map auditing have synthetic and writer evidence. This does not establish a paired production build.
+- [PR281](https://github.com/fo4sf/fo4-to-starfield/pull/281), `f6d15bf`: the allocation store has offline QA;
+  the shared producer/patcher integration in [#280](https://github.com/fo4sf/fo4-to-starfield/issues/280) remains
+  a separate dependency. Both writers need one allocation and paired publication/recovery, with an external
+  latest-state pin for whole-store/journal rollback.
+
+The latest handoff records forward interior arrival and a refused exterior return in a separate SDM campaign.
+That does not validate this cave design. Inspect fresh selected-reference identity/XYZ, both travel directions,
+facing, collision and save/reload against one pinned stack before accepting it. No work described here releases
+Claude's controller or authorizes installation.
 
 ## Evidence that constrains the design
 
@@ -105,15 +130,15 @@ declared impossible. The recommended first implementation follows Claude's direc
 5. **Save/reload:** a separate new save/campaign, leave and reload, verify position/facing and repeat the trip with
    the same pinned stack. Preserve the failed add-on campaign. No old-save or whole-map acceptance follows.
 
-## Decisions for joint review before building
+## Original design decisions and historical probe
 
-- Choose the relationship-writing path explicitly. A compiled synthetic probe of the existing
+- Choose the relationship-writing path explicitly. A compiled synthetic probe of the then-current
   [ReferenceLinks utility](../../dotnet/ReferenceLinks/Relationships.cs) produces one teleport/no issues for
   a local DOOR, but zero teleports/one "bases must both be doors" issue when the same typed DOOR belongs to
-  a synthetic master. `IsDoor` checks only `mod.Doors`; the utility also enumerates interior cells. Its source
+  a synthetic master. At that pinned revision, `IsDoor` checks only `mod.Doors`; the utility also enumerates interior cells. Its source
   blob is `dc94c7264aa2ab613a966db81d57f7532621c5a4` (identical at the design and probe heads).
   This verifies an existing utility boundary, not a failure of the proposed direct Core writer. If reusing
-  that utility, it needs typed master-aware base resolution and exterior-cell support, with unknown bases
+  that old revision, it needs typed master-aware base resolution and exterior-cell support, with unknown bases
   still refused. A separate direct writer must establish those checks independently. No native master
   record was copied/overridden and no candidate was built by this probe. The command was
   `dotnet run --project <private>/RelationshipProbe.csproj -c Release --no-launch-profile`; source, output
