@@ -104,6 +104,14 @@ class SelectTests(unittest.TestCase):
             self.assertEqual(mk.convert_list([mk.slim(r) for r in refs])[0]["teleport_destination"], True)
         self.assertNotIn("teleport_destination", mk.convert_list([mk.slim(plain)])[0])
 
+    def test_models_placed_only_as_statics_keep_a_static_body(self):
+        cone = {"formkey": "000011:Fallout4.esm", "type": "MovableStatic", "model": "Props\\TrafficCone01.nif"}
+        can = {"formkey": "000012:Fallout4.esm", "type": "MiscItem", "model": "Props\\TinCan01.nif"}
+        both = [dict(can, formkey="000013:Fallout4.esm", type="Static"), can]
+        out = {e["model"]: e for e in mk.convert_list([mk.slim(r) for r in [cone, can] + both])}
+        self.assertTrue(out["Props\\TrafficCone01.nif"]["static_body"])
+        self.assertNotIn("static_body", out["Props\\TinCan01.nif"])               # an item anywhere: dynamic
+
     def test_a_reference_in_two_bands_is_an_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             paths = []

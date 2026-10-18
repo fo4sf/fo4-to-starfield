@@ -30,6 +30,13 @@ class TeleportModelsTests(unittest.TestCase):
         self.assertEqual(convert_batch.teleport_models(cell), [HATCH])
 
 
+class StaticBodyModelsTests(unittest.TestCase):
+    def test_marked_models_are_listed(self):
+        cell = {"refs": [{"type": "MovableStatic", "model": "Props\\Cone.nif", "static_body": True},
+                         {"type": "MiscItem", "model": "Props\\Can.nif"}]}
+        self.assertEqual(convert_batch.static_body_models(cell), ["meshes\\Props\\Cone.nif"])
+
+
 class ConverterTests(unittest.TestCase):
     convert = test_sliding_doors.NonHingedRoutingTests.convert
 
@@ -41,6 +48,13 @@ class ConverterTests(unittest.TestCase):
         single.assert_not_called()
         multi.assert_not_called()
         static.assert_called_once()
+
+    def test_a_static_body_model_gets_no_dynamic_template(self):
+        name = "meshes\\Props\\Cone.nif"
+        for attrs, want in (({"static_body_models": {name.lower()}}, None), ({}, b"dyn")):
+            with tempfile.TemporaryDirectory() as staging:
+                _, _, _, static = self.convert(staging, name, two_leaves()[:1], None, dynamic_template=b"dyn", **attrs)
+            self.assertEqual(static.call_args.kwargs["dynamic_template"], want)
 
     def test_without_the_record_the_same_model_is_no_load_door(self):
         with tempfile.TemporaryDirectory() as staging:

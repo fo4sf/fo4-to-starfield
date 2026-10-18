@@ -146,12 +146,15 @@ class Converter:
                  no_collision_pattern: str = r"^meshes[\\/](architecture|interiors|scol)[\\/]", rig_doors: bool = False,
                  door_physics_donor: Optional[bytes] = None, sf_mesh_template: Optional[bytes] = None,
                  dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None,
-                 spec_mask_roughness: bool = False, mass_scale: float = 1.0, load_door_models=()):
+                 spec_mask_roughness: bool = False, mass_scale: float = 1.0, load_door_models=(), static_body_models=()):
         self.src, self.staging, self.texconv = src, staging, texconv_exe
         # load_door_models: mesh names FO4 places as a teleporting Door (a Door reference with an XTEL in the cell export,
         # convert_batch.teleport_models), load doors whatever their name: RoofHatch01 and MetalTrapdoorLadder01 match no
         # LOAD_DOOR_RE and stayed STATs nobody could activate (Museum of Witchcraft roof hatch, owner 2026-10-18)
         self.load_door_models = {n.replace("/", "\\").lower() for n in load_door_models}
+        # static_body_models: mesh names that keep a static body even with dynamic_template (the outdoor core places
+        # them as STAT only, never as a pickable item: cars, skeletons, cones; convert_batch.static_body_models)
+        self.static_body_models = {n.replace("/", "\\").lower() for n in static_body_models}
         # spec_mask_roughness: roughness also follows FO4's specular mask (smooth-spec R), not only its gloss (G); off by
         # default so existing builds and checkpoints keep their textures (owner's Vault 111 floor report, 2026-10-17)
         self.spec_mask_roughness = spec_mask_roughness
@@ -660,7 +663,8 @@ class Converter:
                                                       sf_mesh_template=self.sf_mesh_template if use_box else None,
                                                       collision_template=self.collision_template if use_box else None,
                                                       allow_guess=not no_guess,
-                                                      dynamic_template=self.dynamic_template if use_box else None,
+                                                      dynamic_template=self.dynamic_template if use_box and nif_name.replace(
+                                                          "/", "\\").lower() not in getattr(self, "static_body_models", ()) else None,
                                                       pose=pose, mass_scale=self.mass_scale)
                 if coll_report.get("motion") == "dynamic":
                     res["movable"] = {"mass_kg": coll_report["mass_kg"],
