@@ -70,8 +70,9 @@ actually is, with nobody at the PC, for the NPC, mission and map threads.
     markers.
 - `judge` gives each reference one state:
   - MISSING, INDEX, DISABLED or NOT_A_REF;
-  - for an actor: NEAR_MERGED (within 25 m of its record position plus the merge, so it is in the drawn world),
-    AT_LOCAL (still at its record position, never moved) or ELSEWHERE, with both distances;
+  - for an actor, by coordinates only: NEAR_MERGED (within 25 m of its record position plus the merge), AT_LOCAL
+    (within 25 m of its record position itself) or ELSEWHERE, with both distances. These compare positions; they do
+    not prove which world the actor is in or whether it moved. The resolved world id is kept beside them;
   - for an extra reference: PRESENT and its position.
 
   `judge` also counts the papyrus.log lines in each attempt that mention "moved" or "relocat". It never says a mission

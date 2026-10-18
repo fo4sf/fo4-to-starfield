@@ -13,10 +13,10 @@ usage:
          --bridge <installed bridge staging>
   python scripts/bridge/presence.py judge --queue <queue> [--presence <out>/presence.json]
       per reference, from its test's latest attempt after the test's ack: MISSING (no resolve line, or form=none),
-      INDEX (another load index than planned: re-plan), DISABLED, then where it is. For an actor: NEAR_MERGED (within
-      NEAR_M of its record position + the build's merge: where the drawn world puts it), AT_LOCAL (within NEAR_M of the
-      record position itself: not moved into the drawn world), or ELSEWHERE with both distances; for an extra, its
-      position. Also counts the papyrus.log lines that mention "moved" or "relocat" (the mission script's own lines).
+      INDEX (another load index than planned: re-plan), CONFLICT, DISABLED, then where it is. For an actor, by
+      coordinates only: NEAR_MERGED (within NEAR_M of its record position + the build's merge), AT_LOCAL (within NEAR_M
+      of the record position itself) or ELSEWHERE, with both distances; neither proves world membership or movement
+      (the resolved world id is reported beside them). For an extra, its position. Also counts the papyrus.log lines that mention "moved" or "relocat" (the mission script's own lines).
 Game data stays outside the repo; nothing here touches the game or its install.
 """
 import argparse
