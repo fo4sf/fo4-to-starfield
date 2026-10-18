@@ -171,3 +171,23 @@ markers in the world persistent cell. New legacy outputs match that main writer;
 existing ledgers retain their prior base/marker numbers even if the historical
 allocation order differs. This identity continuity does not validate an existing
 save against changed record contents. Native return and save/reload remain unverified.
+
+
+## Map-marker reservations
+
+Map-marker REFRs use `["map-marker", world, tag]` with the ledger's ASCII case folding.
+The default empty tag is published as `RedRocket` and uses that same key, so switching
+from the default marker to an explicit RedRocket entry retains its ID. Duplicate
+canonical tags within one world are refused before publication. The same tag in
+another world has a separate reservation. Reordering, growth, removal and later
+reintroduction retain existing marker and door IDs; removed marker IDs remain reserved.
+
+Legacy allocation still follows main's marker order and explicit bootstrap must
+reproduce its plugin/map bytes. The first-marker alias in `map_markers` follows the
+current source order; stable identity comes from `map_marker_refs` tags, not that alias.
+The identity audit checks both declared map sections together, all world/tag keys,
+their ledger bindings and the first-marker alias. Older or template-free generations
+without those sections remain supported; that is not proof that map markers were
+written. Record fields, display, discovery and travel still need the raw checker
+and native testing. This change neither enables persistent IDs on a live stage nor
+wires the paired exterior/interior allocator requested in #280.

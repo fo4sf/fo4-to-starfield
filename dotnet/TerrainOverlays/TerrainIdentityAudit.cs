@@ -192,7 +192,27 @@ internal static class TerrainIdentityAudit
                 for (int i = 0; i < ids.Length; i++) Match(ids[i], "navmesh", world, TerrainStableIds.Source(Text(entries[i], "src")),
                     Coordinate(entries[i].GetProperty("cell")[0]), Coordinate(entries[i].GetProperty("cell")[1]));
             }
-            if (map.ValueKind != JsonValueKind.Undefined) Keys(map, sections);
+            if (map.ValueKind != JsonValueKind.Undefined)
+            {
+                bool hasMarkers = map.TryGetProperty("map_markers", out var markers);
+                bool hasRefs = map.TryGetProperty("map_marker_refs", out var markerRefs);
+                if (hasMarkers != hasRefs) throw new InvalidDataException("map-marker sections must appear together");
+                if (hasMarkers)
+                {
+                    sections.UnionWith(new[] { "map_markers", "map_marker_refs" });
+                    var plans = overlays.Select(o => (World: Text(o, "world"), Tags: ReferenceIdentityPlan.MapMarkerTags(o))).ToArray();
+                    Keys(markers, plans.Where(p => p.Tags.Length > 0).Select(p => p.World));
+                    Keys(markerRefs, plans.Select(p => p.World));
+                    foreach (var (world, tags) in plans)
+                    {
+                        var refs = markerRefs.GetProperty(world);
+                        Keys(refs, tags);
+                        foreach (string tag in tags) Match(refs.GetProperty(tag), "map-marker", world, tag);
+                        if (tags.Length > 0) Match(markers.GetProperty(world), "map-marker", world, tags[0]);
+                    }
+                }
+                Keys(map, sections);
+            }
             foreach (var (path, hash) in inputHashes)
             {
                 Inside(Path.GetRelativePath(root, path));
