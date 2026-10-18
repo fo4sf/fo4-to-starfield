@@ -264,3 +264,112 @@ Console.WriteLine("Posed-model plugin round trip passed.");
     finally { Console.SetOut(stdout); Directory.Delete(doorDir, true); }
 }
 Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed.");
+
+// Interior promotions (Promotions.cs, scripts/terrain/port_promote.py): PluginSpike end to end with a promote.json. FO4
+// containers, inventory items, activators and terminals get a CONT / MISC / ACTI / TERM + TMLM base carrying the model
+// their STAT / MSTT would have had, shared per edid; the reference keeps its stable REFR FormID; a door base is kept; two
+// entries of one edid that disagree stop the build.
+{
+    var promoDir = Path.Combine(Path.GetTempPath(), "fo4sf-promote-" + Guid.NewGuid().ToString("N"));
+    var outDir = Path.Combine(promoDir, "out");
+    Directory.CreateDirectory(outDir);
+    var stdout = Console.Out;
+    var sfKey = ModKey.FromNameAndExtension("Starfield.esm");
+    try
+    {
+        // a synthetic master holding the vanilla terminal template 0155A2 with a furniture block
+        var master = new StarfieldMod(sfKey, release);
+        master.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
+        var marker = new Keyword(new FormKey(sfKey, 0x000900), release) { EditorID = "SynthFurnitureKeyword" };
+        master.Keywords.Add(marker);
+        master.Terminals.Add(new Terminal(new FormKey(sfKey, 0x0155A2), release)
+        {
+            EditorID = "OE_AustinF_DeployMicrobe_Terminal", MarkerModel = "Furniture\\furn_human_standingterminal.nif",
+            Keywords = new ExtendedList<IFormLinkGetter<IKeywordGetter>> { new FormLink<IKeywordGetter>(marker.FormKey) },
+        });
+        var sfPath = Path.Combine(promoDir, "Starfield.esm");
+        master.BeginWrite.ToPath(sfPath).WithNoLoadOrder().Write();
+        var manifest = Path.Combine(promoDir, "manifest.json");
+        File.WriteAllText(manifest, """
+{"items":[
+ {"editor_id":"FO4Port_Crate","model":"fo4port\\crate.nif","source":"meshes\\crate.nif"},
+ {"editor_id":"FO4Port_Can","model":"fo4port\\can.nif","source":"meshes\\can.nif","movable":{"mass_kg":1}},
+ {"editor_id":"FO4Port_Switch","model":"fo4port\\switch.nif","source":"meshes\\switch.nif"},
+ {"editor_id":"FO4Port_Term","model":"fo4port\\term.nif","source":"meshes\\term.nif"},
+ {"editor_id":"FO4Port_SynthDoor","model":"fo4port\\d.nif","source":"meshes\\d.nif",
+  "door":{"anim_graph":"SimpleOpenClose01.agx","skeleton":"fo4port\\d\\skeleton.rig","animations":"fo4port\\d\\animations","origin_offset":[0,0,0]}},
+ {"editor_id":"FO4Port_Wall","model":"fo4port\\wall.nif","source":"meshes\\wall.nif"}]}
+""");
+        string R(string id, string type, string model) =>
+            $$"""{"formkey":"{{id}}:Fallout4.esm","base_editor_id":"X","type":"{{type}}","model":"{{model}}","pos":[0,0,0],"rot":[0,0,0],"scale":1}""";
+        var export = Path.Combine(promoDir, "Promo.json");
+        File.WriteAllText(export, "{\"cell\":\"Promo\",\"refs\":[" + string.Join(",",
+            R("000901", "Container", "crate.nif"), R("000902", "MiscItem", "can.nif"), R("000903", "MiscItem", "can.nif"),
+            R("000904", "Activator", "switch.nif"), R("000905", "Terminal", "term.nif"), R("000906", "Door", "d.nif"),
+            R("000908", "Static", "wall.nif")) + "]}");
+        string Promote(string canName) => $$"""
+{"starfield_esm": {{JsonSerializer.Serialize(sfPath)}},
+ "containers":[{"src":"000901:Fallout4.esm","edid":"FO4Port_cont_A","name":"Crate","items":[{"form":"Starfield.esm:00000F","count":10}]},
+               {"src":"000906:Fallout4.esm","edid":"FO4Port_cont_D","name":"Door","items":[]},
+               {"src":"000907:Fallout4.esm","edid":"FO4Port_cont_A","name":"Crate","items":[{"form":"Starfield.esm:00000F","count":10}]}],
+ "items":[{"src":"000902:Fallout4.esm","edid":"FO4Port_misc_B","name":"Can","value":1,"weight":0.5},
+          {"src":"000903:Fallout4.esm","edid":"FO4Port_misc_B","name":"{{canName}}","value":1,"weight":0.5}],
+ "activators":[{"src":"000904:Fallout4.esm","edid":"FO4Port_acti_C","name":null}],
+ "terminals":[{"src":"000905:Fallout4.esm","edid":"FO4Port_term_E","menu_edid":"FO4Port_tmlm_E","name":"Terminal","body":"FO4 terminal"}]}
+""";
+        File.WriteAllText(Path.Combine(outDir, "promote.json"), Promote("Can"));
+        foreach (var hook in new[] { "FO4PORT_DOOR_MODEL", "FO4PORT_DOOR_BASE", "FO4PORT_DOORTEST" }) Environment.SetEnvironmentVariable(hook, null);
+        Environment.SetEnvironmentVariable("STARFIELD_DATA", promoDir);
+        var log = new StringWriter();
+        Console.SetOut(log);
+        typeof(Promotions).Assembly.EntryPoint!.Invoke(null, new object[] { new[] { outDir, manifest, export } });
+        Console.SetOut(stdout);
+        var ids = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+        var port = ModKey.FromNameAndExtension("FO4Port.esm");
+        var masters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+        masters.Set(new KeyedMasterStyle(sfKey, MasterStyle.Full));
+        using (var written = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(outDir, "FO4Port.esm"), release,
+                   new BinaryReadParameters { MasterFlagsLookup = masters }))
+        {
+            var refs = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).Single()
+                .Temporary.OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey);
+            FormKey BaseOf(string fo4) => refs[new FormKey(port, ids[$"REFR:FO4Port_Promo:{fo4}:Fallout4.esm"])].Base.FormKey;
+            var cont = written.Containers.Single();
+            Require(BaseOf("000901") == cont.FormKey && cont.FormKey.ID == ids["CONT:FO4Port_cont_A"], "container not on its CONT");
+            Require(cont.Model?.File?.ToString() == "Meshes/fo4port/crate.nif" && cont.Name!.String == "Crate"
+                    && cont.Items!.Single().Item.Count == 10 && cont.Items!.Single().Item.Item.FormKey == new FormKey(sfKey, 0x00000F),
+                    "CONT model, name or inventory wrong");
+            var misc = written.MiscItems.Single();
+            Require(BaseOf("000902") == misc.FormKey && BaseOf("000903") == misc.FormKey, "the two items do not share one MISC");
+            Require(misc.Model?.File?.ToString() == "Meshes/fo4port/can.nif" && misc.Name!.String == "Can" && misc.Value == 1 && misc.Weight == 0.5f,
+                    "MISC model, name, value or weight wrong");
+            var acti = written.Activators.Single();
+            Require(BaseOf("000904") == acti.FormKey && acti.Name == null && acti.Model?.File?.ToString() == "Meshes/fo4port/switch.nif",
+                    "activator not on a nameless ACTI with its model");
+            var term = written.Terminals.Single();
+            var menu = written.TerminalMenus.Single();
+            Require(BaseOf("000905") == term.FormKey && term.Menu.FormKey == menu.FormKey && term.Name!.String == "Terminal"
+                    && term.MarkerModel == "Furniture\\furn_human_standingterminal.nif" && term.Keywords!.Single().FormKey == marker.FormKey
+                    && menu.BodyTexts!.Single().Text.String == "FO4 terminal", "terminal, its furniture block or its menu wrong");
+            Require(written.Doors.Any(d => d.FormKey == BaseOf("000906")), "a door listed for promotion lost its DOOR base");
+            Require(written.Statics.Any(s => s.FormKey == BaseOf("000908")) && written.Statics.Count == 4
+                    && written.MoveableStatics.Count == 1, "unlisted wall moved, or the promoted models' own bases missing");
+        }
+        var text = log.ToString();
+        Require(text.Contains("promotions: 1 activators, 1 containers, 2 items, 1 kept (door base), 1 terminals; 1 listed but not placed"),
+                "promotions not reported:\n" + text);
+        // a second build keeps every FormID; a disagreeing entry of one edid stops it
+        var before = File.ReadAllText(Path.Combine(outDir, "formids.json"));
+        File.WriteAllText(Path.Combine(outDir, "promote.json"), Promote("Tin"));
+        var refused = false;
+        Console.SetOut(new StringWriter());
+        try { typeof(Promotions).Assembly.EntryPoint!.Invoke(null, new object[] { new[] { outDir, manifest, export } }); }
+        catch (System.Reflection.TargetInvocationException ex) when (ex.InnerException is InvalidDataException ide && ide.Message.Contains("FO4Port_misc_B"))
+        { refused = true; }
+        Console.SetOut(stdout);
+        Require(refused, "two entries of one edid with different names were not refused");
+        Require(File.ReadAllText(Path.Combine(outDir, "formids.json")) == before, "a refused build changed the FormID map");
+    }
+    finally { Console.SetOut(stdout); Directory.Delete(promoDir, true); }
+}
+Console.WriteLine("Interior promotion checks passed.");

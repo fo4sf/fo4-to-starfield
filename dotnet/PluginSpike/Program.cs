@@ -65,6 +65,7 @@ var bySource = new Dictionary<string, (FormKey key, P3Float offset)>(StringCompa
 var byRef = new Dictionary<string, (FormKey key, P3Float offset)>();
 var openingDoors = new HashSet<FormKey>();   // bases of animated (non-load) doors: their references take FO4's open state
 var ownRigDoors = new HashSet<FormKey>();    // manifest rig "native": an opening rig, never a load door (TeleportLinks)
+var modelOf = new Dictionary<FormKey, string>();   // STAT / MSTT base -> its model: what a promoted reference's new base carries
 int doors = 0, loadDoors = 0, movables = 0, posed = 0;
 foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in items)
 {
@@ -102,6 +103,7 @@ foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in it
         // pushable set dressing; a Static never simulates. DATA 4 as every vanilla MSTT checked (SfInspect mstt).
         var ms = new MoveableStatic(Id("MSTT:" + editorId), release) { EditorID = editorId, Model = new Model { File = model }, DATA = 4 };
         mod.MoveableStatics.Add(ms);
+        modelOf[ms.FormKey] = model;
         PosedBases.Register(byRef, bySource, source, posedRefs, (ms.FormKey, new P3Float(0, 0, 0)));
         movables++;
         continue;
@@ -139,6 +141,7 @@ foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in it
     }
     var stat = new Static(Id("STAT:" + editorId), release) { EditorID = editorId, Model = new Model { File = model } };
     mod.Statics.Add(stat);
+    modelOf[stat.FormKey] = model;
     PosedBases.Register(byRef, bySource, source, posedRefs, (stat.FormKey, new P3Float(0, 0, 0)));
 }
 Console.WriteLine($"{items.Count - doors - loadDoors - movables} statics, {movables} movable statics, {doors} doors, {loadDoors} load doors; " +
@@ -169,6 +172,10 @@ string Setting(string cell, string key, string fallback) =>
     lightCfg.TryGetValue(cell, out var c) && c.TryGetValue(key, out var v) ? v
     : lightCfg.TryGetValue("*", out var d) && d.TryGetValue(key, out var w) ? w
     : Environment.GetEnvironmentVariable(key) ?? fallback;
+
+// Interior promotions (Promotions.cs): <output dir>/promote.json, when present, gives FO4 containers, inventory items,
+// activators and terminals a native base of their kind instead of the STAT / MSTT their model would get.
+using var promotions = new Promotions(Path.Combine(outDir, "promote.json"));
 
 // ---- cells ------------------------------------------------------------------------------------------------------------
 P3Float Pos(JsonElement p) => new(p[0].GetSingle() / UnitsPerMetre, p[1].GetSingle() / UnitsPerMetre, p[2].GetSingle() / UnitsPerMetre);
@@ -219,6 +226,12 @@ foreach (var cdoc in cellDocs)
         {
             if (!PosedBases.TryResolve(byRef, bySource, src, model, out var bas)) { skipped++; continue; }
             if (byRef.ContainsKey(src)) placedPosed++;
+            if (promotions.Has(src))
+            {
+                if (byRef.ContainsKey(src)) promotions.Kept(src, "own posed model");
+                else if (!modelOf.TryGetValue(bas.key, out var baseModel)) promotions.Kept(src, "door base");
+                else bas = (promotions.Base(src, baseModel, mod, Id, release), bas.offset);
+            }
             var scale = r.GetProperty("scale").GetSingle();
             var rot = Rot(r.GetProperty("rot"));
             var pos = Pos(r.GetProperty("pos"));
@@ -258,6 +271,13 @@ foreach (var cdoc in cellDocs)
     Console.WriteLine($"cell {cellName} {cell.FormKey}: placed {placed} references ({placedPosed} with their own posed model) + {lights} lights ({disabled} initially disabled), skipped {skipped}");
     if (openDoors + lockedDoors > 0)
         Console.WriteLine($"  doors: {openDoors} open by default (as in FO4), {lockedDoors} locked in FO4 (lock not written)");
+}
+
+if (promotions.Listed > 0)
+{
+    var handled = promotions.Counts.Values.Sum();
+    Console.WriteLine($"promotions: {string.Join(", ", promotions.Counts.Select(kv => $"{kv.Value} {kv.Key}"))}; " +
+                      $"{promotions.Listed - handled} listed but not placed");
 }
 
 // ---- load-door teleports between the cells of this build ---------------------------------------------------------------
