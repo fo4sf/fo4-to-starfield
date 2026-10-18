@@ -14,7 +14,16 @@ class TerrainStableDoorTests(unittest.TestCase):
     run_writer = stable.TerrainStableIdentityTests.run_writer
     build = stable.TerrainStableIdentityTests.build
     promote = fixture.TerrainReferenceIdentityTests.promote
-    with_doors = doors.TerrainDoorsWriterTests.with_doors
+    def with_doors(self, objects, indices=(2,)):
+        """Use current writer schema with the original test's selected source slots."""
+        obj = copy.deepcopy(objects)
+        obj['doors'] = []
+        for n, i in enumerate(indices):
+            ref = next(r for r in objects['refs'] if r['src'] == self.objects['refs'][i]['src'])
+            arrival = (ref['pos'][0] + 0.5, ref['pos'][1] - 0.5, ref['pos'][2])
+            obj['doors'].append(doors.TerrainDoorsWriterTests.door(ref, i, 0x7D0B + n, arrival=arrival))
+        obj['refs'] = [r for r in obj['refs'] if r['src'] not in {d['src'] for d in obj['doors']}]
+        return obj
 
     def pair(self):
         obj = self.with_doors(self.promote([1]), (2, 0))
@@ -49,6 +58,7 @@ class TerrainStableDoorTests(unittest.TestCase):
         added = copy.deepcopy(obj)
         new_door = copy.deepcopy(added['doors'][0])
         new_door.update(src='000004:Synthetic.esm', edid='NewDoorBase', reference_index=3)
+        new_door['destination']['id'] = 0x7D20
         added['doors'].insert(0, new_door)
         second, _ = self.build(added, 'persistent-door-growth')
         for src, ids in first['doors'].items():

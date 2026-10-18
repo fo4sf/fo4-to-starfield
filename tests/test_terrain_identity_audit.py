@@ -44,6 +44,19 @@ class TerrainIdentityAuditTests(unittest.TestCase):
         if reason:
             self.assertIn(reason, proc.stderr)
 
+    def test_explicit_empty_doors_matches_current_writer_and_retains_reservations(self):
+        obj = self.mixed()
+        first, stage = self.build(obj, 'audit-empty-doors')
+        empty = copy.deepcopy(obj)
+        empty['refs'].extend(dict(d, base=0) for d in empty['doors'])
+        empty['doors'] = []
+        second, _ = self.build(empty, 'audit-empty-doors')
+        self.assertEqual(second['doors'], {})
+        self.audit(stage)
+        restored, _ = self.build(obj, 'audit-empty-doors')
+        self.assertEqual(first, restored)
+        self.audit(stage)
+
     def test_reordered_mixed_sources_use_saved_ids_not_allocation_order(self):
         obj = self.mixed()
         first, stage = self.build(obj, 'audit-reorder')

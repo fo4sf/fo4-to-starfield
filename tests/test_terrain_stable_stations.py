@@ -5,6 +5,7 @@ import unittest
 
 import test_terrain_reference_identity as fixture
 import test_terrain_stable_ids as stable
+import test_terrain_stable_doors as stable_doors
 import test_terrain_identity_audit as audit_fixture
 import test_terrain_doors_writer as door_fixture
 import test_terrain_lights_writer as light_fixture
@@ -15,7 +16,7 @@ class TerrainStableStationTests(unittest.TestCase):
     run_writer = stable.TerrainStableIdentityTests.run_writer
     build = stable.TerrainStableIdentityTests.build
     promote_all = fixture.StationWriterTests.promote_all
-    with_doors = door_fixture.TerrainDoorsWriterTests.with_doors
+    with_doors = stable_doors.TerrainStableDoorTests.with_doors
     with_lights = light_fixture.TerrainLightsWriterTests.with_lights
     BODY = fixture.StationWriterTests.BODY
     snapshot = staticmethod(audit_fixture.TerrainIdentityAuditTests.snapshot)
@@ -58,7 +59,7 @@ class TerrainStableStationTests(unittest.TestCase):
         mk.check_reference_slots(obj, ids)
         mk.check_door_identities(obj, ids)
         mk.check_light_identities(obj, ids)
-        plugin = door_fixture.overlay_records.walk_plugin(str(stage / 'Synthetic.esm'))
+        plugin = door_fixture.mk.overlay_records.walk_plugin(str(stage / 'Synthetic.esm'))
         checks = mk.promotion_checks(plugin['records'], len(plugin['masters']) << 24, obj, ids,
                                     {'objects': {'exported': 13, 'skipped': {}}})
         self.assertTrue(all(ok for _what, ok in checks), checks)

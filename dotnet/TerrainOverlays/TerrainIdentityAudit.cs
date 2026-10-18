@@ -137,7 +137,10 @@ internal static class TerrainIdentityAudit
                          ("terminals", "terminal"), ("workshops", "workshop"), ("doors", "door-base"), ("lights", "light-base") })
                 {
                     var entries = Entries(obj, name);
-                    bool present = name == "containers" || (name is "doors" or "lights" ? entries.Length > 0 : obj.TryGetProperty(name, out _));
+                    bool present = name == "containers" || (name == "lights" ? entries.Length > 0 : obj.TryGetProperty(name, out _));
+                    // Earlier writers omitted an explicitly empty door map; current main emits {}.
+                    // Both carry no active door identities, while retained reservations remain tombstones.
+                    if (name == "doors" && entries.Length == 0 && !map.TryGetProperty(name, out _)) present = false;
                     if (!present) continue;
                     sections.Add(name);
                     var ids = map.GetProperty(name);

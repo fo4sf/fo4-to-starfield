@@ -63,6 +63,32 @@ The usable ACTI interaction model and record design remain pending; Claude asked
 that no door slots be allocated until that choice is supplied. Do not mutate old
 stages, invent IDs, or use the old runtime `04002338` as a plugin-local destination ID.
 
+## Step 0: the two unknowns, before any door record (Claude, 2026-10-16; staged, not run)
+
+One queue answers, with the bridge's console probe and no door record: (1) does `Game.GetFormFromFile` resolve a
+**temporary** reference of an unloaded exterior cell from inside an interior (the return trip's destination)? (2) where
+does `MoveTo` put the player for the **persistent** core anchor `0x800` (persistent overlay references read their
+unmerged position in game), with no offset and with the merge offset (-1200, -2700, 0)?
+
+- `scripts/bridge/FO4SF_Probe.psc`: `Resolve(plugin, id)` and `MoveTo(plugin, id, dx, dy, dz)` take this script's
+  contract (file name + plugin-local id) and make its call (`MoveTo(target, dx, dy, dz, True, False)`); line formats in
+  docs/ai/test-queue.md "Bridge". Compiled by `make_bridge.py stage` into `C:\Modding\staging\bridge_t2` (both scripts
+  "Compilation succeeded"; the plugin is byte-identical to bridge_t0's; its QUST VMAD carries `FO4SF_Bridge` only, the
+  probe is reached through `cgf`).
+- `scripts/bridge/door_probe.py stage --core terrain_core64i --out door_probe_1017`: the targets read from
+  FO4TerrainCore.esm: anchor `000800` = 2048 (persistent, the world's only persistent reference), the Stimpak `0116FB` =
+  71419 (temporary, in the arrival's own cell, 6.8 m away), the Super Duper Mart door `02D22C` = 184876 (temporary,
+  727.8 m away); the core's plugins and Data hard-linked (51,821 files, 0 copies); four fresh-launch terrain tests:
+  (a) at the Red Rocket arrival, the three `Resolve` lines; (b) inside `FO4Port_RedRocket01`, the same three; (c) inside,
+  `MoveTo` the anchor with offset 0 0 0, then `Pos 20` and the anchor and Stimpak again; (d) the same with -1200 -2700 0.
+- Queue `C:\Modding\testqueue\door_probe_1017` (plan-terrain on integ_1017 with `--bridge bridge_t2 --fresh`); its
+  README.txt says which `bridge.log` line decides which unknown (`door_probe.py readme`). Needs runner feature
+  `probe_moveto`. Before it runs, the installed bridge_t0 has to be uninstalled (game closed): bridge_install.py refuses
+  a second bridge.
+
+Measured cost: a fresh-launch terrain test took 10.8 and 11.6 min in core64h_accept_1016, so the four tests take about
+45-50 min of one window, not 15.
+
 Next packet: allocate/check both activator references and destination markers in
 their own plugins, preserve every existing identity, serialize/read back the VMAD
 properties, verify source and output pins, and prepare the separate `door_script_rr`

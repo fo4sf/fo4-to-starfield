@@ -111,9 +111,9 @@ All existing reservations, including removed ones, remain occupied when more of
 these records are exported or the export order changes.
 
 The integrated legacy writer retains main's order through the lights: ordinary
-promotions, NAVMs, light REFRs, LIGH bases, then scripted-door bases and arrivals.
+promotions, NAVMs, light REFRs, LIGH bases, then scripted-door arrivals and bases (the current main writer order).
 Its mixed-output checker counts ordinary and door ACTIs together and checks door
-VMADs/arrivals separately. These ordering checks still describe legacy allocation;
+VMADs and persistent arrival placement with main's raw checks. These ordering checks still describe legacy allocation;
 they are not a persistent-rebuild checker. Production caller/checker integration
 and native saved-game validation remain required before enabling persistence in
 an active stage. Explicit bootstrap must reproduce the entire plugin and map.
@@ -165,3 +165,9 @@ and a scripted door. Reordering and adding/removing/reintroducing stations must
 preserve every old door reference, base and arrival ID. Explicit migration still
 requires byte-identical plugin and map output. This does not migrate core64i or
 establish native crafting, door travel or saved-game behavior.
+
+The current-main merge retains six named VMAD properties and places exterior arrival
+markers in the world persistent cell. New legacy outputs match that main writer;
+existing ledgers retain their prior base/marker numbers even if the historical
+allocation order differs. This identity continuity does not validate an existing
+save against changed record contents. Native return and save/reload remain unverified.
