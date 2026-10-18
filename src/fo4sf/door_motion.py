@@ -80,6 +80,10 @@ NON_TRANSFORM_INTERPOLATORS = frozenset(("NiFloatInterpolator", "NiBoolInterpola
                                          "NiBlendPoint3Interpolator"))
 
 
+# (target node, interpolator) an aliased clip may leave out: the Vault 111 cog door's falling paper, which Stage2 moves on
+# NiPathInterpolator (PC build f8c9b95, VltGearDoor01.nif: FXPaper01 node 1372, FXPaper002 node 1397); the only aliased
+# model is VltGearDoor01 (pipeline.OWN_RIG_ALIASES). Review of #329 (Codex P2): no blanket exception for other targets.
+DECORATIVE_UNSAMPLED = frozenset((("FXPaper01", "NiPathInterpolator"), ("FXPaper002", "NiPathInterpolator")))
 PARTICLE_SYSTEMS = frozenset(("NiParticleSystem", "NiMeshParticleSystem", "BSStripParticleSystem"))
 
 
@@ -138,9 +142,9 @@ def inspect(source, aliases=None):
                 ignored.append({"sequence": i, "target": source.strings[target_name].decode("latin-1"), "reason": reason})
                 continue
             kind = source.type_of(interpolator) if 0 <= interpolator < len(source.blocks) else None
-            if aliases and kind is not None and kind != "NiTransformInterpolator":
-                # an aliased object's decorative motion this code cannot sample (the cog door's paper: FXPaper01 and
-                # FXPaper002 on NiPathInterpolator) stays at its bind pose, listed; a real door still refuses it
+            if aliases and (source.strings[target_name].decode("latin-1"), kind) in DECORATIVE_UNSAMPLED:
+                # only the listed decorative targets stay at their bind pose (listed); any other track this code cannot
+                # sample is still refused later (door_clips.sample_track), so no opening part is silently frozen
                 ignored.append({"sequence": i, "target": source.strings[target_name].decode("latin-1"),
                                 "reason": f"unsampled interpolator {kind}"})
                 continue

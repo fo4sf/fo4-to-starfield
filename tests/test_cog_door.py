@@ -12,7 +12,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from fo4sf import convert_static, door_clips, door_motion, door_rig, native_door, nif  # noqa: E402
 from test_collision import fake_template  # noqa: E402
-from test_door_two_panels import door_nif, donor, fake_clip_files, sequences, sliding_panels  # noqa: E402
+from test_door_two_panels import IDENTITY, door_nif, donor, fake_clip_files, sequences, sliding_panels  # noqa: E402
 import test_sliding_doors  # noqa: E402
 
 ALIASES = {"Stage2": "Open"}
@@ -49,21 +49,30 @@ class CogDoorPlanTests(unittest.TestCase):
         self.assertEqual([s["name"] for s in door_motion.inspect(f)["sequences"]], [])
         self.assertEqual([s["name"] for s in door_motion.inspect(f, ALIASES)["sequences"]], ["Open"])
 
-    def test_a_path_interpolated_part_stays_put_on_the_aliased_rig_only(self):
-        # PC build f8c9b95: Stage2 moves the paper (FXPaper01, FXPaper002) on NiPathInterpolator, which no clip samples
-        def path_panel(f):
+    def test_only_the_cog_door_paper_may_skip_an_unsampled_interpolator(self):
+        # PC build f8c9b95: Stage2 moves the paper (FXPaper01, FXPaper002) on NiPathInterpolator, which no clip samples.
+        # Review of #329 (Codex P2): that exception is for the paper only, never for a rendered opening part.
+        paper = ("FXPaper01", (0, 0, 0), IDENTITY, None, [(0, (0, 0, 0)), (1, (0, 0, -50))])
+
+        def retype(f, every, kind):
             interps = [i for i in range(len(f.blocks)) if f.type_of(i) == "NiTransformInterpolator"]
-            f.block_types.append("NiPathInterpolator")
-            for i in interps[1::2]:                              # PanelB in both sequences
+            f.block_types.append(kind)
+            for i in interps[every]:
                 f.block_type_index[i] = len(f.block_types) - 1
             return f
-        f = path_panel(cog_nif())
+        f = retype(cog_nif(sliding_panels() + [paper]), slice(2, None, 3), "NiPathInterpolator")
         report = door_motion.inspect(f, ALIASES)
         self.assertEqual([(t["target"], t["reason"]) for t in report["ignored_targets"]],
-                         [("PanelB", "unsampled interpolator NiPathInterpolator")])
+                         [("FXPaper01", "unsampled interpolator NiPathInterpolator")])
         self.assertEqual(convert(f, aliases=ALIASES)[1]["rig"], "native")
+        for kind in ("NiPathInterpolator", "NiBSplineTransformInterpolator"):          # a rendered panel: refused
+            panel = retype(cog_nif(), slice(1, None, 2), kind)
+            self.assertEqual(door_motion.inspect(panel, ALIASES)["ignored_targets"], [])
+            with self.assertRaisesRegex(nif.NifError, "unsupported sampled door interpolator"):
+                convert(panel, aliases=ALIASES)
         with self.assertRaisesRegex(nif.NifError, "unsupported sampled door interpolator"):
-            door_rig.plan(path_panel(door_nif(sliding_panels())), placed=True)
+            door_rig.plan(retype(door_nif(sliding_panels() + [paper]), slice(2, None, 3), "NiPathInterpolator"),
+                          placed=True)                                              # no alias: the paper too
 
     def test_particle_emitters_in_the_aliased_clip_are_left_out_and_listed(self):
         # PC build 1449688: Stage2 also drives 27 particle-system targets, refused as unbound before
