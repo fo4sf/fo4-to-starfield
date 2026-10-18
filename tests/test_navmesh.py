@@ -289,6 +289,28 @@ class ConvertTests(unittest.TestCase):
         hit = nm.locate(navs, 25.0, 15.0, z=0.0)
         self.assertEqual(hit[0][1], fb)
 
+    def portal(self, xa, xb):
+        """Navmesh A ending at x = xa and B starting at x = xb (units; 7000 = 100 m, a cell line), joined by one FO4
+        type-0 portal: (fo4_portal links, subedge drops, validate errors, a path from A to B)."""
+        av, _ = square(xa - 700, 700, xa, 1400)
+        bv, _ = square(xb, 700, xb + 700, 1400)
+        at = [((0, 1, 2), (-1, 0, 1), 3.4e38, FOUND | nm.EDGE_LINK_BITS[1]), ((0, 2, 3), (0, -1, -1), 3.4e38, FOUND)]
+        bt = [((0, 1, 2), (-1, -1, 1), 3.4e38, FOUND), ((0, 2, 3), (0, -1, 0), 3.4e38, FOUND | nm.EDGE_LINK_BITS[2])]
+        pieces, rep = nm.convert([self.fo4(0xA, av, at, links=[(0, 0xB, 1, 2)]),
+                                  self.fo4(0xB, bv, bt, links=[(0, 0xA, 0, 1)])])
+        fids, navs, infos = sf_set(pieces)
+        ends = [fids[next(i for i, p in enumerate(pieces) if p.src == src)] for src in (0xA, 0xB)]
+        return (rep["links"]["fo4_portal"], rep["dropped"]["fo4_portal_subedge_missing"],
+                nm.validate(navs, infos)["errors"], nm.triangle_path(navs, (ends[0], 0), (ends[1], 0)) is not None)
+
+    def test_a_portal_on_or_straddling_a_cell_line_is_linked(self):
+        # #210: the portal's two sides were only joined inside one cell; on the 100 m line (or straddling it by less
+        # than FO4's own 0.343 m portal gap) A's sub-edge is in cell 0 and B's in cell 1, so it was dropped
+        for xa, xb in ((1400, 1400), (7007, 7007), (7000, 7000), (6986, 7014)):
+            self.assertEqual(self.portal(xa, xb), (1, 0, [], True), (xa, xb))
+        # sides 30 m apart are not joined across cells: dropped, one count per one-sided cell as before
+        self.assertEqual(self.portal(7000, 7000 + 700 * 3)[:2], (0, 2))
+
     def test_deleted_triangles_are_skipped(self):
         v, t = square(0, 0, 700, 700)
         t = [t[0], (t[1][0], (-1, -1, -1), t[1][2], FOUND | nm.F_DELETED)]
