@@ -2,7 +2,7 @@
 
 usage: python convert_batch.py --fo4-data <Fallout 4 Data dir> --staging <out dir> --content-resources <ContentResources.zip>
                                --texconv <Texconvx64.exe> --collision-template <vanilla box-collision Starfield .nif>
-                               [--pattern "setdressing/(chair|stool)"] [--limit 40] [--manifest manifest.json]
+                               [--pattern "setdressing/(chair|stool)"] [--limit 40] [--dry-run] [--manifest manifest.json]
 Writes <staging>/manifest.json: converted items (EditorID + model path for the plugin writer), failures with reasons, stats.
 With --cell-json, references whose FO4 ragdoll data (XRGD) poses their model away from its node pose get a posed model of
 their own (src/fo4sf/placed_pose.py): extra items with "pose": {"kind": "xrgd", "refs": [FO4 FormKeys]}, which the plugin
@@ -169,6 +169,7 @@ def main():
     ap.add_argument("--resume", action="store_true", help="reuse content-verified per-model checkpoints")
     ap.add_argument("--pattern", default=r"^meshes[\\/]setdressing[\\/]")
     ap.add_argument("--limit", type=int, default=20)
+    ap.add_argument("--dry-run", action="store_true", help="list candidate meshes (and cell candidates if --cell-json) then exit without converting or writing")
     ap.add_argument("--max-tris", type=int, default=20000, help="skip meshes with more triangles than this")
     ap.add_argument("--cell-json", default="", help="convert the models placed in a cell exported by dotnet/Fo4Export")
     ap.add_argument("--no-ref-poses", action="store_true",
@@ -221,6 +222,14 @@ def main():
     else:
         names = src.mesh_names(a.pattern)
     print(f"{len(names)} candidate meshes; converting up to {a.limit}")
+    if a.dry_run:
+        print("dry-run: candidates (sorted):")
+        for n in names[:200]:  # cap output
+            print(" ", n)
+        if len(names) > 200:
+            print(f"  ... and {len(names)-200} more")
+        print("dry-run complete; no files written")
+        return
     os.makedirs(a.staging, exist_ok=True)
     state_path = os.path.join(a.staging, "build-state.json")
     write_json_atomic(state_path, {"complete": False, "status": "converting"})
