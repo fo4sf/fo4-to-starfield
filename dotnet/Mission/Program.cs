@@ -842,9 +842,9 @@ static class Mission
         {   // his voice: a Hello DIAL with one INFO per line, said by him, "sir"/"mum" lines by the player's sex
             var voice = Path.Combine(dir, "voice.json");
             File.WriteAllText(voice, """
-                [{"info": "000F1F6E", "response": 1, "text": "Yes?", "wem": "0F4C0001", "sex": null},
-                 {"info": "000F1F78", "response": 1, "text": "Sir?", "wem": "0F4C0002", "sex": "male"},
-                 {"info": "000F1F80", "response": 1, "text": "Mum?", "wem": "0F4C0003", "sex": "female"}]
+                [{"info": "000F1F6E", "response": 1, "text": "Yes?", "wem": "00F4C001", "sex": null},
+                 {"info": "000F1F78", "response": 1, "text": "Sir?", "wem": "00F4C002", "sex": "male"},
+                 {"info": "000F1F80", "response": 1, "text": "Mum?", "wem": "00F4C003", "sex": "female"}]
                 """);
             var o = Path.Combine(outDir, "voice");
             int rc = Write(sfPath, corePath, raiderPath, pointsPath, o, Plugin, World, true, CodsworthBody, null, voice);
@@ -856,7 +856,7 @@ static class Mission
                 { Console.WriteLine("FAIL  check passed a plain build as a voice one"); return 1; }
             var voiceMutations = new (string Name, Action<SF.StarfieldMod> Edit)[]
             {
-                ("a line's wem changed", m => m.Quests.First().DialogTopics[0].Responses[1].Responses[0].WEMFile = 0x0F4C0009),
+                ("a line's wem changed", m => m.Quests.First().DialogTopics[0].Responses[1].Responses[0].WEMFile = 0x00F4C009),
                 ("a line said by anyone", m => m.Quests.First().DialogTopics[0].Responses[0].Conditions.Clear()),
                 ("a sir line for either sex", m => m.Quests.First().DialogTopics[0].Responses[1].Conditions.RemoveAt(1)),
                 ("a line's text changed", m => m.Quests.First().DialogTopics[0].Responses[2].Responses[0].ResponseText = "Sir?"),

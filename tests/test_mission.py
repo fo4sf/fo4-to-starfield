@@ -309,8 +309,8 @@ class StageAndInstallTests(unittest.TestCase):
             with open(os.path.join(out, "plan.json"), encoding="utf-8") as f:
                 plan = json.load(f)
             base = make_mission.VOICE_DIR
-            self.assertEqual(sorted(plan["assets"]), [f"{base}/0f4c0001.wem", f"{base}/0f4c0002.wem", f"{base}/0f4c0003.wem"])
-            with open(os.path.join(out, "Data", *base.split("/"), "0f4c0002.wem"), "rb") as f:
+            self.assertEqual(sorted(plan["assets"]), [f"{base}/00f4c001.wem", f"{base}/00f4c002.wem", f"{base}/00f4c003.wem"])
+            with open(os.path.join(out, "Data", *base.split("/"), "00f4c002.wem"), "rb") as f:
                 self.assertEqual(f.read(), b"000F1F78")
 
     def test_voice_sex_rule_and_missing_file(self):
