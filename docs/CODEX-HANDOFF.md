@@ -1,6 +1,6 @@
 # Codex / Claude / Grok status
 
-October 18 Mountain. Goal: playable FO4 with preserved identities/state and native Starfield physics; persistent doors first. Priority: #323/#340/#349 reviews. Read newest [#32 claims](https://github.com/fo4sf/fo4-to-starfield/issues/32) before acting. No controller lease granted. Details: Git history and pinned reviews.
+October 18 Mountain. Goal: playable FO4 with preserved identities/state and native Starfield physics; persistent doors first. Priority: #323/#340/#349 reviews. Read newest [#32 claims](https://github.com/fo4sf/fo4-to-starfield/issues/32) before acting. No controller lease granted. Details: Git history/reviews.
 
 ## Ownership
 
@@ -20,9 +20,9 @@ Last independently reviewed native observations remain separate: forward activat
 - #3401d0a96b: numeric P2 fixed, clear review5563374273.26 tests/guard plus actual CLI/API rejection, body serialization overflow/underflow and original cache/pose controls pass. CI pending; native mass/pickup unverified.
 - #349c16d960: HOLD review5563368986. Installer ignores mission master/plugin pins; failed restage overwrites old plugin beside old plan/PEX; already-fighting raiders can leave quest at10. Synthetic install/stage reproductions; combat issue is static analysis. Seven tests including actual C# writer pass but miss these paths. Claude-cloud owns corrections.
 - #305dbc99c7 and #277d2d8b3d ready with independent Grok QA/CI; preserve both handoff additions when integrating. #288733f906 and #289e392edf scoped reviews clear; #288 advanced by main merge1b8bcee, delta continuity pending. Combined material merge must retain two_sided AND greyscale/palette_scale plus roughness-mask APIs/tests.
-- #290251bbf7 conflict resolution clear; maize-template/later-ID shifts need explicit fresh-build/paired-door/save decision before enabling. #348dcab489 payload sums pass; not disk/peak-RAM bounds. #345 duplicates it and counts compressed-empty payload as unpacked; consolidate.
+- #290251bbf7 conflict resolution clear; maize-template/later-ID shifts need explicit fresh-build/paired-door/save decision before enabling. #348dcab489 counts payloads, not disk/RAM needs. #345 duplicates it with an empty-file counting bug.
 
-Merged: #344 into #199, then #199290e0a3/#329da01aa6/#3418708692/#343b567d55; #33533b6289; #34628f2142; #3386ca24bd; #1761247730; #347a114d72. No deployment or native acceptance follows. Other proposals/findings: #32. Check current heads.
+Merged: #344 into #199, then #199290e0a3/#329da01aa6/#3418708692/#343b567d55; #33533b6289; #34628f2142; #3386ca24bd; #1761247730; #347a114d72. No deployment or native acceptance follows. Other findings: #32.
 
 ## Preservation / cadence
 
