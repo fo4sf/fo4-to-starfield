@@ -237,6 +237,55 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(st["done"], {})
         self.assertEqual(st["attempts"]["0000_fall"], 0)
 
+    def test_a_popup_that_takes_the_focus_mid_step_reruns_the_test(self):
+        # movable_1019c 0009 (2026-10-18): "Assert-Foreground : ABORT: foreground window belongs to 'AMDAutoUpdate',
+        # not 'Starfield'. No input sent." with no owner input since the runner's last one: a popup, not the owner
+        self.ctl.last_sent_tick = 1000
+        n = {}
+        logs = []
+
+        def step(test, out):
+            n[test["id"]] = n.get(test["id"], 0) + 1
+            if test["id"] == "0000_fall" and n[test["id"]] == 1:
+                with open(os.path.join(out, "step.log"), "w", encoding="utf-8") as f:
+                    f.write("Assert-Foreground : ABORT: foreground window belongs to 'AMDAutoUpdate', not 'Starfield'. "
+                            "No input sent.\n")
+                return 2
+            return self.landing(0.1)(test, out)
+        r = self.runner(step, refocus=True)
+        r.log = logs.append
+        self.assertEqual(r.run(), 0)
+        self.assertEqual(n["0000_fall"], 2)
+        self.assertEqual(len(jload(os.path.join(self.d, "state.json"))["done"]), 3)
+        self.assertTrue(any("AMDAutoUpdate took the focus mid-step without owner input (popup)" in x for x in logs), logs)
+
+    def test_a_popup_rerun_is_capped_and_owner_input_still_stops(self):
+        self.ctl.last_sent_tick = 1000
+        n = [0]
+
+        def step(test, out):
+            n[0] += 1
+            return 2
+        self.assertEqual(self.runner(step, refocus=True).run(), 3)
+        # each of the 3 tests rerun at the end of the queue until the first runs out of reruns, then the stop as before
+        self.assertEqual(n[0], 3 * tq.POPUP_RETRIES + 1)
+        self.assertEqual(jload(os.path.join(self.d, "state.json"))["done"], {})
+        n[0] = 0
+
+        def typed(test, out):                             # the owner typed during the step: no rerun
+            n[0] += 1
+            self.ctl.foreign = True
+            return 2
+        self.assertEqual(self.runner(typed, refocus=True).run(), 3)
+        self.assertEqual(n[0], 1)
+
+    def test_the_window_that_took_the_focus_is_read_from_the_step_log(self):
+        d = tempfile.mkdtemp()
+        self.assertIsNone(tq.foreground_thief(d))
+        with open(os.path.join(d, "step.log"), "w", encoding="utf-8") as f:
+            f.write("x\nAssert-Foreground : ABORT: foreground window belongs to 'AMDAutoUpdate', not 'Starfield'.\n")
+        self.assertEqual(tq.foreground_thief(d), "AMDAutoUpdate")
+
     def test_crash_is_recorded_and_not_a_pass(self):
         def step(test, out):
             self.ctl.pid = None                           # the game exited during the step

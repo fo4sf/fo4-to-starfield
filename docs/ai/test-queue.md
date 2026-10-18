@@ -74,6 +74,10 @@ the walk climbs).
 - Owner activity: input the runner did not send, or another window in front of the game, stops the run (or waits with
   `--wait-for-idle`; with `--refocus` it then brings its own game window back to the front once, never another app).
   Every step runs with `FO4SF_NO_FOCUS_STEAL=1`, so `input.ps1` refuses to pull the game in front during a test.
+- A window that takes the focus mid-step with no keyboard or mouse input since the runner's last (a popup: the AMD
+  auto-updater, movable_1019c 2026-10-18) is not the owner: with `--refocus` the game is brought back and the test runs
+  again at the end of the queue, not counted as an attempt, at most `POPUP_RETRIES` (2) times per test. The log names
+  the window from `input.ps1`'s ABORT line in the attempt's `step.log`.
 - `queue.json` `"hours"` limits the allowed hours (default `[[0, 24]]`); `--max-hours` and `--max-tests` bound a run.
 - The build is pinned: `queue.json` records the SHA-256 of `FO4Port.esm`; the runner will not launch a staging folder
   whose plugin changed. The dedicated save `fo4sf_test_<build id>` is created on the first launch and loaded on later ones. After god mode the

@@ -542,6 +542,9 @@ class ParseNpcTests(unittest.TestCase):
                           ("Clear Console\nplr\nPick Last Ref: (FFO1OD65)\n", "FF010D65"),       # O for 0
                           ("ClearConsole\npIr\nPlckLastRef: (ff0l0d65)\n", "FF010D65"),          # l / I for 1, i
                           ("ClearConsole\nplr\nPickLastRef >> FF010D65\n", "FF010D65"),
+                          # movable_1019c 0001 / 0003 (2026-10-18): the FF read apart
+                          ("ClearConsole\nplayer. placeatme 0500CE44 1\nplr\nPickLastRef (F F 01102B)\n", "FF01102B"),
+                          ("ClearConsole\nplr\nPickLastRef: (FF 01102B)\n", "FF01102B"),
                           # column layout with an older session's values and id in the right column: ours is last
                           ("getpos x\nGetPos: X > >\nClearConsole\nplr\nPickLastRef:\n-7.82\n(FF000801)\n(FF010D65)",
                            "FF010D65"),

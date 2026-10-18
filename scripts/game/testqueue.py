@@ -2208,6 +2208,21 @@ def blocked_reason(ctl, q, launching=False, min_idle=900):
     return None
 
 
+FOREGROUND_THIEF = re.compile(r"foreground window belongs to '([^']*)'")
+POPUP_RETRIES = 2       # a test whose step lost the focus to a popup runs again this often in one run
+
+
+def foreground_thief(out_dir):
+    """The window input.ps1 found in front when it refused to send input (its ABORT line in the attempt's step.log),
+    or None."""
+    try:
+        with open(os.path.join(out_dir, "step.log"), encoding="utf-8", errors="replace") as f:
+            m = FOREGROUND_THIEF.findall(f.read())
+    except OSError:
+        return None
+    return m[-1] if m else None
+
+
 def planned_on_other_code(commit):
     """A warning when the queue was planned at a commit this runner's checkout does not contain (planned from another
     worktree or branch: its plan may use behaviour this runner's qstep.ps1 does not have), else None."""
@@ -2530,6 +2545,7 @@ class Runner:
         self.step = step or self._step
         self.cell = None                                  # cell the player is verified to be in
         self.session = False                              # game set up by this run (save loaded, god mode)
+        self.popups = {}                                  # test id -> steps rerun after a popup took the focus
         self.log_p = os.path.join(qdir, "run.log")
 
     def log(self, msg):
@@ -2868,9 +2884,24 @@ class Runner:
                 pid_before = self.ctl.game_pid()
                 code = self.step(t, out_dir)
                 self.game_used = True
-                if code == 2:                             # the owner took the foreground mid-step: not an attempt
+                if code == 2:                             # the foreground was lost mid-step: not an attempt
                     self.state["attempts"][t["id"]] = n - 1
                     self.cell = None
+                    who = foreground_thief(out_dir)
+                    # no keyboard/mouse input since the runner's last one: a window took the focus by itself (the AMD
+                    # auto-updater did, movable_1019c 2026-10-18), not the owner: take the game back and run the test
+                    # again, at most POPUP_RETRIES times per test
+                    popup = self.ctl.last_sent_tick is not None and not self.ctl.foreign_input()
+                    pops = self.popups.get(t["id"], 0)
+                    if popup and self.a.refocus and pops < POPUP_RETRIES and self.ctl.refocus_game():
+                        self.popups[t["id"]] = pops + 1
+                        self.log(f"{t['id']}: {who or 'another window'} took the focus mid-step without owner input "
+                                 f"(popup): game brought back to the front, the test runs again")
+                        self.ctl.mark_sent()
+                        pending.append(t)
+                        continue
+                    if who and popup:
+                        self.log(f"{t['id']}: {who} took the focus mid-step without owner input")
                     if self.wait_or_stop("owner switched windows during a step"):
                         pending.append(t)                 # run it again later in this run
                         continue
