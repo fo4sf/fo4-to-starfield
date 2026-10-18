@@ -555,7 +555,7 @@ static class Mission
             Console.WriteLine($"  ARMA {arma?.EditorID} race {arma?.Race.FormKey} models [{string.Join(", ", files)}]; ARMO {skin?.EditorID} " +
                               $"armatures [{string.Join(", ", skin?.Armatures.Select(x => x.ArmorAddon.FormKey.ToString()) ?? [])}]");
             Need(arma is { EditorID: CodsworthArmaEdid } && files.Count > 0 &&
-                 files.All(f => f.Replace('/', '\\').EndsWith(ModelPath("", codsworthModel), StringComparison.OrdinalIgnoreCase)),
+                 files.All(f => string.Equals(ModelPath("", f), ModelPath("", codsworthModel), StringComparison.OrdinalIgnoreCase)),
                  $"ARMA 0x{CodsworthArmaId:X} is not {CodsworthArmaEdid} with the model {codsworthModel}");
             Need(arma is not null && m.Cache.TryResolve<SF.IRaceGetter>(arma.Race.FormKey, out _), "Codsworth's ARMA race does not resolve");
             Need(skin is { EditorID: CodsworthSkinEdid } && skin.Armatures.Count == 1 && skin.Armatures[0].ArmorAddon.FormKey == arma?.FormKey,
@@ -698,6 +698,18 @@ static class Mission
                 { Console.WriteLine("FAIL  check passed a model build as a plain one"); return 1; }
             if (Check(Path.Combine(outDir, "alias", Plugin), sfPath, corePath, raiderPath, true, true, model) == 0)
                 { Console.WriteLine("FAIL  check passed a plain build as a model one"); return 1; }
+            {   // Codex 5565181946: the same file name in another folder is not his model
+                var mod = SF.StarfieldMod.CreateFromBinary(Path.Combine(o, Plugin), rel, Styles(SfEsm, coreKey, raiderKey));
+                mod.ArmorAddons.First().WorldModel!.Male!.File = new AssetLink<StarfieldModelAssetType>("Meshes\\Elsewhere\\" + model);
+                var md = Path.Combine(outDir, "model_moved");
+                Directory.CreateDirectory(md);
+                var lo = new[] { SfEsm, coreKey, raiderKey };
+                mod.BeginWrite.ToPath(Path.Combine(md, Plugin)).WithLoadOrder(lo)
+                    .WithKnownMasters(lo.Select(k => new KeyedMasterStyle(k, MasterStyle.Full)).ToArray()).Write();
+                if (Check(Path.Combine(md, Plugin), sfPath, corePath, raiderPath, true, true, model) == 0)
+                    { Console.WriteLine("FAIL  check passed his model in another folder"); return 1; }
+                Console.WriteLine("mutation rejected: model in another folder");
+            }
             if (ModelPath("Meshes\\Actors\\x.nif", "Meshes\\" + model) != "Meshes\\" + model || ModelPath("Actors\\x.nif", model) != model)
                 { Console.WriteLine("FAIL  ModelPath does not follow the vanilla prefix"); return 1; }
         }
