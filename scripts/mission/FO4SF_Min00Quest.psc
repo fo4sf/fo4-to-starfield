@@ -66,6 +66,7 @@ Event OnStageSet(int auiStageID, int auiItemID)
         SetObjectiveDisplayed(85)
         Debug.Notification("When Freedom Calls: kill the raiders")
     elseif auiStageID == 30
+        Preston.StopCombat()                             ; in game 18 Oct: downed in the fight, he got up and shot the player
         SetObjectiveCompleted(85)
         SetObjectiveDisplayed(86)
         Debug.Notification("When Freedom Calls: talk to Preston Garvey")
