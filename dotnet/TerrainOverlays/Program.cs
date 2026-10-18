@@ -10,7 +10,9 @@
 //   SFBK <world>Block      copy of OverlayBlockLC172World (102382): ANAM = the tile's BTD, DNAM n x n, ENAM = shared
 //                          height range, FNAM = one raw u16 per BTD cell (SW-corner sample), INAM/HNAM alignment
 //   LCTN <world>Location   copy of LC172WorldLocation (3807BE): keyword LocTypeOverlay, parent SSol_PMars_Surface; one
-//                          per overlay (the CK warns when two overlays share a location)
+//                          per overlay (the CK warns when two overlays share a location). Duplicate clears LCSR/LCID
+//                          (LC172's map-marker chain); MapMarker REFRs (params "map_markers", else one at the COC)
+//                          are restored after doors/lights (docs/terrain/map-markers.md).
 //   WRLD <world>           copy of LC172World (02DF8C) minus cells/offsets/location; overlay component -> the SFBK;
 //                          object bounds = the BTD; every exterior cell of the BTD (empty), the COC cell with a
 //                          COCMarkerHeading 2 m above the ground, a persistent XMarker anchor in the persistent cell
@@ -24,9 +26,10 @@
 // overlay record, so the terrain records, the anchors and the Mars plugin keep the FormIDs they have without objects;
 // <staging dir>/formids.json lists the new ones. objects.json may also promote placed references to native records
 // (make_core64c.py stage --cluster): "containers" (CONT), "items" (MISC), "activators" (ACTI), "terminals" (TERM,
-// each with its own TMLM menu) and "workshops" (ACTI build stations, docs/terrain/stations.md), each entry in its
-// source's original REFR slot (ReferenceIdentityPlan), the new CONT, MISC, ACTI, TERM + TMLM, then the workshops' ACTI
-// records after every reserved REFR; formids.json "containers", "items", "activators", "terminals" and "workshops" map
+// each with its own TMLM menu), "workshops" (ACTI build stations, docs/terrain/stations.md) and "flora" (FLOR harvest
+// plants cloned from FloraMaizeCrop01, docs/terrain/flora.md), each entry in its source's original REFR slot
+// (ReferenceIdentityPlan), the new CONT, MISC, ACTI, TERM + TMLM, then the workshops' ACTI and flora FLOR records
+// after every reserved REFR; formids.json "containers", "items", "activators", "terminals", "workshops" and "flora" map
 // each source to {"base", "ref"} (a terminal also to its "menu"). "benches" keep their slot on the VANILLA Starfield
 // bench of their kind (no record of our own); formids.json "benches" maps each to {"base": "<6 hex>:Starfield.esm",
 // "ref", "kind"}.
@@ -179,8 +182,8 @@ foreach (var o in overlays)
                       $"{(cmax - cmin + 1) * (cmax - cmin + 1)} cells {cmin}..{cmax}, COC {coc} in ({spawnCell[0]}, {spawnCell[1]})");
     idx++;
 }
-int nStat = 0, nDoor = 0, nRef = 0, nDisabled = 0, nNav = 0, nNavTri = 0, nNavLink = 0, nNavDoor = 0, nCont = 0, nMisc = 0,
-    nActi = 0, nTerm = 0, nWkshp = 0, nBench = 0;
+int nStat = 0, nDoor = 0, nOpenDoor = 0, nRef = 0, nDisabled = 0, nNav = 0, nNavTri = 0, nNavLink = 0, nNavDoor = 0, nCont = 0, nMisc = 0,
+    nActi = 0, nTerm = 0, nWkshp = 0, nFlor = 0, nBench = 0;
 var refIds = new Dictionary<string, string>();                 // placed reference source -> this plugin's id (6 hex)
 Dictionary<string, object>? ids = null;                        // formids.json
 Dictionary<(int, int), Cell>? objCells = null;                 // the objects' overlay cells
@@ -209,6 +212,7 @@ if (Has(prm, "objects"))
     objCells = cellAt; objWorld = world;
     var baseKeys = new List<FormKey>();
     var baseIds = new Dictionary<string, string>();
+    var doorBases = new HashSet<int>();                                     // base indices written as rigged DOOR
     foreach (var b in o.GetProperty("bases").EnumerateArray())
     {
         var edid = b.GetProperty("edid").GetString()!;
@@ -233,6 +237,7 @@ if (Has(prm, "objects"))
                 CNAM = d.GetProperty("animations").GetString(),
             });
             mod.Doors.Add(rec);
+            doorBases.Add(baseKeys.Count);
             baseKeys.Add(rec.FormKey);
             nDoor++;
         }
@@ -268,6 +273,14 @@ if (Has(prm, "objects"))
         {
             obj.MajorRecordFlagsRaw |= 0x800;                                // Initially Disabled, as in FO4
             nDisabled++;
+        }
+        // FO4's "open by default" on a rigged door (exterior.place): a doorway FO4 shows open starts open, as PluginSpike
+        // writes it on the interiors (Red Rocket 056332 and 056333)
+        if (r.TryGetProperty("open_by_default", out var obd) && obd.ValueKind == JsonValueKind.True
+            && doorBases.Contains(r.GetProperty("base").GetInt32()))
+        {
+            obj.OpenByDefault = true;
+            nOpenDoor++;
         }
         cell.Temporary.Add(obj);
         refIds[r.GetProperty("src").GetString()!] = obj.FormKey.ID.ToString("X6");
@@ -449,6 +462,7 @@ if (Has(prm, "objects"))
         return t;
     }
     var actiIds = new Dictionary<string, object>();
+    var actiBySrc = new Dictionary<string, PlacedObject>(StringComparer.OrdinalIgnoreCase);
     var actiByEdid = new Dictionary<string, StarfieldActivator>(StringComparer.OrdinalIgnoreCase);
     var actiSig = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     if (o.TryGetProperty("activators", out var actisJ))
@@ -478,6 +492,7 @@ if (Has(prm, "objects"))
             else if (actiSig[edid] != sig)
                 throw new InvalidDataException($"activator {edid}: {src} asks for {sig} but the shared record is {actiSig[edid]}");
             var obj = PlacePromoted(c, acti.FormKey, "activator");
+            actiBySrc[src] = obj;
             actiIds[src] = new Dictionary<string, string> { ["base"] = acti.FormKey.ID.ToString("X6"), ["ref"] = obj.FormKey.ID.ToString("X6") };
             if (actiIds.Count <= 8 || actiIds.Count % 500 == 0)
                 Console.WriteLine($"  activator {acti.EditorID} {acti.FormKey} ('{acti.Name?.String}') -> REFR {obj.FormKey}");
@@ -630,6 +645,65 @@ if (Has(prm, "objects"))
             Console.WriteLine($"  workshop {acti.EditorID} {acti.FormKey} ('{acti.Name?.String}', radius {radius} m) -> REFR {obj.FormKey} in cell ({c.GetProperty("cell")[0]}, {c.GetProperty("cell")[1]})");
         }
     }
+    // Flora (docs/terrain/flora.md): FO4 Flora -> native Starfield FLOR, one base per FO4 base, cloned from
+    // FloraMaizeCrop01 (000EC886: keywords FloraTypeOrganic + OutpostCanDomesticate, PFIG OrgCommonNutrient_Seed,
+    // PNAM/FNAM/JNAM/PFPC/PRPS of the crop template). Mutagen 0.55.0-alpha.67 Flora.Ingredient writes PFIG
+    // (default seed and a custom MISC both serialize; a STAT ingredient is refused before publication). Duplicate
+    // of the maize crop keeps the rest of the harvest fields, then we set EditorID, Name, Model, Ingredient.
+    // ({"src", "edid", "model", "name", "ingredient", "cell", "pos", "rot", "scale", "reference_index"}.)
+    var florIds = new Dictionary<string, object>();
+    var florByEdid = new Dictionary<string, Flora>(StringComparer.OrdinalIgnoreCase);
+    var florSig = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    if (o.TryGetProperty("flora", out var florJ))
+    {
+        IFloraGetter? florTemplate = null;
+        var defaultIng = new FormKey(sfEsm, 0x260DF2);
+        if (florJ.GetArrayLength() > 0)
+            florTemplate = sf.Florae.FirstOrDefault(x => x.FormKey == new FormKey(sfEsm, 0x0EC886))
+                ?? throw new InvalidDataException("flora: the template FLOR 000EC886 (FloraMaizeCrop01) is missing from the master");
+        foreach (var c in florJ.EnumerateArray())
+        {
+            var src = c.GetProperty("src").GetString()!;
+            var edid = c.GetProperty("edid").GetString()!;
+            var model = c.GetProperty("model").GetString()!;
+            var name = OneLine(c, "name", optional: false)!;
+            var ingStr = c.GetProperty("ingredient").GetString() ?? "";
+            var colon = ingStr.IndexOf(':');
+            if (colon < 1 || !uint.TryParse(ingStr[..colon], System.Globalization.NumberStyles.HexNumber, null, out var ingId)
+                || !string.Equals(ingStr[(colon + 1)..], sfEsm.FileName.String, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException($"flora {src}: ingredient '{ingStr}' is not a Starfield.esm formkey (hex:Starfield.esm)");
+            var ingKey = new FormKey(sfEsm, ingId);
+            if (sf.MiscItems.FirstOrDefault(x => x.FormKey == ingKey) is null
+                && sf.LeveledItems.FirstOrDefault(x => x.FormKey == ingKey) is null)
+                throw new InvalidDataException($"flora {src}: ingredient {ingStr} is not a MISC or LVLI of the master");
+            var sig = $"{model.ToLowerInvariant()}|{name}|{ingStr.ToLowerInvariant()}";
+            if (!florByEdid.TryGetValue(edid, out var flor))
+            {
+                flor = (Flora)florTemplate!.Duplicate(NewKey());
+                flor.EditorID = edid;
+                flor.Name = name;
+                flor.Model = new Model { File = model };
+                var ingProp = typeof(Flora).GetProperty("Ingredient");
+                if (ingProp != null)
+                {
+                    var link = ingProp.GetValue(flor);
+                    var setTo = link?.GetType().GetMethod("SetTo", new[] { typeof(FormKey) });
+                    setTo?.Invoke(link, new object[] { ingKey });
+                }
+                else if (ingKey != defaultIng)
+                    throw new InvalidDataException($"flora {edid}: Mutagen Flora has no Ingredient property; cannot write non-default PFIG {ingStr}");
+                mod.Florae.Add(flor);
+                florByEdid[edid] = flor;
+                florSig[edid] = sig;
+            }
+            else if (florSig[edid] != sig)
+                throw new InvalidDataException($"flora {edid}: {src} asks for {sig} but the shared record is {florSig[edid]}");
+            var obj = PlacePromoted(c, flor.FormKey, "flora");
+            florIds[src] = new Dictionary<string, string> { ["base"] = flor.FormKey.ID.ToString("X6"), ["ref"] = obj.FormKey.ID.ToString("X6") };
+            if (florIds.Count <= 8 || florIds.Count % 500 == 0)
+                Console.WriteLine($"  flora {flor.EditorID} {flor.FormKey} ('{flor.Name?.String}', {ingStr}) -> REFR {obj.FormKey}");
+        }
+    }
     // Benches (docs/terrain/stations.md): FO4 crafting stations keep their REFR slot and take the VANILLA Starfield bench
     // of their kind as base (WorkbenchWeapon 2B6A63, WorkbenchArmor 2B6A62, WorkbenchChem 2B6A61, WorkbenchFood 2B6A65:
     // the same WBDT bench type as FO4's bench and, armor / chem / cooking, the same recipe keyword id), so no record of
@@ -727,14 +801,46 @@ if (Has(prm, "objects"))
             doorRefIds[src] = obj.FormKey.ID.ToString("X6");
         }
     }
+    // Red Rocket garage button -> door (docs/terrain/garage-button.md). Vanilla DefaultActivateLinkedRefOnActivate
+    // (no new .pex) + XLKR LinkCustom02 (0005D5E7). Existing ACTI REFR slots; no new FormIDs.
+    var garageIds = new List<object>();
+    if (o.TryGetProperty("garage_buttons", out var gbJ))
+    {
+        foreach (var pair in gbJ.EnumerateArray())
+        {
+            var buttonSrc = pair.GetProperty("button").GetString()!;
+            var doorSrc = pair.GetProperty("door").GetString()!;
+            if (!actiBySrc.TryGetValue(buttonSrc, out var button) || !actiBySrc.TryGetValue(doorSrc, out var door))
+                throw new InvalidDataException($"garage_buttons: {buttonSrc} / {doorSrc} are not promoted activators");
+            var kw = new FormKey(sfEsm, 0x5D5E7);                                  // LinkCustom02; script GetLinkedRef(LinkedRefKeyword)
+            var vmad = new VirtualMachineAdapter { Version = 6, ObjectFormat = 2 };
+            var script = new ScriptEntry { Name = "DefaultActivateLinkedRefOnActivate" };
+            script.Properties.Add(new ScriptObjectProperty
+            {
+                Name = "LinkedRefKeyword", Flags = ScriptProperty.Flag.Edited,
+                Object = new FormLink<IStarfieldMajorRecordGetter>(kw), Alias = -1, Unused = 0,
+            });
+            vmad.Scripts.Add(script);
+            button.VirtualMachineAdapter = vmad;
+            var link = new LinkedReferences();
+            link.KeywordOrReference.SetTo(kw);
+            link.Reference.SetTo(door.FormKey);
+            button.LinkedReferences.Add(link);
+            garageIds.Add(new Dictionary<string, string> { ["button"] = button.FormKey.ID.ToString("X6"), ["door"] = door.FormKey.ID.ToString("X6") });
+            Console.WriteLine($"  garage button {buttonSrc} REFR {button.FormKey} -> door {doorSrc} REFR {door.FormKey} (DefaultActivateLinkedRefOnActivate + LinkCustom02)");
+        }
+    }
     nCont = contByEdid.Count; nMisc = miscByEdid.Count; nActi = actiByEdid.Count; nTerm = termByEdid.Count; nWkshp = wkshpByEdid.Count;
+    nFlor = florByEdid.Count;
     ids = new Dictionary<string, object> { ["plugin"] = modKey.FileName.String, ["world"] = world, ["bases"] = baseIds, ["refs"] = refIds, ["containers"] = contIds };
     if (o.TryGetProperty("items", out _)) ids["items"] = itemIds;               // a build without items keeps its formids.json bytes
     if (o.TryGetProperty("activators", out _)) ids["activators"] = actiIds;     // (as without activators / terminals)
     if (o.TryGetProperty("terminals", out _)) ids["terminals"] = termIds;
     if (o.TryGetProperty("workshops", out _)) ids["workshops"] = wkshpIds;       // (and without workshops / benches)
+    if (o.TryGetProperty("flora", out _)) ids["flora"] = florIds;
     if (o.TryGetProperty("benches", out _)) ids["benches"] = benchIds;
     if (o.TryGetProperty("doors", out _)) ids["doors"] = doorIds;               // filled after the lights
+    if (garageIds.Count > 0) ids["garage_buttons"] = garageIds;
 }
 if (Has(prm, "navmesh"))
 {
@@ -992,6 +1098,67 @@ if (doorEntries.Count > 0)
                           $"persistent in {persistentCell.FormKey} (over cell ({d.ArrivalCell[0]}, {d.ArrivalCell[1]})) at ({d.ArrivalPos[0]}, {d.ArrivalPos[1]}, {d.ArrivalPos[2]})");
     }
 }
+// Map markers (docs/terrain/map-markers.md): Duplicate LC172's persistent MapMarker REFR 003E5E12 so empty XMRK /
+// FNAM 0x1B / TNAM 0x17 stay vanilla; one per entry of the overlay's "map_markers" (make_core64c stage: Red Rocket at
+// the COC, Sanctuary, Vault 111, Concord), else one at the COC; fill LCSR MapMarkerRefType + LCID that the location
+// Duplicate cleared. New FormIDs after doors/lights so object IDs stay, in params order. Skip when the master has no
+// 003E5E12 (synthetic identity fixture) so existing writer tests keep their FormIDs.
+var srcMapMarker = sf.EnumerateMajorRecords<IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey.ID == 0x3E5E12);
+int nMap = 0;
+var mapIds = new Dictionary<string, string>();                               // world -> first marker (the COC one)
+var mapRefIds = new Dictionary<string, Dictionary<string, string>>();        // world -> tag -> marker
+if (srcMapMarker == null)
+    Console.WriteLine("  map marker: template REFR 003E5E12 missing from the master; skipping");
+else foreach (var (w, o) in worlds)
+{
+    var loc = mod.Locations.First(l => l.EditorID == o.GetProperty("location").GetString());
+    var entries = new List<(string Tag, string Name, float[] Pos, int[] Cell)>();
+    if (o.TryGetProperty("map_markers", out var mj) && mj.ValueKind == JsonValueKind.Array)
+        foreach (var m in mj.EnumerateArray())
+            entries.Add((m.GetProperty("tag").GetString()!, m.GetProperty("name").GetString()!,
+                         m.GetProperty("pos").EnumerateArray().Select(e => e.GetSingle()).ToArray(),
+                         m.GetProperty("cell").EnumerateArray().Select(e => e.GetInt32()).ToArray()));
+    else
+        entries.Add(("", "Red Rocket",
+                     o.GetProperty("spawn").EnumerateArray().Select(e => e.GetSingle()).ToArray(),
+                     o.GetProperty("spawn_cell").EnumerateArray().Select(e => e.GetInt32()).ToArray()));
+    var tags = new Dictionary<string, string>();
+    for (int i = 0; i < entries.Count; i++)
+    {
+        var (tag, name, pos, cell) = entries[i];
+        var marker = (PlacedObject)srcMapMarker.Duplicate(NewKey());
+        marker.EditorID = w.EditorID + "MapMarker" + (i == 0 ? "" : tag);       // the first keeps #296's EditorID
+        marker.Position = new P3Float(pos[0], pos[1], pos[2]);
+        marker.Rotation = new P3Float(0, 0, 0);
+        marker.MajorRecordFlagsRaw |= 0xC00;                                 // Persistent 0x400 + Initially Disabled 0x800 (LC172 003E5E12)
+        marker.LinkedReferences?.Clear();                                    // drop LC172's XLKR into a vanilla ref
+        if (marker.MapMarker != null)
+            marker.MapMarker.Name = name;
+        w.TopCell!.Persistent.Add(marker);
+        loc.MasterSpecialReferences ??= new ExtendedList<LocationCellStaticReference>();
+        loc.MasterSpecialReferences.Add(new LocationCellStaticReference
+        {
+            LocationRefType = new FormLink<ILocationReferenceTypeGetter>(new FormKey(sfEsm, 0x2271F)),  // MapMarkerRefType
+            Marker = new FormLink<IPlacedObjectGetter>(marker.FormKey),
+            Location = new FormLink<IWorldspaceGetter>(w.FormKey),
+            Grid = new P2Int16((short)cell[0], (short)cell[1]),               // Mutagen writes Y then X; Unknown -1 is vanilla 0xFFFFFFFF
+            Unknown = -1,
+        });
+        loc.MasterInitiallyDisabledReferences ??= new ExtendedList<IFormLinkGetter<IPlacedGetter>>();
+        loc.MasterInitiallyDisabledReferences.Add(new FormLink<IPlacedGetter>(marker.FormKey));
+        if (i == 0)
+            mapIds[w.EditorID!] = marker.FormKey.ID.ToString("X6");
+        tags[tag == "" ? "RedRocket" : tag] = marker.FormKey.ID.ToString("X6");
+        nMap++;
+        Console.WriteLine($"  map marker {marker.EditorID} \"{name}\" REFR {marker.FormKey} at ({pos[0]}, {pos[1]}, {pos[2]}) cell ({cell[0]}, {cell[1]}) LCSR MapMarkerRefType on {loc.EditorID}");
+    }
+    mapRefIds[w.EditorID!] = tags;
+}
+if (ids != null && mapIds.Count > 0)
+{
+    ids["map_markers"] = mapIds;
+    ids["map_marker_refs"] = mapRefIds;
+}
 if (ids != null)
     File.WriteAllText(Path.Combine(outDir, "formids.json"), JsonSerializer.Serialize(ids));
 mod.ModHeader.Stats.NextFormID = next;
@@ -999,10 +1166,11 @@ var path = Path.Combine(outDir, modKey.FileName);
 mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(sfData)
     .WithKnownMasters(new KeyedMasterStyle(sfEsm, MasterStyle.Full)).Write();
 Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {worlds.Count} overlays, next FormID 0x{next:X}" +
-                  (Has(prm, "objects") ? $"; objects: {nStat} STAT, {nDoor} DOOR, {nCont} CONT, {nMisc} MISC, {nActi} ACTI, {nTerm} TERM + {nTerm} TMLM, {nWkshp} workshop ACTI, {nBench} bench REFR on vanilla FURN, {nRef} REFR ({nDisabled} initially disabled)" : "") +
+                  (Has(prm, "objects") ? $"; objects: {nStat} STAT, {nDoor} DOOR, {nCont} CONT, {nMisc} MISC, {nActi} ACTI, {nTerm} TERM + {nTerm} TMLM, {nWkshp} workshop ACTI, {nFlor} FLOR, {nBench} bench REFR on vanilla FURN, {nRef} REFR ({nDisabled} initially disabled, {nOpenDoor} doors open by default)" : "") +
                   (Has(prm, "navmesh") ? $"; navmesh: {nNav} NAVM, {nNavTri} triangles, {nNavLink} edge links, {nNavDoor} door triangles, NAVI override with {nNav} NVMI" : "") +
                   (nLightRef > 0 ? $"; lights: {nLight} LIGH, {nLightRef} REFR" : "") +
-                  (doorEntries.Count > 0 ? $"; doors: {doorEntries.Count} scripted REFR on {nDoorActi} ACTI, {doorEntries.Count} arrival markers" : ""));
+                  (doorEntries.Count > 0 ? $"; doors: {doorEntries.Count} scripted REFR on {nDoorActi} ACTI, {doorEntries.Count} arrival markers" : "") +
+                  (nMap > 0 ? $"; map markers: {nMap}" : ""));
 
 if (Has(prm, "mars"))
 {
