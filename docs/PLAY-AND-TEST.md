@@ -59,7 +59,7 @@ repository:
 |---|---|---|
 | Interiors (`FO4Port.esm`) | Vault 111, Red Rocket, Super Duper Mart, the library and 12 more cells | `scripts/convert_batch.py` per cell; steps in [docs/terrain/interior-backlog.md](terrain/interior-backlog.md) |
 | Commonwealth exterior (`FO4TerrainCore.esm`, `FO4TerrainCore_Mars.esm`) | The 64 x 64 cell exterior with its objects and navmesh | The rebuild steps at the end of [docs/terrain/core64c.md](terrain/core64c.md) |
-| Observation bridge (`FO4SFBridge.esm`) | Lets the report tool and the test runner read your position and cell | `dotnet run --project dotnet/Bridge -- build --out <bridge staging folder>` plus its Papyrus script; [docs/ai/test-queue.md](ai/test-queue.md), section "Bridge" |
+| Observation bridge (`FO4SFBridge.esm`) | Lets the report tool and the test runner read your position and cell | `scripts/bridge/make_bridge.py stage` (the plugin plus its compiled Papyrus script); steps in section 4 |
 
 Expect this part to take time and to need the tools in section 1. If you only want to report what you see, you can skip
 building and help by reviewing screenshots and evidence in [issue #32](https://github.com/fo4sf/fo4-to-starfield/issues/32).
@@ -86,11 +86,30 @@ The exterior, or any other experiment folder (only the plugins named after `--pl
 & $py scripts\game\exp_install.py install --exp-dir "<exterior staging folder>" --starfield $sf --plugins FO4TerrainCore.esm,FO4TerrainCore_Mars.esm --pack
 ```
 
-The observation bridge:
+The observation bridge (optional; the report kit and the test runner use it to read your position and cell). Build
+its staging folder first. This writes the plugin and compiles its Papyrus script with the Creation Kit's compiler and
+base scripts (both come with the Creation Kit, in Starfield's `Tools` folder):
 
 ```powershell
+& $py scripts\bridge\make_bridge.py stage --out "<bridge staging folder>" --compiler "<Starfield>\Tools\Papyrus Compiler\PapyrusCompiler.exe" --content-resources "<Starfield>\Tools\ContentResources.zip"
 & $py scripts\game\bridge_install.py install --dir "<bridge staging folder>" --starfield $sf
 ```
+
+The bridge writes to Starfield's script log, which is off by default. With the game closed, turn it on:
+
+```powershell
+& $py scripts\bridge\make_bridge.py ini
+```
+
+It adds `bEnableLogging=1`, `bEnableTrace=1` and `bLoadDebugInformation=1` under `[Papyrus]` in `StarfieldCustom.ini` and
+keeps a `.bak` copy. If Windows' Controlled Folder Access blocks the write, it says so and names the fallback, the game
+folder's own `Starfield.ini`. Then check it works: launch the game, load a save, wait 5 seconds and run
+
+```powershell
+& $py scripts\game\bridge_log.py latest
+```
+
+A line with `pos=` means the bridge is reporting. `"ok": false` means it is not: the plugin is off, or logging is off.
 
 See what is installed:
 
@@ -157,12 +176,20 @@ Good to know:
 The report kit takes a screenshot and saves where you were, so a report can be traced to an exact spot. It types
 nothing into the game and sends nothing anywhere.
 
-1. In the downloaded folder, double-click `tools\report-kit\Start-ReportHotkey.cmd` and keep its window open (minimised)
-   while you play.
+1. Start the hotkey from PowerShell in the repository folder, so it knows which Python to use for your position, and
+   keep its window open (minimised) while you play:
+
+   ```powershell
+   $env:FO4SF_PYTHON = (Resolve-Path ..\fo4sf-venv\Scripts\python.exe).Path
+   .\tools\report-kit\Start-ReportHotkey.cmd
+   ```
+
+   Double-clicking `tools\report-kit\Start-ReportHotkey.cmd` also works, but without `FO4SF_PYTHON` it saves
+   screenshots and descriptions only, with no position or cell.
 2. In game, press **Ctrl+Alt+L** for a screenshot (one beep), or **Ctrl+Alt+K** for a screenshot plus a box that asks
    what is wrong. Type one sentence and press **Save**.
 3. Each press makes a folder in `Documents\FO4SF Reports\<date-time>\` with `screen.png`, `description.txt` and
-   `state.json` (your position and cell, when the bridge is installed).
+   `state.json` (your position and cell, when the bridge is installed and reporting, and `FO4SF_PYTHON` is set).
 4. Open a **Player report** on GitHub: **Issues → New issue → Player report**. Attach `screen.png` and paste your
    description and the useful lines of `state.json`. **Read `state.json` first**: it can contain folder paths with
    your Windows user name; delete those lines.
