@@ -180,6 +180,29 @@ class RunnerLeaseTests(unittest.TestCase):
         self.assertEqual(self.calls, [])                                       # no step, no INCONCLUSIVE rows
         self.assertFalse(os.path.exists(os.path.join(self.d, "results.jsonl")))
 
+    def test_a_game_that_never_starts_stops_the_run_with_its_reason(self):
+        c.Controller(self.leader).claim("Claude", "window", 3600)
+        r = self.runner(lease_dir=self.leader, lease_owner="Claude", max_attempts=1)
+        r.session, r.cell, self.ctl.pid = False, None, None                   # no game: it has to be launched
+        calls = []
+
+        def ps(script, args, timeout, steal=False):
+            calls.append(script)
+            return (10, "Starfield did not start within 150 s of steam://rungameid/1716740 (screen: x): nothing tested") \
+                if script == "cycle.ps1" else (0, "")
+        r._ps = ps
+        with mock.patch.object(tq.Runner, "pinned_ok", return_value=True):
+            self.assertEqual(r.run(), 3)
+        self.assertEqual(calls, ["cycle.ps1"])                                 # no relaunch per test
+        self.assertTrue(self.status().startswith("stopped: the game did not start (cycle.ps1 exit 10"), self.status())
+        self.assertEqual(self.calls, [])
+
+    def test_cycle_ps1_exits_10_when_no_game_process_appears(self):
+        src = read(os.path.join(GAME, "cycle.ps1"))
+        self.assertIn("if (-not $q) {", src)
+        self.assertLess(src.index("if (-not $q) {"), src.index("Wait-Screen 'main menu'"))
+        self.assertIn("exit 10", src)
+
     def test_main_reads_the_switches_from_the_environment(self):
         seen = {}
 

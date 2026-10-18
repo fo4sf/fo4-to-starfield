@@ -3002,6 +3002,9 @@ class Runner:
             if code == 9:                                 # cycle.ps1's own lease check refused (nothing launched): the
                 return ("lease refused by cycle.ps1 (exit 9) although this runner's check passed: the two read "
                         "different leases; nothing launched")   # run stops, resumable, never a retry per test
+            if code == 10:                                # Steam never started the game: a relaunch per test would
+                return ("the game did not start (cycle.ps1 exit 10: no Starfield process within 150 s of the Steam "
+                        f"launch; screen {os.path.join(self.qdir, 'cycle.png')}); nothing tested")   # stop, resumable
             if code != 0:
                 # 7: an installed experiment plugin's master is not active (exp_install.py order): nothing launched
                 return "stop" if code in (2, 3, 5, 6, 7) else "retry"
@@ -3304,6 +3307,10 @@ class Runner:
                 self.session, self.cell, self.game_used = False, None, False
                 self.fresh_launch = True                  # an intended relaunch: not counted against --max-relaunch
             g = self.ensure_game(t["cell"])
+            if g and g.startswith("the game did not start"):   # cycle.ps1 exit 10: no waiting fixes Steam's side
+                self.log(f"stopped: {g}")
+                self.checkpoint(f"stopped: {g}")
+                return 3
             if g in ("stop",) or (g and g.startswith(("owner", "STOP", "Resource", "outside", "lease"))):
                 if g != "stop" and self.wait_or_stop(g):
                     g = self.ensure_game(t["cell"])

@@ -16,7 +16,8 @@
 # 8 the experiment plugins are no longer active after the save loaded, or the load order dialog could not be answered
 # with "Current" (loadorder.ps1; nothing tested, the game is left running for the runner to close),
 # 9 no valid controller lease for this owner, or python could not run the check (only with FO4SF_LEASE_DIR set;
-# nothing closed, deployed or launched).
+# nothing closed, deployed or launched), 10 Steam was asked to start the game and no Starfield process appeared within
+# 150 s (the screen is saved to -Shot; nothing tested).
 param([Parameter(Mandatory)][string]$Staging, [Parameter(Mandatory)][string]$Starfield, [string]$Cell = 'FO4Port_Vault111Cryo',
       [string]$Shot = (Join-Path $env:TEMP 'fo4sf_cycle.png'), [string]$CellJson = '')
 if ($Cell -notmatch '^[A-Za-z0-9_]+$') { "cell name must be letters, digits and underscores (it is typed into the game): $Cell"; exit 1 }
@@ -82,7 +83,14 @@ $HudShown = { param($png)                                       # in game: oxyge
   return ((& $py (Join-Path $PSScriptRoot 'hud_visible.py') $png 2>$null) -eq 'yes') }
 
 Start-Process 'steam://rungameid/1716740'
+$q = $null
 $deadline = (Get-Date).AddSeconds(150); while ((Get-Date) -lt $deadline) { $q = Get-Process Starfield -ErrorAction SilentlyContinue; if ($q) { $q.Id | Set-Content $pidFile; break }; Start-Sleep 3 }
+if (-not $q) {
+  # no game to drive: say so, with the screen (a Steam dialog, say), instead of failing later as an input-guard exit 2
+  # (door_rounds_sdm, 2026-10-18 20:32Z: cycle exit 2 after 5 minutes with no Starfield process)
+  powershell -NoProfile -ExecutionPolicy Bypass -File $PSScriptRoot\shot.ps1 -Out $Shot | Out-Null
+  "Starfield did not start within 150 s of steam://rungameid/1716740 (screen: $Shot): nothing tested"; exit 10
+}
 Start-Sleep 10
 Wait-Screen 'main menu' 120 $MenuShown | Out-Null
 
