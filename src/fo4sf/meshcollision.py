@@ -995,7 +995,7 @@ def static_filter(filt: int) -> Tuple[int, Optional[str]]:
 
 def convert_bodies(fo4_blob: bytes, template_blob: bytes, select: Optional[List[int]] = None,
                    node_rot=None, skipped: Optional[list] = None, dynamic_template: Optional[bytes] = None,
-                   motion: Optional[dict] = None, notes: Optional[list] = None) -> list:
+                   motion: Optional[dict] = None, notes: Optional[list] = None, mass_scale: float = 1.0) -> list:
     """One native Starfield single-body physics blob per selected FO4 body (all bodies when select is None).
     FO4 shapes live in the space of the NIF node that owns the collision object; the body cinfo transform is not a
     placement (a crate whose shape already matches its render mesh carries a 0.29 m body position; a stair helper's
@@ -1006,7 +1006,7 @@ def convert_bodies(fo4_blob: bytes, template_blob: bytes, select: Optional[List[
     in its own space and goes on a child node with this transform (relative to the FO4 collision node).
     Dynamic (pushable) FO4 bodies: with `motion` given, every one is reported. With `dynamic_template` too (a vanilla
     dynamic compound body blob, DYNAMIC_TEMPLATE_NIF), a system of ONE dynamic body made of convex parts is written as
-    one dynamic body (one part: a convex shape; several: a compound of them) with FO4's mass (motion["dynamic"] = kg);
+    one dynamic body (one part: a convex shape; several: a compound of them) with FO4's mass * mass_scale (motion["dynamic"] = kg);
     any other dynamic body stays static and motion["kept_static"] lists why (ragdolls and breakables need constraints;
     mesh and sphere parts have no dynamic template yet; never silently flattened).
     notes: one line per change a mesh body needed for Starfield's decoder (_emit_mesh), "body k: ..."."""
@@ -1044,6 +1044,8 @@ def convert_bodies(fo4_blob: bytes, template_blob: bytes, select: Optional[List[
             raise hkpackfile.PackfileError(f"body {k} uses {UNMAPPED_LAYERS[filt & 0x7F]} (no Starfield equivalent)")
         parts = _shape_parts(p, classes, shape, IDENTITY3, (0.0, 0.0, 0.0))
         mass = fc.body_mass(p, systems[0], k) if motion is not None else None
+        if mass is not None:
+            mass *= mass_scale
         dynamic = False
         if mass is not None:
             why = None

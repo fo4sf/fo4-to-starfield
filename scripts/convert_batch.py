@@ -182,6 +182,8 @@ def main():
                     help="cap converted textures by dropping top mip levels: one size for every kind ('1024') or per "
                          "kind ('color=1024,normal=512,rough=256,opacity=512'); default: full resolution. The full and "
                          "written size of every texture go to <staging>/texture_log.json")
+    ap.add_argument("--mass-scale", type=float, default=1.0,
+                    help="scale FO4 dynamic body masses (playtest row 26: FO4 small items 2-10x Starfield; try 0.2-0.5 so grab works)")
     a = ap.parse_args()
     if not re.fullmatch(r"[a-z0-9_]+", a.prefix):
         ap.error("--prefix: lower-case letters, digits and _ only")
@@ -243,7 +245,7 @@ def main():
                                           rig_doors=donor is not None, door_physics_donor=donor,
                                           sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
                                           prefix=a.prefix, max_texture=a.max_texture,
-                                          door_anim_dll=a.door_anim_dll or None)
+                                          door_anim_dll=a.door_anim_dll or None, mass_scale=a.mass_scale)
             r = conv.convert_nif(name)
             if cache:
                 try:
