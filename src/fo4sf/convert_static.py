@@ -7,6 +7,7 @@ Unverified assumptions (see docs/RISKS.md S4): 1 Fallout 4 unit = 1/70 m, same h
 convention, Z-up in both. Collision, materials and skinning are not converted yet.
 """
 import hashlib
+import math
 import struct
 from dataclasses import replace
 from typing import Dict, Tuple
@@ -17,6 +18,17 @@ from . import sfcollision, sfmesh, sfnif
 UNIT_SCALE = 1.0 / 70.0           # Fallout 4 units -> metres (Starfield .mesh coordinates are metres)
 PLACEHOLDER_MATERIAL = "Materials\\Common\\Metal\\MetalIronCast01.mat"   # vanilla material, T0 look
 DYNAMIC_BSX = 0x42                 # havok + dynamic: 145 of 150 vanilla MiscItem NIFs (statics: mostly 0x2)
+
+
+def require_mass_scale(scale) -> float:
+    """CLI/API --mass-scale: finite and > 0. Rejects 0, negatives, nan, inf before any archive or staging I/O."""
+    try:
+        value = float(scale)
+    except (TypeError, ValueError):
+        raise ValueError("must be a finite positive number") from None
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError("must be a finite positive number")
+    return value
 
 
 def _sub(a, b):
@@ -317,6 +329,7 @@ def convert_static(fo4_nif: bytes, out_name: str, material_path: str = PLACEHOLD
     pose: {node block: local transform} replacing those nodes' own transforms (ragdoll_pose.local_overrides: a placed
     reference's XRGD ragdoll pose). Shapes under those nodes, skinned shapes and collision bodies are all built in that
     pose; the result is a model for that reference only (placed_pose)."""
+    mass_scale = require_mass_scale(mass_scale)
     src = nifmod.parse(fo4_nif)
     shapes = [s for s in nifmod.fo4_trishapes(src, placed=True, local_overrides=pose)
               if (include_skinned or not s.skinned) and s.positions and s.triangles]

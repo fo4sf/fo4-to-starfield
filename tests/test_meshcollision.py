@@ -177,6 +177,18 @@ class MassScaleTests(unittest.TestCase):
         self.assertIn("mass_scale", sig.parameters)
         self.assertEqual(sig.parameters["mass_scale"].default, 1.0)
 
+    def test_valid_scales_pass_require_mass_scale(self):
+        from fo4sf.convert_static import require_mass_scale
+        self.assertEqual(require_mass_scale(1.0), 1.0)
+        self.assertEqual(require_mass_scale(0.2), 0.2)
+
+    def test_invalid_scales_fail_require_mass_scale(self):
+        from fo4sf.convert_static import require_mass_scale
+        for scale in (0, -1, float("nan"), float("inf"), "nope"):
+            with self.subTest(scale=scale):
+                with self.assertRaises(ValueError):
+                    require_mass_scale(scale)
+
 
 if __name__ == "__main__":
     unittest.main()

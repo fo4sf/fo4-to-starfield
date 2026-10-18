@@ -40,6 +40,10 @@ def main():
     ap.add_argument("--flip-green", action="store_true")
     ap.add_argument("--collision-template", default="", help="a vanilla Starfield NIF with plain box collision; enables box collision")
     a = ap.parse_args()
+    try:
+        a.mass_scale = convert_static.require_mass_scale(a.mass_scale)
+    except ValueError as e:
+        ap.error(f"--mass-scale: {e}")
 
     raw = open(a.fo4_nif, "rb").read()
     src = nif.parse(raw)

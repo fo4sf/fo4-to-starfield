@@ -291,6 +291,12 @@ class RoutingTests(unittest.TestCase):
                                           dynamic_template=b"dyn", report=report, mass_scale=0.2)
         self.assertEqual(self.seen_mass_scale, 0.2)
 
+    def test_invalid_mass_scale_rejected_before_parsing_the_nif(self):
+        for scale in (0, -1, float("nan"), float("inf")):
+            with self.subTest(scale=scale):
+                with self.assertRaises(ValueError):
+                    convert_static.convert_static(b"not-a-nif", "fo4port/synthetic_can", mass_scale=scale)
+
 
 if __name__ == "__main__":
     unittest.main()

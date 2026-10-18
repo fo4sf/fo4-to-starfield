@@ -118,7 +118,7 @@ class Converter:
         # dynamic_template (a vanilla dynamic convex body, meshcollision.DYNAMIC_TEMPLATE_NIF): FO4 loose items with one
         # dynamic body become movable; their result carries "movable" (plugin writer: MoveableStatic, not Static)
         self.dynamic_template = dynamic_template
-        self.mass_scale = mass_scale
+        self.mass_scale = convert_static.require_mass_scale(mass_scale)
         # max_texture: optional size cap per texture kind (textures.parse_texture_caps: '1024' or 'color=1024,...'); the
         # converted DDS loses its top mip levels until it fits (textures.cap_dds). Off by default: FO4Port keeps full
         # resolution. When set, texture_log records every texture's full and written size.

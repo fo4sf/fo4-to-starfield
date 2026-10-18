@@ -195,6 +195,10 @@ def main():
     if not re.fullmatch(r"[a-z0-9_]+", a.prefix):
         ap.error("--prefix: lower-case letters, digits and _ only")
     try:
+        a.mass_scale = convert_static.require_mass_scale(a.mass_scale)
+    except ValueError as e:
+        ap.error(f"--mass-scale: {e}")
+    try:
         textures.parse_texture_caps(a.max_texture)
     except ValueError as e:
         ap.error(f"--max-texture: {e}")

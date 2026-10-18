@@ -993,6 +993,23 @@ def static_filter(filt: int) -> Tuple[int, Optional[str]]:
     return filt, None
 
 
+def require_serialized_mass(mass) -> float:
+    """Writer-boundary mass: finite, > 0, and still finite/positive after packing as IEEE float32."""
+    try:
+        value = float(mass)
+    except (TypeError, ValueError):
+        raise ValueError("body mass must be finite, positive, and float32-representable") from None
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError("body mass must be finite, positive, and float32-representable")
+    try:
+        packed = struct.unpack("<f", struct.pack("<f", value))[0]
+    except OverflowError:
+        raise ValueError("body mass must be finite, positive, and float32-representable") from None
+    if not math.isfinite(packed) or packed <= 0:
+        raise ValueError("body mass must be finite, positive, and float32-representable")
+    return packed
+
+
 def convert_bodies(fo4_blob: bytes, template_blob: bytes, select: Optional[List[int]] = None,
                    node_rot=None, skipped: Optional[list] = None, dynamic_template: Optional[bytes] = None,
                    motion: Optional[dict] = None, notes: Optional[list] = None, mass_scale: float = 1.0) -> list:
@@ -1011,6 +1028,8 @@ def convert_bodies(fo4_blob: bytes, template_blob: bytes, select: Optional[List[
     mesh and sphere parts have no dynamic template yet; never silently flattened).
     notes: one line per change a mesh body needed for Starfield's decoder (_emit_mesh), "body k: ..."."""
     from . import fo4collision as fc
+    from .convert_static import require_mass_scale
+    mass_scale = require_mass_scale(mass_scale)
     p = hkpackfile.Packfile(fo4_blob)
     classes = dict(p.objects())
     systems = [o for o, c in classes.items() if c == "hknpPhysicsSystemData"]
@@ -1045,7 +1064,7 @@ def convert_bodies(fo4_blob: bytes, template_blob: bytes, select: Optional[List[
         parts = _shape_parts(p, classes, shape, IDENTITY3, (0.0, 0.0, 0.0))
         mass = fc.body_mass(p, systems[0], k) if motion is not None else None
         if mass is not None:
-            mass *= mass_scale
+            mass = require_serialized_mass(mass * mass_scale)
         dynamic = False
         if mass is not None:
             why = None
@@ -1280,6 +1299,7 @@ def _dynamic_body(template_blob: bytes, p: hkpackfile.Packfile, parts, filt: int
 def _dynamic_body_fields(t: _Tmpl, T_BODY: int, body: bytearray, mass: float):
     """Body cinfo fields that make a body dynamic, as in vanilla MiscItem bodies (the template already has them; set
     explicitly so a different template can't silently produce a static body)."""
+    mass = require_serialized_mass(mass)
     body[t.field(T_BODY, "motionType").offset] = DYNAMIC_MOTION_TYPE
     flags = t.field(T_BODY, "flags")
     struct.pack_into("<I" if t.tf.size_of(flags.type) == 4 else "<H", body, flags.offset, DYNAMIC_FLAGS)

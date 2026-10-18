@@ -151,9 +151,55 @@ class MixedSystemTests(unittest.TestCase):
         self.assertEqual(dynamic_body.call_args.args[0], b"dynamic template")
         self.assertEqual(motion["dynamic"], 10.0)
 
+    def test_requested_mass_scale_reaches_the_serialized_body_mass(self):
+        with patch.object(meshcollision.hkpackfile, "Packfile", return_value=GateSystem(shapes=(LEAF_R,))), \
+                patch.object(fc, "body_mass", return_value=10.0), \
+                patch.object(meshcollision, "_dynamic_body", return_value=b"DYNAMIC") as dynamic_body:
+            motion = {}
+            meshcollision.convert_bodies(b"can", b"native template", dynamic_template=b"dynamic template",
+                                         motion=motion, mass_scale=0.2)
+        self.assertAlmostEqual(motion["dynamic"], 2.0)
+        self.assertAlmostEqual(dynamic_body.call_args.args[4], 2.0)
+
+    def test_invalid_mass_scale_never_emits_a_dynamic_body(self):
+        for scale in (0, -1, float("nan"), float("inf")):
+            with self.subTest(scale=scale), \
+                    patch.object(meshcollision, "_dynamic_body", side_effect=AssertionError("emitted")):
+                with self.assertRaises(ValueError):
+                    meshcollision.convert_bodies(b"can", b"native template",
+                                                 dynamic_template=b"dynamic template",
+                                                 motion={}, mass_scale=scale)
+
     def test_dynamic_body_without_a_template_fails_with_a_clear_reason(self):
         with self.assertRaisesRegex(hkpackfile.PackfileError, "needs the vanilla dynamic template"):
             meshcollision._dynamic_body(None, GateSystem(), [("convex", LEAF_R, IDENT, (0.0, 0.0, 0.0))], 0, 10.0)
+
+
+class BodyCinfoMassTests(unittest.TestCase):
+    class Template:
+        class tf:
+            @staticmethod
+            def size_of(_type):
+                return 4
+
+        def field(self, _type_idx, name):
+            return SimpleNamespace(offset={"motionType": 0, "flags": 4, "mass": 8, "motionPropertiesId": 12}[name],
+                                   type=1)
+
+    def packed_mass(self, mass):
+        body = bytearray(16)
+        meshcollision._dynamic_body_fields(self.Template(), 1, body, mass)
+        return struct.unpack_from("<f", body, 8)[0]
+
+    def test_valid_scale_writes_a_finite_positive_float32_mass(self):
+        self.assertAlmostEqual(self.packed_mass(2.0), 2.0)
+        self.assertAlmostEqual(self.packed_mass(10.0), 10.0)
+
+    def test_invalid_masses_are_rejected_at_the_writer(self):
+        for mass in (0, -10, float("nan"), float("inf"), 1e40, 1e-46):
+            with self.subTest(mass=mass):
+                with self.assertRaises(ValueError):
+                    self.packed_mass(mass)
 
 
 if __name__ == "__main__":
