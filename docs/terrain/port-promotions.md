@@ -21,6 +21,17 @@ owner verified those work outdoors (docs/owner/playtest-issues.md rows 12 and 16
   References on their own posed model or on a DOOR base keep that base and are counted as kept.
 - Without `promote.json` the build is unchanged.
 
+## Activation chains
+FO4 wires "this switch opens that door" on the child: its activate parents block (exported since #305). Mutagen 0.55
+Starfield has no activate parents on a reference (docs/terrain/garage-button.md), so PluginSpike (ActivationChains.cs)
+writes the Starfield-native wire the core's garage button uses (#303): the parent reference gets vanilla
+`DefaultActivateLinkedRefOnActivate` (LinkedRefKeyword = LinkCustom02 0005D5E7) and a linked reference with that
+keyword to the child. Only parents the player can use get it: promoted activators and terminals, and opening doors.
+Left unwired and listed in `<output dir>/activation.json`: a parent not in the build (FO4 trigger volumes and pressure
+plates have no model), a parent that is not usable, a parent driving several children (the script activates one), a
+parent that already has a script. FO4's delay and its "parent activate only" flag are not carried (counted). Whether the
+child responds depends on the child: a rigged door opens; a promoted activator with no animation does nothing visible.
+
 ## How to run (PC build, before PluginSpike)
 ```
 python scripts/terrain/port_promote.py --out <staging>\promote.json ^
@@ -36,5 +47,6 @@ Then PluginSpike as before; its log prints `promotions: ...; N listed but not pl
 
 ## Not in this change
 - Chairs and other sittable furniture (FO4 Furniture without a bench type): needs the Starfield furniture marker layout.
-- Activation chains (a switch that opens a door): next change, on top of #336 / #337. Door locks and door behaviour: the door review (another thread).
+- Pressure plates and trigger volumes as chain starters, parents with several children, delays: open. Door locks and
+  door behaviour: the door review (another thread).
 - Crafting benches indoors (the core's bench path needs Fallout4.esm's WBDT).

@@ -300,13 +300,16 @@ Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed."
   "door":{"anim_graph":"SimpleOpenClose01.agx","skeleton":"fo4port\\d\\skeleton.rig","animations":"fo4port\\d\\animations","origin_offset":[0,0,0]}},
  {"editor_id":"FO4Port_Wall","model":"fo4port\\wall.nif","source":"meshes\\wall.nif"}]}
 """);
-        string R(string id, string type, string model) =>
-            $$"""{"formkey":"{{id}}:Fallout4.esm","base_editor_id":"X","type":"{{type}}","model":"{{model}}","pos":[0,0,0],"rot":[0,0,0],"scale":1}""";
+        // an activate parents block as Fo4Export writes it (PR #305): flags + parents [{reference, delay}]
+        string Parents(string parent, float delay) => $$"""{"reference":"{{parent}}:Fallout4.esm","delay":{{delay}}}""";
+        string R(string id, string type, string model, string? parents = null, uint flags = 0) =>
+            $$"""{"formkey":"{{id}}:Fallout4.esm","base_editor_id":"X","type":"{{type}}","model":"{{model}}","pos":[0,0,0],"rot":[0,0,0],"scale":1""" +
+            (parents == null ? "}" : $$$""","activate_parents":{"flags":{{{flags}}},"parents":[{{{parents}}}]}}""");
         var export = Path.Combine(promoDir, "Promo.json");
         File.WriteAllText(export, "{\"cell\":\"Promo\",\"refs\":[" + string.Join(",",
             R("000901", "Container", "crate.nif"), R("000902", "MiscItem", "can.nif"), R("000903", "MiscItem", "can.nif"),
-            R("000904", "Activator", "switch.nif"), R("000905", "Terminal", "term.nif"), R("000906", "Door", "d.nif"),
-            R("000908", "Static", "wall.nif")) + "]}");
+            R("000904", "Activator", "switch.nif"), R("000905", "Terminal", "term.nif", Parents("0009FF", 0)),
+            R("000906", "Door", "d.nif", Parents("000904", 0.5f), 1), R("000908", "Static", "wall.nif", Parents("000901", 0))) + "]}");
         string Promote(string canName) => $$"""
 {"starfield_esm": {{JsonSerializer.Serialize(sfPath)}},
  "containers":[{"src":"000901:Fallout4.esm","edid":"FO4Port_cont_A","name":"Crate","items":[{"form":"Starfield.esm:00000F","count":10}]},
@@ -352,12 +355,24 @@ Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed."
                     && term.MarkerModel == "Furniture\\furn_human_standingterminal.nif" && term.Keywords!.Single().FormKey == marker.FormKey
                     && menu.BodyTexts!.Single().Text.String == "FO4 terminal", "terminal, its furniture block or its menu wrong");
             Require(written.Doors.Any(d => d.FormKey == BaseOf("000906")), "a door listed for promotion lost its DOOR base");
+            // the switch (a promoted activator) activates the door it is FO4's activate parent of
+            IPlacedObjectGetter RefOf(string fo4) => refs[new FormKey(port, ids[$"REFR:FO4Port_Promo:{fo4}:Fallout4.esm"])];
+            var wire = RefOf("000904");
+            Require(wire.VirtualMachineAdapter?.Scripts.Single().Name == "DefaultActivateLinkedRefOnActivate"
+                    && wire.LinkedReferences.Single().Reference.FormKey == RefOf("000906").FormKey
+                    && wire.LinkedReferences.Single().KeywordOrReference.FormKey == new FormKey(sfKey, 0x5D5E7),
+                    "switch -> door activation chain not written");
+            Require(RefOf("000901").VirtualMachineAdapter == null && RefOf("000901").LinkedReferences.Count == 0,
+                    "a container (not a usable parent) got an activation wire");
             Require(written.Statics.Any(s => s.FormKey == BaseOf("000908")) && written.Statics.Count == 4
                     && written.MoveableStatics.Count == 1, "unlisted wall moved, or the promoted models' own bases missing");
         }
         var text = log.ToString();
         Require(text.Contains("promotions: 1 activators, 1 containers, 2 items, 1 kept (door base), 1 terminals; 1 listed but not placed"),
                 "promotions not reported:\n" + text);
+        Require(text.Contains("activation chains: 1 wired; unwired: 1 parent not placed, 1 parent not usable, 0 parent drives several, " +
+                              "0 parent already scripted, 0 child not placed; 1 delays and 1 parent-activate-only flags not carried"),
+                "activation chains not reported:\n" + text);
         // a second build keeps every FormID; a disagreeing entry of one edid stops it
         var before = File.ReadAllText(Path.Combine(outDir, "formids.json"));
         File.WriteAllText(Path.Combine(outDir, "promote.json"), Promote("Tin"));

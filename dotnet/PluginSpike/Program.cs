@@ -280,6 +280,18 @@ if (promotions.Listed > 0)
                       $"{promotions.Listed - handled} listed but not placed");
 }
 
+// ---- activation chains (ActivationChains.cs): FO4 activate parents as Starfield linked-ref activation ------------------
+var chains = ActivationChains.Apply(placedBySource, cellDocs.Select(d => d.RootElement),
+                                    new HashSet<FormKey>(promotions.UsableBases.Concat(openingDoors)));
+if (chains.ChildrenWithParents > 0)
+{
+    Console.WriteLine($"activation chains: {chains.Wired} wired; unwired: {chains.ParentNotPlaced} parent not placed, " +
+                      $"{chains.ParentNotUsable} parent not usable, {chains.ParentDrivesSeveral} parent drives several, " +
+                      $"{chains.ParentHasScript} parent already scripted, {chains.ChildNotPlaced} child not placed; " +
+                      $"{chains.DelaysDropped} delays and {chains.ParentActivateOnly} parent-activate-only flags not carried");
+    File.WriteAllText(Path.Combine(outDir, "activation.json"), JsonSerializer.Serialize(chains, new JsonSerializerOptions { WriteIndented = true }));
+}
+
 // ---- load-door teleports between the cells of this build ---------------------------------------------------------------
 var teleports = TeleportLinks.Apply(mod, placedBySource, cellDocs.Select(d => d.RootElement), ownRigDoors);
 foreach (var d in cellDocs) d.Dispose();

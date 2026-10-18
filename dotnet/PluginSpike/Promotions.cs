@@ -26,6 +26,7 @@ public sealed class Promotions : IDisposable
     IStarfieldModDisposableGetter? sf;
     ITerminalGetter? termTemplate;
     public readonly SortedDictionary<string, int> Counts = new();
+    public readonly HashSet<FormKey> UsableBases = new();   // promoted ACTI / TERM bases: parents an activation chain can start from
 
     public Promotions(string path)
     {
@@ -185,6 +186,7 @@ public sealed class Promotions : IDisposable
             default: throw new InvalidDataException($"promote.json: unknown kind {kind}");
         }
         byEdid[edid] = (key, sig);
+        if (kind is "activators" or "terminals") UsableBases.Add(key);
         Count(kind);
         return key;
     }
