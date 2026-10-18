@@ -49,6 +49,10 @@ import console_plan
 #               the walk reached the item, SetRigidBodyMass judged only on a GetMass reading of the mass set (read in a
 #               session of its own after the game ran), the player's and the item's heights at the spot. The first
 #               impulse runner (91f3d17) would pass an item the player cannot push as PASS IMPULSE
+# impulse_control: movable_control "impulse_control" (2026-10-18): the impulse ladder also runs on an item the walk
+#               moved (a vanilla control), so the queue shows whether ApplyHavokImpulse moves a vanilla body at all
+#               before an item's FAIL STUCK means anything (movable_1019c: two converted items STUCK, no impulse ever
+#               typed on a vanilla item). An older qstep.ps1 skips the ladder after a walk that moved the item
 # npc_combat:   npc_nav combat_reads (docs/ai/test-queue.md "Combat engagement"): every sample's console session also
 #               types GetCombatState / GetCombatTarget / GetLineOfSight player and the test is judged ENGAGED / NOCOMBAT
 #               by those replies, the walk as detail only. An older runner would drop the key at planning time (unknown
@@ -67,7 +71,8 @@ import console_plan
 # speedmult:    console lines player.getav speedmult / player.setav speedmult 100 (2026-10-17) and the run condition
 #               judged on them (console_plan.speedmult_condition: a test that does not start at speedmult 100 is
 #               INCONCLUSIVE RUNCOND). An older qstep.ps1 refuses the line (exit 4) only after the game was launched
-FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "door_frames", "door_route", "walk", "impulse", "push_judge", "npc_combat", "bridge", "activate", "probe_moveto", "speedmult")
+FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "door_frames", "door_route", "walk", "impulse", "push_judge", "impulse_control", "npc_combat", "bridge", "activate", "probe_moveto", "speedmult")
+
 
 
 def needs(tests):
@@ -102,6 +107,8 @@ def needs(tests):
             out.add("walk")
         if t.get("kind") == "movable_control" or (t.get("kind") == "movable" and t.get("impulses")):
             out.update(("impulse", "push_judge"))
+            if t.get("impulse_control"):
+                out.add("impulse_control")
     return sorted(out)
 
 

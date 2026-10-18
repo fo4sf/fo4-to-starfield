@@ -1026,7 +1026,7 @@ def plan_walk(a):
 MOVABLE_PLAN_KEYS = frozenset((
     "label", "model", "travel", "base", "base_edid", "mass_kg", "set_mass_kg", "mass_probe", "mass_wait_ms", "spot",
     "heading", "stand_m", "park_m", "walk_ms", "settle_ms", "spawn_wait_ms", "handle_tol", "drop", "impulse_dv",
-    "impulse_wait_ms", "moved_m", "reach_m", "settle_m", "fresh", "expect", "basis") + console_plan.CONSOLE_KEYS)
+    "impulse_wait_ms", "impulse_control", "moved_m", "reach_m", "settle_m", "fresh", "expect", "basis") + console_plan.CONSOLE_KEYS)
 
 
 def movable_test(n, w, formids=None, items=None, plugin_index="02"):
@@ -1103,6 +1103,12 @@ def movable_test(n, w, formids=None, items=None, plugin_index="02"):
         t["probe_cmd"] = MASS_PROBE
     # the ladder's magnitudes are for the mass the body has during the test
     t["impulses"] = impulse_steps(t.get("set_mass_kg", mass), heading, dvs) if dvs else []
+    if w.get("impulse_control"):
+        # a control: the ladder runs after the walk even when the walk moved the item, so the queue shows whether
+        # ApplyHavokImpulse moves a vanilla body at all (judge_push: detail only; the walk still decides the verdict)
+        if not dvs:
+            sys.exit(f"{label}: impulse_control needs an impulse ladder (impulse_dv is empty)")
+        t["impulse_control"] = True
     if w.get("fresh"):
         t["fresh"] = True
     for k in ("expect", "basis"):
@@ -1373,6 +1379,23 @@ def impulse_outcome(test, obs, start):
     return "incomplete", "; ".join(why)
 
 
+def impulse_control_note(test, obs, start):
+    """The ladder of an impulse_control test after a walk that moved the item: whether ApplyHavokImpulse moved this
+    vanilla body (the positive control an item's FAIL STUCK is read against). Detail only."""
+    if not test.get("impulse_control"):
+        return ""
+    imp = impulse_outcome(test, obs, start)
+    if imp is None or imp[0] == "incomplete":
+        return f"; impulse control: the ladder did not finish ({imp[1] if imp else 'none planned'})"
+    if imp[0] == "moved":
+        _, k, d, _drop, rec = imp
+        return (f"; impulse control: ApplyHavokImpulse {rec.get('magnitude')} (dv {rec.get('dv')} m/s, step {k + 1}) "
+                f"moved it {d:.2f} m")
+    top = max(r.get("dv", 0) for r in test["impulses"])
+    return (f"; impulse control: {imp[1]} impulses up to dv {top} m/s did not move it either: in this queue a FAIL "
+            f"STUCK does not show a body that does not respond")
+
+
 def judge_push(test, obs, shot_ok):
     """movable (an item of the build, walked into) and movable_control (an item placed in a vanilla cell): the walk,
     then, when it did not move the item, the impulse ladder.
@@ -1407,7 +1430,8 @@ def judge_push(test, obs, shot_ok):
         if near < reach:
             reach, how = near, f"player passed {near:.2f} m from it (walked {math.hypot(pe[0] - ps[0], pe[1] - ps[1]):.1f} m)"
     if moved >= test.get("moved_m", MOVE_M):
-        return "PASS", "WALKED" if control else "PASS", f"item moved {moved:.2f} m" + (f" ({how})" if control else "")
+        return "PASS", "WALKED" if control else "PASS", (f"item moved {moved:.2f} m" + (f" ({how})" if control else "")
+                                                         + impulse_control_note(test, obs, a_))
     walk = f"{how} but it moved {moved:.3f} m"
     imp = impulse_outcome(test, obs, a_)
     note = ""
@@ -1466,6 +1490,23 @@ def mass_read(ocr):
     return vals[0], ""
 
 
+NO_OBJREF_SCRIPT = re.compile(r"no\s?script\s?named\s?Object\s?Reference", re.I)
+
+
+def unreadable_mass(ocr):
+    """The GetMass probe's own session says the console cannot run it at all: after this session's ClearConsole, the
+    probe's echo, then "No script named ObjectReference is attached to the object" (movable_1019c). No reading will
+    ever come, unlike a reply OCR missed. Any other refusal, or the refusal without the probe's echo before it, is
+    not this case."""
+    text = str(ocr or "")
+    starts = [m.end() for m in CLEAR_ECHO.finditer(text)]
+    if not starts:
+        return False
+    text = text[starts[-1]:]
+    echo = MASS_ECHO.search(text)
+    return bool(echo and NO_OBJREF_SCRIPT.search(text[echo.end():]))
+
+
 def mass_ok(read, want):
     """GetMass read the mass SetRigidBodyMass set: within 5 %, at least 0.25 kg."""
     return read is not None and abs(read - want) <= max(0.25, 0.05 * want)
@@ -1474,10 +1515,11 @@ def mass_ok(read, want):
 def judge_movable_control(test, obs, shot_ok):
     """movable_control: the player at the spot (within 1 m, and SPOT_Z_M of its height: on the floor there), the item
     placed and its handle confirmed (PickLastRef's id, GetSelf, GetIsID <base> 1, within handle_tol of the spot and
-    SPAWN_Z_M of its height), the player at the stand point on the same floor; with set_mass_kg, SetRigidBodyMass typed
-    and not refused and GetMass read back as the mass set (else INCONCLUSIVE MASS: a mass that did not change would
-    otherwise read as "thinness, not mass"); the item at rest before the walk (its spawn read and its read before the
-    walk within settle_m); then judge_push."""
+    SPAWN_Z_M of its height), the player at the stand point on the same floor; the item at rest before the walk (its
+    spawn read and its read before the walk within settle_m; checked before any mass rule, so settling never reads as
+    a push); with set_mass_kg, SetRigidBodyMass typed and not refused and GetMass read back as the mass set (else
+    INCONCLUSIVE MASS: a mass that did not change would otherwise read as "thinness, not mass"; when the probe itself
+    cannot run, unreadable_mass, only a move is judged); then judge_push."""
     sp = parse3(obs.get("player_spot"))
     spot = test["spot"]
     if sp is None or math.hypot(sp[0] - spot[0], sp[1] - spot[1]) > 1.0:
@@ -1501,6 +1543,10 @@ def judge_movable_control(test, obs, shot_ok):
     if ps is not None and abs(ps[2] - spot[2]) > SPOT_Z_M:
         return "INCONCLUSIVE", "START", (f"the player was read {ps[2] - spot[2]:+.2f} m from the spot's height at the "
                                          f"stand point: the walk would not start on the spot's floor")
+    b = parse3(obs.get("item_before"))
+    if r0 is not None and b is not None and math.dist(r0, b) > test.get("settle_m", 0.1):
+        return "INCONCLUSIVE", "SETTLE", (f"the item was still moving before the walk: {math.dist(r0, b):.2f} m between "
+                                          f"its spawn read and its read before the walk")
     mass_note = ""
     if test.get("set_mass_cmd"):
         m = obs.get("set_mass") or {}
@@ -1516,6 +1562,17 @@ def judge_movable_control(test, obs, shot_ok):
         else:
             after, why = mass_read(probe["after"])
         was = f" (before: {_fmt(before, 2)} kg)" if before is not None else ""
+        if after is None and unreadable_mass(probe.get("after")):
+            # the probe cannot read any mass (movable_1019c 2026-10-18, verified: cf "ObjectReference.GetMass" answers
+            # "No script named ObjectReference is attached to the object"). Decided 2026-10-18 (decisions.md): a move
+            # stands, since the set mass can only have made it lighter or left it as it was; no move cannot tell an
+            # unchanged mass from a heavy one, so it stays INCONCLUSIVE MASS
+            v, c, d = judge_push(test, obs, shot_ok)
+            unread = f" [mass not read back: GetMass is not reachable from the console ({why})]"
+            if v == "PASS":
+                return v, c, d + unread
+            return "INCONCLUSIVE", "MASS", (f"{v} {c} with {test['set_mass_cmd']} typed but its mass not read back: "
+                                            f"a mass that did not take reads the same; {d}")
         if after is None:
             return "INCONCLUSIVE", "MASS", (f"GetMass was not read after {test['set_mass_cmd']}: {why}{was}; the mass "
                                             f"the walk met is unknown")
@@ -1523,10 +1580,6 @@ def judge_movable_control(test, obs, shot_ok):
             return "INCONCLUSIVE", "MASS", (f"GetMass read {_fmt(after, 2)} kg after {test['set_mass_cmd']}{was}: the "
                                             f"mass set did not take")
         mass_note = f" [GetMass {_fmt(after, 2)} kg after {test['set_mass_cmd']}{was}]"
-    b = parse3(obs.get("item_before"))
-    if r0 is not None and b is not None and math.dist(r0, b) > test.get("settle_m", 0.1):
-        return "INCONCLUSIVE", "SETTLE", (f"the item was still moving before the walk: {math.dist(r0, b):.2f} m between "
-                                          f"its spawn read and its read before the walk")
     v, c, d = judge_push(test, obs, shot_ok)
     return v, c, d + mass_note
 
