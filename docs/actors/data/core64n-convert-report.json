@@ -1,0 +1,103 @@
+{
+  "overlay": {
+    "starfield_cells": {"min": -32, "max": 31, "n": 4096},
+    "fo4_cells": {"x": [-55, 54], "y": [-55, 54], "n": 12100},
+    "starfield_cell_m": 100.0,
+    "units_per_metre": 70.0
+  },
+  "fo4": {
+    "file": {
+      "name": "Fallout4.esm",
+      "size": 330745373,
+      "sha256": "ae7be31a59052f926474a767d9dbfbcc7f19af4ad2070491f7f40d821b2520eb"
+    },
+    "parsed": 7047,
+    "parse_refused": 0
+  },
+  "export_bands": [
+    {"name": "band_-15_-6.json", "size": 130600965},
+    {"name": "band_-25_-16.json", "size": 78916480},
+    {"name": "band_-35_-26.json", "size": 19619945},
+    {"name": "band_-45_-36.json", "size": 3520854},
+    {"name": "band_-55_-46.json", "size": 232942},
+    {"name": "band_-5_4.json", "size": 197850271},
+    {"name": "band_15_24.json", "size": 84177563},
+    {"name": "band_25_34.json", "size": 14170156},
+    {"name": "band_35_44.json", "size": 462981},
+    {"name": "band_45_54.json", "size": 203338},
+    {"name": "band_5_14.json", "size": 100931936}
+  ],
+  "doors": {"converted_refs": 759},
+  "convert": {
+    "fo4_navmeshes": 7047,
+    "fo4_triangles": 3439338,
+    "fo4_vertices": 2575990,
+    "pieces": 12104,
+    "triangles": 3749066,
+    "clipped_triangles": 165132,
+    "sliver_triangles_dropped": 94,
+    "nonmanifold_edges": 0,
+    "links": {"cell_line": 156549, "fo4_portal": 134876},
+    "dropped": {
+      "fo4_links_outside": 0,
+      "fo4_links_ledge_type1_2": 12503,
+      "fo4_portal_no_overlap": 24,
+      "fo4_portal_subedge_missing": 4599,
+      "cover_entries": 975485,
+      "cover_flag_triangles": 409640,
+      "water_flag_triangles": 0,
+      "doors_not_converted": 326,
+      "waypoints_not_found": 13,
+      "deleted_triangles": 0
+    },
+    "kept": {"doors": 45, "waypoints": 62}
+  },
+  "refused": [],
+  "refused_ids": [],
+  "pieces": {
+    "all": 12104,
+    "overlay_cells": 1069,
+    "overlay_navm": 12104,
+    "overlay_triangles": 3749066,
+    "outside_overlay_cells": 0,
+    "outside_overlay_navm": 0,
+    "outside_overlay_triangles": 0
+  },
+  "links": {"cell_line": 156549, "fo4_portal": 134876},
+  "inventory_comparison": {
+    "inventory": {
+      "lost": 0,
+      "reduced": 0,
+      "gained": 0,
+      "unchanged": 1069,
+      "unknown": 0,
+      "summary": "0 lost (0 tris), 0 reduced, 0 gained, 0 unknown; FO4 tris 3439338 -> SF 3749066",
+      "total_fo4_triangles": 3439338,
+      "total_sf_triangles": 3749066
+    },
+    "densest_converted": [
+      {"cell": "2,-4", "fo4_triangles": 9252, "navm": 51, "triangles": 9812, "cell_line_links": 567, "fo4_portal_links": 338},
+      {"cell": "2,14", "fo4_triangles": 7881, "navm": 27, "triangles": 8373, "cell_line_links": 448, "fo4_portal_links": 440},
+      {"cell": "14,6", "fo4_triangles": 7509, "navm": 9, "triangles": 8014, "cell_line_links": 537, "fo4_portal_links": 364},
+      {"cell": "-12,12", "navm": 39, "triangles": 7975, "cell_line_links": 479, "fo4_portal_links": 636},
+      {"cell": "12,-6", "fo4_triangles": 7410, "navm": 11, "triangles": 7938, "cell_line_links": 508, "fo4_portal_links": 562}
+    ],
+    "named_cells": {
+      "-10,11": {"fo4_triangles": 6840, "navm": 13, "triangles": 7295, "cell_line_links": 444, "fo4_portal_links": 552},
+      "-11,11": {"fo4_triangles": 3989, "navm": 9, "triangles": 4382, "cell_line_links": 397, "fo4_portal_links": 390},
+      "2,-4": {"fo4_triangles": 9252, "navm": 51, "triangles": 9812, "cell_line_links": 567, "fo4_portal_links": 338},
+      "2,14": {"fo4_triangles": 7881, "navm": 27, "triangles": 8373, "cell_line_links": 448, "fo4_portal_links": 440},
+      "14,6": {"fo4_triangles": 7509, "navm": 9, "triangles": 8014, "cell_line_links": 537, "fo4_portal_links": 364}
+    }
+  },
+  "red_rocket_smoke": {
+    "fo4_cells": {"x": [-20, -15], "y": [16, 21]},
+    "fo4_navmeshes": 105,
+    "fo4_triangles": 63875,
+    "pieces": 156,
+    "triangles": 68132,
+    "links": {"cell_line": 2145, "fo4_portal": 1959},
+    "refused": 0
+  },
+  "seconds": 122.9
+}

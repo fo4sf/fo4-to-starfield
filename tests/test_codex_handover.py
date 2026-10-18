@@ -228,7 +228,7 @@ $ok = Invoke-CodexHandover -Workspace {ps_literal(self.root)} `
 
 @unittest.skipUnless(POWERSHELL, "PowerShell unavailable")
 class ConfigRefusalTests(FixtureEnvironment, unittest.TestCase):
-    def config_handover(self, content, unreadable=False):
+    def config_handover(self, content, unreadable=False, lease_environment=''):
         exe = self.root / "fake complete bundle" / "codex.exe"
         if not exe.exists():
             exe = self.bundle(exe.parent)
@@ -263,13 +263,15 @@ $Config = {ps_literal(config)}
 $repo = {ps_literal(ROOT)}
 $wt = $repo
 $tq = {ps_literal(self.root)}
+$startLeaseDir = {ps_literal(lease_environment)}
 $log = {ps_literal(self.root / 'watchdog.log')}
 {denied_read}
 $cfg = Cfg
 $ok = CodexHandOver $cfg 4
 @{{ok=$ok;invalid=$cfg.codex_config_invalid;calls=@($script:fixtureCalls);notes=@($script:fixtureNotes);
   diagnostic=$(if (Test-Path -LiteralPath $log) {{ [IO.File]::ReadAllText($log) }} else {{ $null }});
-  threshold=$cfg.threshold_hours;check=$cfg.check_minutes;every=$cfg.codex_every_hours}} | ConvertTo-Json -Compress
+  threshold=$cfg.threshold_hours;check=$cfg.check_minutes;every=$cfg.codex_every_hours;
+  lease_dir=$cfg.lease_dir;lease_owner=$cfg.lease_owner;lease_hours=$cfg.lease_hours}} | ConvertTo-Json -Compress
 """, self.env))
 
     def test_malformed_and_nonobject_config_refuse_discovery_probes_and_exec(self):
@@ -303,6 +305,27 @@ $ok = CodexHandOver $cfg 4
         self.assertTrue(result["ok"], result)
         self.assertEqual(len(result["calls"]), 3)
         self.assertEqual((result["threshold"], result["check"], result["every"]), (9, 11, 12))
+
+    def test_lease_defaults_survive_handover_merge(self):
+        result = self.config_handover(None)
+        self.assertEqual((result['lease_dir'], result['lease_owner'], result['lease_hours']),
+                         ('', 'watchdog', 8))
+        self.assertTrue(result['ok'])
+
+    def test_configured_lease_overrides_environment_and_resolves_under_root(self):
+        result = self.config_handover(json.dumps({'lease_dir': 'lease-folder\\',
+            'lease_owner': 'fixture-owner', 'lease_hours': 2}), lease_environment='ignored')
+        self.assertEqual(Path(result['lease_dir']), self.root / 'lease-folder')
+        self.assertEqual((result['lease_owner'], result['lease_hours']), ('fixture-owner', 2))
+        self.assertTrue(result['ok'])
+
+    def test_environment_lease_survives_invalid_config_without_handover(self):
+        result = self.config_handover('{ broken', lease_environment='env-lease\\')
+        self.assertEqual(Path(result['lease_dir']), self.root / 'env-lease')
+        self.assertEqual((result['lease_owner'], result['lease_hours']), ('watchdog', 8))
+        self.assertTrue(result['invalid'])
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['calls'], [])
 
 
 FIXTURE_SOURCE = r'''

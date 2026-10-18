@@ -9,6 +9,8 @@ results and a ranked problem list instead of spending its own time driving the g
 $py = 'C:\Modding\venv-render\Scripts\python.exe'
 # 1. plan: one pinned build (staging folder with FO4Port.esm, manifest, formids, cell exports, routes_<cell>.json)
 & $py scripts\game\testqueue.py plan --staging C:\Modding\staging\<build> --out C:\Modding\testqueue\<batch> --per-cell 12
+# 1b. (only with the preflight gate, docs/ai/leader-core.md section 7) pin the game version the gate checks
+& $py scripts\game\testqueue.py pin-game-version --queue C:\Modding\testqueue\<batch>   # or --version 1.16.244.0
 # 2. run (resumable: run the same command again to continue)
 & $py scripts\game\testqueue.py run --queue C:\Modding\testqueue\<batch> --wait-for-idle --refocus --max-hours 8
 # 3. read
@@ -75,6 +77,18 @@ the walk climbs).
   `--wait-for-idle`; with `--refocus` it then brings its own game window back to the front once, never another app).
   Every step runs with `FO4SF_NO_FOCUS_STEAL=1`, so `input.ps1` refuses to pull the game in front during a test.
 - `queue.json` `"hours"` limits the allowed hours (default `[[0, 24]]`); `--max-hours` and `--max-tests` bound a run.
+- Controller lease (opt-in, default off; docs/ai/leader-core.md section 6): with `FO4SF_LEASE_DIR` set (or `run
+  --lease-dir`), the runner launches nothing and sends no step unless `FO4SF_LEASE_OWNER` (default `Claude`, or
+  `--lease-owner`) holds an unexpired lease in that folder (`python scripts\game\lease.py claim --dir <folder> --owner
+  Claude --purpose "<why>" --ttl 28800`), renews it before every test and stops, resumable, with `stopped: lease ...`
+  when it is gone; `cycle.ps1` then refuses to launch (exit 9) and `watchdog.ps1` reads the lease instead of the last
+  `Claude:` commit; the runner also writes its queue, attempts and results to the ledger in that folder (section 10),
+  so `python scripts\leader_report.py --ledger <folder>` shows the live state. Unset: none of this runs.
+- Preflight gate (opt-in, default off; docs/ai/leader-core.md section 7): `run --preflight` (or `FO4SF_PREFLIGHT=1`;
+  `--no-preflight` overrides the variable for one run) runs eleven checks before the first launch (pinned build staged and deployed, experiment as pinned, plugins active,
+  load order, game version, lease, STOP files, Resource Guardian, recovery save, log capture); one FAIL or UNKNOWN
+  stops the run (`stopped: preflight refused (...)`, with a lease folder a `blocker_opened` in the ledger) and `--dry-run` prints the
+  checklist either way. Unset: not run.
 - The build is pinned: `queue.json` records the SHA-256 of `FO4Port.esm`; the runner will not launch a staging folder
   whose plugin changed. The dedicated save `fo4sf_test_<build id>` is created on the first launch and loaded on later ones. After god mode the
   session disables the save's companion (Vasco, Starfield.esm ACHR `000057BE`; qstep kind `companion_off`, confirmed by
@@ -294,7 +308,12 @@ at most 12 per list):
 - the time-of-day / weather lines: `SetLocalTime <h> [1]`, `cgf "Game.SetLocalTime" <h>` (h 0..23.99), `fw <8 hex> [1]`;
 - the bridge's lines (2026-10-14, "Bridge" below): `cgf "FO4SF_Probe.Pos" <decimal form id>`, `cgf "FO4SF_Probe.Ack" "<tag>"`,
   `cgf "FO4SF_Probe.Player"`, `cgf "Debug.TraceUser" "fo4sf" "<text>"` (tags `[A-Za-z0-9_.-]{1,40}`); their replies are
-  lines of the bridge's log, not console text (the OCR'd reply is kept as for any line).
+  lines of the bridge's log, not console text (the OCR'd reply is kept as for any line);
+- the scripted door's Step 0 (2026-10-16): `cgf "FO4SF_Probe.Resolve" "<plugin>" <id>` and
+  `cgf "FO4SF_Probe.MoveTo" "<plugin>" <id> <dx> <dy> <dz>` (plugin `[A-Za-z0-9_.-]{1,60}.esm|esp|esl`, the plugin-local
+  id in decimal, offsets `-?\d{1,5}(.\d{1,3})?` m). A MoveTo can load another cell, so after it the step waits up to 90 s
+  for the HUD before the next line (`obs.console[k]`: `hud_back`, `load_s`, `console_<k>_hud.png`; `MOVETO_S` in the
+  step timeout). Runner feature `probe_moveto`: an older runner refuses such a queue before launching.
 
 Anything else (`qqq`, `player.additem ...`, `coc ...`, `tgm`, a `;` or `|` inside a line, unquoted names, curly quotes, a
 trailing newline) is refused; `tests/test_console_plan.py` lists the cases.
@@ -891,3 +910,45 @@ Instead the game writes a file:
   (`FO4SF ref=<id> pos=.. ang=.. cell=.. disabled=.. loaded=..`), `cgf "FO4SF_Probe.Ack" "<tag>"` logs `FO4SF ack <tag>`,
   `cgf "FO4SF_Probe.Player"` the player. If the VM loads an unattached script for cgf (supported hypothesis; the first
   window tells), door and probe reads of `door_trip` and the NPC reads of `npc_nav` can leave OCR too.
+- **`FO4SF_Probe.Resolve` / `MoveTo` (2026-10-16, staged in `C:\Modding\staging\bridge_t2`, not run in game yet):** the
+  scripted door's Step 0 (docs/slice/scripted-door.md). `Resolve(plugin, id)` logs what `Game.GetFormFromFile(id, plugin)`
+  returns for a plugin-local id (`FO4SF resolve plugin=.. id=.. form=<runtime id>|none [ref=true|false pos=.. ang=..
+  cell=.. cellname=.. world=.. worldname=.. disabled=.. loaded=..]`); `MoveTo(plugin, id, dx, dy, dz)` looks the
+  reference up the same way (`FO4SF target ...`), moves the player there plus the offset as `FO4SF_LoadDoor.psc` does
+  (match rotation, no rotated offset) and logs the player before, right after and one second of game time after
+  (`FO4SF moveto plugin=.. id=.. offset=dx dy dz phase=before|after|settled|refused pos=.. ang=.. cell=.. cellname=..
+  world=.. worldname=.. loaded=..`). `cellname` / `worldname` come from the DebugOnly `GetFormEditorID`, asked in a
+  function of its own (empty where the game keeps no editor id). `bridge_log.py events` parses all of them. Pos, Ack
+  and Player are unchanged; `make_bridge.py stage` compiles every `.psc` of `scripts/bridge` and keeps the sources
+  beside the stage.
+
+## Reference reads through the bridge (2026-10-15)
+
+With the runner feature `bridge`, a reference's position (door_trip doors and probes, npc_nav anchors) is read without
+the console's OCR: qstep.ps1 `Bridge-Ref-Read` takes the log's line count (`bridge_log.py mark`), types
+`cgf "FO4SF_Probe.Pos" <decimal ref>` in one console session, and `bridge_log.py wait-ref <ref> --since <mark>` returns
+the first `FO4SF ref=.. pos=.. loaded=..` reply written after it (never an older reply for the same reference). The id
+is typed as a Papyrus int (load index FF.. is negative). A failed bridge read (no reply in 8 s, or `none`: not a loaded
+reference) falls back to `readpos.ps1`'s OCR, so an older bridge plugin still reads; `obs.read_log` says which path
+each read took (`via`: `bridge-ref` or the readpos nonce).
+
+## Activate (terrain, 2026-10-15)
+
+A terrain test may carry `"activate": {"ref": "<8 hex>", "base": "<8 hex>", "expect": ["First Aid Kit", "Credits", "Digipick"]}` (R05 slice 1:
+the native container's reference, load index included). After the probes and before the beyond teleport, the step opens one
+console session, types `prid <ref>` and `GetIsID <base>` and reads the console: the reply must be 1 (the selection is a
+reference of that base; a refused `prid` leaves the previous selection, which `activate player` would open: Codex's review
+of #145). The one capture is OCR'd at the thresholds 135, 140, 130 and 145 in turn until the reply is read (Item-Capture's
+four; core64g_accept_1016 test 0002 lost the reply row at 135 although `activate_sel.png` shows `GetIsID >> 1.00`);
+`obs.activate.sel_threshold` is the threshold that read it (null: none did). Only then it types `activate player` and closes the console (the menu opens with the player as the activator: no
+facing, no E); without the proof nothing is activated and `obs.activate.selected` is false, captures the whole screen as `activate.png`, OCRs it, and closes the menu with a held Tab, the UI's hold-to-exit (a tap only goes back a level;
+`activate_closed.png`, a second hold when the HUD is not back). The verdict detail gets `[activate <ref>: read [...] of [...]]`, the expected words the OCR found;
+it is shown and never judged, and the owner's own E-press stays the interaction acceptance. Runner feature `activate`
+(`runner_features.py`): an older runner refuses such a queue instead of running it without the step.
+
+### teleport_console (terrain diagnostic, 2026-10-15)
+
+`"teleport_console": true` on a terrain test makes every probe teleport capture its own console session before closing it
+(`tp<n>.png`, OCR in `obs.teleports[n]` with the typed target): the game's reply to `player.setpos` / `setangle`, which
+nothing else records. Added for r05_medkit_1015/b/c/e, where the player stayed at the Red Rocket arrival through every
+probe while the bridge read fresh. Off by default; no effect on the verdict.
