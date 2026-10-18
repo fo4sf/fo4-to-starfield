@@ -361,8 +361,14 @@ def decode_sf_mesh(sf_blob: bytes):
                 return tuple(off[a] + q[a] * scale[a] for a in range(3))
             j, = struct.unpack_from("<H", b, sidx_at + 2 * (first_shared + i - npacked))
             return shared[j]
+        # Match FO4 reader: skip unused 0xDEAD slots and degenerate points (issue #212).
+        # SF sections store numPacked at +88; shared indices start after that. Use a conservative
+        # limit of packed + 255 to reject high sentinel values without needing per-section shared count.
+        limit = npacked + 255
         for k in range(nprim):
             i0, i1, i2, i3 = b[prim_at + 4 * (first_prim + k):prim_at + 4 * (first_prim + k) + 4]
+            if max(i0, i1, i2, i3) >= limit or i0 == i1 == i2 == i3:
+                continue
             tris.append((vert(i0), vert(i1), vert(i2)))
             if i2 != i3:
                 tris.append((vert(i0), vert(i2), vert(i3)))
