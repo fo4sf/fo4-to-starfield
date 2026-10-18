@@ -48,6 +48,8 @@ def checkpoint_signature(a):
         sig["door_anim_dll"] = checkpoints.digest(Path(a.door_anim_dll))
     if getattr(a, "spec_mask_roughness", False):        # rougher outputs differ; off keeps existing checkpoints valid
         sig["spec_mask_roughness"] = True
+    if getattr(a, "mass_scale", 1.0) != 1.0:            # scaled masses differ; default 1.0 keeps existing checkpoints valid
+        sig["mass_scale"] = a.mass_scale
     caps = textures.parse_texture_caps(getattr(a, "max_texture", ""))
     if caps:                                            # capped outputs differ; no cap keeps existing checkpoints valid
         sig["max_texture"] = caps
@@ -187,9 +189,15 @@ def main():
     ap.add_argument("--spec-mask-roughness", action="store_true",
                     help="roughness also follows FO4's specular mask (smooth-spec R), so dull surfaces with high gloss "
                          "stay rough; default off (the gloss alone, as every build so far)")
+    ap.add_argument("--mass-scale", type=float, default=1.0,
+                    help="scale FO4 dynamic body masses (playtest row 26: FO4 small items 2-10x Starfield; try 0.2-0.5 so grab works)")
     a = ap.parse_args()
     if not re.fullmatch(r"[a-z0-9_]+", a.prefix):
         ap.error("--prefix: lower-case letters, digits and _ only")
+    try:
+        a.mass_scale = convert_static.require_mass_scale(a.mass_scale)
+    except ValueError as e:
+        ap.error(f"--mass-scale: {e}")
     try:
         textures.parse_texture_caps(a.max_texture)
     except ValueError as e:
@@ -249,7 +257,8 @@ def main():
                                               sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
                                               prefix=a.prefix, max_texture=a.max_texture,
                                               door_anim_dll=a.door_anim_dll or None,
-                                              spec_mask_roughness=a.spec_mask_roughness)
+                                              spec_mask_roughness=a.spec_mask_roughness,
+                                              mass_scale=a.mass_scale)
                 r = conv.convert_nif(name)
                 if cache:
                     try:
@@ -296,7 +305,8 @@ def main():
                                               sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
                                               prefix=a.prefix, max_texture=a.max_texture,
                                               door_anim_dll=a.door_anim_dll or None,
-                                              spec_mask_roughness=a.spec_mask_roughness)
+                                              spec_mask_roughness=a.spec_mask_roughness,
+                                              mass_scale=a.mass_scale)
                 r = conv.convert_nif(v.source, pose=v.overrides, out_suffix=v.suffix)
                 if cache:
                     try:
