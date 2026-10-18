@@ -63,8 +63,9 @@ class SkinnedPanelTests(unittest.TestCase):
     """RedRPedDoor.nif's two shapes are skinned to its animated bones (PC check 2026-10-18); a shape whose vertices all
     follow one rig bone rides that bone instead of failing the door."""
 
-    def skinned(self, f, bone, weights=(1.0, 0.0, 0.0, 0.0), offset=(5.0, 0.0, 0.0)):
-        """Mark the first panel shape skinned to node `bone`, skin_to_bone a pure translation by offset."""
+    def skinned(self, f, bone, weights=(1.0, 0.0, 0.0, 0.0), offset=(5.0, 0.0, 0.0), second=None):
+        """Mark the first panel shape skinned to node `bone`, skin_to_bone a pure translation by offset; second: a
+        second bone that vertex 3 alone follows."""
         panel = min(s.block for s in nif.fo4_trishapes(f) if s.positions)
         real = nif.fo4_trishapes
         count = len(next(s for s in real(f) if s.block == panel).positions)
@@ -75,8 +76,13 @@ class SkinnedPanelTests(unittest.TestCase):
         def read_skin(src, block):
             if block != panel:
                 return None
-            return fo4skin.Fo4Skin(block, -1, -1, 0, [bone], [b"bone"], [(offset, (1, 0, 0, 0, 1, 0, 0, 0, 1), 1.0)],
-                                   [(0, 0, 0, 1)], [weights] * count, [(0, 0, 0, 0)] * count)
+            bones = [bone] + ([second] if second is not None else [])
+            xf = (offset, (1, 0, 0, 0, 1, 0, 0, 0, 1), 1.0)
+            slots = [(0, 0, 0, 0)] * count
+            if second is not None:
+                slots = [(1, 0, 0, 0) if v == 3 else (0, 0, 0, 0) for v in range(count)]
+            return fo4skin.Fo4Skin(block, -1, -1, 0, bones, [b"bone"] * len(bones), [xf] * len(bones),
+                                   [(0, 0, 0, 1)] * len(bones), [weights] * count, slots)
         return panel, shapes, read_skin
 
     def convert(self, f, shapes, read_skin, **kw):
@@ -92,7 +98,7 @@ class SkinnedPanelTests(unittest.TestCase):
         with patch.object(fo4skin, "read_skin", side_effect=read_skin):
             plan = door_rig.plan(f, placed=True)
             shape = next(s for s in shapes(f) if s.block == panel)
-            index, rigid = convert_static.rigid_skinned_shape(f, shape, plan["bones"])
+            (index, rigid), = convert_static.rigid_skinned_parts(f, shape, plan["bones"])
         self.assertEqual(plan["bones"][index]["node"], panel_b)
         self.assertFalse(rigid.skinned)
         self.assertEqual(rigid.positions[1], (shape.positions[1][0] + 5, shape.positions[1][1], shape.positions[1][2]))
@@ -101,6 +107,33 @@ class SkinnedPanelTests(unittest.TestCase):
         self.assertEqual(len(door["rebound_skinned_shapes"]), 1)
         self.assertNotIn("dropped_skinned_shapes", door)
         self.assertEqual(door["moving_bodies"], 1)                       # both panels' geometry now on PanelB
+
+    def test_a_shape_on_two_bones_is_cut_into_one_piece_per_bone(self):
+        """RedRPedDoor's Door:7: 363 vertices on b_Door, 118 on b_Handle, none blended. Here the leaf's two triangles
+        share vertices 0 and 2, so a vertex on its own bone puts a triangle across two bones: refused; a separate
+        triangle per bone is cut."""
+        f = door_nif(sliding_panels())
+        names = node_names(f)
+        _, shapes, read_skin = self.skinned(f, names["PanelA"], second=names["PanelB"])
+        with self.assertRaisesRegex(nif.NifError, "cannot be rigged"):
+            self.convert(f, shapes, read_skin)
+        panel = min(s.block for s in nif.fo4_trishapes(f) if s.positions)
+        split = lambda src: [replace(s, triangles=[(0, 1, 2), (3, 4, 5)],          # noqa: E731
+                                     positions=s.positions[:3] + [(0, 0, 0), (0, 5, 0), (0, 5, 9)],
+                                     uvs=(s.uvs[:3] * 2) if s.uvs else s.uvs, normals=(s.normals[:3] * 2) if s.normals else
+                                     s.normals, tangents=(s.tangents[:3] * 2) if s.tangents else s.tangents,
+                                     colors=(s.colors[:3] * 2) if s.colors else s.colors) if s.block == panel else s
+                             for s in shapes(src)]
+
+        def skin(src, block):
+            k = read_skin(src, block)
+            if k is None:
+                return None
+            return replace(k, weights=[(1.0, 0, 0, 0)] * 6, indices=[(0, 0, 0, 0)] * 3 + [(1, 0, 0, 0)] * 3)
+        _, door = self.convert(f, split, skin)
+        self.assertEqual(door["rig"], "native")
+        self.assertEqual(door["rebound_skinned_pieces"], 2)
+        self.assertEqual(door["moving_bodies"], 2)                       # a piece on each panel
 
     def test_blended_or_off_rig_skins_still_refuse_the_door(self):
         f = door_nif(sliding_panels())
