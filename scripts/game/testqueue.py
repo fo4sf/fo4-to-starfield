@@ -3003,8 +3003,8 @@ class Runner:
                 return ("lease refused by cycle.ps1 (exit 9) although this runner's check passed: the two read "
                         "different leases; nothing launched")   # run stops, resumable, never a retry per test
             if code == 10:                                # Steam never started the game: a relaunch per test would
-                return ("the game did not start (cycle.ps1 exit 10: no Starfield process within 150 s of the Steam "
-                        f"launch; screen {os.path.join(self.qdir, 'cycle.png')}); nothing tested")   # stop, resumable
+                return ("the game did not start (cycle.ps1 exit 10: no Starfield process stayed up after three Steam "
+                        f"launches; screen {os.path.join(self.qdir, 'cycle.png')}); nothing tested")   # stop, resumable
             if code != 0:
                 # 7: an installed experiment plugin's master is not active (exp_install.py order): nothing launched
                 return "stop" if code in (2, 3, 5, 6, 7) else "retry"

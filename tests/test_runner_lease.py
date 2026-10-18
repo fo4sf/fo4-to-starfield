@@ -202,6 +202,8 @@ class RunnerLeaseTests(unittest.TestCase):
         self.assertIn("if (-not $q) {", src)
         self.assertLess(src.index("if (-not $q) {"), src.index("Wait-Screen 'main menu'"))
         self.assertIn("exit 10", src)
+        self.assertIn("$try -le 3", src)                                     # the first launch can die within 2 s
+        self.assertIn("Get-Process -Id $q.Id", src)                          # alive 20 s later, not just seen once
 
     def test_main_reads_the_switches_from_the_environment(self):
         seen = {}
