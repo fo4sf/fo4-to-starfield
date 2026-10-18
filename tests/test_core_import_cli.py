@@ -142,7 +142,8 @@ class ImportCliTests(unittest.TestCase):
             code, lines = self.run_cli("--ledger", self.leader, "--queues", other, "--no-report")
         self.assertEqual(code, 0, lines)
         order = [ln for ln in lines if ln.startswith("queue ")]
-        self.assertEqual([ln.split(":")[0] for ln in order], [f"queue {old_mtime}", f"queue {new_local}"])
+        # split at the label delimiter ": ", never at the first colon: a Windows path has one (C:\...)
+        self.assertEqual([ln.split(": ")[0] for ln in order], [f"queue {old_mtime}", f"queue {new_local}"])
         s = fold(Ledger(os.path.join(self.leader, "ledger.jsonl")).read())
         self.assertEqual(s.build["build_id"], "bbbbbbbb")
         # an aware `created` is taken as written, whatever the zone (and without the pretended host zone)
@@ -216,6 +217,80 @@ class ImportCliTests(unittest.TestCase):
         s = fold(ledger.read())
         self.assertEqual({k: (v["outcome"], v["build_id"]) for k, v in s.tasks.items()}, {"door_trip/door_1": ("FAIL", "aaaaaaaa")})
         self.assertEqual(s.campaigns, {"door_trip"})
+
+    def queue_at(self, parent, ref, verdict, cls=""):
+        """A door_trip queue under parent: test door_1 on `ref`, build aaaaaaaa, one result row."""
+        q = write_queue(os.path.join(self.d, parent), "door_trip", ["door_1"], [("door_1", verdict, cls)], build="aaaaaaaa")
+        with open(os.path.join(q, "queue.json"), encoding="utf-8") as f:
+            rec = json.load(f)
+        rec["tests"][0]["ref"] = ref
+        with open(os.path.join(q, "queue.json"), "w", encoding="utf-8") as f:
+            json.dump(rec, f)
+        return q
+
+    def test_one_build_two_plans_under_one_name_never_fold_as_one_campaign(self):
+        # Codex review 5558689652: a/door_trip door_1 on ref 0x100 FAIL, b/door_trip door_1 on ref 0x200 PASS, both
+        # build aaaaaaaa with the same plugin hash: the build alone does not make b a relocation of a
+        a = self.queue_at("a", "0x100", "FAIL", "FALL")
+        b = self.queue_at("b", "0x200", "PASS")
+        code, lines = self.run_cli("--ledger", self.leader, "--queue", a, "--queue", b, "--no-report")
+        self.assertEqual(code, 1, lines)
+        self.assertEqual(lines[0], f"queue {a}: 3 event(s) added")
+        self.assertTrue(lines[1].startswith(f"queue {b}: FAILED: CampaignBound"), lines)
+        self.assertIn("the same build but another plan", lines[1])
+        ledger = Ledger(os.path.join(self.leader, "ledger.jsonl"))
+        self.assertEqual(len(ledger.read()), 3)
+        self.assertEqual({k: v["outcome"] for k, v in fold(ledger.read()).tasks.items()}, {"door_trip/door_1": "FAIL"})
+
+    def test_a_copy_of_the_plan_that_ran_apart_is_not_a_relocation(self):
+        # the same queue.json (same created time, build and tests) in a second folder whose results diverge: a copy
+        # that was run separately; its rows must not replace the bound folder's
+        a = self.queue_at("a", "0x100", "FAIL", "FALL")
+        b = os.path.join(self.d, "b", "door_trip")
+        shutil.copytree(a, b)
+        with open(os.path.join(b, "results.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"id": "door_1", "attempt": 1, "verdict": "PASS", "class": "", "dir": "d", "t": "t1"}) + "\n")
+        code, lines = self.run_cli("--ledger", self.leader, "--queue", a, "--queue", b, "--no-report")
+        self.assertEqual(code, 1, lines)
+        self.assertTrue(lines[1].startswith(f"queue {b}: FAILED: CampaignBound"), lines)
+        self.assertIn("results.jsonl line 1", lines[1])
+        self.assertEqual({k: v["outcome"] for k, v in fold(Ledger(os.path.join(self.leader, "ledger.jsonl")).read()).tasks.items()},
+                         {"door_trip/door_1": "FAIL"})
+        # the same copy with the bound rows plus a later attempt (a relocated queue that ran on) still imports
+        with open(os.path.join(a, "results.jsonl"), encoding="utf-8") as f:
+            first = f.read()
+        with open(os.path.join(b, "results.jsonl"), "w", encoding="utf-8") as f:
+            f.write(first + json.dumps({"id": "door_1", "attempt": 2, "verdict": "PASS", "class": "", "dir": "d2",
+                                        "t": "t2"}) + "\n")
+        code, lines = self.run_cli("--ledger", self.leader, "--queue", b, "--no-report")
+        self.assertEqual((code, lines[0]), (0, f"queue {b}: 4 event(s) added"), lines)   # pin, test, two rows
+
+    def test_a_ledger_without_queue_identities_never_accepts_another_folder(self):
+        # a campaign bound by events written before queue_id: nothing proves the second folder is the same plan
+        a = self.queue_at("a", "0x100", "FAIL", "FALL")
+        led = os.path.join(self.leader, "ledger.jsonl")
+        self.assertEqual(self.run_cli("--ledger", self.leader, "--queue", a, "--no-report")[0], 0)
+        with open(led, encoding="utf-8") as f:
+            old = [json.loads(ln) for ln in f if ln.strip()]
+        for e in old:
+            e.pop("queue_id", None)
+            (e.get("fields") or {}).pop("queue_id", None)
+        with open(led, "w", encoding="utf-8") as f:
+            f.write("".join(json.dumps(e) + "\n" for e in old))
+        archived = os.path.join(self.d, "archive", "door_trip")
+        shutil.copytree(a, archived)
+        code, lines = self.run_cli("--ledger", self.leader, "--queue", archived, "--no-report")
+        self.assertEqual(code, 1, lines)
+        self.assertIn("queue identity none recorded", lines[0])
+
+    def test_the_identity_ignores_a_repin_in_place_and_sees_the_plan(self):
+        from fo4sf.core.import_queue import queue_identity
+        q = {"created": "2026-10-15T10:00:00", "build_id": "aaaaaaaa", "plugin_sha256": "aa" * 32, "commit": "c1",
+             "tests": [{"id": "door_1", "ref": "0x100"}]}
+        same = dict(q, game_version="1.16.244.0", commit="c2", staging="D:/elsewhere")
+        self.assertEqual(queue_identity(q), queue_identity(same))
+        for k, v in (("created", "2026-10-15T10:00:01"), ("build_id", "bbbbbbbb"), ("tests", [{"id": "door_1", "ref": "0x200"}])):
+            self.assertNotEqual(queue_identity(q), queue_identity(dict(q, **{k: v})), k)
 
     def test_an_unpinned_queue_never_matches_a_bound_name(self):
         # without a build nothing tells a relocated copy from a different queue: a second folder of the name is refused
