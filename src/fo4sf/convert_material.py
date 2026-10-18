@@ -39,6 +39,8 @@ class Bgsm:
     two_sided: bool = False        # header byte 48
     smoothness: float = 1.0        # scales the spec map's gloss channel (v2: 32 bytes after the 9 texture strings)
     spec_mult: float = 1.0
+    palette_color: bool = False    # v2 byte 62: bGrayscaleToPaletteColor (Material-Editor BaseMaterialFile)
+    palette_scale: float = 1.0     # fGrayscaleToPaletteScale; last float before the trailing skew byte
 
 
 def parse_bgsm(d: bytes) -> Bgsm:
@@ -46,14 +48,20 @@ def parse_bgsm(d: bytes) -> Bgsm:
         raise ValueError("not a BGSM file")
     version, tiles = struct.unpack_from("<II", d, 4)
     uo, vo, us, vs = struct.unpack_from("<4f", d, 12)
-    # the texture block starts at the first length-prefixed string that ends in .dds/.tga (before it: flags/floats)
+    # v2: header is 63 bytes (bGrayscaleToPaletteColor at 62); strings start at 63. Scanning for the
+    # first .dds/.tga hits decoy strings in that header (PipeRifle, CurvedPistolGrip, and two others).
     start = None
-    for off in range(8, len(d) - 8):
-        ln, = struct.unpack_from("<I", d, off)
-        if 4 < ln < 260 and off + 4 + ln <= len(d) and d[off + 3 + ln] == 0 \
-                and d[off + 4:off + 3 + ln].lower().endswith((b".dds", b".tga")):
-            start = off
-            break
+    if version == 2:
+        if len(d) < 71:
+            raise ValueError("truncated v2 BGSM")
+        start = 63
+    else:
+        for off in range(8, len(d) - 8):
+            ln, = struct.unpack_from("<I", d, off)
+            if 4 < ln < 260 and off + 4 + ln <= len(d) and d[off + 3 + ln] == 0 \
+                    and d[off + 4:off + 3 + ln].lower().endswith((b".dds", b".tga")):
+                start = off
+                break
     if start is None:
         raise ValueError("no texture paths found")
     out, pos = [], start
@@ -85,9 +93,16 @@ def parse_bgsm(d: bytes) -> Bgsm:
             if not (0.0 <= mult <= 100.0):
                 mult = 1.0
     flags = d[32], d[42], d[47], d[48]
+    palette_color = bool(d[62]) if len(d) > 62 else False
+    palette_scale = 1.0
+    if version == 2 and len(d) >= 5:
+        scale, = struct.unpack_from("<f", d, len(d) - 5)
+        if 0.0 <= scale <= 1.0:
+            palette_scale = scale
     return Bgsm(version, bool(tiles & 2), bool(tiles & 1), (uo, vo), (us, vs), *out,
                 alpha_blend=bool(flags[0]), alpha_test=bool(flags[1]), decal=bool(flags[2]), two_sided=bool(flags[3]),
-                smoothness=smooth, spec_mult=mult, alpha_ref=d[41])
+                smoothness=smooth, spec_mult=mult, alpha_ref=d[41],
+                palette_color=palette_color, palette_scale=palette_scale)
 
 
 def read_template(content_resources_zip: str) -> dict:

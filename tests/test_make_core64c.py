@@ -152,7 +152,7 @@ class MeasureTests(unittest.TestCase):
                 self.textures = [Arc()]
 
             def material(self, path):
-                head = bytearray(b"BGSM" + struct.pack("<II4f", 2, 3, 0.0, 0.0, 1.0, 1.0) + b"\x00" * 30)
+                head = bytearray(b"BGSM" + struct.pack("<II4f", 2, 3, 0.0, 0.0, 1.0, 1.0) + b"\x00" * 35)
                 head[48] = 1
                 def s(t):
                     b = t.encode() + b"\0"

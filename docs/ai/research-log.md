@@ -3,6 +3,30 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-17 Grok: greyscale-to-palette bake (playtest row 15)
+
+- Question: why Museum of Freedom picture frames and the brass plaque render as flat grey-black boards, and
+  whether a greyscale-to-palette bake is the fix.
+- Method: converted NIFs and DDS under `C:\Modding\staging\terrain_core64c_work_fix3\convert` (read-only);
+  Claude's review against vanilla FO4 BA2s at depot_377163; Material-Editor `BaseMaterialFile` (byte 62) and
+  NifSkope `fo4_default.frag`.
+- Row 15 frames/plaque, **verified not palette materials** (Claude, vanilla BA2s):
+  `PaintingGeneric_CanvasSwap.BGSM` / `CanvasPainting01.BGSM` have empty greyscale and byte 62 = 0;
+  `BrassPlaque.nif` flags1 `0x80400281` (bit 0x10 clear), slot 4 a cubemap. Before/after this bake they are
+  byte-identical. The frames are a per-reference material swap (`PaintingGeneric*` / `PaintingAbstract*`);
+  nothing in this repo reads MODS/XMSP. That is the row 15 root cause and is outside this PR.
+- Converter gap, **verified** on other materials: 278 v2 BGSMs have the greyscale string **and** the flag.
+  5 have the string with the flag off (e.g. `ConcreteRoadHW01.BGSM` names a cubemap). Gating on the string
+  alone made that road a fallback. Bake is gated on byte 62 / NIF flags1 0x10.
+- Lookup, **supported hypothesis**: U = green channel, V = `clamp(round(scale * H - 0.5))` from
+  `fGrayscaleToPaletteScale` (BGSM last float) or the NIF lighting-shader scale (nif.xml after rimlight;
+  optional backlight when rim is FLT_MAX). Texture-set cache identity includes that scale. Vertex-colour V
+  is **unresolved**. A missing palette texture is a conversion error. GreyscaleToPalette_Alpha (bit 0x20)
+  is not baked. v2 `parse_bgsm` reads texture strings at byte 63 so a decoy `.dds` in the header cannot
+  steal the greyscale slot.
+- Status: bake is for flagged palette materials. Row 15 needs material swaps, not this PR. In-game colour
+  after a scratch reconvert **unresolved** (Claude).
+
 ## 2026-10-17 Grok: playtest rows 11/13/15 materials (core64c convert, work_fix3)
 
 - Question: why hanging vines at Red Rocket are black jagged strands (row 11), Sanctuary interior walls washed
