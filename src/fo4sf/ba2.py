@@ -123,6 +123,18 @@ class Ba2:
             "textures": dx10,
         }
 
+    def extension_counts(self) -> dict:
+        """Count entries by file extension (lowercase, including the dot).
+
+        Useful for quickly seeing the composition of an archive (how many .nif, .dds, .txt, etc.)
+        without extracting or reading payloads. Names without an extension are grouped as "(noext)".
+        """
+        counts: dict[str, int] = {}
+        for e in self.entries:
+            ext = os.path.splitext(e.name)[1].lower() or "(noext)"
+            counts[ext] = counts.get(ext, 0) + 1
+        return dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+
     @staticmethod
     def _norm(n: str) -> str:
         return n.replace("/", "\\").lower().lstrip("\\")
