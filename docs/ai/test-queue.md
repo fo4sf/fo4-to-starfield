@@ -76,6 +76,12 @@ the walk climbs).
 - Owner activity: input the runner did not send, or another window in front of the game, stops the run (or waits with
   `--wait-for-idle`; with `--refocus` it then brings its own game window back to the front once, never another app).
   Every step runs with `FO4SF_NO_FOCUS_STEAL=1`, so `input.ps1` refuses to pull the game in front during a test.
+- A window that takes the focus mid-step with no keyboard or mouse input since the runner's last (a popup: the AMD
+  auto-updater, movable_1019c 2026-10-18) is not the owner: with `--refocus` the game is brought back and the test runs
+  again at the end of the queue, not counted as an attempt, at most `POPUP_RETRIES` (2) times per test. The log names
+  the window from `input.ps1`'s ABORT line in the attempt's `step.log`. The interrupted attempt's folder is kept as
+  `a<n>_popup<k>`, and any uncounted attempt's folder found at the start of a new attempt (the owner took over, then a
+  resume) as `a<n>_interrupted<k>`, each with the first unused k: no evidence is overwritten.
 - `queue.json` `"hours"` limits the allowed hours (default `[[0, 24]]`); `--max-hours` and `--max-tests` bound a run.
 - Controller lease (opt-in, default off; docs/ai/leader-core.md section 6): with `FO4SF_LEASE_DIR` set (or `run
   --lease-dir`), the runner launches nothing and sends no step unless `FO4SF_LEASE_OWNER` (default `Claude`, or
@@ -656,7 +662,10 @@ on it.
    `spawn_wait_ms` (2 s) of game time.
 2. `plr` alone: the id in `PickLastRef: (FFxxxxxx)` after this session's start, 8 hex digits starting `FF`; nothing
    further is typed without it.
-3. `prid <id>`, `GetSelf`: GetSelf must not name another ref (N0_base's `0024A824`); unread is allowed.
+3. `prid <id>`, `GetSelf`: GetSelf must not name another ref (N0_base's `0024A824`); unread is allowed, and so is
+   `00000000` (form id 0 is never a ref: the movable queue of 2026-10-18 read it after `prid` of placed vanilla items,
+   supported hypothesis that the game prints it for a ref it does not name). For a movable item a `plr` that names
+   no `FFxxxxxx` id is typed once more after the game ran another 2 s.
 4. `GetIsID <npc>` must read 1; `getpos x/y/z` must put the ref within `handle_tol` (2 m) of the player's read at A
    (placeatme puts it at the player's feet).
 
@@ -810,7 +819,9 @@ One test (`qstep.ps1` kind `movable_control`): `coc`, the arrival read until it 
 `player.placeatme <base> 1` in its own session and, in the same session (the game paused), the player moved to the
 park point, then the console closed for `spawn_wait_ms` so the item drops onto a free floor; the handle as npc_nav's
 (`plr` alone, `prid <id>` + `GetSelf` must not name another ref, `GetIsID <base>` 1, within `handle_tol` of the spot:
-else INCONCLUSIVE SPAWN and nothing acts on any selection); the `GetMass` probe and `SetRigidBodyMass`, then the
+else INCONCLUSIVE SPAWN and nothing acts on any selection; when `placeatme` itself answered "not found for parameter",
+INCONCLUSIVE NOBASE, final: the base id is wrong for this load order, e.g. a queue planned with `--plugin-index 02`
+while the plugin loads at 05, verified in movable_1019 on 2026-10-18); the `GetMass` probe and `SetRigidBodyMass`, then the
 console closed `mass_wait_ms` and `GetMass` again on a second confirmed selection; the player
 `stand_m` before the item's read position facing `heading`; the item read (confirmed), the walk, the player's and the
 item's reads; the ladder; then `disable`, `GetDisabled`, `markfordelete` on a confirmed selection only. `movable` tests
