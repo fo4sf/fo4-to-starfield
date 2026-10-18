@@ -270,8 +270,6 @@ class MovableControlJudgeTests(unittest.TestCase):
                 (None, "not captured"),
                 ({"before": 'Clear Console cf "ObjectReference.GetMass" GetMass > > 25.00'}, "not captured"),
                 ({"after_note": "the item was not selected again"}, "not selected again"),
-                ({"after": 'Clear Console cf "ObjectReference.GetMass" No script named ObjectReference is attached to '
-                           'the object'}, "refused"),
                 ({"after": 'Clear Console cf "ObjectReference.GetMass"'}, "no number"),
                 ({"after": "Clear Console prid FF000800"}, "echo was not read"),
                 ({"after": 'Clear Console cf "ObjectReference.GetMass" GetMass > > 5.00 6.00'}, "several numbers")):
@@ -288,6 +286,28 @@ class MovableControlJudgeTests(unittest.TestCase):
             self.assertEqual((v, c), ("INCONCLUSIVE", "MASS"), d)
             self.assertIn("GetMass read 25 kg after SetRigidBodyMass 5 (before: 25 kg): the mass set did not take", d)
         self.assertNotIn("MASS", tq.FINAL_INCONCLUSIVE)               # retried: an OCR miss can read on the next try
+
+    def test_a_mass_the_console_cannot_read_judges_only_a_move(self):
+        # movable_1019c (2026-10-18, verified): cf "ObjectReference.GetMass" answers "No script named ObjectReference is
+        # attached to the object", so no reading will ever come. A move stands (the set mass can only have made the
+        # body lighter or left it as it was); no move stays INCONCLUSIVE MASS (an unchanged mass reads the same)
+        t = tq.movable_test(0, dict(ITEM, set_mass_kg=5))
+        typed = {"typed": True, "ocr": "Clear Console SetRigidBodyMass 5"}
+        nos = {"after": 'Clear Console cf "ObjectReference.GetMass" No script named ObjectReference is attached to the '
+                        'object'}
+        v, c, d = self.judge(control_obs(self.d, mass_probe=nos, set_mass=typed, item_after="-3.00 6.10 0.00"), t)
+        self.assertEqual((v, c), ("PASS", "WALKED"), d)
+        self.assertIn("[mass not read back: GetMass is not reachable from the console", d)
+        v, c, d = self.judge(control_obs(self.d, mass_probe=nos, set_mass=typed, impulses=[imp("-3.00 3.55 0.00")]), t)
+        self.assertEqual((v, c), ("PASS", "IMPULSE"), d)
+        for obs in (control_obs(self.d, mass_probe=nos, set_mass=typed),
+                    control_obs(self.d, mass_probe=nos, set_mass=typed, impulses=[imp("-3.00 4.00 0.00")] * 3)):
+            v, c, d = self.judge(obs, t)
+            self.assertEqual((v, c), ("INCONCLUSIVE", "MASS"), d)
+            self.assertIn("its mass not read back: a mass that did not take reads the same", d)
+        # a refusal printed before this session's ClearConsole is an older session's, not this probe's
+        self.assertFalse(tq.unreadable_mass('No script named X Clear Console cf "ObjectReference.GetMass"'))
+        self.assertTrue(tq.unreadable_mass(nos["after"]))
 
     def test_mass_read(self):
         self.assertEqual(tq.mass_read('Clear Console cf "ObjectReference.GetMass" GetMass >> 5.00'), (5.0, ""))

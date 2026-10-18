@@ -1457,6 +1457,14 @@ def mass_read(ocr):
     return vals[0], ""
 
 
+def unreadable_mass(ocr):
+    """The probe's own session says the console cannot run it at all ("No script named ObjectReference is attached to
+    the object"): no reading will ever come, unlike a reply OCR missed."""
+    text = str(ocr or "")
+    starts = [m.end() for m in CLEAR_ECHO.finditer(text)]
+    return bool(NO_SCRIPT.search(text[starts[-1]:] if starts else text))
+
+
 def mass_ok(read, want):
     """GetMass read the mass SetRigidBodyMass set: within 5 %, at least 0.25 kg."""
     return read is not None and abs(read - want) <= max(0.25, 0.05 * want)
@@ -1502,6 +1510,17 @@ def judge_movable_control(test, obs, shot_ok):
         else:
             after, why = mass_read(probe["after"])
         was = f" (before: {_fmt(before, 2)} kg)" if before is not None else ""
+        if after is None and unreadable_mass(probe.get("after")):
+            # the probe cannot read any mass (movable_1019c 2026-10-18, verified: cf "ObjectReference.GetMass" answers
+            # "No script named ObjectReference is attached to the object"). Decided 2026-10-18 (decisions.md): a move
+            # stands, since the set mass can only have made it lighter or left it as it was; no move cannot tell an
+            # unchanged mass from a heavy one, so it stays INCONCLUSIVE MASS
+            v, c, d = judge_push(test, obs, shot_ok)
+            unread = f" [mass not read back: GetMass is not reachable from the console ({why})]"
+            if v == "PASS":
+                return v, c, d + unread
+            return "INCONCLUSIVE", "MASS", (f"{v} {c} with {test['set_mass_cmd']} typed but its mass not read back: "
+                                            f"a mass that did not take reads the same; {d}")
         if after is None:
             return "INCONCLUSIVE", "MASS", (f"GetMass was not read after {test['set_mass_cmd']}: {why}{was}; the mass "
                                             f"the walk met is unknown")
