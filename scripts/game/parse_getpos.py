@@ -41,9 +41,33 @@ def after_nonce(raw, nonce):
     return raw[ms[-1].end():] if ms else None
 
 
+def waiting_labels(raw):
+    """The axes of the GetPos replies whose value is not on their line ("GetPos: X > >"), in text order: in the OCR's
+    column layout their values follow, all labels first."""
+    out = []
+    for m in re.finditer(LABEL + r"[ \t]*:[ \t]*([XYZ])[ \t>]*", raw, re.I):    # the value on the same line, or none
+        if not re.match(r"-?[ \t]?\d", raw[m.end():]):
+            out.append(m.group(1).upper())
+    return out
+
+
+def bare_values(raw):
+    """The numbers alone on their line (the column layout's values), in text order."""
+    out = []
+    for line in raw.splitlines():
+        m = re.fullmatch(r"\s*(-?\d+)\s*[\.,\s]\s*(\d{1,3})\s*", line)
+        if m:
+            out.append(float(m.group(1) + "." + m.group(2)))
+    return out
+
+
 def parse(raw, nonce=None):
     """'x y z' (2 decimals) from OCR'd console text, or 'fail'. With a nonce only the text after its echo (the OCR's
-    column layout lists the labels, the echo among them, before the values, so the bare-number fallback still works)."""
+    column layout lists the labels, the echo among them, before the values, so the bare-number fallback still works,
+    but only when the screen's lone values are exactly as many as its labels waiting for one and the last three such
+    labels are X, Y, Z after the echo: an older reply's label before the echo has its value after it too, #215; the
+    GetPos count alone is met by the command echoes, Codex on PR #322)."""
+    full = raw
     if nonce is not None:
         raw = after_nonce(raw, nonce)
         if raw is None:
@@ -55,11 +79,11 @@ def parse(raw, nonce=None):
     for m in re.finditer(r"Po\s?s\W*?([XYZ])[\s:>]*(-?\s?\d+)(?:\s*[\.,]\s*|\s)(\d{1,3})\b", text, re.I):
         vals[m.group(1).upper()] = float(m.group(2).replace(" ", "") + "." + m.group(3))
     if len(vals) < 3 and len(re.findall(r"Get\s?Pos", raw, re.I)) >= 3:
-        bare = []
-        for line in raw.splitlines():
-            m = re.fullmatch(r"\s*(-?\d+)\s*[\.,\s]\s*(\d{1,3})\s*", line)
-            if m:
-                bare.append(float(m.group(1) + "." + m.group(2)))
+        bare = bare_values(raw)
+        waiting = waiting_labels(full)
+        if nonce is not None and (len(bare_values(full)) != len(waiting) or waiting[-3:] != list("XYZ")
+                                  or waiting_labels(raw)[-3:] != list("XYZ")):
+            bare = []                                     # a value lost, or a reply label older than this request
         if len(bare) >= 3:
             vals = dict(zip("XYZ", bare[-3:]))
     return " ".join(f"{vals[k]:.2f}" for k in "XYZ") if len(vals) == 3 else "fail"

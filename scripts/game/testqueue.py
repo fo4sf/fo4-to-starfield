@@ -475,6 +475,7 @@ def plan_terrain(a):
             sys.exit(f"bad travel command in plan.json: {travel!r}")
         if w.get("activate"):
             w = dict(w, activate=activate_block(w["activate"]))
+        w = dict(w, points=terrain_points(w.get("points")))
         tests.append(with_extras({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "",
                                   "ref": w["coc"], "model": w.get("label", ""), "world_coc": w["coc"], "travel": travel,
                                   **{k: w[k] for k in ("spawn_local", "anchor", "drop_above_spawn", "settle_ms",
@@ -512,6 +513,20 @@ def plan_terrain(a):
     save_atomic(os.path.join(a.out, "queue.json"), q)
     print(f"{len(q['tests'])} terrain tests (experiment {a.exp_dir}) on build {q['build_id']}"
           + (f", needs runner features {', '.join(q['needs'])}" if q.get("needs") else ""))
+
+
+def terrain_points(points):
+    """plan.json's terrain "points": a non-empty list of {label, x, y, expect} with finite numbers, like the other
+    planners' _vec / _num (#219: an empty list made the judge's checks vacuous, a NaN expect never failed)."""
+    if not isinstance(points, list) or not points:
+        sys.exit(f"bad points in plan.json (want a non-empty list of {{label, x, y, expect}}): {points!r}")
+    out = []
+    for p in points:
+        if not isinstance(p, dict):
+            sys.exit(f"bad point in plan.json: {p!r}")
+        out.append(dict(p, label=str(p.get("label") or f"p{len(out)}"),
+                        **{k: _num(p, k, None, -1e6, 1e6) for k in ("x", "y", "expect")}))
+    return out
 
 
 def _vec(v, sizes, what):
@@ -1101,7 +1116,8 @@ def plan_movable(a):
          "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]],
          "launch_cell": a.launch_cell, "experiment": os.path.abspath(a.exp_dir),
          "tests": [dict(t, fresh=True) if a.fresh else t for t in (tests[:a.only] if a.only else tests)]}
-    q.update(queue_extras(q["tests"], SimpleNamespace(plugins=""), a.exp_dir))
+    # --bridge too (#218: dropped here, so the queue had no bridge pin, no bridge_reads and no "bridge" need)
+    q.update(queue_extras(q["tests"], SimpleNamespace(plugins="", bridge=getattr(a, "bridge", "")), a.exp_dir))
     os.makedirs(a.out, exist_ok=True)
     save_atomic(os.path.join(a.out, "queue.json"), q)
     print(f"{len(q['tests'])} movable_control tests (experiment {a.exp_dir}) on build {q['build_id']}"
@@ -1231,6 +1247,12 @@ def judge_kind(test, obs, out_dir):
         return "INCONCLUSIVE", "ELSEWHERE", f"ended {d:.1f} m from the arrival point"
     if kind == "terrain":
         # heights measured by dropping the player onto known terrain pads (terrain experiment 1, PR #57)
+        planned = test.get("points")
+        if not planned or not all(isinstance(p, dict) and all(
+                isinstance(p.get(k), (int, float)) and not isinstance(p.get(k), bool) and math.isfinite(p[k])
+                for k in ("x", "y", "expect")) for p in planned):
+            # a queue planned before plan-terrain checked its points (#219): nothing to judge a height against
+            return "INCONCLUSIVE", "PLAN", f"the test has no points or a non-numeric one: {planned!r:.120}"
         pts = obs.get("points") or []
         reads = [(p, parse3(o.get("read")) if isinstance(o, dict) else None) for p, o in zip(test["points"], pts)]
         if len(reads) < len(test["points"]) or any(r is None for _, r in reads) or not shot_ok(obs.get("shot")):
@@ -2835,6 +2857,24 @@ class Runner:
             # an open breaker skips the test before any launch (core64 2026-10-11: a "fresh" test relaunched the game
             # only to be skipped)
             br = self.state.setdefault("breaker", {})
+            if br.get(t["kind"], {}).get("open") and self.state["attempts"].get(t["id"]):
+                # a pending retry of a test that already ran: its real attempt stands, only the retry is skipped (#220:
+                # a "not run" BREAKER row, attempt 0, replaced it as the last row per id in the report and the ledger)
+                last = {}
+                with open(os.path.join(self.qdir, "results.jsonl"), encoding="utf-8") as f:
+                    for x in f:
+                        try:
+                            r = json.loads(x)
+                        except ValueError:
+                            continue
+                        if isinstance(r, dict) and r.get("id") == t["id"]:
+                            last = r
+                self.state["done"][t["id"]] = {"verdict": last.get("verdict", "INCONCLUSIVE"),
+                                               "class": last.get("class", "UNREAD"),
+                                               "attempts": self.state["attempts"][t["id"]], "retry": "BREAKER"}
+                self.log(f"{t['id']}: retry skipped, the {t['kind']} breaker is open; its last attempt stands")
+                self.checkpoint()
+                continue
             if br.get(t["kind"], {}).get("open"):
                 rec = {"id": t["id"], "kind": t["kind"], "cell": t["cell"], "ref": t["ref"], "model": t.get("model", ""),
                        "attempt": 0, "verdict": "INCONCLUSIVE", "class": "BREAKER",
