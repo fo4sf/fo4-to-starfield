@@ -3,6 +3,12 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Starfield;
 
+if (args.SequenceEqual(new[] { "--missing-door-cells-only" }))
+{
+    MissingDoorEndpointTests.Run(cellsOnly: true);
+    return;
+}
+
 void Require(bool ok, string message) { if (!ok) throw new InvalidOperationException(message); }
 foreach (var bit in new[] { 1, 2 })
     Require(Enum.GetName(typeof(Mutagen.Bethesda.Fallout4.EnableParent.Flag), bit) == Enum.GetName(typeof(EnableParent.Flag), bit), "enable-parent flag semantics differ between games");
@@ -34,6 +40,16 @@ using var two = JsonDocument.Parse("""
 {"cell":"Second","formkey":"second-cell","refs":[{"formkey":"parent","persistent":false}]}
 """);
 var sources = new[] { one.RootElement, two.RootElement };
+using var refusedTeleport = JsonDocument.Parse("""
+{"cell":"First","refs":[{"formkey":"child","persistent":false,
+ "teleport_destination":{"door":"parent","transition_interior":null,"flags":4,"pos":[70,140,210],"rot":[0,0,1]}}]}
+""");
+var refused = Relationships.Apply(mod, ids, new[] { refusedTeleport.RootElement, two.RootElement });
+Require(refused.Issues.Count == 1 && refused.Teleports == 0 && child.TeleportDestination == null,
+    "relative-position teleport should be refused before mutation");
+Require(first.Temporary.Contains(child) && second.Temporary.Contains(parent) && first.Persistent.Count == 0 && second.Persistent.Count == 0 &&
+    (child.MajorRecordFlagsRaw & 0x400) == 0 && (parent.MajorRecordFlagsRaw & 0x400) == 0,
+    "refused teleport changed endpoint persistence");
 var report = Relationships.Apply(mod, ids, sources);
 Require(report.Issues.Count == 0, "valid cross-cell links rejected");
 Require(report.EnableParents == 1 && report.LinkedReferences == 1 && report.Teleports == 1, "expected relationships missing");
@@ -42,8 +58,11 @@ Require(child.EnableParent!.Reference.FormKey == parent.FormKey && (uint)child.E
 Require(child.OpenByDefault, "default-open state not preserved");
 Require(child.TeleportDestination!.Door.FormKey == parent.FormKey && child.TeleportDestination.TransitionInterior.FormKey == second.FormKey, "cross-cell teleport identities wrong");
 Require(child.TeleportDestination.Position.X == 1 && child.TeleportDestination.Position.Y == 2 && child.TeleportDestination.Rotation.Z == 1, "teleport units/rotation changed");
+Require(second.Persistent.Contains(parent) && !second.Temporary.Contains(parent) && (parent.MajorRecordFlagsRaw & 0x400) != 0,
+    "one-way teleport destination was not made persistent");
 Relationships.Apply(mod, ids, sources);
 Require(child.LinkedReferences.Count == 1, "reapplying duplicates linked references");
+Require(first.Persistent.Count == 1 && second.Persistent.Count == 1, "reapplying duplicates persistent endpoints");
 
 // Reserved IDs alone must not resolve missing records; they persist after removal.
 ids["REFR:FO4Port_Second:absent"] = 0x812;
@@ -68,12 +87,12 @@ var markerExports = new[] { markerChild.RootElement, markerSource.RootElement };
 var markerReport = Relationships.Apply(mod, ids, markerExports, markerBases);
 Require(markerReport.CreatedMarkers == 1 && markerReport.EnableParents == 1 && markerReport.Issues.Count == 0, "needed control marker not created/linked");
 var markerKey = child.EnableParent!.Reference.FormKey;
-var marker = second.Persistent.OfType<PlacedObject>().Single();
+var marker = second.Persistent.OfType<PlacedObject>().Single(r => r.FormKey == markerKey);
 Require(marker.FormKey == markerKey && marker.Position.X == 1 && (marker.MajorRecordFlagsRaw & 0x800) != 0, "marker identity/units/disabled state lost");
 var stable = ids["REFR:FO4Port_Second:marker"];
 Require(stable > door.FormKey.ID, "new marker could collide with plugin records omitted from input map");
 Relationships.Apply(mod, ids, markerExports, markerBases);
-Require(ids["REFR:FO4Port_Second:marker"] == stable && second.Persistent.Count == 1, "reapplying changed marker identity or duplicated it");
+Require(ids["REFR:FO4Port_Second:marker"] == stable && second.Persistent.Count == 2, "reapplying changed marker identity or duplicated it");
 using var keywordSource = JsonDocument.Parse("""
 {"cell":"First","formkey":"first-cell","refs":[{"formkey":"child","linked_references":[{"reference":"parent","keyword_or_reference":"keyword-source"}]}],
  "referenced_keywords":[{"formkey":"keyword-source","editor_id":"SyntheticLink","type":"None","type_value":0,"record_flags":0,"color":[7,8,9],"attraction_rule":null,"name":"Synthetic label","notes":"Link note"}]}
@@ -133,3 +152,5 @@ try
 }
 finally { Directory.Delete(directory, true); }
 Console.WriteLine("Relationship translation and binary round-trip synthetic checks passed.");
+NativeDoorBaseTests.Run();
+MissingDoorEndpointTests.Run();

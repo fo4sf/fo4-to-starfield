@@ -3,11 +3,14 @@ from test_door_motion import fixture
 from fo4sf import door_rig,native_door,nif
 
 class NativeDoorPreparationTests(unittest.TestCase):
-    def test_explicit_units_static_ancestors_and_frame_keys(self):
+    def test_explicit_units_animated_bones_only_and_frame_keys(self):
+        # Vanilla door clips carry tracks for animated bones only, keyed from the bind (research log 2026-10-12):
+        # the static root gets no track and an unmoved leaf keys a zero offset, not its bind translation again.
         result=native_door.prepare(door_rig.plan(fixture()),1/70)
         tracks=result['clips'][0]['tracks']
-        self.assertEqual(tracks[0]['keys'][0]['translation'],[1,0,0])
-        self.assertEqual(tracks[2]['keys'][-1]['translation'],[2,0,0])
+        self.assertEqual([(t['name'],t['bone']) for t in tracks],[('LeafA',1),('LeafB',2)])
+        self.assertEqual(tracks[1]['keys'][-1]['translation'],[0.0,0.0,0.0])
+        self.assertEqual(tracks[1]['channels'],['rotation'])
         self.assertEqual([k['frame'] for k in tracks[1]['keys']],list(range(31)))
     def test_off_grid_duration_and_nonunit_bind_fail(self):
         plan=door_rig.plan(fixture());plan['clips'][0]['duration']=.101

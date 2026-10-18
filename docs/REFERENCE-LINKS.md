@@ -32,9 +32,36 @@ Implemented translation:
   control markers. The opposite-state and pop-in flags retain their meanings.
 - Linked references resolve placed targets. A null discriminator remains null; a
   discriminator that resolves to a placed object is translated as that reference.
-- Default-open state applies to actual converted door bases.
-- Absolute teleport destinations resolve converted doors and transition cells;
+- Default-open state applies to resolved, non-deleted DOOR bases.
+- Absolute teleport destinations resolve placed doors and transition cells;
   positions convert from source units to metres and rotations remain radians.
+  Both validated endpoints become persistent (group and flag), even when the
+  exported flag is false or absent. This matches PluginSpike's native XTEL rule;
+  a one-way link does not invent an unexported return link. Refused links do not
+  force persistence; repeating a valid application does not duplicate endpoints.
+
+Native bases are resolved from the actual `Starfield.esm` supplied by
+`STARFIELD_DATA`, even with `--no-markers`. A local override takes precedence:
+deleted DOORs, STAT overrides and unresolved bases cannot acquire open/teleport
+semantics. The native DOOR is not cloned and endpoint IDs are not reallocated.
+Without master records, library calls still resolve local doors and refuse unknown
+external bases. Other masters are not implicitly read or guessed.
+
+Eleven synthetic CLI cases cover native bases, missing/deleted/non-door records,
+local override precedence, `--no-markers`, false/absent source persistence and
+one-way endpoints. Library controls also check refusal before promotion and
+idempotent application. Serialized readback checks both
+persistent endpoint groups/flags, reciprocal XTEL and transition-cell identities,
+source transforms, arrival units/rotation, open state and unchanged ID maps/inputs.
+Set `FO4SF_NATIVE_DOOR_EVIDENCE` to a fresh private directory to retain the cases;
+otherwise the test prints a new temporary evidence directory.
+
+This fixes the optional ReferenceLinks post-pass's native-base rejection recorded
+in PR174. PluginSpike remains the main load-door writer. This post-pass still scans
+interior cells, not exterior worldspace groups, and cannot yet supply cross-plugin
+placed endpoints. The worldspace merge-position problem, native travel and
+save/reload acceptance remain separate requirements; binary roundtrips prove none
+of those runtime behaviors.
 
 Generic linked-reference keywords (`None` or an absent category, no flags or
 attraction rule) now become source-scoped target KYWD records with stable

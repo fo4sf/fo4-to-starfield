@@ -64,6 +64,36 @@ def transform_track(source, index):
     return result
 
 
+# Controlled blocks known not to move a node. A scan of every FO4 mesh with an Open sequence (review of PR #242) found,
+# besides 1313 NiTransformController + NiTransformInterpolator blocks, only shader float, alpha-test, visibility and
+# particle-emitter controllers on float / bool interpolators (VltDoorRes01A's override-box shapes:
+# BSLightingShaderPropertyFloatController with NiFloatInterpolator). Only these listed kinds are left out; anything else,
+# a transform interpolator this code cannot sample (B-spline, blend) or an unknown type, stays a motion track, so it is
+# refused later (door_clips.sample_track) instead of silently freezing that part.
+NON_TRANSFORM_CONTROLLERS = frozenset((
+    "BSLightingShaderPropertyFloatController", "BSLightingShaderPropertyColorController",
+    "BSLightingShaderPropertyUShortController", "BSEffectShaderPropertyFloatController",
+    "BSEffectShaderPropertyColorController", "BSNiAlphaPropertyTestRefController", "NiAlphaController",
+    "NiVisController", "NiMaterialColorController", "NiPSysEmitterCtlr", "NiPSysEmitterSpeedCtlr"))
+NON_TRANSFORM_INTERPOLATORS = frozenset(("NiFloatInterpolator", "NiBoolInterpolator", "NiBoolTimelineInterpolator",
+                                         "NiPoint3Interpolator", "NiBlendFloatInterpolator", "NiBlendBoolInterpolator",
+                                         "NiBlendPoint3Interpolator"))
+
+
+def _non_transform(source, interpolator, controller_type):
+    """Reason a controlled block does not move a node (a known shader / visibility / particle kind), or None.
+
+    ControlledBlock layout (FO4): interpolator, controller, priority, node name, property type, controller type,
+    controller id, interpolator id. A block is left out only when its interpolator (if any) is a known non-transform kind
+    and its controller type is a known non-transform kind, or, with no controller type, when the interpolator is."""
+    kind = source.type_of(interpolator) if 0 <= interpolator < len(source.blocks) else None
+    if kind is not None and kind not in NON_TRANSFORM_INTERPOLATORS:
+        return None                     # a transform interpolator, or one nobody has checked: motion
+    if controller_type is None:
+        return f"interpolator {kind}" if kind is not None else None
+    return f"controller {controller_type}" if controller_type in NON_TRANSFORM_CONTROLLERS else None
+
+
 def inspect(source):
     nodes = {}
     for i, block in enumerate(source.blocks):
@@ -72,7 +102,7 @@ def inspect(source):
             nodes.setdefault(name, []).append(i)
     shapes = {s.block for s in nif.fo4_trishapes(source) if s.positions and s.triangles}
     world = nif.world_transforms(source)
-    sequences, issues = [], []
+    sequences, issues, ignored = [], [], []
     for i, block in enumerate(source.blocks):
         if source.type_of(i) != "NiControllerSequence":
             continue
@@ -87,9 +117,14 @@ def inspect(source):
         for k in range(count):
             at = 12 + 29 * k
             interpolator, controller = struct.unpack_from("<ii", block, at)
-            target_name = struct.unpack_from("<i", block, at + 9)[0]
+            target_name, _property_type, controller_type = struct.unpack_from("<iii", block, at + 9)
             if not 0 <= target_name < len(source.strings):
                 raise nif.NifError("invalid controlled node name")
+            reason = _non_transform(source, interpolator, source.strings[controller_type].decode("latin-1")
+                                    if 0 <= controller_type < len(source.strings) else None)
+            if reason:                 # not motion: kept out of the rig and listed, never a binding issue
+                ignored.append({"sequence": i, "target": source.strings[target_name].decode("latin-1"), "reason": reason})
+                continue
             matches = nodes.get(target_name, [])
             if len(matches) != 1:
                 issues.append({"sequence": i, "target": source.strings[target_name].decode("latin-1"),
@@ -107,7 +142,8 @@ def inspect(source):
     hinge = nif.door_hinge(source)
     selected = shapes & nif.descendants(source, hinge[0]) if hinge else set()
     animated = {shape for seq in sequences if seq["name"] == "Open" for target in seq["targets"] for shape in target["shape_blocks"]}
-    return {"sequences": sequences, "issues": issues, "single_hinge_node": hinge[0] if hinge else None,
+    return {"sequences": sequences, "issues": issues, "ignored_targets": ignored,
+            "single_hinge_node": hinge[0] if hinge else None,
             "single_hinge_shape_blocks": sorted(selected), "all_animated_shape_blocks": sorted(animated),
             "animated_shapes_outside_single_hinge": sorted(animated - selected),
             "requires_additional_motion_support": bool(animated - selected)}

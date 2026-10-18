@@ -17,14 +17,22 @@ from typing import Dict, List, Optional
 
 from . import ba2 as ba2mod
 from . import convert_material as cm
-from . import convert_static, nif, sfcollision, sfnif, textures
+from . import convert_static, nif, sfcollision, sfmesh, sfnif, textures
 
 DOOR_RE = re.compile(r"[\\/]doors?[\\/]|door[^\\/]*\.nif$", re.I)
-NOT_HINGED_RE = re.compile(r"vault|elevator|garage|gate|hatch|slid", re.I)   # sliding / lifting doors animate differently
-# FO4 load doors never swing open into the next space: activating one teleports. Destinations are not ported yet, so a
-# rigged swing opened onto the void behind the wall (Parsons: walked through the entrance door, fell to z -72). Keep
-# them shut and solid with their native collision; the missing teleport is reported per asset as "load_door".
+NOT_HINGED_RE = re.compile(r"vault|elevator|garage|gate|hatch|slid", re.I)   # sliding / lifting doors animate differently:
+# never on the hinge template; with door_anim_dll they get their own rig and FO4's keys (docs/spikes/sliding-doors.md)
+# FO4 load doors never swing open into the next space: activating one teleports. A rigged swing opened onto the void behind
+# the wall (Parsons: walked through the entrance door, fell to z -72), so they stay shut and solid with their native
+# collision. The plugin writer (dotnet/PluginSpike) makes them DOOR records and writes the teleport link on both references
+# when both ends are placed in the same build; the per-asset "load_door" entry carries the model bounds for that record.
 LOAD_DOOR_RE = re.compile(r"door[^\\/]*load[^\\/]*\.nif$|load[^\\/]*door[^\\/]*\.nif$", re.I)
+# BSLightingShaderProperty flags1 bit 15 (nif.xml Fallout4ShaderPropertyFlags1 "Refraction"): heat shimmer over fires and
+# machines, water streams in sinks and fountains. FO4 draws such a shape as a screen-space distortion; its texture set holds
+# only the distortion normal map (Effects\SmokeVapor01Tile_n.dds in slot 0 and 1), so converted as a surface it showed that
+# BC5 normal map as colour: red/green stripes on Vault 111's gear door. In the 2026-10-11 build these were 9 of 11030
+# lighting shapes, all texture-set shapes; no FO4 .bgsm sets its own refraction byte.
+SLSF1_REFRACTION = 0x8000
 
 
 class Fo4Archives:
@@ -84,11 +92,26 @@ def _plane_pair(dds: bytes, tmp: str, texconv_exe: str):
 
 
 class Converter:
+    door_anim_dll: Optional[str] = None
+
     def __init__(self, src: Fo4Archives, staging: str, texconv_exe: str, content_resources: str,
                  collision_template: Optional[bytes] = None, prefix: str = "fo4port",
                  no_collision_pattern: str = r"^meshes[\\/](architecture|interiors|scol)[\\/]", rig_doors: bool = False,
-                 door_physics_donor: Optional[bytes] = None, sf_mesh_template: Optional[bytes] = None):
+                 door_physics_donor: Optional[bytes] = None, sf_mesh_template: Optional[bytes] = None,
+                 dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None):
         self.src, self.staging, self.texconv = src, staging, texconv_exe
+        # door_anim_dll: the external CALUMI.Animation library (not distributed). With it, rigged doors that move more
+        # than one part (frozen_door_parts) get their own rig and Open/Close clips instead of the single-hinge template,
+        # and sliding / lifting / trapdoor families (NOT_HINGED_RE) get one instead of staying passable.
+        self.door_anim_dll = door_anim_dll
+        # dynamic_template (a vanilla dynamic convex body, meshcollision.DYNAMIC_TEMPLATE_NIF): FO4 loose items with one
+        # dynamic body become movable; their result carries "movable" (plugin writer: MoveableStatic, not Static)
+        self.dynamic_template = dynamic_template
+        # max_texture: optional size cap per texture kind (textures.parse_texture_caps: '1024' or 'color=1024,...'); the
+        # converted DDS loses its top mip levels until it fits (textures.cap_dds). Off by default: FO4Port keeps full
+        # resolution. When set, texture_log records every texture's full and written size.
+        self.texture_caps = textures.parse_texture_caps(max_texture)
+        self.texture_log: Dict[str, dict] = {}
         # rig_doors: hinged doors become DOOR NIFs that open (needs door_physics_donor: without a keyframed leaf body the leaf
         # is pinned and blocks the doorway). Off by default because the donor comes from the Starfield install.
         self.rig_doors = rig_doors
@@ -136,6 +159,21 @@ class Converter:
         os.makedirs(os.path.dirname(p), exist_ok=True)
         open(p, "w", encoding="utf-8", newline="\n").write(cm.dump_mat(mat))
         return mat_rel.replace("/", "\\")
+
+    def _publish_texture(self, src_path: str, dst: str, kind: str):
+        """Copy a converted texture into the staging folder; with a cap for its kind, without the top mip levels that
+        exceed it (the full size is logged either way while caps are on)."""
+        cap = self.texture_caps.get(kind, 0)
+        if not self.texture_caps:
+            shutil.copy2(src_path, dst)
+            return
+        with open(src_path, "rb") as f:
+            data = f.read()
+        out, info = textures.cap_dds(data, cap)
+        with open(dst, "wb") as f:
+            f.write(out)
+        rel = os.path.relpath(dst, self.staging).replace("\\", "/").lower()
+        self.texture_log[rel] = {"kind": kind, "cap": cap, **info}
 
     # -- materials ---------------------------------------------------------------------------
     def material(self, bgsm_path: str) -> Optional[str]:
@@ -252,9 +290,9 @@ class Converter:
             textures.texconv(self.texconv, os.path.join(tmp, "d.dds"), tmp, "BC1_UNORM_SRGB", ("-srgbi",))
             if n is not None:
                 nr, ng = _plane_pair(n, tmp, self.texconv)
-            else:                                          # flat: x = y = 0 in signed form
-                nr = np.zeros((4, 4), dtype=np.int8)
-                ng = np.zeros((4, 4), dtype=np.int8)
+            else:                                          # flat: unorm 128 maps to signed 0
+                nr = np.full((4, 4), 128, dtype=np.uint8)
+                ng = np.full((4, 4), 128, dtype=np.uint8)
             textures.write_rg8_snorm(os.path.join(tmp, "n_in.dds"), nr, ng)
             textures.texconv(self.texconv, os.path.join(tmp, "n_in.dds"), tmp, "BC5_SNORM")
             if s is not None:
@@ -268,7 +306,7 @@ class Converter:
             for kind, fn in kinds:
                 dst = os.path.join(self.staging, *f"{tex_rel}_{kind}.dds".split("/"))
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copy2(os.path.join(tmp, fn), dst)
+                self._publish_texture(os.path.join(tmp, fn), dst, kind)
                 out[kind] = cm.game_path(f"{tex_rel}_{kind}.dds")
         if decal:
             if self._decal_template is None:
@@ -326,7 +364,7 @@ class Converter:
                 kind = {"Albedo": "color", "Normal": "normal", "Roughness": "rough"}[slot]
                 dst = os.path.join(self.staging, *f"{tex_rel}_{kind}.dds".split("/"))
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
-                shutil.copy2(os.path.join(tmp, fn), dst)
+                self._publish_texture(os.path.join(tmp, fn), dst, kind)
                 files[slot] = cm.game_path(f"{tex_rel}_{kind}.dds")
         if self._glass_template is None:
             self._glass_template = cm.read_template_path(self.content_resources, cm.GLASS_TEMPLATE_MAT)
@@ -390,6 +428,9 @@ class Converter:
             return self.material(name.decode("latin-1")) or self.neutral
         # no material file: shader type, name, extra data list, controller, flags1, flags2, UV offset, UV scale, texture set
         n_extra, = struct.unpack_from("<I", blk, 8)
+        flags1, = struct.unpack_from("<I", blk, 12 + 4 * n_extra + 4)
+        if flags1 & SLSF1_REFRACTION:
+            return None                                 # distortion only (see SLSF1_REFRACTION): skipped like effect shapes
         ts_ref, = struct.unpack_from("<i", blk, 12 + 4 * n_extra + 4 + 8 + 16)
         if not (0 <= ts_ref < len(src.blocks)) or src.type_of(ts_ref) != "BSShaderTextureSet":
             return self.neutral
@@ -407,12 +448,16 @@ class Converter:
             return self.neutral
         return self.texture_set_material(diffuse, normal, spec) or self.neutral
 
-    def convert_nif(self, nif_name: str) -> dict:
+    def convert_nif(self, nif_name: str, pose: Optional[dict] = None, out_suffix: str = "") -> dict:
+        """pose / out_suffix: a model for one placed reference (placed_pose): the NIF's bone nodes take these local
+        transforms (its XRGD ragdoll pose) and the model is written as <usual name><out_suffix>. Posed models are never
+        doors (placed_pose leaves door items out)."""
         res = {"nif": nif_name, "ok": False}
         try:
             raw = self.src.mesh(nif_name)
             src = nif.parse(raw)
-            # skinned props (lockers, cabinets, desks: skinned only so drawers/doors can animate) are taken in bind pose
+            # skinned props (lockers, cabinets, desks, skeletons) are converted in the NIF's node pose
+            # (convert_static.pose_skinned_shapes), or in a placed reference's ragdoll pose when `pose` is given
             shapes = [s for s in nif.fo4_trishapes(src) if s.positions and s.triangles]
             if not shapes:
                 raise ValueError("no static BSTriShape geometry")
@@ -422,7 +467,7 @@ class Converter:
             if all(m is None for m in mats):
                 raise ValueError("only effect-shader shapes (glass/glow), skipped")
             rel = re.sub(r"^meshes[\\/]", "", nif_name.replace("\\", "/"), flags=re.I)
-            out_name = f"{self.prefix}/{os.path.splitext(rel)[0].lower()}"
+            out_name = f"{self.prefix}/{os.path.splitext(rel)[0].lower()}{out_suffix.lower()}"
             arch = bool(self.no_collision and self.no_collision.search(nif_name))
             mode = "surfaces" if arch else "box"        # architecture: thin boxes behind flat surfaces; props: one AABB
             # Vegetation, mounds and door-named models (wall plugs around doorways, vault hall pieces, signs) keep FO4's
@@ -432,7 +477,12 @@ class Converter:
                                       r"|[\\/]doors?[\\/]|door[^\\/]*\.nif$", nif_name, re.I))
             load_door = bool(LOAD_DOOR_RE.search(nif_name))
             if load_door:
-                res["load_door"] = "teleport not ported: door stays shut"
+                # bounds (metres, NIF space) for the DOOR record's OBND, like the hinged doors' "door.bounds"
+                pts = [sfmesh.decode_position(p, m.scale) for m in (convert_static.shape_to_mesh(s) for s in shapes)
+                       for p in m.positions]
+                res["load_door"] = {"note": "static door: teleport written by the plugin writer when both ends are in the build",
+                                    "bounds": [[round(min(p[a] for p in pts), 4) for a in range(3)],
+                                               [round(max(p[a] for p in pts), 4) for a in range(3)]]}
             # A door leaf that animates in FO4 ("Open" sequence) but is not rigged here (sliding / vault / elevator doors,
             # or rigging failed) cannot open: keep it passable rather than a closed wall, and say so.
             seq_names = [struct.unpack_from("<i", src.blocks[i], 0)[0] for i in range(len(src.blocks))
@@ -441,17 +491,53 @@ class Converter:
             use_box = self.collision_template is not None
             coll_report = {}
             files = None
-            if self.rig_doors and self.door_physics_donor is not None and DOOR_RE.search(nif_name) and not NOT_HINGED_RE.search(nif_name) and not load_door and nif.door_hinge(src):
-                try:                                     # hinged door: rigged like the vanilla template door so it opens
-                    files, offset, bounds = convert_static.convert_door(raw, out_name, mats,
-                                                                collision_template=self.collision_template,
-                                                                leaf_physics_donor=self.door_physics_donor)
-                    t = sfnif.DOOR_TEMPLATE
-                    res["door"] = {"origin_offset": [round(x, 5) for x in offset], "anim_graph": t["anim_graph"],
-                                   "bounds": [[round(x, 4) for x in b] for b in bounds],
-                                   "skeleton": t["skeleton"], "animations": t["animations"]}
-                except Exception as e:                   # noqa: BLE001  (falls back to a static door)
-                    res["door_error"] = f"{type(e).__name__}: {e}"
+            if pose is None and self.rig_doors and self.door_physics_donor is not None and DOOR_RE.search(nif_name) and not NOT_HINGED_RE.search(nif_name) and not load_door and nif.door_hinge(src):
+                # Parts FO4 moves outside the first animated node (second leaf, shutter, other sliding panels) cannot
+                # hang under the template's single hinge: with the CALUMI library such a door gets its own rig and
+                # clips (one track and one keyframed body per part, as vanilla double doors); without it the template
+                # door is kept and the parts that stay closed are listed (door_frozen_parts), not silently dropped.
+                frozen = convert_static.frozen_door_parts(src)
+                if frozen and self.door_anim_dll:
+                    try:
+                        from . import native_door
+                        files, res["door"] = convert_static.convert_multipart_door(
+                            raw, out_name, mats, lambda plan, scale: native_door.export_files(plan, self.door_anim_dll, scale),
+                            collision_template=self.collision_template, leaf_physics_donor=self.door_physics_donor)
+                    except Exception as e:               # noqa: BLE001  (falls back to the template door)
+                        files = None
+                        res.pop("door", None)
+                        res["door_error"] = f"multi-part: {type(e).__name__}: {e}"
+                if files is None:
+                    try:                                 # hinged door: rigged like the vanilla template door so it opens
+                        files, offset, bounds = convert_static.convert_door(raw, out_name, mats,
+                                                                    collision_template=self.collision_template,
+                                                                    leaf_physics_donor=self.door_physics_donor)
+                        t = sfnif.DOOR_TEMPLATE
+                        res["door"] = {"origin_offset": [round(x, 5) for x in offset], "anim_graph": t["anim_graph"],
+                                       "bounds": [[round(x, 4) for x in b] for b in bounds],
+                                       "skeleton": t["skeleton"], "animations": t["animations"]}
+                        if frozen:
+                            res["door_frozen_parts"] = frozen
+                    except Exception as e:               # noqa: BLE001  (falls back to a static door)
+                        res["door_error"] = (res["door_error"] + "; " if "door_error" in res else "") + f"{type(e).__name__}: {e}"
+            elif (pose is None and self.rig_doors and self.door_physics_donor is not None and self.door_anim_dll and animated
+                  and not load_door and DOOR_RE.search(nif_name) and NOT_HINGED_RE.search(nif_name)):
+                # Sliding, lifting and trapdoor families (vault doors, elevator doors, hatches) cannot hang under the
+                # template's vertical hinge, and no vanilla door moves like them; vanilla sliding doors play the same graph
+                # (SimpleOpenClose01.agx) with their own rig and clips (docs/spikes/sliding-doors.md). So such a door gets
+                # its own rig and FO4's own keys, as the multi-part doors do. Without the library, or if this fails (also
+                # when its clips do not rest at the bind pose: gates keyed open), it stays passable (door_not_opening
+                # below) and door_error says why.
+                try:
+                    from . import native_door
+                    files, res["door"] = convert_static.convert_multipart_door(
+                        raw, out_name, mats, lambda plan, scale: native_door.export_files(plan, self.door_anim_dll, scale),
+                        collision_template=self.collision_template, leaf_physics_donor=self.door_physics_donor,
+                        rest_pose_check=True)
+                except Exception as e:                   # noqa: BLE001  (falls back to the passable static door)
+                    files = None
+                    res.pop("door", None)
+                    res["door_error"] = f"own rig: {type(e).__name__}: {e}"
             if files is None:
                 if animated and not load_door and DOOR_RE.search(nif_name):
                     use_box = False
@@ -460,7 +546,12 @@ class Converter:
                                                       include_skinned=True, report=coll_report,
                                                       sf_mesh_template=self.sf_mesh_template if use_box else None,
                                                       collision_template=self.collision_template if use_box else None,
-                                                      allow_guess=not no_guess)
+                                                      allow_guess=not no_guess,
+                                                      dynamic_template=self.dynamic_template if use_box else None,
+                                                      pose=pose)
+                if coll_report.get("motion") == "dynamic":
+                    res["movable"] = {"mass_kg": coll_report["mass_kg"],
+                                      **({"note": coll_report["motion_note"]} if "motion_note" in coll_report else {})}
                 if "door_not_opening" in res:
                     coll_report["source"] = "passable-door"   # deliberately none (see above), not a failed conversion
             for relp, data in files.items():

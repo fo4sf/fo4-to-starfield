@@ -18,6 +18,8 @@ type for the subrecord comparison.
 - **Same signature, different layout.** Sampled subrecord-signature overlap (Jaccard) between the games is
   mostly 0.25–0.6: `STAT` 0.23, `REFR` 0.25, `WEAP` 0.30, `NPC_` 0.51, `QUST` 0.58. Close matches are only
   `NAVM` 1.0, `PACK` 0.87, `MGEF`/`MATT` 0.80, `IDLE` 0.78. Each type needs a field-level translator.
+  (`NAVM` 1.0 is the signature set only: inside `NVNM`, version 15 vs 17, vertices 12 vs 16 bytes, units vs metres,
+  cover 8 vs 12 bytes; verified on all records, see [actors/npc-navigation.md](actors/npc-navigation.md).)
 - **No `LAND` records in Starfield** (Fallout 4: 37,020). Starfield terrain is `.btd` files + procedural
   planet generation. See RISKS.md S5.
 - **No `SNDR` in Starfield** (Fallout 4: 5,476). Audio is Wwise: `WWED` events, `.bnk` / `.wem`.

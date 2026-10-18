@@ -13,7 +13,9 @@ container format and a few section fields differ:
 
 The Starfield side is rebuilt around a template tagfile taken from a vanilla Starfield static (read from the user's
 install at conversion time, never shipped): its TYPE section, physics system, material and body are reused; the shape's
-data arrays, sections and trees come from FO4. Starfield's SIMD tree (a 4-wide AABB tree over triangle shape keys, present in every vanilla mesh) is generated.
+data arrays, sections and trees come from FO4. Starfield's SIMD tree (a 4-wide AABB tree with one leaf per primitive,
+present in every vanilla mesh) is generated. What Starfield's decoder rejects in FO4's arrays is changed and nothing
+else (sanitise_primitives, _emit_mesh; meshcheck.py simulates the decoder and holds the evidence).
 """
 import math
 import os
@@ -176,7 +178,8 @@ def transplant(fo4_blob: bytes, sf_template_blob: bytes) -> Optional[bytes]:
     for name, off in FO4_ARRAYS.items():
         at, n = p.array(d + off)
         fo4[name] = (p.raw(at, ELEM_SIZE[name] * n) if n else b"", n)
-    n_tris = sum(1 if q[2] == q[3] else 2 for q in struct.iter_unpack("<4B", fo4["primitives"][0]))
+    prims, flagged = _mesh_fixes(fo4, None)              # as _emit_mesh: what Starfield's decoder rejects
+    fo4["primitives"] = (prims, fo4["primitives"][1])
 
     cms = bytearray(tmpl_bytes("hknpCompressedMeshShape"))
     i_cms = w.add(T_CMS, 0x10, cms, 1)
@@ -199,7 +202,8 @@ def transplant(fo4_blob: bytes, sf_template_blob: bytes) -> Optional[bytes]:
               "primitiveDataRuns"):
         struct.pack_into("<16x", data, tree_off + _field(tf, T_TREE, f).offset)       # cleared; set by patches
     data[tree_off + 16:tree_off + 48] = p.raw(d + FO4_TREE + 16, 32)                   # domain
-    data[tree_off + 48:tree_off + 64] = p.raw(d + FO4_TREE + 48, 16)                   # keys, bits, max key, flat
+    data[tree_off + 48:tree_off + 64] = p.raw(d + FO4_TREE + 48, 16)                   # keys, bits, max key
+    data[tree_off + 60] = FLAT_CONVEX
     simd = _field(tf, T_DATA, "simdTree")
     data[simd.offset:simd.offset + tf.size_of(simd.type)] = bytes(tf.size_of(simd.type))
     conn = _field(tf, T_DATA, "connectivity")
@@ -208,7 +212,7 @@ def transplant(fo4_blob: bytes, sf_template_blob: bytes) -> Optional[bytes]:
     data[simd.offset + _field(tf, simd.type, "isCompact").offset] = 1
     i_data = w.add(T_DATA, 0x10, data, 1)
     from . import fo4collision
-    simd_raw = build_simd_tree(fo4collision.compressed_mesh_keys(p, d))
+    simd_raw = build_simd_tree(fo4collision.compressed_mesh_primitive_keys(p, d, prims))
     simd_arr_t, simd_elem_t = arr_types(simd.type, "nodes")
     i_simd = w.add(simd_elem_t, 0x20, simd_raw, len(simd_raw) // 128)
     w.ptr(simd_arr_t, i_data, simd.offset + _field(tf, simd.type, "nodes").offset, i_simd)
@@ -227,7 +231,10 @@ def transplant(fo4_blob: bytes, sf_template_blob: bytes) -> Optional[bytes]:
     sec_arr_t, sec_elem_t = arr_types(T_TREE, "sections")
     sections = bytearray()
     for k in range(nsec):
-        sections += _convert_section(sec_raw[96 * k:96 * k + 96])
+        s = _convert_section(sec_raw[96 * k:96 * k + 96])
+        if k in flagged:
+            s[95] &= ~SECTION_SPECIAL_FLAG
+        sections += s
     i_secs = w.add(sec_elem_t, 0x20, sections, nsec)
     w.ptr(sec_arr_t, i_data, tree_off + _field(tf, T_TREE, "sections").offset, i_secs)
     sec_at, _ = p.array(d + FO4_ARRAYS["sections"])
@@ -257,10 +264,12 @@ def template_from_nif(sf_nif: bytes) -> bytes:
 FLT_MAX = 3.40282e38
 
 
-def build_simd_tree(leaves) -> bytes:
+def build_simd_tree(leaves, leaf_root: bool = True) -> bytes:
     """hkcdSimdTree nodes (128 bytes each: lx hx ly hy lz hz as 4-lane float vectors, data u32[4], isLeaf, isActive) over
     [(key, (lo, hi))]: node 0 is an empty sentinel, node 1 the root; inner lanes hold child node indices and child boxes,
-    leaf lanes hold triangle shape keys (unused lanes: empty box, data 0xffffffff in leaves / 0 in inner nodes)."""
+    leaf lanes hold triangle shape keys (unused lanes: empty box, data 0xffffffff in leaves / 0 in inner nodes).
+    leaf_root=False (compound shapes): the root is always an inner node and up to 16 keys go into leaves of 4 in spatial
+    order, as in every vanilla dynamic compound (2 keys: 3 nodes; 5: 4 nodes; 9: 5 nodes)."""
     nodes = [None]                                     # index 0: sentinel
 
     def bounds(items):
@@ -283,14 +292,17 @@ def build_simd_tree(leaves) -> bytes:
                         + bytes([1 if leaf else 0, 0]) + bytes(14))
 
     def build(index, items):
-        if len(items) <= 4:
+        if len(items) <= 4 and (leaf_root or index != 1):
             emit(index, [(it[1], it[0]) for it in items], True)
             return
         lo, hi = bounds(items)
         axis = max(range(3), key=lambda a: hi[a] - lo[a])
         items = sorted(items, key=lambda it: it[1][0][axis] + it[1][1][axis])
         n = len(items)
-        groups = [g for g in (items[i * n // 4:(i + 1) * n // 4] for i in range(4)) if g]
+        if not leaf_root and index == 1 and n <= 16:            # compound root: leaves of 4, in order
+            groups = [items[i:i + 4] for i in range(0, n, 4)]
+        else:
+            groups = [g for g in (items[i * n // 4:(i + 1) * n // 4] for i in range(4)) if g]
         first = len(nodes)
         nodes.extend([None] * len(groups))             # children get consecutive indices, then recurse (as vanilla)
         emit(index, [(bounds(g), first + i) for i, g in enumerate(groups)], False)
@@ -349,8 +361,14 @@ def decode_sf_mesh(sf_blob: bytes):
                 return tuple(off[a] + q[a] * scale[a] for a in range(3))
             j, = struct.unpack_from("<H", b, sidx_at + 2 * (first_shared + i - npacked))
             return shared[j]
+        # Match FO4 reader: skip unused 0xDEAD slots and degenerate points (issue #212).
+        # SF sections store numPacked at +88; shared indices start after that. Use a conservative
+        # limit of packed + 255 to reject high sentinel values without needing per-section shared count.
+        limit = npacked + 255
         for k in range(nprim):
             i0, i1, i2, i3 = b[prim_at + 4 * (first_prim + k):prim_at + 4 * (first_prim + k) + 4]
+            if max(i0, i1, i2, i3) >= limit or i0 == i1 == i2 == i3:
+                continue
             tris.append((vert(i0), vert(i1), vert(i2)))
             if i2 != i3:
                 tris.append((vert(i0), vert(i2), vert(i3)))
@@ -531,6 +549,119 @@ def _faces_raw(faces, fo4_raw: bytes) -> bytes:
     return out
 
 
+# ---- dynamic (pushable) bodies -------------------------------------------------------------------------------------
+# Decoded from vanilla Starfield MiscItem bodies (docs/ai/research-log.md 2026-10-10): motionType 2 (static 0,
+# keyframed 1), flags 0x8a, mass in kg, motionPropertiesId 0 = the system's one motionProperties entry (Bethesda's defaults),
+# and an hknpRefMassDistribution with principal inertia per kg x 1.5 (30 of 30 vanilla box items). Its centre / volume:
+# - one convex shape: the shape grown by its convex radius (box items exact; 40 convex items within a few percent);
+# - a compound: a SOLID BOX equal to the compound's aabb, identity axes (40 of 40 vanilla compounds, exact).
+# A dynamic compound (273 vanilla items: mugs, tools) is one hknpCompoundShape: instances (identity transforms, vertices
+# already in compound space), aabb = union of child boxes (child vertices +/- child radius, 25 of 25 exact), a SIMD tree
+# over the instances whose leaf boxes are those child boxes, numShapeKeyBits = instance count's bit length,
+# estimatedNumShapeKeys = numAllocated = instance count. BSXFlags 0x42 on the NIF.
+# The universal template names hknpMotionProperties / hknpRefMassDistribution but has no layout for them (size 0: it has
+# no dynamic body), so dynamic bodies are built on a vanilla dynamic compound item instead: its TYPE section, system,
+# material, body cinfo, motion properties and compound shape (read from the user's install like the other templates,
+# never shipped).
+DYNAMIC_TEMPLATE_NIF = "meshes/setdressing/contraband/cb_blackmarketantiquities.nif"
+DYNAMIC_MOTION_TYPE, DYNAMIC_FLAGS, INERTIA_FACTOR = 2, 0x8A, 1.5
+DYNAMIC_TYPES = ("hknpMotionProperties", "hknpRefMassDistribution", "hknpConvexShape", "hknpCompoundShape",
+                 "hkFreeListArrayElement<hknpShapeInstance>", "hkcdSimdTree::Node")
+
+
+def check_dynamic_template(blob: bytes) -> bytes:
+    """blob if it is a vanilla dynamic compound body (layouts for motion properties, mass distribution, convex and
+    compound shapes, shape instances and SIMD tree nodes)."""
+    t = _Tmpl(blob)
+    for name in DYNAMIC_TYPES:
+        if t.tf.size_of(t.type(name)) == 0:
+            raise ValueError(f"dynamic template has no layout for {name}")
+    for name in ("hknpMotionProperties", "hknpCompoundShape", "hkFreeListArrayElement<hknpShapeInstance>"):
+        t.item_bytes(name, count=1)
+    return blob
+
+
+def box_mass_distribution(lo, hi):
+    """Solid box: centre, volume, identity axes, principal inertia per kg x INERTIA_FACTOR (vanilla compounds)."""
+    h = [(hi[a] - lo[a]) / 2 for a in range(3)]
+    inertia = ((h[1] ** 2 + h[2] ** 2) / 3, (h[0] ** 2 + h[2] ** 2) / 3, (h[0] ** 2 + h[1] ** 2) / 3)
+    return (tuple((hi[a] + lo[a]) / 2 for a in range(3)), 8 * h[0] * h[1] * h[2], (0.0, 0.0, 0.0, 1.0),
+            tuple(x * INERTIA_FACTOR for x in inertia))
+
+
+def _quat_from_matrix(m):
+    """(x, y, z, w) of a proper rotation given as a 3x3 nested list / array (columns = rotated axes)."""
+    tr = m[0][0] + m[1][1] + m[2][2]
+    if tr > 0:
+        s = math.sqrt(tr + 1.0) * 2
+        return ((m[2][1] - m[1][2]) / s, (m[0][2] - m[2][0]) / s, (m[1][0] - m[0][1]) / s, 0.25 * s)
+    i = max(range(3), key=lambda k: m[k][k])
+    j, k = (i + 1) % 3, (i + 2) % 3
+    s = math.sqrt(1.0 + m[i][i] - m[j][j] - m[k][k]) * 2
+    q = [0.0, 0.0, 0.0, (m[k][j] - m[j][k]) / s]
+    q[i] = 0.25 * s
+    q[j] = (m[j][i] + m[i][j]) / s
+    q[k] = (m[k][i] + m[i][k]) / s
+    return tuple(q)
+
+
+def mass_distribution(verts, faces, radius: float = 0.0):
+    """Havok mass distribution of a convex hull grown by its convex radius: (centre of mass xyz, volume,
+    principal-axes quaternion xyzw, principal inertia per kg x INERTIA_FACTOR). The hull is grown by moving every face
+    plane out by radius (each vertex re-solved from its faces), which reproduces vanilla box values exactly."""
+    import numpy as np
+    V = np.asarray(verts, dtype=float)
+    c0 = V.mean(axis=0)
+    normals, ds = [], []
+    for f in faces:
+        a, b, c = V[f[0]], V[f[1]], V[f[2]]
+        n = np.cross(b - a, c - a)
+        ln = np.linalg.norm(n)
+        n = n / ln if ln > 0 else n
+        if np.dot(n, c0 - a) > 0:
+            n = -n
+        normals.append(n)
+        ds.append(-np.dot(n, a))
+    G = V.copy()
+    if radius > 0:
+        for v in range(len(V)):
+            adj = [i for i, f in enumerate(faces) if v in f]
+            A = np.array([normals[i] for i in adj])
+            rhs = np.array([radius - ds[i] for i in adj])
+            if len(adj) >= 3 and np.linalg.matrix_rank(A, tol=1e-6) == 3:
+                G[v] = np.linalg.lstsq(A, rhs, rcond=None)[0]
+            else:                                         # degenerate corner: push out along the mean normal
+                m = A.sum(axis=0)
+                G[v] = V[v] + radius * m / (np.linalg.norm(m) or 1.0)
+    vol, com, cov = 0.0, np.zeros(3), np.zeros((3, 3))
+    for f in faces:                                       # signed tetrahedra (origin, fan triangle)
+        for k in range(1, len(f) - 1):
+            a, b, c = G[f[0]], G[f[k]], G[f[k + 1]]
+            n = np.cross(b - a, c - a)
+            if np.dot(n, a - c0) < 0:                     # wind outward
+                b, c = c, b
+            dv = np.dot(a, np.cross(b, c)) / 6.0
+            vol += dv
+            com += dv * (a + b + c) / 4.0
+            s = a + b + c
+            cov += dv / 20.0 * (np.outer(a, a) + np.outer(b, b) + np.outer(c, c) + np.outer(s, s))
+    if vol <= 1e-12:
+        raise hkpackfile.PackfileError("dynamic body shape has no volume")
+    com /= vol
+    cov = cov / vol - np.outer(com, com)                  # second moments about the centre, per unit mass
+    inertia = np.trace(cov) * np.eye(3) - cov
+    off = abs(inertia - np.diag(np.diag(inertia))).max()
+    if off <= 1e-9 * max(np.trace(inertia), 1e-12):
+        axes, principal = np.eye(3), np.diag(inertia)
+    else:
+        principal, axes = np.linalg.eigh(inertia)
+        if np.linalg.det(axes) < 0:
+            axes[:, 2] = -axes[:, 2]
+    q = _quat_from_matrix(axes.tolist())
+    return (tuple(float(x) for x in com), float(vol), tuple(float(x) for x in q),
+            tuple(float(x) * INERTIA_FACTOR for x in principal))
+
+
 def _emit_sphere(w: "_Writer", t: _Tmpl, p: hkpackfile.Packfile, shape: int, R, tr) -> int:
     """FO4 hknpSphereShape (radius @20, centre as the first hull vertex) -> Starfield hknpSphereShape (hull with one
     float3 vertex, radius in convexRadius), centre moved by the instance transform."""
@@ -605,7 +736,8 @@ def _planes_from_faces(verts, faces) -> bytes:
 
 
 def _emit_convex(w: "_Writer", t: _Tmpl, p: hkpackfile.Packfile, shape: int, rot=(0.0, 0.0, 0.0, 1.0),
-                 pos=(0.0, 0.0, 0.0), flatten_node_rot=None, vertex_only: bool = False) -> int:
+                 pos=(0.0, 0.0, 0.0), flatten_node_rot=None, vertex_only: bool = False,
+                 geom: Optional[dict] = None) -> int:
     """FO4 hknpConvexPolytopeShape -> Starfield hknpConvexShape (hull: float3 vertices, planes, faces, indices, links).
     The FO4 body transform (absolute, NIF-root space) is baked into vertices and planes.
     vertex_only: FO4 plain hknpConvexShape (e.g. V111Glass01's panes) stores only vertices; faces come from the hull
@@ -684,6 +816,8 @@ def _emit_convex(w: "_Writer", t: _Tmpl, p: hkpackfile.Packfile, shape: int, rot
         elem_t = dict(t.tf.types[rel_t].params)["tT"]
         i = w.add(elem_t, 0x20, raw, n)
         w.ptr(rel_t, i_shape, hull.offset + t.field(hull.type, fname).offset, i)
+    if geom is not None:                                  # final hull (as written) for a dynamic body's mass
+        geom.update(verts=verts, faces=faces, radius=radius)
     return i_shape
 
 
@@ -693,9 +827,71 @@ def _shift_aabb(raw: bytes, pos) -> bytes:
     return struct.pack("<8f", *(lo[i] + pos[i] for i in range(3)), lo[3], *(hi[i] + pos[i] for i in range(3)), hi[3])
 
 
-def _emit_mesh(w: "_Writer", t: _Tmpl, p: hkpackfile.Packfile, d: int, pos=(0.0, 0.0, 0.0)) -> int:
+# ---- what Starfield's compressed-mesh decoder requires (meshcheck.py simulates it; evidence in its docstring) --------
+FLAT_CONVEX = 0xFF            # hkcdStaticMeshTree::Base.primitiveStoresIsFlatConvex: 0xFF in 837 of 837 vanilla meshes
+SECTION_SPECIAL_FLAG = 1      # FO4 Section.flags bit 0: set exactly on sections holding FO4 special primitives
+FALLBACK_PRIMITIVE = (0, 0, 1, 1)                     # zero-area triangle for a section without a valid primitive
+
+
+def fo4_sections(sec_raw: bytes, nsec: int):
+    """[(first primitive, count, vertex slots)] of FO4 sections (slots = packed + shared indices of the section)."""
+    out = []
+    for k in range(nsec):
+        s = sec_raw[96 * k:96 * k + 96]
+        prim_d, = struct.unpack_from("<I", s, 80)
+        out.append((prim_d >> 8, prim_d & 0xFF, s[88] + s[89]))
+    return out
+
+
+def sanitise_primitives(prim_raw: bytes, sections) -> Tuple[bytes, list]:
+    """FO4's primitive array with every slot Starfield's decoder cannot type replaced by a copy of the nearest valid
+    primitive of the same section (same vertices, no new surface; the section tree's leaf and the data runs for the
+    slot stay valid). Invalid: indices[1] == indices[3] (a special primitive to the decoder, type indices[2], which
+    asserts "Unknown primitive type in compressed mesh" unless 3 or 4: FO4's DE AD DE AD padding of unused slots,
+    all-equal points, FO4's own (a, b, b, b) specials in flagged sections) or an index outside the section's vertex
+    slots. sections: fo4_sections(). A section without a valid primitive gets FALLBACK_PRIMITIVE.
+    Returns (array, [(section, slot, old indices, new indices)]); a clean array comes back byte-identical."""
+    out = bytearray(prim_raw)
+    fixes = []
+    for k, (first, count, slots) in enumerate(sections):
+        def ok(j):
+            a, b, c, d = out[4 * (first + j):4 * (first + j) + 4]
+            return b != d and max(a, b, c, d) < slots
+        bad = [j for j in range(count) if not ok(j)]
+        for j in bad:
+            src = next((j + o for step in range(1, count) for o in (-step, step) if 0 <= j + o < count and ok(j + o)), None)
+            new = bytes(out[4 * (first + src):4 * (first + src) + 4]) if src is not None else bytes(FALLBACK_PRIMITIVE)
+            if src is None and slots < 2:
+                raise hkpackfile.PackfileError(f"section {k} has no valid primitive and fewer than 2 vertices")
+            fixes.append((k, j, tuple(out[4 * (first + j):4 * (first + j) + 4]), tuple(new)))
+            out[4 * (first + j):4 * (first + j) + 4] = new
+    return bytes(out), fixes
+
+
+def _mesh_fixes(fo4, notes: Optional[list]):
+    """(sanitised primitive array, [section indices whose FO4 special flag is cleared]); notes get one line per fix."""
+    sec_raw, nsec = fo4["sections"]
+    secs = fo4_sections(sec_raw, nsec)
+    prims, fixes = sanitise_primitives(fo4["primitives"][0], secs)
+    flagged = [k for k in range(nsec) if sec_raw[96 * k + 93] & SECTION_SPECIAL_FLAG]
+    if notes is not None:
+        for k in sorted({f[0] for f in fixes}):
+            mine = [f for f in fixes if f[0] == k]
+            notes.append(f"section {k}: {len(mine)} of {secs[k][1]} primitive slots Starfield cannot type replaced by a "
+                         f"neighbour copy (slots {', '.join(str(f[1]) for f in mine)}; first {mine[0][2]} -> {mine[0][3]})")
+        for k in flagged:
+            notes.append(f"section {k}: FO4 special-primitive flag cleared (flags {sec_raw[96 * k + 93]:#x})")
+    return prims, flagged
+
+
+def _emit_mesh(w: "_Writer", t: _Tmpl, p: hkpackfile.Packfile, d: int, pos=(0.0, 0.0, 0.0),
+               notes: Optional[list] = None) -> int:
     """FO4 hknpCompressedMeshShapeData -> Starfield hknpCompressedMeshShape (+ data, trees, SIMD tree). A body
-    translation is baked in (domain, section domains and codec offsets move; quantised data stay relative)."""
+    translation is baked in (domain, section domains and codec offsets move; quantised data stay relative).
+    FO4's arrays are copied as they are except what Starfield's decoder rejects (notes get one line per change):
+    primitive slots it cannot type (sanitise_primitives), the FO4 special-primitive section flag, the tree's
+    primitiveStoresIsFlatConvex byte (FO4 0, vanilla 0xFF), and the SIMD tree is built with one leaf per primitive
+    (fo4collision.compressed_mesh_primitive_keys) as every vanilla mesh has, not one per triangle."""
     from . import fo4collision
     tf = t.tf
     T_CMS, T_DATA = t.type("hknpCompressedMeshShape"), t.type("hknpCompressedMeshShapeData")
@@ -705,6 +901,8 @@ def _emit_mesh(w: "_Writer", t: _Tmpl, p: hkpackfile.Packfile, d: int, pos=(0.0,
     for name, off in FO4_ARRAYS.items():
         at, n = p.array(d + off)
         fo4[name] = (p.raw(at, ELEM_SIZE[name] * n) if n else b"", n)
+    prims, flagged = _mesh_fixes(fo4, notes)
+    fo4["primitives"] = (prims, fo4["primitives"][1])
     cms = bytearray(t.item_bytes("hknpCompressedMeshShape"))
     struct.pack_into("<Q", cms, t.field(T_CMS, "properties").offset, 0)
     n_keys, bits_per_key, max_key = struct.unpack_from("<iiI", p.raw(d + FO4_TREE + 48, 12))
@@ -728,7 +926,8 @@ def _emit_mesh(w: "_Writer", t: _Tmpl, p: hkpackfile.Packfile, d: int, pos=(0.0,
               "primitiveDataRuns"):
         struct.pack_into("<16x", data, tree_off + t.field(T_TREE, f).offset)
     data[tree_off + 16:tree_off + 48] = _shift_aabb(p.raw(d + FO4_TREE + 16, 32), pos)
-    data[tree_off + 48:tree_off + 64] = p.raw(d + FO4_TREE + 48, 16)
+    data[tree_off + 48:tree_off + 64] = p.raw(d + FO4_TREE + 48, 16)       # numPrimitiveKeys, bitsPerKey, maxKeyValue
+    data[tree_off + 60] = FLAT_CONVEX
     simd = t.field(T_DATA, "simdTree")
     data[simd.offset:simd.offset + tf.size_of(simd.type)] = bytes(tf.size_of(simd.type))
     conn = t.field(T_DATA, "connectivity")
@@ -738,7 +937,7 @@ def _emit_mesh(w: "_Writer", t: _Tmpl, p: hkpackfile.Packfile, d: int, pos=(0.0,
     i_data = w.add(T_DATA, 0x10, data, 1)
     w.ptr(t.field(T_CMS, "data").type, i_cms, t.field(T_CMS, "data").offset, i_data)
     keys = [(k, (tuple(a + b for a, b in zip(lo, pos)), tuple(a + b for a, b in zip(hi, pos))))
-            for k, (lo, hi) in fo4collision.compressed_mesh_keys(p, d)]
+            for k, (lo, hi) in fo4collision.compressed_mesh_primitive_keys(p, d, prims)]
     simd_raw = build_simd_tree(keys)
     simd_arr_t, simd_elem_t = t.arr_types(simd.type, "nodes")
     i_simd = w.add(simd_elem_t, 0x20, simd_raw, len(simd_raw) // 128)
@@ -756,6 +955,8 @@ def _emit_mesh(w: "_Writer", t: _Tmpl, p: hkpackfile.Packfile, d: int, pos=(0.0,
         s = _convert_section(sec_raw[96 * k:96 * k + 96])
         s[16:48] = _shift_aabb(bytes(s[16:48]), pos)
         struct.pack_into("<3f", s, 48, *(a + b for a, b in zip(struct.unpack_from("<3f", s, 48), pos)))   # codec offset
+        if k in flagged:
+            s[95] &= ~SECTION_SPECIAL_FLAG                 # its special primitives are gone (sanitise_primitives)
         secs.append(bytes(s))
     i_secs = w.add(sec_elem_t, 0x20, b"".join(secs), nsec)
     w.ptr(sec_arr_t, i_data, tree_off + t.field(T_TREE, "sections").offset, i_secs)
@@ -772,10 +973,29 @@ def _emit_mesh(w: "_Writer", t: _Tmpl, p: hkpackfile.Packfile, d: int, pos=(0.0,
 # FO4 and Starfield collision layers share indices 0-36 and 38-42, 44-56 (COLL records); 37 and 43 differ.
 FO4_BODY_FILTER = 20                                  # FO4 hknpBodyCinfo collisionFilterInfo (layer in the low 7 bits)
 UNMAPPED_LAYERS = {37: "L_DOORDETECTION", 43: "L_CUSTOMPICK1"}
+L_STATIC, L_CLUTTER_NOCUT = 1, 55
+
+
+def static_filter(filt: int) -> Tuple[int, Optional[str]]:
+    """collisionFilterInfo for a FO4 body written as a STATIC Starfield body: (word, note or None).
+    FO4's word is kept, flag bits included (vanilla statics carry 0x8001 too: the New Atlantis MAST plaza,
+    nathemastbase_01..04, is one 0x8001 body each and is walked on), except layer 55 L_CLUTTER_NOCUT. FO4 puts that
+    layer only on pushable hinged leaves (9 bodies in 63,327 NIFs, all dynamic: V111GearRoomGate01/02, CarHulk01's
+    doors, BollardDest01), and a static body on it is exactly what Starfield's walk-through turnstile leaves carry
+    (na_lobbyoffice_reception_turnstile_01_door01a/b: STAT records placed across lobby walkways, word 0x8037, the only
+    layer-55 bodies among 46,413 vanilla ones). The character controller passes through such a body although the COLL
+    tables pair 55 with 30 (the Vault 111 gear-room gate in integ_1018, playtest row 19; research log 2026-10-17).
+    A leaf we freeze (its joints are not converted) must block like a static gate, so it becomes 1 L_STATIC, written
+    as the layer alone like 35,339 of 35,367 vanilla static L_STATIC bodies."""
+    if (filt & 0x7F) == L_CLUTTER_NOCUT:
+        return L_STATIC, (f"filter {filt:#06x} (layer 55 L_CLUTTER_NOCUT, a pushable leaf in FO4) -> {L_STATIC:#x} "
+                          "L_STATIC: a frozen leaf must block; static layer-55 bodies are walk-through in Starfield")
+    return filt, None
 
 
 def convert_bodies(fo4_blob: bytes, template_blob: bytes, select: Optional[List[int]] = None,
-                   node_rot=None, skipped: Optional[list] = None) -> list:
+                   node_rot=None, skipped: Optional[list] = None, dynamic_template: Optional[bytes] = None,
+                   motion: Optional[dict] = None, notes: Optional[list] = None) -> list:
     """One native Starfield single-body physics blob per selected FO4 body (all bodies when select is None).
     FO4 shapes live in the space of the NIF node that owns the collision object; the body cinfo transform is not a
     placement (a crate whose shape already matches its render mesh carries a 0.29 m body position; a stair helper's
@@ -783,7 +1003,13 @@ def convert_bodies(fo4_blob: bytes, template_blob: bytes, select: Optional[List[
     blob on a node with the FO4 node's transform. The FO4 collision layer is kept (stair helpers stay stair helpers).
     Unsupported shapes or layers raise PackfileError (explicit fallback).
     Items are blobs, or (blob, translation, rotation 3x3 row-major) for a rotated compound mesh instance: that body is
-    in its own space and goes on a child node with this transform (relative to the FO4 collision node)."""
+    in its own space and goes on a child node with this transform (relative to the FO4 collision node).
+    Dynamic (pushable) FO4 bodies: with `motion` given, every one is reported. With `dynamic_template` too (a vanilla
+    dynamic compound body blob, DYNAMIC_TEMPLATE_NIF), a system of ONE dynamic body made of convex parts is written as
+    one dynamic body (one part: a convex shape; several: a compound of them) with FO4's mass (motion["dynamic"] = kg);
+    any other dynamic body stays static and motion["kept_static"] lists why (ragdolls and breakables need constraints;
+    mesh and sphere parts have no dynamic template yet; never silently flattened).
+    notes: one line per change a mesh body needed for Starfield's decoder (_emit_mesh), "body k: ..."."""
     from . import fo4collision as fc
     p = hkpackfile.Packfile(fo4_blob)
     classes = dict(p.objects())
@@ -816,7 +1042,37 @@ def convert_bodies(fo4_blob: bytes, template_blob: bytes, select: Optional[List[
             continue                                       # diagnostic only: test stairs without the helper ramp
         if (filt & 0x7F) in UNMAPPED_LAYERS:
             raise hkpackfile.PackfileError(f"body {k} uses {UNMAPPED_LAYERS[filt & 0x7F]} (no Starfield equivalent)")
-        for kind, obj, R, tr in _shape_parts(p, classes, shape, IDENTITY3, (0.0, 0.0, 0.0)):
+        parts = _shape_parts(p, classes, shape, IDENTITY3, (0.0, 0.0, 0.0))
+        mass = fc.body_mass(p, systems[0], k) if motion is not None else None
+        dynamic = False
+        if mass is not None:
+            why = None
+            if n != 1:
+                why = f"one of {n} bodies (ragdoll / breakable: constraints not converted)"
+            elif not parts or any(part[0] not in ("convex", "convex-verts") for part in parts):
+                kinds = sorted({part[0] for part in parts}) or ["none"]
+                why = f"shape has {len(parts)} part(s) of kind {'/'.join(kinds)} (convex parts only)"
+            elif dynamic_template is None:
+                why = "dynamic body not allowed here (collision on a child node, or no dynamic template)"
+            if why:                                        # stays static; the reason is recorded once per system
+                # rigid_reported: the rigid merge already explained this system, so add no second reason. It must not
+                # make the body dynamic: with no template that crashed (_dynamic_body(None): "TypeError: object of type
+                # 'NoneType' has no len()") and the model lost all its FO4 bodies (29 models in integ_1011, the
+                # Vault 111 gear-room gates among them).
+                if not motion.get("rigid_reported"):
+                    motion.setdefault("kept_static", []).append(f"body {k} ({mass:.3g} kg): {why}")
+            else:
+                dynamic = True
+                motion["dynamic"] = mass
+                if len(parts) > 1:
+                    motion["compound_parts"] = len(parts)
+        if dynamic:
+            out.append(_dynamic_body(dynamic_template, p, parts, filt, mass))
+            continue
+        static_filt, relayered = static_filter(filt)          # a frozen L_CLUTTER_NOCUT leaf blocks as L_STATIC
+        if relayered and motion is not None and parts:
+            motion.setdefault("relayered", []).append(f"body {k}: {relayered}")
+        for kind, obj, R, tr in parts:
             w = _Writer()
             i_psd = w.add(T_PSD, 0x10, t.item_bytes("hknpPhysicsSystemData"), 1)
             i_mat = w.add(T_MAT, 0x20, t.item_bytes("hknpMaterial", count=1), 1)
@@ -824,7 +1080,7 @@ def convert_bodies(fo4_blob: bytes, template_blob: bytes, select: Optional[List[
             struct.pack_into("<H", body, t.field(T_BODY, "materialId").offset, 0)
             struct.pack_into("<4f", body, t.field(T_BODY, "position").offset, 0.0, 0.0, 0.0, 0.0)
             struct.pack_into("<4f", body, t.field(T_BODY, "orientation").offset, 0.0, 0.0, 0.0, 1.0)
-            struct.pack_into("<I", body, t.field(T_BODY, "collisionFilterInfo").offset, filt)
+            struct.pack_into("<I", body, t.field(T_BODY, "collisionFilterInfo").offset, static_filt)
             i_body = w.add(T_BODY, 0x20, body, 1)
             w.ptr(t.field(T_PSD, "materials").type, i_psd, t.field(T_PSD, "materials").offset, i_mat)
             w.ptr(t.field(T_PSD, "bodyCinfos").type, i_psd, t.field(T_PSD, "bodyCinfos").offset, i_body)
@@ -841,14 +1097,19 @@ def convert_bodies(fo4_blob: bytes, template_blob: bytes, select: Optional[List[
                     continue
                 if not keys:                               # only degenerate / unused primitives: nothing to collide with
                     continue
+                body_notes = [] if notes is not None else None
                 if any(abs(a - b_) > 1e-4 for a, b_ in zip(R, IDENTITY3)):
                     # rotated compound instance: keep the mesh in its own space and return the instance transform for
                     # the caller's child node (re-quantising the compressed mesh would change FO4's geometry)
-                    i_shape = _emit_mesh(w, t, p, obj, (0.0, 0.0, 0.0))
+                    i_shape = _emit_mesh(w, t, p, obj, (0.0, 0.0, 0.0), notes=body_notes)
                     w.ptr(t.field(T_BODY, "shape").type, i_body, t.field(T_BODY, "shape").offset, i_shape)
                     out.append((w.build(sdk, type_sec), tuple(tr), tuple(R)))
+                    if body_notes:
+                        notes.extend(f"body {k}: {line}" for line in body_notes)
                     continue
-                i_shape = _emit_mesh(w, t, p, obj, tr)
+                i_shape = _emit_mesh(w, t, p, obj, tr, notes=body_notes)
+                if body_notes:
+                    notes.extend(f"body {k}: {line}" for line in body_notes)
             elif kind == "sphere":
                 i_shape = _emit_sphere(w, t, p, obj, R, tr)
             else:
@@ -859,6 +1120,183 @@ def convert_bodies(fo4_blob: bytes, template_blob: bytes, select: Optional[List[
             w.ptr(t.field(T_BODY, "shape").type, i_body, t.field(T_BODY, "shape").offset, i_shape)
             out.append(w.build(sdk, type_sec))
     return out
+
+
+def _path(t: _Tmpl, type_idx: int, path: str):
+    """(offset inside the object, field) of a dotted field path such as "boundingVolumeData.simdTree.nodes"."""
+    off, f = 0, None
+    for name in path.split("."):
+        f = t.field(type_idx, name)
+        off += f.offset
+        type_idx = f.type
+    return off, f
+
+
+def _emit_dynamic_compound(w: "_Writer", t: _Tmpl, p: hkpackfile.Packfile, parts):
+    """hknpCompoundShape over FO4 convex parts, laid out as vanilla dynamic compounds (see the notes above
+    DYNAMIC_TEMPLATE_NIF): identity instances, child boxes, SIMD tree, aabb. Returns (shape item, aabb lo, aabb hi)."""
+    T_CS, T_INST = t.type("hknpCompoundShape"), t.type("hkFreeListArrayElement<hknpShapeInstance>")
+    T_NODE = t.type("hkcdSimdTree::Node")
+    if t.tf.size_of(T_NODE) != 128:
+        raise hkpackfile.PackfileError("unexpected SIMD tree node layout in the dynamic template")
+    children, boxes = [], []
+    for kind, obj, R, tr in parts:
+        geom = {}
+        children.append(_emit_convex(w, t, p, obj, R, tr, vertex_only=(kind == "convex-verts"), geom=geom))
+        r = geom["radius"]
+        boxes.append((tuple(min(v[a] for v in geom["verts"]) - r for a in range(3)),
+                      tuple(max(v[a] for v in geom["verts"]) + r for a in range(3))))
+    n = len(children)
+    lo = tuple(min(b[0][a] for b in boxes) for a in range(3))
+    hi = tuple(max(b[1][a] for b in boxes) for a in range(3))
+    cs = bytearray(t.item_bytes("hknpCompoundShape", count=1))
+    put = lambda path, fmt, *v: struct.pack_into(fmt, cs, _path(t, T_CS, path)[0], *v)
+    put("properties", "<Q", 0)
+    put("numShapeKeyBits", "<B", n.bit_length())
+    put("estimatedNumShapeKeys", "<i", n)
+    put("instances.firstFree", "<i", -1)
+    put("instances.numAllocated", "<I", n)
+    put("instanceVelocities", "<Q", 0)
+    put("aabb.min", "<4f", *lo, 0.0)
+    put("aabb.max", "<4f", *hi, 0.0)
+    put("boundingRadius", "<f", math.dist(lo, hi) / 2)     # >= vanilla's value on 25 of 25 compounds (0.78-1.0 of it)
+    i_cs = w.add(T_CS, 0x10, cs, 1)
+    elem = t.item_bytes("hkFreeListArrayElement<hknpShapeInstance>", count=1)
+    inst = bytearray()
+    for _ in range(n):
+        e = bytearray(elem)
+        struct.pack_into("<4f", e, _path(t, T_INST, "rotation")[0], 0.0, 0.0, 0.0, 1.0)
+        struct.pack_into("<3f", e, _path(t, T_INST, "translation")[0], 0.0, 0.0, 0.0)
+        struct.pack_into("<3f", e, _path(t, T_INST, "scale")[0], 1.0, 1.0, 1.0)
+        struct.pack_into("<Q", e, _path(t, T_INST, "shape")[0], 0)
+        inst += e
+    i_inst = w.add(T_INST, 0x20, bytes(inst), n)
+    shape_off, shape_f = _path(t, T_INST, "shape")
+    for k, child in enumerate(children):
+        w.ptr(shape_f.type, i_inst, len(elem) * k + shape_off, child)
+    nodes = build_simd_tree([(k, b) for k, b in enumerate(boxes)], leaf_root=False)
+    i_nodes = w.add(T_NODE, 0x20, nodes, len(nodes) // 128)
+    for path, item in (("instances.elements", i_inst), ("boundingVolumeData.simdTree.nodes", i_nodes)):
+        off, f = _path(t, T_CS, path)
+        w.ptr(f.type, i_cs, off, item)
+    return i_cs, lo, hi
+
+
+RIGID_RAGDOLL_LAYER = 4   # CLUTTER: every body of vanilla Starfield's movable skeleton (humanbones/skeleton_body.nif)
+
+
+def rigid_dynamic_body(fo4_blob: bytes, dynamic_template: bytes, placements: dict, motion: dict) -> Optional[bytes]:
+    """FO4 multi-body dynamic system (ragdoll skeleton, hose-and-tank) as ONE rigid movable body: every body's convex
+    parts are moved into the root space of the model by its collision node's transform (placements: body index ->
+    (rotation 3x3 row-major, translation in metres)) and become one dynamic compound with the system's total FO4 mass, on
+    layer CLUTTER as Starfield's own movable skeleton. Phase A of ragdolls: pushable, but joints (constraints) and
+    skinning are not converted; motion["rigid_bodies"] says so. None (and motion["kept_static"]) when a body is not
+    dynamic (e.g. a hinged gate's fixed anchor) or not made of convex parts."""
+    from . import fo4collision as fc
+    p = hkpackfile.Packfile(fo4_blob)
+    classes = dict(p.objects())
+    systems = [o for o, c in classes.items() if c == "hknpPhysicsSystemData"]
+    if len(systems) != 1:
+        return None
+    at, n = p.array(systems[0] + fc.SYS_BODIES)
+    if at is None or n < 2:
+        return None
+    masses = [fc.body_mass(p, systems[0], k) for k in range(n)]
+    dynamic = [k for k, m in enumerate(masses) if m is not None]
+    if not dynamic:                                       # nothing movable in FO4 either: not a kept-static case
+        return None
+
+    def keep(why):
+        # one reason per system, and the per-body path must not add its own (QA on PR #41: 38 of 44 reports were for
+        # systems with no dynamic body at all, and mixed systems were reported twice)
+        motion.setdefault("kept_static", []).append(f"{n}-body system ({len(dynamic)} dynamic): {why}")
+        motion["rigid_reported"] = True
+    if sorted(placements) != list(range(n)):
+        keep("collision objects don't cover every body once")
+        return None
+    if len(dynamic) != n:
+        keep(f"{n - len(dynamic)} anchored / keyframed bodies: joints not converted")
+        return None
+    parts, total = [], 0.0
+    for k in range(n):
+        total += masses[k]
+        Rn, tn = placements[k]
+        for kind, obj, R, tr in _shape_parts(p, classes, p.pointer(at + fc.BODY_SIZE * k), IDENTITY3, (0.0, 0.0, 0.0)):
+            if kind not in ("convex", "convex-verts"):
+                keep(f"body {k} has a {kind} part (convex parts only)")
+                return None
+            R2 = tuple(sum(Rn[3 * r + j] * R[3 * j + c] for j in range(3)) for r in range(3) for c in range(3))
+            t2 = tuple(tn[r] + sum(Rn[3 * r + j] * tr[j] for j in range(3)) for r in range(3))
+            parts.append((kind, obj, R2, t2))
+    blob = _dynamic_body(dynamic_template, p, parts, RIGID_RAGDOLL_LAYER, total)
+    motion["dynamic"] = total
+    motion["rigid_bodies"] = n
+    motion["compound_parts"] = len(parts)
+    return blob
+
+
+def _dynamic_body(template_blob: bytes, p: hkpackfile.Packfile, parts, filt: int, mass: float) -> bytes:
+    """One dynamic body on the vanilla dynamic template: its system, material, body cinfo (motion type, flags, user data
+    as vanilla) and motion properties; FO4's convex part(s) (several: one compound shape), collision layer and mass; a
+    computed mass distribution (one convex: the grown hull; a compound: its aabb as a solid box, as vanilla)."""
+    if not template_blob:
+        raise hkpackfile.PackfileError("dynamic body needs the vanilla dynamic template (none given)")
+    t = _Tmpl(template_blob)
+    T_PSD, T_MAT = t.type("hknpPhysicsSystemData"), t.type("hknpMaterial")
+    T_BODY, T_MP = t.type("hknpPhysicsSystemData::bodyCinfoWithAttachment"), t.type("hknpMotionProperties")
+    secs = list(hktagfile.sections(template_blob, 8, len(template_blob)))
+    type_sec = next(template_blob[s - 8:e] for tag, s, e in secs if tag == "TYPE")
+    sdk = next(template_blob[s:e] for tag, s, e in secs if tag == "SDKV")
+    w = _Writer()
+    i_psd = w.add(T_PSD, 0x10, t.item_bytes("hknpPhysicsSystemData"), 1)
+    i_mat = w.add(T_MAT, 0x20, t.item_bytes("hknpMaterial", count=1), 1)
+    i_mp = w.add(T_MP, 0x20, t.item_bytes("hknpMotionProperties", count=1), 1)
+    body = bytearray(t.item_bytes("hknpPhysicsSystemData::bodyCinfoWithAttachment", count=1))
+    struct.pack_into("<H", body, t.field(T_BODY, "materialId").offset, 0)
+    struct.pack_into("<4f", body, t.field(T_BODY, "position").offset, 0.0, 0.0, 0.0, 0.0)
+    struct.pack_into("<4f", body, t.field(T_BODY, "orientation").offset, 0.0, 0.0, 0.0, 1.0)
+    struct.pack_into("<I", body, t.field(T_BODY, "collisionFilterInfo").offset, filt)
+    _dynamic_body_fields(t, T_BODY, body, mass)
+    i_body = w.add(T_BODY, 0x20, body, 1)
+    for name, item in (("materials", i_mat), ("motionProperties", i_mp), ("bodyCinfos", i_body)):
+        f = t.field(T_PSD, name)
+        w.ptr(f.type, i_psd, f.offset, item)
+    if len(parts) == 1:
+        kind, obj, R, tr = parts[0]
+        geom = {}
+        i_shape = _emit_convex(w, t, p, obj, R, tr, vertex_only=(kind == "convex-verts"), geom=geom)
+        md = mass_distribution(geom["verts"], geom["faces"], geom["radius"])
+    else:
+        i_shape, lo, hi = _emit_dynamic_compound(w, t, p, parts)
+        md = box_mass_distribution(lo, hi)
+    f = t.field(T_BODY, "shape")
+    w.ptr(f.type, i_body, f.offset, i_shape)
+    _add_mass_distribution(w, t, T_BODY, i_body, md)
+    return w.build(sdk, type_sec)
+
+
+def _dynamic_body_fields(t: _Tmpl, T_BODY: int, body: bytearray, mass: float):
+    """Body cinfo fields that make a body dynamic, as in vanilla MiscItem bodies (the template already has them; set
+    explicitly so a different template can't silently produce a static body)."""
+    body[t.field(T_BODY, "motionType").offset] = DYNAMIC_MOTION_TYPE
+    flags = t.field(T_BODY, "flags")
+    struct.pack_into("<I" if t.tf.size_of(flags.type) == 4 else "<H", body, flags.offset, DYNAMIC_FLAGS)
+    struct.pack_into("<f", body, t.field(T_BODY, "mass").offset, mass)
+    struct.pack_into("<H", body, t.field(T_BODY, "motionPropertiesId").offset, 0)
+
+
+def _add_mass_distribution(w: "_Writer", t: _Tmpl, T_BODY: int, i_body: int, md):
+    """The body's hknpRefMassDistribution (centre of mass + volume, principal axes, inertia per kg)."""
+    T_RMD = t.type("hknpRefMassDistribution")
+    com, vol, quat, inertia = md
+    rmd = bytearray(t.tf.size_of(T_RMD))
+    mdf = t.field(T_RMD, "massDistribution")
+    struct.pack_into("<4f", rmd, mdf.offset + t.field(mdf.type, "centerOfMassAndVolume").offset, *com, vol)
+    struct.pack_into("<4f", rmd, mdf.offset + t.field(mdf.type, "majorAxisSpace").offset, *quat)
+    struct.pack_into("<4f", rmd, mdf.offset + t.field(mdf.type, "inertiaTensor").offset, *inertia, 0.0)
+    i_rmd = w.add(T_RMD, 0x10, rmd, 1)
+    f = t.field(T_BODY, "massDistribution")
+    w.ptr(f.type, i_body, f.offset, i_rmd)
 
 
 IDENTITY3 = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)

@@ -135,10 +135,44 @@ def staged_path(staging, relative):
     return current
 
 
+def _native_door_outputs(door, out_name):
+    """Follow generated DOOR references independently of optional cache metadata."""
+    native = door.get("rig") == "native"
+    generated_root = out_name.replace("\\", "/").split("/", 1)[0].lower() + "/"
+    paths = set()
+    for key in ("skeleton", "animations"):
+        value = door.get(key)
+        generated = isinstance(value, str) and value.replace("\\", "/").lower().startswith(generated_root)
+        if not native and not generated:
+            continue  # Vanilla template references are supplied by the game.
+        if not isinstance(value, str) or not value:
+            raise ValueError(f"native door {key} reference is missing")
+        name = value.replace("\\", "/")
+        if ":" in name or any(part in ("", ".", "..") for part in name.split("/")):
+            raise ValueError(f"native door {key} must be relative to meshes/")
+        relative = "meshes/" + name
+        if key == "skeleton":
+            paths.add(relative)
+        else:
+            paths.update(f"{relative}/{clip}{suffix}"
+                         for clip in ("Open", "Close") for suffix in (".af", ".afx"))
+    return paths
+
+
 def output_inventory(staging, result, prefix="fo4port"):
-    """Follow generated NIF -> mesh/material -> texture dependencies."""
-    paths = {"meshes/" + result["out_name"] + ".nif"}
-    model = nif.parse(staged_path(staging, next(iter(paths))).read_bytes())
+    """Follow NIF geometry/material dependencies and native DOOR rig/clip references."""
+    prefix = prefix.replace("\\", "/").lower()
+    model_path = "meshes/" + result["out_name"] + ".nif"
+    paths = {model_path}
+    door = result.get("door") or {}
+    if not isinstance(door, dict):
+        raise ValueError("door metadata must be a record")
+    door_files = door.get("files") or []
+    if not isinstance(door_files, list) or not all(isinstance(p, str) and p.startswith("meshes/") for p in door_files):
+        raise ValueError("door files must be staging paths below meshes/")
+    paths.update(door_files)
+    paths.update(_native_door_outputs(door, result["out_name"]))
+    model = nif.parse(staged_path(staging, model_path).read_bytes())
     for i, block in enumerate(model.blocks):
         if model.type_of(i) == "BSGeometry":
             for mesh in sfnif.parse_bsgeometry(block).meshes:
@@ -181,6 +215,7 @@ class Checkpoints:
     def __init__(self, staging, signature):
         self.staging = Path(staging)
         self.signature = signature
+        self.prefix = signature.get("prefix", "fo4port")
         self.directory = self.staging / ".checkpoints"
         self.expected = {}
 
@@ -204,7 +239,7 @@ class Checkpoints:
                 return None
             if not reusable_result(result):
                 return None
-            if output_inventory(self.staging, result) != cached["outputs"]:
+            if output_inventory(self.staging, result, prefix=self.prefix) != cached["outputs"]:
                 return None
             self.expected[source] = cached["outputs"]
             return cached["result"]
@@ -216,7 +251,7 @@ class Checkpoints:
             self.path(source).unlink(missing_ok=True)
             return False  # Retry degraded/failing conversions rather than freezing a placeholder.
         try:
-            outputs = output_inventory(self.staging, result)
+            outputs = output_inventory(self.staging, result, prefix=self.prefix)
         except (OSError, ValueError, KeyError, TypeError, struct.error):
             # The batch runner may continue after checkpoint I/O errors. Keep an
             # explicit failed expectation so it cannot publish an unverified build.
