@@ -57,8 +57,17 @@ dotnet run --project dotnet/SfInspect -c Release -- <Starfield.esm> furn Chair 4
 ```
 (also `furn Bed`, `furn Couch`, `furn Bench`, `furn Stool`).
 
+Dumps read 2026-10-18 20:03Z (PC, 8723161): Fallout4.esm has 598 furniture bases; the FO4 chairs' record markers sit at
+offset 0 with keyword Null (FO4 keeps the places in the NIF's BSFurnitureMarkerNode); Starfield's chairs carry them in
+the record (NPCChairTech03_Free_270 0027D5: template 0D72BE, ChairNeutral_Free_Marker.nif, AnimFurnChair 021BF1,
+marker offset (0, 0.12, 0), sitting angle 270). So `port_promote.py --furniture <dump> --fo4-data <FO4 Data>` lists
+chairs (no bench type, a Sit entry, an AnimFurnChair* keyword) with FO4's NIF markers (offset / 70 as metres, heading
+as degrees: **supported hypothesis** from the Starfield values' scale, until a first sit in game), and PluginSpike
+copies 0027D5 for each with our model, the FO4 name and those markers. Beds, couches, stools and lean markers are
+counted, not promoted yet.
+
 ## Not in this change
-- Chairs and other sittable furniture: waits for the two dumps above.
+- Beds, couches, stools and lean markers (chairs are in).
 - Pressure plates and trigger volumes as chain starters, parents with several children, delays: open. Door locks and
   door behaviour: the door review (another thread).
 - Crafting benches indoors (the core's bench path needs Fallout4.esm's WBDT).

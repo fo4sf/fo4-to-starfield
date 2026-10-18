@@ -287,6 +287,14 @@ Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed."
             EditorID = "OE_AustinF_DeployMicrobe_Terminal", MarkerModel = "Furniture\\furn_human_standingterminal.nif",
             Keywords = new ExtendedList<IFormLinkGetter<IKeywordGetter>> { new FormLink<IKeywordGetter>(marker.FormKey) },
         });
+        // and a vanilla chair template 0027D5 (as NPCChairTech03_Free_270: one marker, one Sit entry block)
+        master.Furniture.Add(new Furniture(new FormKey(sfKey, 0x0027D5), release)
+        {
+            EditorID = "NPCChairTech03_Free_270", MarkerModel = "Markers\\FurnitureMarkers\\ChairNeutral_Free_Marker.nif",
+            Keywords = new ExtendedList<IFormLinkGetter<IKeywordGetter>> { new FormLink<IKeywordGetter>(marker.FormKey) },
+            MarkerParameters = new ExtendedList<FurnitureMarkerParameters> { new FurnitureMarkerParameters { Offset = new P3Float(0, 0.12f, 0) } },
+            MarkerEntryPoints = new ExtendedList<FurnitureMarkerEntryPoints> { new FurnitureMarkerEntryPoints() },
+        });
         var sfPath = Path.Combine(promoDir, "Starfield.esm");
         master.BeginWrite.ToPath(sfPath).WithNoLoadOrder().Write();
         var manifest = Path.Combine(promoDir, "manifest.json");
@@ -298,6 +306,7 @@ Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed."
  {"editor_id":"FO4Port_Term","model":"fo4port\\term.nif","source":"meshes\\term.nif"},
  {"editor_id":"FO4Port_SynthDoor","model":"fo4port\\d.nif","source":"meshes\\d.nif",
   "door":{"anim_graph":"SimpleOpenClose01.agx","skeleton":"fo4port\\d\\skeleton.rig","animations":"fo4port\\d\\animations","origin_offset":[0,0,0]}},
+ {"editor_id":"FO4Port_Chair","model":"fo4port\\chair.nif","source":"meshes\\chair.nif"},
  {"editor_id":"FO4Port_Wall","model":"fo4port\\wall.nif","source":"meshes\\wall.nif"}]}
 """);
         // an activate parents block as Fo4Export writes it (PR #305): flags + parents [{reference, delay}]
@@ -309,7 +318,8 @@ Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed."
         File.WriteAllText(export, "{\"cell\":\"Promo\",\"refs\":[" + string.Join(",",
             R("000901", "Container", "crate.nif"), R("000902", "MiscItem", "can.nif"), R("000903", "MiscItem", "can.nif"),
             R("000904", "Activator", "switch.nif"), R("000905", "Terminal", "term.nif", Parents("0009FF", 0)),
-            R("000906", "Door", "d.nif", Parents("000904", 0.5f), 1), R("000908", "Static", "wall.nif", Parents("000901", 0))) + "]}");
+            R("000906", "Door", "d.nif", Parents("000904", 0.5f), 1), R("000908", "Static", "wall.nif", Parents("000901", 0)),
+            R("000909", "Furniture", "chair.nif"), R("00090A", "Furniture", "chair.nif")) + "]}");
         string Promote(string canName) => $$"""
 {"starfield_esm": {{JsonSerializer.Serialize(sfPath)}},
  "containers":[{"src":"000901:Fallout4.esm","edid":"FO4Port_cont_A","name":"Crate","items":[{"form":"Starfield.esm:00000F","count":10}]},
@@ -318,7 +328,10 @@ Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed."
  "items":[{"src":"000902:Fallout4.esm","edid":"FO4Port_misc_B","name":"Can","value":1,"weight":0.5},
           {"src":"000903:Fallout4.esm","edid":"FO4Port_misc_B","name":"{{canName}}","value":1,"weight":0.5}],
  "activators":[{"src":"000904:Fallout4.esm","edid":"FO4Port_acti_C","name":null}],
- "terminals":[{"src":"000905:Fallout4.esm","edid":"FO4Port_term_E","menu_edid":"FO4Port_tmlm_E","name":"Terminal","body":"FO4 terminal"}]}
+ "terminals":[{"src":"000905:Fallout4.esm","edid":"FO4Port_term_E","menu_edid":"FO4Port_tmlm_E","name":"Terminal","body":"FO4 terminal"}],
+ "furniture":[{"src":"000909:Fallout4.esm","edid":"FO4Port_furn_F","name":"Chair","template":"0027D5",
+               "markers":[{"offset":[0,-0.2,0],"rotation_z":180},{"offset":[0.5,-0.2,0],"rotation_z":180}]},
+              {"src":"00090A:Fallout4.esm","edid":"FO4Port_furn_G","name":"Stool","template":"0027D5","markers":null}]}
 """;
         File.WriteAllText(Path.Combine(outDir, "promote.json"), Promote("Can"));
         foreach (var hook in new[] { "FO4PORT_DOOR_MODEL", "FO4PORT_DOOR_BASE", "FO4PORT_DOORTEST" }) Environment.SetEnvironmentVariable(hook, null);
@@ -355,6 +368,16 @@ Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed."
                     && term.MarkerModel == "Furniture\\furn_human_standingterminal.nif" && term.Keywords!.Single().FormKey == marker.FormKey
                     && menu.BodyTexts!.Single().Text.String == "FO4 terminal", "terminal, its furniture block or its menu wrong");
             Require(written.Doors.Any(d => d.FormKey == BaseOf("000906")), "a door listed for promotion lost its DOOR base");
+            // chairs: copies of the vanilla template with our model, the FO4 name and FO4's marker places
+            var chair = written.Furniture.Single(f => f.FormKey == BaseOf("000909"));
+            var stool = written.Furniture.Single(f => f.FormKey == BaseOf("00090A"));
+            Require(chair.EditorID == "FO4Port_furn_F" && chair.Model?.File?.ToString() == "Meshes/fo4port/chair.nif" && chair.Name!.String == "Chair"
+                    && chair.MarkerModel == "Markers\\FurnitureMarkers\\ChairNeutral_Free_Marker.nif" && chair.Keywords!.Single().FormKey == marker.FormKey,
+                    "chair not a copy of the template with our model and name");
+            Require(chair.MarkerParameters!.Count == 2 && chair.MarkerEntryPoints!.Count == 2
+                    && Math.Abs(chair.MarkerParameters[1].Offset.X - 0.5f) < 1e-6 && Math.Abs(chair.MarkerParameters[0].RotationZ - 180f) < 1e-4,
+                    "chair markers not FO4's places");
+            Require(stool.MarkerParameters!.Single().Offset.Y == 0.12f && stool.Name!.String == "Stool", "a chair without FO4 markers lost the template's");
             // the switch (a promoted activator) activates the door it is FO4's activate parent of
             IPlacedObjectGetter RefOf(string fo4) => refs[new FormKey(port, ids[$"REFR:FO4Port_Promo:{fo4}:Fallout4.esm"])];
             var wire = RefOf("000904");
@@ -364,11 +387,11 @@ Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed."
                     "switch -> door activation chain not written");
             Require(RefOf("000901").VirtualMachineAdapter == null && RefOf("000901").LinkedReferences.Count == 0,
                     "a container (not a usable parent) got an activation wire");
-            Require(written.Statics.Any(s => s.FormKey == BaseOf("000908")) && written.Statics.Count == 4
+            Require(written.Statics.Any(s => s.FormKey == BaseOf("000908")) && written.Statics.Count == 5
                     && written.MoveableStatics.Count == 1, "unlisted wall moved, or the promoted models' own bases missing");
         }
         var text = log.ToString();
-        Require(text.Contains("promotions: 1 activators, 1 containers, 2 items, 1 kept (door base), 1 terminals; 1 listed but not placed"),
+        Require(text.Contains("promotions: 1 activators, 1 containers, 2 furniture, 2 items, 1 kept (door base), 1 terminals; 1 listed but not placed"),
                 "promotions not reported:\n" + text);
         Require(text.Contains("activation chains: 1 wired; unwired: 1 parent not placed, 1 parent not usable, 0 parent drives several, " +
                               "0 parent already scripted, 0 child not placed; 1 delays and 1 parent-activate-only flags not carried"),

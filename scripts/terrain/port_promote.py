@@ -2,7 +2,8 @@
 
   python scripts/terrain/port_promote.py --out <PluginSpike output dir>/promote.json
          --containers-table scripts/terrain/clusters/container_table.json --items-table scripts/terrain/clusters/item_table.json
-         [--names <export-names json>] [--starfield-data <Starfield Data folder>] <cell export.json> ...
+         [--names <export-names json>] [--starfield-data <Starfield Data folder>]
+         [--furniture <Fo4Land export-furniture json> [--fo4-data <Fallout 4 Data folder>]] <cell export.json> ...
 
 The converted interiors (FO4Port.esm) placed every FO4 container, loose item, activator and terminal as a plain STAT
 (or an MSTT when its model has a dynamic body): nothing to open, take, press or read (owner's play test, 18 Oct
@@ -15,23 +16,88 @@ those references a CONT / MISC / ACTI / TERM base instead (dotnet/PluginSpike/Pr
   activators  FO4 Activator, its FO4 name from --names (none: an ACTI without a name, as FO4 shows no prompt)
   terminals   FO4 Terminal, its name and one body line (make_cluster.TERMINAL_BODY); needs --starfield-data (the
               vanilla terminal's furniture block is read from Starfield.esm by PluginSpike)
+  furniture   (with --furniture) FO4 chairs: a Furniture base without a bench type, a Sit entry point and an
+              AnimFurnChair* keyword. PluginSpike copies the furniture block of vanilla NPCChairTech03_Free_270
+              (CHAIR_TEMPLATE, read off Starfield.esm on the PC: template 0D72BE, ChairNeutral_Free_Marker.nif,
+              AnimFurnChair) and, with --fo4-data, puts its sit markers where FO4's NIF has them
+              (BSFurnitureMarkerNode: offset / 70 in metres, heading in degrees; both a supported hypothesis until the
+              first sit in game). Other furniture (beds, couches, stools, lean markers) is counted, not promoted.
 Left out as the core leaves them out: initially disabled references and ones without a model or with a marker model.
 Edids are the core's (make_core64c.promoted_edid) with FO4Port_ for FO4Core_: one base per FO4 base record.
 A reference the port puts on its own posed model or on a DOOR base keeps it (PluginSpike counts it as kept).
 """
 import argparse
 import json
+import math
 import os
 import sys
+from collections import Counter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "src"))
 sys.path.insert(0, HERE)
 import make_cluster  # noqa: E402
 import make_core64c  # noqa: E402
+from fo4sf import nif  # noqa: E402
 
 PREFIX = "FO4Port_"
-KINDS = ("containers", "items", "activators", "terminals")
+KINDS = ("containers", "items", "activators", "terminals", "furniture")
+FURNITURE_TYPES = ("Furniture",)
+CHAIR_TEMPLATE = "0027D5"         # NPCChairTech03_Free_270:Starfield.esm (PC dump, 2026-10-18 20:03Z, SfInspect furn)
+CHAIR_KEYWORD_PREFIX = "animfurnchair"
+UNITS_PER_METRE = 70.0
+
+
+def furniture_kind(base):
+    """"chair", or why a FO4 furniture base (Fo4Land export-furniture entry) is not promoted."""
+    if base is None:
+        return "not in the furniture export"
+    if base.get("bench_type") not in (None, "None"):
+        return "crafting bench"
+    keywords = [str(k).casefold() for k in base.get("keywords") or []]
+    sits = any(e.get("type") == "Sit" for e in base.get("entry_points") or [])
+    if sits and any(k.startswith(CHAIR_KEYWORD_PREFIX) for k in keywords):
+        return "chair"
+    anim = next((k for k in keywords if k.startswith("animfurn")), "no AnimFurn keyword")
+    return f"not a chair yet ({anim})"
+
+
+def chair_markers(nif_bytes):
+    """[{"offset": metres, "rotation_z": degrees}] from a FO4 NIF's furniture markers, None when it has none."""
+    if not nif_bytes:
+        return None
+    marks = nif.furniture_markers(nif.parse(nif_bytes))
+    if not marks:
+        return None
+    return [{"offset": [round(c / UNITS_PER_METRE, 4) for c in m["offset"]],
+             "rotation_z": round(math.degrees(m["heading"]), 3)} for m in marks]
+
+
+def furniture(refs, placed, bases, mesh=None, names=None):
+    """(entries, report): every placed FO4 Furniture reference that furniture_kind calls a chair, one shared base per
+    FO4 base (name from --names / the export, else "Chair"), markers from its NIF when `mesh` (model -> bytes) reads one."""
+    order = {src: i for i, src in enumerate(placed)}
+    names, entries, rep, markers = names or {}, [], Counter(), {}
+    for r in refs:
+        if str(r.get("type")) not in FURNITURE_TYPES:
+            continue
+        src, base = r.get("formkey"), r.get("base_formkey")
+        why = make_cluster.left_out_reason(r, order, {})
+        kind = why or furniture_kind(bases.get(base))
+        if kind != "chair":
+            rep[f"left out: {kind}"] += 1
+            continue
+        if base not in markers:
+            markers[base] = chair_markers(mesh("meshes\\" + str(r["model"]).lstrip("\\"))) if mesh else None
+        name = names.get(base) or (bases[base].get("name") or "Chair")
+        entries.append({"src": src, "edid": port_edid("furn", base, src), "name": name, "template": CHAIR_TEMPLATE,
+                        "markers": markers[base], "slot": order[src]})
+        rep["chairs with FO4 markers" if markers[base] else "chairs with the template marker"] += 1
+    entries.sort(key=lambda e: e["slot"])
+    for e in entries:
+        del e["slot"]
+    rep["furniture"] = len(entries)
+    return entries, dict(rep)
 
 
 def port_edid(kind, base, src):
@@ -57,7 +123,7 @@ def cell_refs(paths):
     return refs, placed
 
 
-def promote(refs, placed, containers_table, items_table, names=None, starfield_esm=None):
+def promote(refs, placed, containers_table, items_table, names=None, starfield_esm=None, furniture_bases=None, mesh=None):
     """The promote.json document: per kind the entries PluginSpike reads ({"src", "edid", ...}) and a report."""
     out, report = {"note": "scripts/terrain/port_promote.py: interior promotions read by dotnet/PluginSpike "
                            "(Promotions.cs) from its output dir", "starfield_esm": starfield_esm}, {}
@@ -76,9 +142,12 @@ def promote(refs, placed, containers_table, items_table, names=None, starfield_e
         edid = port_edid("term", e["base"], e["src"])
         out["terminals"].append({"src": e["src"], "edid": edid, "menu_edid": PREFIX + "tmlm_" + edid[len(PREFIX + "term_"):],
                                  "name": e["name"], "body": e["body"]})
-    if out["terminals"] and not starfield_esm:
-        raise ValueError(f"{len(out['terminals'])} terminals need --starfield-data (PluginSpike copies the vanilla "
-                         "terminal's furniture block from Starfield.esm)")
+    out["furniture"], report["furniture"] = (furniture(refs, placed, furniture_bases, mesh, names)
+                                             if furniture_bases is not None else ([], {}))
+    for kind, what in (("terminals", "terminal's"), ("furniture", "chair's")):
+        if out[kind] and not starfield_esm:
+            raise ValueError(f"{len(out[kind])} {kind} need --starfield-data (PluginSpike copies the vanilla "
+                             f"{what} furniture block from Starfield.esm)")
     for kind in KINDS:                                        # one shared base per edid carries one value (Promotions.cs)
         first = {}
         for e in out[kind]:
@@ -96,14 +165,21 @@ def main(argv=None):
     ap.add_argument("--containers-table", required=True)
     ap.add_argument("--items-table", required=True)
     ap.add_argument("--names", default="", help="FO4 display names: dotnet/Fo4Land export-names over Fallout4.esm")
-    ap.add_argument("--starfield-data", default="", help="Starfield's Data folder (Starfield.esm: the terminal template)")
+    ap.add_argument("--starfield-data", default="", help="Starfield's Data folder (Starfield.esm: terminal and chair templates)")
+    ap.add_argument("--furniture", default="", help="dotnet/Fo4Land export-furniture over Fallout4.esm: promotes chairs")
+    ap.add_argument("--fo4-data", default="", help="Fallout 4's Data folder: the chairs' sit markers from their NIFs")
     a = ap.parse_args(argv)
     refs, placed = cell_refs(a.exports)
     sf = os.path.abspath(os.path.join(a.starfield_data, "Starfield.esm")) if a.starfield_data else None
     if sf and not os.path.isfile(sf):
         raise SystemExit(f"no Starfield.esm in {a.starfield_data}")
+    mesh = None
+    if a.fo4_data:
+        from fo4sf import pipeline
+        mesh = pipeline.Fo4Archives(a.fo4_data).mesh
     doc = promote(refs, placed, make_cluster.load(a.containers_table), make_cluster.load(a.items_table),
-                  make_cluster.load_names(a.names) if a.names else None, sf)
+                  make_cluster.load_names(a.names) if a.names else None, sf,
+                  make_cluster.load(a.furniture)["furniture"] if a.furniture else None, mesh)
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(doc, f, indent=1)

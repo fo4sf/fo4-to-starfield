@@ -6,7 +6,11 @@
 //   CONT:<edid>   MISC:<edid>   ACTI:<edid>   TERM:<edid>   TMLM:<menu edid>
 // File shape: {"starfield_esm": <path or null: needed only with terminals>, "containers": [{"src", "edid", "name",
 // "items": [{"form": "Starfield.esm:00000F", "count": 10}]}], "items": [{"src", "edid", "name", "value", "weight"}],
-// "activators": [{"src", "edid", "name" (null: no FULL)}], "terminals": [{"src", "edid", "menu_edid", "name", "body"}]}.
+// "activators": [{"src", "edid", "name" (null: no FULL)}], "terminals": [{"src", "edid", "menu_edid", "name", "body"}],
+// "furniture": [{"src", "edid", "name", "template": "<6 hex FURN of Starfield.esm>", "markers": [{"offset": [x, y, z]
+// metres, "rotation_z": degrees}] or null (the template's own)}]}. FURN:<edid> keys. A chair is a copy of the vanilla
+// template FURN (furniture template, marker model, keywords, entry points, animation graph, angles) with our model, the
+// FO4 name and FO4's marker places; its script (VMAD) is not copied.
 // Every entry of one edid must agree on everything but "src" and on the model (one shared record carries one value).
 // A reference on its own posed model or on a DOOR base is never promoted (the caller keeps its base and counts it).
 using System.Text.Json;
@@ -17,7 +21,7 @@ using StarfieldActivator = Mutagen.Bethesda.Starfield.Activator;   // not System
 
 public sealed class Promotions : IDisposable
 {
-    public static readonly string[] Kinds = { "containers", "items", "activators", "terminals" };
+    public static readonly string[] Kinds = { "containers", "items", "activators", "terminals", "furniture" };
     readonly JsonDocument? doc;
     readonly Dictionary<string, (string Kind, JsonElement Entry)> bySrc = new();
     readonly Dictionary<string, (FormKey Key, string Sig)> byEdid = new(StringComparer.OrdinalIgnoreCase);
@@ -80,15 +84,35 @@ public sealed class Promotions : IDisposable
         foreach (var g in t.Components.OfType<IAnimationGraphComponentGetter>()) term.Components.Add(g.DeepCopy());
     }
 
+    IStarfieldModDisposableGetter Master(StarfieldRelease release, string what)
+    {
+        if (sf != null) return sf;
+        if (string.IsNullOrEmpty(starfieldEsm) || !File.Exists(starfieldEsm))
+            throw new InvalidDataException($"promote.json lists {what} but starfield_esm ({starfieldEsm ?? "null"}) is not a file: their furniture block comes from Starfield.esm");
+        return sf = StarfieldMod.CreateFromBinaryOverlay(starfieldEsm, release);
+    }
+
     ITerminalGetter TerminalTemplate(StarfieldRelease release)
     {
         if (termTemplate != null) return termTemplate;
-        if (string.IsNullOrEmpty(starfieldEsm) || !File.Exists(starfieldEsm))
-            throw new InvalidDataException($"promote.json lists terminals but starfield_esm ({starfieldEsm ?? "null"}) is not a file: the terminal furniture block comes from Starfield.esm");
-        sf = StarfieldMod.CreateFromBinaryOverlay(starfieldEsm, release);
         var sfEsm = ModKey.FromNameAndExtension("Starfield.esm");
-        return termTemplate = sf.Terminals.FirstOrDefault(t => t.FormKey == new FormKey(sfEsm, 0x0155A2))
+        return termTemplate = Master(release, "terminals").Terminals.FirstOrDefault(t => t.FormKey == new FormKey(sfEsm, 0x0155A2))
             ?? throw new InvalidDataException("terminals: the template terminal 0155A2:Starfield.esm (OE_AustinF_DeployMicrobe_Terminal) is missing");
+    }
+
+    readonly Dictionary<uint, IFurnitureGetter> furnTemplates = new();
+    IFurnitureGetter FurnitureTemplate(string hex, StarfieldRelease release)
+    {
+        var id = Convert.ToUInt32(hex, 16);
+        if (furnTemplates.TryGetValue(id, out var t)) return t;
+        var sfEsm = ModKey.FromNameAndExtension("Starfield.esm");
+        t = Master(release, "furniture").Furniture.FirstOrDefault(f => f.FormKey == new FormKey(sfEsm, id))
+            ?? throw new InvalidDataException($"furniture: the template {hex}:Starfield.esm is not a FURN of the master");
+        if ((t.BenchType ?? Furniture.BenchTypes.None) != Furniture.BenchTypes.None)
+            throw new InvalidDataException($"furniture: the template {hex} ({t.EditorID}) is a crafting bench, not a seat");
+        if ((t.MarkerParameters?.Count ?? 0) == 0)
+            throw new InvalidDataException($"furniture: the template {hex} ({t.EditorID}) has no marker to copy");
+        return furnTemplates[id] = t;
     }
 
     /// The promoted base of a listed reference whose own base would carry `model`; shared per edid.
@@ -181,6 +205,34 @@ public sealed class Promotions : IDisposable
                 mod.Terminals.Add(term);
                 mod.TerminalMenus.Add(menu);
                 key = term.FormKey;
+                break;
+            }
+            case "furniture":
+            {
+                var template = FurnitureTemplate(e.GetProperty("template").GetString()!, release);
+                var furn = (Furniture)template.Duplicate(id("FURN:" + edid));
+                furn.EditorID = edid;
+                furn.Model = new Model { File = model };
+                furn.Name = OneLine(e, "name", optional: false);
+                furn.VirtualMachineAdapter = null;
+                if (e.GetProperty("markers") is { ValueKind: JsonValueKind.Array } marks && marks.GetArrayLength() > 0)
+                {
+                    var first = template.MarkerParameters![0];
+                    var entry = template.MarkerEntryPoints?.FirstOrDefault();
+                    furn.MarkerParameters = new Noggog.ExtendedList<FurnitureMarkerParameters>();
+                    if (entry != null) furn.MarkerEntryPoints.Clear();          // one entry block per marker, as copied
+                    foreach (var m in marks.EnumerateArray())
+                    {
+                        var o = m.GetProperty("offset");
+                        var p = first.DeepCopy();
+                        p.Offset = new Noggog.P3Float(o[0].GetSingle(), o[1].GetSingle(), o[2].GetSingle());
+                        p.RotationZ = m.GetProperty("rotation_z").GetSingle();
+                        furn.MarkerParameters.Add(p);
+                        if (entry != null) furn.MarkerEntryPoints.Add(entry.DeepCopy());
+                    }
+                }
+                mod.Furniture.Add(furn);
+                key = furn.FormKey;
                 break;
             }
             default: throw new InvalidDataException($"promote.json: unknown kind {kind}");

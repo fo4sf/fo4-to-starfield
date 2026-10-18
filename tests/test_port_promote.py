@@ -1,6 +1,8 @@
 """scripts/terrain/port_promote.py: the interior promotion list PluginSpike reads (synthetic cell exports)."""
 import json
+import math
 import os
+import struct
 import sys
 import tempfile
 import unittest
@@ -8,6 +10,7 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "terrain"))
 import port_promote  # noqa: E402
+from fo4sf import nif  # noqa: E402
 
 CONT_TABLE = {"default": {"name": None, "items": [{"form": "Starfield.esm:00000F", "count": 10}]},
               "by_editor_id": {"WorkshopWorkbench": {"skip": "settlement workshop"},
@@ -49,7 +52,7 @@ class PortPromoteTests(unittest.TestCase):
                                    names={"0A0004:Fallout4.esm": "Light Switch"}, starfield_esm="X:\\Starfield.esm")
         srcs = {k: [e["src"][:6] for e in doc[k]] for k in port_promote.KINDS}
         self.assertEqual(srcs, {"containers": ["000101", "000102"], "items": ["000104", "000105"],
-                                "activators": ["000106"], "terminals": ["000107"]})
+                                "activators": ["000106"], "terminals": ["000107"], "furniture": []})
         c = doc["containers"][0]
         self.assertEqual((c["edid"], c["name"], c["items"]), ("FO4Port_cont_0a0001_fallout4", "Nuka-Cola Machine",
                                                               [{"form": "Starfield.esm:00000F", "count": 3}]))
@@ -93,6 +96,65 @@ class PortPromoteTests(unittest.TestCase):
             doc = json.load(f)
         self.assertEqual([e["src"] for e in doc["items"]], ["000501:Fallout4.esm"])
         self.assertIsNone(doc["starfield_esm"])
+
+
+def marker_nif(*positions):
+    """A NifFile with one BSFurnitureMarkerNode holding (x, y, z, heading) positions (FO4 layout)."""
+    blk = struct.pack("<II", 0, len(positions)) + b"".join(struct.pack("<4f2H", *p, 3, 0x0F) for p in positions)
+    return nif.NifFile(block_types=["BSFurnitureMarkerNode"], block_type_index=[0], blocks=[blk])
+
+
+FURN = {"0C0001:Fallout4.esm": {"editor_id": "NpcChairStadiumRedSit03", "name": "Chair", "bench_type": "None",
+                                "keywords": ["AnimFurnChairSitAnims", "FurnitureClassRelaxation"],
+                                "entry_points": [{"type": "Sit", "points": "Front, Right, Left"}]},
+        "0C0002:Fallout4.esm": {"editor_id": "NpcBedSleep", "name": "Bed", "bench_type": "None",
+                                "keywords": ["AnimFurnBedSleep"], "entry_points": [{"type": "Lay", "points": "Left"}]},
+        "0C0003:Fallout4.esm": {"editor_id": "WorkbenchChemistry", "name": "Chemistry Station", "bench_type": "Alchemy",
+                                "keywords": ["AnimFurnChairSitAnims"], "entry_points": [{"type": "Sit", "points": "Front"}]}}
+
+
+class FurnitureTests(unittest.TestCase):
+    def test_the_nif_markers_are_read_in_fo4_units(self):
+        marks = nif.furniture_markers(marker_nif((0.0, -14.0, 0.0, math.pi), (35.0, -14.0, 0.0, math.pi)))
+        self.assertEqual([m["offset"] for m in marks], [(0.0, -14.0, 0.0), (35.0, -14.0, 0.0)])
+        self.assertEqual((marks[0]["anim_type"], marks[0]["entry"]), (3, 0x0F))
+
+    def test_a_marker_block_of_the_wrong_size_is_refused(self):
+        n = marker_nif((0.0, 0.0, 0.0, 0.0))
+        n.blocks[0] += b"\0"
+        with self.assertRaisesRegex(nif.NifError, "with 1 positions"):
+            nif.furniture_markers(n)
+
+    def test_only_chairs_are_promoted_with_their_nif_markers_in_metres_and_degrees(self):
+        refs = [ref("000601", "Furniture", "NpcChairStadiumRedSit03", base="0C0001:Fallout4.esm"),
+                ref("000602", "Furniture", "NpcChairStadiumRedSit03", base="0C0001:Fallout4.esm"),
+                ref("000603", "Furniture", "NpcBedSleep", base="0C0002:Fallout4.esm"),
+                ref("000604", "Furniture", "WorkbenchChemistry", base="0C0003:Fallout4.esm")]
+        reads = []
+        chair = nif.serialize(marker_nif((0.0, -14.0, 0.0, math.pi)))
+
+        def mesh(name):
+            reads.append(name)
+            return chair
+        entries, rep = port_promote.furniture(refs, [r["formkey"] for r in refs], FURN, mesh)
+        self.assertEqual([e["src"][:6] for e in entries], ["000601", "000602"])
+        self.assertEqual(entries[0]["markers"], [{"offset": [0.0, -0.2, 0.0], "rotation_z": 180.0}])
+        self.assertEqual((entries[0]["edid"], entries[0]["name"], entries[0]["template"]),
+                         ("FO4Port_furn_0c0001_fallout4", "Chair", "0027D5"))
+        self.assertEqual(reads, ["meshes\\SetDressing\\x.nif"])          # one read per FO4 base
+        self.assertEqual(rep["left out: crafting bench"], 1)
+        self.assertEqual(rep["left out: not a chair yet (animfurnbedsleep)"], 1)
+
+    def test_a_chair_without_nif_markers_keeps_the_template_marker(self):
+        refs = [ref("000701", "Furniture", "NpcChairStadiumRedSit03", base="0C0001:Fallout4.esm")]
+        entries, rep = port_promote.furniture(refs, [refs[0]["formkey"]], FURN, mesh=lambda name: None)
+        self.assertIsNone(entries[0]["markers"])
+        self.assertEqual(rep["chairs with the template marker"], 1)
+
+    def test_chairs_need_the_starfield_master(self):
+        refs = [ref("000801", "Furniture", "NpcChairStadiumRedSit03", base="0C0001:Fallout4.esm")]
+        with self.assertRaisesRegex(ValueError, "furniture need --starfield-data"):
+            port_promote.promote(refs, [refs[0]["formkey"]], CONT_TABLE, ITEM_TABLE, furniture_bases=FURN)
 
 
 if __name__ == "__main__":
