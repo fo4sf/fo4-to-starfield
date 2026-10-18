@@ -45,7 +45,7 @@ Low usage: quiet four-hour Codex follow-up active; scoped monitors paused. Read 
 Current main's FLOR promotion is retained with named flora base reservations,
 ledger loading and identity-audit coverage. Main's bench/door behavior remains;
 legacy plugin/map bytes match an independent main build in three scenarios.
-Thirteen targeted writer/ledger/audit tests pass, including five flora cases;
+Fourteen targeted writer/ledger/audit tests pass, including six flora cases;
 four pre-fix failures and all passing evidence are retained. Independent
 current-head QA is pending. Earlier counts above are historical checkpoints.
 No live stage, installation, controller release or native acceptance is implied;

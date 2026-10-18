@@ -202,7 +202,7 @@ The identity audit checks the declared flora map and its ledger bindings. It
 still reports `record_fields_checked: false`: it does not validate harvest
 contents, native harvesting or saved-game compatibility.
 
-Five synthetic-writer regressions cover reorder/growth/removal/reintroduction,
+Six synthetic-writer regressions cover reorder/growth/removal/reintroduction,
 shared bases, explicit byte-identical legacy bootstrap, invalid-ingredient
 publication preservation, and a changed declared base rejected by the read-only
 audit. Three independent main-writer comparisons preserve exact legacy plugin
@@ -210,3 +210,8 @@ and map bytes for the default seed, a custom ingredient and a shared base.
 Existing ledgers are neither rewritten nor migrated automatically; reading a
 ledger containing flora reservations requires the updated writer/auditor. No
 production stage, installation or paired interior/exterior allocator is enabled.
+
+A mixed-door regression adds/removes flora while preserving every existing identity
+map and the raw records of door bases, references and arrival markers. A separate
+main legacy countercontrol demonstrates the expected base/arrival renumbering on
+growth; the persistent ledger avoids it. This remains an offline identity check.
