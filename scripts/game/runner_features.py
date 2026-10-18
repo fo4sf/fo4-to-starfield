@@ -68,7 +68,10 @@ import console_plan
 # probe_moveto: console lines cgf "FO4SF_Probe.Resolve" / "FO4SF_Probe.MoveTo" (the scripted door's Step 0,
 #               2026-10-16): on the whitelist, and the HUD waited for after a MoveTo (it can load another cell). An
 #               older qstep.ps1 refuses the line (exit 4) only after the game was launched for the test
-FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "door_frames", "door_route", "walk", "impulse", "push_judge", "impulse_control", "npc_combat", "bridge", "activate", "probe_moveto")
+# speedmult:    console lines player.getav speedmult / player.setav speedmult 100 (2026-10-17) and the run condition
+#               judged on them (console_plan.speedmult_condition: a test that does not start at speedmult 100 is
+#               INCONCLUSIVE RUNCOND). An older qstep.ps1 refuses the line (exit 4) only after the game was launched
+FEATURES = ("light", "console", "npc_t0", "door_trip", "plugin_order", "door_check", "door_frames", "door_route", "walk", "impulse", "push_judge", "impulse_control", "npc_combat", "bridge", "activate", "probe_moveto", "speedmult")
 
 
 def needs(tests):
@@ -81,6 +84,8 @@ def needs(tests):
             out.add("console")
         if console_plan.uses_probe_travel(t):
             out.add("probe_moveto")
+        if console_plan.uses_speedmult(t):
+            out.add("speedmult")
         if "precommand_m" in t or "arrive_progress" in t:
             out.add("npc_t0")
         if t.get("combat_reads"):
