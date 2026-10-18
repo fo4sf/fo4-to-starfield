@@ -137,6 +137,13 @@ def inspect(source, aliases=None):
             if reason:                 # not motion: kept out of the rig and listed, never a binding issue
                 ignored.append({"sequence": i, "target": source.strings[target_name].decode("latin-1"), "reason": reason})
                 continue
+            kind = source.type_of(interpolator) if 0 <= interpolator < len(source.blocks) else None
+            if aliases and kind is not None and kind != "NiTransformInterpolator":
+                # an aliased object's decorative motion this code cannot sample (the cog door's paper: FXPaper01 and
+                # FXPaper002 on NiPathInterpolator) stays at its bind pose, listed; a real door still refuses it
+                ignored.append({"sequence": i, "target": source.strings[target_name].decode("latin-1"),
+                                "reason": f"unsampled interpolator {kind}"})
+                continue
             if target_name in particles and target_name not in nodes:
                 ignored.append({"sequence": i, "target": source.strings[target_name].decode("latin-1"),
                                 "reason": "particle system"})

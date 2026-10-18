@@ -49,6 +49,22 @@ class CogDoorPlanTests(unittest.TestCase):
         self.assertEqual([s["name"] for s in door_motion.inspect(f)["sequences"]], [])
         self.assertEqual([s["name"] for s in door_motion.inspect(f, ALIASES)["sequences"]], ["Open"])
 
+    def test_a_path_interpolated_part_stays_put_on_the_aliased_rig_only(self):
+        # PC build f8c9b95: Stage2 moves the paper (FXPaper01, FXPaper002) on NiPathInterpolator, which no clip samples
+        def path_panel(f):
+            interps = [i for i in range(len(f.blocks)) if f.type_of(i) == "NiTransformInterpolator"]
+            f.block_types.append("NiPathInterpolator")
+            for i in interps[1::2]:                              # PanelB in both sequences
+                f.block_type_index[i] = len(f.block_types) - 1
+            return f
+        f = path_panel(cog_nif())
+        report = door_motion.inspect(f, ALIASES)
+        self.assertEqual([(t["target"], t["reason"]) for t in report["ignored_targets"]],
+                         [("PanelB", "unsampled interpolator NiPathInterpolator")])
+        self.assertEqual(convert(f, aliases=ALIASES)[1]["rig"], "native")
+        with self.assertRaisesRegex(nif.NifError, "unsupported sampled door interpolator"):
+            door_rig.plan(path_panel(door_nif(sliding_panels())), placed=True)
+
     def test_particle_emitters_in_the_aliased_clip_are_left_out_and_listed(self):
         # PC build 1449688: Stage2 also drives 27 particle-system targets, refused as unbound before
         f = cog_nif(particles=("p_Dust Door", "p_Sparks Track"))
