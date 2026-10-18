@@ -102,6 +102,41 @@ class PersistentRefsTests(unittest.TestCase):
                          [r["formid"] for r in plain["exterior_persistent_refs"]])
         self.assertEqual(len(w["persistent_refs"]), len(plain["persistent_refs"]))
 
+    def alias_report(self, refs):
+        # Two genuinely different references share their low 24 bits. A native
+        # master override is at x=10; this plugin's own reference is at x=20.
+        head = rec("TES4", 0, 1, [sr("HEDR", b"\0" * 12), sr("MAST", b"Starfield.esm\0"), sr("DATA", b"\0" * 8)])
+        cell = rec("CELL", 0x01000802, 0x400, [sr("DATA", b"\x02\0\0\0")])
+        children = grup(0x01000802, 6, grup(0x01000802, 8,
+            refr(0x00000800, 0x3B, (10, 0, 0), edid="MasterDoor") +
+            refr(0x01000800, 0x3B, (20, 0, 0), edid="LocalDoor")))
+        body = grup(0, 0, rec("WRLD", 0x01000801, 0, [sr("EDID", b"W\0")]) +
+            grup(0x01000801, 1, cell + children))
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "Synthetic.esm")
+            with open(path, "wb") as stream:
+                stream.write(head + body)
+            return pr.walk(path, ["W"], refs)
+
+    def test_local_selector_does_not_select_master_override_with_same_low_id(self):
+        report = self.alias_report(["000800"])
+        self.assertEqual([(r["formid"], r["pos"][0]) for r in report["refs"]], [("01000800", 20)])
+
+    def test_exact_master_selector_does_not_select_local_reference(self):
+        report = self.alias_report(["00000800"])
+        self.assertEqual([(r["formid"], r["pos"][0]) for r in report["refs"]], [("00000800", 10)])
+
+    def test_exact_local_and_mixed_selectors(self):
+        self.assertEqual([r["formid"] for r in self.alias_report(["01000800"])["refs"]], ["01000800"])
+        self.assertEqual([r["formid"] for r in self.alias_report(["00000800", "000800"])["refs"]],
+                         ["00000800", "01000800"])
+        self.assertEqual([r["formid"] for r in self.alias_report(["0x00000800"])["refs"]], ["00000800"])
+
+    def test_ambiguous_or_invalid_selector_is_refused(self):
+        for selector in ("0000800", "100000800", "-800", "+800", "", "GGGGGG"):
+            with self.subTest(selector=selector), self.assertRaises(ValueError):
+                self.alias_report([selector])
+
 
 if __name__ == "__main__":
     unittest.main()
