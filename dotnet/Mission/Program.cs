@@ -17,6 +17,10 @@
 //        reference alias and the objective targets (no quest markers): the fallback when the alias is suspected.
 //   check <plugin> <Starfield.esm> <FO4TerrainCore.esm> <FO4ActorRaider.esm> [--no-alias]
 //        reads the plugin back and checks every record and link the script and the quest rely on (exit 1 on a problem).
+//   npcs <plugin.esm> <fo4 | sf> <regex>
+//        read only: every NPC_ whose EditorID, name or race EditorID matches the regex (case-insensitive): FormKey,
+//        EditorID, name, race; for fo4 also each placed ACHR of it in the Commonwealth (core frame, FO4 / 70) and in
+//        interior cells. Finds Codsworth's placement and a Starfield robot body to stand in for him (ROADMAP B2).
 //   selftest <scratch dir>
 //        synthetic masters (a Starfield.esm with the Credits MISC, a core with the world, a raider plugin with the calm
 //        probe) and a synthetic points.json; write + check against them. No game file is read.
@@ -42,6 +46,7 @@ try
         "write" when args.Length >= 6 => Mission.Write(args[1], args[2], args[3], args[4], args[5], Mission.Arg(args, "--plugin", Mission.Plugin),
                                                        Mission.Arg(args, "--world", Mission.World), !args.Contains("--no-alias")),
         "check" when args.Length >= 5 => Mission.Check(args[1], args[2], args[3], args[4], !args.Contains("--no-alias")),
+        "npcs" when args.Length >= 4 => Mission.Npcs(args[1], args[2], args[3]),
         "selftest" when args.Length >= 2 => Mission.SelfTest(args[1]),
         _ => Mission.Usage(),
     };
@@ -74,12 +79,68 @@ static class Mission
 
     public static int Usage()
     {
-        Console.Error.WriteLine("usage: see the header of dotnet/Mission/Program.cs (points | write | check | selftest)");
+        Console.Error.WriteLine("usage: see the header of dotnet/Mission/Program.cs (points | write | check | npcs | selftest)");
         return 2;
     }
     public static string Arg(string[] a, string name, string dflt) { var i = Array.IndexOf(a, name); return i >= 0 && i + 1 < a.Length ? a[i + 1] : dflt; }
     public static float Opt(string[] a, string name, float dflt) => float.Parse(Arg(a, name, dflt.ToString(CultureInfo.InvariantCulture)), CultureInfo.InvariantCulture);
     static string F(float v) => v.ToString("0.###", CultureInfo.InvariantCulture);
+
+    // ---------------------------------------------------------------- npcs (read only)
+
+    public static int Npcs(string path, string game, string pattern)
+    {
+        var rx = new System.Text.RegularExpressions.Regex(pattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        bool Hit(params string?[] xs) => xs.Any(x => x is not null && rx.IsMatch(x));
+        int n = 0;
+        if (game == "sf")
+        {
+            using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(path, SF.StarfieldRelease.Starfield);
+            var cache = sf.ToImmutableLinkCache<SF.IStarfieldMod, SF.IStarfieldModGetter>();
+            foreach (var npc in sf.Npcs)
+            {
+                var race = cache.TryResolve<SF.IRaceGetter>(npc.Race.FormKey, out var r) ? r.EditorID : null;
+                if (!Hit(npc.EditorID, npc.Name?.String, race)) continue;
+                Console.WriteLine($"NPC_ {npc.FormKey.ID:X6} {npc.EditorID} name='{npc.Name?.String}' race={race} " +
+                                  $"template={npc.DefaultTemplate.FormKey.ID:X6} factions={npc.Factions.Count}");
+                n++;
+            }
+        }
+        else if (game == "fo4")
+        {
+            using var fo4 = F4.Fallout4Mod.CreateFromBinaryOverlay(path, F4.Fallout4Release.Fallout4);
+            var cache = fo4.ToImmutableLinkCache<F4.IFallout4Mod, F4.IFallout4ModGetter>();
+            var hits = new Dictionary<FormKey, string>();
+            foreach (var npc in fo4.Npcs)
+            {
+                var race = cache.TryResolve<F4.IRaceGetter>(npc.Race.FormKey, out var r) ? r.EditorID : null;
+                if (!Hit(npc.EditorID, npc.Name?.String, race)) continue;
+                Console.WriteLine($"NPC_ {npc.FormKey.ID:X6} {npc.EditorID} name='{npc.Name?.String}' race={race}");
+                hits[npc.FormKey] = npc.EditorID ?? "";
+                n++;
+            }
+            void Refs(F4.ICellGetter c, string where, bool exterior)
+            {
+                foreach (var p in c.Persistent.Concat(c.Temporary).OfType<F4.IPlacedNpcGetter>())
+                {
+                    if (!hits.TryGetValue(p.Base.FormKey, out var edid)) continue;
+                    var q = p.Position;
+                    var pos = exterior ? $"core ({F(q.X / Units)}, {F(q.Y / Units)}, {F(q.Z / Units)})" : $"fo4 ({F(q.X)}, {F(q.Y)}, {F(q.Z)})";
+                    Console.WriteLine($"  ACHR {p.FormKey.ID:X6} of {edid} in {where} {pos} rot z {F(p.Rotation.Z)} flags 0x{p.MajorRecordFlagsRaw:X}");
+                }
+            }
+            var world = fo4.Worldspaces.FirstOrDefault(w => w.FormKey.ID == Commonwealth);
+            if (world is not null)
+            {
+                if (world.TopCell is { } top) Refs(top, "Commonwealth persistent", true);
+                foreach (var b in world.SubCells) foreach (var s in b.Items) foreach (var c in s.Items) Refs(c, $"Commonwealth ({c.Grid?.Point.X}, {c.Grid?.Point.Y})", true);
+            }
+            foreach (var b in fo4.Cells) foreach (var s in b.SubBlocks) foreach (var c in s.Cells) Refs(c, $"interior {c.EditorID}", false);
+        }
+        else throw new Refusal("game must be fo4 or sf");
+        Console.WriteLine($"{n} NPC_ matched /{pattern}/ in {Path.GetFileName(path)}");
+        return 0;
+    }
 
     // ---------------------------------------------------------------- points (Fallout 4, read only)
 
