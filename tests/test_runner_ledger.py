@@ -143,16 +143,16 @@ class RunnerLedgerTests(unittest.TestCase):
 
         def step(test, out):
             if test.get("kind") == "save":
-                tt.touch(saves, "Save1_" + test["name"] + ".sfs")
+                tt.touch(saves, test["name"] + ".sfs")                   # what the console's `save <name>` writes
                 return 0
             if test.get("kind") in ("godmode", "companion_off", "load"):
                 tt.jdump({"god": True, "reply": "ok"}, os.path.join(out, "obs.json"))
                 return 0
             return tt.RunnerTests.landing(None, 0.1)(test, out)
         r.step = step
+        real = tq.dedicated_save
         with mock.patch.object(os.path, "isdir", lambda p: True if p.endswith("Saves") else os.path.exists(p)):
-            with mock.patch("glob.glob", lambda pat: [os.path.join(saves, "Save1_fo4sf_test_abcd1234.sfs")]
-                            if "fo4sf_test_abcd1234" in pat and os.path.exists(os.path.join(saves, "Save1_fo4sf_test_abcd1234.sfs")) else []):
+            with mock.patch.object(tq, "dedicated_save", lambda _dir, name: real(saves, name)):   # the test's Saves folder
                 r.run()
         points = [e for e in self.events() if e.ev == "recovery_point"]
         self.assertEqual([(e.get("kind"), e.get("path"), e.get("build_id")) for e in points],
