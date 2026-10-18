@@ -3,6 +3,19 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-17 Grok: Red Rocket garage button (playtest row 21) and object LOD (row 24)
+- Row 21, **verified**: FO4 button `056BBA` is `Default1StateActivator`; garage `056331` is ACTI `Default2StateActivator`
+  with XAPR→button. core64k promotes both as inert ACTI. Native wire: vanilla `DefaultActivateLinkedRefOnActivate` +
+  XLKR `LinkCustom02` `0005D5E7` (Paradiso `000C7311`; debug ACTI `002CBE61` has the script name and no extra
+  properties). Writer implements that on the two Commonwealth pairs; no new FormIDs, no .pex.
+- Garage animation, **supported**: sequences are Opening/Closing, not Open/Close. **Not in this PR**: treating
+  `Opening` as an animated door in `pipeline.py` turns both FO4 garage meshes into passable statics because
+  `RedRGarageDoor.nif` is skinned and the rigger refuses it. Garage NIF rig is a later Claude build item.
+- Row 24, **verified**: object LOD is `lodsettings/*.lod` (861 of 864 are 20 bytes; 2 are 22, 1 is 16) +
+  `meshes/lod/generated/…_lod_0..3.nif`; core64k has none. `uExterior Cell Buffer=36` is not the product fix. Plan:
+  CK generate on a tiny overlay (Claude; **hypothesis** that CK is the generator); no build now. Docs:
+  [garage-button.md](../terrain/garage-button.md), [object-lod.md](../terrain/object-lod.md).
+
 ## 2026-10-17 Grok: 3D surface map for this testing stage (ROADMAP §3 item 1)
 - Question: what Starfield's surface map draws from, why the Commonwealth overlay would show Mars, and whether an
   overlay world can appear there from our plugin and locally generated files; go/no-go for a 3D map this stage.

@@ -449,6 +449,7 @@ if (Has(prm, "objects"))
         return t;
     }
     var actiIds = new Dictionary<string, object>();
+    var actiBySrc = new Dictionary<string, PlacedObject>(StringComparer.OrdinalIgnoreCase);
     var actiByEdid = new Dictionary<string, StarfieldActivator>(StringComparer.OrdinalIgnoreCase);
     var actiSig = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     if (o.TryGetProperty("activators", out var actisJ))
@@ -478,6 +479,7 @@ if (Has(prm, "objects"))
             else if (actiSig[edid] != sig)
                 throw new InvalidDataException($"activator {edid}: {src} asks for {sig} but the shared record is {actiSig[edid]}");
             var obj = PlacePromoted(c, acti.FormKey, "activator");
+            actiBySrc[src] = obj;
             actiIds[src] = new Dictionary<string, string> { ["base"] = acti.FormKey.ID.ToString("X6"), ["ref"] = obj.FormKey.ID.ToString("X6") };
             if (actiIds.Count <= 8 || actiIds.Count % 500 == 0)
                 Console.WriteLine($"  activator {acti.EditorID} {acti.FormKey} ('{acti.Name?.String}') -> REFR {obj.FormKey}");
@@ -727,6 +729,35 @@ if (Has(prm, "objects"))
             doorRefIds[src] = obj.FormKey.ID.ToString("X6");
         }
     }
+    // Red Rocket garage button -> door (docs/terrain/garage-button.md). Vanilla DefaultActivateLinkedRefOnActivate
+    // (no new .pex) + XLKR LinkCustom02 (0005D5E7). Existing ACTI REFR slots; no new FormIDs.
+    var garageIds = new List<object>();
+    if (o.TryGetProperty("garage_buttons", out var gbJ))
+    {
+        foreach (var pair in gbJ.EnumerateArray())
+        {
+            var buttonSrc = pair.GetProperty("button").GetString()!;
+            var doorSrc = pair.GetProperty("door").GetString()!;
+            if (!actiBySrc.TryGetValue(buttonSrc, out var button) || !actiBySrc.TryGetValue(doorSrc, out var door))
+                throw new InvalidDataException($"garage_buttons: {buttonSrc} / {doorSrc} are not promoted activators");
+            var kw = new FormKey(sfEsm, 0x5D5E7);                                  // LinkCustom02; script GetLinkedRef(LinkedRefKeyword)
+            var vmad = new VirtualMachineAdapter { Version = 6, ObjectFormat = 2 };
+            var script = new ScriptEntry { Name = "DefaultActivateLinkedRefOnActivate" };
+            script.Properties.Add(new ScriptObjectProperty
+            {
+                Name = "LinkedRefKeyword", Flags = ScriptProperty.Flag.Edited,
+                Object = new FormLink<IStarfieldMajorRecordGetter>(kw), Alias = -1, Unused = 0,
+            });
+            vmad.Scripts.Add(script);
+            button.VirtualMachineAdapter = vmad;
+            var link = new LinkedReferences();
+            link.KeywordOrReference.SetTo(kw);
+            link.Reference.SetTo(door.FormKey);
+            button.LinkedReferences.Add(link);
+            garageIds.Add(new Dictionary<string, string> { ["button"] = button.FormKey.ID.ToString("X6"), ["door"] = door.FormKey.ID.ToString("X6") });
+            Console.WriteLine($"  garage button {buttonSrc} REFR {button.FormKey} -> door {doorSrc} REFR {door.FormKey} (DefaultActivateLinkedRefOnActivate + LinkCustom02)");
+        }
+    }
     nCont = contByEdid.Count; nMisc = miscByEdid.Count; nActi = actiByEdid.Count; nTerm = termByEdid.Count; nWkshp = wkshpByEdid.Count;
     ids = new Dictionary<string, object> { ["plugin"] = modKey.FileName.String, ["world"] = world, ["bases"] = baseIds, ["refs"] = refIds, ["containers"] = contIds };
     if (o.TryGetProperty("items", out _)) ids["items"] = itemIds;               // a build without items keeps its formids.json bytes
@@ -735,6 +766,7 @@ if (Has(prm, "objects"))
     if (o.TryGetProperty("workshops", out _)) ids["workshops"] = wkshpIds;       // (and without workshops / benches)
     if (o.TryGetProperty("benches", out _)) ids["benches"] = benchIds;
     if (o.TryGetProperty("doors", out _)) ids["doors"] = doorIds;               // filled after the lights
+    if (garageIds.Count > 0) ids["garage_buttons"] = garageIds;
 }
 if (Has(prm, "navmesh"))
 {
