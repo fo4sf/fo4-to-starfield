@@ -94,7 +94,10 @@ def _non_transform(source, interpolator, controller_type):
     return f"controller {controller_type}" if controller_type in NON_TRANSFORM_CONTROLLERS else None
 
 
-def inspect(source):
+def inspect(source, aliases=None):
+    """aliases: {FO4 sequence name: "Open" or "Close"} for an animated object whose clips have other names (the Vault 111
+    cog door VltGearDoor01 plays Stage2 to open); the aliased sequence is reported under its door name."""
+    aliases = {k.encode("latin-1"): v.encode("latin-1") for k, v in (aliases or {}).items()}
     nodes = {}
     for i, block in enumerate(source.blocks):
         if source.type_of(i) == "NiNode":
@@ -109,7 +112,9 @@ def inspect(source):
         name, count = struct.unpack_from("<iI", block)
         if not 0 <= name < len(source.strings):
             raise nif.NifError("invalid sequence name")
-        if source.strings[name] not in (b"Open", b"Close"):
+        # an aliased object takes its clips from the aliases only; any other door from its own Open / Close
+        seq_name = aliases.get(source.strings[name]) if aliases else source.strings[name]
+        if seq_name not in (b"Open", b"Close"):
             continue
         if 12 + 29 * count > len(block):
             raise nif.NifError("truncated door controlled-block list")
@@ -137,7 +142,7 @@ def inspect(source):
                             "transform_track": transform_track(source, interpolator),
                             "pivot_source_units": list(translation), "rotation": list(rotation), "scale": scale,
                             "shape_blocks": sorted(shapes & nif.descendants(source, node))})
-        sequences.append({"block": i, "name": source.strings[name].decode("latin-1"), "targets": targets,
+        sequences.append({"block": i, "name": seq_name.decode("latin-1"), "targets": targets,
                           "timing": sequence_timing(source, block, count)})
     hinge = nif.door_hinge(source)
     selected = shapes & nif.descendants(source, hinge[0]) if hinge else set()
