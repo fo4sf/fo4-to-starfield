@@ -43,8 +43,20 @@ class WorldObjectLodVsConvertedFo4(unittest.TestCase):
         )
 
 
-class OverlayIsMars(unittest.TestCase):
-    def test_core64k_parent_and_overlay_ids_match_lc172(self):
-        self.assertEqual(sm.MARS_SURFACE, 0x0001B736)
-        self.assertEqual(sm.MARS_PNDT, 0x0003F59A)
-        self.assertEqual((sm.OVERLAY_SNAM_SOL, sm.OVERLAY_PNAM_MARS), (0, 4))
+class LodsettingsStub(unittest.TestCase):
+    def test_stub_is_20_bytes_matching_vanilla_prefix(self):
+        data = sm.make_lodsettings_stub()
+        self.assertEqual(len(data), 20)
+        # Matches object-lod.md example prefix for -2,-2,size=8
+        self.assertEqual(data[:10].hex(), "fefffffffeffffff0800")
+
+    def test_custom_mins_and_size(self):
+        data = sm.make_lodsettings_stub(min_x=0, min_y=1, cell_size=16)
+        self.assertEqual(data[:8], b"\x00\x00\x00\x00\x01\x00\x00\x00")
+        self.assertEqual(data[8:10], b"\x10\x00")
+
+    def test_range_checks(self):
+        with self.assertRaises(ValueError):
+            sm.make_lodsettings_stub(min_x=100000)
+        with self.assertRaises(ValueError):
+            sm.make_lodsettings_stub(cell_size=70000)

@@ -26,8 +26,6 @@ owner’s `setini "fLODFadeOutMultObjects:LOD" 15` is a fade-multiplier experime
 CK is the **hypothesized** generator of object LOD (plan step 1 is the spike). This repo has no writer. Per-mesh
 `sfmesh` LOD index arrays are not world object LOD.
 
-## Plan (no build now)
+## Prototype (2026-10-18)
 
-1. Tiny overlay + CK object-LOD generate as a go/no-go (Claude window).
-2. Only then a `lodsettings` stub named for `FO4Core_Commonwealth` plus generated `_lod_0..3` for large STAT.
-3. Do not port FO4 `.bto` until that spike. No INI change in the product path.
+`fo4sf.surface_map.make_lodsettings_stub()` produces a 20-byte lodsettings file matching the vanilla prefix examples in this document (signed int32 cell mins + size field, zero-padded). Suitable for the tiny overlay + CK generate go/no-go. Not a full writer; CK remains the hypothesized generator of the actual LOD NIFs.

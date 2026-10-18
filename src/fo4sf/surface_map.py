@@ -5,6 +5,8 @@ World object LOD is lodsettings/<edid>.lod plus meshes/lod/generated/…_lod_0..
 *_lod.nif files under meshes/fo4core/lod/ are ordinary meshes, not that contract.
 """
 
+import struct
+
 MARS_SURFACE = 0x0001B736  # LCTN SSol_PMars_Surface; parent of FO4Core_CommonwealthLocation
 MARS_PNDT = 0x0003F59A  # PNDT MarsPlanetData
 OVERLAY_SNAM_SOL = 0  # WRLD overlay component, LC172 / core64k
@@ -36,3 +38,20 @@ def is_starfield_world_lod_mesh(relpath):
 
 def is_converted_fo4_lod_mesh(relpath):
     return _slash(relpath).startswith(CONVERTED_FO4_LOD_PREFIX)
+
+
+def make_lodsettings_stub(min_x: int = -2, min_y: int = -2, cell_size: int = 8) -> bytes:
+    """Generate a 20-byte lodsettings stub matching vanilla format examples.
+
+    Vanilla examples (object-lod.md): cell min_x/min_y as signed int32, followed by size-related
+    fields. This produces a minimal valid-length file for the go/no-go trial.
+    """
+    if not (-32768 <= min_x <= 32767 and -32768 <= min_y <= 32767):
+        raise ValueError("cell mins out of int16-compatible range")
+    if not (0 <= cell_size <= 65535):
+        raise ValueError("cell_size out of range")
+    data = struct.pack("<ii", min_x, min_y)
+    data += struct.pack("<H", cell_size)
+    data += b"\x00" * (20 - len(data))
+    assert len(data) == 20
+    return data
