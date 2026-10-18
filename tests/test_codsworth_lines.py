@@ -50,7 +50,10 @@ class CodsworthLinesTest(unittest.TestCase):
     def test_picks_codsworth_lines_with_files(self):
         esm = (record(b"TES4", 0, [field(b"HEDR", bytes(12))])
                + group(b"QUST", 0, [record(b"QUST", 0x100, [field(b"EDID", b"COMCodsworth\0")]),
-                                    group(struct.pack("<I", 0x100), 10, [record(b"DLBR", 0x101, [])]),
+                                    group(struct.pack("<I", 0x100), 10, [record(b"DLBR", 0x101, []),
+                                        # FO4 layout: the topic sits in its quest's children group, no QNAM
+                                        record(b"DIAL", 0x30, [field(b"SNAM", b"GREE")]),
+                                        group(struct.pack("<I", 0x30), 7, [info(0x31, 1)])]),
                                     record(b"QUST", 0x200, [field(b"EDID", b"DialogueGeneric\0")])])
                + group(b"DIAL", 0, [
                    record(b"DIAL", 0x10, [field(b"EDID", b"CodsHello\0"), field(b"QNAM", struct.pack("<I", 0x100)),
@@ -68,6 +71,7 @@ class CodsworthLinesTest(unittest.TestCase):
             (d / "Fallout4_en.ILSTRINGS").write_bytes(ilstrings({1: "Good morning, mum!", 2: "No file", 3: "Sir!", 4: "Generic"}))
             (d / "v.ba2").write_bytes(general_archive({
                 "Sound\\Voice\\Fallout4.esm\\RobotMrHandy\\00000011_1.fuz": b"x",
+                "Sound\\Voice\\Fallout4.esm\\RobotMrHandy\\00000031_1.fuz": b"x",
                 "Sound\\Voice\\Fallout4.esm\\RobotMrHandy\\00000021_1.fuz": b"x",
                 "Sound\\Voice\\Fallout4.esm\\RobotMrHandy\\00000022_1.fuz": b"x",
                 "Sound\\Voice\\Fallout4.esm\\RobotMrHandy\\00000023_1.fuz": b"x",
@@ -76,9 +80,10 @@ class CodsworthLinesTest(unittest.TestCase):
             self.assertEqual(cl.main(["--esm", str(d / "Fallout4.esm"), "--voices", str(d / "v.ba2"), "--strings", str(d),
                                       "--out", str(d / "out")]), 0)
             rows = (d / "out" / "codsworth_lines.tsv").read_text(encoding="utf-8").splitlines()[1:]
-        self.assertEqual([r.split("\t")[3] for r in rows], ["00000011", "00000021", "00000024"])
+        self.assertEqual([r.split("\t")[3] for r in rows], ["00000031", "00000011", "00000021", "00000024"])
         # 12 has no file, 22 no condition, 23 GetIsID == 0 (excludes him); 24 GetIsID != 0 (him); 25 run on Target (not the speaker)
-        self.assertTrue(rows[0].endswith("Good morning, mum!"))
+        self.assertTrue(rows[0].startswith("COMCodsworth\tGREE"))                # quest from the enclosing group
+        self.assertTrue(rows[1].endswith("Good morning, mum!"))
 
 
 if __name__ == "__main__":

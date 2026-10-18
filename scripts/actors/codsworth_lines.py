@@ -65,21 +65,21 @@ def quests(p: Plugin) -> dict:
 
 def infos(p: Plugin, stats: Counter = None):
     """Yield (quest id, topic subtype, topic editor id, INFO id, [(response number, text id)], GetIsID targets).
-    Walks the DIAL top group at any depth; an INFO's topic is the label of its enclosing type-7 group (the DIAL id)."""
+    Walks the QUST and DIAL top groups at any depth (Fallout4.esm has no top-level DIAL records: topics sit in each
+    quest's type-10 children group, PC run 2026-10-18); an INFO's topic is the label of its enclosing type-7 group (the
+    DIAL id), a topic's quest its QNAM, else the enclosing type-10 group's label (the quest id)."""
     stats = stats if stats is not None else Counter()
-    span = p.top_group(b"DIAL")
-    if not span:
-        return
     topics = {}
 
-    def walk(start, end, owner):
+    def walk(start, end, owner, quest):
         for item in iter_items(p.buf, start, end):
             if item[0] == "GRUP":
-                label = struct.unpack("<I", item[3])[0] if item[4] == 7 else owner
-                yield from walk(item[1] + 24, item[2], label)
+                label = struct.unpack("<I", item[3])[0]
+                yield from walk(item[1] + 24, item[2], label if item[4] == 7 else owner,
+                                label if item[4] == 10 else quest)
             elif item[0] == b"DIAL":
                 stats["DIAL"] += 1
-                q, sub, edid = 0, "", ""
+                q, sub, edid = quest or 0, "", ""
                 for s, d in iter_subrecords(record_data(p.buf, item[1])):
                     if s == b"QNAM":
                         q, = struct.unpack_from("<I", d)
@@ -92,7 +92,12 @@ def infos(p: Plugin, stats: Counter = None):
                 stats["INFO"] += 1
                 yield owner, item[1], item[3]
 
-    for owner, off, fid in list(walk(*span, None)):
+    found = []
+    for label in (b"QUST", b"DIAL"):        # FO4 keeps topics under their quest (type-10 groups); older games top-level
+        span = p.top_group(label)
+        if span:
+            found += list(walk(*span, None, None))
+    for owner, off, fid in found:
         topic = topics.get(owner)
         if topic is None:
             stats["INFO without topic"] += 1
