@@ -80,6 +80,9 @@ NON_TRANSFORM_INTERPOLATORS = frozenset(("NiFloatInterpolator", "NiBoolInterpola
                                          "NiBlendPoint3Interpolator"))
 
 
+PARTICLE_SYSTEMS = frozenset(("NiParticleSystem", "NiMeshParticleSystem", "BSStripParticleSystem"))
+
+
 def _non_transform(source, interpolator, controller_type):
     """Reason a controlled block does not move a node (a known shader / visibility / particle kind), or None.
 
@@ -103,6 +106,10 @@ def inspect(source, aliases=None):
         if source.type_of(i) == "NiNode":
             name = struct.unpack_from("<i", block)[0]
             nodes.setdefault(name, []).append(i)
+    # particle systems (NiAVObjects, not nodes: no rig bone can carry them, and particles are not ported); an aliased
+    # object's clip also drives its emitters (the cog door's Stage2: p_Dust, p_Steam, p_Sparks), left out and listed
+    particles = {struct.unpack_from("<i", block)[0] for i, block in enumerate(source.blocks)
+                 if source.type_of(i) in PARTICLE_SYSTEMS} if aliases else set()
     shapes = {s.block for s in nif.fo4_trishapes(source) if s.positions and s.triangles}
     world = nif.world_transforms(source)
     sequences, issues, ignored = [], [], []
@@ -129,6 +136,10 @@ def inspect(source, aliases=None):
                                     if 0 <= controller_type < len(source.strings) else None)
             if reason:                 # not motion: kept out of the rig and listed, never a binding issue
                 ignored.append({"sequence": i, "target": source.strings[target_name].decode("latin-1"), "reason": reason})
+                continue
+            if target_name in particles and target_name not in nodes:
+                ignored.append({"sequence": i, "target": source.strings[target_name].decode("latin-1"),
+                                "reason": "particle system"})
                 continue
             matches = nodes.get(target_name, [])
             if len(matches) != 1:

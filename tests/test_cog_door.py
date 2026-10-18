@@ -19,9 +19,15 @@ ALIASES = {"Stage2": "Open"}
 COG = "meshes/Interiors/Vault/VltGearDoor01.nif"
 
 
-def cog_nif(parts=None):
-    """door_nif with FO4's activator clip names: Open renamed Stage2, Close renamed Stage0 (not a door clip)."""
-    f = door_nif(parts or sliding_panels())
+def cog_nif(parts=None, particles=()):
+    """door_nif with FO4's activator clip names: Open renamed Stage2, Close renamed Stage0 (not a door clip); particles:
+    extra Stage2 targets that are particle systems (NiParticleSystem blocks, not nodes), as the cog door's emitters."""
+    f = door_nif(parts or sliding_panels(), extra_targets=particles)
+    for i in range(len(f.blocks)):
+        if f.type_of(i) == "NiNode" and f.strings[struct.unpack_from("<i", f.blocks[i])[0]].decode() in particles:
+            if "NiParticleSystem" not in f.block_types:
+                f.block_types.append("NiParticleSystem")
+            f.block_type_index[i] = f.block_types.index("NiParticleSystem")
     for name, new in ((b"Open", b"Stage2"), (b"Close", b"Stage0")):
         i = sequences(f)[name]
         block = bytearray(f.blocks[i])
@@ -42,6 +48,19 @@ class CogDoorPlanTests(unittest.TestCase):
         f = cog_nif()
         self.assertEqual([s["name"] for s in door_motion.inspect(f)["sequences"]], [])
         self.assertEqual([s["name"] for s in door_motion.inspect(f, ALIASES)["sequences"]], ["Open"])
+
+    def test_particle_emitters_in_the_aliased_clip_are_left_out_and_listed(self):
+        # PC build 1449688: Stage2 also drives 27 particle-system targets, refused as unbound before
+        f = cog_nif(particles=("p_Dust Door", "p_Sparks Track"))
+        report = door_motion.inspect(f, ALIASES)
+        self.assertEqual(report["issues"], [])
+        self.assertEqual(sorted((t["target"], t["reason"]) for t in report["ignored_targets"]),
+                         [("p_Dust Door", "particle system"), ("p_Sparks Track", "particle system")])
+        self.assertEqual(convert(f, aliases=ALIASES)[1]["rig"], "native")
+        door = door_nif(sliding_panels(), extra_targets=("p_Dust Door",))           # a real door is unchanged
+        door.block_types.append("NiParticleSystem")
+        door.block_type_index[[i for i in range(len(door.blocks)) if door.type_of(i) == "NiNode"][-1]] = len(door.block_types) - 1
+        self.assertTrue(door_motion.inspect(door)["issues"])
 
     def test_close_is_open_played_backwards(self):
         plan = door_rig.plan(cog_nif(), placed=True, aliases=ALIASES)
