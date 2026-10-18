@@ -1,6 +1,10 @@
 """Archive checkpoint identities detect content edits, not just metadata."""
 import os
+import mmap
 from pathlib import Path
+import subprocess
+import shutil
+import io
 import sys
 import tempfile
 import unittest
@@ -47,12 +51,182 @@ class ArchiveIdentityTests(unittest.TestCase):
 
             def mutate_after_read(stream):
                 result = hash_open_file(stream)
-                archive.write_bytes(b"after!")
+                # Size makes the metadata regression deterministic on platforms
+                # without enforced Windows sharing, even on coarse clocks.
+                archive.write_bytes(b"different length")
                 return result
 
             with patch.object(checkpoints, "_hash_open_file", side_effect=mutate_after_read):
-                with self.assertRaisesRegex(OSError, "changed while fingerprinting"):
+                with self.assertRaises(OSError):
                     checkpoints.archive_identity(archive)
+
+
+@unittest.skipUnless(os.name == "nt", "Windows enforced sharing")
+class WindowsArchiveSharingTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="archive-sharing-")
+        self.addCleanup(self.tmp.cleanup)
+        self.archive = Path(self.tmp.name) / "synthetic.ba2"
+        self.archive.write_bytes(b"before")
+
+    def assert_released(self):
+        self.archive.write_bytes(b"after!")
+        self.assertEqual(self.archive.read_bytes(), b"after!")
+
+    def test_equal_metadata_cannot_hide_same_size_write_during_hash(self):
+        original_stat = self.archive.stat()
+        real_hash = checkpoints._hash_open_file
+
+        def mutate(stream):
+            digest = real_hash(stream)
+            self.archive.write_bytes(b"after!")
+            os.utime(self.archive, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+            return digest
+
+        # Emulate metadata whose resolution/cache hides the write. The old
+        # implementation returns the digest of 'before' for bytes 'after!'.
+        with patch.object(checkpoints, "_hash_open_file", side_effect=mutate), \
+                patch.object(os, "fstat", return_value=original_stat), \
+                patch.object(Path, "stat", return_value=original_stat):
+            with self.assertRaises(PermissionError):
+                checkpoints.archive_identity(self.archive)
+        self.assertEqual(self.archive.read_bytes(), b"before")
+        self.assert_released()
+
+    def test_other_process_can_read_but_cannot_write_rename_or_delete(self):
+        child = """
+import os, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+assert p.read_bytes() == b'before'
+for operation in (lambda: p.write_bytes(b'after!'),
+                  lambda: p.rename(p.with_suffix('.renamed')),
+                  lambda: p.unlink()):
+    try:
+        operation()
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError('guard allowed mutation')
+"""
+        real_hash = checkpoints._hash_open_file
+
+        def check_child(stream):
+            self.assertFalse(os.get_inheritable(stream.fileno()))
+            result = subprocess.run([sys.executable, "-B", "-c", child, str(self.archive)],
+                                    capture_output=True, text=True, timeout=15)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            return real_hash(stream)
+
+        with patch.object(checkpoints, "_hash_open_file", side_effect=check_child):
+            identity = checkpoints.archive_identity(self.archive)
+        self.assertEqual(identity[2], checkpoints.digest(self.archive))
+        self.assert_released()
+
+    def test_existing_writer_is_refused_before_any_hash_read(self):
+        with self.archive.open("r+b"), patch.object(checkpoints, "_hash_open_file") as hash_file:
+            with self.assertRaises(PermissionError):
+                checkpoints.archive_identity(self.archive)
+            hash_file.assert_not_called()
+        self.assert_released()
+
+    def test_existing_writable_mapping_is_refused_after_file_handle_closes(self):
+        with self.archive.open("r+b") as stream:
+            mapping = mmap.mmap(stream.fileno(), 0, access=mmap.ACCESS_WRITE)
+        try:
+            with patch.object(checkpoints, "_hash_open_file") as hash_file:
+                with self.assertRaises(PermissionError):
+                    checkpoints.archive_identity(self.archive)
+                hash_file.assert_not_called()
+        finally:
+            mapping.close()
+        self.assert_released()
+
+    def test_existing_readers_remain_compatible(self):
+        with self.archive.open("rb") as reader:
+            identity = checkpoints.archive_identity(self.archive)
+            self.assertEqual(reader.read(), b"before")
+        self.assertEqual(identity[2], checkpoints.digest(self.archive))
+
+    def test_hash_failure_releases_guard(self):
+        with patch.object(checkpoints, "_hash_open_file", side_effect=OSError("synthetic read failure")):
+            with self.assertRaisesRegex(OSError, "synthetic read failure"):
+                checkpoints.archive_identity(self.archive)
+        self.assert_released()
+
+    def test_native_to_descriptor_failure_releases_handle(self):
+        import msvcrt
+        with patch.object(msvcrt, "open_osfhandle", side_effect=OSError("descriptor failure")):
+            with self.assertRaisesRegex(OSError, "descriptor failure"):
+                checkpoints.archive_identity(self.archive)
+        self.assert_released()
+
+    def test_descriptor_to_stream_failure_releases_descriptor(self):
+        with patch.object(os, "fdopen", side_effect=OSError("stream failure")):
+            with self.assertRaisesRegex(OSError, "stream failure"):
+                checkpoints.archive_identity(self.archive)
+        self.assert_released()
+
+    def test_late_stream_failure_does_not_close_an_unrelated_reused_descriptor(self):
+        import msvcrt
+        unrelated = self.archive.with_suffix(".other")
+        unrelated.write_bytes(b"unrelated")
+        real_transfer, real_close = msvcrt.open_osfhandle, os.close
+        guarded, others = [], []
+
+        def transfer(handle, flags):
+            fd = real_transfer(handle, flags)
+            guarded.append(fd)
+            return fd
+
+        def open_other_before_cleanup(fd):
+            # If fdopen already closed fd, the next open reuses its number.
+            # Schedule that interleaving before the guard's final close.
+            if guarded and fd == guarded[0]:
+                others.append(os.open(unrelated, os.O_RDONLY | os.O_BINARY))
+            real_close(fd)
+
+        def late_failure(frame, event, called):
+            if event == "c_return" and called is io.open and frame.f_code is os.fdopen.__code__:
+                sys.setprofile(None)
+                raise MemoryError("late real fdopen failure")
+
+        try:
+            with patch.object(msvcrt, "open_osfhandle", side_effect=transfer), \
+                    patch.object(os, "close", side_effect=open_other_before_cleanup):
+                try:
+                    sys.setprofile(late_failure)
+                    with self.assertRaisesRegex(MemoryError, "late real fdopen failure"):
+                        checkpoints.archive_identity(self.archive)
+                finally:
+                    sys.setprofile(None)
+            self.assertEqual(len(guarded), 1)
+            self.assertEqual(len(others), 1)
+            self.assertNotEqual(guarded[0], others[0])
+            self.assertEqual(os.read(others[0], 9), b"unrelated")
+        finally:
+            for fd in others:
+                try:
+                    real_close(fd)
+                except OSError:
+                    pass
+        self.assert_released()
+
+    def test_missing_archive_is_not_created(self):
+        self.archive.unlink()
+        with self.assertRaises(FileNotFoundError):
+            checkpoints.archive_identity(self.archive)
+        self.assertFalse(self.archive.exists())
+
+    def test_unicode_long_path_keeps_identity_format(self):
+        # Explicit extended paths also work on hosts without the system-wide
+        # long-path opt-in. Cleanup uses that same path namespace.
+        folder = Path("\\\\?\\" + self.tmp.name) / ("a" * 100) / ("b" * 100) / ("c" * 40)
+        folder.mkdir(parents=True)
+        self.addCleanup(shutil.rmtree, folder.parents[1])
+        archive = folder / "synthetic-\u00e9.ba2"
+        archive.write_bytes(b"synthetic")
+        self.assertEqual(checkpoints.archive_identity(archive),
+                         [str(archive.resolve()), 9, checkpoints.digest(archive)])
 
 
 if __name__ == "__main__":

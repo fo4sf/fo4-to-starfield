@@ -1,6 +1,19 @@
+## In plain words
+
+<!-- Two or three sentences a non-programmer can follow: what this changes and why. -->
+
 ## What changed
 
-<!-- State the user-visible or repository effect. Link the issue. -->
+<!-- The files and the user-visible or repository effect. Link the issue. -->
+
+## Why
+
+<!-- The problem it solves, with how you found it. -->
+
+## AI assistance
+
+<!-- Was an AI used to write or suggest this? Which tool, and what did you ask it? "None" is a fine answer.
+     See docs/ai/for-ai-reviewers.md. -->
 
 ## Evidence
 

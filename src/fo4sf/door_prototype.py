@@ -9,7 +9,8 @@ from . import nif,door_rig,door_model,native_door,convert_static,sfnif,sfmesh,do
 def build(source, materials_by_shape, asset, unit_scale, collision_by_node=None, exclude_editor_markers=False):
     if not re.fullmatch(r'[a-z0-9][a-z0-9_-]{0,63}',asset):
         raise ValueError('prototype asset requires a simple lowercase name')
-    plan=door_rig.plan(source)
+    # placed: the game ignores a placed model's stored root transform; identity binds: clips key offsets from the bind
+    plan=door_rig.animated_identity_binds(door_rig.plan(source,placed=True))
     source_shapes={s.block:s for s in nif.fo4_trishapes(source) if s.positions and s.triangles}
     exclusions=[]
     if exclude_editor_markers:
