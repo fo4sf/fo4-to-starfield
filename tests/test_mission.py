@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import json
+import math
 import re
 import tempfile
 import unittest
@@ -150,6 +151,47 @@ class RelocateContractTests(unittest.TestCase):
         self.assertLess(radius, gap)
         self.assertLess(gap, offset - radius)
         self.assertNotIn("1000000000", psc)
+
+    def test_relocate_is_per_actor_and_retries(self):
+        """Codex 5564899342: no global "relocated" flag (a no-op or partial move must be retried, a moved actor never
+        offset twice), and no move from an interior."""
+        with open(PSC, encoding="utf-8") as f:
+            psc = f.read()
+        self.assertNotIn("relocated = true", psc)
+        self.assertIn("if player.IsInInterior()", psc)
+        self.assertRegex(psc, r"if relocateFails < 10\s+Relocate\(player\)")
+
+    def test_relocate_rule_model(self):
+        """The PSC's per-actor rule on plain numbers: unmoved (same world at the local spot, or another world), moved,
+        a no-op MoveTo, and a partial pass followed by a retry."""
+        far = float("inf")
+        ox, oy, radius, gap = -1200.0, -2700.0, 800.0, 1500.0
+
+        def step(player, actors, moveto_works):
+            for a in actors:
+                dist = far if a["world"] != "merged" else math.dist(player, a["pos"])
+                tx, ty = a["pos"][0] + ox, a["pos"][1] + oy
+                if dist < gap or math.dist(player, (tx, ty)) > radius:
+                    continue
+                if moveto_works(a):
+                    a["pos"], a["world"] = (tx, ty), "merged"
+
+        street = (-2011.1, -1697.2)
+        for world in ("merged", "base"):
+            actors = [{"pos": (-811.1, 1002.5), "world": world}, {"pos": (-790.0, 1010.0), "world": world}]
+            step(street, actors, lambda a: False)                       # no-op MoveTo: still pending
+            self.assertTrue(all(a["pos"] == (-811.1, 1002.5) or a["pos"] == (-790.0, 1010.0) for a in actors))
+            step(street, actors, lambda a: a is actors[0])              # partial: only the first arrives
+            self.assertEqual(actors[0]["pos"], (-2011.1, -1697.5))
+            self.assertEqual(actors[1]["pos"], (-790.0, 1010.0))
+            step(street, actors, lambda a: True)                        # retry: the second arrives, the first stays
+            self.assertEqual(actors[0]["pos"], (-2011.1, -1697.5))
+            self.assertEqual(actors[1]["pos"], (-1990.0, -1690.0))
+            step(street, actors, lambda a: True)                        # nothing moves twice
+            self.assertEqual(actors[1]["pos"], (-1990.0, -1690.0))
+        away = [{"pos": (-811.1, 1002.5), "world": "merged"}]
+        step((-1276.0, -3032.0), away, lambda a: True)                  # Red Rocket: not at the museum yet
+        self.assertEqual(away[0]["pos"], (-811.1, 1002.5))
 
     def test_codsworth_is_an_optional_property(self):
         with open(PSC, encoding="utf-8") as f:

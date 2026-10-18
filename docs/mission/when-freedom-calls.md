@@ -62,9 +62,14 @@ offset lands an actor in the merged world's cell at that spot.
 **Second run, 18 Oct 14:40 local (wfc5b, the 13:32 autosave):** `relocate not needed preston=4061.8`, then status lines
 at the museum street (x -2035 to -2352, y -1397 to -1676) with Preston and the nearest raider 2,839 to 2,944 away, the
 offset's length (2,955); stage stayed 10. **Supported hypothesis:** this time the actors were in the player's world but
-at their local spot, so a finite distance does not mean "already moved". Relocate now decides by position: the player
-within `RelocateRadius` (800) of Preston's position + the offset and Preston farther than `RelocateGap` (1,500). A test
-pins radius < gap < offset length - radius.
+at their local spot, so a finite distance does not mean "already moved". Relocate now decides per actor and by position,
+on every check: the player outdoors within `RelocateRadius` (800) of that actor's position + the offset, and the actor
+farther than `RelocateGap` (1,500). A moved actor's position + the offset is far from the player, so nobody is offset
+twice. A move that misses is retried, up to 10 failed moves in all (Codex 5564899342). Tests pin
+radius < gap < offset length - radius and model the rule: no-op, partial, retry, no double move.
+**Open risk (accepted, not fixed):** coordinates cannot tell two exterior worlds apart. The merged world is created at
+run time (FF0054C8 in the log), so no fixed form id can name it in a property. A player standing outdoors in another
+world within 800 of (-2011, -1697) before the mission is done would pull the actors there.
 
 ## Codsworth (2026-10-18)
 

@@ -23,11 +23,11 @@ float Property MergeOffsetY = -2700.0 Auto Const
 {The core world's merge offset (vmad_patch.MERGE_MEASURED, measured in game): the world the player walks in places the
  core's records at their local position + this; z unchanged. Persistent references of the core's persistent cell stay
  at their LOCAL position in the base world (probe (a), 16 Oct; in game 18 Oct: GetDistance to Preston stayed at float max
- with the player standing on his merged spot), so the quest moves its actors over once (Relocate).}
+ with the player standing on his merged spot), so the quest moves its actors over (Relocate).}
 
 float Property RelocateRadius = 800.0 Auto Const
-{Relocate only when the player is within this many units of Preston's merged spot (his position + the merge offset),
- so another world that happens to be loaded never triggers it.}
+{Move an actor only when the player stands outdoors within this many units of that actor's merged spot (its position +
+ the merge offset). Coordinates alone cannot tell two exterior worlds apart; see docs/mission/when-freedom-calls.md.}
 
 float Property RelocateGap = 1500.0 Auto Const
 {...and Preston is farther than this from the player. Unmoved he reads float max (another world, 18 Oct 13:25) or about
@@ -44,7 +44,7 @@ float Property TalkRadius = 3.0 Auto Const
 
 string LogName = "fo4sf_mission"
 int ticks = 0
-bool relocated = false
+int relocateFails = 0
 
 Event OnQuestInit()
     Debug.OpenUserLog(LogName)
@@ -91,7 +91,7 @@ Event OnTimer(int aiTimerID)
         return
     endif
     Actor player = Game.GetPlayer()
-    if !relocated
+    if relocateFails < 10
         Relocate(player)
     endif
     int stage = GetStage()
@@ -162,23 +162,16 @@ EndFunction
 Function Relocate(Actor player)
 {Moves Preston, the raiders and Codsworth from their unmerged local position to the same spot in the merged world the
  player walks in: each actor's local position + the merge offset, z kept (MoveTo onto the player with the difference as
- the offset, the verified MoveTo form of FO4SF_LoadDoor and FO4SF_Probe). Decided by position, not by GetDistance
- alone: in game 18 Oct 14:40 the unmoved actors read a finite distance (same world, local spot), and the old
- "finite means reachable" test skipped the move.}
+ the offset, the verified MoveTo form of FO4SF_LoadDoor and FO4SF_Probe). Decided per actor and by position, every
+ check: in game 18 Oct 14:40 the unmoved actors read a finite distance (same world, local spot), so "finite means
+ reachable" skipped the move. A moved actor's position + the offset is far from the player, so nobody is offset twice;
+ an actor a move missed is tried again (Codex 5564899342), up to 10 failed moves in all. Never from an interior.}
+    if player.IsInInterior()
+        return
+    endif
     float px = player.GetPositionX()
     float py = player.GetPositionY()
     float pz = player.GetPositionZ()
-    float dx = px - (Preston.GetPositionX() + MergeOffsetX)
-    float dy = py - (Preston.GetPositionY() + MergeOffsetY)
-    if dx * dx + dy * dy > RelocateRadius * RelocateRadius
-        return                                            ; not at the museum street yet
-    endif
-    float dp = player.GetDistance(Preston)
-    if dp < RelocateGap
-        relocated = true                                  ; already where the player is: nothing to move
-        Trace("relocate not needed preston=" + dp)
-        return
-    endif
     MoveOver(Preston, player, px, py, pz, "preston")
     int i = 0
     while i < Raiders.Length
@@ -188,16 +181,28 @@ Function Relocate(Actor player)
     if Codsworth != None
         MoveOver(Codsworth, player, px, py, pz, "codsworth")
     endif
-    relocated = true
-    Trace("relocated preston=" + player.GetDistance(Preston))
 EndFunction
 
 Function MoveOver(Actor a, Actor player, float px, float py, float pz, string what)
+{Moves one actor when the player is within RelocateRadius of its merged spot and it is still farther than RelocateGap;
+ counts a move that leaves it farther than RelocateGap as failed.}
+    if player.GetDistance(a) < RelocateGap
+        return                                            ; already where the player is
+    endif
     float x = a.GetPositionX() + MergeOffsetX
     float y = a.GetPositionY() + MergeOffsetY
     float z = a.GetPositionZ()
+    float dx = px - x
+    float dy = py - y
+    if dx * dx + dy * dy > RelocateRadius * RelocateRadius
+        return                                            ; the player is not at its merged spot
+    endif
     a.MoveTo(player, x - px, y - py, z - pz, True, False)
-    Trace("moved " + what + " to " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " target " + x + " " + y + " " + z)
+    float d = player.GetDistance(a)
+    if d >= RelocateGap
+        relocateFails += 1
+    endif
+    Trace("moved " + what + " to " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " target " + x + " " + y + " " + z + " d=" + d + " fails=" + relocateFails)
 EndFunction
 
 Function Trace(string msg)
