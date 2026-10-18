@@ -78,13 +78,34 @@ class VertexAlphaTests(unittest.TestCase):
 
     def test_faded_decal_shape_gets_its_own_scaled_decal_material(self):
         c = converter(bgsm(ref=6, test=1, decal=1))
-        c._convert_texture_set = Mock(return_value="materials\\fo4port\\decals\\x_a48.mat")
+        c._convert_texture_set = Mock(return_value="materials\\fo4port\\vadecals\\a48\\x.mat")
         src, s = bgsm_shape(colors=[(255, 255, 255, 0), (255, 255, 255, 48)])
-        self.assertEqual(c._shape_material(src, s), "materials\\fo4port\\decals\\x_a48.mat")
+        self.assertEqual(c._shape_material(src, s), "materials\\fo4port\\vadecals\\a48\\x.mat")
         args, kw = c._convert_texture_set.call_args
-        self.assertEqual(args[0], "decals/interiors/building/x_a48")
+        self.assertEqual(args[0], "vadecals/a48/interiors/building/x")
         self.assertTrue(kw["decal"])
         self.assertAlmostEqual(kw["opacity_scale"], 48 / 255)
+
+    def test_scaled_output_never_shares_a_name_with_an_unscaled_source(self):
+        # Codex P2: X.bgsm scaled and a literal X_a48.bgsm unscaled once both wrote decals/.../x_a48
+        stems = []
+        for bgsm_name, colors in ((b"materials\\Interiors\\Building\\X.BGSM", [(0, 0, 0, 48)]),
+                                  (b"materials\\Interiors\\Building\\X_a48.BGSM", [(0, 0, 0, 255)])):
+            c = converter(bgsm(blend=1))
+            c._convert_texture_set = Mock(return_value="m.mat")
+            src, s = bgsm_shape(name=bgsm_name, colors=colors)
+            c._shape_material(src, s)
+            stems.append(c._convert_texture_set.call_args[0][0])
+        self.assertEqual(len(set(stems)), 2, stems)
+
+    def test_fully_transparent_shape_is_skipped(self):
+        # Codex P2: peak vertex alpha 0 must not become a 16/255 overlay
+        src, s = bgsm_shape(colors=[(255, 255, 255, 0)] * 3)
+        self.assertEqual(pipeline.vertex_alpha_scale(src.blocks[0], s), 0.0)
+        c = converter(bgsm(ref=6, test=1, decal=1))
+        c._convert_texture_set = Mock(return_value="m.mat")
+        self.assertIsNone(c._shape_material(src, s))
+        c._convert_texture_set.assert_not_called()
 
     def test_unfaded_decal_keeps_the_shared_material(self):
         c = converter(bgsm(blend=1))

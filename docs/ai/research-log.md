@@ -1452,4 +1452,4 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   times vertex alpha, so this one is at most 19 % opaque. The converter treated it as an opaque cutout.
 - **Change:** a BGSM that is decal plus alpha test now converts like a blended one, through the decal template. A shape
   with vertex colours that never reach full alpha gets its own decal material with the opacity map multiplied by its
-  peak vertex alpha (`_a48`). The rim fade itself is not reproduced. Not yet seen in game.
+  peak vertex alpha under `vadecals/a48/` (a peak of 0 skips the shape). The rim fade itself is not reproduced. Not yet seen in game.

@@ -57,7 +57,7 @@ SLSF2_VERTEX_COLORS = 0x20
 
 def vertex_alpha_scale(blk: bytes, shape) -> Optional[float]:
     """Peak vertex alpha of a lighting-shader shape as an opacity factor (0..1, in steps of 16/255), or None when the
-    shape has no vertex colours or reaches full alpha. Debris-pile floor decals (DebrisPileLargeConc01-06 Decals:10)
+    shape has no vertex colours or reaches full alpha; 0.0 when every vertex alpha is 0. Debris-pile floor decals (DebrisPileLargeConc01-06 Decals:10)
     peak at vertex alpha 48, so FO4 draws them as a faint overlay; the Starfield decal gets that as a fixed factor
     (the per-vertex fade at the rims is not reproduced)."""
     colors = getattr(shape, "colors", None)
@@ -72,6 +72,8 @@ def vertex_alpha_scale(blk: bytes, shape) -> Optional[float]:
     peak = max(c[3] for c in colors)
     if peak >= 255:
         return None
+    if peak == 0:
+        return 0.0                                     # never visible in FO4: the caller skips the shape
     return max(16, min(240, (peak + 15) // 16 * 16)) / 255.0
 
 
@@ -285,7 +287,8 @@ class Converter:
     def decal_material(self, bgsm_path: str, opacity_scale: float = 1.0) -> Optional[str]:
         """Alpha-blended FO4 material -> Starfield decal material (or None: the shape is skipped, as before decals).
         opacity_scale < 1: the shape's peak vertex alpha (see vertex_alpha_scale); the opacity map is multiplied by it
-        and the material gets its own name (_aNNN), so other shapes of the same .bgsm keep full opacity."""
+        and the material gets its own name under vadecals/aNN/, a folder no FO4 material path maps to, so it never
+        shares files with the unscaled decal of this or any other .bgsm."""
         m = re.search(r"materials[\\/].*", bgsm_path, re.I)
         bgsm_path = m.group(0) if m else bgsm_path
         scaled = opacity_scale < 1.0
@@ -299,7 +302,7 @@ class Converter:
                 if not (b.diffuse and b.normal):
                     raise ValueError("material lacks diffuse/normal textures")
                 rel = re.sub(r"^materials[\\/]", "", bgsm_path.replace("\\", "/"), flags=re.I)
-                stem = "decals/" + os.path.splitext(rel)[0].lower() + (f"_a{round(opacity_scale * 255)}" if scaled else "")
+                stem = (f"vadecals/a{round(opacity_scale * 255)}/" if scaled else "decals/") + os.path.splitext(rel)[0].lower()
                 extra = {"opacity_scale": opacity_scale} if scaled else {}
                 self._materials[key] = self._convert_texture_set(stem, b.diffuse, b.normal, b.smooth_spec,
                                                                  smoothness=b.smoothness, spec_mult=b.spec_mult,
@@ -559,6 +562,8 @@ class Converter:
         if name.lower().endswith(b".bgsm"):
             if self._is_blended(name.decode("latin-1")):
                 scale = vertex_alpha_scale(blk, s)
+                if scale == 0.0:
+                    return None                            # every vertex fully transparent: FO4 never shows it
                 if scale is not None:                      # faded by vertex alpha (debris-pile floor decals)
                     return self.decal_material(name.decode("latin-1"), opacity_scale=scale)
                 return self.decal_material(name.decode("latin-1"))   # overlay shells (cracks, grime): decal; None = skip
