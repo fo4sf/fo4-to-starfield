@@ -28,7 +28,7 @@
 //        EditorID, name, race; for fo4 also each placed ACHR of it in the Commonwealth (core frame, FO4 / 70) and in
 //        interior cells. Finds Codsworth's placement and a Starfield robot body to stand in for him (ROADMAP B2).
 //   quests <Starfield.esm> [faction regex]  (read only: QuestType keywords with counts and examples, matching factions)
-//   infos <Starfield.esm> <voice type EDID regex>  (read only: the INFOs whose id, EditorIDs or conditions match (first 12), with their
+//   infos <Starfield.esm> <regex | wem:hex,hex...>  (read only: the INFOs whose id, EditorIDs or conditions match (first 12), with their
 //        DIAL's type fields, response WEMFile values and conditions, so Codsworth's lines copy the vanilla pattern)
 //   selftest <scratch dir>
 //        synthetic masters (a Starfield.esm with the Credits MISC, a core with the world, a raider plugin with the calm
@@ -147,7 +147,9 @@ static class Mission
     {
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
         var cache = sf.ToImmutableLinkCache<SF.IStarfieldMod, SF.IStarfieldModGetter>();
-        var rx = new System.Text.RegularExpressions.Regex(voicePattern, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        // "wem:000e6020,001e1d64" matches INFOs by a response's WEMFile instead (are vanilla voice files named by it?)
+        var wems = voicePattern.StartsWith("wem:") ? voicePattern[4..].Split(',').Select(w => Convert.ToUInt32(w, 16)).ToHashSet() : null;
+        var rx = new System.Text.RegularExpressions.Regex(wems is null ? voicePattern : "^$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         string Ed(FormKey fk) => fk.IsNull ? "-" : cache.TryResolve<IMajorRecordGetter>(fk, out var r) ? $"{r.EditorID}({fk.ID:X6})" : $"?{fk.ID:X6}";
         int n = 0;
         foreach (var t in sf.Quests.SelectMany(q => q.DialogTopics))
@@ -155,13 +157,13 @@ static class Mission
             {
                 var text = string.Join(" | ", info.Responses.Select(r => $"wem={r.WEMFile:X8} emo={Ed(r.Emotion.FormKey)} '{r.ResponseText?.String}'"));
                 var conds = string.Join("; ", info.Conditions.Select(c => $"{c.Data.GetType().Name.Replace("ConditionData", "")} {c.CompareOperator} {(c as SF.IConditionFloatGetter)?.ComparisonValue} runon={c.Data.RunOnType} flags={c.Flags} " +
-                                                                         string.Join(",", c.Data.GetType().GetProperties().Where(p => p.Name.EndsWith("Parameter") || p.Name.Contains("OrList")).Select(p => $"{p.Name}={p.GetValue(c.Data)}"))));
-                if (!rx.IsMatch(conds) && !rx.IsMatch(t.EditorID ?? "") && !rx.IsMatch(info.EditorID ?? "") && !rx.IsMatch(info.FormKey.ID.ToString("X6"))) continue;
+                                                                         string.Join(",", c.Data.GetType().GetProperties().Where(p => p.Name.EndsWith("Parameter") || p.Name.Contains("OrList")).Select(p => $"{p.Name}={(p.GetValue(c.Data) is IFormLinkOrIndexGetter<IMajorRecordGetter> l ? Ed(l.Link.FormKey) : p.GetValue(c.Data) is { } v && v.GetType().GetProperty("Link")?.GetValue(v) is IFormLinkGetter fl ? Ed(fl.FormKey) : p.GetValue(c.Data))}"))));
+                if (wems is not null ? !info.Responses.Any(r => wems.Contains(r.WEMFile)) : !rx.IsMatch(conds) && !rx.IsMatch(t.EditorID ?? "") && !rx.IsMatch(info.EditorID ?? "") && !rx.IsMatch(info.FormKey.ID.ToString("X6"))) continue;
                 if (n++ >= 12) continue;
                 Console.WriteLine($"INFO {info.FormKey.ID:X6} {info.EditorID} flags={info.Flags?.Flags} speaker={Ed(info.Speaker.FormKey)} [{text}] conds [{conds}]");
                 Console.WriteLine($"  DIAL {t.FormKey.ID:X6} {t.EditorID} quest={Ed(t.Quest.FormKey)} category={t.Category} subtype={t.Subtype} name={t.SubtypeName} topicflags={t.TopicFlags} priority={t.Priority} branch={Ed(t.Branch.FormKey)} infos={t.Responses.Count}");
             }
-        Console.WriteLine($"{n} INFO(s) matched");
+        Console.WriteLine($"{n} INFO(s) matched (the first 12 printed)");
         return 0;
     }
 
