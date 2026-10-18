@@ -270,8 +270,6 @@ class MovableControlJudgeTests(unittest.TestCase):
                 (None, "not captured"),
                 ({"before": 'Clear Console cf "ObjectReference.GetMass" GetMass > > 25.00'}, "not captured"),
                 ({"after_note": "the item was not selected again"}, "not selected again"),
-                ({"after": 'Clear Console cf "ObjectReference.GetMass" No script named ObjectReference is attached to '
-                           'the object'}, "refused"),
                 ({"after": 'Clear Console cf "ObjectReference.GetMass"'}, "no number"),
                 ({"after": "Clear Console prid FF000800"}, "echo was not read"),
                 ({"after": 'Clear Console cf "ObjectReference.GetMass" GetMass > > 5.00 6.00'}, "several numbers")):
@@ -289,6 +287,40 @@ class MovableControlJudgeTests(unittest.TestCase):
             self.assertIn("GetMass read 25 kg after SetRigidBodyMass 5 (before: 25 kg): the mass set did not take", d)
         self.assertNotIn("MASS", tq.FINAL_INCONCLUSIVE)               # retried: an OCR miss can read on the next try
 
+    def test_a_mass_the_console_cannot_read_judges_only_a_move(self):
+        # movable_1019c (2026-10-18, verified): cf "ObjectReference.GetMass" answers "No script named ObjectReference is
+        # attached to the object", so no reading will ever come. A move stands (the set mass can only have made the
+        # body lighter or left it as it was); no move stays INCONCLUSIVE MASS (an unchanged mass reads the same)
+        t = tq.movable_test(0, dict(ITEM, set_mass_kg=5))
+        typed = {"typed": True, "ocr": "Clear Console SetRigidBodyMass 5"}
+        nos = {"after": 'Clear Console cf "ObjectReference.GetMass" No script named ObjectReference is attached to the '
+                        'object'}
+        v, c, d = self.judge(control_obs(self.d, mass_probe=nos, set_mass=typed, item_after="-3.00 6.10 0.00"), t)
+        self.assertEqual((v, c), ("PASS", "WALKED"), d)
+        self.assertIn("[mass not read back: GetMass is not reachable from the console", d)
+        v, c, d = self.judge(control_obs(self.d, mass_probe=nos, set_mass=typed, impulses=[imp("-3.00 3.55 0.00")]), t)
+        self.assertEqual((v, c), ("PASS", "IMPULSE"), d)
+        for obs in (control_obs(self.d, mass_probe=nos, set_mass=typed),
+                    control_obs(self.d, mass_probe=nos, set_mass=typed, impulses=[imp("-3.00 4.00 0.00")] * 3)):
+            v, c, d = self.judge(obs, t)
+            self.assertEqual((v, c), ("INCONCLUSIVE", "MASS"), d)
+            self.assertIn("its mass not read back: a mass that did not take reads the same", d)
+        # Codex on #343 at 069d525: the exception needs this session's GetMass echo, then ObjectReference's refusal
+        self.assertTrue(tq.unreadable_mass(nos["after"]))
+        for other in ('No script named X Clear Console cf "ObjectReference.GetMass"',          # an older session's
+                      'Clear Console cf "Actor.PathToReference" No script named Actor is attached to the object',
+                      "No script named ObjectReference is attached to the object",           # no echo, no session
+                      "Clear Console No script named ObjectReference is attached to the object"):
+            with self.subTest(other=other):
+                self.assertFalse(tq.unreadable_mass(other))
+                v, c, d = self.judge(control_obs(self.d, mass_probe={"after": other}, set_mass=typed,
+                                                 item_after="-3.00 6.10 0.00"), t)
+                self.assertEqual((v, c), ("INCONCLUSIVE", "MASS"), d)
+        # an item still settling before the walk is SETTLE before any mass rule (Codex's first case)
+        drift = control_obs(self.d, mass_probe=nos, set_mass=typed, item_before="-3.00 4.50 0.00",
+                            item_after="-3.00 6.10 0.00")
+        self.assertEqual(self.judge(drift, t)[:2], ("INCONCLUSIVE", "SETTLE"))
+
     def test_mass_read(self):
         self.assertEqual(tq.mass_read('Clear Console cf "ObjectReference.GetMass" GetMass >> 5.00'), (5.0, ""))
         self.assertEqual(tq.mass_read('ClearConsole cf "ObjectReference.GetMass" 12,5')[0], 12.5)
@@ -297,6 +329,42 @@ class MovableControlJudgeTests(unittest.TestCase):
         self.assertIsNone(tq.mass_read('Clear Console cf "ObjectReference.GetMass" Script command not found 5')[0])
         self.assertTrue(tq.mass_ok(5.1, 5.0) and tq.mass_ok(4.8, 5.0) and not tq.mass_ok(5.4, 5.0))
         self.assertTrue(tq.mass_ok(19.2, 20.0) and not tq.mass_ok(18.9, 20.0) and not tq.mass_ok(None, 5.0))
+
+
+class ImpulseControlTests(unittest.TestCase):
+    # movable_1019c (2026-10-18): two converted items FAIL STUCK, but no impulse had ever been typed on a vanilla item
+    # (the V_ controls moved on the walk, so their ladder never ran). impulse_control runs it anyway: the positive
+    # control a STUCK is read against
+    def setUp(self):
+        self.d = tempfile.mkdtemp()
+        self.t = tq.movable_test(0, dict(ITEM, label="V_trashbin", base="002A0D5B", mass_kg=10.0, impulse_control=True))
+
+    def test_the_plan_marks_the_control_and_needs_the_feature(self):
+        self.assertTrue(self.t["impulse_control"])
+        self.assertNotIn("impulse_control", tq.movable_test(0, ITEM))
+        self.assertIn("impulse_control", runner_features.FEATURES)
+        self.assertEqual(runner_features.needs([self.t]), ["impulse", "impulse_control", "push_judge"])
+        with self.assertRaises(SystemExit):
+            tq.movable_test(0, dict(ITEM, impulse_control=True, impulse_dv=[]))
+
+    def test_the_walk_decides_and_the_ladder_is_detail(self):
+        walked = dict(item_after="-3.00 6.10 0.00")
+        v, c, d = tq.judge(self.t, control_obs(self.d, impulses=[imp("-3.00 4.90 0.00")], **walked), self.d)
+        self.assertEqual((v, c), ("PASS", "WALKED"), d)
+        self.assertIn("impulse control: ApplyHavokImpulse 37.5 (dv 1.5 m/s, step 1) moved it 1.20 m", d)
+        v, c, d = tq.judge(self.t, control_obs(self.d, impulses=[imp("-3.00 6.10 0.00")] * 3, **walked), self.d)
+        self.assertEqual((v, c), ("PASS", "WALKED"), d)
+        self.assertIn("did not move it either: in this queue a FAIL STUCK does not show a body that does not respond", d)
+        v, c, d = tq.judge(self.t, control_obs(self.d, **walked), self.d)
+        self.assertIn("impulse control: the ladder did not finish (no impulse was applied)", d)
+        # without the key nothing is added (an older plan reads as before)
+        v, c, d = tq.judge(tq.movable_test(0, ITEM), control_obs(self.d, **walked), self.d)
+        self.assertNotIn("impulse control", d)
+
+    def test_qstep_runs_the_ladder_after_any_walk_of_a_control(self):
+        with open(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8") as f:
+            src = f.read()
+        self.assertIn("($d -lt $min -or $t.impulse_control -eq $true)) { Push-Impulses", src)
 
 
 class MovablePlanTests(unittest.TestCase):

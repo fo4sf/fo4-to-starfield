@@ -170,6 +170,45 @@ class TerrainReferenceIdentityTests(unittest.TestCase):
     def test_middle_promotion_preserves_all_serialized_source_references(self):
         self.assert_preserved([1], 'middle')
 
+    def test_garage_button_writer_links_script_keyword_without_reallocating(self):
+        objects = copy.deepcopy(self.objects)
+        button, door = objects['refs'][:2]
+        objects['activators'] = [dict(ref, reference_index=i, edid=f'SyntheticActi{i}',
+                                     model='synthetic.nif', name=f'Part{i}')
+                                 for i, ref in enumerate((button, door))]
+        objects['refs'] = objects['refs'][2:]
+        before, baseline = self.run_writer(objects, 'garage-unwired')
+        self.assertEqual(before.returncode, 0, before.stdout + before.stderr)
+        objects['garage_buttons'] = [{'button': button['src'], 'door': door['src']}]
+        after, candidate = self.run_writer(objects, 'garage-wired')
+        self.assertEqual(after.returncode, 0, after.stdout + after.stderr)
+        old_ids = json.loads((baseline / 'formids.json').read_text())
+        new_ids = json.loads((candidate / 'formids.json').read_text())
+        for section, values in old_ids.items():
+            self.assertEqual(new_ids[section], values, section)
+        old_records = records(baseline / 'Synthetic.esm')
+        new_records = records(candidate / 'Synthetic.esm')
+        button_id = int(new_ids['activators'][button['src']]['ref'], 16)
+        door_id = int(new_ids['activators'][door['src']]['ref'], 16)
+        self.assertEqual(set(new_records), set(old_records))
+        self.assertEqual([key for key in new_records if new_records[key] != old_records[key]], [button_id])
+        fields = list(subrecords(new_records[button_id][1]))
+        self.assertEqual(sum(sig == b'VMAD' for sig, _ in fields), 1)
+        self.assertEqual(sum(sig == b'XLKR' for sig, _ in fields), 1)
+        fields = dict(fields)
+        vmad = mk.vmad_patch.decode(fields[b'VMAD'])
+        self.assertEqual((vmad['version'], vmad['format']), (6, 2))
+        self.assertEqual(len(vmad['scripts']), 1)
+        script = vmad['scripts'][0]
+        self.assertEqual(script['name'], 'DefaultActivateLinkedRefOnActivate')
+        self.assertEqual(script['properties'], [{
+            'name': 'LinkedRefKeyword', 'type': 1, 'status': 1,
+            'value': {'unused': 0, 'alias': -1, 'form': 0x0005D5E7},
+        }])
+        # The synthetic plugin has one master: XLKR must name that keyword and
+        # the garage reference in Synthetic.esm, not its ACTI base or another slot.
+        self.assertEqual(struct.unpack('<II', fields[b'XLKR']), (0x0005D5E7, 0x01000000 | door_id))
+
     def test_first_and_last_promotions_preserve_all_slots(self):
         self.assert_preserved([0], 'first')
         self.assert_preserved([2], 'last')
