@@ -977,6 +977,25 @@ class QstepMovableSandboxTests(SandboxStep, unittest.TestCase):
         k = self.typed.index("player.placeatme 0200CE2A 1")
         self.assertEqual(self.typed[k + 1:k + 3], ["player.setpos x -3", "player.setpos y 1"])
 
+    def test_getself_naming_no_ref_still_confirms_the_item(self):
+        # the movable queue of 2026-10-18: GetSelf read (00000000) after prid of a placed vanilla item; GetIsID 1 and
+        # the position confirm it
+        v, obs, left = self.item(world={"self_fmt": "zero"})
+        self.assertEqual(v[:2], ("PASS", "IMPULSE"), v[2])
+        self.assertEqual(obs["spawn"]["self"], "00000000")
+        self.assertTrue(obs["spawn"]["confirmed"], obs["spawn"]["why"])
+        self.assertEqual(left, [], obs.get("cleanup"))
+
+    def test_plr_is_read_again_when_it_names_no_id(self):
+        v, obs, _ = self.item(world={"plr_misses": 1})
+        self.assertEqual(v[:2], ("PASS", "IMPULSE"), v[2])
+        self.assertIn("plr2_ocr", obs["spawn"])
+        self.assertEqual(obs["spawn"]["ref"], "FF000800")
+        v, obs, left = self.item(world={"plr_misses": 2})       # still nothing: not confirmed, nothing acted on
+        self.assertEqual(v[:2], ("INCONCLUSIVE", "SPAWN"), v[2])
+        self.assertIn("PickLastRef gave no FFxxxxxx id", v[2])
+        self.assertFalse([c for c in self.typed if c.startswith(("ApplyHavokImpulse", "disable"))])
+
     def test_the_ladder_climbs_until_the_item_moves(self):
         v, obs, _ = self.item(world={"impulse_dv_min": 5.0})
         self.assertEqual(v[:2], ("PASS", "IMPULSE"), v[2])
