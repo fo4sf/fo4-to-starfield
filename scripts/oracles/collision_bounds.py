@@ -1,7 +1,9 @@
 """Compare a converted Starfield NIF's drawn-geometry AABB with its collision AABB.
 
 Offline only: this does not prove the in-game activate prompt. Exit 1 when a model is flagged
-(missing, unreadable, much-smaller, or offset collision).
+(missing, unreadable, no_mesh, much-smaller, or offset collision), including partial body
+decode and malformed manifest entries. Nonfinite --scale / per-item scale is rejected before
+comparison. JSON output never emits NaN/Infinity.
 
 usage: python scripts/oracles/collision_bounds.py <model.nif> [--scale 0.75]
        python scripts/oracles/collision_bounds.py --manifest staging/manifest.json --staging <staging>
@@ -46,7 +48,33 @@ def _scale_aabb(lo, hi, scale):
     return _aabb(pts)
 
 
+def _finite_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def parse_scale(value):
+    if isinstance(value, bool):
+        raise ValueError(f"scale is not a finite number: {value!r}")
+    try:
+        scale = float(value)
+    except (TypeError, ValueError) as err:
+        raise ValueError(f"scale is not a finite number: {value!r}") from err
+    if not math.isfinite(scale):
+        raise ValueError(f"scale is not finite: {value!r}")
+    return scale
+
+
+def _finite_xyz(v):
+    return isinstance(v, (list, tuple)) and len(v) == 3 and all(_finite_number(x) for x in v)
+
+
+def _finite_aabb(lo, hi):
+    return _finite_xyz(lo) and _finite_xyz(hi)
+
+
 def _round_xyz(v, n=4):
+    if not _finite_xyz(v):
+        raise ValueError("nonfinite bound")
     return [round(x, n) for x in v]
 
 
@@ -93,6 +121,8 @@ def mesh_aabb(f, scale=1.0):
     lo, hi = _aabb(points)
     if scale != 1.0:
         lo, hi = _scale_aabb(lo, hi, scale)
+    if not _finite_aabb(lo, hi):
+        raise ValueError("nonfinite mesh bounds")
     return lo, hi
 
 
@@ -131,6 +161,9 @@ def collision_bodies(f, scale=1.0):
             blo, bhi = _aabb(pts)
             if scale != 1.0:
                 blo, bhi = _scale_aabb(blo, bhi, scale)
+            if not _finite_aabb(blo, bhi):
+                errors.append(f"collision object {i}: nonfinite box bounds")
+                continue
             bodies.append({"shape": kind, **aabb_info(blo, bhi)})
             continue
         except (sfcollision.CollisionError, struct.error, ValueError):
@@ -148,6 +181,9 @@ def collision_bodies(f, scale=1.0):
             if scale != 1.0:
                 pts = [(p[0] * scale, p[1] * scale, p[2] * scale) for p in pts]
             blo, bhi = _aabb(pts)
+            if not _finite_aabb(blo, bhi):
+                errors.append(f"collision object {i}: nonfinite {body.get('shape', 'shape')} bounds")
+                continue
             bodies.append({"shape": body["shape"], **aabb_info(blo, bhi)})
     return bodies, errors
 
@@ -170,6 +206,8 @@ def flag_bounds(mesh, collision):
         return ["no_mesh"]
     if collision is None:
         return ["missing"]
+    if not _finite_aabb(*mesh) or not _finite_aabb(*collision):
+        return ["unreadable"]
     m_lo, m_hi = mesh
     c_lo, c_hi = collision
     m_ext = [m_hi[a] - m_lo[a] for a in range(3)]
@@ -189,18 +227,28 @@ def flag_bounds(mesh, collision):
 
 def audit(data, scale=1.0, path=""):
     try:
+        scale = parse_scale(scale)
+    except ValueError as err:
+        return {"path": path, "scale": None, "flags": ["unreadable"], "error": str(err)}
+    try:
         f = nif.parse(data)
     except (nif.NifError, struct.error, ValueError, IndexError) as err:
         return {"path": path, "scale": scale, "flags": ["unreadable"], "error": str(err)}
-    mesh = mesh_aabb(f, scale)
-    bodies, errors = collision_bodies(f, scale)
+    errors = []
+    try:
+        mesh = mesh_aabb(f, scale)
+    except ValueError as err:
+        mesh = None
+        errors.append(str(err))
+    bodies, body_errors = collision_bodies(f, scale)
+    errors.extend(body_errors)
     coll = combined_aabb(bodies)
-    if errors and not bodies:
-        flags = ["unreadable"]
-        if mesh is None:
-            flags.append("no_mesh")
-    else:
-        flags = flag_bounds(mesh, coll)
+    flags = []
+    if errors:
+        flags.append("unreadable")
+    for flag in flag_bounds(mesh, coll):
+        if flag not in flags:
+            flags.append(flag)
     report = {"path": path, "scale": scale, "flags": flags,
               "mesh": aabb_info(*mesh) if mesh else None,
               "collision": {"bodies": len(bodies), "per_body": bodies,
@@ -219,6 +267,11 @@ def _model_path(staging, model):
 
 
 def audit_files(paths, scale=1.0):
+    try:
+        scale = parse_scale(scale)
+    except ValueError as err:
+        return [{"path": str(paths[0]) if paths else "", "scale": None,
+                 "flags": ["unreadable"], "error": str(err)}]
     reports = []
     for path in paths:
         try:
@@ -230,20 +283,38 @@ def audit_files(paths, scale=1.0):
 
 def audit_manifest(manifest, staging, scale=1.0):
     reports = []
-    for item in manifest.get("items") or []:
-        if not isinstance(item, dict) or not item.get("model"):
+    try:
+        scale = parse_scale(scale)
+    except ValueError as err:
+        return [{"path": "", "scale": None, "flags": ["unreadable"], "error": str(err)}]
+    items = manifest.get("items") if isinstance(manifest, dict) else None
+    if not isinstance(items, list):
+        return [{"path": "", "scale": scale, "flags": ["unreadable"],
+                 "error": "manifest items must be a list"}]
+    for i, item in enumerate(items):
+        if not isinstance(item, dict):
+            reports.append({"path": f"<items[{i}]>", "scale": scale, "flags": ["unreadable"],
+                            "error": f"manifest item {i} is not an object"})
             continue
-        item_scale = item.get("scale", scale)
+        model = item.get("model")
+        if not isinstance(model, str) or not model:
+            reports.append({"path": str(item.get("source") or f"<items[{i}]>"), "scale": scale,
+                            "flags": ["unreadable"], "error": f"manifest item {i} missing model"})
+            continue
         try:
-            path = _model_path(staging, item["model"])
-            reports.append(audit(path.read_bytes(), scale=float(item_scale), path=str(path)))
+            item_scale = parse_scale(item["scale"]) if "scale" in item else scale
+        except ValueError as err:
+            reports.append({"path": model, "scale": None, "flags": ["unreadable"], "error": str(err)})
+            continue
+        try:
+            path = _model_path(staging, model)
+            reports.append(audit(path.read_bytes(), scale=item_scale, path=str(path)))
         except (OSError, ValueError, TypeError) as err:
-            reports.append({"path": str(item.get("model")), "scale": item_scale,
-                            "flags": ["unreadable"], "error": str(err)})
+            reports.append({"path": model, "scale": item_scale, "flags": ["unreadable"], "error": str(err)})
     return reports
 
 
-_FAIL = {"missing", "unreadable", "much_smaller", "offset"}
+_FAIL = {"missing", "unreadable", "much_smaller", "offset", "no_mesh"}
 
 
 def failed(reports):
@@ -271,18 +342,27 @@ def main(argv=None):
     parser.add_argument("--staging", type=Path)
     parser.add_argument("--scale", type=float, default=1.0)
     args = parser.parse_args(argv)
+    try:
+        args.scale = parse_scale(args.scale)
+    except ValueError as err:
+        parser.error(str(err))
     if args.manifest is not None:
         if args.staging is None:
             parser.error("--manifest requires --staging")
-        manifest = json.loads(args.manifest.read_text(encoding="utf-8-sig"))
-        reports = audit_manifest(manifest, args.staging.resolve(), scale=args.scale)
+        try:
+            manifest = json.loads(args.manifest.read_text(encoding="utf-8-sig"))
+        except (OSError, json.JSONDecodeError, UnicodeError) as err:
+            reports = [{"path": str(args.manifest), "scale": args.scale, "flags": ["unreadable"],
+                        "error": str(err)}]
+        else:
+            reports = audit_manifest(manifest, args.staging.resolve(), scale=args.scale)
     elif args.nif is not None:
         reports = audit_files([args.nif], scale=args.scale)
     else:
         parser.error("a NIF path or --manifest is required")
     result = {"models": len(reports), "flagged": len(failed(reports)), "reports": reports,
               "smaller_ratio": SMALLER_RATIO, "offset_ratio": OFFSET_RATIO}
-    print(json.dumps(result, indent=2))
+    print(json.dumps(result, indent=2, allow_nan=False))
     return int(bool(failed(reports) or not reports))
 
 

@@ -3,6 +3,7 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -132,6 +133,119 @@ class CollisionBoundsOracleTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 code = oracle.main([str(path)])
         self.assertEqual(code, 1)
+
+    def test_matching_body_plus_unreadable_sibling_is_unreadable(self):
+        box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
+        report = oracle.audit(
+            nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box, children=[b"not-havok"]),
+            path="partial.nif")
+        self.assertIn("unreadable", report["flags"])
+        self.assertGreaterEqual(report["collision"]["bodies"], 1)
+        self.assertTrue(report.get("errors"))
+        self.assertIn("unreadable", oracle.failed([report])[0]["flags"])
+
+    def test_collision_only_nif_is_unassessed(self):
+        box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
+        data = nif.serialize(sfnif.build_static_nif(b"Prop", [], collision_blob=box))
+        report = oracle.audit(data, path="collision-only.nif")
+        self.assertIn("no_mesh", report["flags"])
+        self.assertIsNone(report["mesh"])
+        self.assertEqual(report["collision"]["bodies"], 1)
+        self.assertTrue(oracle.failed([report]))
+
+    def test_nonfinite_scale_is_rejected(self):
+        box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
+        data = nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box)
+        for scale in (float("nan"), float("inf"), float("-inf")):
+            report = oracle.audit(data, scale=scale, path="scale.nif")
+            self.assertIn("unreadable", report["flags"], msg=scale)
+            self.assertIsNone(report["scale"])
+            payload = json.dumps(report, allow_nan=False)
+            self.assertNotIn("NaN", payload)
+            self.assertNotIn("Infinity", payload)
+
+    def test_malformed_manifest_entries_are_reported(self):
+        box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
+        data = nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box)
+        with tempfile.TemporaryDirectory() as tmp:
+            staging = Path(tmp)
+            model = staging / "meshes" / "roof" / "hatch.nif"
+            model.parent.mkdir(parents=True)
+            model.write_bytes(data)
+            reports = oracle.audit_manifest(
+                {"items": [
+                    {"model": "roof/hatch.nif"},
+                    None,
+                    {"source": "lost.nif"},
+                ]},
+                staging)
+        self.assertEqual(len(reports), 3)
+        self.assertEqual(reports[0]["flags"], [])
+        self.assertIn("unreadable", reports[1]["flags"])
+        self.assertIn("unreadable", reports[2]["flags"])
+        self.assertEqual(len(oracle.failed(reports)), 2)
+
+    def test_cli_codex_fail_open_controls(self):
+        script = Path(_ROOT) / "scripts" / "oracles" / "collision_bounds.py"
+        box = sfcollision.box_blob(fake_template(), (0, 0, 0.5), (0.4, 0.4, 0.5))
+        match = nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box)
+        sibling = nif_bytes((0, 0, 0.5, 0.4, 0.4, 0.5), box, children=[b"not-havok"])
+        collision_only = nif.serialize(sfnif.build_static_nif(b"Prop", [], collision_blob=box))
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "match.nif").write_bytes(match)
+            (root / "sibling.nif").write_bytes(sibling)
+            (root / "collision-only.nif").write_bytes(collision_only)
+            staging = root / "stage"
+            model = staging / "meshes" / "roof" / "hatch.nif"
+            model.parent.mkdir(parents=True)
+            model.write_bytes(match)
+            manifest = root / "manifest.json"
+            manifest.write_text(json.dumps({
+                "items": [
+                    {"model": "roof/hatch.nif"},
+                    None,
+                    {"source": "lost.nif"},
+                ]}), encoding="utf-8")
+
+            def run(*args):
+                return subprocess.run(
+                    [sys.executable, "-I", str(script), *args],
+                    capture_output=True, text=True, cwd=str(root))
+
+            sibling_proc = run(str(root / "sibling.nif"))
+            self.assertNotEqual(sibling_proc.returncode, 0)
+            sibling_out = json.loads(sibling_proc.stdout)
+            self.assertIn("unreadable", sibling_out["reports"][0]["flags"])
+            self.assertGreaterEqual(sibling_out["reports"][0]["collision"]["bodies"], 1)
+            self.assertTrue(sibling_out["reports"][0].get("errors"))
+
+            meshless = run(str(root / "collision-only.nif"))
+            self.assertNotEqual(meshless.returncode, 0)
+            meshless_out = json.loads(meshless.stdout)
+            self.assertIn("no_mesh", meshless_out["reports"][0]["flags"])
+            self.assertIsNone(meshless_out["reports"][0]["mesh"])
+
+            for flag in ("nan", "inf", "-inf"):
+                proc = run("--scale", flag, str(root / "match.nif"))
+                self.assertNotEqual(proc.returncode, 0, msg=flag)
+                self.assertNotIn("NaN", proc.stdout)
+                self.assertNotIn("Infinity", proc.stdout)
+
+            man = run("--manifest", str(manifest), "--staging", str(staging))
+            self.assertNotEqual(man.returncode, 0)
+            man_out = json.loads(man.stdout)
+            self.assertEqual(man_out["models"], 3)
+            self.assertGreaterEqual(man_out["flagged"], 2)
+            self.assertEqual(man_out["reports"][0]["flags"], [])
+            self.assertIn("unreadable", man_out["reports"][1]["flags"])
+            self.assertIn("unreadable", man_out["reports"][2]["flags"])
+
+            ok = run(str(root / "match.nif"))
+            self.assertEqual(ok.returncode, 0)
+            ok_out = json.loads(ok.stdout)
+            self.assertEqual(ok_out["flagged"], 0)
+            json.dumps(ok_out, allow_nan=False)
 
 
 if __name__ == "__main__":
