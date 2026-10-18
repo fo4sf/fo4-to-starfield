@@ -163,30 +163,82 @@ def retry_failed_nifs(summary):
     return ordered
 
 
+def item_identity(it):
+    """Base vs posed-variant identity. XRGD rows share source with the base and must stay distinct."""
+    src = it.get("source") if isinstance(it, dict) else None
+    if not isinstance(src, str) or not src:
+        return None
+    key = source_identity(src)
+    pose = it.get("pose") if isinstance(it.get("pose"), dict) else None
+    if pose:
+        kind = pose.get("kind")
+        pk = pose.get("key")
+        if isinstance(kind, str) and kind and pk not in (None, ""):
+            return (key, kind, str(pk))
+    return (key, "", "")
+
+
+def retry_success_nifs(items):
+    names = set()
+    for it in items:
+        ident = item_identity(it)
+        if not ident:
+            continue
+        src = it["source"]
+        if ident[1]:
+            names.add(f"{src}|{ident[1]}:{ident[2]}")
+        else:
+            names.add(src)
+    return names
+
+
+def extend_pending_from_manifest(pending, prior):
+    """Until summary and manifest agree, keep unresolved identities from both."""
+    extra = []
+    if isinstance(prior, dict):
+        for f in prior.get("failures") or []:
+            if isinstance(f, dict) and isinstance(f.get("nif"), str) and f["nif"]:
+                extra.append(f["nif"])
+    seen = set(pending)
+    out = list(pending)
+    for n in extra:
+        if n not in seen:
+            seen.add(n)
+            out.append(n)
+    return out
+
+
 def merge_retry_stage(prior, new_items, new_failures, pending_nifs):
-    """Keep prior successes; fold this retry in by source; drop only proven successful retries."""
+    """Keep prior successes; fold this retry in by base/pose identity; drop only proven successful retries."""
     prior = prior if isinstance(prior, dict) else {}
-    items = [dict(it) for it in (prior.get("items") or []) if isinstance(it, dict) and it.get("source")]
-    by_source = {it["source"]: i for i, it in enumerate(items)}
+    items = [dict(it) for it in (prior.get("items") or []) if isinstance(it, dict) and item_identity(it)]
+    by_id = {item_identity(it): i for i, it in enumerate(items)}
     next_index = max((it.get("form_index", -1) for it in items), default=-1) + 1
     for it in new_items:
         row = dict(it)
-        src = row.get("source")
-        if not src:
+        ident = item_identity(row)
+        if not ident:
             continue
-        if src in by_source:
-            row["form_index"] = items[by_source[src]].get("form_index", by_source[src])
-            items[by_source[src]] = row
+        if ident in by_id:
+            old = items[by_id[ident]]
+            row["form_index"] = old.get("form_index", by_id[ident])
+            if old.get("editor_id"):
+                row["editor_id"] = old["editor_id"]
+            items[by_id[ident]] = row
         else:
             row["form_index"] = next_index
             next_index += 1
-            by_source[src] = len(items)
+            by_id[ident] = len(items)
             items.append(row)
-    succeeded = {it["source"] for it in new_items if it.get("source")}
+    succeeded = retry_success_nifs(new_items)
     now_fail = {f["nif"]: f for f in new_failures if isinstance(f, dict) and f.get("nif")}
     prior_fail = {f["nif"]: f for f in (prior.get("failures") or []) if isinstance(f, dict) and f.get("nif")}
     failures = []
+    seen = set()
     for n in pending_nifs:
+        if n in seen:
+            continue
+        seen.add(n)
         if n in succeeded:
             continue
         if n in now_fail:
@@ -285,13 +337,14 @@ def main():
         pending_retry = retry_failed_nifs(prev_summary)
         if pending_retry is None:
             sys.exit("--retry-failures: failure-summary.json has no failed_nifs list; stage not changed")
-        failed = set(pending_retry)
-        names = [n for n in names if n in failed]
-        print(f"  retry-failures: narrowed to {len(names)} previous failures")
         man_path = os.path.join(a.staging, "manifest.json")
         if os.path.exists(man_path):
             with open(man_path, encoding="utf-8") as f:
                 prior_manifest = json.load(f)
+        pending_retry = extend_pending_from_manifest(pending_retry, prior_manifest or {})
+        failed = set(pending_retry)
+        names = [n for n in names if n in failed]
+        print(f"  retry-failures: narrowed to {len(names)} previous failures")
     print(f"{len(names)} candidate meshes; converting up to {a.limit}")
     os.makedirs(a.staging, exist_ok=True)
     state_path = os.path.join(a.staging, "build-state.json")
@@ -452,7 +505,6 @@ def main():
         summary["top"] = [{"reason": r, "count": c, "percent": round(100.0 * c / total, 1) if total else 0.0}
                           for r, c in Counter(f["reason"].split(":")[0].strip() for f in failures).most_common(10)]
         summary["reasons"] = {r: c for r, c in Counter(f["reason"].split(":")[0].strip() for f in failures).most_common()}
-    write_json_atomic(os.path.join(a.staging, "failure-summary.json"), summary)
 
     tex_totals = None
     if textures.parse_texture_caps(a.max_texture):
@@ -472,6 +524,7 @@ def main():
     os.makedirs(a.staging, exist_ok=True)
     write_json_atomic(os.path.join(a.staging, "editorids.json"), ids)
     write_json_atomic(os.path.join(a.staging, "manifest.json"), manifest)
+    write_json_atomic(os.path.join(a.staging, "failure-summary.json"), summary)
     finished = not (pending_retry is not None and failures)
     write_json_atomic(state_path, {"complete": finished, "status": "finished" if finished else "retry_pending",
                                    "assets": len(items), "failed": len(failures)})
