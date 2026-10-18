@@ -217,21 +217,34 @@ Reports are reviewed by the project owner before anyone acts on them; until then
 
 Starfield often crashes straight to the desktop with no message. A crash dump (a copy of the game's memory at the
 moment it crashed) shows what failed: the project found its Havok collision crash from one
-([journal, 16 October](JOURNAL.md)). The owner's PC catches dumps with Microsoft's free
-[ProcDump](https://learn.microsoft.com/sysinternals/downloads/procdump) and this command, run in a Command Prompt
-before launching the game:
+([journal, 16 October](JOURNAL.md)). Use Microsoft's free
+[ProcDump](https://learn.microsoft.com/sysinternals/downloads/procdump), started in a Command Prompt before you launch
+the game.
+
+**General crashes.** This writes one full dump (`-ma`) when the game hits an unhandled exception (`-e`), waiting for
+`Starfield.exe` to start (`-w`):
+
+```
+procdump64.exe -accepteula -ma -e -n 1 -w Starfield.exe "<dump folder>"
+```
+
+**The engine's own assertion stop (advanced).** The collision crash ended the game with exception `0x80000003` (a
+breakpoint) and no Windows error report, so the command above can miss it. The owner's PC used this variant, which
+dumps on the first-chance exception (`-e 1`) whose content matches `80000003` (`-f`):
 
 ```
 procdump64.exe -accepteula -e 1 -f "80000003" -ma -n 1 -w Starfield.exe "<dump folder>"
 ```
 
-It waits for `Starfield.exe` to start, then writes one full dump (`-ma`) on an unhandled exception (`-e 1`) or on the
-engine's own assertion break, exception `0x80000003` (`-f`), which is how the collision crash ended the game.
-Run it again after each crash to watch the next launch. The owner's copy loops it in a small script.
+It caught the 16 October dump on the owner's PC without `-b`. ProcDump's documentation says debug breakpoints are
+ignored unless `-b` is given, so if this variant misses a breakpoint crash on your PC, add `-b` (unverified on this
+project). The filter means it only catches that one exception, not crashes in general.
 
-- **Wait for the dump to finish.** A full dump is large (the owner's was about 17 GB). Don't close the window or end
-  ProcDump until the new `.dmp` file in the dump folder stops growing; a half-written dump is useless.
-- **Stop watching** with `taskkill /f /im procdump64.exe`, then close the window.
+- **Wait for the dump to finish.** A full dump is large (the owner's was about 17 GB). With `-n 1`, ProcDump writes one
+  dump and then exits, so the dump is complete when ProcDump has exited and the Command Prompt is back. Don't close
+  the window before that; a half-written dump is useless.
+- **Stop watching** with **Ctrl+C** in ProcDump's window. That is ProcDump's graceful stop: it resumes the game if a
+  capture is running. Don't kill ProcDump with Task Manager or `taskkill`, which can cut a dump off halfway.
 - **Never upload a dump** to GitHub or anywhere else: it holds the game's memory and can hold personal data. In the report,
   give the time of the crash, the cell and what you were doing, and say that you have a dump. A maintainer will ask for
   what they need from it.
