@@ -1781,3 +1781,33 @@ item; it turns both FO4 garage meshes into passable statics because RedRGarageDo
 rigger refuses it. Alias, door_motion Opening sequences, door_rig.alias_clips, and the alias test are
 out. Button wiring, docs, and Codex's #319 actual-writer test stay. Garage NIF rig is later, Claude on
 the build side. No deploy, no game.
+
+## 2026-10-15 Codex: bounded evidence packets for Claude (#122, offline tested)
+
+Added explicit-text capture, hashes and line anchors, repeated-diagnostic grouping
+and optional tool-free local summarization through Guardian. The helper never loads
+a model, changes a queue or judges gameplay. The owner's not-found review identified
+intentional OCR nonce commands; genuine refusals still remain separate evidence.
+
+Independent QA found five gaps: wrapped command context, over-collapsed mixed errors,
+selection omissions, malformed readiness observations and padded summaries. All are
+corrected with synthetic regressions; initial negatives are retained.16 focused and
+357 Windows suite tests (3 skips), guard/hosted CI pass. Independent re-review passes
+all8 counterexamples,4 fix-bound checks and16 focused tests.
+Same captured logs:5795 raw characters ->3634 brief characters; the smaller flawed
+prototype is superseded. No subscription-token or live model-quality claim. A real
+readiness check refused before inference while Claude retained the game window.
+[Use/limits](ai/local-evidence-brief.md), [measurement](ai/optimization.md).
+
+### 2026-10-18 Codex: local evidence brief on current main (PR123)
+
+Merged main697bc07 without changing the helper, its16 tests, usage document,
+model configuration or Guardian status entry point (five identical Git blobs).
+Resolved documentation by retaining both histories and current main ownership.
+All16 focused tests pass. Actual offline CLI controls retain grouped-marker
+anchors, a wrapped real command refusal and original bytes; a repeated output
+path refuses without modifying its earlier bundle. No inference request.
+Initial raw-worktree continuity checks differed on CRLF; Git-blob/diff checks
+establish source continuity, and both observations are privately retained.
+Independent merge-delta QA pending. Existing character measurement is historical;
+no new model-quality, subscription-token savings or native acceptance claim.

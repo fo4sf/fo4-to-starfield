@@ -407,3 +407,15 @@ so each is its own PR by the PC session (leader-core.md §9 lists the cost). Why
 cannot rebuild or re-pin, and a silently changed `objects.json` would invalidate pinned evidence. Alternatives:
 one shared function imported by both scripts today (ties `scripts/game` to `fo4sf.core` before the PC session has
 decided the import path); keeping the order as a parameter (two orders in the core is the bug #102 found).
+
+## 2026-10-15 Codex: use local assistance for bounded evidence triage (#122)
+
+Capture explicit text inputs and prepare a short source-linked diagnostic packet
+before considering model summarization. Preserve all selected anchors and exact
+bytes. Collapse only complete marker-only messages; keep wrapped command context
+and mixed errors visible. Optional local inference has no tools and uses only the
+existing Guardian with an already-loaded model. A schema-bound summary remains
+untrusted and never changes an acceptance verdict. This avoids repeating the full
+Lead/tool/history context for log triage. Alternatives rejected: silently filtering
+not-found messages, letting model prose replace raw evidence, or claiming character
+reduction proves a token saving. Model quality/resource coordination remain gates.
