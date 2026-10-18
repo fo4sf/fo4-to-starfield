@@ -188,9 +188,10 @@ foreach (var cdoc in cellDocs)
     // exposure + reflections like the vanilla underground interior DR017UndergroundInterior (25CAA7): without these the cell
     // reflects a bright default sky and auto-exposure washes everything out
     cell.ImageSpace.SetTo(new FormKey(sfEsm, Convert.ToUInt32(Setting(src4, "IMAGE_SPACE", "122393"), 16)));
-    // ENV_MAP is a per-cell setting: the black cubemap may also remove the image-based (sky) light, leaving only placed
-    // lights (supported hypothesis, unverified in game; 302 vanilla interiors use it too; research log 2026-10-18)
-    cell.EnvironmentMap = Setting(src4, "ENV_MAP", "Data\\Textures\\cubemaps\\blackcube.dds");
+    // ENV_MAP is a per-cell setting. Default: the vanilla hall cubemap (ssPirateShip01Interior's). The library under
+    // blackcube.dds was black away from placed lights; with this cube the owner judged it "fine" (18 Oct, FO4Port.esm
+    // 5204188f; research log 2026-10-18). Set "blackcube.dds" per cell to get the old look back.
+    cell.EnvironmentMap = Setting(src4, "ENV_MAP", "Data\\Textures\\Cubemaps\\Cell_HiTechHallCube.dds");
     var cocMarker = new FormKey(sfEsm, 0x000032);                                        // COCMarkerHeading
     var omni = new FormKey(sfEsm, Convert.ToUInt32(Setting(src4, "OMNI_LIGHT", "03D38C"), 16)); // LGT_ShipInterior_Omni_NS_Neutral_2k
     var merge = float.Parse(Setting(src4, "LIGHT_MERGE_M", "3"), System.Globalization.CultureInfo.InvariantCulture);

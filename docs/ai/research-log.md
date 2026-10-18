@@ -1431,3 +1431,8 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   Next: pick a dim vanilla interior cubemap and a brighter template from `envmaps` / `templates`, rebuild the library
   only with `{"BostonPublicLibrary02": {"ENV_MAP": "<vanilla>", "LIGHTING_TEMPLATE": "006658"}}` and compare in game
   against the current build, then map FO4's ambient level to the template per cell.
+- **verified (in game, owner, 18 Oct 19:32Z):** with only the library's ENV_MAP changed to
+  `Data\Textures\Cubemaps\Cell_HiTechHallCube.dds` (FO4Port.esm 5204188f, template ShipInteriorLT 006658, image space
+  122393 unchanged) the owner reported "Lighting looks fine". The hall cube becomes PluginSpike's default ENV_MAP for
+  every converted interior; the other interiors (Vault 111 above all, on the darker template) are not yet seen with it.
+  Variants B (image space 005322) and C (B + DefaultLightingTemplate 0300E2) were built and not needed.
