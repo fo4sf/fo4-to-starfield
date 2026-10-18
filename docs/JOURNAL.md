@@ -1740,6 +1740,26 @@ script change; the writer change is Claude's. Evidence folders: C:\Modding\testq
 door_probe_1017e, door_trip_sdm_1018 (bridge.log, papyrus.log, obs.json, judge outputs). Lesson: the bridge log's
 probe lines are case-sensitive to the game's spelling (`FO4SF Resolve`); the reader is case-insensitive since #282.
 
+## 2026-10-17: Codex activation-parent metadata preservation (offline)
+
+Grok's [garage-button investigation](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6230797494)
+identified dropped activation relationships. A synthetic Fo4Export regression first failed because
+`activate_parents` was absent. The shared interior/exterior serializer now retains the raw flags,
+ordered source FormKeys and float32 delays, including deferred actors, null links and empty blocks.
+ReferenceLinks reports non-null blocks as untranslated even when a reference has no placed target;
+it neither invents native wiring nor changes existing links/identities.
+
+Verified with Mutagen Fallout4 0.55.0-alpha.67 and synthetic records: the generated REFR's XAPD
+contains byte `81`; its three XAPR payloads are eight bytes each, preserve distinct own/master/null
+parent IDs, and store delay 0.1 as float32 `3DCCCCCD`. The production binary-overlay getter retains
+the same metadata. `dotnet run --project dotnet/Fo4Export.Tests -c Release` and
+`dotnet run --project dotnet/ReferenceLinks.Tests -c Release` pass; the latter also passes its existing
+11 native-door and 13 missing-door CLI controls. `dotnet build dotnet/Fo4Land -c Release` succeeds
+without warnings, confirming the shared exterior producer compiles; no full exterior export was run.
+Initial harness compilation and missing-restore failures are retained alongside the reproduced
+missing-field failure and passing results in private evidence. Guard passes. No installed data,
+native garage animation, scripts or game control changed; independent review remains pending.
+
 ## 2026-10-17 - Claude: the "flat grey floor" in Vault 111 is the water plane (owner playtest row 20)
 
 **Question.** Owner snapshot 20261017-000312 (bridge position -57.91, -7.11, -1.943 in Vault111Cryo, integ_1018 build):
@@ -1783,6 +1803,19 @@ integ_1018's (water1024.nif, `_neutral.mat`, gear room all equal by sha256); the
 
 **Not verified.** In game: that after a rebuild the player stands at the pit floor (z about -2.38) and sees the cement
 texture. The first read after the rebuild is the proof; the T10 PHANTOM test covers the cave pond.
+
+## 2026-10-17 — Codex: activation-parent warnings keep interior exports usable (#305)
+
+Claude requested nonblocking, counted warnings for preserved activation-parent metadata.
+The previous default returned exit 2 for a synthetic cell with a non-null activation block;
+the new eight-case CLI regression reproduced that before the change. ReferenceLinks now
+lists these blocks in `Warnings` and stderr, retains all source data, and writes
+`partial_with_warnings` rather than claiming complete relationship fidelity. Strict callers
+can select `--strict-activation-parents`; `--allow-unresolved` explicitly overrides that gate.
+Missing enable-parent targets and other existing issues still block default publication.
+Report-only never publishes a plugin or marks the build complete. Synthetic output is reopened
+to check identities and that no activation behavior or substitute link was invented.
+This is offline export policy, not a native door/activation fix. Delta peer QA remains required.
 
 ## 2026-10-17: Grok 3D surface-map research (ROADMAP §3 item 1)
 
