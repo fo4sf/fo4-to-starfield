@@ -107,6 +107,36 @@ class SnapshotTests(unittest.TestCase):
             state = json.load(open(os.path.join(out, "state.json"), encoding="utf-8-sig"))
             self.assertEqual(state["issue_url"], "issue_url.txt")
 
+    def test_submit_skips_the_form_when_the_capture_failed(self):
+        # Codex's review of #350: no screenshot means no link promising one on the clipboard
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "snap")
+            stub = os.path.join(d, "shot_fails.ps1")
+            open(stub, "w").write("param([string]$Out)\nexit 2\n")
+            env = dict(os.environ, FO4SF_SHOT_SCRIPT=stub, FO4SF_SUBMIT_DRYRUN="1")
+            r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", SCRIPT, "-Out", out,
+                                "-MaxAge", "1", "-Submit"], capture_output=True, text=True, timeout=120, env=env)
+            self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+            self.assertFalse(os.path.exists(os.path.join(out, "issue_url.txt")))
+            state = json.load(open(os.path.join(out, "state.json"), encoding="utf-8-sig"))
+            self.assertEqual(state["submit_skipped"], "no screenshot")
+            self.assertIn("exit 2", state["screen_error"])
+
+    def test_submit_lists_only_enabled_port_plugins(self):
+        # Codex's review of #350: Plugins.txt keeps disabled entries without '*'
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "snap")
+            os.makedirs(os.path.join(d, "Starfield"))
+            open(os.path.join(d, "Starfield", "Plugins.txt"), "w").write("*FO4Active.esm\nFO4Disabled.esm\n*Other.esm\n")
+            env = dict(os.environ, LOCALAPPDATA=d, FO4SF_SUBMIT_DRYRUN="1")
+            r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", SCRIPT, "-Out", out,
+                                "-MaxAge", "1", "-Submit"], capture_output=True, text=True, timeout=120, env=env)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            url = open(os.path.join(out, "issue_url.txt"), encoding="utf-8-sig").read()
+            self.assertIn("FO4Active.esm", url)
+            self.assertNotIn("FO4Disabled", url)
+            self.assertNotIn("Other.esm", url)
+
     def test_the_ask_setting_switches_the_main_key(self):
         hot = os.path.join(ROOT, "scripts", "game", "look_hotkey.ps1")
         d = tempfile.mkdtemp(prefix="fo4sf_ask_")                 # the presses' snapshots land here after the test returns

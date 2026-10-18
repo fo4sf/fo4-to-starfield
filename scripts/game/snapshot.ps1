@@ -82,13 +82,15 @@ if (Test-Path $rec) { try { $r = Get-Content $rec -Raw | ConvertFrom-Json; $stat
 $pl = Join-Path $env:LOCALAPPDATA 'Starfield\Plugins.txt'
 if (Test-Path $pl) { $state.plugins_txt = @(Get-Content $pl | Where-Object { $_ -and -not $_.StartsWith('#') }) }
 $state | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $Out 'state.json') -Encoding utf8
-if ($Submit) {
+# no screenshot, no form: the link promises one on the clipboard (Codex's review of #350); the local failure stays recorded
+if ($Submit -and -not $shotOk) { $state.submit_skipped = 'no screenshot' }
+if ($Submit -and $shotOk) {
   $repo = $(if ($env:FO4SF_REPORT_REPO) { $env:FO4SF_REPORT_REPO } else { 'fo4sf/fo4-to-starfield' })
   $desc = $(if ($state.description) { $state.description } else { '' })
   $first = ($desc -split "`r?`n")[0]
   $title = '[Player report]: ' + $(if ($first) { $first.Substring(0, [Math]::Min(80, $first.Length)) } else { 'screenshot' })
   $where = $(if ($state.bridge.pos) { "pos $($state.bridge.pos -join ' ') cell $($state.bridge.cell) world $($state.bridge.world)" } else { '' })
-  $ports = @($state.plugins_txt | ForEach-Object { "$_".TrimStart('*') } | Where-Object { $_ -like 'FO4*' })
+  $ports = @($state.plugins_txt | Where-Object { "$_".StartsWith('*') } | ForEach-Object { "$_".Substring(1) } | Where-Object { $_ -like 'FO4*' })   # '*' = enabled
   $cap = "Captured $($state.taken); game running: $($state.game_running). Port plugins active: $(if ($ports) { $ports -join ', ' } else { 'none found' }).`n`nPaste the screenshot here (it is on your clipboard: Ctrl+V)."
   $fields = [ordered]@{ template = 'community_report.yml'; title = $title; what = $desc; where = $where; capture = $cap }
   $q = ($fields.GetEnumerator() | ForEach-Object { "$($_.Key)=$([uri]::EscapeDataString(($_.Value + '').Substring(0, [Math]::Min(1500, ($_.Value + '').Length))))" }) -join '&'
@@ -96,15 +98,13 @@ if ($Submit) {
   Set-Content -LiteralPath (Join-Path $Out 'issue_url.txt') -Value $url -Encoding utf8
   $state.issue_url = 'issue_url.txt'
   if (-not $env:FO4SF_SUBMIT_DRYRUN) {
-    if ($shotOk) {
-      try { Add-Type -AssemblyName System.Windows.Forms, System.Drawing
-            $img = [System.Drawing.Image]::FromFile($shot); [System.Windows.Forms.Clipboard]::SetImage($img); $img.Dispose() }
-      catch { $state.clipboard_error = "$_" }
-    }
+    try { Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          $img = [System.Drawing.Image]::FromFile($shot); [System.Windows.Forms.Clipboard]::SetImage($img); $img.Dispose() }
+    catch { $state.clipboard_error = "$_" }
     try { Start-Process $url } catch { $state.submit_error = "$_" }
   }
-  $state | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $Out 'state.json') -Encoding utf8
 }
+if ($Submit) { $state | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $Out 'state.json') -Encoding utf8 }
 $posTxt = $(if ($state.bridge.pos) { "pos $($state.bridge.pos -join ' ') cell $($state.bridge.cell) world $($state.bridge.world) loaded $($state.bridge.loaded) age $($state.bridge.age_s)s" } else { "bridge: $($state.bridge.why)" })
 "snapshot ${Out}: game=$($state.game_running) foreground=$($state.game_foreground) screen=$($state.screen)$(if ($state.description) { ' described=yes' }) | $posTxt"
 if (-not $shotOk) { exit 3 }
