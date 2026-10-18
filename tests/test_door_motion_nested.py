@@ -69,10 +69,35 @@ class NestedDoorMotionTests(unittest.TestCase):
             with self.subTest(kind=kind):
                 source = self.nested()
                 track = (rotation_track(source, keys=False) if kind == "constant" else
-                         source.add_block("NiFloatInterpolator", b""))
+                         source.add_block("NiBSplineTransformInterpolator", b""))
                 source.blocks[5] = sequence(source, b"Open", [(0, -1), (1, track)])
                 self.assertEqual(door_motion.inspect(source)["animated_shapes_outside_single_hinge"], [3])
                 self.assertTrue(convert_static.frozen_door_parts(source))
+
+    def test_non_transform_child_track_does_not_require_a_rig(self):
+        for kind in ("NiFloatInterpolator", "NiBoolInterpolator"):
+            with self.subTest(kind=kind):
+                source = self.nested()
+                track = source.add_block(kind, b"")
+                source.blocks[5] = sequence(source, b"Open", [(0, rotation_track(source, 90)), (1, track)])
+                report = door_motion.inspect(source)
+                self.assertEqual(report["nested_controlled_shape_blocks"], [])
+                self.assertFalse(report["requires_additional_motion_support"])
+                self.assertEqual(report["issues"], [])
+                self.assertEqual(report["ignored_targets"][0]["target"], "LeafA")
+                self.assertEqual(convert_static.frozen_door_parts(source), [])
+
+    def test_ignored_child_and_independent_motion_coexist(self):
+        source = self.nested()
+        shader = source.add_block("NiFloatInterpolator", b"")
+        source.blocks[5] = sequence(source, b"Open", [
+            (0, rotation_track(source, 90)), (1, shader), (2, rotation_track(source, -90))])
+        report = door_motion.inspect(source)
+        self.assertEqual(report["nested_controlled_shape_blocks"], [4])
+        self.assertEqual(report["animated_shapes_outside_single_hinge"], [4])
+        self.assertEqual(report["ignored_targets"], [
+            {"sequence": 5, "target": "LeafA", "reason": "interpolator NiFloatInterpolator"}])
+        self.assertTrue(convert_static.frozen_door_parts(source))
 
     def test_track_without_geometry_does_not_change_hinge_routing(self):
         source = self.nested()

@@ -48,6 +48,8 @@ anchor ref, so the runner can measure the merge offset directly.
 - Ours copies `LC172WorldLocation`: `FULL`, `KWDA` = `LocTypeOverlay`, `DATA` (template), `PNAM` = `0001B736`
   `SSol_PMars_Surface` (Mars surface location), `RNAM` 0, `ANAM` 1.0, `XNAM` -1 / `YNAM` -3 (Mutagen: StarID /
   PlanetID, template values, meaning **unresolved**), without its two `LCSR` static references and `LCID`.
+  Those stripped `LCSR`/`LCID` are the map-marker chain; TerrainOverlays now restores one MapMarker `REFR` at the COC
+  and fills `LCSR`/`LCID` after doors/lights (Grok 2026-10-17: [map-markers.md](map-markers.md)).
   EditorIDs `FO4TX_World01Location`, `FO4CW_CommonwealthLocation`; the WRLD's `XLCN` points at it.
 
 ## 3. Overlay mask (verified file format, effect unresolved)
