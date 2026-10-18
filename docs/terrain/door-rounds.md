@@ -56,3 +56,23 @@ the plan used the wrong load indices: re-plan.
 - Doors that only auto-load (Red Rocket and Vault 111 are coc-only).
 - Opening (non-load) doors.
 - Locks and prompts. Those belong to the doors review.
+
+## Presence
+
+`scripts/bridge/presence.py` is a readout, not a test. It reports where each installed actor and named reference
+actually is, with nobody at the PC, for the NPC, mission and map threads.
+
+- `stage` reads every placed actor (ACHR) of a plugin, such as FO4SFMission.esm, and groups actors that stand within
+  300 m of each other.
+  - For each group it writes one terrain test. The test hops from the Red Rocket arrival to stand next to the group,
+    then resolves each actor with `FO4SF_Probe.Resolve`.
+  - `--extra <plugin>:<id>:<index>` adds one test at the arrival that resolves named references, such as the four map
+    markers.
+- `judge` gives each reference one state:
+  - MISSING, INDEX, DISABLED or NOT_A_REF;
+  - for an actor: NEAR_MERGED (within 25 m of its record position plus the merge, so it is in the drawn world),
+    AT_LOCAL (still at its record position, never moved) or ELSEWHERE, with both distances;
+  - for an extra reference: PRESENT and its position.
+
+  `judge` also counts the papyrus.log lines in each attempt that mention "moved" or "relocat". It never says a mission
+  works.
