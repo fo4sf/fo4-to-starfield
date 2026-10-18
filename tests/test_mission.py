@@ -131,6 +131,14 @@ class RelocateContractTests(unittest.TestCase):
         got = {k: float(v) for k, v in re.findall(r"float Property MergeOffset([XY]) = (-?[\d.]+) Auto Const", psc)}
         self.assertEqual((got["X"], got["Y"]), vmad_patch.MERGE_MEASURED[:2])
 
+    def test_no_exponent_float_literals(self):
+        """Papyrus has no 1.0e30 literals (PC compile of 6ee0896: "required (...)+ loop did not match anything at
+        input 'e30'"); comments and doc strings are exempt."""
+        with open(PSC, encoding="utf-8") as f:
+            code = re.sub(r"\{[^}]*\}", "", f.read())
+        code = "\n".join(line.split(";")[0] for line in code.splitlines())
+        self.assertIsNone(re.search(r"\d[eE][-+]?\d", code))
+
     def test_codsworth_is_an_optional_property(self):
         with open(PSC, encoding="utf-8") as f:
             psc = f.read()

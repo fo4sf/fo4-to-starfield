@@ -160,7 +160,7 @@ Function Relocate(Actor player)
  merged world the player walks in, once the player is there: each actor's local position + the merge offset, z kept
  (MoveTo onto the player with the difference as the offset, the verified MoveTo form of FO4SF_LoadDoor and FO4SF_Probe).
  Skipped while the actors are already reachable (GetDistance finite) or the player is elsewhere.}
-    if player.GetDistance(Preston) < 1.0e30
+    if player.GetDistance(Preston) < 1000000000.0         ; another world reads as float max (3.4e38)
         relocated = true                                  ; same world already: nothing to move
         Trace("relocate not needed preston=" + player.GetDistance(Preston))
         return
@@ -170,7 +170,15 @@ Function Relocate(Actor player)
     float pz = player.GetPositionZ()
     float tx = Preston.GetPositionX() + MergeOffsetX
     float ty = Preston.GetPositionY() + MergeOffsetY
-    if Math.Abs(px - tx) > RelocateRadius || Math.Abs(py - ty) > RelocateRadius
+    float dx = px - tx
+    float dy = py - ty
+    if dx < 0.0
+        dx = -dx
+    endif
+    if dy < 0.0
+        dy = -dy
+    endif
+    if dx > RelocateRadius || dy > RelocateRadius
         return                                            ; not in the merged Commonwealth yet
     endif
     MoveOver(Preston, player, px, py, pz, "preston")
