@@ -105,6 +105,24 @@ var maize = new Flora(new FormKey(key, 0x0EC886), release)
 maize.Ingredient.SetTo(seed.FormKey);
 mod.Florae.Add(maize);
 mod.ModHeader.Stats.NextFormID = 0x3807C7;
+// Optional map-marker template (args[1] == "map-marker"): persistent REFR 003E5E12 on the template world so the
+// writer can Duplicate it. STAT 00000010 is a FormLink only (Mutagen refuses writing that low FormKey). Default
+// fixture omits this so identity / lights / doors tests keep their FormIDs (writer skips when 003E5E12 is missing).
+if (args.Length > 1 && args[1] == "map-marker")
+{
+    var top = new Cell(new FormKey(key, 0x3807C7), release) { Flags = Cell.Flag.HasWater };
+    world.TopCell = top;
+    var marker = new PlacedObject(new FormKey(key, 0x3E5E12), release)
+    {
+        EditorID = "SyntheticLc172MapMarker",
+        Base = new FormLinkNullable<IPlaceableObjectGetter>(new FormKey(key, 0x10)),
+        Position = new Noggog.P3Float(37.4f, 57.2f, 7.6f),
+        MapMarker = new PlacedObjectMapMarker { Name = "LC172" },
+    };
+    marker.MajorRecordFlagsRaw |= 0xC00;
+    top.Persistent.Add(marker);
+    mod.ModHeader.Stats.NextFormID = 0x3807C8;
+}
 var path = Path.GetFullPath(args[0]);
 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 mod.BeginWrite.ToPath(path).WithLoadOrderFromHeaderMasters().WithDataFolder(Path.GetDirectoryName(path)!)

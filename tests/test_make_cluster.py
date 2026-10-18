@@ -96,6 +96,16 @@ class ItemsTests(unittest.TestCase):
         cl, rep = mc.items(refs, placed, self.TABLE, only_known=True)
         self.assertEqual([e["name"] for e in cl["items"]], ["Stimpak"])
 
+    def test_world_weapon_becomes_a_pick_up_item(self):
+        # owner, 2026-10-17: the tire iron before the Red Rocket bridge was a static; FO4 WEAP references are items now
+        placed = ["000004:Fallout4.esm"]
+        refs = [ref("000004:Fallout4.esm", typ="Weapon", edid="TireIron", base="0D1EB0:Fallout4.esm")]
+        table = mc.load(os.path.join(ROOT, "scripts", "terrain", "clusters", "item_table.json"))
+        cl, rep = mc.items(refs, placed, table)
+        self.assertEqual([(e["src"], e["name"], e["kind"]) for e in cl["items"]],
+                         [("000004:Fallout4.esm", "Tire Iron", "Weapon")])
+        self.assertEqual((rep["items"], rep["Weapon"], rep["table prefix"]), (1, 1, 1))
+
 
 def dump(value, path):
     with open(path, "w", encoding="utf-8") as f:
