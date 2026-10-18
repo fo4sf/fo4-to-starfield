@@ -80,6 +80,13 @@ NON_TRANSFORM_INTERPOLATORS = frozenset(("NiFloatInterpolator", "NiBoolInterpola
                                          "NiBlendPoint3Interpolator"))
 
 
+# (target node, interpolator) an aliased clip may leave out: the Vault 111 cog door's falling paper, which Stage2 moves on
+# NiPathInterpolator (PC build f8c9b95, VltGearDoor01.nif: FXPaper01 node 1372, FXPaper002 node 1397); the only aliased
+# model is VltGearDoor01 (pipeline.OWN_RIG_ALIASES). Review of #329 (Codex P2): no blanket exception for other targets.
+DECORATIVE_UNSAMPLED = frozenset((("FXPaper01", "NiPathInterpolator"), ("FXPaper002", "NiPathInterpolator")))
+PARTICLE_SYSTEMS = frozenset(("NiParticleSystem", "NiMeshParticleSystem", "BSStripParticleSystem"))
+
+
 def _non_transform(source, interpolator, controller_type):
     """Reason a controlled block does not move a node (a known shader / visibility / particle kind), or None.
 
@@ -94,12 +101,19 @@ def _non_transform(source, interpolator, controller_type):
     return f"controller {controller_type}" if controller_type in NON_TRANSFORM_CONTROLLERS else None
 
 
-def inspect(source):
+def inspect(source, aliases=None):
+    """aliases: {FO4 sequence name: "Open" or "Close"} for an animated object whose clips have other names (the Vault 111
+    cog door VltGearDoor01 plays Stage2 to open); the aliased sequence is reported under its door name."""
+    aliases = {k.encode("latin-1"): v.encode("latin-1") for k, v in (aliases or {}).items()}
     nodes = {}
     for i, block in enumerate(source.blocks):
         if source.type_of(i) == "NiNode":
             name = struct.unpack_from("<i", block)[0]
             nodes.setdefault(name, []).append(i)
+    # particle systems (NiAVObjects, not nodes: no rig bone can carry them, and particles are not ported); an aliased
+    # object's clip also drives its emitters (the cog door's Stage2: p_Dust, p_Steam, p_Sparks), left out and listed
+    particles = {struct.unpack_from("<i", block)[0] for i, block in enumerate(source.blocks)
+                 if source.type_of(i) in PARTICLE_SYSTEMS} if aliases else set()
     shapes = {s.block for s in nif.fo4_trishapes(source) if s.positions and s.triangles}
     world = nif.world_transforms(source)
     sequences, issues, ignored = [], [], []
@@ -109,7 +123,9 @@ def inspect(source):
         name, count = struct.unpack_from("<iI", block)
         if not 0 <= name < len(source.strings):
             raise nif.NifError("invalid sequence name")
-        if source.strings[name] not in (b"Open", b"Close"):
+        # an aliased object takes its clips from the aliases only; any other door from its own Open / Close
+        seq_name = aliases.get(source.strings[name]) if aliases else source.strings[name]
+        if seq_name not in (b"Open", b"Close"):
             continue
         if 12 + 29 * count > len(block):
             raise nif.NifError("truncated door controlled-block list")
@@ -125,6 +141,17 @@ def inspect(source):
             if reason:                 # not motion: kept out of the rig and listed, never a binding issue
                 ignored.append({"sequence": i, "target": source.strings[target_name].decode("latin-1"), "reason": reason})
                 continue
+            kind = source.type_of(interpolator) if 0 <= interpolator < len(source.blocks) else None
+            if aliases and (source.strings[target_name].decode("latin-1"), kind) in DECORATIVE_UNSAMPLED:
+                # only the listed decorative targets stay at their bind pose (listed); any other track this code cannot
+                # sample is still refused later (door_clips.sample_track), so no opening part is silently frozen
+                ignored.append({"sequence": i, "target": source.strings[target_name].decode("latin-1"),
+                                "reason": f"unsampled interpolator {kind}"})
+                continue
+            if target_name in particles and target_name not in nodes:
+                ignored.append({"sequence": i, "target": source.strings[target_name].decode("latin-1"),
+                                "reason": "particle system"})
+                continue
             matches = nodes.get(target_name, [])
             if len(matches) != 1:
                 issues.append({"sequence": i, "target": source.strings[target_name].decode("latin-1"),
@@ -137,7 +164,7 @@ def inspect(source):
                             "transform_track": transform_track(source, interpolator),
                             "pivot_source_units": list(translation), "rotation": list(rotation), "scale": scale,
                             "shape_blocks": sorted(shapes & nif.descendants(source, node))})
-        sequences.append({"block": i, "name": source.strings[name].decode("latin-1"), "targets": targets,
+        sequences.append({"block": i, "name": seq_name.decode("latin-1"), "targets": targets,
                           "timing": sequence_timing(source, block, count)})
     hinge = nif.door_hinge(source)
     hinge_descendants = nif.descendants(source, hinge[0]) if hinge else set()

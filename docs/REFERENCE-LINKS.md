@@ -75,12 +75,23 @@ additional handling for the converted door pivot. Ownership, locks, actor behavi
 and scripts remain separate work. No unsupported case is assigned a numeric-ID
 guess.
 
-The default refuses to write a plugin while unresolved relationships remain. A
-`relationships-report.json` lists issues and counts unplaced source references.
+The default refuses to write a plugin while blocking relationship issues remain. A
+`relationships-report.json` lists `Issues`, `Warnings` and counts unplaced source references.
 `--report-only` computes that report without emitting a plugin; incomplete state
 is recorded in `build-state.json`. `--no-markers` disables marker recreation.
 `--allow-unresolved` explicitly emits a partial plugin and records its unresolved
 count and partial fidelity; this is for research, not proof of complete gameplay.
+Every non-null `activate_parents` block in newly exported `refs` produces a counted,
+listed warning, even an empty block or a reference with no placed target. These
+warnings also print to stderr. The original flags, references and delays remain in
+the source export; activation behavior is not implemented. Warnings alone permit
+output by default with fidelity `partial_with_warnings`, never
+`resolved_exported_relationships`. `build-state.json` counts all issues plus
+warnings as `unresolved` and separately records `warnings` and `blocking`.
+`--strict-activation-parents` makes these warnings block output with exit 2.
+`--allow-unresolved` explicitly overrides that gate (as well as other issues),
+recording `partial_explicitly_allowed`. Report-only runs never emit a plugin or
+mark the build complete. Other unresolved links retain their existing blocking behavior.
 
 The output includes an updated `formids.json` reserving marker identities. Preserve
 that map in subsequent writer/postprocessor runs, or newly added base records

@@ -6,8 +6,8 @@
 
 The exterior side of a door is written by dotnet/TerrainOverlays (Mutagen 0.55 writes a Starfield REFR VMAD: the
 design pass read one back byte for byte). The interior side lives in FO4Port.esm, a pinned build this never rewrites
-with Mutagen: `port` copies the pinned folder (every file hard-linked, the plugin and formids.json copied) and patches
-the plugin in place, record by record, so that every other record stays byte-identical, which `check` proves by a
+with Mutagen: `port` links unchanged files and writes independent plugin/map/report files in a new folder. It patches
+the plugin in memory, record by record, so that every other record stays byte-identical, which `check` proves by a
 record-level byte diff of the two plugins. Per door of the core build's objects.json "doors":
   - the interior door REFR (destination.ref, temporary in its CELL) gains a VMAD attaching FO4SF_LoadDoor with
     DestinationPlugin = the core plugin's file name, DestinationId = the exterior ARRIVAL marker's local id (the
@@ -43,6 +43,7 @@ import os
 import shutil
 import struct
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "src"))
@@ -504,11 +505,12 @@ def next_local_id(plugin_path):
 def link_folder(src, dst, skip=()):
     """Hard-link every file of src under dst (copy where a link fails), except the names in skip (top level)."""
     linked = copied = 0
+    skip = {name.casefold() for name in skip}
     for root, _dirs, names in os.walk(src):
         rel = os.path.relpath(root, src)
         os.makedirs(os.path.join(dst, rel) if rel != "." else dst, exist_ok=True)
         for n in names:
-            if rel == "." and n in skip:
+            if rel == "." and n.casefold() in skip:
                 continue
             s, d = os.path.join(root, n), os.path.join(dst, rel, n) if rel != "." else os.path.join(dst, n)
             try:
@@ -518,6 +520,33 @@ def link_folder(src, dst, skip=()):
                 shutil.copy2(s, d)
                 copied += 1
     return linked, copied
+
+
+def write_output(path, data):
+    """Replace one generated file without truncating a hard-linked source inode."""
+    fd, temporary = tempfile.mkstemp(prefix=".door-write-", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(data)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+def require_separate_output(output, *inputs):
+    """A new stage/report must not be written into either pinned input tree."""
+    destination = os.path.normcase(os.path.realpath(output))
+    for source in inputs:
+        if not source:
+            continue
+        root = os.path.normcase(os.path.realpath(source))
+        try:
+            inside = os.path.commonpath((destination, root)) == root
+        except ValueError:  # different Windows volumes
+            inside = False
+        if inside:
+            raise ValueError(f"output {output} is inside input {source}")
 
 
 def core_doors(core):
@@ -564,8 +593,14 @@ def port_edits(core_plugin, doors, port_plugin, port_next, merge):
 
 
 def patch_port(plugin, edits, own_index):
-    """Apply port_edits to a Plugin (in place): the door REFRs' VMADs and the persistent markers; HEDR updated."""
+    """Preflight all selected REFRs, then add VMADs/markers in place. Existing behavior requires a separate policy."""
     own = own_index << 24
+    for ed in edits:
+        _items, _i, record = plugin.find(own | ed["door"])
+        if record.sig != b"REFR":
+            raise ValueError(f"{own | ed['door']:08X} is not a REFR")
+        if any(sig == b"VMAD" for sig, _data in record.fields()):
+            raise ValueError(f"{own | ed['door']:08X}: existing VMAD; refusing to replace door behavior")
     for ed in edits:
         r = plugin.set_vmad(own | ed["door"], ed["vmad"])
         marker = xmarker_ref(own | ed["marker"], ed["pos"], ed["rot"], struct.unpack_from("<H", r.header, 20)[0])
@@ -575,6 +610,7 @@ def patch_port(plugin, edits, own_index):
 
 
 def cmd_port(a):
+    require_separate_output(a.out, a.port, a.core)
     if os.path.exists(a.out):
         sys.exit(f"{a.out} exists: every output is a new folder")
     name = plugin_in(a.port)
@@ -590,10 +626,6 @@ def cmd_port(a):
         sys.exit(f"doors: {e}")
     plugin = Plugin.read(src_plugin)
     own_index = len(plugin.masters())
-    patch_port(plugin, edits, own_index)
-    linked, copied = link_folder(a.port, a.out, skip=(name, "formids.json"))
-    with open(os.path.join(a.out, name), "wb") as f:
-        f.write(plugin.serialize())
     with open(os.path.join(a.port, "formids.json"), encoding="utf-8-sig") as f:
         ids = json.load(f)
     for e, ed in zip(doors, edits):
@@ -601,8 +633,11 @@ def cmd_port(a):
         if key in ids:
             sys.exit(f"formids.json already has {key}")
         ids[key] = ed["marker"]
-    with open(os.path.join(a.out, "formids.json"), "w", encoding="utf-8") as f:
-        json.dump(ids, f)
+    patch_port(plugin, edits, own_index)
+    serialized = plugin.serialize()
+    linked, copied = link_folder(a.port, a.out, skip=(name, "formids.json", "README.txt", "doors.json", "doors_check.json"))
+    write_output(os.path.join(a.out, name), serialized)
+    write_output(os.path.join(a.out, "formids.json"), json.dumps(ids).encode("utf-8"))
     report = {"port": os.path.abspath(a.port), "core": os.path.abspath(a.core), "plugin": name, "core_plugin": core_plugin,
               "port_next_before": f"{port_next:06X}", "merge_offset": list(merge), "doors": [
                   {"src": e["src"], "edid": e["edid"], "interior_door": f"{ed['door']:06X}", "cell": f"{ed['cell']:06X}",
@@ -611,8 +646,7 @@ def cmd_port(a):
                    "return_destination": {"plugin": core_plugin, "id": e["ids"]["arrival"], "local": e["arrival"]["pos"],
                                           "merged": ed["return_pos"]}}
                   for e, ed in zip(doors, edits)]}
-    with open(os.path.join(a.out, "doors.json"), "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=1)
+    write_output(os.path.join(a.out, "doors.json"), json.dumps(report, indent=1).encode("utf-8"))
     lines = [f"{name} with scripted load doors (scripts/terrain/vmad_patch.py port; docs/terrain/scripted-doors.md).",
              f"Pinned input {a.port} ({linked} files hard-linked, {copied} copied, nothing there modified);",
              f"core build {a.core} ({core_plugin}). The plugin is {a.port}'s with, per door:",
@@ -629,8 +663,7 @@ def cmd_port(a):
         lines.append(f"  {d['src']} {d['cell_edid']}: door REFR {d['interior_door']} -> {core_plugin}:{d['return_destination']['id']} "
                      f"at {[round(v, 4) for v in d['return_destination']['merged']]}, marker {d['marker']} at {d['marker_pos']} "
                      f"rot {d['marker_rot']}")
-    with open(os.path.join(a.out, "README.txt"), "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
+    write_output(os.path.join(a.out, "README.txt"), ("\n".join(lines) + "\n").encode("utf-8"))
     print("\n".join(lines))
     return 0
 
@@ -714,6 +747,7 @@ def cmd_check(a):
     with open(os.path.join(a.out, "doors.json"), encoding="utf-8-sig") as f:
         rep = json.load(f)
     core = a.core or rep.get("core")
+    require_separate_output(a.out, a.port, core)
     if core and os.path.isdir(core):
         core_plugin, doors = core_doors(core)
     if doors is None:
@@ -733,8 +767,7 @@ def cmd_check(a):
            "core": os.path.abspath(core), "merge_offset": list(merge),
            "records_before": len(before.records()), "records_after": len(after.records()), "raw": raw,
            "pass": all(c[1] for c in checks)}
-    with open(os.path.join(a.out, "doors_check.json"), "w", encoding="utf-8") as f:
-        json.dump(out, f, indent=1)
+    write_output(os.path.join(a.out, "doors_check.json"), json.dumps(out, indent=1).encode("utf-8"))
     for what, good in checks:
         print(("  ok   " if good else "  FAIL ") + what)
     for k, v in raw.items():
