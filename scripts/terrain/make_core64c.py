@@ -51,7 +51,7 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(REPO, "src"))
-from fo4sf import btd, exterior  # noqa: E402
+from fo4sf import btd, exterior, map_markers  # noqa: E402
 from fo4sf import terrain_grid as tg  # noqa: E402
 
 sys.path.insert(0, HERE)
@@ -92,6 +92,15 @@ def core_params(core):
     if len(prm["overlays"]) != 1:
         sys.exit(f"{core}: core64c needs exactly one overlay, found {len(prm['overlays'])}")
     return prm, prm["overlays"][0]
+
+
+def core_params_view(prm):
+    """core64c's overlays_params.json without what stage adds to core64's: objects, navmesh, each overlay's
+    map_markers (check compares the rest with core64's)."""
+    out = {k: v for k, v in prm.items() if k not in ("objects", "navmesh")}
+    if "overlays" in out:
+        out["overlays"] = [{k: v for k, v in o.items() if k != "map_markers"} for o in out["overlays"]]
+    return out
 
 
 def slim(ref):
@@ -1126,6 +1135,67 @@ def workshop_edid(base, src):
     return promoted_edid("wkshp", base, src)
 
 
+# Red Rocket garage button -> door (playtest row 21, docs/terrain/garage-button.md). FO4 XAPR is not in the cluster
+# export; these two Commonwealth pairs are the whole set. Matched on (plugin, numeric id), not the hex spelling.
+GARAGE_BUTTON_PAIRS = (
+    ("00056331:Fallout4.esm", "00056BBA:Fallout4.esm"),   # garage, button (Red Rocket shop)
+    ("000866C7:Fallout4.esm", "000866C0:Fallout4.esm"),   # the other Commonwealth RedRGarageDoor
+)
+GARAGE_SCRIPT = "DefaultActivateLinkedRefOnActivate"   # vanilla; GetLinkedRef(LinkedRefKeyword)
+GARAGE_SCRIPT_PROPERTY = "LinkedRefKeyword"
+GARAGE_LINK_KEYWORD = 0x5D5E7                         # KYWD LinkCustom02; XLKR and the VMAD property must agree
+
+
+def source_identity(src):
+    """(plugin.casefold(), numeric form id) of a FO4 source key. ValueError if the key is not <hex>:<plugin>."""
+    local, sep, plugin = str(src).partition(":")
+    if not sep or not local or not plugin:
+        raise ValueError(f"{src}: not a plugin-local form key")
+    try:
+        fid = int(local, 16)
+    except ValueError as e:
+        raise ValueError(f"{src}: form id is not hex") from e
+    if fid <= 0 or fid > 0xFFFFFF:
+        raise ValueError(f"{src}: form id {fid:#x} is not in 1..0xFFFFFF")
+    return (plugin.casefold(), fid)
+
+
+def cluster_garage_buttons(activators):
+    """Pairs of already-promoted ACTI whose FO4 XAPR wired a RedRGarageDoor to a RedR_ButtonBox.
+
+    Keys are (plugin, form id): a 6-hex Fallout4.esm source matches the 8-hex pair spelling; Other.esm with the same
+    id does not. Two different spellings of one identity raise ValueError; identical keys keep the first.
+    """
+    by_id = {}
+    for e in activators:
+        ident = source_identity(e["src"])
+        have = by_id.get(ident)
+        if have is not None and source_key(have) != source_key(e["src"]):
+            raise ValueError(f"garage_buttons: {e['src']} and {have} are the same FO4 source")
+        by_id.setdefault(ident, e["src"])
+    out = []
+    for door, button in GARAGE_BUTTON_PAIRS:
+        d, b = source_identity(door), source_identity(button)
+        if d in by_id and b in by_id:
+            out.append({"door": by_id[d], "button": by_id[b]})
+    return out
+
+
+def garage_button_vmad(keyword=GARAGE_LINK_KEYWORD):
+    """REFR VMAD bytes: DefaultActivateLinkedRefOnActivate with edited LinkedRefKeyword = keyword (Starfield master 0)."""
+    return vmad_patch.encode([{
+        "name": GARAGE_SCRIPT, "status": vmad_patch.STATUS_LOCAL, "properties": [{
+            "name": GARAGE_SCRIPT_PROPERTY, "type": vmad_patch.T_OBJECT, "status": vmad_patch.PROP_EDITED,
+            "value": {"form": keyword, "alias": -1},
+        }],
+    }])
+
+
+def garage_button_xlkr(door_fid, keyword=GARAGE_LINK_KEYWORD):
+    """XLKR payload: keyword then the garage REFR (little-endian form ids)."""
+    return struct.pack("<II", keyword, door_fid)
+
+
 def door_edid(base, src):
     """The shared ACTI's editor id of a scripted load door: FO4Core_door_<6 hex>_<plugin> (promoted_edid)."""
     return promoted_edid("door", base, src)
@@ -1783,13 +1853,15 @@ def promotion_checks(recs, own_prefix, objects, ids, exp):
     present = [(k, sig) for k, sig in ALL_PROMOTED if entries[k]]
     lights = objects.get("lights") or []
     markers = len(entries["doors"])                   # one exterior arrival XMarker REFR per door
+    map_refs = len(map_marker_ids(ids))               # the map markers (docs/terrain/map-markers.md)
     out = []
     refrs = sum(1 for r in recs if r["sig"] == "REFR")
     out.append([f"{refrs:,} REFR = {len(objects['refs']):,} objects + COC marker + anchor"
                 + "".join(f" + {len(entries[k]):,} {k}" for k, _sig in present)
                 + (f" + {len(lights):,} lights" if lights else "")
-                + (f" + {markers} door arrival markers" if markers else ""),
-                refrs == len(objects["refs"]) + 2 + n_promoted + len(lights) + markers])
+                + (f" + {markers} door arrival markers" if markers else "")
+                + (f" + {map_refs} map markers" if map_refs else ""),
+                refrs == len(objects["refs"]) + 2 + n_promoted + len(lights) + markers + map_refs])
     unpromoted = exp["objects"]["exported"] - sum(exp["objects"]["skipped"].values())
     out.append([f"REFR total unchanged by promotion: {len(objects['refs']):,} objects + "
                 + " + ".join(f"{len(entries[k]):,} {k}" for k, _sig in (present or PROMOTED[:2]))
@@ -2030,6 +2102,8 @@ def ids_before(ids, appended):
     out = [int(v, 16) for v in ids["bases"].values()] + [int(v, 16) for v in ids["refs"].values()]
     out += [int(v, 16) for v in ids.get("navmeshes") or []]
     for k, v in ids.items():                         # every promoted class ({src: {"base", "ref"}}: containers, ...)
+        if k == "map_marker_refs":                   # {world: {tag: id}}, after everything: map_marker_ids
+            continue
         if isinstance(v, dict) and v and all(isinstance(x, dict) for x in v.values()):
             for c in v.values():                     # (a terminal also names its TMLM "menu"; a bench a master's base)
                 if k in appended:
@@ -2082,7 +2156,7 @@ def lights_after(recs, own_index, ids):
     (formids.json "lights") must all come after the rest, the doors' appended records excepted (they come after the
     lights: doors_after). own_index = the plugin's master count."""
     light_refs = {int(v["ref"], 16) for v in (ids.get("lights") or {}).values()}
-    after = appended_ids(ids)
+    after = appended_ids(ids) | map_marker_ids(ids)
     own = [r for r in recs if (r["fid"] >> 24) == own_index and r["fid"] & 0xFFFFFF not in after]
 
     def is_light(r):
@@ -2094,9 +2168,10 @@ def lights_after(recs, own_index, ids):
 
 def doors_after(recs, own_index, ids):
     """(first id of a door's appended record, last id of any other record of this plugin): the arrival markers and
-    the door ACTIs come after everything, the lights included."""
+    the door ACTIs come after everything, the lights included (the map markers, after them, aside: map_marker_problems)."""
     after = appended_ids(ids)
-    own = [r["fid"] & 0xFFFFFF for r in recs if (r["fid"] >> 24) == own_index]
+    marks = map_marker_ids(ids)
+    own = [r["fid"] & 0xFFFFFF for r in recs if (r["fid"] >> 24) == own_index and r["fid"] & 0xFFFFFF not in marks]
     first = min((f for f in own if f in after), default=None)
     last = max((f for f in own if f not in after), default=0)
     return first, last
@@ -2154,6 +2229,90 @@ def door_record_problems(recs, own_prefix, objects, ids):
             problems.append(f"{e['src']}: arrival marker position / rotation / scale differ from objects.json")
         if mk["flags"] & (0x400 | 0x800) != 0x400:
             problems.append(f"{e['src']}: arrival marker flags 0x{mk['flags']:X} (persistent and enabled wanted)")
+    return problems
+
+
+def map_marker_ids(ids):
+    """Local ids of the map-marker REFRs formids.json declares (TerrainOverlays: "map_marker_refs" {world: {tag: id}},
+    and "map_markers" {world: first id}). They come after every other record, the doors' included."""
+    out = {int(v, 16) for v in (ids.get("map_markers") or {}).values()}
+    out |= {int(v, 16) for tags in (ids.get("map_marker_refs") or {}).values() for v in tags.values()}
+    return out
+
+
+def is_map_marker_ref(rec):
+    """A REFR of STAT MapMarker 00000010 (Starfield.esm, master index 0)."""
+    return rec["sig"] == "REFR" and (overlay_records.field(rec, "NAME", b"") or b"")[:4] == struct.pack(
+        "<I", map_markers.MAPMARKER_STAT)
+
+
+def without_marker_chain(rec):
+    """(sig, flags, fields) to compare a core64 record with its core64c copy: a Location's LCSR / LCID (the map-marker
+    chain, rewritten for core64c's own markers) left out."""
+    fields = rec["fields"]
+    if rec["sig"] == "LCTN":
+        fields = [(s, v) for s, v in fields if s not in (b"LCSR", b"LCID")]
+    return rec["sig"], rec["flags"], fields
+
+
+def map_marker_problems(recs, own_index, ov, ids):
+    """The map markers TerrainOverlays wrote for the overlay against its params (stage: "map_markers"; without them one
+    at the COC): one REFR per entry, STAT MapMarker, XMRK present, persistent, at the entry's position; one LCSR
+    MapMarkerRefType row per marker on the overlay's Location (this world, grid Y then X as the writer writes it, tail
+    0xFFFFFFFF), each also in LCID; every marker id after every other record of the plugin. Returns problems."""
+    own = own_index << 24
+    want = ov.get("map_markers") or [{"tag": "RedRocket", "pos": ov["spawn"], "cell": ov["spawn_cell"]}]
+    got = (ids.get("map_marker_refs") or {}).get(ov["world"])
+    if got is None and (ids.get("map_markers") or {}).get(ov["world"]):
+        got = {"RedRocket": ids["map_markers"][ov["world"]]}
+    if not got:
+        return [f"{ov['world']}: formids.json names no map marker"]
+    problems = []
+    if sorted(got) != sorted(m["tag"] for m in want):
+        problems.append(f"{ov['world']}: map markers {sorted(got)} != params {sorted(m['tag'] for m in want)}")
+    by = {r["fid"]: r for r in recs}
+    from fo4sf import fo4land
+    for m in want:
+        if m["tag"] not in got:
+            continue
+        r = by.get(own | int(got[m["tag"]], 16))
+        if r is None or not is_map_marker_ref(r):
+            problems.append(f"{m['tag']}: no MapMarker REFR {got[m['tag']]}")
+            continue
+        if overlay_records.field(r, "XMRK") is None:
+            problems.append(f"{m['tag']}: no XMRK")
+        if not r["flags"] & overlay_records.PERSISTENT:
+            problems.append(f"{m['tag']}: not persistent (flags 0x{r['flags']:X})")
+        pos = fo4land.parse_ref(r["fields"])["pos"]
+        if not all(math.isfinite(v) for v in pos) or max(abs(u - v) for u, v in zip(pos, m["pos"])) > 1e-3:
+            problems.append(f"{m['tag']}: position {pos} != {m['pos']}")
+    wrld = [r for r in recs if r["sig"] == "WRLD" and overlay_records.edid(r) == ov["world"]]
+    loc = [r for r in recs if r["sig"] == "LCTN" and overlay_records.edid(r) == ov["location"]]
+    if len(wrld) != 1 or len(loc) != 1:
+        return problems + [f"{ov['world']}: {len(wrld)} WRLD, {len(loc)} LCTN {ov['location']}"]
+    try:
+        rows = map_markers.parse_lcsr(overlay_records.field(loc[0], "LCSR", b""))
+    except ValueError as e:
+        return problems + [f"{ov['location']}: {e}"]
+    lcid = overlay_records.field(loc[0], "LCID", b"")
+    lcid = set(struct.unpack(f"<{len(lcid) // 4}I", lcid[:len(lcid) // 4 * 4]))
+    rows = [e for e in rows if e["lcrt"] == map_markers.MAPMARKER_REF_TYPE]
+    cell = {own | int(got[m["tag"]], 16): m["cell"] for m in want if m["tag"] in got}
+    if sorted(e["refr"] for e in rows) != sorted(cell):
+        have = ["%08X" % e["refr"] for e in rows]
+        problems.append(f"{ov['location']}: LCSR MapMarkerRefType rows {have} != the markers "
+                        f"{['%08X' % f for f in sorted(cell)]}")
+    for e in rows:
+        c = cell.get(e["refr"])
+        if e["wrld"] != wrld[0]["fid"] or e["tail"] != map_markers.LCSR_TAIL or (
+                c is not None and e["pad"] != struct.unpack("<I", struct.pack("<hh", c[1], c[0]))[0]):
+            problems.append(f"{ov['location']}: LCSR row {e} (world {wrld[0]['fid']:08X}, cell {c})")
+    if not set(cell) <= lcid:
+        problems.append(f"{ov['location']}: LCID lacks {[f'{f:08X}' for f in sorted(set(cell) - lcid)]}")
+    mm = {f & 0xFFFFFF for f in cell}
+    others = [r["fid"] & 0xFFFFFF for r in recs if (r["fid"] >> 24) == own_index and r["fid"] & 0xFFFFFF not in mm]
+    if mm and others and min(mm) < max(others):
+        problems.append(f"map marker 0x{min(mm):06X} before the plugin's last other record 0x{max(others):06X}")
     return problems
 
 
@@ -2369,6 +2528,10 @@ def cmd_stage(a):
     for k, _sig in ALL_PROMOTED:
         if promoted[k]:
             objects[k] = promoted[k]
+    garage_buttons = cluster_garage_buttons(promoted.get("activators") or [])
+    if garage_buttons:
+        objects["garage_buttons"] = garage_buttons
+        print(f"cluster: {len(garage_buttons)} garage button pair(s) (DefaultActivateLinkedRefOnActivate + XLKR)")
     if lights:
         objects["lights"] = lights
         objects["light_bases"] = light_bases
@@ -2385,6 +2548,16 @@ def cmd_stage(a):
         shutil.copy2(a.navmesh, os.path.join(out, "navmesh.json"))
         params["navmesh"] = "navmesh.json"
         print(f"navmesh: {len(nav['navmeshes']):,} NAVM from {a.navmesh}")
+    # Commonwealth map markers (docs/terrain/map-markers.md): Red Rocket on the COC arrival, Sanctuary, Vault 111 and
+    # Concord on the BTD ground at their FO4 marker; TerrainOverlays writes one MapMarker REFR + LCSR row for each
+    terrain = Terrain(os.path.join(out, *ov["btd_file"].split("/")))
+    try:
+        markers = map_markers.overlay_markers(ov["spawn"], (ov["bounds_min_m"], ov["bounds_max_m"]),
+                                              lambda x, y: float(terrain.bilinear([x], [y])[0]))
+    except ValueError as e:
+        sys.exit(f"map markers: {e}")
+    params["overlays"] = [dict(ov, map_markers=markers)]
+    print("map markers: " + ", ".join(f"{m['name']} {m['pos']} cell {m['cell']}" for m in markers))
     save(os.path.join(out, "overlays_params.json"), params, indent=1)
     save(os.path.join(out, "skipped.json"), {"counts": exterior.reason_counts(skipped), "types": type_counts(skipped),
                                              "refs": skipped})
@@ -2399,7 +2572,6 @@ def cmd_stage(a):
     plugin_s = round(time.time() - t1, 1)
 
     t2 = time.time()
-    terrain = Terrain(os.path.join(out, *ov["btd_file"].split("/")))
     sx, sy = ov["spawn"][:2]
     area = (sx - AREA_M, sy - AREA_M, sx + AREA_M, sy + AREA_M)
     world = CoreWorld(os.path.join(out, "Data"), bases, placed, terrain, area)
@@ -2698,9 +2870,10 @@ def cmd_check(a):
                        f"record (lights included), then {len({e['edid'] for e in doors})} door ACTI bases")
 
     # 1. core64 unchanged: params, Data files, Mars plugin, every core64 record of the main plugin
-    need({k: v for k, v in prm.items() if k not in ("objects", "navmesh")} == cprm and prm.get("objects") == "objects.json"
+    need(core_params_view(prm) == cprm and prm.get("objects") == "objects.json"
          and prm.get("navmesh") in (None, "navmesh.json"),
-         "overlays_params.json = core64's + objects" + (" + navmesh" if prm.get("navmesh") else ""))
+         "overlays_params.json = core64's + objects" + (" + navmesh" if prm.get("navmesh") else "")
+         + (" + map markers" if any("map_markers" in o for o in prm["overlays"]) else ""))
     for rel in exp["base_files"] + [prm["mars"]["plugin"]]:
         need(os.path.isfile(os.path.join(a.core, *rel.split("/"))) and
              x2c.sha256(os.path.join(out, *rel.split("/"))) == x2c.sha256(os.path.join(a.core, *rel.split("/"))),
@@ -2717,9 +2890,12 @@ def cmd_check(a):
     old = overlay_records.walk_plugin(os.path.join(a.core, prm["plugin"]))
     new = overlay_records.walk_plugin(os.path.join(out, prm["plugin"]))
     by = {r["fid"]: r for r in new["records"]}
-    same = sum(1 for r in old["records"] if r["fid"] in by and by[r["fid"]]["sig"] == r["sig"]
-               and by[r["fid"]]["flags"] == r["flags"] and by[r["fid"]]["fields"] == r["fields"])
-    need(same == len(old["records"]), f"every core64 record unchanged ({same}/{len(old['records'])})")
+    # core64's own map marker (if its writer made one) is not kept: core64c writes its markers after every object,
+    # and its Location's LCSR / LCID point at those (map_marker_problems)
+    kept = [r for r in old["records"] if not is_map_marker_ref(r)]
+    same = sum(1 for r in kept if r["fid"] in by and without_marker_chain(by[r["fid"]]) == without_marker_chain(r))
+    need(same == len(kept), f"every core64 record unchanged ({same}/{len(kept)}; "
+                            f"{len(old['records']) - len(kept)} core64 map marker(s) replaced)")
     old_max = max(r["fid"] & 0xFFFFFF for r in old["records"])
     old_fids = {o["fid"] for o in old["records"]}
     own_index = len(new["masters"])                       # this plugin's own records; an override of a master's record
@@ -2744,6 +2920,7 @@ def cmd_check(a):
         need(len(navis) == 1, f"one NAVI override ({len(navis)})")
         light_ids = {int(v["ref"], 16) for v in (ids.get("lights") or {}).values()}    # appended after the NAVMs
         light_ids |= appended_ids(ids)                                                   # (the doors' markers and ACTIs too)
+        light_ids |= map_marker_ids(ids)                                                 # (and the map markers)
         last_obj = max((r["fid"] & 0xFFFFFF for r in recs if r["sig"] in ("STAT", "DOOR", "REFR", "CONT", "MISC", "ACTI",
                                                                           "TERM", "TMLM")
                         and r["fid"] & 0xFFFFFF not in light_ids), default=0)
@@ -2796,6 +2973,12 @@ def cmd_check(a):
                 r = by.get(own | int(local, 16))
                 d["raw"][what] = None if r is None else {"sig": r["sig"], "flags": f"{r['flags']:08X}",
                                                          "fields": [[s.decode(), bytes(v).hex()] for s, v in r["fields"]]}
+    if map_marker_ids(ids):
+        # map markers (docs/terrain/map-markers.md): Red Rocket, Sanctuary, Vault 111, Concord (stage), persistent
+        mp = map_marker_problems(recs, own_index, ov, ids)
+        need(not mp, f"{len(map_marker_ids(ids))} map markers: MapMarker REFRs at the params' positions, LCSR "
+                     f"MapMarkerRefType + LCID on {ov['location']}, after every other record ({len(mp)} problems: {mp[:3]})")
+        rep["map_markers"] = {"params": ov.get("map_markers"), "ids": (ids.get("map_marker_refs") or {}).get(ov["world"])}
     rep["plugin_records"] = {s: sum(1 for r in recs if r["sig"] == s) for s in sorted({r["sig"] for r in recs})}
     rep["plugin_bytes"] = new["bytes"]
     del new, recs, by, stats
@@ -2815,15 +2998,17 @@ def cmd_check(a):
         # the interior door's GetFormFromFile resolves them from inside (a temporary one did not, door_trip_sdm_1018)
         anchor = own | ov["anchor"]["form_id"]
         mfids = [own | int(v["arrival"], 16) for v in (ids.get("doors") or {}).values()]
-        where = door_marker_groups(os.path.join(out, prm["plugin"]), set(mfids) | {anchor})
-        wp = door_marker_placement(where, mfids, anchor)
+        mapfids = [own | f for f in map_marker_ids(ids)]                    # the map markers share that cell
+        where = door_marker_groups(os.path.join(out, prm["plugin"]), set(mfids) | set(mapfids) | {anchor})
+        wp = door_marker_placement(where, mfids + mapfids, anchor)
         persistent = [c for c in cells.values() if c["grid"] is None]
         outside = [e["src"] for e in doors if not (ov["cell_min"] <= e["arrival"]["cell"][0] <= ov["cell_max"]
                                                    and ov["cell_min"] <= e["arrival"]["cell"][1] <= ov["cell_max"]
                                                    and list(e["arrival"]["cell"]) == list(tg.sf_cell_of(*e["arrival"]["pos"][:2])))]
-        need(not wp and not outside and len(persistent) == 1 and sorted(persistent[0]["refs"]) == sorted([anchor] + mfids),
+        need(not wp and not outside and len(persistent) == 1 and sorted(persistent[0]["refs"]) == sorted([anchor] + mfids + mapfids),
              f"{len(mfids)} door arrival markers in the persistent children of {ov['world']}'s persistent cell, the anchor's "
-             f"({len(persistent[0]['refs']) if len(persistent) == 1 else '?'} REFRs there = anchor + markers), each over "
+             f"({len(persistent[0]['refs']) if len(persistent) == 1 else '?'} REFRs there = anchor + markers + "
+             f"{len(mapfids)} map markers), each over "
              f"the overlay's cells ({len(wp)} problems: {wp[:3]}; outside {outside[:3]})")
     rep["cells"] = {"with_refs": len(got), "max_refs": max(got.values()), "densest": sorted(
         ([list(k), v] for k, v in got.items()), key=lambda kv: -kv[1])[:5]}

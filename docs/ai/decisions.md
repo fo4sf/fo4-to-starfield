@@ -359,3 +359,51 @@ worst crash case, and the work-period report generated from the fold cannot drif
 a SQLite store like `guardian.db` (harder to diff and attach as evidence; a crash mid-write is worse than a
 truncated JSON line); GitHub labels as the state (not machine-checkable, no history of who held the controller);
 rewriting old queue results into a new format (would touch original campaign evidence).
+
+## 2026-10-16 Claude-cloud: the controller lease is a file beside the ledger, consulted only behind an opt-in switch
+
+`src/fo4sf/core/controller.py` keeps the lease in `<leader>/controller.json` and writes every claim, renewal and
+release to the ledger first (the ledger is the record; the file is the cache the PowerShell scripts read through
+`scripts/game/lease.py`). `testqueue.py run`, `cycle.ps1` and `watchdog.ps1` consult it only when `FO4SF_LEASE_DIR`
+(the watchdog: `lease_dir` in `watchdog.json`) is set; unset, every script behaves as before, so the owner's PC does
+not change until the PC session turns the switch on in a window it watches. Why: the live runner, the chain and the
+watchdog are the PC session's, and a cloud session cannot test them against the game; a default-off switch lets the
+code merge and be read without a behaviour change. An expired lease is ambiguous and refuses every claim but the
+holder's own or a forced one with a reason, because a crash leaves exactly that state and the ledger must say who took
+over and why. Alternatives: a lock file alone (no record of who held it and no expiry: the #84 race again); a fold of
+the ledger in PowerShell (duplicated logic in two languages); a key in the PC's `config.toml` (not in git, and the
+runner reads none today); shipping the wiring on by default (would change the next chain on the PC untested).
+
+## 2026-10-16 Claude-cloud: the preflight gate reads through a probe, refuses on UNKNOWN, and ships off
+
+`src/fo4sf/core/preflight.py` keeps every check pure (a probe object supplies the readings; the runner's
+`PreflightProbe` reads the PC, the tests a fake), so the Windows-only readings never enter the core and every check
+has a synthetic PASS and FAIL. A reading the probe cannot give is UNKNOWN and refuses like FAIL, as the owner's brief
+asks; that includes a game version nobody pinned yet, so turning the gate on is a deliberate step by the PC session
+(pin the version, set `--preflight`). Why a probe and not direct reads: the same functions must run on Linux CI and on
+the PC, and a check that raises must become one UNKNOWN line, not a crash of the runner. Alternatives: a PowerShell
+preflight in cycle.ps1 (not testable here, and the runner needs the result in its log and the ledger); making the
+gate always-on (would refuse every current queue, none pins a game version); verifying the absolute load index
+against the game's implicit plugins (which of them the owner's install loads is unresolved: left as a note).
+
+## 2026-10-16 Claude-cloud: task cards and worker results are validated data; a lost attempt expires, never vanishes
+
+`src/fo4sf/core/tasks.py` and `worker.py` make the §4 card and the worker's result typed records the ledger checks
+before it takes them (an undecided outcome never completes, a PASS or FAIL carries evidence, only an IN_GAME PASS
+may claim `verified`, one attempt at a time, dependencies by PASS), and `Worker.expire` turns an attempt past its
+timeout into an INCONCLUSIVE result that says so. Why: the brief's cards were prose, and the two failure modes of
+the last weeks were a result nobody could trace to evidence and a run nobody could tell apart from a lost one; data
+with rules closes both. Alternatives: free-form result dicts (what the queue rows are today; the importer keeps
+reading those unchanged); a scheduler that retries on its own (a retry is a decision the leader records, not a loop).
+
+## 2026-10-16 Claude-cloud: the core carries one reference matrix, in #102's Z-first order, and leaves the old copies in place
+
+`src/fo4sf/core/adapters/transform.py` is the core's only `ref_matrix` (`R = Rx(-x) Ry(-y) Rz(-z)`, the order PR #102
+verified on 146,463 of 146,728 tilted precombined references and on 52 of 52 core64c readings); a parity test pins
+where the two Python copies agree (`routes.py` everywhere, `exterior.py` on heading-only rotations) and where they do
+not. `exterior.ref_matrix` and `PluginSpike.RotateOffset` stay X first on purpose: switching either moves every
+tilted placement or every rigged door hinge, which is a re-staged build, a rebuilt plugin and re-pinned campaigns,
+so each is its own PR by the PC session (leader-core.md §9 lists the cost). Why not fix them now: a cloud session
+cannot rebuild or re-pin, and a silently changed `objects.json` would invalidate pinned evidence. Alternatives:
+one shared function imported by both scripts today (ties `scripts/game` to `fo4sf.core` before the PC session has
+decided the import path); keeping the order as a parameter (two orders in the core is the bug #102 found).

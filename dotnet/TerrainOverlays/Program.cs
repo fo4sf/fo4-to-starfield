@@ -10,7 +10,9 @@
 //   SFBK <world>Block      copy of OverlayBlockLC172World (102382): ANAM = the tile's BTD, DNAM n x n, ENAM = shared
 //                          height range, FNAM = one raw u16 per BTD cell (SW-corner sample), INAM/HNAM alignment
 //   LCTN <world>Location   copy of LC172WorldLocation (3807BE): keyword LocTypeOverlay, parent SSol_PMars_Surface; one
-//                          per overlay (the CK warns when two overlays share a location)
+//                          per overlay (the CK warns when two overlays share a location). Duplicate clears LCSR/LCID
+//                          (LC172's map-marker chain); MapMarker REFRs (params "map_markers", else one at the COC)
+//                          are restored after doors/lights (docs/terrain/map-markers.md).
 //   WRLD <world>           copy of LC172World (02DF8C) minus cells/offsets/location; overlay component -> the SFBK;
 //                          object bounds = the BTD; every exterior cell of the BTD (empty), the COC cell with a
 //                          COCMarkerHeading 2 m above the ground, a persistent XMarker anchor in the persistent cell
@@ -449,6 +451,7 @@ if (Has(prm, "objects"))
         return t;
     }
     var actiIds = new Dictionary<string, object>();
+    var actiBySrc = new Dictionary<string, PlacedObject>(StringComparer.OrdinalIgnoreCase);
     var actiByEdid = new Dictionary<string, StarfieldActivator>(StringComparer.OrdinalIgnoreCase);
     var actiSig = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
     if (o.TryGetProperty("activators", out var actisJ))
@@ -478,6 +481,7 @@ if (Has(prm, "objects"))
             else if (actiSig[edid] != sig)
                 throw new InvalidDataException($"activator {edid}: {src} asks for {sig} but the shared record is {actiSig[edid]}");
             var obj = PlacePromoted(c, acti.FormKey, "activator");
+            actiBySrc[src] = obj;
             actiIds[src] = new Dictionary<string, string> { ["base"] = acti.FormKey.ID.ToString("X6"), ["ref"] = obj.FormKey.ID.ToString("X6") };
             if (actiIds.Count <= 8 || actiIds.Count % 500 == 0)
                 Console.WriteLine($"  activator {acti.EditorID} {acti.FormKey} ('{acti.Name?.String}') -> REFR {obj.FormKey}");
@@ -727,6 +731,35 @@ if (Has(prm, "objects"))
             doorRefIds[src] = obj.FormKey.ID.ToString("X6");
         }
     }
+    // Red Rocket garage button -> door (docs/terrain/garage-button.md). Vanilla DefaultActivateLinkedRefOnActivate
+    // (no new .pex) + XLKR LinkCustom02 (0005D5E7). Existing ACTI REFR slots; no new FormIDs.
+    var garageIds = new List<object>();
+    if (o.TryGetProperty("garage_buttons", out var gbJ))
+    {
+        foreach (var pair in gbJ.EnumerateArray())
+        {
+            var buttonSrc = pair.GetProperty("button").GetString()!;
+            var doorSrc = pair.GetProperty("door").GetString()!;
+            if (!actiBySrc.TryGetValue(buttonSrc, out var button) || !actiBySrc.TryGetValue(doorSrc, out var door))
+                throw new InvalidDataException($"garage_buttons: {buttonSrc} / {doorSrc} are not promoted activators");
+            var kw = new FormKey(sfEsm, 0x5D5E7);                                  // LinkCustom02; script GetLinkedRef(LinkedRefKeyword)
+            var vmad = new VirtualMachineAdapter { Version = 6, ObjectFormat = 2 };
+            var script = new ScriptEntry { Name = "DefaultActivateLinkedRefOnActivate" };
+            script.Properties.Add(new ScriptObjectProperty
+            {
+                Name = "LinkedRefKeyword", Flags = ScriptProperty.Flag.Edited,
+                Object = new FormLink<IStarfieldMajorRecordGetter>(kw), Alias = -1, Unused = 0,
+            });
+            vmad.Scripts.Add(script);
+            button.VirtualMachineAdapter = vmad;
+            var link = new LinkedReferences();
+            link.KeywordOrReference.SetTo(kw);
+            link.Reference.SetTo(door.FormKey);
+            button.LinkedReferences.Add(link);
+            garageIds.Add(new Dictionary<string, string> { ["button"] = button.FormKey.ID.ToString("X6"), ["door"] = door.FormKey.ID.ToString("X6") });
+            Console.WriteLine($"  garage button {buttonSrc} REFR {button.FormKey} -> door {doorSrc} REFR {door.FormKey} (DefaultActivateLinkedRefOnActivate + LinkCustom02)");
+        }
+    }
     nCont = contByEdid.Count; nMisc = miscByEdid.Count; nActi = actiByEdid.Count; nTerm = termByEdid.Count; nWkshp = wkshpByEdid.Count;
     ids = new Dictionary<string, object> { ["plugin"] = modKey.FileName.String, ["world"] = world, ["bases"] = baseIds, ["refs"] = refIds, ["containers"] = contIds };
     if (o.TryGetProperty("items", out _)) ids["items"] = itemIds;               // a build without items keeps its formids.json bytes
@@ -735,6 +768,7 @@ if (Has(prm, "objects"))
     if (o.TryGetProperty("workshops", out _)) ids["workshops"] = wkshpIds;       // (and without workshops / benches)
     if (o.TryGetProperty("benches", out _)) ids["benches"] = benchIds;
     if (o.TryGetProperty("doors", out _)) ids["doors"] = doorIds;               // filled after the lights
+    if (garageIds.Count > 0) ids["garage_buttons"] = garageIds;
 }
 if (Has(prm, "navmesh"))
 {
@@ -992,6 +1026,67 @@ if (doorEntries.Count > 0)
                           $"persistent in {persistentCell.FormKey} (over cell ({d.ArrivalCell[0]}, {d.ArrivalCell[1]})) at ({d.ArrivalPos[0]}, {d.ArrivalPos[1]}, {d.ArrivalPos[2]})");
     }
 }
+// Map markers (docs/terrain/map-markers.md): Duplicate LC172's persistent MapMarker REFR 003E5E12 so empty XMRK /
+// FNAM 0x1B / TNAM 0x17 stay vanilla; one per entry of the overlay's "map_markers" (make_core64c stage: Red Rocket at
+// the COC, Sanctuary, Vault 111, Concord), else one at the COC; fill LCSR MapMarkerRefType + LCID that the location
+// Duplicate cleared. New FormIDs after doors/lights so object IDs stay, in params order. Skip when the master has no
+// 003E5E12 (synthetic identity fixture) so existing writer tests keep their FormIDs.
+var srcMapMarker = sf.EnumerateMajorRecords<IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey.ID == 0x3E5E12);
+int nMap = 0;
+var mapIds = new Dictionary<string, string>();                               // world -> first marker (the COC one)
+var mapRefIds = new Dictionary<string, Dictionary<string, string>>();        // world -> tag -> marker
+if (srcMapMarker == null)
+    Console.WriteLine("  map marker: template REFR 003E5E12 missing from the master; skipping");
+else foreach (var (w, o) in worlds)
+{
+    var loc = mod.Locations.First(l => l.EditorID == o.GetProperty("location").GetString());
+    var entries = new List<(string Tag, string Name, float[] Pos, int[] Cell)>();
+    if (o.TryGetProperty("map_markers", out var mj) && mj.ValueKind == JsonValueKind.Array)
+        foreach (var m in mj.EnumerateArray())
+            entries.Add((m.GetProperty("tag").GetString()!, m.GetProperty("name").GetString()!,
+                         m.GetProperty("pos").EnumerateArray().Select(e => e.GetSingle()).ToArray(),
+                         m.GetProperty("cell").EnumerateArray().Select(e => e.GetInt32()).ToArray()));
+    else
+        entries.Add(("", "Red Rocket",
+                     o.GetProperty("spawn").EnumerateArray().Select(e => e.GetSingle()).ToArray(),
+                     o.GetProperty("spawn_cell").EnumerateArray().Select(e => e.GetInt32()).ToArray()));
+    var tags = new Dictionary<string, string>();
+    for (int i = 0; i < entries.Count; i++)
+    {
+        var (tag, name, pos, cell) = entries[i];
+        var marker = (PlacedObject)srcMapMarker.Duplicate(NewKey());
+        marker.EditorID = w.EditorID + "MapMarker" + (i == 0 ? "" : tag);       // the first keeps #296's EditorID
+        marker.Position = new P3Float(pos[0], pos[1], pos[2]);
+        marker.Rotation = new P3Float(0, 0, 0);
+        marker.MajorRecordFlagsRaw |= 0xC00;                                 // Persistent 0x400 + Initially Disabled 0x800 (LC172 003E5E12)
+        marker.LinkedReferences?.Clear();                                    // drop LC172's XLKR into a vanilla ref
+        if (marker.MapMarker != null)
+            marker.MapMarker.Name = name;
+        w.TopCell!.Persistent.Add(marker);
+        loc.MasterSpecialReferences ??= new ExtendedList<LocationCellStaticReference>();
+        loc.MasterSpecialReferences.Add(new LocationCellStaticReference
+        {
+            LocationRefType = new FormLink<ILocationReferenceTypeGetter>(new FormKey(sfEsm, 0x2271F)),  // MapMarkerRefType
+            Marker = new FormLink<IPlacedObjectGetter>(marker.FormKey),
+            Location = new FormLink<IWorldspaceGetter>(w.FormKey),
+            Grid = new P2Int16((short)cell[0], (short)cell[1]),               // Mutagen writes Y then X; Unknown -1 is vanilla 0xFFFFFFFF
+            Unknown = -1,
+        });
+        loc.MasterInitiallyDisabledReferences ??= new ExtendedList<IFormLinkGetter<IPlacedGetter>>();
+        loc.MasterInitiallyDisabledReferences.Add(new FormLink<IPlacedGetter>(marker.FormKey));
+        if (i == 0)
+            mapIds[w.EditorID!] = marker.FormKey.ID.ToString("X6");
+        tags[tag == "" ? "RedRocket" : tag] = marker.FormKey.ID.ToString("X6");
+        nMap++;
+        Console.WriteLine($"  map marker {marker.EditorID} \"{name}\" REFR {marker.FormKey} at ({pos[0]}, {pos[1]}, {pos[2]}) cell ({cell[0]}, {cell[1]}) LCSR MapMarkerRefType on {loc.EditorID}");
+    }
+    mapRefIds[w.EditorID!] = tags;
+}
+if (ids != null && mapIds.Count > 0)
+{
+    ids["map_markers"] = mapIds;
+    ids["map_marker_refs"] = mapRefIds;
+}
 if (ids != null)
     File.WriteAllText(Path.Combine(outDir, "formids.json"), JsonSerializer.Serialize(ids));
 mod.ModHeader.Stats.NextFormID = next;
@@ -1002,7 +1097,8 @@ Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {worlds
                   (Has(prm, "objects") ? $"; objects: {nStat} STAT, {nDoor} DOOR, {nCont} CONT, {nMisc} MISC, {nActi} ACTI, {nTerm} TERM + {nTerm} TMLM, {nWkshp} workshop ACTI, {nBench} bench REFR on vanilla FURN, {nRef} REFR ({nDisabled} initially disabled)" : "") +
                   (Has(prm, "navmesh") ? $"; navmesh: {nNav} NAVM, {nNavTri} triangles, {nNavLink} edge links, {nNavDoor} door triangles, NAVI override with {nNav} NVMI" : "") +
                   (nLightRef > 0 ? $"; lights: {nLight} LIGH, {nLightRef} REFR" : "") +
-                  (doorEntries.Count > 0 ? $"; doors: {doorEntries.Count} scripted REFR on {nDoorActi} ACTI, {doorEntries.Count} arrival markers" : ""));
+                  (doorEntries.Count > 0 ? $"; doors: {doorEntries.Count} scripted REFR on {nDoorActi} ACTI, {doorEntries.Count} arrival markers" : "") +
+                  (nMap > 0 ? $"; map markers: {nMap}" : ""));
 
 if (Has(prm, "mars"))
 {
