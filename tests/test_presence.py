@@ -69,6 +69,11 @@ class PresenceTests(unittest.TestCase):
         self.assertEqual(presence.read_ref(ev(res(2064, 5, [101, 199, 10], disabled="true")), ref)["state"], "DISABLED")
         self.assertEqual(presence.read_ref(ev(res(2064, 3, [101, 199, 10])), ref)["state"], "INDEX")
         self.assertEqual(presence.read_ref([], ref)["state"], "MISSING")
+        self.assertEqual(presence.read_ref(ev(res(2065, 5, [1, 1, 1]).replace("id=2065", "id=2064")), ref)["state"],
+                         "CONFLICT")                                 # the reply names another form
+        self.assertEqual(presence.read_ref(ev(res(2064, 5, [-1101, -2501, 10]),
+                                              "FO4SF resolve plugin=FO4SFMission.esm id=2064 form=none"), ref)["state"],
+                         "MISSING")                                  # the last reply decides, refusals included
         self.assertEqual(presence.read_ref(ev("FO4SF resolve plugin=FO4SFMission.esm id=2064 form=none"), ref)["state"],
                          "MISSING")
 

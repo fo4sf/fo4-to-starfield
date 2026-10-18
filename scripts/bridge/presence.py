@@ -128,13 +128,18 @@ def stage(a):
 
 def read_ref(events, ref, near=NEAR_M):
     """{"state", "why", "resolve"} for one reference from the events after its test's ack."""
-    hit = next((e for e in events if e.get("kind") == "resolve" and e.get("id") == ref["id"]
-                and str(e.get("plugin", "")).casefold() == ref["plugin"].casefold()), None)
+    hits = [e for e in events if e.get("kind") == "resolve" and e.get("id") == ref["id"]
+            and str(e.get("plugin", "")).casefold() == ref["plugin"].casefold()]
+    hit = hits[-1] if hits else None
     if hit is None or not hit.get("form"):
         return {"state": "MISSING", "why": "no resolve line" if hit is None else "form=none: no such form loaded"}
     got = {k: hit.get(k) for k in ("form", "pos", "cell", "world", "disabled", "loaded")}
     if hit["form"][:2] != ref["index"]:
         return {"state": "INDEX", "why": f"loads at {hit['form'][:2]}, planned {ref['index']}: re-plan", "resolve": got}
+    want = f"{ref['index']}{ref['id']:06X}"
+    if any(e.get("form") != want for e in hits):
+        return {"state": "CONFLICT", "why": f"replies name {sorted({str(e.get('form')) for e in hits})}, planned {want}",
+                "resolve": got}
     if hit.get("ref") is not True:
         return {"state": "NOT_A_REF", "why": "the form is not a placed reference", "resolve": got}
     if hit.get("disabled") is True:

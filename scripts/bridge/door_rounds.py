@@ -24,7 +24,7 @@ usage:
       destination marker resolved after it at the planned index, a loaded player position after it in the marker's
       cell (in) or the world it resolves in (out), within TOL_M of the marker (its record position; out: + the
       build's merge, never the VMAD under test). FAIL STAYED / WRONG_PLACE when the player is elsewhere; missing or
-      contradictory evidence is INCONCLUSIVE (NOT_ACTIVATED, NO_ACK, NO_RESOLVE, INDEX: re-plan with the right
+      contradictory evidence is INCONCLUSIVE (NOT_ACTIVATED, NO_ACK, NO_RESOLVE, CONFLICT: replies that disagree or name another form, INDEX: re-plan with the right
       indices, NO_POSITION, UNSETTLED, TARGET, WORLD, BAD_PLAN).
 Game data stays outside the repo; nothing here touches the game or its install.
 """
@@ -345,13 +345,23 @@ def judge_test(events, obs, exp, tol=TOL_M):
         return "INCONCLUSIVE", f"NO_ACK: no 'FO4SF ack {exp['ack']}' (console or bridge failed)", None
     after = events[at + 1:]
     want = exp["resolve"]
-    target = next((e for e in after if e.get("kind") == "resolve" and e.get("id") == want["id"]
-                   and str(e.get("plugin", "")).casefold() == want["plugin"].casefold()), None)
-    if target is None or not target.get("form") or target.get("ref") is not True:
+    hits = [e for e in after if e.get("kind") == "resolve" and e.get("id") == want["id"]
+            and str(e.get("plugin", "")).casefold() == want["plugin"].casefold()]
+    if not hits or not hits[0].get("form") or hits[0].get("ref") is not True:
         return "INCONCLUSIVE", f"NO_RESOLVE: {want['plugin']}:{want['id']:06X} not resolved to a reference after the ack", None
-    if target["form"][:2] != want["index"]:
-        return "INCONCLUSIVE", (f"INDEX: {want['plugin']} loads at {target['form'][:2]}, planned {want['index']}: "
+    full_id = f"{want['index']}{want['id']:06X}"
+    if hits[0]["form"][:2] != want["index"]:
+        return "INCONCLUSIVE", (f"INDEX: {want['plugin']} loads at {hits[0]['form'][:2]}, planned {want['index']}: "
                                 f"re-plan"), None
+    # every reply in the attempt must name the same planned form in the same place (Codex's review of #358: a first
+    # good reply never outvotes a later refusal or another form)
+    for e in hits:
+        if e.get("form") != full_id or e.get("ref") is not True or \
+                (e.get("cell"), e.get("world")) != (hits[0].get("cell"), hits[0].get("world")):
+            return "INCONCLUSIVE", (f"CONFLICT: a resolve of {want['plugin']}:{want['id']:06X} read form={e.get('form')} "
+                                    f"ref={e.get('ref')} cell={e.get('cell')} world={e.get('world')}; planned {full_id}"
+                                    f" in cell={hits[0].get('cell')} world={hits[0].get('world')}"), None
+    target = hits[0]
     pos = [e for e in after if e.get("kind") == "pos" and e.get("pos") is not None]
     if not pos:
         return "INCONCLUSIVE", "NO_POSITION: no bridge position line after the ack", None

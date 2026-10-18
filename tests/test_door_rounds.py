@@ -210,6 +210,36 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual(verdict((IN_OK[0], res("FO4Port.esm", 2304, 2, cell="7"), IN_OK[2]), EXP_IN),
                          ("INCONCLUSIVE", "TARGET"))
 
+    def test_every_resolve_reply_must_name_the_planned_form_in_one_place(self):
+        # Codex's correction review of #358: the full id, and no later contradiction, before a PASS
+        wrong = (IN_OK[0], res("FO4Port.esm", 2304, 2).replace(f"form={(2 << 24) | 2304}", f"form={(2 << 24) | 2305}"),
+                 IN_OK[2])
+        self.assertEqual(verdict(wrong, EXP_IN), ("INCONCLUSIVE", "CONFLICT"))
+        later_none = IN_OK + ("FO4SF resolve plugin=FO4Port.esm id=2304 form=none",)
+        self.assertEqual(verdict(later_none, EXP_IN), ("INCONCLUSIVE", "CONFLICT"))
+        other_world = OUT_OK + (res("FO4TerrainCore.esm", 1794, 3, cell="-5", world="-16708042"),)
+        self.assertEqual(verdict(other_world, EXP_OUT), ("INCONCLUSIVE", "CONFLICT"))
+        self.assertEqual(verdict(IN_OK + (IN_OK[1],), EXP_IN)[0], "PASS")          # a repeated agreeing reply is fine
+
+    def test_the_judge_cli_keeps_a_contradicted_pass_inconclusive(self):
+        d = tempfile.mkdtemp()
+        q = {"experiment": d, "tests": [{"id": "0000_terrain_FO4Core_RedRocketSpawn"}]}
+        with open(os.path.join(d, "queue.json"), "w") as f:
+            json.dump(q, f)
+        with open(os.path.join(d, "rounds.json"), "w") as f:
+            json.dump({"tol_m": 3.0, "tests": [dict(EXP_IN, test=0, leg="in", cell_edid="X")]}, f)
+        a = os.path.join(d, "tests", q["tests"][0]["id"], "a1")
+        os.makedirs(a)
+        with open(os.path.join(a, "bridge.log"), "w") as f:
+            f.write("\n".join(IN_OK + ("FO4SF resolve plugin=FO4Port.esm id=2304 form=none",)) + "\n")
+        with open(os.path.join(a, "obs.json"), "w") as f:
+            json.dump(ACT, f)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(dr.main(["judge", "--queue", d]), 0)
+        with open(os.path.join(d, "door_rounds_judge.json")) as f:
+            row = json.load(f)["results"][0]
+        self.assertEqual((row["verdict"], row["why"].split(":")[0]), ("INCONCLUSIVE", "CONFLICT"))
+
     def test_judge_reads_the_latest_attempt_of_each_test(self):
         d = tempfile.mkdtemp()
         q = {"experiment": d, "tests": [{"id": "0000_terrain_FO4Core_RedRocketSpawn"},
