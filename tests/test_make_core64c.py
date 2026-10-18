@@ -139,11 +139,31 @@ class MeasureTests(unittest.TestCase):
         dry = mk.DryConverter(src)
         dry._texture_set("set1", "a_d.dds", "a_n.dds", "a_s.dds", alpha_test=True)
         dry._texture_set("set2", "a_d.dds", "a_n.dds", "")
+        dry._texture_set("set_ts", "a_d.dds", "a_n.dds", "", two_sided=True)
         self.assertEqual(dry.outputs["set1"], [("color", "BC1", 1024, 512), ("normal", "BC5", 512, 512),
                                                ("rough", "BC4", 256, 256), ("opacity", "BC4", 1024, 512)])
         self.assertEqual(dry.outputs["set2"][2], ("rough", "BC4", 128, 128))      # no spec: a quarter of the normal
+        self.assertNotIn("opacity", [k for k, *_ in dry.outputs["set_ts"]])       # two_sided alone is not a cutout
         with self.assertRaises(FileNotFoundError):
             dry._texture_set("set3", "missing_d.dds", "a_n.dds", "")
+
+        class Src:
+            def __init__(self):
+                self.textures = [Arc()]
+
+            def material(self, path):
+                head = bytearray(b"BGSM" + struct.pack("<II4f", 2, 3, 0.0, 0.0, 1.0, 1.0) + b"\x00" * 35)
+                head[48] = 1
+                def s(t):
+                    b = t.encode() + b"\0"
+                    return struct.pack("<I", len(b)) + b
+                return bytes(head) + s("a_d.dds") + s("a_n.dds") + s("") + s("") + s("") + s("") + b"\x00" * 40
+
+        dry2 = mk.DryConverter(Src())
+        got = dry2.conv.material("materials/car00.bgsm")
+        self.assertIsNotNone(got)
+        self.assertEqual(dry2.conv.stats["materials_fallback"], 0)
+        self.assertNotIn("opacity", [k for k, *_ in dry2.outputs["car00"]])
 
 
 class TerrainTests(unittest.TestCase):
@@ -449,6 +469,39 @@ class StageTests(unittest.TestCase):
 
 
 class ContainerPerBaseTests(unittest.TestCase):
+    def test_plugin_punctuation_and_extension_do_not_merge_source_bases(self):
+        plugins = ("SomeDLC.esm", "Some-DLC.esm", "Some_DLC.esm", "Some.DLC.esm", "SomeDLC.esp", "SomeDLC.esl")
+        keys = [mk.container_edid(f"04B6E9:{plugin}", "000001:Fallout4.esm") for plugin in plugins]
+        self.assertEqual(len(set(keys)), len(plugins))
+        for plugin, key in zip(plugins, keys):
+            self.assertEqual(mk.container_edid(f"04b6e9:{plugin.upper()}", "000002:Fallout4.esm"), key)
+
+    def test_existing_simple_master_and_r05_names_stay_stable(self):
+        for plugin, suffix in (("Fallout4.esm", "fallout4"), ("DLCCoast.esm", "dlccoast"), ("DLCNukaWorld.esm", "dlcnukaworld")):
+            self.assertEqual(mk.container_edid(f"04B6E9:{plugin}", "x"), f"FO4Core_cont_04b6e9_{suffix}")
+        self.assertEqual(mk.container_edid(None, "19EE52:Fallout4.esm"), "FO4Core_cont_19ee52")
+
+    def test_unshared_reference_keys_keep_the_source_plugin(self):
+        refs = ("19EE52:Fallout4.esm", "19EE52:SomeDLC.esm", "19EE52:SomeDLC.esp")
+        self.assertEqual(len({mk.container_edid(None, src) for src in refs}), len(refs))
+        self.assertEqual(mk.container_edid(None, refs[-1]), mk.container_edid(None, refs[-1].upper()))
+
+    def test_unicode_expansion_cannot_alias_another_plugin_name(self):
+        self.assertNotEqual(mk.container_edid("04B6E9:Ma\u00dfe.esm", "x"), mk.container_edid("04B6E9:Masse.esm", "x"))
+        self.assertNotEqual(mk.container_edid(None, "19EE52:Ma\u00dfe.esm"), mk.container_edid(None, "19EE52:Masse.esm"))
+
+    def test_key_collision_is_refused_even_when_metadata_matches(self):
+        from unittest.mock import patch
+        bases = [{"model": "synthetic.nif"}]
+        placed = [{"src": f"{i:06X}:Fallout4.esm", "base": 0, "cell": [0, 0], "pos": [0, 0, 0],
+                   "rot": [0, 0, 0], "scale": 1.0} for i in (1, 2)]
+        cluster = {"containers": [{"src": p["src"], "base": base, "name": "Box",
+                                   "items": [{"form": "Starfield.esm:00000F", "count": 1}]}
+                                  for p, base in zip(placed, ("04B6E9:SomeDLC.esm", "04B6E9:Other.esm"))]}
+        with patch.object(mk, "container_edid", return_value="ForcedCollision"):
+            with self.assertRaisesRegex(ValueError, "distinct source identities"):
+                mk.cluster_containers(bases, placed, cluster)
+
     def test_entries_of_one_base_share_the_cont_edid(self):
         bases = [{"edid": "FO4Core_x", "model": "m.nif", "source": "s.nif"}]
         placed = [{"src": "000001:Fallout4.esm", "base": 0, "cell": [0, 0], "pos": [0, 0, 0], "rot": [0, 0, 0], "scale": 1.0},
@@ -653,6 +706,18 @@ class ItemPromotionTests(unittest.TestCase):
         self.assertEqual(res[:2], [True, False])                                           # a reference lost in promotion
         res = [ok for _w, ok in mk.promotion_checks(recs[:-1], own, objects, ids, exp)]
         self.assertFalse(res[0])                                                           # one REFR short
+        marked = dict(ids, map_marker_refs={"W": {"RedRocket": "00080C", "Concord": "00080D"}})
+        res = mk.promotion_checks(recs + [{"sig": "REFR", "fid": own | 0x80C + k, "flags": 0, "fields": []}
+                                          for k in range(2)], own, objects, marked, exp)
+        self.assertTrue(res[0][1] and "2 map markers" in res[0][0], res[0])            # the map markers counted
+        self.assertFalse(mk.promotion_checks(recs, own, objects, marked, exp)[0][1])
+
+    def test_params_view_leaves_out_map_markers(self):
+        core = {"plugin": "P.esm", "overlays": [{"world": "W", "spawn": [1, 2, 3]}]}
+        staged = {"plugin": "P.esm", "objects": "objects.json",
+                  "overlays": [{"world": "W", "spawn": [1, 2, 3], "map_markers": [{"tag": "RedRocket"}]}]}
+        self.assertEqual(mk.core_params_view(staged), core)
+        self.assertNotEqual(mk.core_params_view(dict(staged, overlays=[{"world": "X", "map_markers": []}])), core)
 
 
 class ItemValidationReviewTests(unittest.TestCase):
@@ -843,10 +908,15 @@ class ActivatorTerminalPromotionTests(unittest.TestCase):
                 mk.cluster_promote(self.BASES, self.placed(), two)
 
     def test_an_edid_standing_for_two_fo4_sources_is_refused(self):
-        # promoted_edid strips the plugin's punctuation and extension: A-B.esm and AB.esp both give FO4Core_acti_0bb1e1_ab
+        from unittest.mock import patch
+        # Full plugin identities are distinct, while an actual forced collision still refuses.
         cl = {"activators": [self.acti(1, base="0BB1E1:A-B.esm"), self.acti(3, base="0BB1E1:AB.esp")]}
-        with self.assertRaisesRegex(ValueError, "two FO4 sources"):
-            mk.cluster_promote(self.BASES, self.placed(), cl)
+        entries = mk.cluster_promote(self.BASES, self.placed(), cl)[1]["activators"]
+        self.assertEqual(len({e["edid"] for e in entries}), 2)
+        self.assertEqual([e["reference_index"] for e in entries], [1, 3])
+        with patch.object(mk, "promoted_edid", return_value="ForcedCollision"):
+            with self.assertRaisesRegex(ValueError, "two FO4 sources"):
+                mk.cluster_promote(self.BASES, self.placed(), cl)
         cl = {"activators": [self.acti(1, base="0BB1E1:AB.esm"), self.acti(3, base="0bb1e1:ab.ESM")]}   # ASCII case: one
         self.assertEqual(len({e["edid"] for e in mk.cluster_promote(self.BASES, self.placed(), cl)[1]["activators"]}), 1)
 
@@ -972,6 +1042,50 @@ def light_base(**kw):
          "intensity_scale": 3.96, "dropped": []}
     b.update(kw)
     return b
+
+
+class GarageButtonTests(unittest.TestCase):
+    """Playtest row 21: the two Commonwealth RedRGarageDoor / RedR_ButtonBox pairs (docs/terrain/garage-button.md)."""
+
+    def test_pairs_only_when_both_activators_are_promoted(self):
+        shop = [{"src": "00056331:Fallout4.esm"}, {"src": "00056BBA:Fallout4.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(shop), [
+            {"door": "00056331:Fallout4.esm", "button": "00056BBA:Fallout4.esm"}])
+        self.assertEqual(mk.cluster_garage_buttons(shop + [{"src": "000866C7:Fallout4.esm"},
+                                                           {"src": "000866C0:Fallout4.esm"}]), [
+            {"door": "00056331:Fallout4.esm", "button": "00056BBA:Fallout4.esm"},
+            {"door": "000866C7:Fallout4.esm", "button": "000866C0:Fallout4.esm"}])
+        self.assertEqual(mk.cluster_garage_buttons([{"src": "00056BBA:Fallout4.esm"}]), [])
+        short = [{"src": "056331:Fallout4.esm"}, {"src": "056BBA:Fallout4.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(short), [
+            {"door": "056331:Fallout4.esm", "button": "056BBA:Fallout4.esm"}])
+
+    def test_pairs_keep_plugin_identity(self):
+        foreign = [{"src": "00056331:Other.esm"}, {"src": "00056BBA:Other.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(foreign), [])
+        mixed = [{"src": "00056331:Fallout4.esm"}, {"src": "00056BBA:Other.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(mixed), [])
+        shadow = [{"src": "00056331:Fallout4.esm"}, {"src": "00056BBA:Fallout4.esm"},
+                  {"src": "00056331:Other.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(shadow), [
+            {"door": "00056331:Fallout4.esm", "button": "00056BBA:Fallout4.esm"}])
+        with self.assertRaisesRegex(ValueError, "same FO4 source"):
+            mk.cluster_garage_buttons([{"src": "00056331:Fallout4.esm"}, {"src": "056331:Fallout4.esm"}])
+
+    def test_vmad_linked_ref_keyword_matches_xlkr(self):
+        door = 0x01000DB0
+        vmad = mk.garage_button_vmad()
+        xlkr = mk.garage_button_xlkr(door)
+        props = mk.vmad_patch.decode(vmad)["scripts"][0]["properties"]
+        self.assertEqual(props[0]["name"], mk.GARAGE_SCRIPT_PROPERTY)
+        self.assertEqual(props[0]["value"]["form"], mk.GARAGE_LINK_KEYWORD)
+        self.assertEqual(struct.unpack("<II", xlkr), (mk.GARAGE_LINK_KEYWORD, door))
+        path = os.path.join(root, "dotnet", "TerrainOverlays", "Program.cs")
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn("LinkedRefKeyword", src)
+        self.assertIn("0x5D5E7", src)
+        self.assertIn("DefaultActivateLinkedRefOnActivate", src)
 
 
 class LightTests(unittest.TestCase):
@@ -1300,8 +1414,13 @@ class StationPromotionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "listed as both an? \\w+ and an? \\w+"):
                 mk.cluster_promote(self.BASES, self.placed(), two)
         cl = {"workshops": [self.wk(1, base="0C1AEB:A-B.esm"), self.wk(2, base="0C1AEB:AB.esp")]}
-        with self.assertRaisesRegex(ValueError, "two FO4 sources"):
-            mk.cluster_promote(self.BASES, self.placed(), cl)
+        entries = mk.cluster_promote(self.BASES, self.placed(), cl)[1]["workshops"]
+        self.assertEqual(len({e["edid"] for e in entries}), 2)
+        self.assertEqual([e["reference_index"] for e in entries], [1, 2])
+        from unittest.mock import patch
+        with patch.object(mk, "promoted_edid", return_value="ForcedCollision"):
+            with self.assertRaisesRegex(ValueError, "two FO4 sources"):
+                mk.cluster_promote(self.BASES, self.placed(), cl)
 
     def test_slot_check_refuses_bad_station_identities(self):
         _cl, objects, good = self.plan()
@@ -1570,6 +1689,16 @@ class DoorPromotionTests(unittest.TestCase):
                "doors": {"000002:Fallout4.esm": {"base": "00080D", "ref": "000803", "arrival": "00080C"}},
                "navmeshes": ["000808", "000809"], "lights": {"L1": {"base": "00080B", "ref": "00080A"}}}
         return objects, ids
+
+    def test_map_markers_after_the_doors_keep_the_identity_checks(self):
+        # the PC's full cluster build (#328): formids.json map_marker_refs {world: {tag: id}} is not a promoted class
+        objects, ids = self.ids()
+        ids["map_markers"] = {"W": "00080E"}
+        ids["map_marker_refs"] = {"W": {"RedRocket": "00080E", "Sanctuary": "00080F"}}
+        mk.check_reference_slots(objects, ids)
+        mk.check_light_identities(objects, ids)
+        mk.check_door_identities(objects, ids)
+        self.assertNotIn(0x80E, mk.ids_before(ids, mk.APPENDED))
 
     def test_door_identities_after_the_lights_and_the_slot_kept(self):
         objects, ids = self.ids()

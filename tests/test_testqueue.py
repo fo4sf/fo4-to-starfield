@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from types import SimpleNamespace
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -236,6 +237,88 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(st["done"], {})
         self.assertEqual(st["attempts"]["0000_fall"], 0)
 
+    def test_a_popup_that_takes_the_focus_mid_step_reruns_the_test(self):
+        # movable_1019c 0009 (2026-10-18): "Assert-Foreground : ABORT: foreground window belongs to 'AMDAutoUpdate',
+        # not 'Starfield'. No input sent." with no owner input since the runner's last one: a popup, not the owner
+        self.ctl.last_sent_tick = 1000
+        n = {}
+        logs = []
+
+        def step(test, out):
+            n[test["id"]] = n.get(test["id"], 0) + 1
+            if test["id"] == "0000_fall" and n[test["id"]] == 1:
+                with open(os.path.join(out, "step.log"), "w", encoding="utf-8") as f:
+                    f.write("Assert-Foreground : ABORT: foreground window belongs to 'AMDAutoUpdate', not 'Starfield'. "
+                            "No input sent.\n")
+                return 2
+            return self.landing(0.1)(test, out)
+        r = self.runner(step, refocus=True)
+        r.log = logs.append
+        self.assertEqual(r.run(), 0)
+        self.assertEqual(n["0000_fall"], 2)
+        self.assertEqual(len(jload(os.path.join(self.d, "state.json"))["done"]), 3)
+        self.assertTrue(any("AMDAutoUpdate took the focus mid-step without owner input (popup)" in x for x in logs), logs)
+        # the interrupted attempt's evidence survives the rerun, which writes a1 afresh (Codex on #341 at f2fe7bf)
+        a1 = os.path.join(self.d, "tests", "0000_fall", "a1")
+        kept = readf(os.path.join(a1 + "_popup1", "step.log"))
+        self.assertIn("foreground window belongs to 'AMDAutoUpdate'", kept)
+        self.assertTrue(os.path.exists(os.path.join(a1, "obs.json")))
+        self.assertFalse(os.path.exists(os.path.join(a1, "step.log")) and "AMDAutoUpdate" in readf(os.path.join(a1, "step.log")))
+
+    def test_a_resumed_run_keeps_every_interrupted_attempt(self):
+        # Codex on #341 at 446b5a9: a second Runner (resumed after a stop) starts its popup count again; its archive
+        # must not reuse a1_popup1, which already holds the first run's interrupted attempt
+        self.ctl.last_sent_tick = 1000
+        a1 = os.path.join(self.d, "tests", "0000_fall", "a1")
+        calls = [0]
+
+        def popup_then_stop(test, out):
+            calls[0] += 1
+            with open(os.path.join(out, "step.log"), "w", encoding="utf-8") as f:
+                f.write(f"run {calls[0]}: foreground window belongs to 'AMDAutoUpdate', not 'Starfield'\n")
+            if calls[0] == 2:
+                self.ctl.foreign = True                   # the owner typed: the first run stops here
+            return 2
+        self.assertEqual(self.runner(popup_then_stop, refocus=True).run(), 3)
+        self.ctl.foreign = False
+        self.assertEqual(self.runner(popup_then_stop, refocus=True, max_tests=1).run() in (0, 3, 4), True)
+        # every interrupted attempt's step.log is still on disk: none was overwritten by a rerun or the resumed run
+        logs = []
+        for root, _dirs, files in os.walk(os.path.join(self.d, "tests")):
+            logs += [readf(os.path.join(root, f)) for f in files if f == "step.log"]
+        self.assertEqual(sorted(x.split(":")[0] for x in logs), sorted(f"run {k}" for k in range(1, calls[0] + 1)))
+        self.assertIn("run 1:", readf(os.path.join(a1 + "_popup1", "step.log")))
+        kept = sorted(x for x in os.listdir(os.path.dirname(a1)) if x.startswith("a1_popup"))
+        self.assertGreaterEqual(len(kept), 2, kept)                    # the resumed run's popup got a fresh name
+        self.assertEqual(tq.unused_name(a1 + "_popup"), a1 + f"_popup{len(kept) + 1}")
+
+    def test_a_popup_rerun_is_capped_and_owner_input_still_stops(self):
+        self.ctl.last_sent_tick = 1000
+        n = [0]
+
+        def step(test, out):
+            n[0] += 1
+            return 2
+        self.assertEqual(self.runner(step, refocus=True).run(), 3)
+        # each of the 3 tests rerun at the end of the queue until the first runs out of reruns, then the stop as before
+        self.assertEqual(n[0], 3 * tq.POPUP_RETRIES + 1)
+        self.assertEqual(jload(os.path.join(self.d, "state.json"))["done"], {})
+        n[0] = 0
+
+        def typed(test, out):                             # the owner typed during the step: no rerun
+            n[0] += 1
+            self.ctl.foreign = True
+            return 2
+        self.assertEqual(self.runner(typed, refocus=True).run(), 3)
+        self.assertEqual(n[0], 1)
+
+    def test_the_window_that_took_the_focus_is_read_from_the_step_log(self):
+        d = tempfile.mkdtemp()
+        self.assertIsNone(tq.foreground_thief(d))
+        with open(os.path.join(d, "step.log"), "w", encoding="utf-8") as f:
+            f.write("x\nAssert-Foreground : ABORT: foreground window belongs to 'AMDAutoUpdate', not 'Starfield'.\n")
+        self.assertEqual(tq.foreground_thief(d), "AMDAutoUpdate")
+
     def test_crash_is_recorded_and_not_a_pass(self):
         def step(test, out):
             self.ctl.pid = None                           # the game exited during the step
@@ -334,6 +417,25 @@ class BreakerTests(unittest.TestCase):
         self.assertEqual(len(calls), tq.BREAKER)
         done = jload(os.path.join(d, "state.json"))["done"]
         self.assertEqual(sum(v["class"] == "BREAKER" for v in done.values()), 12 - tq.BREAKER)
+
+    def test_an_open_breaker_never_rewrites_a_test_that_ran(self):
+        # #220: with --max-attempts 2 the six first attempts open the breaker; each pending retry was then recorded as
+        # a BREAKER row "not run", attempt 0, which replaced the real INCONCLUSIVE attempt as the test's last row
+        d = tempfile.mkdtemp()
+        make_queue(d, n=tq.BREAKER)
+        r = tq.Runner(d, args(max_attempts=2), ctl=FakeControls(), step=lambda t, o: 0)   # never an obs.json
+        r.session, r.cell, r._ps = True, "C", (lambda *a, **k: (0, ""))
+        r.log = lambda msg: None
+        r.run()
+        st = jload(os.path.join(d, "state.json"))
+        with open(os.path.join(d, "results.jsonl"), encoding="utf-8") as f:
+            rows = [json.loads(x) for x in f if x.strip()]
+        for t in st["done"]:
+            last = [x for x in rows if x["id"] == t][-1]
+            self.assertEqual(st["done"][t]["attempts"], st["attempts"][t], t)
+            self.assertEqual(st["done"][t]["attempts"], last["attempt"], t)
+            self.assertNotEqual(last["class"], "BREAKER", last)
+            self.assertEqual((st["done"][t]["verdict"], st["done"][t]["class"]), (last["verdict"], last["class"]))
 
     def test_a_kind_with_a_verdict_keeps_running(self):
         d = tempfile.mkdtemp()
@@ -602,6 +704,55 @@ class PlanJsonTests(unittest.TestCase):
         jdump([{"coc": "bad name; quit", "points": []}], os.path.join(d, "plan.json"))
         with self.assertRaises(SystemExit):               # typed into the console: letters, digits, _ only
             tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])
+
+    def test_terrain_points_are_validated(self):
+        # #219: no points, a NaN / missing / non-numeric value are refused at planning, like the other planners
+        d = tempfile.mkdtemp()
+        writef(os.path.join(d, "FO4Port.esm"), b"TES4")
+        out = os.path.join(d, "q")
+        for points in ([], None, ["v0"], [{"label": "v0", "x": 0.0, "y": 0.0, "expect": float("nan")}],
+                       [{"label": "v0", "x": 0.0, "y": 0.0}], [{"label": "v0", "x": 0.0, "y": 0.0, "expect": "high"}]):
+            jdump([{"coc": "FO4CW_X", "points": points, "beyond": {"x": 0.0, "y": 0.0}}], os.path.join(d, "plan.json"))
+            with self.assertRaises(SystemExit, msg=points), mock.patch("builtins.print"):
+                tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])
+        jdump([{"coc": "FO4CW_X", "points": [{"label": "v0", "x": 0, "y": "2", "expect": "15"}]}],
+              os.path.join(d, "plan.json"))
+        with mock.patch("builtins.print"):
+            tq.main(["plan-terrain", "--staging", d, "--exp-dir", d, "--out", out])
+        self.assertEqual(jload(os.path.join(out, "queue.json"))["tests"][0]["points"],
+                         [{"label": "v0", "x": 0.0, "y": 2.0, "expect": 15.0}])
+
+    def test_plan_movable_pins_the_bridge_it_was_given(self):
+        # #218: plan_movable built queue_extras' options without --bridge: no pin, no bridge_reads, no "bridge" need,
+        # and a missing bridge folder was not refused
+        d = tempfile.mkdtemp()
+        writef(os.path.join(d, "FO4Port.esm"), b"TES4")
+        br = os.path.join(d, "bridge")
+        os.makedirs(os.path.join(br, "Data", "Scripts"))
+        writef(os.path.join(br, "FO4SFBridge.esm"), b"plugin")
+        writef(os.path.join(br, "Data", "Scripts", "FO4SF_Bridge.pex"), b"pex")
+        jdump([{"label": "C_burntbook", "travel": "coc QASmoke", "base": "0200CE2A", "mass_kg": 25.0,
+                "spot": [-3.0, 4.0, 0.0]}], os.path.join(d, "plan.json"))
+        out = os.path.join(d, "q")
+        with mock.patch("builtins.print"):
+            tq.main(["plan-movable", "--staging", d, "--exp-dir", d, "--out", out, "--bridge", br])
+        q = jload(os.path.join(out, "queue.json"))
+        self.assertIn("bridge", q)
+        self.assertTrue(q["tests"][0].get("bridge_reads"))
+        self.assertIn("bridge", q.get("needs", []))
+        with self.assertRaises(SystemExit), mock.patch("builtins.print"):
+            tq.main(["plan-movable", "--staging", d, "--exp-dir", d, "--out", out, "--bridge", os.path.join(d, "no")])
+
+    def test_the_terrain_judge_never_passes_a_test_without_usable_points(self):
+        # #219: a queue planned before the check: no points judged PASS on a screenshot alone, a NaN expect passed a
+        # read 400 m below, a string expect raised TypeError
+        d = tempfile.mkdtemp()
+        writef(os.path.join(d, "spawn.png"), b"x" * 2000)
+        for points, reads in (([], []), ([{"label": "v0", "x": 0.0, "y": 0.0, "expect": float("nan")}], ["0 0 -400"]),
+                              ([{"label": "v0", "x": 0.0, "y": 0.0, "expect": "15"}], ["0 0 15"])):
+            test = {"id": "0000_terrain_X", "kind": "terrain", "points": points}
+            obs = {"shot": "spawn.png", "points": [{"read": r} for r in reads]}
+            self.assertEqual(tq.judge(test, obs, d)[:2], ("INCONCLUSIVE", "PLAN"), points)
 
 
 class ExpPackTests(unittest.TestCase):

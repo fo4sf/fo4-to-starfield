@@ -63,6 +63,17 @@ class LcsrLayout(unittest.TestCase):
         self.assertEqual(struct.pack("<I", mm.LC172_FNAM), bytes.fromhex("1b000000"))
         self.assertEqual(struct.pack("<H", mm.LC172_TNAM), bytes.fromhex("1700"))
 
+    def test_writer_restores_lc172_marker_not_a_landing_overlay(self):
+        path = os.path.join(ROOT, "dotnet", "TerrainOverlays", "Program.cs")
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn("0x3E5E12", src)
+        self.assertIn("0x2271F", src)
+        self.assertIn("MapMarkerRefType", src)
+        self.assertIn('ids["map_markers"]', src)
+        self.assertNotIn("0x9105", src)
+        self.assertNotIn("ShipLandingMarkerRefType", src)
+
 
 if __name__ == "__main__":
     unittest.main()

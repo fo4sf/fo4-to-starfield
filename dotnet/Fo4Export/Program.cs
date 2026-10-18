@@ -77,7 +77,32 @@ foreach (var placed in cell.Temporary.Concat(cell.Persistent))
     refs.Add(ReferenceExport.Build(r, type, baseEid, model, persistentKeys.Contains(r.FormKey)));
 }
 var dependencies = TeleportDependencies.Build(cell.Temporary.Concat(cell.Persistent).OfType<IPlacedObjectGetter>(), AllCells());
-File.WriteAllText(args[3], JsonSerializer.Serialize(new { schema_version = 2, cell = cell.EditorID, formkey = cell.FormKey.ToString(), refs,
+// the cell's own lighting (XCLL: ambient, directional, directional-ambient and fog colours) and its lighting template's,
+// read by reflection so the dump follows whatever Mutagen exposes; the writer does not consume it yet (research log 2026-10-18)
+object? Dump(object? o, int depth)
+{
+    if (o == null) return null;
+    if (o is System.Drawing.Color col) return new int[] { col.R, col.G, col.B };
+    var t = o.GetType();
+    if (t.IsPrimitive || t.IsEnum || o is string || o is decimal || o is Type) return o.ToString();
+    if (depth >= 3 || o is System.Collections.IEnumerable) return o.ToString();
+    var d = new SortedDictionary<string, object?>();
+    foreach (var p in t.GetProperties())
+    {
+        if (p.GetIndexParameters().Length > 0 || p.Name is "Registration" or "StaticRegistration") continue;
+        object? v;
+        try { v = p.GetValue(o); } catch { continue; }
+        d[p.Name] = Dump(v, depth + 1);
+    }
+    return d;
+}
+var lighting = new Dictionary<string, object?> { ["cell"] = Dump(cell.Lighting, 0), ["template"] = cell.LightingTemplate.FormKey.ToString() };
+if (cell.LightingTemplate.TryResolve(cache, out var lgtm))
+{
+    lighting["template_editor_id"] = lgtm.EditorID;
+    lighting["template_values"] = Dump(lgtm, 0);
+}
+File.WriteAllText(args[3], JsonSerializer.Serialize(new { schema_version = 2, cell = cell.EditorID, formkey = cell.FormKey.ToString(), lighting, refs,
     deferred_refs = deferred, referenced_keywords = keywords.Values, teleport_dependencies = dependencies },
     new JsonSerializerOptions { WriteIndented = true }));
 Console.WriteLine($"{cell.EditorID}: {refs.Count} references -> {args[3]}");
