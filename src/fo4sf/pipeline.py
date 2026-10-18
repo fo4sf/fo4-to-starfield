@@ -146,8 +146,12 @@ class Converter:
                  no_collision_pattern: str = r"^meshes[\\/](architecture|interiors|scol)[\\/]", rig_doors: bool = False,
                  door_physics_donor: Optional[bytes] = None, sf_mesh_template: Optional[bytes] = None,
                  dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None,
-                 spec_mask_roughness: bool = False, mass_scale: float = 1.0):
+                 spec_mask_roughness: bool = False, mass_scale: float = 1.0, load_door_models=()):
         self.src, self.staging, self.texconv = src, staging, texconv_exe
+        # load_door_models: mesh names FO4 places as a teleporting Door (a Door reference with an XTEL in the cell export,
+        # convert_batch.teleport_models), load doors whatever their name: RoofHatch01 and MetalTrapdoorLadder01 match no
+        # LOAD_DOOR_RE and stayed STATs nobody could activate (Museum of Witchcraft roof hatch, owner 2026-10-18)
+        self.load_door_models = {n.replace("/", "\\").lower() for n in load_door_models}
         # spec_mask_roughness: roughness also follows FO4's specular mask (smooth-spec R), not only its gloss (G); off by
         # default so existing builds and checkpoints keep their textures (owner's Vault 111 floor report, 2026-10-17)
         self.spec_mask_roughness = spec_mask_roughness
@@ -576,7 +580,7 @@ class Converter:
             # used to get no collision at all, so walls beside doors and grass mounds could be walked through.)
             no_guess = bool(re.search(r"[\\/]landscape[\\/](trees|plants|grass)|roots|cobweb|vines|hanging"
                                       r"|[\\/]doors?[\\/]|door[^\\/]*\.nif$", nif_name, re.I))
-            load_door = bool(LOAD_DOOR_RE.search(nif_name))
+            load_door = bool(LOAD_DOOR_RE.search(nif_name)) or nif_name.replace("/", "\\").lower() in getattr(self, "load_door_models", ())
             if load_door:
                 # bounds (metres, NIF space) for the DOOR record's OBND, like the hinged doors' "door.bounds"
                 pts = [sfmesh.decode_position(p, m.scale) for m in (convert_static.shape_to_mesh(s) for s in shapes)

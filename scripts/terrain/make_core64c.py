@@ -107,6 +107,8 @@ def core_params_view(prm):
 def slim(ref):
     out = {k: ref.get(k) for k in SLIM_KEYS}
     out["enable_parent"] = ref.get("enable_parent")
+    if ref.get("type") == "Door" and ref.get("teleport_destination"):
+        out["teleports"] = True                    # a load door: convert_list converts its model as one
     return out
 
 
@@ -138,11 +140,16 @@ def select_bands(paths):
 
 
 def convert_list(kept):
-    """One entry per model (convert_batch --cell-json reads only "model" and "type")."""
+    """One entry per model (convert_batch --cell-json reads "model", "type" and "teleport_destination"). A model FO4
+    places anywhere as a teleporting Door (slim "teleports") carries teleport_destination true, so convert_batch converts it as a load door:
+    solid, with its own collision for the activation prompt, never a passable animated door (Fort Hagen's and Vault 95's
+    elevator entrances could not be used from outside, owner 2026-10-18; cause to confirm with door_audit.py)."""
     by_model = {}
     for r in kept:
-        by_model.setdefault(exterior.source_key(r["model"]), {"model": r["model"], "type": r["type"],
-                                                               "formkey": r["formkey"]})
+        e = by_model.setdefault(exterior.source_key(r["model"]), {"model": r["model"], "type": r["type"],
+                                                                   "formkey": r["formkey"]})
+        if r.get("teleports"):
+            e.update(type="Door", teleport_destination=True)
     return [by_model[k] for k in sorted(by_model)]
 
 

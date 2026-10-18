@@ -43,6 +43,7 @@ var refs = new List<object>();
 var deferred = new List<object>();
 var keywords = new Dictionary<string, object>();
 var byType = new Dictionary<string, int>();
+var doorBases = new Dictionary<string, object?>();   // every placed Door base: its record and scripts (door-behaviour.md)
 var persistentKeys = cell.Persistent.Select(r => r.FormKey).ToHashSet();
 foreach (var placed in cell.Temporary.Concat(cell.Persistent))
 {
@@ -72,6 +73,9 @@ foreach (var placed in cell.Temporary.Concat(cell.Persistent))
         type = baseRec.GetType().Name.Replace("BinaryOverlay", "");
         baseEid = baseRec.EditorID ?? "";
         if (baseRec is IModeledGetter m && m.Model?.File != null) model = m.Model.File.ToString();
+        if (baseRec is IDoorGetter && !doorBases.ContainsKey(baseRec.FormKey.ToString()))
+            doorBases[baseRec.FormKey.ToString()] = new { editor_id = baseEid, model, record = Dump(baseRec, 0),
+                                                          scripts = ScriptExport.Scripts(baseRec) };
     }
     byType[type] = byType.GetValueOrDefault(type) + 1;
     refs.Add(ReferenceExport.Build(r, type, baseEid, model, persistentKeys.Contains(r.FormKey)));
@@ -103,7 +107,7 @@ if (cell.LightingTemplate.TryResolve(cache, out var lgtm))
     lighting["template_values"] = Dump(lgtm, 0);
 }
 File.WriteAllText(args[3], JsonSerializer.Serialize(new { schema_version = 2, cell = cell.EditorID, formkey = cell.FormKey.ToString(), lighting, refs,
-    deferred_refs = deferred, referenced_keywords = keywords.Values, teleport_dependencies = dependencies },
+    deferred_refs = deferred, door_bases = doorBases, referenced_keywords = keywords.Values, teleport_dependencies = dependencies },
     new JsonSerializerOptions { WriteIndented = true }));
 Console.WriteLine($"{cell.EditorID}: {refs.Count} references -> {args[3]}");
 Console.WriteLine($"{deferred.Count} deferred placements retained for future translators");

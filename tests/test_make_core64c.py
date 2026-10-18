@@ -94,6 +94,16 @@ class SelectTests(unittest.TestCase):
             # one model, two references (case differs): one convert_batch entry
             self.assertEqual(len(mk.convert_list(kept)), 1)
 
+    def test_a_model_placed_as_a_teleporting_door_is_converted_as_a_load_door(self):
+        door = {"formkey": "000009:Fallout4.esm", "type": "Door", "model": "SetDressing\\Elevator\\Lift01.nif",
+                "teleport_destination": {"door": "00000A:Fallout4.esm"}}
+        plain = dict(door, formkey="00000B:Fallout4.esm", teleport_destination=None)
+        self.assertTrue(mk.slim(door)["teleports"])
+        self.assertNotIn("teleports", mk.slim(plain))
+        for refs in ([plain, door], [door, plain]):
+            self.assertEqual(mk.convert_list([mk.slim(r) for r in refs])[0]["teleport_destination"], True)
+        self.assertNotIn("teleport_destination", mk.convert_list([mk.slim(plain)])[0])
+
     def test_a_reference_in_two_bands_is_an_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             paths = []

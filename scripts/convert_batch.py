@@ -141,6 +141,13 @@ def cell_candidates(cell, wanted):
                   key=str.lower)
 
 
+def teleport_models(cell):
+    """The meshes FO4 places in this cell as a teleporting door ('meshes\\' + model of every Door reference with an XTEL):
+    load doors for the converter whatever their file name (pipeline.Converter load_door_models)."""
+    return sorted({"meshes\\" + r["model"].lstrip("\\") for r in cell["refs"] if r.get("model") and r.get("type") == "Door"
+                   and r.get("teleport_destination")}, key=str.lower)
+
+
 def write_json_atomic(path, value):
     fd, temporary = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".fo4port-")
     try:
@@ -231,8 +238,10 @@ def main():
         with open(a.cell_json, encoding="utf-8-sig") as f:
             cell = json.load(f)
         names = cell_candidates(cell, set(a.types.split(",")))
+        load_models = teleport_models(cell)
     else:
         names = src.mesh_names(a.pattern)
+        load_models = []
     print(f"{len(names)} candidate meshes; converting up to {a.limit}")
     os.makedirs(a.staging, exist_ok=True)
     state_path = os.path.join(a.staging, "build-state.json")
@@ -258,7 +267,7 @@ def main():
                                               prefix=a.prefix, max_texture=a.max_texture,
                                               door_anim_dll=a.door_anim_dll or None,
                                               spec_mask_roughness=a.spec_mask_roughness,
-                                              mass_scale=a.mass_scale)
+                                              mass_scale=a.mass_scale, load_door_models=load_models)
                 r = conv.convert_nif(name)
                 if cache:
                     try:
@@ -306,7 +315,7 @@ def main():
                                               prefix=a.prefix, max_texture=a.max_texture,
                                               door_anim_dll=a.door_anim_dll or None,
                                               spec_mask_roughness=a.spec_mask_roughness,
-                                              mass_scale=a.mass_scale)
+                                              mass_scale=a.mass_scale, load_door_models=load_models)
                 r = conv.convert_nif(v.source, pose=v.overrides, out_suffix=v.suffix)
                 if cache:
                     try:

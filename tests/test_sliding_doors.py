@@ -244,8 +244,9 @@ class RestPoseTests(unittest.TestCase):
 class NonHingedRoutingTests(unittest.TestCase):
     """pipeline.Converter.convert_nif: which path a door-named model takes (stubbed converters)."""
 
-    def convert(self, staging, name, parts, dll, multipart=None):
+    def convert(self, staging, name, parts, dll, multipart=None, **attrs):
         converter = pipeline.Converter.__new__(pipeline.Converter)
+        converter.__dict__.update(attrs)
         converter.src = SimpleNamespace(mesh=lambda _: nif.serialize(door_nif(parts)))
         converter.staging = staging
         converter.prefix = "fo4port"
