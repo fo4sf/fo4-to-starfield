@@ -184,7 +184,7 @@ class CodsworthPublishTest(unittest.TestCase):
         self.assertTrue((stage / "meshes/fo4port/actors/codsworth/codsworth.nif").exists())
         self.assertEqual((stage / "materials/body.mat").read_text(), "new")
         self.assertTrue((stage / "codsworth_report.json").exists())
-        self.assertFalse(Path(str(stage) + ".partial").exists())
+        self.assertEqual(list(self.root.glob("stage.partial*")), [])
 
     def test_existing_stage_is_refused_untouched(self):
         stage = self.root / "stage"
@@ -201,6 +201,13 @@ class CodsworthPublishTest(unittest.TestCase):
             with self.assertRaises(nif.NifError):
                 self.cc.main(self.args + ["--staging", str(stage)])
         self.assertFalse(stage.exists())
+        failed = list(self.root.glob("stage.partial-*"))
+        self.assertEqual(len(failed), 1)                                         # failed attempt kept as evidence
+        (failed[0] / "marker").write_text("evidence")
+        self.assertEqual(self.cc.main(self.args + ["--staging", str(stage)]), 0)  # retry leaves it untouched
+        self.assertEqual((failed[0] / "marker").read_text(), "evidence")
+        self.assertEqual((failed[0] / "materials/body.mat").read_text(), "new")
+        self.assertTrue((stage / "codsworth_report.json").exists())
 
 
 if __name__ == "__main__":

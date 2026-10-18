@@ -6,8 +6,8 @@
 Source Meshes\\Actors\\Robot\\CharacterAssets\\MrHandy.nif (Torso, Legs, HandyShell, Arms:0, Arms:1; 63 skin bones),
 template Meshes\\Actors\\MiniBotA\\Mesh\\minibota_base\\minibota_mesh.nif (one weight per vertex; bones C_Chassis,
 C_Arm1-3, C_Base, C_Axle, C_Hatch), both verified on the PC 2026-10-18 (codsworth_dump.py). Materials and textures go
-through pipeline.Converter exactly as the statics do. Everything is built in <staging>.partial, which is renamed to
-<staging> only once complete; <staging> must be new or empty, so an earlier stage is never overwritten. Writes:
+through pipeline.Converter exactly as the statics do. Everything is built in a fresh <staging>.partial-* folder, renamed
+to <staging> only once complete (a failed attempt's folder is kept as evidence, never cleaned up); <staging> must be new or empty, so an earlier stage is never overwritten. Writes:
     meshes/fo4port/actors/codsworth/codsworth.nif, geometries/<hash>/<hash>.mesh, materials/..., textures/...
     codsworth_report.json
 Bone map: Pelvis (the thruster) -> C_Base, everything else -> C_Chassis. With --animate-arms the three arm chains
@@ -18,8 +18,8 @@ import argparse
 import glob
 import json
 import os
-import shutil
 import sys
+import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 from fo4sf import actor_rebind, ba2, nif, pipeline  # noqa: E402
@@ -65,9 +65,10 @@ def main(argv=None):
     a = p.parse_args(argv)
     if os.path.exists(a.staging) and os.listdir(a.staging):
         raise SystemExit(f"{a.staging} is not empty: give a new staging folder (an earlier stage is never overwritten)")
-    partial = a.staging.rstrip("\\/") + ".partial"
-    if os.path.exists(partial):
-        shutil.rmtree(partial)                                              # a failed earlier attempt, never published
+    parent = os.path.dirname(os.path.abspath(a.staging))
+    os.makedirs(parent, exist_ok=True)
+    # a fresh attempt folder each run: earlier failed or concurrent attempts are left as they are (evidence)
+    partial = tempfile.mkdtemp(prefix=os.path.basename(os.path.abspath(a.staging)) + ".partial-", dir=parent)
     report = build(a, partial)
     if os.path.exists(a.staging):
         os.rmdir(a.staging)                                                 # empty (checked above)
