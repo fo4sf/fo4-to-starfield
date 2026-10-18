@@ -1310,3 +1310,25 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   SetRigidBodyMass test plus `SetGS fGrabMaxWeightWalking 1000` decides it. No converter change.
 - **unresolved:** Preston's friendly Starfield template; whether quest targets route through our scripted doors; the
   cog door's clip in game; whether the cut-down quest may force combat (FO4 does, DN092 stages 13 / 76).
+
+## 2026-10-18 Claude-cloud: converted interiors get no natural (sky) light, only placed lights
+- Report (owner, 18 Oct 00:58Z): "where there is lights stuff looks really good, but ... the natural lighting doesn't
+  affect textures yet so it's really dark". His snapshot a minute earlier (`C:\Modding\snapshots\20261017-185720`,
+  owner button, interior cell 050049B4 = the Boston Public Library on the installed integ_1019_doors set) shows the hall
+  black except where the helmet lamp falls; the lamp-lit wall reads correctly (texture, normal, roughness fine).
+- **verified (code):** the interior writer (dotnet/PluginSpike/Program.cs, cell loop) gives every converted interior the
+  same light set-up, whatever FO4 had: lighting template KreetBase01LGTtemplate 06BCF8 (underground) unless
+  lighting.json says otherwise, image space 122393, and EnvironmentMap `Data\Textures\cubemaps\blackcube.dds`
+  (journal 2026-10-08, chosen to stop the pink wash from a bright default sky). FO4's own cell lighting (XCLL ambient,
+  directional and directional-ambient colours, fog, its lighting template) is never exported (Fo4Export wrote only refs),
+  so the window-lit FO4 interiors and the vaults get the same dark underground light.
+- **supported hypothesis:** the black cubemap removes the image-based (sky) light a Starfield PBR surface gets, and the
+  underground template adds little ambient, so a surface away from a placed light is near black. Not a material bug:
+  the same materials look right under the lamp and under the exterior sun (playtest row 11 picture).
+- **unresolved:** the exterior at night. The overlay worldspace copies LC172World (Mars) and its cells set no lighting,
+  so night there is Mars's own night; no capture compares a converted object with vanilla ground at night yet.
+- Change (this branch): Fo4Export writes the FO4 cell's lighting block (cell XCLL + template, by reflection) into each
+  export; SfInspect `envmaps` lists the environment maps vanilla interiors use; ENV_MAP is a per-cell lighting.json key.
+  Next: pick a dim vanilla interior cubemap and a brighter template from `envmaps` / `templates`, rebuild the library
+  only with `{"BostonPublicLibrary02": {"ENV_MAP": "<vanilla>", "LIGHTING_TEMPLATE": "006658"}}` and compare in game
+  against the current build, then map FO4's ambient level to the template per cell.
