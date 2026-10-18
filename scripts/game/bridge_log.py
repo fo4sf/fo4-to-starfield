@@ -246,7 +246,8 @@ def read_lines(path):
 
 def clock_age(clock, now=None):
     """Seconds between a line's "[HH:MM:SS]" stamp (the game's clock, the same PC) and now; None for no stamp. The
-    stamp has whole seconds, so an age is 0..1 s coarse; a stamp ahead of now (midnight passed) counts as 24 h less."""
+    stamp has whole seconds, so an age is 0..1 s coarse; any stamp ahead of now (or from the previous day) counts as
+    24 h less so ages stay non-negative."""
     m = re.fullmatch(r"(\d{1,2}):(\d{2}):(\d{2})", clock or "")
     if not m:
         return None
@@ -255,7 +256,7 @@ def clock_age(clock, now=None):
     secs_now = lt.tm_hour * 3600 + lt.tm_min * 60 + lt.tm_sec + (now % 1)
     secs = int(m.group(1)) * 3600 + int(m.group(2)) * 60 + int(m.group(3))
     age = secs_now - secs
-    if age < -43200:
+    if age < 0:
         age += 86400
     return age
 

@@ -387,3 +387,13 @@ class ProbeKindCaseTests(unittest.TestCase):
             self.assertEqual(events[1]["plugin"], "MiXeD.esm")
             self.assertIsNone(events[1]["form"])
             self.assertEqual(events[3]["phase"], "refused")
+
+class ClockAgeTests(unittest.TestCase):
+    def test_yesterday_stamp_is_positive_age(self):
+        """A stamp from 13:00 when now is 02:00 should be ~13 hours positive, not negative."""
+        # Simulate now as 02:00:00
+        now = time.mktime(time.strptime("2026-10-18 02:00:00", "%Y-%m-%d %H:%M:%S"))
+        age = bridge_log.clock_age("13:00:00", now=now)
+        self.assertGreater(age, 0)
+        self.assertAlmostEqual(age, 13 * 3600, delta=2)  # 13 hours, allow small float error
+
