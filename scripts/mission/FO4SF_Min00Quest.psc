@@ -14,6 +14,21 @@ Actor[] Property Raiders Auto Const Mandatory
 MiscObject Property Credits Auto Const Mandatory
 {Starfield's credits: the reward that stands in for Fallout 4's caps.}
 
+Actor Property Codsworth Auto Const
+{Codsworth's placed actor (FO4SFMission.esm 0x811), None in a --no-codsworth build. Not part of the quest; moved with
+ the others (Relocate).}
+
+float Property MergeOffsetX = -1200.0 Auto Const
+float Property MergeOffsetY = -2700.0 Auto Const
+{The core world's merge offset (vmad_patch.MERGE_MEASURED, measured in game): the world the player walks in places the
+ core's records at their local position + this; z unchanged. Persistent references of the core's persistent cell stay
+ at their LOCAL position in the base world (probe (a), 16 Oct; in game 18 Oct: GetDistance to Preston stayed at float max
+ with the player standing on his merged spot), so the quest moves its actors over once (Relocate).}
+
+float Property RelocateRadius = 3000.0 Auto Const
+{Relocate when the player is within this many metres of Preston's merged spot (the merged Commonwealth, not another
+ world that happens to be loaded).}
+
 int Property RewardCount = 100 Auto Const
 {Fallout 4 gives 100 caps (DialogueConcordArea stage 40).}
 
@@ -25,6 +40,7 @@ float Property TalkRadius = 3.0 Auto Const
 
 string LogName = "fo4sf_mission"
 int ticks = 0
+bool relocated = false
 
 Event OnQuestInit()
     Debug.OpenUserLog(LogName)
@@ -71,6 +87,9 @@ Event OnTimer(int aiTimerID)
         return
     endif
     Actor player = Game.GetPlayer()
+    if !relocated
+        Relocate(player)
+    endif
     int stage = GetStage()
     int dead = 0
     bool fighting = false
@@ -134,6 +153,45 @@ int Function NextStage(int stage, int dead, int total, bool fighting, bool atPre
         s = 40
     endif
     return s
+EndFunction
+
+Function Relocate(Actor player)
+{Moves Preston, the raiders and Codsworth from their unmerged local position in the base world to the same spot in the
+ merged world the player walks in, once the player is there: each actor's local position + the merge offset, z kept
+ (MoveTo onto the player with the difference as the offset, the verified MoveTo form of FO4SF_LoadDoor and FO4SF_Probe).
+ Skipped while the actors are already reachable (GetDistance finite) or the player is elsewhere.}
+    if player.GetDistance(Preston) < 1.0e30
+        relocated = true                                  ; same world already: nothing to move
+        Trace("relocate not needed preston=" + player.GetDistance(Preston))
+        return
+    endif
+    float px = player.GetPositionX()
+    float py = player.GetPositionY()
+    float pz = player.GetPositionZ()
+    float tx = Preston.GetPositionX() + MergeOffsetX
+    float ty = Preston.GetPositionY() + MergeOffsetY
+    if Math.Abs(px - tx) > RelocateRadius || Math.Abs(py - ty) > RelocateRadius
+        return                                            ; not in the merged Commonwealth yet
+    endif
+    MoveOver(Preston, player, px, py, pz, "preston")
+    int i = 0
+    while i < Raiders.Length
+        MoveOver(Raiders[i], player, px, py, pz, "raider " + i)
+        i += 1
+    endwhile
+    if Codsworth != None
+        MoveOver(Codsworth, player, px, py, pz, "codsworth")
+    endif
+    relocated = true
+    Trace("relocated preston=" + player.GetDistance(Preston))
+EndFunction
+
+Function MoveOver(Actor a, Actor player, float px, float py, float pz, string what)
+    float x = a.GetPositionX() + MergeOffsetX
+    float y = a.GetPositionY() + MergeOffsetY
+    float z = a.GetPositionZ()
+    a.MoveTo(player, x - px, y - py, z - pz, True, False)
+    Trace("moved " + what + " to " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " target " + x + " " + y + " " + z)
 EndFunction
 
 Function Trace(string msg)

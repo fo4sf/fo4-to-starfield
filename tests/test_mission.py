@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import json
+import re
 import tempfile
 import unittest
 from unittest import mock
@@ -116,6 +117,25 @@ def _write(path, data):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as f:
         f.write(data)
+
+
+class RelocateContractTests(unittest.TestCase):
+    """In game 18 Oct: the core's persistent cell keeps its references at their local position in the base world, so the
+    script moves its actors by the core's merge offset; that offset must be the one the door writer uses."""
+
+    def test_script_merge_offset_is_the_measured_one(self):
+        sys.path.insert(0, os.path.join(ROOT, "scripts", "terrain"))
+        import vmad_patch
+        with open(PSC, encoding="utf-8") as f:
+            psc = f.read()
+        got = {k: float(v) for k, v in re.findall(r"float Property MergeOffset([XY]) = (-?[\d.]+) Auto Const", psc)}
+        self.assertEqual((got["X"], got["Y"]), vmad_patch.MERGE_MEASURED[:2])
+
+    def test_codsworth_is_an_optional_property(self):
+        with open(PSC, encoding="utf-8") as f:
+            psc = f.read()
+        self.assertRegex(psc, r"(?m)^Actor Property Codsworth Auto Const$")
+        self.assertNotIn("Codsworth", make_mission.mandatory_properties(psc))
 
 
 class StageAndInstallTests(unittest.TestCase):

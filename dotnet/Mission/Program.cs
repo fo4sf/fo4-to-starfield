@@ -395,6 +395,7 @@ static class Mission
         foreach (var r in raiderRefs) list.Objects.Add(Obj("", r.FormKey));
         script.Properties.Add(list);
         script.Properties.Add(Obj("Credits", credits.FormKey));
+        if (codsRef is not null) script.Properties.Add(Obj("Codsworth", codsRef.FormKey));   // moved with the others (Relocate)
         quest.VirtualMachineAdapter = new SF.QuestAdapter
         {
             Version = 6, ObjectFormat = 2, ExtraBindDataVersion = 3,
@@ -500,6 +501,10 @@ static class Mission
                 Need(props.TryGetValue("Credits", out var cp) && cp is SF.IScriptObjectPropertyGetter co && co.Object.FormKey == new FormKey(SfEsm, CreditsId), "property Credits");
                 Need(props.TryGetValue("Raiders", out var rp) && rp is SF.IScriptObjectListPropertyGetter rl &&
                      rl.Objects.Select(o => o.Object.FormKey).SequenceEqual(raiders.Select(r => r.FormKey)), "property Raiders lists the raider ACHRs in order");
+                if (codsworth)
+                    Need(props.TryGetValue("Codsworth", out var wp) && wp is SF.IScriptObjectPropertyGetter wo && wo.Object.FormKey == codsRef?.FormKey,
+                         "property Codsworth is not his ACHR (the script moves him into the merged world)");
+                else Need(!props.ContainsKey("Codsworth"), "a --no-codsworth build sets property Codsworth");
             }
         }
         foreach (var p in problems) Console.WriteLine("FAIL  " + p);
@@ -590,6 +595,7 @@ static class Mission
             ("Codsworth not Essential", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].Flags &= ~SF.Npc.Flag.Essential),
             ("Codsworth not Unique", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].Flags &= ~SF.Npc.Flag.Unique),
             ("Codsworth respawns", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].Flags |= SF.Npc.Flag.Respawn),
+            ("Codsworth script property removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "Codsworth")),
             ("Codsworth has a faction", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].Factions.Add(
                 new SF.RankPlacement { Faction = new FormLink<SF.IFactionGetter>(new FormKey(SfEsm, 0x901)) })),
         };

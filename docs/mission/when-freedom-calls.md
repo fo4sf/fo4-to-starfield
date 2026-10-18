@@ -46,6 +46,19 @@ summarises it (exit 0 when stage 200 was reached).
   actors added to the core's persistent cell by a later plugin load there; the quest flags (StartGameEnabled,
   RunOnce, DisplaysInHud) were chosen, not copied from a vanilla quest.
 
+## In game 18 Oct: the actors were not in the world the player walks in (fixed by Relocate)
+
+**Verified** (the PC's read of `fo4sf_mission.0.log`, v5 + the Codsworth set, save fo4sf_test_1d4591b6_s100): the
+quest started (`init raiders=5`, stage 10), but every status line read `nearest_raider` and `preston` = float max
+(3.4e38), also at 13:25:38 with the player standing on Preston's merged spot (-2011.1, -1697.2): local (-811.1, 1002.5)
++ the merge offset (-1200, -2700). So persistent references added to the core's persistent cell by a later plugin
+exist at their LOCAL position in the base world, as probe (a) found for the core's own anchor (scripted-doors.md); the
+"unresolved" item above is answered "no". Fix: the script's `Relocate` moves Preston, the raiders and Codsworth once,
+when the player is within 3 km of Preston's merged spot and still cannot reach him: each actor's local position +
+`MergeOffsetX/Y` (vmad_patch.MERGE_MEASURED, a test pins them equal), z kept, by `MoveTo(player, dx, dy, dz)`. Log lines
+`moved <who> to ... target ...` and `relocated preston=<m>`. **Unresolved** until the next run: that MoveTo with an
+offset lands an actor in the merged world's cell at that spot.
+
 ## Codsworth (2026-10-18)
 
 The owner asked for a Codsworth test. A Mr. Handy has no Starfield skeleton (ROADMAP B2), so the first one is a
