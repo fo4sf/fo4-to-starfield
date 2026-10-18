@@ -118,6 +118,7 @@ static class Mission
             if ((p.MajorRecordFlagsRaw & 0x800) != 0) continue;   // initially disabled: a later wave
             if (!cache.TryResolve<F4.INpcGetter>(p.Base.FormKey, out var b) || b.EditorID is null) continue;
             if (!b.EditorID.Contains("Raider", StringComparison.OrdinalIgnoreCase)) continue;
+            if (IsCorpse(b.EditorID, p.MajorRecordFlagsRaw)) continue;               // a dead-body loot placement, not a fighter
             var q = p.Position;
             float d = MathF.Sqrt(MathF.Pow(q.X / Units - ax, 2) + MathF.Pow(q.Y / Units - ay, 2));
             if (d <= radius) raiders.Add((d, p, b.EditorID));
@@ -125,7 +126,7 @@ static class Mission
         raiders = raiders.OrderBy(r => r.D).Take(max).ToList();
         if (raiders.Count == 0) throw new Refusal($"no enabled raider within {radius} m of the museum door");
 
-        string Text(ITranslatedStringGetter? s, string dflt) => string.IsNullOrWhiteSpace(s?.String) ? dflt : s!.String!;
+        string Text(ITranslatedStringGetter? s, string dflt) => string.IsNullOrWhiteSpace(s?.String) ? dflt : StripTokens(s!.String!);
         cache.TryResolve<F4.INpcGetter>(new FormKey(fo4Key, PrestonFo4), out var preston);
         cache.TryResolve<F4.IQuestGetter>(new FormKey(fo4Key, Min00), out var min00);
         var objectives = new Dictionary<string, string>();
@@ -157,6 +158,20 @@ static class Mission
         Console.WriteLine($"wrote {outPath}: museum door {front.FormKey.ID:X6} -> arrival ({F(ax)}, {F(ay)}, {F(az)}) m; " +
                           $"{raiders.Count} raider(s): " + string.Join(", ", raiders.Select(r => $"{r.R.FormKey.ID:X6} {r.R.EditorID} {r.BaseEdid} {F(r.D)} m")));
         return 0;
+    }
+
+    /// FO4 places dead raiders as loot (Loot_CorpseRaiderMale01, ACHR flag 0x200 Starts Dead): they are not fighters.
+    public static bool IsCorpse(string baseEdid, int flags) =>
+        (flags & 0x200) != 0 || baseEdid.StartsWith("Loot_", StringComparison.OrdinalIgnoreCase) ||
+        baseEdid.Contains("Corpse", StringComparison.OrdinalIgnoreCase);
+
+    /// Min00's texts carry FO4 text-replacement tokens ("Kill the Raiders (<Global=MQ102FirstRaiderCount>/<Global=...>)")
+    /// naming globals this plugin does not have; the tokens and a bracket left empty by them are dropped.
+    public static string StripTokens(string text)
+    {
+        var t = System.Text.RegularExpressions.Regex.Replace(text, @"<[A-Za-z]+=[^>]*>", "");
+        t = System.Text.RegularExpressions.Regex.Replace(t, @"\(\s*/?\s*\)", "");
+        return System.Text.RegularExpressions.Regex.Replace(t, @"\s{2,}", " ").Trim();
     }
 
     // ---------------------------------------------------------------- write (Starfield)
@@ -348,7 +363,7 @@ static class Mission
             Need(q.Stages.Select(s => s.Index).SequenceEqual(Stages), "stages differ from the script's");
             Need(q.Stages.LastOrDefault()?.LogEntries.Any(l => l.Flags?.HasFlag(SF.QuestLogEntry.Flag.CompleteQuest) == true) == true, "stage 200 does not complete the quest");
             Need(q.Objectives.Select(o => o.Index).SequenceEqual(Objectives.Select(o => o.Index)), "objectives differ from the script's");
-            Need(q.Objectives.All(o => !string.IsNullOrWhiteSpace(o.DisplayText?.String)), "an objective has no text");
+            Need(q.Objectives.All(o => !string.IsNullOrWhiteSpace(o.DisplayText?.String) && !o.DisplayText!.String!.Contains('<')), "an objective has no text or an FO4 text token");
             if (alias)
             {
                 var al = (q.Aliases ?? new List<SF.IAQuestAliasGetter>()).OfType<SF.IQuestReferenceAliasGetter>().FirstOrDefault(a => a.ID == PrestonAlias);
@@ -425,6 +440,10 @@ static class Mission
             rc = Check(Path.Combine(o, Plugin), sfPath, corePath, raiderPath, alias);
             if (rc != 0) return rc;
         }
+        if (StripTokens("Kill the Raiders (<Global=MQ102FirstRaiderCount>/<Global=MQ102FirstRaiderTotal>)") != "Kill the Raiders")
+            { Console.WriteLine("FAIL  StripTokens"); return 1; }
+        if (!IsCorpse("Loot_CorpseRaiderMale01", 0) || !IsCorpse("LvlRaider", 0x200) || IsCorpse("LvlRaider", 0x400))
+            { Console.WriteLine("FAIL  IsCorpse"); return 1; }
         Console.WriteLine("selftest pass");
         return 0;
     }
