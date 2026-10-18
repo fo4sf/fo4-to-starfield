@@ -15,6 +15,8 @@ sys.path.insert(0, os.path.join(ROOT, "src"))
 
 from fo4sf.core import import_cli as cli  # noqa: E402
 from fo4sf.core.state import Ledger, fold  # noqa: E402
+from fo4sf.core.import_queue import CampaignBound  # noqa: E402
+from fo4sf.core.runner_events import check_binding, results_rows  # noqa: E402
 
 
 def write_queue(d, name, tests, rows, build="abababab"):
@@ -264,6 +266,39 @@ class ImportCliTests(unittest.TestCase):
                                         "t": "t2"}) + "\n")
         code, lines = self.run_cli("--ledger", self.leader, "--queue", b, "--no-report")
         self.assertEqual((code, lines[0]), (0, f"queue {b}: 4 event(s) added"), lines)   # pin, test, two rows
+
+    def test_a_copy_without_the_bound_results_is_never_bound(self):
+        # Codex on #199 at 05e8439: (1) a/door_trip imports with door_1 FAIL; (2) b/door_trip, the same queue.json and
+        # no results.jsonl, passed vacuously and got bound; (3) b, now with door_1 PASS, imported from a bound folder
+        # without any row comparison: the FAIL was laundered into a PASS
+        a = self.queue_at("a", "0x100", "FAIL", "FALL")
+        b = os.path.join(self.d, "b", "door_trip")
+        os.makedirs(b)
+        shutil.copy(os.path.join(a, "queue.json"), b)
+        led = Ledger(os.path.join(self.leader, "ledger.jsonl"))
+        self.assertEqual(self.run_cli("--ledger", self.leader, "--queue", a, "--no-report")[0], 0)
+        code, lines = self.run_cli("--ledger", self.leader, "--queue", b, "--no-report")
+        self.assertEqual(code, 1, lines)
+        self.assertTrue(lines[0].startswith(f"queue {b}: FAILED: CampaignBound"), lines)
+        self.assertIn("results.jsonl line 1 missing", lines[0])
+        n = len(led.read())
+        with open(os.path.join(b, "results.jsonl"), "w", encoding="utf-8") as f:
+            f.write(json.dumps({"id": "door_1", "attempt": 1, "verdict": "PASS", "class": "", "dir": "d", "t": "t1"}) + "\n")
+        code, lines = self.run_cli("--ledger", self.leader, "--queue", b, "--no-report")
+        self.assertEqual(code, 1, lines)                                   # still refused: its line 1 disagrees
+        self.assertEqual(len(led.read()), n)                               # nothing of b was ever written
+        self.assertEqual({k: v["outcome"] for k, v in fold(led.read()).tasks.items()}, {"door_trip/door_1": "FAIL"})
+        # the live runner's binding refuses the same copy before its first event
+        with open(os.path.join(b, "queue.json"), encoding="utf-8") as f:
+            q = json.load(f)
+        with self.assertRaises(CampaignBound):
+            check_binding(led.read(), b, q, rows=[])
+        # a complete copy (every bound row present and agreeing) is still a relocation
+        c = os.path.join(self.d, "c", "door_trip")
+        shutil.copytree(a, c)
+        code, lines = self.run_cli("--ledger", self.leader, "--queue", c, "--no-report")
+        self.assertEqual((code, lines[0]), (0, f"queue {c}: 3 event(s) added"), lines)
+        check_binding(led.read(), c, q, rows=results_rows(os.path.join(c, "results.jsonl"))[0])
 
     def test_a_ledger_without_queue_identities_never_accepts_another_folder(self):
         # a campaign bound by events written before queue_id: nothing proves the second folder is the same plan

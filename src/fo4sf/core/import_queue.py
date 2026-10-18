@@ -134,7 +134,7 @@ def bind(events, qdir, q, campaign, rows=None):
     copy that was run apart). A different queue under the same folder name is a different campaign and its rows must
     not fold into this one's tasks. Called before anything of the queue is written, by import_queue and by the lease
     runner's first live event (runner_events.check_binding). The same folder again, or the same queue relocated or
-    archived (same build, same plan, rows that agree), passes."""
+    archived (same build, same plan, every bound row present and agreeing), passes."""
     folders, builds, ids, bound_rows = bound_to(events, campaign)
     here, build = os.path.normcase(os.path.abspath(qdir)), q.get("build_id")
     if not folders or here in folders:
@@ -157,6 +157,14 @@ def bind(events, qdir, q, campaign, rows=None):
         if mine != have:
             raise CampaignBound(f"{where}; {qdir} holds the same plan but its results.jsonl line {line} reads {mine}, the "
                                 f"ledger's {have}: a copy that ran apart, not a relocation; {rename}")
+    # every result the ledger holds must be in the copy: a copy without them (no results.jsonl, or a shorter one)
+    # would otherwise pass here, get bound, and from then on import from its own folder without any row comparison,
+    # so a FAIL could be re-run into a PASS there (Codex on #199 at 05e8439)
+    missing = sorted(set(bound_rows) - {line for line, _ in rows or []})
+    if missing:
+        shown = ", ".join(map(str, missing[:5])) + (f" and {len(missing) - 5} more" if len(missing) > 5 else "")
+        raise CampaignBound(f"{where}; {qdir} holds the same plan but not the results the ledger holds (results.jsonl "
+                            f"line {shown} missing): not a relocation of the bound queue; {rename}")
 
 
 def deploy_pins(rec):

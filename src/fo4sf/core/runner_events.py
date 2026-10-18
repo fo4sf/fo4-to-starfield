@@ -30,8 +30,8 @@ def check_binding(events, qdir, q, rows=None):
     (import_queue.bind, the importer's rule), so a queue rebuilt under an archived queue's name never folds into its
     tasks live either. The runner then writes nothing for this run and logs why; the queue files keep the results,
     and the importer accepts the folder once it is renamed. The same folder, or the same queue relocated (same build,
-    same queue_identity, and `rows`, the folder's results.jsonl rows [(line, row)] so far, agreeing with the ledger's),
-    passes."""
+    same queue_identity, and `rows`, the folder's results.jsonl rows [(line, row)] so far, holding every row the
+    ledger holds and agreeing with it), passes."""
     bind(events, qdir, q, campaign_of(qdir), rows)
 
 
