@@ -27,6 +27,7 @@ class MovablePipelineTests(unittest.TestCase):
 
         def fake_convert_static(raw, out_name, **kw):
             seen["dynamic_template"] = kw.get("dynamic_template")
+            seen["mass_scale"] = kw.get("mass_scale")
             kw["report"].update(report_patch)
             return {}
         with patch.object(pipeline.convert_static, "convert_static", side_effect=fake_convert_static):
@@ -39,6 +40,7 @@ class MovablePipelineTests(unittest.TestCase):
         self.assertTrue(res["ok"], res)
         self.assertEqual(res["movable"], {"mass_kg": 5.0})
         self.assertEqual(seen["dynamic_template"], b"synthetic dynamic template")   # handed to the converter
+        self.assertEqual(seen["mass_scale"], 1.0)
 
     def test_rigid_merge_note_travels_with_the_movable_flag(self):
         with tempfile.TemporaryDirectory() as staging:

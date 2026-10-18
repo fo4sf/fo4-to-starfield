@@ -231,7 +231,7 @@ function Light-Commands {
 # console_pre (after the save has loaded, before the travel) and console_post (after the arrival, before the probes or
 # the spawn): only lines that match this whitelist are typed (the same pattern as console_plan.py PATTERN; .NET \z, so a
 # trailing newline never passes); a bad line ends the step with exit 4 before anything is typed.
-$consoleOk = '^(?:GetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}"|SetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}" -?\d{1,9}(?:\.\d{1,6})?|SetLocalTime (?:1?\d|2[0-3])(?:\.\d{1,2})?(?: 1)?|cgf "Game\.SetLocalTime" (?:1?\d|2[0-3])(?:\.\d{1,2})?|fw [0-9A-Fa-f]{8}(?: 1)?|cgf "FO4SF_Probe\.Pos" \d{1,10}|cgf "FO4SF_Probe\.Ack" "[A-Za-z0-9_.-]{1,40}"|cgf "FO4SF_Probe\.Player"|cgf "Debug\.TraceUser" "fo4sf" "[A-Za-z0-9_ .-]{1,60}"|cgf "FO4SF_Probe\.Resolve" "[A-Za-z0-9_.-]{1,60}\.es[mpl]" \d{1,8}|cgf "FO4SF_Probe\.MoveTo" "[A-Za-z0-9_.-]{1,60}\.es[mpl]" \d{1,8} -?\d{1,5}(?:\.\d{1,3})? -?\d{1,5}(?:\.\d{1,3})? -?\d{1,5}(?:\.\d{1,3})?)\z'
+$consoleOk = '^(?:GetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}"|SetINI "[A-Za-z0-9_]{1,64}:[A-Za-z0-9_]{1,64}" -?\d{1,9}(?:\.\d{1,6})?|SetLocalTime (?:1?\d|2[0-3])(?:\.\d{1,2})?(?: 1)?|cgf "Game\.SetLocalTime" (?:1?\d|2[0-3])(?:\.\d{1,2})?|fw [0-9A-Fa-f]{8}(?: 1)?|cgf "FO4SF_Probe\.Pos" \d{1,10}|cgf "FO4SF_Probe\.Ack" "[A-Za-z0-9_.-]{1,40}"|cgf "FO4SF_Probe\.Player"|cgf "Debug\.TraceUser" "fo4sf" "[A-Za-z0-9_ .-]{1,60}"|cgf "FO4SF_Probe\.Resolve" "[A-Za-z0-9_.-]{1,60}\.es[mpl]" \d{1,8}|cgf "FO4SF_Probe\.MoveTo" "[A-Za-z0-9_.-]{1,60}\.es[mpl]" \d{1,8} -?\d{1,5}(?:\.\d{1,3})? -?\d{1,5}(?:\.\d{1,3})? -?\d{1,5}(?:\.\d{1,3})?|player\.getav speedmult|player\.setav speedmult 100)\z'
 $moveToPrefix = 'cgf "FO4SF_Probe.MoveTo" '      # console_plan.MOVETO_PREFIX: Run-Console waits for the HUD after it
 function Console-List($list, [string]$what) {
   $out = @()
@@ -382,6 +382,12 @@ function Item-Capture([string[]]$cmds, [string[]]$need, [string]$tag = 'item') {
     if ($r -and $missing.Count -eq 0) { break }
   }
   return $r
+}
+function Self-Other([string]$self, [string]$ref) {
+  # GetSelf, after prid <ref>, named another ref than <ref>. 00000000 names none: form id 0 is never a reference. The
+  # movable queue of 2026-10-18 read GetSelf 00000000 after prid of every placed vanilla item but the first and called
+  # them all "another ref is selected" (INCONCLUSIVE SPAWN); GetIsID <base> 1 and the position still decide
+  return [bool]($self -and ($self -ne $ref) -and ($self -notmatch '^0{8}$'))
 }
 function Select-Item([string]$ref, [string]$base, [string]$tag = 'item') {
   # console open, prid <ref>, GetIsID <base> must read 1 (a second try only repeats the session: an OCR miss). Returns
@@ -555,6 +561,14 @@ switch ($kind) {
     Console-Open
     $r1 = Item-Capture @('plr') @('ref') 'spawn_plr'
     $pk = [ordered]@{ 'ref' = $null; self = $null; isid = $null; read = $null; place_ocr = $s0.ocr; plr_ocr = $r1.ocr }
+    if ("$($r1.ref)" -cnotmatch '^FF[0-9A-F]{6}$') {
+      # PickLastRef named no FFxxxxxx id (the movable queue of 2026-10-18, every converted item): once more after the
+      # game ran another 2 s (N0_base: plr named the citizen only after the game had run). Its OCR is kept either way
+      Send 'key:grave|wait:2000'
+      Console-Open
+      $r1 = Item-Capture @('plr') @('ref') 'spawn_plr2'
+      $pk['plr2_ocr'] = $r1.ocr
+    }
     if ("$($r1.ref)" -cmatch '^FF[0-9A-F]{6}$') {
       $pk['ref'] = "$($r1.ref)"
       $r2 = Item-Capture @("prid $($pk['ref'])", 'GetSelf') @('self') 'spawn_self'
@@ -568,7 +582,7 @@ switch ($kind) {
     $why = @()
     if (-not $pk['ref']) { $why += 'PickLastRef gave no FFxxxxxx id' }
     else {
-      if ($pk['self'] -and $pk['self'] -ne $pk['ref']) { $why += "after prid $($pk['ref']) GetSelf named $($pk['self']): another ref is selected" }
+      if (Self-Other $pk['self'] $pk['ref']) { $why += "after prid $($pk['ref']) GetSelf named $($pk['self']): another ref is selected" }
       if ($pk['isid'] -ne 1) { $why += "GetIsID $base read $(if ($null -eq $pk['isid']) { 'nothing' } else { $pk['isid'] })" }
       if ($null -eq $dist) { $why += 'its position was not read' }
       elseif ($dist -gt $handleTol) { $why += "it lies $([math]::Round($dist, 2)) m from the spot (more than $handleTol m)" }
@@ -621,7 +635,8 @@ switch ($kind) {
       Save-Obs
       # 8. the impulse ladder when the walk did not move it
       $d = Dist-3 $obs['item_before'] $obs['item_after']
-      if ($imps.Count -gt 0 -and $null -ne $d -and $d -lt $min) { Push-Impulses $ref $base "$($obs['item_after'])" $imps }
+      # (impulse_control: a vanilla control gets the ladder after any walk, the positive control for FAIL STUCK)
+      if ($imps.Count -gt 0 -and $null -ne $d -and ($d -lt $min -or $t.impulse_control -eq $true)) { Push-Impulses $ref $base "$($obs['item_after'])" $imps }
     }
     # 9. remove the item: disable and markfordelete on a confirmed selection only (a world ref is never touched)
     $clean = [ordered]@{ removed = $false }
@@ -1061,7 +1076,7 @@ switch ($kind) {
     $why = @()
     if (-not $pk['ref']) { $why += 'PickLastRef gave no FFxxxxxx id' }
     else {
-      if ($pk['self'] -and $pk['self'] -ne $pk['ref']) { $why += "after prid $($pk['ref']) GetSelf named $($pk['self']): another ref is selected" }
+      if (Self-Other $pk['self'] $pk['ref']) { $why += "after prid $($pk['ref']) GetSelf named $($pk['self']): another ref is selected" }
       if ($pk['isid'] -ne 1) { $why += "GetIsID $npc read $(if ($null -eq $pk['isid']) { 'nothing' } else { $pk['isid'] })" }
       if ($null -eq $dist) { $why += 'its position was not read' }
       elseif ($dist -gt $handleTol) { $why += "it stands $([math]::Round($dist, 2)) m from the player at A (more than $handleTol m)" }
@@ -1141,7 +1156,7 @@ switch ($kind) {
       $pk2 = Pick-Npc 'remove'
       $da = Dist-XY $pk2['read'] $ax $ay; $db = Dist-XY $pk2['read'] $bx $by
       $near = ($null -ne $da) -and ([Math]::Min($da, $db) -lt 40)
-      $selfOk = (-not $pk2['self']) -or ($pk2['self'] -eq $pk2['ref'])
+      $selfOk = -not (Self-Other $pk2['self'] $pk2['ref'])
       $same = $pk2['ref'] -and ($pk2['ref'] -eq $spawnRef) -and $spawnNear -and ($pk2['self'] -eq $pk2['ref'])
       $ok = $pk2['ref'] -and $selfOk -and $near -and (($pk2['isid'] -eq 1) -or $same)
       $clean['by_plr'] = [ordered]@{ 'ref' = $pk2['ref']; self = $pk2['self']; isid = $pk2['isid']; read = $pk2['read']; near = $near }

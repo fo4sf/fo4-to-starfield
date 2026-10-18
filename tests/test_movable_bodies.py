@@ -250,8 +250,9 @@ class RigidRagdollTests(unittest.TestCase):
 
 class RoutingTests(unittest.TestCase):
     def convert(self, dynamic):
-        def fake_native(src, tmpl, report, dynamic_template=None, motion=None):
+        def fake_native(src, tmpl, report, dynamic_template=None, motion=None, mass_scale=1.0, **kwargs):
             self.seen_template = dynamic_template
+            self.seen_mass_scale = mass_scale
             if dynamic:
                 motion["dynamic"] = 5.0
             return [b"BODY"]
@@ -266,6 +267,7 @@ class RoutingTests(unittest.TestCase):
     def test_movable_item_body_on_root_with_dynamic_bsx(self):
         g, types = self.convert(dynamic=True)
         self.assertEqual(self.seen_template, b"dyn")
+        self.assertEqual(self.seen_mass_scale, 1.0)
         self.assertEqual(types[:4], ["NiNode", "BSXFlags", "bhkNPCollisionObject", "bhkPhysicsSystem"])
         self.assertEqual(struct.unpack_from("<iI", g.blocks[1], 0)[1], 0x42)
         self.assertEqual(struct.unpack("<iHiI", g.blocks[2])[0], 0)                 # target = root: the whole model moves
@@ -276,6 +278,24 @@ class RoutingTests(unittest.TestCase):
         g, types = self.convert(dynamic=False)
         self.assertEqual(struct.unpack_from("<iI", g.blocks[1], 0)[1], 2)
         self.assertEqual(types.count("NiNode"), 2)
+
+    def test_requested_mass_scale_reaches_native_collision(self):
+        def fake_native(src, tmpl, report, dynamic_template=None, motion=None, mass_scale=1.0, **kwargs):
+            self.seen_mass_scale = mass_scale
+            motion["dynamic"] = 5.0
+            return [b"BODY"]
+        report = {}
+        with patch.object(convert_static, "fo4_native_collision", side_effect=fake_native):
+            convert_static.convert_static(fo4_nif_with_collision(), "fo4port/synthetic_can",
+                                          collision_template=b"t", sf_mesh_template=b"t",
+                                          dynamic_template=b"dyn", report=report, mass_scale=0.2)
+        self.assertEqual(self.seen_mass_scale, 0.2)
+
+    def test_invalid_mass_scale_rejected_before_parsing_the_nif(self):
+        for scale in (0, -1, float("nan"), float("inf")):
+            with self.subTest(scale=scale):
+                with self.assertRaises(ValueError):
+                    convert_static.convert_static(b"not-a-nif", "fo4port/synthetic_can", mass_scale=scale)
 
 
 if __name__ == "__main__":

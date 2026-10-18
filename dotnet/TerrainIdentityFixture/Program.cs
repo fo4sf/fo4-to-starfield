@@ -149,6 +149,20 @@ Bench(0x2B6A61, "SyntheticWorkbenchChem", Furniture.BenchTypes.Alchemy);
 Bench(0x2B6A65, "SyntheticWorkbenchFood", Furniture.BenchTypes.Alchemy);
 Bench(0x3807C5, "SyntheticDecorFurniture", Furniture.BenchTypes.None);
 mod.Statics.Add(new Static(new FormKey(key, 0x3807C6), release) { EditorID = "SyntheticStatic", Model = new Model { File = "synthetic_static.nif" } });
+// FloraMaizeCrop01 + its PFIG seed, a second legal MISC ingredient, and FloraTypeOrganic so the writer can
+// Duplicate a harvest FLOR. A STAT ingredient is refused because it is not a MISC/LVLI of this master
+// (00000010 is below Mutagen's lower FormKey range, so it is not placed here; SyntheticStatic 3807C6 is).
+var organic = Kw(0x222E03, "FloraTypeOrganic");
+var seed = new MiscItem(new FormKey(key, 0x260DF2), release) { EditorID = "OrgCommonNutrient_Seed" };
+mod.MiscItems.Add(seed);
+mod.MiscItems.Add(new MiscItem(new FormKey(key, 0x055AF), release) { EditorID = "OrgCommonFiber" });
+var maize = new Flora(new FormKey(key, 0x0EC886), release)
+{
+    EditorID = "FloraMaizeCrop01", Name = "Maize", Model = new Model { File = "flora01.nif" },
+    Keywords = new Noggog.ExtendedList<IFormLinkGetter<IKeywordGetter>> { new FormLink<IKeywordGetter>(organic.FormKey) },
+};
+maize.Ingredient.SetTo(seed.FormKey);
+mod.Florae.Add(maize);
 mod.ModHeader.Stats.NextFormID = 0x3807C7;
 // Optional map-marker template (args[1] == "map-marker"): persistent REFR 003E5E12 on the template world so the
 // writer can Duplicate it. STAT 00000010 is a FormLink only (Mutagen refuses writing that low FormKey). Default

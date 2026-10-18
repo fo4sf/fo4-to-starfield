@@ -159,7 +159,7 @@ static P3Float RotateOffset(P3Float v, P3Float r, float scale)
 }
 
 // Optional per-cell lighting overrides: <output dir>/lighting.json = { "<cell>": { "LIGHTING_TEMPLATE": "06BCF8", ... },
-// "*": { ...defaults for every cell... } }. Keys: LIGHTING_TEMPLATE, IMAGE_SPACE, OMNI_LIGHT, LIGHT_MERGE_M.
+// "*": { ...defaults for every cell... } }. Keys: LIGHTING_TEMPLATE, IMAGE_SPACE, ENV_MAP, OMNI_LIGHT, LIGHT_MERGE_M.
 // Lookup order: cell entry, "*" entry, environment variable, built-in default.
 var lightCfgPath = Path.Combine(outDir, "lighting.json");
 var lightCfg = File.Exists(lightCfgPath)
@@ -188,7 +188,9 @@ foreach (var cdoc in cellDocs)
     // exposure + reflections like the vanilla underground interior DR017UndergroundInterior (25CAA7): without these the cell
     // reflects a bright default sky and auto-exposure washes everything out
     cell.ImageSpace.SetTo(new FormKey(sfEsm, Convert.ToUInt32(Setting(src4, "IMAGE_SPACE", "122393"), 16)));
-    cell.EnvironmentMap = Environment.GetEnvironmentVariable("ENV_MAP") ?? "Data\\Textures\\cubemaps\\blackcube.dds";
+    // ENV_MAP is a per-cell setting: the black cubemap may also remove the image-based (sky) light, leaving only placed
+    // lights (supported hypothesis, unverified in game; 302 vanilla interiors use it too; research log 2026-10-18)
+    cell.EnvironmentMap = Setting(src4, "ENV_MAP", "Data\\Textures\\cubemaps\\blackcube.dds");
     var cocMarker = new FormKey(sfEsm, 0x000032);                                        // COCMarkerHeading
     var omni = new FormKey(sfEsm, Convert.ToUInt32(Setting(src4, "OMNI_LIGHT", "03D38C"), 16)); // LGT_ShipInterior_Omni_NS_Neutral_2k
     var merge = float.Parse(Setting(src4, "LIGHT_MERGE_M", "3"), System.Globalization.CultureInfo.InvariantCulture);

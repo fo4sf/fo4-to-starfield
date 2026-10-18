@@ -123,7 +123,7 @@ internal sealed class TerrainStableIds
         return p[0] switch
         {
             "anchor" or "block" or "location" or "world" or "coc" or "persistent-cell" or "base" or "container" or "item"
-                or "door-base" or "activator" or "terminal" or "terminal-menu" or "light-base" or "workshop" => p.Length == 2,
+                or "door-base" or "activator" or "terminal" or "terminal-menu" or "light-base" or "workshop" or "flora" => p.Length == 2,
             "reference" or "door-arrival" or "light-reference" => p.Length == 2 && Source(p[1]) == p[1],
             "map-marker" => p.Length == 3,
             "cell" => p.Length == 4 && Coordinate(p[2]) && Coordinate(p[3]),

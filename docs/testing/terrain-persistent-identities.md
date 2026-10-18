@@ -191,3 +191,22 @@ without those sections remain supported; that is not proof that map markers were
 written. Record fields, display, discovery and travel still need the raw checker
 and native testing. This change neither enables persistent IDs on a live stage nor
 wires the paired exterior/interior allocator requested in #280.
+
+## Flora compatibility with current main (October18)
+
+Harvestable FLOR bases reserve `["flora", editor_id]`; each placed plant keeps
+its full-source `["reference", source]` reservation. Flora participates in the
+same promotion order as main, alongside the existing bench lookup and door
+allocations. Shared bases reserve once, while placements retain distinct IDs.
+The identity audit checks the declared flora map and its ledger bindings. It
+still reports `record_fields_checked: false`: it does not validate harvest
+contents, native harvesting or saved-game compatibility.
+
+Five synthetic-writer regressions cover reorder/growth/removal/reintroduction,
+shared bases, explicit byte-identical legacy bootstrap, invalid-ingredient
+publication preservation, and a changed declared base rejected by the read-only
+audit. Three independent main-writer comparisons preserve exact legacy plugin
+and map bytes for the default seed, a custom ingredient and a shared base.
+Existing ledgers are neither rewritten nor migrated automatically; reading a
+ledger containing flora reservations requires the updated writer/auditor. No
+production stage, installation or paired interior/exterior allocator is enabled.

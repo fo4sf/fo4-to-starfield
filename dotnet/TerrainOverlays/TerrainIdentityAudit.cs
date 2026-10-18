@@ -134,7 +134,7 @@ internal static class TerrainIdentityAudit
                 Keys(map.GetProperty("refs"), refs.Select(r => Text(r, "src")));
                 foreach (var r in refs) Match(map.GetProperty("refs").GetProperty(Text(r, "src")), "reference", TerrainStableIds.Source(Text(r, "src")));
                 foreach (var (name, kind) in new[] { ("containers", "container"), ("items", "item"), ("activators", "activator"),
-                         ("terminals", "terminal"), ("workshops", "workshop"), ("doors", "door-base"), ("lights", "light-base") })
+                         ("terminals", "terminal"), ("workshops", "workshop"), ("flora", "flora"), ("doors", "door-base"), ("lights", "light-base") })
                 {
                     var entries = Entries(obj, name);
                     bool present = name == "containers" || (name == "lights" ? entries.Length > 0 : obj.TryGetProperty(name, out _));
