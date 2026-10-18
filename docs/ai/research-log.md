@@ -1310,3 +1310,8 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   SetRigidBodyMass test plus `SetGS fGrabMaxWeightWalking 1000` decides it. No converter change.
 - **unresolved:** Preston's friendly Starfield template; whether quest targets route through our scripted doors; the
   cog door's clip in game; whether the cut-down quest may force combat (FO4 does, DN092 stages 13 / 76).
+### 2026-10-17 Grok: optional mass_scale for dynamic bodies (PR #340)
+
+- **supported hypothesis** (playtest row 26, research log 2026-10-13/17): FO4 small-item masses are 2-10× Starfield equivalents; whether this blocks grab is unresolved until the owner's SetRigidBodyMass experiment.
+- Added optional `--mass-scale` (default 1.0) on convert_batch/convert_asset so a trial build can scale all dynamic body masses without hand edits. Synthetic test covers the parameter path. Claude owns the trial build and in-game check.
+- No default change. See PR #340.
