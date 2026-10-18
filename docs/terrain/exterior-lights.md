@@ -227,6 +227,14 @@ garage and the Diamond City gate (in-game-test-sheet.md, section 8).
 
 ## Not done / open
 
+The raw patcher validates group/record containment and complete LIGH subrecord
+framing before accepting writable lumens offsets. Truncated payloads, undersized
+groups, duplicate DAT2 fields and malformed fields after DAT2 are refused; `check`
+validates both inputs. This closes a synthetic case where a DAT2 length reached
+into the next STAT record and both scale/check previously accepted the edit.
+Malformed input is rejected before the plugin output is created. These structural
+checks do not validate the brightness calibration or establish native acceptance.
+
 - **Not tested in game.** The acceptance is a night screenshot at Red Rocket and in Sanctuary (the runner sets the
   time of day) next to the same view without lights. Brightness then tunes `--lumens-per-m2`.
 - **XLIG fade semantics are a hypothesis.** If Starfield computes 1 + fade instead of multiplying by it, a reference
