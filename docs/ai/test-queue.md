@@ -9,6 +9,8 @@ results and a ranked problem list instead of spending its own time driving the g
 $py = 'C:\Modding\venv-render\Scripts\python.exe'
 # 1. plan: one pinned build (staging folder with FO4Port.esm, manifest, formids, cell exports, routes_<cell>.json)
 & $py scripts\game\testqueue.py plan --staging C:\Modding\staging\<build> --out C:\Modding\testqueue\<batch> --per-cell 12
+# 1b. (only with the preflight gate, docs/ai/leader-core.md section 7) pin the game version the gate checks
+& $py scripts\game\testqueue.py pin-game-version --queue C:\Modding\testqueue\<batch>   # or --version 1.16.244.0
 # 2. run (resumable: run the same command again to continue)
 & $py scripts\game\testqueue.py run --queue C:\Modding\testqueue\<batch> --wait-for-idle --refocus --max-hours 8
 # 3. read
@@ -80,7 +82,13 @@ the walk climbs).
   `--lease-owner`) holds an unexpired lease in that folder (`python scripts\game\lease.py claim --dir <folder> --owner
   Claude --purpose "<why>" --ttl 28800`), renews it before every test and stops, resumable, with `stopped: lease ...`
   when it is gone; `cycle.ps1` then refuses to launch (exit 9) and `watchdog.ps1` reads the lease instead of the last
-  `Claude:` commit. Unset: none of this runs.
+  `Claude:` commit; the runner also writes its queue, attempts and results to the ledger in that folder (section 10),
+  so `python scripts\leader_report.py --ledger <folder>` shows the live state. Unset: none of this runs.
+- Preflight gate (opt-in, default off; docs/ai/leader-core.md section 7): `run --preflight` (or `FO4SF_PREFLIGHT=1`;
+  `--no-preflight` overrides the variable for one run) runs eleven checks before the first launch (pinned build staged and deployed, experiment as pinned, plugins active,
+  load order, game version, lease, STOP files, Resource Guardian, recovery save, log capture); one FAIL or UNKNOWN
+  stops the run (`stopped: preflight refused (...)`, with a lease folder a `blocker_opened` in the ledger) and `--dry-run` prints the
+  checklist either way. Unset: not run.
 - The build is pinned: `queue.json` records the SHA-256 of `FO4Port.esm`; the runner will not launch a staging folder
   whose plugin changed. The dedicated save `fo4sf_test_<build id>` is created on the first launch and loaded on later ones. After god mode the
   session disables the save's companion (Vasco, Starfield.esm ACHR `000057BE`; qstep kind `companion_off`, confirmed by

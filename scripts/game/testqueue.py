@@ -58,7 +58,13 @@ when one trips:
   - allowed hours (queue.json "hours", default all day); --max-hours and --max-tests;
   - the controller lease (opt-in, default off; docs/ai/leader-core.md section 6): with --lease-dir or FO4SF_LEASE_DIR
     set, nothing is launched and no step is sent unless --lease-owner / FO4SF_LEASE_OWNER (default Claude) holds an
-    unexpired lease in that folder (scripts/game/lease.py claim); it is renewed before every test. Unset: not checked.
+    unexpired lease in that folder (scripts/game/lease.py claim); it is renewed before every test, and the runner
+    writes its queue, attempts and results to the ledger in that folder (section 10). Unset: not checked, not written;
+  - the preflight gate (opt-in, default off; docs/ai/leader-core.md section 7): with --preflight or FO4SF_PREFLIGHT=1,
+    eleven checks (pinned build staged and deployed, experiment as pinned, plugins active, load order, game version,
+    lease, STOP files, Resource Guardian, recovery save, log capture) run before the first launch; one FAIL or UNKNOWN
+    refuses the run (status "stopped: preflight refused (...)"; with a lease folder the ledger gets a blocker_opened) and a --dry-run
+    prints the checklist either way. Unset: not run.
 A game is only launched when the PC has been idle --min-idle seconds, and only by cycle.ps1 (the runner never touches a
 Starfield the owner started). Every key press still goes through input.ps1's foreground guard, with
 FO4SF_NO_FOCUS_STEAL=1 so a step can never pull the game in front of the owner's window.
@@ -2169,9 +2175,10 @@ class LeaseGate:
         src = os.path.join(REPO, "src")
         if src not in sys.path:
             sys.path.insert(0, src)
-        from fo4sf.core import controller                 # pure Python; imported only when the switch is on
+        from fo4sf.core import controller, runner_events  # pure Python; imported only when the switch is on
         self.ctl = controller.Controller(lease_dir, by=f"testqueue:{owner}")
         self.Refused = controller.LeaseRefused
+        self.events = runner_events                       # the runner's own ledger events (section 10)
         self.owner, self.dir = owner, self.ctl.dir
         self.last_warning = None
 
@@ -2193,6 +2200,159 @@ class LeaseGate:
                 return None
             return f"lease renewal refused: {e}"
         return None
+
+
+GAME_VERSION = re.compile(r"\d+(\.\d+){3}")        # four parts, as Starfield.exe's file version reads (1.16.244.0)
+
+
+def pin_game_version(a):
+    """pin-game-version: write queue.json "game_version", the pin the preflight gate's game_version check compares
+    Starfield.exe's file version against (docs/ai/leader-core.md section 7). The value comes from --version or, on
+    Windows, from the game folder's Starfield.exe; a different pin already in the queue needs --force."""
+    qp = os.path.join(a.queue, "queue.json")
+    q = load(qp)
+    if not q:
+        sys.exit(f"{qp} holds no queue (no object)" if os.path.exists(qp) else f"no queue.json in {a.queue}")
+    version = (a.version or "").strip()
+    if not version:
+        version = exe_file_version(os.path.join(a.starfield, "Starfield.exe")) or ""
+        if not version:
+            sys.exit("Starfield.exe's version is not readable here (Windows only): pass --version")
+    if not GAME_VERSION.fullmatch(version):
+        sys.exit(f"not a four-part file version: {version!r} (Starfield.exe's reads as four numbers, e.g. 1.16.244.0; "
+                 f"a shorter pin could never match it)")
+    have = q.get("game_version")
+    if have and have != version and not a.force:
+        sys.exit(f"queue.json already pins game_version {have}; --force replaces it with {version}")
+    q["game_version"] = version
+    save_atomic(qp, q)
+    print(f"game_version {version} pinned in {qp}" + (f" (was {have})" if have and have != version else ""))
+    return 0
+
+
+def exe_file_version(path, _ver=None):
+    """The file version of a Windows executable ("1.16.244.0"); None when not on Windows or not readable.
+    _ver: the version.dll object (ctypes.windll.version); a test passes a stand-in to exercise the decoding."""
+    if _ver is None and (os.name != "nt" or not os.path.exists(path)):
+        return None
+    try:
+        ver = _ver if _ver is not None else ctypes.windll.version
+        size = ver.GetFileVersionInfoSizeW(path, None)
+        if not size:
+            return None
+        buf = ctypes.create_string_buffer(size)
+        if not ver.GetFileVersionInfoW(path, 0, size, buf):
+            return None
+        ptr, length = ctypes.c_void_p(), ctypes.c_uint()
+        if not ver.VerQueryValueW(buf, "\\", ctypes.byref(ptr), ctypes.byref(length)) or not ptr.value:
+            return None
+        fixed = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_uint32 * 13)).contents   # VS_FIXEDFILEINFO
+        ms, ls = fixed[2], fixed[3]                                                # dwFileVersionMS, dwFileVersionLS
+        return f"{ms >> 16}.{ms & 0xFFFF}.{ls >> 16}.{ls & 0xFFFF}"
+    except (OSError, AttributeError, ValueError):
+        return None
+
+
+class PreflightProbe:
+    """The readings fo4sf.core.preflight's gate asks for (its module docstring lists them), taken from the PC: the
+    adapter side of T3 (docs/ai/leader-core.md section 7). Built only when `run --preflight` is on. Read-only."""
+
+    def __init__(self, runner):
+        self.r = runner
+        self.queue, self.state = runner.q, runner.state
+        self.starfield = getattr(runner.a, "starfield", "") or ""
+
+    def staged_plugin_sha256(self):
+        esm = os.path.join(self.queue.get("staging") or "", "FO4Port.esm")
+        return sha256(esm) if os.path.exists(esm) else None
+
+    def deploy_manifest(self):
+        p = os.path.join(self.starfield, "Data", "FO4Port.deploy.json")
+        return load(p) if os.path.exists(p) else None
+
+    def experiment_inputs(self, exp_dir, plugins):
+        return exp_install.source_inventory(exp_dir, plugins)
+
+    def install_record(self):
+        if not os.path.exists(os.path.join(self.starfield, "Data", exp_install.RECORD)):
+            return None
+        return installed_identity(self.starfield)
+
+    def data_file_sha256(self, rel):
+        data = os.path.join(self.starfield, "Data")
+        p = exp_install.data_path(data, rel)                 # inside Data only; outside raises (UNKNOWN for the check)
+        return sha256(p) if os.path.isfile(p) else None
+
+    def plugins_txt_lines(self):
+        local = os.environ.get("LOCALAPPDATA", "")
+        if not local or not os.path.isabs(local):
+            return None
+        p = os.path.join(local, "Starfield", "Plugins.txt")
+        return exp_install.read_plugins(p)[0] if os.path.exists(p) else []
+
+    def plugin_masters(self, name):
+        pin = self.queue.get("experiment_identity") or {}
+        p = os.path.join(pin.get("exp_dir") or "", name)
+        return exp_install.plugin_masters(p) if os.path.exists(p) else []
+
+    def implicit(self, name):
+        return exp_install.implicit(name)
+
+    def exe_path(self):
+        return os.path.join(self.starfield, "Starfield.exe")
+
+    def game_version(self):
+        return exe_file_version(self.exe_path())
+
+    def ledger_game_version(self):
+        if not self.r.lease:
+            return None
+        from fo4sf.core.state import fold                # on sys.path since the lease gate was built
+        return fold(self.r.lease.ctl.ledger.read()).build.get("game_version")
+
+    def lease_status(self):
+        g = self.r.lease
+        if g is None:
+            return "unknown", "no lease folder (--lease-dir / FO4SF_LEASE_DIR): the gate needs the lease (T2)"
+        why = g.blocked()
+        return ("fail", why) if why else ("ok", f"{g.owner} holds the lease in {g.dir}")
+
+    def stop_dirs(self):
+        out = []
+        for p in stop_files(self.r.qdir):
+            d = os.path.dirname(os.path.abspath(p))
+            out.append((p, os.path.isdir(d), os.path.isdir(d) and os.access(d, os.W_OK)))
+        return out
+
+    def guardian(self):
+        db = os.path.join(Controls.state_dir, "guardian.db")
+        if not os.path.exists(db):
+            return "missing", db
+        return self.r.ctl.guardian_mode(), db
+
+    @staticmethod
+    def saves_dirs():
+        home = os.path.expanduser("~")
+        return [os.path.join(home, "OneDrive", "Documents", "My Games", "Starfield", "Saves"),
+                os.path.join(home, "Documents", "My Games", "Starfield", "Saves")]
+
+    def save_present(self, name):
+        dirs = [d for d in self.saves_dirs() if os.path.isdir(d)]
+        if not dirs:
+            return None
+        return any(glob.glob(os.path.join(d, f"*{name}*")) for d in dirs)
+
+    def ini_texts(self):
+        """Lowest precedence first: the game folder's Starfield.ini, then StarfieldCustom.ini in My Games (the game
+        reads it after, so its keys override)."""
+        cands = [os.path.join(self.starfield, "Starfield.ini")]
+        cands += [os.path.join(os.path.dirname(d), "StarfieldCustom.ini") for d in self.saves_dirs()]
+        out = []
+        for p in cands:
+            if os.path.exists(p):
+                with open(p, encoding="utf-8", errors="replace") as f:
+                    out.append(f.read())
+        return out
 
 
 def stop_files(queue_dir):
@@ -2482,8 +2642,9 @@ def walk_timeout(test, light=0.0):
 
 def installed_identity(starfield):
     """What exp_install.py says is installed (its record in the game's Data folder: the staged folder, the plugins and
-    the sha256 of every installed file, the packed archive included, and of every staged input), pinned with every
-    walk result and checked against the queue's experiment_identity; {"error": ...} when it cannot be read. Read only."""
+    the sha256 of every installed file, the packed archive included, and of every staged input, and whether an
+    uninstall is half done: cleanup_pending), pinned with every walk result and checked against the queue's
+    experiment_identity; {"error": ...} when it cannot be read. Read only."""
     p = os.path.join(starfield or "", "Data", exp_install.RECORD)
     try:
         with open(p, encoding="utf-8") as f:
@@ -2492,7 +2653,7 @@ def installed_identity(starfield):
         return {"error": f"{type(e).__name__}: {e}"}
     return {"exp_dir": r.get("exp_dir"), "plugins": r.get("plugins"), "files": r.get("files"),
             "source_inputs": r.get("source_inputs"), "packing_policy": r.get("packing_policy"),
-            "complete": r.get("complete")}
+            "complete": r.get("complete"), "cleanup_pending": r.get("cleanup_pending")}
 
 
 def experiment_identity(exp_dir, plugins):
@@ -2515,6 +2676,8 @@ def install_mismatch(q, inst):
         return f"no install record: {inst.get('error') if inst else 'nothing read'}"
     if inst.get("complete") is not True:
         return "the experiment install record is incomplete"
+    if inst.get("cleanup_pending"):
+        return "the experiment install record is incomplete: its uninstall did not finish (cleanup pending)"
     if os.path.normcase(os.path.abspath(inst.get("exp_dir") or "")) != os.path.normcase(pin["exp_dir"]):
         return f"installed experiment {inst.get('exp_dir')!r} is not the pinned {pin['exp_dir']!r}"
     if [str(p).casefold() for p in inst.get("plugins") or []] != [p.casefold() for p in pin["plugins"]]:
@@ -2556,6 +2719,8 @@ class Runner:
         self.log_p = os.path.join(qdir, "run.log")
         lease_dir = getattr(a, "lease_dir", "") or ""     # opt-in (docs/ai/leader-core.md section 6); "" = not checked
         self.lease = LeaseGate(lease_dir, getattr(a, "lease_owner", "") or "Claude") if lease_dir else None
+        self.preflight_probe = PreflightProbe              # replaced by a fake in the tests
+        self.ledger_failed, self.ledger_seen = False, None  # section 10: the runner's events, only with a lease folder
 
     def log(self, msg):
         line = f"{now()} {msg}"
@@ -2719,6 +2884,8 @@ class Runner:
             found = glob.glob(os.path.join(saves, f"*{name}*"))
             self.log(f"created the dedicated save {name}: exit {code}, file {'found' if found else 'NOT found'}")
             self.state["save_file"] = bool(found)
+            if found and self.lease:                      # section 10: the save is the build's recovery point
+                self.ledger_event(lambda: self.lease.events.recovery_point(self.q, name, self.ledger_by))
         code = self.step({"kind": "godmode"}, sd)
         obs = load(os.path.join(sd, "obs.json"), {})
         self.log(f"god mode: {obs.get('god')} (reply {obs.get('reply', '')[:60]!r})")
@@ -2773,6 +2940,82 @@ class Runner:
                 self.log("idle again: continuing")
                 return True
 
+    def preflight(self):
+        """The deployment gate (fo4sf.core.preflight) before the first launch: the checklist goes to run.log, one FAIL
+        or UNKNOWN refuses the run (exit 3, resumable) and leaves a blocker_opened in the ledger when there is one."""
+        src = os.path.join(REPO, "src")
+        if src not in sys.path:
+            sys.path.insert(0, src)
+        from fo4sf.core import preflight                   # pure Python; imported only when the switch is on
+        rep = preflight.run_gate(self.preflight_probe(self))
+        for line in rep.lines():
+            self.log(line)
+        if rep.ok:
+            if self.lease:                                 # a blocker an earlier refusal opened is closed by this pass
+                try:
+                    from fo4sf.core.state import fold
+                    ledger = self.lease.ctl.ledger
+                    if fold(ledger.read()).blockers.get("preflight", {}).get("open"):
+                        ledger.append(preflight.Event("blocker_closed", f"testqueue:{self.lease.owner}",
+                                                      fields={"blocker": "preflight", "evidence": rep.lines()[:1]}))
+                except (OSError, ValueError) as e:
+                    self.log(f"preflight: the blocker could not be closed in the ledger: {e}")
+            return 0
+        names = ", ".join(f"{c.name} {c.status}" for c in rep.failing)
+        if self.lease:
+            try:
+                self.lease.ctl.ledger.append(rep.blocker_event(f"testqueue:{self.lease.owner}"))
+            except (OSError, ValueError) as e:
+                self.log(f"preflight: the blocker could not be written to the ledger: {e}")
+        self.log(f"stopped: preflight refused ({names})")
+        self.checkpoint(f"stopped: preflight refused ({names})")
+        return 3
+
+    @property
+    def ledger_by(self):
+        return f"testqueue:{self.lease.owner}" if self.lease else "testqueue"
+
+    def ledger_event(self, make):
+        """With a lease folder, append the event make() returns to the ledger there, skipping an event whose src key
+        the ledger already holds (a resumed run queues nothing twice). A failure is logged once and never stops the
+        run: the ledger is evidence, not control, and import_queue recovers the events from the queue files."""
+        if not self.lease or self.ledger_failed:
+            return
+        try:
+            if self.ledger_seen is None:
+                self.ledger_seen = self.lease.ctl.ledger.sources()
+            ev = make()
+            if ev is None:
+                return
+            src = ev.get("src")
+            if src and src in self.ledger_seen:
+                return
+            self.lease.ctl.ledger.append(ev)
+            if src:
+                self.ledger_seen.add(src)
+        except (OSError, ValueError) as e:
+            self.ledger_failed = True
+            self.log(f"ledger: {e}: no more events are written this run (import_queue recovers them from the queue files)")
+
+    def record(self, rec):
+        """Append one results.jsonl row (every attempt; PRECONDITION and BREAKER rows too) and, with a lease folder,
+        the matching task_finished event (section 10). A torn last line (a power cut mid-row) is not a row: it is
+        terminated first so the new row starts on its own line, and the importer reports the torn line."""
+        p = os.path.join(self.qdir, "results.jsonl")
+        line, torn = 1, False
+        if os.path.exists(p) and os.path.getsize(p):
+            with open(p, "rb") as f:
+                data = f.read()
+            line, torn = data.count(b"\n") + 1, not data.endswith(b"\n")
+        with open(p, "a", encoding="utf-8") as f:
+            if torn:
+                f.write("\n")
+                line += 1
+            f.write(json.dumps(rec) + "\n")
+        if self.lease:
+            self.ledger_event(lambda: self.lease.events.task_finished(self.qdir, self.q, rec, line, self.ledger_by,
+                                                                       self.lease.owner))
+
     def run(self):
         a = self.a
         self.deadline = time.time() + a.max_hours * 3600
@@ -2792,6 +3035,15 @@ class Runner:
         if self.lease:
             self.log(f"controller lease: {self.lease.dir}, owner {self.lease.owner} (checked before every launch and "
                      f"test, renewed before every test)")
+        if getattr(a, "preflight", False):                 # opt-in (docs/ai/leader-core.md section 7); off = not run
+            code = self.preflight()
+            if code:
+                return code
+        if self.lease:                                     # section 10: the queue's pin and tests into the ledger, once
+            self.ledger_event(lambda: self.lease.events.build_pinned(self.qdir, self.q, self.ledger_by))
+            for t in tests:
+                self.ledger_event(lambda t=t: self.lease.events.task_queued(self.qdir, self.q, t, self.ledger_by,
+                                                                            self.lease.owner))
         ran = 0
         waits, max_waits = {}, len(tests) * max(a.max_attempts, 1) + 1
         self.qdir_abs = os.path.abspath(self.qdir)
@@ -2819,8 +3071,7 @@ class Runner:
                        "dir": "", "t": now()}
                 if t.get("expect"):
                     rec["expect"] = t["expect"]
-                with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
-                    f.write(json.dumps(rec) + "\n")
+                self.record(rec)
                 self.state["done"][t["id"]] = {"verdict": "INCONCLUSIVE", "class": "PRECONDITION", "attempts": 0}
                 self.checkpoint()
                 self.log(f"{t['id']}: INCONCLUSIVE PRECONDITION {pre}")
@@ -2880,8 +3131,7 @@ class Runner:
                        "attempt": 0, "verdict": "INCONCLUSIVE", "class": "BREAKER",
                        "detail": f"not run: the first {BREAKER} {t['kind']} tests were all inconclusive", "exit": None,
                        "dir": "", "t": now()}
-                with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
-                    f.write(json.dumps(rec) + "\n")
+                self.record(rec)
                 self.state["done"][t["id"]] = {"verdict": "INCONCLUSIVE", "class": "BREAKER", "attempts": 0}
                 self.checkpoint()
                 continue
@@ -2902,6 +3152,9 @@ class Runner:
                     return 3
             n = self.state["attempts"].get(t["id"], 0) + 1
             self.state["attempts"][t["id"]] = n
+            if self.lease:                                # section 10: running or lost until its row is recorded
+                self.ledger_event(lambda: self.lease.events.task_started(self.qdir, self.q, t, n, self.ledger_by,
+                                                                          self.lease.owner))
             out_dir = os.path.join(self.qdir, "tests", t["id"], f"a{n}")
             os.makedirs(out_dir, exist_ok=True)
             lt = None                                     # the sky reading, for tests that asked for a time of day
@@ -2967,8 +3220,7 @@ class Runner:
                 rec["install"] = inst
             if cls == "CONTROL":
                 rec["raw"] = list(raw)                    # the report gates it again (write_report)
-            with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
-                f.write(json.dumps(rec) + "\n")
+            self.record(rec)
             final = verdict != "INCONCLUSIVE" or n >= a.max_attempts or cls in FINAL_INCONCLUSIVE
             if final:
                 self.state["done"][t["id"]] = {"verdict": verdict, "class": cls, "attempts": n}
@@ -3006,7 +3258,13 @@ def write_report(qdir):
     rows = []
     if os.path.exists(os.path.join(qdir, "results.jsonl")):
         with open(os.path.join(qdir, "results.jsonl"), encoding="utf-8") as f:
-            rows = [json.loads(x) for x in f]
+            for x in f:
+                try:
+                    r = json.loads(x)
+                except ValueError:                        # a torn line (a power cut mid-row): not a row (section 10)
+                    continue
+                if isinstance(r, dict) and r.get("id"):
+                    rows.append(r)
     final = {}
     for r in rows:                                        # last attempt per test counts
         final[r["id"]] = r
@@ -3211,10 +3469,24 @@ def main(argv=None):
                         "empty (the default): the lease is not checked")
     r.add_argument("--lease-owner", default=os.environ.get("FO4SF_LEASE_OWNER") or "Claude",
                    help="the lease owner this runner runs as (default FO4SF_LEASE_OWNER, else Claude)")
+    r.add_argument("--preflight", action=argparse.BooleanOptionalAction,
+                   default=os.environ.get("FO4SF_PREFLIGHT", "").strip().lower() in ("1", "true", "yes", "on"),
+                   help="run the deployment gate before the first launch (docs/ai/leader-core.md section 7); "
+                        "default on with FO4SF_PREFLIGHT=1 (true / yes / on), --no-preflight turns it off for one run; "
+                        "off (the default): not run")
     for name in ("report", "status"):
         s = sub.add_parser(name)
         s.add_argument("--queue", required=True)
+    pg = sub.add_parser("pin-game-version", help="record Starfield.exe's file version in queue.json: the pin the "
+                                                 "preflight gate's game_version check compares against (section 7)")
+    pg.add_argument("--queue", required=True)
+    pg.add_argument("--version", default="", help="the version to pin, e.g. 1.16.244.0; default: read from "
+                                                   "--starfield's Starfield.exe (Windows)")
+    pg.add_argument("--starfield", default=r"D:\SteamLibrary\steamapps\common\Starfield")
+    pg.add_argument("--force", action="store_true", help="replace a different pin already in the queue")
     a = ap.parse_args(argv)
+    if a.cmd == "pin-game-version":
+        return pin_game_version(a)
     if a.cmd == "plan":
         return plan(a)
     if a.cmd == "plan-terrain":

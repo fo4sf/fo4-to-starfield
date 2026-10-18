@@ -283,7 +283,8 @@ class WalkPlanTests(unittest.TestCase):
         self.assertIn("raw verdict PASS PASS", rec["detail"])
         self.assertTrue(status.startswith("stopped: no install record"), status)
         self.assertIn("error", rec["install"])
-        for change, why in (({"complete": False}, "incomplete"), ({"plugins": PLUGINS[:1]}, "installed plugins"),
+        for change, why in (({"complete": False}, "incomplete"), ({"cleanup_pending": True}, "cleanup pending"),
+                            ({"plugins": PLUGINS[:1]}, "installed plugins"),
                             ({"exp_dir": os.path.join(d, "other")}, "is not the pinned"),
                             ({"source_inputs": {"plugin/FO4TerrainCore.esm": "00" * 32}}, "inputs differ")):
             d2 = tempfile.mkdtemp()

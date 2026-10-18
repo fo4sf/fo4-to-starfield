@@ -653,6 +653,18 @@ class ItemPromotionTests(unittest.TestCase):
         self.assertEqual(res[:2], [True, False])                                           # a reference lost in promotion
         res = [ok for _w, ok in mk.promotion_checks(recs[:-1], own, objects, ids, exp)]
         self.assertFalse(res[0])                                                           # one REFR short
+        marked = dict(ids, map_marker_refs={"W": {"RedRocket": "00080C", "Concord": "00080D"}})
+        res = mk.promotion_checks(recs + [{"sig": "REFR", "fid": own | 0x80C + k, "flags": 0, "fields": []}
+                                          for k in range(2)], own, objects, marked, exp)
+        self.assertTrue(res[0][1] and "2 map markers" in res[0][0], res[0])            # the map markers counted
+        self.assertFalse(mk.promotion_checks(recs, own, objects, marked, exp)[0][1])
+
+    def test_params_view_leaves_out_map_markers(self):
+        core = {"plugin": "P.esm", "overlays": [{"world": "W", "spawn": [1, 2, 3]}]}
+        staged = {"plugin": "P.esm", "objects": "objects.json",
+                  "overlays": [{"world": "W", "spawn": [1, 2, 3], "map_markers": [{"tag": "RedRocket"}]}]}
+        self.assertEqual(mk.core_params_view(staged), core)
+        self.assertNotEqual(mk.core_params_view(dict(staged, overlays=[{"world": "X", "map_markers": []}])), core)
 
 
 class ItemValidationReviewTests(unittest.TestCase):
@@ -972,6 +984,50 @@ def light_base(**kw):
          "intensity_scale": 3.96, "dropped": []}
     b.update(kw)
     return b
+
+
+class GarageButtonTests(unittest.TestCase):
+    """Playtest row 21: the two Commonwealth RedRGarageDoor / RedR_ButtonBox pairs (docs/terrain/garage-button.md)."""
+
+    def test_pairs_only_when_both_activators_are_promoted(self):
+        shop = [{"src": "00056331:Fallout4.esm"}, {"src": "00056BBA:Fallout4.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(shop), [
+            {"door": "00056331:Fallout4.esm", "button": "00056BBA:Fallout4.esm"}])
+        self.assertEqual(mk.cluster_garage_buttons(shop + [{"src": "000866C7:Fallout4.esm"},
+                                                           {"src": "000866C0:Fallout4.esm"}]), [
+            {"door": "00056331:Fallout4.esm", "button": "00056BBA:Fallout4.esm"},
+            {"door": "000866C7:Fallout4.esm", "button": "000866C0:Fallout4.esm"}])
+        self.assertEqual(mk.cluster_garage_buttons([{"src": "00056BBA:Fallout4.esm"}]), [])
+        short = [{"src": "056331:Fallout4.esm"}, {"src": "056BBA:Fallout4.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(short), [
+            {"door": "056331:Fallout4.esm", "button": "056BBA:Fallout4.esm"}])
+
+    def test_pairs_keep_plugin_identity(self):
+        foreign = [{"src": "00056331:Other.esm"}, {"src": "00056BBA:Other.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(foreign), [])
+        mixed = [{"src": "00056331:Fallout4.esm"}, {"src": "00056BBA:Other.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(mixed), [])
+        shadow = [{"src": "00056331:Fallout4.esm"}, {"src": "00056BBA:Fallout4.esm"},
+                  {"src": "00056331:Other.esm"}]
+        self.assertEqual(mk.cluster_garage_buttons(shadow), [
+            {"door": "00056331:Fallout4.esm", "button": "00056BBA:Fallout4.esm"}])
+        with self.assertRaisesRegex(ValueError, "same FO4 source"):
+            mk.cluster_garage_buttons([{"src": "00056331:Fallout4.esm"}, {"src": "056331:Fallout4.esm"}])
+
+    def test_vmad_linked_ref_keyword_matches_xlkr(self):
+        door = 0x01000DB0
+        vmad = mk.garage_button_vmad()
+        xlkr = mk.garage_button_xlkr(door)
+        props = mk.vmad_patch.decode(vmad)["scripts"][0]["properties"]
+        self.assertEqual(props[0]["name"], mk.GARAGE_SCRIPT_PROPERTY)
+        self.assertEqual(props[0]["value"]["form"], mk.GARAGE_LINK_KEYWORD)
+        self.assertEqual(struct.unpack("<II", xlkr), (mk.GARAGE_LINK_KEYWORD, door))
+        path = os.path.join(root, "dotnet", "TerrainOverlays", "Program.cs")
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn("LinkedRefKeyword", src)
+        self.assertIn("0x5D5E7", src)
+        self.assertIn("DefaultActivateLinkedRefOnActivate", src)
 
 
 class LightTests(unittest.TestCase):
@@ -1570,6 +1626,16 @@ class DoorPromotionTests(unittest.TestCase):
                "doors": {"000002:Fallout4.esm": {"base": "00080D", "ref": "000803", "arrival": "00080C"}},
                "navmeshes": ["000808", "000809"], "lights": {"L1": {"base": "00080B", "ref": "00080A"}}}
         return objects, ids
+
+    def test_map_markers_after_the_doors_keep_the_identity_checks(self):
+        # the PC's full cluster build (#328): formids.json map_marker_refs {world: {tag: id}} is not a promoted class
+        objects, ids = self.ids()
+        ids["map_markers"] = {"W": "00080E"}
+        ids["map_marker_refs"] = {"W": {"RedRocket": "00080E", "Sanctuary": "00080F"}}
+        mk.check_reference_slots(objects, ids)
+        mk.check_light_identities(objects, ids)
+        mk.check_door_identities(objects, ids)
+        self.assertNotIn(0x80E, mk.ids_before(ids, mk.APPENDED))
 
     def test_door_identities_after_the_lights_and_the_slot_kept(self):
         objects, ids = self.ids()

@@ -72,7 +72,9 @@ a digest of the pin fields, so a pin rewritten in place by `pin-game-version` or
 re-deploy of a build imported earlier is a new pin), and a re-import skips events already present. The importer
 never writes to the files it reads; it reads them as `utf-8-sig` like the runner (a hand-edited queue may carry a
 BOM) and stores the runner's local wall-clock times (`testqueue.now()`, no zone) as UTC, converted on the machine
-that wrote them.
+that wrote them. A `results.jsonl` line that is not a row (a torn line the runner terminated, §10, or a hand edit)
+is skipped and reported as one `ledger_repaired` event keyed by its line; the queue's other rows import. A runner
+given a lease folder writes the same keys live (§10), so importing its queue afterwards adds nothing.
 
 ## 4. Bounded, resumable tasks (one cloud session each)
 
@@ -110,9 +112,12 @@ Each card has the fields the brief requires. Status is kept on the task's GitHub
   STOP/Guardian reachable, recovery save and log capture on. Any unknown → refuse, ledger says why.
 - **Owner:** Claude. **Dependencies:** T1, T2. **Acceptance:** each check has a synthetic pass and fail test; the
   gate is called by `testqueue.py run` before the first launch (dry-run shows the checklist).
+- **Switch (2026-10-16):** `testqueue.py run --preflight` / `FO4SF_PREFLIGHT=1`, off by default; nothing on the PC
+  changes until the PC session turns it on (§7). Implemented by Claude-cloud in #180 (`src/fo4sf/core/preflight.py`).
 
-After T3: `core/tasks.py` + `core/worker.py` (result contract), then the `Transform` adapter carrying the Z-first
-rotation fix (#102), then other adapters only when a gameplay gate needs them.
+After T3: `core/tasks.py` + `core/worker.py` (result contract; done 2026-10-16 by Claude-cloud, #183, §8), then the
+`Transform` adapter carrying the Z-first rotation fix (#102; done 2026-10-16 by Claude-cloud, #186, §9), then other
+adapters only when a gameplay gate needs them.
 
 ## 5. Starting a task as a cloud session
 
@@ -183,3 +188,140 @@ python scripts\game\lease.py status  --dir <leader> [--require Claude] [--json] 
 (`claim --owner Claude --purpose ... --ttl <seconds>`); set `FO4SF_LEASE_DIR` for the shell that starts the chain, or
 `"lease_dir"` in `watchdog.json` for the watchdog; release at the end of the window. Turning it off is unsetting the
 variable / removing the key; the ledger keeps the history either way.
+
+## 7. The preflight gate (T3) and its switch
+
+`src/fo4sf/core/preflight.py` is pure Python: its checks read nothing, a *probe* supplies the readings (the runner's
+`PreflightProbe` in `scripts/game/testqueue.py` reads the PC; the tests use a fake), so every Windows-only reading
+(Plugins.txt under `%LOCALAPPDATA%`, `Starfield.exe`'s version, the Saves folder, the ini files, the Guardian
+database) sits in the adapter. Every check is `PASS`, `FAIL` or `UNKNOWN`; **one `FAIL` or `UNKNOWN` refuses** (the
+brief's "any unknown → refuse"), and a reading that raises is `UNKNOWN` for that check, never a crash.
+
+| Check | PASS when | FAIL / UNKNOWN when |
+|---|---|---|
+| `pin` | the staged `FO4Port.esm` has the queue's `plugin_sha256` | another hash / staging missing or no pin (UNKNOWN) |
+| `deploy` | nothing deployed (cycle.ps1 deploys at the launch) or `Data\FO4Port.deploy.json` complete, still owning every artifact it published (`files` = `artifacts`), with `Data\FO4Port.esm` on disk at the manifest's and the pinned `artifacts[FO4Port.esm].sha256` | interrupted install or cleanup pending, a half-finished uninstall (artifacts removed, a changed one kept, the manifest still `complete`), `FO4Port.esm` missing or changed on disk, another build / no sha in the manifest (UNKNOWN) |
+| `experiment` | no experiment pinned and none installed, or the staged experiment's inputs equal the queue's `experiment_identity` and any install record is complete, has no cleanup pending, is the same and owns every pinned plugin, every file it owns on disk at its recorded sha256 | changed since planning, incomplete record or cleanup pending (a half-finished `exp_install.py uninstall`), other record, a pinned plugin the record no longer owns, an installed file missing or changed, an experiment installed although the queue pins none (it would load with the build) / `pre_launch` without a pin, unreadable record, a legacy record without a file inventory (UNKNOWN) |
+| `plugins_active` | every pinned experiment plugin, `FO4Port.esm` and the bridge are active where they are already listed in Plugins.txt (the rest install at the launch) | a listed plugin inactive (Starfield deactivated it on a load) or duplicated / Plugins.txt not locatable (UNKNOWN) |
+| `load_order` | every non-implicit master of a pinned plugin is active, or is itself a pinned plugin or `FO4Port.esm` (both installed at the launch, and `order` moves the dependant after them); notes what `exp_install.py order` / `bridge_install.py order` will move | a master neither active, nor implicit, nor installed at the launch (cycle.ps1 would exit 7) / Plugins.txt not locatable (UNKNOWN). The planned `plugin_index` is **not** verified against the game's implicit plugins (which of them the owner's install loads is unresolved) |
+| `game_version` | `Starfield.exe`'s file version equals the pin (`queue.json` `game_version`, else the ledger's `build_pinned.game_version`) | differs / no pin or not readable, e.g. not Windows (UNKNOWN) |
+| `lease` | the runner's owner holds the lease (§6) | missing, someone else's, released, expired / no lease folder (UNKNOWN) |
+| `stop_controls` | the queue's `STOP` and the chain's `STOP_ALL` can be created (folders writable); the state folder's too when it exists | a folder missing or not writable / no locations (UNKNOWN) |
+| `guardian` | `guardian.db` present, readable, mode `running` | missing, unreadable, `paused`, `stopped` |
+| `recovery_save` | the dedicated save `fo4sf_test_<build>` present, or not yet created (first launch) | created by an earlier run and gone / Saves folder missing or no save named (UNKNOWN) |
+| `log_capture` | no bridge pinned, or the `[Papyrus]` logging keys in effect after the game folder's `Starfield.ini` is overridden key by key by `StarfieldCustom.ini` in My Games (`make_bridge.py ini`) | a key off or missing after the overrides / no ini found (UNKNOWN) |
+
+The planners write no `game_version`: pin it after planning with `testqueue.py pin-game-version --queue <dir>`
+(reads the game folder's `Starfield.exe` on Windows, or `--version 1.16.244.0`, always four numbers as the file
+version reads; a different existing pin needs `--force`), or record a `build_pinned` event with it; until then the check is UNKNOWN by design and the gate refuses.
+
+**The switch, default off:** `testqueue.py run --preflight` (or `FO4SF_PREFLIGHT=1`, `true` / `yes` / `on` too;
+`--no-preflight` overrides the variable for one run) runs the gate once, right after the lease line and before
+the first launch; the checklist goes to `run.log`, a refusal sets
+`state.json` `status` to `stopped: preflight refused (<check> <status>, ...)` (exit 3, resumable) and appends
+`blocker_opened` (`blocker: preflight`, the failing lines as `evidence`) to the ledger when a lease folder is set;
+a `--dry-run` prints the checklist and refuses the same way; a later pass closes that blocker (`blocker_closed`),
+so the report does not carry a refusal that no longer holds. Unset, the gate is not built and the runner is the one
+of §6. The after-load activation check stays where it is (cycle.ps1 exit 8 after `exp_install.py active`).
+
+## 8. Task cards and the worker result contract
+
+**The card** (`src/fo4sf/core/tasks.py`, `TaskCard`): data with exactly the fields of the §4 cards: `id`,
+`objective`, `owner`, `inputs[]`, `dependencies[]` (task ids whose PASS must be in the ledger), `timeout_s`,
+`max_attempts`, `acceptance[]`, `evidence_required[]`, `recovery`, `not_in_scope[]`, and optionally `capability`
+(what a decided IN_GAME result verifies or fails) and `campaign`. A card is refused with the field named when it
+lacks an objective, an owner, an acceptance line, an evidence rule (`["none"]` is a choice, an empty list is not;
+`card.needs_evidence` is then false) or a recovery line, when a number is not positive, when it depends on itself
+or carries an unknown field. `Worker.queue(card)` writes the `task_queued` line (`card.events(by)`), the card riding
+along; the fold keeps it (`state.cards[id]`, `TaskCard.from_event`) so a resumed leader re-reads it, and that queued
+card is the authority: a card in hand that differs from it, an id queued twice with different cards (the first
+stands, `state.card_conflicts`, a blocker in the report) or a card never queued cannot start, finish or expire
+anything. `card.not_ready(state)` says why it cannot start.
+
+**The result** (`src/fo4sf/core/worker.py`, `WorkerResult`): `task`, `attempt`, `outcome` (§2), `source` (§2),
+`detail`, `evidence[]` (paths, hashes, URLs, read lines), `pins{}` (`commit`, `build_id`, `plugin_sha256`, ...),
+`started`, `finished`, `by`, `verified` (the worker's claim). `violations(card, result)` lists every breach and
+`Worker.finish` writes nothing while one exists:
+
+| Rule | Refused when |
+|---|---|
+| the attempt is the card's | `attempt` < 1, beyond `max_attempts`, not the attempt the ledger shows running; on `start`, an explicit attempt that is not the ledger's next |
+| only PASS / FAIL are decided | an undecided outcome marked `completed` (model.Event refuses the line itself) |
+| a verdict rests on evidence | a PASS or FAIL with no `evidence` while the card's rule is not `["none"]` |
+| only an IN_GAME PASS verifies | `verified` claimed from any other outcome or source, or for a card without a capability; an OFFLINE PASS is recorded and the fold keeps the capability inconclusive |
+| times are aware | `started`, `finished` or a `now` that is not an ISO timestamp with a zone (a naive local time would age by the zone offset on the first expiry check) |
+| one attempt at a time | `start` while an attempt is running (or lost), after the task completed, or before its dependencies passed |
+| nothing is lost silently | `Worker.expire` turns an attempt past `timeout_s` into an INCONCLUSIVE `task_finished` that says so (`expired: true`), with the `capability_result` a worker's INCONCLUSIVE would leave |
+
+What a task leaves in the ledger: `task_queued` (the card), `task_started` (`attempt`, `timeout_s`, `started`),
+`task_finished` (`outcome`, `source`, `detail`, `evidence`, `pins`, `completed`, `worker` and `verified` as the
+result claimed them), and for a card with a capability one `capability_result` per decided or inconclusive attempt
+(a SKIPPED or CIRCUIT_BROKEN attempt says nothing about the capability). The `task_finished` of such an attempt
+carries the `capability` (and the result's `build_id`) too, and the fold reads the verdict from either line: a
+crash between the two appends loses nothing, and the second line repeats the first.
+
+A known event whose fields the fold cannot read (a writer bug or a hand edit: a dict where a task id belongs, a
+lease whose expiry is not a time) is skipped and listed (`state.bad_events`); the report names it in the blockers
+bullet with its line number, and the rest of the ledger still folds, because the ledger is append-only and the
+writer, not the reader, repairs it.
+
+**The report CLI:** `python scripts/leader_report.py --ledger <leader dir or ledger.jsonl> [--now <ISO>] [--json]`
+prints the owner's eight bullets from the fold (§1), exit 1 with the reason when the ledger is missing or corrupt.
+The capability bullets are those of the pinned build (`build_pinned`); results pinned to another `build_id` stay out
+of "newly worked in game" until that build is the pin.
+
+## 9. The Transform adapter: one reference matrix, in #102's order
+
+`src/fo4sf/core/adapters/transform.py` holds the core's only `ref_matrix(rot)`: Bethesda angles turn clockwise seen
+from the positive axis, so the matrix uses the negated angles, and the model turns about **Z first, then Y, then X**
+(fixed axes), `R = Rx(-x) Ry(-y) Rz(-z)`. That is the order PR #102 verified on FO4's own precombined references
+(146,463 of 146,728 tilted references with a unique instance; 52 of 52 core64c in-game readings within 0.05 m under
+it, the X-first plan missing `ne_500m` by 1.89 m). With it: `apply`, `to_world`, `to_local` (the inverse is the
+transpose), `metres` / `units` (70 per metre) and a frozen `Transform(pos m, rot rad, scale)` with `world()` /
+`local()`. Pure Python; every new core consumer places a reference through it and nowhere else.
+
+**Parity today** (`tests/test_core_transform.py` keeps this true on every push, the C# row through a line-by-line
+transliteration of `RotateOffset`; `exterior.ref_matrix`'s docstring still says routes.py shares its X-first
+matrix, which has not been true since 2026-10-13: for the PC session to fix when it switches exterior):
+
+| Copy | Order | Agrees with the adapter |
+|---|---|---|
+| `scripts/game/routes.py` `ref_matrix` (used by `scripts/game/stairs_calib.py`) | Z first since 2026-10-13 | on every rotation (grid of 512, and #102's RockCliff05 example) |
+| `src/fo4sf/exterior.py` `ref_matrix` / `to_world` (used by the exterior placement, `scripts/actors/navmesh_points.py`, `scripts/terrain/make_exp2d.py`) | X first, `R = Rz(-z) Ry(-y) Rx(-x)` | on heading-only rotations; differs on tilted ones (the 24 m top of RockCliff05 lands 10.2 m apart, 0.42 in the matrix) |
+| `dotnet/PluginSpike/Program.cs` `RotateOffset` (door-local offsets: rigged door hinges) | X first (applied X, then Y, then Z) | same as `exterior.ref_matrix`; **not changed here** |
+
+**What is deliberately not changed, and what each switch costs (the PC session's calls, one PR and one rebuild each):**
+- `exterior.ref_matrix`: switching it to the adapter is one line, but every placement and navmesh point of a tilted
+  reference moves (332,641 of core64c's 648,358 references have an x or y rotation): the core build, the exp2d-style
+  navmesh input and every plan made from `objects.json` have to be re-staged and re-pinned, and the campaigns that
+  read tilted objects (the northeast probe, the maples, the cliffs) re-planned. The 52-reading agreement in #102 says
+  the adapter's order is the game's, so the switch is a correction, not a guess.
+- `PluginSpike.RotateOffset`: port the order (apply Z, then Y, then X, i.e. `y1`/`z1` about Z first) with a C# test
+  against the adapter's numbers; #102 counts 156 of core64c's 759 rigged doors off by more than 1 cm (up to 9.17 m,
+  the tipped-over boxcar doors), so the interior and door plugins are rebuilt and their door campaigns re-pinned.
+- `routes.ref_matrix` can call the adapter whenever `scripts/game` starts importing `fo4sf.core`; nothing moves.
+- 85 references of 7 models whose precombined matrix matches no order (#102): unresolved; the adapter does not claim them.
+
+## 10. The runner's own events (behind the lease switch)
+
+With a lease folder (§6), `testqueue.py run` writes its events to the ledger in that folder as they happen
+(`src/fo4sf/core/runner_events.py`, pure; `Runner.ledger_event` / `Runner.record` in `scripts/game/testqueue.py`):
+
+| When | Event | Fields |
+|---|---|---|
+| the run starts, once per queue | `build_pinned` | the queue's `build_id`, `plugin_sha256`, `staging`, `commit`, `game_version`; `src = queue.json#pin:<digest of the pin fields>` (§3: a rewritten pin is a new event) |
+| the run starts, once per test | `task_queued` | `task` (`<queue folder>/<test id>`, §1), `kind`, `cell`, `ref`, `owner` (the lease owner), `campaign` (the queue folder), `build_id`; `src = queue.json#<id>` |
+| an attempt begins | `task_started` | `task`, `attempt`, `owner`, `started`; no `src`: the queue files never record a start, so a resumed run shows it running or lost (§1) |
+| a results row is appended (every attempt; PRECONDITION and BREAKER rows too) | `task_finished` | `outcome` by §2's mapping, `source` IN_GAME, `detail`, `evidence` (the attempt folder), `pins`, `completed` only for PASS / FAIL; `src = results.jsonl:<line>` |
+| the dedicated save is created | `recovery_point` | `kind` save, `path` (the save name), `build_id` |
+
+Rules: an event whose `src` key the ledger already holds is not written again (a resumed run queues nothing twice);
+a failed ledger write is logged once and never stops the run, because the ledger is evidence, not control, and the
+importer (§3) rebuilds the same events from the queue files with the same keys, so a live write that was lost is
+recovered by one `import_queue` and a complete run imports nothing. A recovered row is appended after every result
+written since it was lost (a resumed run's retry included), so the fold orders a task's results by their
+`results.jsonl` line (`src`), not by their place in the ledger: the recovered older row stays as evidence and never
+replaces the retry's verdict, and the fold of the repaired ledger equals the fold of a fresh import of the same files.
+A torn last line of `results.jsonl` (a power cut mid-row) is terminated before the next row is appended, so the two
+never merge; the torn line stays as evidence and the importer reports it. The runner names no capability: that is the leader's call when it reads a
+result. Without a lease folder nothing of this runs.
