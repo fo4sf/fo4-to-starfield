@@ -15,6 +15,8 @@ test program runs and reports.
   runner's own input); a Starfield the runner did not start is never touched (the chain waits until it is closed); a STOP
   file (`C:\Modding\testqueue\STOP_ALL`, `%LOCALAPPDATA%\fo4-ai-team\state\testqueue.STOP`) or a Resource Guardian
   pause/stop ends it.
+- With the controller lease switched on (`lease_dir` in `watchdog.json`; docs/ai/leader-core.md section 6) the watchdog
+  claims the lease as `watchdog` before it starts the chain and never while someone else holds one.
 - Results per queue: `C:\Modding\testqueue\<queue>\` with `state.json`, `results.jsonl`, `run.log`, `report.md`,
   `tests\<id>\a<n>\` (screenshots, `obs.json`). Chain log: `C:\Modding\testqueue\overnight.log`.
 

@@ -100,6 +100,9 @@ Each card has the fields the brief requires. Status is kept on the task's GitHub
 - **Owner:** Claude (live scripts). **Dependencies:** T1 merged. **Acceptance:** synthetic tests for claim/renew/
   release/expiry; a dry-run `testqueue.py run` with no lease exits with the reason; nothing in game.
 - **Recovery:** lease and ledger are files; a crash leaves an expired lease, which is the ambiguous state by design.
+- **Switch (2026-10-16):** every part of the wiring is behind `FO4SF_LEASE_DIR` (the watchdog: `lease_dir` in
+  `watchdog.json`), unset by default, so nothing on the PC changes until the PC session turns it on (§6).
+  Implemented by Claude-cloud in #178 (`src/fo4sf/core/controller.py`, `scripts/game/lease.py`).
 
 ### T3 — `core/preflight.py`, the deployment gate (brief §7)
 - **Objective:** before any live task: deployed hashes match the pin, every experiment plugin active after the save
@@ -120,3 +123,63 @@ At claude.ai/code (browser or the Code tab in the phone app), repository `fo4sf/
 
 Swap `T1` for `T2` or `T3` once the previous one is merged. One task per session; a session that stops can be
 reopened and continues from its branch.
+
+## 6. The controller lease (T2) and its switch
+
+**Files.** The leader folder, e.g. `C:\Modding\testqueue\leader`, holds `ledger.jsonl` (§1) and `controller.json`,
+the lease: `owner`, `purpose`, `claimed`, `expires`, `ttl_s`, `renewed`, `released`, `forced`, `reason`, every time
+an aware UTC timestamp. The ledger is the record and the file its cache: `src/fo4sf/core/controller.py` appends the
+`controller_claimed` / `controller_renewed` / `controller_released` event first and then replaces the file atomically,
+so a crash between the two leaves the event in the ledger and the file behind, never a lease without its event.
+
+**Rules** (`Controller.claim` / `renew` / `release` / `valid_for`, the fold agrees with them):
+- a lease is `held` until `expires`; `renew` moves `expires` by the lease's own `ttl_s` (or a new one);
+- expired without a release = `ambiguous`: nothing that sends input runs on it, `renew` is refused; the holder may
+  claim again (the gap goes into the ledger as `expired_for_s`) or release it; anyone else needs `--force --reason`,
+  and the reason and the previous owner go into the ledger;
+- another owner's claim is refused while a lease is `held`, unless forced with a reason;
+- only the holder releases, unless forced with a reason; after a release anyone claims without force;
+- an unreadable lease file counts as ambiguous: nothing renews it or takes it quietly, `--force --reason` takes or
+  releases it and the ledger records `unreadable`;
+- every claim, renewal and release reads, decides and writes under the lease's lock file (`controller.json.lock`,
+  `filelock.py`), so two processes reading the same expired lease cannot both walk away with it; on Windows the
+  atomic replace of `controller.json` is retried while another process has the file open for reading, and the
+  runner treats a renewal that failed while the lease on disk is still its own as a warning, not a stop.
+
+**CLI** (what the PowerShell scripts call; `python -I` finds the package through the wrapper):
+```
+python scripts\game\lease.py claim   --dir <leader> --owner Claude --purpose "walk gate" --ttl 28800
+python scripts\game\lease.py renew   --dir <leader> --owner Claude
+python scripts\game\lease.py release --dir <leader> --owner Claude
+python scripts\game\lease.py status  --dir <leader> [--require Claude] [--json]    # --require: exit 0 only while held by Claude
+```
+
+**The switch, default off.** Nothing consults the lease unless told where it is:
+- `testqueue.py run --lease-dir <leader>` (default `FO4SF_LEASE_DIR`; `--lease-owner`, default `FO4SF_LEASE_OWNER`,
+  else `Claude`): checked before every launch and every test, renewed before every test, the run stops (resumable,
+  `stopped: lease ...`) when the lease is missing, someone else's, released or expired; a `--dry-run` reports the same.
+- `cycle.ps1`: with `FO4SF_LEASE_DIR` set it exits 9 before closing, redeploying or launching anything unless
+  `FO4SF_LEASE_OWNER` (default `Claude`) holds the lease; the runner puts its own effective folder and owner into
+  the environment of every PowerShell step (`Runner.ps_env`), so `--lease-dir` / `--lease-owner` given as flags
+  reach it too, and an exit 9 stops the run (`stopped: lease refused by cycle.ps1 ...`), never a retry per test.
+  `lease.py` reads the folder from `FO4SF_LEASE_DIR` when `--dir` is not given, and `cycle.ps1` relies on that (a
+  folder with a space and a trailing backslash would reach python mangled as an argument). The folder is absolute;
+  the watchdog resolves a relative `lease_dir` against `C:\Modding\testqueue` and strips a trailing backslash, so
+  the watchdog, the chain and the runner read one folder. `python` that cannot be resolved or started counts as no
+  lease (exit 9): the gate resolves `python` first, clears `$LASTEXITCODE` and reads only `lease.py`'s own fresh exit
+  code, so in a reused host (`& cycle.ps1` after another command) an earlier 0 cannot pass it (QA on #179).
+- `watchdog.ps1` (`-Root <folder>` names the folder of `chain.ps1`, `chain_queue.txt`, the log and the state, default
+  `C:\Modding\testqueue`, so a test can run `-Once` against a temp folder): with `lease_dir` in `watchdog.json` (or
+  `FO4SF_LEASE_DIR` as set when the watchdog started),
+  Claude's activity is the lease's last claim / renewal / release plus the heartbeat file, not the last `Claude:`
+  commit on any branch (the cloud sessions' commits tripped that); a lease held by the watchdog's own `lease_owner`
+  does not count as Claude's activity, and a chain that stopped early is restarted by claiming that lease again;
+  the chain is started only after the watchdog claims the lease as `lease_owner` (default `watchdog`) for
+  `lease_hours` (default 8), never while someone else holds one; the chain inherits the two variables, so its
+  runner and `cycle.ps1` check that lease.
+- Unset, every script behaves as before this task; the test suite covers both states.
+
+**Turning it on (the PC session, in a window it watches):** create the leader folder; claim the lease for the window
+(`claim --owner Claude --purpose ... --ttl <seconds>`); set `FO4SF_LEASE_DIR` for the shell that starts the chain, or
+`"lease_dir"` in `watchdog.json` for the watchdog; release at the end of the window. Turning it off is unsetting the
+variable / removing the key; the ledger keeps the history either way.
