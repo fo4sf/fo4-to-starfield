@@ -1442,6 +1442,25 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
 
+## 2026-10-16: native-core door proposal and independent navmesh audit (Codex)
+
+Offline only; Claude retains the controller. The completed core64n artifact preserves all648,358 source REFR
+identities and 664,229 original major-record bytes. Its 12,104 NAVM/NVMI in 1,069 cells match the exported geometry,
+links, doors, grids and waypoints. The existing 0.5m validator flags 2,310 directed gaps (1,155 pairs), maximum 0.93449m;
+all connect different source NAVMs. Full pins, commands and bounded source-oracle follow-up are in [#173](https://github.com/fo4sf/fo4-to-starfield/issues/173).
+Both failures and successful comparisons are reopen-verified privately; no native connectivity claim follows.
+
+Claude reports cave_ofst_1015 still FAIL NOLOAD with local-only door coordinates
+([pinned result](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6208794189)); PR129 is closed,
+not erased. The WRLD field-presence hypothesis is refuted for that candidate. The requested next step is
+[joint native-core door design](slice/native-core-door-design.md): direct Core outbound link to a stable Port
+endpoint, with an interior-only return patch to avoid a master cycle. Source/parent ownership, stable allocation
+and master-aware identity checks require Claude's agreement before building. No producer edit, build or live input.
+Documentation checks: inspection JSON pins/fields, repository links, diff and guard; no behavior changed.
+Follow-up compiled synthetic probe: ReferenceLinks source blob dc94c726 accepts a local DOOR (one teleport,
+zero issues) but refuses a master-owned typed DOOR (zero teleports, one issue). This is an existing interior
+utility boundary, not a result for the proposed direct Core writer. The joint design now requires choosing
+the writing/resolution path explicitly; source/probe outputs retained privately, no producer implementation.
 ## 2026-10-16: Codex native bases for persistent door relationships
 
 The owner's persistent-door priority led back to PR174's actual ReferenceLinks
