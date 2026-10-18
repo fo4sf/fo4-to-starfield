@@ -635,7 +635,8 @@ switch ($kind) {
       Save-Obs
       # 8. the impulse ladder when the walk did not move it
       $d = Dist-3 $obs['item_before'] $obs['item_after']
-      if ($imps.Count -gt 0 -and $null -ne $d -and $d -lt $min) { Push-Impulses $ref $base "$($obs['item_after'])" $imps }
+      # (impulse_control: a vanilla control gets the ladder after any walk, the positive control for FAIL STUCK)
+      if ($imps.Count -gt 0 -and $null -ne $d -and ($d -lt $min -or $t.impulse_control -eq $true)) { Push-Impulses $ref $base "$($obs['item_after'])" $imps }
     }
     # 9. remove the item: disable and markfordelete on a confirmed selection only (a world ref is never touched)
     $clean = [ordered]@{ removed = $false }
