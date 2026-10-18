@@ -3,6 +3,7 @@ import contextlib
 import importlib.util
 import io
 import json
+import subprocess
 from pathlib import Path
 import sys
 import tempfile
@@ -78,6 +79,48 @@ class AttemptAuditTests(unittest.TestCase):
             code = audit.main(['--attempt', str(self.folder)])
         self.assertEqual(code, 2)
         self.assertFalse(json.loads(output.getvalue())['runtime_accepted'])
+
+
+class IsolatedAttemptCliTests(unittest.TestCase):
+    def test_isolated_cli_loads_trusted_sibling_and_keeps_selection_gate(self):
+        from test_continuous_evidence import DoorEvidenceTests, WalkEvidenceTests
+        for kind, fixture_type, wrong_selection in (
+                ('walk', WalkEvidenceTests, False),
+                ('door_trip', DoorEvidenceTests, False),
+                ('door_trip', DoorEvidenceTests, True)):
+            with self.subTest(kind=kind, wrong_selection=wrong_selection):
+                fixture = fixture_type()
+                fixture.setUp()
+                try:
+                    if wrong_selection:
+                        fixture.rewrite_ocr(fixture.obs['probe_reads'][0], lambda text:
+                            text.replace('GetSelf >> (01000001)', 'GetSelf >> (01000002)'))
+                    fixture.obs['kind'] = kind
+                    fixture.write('spec.json', fixture.test)
+                    fixture.write('obs.json', fixture.obs)
+                    # A result-directory module must never supply the auditor.
+                    fixture.write('continuous_evidence.py', "raise RuntimeError('untrusted module loaded')")
+                    before = {p.name: p.read_bytes() for p in fixture.root.iterdir()}
+                    run = subprocess.run([sys.executable, '-I', '-B',
+                        str(HERE / 'commonwealth_evidence.py'), '--attempt', str(fixture.root)],
+                        cwd=fixture.root, capture_output=True, text=True, timeout=30)
+                    self.assertTrue(run.stdout.strip(), run.stderr)
+                    report = json.loads(run.stdout)
+                    self.assertFalse(report['runtime_accepted'])
+                    self.assertFalse(report['entry']['acceptance_gate'])
+                    if wrong_selection:
+                        self.assertNotEqual(run.returncode, 0)
+                        self.assertNotEqual(report['status'], 'MATCH')
+                        row = next(r for r in report['entry']['rows'] if r['label'] == 'merge_probe.0')
+                        self.assertFalse(row['selection_verified'])
+                        self.assertIsNone(row['observed'])
+                        self.assertNotIn('merged_residual_m', row)
+                    else:
+                        self.assertEqual(run.returncode, 0, run.stderr)
+                        self.assertEqual(report['status'], 'MATCH')
+                    self.assertEqual(before, {p.name: p.read_bytes() for p in fixture.root.iterdir()})
+                finally:
+                    fixture.doCleanups()
 
 
 if __name__ == '__main__':

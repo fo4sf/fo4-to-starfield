@@ -16,6 +16,10 @@ import sys
 
 from PIL import Image
 
+# Isolated Python excludes the script directory. Load only our trusted sibling,
+# never a same-named module from the observation/current working directory.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 
 NAME = re.compile(r"[A-Za-z0-9_](?:[A-Za-z0-9_.-]*[A-Za-z0-9_-])?\Z")
 COMMIT = re.compile(r"[0-9a-f]{40}\Z")

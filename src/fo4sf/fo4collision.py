@@ -8,7 +8,7 @@ Supported shapes: hknpCompressedMeshShape (the usual architecture / prop mesh co
 Layouts (hk_2014.1.0-r1, 64-bit) were decoded from vanilla files; offsets are relative to each object.
 """
 import struct
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from . import hkpackfile
 
@@ -80,6 +80,27 @@ def _compressed_mesh(p: hkpackfile.Packfile, data_obj: int) -> Tuple[List[Vec], 
 # hknpPhysicsSystemData: bodyCinfos hkArray @64, 96 bytes each: shape pointer @0, position hkVector4 @48,
 # orientation quaternion (x, y, z, w) @64
 SYS_BODIES, BODY_SIZE, BODY_POS, BODY_ROT = 64, 96, 48, 64
+# Motion (docs/ai/research-log.md 2026-10-09/10): body +12 = motion index (0x7FFFFFFF = static); the system's motion
+# cinfos (+48, 112 bytes each: u16 motion-properties id @0, f32 inverse mass @4) say whether that motion is dynamic
+# (id != 0xFFFF and inverse mass > 0) or keyframed (id 0xFFFF, inverse mass 0: animated railings, cryo pods).
+SYS_MOTION_CINFOS, MOTION_CINFO_SIZE, BODY_MOTION, STATIC_MOTION = 48, 112, 12, 0x7FFFFFFF
+
+
+def body_mass(p: hkpackfile.Packfile, sysobj: int, k: int):
+    """Mass in kg of body k of the FO4 physics system at sysobj when the body is dynamic (pushable), else None."""
+    bodies_at, n = p.array(sysobj + SYS_BODIES)
+    if bodies_at is None or not 0 <= k < n:
+        return None
+    mi, = p.unpack("<I", bodies_at + BODY_SIZE * k + BODY_MOTION)
+    if mi == STATIC_MOTION:
+        return None
+    at, nm = p.array(sysobj + SYS_MOTION_CINFOS)
+    if at is None or not 0 <= mi < nm:
+        return None
+    props_id, inv_mass = p.unpack("<H2xf", at + MOTION_CINFO_SIZE * mi)
+    if props_id == 0xFFFF or not inv_mass > 0:
+        return None
+    return 1.0 / inv_mass
 CMS_DATA = 96                                        # hknpCompressedMeshShape -> hknpCompressedMeshShapeData pointer
 # hknpConvexPolytopeShape: hkRelArray (u16 count, u16 offset from the field) vertices @48 (hkVector4),
 # faces @68 (u16 first index, u8 count, u8 angle), indices @72 (u8)
@@ -168,9 +189,64 @@ def decode(blob: bytes) -> Tuple[List[Vec], List[Tuple[int, int, int]], List[str
         tris += [(a + base, b_ + base, c + base) for a, b_, c in tr]
     return points, tris, skipped
 
+def compressed_mesh_primitive_keys(p: hkpackfile.Packfile, data_obj: int, primitives: Optional[bytes] = None):
+    """[(shape key, (min xyz, max xyz))], ONE per valid primitive of a compressed mesh, triangle bit clear: the leaves
+    of every vanilla Starfield SIMD tree (837 of 837 meshes of a 1,500-NIF "Starfield - Meshes01.ba2" sample, 2026-10-16:
+    one leaf per primitive, key = section << 8 | primitive << 1, box over the primitive's 3 or 4 vertices).
+    Starfield's decoder takes a leaf key K as the primitive's first triangle and K + 1 as a quad's second one, so a
+    per-triangle leaf (K odd, compressed_mesh_keys) stepped into the next primitive slot and, for the last primitive of
+    a section, past the end: vault_cart_01's 40-primitive section, keys 0..79, 79 + 1 -> primitive 40 -> NULL data run
+    (crash dump 2026-10-16). `primitives`: the array to read instead of FO4's (meshcollision.sanitise_primitives).
+    A slot is skipped when an index is outside the section's vertex slots or indices[1] == indices[3] (a special
+    primitive to Starfield's decoder: FO4's DE AD DE AD padding, all-equal points, FO4's own specials)."""
+    sec_at, nsec = p.array(data_obj + CMD_SECTIONS)
+    prim_at, nprim = p.array(data_obj + CMD_PRIMITIVES)
+    sidx_at, _ = p.array(data_obj + CMD_SHARED_INDEX)
+    pack_at, _ = p.array(data_obj + CMD_PACKED)
+    shar_at, nshared = p.array(data_obj + CMD_SHARED)
+    if primitives is None:
+        primitives = p.raw(prim_at, 4 * nprim) if nprim else b""
+    dmin = p.unpack("<3f", data_obj + CMD_DOMAIN)
+    dmax = p.unpack("<3f", data_obj + CMD_DOMAIN + 16)
+    shared = []
+    for k in range(nshared):
+        v, = p.unpack("<Q", shar_at + 8 * k)
+        q = (v & 0x1FFFFF, (v >> 21) & 0x1FFFFF, v >> 42)
+        bits = (0x1FFFFF, 0x1FFFFF, 0x3FFFFF)
+        shared.append(tuple(dmin[a] + q[a] * (dmax[a] - dmin[a]) / bits[a] for a in range(3)))
+    out = []
+    for s in range(nsec):
+        so = sec_at + SECTION_SIZE * s
+        off, scale = p.unpack("<3f", so + 48), p.unpack("<3f", so + 60)
+        first_packed, shared_d, prim_d = p.unpack("<3I", so + 72)
+        npacked, nsidx = p.unpack("<BB", so + 88)
+        sh_start, limit = shared_d >> 8, npacked + nsidx
+
+        def vertex(i):
+            if i < npacked:
+                v, = p.unpack("<I", pack_at + 4 * (first_packed + i))
+                q = (v & 0x7FF, (v >> 11) & 0x7FF, v >> 22)
+                return tuple(off[a] + q[a] * scale[a] for a in range(3))
+            j, = p.unpack("<H", sidx_at + 2 * (sh_start + i - npacked))
+            if j >= len(shared):
+                raise hkpackfile.PackfileError(f"shared vertex index {j} out of range ({len(shared)})")
+            return shared[j]
+        pstart, pcount = prim_d >> 8, prim_d & 0xFF
+        for j in range(pcount):
+            a, b, c, d = primitives[4 * (pstart + j):4 * (pstart + j) + 4]
+            if max(a, b, c, d) >= limit or b == d:
+                continue
+            P = [vertex(i) for i in ((a, b, c) if c == d else (a, b, c, d))]
+            lo = tuple(min(q[x] for q in P) for x in range(3))
+            hi = tuple(max(q[x] for q in P) for x in range(3))
+            out.append(((s << 8) | (j << 1), (lo, hi)))
+    return out
+
+
 def compressed_mesh_keys(p: hkpackfile.Packfile, data_obj: int):
     """[(shape key, (min xyz, max xyz))] per triangle of a compressed mesh. Key = section << 8 | primitive << 1 | t,
-    t = 1 for the second triangle of a quad (matches maxKeyValue / numPrimitiveKeys in FO4 and vanilla Starfield)."""
+    t = 1 for the second triangle of a quad (matches maxKeyValue / numPrimitiveKeys in FO4 and vanilla Starfield).
+    Not the SIMD tree's leaves (compressed_mesh_primitive_keys): used to tell whether a mesh decodes at all."""
     pts, _ = [], None
     sec_at, nsec = p.array(data_obj + CMD_SECTIONS)
     points, tris = _compressed_mesh(p, data_obj)        # same order: per section, per primitive, quads split
