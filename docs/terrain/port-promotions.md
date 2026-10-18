@@ -45,8 +45,20 @@ Then PluginSpike as before; its log prints `promotions: ...; N listed but not pl
   tests/test_port_promote.py.
 - **unresolved until in game**: open a promoted container, take a promoted item, read a promoted terminal indoors.
 
+## Furniture (chairs, beds): research step
+Starfield's FURN and FO4's FURN carry the same marker block (Mutagen 0.55 reflection, both games: MarkerParameters
+Offset / RotationZ / Keyword / EntryTypes, MarkerEntryPoints, MarkerModel) (**verified** on the Mutagen schema, not on
+records). The plan (**supported hypothesis**): a chair keeps FO4's own marker places and takes the rest of the block
+(furniture template, marker model, keywords, animation graph) from a vanilla Starfield chair of the same kind. Two
+read-only dumps choose the mapping from evidence, run on the PC:
+```
+dotnet run --project dotnet/Fo4Land -c Release -- <Fallout4.esm> export-furniture <out>\fo4-furniture.json
+dotnet run --project dotnet/SfInspect -c Release -- <Starfield.esm> furn Chair 40 > <out>\sf-furn-chair.txt
+```
+(also `furn Bed`, `furn Couch`, `furn Bench`, `furn Stool`).
+
 ## Not in this change
-- Chairs and other sittable furniture (FO4 Furniture without a bench type): needs the Starfield furniture marker layout.
+- Chairs and other sittable furniture: waits for the two dumps above.
 - Pressure plates and trigger volumes as chain starters, parents with several children, delays: open. Door locks and
   door behaviour: the door review (another thread).
 - Crafting benches indoors (the core's bench path needs Fallout4.esm's WBDT).
