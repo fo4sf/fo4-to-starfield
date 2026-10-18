@@ -2394,7 +2394,7 @@ class PreflightProbe:
         dirs = [d for d in self.saves_dirs() if os.path.isdir(d)]
         if not dirs:
             return None
-        return any(glob.glob(os.path.join(d, f"*{name}*")) for d in dirs)
+        return any(dedicated_save(d, name) for d in dirs)          # the runner's own rule: <name>.sfs exactly
 
     def ini_texts(self):
         """Lowest precedence first: the game folder's Starfield.ini, then StarfieldCustom.ini in My Games (the game
