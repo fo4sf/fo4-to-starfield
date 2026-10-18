@@ -13,6 +13,7 @@ in append order, as before.
 """
 from dataclasses import dataclass, field
 import os
+import re
 
 from .filelock import locked
 from .model import CapabilityState, Event, Outcome, Source, now_iso, parse_iso
@@ -161,12 +162,24 @@ class LeaderState:
             blockers.append(f"ledger: {len(self.bad_events)} event(s) the fold could not read ({shown})")
         if self.card_conflicts:
             blockers.append("ledger: two cards queued under one id: " + ", ".join(sorted(self.card_conflicts)))
+        # the pinned build's tests (runner results name no capability): a failed, skipped or broken test never reads
+        # as success, so the three capability bullets also count them
+        b = self.build.get("build_id")
+        tasks = [(tid, t) for tid, t in self.tasks.items() if not (b and t.get("build_id") and t["build_id"] != b)]
+        failed_tests = _test_names([tid for tid, t in tasks if t.get("outcome") == Outcome.FAIL.value])
+        passed_tests = _test_names([tid for tid, t in tasks if t.get("outcome") == Outcome.PASS.value and t["status"] == "completed"])
+        undecided = [f"{n} {label}" for status, label in (("skipped", "skipped"), ("circuit_broken", "circuit broken"),
+                                                          ("inconclusive", "inconclusive"))
+                     for n in [len(by.get(status, []))] if n]
         return [
             "Core changes: " + (", ".join(self.changes[-3:]) if self.changes else "none recorded"),
-            "Newly worked in game: " + (", ".join(caps[CapabilityState.VERIFIED]) or "nothing verified on this build"),
+            "Newly worked in game: " + (", ".join(caps[CapabilityState.VERIFIED]) or "nothing verified on this build")
+            + (f"; tests passed: {passed_tests}" if passed_tests else ""),
             "Failed: " + (", ".join(caps[CapabilityState.FAILED]) or "none")
-            + ("; inconclusive: " + ", ".join(caps[CapabilityState.INCONCLUSIVE]) if caps[CapabilityState.INCONCLUSIVE] else ""),
-            "Untested: " + (", ".join(caps[CapabilityState.UNTESTED]) or "none declared"),
+            + ("; inconclusive: " + ", ".join(caps[CapabilityState.INCONCLUSIVE]) if caps[CapabilityState.INCONCLUSIVE] else "")
+            + (f"; tests failed: {failed_tests}" if failed_tests else ""),
+            "Untested: " + (", ".join(caps[CapabilityState.UNTESTED]) or "none declared")
+            + (f"; tests not decided: {', '.join(undecided)}" if undecided else ""),
             f"Pins: {pins}; plugins: {plugins}; leader commit {self.leader.get('commit', '?')}",
             "Controller: " + owner,
             "Blockers: " + ("; ".join(blockers) or "none open"),
@@ -197,6 +210,15 @@ def _result_row(src):
         return None
     path, _, line = src.rpartition(":")
     return (path, int(line)) if path and line.isdigit() else None
+
+
+def _test_names(ids, limit=6):
+    """'N (a, b, c, +K more)': a count, then the test ids (the last path component of a campaign-scoped task id)."""
+    if not ids:
+        return ""
+    short = [re.split(r"[\\/]", str(i))[-1] for i in ids]
+    shown = ", ".join(short[:limit]) + (f", +{len(short) - limit} more" if len(short) > limit else "")
+    return f"{len(ids)} ({shown})"
 
 
 def merge_plugins(s, f):
