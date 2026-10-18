@@ -4,11 +4,14 @@ import os
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from fo4sf import door_rig  # noqa: E402
-from test_door_two_panels import door_nif, sliding_panels, two_leaves  # noqa: E402
+from fo4sf import convert_static, door_rig, fo4skin, nif  # noqa: E402
+from test_collision import fake_template  # noqa: E402
+from test_door_two_panels import door_nif, donor, fake_clip_files, node_names, sliding_panels, two_leaves  # noqa: E402
 import test_sliding_doors  # noqa: E402
 
 PED = "meshes/Interiors/RedRocket/Doors/SyntheticPedDoor.nif"          # no vault / gate / slid in the name
@@ -54,6 +57,62 @@ class SlidingRoutingTests(unittest.TestCase):
             _, single, multi, _ = self.convert(staging, PED, two_leaves()[:1], "calumi.dll")
         single.assert_called_once()
         multi.assert_not_called()
+
+
+class SkinnedPanelTests(unittest.TestCase):
+    """RedRPedDoor.nif's two shapes are skinned to its animated bones (PC check 2026-10-18); a shape whose vertices all
+    follow one rig bone rides that bone instead of failing the door."""
+
+    def skinned(self, f, bone, weights=(1.0, 0.0, 0.0, 0.0), offset=(5.0, 0.0, 0.0)):
+        """Mark the first panel shape skinned to node `bone`, skin_to_bone a pure translation by offset."""
+        panel = min(s.block for s in nif.fo4_trishapes(f) if s.positions)
+        real = nif.fo4_trishapes
+        count = len(next(s for s in real(f) if s.block == panel).positions)
+
+        def shapes(src):
+            return [replace(s, skinned=True) if s.block == panel else s for s in real(src)]
+
+        def read_skin(src, block):
+            if block != panel:
+                return None
+            return fo4skin.Fo4Skin(block, -1, -1, 0, [bone], [b"bone"], [(offset, (1, 0, 0, 0, 1, 0, 0, 0, 1), 1.0)],
+                                   [(0, 0, 0, 1)], [weights] * count, [(0, 0, 0, 0)] * count)
+        return panel, shapes, read_skin
+
+    def convert(self, f, shapes, read_skin, **kw):
+        with patch.object(nif, "fo4_trishapes", side_effect=shapes), patch.object(fo4skin, "read_skin", side_effect=read_skin):
+            count = len([s for s in nif.fo4_trishapes(f) if s.positions and s.triangles])
+            return convert_static.convert_multipart_door(nif.serialize(f), "fo4port/ped", ["x.mat"] * count, fake_clip_files,
+                                                         collision_template=fake_template(), leaf_physics_donor=donor(), **kw)
+
+    def test_a_panel_skinned_to_one_bone_rides_that_bone(self):
+        f = door_nif(sliding_panels())
+        panel_b = node_names(f)["PanelB"]
+        panel, shapes, read_skin = self.skinned(f, panel_b)
+        with patch.object(fo4skin, "read_skin", side_effect=read_skin):
+            plan = door_rig.plan(f, placed=True)
+            shape = next(s for s in shapes(f) if s.block == panel)
+            index, rigid = convert_static.rigid_skinned_shape(f, shape, plan["bones"])
+        self.assertEqual(plan["bones"][index]["node"], panel_b)
+        self.assertFalse(rigid.skinned)
+        self.assertEqual(rigid.positions[1], (shape.positions[1][0] + 5, shape.positions[1][1], shape.positions[1][2]))
+        _, door = self.convert(f, shapes, read_skin)
+        self.assertEqual(door["rig"], "native")
+        self.assertEqual(len(door["rebound_skinned_shapes"]), 1)
+        self.assertNotIn("dropped_skinned_shapes", door)
+        self.assertEqual(door["moving_bodies"], 1)                       # both panels' geometry now on PanelB
+
+    def test_blended_or_off_rig_skins_still_refuse_the_door(self):
+        f = door_nif(sliding_panels())
+        for bone, weights in ((node_names(f)["PanelA"], (0.6, 0.4, 0.0, 0.0)), (0, (1.0, 0.0, 0.0, 0.0)),
+                              (len(f.blocks) - 1, (1.0, 0.0, 0.0, 0.0))):
+            _, shapes, read_skin = self.skinned(f, bone, weights)
+            if bone == 0:                                                # the root is a rig bone: rebinding is fine
+                self.assertEqual(self.convert(f, shapes, read_skin)[1]["rig"], "native")
+                continue
+            with self.assertRaisesRegex(nif.NifError, "skinned door shapes cannot be rigged"):
+                self.convert(f, shapes, read_skin)
+            self.assertIn("dropped_skinned_shapes", self.convert(f, shapes, read_skin, drop_skinned=True)[1])
 
 
 if __name__ == "__main__":

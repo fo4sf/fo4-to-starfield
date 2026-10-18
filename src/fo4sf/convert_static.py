@@ -461,6 +461,53 @@ def _apply(transform, point):
     return tuple(s * (r[3 * i] * point[0] + r[3 * i + 1] * point[1] + r[3 * i + 2] * point[2]) + t[i] for i in range(3))
 
 
+def rigid_skinned_shape(src, shape, bones):
+    """A skinned door shape whose every drawn vertex follows one bone, re-expressed in that bone's space so the rig can
+    carry it as an ordinary attachment: (bone index, shape) or None. Weight 1 on one bone makes skinning bone_world *
+    skin_to_bone, so bone-local positions are skin_to_bone(stored) and the panel moves exactly as FO4 draws it, at any
+    pose (RedRPedDoor.nif: two shapes skinned to b_Door and b_Handle, both animated; PC check 2026-10-18). Blended
+    vertices, a shape spread over several bones or a bone outside the rig give None."""
+    from . import fo4skin
+    try:
+        skin = fo4skin.read_skin(src, shape.block)
+    except (nifmod.NifError, ValueError, struct.error):
+        return None
+    if skin is None or len(skin.weights) != len(shape.positions):
+        return None
+    slots = set()
+    for v in {i for t in shape.triangles for i in t}:
+        ws, ks = skin.weights[v], skin.indices[v]
+        total = sum(ws)
+        if total <= 0:
+            return None
+        top = max(range(len(ws)), key=lambda j: ws[j])
+        if ws[top] / total < 0.99:
+            return None
+        slots.add(ks[top])
+    if len(slots) != 1:
+        return None
+    slot, = slots
+    if not 0 <= slot < len(skin.bones):
+        return None
+    index = next((i for i, b in enumerate(bones) if b.get("node") == skin.bones[slot]), None)
+    if index is None:
+        return None
+    xf = skin.skin_to_bone[slot]
+    r = xf[1]
+
+    def turn(vecs):
+        out = []
+        for v in vecs:
+            d = tuple(r[3 * a] * v[0] + r[3 * a + 1] * v[1] + r[3 * a + 2] * v[2] for a in range(3))
+            ln = math.sqrt(sum(x * x for x in d)) or 1.0
+            out.append(tuple(x / ln for x in d))
+        return out
+    return index, replace(shape, positions=[fo4skin.apply(xf, p) for p in shape.positions],
+                          normals=turn(shape.normals) if shape.normals else shape.normals,
+                          tangents=turn(shape.tangents) if shape.tangents else shape.tangents,
+                          translation=(0.0, 0.0, 0.0), rotation=(1, 0, 0, 0, 1, 0, 0, 0, 1), scale=1.0, skinned=False)
+
+
 def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, clip_files, unit_scale: float = UNIT_SCALE,
                            collision_template: bytes = None, leaf_physics_donor: bytes = None,
                            rest_pose_check: bool = False, aliases: dict = None,
@@ -500,11 +547,19 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
     if len(material_paths) != len(shapes):
         raise ValueError("one material entry per shape required")
     kept = {s.block: (s, m) for s, m in zip(shapes, material_paths) if m is not None}
-    dropped_skinned = sorted((s.name or f"Shape{b}".encode()).decode("latin-1") for b, (s, _) in kept.items() if s.skinned)
+    rebound = {}                                   # skinned shape -> rig bone it rides rigidly (rigid_skinned_shape)
+    for b, (s, m) in list(kept.items()):
+        if s.skinned and (rigid := rigid_skinned_shape(src, s, plan["bones"])) is not None:
+            rebound[b] = rigid[0]
+            kept[b] = (rigid[1], m)
+    shape_name = lambda b, s: (s.name or f"Shape{b}".encode()).decode("latin-1")    # noqa: E731
+    dropped_skinned = sorted(shape_name(b, s) for b, (s, _) in kept.items() if s.skinned)
     if dropped_skinned and not drop_skinned:
-        raise nifmod.NifError("skinned door shapes cannot be rigged")
+        raise nifmod.NifError("skinned door shapes cannot be rigged (blended or off-rig weights)")
     kept = {b: v for b, v in kept.items() if not v[0].skinned}
-    plan["attachments"] = [a for a in plan["attachments"] if a["shape"] in kept]
+    ident = {"translation_source_units": [0.0, 0.0, 0.0], "rotation_row_major": [1, 0, 0, 0, 1, 0, 0, 0, 1], "scale": 1.0}
+    plan["attachments"] = [({**a, "bone": rebound[a["shape"]], "local_transform": dict(ident)} if a["shape"] in rebound
+                            else a) for a in plan["attachments"] if a["shape"] in kept]
     if not plan["attachments"]:
         raise nifmod.NifError("door has no rendered geometry")
     files, sf_shapes, local_pts = {}, {}, {}
@@ -571,6 +626,8 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
         door["ignored_tracks"] = sorted({f'{t["target"]} ({t["reason"]})' for t in plan["ignored_tracks"]})
     if dropped_skinned:
         door["dropped_skinned_shapes"] = dropped_skinned
+    if rebound:
+        door["rebound_skinned_shapes"] = sorted(shape_name(b, kept[b][0]) for b in rebound)
     if aliases:
         door["sequence_aliases"] = dict(aliases)
     return files, door
