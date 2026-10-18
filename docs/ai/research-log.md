@@ -1310,3 +1310,10 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   SetRigidBodyMass test plus `SetGS fGrabMaxWeightWalking 1000` decides it. No converter change.
 - **unresolved:** Preston's friendly Starfield template; whether quest targets route through our scripted doors; the
   cog door's clip in game; whether the cut-down quest may force combat (FO4 does, DN092 stages 13 / 76).
+
+## 2026-10-17 Grok: object-LOD CK command and .lod format (external)
+- Question: which CK command generates object LOD for a worldspace/overlay, and what is the on-disk .lod layout.
+- Method: web search of modding.wiki, Reddit r/starfieldmods, Nexus, and the Bethesda-LOD-File-Generator repo (extraction support for Starfield added 2024-07-14). No game files inspected this turn.
+- **supported hypothesis:** `CreationKit.exe -MockWorldSpaceLOD:<Plugin>.esp <WorldspaceEDID>` writes `Data\LODSettings\<edid>.lod` and terrain/object meshes under `Data\Meshes\Terrain\<Worldspace>\` (or the runtime `meshes/lod/generated/` pair). Community reports confirm the flag; output path needs the spike to pin for overlays.
+- **supported hypothesis:** 20-byte .lod is `int32 minX, minY, size, 0, 0`. NewAtlantis hex `DD FF FF FF C5 FF FF FF 88 00 00 00 ...` = minX=-35, minY=-59, size=136. Size derivation has noted inconsistencies; CK fixture is the gate, not a hand stub. Matches the 861/864 count in the object-LOD plan.
+- Labels: supported hypothesis (external sources, not yet CK-run on this overlay). Plan updated in docs/terrain/object-lod.md. No writer, no hand-authored files.
