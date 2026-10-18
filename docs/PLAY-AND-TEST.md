@@ -98,7 +98,7 @@ base scripts (both come with the Creation Kit, in Starfield's `Tools` folder):
 The bridge writes to Starfield's script log, which is off by default. With the game closed, turn it on:
 
 ```powershell
-& $py scripts\bridge\make_bridge.py ini
+& $py scripts\bridge\make_bridge.py ini --game-dir $sf
 ```
 
 It adds `bEnableLogging=1`, `bEnableTrace=1` and `bLoadDebugInformation=1` under `[Papyrus]` in `StarfieldCustom.ini` and
@@ -109,7 +109,9 @@ folder's own `Starfield.ini`. Then check it works: launch the game, load a save,
 & $py scripts\game\bridge_log.py latest
 ```
 
-A line with `pos=` means the bridge is reporting. `"ok": false` means it is not: the plugin is off, or logging is off.
+It prints one line of JSON. `"ok": true` with a `"pos"` value means the bridge is reporting. `"ok": false` means it
+is not; its `"why"` says the reason: no bridge lines yet (the plugin or logging is off) or a newest line too old
+(the game is paused, in a menu, or not running).
 
 See what is installed:
 
