@@ -52,6 +52,16 @@ class OverlayMarkers(unittest.TestCase):
             self.markers(markers=dup)
 
 
+class WriterSource(unittest.TestCase):
+    def test_writer_enables_the_markers(self):
+        # CI has no .NET: the writer's source must clear LC172's Initially Disabled bit and add no LCID (18 Oct: no
+        # icon showed with 0xC00 + LCID)
+        src = (root / "dotnet" / "TerrainOverlays" / "Program.cs").read_text(encoding="utf-8")
+        self.assertIn("marker.MajorRecordFlagsRaw = (marker.MajorRecordFlagsRaw | 0x400) & ~0x800;", src)
+        self.assertNotIn("MasterInitiallyDisabledReferences.Add", src)
+        self.assertNotIn("MajorRecordFlagsRaw |= 0xC00", src)
+
+
 class CheckMapMarkers(unittest.TestCase):
     def setUp(self):
         self.ov = {"world": "W", "location": "WLocation", "spawn": SPAWN, "spawn_cell": [-10, 11],
@@ -60,10 +70,10 @@ class CheckMapMarkers(unittest.TestCase):
         self.ids = {"bases": {}, "refs": {}, "map_markers": {"W": "000900"},
                     "map_marker_refs": {"W": {t: f"{0x900 + k:06X}" for k, t in enumerate(tags)}}}
 
-    def recs(self, lcsr_tail=map_markers.LCSR_TAIL, drop_lcid=False, flags=0xC00, late_other=False):
+    def recs(self, lcsr_tail=map_markers.LCSR_TAIL, lcid=False, flags=0x400, late_other=False):
         recs = [{"sig": "WRLD", "fid": OWN | 0x803, "flags": 0, "fields": [(b"EDID", z("W"))]},
                 {"sig": "REFR", "fid": OWN | 0x810, "flags": 0, "fields": []}]
-        rows, lcid = [], []
+        rows, lcids = [], []
         for k, m in enumerate(self.ov["map_markers"]):
             fid = OWN | 0x900 + k
             recs.append({"sig": "REFR", "fid": fid, "flags": flags, "fields": [
@@ -71,10 +81,10 @@ class CheckMapMarkers(unittest.TestCase):
                 (b"DATA", struct.pack("<6f", *m["pos"], 0, 0, 0)), (b"XMRK", b"")]})
             rows.append(struct.pack("<5I", map_markers.MAPMARKER_REF_TYPE, fid, OWN | 0x803,
                                     struct.unpack("<I", struct.pack("<hh", m["cell"][1], m["cell"][0]))[0], lcsr_tail))
-            lcid.append(fid)
+            lcids.append(fid)
         fields = [(b"EDID", z("WLocation")), (b"LCSR", b"".join(rows))]
-        if not drop_lcid:
-            fields.append((b"LCID", struct.pack(f"<{len(lcid)}I", *lcid)))
+        if lcid:
+            fields.append((b"LCID", struct.pack(f"<{len(lcids)}I", *lcids)))
         recs.append({"sig": "LCTN", "fid": OWN | 0x802, "flags": 0, "fields": fields})
         if late_other:
             recs.append({"sig": "STAT", "fid": OWN | 0x950, "flags": 0, "fields": []})
@@ -87,8 +97,12 @@ class CheckMapMarkers(unittest.TestCase):
     def test_zero_tail_fails(self):
         self.assertTrue(mk.map_marker_problems(self.recs(lcsr_tail=0), 1, self.ov, self.ids))
 
-    def test_missing_lcid_fails(self):
-        self.assertTrue(any("LCID" in p for p in mk.map_marker_problems(self.recs(drop_lcid=True), 1, self.ov, self.ids)))
+    def test_markers_in_lcid_fail(self):
+        self.assertTrue(any("LCID" in p for p in mk.map_marker_problems(self.recs(lcid=True), 1, self.ov, self.ids)))
+
+    def test_initially_disabled_marker_fails(self):
+        # LC172's 0xC00 hid every icon in game (18 Oct)
+        self.assertTrue(any("enabled" in p for p in mk.map_marker_problems(self.recs(flags=0xC00), 1, self.ov, self.ids)))
 
     def test_not_persistent_fails(self):
         self.assertTrue(any("persistent" in p for p in mk.map_marker_problems(self.recs(flags=0), 1, self.ov, self.ids)))
