@@ -55,7 +55,10 @@ when one trips:
   - owner activity: keyboard/mouse input that the runner did not send, or another window in front of the game. With
     --wait-for-idle the runner waits until the PC has been idle --min-idle seconds instead of stopping; with --refocus it
     then brings ITS OWN game window back to the front once (never another app);
-  - allowed hours (queue.json "hours", default all day); --max-hours and --max-tests.
+  - allowed hours (queue.json "hours", default all day); --max-hours and --max-tests;
+  - the controller lease (opt-in, default off; docs/ai/leader-core.md section 6): with --lease-dir or FO4SF_LEASE_DIR
+    set, nothing is launched and no step is sent unless --lease-owner / FO4SF_LEASE_OWNER (default Claude) holds an
+    unexpired lease in that folder (scripts/game/lease.py claim); it is renewed before every test. Unset: not checked.
 A game is only launched when the PC has been idle --min-idle seconds, and only by cycle.ps1 (the runner never touches a
 Starfield the owner started). Every key press still goes through input.ps1's foreground guard, with
 FO4SF_NO_FOCUS_STEAL=1 so a step can never pull the game in front of the owner's window.
@@ -472,6 +475,7 @@ def plan_terrain(a):
             sys.exit(f"bad travel command in plan.json: {travel!r}")
         if w.get("activate"):
             w = dict(w, activate=activate_block(w["activate"]))
+        w = dict(w, points=terrain_points(w.get("points")))
         tests.append(with_extras({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "",
                                   "ref": w["coc"], "model": w.get("label", ""), "world_coc": w["coc"], "travel": travel,
                                   **{k: w[k] for k in ("spawn_local", "anchor", "drop_above_spawn", "settle_ms",
@@ -509,6 +513,20 @@ def plan_terrain(a):
     save_atomic(os.path.join(a.out, "queue.json"), q)
     print(f"{len(q['tests'])} terrain tests (experiment {a.exp_dir}) on build {q['build_id']}"
           + (f", needs runner features {', '.join(q['needs'])}" if q.get("needs") else ""))
+
+
+def terrain_points(points):
+    """plan.json's terrain "points": a non-empty list of {label, x, y, expect} with finite numbers, like the other
+    planners' _vec / _num (#219: an empty list made the judge's checks vacuous, a NaN expect never failed)."""
+    if not isinstance(points, list) or not points:
+        sys.exit(f"bad points in plan.json (want a non-empty list of {{label, x, y, expect}}): {points!r}")
+    out = []
+    for p in points:
+        if not isinstance(p, dict):
+            sys.exit(f"bad point in plan.json: {p!r}")
+        out.append(dict(p, label=str(p.get("label") or f"p{len(out)}"),
+                        **{k: _num(p, k, None, -1e6, 1e6) for k in ("x", "y", "expect")}))
+    return out
 
 
 def _vec(v, sizes, what):
@@ -1098,7 +1116,8 @@ def plan_movable(a):
          "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]],
          "launch_cell": a.launch_cell, "experiment": os.path.abspath(a.exp_dir),
          "tests": [dict(t, fresh=True) if a.fresh else t for t in (tests[:a.only] if a.only else tests)]}
-    q.update(queue_extras(q["tests"], SimpleNamespace(plugins=""), a.exp_dir))
+    # --bridge too (#218: dropped here, so the queue had no bridge pin, no bridge_reads and no "bridge" need)
+    q.update(queue_extras(q["tests"], SimpleNamespace(plugins="", bridge=getattr(a, "bridge", "")), a.exp_dir))
     os.makedirs(a.out, exist_ok=True)
     save_atomic(os.path.join(a.out, "queue.json"), q)
     print(f"{len(q['tests'])} movable_control tests (experiment {a.exp_dir}) on build {q['build_id']}"
@@ -1228,6 +1247,12 @@ def judge_kind(test, obs, out_dir):
         return "INCONCLUSIVE", "ELSEWHERE", f"ended {d:.1f} m from the arrival point"
     if kind == "terrain":
         # heights measured by dropping the player onto known terrain pads (terrain experiment 1, PR #57)
+        planned = test.get("points")
+        if not planned or not all(isinstance(p, dict) and all(
+                isinstance(p.get(k), (int, float)) and not isinstance(p.get(k), bool) and math.isfinite(p[k])
+                for k in ("x", "y", "expect")) for p in planned):
+            # a queue planned before plan-terrain checked its points (#219): nothing to judge a height against
+            return "INCONCLUSIVE", "PLAN", f"the test has no points or a non-numeric one: {planned!r:.120}"
         pts = obs.get("points") or []
         reads = [(p, parse3(o.get("read")) if isinstance(o, dict) else None) for p, o in zip(test["points"], pts)]
         if len(reads) < len(test["points"]) or any(r is None for _, r in reads) or not shot_ok(obs.get("shot")):
@@ -2134,6 +2159,42 @@ class Controls:
         return r.returncode == 0
 
 
+class LeaseGate:
+    """The controller lease (docs/ai/leader-core.md section 6; src/fo4sf/core/controller.py), consulted only when the
+    runner was given a lease folder (--lease-dir or FO4SF_LEASE_DIR): nothing is launched and no step is sent while
+    `owner` does not hold an unexpired lease there, and the lease is renewed before every test so a long queue keeps
+    it. Without a folder the runner never constructs this class, so nothing changes."""
+
+    def __init__(self, lease_dir, owner):
+        src = os.path.join(REPO, "src")
+        if src not in sys.path:
+            sys.path.insert(0, src)
+        from fo4sf.core import controller                 # pure Python; imported only when the switch is on
+        self.ctl = controller.Controller(lease_dir, by=f"testqueue:{owner}")
+        self.Refused = controller.LeaseRefused
+        self.owner, self.dir = owner, self.ctl.dir
+        self.last_warning = None
+
+    def blocked(self):
+        """None while the owner holds the lease, else the reason (prefix "lease": the run stops, never waits)."""
+        why = self.ctl.valid_for(self.owner)
+        return f"lease {why}" if why else None
+
+    def renew(self):
+        """None when renewed, or when the renewal failed but the lease on disk is still the owner's and unexpired (a
+        transient error, e.g. a Windows sharing violation while another process reads the file: the next test renews
+        again, and the reason is in last_warning for the log); else the reason (the lease is gone: the run stops)."""
+        self.last_warning = None
+        try:
+            self.ctl.renew(self.owner)
+        except (self.Refused, ValueError, OSError) as e:
+            if self.ctl.valid_for(self.owner) is None:
+                self.last_warning = f"lease renewal failed ({e}); the lease on disk is still valid, renewing again before the next test"
+                return None
+            return f"lease renewal refused: {e}"
+        return None
+
+
 def stop_files(queue_dir):
     """The STOP files that stop a run: the queue's own, the chain folder's STOP_ALL (the queues of one chain share a
     parent folder; watchdog.ps1 honours the same file) and the state folder's testqueue.STOP."""
@@ -2148,7 +2209,11 @@ def stop_controls(queue_dir):
     return {"files": stop_files(queue_dir), "guardian_db": os.path.join(Controls.state_dir, "guardian.db")}
 
 
-def blocked_reason(ctl, q, launching=False, min_idle=900):
+def blocked_reason(ctl, q, launching=False, min_idle=900, lease=None):
+    if lease is not None:                                 # the controller lease, only when the runner was given one
+        why = lease.blocked()
+        if why:
+            return why
     p = ctl.stop_file()
     if p:
         return f"STOP file {p}"
@@ -2489,6 +2554,8 @@ class Runner:
         self.cell = None                                  # cell the player is verified to be in
         self.session = False                              # game set up by this run (save loaded, god mode)
         self.log_p = os.path.join(qdir, "run.log")
+        lease_dir = getattr(a, "lease_dir", "") or ""     # opt-in (docs/ai/leader-core.md section 6); "" = not checked
+        self.lease = LeaseGate(lease_dir, getattr(a, "lease_owner", "") or "Claude") if lease_dir else None
 
     def log(self, msg):
         line = f"{now()} {msg}"
@@ -2502,11 +2569,20 @@ class Runner:
         self.state["updated"] = now()
         save_atomic(self.state_p, self.state)
 
+    def ps_env(self, steal=False):
+        """The environment of every PowerShell step. With the lease on, cycle.ps1 reads FO4SF_LEASE_DIR / _OWNER: the
+        runner's effective folder and owner go in (a --lease-dir / --lease-owner given as flags would otherwise be
+        invisible to it, and it would launch unchecked, or check another owner's lease)."""
+        env = dict(os.environ, FO4SF_NO_FOCUS_STEAL="0" if steal else "1", LEGACY="1")
+        env.setdefault("FO4SF_PYTHON", sys.executable)
+        if self.lease:
+            env["FO4SF_LEASE_DIR"], env["FO4SF_LEASE_OWNER"] = self.lease.dir, self.lease.owner
+        return env
+
     def _ps(self, script, args, timeout, steal=False):
         # steal=True only for cycle.ps1's launch, which runs after --min-idle of owner inactivity: the new game window
         # has to come to the front once. Every other step refuses to take the foreground (input.ps1 exits 2 instead).
-        env = dict(os.environ, FO4SF_NO_FOCUS_STEAL="0" if steal else "1", LEGACY="1")
-        env.setdefault("FO4SF_PYTHON", sys.executable)
+        env = self.ps_env(steal)
         try:
             r = subprocess.run(PS + [os.path.join(HERE, script)] + args, capture_output=True, text=True, timeout=timeout, env=env)
             code, out = r.returncode, (r.stdout or "") + (r.stderr or "")
@@ -2568,7 +2644,7 @@ class Runner:
             if not fresh and self.state["relaunches"] >= self.a.max_relaunch:
                 self.log(f"game not running and {self.state['relaunches']} relaunches used: stopping")
                 return "stop"
-            why = blocked_reason(self.ctl, self.q, launching=True, min_idle=self.a.min_idle)
+            why = blocked_reason(self.ctl, self.q, launching=True, min_idle=self.a.min_idle, lease=self.lease)
             if why:
                 return why
             if not self.pinned_ok():
@@ -2606,6 +2682,9 @@ class Runner:
                                                "-Cell", f"FO4Port_{launch}", "-CellJson", cell_json,
                                                "-Shot", os.path.join(self.qdir, "cycle.png")], 900, steal=True)
             self.log(f"cycle exit {code}: {out.strip().splitlines()[-1] if out.strip() else ''}")
+            if code == 9:                                 # cycle.ps1's own lease check refused (nothing launched): the
+                return ("lease refused by cycle.ps1 (exit 9) although this runner's check passed: the two read "
+                        "different leases; nothing launched")   # run stops, resumable, never a retry per test
             if code != 0:
                 # 7: an installed experiment plugin's master is not active (exp_install.py order): nothing launched
                 return "stop" if code in (2, 3, 5, 6, 7) else "retry"
@@ -2673,7 +2752,7 @@ class Runner:
         refocus_fails = 0
         while True:
             time.sleep(30)
-            hard = blocked_reason(self.ctl, self.q)
+            hard = blocked_reason(self.ctl, self.q, lease=self.lease)
             if hard and not hard.startswith("owner"):
                 self.log(f"{hard}: stopping while waiting")
                 return False
@@ -2710,6 +2789,9 @@ class Runner:
         if note:
             self.log(note)
         self.checkpoint("running")
+        if self.lease:
+            self.log(f"controller lease: {self.lease.dir}, owner {self.lease.owner} (checked before every launch and "
+                     f"test, renewed before every test)")
         ran = 0
         waits, max_waits = {}, len(tests) * max(a.max_attempts, 1) + 1
         self.qdir_abs = os.path.abspath(self.qdir)
@@ -2744,7 +2826,7 @@ class Runner:
                 self.log(f"{t['id']}: INCONCLUSIVE PRECONDITION {pre}")
                 continue
             while True:
-                why = blocked_reason(self.ctl, self.q)
+                why = blocked_reason(self.ctl, self.q, lease=self.lease)
                 if not why and self.ctl.game_pid() and not self.ctl.game_in_front():
                     # no keyboard/mouse input since the runner's last step: a popup took the focus (the Steam
                     # overlay hint did, 2026-10-11), not the owner, so take the game back at once
@@ -2760,6 +2842,14 @@ class Runner:
                     self.log(f"stopped: {why}")
                     self.checkpoint(f"stopped: {why}")
                     return 3
+            if self.lease and not a.dry_run:               # keep the lease for the test about to run
+                why = self.lease.renew()
+                if self.lease.last_warning:
+                    self.log(self.lease.last_warning)
+                if why:
+                    self.log(f"stopped: {why}")
+                    self.checkpoint(f"stopped: {why}")
+                    return 3
             if a.dry_run:
                 self.log(f"dry run: would run {t['id']}")
                 ran += 1
@@ -2767,6 +2857,24 @@ class Runner:
             # an open breaker skips the test before any launch (core64 2026-10-11: a "fresh" test relaunched the game
             # only to be skipped)
             br = self.state.setdefault("breaker", {})
+            if br.get(t["kind"], {}).get("open") and self.state["attempts"].get(t["id"]):
+                # a pending retry of a test that already ran: its real attempt stands, only the retry is skipped (#220:
+                # a "not run" BREAKER row, attempt 0, replaced it as the last row per id in the report and the ledger)
+                last = {}
+                with open(os.path.join(self.qdir, "results.jsonl"), encoding="utf-8") as f:
+                    for x in f:
+                        try:
+                            r = json.loads(x)
+                        except ValueError:
+                            continue
+                        if isinstance(r, dict) and r.get("id") == t["id"]:
+                            last = r
+                self.state["done"][t["id"]] = {"verdict": last.get("verdict", "INCONCLUSIVE"),
+                                               "class": last.get("class", "UNREAD"),
+                                               "attempts": self.state["attempts"][t["id"]], "retry": "BREAKER"}
+                self.log(f"{t['id']}: retry skipped, the {t['kind']} breaker is open; its last attempt stands")
+                self.checkpoint()
+                continue
             if br.get(t["kind"], {}).get("open"):
                 rec = {"id": t["id"], "kind": t["kind"], "cell": t["cell"], "ref": t["ref"], "model": t.get("model", ""),
                        "attempt": 0, "verdict": "INCONCLUSIVE", "class": "BREAKER",
@@ -2785,7 +2893,7 @@ class Runner:
                 self.session, self.cell, self.game_used = False, None, False
                 self.fresh_launch = True                  # an intended relaunch: not counted against --max-relaunch
             g = self.ensure_game(t["cell"])
-            if g in ("stop",) or (g and g.startswith(("owner", "STOP", "Resource", "outside"))):
+            if g in ("stop",) or (g and g.startswith(("owner", "STOP", "Resource", "outside", "lease"))):
                 if g != "stop" and self.wait_or_stop(g):
                     g = self.ensure_game(t["cell"])
                 if g:
@@ -3098,6 +3206,11 @@ def main(argv=None):
     r.add_argument("--wait-for-idle", action="store_true")
     r.add_argument("--refocus", action="store_true")
     r.add_argument("--dry-run", action="store_true")
+    r.add_argument("--lease-dir", default=os.environ.get("FO4SF_LEASE_DIR", ""),
+                   help="controller lease folder (docs/ai/leader-core.md section 6); default FO4SF_LEASE_DIR; "
+                        "empty (the default): the lease is not checked")
+    r.add_argument("--lease-owner", default=os.environ.get("FO4SF_LEASE_OWNER") or "Claude",
+                   help="the lease owner this runner runs as (default FO4SF_LEASE_OWNER, else Claude)")
     for name in ("report", "status"):
         s = sub.add_parser(name)
         s.add_argument("--queue", required=True)
