@@ -39,6 +39,8 @@ class Bgsm:
     two_sided: bool = False        # header byte 48
     smoothness: float = 1.0        # scales the spec map's gloss channel (v2: 32 bytes after the 9 texture strings)
     spec_mult: float = 1.0
+    palette_color: bool = False    # v2 byte 62: bGrayscaleToPaletteColor (Material-Editor BaseMaterialFile)
+    palette_scale: float = 1.0     # fGrayscaleToPaletteScale; last float before the trailing skew byte
 
 
 def parse_bgsm(d: bytes) -> Bgsm:
@@ -46,14 +48,20 @@ def parse_bgsm(d: bytes) -> Bgsm:
         raise ValueError("not a BGSM file")
     version, tiles = struct.unpack_from("<II", d, 4)
     uo, vo, us, vs = struct.unpack_from("<4f", d, 12)
-    # the texture block starts at the first length-prefixed string that ends in .dds/.tga (before it: flags/floats)
+    # v2: header is 63 bytes (bGrayscaleToPaletteColor at 62); strings start at 63. Scanning for the
+    # first .dds/.tga hits decoy strings in that header (PipeRifle, CurvedPistolGrip, and two others).
     start = None
-    for off in range(8, len(d) - 8):
-        ln, = struct.unpack_from("<I", d, off)
-        if 4 < ln < 260 and off + 4 + ln <= len(d) and d[off + 3 + ln] == 0 \
-                and d[off + 4:off + 3 + ln].lower().endswith((b".dds", b".tga")):
-            start = off
-            break
+    if version == 2:
+        if len(d) < 71:
+            raise ValueError("truncated v2 BGSM")
+        start = 63
+    else:
+        for off in range(8, len(d) - 8):
+            ln, = struct.unpack_from("<I", d, off)
+            if 4 < ln < 260 and off + 4 + ln <= len(d) and d[off + 3 + ln] == 0 \
+                    and d[off + 4:off + 3 + ln].lower().endswith((b".dds", b".tga")):
+                start = off
+                break
     if start is None:
         raise ValueError("no texture paths found")
     out, pos = [], start
@@ -85,9 +93,16 @@ def parse_bgsm(d: bytes) -> Bgsm:
             if not (0.0 <= mult <= 100.0):
                 mult = 1.0
     flags = d[32], d[42], d[47], d[48]
+    palette_color = bool(d[62]) if len(d) > 62 else False
+    palette_scale = 1.0
+    if version == 2 and len(d) >= 5:
+        scale, = struct.unpack_from("<f", d, len(d) - 5)
+        if 0.0 <= scale <= 1.0:
+            palette_scale = scale
     return Bgsm(version, bool(tiles & 2), bool(tiles & 1), (uo, vo), (us, vs), *out,
                 alpha_blend=bool(flags[0]), alpha_test=bool(flags[1]), decal=bool(flags[2]), two_sided=bool(flags[3]),
-                smoothness=smooth, spec_mult=mult, alpha_ref=d[41])
+                smoothness=smooth, spec_mult=mult, alpha_ref=d[41],
+                palette_color=palette_color, palette_scale=palette_scale)
 
 
 def read_template(content_resources_zip: str) -> dict:
@@ -106,6 +121,49 @@ METALNESS_SLOT = 4      # MRTextureFile / TextureReplacement index: 0 albedo, 1 
 
 def _num(v: float) -> str:
     return f"{v:g}"
+
+
+def _metalness_replacement(value: float) -> dict:
+    """Enabled constant metalness at slot 4, matching MetalIronCast01 (ConduitKit01TwoSided has none)."""
+    n = _num(value)
+    return {"Data": {"Color": {"Data": {"Value": {"Data": {"w": "1", "x": n, "y": n, "z": n},
+                                                  "Type": "XMFLOAT4"}},
+                               "Type": "BSMaterial::Color", "Version": 1},
+                     "Enabled": "true"},
+            "Index": METALNESS_SLOT, "Type": "BSMaterial::TextureReplacement"}
+
+
+def _force_metalness(mat: dict, metalness: float) -> None:
+    """Write Summary + an enabled TextureReplacement index 4; drop any MRTextureFile metal map.
+
+    ConduitKit01TwoSided has the metal map and no replacement; updating only existing replacements
+    left the conduit metal texture in the set while Summary said UseReplacement/0.
+    """
+    tex = mat["Summary"]["Layer1"].get("Textures") or {}
+    if "Metalness" in tex:
+        tex["Metalness"]["File"] = ""
+        tex["Metalness"]["Replacement"] = {"w": 1, "x": metalness, "y": metalness, "z": metalness}
+        tex["Metalness"]["UseReplacement"] = True
+    n = _num(metalness)
+    for o in mat["Objects"]:
+        comps = o.get("Components") or []
+        if not comps:
+            continue
+        updated, has_texfiles, kept = False, False, []
+        for c in comps:
+            if c.get("Type") == "BSMaterial::MRTextureFile":
+                has_texfiles = True
+                if c.get("Index") == METALNESS_SLOT:
+                    continue
+            if c.get("Type") == "BSMaterial::TextureReplacement" and c.get("Index") == METALNESS_SLOT:
+                d = c["Data"]["Color"]["Data"]["Value"]["Data"]
+                d["x"] = d["y"] = d["z"] = n
+                c["Data"]["Enabled"] = "true"
+                updated = True
+            kept.append(c)
+        if has_texfiles and not updated:
+            kept.append(_metalness_replacement(metalness))
+        o["Components"] = kept
 
 
 def build_mat(template: dict, name: str, albedo: str, normal: str, rough: str,
@@ -158,11 +216,19 @@ def build_mat(template: dict, name: str, albedo: str, normal: str, rough: str,
     m = layer["Textures"]["Metalness"]
     m["Replacement"] = {"w": 1, "x": metalness, "y": metalness, "z": metalness}
     m["UseReplacement"] = True
+    if opacity:
+        # vanilla foliage (GrassTropicalPlant01, FloraBaseLeafyGreen01) names Opacity here as well as slot 2;
+        # the metal template has no such key, so the engine never saw the cutout map
+        layer["Textures"]["Opacity"] = {"File": opacity,
+                                        "Replacement": {"w": 1, "x": 1, "y": 1, "z": 1},
+                                        "UseReplacement": False}
     return mat
 
 
 GLASS_TEMPLATE_MAT = "Materials/SetDressing/Outpost/Mine/OPMineMaskBox01Glass.mat"   # 1LayerEffectGlassNoFrost, own textures
 DECAL_TEMPLATE_MAT = "Materials/Architecture/City/Akila/Decal/AKDecalPrintedTechWall01.mat"   # 1LayerStandardDecal, albedo/normal/rough/opacity
+# two-sided alpha cutout (leaf cards, vines, chain-link): shader model TwoSided1Layer, opacity in slot 2 + Summary
+TWO_SIDED_TEMPLATE_MAT = "Materials/SetDressing/ConduitKit01TwoSided.mat"
 
 
 def parse_bgem_textures(d: bytes):
@@ -200,10 +266,13 @@ def read_template_path(content_resources_zip: str, path: str) -> dict:
         return json.loads(z.read(name).decode("utf-8-sig"))
 
 
-def build_from_template(template: dict, name: str, files: dict, opacity_value: float = None) -> dict:
+def build_from_template(template: dict, name: str, files: dict, opacity_value: float = None,
+                        alpha_threshold: float = None, metalness: float = None) -> dict:
     """Clone any single-layer vanilla material: every texture path the template's Summary names under Albedo / Normal /
     Roughness / ... is replaced by files[slot] (slots not given keep the template's file), object IDs are remapped (as in
-    build_mat) and, for glass, the opacity replacement value is set."""
+    build_mat) and, for glass, the opacity replacement value is set. alpha_threshold writes AlphaSettingsComponent
+    (cutouts). metalness, when given, forces the metalness replacement like build_mat (two-sided foliage must not keep
+    the conduit kit's metal map)."""
     old_layer = template["Summary"]["Layer1"]["Textures"]
     repl = {old_layer[k]["File"]: v for k, v in files.items() if k in old_layer and old_layer[k].get("File")}
     mat = json.loads(json.dumps(template))
@@ -235,6 +304,15 @@ def build_from_template(template: dict, name: str, files: dict, opacity_value: f
                 if c.get("Type") == "BSMaterial::TextureReplacement" and c.get("Index") == 2:
                     c["Data"]["Color"]["Data"]["Value"]["Data"].update(
                         {"x": str(opacity_value), "y": str(opacity_value), "z": str(opacity_value)})
+    if alpha_threshold is not None:
+        for o in mat["Objects"]:
+            for c in o.get("Components", []):
+                if c.get("Type") == "BSMaterial::AlphaSettingsComponent":
+                    c.setdefault("Data", {})
+                    c["Data"]["AlphaTestThreshold"] = f"{alpha_threshold:.3f}"
+                    c["Data"]["HasOpacity"] = "true"
+    if metalness is not None:
+        _force_metalness(mat, metalness)
     return mat
 
 

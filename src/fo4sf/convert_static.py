@@ -7,6 +7,7 @@ Unverified assumptions (see docs/RISKS.md S4): 1 Fallout 4 unit = 1/70 m, same h
 convention, Z-up in both. Collision, materials and skinning are not converted yet.
 """
 import hashlib
+import math
 import struct
 from dataclasses import replace
 from typing import Dict, Tuple
@@ -17,6 +18,17 @@ from . import sfcollision, sfmesh, sfnif
 UNIT_SCALE = 1.0 / 70.0           # Fallout 4 units -> metres (Starfield .mesh coordinates are metres)
 PLACEHOLDER_MATERIAL = "Materials\\Common\\Metal\\MetalIronCast01.mat"   # vanilla material, T0 look
 DYNAMIC_BSX = 0x42                 # havok + dynamic: 145 of 150 vanilla MiscItem NIFs (statics: mostly 0x2)
+
+
+def require_mass_scale(scale) -> float:
+    """CLI/API --mass-scale: finite and > 0. Rejects 0, negatives, nan, inf before any archive or staging I/O."""
+    try:
+        value = float(scale)
+    except (TypeError, ValueError):
+        raise ValueError("must be a finite positive number") from None
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError("must be a finite positive number")
+    return value
 
 
 def _sub(a, b):
@@ -129,7 +141,7 @@ def _rigid_ragdoll(src, objs, world, dynamic_template: bytes, motion: dict):
 
 
 def fo4_native_collision(src, universal_template: bytes, report: dict = None, dynamic_template: bytes = None,
-                         motion: dict = None, pose: dict = None):
+                         motion: dict = None, pose: dict = None, mass_scale: float = 1.0):
     """[Starfield single-body physics blobs], one per FO4 collision body (meshcollision.convert_bodies), or None to fall
     back. Unsupported shape classes and malformed data return None and record why. One exception, reported as
     report["skipped_parts"]: precombine debris parts in the undecoded primitive encoding (see convert_bodies) are left
@@ -183,7 +195,8 @@ def fo4_native_collision(src, universal_template: bytes, report: dict = None, dy
             dyn = dynamic_template if (len(objs) == 1 and target == 0) else None
             new = meshcollision.convert_bodies(src.blocks[data][4:4 + n], universal_template,
                                                select=[body] if shared > 1 else None, node_rot=tuple(rot),
-                                               skipped=skipped, dynamic_template=dyn, motion=motion, notes=notes)
+                                               skipped=skipped, dynamic_template=dyn, motion=motion, notes=notes,
+                                               mass_scale=mass_scale)
             node = place or ((0.0, 0.0, 0.0), (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
             for b in new:
                 if isinstance(b, tuple):                 # rotated compound instance: node transform * instance
@@ -304,7 +317,8 @@ def convert_static(fo4_nif: bytes, out_name: str, material_path: str = PLACEHOLD
                    unit_scale: float = UNIT_SCALE, collision_template: bytes = None,
                    material_paths: list = None, collision_mode: str = "box",
                    include_skinned: bool = False, report: dict = None, sf_mesh_template: bytes = None,
-                   allow_guess: bool = True, dynamic_template: bytes = None, pose: dict = None) -> Dict[str, bytes]:
+                   allow_guess: bool = True, dynamic_template: bytes = None, pose: dict = None,
+                   mass_scale: float = 1.0) -> Dict[str, bytes]:
     """collision_mode: "box" = one AABB on the root; "surfaces" = thin boxes behind flat surfaces, one body each.
     sf_mesh_template: a vanilla Starfield mesh-collision blob; when given, FO4's own collision mesh is transplanted
     (meshcollision.transplant) and the box methods are only the fallback.
@@ -315,6 +329,7 @@ def convert_static(fo4_nif: bytes, out_name: str, material_path: str = PLACEHOLD
     pose: {node block: local transform} replacing those nodes' own transforms (ragdoll_pose.local_overrides: a placed
     reference's XRGD ragdoll pose). Shapes under those nodes, skinned shapes and collision bodies are all built in that
     pose; the result is a model for that reference only (placed_pose)."""
+    mass_scale = require_mass_scale(mass_scale)
     src = nifmod.parse(fo4_nif)
     shapes = [s for s in nifmod.fo4_trishapes(src, placed=True, local_overrides=pose)
               if (include_skinned or not s.skinned) and s.positions and s.triangles]
@@ -344,6 +359,7 @@ def convert_static(fo4_nif: bytes, out_name: str, material_path: str = PLACEHOLD
     if sf_mesh_template is not None and collision_template is not None:
         native = fo4_native_collision(src, sf_mesh_template, report,      # FO4's own bodies as native Starfield bodies
                                       dynamic_template=dynamic_template, motion=motion,
+                                      mass_scale=mass_scale,
                                       **({"pose": pose} if pose is not None else {}))
     if sf_mesh_template is not None and collision_template is not None and not fo4_has_collision:
         # FO4 gives this model no collision (rubble, debris, paper, signs, posters, plants): the player walks through
