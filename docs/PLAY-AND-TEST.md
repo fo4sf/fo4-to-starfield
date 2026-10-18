@@ -213,6 +213,30 @@ walk, say so: a teleport means the walk was not continuous, so it can't count as
 
 Reports are reviewed by the project owner before anyone acts on them; until then they keep the `needs-triage` label.
 
+### If the game crashes: catch a crash dump
+
+Starfield often crashes straight to the desktop with no message. A crash dump (a copy of the game's memory at the
+moment it crashed) shows what failed: the project found its Havok collision crash from one
+([journal, 16 October](JOURNAL.md)). The owner's PC catches dumps with Microsoft's free
+[ProcDump](https://learn.microsoft.com/sysinternals/downloads/procdump) and this command, run in a Command Prompt
+before launching the game:
+
+```
+procdump64.exe -accepteula -e 1 -f "80000003" -ma -n 1 -w Starfield.exe "<dump folder>"
+```
+
+It waits for `Starfield.exe` to start, then writes one full dump (`-ma`) on an unhandled exception (`-e 1`) or on the
+engine's own assertion break, exception `0x80000003` (`-f`), which is how the collision crash ended the game.
+Run it again after each crash to watch the next launch. The owner's copy loops it in a small script.
+
+- **Wait for the dump to finish.** A full dump is large (the owner's was about 17 GB). Don't close the window or end
+  ProcDump until the new `.dmp` file in the dump folder stops growing; a half-written dump is useless.
+- **Stop watching** with `taskkill /f /im procdump64.exe`, then close the window.
+- **Never upload a dump** to GitHub or anywhere else: it holds the game's memory and can hold personal data. In the report,
+  give the time of the crash, the cell and what you were doing, and say that you have a dump. A maintainer will ask for
+  what they need from it.
+- **Delete it** when it is no longer needed: `del "<dump folder>\<name>.dmp"`.
+
 ## 7. Automated tests (optional, advanced)
 
 The repository also has an unattended test runner that launches the game, drives it from the console and judges each
