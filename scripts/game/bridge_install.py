@@ -13,9 +13,10 @@ usage: python bridge_install.py install|uninstall|status --dir <staged bridge di
        (the staged dir: scripts/bridge/make_bridge.py stage, e.g. C:\\Modding\\staging\\bridge_t0)
 """
 import argparse
+import base64
+from collections import Counter
 import json
 import os
-import shutil
 import sys
 import tempfile
 from types import SimpleNamespace
@@ -48,33 +49,59 @@ def plugin_line_present(lines, plugin):
     return None
 
 
-def activate(plugin):
-    """Plugins.txt with "*<plugin>" as its last line (any earlier line for the plugin, active or not, removed and
-    recorded so uninstall can put it back). Returns the record fields."""
+def activate(plugin, rec, rec_p):
+    """Journal before/intended bytes, then activate last; retain cleanup ownership."""
     p = exp_install.plugins_txt()
     original = exp_install.read_bytes(p)
     lines, bom, nl = exp_install.plugin_lines(original)
     removed = [ln for ln in lines if ln.strip().lstrip("*").casefold() == plugin.casefold()]
     kept = [ln for ln in lines if ln not in removed]
     new = kept + ["*" + plugin]
-    if original is None:
-        exp_install.write_plugins(p, new, bom, nl)
-    else:
+    # Persist exact before/intended bytes before activation can change anything.
+    # complete=False also covers a crash while reactivating an existing bridge.
+    rec.update({"complete": False, "plugins_txt": p, "plugin_line_added": "*" + plugin,
+                "plugin_lines_removed": removed,
+                "plugins_original": base64.b64encode(original).decode("ascii") if original is not None else None,
+                "plugins_activated": base64.b64encode(deployment.render_lines(new, original)).decode("ascii"),
+                "plugins_restore_pending": True})
+    deployment.write_manifest(rec_p, rec)
+    try:
         exp_install.write_plugins(p, new, bom, nl, original)
-    return {"plugins_txt": p, "plugin_line_added": "*" + plugin, "plugin_lines_removed": removed}
+    except deployment.ConcurrentUpdateError:
+        # The typed failure proves no activation was published. Preserve the
+        # external edit and don't attempt to restore over it during recovery.
+        rec["plugins_restore_pending"] = False
+        rec["plugin_line_added"] = ""
+        rec["plugin_lines_removed"] = []
+        deployment.write_manifest(rec_p, rec)
+        raise
+
+
+def validate_profile(rec):
+    p = exp_install.plugins_txt()
+    recorded = rec.get("plugins_txt", p)
+    if not isinstance(recorded, str) or os.path.normcase(os.path.abspath(recorded)) != os.path.normcase(os.path.abspath(p)):
+        raise ValueError("recorded Plugins.txt does not match the current user path")
+    return p
 
 
 def deactivate(rec):
-    """Undo activate: the added line goes, the removed ones come back (at the end)."""
-    p = exp_install.plugins_txt()
-    if os.path.normcase(os.path.abspath(rec.get("plugins_txt", p))) != os.path.normcase(os.path.abspath(p)):
-        raise ValueError("recorded Plugins.txt does not match the current user path")
+    """Undo activation; a retry must not duplicate already-restored inactive lines."""
+    p = validate_profile(rec)
     original = exp_install.read_bytes(p)
     if original is None:
         return
     lines, bom, nl = exp_install.plugin_lines(original)
     added = (rec.get("plugin_line_added") or "").strip().casefold()
-    new = [ln for ln in lines if ln.strip().casefold() != added] + list(rec.get("plugin_lines_removed") or [])
+    new = [ln for ln in lines if ln.strip().casefold() != added]
+    removed = list(rec.get("plugin_lines_removed") or [])
+    required = Counter(ln.strip().casefold() for ln in removed)
+    present = Counter(ln.strip().casefold() for ln in new)
+    for line in removed:
+        key = line.strip().casefold()
+        if present[key] < required[key]:
+            new.append(line)
+            present[key] += 1
     if new != lines:
         exp_install.write_plugins(p, new, bom, nl, original)
 
@@ -89,30 +116,47 @@ def staged(a):
     return d, plugin, pex
 
 
+def source_inventory(directory):
+    source = {PLUGIN: exp_install.digest(os.path.join(directory, PLUGIN))}
+    for root, dirs, names in os.walk(os.path.join(directory, "Data")):
+        dirs.sort()
+        for name in sorted(names):
+            path = os.path.join(root, name)
+            source[os.path.relpath(path, directory)] = exp_install.digest(path)
+    return source
+
+
+def archive_inputs(source):
+    return {name.replace("\\", "/"): identity for name, identity in source.items()}
+
+
 def install(a):
     data, rec_p = record_path(a)
     try:
         exp_install.require_complete_master(data)
     except (OSError, ValueError) as error:
         sys.exit(f"bridge not installed: {error}")
-    d, plugin_src, pex = staged(a)
-    source = {PLUGIN: exp_install.digest(plugin_src), PEX: exp_install.digest(pex)}
-    for root, _, names in os.walk(os.path.join(d, "Data")):   # every packed file: another script set is another bridge
-        for n in names:
-            p = os.path.join(root, n)
-            source[os.path.relpath(p, d)] = exp_install.digest(p)
+    d, plugin_src, _pex = staged(a)
+    source = source_inventory(d)  # every packed file: another script set is another bridge
     targets = {PLUGIN: exp_install.data_path(data, PLUGIN), ARCHIVE: exp_install.data_path(data, ARCHIVE)}
     if os.path.exists(rec_p):
         rec = read_record(rec_p)
         if rec.get("complete") is not True or rec.get("cleanup_pending"):
             sys.exit(f"incomplete bridge install ({rec_p}); uninstall it first")
-        same = rec.get("source_sha256") == source and all(
+        same = (rec.get("source_sha256") == source and isinstance(rec.get("files"), dict)
+                and set(rec["files"]) == set(targets) and all(
             os.path.exists(targets[rel]) and exp_install.digest(targets[rel]) == h for rel, h in rec["files"].items())
+                )
         if not same:
             sys.exit(f"another bridge is installed ({rec_p}: {rec.get('dir')}); uninstall it first")
+        exp_install.verify_archive(targets[ARCHIVE], archive_inputs(source))
         lines, _, _ = exp_install.read_plugins(exp_install.plugins_txt())
         if plugin_line_present(lines, PLUGIN) is None:    # e.g. a deploy rewrote Plugins.txt: activate again
-            rec.update(activate(PLUGIN))
+            # Verified complete legacy receipts already own these files. Retain
+            # that proof if reactivation is interrupted before completion.
+            rec.setdefault("published_files", list(rec["files"]))
+            activate(PLUGIN, rec, rec_p)
+            rec["complete"] = True
             deployment.write_manifest(rec_p, rec)
             print(f"already installed; {PLUGIN} activated again")
         else:
@@ -121,30 +165,61 @@ def install(a):
     clash = [rel for rel in targets if os.path.exists(targets[rel])]
     if clash:
         sys.exit(f"refusing to overwrite existing game files: {clash}")
-    rec = {"dir": d, "plugin": PLUGIN, "source_sha256": source, "files": {}, "complete": False}
+    rec = {"schema": 2, "dir": d, "plugin": PLUGIN, "source_sha256": source,
+           "files": {}, "published_files": [], "complete": False}
     with tempfile.TemporaryDirectory(prefix="fo4sf-bridge-pack-") as tmp:
         ba2 = exp_install.build_ba2(SimpleNamespace(starfield=a.starfield), os.path.join(d, "Data"),
                                     os.path.join(tmp, ARCHIVE))
-        deployment.write_manifest(rec_p, rec)             # the record first: a crash leaves it incomplete, not silent
-        for rel, src in ((PLUGIN, plugin_src), (ARCHIVE, ba2)):
-            shutil.copy2(src, targets[rel])
-            rec["files"][rel] = exp_install.digest(targets[rel])
+        if source_inventory(d) != source:
+            raise OSError("bridge source changed while packing; nothing installed")
+        exp_install.verify_archive(ba2, archive_inputs(source))
+        identities = {PLUGIN: source[PLUGIN], ARCHIVE: exp_install.digest(ba2)}
+        deployment.write_manifest(rec_p, rec)
+        try:
+            for rel, src in ((PLUGIN, plugin_src), (ARCHIVE, ba2)):
+                rec["files"][rel] = identities[rel]  # intent before publication
+                deployment.write_manifest(rec_p, rec)
+                try:
+                    deployment.copy_new_artifact(src, targets[rel], expected_sha256=identities[rel])
+                except FileExistsError:
+                    rec["files"].pop(rel)  # exclusive creation proves this isn't ours
+                    rec.setdefault("not_published", []).append(rel)
+                    deployment.write_manifest(rec_p, rec)
+                    raise
+                rec["published_files"].append(rel)
+                deployment.write_manifest(rec_p, rec)
+                if exp_install.digest(targets[rel]) != identities[rel]:
+                    raise OSError(f"installed bridge differs from pinned source: {rel}")
+            activate(PLUGIN, rec, rec_p)
+            rec["complete"] = True
             deployment.write_manifest(rec_p, rec)
-    rec.update(activate(PLUGIN))
-    rec["complete"] = True
-    deployment.write_manifest(rec_p, rec)
+        except BaseException:
+            rec["complete"] = False
+            try:
+                uninstall(a, _recovery=rec)
+            except (OSError, ValueError, SystemExit) as recovery:
+                print(f"bridge recovery incomplete; preserve {rec_p}: {recovery}", file=sys.stderr)
+            raise
     print(f"installed {PLUGIN} + \"{ARCHIVE}\" from {d}; {PLUGIN} active")
 
 
-def uninstall(a):
+def uninstall(a, _recovery=None):
     data, rec_p = record_path(a)
     if not os.path.exists(rec_p):
         print("bridge not installed")
         return
-    rec = read_record(rec_p)
+    rec = read_record(rec_p) if _recovery is None else _recovery
+    validate_profile(rec)  # interrupted recovery must obey the same profile guard
+    if not isinstance(rec.get("files"), dict) or set(rec["files"]) - {PLUGIN, ARCHIVE}:
+        raise ValueError("unexpected bridge file ownership; record preserved")
     errors = []
     try:
-        deactivate(rec)
+        if not rec.get("complete"):
+            if rec.get("plugins_restore_pending"):
+                deployment.restore_plugins(rec)
+        else:
+            deactivate(rec)
+        rec["plugins_restore_pending"] = False
         rec["plugin_line_added"] = ""
         rec["plugin_lines_removed"] = []
     except (OSError, ValueError) as e:
@@ -154,6 +229,8 @@ def uninstall(a):
         dst = exp_install.data_path(data, rel)
         try:
             if os.path.exists(dst):
+                if not rec.get("complete") and rel not in rec.get("published_files", []):
+                    raise OSError(f"unconfirmed bridge publication; preserved: {rel}")
                 if exp_install.digest(dst) != h:
                     raise OSError(f"file changed since install; preserved: {rel}")
                 os.remove(dst)
@@ -161,6 +238,12 @@ def uninstall(a):
             kept[rel] = h
             errors.append(str(e))
     rec["files"] = kept
+    # Old interrupted copies or a damaged receipt can leave untracked bridge
+    # files. Only an explicit exclusive-create refusal proves a file isn't ours.
+    for rel in (PLUGIN, ARCHIVE):
+        if (rel not in rec["files"] and rel not in rec.get("not_published", [])
+                and os.path.exists(exp_install.data_path(data, rel))):
+            errors.append(f"untracked bridge file; preserved: {rel}")
     if errors:
         rec["cleanup_pending"] = True
         deployment.write_manifest(rec_p, rec)
@@ -179,13 +262,23 @@ def order(a):
     if not os.path.exists(rec_p):
         print("bridge not installed: nothing to order")
         return
-    p = exp_install.plugins_txt()
+    rec = read_record(rec_p)
+    if rec.get("complete") is not True or rec.get("cleanup_pending"):
+        raise ValueError("incomplete bridge install: recover before ordering")
+    if not isinstance(rec.get("files"), dict) or set(rec["files"]) != {PLUGIN, ARCHIVE}:
+        raise ValueError("incomplete bridge file coverage: recover before ordering")
+    for relative, expected in rec["files"].items():
+        target = exp_install.data_path(data, relative)
+        if not os.path.isfile(target) or exp_install.digest(target) != expected:
+            raise ValueError(f"installed bridge changed: {relative}")
+    p = validate_profile(rec)
     original = exp_install.read_bytes(p)
     lines, bom, nl = exp_install.plugin_lines(original)
     k = plugin_line_present(lines, PLUGIN)
     if k is None:
-        rec = read_record(rec_p)
-        rec.update(activate(PLUGIN))
+        rec.setdefault("published_files", list(rec["files"]))
+        activate(PLUGIN, rec, rec_p)
+        rec["complete"] = True
         deployment.write_manifest(rec_p, rec)
         print(f"{PLUGIN} was not active: appended last")
         return

@@ -32,6 +32,9 @@ between console sessions, e.g. during the probes); land_z: a player.setpos z lan
 INI settings (ini, default INI below, made-up values): GetINI "<name:Section>" prints "INISetting <name:Section> >> <v>"
 (%i / %.4f) or ">> NOT FOUND"; SetINI on a known setting prints nothing, on an unknown one 'INI setting "<name:Section>"
 does not exist' (the reply formats in Starfield.exe 1.16.244).
+FO4SF_Probe.Resolve / MoveTo (cgf; the scripted door's Step 0): probe_refs {"<plugin-local decimal id>": [x, y, z]} are
+the references GetFormFromFile finds; the replies go to the bridge log only; a MoveTo moves the player there plus the
+offset and hides the HUD for load_secs.
 Load doors (door_trip): doors [{"cell", "pos", "auto", "works", "dest_cell", "dest_pos", "ref", "ref_pos"}]: readpos
 <ref> of a door's "ref" prints its "ref_pos" (default its pos: what getpos reports); an automatic door ("auto")
 loads when the player comes within auto_dist (3 m, Starfield.esm fAutoDoorActivateDistance) while the game runs (a walk
@@ -76,7 +79,10 @@ after their spawn, holding their ground; "StartCombat player" does the same for 
 startcombat_fails. GetCombatState / GetCombatTarget / "GetLineOfSight player" reply "GetCombatState >> 1.00",
 "GetCombatTarget >> (00000014)" ("(00000000)" without a target), "GetLineOfSight >> 1.00" (knob los): HYPOTHESES of the
 in-game format; combat_fmt "int" prints "GetCombatState >> 1" and a bare target id, "refused" answers all three with
-"Script command not found"."""
+"Script command not found".
+OCR thresholds: the sandbox ocr_prep.py keeps the threshold of the last prepared capture as "ocr_th"; isid_lost_at
+[th, ...]: an OCR at one of those thresholds does not read the "GetIsID >>" reply lines (core64g_accept_1016 test
+0002: the reply on activate_sel.png was lost at 135, and read at 130 and 145)."""
 import json
 import math
 import os
@@ -350,6 +356,26 @@ def run(s, cmd):
         fmt = s.get("self_fmt", "paren")
         if kind is not None and fmt != "none":
             s["log"].append(f"GetSelf >> {s['sel']}" if fmt == "hex" else f"GetSelf >> ({s['sel'].lower()})")
+    elif low.startswith('cgf "fo4sf_probe.pos" '):
+        # SANDBOX bridge: FO4SF_Probe.Pos replies in the bridge log (the real game: FO4SF_Probe.psc), nothing on the
+        # console; the id is a Papyrus int (negative for load index FF..); an unknown id answers "none"
+        try:
+            dec = int(w[-1])
+        except ValueError:
+            dec = None
+        rid = f"{dec & 0xFFFFFFFF:08X}" if dec is not None else ""
+        if rid and rid == s.get("anchor_id"):
+            rp = s["anchor_pos"]
+        elif rid in s["actors"]:
+            rp = actor_pos(s, s["actors"][rid])
+        elif rid in statics(s):
+            rp = statics(s)[rid]["pos"]
+        else:                                              # a door's ref: its ref_pos, as the fake readpos prints it
+            doors = [d for d in s.get("doors", []) if str(d.get("ref", "")).upper() == rid]
+            rp = (doors[0].get("ref_pos") or doors[0]["pos"]) if doors else None
+        bridge_ref_line(s, dec, rp)
+    elif low.startswith(('cgf "fo4sf_probe.resolve" ', 'cgf "fo4sf_probe.moveto" ')):
+        bridge_probe_lines(s, cmd)
     elif low.startswith("getpos "):
         sel = s.get("sel")
         if sel is not None and sel == s.get("anchor_id"):
@@ -544,6 +570,8 @@ def main():
         return
     elif sys.argv[1] == "screen":
         lines = s["log"][-9:]                              # the console shows about nine lines
+        if s.get("ocr_th") in (s.get("isid_lost_at") or []):   # this threshold's OCR loses the reply line
+            lines = [ln for ln in lines if not ln.startswith("GetIsID >>")]
         if s.get("layout") == "column":
             lines = column(lines)
         if s.get("ocr_quirks", True):
@@ -580,6 +608,50 @@ def main():
                 print(" ".join(f"{v:.2f}" for v in d.get("ref_pos") or d["pos"]))
     with open(P, "w") as f:
         json.dump(s, f, indent=1)
+
+
+def bridge_ref_line(s, dec, rp):
+    """A FO4SF_Probe.Pos reply in the bridge log, as the real script writes it (no reply without a bridge log)."""
+    log = os.environ.get("FO4SF_BRIDGE_LOG")
+    if not log or dec is None:
+        return
+    if rp is None:
+        line = f"[{time.strftime('%H:%M:%S')}] FO4SF ref={dec} none"
+    else:
+        cell = 50331649 + sum(ord(c) for c in str(s.get("cell") or "")) % 1000
+        line = (f"[{time.strftime('%H:%M:%S')}] FO4SF ref={dec} pos={rp[0]:.6f} {rp[1]:.6f} {rp[2]:.6f} ang=0.000000 "
+                f"cell={cell} disabled=false loaded=true")
+    with open(log, "a", encoding="utf-8") as f:
+        f.write(line + "\n")
+
+
+def bridge_probe_lines(s, cmd):
+    """SANDBOX bridge: FO4SF_Probe.Resolve / MoveTo (scripts/bridge/FO4SF_Probe.psc) answer in the bridge log only, in the
+    script's format. probe_refs {"<plugin-local decimal id>": [x, y, z]} are what GetFormFromFile finds (any other id:
+    form=none); MoveTo puts the player there plus the offset and hides the HUD for load_secs (a cell load)."""
+    m = re.fullmatch(r'cgf "FO4SF_Probe\.(Resolve|MoveTo)" "([^"]+)" (\d+)((?: -?\d+(?:\.\d+)?){3})?', cmd)
+    if not m:
+        return
+    fn, plugin, local, offs = m.groups()
+    rp = (s.get("probe_refs") or {}).get(local)
+    where = "ang=0.000000 cell=33557935 cellname= world=-16707575 worldname="
+    head = f"FO4SF {'resolve' if fn == 'Resolve' else 'target'} plugin={plugin} id={local}"
+    lines = [head + (" form=none" if rp is None else f" form={0x02000000 | int(local)} ref=true pos={rp[0]:.6f} "
+                     f"{rp[1]:.6f} {rp[2]:.6f} {where} disabled=false loaded=true")]
+    if fn == "MoveTo":
+        d = [float(v) for v in offs.split()]
+        tag = f"FO4SF moveto plugin={plugin} id={local} offset={d[0]:.6f} {d[1]:.6f} {d[2]:.6f}"
+        if rp is None:
+            lines.append(tag + " phase=refused")
+        else:
+            s["player"], s["falling"] = [rp[k] + d[k] for k in range(3)], None
+            s["loading_until"] = time.time() + float(s.get("load_secs", 2.0))
+            p = s["player"]
+            lines.append(tag + f" phase=after pos={p[0]:.6f} {p[1]:.6f} {p[2]:.6f} {where} loaded=true")
+    log = os.environ.get("FO4SF_BRIDGE_LOG")
+    if log:
+        with open(log, "a", encoding="utf-8") as f:
+            f.write("".join(f"[{time.strftime('%H:%M:%S')}] {ln}\n" for ln in lines))
 
 
 def bridge_line():

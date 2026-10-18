@@ -27,7 +27,8 @@ CONVERT_TYPES = ("Static", "StaticCollection", "MovableStatic", "Furniture", "Do
 
 # types that are never converted, with the reason (everything else outside CONVERT_TYPES gets "type_not_translated")
 TYPE_REASONS = {
-    "Light": "light source: exterior lights are not translated (daylight scene, no Starfield LIGH records built)",
+    "Light": "light source: not a static; native LIGH records only through make_cluster.py lights + make_core64c.py "
+             "stage --cluster (docs/terrain/exterior-lights.md)",
     "TextureSet": "decal (placed texture set): no decal translation yet",
     "BendableSpline": "bendable spline (power lines, cables): no Starfield equivalent built yet",
     "IdleMarker": "idle marker: AI animation marker, editor-only",

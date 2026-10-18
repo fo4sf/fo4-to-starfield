@@ -74,7 +74,7 @@ CAPSULE = (0.4, 1.8)                     # assumed player cylinder (radius, heig
 # is carried into each exp2c entry unless exp2c sets it itself (ENTRY_OWN), so a key the runner learns later (as z_ref
 # was, after exp2c was first staged) cannot be dropped silently: validate_plan() names any difference.
 RUNNER_KEYS = ("coc", "travel", "label", "anchor", "spawn_local", "drop_above_spawn", "settle_ms", "z_ref", "drop_z",
-               "points", "beyond", "hop_m", "hop_wait_ms")
+               "points", "beyond", "hop_m", "hop_wait_ms", "activate", "teleport_console")
 ENTRY_OWN = ("label", "points", "drop_z", "z_ref", "spawn_local")
 POINT_KEYS = ("label", "x", "y", "expect")
 
@@ -828,9 +828,12 @@ def ref_record_check(recs, own_prefix, objects, ids):
         q = fo4land.parse_ref(rec["fields"])
         if q["base"] != base_fid[bases[r["base"]]["edid"]]:
             problems.append(f"{r['src']}: base {q['base']:08X}")
+        # max() drops a NaN and abs(NaN - x) > tol is False, so a non-finite value fails here (review of #241)
+        if not all(math.isfinite(x) for x in (*q["pos"], *q["rot"], q["scale"], *r["pos"], *r["rot"], r["scale"])):
+            problems.append(f"{r['src']}: position / rotation / scale not finite")
         worst_pos = max(worst_pos, max(abs(u - v) for u, v in zip(q["pos"], r["pos"])))
         worst_rot = max(worst_rot, max(abs(u - v) for u, v in zip(q["rot"], r["rot"])))
-        if abs(q["scale"] - r["scale"]) > 1e-4:
+        if not abs(q["scale"] - r["scale"]) <= 1e-4:
             problems.append(f"{r['src']}: scale {q['scale']} != {r['scale']}")
         if bool(rec["flags"] & 0x800) != bool(r["disabled"]):
             problems.append(f"{r['src']}: disabled flag")

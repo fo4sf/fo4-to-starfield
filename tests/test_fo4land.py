@@ -182,6 +182,7 @@ class PluginTests(unittest.TestCase):
             self.assertEqual(sorted(w["cells"]), [(-1, -1), (0, 0)])
             self.assertEqual(w["persistent_cell"]["fid"], 0x200)
             self.assertEqual([r["fid"] for r in w["persistent_cell"]["persistent_refs"]], [0x901])
+            self.assertEqual([r["fid"] for r in w["persistent"]], [0x901])     # #207: the documented list too
             # the real (0, 0) cell is not replaced by the persistent cell that also says XCLC (0, 0)
             np.testing.assert_array_equal(fo4land.decode_vhgt(w["cells"][(0, 0)]["vhgt"]), 8.0 * (3.0 + steps))
             c = w["cells"][(-1, -1)]

@@ -29,8 +29,11 @@ import tempfile
 
 # Reuse the converter deployer's tested atomic writes and no-overwrite publication.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# cycle.ps1 uses isolated Python, which omits this script's own directory.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import deploy_starfield as deployment  # noqa: E402
 from verify_packed_experiment import verify_archive  # noqa: E402
+from experiment_receipts import preserve_receipt  # noqa: E402
 
 RECORD = "FO4SFExp.install.json"
 PACKING_POLICY = "general-stored-verified-v2"
@@ -185,7 +188,7 @@ def order(a):
 
 
 def active(a):
-    """Read-only: is every plugin this install activated still active ("*") in Plugins.txt? 0 yes or nothing installed,
+    """Read-only: is recovery finished and every plugin still active ("*")? 0 yes or nothing installed,
     8 no. Starfield itself can deactivate them while running (2026-10-13: answering "Save" to its "different Creations
     Load Order" dialog after Continue rewrote Plugins.txt with every experiment plugin inactive; coc then froze)."""
     rec_p = os.path.join(a.starfield, "Data", RECORD)
@@ -193,6 +196,9 @@ def active(a):
         print("nothing installed")
         return 0
     rec = read_json(rec_p)
+    if not rec.get("complete", True) or rec.get("cleanup_pending") or "rollback_completed" in rec:
+        print("incomplete experiment install; finish uninstall before relaunching")
+        return 8
     plugins = rec.get("plugins")
     if plugins is None:
         plugins = [x.lstrip("*").strip() for x in rec.get("plugins_added", [])]
@@ -337,13 +343,81 @@ def verify_relaunch(a, data, plugins, packed, rec):
         sys.exit("experiment source inputs changed; uninstall before relaunching")
 
 
-def cleanup(data, rec_p, rec):
+class RollbackReceiptPending(OSError):
+    """Confirmed publications were undone, but the original receipt is retained."""
+
+
+def completed_rollback_receipt(rec):
+    """Return the exact pre-rollback receipt only for a consistent completion checkpoint."""
+    if "rollback_completed" not in rec:
+        return None
+    try:
+        proof = rec["rollback_completed"]
+        if (not isinstance(proof, dict) or set(proof) != {"schema", "original_sha256", "original_receipt_b64"}
+                or type(proof["schema"]) is not int or proof["schema"] != 1):
+            raise ValueError("unknown completion schema")
+        original = base64.b64decode(proof["original_receipt_b64"], validate=True)
+        if hashlib.sha256(original).hexdigest() != proof["original_sha256"]:
+            raise ValueError("original receipt digest differs")
+        written = json.loads(original)
+        if (not isinstance(written, dict) or written.get("complete") is not False
+                or "rollback_completed" in written or rec != dict(written, rollback_completed=proof)):
+            raise ValueError("completion does not match its original incomplete receipt")
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(f"invalid rollback completion checkpoint: {error}") from error
+    return original
+
+
+def record_completed_rollback(rec_p, original):
+    """Called only after successful undo; retain the full original bytes inside the active journal."""
+    rec = json.loads(original)
+    rec["rollback_completed"] = {"schema": 1, "original_sha256": hashlib.sha256(original).hexdigest(),
+                                 "original_receipt_b64": base64.b64encode(original).decode("ascii")}
+    completed_rollback_receipt(rec)
+    deployment.atomic_write_bytes(rec_p, json.dumps(rec, indent=1).encode("utf-8"),
+                                  ".fo4sfexp-rollback-", expected_current=original)
+
+
+def cleanup(data, rec_p, rec, *, rollback=False):
     """Undo confirmed publications; preserve changed/unproven files and a retryable journal."""
+    if completed_rollback_receipt(rec) is not None:
+        # These effects were already undone. Replaying the old inventory could
+        # remove a file recreated later, even if its bytes happen to be equal.
+        before = read_bytes(rec_p)
+        if before is None or json.loads(before) != rec:
+            raise OSError("active experiment receipt changed; completion retirement refused")
+        history = preserve_receipt(rec_p)
+        if read_bytes(rec_p) != before:
+            raise OSError("active experiment receipt changed; completion retirement refused")
+        os.remove(rec_p)
+        print(f"preserved completed rollback receipt: {history}")
+        return
     targets = {rel: data_path(data, rel) for rel in rec["files"]}
     directories = {rel: data_path(data, rel) for rel in rec["dirs"]}
     p = plugins_txt()
     if os.path.normcase(os.path.abspath(rec.get("plugins_txt", p))) != os.path.normcase(os.path.abspath(p)):
         raise ValueError("recorded Plugins.txt does not match the current user path")
+    # Preserve the full written identity inventory before cleanup narrows or
+    # removes it. History is private evidence, never an active recovery journal.
+    before = read_bytes(rec_p) if rollback else None
+    history_error = None
+    try:
+        history = preserve_receipt(rec_p)
+        print(f"preserved experiment receipt: {history}")
+    except (OSError, ValueError) as error:
+        if not rollback:
+            raise
+        if before is None or read_bytes(rec_p) != before:
+            raise OSError("active experiment receipt changed; rollback refused") from error
+        written = json.loads(before)
+        if not isinstance(written, dict) or written.get("complete") is not False:
+            raise OSError("rollback requires an incomplete recovery receipt") from error
+        # A history outage must not leave a failed install enabled. The caller
+        # still knows which files it actually published, even if its final
+        # journal write failed. Undo only those unchanged publications, keeping
+        # the FULL durable receipt until history can be retried. A completed
+        # rollback checkpoints the exact original bytes plus its outcome.
+        history_error = error
     errors = []
     try:
         if not rec.get("complete", True):
@@ -387,6 +461,17 @@ def cleanup(data, rec_p, rec):
                 os.rmdir(full)
         except OSError as e:
             errors.append(str(e))
+    if history_error is not None:
+        pending = f"receipt preservation pending at {rec_p}: {history_error}"
+        if errors:
+            raise OSError(f"{pending}; {'; '.join(errors)}")
+        try:
+            record_completed_rollback(rec_p, before)
+        except (OSError, ValueError) as error:
+            pending += (f"; completion checkpoint unavailable ({error}); leave Plugins.txt and the former "
+                        "experiment paths unchanged until recovery finishes")
+        pending += "; restore receipt history and run uninstall; the runner remains blocked until recovery finishes"
+        raise RollbackReceiptPending(pending)
     if errors:
         rec["cleanup_pending"] = True
         deployment.write_manifest(rec_p, rec)
@@ -540,9 +625,11 @@ def _install(a, packing_dir=None):
     except Exception as e:
         rec["complete"] = False
         try:
-            cleanup(data, rec_p, rec)
+            cleanup(data, rec_p, rec, rollback=True)
+        except RollbackReceiptPending as recovery:
+            sys.exit(f"install failed and was rolled back: {e}; {recovery}")
         except (OSError, ValueError) as recovery:
-            sys.exit(f"install failed: {e}; {recovery}")
+            sys.exit(f"install failed: {e}; rollback incomplete (game may remain modified): {recovery}")
         sys.exit(f"install failed and was rolled back: {e}")
     print(f"installed {len(rec['files'])} files, plugins {plugins}")
 
@@ -560,8 +647,9 @@ def uninstall(a):
     with open(rec_p) as f:
         rec = json.load(f)
     try:
-        rec["cleanup_pending"] = True
-        deployment.write_manifest(rec_p, rec)
+        if "rollback_completed" not in rec:
+            rec["cleanup_pending"] = True
+            deployment.write_manifest(rec_p, rec)
         cleanup(data, rec_p, rec)
     except (OSError, ValueError) as e:
         sys.exit(f"uninstall incomplete: {e}")
