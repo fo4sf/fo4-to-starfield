@@ -1442,6 +1442,27 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
 
+## 2026-10-16: preserve full source-plugin identity in container groups (Codex)
+
+Offline synthetic review of merged1670f128805: disabled-reference refusal and metadata agreement work, but
+plugin punctuation/extensions still alias distinct source bases. Three unit controls and all three actual-writer
+plugin-pair subcases reproduce the failure. The identity helper now retains unambiguous legacy names and uses
+the full key for other groups, normalizing ASCII case without Unicode expansion, with a separate collision refusal.
+Four actual-writer methods verify distinct CONTs and preserved original REFR IDs/data/flags/parents.
+See [the identity follow-up](testing/container-reference-identities.md#full-source-plugin-grouping-follow-up).
+No C# writer, production stage, game input or save changed. Peer review/integration remain pending; existing
+mixed-plugin aliases and future promoted-base migrations are not repaired retroactively.
+
+### 2026-10-16: Codex extends full-source grouping to MISC
+
+Merged current main into the owned PR176 branch after PR235 introduced shared CONT/MISC
+promotion. Resolved the identity helper conflict by preserving both class wrappers and
+full canonical source keys; added the same explicit collision refusal to loose items.
+Five synthetic methods produce 13 failing subcases on PR235's reviewed caller; all58
+focused Python checks pass with the fix. The compiled-writer tests now include three
+MISC source-plugin pairs, preserving original reference slots and serialized placement.
+Private evidence: promoted-identity-176-20261016. No writer source, staging or live changes;
+independent review remains required. This does not fix the separate NaN output-check finding.
 ## 2026-10-16: Codex native bases for persistent door relationships
 
 The owner's persistent-door priority led back to PR174's actual ReferenceLinks
@@ -1781,3 +1802,5 @@ item; it turns both FO4 garage meshes into passable statics because RedRGarageDo
 rigger refuses it. Alias, door_motion Opening sequences, door_rig.alias_clips, and the alias test are
 out. Button wiring, docs, and Codex's #319 actual-writer test stay. Garage NIF rig is later, Claude on
 the build side. No deploy, no game.
+
+- **2026-10-18 Codex PR176 main merge:** retained six owned identity functions and109 current-main function bodies (excluding docs). Updated two stale ACTI/workshop tests from expecting punctuation aliases to checking distinct bases/original slots, retaining injected-collision refusal.89 initial Python passes plus two corrected reruns cover91 cases; eight actual-writer tests pass, including new ACTI/TERM/workshop identity, NAME/ref-slot and terminal-menu controls. Six parent-main helper alias counterexamples reproduced. Two existing C# warnings remain. Original failures and synthetic outputs retained privately; no live stage or save migration, independent integration QA pending.
