@@ -407,3 +407,20 @@ so each is its own PR by the PC session (leader-core.md §9 lists the cost). Why
 cannot rebuild or re-pin, and a silently changed `objects.json` would invalidate pinned evidence. Alternatives:
 one shared function imported by both scripts today (ties `scripts/game` to `fo4sf.core` before the PC session has
 decided the import path); keeping the order as a parameter (two orders in the core is the bug #102 found).
+
+## 2026-10-18 Claude-cloud: SetRigidBodyMass tests when GetMass cannot be read
+- **Decision:** a movable_control test with `set_mass_kg` whose GetMass probe answers "No script named ..." is judged
+  on a move only. PASS WALKED or PASS IMPULSE stands, with "mass not read back" in the detail. No move stays
+  INCONCLUSIVE MASS.
+- **Why:** in movable_1019c, `cf "ObjectReference.GetMass"` answered "No script named ObjectReference is attached to
+  the object" (**verified**), so the old rule ("judged only when GetMass reads the mass set back") would leave every
+  5 kg test unjudged forever. The set mass can only have made the body lighter or left it unchanged:
+  - A move shows the body moves at a mass no higher than its own.
+  - No move cannot tell a mass that did not take from a heavy body, which is the verifier's "thinness, not mass"
+    concern on PR #110, so a non-move is still not judged.
+- **Alternatives:**
+  - Drop the 5 kg tests: this loses the one comparison that can show mass is the cause.
+  - Judge both ways: this risks a false "mass is not the cause".
+  - Find another GetMass route: none is known (no console command; the CallFunction route refuses).
+- Taken under the owner's standing rule (2026-10-18 03:56Z) that threads take their recommended option on reversible
+  choices.
