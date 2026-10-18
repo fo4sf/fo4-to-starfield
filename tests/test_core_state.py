@@ -253,6 +253,24 @@ class FoldTests(unittest.TestCase):
         self.assertEqual(s.load_order, ["FO4SFBridge.esm"])
         self.assertEqual(fold([exp, bridge, ev("build_pinned", build_id="b2")]).plugins, [])
 
+    def test_report_counts_the_pinned_builds_tests(self):
+        # F4 (the campaign on the owner's real records): runner results name no capability, so 88 FAILs read
+        # "Failed: none"; a failed or skipped test must never read as success (project topic)
+        s = fold([ev("build_pinned", build_id="b1"),
+                  ev("task_finished", task="q/0001_walk", outcome="FAIL", completed=True, build_id="b1"),
+                  ev("task_finished", task="q/0002_walk", outcome="PASS", completed=True, build_id="b1"),
+                  ev("task_finished", task="q/0003_door", outcome="SKIPPED", build_id="b1"),
+                  ev("task_finished", task="q/0004_door", outcome="CIRCUIT_BROKEN", build_id="b1"),
+                  ev("task_finished", task="q/0005_cave", outcome="INCONCLUSIVE", build_id="b1"),
+                  ev("task_finished", task="old/0009_walk", outcome="FAIL", completed=True, build_id="b0")])
+        rep = s.report()
+        self.assertEqual(rep[1], "Newly worked in game: nothing verified on this build; tests passed: 1 (0002_walk)")
+        self.assertEqual(rep[2], "Failed: none; tests failed: 1 (0001_walk)")          # b0's failure is another build's
+        self.assertEqual(rep[3], "Untested: none declared; tests not decided: 1 skipped, 1 circuit broken, 1 inconclusive")
+        many = [ev("task_finished", task=f"q/{i:04d}_t", outcome="FAIL", completed=True) for i in range(8)]
+        self.assertIn("tests failed: 8 (0000_t, 0001_t, 0002_t, 0003_t, 0004_t, 0005_t, +2 more)", fold(many).report()[2])
+        self.assertEqual(fold([ev("build_pinned", build_id="b1")]).report()[2], "Failed: none")   # no tests: as before
+
     def test_report_has_the_eight_bullets(self):
         s = fold([ev("leader_started", commit="8cae1db"), ev("build_pinned", build_id="b1", commit="d628b56"),
                   ev("plugins_verified", plugins=[{"name": "FO4SFExp.esm", "active_after_load": True}]),
