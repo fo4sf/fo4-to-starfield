@@ -1,0 +1,71 @@
+// Entirely synthetic FO4 records. Never reads game data.
+using Mutagen.Bethesda;
+using Mutagen.Bethesda.Plugins;
+using Mutagen.Bethesda.Plugins.Records;
+using Mutagen.Bethesda.Fallout4;
+
+var output = Path.GetFullPath(args[0]);
+if (File.Exists(output)) throw new IOException("fixture already exists");
+var release = Fallout4Release.Fallout4;
+var mk = ModKey.FromNameAndExtension("Synthetic.esm");
+var mod = new Fallout4Mod(mk, release);
+FormKey K(uint id) => new(mk, id);
+var block = new CellBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellBlock };
+var sub = new CellSubBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellSubBlock };
+block.SubBlocks.Add(sub);
+mod.Cells.Add(block);
+var cell = new Cell(K(0x800), release) { EditorID = "SelectedRoom" };
+sub.Cells.Add(cell);
+var selected = new PlacedObject(K(0x801), release);
+var neighbor = new PlacedObject(K(0x802), release);
+cell.Persistent.Add(selected);
+cell.Temporary.Add(neighbor);
+var arrayOnly = new PlacedObject(K(0x803), release);
+cell.Temporary.Add(arrayOnly);
+var vm = new QuestAdapter { Version = 5, ObjectFormat = 2 };
+ScriptObjectProperty Property(string name, FormKey target) => new()
+    { Name = name, Object = new FormLink<IFallout4MajorRecordGetter>(target), Alias = -1 };
+var script = new ScriptEntry { Name = "SyntheticQuestScript" };
+script.Properties.Add(Property("SelectedReference", selected.FormKey));
+script.Properties.Add(Property("SelectedCell", cell.FormKey));
+script.Properties.Add(Property("Neighbor", neighbor.FormKey));
+script.Properties.Add(Property("OtherPluginSameLocalId", new FormKey(ModKey.FromNameAndExtension("Other.esm"), 0x801)));
+script.Properties.Add(new ScriptStringProperty { Name = "NotALink", Data = "000801:Synthetic.esm" });
+var array = new ScriptObjectListProperty { Name = "Objects" };
+array.Objects.Add(Property("", arrayOnly.FormKey));
+script.Properties.Add(array);
+vm.Scripts.Add(script);
+var fragmentScript = new ScriptEntry { Name = "SyntheticFragmentScript" };
+fragmentScript.Properties.Add(Property("Cell", cell.FormKey));
+vm.Script = fragmentScript;
+vm.Fragments.Add(new QuestScriptFragment { Stage = 10, StageIndex = 0, ScriptName = "SyntheticStage", FragmentName = "Fragment_0" });
+var aliasScript = new ScriptEntry { Name = "SyntheticAliasScript" };
+aliasScript.Properties.Add(Property("Target", selected.FormKey));
+var alias = new QuestFragmentAlias { Version = 5, ObjectFormat = 2, Property = Property("", selected.FormKey) };
+alias.Scripts.Add(aliasScript);
+vm.Aliases.Add(alias);
+var quest = new Quest(K(0x810), release) { EditorID = "DirectQuest", Data = new QuestData(), VirtualMachineAdapter = vm };
+quest.Aliases = new();
+quest.Aliases.Add(new QuestReferenceAlias { ID = 0, Name = "Forced", ForcedReference = new FormLinkNullable<IPlacedGetter>(selected.FormKey) });
+quest.Aliases.Add(new QuestReferenceAlias { ID = 1, Name = "Runtime" });
+mod.Quests.Add(quest);
+var bait = new ScriptEntry { Name = "StringOnly" };
+bait.Properties.Add(new ScriptStringProperty { Name = "Text", Data = "000801:Synthetic.esm" });
+var baitVm = new QuestAdapter { Version = 5, ObjectFormat = 2 };
+baitVm.Scripts.Add(bait);
+mod.Quests.Add(new Quest(K(0x811), release) { EditorID = "StringOnlyQuest", Data = new QuestData(), VirtualMachineAdapter = baitVm });
+mod.Quests.Add(new Quest(K(0x812), release) { IsDeleted = true });
+var placedVm = new VirtualMachineAdapter { Version = 5, ObjectFormat = 2 };
+var placedScript = new ScriptEntry { Name = "PlacedScript" };
+placedScript.Properties.Add(Property("Cell", cell.FormKey));
+placedVm.Scripts.Add(placedScript);
+selected.VirtualMachineAdapter = placedVm;
+var packageScript = new ScriptEntry { Name = "PackageFragmentProperties" };
+packageScript.Properties.Add(Property("Cell", cell.FormKey));
+mod.Packages.Add(new Package(K(0x820), release) { EditorID = "SyntheticPackage",
+    VirtualMachineAdapter = new PackageAdapter { Version = 5, ObjectFormat = 2,
+        ScriptFragments = new PackageScriptFragments { Script = packageScript,
+            OnChange = new ScriptFragment { ScriptName = "PackageChange", FragmentName = "Change" } } } });
+Directory.CreateDirectory(Path.GetDirectoryName(output)!);
+mod.BeginWrite.ToPath(output).WithLoadOrderFromHeaderMasters().WithDataFolder(Path.GetDirectoryName(output)!).Write();
+Console.WriteLine(output);
