@@ -145,6 +145,21 @@ class SkinnedPanelTests(unittest.TestCase):
             return k and replace(k, indices=[(0, 1, 0, 0)] * len(k.weights))
         self.assertEqual(self.convert(f, shapes, skin)[1]["rig"], "native")
 
+    def test_slots_of_one_bone_with_different_binds_refuse(self):
+        """Codex on #354: .5/.5 over two slots of one bone, inverse translations 0 and 70: the weighted result sits 35
+        units from either bind, so no single bind can carry the piece."""
+        f = door_nif(sliding_panels())
+        panel_a = node_names(f)["PanelA"]
+        _, shapes, read_skin = self.skinned(f, panel_a, (0.5, 0.5, 0.0, 0.0), second=panel_a)
+
+        def skin(src, block):
+            k = read_skin(src, block)
+            return k and replace(k, indices=[(0, 1, 0, 0)] * len(k.weights),
+                                 skin_to_bone=[((0.0, 0.0, 0.0), (1, 0, 0, 0, 1, 0, 0, 0, 1), 1.0),
+                                               ((70.0, 0.0, 0.0), (1, 0, 0, 0, 1, 0, 0, 0, 1), 1.0)])
+        with self.assertRaisesRegex(nif.NifError, "cannot be rigged"):
+            self.convert(f, shapes, skin)
+
     def test_blended_or_off_rig_skins_still_refuse_the_door(self):
         f = door_nif(sliding_panels())
         names = node_names(f)

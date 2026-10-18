@@ -461,6 +461,17 @@ def _apply(transform, point):
     return tuple(s * (r[3 * i] * point[0] + r[3 * i + 1] * point[1] + r[3 * i + 2] * point[2]) + t[i] for i in range(3))
 
 
+BIND_TOLERANCE = 1e-4      # skin_to_bone entries that still count as one bind (float rounding)
+
+
+def _same_bind(a, b):
+    """Two (t, R, s) skin_to_bone transforms equal within BIND_TOLERANCE (relative for translation)."""
+    (ta, ra, sa), (tb, rb, sb) = a, b
+    scale = max(1.0, *(abs(x) for x in tuple(ta) + tuple(tb)))
+    return (all(abs(x - y) <= BIND_TOLERANCE * scale for x, y in zip(ta, tb))
+            and all(abs(x - y) <= BIND_TOLERANCE for x, y in zip(ra, rb)) and abs(sa - sb) <= BIND_TOLERANCE)
+
+
 RIGID_SKIN_TOLERANCE = 1e-3   # weight a rigid vertex may put on other bones: half-float rounding, not a blend
 # (Codex on #354: 0.995 / 0.005 across two bones was accepted and drifted 5 cm from real skinning at 10 m of travel)
 
@@ -471,7 +482,8 @@ def rigid_skinned_parts(src, shape, bones):
     Weight 1 on one bone makes skinning bone_world * skin_to_bone, so bone-local positions are skin_to_bone(stored) and a
     piece moves exactly as FO4 draws it, at any pose (RedRPedDoor.nif, PC check 2026-10-18: Door:0 is wholly on b_Door,
     Door:7 has 363 vertices on b_Door and 118 on b_Handle, none blended). A vertex putting more than
-    RIGID_SKIN_TOLERANCE of its weight on other bones (a blend), a triangle across two bones or a bone outside the rig
+    RIGID_SKIN_TOLERANCE of its weight on other bones (a blend), two slots of one bone with different skin_to_bone (the
+    weighted result is then not either bind; Codex on #354), a triangle across two bones or a bone outside the rig
     give None."""
     from . import fo4skin
     try:
@@ -487,7 +499,10 @@ def rigid_skinned_parts(src, shape, bones):
             if w:
                 if not 0 <= k < len(skin.bones):
                     return None
-                per_bone.setdefault(skin.bones[k], [0.0, k])[0] += w
+                entry = per_bone.setdefault(skin.bones[k], [0.0, k])
+                if k != entry[1] and not _same_bind(skin.skin_to_bone[k], skin.skin_to_bone[entry[1]]):
+                    return None                    # one bone, two different inverse binds: one bind cannot stand in
+                entry[0] += w
         total = sum(w for w, _ in per_bone.values())
         if total <= 0:
             return None
