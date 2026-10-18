@@ -30,9 +30,9 @@ the test), every planned cell border was crossed between two reads, at least bri
 deck with reads before and after it, nothing but the walk's own console commands was typed, no popup was seen and the
 screenshots exist. FAIL classes: BOUNDARY (the popup), FELL (through the terrain, or off the route's surface, e.g. the
 bridge), HEIGHTS (below the ground by more than z_tol), JUMP (a confirmed move no walk makes), OFFROUTE, STUCK.
-Everything else that keeps it from a PASS is INCONCLUSIVE (UNREAD, READ, OFFGROUND, HUDGAP, NOHUD, NOTREACHED,
-CROSSING, BRIDGE, NOSHOT, TYPED, START, ANCHOR, GROUND; LEGS and EVIDENCE when the leg records themselves cannot be
-trusted: evidence_problem, checked before any geometry).
+Everything else that keeps it from a PASS is INCONCLUSIVE (POPUP (any other popup), UNREAD, READ, OFFGROUND, HUDGAP,
+NOHUD, NOTREACHED, CROSSING, BRIDGE, NOSHOT, TYPED, START, ANCHOR, GROUND; LEGS and EVIDENCE when the leg records
+themselves cannot be trusted: evidence_problem, checked before any geometry).
 """
 import argparse
 import hashlib
@@ -439,6 +439,10 @@ def judge(test, obs, shot_ok, ground=None):
         used = parse3(x.get("used"))
         if x.get("popup") and re.search(r"BOUNDARY|REACHED", str(x.get("popup")), re.I):
             fails.append(("BOUNDARY", f"leg {n}: popup on screen: {str(x.get('popup'))[:80]!r}"))
+        elif x.get("popup"):
+            # qstep.ps1 also records FAST TRAVEL / PLANET MAP boxes: a menu over the walk is no proof the route failed,
+            # nor that it was walked (#214)
+            problems.append(("POPUP", f"leg {n}: popup on screen: {str(x.get('popup'))[:80]!r}"))
         if used is None:
             problems.append(("UNREAD", f"leg {n}: position not read"))
             held += int(x.get("hold_ms") or 0)
