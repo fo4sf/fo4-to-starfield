@@ -16,6 +16,10 @@ Whitelist (docs/ai/test-queue.md "Console commands before and after the travel";
   cgf "FO4SF_Probe.MoveTo" "<plugin>" <id> <dx> <dy> <dz>   returns for a plugin-local id, and the player moved to it
                                             (plus the offset) as FO4SF_LoadDoor.psc moves the player: MoveTo can load
                                             another cell, so qstep.ps1 waits for the HUD after it (is_moveto)
+  player.getav speedmult                    the run condition of a walk (2026-10-17): the first automated walk on
+  player.setav speedmult 100                1d4591b6 moved about 14 m/s against the calibrated 4.6 m/s, a speedmult
+                                            inherited from the save (supported hypothesis); the reset lasts the session
+                                            only (the runner never saves after the start). speedmult_condition judges it
 names and sections [A-Za-z0-9_]{1,64}, hours 0..23.99, numbers -?\\d{1,9}(.\\d{1,6})?, tags [A-Za-z0-9_.-]{1,40},
 plugins [A-Za-z0-9_.-]{1,60}.esm|esp|esl, plugin-local ids \\d{1,8} (decimal), offsets -?\\d{1,5}(.\\d{1,3})? (metres).
 
@@ -40,10 +44,19 @@ PATTERN = (rf'GetINI "{NAME}"|SetINI "{NAME}" -?\d{{1,9}}(?:\.\d{{1,6}})?|SetLoc
            # decimal id, and for MoveTo three offsets in metres (typed with a decimal point: whether the console turns
            # "0" into a float argument is not known)
            rf'|cgf "FO4SF_Probe\.Resolve" "{PLUGIN}" \d{{1,8}}'
-           rf'|cgf "FO4SF_Probe\.MoveTo" "{PLUGIN}" \d{{1,8}} {OFFSET} {OFFSET} {OFFSET}')
+           rf'|cgf "FO4SF_Probe\.MoveTo" "{PLUGIN}" \d{{1,8}} {OFFSET} {OFFSET} {OFFSET}'
+           # the player's movement speed multiplier: read it, and set it back to the default 100 (nothing else)
+           r'|player\.getav speedmult|player\.setav speedmult 100')
 CONSOLE_RE = re.compile(PATTERN)
 MOVETO_PREFIX = 'cgf "FO4SF_Probe.MoveTo" '
 PROBE_TRAVEL_PREFIXES = ('cgf "FO4SF_Probe.Resolve" ', MOVETO_PREFIX)
+SPEEDMULT_GET = "player.getav speedmult"
+SPEEDMULT_SET = "player.setav speedmult 100"
+# console_pre of a test planned with --speedmult: the value the save brought (reported), the reset, the value the test
+# starts with (judged: speedmult_condition)
+SPEEDMULT_PRE = [SPEEDMULT_GET, SPEEDMULT_SET, SPEEDMULT_GET]
+SPEEDMULT_DEFAULT = 100.0
+SPEEDMULT_TOL = 0.5
 CONSOLE_KEYS = ("console_pre", "console_post")
 MAX_COMMANDS = 12
 
@@ -61,6 +74,19 @@ def uses_probe_travel(test):
     """Whether a planned test types FO4SF_Probe.Resolve / MoveTo (runner feature probe_moveto)."""
     return any(isinstance(c, str) and c.startswith(PROBE_TRAVEL_PREFIXES)
                for k in CONSOLE_KEYS for c in (test.get(k) or []))
+
+
+def uses_speedmult(test):
+    """Whether a planned test reads the player's speedmult before the travel (runner feature speedmult)."""
+    return any(c in (SPEEDMULT_GET, SPEEDMULT_SET) for k in CONSOLE_KEYS for c in (test.get(k) or []))
+
+
+def with_speedmult(test):
+    """The test with SPEEDMULT_PRE first in its console_pre (plan-walk / plan-movable --speedmult)."""
+    pre = SPEEDMULT_PRE + [c for c in test.get("console_pre") or [] if c not in (SPEEDMULT_GET, SPEEDMULT_SET)]
+    if len(pre) > MAX_COMMANDS:
+        raise ValueError(f"console_pre with the speedmult lines has {len(pre)} commands, at most {MAX_COMMANDS}")
+    return dict(test, console_pre=pre)
 
 
 def console_fields(w, fail):
@@ -111,6 +137,7 @@ def _after(text, needle, start=0):
 
 
 VALUE_RE = re.compile(r"\s*>\s*>\s*(NOT\s*FOUND|'[^']*'|-?\d+(?:[.,]\d+)?)", re.I)
+SPEED_RE = re.compile(r"\s*>\s*>\s*(-?\d+(?:[.,]\d+)?)")          # numbers only: a speedmult is never a string
 
 
 def reply(cmd, ocr):
@@ -140,6 +167,17 @@ def reply(cmd, ocr):
             return {"status": "no reply", "value": None, "note": "" if echo is not None else "echo not read"}
         return {"status": "unread", "value": None, "note": "no INISetting reply read" +
                 ("" if echo is not None else " (echo not read)")}
+    if cmd == SPEEDMULT_GET:
+        # "GetActorValue: SpeedMult >> 100.00" (supported hypothesis: the form Fallout 4 and Skyrim print, not yet
+        # seen in a Starfield capture); a number after ">>" behind the actor value's name, read only after the
+        # command's echo (text without the echo may be an earlier command's reply still on the console)
+        if echo is None:
+            return {"status": "unread", "value": None, "note": "echo not read"}
+        at = _after(ocr, "SpeedMult >", start)
+        v = SPEED_RE.match(ocr, at - 1) if at is not None else None
+        if v:
+            return {"status": "value", "value": v.group(1).replace(",", "."), "note": ""}
+        return {"status": "unread", "value": None, "note": "no SpeedMult reply read"}
     if cmd.startswith(("SetLocalTime", "cgf")):
         err = re.search(r"SetLocalTime\s*only\s*works\s*on\s*a\s*planet|Invalid\s*time\s*[-\d.,]*\s*passed", ocr[start:],
                         re.I)
@@ -175,3 +213,42 @@ def summary(test, obs):
             items.append(f"{len(mine)} of {len(planned[key])} typed")
         parts.append(f"[console {phase}: " + "; ".join(items) + "]")
     return " ".join(parts), rows
+
+
+def speedmult_condition(test, obs):
+    """The run condition of a test whose console_pre reads the speedmult: None when it reads none; else
+    (ok, detail): ok only when every planned speedmult command up to the LAST planned read was typed, in its planned
+    place, and that last read is a number at the default 100 (within SPEEDMULT_TOL). Every read is named in the
+    detail (the first one, before a reset, is what the save brought). A missing, untyped or unread final read is not
+    ok: the walk's speed model and its JUMP / STUCK limits assume 100 (docs/terrain/walk-redrocket-sanctuary.md)."""
+    planned = list(test.get("console_pre") or [])
+    if SPEEDMULT_GET not in planned:
+        return None
+    final = max(i for i, c in enumerate(planned) if c == SPEEDMULT_GET)
+    got = [x for x in (obs or {}).get("console") or [] if isinstance(x, dict) and x.get("phase") == "pre"]
+    reads, last = [], None
+    for i, cmd in enumerate(planned[:final + 1]):
+        if cmd not in (SPEEDMULT_GET, SPEEDMULT_SET):
+            continue
+        x = got[i] if i < len(got) else None
+        if x is None or x.get("cmd") != cmd:
+            reads.append("not typed")
+            last = None
+            continue
+        if cmd == SPEEDMULT_SET:
+            reads.append("set 100")
+            continue
+        r = reply(SPEEDMULT_GET, x.get("ocr"))
+        try:
+            last = float(r["value"]) if r["status"] == "value" else None
+        except (TypeError, ValueError):
+            last = None
+        reads.append("unread" if last is None else f"{last:g}")
+    shown = ", ".join(reads)
+    if "not typed" in reads:
+        return False, f"speedmult not read before the travel ({shown})"
+    if last is None:
+        return False, f"speedmult unread at the start ({shown})"
+    if abs(last - SPEEDMULT_DEFAULT) > SPEEDMULT_TOL:
+        return False, f"speedmult {last:g} at the start, not {SPEEDMULT_DEFAULT:g} ({shown})"
+    return True, f"speedmult {last:g} at the start ({shown})"

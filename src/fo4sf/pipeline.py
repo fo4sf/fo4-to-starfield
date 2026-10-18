@@ -26,6 +26,12 @@ NOT_HINGED_RE = re.compile(r"vault|elevator|garage|gate|hatch|slid", re.I)   # s
 # the wall (Parsons: walked through the entrance door, fell to z -72), so they stay shut and solid with their native
 # collision. The plugin writer (dotnet/PluginSpike) makes them DOOR records and writes the teleport link on both references
 # when both ends are placed in the same build; the per-asset "load_door" entry carries the model bounds for that record.
+# Animated FO4 objects that open like a door but name their clips otherwise (model basename -> {FO4 sequence: door clip}):
+# the Vault 111 cog door VltGearDoor01, an Activator whose quest plays Stage2 (43.3 s: the cog rolls back and aside, the
+# catwalk slides out; docs/spikes/B4-mission-anatomy.md "cog door": GO as a door rig). It gets its own rig with Stage2 as
+# Open and Stage2 backwards as Close; the plugin writer makes it a DOOR as any rigged model. Its skinned shapes cannot ride
+# a rig and are left out (listed in the manifest). If the rig fails it stays the solid static it was, never passable.
+OWN_RIG_ALIASES = {"vltgeardoor01.nif": {"Stage2": "Open"}}
 LOAD_DOOR_RE = re.compile(r"door[^\\/]*load[^\\/]*\.nif$|load[^\\/]*door[^\\/]*\.nif$", re.I)
 # BSLightingShaderProperty flags1 bit 15 (nif.xml Fallout4ShaderPropertyFlags1 "Refraction"): heat shimmer over fires and
 # machines, water streams in sinks and fountains. FO4 draws such a shape as a screen-space distortion; its texture set holds
@@ -98,8 +104,12 @@ class Converter:
                  collision_template: Optional[bytes] = None, prefix: str = "fo4port",
                  no_collision_pattern: str = r"^meshes[\\/](architecture|interiors|scol)[\\/]", rig_doors: bool = False,
                  door_physics_donor: Optional[bytes] = None, sf_mesh_template: Optional[bytes] = None,
-                 dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None):
+                 dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None,
+                 spec_mask_roughness: bool = False):
         self.src, self.staging, self.texconv = src, staging, texconv_exe
+        # spec_mask_roughness: roughness also follows FO4's specular mask (smooth-spec R), not only its gloss (G); off by
+        # default so existing builds and checkpoints keep their textures (owner's Vault 111 floor report, 2026-10-17)
+        self.spec_mask_roughness = spec_mask_roughness
         # door_anim_dll: the external CALUMI.Animation library (not distributed). With it, rigged doors that move more
         # than one part (frozen_door_parts) get their own rig and Open/Close clips instead of the single-hinge template,
         # and sliding / lifting / trapdoor families (NOT_HINGED_RE) get one instead of staying passable.
@@ -129,6 +139,7 @@ class Converter:
         self._blend_cache: Dict[str, bool] = {}
         self._glass_template = None
         self._decal_template = None
+        self._two_sided_template = None
         self.content_resources = content_resources
         self.neutral = self._make_neutral_material()
 
@@ -201,7 +212,7 @@ class Converter:
         rel = re.sub(r"^materials[\\/]", "", bgsm_path.replace("\\", "/"), flags=re.I)
         return self._convert_texture_set(os.path.splitext(rel)[0].lower(), b.diffuse, b.normal, b.smooth_spec,
                                          smoothness=b.smoothness, spec_mult=b.spec_mult,
-                                         alpha_test=b.alpha_test, alpha_ref=b.alpha_ref)
+                                         alpha_test=b.alpha_test, alpha_ref=b.alpha_ref, two_sided=b.two_sided)
 
     def decal_material(self, bgsm_path: str) -> Optional[str]:
         """Alpha-blended FO4 material -> Starfield decal material (or None: the shape is skipped, as before decals)."""
@@ -262,10 +273,15 @@ class Converter:
 
     def _convert_texture_set(self, stem: str, diffuse: str, normal: str, spec: str,
                              smoothness: float = 1.0, spec_mult: float = 1.0,
-                             alpha_test: bool = False, alpha_ref: int = 128, decal: bool = False) -> str:
+                             alpha_test: bool = False, alpha_ref: int = 128, decal: bool = False,
+                             two_sided: bool = False) -> str:
         """FO4 diffuse / normal / smooth-spec textures -> Starfield colour / normal / rough DDS + a .mat. Spec is optional.
         decal: alpha-blended overlay; the diffuse alpha always becomes the opacity map and the .mat is cloned from the
-        vanilla decal template (cm.DECAL_TEMPLATE_MAT) so it blends over the surface behind it."""
+        vanilla decal template (cm.DECAL_TEMPLATE_MAT) so it blends over the surface behind it.
+        alpha_test with a real opacity map: clone ConduitKit01TwoSided (shader TwoSided1Layer) instead of
+        the opaque metal template, which ignored the cutout and drew leaf cards as black slabs.
+        two_sided is accepted for DryConverter's signature; opacity still requires alpha_test or decal
+        (FO4 two-sided materials without alpha test are not cutouts)."""
         import numpy as np
         tex_rel = f"textures/{self.prefix}/{stem}"
         d, n = self.src.texture(diffuse), (self.src.texture(normal) if normal else None)
@@ -276,7 +292,7 @@ class Converter:
         with tempfile.TemporaryDirectory() as tmp:
             open(os.path.join(tmp, "d.dds"), "wb").write(d)
             opacity = None
-            if alpha_test or decal:                        # cutout / blend: the diffuse alpha becomes a BC4 opacity map
+            if alpha_test or decal:                        # FO4 alpha is opacity only when alpha-tested or a decal
                 open(os.path.join(tmp, "a.dds"), "wb").write(d)
                 textures.texconv(self.texconv, os.path.join(tmp, "a.dds"), tmp, "R8G8B8A8_UNORM", ("-m", "1"))
                 raw_a = open(os.path.join(tmp, "a.dds"), "rb").read()
@@ -296,8 +312,9 @@ class Converter:
             textures.write_rg8_snorm(os.path.join(tmp, "n_in.dds"), nr, ng)
             textures.texconv(self.texconv, os.path.join(tmp, "n_in.dds"), tmp, "BC5_SNORM")
             if s is not None:
-                _sr, sg = _plane_pair(s, tmp, self.texconv)
-                rough = textures.roughness_from_smoothness(sg, smoothness, spec_mult)
+                sr, sg = _plane_pair(s, tmp, self.texconv)
+                rough = textures.roughness_from_smoothness(sg, smoothness, spec_mult,
+                                                           mask=sr if self.spec_mask_roughness else None)
             else:                                          # no spec map: uniformly fairly rough
                 rough = np.full((max(4, nr.shape[0] // 4), max(4, nr.shape[1] // 4)), 190, dtype=np.uint8)
             textures.write_r8(os.path.join(tmp, "r_in.dds"), rough)
@@ -314,6 +331,14 @@ class Converter:
             mat = cm.build_from_template(self._decal_template, "FO4Port_" + re.sub(r"[^a-z0-9]+", "_", stem),
                                          {"Albedo": out["color"], "Normal": out["normal"], "Roughness": out["rough"],
                                           "Opacity": out["opacity"]})
+        elif out.get("opacity"):
+            # leaf cards / vines / fences: TwoSided1Layer honours slot-2 opacity; MetalIronCast01 did not
+            if self._two_sided_template is None:
+                self._two_sided_template = cm.read_template_path(self.content_resources, cm.TWO_SIDED_TEMPLATE_MAT)
+            mat = cm.build_from_template(self._two_sided_template, "FO4Port_" + re.sub(r"[^a-z0-9]+", "_", stem),
+                                         {"Albedo": out["color"], "Normal": out["normal"], "Roughness": out["rough"],
+                                          "Opacity": out["opacity"]},
+                                         alpha_threshold=alpha_ref / 255.0, metalness=0.0)
         else:
             mat = cm.build_mat(self.template_mat, "FO4Port_" + re.sub(r"[^a-z0-9]+", "_", stem), out["color"], out["normal"],
                                out["rough"], opacity=out.get("opacity"), alpha_threshold=alpha_ref / 255.0)
@@ -488,10 +513,13 @@ class Converter:
             seq_names = [struct.unpack_from("<i", src.blocks[i], 0)[0] for i in range(len(src.blocks))
                          if src.type_of(i) == "NiControllerSequence"]
             animated = any(0 <= s < len(src.strings) and src.strings[s] == b"Open" for s in seq_names)
+            aliases = OWN_RIG_ALIASES.get(re.split(r"[\\/]", nif_name)[-1].lower())
+            if aliases and not any(0 <= s < len(src.strings) and src.strings[s].decode("latin-1") in aliases for s in seq_names):
+                aliases = None                           # not the model the table means (no such clip)
             use_box = self.collision_template is not None
             coll_report = {}
             files = None
-            if pose is None and self.rig_doors and self.door_physics_donor is not None and DOOR_RE.search(nif_name) and not NOT_HINGED_RE.search(nif_name) and not load_door and nif.door_hinge(src):
+            if pose is None and self.rig_doors and self.door_physics_donor is not None and DOOR_RE.search(nif_name) and not NOT_HINGED_RE.search(nif_name) and not aliases and not load_door and nif.door_hinge(src):
                 # Parts FO4 moves outside the first animated node (second leaf, shutter, other sliding panels) cannot
                 # hang under the template's single hinge: with the CALUMI library such a door gets its own rig and
                 # clips (one track and one keyframed body per part, as vanilla double doors); without it the template
@@ -520,8 +548,9 @@ class Converter:
                             res["door_frozen_parts"] = frozen
                     except Exception as e:               # noqa: BLE001  (falls back to a static door)
                         res["door_error"] = (res["door_error"] + "; " if "door_error" in res else "") + f"{type(e).__name__}: {e}"
-            elif (pose is None and self.rig_doors and self.door_physics_donor is not None and self.door_anim_dll and animated
-                  and not load_door and DOOR_RE.search(nif_name) and NOT_HINGED_RE.search(nif_name)):
+            elif (pose is None and self.rig_doors and self.door_physics_donor is not None and self.door_anim_dll
+                  and (animated or aliases) and not load_door
+                  and (aliases or (DOOR_RE.search(nif_name) and NOT_HINGED_RE.search(nif_name)))):
                 # Sliding, lifting and trapdoor families (vault doors, elevator doors, hatches) cannot hang under the
                 # template's vertical hinge, and no vanilla door moves like them; vanilla sliding doors play the same graph
                 # (SimpleOpenClose01.agx) with their own rig and clips (docs/spikes/sliding-doors.md). So such a door gets
@@ -533,13 +562,13 @@ class Converter:
                     files, res["door"] = convert_static.convert_multipart_door(
                         raw, out_name, mats, lambda plan, scale: native_door.export_files(plan, self.door_anim_dll, scale),
                         collision_template=self.collision_template, leaf_physics_donor=self.door_physics_donor,
-                        rest_pose_check=True)
+                        rest_pose_check=True, aliases=aliases, drop_skinned=bool(aliases))
                 except Exception as e:                   # noqa: BLE001  (falls back to the passable static door)
                     files = None
                     res.pop("door", None)
                     res["door_error"] = f"own rig: {type(e).__name__}: {e}"
             if files is None:
-                if animated and not load_door and DOOR_RE.search(nif_name):
+                if animated and not aliases and not load_door and DOOR_RE.search(nif_name):
                     use_box = False
                     res["door_not_opening"] = "open animation not ported: passable"
                 files = convert_static.convert_static(raw, out_name, material_paths=mats, collision_mode=mode,

@@ -1442,6 +1442,27 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
 
+## 2026-10-16: preserve full source-plugin identity in container groups (Codex)
+
+Offline synthetic review of merged1670f128805: disabled-reference refusal and metadata agreement work, but
+plugin punctuation/extensions still alias distinct source bases. Three unit controls and all three actual-writer
+plugin-pair subcases reproduce the failure. The identity helper now retains unambiguous legacy names and uses
+the full key for other groups, normalizing ASCII case without Unicode expansion, with a separate collision refusal.
+Four actual-writer methods verify distinct CONTs and preserved original REFR IDs/data/flags/parents.
+See [the identity follow-up](testing/container-reference-identities.md#full-source-plugin-grouping-follow-up).
+No C# writer, production stage, game input or save changed. Peer review/integration remain pending; existing
+mixed-plugin aliases and future promoted-base migrations are not repaired retroactively.
+
+### 2026-10-16: Codex extends full-source grouping to MISC
+
+Merged current main into the owned PR176 branch after PR235 introduced shared CONT/MISC
+promotion. Resolved the identity helper conflict by preserving both class wrappers and
+full canonical source keys; added the same explicit collision refusal to loose items.
+Five synthetic methods produce 13 failing subcases on PR235's reviewed caller; all58
+focused Python checks pass with the fix. The compiled-writer tests now include three
+MISC source-plugin pairs, preserving original reference slots and serialized placement.
+Private evidence: promoted-identity-176-20261016. No writer source, staging or live changes;
+independent review remains required. This does not fix the separate NaN output-check finding.
 ## 2026-10-16: Codex native bases for persistent door relationships
 
 The owner's persistent-door priority led back to PR174's actual ReferenceLinks
@@ -1635,6 +1656,17 @@ snapshots tagged owner-button). Lessons: a Bash heredoc here turns \\r \\n escap
 written script; gate commits on tests); a background workflow can die silently (check the transcripts' modification
 times); the owner's three-line console paste became one line (give one line per command).
 
+## 2026-10-17: Grok playtest textures, row 11 vines (offline)
+
+Starfield 1.16.244, convert dir `terrain_core64c_work_fix3` (read-only). Hanging vines (`vinehanging06/07`,
+`vinecreeper*`) use `vine.mat`: opacity slot 2 and AlphaSettings were already written, but the material still clones
+`MetalIronCast01` / `PlasticPlainSmooth01` (one-sided opaque). Vanilla foliage uses `TwoSided1Layer`.
+`Summary.Layer1.Textures` had no Opacity key. `vine_color.dds` luma 3.8 because 85% of the card is BC1-black
+cutout. Converter now clones `ConduitKit01TwoSided.mat` whenever an opacity map exists, writes Summary Opacity, and
+zeroes metalness. Synthetic tests in `tests/test_materials.py`. In-game check is Claude's after a reconvert of the
+vine family into a scratch folder. Rows 13 (bright wall albedo luma 184) and 15 (dark canvasswap luma 29) are
+separate root causes, not this PR.
+
 ## 2026-10-17: Grok map-marker research (playtest row 7)
 
 Starfield 1.16.244. Offline walk of `Starfield.esm` and pinned `FO4TerrainCore.esm`. Starfield has no `MAPM` group;
@@ -1646,6 +1678,12 @@ so the pinned overlay LCTN has empty `LCSR`/`LCID` and 0 MapMarker refs among 65
 Plan: restore one persistent MapMarker at the Red Rocket COC with LC172 `FNAM`/`TNAM`, one `LCSR` + `LCID`; do not stamp
 a PCM landing overlay. Frontier hang after that restore is **unresolved** (Claude in-game). FO4 `XMRK` **unresolved**.
 Evidence: [docs/terrain/map-markers.md](terrain/map-markers.md), `src/fo4sf/map_markers.py`, `tests/test_map_markers.py`.
+
+Writer (same day, `grok/map-marker-restore`): TerrainOverlays Duplicates LC172's MapMarker `REFR` `003E5E12`, sets it
+persistent+initially-disabled (`0xC00`) at the COC spawn, `FULL` "Red Rocket", `LCSR` MapMarkerRefType + `LCID` with
+Grid from spawn_cell and Unknown -1 (`0xFFFFFFFF` tail). Skips when the master has no `003E5E12`. New FormIDs after
+doors/lights. In-game overlay: Claude.
+
 ## 2026-10-16 (night, Mountain time) - Claude: Step 0 probes and the first scripted door
 
 **Probes (queues door_probe_1017 and door_probe_1017e; bridge_t2; core64i / core64k; Starfield 1.16.244).**
@@ -1725,6 +1763,7 @@ PNDT 11 entries including our WRLD; no `lodsettings`; 0 `meshes/lod/generated`; 
 `meshes/fo4core/lod`. The 3D surface map is the May 2024 loading-zone camera, not a mesh we author. GO: marker (#296
 after LCSR `FFFFFFFF`) then CK object LOD; NOT go: custom planet or map renderer this stage.
 Evidence: [docs/terrain/surface-map.md](terrain/surface-map.md), `src/fo4sf/surface_map.py`, `tests/test_surface_map.py`.
+
 ## 2026-10-17: Codex raw light-patch bounds (offline)
 
 Independent PR302 review reproduced a malformed DAT2 declaration extending beyond
@@ -1747,6 +1786,16 @@ record layout. Both reject before byte/lumens comparison and retain both inputs.
 Removing only B validation causes both cases to fail. All 31 focused light-patch
 and FO4-light tests pass; guard and whitespace checks pass. Production source is
 unchanged; final test-delta review is pending. No native or staging run.
+
+## 2026-10-17: Grok #288 review fixes (offline)
+
+Codex/Claude on a77edfa: `build_from_template(..., metalness=0)` only updated an existing TextureReplacement
+index 4. ConduitKit01TwoSided has none (only MRTextureFile index 4 = conduit metal), so vine.mat kept the metal
+map and Summary said UseReplacement/0 — the 2026-10-08 metallic-summary shape. Now the writer drops that metal
+file and appends an enabled replacement (MetalIronCast01's shape). Opacity maps stay gated on `alpha_test or
+decal`; `two_sided` alone no longer cuts out cars/glass (40 FO4 two-sided materials without alpha test).
+DryConverter._texture_set accepts `two_sided` so a core64c dry run no longer TypeErrors every BGSM. One-sided
+FO4 cutouts (hair, chain-link) still clone TwoSided1Layer when they have an opacity map. In-game still Claude.
 
 ## 2026-10-17: Grok playtest 21/24 (garage button + object LOD)
 
@@ -1775,3 +1824,5 @@ item; it turns both FO4 garage meshes into passable statics because RedRGarageDo
 rigger refuses it. Alias, door_motion Opening sequences, door_rig.alias_clips, and the alias test are
 out. Button wiring, docs, and Codex's #319 actual-writer test stay. Garage NIF rig is later, Claude on
 the build side. No deploy, no game.
+
+- **2026-10-18 Codex PR176 main merge:** retained six owned identity functions and109 current-main function bodies (excluding docs). Updated two stale ACTI/workshop tests from expecting punctuation aliases to checking distinct bases/original slots, retaining injected-collision refusal.89 initial Python passes plus two corrected reruns cover91 cases; eight actual-writer tests pass, including new ACTI/TERM/workshop identity, NAME/ref-slot and terminal-menu controls. Six parent-main helper alias counterexamples reproduced. Two existing C# warnings remain. Original failures and synthetic outputs retained privately; no live stage or save migration, independent integration QA pending.
