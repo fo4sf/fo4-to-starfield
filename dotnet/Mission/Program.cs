@@ -582,6 +582,17 @@ static class Mission
         return list;
     }
 
+    static string CondSig(SF.IConditionGetter c)
+    {
+        string param = c.Data switch
+        {
+            SF.IGetIsIDConditionDataGetter g => g.FirstParameter.Link.FormKey.ToString(),
+            SF.IGetIsSexConditionDataGetter g => g.FirstParameter.ToString(),
+            _ => "unsupported",
+        };
+        return $"{c.Data.GetType().Name.Replace("BinaryOverlay", "")} {c.Data.RunOnType} {c.CompareOperator} {(c as SF.IConditionFloatGetter)?.ComparisonValue} {c.Flags} {param}";
+    }
+
     /// The model path written the way the vanilla one is: with its "Meshes\" prefix when it has one (rel is relative to
     /// Data\Meshes).
     public static string ModelPath(string vanilla, string rel)
@@ -683,12 +694,10 @@ static class Mission
                 {
                     var info = infos[i];
                     var r = info.Responses.Count == 1 ? info.Responses[0] : null;
-                    bool saidByHim = info.Conditions.Any(c => c.Data is SF.IGetIsIDConditionDataGetter g && g.RunOnType == SF.Condition.RunOnType.Subject
-                                                             && g.FirstParameter.Link.FormKey == cods?.FormKey && (c as SF.IConditionFloatGetter)?.ComparisonValue == 1);
-                    var sexes = info.Conditions.Select(c => c.Data).OfType<SF.IGetIsSexConditionDataGetter>().Select(g => g.FirstParameter).ToList();
-                    bool sexOk = want[i].Sex is null ? sexes.Count == 0 : sexes.Count == 1 && sexes[0] == (want[i].Sex == "male" ? MaleFemaleGender.Male : MaleFemaleGender.Female);
+                    // the whole condition list, in order: kind, run-on, operator, value, flags (OR grouping) and parameter (Codex 5565463917)
+                    bool condsOk = cods is not null && info.Conditions.Select(CondSig).SequenceEqual(VoiceConditions(cods.FormKey, want[i].Sex).Select(CondSig));
                     Need(info.FormKey.ID == FirstCodsworthInfoId + i && r is not null && r.WEMFile == want[i].Wem && r.ResponseText?.String == want[i].Text
-                         && saidByHim && sexOk, $"INFO 0x{FirstCodsworthInfoId + i:X} is not line {want[i].Fo4Info}_{want[i].Response} (text, wem, said by Codsworth, sex)");
+                         && condsOk, $"INFO 0x{FirstCodsworthInfoId + i:X} is not line {want[i].Fo4Info}_{want[i].Response} (text, wem, conditions: said by Codsworth, sex)");
                 }
             }
             Need(q.Stages.LastOrDefault()?.LogEntries.Any(l => l.Flags?.HasFlag(SF.QuestLogEntry.Flag.CompleteQuest) == true) == true, "stage 200 does not complete the quest");
@@ -849,6 +858,11 @@ static class Mission
                 ("a line said by anyone", m => m.Quests.First().DialogTopics[0].Responses[0].Conditions.Clear()),
                 ("a sir line for either sex", m => m.Quests.First().DialogTopics[0].Responses[1].Conditions.RemoveAt(1)),
                 ("a line's text changed", m => m.Quests.First().DialogTopics[0].Responses[2].Responses[0].ResponseText = "Sir?"),
+                ("said by anyone but him", m => m.Quests.First().DialogTopics[0].Responses[0].Conditions[0].CompareOperator = SF.CompareOperator.NotEqualTo),
+                ("sex read on the speaker", m => m.Quests.First().DialogTopics[0].Responses[1].Conditions[1].Data.RunOnType = SF.Condition.RunOnType.Subject),
+                ("sex value 0", m => ((SF.ConditionFloat)m.Quests.First().DialogTopics[0].Responses[1].Conditions[1]).ComparisonValue = 0),
+                ("sex operator NotEqualTo", m => m.Quests.First().DialogTopics[0].Responses[2].Conditions[1].CompareOperator = SF.CompareOperator.NotEqualTo),
+                ("conditions ORed", m => m.Quests.First().DialogTopics[0].Responses[1].Conditions[0].Flags = SF.Condition.Flag.OR),
             };
             foreach (var (name, edit) in voiceMutations)
             {
