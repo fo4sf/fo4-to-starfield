@@ -383,6 +383,12 @@ function Item-Capture([string[]]$cmds, [string[]]$need, [string]$tag = 'item') {
   }
   return $r
 }
+function Self-Other([string]$self, [string]$ref) {
+  # GetSelf, after prid <ref>, named another ref than <ref>. 00000000 names none: form id 0 is never a reference. The
+  # movable queue of 2026-10-18 read GetSelf 00000000 after prid of every placed vanilla item but the first and called
+  # them all "another ref is selected" (INCONCLUSIVE SPAWN); GetIsID <base> 1 and the position still decide
+  return [bool]($self -and ($self -ne $ref) -and ($self -notmatch '^0{8}$'))
+}
 function Select-Item([string]$ref, [string]$base, [string]$tag = 'item') {
   # console open, prid <ref>, GetIsID <base> must read 1 (a second try only repeats the session: an OCR miss). Returns
   # with the console OPEN and the item's read, or closes the console and returns $null
@@ -555,6 +561,14 @@ switch ($kind) {
     Console-Open
     $r1 = Item-Capture @('plr') @('ref') 'spawn_plr'
     $pk = [ordered]@{ 'ref' = $null; self = $null; isid = $null; read = $null; place_ocr = $s0.ocr; plr_ocr = $r1.ocr }
+    if ("$($r1.ref)" -cnotmatch '^FF[0-9A-F]{6}$') {
+      # PickLastRef named no FFxxxxxx id (the movable queue of 2026-10-18, every converted item): once more after the
+      # game ran another 2 s (N0_base: plr named the citizen only after the game had run). Its OCR is kept either way
+      Send 'key:grave|wait:2000'
+      Console-Open
+      $r1 = Item-Capture @('plr') @('ref') 'spawn_plr2'
+      $pk['plr2_ocr'] = $r1.ocr
+    }
     if ("$($r1.ref)" -cmatch '^FF[0-9A-F]{6}$') {
       $pk['ref'] = "$($r1.ref)"
       $r2 = Item-Capture @("prid $($pk['ref'])", 'GetSelf') @('self') 'spawn_self'
@@ -568,7 +582,7 @@ switch ($kind) {
     $why = @()
     if (-not $pk['ref']) { $why += 'PickLastRef gave no FFxxxxxx id' }
     else {
-      if ($pk['self'] -and $pk['self'] -ne $pk['ref']) { $why += "after prid $($pk['ref']) GetSelf named $($pk['self']): another ref is selected" }
+      if (Self-Other $pk['self'] $pk['ref']) { $why += "after prid $($pk['ref']) GetSelf named $($pk['self']): another ref is selected" }
       if ($pk['isid'] -ne 1) { $why += "GetIsID $base read $(if ($null -eq $pk['isid']) { 'nothing' } else { $pk['isid'] })" }
       if ($null -eq $dist) { $why += 'its position was not read' }
       elseif ($dist -gt $handleTol) { $why += "it lies $([math]::Round($dist, 2)) m from the spot (more than $handleTol m)" }
@@ -1061,7 +1075,7 @@ switch ($kind) {
     $why = @()
     if (-not $pk['ref']) { $why += 'PickLastRef gave no FFxxxxxx id' }
     else {
-      if ($pk['self'] -and $pk['self'] -ne $pk['ref']) { $why += "after prid $($pk['ref']) GetSelf named $($pk['self']): another ref is selected" }
+      if (Self-Other $pk['self'] $pk['ref']) { $why += "after prid $($pk['ref']) GetSelf named $($pk['self']): another ref is selected" }
       if ($pk['isid'] -ne 1) { $why += "GetIsID $npc read $(if ($null -eq $pk['isid']) { 'nothing' } else { $pk['isid'] })" }
       if ($null -eq $dist) { $why += 'its position was not read' }
       elseif ($dist -gt $handleTol) { $why += "it stands $([math]::Round($dist, 2)) m from the player at A (more than $handleTol m)" }
@@ -1141,7 +1155,7 @@ switch ($kind) {
       $pk2 = Pick-Npc 'remove'
       $da = Dist-XY $pk2['read'] $ax $ay; $db = Dist-XY $pk2['read'] $bx $by
       $near = ($null -ne $da) -and ([Math]::Min($da, $db) -lt 40)
-      $selfOk = (-not $pk2['self']) -or ($pk2['self'] -eq $pk2['ref'])
+      $selfOk = -not (Self-Other $pk2['self'] $pk2['ref'])
       $same = $pk2['ref'] -and ($pk2['ref'] -eq $spawnRef) -and $spawnNear -and ($pk2['self'] -eq $pk2['ref'])
       $ok = $pk2['ref'] -and $selfOk -and $near -and (($pk2['isid'] -eq 1) -or $same)
       $clean['by_plr'] = [ordered]@{ 'ref' = $pk2['ref']; self = $pk2['self']; isid = $pk2['isid']; read = $pk2['read']; near = $near }

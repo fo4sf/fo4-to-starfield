@@ -337,7 +337,7 @@ class NpcStepScriptTests(unittest.TestCase):
         block = npc_block()
         rid = block[block.index("$pk2 = Pick-Npc 'remove'"):block.index("if ($sel) {\n      $d = Npc-Capture")]
         self.assertIn("[Math]::Min($da, $db) -lt 40", rid)
-        self.assertIn("$selfOk = (-not $pk2['self']) -or ($pk2['self'] -eq $pk2['ref'])", rid)
+        self.assertIn("$selfOk = -not (Self-Other $pk2['self'] $pk2['ref'])", rid)
         # GetIsID 1, or the very ref PickLastRef named at the spawn, at the player's feet, that GetSelf names
         self.assertIn("($pk2['ref'] -eq $spawnRef) -and $spawnNear -and ($pk2['self'] -eq $pk2['ref'])", rid)
         self.assertIn("$pk2['ref'] -and $selfOk -and $near -and (($pk2['isid'] -eq 1) -or $same)", rid)
@@ -363,7 +363,7 @@ class NpcStepScriptTests(unittest.TestCase):
     def test_the_walk_needs_a_confirmed_handle(self):
         block = npc_block()
         conf = block[block.index("$why = @()"):block.index("$confirmed = ($why.Count -eq 0)")]
-        for need in ("PickLastRef gave no FFxxxxxx id", "$pk['self'] -ne $pk['ref']", "$pk['isid'] -ne 1",
+        for need in ("PickLastRef gave no FFxxxxxx id", "(Self-Other $pk['self'] $pk['ref'])", "$pk['isid'] -ne 1",
                      "its position was not read", "$dist -gt $handleTol"):
             self.assertIn(need, conf, need)
         self.assertLess(block.index("$confirmed = ($why.Count -eq 0)"), block.index("if ($confirmed) {"))

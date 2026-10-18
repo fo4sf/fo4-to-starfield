@@ -634,7 +634,10 @@ on it.
    `spawn_wait_ms` (2 s) of game time.
 2. `plr` alone: the id in `PickLastRef: (FFxxxxxx)` after this session's start, 8 hex digits starting `FF`; nothing
    further is typed without it.
-3. `prid <id>`, `GetSelf`: GetSelf must not name another ref (N0_base's `0024A824`); unread is allowed.
+3. `prid <id>`, `GetSelf`: GetSelf must not name another ref (N0_base's `0024A824`); unread is allowed, and so is
+   `00000000` (form id 0 is never a ref: the movable queue of 2026-10-18 read it after `prid` of placed vanilla items,
+   supported hypothesis that the game prints it for a ref it does not name). For a movable item a `plr` that names
+   no `FFxxxxxx` id is typed once more after the game ran another 2 s.
 4. `GetIsID <npc>` must read 1; `getpos x/y/z` must put the ref within `handle_tol` (2 m) of the player's read at A
    (placeatme puts it at the player's feet).
 

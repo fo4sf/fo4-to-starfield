@@ -2356,8 +2356,8 @@ def movable_timeout(test):
     """Worst case of a movable / movable_control step: every impulse is one confirmed selection (Select-Item: up to two
     sessions), the impulse line in its own capture, impulse_wait_ms with the console closed and a confirmed read (two
     sessions). movable_control adds the coc arrival read until it settles, the player to the spot and its read, the
-    placeatme session with the player's move to the park point, spawn_wait_ms, the handle (plr; prid + GetSelf; GetIsID +
-    getpos), the GetMass probe and SetRigidBodyMass (one selection and a capture each; after SetRigidBodyMass the console
+    placeatme session with the player's move to the park point, spawn_wait_ms, the handle (plr, once more after 2 s when
+    it named no id; prid + GetSelf; GetIsID + getpos), the GetMass probe and SetRigidBodyMass (one selection and a capture each; after SetRigidBodyMass the console
     closed MASS_WAIT_MS, a second selection and the probe again), the player to the stand point and its read, the
     confirmed reads before and after the walk, and the removal (a selection, disable, markfordelete)."""
     per_imp = 4 * NPC_SESSION_S + test.get("impulse_wait_ms", 3000) / 1000 + 10
@@ -2371,6 +2371,7 @@ def movable_timeout(test):
              + 2 * (30 + test.get("settle_ms", 1500) / 1000 + NPC_READ_S)   # the player to the spot and to the stand
              + NPC_SESSION_S + 15 + test.get("spawn_wait_ms", 3000) / 1000    # placeatme, the move to the park point
              + 3 * NPC_SESSION_S + 10                           # the handle: plr; prid + GetSelf; GetIsID + getpos
+             + NPC_SESSION_S + 2                                # plr again after 2 s when it named no FFxxxxxx id
              + mass
              + 2 * (2 * NPC_SESSION_S) + 10                     # the item read before and after the walk, two shots
              + test.get("walk_ms", 900) / 1000 + 2 + NPC_READ_S  # the walk and the player's read after it
