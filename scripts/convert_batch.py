@@ -150,6 +150,129 @@ def write_json_atomic(path, value):
             os.remove(temporary)
 
 
+def retry_failed_nifs(summary):
+    """Exact previous-failure identities, or None if the summary cannot drive a retry."""
+    names = summary.get("failed_nifs") if isinstance(summary, dict) else None
+    if not isinstance(names, list) or any(not isinstance(n, str) or not n for n in names):
+        return None
+    seen, ordered = set(), []
+    for n in names:
+        if n not in seen:
+            seen.add(n)
+            ordered.append(n)
+    return ordered
+
+
+def item_identity(it):
+    """Base vs posed-variant identity. XRGD rows share source with the base and must stay distinct."""
+    src = it.get("source") if isinstance(it, dict) else None
+    if not isinstance(src, str) or not src:
+        return None
+    key = source_identity(src)
+    pose = it.get("pose") if isinstance(it.get("pose"), dict) else None
+    if pose:
+        kind = pose.get("kind")
+        pk = pose.get("key")
+        if isinstance(kind, str) and kind and pk not in (None, ""):
+            return (key, kind, str(pk))
+    return (key, "", "")
+
+
+def retry_nif_identity(nif):
+    """Canonical identity for a failed_nifs / failure nif string. Pose rows are source|kind:key."""
+    if not isinstance(nif, str) or not nif:
+        return None
+    if "|" in nif:
+        src, rest = nif.split("|", 1)
+        if ":" in rest:
+            kind, pk = rest.split(":", 1)
+            if src and kind and pk != "":
+                return (source_identity(src), kind, str(pk))
+    return (source_identity(nif), "", "")
+
+
+def retry_pending_idents(pending):
+    return {ident for ident in (retry_nif_identity(n) for n in pending) if ident}
+
+
+def retry_pending_sources(pending):
+    """Base NIF sources a retry must convert, including parents of pose-only pending keys."""
+    return {ident[0] for ident in retry_pending_idents(pending)}
+
+
+def _failure_by_identity(rows):
+    out = {}
+    for f in rows:
+        if isinstance(f, dict) and f.get("nif"):
+            ident = retry_nif_identity(f["nif"])
+            if ident:
+                out[ident] = f
+    return out
+
+
+def extend_pending_from_manifest(pending, prior):
+    """Until summary and manifest agree, keep unresolved identities from both."""
+    extra = []
+    if isinstance(prior, dict):
+        for f in prior.get("failures") or []:
+            if isinstance(f, dict) and isinstance(f.get("nif"), str) and f["nif"]:
+                extra.append(f["nif"])
+    seen = set(pending)
+    out = list(pending)
+    for n in extra:
+        if n not in seen:
+            seen.add(n)
+            out.append(n)
+    return out
+
+
+def merge_retry_stage(prior, new_items, new_failures, pending_nifs):
+    """Keep prior successes; fold this retry in by base/pose identity; drop only proven successful retries."""
+    prior = prior if isinstance(prior, dict) else {}
+    items = [dict(it) for it in (prior.get("items") or []) if isinstance(it, dict) and item_identity(it)]
+    by_id = {item_identity(it): i for i, it in enumerate(items)}
+    next_index = max((it.get("form_index", -1) for it in items), default=-1) + 1
+    for it in new_items:
+        row = dict(it)
+        ident = item_identity(row)
+        if not ident:
+            continue
+        if ident in by_id:
+            old = items[by_id[ident]]
+            row["form_index"] = old.get("form_index", by_id[ident])
+            if old.get("editor_id"):
+                row["editor_id"] = old["editor_id"]
+            items[by_id[ident]] = row
+        else:
+            row["form_index"] = next_index
+            next_index += 1
+            by_id[ident] = len(items)
+            items.append(row)
+    succeeded = {item_identity(it) for it in new_items if item_identity(it)}
+    now_fail = _failure_by_identity(new_failures)
+    prior_fail = _failure_by_identity(prior.get("failures") or [])
+    failures = []
+    seen = set()
+    ordered = list(pending_nifs)
+    for f in new_failures:
+        if isinstance(f, dict) and f.get("nif"):
+            ordered.append(f["nif"])
+    for n in ordered:
+        ident = retry_nif_identity(n)
+        if not ident or ident in seen:
+            continue
+        seen.add(ident)
+        if ident in succeeded:
+            continue
+        if ident in now_fail:
+            failures.append(now_fail[ident])
+        elif ident in prior_fail:
+            failures.append(prior_fail[ident])
+        else:
+            failures.append({"nif": n, "reason": "unattempted retry"})
+    return items, failures
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--fo4-data", required=True)
@@ -170,6 +293,8 @@ def main():
     ap.add_argument("--pattern", default=r"^meshes[\\/]setdressing[\\/]")
     ap.add_argument("--limit", type=int, default=20)
     ap.add_argument("--max-tris", type=int, default=20000, help="skip meshes with more triangles than this")
+    ap.add_argument("--retry-failures", action="store_true",
+                    help="only process NIFs that failed in the previous run (from failure-summary.json)")
     ap.add_argument("--cell-json", default="", help="convert the models placed in a cell exported by dotnet/Fo4Export")
     ap.add_argument("--no-ref-poses", action="store_true",
                     help="with --cell-json: place every reference with its base's shared model, ignoring FO4 ragdoll "
@@ -220,6 +345,29 @@ def main():
         names = cell_candidates(cell, set(a.types.split(",")))
     else:
         names = src.mesh_names(a.pattern)
+    pending_retry = None
+    prior_manifest = None
+    if a.retry_failures:
+        summary_path = os.path.join(a.staging, "failure-summary.json")
+        if not os.path.exists(summary_path):
+            sys.exit(f"--retry-failures: missing {summary_path}; stage not changed")
+        with open(summary_path, encoding="utf-8") as f:
+            prev_summary_raw = f.read()
+        try:
+            prev_summary = json.loads(prev_summary_raw)
+        except json.JSONDecodeError:
+            sys.exit("--retry-failures: failure-summary.json is not JSON; stage not changed")
+        pending_retry = retry_failed_nifs(prev_summary)
+        if pending_retry is None:
+            sys.exit("--retry-failures: failure-summary.json has no failed_nifs list; stage not changed")
+        man_path = os.path.join(a.staging, "manifest.json")
+        if os.path.exists(man_path):
+            with open(man_path, encoding="utf-8") as f:
+                prior_manifest = json.load(f)
+        pending_retry = extend_pending_from_manifest(pending_retry, prior_manifest or {})
+        pending_sources = retry_pending_sources(pending_retry)
+        names = [n for n in names if source_identity(n) in pending_sources]
+        print(f"  retry-failures: narrowed to {len(names)} previous failures")
     print(f"{len(names)} candidate meshes; converting up to {a.limit}")
     os.makedirs(a.staging, exist_ok=True)
     state_path = os.path.join(a.staging, "build-state.json")
@@ -277,7 +425,12 @@ def main():
         # FO4 ragdoll poses (XRGD): one posed model per distinct pose that moves its model (skeletons lying down)
         by_source = {source_identity(it["source"]).replace("/", "\\"): it for it in items}
         variants, pose_stats = placed_pose.plan(cell["refs"], by_source, lambda name: src.mesh(name))
+        pending_idents = retry_pending_idents(pending_retry) if pending_retry is not None else None
         for v in variants:
+            pose_ident = (source_identity(v.source), "xrgd", str(v.key))
+            base_ident = (source_identity(v.source), "", "")
+            if pending_idents is not None and pose_ident not in pending_idents and base_ident not in pending_idents:
+                continue
             base = by_source[source_identity(v.source).replace("/", "\\")]
             key = f"{v.source}|xrgd:{v.key}"
             r = cache.load(key) if cache else None
@@ -363,8 +516,23 @@ def main():
                 for r, c in reason_counts.most_common(10)],
         "reasons": {r: c for r, c in reason_counts.most_common()},
         "examples": {r: examples[r] for r in reason_counts},
+        "failed_nifs": [f["nif"] for f in failures],
     }
-    write_json_atomic(os.path.join(a.staging, "failure-summary.json"), summary)
+    if pending_retry is not None:
+        items, failures = merge_retry_stage(prior_manifest or {}, items, failures, pending_retry)
+        total = len(failures)
+        unique = len(Counter(f["reason"].split(":")[0].strip() for f in failures))
+        attempted = len(items) + total
+        success_pct = 100.0 * len(items) / attempted if attempted else 100.0
+        summary["attempted"] = attempted
+        summary["successes"] = len(items)
+        summary["success_percent"] = round(success_pct, 1)
+        summary["total_failures"] = total
+        summary["unique_reasons"] = unique
+        summary["failed_nifs"] = [f["nif"] for f in failures]
+        summary["top"] = [{"reason": r, "count": c, "percent": round(100.0 * c / total, 1) if total else 0.0}
+                          for r, c in Counter(f["reason"].split(":")[0].strip() for f in failures).most_common(10)]
+        summary["reasons"] = {r: c for r, c in Counter(f["reason"].split(":")[0].strip() for f in failures).most_common()}
 
     tex_totals = None
     if textures.parse_texture_caps(a.max_texture):
@@ -384,7 +552,10 @@ def main():
     os.makedirs(a.staging, exist_ok=True)
     write_json_atomic(os.path.join(a.staging, "editorids.json"), ids)
     write_json_atomic(os.path.join(a.staging, "manifest.json"), manifest)
-    write_json_atomic(state_path, {"complete": True, "status": "finished", "assets": len(items), "failed": len(failures)})
+    write_json_atomic(os.path.join(a.staging, "failure-summary.json"), summary)
+    finished = not (pending_retry is not None and failures)
+    write_json_atomic(state_path, {"complete": finished, "status": "finished" if finished else "retry_pending",
+                                   "assets": len(items), "failed": len(failures)})
     print(json.dumps({"converted": len(items), **stats, "seconds": manifest["seconds"]}))
 
 
