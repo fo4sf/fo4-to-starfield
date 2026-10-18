@@ -50,39 +50,54 @@ def quests(p: Plugin) -> dict:
     return out
 
 
-def infos(p: Plugin):
-    """Yield (quest id, topic subtype, topic editor id, INFO id, [(response number, text id)], GetIsID targets)."""
+def infos(p: Plugin, stats: Counter = None):
+    """Yield (quest id, topic subtype, topic editor id, INFO id, [(response number, text id)], GetIsID targets).
+    Walks the DIAL top group at any depth; an INFO's topic is the label of its enclosing type-7 group (the DIAL id)."""
+    stats = stats if stats is not None else Counter()
     span = p.top_group(b"DIAL")
     if not span:
         return
-    topic = None
-    for item in iter_items(p.buf, *span):
-        if item[0] == b"DIAL":
-            q, sub, edid = 0, "", ""
-            for s, d in iter_subrecords(record_data(p.buf, item[1])):
-                if s == b"QNAM":
-                    q, = struct.unpack_from("<I", d)
-                elif s == b"SNAM":
-                    sub = bytes(d[:4]).decode("latin-1")
-                elif s == b"EDID":
-                    edid = zstring(d)
-            topic = (q, sub, edid)
-        elif item[0] == "GRUP" and item[4] == 7 and topic:
-            for child in iter_items(p.buf, item[1] + 24, item[2]):
-                if child[0] != b"INFO":
-                    continue
-                off, fid = child[1], child[3]
-                responses, ids, number = [], [], None
-                for s, d in iter_subrecords(record_data(p.buf, off)):
-                    if s == b"TRDT" and len(d) > 12:
-                        number = d[12]
-                    elif s == b"NAM1" and len(d) >= 4 and number is not None:
-                        responses.append((number, struct.unpack_from("<I", d)[0]))
-                    elif s == b"CTDA" and len(d) >= 16:
-                        func, = struct.unpack_from("<H", d, 8)
-                        if func == GET_IS_ID:
-                            ids.append(struct.unpack_from("<I", d, 12)[0])
-                yield (*topic, fid, responses, ids)
+    topics = {}
+
+    def walk(start, end, owner):
+        for item in iter_items(p.buf, start, end):
+            if item[0] == "GRUP":
+                label = struct.unpack("<I", item[3])[0] if item[4] == 7 else owner
+                yield from walk(item[1] + 24, item[2], label)
+            elif item[0] == b"DIAL":
+                stats["DIAL"] += 1
+                q, sub, edid = 0, "", ""
+                for s, d in iter_subrecords(record_data(p.buf, item[1])):
+                    if s == b"QNAM":
+                        q, = struct.unpack_from("<I", d)
+                    elif s == b"SNAM":
+                        sub = bytes(d[:4]).decode("latin-1")
+                    elif s == b"EDID":
+                        edid = zstring(d)
+                topics[item[3]] = (q, sub, edid)
+            elif item[0] == b"INFO":
+                stats["INFO"] += 1
+                yield owner, item[1], item[3]
+
+    for owner, off, fid in list(walk(*span, None)):
+        topic = topics.get(owner)
+        if topic is None:
+            stats["INFO without topic"] += 1
+            continue
+        responses, ids, number = [], [], None
+        for s, d in iter_subrecords(record_data(p.buf, off)):
+            if s == b"TRDT":
+                stats[f"TRDT size {len(d)}"] += 1
+                number = d[12] if len(d) > 12 else None
+            elif s == b"NAM1" and len(d) >= 4:
+                # response number from TRDT when it has one, else the response's position (1-based)
+                responses.append((number if number is not None else len(responses) + 1, struct.unpack_from("<I", d)[0]))
+                number = None
+            elif s == b"CTDA" and len(d) >= 16:
+                func, = struct.unpack_from("<H", d, 8)
+                if func == GET_IS_ID:
+                    ids.append(struct.unpack_from("<I", d, 12)[0])
+        yield (*topic, fid, responses, ids)
 
 
 def main(argv=None):
@@ -96,17 +111,26 @@ def main(argv=None):
     files = {e.name.lower().replace("/", "\\") for e in Ba2(a.voices).entries}
     with open(os.path.join(a.strings, "Fallout4_en.ILSTRINGS"), "rb") as f:
         text = read_ilstrings(f.read())
-    rows = []
+    rows, stats, missing = [], Counter(), []
     with Plugin(a.esm) as p:
         qn = quests(p)
-        for q, sub, edid, fid, responses, ids in infos(p):
+        stats["QUST with Codsworth in EDID"] = sum("codsworth" in e.lower() for e in qn.values())
+        for q, sub, edid, fid, responses, ids in infos(p, stats):
             quest = qn.get(q, f"{q:08X}")
             if "codsworth" not in quest.lower() and CODSWORTH_NPC not in ids:
                 continue
+            stats["his INFOs"] += 1
+            stats["his responses"] += len(responses)
             for number, sid in responses:
                 voice = f"{VOICE_DIR}{fid:08x}_{number}.fuz"
                 if voice in files:
                     rows.append((quest, sub, edid, f"{fid:08X}", number, voice, text.get(sid, "")))
+                elif len(missing) < 3:
+                    missing.append(voice)
+    print("counts:", dict(stats))
+    if missing:
+        print("expected but not in the archive, e.g.:", missing, "archive sample:",
+              sorted(f for f in files if f.startswith(VOICE_DIR))[:3])
     os.makedirs(a.out, exist_ok=True)
     with open(os.path.join(a.out, "codsworth_lines.tsv"), "w", encoding="utf-8") as f:
         f.write("quest\tsubtype\ttopic\tinfo\tresponse\tvoice\ttext\n")

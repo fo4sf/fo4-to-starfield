@@ -3,7 +3,7 @@
     probe:   python scripts/actors/codsworth_voice.py probe --sf-voices "<Starfield Data>\\Starfield - Voices02.ba2"
              prints the RIFF fmt chunk (codec tag, channels, rate) of the vanilla RobotMiniBotA .wem files, so ours match.
     extract: python scripts/actors/codsworth_voice.py extract --voices "<depot_377164>\\Data\\Fallout4 - Voices.ba2"
-                 --lines <codsworth_lines.tsv> --count 20 --out <dir> [--rate 48000]
+                 --lines <codsworth_lines.tsv> --count 20 --out <dir> [--rate 44100]
              first N rows of the suggested batch (or --infos 0001A2B3,...) -> <dir>\\fuz, <dir>\\wav, <dir>\\lines.tsv.
     wem:     python scripts/actors/codsworth_voice.py wem --wwise-console <WwiseConsole.exe> --out <dir> [--conversion <name>]
              a scratch Wwise project in <dir>\\wwise, then convert-external-source on every <dir>\\wav file -> <dir>\\wem.
@@ -135,7 +135,7 @@ def main(argv=None):
     p.add_argument("--out", required=True)
     p.add_argument("--count", type=int, default=20)
     p.add_argument("--infos", help="comma-separated INFO ids instead of the suggested batch")
-    p.add_argument("--rate", type=int, default=48000)
+    p.add_argument("--rate", type=int, default=44100)   # vanilla RobotMiniBotA .wem: Vorbis, mono, 44100 Hz (probe, PC 2026-10-18)
     p.add_argument("--ffmpeg", default="ffmpeg")
     p = sp.add_parser("wem")
     p.add_argument("--wwise-console", required=True)
