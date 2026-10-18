@@ -91,6 +91,22 @@ class SnapshotTests(unittest.TestCase):
             self.assertIsNone(state["description"])
             self.assertFalse(os.path.exists(os.path.join(out, "description.txt")))
 
+    def test_submit_fills_the_player_report_form(self):
+        # players' kit: the link opens the community form (labels community + needs-triage), never a folder path
+        with tempfile.TemporaryDirectory() as d:
+            out = os.path.join(d, "snap")
+            env = dict(os.environ, FO4SF_ASK_ANSWER="door will not open\nat Red Rocket", FO4SF_SUBMIT_DRYRUN="1")
+            r = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", SCRIPT, "-Out", out,
+                                "-MaxAge", "1", "-Ask", "-Submit"], capture_output=True, text=True, timeout=120, env=env)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            url = open(os.path.join(out, "issue_url.txt"), encoding="utf-8-sig").read().strip()
+            self.assertTrue(url.startswith("https://github.com/fo4sf/fo4-to-starfield/issues/new?template=community_report.yml"))
+            self.assertIn("title=%5BPlayer%20report%5D%3A%20door%20will%20not%20open&", url)
+            self.assertIn("what=door%20will%20not%20open", url)
+            self.assertNotIn("%3A%5C", url, "no Windows folder path in the link")
+            state = json.load(open(os.path.join(out, "state.json"), encoding="utf-8-sig"))
+            self.assertEqual(state["issue_url"], "issue_url.txt")
+
     def test_the_ask_setting_switches_the_main_key(self):
         hot = os.path.join(ROOT, "scripts", "game", "look_hotkey.ps1")
         d = tempfile.mkdtemp(prefix="fo4sf_ask_")                 # the presses' snapshots land here after the test returns

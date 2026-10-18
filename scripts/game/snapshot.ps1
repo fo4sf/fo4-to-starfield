@@ -6,8 +6,13 @@
 # Claude runs this and reads screen.png. docs/owner/in-game-test-sheet.md section 7.
 # -Ask (2026-10-18): after the screenshot (so the box is never in the picture) a small box asks "what is wrong?"; the text
 # goes to description.txt and state.json's description. "Screenshot only" or an empty box keeps the plain snapshot.
-# usage: snapshot.ps1 [-Out <folder>] [-Note "<what the owner said>"] [-MaxAge 900] [-Ask]
-param([string]$Out = '', [string]$Note = '', [double]$MaxAge = 900, [switch]$Ask)
+# -Submit (2026-10-18, players): after saving, opens the repository's "Player report" form in the browser already filled
+# in (description, position, cell, the port's plugin names; never a folder path) and puts screen.png on the clipboard, so
+# the player pastes it (Ctrl+V) and presses Submit. Nothing is sent without that click and the player's GitHub sign-in;
+# the form labels it community + needs-triage, so it waits for the owner's review. The link is kept in issue_url.txt.
+# $env:FO4SF_SUBMIT_DRYRUN: write issue_url.txt only (tests: no browser, no clipboard).
+# usage: snapshot.ps1 [-Out <folder>] [-Note "<what the owner said>"] [-MaxAge 900] [-Ask] [-Submit]
+param([string]$Out = '', [string]$Note = '', [double]$MaxAge = 900, [switch]$Ask, [switch]$Submit)
 $ErrorActionPreference = 'Continue'
 $here = $PSScriptRoot
 $py = if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'C:\Modding\venv-render\Scripts\python.exe' }
@@ -77,6 +82,29 @@ if (Test-Path $rec) { try { $r = Get-Content $rec -Raw | ConvertFrom-Json; $stat
 $pl = Join-Path $env:LOCALAPPDATA 'Starfield\Plugins.txt'
 if (Test-Path $pl) { $state.plugins_txt = @(Get-Content $pl | Where-Object { $_ -and -not $_.StartsWith('#') }) }
 $state | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $Out 'state.json') -Encoding utf8
+if ($Submit) {
+  $repo = $(if ($env:FO4SF_REPORT_REPO) { $env:FO4SF_REPORT_REPO } else { 'fo4sf/fo4-to-starfield' })
+  $desc = $(if ($state.description) { $state.description } else { '' })
+  $first = ($desc -split "`r?`n")[0]
+  $title = '[Player report]: ' + $(if ($first) { $first.Substring(0, [Math]::Min(80, $first.Length)) } else { 'screenshot' })
+  $where = $(if ($state.bridge.pos) { "pos $($state.bridge.pos -join ' ') cell $($state.bridge.cell) world $($state.bridge.world)" } else { '' })
+  $ports = @($state.plugins_txt | ForEach-Object { "$_".TrimStart('*') } | Where-Object { $_ -like 'FO4*' })
+  $cap = "Captured $($state.taken); game running: $($state.game_running). Port plugins active: $(if ($ports) { $ports -join ', ' } else { 'none found' }).`n`nPaste the screenshot here (it is on your clipboard: Ctrl+V)."
+  $fields = [ordered]@{ template = 'community_report.yml'; title = $title; what = $desc; where = $where; capture = $cap }
+  $q = ($fields.GetEnumerator() | ForEach-Object { "$($_.Key)=$([uri]::EscapeDataString(($_.Value + '').Substring(0, [Math]::Min(1500, ($_.Value + '').Length))))" }) -join '&'
+  $url = "https://github.com/$repo/issues/new?$q"
+  Set-Content -LiteralPath (Join-Path $Out 'issue_url.txt') -Value $url -Encoding utf8
+  $state.issue_url = 'issue_url.txt'
+  if (-not $env:FO4SF_SUBMIT_DRYRUN) {
+    if ($shotOk) {
+      try { Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+            $img = [System.Drawing.Image]::FromFile($shot); [System.Windows.Forms.Clipboard]::SetImage($img); $img.Dispose() }
+      catch { $state.clipboard_error = "$_" }
+    }
+    try { Start-Process $url } catch { $state.submit_error = "$_" }
+  }
+  $state | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $Out 'state.json') -Encoding utf8
+}
 $posTxt = $(if ($state.bridge.pos) { "pos $($state.bridge.pos -join ' ') cell $($state.bridge.cell) world $($state.bridge.world) loaded $($state.bridge.loaded) age $($state.bridge.age_s)s" } else { "bridge: $($state.bridge.why)" })
 "snapshot ${Out}: game=$($state.game_running) foreground=$($state.game_foreground) screen=$($state.screen)$(if ($state.description) { ' described=yes' }) | $posTxt"
 if (-not $shotOk) { exit 3 }
