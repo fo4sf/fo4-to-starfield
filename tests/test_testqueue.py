@@ -258,6 +258,12 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(n["0000_fall"], 2)
         self.assertEqual(len(jload(os.path.join(self.d, "state.json"))["done"]), 3)
         self.assertTrue(any("AMDAutoUpdate took the focus mid-step without owner input (popup)" in x for x in logs), logs)
+        # the interrupted attempt's evidence survives the rerun, which writes a1 afresh (Codex on #341 at f2fe7bf)
+        a1 = os.path.join(self.d, "tests", "0000_fall", "a1")
+        kept = readf(os.path.join(a1 + "_popup1", "step.log"))
+        self.assertIn("foreground window belongs to 'AMDAutoUpdate'", kept)
+        self.assertTrue(os.path.exists(os.path.join(a1, "obs.json")))
+        self.assertFalse(os.path.exists(os.path.join(a1, "step.log")) and "AMDAutoUpdate" in readf(os.path.join(a1, "step.log")))
 
     def test_a_popup_rerun_is_capped_and_owner_input_still_stops(self):
         self.ctl.last_sent_tick = 1000

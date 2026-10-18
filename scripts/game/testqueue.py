@@ -2895,6 +2895,9 @@ class Runner:
                     pops = self.popups.get(t["id"], 0)
                     if popup and self.a.refocus and pops < POPUP_RETRIES and self.ctl.refocus_game():
                         self.popups[t["id"]] = pops + 1
+                        # the rerun reuses the attempt number, so this interrupted attempt's folder (step.log, obs.json,
+                        # screenshots) is kept beside it before the rerun would write into it (Codex on #341 at f2fe7bf)
+                        os.replace(out_dir, f"{out_dir}_popup{pops + 1}")
                         self.log(f"{t['id']}: {who or 'another window'} took the focus mid-step without owner input "
                                  f"(popup): game brought back to the front, the test runs again")
                         self.ctl.mark_sent()
