@@ -86,7 +86,9 @@ BENCH_KINDS = {"weapon": {"vanilla": "2B6A63:Starfield.esm", "wbdt": 2, "name": 
                "cooking": {"vanilla": "2B6A65:Starfield.esm", "wbdt": 5, "name": "Cooking Station"}}
 WBDT_NAMES = {0: "none", 1: "create object", 2: "weapons", 3: "enchanting", 4: "enchanting experiment", 5: "alchemy",
               6: "alchemy experiment", 7: "armor", 8: "power armor", 9: "robot mod", 11: "research"}
-ITEM_TYPES = ("MiscItem", "Ingestible")               # loose items: MISC in Starfield (ALCH as MISC in the first pass)
+ITEM_TYPES = ("MiscItem", "Ingestible", "Weapon")     # loose items: MISC in Starfield (ALCH as MISC in the first pass;
+                                                      # a world WEAP such as the tire iron by Red Rocket as a pick-up
+                                                      # MISC until a WEAP class exists: it was a static before)
 ACTIVATOR_TYPES = ("Activator",)                      # ACTI in Starfield
 TERMINAL_TYPES = ("Terminal",)                        # TERM (+ one TMLM menu) in Starfield
 TERMINAL_BODY = "FO4 terminal (text not ported yet)"  # the single body line of every promoted terminal's menu
@@ -335,7 +337,7 @@ def containers(refs, placed, table, limit=0, only_known=False):
 
 
 def items(refs, placed, table, limit=0, only_known=False):
-    """({"items": [...]}, report) for every placed reference whose FO4 base is a MiscItem or Ingestible, in placement
+    """({"items": [...]}, report) for every placed reference whose FO4 base is a MiscItem, Ingestible or Weapon, in placement
     order: src, name (the table's or the humanized editor id), value and weight (the table's), base, editor_id, kind
     (the export's type), slot. The writer makes one MISC per FO4 base (as containers: #167) with the converted model."""
     order = {src: i for i, src in enumerate(placed)}
@@ -367,7 +369,7 @@ def items(refs, placed, table, limit=0, only_known=False):
         entries = entries[:limit]
     rep["items"] = len(entries)
     rep["distinct bases"] = len({e["base"] for e in entries})
-    return {"note": "make_cluster.py items: every placed MiscItem / Ingestible reference of the core with the table's name, "
+    return {"note": "make_cluster.py items: every placed MiscItem / Ingestible / Weapon reference of the core with the table's name, "
                     "value and weight; read by make_core64c.py stage --cluster (items: one MISC per FO4 base)", "items": entries}, dict(rep)
 
 

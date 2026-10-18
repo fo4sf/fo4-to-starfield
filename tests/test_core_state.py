@@ -143,6 +143,27 @@ class FoldTests(unittest.TestCase):
                          {"a": "skipped", "b": "circuit_broken", "c": "completed"})
         self.assertEqual(s.tasks_by_status().get("completed"), ["c"])
 
+    def test_a_tasks_results_fold_in_row_order_not_in_append_order(self):
+        """An import that recovers a lost live write appends an older results row after a newer result (§3, §10), so
+        the fold orders a task's results by their results.jsonl line: the recovered older row never replaces the
+        retry's verdict, a later row wins whatever its attempt number (a BREAKER row is attempt 0), and a result
+        without a row (a worker's) still folds in append order."""
+        rp = "C:\\Modding\\testqueue\\walk\\results.jsonl"
+        older = ev("task_finished", task="walk/w1", outcome="INCONCLUSIVE", attempt=1, detail="NOOBS", src=rp + ":1")
+        newer = ev("task_finished", task="walk/w1", outcome="PASS", attempt=2, completed=True, src=rp + ":2")
+        for order in ((older, newer), (newer, older)):
+            s = fold([ev("task_queued", task="walk/w1"), *order])
+            t = s.tasks["walk/w1"]
+            self.assertEqual((t["status"], t["outcome"], t["attempt"], t["detail"]), ("completed", "PASS", 2, ""))
+            self.assertEqual((s.events, s.bad_events), (3, []))               # the older row is kept and counted
+        breaker = ev("task_finished", task="walk/w1", outcome="CIRCUIT_BROKEN", attempt=0, src=rp + ":7")
+        for order in ((older, newer, breaker), (breaker, older, newer)):
+            t = fold(list(order)).tasks["walk/w1"]
+            self.assertEqual((t["status"], t["attempt"]), ("circuit_broken", 0))
+        worker = ev("task_finished", task="walk/w1", outcome="FAIL", attempt=3)
+        self.assertEqual(fold([newer, worker]).tasks["walk/w1"]["outcome"], "FAIL")
+        self.assertEqual(fold([worker, newer]).tasks["walk/w1"]["outcome"], "PASS")
+
     def test_only_an_in_game_pass_verifies(self):
         base = [ev("build_pinned", build_id="b1"), ev("capability_declared", capability="walk")]
         self.assertEqual(fold(base).capability("walk"), CapabilityState.UNTESTED)
@@ -231,6 +252,24 @@ class FoldTests(unittest.TestCase):
         self.assertEqual([p["name"] for p in s.plugins], ["FO4SFBridge.esm"])
         self.assertEqual(s.load_order, ["FO4SFBridge.esm"])
         self.assertEqual(fold([exp, bridge, ev("build_pinned", build_id="b2")]).plugins, [])
+
+    def test_report_counts_the_pinned_builds_tests(self):
+        # F4 (the campaign on the owner's real records): runner results name no capability, so 88 FAILs read
+        # "Failed: none"; a failed or skipped test must never read as success (project topic)
+        s = fold([ev("build_pinned", build_id="b1"),
+                  ev("task_finished", task="q/0001_walk", outcome="FAIL", completed=True, build_id="b1"),
+                  ev("task_finished", task="q/0002_walk", outcome="PASS", completed=True, build_id="b1"),
+                  ev("task_finished", task="q/0003_door", outcome="SKIPPED", build_id="b1"),
+                  ev("task_finished", task="q/0004_door", outcome="CIRCUIT_BROKEN", build_id="b1"),
+                  ev("task_finished", task="q/0005_cave", outcome="INCONCLUSIVE", build_id="b1"),
+                  ev("task_finished", task="old/0009_walk", outcome="FAIL", completed=True, build_id="b0")])
+        rep = s.report()
+        self.assertEqual(rep[1], "Newly worked in game: nothing verified on this build; tests passed: 1 (0002_walk)")
+        self.assertEqual(rep[2], "Failed: none; tests failed: 1 (0001_walk)")          # b0's failure is another build's
+        self.assertEqual(rep[3], "Untested: none declared; tests not decided: 1 skipped, 1 circuit broken, 1 inconclusive")
+        many = [ev("task_finished", task=f"q/{i:04d}_t", outcome="FAIL", completed=True) for i in range(8)]
+        self.assertIn("tests failed: 8 (0000_t, 0001_t, 0002_t, 0003_t, 0004_t, 0005_t, +2 more)", fold(many).report()[2])
+        self.assertEqual(fold([ev("build_pinned", build_id="b1")]).report()[2], "Failed: none")   # no tests: as before
 
     def test_report_has_the_eight_bullets(self):
         s = fold([ev("leader_started", commit="8cae1db"), ev("build_pinned", build_id="b1", commit="d628b56"),

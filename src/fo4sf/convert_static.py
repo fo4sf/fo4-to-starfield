@@ -450,7 +450,8 @@ def _apply(transform, point):
 
 def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, clip_files, unit_scale: float = UNIT_SCALE,
                            collision_template: bytes = None, leaf_physics_donor: bytes = None,
-                           rest_pose_check: bool = False) -> Tuple[Dict[str, bytes], dict]:
+                           rest_pose_check: bool = False, aliases: dict = None,
+                           drop_skinned: bool = False) -> Tuple[Dict[str, bytes], dict]:
     """FO4 door whose "Open" sequence moves geometry under more than one node (frozen_door_parts: double doors,
     shutters, sliding panel sets) -> Starfield door with its OWN rig and clips, as vanilla double doors have
     (IndIntRmSmWallMid_DoorA01: one rig bone and one clip track per leaf, one keyframed body per leaf).
@@ -465,12 +466,15 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
     The NIF keeps FO4's origin, so the reference needs no offset. Returns (files, door) where door is the manifest entry
     (origin_offset, anim_graph, bounds, skeleton, animations, rig, animated_bones, moving_bodies, files).
     rest_pose_check: refuse a door whose Open does not start, or whose Close does not end, at the bind pose
-    (door_rig.rest_pose_issue; the sliding / lifting route, which takes every NOT_HINGED_RE door)."""
+    (door_rig.rest_pose_issue; the sliding / lifting route, which takes every NOT_HINGED_RE door).
+    aliases: door_rig.plan's sequence aliases (an animated activator converted as a door, pipeline.OWN_RIG_ALIASES).
+    drop_skinned: leave skinned shapes out instead of refusing the door (a rig cannot carry them); the door entry lists
+    them under "dropped_skinned_shapes"."""
     from . import door_model, door_rig, native_door
     if collision_template is None or leaf_physics_donor is None:
         raise ValueError("multi-part door needs the box template and a keyframed donor body")
     src = nifmod.parse(fo4_nif)
-    plan = door_rig.animated_identity_binds(door_rig.plan(src, placed=True))
+    plan = door_rig.animated_identity_binds(door_rig.plan(src, placed=True, aliases=aliases))
     if sorted(c["name"] for c in plan["clips"]) != ["Close", "Open"]:
         raise nifmod.NifError("door needs exactly one Open and one Close sequence")   # the graph plays both
     if rest_pose_check and (issue := door_rig.rest_pose_issue(plan)):
@@ -483,8 +487,10 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
     if len(material_paths) != len(shapes):
         raise ValueError("one material entry per shape required")
     kept = {s.block: (s, m) for s, m in zip(shapes, material_paths) if m is not None}
-    if any(s.skinned for s, _ in kept.values()):
+    dropped_skinned = sorted((s.name or f"Shape{b}".encode()).decode("latin-1") for b, (s, _) in kept.items() if s.skinned)
+    if dropped_skinned and not drop_skinned:
         raise nifmod.NifError("skinned door shapes cannot be rigged")
+    kept = {b: v for b, v in kept.items() if not v[0].skinned}
     plan["attachments"] = [a for a in plan["attachments"] if a["shape"] in kept]
     if not plan["attachments"]:
         raise nifmod.NifError("door has no rendered geometry")
@@ -550,4 +556,8 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
             "files": sorted(f"meshes/{out_name}/{relative}" for relative in extra)}
     if plan.get("ignored_tracks"):                  # shader / visibility tracks FO4 also plays: not ported, said so
         door["ignored_tracks"] = sorted({f'{t["target"]} ({t["reason"]})' for t in plan["ignored_tracks"]})
+    if dropped_skinned:
+        door["dropped_skinned_shapes"] = dropped_skinned
+    if aliases:
+        door["sequence_aliases"] = dict(aliases)
     return files, door

@@ -4,9 +4,16 @@ A power cut can leave a partial last line: read() treats it as "not an event" an
 records a ledger_repaired event, so the file never holds a corrupt line in the middle. A last line that is a whole
 event and only lacks its newline (the cut came after the closing brace) is an event for both: read() counts it and
 append() terminates it. Current state is fold(events); nothing here rewrites history.
+
+A task's results are ordered by their results.jsonl row (the `src` of a task_finished, `<file>:<line>`), not by their
+place in the ledger: an import that recovers a lost live write appends an older row after the results written since
+(leader-core.md §3, §10), and that recovered row must never replace a retry's verdict. The raw event stays; the fold of
+the repaired ledger equals the fold of a fresh import of the same files. A result without a row (a worker's, §8) folds
+in append order, as before.
 """
 from dataclasses import dataclass, field
 import os
+import re
 
 from .filelock import locked
 from .model import CapabilityState, Event, Outcome, Source, now_iso, parse_iso
@@ -90,14 +97,18 @@ class LeaderState:
     load_order: list = field(default_factory=list)
     controller: dict = field(default_factory=dict)    # owner, purpose, expires, since, released
     tasks: dict = field(default_factory=dict)         # id -> {status, outcome, owner, attempt, detail, campaign}
+    cards: dict = field(default_factory=dict)         # id -> the card dict of the first task_queued that carried one
+    card_conflicts: set = field(default_factory=set)  # ids queued again with a different card (the first one stands)
     capabilities: dict = field(default_factory=dict)  # (capability, build_id) -> CapabilityState
     declared: set = field(default_factory=set)
     blockers: dict = field(default_factory=dict)      # name -> {evidence, owner, open}
     recovery_points: list = field(default_factory=list)
+    result_rows: dict = field(default_factory=dict)   # task -> (results file, line) of the result that stands (§3)
     campaigns: set = field(default_factory=set)
     changes: list = field(default_factory=list)       # leader_started commits seen, in order
     events: int = 0
     unknown_events: int = 0                           # lines of a type this checkout does not know (kept, not folded)
+    bad_events: list = field(default_factory=list)    # (index, type, why) of known types whose fields the fold could not read
 
     # ---- controller
     def controller_status(self, now=None):
@@ -146,18 +157,68 @@ class LeaderState:
         owner = f"{ctl.get('owner')} ({status}, {ctl.get('purpose', '')})" if ctl else "none"
         blockers = [f"{n}: {', '.join(b.get('evidence') or ['no evidence recorded'])}"
                     for n, b in self.blockers.items() if b.get("open")]
+        if self.bad_events:                           # the ledger is append-only: the report says so, the writer fixes it
+            shown = "; ".join(f"#{i} {ev}: {why}" for i, ev, why in self.bad_events[:3])
+            blockers.append(f"ledger: {len(self.bad_events)} event(s) the fold could not read ({shown})")
+        if self.card_conflicts:
+            blockers.append("ledger: two cards queued under one id: " + ", ".join(sorted(self.card_conflicts)))
+        # the pinned build's tests (runner results name no capability): a failed, skipped or broken test never reads
+        # as success, so the three capability bullets also count them
+        b = self.build.get("build_id")
+        tasks = [(tid, t) for tid, t in self.tasks.items() if not (b and t.get("build_id") and t["build_id"] != b)]
+        failed_tests = _test_names([tid for tid, t in tasks if t.get("outcome") == Outcome.FAIL.value])
+        passed_tests = _test_names([tid for tid, t in tasks if t.get("outcome") == Outcome.PASS.value and t["status"] == "completed"])
+        undecided = [f"{n} {label}" for status, label in (("skipped", "skipped"), ("circuit_broken", "circuit broken"),
+                                                          ("inconclusive", "inconclusive"))
+                     for n in [len(by.get(status, []))] if n]
         return [
             "Core changes: " + (", ".join(self.changes[-3:]) if self.changes else "none recorded"),
-            "Newly worked in game: " + (", ".join(caps[CapabilityState.VERIFIED]) or "nothing verified on this build"),
+            "Newly worked in game: " + (", ".join(caps[CapabilityState.VERIFIED]) or "nothing verified on this build")
+            + (f"; tests passed: {passed_tests}" if passed_tests else ""),
             "Failed: " + (", ".join(caps[CapabilityState.FAILED]) or "none")
-            + ("; inconclusive: " + ", ".join(caps[CapabilityState.INCONCLUSIVE]) if caps[CapabilityState.INCONCLUSIVE] else ""),
-            "Untested: " + (", ".join(caps[CapabilityState.UNTESTED]) or "none declared"),
+            + ("; inconclusive: " + ", ".join(caps[CapabilityState.INCONCLUSIVE]) if caps[CapabilityState.INCONCLUSIVE] else "")
+            + (f"; tests failed: {failed_tests}" if failed_tests else ""),
+            "Untested: " + (", ".join(caps[CapabilityState.UNTESTED]) or "none declared")
+            + (f"; tests not decided: {', '.join(undecided)}" if undecided else ""),
             f"Pins: {pins}; plugins: {plugins}; leader commit {self.leader.get('commit', '?')}",
             "Controller: " + owner,
             "Blockers: " + ("; ".join(blockers) or "none open"),
             "Next queue: " + (", ".join(by.get("queued", [])) or "empty")
             + (f" (running: {', '.join(by['running'])})" if by.get("running") else ""),
         ]
+
+
+def _apply_capability(s, f):
+    """A capability verdict (a capability_result, or a task_finished of a card that names its capability)."""
+    out, src = Outcome(f["outcome"]), Source(f["source"])
+    key = (f["capability"], f.get("build_id") or s.build.get("build_id"))
+    if out == Outcome.PASS and src == Source.IN_GAME:
+        s.capabilities[key] = CapabilityState.VERIFIED
+    elif out == Outcome.FAIL:
+        s.capabilities[key] = CapabilityState.FAILED
+    elif out.decided or out == Outcome.INCONCLUSIVE:
+        # an offline / simulated / hypothetical PASS, or any INCONCLUSIVE: pending in-game evidence,
+        # and it never overwrites an in-game verdict already on this build
+        s.capabilities.setdefault(key, CapabilityState.INCONCLUSIVE)
+    # SKIPPED / CIRCUIT_BROKEN: no change (untested stays untested)
+
+
+def _result_row(src):
+    """(file, line) of a task_finished that came from a results.jsonl row (`<file>:<line>`, import_queue.py and
+    runner_events.py write the same key), else None: a worker's result has no row and folds in append order."""
+    if not isinstance(src, str):
+        return None
+    path, _, line = src.rpartition(":")
+    return (path, int(line)) if path and line.isdigit() else None
+
+
+def _test_names(ids, limit=6):
+    """'N (a, b, c, +K more)': a count, then the test ids (the last path component of a campaign-scoped task id)."""
+    if not ids:
+        return ""
+    short = [re.split(r"[\\/]", str(i))[-1] for i in ids]
+    shown = ", ".join(short[:limit]) + (f", +{len(short) - limit} more" if len(short) > limit else "")
+    return f"{len(ids)} ({shown})"
 
 
 def merge_plugins(s, f):
@@ -199,75 +260,88 @@ def merge_plugins(s, f):
 
 
 def fold(events, now=None):
-    """Current state from the events, in order. Enforces the rules of leader-core.md §1."""
+    """Current state from the events, in order. Enforces the rules of leader-core.md §1. A known event whose fields
+    the fold cannot read (a missing or wrongly shaped field from a writer bug or a hand edit) is skipped and listed
+    in bad_events, so one bad line never makes the whole ledger unreadable; the report names it as a blocker."""
     s = LeaderState()
     for e in events:
         s.events += 1
-        f = e.fields
         if not e.known:
             s.unknown_events += 1
             continue
-        if e.ev == "leader_started":
-            s.leader = {k: f.get(k) for k in ("commit", "branch", "host", "session")}
-            if f.get("commit"):
-                s.changes.append(f["commit"])
-        elif e.ev == "build_pinned":
-            s.build = {k: f.get(k) for k in ("build_id", "plugin_sha256", "staging", "commit", "game_version") if f.get(k)}
-            s.plugins, s.load_order = [], []
-        elif e.ev == "plugins_verified":
-            merge_plugins(s, f)
-        elif e.ev == "controller_claimed":
-            s.controller = {"owner": f.get("owner"), "purpose": f.get("purpose"), "expires": f.get("expires"),
-                            "since": e.t, "released": False}
-        elif e.ev == "controller_renewed":
-            if s.controller and s.controller.get("owner") == f.get("owner"):
-                s.controller["expires"] = f.get("expires")
-        elif e.ev == "controller_released":
-            if s.controller:
-                s.controller["released"] = True
-        elif e.ev in ("task_queued", "task_assigned"):
-            t = s.tasks.setdefault(f["task"], {"status": "queued", "outcome": None, "attempt": 0, "detail": ""})
-            t["owner"] = f.get("owner", t.get("owner"))
-            t["campaign"] = f.get("campaign", t.get("campaign"))
-            t["build_id"] = f.get("build_id", t.get("build_id"))
-        elif e.ev == "task_started":
-            t = s.tasks.setdefault(f["task"], {"status": "queued", "outcome": None, "attempt": 0, "detail": ""})
-            t["status"], t["attempt"] = "running", f.get("attempt", t["attempt"] + 1)
-            t["build_id"] = f.get("build_id", t.get("build_id"))
-        elif e.ev == "task_finished":
-            out = Outcome(f["outcome"])
-            t = s.tasks.setdefault(f["task"], {"status": "queued", "outcome": None, "attempt": 0, "detail": ""})
-            t["outcome"], t["detail"] = out.value, f.get("detail", "")
-            t["attempt"] = f.get("attempt", t["attempt"])
-            t["campaign"] = f.get("campaign", t.get("campaign"))
-            t["build_id"] = f.get("build_id", t.get("build_id"))
-            # SKIPPED and CIRCUIT_BROKEN are terminal but never "completed"
-            t["status"] = {Outcome.SKIPPED: "skipped", Outcome.CIRCUIT_BROKEN: "circuit_broken",
-                           Outcome.INCONCLUSIVE: "inconclusive"}.get(out, "completed")
-            if f.get("campaign"):
-                s.campaigns.add(f["campaign"])
-        elif e.ev == "capability_declared":
-            s.declared.add(f["capability"])
-        elif e.ev == "capability_result":
-            out, src = Outcome(f["outcome"]), Source(f["source"])
-            key = (f["capability"], f.get("build_id") or s.build.get("build_id"))
-            if out == Outcome.PASS and src == Source.IN_GAME:
-                s.capabilities[key] = CapabilityState.VERIFIED
-            elif out == Outcome.FAIL:
-                s.capabilities[key] = CapabilityState.FAILED
-            elif out.decided or out == Outcome.INCONCLUSIVE:
-                # an offline / simulated / hypothetical PASS, or any INCONCLUSIVE: pending in-game evidence,
-                # and it never overwrites an in-game verdict already on this build
-                s.capabilities.setdefault(key, CapabilityState.INCONCLUSIVE)
-            # SKIPPED / CIRCUIT_BROKEN: no change (untested stays untested)
-            if f.get("campaign"):
-                s.campaigns.add(f["campaign"])
-        elif e.ev == "blocker_opened":
-            s.blockers[f["blocker"]] = {"evidence": list(f.get("evidence") or []), "owner": f.get("owner"), "open": True}
-        elif e.ev == "blocker_closed":
-            if f["blocker"] in s.blockers:
-                s.blockers[f["blocker"]]["open"] = False
-        elif e.ev == "recovery_point":
-            s.recovery_points.append(dict({k: f.get(k) for k in ("kind", "path", "sha256", "build_id")}, t=e.t))
-        # ledger_repaired: bookkeeping only
+        try:
+            _fold_one(s, e)
+        except (KeyError, TypeError, AttributeError, ValueError) as x:
+            s.bad_events.append((s.events, e.ev, f"{type(x).__name__}: {x}"))
     return s
+
+
+def _fold_one(s, e):
+    f = e.fields
+    if e.ev == "leader_started":
+        s.leader = {k: f.get(k) for k in ("commit", "branch", "host", "session")}
+        if f.get("commit"):
+            s.changes.append(f["commit"])
+    elif e.ev == "build_pinned":
+        s.build = {k: f.get(k) for k in ("build_id", "plugin_sha256", "staging", "commit", "game_version") if f.get(k)}
+        s.plugins, s.load_order = [], []
+    elif e.ev == "plugins_verified":
+        merge_plugins(s, f)
+    elif e.ev == "controller_claimed":
+        parse_iso(f["expires"])                                     # a lease without a readable expiry is no lease
+        s.controller = {"owner": f["owner"], "purpose": f.get("purpose"), "expires": f["expires"],
+                        "since": e.t, "released": False}
+    elif e.ev == "controller_renewed":
+        if s.controller and s.controller.get("owner") == f.get("owner"):
+            parse_iso(f["expires"])
+            s.controller["expires"] = f["expires"]
+    elif e.ev == "controller_released":
+        if s.controller:
+            s.controller["released"] = True
+    elif e.ev in ("task_queued", "task_assigned"):
+        t = s.tasks.setdefault(f["task"], {"status": "queued", "outcome": None, "attempt": 0, "detail": ""})
+        t["owner"] = f.get("owner", t.get("owner"))
+        t["campaign"] = f.get("campaign", t.get("campaign"))
+        t["build_id"] = f.get("build_id", t.get("build_id"))
+        if isinstance(f.get("card"), dict):                         # the first card queued under an id stands
+            if f["task"] not in s.cards:
+                s.cards[f["task"]] = dict(f["card"])
+            elif s.cards[f["task"]] != f["card"]:
+                s.card_conflicts.add(f["task"])
+    elif e.ev == "task_started":
+        t = s.tasks.setdefault(f["task"], {"status": "queued", "outcome": None, "attempt": 0, "detail": ""})
+        t["status"], t["attempt"] = "running", f.get("attempt", t["attempt"] + 1)
+        t["build_id"] = f.get("build_id", t.get("build_id"))
+    elif e.ev == "task_finished":
+        out = Outcome(f["outcome"])
+        t = s.tasks.setdefault(f["task"], {"status": "queued", "outcome": None, "attempt": 0, "detail": ""})
+        if f.get("campaign"):
+            s.campaigns.add(f["campaign"])
+        row, last = _result_row(f.get("src")), s.result_rows.get(f["task"])
+        if row and last and row[0] == last[0] and row[1] < last[1]:
+            return                      # an older row recovered by an import after a newer result: evidence, not state
+        if row:
+            s.result_rows[f["task"]] = row
+        t["outcome"], t["detail"] = out.value, f.get("detail", "")
+        t["attempt"] = f.get("attempt", t["attempt"])
+        t["campaign"] = f.get("campaign", t.get("campaign"))
+        t["build_id"] = f.get("build_id", t.get("build_id"))
+        # SKIPPED and CIRCUIT_BROKEN are terminal but never "completed"
+        t["status"] = {Outcome.SKIPPED: "skipped", Outcome.CIRCUIT_BROKEN: "circuit_broken",
+                       Outcome.INCONCLUSIVE: "inconclusive"}.get(out, "completed")
+        if f.get("capability") and f.get("source"):                 # a worker's result names the card's capability
+            _apply_capability(s, f)                                 # (§8: the capability_result that follows repeats it)
+    elif e.ev == "capability_declared":
+        s.declared.add(f["capability"])
+    elif e.ev == "capability_result":
+        _apply_capability(s, f)
+        if f.get("campaign"):
+            s.campaigns.add(f["campaign"])
+    elif e.ev == "blocker_opened":
+        s.blockers[f["blocker"]] = {"evidence": list(f.get("evidence") or []), "owner": f.get("owner"), "open": True}
+    elif e.ev == "blocker_closed":
+        if f["blocker"] in s.blockers:
+            s.blockers[f["blocker"]]["open"] = False
+    elif e.ev == "recovery_point":
+        s.recovery_points.append(dict({k: f.get(k) for k in ("kind", "path", "sha256", "build_id")}, t=e.t))
+    # ledger_repaired: bookkeeping only
