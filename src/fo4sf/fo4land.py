@@ -195,7 +195,10 @@ class Plugin:
 
     def read_world(self, edid, cells=None, refs=True):
         """Walk one worldspace. `cells`: set of (x, y) to load LAND/refs for (None = all).
-        Returns {"world_fid", "world_fields", "cells": {(x, y): cell}, "persistent": [ref, ...]}.
+        Returns {"world_fid", "world_fields", "cells": {(x, y): cell}, "persistent": [ref, ...],
+        "persistent_cell": cell}
+        ("persistent_cell" only when the world has one; "persistent" is its "persistent_refs", the world's persistent
+        references, whatever `cells` says).
         cell = {"fid", "edid", "x", "y", "vhgt": bytes|None, "land_fid", "refs": [ref], "persistent_refs": [ref]}.
         """
         wfid, start, end, wfields = self.find_world(edid)
@@ -234,6 +237,7 @@ class Plugin:
                 new["x"], new["y"] = xy if xy else (None, None)
                 cell = new
                 result["persistent_cell"] = new
+                result["persistent"] = new["persistent_refs"]   # filled as its children are read (#207)
                 continue
             new["x"], new["y"] = xy
             if wanted is None or xy in wanted:

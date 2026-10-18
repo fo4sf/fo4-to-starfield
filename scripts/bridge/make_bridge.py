@@ -68,12 +68,18 @@ def extract_sources(zip_path, work):
     return src
 
 
+def sources():
+    """Every .psc of this folder, sorted: the scripts the bridge ships (FO4SF_Bridge, the quest script; FO4SF_Probe,
+    the console's cgf functions: Pos, Ack, Player, Resolve, MoveTo)."""
+    return sorted(f for f in os.listdir(HERE) if f.lower().endswith(".psc"))
+
+
 def compile_script(compiler, src_dir, out_dir):
-    """PapyrusCompiler.exe on every .psc of this folder (FO4SF_Bridge, the quest script; FO4SF_Probe, the console's
-    cgf functions), each invoked by its bare name from this folder (the compiler compares the file name with the
-    Scriptname and rejects a path); the .pex files land in out_dir. Returns the quest script's .pex."""
+    """PapyrusCompiler.exe on every .psc of this folder (sources()), each invoked by its bare name from this folder
+    (the compiler compares the file name with the Scriptname and rejects a path); the .pex files land in out_dir; a
+    script that does not compile stops the stage. Returns the quest script's .pex."""
     os.makedirs(out_dir, exist_ok=True)
-    for name in sorted(f for f in os.listdir(HERE) if f.lower().endswith(".psc")):
+    for name in sources():
         cmd = [compiler, name, "-f=Starfield_Papyrus_Flags.flg", f"-i={HERE};{src_dir}", f"-o={out_dir}"]
         out = run(cmd, cwd=HERE)
         if "Compilation succeeded" not in out or not os.path.exists(os.path.join(out_dir, name[:-4] + ".pex")):
@@ -93,7 +99,9 @@ def stage(a):
     check = run(["dotnet", "run", "-c", "Release", "--project", bridge, "--", "check", os.path.join(out, a.plugin)])
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
         f.write(check)
-    shutil.copy(os.path.join(HERE, "FO4SF_Bridge.psc"), os.path.join(out, "FO4SF_Bridge.psc"))
+    for name in sources():                                 # the source of every .pex, beside the stage
+        shutil.copy(os.path.join(HERE, name), os.path.join(out, name))
+    scripts = ", ".join(f"Data\\Scripts\\{n[:-4]}.pex" for n in sources())
     plan = {"kind": "bridge", "plugin": a.plugin, "interval_s": a.interval, "script": "FO4SF_Bridge",
             "log": "<My Games>/Starfield/Logs/Script/User/fo4sf.0.log",
             "ini": {"section": "Papyrus", "keys": dict(PAPYRUS_KEYS)},
@@ -104,12 +112,14 @@ def stage(a):
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(f"""Observation bridge experiment (Claude, {datetime.date.today().isoformat()}). docs/ai/test-queue.md "Bridge".
 {a.plugin}: GLOB FO4SF_Cmd (0x800) + QUST FO4SF_BridgeQuest (0x801, start game enabled) carrying FO4SF_Bridge.
-Data\\Scripts\\FO4SF_Bridge.pex: compiled from FO4SF_Bridge.psc (this folder) with the game's PapyrusCompiler.
+{scripts}: compiled from the .psc files of this folder with the game's PapyrusCompiler.
 Install (game closed): python scripts\\game\\exp_install.py install --exp-dir "{out}" --starfield <game> --plugins {a.plugin} --pack
 Before launch, once: python scripts\\bridge\\make_bridge.py ini   (StarfieldCustom.ini [Papyrus] logging keys)
 In game: the user log {plan['log']} gets one line every {a.interval} s:
   FO4SF rt=<s> pos=<x> <y> <z> ang=<deg> cell=<decimal form id> world=<decimal form id> loaded=True|False [cmd=<n>] n=<count>
-Read it: python scripts\\game\\bridge_log.py latest | wait-cmd 7 | wait-move
+FO4SF_Probe's cgf functions (Pos, Ack, Player, Resolve, MoveTo) write their own lines to the same log (FO4SF_Probe.psc).
+Read it: python scripts\\game\\bridge_log.py latest | wait-cmd 7 | wait-move | events
+A queue planned with --bridge <this folder> installs it before every launch (scripts\\game\\bridge_install.py install).
 Uninstall: exp_install.py uninstall.
 """)
     print(f"staged {out}: {a.plugin}, {os.path.relpath(pex, out)}, offline_check.txt, plan.json, README.txt")
