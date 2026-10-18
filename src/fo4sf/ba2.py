@@ -175,3 +175,48 @@ class Ba2:
                 raw = f.read(pk or up)
                 out.append(zlib.decompress(raw) if pk else raw)
             return b"".join(out)
+
+    def total_unpacked_estimate(self) -> int:
+        """Estimate the total unpacked size of all entries in bytes.
+
+        For GNRL uses the unpacked field; for DX10 sums the unpacked chunk sizes
+        (DDS header is not included in the estimate).
+        """
+        total = 0
+        for e in self.entries:
+            if e.kind == "GNRL":
+                total += e.unpacked
+            else:
+                total += sum(c[2] for c in (e.chunks or []))
+        return total
+
+    def size_estimates(self) -> dict:
+        """Return rough size estimates useful for conversion planning.
+
+        Keys: total_unpacked, total_packed, general_unpacked, texture_unpacked,
+        entry_count, average_unpacked.
+        """
+        total_unpacked = 0
+        total_packed = 0
+        general_unpacked = 0
+        texture_unpacked = 0
+        for e in self.entries:
+            if e.kind == "GNRL":
+                u = e.unpacked
+                p = e.packed or e.unpacked
+                general_unpacked += u
+            else:
+                u = sum(c[2] for c in (e.chunks or []))
+                p = sum((c[1] or c[2]) for c in (e.chunks or []))
+                texture_unpacked += u
+            total_unpacked += u
+            total_packed += p
+        n = len(self.entries)
+        return {
+            "total_unpacked": total_unpacked,
+            "total_packed": total_packed,
+            "general_unpacked": general_unpacked,
+            "texture_unpacked": texture_unpacked,
+            "entry_count": n,
+            "average_unpacked": total_unpacked // n if n else 0,
+        }
