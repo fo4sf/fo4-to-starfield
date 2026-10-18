@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 from fo4sf import fo4land, terrain_grid  # noqa: E402
 
 _DELETED = 0x20  # Mutagen 0.55.0-alpha.67 StarfieldMajorRecordFlag.Deleted; IsDeleted also verifies this bit.
-_PROMOTED_REFERENCES = ("containers", "items", "activators", "terminals", "workshops", "benches", "doors")
+_PROMOTED_REFERENCES = ("containers", "items", "activators", "terminals", "workshops", "flora", "benches", "doors")
 # Benches reference a vanilla full FormKey, not a plugin-local owned base ID.
 _OWNED_BASES = tuple(kind for kind in _PROMOTED_REFERENCES if kind != "benches")
 

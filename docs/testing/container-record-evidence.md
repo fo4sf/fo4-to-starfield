@@ -113,7 +113,7 @@ establish native activation/save compatibility.
 
 ## Mixed-class map identity integration, October 18
 
-Declared source-reference uniqueness and optional baseline reference comparisons now include ordinary refs plus containers, items, activators, terminals, workshops, benches and doors. A selected CONT/MISC base cannot overlap any of those source references or another declared plugin-owned promoted base. Baseline base comparisons also include the plugin-owned promoted classes. Vanilla bench base keys remain full external FormKeys and are not interpreted as local base IDs.
+Declared source-reference uniqueness and optional baseline reference comparisons now include ordinary refs plus containers, items, activators, terminals, workshops, flora, benches and doors. A selected CONT/MISC base cannot overlap any of those source references or another declared plugin-owned promoted base. Baseline base comparisons also include the plugin-owned promoted classes. Vanilla bench base keys remain full external FormKeys and are not interpreted as local base IDs. Flora identity checks do not certify serialized FLOR contents or harvest behavior.
 
 This extends declared-map consistency, not raw-content acceptance: only the selected CONT/MISC class is compared against serialized records. Unselected class content, auxiliary terminal menu/door arrival identities, and unknown future map sections still need their own verification; this is not a complete map allocator audit.
 

@@ -19,6 +19,9 @@ Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved 
 
 ## Source work / next gates
 
+- Codex PR277 main merge preserves pinned door-stage sources: selected existing VMAD is refused before output, generated files are independent/atomic, nested output rejected. Retains main persistent-return coordinate reporting. Offline preservation/return checks required; no staging/install/native acceptance.
+- Codex activation-parent export: shared Fo4Export/Fo4Land serializer retains ordered parent FormKeys, raw flags and delays, including deferred actors. Claude reviewed the export. Requested follow-up now makes untranslated blocks counted/listed warnings by default, with partial fidelity and optional `--strict-activation-parents` gating; other link errors still block. Eight synthetic CLI controls cover publication/report/strict/override and missing-parent behavior. Grok delta QA passed at e79da3e; main-merge changes only documentation conflicts, source continuity checked. No native activation behavior or live changes. See PR305 and CELL-EXPORT.md.
+- Codex PR176 full-source promoted-name identity merges main697bc07; CONT/MISC identity repair retained and current main callers reconciled. 91 Python cases covered (89 initial passes, two stale alias expectations corrected/retested) and eight actual writer tests pass; independent merge-delta QA pending; no stage or allocation migration. Previously aliased mixed-plugin builds still require separately pinned regeneration, not silent save compatibility claims.
 - Codex PR146 current-main raw CONT/MISC audit integration: checking declared identities of newer mixed classes without expanding serialized-content acceptance beyond the selected class. 38 false passes reproduced and corrected;35 distinct audit tests plus one actual-writer test pass, both mixed CLI audits pass and old-head actual-map alias controls now refuse. Independent delta QA pending; no stage or native actions.
 
 - Codex light-patch bounds PR315: Claude independently reviewed the source and found no blocking implementation defect. Added the requested second-input-only malformed-LIGH test: both negative cases fail if B validation is removed; 31 focused light/FO4-light checks pass. Earlier selected baseline run had five failed assertions across three methods. Source-only, final test-delta review pending; no brightness-policy/stage/game changes.
@@ -36,3 +39,8 @@ Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved 
 Failed/passing capsules are reopened/source-verified on a second local volume, not offsite. Claude owns cleanup/free-space receipts; Codex deleted nothing. Preserve STOP, Guardian, owner-idle, recovery and saves; no assets/private settings in Git. See testing/progress-storage.md.
 
 Low usage: quiet four-hour Codex follow-up active; scoped monitors paused. Read changed evidence, avoid unchanged retests, guard before commits. History: #32, PRs and Git.
+
+
+## Codex PR146 current-main flora identities, October18
+
+Main now writes flora. The read-only auditor previously accepted11flora identity subcases; its existing mixed-map checks now include flora refs/bases.36focused tests and8actual CLI old/new controls on fresh current-main writer output pass; valid shared bases remain allowed. Selected serialized content remains CONT/MISC, not FLOR/harvest/native behavior. Both parent histories retained; independent QA/CI required before integration. No producer, stage, deployment or game changes.

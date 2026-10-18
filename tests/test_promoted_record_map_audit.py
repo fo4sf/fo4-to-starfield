@@ -9,7 +9,7 @@ cr = containers.cr
 
 
 class PromotedMapAuditTests(unittest.TestCase):
-    categories = ('activators', 'terminals', 'workshops', 'benches', 'doors')
+    categories = ('activators', 'terminals', 'workshops', 'flora', 'benches', 'doors')
 
     def fixture(self, kind):
         if kind == 'items':
@@ -41,7 +41,7 @@ class PromotedMapAuditTests(unittest.TestCase):
 
     def test_other_owned_base_cannot_alias_selected_base(self):
         for kind in ('containers', 'items'):
-            for category in ('activators', 'terminals', 'workshops', 'doors'):
+            for category in ('activators', 'terminals', 'workshops', 'flora', 'doors'):
                 with self.subTest(kind=kind, category=category):
                     f, blob = self.fixture(kind)
                     f.ids[category] = {'other': {'base': '000803', 'ref': '000901'}}
@@ -70,7 +70,7 @@ class PromotedMapAuditTests(unittest.TestCase):
 
     def test_other_owned_baseline_base_must_remain_stable(self):
         for kind in ('containers', 'items'):
-            for category in ('activators', 'terminals', 'workshops', 'doors'):
+            for category in ('activators', 'terminals', 'workshops', 'flora', 'doors'):
                 with self.subTest(kind=kind, category=category):
                     f, blob = self.fixture(kind)
                     f.baseline[category] = {'other': {'base': '000900', 'ref': '000901'}}
@@ -78,6 +78,19 @@ class PromotedMapAuditTests(unittest.TestCase):
                     self.assertTrue(self.audit(f, blob, kind)['offline_passed'])
                     f.ids[category]['other']['base'] = '000902'
                     self.assertFalse(self.audit(f, blob, kind)['offline_passed'])
+
+    def test_flora_can_share_a_base_with_distinct_stable_references(self):
+        for kind in ('containers', 'items'):
+            with self.subTest(kind=kind):
+                f, blob = self.fixture(kind)
+                f.ids['flora'] = {
+                    'flower1': {'base': '000900', 'ref': '000901'},
+                    'flower2': {'base': '000900', 'ref': '000902'},
+                }
+                f.baseline['flora'] = deepcopy(f.ids['flora'])
+                report = self.audit(f, blob, kind)
+                self.assertTrue(report['offline_passed'], report)
+                self.assertFalse(report['runtime_accepted'])
 
     def test_malformed_other_reference_refuses(self):
         for category in self.categories:
