@@ -1891,3 +1891,7 @@ the build side. No deploy, no game.
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+
+## 2026-10-18: Grok ba2_largest CLI
+
+Added `scripts/ba2_largest.py` that prints the top-n entries of a BA2 by unpacked size (uses the new Ba2.largest_entries). Smoke-tested on a synthetic archive. Guard ok.
