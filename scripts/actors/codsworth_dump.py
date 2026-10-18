@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 from fo4sf import fo4skin, nif as nifmod, sfmesh, sfnif  # noqa: E402
 from fo4sf.ba2 import Ba2  # noqa: E402
 
-SF_NIFS = ("meshes\\actors\\minibota\\mesh\\minibota_mesh\\minibota_mesh.nif",
+SF_NIFS = ("meshes\\actors\\minibota\\mesh\\minibota_base\\minibota_mesh.nif",
            "meshes\\actors\\minibota\\mesh\\minibota_base\\minibota_base.nif",
            "meshes\\actors\\minibota\\mesh\\minibota_gardening\\minibota_gardening.nif",
            "meshes\\actors\\minibota\\characterassets\\skeleton.nif")

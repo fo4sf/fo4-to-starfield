@@ -4,7 +4,7 @@
         --content-resources "<Starfield>\\Tools\\ContentResources.zip" --texconv <texconv.exe> [--animate-arms]
 
 Source Meshes\\Actors\\Robot\\CharacterAssets\\MrHandy.nif (Torso, Legs, HandyShell, Arms:0, Arms:1; 63 skin bones),
-template Meshes\\Actors\\MiniBotA\\Mesh\\minibota_mesh\\minibota_mesh.nif (one weight per vertex; bones C_Chassis,
+template Meshes\\Actors\\MiniBotA\\Mesh\\minibota_base\\minibota_mesh.nif (one weight per vertex; bones C_Chassis,
 C_Arm1-3, C_Base, C_Axle, C_Hatch), both verified on the PC 2026-10-18 (codsworth_dump.py). Materials and textures go
 through pipeline.Converter exactly as the statics do. Writes into <staging>:
     meshes/fo4port/actors/codsworth/codsworth.nif, geometries/<hash>/<hash>.mesh, materials/..., textures/...
@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 from fo4sf import actor_rebind, ba2, nif, pipeline  # noqa: E402
 
 SOURCE = "meshes\\actors\\robot\\characterassets\\mrhandy.nif"
-TEMPLATE = "meshes\\actors\\minibota\\mesh\\minibota_mesh\\minibota_mesh.nif"
+TEMPLATE = "meshes\\actors\\minibota\\mesh\\minibota_base\\minibota_mesh.nif"
 OUT_NAME = "fo4port/actors/codsworth/codsworth"
 ARMS = (("LArm", "C_Arm1"), ("MArm", "C_Arm2"), ("RArm", "C_Arm3"))
 

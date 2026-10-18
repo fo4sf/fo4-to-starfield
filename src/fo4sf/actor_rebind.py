@@ -4,7 +4,7 @@
     res.nif, res.meshes   # NIF bytes; {(dir, name): .mesh bytes} for Data/geometries/<dir>/<name>.mesh
 
 The template is a vanilla Starfield skinned NIF the target race already draws (first use: Codsworth on the garden mini
-bot, Meshes\\Actors\\MiniBotA\\Mesh\\minibota_mesh\\minibota_mesh.nif; ROADMAP B2). Everything in it is kept (nodes,
+bot, Meshes\\Actors\\MiniBotA\\Mesh\\minibota_base\\minibota_mesh.nif; ROADMAP B2). Everything in it is kept (nodes,
 ragdoll, skin bone list and the skin-to-bone transforms of BSSkin::BoneData), except that its visible geometry is
 replaced: the FO4 shapes are posed as the FO4 NIF's nodes stand (convert_static.pose_skinned_shapes), scaled to metres,
 grouped by material, and every vertex is bound rigidly (one weight, 65535) to the template bone that bone_for() names
