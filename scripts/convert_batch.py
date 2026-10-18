@@ -7,7 +7,8 @@ Writes <staging>/manifest.json: converted items (EditorID + model path for the p
 With --cell-json, references whose FO4 ragdoll data (XRGD) poses their model away from its node pose get a posed model of
 their own (src/fo4sf/placed_pose.py): extra items with "pose": {"kind": "xrgd", "refs": [FO4 FormKeys]}, which the plugin
 writer places for those references only; manifest "poses" counts every reference with ragdoll data. --no-ref-poses: off.
-After conversion, prints the top failure reasons by count (with percentages) and writes failure-summary.json.
+After conversion, prints the top failure reasons by count (with percentages) and writes failure-summary.json
+(with attempted/success counts, success rate, timestamp, and top reasons).
 Needs numpy. Deterministic: names are processed in sorted order.
 """
 import argparse
@@ -342,8 +343,9 @@ def main():
     if items:
         print(f"  Asset mix: doors={doors} load_doors={load_doors} movables={movables} avg_shapes={avg_shapes}")
     # Always persist a compact summary (including the zero case) so tooling sees the latest run
+    attempted = len(items) + total
     summary = {
-        "generated_at": __import__("datetime").datetime.utcnow().isoformat() + "Z",
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "attempted": attempted,
         "successes": len(items),
         "success_percent": round(success_pct, 1),

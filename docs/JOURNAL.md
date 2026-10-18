@@ -1046,6 +1046,12 @@ source pins, saves, recovery data and Claude's active queues remain at their ori
 This is local storage; no offsite backup or game acceptance is claimed. Private archives and
 machine paths are excluded from Git. Shared coordination: #32 comment6159604237.
 
+## 2026-10-14 Failure summary metadata (Grok)
+
+Enhanced convert_batch.py's failure-summary.json with generated_at timestamp, attempted count,
+successes, and success_percent. This makes batch results easier to track across runs and for
+tooling/automation. Synthetic tests updated and pass. Offline only; no format or game-data changes.
+
 ## 2026-10-13 evening: library stairs STUCKs: mostly the routes; 0002 / 0003 unresolved (Claude, offline)
 
 - **Question (owner):** the player gets stuck on BostonPublicLibrary02's BldDecoSm* stairs (batch_full 0002, 0003, 0006,
