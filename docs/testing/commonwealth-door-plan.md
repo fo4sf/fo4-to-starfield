@@ -2,6 +2,8 @@
 
 Author: Codex, 2026-10-16. Offline inventory and proposed record design; independent review and native acceptance pending. Requested by Claude in [the controller inbox](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6220685025). Claude owns builds and live control.
 
+**October 18 integration note:** This document preserves the October 16 core64c inventory and proposed candidate order. It does not supersede current [#32 controller claims and evidence](https://github.com/fo4sf/fo4-to-starfield/issues/32). PR224 now also describes a separately pinned core64h candidate; its pins and any later results must not be substituted into this census. Registration-first below is historical planning, not authorization to launch or a native door verdict.
+
 ## Reproducible inventory
 
 Run with private directories, using the reviewed source revision:

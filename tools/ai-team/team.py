@@ -15,6 +15,7 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = "dasscooby/fo4-to-starfield"
+TRIAGE = "needs-triage"
 
 
 def _gh(args):
@@ -30,6 +31,10 @@ def board():
     prs = _gh(["pr", "list", "--state", "open", "--json", "number,title,headRefName,labels,isDraft"])
     lab = lambda i: {l["name"] for l in i.get("labels", [])}
     short = lambda i: {"number": i["number"], "title": i["title"], "labels": sorted(lab(i))}
+    # community reports (issue form community_report.yml) are no agent's task until the owner triages them: while
+    # needs-triage is on they appear only under community_triage, never as available or in the owner's inbox
+    triage = [i for i in issues if TRIAGE in lab(i)]
+    issues = [i for i in issues if TRIAGE not in lab(i)]
     out = {"source": "live (gh)", "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
            "available": [short(i) for i in issues if "ready" in lab(i) and not lab(i) & {"in-progress", "blocked"}
                          and "spike" not in lab(i)],
@@ -39,6 +44,7 @@ def board():
            "pending_review": [short(i) for i in issues if "needs-qa" in lab(i)]
                              + [{"pr": p["number"], "title": p["title"], "branch": p["headRefName"]} for p in prs],
            "owner_inbox": [short(i) for i in issues if not lab(i)],
+           "community_triage": [short(i) for i in triage],
            "recently_completed": [{"number": i["number"], "title": i["title"], "closed": i["closedAt"]} for i in closed],
            "contributions_7d": contributions(issues, prs)}
     print(json.dumps(out, indent=1))

@@ -4,12 +4,15 @@
 # log tail, and the installed experiment record. Everything goes to -Out (default C:\Modding\snapshots\<timestamp>):
 # screen.png, state.json, papyrus_tail.txt, and one summary line on stdout. The owner says "look" and what they see;
 # Claude runs this and reads screen.png. docs/owner/in-game-test-sheet.md section 7.
-# usage: snapshot.ps1 [-Out <folder>] [-Note "<what the owner said>"] [-MaxAge 900]
-param([string]$Out = '', [string]$Note = '', [double]$MaxAge = 900)
+# -Ask (2026-10-18): after the screenshot (so the box is never in the picture) a small box asks "what is wrong?"; the text
+# goes to description.txt and state.json's description. "Screenshot only" or an empty box keeps the plain snapshot.
+# usage: snapshot.ps1 [-Out <folder>] [-Note "<what the owner said>"] [-MaxAge 900] [-Ask]
+param([string]$Out = '', [string]$Note = '', [double]$MaxAge = 900, [switch]$Ask)
 $ErrorActionPreference = 'Continue'
 $here = $PSScriptRoot
 $py = if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'C:\Modding\venv-render\Scripts\python.exe' }
-if (-not $Out) { $Out = Join-Path 'C:\Modding\snapshots' (Get-Date -Format 'yyyyMMdd-HHmmss') }
+$root = $(if ($env:FO4SF_SNAPSHOT_ROOT) { $env:FO4SF_SNAPSHOT_ROOT } else { 'C:\Modding\snapshots' })   # tests: a temp root
+if (-not $Out) { $Out = Join-Path $root (Get-Date -Format 'yyyyMMdd-HHmmss') }
 New-Item -ItemType Directory -Force $Out | Out-Null
 $state = [ordered]@{ taken = (Get-Date -Format s); note = $Note; game_running = $false; game_foreground = $null }
 $g = Get-Process Starfield -ErrorAction SilentlyContinue
@@ -29,6 +32,35 @@ $shotCode = $LASTEXITCODE
 $shotOk = ($shotCode -eq 0) -and (Test-Path -LiteralPath $shot) -and ((Get-Item -LiteralPath $shot).Length -gt 0)
 $state.screen = $(if ($shotOk) { 'screen.png' } else { $null })
 if (-not $shotOk) { $state.screen_error = "shot.ps1 exit $shotCode"; Remove-Item -LiteralPath $shot -Force -ErrorAction SilentlyContinue }
+# the description box (-Ask): after the capture; $env:FO4SF_ASK_ANSWER stands in for the typed text in tests (no window)
+if ($Ask) {
+  $text = $null
+  if ($null -ne $env:FO4SF_ASK_ANSWER) { $text = $env:FO4SF_ASK_ANSWER }
+  else {
+    try {
+      Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+      $f = New-Object System.Windows.Forms.Form
+      $f.Text = 'FO4SF report: what is wrong?'; $f.TopMost = $true; $f.StartPosition = 'CenterScreen'
+      $f.Size = New-Object System.Drawing.Size 520, 300; $f.FormBorderStyle = 'FixedDialog'; $f.MaximizeBox = $false; $f.MinimizeBox = $false
+      $lbl = New-Object System.Windows.Forms.Label
+      $lbl.Text = 'The screenshot is saved. Describe what is wrong (what you did, what you expected, what happened):'
+      $lbl.SetBounds(10, 8, 490, 34)
+      $tb = New-Object System.Windows.Forms.TextBox
+      $tb.Multiline = $true; $tb.ScrollBars = 'Vertical'; $tb.AcceptsReturn = $true; $tb.SetBounds(10, 44, 485, 160)
+      $ok = New-Object System.Windows.Forms.Button; $ok.Text = 'Save'; $ok.SetBounds(300, 215, 90, 30); $ok.DialogResult = 'OK'
+      $skip = New-Object System.Windows.Forms.Button; $skip.Text = 'Screenshot only'; $skip.SetBounds(395, 215, 100, 30); $skip.DialogResult = 'Cancel'
+      $f.Controls.AddRange(@($lbl, $tb, $ok, $skip)); $f.AcceptButton = $null; $f.CancelButton = $skip
+      $f.Add_Shown({ $f.Activate(); $tb.Focus() })
+      if ($f.ShowDialog() -eq 'OK') { $text = $tb.Text }
+      $f.Dispose()
+    } catch { $state.description_error = "$_" }
+  }
+  if ($text -and $text.Trim()) {
+    $state.description = $text.Trim()
+    Set-Content -LiteralPath (Join-Path $Out 'description.txt') -Value $state.description -Encoding utf8
+    $state.description_file = 'description.txt'
+  } else { $state.description = $null }
+}
 # the bridge's newest line (any age up to MaxAge: the owner may have paused; the age is reported, never hidden)
 $b = $null
 try { $b = (& $py (Join-Path $here 'bridge_log.py') latest --max-age $MaxAge) | ConvertFrom-Json } catch { $b = $null }
@@ -46,5 +78,5 @@ $pl = Join-Path $env:LOCALAPPDATA 'Starfield\Plugins.txt'
 if (Test-Path $pl) { $state.plugins_txt = @(Get-Content $pl | Where-Object { $_ -and -not $_.StartsWith('#') }) }
 $state | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $Out 'state.json') -Encoding utf8
 $posTxt = $(if ($state.bridge.pos) { "pos $($state.bridge.pos -join ' ') cell $($state.bridge.cell) world $($state.bridge.world) loaded $($state.bridge.loaded) age $($state.bridge.age_s)s" } else { "bridge: $($state.bridge.why)" })
-"snapshot ${Out}: game=$($state.game_running) foreground=$($state.game_foreground) screen=$($state.screen) | $posTxt"
+"snapshot ${Out}: game=$($state.game_running) foreground=$($state.game_foreground) screen=$($state.screen)$(if ($state.description) { ' described=yes' }) | $posTxt"
 if (-not $shotOk) { exit 3 }

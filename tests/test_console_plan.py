@@ -13,6 +13,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "scripts", "game"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import console_plan as cp  # noqa: E402
+import runner_features  # noqa: E402
 import sky_light as sl  # noqa: E402
 import testqueue as tq  # noqa: E402
 from test_testqueue import FakeControls, args, jdump, jload, readf, touch, writef  # noqa: E402
@@ -226,3 +227,55 @@ class BridgeProbeLinesTests(unittest.TestCase):
                   'cgf "FO4SF_Probe.Teleport" 1 2 3', 'cgf "Debug.TraceUser" "other" "x"', 'cgf "Debug.Trace" "x"',
                   'cgf "Game.QuitToMainMenu"', 'cgf "Debug.TraceUser" "fo4sf" "' + "a" * 61 + '"'):
             self.assertFalse(cp.allowed(c), c)
+
+
+RESOLVE = 'cgf "FO4SF_Probe.Resolve" "FO4TerrainCore.esm" 2048'
+MOVETO = 'cgf "FO4SF_Probe.MoveTo" "FO4TerrainCore.esm" 2048 -1200.0 -2700.0 0.0'
+
+
+class ProbeTravelLinesTests(unittest.TestCase):
+    """FO4SF_Probe.Resolve / MoveTo (the scripted door's Step 0, 2026-10-16): a plugin file name, a decimal plugin-local
+    id and, for MoveTo, three offsets in metres; the runner feature probe_moveto; the HUD wait in the step timeout."""
+    def test_allowed(self):
+        for c in (RESOLVE, 'cgf "FO4SF_Probe.Resolve" "FO4Port.esm" 9016', 'cgf "FO4SF_Probe.Resolve" "a_b-c.d.esp" 16777215',
+                  MOVETO, 'cgf "FO4SF_Probe.MoveTo" "FO4TerrainCore.esm" 2048 0.0 0.0 0.0',
+                  'cgf "FO4SF_Probe.MoveTo" "FO4TerrainCore.esm" 2048 0 0 0',
+                  'cgf "FO4SF_Probe.MoveTo" "x.esl" 1 -99999.999 12345 -0.5'):
+            self.assertTrue(cp.allowed(c), c)
+        self.assertTrue(cp.is_moveto(MOVETO))
+        self.assertFalse(cp.is_moveto(RESOLVE))
+
+    def test_refused(self):
+        for c in ('cgf "FO4SF_Probe.Resolve" "FO4TerrainCore" 2048', 'cgf "FO4SF_Probe.Resolve" FO4TerrainCore.esm 2048',
+                  'cgf "FO4SF_Probe.Resolve" "FO4TerrainCore.esm" 0x800', 'cgf "FO4SF_Probe.Resolve" "FO4TerrainCore.esm" -1',
+                  'cgf "FO4SF_Probe.Resolve" "FO4TerrainCore.esm" 123456789', 'cgf "FO4SF_Probe.Resolve" "FO4TerrainCore.esm"',
+                  'cgf "FO4SF_Probe.Resolve" "a;b.esm" 1', 'cgf "FO4SF_Probe.Resolve" "a b.esm" 1',
+                  'cgf "FO4SF_Probe.Resolve" "FO4TerrainCore.esm" 2048; tgm', RESOLVE + " ",
+                  'cgf "FO4SF_Probe.MoveTo" "FO4TerrainCore.esm" 2048 0 0', 'cgf "FO4SF_Probe.MoveTo" "FO4TerrainCore.esm" 2048',
+                  'cgf "FO4SF_Probe.MoveTo" "FO4TerrainCore.esm" 2048 1e3 0 0',
+                  'cgf "FO4SF_Probe.MoveTo" "FO4TerrainCore.esm" 2048 123456 0 0',
+                  'cgf "FO4SF_Probe.MoveTo" "FO4TerrainCore.esm" 2048 0.0 0.0 0.0 1', 'cgf "FO4SF_Probe.moveto" "a.esm" 1 0 0 0',
+                  'cgf "FO4SF_Probe.MoveTo" "FO4TerrainCore.esm" 2048 0.0 0.0 0.0|key:enter|type:tgm'):
+            self.assertFalse(cp.allowed(c), c)
+            self.assertFalse(cp.is_moveto(c), c)
+
+    def test_runner_feature_and_timeout(self):
+        plain = dict(TERRAIN, console_post=['cgf "FO4SF_Probe.Pos" 20'])
+        self.assertNotIn("probe_moveto", runner_features.needs([plain]))
+        for post in ([RESOLVE], [MOVETO]):
+            self.assertIn("probe_moveto", runner_features.needs([dict(TERRAIN, console_post=post)]))
+        self.assertIn("probe_moveto", runner_features.needs([dict(TERRAIN, console_pre=[RESOLVE])]))
+        self.assertIn("probe_moveto", runner_features.FEATURES)
+        base = tq.step_timeout(TERRAIN)
+        self.assertEqual(tq.step_timeout(dict(TERRAIN, console_post=[RESOLVE])), base + tq.CONSOLE_CMD_S)
+        self.assertEqual(tq.step_timeout(dict(TERRAIN, console_post=[RESOLVE, MOVETO, MOVETO])),
+                         base + 3 * tq.CONSOLE_CMD_S + 2 * tq.MOVETO_S)
+
+    def test_qstep_waits_for_the_hud_after_a_moveto_only(self):
+        src = readf(os.path.join(ROOT, "scripts", "game", "qstep.ps1"), encoding="utf-8")
+        self.assertIn(f"$moveToPrefix = '{cp.MOVETO_PREFIX}'", src)
+        rc = src[src.index("function Run-Console"):src.index("function Sky-Measure")]
+        self.assertIn("if ($c.StartsWith($moveToPrefix)) {", rc)
+        self.assertIn('Wait-Hud 90 "console_${k}_hud.png"', rc)
+        self.assertIn("$rec['hud_back'] = [bool]$w.up; $rec['load_s'] = $w.secs", rc)
+        self.assertLessEqual(90 + 2 + 3, tq.MOVETO_S)                     # the wait, one poll, the settle
