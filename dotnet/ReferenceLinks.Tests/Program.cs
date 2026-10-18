@@ -3,6 +3,11 @@ using Mutagen.Bethesda.Plugins;
 using Mutagen.Bethesda.Plugins.Records;
 using Mutagen.Bethesda.Starfield;
 
+if (args.SequenceEqual(new[] { "--activation-only" }))
+{
+    ActivationParentTests.Run();
+    return;
+}
 if (args.SequenceEqual(new[] { "--missing-door-cells-only" }))
 {
     MissingDoorEndpointTests.Run(cellsOnly: true);
@@ -132,6 +137,32 @@ var restoredVolume = second.Temporary.OfType<PlacedObject>().Single(r => r.FormK
 Require(restoredVolume.Primitive!.Bounds.Y == 2 && restoredVolume.Primitive.Color.A == 40 && restoredVolume.Rotation.Z == 1, "LightBox geometry/alpha/rotation lost");
 // Restore the prior parent used by the existing binary assertions.
 Relationships.Apply(mod, ids, markerExports, markerBases);
+// Activation parents are preserved by Fo4Export, but are not translated here.
+var priorLinks = child.LinkedReferences.Count;
+var priorParent = child.EnableParent!.Reference.FormKey;
+var priorBase = child.Base.FormKey;
+var priorIds = new Dictionary<string, uint>(ids);
+foreach (var metadata in new[] { "{\"flags\":129,\"parents\":[{\"reference\":\"parent\",\"delay\":0.1}]}",
+                                "{\"flags\":0,\"parents\":[]}", "null", "absent" })
+{
+    var field = metadata == "absent" ? "" : ",\"activate_parents\":" + metadata;
+    using var activationSource = JsonDocument.Parse(
+        "{\"cell\":\"First\",\"refs\":[{\"formkey\":\"child\"" + field +
+        "},{\"formkey\":\"unplaced-activation\"" + field + "}]}");
+    var activationReport = Relationships.Apply(mod, ids, new[] { activationSource.RootElement });
+    var issues = activationReport.Warnings.Where(i => i.Field == "activate_parents").ToArray();
+    Require(!activationReport.Issues.Any(i => i.Field == "activate_parents"), "activation metadata blocks default output");
+    if (metadata is "null" or "absent")
+        Require(issues.Length == 0, "absent activation metadata invented a warning");
+    else
+        Require(issues.Length == 2 && issues.Select(i => i.Source).ToHashSet().SetEquals(new[] { "child", "unplaced-activation" }) &&
+                issues.All(i => i.Target == null && i.Reason.Contains("translation not implemented")),
+                "placed/unplaced activation metadata silently dropped or claimed translated");
+    Require(activationReport.LinkedReferences == 0 && activationReport.EnableParents == 0 &&
+            child.LinkedReferences.Count == priorLinks && child.EnableParent!.Reference.FormKey == priorParent &&
+            child.Base.FormKey == priorBase && ids.Count == priorIds.Count && priorIds.All(i => ids[i.Key] == i.Value),
+            "unsupported activation parents changed native links, bases or identities");
+}
 Directory.CreateDirectory(directory);
 try
 {
@@ -154,3 +185,4 @@ finally { Directory.Delete(directory, true); }
 Console.WriteLine("Relationship translation and binary round-trip synthetic checks passed.");
 NativeDoorBaseTests.Run();
 MissingDoorEndpointTests.Run();
+ActivationParentTests.Run();
