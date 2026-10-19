@@ -139,7 +139,9 @@ python scripts/terrain/interior_batch.py prune --staging-root D:\Modding\staging
 | 0 | 2026-10-19 PASS (5ecb8a7) | 16 | 16 | 0 | pass: 55,049 records, all identical, none changed/added/removed | not packed | convert 807 s, total 825 s; D: 61.5 to 57.8 GB free; teleports Linked 2, DestinationNotInBuild 28 |
 | 1 | 2026-10-19 PASS (5ecb8a7) | 27 | 27 | 0 cells; 15 models in 8 cells (below) | pass: 55,044 base records identical, 5 changed, 51,437 added | Main 152,387,704 B, Textures 2,708,113,806 B | plugin 297b0f33 (7,899,352 B); convert 704 s, total 815 s; D: 57.8 to 54.1 GB free; teleports Linked 22, Pairs 11 |
 | 2 | 2026-10-19 PASS (5ecb8a7) | 48 (27 + 21) | 48 | 0 cells; 7 models in 4 new cells | pass: same 5 base doors changed, 103,899 added | Main 177,735,013 B, Textures 3,104,207,280 B | plugin 23edf959 (11,520,178 B); convert 618 s, total 726 s; D: 54.0 to 50.1 GB free; teleports Linked 24 |
-| 3 to 9 | not yet | | | | | | |
+| 3 | 2026-10-19 PASS (7fc0caa, --prev b02) | 77 | 77 | 0 cells; 6 cells with trap/glass models | pass; vs b02 pass (no b02 record changed) | Main 191,448,321 B, Textures 3,282,063,253 B | plugin 1db0e61e (15,074,712 B); convert 663 s, total 792 s; D: 53.8 to 49.8 GB free |
+| 4 | 2026-10-19 PASS (7fc0caa, --prev b03) | 104 | 104 | 0 cells; 7 cells with trap/gnat/water models | pass, 6 base doors changed; vs b03 pass, 1 changed (010045AA) | Main 230,547,923 B, Textures 3,590,442,691 B | plugin 1b94d270 (18,444,707 B); total 815 s; D: 49.8 to 45.1 GB free; teleports Linked 48 |
+| 5 to 9 | held | | | | | | D: near the 40 GB floor until the owner deletes superseded folders |
 
 Batch 1 notes (**verified** from interiors_b01's result.json, port\compare.json and both plugins):
 - The 5 changed base records are load doors of installed cells (REFR 010062BB, 010062BE, 010045AE, 0100383E,
@@ -167,3 +169,7 @@ also compares against it (port\compare_prev.json; it must pass). The chain start
 Disk check: batch 3 was refused by the first preflight (free 53.8 GB minus the plan's 16.76 GB peak), though batches
 1 and 2 each took about 4 GB. The plan's peak counts the work staging and two batches from nothing; the preflight now
 counts what the batch adds (`disk_need`: its packed folder plus the work staging's growth, about 5 GB for batch 3).
+
+Batch 4: base door REFR 010045AA gained an XTEL to REFR 0104044C, a door in one of batch 4's new cells (**verified**,
+b03 and b04 plugins diffed); nothing else in it changed. Batch 4 failed models also include the Institute's water
+planes (`interiors\institute\main\insmainbasefloorwater01.nif`, `insterracewater01.nif`) and `critters\gnat\gnatswarm01.nif`.
