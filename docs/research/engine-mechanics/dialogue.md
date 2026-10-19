@@ -147,6 +147,11 @@ block `8c aa 7e fd 9e ae 5a 27` at offset 0x18 shared by every file, while LipGe
 So the unattended step works, but its output most likely needs the CK's compile step (`-CompileFaceFXAnims`) or our own
 converter before the game can use it (**supported hypothesis**). Open: how `-CompileFaceFXAnims` is called and where it
 writes, which analysis actor is right, and which actor fits robots and creatures (Codsworth).
+CK compile path (verified strings, PC job 27; reading inferred): the CK compiles lip files with
+`Tools\FaceFX\ffxc.exe` over `Slice_NN.ffxcproj` projects, writes `.ffxanim` into slice folders, then **copies them
+into the Data folder** ("Copying ffxanim files into data folder"), so `-CompileFaceFXAnims` must not run against the
+live game. The runtime also loads `Meshes/FaceFX/StarfieldHumanMale.ffxactor`, `...Female.ffxactor` and per-skeleton
+`.ffxbones`. Safer route to test: call `ffxc.exe` directly into a scratch folder.
 
 ## Mapping for the port
 
