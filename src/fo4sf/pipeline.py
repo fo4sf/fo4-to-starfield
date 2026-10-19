@@ -664,8 +664,9 @@ class Converter:
             # (RoofHatch01 is placed as a teleporting Door but matches no DOOR_RE)
             rig_load = load_door and self.rig_load_doors
             doorish = bool(DOOR_RE.search(nif_name)) or rig_load
-            if rig_load and not not_hinged and animated and pose is None and self.rig_doors and door_rig.slides(src):
-                not_hinged = True
+            if rig_load and not not_hinged and animated and pose is None and self.rig_doors and (
+                    door_rig.slides(src) or door_rig.flips(src)):
+                not_hinged = True               # a trapdoor named like a door (MetalTrapdoor01) must not swing upright
             if pose is None and self.rig_doors and self.door_physics_donor is not None and doorish and not not_hinged and not aliases and (not load_door or rig_load) and nif.door_hinge(src):
                 # Parts FO4 moves outside the first animated node (second leaf, shutter, other sliding panels) cannot
                 # hang under the template's single hinge: with the CALUMI library such a door gets its own rig and

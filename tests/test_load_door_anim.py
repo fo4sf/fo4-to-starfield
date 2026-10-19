@@ -82,6 +82,25 @@ class ConverterSwitchTests(unittest.TestCase):
         self.assertEqual(result["load_door"]["anim"]["rig"], "native")
         self.assertNotIn("xtel_anim_graph", result["load_door"]["anim"])    # no vanilla load graph known for own rigs
 
+    def test_on_a_trapdoor_named_like_a_door_is_not_swung_on_the_upright_template(self):
+        trap = "meshes\\SetDressing\\Doors\\MetalTrapdoorLoad01.nif"
+        with tempfile.TemporaryDirectory() as staging:
+            result, single, multi, static = self.convert(staging, trap, test_sliding_doors.trapdoor(), "calumi.dll",
+                                                         rig_load_doors=True)
+        single.assert_not_called()
+        multi.assert_called_once()
+        self.assertEqual(result["load_door"]["anim"]["rig"], "native")
+        with tempfile.TemporaryDirectory() as staging:                    # without the library it stays a static door
+            result, single, multi, static = self.convert(staging, trap, test_sliding_doors.trapdoor(), None,
+                                                         rig_load_doors=True)
+        single.assert_not_called()
+        self.assertNotIn("anim", result["load_door"])
+
+    def test_flips_tells_a_trapdoor_from_a_hinged_leaf(self):
+        from fo4sf import door_rig
+        self.assertTrue(door_rig.flips(door_nif(test_sliding_doors.trapdoor())))
+        self.assertFalse(door_rig.flips(door_nif(two_leaves()[:1])))
+
     def test_on_a_load_door_that_does_not_animate_stays_static(self):
         with tempfile.TemporaryDirectory() as staging:
             result, single, multi, static = self.convert(staging, LOAD, [], None, rig_load_doors=True)
