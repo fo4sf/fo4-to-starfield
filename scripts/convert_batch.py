@@ -155,13 +155,24 @@ def static_body_models(cell):
                   key=str.lower)
 
 
-def checkpoint_key(key, name, load_models, static_models):
+def static_pattern_models(pattern, names):
+    """--static-pattern: the candidate names matching a regex, or, for "@file", the names listed in that file (one mesh
+    name per line, as a manifest prints them; case and slashes ignored)."""
+    if pattern.startswith("@"):
+        with open(pattern[1:], encoding="utf-8-sig") as f:
+            wanted = {line.strip().replace("/", "\\").lower() for line in f if line.strip()}
+        return {n for n in names if n.replace("/", "\\").lower() in wanted}
+    return {n for n in names if re.search(pattern, n, re.I)}
+
+
+def checkpoint_key(key, name, load_models, static_models, no_rig_models=()):
     """The checkpoint identity of one conversion: the mesh (or posed-variant) key plus the record-driven classes that
     change its output (load door, static body), so a cell export that reclassifies a mesh is a cache miss (Codex review
     of #354: a RoofHatch01 primed without an XTEL was reused, without load_door, after its XTEL appeared). A mesh in
-    neither class keeps its plain key, so existing checkpoints stay valid."""
+    neither class keeps its plain key, so existing checkpoints stay valid. no_rig_models (--no-rig-pattern) tags the
+    same way."""
     low = name.replace("/", "\\").lower()
-    tags = [t for t, models in (("load_door", load_models), ("static_body", static_models))
+    tags = [t for t, models in (("load_door", load_models), ("static_body", static_models), ("no_rig", no_rig_models))
             if low in {m.replace("/", "\\").lower() for m in models}]
     return "|".join([key] + tags)
 
@@ -195,6 +206,14 @@ def main():
                          "than one part (double doors, shutters, sliding panel sets) and sliding / lifting / trapdoor "
                          "doors (vault, elevator, hatch) get their own rig and Open/Close clips; without it the first "
                          "keep the single-hinge template and list the parts that stay closed, the second stay passable")
+    ap.add_argument("--no-rig-pattern", default="",
+                    help="regex over mesh names: these doors skip their own rig (as without --door-anim-dll), only they "
+                         "reconvert on --resume once the checkpoints match this code (the signature digests src/fo4sf and this "
+                         "script, so the first run after a code change reconverts everything; crash bisects: v6 Red "
+                         "Rocket, 2026-10-19)")
+    ap.add_argument("--static-pattern", default="",
+                    help="regex over mesh names, or @file listing mesh names: these keep a static body though items "
+                         "are movable; only they reconvert on --resume once the checkpoints match this code (as --no-rig-pattern)")
     ap.add_argument("--resume", action="store_true", help="reuse content-verified per-model checkpoints")
     ap.add_argument("--pattern", default=r"^meshes[\\/]setdressing[\\/]")
     ap.add_argument("--limit", type=int, default=20)
@@ -261,6 +280,9 @@ def main():
     else:
         names = src.mesh_names(a.pattern)
         load_models = static_models = []
+    no_rig_models = [n for n in names if a.no_rig_pattern and re.search(a.no_rig_pattern, n, re.I)]
+    if a.static_pattern:
+        static_models = sorted(set(static_models) | static_pattern_models(a.static_pattern, names), key=str.lower)
     print(f"{len(names)} candidate meshes; converting up to {a.limit}")
     os.makedirs(a.staging, exist_ok=True)
     state_path = os.path.join(a.staging, "build-state.json")
@@ -275,7 +297,7 @@ def main():
         if not a.cell_json and re.search(r"(lod|_dmg|damaged|destr)", name, re.I):
             skipped += 1
         else:
-            ckey = checkpoint_key(name, name, load_models, static_models)
+            ckey = checkpoint_key(name, name, load_models, static_models, no_rig_models)
             r = cache.load(ckey) if cache else None
             if r is not None:
                 reused += 1
@@ -288,7 +310,8 @@ def main():
                                               door_anim_dll=a.door_anim_dll or None,
                                               spec_mask_roughness=a.spec_mask_roughness,
                                               mass_scale=a.mass_scale, load_door_models=load_models,
-                                              static_body_models=static_models)
+                                              static_body_models=static_models,
+                                              no_rig_models=no_rig_models)
                 r = conv.convert_nif(name)
                 if cache:
                     try:
@@ -324,7 +347,7 @@ def main():
         variants, pose_stats = placed_pose.plan(cell["refs"], by_source, lambda name: src.mesh(name))
         for v in variants:
             base = by_source[source_identity(v.source).replace("/", "\\")]
-            key = checkpoint_key(f"{v.source}|xrgd:{v.key}", v.source, load_models, static_models)
+            key = checkpoint_key(f"{v.source}|xrgd:{v.key}", v.source, load_models, static_models, no_rig_models)
             r = cache.load(key) if cache else None
             if r is not None:
                 reused += 1
@@ -337,7 +360,8 @@ def main():
                                               door_anim_dll=a.door_anim_dll or None,
                                               spec_mask_roughness=a.spec_mask_roughness,
                                               mass_scale=a.mass_scale, load_door_models=load_models,
-                                              static_body_models=static_models)
+                                              static_body_models=static_models,
+                                              no_rig_models=no_rig_models)
                 r = conv.convert_nif(v.source, pose=v.overrides, out_suffix=v.suffix)
                 if cache:
                     try:
