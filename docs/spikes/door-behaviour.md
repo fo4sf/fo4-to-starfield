@@ -17,7 +17,7 @@ byte layout was not checked here, so the list is a **supported hypothesis** unti
 | Teleports (load door) | REFR XTEL: destination door, arrival point | `teleport_destination` | Interiors: XTEL when both ends are built (TeleportLinks.cs); exterior to interior: FO4SF_LoadDoor VMAD (vmad_patch.py) |
 | Is a load door at all | the base is a DOOR and the reference has an XTEL | `type` + `teleport_destination` | Until 2026-10-18 by file name only (LOAD_DOOR_RE "door...load"); now also by record (see below) |
 | How it opens | the NIF's Open / Close sequences | the model | hinged template, own rig (sliding, multi-part), or passable |
-| Locked, needs a key | REFR XLOC: level, key, flags | `lock_data` | **not written** (PluginSpike counts them only) |
+| Locked, needs a key | REFR XLOC: level, key, flags | `lock_data` | written by ReferenceLinks (doors only; keys must resolve, terminal / inaccessible / barred / chained refused); not verified in game. PluginSpike still counts them only |
 | Open at start | REFR "open by default" | `open_by_default` | written |
 | Hidden until a quest enables it | REFR initially disabled, enable parent XESP | `disabled`, `enable_parent` | disabled kept; **enable parent not written**, so such a door never appears or always appears |
 | Opened by something else (button, terminal, lever) | REFR activate parents XAPD, linked refs | `activate_parents`, `linked_references` | not written for doors |
