@@ -1,5 +1,24 @@
 {
  "schema": 1,
  "note": "Fallout 4 master hashes of known-good installs. Filled from a real install with launcher.py sources-add --manifest <build manifest> --label <text>; never typed in.",
- "sources": []
+ "sources": [
+  {
+   "file": "Fallout4.esm",
+   "size": 330745373,
+   "sha256": "ae7be31a59052f926474a767d9dbfbcc7f19af4ad2070491f7f40d821b2520eb",
+   "label": "Steam depots 377163 / 435871 / 435880 on the owner's PC (2026-10-19 manifest at ffe8f4e; version reported as 1.10.163, not read from the file)"
+  },
+  {
+   "file": "DLCRobot.esm",
+   "size": 8012051,
+   "sha256": "e71e04ac3f283332712c70ed23912b33972c3845eeb58b1a1c7c432d62651638",
+   "label": "Steam depots 377163 / 435871 / 435880 on the owner's PC (2026-10-19 manifest at ffe8f4e; version reported as 1.10.163, not read from the file)"
+  },
+  {
+   "file": "DLCworkshop01.esm",
+   "size": 633592,
+   "sha256": "82914c20d3cf975472afbd96dac4d3fd30cf00a7e97dbf054286afafac4ac6da",
+   "label": "Steam depots 377163 / 435871 / 435880 on the owner's PC (2026-10-19 manifest at ffe8f4e; version reported as 1.10.163, not read from the file)"
+  }
+ ]
 }

@@ -87,9 +87,12 @@ class DetectTests(unittest.TestCase):
         self.assertEqual(n, 0)
         self.assertEqual(len(self.table["sources"]), 7)
 
-    def test_shipped_table_is_empty_and_loads(self):
+    def test_shipped_table_loads_with_well_formed_entries(self):
         t = detect.load_sources(os.path.join(ROOT, "scripts", "launcher_recipes", "known_sources.json"))
-        self.assertEqual(t["sources"], [])
+        self.assertIn("Fallout4.esm", {s["file"] for s in t["sources"]})
+        for s in t["sources"]:
+            self.assertRegex(s["sha256"], r"^[0-9a-f]{64}$")
+            self.assertTrue(s["label"])
 
     def test_cli(self):
         spec = importlib.util.spec_from_file_location("launcher_cli", os.path.join(ROOT, "scripts", "launcher.py"))

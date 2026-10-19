@@ -57,9 +57,8 @@ IDS_DIFFER, INCOMPLETE; exit 0 only for the first two.
 build?", read only: Fallout4.esm and each DLC master matched by hash against `scripts/launcher_recipes/known_sources.json`
 (unknown versions refused unless `--allow-unknown`), missing DLC named and refused unless `--allow-missing-dlc`,
 Starfield.exe, Data and Archive2 required, Creation Kit and SFSE reported (refused only with `--require-ck` /
-`--require-sfse`), and free space minus the floor (default 40 GB) against the need. The table ships empty; entries
-come from a real install with `sources-add --manifest <build manifest> --label <text>`, never typed in. On the owner's
-PC today detect refuses on DLC (only Automatron and Wasteland Workshop are installed), which is the intended answer.
+`--require-sfse`), and free space minus the floor (default 40 GB) against the need. Entries come from a real install's build manifest (`sources-add`). On the owner's PC today detect refuses on DLC
+(only Automatron and Wasteland Workshop are installed), which is the intended answer.
 
 ### measure
 `launcher.py measure <folder>` gives a folder's real disk cost with hard links counted once and the part shared with
@@ -97,6 +96,27 @@ wired to any install yet; the format is for the talk (it targets a core master t
    hard links) and the worktree stay on D: because the PC refuses our deletes; about 62 GB free.
 3. Later, on a second machine (or a clean second checkout path on the same PC), the same recipe: the cross-machine
    half of plan task L4.
+
+## PC numbers, 2026-10-19 16:3xZ (verified, read only, ffe8f4e)
+
+- **Known version table seeded** from the PC's manifest: Fallout4.esm 330,745,373 bytes sha256 ae7be31a...,
+  DLCRobot.esm 8,012,051 e71e04ac..., DLCworkshop01.esm 633,592 82914c20... (Steam depots 377163, 435871, 435880). The
+  "1.10.163" label is what the research notes say about this depot, not read from the file (unresolved).
+- **detect on the PC:** NOT READY, refused only on the four missing DLC (Far Harbor, Contraptions, Vault-Tec,
+  Nuka-World); Archive2 yes, Creation Kit yes, SFSE no; D: 42.0 GB free with 40 kept free, so 2.0 GB usable.
+- **Real disk cost of staged core builds** (measure, hard links counted once):
+
+| Folder | Files | Listed | Shared with other folders | Deleting frees |
+|---|---|---|---|---|
+| terrain_core64v6e | 52,550 | 4.45 GiB | 4.15 GiB | 0.30 GiB |
+| det_v6e_b (the determinism re-stage) | 52,560 | 4.45 GiB | 3.50 GiB | 0.95 GiB |
+| terrain_core64c_work_v6c2 (work folder) | 64,707 | 4.49 GiB | 4.09 GiB | 0.40 GiB |
+| terrain_core64v6e_l125_mission_wfc10 | 52,604 | 4.47 GiB | 0.00 GiB | 4.47 GiB |
+
+  A staged core shares nearly all its Data with the work folder, so a new staged build costs about 0.3 to 1 GiB, but
+  the `_l125_mission` fold makes a full 4.5 GiB copy. Linking the fold's Data the way stage does would save about
+  4 GiB per fold build (a make_mission.py change for its owner, not done here). For the owner's delete list: the
+  fold folders free the most; det_v6e_b frees under 1 GiB.
 
 ## Alternatives for the owner's talk
 

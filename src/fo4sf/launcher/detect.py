@@ -9,8 +9,8 @@ read only.
     Disk        free space on the output drive, minus the floor that must stay free (40 GB on the owner's D:), against
                 the space the build needs
 
-The known-sources table (scripts/launcher_recipes/known_sources.json) maps master hashes to a version label. It starts
-empty: entries come from a real install with `launcher.py sources-add --manifest <build manifest>`, never typed in.
+The known-sources table (scripts/launcher_recipes/known_sources.json) maps master hashes to a version label. Entries
+come from a real install's build manifest (`launcher.py sources-add --manifest <build manifest>`), never made up.
 """
 import os
 import shutil
