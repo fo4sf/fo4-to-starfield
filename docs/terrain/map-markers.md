@@ -307,3 +307,8 @@ source:
 
 Nothing to borrow for markers, locations or the merge question. Its standalone-world approach would sidestep the
 offset entirely, but it is a different design from our overlay and is a decision for the world threads.
+
+**Decided by the owner, 2026-10-19 (22:04Z, in the next-phase talk-through):** reuse BACUP's GPL-3 code, with credit,
+for three ideas rather than writing our own: zero a door's transition cell when that cell is not built, keep each
+cell's FO4 lighting template, and texture land per quadrant from `VTXT` / `ATXT`. None of them touches markers,
+locations or the merge probe; they belong to the doors, lighting and terrain work.
