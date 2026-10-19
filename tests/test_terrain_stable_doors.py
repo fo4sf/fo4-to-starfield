@@ -78,15 +78,41 @@ class TerrainStableDoorTests(unittest.TestCase):
     def test_legacy_door_bootstrap_is_byte_identical_then_reorder_is_stable(self):
         self.params['persistent_ids'] = False
         obj = self.pair()
+        # Different targets, including zero, must stay attached to their source
+        # door when allocation changes from legacy order to persistent identities.
+        obj['doors'][1]['destination']['arrival']['pos'] = [0.0, -123.5, 42.25]
         first, stage = self.build(obj, 'door-bootstrap')
+        self.assert_persistent_marker_layout(stage, obj, first)
+        def vmads():
+            written = fixture.records(stage / 'Synthetic.esm')
+            return {src: dict(fixture.subrecords(written[int(v['ref'], 16)][1]))[b'VMAD']
+                    for src, v in first['doors'].items()}
+        original_vmads = vmads()
         original = {n: (stage / n).read_bytes() for n in ('Synthetic.esm', 'formids.json')}
         self.params['persistent_ids'] = True
         second, _ = self.build(obj, 'door-bootstrap', bootstrap=True)
         self.assertEqual(first, second)
         self.assertEqual(original, {n: (stage / n).read_bytes() for n in original})
+        self.assert_persistent_marker_layout(stage, obj, second)
         obj['doors'].reverse()
         third, _ = self.build(obj, 'door-bootstrap')
         self.assertEqual(first, third)
+        self.assert_persistent_marker_layout(stage, obj, third)
+        self.assertEqual(original_vmads, vmads())
+
+    def assert_persistent_marker_layout(self, stage, objects, ids):
+        """A stable ID must continue naming the persistent return marker after reordering."""
+        path = stage / 'Synthetic.esm'
+        written = fixture.records(path)
+        for entry in ids['doors'].values():
+            marker = written[int(entry['arrival'], 16)]
+            self.assertEqual(marker[3], 0x400)
+            self.assertEqual(marker[2], written[0x800][2])
+        marker_ids = [0x01000000 | int(v['arrival'], 16) for v in ids['doors'].values()]
+        groups = doors.mk.door_marker_groups(str(path), set(marker_ids) | {0x01000800})
+        self.assertEqual(doors.mk.door_marker_placement(groups, marker_ids, 0x01000800), [])
+        raw = doors.overlay_records.walk_plugin(str(path))
+        self.assertEqual(doors.mk.door_record_problems(raw['records'], 0x01000000, objects, ids), [])
 
     def test_arrival_identity_uses_the_whole_source_plugin_key(self):
         obj = self.pair()

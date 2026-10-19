@@ -1504,6 +1504,27 @@ See [identity protocol](testing/terrain-persistent-identities.md).
 - 2026-10-16, Codex: merged current main into owned PR227 and reproduced four loose-item integration failures with the actual synthetic writer/allocator fixture. A single unnamed MISC reservation produced a ledger that could not reopen; distinct MISC bases collided on that key; item bootstrap could not reopen; malformed new semantic keys were accepted. MISC allocation now names its item identity and new keys pass the reopening schema before reservation. Added rebuild/reorder/later-container/removal/reintroduction and exact-bootstrap controls. Evidence: private persistent-items-227-20261016. No production stage, source game data, caller activation or live input changed. Peer QA remains required; PR176 supplies collision-free caller identities.
 
 
+## 2026-10-16: preserve full source-plugin identity in container groups (Codex)
+
+Offline synthetic review of merged1670f128805: disabled-reference refusal and metadata agreement work, but
+plugin punctuation/extensions still alias distinct source bases. Three unit controls and all three actual-writer
+plugin-pair subcases reproduce the failure. The identity helper now retains unambiguous legacy names and uses
+the full key for other groups, normalizing ASCII case without Unicode expansion, with a separate collision refusal.
+Four actual-writer methods verify distinct CONTs and preserved original REFR IDs/data/flags/parents.
+See [the identity follow-up](testing/container-reference-identities.md#full-source-plugin-grouping-follow-up).
+No C# writer, production stage, game input or save changed. Peer review/integration remain pending; existing
+mixed-plugin aliases and future promoted-base migrations are not repaired retroactively.
+
+### 2026-10-16: Codex extends full-source grouping to MISC
+
+Merged current main into the owned PR176 branch after PR235 introduced shared CONT/MISC
+promotion. Resolved the identity helper conflict by preserving both class wrappers and
+full canonical source keys; added the same explicit collision refusal to loose items.
+Five synthetic methods produce 13 failing subcases on PR235's reviewed caller; all58
+focused Python checks pass with the fix. The compiled-writer tests now include three
+MISC source-plugin pairs, preserving original reference slots and serialized placement.
+Private evidence: promoted-identity-176-20261016. No writer source, staging or live changes;
+independent review remains required. This does not fix the separate NaN output-check finding.
 ## 2026-10-16: Codex native bases for persistent door relationships
 
 The owner's persistent-door priority led back to PR174's actual ReferenceLinks
@@ -1736,3 +1757,330 @@ Commands use isolated Python unittest and the Release TerrainOverlays build;
 evidence: persistent-check-lease-20261016. Wrapper tests stub the terrain body,
 so full-stage check, full-size bootstrap, peer QA and native save/door acceptance
 remain unverified. No game version tested, deployment or active-stage changes.
+
+## 2026-10-16: Codex full-size persistent-door bootstrap and indexed audit (offline)
+
+Exact276/529a36f bootstrapped a copied core64j_doors stage with both plugins and the full
+map byte-identical. Normal held-audit/check_stage then timed out before ready at120s.
+Indexing source-keyed map sections once retains ordinal/duplicate/reservation checks;
+the same command/input now passes260 checks,709,154 IDs and15 raw doors in171.365s.
+13 targeted audit/lease regressions pass (2 new); original assets and failures retained.
+No game/install changes. Optional FO4 LAND/raw collision and Archive2 checks omitted.
+Private evidence: persistent-full-stage-work. Independent QA, changed-core64k identity
+validation and native return/save/reload remain open; see ai/optimization.md.
+
+## 2026-10-16 (afternoon and evening, Mountain time) - Claude: wave 1 merged, stations, the shooting crash found
+
+**Builds.** core64h (exterior + navmesh + 5,185 containers + 12,438 loose items; check 253/253) installed packed for the
+owner at 12:50; the owner confirmed in game that picking up loose items works (~14:30). integ_1016 (the interiors rebuilt
+with #230 collision, #231 LOD triangles, #232 textures: 29 -> 0 collision errors, 54,877 ids unchanged) deployed 13:00.
+integ_1017 (plus #242 vault door rigs through the CALUMI animation dll and #244 posed props: 4,346 models = 4,200 + 146
+posed variants, 55,033 ids with all 54,877 earlier ones unchanged) deployed ~16:25. core64i (every promotion class:
+containers 5,156, items 12,438, activators 2,246, terminals 140, lights 6,249 over 144 LIGH, workshops 29, benches 269 on
+the vanilla Starfield FURN stations; check 263/263) installed packed ~17:35. Owner checks of the stations, lights, vault
+doors and poses are pending.
+
+**Merged** (each with a testing state: full suite, dotnet builds, guard, CI; wave 1 with one combined state of all six
+and an independent adversarial review per PR): #230 #231 #232 #235 #237 #238 #247 #252 (code of conduct) #254 (CodeQL)
+#257 #258 #259 #263 #264 #268 (docs), Codex #243 #245 #248 #251 #253, Grok #250, wave 1 #249 #240 #244 #242 #241 #246,
+stations #266. GitHub code scanning (CodeQL default setup: actions, csharp, python) is on; its two alerts (header
+splitting in the Guardian proxy) fixed in #254; 0 open.
+
+**The shooting crash (owner playtest rows 3 and 18).** Refuted: the impact-material hypothesis (every material-like
+value in our Havok bodies is a vanilla value). Found: Havok's assertion "Unknown primitive type in compressed mesh"
+(hknpCompressedMeshShapeInternals.cpp:939, the int3 at Starfield.exe+0x36F418B in all 7 WER reports since 12 Oct) in
+the compressed-mesh closest-points query of a particle body-collision job. The owner's ProcDump full dump (17.4 GB,
+shooting a Vault 111 cog door) names the shape: vault_cart_01.nif (STAT FO4Port_Vault_Cart_01): numPrimitives 40, one
+data run {0, 40}, yet the query reached primitive index 40: the converted tree's keys reference more primitives than the
+array holds (FO4's key space covers its padding slots); slots with indices[1] == indices[3] (FO4 0xDEAD padding) read as
+an unknown special primitive; FO4 section encoding flags&1 never occurs in vanilla. Affected: 18 of 2,946 mesh-bearing
+interior models, 63 exterior models. Without a debugger the HK_ASSERT's int3 is the crash (straight to desktop, no WER
+entry this afternoon: the engine ends the process). Fix in progress: keys / data runs / primitive array made consistent
+in meshcollision.py, a decoder-simulation checker over every model, reconversion of the affected models.
+
+**The landing-zone boundary (row 17).** "Boundary Reached" is Starfield's native BoundaryMenu (no GMST, no MESG, no
+script). The owner's three setpos lines were pasted as one, so a single 1,549 m jump applied; this repo's runs of 11-12
+Oct showed jumps beyond ~2 cells raise it while 300 m hops reached 2 km with no popup. A real tile edge on foot is
+unproven (hypothesis from exe settings: planet-content blocks 3-4 km + uPlayableSpaceOverlayCellBuffer 5). Permanent
+route: a list of arrival markers per region.
+
+**Doors.** Design pass: first scripted pair = Super Duper Mart (exterior 0EE661 / core slot 02D22C, interior 0EE5D6 /
+Port REFR 01007D0B), both sides real door meshes; the cave and the Vault 111 autoload doors are invisible markers on
+both sides. Step 0 (two Probe functions: Resolve, MoveTo) answers the return-trip and merged-position unknowns in one
+window before any door record exists. Codex's compiled script (#243) is the contract; Codex's native interior half
+(#245 #251 #253) merged. The first build attempt died at 14:51 (unnoticed for three hours); relaunched.
+
+**Stations.** Build mode is engine-side: an ACTI base with WorkshopKeyword (00054BA7) opens workshop mode on activation
+(vanilla pre-placed pattern OutpostPlayerHouseActivator 00024DC7, also in the Neon exterior). FO4 benches map by bench
+type and recipe keyword id onto 2B6A63 weapon / 2B6A62 armor / 2B6A61 chem / 2B6A65 cooking; power armor stations have
+no equivalent. Open in game: whether build mode opens from a temporary REFR in our overlay (vanilla's are persistent).
+
+**Owner playtest rows 10-18** in docs/owner/playtest-issues.md with pictures (the look button: F13 / Ctrl+Alt+L,
+snapshots tagged owner-button). Lessons: a Bash heredoc here turns \\r \\n escapes into real characters (patch through a
+written script; gate commits on tests); a background workflow can die silently (check the transcripts' modification
+times); the owner's three-line console paste became one line (give one line per command).
+
+## 2026-10-17: Grok FLOR harvest research (offline, row 14)
+
+Starfield.esm 1.16.244 still has `FLOR` as the harvest record: 300 bases, `PFIG` ingredient + `PFPC` seasons.
+Organic crop template `FloraMaizeCrop01` (keywords `FloraTypeOrganic` + `OutpostCanDomesticate`, seed item
+`OrgCommonNutrient_Seed`). Core64c selected 3,520 Flora refs / 48 bases before exclusion (writer 3,518 / 47).
+Mutagen 0.55.0-alpha.67 `Flora.Ingredient` writes `PFIG` (default seed and a custom MISC); a STAT ingredient is
+refused; no byte patch. `Fallout4.esm` is at depot_377163; a produce table is still unresolved because Starfield
+`PFIG` is MISC/LVLI, not FO4 ALCH. Promotion class: `make_cluster.py flora`, `cluster_flora` (edid `FO4Core_flor_*`),
+TerrainOverlays Duplicate of `FloraMaizeCrop01`. In-game harvest is Claude's after a scratch overlay
+([docs/terrain/flora.md](terrain/flora.md)).
+
+## 2026-10-17: Grok playtest textures, row 15 greyscale-to-palette (offline)
+
+Starfield 1.16.244, convert dir `terrain_core64c_work_fix3` (read-only). FO4 GreyscaleToPalette_Color (nif.xml
+flags1 bit 4 = 0x10; BGSM `bGrayscaleToPaletteColor` byte 62) was parsed and never applied, so index maps
+shipped as albedo. Converter now bakes the palette lookup into the colour map (green channel as U,
+`fGrayscaleToPaletteScale` as V) before BC1. Texture-set slot 3 is only used when the NIF flag is set.
+A greyscale string with the flag off is not a palette (ConcreteRoadHW01 names a cubemap there). A named
+palette that is missing from the archives is a conversion error, not a grey albedo. Synthetic tests:
+palette lookup, flag/scale parse, flag gating, missing-palette failure, cache identity.
+
+Row 15 frames/plaque are **not** palette materials (Claude review, vanilla BA2s): both painting BGSMs have
+an empty greyscale string and byte 62 = 0; BrassPlaque flags1 has bit 0x10 clear and slot 4 is a cubemap.
+This PR does not change those outputs. The frames need per-reference material swaps (MODS/XMSP), which
+nothing in this repo reads. In-game check of real palette materials is Claude's after a scratch reconvert.
+Vertex-colour V and GreyscaleToPalette_Alpha are not this PR. Row 11 vines are PR #288; row 13 walls remain
+a separate root cause.
+
+## 2026-10-17: Grok playtest textures, row 11 vines (offline)
+
+Starfield 1.16.244, convert dir `terrain_core64c_work_fix3` (read-only). Hanging vines (`vinehanging06/07`,
+`vinecreeper*`) use `vine.mat`: opacity slot 2 and AlphaSettings were already written, but the material still clones
+`MetalIronCast01` / `PlasticPlainSmooth01` (one-sided opaque). Vanilla foliage uses `TwoSided1Layer`.
+`Summary.Layer1.Textures` had no Opacity key. `vine_color.dds` luma 3.8 because 85% of the card is BC1-black
+cutout. Converter now clones `ConduitKit01TwoSided.mat` whenever an opacity map exists, writes Summary Opacity, and
+zeroes metalness. Synthetic tests in `tests/test_materials.py`. In-game check is Claude's after a reconvert of the
+vine family into a scratch folder. Rows 13 (bright wall albedo luma 184) and 15 (dark canvasswap luma 29) are
+separate root causes, not this PR.
+
+## 2026-10-17: Grok map-marker research (playtest row 7)
+
+Starfield 1.16.244. Offline walk of `Starfield.esm` and pinned `FO4TerrainCore.esm`. Starfield has no `MAPM` group;
+markers are `REFR` of STAT `MapMarker` `00000010` with empty `XMRK`. `LCSR` is 5 × u32 (`LCRT`, `REFR`, `WRLD`, 0,
+`0xFFFFFFFF`). LC172WorldLocation already has MapMarkerRefType → persistent `REFR` `003E5E12` and `LCID` that ref.
+`TerrainOverlays` Duplicate-copies that location then clears `MasterSpecialReferences` / `MasterInitiallyDisabledReferences`,
+so the pinned overlay LCTN has empty `LCSR`/`LCID` and 0 MapMarker refs among 654,600 `REFR`.
+
+Plan: restore one persistent MapMarker at the Red Rocket COC with LC172 `FNAM`/`TNAM`, one `LCSR` + `LCID`; do not stamp
+a PCM landing overlay. Frontier hang after that restore is **unresolved** (Claude in-game). FO4 `XMRK` **unresolved**.
+Evidence: [docs/terrain/map-markers.md](terrain/map-markers.md), `src/fo4sf/map_markers.py`, `tests/test_map_markers.py`.
+
+Writer (same day, `grok/map-marker-restore`): TerrainOverlays Duplicates LC172's MapMarker `REFR` `003E5E12`, sets it
+persistent+initially-disabled (`0xC00`) at the COC spawn, `FULL` "Red Rocket", `LCSR` MapMarkerRefType + `LCID` with
+Grid from spawn_cell and Unknown -1 (`0xFFFFFFFF` tail). Skips when the master has no `003E5E12`. New FormIDs after
+doors/lights. In-game overlay: Claude.
+
+## 2026-10-16 (night, Mountain time) - Claude: Step 0 probes and the first scripted door
+
+**Probes (queues door_probe_1017 and door_probe_1017e; bridge_t2; core64i / core64k; Starfield 1.16.244).**
+(a) From the Red Rocket exterior: `Game.GetFormFromFile(id, plugin)` with a plugin-local id works; the persistent
+anchor 0x800 resolves at its unmerged position (-989.26, 1146.51) in world 0x02000803 (our base WRLD, not the runtime
+instance); a loaded temporary reference resolves at its merged position; a temporary reference in an unloaded cell
+returns none. (b) From inside FO4Port_RedRocket01: the anchor resolves, both temporary exterior references return none.
+(c) `MoveTo` onto the anchor from inside puts the player at the anchor's unmerged coordinates in a fresh runtime world
+and he falls (no terrain there: y 1146 lies outside the overlay's merged extent). (d) The same with offsets
+(-1200, -2700, 0): identical landing, offsets ignored across the world switch (the single far console jump afterwards
+raised Boundary Reached). (e) `MoveTo` onto the anchor, then fifteen console hops of <= 200 m to the merged Red Rocket
+spot: the player stood at (-2189.30, -1553.54, 110.49) in cell 0x02000DAF of that same runtime world, z steady for 28
+samples: the world a persistent reference drops you into is the overlay instance; only the persistent reference's own
+coordinates are unmerged.
+
+**First scripted door (queue door_trip_sdm_1018; core64k + integ_1018_doors + bridge_t3 with FO4SF_LoadDoor.pex).**
+Forward: four 182 m hops to the Super Duper Mart door (merged -1654.44, -2059.93), `prid 0202D22B`, GetIsID of the
+ACTI 020A770B = 1, `activate player`: Papyrus logged `requested fo4port.esm:57087` and `MoveTo returned`; the player
+then stood on the interior arrival marker (5.449, 17.291, -3.637) in cell 0x04006C46 for six steady samples. PASS.
+Return from inside: `refused: destination unavailable or self` (the temporary exterior marker does not resolve from
+an interior); the player stayed. EXPECTED-REFUSED.
+
+**Design that follows.** Exterior arrival markers become persistent; the door script keeps `MoveTo` for the cell /
+world switch and adds a `SetPosition` to the destination's merged coordinates (properties per door). Codex owns the
+script change; the writer change is Claude's. Evidence folders: C:\Modding\testqueue\door_probe_1017,
+door_probe_1017e, door_trip_sdm_1018 (bridge.log, papyrus.log, obs.json, judge outputs). Lesson: the bridge log's
+probe lines are case-sensitive to the game's spelling (`FO4SF Resolve`); the reader is case-insensitive since #282.
+
+## 2026-10-17: Codex activation-parent metadata preservation (offline)
+
+Grok's [garage-button investigation](https://github.com/fo4sf/fo4-to-starfield/issues/32#issuecomment-6230797494)
+identified dropped activation relationships. A synthetic Fo4Export regression first failed because
+`activate_parents` was absent. The shared interior/exterior serializer now retains the raw flags,
+ordered source FormKeys and float32 delays, including deferred actors, null links and empty blocks.
+ReferenceLinks reports non-null blocks as untranslated even when a reference has no placed target;
+it neither invents native wiring nor changes existing links/identities.
+
+Verified with Mutagen Fallout4 0.55.0-alpha.67 and synthetic records: the generated REFR's XAPD
+contains byte `81`; its three XAPR payloads are eight bytes each, preserve distinct own/master/null
+parent IDs, and store delay 0.1 as float32 `3DCCCCCD`. The production binary-overlay getter retains
+the same metadata. `dotnet run --project dotnet/Fo4Export.Tests -c Release` and
+`dotnet run --project dotnet/ReferenceLinks.Tests -c Release` pass; the latter also passes its existing
+11 native-door and 13 missing-door CLI controls. `dotnet build dotnet/Fo4Land -c Release` succeeds
+without warnings, confirming the shared exterior producer compiles; no full exterior export was run.
+Initial harness compilation and missing-restore failures are retained alongside the reproduced
+missing-field failure and passing results in private evidence. Guard passes. No installed data,
+native garage animation, scripts or game control changed; independent review remains pending.
+
+## 2026-10-17 - Claude: the "flat grey floor" in Vault 111 is the water plane (owner playtest row 20)
+
+**Question.** Owner snapshot 20261017-000312 (bridge position -57.91, -7.11, -1.943 in Vault111Cryo, integ_1018 build):
+the floor is one flat light-grey surface, no tile or grid detail, white under the flashlight. Which model, which
+material, why flat? (Offline only; nothing launched.)
+
+**Finding (verified offline, one in-game read).** It is not a floor model's texture. The surface is the placed
+`Water\Water1024.nif` (ref 02D27E, base Water1024IntPondDarkCalm, FO4 position -3832, -200, -136 = -54.743, -2.857,
+-1.943 m), a 14.63 m square (UV 0..1) over the gear room's sunken pit:
+- The player's z (-1.942875) equals the plane's top (-136/70 = -1.942857) to 2e-5 m. The earlier snapshots 000241 and
+  000257 read z 0.0009 and 0.0 on the room floor and show the normal dark vault tiles. The pit's real floor is the
+  `V111FloorCementDirty01` shape of `V111GearRoom01` at z -2.38 (the blue generator `GreebGenerator01` stands on it at
+  z -2.40, 9.2 m ahead, 16 deg left of the view heading: where the screenshot shows it); the plane hides it.
+- FO4's `Water1024.nif` has one BSTriShape with a `BSWaterShaderProperty` (no texture set, no .bgsm: FO4 draws it
+  from the WATR record) and one convex body, 14.63 x 14.63 x 14.63 m below the plane, layer 11 = L_WATER ("a water area
+  phantom"). `Converter._shape_material` returns the neutral fallback for every shader that is not a
+  BSLightingShaderProperty or BSEffectShaderProperty, so the quad became `_neutral.mat`: a 16 x 16 uniform grey colour
+  texture (decoded luma std 0.00), a flat normal map, one roughness value. That is "flat grey, no detail", opaque, at
+  water level. Manifest: `fo4port\water\water1024.nif`, shapes 1, fallback_materials 1, collision_report bodies 1.
+- The converted body keeps layer 11 with the template's hknpMaterial (materialId 0, flags 0, triggerType 0). In
+  Starfield's COLL records L_WATER (layer 11) lists L_CHARCONTROLLER among its collision partners and L_CHARCONTROLLER
+  lists L_WATER; Fallout4.esm has the same pairing, yet an FO4 player does not stand on water. The FO4 water body is
+  the one body here with cinfo flags 0x10 (the room's static and stair-helper bodies have 0); the converter writes
+  the template's 0. What bit 0x10 does is **unresolved** (hypothesis: it is what keeps the FO4 body from being solid).
+  What is verified is the result: in Starfield the player stood on the sheet, 0.44 m above the pit floor. Same cause
+  as T10 in docs/ai/test-gaps-2026-10-13.md (the Red Rocket cave pond is a 5.1 m L_WATER box).
+- Not the other candidates: the pit floor's own converted material is fine (`v111floorcementdirty01.mat`: colour,
+  normal and roughness exist in the archive; the colour map decodes to the same mean RGB and spread as FO4's
+  `V111FloorCementDirty01_d.dds`, 161/156/140, std 12.5). No palette material is involved (#289: the shapes under the
+  player have no BGSM and no greyscale-to-palette flag). No texture failed conversion. It is not a lighting effect.
+
+**Fix.** The exterior path already leaves placed water planes out (`exterior.WATER_RE`); the interior path did not
+(interior-backlog.md had it as "unresolved whether they look wrong in game"; now resolved). `convert_batch.cell_candidates`
+now drops `Water\` models too, so the model is not converted and the plugin writer places no reference for it (PluginSpike
+counts a reference as skipped when its model has no manifest item). Five of the 16 interior exports place a Water1024
+(Vault111Cryo, Vault75, RedRocket01, CambridgePolymerLabs01, MuseumOfWitchcraft01). Result: a dry pit, as FO4 minus its
+0.44 m of water. Real water is a separate feature (FO4 water type -> Starfield water), not attempted. Test:
+`CellCandidatesTests.test_water_planes_out_like_the_exterior_path` (fails without the change; also asserts the exterior
+classifier agrees). Before/after reconversion of the two refs (room + plane): the before manifest is byte-identical to
+integ_1018's (water1024.nif, `_neutral.mat`, gear room all equal by sha256); the after manifest holds the room only.
+
+**Not verified.** In game: that after a rebuild the player stands at the pit floor (z about -2.38) and sees the cement
+texture. The first read after the rebuild is the proof; the T10 PHANTOM test covers the cave pond.
+
+## 2026-10-17 — Codex: activation-parent warnings keep interior exports usable (#305)
+
+## 2026-10-17: Codex persistent-ID integration with merged return writer (offline)
+Claude requested nonblocking, counted warnings for preserved activation-parent metadata.
+The previous default returned exit 2 for a synthetic cell with a non-null activation block;
+the new eight-case CLI regression reproduced that before the change. ReferenceLinks now
+lists these blocks in `Warnings` and stderr, retains all source data, and writes
+`partial_with_warnings` rather than claiming complete relationship fidelity. Strict callers
+can select `--strict-activation-parents`; `--allow-unresolved` explicitly overrides that gate.
+Missing enable-parent targets and other existing issues still block default publication.
+Report-only never publishes a plugin or marks the build complete. Synthetic output is reopened
+to check identities and that no activation behavior or substitute link was invented.
+This is offline export policy, not a native door/activation fix. Delta peer QA remains required.
+
+PR279 is merged with main0147710, which contains the reviewed PR297 return writer.
+The only manual conflict was the handoff; retained the newer branch evidence and
+updated merged status. TerrainOverlays source is byte-identical to reviewed3fab4b8.
+No new runner/bridge change relative to main; exp_install retains its two existing
+stage-readiness checks. Fifty-four targeted checks pass without skips: stage
+readiness, experiment install/recovery, actual-writer legacy/bootstrap byte parity
+and stable IDs through reorder/remove/reintroduce. Guard/whitespace pass.
+Independent integration review and a fresh full-size migration remain pending;
+older migration evidence does not accept the current native build. No stage,
+game installation or controller input changed. Synthetic logs/pins retained privately.
+## 2026-10-17: Grok 3D surface-map research (ROADMAP §3 item 1)
+
+Starfield 1.16.244. Offline. Pinned `terrain_core64k`: LCTN parent `SSol_PMars_Surface`, overlay SNAM 0 / PNAM 4, Mars
+PNDT 11 entries including our WRLD; no `lodsettings`; 0 `meshes/lod/generated`; 315 converted FO4 LOD NIFs under
+`meshes/fo4core/lod`. The 3D surface map is the May 2024 loading-zone camera, not a mesh we author. GO: marker (#296
+after LCSR `FFFFFFFF`) then CK object LOD; NOT go: custom planet or map renderer this stage.
+Evidence: [docs/terrain/surface-map.md](terrain/surface-map.md), `src/fo4sf/surface_map.py`, `tests/test_surface_map.py`.
+
+## 2026-10-17: Codex raw light-patch bounds (offline)
+
+Independent PR302 review reproduced a malformed DAT2 declaration extending beyond
+its LIGH into a following STAT: scale changed four STAT bytes, then check returned
+CHECK PASS. Both commands now validate record/group containment and all LIGH
+subrecords before accepting lumens offsets; malformed trailing fields and duplicate
+DAT2 are refused. The checker validates both files. The scaling rule is unchanged.
+
+Synthetic reproduction only, no game versions or installed outputs tested.
+Seventeen focused tests passed initially; the selected three-method baseline run
+produced five failed assertions against the old implementation. This was not a
+run of every new test against old code. Valid trailing fields remain supported.
+Guard/whitespace pass. Failure/pass evidence is privately retained; independent
+QA pending. No game data, staging changes or native brightness claim.
+
+Claude's independent review at 7a31d64 confirmed valid-output parity in 12 synthetic
+comparisons and requested a regression for validating checker input B. Added one
+test with two cases: A valid, B duplicate-DAT2 or overrun, identical total size and
+record layout. Both reject before byte/lumens comparison and retain both inputs.
+Removing only B validation causes both cases to fail. All 31 focused light-patch
+and FO4-light tests pass; guard and whitespace checks pass. Production source is
+unchanged; final test-delta review is pending. No native or staging run.
+
+## 2026-10-17: Grok #288 review fixes (offline)
+
+Codex/Claude on a77edfa: `build_from_template(..., metalness=0)` only updated an existing TextureReplacement
+index 4. ConduitKit01TwoSided has none (only MRTextureFile index 4 = conduit metal), so vine.mat kept the metal
+map and Summary said UseReplacement/0 — the 2026-10-08 metallic-summary shape. Now the writer drops that metal
+file and appends an enabled replacement (MetalIronCast01's shape). Opacity maps stay gated on `alpha_test or
+decal`; `two_sided` alone no longer cuts out cars/glass (40 FO4 two-sided materials without alpha test).
+DryConverter._texture_set accepts `two_sided` so a core64c dry run no longer TypeErrors every BGSM. One-sided
+FO4 cutouts (hair, chain-link) still clone TwoSided1Layer when they have an opacity map. In-game still Claude.
+
+## 2026-10-17: Grok playtest 21/24 (garage button + object LOD)
+
+Row 21: FO4 garage is an ACTI with XAPR to the button, not a DOOR. Writer wires vanilla
+`DefaultActivateLinkedRefOnActivate` + XLKR LinkCustom02 on the two Commonwealth pairs (no new FormIDs).
+Row 24: object LOD research only (`lodsettings` + generated `_lod_0..3`); do not raise the cell buffer.
+[docs/terrain/garage-button.md](terrain/garage-button.md), [docs/terrain/object-lod.md](terrain/object-lod.md).
+
+## 2026-10-17: Codex production garage-link regression (offline)
+
+Added an actual TerrainOverlays writer test for #303. Two synthetic builds, without
+and with the button link, must retain all existing identity-map sections and record
+IDs, changing only the button REFR. Its serialized VMAD must carry edited
+LinkedRefKeyword = Starfield.esm:05D5E7 (alias -1); the one XLKR must use that same
+keyword and the garage REFR in the output plugin, not the ACTI base.
+
+The new test fails against the actual pre-fix 7eaab94 writer because its script has
+no properties, and passes against 0168350. Both runs and synthetic output bytes are
+preserved privately. No game files, stage, installation or native acceptance; the
+garage animation/receiver remains a separate gate. Independent test review pending.
+
+## 2026-10-17: Grok #303 wire-only (clip alias out)
+
+Claude 08:04 on #32: the Opening/Closing clip alias in pipeline.py is P2 inside this change, not a lead
+item; it turns both FO4 garage meshes into passable statics because RedRGarageDoor.nif is skinned and the
+rigger refuses it. Alias, door_motion Opening sequences, door_rig.alias_clips, and the alias test are
+out. Button wiring, docs, and Codex's #319 actual-writer test stay. Garage NIF rig is later, Claude on
+the build side. No deploy, no game.
+
+- **2026-10-18 Codex PR176 main merge:** retained six owned identity functions and109 current-main function bodies (excluding docs). Updated two stale ACTI/workshop tests from expecting punctuation aliases to checking distinct bases/original slots, retaining injected-collision refusal.89 initial Python passes plus two corrected reruns cover91 cases; eight actual-writer tests pass, including new ACTI/TERM/workshop identity, NAME/ref-slot and terminal-menu controls. Six parent-main helper alias counterexamples reproduced. Two existing C# warnings remain. Original failures and synthetic outputs retained privately; no live stage or save migration, independent integration QA pending.
+
+## 2026-10-18: Grok Ba2.largest_entries
+
+Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+
+- **2026-10-18 Codex PR267 flora compatibility:** reconcile current main's FLOR promotion with the persistent-ID/audit stack. Four actual synthetic-writer regressions first failed with `invalid semantic identity key`. Name flora base reservations, accept that key family and audit its declared bindings; retain main's flora promotion order and the existing bench lookup. Six new flora cases plus eight existing flora/ledger/audit cases pass (14 total); three independently built main-writer legacy scenarios have identical plugin/map bytes. Both parent journal histories retained. Source-only, independent current-head QA pending; no staging, deployment, native harvesting, door-trip or save acceptance.
+
+
+## Codex: October18 persistent-door stack current-main compatibility
+
+Plain merge combines PR279/beb7466 with reviewed PR267/2ff2a47, which contains main/d263b19. Retains persistent exterior return markers, enabled arrival coordinates, source-keyed IDs, held audit generations, flora and map-marker identities. Shared producer and patcher match main exactly; #280 paired caller integration remains unimplemented. Both complete documentation histories retained.
+
+Resolved CLI/caller and fixture conflicts. A compiler check caught a duplicate local introduced by the merge; corrected assignment retains the outer reference plan. Removed a premature single-file cluster read so comma-separated clusters reach the actual merger; core comparison removes stage identity controls while preserving world settings. Three new integration regressions cover these caller contracts and a real synthetic map-marker/door-return held generation; both negative caller mutations fail as expected. All44 focused writer/caller/lease tests, build, provenance and guard pass, no skips. Independent current-head QA and hosted CI remain gates.
+
+The prior full-size core64l migration/parity evidence belongs to beb7466, not this new combined head. No fresh real stage, paired interior publication, installed archives/PEX, native outside/inside/return/save/reload or walking acceptance is claimed. No game installation, controller input or cleanup was performed. Initial merge/compiler failure and passing synthetic outputs remain privately preserved.
+
+
+## Codex: October18 CI headroom for the combined door-identity suite
+
+PR279/f0a97b8 CI39179440252 completed all2223 tests successfully with110 skips in888.656s, then the complete job timed out at15m01s. The earlier267/2ff2a47 job39175102642 already took13m54s. Original logs and timing-gap analysis retained; no individual test failure or hang was observed.
+
+Raise the existing CI job cap from15 to20 minutes, preserving every step, test, permission and security check. No production/test source changes or manual unchanged-suite reruns. f0a97b8 independent Grok QA6257004942/6257022597 and44 Windows controls remain scoped source evidence; terminal CI success at the new head is still required. This bounded headroom is not a performance improvement or native door acceptance. Independent CI/doc delta review requested.

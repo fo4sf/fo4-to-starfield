@@ -2,13 +2,31 @@ using System.Text.Json;
 
 // Identity-only planning. Promotion changes the base type, not the source REFR's
 // slot in this export. It is not a persistent allocator for reordered exports.
-// Every promoted class ("containers", "items", "activators", "terminals", "workshops", "benches", "doors") is one ordered list
+// Every promoted class ("containers", "items", "activators", "terminals", "workshops", "flora", "benches", "doors") is one ordered list
 // of promoted sources: each carries its original reference_index, the remaining "refs" fill the other slots in order.
 internal static class ReferenceIdentityPlan
 {
+    // Match the writer's published tag aliases; display names and list positions are not identities.
+    public static string[] MapMarkerTags(JsonElement overlay)
+    {
+        var tags = overlay.TryGetProperty("map_markers", out var markers) && markers.ValueKind == JsonValueKind.Array
+            ? markers.EnumerateArray().Select(m => m.GetProperty("tag").GetString() == ""
+                ? "RedRocket" : m.GetProperty("tag").GetString()).ToArray()
+            : new[] { "RedRocket" };
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var tag in tags)
+        {
+            if (string.IsNullOrWhiteSpace(tag)) throw new InvalidDataException("empty map-marker identity tag");
+            var canonical = string.Concat(tag.Select(c => c is >= 'A' and <= 'Z' ? (char)(c + 32) : c));
+            if (!seen.Add(canonical)) throw new InvalidDataException($"duplicate map-marker identity tag: {tag}");
+        }
+        return tags.Select(t => t!).ToArray();
+    }
+
     // objects.json keys of the promoted classes (make_core64c.py ALL_PROMOTED): CONT, MISC, ACTI, TERM (+ TMLM), then the
-    // workshops' ACTI bases; a bench binds to a vanilla FURN of the master and adds no base
-    public static readonly string[] PromotedClasses = { "containers", "items", "activators", "terminals", "workshops", "benches", "doors" };
+    // workshops' ACTI bases; a bench binds to a vanilla FURN of the master and adds no base; a scripted load door keeps
+    // its slot too, its ACTI base and arrival marker are allocated after everything else (docs/terrain/scripted-doors.md)
+    public static readonly string[] PromotedClasses = { "containers", "items", "activators", "terminals", "workshops", "flora", "benches", "doors" };
     // These bases remain owned by the master; only each placed bench REFR is allocated here.
     public static readonly IReadOnlyDictionary<string, uint> BenchKinds = new Dictionary<string, uint>
     {

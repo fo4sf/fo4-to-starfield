@@ -6,6 +6,7 @@ import test_terrain_stable_doors as stable_doors
 
 import test_terrain_reference_identity as fixture
 import test_terrain_stable_ids as stable
+import test_terrain_stable_doors as stable_doors
 import test_terrain_doors_writer as doors
 import test_terrain_lights_writer as lights
 
@@ -18,6 +19,29 @@ class TerrainStableMixedTests(unittest.TestCase):
     with_doors = stable_doors.selected_doors
     with_lights = lights.TerrainLightsWriterTests.with_lights
     BODY = fixture.ActivatorTerminalWriterTests.BODY
+
+    def test_flora_growth_preserves_existing_door_records_and_arrival_ids(self):
+        obj = self.mixed()
+        first, stage = self.build(obj, 'mixed-flora-door-identities')
+        before_records = fixture.records(stage / 'Synthetic.esm')
+        door_ids = {int(value[kind], 16) for value in first['doors'].values()
+                    for kind in ('base', 'ref', 'arrival')}
+        changed = copy.deepcopy(obj)
+        count = len(obj['refs']) + sum(len(obj.get(kind, [])) for kind in
+                    ('containers', 'items', 'activators', 'terminals', 'workshops', 'flora', 'benches', 'doors'))
+        template = (obj['refs'] or obj['doors'])[0]
+        changed['flora'] = [dict(src='00B001:Other.esm', reference_index=count,
+                                 edid='SyntheticFloraGrowth', model='synthetic_plant.nif',
+                                 name='Synthetic plant', ingredient='00260DF2:Starfield.esm',
+                                 **{k: template[k] for k in ('cell', 'pos', 'rot', 'scale', 'disabled')})]
+        grown, _ = self.build(changed, 'mixed-flora-door-identities')
+        for section, value in first.items():
+            self.assertEqual(grown[section], value, section)
+        after_records = fixture.records(stage / 'Synthetic.esm')
+        self.assertEqual({key: before_records[key] for key in door_ids},
+                         {key: after_records[key] for key in door_ids})
+        restored, _ = self.build(obj, 'mixed-flora-door-identities')
+        self.assertEqual(restored, first)
 
     def setUp(self):
         stable.TerrainStableIdentityTests.setUp(self)
@@ -57,7 +81,7 @@ class TerrainStableMixedTests(unittest.TestCase):
         self.assertGreater(int(door['base'], 16), int(door['arrival'], 16))
 
         mk = doors.mk
-        plugin = doors.overlay_records.walk_plugin(str(stage / 'Synthetic.esm'))
+        plugin = doors.mk.overlay_records.walk_plugin(str(stage / 'Synthetic.esm'))
         recs, own = plugin['records'], len(plugin['masters']) << 24
         mk.check_reference_slots(obj, ids)
         mk.check_door_identities(obj, ids)

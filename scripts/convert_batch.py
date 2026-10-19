@@ -20,7 +20,7 @@ import time
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-from fo4sf import ba2, checkpoints, convert_static, meshcollision, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
+from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
 
 
 def checkpoint_signature(a):
@@ -46,6 +46,10 @@ def checkpoint_signature(a):
         sig["prefix"] = a.prefix
     if getattr(a, "door_anim_dll", "") and a.starfield_data:   # multi-part doors get their own rig and clips
         sig["door_anim_dll"] = checkpoints.digest(Path(a.door_anim_dll))
+    if getattr(a, "spec_mask_roughness", False):        # rougher outputs differ; off keeps existing checkpoints valid
+        sig["spec_mask_roughness"] = True
+    if getattr(a, "mass_scale", 1.0) != 1.0:            # scaled masses differ; default 1.0 keeps existing checkpoints valid
+        sig["mass_scale"] = a.mass_scale
     caps = textures.parse_texture_caps(getattr(a, "max_texture", ""))
     if caps:                                            # capped outputs differ; no cap keeps existing checkpoints valid
         sig["max_texture"] = caps
@@ -126,9 +130,14 @@ DEFAULT_CELL_TYPES = "Static,StaticCollection,MovableStatic,Furniture,Door,Activ
 
 def cell_candidates(cell, wanted):
     """The meshes --cell-json converts for one cell export: 'meshes\\' + model of every reference whose base type is in
-    wanted, without editor markers and effect meshes (fog / light volumes), sorted case-insensitively, each once."""
+    wanted, without editor markers, effect meshes (fog / light volumes) and placed water planes, sorted
+    case-insensitively, each once. A water plane (Water\\*.nif: a BSWaterShaderProperty quad plus an L_WATER body) is out
+    for the reason the exterior path already leaves it out (exterior.WATER_RE): as a static it is an opaque flat grey sheet
+    (the neutral fallback material) AND a solid floor, because the converted L_WATER body supports the player (Vault 111
+    gear pit: the player stood on the sheet 0.44 m above the real floor; docs/JOURNAL.md 2026-10-17)."""
     return sorted({"meshes\\" + r["model"].lstrip("\\") for r in cell["refs"] if r["model"] and r["type"] in wanted
-                   and not re.search(r"marker|^\\?effects[\\/]", r["model"], re.I)},   # editor markers, fog/light volumes
+                   and not re.search(r"marker|^\\?effects[\\/]", r["model"], re.I)   # editor markers, fog/light volumes
+                   and not exterior.WATER_RE.search(r["model"])},                    # water planes (see the docstring)
                   key=str.lower)
 
 
@@ -177,9 +186,18 @@ def main():
                     help="cap converted textures by dropping top mip levels: one size for every kind ('1024') or per "
                          "kind ('color=1024,normal=512,rough=256,opacity=512'); default: full resolution. The full and "
                          "written size of every texture go to <staging>/texture_log.json")
+    ap.add_argument("--spec-mask-roughness", action="store_true",
+                    help="roughness also follows FO4's specular mask (smooth-spec R), so dull surfaces with high gloss "
+                         "stay rough; default off (the gloss alone, as every build so far)")
+    ap.add_argument("--mass-scale", type=float, default=1.0,
+                    help="scale FO4 dynamic body masses (playtest row 26: FO4 small items 2-10x Starfield; try 0.2-0.5 so grab works)")
     a = ap.parse_args()
     if not re.fullmatch(r"[a-z0-9_]+", a.prefix):
         ap.error("--prefix: lower-case letters, digits and _ only")
+    try:
+        a.mass_scale = convert_static.require_mass_scale(a.mass_scale)
+    except ValueError as e:
+        ap.error(f"--mass-scale: {e}")
     try:
         textures.parse_texture_caps(a.max_texture)
     except ValueError as e:
@@ -228,41 +246,43 @@ def main():
             break
         if not a.cell_json and re.search(r"(lod|_dmg|damaged|destr)", name, re.I):
             skipped += 1
-            continue
-        r = cache.load(name) if cache else None
-        if r is not None:
-            reused += 1
         else:
-            if conv is None:
-                conv = pipeline.Converter(src, a.staging, a.texconv, a.content_resources, template,
-                                          rig_doors=donor is not None, door_physics_donor=donor,
-                                          sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
-                                          prefix=a.prefix, max_texture=a.max_texture,
-                                          door_anim_dll=a.door_anim_dll or None)
-            r = conv.convert_nif(name)
-            if cache:
-                try:
-                    cache.save(name, r)
-                except (OSError, ValueError) as e:
-                    print(f"  checkpoint unavailable for {name}: {e}")
-        attempted_so_far += 1
-        if not r["ok"]:
-            failures.append({"nif": name, "reason": r["reason"]})
-        else:
-            eid = editor_id(name, ids)
-            if cache:
-                os.makedirs(a.staging, exist_ok=True)
-                write_json_atomic(os.path.join(a.staging, "editorids.json"), ids)
-            items.append({"editor_id": eid, "model": r["out_name"].replace("/", "\\") + ".nif", "source": name,
-                          "shapes": r["shapes"], "fallback_materials": r["fallback_materials"], "form_index": len(items),
-                          "collision_report": r.get("collision_report") or {}, **({"door": r["door"]} if "door" in r else {}),
-                          **({"load_door": r["load_door"]} if "load_door" in r else {}),
-                          **({"movable": r["movable"]} if "movable" in r else {}),
-                          **({"door_not_opening": r["door_not_opening"]} if "door_not_opening" in r else {}),
-                          **({"door_frozen_parts": r["door_frozen_parts"]} if "door_frozen_parts" in r else {}),
-                          **({"door_error": r["door_error"]} if "door_error" in r else {})})
-            print(f"  ok  {name} -> {eid} (shapes {r['shapes']}, fallback materials {r['fallback_materials']})")
-        if attempted_so_far % progress_every == 0:
+            r = cache.load(name) if cache else None
+            if r is not None:
+                reused += 1
+            else:
+                if conv is None:
+                    conv = pipeline.Converter(src, a.staging, a.texconv, a.content_resources, template,
+                                              rig_doors=donor is not None, door_physics_donor=donor,
+                                              sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
+                                              prefix=a.prefix, max_texture=a.max_texture,
+                                              door_anim_dll=a.door_anim_dll or None,
+                                              spec_mask_roughness=a.spec_mask_roughness,
+                                              mass_scale=a.mass_scale)
+                r = conv.convert_nif(name)
+                if cache:
+                    try:
+                        cache.save(name, r)
+                    except (OSError, ValueError) as e:
+                        print(f"  checkpoint unavailable for {name}: {e}")
+            attempted_so_far += 1
+            if not r["ok"]:
+                failures.append({"nif": name, "reason": r["reason"]})
+            else:
+                eid = editor_id(name, ids)
+                if cache:
+                    os.makedirs(a.staging, exist_ok=True)
+                    write_json_atomic(os.path.join(a.staging, "editorids.json"), ids)
+                items.append({"editor_id": eid, "model": r["out_name"].replace("/", "\\") + ".nif", "source": name,
+                              "shapes": r["shapes"], "fallback_materials": r["fallback_materials"], "form_index": len(items),
+                              "collision_report": r.get("collision_report") or {}, **({"door": r["door"]} if "door" in r else {}),
+                              **({"load_door": r["load_door"]} if "load_door" in r else {}),
+                              **({"movable": r["movable"]} if "movable" in r else {}),
+                              **({"door_not_opening": r["door_not_opening"]} if "door_not_opening" in r else {}),
+                              **({"door_frozen_parts": r["door_frozen_parts"]} if "door_frozen_parts" in r else {}),
+                              **({"door_error": r["door_error"]} if "door_error" in r else {})})
+                print(f"  ok  {name} -> {eid} (shapes {r['shapes']}, fallback materials {r['fallback_materials']})")
+        if (attempted_so_far + skipped) % progress_every == 0:
             elapsed_now = time.time() - t0
             rate = attempted_so_far / elapsed_now if elapsed_now > 0 else 0
             print(f"  progress: {attempted_so_far} attempted ({len(items)} ok, {len(failures)} fail, {skipped} skipped) "
@@ -284,7 +304,9 @@ def main():
                                               rig_doors=donor is not None, door_physics_donor=donor,
                                               sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
                                               prefix=a.prefix, max_texture=a.max_texture,
-                                              door_anim_dll=a.door_anim_dll or None)
+                                              door_anim_dll=a.door_anim_dll or None,
+                                              spec_mask_roughness=a.spec_mask_roughness,
+                                              mass_scale=a.mass_scale)
                 r = conv.convert_nif(v.source, pose=v.overrides, out_suffix=v.suffix)
                 if cache:
                     try:
@@ -330,6 +352,8 @@ def main():
         for reason, count in reason_counts.most_common(5):
             pct = 100.0 * count / total
             print(f"    {count:4d} ({pct:5.1f}%)  {reason[:80]}")
+            if examples[reason]:
+                print(f"      examples: {', '.join(examples[reason][:3])}")
     else:
         print("  Failure summary: 0 failures")
     if items:

@@ -18,6 +18,7 @@ Additional fields preserve source state for later translators:
 | `persistent` | Reference belongs to the source cell's persistent list |
 | `open_by_default` | Original default-open state |
 | `enable_parent` | Reference identity and numeric enable-parent flags, or null |
+| `activate_parents` | Numeric raw `flags` and ordered `parents` with source `reference` FormKey and original float32 `delay`, or null |
 | `linked_references` | Ordered links, each with `keyword_or_reference` and `reference` identities |
 | `teleport_destination` | Destination door, position, rotation, flags and transition interior, or null |
 | `ownership` | Owner FormKey, no-crime setting and unknown numeric field, or null |
@@ -29,14 +30,29 @@ keep source FormKeys rather than prematurely translating them into target IDs.
 `keyword_or_reference` reflects the source format's union field; do not assume
 every value is a keyword. Teleport transforms also remain in source units.
 
-The existing Starfield writer ignores these additional fields. Exporting them
-does not implement enable relationships, persistent placement, teleportation or
-default-open behavior, ownership or lock behavior in Starfield. VM scripts and
-other unexported fields still require separate work.
+`activate_parents` preserves absent blocks as null and explicit empty blocks as
+an empty parent list. Parent links may themselves be null; zero delays, ordering
+and unknown flag bits are retained. Both the interior exporter and Fo4Land use
+this shared serializer, including deferred actor placements. Existing exports
+must be regenerated to acquire this previously omitted metadata. The current
+ReferenceLinks translator reports each non-null activation block in `refs` as
+untranslated, including references with no placed target. It does not infer
+enable-parent/linked-reference substitutes or install activation scripts.
+These blocks produce counted, listed warnings and permit default ReferenceLinks
+output with fidelity `partial_with_warnings`. `--strict-activation-parents` instead
+refuses output with exit 2; `--allow-unresolved` explicitly overrides that gate.
+Neither mode implements the activation behavior, and other unresolved links
+continue to block default output.
+
+Exporting source state is separate from applying it in Starfield. ReferenceLinks
+translates selected enable/link/teleport and door-state relationships and reports
+unsupported cases; this export alone does not implement those behaviors.
+Activation-parent translation, VM scripts and other unexported fields still
+require separate work.
 
 `deferred_refs` retains placements outside the current object conversion path.
 Actor entries keep their base identity, position/rotation/scale, raw flags,
-persistent state, enable parents, linked references and ownership. Each has a
+persistent state, enable and activation parents, linked references and ownership. Each has a
 `reason` identifying why translation is deferred. Other unsupported placement
 types retain at least their reference identity and type. The current plugin
 writer does not consume this list; these entries do not spawn NPCs in Starfield.

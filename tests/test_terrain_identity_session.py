@@ -91,6 +91,36 @@ class TerrainIdentitySessionTests(unittest.TestCase):
         self.assertEqual((stage / 'objects.json').read_bytes(), original + b' ')
         self.assertFalse((stage / LEASE).exists())
 
+    def test_map_marker_identities_and_door_returns_share_the_held_generation(self):
+        original_master = self.master.read_bytes()
+        self.addCleanup(self.master.write_bytes, original_master)
+        fixture = self.writer.parents[4] / 'TerrainIdentityFixture/bin/Release/net9.0/TerrainIdentityFixture.dll'
+        made = subprocess.run([self.dotnet, str(fixture), str(self.master), 'map-marker'],
+                              capture_output=True, text=True)
+        self.assertEqual(made.returncode, 0, made.stdout + made.stderr)
+        self.params['overlays'][0]['map_markers'] = [
+            {'tag': 'RedRocket', 'name': 'Red Rocket', 'pos': [1, 1, 2], 'cell': [0, 0]},
+            {'tag': 'Sanctuary', 'name': 'Sanctuary', 'pos': [101, 102, 3], 'cell': [1, 1]},
+        ]
+        obj, ids, stage = self.prepare('held-map-marker-doors')
+        tags = ids['map_marker_refs']['SyntheticWorld']
+        self.assertEqual(set(tags), {'RedRocket', 'Sanctuary'})
+        arrivals = {int(d['arrival'], 16) for d in ids['doors'].values()}
+        self.assertTrue(arrivals.isdisjoint(int(value, 16) for value in tags.values()))
+        before = self.snapshot(stage)
+        with self.held(stage) as audit:
+            self.assertTrue(all(ok for _, ok in core.declared_identity_checks(stage, obj, ids, audit)))
+            recs, own = self.records(stage)
+            self.assertEqual(core.map_marker_problems(recs, len(doors.overlay_records.walk_plugin(
+                str(stage / 'Synthetic.esm'))['masters']), self.params['overlays'][0], ids), [])
+            blocked = subprocess.run([self.dotnet, str(self.writer), str(self.master), str(stage)],
+                                     capture_output=True, text=True)
+            (self.root / 'map-marker-blocked-writer.log').write_text(blocked.stdout + blocked.stderr)
+            self.assertNotEqual(blocked.returncode, 0)
+            self.assertEqual(before, self.snapshot(stage))
+        self.assertEqual(audit.proc.returncode, 0)
+        self.assertEqual(before, self.snapshot(stage))
+
     def _raw_result(self, stage, obj, ids, audit, damaged=False):
         audit.require_held(stage)
         recs, own = self.records(stage)

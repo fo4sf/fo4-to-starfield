@@ -14,7 +14,8 @@ The defaults model what the runner saw in game (N0_base in QASmoke, 2026-10-11):
   - OCR quirks in what "screen" returns (ocr_quirks): l for I ("GetlsID", "GetlslD", "GetlnFaction"), "> >" for ">>",
     "Clear Console", "Get Disabled", "Get Po s"; about nine lines are visible.
 Other knobs: speed (m/s, 0 = the actor never moves), isid_ok (GetIsID answers 1 for the right base), self_fmt
-(paren | hex | none), plr_selects (false: plr names the last ref but never selects it), prid_fails (prid never selects),
+(paren | hex | none | zero: "(00000000)"), plr_misses (that many plr name nothing), plr_selects (false: plr names the
+last ref but never selects it), prid_fails (prid never selects),
 lose_selection (without a crosshair ref: every console open clears the selection), spawn_fails, accepts (the one walk
 command that works), anchor_id / anchor_pos, arrival, fall ({"height", "speed"}: after coc the player falls from
 arrival z + height at speed m/s until the arrival z), layout ("inline" | "column": labels first, then values; echo
@@ -32,6 +33,9 @@ between console sessions, e.g. during the probes); land_z: a player.setpos z lan
 INI settings (ini, default INI below, made-up values): GetINI "<name:Section>" prints "INISetting <name:Section> >> <v>"
 (%i / %.4f) or ">> NOT FOUND"; SetINI on a known setting prints nothing, on an unknown one 'INI setting "<name:Section>"
 does not exist' (the reply formats in Starfield.exe 1.16.244).
+FO4SF_Probe.Resolve / MoveTo (cgf; the scripted door's Step 0): probe_refs {"<plugin-local decimal id>": [x, y, z]} are
+the references GetFormFromFile finds; the replies go to the bridge log only; a MoveTo moves the player there plus the
+offset and hides the HUD for load_secs.
 Load doors (door_trip): doors [{"cell", "pos", "auto", "works", "dest_cell", "dest_pos", "ref", "ref_pos"}]: readpos
 <ref> of a door's "ref" prints its "ref_pos" (default its pos: what getpos reports); an automatic door ("auto")
 loads when the player comes within auto_dist (3 m, Starfield.esm fAutoDoorActivateDistance) while the game runs (a walk
@@ -331,6 +335,9 @@ def run(s, cmd):
         if s.get("faction_lines", True):
             s["log"] += ["GetInFaction >> 0.00"] * 3
     elif low == "plr":
+        if s.get("plr_misses", 0) > 0:                    # the first plr(s) name nothing (the converted items, 2026-10-18)
+            s["plr_misses"] -= 1
+            return
         if s.get("last"):
             s["log"].append(f"PickLastRef: ({s['last']})")
             if s.get("plr_selects", True):
@@ -351,7 +358,9 @@ def run(s, cmd):
             s["log"].append(f"GetIsID >> {'1.00' if ok else '0.00'}")
     elif low == "getself":
         fmt = s.get("self_fmt", "paren")
-        if kind is not None and fmt != "none":
+        if kind is not None and fmt == "zero":           # GetSelf >> (00000000) (the vanilla items, 2026-10-18)
+            s["log"].append("GetSelf >> (00000000)")
+        elif kind is not None and fmt != "none":
             s["log"].append(f"GetSelf >> {s['sel']}" if fmt == "hex" else f"GetSelf >> ({s['sel'].lower()})")
     elif low.startswith('cgf "fo4sf_probe.pos" '):
         # SANDBOX bridge: FO4SF_Probe.Pos replies in the bridge log (the real game: FO4SF_Probe.psc), nothing on the
@@ -371,6 +380,8 @@ def run(s, cmd):
             doors = [d for d in s.get("doors", []) if str(d.get("ref", "")).upper() == rid]
             rp = (doors[0].get("ref_pos") or doors[0]["pos"]) if doors else None
         bridge_ref_line(s, dec, rp)
+    elif low.startswith(('cgf "fo4sf_probe.resolve" ', 'cgf "fo4sf_probe.moveto" ')):
+        bridge_probe_lines(s, cmd)
     elif low.startswith("getpos "):
         sel = s.get("sel")
         if sel is not None and sel == s.get("anchor_id"):
@@ -618,6 +629,35 @@ def bridge_ref_line(s, dec, rp):
                 f"cell={cell} disabled=false loaded=true")
     with open(log, "a", encoding="utf-8") as f:
         f.write(line + "\n")
+
+
+def bridge_probe_lines(s, cmd):
+    """SANDBOX bridge: FO4SF_Probe.Resolve / MoveTo (scripts/bridge/FO4SF_Probe.psc) answer in the bridge log only, in the
+    script's format. probe_refs {"<plugin-local decimal id>": [x, y, z]} are what GetFormFromFile finds (any other id:
+    form=none); MoveTo puts the player there plus the offset and hides the HUD for load_secs (a cell load)."""
+    m = re.fullmatch(r'cgf "FO4SF_Probe\.(Resolve|MoveTo)" "([^"]+)" (\d+)((?: -?\d+(?:\.\d+)?){3})?', cmd)
+    if not m:
+        return
+    fn, plugin, local, offs = m.groups()
+    rp = (s.get("probe_refs") or {}).get(local)
+    where = "ang=0.000000 cell=33557935 cellname= world=-16707575 worldname="
+    head = f"FO4SF {'resolve' if fn == 'Resolve' else 'target'} plugin={plugin} id={local}"
+    lines = [head + (" form=none" if rp is None else f" form={0x02000000 | int(local)} ref=true pos={rp[0]:.6f} "
+                     f"{rp[1]:.6f} {rp[2]:.6f} {where} disabled=false loaded=true")]
+    if fn == "MoveTo":
+        d = [float(v) for v in offs.split()]
+        tag = f"FO4SF moveto plugin={plugin} id={local} offset={d[0]:.6f} {d[1]:.6f} {d[2]:.6f}"
+        if rp is None:
+            lines.append(tag + " phase=refused")
+        else:
+            s["player"], s["falling"] = [rp[k] + d[k] for k in range(3)], None
+            s["loading_until"] = time.time() + float(s.get("load_secs", 2.0))
+            p = s["player"]
+            lines.append(tag + f" phase=after pos={p[0]:.6f} {p[1]:.6f} {p[2]:.6f} {where} loaded=true")
+    log = os.environ.get("FO4SF_BRIDGE_LOG")
+    if log:
+        with open(log, "a", encoding="utf-8") as f:
+            f.write("".join(f"[{time.strftime('%H:%M:%S')}] {ln}\n" for ln in lines))
 
 
 def bridge_line():

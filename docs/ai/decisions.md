@@ -385,3 +385,115 @@ writer produces identical synthetic plugin/map bytes; explicit bootstrap and
 subsequent reorder preserve that generation. Old-schema stages, full-size and
 native save compatibility remain unverified. Peer QA is required before lead
 integration; original stages and Claude's source checkout remain untouched.
+
+## 2026-10-16 Converted compressed meshes must pass the decoder simulation (Claude)
+- Decision: src/fo4sf/meshcheck.py (CLI scripts/oracles/collision_mesh_keys.py) walks every compressed mesh of a
+  converted NIF as Starfield's hknp decoder does and a build with violations is not deployed. The converter writes
+  what vanilla meshes have and nothing else: one SIMD leaf per primitive, primitive slots the decoder cannot type
+  replaced by a neighbour copy, FO4's special-primitive section flag cleared, primitiveStoresIsFlatConvex 0xFF; every
+  other FO4 byte is copied as before (docs/ai/research-log.md 2026-10-16).
+- Why: the owner's crashes since 10-12 are this decoder reading our per-triangle SIMD keys as primitives (vault_cart_01:
+  key 79 + 1 -> primitive 40 of 40). Vanilla gives one invariant set to test against (837 of 837 meshes).
+- Alternatives: dropping bodies with FO4 special primitives (loses the precombines' collision), re-encoding the trees
+  (no vanilla evidence that the engine wants anything but what it has), leaving the flat-convex byte at FO4's 0 (a
+  code path no vanilla asset exercises).
+- 2026-10-16 (Claude): FO4 exterior load doors into the converted interiors become scripted doors (docs/terrain/scripted-doors.md): every record stays temporary on the exterior side (the overlay merge), the door REFR keeps its slot on an ACTI with the converted door mesh and carries the FO4SF_LoadDoor VMAD (PR #243: DestinationPlugin + DestinationId, resolved at run time, no master link between the plugins), each side gets an arrival XMarker at the FO4 XTEL point (exterior: temporary, appended after the lights with the ACTIs; interior: persistent, so it resolves from outside). The exterior side is written by Mutagen (its VMAD bytes equal the raw codec's and vanilla's), the interior side by a raw record-level patch of a copy of the pinned FO4Port.esm (scripts/terrain/vmad_patch.py), proved by a byte diff of every other record. Alternatives rejected: a vanilla XTEL door (persistent references read unmerged, 4 in-game runs); MoveTo onto the interior door itself (temporary: unresolvable from outside, and the player would land in the mesh); rewriting FO4Port.esm with Mutagen (no byte-level proof that nothing else moved); allocating the door ACTIs with the other promoted bases (would shift every NAVM and light id of core64i). Open until Step 0 runs in game: whether a temporary exterior marker resolves from inside (else a persistent twin plus the (-1200, -2700) offset).
+
+### 2026-10-16 - preserve door-stage inputs before output (Codex)
+
+A hard-linked README/report can overwrite the pinned source through the new
+folder. Exclude generated names and replace generated files atomically; checking
+an older hard-linked report must also detach it. Refuse any existing selected
+REFR VMAD before changing the plugin, rather than erase or implicitly merge
+unreviewed behavior. Validate marker-map collisions and disjoint output paths
+before copying. Full-directory transactional publication remains separate.
+
+- 2026-10-17 (Claude): the door return trip, writer side (docs/terrain/scripted-doors.md "Return trip"). Step 0 answered in game: the temporary exterior marker 0A76FD does not resolve from inside (door_trip_sdm_1018, `FO4SF_LoadDoor refused`), and a MoveTo onto a persistent overlay reference lands at its unmerged position, from where a setpos to the merged one stands on the overlay (probe (e)). So each exterior arrival marker itself becomes persistent (flag 0x400, same id: the slot and append rules of #272 and formids.json stay as they were) in the overlay world's persistent cell beside the anchor, and both door VMADs gain DestinationX / Y / Z (float, edited; the names of Codex's draft PR #291): the exterior door the interior marker's position, the interior door the exterior marker's merged position = local + overlays_params planet_target_cell x 100 m, refused unless it equals the measured (-1200, -2700, 0). Why the world's persistent cell and not the exterior cell's persistent children: the only persistent overlay reference seen to resolve and MoveTo in game is the anchor there, and vanilla keeps every persistent worldspace reference there (Starfield.esm 16,057 of 16,057, Fallout4.esm 33,571 of 33,571; 0 in an exterior cell's persistent children; read raw with C:\Modding\scratch\doorreturn\survey_persistent.py). Alternatives rejected: a persistent twin beside the temporary marker (a fourth id per door for no use: nothing resolves the temporary one); a marker written at local + offset (supported, not run: the MoveTo lands at the written position in the unmerged instance, 2.95 km from the door's terrain there, and the position leaves the overlay's cells); the offset as a bare constant (it follows the overlay's registration: a build registered elsewhere is refused until measured).
+- 2026-10-17 (Claude): both door VMADs now carry `UseDestinationPosition` (bool, edited, true) as the sixth property, right after DestinationZ (docs/terrain/scripted-doors.md "Restage with the bool"). Why: PR #291's FO4SF_LoadDoor applies DestinationX/Y/Z with SetPosition only when that bool is true (zero is a valid coordinate, so the values cannot be the switch), so the five-property VMADs staged earlier the same day would have kept the plain MoveTo and ignored the coordinates. The reader (`vmad_patch.load_door_target`, hence `check_port` and `make_core64c.door_record_problems`) refuses floats without the bool, a false bool and the bool without floats; the two-property door stays valid. #291's psc declares the bool before the floats: the names and types match, the order differs, and Papyrus binds VMAD properties by name, so the reader takes both orders and the writer keeps the sixth position. terrain_core64l and integ_1018_doors2 were regenerated (265 of 265, 49 of 49; formids, objects and plan byte-identical to core64k). Alternative rejected: leaving the bool out (the psc defaults it to False, so the coordinates would never be applied).
+- 2026-10-17 (Claude): exterior light lumens scaled 0.375 as a raw patch (terrain_core64l_l125) pending the owner's night check; the build default stays 333 until then. Alternatives: a full rebuild with --lumens-per-m2 125 (hours); a patch plugin (a second master). docs/terrain/exterior-lights.md "Calibration (17 Oct)".
+
+### 2026-10-18 Codex: persistent identity audit on current door schema (PR267)
+
+Plain-merge main88b0c03; retain its six-property VMAD, persistent world-cell arrivals and marker-before-base legacy allocation. Apply semantic reservation keys at those allocations; old ledgers retain their stored IDs regardless of historical order. Main's producer/patcher/checker and tests supersede the earlier branch's two-property temporary-marker prototype, including make_port_doors.py. This is not the unapproved paired allocator integration. The identity-only audit accepts both historically omitted and current explicit-empty door sections; it still requires all nonempty source/map/ledger keys to agree. Parent-main byte parity, old-writer ledger continuity and regression evidence are pinned on PR267. Independent delta QA and native travel/save remain gates.
+
+
+## 2026-10-15 Claude: the leader's state is an append-only ledger; GitHub stays the human-readable bus
+
+The leader core (`src/fo4sf/core/`, to be built per [leader-core.md](leader-core.md)) keeps one append-only
+`leader/ledger.jsonl` of typed events beside the test queues; current state is a fold over it, and existing records
+(queue `results.jsonl`/`state.json`, deploy and install manifests, watchdog state) are imported as events, never
+rewritten. `SKIPPED` and `CIRCUIT_BROKEN` are terminal but undecided outcomes; only an `IN_GAME` `PASS` on the pinned
+build verifies a capability. Why: the 2026-10-14 power cut and the #84 controller races both came from state spread
+over labels, prose and per-queue files; a fold over a ledger resumes without guessing, a truncated last line is the
+worst crash case, and the work-period report generated from the fold cannot drift from the state. Alternatives:
+a SQLite store like `guardian.db` (harder to diff and attach as evidence; a crash mid-write is worse than a
+truncated JSON line); GitHub labels as the state (not machine-checkable, no history of who held the controller);
+rewriting old queue results into a new format (would touch original campaign evidence).
+
+## 2026-10-16 Claude-cloud: the controller lease is a file beside the ledger, consulted only behind an opt-in switch
+
+`src/fo4sf/core/controller.py` keeps the lease in `<leader>/controller.json` and writes every claim, renewal and
+release to the ledger first (the ledger is the record; the file is the cache the PowerShell scripts read through
+`scripts/game/lease.py`). `testqueue.py run`, `cycle.ps1` and `watchdog.ps1` consult it only when `FO4SF_LEASE_DIR`
+(the watchdog: `lease_dir` in `watchdog.json`) is set; unset, every script behaves as before, so the owner's PC does
+not change until the PC session turns the switch on in a window it watches. Why: the live runner, the chain and the
+watchdog are the PC session's, and a cloud session cannot test them against the game; a default-off switch lets the
+code merge and be read without a behaviour change. An expired lease is ambiguous and refuses every claim but the
+holder's own or a forced one with a reason, because a crash leaves exactly that state and the ledger must say who took
+over and why. Alternatives: a lock file alone (no record of who held it and no expiry: the #84 race again); a fold of
+the ledger in PowerShell (duplicated logic in two languages); a key in the PC's `config.toml` (not in git, and the
+runner reads none today); shipping the wiring on by default (would change the next chain on the PC untested).
+
+## 2026-10-16 Claude-cloud: the preflight gate reads through a probe, refuses on UNKNOWN, and ships off
+
+`src/fo4sf/core/preflight.py` keeps every check pure (a probe object supplies the readings; the runner's
+`PreflightProbe` reads the PC, the tests a fake), so the Windows-only readings never enter the core and every check
+has a synthetic PASS and FAIL. A reading the probe cannot give is UNKNOWN and refuses like FAIL, as the owner's brief
+asks; that includes a game version nobody pinned yet, so turning the gate on is a deliberate step by the PC session
+(pin the version, set `--preflight`). Why a probe and not direct reads: the same functions must run on Linux CI and on
+the PC, and a check that raises must become one UNKNOWN line, not a crash of the runner. Alternatives: a PowerShell
+preflight in cycle.ps1 (not testable here, and the runner needs the result in its log and the ledger); making the
+gate always-on (would refuse every current queue, none pins a game version); verifying the absolute load index
+against the game's implicit plugins (which of them the owner's install loads is unresolved: left as a note).
+
+## 2026-10-16 Claude-cloud: task cards and worker results are validated data; a lost attempt expires, never vanishes
+
+`src/fo4sf/core/tasks.py` and `worker.py` make the §4 card and the worker's result typed records the ledger checks
+before it takes them (an undecided outcome never completes, a PASS or FAIL carries evidence, only an IN_GAME PASS
+may claim `verified`, one attempt at a time, dependencies by PASS), and `Worker.expire` turns an attempt past its
+timeout into an INCONCLUSIVE result that says so. Why: the brief's cards were prose, and the two failure modes of
+the last weeks were a result nobody could trace to evidence and a run nobody could tell apart from a lost one; data
+with rules closes both. Alternatives: free-form result dicts (what the queue rows are today; the importer keeps
+reading those unchanged); a scheduler that retries on its own (a retry is a decision the leader records, not a loop).
+
+## 2026-10-16 Claude-cloud: the core carries one reference matrix, in #102's Z-first order, and leaves the old copies in place
+
+`src/fo4sf/core/adapters/transform.py` is the core's only `ref_matrix` (`R = Rx(-x) Ry(-y) Rz(-z)`, the order PR #102
+verified on 146,463 of 146,728 tilted precombined references and on 52 of 52 core64c readings); a parity test pins
+where the two Python copies agree (`routes.py` everywhere, `exterior.py` on heading-only rotations) and where they do
+not. `exterior.ref_matrix` and `PluginSpike.RotateOffset` stay X first on purpose: switching either moves every
+tilted placement or every rigged door hinge, which is a re-staged build, a rebuilt plugin and re-pinned campaigns,
+so each is its own PR by the PC session (leader-core.md §9 lists the cost). Why not fix them now: a cloud session
+cannot rebuild or re-pin, and a silently changed `objects.json` would invalidate pinned evidence. Alternatives:
+one shared function imported by both scripts today (ties `scripts/game` to `fo4sf.core` before the PC session has
+decided the import path); keeping the order as a parameter (two orders in the core is the bug #102 found).
+
+### 2026-10-18 Codex: map-marker keys in persistent terrain output (PR267)
+
+The main697bc07 marker writer calls unnamed NewKey, which the persistent ledger rejects (actual synthetic writer reproduction). Use world plus published tag, not list index/display name; normalize the default empty tag to RedRocket and refuse canonical duplicates. The existing declaration drives both writing and read-only identity audit, including the first-marker alias. Old reservations are retained when a marker template is introduced. Legacy output order/bytes stay with main; no production-stage opt-in or paired allocator wiring. Native map/travel behavior remains unverified.
+## 2026-10-18 Claude-cloud: SetRigidBodyMass tests when GetMass cannot be read
+- **Decision:** a movable_control test with `set_mass_kg` whose GetMass probe answers "No script named ..." is judged
+  on a move only. PASS WALKED or PASS IMPULSE stands, with "mass not read back" in the detail. No move stays
+  INCONCLUSIVE MASS.
+- **Why:** in movable_1019c, `cf "ObjectReference.GetMass"` answered "No script named ObjectReference is attached to
+  the object" (**verified**), so the old rule ("judged only when GetMass reads the mass set back") would leave every
+  5 kg test unjudged forever. The set mass can only have made the body lighter or left it unchanged:
+  - A move shows the body moves at a mass no higher than its own.
+  - No move cannot tell a mass that did not take from a heavy body, which is the verifier's "thinness, not mass"
+    concern on PR #110, so a non-move is still not judged.
+- **Alternatives:**
+  - Drop the 5 kg tests: this loses the one comparison that can show mass is the cause.
+  - Judge both ways: this risks a false "mass is not the cause".
+  - Find another GetMass route: none is known (no console command; the CallFunction route refuses).
+- Taken under the owner's standing rule (2026-10-18 03:56Z) that threads take their recommended option on reversible
+  choices.

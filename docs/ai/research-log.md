@@ -3,6 +3,140 @@
 New findings go here (newest first). Each entry: question, method, evidence, **status**: verified /
 supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and docs/spikes/; link, don't copy.
 
+## 2026-10-17 Grok: FO4 FLOR harvest -> Starfield FLOR (playtest row 14)
+
+- Question: what Starfield record harvests like FO4 flora, and how many placed plants the core would promote.
+- Method: raw walk of `Starfield.esm` 1.16.244 `FLOR` group (`fo4land.Plugin`); keyword / `PFIG` targets resolved to
+  EDID; `terrain_core64c_work_fix3/selected.json` type counts (read-only). `Fallout4.esm` is at the Steam
+  depot_377163 path (**verified** exists).
+- Starfield, **verified**: 300 `FLOR`. Harvest fields are still `PFIG` (ingredient) and `PFPC` (four seasonal
+  percentages). 169 carry `FloraTypeOrganic` 00222E03; 106 of those also `OutpostCanDomesticate` 002AC11D. Crop
+  templates `FloraMaizeCrop01` 000EC886 (and wheat) `PFIG` `OrgCommonNutrient_Seed` 00260DF2. `PNAM` `CC 4C 33 00` and
+  `JNAM` 360 match the ACTI marker colour / activation angle TerrainOverlays already writes.
+- Core placed flora, **verified**: 3,520 refs, 48 bases before exclusion; writer emits 3,518 / 47 (2 initially
+  disabled dropped, FloraInstituteGourdVine01 leaves). Crops: tato 320, mutfruit 328, gourd 251, corn 230, melon
+  199, tarberry 134, razorgrain 106.
+- Mutagen `Flora.Ingredient`, **verified** on 0.55.0-alpha.67: default seed and custom MISC both serialize to
+  `PFIG`; a STAT ingredient is refused. No byte patch.
+- FO4 `PFIG` per base: master **verified** present; a produce table is **unresolved** (FO4 targets are ALCH,
+  Starfield `PFIG` is MISC/LVLI). Shared field names make a native FLOR promotion **supported**. In-game harvest
+  on a converted FO4 mesh: **unresolved**.
+- Plan: [docs/terrain/flora.md](../terrain/flora.md). Promotion class built on `grok/flor-research` (make_cluster
+  `flora`, `cluster_flora`, TerrainOverlays Duplicate of FloraMaizeCrop01). Overlay not run in game.
+
+## 2026-10-17 Grok: greyscale-to-palette bake (playtest row 15)
+
+- Question: why Museum of Freedom picture frames and the brass plaque render as flat grey-black boards, and
+  whether a greyscale-to-palette bake is the fix.
+- Method: converted NIFs and DDS under `C:\Modding\staging\terrain_core64c_work_fix3\convert` (read-only);
+  Claude's review against vanilla FO4 BA2s at depot_377163; Material-Editor `BaseMaterialFile` (byte 62) and
+  NifSkope `fo4_default.frag`.
+- Row 15 frames/plaque, **verified not palette materials** (Claude, vanilla BA2s):
+  `PaintingGeneric_CanvasSwap.BGSM` / `CanvasPainting01.BGSM` have empty greyscale and byte 62 = 0;
+  `BrassPlaque.nif` flags1 `0x80400281` (bit 0x10 clear), slot 4 a cubemap. Before/after this bake they are
+  byte-identical. The frames are a per-reference material swap (`PaintingGeneric*` / `PaintingAbstract*`);
+  nothing in this repo reads MODS/XMSP. That is the row 15 root cause and is outside this PR.
+- Converter gap, **verified** on other materials: 278 v2 BGSMs have the greyscale string **and** the flag.
+  5 have the string with the flag off (e.g. `ConcreteRoadHW01.BGSM` names a cubemap). Gating on the string
+  alone made that road a fallback. Bake is gated on byte 62 / NIF flags1 0x10.
+- Lookup, **supported hypothesis**: U = green channel, V = `clamp(round(scale * H - 0.5))` from
+  `fGrayscaleToPaletteScale` (BGSM last float) or the NIF lighting-shader scale (nif.xml after rimlight;
+  optional backlight when rim is FLT_MAX). Texture-set cache identity includes that scale. Vertex-colour V
+  is **unresolved**. A missing palette texture is a conversion error. GreyscaleToPalette_Alpha (bit 0x20)
+  is not baked. v2 `parse_bgsm` reads texture strings at byte 63 so a decoy `.dds` in the header cannot
+  steal the greyscale slot.
+- Status: bake is for flagged palette materials. Row 15 needs material swaps, not this PR. In-game colour
+  after a scratch reconvert **unresolved** (Claude).
+
+## 2026-10-17 Grok: playtest rows 11/13/15 materials (core64c convert, work_fix3)
+
+- Question: why hanging vines at Red Rocket are black jagged strands (row 11), Sanctuary interior walls washed
+  white (row 13), and Museum of Freedom picture frames / brass plaque are grey-black boards (row 15).
+- Method: converted NIFs under `C:\Modding\staging\terrain_core64c_work_fix3\convert` (read-only), `vine.mat` /
+  house / frame / plaque `.mat` files, `texture_log.json`, `manifest.json` (0 fallbacks on these models), texconv
+  decode of the colour DDS, vanilla Starfield templates in `ContentResources.zip`
+  (`GrassTropicalPlant01`, `FloraBaseLeafyGreen01`, `ConduitKit01TwoSided` / `TwoSided1Layer`).
+- Row 11 vines, **verified**: `vinehanging06/07` and `vinecreepermed01` all use `materials\fo4core\landscape\plants\vine.mat`.
+  That file already has slot-2 `vine_opacity.dds` and `AlphaSettingsComponent {AlphaTestThreshold 0.361, HasOpacity true}`
+  (BGSM alpha test was converted). It still parents `PlasticPlainSmooth01` via the `MetalIronCast01` clone;
+  `Summary.Layer1.Textures` has no `Opacity` key. Vanilla foliage parents `TwoSided1Layer` /
+  `TranslucentTwoSided1Layer` / `VegetationTranslucent1Layer` and names Opacity in Summary. `two_sided` is parsed from
+  BGSM byte 48 and was never passed to `_convert_texture_set`. `vine_color.dds` luma mean 3.8 (85% of texels
+  alpha < 128, BC1-black in the cutout); opaque texels still only luma 26. Without a two-sided cutout shader the
+  metal material draws the whole card, which is black. Fix: clone `ConduitKit01TwoSided.mat` when an opacity map
+  exists, write Summary Opacity, force metalness 0 so the conduit metal map does not leak.
+  **Correction (review #288):** forcing metalness 0 only updated Summary plus an existing TextureReplacement
+  index 4. The real ConduitKit01TwoSided template has no such component (verified in ContentResources.zip), so
+  the conduit MRTextureFile/index 4 stayed. The writer now creates the enabled replacement and drops that file.
+  Opacity generation is gated on `alpha_test or decal`; `two_sided` alone is not a cutout.
+- Row 13 walls, **supported hypothesis**: `res01playerhouseinteriorrr.nif` wall shapes use
+  `metalpanelsresidential01rr` (colour luma 184) and `wallpanelmetalrubble02` (luma 164), 0 fallbacks. These are
+  bright beige maps, not missing colour (Starfield missing colour is flat white). Separate from the vine shader bug.
+- Row 15 frames / plaque, **supported hypothesis**: `pictureframe03` canvas
+  `paintinggeneric_canvasswap_color.dds` and `canvaspainting01_color.dds` are identical, luma 29 max 59; plaque
+  texset colour luma 15 max 59. Converted as regular albedo, they are dark grey boards. `canvasswap` names a
+  greyscale-to-palette path the converter does not implement. Separate root cause from vines.
+- Power armor on that roof is out of this pass (skinned rest pose / furniture class).
+
+## 2026-10-17 Grok: Red Rocket garage button (playtest row 21) and object LOD (row 24)
+- Row 21, **verified**: FO4 button `056BBA` is `Default1StateActivator`; garage `056331` is ACTI `Default2StateActivator`
+  with XAPR→button. core64k promotes both as inert ACTI. Native wire: vanilla `DefaultActivateLinkedRefOnActivate` +
+  XLKR `LinkCustom02` `0005D5E7` (Paradiso `000C7311`; debug ACTI `002CBE61` has the script name and no extra
+  properties). Writer implements that on the two Commonwealth pairs; no new FormIDs, no .pex.
+- Garage animation, **supported**: sequences are Opening/Closing, not Open/Close. **Not in this PR**: treating
+  `Opening` as an animated door in `pipeline.py` turns both FO4 garage meshes into passable statics because
+  `RedRGarageDoor.nif` is skinned and the rigger refuses it. Garage NIF rig is a later Claude build item.
+- Row 24, **verified**: object LOD is `lodsettings/*.lod` (861 of 864 are 20 bytes; 2 are 22, 1 is 16) +
+  `meshes/lod/generated/…_lod_0..3.nif`; core64k has none. `uExterior Cell Buffer=36` is not the product fix. Plan:
+  CK generate on a tiny overlay (Claude; **hypothesis** that CK is the generator); no build now. Docs:
+  [garage-button.md](../terrain/garage-button.md), [object-lod.md](../terrain/object-lod.md).
+
+## 2026-10-17 Grok: 3D surface map for this testing stage (ROADMAP §3 item 1)
+- Question: what Starfield's surface map draws from, why the Commonwealth overlay would show Mars, and whether an
+  overlay world can appear there from our plugin and locally generated files; go/no-go for a 3D map this stage.
+- Method: pinned `terrain_core64k` read-only (`fo4land.Plugin` on `FO4TerrainCore.esm` / `_Mars.esm`, walk of staged
+  `Data\`); cross-check [map-markers.md](../terrain/map-markers.md), [overlay-records.md](../terrain/overlay-records.md),
+  [architecture.md](../terrain/architecture.md), journal 11 Oct lodsettings note. No game input.
+- Surface map, **supported**: May 2024 3D map draws the current loading zone (overlay BTD + planet procgen + world
+  object LOD). WRLD `MapData` is all zero; there is no separate map-mesh group. World object LOD is
+  `lodsettings/<edid>.lod` + `meshes/lod/generated/…_lod_0..3.nif`, not converted FO4 `*_lod.nif`.
+- Why Mars, **verified** on core64k: LCTN `01000802` parent `SSol_PMars_Surface` `0001B736`, LocTypeOverlay; WRLD
+  overlay SNAM 0 / PNAM 4; Mars PNDT `0003F59A` 11 `CNAM` entries, last lat 0.3 lon −1.2 WRLD `01000803`. Staged Data:
+  BTD 103,172,485 B, overlay mask present, **0** `lodsettings`, **0** `meshes/lod/generated`, **315**
+  `meshes/fo4core/lod`. LCSR/LCID still empty.
+- Overlay on the 3D map, **supported**: unique overlays already activate and merge (owner walked core64k). Vanilla
+  cities of the same family show on the surface map. Marker + CK object LOD still required for the acceptance
+  screenshot. Map camera sampling overlay BTD vs planet SFTR is **unresolved** until Claude's screenshot.
+- GO: this note; then #296 LCSR tail `0xFFFFFFFF` and Claude screenshot; then CK object-LOD trial (ROADMAP item 3).
+  NOT go: custom map renderer, unparent from Mars, FO4 `.bto`, treating `fo4core/lod` as world LOD.
+  Doc: [docs/terrain/surface-map.md](../terrain/surface-map.md).
+
+## 2026-10-17 Grok: overlay map markers / fast travel (owner playtest row 7)
+- Question: why the Commonwealth overlay has no map / fast-travel data, and whether restoring a vanilla marker chain
+  is the first writer change (Claude 04:07 packet, after textures and FLOR).
+- Method: raw walk of `Starfield.esm` 1.16.244 (`fo4land.Plugin`, no Mutagen) for top groups, STAT MapMarker, LCTN
+  `LCSR`/`LCID`, LC172 and LandingOverlay01; read-only walk of pinned `FO4TerrainCore.esm`; writer
+  `dotnet/TerrainOverlays/Program.cs` Duplicate of `LC172WorldLocation` then `MasterSpecialReferences.Clear()`.
+- Map markers, **verified**: Starfield has no `MAPM` group (176 top groups). Markers are `REFR` of STAT `MapMarker`
+  `00000010` with empty `XMRK`, `FNAM`/`TNAM`/`UNAM`. LC172 persistent `REFR` `003E5E12`: `NAME` `00000010`, empty
+  `XMRK`, `FNAM` `0x1B`, `TNAM` `0x17`, flags `00000C00`.
+- Location link, **verified**: `LCSR` is 5 × u32 (`LCRT`, `REFR`, `WRLD`, 0, `0xFFFFFFFF`). LC172WorldLocation
+  `003807BE` has two rows (Landmark_SnowGlobe_RefType `00009A42` → `00009A32`, MapMarkerRefType `0002271F` →
+  `003E5E12`) and `LCID` `003E5E12`. LandingOverlay01Location adds ShipLandingMarkerRefType / `_Large` on the pad.
+  Mutagen names: `MasterSpecialReferences` = `LCSR`, `MasterInitiallyDisabledReferences` = `LCID`.
+- Our overlay, **verified**: writer clears both lists after Duplicate; pinned LCTN `FO4Core_CommonwealthLocation`
+  `01000802` has empty `LCSR`/`LCID`; 654,600 `REFR`, 0 `XMRK`, 0 MapMarker `NAME`. One COC marker at overlay-local
+  (−989.257, 1146.514, 107.143).
+- Playtest hang, **supported hypothesis**: missing MapMarker/`LCSR` is why the overlay does not match LC172 on the
+  planet map. Whether restoring one marker unsticks Frontier travel (a ship location) is **unresolved** until Claude
+  runs a scratch overlay.
+- FO4 `XMRK` bytes: **unresolved** (`Fallout4.esm` not on this machine).
+- GO, **implemented offline**: TerrainOverlays Duplicates LC172 MapMarker `003E5E12`, parks it at the COC in
+  `TopCell.Persistent`, fills `LCSR` MapMarkerRefType + `LCID`; FormIDs after doors/lights. Do not stamp a PCM landing
+  overlay. NOT go: FO4 marker promotion, ship pads, swapping unique overlay for landing overlay. In-game icon / Frontier
+  hang: **unresolved** until Claude's scratch overlay.
+  Doc: [docs/terrain/map-markers.md](../terrain/map-markers.md).
+
 ## 2026-10-16 Claude: posed props in the pinned interiors (owner playtest rows 4 c and 5)
 - Question: why does the pinned interior build (`integ_1011`) show the Vault 111 radiation scanners with "swung out"
   panels and the lab-coat skeleton `Vault111SkeletonScientist02` standing, and how many models and references of the
@@ -1175,3 +1309,125 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   the same overlay at (0.2, 1.2) (does it reproduce +30/-35, i.e. is the offset a function of the site alone?) and at
   (0.3 + 1/33900, -1.2) (one cell north under any linear local model). Until then fix A (vanilla persistent-cell
   shape, cave_core64c_1015) is the route to persistent references, and the runner keeps converting frames.
+
+## 2026-10-16 Claude: Starfield's compressed-mesh decoder and our SIMD tree keys (the collision crash)
+- Question: why does Havok assert "Unknown primitive type in compressed mesh" (hknpCompressedMeshShapeInternals.cpp:939,
+  Starfield.exe+0x36F418B, every WER report since 10-12) and why did the owner's crash dump show the closest-points
+  query of vault_cart_01's mesh (40 primitives, one data run {0, 40}) searching the data runs for primitive 40?
+- Method: FO4 source (hkpackfile) and converted blob (hktagfile) of vault_cart_01 side by side; 837 vanilla compressed
+  meshes (random 1,500-NIF sample of Starfield - Meshes01.ba2) decoded the same way; src/fo4sf/meshcheck.py.
+- **verified** (837 of 837 vanilla meshes, 0 exceptions): the SIMD tree holds ONE leaf per primitive with key
+  section << 8 | primitive << 1 (triangle bit 0), unique, one for every primitive of every section; the per-section
+  Aabb4BytesCodec tree (leaf when hiData bit 0 clear, primitive = hiData >> 1, right child at +(hiData & 0xFE)) names
+  every primitive once; the data runs (value u16, index u8, count u8) cover 0..numPrimitives-1 exactly; section flags
+  always 0; primitiveStoresIsFlatConvex (tree + 60) always 0xFF; no primitive has indices[1] == indices[3];
+  numPrimitiveKeys = triangles + 2 x quads and maxKeyValue = the last primitive's key (the key SPACE keeps the triangle
+  bit; only the tree leaves drop it). FO4 (vault_cart_01) uses the same tree codec, key space and header values.
+- **verified** (our builds): fo4collision.compressed_mesh_keys gave the SIMD tree one leaf per TRIANGLE, so every quad
+  also had an odd key: vault_cart_01 had keys 0..79 for primitives 0..39. integ_1017: 2,947 of 4,346 models,
+  181,738 odd keys, 4,045 of them the last primitive of a section; terrain_core64h: 7,861 of 11,769 models, 761,426
+  odd keys, 13,650 past the end (C:\Modding\scratch\meshkeys\baseline_*.json).
+- **supported hypothesis** (the crash dump: index 40 = (79 + 1) >> 1 for a 40-primitive section; the stale assert
+  frame on v111rpit2raisedmid01, 3 primitives, keys 0..5; vanilla never has odd keys): the decoder takes a leaf key K
+  as the primitive's first triangle and K + 1 as a quad's second one, so an odd K steps into the next primitive slot
+  (an FO4 DE AD DE AD slot asserts; past the end of the section the data-run search returns NULL: the owner's AV).
+- **verified** (35 sections in integ_1017 and core64h): FO4 section flag bit 0 is set exactly on the sections that
+  hold FO4's own special primitives (a, b, b, b) with b outside the section's vertex slots; vanilla has neither.
+  Their meaning is **unresolved**; the converter replaces them (and DE AD DE AD slots) with a copy of the nearest valid
+  primitive of the section and clears the flag, so the section is byte-for-byte in the vanilla shape.
+- **unresolved**: what primitiveStoresIsFlatConvex changes in the engine (the crashing function does not read it; vanilla
+  quads with it set are not flat or convex). The converter now writes the vanilla value so no vanilla-untested code
+  path is exercised.
+
+## 2026-10-17 Claude: why the player walks through the Vault 111 gear-room gates (static bodies on layer 55)
+- Question: the gear-room gates (`V111GearRoomGate01` in Vault111Cryo, `02` in Vault114) let the player through in
+  integ_1018 (playtest row 19) although since #230 their NIFs hold FO4's native bodies. Wrong place, wrong filter
+  word, or something the engine refuses?
+- Method: FO4 source (hkpackfile) and the deployed blobs (hktagfile, the session's hkdump.py) side by side, hull
+  vertices transformed through the collision nodes; COLL records of Fallout4.esm and Starfield.esm; every body of
+  every vanilla Starfield NIF (Meshes01 + MeshesPatch: 40,613 files with physics, 46,413 bodies, 50 s) and of every
+  FO4 NIF (Meshes + MeshesExtra: 63,327 files, 218,882 bodies); the Starfield.esm records placing the only vanilla
+  layer-55 models. Scratch: C:\Modding\scratch\gatefix (gate_dump.txt, coll_records.json, full_scan_*.json).
+- **verified** (geometry): each leaf's FO4 body cinfo equals its node transform (GateR at (-7.082, -0.044, 0.719) m,
+  z -90 deg), so the converter's identity body on a node with that transform puts the hulls where FO4 has them: top
+  rail x -7.10..-7.06, y -0.08..1.28, z 0.80..1.03 m, lower stub z 0.40..0.79 m (render leaf z 0.39..1.05); the XRGD
+  variant (`_xrgd_e3c6933a65`) lifts both by 0.147 m as the reference's pose does. The two leaves span the whole
+  2.78 m opening at x -47.76 m world; the owner's bridge positions (00:02:57 at -44.84, -4.00; 00:03:12 at -57.91)
+  cross that line through the middle. integ_1011's 39 guessed boxes sat there too (0x1, hknpBoxShape); whether the
+  owner walked through those is **unresolved** (row 6 reported the elevator, not a walk).
+- **verified** (the word): the leaves' only difference from a working static is `collisionFilterInfo` 0x8037 (layer 55
+  L_CLUTTER_NOCUT + bit 15); flags 0, collisionCntrl 0, quality 255, hknpConvexShape flags 0x43, material and
+  motionType 0 are the template's, as on vanilla statics and on BldDecoSmStairsBlock03's helper hull (a convex body
+  on a child Collision node, climbed in batch_full 0004).
+- **verified** (COLL): in both ESMs layer 55 lists 30 L_CHARCONTROLLER and 30 lists 55 (so does 1), GNAM 0 for 55
+  and 0x4 for 4 / 29 / 2 (the navmesh-cutting layers). The layer matrix alone does not explain a pass-through.
+- **verified** (vanilla use): Starfield writes layer 55 on 4 bodies in 2 files only, `na_lobbyoffice_reception_
+  turnstile_01_door01a/b.nif`, static, word 0x8037 exactly; they are STAT records (00040DD7/8) placed 29 times across
+  New Atlantis lobby walkways (e.g. four turnstiles in a row at y -33.39, refs 000C1BEA..F2). Bit 15 on L_STATIC is
+  walked on: `nathemastbase_01..04(_grass).nif` (the MAST plaza) are one 0x8001 body each; stair helpers carry 0x801f.
+  FO4 writes layer 55 on 9 bodies in 4 files, all dynamic hinged leaves (the two gates, CarHulk01 doors, BollardDest01).
+  Static bodies on 4 / 29 are common in both games (asteroid caves on 0x1d; static ladders and ingots on 0x4).
+- **supported hypothesis** (the cause): Starfield's character controller passes through a static body on layer 55,
+  as it must through the turnstile leaves; FO4's gate is passable too, but by swinging (10 kg leaves on hinges).
+  Freezing the leaves (joints not converted) on that layer gives a ghost gate. Fix: a body we write static on layer 55
+  becomes 1 L_STATIC, the layer alone (meshcollision.static_filter; report "relayered"); every other word is kept.
+  Blast radius in integ_1018: the 3 gate NIFs (12 leaf bodies), nothing else. The drop-in NIFs in
+  C:\Modding\scratch\gatefix\after differ from the deployed ones by 2 bytes per leaf blob (0x8037 -> 0x0001).
+- In-game check (one walk): from the owner's spot (-44.8, -4.0, 0) walk west along y -4.0; PASS = stopped at
+  x about -47.4 (capsule 0.35 m before the rail at -47.76), FAIL = x beyond -48. The diagnostic variant
+  `after\variant_bit15_cleared` (0x0037, layer kept) tells layer from bit if wanted. The gate then blocks the walkway to
+  the exit elevator (1.18 m rail, jumpable with the pack); a swinging gate needs the hinge conversion.
+
+## 2026-10-17 Claude: spike B4, mission anatomy, the Vault 111 exit, grab mass limits (offline)
+- Question: what the cut-down "When Freedom Calls" needs (input to Codex's QUST / DIAL / INFO / PACK design), what
+  Preston adds beyond the converted raider, how FO4 runs the Vault 111 exit, and which grab limits apply to carrying.
+- Method: read-only. The repo's fo4land.Plugin walker and ba2 reader on Fallout4.esm, `Fallout4 - Voices.ba2` (voice
+  files per INFO) and `Fallout4 - Misc.ba2` (call lists of the compiled scripts); Mutagen `ActorRaider fo4-dump` as a
+  cross-check; GMST groups of both ESMs; the setting initializers in both executables; Starfield's vanilla Papyrus
+  sources. Full tables: docs/spikes/B4-mission-anatomy.md.
+- **verified:** the mission is four quests: Min00 001A001C (name, 19 stages, 14 objectives, 20 external aliases),
+  MQ102 0001CC2A (the driver, also the Vault 111 exit), DN092 0001D806 (the fight), DialogueConcordArea 000179F3 (255
+  DIAL, 397 INFO, Preston's 102 lines, the reward of 100 caps and 50 fusion cells). The 7 counted raiders are placed
+  ACHRs in ConcordMuseum01, 4 of them initially disabled. Preston (NPC_ 00019FD9, voice NPCMPrestonGarvey) has 2,421
+  base-game voice files over 2,264 INFOs in 99 quests and no default package list.
+- **verified:** FO4 ends the elevator ride with an automatic load door (Vault111InteriorAutoLoadDoorREF 0001F180, base
+  AutoloadDoorNoText FNAM 0x42, to 000998E3); the cog door's Stage2 is played by MQ03QuestScript on the console's
+  "stage4" animation event. Verdict: GO for a scripted load door in place of the ride and for the cog door as a door
+  rig; NO-GO for B1 on an activator rig.
+- **verified:** neither ESM sets fGrabMaxWeightWalking / Running; both exes default to 100 / 50 (Starfield also
+  fGrabRagdollMaxWeightWalking 200, fZKeyActorMassTheshold 6). **supported hypothesis:** the converted items measured
+  on 13 Oct (10-50 kg) are under the walking limit, so mass alone should not block a walking grab; the owner's
+  SetRigidBodyMass test plus `SetGS fGrabMaxWeightWalking 1000` decides it. No converter change.
+- **unresolved:** Preston's friendly Starfield template; whether quest targets route through our scripted doors; the
+  cog door's clip in game; whether the cut-down quest may force combat (FO4 does, DN092 stages 13 / 76).
+
+## 2026-10-18 Claude-cloud: converted interiors get no natural (sky) light, only placed lights
+- Report (owner, 18 Oct 00:58Z): "where there is lights stuff looks really good, but ... the natural lighting doesn't
+  affect textures yet so it's really dark". His snapshot a minute earlier (`C:\Modding\snapshots\20261017-185720`,
+  owner button, interior cell 050049B4 = the Boston Public Library on the installed integ_1019_doors set) shows the hall
+  black except where the helmet lamp falls; the lamp-lit wall reads correctly (texture, normal, roughness fine).
+- **verified (code):** the interior writer (dotnet/PluginSpike/Program.cs, cell loop) gives every converted interior the
+  same light set-up, whatever FO4 had: lighting template KreetBase01LGTtemplate 06BCF8 (underground) unless
+  lighting.json says otherwise, image space 122393, and EnvironmentMap `Data\Textures\cubemaps\blackcube.dds`
+  (journal 2026-10-08, chosen to stop the pink wash from a bright default sky). FO4's own cell lighting (XCLL ambient,
+  directional and directional-ambient colours, fog, its lighting template) is never exported (Fo4Export wrote only refs),
+  so the window-lit FO4 interiors and the vaults get the same light set-up. (Correction, PC check 18 Oct: the installed
+  integ_1019 lighting.json sets ShipInteriorLT 006658 for every cell through `"*"`, so the library already had the
+  brighter template; only the black cubemap is in question.)
+- **supported hypothesis:** the black cubemap removes the image-based (sky) light a Starfield PBR surface gets, and the
+  underground template adds little ambient, so a surface away from a placed light is near black. Not a material bug:
+  the same materials look right under the lamp and under the exterior sun (playtest row 11 picture).
+- **unresolved:** the exterior at night. The overlay worldspace copies LC172World (Mars) and its cells set no lighting,
+  so night there is Mars's own night; no capture compares a converted object with vanilla ground at night yet.
+- **verified (PC, 18 Oct, SfInspect envmaps on Starfield.esm):** 302 vanilla interiors use blackcube.dds too (11,176
+  set none, 425 LGT_CubeMap_ShipEditor_001, 25 Cell_CaveCube); hall-type cube Cell_HiTechHallCube.dds is used once
+  (ssPirateShip01Interior). A black cubemap alone is therefore not proof of the cause; the in-game A/B decides. If the
+  hall cube leaves the library dark, the next suspects are the template's ambient and the image space.
+- Comparison build (PC, offline, not installed): integ_1019_liblight_doors, FO4Port.esm 5204188f, one record changed
+  against integ_1019_doors (CELL FO4Port_BostonPublicLibrary02 XEMP blackcube -> Cell_HiTechHallCube); a control
+  rebuild with nothing set is byte-identical to integ_1019.
+- Change (this branch): Fo4Export writes the FO4 cell's lighting block (cell XCLL + template, by reflection) into each
+  export; SfInspect `envmaps` lists the environment maps vanilla interiors use; ENV_MAP is a per-cell lighting.json key.
+  Next: pick a dim vanilla interior cubemap and a brighter template from `envmaps` / `templates`, rebuild the library
+  only with `{"BostonPublicLibrary02": {"ENV_MAP": "<vanilla>", "LIGHTING_TEMPLATE": "006658"}}` and compare in game
+  against the current build, then map FO4's ambient level to the template per cell.

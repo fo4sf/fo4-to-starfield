@@ -73,7 +73,8 @@ VALUE = r"(?<![\w.,])(-\s?)?(\d{1,6})(?:\s?[.,]\s?(\d{1,3})|\s(\d{2}))(?![\w.,])
 FLAG = r"(?<![\w.,])([01])(?![\w.,])"                         # an integer reply: "GetDisabled >> 1"
 SMALL = r"(?<![\w.,])(\d)(?![\w.,])"                          # a small integer reply: "GetCombatState >> 1"
 HEX = r"[0-9A-Fa-fOoIl|]"                                    # a hex digit as OCR may read it
-FFID = rf"(?<![0-9A-Za-z])(?:0x)?\(?\s*([Ff][Ff]{HEX}{{6}})\s*\)?(?![0-9A-Za-z])"
+# the FF may be read apart from the rest: "PickLastRef (F F 01102B)" (movable_1019c 0001 / 0003, 2026-10-18)
+FFID = rf"(?<![0-9A-Za-z])(?:0x)?\(?\s*([Ff] ?[Ff] ?{HEX}{{6}})\s*\)?(?![0-9A-Za-z])"
 ANYID = rf"\(\s*({HEX}{{8}})\s*\)|(?<![0-9A-Za-z])0x({HEX}{{8}})(?![0-9A-Za-z])"   # "(0024a824)", "0x0024a824"
 DECID = r"(?<![\w.,])(42\d{8})(?:[.,]\d+)?(?![\w])"         # FF000000..FFFFFFFF written in decimal
 # GetCombatTarget's reply as it may be written: "(00000014)", "0x00000014" or bare "00000014" (the player: 00000014)
@@ -96,7 +97,7 @@ def value(m):
 
 
 def hexid(s):
-    return s.upper().replace("O", "0").replace("I", "1").replace("L", "1").replace("|", "1")
+    return s.upper().replace(" ", "").replace("O", "0").replace("I", "1").replace("L", "1").replace("|", "1")
 
 
 def events(text):
