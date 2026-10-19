@@ -11,6 +11,7 @@ public sealed class LinkReport
     public int LinkedReferences { get; set; }
     public int Teleports { get; set; }
     public int OpenState { get; set; }
+    public int Locks { get; set; }
     public int CreatedMarkers { get; set; }
     public int CreatedDoors { get; set; }
     public int CreatedKeywords { get; set; }
@@ -21,6 +22,23 @@ public sealed class LinkReport
 
 public static class Relationships
 {
+    // FO4 XLOC lock levels written unchanged. The values and names come from Mutagen 0.55.0-alpha.67's
+    // Fallout4.LockLevel; Starfield.LockLevel has the same name at each of these values (checked in Apply and by
+    // ReferenceLinks.Tests against the Fallout 4 enum). Not verified in game.
+    public static readonly IReadOnlyDictionary<int, string> LockLevels = new Dictionary<int, string>
+    {
+        [0] = "None", [1] = "Novice1", [25] = "Novice25", [50] = "Advanced", [75] = "Expert", [100] = "Master", [255] = "RequiresKey",
+    };
+    // Same names exist in both enums, but each depends on something this pass does not translate, so the
+    // lock would shut a door nothing in the port can open. Reported as warnings, never written.
+    public static readonly IReadOnlyDictionary<int, string> RefusedLockLevels = new Dictionary<int, string>
+    {
+        [251] = "Barred: opened by activation from one side; activation is not translated",
+        [252] = "Chained: opened by activation from one side; activation is not translated",
+        [253] = "RequiresTerminal: FO4 terminals are not translated",
+        [254] = "Inaccessible: whatever unlocks it in FO4 (scripts, quests) is not translated",
+    };
+
     public static LinkReport Apply(StarfieldMod mod, Dictionary<string, uint> ids, IEnumerable<JsonElement> exports,
         IReadOnlyDictionary<string, FormKey>? markerBases = null, IStarfieldModGetter? doorMaster = null,
         IReadOnlyDictionary<string, FormKey>? missingDoorBases = null)
@@ -220,6 +238,54 @@ public static class Relationships
             if (moved || (endpoint.MajorRecordFlagsRaw & 0x400) == 0) report.Persistent++;
             endpoint.MajorRecordFlagsRaw |= 0x400;
         }
+        void ApplyLock(string source, PlacedObject target, JsonElement data, bool isDoor)
+        {
+            // Doors only; a lock on any other base (containers, terminals) stays in the export.
+            if (!isDoor)
+            {
+                report.Warnings.Add(new(source, "lock_data", null, "lock on a non-door base is not translated"));
+                return;
+            }
+            var level = data.GetProperty("level").GetInt32();
+            var flags = data.GetProperty("flags").GetUInt32();
+            var sourceKey = data.TryGetProperty("key", out var keyElement) ? keyElement.GetString() : null;
+            if (RefusedLockLevels.TryGetValue(level, out var refusal))
+            {
+                report.Warnings.Add(new(source, "lock_data.level", level.ToString(), refusal + "; lock not written"));
+                return;
+            }
+            if (!LockLevels.TryGetValue(level, out var levelName) || Enum.GetName(typeof(LockLevel), level) != levelName)
+            {
+                report.Issues.Add(new(source, "lock_data.level", level.ToString(), "lock level has no verified Starfield equivalent"));
+                return;
+            }
+            if ((flags & ~1u) != 0) // bit 1 is LeveledLock in both enums (ReferenceLinks.Tests)
+            {
+                report.Issues.Add(new(source, "lock_data.flags", flags.ToString(), "unsupported lock flag bits"));
+                return;
+            }
+            Key? key = null;
+            if (sourceKey != null)
+            {
+                // Same rule as keywords: an identity in the map AND an actual, non-deleted KEYM in the plugin.
+                // FO4 keys are not converted by PluginSpike, so this normally fails; never invent a key.
+                if (ids.TryGetValue("KEYM:" + sourceKey, out var keyId))
+                    key = mod.Keys.FirstOrDefault(k => k.FormKey == new FormKey(mod.ModKey, keyId) && (k.MajorRecordFlagsRaw & 0x20) == 0);
+                if (key == null)
+                {
+                    report.Issues.Add(new(source, "lock_data.key", sourceKey, "key does not resolve to a key record in the target plugin; lock not written"));
+                    return;
+                }
+            }
+            else if (level == 255)
+            {
+                report.Issues.Add(new(source, "lock_data.key", null, "RequiresKey lock without a key would never open; lock not written"));
+                return;
+            }
+            target.Lock = new LockData { Level = (LockLevel)level, Flags = (LockData.Flag)flags };
+            if (key != null) target.Lock.Key.SetTo(key.FormKey);
+            report.Locks++;
+        }
         foreach (var export in sources)
         foreach (var reference in export.GetProperty("refs").EnumerateArray())
         {
@@ -269,6 +335,8 @@ public static class Relationships
                 if (IsDoor(target)) { target.OpenByDefault = true; report.OpenState++; }
                 else report.Issues.Add(new(source, "open_by_default", null, "target base is not a resolved non-deleted door"));
             }
+            if (reference.TryGetProperty("lock_data", out var lockData) && lockData.ValueKind == JsonValueKind.Object)
+                ApplyLock(source, target, lockData, IsDoor(target));
             if (reference.TryGetProperty("teleport_destination", out var teleport) && teleport.ValueKind != JsonValueKind.Null)
             {
                 var destination = Resolve(source, "teleport_destination.door", teleport.GetProperty("door").GetString());
