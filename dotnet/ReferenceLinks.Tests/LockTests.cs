@@ -48,7 +48,7 @@ public static class LockTests
         using var export = JsonDocument.Parse("""
 {"cell":"First","refs":[
  {"formkey":"plain","lock_data":{"level":50,"key":null,"flags":1,"unused":0}},
- {"formkey":"keyed","lock_data":{"level":255,"key":"000123:Fallout4.esm","flags":0,"unused":0}},
+ {"formkey":"keyed","lock_data":{"level":255,"key":"000123:fallout4.esm","flags":0,"unused":0}},
  {"formkey":"unresolved","lock_data":{"level":25,"key":"000999:Fallout4.esm","flags":0,"unused":0}},
  {"formkey":"reserved","lock_data":{"level":25,"key":"000124:Fallout4.esm","flags":0,"unused":0}},
  {"formkey":"terminal","lock_data":{"level":253,"key":null,"flags":0,"unused":0}},
@@ -65,7 +65,8 @@ public static class LockTests
         var plain = refs["plain"].Lock!;
         Require(plain.Level == LockLevel.Advanced && plain.Flags == LockData.Flag.LeveledLock && plain.Key.IsNull, "mapped level/flags lost");
         var keyed = refs["keyed"].Lock!;
-        Require(keyed.Level == LockLevel.RequiresKey && keyed.Key.FormKey == key.FormKey, "resolved key not written");
+        Require(keyed.Level == LockLevel.RequiresKey && keyed.Key.FormKey == key.FormKey,
+            "resolved key not written (the export spells it 000123:fallout4.esm, the map KEYM:000123:Fallout4.esm: one FormKey)");
         string[] Fields(IEnumerable<LinkIssue> list, string source) => list.Where(i => i.Source == source).Select(i => i.Field).ToArray();
         Require(Fields(report.Warnings, "unresolved").SequenceEqual(new[] { "lock_data.key" }), "unresolved key not reported");
         Require(Fields(report.Warnings, "reserved").SequenceEqual(new[] { "lock_data.key" }), "reserved key ID alone resolved a key");
@@ -102,6 +103,15 @@ public static class LockTests
                 "refused lock appeared in binary output");
         }
         finally { Directory.Delete(directory, true); }
+
+        // Codex on #375: two spellings of one source key reserved at different IDs must not pick a key by spelling.
+        var other = new Key(Key(0x952), StarfieldRelease.Starfield) { EditorID = "SyntheticKey2" };
+        mod.Keys.Add(other);
+        var ambiguous = new Dictionary<string, uint>(ids) { ["KEYM:000123:fallout4.esm"] = 0x952 };
+        refs["keyed"].Lock = null;
+        var clash = Relationships.Apply(mod, ambiguous, sources);
+        Require(clash.Issues.Any(i => i.Field == "lock_data.key" && string.Equals(i.Source, "000123:Fallout4.esm", StringComparison.OrdinalIgnoreCase)) && refs["keyed"].Lock == null,
+            "ambiguous key reservation was accepted");
         Console.WriteLine("Door lock translation, refusal and binary round-trip synthetic checks passed.");
     }
 }
