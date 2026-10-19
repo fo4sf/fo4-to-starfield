@@ -94,6 +94,11 @@ class ContractTests(unittest.TestCase):
             names = re.findall(r"^\s*(?:\w+)(?:\[\])?\s+(\w+)\s*(?:=|$)", read(path), re.M)
             self.assertEqual({n.lower() for n in names} & types, set(), path)
 
+    def test_no_unparenthesized_chained_cast(self):
+        """Papyrus refuses "x as A as B" (the fragment's first compile, PC 19 Oct): the inner cast needs parentheses."""
+        for path in (PSC, FRAG, SMQ):
+            self.assertNotRegex(read(path), r"\bas\s+\w+\s+as\b", path)
+
     def test_story_event_returns_quests(self):
         """Starfield's SendStoryEventAndWait returns Quest[] (PC precheck, 19 Oct), FO4's a bool."""
         psc = read(PSC)

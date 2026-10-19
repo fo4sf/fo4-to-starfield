@@ -140,12 +140,22 @@ static class QuestProbe
         var named = children.Select(n => n.PreviousSibling.FormKey).Where(k => !k.IsNull).ToHashSet();
         var last = children.Where(n => !named.Contains(n.FormKey)).ToList();
         int scpt = sf.Quests.Count(q => q.Event == ScriptEventType);
-        string example = "none found";
-        foreach (var n in nodes)
-            foreach (var c in n.Conditions)
-                if (c.Data is SF.IGetEventDataConditionDataGetter ge)
-                { example = $"{n.EditorID}: GetEventData {ge.Function} {ge.Member} {ge.Record.FormKey} {c.CompareOperator} {(c as SF.IConditionFloatGetter)?.ComparisonValue}"; goto found; }
-        found:
+        // evidence for the gate: the GetEventData conditions of every node under the Script Event node (the PC's first
+        // build, 19 Oct, printed the first one anywhere, a location event's NewLocation, which says nothing here)
+        var under = new HashSet<FormKey> { smen.FormKey };
+        for (bool grew = true; grew;)
+        {
+            grew = false;
+            foreach (var n in nodes)
+                if (!under.Contains(n.FormKey) && under.Contains(n.Parent.FormKey)) { under.Add(n.FormKey); grew = true; }
+        }
+        var gates = nodes.Where(n => under.Contains(n.FormKey)).SelectMany(n => n.Conditions.Select(c => (n, c)))
+                         .Where(x => x.c.Data is SF.IGetEventDataConditionDataGetter).ToList();
+        string example = gates.Count == 0 ? $"no GetEventData condition under the Script Event node ({under.Count - 1} nodes)"
+            : $"{gates.Count} GetEventData conditions under the Script Event node ({under.Count - 1} nodes): " +
+              string.Join(", ", gates.GroupBy(x => { var g = (SF.IGetEventDataConditionDataGetter)x.c.Data; return $"{g.Function} {g.Member}"; })
+                                     .OrderByDescending(g => g.Count()).Select(g => $"{g.Key} x{g.Count()}")) +
+              "; first " + gates.Select(x => { var g = (SF.IGetEventDataConditionDataGetter)x.c.Data; return $"{x.n.EditorID} {g.Function} {g.Member} {g.Record.FormKey} {x.c.CompareOperator} {(x.c as SF.IConditionFloatGetter)?.ComparisonValue}"; }).First();
         return new Vanilla(side, vmad, frag, listed, smen, last.Count == 1 ? last[0].FormKey : null, scpt, example);
     }
 
@@ -381,7 +391,7 @@ static class QuestProbe
         var mq00 = new SF.Quest(new FormKey(SfEsm, 0x901), rel) { EditorID = FragmentModel };
         mq00.VirtualMachineAdapter = new SF.QuestAdapter { Version = 6, ObjectFormat = 2, ExtraBindDataVersion = 3, Script = new SF.ScriptEntry { Name = "Fragments:Quests:QF_MQ00_00000901" } };
         mq00.VirtualMachineAdapter.Fragments.Add(new SF.QuestScriptFragment { Stage = 10, StageIndex = 0, Unknown = 0, Unknown2 = 1, ScriptName = "Fragments:Quests:QF_MQ00_00000901", FragmentName = "Fragment_Stage_0010_Item_00" });
-        mq00.VirtualMachineAdapter.Scripts.Add(new SF.ScriptEntry { Name = "Fragments:Quests:QF_MQ00_00000901" });
+        // like the real MQ00 (PC, 19 Oct): the fragment script is not also listed among the quest's scripts
         sf.Quests.Add(mq00);
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x906), rel) { EditorID = "SomeScriptEventQuest", Event = ScriptEventType });
         sf.Statics.Add(new SF.Static(new FormKey(SfEsm, CocMarkerId), rel) { EditorID = "COCMarkerHeading" });
@@ -477,7 +487,7 @@ static class QuestProbe
             ("the fragment renamed", m => Main(m).VirtualMachineAdapter!.Fragments[0].FragmentName = "Fragment_Stage_0020_Item_00"),
             ("the fragment on another stage", m => Main(m).VirtualMachineAdapter!.Fragments[0].Stage = 20),
             ("the fragment layout changed", m => Main(m).VirtualMachineAdapter!.Fragments[0].Unknown2 = 0),
-            ("the fragment script not listed", m => Main(m).VirtualMachineAdapter!.Scripts.RemoveAll(s => s.Name == FragmentScript)),
+            ("the fragment script also listed", m => Main(m).VirtualMachineAdapter!.Scripts.Add(new SF.ScriptEntry { Name = FragmentScript })),
             ("the objective has no target", m => Main(m).Objectives[0].Targets.Clear()),
             ("the alias forced", m => ((SF.QuestReferenceAlias)Main(m).Aliases![0]).ForcedReference.SetTo(new FormKey(SfEsm, 0x902))),
             ("the target id changed", m => ((SF.ScriptIntProperty)Main(m).VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "TargetId")).Data = 0x802),

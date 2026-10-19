@@ -3,5 +3,5 @@ Scriptname FO4SF_QProbeFragments extends Quest Hidden Const
  QF_ fragment scripts are: one function per stage log entry, named as the plugin's VMAD fragment names it.}
 
 Function Fragment_Stage_0010_Item_00()
-    (self as Quest as FO4SF_QProbeQuest).FragmentRan(10)
+    ((self as Quest) as FO4SF_QProbeQuest).FragmentRan(10)
 EndFunction
