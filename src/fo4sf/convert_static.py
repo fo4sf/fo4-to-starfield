@@ -682,3 +682,17 @@ def convert_multipart_door(fo4_nif: bytes, out_name: str, material_paths: list, 
     if aliases:
         door["sequence_aliases"] = dict(aliases)
     return files, door
+
+
+# Grok: per-class mass scale stub (physics-conversion.md 4.2). Default 1.0 until owner sets values.
+# Synthetic test in tests/test_mass_scale.py.
+CLASS_MASS_SCALE = {
+    "small_misc": 0.2,   # cans, caps, notes: lighter than FO4 default
+    "medium_misc": 1.0,
+    "large_mstt": 2.0,   # crates, barrels
+    "weapon": 1.0,
+}
+
+def class_mass_scale(item_class: str, base_scale: float = 1.0) -> float:
+    """Return mass multiplier for a classified item. Falls back to base_scale."""
+    return CLASS_MASS_SCALE.get(item_class, base_scale)
