@@ -1,33 +1,48 @@
 // Export Fallout 4 interior-cell placements to JSON (input for the cell converter).
-//   dotnet run -- <Fallout4.esm> list <substring>          list interior cells whose EditorID contains <substring>
-//   dotnet run -- <Fallout4.esm> export <EditorID> <out.json>
+//   dotnet run -- <plugin.esm> [--master <Fallout4.esm>]... list <substring>   list interior cells whose EditorID contains <substring>
+//   dotnet run -- <plugin.esm> [--master <Fallout4.esm>]... export <EditorID> <out.json>
 // Each reference: base record type + EditorID + model path, position (game units), rotation (radians), scale.
+// --master (repeatable, in load order) loads the plugin's masters too, so a DLC plugin's cells resolve the base records
+// and the Commonwealth doors that live in Fallout4.esm; the cells listed and exported are still the plugin's own.
 using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Fallout4;
 using Mutagen.Bethesda.Plugins.Cache;
 using Mutagen.Bethesda.Plugins.Records;
 
+var masterPaths = new List<string>();
+var rest = new List<string>();
+for (var i = 0; i < args.Length; i++)
+{
+    if (args[i] == "--master" && i + 1 < args.Length) masterPaths.Add(args[++i]);
+    else rest.Add(args[i]);
+}
+args = rest.ToArray();
 if (args.Length < 3 || (args[1] != "list" && args[1] != "export") || (args[1] == "export" && args.Length < 4))
 {
-    Console.Error.WriteLine("usage: <Fallout4.esm> list <substr> | export <EditorID> <out.json>");
+    Console.Error.WriteLine("usage: <plugin.esm> [--master <master.esm>]... list <substr> | export <EditorID> <out.json>");
     Environment.ExitCode = 1;
     return;
 }
+var masters = masterPaths.Select(p => (IFallout4ModGetter)Fallout4Mod.CreateFromBinaryOverlay(p, Fallout4Release.Fallout4)).ToList();
 using var mod = Fallout4Mod.CreateFromBinaryOverlay(args[0], Fallout4Release.Fallout4);
-var cache = mod.ToImmutableLinkCache();
+ILinkCache cache = masters.Count == 0 ? mod.ToImmutableLinkCache() : masters.Append(mod).ToImmutableLinkCache();
 
 IEnumerable<ICellGetter> InteriorCells() =>
     mod.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells);
 
 IEnumerable<(ICellGetter Cell, string? Worldspace)> AllCells()
 {
-    foreach (var c in InteriorCells()) yield return (c, null);
-    foreach (var world in mod.Worldspaces)
+    // the plugin first, then its masters last to first: TeleportDependencies keeps the first hit, the winning record
+    foreach (var m in new[] { (IFallout4ModGetter)mod }.Concat(Enumerable.Reverse(masters)))
     {
-        if (world.TopCell != null) yield return (world.TopCell, world.FormKey.ToString());
-        foreach (var c in world.SubCells.SelectMany(b => b.Items).SelectMany(b => b.Items))
-            yield return (c, world.FormKey.ToString());
+        foreach (var c in m.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(sb => sb.Cells)) yield return (c, null);
+        foreach (var world in m.Worldspaces)
+        {
+            if (world.TopCell != null) yield return (world.TopCell, world.FormKey.ToString());
+            foreach (var c in world.SubCells.SelectMany(b => b.Items).SelectMany(b => b.Items))
+                yield return (c, world.FormKey.ToString());
+        }
     }
 }
 

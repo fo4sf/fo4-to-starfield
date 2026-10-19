@@ -1,20 +1,24 @@
 {
  "note": "scripts/terrain/interior_census.py: every interior CELL of the plugins (docs/terrain/interior-batches.md)",
  "plugins": [
-  "Fallout4.esm"
+  "Fallout4.esm",
+  "DLCRobot.esm",
+  "DLCworkshop01.esm"
  ],
  "totals": {
-  "interiors": 1194,
+  "interiors": 1225,
+  "plugin_DLCRobot.esm": 28,
+  "plugin_DLCworkshop01.esm": 3,
   "plugin_Fallout4.esm": 1194,
   "reach_behind_interior": 24,
-  "reach_no_load_door": 923,
-  "reach_worldspace": 247,
-  "reached_new": 39,
+  "reach_no_load_door": 952,
+  "reach_worldspace": 249,
+  "reached_new": 41,
   "status_backlog": 190,
   "status_in_port": 16,
-  "status_new": 962,
+  "status_new": 993,
   "status_second_hop": 26,
-  "test_name": 319
+  "test_name": 334
  },
  "worlds": {
   "00003C:Fallout4.esm": "Commonwealth",
@@ -24169,19 +24173,20 @@
    "formkey": "04280D:Fallout4.esm",
    "editor_id": "GeneralAtomicsFactory01",
    "plugins": [
-    "Fallout4.esm"
+    "Fallout4.esm",
+    "DLCRobot.esm"
    ],
    "flags": 129,
-   "location": "GeneralAtomicsFactoryLocation",
-   "refs": 6150,
+   "location": "DLC01GeneralAtomicsFactoryLocation",
+   "refs": 6194,
    "placed": {
-    "ACHR": 13,
+    "ACHR": 38,
     "PHZD": 1,
-    "REFR": 6136
+    "REFR": 6155
    },
    "lights": 283,
    "navmeshes": 4,
-   "distinct_bases": 817,
+   "distinct_bases": 822,
    "base_types": {
     "ACTI": 17,
     "ALCH": 17,
@@ -24197,10 +24202,10 @@
     "LIGH": 22,
     "MISC": 86,
     "MSTT": 48,
-    "NPC_": 3,
+    "NPC_": 7,
     "SCOL": 22,
     "SOUN": 9,
-    "STAT": 493,
+    "STAT": 494,
     "TACT": 1,
     "TERM": 5,
     "TXST": 33,
@@ -25661,6 +25666,10 @@
     {
      "from": "Commonwealth",
      "door": "0D3CE1:Fallout4.esm"
+    },
+    {
+     "from": "Commonwealth",
+     "door": "0D3D75:Fallout4.esm"
     }
    ],
    "reach": "worldspace",
@@ -28186,7 +28195,8 @@
    "formkey": "000025:Fallout4.esm",
    "editor_id": "NavMeshGenCell",
    "plugins": [
-    "Fallout4.esm"
+    "Fallout4.esm",
+    "DLCworkshop01.esm"
    ],
    "flags": 1,
    "location": null,
@@ -28195,7 +28205,7 @@
     "REFR": 647
    },
    "lights": 0,
-   "navmeshes": 95,
+   "navmeshes": 100,
    "distinct_bases": 473,
    "base_types": {
     "CONT": 7,
@@ -37609,23 +37619,24 @@
    "formkey": "01F7A9:Fallout4.esm",
    "editor_id": "QASmoke",
    "plugins": [
-    "Fallout4.esm"
+    "Fallout4.esm",
+    "DLCRobot.esm"
    ],
-   "flags": 1,
+   "flags": 129,
    "location": null,
-   "refs": 426,
+   "refs": 446,
    "placed": {
-    "REFR": 426
+    "REFR": 446
    },
-   "lights": 7,
+   "lights": 8,
    "navmeshes": 39,
-   "distinct_bases": 54,
+   "distinct_bases": 64,
    "base_types": {
-    "CONT": 8,
-    "FURN": 20,
+    "CONT": 16,
+    "FURN": 21,
     "IDLM": 1,
     "LIGH": 4,
-    "MISC": 2,
+    "MISC": 3,
     "MSTT": 1,
     "SCOL": 2,
     "STAT": 15,
@@ -38315,6 +38326,10 @@
     }
    ],
    "load_doors_in": [
+    {
+     "from": "Commonwealth",
+     "door": "1C2428:Fallout4.esm"
+    },
     {
      "from": "Commonwealth",
      "door": "1C2428:Fallout4.esm"
@@ -43265,6 +43280,1000 @@
    "test_name": false,
    "status": "backlog",
    "backlog_rank": 125
+  },
+  {
+   "formkey": "0026B6:DLCRobot.esm",
+   "editor_id": "",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 13,
+   "placed": {
+    "REFR": 13
+   },
+   "lights": 2,
+   "navmeshes": 0,
+   "distinct_bases": 5,
+   "base_types": {
+    "ACTI": 2,
+    "LIGH": 1,
+    "SOUN": 1,
+    "STAT": 1
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": false,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "002710:DLCRobot.esm",
+   "editor_id": "",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 4,
+   "placed": {
+    "REFR": 4
+   },
+   "lights": 0,
+   "navmeshes": 0,
+   "distinct_bases": 4,
+   "base_types": {
+    "ACTI": 1,
+    "FURN": 1,
+    "STAT": 2
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": false,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "00A163:DLCRobot.esm",
+   "editor_id": "",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 5,
+   "placed": {
+    "ACHR": 1,
+    "REFR": 4
+   },
+   "lights": 0,
+   "navmeshes": 0,
+   "distinct_bases": 4,
+   "base_types": {
+    "ACTI": 1,
+    "FURN": 1,
+    "IDLM": 1,
+    "NPC_": 1
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": false,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "00A5BD:DLCRobot.esm",
+   "editor_id": "",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 3,
+   "placed": {
+    "REFR": 3
+   },
+   "lights": 1,
+   "navmeshes": 0,
+   "distinct_bases": 3,
+   "base_types": {
+    "LIGH": 1,
+    "MSTT": 1,
+    "SOUN": 1
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": false,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "00A5BE:DLCRobot.esm",
+   "editor_id": "",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 3,
+   "placed": {
+    "REFR": 3
+   },
+   "lights": 1,
+   "navmeshes": 0,
+   "distinct_bases": 3,
+   "base_types": {
+    "LIGH": 1,
+    "MSTT": 1,
+    "SOUN": 1
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": false,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "00C0CF:DLCRobot.esm",
+   "editor_id": "",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 21,
+   "placed": {
+    "REFR": 21
+   },
+   "lights": 0,
+   "navmeshes": 0,
+   "distinct_bases": 6,
+   "base_types": {
+    "MSTT": 1,
+    "STAT": 5
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": false,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "00C0D0:DLCRobot.esm",
+   "editor_id": "",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 25,
+   "placed": {
+    "REFR": 25
+   },
+   "lights": 0,
+   "navmeshes": 0,
+   "distinct_bases": 10,
+   "base_types": {
+    "MSTT": 3,
+    "STAT": 7
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": false,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "00C0D1:DLCRobot.esm",
+   "editor_id": "",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 11,
+   "placed": {
+    "REFR": 11
+   },
+   "lights": 0,
+   "navmeshes": 0,
+   "distinct_bases": 5,
+   "base_types": {
+    "MSTT": 1,
+    "STAT": 4
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": false,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "00C0D2:DLCRobot.esm",
+   "editor_id": "",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 46,
+   "placed": {
+    "REFR": 46
+   },
+   "lights": 0,
+   "navmeshes": 0,
+   "distinct_bases": 12,
+   "base_types": {
+    "MSTT": 3,
+    "STAT": 9
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": false,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "00C39B:DLCRobot.esm",
+   "editor_id": "",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 3,
+   "placed": {
+    "REFR": 3
+   },
+   "lights": 0,
+   "navmeshes": 0,
+   "distinct_bases": 2,
+   "base_types": {
+    "STAT": 2
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": false,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "00D436:DLCRobot.esm",
+   "editor_id": "",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 14,
+   "placed": {
+    "REFR": 14
+   },
+   "lights": 0,
+   "navmeshes": 0,
+   "distinct_bases": 12,
+   "base_types": {
+    "CONT": 1,
+    "MSTT": 2,
+    "STAT": 9
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": false,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "00E4EA:DLCRobot.esm",
+   "editor_id": "",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 4,
+   "placed": {
+    "REFR": 4
+   },
+   "lights": 0,
+   "navmeshes": 0,
+   "distinct_bases": 1,
+   "base_types": {
+    "SCOL": 1
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": false,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "00E4EB:DLCRobot.esm",
+   "editor_id": "",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 13,
+   "placed": {
+    "REFR": 13
+   },
+   "lights": 0,
+   "navmeshes": 0,
+   "distinct_bases": 12,
+   "base_types": {
+    "STAT": 12
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": false,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "00091F:DLCworkshop01.esm",
+   "editor_id": "CTESTCOPY0000",
+   "plugins": [
+    "DLCworkshop01.esm"
+   ],
+   "flags": 1,
+   "location": null,
+   "refs": 12,
+   "placed": {
+    "REFR": 12
+   },
+   "lights": 0,
+   "navmeshes": 1,
+   "distinct_bases": 11,
+   "base_types": {
+    "SCOL": 4,
+    "STAT": 7
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": true,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "0044DF:DLCRobot.esm",
+   "editor_id": "DLC01FortHagenSatelliteArray01",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1,
+   "location": "FortHagenSatelliteArrayLocation",
+   "refs": 7822,
+   "placed": {
+    "ACHR": 24,
+    "PHZD": 1,
+    "REFR": 7797
+   },
+   "lights": 508,
+   "navmeshes": 5,
+   "distinct_bases": 1060,
+   "base_types": {
+    "ACTI": 29,
+    "ALCH": 18,
+    "AMMO": 2,
+    "ARMO": 8,
+    "ASPC": 3,
+    "BNDS": 3,
+    "CONT": 42,
+    "DOOR": 4,
+    "FURN": 29,
+    "HAZD": 1,
+    "IDLM": 2,
+    "LIGH": 41,
+    "MISC": 130,
+    "MSTT": 61,
+    "NOTE": 1,
+    "NPC_": 9,
+    "SCOL": 21,
+    "SOUN": 13,
+    "STAT": 594,
+    "TACT": 2,
+    "TERM": 6,
+    "TXST": 36,
+    "WEAP": 5
+   },
+   "load_doors_out": [
+    {
+     "ref": "0044E2:DLCRobot.esm",
+     "to": "world:Commonwealth"
+    }
+   ],
+   "load_doors_in": [
+    {
+     "from": "Commonwealth",
+     "door": "0044E0:DLCRobot.esm"
+    }
+   ],
+   "reach": "worldspace",
+   "hop": 1,
+   "entered_from": [
+    "Commonwealth"
+   ],
+   "test_name": false,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "00248F:DLCRobot.esm",
+   "editor_id": "DLC01HoldingCell",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1,
+   "location": null,
+   "refs": 55,
+   "placed": {
+    "REFR": 55
+   },
+   "lights": 0,
+   "navmeshes": 0,
+   "distinct_bases": 54,
+   "base_types": {
+    "ACTI": 1,
+    "CONT": 1,
+    "SCOL": 4,
+    "STAT": 48
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": true,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "0008A3:DLCRobot.esm",
+   "editor_id": "DLC01Lair01",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 129,
+   "location": "DLC01LairLocation",
+   "refs": 28469,
+   "placed": {
+    "ACHR": 64,
+    "PHZD": 10,
+    "REFR": 28395
+   },
+   "lights": 1082,
+   "navmeshes": 13,
+   "distinct_bases": 2598,
+   "base_types": {
+    "ACTI": 79,
+    "ALCH": 21,
+    "AMMO": 4,
+    "ARMO": 12,
+    "BNDS": 5,
+    "BOOK": 2,
+    "CONT": 52,
+    "DOOR": 17,
+    "FURN": 32,
+    "HAZD": 7,
+    "IDLM": 1,
+    "KEYM": 2,
+    "LIGH": 77,
+    "MISC": 174,
+    "MSTT": 101,
+    "NOTE": 4,
+    "NPC_": 26,
+    "SCOL": 161,
+    "SOUN": 17,
+    "STAT": 1714,
+    "TACT": 2,
+    "TERM": 23,
+    "TXST": 61,
+    "WEAP": 4
+   },
+   "load_doors_out": [
+    {
+     "ref": "008B65:DLCRobot.esm",
+     "to": "world:Commonwealth"
+    },
+    {
+     "ref": "004192:DLCRobot.esm",
+     "to": "world:Commonwealth"
+    },
+    {
+     "ref": "00358B:DLCRobot.esm",
+     "to": "world:Commonwealth"
+    }
+   ],
+   "load_doors_in": [
+    {
+     "from": "Commonwealth",
+     "door": "008B68:DLCRobot.esm"
+    },
+    {
+     "from": "Commonwealth",
+     "door": "004317:DLCRobot.esm"
+    },
+    {
+     "from": "Commonwealth",
+     "door": "00356E:DLCRobot.esm"
+    }
+   ],
+   "reach": "worldspace",
+   "hop": 1,
+   "entered_from": [
+    "Commonwealth"
+   ],
+   "test_name": false,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "0008A2:DLCRobot.esm",
+   "editor_id": "DLC01LairHoldingCell",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1,
+   "location": "DLC01LairLocation",
+   "refs": 22,
+   "placed": {
+    "REFR": 22
+   },
+   "lights": 5,
+   "navmeshes": 2,
+   "distinct_bases": 17,
+   "base_types": {
+    "LIGH": 5,
+    "SCOL": 4,
+    "STAT": 8
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": true,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "000BE3:DLCworkshop01.esm",
+   "editor_id": "DLC02HoldingCell",
+   "plugins": [
+    "DLCworkshop01.esm"
+   ],
+   "flags": 1,
+   "location": null,
+   "refs": 16,
+   "placed": {
+    "REFR": 16
+   },
+   "lights": 7,
+   "navmeshes": 1,
+   "distinct_bases": 13,
+   "base_types": {
+    "LIGH": 5,
+    "SCOL": 3,
+    "STAT": 5
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": true,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "000C10:DLCworkshop01.esm",
+   "editor_id": "DLC02TestTraps",
+   "plugins": [
+    "DLCworkshop01.esm"
+   ],
+   "flags": 1,
+   "location": null,
+   "refs": 65,
+   "placed": {
+    "PHZD": 1,
+    "REFR": 64
+   },
+   "lights": 5,
+   "navmeshes": 1,
+   "distinct_bases": 22,
+   "base_types": {
+    "FURN": 3,
+    "HAZD": 1,
+    "LIGH": 5,
+    "MSTT": 1,
+    "SCOL": 4,
+    "STAT": 8
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": false,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "004BBC:DLCRobot.esm",
+   "editor_id": "PackInDLC01MechDoorGroup01StorageCell",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 8,
+   "placed": {
+    "REFR": 8
+   },
+   "lights": 0,
+   "navmeshes": 0,
+   "distinct_bases": 7,
+   "base_types": {
+    "ACTI": 6,
+    "STAT": 1
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": true,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "004BBB:DLCRobot.esm",
+   "editor_id": "PackInDLC01MechDoorGroup02StorageCell",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 9,
+   "placed": {
+    "REFR": 9
+   },
+   "lights": 0,
+   "navmeshes": 0,
+   "distinct_bases": 3,
+   "base_types": {
+    "ACTI": 2,
+    "STAT": 1
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": true,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "004BBA:DLCRobot.esm",
+   "editor_id": "PackInDLC01MechDoorGroup03StorageCell",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 8,
+   "placed": {
+    "REFR": 8
+   },
+   "lights": 0,
+   "navmeshes": 0,
+   "distinct_bases": 4,
+   "base_types": {
+    "ACTI": 2,
+    "STAT": 2
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": true,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "004BB9:DLCRobot.esm",
+   "editor_id": "PackInDLC01MechDoorGroup04StorageCell",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 9,
+   "placed": {
+    "REFR": 9
+   },
+   "lights": 0,
+   "navmeshes": 0,
+   "distinct_bases": 5,
+   "base_types": {
+    "ACTI": 3,
+    "STAT": 2
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": true,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "004BB8:DLCRobot.esm",
+   "editor_id": "PackInDLC01MechDoorGroup05StorageCell",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 8,
+   "placed": {
+    "REFR": 8
+   },
+   "lights": 0,
+   "navmeshes": 0,
+   "distinct_bases": 4,
+   "base_types": {
+    "ACTI": 3,
+    "STAT": 1
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": true,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "004BB7:DLCRobot.esm",
+   "editor_id": "PackInDLC01MechDoorGroup06StorageCell",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 9,
+   "placed": {
+    "REFR": 9
+   },
+   "lights": 0,
+   "navmeshes": 0,
+   "distinct_bases": 7,
+   "base_types": {
+    "ACTI": 5,
+    "STAT": 2
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": true,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "004BB6:DLCRobot.esm",
+   "editor_id": "PackInDLC01MechDoorGroup07StorageCell",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1025,
+   "location": null,
+   "refs": 7,
+   "placed": {
+    "REFR": 7
+   },
+   "lights": 0,
+   "navmeshes": 0,
+   "distinct_bases": 5,
+   "base_types": {
+    "ACTI": 3,
+    "STAT": 2
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": true,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "008025:DLCRobot.esm",
+   "editor_id": "testau",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1,
+   "location": null,
+   "refs": 92,
+   "placed": {
+    "ACHR": 8,
+    "REFR": 84
+   },
+   "lights": 3,
+   "navmeshes": 1,
+   "distinct_bases": 22,
+   "base_types": {
+    "FURN": 8,
+    "IDLM": 1,
+    "LIGH": 2,
+    "MSTT": 1,
+    "NPC_": 5,
+    "SCOL": 3,
+    "STAT": 1,
+    "TERM": 1
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": true,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "008084:DLCRobot.esm",
+   "editor_id": "TestCorrie",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1,
+   "location": "CommonwealthLocation",
+   "refs": 24,
+   "placed": {
+    "ACHR": 1,
+    "REFR": 23
+   },
+   "lights": 9,
+   "navmeshes": 1,
+   "distinct_bases": 20,
+   "base_types": {
+    "FURN": 1,
+    "LIGH": 7,
+    "NPC_": 1,
+    "SCOL": 3,
+    "STAT": 8
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": true,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "00112A:DLCRobot.esm",
+   "editor_id": "TestCory01",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1,
+   "location": null,
+   "refs": 296,
+   "placed": {
+    "ACHR": 3,
+    "REFR": 293
+   },
+   "lights": 9,
+   "navmeshes": 2,
+   "distinct_bases": 123,
+   "base_types": {
+    "ACTI": 22,
+    "ALCH": 1,
+    "DOOR": 1,
+    "FURN": 1,
+    "LIGH": 2,
+    "MSTT": 9,
+    "NPC_": 3,
+    "SCOL": 5,
+    "STAT": 78,
+    "WEAP": 1
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": true,
+   "status": "new",
+   "backlog_rank": null
+  },
+  {
+   "formkey": "002623:DLCRobot.esm",
+   "editor_id": "TestTony",
+   "plugins": [
+    "DLCRobot.esm"
+   ],
+   "flags": 1,
+   "location": "CommonwealthLocation",
+   "refs": 97,
+   "placed": {
+    "REFR": 97
+   },
+   "lights": 10,
+   "navmeshes": 1,
+   "distinct_bases": 62,
+   "base_types": {
+    "BOOK": 1,
+    "LIGH": 7,
+    "MISC": 5,
+    "NOTE": 2,
+    "SCOL": 3,
+    "STAT": 44
+   },
+   "load_doors_out": [],
+   "load_doors_in": [],
+   "reach": "no_load_door",
+   "hop": null,
+   "entered_from": [],
+   "test_name": true,
+   "status": "new",
+   "backlog_rank": null
   }
  ]
 }

@@ -20,10 +20,10 @@ public static class TeleportDependencies
         foreach (var (cell, worldspace) in cells)
         {
             var location = new Location(cell.FormKey.ToString(), cell.EditorID, worldspace);
-            if (wantedCells.Contains(location.formkey)) transitions.Add(location.formkey, location);
+            if (wantedCells.Contains(location.formkey)) transitions.TryAdd(location.formkey, location);
             foreach (var r in cell.Temporary.Concat(cell.Persistent).OfType<IPlacedObjectGetter>())
                 if (wantedDoors.Contains(r.FormKey.ToString()))
-                    doors.Add(r.FormKey.ToString(), (location, r.Base.IsNull ? null : r.Base.FormKey.ToString()));
+                    doors.TryAdd(r.FormKey.ToString(), (location, r.Base.IsNull ? null : r.Base.FormKey.ToString()));
         }
         return teleports.Select(r =>
         {

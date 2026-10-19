@@ -155,6 +155,45 @@ def plan(census, backlog, min_cells=20, max_cells=30, max_refs=60000, near_m=100
             "batches": out, "skipped": skipped}
 
 
+def extend(existing, fresh, min_cells=20, max_cells=30, max_refs=60000):
+    """Keep an earlier plan's batches exactly (built batches are pinned to it) and put only the cells it lacks (from
+    a plan made over a larger census, e.g. with the DLC plugins) into new batches after its last one, in the fresh
+    plan's order. The estimates continue from the earlier plan's cumulative model count."""
+    have = {c["formkey"] for b in existing["batches"] for c in b["cells"]}
+    fresh_keys = {c["formkey"] for b in fresh["batches"] for c in b["cells"]}
+    lost = sorted(have - fresh_keys)
+    if lost:
+        raise ValueError(f"{len(lost)} cell(s) of the earlier plan are not in the new census's plan (first {lost[:3]})")
+    todo = [c for b in fresh["batches"] for c in b["cells"] if c["formkey"] not in have]
+    out = [dict(b) for b in existing["batches"]]
+    per_model = fresh["params"]["bytes_per_model"]
+    cum = out[-1]["cumulative_models_est"] if out else PORT_MODELS
+    groups, cur = [], []
+    for c in todo:
+        refs = sum(x["refs"] for x in cur)
+        if cur and (len(cur) >= max_cells or (len(cur) >= min_cells and refs + c["refs"] > max_refs)):
+            groups.append(cur)
+            cur = []
+        cur.append(c)
+    if cur:
+        groups.append(cur)
+    for cells in groups:
+        i = len(out) + 1
+        new = sum(x["new_models"] for x in cells)
+        cum += new
+        archives = cum * per_model
+        out.append({"batch": i, "name": f"interiors_b{i:02d}", "cells": cells, "cell_count": len(cells),
+                    "refs": sum(x["refs"] for x in cells), "new_models_est": new, "cumulative_models_est": cum,
+                    "archives_gb_est": round(archives / 1e9, 2), "work_staging_gb_est": round(archives * LOOSE_FACTOR / 1e9, 2),
+                    "peak_gb_est": round((archives * LOOSE_FACTOR + 2 * archives) / 1e9, 2)})
+    result = dict(existing)
+    result["batches"] = out
+    result["totals"] = dict(existing["totals"], batches=len(out), cells=sum(b["cell_count"] for b in out),
+                            refs=sum(b["refs"] for b in out), final_archives_gb_est=out[-1]["archives_gb_est"] if out else 0,
+                            final_peak_gb_est=out[-1]["peak_gb_est"] if out else 0, extended_by=len(todo))
+    return result
+
+
 def disk_check(result, free_gb, floor_gb):
     """Mark the first batch whose peak estimate would leave less than floor_gb free (free_gb measured now, before any
     batch exists)."""
@@ -188,11 +227,14 @@ def main(argv=None):
     ap.add_argument("--max-refs", type=int, default=60000)
     ap.add_argument("--near-m", type=float, default=1000.0)
     ap.add_argument("--free-gb", type=float, default=None)
+    ap.add_argument("--after", default="", help="an earlier plan to keep as is; only the cells it lacks get new batches")
     ap.add_argument("--floor-gb", type=float, default=40.0)
     a = ap.parse_args(argv)
     if not 0 < a.min_cells <= a.max_cells:
         sys.exit("need 0 < --min-cells <= --max-cells")
     result = plan(load(a.census), load(a.backlog), a.min_cells, a.max_cells, a.max_refs, a.near_m)
+    if a.after:
+        result = extend(load(a.after), result, a.min_cells, a.max_cells, a.max_refs)
     if a.free_gb is not None:
         disk_check(result, a.free_gb, a.floor_gb)
     with open(a.out, "w", encoding="utf-8") as f:

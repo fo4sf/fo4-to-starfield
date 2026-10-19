@@ -2,6 +2,7 @@
 interior cell and how it is reached, the batch order and limits, the port id comparison, the door selection, the prune
 rule. No game data."""
 import json
+import argparse
 import os
 import shutil
 import struct
@@ -148,6 +149,20 @@ class BatchPlanTests(unittest.TestCase):
         checked = ibs.disk_check(ibs.plan(census, backlog, 1, 2), free_gb=45, floor_gb=40)
         self.assertEqual(checked["totals"]["first_batch_under_floor"], 1)   # 2 x archives + loose: about 9 GB already
         self.assertIn("| 1 | 2 |", ibs.markdown(small))
+
+
+    def test_extend_keeps_the_built_batches_and_adds_only_new_cells(self):
+        census, backlog = self.plan_inputs()
+        old = ibs.plan(census, backlog, min_cells=1, max_cells=2)
+        census["cells"].append(crow("DLC01Lair01", "A:DLCRobot.esm", status="new", entered=("Commonwealth",)))
+        grown = ibs.extend(old, ibs.plan(census, backlog, min_cells=1, max_cells=2), min_cells=1, max_cells=2)
+        self.assertEqual(grown["batches"][:3], old["batches"])                  # built batches stay byte-for-byte
+        self.assertEqual([c["editor_id"] for c in grown["batches"][3]["cells"]], ["DLC01Lair01"])
+        self.assertEqual(grown["batches"][3]["name"], "interiors_b04")
+        self.assertEqual(grown["totals"]["extended_by"], 1)
+        census["cells"] = [r for r in census["cells"] if r["editor_id"] != "Near"]
+        with self.assertRaises(ValueError):                                     # an earlier cell may not vanish
+            ibs.extend(old, ibs.plan(census, backlog, min_cells=1, max_cells=2))
 
 
 class BatchToolTests(unittest.TestCase):
@@ -403,6 +418,39 @@ class BuildFlowTests(unittest.TestCase):
         self.assertFalse(ib.load(os.path.join(b2x, "result.json"))["steps"]["compare_prev"]["pass"])
         with self.assertRaises(SystemExit):                               # a failed batch is no --prev
             build(2, os.path.join(t, "staging", "interiors_b02y"), prev=b2x)
+
+    def test_dlc_cells_export_from_their_plugin_with_the_master(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        dlc = os.path.join(tmp.name, "dlcdata")
+        os.makedirs(dlc)
+        open(os.path.join(dlc, "DLCRobot.esm"), "wb").close()
+        plan = {"batches": [{"cells": [{"editor_id": "Old", "formkey": "000001:Fallout4.esm"}]},
+                            {"cells": [{"editor_id": "DLC01Lair01", "formkey": "0008A3:DLCRobot.esm"},
+                                       {"editor_id": "DLC03Gone", "formkey": "000001:DLCCoast.esm"}]}]}
+        self.assertEqual(ib.cell_plugins(plan, 1), {})
+        self.assertEqual(ib.cell_plugins(plan, 2), {"DLC01Lair01": "DLCRobot.esm", "DLC03Gone": "DLCCoast.esm"})
+        a = argparse.Namespace(fo4export="Fo4Export.dll", fo4_data=os.path.join(tmp.name, "Data"), dlc_data=[dlc])
+        calls = []
+
+        def fake_run(cmd, log, env=None, cwd=None):
+            calls.append(cmd)
+            with open(cmd[-1], "w") as f:
+                f.write("{}")
+            return 0, 0.1
+        real, ib.run = ib.run, fake_run
+        try:
+            out = os.path.join(tmp.name, "exports")
+            os.makedirs(out)
+            self.assertEqual(ib.export_cell(a, "DLC01Lair01", out, os.path.join(tmp.name, "x.log"), "DLCRobot.esm")[1], 0)
+            self.assertEqual(calls[-1][2:5], [os.path.join(dlc, "DLCRobot.esm"), "--master", os.path.join(a.fo4_data, "Fallout4.esm")])
+            self.assertEqual(ib.export_cell(a, "Old", out, os.path.join(tmp.name, "x.log"))[1], 0)
+            self.assertEqual(calls[-1][2:4], [os.path.join(a.fo4_data, "Fallout4.esm"), "export"])
+            n = len(calls)                                                      # a DLC that is not installed: no run
+            self.assertEqual(ib.export_cell(a, "DLC03Gone", out, os.path.join(tmp.name, "x.log"), "DLCCoast.esm")[1], 2)
+            self.assertEqual(len(calls), n)
+        finally:
+            ib.run = real
 
     def test_disk_need_counts_what_the_batch_adds(self):
         plan = {"batches": [{"archives_gb_est": 2.9, "work_staging_gb_est": 5.9},

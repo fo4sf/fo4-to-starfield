@@ -108,10 +108,32 @@ core v6c/v6e only the 16 base cells' doors are wired. Batch 1: 47 Commonwealth d
 
 ## DLC
 
-The PC has DLCRobot and DLCworkshop01 only. Their interiors need (**unresolved**, not built here): the census run with
-both plugins after Fallout4.esm (the tool takes them; the DLC depots are outside the folders read today),
-dotnet/Fo4Export loading a DLC plugin with Fallout4.esm as master, and convert_batch.py reading the DLC's own
-archives. They become a batch after batch 9.
+The PC has two DLC plugins (Automatron = DLCRobot.esm, 8,012,051 B, sha256 e71e04ac...; Wasteland Workshop =
+DLCworkshop01.esm, 633,592 B, sha256 82914c20...; copied read-only to D:\Modding\research\dlc on 2026-10-19).
+Census over Fallout4.esm + both (**verified**, interior_census.py, the data files above now hold it):
+
+- **2 new interiors, both Automatron's, both entered from the Commonwealth:** `DLC01Lair01` (the Mechanist's Lair,
+  28,395 references, 3 Commonwealth doors) and `DLC01FortHagenSatelliteArray01` (7,797 references, 1 door). They are
+  **batch 10** (36,291 references); batches 1 to 9 are unchanged byte for byte (`interior_batches.py --after`).
+- Wasteland Workshop adds no reachable interior (only test and holding cells). The other 29 DLC cells have no load
+  door in (holding, test, door-storage cells).
+- Automatron also adds 44 references to `GeneralAtomicsFactory01` (batch 8: 6,150 in Fallout4.esm, 6,194 with
+  the DLC). The batches export that cell from Fallout4.esm only, so those 44 are not in the port yet
+  (**unresolved**: an override-cell merge in the exporter; small).
+
+What a DLC cell needs, and what is done:
+- **Export:** `Fo4Export <DLCRobot.esm> --master <Fallout4.esm> export <cell>` (new `--master`, repeatable): the DLC
+  cell's bases and its door targets resolve through Fallout4.esm. **Verified** on both cells in the cloud: without
+  the master 7,615 and 26,333 references have no base; with it every base resolves and every door names the
+  Commonwealth's persistent cell 018AA2.
+- **Models:** `convert_batch.py --extra-data <DLC Data folder>` reads its `DLC*.ba2` (Main and Textures) after the base
+  game's archives, so base-game models convert exactly as before (unit tested; not yet run on the real archives).
+- **Batch:** `interior_batch.py build --dlc-data <depot_435871\Data> --dlc-data <depot_435880\Data>` exports a
+  DLC cell from its own plugin (the plan's formkey says which) and passes the folders to the converter.
+- **Not done:** the Commonwealth side. Automatron's exterior doors (and the satellite array's outside structure) are
+  DLCRobot.esm references in the Commonwealth, which the core does not convert; wiring batch 10's doors needs a
+  core built with the DLC's Commonwealth references. The DLC chairs are not in the furniture table either
+  (Fo4Land's export reads Fallout4.esm), so they stay static.
 
 ## Reproduce
 
@@ -142,6 +164,7 @@ python scripts/terrain/interior_batch.py prune --staging-root D:\Modding\staging
 | 3 | 2026-10-19 PASS (7fc0caa, --prev b02) | 77 | 77 | 0 cells; 6 cells with trap/glass models | pass; vs b02 pass (no b02 record changed) | Main 191,448,321 B, Textures 3,282,063,253 B | plugin 1db0e61e (15,074,712 B); convert 663 s, total 792 s; D: 53.8 to 49.8 GB free |
 | 4 | 2026-10-19 PASS (7fc0caa, --prev b03) | 104 | 104 | 0 cells; 7 cells with trap/gnat/water models | pass, 6 base doors changed; vs b03 pass, 1 changed (010045AA) | Main 230,547,923 B, Textures 3,590,442,691 B | plugin 1b94d270 (18,444,707 B); total 815 s; D: 49.8 to 45.1 GB free; teleports Linked 48 |
 | 5 to 9 | held | | | | | | D: near the 40 GB floor until the owner deletes superseded folders |
+| 10 (DLC) | not yet | | | | | | Automatron's 2 interiors; needs the DLC Data folders readable by the build |
 
 Batch 1 notes (**verified** from interiors_b01's result.json, port\compare.json and both plugins):
 - The 5 changed base records are load doors of installed cells (REFR 010062BB, 010062BE, 010045AE, 0100383E,

@@ -2727,6 +2727,43 @@
     "FO4Port_GoodneighborWarehouse02",
     "FO4Port_GoodneighborWarehouse03"
    ]
+  },
+  {
+   "batch": 10,
+   "name": "interiors_b10",
+   "only": "FO4Port_DLC01FortHagenSatelliteArray01,FO4Port_DLC01Lair01",
+   "cells": [
+    {
+     "cell": "DLC01FortHagenSatelliteArray01",
+     "coc": "FO4Port_DLC01FortHagenSatelliteArray01",
+     "commonwealth_doors": [
+      "0044E0:DLCRobot.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DLC01Lair01",
+     "coc": "FO4Port_DLC01Lair01",
+     "commonwealth_doors": [
+      "008B68:DLCRobot.esm",
+      "004317:DLCRobot.esm",
+      "00356E:DLCRobot.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    }
+   ],
+   "commonwealth_door_count": 4,
+   "needs": "this batch's port installed together with a core build whose doors cluster was made against it (make_cluster.py doors --port <this batch's port>, make_core64c.py stage --cluster, then vmad_patch.py port): the installed core v6c/v6e only wires the 16 base cells' doors",
+   "then": [
+    "python scripts/bridge/door_rounds.py order --plugins-txt <Plugins.txt>",
+    "python scripts/bridge/door_rounds.py stage --core <that core build> --port <this batch's port> --core-index HH --port-index HH --out <NEW folder> --only FO4Port_DLC01FortHagenSatelliteArray01,FO4Port_DLC01Lair01",
+    "python scripts/game/testqueue.py plan-terrain --staging <port> --exp-dir <out> --out <queue> --bridge <bridge staging>",
+    "python scripts/game/testqueue.py run --queue <queue> --max-attempts 1",
+    "python scripts/bridge/door_rounds.py judge --queue <queue>"
+   ],
+   "coc_only": []
   }
  ]
 }

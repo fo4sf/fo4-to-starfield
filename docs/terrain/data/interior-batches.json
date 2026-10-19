@@ -10,13 +10,14 @@
   "loose_factor": 2.0
  },
  "totals": {
-  "batches": 9,
-  "cells": 251,
-  "refs": 447995,
+  "batches": 10,
+  "cells": 253,
+  "refs": 484286,
   "skipped": 4,
-  "final_archives_gb_est": 5.74,
-  "final_peak_gb_est": 22.97,
-  "first_batch_under_floor": null
+  "final_archives_gb_est": 5.91,
+  "final_peak_gb_est": 23.63,
+  "first_batch_under_floor": null,
+  "extended_by": 2
  },
  "batches": [
   {
@@ -6023,6 +6024,65 @@
    "peak_gb_est": 22.97,
    "free_after_gb_est": 44.0,
    "under_floor": false
+  },
+  {
+   "batch": 10,
+   "name": "interiors_b10",
+   "cells": [
+    {
+     "editor_id": "DLC01FortHagenSatelliteArray01",
+     "formkey": "0044DF:DLCRobot.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 7822,
+     "lights": 508,
+     "navmeshes": 5,
+     "load_doors_out": 1,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 87,
+     "new_models_kind": "estimated"
+    },
+    {
+     "editor_id": "DLC01Lair01",
+     "formkey": "0008A3:DLCRobot.esm",
+     "phase": "world",
+     "reach": "worldspace",
+     "entered_from": [
+      "Commonwealth"
+     ],
+     "refs": 28469,
+     "lights": 1082,
+     "navmeshes": 13,
+     "load_doors_out": 3,
+     "doors_to_world": [
+      "world:Commonwealth"
+     ],
+     "doors_to_interiors": [],
+     "backlog_rank": null,
+     "nearest_m": null,
+     "enterable": null,
+     "effort": null,
+     "new_models": 212,
+     "new_models_kind": "estimated"
+    }
+   ],
+   "cell_count": 2,
+   "refs": 36291,
+   "new_models_est": 299,
+   "cumulative_models_est": 10671,
+   "archives_gb_est": 5.91,
+   "work_staging_gb_est": 11.82,
+   "peak_gb_est": 23.63
   }
  ],
  "skipped": [

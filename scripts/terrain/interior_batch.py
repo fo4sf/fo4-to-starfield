@@ -6,7 +6,7 @@ rounds, prune superseded batches (docs/terrain/interior-batches.md). Nothing her
          name> --work <work staging> --out <NEW folder> --fo4-data <FO4 Data> --starfield <Starfield game dir>
          --content-resources <ContentResources.zip> --texconv <Texconvx64.exe> --collision-template <template.nif>
          --fo4export <Fo4Export.dll> --pluginspike <PluginSpike.dll> [--spec-mask-roughness] [--promote-arg ARG ...]
-         [--convert-arg ARG ...] [--prev <the previous batch's --out>] [--min-free-gb 40] [--no-pack] [--jobs 2]
+         [--convert-arg ARG ...] [--prev <the previous batch's --out>] [--dlc-data <a DLC's Data folder> ...] [--min-free-gb 40] [--no-pack] [--jobs 2]
   python scripts/terrain/interior_batch.py compare --old <port folder> --new <port folder> [--json <out>]
   python scripts/terrain/interior_batch.py doors --plan <batches.json> --census <census.json> --batch N --out <door_rounds.json>
   python scripts/terrain/interior_batch.py prune --staging-root <dir> --keep N [--delete]
@@ -188,6 +188,26 @@ def check_prev(a, n):
     return port
 
 
+def cell_plugins(plan, n):
+    """{editor id: plugin file} for the cells of batches 1..n whose formkey names a plugin other than Fallout4.esm
+    (the DLC batch); every other cell is exported from Fallout4.esm."""
+    out = {}
+    for b in plan["batches"][:n]:
+        for c in b["cells"]:
+            plugin = (c.get("formkey") or "").partition(":")[2]
+            if plugin and plugin.lower() != "fallout4.esm":
+                out[c["editor_id"]] = plugin
+    return out
+
+
+def find_plugin(dirs, name):
+    for d in dirs:
+        p = os.path.join(d, name)
+        if os.path.isfile(p):
+            return p
+    return None
+
+
 def batch_cells(plan, n):
     """The cells of batches 1..n, in plan order."""
     if n < 0 or n > len(plan["batches"]):
@@ -211,12 +231,23 @@ def run(cmd, log, env=None, cwd=None):
     return r.returncode, round(time.time() - t, 1)
 
 
-def export_cell(a, cell, exports, log):
+def export_cell(a, cell, exports, log, plugin=None):
+    """Fo4Export one cell from Fallout4.esm, or (plugin: a DLC's own cell) from that plugin found in --dlc-data with
+    Fallout4.esm loaded as its master, so the base records and the Commonwealth doors resolve."""
     dst = os.path.join(exports, cell + ".json")
     if os.path.isfile(dst) and os.path.getsize(dst) > 0:
         return cell, 0, 0.0
     tmp = dst + ".tmp"
-    rc, s = run(["dotnet", a.fo4export, os.path.join(a.fo4_data, "Fallout4.esm"), "export", cell, tmp], log + f".{cell}")
+    fo4 = os.path.join(a.fo4_data, "Fallout4.esm")
+    src = [fo4]
+    if plugin:
+        path = find_plugin(a.dlc_data, plugin)
+        if path is None:
+            with open(log + f".{cell}", "w", encoding="utf-8") as f:
+                f.write(f"{plugin} not found in --dlc-data {a.dlc_data}\n")
+            return cell, 2, 0.0
+        src = [path, "--master", fo4]
+    rc, s = run(["dotnet", a.fo4export] + src + ["export", cell, tmp], log + f".{cell}")
     if rc == 0 and os.path.isfile(tmp) and os.path.getsize(tmp) > 0:
         os.replace(tmp, dst)
     return cell, rc, s
@@ -254,7 +285,8 @@ def build(a):
     for c in old_cells:
         shutil.copyfile(os.path.join(a.base_exports, c + ".json"), os.path.join(pinned, c + ".json"))
     with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as pool:
-        got = list(pool.map(lambda c: export_cell(a, c, exports, os.path.join(a.out, "export.log")), new_cells))
+        dlc = cell_plugins(plan, a.batch)
+        got = list(pool.map(lambda c: export_cell(a, c, exports, os.path.join(a.out, "export.log"), dlc.get(c)), new_cells))
     for c, rc, s in got:
         cells[c] = {"exported": rc == 0, "export_s": s}
     failed_exports = [c for c, rc, _s in got if rc != 0]
@@ -292,6 +324,8 @@ def build(a):
            "--starfield-data", sf_data, "--cell-json", merged, "--limit", "100000", "--resume"]
     if a.spec_mask_roughness:
         cmd.append("--spec-mask-roughness")
+    for d in a.dlc_data:
+        cmd += ["--extra-data", d]
     cmd += a.convert_arg
     rc, s = run(cmd, log, cwd=ROOT)
     os.remove(merged)                                         # the exports are kept; the merge is rebuilt each time
@@ -485,6 +519,8 @@ def main(argv=None):
     b.add_argument("--promote-arg", action="append", default=[])
     b.add_argument("--convert-arg", action="append", default=[])
     b.add_argument("--prev", default="")
+    b.add_argument("--dlc-data", action="append", default=[],
+                   help="a DLC's Data folder (repeatable): its plugin for that batch's cells, its DLC*.ba2 for the models")
     b.add_argument("--min-free-gb", type=float, default=40.0)
     b.add_argument("--no-pack", action="store_true")
     b.add_argument("--jobs", type=int, default=2)

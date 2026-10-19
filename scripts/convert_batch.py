@@ -195,6 +195,10 @@ def main():
                          "than one part (double doors, shutters, sliding panel sets) and sliding / lifting / trapdoor "
                          "doors (vault, elevator, hatch) get their own rig and Open/Close clips; without it the first "
                          "keep the single-hinge template and list the parts that stay closed, the second stay passable")
+    ap.add_argument("--extra-data", action="append", default=[],
+                    help="another Data folder whose DLC*.ba2 archives are read after the base game's (a DLC's depot "
+                         "Data); base-game models keep converting from Fallout4 - *.ba2 first, so existing checkpoints "
+                         "stay valid and the option is not part of the checkpoint signature")
     ap.add_argument("--resume", action="store_true", help="reuse content-verified per-model checkpoints")
     ap.add_argument("--pattern", default=r"^meshes[\\/]setdressing[\\/]")
     ap.add_argument("--limit", type=int, default=20)
@@ -235,7 +239,7 @@ def main():
     ids = load_editor_ids(a.staging)
 
     t0 = time.time()
-    src = pipeline.Fo4Archives(a.fo4_data)
+    src = pipeline.Fo4Archives(a.fo4_data, a.extra_data)
     with open(a.collision_template, "rb") as f:
         template = convert_static.collision_template_from_nif(f.read())
     donor = None
