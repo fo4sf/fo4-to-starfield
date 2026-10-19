@@ -177,10 +177,11 @@ class DriverTests(unittest.TestCase):
         ex = os.path.join(ROOT, "scripts", "launcher_recipes", "core_restage_same_ids.example.json")
         with self.assertRaisesRegex(driver.RecipeError, "against"):
             driver.load_recipe(ex, repo=ROOT)
-        sets = [f"{k}={self.root}/{k}" for k in ("work", "core", "sf_esm", "cluster", "navmesh", "against", "out")]
+        sets = [f"{k}={self.root}/{k}" for k in ("work", "core", "sf_esm", "cluster", "navmesh", "sf_data", "fo4", "against", "out")]
         rec, _ = driver.load_recipe(ex, sets, repo=ROOT)
         self.assertEqual([s["id"] for s in rec["steps"]], ["stage", "check", "compare_ids", "same_ids"])
         self.assertIn(f"{self.root}/out", rec["steps"][0]["argv"])
+        self.assertIn("--sf-data", rec["steps"][1]["argv"])            # check fails without the vanilla records
         rep = driver.build(rec, ROOT, dry_run=True, echo=self.lines.append)
         self.assertEqual([w for _id, w, _ in rep["plan"]], ["run"] * 4)
 

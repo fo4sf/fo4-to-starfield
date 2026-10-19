@@ -1,6 +1,6 @@
 {
  "name": "core-restage-same-ids",
- "description": "Determinism check on the PC: re-run make_core64c.py stage with exactly the inputs of an existing staged core build into a fresh folder, check it, then compare FormIDs (compare-ids) and plugin records (launcher.py same-ids) against the original. Every '?' is set with --set; the stage arguments must match the original build's own stage command (add --views or drop --navmesh in a copy of this file if the original did).",
+ "description": "Determinism check on the PC: re-run make_core64c.py stage with exactly the inputs of an existing staged core build into a fresh folder, check it, then compare FormIDs (compare-ids) and plugin records (launcher.py same-ids) against the original. Every '?' is set with --set; the stage arguments must match the original build's own stage command (add --views or drop --navmesh in a copy of this file if the original did). check needs --sf-data (Starfield Data, for the vanilla station records) and --fo4 (Fallout4.esm), as the original builds' checks used.",
  "state_dir": "{out}/.launcher",
  "vars": {
   "work": "?",
@@ -8,6 +8,8 @@
   "sf_esm": "?",
   "cluster": "?",
   "navmesh": "?",
+  "sf_data": "?",
+  "fo4": "?",
   "against": "?",
   "out": "?"
  },
@@ -21,7 +23,7 @@
    "timeout_s": 21600},
   {"id": "check",
    "argv": ["{python}", "{repo}/scripts/terrain/make_core64c.py", "check", "--work", "{work}", "--core", "{core}",
-            "--out", "{out}"],
+            "--out", "{out}", "--sf-data", "{sf_data}", "--fo4", "{fo4}"],
    "inputs": ["{out}/FO4TerrainCore.esm"],
    "outputs": ["{out}/offline_check.json"],
    "after": ["stage"], "code": ["scripts/terrain", "src/fo4sf"], "timeout_s": 21600},

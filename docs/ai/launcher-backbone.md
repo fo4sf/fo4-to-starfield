@@ -64,9 +64,16 @@ IDS_DIFFER, INCOMPLETE; exit 0 only for the first two.
    intended v6e change, not non-determinism (the inputs differ). 19 s for 194 MB in the cloud.
    The hard-linked Mars plugin and formids.json could not be copied (the folder tool refuses hard links), so level 3
    (compare-ids) ran only on the PC earlier ("identical", per the install thread).
-2. The determinism proof: the example recipe re-stages one existing core build from its own recorded inputs into a
-   fresh folder on D: and compares. Two builds of identical inputs must come out IDENTICAL or SAME_IDS with only
-   metadata explained. Disk: stage hard-links Data, so the cost is the plugins and json (small); check reads the tree.
+2. **Done 2026-10-19 15:05 to 15:09Z on the PC (verified; install thread, Idle priority, nothing installed):** the
+   example recipe at 0a8928e (launcher.py b783d89a, recipe 628ea6d1 checked) re-staged v6e from its own inputs into
+   `D:\Modding\staging\det_v6e_b`. `core-restage-same-ids: COMPLETE {'done': 4}`, 235 s; check "268 of 268 checks
+   ok, CHECK PASS"; compare-ids against terrain_core64v6e identical in every section (refs 624,369, bases 11,768,
+   navmeshes 12,104, items 12,616, lights 6,249, doors 15, and the rest); same-ids **IDENTICAL** for
+   FO4TerrainCore.esm and FO4TerrainCore_Mars.esm, every formids.json section identical. The stage ran with the
+   scripts at 0a8928e rather than v6e's 5a93beb and still came out byte-identical. So on one PC, the same inputs give
+   byte-identical core plugins. The first attempt stopped at check (265 of 266, "Starfield.esm needed for the vanilla
+   record check"): the example's check step lacked --sf-data and --fo4; fixed in the example since. det_v6e_b (mostly
+   hard links) and the worktree stay on D: because the PC refuses our deletes; about 62 GB free.
 3. Later, on a second machine (or a clean second checkout path on the same PC), the same recipe: the cross-machine
    half of plan task L4.
 
