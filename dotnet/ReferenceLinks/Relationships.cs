@@ -63,20 +63,17 @@ public static class Relationships
                     doorBases.Add(door.FormKey);
         var occupied = localRecords.Keys.Where(k => k.ModKey == mod.ModKey).Select(k => k.ID).ToHashSet();
         var next = ids.Values.Concat(occupied).DefaultIfEmpty(0x7FFu).Max() + 1;
-        // Key identities by parsed FormKey (00A123:Fallout4.esm == 00a123:fallout4.esm; Codex on #375): two spellings of
-        // one source key reserved at different IDs are ambiguous, an issue (blocks publication), and that key resolves to nothing.
+        // Key identities by parsed FormKey (00A123:Fallout4.esm == 00a123:fallout4.esm; Codex on #375). Two spellings of one
+        // source key reserved at different IDs corrupt the map: refused before any change, like the duplicate-ID check
+        // above, so --allow-unresolved cannot publish it. A key that is merely missing stays a warning (below).
         var keyIds = new Dictionary<FormKey, uint>();
-        var ambiguousKeys = new HashSet<FormKey>();
         foreach (var (identity, id) in ids)
         {
             if (!identity.StartsWith("KEYM:", StringComparison.Ordinal) || !FormKey.TryFactory(identity.Substring(5), out var fk))
                 continue;
             if (keyIds.TryGetValue(fk, out var prior) && prior != id)
-            {
-                if (ambiguousKeys.Add(fk))
-                    report.Issues.Add(new(fk.ToString(), "lock_data.key", null, "one source key is reserved at two target IDs by differently spelled identities"));
-            }
-            else keyIds[fk] = id;
+                throw new InvalidOperationException($"source map reserves key {fk} at two target IDs ({prior:X6}, {id:X6}) under differently spelled identities");
+            keyIds[fk] = id;
         }
         // Explicit source-reference selections only: never infer a replacement
         // from a marker filename or silently replace an already placed base.
@@ -284,7 +281,7 @@ public static class Relationships
             {
                 // Same rule as keywords: an identity in the map AND an actual, non-deleted KEYM in the plugin.
                 // FO4 keys are not converted by PluginSpike, so this normally fails; never invent a key.
-                if (FormKey.TryFactory(sourceKey, out var sourceFk) && !ambiguousKeys.Contains(sourceFk) && keyIds.TryGetValue(sourceFk, out var keyId))
+                if (FormKey.TryFactory(sourceKey, out var sourceFk) && keyIds.TryGetValue(sourceFk, out var keyId))
                     key = mod.Keys.FirstOrDefault(k => k.FormKey == new FormKey(mod.ModKey, keyId) && (k.MajorRecordFlagsRaw & 0x20) == 0);
                 if (key == null)
                 {
