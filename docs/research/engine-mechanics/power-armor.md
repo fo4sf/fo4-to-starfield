@@ -56,7 +56,7 @@ supported hypothesis / unresolved.
 | PA pieces ARMO/ARMA/OMOD/MSWP | ARMO/ARMA/OMOD; MSWP gone (SF has no MSWP) | translate | paint swaps need SF material swap equivalent (see S3-materials spike) |
 | Frame ARMO + keyword | ARMO | translate | keep `isPowerArmorFrame` as our own keyword |
 | PA skeleton / race / graphs | SF human graph only | rebuild | phase rule: SF animations first; FO4 PA clips later |
-| `SwitchToPowerArmor`, `IsInPowerArmor` | not listed on starfieldwiki's Actor page | script shim | presence in SF Actor.psc unresolved |
+| `SwitchToPowerArmor`, `IsInPowerArmor` | `SwitchToPowerArmor` **is declared** in Starfield's core scripts; `IsInPowerArmor` is not (PC probe, verified) | test the native, shim `IsInPowerArmor` | what Starfield's `SwitchToPowerArmor` does with no power armor furniture flag is **unresolved**: one test call |
 | `LinkPowerArmorKeyword` linked ref | REFR linked refs | data copy | our keyword |
 | Fusion core drain | none | rebuild (script + AV) | |
 | PA HUD, helmet IMAD | SF helmet overlay | rebuild (Scaleform; SFSE likely) | |
@@ -72,8 +72,8 @@ A staged rebuild, smallest proof first:
    and jump/fall changes via AV modifiers and spells (Strength boost, carry weight, fall damage immunity through an MGEF).
 3. **Fusion core**: an AV + script timer, cores as items; empty core = speed penalty spell.
 4. **HUD**: SFSE menu or Scaleform overlay (same decision as the Pip-Boy, ../next-phase/animations-ui-and-start.md).
-5. **True PA skeleton**: a race or subgraph swap at runtime. Starfield has no `SwitchToPowerArmor`-like native that we
-   know of; a race switch via Papyrus `SetRace` (presence in SF unresolved) or an SFSE plugin is required, plus a
+5. **True PA skeleton**: a race or subgraph swap at runtime. Starfield still declares `SwitchToPowerArmor` and `SetRace`
+   (PC probe, verified names; behaviour untested), so try those before an SFSE plugin; plus a
    converted PA skeleton and behavior graph (big asset work; see ../next-phase/animations-ui-and-start.md).
 6. **PA station**: furniture with an OMOD-modding menu; SF's armor workbench menu may be reusable if PA pieces are
    ordinary ARMO with OMOD slots (supported hypothesis).

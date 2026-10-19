@@ -26,7 +26,7 @@ of dialogue, plus an affinity layer on top.
   (xEdit AFFE, DIAL ANAM, INFO NAM8, QUST stage NAM1; globals from the Affinity Enhanced mod description)
 - Both games ship a script called **`CompanionActorScript`** (FO4's affinity script; Starfield's companion actor script,
   seen in SFSE-era console mods). Papyrus script names are global, so converted FO4 scripts must be **renamed into our
-  own namespace** or they replace Starfield's. **supported hypothesis** for Starfield's script (mod documentation);
+  own namespace** or they replace Starfield's. **verified** that Starfield ships the script (PC probe, 5,029 sources);
   the rule applies to every converted script.
 - Verdict: the companion **records** (NPC_, quests, aliases, dialogue, packages) translate as data; **affinity is
   rebuilt** on Starfield's AFFE system (recommended: it is data, saved and cooled down by the engine) with FO4's
@@ -59,7 +59,7 @@ of dialogue, plus an affinity layer on top.
 | Framework | follower and crew state: `IsFollower`, `IsPlayerTeamMate`, `IsCompanion`, crew factions (`PotentialCrewFaction`, `AvailableCrewFaction`, `CurrentCrewFaction`), `PlayerAllyFaction`, `PlayerFriendFaction`; Join / Leave / Wait dialogue unlocks after `MQ101` | supported hypothesis (console utility mod's output) |
 | Crew | companions double as **ship crew** (crew slots, ship skills, outpost assignment) | verified game behaviour; **fenced out** of our world |
 | Commitment | romance ends in a "commitment" quest per companion; Barrett's gate 5 starts his quest, gate 6 his commitment | supported hypothesis (Starfield wiki) |
-| Commands | follower orders through dialogue (wait, follow, trade); whether CE2 keeps FO4's hold-activate command mode is **unresolved** | |
+| Commands | follower orders through dialogue (wait, follow, trade); Starfield's core scripts still declare `SetCommandState`, `SetPlayerTeammate`, `IsPlayerTeammate` and `GetPlayerFollowers` (PC probe, verified names), so the engine side of command mode likely survives; the hold-activate UI is **unresolved** | |
 
 ## Mapping for the port
 
@@ -96,8 +96,9 @@ of dialogue, plus an affinity layer on top.
 
 - FO4 framework names (`Followers`, `FollowersScript`, `SendAffinityEvent`, the `CA_` keyword list): grep the FO4 CK's
   `Data\Scripts\Base.zip` if installed on the PC, or a QUST/KYWD editor-id scan of Fallout4.esm (read-only).
-- Starfield's framework quest and script names (`CompanionActorScript`, the follower quest): grep the sources in
-  `Starfield\Tools\ContentResources.zip` (read-only job through the coordinator).
+- Answered by the PC probe (verified): Starfield ships `CompanionActorScript`, `SQ_FollowersScript`, `SQ_CompanionsScript`
+  and `SQ_CrewScript`; its `CompanionActorScript` declares no `SendAffinityEvent` or `TryToModAffinity`, and there is no
+  `FollowersScript`. FO4's side needs the FO4 Creation Kit's sources (not on the PC).
 - Does CE2 keep FO4's command mode (hold activate on a follower)? A Starfield game setting or script search for
   "CommandMode" in ContentResources.zip and the exe strings.
 - AFFE's "Fill Companion Dialogue" flag: what it fills. One vanilla AFFE dump.

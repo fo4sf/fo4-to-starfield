@@ -72,7 +72,7 @@ SNAM/NNAM/FNAM is unresolved.
 | PRKE Quest+Stage / Ability | same union | data copy | |
 | PERK FNAM SWF perk cards | none | rebuild (UI) | FO4 SWFs are the player's own files; need our perk chart SWF |
 | Perk chart, SPECIAL book, level-up menu | Starfield skills menu | rebuild (Scaleform + SFSE) | see ../next-phase/animations-ui-and-start.md (menus) |
-| Game.RewardPlayerXP calls in quest scripts | SF Game script | script shim / verify | presence in SF's Game.psc unresolved |
+| Game.RewardPlayerXP calls in quest scripts | SF core scripts declare `RewardPlayerXP` (PC probe, verified) | recompile | XP amounts follow FO4's curve |
 | Kill/quest XP GMSTs | SF GMSTs | translate | after a GMST dump of both |
 | Bobbleheads (MISC + effect) | MISC + SPEL/perk | translate | after checking FO4's mechanism |
 | Magazines (BOOK Add Perk) | BOOK Add Perk | data copy | |

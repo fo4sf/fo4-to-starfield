@@ -129,6 +129,32 @@ script set "must be installed"). The port does not need F4SE: FO4 is only read, 
   (**verified** strings, docs/ai/research-log.md 2026-10-14; whether `cgf` reaches every native is **unresolved**).
 - PLAN.md pins SFSE 0.2.21 with Starfield 1.16.244.
 
+## PC probe results (2026-10-19, verified)
+
+`scripts/research/engine_probe.py` (commit f799f60) ran read-only on the owner's PC (PC job 7). It reads Starfield's
+`Tools\ContentResources.zip` and looks for FO4 sources, and records names only. Output:
+`D:\Modding\research\engine_probe\engine_probe.json` (704,457 bytes).
+
+- **Starfield ships 5,029 `.psc` sources** in ContentResources.zip. No `*.flg` file sits in `Starfield\Tools` itself
+  (the flags file is elsewhere, likely inside the zip or the CK's script folder: **unresolved**).
+- **Starfield scripts present:** `CompanionActorScript`, `SQ_CompanionsScript`, `SQ_CrewScript`,
+  `SQ_FollowersScript`, `MQ101Script`, `InputEnableLayer`. **Absent:** `FollowersScript`, `WorkshopParentScript`,
+  `WorkshopScript`, `PipboyScript`, `UI`, `AffinityEventScript`.
+- **Declared in Starfield's core scripts** (Actor, Game, ObjectReference, Quest, ReferenceAlias, Form, Utility,
+  Debug, ScriptObject, ActiveMagicEffect, Weapon, Armor, Perk, Location, Cell, Math, CompanionActorScript):
+  `SwitchToPowerArmor`, `SetRace`, `RewardPlayerXP`, `GetPlayerFollowers`, `SetPlayerTeammate`, `IsPlayerTeammate`,
+  `SetCommandState`, `ShowRaceMenu`, `SetInChargen`, `FadeOutGame`, `FastTravel`, `PlayIdle`,
+  `PlaySubGraphAnimation`, `ChangeAnimArchetype`, `SetSubGraphFloatVariable`, `Say`, `SayCustom`, `AddPerk`,
+  `GetValue`/`SetValue`/`ModValue`, `EvaluatePackage`, `StartCombat`, `SetStage`, `SetObjectiveDisplayed`,
+  `ForceRefTo`, `MoveTo`, `SetPosition`, `PlaceAtMe`, `GetCurrentGameTime`, `RequestAutoSave`.
+- **Not declared there:** `IsInPowerArmor`, `IsPipboyOpen`, `ShowPipboyPlugin`, `OpenWorkshopSettlementMenu`,
+  `StartVATS`, `IsInVATS`, `IsInMenuMode`, `IsMenuOpen`, `SendAffinityEvent`, `TryToModAffinity`. (Caveat:
+  `SendStoryEvent` and `SetTimeScale` were also not found, but `SendStoryEvent` is a Keyword function and time scale
+  is a global, and neither script was in the scanned set; they say nothing.)
+- **FO4 sources are not on the PC**: the full install's `Data\Scripts\Source\Base` exists but holds almost none of the
+  core scripts (even `SetStage` was not found), there is no `Base.zip`, and the clean depot has no sources. So FO4
+  scripts need the free **Fallout 4 Creation Kit** installed (it ships `Base.zip`) or a decompiler.
+
 ## Open questions and cheap checks
 - Native diff: list every `Native` function in FO4 `Base.zip` vs ContentResources.zip sources (grep `Native$`), one
   table per script; then count call sites in the 8,369 decompiled FO4 scripts.
