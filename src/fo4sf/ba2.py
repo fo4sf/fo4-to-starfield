@@ -7,6 +7,7 @@ Lookup is case-insensitive and slash-agnostic: a.find("textures/setdressing/x_d.
 Starfield v3 (LZ4) textures are not supported (raises); v1/v2 zlib and uncompressed are.
 """
 import os
+from collections import Counter
 import struct
 import zlib
 from dataclasses import dataclass
@@ -122,6 +123,18 @@ class Ba2:
             "general": gnrl,
             "textures": dx10,
         }
+
+    def by_extension(self) -> dict:
+        """Return counts of entries grouped by file extension (lowercase, no dot).
+        
+        Useful for conversion planning: how many .nif, .dds, .hkx, etc.
+        Empty extension is counted under ''.
+        """
+        counts = Counter()
+        for e in self.entries:
+            ext = os.path.splitext(e.name)[1].lower().lstrip('.')
+            counts[ext] += 1
+        return dict(counts.most_common())
 
     def largest_entries(self, n: int = 10) -> list:
         """Return the n largest entries by unpacked size, useful for conversion planning.
