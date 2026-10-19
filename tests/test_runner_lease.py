@@ -260,7 +260,7 @@ class RunnerLeaseTests(unittest.TestCase):
         r.state["crashes"] = 1
         self.assertEqual(r.run(), 3)
         self.assertEqual((calls, self.calls), ([], []))
-        self.assertTrue(self.status().startswith("stopped: limit: 1 crash(es) this run, --crash-budget 1"),
+        self.assertTrue(self.status().startswith("stopped: limit: 1 crash(es) and 0 start death(s) this run, --crash-budget 1"),
                         self.status())
 
     def test_a_crash_under_the_budget_still_launches(self):
@@ -285,6 +285,33 @@ class RunnerLeaseTests(unittest.TestCase):
             self.assertEqual(r.run(), 3)                                      # unreadable counts as too full
         self.assertEqual(calls, [])
         self.assertIn("unreadable", self.status())
+
+    def test_starts_that_die_count_against_the_crash_budget(self):
+        # Codex's review of #377: an exit-10 start can crash too, so the budget counts it before the next launch
+        c.Controller(self.leader).claim("Claude", "window", 3600)
+        r = self.runner(lease_dir=self.leader, lease_owner="Claude", max_attempts=1, crash_budget=1)
+        r.session, r.cell, self.ctl.pid = False, None, None
+        calls = []
+        r._ps = lambda script, *a, **k: calls.append(script) or ((10, "x") if script == "cycle.ps1" else (0, ""))
+        with mock.patch.object(tq.Runner, "pinned_ok", return_value=True), \
+                mock.patch.object(tq, "blocked_reason", return_value=None):
+            self.assertEqual(r.run(), 3)
+        self.assertEqual(calls.count("cycle.ps1"), 1)                         # no second Steam launch
+        self.assertTrue(self.status().startswith("stopped: limit: 0 crash(es) and 1 start death(s) this run, "
+                                                 "--crash-budget 1"), self.status())
+
+    def test_bad_limits_are_refused(self):
+        for bad in (["--crash-budget", "-1"], ["--min-free-gb", "nan"], ["--min-free-gb", "-1"],
+                    ["--min-free-gb", "inf"]):
+            with self.subTest(bad=bad), mock.patch("sys.stderr"), self.assertRaises(SystemExit):
+                tq.main(["run", "--queue", self.d] + bad)
+        for kw in (dict(min_free_gb=float("nan")), dict(min_free_gb=-1.0), dict(crash_budget=-1)):
+            with self.subTest(kw=kw):                                         # a caller that skips the parser
+                self.assertTrue(tq.launch_limit(tt.args(**kw), {}).startswith("limit: bad"))
+        r, calls = self._limited(min_free_gb=float("nan"))
+        with mock.patch.object(tq.shutil, "disk_usage", return_value=mock.Mock(free=0)):
+            self.assertEqual(r.run(), 3)
+        self.assertEqual(calls, [])
 
     def test_the_limits_are_off_by_default(self):
         self.assertIsNone(tq.launch_limit(tt.args(), {"crashes": 9}))

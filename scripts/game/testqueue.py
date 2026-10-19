@@ -2496,16 +2496,35 @@ def stop_controls(queue_dir):
     return {"files": stop_files(queue_dir), "guardian_db": os.path.join(Controls.state_dir, "guardian.db")}
 
 
+def nonneg_int(s):
+    v = int(s)
+    if v < 0:
+        raise argparse.ArgumentTypeError(f"{s}: want 0 (off) or more")
+    return v
+
+
+def nonneg_float(s):
+    v = float(s)
+    if not math.isfinite(v) or v < 0:
+        raise argparse.ArgumentTypeError(f"{s}: want a finite number, 0 (off) or more")
+    return v
+
+
 def launch_limit(a, state):
     """Why no further launch is allowed by the night-run limits, else None (both off by default):
-    --crash-budget N stops before the launch that would follow the Nth crash of this run (a repeatable crash otherwise
-    relaunches up to --max-relaunch times, and crashes never trip the BREAKER); --min-free-gb G stops while the crash
+    --crash-budget N stops before the launch that would follow the Nth crash of this run, counting crashes during a
+    test and starts that died (cycle.ps1 exit 10, retried up to LAUNCH_TRIES) alike, since either can write a dump (a
+    repeatable crash otherwise relaunches up to --max-relaunch times, and crashes never trip the BREAKER); --min-free-gb G stops while the crash
     dump drive (--dump-drive) has less than G GB free, since every crash writes a dump there (18 GB full dumps on D:,
     2026-10-19). An unreadable drive counts as too full."""
     budget = getattr(a, "crash_budget", 0) or 0
-    if budget and state.get("crashes", 0) >= budget:
-        return f"limit: {state.get('crashes', 0)} crash(es) this run, --crash-budget {budget}"
     floor = getattr(a, "min_free_gb", 0) or 0
+    if not isinstance(budget, int) or budget < 0 or not math.isfinite(floor) or floor < 0:
+        return f"limit: bad --crash-budget {budget!r} or --min-free-gb {floor!r} (want 0 for off, or more)"
+    used = state.get("crashes", 0) + state.get("start_deaths", 0)
+    if budget and used >= budget:
+        return (f"limit: {state.get('crashes', 0)} crash(es) and {state.get('start_deaths', 0)} start death(s) "
+                f"this run, --crash-budget {budget}")
     if floor:
         drive = getattr(a, "dump_drive", "") or "D:\\"
         try:
@@ -3029,6 +3048,8 @@ class Runner:
                         "different leases; nothing launched")   # run stops, resumable, never a retry per test
             if code == 10:                                # the game did not stay up after Steam started it
                 self.launch_tries = getattr(self, "launch_tries", 0) + 1
+                self.state["start_deaths"] = self.state.get("start_deaths", 0) + 1   # --crash-budget counts these
+                self.checkpoint()
                 if self.launch_tries < LAUNCH_TRIES:
                     # the first start of a session can die within ~2 s (cycle.ps1); another launch goes through every
                     # check above again (lease, STOP, Guardian, idle, pins), never straight back to Steam (Codex, #358)
@@ -3691,9 +3712,9 @@ def main(argv=None):
     r.add_argument("--min-idle", type=int, default=900)
     r.add_argument("--max-attempts", type=int, default=2)
     r.add_argument("--max-relaunch", type=int, default=3)
-    r.add_argument("--crash-budget", type=int, default=0,
+    r.add_argument("--crash-budget", type=nonneg_int, default=0,
                    help="stop before relaunching after this many crashes in the run (0, the default: off)")
-    r.add_argument("--min-free-gb", type=float, default=0.0,
+    r.add_argument("--min-free-gb", type=nonneg_float, default=0.0,
                    help="stop before a launch while --dump-drive has less free space than this (0, the default: off)")
     r.add_argument("--dump-drive", default="D:\\", help="where crash dumps are written (default D:\\)")
     r.add_argument("--wait-for-idle", action="store_true")

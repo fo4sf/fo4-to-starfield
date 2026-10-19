@@ -40,9 +40,12 @@ INCONCLUSIVE, never PASS. INCONCLUSIVE tests are retried once more at the end of
 is final. A game crash during a test is recorded (class CRASH) and the game is relaunched (at most `--max-relaunch`).
 Crashes never trip the breaker, so night runs can set two limits, both off by default. Each is checked before every
 launch, and the run stops with `limit: ...` when one is hit:
-- `--crash-budget N`: stop after the Nth crash of the run.
+- `--crash-budget N`: stop after N crashes in the run. Both kinds count: a crash during a test, and a start that died
+  (cycle.ps1 exit 10).
 - `--min-free-gb G`: stop while `--dump-drive` (default `D:\`) has less than G GB free. Each crash writes a dump there,
   18 GB as full dumps on 2026-10-19. A drive that can't be read counts as too full.
+
+Negative values, and a NaN or infinite floor, are refused. 0 means off.
 
 ### Stairs routes (`routes.py`, 2026-10-13; amended after QA on PR #111)
 
