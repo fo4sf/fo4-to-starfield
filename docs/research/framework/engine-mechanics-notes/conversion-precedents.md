@@ -207,7 +207,7 @@ updates because Papyrus stores script properties in the save (Fallout London 1.0
   Skyrim's release by porting Morroblivion; in 2014 the team decided "simply replacing ported assets with fresh ones
   isn't enough" and aimed for "modern standards"; a public alpha was pulled because of "an ongoing deluge of duplicate
   bug reports, support requests". Script names keep the prefix from the Morrowind to Morroblivion conversion (`fbmw`).
-  **verified** ([Skywind handbook history](https://handbook.tesrskywind.com/home/history))
+  **verified** ([Skywind handbook history](https://handbook.tesrskywind.com/%68ome/history))
 - **What the automated dialogue import left behind.** Dialogue was first sorted into quests or a catch-all
   `MorroDefaultQuest`; quest topics were "accidentally left" there; in February 2021 (0.9.9.21) it was split into many
   `MorroDefaultQuest<descriptor>` quests "in order to preserve the filenames for voice acted lines". "A lot of
