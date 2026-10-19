@@ -194,8 +194,8 @@ def _key(path):
 def sound_plan(manifest, sound_rows, ordinary=False):
     """(new manifest, rows). Gives each rigged load door (load_door.anim) the open and close sounds of a vanilla Starfield
     door; with ordinary=True also every rigged ordinary door ("door"). The input is not changed. Choice, nearest first:
-    "skeleton": a vanilla door on the same skeleton (BNAM), a *_Load graph preferred (the Akila template rig ->
-    AK_Ext_Bld_WallA_DoorA_Load_01's sounds); "graph": the most common sound pair among vanilla doors playing the same graph
+    "skeleton": a vanilla door on the same skeleton (BNAM), for a load door one with a *_Load graph first (the Akila
+    template rig -> AK_Ext_Bld_WallA_DoorA_Load_01's sounds), for an ordinary door one without; "graph": the most common sound pair among vanilla doors playing the same graph
     (own rigs have no vanilla skeleton; supported hypothesis that it fits). Rows: {"editor_id", "kind", "match", "from"}
     (match None: no vanilla door to copy from, the door stays silent as today)."""
     out = copy.deepcopy(manifest)
@@ -205,10 +205,10 @@ def sound_plan(manifest, sound_rows, ordinary=False):
         by_bnam.setdefault(_key(r["bnam"]), []).append(r)
         by_anam.setdefault(_key(r["anam"].rpartition("\\")[2]), []).append(r)
 
-    def pick(rig):
+    def pick(rig, load):
         same = by_bnam.get(_key(rig.get("skeleton")))
-        if same:
-            same = sorted(same, key=lambda r: (not r["anam"].lower().endswith("_load.agx"), r["formkey"]))
+        if same:       # a load door takes a vanilla load variant's sounds first, an ordinary door a non-load door's
+            same = sorted(same, key=lambda r: (r["anam"].lower().endswith("_load.agx") != load, r["formkey"]))
             return "skeleton", same[0]
         pool = by_anam.get(_key((rig.get("anim_graph") or "").replace("/", "\\").rpartition("\\")[2]))
         if not pool:
@@ -229,7 +229,7 @@ def sound_plan(manifest, sound_rows, ordinary=False):
         if ordinary and isinstance(it.get("door"), dict):
             targets.append(("door", it["door"]))
         for kind, rig in targets:
-            match, src = pick(rig)
+            match, src = pick(rig, kind == "load_door")
             rows.append({"editor_id": it.get("editor_id"), "kind": kind, "match": match,
                          "from": f"{src['editor_id']} {src['formkey']}" if src else None})
             if src:

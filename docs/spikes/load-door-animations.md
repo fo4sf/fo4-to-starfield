@@ -129,6 +129,14 @@ head commit. Nothing is installed, nothing touches Starfield's Data folder or th
   `state`, a Papyrus keyword (lines 25-26). Renamed `openState`; a test now refuses a local of that name. Rerun at
   28a63af: both compiled (**verified**), nothing installed.
 
+- **A7, vanilla door sounds** (**verified**, doorsounds.tsv at 3f5a535, 310 DOORs with sounds): every one has an
+  OpenSound, 303 a CloseSound; no sound uses a condition or an event mapping, so the WWise start / stop GUIDs are the
+  whole reference. The Akila rig: the four `AK_Ext_Bld_WallA_DoorA_Load_0x` share one open / close pair (`8e67400a...` /
+  `66f346a7...`), the ordinary `AK_Ext_Bld_WallA_DoorA_01` and its Alts another (`612e417a...` / `8b2140c1...`), so
+  template load doors take the first and template ordinary doors the second. 207 doors play `SimpleOpenClose01.agx`;
+  their commonest pair covers only 12 of them, so the graph fallback for own rigs is a weak default (**supported
+  hypothesis**, by ear in game).
+
 ## Next steps
 
 - **B, done 2026-10-19** (after A3 and A4 passed): `vmad_patch.py port --animated-doors <manifest>` writes

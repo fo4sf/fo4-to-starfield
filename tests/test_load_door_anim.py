@@ -410,7 +410,7 @@ class DoorSoundTests(unittest.TestCase):
         new, rows = load_door_anim.sound_plan(self.manifest(), load_door_anim.read_door_sounds(io.StringIO(SOUNDS_TSV)),
                                               ordinary=True)
         plain = [it for it in new["items"] if it["editor_id"] == "Plain"][0]["door"]
-        self.assertEqual(plain["sounds_from"], "1C42C2:Starfield.esm")
+        self.assertEqual(plain["sounds_from"], "0AA24A:Starfield.esm")         # an ordinary door: the non-load sibling
         self.assertIn(("Plain", "door", "skeleton"), {(r["editor_id"], r["kind"], r["match"]) for r in rows})
 
     def test_cli_writes_new_files_only(self):
