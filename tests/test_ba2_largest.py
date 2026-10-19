@@ -28,6 +28,25 @@ class LargestEntriesTests(unittest.TestCase):
             self.assertEqual(top[1]["name"], "medium.bin")
             self.assertEqual(top[1]["unpacked"], 100)
 
+    def test_summary_includes_sizes(self):
+        entries = {
+            "small.txt": b"a" * 10,
+            "large.dat": b"c" * 1000,
+        }
+        data = general_archive(entries, compressed=True)
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "test.ba2")
+            with open(path, "wb") as f:
+                f.write(data)
+            a = Ba2(path)
+            s = a.summary()
+            self.assertEqual(s["entries"], 2)
+            self.assertEqual(s["general"], 2)
+            self.assertEqual(s["textures"], 0)
+            self.assertEqual(s["total_unpacked"], 1010)
+            self.assertGreater(s["total_packed"], 0)
+            self.assertLess(s["total_packed"], s["total_unpacked"])
+
     def test_empty_and_n_limit(self):
         data = general_archive({"only.txt": b"x"})
         with tempfile.TemporaryDirectory() as d:
