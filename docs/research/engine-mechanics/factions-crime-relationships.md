@@ -26,6 +26,9 @@ crime out of our world. "xEdit" = TES5Edit dev-4.1.6 `wbDefinitionsFO4.pas` / `w
 - **Fence:** our cells, locations and NPCs carry no Starfield crime faction; our FACTs set no prisons; Starfield
   factions touch our actors only through PlayerFaction (next-phase note, section 4).
 
+Ties to Starfield's own faction features (herds, formations, faction voices, arrest and prison) and the rule for
+reusing them: [starfield-systems-to-reuse.md](starfield-systems-to-reuse.md).
+
 ## How Fallout 4 does it
 
 **FACT (699, verified count; layout verified, xEdit):**

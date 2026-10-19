@@ -1,5 +1,7 @@
 """engine_probe: declaration parsing, zip scan, query and the output-folder refusal, on synthetic data."""
+import contextlib
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -79,8 +81,13 @@ class EngineProbeTest(unittest.TestCase):
                 f.writestr("Actor.psc", ACTOR)
             with zipfile.ZipFile(os.path.join(fo4, "Scripts", "Source", "DLC01", "DLC01.zip"), "w") as f:
                 f.writestr("DLC01Script.psc", "ScriptName DLC01Script\n")
+            with zipfile.ZipFile(sfz, "a") as f:
+                f.writestr("Scripts/Source/AffinityEvent.psc", "ScriptName AffinityEvent\nFunction Send(Actor a) native\n")
             out = os.path.join(t, "out", "p.json")
-            self.assertEqual(ep.main(["--sf-zip", sfz, "--fo4-data", fo4, "--out", out]), 0)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                self.assertEqual(ep.main(["--sf-zip", sfz, "--fo4-data", fo4, "--out", out]), 0)
+            self.assertIn("starfield-only affinityevent: Send", buf.getvalue())
             e = json.load(open(out))["fo4"][0]
             self.assertTrue(e["base_zip"]["exists"])
             self.assertEqual(e["source_zips"], {"Base/Base.zip": 1, "DLC01/DLC01.zip": 1})

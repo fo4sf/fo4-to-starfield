@@ -20,7 +20,7 @@ import zipfile
 
 CORE = ("actor", "game", "objectreference", "quest", "referencealias", "form", "utility", "debug", "scriptobject",
         "activemagiceffect", "weapon", "armor", "perk", "location", "cell", "ui", "math", "followersscript",
-        "companionactorscript")
+        "companionactorscript", "faction", "affinityevent", "keyword", "globalvariable")
 QUERY_SCRIPTS = ("CompanionActorScript", "FollowersScript", "SQ_FollowersScript", "SQ_CompanionsScript",
                  "SQ_CrewScript", "AffinityEventScript", "WorkshopParentScript", "WorkshopScript", "PipboyScript",
                  "MQ101Script", "UI", "InputEnableLayer", "Institute_Papyrus_Flags")
@@ -169,6 +169,10 @@ def main(argv=None):
                   + (f": {' '.join(g['fo4_only'])}" if g["fo4_only"] else ""))
         if e["query"]:
             print("  fo4 functions absent:", sorted(k for k, v in e["query"]["functions"].items() if not v))
+    sf_core = sf.get("core", {})
+    fo4_core = {n for e in fo4 for src in (e["base_zip"], e["source_base"]) for n in src.get("core", {})}
+    for name in sorted(set(sf_core) - fo4_core):
+        print(f"starfield-only {name}: {' '.join(sorted(d['name'] for d in sf_core[name]['decls']))}")
     print(f"wrote {a.out}")
     return 0
 

@@ -59,6 +59,7 @@ of our world unless reused on purpose.
 | DLC | [dlc-mechanics.md](dlc-mechanics.md) | Automatron, Far Harbor, Nuka-World, Vault-Tec, Contraptions, Wasteland Workshop |
 | world | [vehicles-and-travel.md](vehicles-and-travel.md) | vertibirds, fast travel, elevators, travel across the one planet |
 | economy | [economy-vendors-barter.md](economy-vendors-barter.md) | caps, vendors, barter, restock, pickpocketing |
+| design | [starfield-systems-to-reuse.md](starfield-systems-to-reuse.md) | Starfield systems FO4 data can ride on (factions first, then affinity, legendaries, Story Manager, build mode ...) and the fence |
 | foundations | [supporting-records.md](supporting-records.md) | the leftover record types (reference groups, layers, splines, flora ...) |
 
 
@@ -93,5 +94,11 @@ of our world unless reused on purpose.
 9. **Travel across the one planet**: Starfield's own surface fast travel works within one landing and uses the ship
    between landings, which we fence out, so trips between the Commonwealth, Far Harbor and Nuka-World stay scripted
    (boat, monorail, vertibird) as in FO4 ([vehicles-and-travel.md](vehicles-and-travel.md)). (supported hypothesis)
+
+10. **Tie to Starfield's systems, not its content.** Factions carry as the same record (relations, reactions, crime
+   values, vendors), and Starfield adds herds, formations, faction voices and a working arrest flow we can switch on
+   per faction later. Affinity, legendaries and quest rewards are cheaper on Starfield's records than as FO4 scripts.
+   Our own records fill every tie; only a short borrowed list points at Starfield records
+   ([starfield-systems-to-reuse.md](starfield-systems-to-reuse.md)). (verified layouts, supported hypothesis behaviour)
 
 Every Fallout 4 record type now has at least one page; [record-counts.md](record-counts.md) lists where.
