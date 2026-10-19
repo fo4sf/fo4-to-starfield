@@ -202,8 +202,8 @@ in-game confirmation (`prid 030A7759`, `enable`, then open the map; `03` is FO4T
 
 ## Every Commonwealth marker (Claude-cloud, 2026-10-19, offline only)
 
-Status: **built and tested on synthetic plugins only**. No FO4 marker list has been exported yet, and nothing has run
-in game.
+Status: **built and tested on synthetic plugins; the PC export ran (2026-10-19)**: 310 Commonwealth markers, all
+named; 307 left after the fixed four's own records, all inside the overlay. Nothing has run in game.
 
 1. On the PC, `dotnet run --project dotnet/Fo4Land -c Release -- <Fallout4.esm> export-mapmarkers <out.json>` lists
    every placed object of the Commonwealth worldspace that carries map-marker data (`MapMarkersExport.cs`):
@@ -213,7 +213,8 @@ in game.
 2. `make_core64c.py stage ... --fo4-map-markers <out.json>` adds every named marker that lies more than 200 m inside
    the overlay (`map_markers.load_fo4_markers`, `extra_markers`, FO4 position / 70, z = BTD ground). The fixed four
    come first, so their FormIDs stay. The others follow in FO4 FormID order, tagged `M<FO4 id>`. Markers left out
-   (no name, one of the fixed four, no finite position, outside the overlay) go to `map_markers_left_out.json` with
+   (no name, one of the fixed four, no finite position, outside the overlay, or within 100 m of a fixed marker of the
+   same name: FO4's Red Rocket Truck Stop marker 024FBE, since the core's Red Rocket sits on the COC arrival) go to `map_markers_left_out.json` with
    their reason. `check` judges every marker the same way as the four.
 3. `dotnet/MapMarkers` splits the core's markers into quests of at most 100 (`FO4SF_MapMarkersQuest`,
    `FO4SF_MapMarkersQuest2`, ...: 0x800, 0x801, ...). Papyrus arrays made in script hold at most 128 entries;

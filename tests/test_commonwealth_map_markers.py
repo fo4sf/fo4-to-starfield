@@ -83,8 +83,10 @@ class ExportedMarkers(unittest.TestCase):
         fixed = map_markers.overlay_markers(SPAWN, BOUNDS, lambda x, y: 0.0)
         rr = ("M01F2B0", "Red Rocket Truck Stop", 0x1F2B0, (SPAWN[0] + 40) * 70, (SPAWN[1] - 30) * 70)
         far = ("M01F2B1", "Abernathy Farm", 0x1F2B1, -40000.0, 20000.0)
-        entries, left = map_markers.extra_markers([rr, far], BOUNDS, lambda x, y: 0.0, fixed=fixed)
-        self.assertEqual([e["tag"] for e in entries], ["M01F2B1"])
+        # a differently named place on the same spot is its own location (the Museum of Freedom in Concord)
+        other = ("M01F2B2", "Red Rocket Garage", 0x1F2B2, (SPAWN[0] + 30) * 70, (SPAWN[1] - 20) * 70)
+        entries, left = map_markers.extra_markers([rr, far, other], BOUNDS, lambda x, y: 0.0, fixed=fixed)
+        self.assertEqual([e["tag"] for e in entries], ["M01F2B1", "M01F2B2"])
         self.assertEqual(left, [{"src": "01F2B0:Fallout4.esm",
                                  "reason": "Red Rocket Truck Stop: within 100 m of the fixed marker RedRocket"}])
 
