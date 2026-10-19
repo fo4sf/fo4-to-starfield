@@ -28,6 +28,17 @@ order after the launcher is open. Research inputs are in draft PR #380 (docs/res
 proposals (#381, PR #386) and Codex's review (#382). Offline work on the four phases has started on separate branches;
 nothing from it is installed until the current crash test is done.
 
+Offline work in flight (draft PRs, not merged, nothing installed; 19 Oct):
+
+| Phase | Draft PR | What it holds |
+|---|---|---|
+| 1. New game | #393 | FO4SFNewGame.esm, a Vault 111 start built offline |
+| 2. Doors | #392 | load doors that play their opening before the trip, behind a switch that is off by default |
+| 3. Interiors | #396 | a census of all interiors, a 9-batch plan, and staged batch builds that keep the installed port's ids |
+| 4. Launcher | #394 | the build manifest, a resumable build, a recorded restore and a same-ids check |
+| Testing | #391, #397 | the night-chain arm check and direct exe launch; door round trips per interior batch and the v6e test campaign |
+| Map | #399 | an installer for FO4SFMapMarkers.esm next to the core set (#376 is merged) |
+
 ## 0. Where we are (17 October 2026): Phase A, the Commonwealth slice, in testing
 
 Phase A is "the playable Commonwealth exterior plus the first interiors, running natively in Starfield". It maps to
