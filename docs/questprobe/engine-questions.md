@@ -124,6 +124,11 @@ few kilobytes, published only when every step passed. `--no-sm` drops E5 if the 
 ## Unresolved until it runs (labelled for the research log)
 
 - **E3 and E4 are judged by eye** from screenshots. The log can only say whether the alias filled.
+- **SEQ files.** The plugin ships no SEQ (the list of a plugin's start-game-enabled quests that the Creation Kit's
+  -GenerateSEQ writes). The log's `init` line shows that FO4SF_QProbe, a start-game-enabled quest, started without one.
+  No `init` line means a SEQ may be needed: the next step is a SEQ written next to the plugin, not a code change. In
+  Skyrim a missing SEQ is known to break such quests' dialogue; the probe has no dialogue, so that half waits for a
+  plugin that has some.
 - **The gate member, verified** (PC, 19 Oct, `check` on the real Starfield.esm): under the Script Event node (195
   nodes), 91 GetEventData conditions: GetIsID Keyword1 x80, GetValue Value1 x9, HasKeyword OldLocation x2; the first
   is MissionBranchCargo, GetIsID Keyword1 05BD85 == 1. Our branch gates exactly that way. 418 Starfield quests carry
