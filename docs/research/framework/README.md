@@ -133,9 +133,10 @@ engine-mechanics thread), [distribution-community](findings/distribution-communi
   but has no RELA group; Address Library supports 1.16.244; the Carbon UI licence needs its author's word; new precedent
   BACUP, a GPL-3 Creation Engine record and asset converter. A read-only PC job (CK command-line switches for lip
   generation, script compiling, animation data) is queued; its answer settles PS-08, AP-40 and TT CK-only steps.
-- **Unattended lip sync works (PC job 24, verified; engine-mechanics dialogue.md):** LipGenerator.exe with the CK's
-  Tools\FaceFX actors produced `.ffxanim` from a synthetic WAV in seconds, headless. Real-line timing and in-game
-  acceptance remain. Closes most of PS-08, AP-41, TT-08.
+- **Unattended lip sync is half proven (PC jobs 24 and 27 to 31, verified; engine-mechanics dialogue.md):**
+  LipGenerator.exe runs headless in seconds but writes a raw FaceFX animation; the game needs compiled `.ffxanim`, made by
+  `Tools\FaceFX\ffxc.exe` (headless, but it takes only `.facefx` actors or `.ffxcproj` projects). Whether our animation
+  compiles is job 32. PS-08, AP-41, TT-08 stay open until then.
 - **New game save trap (newgame.md N, verified by job 23):** stopping MQ101 leaves saving off and the HUD hidden
   (stage 0 sets char-gen mode, the stop fragment restores neither); fixed offline on the NewGame branch, nothing installed.
 - **Lip-sync inputs (PC job 21, verified):** Starfield ships 278,582 per-line `.ffxanim` files and no `.facefx` files;
