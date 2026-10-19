@@ -16,7 +16,7 @@ and faction relationships." Labels: **verified** / **supported hypothesis** / **
   2. *A Starfield system replaces an FO4 script*: Starfield moved things FO4 did in Papyrus into records (affinity,
      legendaries, quest rewards). Writing FO4's numbers into those records is cheaper than porting FO4's scripts and is
      saved and cooled down by the engine.
-  3. *Borrow one Starfield record on purpose*: a short, named list (player faction, currency, digipick, template
+  3. *Borrow one Starfield record on purpose*: a short, named list (player faction, currency, template
      packages), each a decision with a test.
 - **Factions are the strongest case** (section below): relations, combat reactions, crime values and vendors are the
   same record with the same bits (verified, xEdit), and Starfield adds group movement, faction voices and a working
@@ -67,8 +67,8 @@ patrols are in (they cost data only); arrest and prison only if the owner wants 
 | **Object mods (OMOD) and attach points** | FO4 weapon and armor mods | 1 | translate | [items-crafting-modding.md](items-crafting-modding.md) |
 | **Outpost build mode** (placement, snapping) | FO4 workshop placement | 2 (placement only) | reuse; FO4's menu tree becomes our own category keywords; settlement rules are ours | [workshop-and-settlements.md](workshop-and-settlements.md) |
 | **Barter menu with currency 0000000F** | caps | 3 | decision A in the currency table (rename to Caps) | [economy-vendors-barter.md](economy-vendors-barter.md) |
-| **Digipick lock minigame** | lockpicking | 3 | reuse the minigame; bobby pins as Digipick or our own item (decision) | [terminals-holotapes-locks.md](terminals-holotapes-locks.md) |
-| **Character creator** | FO4's mirror scene | 1 | open Starfield's creator from our Vault 111 quest | [saves-and-new-game.md](saves-and-new-game.md) |
+| **Digipick lock minigame** | lockpicking | none | **not reused**: the owner chose to rebuild FO4's bobby-pin game (page FS-3, 2026-10-19) | [terminals-holotapes-locks.md](terminals-holotapes-locks.md) |
+| **Character creator** | FO4's mirror scene | 1 | open Starfield's creator from our Vault 111 quest, **looks only** (owner, page NG-4, 2026-10-19) | [saves-and-new-game.md](saves-and-new-game.md) |
 | **Package templates** (Sandbox, Travel, Patrol) | FO4 packages | 3 | already used by the mission (Preston on Sandbox 00002CB1) | [ai-packages-and-schedules.md](ai-packages-and-schedules.md) |
 | **Animation graphs** | all FO4 actors | 1 | reuse (settled: Starfield animations first) | [animations.md](animations.md) |
 | **Atmospheres, weather visuals, day length** | the one Earth-like planet, FO4 weathers | 2 | reuse vanilla sky sets, our own climate | [weather-time-climate.md](weather-time-climate.md) |
@@ -85,8 +85,8 @@ progression into our world.
 1. Our plugins create their own FACT, AFFE, LGDI, KYWD and QUST records; a converter never writes a Starfield FormID
    into our data unless it is on the borrowed list below.
 2. **The borrowed list** (each needs one test, and the list lives here): the player's faction (relations to the player
-   must point at it), currency 0000000F (if decision A), the digipick (if chosen), Starfield package templates, and
-   Starfield's animation graphs and race skeletons. Adding to the list is a decision recorded in docs/ai/decisions.md.
+   must point at it), currency 0000000F (if decision A), Starfield package templates, and
+   Starfield's animation graphs and race skeletons. Adding to the list is a decision recorded in docs/ai/decisions.md. (The digipick left the list on 2026-10-19: the owner chose FO4's bobby-pin game, page FS-3.)
 3. A borrowed record is overridden only where the change is needed (a name, a model), never deleted, so Starfield's
    own game still loads.
 4. Optional Starfield extras (herds, formations, arrest) are off in the first builds and switched on per faction,

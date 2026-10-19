@@ -202,7 +202,7 @@ Starfield scripts that declare a name stops at 10.
 | system | natives FO4 calls (calls in FO4's base scripts) | natives FO4 never calls | what the port does |
 |---|---|---|---|
 | spells | AddSpell (72), DispelSpell (3) | | Starfield declares both on `ObjectReference`; since `Actor` extends it, an FO4 call on an actor should compile as is (**supported hypothesis**: one compile test) |
-| dismemberment | Dismember (125, 25 scripts, deathclaw claws 25), IsDismembered (1) | | no Starfield native; SFSE native or drop the effect (**decision**) |
+| dismemberment | Dismember (125, 25 scripts, deathclaw claws 25), IsDismembered (1) | | no Starfield native; **owner decided (page FS-6, 2026-10-19): keep it with a small SFSE plugin**, so these two are the first natives our SFSE plugin supplies |
 | cannibal perk | StartCannibal (7, the perk fragments) | | rebuild as our own perk entry and animation, or drop |
 | cleared locations | SetCleared (22), IsCleared (8), HasEverBeenCleared (2) | | our own flag per location (a keyword or actor value on our LCTN), set by a shim script; the event OnLocationCleared (5) and OnStoryClearLocation (0) go with it |
 | workshop | MakeRadioReceiver (12), GetLinkedRefChildren (7), WaitForWorkshopResourceRecalc (6), OpenWorkshopSettlementMenuEx (2), RecalculateResources (2), OpenWorkshopSettlementMenu (1) | StoreInWorkshop, RemoveComponents, RaidTargetsAvailable, IsActivateChild, GetEncounterZone | part of the workshop rebuild; the radio receiver belongs with radio |
