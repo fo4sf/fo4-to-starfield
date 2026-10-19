@@ -1,0 +1,131 @@
+# Next-phase framework: the questions we have to answer, and the possibilities for each
+
+Started 2026-10-19 by Claude-cloud (framework thread) on the owner's ask: "build a framework of questions and things
+for what we are going to do; look at modding communities, the tools, and other things." A living document, extended in
+waves. **Wave 1 done 2026-10-19 ~18:05Z**: 11 research agents (raw findings with every source in
+[findings/](findings/)), folded into 7 cross-cutting files with about 280 numbered questions, plus the five phase files
+the phase threads write. Nothing here is decided until the owner says so; every "recommend" is a default to argue with.
+
+## How to use it
+
+- Each question has a stable ID (`WP-14`, `REL-26` ...), why it matters, the options with sources, how to answer it
+  (owner decision, offline research, PC probe, community or Bethesda/Nexus contact), what it blocks, and a status.
+- Evidence labels follow docs/ai/research-log.md: **verified** (read in a linked source or file), **supported
+  hypothesis**, **unresolved**. Wave 1 ran out of web-search budget and hit Nexus rate limits part way, so every file has
+  a "Gaps for wave 2" list; nothing was guessed to fill them.
+- To answer a question: write the answer and its evidence under the question (status `answered: ...` or `decided by
+  owner, <date>`), and record architectural decisions in docs/ai/decisions.md.
+
+## Settled already (do not re-ask)
+
+Silent player by default. Starfield's animations first, FO4 clips later. SFSE and the free Starfield Creation Kit MAY
+be required. The Commonwealth, Far Harbor and Nuka-World share one Earth-like planet with real days, nights and weather.
+Phase order: new game (Vault 111 start, no Starfield intro), door animations, all interiors, launcher; then world
+breadth, people and story, Fallout systems (order open). GitHub release first, then Nexus (GPL-3 notice for Mutagen).
+Breadth before polish. A launcher that ships no assets; the player owns both games.
+
+## Files
+
+### Phase files (written by their own threads; indexed here, not edited here)
+
+| phase | file | raw notes |
+|---|---|---|
+| 1. New game (Vault 111 start) | [newgame.md](newgame.md) | [newgame-notes/](newgame-notes/) |
+| 2. Door enter and exit animations | [door-animations.md](door-animations.md) | |
+| 3. All interiors | [interiors.md](interiors.md) | |
+| 4. Launcher | [launcher.md](launcher.md) | |
+| Fallout systems and engine mechanics | [engine-mechanics.md](engine-mechanics.md) | [engine-mechanics-notes/](engine-mechanics-notes/) |
+
+### Cross-cutting files (this thread)
+
+| area | file | IDs | what it covers |
+|---|---|---|---|
+| World and planet | [world-and-planet.md](world-and-planet.md) | WP | host planet, overlays and landings, real geography, day, weather, hazards, coasts, map and fast travel, the ship, budgets |
+| People and story | [people-and-story.md](people-and-story.md) | PS | dialogue UI for a silent player, voice and lip sync (technical), faces, bodies and clothing, companions, factions, radiant quests |
+| Release, community and legal | [release-community-legal.md](release-community-legal.md) | REL | licences, Bethesda and Nexus terms, voice-audio policy, naming, money, contacting Bethesda and Nexus, community home, support, contributors, dates |
+| Tooling and testing | [tooling-and-testing.md](tooling-and-testing.md) | TT | CK-only steps, SFSE, xEdit, Mutagen, Spriggit, plugin limits, crash loggers, Debug functions, performance protocol, testers |
+| Asset pipeline | [asset-pipeline.md](asset-pipeline.md) | AP | meshes, collision, animation, textures, sound, voice files, facegen, clothing, LOD, build time and disk, tool licences |
+| Versions and maintenance | [versions-and-maintenance.md](versions-and-maintenance.md) | VM | FO4 and Starfield versions and stores, patch days, SFSE lag, engine ceilings, hardware, long-term cost |
+| Multi-game future | [multi-game-future.md](multi-game-future.md) | MG | FO3 and New Vegas on the same core, one rule set, ObScript, creatures, world placement, what to reserve now |
+
+Raw findings (one per research agent, all sources): [precedents](findings/precedents.md),
+[legal-policy](findings/legal-policy.md), [starfield-toolchain](findings/starfield-toolchain.md),
+[asset-conversion](findings/asset-conversion.md), [world-planet](findings/world-planet.md),
+[people-story](findings/people-story.md), [fallout-systems-precedents](findings/fallout-systems-precedents.md) (for the
+engine-mechanics thread), [distribution-community](findings/distribution-community.md),
+[versions-performance](findings/versions-performance.md), [testing-qa](findings/testing-qa.md),
+[multi-game-scope](findings/multi-game-scope.md).
+
+## What wave 1 changed in the picture (biggest findings)
+
+1. **Voice audio is the sharpest legal risk.** Capital Wasteland (FO3 in FO4) built a tool to convert the player's own
+   FO3 audio and cancelled it in 2018 after Bethesda staff and a lawyer flagged it: voice acting is licensed, not owned
+   (**verified**, findings/precedents.md). Our `scripts/actors/codsworth_voice.py` has the same shape. REL-26, REL-27.
+2. **We rest on tolerance, not permission.** Read literally, Bethesda's terms forbid tools "created for" its games
+   without written permission; the Starfield CK EULA names an approval route for cross-game mods. A player-side
+   cross-game converter (FNV to FO4, GPL-3) has been on Nexus since 2023 (**verified**). REL-30, REL-31.
+3. **Most players own a different Fallout 4 than we pin.** Steam is on 1.11.240 (Aug 2026), we pin 1.10.163, and our
+   BA2 reader accepts header versions 1 to 3 only; whether current archives are v7/v8 is **unresolved** and a one-minute
+   header read settles it. VM-01 to VM-03.
+4. **Starfield's own Earth is a serious host.** It already has a 24 h day, the real Sun and Moon, and handmade overlays
+   at real city coordinates; PNDT `EOVR` may add our overlays without overriding the planet's list (**supported
+   hypothesis**). Three landings, not one worldspace. WP-01, WP-08, WP-14.
+5. **Lip sync at master scale is proven by the community** (the CK's FaceFX compiler over all of Starfield.esm), but no
+   one has shown it unattended or timed it; unvoiced lines flash past unreadably without silent placeholders. PS-08, PS-07.
+6. **The dialogue menu is a loose SWF**, so a Fallout-style choice list is a UI file job, likely without SFSE. PS-01.
+7. **No public total conversion automates in-game testing like we do**; the ecosystem is ahead on crash signatures
+   (sf-crash-logger, GPL-3), Spriggit record diffs, and Starfield's own `Debug` test functions (which work in retail is
+   open). TT-23, TT-15, TT-25.
+8. **Engine ceilings we will meet at full scale:** 256 active BA2s, 253 full-master slots, archives over 4 GiB may not
+   load, no precombines. VM-23 to VM-28.
+9. **No Starfield mod has a furniture-style power armor or a real VATS**; Starcade OS shows a Pip-Boy shape (an item
+   opens an HTML menu through OSF UI). Passed to the engine-mechanics thread.
+10. **Mod managers handle Starfield natively now** (MO2 2.5.2, Vortex); SFSE refuses the Game Pass build. REL and launcher.
+
+## Where the files disagree (to settle first)
+
+- **SFSE for release 1.** tooling-and-testing recommends requiring CK and SFSE for release 1 (TT-39); people-and-story
+  (PS-35), versions-and-maintenance (VM-17) and asset-pipeline (AP-45) recommend a data-only core with SFSE as optional
+  add-ons. The owner already allowed SFSE; the open point is whether the *base* needs it. One decision closes all four.
+- **Host planet now vs later.** world-and-planet keeps Mars (today's test host) only until the census and the `EOVR`
+  probe report; the owner's target is an Earth-like planet either way.
+
+## Owner decisions that unlock the most (one line each; full options in the files)
+
+| # | decision | recommended default (to argue with) | IDs |
+|---|---|---|---|
+| 1 | Voice audio: convert the player's files, subtitles only, re-voice? And codsworth_voice.py? | subtitles only for NPCs until Bethesda answers in writing; keep the script as a private test, out of release packaging | REL-26, REL-27, MG-03, PS-32 |
+| 2 | Contact Bethesda and Nexus before the Nexus release? | yes, written, specific questions, citing FNV to FO4 | REL-30, REL-31 |
+| 3 | Data-only core with SFSE optional, or SFSE required? | data-only base, SFSE features as add-ons | VM-17, TT-04, PS-35, TT-39 |
+| 4 | Which Fallout 4 versions the launcher accepts | 1.10.163 and current Steam 1.11.240 via data detection; CC files ignored | VM-01, VM-07, AP-52 |
+| 5 | Starfield patch day | refuse on mismatch, "known good" table, previous build until we post support | VM-12, TT-01 |
+| 6 | Host planet and layout | Earth via `EOVR` if the probe works, else a cloned planet; real coordinates | WP-01, WP-14 |
+| 7 | The ship | fenced out for v1; scripted travel through one chokepoint | WP-27 |
+| 8 | Player choice text | prompt plus full line | PS-01 |
+| 9 | First public release | a walkable-world release before people and story | WP-38, REL-52 |
+| 10 | Dates and money | no dates ("what works now"); no donations or crowdfunding | REL-47, REL-37 |
+| 11 | Licence split | MIT repo, GPL-3 notice on Mutagen-linked binaries | REL-01 |
+| 12 | Naming | a neutral name, no Vault Boy or Pip-Boy art | REL-25 |
+
+## Cheapest experiments that close the most (a list; nothing runs now)
+
+Offline first:
+1. **Licence reading pass** (GPL FAQ, Wwise, SFSE, Bethesda EULA, Microsoft Services Agreement): narrows 11 REL questions.
+2. **Planet census** of Starfield.esm, Shattered Space and SFBGS00x (PNDT, BIOM, overlay components): WP-05/09/10/24.
+3. **Spriggit and Mutagen round trip** on our current ESMs: TT-15/16/17.
+4. **Offline record scan of Fallout4.esm** for player-spoken lines, dialogue structure and karma-like data: PS-04/05/13/24/30.
+5. **Asset census and convert-everything failure count**: AP-01/05/32.
+6. **FO3/NV masters through Mutagen and xEdit** (is ObScript source text present?): MG multi-game spike.
+
+Read-only PC probes (through the coordinator, when the PC is free):
+7. **FO4 BA2 header bytes** of a current install: VM-02/03, AP-52.
+8. **Timed FaceFX compile of 1,000 FO4 WAVs** with a resume test: PS-08 to PS-11, AP-41 to AP-43.
+9. **One Debug-probe launch**: which `Debug` test functions work in retail: TT-25/26.
+10. **One terrain-only island overlay through `EOVR`** with gravity, an ocean biome and a map marker: WP-08/17/23/26/28.
+11. **Crash logger A/B** on the known Havok assert: TT-23.
+
+## Wave 2 (next)
+
+Fill the gaps each file lists (Beyond Skyrim, Enderal SE, Sim Settlements 2's voice approach, Starfield precombines and
+LOD, CDB material editors, Nexus rules pages that refused us, DMCA precedents, Fallout London's launch), fold in the
+phase threads' revisions, and cross-link questions that block each other.
