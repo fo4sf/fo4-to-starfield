@@ -1,7 +1,9 @@
 """questprobe_install.py: the probe ships as its own small deployment through bridge_install's logic, its scripts in a
 ba2 (no loose files on the test PC). A temp game folder, a temp LOCALAPPDATA and the archive builder replaced by a stub
 (the same fixture as test_bridge_install.py); no game, no Archive2."""
+import contextlib
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -107,7 +109,12 @@ class ProbeInstallTests(unittest.TestCase):
             self.run_cmd("install")
 
     def test_pack_check_touches_nothing_in_the_game(self):
-        self.run_cmd("pack-check")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.run_cmd("pack-check")
+        # archive names are relative to Data (Scripts/...), never Data/Scripts/...
+        self.assertIn("Scripts/FO4SF_QProbeQuest.pex", out.getvalue())
+        self.assertNotIn("Data/Scripts", out.getvalue())
         self.assertEqual(len(self.packed), 1)
         self.assertEqual(os.listdir(self.data), [])
         self.assertEqual(self.lines(), ["# header", "*FO4Port.esm", "*FO4SFBridge.esm"])

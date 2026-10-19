@@ -25,6 +25,8 @@ sys.path.insert(0, os.path.join(HERE, "..", "newgame"))
 import bridge_install  # noqa: E402
 import exp_install  # noqa: E402
 from make_newgame import sha256  # noqa: E402
+sys.path.insert(0, os.path.join(HERE, "..", "..", "src"))
+from fo4sf.ba2 import Ba2  # noqa: E402
 
 NAMES = {
     "RECORD": "FO4SFQuestProbe.install.json",
@@ -71,9 +73,11 @@ def pack_check(a):
                                     os.path.join(tmp, NAMES["ARCHIVE"]))
         exp_install.verify_archive(ba2, bridge_install.archive_inputs(source))
         size, digest = os.path.getsize(ba2), exp_install.digest(ba2)
-    packed = sorted(k for k in source if k != NAMES["PLUGIN"])
-    print(f"pack-check ok: \"{NAMES['ARCHIVE']}\" {size:,} bytes sha256 {digest}, {len(packed)} file(s): "
-          + ", ".join(p.replace(os.sep, "/") for p in packed) + f"; {len(plan['scripts'])} script(s) in plan.json")
+        # the names as stored in the archive, relative to the game's Data folder (verify_archive already required them
+        # to be exactly the staged Data tree minus its "Data/" prefix; job 12 printed the staged paths, which misled)
+        entries = sorted(e.name.replace("\\", "/") for e in Ba2(ba2).entries)
+    print(f"pack-check ok: \"{NAMES['ARCHIVE']}\" {size:,} bytes sha256 {digest}, {len(entries)} archive entries "
+          f"(relative to Data): " + ", ".join(entries) + f"; {len(plan['scripts'])} script(s) in plan.json")
     return 0
 
 
