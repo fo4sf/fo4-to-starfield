@@ -25,6 +25,7 @@ def u32(d, o=0):
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     out_path, plugins = argv[0], argv[1:]
+    refuse_aliases(out_path, plugins)
     names = [os.path.basename(p) for p in plugins]
     bases, ltex, grass, txst, worlds = {}, {}, {}, {}, []
     def gkey(pi, masters, fid):
@@ -75,20 +76,35 @@ def main(argv=None):
         w["ltex_named"] = {k: (ltex.get(k, {}).get("edid"), len(ltex.get(k, {}).get("grass", []))) for k in w["ltex_use"]}
     out = {"plugins": names, "worlds": worlds, "ltex": ltex, "grass": grass, "txst_used": {
         k: txst.get(k) for k in {v["txst"] for v in ltex.values() if v["txst"]}}}
-    with open(out_path, "w", encoding="utf-8") as f:
+    tmp = out_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=1)
+    os.replace(tmp, out_path)
     for w in worlds:
         print(w["plugin"], w["edid"], "parent", w["parent"], "cells", w["cells"], "land", w["land"],
               "z m", w["zmin_m"], w["zmax_m"], "x", w["xr"], "y", w["yr"], "refs", w["refs"], w["refs_by_category"])
     print("LTEX", len(ltex), "with grass", sum(1 for v in ltex.values() if v["grass"]), "GRAS", len(grass))
     return out
 
+def refuse_aliases(out_path, plugins):
+    """Exit before writing anything if the output (or its temp file) names an input: same path, a relative alias,
+    a symlink or a hard link. The survey must leave every plugin untouched."""
+    for target in (out_path, out_path + ".tmp"):
+        real = os.path.normcase(os.path.realpath(target))
+        for src in plugins:
+            same = real == os.path.normcase(os.path.realpath(src))
+            if not same and os.path.exists(target) and os.path.exists(src):
+                same = os.path.samefile(target, src)
+            if same:
+                sys.exit(f"refused: output {target} is the input {src}; nothing written")
+
+
 def survey_worlds(buf, start, end, pi, masters, gkey, pname, worlds):
     cur = None
     for item in fl.iter_items(buf, start, end):
         if item[0] == "GRUP":
             if item[4] == 1 and cur is not None:
-                walk(buf, item[1] + 24, item[2], pi, masters, gkey, cur)
+                walk(buf, item[1] + 24, item[2], pi, masters, gkey, cur, in_block=False)
             continue
         typ, off, _f, fid = item
         if typ != b"WRLD":
@@ -98,18 +114,22 @@ def survey_worlds(buf, start, end, pi, masters, gkey, pname, worlds):
         cur = {"plugin": pname, "edid": fl.zstring(first(fs, b"EDID") or b""), "fid": gkey(pi, masters, fid),
                "parent": gkey(pi, masters, u32(par)) if par else None, "cells": 0, "land": 0,
                "zmin_m": None, "zmax_m": None, "xr": [None, None], "yr": [None, None], "refs": 0, "actors": 0,
-               "ref_bases": {}, "tree_bases": {}, "ltex_use": {}}
+               "persistent_cell": False, "ref_bases": {}, "tree_bases": {}, "ltex_use": {}}
         worlds.append(cur)
 
-def walk(buf, start, end, pi, masters, gkey, w):
+def walk(buf, start, end, pi, masters, gkey, w, in_block):
+    """in_block: inside an exterior block (group type 4) or sub-block (5). A CELL outside them is the world's
+    persistent cell (fo4land.Plugin.read_world makes the same distinction): its references count, it is no tile."""
     for item in fl.iter_items(buf, start, end):
         if item[0] == "GRUP":
-            walk(buf, item[1] + 24, item[2], pi, masters, gkey, w)
+            walk(buf, item[1] + 24, item[2], pi, masters, gkey, w, in_block or item[4] in (4, 5))
             continue
         typ, off, _f, fid = item
         if typ == b"CELL":
             xy = first(fields(buf, off), b"XCLC")
-            if xy is not None and len(xy) != 0:
+            if not in_block:
+                w["persistent_cell"] = True
+            elif xy is not None and len(xy) != 0:
                 x, y = struct.unpack_from("ii", xy)
                 w["cells"] += 1
                 w["xr"] = [x if w["xr"][0] is None else min(w["xr"][0], x), x if w["xr"][1] is None else max(w["xr"][1], x)]
