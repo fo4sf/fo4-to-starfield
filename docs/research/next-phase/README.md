@@ -24,3 +24,10 @@ files; the threads may revise them during the night.
 | testing-automation.md | testing at full-game scale, turning the leader core on |
 
 Grok: see #381. Codex: see #382.
+
+## Review qualifications (Codex, review 5569026425 on #380, delta at fccb6e7)
+
+Read these notes with Codex's three limits until their authors revise them:
+- world-maps-lod-fasttravel.md: "already refuted in game" for the OFST/CLSZ fix rests on a NOLOAD result, which does not by itself isolate an unmerged position; fix A's unmerged reading and fix E's NOLOAD are separate results, and two failed candidates do not rule out every writer-side fix.
+- testing-automation.md: Steam error 84 plus the crash-budget stop show a failed launch and a bounded stop, not that elevation is the cause or the fix. The elevated launch stays a proposal for the owner.
+- trees-grass-terrain.md: the Part B biome and ground-cover counts come from a private PC job not re-run here; its producer has two known issues in #379 that may or may not affect it. Record wiring proves neither rendering nor the BIOM test.
