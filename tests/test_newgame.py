@@ -38,6 +38,16 @@ def written_properties(cs):
 
 
 class ContractTests(unittest.TestCase):
+    def test_saving_and_hud_restored_after_the_hold_off(self):
+        """MQ101's stage 0 turns saving off and hides the HUD; its stop (stage 9000) restores neither (PC read of
+        QF_MQ101_00003448.psc, 19 Oct). The quest restores both right after stopping it, before the move."""
+        psc = read(PSC)
+        body = psc[psc.index("Event OnTimer"):]
+        hold = body.index("HoldOffStart()")
+        self.assertLess(hold, body.index("Game.SetInChargen(false, false, false)"))
+        self.assertLess(body.index("Game.SetInChargen(false, false, false)"), body.index("EnterVault(player)"))
+        self.assertLess(hold, body.index("Game.SetCharGenHUDMode(0)"))
+
     def test_every_mandatory_property_is_written_and_every_written_one_declared(self):
         declared = ng.declared_properties(read(PSC))
         written = written_properties(read(CS))
@@ -104,6 +114,11 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(ng.declared_properties(text), {"A": True, "B": False, "C": False, "D": True})
 
 
+# Starfield's Game.psc declarations (PC read, 19 Oct): the restore after the hold-off calls both
+CHARGEN = ("Function SetInChargen(bool abDisableSaving, bool abDisableWaiting, bool abShowControlsDisabledMessage) "
+           "native global\nFunction SetCharGenHUDMode(int aiCGHUDMode) native global\n")
+
+
 def fake_zip(path, game=None, utility=None, extra=None):
     base = {
         "Actor": "Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n",
@@ -111,7 +126,8 @@ def fake_zip(path, game=None, utility=None, extra=None):
                  "Function Notification(string a) native global\n",
         "Game": game if game is not None else "Actor Function GetPlayer() native global\n"
                                               "Form Function GetFormFromFile(int a, string b) native global\n"
-                                              "Function ShowRaceMenu(ObjectReference a = None) native global\n",
+                                              "Function ShowRaceMenu(ObjectReference a = None) native global\n"
+                                              + CHARGEN,
         "GlobalVariable": "float Function GetValue() native\n",
         "Message": "int Function Show(float a = 0.0) native\n",
         "ObjectReference": "\n".join(f"Function {f}() native" for f in ng.NATIVES[ng.SCRIPT]["ObjectReference"]),
@@ -144,7 +160,8 @@ class PrecheckTests(unittest.TestCase):
 
     def test_missing_show_race_menu_only_drops_the_looks(self):
         z = os.path.join(self.tmp, "cr.zip")
-        fake_zip(z, game="Actor Function GetPlayer() native global\nForm Function GetFormFromFile(int a, string b) native global\n")
+        fake_zip(z, game="Actor Function GetPlayer() native global\nForm Function GetFormFromFile(int a, string b) native global\n"
+                    + CHARGEN)
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], [])
         self.assertFalse(r["natives"][ng.LOOKS]["Game.ShowRaceMenu"])

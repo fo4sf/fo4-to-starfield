@@ -51,7 +51,7 @@ NATIVES = {
     SCRIPT: {
         "Actor": ["GetLevel"],
         "Debug": ["OpenUserLog", "TraceUser", "Notification"],
-        "Game": ["GetPlayer", "GetFormFromFile"],
+        "Game": ["GetPlayer", "GetFormFromFile", "SetInChargen", "SetCharGenHUDMode"],
         "GlobalVariable": ["GetValue"],
         "Message": ["Show"],
         "ObjectReference": ["MoveTo", "SetPosition", "SetAngle", "GetPositionX", "GetParentCell", "GetWorldSpace",

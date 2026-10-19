@@ -122,6 +122,12 @@ Event OnTimer(int aiTimerID)
             return
         endif
         HoldOffStart()
+        ; MQ101's stage 0 has already run by now: it turned saving off (SetInChargen) and hid the HUD (SetCharGenHUDMode
+        ; 2). Stopping MQ101 runs its stage 9000, which deletes its input layer but restores neither; vanilla does so
+        ; at stages 105 and 315 (QF_MQ101_00003448.psc, PC read 19 Oct, start_read.py).
+        Game.SetInChargen(false, false, false)
+        Game.SetCharGenHUDMode(0)
+        Trace("saving and HUD restored after the hold-off")
         if !EnterVault(player)
             StartTimer(1.0, 1)                               ; the port is not loaded yet or the move missed: retried
             return
