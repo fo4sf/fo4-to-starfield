@@ -423,3 +423,73 @@ Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed."
     finally { Console.SetOut(stdout); Directory.Delete(promoDir, true); }
 }
 Console.WriteLine("Interior promotion checks passed.");
+
+// Door names (DoorNames.cs): PluginSpike end to end. Each converted DOOR base takes its references' most common FO4 name;
+// a second name of the same model gets a stable copy that keeps the animation graph, and its references move to it. No
+// name, or a name that is not one line, stays "Door".
+{
+    var nameDir = Path.Combine(Path.GetTempPath(), "fo4sf-doornames-" + Guid.NewGuid().ToString("N"));
+    var outDir = Path.Combine(nameDir, "out");
+    Directory.CreateDirectory(outDir);
+    var stdout = Console.Out;
+    try
+    {
+        var manifest = Path.Combine(nameDir, "manifest.json");
+        File.WriteAllText(manifest, """
+{"items":[
+ {"editor_id":"FO4Port_SynthDoor","model":"fo4port\\d.nif","source":"meshes\\doors\\d.nif",
+  "door":{"anim_graph":"SimpleOpenClose01.agx","skeleton":"fo4port\\d\\skeleton.rig","animations":"fo4port\\d\\animations",
+          "origin_offset":[0,0,0]}},
+ {"editor_id":"FO4Port_SynthHatch","model":"fo4port\\h.nif","source":"meshes\\doors\\h.nif","load_door":{"bounds":[[0,0,0],[1,1,1]]}}]}
+""");
+        string Ref(string fk, string baseKey, string model, float x) =>
+            $$"""{"formkey":"{{fk}}:Fallout4.esm","base_editor_id":"B","base_formkey":"{{baseKey}}:Fallout4.esm","type":"Door","model":"{{model}}","pos":[{{x}},0,0],"rot":[0,0,0],"scale":1}""";
+        string Base(string key, string name) => $"\"{key}:Fallout4.esm\":{{\"editor_id\":\"B\",\"model\":\"m\",\"record\":{{\"Name\":{name}}},\"scripts\":[]}}";
+        var export = Path.Combine(nameDir, "Synth.json");
+        File.WriteAllText(export, "{\"cell\":\"Synth\",\"formkey\":\"cell\",\"refs\":[" + string.Join(",",
+            Ref("000901", "00A001", "doors\\\\d.nif", 0), Ref("000902", "00A001", "doors\\\\d.nif", 70),
+            Ref("000903", "00A002", "doors\\\\d.nif", 140), Ref("000904", "00A003", "doors\\\\d.nif", 210),
+            Ref("000906", "00A005", "doors\\\\d.nif", 280), Ref("000905", "00A004", "doors\\\\h.nif", 350)) +
+            "],\"door_bases\":{" + string.Join(",", Base("00A001", "\"Front Door\""), Base("00A002", "\" Storage Room \""),
+            Base("00A003", "null"), Base("00A005", "\"bad\\nname\""), Base("00A004", "\"Roof Hatch\"")) + "}}");
+        foreach (var hook in new[] { "FO4PORT_DOOR_MODEL", "FO4PORT_DOOR_BASE", "FO4PORT_DOORTEST" }) Environment.SetEnvironmentVariable(hook, null);
+        Environment.SetEnvironmentVariable("STARFIELD_DATA", nameDir);
+        var log = new StringWriter();
+        Console.SetOut(log);
+        typeof(DoorNames).Assembly.EntryPoint!.Invoke(null, new object[] { new[] { outDir, manifest, export } });
+        Console.SetOut(stdout);
+        var ids = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+        var port = ModKey.FromNameAndExtension("FO4Port.esm");
+        var masters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+        masters.Set(new KeyedMasterStyle(ModKey.FromNameAndExtension("Starfield.esm"), MasterStyle.Full));
+        using (var written = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(outDir, "FO4Port.esm"), release,
+                   new BinaryReadParameters { MasterFlagsLookup = masters }))
+        {
+            var doorsByKey = written.Doors.ToDictionary(x => x.FormKey);
+            var refs = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).Single()
+                .Temporary.OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey);
+            IDoorGetter DoorOf(string fo4) => doorsByKey[refs[new FormKey(port, ids[$"REFR:FO4Port_Synth:{fo4}:Fallout4.esm"])].Base.FormKey];
+            Require(DoorOf("000901").Name?.String == "Front Door" && DoorOf("000902").FormKey == DoorOf("000901").FormKey &&
+                    DoorOf("000901").FormKey.ID == ids["DOOR:FO4Port_SynthDoor"], "most common FO4 name not on the model's base:\n" + log);
+            var storage = DoorOf("000903");
+            Require(storage.Name?.String == "Storage Room" && storage.FormKey.ID == ids["DOOR:FO4Port_SynthDoor|name:Storage Room"] &&
+                    storage.EditorID != "FO4Port_SynthDoor" && storage.Components.OfType<IAnimationGraphComponentGetter>().Single().ANAM == "SimpleOpenClose01.agx",
+                "second name's copy wrong (name, stable id, editor id or graph)");
+            Require(DoorOf("000904").Name?.String == "Door" && DoorOf("000906").FormKey == DoorOf("000904").FormKey,
+                "unnamed and refused names not kept as Door");
+            Require(DoorOf("000905").Name?.String == "Roof Hatch", "load door not named");
+            Require(written.Doors.Select(x => x.EditorID).Distinct().Count() == written.Doors.Count, "door editor ids collide");
+        }
+        Require(log.ToString().Contains("door names: 3 bases named from FO4, 2 copies for a second name of one model (3 references moved), " +
+                                        "2 door references without an FO4 name, 1 refused"), "door names not reported:\n" + log);
+        // a second build allocates nothing new
+        var before = File.ReadAllText(Path.Combine(outDir, "formids.json"));
+        File.Delete(Path.Combine(outDir, "FO4Port.esm"));
+        Console.SetOut(new StringWriter());
+        typeof(DoorNames).Assembly.EntryPoint!.Invoke(null, new object[] { new[] { outDir, manifest, export } });
+        Console.SetOut(stdout);
+        Require(File.ReadAllText(Path.Combine(outDir, "formids.json")) == before, "a repeat build changed the FormID map");
+    }
+    finally { Console.SetOut(stdout); Directory.Delete(nameDir, true); }
+}
+Console.WriteLine("Door name checks passed.");
