@@ -112,12 +112,17 @@ these records are exported or the export order changes.
 
 The integrated legacy writer retains main's order through the lights: ordinary
 promotions, NAVMs, light REFRs, LIGH bases, then scripted-door bases and arrivals.
+promotions, NAVMs, light REFRs, LIGH bases, then scripted-door arrivals and bases (the current main writer order).
 Its mixed-output checker counts ordinary and door ACTIs together and checks door
 VMADs/arrivals separately. Sequential ordering remains required in legacy mode.
 Persistent checks use the held reservation audit described below instead, while
 retaining raw record checks. Full-stage caller validation, independent QA and
 native saved-game validation remain required before enabling persistence in an
 active stage. Explicit bootstrap must reproduce the entire plugin and map.
+VMADs and persistent arrival placement with main's raw checks. These ordering checks still describe legacy allocation;
+they are not a persistent-rebuild checker. Production caller/checker integration
+and native saved-game validation remain required before enabling persistence in
+an active stage. Explicit bootstrap must reproduce the entire plugin and map.
 
 ## Audit an existing published identity generation
 
@@ -151,6 +156,9 @@ record/transform/VMAD checks, full-size validation and native return/save/reload
 tests. Invoking this standalone command does not replace the normal check. The
 normal checker integration below is source-only and still needs independent QA
 and full-stage validation before production use.
+tests. The legacy core64c checker still has sequential-order assertions; invoking
+this audit alone does not replace them or enable persistent production rebuilds.
+Independent QA and caller integration remain pending.
 
 ## Workshops and native crafting benches
 
@@ -168,6 +176,11 @@ requires byte-identical plugin and map output. This does not migrate core64i or
 establish native crafting, door travel or saved-game behavior.
 
 ## Preserve the checked input generation
+The current-main merge retains six named VMAD properties and places exterior arrival
+markers in the world persistent cell. New legacy outputs match that main writer;
+existing ledgers retain their prior base/marker numbers even if the historical
+allocation order differs. This identity continuity does not validate an existing
+save against changed record contents. Native return and save/reload remain unverified.
 
 `make_core64c.py check` records SHA256 and length for its parameters, objects,
 ID map, plan, expected results, declared NAVM input and (when enabled) persistent
@@ -181,6 +194,7 @@ missing inputs, unresolved publication controls, ambiguous paths and a ledger
 with persistence disabled are refused; verification never rewrites a report.
 Legacy allocation is supported with a new content receipt. Old metadata-only
 receipts require a fresh `check`; they are not silently upgraded or accepted.
+## Map-marker reservations
 
 These receipts establish input freshness, not semantic ledger validity or native
 acceptance. The .NET identity audit and the normal check's raw-record checks
@@ -188,8 +202,23 @@ remain separate requirements. Source stages must remain immutable under the
 cooperating-writer protocol; repeated hashes are not an atomic snapshot against
 arbitrary simultaneous edits. Asset payloads retain their existing metadata
 checks.
+Map-marker REFRs use `["map-marker", world, tag]` with the ledger's ASCII case folding.
+The default empty tag is published as `RedRocket` and uses that same key, so switching
+from the default marker to an explicit RedRocket entry retains its ID. Duplicate
+canonical tags within one world are refused before publication. The same tag in
+another world has a separate reservation. Reordering, growth, removal and later
+reintroduction retain existing marker and door IDs; removed marker IDs remain reserved.
 
 ## Hold the audit through normal raw checks
+Legacy allocation still follows main's marker order and explicit bootstrap must
+reproduce its plugin/map bytes. The first-marker alias in `map_markers` follows the
+current source order; stable identity comes from `map_marker_refs` tags, not that alias.
+The identity audit checks both declared map sections together, all world/tag keys,
+their ledger bindings and the first-marker alias. Older or template-free generations
+without those sections remain supported; that is not proof that map markers were
+written. Record fields, display, discovery and travel still need the raw checker
+and native testing. This change neither enables persistent IDs on a live stage nor
+wires the paired exterior/interior allocator requested in #280.
 
 For explicit persistent mode, `make_core64c.py check` starts the current writer's
 `--check-identities-held` process. It proves the existing identity generation,
@@ -197,6 +226,7 @@ emits `ready` and holds the producer's publication lease while Python performs
 raw checks. Only sequential reference/base/NAVM/light ordering assertions are
 replaced by reservation proof. Record types, counts, transforms, cell membership,
 door VMADs/arrivals, dependencies and core comparisons remain checked.
+## Flora compatibility with current main (October18)
 
 After raw checks, Python requests `verify`. The audit rechecks the original
 source/map/parameters, ledger and output generation before releasing its lease
@@ -205,6 +235,13 @@ before publishing reports. EOF cancels; timeout, child exit, changed inputs or
 publication controls prevent report replacement. Cancellation ends only the
 helper process created for this check and does not clear recovery controls.
 Legacy mode retains its existing order checks without starting an audit process.
+Harvestable FLOR bases reserve `["flora", editor_id]`; each placed plant keeps
+its full-source `["reference", source]` reservation. Flora participates in the
+same promotion order as main, alongside the existing bench lookup and door
+allocations. Shared bases reserve once, while placements retain distinct IDs.
+The identity audit checks the declared flora map and its ledger bindings. It
+still reports `record_fields_checked: false`: it does not validate harvest
+contents, native harvesting or saved-game compatibility.
 
 The lease excludes cooperating producer writes to the audited stage; it does
 not lock external core inputs or hard-linked Data assets against arbitrary edits.
@@ -212,6 +249,14 @@ Those inputs still require the immutable-input protocol. A report records the
 checked generation, not a guarantee that no later write can occur; `verify-data`
 must still validate freshness before use. The identity subreport correctly keeps
 `record_fields_checked` and `native_acceptance` false; raw results are separate.
+Six synthetic-writer regressions cover reorder/growth/removal/reintroduction,
+shared bases, explicit byte-identical legacy bootstrap, invalid-ingredient
+publication preservation, and a changed declared base rejected by the read-only
+audit. Three independent main-writer comparisons preserve exact legacy plugin
+and map bytes for the default seed, a custom ingredient and a shared base.
+Existing ledgers are neither rewritten nor migrated automatically; reading a
+ledger containing flora reservations requires the updated writer/auditor. No
+production stage, installation or paired interior/exterior allocator is enabled.
 
 Nine session regressions use the actual synthetic writer/audit and raw promotion
 checks, including retained door IDs, writer exclusion, missing VMAD, input drift,
@@ -249,3 +294,7 @@ tests remain pending. Enabling the coordinate correction closes the earlier
 writer/script contract gap; it does not prove that a far SetPosition succeeds.
 The native test must pin the PEX actually packaged in the active archive and
 check the resulting position, world/cell, facing and saved state.
+A mixed-door regression adds/removes flora while preserving every existing identity
+map and the raw records of door bases, references and arrival markers. A separate
+main legacy countercontrol demonstrates the expected base/arrival renumbering on
+growth; the persistent ledger avoids it. This remains an offline identity check.

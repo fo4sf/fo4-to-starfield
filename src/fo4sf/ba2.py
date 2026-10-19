@@ -6,6 +6,7 @@
 Lookup is case-insensitive and slash-agnostic: a.find("textures/setdressing/x_d.dds").
 Starfield v3 (LZ4) textures are not supported (raises); v1/v2 zlib and uncompressed are.
 """
+import os
 import struct
 import zlib
 from dataclasses import dataclass
@@ -47,6 +48,7 @@ def _dds_header_dx10(width, height, mips, dxgi, cubemap):
 class Ba2:
     def __init__(self, path: str):
         self.path = path
+        self._size = os.path.getsize(path)
         with open(path, "rb") as f:
             magic, version, kind, count, name_off = struct.unpack("<4sI4sIQ", f.read(24))
             if magic != b"BTDX":
@@ -83,6 +85,70 @@ class Ba2:
                 self.entries.append(Entry(name, "DX10", width=r[1], height=r[2], mips=r[3], dxgi=r[4], cubemap=r[5], chunks=r[6]))
         self.names = names
         self._index = {self._norm(n): i for i, n in enumerate(names)}
+        self._validate_entries()
+
+    def _validate_entries(self) -> None:
+        """Basic structural validation of entries to catch truncated or corrupt archives early."""
+        if not self.entries:
+            raise Ba2Error(f"{self.path}: archive contains no entries")
+        for i, e in enumerate(self.entries):
+            if not e.name:
+                raise Ba2Error(f"{self.path}: entry {i} has empty name")
+            if e.kind == "GNRL":
+                if e.offset < 0 or e.unpacked < 0 or e.packed < 0:
+                    raise Ba2Error(f"{self.path}: invalid offsets/sizes in GNRL entry {e.name}")
+                payload = e.packed or e.unpacked
+                if e.offset > self._size or e.offset + payload > self._size:
+                    raise Ba2Error(f"{self.path}: GNRL entry {e.name} payload is outside the file")
+            elif e.kind == "DX10":
+                if e.width <= 0 or e.height <= 0 or e.mips <= 0:
+                    raise Ba2Error(f"{self.path}: invalid dimensions in DX10 entry {e.name}")
+                if not e.chunks:
+                    raise Ba2Error(f"{self.path}: DX10 entry {e.name} has no chunks")
+                for off, pk, up, _s, _e in e.chunks:
+                    chunk = pk or up
+                    if off > self._size or off + chunk > self._size:
+                        raise Ba2Error(f"{self.path}: DX10 entry {e.name} chunk is outside the file")
+
+    def summary(self) -> dict:
+        """Return a short summary of the archive contents."""
+        gnrl = sum(1 for e in self.entries if e.kind == "GNRL")
+        dx10 = sum(1 for e in self.entries if e.kind == "DX10")
+        return {
+            "path": self.path,
+            "version": self.version,
+            "kind": self.kind,
+            "entries": len(self.entries),
+            "general": gnrl,
+            "textures": dx10,
+        }
+
+    def largest_entries(self, n: int = 10) -> list:
+        """Return the n largest entries by unpacked size, useful for conversion planning.
+
+        Each item is a dict with name, kind, unpacked bytes, and packed bytes (0 if uncompressed).
+        For DX10 textures the unpacked size is the sum of chunk unpacked sizes (excluding the DDS header).
+        """
+        def unpacked_of(e: Entry) -> int:
+            if e.kind == "GNRL":
+                return e.unpacked
+            return sum(c[2] for c in (e.chunks or []))   # c[2] is unpacked
+
+        def packed_of(e: Entry) -> int:
+            if e.kind == "GNRL":
+                return e.packed or e.unpacked
+            return sum((c[1] or c[2]) for c in (e.chunks or []))
+
+        ranked = sorted(self.entries, key=unpacked_of, reverse=True)[:n]
+        return [
+            {
+                "name": e.name,
+                "kind": e.kind,
+                "unpacked": unpacked_of(e),
+                "packed": packed_of(e),
+            }
+            for e in ranked
+        ]
 
     @staticmethod
     def _norm(n: str) -> str:

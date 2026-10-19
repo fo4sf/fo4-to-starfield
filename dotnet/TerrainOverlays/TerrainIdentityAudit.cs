@@ -141,10 +141,13 @@ internal static class TerrainIdentityAudit
                 var refIds = Index(map.GetProperty("refs"), refs.Select(r => Text(r, "src")));
                 foreach (var r in refs) Match(refIds[Text(r, "src")], "reference", TerrainStableIds.Source(Text(r, "src")));
                 foreach (var (name, kind) in new[] { ("containers", "container"), ("items", "item"), ("activators", "activator"),
-                         ("terminals", "terminal"), ("workshops", "workshop"), ("doors", "door-base"), ("lights", "light-base") })
+                         ("terminals", "terminal"), ("workshops", "workshop"), ("flora", "flora"), ("doors", "door-base"), ("lights", "light-base") })
                 {
                     var entries = Entries(obj, name);
-                    bool present = name == "containers" || (name is "doors" or "lights" ? entries.Length > 0 : obj.TryGetProperty(name, out _));
+                    bool present = name == "containers" || (name == "lights" ? entries.Length > 0 : obj.TryGetProperty(name, out _));
+                    // Earlier writers omitted an explicitly empty door map; current main emits {}.
+                    // Both carry no active door identities, while retained reservations remain tombstones.
+                    if (name == "doors" && entries.Length == 0 && !map.TryGetProperty(name, out _)) present = false;
                     if (!present) continue;
                     sections.Add(name);
                     var ids = Index(map.GetProperty(name), entries.Select(e => Text(e, "src")));
@@ -194,7 +197,27 @@ internal static class TerrainIdentityAudit
                 for (int i = 0; i < ids.Length; i++) Match(ids[i], "navmesh", world, TerrainStableIds.Source(Text(entries[i], "src")),
                     Coordinate(entries[i].GetProperty("cell")[0]), Coordinate(entries[i].GetProperty("cell")[1]));
             }
-            if (map.ValueKind != JsonValueKind.Undefined) Keys(map, sections);
+            if (map.ValueKind != JsonValueKind.Undefined)
+            {
+                bool hasMarkers = map.TryGetProperty("map_markers", out var markers);
+                bool hasRefs = map.TryGetProperty("map_marker_refs", out var markerRefs);
+                if (hasMarkers != hasRefs) throw new InvalidDataException("map-marker sections must appear together");
+                if (hasMarkers)
+                {
+                    sections.UnionWith(new[] { "map_markers", "map_marker_refs" });
+                    var plans = overlays.Select(o => (World: Text(o, "world"), Tags: ReferenceIdentityPlan.MapMarkerTags(o))).ToArray();
+                    Keys(markers, plans.Where(p => p.Tags.Length > 0).Select(p => p.World));
+                    Keys(markerRefs, plans.Select(p => p.World));
+                    foreach (var (world, tags) in plans)
+                    {
+                        var refs = markerRefs.GetProperty(world);
+                        Keys(refs, tags);
+                        foreach (string tag in tags) Match(refs.GetProperty(tag), "map-marker", world, tag);
+                        if (tags.Length > 0) Match(markers.GetProperty(world), "map-marker", world, tags[0]);
+                    }
+                }
+                Keys(map, sections);
+            }
             void VerifyGeneration()
             {
                 foreach (var (path, hash) in inputHashes)
