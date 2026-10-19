@@ -13,7 +13,8 @@ supported hypothesis / unresolved.
   for FO4 should be valid Starfield syntax (**supported hypothesis**; no FO4 keyword is known to be removed).
 - The native API differs. FO4-only systems (Pip-Boy calls, power armor, companions' FO4 calls, vertibird events) have
   no Starfield native; Starfield adds planets, ships, credits, crew (**supported hypothesis**, from the Starfield wiki
-  script pages, which are incomplete). Verdict: **take FO4 sources from the FO4 CK's Base.zip (decompile only without it), recompile against Starfield sources plus a shim library**.
+  script pages, which are incomplete). Verdict: **take FO4 sources from the FO4 CK's script zips (on our PC since Oct 19; a player without the CK needs a
+  decompiler), recompile against Starfield sources plus a shim library**.
 - `.pex` cannot be loaded as-is: Starfield's compiler and `.pex` differ (new guard opcodes; Champollion had to be
   changed to read them) (**supported hypothesis**). Every FO4 script must be recompiled on the player's PC.
 - SFSE 0.2.21 (game 1.16.244) has a plugin loader, a Scaleform menu interface and custom Papyrus native support
@@ -92,7 +93,7 @@ script set "must be installed"). The port does not need F4SE: FO4 is only read, 
 | FO4 piece | Starfield counterpart | Verdict | Notes |
 |---|---|---|---|
 | VMAD on forms and refs | VMAD, same layout | data copy | remap Object property FormIDs; script names may gain our namespace |
-| QUST / INFO / SCEN / PACK / PERK fragments | same variants | data copy + recompile | fragment `.pex` are rebuilt from decompiled source |
+| QUST / INFO / SCEN / PACK / PERK fragments | same variants | data copy + recompile | fragment `.pex` are rebuilt from the CK's fragment sources (decompiled only without the CK) |
 | TERM fragments | TERM (PERK layout) or TMLM menu fragments | translate | FO4 terminals map to TMLM menus (see doors/activators note) |
 | 8,369 `.pex` | must be Starfield `.pex` | rebuild on player PC | sources from the player's FO4 CK `Base.zip` when installed, else Champollion |
 | Engine natives present in both | same name | recompile | most of what B4 used already compiled (SetStage, MoveTo, StartCombat, AddItem, RegisterForRemoteEvent) |
@@ -107,7 +108,7 @@ script set "must be installed"). The port does not need F4SE: FO4 is only read, 
 
 ## What must be rebuilt, and what needs SFSE or the Creation Kit
 - **Shim library** (namespace `FO4SF:`, plain Papyrus): one script per FO4 base type method the API diff finds
-  missing, with the same signature, so decompiled FO4 code compiles unchanged after a mechanical rename pass
+  missing, with the same signature, so FO4 source compiles unchanged after a mechanical rename pass
   (`Game.ShowPipboyPlugin(...)` to `FO4SF:Game.ShowPipboyPlugin(...)`). Shims that only need data become Papyrus;
   shims that need engine state (menus, power armor camera, VATS time scale) call SFSE natives.
 - **Compiler on the player's PC**: Starfield's own compiler ships with CK2, which players may be asked to install
@@ -151,18 +152,50 @@ script set "must be installed"). The port does not need F4SE: FO4 is only read, 
   `StartVATS`, `IsInVATS`, `IsInMenuMode`, `IsMenuOpen`, `SendAffinityEvent`, `TryToModAffinity`. (Caveat:
   `SendStoryEvent` and `SetTimeScale` were also not found, but `SendStoryEvent` is a Keyword function and time scale
   is a global, and neither script was in the scanned set; they say nothing.)
-- **FO4 sources are not on the PC**: the full install's `Data\Scripts\Source\Base` exists but holds almost none of the
-  core scripts (even `SetStage` was not found), there is no `Base.zip`, and the clean depot has no sources. So FO4
-  scripts need the free **Fallout 4 Creation Kit** installed (it ships `Base.zip`) or a decompiler.
+- **FO4 sources (after the owner installed the FO4 Creation Kit, job 15)**: the CK put them in
+  `D:\SteamLibrary\steamapps\common\Fallout 4\Data\Scripts\Source\(name)\(name).zip`: Base 7,854 `.psc`, DLC01
+  483, DLC02 43, DLC03 830, DLC04 908, DLC05 40, DLC06 92, CreationClub 32. Decompiling vanilla FO4 scripts is no longer
+  needed.
+
+### The native gap, script by script (PC probe job 15, verified)
+
+Function and event names each FO4 core script declares, compared with Starfield's script of the same name (FO4 CK
+sources vs ContentResources.zip, commit 797dde5). "FO4-only" is what a shim must supply or a converter must rewrite.
+
+| script | shared | FO4-only | SF-only | the FO4-only names |
+|---|---:|---:|---:|---|
+| Actor | 231 | 28 | 51 | AddSpell, DispelSpell, GetActorBase (likely renamed in SF), AllowCompanion, DisallowCompanion, SetCompanion, SetAvailableToBeCompanion, FollowerFollow, FollowerWait, FollowerSetDistanceNear/Medium/Far, Dismember, IsDismembered, IsInPowerArmor, SetAnimArchetype{Confident, Depressed, Elderly, Friendly, Irritated, Nervous, Neutral}, SetDogAnimArchetype{Agitated, Alert, Neutral, Playful}, SetEyeTexture, StartCannibal |
+| ObjectReference | 256 | 19 | 124 | DeleteWhenAble, GetEncounterZone, GetLinkedRefChildren, getLinkedRefArray, IsActivateChild, MakeRadioReceiver, OnHolotapeChatter, OnHolotapePlay, OnWorkshopObjectDestroyed, OnWorkshopObjectRepaired, OpenWorkshopSettlementMenu(Ex), RaidTargetsAvailable, RecalculateResources, RemoveComponents, SellItem, StoreInWorkshop, TetherToHorse, WaitForWorkshopResourceRecalc |
+| Game | 104 | 10 | 57 | EnablePipboyHDRMask, ForceDisableSSRGodraysDirLight, GetCommonProperties, InitializeMarkerDistances, SetInsideMemoryHUDMode, ShowPerkVaultBoyOnHUD, ShowPipboyBootSequence, ShowPipboyPlugin, ShowSPECIALMenu, ShowTrainingMenu |
+| ActiveMagicEffect, ReferenceAlias | 84, 101 | 4 each | 67, 77 | OnHolotapeChatter, OnHolotapePlay, OnWorkshopObjectDestroyed, OnWorkshopObjectRepaired |
+| Location | 16 | 4 | 22 | HasEverBeenCleared, IsCleared, OnLocationCleared, SetCleared (Starfield's concept is "explored", as in the condition functions) |
+| ScriptObject | 76 | 3 | 30 | OnLooksMenuEvent, RegisterForLooksMenuEvent, UnregisterForLooksMenuEvent |
+| Quest | 57 | 2 | 25 | OnStoryClearLocation, ResetSpeechChallenges |
+| Utility | 28 | 2 | 11 | IsInMenuMode, WaitMenuMode |
+| Debug | 34 | 1 | 5 | SetFootIK |
+| Cell, Form, Math, Perk, Weapon | 12, 7, 15, 1, 2 | 0 | 3, 2, 10, 0, 0 | none |
+
+Game scripts, not engine scripts: FO4's `FollowersScript` (98 functions: companion slots, Dogmeat, affinity events,
+situation awareness, loitering, teleport, vertibird events) has **no** Starfield counterpart, and FO4's
+`CompanionActorScript` shares only 2 of its 56 names with Starfield's script of the same name (FO4's 54 are the affinity
+thresholds, romance and murder-session logic). Both are ported as our own scripts under our prefix.
+
+**What it means:** the engine-level gap is about **77 names** across the core scripts, and they cluster in the systems
+the reference already marks as rebuilds: workshop (11), Pip-Boy and FO4 menus (8), companions and followers (8),
+holotapes (2 events on 4 scripts), animation archetypes (11), dismemberment (2), power armor (1), cleared locations
+(4), menu mode (2). Everything else a FO4 script calls on these classes exists in Starfield under the same name. Names
+only: argument lists can still differ (**unresolved**; the next probe can compare signatures). `IsInVATS`, `StartVATS`,
+`IsPipboyOpen`, `IsMenuOpen` and `SetTimeScale` exist in neither game's core scripts (FO4's menu checks live in F4SE's
+`UI` script, outside vanilla).
 
 ## Open questions and cheap checks
-- Native diff: list every `Native` function in FO4 `Base.zip` vs ContentResources.zip sources (grep `Native$`), one
-  table per script; then count call sites in the 8,369 decompiled FO4 scripts.
-- Starfield flags file: list `*.flg` in ContentResources.zip and the CK2 install.
-- Compile one decompiled FO4 quest fragment (`QF_MQ102_0001CC2A`) against Starfield sources; record each error.
+- Native diff: done by name (table above). Next: compare signatures, and count call sites of the ~77 names in FO4's
+  7,854 base sources.
+- Starfield flags file: none in `Tools` (job 15); check inside ContentResources.zip and the CK2 install.
+- Compile one FO4 quest fragment (`QF_MQ102_0001CC2A`) against Starfield sources; record each error.
 - Does the Starfield compiler accept FO4 `Var`, `CustomEvent`, `is` unchanged? One synthetic `.psc` test.
 - Does SFSE 0.2.21 register custom natives reliably? Load Cassiopeia and call one native from a test quest.
-- Check Starfield `Actor.psc` for `SwitchToPowerArmor`, `IsInPowerArmor`, `SetCompanion` (one grep).
+- Answered (job 15): Starfield's `Actor` declares `SwitchToPowerArmor` but not `IsInPowerArmor` or `SetCompanion`.
 - Champollion on 20 FO4 `.pex` vs the CK `Base.zip` sources: diff to measure decompiler fidelity.
 
 ## Sources

@@ -17,8 +17,8 @@ of dialogue, plus an affinity layer on top.
 - FO4's affinity is **scripted**: `CompanionActorScript` on each companion, the hidden actor value `CA_Affinity`
   (cap reported as 1100), reactions sent as **keywords** (`CA_Event_Likes`, `CA_CustomEvent_CaitLikes`,
   `CA__CustomEvent_MinSettlementHelp` ...), a size multiplier (`CA_Size_Small` 0.5 / Normal 1 / Large 1.5), cooldowns in
-  script. **supported hypothesis** (Fallout wiki, Nexus CK threads; FO4 script sources in the CK's Base.zip would make it
-  verified)
+  script. **supported hypothesis** for the values (Fallout wiki, Nexus CK threads); the script itself is **verified** on
+  the PC (FO4 CK sources: `CompanionActorScript` 56 names, `FollowersScript` 98, job 15)
 - Starfield made affinity **a record**: **AFFE** Affinity Event (flags Allow Repeated, Template, Fill Companion
   Dialogue; a list of follower NPC plus reaction GLOB; actor value; event size GLOB; distance to player GLOB;
   **cooldown in minutes GLOB**; required faction; "add to event" chaining). DIAL, INFO and quest stages can carry an
@@ -94,11 +94,15 @@ of dialogue, plus an affinity layer on top.
 
 ## Open questions and cheap checks
 
-- FO4 framework names (`Followers`, `FollowersScript`, `SendAffinityEvent`, the `CA_` keyword list): grep the FO4 CK's
-  `Data\Scripts\Base.zip` if installed on the PC, or a QUST/KYWD editor-id scan of Fallout4.esm (read-only).
+- FO4 framework names (`Followers` quest, the `CA_` keyword list): a QUST/KYWD editor-id scan of Fallout4.esm, or a
+  grep of the FO4 CK sources now on the PC (`Data\Scripts\Source\Base\Base.zip`), both read-only.
 - Answered by the PC probe (verified): Starfield ships `CompanionActorScript`, `SQ_FollowersScript`, `SQ_CompanionsScript`
   and `SQ_CrewScript`; its `CompanionActorScript` declares no `SendAffinityEvent` or `TryToModAffinity`, and there is no
-  `FollowersScript`. FO4's side needs the FO4 Creation Kit's sources (not on the PC).
+  `FollowersScript`. FO4's side (job 15, FO4 CK sources): `FollowersScript` has 98 functions (companion slots,
+  Dogmeat, affinity events, loitering, teleport, vertibird events) with no Starfield counterpart, and FO4's
+  `CompanionActorScript` shares only 2 of its 56 names with Starfield's; FO4's `Actor` adds 8 companion natives
+  (`SetCompanion`, `AllowCompanion`, `FollowerFollow`, `FollowerWait`, follow distances) that Starfield lacks
+  ([papyrus-and-script-extenders.md](papyrus-and-script-extenders.md)).
 - Does CE2 keep FO4's command mode (hold activate on a follower)? A Starfield game setting or script search for
   "CommandMode" in ContentResources.zip and the exe strings.
 - AFFE's "Fill Companion Dialogue" flag: what it fills. One vanilla AFFE dump.
