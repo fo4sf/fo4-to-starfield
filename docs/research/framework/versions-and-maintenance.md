@@ -22,6 +22,8 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Also uncertain: whether Starfield's engine loads one archive past 4 GiB (the format allows it, **verified**), and how
   the build and the game run below the owner's high-end PC. Settled in wave 2: a medium master holds ObjectIDs
   0x0000-0xFFFF (**verified**, xEdit), and CE2 has no precombine/previs records to produce (**verified** schema).
+  [Correction 2026-10-19: but the Starfield CK has the GUI actions "Generate Precombined Visibility for Current Cell"
+  and "... All Loaded Cells" (interiors.md T9), so a precombined-visibility bake may exist; VM-26 is open again.]
 - Three decisions unlock the most: (1) which Fallout 4 data versions the launcher accepts (VM-01); (2) a data-only core
   with SFSE as an optional layer (VM-17); (3) the Starfield patch-day policy: pin, refuse, and how fast we follow
   (VM-12, VM-36).
@@ -79,7 +81,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 | Store | What we know | Label |
 |---|---|---|
 | Steam | Current 1.11.240; rollback guides list one exe depot (377162) or six depots | **verified** ([Nexus forum guide](https://forums.nexusmods.com/topic/13525754-how-to-downgrade-fallout-4-game-of-the-year-edition-after-the-anniversary-update-rollback-from-111137-to-110984/), [Steam guide 3604110005](https://steamcommunity.com/sharedfiles/filedetails/?id=3604110005), since removed) |
-| GOG | One commenter says GOG "never got the last update" | **unresolved** ([Nexus news 15400](https://www.nexusmods.com/news/15400)) |
+| GOG | One commenter says GOG "never got the last update" [Added 2026-10-19: GOG Fallout 4 ships only 1.10.163.0, so GOG players need no downgrade] | ~~**unresolved** ([Nexus news 15400](https://www.nexusmods.com/news/15400))~~ [Correction 2026-10-19: **verified** (gogdb.org, via launcher.md revision 2)] |
 | Epic | Cannot roll back updates, so Fallout London could not support it | **verified** ([PCGamesN](https://www.pcgamesn.com/fallout-london/epic-games-store)) |
 | Microsoft Store / Game Pass | Skyblivion rejects Epic and Game Pass copies as "encrypted and/or different"; TTW does not support the Microsoft Store | **verified** for those projects ([Skyblivion FAQ](https://skyblivion.com/faq), [TTW intro](https://thebestoftimes.moddinglinked.com/intro.html)); for Fallout 4 data **unresolved** |
 
@@ -110,7 +112,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 | Medium masters for DLC areas or interior clusters | Saves full slots (256 medium) | Up to 65,536 ObjectIDs each (the MO2 "0xFF" is the slot count, TC W2-5); core64's 649,596 refs are about 10x that, so world plugins stay full masters; type cannot be changed later | limit **verified** (xEdit); in-game agreement **unresolved** |
 | Update plugins for pure overrides of Starfield records | No new forms (xEdit refuses new records in them, TC W2-5) | Take a slot since 1.12.30; xEdit cannot write them | **verified** (LOOT, TC) |
 | Depend on BA2 Limit Fix | Lifts 256 archives | SFSE plugin, pinned per runtime | **verified** |
-| Build our own merged static meshes per cell (precombine stand-in) | Fewer draw calls | Engineering; CE2 has no precombine/previs records (**verified** schema) and a GPU-driven renderer (ExecuteIndirect), so per-object CPU draw cost likely matters less (**supported hypothesis**, VP W2-2, TC W2-2) | only if a frame-time probe shows a need; **unresolved** |
+| Build our own merged static meshes per cell (precombine stand-in) | Fewer draw calls | Engineering; CE2 has no precombine/previs records (**verified** schema) and a GPU-driven renderer (ExecuteIndirect), so per-object CPU draw cost likely matters less (**supported hypothesis**, VP W2-2, TC W2-2) [Correction 2026-10-19: the Starfield CK's "Generate Precombined Visibility" GUI actions (interiors.md T9) may be an engine-side alternative; unresolved, VM-26] | only if a frame-time probe shows a need; **unresolved** |
 | Texture presets keyed to VRAM | Fits 8 GB cards | Current caps (1024 colour / 512 normal) were set for archive size, not VRAM; vanilla uses 3.8 GB (1080p ultra) to 5.7 GB (1440p max) on a 12 GB card in one test (VP W2-2) | **supported hypothesis** |
 
 ### Crash diagnosis for players
@@ -128,6 +130,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 **VM-01. Which Fallout 4 data versions does the launcher accept: 1.10.163 only, 1.10.984, 1.11.x, or all?**
 - Why it matters: most players are on 1.11.240; requiring a downgrade repeats Fallout London's support load.
 - Options: (a) require a downgrade (universal downgrader, no login, xdelta3) ([Steam thread](https://steamcommunity.com/app/377160/discussions/0/685239894022330731/)); (b) support each runtime with per-version fixtures; (c) normalise inputs to one canonical record set. Never ask for credentials (ROADMAP C1). (also: precedents Q7)
+- [Added 2026-10-19] GOG Fallout 4 ships only 1.10.163.0, so GOG players need no downgrade (**verified**, gogdb.org, via launcher.md revision 2).
 - Answer by: record and archive diff between 1.10.163, 1.10.984 and 1.11.240 data (VM-02), then owner decision.
 - Blocks: Launcher, Release, New game.
 - Status: open.
@@ -145,7 +148,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Options: accept `{1, 7, 8}` in `ba2.py` line 59 with the v1 layout (xEdit and OpenMW parse 7/8 exactly like v1, **verified**; that nothing else changed is a **supported hypothesis**); or require 1.10.163 archives. NifSkope needed the fo76utils fork for NG archives (VP W2 sources).
 - Answer by: a synthetic v7/v8 fixture test (offline) for the code; first 8 bytes of each `Fallout4 - *.ba2` and `cc*.ba2` on a current install (a 1-minute PC probe) to learn which vanilla archives are 7 and which 8, and whether 1.11.x changed anything beyond next-gen.
 - Blocks: Launcher, All interiors (any build on a current install).
-- Status: answered (wave 2): yes, v7/v8; layout same as v1 (supported hypothesis); one-line fix; per-archive version list still needs the PC probe [VP W2-1, TC W2-6].
+- Status: answered (wave 2): yes, v7/v8; layout same as v1 (supported hypothesis); one-line fix; per-archive version list still needs the PC probe [VP W2-1, TC W2-6]. [Update 2026-10-19: fix on PR #394, not merged: draft PR #394 at 1825141 reads FO4 BA2 v7 and v8 with the v1 layout, with a synthetic test; detect lists archive versions and duplicate archive names; 368da05 makes detect refuse sTestFile INIs and report loose files in My Games Data.]
 
 **VM-04. How does the launcher identify the Fallout 4 data version, store and language without the exe?**
 - Why it matters: the converter never runs Fallout 4; the launcher note's "check its version" should check data (VP Corrections). Fallout London failed on a wrong Fallout4.esm size (**verified**, GameStar).
@@ -323,11 +326,11 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Status: answered (wave 2): 65,536 ObjectIDs, 256 slots; only the in-game check remains [TC W2-5].
 
 **VM-26. Does Starfield have a precombine/previs equivalent our build could produce?**
-- Why it matters: decides between writing our own merged meshes or finding an engine feature. FO4 relies on precombines (`SCOL\CM*.NIF`). Wave 2: FO4's CELL has `VISI`, `PCMB`, `XPRI`, `XCRI`; Starfield's CELL has none of them (**verified** schema, xEdit sf1.pas). An `OVIS` "Object Visibility Manager" record exists, purpose undocumented (**verified**). CE2 has no FO4-style bake, so there is nothing to produce and nothing to break (**supported hypothesis**, TC W2-2).
+- Why it matters: decides between writing our own merged meshes or finding an engine feature. FO4 relies on precombines (`SCOL\CM*.NIF`). Wave 2: FO4's CELL has `VISI`, `PCMB`, `XPRI`, `XCRI`; Starfield's CELL has none of them (**verified** schema, xEdit sf1.pas). An `OVIS` "Object Visibility Manager" record exists, purpose undocumented (**verified**). ~~CE2 has no FO4-style bake, so there is nothing to produce and nothing to break (**supported hypothesis**, TC W2-2).~~ [Correction 2026-10-19: that hypothesis is weakened by interiors.md T9 (both CK string dumps, PC job 18): the FO4 CK has `-GeneratePreCombined` and `-GeneratePreVisData`; the Starfield CK has neither switch but has the GUI actions "Generate Precombined Visibility for Current Cell" and "... All Loaded Cells". Starfield may have a precombined-visibility bake run from the CK GUI; what it writes and whether it matters for performance is **unresolved**. The Starfield CK also has `-GenerateCellAndRefCounts` (possibly per-cell reference counts; **unresolved**).]
 - Options: accept the cost and measure (VM-27); merge static geometry per cell only if frame time demands it; reduce clutter.
 - Answer by: frame-time measurement on a dense cell (VM-27); optionally read what vanilla `OVIS` records hold (offline). (also: versions-performance Q6, starfield-toolchain Q7)
 - Blocks: All interiors, World.
-- Status: answered (wave 2): no precombine/previs equivalent to produce (supported hypothesis); downgraded to a frame-time measurement [TC W2-2, VP W2-2].
+- Status: ~~answered (wave 2): no precombine/previs equivalent to produce (supported hypothesis); downgraded to a frame-time measurement~~ [TC W2-2, VP W2-2]. [Correction 2026-10-19: narrowed, open: no FO4-style precombine/previs records (verified schema), but the Starfield CK's "Generate Precombined Visibility" GUI actions may be the equivalent; left: what they write, whether it matters for performance, and what `-GenerateCellAndRefCounts` does (interiors.md T9), plus the frame-time measurement (VM-27).]
 
 **VM-27. What per-cell reference and draw-call budget keeps interiors at 60 fps on a minimum-spec GPU?**
 - Why it matters: we place references one by one. Wave 2: Starfield's renderer builds draw arguments on the GPU and issues ExecuteIndirect (**verified**, vkd3d-proton PR 1694), so per-object CPU draw cost, the reason FO4 needed precombines, likely matters less; the cost of many references is likely in reference loading, scripts, Havok and streaming (**supported hypothesis**, VP W2-2). The game uses up to eight CPU cores; New Atlantis with many NPCs was the heaviest test scene (**verified**, DSOGaming). No source measures a dense modded cell.
@@ -472,10 +475,11 @@ Nothing here runs now; this is a list.
 - Which vanilla Fallout 4 archives are v7 and which v8, and whether 1.11.x (Anniversary) changed anything beyond
   next-gen (needs E1; the layout itself is answered, VP W2-1).
 - Which .esm files and records changed in Fallout 4 1.10.98x and 1.11.x (patch notes, depot listings, community diffs).
-- Fallout 4 runtime and data on GOG, Epic and Microsoft Store / Game Pass today.
+- Fallout 4 runtime and data on GOG, Epic and Microsoft Store / Game Pass today. [Update 2026-10-19: GOG ships only 1.10.163.0 (**verified**, gogdb.org via launcher.md revision 2); Epic and Microsoft Store / Game Pass still open.]
 - Starfield Steam depot IDs and whether older public builds are offered as beta branches.
 - Measured frame time, reference streaming cost and VRAM with our core loaded (no source measures a dense modded cell;
-  the precombine question and vanilla VRAM are answered, VP W2-2, TC W2-2).
+  ~~the precombine question and~~ vanilla VRAM ~~are~~ [Correction 2026-10-19: is] answered, VP W2-2, TC W2-2).
+- [Added 2026-10-19] What the Starfield CK's "Generate Precombined Visibility" GUI actions write and whether they matter for performance (VM-26, interiors.md T9).
 - Whether Starfield's engine loads a BA2 over 4 GiB (format allows it, VP W2-3).
 - What triggers the save-load `Plugins.txt` reset (DC W2-1).
 - Trainwreck's GitHub page and licence.

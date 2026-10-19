@@ -360,6 +360,12 @@ Each row quotes both sides. None is settled here.
       `-GenerateLips`".
     - NG section M: "lip, SEQ and precombine switches unresolved". TT experiment 1 and AP experiment 6 still plan the
       strings scan. PS-31 lists "drive the CK" without the switch name.
+    - [Added 2026-10-19] Precombines: wave 2's "no bake step" (TT-10, VM-26 marked answered, AP-48, WP-33) conflicts
+      with Int T9: the Starfield CK has the GUI actions "Generate Precombined Visibility for Current Cell" and "... All
+      Loaded Cells" (no precombine or previs switch). Those files now carry corrections; VM-26 is open again; what the
+      bake writes and whether it matters for performance is unresolved. `-MockWorldSpaceLOD` waited on job 20, which
+      settled it: it exists in the Starfield CK (verified, job 20), usage "-MockWorldSpaceLOD:(ESMFilename)
+      (WorldSpaceName0) [WorldSpaceName1] [...]".
 
 16. **Update check timing in the launcher.**
     - Lau D7: "update check only on the player's click". Lau A5: "check at start only".
@@ -408,7 +414,9 @@ Not ranked, because they close nothing until someone answers: **draft letters to
 REL-26, REL-30, REL-31, REL-32, REL-57, REL-58, AP-30, AP-50, Lau D6, Lau L1, MG-03, NG-G2, NG-I1 and Int P3.
 
 Already done, so do not repeat: the CK strings scan for lip, SEQ, anim-info and compile switches (EM job 18). The
-open part is face-bake switches (AP experiment 6) and precombine strings (Int T9).
+open part is face-bake switches (AP experiment 6) and precombine strings (Int T9). [Update 2026-10-19: job 20 found
+`-ExportFaceGenData` in both CKs (bake or export only is unresolved) and no precombine or previs switch in the
+Starfield CK, only the GUI actions (Int T9).]
 
 ## Owner decisions by phase
 

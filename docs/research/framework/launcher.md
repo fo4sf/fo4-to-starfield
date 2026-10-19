@@ -372,7 +372,8 @@ Starfield total conversion and no takedown of one (unresolved).
 
 Small, offline, testable items the research points at; none needs the owner's word. Listed here so the next pass
 picks them up:
-1. Code hash per step from the import closure instead of all of `src/fo4sf` (B7).
+1. Code hash per step from the import closure instead of all of `src/fo4sf` (B7). Done for steps without a `code`
+   list (bee6b2e); tool binary hashes and a per-step output version still to add.
 2. `snapshot` records Documents\My Games\Starfield\Data read-only and warns on overlaps (T8). Detect half done
    (368da05: loose files reported with `--my-games`).
 3. `detect` refuses on `sTestFile` entries (done, 368da05), reads Starfield.ccc and ContentCatalog.txt, and reports MO2 or Vortex
@@ -382,6 +383,7 @@ picks them up:
 5. A known-good Starfield runtime table next to `known_sources.json` (T1).
 6. A MAST-list test that refuses `BlueprintShips-Starfield.esm` as a master (T7).
 7. Work-folder rules and a longest-path report in `detect` (A6).
+9. BA2 v7 and v8 accepted by the reader; detect lists archive versions and duplicate names (done, 1825141).
 8. The determinism CI variations (B5) on the synthetic recipe.
 
 ## Not covered yet (next research wave)

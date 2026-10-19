@@ -386,17 +386,24 @@ labels.
   Relevant to Q29 if we host on vanilla Earth.
 
 ### W2-3. LOD for our worlds (extends Q15, Q16 and "Performance")
-- ~~**verified**~~ [Correction 2026-10-19: **unresolved (sources conflict)**: web guides say the switch exists; a
+- ~~**verified**~~ [Correction 2026-10-19: ~~**unresolved (sources conflict)**~~: web guides say the switch exists; ~~a
   job 18 string dump of the installed CreationKit.exe does not show it (a wide string the filter missed, or absent in
-  the current CK); it does show the **verified** LOD-related switches `-GenerateMeshLODAssociations`,
+  the current CK)~~ [Correction 2026-10-19: that dump printed only strings matching its default patterns (Generate,
+  Compile, Lip, AnimInfo, -Convert, -Build), so it had filtered the switch out; job 20 found it: **verified (Starfield
+  CK, job 20)**, not in the FO4 CK, usage "-MockWorldSpaceLOD:(ESMFilename) (WorldSpaceName0) [WorldSpaceName1]
+  [...]" (an ESM filename)]; the job 18 dump does show the **verified** LOD-related switches `-GenerateMeshLODAssociations`,
   `-GenerateMeshLODFailureReport`, `-GenerateMeshLODStats`. See starfield-toolchain.md W2-1.]: object LOD via `CreationKit.exe -MockWorldSpaceLOD:<Plugin> <Worldspace,...>`, objects chosen by layers
   with the LOD box; output in `Data\Meshes\Terrain\<Worldspace>\` and `Data\LODSettings\`; cells can fail in multi-cell
   worldspaces ([modding.wiki](https://modding.wiki/en/starfield/developers/tutorials/creatingworldspacelod)). Full detail in
   starfield-toolchain.md W2-1. A Reddit snippet (not read in full) ties this LOD run to the **local map** rendering
   ([r/starfieldmods](https://www.reddit.com/r/starfieldmods/comments/1ntdwu9/starfields_local_maps/), **supported
   hypothesis**).
-- **supported hypothesis**: Starfield has no precombine/previs step (no such CELL fields in xEdit's SF1 definitions), so
-  the world plan needs object LOD + terrain BTD, not a previs bake.
+- ~~**supported hypothesis**: Starfield has no precombine/previs step (no such CELL fields in xEdit's SF1 definitions), so
+  the world plan needs object LOD + terrain BTD, not a previs bake.~~ [Correction 2026-10-19: weakened: no such CELL
+  fields, but the Starfield CK has the GUI actions "Generate Precombined Visibility for Current Cell" and "... All
+  Loaded Cells" (interiors.md T9; no precombine or previs switch, job 20). Whether the world plan needs that bake, what
+  it writes and whether it matters for performance is **unresolved**; `-GenerateCellAndRefCounts` (possibly per-cell
+  reference counts) is **unresolved**.]
 
 ### W2-4. How Shattered Space's landmass was built (Q5) — still **unresolved** on method
 - **verified**: Emil Pagliarulo (design director): "We knew very early on that we needed to add an explorable landmass with

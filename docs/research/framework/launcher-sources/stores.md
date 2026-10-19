@@ -25,7 +25,7 @@ No sizes or hashes here come from memory. The only numbers quoted are ones print
 | zerratar/fallout4-downgrader | 9123b12e | 2025-08-13 |
 
 Paths below are relative to each repo. The clones are in
-`/tmp/claude-0/-home-claude-fo4-to-starfield/981f8bb8-d11c-56b1-a518-2b9ee32bceac/scratchpad/src_stores/`.
+a session scratch folder (not kept).
 
 ---
 
@@ -60,7 +60,7 @@ Paths below are relative to each repo. The clones are in
 - **verified:** xEdit/BSArch always *write* FO4 archives as v1 (`wbBSArchive.pas:1600-1609`). It has no option to write v7 or v8.
 - **unresolved: which game build writes v7 and which writes v8, and what the two numbers mean.** No source I read explains it. OpenMW only renamed `Fallout4NG/NG2` to `..._v7/_v8` (commit a5d93699, "Clarify Fallout 4 next gen update BA2 version naming", read via git.cijber.net mirror). The BAMgr FO4NGE page (nexusmods.com/fallout4/mods/81640) says it "supports the newly added Ba2 format (Versions 7 and 8)". It also says its spec comes from the author's own analysis "and may contain mistakes".
 - **unresolved: whether the pre-NG exe (1.10.163) loads v7/v8 archives.** The Fallout 4 Downgrader restores the 1.10.163 content depots and not just the exe: `src/FO4Down/DepotManager.cs:18-26` lists depots 377161 and 377163 ("Fallout Content a/b") with pinned manifests. That fits the old exe being unable to use NG data, but it is not proof. The tool also has a delta-"patch" mode that rewrites only `Fallout4.exe`, the launcher and `steam_api64.dll` (`FO4Downgrader.cs:233-252`).
-- **verified (our repo):** our own reader at `src/fo4sf/ba2.py:58-60` uses `extra = {1: 0, 2: 8, 3: 12}.get(version)` and **raises on versions 7 and 8**. If a user's FO4 is NG/AE (Steam today, Epic, Xbox), the launcher will fail on their `Fallout4 - *.ba2` until 7 and 8 are added to the zero-extra group.
+- **verified (our repo):** our own reader at `src/fo4sf/ba2.py:58-60` (fixed since in 1825141) uses `extra = {1: 0, 2: 8, 3: 12}.get(version)` and **raises on versions 7 and 8**. If a user's FO4 is NG/AE (Steam today, Epic, Xbox), the launcher will fail on their `Fallout4 - *.ba2` until 7 and 8 are added to the zero-extra group.
 
 ### 1.3 Per-file records (the same for all versions)
 
@@ -146,7 +146,7 @@ Name table: entries of u16 length + bytes, written with `/` by Archive2 (`:1499`
 - **verified: Plugins.txt is `%LOCALAPPDATA%\Starfield\Plugins.txt` for both Steam and Game Pass.** There is no `Starfield MS` variant:
   - libloadorder `game_settings.rs:402` (`GameId::Starfield => Some("Starfield")`, no store switch)
   - Vortex `common.ts:7-11` and `util.ts:669-673` (`resolvePluginsFilePath` always returns that path)
-  - Nexus guide forums.nexusmods.com/topic/13459379 (Game Pass, 2023-12-16): "%LOCALAPPDATA%\Starfield" (the guide spells out the user folder)
+  - Nexus guide forums.nexusmods.com/topic/13459379 (Game Pass, 2023-12-16): "%USERPROFILE%\AppData\Local\Starfield" (reworded)
 - **verified: My Games is `Documents\My Games\Starfield`** for both stores (libloadorder `:459-486`; MO2 `gamestarfield.cpp:64-68`).
 - **verified: Starfield DLC on Game Pass sits in sibling packages.** libloadorder `:559-570` adds `../../Old Mars/Content/Data` and `../../Shattered Space/Content/Data` on MS installs. On all stores it adds `My Games\Starfield\Data`.
 - **verified:** libloadorder `:819-830` says Starfield "(at least as of 1.12.32.0) only loads plugins from its additional directory if they're also present in plugins_directory". This matters for where we write.

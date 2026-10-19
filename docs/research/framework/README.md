@@ -70,7 +70,7 @@ engine-mechanics thread), [distribution-community](findings/distribution-communi
 3. **Most players own a different Fallout 4 than we pin, and our archive reader can't open it yet.** Steam is on
    1.11.240 (Aug 2026), we pin 1.10.163. The April 2024 next-gen update added BA2 header versions 7 and 8, which xEdit
    and OpenMW read with the v1 layout (**verified**, wave 2); `src/fo4sf/ba2.py` accepts 1 to 3 only. Small fix:
-   accept {1, 7, 8}. VM-01 to VM-03.
+   accept {1, 7, 8}; that fix is on launcher PR #394 (not merged). GOG ships only 1.10.163 (gogdb.org). VM-01 to VM-03.
 4. **Starfield's own Earth is a serious host.** It already has a 24 h day, the real Sun and Moon, and handmade overlays
    at real city coordinates; PNDT `EOVR` may add our overlays without overriding the planet's list (**supported
    hypothesis**). Three landings, not one worldspace. WP-01, WP-08, WP-14.
@@ -95,11 +95,13 @@ engine-mechanics thread), [distribution-community](findings/distribution-communi
   staff review with source; an AI-content tag is now required. Bethesda's own mod rules ban getting around add-on
   purchases, so the converter should check DLC ownership before converting each DLC. REL.
 - **CK steps:** ~~LOD has a command line (`CreationKit.exe -MockWorldSpaceLOD:<plugin> <worldspaces>`, **verified**)~~
-  [Correction 2026-10-19: web guides name `-MockWorldSpaceLOD`, but a string dump of the installed Starfield CK (PC job
-  18) does not show it; **unresolved**. Verified CK switches include `-GenerateMeshLOD*`, `-CompileFaceFXAnims` and
+  [Settled 2026-10-19 by PC job 20: `-MockWorldSpaceLOD:(ESMFilename) (WorldSpaceName0) [...]` exists in the Starfield
+  CK (**verified**). Also there: `-ExportFaceGenData`, `-RunValidationSuite`, `-ExportESM`; no precombine switch. Verified CK switches include `-GenerateMeshLOD*`, `-CompileFaceFXAnims` and
   `-GenerateSEQ`; lips go through `-CompileFaceFXAnims` plus `Tools\LipGenerator\LipGenerator.exe`; no CK compiles
   scripts (PapyrusCompiler.exe does, headless)];
-  Starfield cells carry no precombine or previs fields (**supported hypothesis**: no bake step). Named NPC faces are
+  Starfield cells carry no precombine or previs fields, ~~(**supported hypothesis**: no bake step)~~ [Correction: the
+  Starfield CK has GUI actions "Generate Precombined Visibility" for a cell or all loaded cells, so a bake may exist;
+  **unresolved**, interiors.md T9]. Named NPC faces are
   pre-baked per form ID by two CK bakes. TT, AP, PS.
 - **Limits (verified):** medium masters hold 65,536 new records, with 256 slots. BA2 offsets are 64-bit; whether Starfield
   loads an archive over 4 GiB is still open. VM-23 to VM-28.
@@ -131,6 +133,13 @@ engine-mechanics thread), [distribution-community](findings/distribution-communi
   but has no RELA group; Address Library supports 1.16.244; the Carbon UI licence needs its author's word; new precedent
   BACUP, a GPL-3 Creation Engine record and asset converter. A read-only PC job (CK command-line switches for lip
   generation, script compiling, animation data) is queued; its answer settles PS-08, AP-40 and TT CK-only steps.
+- **Lip-sync inputs (PC job 21, verified):** Starfield ships 278,582 per-line `.ffxanim` files and no `.facefx` files;
+  LipGenerator.exe needs `actor.facefx` and `actoranalysis.facefx` per face rig, which are not in the shipped data.
+  Where they come from is the open lip-sync question (PS-08, AP-40, TT-08).
+- **Bethesda's own guideline (newgame.md M, verbatim):** help.bethesda.net 51731 bans uploading mods with assets from
+  other Bethesda games; building on the player's PC is neither covered nor approved; Creations is ruled out. REL.
+- **Sustenance risk (newgame.md NG-M1):** sustenance is gated on MQ101Debug, and our start stops MQ00, possibly before
+  it sets that; checkable offline.
 - **Saves (newgame.md L):** the Creations load-order prompt with Save preselected silently switches our plugins off on
   old saves (verified on the owner's PC). Touches VM-14 and REL-51.
 - **Map markers (PR #399, map-markers.md on its branch):** FO4 markers carry a 66-icon Type enum; Starfield's Type is a

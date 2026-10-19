@@ -15,11 +15,18 @@ research/next-phase/testing-automation.md. Labels: **verified**,
 - The toolchain is alive and tracks the game. Starfield 1.16.244 (11 June 2026) is still current; SFSE 0.2.21 shipped
   the same day; Mutagen ships weekly; Spriggit has a Starfield package. The weak spot is lip sync (FaceFX), a CK step
   with no documented batch path. Wave 2: ~~object LOD has a CK command-line switch (`-MockWorldSpaceLOD`, ST W2-1)~~
-  [Correction 2026-10-19: whether `-MockWorldSpaceLOD` exists is **unresolved (sources conflict)**: web guides say it
-  does, but a string dump of the installed CreationKit.exe (job 18) does not show it; the dump does show
+  [Correction 2026-10-19: ~~whether `-MockWorldSpaceLOD` exists is **unresolved (sources conflict)**~~: web guides say it
+  does, ~~but a string dump of the installed CreationKit.exe (job 18) does not show it~~ [Correction 2026-10-19: the
+  job 18 dump printed only strings matching its default patterns (Generate, Compile, Lip, AnimInfo, -Convert, -Build),
+  so it had filtered the switch out; job 20 (read-only, patterns Mock, WorldSpaceLOD and "Should be -") found it:
+  `-MockWorldSpaceLOD` is **verified (Starfield CK, job 20)**, not in the FO4 CK, usage
+  "-MockWorldSpaceLOD:(ESMFilename) (WorldSpaceName0) [WorldSpaceName1] [...]"]; the dump does show
   `-GenerateMeshLOD*` switches (**verified**). Lip sync: the Starfield CK has `-CompileFaceFXAnims` plus
   `Tools\LipGenerator\LipGenerator.exe` (**verified**, job 18).], and
-  CE2 has no precombine/previs records at all (ST W2-2), so there is no bake step to replicate.
+  CE2 has no precombine/previs records at all (ST W2-2), ~~so there is no bake step to replicate~~ [Correction
+  2026-10-19: but the Starfield CK has the GUI actions "Generate Precombined Visibility for Current Cell" and "... All
+  Loaded Cells" (interiors.md T9, job 18), so a precombined-visibility bake from the CK GUI may exist; what it writes
+  and whether it matters for performance is **unresolved**].
 - For in-game automation we are ahead of every public total conversion; they test with people. Where the ecosystem is
   ahead of us: SFSE crash loggers with crash signatures, Spriggit record diffs, Starfield's own `Debug` test functions,
   Skywind's bug lifecycle, and a repeatable PresentMon performance protocol.
@@ -54,14 +61,16 @@ research/next-phase/testing-automation.md. Labels: **verified**,
 | The repo's BA2 reader accepts header versions 1 to 3 only. | verified (repo) | src/fo4sf/ba2.py:59 (VP) |
 | Medium master: ObjectIDs 0x0000 to 0xFFFF (at most 65,536), 256 medium slots; the MO2 page's "0xFF" is the slot count. Light: mask `$FFF`. | verified (xEdit source) | ST W2-5, wbImplementation.pas 5219, 2464-2468; wbInterface.pas 22600 |
 | Update-flagged plugins cannot hold new records (override-only). | verified (xEdit source) | ST W2-5 |
-| The CK builds object LOD from the command line: `CreationKit.exe -MockWorldSpaceLOD:<Plugin>.esp <Worldspace>,...`; objects chosen by the layer's LOD checkbox; some cells may fail in multi-cell worldspaces. | ~~verified~~ [Correction 2026-10-19: **unresolved (sources conflict)**: web guides say it exists; a keyword-filtered string dump of the installed CreationKit.exe (job 18, `D:\Modding\research\ck_switches_1.txt`) does not show it, though it does show other "WorldSpace" strings; it may be a wide string the filter missed, or absent in the current CK] | ST W2-1, [modding.wiki](https://modding.wiki/en/starfield/developers/tutorials/creatingworldspacelod), [forum 13497519](https://forums.nexusmods.com/topic/13497519-how-to-create-lod/) |
+| The CK builds object LOD from the command line: `CreationKit.exe -MockWorldSpaceLOD:<Plugin>.esp <Worldspace>,...`; objects chosen by the layer's LOD checkbox; some cells may fail in multi-cell worldspaces. | ~~verified~~ [Correction 2026-10-19: ~~**unresolved (sources conflict)**~~: web guides say it exists; ~~a keyword-filtered string dump of the installed CreationKit.exe (job 18, `D:\Modding\research\ck_switches_1.txt`) does not show it, though it does show other "WorldSpace" strings; it may be a wide string the filter missed, or absent in the current CK~~] [Correction 2026-10-19: **verified (Starfield CK, job 20)**: the job 18 dump printed only strings matching its default patterns (Generate, Compile, Lip, AnimInfo, -Convert, -Build), so it had filtered the switch out (the other "WorldSpace" strings appeared only because they also contain "Generate"); job 20 (read-only, patterns Mock, WorldSpaceLOD and "Should be -") shows it in the Starfield CK, not in the FO4 CK, usage "-MockWorldSpaceLOD:(ESMFilename) (WorldSpaceName0) [WorldSpaceName1] [...]" (an ESM filename)] | ST W2-1, job 20, [modding.wiki](https://modding.wiki/en/starfield/developers/tutorials/creatingworldspacelod), [forum 13497519](https://forums.nexusmods.com/topic/13497519-how-to-create-lod/) |
 | LOD membership is plugin data: LAYR `LODB` (Default / Aggregate / No LODs), "Has Distant LOD" / "Is Full LOD" flags, `BGSLodOwner_Component`. | verified (schema) | ST W2-1, sf1.pas 13330-13339 |
 | [Added 2026-10-19] Starfield CreationKit.exe LOD-related switches in the string dump: `-GenerateMeshLODAssociations`, `-GenerateMeshLODFailureReport`, `-GenerateMeshLODStats`. Strings only, never run. | verified | PC string dump, job 18 (`D:\Modding\research\ck_switches_1.txt`) |
 | [Added 2026-10-19] Starfield CK has no `-GenerateLips`; its lip path is `-CompileFaceFXAnims` plus `Tools\LipGenerator\LipGenerator.exe` (job 19 queued for LipGenerator's usage text). The FO4 CK has `-GenerateLips` and `-GenerateSingleLip`. Neither CK has a script-compile switch; `PapyrusCompiler.exe` does that, headless. | verified | job 18 |
 | [Added 2026-10-19] `-GenerateSEQ` exists in the Starfield CK. | verified | job 18 |
+| [Added 2026-10-19] Starfield CK switches: `-CheckInPlugin`, `-DepersistRefs`, "-ExportESM:(ESMFilename) (output folder) [raw] [--progress]", "-ExportFaceGenData:(ESMFilename) (TESNPCExportFaceDataMode) [Platform]", `-ImportScalingData`, "-RunValidationSuite:(ESMFilename) (ValidationSuiteName)[:[TestName1],...]", `-SaveDefaultPlugin`; still no precombined or previs switch (only the GUI actions). FO4 CK: "-ExportFaceGenData:(ESMFilename) (XB1\|X64\|PS4\|W32)", `-GeneratePreCombined`, `-GeneratePreVisData`, `-GenerateStaticCollections`, `-MapInfo`, "-MapMaker:(ESMFilename) (Worldspace\|Interior)", `-UpdateModelData`, "-GenerateSingleLip:"WAVFilePath" "Text"". Strings only, never run. | verified | PC string read, job 20 |
+| [Added 2026-10-19] Starfield's archives ship 0 `.facefx` files and 278,582 per-line `.ffxanim` lip files; LipGenerator.exe's required `actor.facefx` and `actoranalysis.facefx` inputs are not in the shipped data (where they come from is unresolved). | verified | job 21 |
 | Terrain edits reach the game only via an exported `.btd`; our pipeline already writes BTD. | verified | ST W2-1, [Steam guide 3385012985](https://steamcommunity.com/sharedfiles/filedetails/?id=3385012985) |
 | xLODGen/DynDoLOD do not list Starfield. | verified | [dyndolod.info](https://dyndolod.info/Help/xLODGen) |
-| Starfield CELL has no `VISI`/`PCMB`/`XPRI`/`XCRI` (FO4's previs/precombine subrecords); an `OVIS` record of unknown purpose exists. No precombine bake in CE2 is a supported hypothesis. | verified (schema); bake absence supported hypothesis | ST W2-2 |
+| Starfield CELL has no `VISI`/`PCMB`/`XPRI`/`XCRI` (FO4's previs/precombine subrecords); an `OVIS` record of unknown purpose exists. ~~No precombine bake in CE2 is a supported hypothesis.~~ [Correction 2026-10-19: weakened: the FO4 CK has `-GeneratePreCombined` and `-GeneratePreVisData`; the Starfield CK has neither switch but has the GUI actions "Generate Precombined Visibility for Current Cell" and "... All Loaded Cells", so it may have a precombined-visibility bake run from the CK GUI; what it writes and whether it matters for performance is unresolved. It also has `-GenerateCellAndRefCounts` (possibly per-cell reference counts; unresolved).] | verified (schema); ~~bake absence supported hypothesis~~ [Correction 2026-10-19: bake **unresolved**] | ST W2-2; interiors.md T9 (job 18) |
 | Fallout 4 next-gen BA2s are header versions 7 and 8; xEdit and OpenMW read them with the v1 layout; xEdit writes FO4 v1. | verified (versions); same layout is supported hypothesis | VP W2-1, [Nexus FO4 article 5844](https://www.nexusmods.com/fallout4/articles/5844), [OpenMW MR 4055](https://gitlab.com/OpenMW/openmw/-/merge_requests/4055) |
 | BA2 file-table and per-file offsets are 64-bit; the format does not stop at 4 GiB (engine limit for Starfield unresolved). | verified (format) | ST W2-6, VP W2-3, wbBSArchive.pas 54, 75 |
 | xEdit tool modes include `checkforerrors`, `checkforitm`, `checkfordr`: unattended, never save, exit code = error count capped at 127. Still a GUI window, not headless; full CLI automation declined by the xEdit team. | verified (xEdit source) | QA W2-1, [What's New](https://tes5edit.github.io/docs/18-whatsnew.html), [issue 655](https://github.com/TES5Edit/TES5Edit/issues/655) |
@@ -92,7 +101,7 @@ research/next-phase/testing-automation.md. Labels: **verified**,
 | FaceFX via CK GUI per plugin | Documented lip sync | Slow; manual; about 123k lines | starfieldwiki, [Nexus guide 12576](https://nexusmods.com/starfield/mods/12576) | verified |
 | FaceFX by a CK switch | Batch lip sync | ~~Not known to exist~~ [Correction 2026-10-19: `-CompileFaceFXAnims` exists, plus `Tools\LipGenerator\LipGenerator.exe`; behaviour not yet run (job 19 queued for LipGenerator's usage text)] | job 18 | ~~unresolved~~ [Correction 2026-10-19: verified (switch and tool exist); batch behaviour unresolved] |
 | CK as oracle (load our ESM, scrape log) | Independent validation | Owner time per load | PLAN L2 (ST Q5) | proposal |
-| CK `-MockWorldSpaceLOD` object LOD on the player's PC | Object LOD with no hand work | Partial-cell failures in multi-cell worldspaces; `.esm` acceptance and 64-cell run time unknown | modding.wiki tutorial, forum 13497519 (ST W2-1) | ~~verified (switch)~~ [Correction 2026-10-19: **unresolved (sources conflict)**: not in the job 18 string dump of CreationKit.exe]; unattended use is supported hypothesis |
+| CK `-MockWorldSpaceLOD` object LOD on the player's PC | Object LOD with no hand work | Partial-cell failures in multi-cell worldspaces; `.esm` acceptance and 64-cell run time unknown | modding.wiki tutorial, forum 13497519 (ST W2-1) | ~~verified (switch)~~ [Correction 2026-10-19: ~~**unresolved (sources conflict)**: not in the job 18 string dump of CreationKit.exe~~] [Correction 2026-10-19: **verified (Starfield CK, job 20)**; the job 18 dump's filter patterns had filtered it out; usage "-MockWorldSpaceLOD:(ESMFilename) (WorldSpaceName0) [WorldSpaceName1] [...]"]; unattended use is supported hypothesis |
 | Converter writes LAYR `LODB` and object LOD flags | CK LOD run picks the right objects without layer clicks | We map FO4 LOD data to them | none | verified (schema); approach is proposal |
 | Own `.btd`/`.lod` writer | LOD without CK | No public object-LOD writer; terrain `.btd` we already write | none | unresolved (object LOD) |
 
@@ -224,7 +233,9 @@ research/next-phase/testing-automation.md. Labels: **verified**,
 - Blocks: Launcher, New game.
 - Status: narrowed (wave 2): v7/v8 are **verified** next-gen versions; xEdit and OpenMW read them with the v1 layout,
   so "only the version number changed" is a **supported hypothesis** and the fix is to accept `{1, 7, 8}` at
-  `ba2.py` line 59 with a synthetic v7/v8 fixture test. Left: which vanilla archives are 7 vs 8, and whether the
+  `ba2.py` line 59 with a synthetic v7/v8 fixture test. [Update 2026-10-19: fix on PR #394, not merged: draft PR #394
+  at 1825141 reads FO4 BA2 v7 and v8 with the v1 layout, with a synthetic test; detect lists archive versions and
+  duplicate archive names; 368da05 makes detect refuse sTestFile INIs and report loose files in My Games Data.] Left: which vanilla archives are 7 vs 8, and whether the
   Anniversary update changed anything beyond NG (PC probe). [VP W2-1]
 
 ### Creation Kit and CK-only steps
@@ -246,7 +257,10 @@ research/next-phase/testing-automation.md. Labels: **verified**,
   queued for LipGenerator's usage text]; one timed batch on PC.
   (also: ST Q18)
 - Blocks: People and story.
-- Status: open; narrowed 2026-10-19 (lip switch and tool exist, batch behaviour unproven).
+- Status: open; narrowed 2026-10-19 (lip switch and tool exist, batch behaviour unproven). [Update 2026-10-19, job 21
+  (**verified**): Starfield's archives ship 0 `.facefx` files and 278,582 per-line `.ffxanim` lip files;
+  LipGenerator.exe's required `actor.facefx` and `actoranalysis.facefx` inputs are not in the shipped data; where they
+  come from is **unresolved**, and that now gates any batch run.]
 
 **TT-09. How do we produce `.wem` audio without shipping Wwise?**
 - Why it matters: Starfield plays `.wem`; Wwise need is a **supported hypothesis** (general knowledge, not read).
@@ -264,13 +278,23 @@ research/next-phase/testing-automation.md. Labels: **verified**,
   probe (see TT-31). (also: ST Q7, ST Q15, VP Q5, VP Q6)
 - Blocks: World, All interiors.
 - Status: narrowed (wave 2): object LOD comes from CK `-MockWorldSpaceLOD:<Plugin>.esp <Worldspaces>` ~~(**verified**;
-  unattended use is a **supported hypothesis**)~~ [Correction 2026-10-19: **unresolved (sources conflict)**: web guides
-  say the switch exists; the job 18 string dump of the installed CreationKit.exe does not show it (a wide string the
-  filter missed, or absent in the current CK). Verified LOD-related switches: `-GenerateMeshLODAssociations`,
-  `-GenerateMeshLODFailureReport`, `-GenerateMeshLODStats`. First settle whether the switch exists: a wide-string
-  search of CreationKit.exe or running it on a test worldspace]; terrain goes through `.btd`, which we already write. Starfield CELL has
+  unattended use is a **supported hypothesis**)~~ [Correction 2026-10-19: ~~**unresolved (sources conflict)**~~: web guides
+  say the switch exists; ~~the job 18 string dump of the installed CreationKit.exe does not show it (a wide string the
+  filter missed, or absent in the current CK)~~ [Correction 2026-10-19: the job 18 dump printed only strings matching
+  its default patterns (Generate, Compile, Lip, AnimInfo, -Convert, -Build), so it could not show the switch either
+  way; the other "WorldSpace" strings appeared only because they also contain "Generate"]. Verified LOD-related switches: `-GenerateMeshLODAssociations`,
+  `-GenerateMeshLODFailureReport`, `-GenerateMeshLODStats`. First settle whether the switch exists: ~~a wide-string
+  search of CreationKit.exe or running it on a test worldspace~~ [Correction 2026-10-19: settled by job 20 (read-only,
+  patterns Mock, WorldSpaceLOD, "Should be -"): the switch is **verified (Starfield CK, job 20)**, not in the FO4 CK,
+  usage "-MockWorldSpaceLOD:(ESMFilename) (WorldSpaceName0) [WorldSpaceName1] [...]" (an ESM filename); unattended
+  use is still a **supported hypothesis**]]; terrain goes through `.btd`, which we already write. Starfield CELL has
   no precombine/previs subrecords (**verified**, schema), and the renderer is GPU-driven (ExecuteIndirect, **verified**),
-  so "no bake step to replicate" is a **supported hypothesis**. Left: run it on a 4-cell test worldspace, time it,
+  so ~~"no bake step to replicate" is a **supported hypothesis**~~ [Correction 2026-10-19: the "no bake step"
+  hypothesis is weakened: interiors.md T9 (both CK string dumps, job 18) found `-GeneratePreCombined` and
+  `-GeneratePreVisData` in the FO4 CK only, and the GUI actions "Generate Precombined Visibility for Current Cell" and
+  "... All Loaded Cells" in the Starfield CK. Starfield may have a precombined-visibility bake run from the CK GUI;
+  what it writes and whether it matters for performance is **unresolved**. The Starfield CK also has
+  `-GenerateCellAndRefCounts` (possibly per-cell reference counts; **unresolved**)]. Left: run it on a 4-cell test worldspace, time it,
   check `.esm` acceptance and partial-cell failures on 64 cells; measure frame time on a dense cell (TT-31). See TT-41.
   [ST W2-1, ST W2-2, VP W2-2]
 
@@ -329,6 +353,8 @@ research/next-phase/testing-automation.md. Labels: **verified**,
 - Blocks: all build work.
 - Status: narrowed (wave 2): Synthesis `main` (21 Aug 2026) also pins Mutagen 0.54.4 and creates Starfield profiles as
   masters (**verified**), a data point for staying on stable 0.54.4. [ST W2-4]
+- [Added 2026-10-19] The Starfield CK has "-ExportESM:(ESMFilename) (output folder) [raw] [--progress]" (**verified**,
+  job 20, never run): a possible reference output for our record writer; what it exports is **unresolved**.
 
 **TT-18. Which oracle reads our plugins if xEdit refuses them, and does xEdit Check for Errors run headless?**
 - Why it matters: xEdit refuses update and blueprint flags and is Discord-only.
@@ -343,6 +369,9 @@ research/next-phase/testing-automation.md. Labels: **verified**,
   opens, and the team declined full CLI automation. Using it as a build gate is a **supported hypothesis**; Wine on a
   display-less runner is untested. First SF1Edit start costs 4 to 5 GB RAM and over 10 minutes until cached. The
   oracle choice for update/blueprint-flagged files stays open. [QA W2-1]
+- [Added 2026-10-19] The Starfield CK has "-RunValidationSuite:(ESMFilename) (ValidationSuiteName)[:[TestName1],...]"
+  (**verified**, job 20, never run): a possible Bethesda-side validator for our ESM (and for navmesh or quest checks,
+  TT-11, TT-35); which suites and tests exist is **unresolved**.
 
 ### Plugin types and engine limits
 
@@ -549,7 +578,8 @@ research/next-phase/testing-automation.md. Labels: **verified**,
 
 **TT-41. Should the converter set LAYR `LODB` and object LOD flags itself so the CK LOD run needs no layer work?**
 - Why it matters: `-MockWorldSpaceLOD` picks objects by layer [Correction 2026-10-19: per web guides; whether the
-  switch exists is **unresolved (sources conflict)**, see TT-10]; LOD membership is plugin data (LAYR `LODB`, "Has Distant
+  switch exists is ~~**unresolved (sources conflict)**~~, see TT-10] [Correction 2026-10-19: the switch is **verified
+  (Starfield CK, job 20)**, see TT-10]; LOD membership is plugin data (LAYR `LODB`, "Has Distant
   LOD" / "Is Full LOD", `BGSLodOwner_Component`), so we can write it instead of asking the player to tick layers.
 - Options: converter writes layers and flags from FO4 LOD data; CK GUI layer ticking; no object LOD.
 - Answer by: offline (xEdit read of a vanilla overlay's layers) + PC probe of one LOD run. (also: ST W2 Q35)
@@ -595,7 +625,9 @@ All are recommendations, not decisions.
 
 Offline first:
 1. **Strings scan of CreationKit.exe** for FaceFX switches, like the navmesh scan. Narrows TT-08. (LOD switch and
-   precombine absence came from wave 2 sources, TT-10.)
+   precombine absence came from wave 2 sources, TT-10.) [Correction 2026-10-19: precombine absence is weakened (the
+   Starfield CK has "Generate Precombined Visibility" GUI actions, interiors.md T9), and `-MockWorldSpaceLOD` is
+   **verified (Starfield CK, job 20)**; see TT-10.]
 2. **Spriggit and Mutagen on current ESMs**: `serialize -u ErrorOnUnknown`, `standardize`, Mutagen round trip; time
    core64c; on Mutagen 0.54.4 and the current 0.55 alpha. Closes TT-15, TT-16, TT-17, informs TT-18.
 3. **Offline NAVM reachability checker prototype** on 3 converted cells. Half of TT-35.
@@ -616,7 +648,8 @@ PC read-only or single-launch probes:
    TT-21.
 9. **CK session**: load our ESM, run batch navmesh on 3 cells and a Pathing Test; ~~run `-MockWorldSpaceLOD` on a
    4-cell test worldspace (timed, `.esm` vs `.esp`).~~ [Correction 2026-10-19: first settle whether
-   `-MockWorldSpaceLOD` exists: a wide-string search of CreationKit.exe or running it on a test worldspace; only then
+   `-MockWorldSpaceLOD` exists: ~~a wide-string search of CreationKit.exe or running it on a test worldspace~~
+   [Correction 2026-10-19: settled, **verified (Starfield CK, job 20)**]; only then
    time it on a 4-cell test worldspace, `.esm` vs `.esp`.] Closes TT-07, TT-11, other half of TT-35, narrows TT-10, TT-41.
 10. **PresentMon baseline**: 4 passes on the Red Rocket walk on two builds, the 3-spot fixed probe (vanilla vs core vs
     core-with-LOD, VRAM and RAM), plus a 5-shot screenshot noise floor at one COC marker. Closes TT-31 (protocol),
@@ -630,7 +663,8 @@ PC read-only or single-launch probes:
 - Whether xEdit gate modes run under Wine on a display-less Linux runner (TT-18).
 - Trainwreck GitHub page and licence; sf-crash-logger's supported game runtimes on Windows (TT-23).
 - Starfield depot IDs and older public branches (TT-03).
-- Whether `-MockWorldSpaceLOD` [Correction 2026-10-19: exists at all (sources conflict), and whether it] accepts `.esm` and its run time on 64 cells (TT-10, TT-41).
+- Whether `-MockWorldSpaceLOD` [Correction 2026-10-19: ~~exists at all (sources conflict), and whether it~~] accepts `.esm` and its run time on 64 cells (TT-10, TT-41). [Correction 2026-10-19: existence settled, **verified (Starfield CK, job 20)**; its usage text names an "(ESMFilename)"; run time on 64 cells still open.]
+- [Added 2026-10-19] What the Starfield CK's "Generate Precombined Visibility" GUI actions write and whether they matter for performance; what `-GenerateCellAndRefCounts` does (TT-10; interiors.md T9).
 - Frame/CPU profilers usable with Creation Engine (Tracy-style); measured draw-call cost of a dense modded cell; VRAM
   with our core loaded (TT-31, TT-34).
 - Custom Command Framework vs Cassiopeia claims on SFSE custom Papyrus natives (ST section 3, not re-checked).

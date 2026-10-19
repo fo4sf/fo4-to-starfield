@@ -22,11 +22,18 @@ VP = findings/versions-performance.md, ST = findings/starfield-toolchain.md, WM 
   Space's landmass; whether the surface map fast travels between landings without the ship; how a coast looks where
   overlay sea meets planet ocean.
 - Wave 2: the PCM has two levers to keep random POIs out (exclusion-zone keyword, branch conditions); ~~the CK makes
-  object LOD headlessly (`-MockWorldSpaceLOD`)~~ [Correction 2026-10-19: whether the CK switch `-MockWorldSpaceLOD`
-  exists is **unresolved (sources conflict)**: web guides say it does, a job 18 string dump of the installed
-  CreationKit.exe does not show it; the dump does show the LOD-related `-GenerateMeshLOD*` switches (**verified**)];
-  Starfield has no precombine/previs records, so there is no bake to
-  replicate; the core must be a full master (a medium master holds at most 65,536 ObjectIDs).
+  object LOD headlessly (`-MockWorldSpaceLOD`)~~ [Correction 2026-10-19: ~~whether the CK switch `-MockWorldSpaceLOD`
+  exists is **unresolved (sources conflict)**~~: web guides say it does, ~~a job 18 string dump of the installed
+  CreationKit.exe does not show it~~ [Correction 2026-10-19: the job 18 dump printed only strings matching its default
+  patterns (Generate, Compile, Lip, AnimInfo, -Convert, -Build), so it had filtered the switch out; job 20 (read-only,
+  patterns Mock, WorldSpaceLOD and "Should be -") found it: `-MockWorldSpaceLOD` is **verified (Starfield CK, job
+  20)**, usage "-MockWorldSpaceLOD:(ESMFilename) (WorldSpaceName0) [WorldSpaceName1] [...]"; headless use is still
+  unproven]; the
+  dump does show the LOD-related `-GenerateMeshLOD*` switches (**verified**)];
+  Starfield has no precombine/previs records, ~~so there is no bake to
+  replicate~~ [Correction 2026-10-19: but its CK has the GUI actions "Generate Precombined Visibility for Current Cell"
+  and "... All Loaded Cells" (interiors.md T9), so a precombined-visibility bake may exist; what it writes and whether
+  it matters for performance is **unresolved**]; the core must be a full master (a medium master holds at most 65,536 ObjectIDs).
 - Three decisions that unlock the most: **WP-01 host planet**, **WP-14 real geography or compact layout**, **WP-27 the
   ship: fenced out or disguised**.
 
@@ -55,8 +62,8 @@ VP = findings/versions-performance.md, ST = findings/starfield-toolchain.md, WM 
 | Engine ceilings: 256 active BA2s (8-bit index; SFSE "BA2 Limit Fix" raises it), 253 full-master slots, soft instability near 100 to 120 plugins; full-res 64-cell core needs about 8.5 GiB | verified (as published claims) | VP engine limits |
 | BA2 offsets are 64-bit in the format, so the format does not stop at 4 GiB; whether Starfield's engine reads past 4 GiB is open, so keep splitting at 4,095 MB | verified (format) / unresolved (engine) | VP W2-3; ST W2-6 (wbBSArchive.pas 54, 75) |
 | A medium master holds ObjectIDs 0x0000-0xFFFF (at most 65,536) in 256 medium slots; Update-flagged files cannot hold new records. The 64-cell core (649,596 refs) is about 10x that, so world plugins must be full masters | verified (xEdit source); consequence is inference | ST W2-5 (wbImplementation.pas 5219, 2464-2468; wbInterface.pas 22600) |
-| Starfield CELL has no `VISI`/`PCMB`/`XPRI`/`XCRI` (FO4's previs and precombine fields); there is an `OVIS` "Object Visibility Manager" record of unknown purpose | verified schema | ST W2-2 (sf1.pas 15514; fo4.pas 5988-6088) |
-| The CK makes object LOD for a plugin worldspace: `CreationKit.exe -MockWorldSpaceLOD:<Plugin>.esp <Worldspace,...>`; objects chosen by layers with the LOD box; output in `Data\Meshes\Terrain\<Worldspace>\` and `Data\LODSettings\`; cells may fail in multi-cell worldspaces. LAYR `LODB` and base-object LOD flags are plugin data. xLODGen/DynDoLOD do not list Starfield | ~~verified (as described; schema)~~ [Correction 2026-10-19: switch **unresolved (sources conflict)**: web guides describe it; a keyword-filtered string dump of the installed CreationKit.exe (job 18, `D:\Modding\research\ck_switches_1.txt`) does not show it, though it shows other "WorldSpace" strings; it may be a wide string the filter missed, or absent in the current CK. Schema part verified. Verified LOD-related CK switches: `-GenerateMeshLODAssociations`, `-GenerateMeshLODFailureReport`, `-GenerateMeshLODStats`] | ST W2-1; WP W2-3; job 18 |
+| Starfield CELL has no `VISI`/`PCMB`/`XPRI`/`XCRI` (FO4's previs and precombine fields); there is an `OVIS` "Object Visibility Manager" record of unknown purpose [Added 2026-10-19: the FO4 CK has `-GeneratePreCombined` and `-GeneratePreVisData`; the Starfield CK has neither but has the GUI actions "Generate Precombined Visibility for Current Cell" and "... All Loaded Cells", and `-GenerateCellAndRefCounts` (possibly per-cell reference counts; unresolved); what the Starfield bake writes is unresolved] | verified schema; CK strings verified | ST W2-2 (sf1.pas 15514; fo4.pas 5988-6088); interiors.md T9 (job 18) |
+| The CK makes object LOD for a plugin worldspace: `CreationKit.exe -MockWorldSpaceLOD:<Plugin>.esp <Worldspace,...>`; objects chosen by layers with the LOD box; output in `Data\Meshes\Terrain\<Worldspace>\` and `Data\LODSettings\`; cells may fail in multi-cell worldspaces. LAYR `LODB` and base-object LOD flags are plugin data. xLODGen/DynDoLOD do not list Starfield | ~~verified (as described; schema)~~ [Correction 2026-10-19: switch ~~**unresolved (sources conflict)**~~: web guides describe it; ~~a keyword-filtered string dump of the installed CreationKit.exe (job 18, `D:\Modding\research\ck_switches_1.txt`) does not show it, though it shows other "WorldSpace" strings; it may be a wide string the filter missed, or absent in the current CK~~ [Correction 2026-10-19: the job 18 dump printed only strings matching its default patterns (Generate, Compile, Lip, AnimInfo, -Convert, -Build), so it had filtered the switch out; the other "WorldSpace" strings appeared only because they also contain "Generate"; job 20 (read-only, patterns Mock, WorldSpaceLOD and "Should be -") found it: switch **verified (Starfield CK, job 20)**, not in the FO4 CK, usage "-MockWorldSpaceLOD:(ESMFilename) (WorldSpaceName0) [WorldSpaceName1] [...]" (an ESM filename)]. Schema part verified. Verified LOD-related CK switches: `-GenerateMeshLODAssociations`, `-GenerateMeshLODFailureReport`, `-GenerateMeshLODStats`] | ST W2-1; WP W2-3; job 18 |
 | Terrain edits reach the game only through an exported `.btd` under `Data\Terrain\<Worldspace>.btd`; our pipeline already writes BTD directly | verified | ST W2-1 (Steam guide 3385012985) |
 | The CK's own overlay workflow (Overlays tab, "Unique") is used at no larger than 6 x 6 cells; cells named with `*` need a unique name or the POI is missing from the planet map; placing far from the central cell can crash the CK | verified as described | WP W2-2 (Steam guide 3266682879) |
 | Mods that override cells of a vanilla worldspace broke surface maps and POI scanner markers until a patch re-copied the sub-blocks (1.13.61) | verified (user report) | WP W2-2 (forum 13497605) |
@@ -135,10 +142,11 @@ Wave 2 (ST W2-1, WP W2-3):
 
 | Option | What it gives | Cost or risk | Label |
 |---|---|---|---|
-| CK `-MockWorldSpaceLOD` run on the player's PC | Object LOD from Bethesda's own tool, headless | Needs the CK; cells may fail in multi-cell worldspaces; stray purple meshes reported; run time for 64 cells and `.esm` acceptance unknown | ~~verified command~~ [Correction 2026-10-19: command **unresolved (sources conflict)**, not in the job 18 CK string dump]; headless batch use supported hypothesis |
+| CK `-MockWorldSpaceLOD` run on the player's PC | Object LOD from Bethesda's own tool, headless | Needs the CK; cells may fail in multi-cell worldspaces; stray purple meshes reported; run time for 64 cells and `.esm` acceptance unknown | ~~verified command~~ [Correction 2026-10-19: ~~command **unresolved (sources conflict)**, not in the job 18 CK string dump~~] [Correction 2026-10-19: command **verified (Starfield CK, job 20)**; the job 18 dump's filter patterns had filtered it out; usage "-MockWorldSpaceLOD:(ESMFilename) (WorldSpaceName0) [WorldSpaceName1] [...]"]; headless batch use supported hypothesis |
 | Converter writes LAYR `LODB` and base-object LOD flags so the CK run picks the right objects | No manual layer work | Which vanilla layers and flags to copy is unread | verified schema; approach supported hypothesis |
 | Our own LOD writer | No CK dependency | Format work | unresolved |
-| No previs bake; object LOD plus terrain BTD only | Nothing to produce for occlusion | Dense cells unmeasured | supported hypothesis (no precombine/previs CELL fields) |
+| No previs bake; object LOD plus terrain BTD only | Nothing to produce for occlusion | Dense cells unmeasured | ~~supported hypothesis (no precombine/previs CELL fields)~~ [Correction 2026-10-19: **unresolved**: no precombine/previs CELL fields, but the Starfield CK has "Generate Precombined Visibility" GUI actions (interiors.md T9)] |
+| [Added 2026-10-19] Run the CK's "Generate Precombined Visibility" GUI action on our cells | Whatever the engine's precombined-visibility bake gives | GUI only so far; what it writes and whether it matters for performance unknown | unresolved (interiors.md T9) |
 
 A Reddit snippet ties the LOD run to local-map rendering (supported hypothesis, not read in full); distant LOD for a
 PCM-placed POI was unsolved in the MikkoK141 thread.
@@ -158,7 +166,7 @@ PCM-placed POI was unsolved in the MikkoK141 thread.
 
 | Item | Number or option | Label | Source |
 |---|---|---|---|
-| Exterior refs per 64 cells | about 650k, placed one by one; Starfield has no precombine/previs records, and its renderer builds ExecuteIndirect arguments on the GPU, so the likely cost is CPU-side reference loading, scripts/havok and streaming, not draw submission | verified count and schema; cost location supported hypothesis (no measurement of a dense modded cell) | VP W2-2; ST W2-2 |
+| Exterior refs per 64 cells | about 650k, placed one by one; Starfield has no precombine/previs records [Correction 2026-10-19: but its CK has "Generate Precombined Visibility" GUI actions, effect unresolved, interiors.md T9], and its renderer builds ExecuteIndirect arguments on the GPU, so the likely cost is CPU-side reference loading, scripts/havok and streaming, not draw submission | verified count and schema; cost location supported hypothesis (no measurement of a dense modded cell) | VP W2-2; ST W2-2 |
 | Archive and plugin budget | 256 BA2s, 253 full slots, 256 medium slots, soft limit 100 to 120 plugins; world plugins full masters (a medium holds at most 65,536 ObjectIDs), mediums for interior clusters under 65k records; archives split at 4,095 MB until a > 4 GiB probe | verified (published; xEdit source) | VP; ST W2-5, W2-6 |
 | Traversal stutter | SFEF ships "Reduce Traversal Stutter"; vanilla pain point | supported hypothesis | VP |
 | Owner PC vs player floor | 7950X3D / 4070 Ti 12 GB / 32 GB vs 16 GB / GTX 1070 Ti; no data at the floor | verified | VP |
@@ -273,7 +281,7 @@ PCM-placed POI was unsolved in the MikkoK141 thread.
 
 **WP-16. Do we keep FO4's unplayable outer ring (114 vs 64 cells) as terrain, LOD, or a procedural Earth biome?**
 - Why: the horizon. WM section 1 has options A to C; new option D is an Earth biome (cheap). (WP Q16)
-- Wave 2: the terrain-or-LOD options now have a concrete tool (CK `-MockWorldSpaceLOD`, see WP-45). [Correction 2026-10-19: whether that switch exists is **unresolved (sources conflict)**; see WP-45.]
+- Wave 2: the terrain-or-LOD options now have a concrete tool (CK `-MockWorldSpaceLOD`, see WP-45). [Correction 2026-10-19: ~~whether that switch exists is **unresolved (sources conflict)**; see WP-45.~~] [Correction 2026-10-19: the switch is **verified (Starfield CK, job 20)**; see WP-45.]
 - Answer by: owner decision after WP-25 and WP-45. Blocks: World. Status: open.
 
 **WP-17. Does the host's `KNAM` "Terrain Max Height" or biome noise shape the merge ring around a 64-cell overlay?**
@@ -365,13 +373,18 @@ PCM-placed POI was unsolved in the MikkoK141 thread.
 
 **WP-33. Does an exterior with 650k+ individually placed refs stream without traversal stutter?**
 - Why: no precombines on our side; SFEF's stutter fix exists because vanilla stutters. (VP Q18)
-- Evidence (wave 2): Starfield has no precombine/previs records (**verified schema**), so there is no bake to replicate;
+- Evidence (wave 2): Starfield has no precombine/previs records (**verified schema**), ~~so there is no bake to replicate~~
+  [Correction 2026-10-19: the "no bake step" hypothesis is weakened: interiors.md T9 (both CK string dumps, PC job 18)
+  found `-GeneratePreCombined` and `-GeneratePreVisData` in the FO4 CK only, and the GUI actions "Generate Precombined
+  Visibility for Current Cell" and "... All Loaded Cells" in the Starfield CK; Starfield may have a
+  precombined-visibility bake run from the CK GUI; what it writes and whether it matters for performance is
+  **unresolved**; `-GenerateCellAndRefCounts` (possibly per-cell reference counts) is **unresolved**];
   its renderer builds ExecuteIndirect arguments on the GPU (**verified**), so per-object draw cost matters less; the
   remaining cost is likely CPU-side reference loading, scripts/havok and streaming (**supported hypothesis**; no source
   measures a dense modded cell).
 - Answer by: at 3 fixed spots (dense downtown, open wasteland, interior) log fps, frame time, VRAM and RAM (PresentMon +
   GPU counters), vanilla vs core vs core-with-LOD, plus a frame-time walk on the route runner; PC probe.
-- Blocks: World, Release. Status: narrowed (wave 2): reduced to "measure frame time on a dense cell" [ST W2-2; VP W2-2].
+- Blocks: World, Release. Status: narrowed (wave 2): reduced to "measure frame time on a dense cell" [ST W2-2; VP W2-2]. [Correction 2026-10-19: also open: what the Starfield CK's precombined-visibility bake writes and whether it helps (interiors.md T9).]
 
 **WP-34. How many BA2 archives and plugin slots will the full world use, and does it need the BA2 Limit Fix?**
 - Why: 256 archives and 253 full slots are shared with the player's mods. (VP Q17)
@@ -433,8 +446,8 @@ PCM-placed POI was unsolved in the MikkoK141 thread.
 **WP-45. Object LOD: run CK `-MockWorldSpaceLOD` on the player's PC, or write our own LOD; and should the converter set LAYR `LODB` and object LOD flags itself?**
 - Why: horizon and possibly the local map (supported hypothesis); xLODGen/DynDoLOD do not support Starfield. (ST Q15, ST new Q35)
 - Options: CK headless run with converter-set layers and flags; own LOD writer.
-- Answer by: [Correction 2026-10-19: first settle whether the switch exists: a wide-string search of CreationKit.exe or running it on a test worldspace; then] run it on a 4-cell test worldspace, time it, check `.esm` acceptance and partial-cell failures on 64 cells; xEdit read of a vanilla overlay's layers offline; PC probe.
-- Blocks: World, Launcher. Status: narrowed (wave 2): ~~CK command and output paths verified~~ [Correction 2026-10-19: CK command **unresolved (sources conflict)**: web guides say it exists, the job 18 string dump of CreationKit.exe does not show it; `-GenerateMeshLODAssociations`, `-GenerateMeshLODFailureReport` and `-GenerateMeshLODStats` are **verified** LOD-related CK switches]; headless use, run time and `.esm` support open [ST W2-1].
+- Answer by: [Correction 2026-10-19: first settle whether the switch exists: ~~a wide-string search of CreationKit.exe or running it on a test worldspace~~ [Correction 2026-10-19: settled: **verified (Starfield CK, job 20)**]; then] run it on a 4-cell test worldspace, time it, check `.esm` acceptance and partial-cell failures on 64 cells; xEdit read of a vanilla overlay's layers offline; PC probe.
+- Blocks: World, Launcher. Status: narrowed (wave 2): ~~CK command and output paths verified~~ [Correction 2026-10-19: CK command ~~**unresolved (sources conflict)**~~: web guides say it exists, ~~the job 18 string dump of CreationKit.exe does not show it~~ [Correction 2026-10-19: the job 18 dump printed only strings matching its default patterns (Generate, Compile, Lip, AnimInfo, -Convert, -Build), so it had filtered the switch out; the CK command is **verified (Starfield CK, job 20)**, not in the FO4 CK, usage "-MockWorldSpaceLOD:(ESMFilename) (WorldSpaceName0) [WorldSpaceName1] [...]" (an ESM filename)]; `-GenerateMeshLODAssociations`, `-GenerateMeshLODFailureReport` and `-GenerateMeshLODStats` are **verified** LOD-related CK switches]; headless use, run time and `.esm` support open [ST W2-1].
 
 ## Owner decisions in this area
 
@@ -474,7 +487,7 @@ PC read-only or terrain-only probes:
    WP-31, WP-33, WP-34 (count); feeds WP-32, WP-36, WP-42.
 10. **Install a cloned-planet plugin on an existing save.** Closes WP-02; feeds WP-07.
 11. **PCM test planet with both levers (exclusion-zone keyword, branch condition); land 10 times, count POIs.** Closes WP-13.
-12. **CK `-MockWorldSpaceLOD` on a 4-cell test worldspace, timed, `.esm` vs `.esp`, then on 64 cells.** Closes WP-45; feeds WP-16. [Correction 2026-10-19: first settle whether the switch exists: a wide-string search of CreationKit.exe or running it on a test worldspace.]
+12. **CK `-MockWorldSpaceLOD` on a 4-cell test worldspace, timed, `.esm` vs `.esp`, then on 64 cells.** Closes WP-45; feeds WP-16. [Correction 2026-10-19: first settle whether the switch exists: ~~a wide-string search of CreationKit.exe or running it on a test worldspace~~ [Correction 2026-10-19: settled, **verified (Starfield CK, job 20)**].]
 13. **Load a 5 GiB synthetic BA2.** Closes the 4 GiB part of WP-34.
 14. **Two terrain-only overlays, one named with underscores.** Closes WP-43.
 
@@ -484,7 +497,7 @@ PC read-only or terrain-only probes:
 - Nuka-World's lore or real-world location. Feeds WP-15.
 - Survey of Earth-editing Starfield mods. Feeds WP-06.
 - SFStarEditor and Pytheas comment threads on save safety. Feeds WP-02, WP-07.
-- Measured performance of a dense modded cell (no source; draw path and missing precombines now known). Feeds WP-33.
+- Measured performance of a dense modded cell (no source; draw path and missing precombines now known). Feeds WP-33. [Correction 2026-10-19: plus what the Starfield CK's "Generate Precombined Visibility" GUI actions write (interiors.md T9).]
 - Whether `PCM_OverlayExclusionZone` scales past 4,000 units. Feeds WP-13.
 - Whether Starfield's engine reads BA2 archives past 4 GiB. Feeds WP-34.
 - Starfield total conversions on Nexus (not researched). Feeds WP-38.

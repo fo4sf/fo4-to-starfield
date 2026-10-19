@@ -381,7 +381,10 @@ Wave 2 fills gaps this report left **unresolved**. Same labels. xEdit line numbe
   [Destructoid](https://www.destructoid.com/open-source-community-figures-out-problems-with-performance-in-starfield/).
 - **supported hypothesis**: rendering is largely **GPU-driven** (culling/argument generation on the GPU), so per-object
   CPU draw-call cost, the reason FO4 needed precombines, matters less. CE2 has no precombine/previs records at all
-  (starfield-toolchain.md W2-2). The remaining cost of 650k refs is likely on the CPU side in **reference loading,
+  (starfield-toolchain.md W2-2). [Correction 2026-10-19: but the Starfield CK has the GUI actions "Generate
+  Precombined Visibility for Current Cell" and "... All Loaded Cells" (interiors.md T9, job 18; no such switch, job 20),
+  so a precombined-visibility bake may exist; what it writes and whether it matters for performance is **unresolved**;
+  `-GenerateCellAndRefCounts` (possibly per-cell reference counts) is **unresolved**.] The remaining cost of 650k refs is likely on the CPU side in **reference loading,
   scripts/havok and streaming**, not draw submission. Unproven: no source measures a dense modded cell.
 - **verified**: Starfield "can take advantage of up to eight CPU cores"; the heaviest test scene was New Atlantis with
   "a lot of NPCs" ([DSOGaming, Sep 2023](https://www.dsogaming.com/pc-performance-analyses/starfield-pc-performance-analysis/)).

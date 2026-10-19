@@ -2,7 +2,7 @@
 
 Owner: the Vault 111 new game thread (Claude-cloud). Folded into the framework index by the Next-phase research
 framework thread; do not edit here from other threads, send changes through the coordinator.
-Status: revision 3, 19 Oct. All eight areas researched (notes 01 to 08); 07 re-read the rate-limited primary
+Status: revision 4, 19 Oct (section N: answers from Starfield's own scripts). All eight areas researched (notes 01 to 08); 07 re-read the rate-limited primary
 sources and corrects some earlier claims (section M). No game touched; web sources only,
 plus our own repo. Several key pages were rate limited (HTTP 429); claims resting on them are marked unresolved.
 Raw agent notes: research/framework/newgame-notes/ (one file per area).
@@ -322,6 +322,40 @@ New questions from it:
 - **NG-M8. Does our script look up any non-persistent reference with GetFormFromFile?** OFF (the new game writer
   already refuses a non-persistent exit anchor; check every property). n07 Q13.
 - **NG-M9. Could the SFSE CharGenMenu preset format carry an approximate FO4 face?** OFF, OWNER. n07 Q18.
+
+## N. Answered from Starfield's own scripts (PC read-only job 23, 19 Oct; start_read.py, commit c032759)
+Verified from the Creation Kit's script sources (C:\Modding\scratch\newgame_startread\report.txt, 5,033 files):
+- **MQ00 (NG-A3, M1).** Its only fragment, stage 10, is `MQ101Debug.SetValueInt(10)`, `Utility.Wait(0.1)`,
+  `MQ101.Start()`, with no condition in the script. How a value of 8 set at the main menu survives must sit in the
+  records (stage or quest conditions), not the scripts: still a Starfield.esm read.
+- **MQ101 stage 0** has 12 fragments, the debug and NG+ starts (item 00 the NG+ path to stage 2000, others the Kreet,
+  New Atlantis, Vectera and Lodge quick starts); the record's conditions pick one by MQ101Debug. The normal start
+  turns saving off (`SetInCharGen(True, False, False)`), disables controls in its own input layer, moves the player to
+  CharGenStartMarker, hides the HUD (`SetCharGenHUDMode(2)`) and swaps the outfit. Vanilla turns saving back on at
+  stage 105 and the HUD at 315. MQ101Script sets stage 400 when MQ101Debug is 1.
+- **MQ101 stage 9000, on stop (NG-M2).** Deletes MQ101's input layer, re-enables space travel, and when the player has
+  never entered the Unity: marks the Artifact acquired (StarbornTempleQuest SetPlayerAcquiredArtifact(0)) and starts
+  MQ_TutorialQuest_Misc04; always starts MQ101PostQuest, un-ghosts the Constellation cast and stops the MQ101
+  encounters. It does **not** turn saving back on or restore the HUD.
+- **Consequence for our build: our start left saving off and the HUD hidden.** Fixed offline on the branch (commit
+  13c03b8): right after the hold-off the quest calls `Game.SetInChargen(false, false, false)` and
+  `Game.SetCharGenHUDMode(0)`, with a contract test. Needs a restage before the first test.
+- **NG-C5 answered.** `RegisterForMenuOpenCloseEvent(string)` is on ScriptObject (native, protected, self only) and
+  the creator's menu is "ChargenMenu" (9 vanilla registrations), so we can wait for it to close instead of a timer.
+- **NG-L3 answered.** `OnPlayerLoadGame()` exists on Actor and on ReferenceAlias ("received immediately after the
+  player has loaded a save game"), so a player alias can run the save-version check of NG-L2.
+- **Cruise Mode (NG-B2).** CruiseModeTestSupportScript turns the Cruise tutorial on when MQ101 reaches 1310 with
+  MQ101Debug 8; otherwise it follows MQ101.
+- **Not in any script:** SustenanceAllowed (a record condition, 002EEA4D) and StartupQuest_DO (a record), so NG-M1 and
+  NG-A1 need the Starfield.esm read.
+
+New questions from it:
+- **NG-N1. Hold off what stage 9000 starts: MQ_TutorialQuest_Misc04 (tutorials) and MQ101PostQuest (Constellation
+  hellos)?** Stop() may run 9000 after our loop, so it needs ordering or a second pass. OFF, then GAME.
+- **NG-N2. Is "Artifact acquired" on stop harmful (the Starborn line, the Unity)?** OWNER, later GAME.
+- **NG-N3. Undo the outfit swap and RemoveAllItems of MQ101 stage 0 (miner spacesuit), with NG-K8?** GAME.
+- **NG-N4. A Starfield.esm read for the stage-0 item conditions, MQ00's conditions, 002EEA4D and StartupQuest_DO.**
+  The next read-only PC job (Mutagen). OFF tooling, PC.
 
 ## Owner decisions, gathered (for the roadmap talk)
 A5 MQ101 end state; A10 hub or fixed start; A11 selector design; B4 ship; B8 published vault-exit stage; C3 creator

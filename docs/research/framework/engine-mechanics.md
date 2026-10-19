@@ -355,3 +355,18 @@ Changed questions (labels and sources in the notes):
   generation can run unattended from the launcher. New key question (quests L3): where are the actor and actor
   analysis `.facefx` files for each face rig, and which fits each converted FO4 voice type? Next check: list `.facefx`
   names in Starfield's archives, then generate one Codsworth line and hear it in game.
+- **Jobs 20 and 21 (verified):** the full list of CK usage strings adds, for Starfield, `-ExportFaceGenData`
+  (face bake from the command line), `-RunValidationSuite:(ESM) (suite)[:tests]`, `-ExportESM`, `-DepersistRefs`,
+  `-CheckInPlugin`, `-ImportScalingData` and `-MockWorldSpaceLOD:(ESM) (worldspaces)` (Starfield only). FO4's CK adds
+  `-GeneratePreCombined`, `-GeneratePreVisData`, `-ExportDismemberData`, `-MapMaker`, `-UpdateModelData`. Starfield's
+  archives hold **no** `.facefx` actor files, only 278,582 per-line `.ffxanim`; so LipGenerator's actor inputs must
+  come from the CK's tools or source data (quests L3 stays key; next PC check searches the Starfield and CK folders and
+  ContentResources.zip). New questions: T-new2 can `-ExportFaceGenData` bake converted NPC faces headless (people and
+  story); T-new3 what validation suites `-RunValidationSuite` offers (tooling and testing).
+- **Job 22 (verified):** the actor files ship with the CK in `Starfield\Tools\FaceFX\` (StarfieldHumanMale,
+  StarfieldHumanFemale, GenesisDefault, GenesisDeadHead `.facefx`). So every LipGenerator input is on a player's PC
+  once the free CK is installed; next is one trial line from a synthetic WAV into a scratch folder.
+- **Job 24 (verified): unattended lip generation works.** A Windows text-to-speech WAV plus its text through
+  LipGenerator with the CK's `StarfieldHumanMale` and `GenesisDefault` actors wrote an `.ffxanim` in seconds with no
+  window (header `FACE`, "ZeniMax Media", `EFG`). Decision 10 is half answered: lip sync can run inside the launcher on
+  the player's PC. Open: compare with a vanilla `.ffxanim`, play one in game, pick actors for robots and creatures.

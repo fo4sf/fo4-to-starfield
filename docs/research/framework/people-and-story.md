@@ -145,7 +145,7 @@ morphs" is no longer the leading hypothesis for named NPCs.
 - Options: prompt only; full line (Full Dialogue Interface, https://www.nexusmods.com/fallout4/mods/1235); both in a custom SWF. (also: people-story Q1; engine-mechanics.md D3)
 - Answer by: one converted scene in game with each variant. Who: PC probe, then owner decision.
 - Blocks: New game, People and story.
-- Status: open.
+- Status: open. PC job 21 (**verified**): Starfield ships 278,582 per-line `.ffxanim` files and no `.facefx` files; LipGenerator.exe needs `actor.facefx` and `actoranalysis.facefx`, which are not in the shipped data (source unresolved). The Starfield CK lip path is `-CompileFaceFXAnims` plus LipGenerator.exe (job 18).
 
 **PS-02. Do we ship our own dialogue SWF, and how does the launcher detect conflicting UI mods?**
 - Why it matters: Enhanced Dialogue Interface and similar replace the same files (https://www.nexusmods.com/starfield/mods/871).

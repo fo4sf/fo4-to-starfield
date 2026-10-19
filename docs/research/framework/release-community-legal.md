@@ -41,6 +41,7 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 | SFSE repo: MIT covers only `sfse/PluginAPI.h`; "The remainder of the files are currently not under a permissive license"; "The MS Store/Gamepass version is not supported" | **verified** ([LICENSE](https://raw.githubusercontent.com/ianpatt/sfse/master/LICENSE), [README](https://github.com/ianpatt/sfse); legal-policy W2-C) |
 | Nexus guideline (dated 2026-09-29): "auto update" "does not qualify as crucial"; network-dependent tools need a staff email with source; mods must carry an AI-Generated Content or AI Assisted tag, and undisclosed generative AI use may be moderated | **verified** ([Nexus help 28](https://help.nexusmods.com/article/28-file-submission-guidelines); legal-policy W2-D) |
 | Bethesda's "Why was my Mod removed?": no "assets from other Bethesda games"; no mods that "circumvent the need to purchase add-on content". Scope is Bethesda.net and Creations, not GitHub or Nexus | **verified** ([Bethesda help 34803](https://help.bethesda.net/app/answers/detail/a_id/34803/~/why-was-my-mod-removed%3F); legal-policy W2-E) |
+| [Added 2026-10-19] Bethesda's guideline (help.bethesda.net article 51731) bans uploading mods with assets from other Bethesda games; building on the player's PC is neither covered nor approved; Creations is ruled out | **verified** (quoted verbatim in newgame.md section M) |
 | Wwise: free trial is non-commercial and limited to 200 media assets in SoundBanks; a free Non-Commercial licence is issued per registered project. Nothing found on redistributing `WwiseConsole` or on batch conversion counting toward the limit | **verified** ([Wwise pricing](https://www.audiokinetic.com/en/wwise/pricing/)); redistribution and limit **unresolved** (legal-policy W2-B) |
 | Languages on Steam: FO4 full audio EN, FR, IT, DE, ES, JA, text only PL, PT-BR, RU, Traditional Chinese; Starfield full audio EN, FR, DE, ES, JA, text only IT, PL, PT-BR, Simplified Chinese; Starfield CK English only. TTW requires both games "installed with all DLCs and in English" | **verified** (Steam store API; [TTW FAQ](https://thebestoftimes.moddinglinked.com/faq.html); distribution-community W2-4) |
 | Enderal is a free Steam "Community-Made Mod" that "requires that you own The Elder Scrolls V: Skyrim", installed and launched separately with separate saves; no Bethesda agreement text found | **verified** listing ([Steam 933480](https://store.steampowered.com/app/933480/Enderal_Forgotten_Stories/)); Bethesda sign-off **unresolved** (precedents W2-2) |
@@ -64,7 +65,7 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 | GitHub Releases only | Full control; source next to binary | Small audience; no virus-scan badge | settled first step | verified (owner) |
 | Nexus (Starfield page) | Main audience | Cross-game rules, internet-executable rule, scanner flags | FNV to FO4, Outfit Porter | verified precedents |
 | ModPub plus Discord | Fallback host | Smaller reach | TTW moved there ([ModPub](https://mod.pub/ttw/133/docs/25-faq-frequently-asked-questions)) | verified |
-| Bethesda Creations | Official channel | CK EULA bars ZeniMax-owned content there; useless without the local build | none | supported hypothesis: not a channel |
+| Bethesda Creations | Official channel | CK EULA bars ZeniMax-owned content there; useless without the local build | none | ~~supported hypothesis: not a channel~~ [Correction 2026-10-19: **verified**: not a channel; Bethesda's guideline (help.bethesda.net article 51731) rules Creations out (quoted in newgame.md section M)] |
 | GOG-style store listing | Mainstream reach, ownership gate | Needs a publisher deal | GAMMA on GOG since Dec 2025 ([GamingOnLinux](https://www.gamingonlinux.com/2025/12/gog-add-stalker-gamma-as-a-one-click-mod-install/page=1)); Fallout London on GOG | verified |
 | Free Steam "Community-Made Mod" app | Ownership check, separate install and saves | Needs two games owned, which a single-parent listing may not express; Steam's rules unread | Enderal (precedents W2-2) | verified precedent, fit unresolved |
 
@@ -173,6 +174,7 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 **REL-13. Do we ever publish anything on Bethesda Creations?**
 - Why it matters: the CK EULA bars ZeniMax-owned content there; a Creation of only our scripts is useless without the local build.
 - Who: owner decision. Blocks: Release. Status: open; supported hypothesis says no (legal-policy 8).
+- [Added 2026-10-19] Bethesda's guideline (help.bethesda.net article 51731) bans uploading mods with assets from other Bethesda games, and Creations is ruled out; building on the player's PC is neither covered nor approved (**verified**, quoted verbatim in newgame.md section M).
 
 **REL-14. Does the launcher check ownership beyond file hashes?**
 - Why it matters: CK EULA "distribute ... to users who have purchased the Product"; hashes also accept pirated copies.
@@ -275,6 +277,7 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 
 **REL-34. Where do we host after GitHub, and under which Nexus game page?**
 - Options: Nexus Starfield page; ModPub plus Discord as fallback (TTW); GitHub only. Who: owner, Nexus contact. Blocks: Release. Status: open. (also: precedents Q24)
+- [Added 2026-10-19] Wherever we host, Bethesda's guideline (help.bethesda.net article 51731) bans uploading mods with assets from other Bethesda games; building on the player's PC is neither covered nor approved; Creations is ruled out (**verified**, quoted verbatim in newgame.md section M).
 
 **REL-35. How does the release page answer "is this legal?" and avoid reading as a remaster or a "free FO4"?**
 - Options: first sentence of every page states "you must own both games; nothing is shipped; free"; a takedown contact. The Lemmy and Steam threads show remaster and takedown framing come first ([Lemmy](https://next.lemm.ee/post/12632388), [Steam](https://steamcommunity.com/app/377160/discussions/0/3059616584924796846/?l=greek)).

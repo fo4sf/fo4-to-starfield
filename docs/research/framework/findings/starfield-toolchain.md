@@ -83,7 +83,8 @@ needed them are marked **unresolved**, not guessed.
   LOD uses `.btd` / `.lod` files, not FO4's `.btr`/`.bto` (repo, docs/FORMAT-GAP.md line 41, **verified**); the project
   already notes no public `.btd` writer.
 - **unresolved**: precombine / previs equivalents. Not found in any source read. FO4 precombines are a known pain point
-  in the project (docs/ai/known-unknowns.md #2). Whether CE2 has a precombine step at all is open.
+  in the project (docs/ai/known-unknowns.md #2). Whether CE2 has a precombine step at all is open. [Update 2026-10-19:
+  see W2-2 correction: the Starfield CK has "Generate Precombined Visibility" GUI actions (interiors.md T9).]
 - **supported hypothesis**: the CK is updated by Bethesda alongside game patches through Steam (1.15.214 notes carry CK
   items), but whether every game patch has a matching CK build is not verified.
 
@@ -356,15 +357,27 @@ source or file), **supported hypothesis**, **unresolved**. xEdit facts come from
 are for that download).
 
 ### W2-1. LOD generation in the Starfield CK (answers §2 "LOD generation unresolved", Q15, Risk 8)
-- ~~**verified**~~ [Correction 2026-10-19: **unresolved (sources conflict)**. Web guides (below) say the switch
-  exists; a keyword-filtered string dump of the installed Starfield CreationKit.exe (job 18,
+- ~~**verified**~~ [Correction 2026-10-19: ~~**unresolved (sources conflict)**~~. Web guides (below) say the switch
+  exists; ~~a keyword-filtered string dump of the installed Starfield CreationKit.exe (job 18,
   `D:\Modding\research\ck_switches_1.txt`) does not show `-MockWorldSpaceLOD`, though it does show other "WorldSpace"
-  strings and the dashed switches `-CompileFaceFXAnims`, `-CompileMaterials`, `-CompileTextExport`,
+  strings and~~ the job 18 string dump (`D:\Modding\research\ck_switches_1.txt`) shows the dashed switches `-CompileFaceFXAnims`, `-CompileMaterials`, `-CompileTextExport`,
   `-GenerateAnimInfo`, `-GenerateCellAndRefCounts`, `-GenerateInventoryIcons`, `-GenerateLandTextureThumbnails`,
   `-GenerateMeshLODAssociations`, `-GenerateMeshLODFailureReport`, `-GenerateMeshLODStats`, `-GenerateSEQ`,
   `-GenerateShipBlueprintESP`, `-GenerateShipBuilderIcons`, `-GenerateWarnings`, `-GenerateWorkshopIcons`,
-  `-NoCheckIn`, `-NoExplicitFilename`. It may be stored as a wide string the filter missed, or be absent in the
-  current CK. The `-GenerateMeshLOD*` switches are **verified** LOD-related CK switches.]: the CK generates **object LOD** for a plugin worldspace from the command line:
+  `-NoCheckIn`, `-NoExplicitFilename`. ~~It may be stored as a wide string the filter missed, or be absent in the
+  current CK.~~ The `-GenerateMeshLOD*` switches are **verified** LOD-related CK switches.] [Correction 2026-10-19:
+  the job 18 reasoning was wrong: that dump printed only strings matching its default patterns (Generate, Compile, Lip,
+  AnimInfo, -Convert, -Build), so it had filtered the switch out (the other "WorldSpace" strings appeared only because
+  they also contain "Generate"). Job 20 (read-only string read of both CKs, patterns Mock, WorldSpaceLOD, "Should be -")
+  settled it: `-MockWorldSpaceLOD` exists in the Starfield CK and not in the FO4 CK, usage
+  "-MockWorldSpaceLOD:(ESMFilename) (WorldSpaceName0) [WorldSpaceName1] [...]" (an ESM filename): **verified
+  (Starfield CK, job 20)**. Job 20 also verified these Starfield CK switches: `-CheckInPlugin`, `-DepersistRefs`,
+  "-ExportESM:(ESMFilename) (output folder) [raw] [--progress]", "-ExportFaceGenData:(ESMFilename)
+  (TESNPCExportFaceDataMode) [Platform]", `-ImportScalingData`, "-RunValidationSuite:(ESMFilename)
+  (ValidationSuiteName)[:[TestName1],...]", `-SaveDefaultPlugin`; still no precombined or previs switch (only the GUI
+  actions). FO4 CK: "-ExportFaceGenData:(ESMFilename) (XB1|X64|PS4|W32)", `-GeneratePreCombined`,
+  `-GeneratePreVisData`, `-GenerateStaticCollections`, `-MapInfo` and "-MapMaker:(ESMFilename) (Worldspace|Interior)",
+  `-UpdateModelData`, "-GenerateSingleLip:"WAVFilePath" "Text"".]: the CK generates **object LOD** for a plugin worldspace from the command line:
   `CreationKit.exe -MockWorldSpaceLOD:<Plugin>.esp <Worldspace1>,<Worldspace2>,...`, run from the Starfield folder.
   Output: LOD meshes (`.nif`) in `Data\Meshes\Terrain\<Worldspace>\` and settings in `Data\LODSettings\`. Objects are
   chosen by layer: View > Layers, tick the **LOD** checkbox on the layer that holds them. Known issues: "One or more cells
@@ -383,7 +396,8 @@ are for that download).
   Our pipeline already writes BTD directly (FORMAT-GAP), so this is a cross-check, not a new route.
 - **supported hypothesis**: `-MockWorldSpaceLOD` is a headless batch switch, so object LOD could run unattended on the
   player's PC (like the documented navmesh switch). Not shown: run time for a 64-cell world, and whether it needs the
-  plugin as `.esp` (the example) or accepts `.esm`.
+  plugin as `.esp` (the example) or accepts `.esm`. [Correction 2026-10-19: the switch's own usage text names an
+  "(ESMFilename)" (job 20, **verified**); run time and unattended behaviour are still unmeasured.]
 - xLODGen/DynDoLOD do **not** list Starfield (**verified**, [dyndolod.info/Help/xLODGen](https://dyndolod.info/Help/xLODGen)).
 
 ### W2-2. Precombine / previs (answers §2 "precombine / previs unresolved", Risk 8)
@@ -393,8 +407,13 @@ are for that download).
   XCIM, XEMP, XCAS, XCMO, XLCN, XCCM, XCGD, XCIB, XBPS, XILL, XWCN/XWCU, XWEM, CHAL.
 - **verified (schema)**: Starfield has an `OVIS` "Object Visibility Manager" record (a list of STAT + object bounds,
   sf1.pas 15514) and "Non Occluder" flags on several base types. Purpose not documented.
-- **supported hypothesis**: CE2 has **no FO4-style precombine/previs bake**; nothing for our build to produce, and
-  nothing to break when we place 650k references. Its renderer is GPU-driven (compute shaders generate ExecuteIndirect
+- ~~**supported hypothesis**: CE2 has **no FO4-style precombine/previs bake**; nothing for our build to produce, and
+  nothing to break when we place 650k references.~~ [Correction 2026-10-19: weakened by interiors.md T9 (both CK
+  string dumps, PC job 18): the FO4 CK has `-GeneratePreCombined` and `-GeneratePreVisData`; the Starfield CK has
+  neither switch (job 20 confirms: still none) but has the GUI actions "Generate Precombined Visibility for Current
+  Cell" and "... All Loaded Cells". Starfield may have a precombined-visibility bake run from the CK GUI; what it writes
+  and whether it matters for performance is **unresolved**. The Starfield CK also has `-GenerateCellAndRefCounts`
+  (possibly per-cell reference counts; **unresolved**). What stays: no FO4-style CELL precombine/previs records.] Its renderer is GPU-driven (compute shaders generate ExecuteIndirect
   arguments, see versions-performance W2), which also lowers the per-object CPU draw cost that precombines existed to cut.
   Not proved: that dense handmade cells run well without it (PC probe, versions-performance W2).
 
@@ -444,11 +463,11 @@ are for that download).
 
 ### Questions changed or added
 - **Q15 (LOD)**: now "CK `-MockWorldSpaceLOD` on the player's PC, or our own LOD writer?" Experiment: [Correction
-  2026-10-19: first settle whether the switch exists: a wide-string search of CreationKit.exe or running it on a test
-  worldspace; then] run it on a 4-cell
+  2026-10-19: first settle whether the switch exists: ~~a wide-string search of CreationKit.exe or running it on a test
+  worldspace~~; then] [Correction 2026-10-19: settled, it exists, **verified (Starfield CK, job 20)**] run it on a 4-cell
   test worldspace, time it, check `.esm` acceptance and the partial-cell failure on 64 cells.
 - **Q32**: answered (65,536 ObjectIDs, 256 slots); keep only the in-game check that the engine agrees.
-- **Q7 / Risk 8 (precombines)**: downgraded to "measure frame time on a dense cell"; there is no bake step to replicate.
+- **Q7 / Risk 8 (precombines)**: downgraded to "measure frame time on a dense cell"; ~~there is no bake step to replicate~~ [Correction 2026-10-19: reopened: the Starfield CK has "Generate Precombined Visibility" GUI actions (interiors.md T9); what they write and whether they matter is **unresolved**].
 - **New Q35**: should the converter set LAYR `LODB` and object LOD flags itself so the CK LOD run picks up the right
   objects without manual layer work? Who: offline (xEdit read of a vanilla overlay's layers) + PC probe.
 - **New Q36**: use SFME (open source) as a material oracle to compare our generated `.mat` against vanilla? Who: offline.

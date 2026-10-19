@@ -200,7 +200,10 @@ whether each such step can run headless.
 - Precombines: FO4 has 95,856 precombined NIFs plus previs (**verified**, research-log). The port places individual
   references (648,358 exterior objects) and uses FO4 precombined *physics* only as evidence for transforms
   (decisions.md). Whether Starfield uses precombines or previs for exteriors, and whether CK2 can generate them for a
-  plugin's cells, is **unresolved** here. It matters for draw calls at full-map scale.
+  plugin's cells, is **unresolved** here. It matters for draw calls at full-map scale. [Update 2026-10-19: Starfield
+  CELL has no FO4-style precombine/previs fields; its CK has no precombine or previs switch but has the GUI actions
+  "Generate Precombined Visibility for Current Cell" and "... All Loaded Cells" (interiors.md T9, jobs 18 and 20); what
+  they write and whether they matter for performance is still **unresolved**.]
 
 ## Precedents and what they teach us
 
@@ -287,7 +290,7 @@ All from prior knowledge; their pages could not be read this session, so all are
 
 ### Launcher
 11. **Can the CK's FaceFX compiler (and any other CK step: LOD, precombines, `.mat` to CDB) run unattended from the
-    command line?** *Why:* the launcher must not need a human in the CK. *Options:* documented CK switches (unknown) [Correction 2026-10-19: lip sync has `-CompileFaceFXAnims` plus `LipGenerator.exe`, LOD has `-GenerateMeshLOD*` switches (**verified**, job 18 string dump); `-MockWorldSpaceLOD` is **unresolved (sources conflict)**],
+    command line?** *Why:* the launcher must not need a human in the CK. *Options:* documented CK switches (unknown) [Correction 2026-10-19: lip sync has `-CompileFaceFXAnims` plus `LipGenerator.exe`, LOD has `-GenerateMeshLOD*` switches (**verified**, job 18 string dump); `-MockWorldSpaceLOD` is ~~**unresolved (sources conflict)**~~] [Correction 2026-10-19: `-MockWorldSpaceLOD` is **verified (Starfield CK, job 20)**, usage "-MockWorldSpaceLOD:(ESMFilename) (WorldSpaceName0) [WorldSpaceName1] [...]"; the job 18 dump's patterns had filtered it out, not found it absent. Job 20 also found "-ExportFaceGenData:(ESMFilename) (TESNPCExportFaceDataMode) [Platform]" (bake or export only is **unresolved**); still no precombine or previs switch, only the GUI actions "Generate Precombined Visibility for Current Cell" and "... All Loaded Cells" (interiors.md T9)],
     GUI automation (fragile), skip lip sync. *Evidence:* list the CK executable's command-line switches; try one
     compile with a tiny plugin. *Who:* PC probe.
 12. **Is Wwise 2021.1.14.8108 authoring on the player's PC acceptable (licence, download size, login), and can

@@ -11,7 +11,7 @@ Research date: 2026-10-19. Author: Claude (research subagent). Reading only.
 
 Direct `curl` to steampowered.com / bethesda.net was refused by the session's egress proxy, so every document
 was fetched through the TinyFish fetch tool on 2026-10-19 and saved under
-`/tmp/claude-0/-home-claude-fo4-to-starfield/981f8bb8-d11c-56b1-a518-2b9ee32bceac/scratchpad/research/raw/`.
+a session scratch folder (not kept).
 
 | # | Document | URL fetched | Raw file | Read |
 |---|---|---|---|---|
