@@ -13,6 +13,7 @@ from worldstate import GOODS, Squad, WorldState
 TICK_HOURS = 6
 STAGE_POP = (0, 4, 8, 14, 22)        # population needed for stage 0..4
 NEWS_HOURS_PER_ROUTE_HOUR = 1        # news travels at travel speed
+STRENGTH_CAP = 60
 
 
 def _rng(ws: WorldState) -> random.Random:
@@ -58,7 +59,8 @@ def _settlement_tick(ws: WorldState) -> None:
         if s.morale <= 10 and s.population > 0:
             _remove_settler(s)
             _event(ws, "settler_left", sid)
-        elif s.morale >= 70 and ws.hour % 24 == 0 and not short:
+        elif (s.morale >= 70 and ws.hour % 24 == 0 and not short
+              and s.population < s.beds):
             _add_settler(s)
             _event(ws, "settler_arrived", sid)
         stage = max(i for i, p in enumerate(STAGE_POP) if s.population >= p)
@@ -69,8 +71,11 @@ def _settlement_tick(ws: WorldState) -> None:
 
 def _add_settler(s) -> None:
     s.population += 1
-    # fill the scarcest of food producers, guards and traders first
-    order = sorted(("farmer", "guard", "scavenger", "trader", "crafter", "doctor"),
+    # keep food ahead of mouths, then fill the scarcest other role
+    if 3 * s.roles["farmer"] < s.population + 2:
+        s.roles["farmer"] += 1
+        return
+    order = sorted(("guard", "scavenger", "trader", "crafter", "doctor"),
                    key=lambda r: (s.roles[r], r))
     s.roles[order[0]] += 1
 
@@ -118,7 +123,7 @@ def _faction_tick(ws: WorldState, rng: random.Random) -> None:
         f = ws.factions[fid]
         held = sorted(p for p, pl in ws.places.items() if pl.holder == fid)
         if ws.hour % 24 == 0:
-            f.strength += len(held)
+            f.strength = min(STRENGTH_CAP, f.strength + len(held))
         if f.strength < 6 or rng.random() * 100 > f.aggression * 0.25:
             continue
         targets = []
@@ -142,6 +147,9 @@ def _faction_tick(ws: WorldState, rng: random.Random) -> None:
 
 def _defence(ws: WorldState, place: str) -> int:
     d = ws.places[place].defence
+    holder = ws.places[place].holder
+    if holder is not None:
+        d += min(ws.factions[holder].strength, 10) // 2   # garrison share
     s = ws.settlements.get(place)
     if s:
         d += 2 * s.roles["guard"] + s.stock["ammo"] // 10
@@ -165,7 +173,8 @@ def _resolve_arrivals(ws: WorldState, rng: random.Random) -> None:
                 _event(ws, "caravan_lost", q.goal, faction=q.faction)
             continue
         if pl.holder == q.faction:
-            ws.factions[q.faction].strength += q.size
+            f = ws.factions[q.faction]
+            f.strength = min(STRENGTH_CAP, f.strength + q.size)
             continue
         defence = _defence(ws, q.goal)
         if pl.story_lock or rng.random() * (q.size + defence) >= q.size:
@@ -173,7 +182,13 @@ def _resolve_arrivals(ws: WorldState, rng: random.Random) -> None:
             continue
         old = pl.holder
         pl.holder = q.faction
-        ws.factions[q.faction].strength += q.size // 2
+        s = ws.settlements.get(q.goal)
+        if s and s.population:
+            for _ in range((s.population + 1) // 2):
+                _remove_settler(s)
+            s.morale = min(s.morale, 30)
+        f = ws.factions[q.faction]
+        f.strength = min(STRENGTH_CAP, f.strength + q.size // 2)
         _event(ws, "place_taken", q.goal, faction=q.faction, previous=old)
 
 

@@ -324,8 +324,8 @@ research/next-phase/testing-automation.md. Labels: **verified**,
 - Why it matters: serialization has been disabled since 0.2.12.
 - Options: Papyrus properties and globals only; a separate file next to saves.
 - Answer by: offline design. (also: ST Q22)
-- Blocks: Fallout systems.
-- Status: open.
+- Blocks: Fallout systems, combined core.
+- Status: narrowed (2026-10-19, combined-core.md revision 2): serialization is still off in SFSE 0.2.21 (**verified** there), so state that does not fit records and Papyrus goes in a per-save sidecar file written and read through SFSE's save and load messages. The combined core thread's plan (combined-core.md, CC-02).
 
 ### Record tools, diffs and validators
 

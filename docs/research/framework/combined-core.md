@@ -8,8 +8,8 @@ not edited from here. Raw notes and prototypes: [combined-core-notes/](combined-
 Evidence labels follow docs/ai/research-log.md: **verified**, **supported hypothesis**, **unresolved**. Nothing here is
 decided unless a line says "decided by owner" with a date. Question IDs are `CC-nn` (stable; new ones are appended).
 
-Revision 1 (2026-10-19 ~23:45Z): definition, legal fence, layers, groundwork plan, first questions. Research notes in
-combined-core-notes/ are folded in as they land (see "Research folded in").
+Revision 2 (2026-10-19 ~23:55Z): revision 1 (definition, fence, layers, plan, questions) plus the three research notes
+and the simulation prototype folded in; CC-02 corrected (SFSE has no co-save today); PC probes listed.
 
 ## In short
 
@@ -160,13 +160,13 @@ Rules for the layers (defaults):
 | # | What | Output | Status |
 |---|---|---|---|
 | G1 | Definition, fence, layers, questions | this file | revision 1 |
-| G2 | GAMMA anatomy and lessons | combined-core-notes/gamma-anatomy.md | research running |
-| G3 | Precedents for growing settlements and acting factions (Sim Settlements 2, New Vegas reputation, Skyrim Civil War, Starfield outposts, Mount & Blade, Kenshi) | combined-core-notes/settlements-factions-precedents.md | research running |
-| G4 | Engine fit: how each system maps to Starfield's engine, what needs SFSE, risks, smallest probes | combined-core-notes/engine-feasibility.md | research running |
-| G5 | World-state schema (L1), game-neutral | combined-core-notes/prototype/ | next |
-| G6 | Offline simulation prototype (L2) on synthetic data, deterministic, with tests, to tune rules on paper before any game work | combined-core-notes/prototype/ | next |
+| G2 | GAMMA anatomy and lessons | combined-core-notes/gamma-anatomy.md | done |
+| G3 | Precedents for growing settlements and acting factions (Sim Settlements 2, New Vegas reputation, Skyrim Civil War, Starfield outposts, Mount & Blade, Kenshi) | combined-core-notes/settlements-factions-precedents.md | done |
+| G4 | Engine fit: how each system maps to Starfield's engine, what needs SFSE, risks, smallest probes | combined-core-notes/engine-feasibility.md | done |
+| G5 | World-state schema (L1), game-neutral | combined-core-notes/prototype/ | first cut done |
+| G6 | Offline simulation prototype (L2) on synthetic data, deterministic, with tests, to tune rules on paper before any game work | combined-core-notes/prototype/ | first cut done, 9 tests |
 | G7 | Commonwealth seed tables: which FO4 locations, workshops and factions become L1 places and factions, generated from the player's FO4 data by a reader (written and tested on synthetic fixtures; run on the PC later) | combined-core-notes/ then a branch | after G5 |
-| G8 | PC probe list for after v6e (off-screen actors, co-save, Story Manager events, outpost reuse) | this file, "Probes" | after G4 |
+| G8 | PC probe list for after v6e (off-screen actors, co-save, Story Manager events, outpost reuse) | this file, "Probes" | done (P1 to P10) |
 
 Nothing here is pushed to the repository yet (thread rule). When G5 to G7 are stable they go to a draft PR on the
 owner's word, with tests per AGENTS.md.
@@ -186,11 +186,20 @@ owner's word, with tests per AGENTS.md.
   forward, the combined core's systems are built ahead of the single-game mode's extras, first on the Commonwealth.
 
 **CC-02. Where does runtime world state live?**
-- Why: decides save size, repairability and how much needs SFSE. Sim Settlements 2 style script-heavy state is the
-  known save-bloat risk (to be confirmed in G3).
-- Options: A. Papyrus quests, globals and arrays only. B. An SFSE plugin holding the state in its own co-save, Papyrus
-  as the front end. C. Hybrid: small state in globals and quest aliases, the simulation in the SFSE plugin.
-- Recommend: C, pending G4. Who: team, then owner. Status: open.
+- Why: decides save size, repairability and how much needs SFSE. Script-heavy state is the known save-bloat and lag
+  risk in Sim Settlements 2 (its FAQ) and Skyrim's Warzones (settlements-factions-precedents.md, **verified** as the
+  mods' own warnings; no measured save growth found).
+- Correction (revision 2): **SFSE has no co-save today.** Serialization was disabled in SFSE 0.2.12 and is still off in
+  0.2.21 (**verified**, sfse_whatsnew.txt); SFSE does send PreSaveGame, PostSaveGame, PreLoadGame and PostLoadGame
+  messages with the save name (**verified**, PluginAPI.h, Hooks_Serialization.cpp), so a plugin can keep a sidecar
+  file per save. Risks: no message when a save is deleted (orphans), Steam Cloud likely skips the sidecar.
+- Options: A. Papyrus quests, globals and arrays only. B. SFSE plugin with a sidecar per save, Papyrus as front end.
+  C'. Hybrid: the state the game must read (holder per place, reputation tiers, story-mode switch) in records the save
+  keeps (globals, location keyword data, quest variables), readable by conditions, dialogue and leveled lists without
+  SFSE; the bulk simulation in the SFSE plugin and its sidecar. If a patch breaks SFSE the world freezes rather than
+  the save corrupting.
+- Recommend C' (engine-feasibility.md), with A as the fallback for about 20 places. Probes P1 and P2 decide it. Who:
+  team, then owner. Status: open.
 
 **CC-03. Naming.** New records for this core need a prefix that is not the leader core's and not `FO4SF_`.
 - Options: A. `FOCC_`. B. per-pillar prefixes. Recommend A for records made only for this core; shared Fallout systems
@@ -216,20 +225,94 @@ owner's word, with tests per AGENTS.md.
 - **CC-30.** How visible is the off-screen world: radio news, terminal reports, a map overlay of territory? Default
   radio and terminal text first (our writing, silent voice files), map overlay later.
 - **CC-40.** Survival module defaults: off, light, or full? Default off with presets.
+- **CC-41.** Raid pressure: a player setting (how often factions attack settlements), as GAMMA's critics and SS2's
+  attack options suggest? Default yes, three presets.
+- **CC-04.** Reuse Workshop Framework code sections with credit, if its author's note allows it despite the page's
+  ban on conversion? Default no: write our own (owner decides).
 - **CC-50.** Chronological story option: start each game's opening in date order, with the sandbox muted? Default yes.
-- **CC-51.** GAMMA-style starts (pick a faction and a starting place) alongside Vault 111? Status: **asked 2026-10-19
-  23:25Z.** Default yes, later, using Alternate Start's GPL-3 code where it fits.
+- **CC-51.** GAMMA-style starts (pick a faction and a starting place) alongside Vault 111? Status: **decided by owner,
+  2026-10-19 23:29Z: A** (Vault 111 stays the story start; faction starts added later, using Alternate Start's GPL-3
+  code where it fits). The new-game phase needs nothing now beyond the start-world hook it already has (MG-18).
 - **CC-60.** RP-style SPECIAL with older games' skills (NG-4): its own design note after G4.
 - **CC-61.** The ship as a vertibird (NG-9): its own probe later.
 - **CC-62.** Assisted world generation for lore places (WO-4): later, after MU-1's multi-game spike.
 
 ## Research folded in
 
-(Filled as G2 to G4 land.)
+Three notes in [combined-core-notes/](combined-core-notes/) (every fact sourced and labelled there) and the
+[prototype](combined-core-notes/prototype/README.md).
+
+**GAMMA** ([gamma-anatomy.md](combined-core-notes/gamma-anatomy.md)):
+- GAMMA is 400+ addons on the free Anomaly mod (Monolith, a 64-bit X-Ray fork, with Story, Sandbox and Warfare
+  modes); since December 2025 also a free GOG one-click install needing an owned base game; the pack repo is AGPL-3.0
+  (**verified**). Its README says it "redistributes little to no copyrighted content"; the launcher fetches each addon
+  from its own page into Mod Organizer 2 with credit (**verified**). Same model as ours; its weak spot is third-party
+  hosts blocking the installer.
+- **Warfare mode (Anomaly's, so also part of GAMMA, which runs on Anomaly; owner 23:29Z) is the closest match to the
+  owner's goals:** factions capture points, bases fall, an
+  off-screen combat simulator lets squads intercept each other, a PDA tab shows progress (**verified**). An overhaul
+  addon adds point types (base, resource, territory, lair) and respawns that scale with bases held (**verified** for
+  the addon only).
+- A-Life simulates NPCs fully within about 150 m and coarsely elsewhere (**verified**): the L2/L3 split above.
+- What players love: progression and purpose in a sandbox, a "struggle up the loot ladder", no fully safe place. What
+  they hate: repetitive money-only radiant tasks, install friction, crashes and frame drops (one report).
+- GAMMA's economy ties good gear to danger and story progress, removes weapon and armor selling, and stocks traders by
+  supply tier and reputation (**verified**). That maps onto settlement supply setting vendor stock.
+
+**Settlements and factions** ([settlements-factions-precedents.md](combined-core-notes/settlements-factions-precedents.md)):
+- Sim Settlements 2 proves the settlement ideas (city plans levelling up after days at minimum happiness, leaders,
+  plot types, industries, resources as numbers, caravan supply lines that break when the caravaneer is hurt, a
+  Chapter 3 war system with outposts and territories) (**verified**, its wiki). Its permissions forbid modification
+  and conversion: ideas only. Workshop Framework's page both forbids conversion and allows reuse of sections with
+  credit; the owner decides before any reuse (CC-04).
+- New Vegas reputation: two scales per faction (fame, infamy), a 4x4 grid of named states, gains in tiers of 1, 2, 4,
+  7, 12 (**verified**). No Fallout 4 mod runs dynamic faction territory over the whole map (**supported hypothesis**:
+  none found).
+- Starfield: cargo links already move goods between outposts and crew can be assigned; no Starfield mod has real
+  settler populations or faction wars (**verified** as none found).
+- Skyrim's Civil War shows the failure to avoid: hold ownership drifting from what is in the world; Warzones' always-on
+  script was its save-bloat cause (**verified**, mod pages).
+- Lessons adopted: settlements as data with actors only near the player; real, breakable supply lines; growth from
+  needs met over time; NV two-scale reputation; one record of who owns what, plus a repair tool; settle off-screen
+  fights with numbers; no always-running global scripts; player control over raid pressure (CC-41 below); measure save
+  growth from day one.
+
+**Engine fit** ([engine-feasibility.md](combined-core-notes/engine-feasibility.md)):
+- Condition functions exist in Starfield to read the state without script: GetGlobalValue, GetKeywordDataForLocation,
+  GetKeywordDataForCurrentLocation, LocationHasKeyword, IsLocationLoaded, GetVMQuestVariable (**verified**, xEdit SF1
+  definitions). So a place's holder can be keyword data on its location and spawns can follow it through conditioned
+  leveled lists (whether keyword data survives a save: **unresolved**, P2).
+- Squads are table rows; they become actors through Story Manager location events and alias quests and go back to data
+  when the player leaves (A-Life pattern).
+- **Hard prerequisite: a location record on every converted interior** (our interiors have none yet, interiors.md,
+  **verified**). Settlements cannot be registered at runtime and FO4's "cleared" functions are missing in Starfield.
+- Faction relations are game-wide, so "hated in one region, liked in another" needs our own layer (CC-22).
+- Growth stages are pre-built object layers switched on and off, not objects placed at runtime. Starfield's cargo
+  links (which are ships) stay out of our world by default; our caravans are our own.
+- News: terminals and on-screen text first; spoken radio news waits on the voice question.
+- The chronological switch is a global plus stage conditions, no SFSE.
+
+**Prototype** ([prototype/README.md](combined-core-notes/prototype/README.md)): the L1 model and an L2 tick in Python,
+9 tests passing (determinism, save replay, story places and homes never change hands, a second region plugs in). It
+already showed growth needs a role rule and a cap, faction strength needs upkeep, a region with only faction homes
+freezes, and capture must hurt the settlement.
 
 ## Probes for the PC (after the v6e test, one at a time, read-only or staged, on the owner's word)
 
-(Filled from G4.)
+From engine-feasibility.md; none run, none queued. Order: P1, P2, P3 decide CC-02 and the territory design.
+
+| # | Probe | Settles |
+|---|---|---|
+| P1 | SFSE plugin writes a sidecar on PreSaveGame and reads it on PostLoadGame; save, load, load another save, delete a save | sidecar viability, orphans |
+| P2 | SetKeywordData on our location, leave, save, reload, read it back | keyword-data persistence |
+| P3 | our location with and without the overlay parent: keyword data, explored state | location data on our interiors |
+| P4 | materialize 3 squads at a marker on location change, dissolve, 20 cycles, save size | spawn reliability, save bloat |
+| P5 | Papyrus tick over 50 places, timed | script latency baseline |
+| P6 | leveled-list entry conditioned on location keyword data; flip it, reset the cell | data-only territory spawns |
+| P7 | vendor refuses service by reputation tier | reputation effects |
+| P8 | enable-parent stage swap at a converted settlement, save size before and after | build stages |
+| P9 | one caravan on a travel package across 4 exterior cells | long-route pathing |
+| P10 | SendStoryEvent from our script starts our quest | event plumbing |
 
 ## Risks
 

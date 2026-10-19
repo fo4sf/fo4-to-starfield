@@ -33,6 +33,7 @@ class Settlement:
     stock: dict[str, int] = field(default_factory=lambda: {g: 0 for g in GOODS})
     morale: int = 50              # 0..100
     stage: int = 0                # growth stage, 0..4
+    beds: int = 20                # population cap until the player or a stage adds more
 
 
 @dataclass
