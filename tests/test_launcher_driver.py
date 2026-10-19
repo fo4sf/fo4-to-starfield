@@ -145,6 +145,51 @@ class DriverTests(unittest.TestCase):
         self.assertEqual(self.statuses(rep), ["blocked", "not_run", "not_run"])
         self.assertEqual(self.calls(), [])
 
+    def test_step_need_adds_to_the_floor(self):
+        r = self.recipe()
+        r["steps"][1]["need_gb"] = 10 ** 9
+        rep = driver.build(r, ROOT, echo=self.lines.append)
+        self.assertEqual(self.statuses(rep), ["done", "blocked", "not_run"])
+        self.assertIn("this step needs", rep["steps"][1]["note"])
+        self.assertEqual(self.calls(), ["select"])
+
+    def test_status_is_read_only_and_reports_each_step(self):
+        st = driver.status(self.recipe(), ROOT)
+        self.assertEqual([(s["last"], s["would"]) for s in st["steps"]], [("never run", "run")] * 3)
+        self.assertIsNone(st["last_run"])
+        self.assertFalse(os.path.exists(os.path.join(self.root, ".launcher")))
+        self.touch("fail_check", "4")
+        self.run_it()
+        st = driver.status(self.recipe(), ROOT)
+        self.assertEqual([s["last"] for s in st["steps"]], ["done", "done", "failed"])
+        self.assertEqual([s["would"] for s in st["steps"]], ["reuse", "reuse", "run"])
+        self.assertTrue(st["steps"][2]["log"].endswith("check.1.log"))
+        self.assertFalse(st["last_run"]["complete"])
+        self.assertIsNone(st["lock"])
+        # a step left running with no driver holding the lock reads as interrupted
+        state_path = os.path.join(self.root, ".launcher", "state.json")
+        state = files.load_json(state_path)
+        state["steps"]["check"]["status"] = "running"
+        files.save_json(state_path, state)
+        self.assertEqual(driver.status(self.recipe(), ROOT)["steps"][2]["last"], "interrupted")
+        self.touch(os.path.join(".launcher", "driver.lock"), "pid 7")
+        st = driver.status(self.recipe(), ROOT)
+        self.assertEqual(st["lock"], "pid 7")
+        self.assertEqual(st["steps"][2]["last"], "running")
+
+    def test_status_cli(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("launcher_cli", os.path.join(ROOT, "scripts", "launcher.py"))
+        cli = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cli)
+        self.recipe()
+        p = os.path.join(self.root, "recipe.json")
+        out = os.path.join(self.root, "status.json")
+        self.assertEqual(cli.main(["status", p, "--json", out]), 1)
+        self.assertEqual(cli.main(["build", p]), 0)
+        self.assertEqual(cli.main(["status", p]), 0)
+        self.assertEqual(len(files.load_json(out)["steps"]), 3)
+
     def test_dry_run_changes_nothing(self):
         rep = self.run_it(dry_run=True)
         self.assertEqual([w for _id, w, _ in rep["plan"]], ["run", "run", "run"])

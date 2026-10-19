@@ -5,6 +5,7 @@
     python scripts/launcher.py manifest-diff <a.json> <b.json>
     python scripts/launcher.py build <recipe.json> [--set name=value ...] [--dry-run] [--force step,...]
                                      [--until step] [--keep-going] [--min-free-gb N --disk <path> ...] [--idle]
+    python scripts/launcher.py status <recipe.json> [--set name=value ...] [--json <out.json>]
     python scripts/launcher.py same-ids <build A> <build B> [--plugins a.esm,b.esm] [--report <out.json>]
     python scripts/launcher.py snapshot --starfield <game dir> --out <snapshot.json> [--plugins-txt <path>] [--watch <file> ...]
     python scripts/launcher.py restore --snapshot <snapshot.json> [--port-staging <dir>] [--apply]
@@ -15,6 +16,8 @@
 
 manifest   what a build was made from and what it made (read only).
 build      runs a recipe of the repo's make scripts with resumable, recorded steps (src/fo4sf/launcher/driver.py).
+status     read only, no lock: each step's last result, its log if it failed, and what a run now would do
+           (exit 0 only if every step would be reused).
 same-ids   do two builds give the same FormIDs? IDENTICAL / SAME_IDS exit 0; IDS_DIFFER / INCOMPLETE exit 1.
 detect     can this PC build? Fallout 4 version and DLC, Starfield, Archive2, CK, SFSE, disk (read only; exit 1 if not).
 sources-add  adds a real install's master hashes (from a build manifest) to the known-sources table.
@@ -67,6 +70,24 @@ def cmd_build(a):
         return 0
     print(f"{recipe['name']}: {'COMPLETE' if report['complete'] else 'NOT complete'} {report['counts']}")
     return 0 if report["complete"] else 1
+
+
+def cmd_status(a):
+    recipe, _env = driver.load_recipe(a.recipe, a.set, repo=REPO)
+    st = driver.status(recipe, REPO)
+    print(f"{st['recipe']}: " + (f"a driver is running ({st['lock']})" if st["lock"] else "no driver running"))
+    lr = st["last_run"]
+    if lr:
+        print(f"  last run {lr['started']} to {lr['finished']}: {'COMPLETE' if lr['complete'] else 'NOT complete'} "
+              f"{lr['counts']}")
+    for s in st["steps"]:
+        took = f"{s['seconds']} s" if s["seconds"] is not None else ""
+        print(f"  {s['id']:<20} {s['last']:<11} runs {s['runs']:<3} {took:<10} now: {s['would']} ({s['why']})")
+        if s["log"] and s["last"] not in driver.OK:
+            print(f"  {'':<20} log {s['log']}")
+    if a.json:
+        files.save_json(a.json, st)
+    return 0 if all(s["would"] == "reuse" for s in st["steps"]) else 1
 
 
 def cmd_same_ids(a):
@@ -177,6 +198,10 @@ def main(argv=None):
     s.add_argument("--disk", action="append", default=[])
     s.add_argument("--idle", action="store_true", help="Windows: run steps at Idle priority")
     s.add_argument("--break-lock", action="store_true")
+    s = sub.add_parser("status", help="read only: each step's last result and what a run now would do")
+    s.add_argument("recipe")
+    s.add_argument("--set", action="append", default=[])
+    s.add_argument("--json", default=None)
     s = sub.add_parser("same-ids")
     s.add_argument("a")
     s.add_argument("b")
@@ -213,7 +238,8 @@ def main(argv=None):
     try:
         return {"manifest": cmd_manifest, "manifest-diff": cmd_manifest_diff, "build": cmd_build,
                 "same-ids": cmd_same_ids, "snapshot": cmd_snapshot, "restore": cmd_restore,
-                "detect": cmd_detect, "sources-add": cmd_sources_add, "measure": cmd_measure}[a.cmd](a)
+                "detect": cmd_detect, "sources-add": cmd_sources_add, "measure": cmd_measure,
+                "status": cmd_status}[a.cmd](a)
     except driver.RecipeError as e:
         print(f"recipe: {e}")
         return 2

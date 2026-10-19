@@ -100,6 +100,7 @@ def load_recipe(path, overrides=(), repo=None):
                       "after": list(s.get("after") or []),
                       "code": list(s.get("code") or []),
                       "timeout_s": s.get("timeout_s"), "retries": int(s.get("retries", 0)),
+                      "need_gb": float(s.get("need_gb", 0)),
                       "description": s.get("description", "")})
     if not steps:
         raise RecipeError("recipe has no steps")
@@ -238,6 +239,33 @@ def plan(recipe, state, repo, force=()):
     return out
 
 
+def status(recipe, repo, force=()):
+    """Read only, takes no lock: per step its last recorded result and what a run now would do, plus whether a
+    driver holds the state folder. {"recipe", "lock", "steps": [{"id", "last", "runs", "seconds", "finished", "log",
+    "would", "why"}], "last_run"}."""
+    state_dir = recipe["state_dir"]
+    state_path = os.path.join(state_dir, "state.json")
+    state = files.load_json(state_path) if os.path.isfile(state_path) else {"steps": {}}
+    lock_path = os.path.join(state_dir, "driver.lock")
+    lock = None
+    if os.path.exists(lock_path):
+        with open(lock_path, encoding="utf-8", errors="replace") as f:
+            lock = f.read().strip() or "held"
+    steps = []
+    for s, would, why in plan(recipe, state, repo, force):
+        rec = (state.get("steps") or {}).get(s["id"]) or {}
+        last = rec.get("status", "never run")
+        if last == "running" and lock is None:
+            last = "interrupted"          # left running by a driver that is gone
+        steps.append({"id": s["id"], "last": last, "runs": rec.get("runs", 0), "seconds": rec.get("seconds"),
+                      "finished": rec.get("finished"), "log": rec.get("log"), "would": would, "why": why})
+    last_run_path = os.path.join(state_dir, "last_run.json")
+    last_run = files.load_json(last_run_path) if os.path.isfile(last_run_path) else None
+    return {"recipe": recipe["name"], "lock": lock, "steps": steps,
+            "last_run": {k: last_run.get(k) for k in ("started", "finished", "counts", "complete")} if last_run
+            else None}
+
+
 def build(recipe, repo, *, dry_run=False, force=(), until=None, min_free_gb=0.0, disk_paths=(), idle=False,
           break_lock=False, keep_going=False, echo=print):
     """Run (or with dry_run, only print) the recipe. Returns the run report dict; report["complete"] is the verdict."""
@@ -272,8 +300,10 @@ def build(recipe, repo, *, dry_run=False, force=(), until=None, min_free_gb=0.0,
             elif would == "reuse":
                 why = "a step it depends on ran in this run"
                 status, note = None, why
-            elif min_free_gb and any(free_gb(p) < min_free_gb for p in (disk_paths or s["outputs"] or [state_dir])):
-                status, note = "blocked", f"less than {min_free_gb} GB free"
+            elif (min_free_gb or s["need_gb"]) and any(
+                    free_gb(p) < min_free_gb + s["need_gb"] for p in (disk_paths or s["outputs"] or [state_dir])):
+                status, note = "blocked", (f"less than {min_free_gb:g} GB kept free plus {s['need_gb']:g} GB this "
+                                           f"step needs")
             else:
                 status, note = None, why
             if status is None:

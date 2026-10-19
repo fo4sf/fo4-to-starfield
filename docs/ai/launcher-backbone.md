@@ -16,6 +16,7 @@ Code: `src/fo4sf/launcher/` (manifest, driver, restore, same_ids), CLI `scripts/
 | Build driver | `launcher.py build <recipe.json> --set k=v [--dry-run] [--min-free-gb 40 --disk D:\ ] [--idle]` | wraps make_core64c.py, make_mission.py, convert_batch.py, vmad_patch.py, light_patch.py, the dotnet writers as steps; their own checkpoints stay in charge inside a step | synthetic tests |
 | Snapshot | `launcher.py snapshot --starfield <game> --out snap.json` (read only) | the three install records | synthetic tests |
 | Restore | `launcher.py restore --snapshot snap.json` (plan; `--apply` acts) | deploy_starfield.py, exp_install.py, bridge_install.py do every file change | synthetic tests, incl. a real exp_install round trip |
+| Build status | `launcher.py status <recipe.json> [--set k=v] [--json out.json]` (read only) | the driver's state.json | synthetic tests |
 | Same-ids check | `launcher.py same-ids <build A> <build B>` | make_core64c.py's `formids_diff` (compare-ids) when both have formids.json | synthetic tests |
 
 ### Build manifest
@@ -33,7 +34,14 @@ content) is unchanged, and no step it depends on ran in this run. Statuses `done
 `blocked`, `not_run` are kept apart; `reused` is never counted as new work and only an all-done-or-reused run is
 complete (exit 0). A step left `running` by a crash is rerun. One driver per state folder (lock file; `--break-lock`
 on purpose only). `--min-free-gb` blocks a step before it starts (the D: 40 GB rule); `--idle` runs steps at Windows
-Idle priority. A complete run writes the build manifest.
+Idle priority. A step may declare `need_gb` (the space it writes); it is blocked unless free space covers the floor
+plus that need (the example's stage step says 1 GB, from the measured 0.3 to 1 GiB a staged core costs).
+A complete run writes the build manifest.
+
+`launcher.py status <recipe>` is the read-only view of the same state (no lock taken, nothing written): each step's
+last result, runs, seconds, the log of a step that did not finish well, whether a driver holds the folder, and what a
+run now would do. A step recorded `running` while no driver holds the lock shows as `interrupted`. This is what the
+launcher's progress screen and the install thread read instead of opening state.json by hand.
 
 ### Recorded restore
 `snapshot` keeps Plugins.txt byte for byte, every top-level plugin and archive in Data (plugins hashed; Starfield's

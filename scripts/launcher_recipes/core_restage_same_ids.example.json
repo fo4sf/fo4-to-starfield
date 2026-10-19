@@ -20,7 +20,7 @@
    "inputs": ["{work}/selected.json", "{core}/overlays_params.json", "{cluster}", "{navmesh}"],
    "outputs": ["{out}/FO4TerrainCore.esm", "{out}/formids.json"],
    "code": ["scripts/terrain", "src/fo4sf", "dotnet/TerrainOverlays"],
-   "timeout_s": 21600},
+   "timeout_s": 21600, "need_gb": 1},
   {"id": "check",
    "argv": ["{python}", "{repo}/scripts/terrain/make_core64c.py", "check", "--work", "{work}", "--core", "{core}",
             "--out", "{out}", "--sf-data", "{sf_data}", "--fo4", "{fo4}"],
