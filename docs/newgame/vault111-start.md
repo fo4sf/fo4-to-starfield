@@ -10,7 +10,7 @@ quest script), `scripts/newgame/FO4SF_NewGameLooks.psc` (optional character crea
 
 ## 1. What the player gets (the defaults)
 
-   (Starfield has no Papyrus menu check, so it cannot wait for menus).
+   (Starfield's Utility.psc has no IsInMenuMode, so open menus are not awaited).
    menu is open.
 2. **Guard:** it acts only on a new game (fewer than 0.25 game days passed and the player at level 1). An existing save
    that gains the plugin stands the quest down at stage 1 and nothing moves. The owner's test saves are safe.
