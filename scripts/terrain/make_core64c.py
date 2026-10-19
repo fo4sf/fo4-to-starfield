@@ -2350,7 +2350,7 @@ def map_marker_problems(recs, own_index, ov, ids):
     """The map markers TerrainOverlays wrote for the overlay against its params (stage: "map_markers"; without them one
     at the COC): one REFR per entry, STAT MapMarker, XMRK present, persistent, at the entry's position; one LCSR
     MapMarkerRefType row per marker on the overlay's Location (this world, grid Y then X as the writer writes it, tail
-    0xFFFFFFFF), each also in LCID; every marker id after every other record of the plugin. Returns problems."""
+    0xFFFFFFFF), none in LCID (enabled, not initially disabled); every marker id after every other record of the plugin. Returns problems."""
     own = own_index << 24
     want = ov.get("map_markers") or [{"tag": "RedRocket", "pos": ov["spawn"], "cell": ov["spawn_cell"]}]
     got = (ids.get("map_marker_refs") or {}).get(ov["world"])
@@ -2372,8 +2372,9 @@ def map_marker_problems(recs, own_index, ov, ids):
             continue
         if overlay_records.field(r, "XMRK") is None:
             problems.append(f"{m['tag']}: no XMRK")
-        if not r["flags"] & overlay_records.PERSISTENT:
-            problems.append(f"{m['tag']}: not persistent (flags 0x{r['flags']:X})")
+        if not r["flags"] & overlay_records.PERSISTENT or r["flags"] & 0x800:
+            # initially disabled (LC172's 0xC00) hid every icon in game (18 Oct): persistent and enabled wanted
+            problems.append(f"{m['tag']}: not persistent and enabled (flags 0x{r['flags']:X})")
         pos = fo4land.parse_ref(r["fields"])["pos"]
         if not all(math.isfinite(v) for v in pos) or max(abs(u - v) for u, v in zip(pos, m["pos"])) > 1e-3:
             problems.append(f"{m['tag']}: position {pos} != {m['pos']}")
@@ -2398,8 +2399,8 @@ def map_marker_problems(recs, own_index, ov, ids):
         if e["wrld"] != wrld[0]["fid"] or e["tail"] != map_markers.LCSR_TAIL or (
                 c is not None and e["pad"] != struct.unpack("<I", struct.pack("<hh", c[1], c[0]))[0]):
             problems.append(f"{ov['location']}: LCSR row {e} (world {wrld[0]['fid']:08X}, cell {c})")
-    if not set(cell) <= lcid:
-        problems.append(f"{ov['location']}: LCID lacks {[f'{f:08X}' for f in sorted(set(cell) - lcid)]}")
+    if set(cell) & lcid:
+        problems.append(f"{ov['location']}: LCID (initially disabled) lists {[f'{f:08X}' for f in sorted(set(cell) & lcid)]}")
     mm = {f & 0xFFFFFF for f in cell}
     others = [r["fid"] & 0xFFFFFF for r in recs if (r["fid"] >> 24) == own_index and r["fid"] & 0xFFFFFF not in mm]
     if mm and others and min(mm) < max(others):
