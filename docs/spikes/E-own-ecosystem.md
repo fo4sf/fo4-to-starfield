@@ -5,7 +5,9 @@ own ecosystem", then: "kind of away from Starfield as much as we can I don't wan
 launcher does with assets, but instead building that style of launcher with the assets you have", "Specifically with
 the DLCS". Polish (heavy-physics movables, lighting tone, textures) waits until most of the game runs.
 
-Status: plan only. Nothing here is built or tested. Labels as in docs/ai/research-log.md.
+Status: plan plus read-only PC findings (jobs AR to AU), a tested FO4-to-Starfield human bone map (`src/fo4sf/human_bones.py`,
+supported hypothesis; rigid one-bone binding only) and a read-only `SfInspect startquests` command. Nothing has been
+accepted in game. Labels as in docs/ai/research-log.md.
 
 ## 1. What "its own ecosystem" means here
 
@@ -118,7 +120,7 @@ our own; quest scripts go through decompile, shim and recompile (E2).
 
 | # | Task | Owner | Needs | Done when |
 |---|---|---|---|---|
-| E1 (done) | Inventory: counts and samples of NPC_, RACE, QUST, DIAL, INFO, SCEN, PACK, IDLE, .hkx and .pex across Fallout4.esm and all DLC; Starfield's animation and interface file types | PC (read-only) | Fo4Export on the PC; the other 4 DLC installed | a table in this note with file, count and command |
+| E1 (partial: base game, DLCRobot and DLCworkshop01 done; Far Harbor, Contraptions, Vault-Tec and Nuka-World open until installed) | Inventory: counts and samples of NPC_, RACE, QUST, DIAL, INFO, SCEN, PACK, IDLE, .hkx and .pex across Fallout4.esm and all DLC; Starfield's animation and interface file types | PC (read-only) | Fo4Export on the PC; the other 4 DLC installed | a table in this note with file, count and command |
 | E2 | Papyrus round trip on 20 FO4 quest scripts (decompile, shim, compile) | PC + cloud | E1, Creation Kit | a pass rate and the failing call list |
 | E3 | Animation route decision: one FO4 walk cycle on a Starfield human, or native locomotion first | cloud research, PC test | E1 | a go/no-go with a screenshot or log |
 | E4 | Bulk NPC_ converter for humans (stand-in bodies allowed), then the FO4 human body | cloud | E1 | every Concord and Sanctuary actor placed; offline tests on synthetic masters |
