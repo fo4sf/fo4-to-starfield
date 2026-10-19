@@ -456,9 +456,9 @@ owner submits are recorded here and on the question in its own file.
 | Power armor route; VATS shape | EM character A1 to A4, EM UI 11.1 | Fallout systems, at design start |
 | Contact Bethesda and Nexus; what to ask | REL-30, REL-31, Lau D5, Lau D6, Lau L1, Int P3 | Release, before the Nexus upload; REL-52 puts the first public release after it |
 | Outreach to community and tool authors | REL-33, PS-33, AP-53, MG-04, Int P11, EM L4 | People and story (PS-08 is the largest unknown); Multi-game before FO3/NV work |
-| Licence split and source delivery | REL-01, REL-02, REL-08, Lau D8, Lau L8, Door J38, NG-G6 | Launcher, before the first binary release |
+| Licence split and source delivery; CALUMI (LGPL-3) shipped or user-supplied | REL-01, REL-02, REL-05, REL-08, Lau D8, Lau L8, Door J38, Door J39, NG-G6 | Launcher, before the first binary release |
 | Build-from-own-install policy; derived data | NG-G1, REL-19, REL-20 | Door animations (derived timings); New game (FO4 strings); before any release |
-| Bethesda tools on the player's PC; bundling | TT-13, AP-50, AP-51, REL-03, REL-10, Lau T4, Lau L3, Int T17, Door J39 | Launcher, before the build pipeline is fixed; All interiors (REL-10) |
+| Bethesda tools on the player's PC; bundling | TT-13, AP-50, AP-51, REL-03, REL-10, Lau T4, Lau L3, Int T17 | Launcher, before the build pipeline is fixed; All interiors (REL-10) |
 | Wwise | AP-30, REL-04, TT-09, Door F27 | People and story, before any `.wem` conversion |
 | Fallout 4 data versions | VM-01, AP-52, Lau D1, Lau S5 | Launcher and New game, after the VM-02 diff |
 | Fallout 4 stores and CC files | VM-05, VM-07, AP-54, Lau D2, Lau S7, MG-25 | Launcher, before detect is released |

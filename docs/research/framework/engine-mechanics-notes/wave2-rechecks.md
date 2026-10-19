@@ -120,7 +120,7 @@ What I read:
   **Fallout 4** CK. **verified** (search results, 2026-10-19).
 
 Answers or changes:
-- **tools-and-scripting.md 6.1** and **quests-dialogue-voice.md L1**: still **unresolved** on the web. The cheapest
+- **tools-and-scripting.md 6.1** and **quests-dialogue-voice.md L1**: still **unresolved** on the web. **Update (after wave 2, verified on the PC, jobs 18 to 33):** 6.1 answered (the Starfield CK has switches but no -GenerateLips); L1 answered for generation (LipGenerator.exe plus ffxc.exe run headless; time per 1,000 lines not yet measured); see engine-mechanics.md, PC checks. The cheapest
   check stands: `strings CreationKit.exe` on the PC, grep `-Generate`, `-Compile`, `-Export`, and now also
   `GenerateAnimInfo`.
 - **animation-audio-physics.md B1** (new clip with CK-generated subgraph data): the "CK launch argument" an Animation IO

@@ -374,10 +374,11 @@ block the next build step.
 ### J. Release and policy (owner)
 38. Built .NET tools are GPL-3 through Mutagen: release source only, or binaries under GPL-3? *Owner*, recorded in
     decisions.md.
+39. CALUMI: user-supplied DLL or shipped unmodified with its notices? *Owner.*
 40. **Channel answered by lesson 9** (GitHub, then Nexus). Still open, and only if Creations is ever reconsidered: do
     free Creations carry the paid ones' rules (no generative AI, standalone, all-new)? PCGamesN (secondary) reports
     those rules without saying; the official page (help.bethesda.net a_id 51731) refuses fetches, so a browser read is
     needed. For the chosen channels: Nexus forbids uploading copyrighted game files (verified, submission guidelines)
     and moderators say other Bethesda games' assets need permission (supported, forum 9720278); Tale of Two Wastelands
     builds everything from the player's own installed games and claims no Bethesda permission (verified, its FAQ).
-    *Source* (browser read), no owner decision needed now.installed games and claims no Bethesda permission (verified, its FAQ). *Owner.*
+    *Source* (browser read), no owner decision needed now.

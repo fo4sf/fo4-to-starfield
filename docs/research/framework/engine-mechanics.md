@@ -447,7 +447,7 @@ papyrus-and-script-extenders.md. New questions:
 - **G8:** cleared locations: our own flag on our LCTN records (keyword or actor value) set by a shim, or Starfield's
   "explored" state? Decides FO4's location-reset rules (32 calls). Phase P3.
 
-### Wave 3: conversion precedents ([notes](engine-mechanics-notes/conversion-precedents.md), about 40 questions, 17 key)
+### Wave 3: conversion precedents ([notes](engine-mechanics-notes/conversion-precedents.md), 34 questions, 12 key)
 
 Lessons that change plans (labels and sources in the notes):
 - **BACUP compared (Map, Interiors and Bugs threads, offline):** no code worth taking; three ideas (unbuilt door targets zeroed, FO4 lighting templates kept, per-quadrant land textures later) and three values to check (LIGH flags, XCLL +28, NVNM variants); see A1 to A3 in the notes.
