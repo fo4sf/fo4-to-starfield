@@ -57,7 +57,11 @@ the source folder each record names. It restores Plugins.txt bytes only when eve
 installer owns. It never deletes a file itself, leaves unowned new files alone (reported), refuses while
 Starfield.exe runs, refuses on any conflict before changing anything (an owner's Plugins.txt edit, a vanished
 unowned file, a port record with no staging folder unless `--port-staging`), and checks the result against the
-snapshot afterwards. The install thread's swap scripts on the PC are not replaced or touched; this is the same
+snapshot afterwards. An equal install record is not taken as proof: every file a record owns (loose files in
+subfolders included) is hashed at snapshot time and must match the hash the record keeps, before and after, or the
+restore refuses. Unhashed archives are compared by size and time. A complete install that keeps
+`plugins_restore_pending` set (it owns the later uninstall's Plugins.txt restoration) is healthy and left alone; only
+`complete: false` or `cleanup_pending` counts as an interrupted install to recover (Codex review, 2026-10-19). The install thread's swap scripts on the PC are not replaced or touched; this is the same
 practice in code, so the launcher can later call it.
 
 ### Same-ids check

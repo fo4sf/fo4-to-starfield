@@ -126,6 +126,63 @@ class RestoreTests(unittest.TestCase):
         self.assertTrue(os.path.exists(stray))
         self.assertEqual(left, ["Data/Stranger.esp differs"])           # reported, never deleted
 
+    def test_changed_installed_file_is_refused_even_with_an_equal_record(self):
+        # plugin already active: the install ends complete with no Plugins.txt restoration pending (review case 1)
+        with open(self.pt, "ab") as f:
+            f.write(b"*FO4SFExpTest.esm\r\n")
+        self.exp_install("install", "--exp-dir", self.exp)
+        rec = self.snap()["records"]["experiment"]
+        self.assertTrue(rec["complete"])
+        self.assertFalse(rec["plugins_restore_pending"])
+        target = self.snap()
+        for rel in ("FO4SFExpTest.esm", os.path.join("Terrain", "x.btd")):     # a plugin, then a loose file
+            with self.subTest(rel=rel):
+                path = os.path.join(self.data, rel)
+                with open(path, "rb") as f:
+                    good = f.read()
+                with open(path, "wb") as f:
+                    f.write(good[:-1] + b"X")
+                p = restore.plan(target, self.snap(), ROOT)
+                self.assertTrue(any("changed since it was installed" in c for c in p["conflicts"]), p)
+                with self.assertRaises(restore.RestoreRefused):
+                    self.apply(target)
+                os.remove(path)
+                p = restore.plan(target, self.snap(), ROOT)
+                self.assertTrue(any("missing" in c for c in p["conflicts"]), p)
+                with open(path, "wb") as f:
+                    f.write(good)
+        self.assertEqual(restore.plan(target, self.snap(), ROOT)["conflicts"], [])
+        self.assertEqual(self.apply(target), [])
+
+    def test_unhashed_archive_rewritten_at_the_same_length_is_caught_by_time(self):
+        target = self.snap()
+        path = os.path.join(self.data, "Starfield - Textures01.ba2")
+        st = os.stat(path)
+        with open(path, "wb") as f:
+            f.write(b"BTDX" + b"\1" * 40)                                    # same length, new bytes
+        os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 10 ** 9))
+        p = restore.plan(target, self.snap(), ROOT)
+        self.assertTrue(any("Textures01" in c for c in p["conflicts"]), p)
+        with self.assertRaises(restore.RestoreRefused):
+            self.apply(target)
+        with open(path, "wb") as f:                                           # contrast: a size change
+            f.write(b"BTDX" + b"\0" * 41)
+        self.assertTrue(any("Textures01" in c for c in restore.plan(target, self.snap(), ROOT)["conflicts"]))
+
+    def test_healthy_install_with_pending_restoration_is_left_alone(self):
+        self.exp_install("install", "--exp-dir", self.exp)                  # activation changed Plugins.txt
+        rec = self.snap()["records"]["experiment"]
+        self.assertTrue(rec["complete"])
+        self.assertTrue(rec["plugins_restore_pending"])                     # owns the later uninstall's restoration
+        target = self.snap()
+        p = restore.plan(target, self.snap(), ROOT)
+        self.assertEqual((p["steps"], p["conflicts"]), ([], []))
+
+        def no_installer(*_a, **_k):
+            raise AssertionError("no installer may run for a no-op restore")
+        self.assertEqual(self.apply(target, run=no_installer), [])
+        self.assertTrue(self.snap()["records"]["experiment"]["plugins_restore_pending"])
+
     def test_vanished_unowned_file_is_a_conflict(self):
         target = self.snap()
         os.remove(os.path.join(self.data, "SomeOwnerMod.esm"))
