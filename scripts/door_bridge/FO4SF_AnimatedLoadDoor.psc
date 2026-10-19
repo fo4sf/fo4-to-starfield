@@ -2,7 +2,7 @@ Scriptname FO4SF_AnimatedLoadDoor extends FO4SF_LoadDoor
 {Experimental: a scripted load door that opens before the trip and is shut again behind the player.
  Attach to a DOOR reference whose base has an animation graph (load_door.anim, docs/spikes/load-door-animations.md).
  FO4SF_LoadDoor's travel and its properties are unchanged; this adds only the wait for the open animation.
- Not compiled or run yet: GetOpenState / SetOpen / Utility.Wait in Starfield's Papyrus are a PC read (check A3).}
+ Compiled on the PC (fd26932), not run in game yet. All functions used are in Starfield 1.16's ObjectReference.psc.}
 
 ; Seconds the door's Open clip takes (load_door.anim.open_seconds; FO4's Open sequence length). 0 or less: wait for the
 ; door's own open state only, at most MaxWaitSeconds.
@@ -17,6 +17,10 @@ EndEvent
 
 Event OnActivate(ObjectReference akActionRef)
     if akActionRef != Game.GetPlayer() || Busy
+        return
+    endif
+    ; OnActivate still fires on a locked door: no trip until the lock is picked or opened with its key
+    if IsLocked()
         return
     endif
     Busy = True

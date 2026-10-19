@@ -237,6 +237,9 @@ class AnimatedScriptTests(unittest.TestCase):
         self.assertTrue(text.startswith("Scriptname FO4SF_AnimatedLoadDoor extends FO4SF_LoadDoor"))
         self.assertIn(f"float Property {vmad_patch.PROP_OPEN_SECONDS} = 0.0 Auto", text)
         self.assertIn("Parent.OnActivate(akActionRef)", text)        # the travel itself stays FO4SF_LoadDoor's
+        # OnActivate fires on locked doors too: the lock check comes before the travel (framework B8)
+        self.assertLess(text.index("if IsLocked()"), text.index("Parent.OnActivate(akActionRef)"))
+        self.assertNotIn("Lock(", text.replace("IsLocked(", ""))  # Starfield's Lock() also locks linked lockables
         # "state" is a Papyrus keyword: a local named so failed the game's compiler (PC run, 2026-10-19)
         import re
         self.assertIsNone(re.search(r"\b(int|float|bool|string)\s+state\b", text, re.I))
