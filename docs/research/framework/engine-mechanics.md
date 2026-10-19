@@ -46,7 +46,7 @@ The questions below decide the most; each links to its area. Owner decisions are
    **Decided by owner, 2026-10-19 (page PE-2, talk-through 22:04Z): play FO4's own clips through SFSE community glTF players first; move them into Starfield's .af format later.**
 7. **Power armor route.** No furniture-based power armor exists in Starfield; the options are an outfit, a race swap,
    or furniture plus `SwitchToPowerArmor` (declared, behaviour unknown). (character A1 to A4)
-   **Talk through first (owner, page FS-4); still undecided.** Owner: FO4 and 76 style (climb in, a second suit) for FO4; a worn suit needing training for the older games.
+   **Decided by owner, 2026-10-19 (page FS-4, talk-through 22:06Z): both styles, chosen per game: a worn suit that needs training for Fallout 3 and New Vegas; the climb-in second suit for Fallout 4 and the combined core. The climb-in version relies on an untested engine feature (SwitchToPowerArmor) and needs an in-game test before anything is built on it.**
 8. **VATS shape.** Full VATS or bullet time; whichever we pick, the VATS perks are redesigned with it. (UI 11.1)
    **Decided by owner, 2026-10-19 (page FS-5): full VATS, queued shots on limbs.**
 9. **Plugin layout.** Full or medium masters per output plugin, fixed before release. (tools)
@@ -73,7 +73,8 @@ rows it covers (here and in the notes folder).
 | PE-6, PE-7 | companions C1, C3, F2 | decided as recommended: dialogue orders first; Starfield's companions fenced out |
 | NG-1 | decision 3, X1, companions R2 | decided after the talk-through: SFSE required, blocked when broken, our own small SFSE plugins (dismemberment first) |
 | NG-11 | X6, UI 1.1 to 1.3, L3 | talk through first |
-| FS-4 | decision 7, character A1 to A4 | talk through first (per-game power armor) |
+| FS-4 | decision 7, character A1 to A4 | decided after the talk-through: both styles per game; the climb-in suit needs an in-game test first |
+| PE-4 | character F1, F2, T-new2 | decided after the talk-through: ship hand-made face values, bake faces on the player's PC |
 | PE-2 | animation B1, B2 | decided after the talk-through: FO4 clips through SFSE glTF players first, .af later |
 | WO-8 | conversion A3, BACUP | decided after the talk-through: reuse BACUP's GPL-3 code with credit for the three ideas |
 
@@ -396,7 +397,7 @@ Changed questions (labels and sources in the notes):
   `-GeneratePreCombined`, `-GeneratePreVisData`, `-ExportDismemberData`, `-MapMaker`, `-UpdateModelData`. Starfield's
   archives hold **no** `.facefx` actor files, only 278,582 per-line `.ffxanim`; so LipGenerator's actor inputs must
   come from the CK's tools or source data (quests L3 stays key; next PC check searches the Starfield and CK folders and
-  ContentResources.zip). New questions: T-new2 can `-ExportFaceGenData` bake converted NPC faces headless (people and
+  ContentResources.zip). New questions (T-new2 now matters more: **Decided by owner, 2026-10-19 (page PE-4, talk-through 22:06Z): ship hand-made face values; the faces are baked on the player's PC.**) T-new2 can `-ExportFaceGenData` bake converted NPC faces headless (people and
   story); T-new3 what validation suites `-RunValidationSuite` offers (tooling and testing).
 - **Job 22 (verified):** the actor files ship with the CK in `Starfield\Tools\FaceFX\` (StarfieldHumanMale,
   StarfieldHumanFemale, GenesisDefault, GenesisDeadHead `.facefx`). So every LipGenerator input is on a player's PC
