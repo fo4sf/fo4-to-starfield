@@ -147,8 +147,11 @@ static class NewGame
         _ => throw new Refusal($"{r.FormKey.ID:X8} is neither a placed object nor an actor"),
     };
 
+    /// FO4's two pods in the cryo hall's row (PC, 19 Oct): MQPlayerCryopodREF 0004A011 (the player's) and
+    /// MQPlayerSpousePodREF 0004A012 (the spouse's): a spouse pod is never the player's.
     public static bool IsPlayerPod(string? edid) =>
         edid is not null && edid.Contains("Player", StringComparison.OrdinalIgnoreCase) &&
+        !edid.Contains("Spouse", StringComparison.OrdinalIgnoreCase) &&
         (edid.Contains("Pod", StringComparison.OrdinalIgnoreCase) || edid.Contains("Cryo", StringComparison.OrdinalIgnoreCase));
 
     static string Show(P3Float p) => $"({F(p.X)}, {F(p.Y)}, {F(p.Z)})";
@@ -404,7 +407,7 @@ static class NewGame
         F4.PlacedObject P(uint id, string? edid, float x, float y, float z, float rz = 0) =>
             new(new FormKey(f4Key, id), F4.Fallout4Release.Fallout4) { EditorID = edid, Position = new P3Float(x, y, z), Rotation = new P3Float(0, 0, rz) };
         vcell.Temporary.Add(P(0x1000, "Vault111PlayerCryopodREF", 700f, 1400f, 70f, MathF.PI / 2));
-        vcell.Temporary.Add(P(0x1001, "Vault111SpouseCryopodREF", 840f, 1400f, 70f));
+        vcell.Temporary.Add(P(0x1001, "MQPlayerSpousePodREF", 840f, 1400f, 70f));
         vcell.Temporary.Add(P(Fo4Console, "MQ102GearDoorConsoleREF", 3500f, 700f, 0f));
         vcell.Temporary.Add(P(Fo4CogDoor, "Vault111GearDoorREF", 3640f, 700f, 0f));
         vcell.Temporary.Add(P(Fo4Platform, "V111ElevatorREF", 4200f, 1050f, -140f));
@@ -476,7 +479,7 @@ static class NewGame
         if (MathF.Abs(stand[0] - 11f) > 1e-3 || MathF.Abs(stand[1] - 20f) > 1e-3 || MathF.Abs(pts.GetProperty("pod").GetProperty("heading").GetSingle() - 90f) > 1e-3)
             { Console.WriteLine($"FAIL  pod stand point {string.Join(",", stand)}"); return 1; }
         if (pts.GetProperty("arrival").GetProperty("to").GetString() != "000998E3") { Console.WriteLine("FAIL  arrival"); return 1; }
-        if (!IsPlayerPod("Vault111PlayerCryopodREF") || IsPlayerPod("Vault111SpouseCryopodREF") || IsPlayerPod(null)) { Console.WriteLine("FAIL  IsPlayerPod"); return 1; }
+        if (!IsPlayerPod("Vault111PlayerCryopodREF") || IsPlayerPod("MQPlayerSpousePodREF") || !IsPlayerPod("MQPlayerCryopodREF") || IsPlayerPod(null)) { Console.WriteLine("FAIL  IsPlayerPod"); return 1; }
 
         var outDir = Path.Combine(dir, "out");
         var plain = Options.From(Array.Empty<string>());
