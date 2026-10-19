@@ -715,6 +715,8 @@ class Converter:
                 # rig_load_doors: the rig belongs to the load door (one record: a DOOR that opens, then the trip), not to a
                 # separate opening door; the plugin writer reads it from load_door.anim
                 res["load_door"]["anim"] = res.pop("door")
+                if res["load_door"]["anim"].get("rig") != "native":   # the template rig has a vanilla load variant
+                    res["load_door"]["anim"]["xtel_anim_graph"] = load_door_anim.TEMPLATE_XTEL_GRAPH
                 try:                                     # how long the FO4 door takes to open, and its sound keys
                     timing = load_door_anim.open_timing(src)
                 except nif.NifError:

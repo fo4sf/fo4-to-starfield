@@ -22,8 +22,8 @@ Event OnActivate(ObjectReference akActionRef)
     Busy = True
     ; The engine has already started this DOOR's open (or close, when it stood open) before OnActivate runs:
     ; GetOpenState 1 open, 2 opening, 3 closed, 4 closing (FO4's values).
-    int state = GetOpenState()
-    if state == 3 || state == 4
+    int openState = GetOpenState()
+    if openState == 3 || openState == 4
         SetOpen(True)
     endif
     float waited = 0.0

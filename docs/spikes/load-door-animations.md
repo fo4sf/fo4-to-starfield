@@ -15,8 +15,8 @@ Owner's ask (2026-10-19, roadmap phase 2): doors with their animations working f
   (dotnet/PluginSpike/TeleportLinks.cs); exterior <-> interior pairs get FO4SF_LoadDoor (an ACTI on the core side, the
   graph-less DOOR plus a VMAD on the port side; docs/terrain/scripted-doors.md). The player presses E and is moved at
   once; the door never moves. The SDM, library and Vault 95 round trips pass that way (bridge thread).
-- Fallout 4 itself mostly does not animate load doors either: a load door plays its sound and the load screen comes.
-  **Supported hypothesis** (common FO4 behaviour; which FO4 load-door NIFs carry an Open sequence is check A5).
+- Fallout 4's own load-door models mostly carry an Open sequence (16 of 20 in the port cells, check A5 below), but the
+  port never used it.
   Starfield does animate its visible load doors: 506 of its 964 XTEL door bases carry an AnimationGraphComponent with
   a `*_Load` graph (**verified**, research-log 2026-10-10; e.g. `IndIntRmSmWallMid_DoorA01_Load` 2AC325,
   `SimpleOpenClose06_Load.agx`). "Enter and exit animations" therefore means Starfield's behaviour on FO4's doors: the
@@ -29,7 +29,7 @@ Owner's ask (2026-10-19, roadmap phase 2): doors with their animations working f
    - its **non-load twin**: FO4 often places a static "...Load" copy of an animated door (`UtilMetalDbDoorLoad01` /
      `UtilMetalDbDoor01`). `scripts/door_bridge/load_door_anim.py plan` takes the twin's rigged model and rig when the
      twin's FO4-space bounds equal the load model's within 5 cm (`load_door_anim.TWIN_TOLERANCE_M`); otherwise it says
-     why and the door stays as today. Twins are a **supported hypothesis** until check A5 lists them.
+     why and the door stays as today. Check A5 found no load model in the port cells that needs a twin.
    The result sits in the manifest as `load_door.anim` (graph, skeleton, clips, origin offset, bounds, model,
    `open_seconds` from FO4's Open sequence, `fo4_open_events` = FO4's sound keys). A rigged load door never also
    gets a `door` entry, so it stays one record: a DOOR that opens and then travels.
@@ -84,6 +84,31 @@ head commit. Nothing is installed, nothing touches Starfield's Data folder or th
   which load models animate, how long, their sound keys, and which have an animated twin.
 - **A6 manifest report.** `load_door_anim.py report` on the installed port's manifest: how many load doors would get
   a rig today (twins only, since the pinned build was converted without `--rig-load-doors`).
+
+## PC results (2026-10-19, install thread, worktree at 027e210; outputs in D:\Modding\scratch\loaddoor_anim)
+
+- **A5, FO4 load-door NIFs: 16 of the 20 models FO4 places as teleporting doors in the 16 port cells have their own
+  Open sequence** (**verified**, survey.json), so the earlier hypothesis that FO4 load doors are mostly static is
+  **refuted**: `--rig-load-doors` is the main path, twins matter little (0 needed). Open lengths 0.13 s (the three
+  `VltDoorResLoad01A/B/C`) to 1.33 s; FO4 sound keys present on 6 (e.g. `Sound: DRSWoodMuseumAOpen` on
+  `BldWoodPDbDoorLoad01`, `Sound: DRSVaultDoorVerticalOpen` on the vault doors). No Open sequence: `MetalTrapdoorLadder01`,
+  `AutoLoadMarker01`, `PrySmRoomLadder01`, `InvisibleDoor01` (markers and ladders; they stay as today).
+- **A6, installed port manifest:** 18 load doors, 0 with a rig (the build predates the switch); twin planning finds
+  none usable (8 names without "load", 10 twins whose bounds differ by more than 5 cm). Expected: the pinned build was
+  converted without `--rig-load-doors`.
+- **A1, vanilla graphs** (**verified**, doortsv 339 DOORs): 32 rigs carry both `SimpleOpenClose01.agx` and one `*_Load`
+  graph on the same skeleton and clips, so a load graph is a graph swap for the same rig. **The Akila template rig has
+  a vanilla load variant:** `AK_Ext_Bld_WallA_DoorA_Load_01` (1C42C2) and `_Load_03/04/05` use
+  `SimpleOpenClose02_Load.agx` with `ak_ext_bld_walla_doora_01`'s skeleton and clips. The converter records it as
+  `load_door.anim.xtel_anim_graph` for template-rigged load doors (for step B; the writer does not use it yet). The most
+  common pair is `SimpleOpenClose01` / `SimpleOpenClose06_Load` (11 rigs): the candidate for own-rig XTEL doors,
+  **supported hypothesis**.
+- **A2:** vanilla load doors use the same NIF as their non-load sibling (`IndIntRmSmWallMid_DoorA01_Load_Neon` uses
+  `indintrmsmwallmid_doora01.nif`) and carry OpenSound / CloseSound and NativeTerminal 227D93; our records have no sounds.
+- **A3, Papyrus** (**verified**, ObjectReference.psc): `GetOpenState()`, `SetOpen(bool)`, `BlockActivation`,
+  `PlayAnimationAndWait`, events `OnOpen` / `OnClose` all exist, as the script assumes.
+- **A4, compile:** FO4SF_LoadDoor compiled (3,578 bytes); FO4SF_AnimatedLoadDoor failed on a local variable named
+  `state`, a Papyrus keyword (lines 25-26). Renamed `openState`; a test now refuses a local of that name. Rerun pending.
 
 ## Next steps
 

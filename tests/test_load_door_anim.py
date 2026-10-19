@@ -71,6 +71,7 @@ class ConverterSwitchTests(unittest.TestCase):
         self.assertEqual(anim["anim_graph"], "AnimTextData\\Tables\\Graphs\\SimpleOpenClose01.agx")
         self.assertIn("bounds", result["load_door"])
         self.assertGreater(anim["open_seconds"], 0)
+        self.assertEqual(anim["xtel_anim_graph"], "AnimTextData\\Tables\\Graphs\\SimpleOpenClose02_Load.agx")
 
     def test_on_a_teleporting_hatch_without_a_door_name_takes_the_own_rig_route(self):
         hatch = "meshes\\SetDressing\\Synthetic\\RoofHatch01.nif"
@@ -79,6 +80,7 @@ class ConverterSwitchTests(unittest.TestCase):
                                                          load_door_models={hatch.lower()}, rig_load_doors=True)
         multi.assert_called_once()
         self.assertEqual(result["load_door"]["anim"]["rig"], "native")
+        self.assertNotIn("xtel_anim_graph", result["load_door"]["anim"])    # no vanilla load graph known for own rigs
 
     def test_on_a_load_door_that_does_not_animate_stays_static(self):
         with tempfile.TemporaryDirectory() as staging:
@@ -216,6 +218,9 @@ class AnimatedScriptTests(unittest.TestCase):
         self.assertTrue(text.startswith("Scriptname FO4SF_AnimatedLoadDoor extends FO4SF_LoadDoor"))
         self.assertIn(f"float Property {vmad_patch.PROP_OPEN_SECONDS} = 0.0 Auto", text)
         self.assertIn("Parent.OnActivate(akActionRef)", text)        # the travel itself stays FO4SF_LoadDoor's
+        # "state" is a Papyrus keyword: a local named so failed the game's compiler (PC run, 2026-10-19)
+        import re
+        self.assertIsNone(re.search(r"\b(int|float|bool|string)\s+state\b", text, re.I))
 
     def compile(self, root, code=0, message="Compilation succeeded", outputs=("FO4SF_LoadDoor", "FO4SF_AnimatedLoadDoor")):
         compiler, resources, out = root / "c.exe", root / "r.zip", root / "out"

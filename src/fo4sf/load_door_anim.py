@@ -20,6 +20,10 @@ from . import door_motion
 
 # the Akila template door's clips (sfnif.DOOR_TEMPLATE): 31 frames at 30 fps (docs/spikes/WP-doors-research.md)
 TEMPLATE_OPEN_SECONDS = 31 / 30
+# the vanilla load variant of that same rig: AK_Ext_Bld_WallA_DoorA_Load_01 (1C42C2) and _Load_03/04/05 carry the Akila
+# skeleton and clips with this graph (PC read A1, SfInspect doortsv 2026-10-19: 32 vanilla rigs pair SimpleOpenClose01
+# with one *_Load graph on the same skeleton and clips, so a load graph is a graph swap). For an XTEL door (step B).
+TEMPLATE_XTEL_GRAPH = "AnimTextData\\Tables\\Graphs\\SimpleOpenClose02_Load.agx"
 # a twin's bounds must match the load model's within this (metres, each corner coordinate): the rigged model replaces
 # the load model, so a different shape or origin would show
 TWIN_TOLERANCE_M = 0.05
