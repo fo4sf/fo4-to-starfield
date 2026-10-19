@@ -293,7 +293,7 @@ source:
 - **Its own world, no overlay.** `native/conversion/src/phase/starfield_cells.rs` writes the FO4 worldspace as a new
   `WRLD`: a world persistent cell plus a re-latticed 100 m exterior grid (FO4's 4096-unit cells do not divide into
   100 m, so refs are bucketed by position and `XCLC` is rebuilt). It notes `Starfield.esm` measurements: block =
-  grid div 32, sub-block = grid div 8, label `[y, x]`. Our core follows the same block layout.
+  grid div 32, sub-block = grid div 8, label `[y, x]` (its claim, not rechecked here).
 - **Persistent refs keep their own position.** The persistent cell "never re-lattices; its children keep their
   (rescaled) positions verbatim" (FO4 position / 69.99125, our 70). No world is merged into another, so it never
   meets our case: an overlay whose runtime world places records at local + (-1200, -2700). It has no answer for the
