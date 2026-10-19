@@ -22,8 +22,8 @@ was cloned, run or copied. Below, `S` means `py_bacup_lib/native/conversion/src`
 
 ## Worth borrowing
 1. **FO4 land-texture layering from VTXT/ATXT** with the 255-LTEX cap: our terrain uses a template, so FO4 roads and
-   dirt patches do not show. This is a later-phase terrain item; we would write it ourselves from the published format,
-   not copy GPL code without the owner's decision (AP-60).
+   dirt patches do not show. This is a later-phase terrain item; per the owner's decision below we reuse BACUP's code
+   for it, with credit.
 2. **The dangling-teleport rule.** It matches what our interior writer already does. Unresolved: whether the core's
    FO4SF_LoadDoor VMAD can point at a reference that does not exist. The core writes no XTEL outdoors, and
    `make_core64c.door_destination` checks only the destination's form (plugin file name, local id), not that the port
@@ -31,6 +31,16 @@ was cloned, run or copied. Below, `S` means `py_bacup_lib/native/conversion/src`
    target should be a failed lookup rather than a load crash (**supported hypothesis**). It stays low on the crash list.
 3. Its LIGH, WATR and LGTM byte relayouts are checked against vanilla Starfield data; compare them with
    `scripts/terrain/fo4light.py` when lighting comes back.
+
+## Owner decision
+Status: **decided by owner, 2026-10-19** (22:04Z, question WO-8 in the next-phase talk-through). Reuse BACUP's GPL-3
+code, with credit, for three ideas instead of writing our own versions:
+1. Zero a door's transition cell when its destination is not built (the dangling-teleport rule above).
+2. Keep each cell's FO4 lighting template.
+3. Per-quadrant land texturing from VTXT/ATXT (item 1 above).
+
+Nothing is copied yet; this is later-phase work. Reused files keep BACUP's GPL-3 notice and name their source, and the
+release carries the GPL-3 notice. The v6f recipe and the build order after the v6e result are unchanged.
 
 ## For the Red Rocket crash
 BACUP converts no meshes, collision or doors for this pair, so it says nothing about our suspects (props physics and door
