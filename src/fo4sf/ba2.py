@@ -111,16 +111,34 @@ class Ba2:
                         raise Ba2Error(f"{self.path}: DX10 entry {e.name} chunk is outside the file")
 
     def summary(self) -> dict:
-        """Return a short summary of the archive contents."""
-        gnrl = sum(1 for e in self.entries if e.kind == "GNRL")
-        dx10 = sum(1 for e in self.entries if e.kind == "DX10")
+        """Return a summary of the archive: counts and total sizes by kind.
+
+        Useful for conversion planning (how much general data vs texture data).
+        Sizes are in bytes. Packed size is the on-disk size (equals unpacked when uncompressed).
+        """
+        def unpacked_of(e: Entry) -> int:
+            if e.kind == "GNRL":
+                return e.unpacked
+            return sum(c[2] for c in (e.chunks or []))
+
+        def packed_of(e: Entry) -> int:
+            if e.kind == "GNRL":
+                return e.packed or e.unpacked
+            return sum((c[1] or c[2]) for c in (e.chunks or []))
+
+        gnrl = [e for e in self.entries if e.kind == "GNRL"]
+        dx10 = [e for e in self.entries if e.kind == "DX10"]
         return {
             "path": self.path,
             "version": self.version,
             "kind": self.kind,
-            "entries": len(self.entries),
-            "general": gnrl,
-            "textures": dx10,
+            "total_entries": len(self.entries),
+            "general_count": len(gnrl),
+            "texture_count": len(dx10),
+            "general_unpacked": sum(unpacked_of(e) for e in gnrl),
+            "texture_unpacked": sum(unpacked_of(e) for e in dx10),
+            "total_unpacked": sum(unpacked_of(e) for e in self.entries),
+            "total_packed": sum(packed_of(e) for e in self.entries),
         }
 
     def largest_entries(self, n: int = 10) -> list:
