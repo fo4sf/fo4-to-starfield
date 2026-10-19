@@ -97,6 +97,18 @@ D:\Modding\scratch\e1_inventory\e1.md.
   Pelvis, SPINE1, SPINE2, Chest, Neck, HEAD, LArm_Collarbone/UpperArm/ForeArm1-3/Hand/Finger11-53, LLeg_Thigh/Calf/
   Foot/Toe1, the R side, twist and _skin helpers, WEAPON, WeaponLeft, PipboyBone, Camera and AnimObject nodes.
 
+## AU: Starfield's human rig and the bone map (PC job AU, 2026-10-19)
+
+- Verified: `meshes\actors\human\characterassets\skeleton.rig` (10,680 bytes; female, mannequin and sfbgs004 twins
+  are the same size; first-person rigs 9,630) holds 97 bone names, first name offset in the u32 at 0x80 (0x25ea), the
+  same layout as bipeda. Starfield names fingers (Thumb, Index, Middle, Ring, Pinky, plus Cup) and has IK targets
+  (R_HandIk, L_HandIk, Eye_Target); FO4 numbers fingers (Finger11 to Finger53) and has about 38 _skin helpers.
+- `src/fo4sf/human_bones.py` maps every FO4 body bone onto that rig (helpers fold onto their deform bone; unknown
+  names are refused) and plugs into `actor_rebind.rebind` as `bone_for`. Which bone matches which is a supported
+  hypothesis from the names until a converted body is posed in game. Limit: rebind binds each vertex to one bone, so a
+  human body will crease at the joints; a weight-preserving rebind is the next step for humans.
+- 6,810 human .af clips match walk, run, idle or turn; the first by path are character-creation clips (chargen\).
+
 Routes this sets: NPCs move with Starfield's own animations at first; FO4 clip conversion waits on an .af layout spike
 (read the .rig names first, then several .af samples against their known durations); the Pip-Boy is a Scaleform menu of
 our own; quest scripts go through decompile, shim and recompile (E2).
