@@ -159,6 +159,8 @@ engine-mechanics thread), [distribution-community](findings/distribution-communi
   output loaded in game. Worth borrowing as ideas only: zero an unbuilt door's transition cell, keep each cell's FO4
   lighting template, per-quadrant land-texture layering from VTXT/ATXT. Owner's call: reuse its GPL-3 code for those
   or write our own.
+- **Script natives (job 34, verified):** of 229 FO4 script functions Starfield lacks, 36 are engine natives and 193
+  are wrappers we port. Dismemberment is the biggest native use and needs SFSE to keep: new owner decision VM-40.
 - **Voice reuse** is flagged as the owner's decision by engine-mechanics.md too (same decision as REL-26).
 
 ## Where the files disagree (to settle first)

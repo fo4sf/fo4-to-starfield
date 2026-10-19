@@ -423,9 +423,26 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Blocks: Release, Multi-game.
 - Status: open.
 
+**VM-40. Keep FO4 dismemberment, which needs a small SFSE plugin, or drop it?** (new 2026-10-19)
+- Why it matters: it is the largest single use of an FO4 engine native that Starfield lacks, and it is a concrete
+  test of VM-17 (data-only core or SFSE).
+- Evidence (**verified**, Mechanics job 34, read-only census of Starfield's ContentResources.zip against FO4's
+  Scripts\Source\Base\Base.zip; research/engine-mechanics/papyrus-and-script-extenders.md on PR #404): 229 FO4 script
+  functions are missing in Starfield; 36 are engine natives and 193 are Papyrus wrappers we can port as our own scripts.
+  FO4's scripts call 25 of the 36 natives in 336 places: `actor.Dismember` (125 calls in 25 scripts), `actor.AddSpell`
+  (Starfield declares it on ObjectReference), Pip-Boy and SPECIAL menus, `location.SetCleared` and `IsCleared`, and the
+  workshop natives.
+- Options: (a) keep it through a small SFSE plugin (an optional SFSE module under VM-17); (b) drop it and strip the
+  calls in conversion.
+- Answer by: owner decision. Blocks: People and story, Fallout systems (combat).
+- Status: open; owner decision.
+
 ## Owner decisions in this area
 
 Each line is a recommendation, not a decision.
+
+- **VM-40 Dismemberment:** no recommendation yet; it follows VM-17 (if SFSE stays optional, keep it as an optional
+  SFSE module and strip the calls otherwise).
 
 - **VM-01 Fallout 4 data versions:** recommend accepting 1.10.163 and the current Steam runtime (1.11.240) through
   data-version detection, once VM-02 and VM-03 show the size of the difference. Most players own 1.11.240, and the

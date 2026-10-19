@@ -271,6 +271,9 @@ Each row quotes both sides. None is settled here.
      modules". AP-45: "keeping SFSE optional ... data-only survives patches better".
    - AP-20: "SFSE glTF players for idles and scenes first ... SFSE is allowed". EM decision 3: "menus, radio outside
      Wwise and a faithful VATS need it".
+   - [Added 2026-10-19] Job 34 census (verified, papyrus-and-script-extenders.md on PR #404): only 36 of the 229
+     missing FO4 script functions are engine natives; the rest port as our scripts. The natives FO4 calls most are
+     dismemberment, AddSpell, Pip-Boy and SPECIAL menus, cleared locations and workshop. Dismemberment is VM-40.
    - What it means: TT-39 and AP-20 lean toward SFSE now; TT-04, VM-17, PS-35 and AP-45 keep it optional. VM-17 is
      the one decision that settles all of them.
 
@@ -484,4 +487,5 @@ owner submits are recorded here and on the question in its own file.
 | Community home, triage, contributors, succession, dates | REL-39, REL-40, REL-45, REL-46, REL-47, REL-48, REL-49, PS-34 | Release |
 | Game-neutral names and namespaces | PS-27, MG-26, MG-27, EM X4 | Fallout systems and People and story, now (cheap now, costly later) |
 | Reuse BACUP's GPL-3 code for three ideas (zero an unbuilt door's transition cell, keep FO4 lighting templates, per-quadrant land-texture layering) or write our own | AP-60, EM BACUP item | World, All interiors (comparison done 2026-10-19: nothing else to borrow) |
+| Keep FO4 dismemberment (small SFSE plugin) or drop it | VM-40, EM job 34 census | People and story, after VM-17 |
 | Multi-game timing, scope, rules | MG-01, MG-02, MG-05, MG-07, MG-09, MG-10, MG-12, PS-26, PS-28, PS-29, MG-19, WP-39, WP-40, MG-14 | Multi-game; MG-01 recommends a spike after phase 1 ships |

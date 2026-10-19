@@ -429,9 +429,28 @@ grid persistence were FO4 pain points. Key checks: G1 which of the 77 are true n
 census (PC job queued, `native_census.py`), W2 one settlement registration in the CK, R1 a receiver test, P1, P2
 SwitchToPowerArmor and the drain settings, V4, V5 the survival rules list and save blocking.
 
+**Answered by PC job 34 (verified, `native_census.py` at 4df2124, read-only):** of 229 FO4-only names (core scripts
+plus FollowersScript and CompanionActorScript), **36 are true engine natives and FO4's own scripts call 25 of them at
+336 sites**: dismemberment 126, spells 75, Pip-Boy and menus 39, cleared locations 32, workshop 30, menu mode 20,
+cannibal 7, speech 4, character creator 3. G5: Starfield declares AddSpell and DispelSpell on ObjectReference, so FO4
+calls on actors should compile through inheritance (supported hypothesis, one compile test). Everything else is
+Papyrus that ports as our own script; FO4's Actor companion calls only forward to FollowersScript. Engine events with
+no Starfield sender: holotape play and chatter, workshop object destroyed and repaired, location cleared, looks menu.
+Starfield has same-named homes for GetScript, IsFollowing (SQ_FollowersScript), IsCompanion and the sleep events
+(SQ_CompanionsScript) and SendAffinityEvent (CompanionAffinityEventsScript). Full table in
+papyrus-and-script-extenders.md. New questions:
+- **G6 (key):** do the 25 called natives' signatures match their nearest Starfield stand-ins, and which need an SFSE
+  native (dismemberment, menu mode, cleared-location flags)? Cheapest: compile the 9 FO4 scripts that call them most
+  against Starfield sources and read the errors. Phase P3 and P4.
+- **G7 (key):** dismemberment (126 calls, deathclaw and mole rat effects): SFSE native, Starfield's own gore if any,
+  or drop? Owner call once G6 shows the cost. Phase P4.
+- **G8:** cleared locations: our own flag on our LCTN records (keyword or actor value) set by a shim, or Starfield's
+  "explored" state? Decides FO4's location-reset rules (32 calls). Phase P3.
+
 ### Wave 3: conversion precedents ([notes](engine-mechanics-notes/conversion-precedents.md), about 40 questions, 17 key)
 
 Lessons that change plans (labels and sources in the notes):
+- **BACUP compared (Map, Interiors and Bugs threads, offline):** no code worth taking; three ideas (unbuilt door targets zeroed, FO4 lighting templates kept, per-quadrant land textures later) and three values to check (LIGH flags, XCLL +28, NVNM variants); see A1 to A3 in the notes.
 - **BACUP (GPL-3, last commit 2026-10-17) already has a FO4-to-Starfield pair, world only:** a translation map, layout
   rebuilds for LIGH, SCOL, WATR and LGTM, a spatial scale of 1/69.99125, cell and placed-object writers, FO4 terrain to
   Starfield `.btd`, and a navmesh module. It leaves out quests, dialogue, NPCs, packages, perks and the Story Manager.
