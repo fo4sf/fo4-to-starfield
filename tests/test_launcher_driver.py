@@ -190,6 +190,41 @@ class DriverTests(unittest.TestCase):
         self.assertEqual(cli.main(["status", p]), 0)
         self.assertEqual(len(files.load_json(out)["steps"]), 3)
 
+    def test_import_closure_follows_repo_imports_only(self):
+        repo = os.path.join(self.root, "repo")
+        os.makedirs(os.path.join(repo, "src", "pkg"))
+        os.makedirs(os.path.join(repo, "scripts"))
+        files_ = {"scripts/run.py": "import os, json\nimport helper\nfrom pkg import a\n",
+                  "scripts/helper.py": "X = 1\n",
+                  "scripts/unused.py": "Y = 2\n",
+                  "src/pkg/__init__.py": "",
+                  "src/pkg/a.py": "from . import b\n",
+                  "src/pkg/b.py": "Z = 3\n",
+                  "src/pkg/c.py": "W = 4\n"}
+        for rel, text in files_.items():
+            with open(os.path.join(repo, rel), "w") as f:
+                f.write(text)
+        got = [os.path.relpath(p, repo).replace(os.sep, "/")
+               for p in driver.import_closure([os.path.join(repo, "scripts", "run.py")], repo)]
+        self.assertEqual(got, ["scripts/helper.py", "scripts/run.py", "src/pkg/__init__.py", "src/pkg/a.py",
+                               "src/pkg/b.py"])
+        step = {"code": [], "argv": ["python", os.path.join(repo, "scripts", "run.py")]}
+        before = driver.code_hash(driver.code_paths(step, repo))
+        with open(os.path.join(repo, "src", "pkg", "c.py"), "w") as f:
+            f.write("W = 5\n")                         # not imported: no rerun
+        self.assertEqual(driver.code_hash(driver.code_paths(step, repo)), before)
+        with open(os.path.join(repo, "src", "pkg", "b.py"), "w") as f:
+            f.write("Z = 4\n")                         # imported two levels down: rerun
+        self.assertNotEqual(driver.code_hash(driver.code_paths(step, repo)), before)
+
+    def test_closure_of_the_launcher_cli_covers_its_package(self):
+        got = {os.path.relpath(p, ROOT).replace(os.sep, "/")
+               for p in driver.import_closure([os.path.join(ROOT, "scripts", "launcher.py")], ROOT)}
+        for rel in ("scripts/launcher.py", "src/fo4sf/launcher/driver.py", "src/fo4sf/launcher/same_ids.py",
+                    "src/fo4sf/launcher/files.py"):
+            self.assertIn(rel, got)
+        self.assertNotIn("src/fo4sf/ba2.py", got)
+
     def test_dry_run_changes_nothing(self):
         rep = self.run_it(dry_run=True)
         self.assertEqual([w for _id, w, _ in rep["plan"]], ["run", "run", "run"])

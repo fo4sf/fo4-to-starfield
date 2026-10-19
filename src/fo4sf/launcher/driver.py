@@ -15,7 +15,8 @@ writers); it does not replace them or their own checkpoints. A recipe is JSON:
 
 A step is reused only when its last run finished with exit 0, its outputs still exist, and its fingerprint is
 unchanged: the resolved argv and cwd, the identity of each declared input (size and time; content hash for files up to
-64 MiB) and the content of its code paths (default: the scripts named in argv plus src/fo4sf). Anything else reruns.
+64 MiB) and the content of its code paths (default: the import closure, inside the repo, of the scripts named in
+argv). Anything else reruns.
 
 Statuses, and what they mean in the run report:
     done     ran in this run, exit 0, every declared output present
@@ -124,11 +125,69 @@ def path_identity(p):
 
 
 def code_paths(step, repo):
-    paths = [os.path.join(repo, c) for c in step["code"]]
-    if not step["code"]:
-        paths = [a for a in step["argv"] if a.endswith(".py") and os.path.isfile(a)]
-        paths.append(os.path.join(repo, "src", "fo4sf"))
-    return paths
+    """The files whose content is part of a step's fingerprint: the recipe's "code" list when given, otherwise the
+    import closure of the Python scripts named in argv (only modules inside the repo; the standard library and
+    installed packages are pinned through the build manifest instead). The closure replaces the old default of all of
+    src/fo4sf, which reran every step on any edit."""
+    if step["code"]:
+        return [os.path.join(repo, c) for c in step["code"]]
+    scripts = [a for a in step["argv"] if a.endswith(".py") and os.path.isfile(a)]
+    return import_closure(scripts, repo)
+
+
+def _module_file(name, roots):
+    parts = name.split(".")
+    for root in roots:
+        base = os.path.join(root, *parts)
+        for cand in (base + ".py", os.path.join(base, "__init__.py")):
+            if os.path.isfile(cand):
+                return cand
+    return None
+
+
+def import_closure(scripts, repo):
+    """Sorted .py files reachable by import from the scripts, resolved against each script's folder and repo/src.
+    Static imports only; a step that loads code another way lists it under "code"."""
+    import ast
+    repo_abs = os.path.abspath(repo)
+    src = os.path.join(repo_abs, "src")
+    seen, todo = set(), [os.path.abspath(p) for p in scripts]
+    while todo:
+        path = todo.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        try:
+            with open(path, "rb") as f:
+                tree = ast.parse(f.read(), filename=path)
+        except (OSError, SyntaxError, ValueError):
+            continue
+        roots = [os.path.dirname(path), src]
+        pkg = os.path.dirname(path)
+        for node in ast.walk(tree):
+            names = []
+            if isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    base = pkg
+                    for _ in range(node.level - 1):
+                        base = os.path.dirname(base)
+                    mod = (node.module or "").split(".") if node.module else []
+                    target = os.path.join(base, *mod)
+                    for cand in [target + ".py", os.path.join(target, "__init__.py")] + [
+                            os.path.join(target, a.name + ".py") for a in node.names]:
+                        if os.path.isfile(cand):
+                            todo.append(cand)
+                    continue
+                names = [node.module] + [f"{node.module}.{a.name}" for a in node.names]
+            for name in names:
+                parts = name.split(".")
+                for i in range(1, len(parts) + 1):        # a package's __init__ runs on import too
+                    f = _module_file(".".join(parts[:i]), roots)
+                    if f and os.path.abspath(f).startswith(repo_abs + os.sep):
+                        todo.append(os.path.abspath(f))
+    return sorted(seen)
 
 
 def code_hash(paths):

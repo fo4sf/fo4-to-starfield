@@ -38,6 +38,12 @@ Idle priority. A step may declare `need_gb` (the space it writes); it is blocked
 plus that need (the example's stage step says 1 GB, from the measured 0.3 to 1 GiB a staged core costs).
 A complete run writes the build manifest.
 
+A step with no `code` list is fingerprinted by the import closure of its Python scripts inside the repo (static
+imports, resolved against the script's folder and `src/`), not all of `src/fo4sf` as before: an edit to a module
+the step never imports no longer reruns it, and a changed helper two imports down still does (framework question
+B7). Steps that load code another way (dotnet projects, data files) list it under `code`, as the example recipe
+does; those fingerprints are unchanged. No speed claim: no PC run measured the difference.
+
 `launcher.py status <recipe>` is the read-only view of the same state (no lock taken, nothing written): each step's
 last result, runs, seconds, the log of a step that did not finish well, whether a driver holds the folder, and what a
 run now would do. A step recorded `running` while no driver holds the lock shows as `interrupted`. This is what the
