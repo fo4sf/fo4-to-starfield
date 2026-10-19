@@ -111,9 +111,32 @@ class Ba2:
                         raise Ba2Error(f"{self.path}: DX10 entry {e.name} chunk is outside the file")
 
     def summary(self) -> dict:
-        """Return a short summary of the archive contents."""
+        """Return a short summary of the archive contents for conversion planning.
+
+        Includes counts, total packed/unpacked sizes, and a breakdown by file extension.
+        """
         gnrl = sum(1 for e in self.entries if e.kind == "GNRL")
         dx10 = sum(1 for e in self.entries if e.kind == "DX10")
+
+        def unpacked_of(e):
+            if e.kind == "GNRL":
+                return e.unpacked
+            return sum(c[2] for c in (e.chunks or []))
+
+        def packed_of(e):
+            if e.kind == "GNRL":
+                return e.packed or e.unpacked
+            return sum((c[1] or c[2]) for c in (e.chunks or []))
+
+        total_unpacked = sum(unpacked_of(e) for e in self.entries)
+        total_packed = sum(packed_of(e) for e in self.entries)
+
+        from collections import Counter
+        exts = Counter()
+        for e in self.entries:
+            ext = e.name.rsplit(".", 1)[-1].lower() if "." in e.name else ""
+            exts[ext] += 1
+
         return {
             "path": self.path,
             "version": self.version,
@@ -121,6 +144,9 @@ class Ba2:
             "entries": len(self.entries),
             "general": gnrl,
             "textures": dx10,
+            "total_unpacked": total_unpacked,
+            "total_packed": total_packed,
+            "extensions": dict(sorted(exts.items())),
         }
 
     def largest_entries(self, n: int = 10) -> list:
