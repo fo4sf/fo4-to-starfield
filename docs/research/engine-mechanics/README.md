@@ -78,7 +78,9 @@ of our world unless reused on purpose.
    (falloutck.uesp.net Papyrus FAQ). The owner installed the FO4 CK on Oct 19: 7,854 base-game and 2,396 DLC sources
    are on the PC, so no decompiling. Comparing them with Starfield's 5,029 sources, only **about 77 function names**
    in FO4's core scripts are missing from Starfield, clustered in workshop, Pip-Boy, companion, holotape, animation
-   archetype and power armor calls (verified; [papyrus-and-script-extenders.md](papyrus-and-script-extenders.md)).
+   archetype and power armor calls. Only 36 of them are true engine natives, and FO4's own scripts call 25 of those
+   at 336 sites (dismemberment, spells, Pip-Boy menus, cleared locations, workshop, menu mode); the rest are Papyrus
+   wrappers that port as script (verified, PC job 34; [papyrus-and-script-extenders.md](papyrus-and-script-extenders.md)).
 5. **Name clashes are real**: Papyrus script names and editor ids are global; converted content needs its own prefix
    or namespace.
 6. **More carries over by index than expected**: perk entry points 0 to 157 keep their numbers (only 136 and 155

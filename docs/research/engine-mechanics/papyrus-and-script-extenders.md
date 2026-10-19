@@ -188,9 +188,56 @@ only: argument lists can still differ (**unresolved**; the next probe can compar
 `IsPipboyOpen`, `IsMenuOpen` and `SetTimeScale` exist in neither game's core scripts (FO4's menu checks live in F4SE's
 `UI` script, outside vanilla).
 
+### Natives versus wrappers, and how often FO4 calls them (PC probe job 34, verified)
+
+`scripts/research/native_census.py` at 4df2124 (sha256 fa51701f...4f47) ran on the PC against FO4's `Base.zip` and
+Starfield's `ContentResources.zip`, read-only; 229 names (the core-script gap above plus FO4's `FollowersScript` and
+`CompanionActorScript` names); stdout and JSON in `D:\Modding\research\engine_probe\`. Three limits of the probe:
+"wrapper" means only "not declared Native", so engine **events** (OnHolotapePlay and the like) show as wrappers;
+call counts match by function name, not by the type called on, so same-named functions share counts; and the list of
+Starfield scripts that declare a name stops at 10.
+
+**36 of the names are true engine natives; 25 of them are called by FO4's own scripts, 11 never are.**
+
+| system | natives FO4 calls (calls in FO4's base scripts) | natives FO4 never calls | what the port does |
+|---|---|---|---|
+| spells | AddSpell (72), DispelSpell (3) | | Starfield declares both on `ObjectReference`; since `Actor` extends it, an FO4 call on an actor should compile as is (**supported hypothesis**: one compile test) |
+| dismemberment | Dismember (125, 25 scripts, deathclaw claws 25), IsDismembered (1) | | no Starfield native; SFSE native or drop the effect (**decision**) |
+| cannibal perk | StartCannibal (7, the perk fragments) | | rebuild as our own perk entry and animation, or drop |
+| cleared locations | SetCleared (22), IsCleared (8), HasEverBeenCleared (2) | | our own flag per location (a keyword or actor value on our LCTN), set by a shim script; the event OnLocationCleared (5) and OnStoryClearLocation (0) go with it |
+| workshop | MakeRadioReceiver (12), GetLinkedRefChildren (7), WaitForWorkshopResourceRecalc (6), OpenWorkshopSettlementMenuEx (2), RecalculateResources (2), OpenWorkshopSettlementMenu (1) | StoreInWorkshop, RemoveComponents, RaidTargetsAvailable, IsActivateChild, GetEncounterZone | part of the workshop rebuild; the radio receiver belongs with radio |
+| Pip-Boy and FO4 menus | ShowPerkVaultBoyOnHUD (15), ShowSPECIALMenu (10), ShowPipboyPlugin (5), SetInsideMemoryHUDMode (4), ForceDisableSSRGodraysDirLight (3), EnablePipboyHDRMask (2) | ShowPipboyBootSequence, ShowTrainingMenu, InitializeMarkerDistances | the UI rebuild; until then a shim that does nothing or shows a message (SPECIAL menu: the new-game start needs a replacement) |
+| menu mode | WaitMenuMode (12), IsInMenuMode (8) | | `Utility.Wait` plus Starfield's menu checks, or an SFSE native (**unresolved**) |
+| character creator | RegisterForLooksMenuEvent (2), UnregisterForLooksMenuEvent (1), both in MQ101 and the vault exit lift | | the new-game thread's creator hook (Starfield's own creator events) |
+| speech | ResetSpeechChallenges (4, the hold-up effects) | | drop with the hold-up mechanic or rebuild |
+| other | | SetEyeTexture, SetFootIK, TetherToHorse | nothing to port |
+
+**The wrappers are cheap.** Every other FO4-only name is plain Papyrus: FO4's `Actor` companion and follower calls
+(SetCompanion 43, DisallowCompanion 46, FollowerFollow 25 and the rest) only forward to `FollowersScript`, so they
+come back when we port `FollowersScript` and `CompanionActorScript` as our own scripts; `GetActorBase` (232 calls in 85
+scripts), `IsInPowerArmor` (22), `SellItem` (20), `getLinkedRefArray` (26), `DeleteWhenAble` (7),
+`Game.GetCommonProperties` (94) and the animation-archetype setters (0 to 4 calls each) are rewrites or a shim of a few
+lines each. Of `FollowersScript`'s 98 functions, 47 are never called from outside it; the most used are
+FlagCompanionChatEvent (48), SetCompanion (42), SetAutonomy (25) and the unlock commands (15 to 22 each).
+
+**Engine events with no Starfield counterpart** (the gap a shim cannot fill without SFSE or a rebuild): OnHolotapePlay
+and OnHolotapeChatter (5 handlers each), OnWorkshopObjectDestroyed (13) and OnWorkshopObjectRepaired (5),
+OnLocationCleared (5), OnLooksMenuEvent (2). The holotape pair needs our own holotape trigger (terminals page); the
+workshop pair comes with the workshop rebuild.
+
+**Starfield already has a same-named home for a few:** `SQ_FollowersScript` declares GetScript and IsFollowing,
+`SQ_CompanionsScript` declares IsCompanion, OnPlayerSleepStart and OnPlayerSleepStop, and `CompanionAffinityEventsScript`
+declares SendAffinityEvent (FO4 calls 120, 50 of them in `CompanionAffinityEventQuestScript`). That backs the
+recommendation in [companions.md](companions.md) to send FO4's affinity events through Starfield's AFFE system
+(supported hypothesis; signatures not compared).
+
+**Totals:** native calls FO4 makes, by system: dismemberment 126, spells 75, Pip-Boy and menus 39, cleared locations 32,
+workshop 30, menu mode 20, cannibal 7, speech 4, creator 3. So 336 call sites in FO4's base scripts need a native
+answer; everything else ports as script.
+
 ## Open questions and cheap checks
-- Native diff: done by name (table above). Next: compare signatures, and count call sites of the ~77 names in FO4's
-  7,854 base sources.
+- Native diff: done by name (table above); natives and call sites counted (job 34, above). Next: compare signatures
+  of the 25 called natives and the 6 shared names.
 - Starfield flags file: none in `Tools` (job 15); check inside ContentResources.zip and the CK2 install.
 - Compile one FO4 quest fragment (`QF_MQ102_0001CC2A`) against Starfield sources; record each error.
 - Does the Starfield compiler accept FO4 `Var`, `CustomEvent`, `is` unchanged? One synthetic `.psc` test.
