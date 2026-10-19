@@ -161,6 +161,11 @@ into `x86\test_group\test.ffxanim` (22,188 bytes) with the game's `__ffx\0\0\x03
 playback likely: the 8 bytes at 0x18 tie an animation to its actor (vanilla files carry `8c aa 7e fd 9e ae 5a 27`, ours
 the Tools male actor's `bb 85 e7 4c 85 5c 09 ee`), so the shipped `Meshes/FaceFX/*.ffxactor` tag must match; the file
 must be named by WEM id under `sound/voice/(plugin)/(voicetype)/`; and one line must play on a face in game.
+Actor tag settled (verified, PC job 33): the shipped `meshes/facefx/starfieldhumanmale.ffxactor` (FaceAnimation04 and
+FaceAnimationPatch archives) matches our compiled male actor in size (3,336 bytes) and first 32 bytes, tag
+`bb 85 e7 4c 85 5c 09 ee`; the shipped female actor carries `8c aa 7e fd 9e ae 5a 27`, the tag seen on vanilla female
+lines. So a line compiled against the CK's male actor is bound to the game's male face data, and female lines compile
+against `StarfieldHumanFemale.facefx`. Robots and creatures (Codsworth) have no shipped actor: **unresolved**.
 
 ## Mapping for the port
 
