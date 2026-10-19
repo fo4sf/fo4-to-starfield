@@ -31,7 +31,8 @@ batch N = the base cells + every cell of batches 1..N; the port is cumulative, o
      removed base record, fails the batch. With --prev, the same compare against the previous batch's port
      (--out/port/compare_prev.json) must pass too: a save made on that staged batch carries over.
   7. pack (unless --no-pack): "FO4Port - Main.ba2" and "FO4Port - Textures.ba2" from the work staging into --out/port
-     with Starfield's Archive2 (scripts/deploy_starfield.py's packer; the install step itself is not run).
+     with Starfield's Archive2 (scripts/deploy_starfield.py's packer; the install step itself is not run). An archive
+     of 4,095 MiB or more fails the batch (archive_check); one over 90% of that is listed as near_limit.
   8. --out/result.json: the batch's cells with converted / checked / failed per cell, the pins (git commit, input
      sha256s of the plugins and maps), timings, sizes, free space; README.txt says NOT installed.
 compare: every key of the old formids.json has the same FormID in the new one; every old record is still there with the
@@ -407,10 +408,28 @@ def build(a):
         main_dirs = [d for d in deploy_starfield.MAIN_DIRS if os.path.isdir(os.path.join(a.work, d))]
         deploy_starfield.build_archive(packer, os.path.join(port, deploy_starfield.ARCHIVE), main_dirs, "General")
         deploy_starfield.build_archive(packer, os.path.join(port, deploy_starfield.TEX_ARCHIVE), ["textures"], "DDS")
-        steps["pack"] = {"seconds": round(time.time() - t, 1),
-                         "bytes": {n: os.path.getsize(os.path.join(port, n)) for n in (deploy_starfield.ARCHIVE, deploy_starfield.TEX_ARCHIVE)}}
-    ok = (cmp_["pass"] and prev_ok and steps["doors_check"]["exit"] == 0 and not failed_exports)
+        steps["pack"] = archive_check({n: os.path.getsize(os.path.join(port, n))
+                                       for n in (deploy_starfield.ARCHIVE, deploy_starfield.TEX_ARCHIVE)})
+        steps["pack"]["seconds"] = round(time.time() - t, 1)
+    ok = (cmp_["pass"] and prev_ok and steps["doors_check"]["exit"] == 0 and not failed_exports
+          and steps.get("pack", {}).get("pass", True))
     return finish(a, plan, steps, cells, t0, None if ok else "checks failed (see steps)")
+
+
+# Every vanilla Starfield archive stays under 4 GiB and no source shows the engine reading a larger one
+# (research/framework/interiors.md X3), so a batch whose archive reaches this fails its check.
+ARCHIVE_LIMIT = 4095 * 2 ** 20
+ARCHIVE_WARN = 0.9
+
+
+def archive_check(sizes):
+    """{"bytes", "pass", "near_limit"} for the packed archives' sizes."""
+    over = sorted(n for n, s in sizes.items() if s >= ARCHIVE_LIMIT)
+    near = sorted(n for n, s in sizes.items() if ARCHIVE_WARN * ARCHIVE_LIMIT <= s < ARCHIVE_LIMIT)
+    out = {"bytes": sizes, "limit": ARCHIVE_LIMIT, "pass": not over, "near_limit": near}
+    if over:
+        out["problem"] = f"over {ARCHIVE_LIMIT:,} bytes: {', '.join(over)} (split the archive before installing)"
+    return out
 
 
 def placed_counts(log):

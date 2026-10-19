@@ -459,6 +459,17 @@ class BuildFlowTests(unittest.TestCase):
         self.assertEqual(ib.disk_need(plan, 2, True), 5.5)                # 3.8 packed + 1.7 work growth
         self.assertEqual(ib.disk_need(plan, 2, False), 11.4)              # a new work staging holds everything
 
+    def test_archive_check_fails_an_archive_at_the_limit_and_warns_near_it(self):
+        ok = ib.archive_check({"Main": 230_547_923, "Textures": 3_590_442_691})   # batch 4's measured sizes
+        self.assertTrue(ok["pass"])
+        self.assertEqual(ok["near_limit"], [])
+        near = ib.archive_check({"Textures": int(ib.ARCHIVE_LIMIT * 0.95)})
+        self.assertTrue(near["pass"])
+        self.assertEqual(near["near_limit"], ["Textures"])
+        over = ib.archive_check({"Main": 1, "Textures": ib.ARCHIVE_LIMIT})
+        self.assertFalse(over["pass"])
+        self.assertIn("Textures", over["problem"])
+
     def test_removed_causes(self):
         old = {"STAT:FO4Port_Chair": 0x800, "DOOR:FO4Port_VaultDoor": 0x801, "FURN:FO4Port_furn_1": 0x802}
         new = dict(old, **{"STAT:FO4Port_chair": 0x900, "STAT:FO4Port_vaultdoor": 0x901})

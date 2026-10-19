@@ -80,7 +80,14 @@ PluginSpike seeded with the installed port's `formids.json` and `lighting.json`,
   counted by signature (a changed record of an old cell means the converter or tables changed since the installed
   build: listed, not failed). Any renumbered, missing or removed id fails the batch.
 - **Pack**: `FO4Port - Main.ba2` and `FO4Port - Textures.ba2` from the work staging with Starfield's Archive2
-  (deploy_starfield.py's packer, no install).
+  (deploy_starfield.py's packer, no install). An archive of 4,095 MiB (4,293,918,720 bytes) or more fails the batch;
+  one over 90% of that is listed under `near_limit`. Every vanilla Starfield archive stays under 4 GiB, and whether the
+  engine reads a larger one is unresolved. Measured (verified, D:\Modding\staging\interiors_b04\port): batch 4's
+  Textures.ba2 is 3,590,442,691 bytes and Main.ba2 230,547,923, which is 0.81 of the plan's 4.70 GB estimate. At that
+  ratio, the textures archive reaches about 90% of the limit at batch 5 or 6 and passes it at batch 7 (supported
+  estimate). Before then the textures need a split: a second archive (whose auto-load name is unverified), a small
+  companion plugin carrying its own `- Textures.ba2`, or a smaller texture set. That choice is open and goes in
+  docs/ai/decisions.md.
 - **result.json**: per cell converted / checked / failed with the reason, PluginSpike's placed / lights / skipped, the
   failed models, the pins (commit, sha256 of the plan, the installed port's plugin and map, the new plugin), times,
   sizes and free space. `prune --keep 2 --delete` removes older `interiors_bNN` folders this tool made (result.json
