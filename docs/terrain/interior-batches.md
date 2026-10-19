@@ -90,9 +90,14 @@ PluginSpike seeded with the installed port's `formids.json` and `lighting.json`,
 converter reproduces the installed port before anything grows it. Its change counts are the baseline every later
 batch's old-cell counts are read against.
 
-What is not known yet (**unresolved**): the exact flags the installed port was built with (its build log is on D:
-as a hard link the read-only file tools refuse). The batch uses the documented port path (port-promotions.md, the
-integ build.ps1); batch 0 shows any difference as changed records.
+The installed port's flags (**verified**, D:\Modding\scratch\v6\build_v6.ps1 and its log.md, 2026-10-18 14:16Z,
+worktree wt_v6): convert_batch `--door-anim-dll C:\Modding\research\sf_animation_io\CALUMI.Animation.dll
+--spec-mask-roughness --mass-scale 0.2`; port_promote `--names C:\Modding\scratch\acti-term\fo4_names.json
+--furniture D:\Modding\staging\furn\fo4-furniture.json --fo4-data <FO4 Data>` plus the two tables. A batch passes them
+with `--convert-arg=...` and `--promote-arg=...` (one token each, `=` form). Batch 0's first run (1e9945b) left them
+out and used a fresh work staging, so its compare failed (2,684 base records "removed": 2,662 editor-id case renames,
+11 rigged doors written as STAT without the animation dll, 11 chairs without the furniture table); cd78ab1 seeds the
+base's editorids.json and the rerun passes the flags.
 
 ## Door rounds per batch
 
@@ -119,7 +124,10 @@ python scripts/terrain/interior_batch.py build --plan docs/terrain/data/interior
   --core D:\Modding\staging\terrain_core64v6c_l125 --work D:\Modding\interiors_work --out D:\Modding\staging\interiors_bNN ^
   --fo4-data <FO4 Data> --starfield D:\SteamLibrary\steamapps\common\Starfield ^
   --content-resources <Starfield>\Tools\ContentResources.zip --texconv <Texconvx64.exe> --collision-template <template.nif> ^
-  --fo4export <Fo4Export.dll> --pluginspike <PluginSpike.dll> --spec-mask-roughness
+  --fo4export <Fo4Export.dll> --pluginspike <PluginSpike.dll> --spec-mask-roughness ^
+  --convert-arg=--door-anim-dll --convert-arg=<CALUMI.Animation.dll> --convert-arg=--mass-scale --convert-arg=0.2 ^
+  --promote-arg=--names --promote-arg=<fo4_names.json> --promote-arg=--furniture --promote-arg=<fo4-furniture.json> ^
+  --promote-arg=--fo4-data --promote-arg=<FO4 Data>
 python scripts/terrain/interior_batch.py prune --staging-root D:\Modding\staging --keep 2 --delete
 ```
 
@@ -127,5 +135,5 @@ python scripts/terrain/interior_batch.py prune --staging-root D:\Modding\staging
 
 | Batch | Built | Converted | Checked | Failed (reason) | Compare | Archives | Notes |
 |---|---|---|---|---|---|---|---|
-| 0 | not yet | | | | | | the 16 installed cells only |
+| 0 | run 1 failed (1e9945b) | 16 | | | removed 2,684 (names, flags) | | rerun on cd78ab1+ with the installed flags |
 | 1 to 9 | not yet | | | | | | |
