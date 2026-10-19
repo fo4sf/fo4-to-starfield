@@ -141,9 +141,12 @@ until a trial run.
 **Trial (verified, PC job 24):** a Windows text-to-speech WAV plus its text through LipGenerator with
 `StarfieldHumanMale.facefx` and `GenesisDefault.facefx` wrote an `.ffxanim` (18,170 bytes) in seconds, no window, no
 error; using the male actor twice (17,762 bytes) and passing the text inline instead of a file (17,052 bytes) also
-worked. Header `FACE`, then "ZeniMax Media" and an `EFG` block. So **unattended lip generation works with the files the
-free CK installs**. Still open: that the output matches a vanilla `.ffxanim` header and plays on a face in game, which
-analysis actor is right, and which actor fits robots and creatures (Codsworth).
+worked. Header `FACE`, then "ZeniMax Media", an `EFG` block and `FxObject`.
+**But it is not yet the game's format** (verified, PC job 25): vanilla `.ffxanim` files start `__ffx\0\0\x03` with a
+block `8c aa 7e fd 9e ae 5a 27` at offset 0x18 shared by every file, while LipGenerator's output is a raw FaceFX object.
+So the unattended step works, but its output most likely needs the CK's compile step (`-CompileFaceFXAnims`) or our own
+converter before the game can use it (**supported hypothesis**). Open: how `-CompileFaceFXAnims` is called and where it
+writes, which analysis actor is right, and which actor fits robots and creatures (Codsworth).
 
 ## Mapping for the port
 
