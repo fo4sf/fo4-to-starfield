@@ -29,6 +29,8 @@ RECORD = "FO4SFBridge.install.json"
 PLUGIN = "FO4SFBridge.esm"
 ARCHIVE = "FO4SFBridge - Main.ba2"
 PEX = os.path.join("Data", "Scripts", "FO4SF_Bridge.pex")
+KIT = "bridge"                                    # names this kit in messages (map_markers_install.py reuses the module)
+STAGE_HINT = "scripts/bridge/make_bridge.py stage"
 
 
 def record_path(a):
@@ -112,7 +114,7 @@ def staged(a):
     pex = os.path.join(d, PEX)
     for p in (plugin, pex):
         if not os.path.exists(p):
-            sys.exit(f"staged bridge incomplete: {p} missing (scripts/bridge/make_bridge.py stage)")
+            sys.exit(f"staged {KIT} incomplete: {p} missing ({STAGE_HINT})")
     return d, plugin, pex
 
 
@@ -135,20 +137,20 @@ def install(a):
     try:
         exp_install.require_complete_master(data)
     except (OSError, ValueError) as error:
-        sys.exit(f"bridge not installed: {error}")
+        sys.exit(f"{KIT} not installed: {error}")
     d, plugin_src, _pex = staged(a)
     source = source_inventory(d)  # every packed file: another script set is another bridge
     targets = {PLUGIN: exp_install.data_path(data, PLUGIN), ARCHIVE: exp_install.data_path(data, ARCHIVE)}
     if os.path.exists(rec_p):
         rec = read_record(rec_p)
         if rec.get("complete") is not True or rec.get("cleanup_pending"):
-            sys.exit(f"incomplete bridge install ({rec_p}); uninstall it first")
+            sys.exit(f"incomplete {KIT} install ({rec_p}); uninstall it first")
         same = (rec.get("source_sha256") == source and isinstance(rec.get("files"), dict)
                 and set(rec["files"]) == set(targets) and all(
             os.path.exists(targets[rel]) and exp_install.digest(targets[rel]) == h for rel, h in rec["files"].items())
                 )
         if not same:
-            sys.exit(f"another bridge is installed ({rec_p}: {rec.get('dir')}); uninstall it first")
+            sys.exit(f"another {KIT} is installed ({rec_p}: {rec.get('dir')}); uninstall it first")
         exp_install.verify_archive(targets[ARCHIVE], archive_inputs(source))
         lines, _, _ = exp_install.read_plugins(exp_install.plugins_txt())
         if plugin_line_present(lines, PLUGIN) is None:    # e.g. a deploy rewrote Plugins.txt: activate again
@@ -167,11 +169,11 @@ def install(a):
         sys.exit(f"refusing to overwrite existing game files: {clash}")
     rec = {"schema": 2, "dir": d, "plugin": PLUGIN, "source_sha256": source,
            "files": {}, "published_files": [], "complete": False}
-    with tempfile.TemporaryDirectory(prefix="fo4sf-bridge-pack-") as tmp:
+    with tempfile.TemporaryDirectory(prefix=f"fo4sf-{KIT}-pack-") as tmp:
         ba2 = exp_install.build_ba2(SimpleNamespace(starfield=a.starfield), os.path.join(d, "Data"),
                                     os.path.join(tmp, ARCHIVE))
         if source_inventory(d) != source:
-            raise OSError("bridge source changed while packing; nothing installed")
+            raise OSError(f"{KIT} source changed while packing; nothing installed")
         exp_install.verify_archive(ba2, archive_inputs(source))
         identities = {PLUGIN: source[PLUGIN], ARCHIVE: exp_install.digest(ba2)}
         deployment.write_manifest(rec_p, rec)
@@ -189,7 +191,7 @@ def install(a):
                 rec["published_files"].append(rel)
                 deployment.write_manifest(rec_p, rec)
                 if exp_install.digest(targets[rel]) != identities[rel]:
-                    raise OSError(f"installed bridge differs from pinned source: {rel}")
+                    raise OSError(f"installed {KIT} differs from pinned source: {rel}")
             activate(PLUGIN, rec, rec_p)
             rec["complete"] = True
             deployment.write_manifest(rec_p, rec)
@@ -198,7 +200,7 @@ def install(a):
             try:
                 uninstall(a, _recovery=rec)
             except (OSError, ValueError, SystemExit) as recovery:
-                print(f"bridge recovery incomplete; preserve {rec_p}: {recovery}", file=sys.stderr)
+                print(f"{KIT} recovery incomplete; preserve {rec_p}: {recovery}", file=sys.stderr)
             raise
     print(f"installed {PLUGIN} + \"{ARCHIVE}\" from {d}; {PLUGIN} active")
 
@@ -206,12 +208,12 @@ def install(a):
 def uninstall(a, _recovery=None):
     data, rec_p = record_path(a)
     if not os.path.exists(rec_p):
-        print("bridge not installed")
+        print(f"{KIT} not installed")
         return
     rec = read_record(rec_p) if _recovery is None else _recovery
     validate_profile(rec)  # interrupted recovery must obey the same profile guard
     if not isinstance(rec.get("files"), dict) or set(rec["files"]) - {PLUGIN, ARCHIVE}:
-        raise ValueError("unexpected bridge file ownership; record preserved")
+        raise ValueError(f"unexpected {KIT} file ownership; record preserved")
     errors = []
     try:
         if not rec.get("complete"):
@@ -230,7 +232,7 @@ def uninstall(a, _recovery=None):
         try:
             if os.path.exists(dst):
                 if not rec.get("complete") and rel not in rec.get("published_files", []):
-                    raise OSError(f"unconfirmed bridge publication; preserved: {rel}")
+                    raise OSError(f"unconfirmed {KIT} publication; preserved: {rel}")
                 if exp_install.digest(dst) != h:
                     raise OSError(f"file changed since install; preserved: {rel}")
                 os.remove(dst)
@@ -243,11 +245,11 @@ def uninstall(a, _recovery=None):
     for rel in (PLUGIN, ARCHIVE):
         if (rel not in rec["files"] and rel not in rec.get("not_published", [])
                 and os.path.exists(exp_install.data_path(data, rel))):
-            errors.append(f"untracked bridge file; preserved: {rel}")
+            errors.append(f"untracked {KIT} file; preserved: {rel}")
     if errors:
         rec["cleanup_pending"] = True
         deployment.write_manifest(rec_p, rec)
-        sys.exit(f"bridge partly uninstalled, record retained at {rec_p}: {'; '.join(errors)}")
+        sys.exit(f"{KIT} partly uninstalled, record retained at {rec_p}: {'; '.join(errors)}")
     os.remove(rec_p)
     print("uninstalled")
 
@@ -260,17 +262,17 @@ def order(a):
     record and the reads came back from the console's previous selection. Exit 0 whether or not a move was needed."""
     data, rec_p = record_path(a)
     if not os.path.exists(rec_p):
-        print("bridge not installed: nothing to order")
+        print(f"{KIT} not installed: nothing to order")
         return
     rec = read_record(rec_p)
     if rec.get("complete") is not True or rec.get("cleanup_pending"):
-        raise ValueError("incomplete bridge install: recover before ordering")
+        raise ValueError(f"incomplete {KIT} install: recover before ordering")
     if not isinstance(rec.get("files"), dict) or set(rec["files"]) != {PLUGIN, ARCHIVE}:
-        raise ValueError("incomplete bridge file coverage: recover before ordering")
+        raise ValueError(f"incomplete {KIT} file coverage: recover before ordering")
     for relative, expected in rec["files"].items():
         target = exp_install.data_path(data, relative)
         if not os.path.isfile(target) or exp_install.digest(target) != expected:
-            raise ValueError(f"installed bridge changed: {relative}")
+            raise ValueError(f"installed {KIT} changed: {relative}")
     p = validate_profile(rec)
     original = exp_install.read_bytes(p)
     lines, bom, nl = exp_install.plugin_lines(original)

@@ -221,6 +221,13 @@ the mission use), at most 40 moves per session, each logged to `fo4sf_map.0.log`
 REFRs by FormID, so it is rebuilt with every core build. Unverified: that a moved marker shows on the map; the
 extent check cannot tell another world with the same coordinates apart (as the mission).
 
+Install: `scripts/game/map_markers_install.py install --dir <staged> --starfield <game>` (game closed). It keeps its
+own record, `Data\FO4SFMapMarkers.install.json`, beside exp_install's one experiment record (the core set), the way
+`bridge_install.py` does, and packs the .pex into `FO4SFMapMarkers - Main.ba2` (this install reads no loose scripts).
+It refuses unless the core is an active Plugins.txt line. Its `order` command moves its line to the end; cycle.ps1
+runs it before the bridge's, so the experiment's and FO4Port's load indexes stay as they were. After a core swap, run
+`order` again so the plugin loads after the core.
+
 Console check (no plugin needed): `prid 030A775A`, `getpos x`, `getpos y`: about (-1154, 1260) is the local spot,
 about (-2354, -1440) the merged one. `prid 030A775A` then `moveto player` moves the Sanctuary marker onto the player by
 hand, then the map shows whether a moved marker draws.

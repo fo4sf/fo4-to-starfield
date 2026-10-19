@@ -9,8 +9,8 @@ usage:
       2. the Papyrus compile of FO4SF_MapMarkers.psc (base sources from the Creation Kit's ContentResources.zip, as
          scripts/bridge/make_bridge.py), the .pex into <out>/Data/Scripts;
       3. dotnet/MapMarkers check: the plugin read back against the core (offline_check.txt); README.txt.
-Install (game closed), after the core it was built from:
-  python scripts/game/exp_install.py install --exp-dir <out> --starfield <game> --plugins FO4SFMapMarkers.esm --pack
+Install (game closed), with the core it was built from active (its own record, beside exp_install's experiment):
+  python scripts/game/map_markers_install.py install --dir <out> --starfield <game>
 The plugin names the core's references by FormID, so it is rebuilt with every core build.
 """
 import argparse
@@ -60,11 +60,12 @@ def stage(a):
 {a.plugin}: QUST FO4SF_MapMarkersQuest (0x800, start game enabled) carrying {SCRIPT}, built against
   {os.path.abspath(a.core)} (its MapMarker REFRs by FormID: rebuild with every core build).
 Data\\Scripts\\{SCRIPT}.pex: compiled from {SCRIPT}.psc here.
-Install (game closed), loaded after the core:
-  python scripts\\game\\exp_install.py install --exp-dir "{out}" --starfield <game> --plugins {a.plugin} --pack
+Install (game closed), with the core active (its own record, beside exp_install's experiment; packs the .pex):
+  python scripts\\game\\map_markers_install.py install --dir "{out}" --starfield <game>
 In game: outdoors in the Commonwealth the log {LOG} gets one line per marker moved:
   FO4SF_MAP rt=<s> moved <i> to <x> <y> <z> target <x> <y> <z> before=<distance> d=<distance> moves=<n>
-Then open the map. Uninstall: exp_install.py uninstall.
+Then open the map. Uninstall: map_markers_install.py uninstall --starfield <game>. After a core swap, run
+  map_markers_install.py order --starfield <game> so the plugin loads after the core again.
 """)
     print(f"staged {out}: {a.plugin}, {os.path.relpath(pex, out)}, offline_check.txt, README.txt")
 

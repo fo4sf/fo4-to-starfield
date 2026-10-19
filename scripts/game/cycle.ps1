@@ -57,6 +57,10 @@ if (Test-Path (Join-Path $sf 'Data\FO4SFExp.install.json')) {
   $ord | Select-Object -Last 1
   if ($ordCode -ne 0) { "experiment plugin order could not be fixed (exit $ordCode): not launching"; exit 7 }
 }
+# The map markers plugin (map_markers_install.py) goes after FO4Port, so the planned reads' load indexes stay as they were
+if (Test-Path (Join-Path $sf 'Data\FO4SFMapMarkers.install.json')) {
+  python -I "$repo\scripts\game\map_markers_install.py" order --starfield $sf | Select-Object -Last 1
+}
 # The observation bridge (bridge_install.py) goes LAST: the planned reads address the experiment's records by load
 # index, and a bridge line above them shifted every index by one (cave_core64c_1015 a1, 2026-10-15)
 if (Test-Path (Join-Path $sf 'Data\FO4SFBridge.install.json')) {
