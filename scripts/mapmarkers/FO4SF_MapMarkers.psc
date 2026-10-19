@@ -65,11 +65,8 @@ Function Place(Actor player)
     if px < MinX || px > MaxX || py < MinY || py > MaxY
         return
     endif
-    if moves >= MaxMoves
-        return
-    endif
     int i = 0
-    while i < Markers.Length
+    while i < Markers.Length && moves < MaxMoves              ; the budget holds per move, not per batch
         ObjectReference m = Markers[i]
         if m != None
             float x = LocalX[i] + MergeOffsetX

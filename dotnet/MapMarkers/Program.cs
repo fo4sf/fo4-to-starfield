@@ -120,8 +120,12 @@ if (args[0] == "check" && args.Length >= 3)
         if (s == null) problems.Add($"script {ScriptName} not attached");
         else
         {
-            var got = s.Properties.OfType<IScriptObjectListPropertyGetter>().FirstOrDefault(p => p.Name == "Markers")?
-                .Objects.Select(o => o.Object.FormKey).ToList() ?? new List<FormKey>();
+            var objs = s.Properties.OfType<IScriptObjectListPropertyGetter>().FirstOrDefault(p => p.Name == "Markers")?
+                .Objects.ToList() ?? new List<IScriptObjectPropertyGetter>();
+            var got = objs.Select(o => o.Object.FormKey).ToList();
+            // a direct reference: alias -1, unused 0 (the quest has no aliases; an alias-encoded entry is another binding)
+            foreach (var (o, k) in objs.Select((o, k) => (o, k)))
+                if (o.Alias != -1 || o.Unused != 0) problems.Add($"Markers[{k}] is not a direct reference (alias {o.Alias}, unused {o.Unused})");
             Console.WriteLine($"  Markers: {string.Join(", ", got)}");
             if (!got.SequenceEqual(want.Select(m => m.FormKey)))
                 problems.Add($"Markers [{string.Join(", ", got)}] are not the core's MapMarker REFRs [{string.Join(", ", want.Select(m => m.FormKey))}]");

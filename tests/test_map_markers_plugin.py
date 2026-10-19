@@ -98,6 +98,20 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertIn(f"LocalX: {', '.join(self.num(by_id[i][0]) for i in want)}", check.stdout)
         self.assertIn(f"LocalZ: {', '.join(self.num(by_id[i][2]) for i in want)}", check.stdout)
 
+    def test_check_rejects_an_alias_encoded_marker(self):
+        out = self.root / "plugin-alias"
+        self.assertEqual(self.tool_run("build", "--core", self.core, "--out", out).returncode, 0)
+        plugin = out / "FO4SFMapMarkers.esm"
+        data = bytearray(plugin.read_bytes())
+        name = b"\x07\x00Markers"
+        entry = data.index(name) + len(name) + 6                # type, status, u32 count
+        self.assertEqual(struct.unpack_from("<Hh", data, entry), (0, -1))
+        struct.pack_into("<h", data, entry + 2, 0)              # alias -1 -> 0, the form id untouched
+        plugin.write_bytes(bytes(data))
+        check = self.tool_run("check", plugin, self.core)
+        self.assertEqual(check.returncode, 1, check.stdout)
+        self.assertIn("FAIL  Markers[0] is not a direct reference (alias 0, unused 0)", check.stdout)
+
     def test_check_rejects_a_plugin_built_from_another_core(self):
         params = copy.deepcopy(self.params)
         params["overlays"][0]["map_markers"] = self.markers[:2]
@@ -170,7 +184,11 @@ class ScriptContractTests(unittest.TestCase):
     def test_moves_only_outdoors_capped_and_logged(self):
         place = self.text[self.text.index("Function Place"):self.text.index("Function Trace")]
         self.assertLess(place.index("IsInInterior"), place.index("MoveTo"))
-        self.assertLess(place.index("MaxMoves"), place.index("MoveTo"))
+        # the budget is part of the loop condition, so it holds before every Enable / MoveTo (Codex 4311385104)
+        loop = place.index("while i < Markers.Length && moves < MaxMoves")
+        self.assertLess(loop, place.index("m.Enable"))
+        self.assertEqual(place.count("moves += 1"), 1)
+        self.assertEqual(place.count("MoveTo("), 1)
         self.assertRegex(place, r"m\.MoveTo\(player, x - px, y - py, z - pz, True, False\)")
         self.assertIn('Trace("moved "', place)
         self.assertNotIn("Math.", self.text)               # only the base scripts the bridge already imports

@@ -60,6 +60,33 @@ class MergeProbeTests(unittest.TestCase):
         self.assertEqual(check.returncode, 1, check.stdout)
         self.assertIn("FAIL  the probe is at (42.4, 57.2, 7.6)", check.stdout)
 
+    def test_non_finite_offsets_are_refused_and_keep_the_output(self):
+        out = self.root / "probe-finite"
+        self.assertEqual(self.run_tool("build", self.master, out, "--ref", "3E5E12").returncode, 0)
+        plugin = out / "FO4SFMergeProbe.esm"
+        before = plugin.read_bytes()
+        for bad in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(bad=bad):
+                proc = self.run_tool("build", self.master, out, "--ref", "3E5E12", "--offset", bad)
+                self.assertNotEqual(proc.returncode, 0, proc.stdout)
+                self.assertIn("not a finite number", proc.stderr)
+                self.assertEqual(plugin.read_bytes(), before)
+                check = self.run_tool("check", plugin, self.master, "--ref", "3E5E12", "--offset", bad)
+                self.assertNotEqual(check.returncode, 0, check.stdout)
+        self.assertEqual(sorted(p.name for p in out.iterdir()), ["FO4SFMergeProbe.esm"])
+
+    def test_check_refuses_a_non_finite_probe_position(self):
+        out = self.root / "probe-nan"
+        self.assertEqual(self.run_tool("build", self.master, out, "--ref", "3E5E12").returncode, 0)
+        plugin = out / "FO4SFMergeProbe.esm"
+        data = bytearray(plugin.read_bytes())
+        at = data.index(struct.pack("<3f", 40.4, 57.2, 7.6))     # the probe's DATA position
+        struct.pack_into("<f", data, at, float("nan"))
+        plugin.write_bytes(bytes(data))
+        check = self.run_tool("check", plugin, self.master, "--ref", "3E5E12")
+        self.assertEqual(check.returncode, 1, check.stdout)
+        self.assertIn("is not finite", check.stdout)
+
     def test_build_refuses_a_master_without_the_reference(self):
         proc = self.run_tool("build", self.plain, self.root / "none", "--ref", "3E5E12")
         self.assertNotEqual(proc.returncode, 0)

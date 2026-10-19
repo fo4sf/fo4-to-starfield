@@ -34,6 +34,12 @@ if (args.Length < 3) return Usage();
 string Arg(string name, string dflt) { var i = Array.IndexOf(args, name); return i >= 0 && i + 1 < args.Length ? args[i + 1] : dflt; }
 var refId = Convert.ToUInt32(Arg("--ref", "10238E"), 16);
 var offset = float.Parse(Arg("--offset", "3"), CultureInfo.InvariantCulture);
+if (!float.IsFinite(offset))
+{
+    Console.Error.WriteLine($"--offset {offset}: not a finite number");
+    return 2;
+}
+static bool Finite(P3Float p) => float.IsFinite(p.X) && float.IsFinite(p.Y) && float.IsFinite(p.Z);
 
 static string F(float v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 static string P(P3Float p) => $"({F(p.X)}, {F(p.Y)}, {F(p.Z)})";
@@ -53,6 +59,12 @@ if (args[0] == "build")
 {
     using var sf = StarfieldMod.CreateFromBinaryOverlay(args[1], StarfieldRelease.Starfield);
     var (w0, top0, r0) = Vanilla(sf);
+    var at = new P3Float(r0.Position.X + offset, r0.Position.Y, r0.Position.Z);
+    if (!Finite(r0.Position) || !Finite(at))
+    {
+        Console.Error.WriteLine($"{r0.FormKey} at {P(r0.Position)} + ({F(offset)}, 0, 0) is not a finite position; nothing written");
+        return 1;
+    }
     var modKey = ModKey.FromFileName(Arg("--plugin", "FO4SFMergeProbe.esm"));
     var mod = new StarfieldMod(modKey, StarfieldRelease.Starfield);
     mod.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;     // as every plugin of ours that loads
@@ -75,7 +87,7 @@ if (args[0] == "build")
     {
         EditorID = ProbeEdid,
         Base = new FormLinkNullable<IPlaceableObjectGetter>(new FormKey(sf.ModKey, XMarker)),
-        Position = new P3Float(r0.Position.X + offset, r0.Position.Y, r0.Position.Z),
+        Position = at,
         Rotation = new P3Float(0, 0, 0),
     };
     probe.MajorRecordFlagsRaw |= 0x400;                                      // persistent, like the reference marker
@@ -86,7 +98,19 @@ if (args[0] == "build")
 
     Directory.CreateDirectory(args[2]);
     var path = Path.Combine(args[2], modKey.FileName);
-    mod.BeginWrite.ToPath(path).WithLoadOrder(sf.ModKey).WithKnownMasters(new KeyedMasterStyle(sf.ModKey, MasterStyle.Full)).Write();
+    // an existing plugin stays until the write succeeds; Mutagen needs the plugin's own file name, so write in a temp folder
+    var tmpDir = Path.Combine(args[2], ".tmp-" + Guid.NewGuid().ToString("N"));
+    try
+    {
+        Directory.CreateDirectory(tmpDir);
+        var tmp = Path.Combine(tmpDir, modKey.FileName);
+        mod.BeginWrite.ToPath(tmp).WithLoadOrder(sf.ModKey).WithKnownMasters(new KeyedMasterStyle(sf.ModKey, MasterStyle.Full)).Write();
+        File.Move(tmp, path, overwrite: true);
+    }
+    finally
+    {
+        if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, true);
+    }
     Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): {ProbeEdid} {probe.FormKey} persistent in {w0.EditorID} " +
                       $"persistent cell {top0.FormKey} at {P(probe.Position)} (reference {r0.FormKey} {r0.EditorID} at {P(r0.Position)} + ({F(offset)}, 0, 0))");
     Console.WriteLine($"  merged reads about {P(new P3Float(probe.Position.X - 500, probe.Position.Y - 2300, probe.Position.Z - 3.62f))} " +
@@ -124,6 +148,7 @@ if (args[0] == "check")
             {
                 Console.WriteLine($"  {pr.FormKey} {pr.EditorID} base {pr.Base.FormKey} flags 0x{pr.MajorRecordFlagsRaw:X} at {P(pr.Position)}");
                 if (pr.FormKey.ModKey != mod.ModKey || pr.FormKey.ID != ProbeId || pr.EditorID != ProbeEdid) problems.Add($"the probe is not {ProbeEdid} 0x{ProbeId:X}");
+                if (!Finite(pr.Position)) problems.Add($"the probe's position {P(pr.Position)} is not finite");
                 if (pr.Base.FormKey != new FormKey(sf.ModKey, XMarker)) problems.Add("the probe's base is not XMarker 00003B");
                 if ((pr.MajorRecordFlagsRaw & 0xC00) != 0x400) problems.Add("the probe is not persistent and enabled");
                 var want = new P3Float(r0.Position.X + offset, r0.Position.Y, r0.Position.Z);

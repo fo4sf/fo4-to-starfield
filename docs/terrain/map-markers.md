@@ -230,6 +230,9 @@ already refuted in game: the vanilla persistent-cell shape (fix A, cave_fixA_101
 cave_ofst_1015). `MergeProbe build <Starfield.esm> <out>` writes `FO4SFMergeProbe.esm`: one persistent XMarker
 `FO4SF_MergeProbeMarker` (0x800) in an override of vanilla LC172World's persistent cell, 3 m east of the COC marker
 0010238E, which reads merged in game (offset -500, -2300, -3.62). In game, with only this plugin added:
-`coc LC172Ext01`, then `prid <its load index>000800`, `getpos x`, `getpos y`. A merged read means the cause is in our
-WRLD / LCTN records (diff them next). A local read means a persistent reference from a non-vanilla plugin never
-merges, and the runtime moves (the door script, #353, this quest) are the design.
+`coc LC172Ext01`, then `prid <its load index>000800`, `getpos x`, `getpos y`, and in the same session `prid 0010238E`,
+`getpos x`, `getpos y` as the vanilla control (it must read merged, or the session proves nothing). One read is scoped
+to that world, build, load order, save and session. A merged probe read says a plugin's persistent reference can
+merge there, so the cause is likely in our WRLD / LCTN records (diff them next). A local read with a merged control
+says persistent references this plugin adds did not merge in that setup; it supports keeping the runtime moves (the
+door script, #353, this quest) as the design, but does not prove no record shape can merge.
