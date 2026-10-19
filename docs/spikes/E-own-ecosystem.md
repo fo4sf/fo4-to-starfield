@@ -34,8 +34,9 @@ Status: plan only. Nothing here is built or tested. Labels as in docs/ai/researc
 
 1. **Animations.** Verified (E1): FO4 ships Havok packfiles (14,128 .hkx in Fallout4 - Animations.ba2, 371 in
    DLCRobot, 49 in DLCworkshop01). Starfield - Animations.ba2 has no .hkx: 19,358 .af, 19,303 .afx, 390 .rig, 347 .agx
-   graphs and 12 .xtbl tables (anim_events, anim_files, ...). So FO4 clips cannot be dropped in. Unresolved: the .af/.afx
-   layout. Decision for now: humans and robots run Starfield's own locomotion on its rigs (ACTOR-MILESTONE step 4), and
+   graphs and 12 .xtbl tables (anim_events, anim_files, ...). So FO4 clips cannot be dropped in. Correction
+   (2026-10-19): the .af layout is not open; the door converter already writes .af and .rig through CALUMI.Animation
+   (src/fo4sf/native_door.py, issue #40). What is missing is a decoder for FO4's compressed Havok clips and the retarget. Decision for now: humans and robots run Starfield's own locomotion on its rigs (ACTOR-MILESTONE step 4), and
    converting FO4 clips (hkx decode, then an .af writer) is its own spike that starts with one .af layout read.
 2. **Papyrus (supported hypothesis).** Quests run on scripts. FO4 ships compiled .pex only; Starfield's compiler needs
    source. Route: decompile each FO4 .pex on the player's PC with an open-source decompiler (Champollion), map FO4 API
