@@ -299,6 +299,9 @@ Every question from sections 1 to 7 is listed below in the order the phase can a
 - X8 (precedents Q4): hash the FO4 source files (Fallout4.esm, the DLC .esm files, the BA2s) and refuse to build against unknown versions. The launcher's build record already records hashes; check that the interior batches carry them too. Step A.
 - X9 (precedents Q6): the QA budget for 271 interiors: automated cell cycling (the watchdog chain), a community beta, or both. The owner's call; Step E.
 
+**Answered since the first pass:**
+- T9 (verified, 2026-10-19, from the job 18 string dumps D:\Modding\research\ck_switches_1.txt for the Starfield CK and _2.txt for the FO4 CK): FO4's CK has `-GeneratePreCombined` and `-GeneratePreVisData`, each taking `<ESM> [clean,filtered] [all,main,ints,other] [set] [count]`. Starfield's dump has neither. Its dash switches include `-GenerateMeshLODAssociations`, `-GenerateMeshLODStats`, `-GenerateMeshLODFailureReport`, `-GenerateCellAndRefCounts` and `-GenerateWarnings`. It does still have the GUI actions "Generate Precombined Visibility for Current Cell" and "... for All Loaded Cells", so an in-editor previs step may exist, but not a batch one in this dump. `-MockWorldSpaceLOD` (reported in findings/starfield-toolchain.md) is in neither dump. The dump is a filtered list: the navmesh switches recorded in docs/actors/npc-navigation.md are not in it either. So "absent" here means absent from this dump. `-GenerateCellAndRefCounts` may serve E2 and E7 (reference counts per cell) without our own tool; its output format is unresolved.
+
 ### Question tables
 
 #### Navmesh and AI

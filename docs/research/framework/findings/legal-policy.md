@@ -12,14 +12,20 @@ in "Follow-up reads" at the end. No DMCA precedent could be verified this sessio
 
 **Bottom line.** The binding texts are stricter than community practice. Read literally, Bethesda's Terms of Service
 forbid creating or distributing *any* tool "derived from or created for" its games without written authorisation, and
-both Creation Kit EULAs limit mods to the one game they ship with, with cross-game mods ("one or more BGS Games") only
-when "approved by Bethesda". At the same time, the entire modding ecosystem (xEdit, F4SE/SFSE, Mutagen, MO2, TTW) lives
+both Creation Kit EULAs limit mods to the one game they ship with, ~~with cross-game mods ("one or more BGS Games") only
+when "approved by Bethesda"~~ [Correction 2026-10-19: Starfield CK EULA clause (ii) read in full ends "to be
+distributed through Bethesda Creations (hereinafter, "Creations Paid Content")", so it covers paid Creations only and
+is not an approval route for cross-game mods (launcher-sources/eula.md). The stronger obstacles are ToS §3 "solely in
+connection with such Service" and the Fallout 4 Steam EULA Software Utilities clause (e), "used exclusively in
+combination with" Fallout 4]. At the same time, the entire modding ecosystem (xEdit, F4SE/SFSE, Mutagen, MO2, TTW) lives
 outside those literal terms and is tolerated, and a Nexus moderator has said a mod that requires the player to own both
 games "would be different" from porting assets. So our position rests on tolerance, not on a permission, exactly like
 TTW. That makes four things load-bearing: (1) never ship any Bethesda byte or any output derived from one, (2) never
 charge or crowdfund, (3) do not bundle Bethesda's own tools (Archive2, Papyrus compiler, ContentResources.zip) or SFSE,
-make the player install them, and (4) ask Bethesda and Nexus in writing before the Nexus release, because the
-Starfield CK EULA explicitly names a Bethesda-approval route for cross-game mods. The GPL-3 obligation from Mutagen is
+make the player install them, and (4) ask Bethesda and Nexus in writing before the Nexus release, because ~~the
+Starfield CK EULA explicitly names a Bethesda-approval route for cross-game mods~~ [Correction 2026-10-19: clause (ii)
+is the paid-Creations channel, not an approval route (launcher-sources/eula.md); no licence text covers what we do, so
+a written question to ZeniMax is the only way to move from tolerance toward permission]. The GPL-3 obligation from Mutagen is
 real but easy: ship the C# binary as GPL-3 with its source; the MIT repo can stay MIT. A new Nexus rule matters for the
 launcher design: executables that connect to the internet are prohibited on Nexus "unless where it is crucial for the
 functioning of the mod/utility", so a GAMMA-style auto-downloader must justify that or ship without it on Nexus.
@@ -56,7 +62,9 @@ functioning of the mod/utility", so a GAMMA-style auto-downloader must justify t
 4. **Starfield Creation Kit EULA (verified,** [Steam EULA 2722710](https://store.steampowered.com//eula/2722710_eula_0)**):**
    - Scope: "All uses of the Editor are limited to:" "(i) Your personal non-commercial use solely in connection with the
      Product" or "(ii) The creation of Game Mods, approved by Bethesda, in connection with one or more BGS Games". The
-     Product is "the ZeniMax computer game with which the Editor is intended for use".
+     Product is "the ZeniMax computer game with which the Editor is intended for use". [Correction 2026-10-19: the
+     clause (ii) quote above is cut short; in full it continues "to be distributed through Bethesda Creations
+     (hereinafter, "Creations Paid Content")", so clause (ii) covers paid Creations only (launcher-sources/eula.md).]
    - No fees: "You will not charge or require, directly or indirectly, a fee or other consideration for others to
      download," (exception: Creations Paid Content under Bethesda's provider agreement).
    - Distribution: "You further agree that You are only permitted to distribute the Game Mods to users who have
@@ -69,14 +77,18 @@ functioning of the mod/utility", so a GAMMA-style auto-downloader must justify t
      does not name Archive2, the Papyrus compiler or ContentResources.zip (verified absence in the fetched text).
    - Mod ownership: "You are the owner of Your Game Mods" with a perpetual, royalty-free, non-exclusive licence granted to
      ZeniMax. Termination: ZeniMax "may terminate this Agreement at any time for any reason or no reason". No date given.
-   - **Reading for us (supported hypothesis):** clause (ii) is the only text we found that contemplates a mod spanning
-     more than one Bethesda game, and it requires Bethesda's approval. Clause (i) ties personal use to the single
+   - **Reading for us (supported hypothesis):** ~~clause (ii) is the only text we found that contemplates a mod spanning
+     more than one Bethesda game, and it requires Bethesda's approval.~~ [Correction 2026-10-19: clause (ii) is the
+     paid-Creations channel ("to be distributed through Bethesda Creations"), not an approval route for a cross-game
+     mod (verified, launcher-sources/eula.md). The stronger obstacles are ToS §3 "solely in connection with such
+     Service" and the Fallout 4 Steam EULA Software Utilities clause (e), "used exclusively in combination with"
+     Fallout 4.] Clause (i) ties personal use to the single
      Product. Whether our build counts as "use of the Editor" at all is **unresolved**: we write plugins with Mutagen,
      not the CK, but the pipeline calls the CK-shipped `PapyrusCompiler.exe` and `Archive2.exe` and reads
      `Tools\ContentResources.zip` (verified in repo: `scripts/mission/make_mission.py:293`,
      `scripts/deploy_starfield.py:155`, `scripts/convert_asset.py:5`).
 5. **Fallout 4 Creation Kit EULA (verified,** [Steam EULA 1946160](https://store.steampowered.com//eula/1946160_eula_1)**):**
-   same structure without the cross-game clause: mods "for non-commercial use solely in connection with the Product";
+   same structure without ~~the cross-game clause~~ [Correction 2026-10-19: clause (ii), the paid-Creations clause]: mods "for non-commercial use solely in connection with the Product";
    "You agree that You will not charge or require, directly or indirectly, a fee"; "only permitted to distribute the Game
    Mods to users who have purchased the Product"; "Its component parts may not be separated for use on more than one
    computer." The Skyrim SE CK EULA as transcribed by UESP has the same clauses (verified,
@@ -187,13 +199,15 @@ functioning of the mod/utility", so a GAMMA-style auto-downloader must justify t
 | SFSE on Nexus | Strict no-reupload, no-modify, no-convert permissions (verified, finding 11) | Dependencies are linked, never bundled. Mirror this in our own permissions: we can set "no re-upload of the converter" if we want, but must not add restrictions on the GPL binary |
 | TTW, Wabbajack, GAMMA | Prior note (section 1): build from player's own files, ship no content | The model works in practice; no published Bethesda permission. TTW's own site is the fallback host (not re-read this session) |
 | Bethesda Community Standards 2022 | "No Crowdfunding or Monetization mod projects is allowed." (verified) | A Patreon for the project is the single most likely trigger for a takedown; keep any donation link tactful and for hosting only, or have none |
-| Bethesda CK EULA (Starfield) | Cross-game mods only "approved by Bethesda" (verified) | There is a named approval path. Asking is cheap; a "no" changes little since tolerance is already the basis, but a "yes" removes the main risk |
+| Bethesda CK EULA (Starfield) | ~~Cross-game mods only "approved by Bethesda" (verified)~~ [Correction 2026-10-19: clause (ii) ends "to be distributed through Bethesda Creations (hereinafter, "Creations Paid Content")": paid Creations only (verified, launcher-sources/eula.md)] | ~~There is a named approval path.~~ [Correction 2026-10-19: there is no named approval path; no licence text covers what we do, so a written question to ZeniMax is the only way to move from tolerance toward permission.] Asking is cheap; a "no" changes little since tolerance is already the basis, but a "yes" removes the main risk |
 | DMCA / takedowns of Bethesda ports | **Unresolved**: no case verified this session (search budget exhausted). Candidates to check: Fallout 76 asset ports removed from Nexus, the "Capital Wasteland" FO3-in-FO4 project's switch to remade assets, Skyblivion/Skywind's remake-only policy, PS4 external-asset ban (2016) | Every remake that survived shipped remade assets; we instead ship none and convert locally. Need at least one verified example of how Bethesda treated a *local converter* |
 
 ## Risks
 
-1. **Bethesda objects to a cross-game converter (low-to-medium likelihood, high impact).** The ToS tools clause and CK
-   EULA clause (ii) give ZeniMax a contractual basis at any time. Likelihood is reduced by no assets, no money, no
+1. **Bethesda objects to a cross-game converter (low-to-medium likelihood, high impact).** The ToS tools clause and ~~CK
+   EULA clause (ii)~~ [Correction 2026-10-19: ToS §3 "solely in connection with such Service" and the Fallout 4 Steam
+   EULA Software Utilities clause (e); CK EULA clause (ii) covers paid Creations only (launcher-sources/eula.md)] give
+   ZeniMax a contractual basis at any time. Likelihood is reduced by no assets, no money, no
    "Fallout" branding and a polite advance contact; it rises with publicity (a viral "Fallout 4 in Starfield" video) and
    with anything that looks like it competes with a Bethesda product (a Fallout 4 remaster or a Fallout Starfield-engine
    release would raise it sharply; supported hypothesis).
@@ -235,7 +249,8 @@ functioning of the mod/utility", so a GAMMA-style auto-downloader must justify t
 ### All interiors
 5. **Does a generated interior plugin, made on the player's PC, count as a "Game Mod" under the Starfield CK EULA when
    it is archived with the player's Archive2 and uses scripts compiled with the player's Papyrus compiler?** Why: if yes,
-   clause (i) "solely in connection with the Product" and clause (ii) "approved by Bethesda ... one or more BGS Games"
+   clause (i) "solely in connection with the Product" ~~and clause (ii) "approved by Bethesda ... one or more BGS Games"~~
+   [Correction 2026-10-19: clause (ii) is the paid-Creations channel, not relevant here (launcher-sources/eula.md)]
    apply (finding 4). Options: avoid CK tools entirely (loose files, BSArch, a third-party Papyrus compiler such as
    Caprica: unresolved whether it supports Starfield); accept and ask Bethesda. Who: Bethesda contact; owner.
 6. **Do we need loose files instead of BA2 to keep Archive2 out of the pipeline?** Why: performance vs. licence clarity.
@@ -295,8 +310,10 @@ functioning of the mod/utility", so a GAMMA-style auto-downloader must justify t
     read SFSE's GitHub licence and Address Library's Nexus permissions. Who: offline research.
 
 ### Release and community
-20. **Do we contact Bethesda/ZeniMax before release, and what do we ask?** Why: Starfield CK EULA clause (ii) names a
-    Bethesda approval route for cross-game mods (finding 4). Options: no contact (TTW model); an informational letter;
+20. **Do we contact Bethesda/ZeniMax before release, and what do we ask?** Why: ~~Starfield CK EULA clause (ii) names a
+    Bethesda approval route for cross-game mods (finding 4).~~ [Correction 2026-10-19: clause (ii) covers paid
+    Creations only (launcher-sources/eula.md). No licence text covers what we do, so a written question to ZeniMax is
+    the only way to move from tolerance toward permission.] Options: no contact (TTW model); an informational letter;
     an explicit request for approval. Evidence: any answer. Who: owner; ZeniMax legal / Bethesda community team.
 21. **What exactly do we ask Nexus staff, and in what order?** Proposed: (a) is a no-assets FO4-to-Starfield converter
     that runs on the player's PC acceptable as a "modding tool"; (b) is the launcher's internet use "crucial" or must

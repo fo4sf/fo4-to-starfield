@@ -11,7 +11,7 @@ Each question says who answers it: **owner** (a decision), **PC** (a read-only o
 
 Builds on, does not repeat: research/next-phase/launcher-architecture.md, research/next-phase/launcher-gamma-model-and-community-tools.md,
 docs/ai/launcher-backbone.md (PR #394). Raw research, with every source URL, in
-`research/framework/launcher-sources/` (installers-precedents, sfstack, fo4source, appeng, community, buildorch, eula). Also
+`research/framework/launcher-sources/` (installers-precedents, sfstack, fo4source, appeng, community, buildorch, eula, ops, stores). Also
 read from the framework thread's wave 1: findings/distribution-community.md, versions-performance.md, testing-qa.md,
 precedents.md, legal-policy.md.
 
@@ -25,7 +25,7 @@ except as reversible groundwork.
 | # | Decision | Recommended default | Why |
 |---|---|---|---|
 | D1 | Which Fallout 4 data versions to accept (1.10.163 only, or also next-gen 1.10.984 and current 1.11.240) | 1.10.163 first (what the owner has), then add 1.11.240 once a record diff shows how far it differs | Most players are on 1.11.240 now (fo4source §1, versions-performance Q7); Fallout London forced a downgrade and paid for it in support load |
-| D2 | Which stores to support (Steam, GOG, Game Pass, Epic) for Fallout 4 and Starfield | Steam for both; GOG Fallout 4 as soon as one GOG install is hashed; Game Pass and Epic refused with a clear message until tested | TTW, Wabbajack and Skyblivion exclude the Microsoft Store; SFSE is Steam-only; Epic can't roll back (installers-precedents §1, §7; sfstack §1) |
+| D2 | Which stores to support (Steam, GOG, Game Pass, Epic) for Fallout 4 and Starfield | Steam for both; GOG Fallout 4 as soon as one GOG install is hashed (GOG ships only 1.10.163.0, dated 2023-08-11, per gogdb.org, so GOG players need no downgrade); Game Pass and Epic refused with a clear message until tested | TTW, Wabbajack and Skyblivion exclude the Microsoft Store; SFSE is Steam-only; Epic can't roll back (installers-precedents §1, §7; sfstack §1) |
 | D3 | Starfield runtime policy after a Steam update | refuse to build or launch on an unknown Starfield.exe hash, keep a known-good table, tell the player how to stay on the last good build | Starfield shipped 1.16.236, .242 and .244 between April and June 2026; updates broke SFSE twice (sfstack §1) |
 | D4 | Where the built game goes: our own folder plus restore, an MO2 instance, or a Vortex package | our own install plus snapshot and restore (built), with an MO2 mod-folder export later | MO2's last public build is 2.5.2 (Aug 2024) with 2026 reports of disabled masters, though wave 1 says it handles Starfield natively; Vortex 1.10.5 is current (sfstack §4; distribution-community); TTW builds an MO2 mod folder |
 | D5 | Hosting order and the Nexus question | GitHub first (settled 07:0xZ), and a written question to Nexus staff before any upload | Nexus file rules updated 2026-09-29 ban internet-connecting executables by default; TTW was kept off Nexus at Bethesda's request (TTW's account); FNV to FO4, a converter that needs both games, has lived on Nexus since 2023 (community §2-3; distribution-community) |
@@ -56,8 +56,16 @@ except as reversible groundwork.
   Workshop) were downloaded (supported hypothesis, from the downgrader's depot table).
 - Creation Club content is separate plugins loaded through `Fallout4.ccc`, never merged into the seven masters
   (verified, fo4source §6); the Anniversary Edition adds about 150 of them.
-- BA2 v7 and v8 (next-gen) have the same 24-byte header as v1 per xEdit and OpenMW source (verified); our `ba2.py`
-  accepts v1 to v3 only. All 50 of the owner's archives are v1.
+- BA2 v7 and v8 (next-gen, April 2024) have the same 24-byte header, records and zlib compression as v1; xEdit, the
+  bsa library, OpenMW, libloot and Wabbajack all treat 1, 7 and 8 alike, and no Fallout 4 version allows LZ4
+  (verified, stores.md §1). Which build writes v7 and which v8 is unresolved. **Done:** `ba2.py` now reads 7 and 8
+  with the v1 layout and detect lists archive versions and duplicate archive names (1825141, synthetic tests). All 50
+  of the owner's archives are v1.
+- Stores (stores.md, from source): GOG ships only 1.10.163.0 (2023-08-11) and never got next-gen; its exe is
+  Fallout4.exe and AppData folder `Fallout4`. Xbox installs to `XboxGames\Fallout 4 (PC)\Content` with each DLC in
+  its own sibling package folder, Plugins.txt in `%LOCALAPPDATA%\Fallout4 MS`. Epic launched with next-gen (April
+  2024), AppData `Fallout4 EPIC`. MO2 finds Fallout 4 only through the Bethesda registry key; Vortex and LOOT cover
+  all four stores.
 - Install detection (verified in MO2 and LOOT source): registry `HKLM\Software\[WOW6432Node\]Bethesda Softworks\Fallout4`
   "Installed Path"; Steam `HKCU\Software\Valve\Steam` SteamPath then `config\libraryfolders.vdf` (app 377160); GOG
   `HKLM\Software\GOG.com\Games\1998527297` "path"; Game Pass `<drive>\.GamingRoot` then `Fallout 4 (PC)\Content`;
@@ -107,7 +115,17 @@ except as reversible groundwork.
   §6). Archive2's licence (the CK EULA) forbids copying or redistributing it, so players need their own Creation
   Kit. The open-source `ba2` Rust crate (0BSD) claims Starfield read and write.
 - Starfield reads loose files from a second Data folder under Documents\My Games\Starfield (appeng §6); the owner's
-  install reads no loose files (`sResourceDataDirsFinal=STRINGS\`).
+  install reads no loose files (`sResourceDataDirsFinal=STRINGS\`). libloadorder notes that since 1.12.32 Starfield
+  loads a plugin from My Games Data only if the same plugin is also in the game's Data folder (stores.md §10), so our
+  plugins belong in the game's Data folder. Detect now reports loose files there (368da05).
+- Xbox Starfield installs to `XboxGames\Starfield\Content` (package `BethesdaSoftworks.ProjectGold`); Plugins.txt and
+  My Games are plain `Starfield` for both stores; SFSE refuses it (stores.md §6).
+- Tools (wave 2, framework findings): neither Creation Kit has a script-compile switch, so `PapyrusCompiler.exe` is
+  the headless path; the Starfield CK has no `-GenerateLips` (lips go through `-CompileFaceFXAnims` and
+  `Tools\LipGenerator`), the Fallout 4 CK has one (job 18; string dumps at D:\Modding\research\ck_switches_1.txt and
+  _2.txt). xEdit `-checkforerrors` returns the error count as its exit code but is not headless. Spriggit downloads its
+  translation logic from NuGet at run time, so its version must be pinned. Medium masters: 65,536 new records, 256
+  slots (verified). BA2 offsets are 64-bit; whether Starfield loads an archive over 4 GiB stays open (T3).
 - Any external plugin flags the save as modded and turns achievements off (sfstack §4).
 
 **Questions.**
@@ -233,7 +251,16 @@ drive roots (verified, appeng §6-7). Our code still guesses `~/OneDrive/Documen
 - A4. Where does the release build run? Default: a GitHub Actions Windows job with no game files; game-dependent
   tests stay on the PC. **offline.**
 - A5. Updates (D7): check at start only, never applied while a build or install runs; the status view says how many
-  steps an update would redo (the driver reruns steps whose code changed). **offline.**
+  steps an update would redo (the driver reruns steps whose code changed). Velopack (read, ops.md §1): per-user
+  install in `%LocalAppData%\{packId}` with no admin, per-file Zstandard deltas, signing hooks, GitHub Releases as a
+  feed, downgrades always a full download; it replaces the whole `current\` folder, so no state may live there.
+  Python bindings 1.2.161 (2026-09-29) are thin and the build machine needs .NET for `vpk`. Unauthenticated GitHub
+  REST is 60 requests per hour per IP and no token can ship, so default: a static feed file on the release, "could
+  not check" stays silent, a portable zip as fallback. **offline** (a spike).
+- A5b. A signed `status.json` per game version driving an in-launcher banner ("Starfield 1.16.244: supported"; "new
+  patch: use the previous build until we publish support"). SFSE followed each of five 2025-2026 patches within 0 to
+  1 days, Address Library 0 to 2, Engine Fixes 1 to 2 (ops.md §9), so our own converter is the slow link. **owner**
+  (the promise, L11) **+ offline.**
 - A6. Work folder rules: refuse folders under Users, OneDrive, Program Files or a drive root; detect reports the
   longest path the build writes against MAX_PATH. **offline.**
 - A7. Are our exes long-path aware (PyInstaller exe, python.exe, each dotnet tool)? Dump the manifests. **offline.**
@@ -243,12 +270,19 @@ drive roots (verified, appeng §6-7). Our code still guesses `~/OneDrive/Documen
   read every write back and tell the player how to allow the app. **PC** (test VM) **+ offline.**
 - A10. Is a non-ASCII Windows user name safe end to end (Python, dotnet tools, Archive2)? Default: UTF-8 for our
   subprocess I/O, paths as arguments. A run on an accented and CJK account. **outside / PC.**
-- A11. What goes in the support bundle? Default: a local zip of driver state, step logs, build manifest, detect output,
+- A11b. A preflight check per known install-failure cause: protected folders and OneDrive, wrong game version,
+  leftover mods and INI edits, antivirus, low disk, missing runtimes, overclocks, Windows blocking downloaded files
+  (Mark of the Web), launching the wrong exe (ops.md §6, 15 causes from GAMMA, Wabbajack, TTW, Fallout London,
+  Nolvus). Each becomes a detect line or a documented message. **offline.**
+- A11. What goes in the support bundle? Nolvus is the model: a "safe to upload" log and a Report button (ops.md §5).
+  Default: a local zip of driver state, step logs, build manifest, detect output,
   install records and INIs, user name replaced by `%USERPROFILE%`, nothing sent automatically, no telemetry. **owner
   (D12) + offline.**
-- A12. Which crash logger do we point players to (sf-crash-logger, GPL-3; Starfield Engine Fixes' logger, pinned per
-  runtime; Trainwreck, not updated since Jan 2024), and do we ask for its log? Trigger a known crash with each.
-  **PC (later).**
+- A12. Which crash logger do we point players to? sf-crash-logger is GPL-3 and the most detailed but has no
+  releases; Starfield Engine Fixes' Detailed Crash Logger is current for 1.16.244, off by default, not
+  redistributable; Trainwreck is "all rights reserved", unchanged since January 2024 and reported not logging in
+  2026 (ops.md §8). Both Trainwreck and sf-crash-logger write `Documents\My Games\Starfield\SFSE\Crashlogs\crash_*.log`,
+  which the support bundle would pick up. Trigger a known crash with each. **PC (later).**
 - A13. All strings through one translation function and a keyboard-only and screen-reader smoke test from the first
   screen. **offline.**
 
@@ -288,6 +322,9 @@ the closest same-publisher precedent to ours (installers-precedents §8-9). We f
 Starfield total conversion and no takedown of one (unresolved).
 
 **Questions.**
+- L0. Nexus wave-2 points: auto-update is not "crucial" internet use; any network feature needs a staff review with
+  source; an AI-content tag is required now. Fallout London's troubleshooting guide is a ready check list for A11b,
+  and its downgrader's Steam login prompts were a top support issue, which backs "never handle Steam credentials".
 - L1. What exactly do we ask Nexus staff? (a) is a no-assets converter that runs on the player's PC a "modding tool";
   (b) is any internet use allowed, or must the Nexus build be offline; (c) may add-ons that depend on generated masters
   be hosted, and with what in them; (d) which game page and category; (e) which AI tag applies. **owner, then
@@ -307,7 +344,13 @@ Starfield total conversion and no takedown of one (unresolved).
   The cleaner route: our own BA2 packer (the 0BSD `ba2` crate, T4) and the community Papyrus compiler Caprica, so the
   build calls no Bethesda tool at all. **offline** (parity tests) **+ owner.**
 - L2b. Should conversion need an explicit player action each time, check that each game and DLC is owned (not just
-  hashed), and write a notice into every output? (eula.md questions.) **owner.**
+  hashed), and write a notice into every output? Bethesda's mod rules ban circumventing add-on purchases, so the
+  converter checks each DLC is present and known before converting it, and converts only what is there (eula.md;
+  framework wave 2). **owner.**
+- L2c. Licence boundary (framework wave 2, GPL FAQ): a launcher that loads Mutagen in-process becomes GPL-3; one that
+  talks to the Mutagen tools by command line and files stays separate. This fixes D8's design rule: the Python
+  launcher never loads a .NET assembly. SFSE is not permissively licensed apart from PluginAPI.h, so we never bundle
+  it. **owner** (D8).
 - L4. Is a FormID lock file (ids plus FO4 keys) distributable? Decides B2. **outside.**
 - L5. Do we use "Fallout" in the launcher's or Nexus page's name? Default: a nominative "for Fallout 4" phrasing.
   **owner.**
@@ -343,7 +386,7 @@ picks them up:
 
 ## Not covered yet (next research wave)
 - GOG and Game Pass file layouts for both games (no samples).
-- The current ZeniMax ToS and both CK EULAs read in full.
-- What changed between BA2 v7 and v8.
-- Real support-load numbers from GAMMA, TTW or Fallout London (none published).
-- Velopack's delta and per-user install docs (rate-limited).
+- Which Fallout 4 build writes BA2 v7 and which v8 (the layout is the same).
+- Whether GOG's 1.10.163 data files match Steam's byte for byte (one GOG install's hashes settle it).
+- Real support-load numbers: none published. Only sizes: GAMMA's Discord 710,517 members, Skywind's 41,686, Fallout
+  London 500k GOG redemptions in 24 hours (ops.md §4).

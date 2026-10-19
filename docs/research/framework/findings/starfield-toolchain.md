@@ -69,7 +69,11 @@ needed them are marked **unresolved**, not guessed.
   Bethesda's own build farm used it. **unresolved**: whether it loads a plugin worldspace and BTD terrain.
 - **verified**: lip sync = CK menu Audio > "Run FaceFX Compiler": reads `Data\Sound\Voice\<plugin>.esm\<VoiceType>\<id>.wav`,
   writes `.animset` then `.ffxanim`; needs WAV for lip sync and `.wem` for playback; no spaces in names; body type
-  must match the voice type; slow on large batches; log `ffxc_00.log`
+  must match the voice type; slow on large batches; log `ffxc_00.log` [Added 2026-10-19: the Starfield CK also has a
+  `-CompileFaceFXAnims` switch and ships `Tools\LipGenerator\LipGenerator.exe` (**verified**, job 18 string dump of the
+  installed CreationKit.exe; job 19 queued for LipGenerator's usage text). It has no `-GenerateLips`; the FO4 CK has
+  `-GenerateLips` and `-GenerateSingleLip`. Neither CK has a script-compile switch; `PapyrusCompiler.exe` does that,
+  headless. `-GenerateSEQ` exists in the Starfield CK (**verified**, job 18).]
   ([starfieldwiki Audio File Conversion](https://dev.starfieldwiki.net/wiki/Starfield_Mod:Audio_File_Conversion),
   [Nexus guide 12576](https://nexusmods.com/starfield/mods/12576)). FaceFX staff: FaceFX is embedded in the Starfield
   CK and support is Bethesda's ([facefx.com node 4600](https://facefx.com/node/4600), Nov 2024).
@@ -277,7 +281,8 @@ needed them are marked **unresolved**, not guessed.
 
 ### People and story
 18. **Can FaceFX lip generation be run in batch (command line or scripted CK) for ~123k lines?** Options: CK GUI per
-    plugin (documented), a CreationKit.exe switch (unknown), keep FO4 `.lip` data and convert to `.ffxanim` (format
+    plugin (documented), a CreationKit.exe switch ~~(unknown)~~ [Correction 2026-10-19: `-CompileFaceFXAnims` plus
+    `Tools\LipGenerator\LipGenerator.exe`, **verified**, job 18], keep FO4 `.lip` data and convert to `.ffxanim` (format
     unknown), silent fallback without lip sync. Evidence: strings scan of CreationKit.exe for FaceFX switches; one test
     batch timing. Who: offline + PC probe.
 19. **How do we make `.wem` without shipping Wwise?** Options: Wwise CLI on player PC (licence), community encoders,
@@ -351,7 +356,15 @@ source or file), **supported hypothesis**, **unresolved**. xEdit facts come from
 are for that download).
 
 ### W2-1. LOD generation in the Starfield CK (answers §2 "LOD generation unresolved", Q15, Risk 8)
-- **verified**: the CK generates **object LOD** for a plugin worldspace from the command line:
+- ~~**verified**~~ [Correction 2026-10-19: **unresolved (sources conflict)**. Web guides (below) say the switch
+  exists; a keyword-filtered string dump of the installed Starfield CreationKit.exe (job 18,
+  `D:\Modding\research\ck_switches_1.txt`) does not show `-MockWorldSpaceLOD`, though it does show other "WorldSpace"
+  strings and the dashed switches `-CompileFaceFXAnims`, `-CompileMaterials`, `-CompileTextExport`,
+  `-GenerateAnimInfo`, `-GenerateCellAndRefCounts`, `-GenerateInventoryIcons`, `-GenerateLandTextureThumbnails`,
+  `-GenerateMeshLODAssociations`, `-GenerateMeshLODFailureReport`, `-GenerateMeshLODStats`, `-GenerateSEQ`,
+  `-GenerateShipBlueprintESP`, `-GenerateShipBuilderIcons`, `-GenerateWarnings`, `-GenerateWorkshopIcons`,
+  `-NoCheckIn`, `-NoExplicitFilename`. It may be stored as a wide string the filter missed, or be absent in the
+  current CK. The `-GenerateMeshLOD*` switches are **verified** LOD-related CK switches.]: the CK generates **object LOD** for a plugin worldspace from the command line:
   `CreationKit.exe -MockWorldSpaceLOD:<Plugin>.esp <Worldspace1>,<Worldspace2>,...`, run from the Starfield folder.
   Output: LOD meshes (`.nif`) in `Data\Meshes\Terrain\<Worldspace>\` and settings in `Data\LODSettings\`. Objects are
   chosen by layer: View > Layers, tick the **LOD** checkbox on the layer that holds them. Known issues: "One or more cells
@@ -430,7 +443,9 @@ are for that download).
   reports, FO4 not Starfield). A 5 GiB synthetic archive on the PC answers it for Starfield.
 
 ### Questions changed or added
-- **Q15 (LOD)**: now "CK `-MockWorldSpaceLOD` on the player's PC, or our own LOD writer?" Experiment: run it on a 4-cell
+- **Q15 (LOD)**: now "CK `-MockWorldSpaceLOD` on the player's PC, or our own LOD writer?" Experiment: [Correction
+  2026-10-19: first settle whether the switch exists: a wide-string search of CreationKit.exe or running it on a test
+  worldspace; then] run it on a 4-cell
   test worldspace, time it, check `.esm` acceptance and the partial-cell failure on 64 cells.
 - **Q32**: answered (65,536 ObjectIDs, 256 slots); keep only the in-game check that the engine agrees.
 - **Q7 / Risk 8 (precombines)**: downgraded to "measure frame time on a dense cell"; there is no bake step to replicate.

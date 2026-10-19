@@ -168,6 +168,9 @@ whether each such step can run headless.
   [Audio File Conversion](https://dev.starfieldwiki.net/wiki/Starfield_Mod:Audio_File_Conversion),
   [lip sync guide, Nexus 12576](https://nexusmods.com/starfield/mods/12576)). This parallels FO4's layout, so voice
   needs no bank generation (**supported hypothesis**).
+- [Added 2026-10-19: besides the menu, the Starfield CK has a `-CompileFaceFXAnims` switch and ships
+  `Tools\LipGenerator\LipGenerator.exe` (**verified**, job 18 string dump; job 19 queued for LipGenerator's usage
+  text); it has no `-GenerateLips`, which the FO4 CK has with `-GenerateSingleLip`.]
 - **Lip sync is produced only by the CK's embedded FaceFX.** Audio menu > Run FaceFX Compiler > pick master >
   Compile. It scans all dialogue topics, writes `.animset`, then `.ffxanim` into the voice folder, and logs progress
   to `ffxc_00.log` (it can look stalled) (**verified**, same sources). FaceFX staff say the tool is "embedded in the
@@ -284,7 +287,7 @@ All from prior knowledge; their pages could not be read this session, so all are
 
 ### Launcher
 11. **Can the CK's FaceFX compiler (and any other CK step: LOD, precombines, `.mat` to CDB) run unattended from the
-    command line?** *Why:* the launcher must not need a human in the CK. *Options:* documented CK switches (unknown),
+    command line?** *Why:* the launcher must not need a human in the CK. *Options:* documented CK switches (unknown) [Correction 2026-10-19: lip sync has `-CompileFaceFXAnims` plus `LipGenerator.exe`, LOD has `-GenerateMeshLOD*` switches (**verified**, job 18 string dump); `-MockWorldSpaceLOD` is **unresolved (sources conflict)**],
     GUI automation (fragile), skip lip sync. *Evidence:* list the CK executable's command-line switches; try one
     compile with a tiny plugin. *Who:* PC probe.
 12. **Is Wwise 2021.1.14.8108 authoring on the player's PC acceptable (licence, download size, login), and can

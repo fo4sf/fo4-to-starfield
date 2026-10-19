@@ -386,7 +386,10 @@ labels.
   Relevant to Q29 if we host on vanilla Earth.
 
 ### W2-3. LOD for our worlds (extends Q15, Q16 and "Performance")
-- **verified**: object LOD via `CreationKit.exe -MockWorldSpaceLOD:<Plugin> <Worldspace,...>`, objects chosen by layers
+- ~~**verified**~~ [Correction 2026-10-19: **unresolved (sources conflict)**: web guides say the switch exists; a
+  job 18 string dump of the installed CreationKit.exe does not show it (a wide string the filter missed, or absent in
+  the current CK); it does show the **verified** LOD-related switches `-GenerateMeshLODAssociations`,
+  `-GenerateMeshLODFailureReport`, `-GenerateMeshLODStats`. See starfield-toolchain.md W2-1.]: object LOD via `CreationKit.exe -MockWorldSpaceLOD:<Plugin> <Worldspace,...>`, objects chosen by layers
   with the LOD box; output in `Data\Meshes\Terrain\<Worldspace>\` and `Data\LODSettings\`; cells can fail in multi-cell
   worldspaces ([modding.wiki](https://modding.wiki/en/starfield/developers/tutorials/creatingworldspacelod)). Full detail in
   starfield-toolchain.md W2-1. A Reddit snippet (not read in full) ties this LOD run to the **local map** rendering

@@ -197,6 +197,12 @@ across notes are merged. Ids are stable (NG-A1 ...) so other files and threads c
 - **NG-H9. Crash logger and xEdit that work on 1.16.244?** PC read-only. n05.
 - **NG-H10. Lip files for reused FO4 voice lines through the Creation Kit (FaceFX; breaks on plugin names with
   spaces)?** Manual CK test. n05.
+- **NG-H12. Does Starfield need a SEQ file for our start-game-enabled quests?** The Starfield CK still has a
+  -GenerateSEQ switch (job 18, PC) and xEdit's source shows a SEQ is the plugin's start-game-enabled quest ids, so our
+  writer could make one. In Skyrim a missing SEQ is known to break such quests' dialogue (supported hypothesis for
+  Starfield). Our new game and quest probe ship none; the probe's "init" log line already shows whether such a quest
+  starts without one. Dialogue needs a later plugin that has some. GAME (rides the quest probe). findings/people-story.md
+  wave 2.
 - **NG-H11. Build time and CPU for a full start build.** Measure on the PC, docs/ai/optimization.md. n02.
 
 ## I. Voice, dialogue and the opening scenes (from the framework thread's findings, leads to verify)
@@ -258,7 +264,8 @@ and 15, and SKK's fallback has a stated blind spot for a start that skips MQ102 
 ## L. Saves, updates and uninstall (n08)
 Verified on our PC (scripts/game/loadorder.ps1, docs/ai/first-run-failures-1014.md): loading a save made with a
 different plugin list shows the Creations load-order prompt with "Save" preselected, and accepting it rewrites
-Plugins.txt with our plugins off, silently.
+Plugins.txt with our plugins off, silently. Users also report the game clears active plugins when the Creations
+menu opens (findings/people-story.md wave 2, supported hypothesis).
 - **NG-L1. What a player sees loading a pre-mod save after install, and how we keep the prompt from switching us off
   (separate profile or launcher swap instead of editing their Plugins.txt).** GAME on a throwaway save, OWNER. n08 Q1, Q2.
 - **NG-L2. A save-format version and the FO4Port and core build ids stored in the save from v1, checked on every

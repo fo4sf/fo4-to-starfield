@@ -47,6 +47,7 @@ Breadth before polish. A launcher that ships no assets; the player owns both gam
 | Asset pipeline | [asset-pipeline.md](asset-pipeline.md) | AP | meshes, collision, animation, textures, sound, voice files, facegen, clothing, LOD, build time and disk, tool licences |
 | Versions and maintenance | [versions-and-maintenance.md](versions-and-maintenance.md) | VM | FO4 and Starfield versions and stores, patch days, SFSE lag, engine ceilings, hardware, long-term cost |
 | Multi-game future | [multi-game-future.md](multi-game-future.md) | MG | FO3 and New Vegas on the same core, one rule set, ObScript, creatures, world placement, what to reserve now |
+| **Dependencies across all files** | [dependencies.md](dependencies.md) | | critical path per phase, about 90 duplicate topics with an owner file, 16 conflicting recommendations, 29 experiments ranked by questions closed, 47 owner decisions by phase |
 
 Raw findings (one per research agent, all sources): [precedents](findings/precedents.md),
 [legal-policy](findings/legal-policy.md), [starfield-toolchain](findings/starfield-toolchain.md),
@@ -62,7 +63,9 @@ engine-mechanics thread), [distribution-community](findings/distribution-communi
    FO3 audio and cancelled it in 2018 after Bethesda staff and a lawyer flagged it: voice acting is licensed, not owned
    (**verified**, findings/precedents.md). Our `scripts/actors/codsworth_voice.py` has the same shape. REL-26, REL-27.
 2. **We rest on tolerance, not permission.** Read literally, Bethesda's terms forbid tools "created for" its games
-   without written permission; the Starfield CK EULA names an approval route for cross-game mods. A player-side
+   without written permission; ~~the Starfield CK EULA names an approval route for cross-game mods~~ [Correction
+   2026-10-19: that clause covers paid Creations only; the Fallout 4 ToS and Steam EULA's tool-output clause are the
+   stronger obstacles; launcher-sources/eula.md]. A player-side
    cross-game converter (FNV to FO4, GPL-3) has been on Nexus since 2023 (**verified**). REL-30, REL-31.
 3. **Most players own a different Fallout 4 than we pin, and our archive reader can't open it yet.** Steam is on
    1.11.240 (Aug 2026), we pin 1.10.163. The April 2024 next-gen update added BA2 header versions 7 and 8, which xEdit
@@ -91,16 +94,20 @@ engine-mechanics thread), [distribution-community](findings/distribution-communi
 - **Nexus (verified):** auto-update does not count as "crucial" for an internet-using executable; network features need a
   staff review with source; an AI-content tag is now required. Bethesda's own mod rules ban getting around add-on
   purchases, so the converter should check DLC ownership before converting each DLC. REL.
-- **CK steps:** LOD has a command line (`CreationKit.exe -MockWorldSpaceLOD:<plugin> <worldspaces>`, **verified**);
+- **CK steps:** ~~LOD has a command line (`CreationKit.exe -MockWorldSpaceLOD:<plugin> <worldspaces>`, **verified**)~~
+  [Correction 2026-10-19: web guides name `-MockWorldSpaceLOD`, but a string dump of the installed Starfield CK (PC job
+  18) does not show it; **unresolved**. Verified CK switches include `-GenerateMeshLOD*`, `-CompileFaceFXAnims` and
+  `-GenerateSEQ`; lips go through `-CompileFaceFXAnims` plus `Tools\LipGenerator\LipGenerator.exe`; no CK compiles
+  scripts (PapyrusCompiler.exe does, headless)];
   Starfield cells carry no precombine or previs fields (**supported hypothesis**: no bake step). Named NPC faces are
-  pre-baked per form ID by two CK bakes. Lip sync stays GUI-only until the queued PC job answers. TT, AP, PS.
+  pre-baked per form ID by two CK bakes. TT, AP, PS.
 - **Limits (verified):** medium masters hold 65,536 new records, with 256 slots. BA2 offsets are 64-bit; whether Starfield
   loads an archive over 4 GiB is still open. VM-23 to VM-28.
 - **Saves:** the game itself clears active plugins in Plugins.txt when a save loads or the Creations menu opens (users'
   reports, matching newgame.md L). VM-14.
 - **Still unresolved after wave 2:** any DMCA or takedown of a cross-game converter (none found); how Shattered Space's
   landmass was built (a read of its esm settles it); whether Starfield needs an SEQ file for start-game dialogue quests
-  (one PC probe; our writer could make one); Wwise terms for batch conversion on players' PCs.
+  (the Starfield CK has `-GenerateSEQ`, and our writer could make one); Wwise terms for batch conversion on players' PCs.
 
 ## Cross-cutting points from the phase threads (wave 1)
 
@@ -129,15 +136,21 @@ engine-mechanics thread), [distribution-community](findings/distribution-communi
 - **Map markers (PR #399, map-markers.md on its branch):** FO4 markers carry a 66-icon Type enum; Starfield's Type is a
   bare byte with no enum in Mutagen. Whether Starfield has icons for Vault, Metro and Diamond City is unresolved (a TNAM
   census of Starfield.esm settles it). Touches WP map questions.
+- **Door animations (second pass):** INSTANT DOORS' ini lines only remove fades and do not shorten the load-door wait
+  (door-animations.md, correction). New: a Starfield 1.16 Papyrus API table for doors, and a risk: Starfield's `Lock()`
+  also locks linked lockables by default.
 - **Voice reuse** is flagged as the owner's decision by engine-mechanics.md too (same decision as REL-26).
 
 ## Where the files disagree (to settle first)
 
+The full list (16 conflicts, quoted from both sides) is in [dependencies.md](dependencies.md). The two that matter most:
+
 - **SFSE for release 1.** tooling-and-testing recommends requiring CK and SFSE for release 1 (TT-39); people-and-story
   (PS-35), versions-and-maintenance (VM-17) and asset-pipeline (AP-45) recommend a data-only core with SFSE as optional
   add-ons. The owner already allowed SFSE; the open point is whether the *base* needs it. One decision closes all four.
-- **Host planet now vs later.** world-and-planet keeps Mars (today's test host) only until the census and the `EOVR`
-  probe report; the owner's target is an Earth-like planet either way.
+- **Fallout 4 versions in release 1.** launcher.md D1 starts with 1.10.163 only; VM-01 and AP-52 accept 1.11.240 too.
+  Both wait on the record diff between the two versions.
+- **Interior plugin type.** VM-25 leans toward medium masters; interiors.md X2 keeps full masters.
 
 ## Owner decisions that unlock the most (one line each; full options in the files)
 
@@ -173,7 +186,7 @@ Read-only PC probes (through the coordinator, when the PC is free):
 10. **One terrain-only island overlay through `EOVR`** with gravity, an ocean biome and a map marker: WP-08/17/23/26/28.
 11. **Crash logger A/B** on the known Havok assert: TT-23.
 
-## Wave 3 (next)
+## Next
 
-Cross-link questions that block each other across all twelve files (one dependency table), fold in the phase threads'
-next revisions and the queued CK command-line PC job, and chase the gaps that remain.
+Wave 3 (the dependency map) is done. Next: fold in the phase threads' next revisions and PC job 19 (LipGenerator usage),
+settle `-MockWorldSpaceLOD` (sources conflict), and keep the critical path in dependencies.md current as questions close.

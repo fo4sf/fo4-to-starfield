@@ -369,7 +369,7 @@ morphs" is no longer the leading hypothesis for named NPCs.
 - Evidence: FO4/Skyrim need SEQ only for SGE quests (**verified**); the Starfield CK still makes them (**verified**); Starfield requires them (**supported hypothesis**); Starfield FormID encoding for small/medium masters in the file (**unresolved**).
 - Answer by: one SGE dialogue quest with a greeting, from a save made before the plugin was added, with and without the `.seq`; our file compared byte for byte with the CK's. Who: PC probe plus one offline writer task.
 - Blocks: People and story, Launcher, New game.
-- Status: narrowed (wave 2): only SGE quests matter, format known, writer is cheap; open part is whether Starfield requires it [people-story W2-1].
+- Status: narrowed (wave 2): only SGE quests matter, format known, writer is cheap; open part is whether Starfield requires it [people-story W2-1]. The Starfield CK has a `-GenerateSEQ` switch (**verified**, PC job 18 string dump), so the CK can also make it.
 
 ### New voice and community
 

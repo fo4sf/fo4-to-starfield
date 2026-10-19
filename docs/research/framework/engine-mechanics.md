@@ -350,3 +350,8 @@ Changed questions (labels and sources in the notes):
   `LipGenerator.exe` directly on one WAV plus text, FO4-style arguments first (quests L1, X5). (b) Run
   `-CompileFaceFXAnims` and `-GenerateAnimInfo:` on a test plugin (animation B1: new clips need anim info, which this
   switch likely generates). Both are PC runs that write only to a scratch folder.
+- **Job 19 (verified): Starfield's LipGenerator.exe runs headless.** Usage: `LipGenerator wav text actor.facefx
+  actoranalysis.facefx [-Language:] [-OutputFileName:] [-AnimationGroupName:]`, eight languages, no window. So lip
+  generation can run unattended from the launcher. New key question (quests L3): where are the actor and actor
+  analysis `.facefx` files for each face rig, and which fits each converted FO4 voice type? Next check: list `.facefx`
+  names in Starfield's archives, then generate one Codsworth line and hear it in game.
