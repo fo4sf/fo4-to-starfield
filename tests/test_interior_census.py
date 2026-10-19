@@ -3,6 +3,7 @@ interior cell and how it is reached, the batch order and limits, the port id com
 rule. No game data."""
 import json
 import os
+import shutil
 import struct
 import sys
 import tempfile
@@ -254,7 +255,7 @@ class BuildFlowTests(unittest.TestCase):
         ib.save(os.path.join(base, "Old.json"), {"cell": "Old", "refs": [{"model": "a.nif"}]})
         ib.save(os.path.join(base, "editorids.json"), {"meshes\\A.nif": "FO4Port_A"})
         plan = os.path.join(t, "plan.json")
-        ib.save(plan, {"batches": [{"name": "interiors_b01", "peak_gb_est": 0.0, "cells": [{"editor_id": "New"}, {"editor_id": "Bad"}]}]})
+        ib.save(plan, {"batches": [{"name": "interiors_b01", "archives_gb_est": 0.0, "work_staging_gb_est": 0.0, "cells": [{"editor_id": "New"}, {"editor_id": "Bad"}]}]})
         work, out = os.path.join(t, "work"), os.path.join(t, "staging", "interiors_b01")
         calls = []
         newc = rec(b"CELL", OWN | 0x850, [(b"EDID", b"FO4Port_New\0"), (b"DATA", struct.pack("<I", 1))])
@@ -324,6 +325,91 @@ class BuildFlowTests(unittest.TestCase):
         finally:
             ib.run = real
         self.assertIn("use a new --work", ib.load(os.path.join(out2, "result.json"))["error"])
+
+    def test_prev_batch_seeds_the_ids_and_must_compare_clean(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        t = tmp.name
+        base = os.path.join(t, "base")
+        os.makedirs(base)
+        OWN = 0x01000000
+        tool = BatchToolTests()
+        with open(os.path.join(base, "FO4Port.esm"), "wb") as f:
+            f.write(tool.plugin())
+        ids = {"STAT:FO4Port_a": 0x800, "CELL:FO4Port_Old": 0x801, "REFR:FO4Port_Old:1:Fallout4.esm": 0x802}
+        ib.save(os.path.join(base, "formids.json"), ids)
+        ib.save(os.path.join(base, "doors.json"), {"doors": []})
+        ib.save(os.path.join(base, "Old.json"), {"cell": "Old", "refs": []})
+        plan = os.path.join(t, "plan.json")
+        ib.save(plan, {"batches": [
+            {"archives_gb_est": 1.0, "work_staging_gb_est": 2.0, "cells": [{"editor_id": "One"}]},
+            {"archives_gb_est": 1.5, "work_staging_gb_est": 3.0, "cells": [{"editor_id": "Two"}]}]})
+        work = os.path.join(t, "work")
+        one = rec(b"CELL", OWN | 0x850, [(b"EDID", b"FO4Port_One\0"), (b"DATA", struct.pack("<I", 1))])
+        two = rec(b"CELL", OWN | 0x851, [(b"EDID", b"FO4Port_Two\0"), (b"DATA", struct.pack("<I", 1))])
+        seeds, renumber = [], [False]
+
+        def fake_run(cmd, log, env=None, cwd=None):
+            joined = " ".join(cmd)
+            if "export" in cmd and cmd[0] == "dotnet":
+                ib.save(cmd[-1], {"cell": cmd[-2], "refs": []})
+            elif "convert_batch.py" in joined:
+                ib.save(os.path.join(work, "manifest.json"), {"items": [], "failures": []})
+            elif "port_promote.py" in joined:
+                ib.save(cmd[cmd.index("--out") + 1], {})
+            elif cmd[0] == "dotnet":
+                raw = cmd[2]
+                seed = ib.load(os.path.join(raw, "formids.json"))
+                seeds.append(seed)
+                second = "CELL:FO4Port_One" in seed
+                extra = [one, two] if second else [one]
+                if second and renumber[0]:
+                    extra = [rec(b"CELL", OWN | 0x852, [(b"EDID", b"FO4Port_One\0"), (b"DATA", struct.pack("<I", 1))]), two]
+                with open(os.path.join(raw, "FO4Port.esm"), "wb") as f:
+                    f.write(tool.plugin(extra=extra))
+                got = dict(seed, **{"CELL:FO4Port_One": 0x852 if renumber[0] else 0x850})
+                if second:
+                    got["CELL:FO4Port_Two"] = 0x851
+                ib.save(os.path.join(raw, "formids.json"), got)
+                open(log, "a").close()
+            elif "vmad_patch.py" in joined and cmd[2] == "port":
+                dst = cmd[cmd.index("--out") + 1]
+                os.makedirs(dst)
+                for n in ("FO4Port.esm", "formids.json"):
+                    shutil.copyfile(os.path.join(cmd[cmd.index("--port") + 1], n), os.path.join(dst, n))
+            return 0, 0.1
+
+        def build(n, out, prev=None):
+            argv = ["build", "--plan", plan, "--batch", str(n), "--base", base, "--base-exports", base,
+                    "--core", t, "--work", work, "--out", out, "--fo4-data", t, "--starfield", t,
+                    "--content-resources", "c", "--texconv", "x", "--collision-template", "t", "--fo4export", "e",
+                    "--pluginspike", "p", "--no-pack", "--jobs", "1", "--min-free-gb", "0"] + (["--prev", prev] if prev else [])
+            real, ib.run = ib.run, fake_run
+            try:
+                return ib.main(argv)
+            finally:
+                ib.run = real
+
+        b1, b2, b2x = (os.path.join(t, "staging", n) for n in ("interiors_b01", "interiors_b02", "interiors_b02x"))
+        self.assertEqual(build(1, b1), 0)
+        self.assertEqual(seeds[-1], ids)                                  # batch 1 starts from the base map
+        self.assertEqual(build(2, b2, prev=b1), 0)
+        self.assertEqual(seeds[-1]["CELL:FO4Port_One"], 0x850)            # batch 2 starts from batch 1's map
+        r2 = ib.load(os.path.join(b2, "result.json"))
+        self.assertTrue(r2["steps"]["compare_prev"]["pass"])
+        self.assertTrue(os.path.isfile(os.path.join(b2, "port", "compare_prev.json")))
+        renumber[0] = True                                                # batch 1's cell moved: the batch fails
+        self.assertEqual(build(2, b2x, prev=b1), 1)
+        self.assertFalse(ib.load(os.path.join(b2x, "result.json"))["steps"]["compare_prev"]["pass"])
+        with self.assertRaises(SystemExit):                               # a failed batch is no --prev
+            build(2, os.path.join(t, "staging", "interiors_b02y"), prev=b2x)
+
+    def test_disk_need_counts_what_the_batch_adds(self):
+        plan = {"batches": [{"archives_gb_est": 2.9, "work_staging_gb_est": 5.9},
+                            {"archives_gb_est": 3.8, "work_staging_gb_est": 7.6}]}
+        self.assertEqual(ib.disk_need(plan, 0, False), 0.0)
+        self.assertEqual(ib.disk_need(plan, 2, True), 5.5)                # 3.8 packed + 1.7 work growth
+        self.assertEqual(ib.disk_need(plan, 2, False), 11.4)              # a new work staging holds everything
 
     def test_removed_causes(self):
         old = {"STAT:FO4Port_Chair": 0x800, "DOOR:FO4Port_VaultDoor": 0x801, "FURN:FO4Port_furn_1": 0x802}

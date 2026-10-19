@@ -155,3 +155,15 @@ Batch 1 notes (**verified** from interiors_b01's result.json, port\compare.json 
 Batch 2 failed models (new cells): `traps\gastrap01.nif`, `traps\oiltrappuddle01.nif`,
 `setdressing\kitchen\beerglassgwinnett01.nif`, `architecture\diamondcity\dext\tempdiamondcityspeaker01.nif`,
 `interiors\steamt\temp\tempinsanebricks.nif` (the last two are Bethesda "temp" models).
+
+Batch 1 against batch 2 (**verified**, `interior_batch.py compare --old interiors_b01\port --new interiors_b02\port`,
+2026-10-19): FAIL, 51,435 of batch 1's new ids renumbered (the installed port's ids were all kept). Batches 1 and 2
+were each seeded with the installed port's formids.json only, so PluginSpike numbered each batch's new cells afresh.
+Harmless while nothing past the installed port is installed, but a save made on one staged batch would not carry
+to the next. Fixed: `build --prev <previous batch>` seeds PluginSpike with the previous batch's port\formids.json and
+also compares against it (port\compare_prev.json; it must pass). The chain starts at batch 2: batch 3 is built with
+`--prev interiors_b02`. Batch 1 is superseded.
+
+Disk check: batch 3 was refused by the first preflight (free 53.8 GB minus the plan's 16.76 GB peak), though batches
+1 and 2 each took about 4 GB. The plan's peak counts the work staging and two batches from nothing; the preflight now
+counts what the batch adds (`disk_need`: its packed folder plus the work staging's growth, about 5 GB for batch 3).

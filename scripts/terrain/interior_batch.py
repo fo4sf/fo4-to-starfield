@@ -6,29 +6,30 @@ rounds, prune superseded batches (docs/terrain/interior-batches.md). Nothing her
          name> --work <work staging> --out <NEW folder> --fo4-data <FO4 Data> --starfield <Starfield game dir>
          --content-resources <ContentResources.zip> --texconv <Texconvx64.exe> --collision-template <template.nif>
          --fo4export <Fo4Export.dll> --pluginspike <PluginSpike.dll> [--spec-mask-roughness] [--promote-arg ARG ...]
-         [--convert-arg ARG ...] [--min-free-gb 40] [--no-pack] [--jobs 2]
+         [--convert-arg ARG ...] [--prev <the previous batch's --out>] [--min-free-gb 40] [--no-pack] [--jobs 2]
   python scripts/terrain/interior_batch.py compare --old <port folder> --new <port folder> [--json <out>]
   python scripts/terrain/interior_batch.py doors --plan <batches.json> --census <census.json> --batch N --out <door_rounds.json>
   python scripts/terrain/interior_batch.py prune --staging-root <dir> --keep N [--delete]
 
 build (batch 0 = the base port's own cells only: proves the pipeline reproduces the installed port before it grows it;
 batch N = the base cells + every cell of batches 1..N; the port is cumulative, one FO4Port.esm, as it always grew):
-  1. preflight: --out is new; the drive of --out and --work keeps --min-free-gb free after the plan's peak estimate
-     for this batch; the base has FO4Port.esm, formids.json and doors.json (a vmad_patch.py port report).
+  1. preflight: --out is new; the drive of --out and --work keeps --min-free-gb free after what this batch adds
+     (disk_need: its packed folder plus the work staging's growth, from the plan's estimates); the base has FO4Port.esm, formids.json and doors.json (a vmad_patch.py port report).
   2. exports: the base cells' <Cell>.json are copied from --base-exports (pinned: the installed port was built from
      them); every other cell is exported with --fo4export into <work>/exports (kept: an existing non-empty export is
      reused, so a re-run only exports what is missing).
   3. convert: one merged cell json, then scripts/convert_batch.py --resume into --work (the work staging grows; the
      checkpoints make a later batch convert only its new models) with --starfield-data (rigged doors and movables, as
      the integ builds) and --spec-mask-roughness when given.
-  4. plugin: --out/plugin gets the base's formids.json (every earlier record keeps its FormID; PluginSpike reuses the
-     map) and lighting.json, scripts/terrain/port_promote.py writes promote.json, PluginSpike writes FO4Port.esm.
+  4. plugin: --out/plugin gets the base's formids.json, or with --prev the previous batch's port\formids.json (every
+     earlier record, the previous batch's new ones included, keeps its FormID; PluginSpike reuses the map) and lighting.json, scripts/terrain/port_promote.py writes promote.json, PluginSpike writes FO4Port.esm.
   5. doors: scripts/terrain/vmad_patch.py port --keep-markers <base>/doors.json into --out/port: the base's scripted
      load doors re-applied with the SAME marker ids the installed core's exterior doors name, then vmad_patch check.
      The new cells' doors into the Commonwealth stay unwired (they need a core build with their doors: the doors gate,
      docs/terrain/interior-batches.md); their interior-to-interior doors are linked by PluginSpike (XTEL).
   6. compare (below) against the base, written to --out/port/compare.json; a renumbered or missing base id, or a
-     removed base record, fails the batch.
+     removed base record, fails the batch. With --prev, the same compare against the previous batch's port
+     (--out/port/compare_prev.json) must pass too: a save made on that staged batch carries over.
   7. pack (unless --no-pack): "FO4Port - Main.ba2" and "FO4Port - Textures.ba2" from the work staging into --out/port
      with Starfield's Archive2 (scripts/deploy_starfield.py's packer; the install step itself is not run).
   8. --out/result.json: the batch's cells with converted / checked / failed per cell, the pins (git commit, input
@@ -161,6 +162,32 @@ def removed_causes(old_ids, new_ids, removed, new_records):
 
 
 # ------------------------------------------------------------------------------------------------------------- build
+def disk_need(plan, n, work_started):
+    """GB this batch adds on the drive (supported estimate from the plan): its packed port folder, plus the work
+    staging's growth (all of it when the work staging is new). The peak estimate in the plan counts the work staging
+    and two batches from nothing, which over-counts once the work staging and the previous batch exist."""
+    if not n:
+        return 0.0
+    b = plan["batches"][n - 1]
+    prev_work = plan["batches"][n - 2]["work_staging_gb_est"] if n > 1 else 0.0
+    grow = b["work_staging_gb_est"] - (prev_work if work_started else 0.0)
+    return round(b["archives_gb_est"] + max(0.0, grow), 2)
+
+
+def check_prev(a, n):
+    """The previous batch this one grows: a passing build of an earlier batch over the same base port."""
+    r = load(os.path.join(a.prev, MARKER))
+    port = os.path.join(a.prev, "port")
+    if not (r.get("pass") and isinstance(r.get("batch"), int) and r["batch"] < n):
+        sys.exit(f"--prev {a.prev}: not a passing earlier batch (batch {r.get('batch')}, pass {r.get('pass')})")
+    if r.get("pins", {}).get("base_plugin") != sha256(os.path.join(a.base, PLUGIN)):
+        sys.exit(f"--prev {a.prev} was built over another base port")
+    for need in (PLUGIN, "formids.json"):
+        if not os.path.isfile(os.path.join(port, need)):
+            sys.exit(f"--prev {a.prev} lacks port\\{need}")
+    return port
+
+
 def batch_cells(plan, n):
     """The cells of batches 1..n, in plan order."""
     if n < 0 or n > len(plan["batches"]):
@@ -208,12 +235,13 @@ def build(a):
     clash = sorted(set(c.casefold() for c in new_cells) & set(c.casefold() for c in old_cells))
     if clash:
         sys.exit(f"cells already in the base port: {clash}")
-    peak = plan["batches"][a.batch - 1]["peak_gb_est"] if a.batch else 0.0
+    prev_port = check_prev(a, a.batch) if a.prev else None
+    need = disk_need(plan, a.batch, os.path.isfile(os.path.join(a.work, "manifest.json")))
     os.makedirs(a.work, exist_ok=True)
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     free = min(free_gb(a.work), free_gb(os.path.dirname(os.path.abspath(a.out))))
-    if free - peak < a.min_free_gb:
-        sys.exit(f"free {free:.1f} GB - this batch's peak estimate {peak} GB < {a.min_free_gb} GB: refusing")
+    if free - need < a.min_free_gb:
+        sys.exit(f"free {free:.1f} GB - this batch's estimated {need} GB < {a.min_free_gb} GB: refusing")
     os.makedirs(a.out)
     log = os.path.join(a.out, "build.log")
     steps, cells = {}, {}
@@ -276,7 +304,8 @@ def build(a):
     # 4. plugin
     raw = os.path.join(a.out, "plugin")
     os.makedirs(raw)
-    shutil.copyfile(os.path.join(a.base, "formids.json"), os.path.join(raw, "formids.json"))
+    shutil.copyfile(os.path.join(prev_port or a.base, "formids.json"), os.path.join(raw, "formids.json"))
+    steps["formids_seed"] = os.path.abspath(os.path.join(prev_port or a.base, "formids.json"))
     if os.path.isfile(os.path.join(a.base, "lighting.json")):
         shutil.copyfile(os.path.join(a.base, "lighting.json"), os.path.join(raw, "lighting.json"))
     tables = os.path.join(ROOT, "scripts", "terrain", "clusters")
@@ -313,6 +342,13 @@ def build(a):
     save(os.path.join(port, "compare.json"), cmp_)
     steps["compare"] = {"pass": cmp_["pass"], "problems": cmp_["problems"], "records": cmp_["records"],
                         "cells_added": len(cmp_["cells_added"])}
+    prev_ok = True
+    if prev_port:
+        cmp_prev = compare(prev_port, port)
+        save(os.path.join(port, "compare_prev.json"), cmp_prev)
+        steps["compare_prev"] = {"prev": os.path.abspath(a.prev), "pass": cmp_prev["pass"], "problems": cmp_prev["problems"],
+                                 "records": cmp_prev["records"], "cells_added": len(cmp_prev["cells_added"])}
+        prev_ok = cmp_prev["pass"]
     teleports = load(os.path.join(raw, "teleports.json")) if os.path.isfile(os.path.join(raw, "teleports.json")) else {}
     steps["teleports"] = {k: v for k, v in teleports.items() if not isinstance(v, list)}
     added = {c.casefold() for c in cmp_["cells_added"]}
@@ -325,12 +361,12 @@ def build(a):
             mods = set()
         e["failed_models"] = sorted(m for m in mods if ("meshes\\" + m if not m.startswith("meshes\\") else m) in failed_models)
         e["result"] = ("converted" if e["in_plugin"] and e.get("exported") else "failed")
-        e["checked"] = bool(e["in_plugin"] and cmp_["pass"] and steps["doors_check"]["exit"] == 0)
+        e["checked"] = bool(e["in_plugin"] and cmp_["pass"] and prev_ok and steps["doors_check"]["exit"] == 0)
         if e["result"] == "failed":
             e["reason"] = "export failed" if not e.get("exported") else "cell not written by PluginSpike"
 
     # 7. pack
-    if not a.no_pack and cmp_["pass"]:
+    if not a.no_pack and cmp_["pass"] and prev_ok:
         import deploy_starfield
         packer = argparse.Namespace(starfield=a.starfield, staging=a.work)
         t = time.time()
@@ -339,7 +375,7 @@ def build(a):
         deploy_starfield.build_archive(packer, os.path.join(port, deploy_starfield.TEX_ARCHIVE), ["textures"], "DDS")
         steps["pack"] = {"seconds": round(time.time() - t, 1),
                          "bytes": {n: os.path.getsize(os.path.join(port, n)) for n in (deploy_starfield.ARCHIVE, deploy_starfield.TEX_ARCHIVE)}}
-    ok = (cmp_["pass"] and steps["doors_check"]["exit"] == 0 and not failed_exports)
+    ok = (cmp_["pass"] and prev_ok and steps["doors_check"]["exit"] == 0 and not failed_exports)
     return finish(a, plan, steps, cells, t0, None if ok else "checks failed (see steps)")
 
 
@@ -448,6 +484,7 @@ def main(argv=None):
     b.add_argument("--spec-mask-roughness", action="store_true")
     b.add_argument("--promote-arg", action="append", default=[])
     b.add_argument("--convert-arg", action="append", default=[])
+    b.add_argument("--prev", default="")
     b.add_argument("--min-free-gb", type=float, default=40.0)
     b.add_argument("--no-pack", action="store_true")
     b.add_argument("--jobs", type=int, default=2)
