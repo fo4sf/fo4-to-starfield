@@ -36,6 +36,7 @@ from verify_packed_experiment import verify_archive  # noqa: E402
 from experiment_receipts import preserve_receipt  # noqa: E402
 
 RECORD = "FO4SFExp.install.json"
+TOGGLE = "FO4SF.toggle.json"                             # plugin_toggle.py: our plugins held off for a test
 PACKING_POLICY = "general-stored-verified-v2"
 _UNSET = object()
 
@@ -161,6 +162,10 @@ def order(a):
         if plugins is None:
             plugins = [x.lstrip("*").strip() for x in rec.get("plugins_added", [])]
             plugins += [x["active"].lstrip("*").strip() for x in rec.get("plugins_replaced", [])]
+        held = held_off(data)
+        if any(p.casefold() in held for p in plugins):
+            print(f"held off (plugin_toggle.py), left unticked: {', '.join(p for p in plugins if p.casefold() in held)}")
+            plugins = [p for p in plugins if p.casefold() not in held]
         masters = {}
         for p in plugins:
             f = data_path(data, p)
@@ -203,13 +208,24 @@ def active(a):
     if plugins is None:
         plugins = [x.lstrip("*").strip() for x in rec.get("plugins_added", [])]
         plugins += [x["active"].lstrip("*").strip() for x in rec.get("plugins_replaced", [])]
+    try:
+        held = held_off(os.path.join(a.starfield, "Data"))
+    except (OSError, ValueError) as error:
+        print(f"toggle record unreadable: {error}")
+        return 8
     lines, _, _ = read_plugins(plugins_txt())
     on = {ln.strip()[1:].strip().casefold() for ln in lines if ln.strip().startswith("*")}
-    off = [p for p in plugins if p.casefold() not in on]
+    off = [p for p in plugins if p.casefold() not in on and p.casefold() not in held]
     if off:
         print(f"inactive in Plugins.txt: {', '.join(off)}")
         return 8
-    print(f"active: {', '.join(plugins)}")
+    wrong = [p for p in plugins if p.casefold() in held and p.casefold() in on]
+    if wrong:                                             # held off, yet the game would load it
+        print(f"held off by plugin_toggle.py but active in Plugins.txt: {', '.join(wrong)}")
+        return 8
+    kept = [p for p in plugins if p.casefold() not in held]
+    print(f"active: {', '.join(kept) or 'none'}" + (f"; held off: {', '.join(p for p in plugins if p not in kept)}"
+                                                       if len(kept) < len(plugins) else ""))
     return 0
 
 
@@ -324,12 +340,12 @@ def plan_activation(lines, plugins):
     return updated, added, replaced
 
 
-def verify_relaunch(a, data, plugins, packed, rec):
+def verify_relaunch(a, data, plugins, packed, rec, held=frozenset()):
     if packed and rec.get("packing_policy") != PACKING_POLICY:
         sys.exit("experiment packing policy changed or is unknown; uninstall before relaunching")
     active = {line.strip()[1:].casefold() for line in read_plugins(plugins_txt())[0]
               if line.strip().startswith("*")}
-    if any(name.casefold() not in active for name in plugins):
+    if any(name.casefold() not in active and name.casefold() not in held for name in plugins):
         sys.exit("experiment plugin is inactive; recover the installation before relaunching")
     if packed and os.path.splitext(plugins[0])[0] + " - Main.ba2" not in rec["files"]:
         sys.exit("packed experiment archive is not recorded; uninstall before relaunching")
@@ -492,6 +508,31 @@ def build_ba2(a, root, out):
     return out
 
 
+def held_off(data):
+    """The plugins plugin_toggle.py holds off (Data\\FO4SF.toggle.json), casefolded: order, active and the relaunch
+    of the same install leave them unticked; a new install or an uninstall refuses until they are back on (their
+    Plugins.txt lines are no longer the ones a record wrote). Empty without the file; an unreadable file is a
+    ValueError."""
+    p = os.path.join(data, TOGGLE)
+    if not os.path.exists(p):
+        return set()
+    rec = read_json(p)
+    off = rec.get("off") if isinstance(rec, dict) else None
+    if not isinstance(off, list) or not all(isinstance(x, str) and x for x in off):
+        raise ValueError(f"{p}: off must be a list of plugin names")
+    return {x.casefold() for x in off}
+
+
+def refuse_while_held(data, what):
+    try:
+        held = held_off(data)
+    except (OSError, ValueError) as error:
+        sys.exit(f"{what}: {error}")
+    if held:
+        sys.exit(f"{what}: plugins held off by plugin_toggle.py ({', '.join(sorted(held))}); run "
+                 f"plugin_toggle.py on first")
+
+
 def install(a):
     if getattr(a, "pack", False):
         with tempfile.TemporaryDirectory(prefix="fo4sf-exp-pack-") as packing_dir:
@@ -523,10 +564,16 @@ def _install(a, packing_dir=None):
         if same:                                          # a relaunch of the same experiment: nothing to do
             if bool(rec.get("pack", False)) != requested_pack:
                 sys.exit("experiment packing mode changed; uninstall it before changing modes")
-            verify_relaunch(a, data, plugins, packed, rec)
-            print("already installed")
+            try:
+                held = held_off(data)
+            except (OSError, ValueError) as error:
+                sys.exit(f"experiment not installed: {error}")
+            verify_relaunch(a, data, plugins, packed, rec, held)
+            print("already installed" + (f"; held off: {', '.join(p for p in plugins if p.casefold() in held)}"
+                                         if any(p.casefold() in held for p in plugins) else ""))
             return
         sys.exit(f"another experiment is installed ({rec_p}); uninstall it first")
+    refuse_while_held(data, "experiment not installed")
     names = [rel for _, rel in files]
     if packed:
         # Starfield reads no loose files here (Starfield.ini sResourceDataDirsFinal=STRINGS\ only; terrain experiment 1,
@@ -640,6 +687,7 @@ def uninstall(a):
     if not os.path.exists(rec_p):
         print("nothing installed")
         return
+    refuse_while_held(data, "experiment not uninstalled")
     try:
         require_complete_master(data)
     except (OSError, ValueError) as error:
