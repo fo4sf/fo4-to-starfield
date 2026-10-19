@@ -139,3 +139,20 @@ makes him hostile, and the timer's StopCombat loses to his combat restarting. Ch
 `FO4SF_MinutemenFaction` (0x81F), with one relation, Ally to `PlayerFaction` (Starfield.esm 01C21C, checked by EDID
 when written). Preston is in it and only in it. check requires both. Unrelated, routed to the Red Rocket work: the game
 crashes once the player nears the Red Rocket workshop.
+
+### Logs of the v6c wfc9b play (19 Oct, read on the PC, read only)
+
+Four sessions of `fo4sf_mission.{0..3}.log` (verified, the install thread's extract):
+- **Moves.** About 30 moves, fails=0 in every session, each landing within 2.5 of its target. The first move
+  from a fresh load had `before=3.4e38`: Preston read float max before the move, then 229 after it. So a "GetDistance
+  finite" gate would have blocked the only move that works. Codex's world-identity point needs the anchor route.
+- **Actors snap back.** In one session Preston was moved 5 times and raider 0 3 times, 40 to 80 s apart, with
+  fails=0 each time. Every time, the actor read its unmerged spot again (supported hypothesis: the actor returns to
+  its editor location as its cell reloads, as Codsworth did on 18 Oct). The retry hides this. The real fix is in the
+  world build (persistent ACHRs in the merged frame), which is next-phase work.
+- **The fight and Preston.** Stage 20 on the first StartCombat, 30 when 5/5 were dead, then 40, 200 and complete
+  (00:12:41 local). `preston was targeting the player: stopcombat` was logged twice, mid-fight and at stage 40. That
+  confirms he targeted the player; the faction above (wfc10) is the fix.
+- **Crashes.** Two of the four sessions ended in a crash dump: 7 s after stage 30 (player at -2074, -1654) and 21 s
+  after complete. Both were in the mission area. The mission did not run anything at those moments except its
+  1 s status check. Passed to the Red Rocket work (the workshop radius covers this area, unresolved).
