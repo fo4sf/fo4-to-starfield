@@ -135,5 +135,6 @@ python scripts/terrain/interior_batch.py prune --staging-root D:\Modding\staging
 
 | Batch | Built | Converted | Checked | Failed (reason) | Compare | Archives | Notes |
 |---|---|---|---|---|---|---|---|
-| 0 | run 1 failed (1e9945b) | 16 | | | removed 2,684 (names, flags) | | rerun on cd78ab1+ with the installed flags |
+| 0 | run 1 failed (1e9945b) | 16 | | | removed 2,684 (names, flags) | | fresh work staging, flags missing |
+| 0 | 2026-10-19 PASS (5ecb8a7) | 16 | 16 | 0 | pass: 55,049 records, all identical, none changed/added/removed | not packed | convert 807 s, total 825 s; D: 61.5 to 57.8 GB free; teleports Linked 2, DestinationNotInBuild 28 |
 | 1 to 9 | not yet | | | | | | |
