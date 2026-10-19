@@ -85,6 +85,11 @@ static class Mission
     public const uint QuestTypeSideId = 0x047600; public const string QuestTypeSideEdid = "QuestTypeSideQuest";
     public const uint MuseumCell = 0x017DF7, Commonwealth = 0x00003C, PrestonFo4 = 0x019FD9, Min00 = 0x1A001C;
     public const int PrestonAlias = 0;
+    // Preston's side: a faction of ours, Ally to the player's. In game 18 and 19 Oct he still turned on the player after
+    // the fight: without factions he is only neutral, so IgnoreFriendlyHits never applies to the player's stray hits.
+    // PlayerFaction 01C21C is verified (docs/actors/raider-conversion.md: SpacerFaction lists it as Enemy).
+    public const uint MinutemenFactionId = 0x81F, PlayerFactionId = 0x01C21C;
+    public const string MinutemenFactionEdid = "FO4SF_MinutemenFaction", PlayerFactionEdid = "PlayerFaction";
     // Codsworth: his FO4 ACHR and NPC_; ours after the raiders' range (0x803 .. 0x80F); the body from the PC's npcs
     // lookup (Starfield.esm 04297C OutpostRobotMiniBotA_Garden "Garden Mini Bot", MiniBotARace: a hovering robot)
     public const uint CodsworthFo4Ref = 0x01CA7D, CodsworthFo4Npc = 0x0179FF, CodsworthNpcId = 0x810, CodsworthRefId = 0x811;
@@ -375,6 +380,8 @@ static class Mission
             throw new Refusal("Starfield.esm 00000F is not the MISC Credits");
         if (!m.Cache.TryResolve<SF.IKeywordGetter>(new FormKey(SfEsm, QuestTypeSideId), out var qtyp) || qtyp.EditorID != QuestTypeSideEdid)
             throw new Refusal($"Starfield.esm {QuestTypeSideId:X6} is not the KYWD {QuestTypeSideEdid}");
+        if (!m.Cache.TryResolve<SF.IFactionGetter>(new FormKey(SfEsm, PlayerFactionId), out var playerFaction) || playerFaction.EditorID != PlayerFactionEdid)
+            throw new Refusal($"Starfield.esm {PlayerFactionId:X6} is not the FACT {PlayerFactionEdid}");
         var calm = m.Raider.Npcs.FirstOrDefault(n => n.FormKey.ID == CalmProbeId && n.EditorID == "FO4_LvlRaider_Calm")
                    ?? throw new Refusal($"{m.Raider.ModKey} has no F04801 FO4_LvlRaider_Calm");
         var raiderNpc = m.Raider.Npcs.FirstOrDefault(n => n.FormKey.ID == RaiderId && n.EditorID == "FO4_LvlRaider")
@@ -382,11 +389,16 @@ static class Mission
         var world = FindWorld(m.Core, worldEdid);
         var top = world.TopCell ?? throw new Refusal($"{worldEdid} has no persistent cell");
 
-        // Preston: the calm probe (no factions: nothing makes it hostile) under Preston's name
+        // Preston: the calm probe under Preston's name, in our faction only, which is Ally to the player's
+        var minutemen = new SF.Faction(new FormKey(modKey, MinutemenFactionId), SF.StarfieldRelease.Starfield) { EditorID = MinutemenFactionEdid };
+        minutemen.Relations.Add(new SF.Relation { Target = new FormLink<SF.IRelatableGetter>(playerFaction.FormKey), Reaction = SF.CombatReaction.Ally });
+        mod.Factions.Add(minutemen);
         var npc = (SF.Npc)calm.Duplicate(new FormKey(modKey, PrestonNpcId));
         npc.EditorID = PrestonEdid;
         npc.Name = pts.GetProperty("preston_name").GetString();
         npc.Flags = (npc.Flags | SF.Npc.Flag.Essential | SF.Npc.Flag.Unique) & ~SF.Npc.Flag.Respawn;
+        npc.Factions.Clear();
+        npc.Factions.Add(new SF.RankPlacement { Faction = new FormLink<SF.IFactionGetter>(minutemen.FormKey), Rank = 0 });
         mod.Npcs.Add(npc);
 
         // the world and its persistent cell, overridden with only our references (vanilla keeps every persistent
@@ -531,8 +543,8 @@ static class Mission
         }
         mod.Quests.Add(quest);
 
-        mod.ModHeader.Stats.NextFormID = lines.Count > 0 ? FirstCodsworthInfoId + (uint)lines.Count
-                                       : cods is null ? next : codsworthModel is null ? CodsworthRefId + 1 : CodsworthSkinId + 1;
+        mod.ModHeader.Stats.NextFormID = Math.Max(MinutemenFactionId + 1, lines.Count > 0 ? FirstCodsworthInfoId + (uint)lines.Count
+                                       : cods is null ? next : codsworthModel is null ? CodsworthRefId + 1 : CodsworthSkinId + 1);
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, plugin);
         var lo = new[] { SfEsm, m.Core.ModKey, m.Raider.ModKey };
@@ -619,8 +631,13 @@ static class Mission
         Need(masters.SequenceEqual(new[] { "Starfield.esm", m.Core.ModKey.FileName.String, m.Raider.ModKey.FileName.String }), "masters are not Starfield, core, raider");
 
         var npc = plug.Npcs.FirstOrDefault(n => n.FormKey == new FormKey(key, PrestonNpcId));
-        Need(npc is { EditorID: PrestonEdid } && npc.Flags.HasFlag(SF.Npc.Flag.Essential) && npc.Factions.Count == 0,
-             "NPC_ 0x801 is not an essential, faction-less FO4_PrestonGarvey");
+        var minutemen = plug.Factions.FirstOrDefault(f => f.FormKey == new FormKey(key, MinutemenFactionId));
+        Need(minutemen is { EditorID: MinutemenFactionEdid } && minutemen.Relations.Count == 1 &&
+             minutemen.Relations[0].Target.FormKey == new FormKey(SfEsm, PlayerFactionId) && minutemen.Relations[0].Reaction == SF.CombatReaction.Ally,
+             $"FACT 0x{MinutemenFactionId:X} is not {MinutemenFactionEdid} with the one relation Ally to PlayerFaction");
+        Need(npc is { EditorID: PrestonEdid } && npc.Flags.HasFlag(SF.Npc.Flag.Essential) && npc.Factions.Count == 1 &&
+             npc.Factions[0].Faction.FormKey == minutemen?.FormKey,
+             $"NPC_ 0x801 is not an essential FO4_PrestonGarvey in {MinutemenFactionEdid} only");
 
         var world = FindWorld(m.Core, World);
         var w = plug.Worldspaces.FirstOrDefault();
@@ -750,6 +767,7 @@ static class Mission
         sf.Races.Add(race);
         var faction = new SF.Faction(new FormKey(SfEsm, 0x901), rel) { EditorID = "OutpostFaction" };
         sf.Factions.Add(faction);
+        sf.Factions.Add(new SF.Faction(new FormKey(SfEsm, PlayerFactionId), rel) { EditorID = PlayerFactionEdid });
         var bot = new SF.Npc(new FormKey(SfEsm, 0x902), rel) { EditorID = CodsworthBody, Name = "Garden Mini Bot", Race = new FormLink<SF.IRaceGetter>(race.FormKey) };
         bot.Factions.Add(new SF.RankPlacement { Faction = new FormLink<SF.IFactionGetter>(faction.FormKey), Rank = 0 });
         bot.VirtualMachineAdapter = new SF.VirtualMachineAdapter { Version = 6, ObjectFormat = 2 };
@@ -897,6 +915,9 @@ static class Mission
             ("Codsworth has a faction", m => m.Npcs[new FormKey(m.ModKey, CodsworthNpcId)].Factions.Add(
                 new SF.RankPlacement { Faction = new FormLink<SF.IFactionGetter>(new FormKey(SfEsm, 0x901)) })),
             ("quest has no QuestType", m => m.Quests.First().QuestType.Clear()),
+            ("Preston without the Minutemen faction", m => m.Npcs[new FormKey(m.ModKey, PrestonNpcId)].Factions.Clear()),
+            ("Minutemen only Friend to the player", m => m.Factions[new FormKey(m.ModKey, MinutemenFactionId)].Relations[0].Reaction = SF.CombatReaction.Friend),
+            ("Minutemen Ally to another faction", m => m.Factions[new FormKey(m.ModKey, MinutemenFactionId)].Relations[0].Target.SetTo(new FormKey(SfEsm, 0x901))),
         };
         foreach (var (name, edit) in mutations)
         {

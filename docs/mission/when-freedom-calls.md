@@ -129,3 +129,13 @@ overwrites an existing folder; a failed one publishes nothing.
 # FO4SFMission.esm appended to its --plugins list (--pack), then exp_install.py order
 & $py scripts\mission\make_mission.py log
 ```
+
+### v6c wfc9b in game (19 Oct, user report)
+
+The mission ran and could be finished (**verified** by the user's play, no log read yet), but Preston still turned on
+the player. The fix was `IgnoreFriendlyHits` plus `StopCombat` from the timer. **Supported hypothesis:** with no factions
+he is only neutral to the player. Friendly-hit tolerance covers friends and allies, so a stray hit in the fight still
+makes him hostile, and the timer's StopCombat loses to his combat restarting. Change: a faction of ours,
+`FO4SF_MinutemenFaction` (0x81F), with one relation, Ally to `PlayerFaction` (Starfield.esm 01C21C, checked by EDID
+when written). Preston is in it and only in it. check requires both. Unrelated, routed to the Red Rocket work: the game
+crashes once the player nears the Red Rocket workshop.
