@@ -8,9 +8,23 @@ if (args.SequenceEqual(new[] { "--activation-only" }))
     ActivationParentTests.Run();
     return;
 }
-if (args.SequenceEqual(new[] { "--missing-door-cells-only" }))
+
+if (args.SequenceEqual(new[] { "--persistence-count-only" }))
 {
-    MissingDoorEndpointTests.Run(cellsOnly: true);
+    PersistenceCountTests.Run();
+    return;
+}
+
+if (args.SequenceEqual(new[] { "--selected-door-transforms-only" }))
+{
+    SelectedDoorTransformTests.Run();
+    return;
+}
+
+if (args.Length == 1 && args[0] is "--missing-door-cells-only" or "--missing-door-options-only")
+{
+    MissingDoorEndpointTests.Run(cellsOnly: args[0] == "--missing-door-cells-only",
+        optionsOnly: args[0] == "--missing-door-options-only");
     return;
 }
 
@@ -185,4 +199,7 @@ finally { Directory.Delete(directory, true); }
 Console.WriteLine("Relationship translation and binary round-trip synthetic checks passed.");
 NativeDoorBaseTests.Run();
 MissingDoorEndpointTests.Run();
+SelectedDoorTransformTests.Run();
+PersistenceCountTests.Run();
+
 ActivationParentTests.Run();
