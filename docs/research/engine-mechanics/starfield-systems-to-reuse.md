@@ -91,8 +91,11 @@ progression into our world.
 
 ## Open questions and cheap checks
 
-- Starfield's `Faction`, `AffinityEvent`, `Keyword` and `GlobalVariable` scripts: which natives they declare (SetEnemy,
-  SetAlly, crime gold calls). Read-only PC probe (the same tool as job 15, with these scripts added).
+- Answered by PC probe job 16 (47ce724, verified): every one of FO4's 23 `Faction` script functions exists in
+  Starfield's `Faction` script under the same name (Starfield adds 2), so FO4 faction scripting (enemy, ally, crime
+  gold, rank calls) compiles as is; `GlobalVariable` matches exactly (7 shared); Starfield's `AffinityEvent` script
+  declares `Send` and `Reset`, which is all a converted FO4 "send affinity event" call needs. `Keyword` came back
+  empty on both sides (0 names), likely a parse miss, so FO4's `Keyword.SendStoryEvent` is still **unresolved**.
 - Do empty ship landing and contraband markers in PRIS keep an arrest working? One test faction, later, offline first.
 - What the herd and group blocks do in game: one vanilla creature faction with a Herd block, compared with its
   actors' behaviour (one scan of Starfield.esm, read-only).
