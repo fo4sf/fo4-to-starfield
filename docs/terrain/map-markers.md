@@ -224,3 +224,12 @@ extent check cannot tell another world with the same coordinates apart (as the m
 Console check (no plugin needed): `prid 030A775A`, `getpos x`, `getpos y`: about (-1154, 1260) is the local spot,
 about (-2354, -1440) the merged one. `prid 030A775A` then `moveto player` moves the Sanctuary marker onto the player by
 hand, then the map shows whether a moved marker draws.
+
+**Can a writer fix exist? (`dotnet/MergeProbe`, offline-checked, not run in game).** Two writer-side causes are
+already refuted in game: the vanilla persistent-cell shape (fix A, cave_fixA_1015) and WRLD OFST / CLSZ (fix E,
+cave_ofst_1015). `MergeProbe build <Starfield.esm> <out>` writes `FO4SFMergeProbe.esm`: one persistent XMarker
+`FO4SF_MergeProbeMarker` (0x800) in an override of vanilla LC172World's persistent cell, 3 m east of the COC marker
+0010238E, which reads merged in game (offset -500, -2300, -3.62). In game, with only this plugin added:
+`coc LC172Ext01`, then `prid <its load index>000800`, `getpos x`, `getpos y`. A merged read means the cause is in our
+WRLD / LCTN records (diff them next). A local read means a persistent reference from a non-vanilla plugin never
+merges, and the runtime moves (the door script, #353, this quest) are the design.
