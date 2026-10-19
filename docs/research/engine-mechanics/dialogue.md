@@ -134,7 +134,10 @@ It needs an actor `.facefx` and an actor analysis `.facefx` per face rig: where 
 each converted voice type is **unresolved**. Starfield's archives ship **no** `.facefx` files, only 278,582 per-line
 `.ffxanim` files named by WEM id under `sound/voice/(plugin)/(voicetype)/` (verified, PC job 21: FaceAnimation01 to 04,
 FaceAnimationPatch and the DLC main archives). The actor files would come from the CK's tools or source data, if
-anywhere (next check: search the Starfield and CK folders and ContentResources.zip).
+anywhere. Found (verified, PC job 22): `Starfield\Tools\FaceFX\` holds four actor files, `StarfieldHumanMale.facefx`,
+`StarfieldHumanFemale.facefx`, `GenesisDefault.facefx` and `GenesisDeadHead.facefx`; none in ContentResources.zip or
+the FO4 folder. No file is named as an analysis actor, so which one goes in which LipGenerator slot is **unresolved**
+until a trial run.
 
 ## Mapping for the port
 
