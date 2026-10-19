@@ -263,27 +263,65 @@ class JudgeTests(unittest.TestCase):
 
 
 class OutLegsTests(unittest.TestCase):
-    def test_keeps_the_far_out_legs_renumbered(self):
+    def setUp(self):
         import door_out_legs
-        d = tempfile.mkdtemp()
-        core, port, _ = build(d)
-        st = os.path.join(d, "st")
+        self.dol = door_out_legs
+        self.d = tempfile.mkdtemp()
+        core, port, _ = build(self.d)
+        self.st = os.path.join(self.d, "st")
         with redirect_stdout(io.StringIO()):
-            dr.main(["stage", "--core", core, "--port", port, "--core-index", "02", "--port-index", "06", "--out", st])
-            door_out_legs.main([st, os.path.join(d, "near"), "0"])
-            door_out_legs.main([st, os.path.join(d, "far"), "99999"])
-        with open(os.path.join(st, "plan.json")) as f:
-            plan = json.load(f)
-        with open(os.path.join(d, "near", "plan.json")) as f:
-            kept = json.load(f)
-        with open(os.path.join(d, "near", "rounds.json")) as f:
-            rounds = json.load(f)
-        self.assertEqual(kept, [plan[1]])                       # the OUT leg only
+            dr.main(["stage", "--core", core, "--port", port, "--core-index", "02", "--port-index", "06",
+                     "--out", self.st])
+        self.plan, self.rounds = (self.load(self.st, n) for n in ("plan.json", "rounds.json"))
+
+    @staticmethod
+    def load(d, name):
+        with open(os.path.join(d, name)) as f:
+            return json.load(f)
+
+    def run_on(self, plan, rounds, min_m, name):
+        src = os.path.join(self.d, name + "_src")
+        os.makedirs(src)
+        for n, v in (("plan.json", plan), ("rounds.json", rounds)):
+            with open(os.path.join(src, n), "w") as f:
+                json.dump(v, f)
+        out = os.path.join(self.d, name)
+        with redirect_stdout(io.StringIO()):
+            self.dol.main([src, out, str(min_m)])
+        return self.load(out, "plan.json"), self.load(out, "rounds.json")
+
+    def test_keeps_the_far_out_legs_renumbered(self):
+        kept, rounds = self.run_on(self.plan, self.rounds, 0, "near")
+        self.assertEqual(kept, [self.plan[1]])                  # the OUT leg only
         self.assertEqual([(e["test"], e["leg"]) for e in rounds["tests"]], [(0, "out")])
-        with open(os.path.join(d, "far", "plan.json")) as f:
-            self.assertEqual(json.load(f), [])
-        with self.assertRaises(FileExistsError):                # a new folder only
-            door_out_legs.main([st, os.path.join(d, "near"), "0"])
+        self.assertEqual(self.run_on(self.plan, self.rounds, 99999, "far")[0], [])
+        with self.assertRaises(FileExistsError), redirect_stdout(io.StringIO()):   # a new folder only
+            self.dol.main([self.st, os.path.join(self.d, "near"), "0"])
+
+    def test_the_distance_comes_from_the_geometry_not_the_label(self):
+        # Codex's review of #383: 728.53 m from the spawn; labels are display only
+        plan = json.loads(json.dumps(self.plan))
+        plan[0]["label"] = plan[0]["label"].replace("729 m", "99999 m")
+        self.assertEqual(self.run_on(plan, self.rounds, 728.6, "label")[0], [])
+        self.assertEqual(len(self.run_on(plan, self.rounds, 728.5, "exact")[0]), 1)
+
+    def test_a_mismatched_stage_is_refused_before_anything_is_written(self):
+        def bad(change):
+            plan, rounds = json.loads(json.dumps(self.plan)), json.loads(json.dumps(self.rounds))
+            change(plan, rounds)
+            return plan, rounds
+        cases = {
+            "out_points_at_in": lambda p, r: r["tests"][1].update(test=0),
+            "coc": lambda p, r: p[1].update(coc="FO4Core_RedRocketSpawn"),
+            "activation": lambda p, r: p[1]["activate"].update(ref="02000701"),
+            "ack": lambda p, r: p[1]["console_post"].__setitem__(0, dr.ack("door-fwd-0")),
+            "spawn": lambda p, r: p[0].update(spawn_local=[float("nan"), 0.0, 0.0]),
+            "in_leg": lambda p, r: p[0].update(coc="FO4Port_SuperDuperMart01"),
+        }
+        for name, change in cases.items():
+            with self.subTest(name=name), self.assertRaises(SystemExit):
+                self.run_on(*bad(change), 0, name)
+            self.assertFalse(os.path.exists(os.path.join(self.d, name)))
 
 
 if __name__ == "__main__":
