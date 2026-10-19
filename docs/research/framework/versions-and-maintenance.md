@@ -238,7 +238,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Options: no promise before 1.0; a "save-safe" flag per release; a migration tool.
 - Answer by: determinism test plus a save loaded across two builds; then owner decision. (also: distribution-community Q1)
 - Blocks: Release.
-- Status: open.
+- Status: open. Precedent (engine-mechanics.md, precedents pass): Fallout London's 1.03 patch forced players to start a new game, so a save-compatibility plan is needed before anyone plays on our builds.
 
 **VM-15. Does the Creation Kit track game versions exactly; does an older CK refuse or corrupt plugins?**
 - Why it matters: SFSE and the CK MAY be required; CK changes ride inside game patch notes (**verified**, 1.15.214), but whether every patch ships a matching CK is a **supported hypothesis**.

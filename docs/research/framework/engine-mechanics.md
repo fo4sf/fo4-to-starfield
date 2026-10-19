@@ -335,8 +335,8 @@ Changed questions (labels and sources in the notes):
 - Animation H3 (key) in outline: OSF Animation plays loose `.wem` and `.wav` through the game's Wwise with its own
   subtitles via SFSE; positional audio falls back to non-3D on 1.16.244; it creates no events or banks, so H2 stays open.
 - **New precedent:** BACUP (github.com/Bryant-21/bacup, GPL-3) converts records and assets between Creation Engine
-  games, most complete for Fallout 76 to Fallout 4, with a Starfield schema but no pair targeting Starfield. Question
-  T-new: reuse its FO4 schema and asset converters, or talk to its author (owner, outreach).
+  games, most complete for Fallout 76 to Fallout 4, with a Starfield schema. **Correction (wave 3): BACUP does have a world-only FO4-to-Starfield pair**; see the wave 3
+  section below.
 
 ### PC check: Creation Kit command-line switches (job 18, verified, read-only string scan at 9abbb0f)
 
@@ -393,3 +393,65 @@ Changed questions (labels and sources in the notes):
   writes `Slice_NN.ffxcproj` plus a `.bat` running `ffxc -p=(platform) -Wno-empty-bone-pose -Wno-unused-track -Wno-snap
   --time -l=(log) -o=(dir)Slice_NN (project)`. No sample project ships. Job 32 compiles a minimal project mounting job
   24's output against a copy of the male actor.
+- **Job 32 (verified): the offline lip chain works end to end.** A YAML `.ffxcproj` (`version: 1`, `items:` with
+  `facefx_file` and a `mount_files` list holding LipGenerator's output renamed `.animset`) compiled with the CK's own
+  ffxc call into `test.ffxanim` with the game's `__ffx\0\0\x03` header. Decision 10's lip half: answered offline.
+  Open: the actor tag at 0x18 (ours is the Tools actor's, vanilla differs; check the shipped `.ffxactor`), naming by WEM
+  id, and playback on a face in game.
+- **Job 33 (verified):** our compiled male actor matches the shipped `meshes/facefx/starfieldhumanmale.ffxactor` byte
+  for byte in its header (tag `bb 85 e7 4c...`); the vanilla tag seen earlier is the female actor's. Actor-tag caveat
+  closed. Left: WEM-id naming and placement, one line in game, and an actor for robots and creatures (none shipped).
+
+### Wave 3: FO4 systems internals ([notes](engine-mechanics-notes/fo4-systems-internals.md))
+
+What each rebuild must reproduce (labels and sources in the notes):
+- **Workshop:** four vanilla scripts carry the rules (WorkshopParentScript, WorkshopScript, WorkshopObjectScript,
+  WorkshopNPCScript; verified names). Settlements are registered statically as data (location keywords, ref types,
+  link keywords, the WorkshopsCollection quest, an encounter zone flag), so the converter must emit all of it. Starfield
+  keeps most workshop natives (GetWorkshopResourceObjects, CanProduceForWorkshop, OnWorkshopObjectRemoved,
+  OnWorkshopNPCTransfer, power events); missing are the repaired event, RecalculateResources, StoreInWorkshop and the
+  caravan menus (shimmable, or a list-menu rebuild). Workshop Framework's extension model and SS2's data-only add-on
+  registration are the templates for our API. Risk: FO4 updates unloaded settlements; CanProduceForWorkshop only works
+  loaded.
+- **Followers:** falloutck shows SetCompanion, AllowCompanion and FollowerFollow without `native`, so the 8 missing
+  companion names are likely Papyrus wrappers over FollowersScript (supported hypothesis): a Papyrus-only framework.
+  The 11 animation archetype calls probably map to Starfield's ChangeAnimArchetype.
+- **Radio:** Starfield keeps SetRadioOn, IsPlayerInRadioRange and OnPipboyRadioDetection; only MakeRadioReceiver is
+  missing. A station is a scene loop with a restart watchdog (900 s in vanilla).
+- **Power armor:** fusion core drain is engine code driven by `fPowerArmorPowerDrainPer*` settings, so it is a script
+  rebuild; the gap is the engine feature, not names.
+- **Survival:** HC_Manager quest with HC_ManagerScript; rules (no fast travel and the rest) load from a "Hardcore Rules"
+  form list, so they are script data.
+
+Biggest risks: Actor.AddSpell and DispelSpell are FO4-only names (G5: did Starfield move them?); bed-only saves have no
+blocking native in Starfield (may need SFSE); the power armor body swap depends on SwitchToPowerArmor; script load and
+grid persistence were FO4 pain points. Key checks: G1 which of the 77 are true natives vs wrappers and G2 a call-site
+census (PC job queued, `native_census.py`), W2 one settlement registration in the CK, R1 a receiver test, P1, P2
+SwitchToPowerArmor and the drain settings, V4, V5 the survival rules list and save blocking.
+
+### Wave 3: conversion precedents ([notes](engine-mechanics-notes/conversion-precedents.md), about 40 questions, 17 key)
+
+Lessons that change plans (labels and sources in the notes):
+- **BACUP (GPL-3, last commit 2026-10-17) already has a FO4-to-Starfield pair, world only:** a translation map, layout
+  rebuilds for LIGH, SCOL, WATR and LGTM, a spatial scale of 1/69.99125, cell and placed-object writers, FO4 terrain to
+  Starfield `.btd`, and a navmesh module. It leaves out quests, dialogue, NPCs, packages, perks and the Story Manager.
+  No evidence its output works in game. Its library py-creation-lib has its own Papyrus compiler with a Starfield
+  profile (a CK-free compile route). Questions: A1 run it on the PC and load one cell; A2 diff its values against ours;
+  A3 reuse its code or contact its author (owner); A4 test its compiler on FO4 scripts.
+- **tes4skyrim (MIT, pre-alpha, 2026)** converts Oblivion, Morrowind, FO3 and FNV into Skyrim SE on the player's PC,
+  quests, dialogue, scripts and voice with lip sync included, and ships SKSE plugins where Skyrim lacks a system (jail,
+  guns). It converts voice from the player's copy (the Capital Wasteland pattern); no Bethesda response found.
+- **Records convert automatically, behaviour is rebuilt.** Pattern: a data file maps each missing function to a target
+  call and the build stops on anything unmapped (B1, our 77 names); fixes are original code spliced into scripts, never
+  Bethesda's sources; a small contract per system with no Starfield record, bound to an original script (E1); verify
+  the toolchain before dropping script links after failed compiles (BACUP once lost 13,624 script links silently, B2).
+- Fallout London 1.03 forced a new game because Papyrus keeps script properties in saves: we need a save-compatibility
+  policy (F1). Vanilla dialogue leaked into its world, and a copied vanilla framework quest beside the original
+  conflicted: own a system or extend Starfield's, never both, and block Starfield's generic lines (C1, C2).
+- A 3 to 5 second pause after each player choice appeared with another dialogue menu installed: time unvoiced player
+  lines in Starfield before the new game ships (D1).
+- Skywind's automated dialogue import kept text but unlocked topics too early; it restructured its catch-all quest to
+  keep voice filenames stable: check topic stage conditions per quest (C3) and fix dialogue grouping and naming before
+  any voice or lip files exist (C4).
+- Tale of Two Wastelands rebuilt and rebalanced FO3's systems even within one engine generation: balance is its own work
+  item (E2); systems could ship as standalone modules (E3).

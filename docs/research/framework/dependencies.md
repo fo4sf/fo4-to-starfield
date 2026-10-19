@@ -474,4 +474,5 @@ owner submits are recorded here and on the question in its own file.
 | Money and store listings | REL-37, REL-38, REL-59, Lau L6, Lau L9 | Release |
 | Community home, triage, contributors, succession, dates | REL-39, REL-40, REL-45, REL-46, REL-47, REL-48, REL-49, PS-34 | Release |
 | Game-neutral names and namespaces | PS-27, MG-26, MG-27, EM X4 | Fallout systems and People and story, now (cheap now, costly later) |
+| Reuse BACUP's FO4-to-Starfield world code or contact its author | AP-60, EM BACUP item | World (compare with our converter first) |
 | Multi-game timing, scope, rules | MG-01, MG-02, MG-05, MG-07, MG-09, MG-10, MG-12, PS-26, PS-28, PS-29, MG-19, WP-39, WP-40, MG-14 | Multi-game; MG-01 recommends a spike after phase 1 ships |

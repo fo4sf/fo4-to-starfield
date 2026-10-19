@@ -420,6 +420,13 @@ Scale numbers we have (all **verified** from repo files cited in the findings, u
 - Blocks: World.
 - Status: open (new, wave 2). [starfield-toolchain W2-1, its Q35] (also: AP-47)
 
+**AP-60. Do we reuse BACUP's Fallout 4 to Starfield world conversion code, or contact its author, before extending our own converter?**
+- Why it matters: BACUP (github.com/Bryant-21/bacup, GPL-3, last commit 2026-10-17) already has a FO4-to-Starfield pair covering cells, placed objects, terrain and navmesh, but no quests or people; no proof was found that its output works in game (engine-mechanics.md, precedents pass). Reuse could save converter work; its licence matches our GPL-3 binaries.
+- Options: (a) compare it with our converter first (passed to the Map and terrain threads); (b) reuse parts under GPL-3 with credit; (c) contact the author; (d) reference only.
+- Answer by: an offline code read and a side-by-side on one cell (offline research); then an owner decision on reuse or contact.
+- Blocks: World, All interiors (navmesh).
+- Status: open; owner decision (also: engine-mechanics.md BACUP item).
+
 ### Pipeline at scale: inputs, build time, disk, archives
 
 **AP-49. What is the total first-install time and peak disk per asset class, on the owner's PC and on a minimum-spec PC?**
