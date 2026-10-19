@@ -168,6 +168,9 @@ The full list (16 conflicts, quoted from both sides) is in [dependencies.md](dep
 
 ## Owner decisions that unlock the most (one line each; full options in the files)
 
+The authoritative list of all owner decisions (47, by phase) is in [dependencies.md](dependencies.md#owner-decisions-by-phase);
+this table is the short version.
+
 | # | decision | recommended default (to argue with) | IDs |
 |---|---|---|---|
 | 1 | Voice audio: convert the player's files, subtitles only, re-voice? And codsworth_voice.py? | subtitles only for NPCs until Bethesda answers in writing; keep the script as a private test, out of release packaging | REL-26, REL-27, MG-03, PS-32 |

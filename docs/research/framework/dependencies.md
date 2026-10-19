@@ -420,6 +420,9 @@ Starfield CK, only the GUI actions (Int T9).]
 
 ## Owner decisions by phase
 
+This table is the authoritative list of owner decisions for the framework (the Questions page reads it). Answers the
+owner submits are recorded here and on the question in its own file.
+
 "Needed by" names the first phase that cannot move without the decision and the point where it is needed.
 
 | Decision | IDs in every file | Needed by |

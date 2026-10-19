@@ -370,3 +370,26 @@ Changed questions (labels and sources in the notes):
   LipGenerator with the CK's `StarfieldHumanMale` and `GenesisDefault` actors wrote an `.ffxanim` in seconds with no
   window (header `FACE`, "ZeniMax Media", `EFG`). Decision 10 is half answered: lip sync can run inside the launcher on
   the player's PC. Open: compare with a vanilla `.ffxanim`, play one in game, pick actors for robots and creatures.
+- **Job 25 (verified), correction to job 24's reading:** vanilla `.ffxanim` files start `__ffx\0\0\x03` (compiled),
+  while LipGenerator writes a raw FaceFX object (`FACE`, "ZeniMax Media", `FxObject`). The unattended step works, but
+  its output most likely needs the CK's `-CompileFaceFXAnims` or our own converter before the game can play it. Next:
+  find how `-CompileFaceFXAnims` is called and where it writes, without touching the game folders.
+- **Job 27 (verified strings):** the CK compiles lip files through `Tools\FaceFX\ffxc.exe` with `Slice_NN.ffxcproj`
+  projects and then copies the results into Data, so `-CompileFaceFXAnims` stays off the live game. Next: usage of
+  `ffxc.exe` alone, then one compile into a scratch folder, then compare with the vanilla `__ffx` header.
+- **Job 28 (verified):** `ffxc.exe` is the "FaceFX Runtime data compiler 1.3.0 (fxsdk 2017)", input a `.facefx` actor,
+  options include `--outdir`, `--platforms`, `--idmap`, `--amap` (animation-to-audio map) and `--rebuild`. So the
+  compile can target a scratch folder; job 29 tries it on job 24's output and on a copy of the CK's male actor.
+- **Job 29 (verified):** `ffxc -p=x86 --outdir=(scratch)` compiled a copy of the CK's male actor headless into
+  `StarfieldHumanMale.ffxactor` (`__ffx\0\0\x01`) and `.ffxbones` (`__ffx\0\0\x02`); vanilla `.ffxanim` is type
+  `\x03`. `--platforms` is mandatory. The actor held "0 animation (of 0)", so the last step is getting LipGenerator's
+  animation into an actor before compiling (job 30 tests whether LipGenerator's output already is such an actor).
+- **Job 30 (verified):** ffxc refuses LipGenerator's output ("type of object in the archive does not match": it is an
+  animation object, not an actor) and takes only `.facefx` actors or `.ffxcproj` projects; LipGenerator with
+  `-AnimationGroupName` wrote nothing. The CK's own route is a `Slice_NN.ffxcproj` project; job 31 looks for the project
+  format (read-only).
+- **Job 31 (verified strings; format inferred):** a `.ffxcproj` is YAML: `version` first, then `items`, each with a
+  `facefx_file` (the actor) and optional `mount_files` (animation sets, the CK's `Slice_NN\(name).animset`). The CK
+  writes `Slice_NN.ffxcproj` plus a `.bat` running `ffxc -p=(platform) -Wno-empty-bone-pose -Wno-unused-track -Wno-snap
+  --time -l=(log) -o=(dir)Slice_NN (project)`. No sample project ships. Job 32 compiles a minimal project mounting job
+  24's output against a copy of the male actor.
