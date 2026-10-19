@@ -1,0 +1,43 @@
+{
+ "name": "core-restage-same-ids",
+ "description": "Determinism check on the PC: re-run make_core64c.py stage with exactly the inputs of an existing staged core build into a fresh folder, check it, then compare FormIDs (compare-ids) and plugin records (launcher.py same-ids) against the original. Every '?' is set with --set; the stage arguments must match the original build's own stage command (add --views or drop --navmesh in a copy of this file if the original did).",
+ "state_dir": "{out}/.launcher",
+ "vars": {
+  "work": "?",
+  "core": "?",
+  "sf_esm": "?",
+  "cluster": "?",
+  "navmesh": "?",
+  "against": "?",
+  "out": "?"
+ },
+ "steps": [
+  {"id": "stage",
+   "argv": ["{python}", "{repo}/scripts/terrain/make_core64c.py", "stage", "--work", "{work}", "--core", "{core}",
+            "--out", "{out}", "--sf-esm", "{sf_esm}", "--cluster", "{cluster}", "--navmesh", "{navmesh}"],
+   "inputs": ["{work}/selected.json", "{core}/overlays_params.json", "{cluster}", "{navmesh}"],
+   "outputs": ["{out}/FO4TerrainCore.esm", "{out}/formids.json"],
+   "code": ["scripts/terrain", "src/fo4sf", "dotnet/TerrainOverlays"],
+   "timeout_s": 21600},
+  {"id": "check",
+   "argv": ["{python}", "{repo}/scripts/terrain/make_core64c.py", "check", "--work", "{work}", "--core", "{core}",
+            "--out", "{out}"],
+   "inputs": ["{out}/FO4TerrainCore.esm"],
+   "outputs": ["{out}/offline_check.json"],
+   "after": ["stage"], "code": ["scripts/terrain", "src/fo4sf"], "timeout_s": 21600},
+  {"id": "compare_ids",
+   "argv": ["{python}", "{repo}/scripts/terrain/make_core64c.py", "compare-ids", "--out", "{out}",
+            "--against", "{against}"],
+   "inputs": ["{out}/formids.json", "{against}/formids.json"],
+   "outputs": ["{out}/formids_diff.json"],
+   "after": ["stage"], "code": ["scripts/terrain/make_core64c.py"], "timeout_s": 600},
+  {"id": "same_ids",
+   "argv": ["{python}", "{repo}/scripts/launcher.py", "same-ids", "{against}", "{out}",
+            "--plugins", "FO4TerrainCore.esm,FO4TerrainCore_Mars.esm", "--report", "{out}/same_ids.json"],
+   "inputs": ["{out}/FO4TerrainCore.esm", "{against}/FO4TerrainCore.esm"],
+   "outputs": ["{out}/same_ids.json"],
+   "after": ["stage"], "code": ["scripts/launcher.py", "src/fo4sf/launcher"], "timeout_s": 1800}
+ ],
+ "manifest": {"outputs": ["{out}/FO4TerrainCore.esm", "{out}/FO4TerrainCore_Mars.esm", "{out}/formids.json"],
+              "path": "{out}/build_manifest.json"}
+}

@@ -441,3 +441,15 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Why: the owner found these unusable indoors (18 Oct); the exterior path is already verified in game.
 - Alternatives: a Python record patch of the pinned plugin (vmad_patch style): rejected, new record types would need a
   hand-written layout Mutagen already writes; copying the table logic into C#: rejected, two rule sets would drift.
+
+## 2026-10-19 Claude-cloud: the launcher backbone wraps the existing scripts and installers
+- **Decision:** `src/fo4sf/launcher/` adds a build manifest, a recipe-driven resumable build driver over the existing
+  make scripts, a snapshot-and-restore that acts only through deploy_starfield.py, exp_install.py and
+  bridge_install.py, and a same-ids check (raw record walk plus compare-ids). Pure Python; no C#, so no new GPL-3
+  binary (docs/ai/launcher-backbone.md).
+- **Why:** Grok (#381) and Codex (#382) asked for the build-and-restore spine and the determinism check before
+  doors and interiors; Codex noted the ledger is not the physical restorer, so restore reuses the installers that
+  already own every file. Wrapping keeps the install thread's nightly commands unchanged.
+- **Alternatives:** a build graph importing the converters (rewrites the entry points); MO2 profile or Stock-Game
+  copy for restore (untested at this size / too much disk); a Mutagen check in C# (needs a load order, GPL-3).
+  Listed for the owner's talk in launcher-backbone.md.
