@@ -78,6 +78,16 @@ class ExportedMarkers(unittest.TestCase):
         self.assertEqual([e["src"] for e in left], ["01F2AB:Fallout4.esm"])
         self.assertIn("outside the overlay", left[0]["reason"])
 
+    def test_a_marker_on_a_fixed_one_is_left_out(self):
+        # FO4's own Red Rocket marker would draw a second icon next to the core's, which sits on the COC arrival
+        fixed = map_markers.overlay_markers(SPAWN, BOUNDS, lambda x, y: 0.0)
+        rr = ("M01F2B0", "Red Rocket Truck Stop", 0x1F2B0, (SPAWN[0] + 40) * 70, (SPAWN[1] - 30) * 70)
+        far = ("M01F2B1", "Abernathy Farm", 0x1F2B1, -40000.0, 20000.0)
+        entries, left = map_markers.extra_markers([rr, far], BOUNDS, lambda x, y: 0.0, fixed=fixed)
+        self.assertEqual([e["tag"] for e in entries], ["M01F2B1"])
+        self.assertEqual(left, [{"src": "01F2B0:Fallout4.esm",
+                                 "reason": "Red Rocket Truck Stop: within 100 m of the fixed marker RedRocket"}])
+
     def test_another_world_is_refused(self):
         with self.assertRaises(ValueError):
             map_markers.load_fo4_markers(dict(self.DOC, world="FarHarbor"))

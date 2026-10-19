@@ -2653,7 +2653,7 @@ def cmd_stage(a):
         if getattr(a, "fo4_map_markers", ""):
             # every other named Commonwealth marker inside the overlay, after the four (their FormIDs stay)
             rows, left = map_markers.load_fo4_markers(load(a.fo4_map_markers))
-            extra, outside = map_markers.extra_markers(rows, bounds, ground)
+            extra, outside = map_markers.extra_markers(rows, bounds, ground, fixed=markers)
             markers += extra
             if len({m["tag"] for m in markers}) != len(markers):
                 raise ValueError("map marker tags repeat")
