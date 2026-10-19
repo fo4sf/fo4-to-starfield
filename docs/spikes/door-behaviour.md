@@ -60,5 +60,13 @@ move, not one load door; which records and scripts take part is **unresolved** u
    `--report-only` over the port plugin, its formids.json and the same cell exports, and read `relationships-report.json`
    (enable parents, recreated markers, locks, issues). If the issues are few, the port build gains ReferenceLinks as its last
    step, writing into a fresh directory and keeping its updated formids.json with the plugin (REFERENCE-LINKS.md).
+   Report-only run, 2026-10-19 (PC, main 447ec09, staged port integ_v6_specmask_doors_c with its formids.json and its
+   16 cell exports; nothing written to a plugin; report D:\Modding\scratch\reflinks_report): exit 2. It would write
+   233 enable parents, 543 recreated markers, 12 keywords, 429 linked refs, 835 persistent placements, 68 open states,
+   14 locks and 2 teleports. 93 blocking issues and 78 warnings. The issues seen are linked references whose target was
+   never placed (9,683 source references are unplaced: markers, actors and unconverted models). The warnings are locks on
+   non-door bases, keys with no key record, and terminal locks. **Verified** from the console summary; the issue list was
+   only sampled. Before ReferenceLinks joins the port build, decide what a link to an unplaced target should do: today
+   it blocks the whole run, so the 233 enable parents wait on links that are not about doors.
 3. Elevators and scripted doors: map FO4's scripts to a small Starfield script set as FO4SF_LoadDoor does for teleports;
    design after step 1, since it depends on which scripts appear and how often.
