@@ -20,7 +20,7 @@ import time
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
+from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, nif, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
 
 
 def checkpoint_signature(a):
@@ -50,6 +50,8 @@ def checkpoint_signature(a):
         sig["spec_mask_roughness"] = True
     if getattr(a, "mass_scale", 1.0) != 1.0:            # scaled masses differ; default 1.0 keeps existing checkpoints valid
         sig["mass_scale"] = a.mass_scale
+    if getattr(a, "max_tris", 20000) != 20000:          # non-default triangle caps change which meshes convert
+        sig["max_tris"] = a.max_tris
     caps = textures.parse_texture_caps(getattr(a, "max_texture", ""))
     if caps:                                            # capped outputs differ; no cap keeps existing checkpoints valid
         sig["max_texture"] = caps
@@ -177,6 +179,16 @@ def checkpoint_key(key, name, load_models, static_models, no_rig_models=()):
     return "|".join([key] + tags)
 
 
+def triangle_count(src, name: str) -> int:
+    """Sum triangles across all shapes in the NIF. Returns 0 on parse failure so the caller can decide."""
+    try:
+        data = src.mesh(name)
+        n = nif.parse(data)
+        return sum(len(s.triangles) for s in nif.fo4_trishapes(n))
+    except Exception:
+        return 0
+
+
 def write_json_atomic(path, value):
     fd, temporary = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".fo4port-")
     try:
@@ -296,45 +308,51 @@ def main():
             break
         if not a.cell_json and re.search(r"(lod|_dmg|damaged|destr)", name, re.I):
             skipped += 1
+            continue
+        if a.max_tris and a.max_tris > 0:
+            tris = triangle_count(src, name)
+            if tris > a.max_tris:
+                skipped += 1
+                failures.append({"nif": name, "reason": f"too many triangles ({tris} > {a.max_tris})"})
+                continue
+        ckey = checkpoint_key(name, name, load_models, static_models, no_rig_models)
+        r = cache.load(ckey) if cache else None
+        if r is not None:
+            reused += 1
         else:
-            ckey = checkpoint_key(name, name, load_models, static_models, no_rig_models)
-            r = cache.load(ckey) if cache else None
-            if r is not None:
-                reused += 1
-            else:
-                if conv is None:
-                    conv = pipeline.Converter(src, a.staging, a.texconv, a.content_resources, template,
-                                              rig_doors=donor is not None, door_physics_donor=donor,
-                                              sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
-                                              prefix=a.prefix, max_texture=a.max_texture,
-                                              door_anim_dll=a.door_anim_dll or None,
-                                              spec_mask_roughness=a.spec_mask_roughness,
-                                              mass_scale=a.mass_scale, load_door_models=load_models,
-                                              static_body_models=static_models,
-                                              no_rig_models=no_rig_models)
-                r = conv.convert_nif(name)
-                if cache:
-                    try:
-                        cache.save(ckey, r)
-                    except (OSError, ValueError) as e:
-                        print(f"  checkpoint unavailable for {name}: {e}")
-            attempted_so_far += 1
-            if not r["ok"]:
-                failures.append({"nif": name, "reason": r["reason"]})
-            else:
-                eid = editor_id(name, ids)
-                if cache:
-                    os.makedirs(a.staging, exist_ok=True)
-                    write_json_atomic(os.path.join(a.staging, "editorids.json"), ids)
-                items.append({"editor_id": eid, "model": r["out_name"].replace("/", "\\") + ".nif", "source": name,
-                              "shapes": r["shapes"], "fallback_materials": r["fallback_materials"], "form_index": len(items),
-                              "collision_report": r.get("collision_report") or {}, **({"door": r["door"]} if "door" in r else {}),
-                              **({"load_door": r["load_door"]} if "load_door" in r else {}),
-                              **({"movable": r["movable"]} if "movable" in r else {}),
-                              **({"door_not_opening": r["door_not_opening"]} if "door_not_opening" in r else {}),
-                              **({"door_frozen_parts": r["door_frozen_parts"]} if "door_frozen_parts" in r else {}),
-                              **({"door_error": r["door_error"]} if "door_error" in r else {})})
-                print(f"  ok  {name} -> {eid} (shapes {r['shapes']}, fallback materials {r['fallback_materials']})")
+            if conv is None:
+                conv = pipeline.Converter(src, a.staging, a.texconv, a.content_resources, template,
+                                          rig_doors=donor is not None, door_physics_donor=donor,
+                                          sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
+                                          prefix=a.prefix, max_texture=a.max_texture,
+                                          door_anim_dll=a.door_anim_dll or None,
+                                          spec_mask_roughness=a.spec_mask_roughness,
+                                          mass_scale=a.mass_scale, load_door_models=load_models,
+                                          static_body_models=static_models,
+                                          no_rig_models=no_rig_models)
+            r = conv.convert_nif(name)
+            if cache:
+                try:
+                    cache.save(ckey, r)
+                except (OSError, ValueError) as e:
+                    print(f"  checkpoint unavailable for {name}: {e}")
+        attempted_so_far += 1
+        if not r["ok"]:
+            failures.append({"nif": name, "reason": r["reason"]})
+        else:
+            eid = editor_id(name, ids)
+            if cache:
+                os.makedirs(a.staging, exist_ok=True)
+                write_json_atomic(os.path.join(a.staging, "editorids.json"), ids)
+            items.append({"editor_id": eid, "model": r["out_name"].replace("/", "\\") + ".nif", "source": name,
+                          "shapes": r["shapes"], "fallback_materials": r["fallback_materials"], "form_index": len(items),
+                          "collision_report": r.get("collision_report") or {}, **({"door": r["door"]} if "door" in r else {}),
+                          **({"load_door": r["load_door"]} if "load_door" in r else {}),
+                          **({"movable": r["movable"]} if "movable" in r else {}),
+                          **({"door_not_opening": r["door_not_opening"]} if "door_not_opening" in r else {}),
+                          **({"door_frozen_parts": r["door_frozen_parts"]} if "door_frozen_parts" in r else {}),
+                          **({"door_error": r["door_error"]} if "door_error" in r else {})})
+            print(f"  ok  {name} -> {eid} (shapes {r['shapes']}, fallback materials {r['fallback_materials']})")
         if (attempted_so_far + skipped) % progress_every == 0:
             elapsed_now = time.time() - t0
             rate = attempted_so_far / elapsed_now if elapsed_now > 0 else 0
@@ -423,6 +441,8 @@ def main():
         "unique_reasons": unique,
         "reused": reused,
         "skipped": skipped,
+        "max_tris": a.max_tris,
+        "triangle_skips": sum(1 for f in failures if "too many triangles" in f.get("reason", "")),
         "seconds": elapsed,
         "limit": a.limit,
         "pattern": a.pattern,
