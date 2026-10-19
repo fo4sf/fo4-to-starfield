@@ -37,7 +37,10 @@ Event OnActivate(ObjectReference akActionRef)
     endwhile
     Debug.Trace("FO4SF_AnimatedLoadDoor open_state=" + GetOpenState() + " waited=" + waited)
     Parent.OnActivate(akActionRef)
-    ; Shut behind the player, so the door is closed when they come back; the player is already in the other cell.
-    SetOpen(False)
+    ; Shut behind the player, so the door is closed when they come back; the player is already in the other cell. Only
+    ; once it is fully open: a close sent during the open can wedge a door open (FO4 Diamond City gate, Nexus FO4 94208).
+    if GetOpenState() == 1
+        SetOpen(False)
+    endif
     Busy = False
 EndEvent
