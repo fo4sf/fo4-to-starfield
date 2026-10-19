@@ -80,7 +80,19 @@ FO4SF_QPROBE rt=... result E1_fragment=PASS E2_onstageset=FAIL (0:) E3_alias=FIL
   Starfield's types.
 - **E5.** FO4SF_QProbeSM started means our own Story Manager tree is possible, and Starfield's events never reach it.
 
-**Removing it.** Take the plugin out of Plugins.txt, then delete `FO4SFQuestProbe.esm` and the three `.pex` files.
+**Installing and removing it.** The test PC's Starfield reads no loose files (`sResourceDataDirsFinal=STRINGS\`
+only, install thread, 19 Oct), so the three scripts ship in `FO4SFQuestProbe - Main.ba2`. `exp_install.py` holds one
+experiment, so the probe is its own small deployment, as the bridge is. `scripts/questprobe/questprobe_install.py`
+reuses `bridge_install.py`'s record, packing (the game's Archive2), archive check, Plugins.txt journal and exact
+uninstall under the probe's names, with its own record `Data\FO4SFQuestProbe.install.json`; it refuses a staged
+folder whose files differ from its `plan.json`. `pack-check` builds and checks the archive in a temporary folder
+without touching the game.
+
+```
+python scripts\questprobe\questprobe_install.py pack-check --dir D:\Modding\staging\questprobe_v1 --starfield <game dir>
+python scripts\questprobe\questprobe_install.py install    --dir D:\Modding\staging\questprobe_v1 --starfield <game dir>
+python scripts\questprobe\questprobe_install.py uninstall  --starfield <game dir>
+```
 It writes nothing to a save except its own quests.
 
 ## Build (offline, PC)

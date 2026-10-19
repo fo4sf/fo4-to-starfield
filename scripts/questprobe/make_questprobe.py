@@ -153,8 +153,10 @@ def stage(a):
 {PLUGIN} (sha256 {plan['plugin_sha256']}): QUST FO4SF_QProbe (start game enabled, idles until the player is in
 {a.cell}); master Starfield.esm only; adds records, overrides none. Scripts: {', '.join(s + '.pex' for s in scripts)}.
 Checked against FO4Port.esm {before['FO4Port.esm']}. Re-stage after a port change.
-Install: not now; only on the owner's word, after the current test. Remove: take it out of Plugins.txt and delete
-the plugin and the .pex files listed above.
+Install: not now; only on the owner's word, after the current test, game closed (loose scripts are not read: the
+installer packs them into "FO4SFQuestProbe - Main.ba2"):
+  python scripts\\questprobe\\questprobe_install.py install --dir <this folder> --starfield <game dir>
+Remove:  python scripts\\questprobe\\questprobe_install.py uninstall --starfield <game dir>
 In game: coc {a.cell}, wait 15 s, screenshot the compass, open the Missions tab and screenshot it, walk to the marker.
 Read the run:  python scripts\\questprobe\\make_questprobe.py log
 """)
