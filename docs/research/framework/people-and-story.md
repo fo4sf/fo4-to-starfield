@@ -31,7 +31,7 @@ companion order). Labels: **verified**, **supported hypothesis**, **unresolved**
 
 ## What is settled
 
-- **Voice reuse (owner position, 2026-10-19 22:38Z):** reusing original voice lines is a known no for Fallout 3 (Capital Wasteland precedent); for Fallout 4, New Vegas and Fallout 76 it is open until Bethesda answers the letter's voice question (sent 22:30Z). See REL-26, REL-27, MG-03.
+- **Voice reuse (owner position, 2026-10-19 22:38Z):** reusing original voice lines is a known no for Fallout 3 (Capital Wasteland precedent) and, by the owner's word at 22:54Z, for New Vegas; for Fallout 4 and Fallout 76 it is open until Bethesda answers the letter's voice question (sent 22:30Z). See REL-26, REL-27, MG-03.
 
 | item | source | label |
 |---|---|---|

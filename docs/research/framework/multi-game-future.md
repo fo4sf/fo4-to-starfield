@@ -120,7 +120,7 @@ Embedded scripts also live inside INFO, PACK, TERM and PERK entries (MS 3, verif
 - Options: local conversion (TTW model); subtitles only; re-voice (CW v2, F4NV).
 - Answer by: written question to Bethesda or ZeniMax community staff, legal opinion, a talk with the TTW team. Who:
   owner, Bethesda contact, community contact.
-- Blocks: Multi-game, People and story, Release. Status: **Owner position, 2026-10-19 22:38Z:** reusing voice lines is a known no for Fallout 3 (the Capital Wasteland precedent); for Fallout 4, New Vegas and Fallout 76 it is open until Bethesda answers the letter's voice question (sent 22:30Z). **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-1): "No: subtitles only, for now" (as recommended). Owner's note: "Did you guys ask? You have access to my email to send any.". Before: open. (also: MS Q9, PR Q31)
+- Blocks: Multi-game, People and story, Release. Status: **Owner position, 2026-10-19 22:38Z:** reusing voice lines is a known no for Fallout 3 (the Capital Wasteland precedent) and, by the owner's word at 22:54Z, for New Vegas; for Fallout 4 and Fallout 76 it is open until Bethesda answers the letter's voice question (sent 22:30Z). **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-1): "No: subtitles only, for now" (as recommended). Owner's note: "Did you guys ask? You have access to my email to send any.". Before: open. (also: MS Q9, PR Q31)
 
 **MG-04. Should the TTW team be contacted before any FO3/NV work, and could they be partners?**
 - Why it matters: they hold the know-how and the history with Bethesda (MS 1).
