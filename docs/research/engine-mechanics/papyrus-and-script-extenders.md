@@ -13,7 +13,7 @@ supported hypothesis / unresolved.
   for FO4 should be valid Starfield syntax (**supported hypothesis**; no FO4 keyword is known to be removed).
 - The native API differs. FO4-only systems (Pip-Boy calls, power armor, companions' FO4 calls, vertibird events) have
   no Starfield native; Starfield adds planets, ships, credits, crew (**supported hypothesis**, from the Starfield wiki
-  script pages, which are incomplete). Verdict: **decompile, recompile against Starfield sources plus a shim library**.
+  script pages, which are incomplete). Verdict: **take FO4 sources from the FO4 CK's Base.zip (decompile only without it), recompile against Starfield sources plus a shim library**.
 - `.pex` cannot be loaded as-is: Starfield's compiler and `.pex` differ (new guard opcodes; Champollion had to be
   changed to read them) (**supported hypothesis**). Every FO4 script must be recompiled on the player's PC.
 - SFSE 0.2.21 (game 1.16.244) has a plugin loader, a Scaleform menu interface and custom Papyrus native support
