@@ -137,6 +137,16 @@ head commit. Nothing is installed, nothing touches Starfield's Data folder or th
   their commonest pair covers only 12 of them, so the graph fallback for own rigs is a weak default (**supported
   hypothesis**, by ear in game).
 
+- **A1b, the graphs themselves** (**verified**, `extract_door_graphs.py` at fd26932, 30 graphs, summary on the PC at
+  D:\Modding\scratch\door_graphs; game data, not in Git). `SimpleOpenClose01` wraps `SimpleOpenClose_Base01`, a
+  four-state machine whose `OpenCloseFormState` values (Opened 1, Opening 2, Closed 3, Closing 4) equal GetOpenState's,
+  with `Done` sent when an open or close ends. The `*_Load` graphs are self-contained: they play Open at 0.8x speed with
+  the last 20 frames cropped, then play Close by themselves (a vanilla load door shuts itself). The 20-frame crop is why
+  own-rig load doors (FO4 clips of 4 to 40 frames) keep `SimpleOpenClose01` and only template doors (31 frames) get the
+  `_XtelLoad` copy.
+- **Trapdoors** named like doors (`MetalTrapdoor01`) swung on the upright template under `--rig-load-doors`;
+  `door_rig.flips` now sends any leaf turning about a horizontal axis to the own-rig route (aa5173a).
+
 ## Next steps
 
 - **B, done 2026-10-19** (after A3 and A4 passed): `vmad_patch.py port --animated-doors <manifest>` writes
