@@ -611,11 +611,13 @@ DOOR_NAME = "Door"                                    # the ACTI's FULL when --n
 PORT_PREFIX = "FO4Port_"                              # the port's CELL editor ids: FO4Port_<FO4 cell editor id>
 
 
-def port_index(port):
+def port_index(port, *, marker_writer=None):
     """What the interior staging knows about doors: {"plugin": its .esm, "next": its next free local id (vmad_patch),
     "cells": {port CELL edid: local id}, "refs": {FO4 formkey: (port CELL edid, local id)} for every placed REFR,
     "exported": {FO4 formkey: (port CELL edid, exported reference)} for every reference of the converted cells'
-    exports (<FO4 cell edid>.json beside the plugin), placed or not}."""
+    exports (<FO4 cell edid>.json beside the plugin), placed or not}.
+    Optional marker_writer is an already-open, externally pinned #281 session.
+    The caller retains its lease through both paired publications/checks."""
     name = vmad_patch.plugin_in(port)
     ids = load(os.path.join(port, "formids.json"))
     cells, refs = {}, {}
@@ -632,8 +634,19 @@ def port_index(port):
             continue
         for r in load(p).get("refs", []):
             exported[r.get("formkey")] = (cell_edid, r)
-    return {"plugin": name, "next": vmad_patch.next_local_id(os.path.join(port, name)), "cells": cells, "refs": refs,
-            "exported": exported}
+    result = {"plugin": name, "next": vmad_patch.next_local_id(os.path.join(port, name)), "cells": cells, "refs": refs,
+              "exported": exported}
+    if marker_writer is not None:
+        # The caller owns the live lease and must keep it through BOTH output
+        # publications/checks. Never open or silently bootstrap a store here.
+        from pathlib import Path
+        plugin_path, map_path = Path(port) / name, Path(port) / "formids.json"
+        raw, map_raw = plugin_path.read_bytes(), map_path.read_bytes()
+        if json.loads(map_raw) != ids or vmad_patch.Plugin(raw).hedr()[2] != result["next"]:
+            raise ValueError("port inputs changed while indexing")
+        result.update(_marker_writer=marker_writer, _marker_base_raw=raw, _marker_map_raw=map_raw,
+                      _marker_plugin_path=plugin_path, _marker_map_path=map_path)
+    return result
 
 
 def placed_models(build, srcs):
@@ -674,8 +687,10 @@ def doors(refs, placed, port, build=None, names=None, skipped=None, limit=0):
     model (FO4), converted_model (the build's, when given), name (--names or DOOR_NAME), fo4_pos, rot, scale, slot,
     "destination" {plugin, door (the interior FO4 door), cell (port CELL edid), port_ref / port_cell (local ids, 6
     hex), arrival {pos (metres), rot} = the exterior door's XTEL arrival inside, flags, id = the interior arrival
-    marker's local id (port next + k)} and "return" {arrival = the interior door's XTEL arrival outside, flags}.
-    Doors with a missing side are in door_skipped with the reason."""
+    marker's local id)} and "return" {arrival = the interior door's XTEL arrival outside, flags}.
+    With port_index's live marker_writer, persist and use source-keyed reservations;
+    expose the shared Plan at port['_marker_plan'] and pin its hash in doors_port.
+    Legacy callers retain port next + k. Missing sides go in door_skipped."""
     from fo4sf import exterior
     order = {src: i for i, src in enumerate(placed)}
     names, skipped = names or {}, skipped or {}
@@ -720,15 +735,32 @@ def doors(refs, placed, port, build=None, names=None, skipped=None, limit=0):
         models = placed_models(build, [e["src"] for e in entries])
         for e in entries:
             e["converted_model"] = models.get(e["src"])
-    for k, e in enumerate(entries):
-        e["destination"]["id"] = f"{port['next'] + k:06X}"
+    receipt = {}
+    if "_marker_writer" in port:
+        import hashlib
+        import port_marker_ids as marker_ids
+        raw, map_raw = port["_marker_base_raw"], port["_marker_map_raw"]
+        if (port["_marker_plugin_path"].read_bytes() != raw
+                or port["_marker_map_path"].read_bytes() != map_raw):
+            raise ValueError("port inputs changed after indexing")
+        # Persist before returning either side's proposed destinations. Reusing
+        # this writer revalidates its live lease and retained state every time.
+        plan = port["_marker_writer"].reserve(raw, map_raw, [e["src"] for e in entries], plugin=port["plugin"])
+        port["_marker_plan"] = plan
+        for e in entries:
+            e["destination"]["id"] = f"{plan.assignments[marker_ids.source_key(e['src'])]:06X}"
+        receipt = {"marker_state_sha256": plan.sha256, "base_sha256": hashlib.sha256(raw).hexdigest(),
+                   "base_map_sha256": hashlib.sha256(map_raw).hexdigest()}
+    else:
+        for k, e in enumerate(entries):
+            e["destination"]["id"] = f"{port['next'] + k:06X}"
     rep["doors"] = len(entries)
     rep["distinct bases"] = len({e["base"] for e in entries})
     rep["door_skipped"] = len(left)
     return {"note": "make_cluster.py doors: every exterior load door into a converted interior of the port, both sides "
                     "placed; read by make_core64c.py stage --cluster (one ACTI per FO4 door base, the REFR in its slot with "
                     "the FO4SF_LoadDoor VMAD, an exterior arrival XMarker) and vmad_patch.py port (the interior side)",
-            "doors_port": {"plugin": port["plugin"], "next": f"{port['next']:06X}", "cells": len(port["cells"])},
+            "doors_port": {"plugin": port["plugin"], "next": f"{port['next']:06X}", "cells": len(port["cells"]), **receipt},
             "doors": entries, "door_skipped": left}, dict(rep)
 
 
