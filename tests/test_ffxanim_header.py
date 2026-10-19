@@ -31,6 +31,10 @@ class FfxanimHeaderTest(unittest.TestCase):
             out = buf.getvalue()
             self.assertIn("a.ffxanim: 34 bytes", out)
             self.assertIn("run1.ffxanim: 4 bytes", out)
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                self.assertEqual(fh.main([arc, "--ext", ".txt"]), 0)
+            self.assertIn("b.txt: 1 bytes", buf.getvalue())
 
 
 if __name__ == "__main__":

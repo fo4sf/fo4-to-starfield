@@ -29,9 +29,10 @@ def main(argv=None):
     ap.add_argument("--count", type=int, default=3)
     ap.add_argument("--bytes", type=int, default=64)
     ap.add_argument("--compare", action="append", default=[])
+    ap.add_argument("--ext", default=".ffxanim", help="entry suffix to dump, e.g. .ffxactor")
     a = ap.parse_args(argv)
     ba2 = Ba2(a.archive)
-    names = [n for n in ba2.names if n.lower().endswith(".ffxanim")][:a.count]
+    names = [n for n in ba2.names if n.lower().endswith(a.ext.lower())][:a.count]
     for n in names:
         data = ba2.read(n)
         print(f"{n}: {len(data)} bytes")

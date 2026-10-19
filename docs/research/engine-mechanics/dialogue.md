@@ -152,6 +152,15 @@ CK compile path (verified strings, PC job 27; reading inferred): the CK compiles
 into the Data folder** ("Copying ffxanim files into data folder"), so `-CompileFaceFXAnims` must not run against the
 live game. The runtime also loads `Meshes/FaceFX/StarfieldHumanMale.ffxactor`, `...Female.ffxactor` and per-skeleton
 `.ffxbones`. Safer route to test: call `ffxc.exe` directly into a scratch folder.
+**Full offline chain proven (verified, PC jobs 28 to 32, all in a scratch folder):** `ffxc.exe` (FaceFX runtime
+compiler 1.3.0) takes a YAML project, `version: 1` then `items:` with `- facefx_file: (actor)` and
+`mount_files:` as a list of `.animset` files (LipGenerator's output renamed). Called as the CK does,
+`ffxc -p=x86 -Wno-empty-bone-pose -Wno-unused-track -Wno-snap -l=(log) -o=(dir) (project)`, it compiled the test line
+into `x86\test_group\test.ffxanim` (22,188 bytes) with the game's `__ffx\0\0\x03` header, plus `.ffxactor` and
+`.ffxbones`. So WAV plus text to a game-format lip file runs unattended with the free CK's tools. Open before calling
+playback likely: the 8 bytes at 0x18 tie an animation to its actor (vanilla files carry `8c aa 7e fd 9e ae 5a 27`, ours
+the Tools male actor's `bb 85 e7 4c 85 5c 09 ee`), so the shipped `Meshes/FaceFX/*.ffxactor` tag must match; the file
+must be named by WEM id under `sound/voice/(plugin)/(voicetype)/`; and one line must play on a face in game.
 
 ## Mapping for the port
 
