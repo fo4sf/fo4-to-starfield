@@ -56,7 +56,7 @@ The questions below decide the most; each links to its area. Owner decisions are
 | Quests, dialogue, voice | quest authoring, Story Manager, radiant, scenes, choice list, voice, lip sync, strings | quests, dialogue | [quests-dialogue-voice.md](engine-mechanics-notes/quests-dialogue-voice.md) | **done** (13 mechanisms, about 60 questions) |
 | Companions, AI, factions, combat | follower frameworks, affinity, packages, factions, crime, combat, stealth | companions, ai-packages-and-schedules, factions-crime-relationships, combat-detection-stealth, starfield-systems-to-reuse | [companions-ai-factions-combat.md](engine-mechanics-notes/companions-ai-factions-combat.md) | **done** (10 mechanisms, about 65 questions) |
 | Character systems | SPECIAL, perks, leveling, health, limbs, radiation, survival, power armor, races, faces, creation | special-perks-leveling, health-damage-effects, power-armor, actors-and-npcs, saves-and-new-game | [character-systems.md](engine-mechanics-notes/character-systems.md) | **done** (49 questions, 21 key) |
-| Workshop, items, economy | settlements, build mode, crafting, mods, legendaries, caps, vendors, loot | workshop-and-settlements, items-crafting-modding, economy-vendors-barter, leveled-lists-and-encounter-zones, dlc-mechanics | [workshop-items-economy.md](engine-mechanics-notes/workshop-items-economy.md) | **done** (58 questions, 30 key) |
+| Workshop, items, economy | settlements, build mode, crafting, mods, legendaries, caps, vendors, loot | workshop-and-settlements, items-crafting-modding, economy-vendors-barter, leveled-lists-and-encounter-zones, dlc-mechanics | [workshop-items-economy.md](engine-mechanics-notes/workshop-items-economy.md) | **done** (64 questions, 27 key) |
 | Tools and scripting | Creation Kit, Papyrus compilers, SFSE and plugins, xEdit, Mutagen, archives, mesh and material tools, Wwise | papyrus-and-script-extenders, records-and-plugins, materials-textures-lighting, physics-and-collision | [tools-and-scripting.md](engine-mechanics-notes/tools-and-scripting.md) | **done** (10 question groups) |
 | Animation, audio, physics | behaviour graphs, clips, furniture, radio, music, Wwise, Havok | animations, radio-music-sound, physics-and-collision, doors-activators-furniture | [animation-audio-physics.md](engine-mechanics-notes/animation-audio-physics.md) | **done** (13 groups, 22 key) |
 
@@ -164,7 +164,7 @@ perks; X1, X2 XP settings in both games and a stray skill-point prompt on level-
 in CE2, or crippling on afflictions; R1 do Rads still lower max HP; V1, V2 how much of Survival is script, bed-only
 saves; F1 to F8 face route, super mutant skeleton, Starfield robot rigs for FO4 robots, hiding backgrounds and traits.
 
-### Workshop, items and economy ([notes](engine-mechanics-notes/workshop-items-economy.md), 58 questions, 30 key)
+### Workshop, items and economy ([notes](engine-mechanics-notes/workshop-items-economy.md), 64 questions, 27 key)
 
 Findings (labels and sources in the notes):
 - Build categories are keywords in Starfield's `OutpostRecipeCategories` list and on the build activators; categories

@@ -234,7 +234,7 @@ Lessons for our design:
 6. Add a soak test: many round trips through one door while watching memory.
 7. Carry FO4's navmesh door links onto the new door references, or followers will stall or stand at the hinge.
 8. Treat a changed door base under an existing save as save-breaking until tested; keep FormIDs stable.
-9. GitHub or Nexus, not Creations, is the realistic channel (owner's decision).
+9. GitHub first, then Nexus, is the release channel (owner, roadmap approved 07:23Z); Creations is not planned. Only the free-Creations rules stay open (J40).
 
 ## 5. Player and NPC side
 
@@ -374,10 +374,10 @@ block the next build step.
 ### J. Release and policy (owner)
 38. Built .NET tools are GPL-3 through Mutagen: release source only, or binaries under GPL-3? *Owner*, recorded in
     decisions.md.
-39. CALUMI: user-supplied DLL or shipped unmodified with its notices? *Owner.*
-40. Creations is likely closed to us (generative-AI and standalone rules); GitHub and Nexus are the channels. Found so
-    far: the official guidelines page (help.bethesda.net a_id 51731) refuses fetches, so a browser read is needed;
-    PCGamesN (secondary) reports the gen-AI ban and "standalone, all-new" rules for Creations without saying if free ones
-    are covered. Nexus forbids uploading copyrighted game files (verified, submission guidelines) and moderators say
-    other Bethesda games' assets need permission (supported, forum 9720278). Tale of Two Wastelands builds everything
-    from the player's own installed games and claims no Bethesda permission (verified, its FAQ). *Owner.*
+40. **Channel answered by lesson 9** (GitHub, then Nexus). Still open, and only if Creations is ever reconsidered: do
+    free Creations carry the paid ones' rules (no generative AI, standalone, all-new)? PCGamesN (secondary) reports
+    those rules without saying; the official page (help.bethesda.net a_id 51731) refuses fetches, so a browser read is
+    needed. For the chosen channels: Nexus forbids uploading copyrighted game files (verified, submission guidelines)
+    and moderators say other Bethesda games' assets need permission (supported, forum 9720278); Tale of Two Wastelands
+    builds everything from the player's own installed games and claims no Bethesda permission (verified, its FAQ).
+    *Source* (browser read), no owner decision needed now.installed games and claims no Bethesda permission (verified, its FAQ). *Owner.*

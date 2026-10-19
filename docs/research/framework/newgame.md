@@ -2,7 +2,7 @@
 
 Owner: the Vault 111 new game thread (Claude-cloud). Folded into the framework index by the Next-phase research
 framework thread; do not edit here from other threads, send changes through the coordinator.
-Status: revision 4, 19 Oct (section N: answers from Starfield's own scripts). All eight areas researched (notes 01 to 08); 07 re-read the rate-limited primary
+Status: revision 4, 19 Oct: 112 questions, NG-C5 and NG-L3 answered (section N: answers from Starfield's own scripts). All eight areas researched (notes 01 to 08); 07 re-read the rate-limited primary
 sources and corrects some earlier claims (section M). No game touched; web sources only,
 plus our own repo. Several key pages were rate limited (HTTP 429); claims resting on them are marked unresolved.
 Raw agent notes: research/framework/newgame-notes/ (one file per area).
@@ -107,14 +107,15 @@ across notes are merged. Ids are stable (NG-A1 ...) so other files and threads c
   signature and modes as FO4 (0 chargen, 1 remake, 2 haircut, 3 surgery, 4 face paint). Which shows backgrounds and
   traits is unresolved. GAME (first test). n04.
 - **NG-C2. Do traits and background perks work outside MQ101?** SKK must start TraitQuest 001687DB itself after
-  chargen; Dream Home and Kid Stuff need stages set by hand and trigger on leaving the Lodge. GAME (`sqv`). n01, n03,
+  chargen; Dream Home and Kid Stuff need stages set by hand; they begin when MQ101 reaches 1800 (UESP, n07; not "on leaving
+  the Lodge" as n03 had it), which our start never reaches. GAME (`sqv`). n01, n03,
   n04.
 - **NG-C3. Full creator (backgrounds, traits) or looks only? Starfield backgrounds kept, neutral, stripped, or Fallout
   versions? Harmful traits blocked?** Verified: backgrounds and traits are perks; the creator is chargenmenu.swf;
   the neutral background still grants three skills. OWNER. n04.
 - **NG-C4. Where are SPECIAL and the name set, and is SPECIAL in scope for phase 1?** FO4 sets them pre-war with the
   Vault-Tec Rep, which our start skips; Start Me Up uses the cryo terminal. OWNER. n04.
-- **NG-C5. Can we wait for the menu to close (`RegisterForMenuOpenCloseEvent` on "ChargenMenu")?** Utility has no
+- **NG-C5 (answered in section N). Can we wait for the menu to close (`RegisterForMenuOpenCloseEvent` on "ChargenMenu")?** Utility has no
   `IsInMenuMode`. PC (ScriptObject.psc in ContentResources.zip). Unresolved. n04.
 - **NG-C6. Which `SetInChargen`, `SetCharGenHUDMode`, `PrecacheCharGen` calls does MQ101 make, and are controls left
   locked after our menu? Do we need a save and load after chargen?** One Starfield start adds a save/load step. PC,
@@ -271,7 +272,7 @@ menu opens (findings/people-story.md wave 2, supported hypothesis).
 - **NG-L2. A save-format version and the FO4Port and core build ids stored in the save from v1, checked on every
   load with a visible warning.** Today the quest records only "stood down" and stops. OWNER, OFF unittest; needs
   NG-L3. n08 Q3, Q4, Q11.
-- **NG-L3. Does Starfield's Papyrus have OnPlayerLoadGame or an equivalent?** OFF/PC (ContentResources.zip). n08 Q6.
+- **NG-L3 (answered in section N). Does Starfield's Papyrus have OnPlayerLoadGame or an equivalent?** OFF/PC (ContentResources.zip). n08 Q6.
 - **NG-L4. Update policy: new game on any port rebuild, only on a save-format change, or migration.** OWNER. n08 Q5.
 - **NG-L5. Are game days 0 and level 1 reliable new-game signals after chargen and on NG+, and does our Run Once quest
   behave on NG+?** GAME. n08 Q7, Q9.
@@ -340,9 +341,9 @@ Verified from the Creation Kit's script sources (C:\Modding\scratch\newgame_star
 - **Consequence for our build: our start left saving off and the HUD hidden.** Fixed offline on the branch (commit
   13c03b8): right after the hold-off the quest calls `Game.SetInChargen(false, false, false)` and
   `Game.SetCharGenHUDMode(0)`, with a contract test. Needs a restage before the first test.
-- **NG-C5 answered.** `RegisterForMenuOpenCloseEvent(string)` is on ScriptObject (native, protected, self only) and
+- Answer to NG-C5: `RegisterForMenuOpenCloseEvent(string)` is on ScriptObject (native, protected, self only) and
   the creator's menu is "ChargenMenu" (9 vanilla registrations), so we can wait for it to close instead of a timer.
-- **NG-L3 answered.** `OnPlayerLoadGame()` exists on Actor and on ReferenceAlias ("received immediately after the
+- Answer to NG-L3: `OnPlayerLoadGame()` exists on Actor and on ReferenceAlias ("received immediately after the
   player has loaded a save game"), so a player alias can run the save-version check of NG-L2.
 - **Cruise Mode (NG-B2).** CruiseModeTestSupportScript turns the Cruise tutorial on when MQ101 reaches 1310 with
   MQ101Debug 8; otherwise it follows MQ101.

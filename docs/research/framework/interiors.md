@@ -164,8 +164,9 @@ until tested):
 - **Traps**: FO4 traps are scripted ACTI plus HAZD/EXPL/WEAP; Starfield keeps HAZD and mines; vanilla trap
   activators/scripts in Starfield **unresolved**. `oiltrappuddle01.nif` and `gastrap01.nif` fail to convert today.
 - **Locks**: XLOC is byte-identical (levels 25/50/75/100, Barred, Chained, Requires Terminal, Requires Key; key link;
-  leveled flag), so FO4 lock levels copy 1:1 to the digipick system. Mutagen dev has `PlacedObject.Lock`; whether our
-  pinned 0.55.0-alpha.67 has it is **unresolved**.
+  leveled flag), so FO4 lock levels copy 1:1 to the digipick system. Our pinned Mutagen 0.55.0-alpha.67 has
+  `PlacedObject.Lock` (**verified**, door-animations.md E22; written at ReferenceLinks/Relationships.cs:299, which no port build
+  runs yet).
 - **Actors**: ACHR on an LVLN with XLCM is identical; a hostile interior needs LCTN leveling, LVLN entries for
   converted actors, hostile factions, navmesh and sandbox/guard packages; Location Ref Types drive cleared state.
 - **Story cells**: Initially Disabled (0x800), XESP enable parents and LCTN master enable parents exist in both games.
@@ -299,6 +300,22 @@ Every question from sections 1 to 7 is listed below in the order the phase can a
 - X8 (precedents Q4): hash the FO4 source files (Fallout4.esm, the DLC .esm files, the BA2s) and refuse to build against unknown versions. The launcher's build record already records hashes; check that the interior batches carry them too. Step A.
 - X9 (precedents Q6): the QA budget for 271 interiors: automated cell cycling (the watchdog chain), a community beta, or both. The owner's call; Step E.
 
+**BACUP compared (2026-10-19; github.com/Bryant-21/bacup cfa3d0d and py-creation-lib 2860078, GPL-3; read only, nothing run).** BACUP has a world-only `fo4:starfield` pair: no actors or quests, and FO4 navmesh is skipped. It writes with its own Rust writer driven by xEdit-derived schemas, uses form version 581 and outputs `Fallout4_SF.esm`. Its evidence is synthetic tests only; there is no sign its output loads in game.
+
+| Area | BACUP | Ours | Take away |
+|---|---|---|---|
+| Interior CELL | FO4 DATA flags copied to u32; LTMP, XCAS, XCMO kept; drops XCLL, XCIM, XLCN; no XEMP | Interior flag; vanilla LGTM, IMGS, XEMP cubemap | Theirs lacks the image space whose absence gave us the pink wash |
+| LCTN/XLCN | none | none | D1 still open for both |
+| REFR | scales DATA, XTEL, XPRM, XRDS; zeroes the XTEL transition cell when that cell isn't written; drops XLOC, XLIG | XTEL, doors persistent | Borrow the dangling-transition rule for coc-only batches |
+| Scale | 1/69.99125 (Havok constant) | /70 | Ratio 1.000125, under 1 cm per interior; no change |
+| LIGH flags | xEdit bits 0x10/0x20/0x100, from the schema only | Mutagen bits 0x20/0x40/0x200 | Still L3; test: in our light census, see whether lights with non-default lumens carry 0x100 or 0x200 |
+| OBND | 6 x i16 | 6 x f32 (vanilla measured) | Theirs is likely wrong |
+| SCOL | writes real SCOL records | places merged CM*.nif as one static | Idea for E4 |
+| LGTM/WATR | rebuilds FO4 LGTM (DATA truncated to 108 B, DALC to 24 B) | vanilla LGTM per cell family | Option for L1/L8: keep each cell's FO4 lighting mood |
+| Navmesh | Starfield v17 to FO4 v15 only | FO4 to Starfield plus NVMI | Their parser accepts 12 B-vertex and 32 B-trailer NVNM variants; make ours tolerate them |
+
+Their schema labels XCLL +28 "Gravity Scale" and +104 "Interior Type", both xEdit-derived. So L2 leans to gravity: never write FO4's directional fade there. Verdict: no code worth taking; two ideas and three value checks, as in the table. Reusing their code or contacting the author is the owner's call (AP-60).
+
 **Answered since the first pass:**
 - T9 (verified, 2026-10-19, from the job 18 string dumps D:\Modding\research\ck_switches_1.txt for the Starfield CK and _2.txt for the FO4 CK): FO4's CK has `-GeneratePreCombined` and `-GeneratePreVisData`, each taking `<ESM> [clean,filtered] [all,main,ints,other] [set] [count]`. Starfield's dump has neither. Its dash switches include `-GenerateMeshLODAssociations`, `-GenerateMeshLODStats`, `-GenerateMeshLODFailureReport`, `-GenerateCellAndRefCounts` and `-GenerateWarnings`. It does still have the GUI actions "Generate Precombined Visibility for Current Cell" and "... for All Loaded Cells", so an in-editor previs step may exist, but not a batch one in this dump. Correction (verified by job 20's full usage-string scan, 18:29Z): `-MockWorldSpaceLOD:<ESM> <WorldSpace0> [WorldSpace1 ...]` exists in the Starfield CK only; the first dump's filter had hidden it. That full scan also confirms that the Starfield CK has no precombine or previs switch. It lists `-ExportESM`, `-RunValidationSuite`, `-DepersistRefs`, `-CheckInPlugin` and `-ImportScalingData`. `-RunValidationSuite` is a candidate for T3 (an unattended plugin check) next to SF1Edit. Its scope and output are unresolved. The full lists are in the engine-mechanics notes. `-GenerateCellAndRefCounts` may serve E2 and E7 (reference counts per cell) without our own tool; its output format is unresolved.
 
@@ -327,7 +344,7 @@ Every question from sections 1 to 7 is listed below in the order the phase can a
 | C2 | Story cells (Kellogg's memory, PrewarVault111): ship as walkable scenery behind coc, or hold for the quest track? | They look broken without their scripted sequences | Owner decision |
 | C3 | Loot: converted FO4 items, Starfield lists, or a mix? | Decides the size of the weapons/armour job | Owner decision after an offline census of FO4 LVLI leaf types |
 | C4 | Fold each ECZN into its LCTN 1:1, or one flat level band? Keep FO4's level curve or clamp to Starfield's? | Leveled actors and loot follow it | One cell with an XEZN LCTN (min 5, max 10), GetLevel on a spawned actor |
-| C5 | Is `PlacedObject.Lock` in our pinned Mutagen; does XLOC 25/50/75/100 bring up the digipick on converted CONT/DOOR? | Locks copy 1:1 only if both hold | Reflection dump on the PC; one locked container in game |
+| C5 | First half verified (door-animations.md E22: the pinned Mutagen alpha.67 has `PlacedObject.Lock`, and ReferenceLinks writes it at Relationships.cs:299; Papyrus Lock() also locks linked lockables by default). Still open: does XLOC 25/50/75/100 bring up the digipick on converted CONT/DOOR, and does any port build run ReferenceLinks yet (none has)? | Locks copy 1:1 only if both hold | One locked container in game, after a build that runs ReferenceLinks |
 | C6 | How do "Requires Terminal" (253) locks map, and do FO4 terminal fragments become TMLM fragments? | Doors and turrets opened from terminals | Scan TMLM fragments in Starfield.esm; one TMLM calling Unlock() on a linked ref |
 | C7 | Full nested TMLM trees now, or "name + one body line"? | Lore and quest hooks live in submenus | Offline depth distribution of FO4 TERM menus |
 | C8 | Holotapes to BOOK data slates: Text now, Audio after the Wwise path? Does a TMLM DataSlate-BOOK item show a converted BOOK? | Replaces FO4's "play holotape in terminal" | One text holotape picked up and read; one TERM with a BOOK item |

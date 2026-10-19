@@ -371,6 +371,15 @@ Each row quotes both sides. None is settled here.
     - Lau D7: "update check only on the player's click". Lau A5: "check at start only".
     - REL-32: "GitHub build allowed an opt-in update check".
 
+17. **[Added 2026-10-19] Disagreements inside the phase files** (found by the Questions page thread; sent to the
+    owning threads, which settle them in their own files):
+    - Int C5 versus Door E22 on `PlacedObject.Lock`.
+    - Door J40 versus door-animations.md's own lesson 9 on Creations.
+    - NG-C2 still says "on leaving the Lodge", which the file's later sections no longer support.
+    - Mechanics notes: Tools 6.1, 6.2 and 3.5 and UI 1.2 disagree with other files' answers.
+    - Fixed in the cross-cutting files the same day: TT-08, AP-40 and PS-08 now all read "proven offline, in game
+      open" for lip sync (the note had landed on PS-01); WP-40 now points at MG-14's partial answer.
+
 ## Experiments that close questions in several files
 
 Ranked by how many questions across files each one closes or narrows. Kinds: **offline** (cloud, repo, files we
@@ -474,5 +483,5 @@ owner submits are recorded here and on the question in its own file.
 | Money and store listings | REL-37, REL-38, REL-59, Lau L6, Lau L9 | Release |
 | Community home, triage, contributors, succession, dates | REL-39, REL-40, REL-45, REL-46, REL-47, REL-48, REL-49, PS-34 | Release |
 | Game-neutral names and namespaces | PS-27, MG-26, MG-27, EM X4 | Fallout systems and People and story, now (cheap now, costly later) |
-| Reuse BACUP's FO4-to-Starfield world code or contact its author | AP-60, EM BACUP item | World (compare with our converter first) |
+| Reuse BACUP's GPL-3 code for three ideas (zero an unbuilt door's transition cell, keep FO4 lighting templates, per-quadrant land-texture layering) or write our own | AP-60, EM BACUP item | World, All interiors (comparison done 2026-10-19: nothing else to borrow) |
 | Multi-game timing, scope, rules | MG-01, MG-02, MG-05, MG-07, MG-09, MG-10, MG-12, PS-26, PS-28, PS-29, MG-19, WP-39, WP-40, MG-14 | Multi-game; MG-01 recommends a spike after phase 1 ships |

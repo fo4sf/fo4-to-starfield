@@ -30,10 +30,10 @@ Breadth before polish. A launcher that ships no assets; the player owns both gam
 
 | phase | file | raw notes |
 |---|---|---|
-| 1. New game (Vault 111 start) | [newgame.md](newgame.md): revision 4, 114 questions NG-A1 to NG-N (K: FO4's MQ101/MQ102 chain; L: saves; M: Bethesda guideline; N: char-gen state), owner decisions, cheapest-first list | [newgame-notes/](newgame-notes/) |
+| 1. New game (Vault 111 start) | [newgame.md](newgame.md): revision 4, 112 questions (Questions page count) NG-A1 to NG-N (K: FO4's MQ101/MQ102 chain; L: saves; M: Bethesda guideline; N: char-gen state), owner decisions, cheapest-first list | [newgame-notes/](newgame-notes/) |
 | 2. Door enter and exit animations | [door-animations.md](door-animations.md): 40 questions A to J, blockers starred | |
-| 3. All interiors | [interiors.md](interiors.md): 80 questions by step (A offline to F release), D1 to D9 on doors and markers, X1 to X9 from these findings | |
-| 4. Launcher | [launcher.md](launcher.md): 13 owner decisions D1 to D13, about 60 questions in seven areas | [launcher-sources/](launcher-sources/) |
+| 3. All interiors | [interiors.md](interiors.md): 98 questions: 80 by step (A offline to F release), D1 to D9 on doors and markers, X1 to X9 from these findings | |
+| 4. Launcher | [launcher.md](launcher.md): 88 questions: 13 owner decisions D1 to D13 plus 75 in seven areas | [launcher-sources/](launcher-sources/) |
 | Fallout systems and engine mechanics | [engine-mechanics.md](engine-mechanics.md): ten top decisions | [engine-mechanics-notes/](engine-mechanics-notes/) (about 400 questions) |
 
 ### Cross-cutting files (this thread)
@@ -154,6 +154,11 @@ engine-mechanics thread), [distribution-community](findings/distribution-communi
 - **Door animations (second pass):** INSTANT DOORS' ini lines only remove fades and do not shorten the load-door wait
   (door-animations.md, correction). New: a Starfield 1.16 Papyrus API table for doors, and a risk: Starfield's `Lock()`
   also locks linked lockables by default.
+- **BACUP compared (2026-10-19, AP-60):** the Map, Interiors and Bugs threads read its code against ours. It writes
+  FO4's world as a new WRLD with no markers or locations, has no meshes, collision or doors, and nothing shows its
+  output loaded in game. Worth borrowing as ideas only: zero an unbuilt door's transition cell, keep each cell's FO4
+  lighting template, per-quadrant land-texture layering from VTXT/ATXT. Owner's call: reuse its GPL-3 code for those
+  or write our own.
 - **Voice reuse** is flagged as the owner's decision by engine-mechanics.md too (same decision as REL-26).
 
 ## Where the files disagree (to settle first)
@@ -166,6 +171,9 @@ The full list (16 conflicts, quoted from both sides) is in [dependencies.md](dep
 - **Fallout 4 versions in release 1.** launcher.md D1 starts with 1.10.163 only; VM-01 and AP-52 accept 1.11.240 too.
   Both wait on the record diff between the two versions.
 - **Interior plugin type.** VM-25 leans toward medium masters; interiors.md X2 keeps full masters.
+- **Inside the phase files** (sent to their owners 2026-10-19): Int C5 versus Door E22 on `PlacedObject.Lock`; Door
+  J40 versus its own lesson 9; NG-C2's "on leaving the Lodge"; Mechanics notes Tools 6.1, 6.2, 3.5 and UI 1.2.
+  dependencies.md conflict 17.
 
 ## Owner decisions that unlock the most (one line each; full options in the files)
 

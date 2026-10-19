@@ -423,7 +423,7 @@ PCM-placed POI was unsolved in the MikkoK141 thread.
 
 **WP-40. Are Anchorage and Zeta sealed worldspaces with no planet position, and could Zeta use Starfield's space engine?**
 - Why: fewer landings; a fun option. (MG Q13)
-- Answer by: owner decision; offline research. Blocks: Multi-game. Status: open (facts verified, choice open).
+- Answer by: owner decision; offline research. Blocks: Multi-game. Status: open (facts verified, choice open; the facts also answer part of MG-14).
 
 **WP-41. What weather and climate model do the DC and Mojave landings use (FO3 green tint, NV desert)?** (MG Q14)
 - Answer by: map FO3/NV CLMT/WTHR onto Starfield biomes and weather; offline research. Blocks: Multi-game. Status: open.
