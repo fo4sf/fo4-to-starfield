@@ -500,5 +500,5 @@ Nothing here runs now; it is a list.
 - https://steamcommunity.com/app/22380/discussions/0/522728813700378577
 - Not readable in wave 1: https://www.nexusmods.com/fallout4/mods/75137 , https://bethesda.net/en-EU/news/monthly-modder-sirick ,
   https://www.nexusmods.com/starfield/mods/14176 , https://www.nexusmods.com/starfield/mods/6401 , https://www.nexusmods.com/starfield/mods/6439
-- Project files: /home/claude/fo4-to-starfield/scripts/actors/codsworth_voice.py; next-phase/npcs-ai-factions-dialogue-quests.md;
+- Project files: scripts/actors/codsworth_voice.py; next-phase/npcs-ai-factions-dialogue-quests.md;
   next-phase/voice-lipsync-companions.md; framework/engine-mechanics.md

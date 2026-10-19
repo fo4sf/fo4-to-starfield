@@ -385,6 +385,6 @@ rules; any Bethesda DMCA precedent.
 - Synthesis: https://github.com/Mutagen-Modding/Synthesis
 - Search results only (not read, unverified): https://www.pcgamesn.com/skyrim/mods-creations-ai ,
   https://insider-gaming.com/bethesda-skyrim-creation-mods-ai/
-- Repo files: /home/claude/fo4-to-starfield/LICENSE, README.md, dotnet/*.csproj, scripts/mission/make_mission.py,
+- Repo files: LICENSE, README.md, dotnet/*.csproj, scripts/mission/make_mission.py,
   scripts/deploy_starfield.py, scripts/convert_asset.py, scripts/actors/codsworth_voice.py,
   scripts/actors/codsworth_inventory.py, src/fo4sf/textures.py

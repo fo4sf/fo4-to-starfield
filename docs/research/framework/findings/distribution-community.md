@@ -167,7 +167,7 @@ expectation management has effectively started.
   or localized OneDrive folder names on non-English Windows, (4) Proton prefixes, where My Games lives under
   `steamapps/compatdata/1716740/pfx/drive_c/users/steamuser/Documents/My Games/Starfield`. The robust Windows answer is the
   Known Folder API (FOLDERID_Documents); this was not verified against a source in this pass.
-- **supported hypothesis** Non-ASCII user names (e.g. `C:\Users\Jürgen`, Cyrillic, CJK) break tools that use the ANSI
+- **supported hypothesis** Non-ASCII user names (e.g. a user folder named with accented letters, Cyrillic, CJK) break tools that use the ANSI
   code page; Python 3 and .NET handle Unicode paths, but external tools we call (Archive2, texconv, xEdit, PowerShell
   5.1 scripts saved without a BOM) need testing. **unresolved** which of ours do.
 
@@ -263,7 +263,7 @@ expectation management has effectively started.
     API; registry `User Shell Folders`; a manual override always shown; Proton `compatdata/1716740` path on Linux.
     Evidence: a unit test with synthetic layouts; a probe on a non-English Windows VM. Who: offline + a community tester.
 14. **Do we handle non-ASCII user names and paths end to end?** Why: converters call external tools; TTW lists
-    path-format errors first in its FAQ. Options: test matrix with `C:\Users\Jürgen`, Cyrillic and CJK names; run
+    path-format errors first in its FAQ. Options: test matrix with a user folder named with accented letters, Cyrillic and CJK names; run
     external tools with short (8.3) paths; refuse with a clear message. Evidence: synthetic-path unittest + one VM run.
     Who: offline + tester.
 15. **What does the launcher do about Controlled Folder Access, SmartScreen and "Unblock"?** Why: CFA already blocked us

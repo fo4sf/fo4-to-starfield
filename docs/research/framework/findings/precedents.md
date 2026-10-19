@@ -374,7 +374,7 @@ we survive game updates on both sides (FO4 *and* Starfield), and how do we keep 
 - https://www.pcgamesn.com/fallout-cascadia/fan-game-update
 - https://en.wikipedia.org/wiki/Enderal
 - https://en.wikipedia.org/wiki/OpenMW
-- Repo file read: /home/claude/fo4-to-starfield/scripts/actors/codsworth_voice.py (FO4 .fuz to .wem via Wwise);
-  /home/claude/fo4-to-starfield/docs/ROADMAP.md §2 (Phase C launcher model)
+- Repo file read: scripts/actors/codsworth_voice.py (FO4 .fuz to .wem via Wwise);
+  docs/ROADMAP.md §2 (Phase C launcher model)
 - Not readable this run (HTTP 429 or search budget): beyondskyrim.org, openmw.org/faq, handbook.tesrskywind.com,
   Wccftech Fallout London interview, Hitmarker Skyblivion/Bethesda piece; Starfield total-conversion search not run.

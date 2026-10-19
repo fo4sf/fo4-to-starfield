@@ -3,7 +3,7 @@
 You are one of several research agents building a **framework of questions and possibilities for the next phases** of
 fo4-to-starfield, a project that converts Fallout 4 (Creation Engine 1) into Starfield's engine (Creation Engine 2)
 through a GAMMA-style launcher that ships no game assets: the player must own both games and the conversion runs on
-their PC. Repo checkout (read-only for you): /home/claude/fo4-to-starfield.
+their PC. Repo checkout (read-only for you): the repo checkout.
 
 Phase order the owner approved: (1) new game start, a Vault 111 start with no Starfield intro; (2) door enter and exit
 animations; (3) all interiors; (4) the launcher. After that the order is open: world breadth (the Commonwealth, Far
