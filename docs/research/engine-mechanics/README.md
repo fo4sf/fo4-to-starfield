@@ -61,7 +61,6 @@ of our world unless reused on purpose.
 | economy | [economy-vendors-barter.md](economy-vendors-barter.md) | caps, vendors, barter, restock, pickpocketing |
 | foundations | [supporting-records.md](supporting-records.md) | the leftover record types (reference groups, layers, splines, flora ...) |
 
-Files not yet present are being written; the status line of the engine-mechanics thread says which.
 
 ## Cross-cutting findings so far
 
@@ -79,3 +78,18 @@ Files not yet present are being written; the status line of the engine-mechanics
    Whether it is installed is an open read-only check.
 5. **Name clashes are real**: Papyrus script names and editor ids are global; converted content needs its own prefix
    or namespace.
+6. **More carries over by index than expected**: perk entry points 0 to 157 keep their numbers (only 136 and 155
+   changed meaning), magic effect archetypes 0 to 49 are identical, VMAD script data and the door teleport (XTEL) and
+   lock (XLOC) layouts are identical, and both games keep their currency item at FormID 0000000F. (verified, xEdit;
+   see [special-perks-leveling.md](special-perks-leveling.md), [health-damage-effects.md](health-damage-effects.md),
+   [papyrus-and-script-extenders.md](papyrus-and-script-extenders.md), [economy-vendors-barter.md](economy-vendors-barter.md))
+7. **Some FO4 records fold into others**: FO4's encounter zones (ECZN) became fields of Starfield's location record;
+   FO4's material swaps (MSWP) give way to layered material swaps (LMSW); holotapes (NOTE) map best to data slates
+   (BOOK); terminal menus moved into their own record (TMLM). (verified, xEdit)
+8. **Bit traps**: package flag bit 29 means "Wear Sleep Outfit" in FO4 and "Weapon Drawn: Ready" in Starfield; door
+   flag bits 0 and 7 changed meaning. A converter rewrites flags by name.
+9. **Travel across the one planet**: Starfield's own surface fast travel works within one landing and uses the ship
+   between landings, which we fence out, so trips between the Commonwealth, Far Harbor and Nuka-World stay scripted
+   (boat, monorail, vertibird) as in FO4 ([vehicles-and-travel.md](vehicles-and-travel.md)). (supported hypothesis)
+
+Every Fallout 4 record type now has at least one page; [record-counts.md](record-counts.md) lists where.
