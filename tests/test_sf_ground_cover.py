@@ -32,6 +32,25 @@ def u32(v):
     return struct.pack("<I", v)
 
 
+def write(path, data):
+    with open(path, "wb") as f:
+        f.write(data)
+
+
+def read_bytes(path):
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def addon(master, gcvr_flags=0):
+    """An add-on over `master`: overrides GrassA's model and the ground cover (optionally flagged deleted)."""
+    tes4 = rec(b"TES4", 0, sub(b"HEDR", b"\0" * 12) + sub(b"MAST", z(master)) + sub(b"DATA", b"\0" * 8))
+    body = sub(b"EDID", z("GCMeadow")) + sub(b"GNAM", u32(0x50)) + sub(b"DNAM", struct.pack("<h", -1))
+    gcvr = b"GCVR" + struct.pack("<III", len(body), gcvr_flags, 0x40) + b"\0" * 8 + body
+    gras = rec(b"GRAS", 0x50, sub(b"EDID", z("GrassA")) + sub(b"MODL", z("grass/a2.nif")))
+    return tes4 + grp(b"GCVR", gcvr) + grp(b"GRAS", gras)
+
+
 def plugin():
     children = grp(u32(0x10), grp(b"\0" * 4, rec(b"CELL", 0x11, sub(b"EDID", z(""))), 4), 1)   # as Starfield.esm: cells
     wrld = grp(b"WRLD", rec(b"WRLD", 0x10, sub(b"EDID", z("TestCity")) + sub(b"BNAM", u32(0x60))   # component SFBK first
@@ -54,7 +73,7 @@ class GroundCoverTest(unittest.TestCase):
     def test_world_biome_ground_cover_chain(self):
         with tempfile.TemporaryDirectory() as d:
             esm = os.path.join(d, "Test.esm")
-            open(esm, "wb").write(plugin())
+            write(esm, plugin())
             out = gc.main([os.path.join(d, "out.json"), esm, "--worlds", "testcity,Nowhere"])
         w = out["worlds"]["testcity"]
         self.assertEqual((w["biome"], w["data_flags"]), ("Test.esm:000020", 1))
@@ -72,11 +91,46 @@ class GroundCoverTest(unittest.TestCase):
     def test_output_alias_of_input_is_refused(self):
         with tempfile.TemporaryDirectory() as d:
             esm = os.path.join(d, "Test.esm")
-            open(esm, "wb").write(plugin())
-            before = open(esm, "rb").read()
+            write(esm, plugin())
+            before = read_bytes(esm)
             with self.assertRaises(SystemExit):
                 gc.main([esm, esm, "--worlds", "TestCity"])
-            self.assertEqual(open(esm, "rb").read(), before)
+            self.assertEqual(read_bytes(esm), before)
+
+    def test_plugin_names_match_without_case(self):
+        for master_spelling, file_spelling in (("test.esm", "Test.esm"), ("Test.esm", "test.esm")):
+            with tempfile.TemporaryDirectory() as d:
+                esm, add = os.path.join(d, file_spelling), os.path.join(d, "Addon.esm")
+                write(esm, plugin())
+                write(add, addon(master_spelling))
+                out = gc.main([os.path.join(d, "out.json"), esm, add, "--worlds", "TestCity"])
+            key = file_spelling + ":000050"
+            self.assertEqual(out["worlds"]["TestCity"]["biome"], file_spelling + ":000020")
+            self.assertEqual(out["grasses"][key]["model"], "grass/a2.nif")        # the add-on's override wins
+            self.assertEqual(out["totals"]["GRAS"], 2)
+
+    def test_same_plugin_twice_is_refused(self):
+        with tempfile.TemporaryDirectory() as d:
+            a, b = os.path.join(d, "Test.esm"), os.path.join(d, "sub", "test.esm")
+            os.mkdir(os.path.join(d, "sub"))
+            write(a, plugin())
+            write(b, plugin())
+            with self.assertRaises(SystemExit):
+                gc.main([os.path.join(d, "out.json"), a, b, "--worlds", "TestCity"])
+
+    def test_winning_deleted_record_shadows_and_is_not_followed(self):
+        with tempfile.TemporaryDirectory() as d:
+            esm, add = os.path.join(d, "Test.esm"), os.path.join(d, "Addon.esm")
+            write(esm, plugin())
+            write(add, addon("Test.esm", gcvr_flags=0x20))
+            out = gc.main([os.path.join(d, "out.json"), esm, add, "--worlds", "TestCity"])
+        main = out["biomes"]["Test.esm:000020"]["terrain"][0]
+        self.assertEqual((main["ground_cover"], main["ground_cover_status"]), ("Test.esm:000040", "deleted"))
+        g = out["ground_covers"]["Test.esm:000040"]
+        self.assertTrue(g["deleted"])
+        self.assertEqual(g["grasses"], [])                                     # not traversed, base not resurrected
+        self.assertNotIn("Test.esm:000051", out["grasses"])
+        self.assertEqual((out["totals"]["GCVR"], out["deleted"]["GCVR"]), (0, 1))
 
 
 if __name__ == "__main__":
