@@ -283,3 +283,27 @@ to that world, build, load order, save and session. A merged probe read says a p
 merge there, so the cause is likely in our WRLD / LCTN records (diff them next). A local read with a merged control
 says persistent references this plugin adds did not merge in that setup; it supports keeping the runtime moves (the
 door script, #353, this quest) as the design, but does not prove no record shape can merge.
+
+## BACUP's FO4 to Starfield world writer (Claude-cloud, 2026-10-19, read only)
+
+[BACUP](https://github.com/Bryant-21/bacup) (GPL-3) was read at commit `cfa3d0d` (2026-10-17). Nothing was run, and
+no code is copied here. Its `fo4:starfield` pair has no evidence of loading in game; its own test is a synthetic
+2x2-cell slice (`bacup_lib/tests/test_fo4_starfield_vertical_slice.py`). Findings below are **verified** against its
+source:
+- **Its own world, no overlay.** `native/conversion/src/phase/starfield_cells.rs` writes the FO4 worldspace as a new
+  `WRLD`: a world persistent cell plus a re-latticed 100 m exterior grid (FO4's 4096-unit cells do not divide into
+  100 m, so refs are bucketed by position and `XCLC` is rebuilt). It notes `Starfield.esm` measurements: block =
+  grid div 32, sub-block = grid div 8, label `[y, x]`. Our core follows the same block layout.
+- **Persistent refs keep their own position.** The persistent cell "never re-lattices; its children keep their
+  (rescaled) positions verbatim" (FO4 position / 69.99125, our 70). No world is merged into another, so it never
+  meets our case: an overlay whose runtime world places records at local + (-1200, -2700). It has no answer for the
+  merge probe's question.
+- **No map markers and no locations.** `embedded/translation_maps/fo4_to_starfield.yaml` drops `XMRK`, `FNAM`,
+  `TNAM` and `XLOC` from every `REFR` ("codec differs between games") and drops `WRLD` `XLCN`, `TNAM`, `UNAM`,
+  `ICON`. `LCTN` is not translated. Its marker-type code (`fullscreen_map_markers.py`) is for FO76 to FO4 and draws
+  icons in a map mod, not in Starfield.
+- **Scale.** 69.99125 FO4 units per metre against our 70 is a 0.0125 % difference: about 0.4 m across the core's
+  6.4 km. Not worth a change on its own; **unresolved** which figure is exact.
+
+Nothing to borrow for markers, locations or the merge question. Its standalone-world approach would sidestep the
+offset entirely, but it is a different design from our overlay and is a decision for the world threads.
