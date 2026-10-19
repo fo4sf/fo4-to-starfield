@@ -125,6 +125,13 @@ Command line (verified, PC string scan of both CKs, job 18): Starfield's CK has 
 as a command-line tool (setting `sLipGeneratorPath`). FO4's CK calls LipGenerator with the WAV, the text,
 `-Language:` and `-GestureExaggeration:`. So a headless route likely exists: call LipGenerator.exe directly, or the CK
 with `-CompileFaceFXAnims` (**unresolved** until one PC run writes an `.ffxanim`).
+Usage printed by Starfield's `Tools\LipGenerator\LipGenerator.exe` (verified, PC job 19):
+`LipGenerator wav text actor.facefx actoranalysis.facefx [-Language:] [-OutputFileName:] [-AnimationGroupName:]`,
+example `LipGenerator Test.wav test.txt -OutputFileName:foo.ffxanim`; languages USEnglish, UKEnglish, French, German,
+Spanish, Italian, Korean, Japanese. It ships with FonixData.cdf (speech analysis data) and runs without a window, so
+**lip generation can run unattended from the launcher** (supported hypothesis until one line is generated and plays).
+It needs an actor `.facefx` and an actor analysis `.facefx` per face rig: where Starfield keeps them and which one fits
+each converted voice type is **unresolved** (next check: list `.facefx` names in Starfield's archives).
 
 ## Mapping for the port
 
