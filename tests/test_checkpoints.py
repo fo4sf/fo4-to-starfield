@@ -33,6 +33,35 @@ def generated(staging, stem="chair"):
 
 
 class CheckpointTests(unittest.TestCase):
+    def test_a_cell_that_reclassifies_a_mesh_is_a_cache_miss(self):
+        """Codex on #354: RoofHatch01 primed without an XTEL was reused, without load_door, once its XTEL appeared."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            staging, tools, cell_path = root / "staging", root / "tool.bin", root / "cell.json"
+            tools.write_bytes(b"synthetic tool")
+            calls = []
+
+            def convert(name):
+                calls.append(name)
+                result, _ = generated(staging, Path(name.replace("\\", "/")).stem.lower())
+                return result
+            converter = SimpleNamespace(convert_nif=convert, stats={}, material_errors={})
+            argv = ["convert_batch.py", "--fo4-data", str(root), "--staging", str(staging),
+                    "--content-resources", str(tools), "--texconv", str(tools),
+                    "--collision-template", str(tools), "--resume", "--cell-json", str(cell_path)]
+            hatch = {"formkey": "000001:Fallout4.esm", "type": "Door", "model": "Architecture\\RoofHatch01.nif",
+                     "teleport_destination": None}
+            with patch.object(sys, "argv", argv), \
+                    patch.object(batch.pipeline, "Fo4Archives", return_value=SimpleNamespace()), \
+                    patch.object(batch.pipeline, "Converter", return_value=converter) as made, \
+                    patch.object(batch.convert_static, "collision_template_from_nif", return_value=b"template"), \
+                    patch("builtins.print"):
+                for xtel in (None, None, {"door": "000002:Fallout4.esm"}, {"door": "000002:Fallout4.esm"}):
+                    cell_path.write_text(json.dumps({"cell": "Synthetic", "refs": [dict(hatch, teleport_destination=xtel)]}))
+                    batch.main()
+            self.assertEqual(len(calls), 2)                  # cold, reused, reclassified (miss), reused
+            self.assertEqual(made.call_args.kwargs["load_door_models"], ["meshes\\Architecture\\RoofHatch01.nif"])
+
     def test_degraded_checkpoint_with_valid_outputs_cannot_be_reused(self):
         for failure in ({"ok": False}, {"fallback_materials": 1},
                         {"door_error": "missing native rig"}):

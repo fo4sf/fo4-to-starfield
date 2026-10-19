@@ -184,12 +184,21 @@ single marker at the COC. The first marker keeps #296's EditorID and `formids.js
 `formids.json` `map_marker_refs` {world: {tag: id}}.
 
 `make_core64c.py check` judges them (`map_marker_problems`): MapMarker NAME, XMRK, persistent, position, one `LCSR` row per
-marker with tail `0xFFFFFFFF`, `LCID`, ids after every other record. It also stops counting the markers against the
+marker with tail `0xFFFFFFFF`, no `LCID` (see the correction below), ids after every other record. It also stops counting the markers against the
 door rules (doors after everything, the persistent cell holds anchor + door markers) and compares core64's Location
 without its `LCSR` / `LCID`: before this, a door build with #296's marker would have failed `check`.
 
 The FO4 map names, the `FNAM` bits (fast travel, discovered) and the `TNAM` icon type stay LC172's (`0x1B`, `0x17`):
 whether the icons show undiscovered, and which icon they draw, is **unresolved** until the in-game check.
+
+### Correction (Claude-cloud, 2026-10-18): the markers were written initially disabled
+
+In game on FO4TerrainCore fdd3f0a5 (markers 0A7759 to 0A775C), **no icon showed on the map** (owner). The writer
+Duplicated LC172's 003E5E12 with its flags 0xC00, which include Initially Disabled 0x800. LC172's quest enables that marker.
+Ours have nothing to enable them, and the writer also listed them in `LCID` (the Location's initially disabled
+references). The landing-overlay marker 003A866E is 0x400 (persistent only). The writer now writes 0x400 and no `LCID`,
+and `check` fails a marker that is initially disabled or listed in `LCID`. **Supported hypothesis** until the
+in-game confirmation (`prid 030A7759`, `enable`, then open the map; `03` is FO4TerrainCore's load-order slot).
 
 ## Acceptance
 
