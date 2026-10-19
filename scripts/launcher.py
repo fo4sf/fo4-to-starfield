@@ -11,6 +11,7 @@
     python scripts/launcher.py restore --snapshot <snapshot.json> [--port-staging <dir>] [--apply]
     python scripts/launcher.py detect --fo4-data <dir> ... --starfield <game dir> [--out-dir <drive or folder>]
                                       [--need-gb N] [--floor-gb 40] [--allow-unknown] [--allow-missing-dlc]
+                                      [--my-games <Documents\My Games\Starfield>]
     python scripts/launcher.py sources-add --manifest <build manifest.json> --label <text> [--table <json>]
     python scripts/launcher.py measure <folder> ...
 
@@ -136,7 +137,8 @@ def cmd_restore(a):
 def cmd_detect(a):
     r = detect.detect(fo4_data=a.fo4_data, starfield=a.starfield, sources=a.table, out_dir=a.out_dir or None,
                       need_gb=a.need_gb, floor_gb=a.floor_gb, allow_unknown=a.allow_unknown,
-                      allow_missing_dlc=a.allow_missing_dlc, require_ck=a.require_ck, require_sfse=a.require_sfse)
+                      allow_missing_dlc=a.allow_missing_dlc, require_ck=a.require_ck, require_sfse=a.require_sfse,
+                      my_games=a.my_games or None)
     for m, v in ((r.get("fo4") or {}).get("masters") or {}).items():
         print(f"  {m:<20} {v['version'] or 'unknown version'}  {v['sha256'][:12]}")
     if r.get("game"):
@@ -227,6 +229,7 @@ def main(argv=None):
     s.add_argument("--allow-missing-dlc", action="store_true")
     s.add_argument("--require-ck", action="store_true")
     s.add_argument("--require-sfse", action="store_true")
+    s.add_argument("--my-games", default="", help="Documents\\My Games\\Starfield, as Windows resolves it (not guessed)")
     s.add_argument("--report", default="")
     s = sub.add_parser("sources-add")
     s.add_argument("--manifest", required=True)

@@ -6,6 +6,10 @@ read only.
                 named (the port assumes all six, so a missing DLC is a refusal unless allow_missing_dlc)
     Starfield   Starfield.exe and Data present; Archive2 present (packing needs it: required); Creation Kit and SFSE
                 presence reported (both allowed as requirements by the owner, 2026-10-19; required only if asked)
+    INIs        any sTestFileN in Starfield.ini, StarfieldPrefs.ini or StarfieldCustom.ini (game folder and My Games) is a
+                refusal: the game then ignores Plugins.txt
+    My Games    loose files in its Data folder are reported (the game reads them over archives); the folder is given
+                as Windows resolves it, never guessed (OneDrive and redirected Documents move it)
     Disk        free space on the output drive, minus the floor that must stay free (40 GB on the owner's D:), against
                 the space the build needs
 
@@ -13,12 +17,15 @@ The known-sources table (scripts/launcher_recipes/known_sources.json) maps maste
 come from a real install's build manifest (`launcher.py sources-add --manifest <build manifest>`), never made up.
 """
 import os
+import re
 import shutil
 
 from . import files
 from . import manifest as mf
 
 DEFAULT_FLOOR_GB = 40.0
+INI_NAMES = ("Starfield.ini", "StarfieldPrefs.ini", "StarfieldCustom.ini")
+_TEST_FILE = re.compile(r"^\s*(sTestFile\d+)\s*=\s*(\S.*?)\s*$", re.IGNORECASE)
 
 
 def load_sources(path):
@@ -59,8 +66,35 @@ def free_gb(path):
     return shutil.disk_usage(probe).free / 2 ** 30
 
 
+def ini_test_files(folders):
+    """[(ini path, line number, key, value)] for every non-empty sTestFileN in Starfield's INIs under the folders.
+    Any one makes the game ignore Plugins.txt (MO2 and Vortex both say so), so our plugins would silently not load."""
+    hits = []
+    for folder in folders:
+        for name in INI_NAMES:
+            path = os.path.join(folder, name)
+            if not os.path.isfile(path):
+                continue
+            with open(path, encoding="utf-8", errors="replace") as f:
+                for n, line in enumerate(f, 1):
+                    m = _TEST_FILE.match(line)
+                    if m:
+                        hits.append((path, n, m.group(1), m.group(2)))
+    return hits
+
+
+def loose_data(my_games):
+    """Files in Documents\\My Games\\Starfield\\Data (the second Data folder the game reads), relative paths sorted."""
+    root = os.path.join(my_games, "Data")
+    out = []
+    for d, _dirs, names in os.walk(root):
+        for name in names:
+            out.append(os.path.relpath(os.path.join(d, name), root).replace(os.sep, "/"))
+    return sorted(out)
+
+
 def detect(*, fo4_data, starfield, sources=None, out_dir=None, need_gb=0.0, floor_gb=DEFAULT_FLOOR_GB,
-           allow_unknown=False, allow_missing_dlc=False, require_ck=False, require_sfse=False):
+           allow_unknown=False, allow_missing_dlc=False, require_ck=False, require_sfse=False, my_games=None):
     """{"ready": bool, "refusals": [...], "warnings": [...], "fo4": {...}, "game": {...}, "disk": {...}}."""
     refusals, warnings = [], []
     table = sources if isinstance(sources, dict) else load_sources(sources)
@@ -101,6 +135,19 @@ def detect(*, fo4_data, starfield, sources=None, out_dir=None, need_gb=0.0, floo
                        "exe_sha256": (f.get("Starfield.exe") or {}).get("sha256")}
     else:
         refusals.append(f"Starfield: folder {starfield!r} not found")
+    ini_folders = [starfield] if starfield and os.path.isdir(starfield) else []
+    if my_games:
+        if os.path.isdir(my_games):
+            ini_folders.append(my_games)
+            loose = loose_data(my_games)
+            out["my_games"] = {"path": os.path.abspath(my_games), "loose_files": len(loose), "loose_sample": loose[:20]}
+            if loose:
+                warnings.append(f"Starfield: {len(loose)} loose files in {os.path.join(my_games, 'Data')} "
+                                "(the game reads them over archives; they are not ours and restore leaves them)")
+        else:
+            warnings.append(f"Starfield: My Games folder {my_games!r} not found")
+    for path, n, key, value in ini_test_files(ini_folders):
+        refusals.append(f"Starfield: {key}={value} in {path} line {n} makes the game ignore Plugins.txt")
     if out_dir:
         free = free_gb(out_dir)
         usable = free - floor_gb

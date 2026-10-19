@@ -65,7 +65,9 @@ IDS_DIFFER, INCOMPLETE; exit 0 only for the first two.
 build?", read only: Fallout4.esm and each DLC master matched by hash against `scripts/launcher_recipes/known_sources.json`
 (unknown versions refused unless `--allow-unknown`), missing DLC named and refused unless `--allow-missing-dlc`,
 Starfield.exe, Data and Archive2 required, Creation Kit and SFSE reported (refused only with `--require-ck` /
-`--require-sfse`), and free space minus the floor (default 40 GB) against the need. Entries come from a real install's build manifest (`sources-add`). On the owner's PC today detect refuses on DLC
+`--require-sfse`), any `sTestFileN` in Starfield's INIs refused (the game then ignores Plugins.txt), loose files in
+the My Games Data folder reported when `--my-games` is given (passed as Windows resolves it, never guessed), and free
+space minus the floor (default 40 GB) against the need. Entries come from a real install's build manifest (`sources-add`). On the owner's PC today detect refuses on DLC
 (only Automatron and Wasteland Workshop are installed), which is the intended answer.
 
 ### measure

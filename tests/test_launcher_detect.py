@@ -77,6 +77,26 @@ class DetectTests(unittest.TestCase):
         self.assertFalse(r["ready"])
         self.assertTrue(any(x.startswith("Disk:") for x in r["refusals"]))
 
+    def test_test_file_in_any_ini_is_refused(self):
+        mg = os.path.join(self.root, "My Games", "Starfield")
+        write(os.path.join(mg, "StarfieldCustom.ini"), b"[General]\nsTestFile1=Foo.esm\nsTestFile2=\n")
+        write(os.path.join(self.sf, "Starfield.ini"), b"[General]\n; sTestFile3=commented\n")
+        r = self.run_detect(my_games=mg)
+        self.assertFalse(r["ready"])
+        self.assertEqual(len(r["refusals"]), 1)
+        self.assertIn("sTestFile1=Foo.esm", r["refusals"][0])
+        self.assertIn("line 2", r["refusals"][0])
+
+    def test_loose_files_in_my_games_are_reported(self):
+        mg = os.path.join(self.root, "My Games", "Starfield")
+        write(os.path.join(mg, "Data", "meshes", "x.nif"))
+        r = self.run_detect(my_games=mg)
+        self.assertTrue(r["ready"], r["refusals"])
+        self.assertEqual(r["my_games"]["loose_files"], 1)
+        self.assertEqual(r["my_games"]["loose_sample"], ["meshes/x.nif"])
+        self.assertTrue(any("loose files" in w for w in r["warnings"]))
+        self.assertTrue(any("not found" in w for w in self.run_detect(my_games=mg + "x")["warnings"]))
+
     def test_no_fallout4(self):
         r = detect.detect(fo4_data=[self.root], starfield=self.sf, sources=self.table)
         self.assertFalse(r["ready"])
