@@ -286,13 +286,23 @@ Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed."
            "origin_offset":[0.5,0,0],"bounds":[[-1.5,-0.1,0],[0.5,0.1,2.2]],"model":"fo4port\\door.nif","twin":"meshes\\doors\\door.nif",
            "open_seconds":1.0333}}},
  {"editor_id":"FO4Port_SynthPlainLoad","model":"fo4port\\plainload.nif","source":"meshes\\doors\\plainload.nif",
-  "load_door":{"bounds":[[-1,-0.1,0],[1,0.1,2.2]]}}]}
+  "load_door":{"bounds":[[-1,-0.1,0],[1,0.1,2.2]]}},
+ {"editor_id":"FO4Port_SynthTplLoad","model":"fo4port\\tplload.nif","source":"meshes\\doors\\tplload.nif",
+  "load_door":{"bounds":[[-1,-0.1,0],[1,0.1,2.2]],
+   "anim":{"anim_graph":"AnimTextData\\Tables\\Graphs\\SimpleOpenClose01.agx","skeleton":"ak\\skeleton.rig","animations":"ak\\animations",
+           "origin_offset":[0,0,0],"bounds":[[-1,-0.1,0],[1,0.1,2.2]],"open_seconds":1.0333,
+           "xtel_anim_graph":"AnimTextData\\Tables\\Graphs\\SimpleOpenClose02_Load.agx",
+           "open_sound":{"start":"11111111-2222-3333-4444-555555555555","stop":"00000000-0000-0000-0000-000000000000","condition":null,"mapping":"000ABC:Starfield.esm"},
+           "close_sound":{"start":"66666666-2222-3333-4444-555555555555","stop":"00000000-0000-0000-0000-000000000000"}}}}]}
 """);
         var export = Path.Combine(animDir, "Anim.json");
         File.WriteAllText(export, """
 {"cell":"Anim","formkey":"cell","refs":[
  {"formkey":"000A01:Fallout4.esm","base_editor_id":"DL","type":"Door","model":"doors\\doorload.nif","pos":[0,0,0],"rot":[0,0,0],"scale":1},
- {"formkey":"000A02:Fallout4.esm","base_editor_id":"PL","type":"Door","model":"doors\\plainload.nif","pos":[70,0,0],"rot":[0,0,0],"scale":1}]}
+ {"formkey":"000A02:Fallout4.esm","base_editor_id":"PL","type":"Door","model":"doors\\plainload.nif","pos":[70,0,0],"rot":[0,0,0],"scale":1},
+ {"formkey":"000A03:Fallout4.esm","base_editor_id":"TL","type":"Door","model":"doors\\tplload.nif","pos":[140,0,0],"rot":[0,0,0],"scale":1,"teleport_destination":{"door":"000A04:Fallout4.esm","pos":[0,0,0],"rot":[0,0,0],"flags":0,"transition_interior":null}},
+ {"formkey":"000A04:Fallout4.esm","base_editor_id":"TL","type":"Door","model":"doors\\tplload.nif","pos":[210,0,0],"rot":[0,0,0],"scale":1,"teleport_destination":{"door":"000A03:Fallout4.esm","pos":[0,0,0],"rot":[0,0,0],"flags":0,"transition_interior":null}},
+ {"formkey":"000A05:Fallout4.esm","base_editor_id":"TL","type":"Door","model":"doors\\tplload.nif","pos":[280,0,0],"rot":[0,0,0],"scale":1}]}
 """);
         foreach (var hook in new[] { "FO4PORT_DOOR_MODEL", "FO4PORT_DOOR_BASE", "FO4PORT_DOORTEST" }) Environment.SetEnvironmentVariable(hook, null);
         Environment.SetEnvironmentVariable("STARFIELD_DATA", animDir);
@@ -315,12 +325,32 @@ Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed."
         Require(animated.ObjectBounds.First.X == -1.5f && animated.ObjectBounds.Second.X == 0.5f, "animated load door keeps the static model's bounds");
         var plainDoor = doorsBy["FO4Port_SynthPlainLoad"];
         Require(!plainDoor.Components.Any() && AssetPath(plainDoor.Model?.File)?.EndsWith("fo4port/plainload.nif") == true, "a load door without anim changed");
-        var refs = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).Single()
-            .Temporary.OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey);
+        var cellRec = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).Single();
+        var refs = cellRec.Temporary.Concat(cellRec.Persistent).OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey);
         IPlacedObjectGetter Ref(string fo4) => refs[new FormKey(port, ids[$"REFR:FO4Port_Anim:{fo4}:Fallout4.esm"])];
+        // a template-rigged load door with xtel_anim_graph: its XTEL references play the vanilla load graph on a copy of the
+        // record (same model, skeleton and clips); a reference of the same door without an XTEL (scripted) keeps the original
+        var tpl = doorsBy["FO4Port_SynthTplLoad"];
+        var tplXtel = doorsBy["FO4Port_SynthTplLoad_XtelLoad"];
+        var xg = tplXtel.Components.OfType<IAnimationGraphComponentGetter>().Single();
+        Require(xg.ANAM == "AnimTextData\\Tables\\Graphs\\SimpleOpenClose02_Load.agx" && xg.BNAM == "ak\\skeleton.rig" && xg.CNAM == "ak\\animations",
+                "XTEL copy lost the load graph, skeleton or clips");
+        Require(tpl.Components.OfType<IAnimationGraphComponentGetter>().Single().ANAM.EndsWith("SimpleOpenClose01.agx"), "scripted record lost its graph");
+        Require(AssetPath(tplXtel.Model?.File) == AssetPath(tpl.Model?.File), "XTEL copy has another model");
+        Require(Ref("000A03").Base.FormKey == tplXtel.FormKey && Ref("000A04").Base.FormKey == tplXtel.FormKey, "XTEL references not on the load-graph copy");
+        Require(Ref("000A03").TeleportDestination != null && Ref("000A05").TeleportDestination == null && Ref("000A05").Base.FormKey == tpl.FormKey,
+                "reference without an XTEL moved onto the load-graph copy");
+        // load_door_anim.py sounds: the vanilla door's WWise events on both records; doors without them stay silent
+        foreach (var r in new[] { tpl, tplXtel })
+            Require(r.OpenSound?.Start == Guid.Parse("11111111-2222-3333-4444-555555555555") && r.OpenSound.EventMapping.FormKey.ID == 0xABC
+                    && r.CloseSound?.Start == Guid.Parse("66666666-2222-3333-4444-555555555555") && r.CloseSound.EventMapping.IsNull,
+                    "vanilla door sounds not written on " + r.EditorID);
+        Require(animated.OpenSound == null && plainDoor.OpenSound == null, "sounds written on a door without them");
+        Require(!doorsBy.ContainsKey("FO4Port_SynthDoorLoad_XtelLoad"), "load-graph copy written for a rig without xtel_anim_graph");
+        Require(log.ToString().Contains("2 animated load doors on their load graph"), "load-graph moves not reported:\n" + log);
         Require(Math.Abs(Ref("000A01").Position.X - 0.5f) < 1e-5 && Ref("000A01").Base.FormKey == animated.FormKey, "animated load door reference not shifted by the rig's origin offset");
         Require(Math.Abs(Ref("000A02").Position.X - 1f) < 1e-5 && Ref("000A02").Base.FormKey == plainDoor.FormKey, "plain load door reference moved");
-        Require(log.ToString().Contains("2 load doors (1 open before the trip)"), "animated load doors not counted:\n" + log);
+        Require(log.ToString().Contains("3 load doors (2 open before the trip)"), "animated load doors not counted:\n" + log);
     }
     finally { Console.SetOut(stdout); Directory.Delete(animDir, true); }
 }

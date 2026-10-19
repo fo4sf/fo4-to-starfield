@@ -13,6 +13,7 @@ default (docs/spikes/load-door-animations.md):
 Nothing here reads game data: the inputs are a parsed NIF (nif.parse) and a converter manifest.
 """
 import copy
+import json
 import re
 import struct
 
@@ -156,3 +157,85 @@ def survey(models, mesh):
         row["twins"] = [] if row.get("open_seconds") else [look(n) for n in twin_names(m)]
         rows.append(row)
     return rows
+
+
+_NO_GUID = "00000000-0000-0000-0000-000000000000"
+
+
+def read_door_sounds(lines):
+    """Rows of SfInspect `doorsounds` (TSV, header first; build warnings before it are skipped) as dicts with
+    "open" / "close" = {"start", "stop", "condition", "mapping"} or None when the door has no such sound."""
+    rows, header = [], None
+    for line in lines:
+        cols = line.rstrip("\r\n").split("\t")
+        if header is None:
+            if cols and cols[0].lstrip("﻿") == "editor_id":
+                header = [c.lstrip("﻿") for c in cols]
+            continue
+        if len(cols) < len(header) - 1:
+            continue
+        r = dict(zip(header, cols + [""] * (len(header) - len(cols))))
+
+        def snd(kind):
+            start = r.get(kind + "_start", "")
+            if not start or start == _NO_GUID:
+                return None
+            return {"start": start, "stop": r.get(kind + "_stop") or _NO_GUID,
+                    "condition": r.get(kind + "_condition") or None, "mapping": r.get(kind + "_mapping") or None}
+        rows.append({"editor_id": r["editor_id"], "formkey": r["formkey"], "anam": r.get("anam", ""),
+                     "bnam": r.get("bnam", ""), "open": snd("open"), "close": snd("close")})
+    return rows
+
+
+def _key(path):
+    return (path or "").replace("/", "\\").lower()
+
+
+def sound_plan(manifest, sound_rows, ordinary=False):
+    """(new manifest, rows). Gives each rigged load door (load_door.anim) the open and close sounds of a vanilla Starfield
+    door; with ordinary=True also every rigged ordinary door ("door"). The input is not changed. Choice, nearest first:
+    "skeleton": a vanilla door on the same skeleton (BNAM), a *_Load graph preferred (the Akila template rig ->
+    AK_Ext_Bld_WallA_DoorA_Load_01's sounds); "graph": the most common sound pair among vanilla doors playing the same graph
+    (own rigs have no vanilla skeleton; supported hypothesis that it fits). Rows: {"editor_id", "kind", "match", "from"}
+    (match None: no vanilla door to copy from, the door stays silent as today)."""
+    out = copy.deepcopy(manifest)
+    voiced = [r for r in sound_rows if r["open"] or r["close"]]
+    by_bnam, by_anam = {}, {}
+    for r in voiced:
+        by_bnam.setdefault(_key(r["bnam"]), []).append(r)
+        by_anam.setdefault(_key(r["anam"].rpartition("\\")[2]), []).append(r)
+
+    def pick(rig):
+        same = by_bnam.get(_key(rig.get("skeleton")))
+        if same:
+            same = sorted(same, key=lambda r: (not r["anam"].lower().endswith("_load.agx"), r["formkey"]))
+            return "skeleton", same[0]
+        pool = by_anam.get(_key((rig.get("anim_graph") or "").replace("/", "\\").rpartition("\\")[2]))
+        if not pool:
+            return None, None
+        counts = {}
+        for r in pool:
+            sig = json.dumps([r["open"], r["close"]], sort_keys=True)
+            counts.setdefault(sig, []).append(r)
+        best = min(counts.values(), key=lambda g: (-len(g), min(x["formkey"] for x in g)))
+        return "graph", min(best, key=lambda r: r["formkey"])
+
+    rows = []
+    for it in out.get("items", []):
+        targets = []
+        ld = it.get("load_door")
+        if isinstance(ld, dict) and isinstance(ld.get("anim"), dict):
+            targets.append(("load_door", ld["anim"]))
+        if ordinary and isinstance(it.get("door"), dict):
+            targets.append(("door", it["door"]))
+        for kind, rig in targets:
+            match, src = pick(rig)
+            rows.append({"editor_id": it.get("editor_id"), "kind": kind, "match": match,
+                         "from": f"{src['editor_id']} {src['formkey']}" if src else None})
+            if src:
+                if src["open"]:
+                    rig["open_sound"] = dict(src["open"])
+                if src["close"]:
+                    rig["close_sound"] = dict(src["close"])
+                rig["sounds_from"] = src["formkey"]
+    return out, rows

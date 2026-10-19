@@ -9,6 +9,10 @@
   python scripts/door_bridge/load_door_anim.py survey --fo4-data <FO4 Data> --cells <cell.json>... --out <new.json>
       read-only on the game: for every model FO4 places as a teleporting Door in those cell exports, whether its NIF has an
       Open sequence (length, sound keys, hinged) and, if not, whether its non-load twin has one.
+  python scripts/door_bridge/load_door_anim.py sounds --manifest <manifest.json> --doorsounds <doorsounds.tsv> --out <new>
+      writes a NEW manifest where rigged load doors (and with --ordinary-doors every rigged door) carry the open / close
+      sounds of a vanilla door (SfInspect doorsounds over Starfield.esm): same skeleton first, else the commonest pair on
+      the same graph; plus <out>.sounds.json (one row per door and where its sounds came from).
 
 The plugin writer (dotnet/PluginSpike) gives a load door an animation graph only when its manifest entry has "anim", so a
 manifest this tool did not touch builds exactly as before.
@@ -49,7 +53,29 @@ def main(argv=None):
     v.add_argument("--fo4-data", required=True)
     v.add_argument("--cells", nargs="+", required=True)
     v.add_argument("--out", required=True)
+    so = sub.add_parser("sounds")
+    so.add_argument("--manifest", required=True)
+    so.add_argument("--doorsounds", required=True, help="SfInspect <Starfield.esm> doorsounds output (TSV)")
+    so.add_argument("--out", required=True)
+    so.add_argument("--ordinary-doors", action="store_true", help="also give rigged non-load doors their vanilla sounds")
     a = ap.parse_args(argv)
+    if a.cmd == "sounds":
+        if os.path.abspath(a.out) == os.path.abspath(a.manifest):
+            raise SystemExit("refusing to overwrite the input manifest: give a new --out")
+        with open(a.doorsounds, encoding="utf-8-sig", errors="replace") as f:
+            rows = load_door_anim.read_door_sounds(f)
+        new, plan_rows = load_door_anim.sound_plan(read(a.manifest), rows, ordinary=a.ordinary_doors)
+        side = a.out + ".sounds.json"
+        if os.path.exists(side):
+            raise SystemExit(f"refusing to overwrite {side}: give a new file")
+        write_new(a.out, new)
+        counts = {}
+        for r in plan_rows:
+            counts[r["match"] or "none"] = counts.get(r["match"] or "none", 0) + 1
+        write_new(side, {"vanilla_doors_with_sounds": len(rows), "counts": counts, "rows": plan_rows})
+        print(f"{len(plan_rows)} rigged doors: " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items()))
+              + f" (vanilla doors with sounds: {len(rows)}); wrote {a.out}")
+        return 0
     if a.cmd == "survey":
         from fo4sf import pipeline
         models = set()

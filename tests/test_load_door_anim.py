@@ -345,3 +345,87 @@ class BatchFlagTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+AK_SKEL = "doors\\ak_ext_bld_walla_doora_01\\characterassets\\skeleton.rig"
+SOUNDS_TSV = "\n".join([
+    "warning CS8602: build noise before the header",
+    "\t".join(["editor_id", "formkey", "anam", "bnam", "open_start", "open_stop", "open_condition", "open_mapping",
+               "close_start", "close_stop", "close_condition", "close_mapping", "loop"]),
+    "\t".join(["AK_Ext_Bld_WallA_DoorA_01", "0AA24A:Starfield.esm", "AnimTextData\\Tables\\Graphs\\SimpleOpenClose01.agx", AK_SKEL,
+               "aaaaaaaa-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000000", "", "",
+               "aaaaaaaa-0000-0000-0000-000000000002", "00000000-0000-0000-0000-000000000000", "", "", ""]),
+    "\t".join(["AK_Ext_Bld_WallA_DoorA_Load_01", "1C42C2:Starfield.esm", "AnimTextData\\Tables\\Graphs\\SimpleOpenClose02_Load.agx",
+               AK_SKEL, "bbbbbbbb-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000000", "", "000ABC:Starfield.esm",
+               "bbbbbbbb-0000-0000-0000-000000000002", "00000000-0000-0000-0000-000000000000", "", "", ""]),
+    "\t".join(["IndDoorA", "000901:Starfield.esm", "AnimTextData\\Tables\\Graphs\\SimpleOpenClose01.agx", "ind\\a.rig",
+               "cccccccc-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000000", "", "",
+               "", "", "", "", ""]),
+    "\t".join(["IndDoorB", "000902:Starfield.esm", "AnimTextData\\Tables\\Graphs\\SimpleOpenClose01.agx", "ind\\b.rig",
+               "cccccccc-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000000", "", "",
+               "", "", "", "", ""]),
+    "\t".join(["Silent", "000903:Starfield.esm", "", "", "00000000-0000-0000-0000-000000000000", "", "", "", "", "", "", "", ""]),
+]) + "\n"
+
+
+class DoorSoundTests(unittest.TestCase):
+    def manifest(self):
+        tpl = {"anim_graph": "AnimTextData\\Tables\\Graphs\\SimpleOpenClose01.agx", "skeleton": AK_SKEL,
+               "animations": "doors\\ak\\animations", "origin_offset": [0, 0, 0]}
+        own = {"anim_graph": "SimpleOpenClose01.agx", "skeleton": "fo4port\\own\\skeleton.rig", "animations": "x",
+               "rig": "native"}
+        odd = {"anim_graph": "Unheard.agx", "skeleton": "fo4port\\odd\\skeleton.rig", "animations": "y"}
+        return {"items": [item("TplLoad", LOAD, load_door={"bounds": BOUNDS, "anim": dict(tpl)}),
+                          item("OwnLoad", "meshes\\OwnLoad.nif", load_door={"bounds": BOUNDS, "anim": own}),
+                          item("OddLoad", "meshes\\OddLoad.nif", load_door={"bounds": BOUNDS, "anim": odd}),
+                          item("StaticLoad", "meshes\\StaticLoad.nif", load_door={"bounds": BOUNDS}),
+                          item("Plain", "meshes\\Door01.nif", door=dict(tpl))]}
+
+    def test_read_skips_noise_and_empty_sounds(self):
+        rows = load_door_anim.read_door_sounds(io.StringIO(SOUNDS_TSV))
+        self.assertEqual([r["editor_id"] for r in rows][:2], ["AK_Ext_Bld_WallA_DoorA_01", "AK_Ext_Bld_WallA_DoorA_Load_01"])
+        by = {r["editor_id"]: r for r in rows}
+        self.assertEqual(by["AK_Ext_Bld_WallA_DoorA_Load_01"]["open"]["mapping"], "000ABC:Starfield.esm")
+        self.assertIsNone(by["IndDoorA"]["close"])
+        self.assertIsNone(by["Silent"]["open"])
+
+    def test_plan_prefers_the_load_variant_on_the_same_skeleton_then_the_graph(self):
+        m = self.manifest()
+        before = json.dumps(m, sort_keys=True)
+        new, rows = load_door_anim.sound_plan(m, load_door_anim.read_door_sounds(io.StringIO(SOUNDS_TSV)))
+        self.assertEqual(json.dumps(m, sort_keys=True), before)          # input untouched
+        items = {it["editor_id"]: it for it in new["items"]}
+        tpl = items["TplLoad"]["load_door"]["anim"]
+        self.assertEqual(tpl["sounds_from"], "1C42C2:Starfield.esm")       # the vanilla load variant of the Akila rig
+        self.assertEqual(tpl["open_sound"]["start"], "bbbbbbbb-0000-0000-0000-000000000001")
+        own = items["OwnLoad"]["load_door"]["anim"]
+        self.assertEqual(own["open_sound"]["start"], "cccccccc-0000-0000-0000-000000000001")   # commonest pair on the graph
+        self.assertEqual(own["sounds_from"], "000901:Starfield.esm")
+        self.assertNotIn("close_sound", own)
+        self.assertNotIn("open_sound", items["OddLoad"]["load_door"]["anim"])
+        self.assertNotIn("open_sound", items["Plain"]["door"])            # ordinary doors only on request
+        self.assertEqual({r["editor_id"]: r["match"] for r in rows}, {"TplLoad": "skeleton", "OwnLoad": "graph", "OddLoad": None})
+
+    def test_ordinary_doors_on_request(self):
+        new, rows = load_door_anim.sound_plan(self.manifest(), load_door_anim.read_door_sounds(io.StringIO(SOUNDS_TSV)),
+                                              ordinary=True)
+        plain = [it for it in new["items"] if it["editor_id"] == "Plain"][0]["door"]
+        self.assertEqual(plain["sounds_from"], "1C42C2:Starfield.esm")
+        self.assertIn(("Plain", "door", "skeleton"), {(r["editor_id"], r["kind"], r["match"]) for r in rows})
+
+    def test_cli_writes_new_files_only(self):
+        with tempfile.TemporaryDirectory() as d:
+            man, tsv, out = (os.path.join(d, n) for n in ("m.json", "s.tsv", "new.json"))
+            with open(man, "w", encoding="utf-8") as f:
+                json.dump(self.manifest(), f)
+            with open(tsv, "w", encoding="utf-8") as f:
+                f.write(SOUNDS_TSV)
+            with redirect_stdout(io.StringIO()) as o:
+                self.assertEqual(cli.main(["sounds", "--manifest", man, "--doorsounds", tsv, "--out", out]), 0)
+            self.assertIn("graph 1, none 1, skeleton 1", o.getvalue())
+            with open(out + ".sounds.json", encoding="utf-8") as f:
+                self.assertEqual(json.load(f)["counts"], {"skeleton": 1, "graph": 1, "none": 1})
+            with self.assertRaises(SystemExit):
+                cli.main(["sounds", "--manifest", man, "--doorsounds", tsv, "--out", out])
+            with self.assertRaises(SystemExit):
+                cli.main(["sounds", "--manifest", man, "--doorsounds", tsv, "--out", man])
