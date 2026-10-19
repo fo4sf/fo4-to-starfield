@@ -1,5 +1,7 @@
-"""Synthetic tests for Ba2.largest_entries."""
+"""Synthetic tests for Ba2.largest_entries and the ba2-largest CLI."""
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -37,6 +39,23 @@ class LargestEntriesTests(unittest.TestCase):
             a = Ba2(path)
             self.assertEqual(len(a.largest_entries(5)), 1)
             self.assertEqual(a.largest_entries(0), [])
+
+    def test_cli_ba2_largest(self):
+        data = general_archive({"a.txt": b"x" * 50, "b.bin": b"y" * 500}, compressed=False)
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "cli.ba2")
+            with open(path, "wb") as f:
+                f.write(data)
+            env = os.environ.copy()
+            env["PYTHONPATH"] = os.path.join(os.path.dirname(__file__), "..", "src")
+            r = subprocess.run(
+                [sys.executable, "-m", "fo4sf", "ba2-largest", path, "--n", "1"],
+                capture_output=True, text=True, env=env,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertIn("b.bin", r.stdout)
+            self.assertIn("500", r.stdout)
+            self.assertNotIn("a.txt", r.stdout)
 
 
 if __name__ == "__main__":
