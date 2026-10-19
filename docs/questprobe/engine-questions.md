@@ -45,7 +45,9 @@ as evidence:
 
 **Where it runs.** The quest idles, checking every 5 s, until the player shares a parent cell with the COC marker of
 `FO4Port_BostonPublicLibrary02`. That is the safest outdoor route in the memory notes, far from Red Rocket,
-Sanctuary and the museum. The marker's target is that cell's load door farthest from the COC marker. Both are
+Sanctuary and the museum. The marker's target is that cell's load door farthest from the COC marker. The installed
+port's library has no load door (PC, 19 Oct), so the writer falls back to the farthest door, then the farthest object,
+on the marker's floor (within 3 m of its height) and between 8 and 60 m away, so the player can walk to it. Both are
 FO4Port.esm plugin-local ids, resolved at run time with `Game.GetFormFromFile`, the same contract as the new game
 and FO4SF_LoadDoor. `--cell` picks another interior.
 
@@ -89,7 +91,7 @@ python scripts\questprobe\make_questprobe.py stage --out D:\Modding\staging\ques
 ```
 
 `precheck` reads only ContentResources.zip. It confirms that every native and event the three scripts use exists in
-Starfield's base sources: SetStage, OnStageSet, Keyword.SendStoryEventAndWait, ReferenceAlias.ForceRefTo and the
+Starfield's base sources: SetStage, OnStageSet, Keyword.SendStoryEventAndWait (which returns Quest[] in Starfield), ReferenceAlias.ForceRefTo and the
 rest. It also prints the declarations of SetStage, OnStageSet and SendStoryEventAndWait. `stage` writes the plugin,
 checks it, compiles the three scripts, and writes `plan.json` and `README.txt`. All of it lands in a fresh folder of a
 few kilobytes, published only when every step passed. `--no-sm` drops E5 if the Script Event node is not unique.

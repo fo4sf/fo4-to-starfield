@@ -17,7 +17,7 @@ string Property PortPlugin = "FO4Port.esm" Auto Const
 int Property AnchorId Auto Const Mandatory
 {The probe cell's COC marker: the player is "there" when they share its parent cell.}
 int Property TargetId Auto Const Mandatory
-{The cell's load door farthest from the COC marker: the marker's target.}
+{The marker's target: the cell's farthest load door, else a door or object on the COC marker's floor in reach.}
 Keyword Property SMEvent Auto Const
 {FO4SFQuestProbe.esm's story event keyword (None in a --no-sm build: E5 is skipped).}
 Quest Property SMQuest Auto Const
@@ -99,8 +99,13 @@ Function Probe(Actor player)
     Trace("alias target=" + target + " filled=" + (target != None && TargetAlias.GetReference() == target) + " distance=" + player.GetDistance(target))
     ; E5: our keyword's story event, through our own branch
     if SMEvent != None
-        bool sent = SMEvent.SendStoryEventAndWait()
-        Trace("story event sent=" + sent + " sm_running=" + SMQuest.IsRunning())
+        ; Starfield returns the quests the event started (Quest[], PC precheck 19 Oct), not FO4's bool
+        Quest[] startedBy = SMEvent.SendStoryEventAndWait()
+        int count = 0
+        if startedBy
+            count = startedBy.Length
+        endif
+        Trace("story event started=" + count + " ours=" + (count > 0 && startedBy.Find(SMQuest) >= 0) + " sm_running=" + SMQuest.IsRunning())
     endif
     SetStage(20)
 EndFunction

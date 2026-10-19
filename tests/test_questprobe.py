@@ -78,7 +78,8 @@ class ContractTests(unittest.TestCase):
     def test_every_call_is_prechecked(self):
         listed = {f for bases in qp.NATIVES[qp.SCRIPT].values() for f in bases}
         own = set(re.findall(r"^\s*\w*\s*Function\s+(\w+)", read(PSC), re.M))
-        self.assertEqual(set(re.findall(r"\.(\w+)\(", read(PSC))) - listed - own, set())
+        array = {"Find", "RFind", "Add", "Insert", "Remove", "Clear"}            # array intrinsics, not natives
+        self.assertEqual(set(re.findall(r"\.(\w+)\(", read(PSC))) - listed - own - array, set())
         sm_listed = {f for bases in qp.NATIVES[qp.SM_SCRIPT].values() for f in bases}
         self.assertEqual(set(re.findall(r"\.(\w+)\(", read(SMQ))) - sm_listed, set())
         events = {e for es in qp.EVENTS.values() for e in es}
@@ -92,6 +93,12 @@ class ContractTests(unittest.TestCase):
         for path in (PSC, FRAG, SMQ):
             names = re.findall(r"^\s*(?:\w+)(?:\[\])?\s+(\w+)\s*(?:=|$)", read(path), re.M)
             self.assertEqual({n.lower() for n in names} & types, set(), path)
+
+    def test_story_event_returns_quests(self):
+        """Starfield's SendStoryEventAndWait returns Quest[] (PC precheck, 19 Oct), FO4's a bool."""
+        psc = read(PSC)
+        self.assertIn("Quest[] startedBy = SMEvent.SendStoryEventAndWait()", psc)
+        self.assertNotRegex(psc, r"bool\s+\w+\s*=\s*SMEvent\.SendStoryEventAndWait")
 
     def test_scripts_for(self):
         self.assertEqual(qp.scripts_for(True), [qp.SCRIPT, qp.FRAGMENTS, qp.SM_SCRIPT])
@@ -138,7 +145,7 @@ LOGTEXT = """[10/20/2026 - 10:00:00AM] FO4SF_QPROBE rt=1.0 init anchor=FO4Port.e
 [10/20/2026 - 10:00:05AM] FO4SF_QPROBE rt=6.1 setstage 10 stage=10 done10=True fragment_by_now=10
 [10/20/2026 - 10:00:05AM] FO4SF_QPROBE rt=6.2 alias target=[ObjectReference] filled=True distance=40.0
 [10/20/2026 - 10:00:05AM] FO4SF_QPROBE rt=6.3 sm quest started
-[10/20/2026 - 10:00:05AM] FO4SF_QPROBE rt=6.3 story event sent=True sm_running=True
+[10/20/2026 - 10:00:05AM] FO4SF_QPROBE rt=6.3 story event started=1 ours=True sm_running=True
 [10/20/2026 - 10:00:05AM] FO4SF_QPROBE rt=6.4 onstageset stage=20 item=0 after=0.3
 [10/20/2026 - 10:00:10AM] FO4SF_QPROBE rt=11.0 result E1_fragment=PASS E2_onstageset=PASS (1: 20) E3_alias=FILLED E4_questtype=LOOK E5_storymanager=PASS
 [10/20/2026 - 10:00:10AM] FO4SF_NEWGAME rt=11.0 status stage=200

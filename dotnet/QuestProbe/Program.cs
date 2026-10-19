@@ -12,7 +12,8 @@
 //        Starfield's own Script Event node. Starfield.esm is read for the shapes copied from vanilla records: the quest
 //        type's keyword type (QuestTypeSideQuest 047600), MQ00's fragment layout and the Script Event node. The port is
 //        read for the cell's COC marker (the "player is here" anchor) and the marker's target, the cell's load door
-//        farthest from it; both are resolved at run time with Game.GetFormFromFile (plugin-local ids).
+//        farthest from it (else a door or an object on the marker's floor, see Resolve); both are resolved at run time
+//        with Game.GetFormFromFile (plugin-local ids).
 //   check <plugin> <Starfield.esm> <FO4Port.esm> [same options]
 //        reads the plugin back and checks every record, property and id the scripts rely on (exit 1 on a problem); also
 //        prints the vanilla shapes it was built from, as evidence.
@@ -89,9 +90,12 @@ static class QuestProbe
     // ---------------------------------------------------------------- the port: where the probe runs
 
     public record Place(uint Anchor, uint Target, string TargetBase, float Distance);
+    public const float MaxRise = 3f, MaxReach = 60f, MinReach = 8f;
 
-    /// The cell's one COC marker (the player's "here" test: same parent cell) and the marker's target: the load door
-    /// (a placed object with a teleport destination) farthest from it, so the compass has somewhere to point.
+    /// The cell's one COC marker (the player's "here" test: same parent cell) and the marker's target, so the compass
+    /// has somewhere to point: the load door (a placed object with a teleport destination) farthest from it; in a cell
+    /// with none (the library in the installed port, PC 19 Oct), the farthest door, then the farthest object, on the
+    /// marker's floor (within MaxRise metres of its height) and within MaxReach metres, so the player can walk to it.
     public static Place Resolve(string portPath, string cellEdid)
     {
         using var port = SF.StarfieldMod.CreateFromBinaryOverlay(portPath, SF.StarfieldRelease.Starfield, Full(SfEsm));
@@ -102,9 +106,15 @@ static class QuestProbe
         if (cocs.Count != 1) throw new Refusal($"{cellEdid} has {cocs.Count} COC markers, not one");
         var a = cocs[0].Position;
         float Dist(SF.IPlacedObjectGetter r) => MathF.Sqrt(MathF.Pow(r.Position.X - a.X, 2) + MathF.Pow(r.Position.Y - a.Y, 2) + MathF.Pow(r.Position.Z - a.Z, 2));
-        var door = refs.Where(r => r.TeleportDestination is not null && r.FormKey.ModKey == port.ModKey).OrderByDescending(Dist).ThenBy(r => r.FormKey.ID).FirstOrDefault()
-                   ?? throw new Refusal($"{cellEdid} has no load door to point the marker at");
-        var b = port.EnumerateMajorRecords().FirstOrDefault(x => x.FormKey == door.Base.FormKey) is { } rec ? $"{rec.EditorID}" : door.Base.FormKey.ToString();
+        var doors = port.Doors.Select(d => d.FormKey).ToHashSet();
+        var own = refs.Where(r => r.FormKey.ModKey == port.ModKey && r != cocs[0]).ToList();
+        var level = own.Where(r => MathF.Abs(r.Position.Z - a.Z) <= MaxRise && Dist(r) <= MaxReach && Dist(r) >= MinReach).ToList();
+        SF.IPlacedObjectGetter? Far(IEnumerable<SF.IPlacedObjectGetter> c) => c.OrderByDescending(Dist).ThenBy(r => r.FormKey.ID).FirstOrDefault();
+        var (door, kind) = Far(own.Where(r => r.TeleportDestination is not null)) is { } ld ? (ld, "load door")
+                         : Far(level.Where(r => doors.Contains(r.Base.FormKey))) is { } d ? (d, "door")
+                         : Far(level) is { } o ? (o, "object")
+                         : throw new Refusal($"{cellEdid} has nothing between {MinReach} and {MaxReach} m of its COC marker on its floor to point the marker at");
+        var b = (port.EnumerateMajorRecords().FirstOrDefault(x => x.FormKey == door.Base.FormKey) is { } rec ? $"{rec.EditorID}" : door.Base.FormKey.ToString()) + $", {kind}";
         return new Place(cocs[0].FormKey.ID, door.FormKey.ID, b, Dist(door));
     }
 
@@ -406,17 +416,43 @@ static class QuestProbe
         cell.Persistent.Add(near);
         cell.Persistent.Add(far);
         cell.Temporary.Add(R(0x804, pdoor.FormKey, 90));   // a door with no teleport is not a target
+        // cells with no load door (the installed library, PC 19 Oct): the farthest door on the marker's floor and in
+        // reach, else the farthest object there; never one a floor up, out of reach, or next to the marker
+        var pstat = new SF.Static(new FormKey(portKey, 0x811), rel) { EditorID = "FO4Port_Shelf" };
+        port.Statics.Add(pstat);
+        SF.PlacedObject Rz(uint id, FormKey b, float x, float z) { var r = R(id, b, x); r.Position = new P3Float(x, 0, z); return r; }
+        var noLoad = new SF.Cell(new FormKey(portKey, 0x820), rel) { EditorID = "FO4Port_NoLoadDoors", Flags = SF.Cell.Flag.IsInteriorCell };
+        noLoad.Temporary.Add(Rz(0x821, new FormKey(SfEsm, CocMarkerId), 0, 0));
+        noLoad.Temporary.Add(Rz(0x822, pstat.FormKey, 50, 1));
+        noLoad.Temporary.Add(Rz(0x823, pdoor.FormKey, 30, 0));
+        noLoad.Temporary.Add(Rz(0x824, pdoor.FormKey, 45, 10));
+        noLoad.Temporary.Add(Rz(0x825, pdoor.FormKey, 100, 0));
+        var statsOnly = new SF.Cell(new FormKey(portKey, 0x830), rel) { EditorID = "FO4Port_ObjectsOnly", Flags = SF.Cell.Flag.IsInteriorCell };
+        statsOnly.Temporary.Add(Rz(0x831, new FormKey(SfEsm, CocMarkerId), 0, 0));
+        statsOnly.Temporary.Add(Rz(0x832, pstat.FormKey, 5, 0));
+        statsOnly.Temporary.Add(Rz(0x833, pstat.FormKey, 25, -2));
+        statsOnly.Temporary.Add(Rz(0x834, pstat.FormKey, 70, 0));
+        var empty = new SF.Cell(new FormKey(portKey, 0x840), rel) { EditorID = "FO4Port_Bare", Flags = SF.Cell.Flag.IsInteriorCell };
+        empty.Temporary.Add(Rz(0x841, new FormKey(SfEsm, CocMarkerId), 0, 0));
+        empty.Temporary.Add(Rz(0x842, pstat.FormKey, 3, 0));
         var pb = new SF.CellBlock { BlockNumber = 0, GroupType = SF.GroupTypeEnum.InteriorCellBlock };
         var ps = new SF.CellSubBlock { BlockNumber = 0, GroupType = SF.GroupTypeEnum.InteriorCellSubBlock };
         ps.Cells.Add(cell);
+        ps.Cells.Add(noLoad);
+        ps.Cells.Add(statsOnly);
+        ps.Cells.Add(empty);
         pb.SubBlocks.Add(ps);
         port.Cells.Records.Add(pb);
-        port.ModHeader.Stats.NextFormID = 0x811;
+        port.ModHeader.Stats.NextFormID = 0x850;
         var portPath = Path.Combine(dir, portKey.FileName);
         port.BeginWrite.ToPath(portPath).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
 
         var place = Resolve(portPath, DefaultCell);
         if (place.Anchor != 0x801 || place.Target != 0x803 || MathF.Abs(place.Distance - 40) > 1e-3) { Console.WriteLine($"FAIL  resolve {place}"); return 1; }
+        foreach (var (c, want) in new[] { ("FO4Port_NoLoadDoors", 0x823u), ("FO4Port_ObjectsOnly", 0x833u) })
+            if (Resolve(portPath, c).Target != want) { Console.WriteLine($"FAIL  resolve {c}: {Resolve(portPath, c)}"); return 1; }
+        try { Resolve(portPath, "FO4Port_Bare"); Console.WriteLine("FAIL  resolve accepted a cell with nothing in reach"); return 1; }
+        catch (Refusal) { }
 
         var outDir = Path.Combine(dir, "out");
         var plain = Options.From(Array.Empty<string>());
