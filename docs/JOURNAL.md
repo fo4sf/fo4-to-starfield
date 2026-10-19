@@ -1891,3 +1891,10 @@ the build side. No deploy, no game.
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+
+
+## 2026-10-19 — Codex: canonical source identities for door-lock keys
+
+Reproduced PR375's lock-key lookup losing a valid lock after a case-only FormKey spelling change. Two case-equivalent source reservations could also select different target keys without a warning. The isolated fix parses KEYM source identities with Mutagen FormKey equality and rejects malformed or canonical-conflicting reservations before record/high-water mutation. It does not renumber or rewrite the source map, invent keys, or change the existing warning policy for genuinely missing, deleted or wrong-record targets.
+
+The new case regression fails before the fix and passes after it; conflict/malformed-map controls preserve the caller's map, key binding and high-water on refusal. The complete ReferenceLinks synthetic/CLI suite passes, plus seven original actual CLI cases: case-varied keys now bind identically, corrupt maps refuse even with --allow-unresolved, and unsupported targets retain warnings. Five independent typed binary readbacks confirm the written locks. Source plugin/map/export hashes stay unchanged. Independent QA remains required before lead integration. No native lock/digipick/quest acceptance, real stage, install or game input was performed.

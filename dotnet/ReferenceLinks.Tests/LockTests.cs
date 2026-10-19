@@ -84,6 +84,35 @@ public static class LockTests
         Require(again.Locks == 2 && again.Issues.Count == 2 && refs["keyed"].Lock!.Key.FormKey == key.FormKey &&
                 refs["plain"].Lock!.Level == LockLevel.Advanced && mod.Keys.Count == 1, "repeat application changed locks");
 
+        // Same owning plugin/local ID, regardless of filename/hex spelling. Do not turn a
+        // successfully translated key into a warning and an unlocked door on a case-only change.
+        var caseIds = new Dictionary<string, uint>(ids);
+        caseIds.Remove("KEYM:000123:Fallout4.esm");
+        caseIds.Add("KEYM:00A123:Fallout4.esm", 0x950);
+        Require(FormKey.Factory("00A123:Fallout4.esm") == FormKey.Factory("00a123:fallout4.esm"), "fixture keys not canonically equal");
+        using var caseExport = JsonDocument.Parse("""
+{"cell":"First","refs":[{"formkey":"keyed","lock_data":{"level":255,"key":"00a123:fallout4.esm","flags":0,"unused":0}}]}
+""");
+        var caseReport = Relationships.Apply(mod, caseIds, new[] { caseExport.RootElement });
+        Require(caseReport.Locks == 1 && caseReport.Issues.Count == 0 && caseReport.Warnings.Count == 0 &&
+                refs["keyed"].Lock!.Key.FormKey == key.FormKey, "canonical key case variation lost its lock");
+
+        // A second spelling may not reserve a second target for that same source key. Refuse
+        // before touching records/high-water or changing the caller's source map.
+        foreach (var badSource in new[] { "KEYM:00a123:fallout4.esm", "KEYM:not-a-formkey" })
+        {
+            var conflict = new Dictionary<string, uint>(caseIds) { [badSource] = 0x952 };
+            var beforeMap = JsonSerializer.Serialize(conflict);
+            var beforeNext = mod.ModHeader.Stats.NextFormID;
+            var beforeKey = refs["keyed"].Lock!.Key.FormKey;
+            bool refused = false;
+            try { Relationships.Apply(mod, conflict, new[] { caseExport.RootElement }); }
+            catch (InvalidOperationException e) when (e.Message.Contains("key identity", StringComparison.OrdinalIgnoreCase)) { refused = true; }
+            Require(refused, "invalid or conflicting canonical key identity was accepted: " + badSource);
+            Require(JsonSerializer.Serialize(conflict) == beforeMap && mod.ModHeader.Stats.NextFormID == beforeNext &&
+                    refs["keyed"].Lock!.Key.FormKey == beforeKey, "refused key map changed input state");
+        }
+
         var directory = Path.Combine(Path.GetTempPath(), "fo4sf-locks-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         try

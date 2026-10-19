@@ -45,6 +45,17 @@ public static class Relationships
     {
         if (ids.Values.Any(id => id == 0 || id >= 0x1000000) || ids.Values.Distinct().Count() != ids.Count)
             throw new InvalidOperationException("source map contains duplicate or invalid full-plugin FormIDs");
+        // A key's source identity is its owning plugin/local ID, not its spelling.
+        // Validate all reservations before records or allocation high-water can change.
+        var keyIds = new Dictionary<FormKey, uint>();
+        foreach (var (identity, id) in ids)
+        {
+            if (!identity.StartsWith("KEYM:", StringComparison.Ordinal)) continue;
+            if (!FormKey.TryFactory(identity.AsSpan(5), out var sourceKey) || sourceKey.IsNull)
+                throw new InvalidOperationException("invalid source key identity: " + identity);
+            if (!keyIds.TryAdd(sourceKey, id))
+                throw new InvalidOperationException("conflicting canonical key identity: " + identity);
+        }
         var report = new LinkReport();
         var cells = mod.Cells.Records.SelectMany(b => b.SubBlocks).SelectMany(s => s.Cells).ToDictionary(c => c.FormKey);
         var placed = cells.Values.SelectMany(c => c.Temporary.Concat(c.Persistent)).OfType<PlacedObject>().ToDictionary(r => r.FormKey);
@@ -269,7 +280,7 @@ public static class Relationships
             {
                 // Same rule as keywords: an identity in the map AND an actual, non-deleted KEYM in the plugin.
                 // FO4 keys are not converted by PluginSpike, so this normally fails; never invent a key.
-                if (ids.TryGetValue("KEYM:" + sourceKey, out var keyId))
+                if (FormKey.TryFactory(sourceKey.AsSpan(), out var canonicalKey) && keyIds.TryGetValue(canonicalKey, out var keyId))
                     key = mod.Keys.FirstOrDefault(k => k.FormKey == new FormKey(mod.ModKey, keyId) && (k.MajorRecordFlagsRaw & 0x20) == 0);
                 if (key == null)
                 {
