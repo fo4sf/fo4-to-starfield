@@ -36,7 +36,7 @@ Record: FACT, identical in both games for everything FO4 uses (verified, xEdit `
 | Attack on Sight towns (Diamond City, Goodneighbor) | Track Crime + Attack On Sight in CRVA, same fields | data copy | verified fields |
 | vendors on factions (VEND, VENC, VENV, hours) | the same vendor block; Starfield's barter menu | data copy (radius u16 to float) | verified |
 | companion crime factions (Preston's `CompanionCrimeFaction_Preston`) | affinity events (AFFE) for approval; our own crime faction for "turn hostile on assault" | rebuild light | supported hypothesis |
-| RELA relationships (64) | RELA still defined in CE2, unused by Starfield.esm; GetRelationshipRank kept | data copy, one in-game check | supported hypothesis |
+| RELA relationships (64) | RELA still defined in CE2, unused by Starfield.esm; GetRelationshipRank kept | data copy, one in-game check; Mutagen has no Starfield RELA group yet (raw write or contribution) | supported hypothesis |
 
 **Starfield extras FO4 never had (optional, later, owner's call):**
 
@@ -47,6 +47,9 @@ Record: FACT, identical in both games for everything FO4 uses (verified, xEdit `
 | **VTCK faction voice** (a voice type or list per faction) | generic barks for faction members without setting every NPC | point at FO4's own voice types | field verified; use unresolved |
 | **DNAM faction type keyword** | grouping our factions for scripts and conditions | our own keywords only | field verified; what Starfield uses it for unresolved |
 | **Arrest, bounty and prison** (CRVA Arrest, PRIS prison door marker, GetArrestedState, GetPlayerBountyCrimeFaction (905)) | real crime in Diamond City: guards arrest, a cell in the security office, bounty paid at the gate | our town faction with Arrest on and one PRIS entry whose ship and contraband markers are empty | fields verified; whether empty ship markers are accepted is unresolved; **not FO4 behaviour** (FO4's crime was switched off), so a feature, not a port |
+
+Mutagen types Starfield's FACT fully (relations, crime values, prisons, vendors, herd, formation radius; verified
+schema, framework wave 2), so every tie in this table can be written by the converter.
 
 Default for the port: relations, reactions, Attack on Sight and vendors now; herds and formations once creatures and
 patrols are in (they cost data only); arrest and prison only if the owner wants it, behind an option.

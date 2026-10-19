@@ -105,7 +105,7 @@ reusing them: [starfield-systems-to-reuse.md](starfield-systems-to-reuse.md).
 | NPC_ CRIF | CRIF | translate | only to our own factions |
 | LCTN FNAM unreported crime faction | same | translate | never a Starfield faction |
 | XOWN / XRNK | same | translate | needed for sandbox UseOwnedOnly and theft checks |
-| RELA | RELA (unused by vanilla) | data copy | check in game |
+| RELA | RELA (unused by vanilla) | data copy | check in game; Mutagen's Starfield code has no RELA group (verified, wave 2), so raw record writing or a Mutagen contribution |
 | ASTP association types | none in Starfield.esm | data copy | same caveat as RELA |
 | companion crime factions + scripts | affinity events (AFFE) or our scripts | rebuild | companion design is its own topic |
 
