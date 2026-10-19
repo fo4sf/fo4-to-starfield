@@ -115,6 +115,13 @@ public static class LockTests
         catch (InvalidOperationException e) { refusal = e.Message; }
         Require(refusal != null && refusal.Contains("two target IDs") && refs["keyed"].Lock == null && refs["plain"].Lock!.Level == LockLevel.Advanced,
             "ambiguous key reservation was not refused before changes: " + refusal);
+        foreach (var bad in new[] { "KEYM:not-a-formkey", "KEYM:000000:Null" })
+        {
+            string? invalid = null;
+            try { Relationships.Apply(mod, new Dictionary<string, uint>(ids) { [bad] = 0x953 }, sources); }
+            catch (InvalidOperationException e) { invalid = e.Message; }
+            Require(invalid != null && invalid.Contains("invalid key identity") && refs["keyed"].Lock == null, bad + " was accepted: " + invalid);
+        }
         Console.WriteLine("Door lock translation, refusal and binary round-trip synthetic checks passed.");
     }
 }

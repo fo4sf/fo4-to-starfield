@@ -69,8 +69,9 @@ public static class Relationships
         var keyIds = new Dictionary<FormKey, uint>();
         foreach (var (identity, id) in ids)
         {
-            if (!identity.StartsWith("KEYM:", StringComparison.Ordinal) || !FormKey.TryFactory(identity.Substring(5), out var fk))
-                continue;
+            if (!identity.StartsWith("KEYM:", StringComparison.Ordinal)) continue;
+            if (!FormKey.TryFactory(identity.Substring(5), out var fk) || fk.IsNull)
+                throw new InvalidOperationException("source map has an invalid key identity: " + identity);   // as Codex's #384
             if (keyIds.TryGetValue(fk, out var prior) && prior != id)
                 throw new InvalidOperationException($"source map reserves key {fk} at two target IDs ({prior:X6}, {id:X6}) under differently spelled identities");
             keyIds[fk] = id;
