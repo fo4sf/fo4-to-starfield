@@ -404,9 +404,9 @@ def main():
     if total:
         print(f"  Failure summary: {total} failures across {unique} unique top-level reasons")
         print("  Top failure reasons:")
-        for reason, count in reason_counts.most_common(5):
+        for reason, count in reason_counts.most_common(8):  # show a few more
             pct = 100.0 * count / total
-            print(f"    {count:4d} ({pct:5.1f}%)  {reason[:80]}")
+            print(f"    {count:4d} ({pct:5.1f}%)  {reason[:100]}")
             if examples[reason]:
                 print(f"      examples: {', '.join(examples[reason][:3])}")
     else:
