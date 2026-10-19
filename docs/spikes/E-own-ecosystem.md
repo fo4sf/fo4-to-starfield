@@ -32,11 +32,11 @@ Status: plan only. Nothing here is built or tested. Labels as in docs/ai/researc
 
 ## 3. The hard parts, with what is known
 
-1. **Animations (unresolved).** FO4 ships Havok 2014 packfiles (`hkpackfile.py` reads them). How Starfield stores and
-   drives animation (its file format, behavior graphs and whether Havok behavior files can be added by plugins) has not
-   been measured in this project. First task: inventory Starfield's animation files and one FO4 human walk cycle, and
-   decide between retargeting FO4 clips onto Starfield's human skeleton and keeping Starfield's locomotion for humans
-   at first (ACTOR-MILESTONE step 4 already allows native animation for the first proof).
+1. **Animations.** Verified (E1): FO4 ships Havok packfiles (14,128 .hkx in Fallout4 - Animations.ba2, 371 in
+   DLCRobot, 49 in DLCworkshop01). Starfield - Animations.ba2 has no .hkx: 19,358 .af, 19,303 .afx, 390 .rig, 347 .agx
+   graphs and 12 .xtbl tables (anim_events, anim_files, ...). So FO4 clips cannot be dropped in. Unresolved: the .af/.afx
+   layout. Decision for now: humans and robots run Starfield's own locomotion on its rigs (ACTOR-MILESTONE step 4), and
+   converting FO4 clips (hkx decode, then an .af writer) is its own spike that starts with one .af layout read.
 2. **Papyrus (supported hypothesis).** Quests run on scripts. FO4 ships compiled .pex only; Starfield's compiler needs
    source. Route: decompile each FO4 .pex on the player's PC with an open-source decompiler (Champollion), map FO4 API
    calls that differ (Pip-Boy, workshop, perks, F4SE-free calls) to a shim script library we write, and recompile with
@@ -44,8 +44,9 @@ Status: plan only. Nothing here is built or tested. Labels as in docs/ai/researc
 3. **Records (verified tooling).** Mutagen reads every FO4 record type and writes Starfield QUST, DIAL, INFO, SCEN,
    PACK, NPC_ (raider-conversion.md section 4 lists what it cannot write for NPC_). The bulk converter generalises
    dotnet/Mission and dotnet/ActorRaider rather than starting over.
-4. **UI (unresolved).** Whether Starfield's menus can be replaced or added from a plugin's interface files, and what
-   format they use, is not yet measured. A Pip-Boy built as our own menu (original code and art, FO4's text and data)
+4. **UI.** Verified (E1): Starfield - Interface.ba2 holds 250 .swf and 29 .gfx (Scaleform, as FO4's interface is), e.g.
+   interface\\almanacmenu.swf, plus 3 .json data providers. Supported hypothesis: a menu of our own can be added as a
+   loose .swf; unresolved: how a new menu is opened from Papyrus without SFSE. A Pip-Boy built as our own menu (original code and art, FO4's text and data)
    is the target; a Papyrus message-box Pip-Boy is the fallback for testing.
 5. **Keeping Starfield out (supported hypothesis).** Override Starfield's start-game-enabled quests to off and add our
    own start quest that moves the player into Vault 111; hide Starfield HUD pieces only where the UI work shows how.
@@ -53,11 +54,23 @@ Status: plan only. Nothing here is built or tested. Labels as in docs/ai/researc
 6. **DLC.** Each DLC esm is read as another source master with its own FormID range in our output (deterministic
    FormIDs, PLAN.md principle 6). DLC so far on the PC: DLCRobot, DLCworkshop01; the other four still need installing.
 
+## E1 inventory (verified, PC job AR, 2026-10-19; read-only record-header walk, archives via fo4sf.ba2)
+
+| esm | NPC_ | RACE | QUST | DIAL | INFO | SCEN | PACK | IDLE | VTYP |
+|---|---|---|---|---|---|---|---|---|---|
+| Fallout4.esm | 3015 | 45 | 1336 | 35443 | 78089 | 3568 | 3828 | 3025 | 531 |
+| DLCRobot.esm | 235 | 8 | 112 | 1084 | 3649 | 184 | 99 | 224 | 16 |
+| DLCworkshop01.esm | 38 | 23 | 15 | 1 | 3 | 0 | 5 | 7 | 0 |
+
+Scripts (.pex): Fallout4 - Misc.ba2 7875, DLCRobot - Main.ba2 483, DLCworkshop01 - Main.ba2 43. DIAL and INFO match the
+Codsworth picker's counts. Not installed: DLCCoast, DLCworkshop02, DLCworkshop03, DLCNukaWorld. Full output on the PC:
+D:\\Modding\\scratch\\e1_inventory\\e1.md.
+
 ## 4. Order (bounded tasks; owner priorities first: Codsworth, the mission, the map)
 
 | # | Task | Owner | Needs | Done when |
 |---|---|---|---|---|
-| E1 | Inventory: counts and samples of NPC_, RACE, QUST, DIAL, INFO, SCEN, PACK, IDLE, .hkx and .pex across Fallout4.esm and all DLC; Starfield's animation and interface file types | PC (read-only) | Fo4Export on the PC; the other 4 DLC installed | a table in this note with file, count and command |
+| E1 (done) | Inventory: counts and samples of NPC_, RACE, QUST, DIAL, INFO, SCEN, PACK, IDLE, .hkx and .pex across Fallout4.esm and all DLC; Starfield's animation and interface file types | PC (read-only) | Fo4Export on the PC; the other 4 DLC installed | a table in this note with file, count and command |
 | E2 | Papyrus round trip on 20 FO4 quest scripts (decompile, shim, compile) | PC + cloud | E1, Creation Kit | a pass rate and the failing call list |
 | E3 | Animation route decision: one FO4 walk cycle on a Starfield human, or native locomotion first | cloud research, PC test | E1 | a go/no-go with a screenshot or log |
 | E4 | Bulk NPC_ converter for humans (stand-in bodies allowed), then the FO4 human body | cloud | E1 | every Concord and Sanctuary actor placed; offline tests on synthetic masters |
