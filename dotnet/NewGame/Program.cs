@@ -14,7 +14,7 @@
 //        20 / 30 / 40 / 200; objective 10) carrying FO4SF_NewGameQuest (and FO4SF_NewGameLooks unless --no-looks) with
 //        its properties, and MESG FO4SF_NewGameElevator (two buttons). The port and the core are read for the ids and
 //        positions the script resolves at run time with Game.GetFormFromFile (plugin-local ids): the vault anchor (the
-//        COC marker of FO4Port_Vault111Cryo), the cog door (formids.json REFR:FO4Port_Vault111Cryo:000330C3:...; 0 when
+//        COC marker of FO4Port_Vault111Cryo), the cog door (formids.json REFR:FO4Port_Vault111Cryo:0330C3:...; 0 when
 //        the port has none) and the exit anchor (the core's Vault 111 map marker). --mq101debug also overrides
 //        Starfield's GLOB MQ101Debug (the debug start path; off by default, see the doc).
 //   check <plugin> <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> [same options]
@@ -201,9 +201,16 @@ static class NewGame
     }
 
     /// PluginSpike's key for the cog door's reference: REFR:FO4Port_Vault111Cryo:<FO4 FormKey>, the FormKey as Mutagen
-    /// prints it (000330C3:Fallout4.esm).
-    public static bool IsCogDoorKey(string key) =>
-        key.Equals($"REFR:{VaultCell}:{Fo4CogDoor:X8}:Fallout4.esm", StringComparison.OrdinalIgnoreCase);
+    /// prints it (0330C3:Fallout4.esm, six digits; the PC's first build, 19 Oct, found no match for eight). The id is
+    /// compared as a number, so either width matches.
+    public static bool IsCogDoorKey(string key)
+    {
+        var prefix = $"REFR:{VaultCell}:";
+        if (!key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return false;
+        var parts = key[prefix.Length..].Split(':');
+        return parts.Length == 2 && parts[1].Equals("Fallout4.esm", StringComparison.OrdinalIgnoreCase) &&
+               uint.TryParse(parts[0], System.Globalization.NumberStyles.HexNumber, null, out var id) && id == Fo4CogDoor;
+    }
 
     // ---------------------------------------------------------------- write (Starfield)
 
@@ -453,7 +460,7 @@ static class NewGame
         var portPath = Path.Combine(dir, portKey.FileName);
         port.BeginWrite.ToPath(portPath).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
         var idsPath = Path.Combine(dir, "formids.json");
-        File.WriteAllText(idsPath, $"{{\"CELL:{VaultCell}\": {0x800}, \"REFR:{VaultCell}:000330C3:Fallout4.esm\": {0x802}, \"DOOR:FO4Port_VltGearDoor01\": {0x810}}}");
+        File.WriteAllText(idsPath, $"{{\"CELL:{VaultCell}\": {0x800}, \"REFR:{VaultCell}:0330C3:Fallout4.esm\": {0x802}, \"DOOR:FO4Port_VltGearDoor01\": {0x810}}}");
         var noCogIds = Path.Combine(dir, "formids_nocog.json");
         File.WriteAllText(noCogIds, $"{{\"CELL:{VaultCell}\": {0x800}}}");
         // a core with the world and its Vault 111 map marker, persistent
@@ -480,6 +487,9 @@ static class NewGame
             { Console.WriteLine($"FAIL  pod stand point {string.Join(",", stand)}"); return 1; }
         if (pts.GetProperty("arrival").GetProperty("to").GetString() != "000998E3") { Console.WriteLine("FAIL  arrival"); return 1; }
         if (!IsPlayerPod("Vault111PlayerCryopodREF") || IsPlayerPod("MQPlayerSpousePodREF") || !IsPlayerPod("MQPlayerCryopodREF") || IsPlayerPod(null)) { Console.WriteLine("FAIL  IsPlayerPod"); return 1; }
+        if (!IsCogDoorKey($"REFR:{VaultCell}:0330C3:Fallout4.esm") || !IsCogDoorKey($"REFR:{VaultCell}:000330C3:Fallout4.esm") ||
+            IsCogDoorKey($"REFR:{VaultCell}:0330C4:Fallout4.esm") || IsCogDoorKey($"REFR:FO4Port_Other:0330C3:Fallout4.esm") ||
+            IsCogDoorKey($"REFR:{VaultCell}:0330C3:DLCRobot.esm")) { Console.WriteLine("FAIL  IsCogDoorKey"); return 1; }
 
         var outDir = Path.Combine(dir, "out");
         var plain = Options.From(Array.Empty<string>());

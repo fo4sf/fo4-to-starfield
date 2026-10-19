@@ -188,11 +188,11 @@ Function InVault(Actor player, int stage)
         return
     endif
     if stage == 20 && CogDoorId > 0 && Near(player, ConsoleX, ConsoleY, ConsoleZ, ConsoleRadius)
-        ObjectReference door = Game.GetFormFromFile(CogDoorId, VaultPlugin) as ObjectReference
-        if door != None
-            int before = door.GetOpenState()
-            door.SetOpen(True)
-            Trace("cog door open_state before=" + before + " after=" + door.GetOpenState())
+        ObjectReference cogDoor = Game.GetFormFromFile(CogDoorId, VaultPlugin) as ObjectReference
+        if cogDoor != None
+            int before = cogDoor.GetOpenState()
+            cogDoor.SetOpen(True)
+            Trace("cog door open_state before=" + before + " after=" + cogDoor.GetOpenState())
         else
             Trace("cog door " + VaultPlugin + ":" + CogDoorId + " does not resolve")
         endif

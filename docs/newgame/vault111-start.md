@@ -58,7 +58,7 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
 - So the script resolves its places at run time with `Game.GetFormFromFile(id, plugin)` (the `FO4SF_LoadDoor`
   contract): the vault anchor is the COC marker of `FO4Port_Vault111Cryo`; the exit anchor is the core's persistent
   `FO4Core_CommonwealthMapMarkerVault111`; the cog door is the port's reference keyed
-  `REFR:FO4Port_Vault111Cryo:000330C3:Fallout4.esm` in its stable `formids.json`. The writer reads the port, its
+  `REFR:FO4Port_Vault111Cryo:0330C3:Fallout4.esm` (Mutagen prints six digits; the id is matched as a number) in its stable `formids.json`. The writer reads the port, its
   `formids.json` and the core to find those ids and refuses when any is missing or ambiguous; `check` re-reads them.
   Because port and core ids are stable across rebuilds, a rebuilt port or core does not need a rebuilt plugin, but the
   stage pins their SHA-256 and `verify` refuses an install against other bytes until the stage is re-run (a quick,
