@@ -16,7 +16,7 @@
 # 8 the experiment plugins are no longer active after the save loaded, or the load order dialog could not be answered
 # with "Current" (loadorder.ps1; nothing tested, the game is left running for the runner to close),
 # 9 no valid controller lease for this owner, or python could not run the check (only with FO4SF_LEASE_DIR set;
-# nothing closed, deployed or launched), 10 Steam (or Starfield.exe, FO4SF_LAUNCH=exe) was asked to start the game and no Starfield process was alive 20 s
+# nothing closed, deployed or launched), 10 Starfield.exe (or Steam, FO4SF_LAUNCH=steam) was asked to start the game and no Starfield process was alive 20 s
 # after it appeared (the screen is saved to -Shot; nothing tested; the runner may launch again after its own checks).
 param([Parameter(Mandatory)][string]$Staging, [Parameter(Mandatory)][string]$Starfield, [string]$Cell = 'FO4Port_Vault111Cryo',
       [string]$Shot = (Join-Path $env:TEMP 'fo4sf_cycle.png'), [string]$CellJson = '')
@@ -86,18 +86,17 @@ $HudShown = { param($png)                                       # in game: oxyge
 # session can exit within ~2 s (2026-10-18: the runner's launch at 14:32:38 and the owner's own first try at 14:38:16
 # both died after 2 s; the owner's second try stayed up; Steam console_log.txt, no error line). Another try is the
 # runner's (exit 10): it re-checks the lease, STOP, the Guardian and idle before every launch (Codex, #358).
-# FO4SF_LAUNCH=exe (opt-in, 2026-10-19): start Starfield.exe from the game folder instead of asking Steam. The game
-# then inherits this script's token, so a runner started elevated (the owner's admin launch task) starts an elevated
-# game that its input can still reach (Windows UIPI drops input sent up to a higher integrity level: supported, not
-# tested here). Steam's error 84 on the night run's steam:// launch (2026-10-19 07:46Z) is the reason; whether this
-# avoids it is unresolved. Unset or any other value: the steam:// launch as before.
-$launch = 'steam://rungameid/1716740'
-if ($env:FO4SF_LAUNCH -eq 'exe') {
-  $launch = Join-Path $sf 'Starfield.exe'
-  if (-not (Test-Path -LiteralPath $launch -PathType Leaf)) { "FO4SF_LAUNCH=exe but $launch is missing: nothing launched, nothing tested"; exit 10 }
-  Start-Process -FilePath $launch -WorkingDirectory $sf
-} else {
+# The launch (2026-10-19): Starfield.exe from the game folder, as the owner launches it ("from the .exe; admin is only
+# the first run after an update", 14:34Z). The night run's steam:// launch at 07:46Z failed with Steam error 84.
+# FO4SF_LAUNCH=steam keeps the old steam:// launch. The exe inherits this script's token: a runner that is not
+# elevated starts a game that is not elevated, which its input can reach (UIPI, supported). A missing exe is a dead start.
+$launch = Join-Path $sf 'Starfield.exe'
+if ($env:FO4SF_LAUNCH -eq 'steam') {
+  $launch = 'steam://rungameid/1716740'
   Start-Process $launch
+} else {
+  if (-not (Test-Path -LiteralPath $launch -PathType Leaf)) { "$launch is missing: nothing launched, nothing tested"; exit 10 }
+  Start-Process -FilePath $launch -WorkingDirectory $sf
 }
 $q = $null
 $deadline = (Get-Date).AddSeconds(150)

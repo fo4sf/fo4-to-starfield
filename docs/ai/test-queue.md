@@ -47,11 +47,10 @@ launch, and the run stops with `limit: ...` when one is hit:
 
 Negative values, and a NaN or infinite floor, are refused. 0 means off.
 
-**Launch (2026-10-19).** cycle.ps1 launches with `steam://rungameid/1716740`. With `FO4SF_LAUNCH=exe` in the
-runner's environment it starts `Starfield.exe` from the game folder instead, so the game inherits the runner's token: a
-runner started elevated (the owner's admin launch task) then launches an elevated game it can still send input to.
-Windows drops input sent from a lower integrity level (UIPI): supported, not tested here. The night run's steam://
-launch failed with Steam error 84; whether either launch avoids it when elevated is unresolved. A missing exe exits 10.
+**Launch (2026-10-19).** cycle.ps1 starts `Starfield.exe` from the game folder, as the owner does (admin is needed
+only for the first run after an update). `FO4SF_LAUNCH=steam` keeps the old `steam://rungameid/1716740` launch, which
+failed with Steam error 84 on the night run (07:46Z). Run the runner without elevation: the game inherits its token,
+and Windows drops input sent up to a higher integrity level (UIPI, supported). A missing exe exits 10.
 
 ### Stairs routes (`routes.py`, 2026-10-13; amended after QA on PR #111)
 

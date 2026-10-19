@@ -17,9 +17,9 @@ usage:
       after the same check, the PowerShell chain: the check again at run time, then per queue the run with the caps,
       its judge, and the gate; the chain stops at the first queue the gate refuses.
   python scripts/game/campaign_arm.py run --campaign <campaign.json>
-      the same chain without PowerShell, for the owner's elevated task (scripts/game/admin_task/): the check (holds
+      the same chain without PowerShell: the check (holds
       lifted only by the campaign's "released" list), then per queue testqueue.py run with the caps, its judge and the
-      gate, stopping at the first refusal. The campaign's "launch" ("steam", the default, or "exe") becomes
+      gate, stopping at the first refusal. The campaign's "launch" ("exe", the default, or "steam") becomes
       FO4SF_LAUNCH for cycle.ps1. Every step is logged to <campaign>.run.log. Exit 0 only when every queue passed.
   python scripts/game/campaign_arm.py gate --queue <queue> --run-exit N
       exit 0 only when the run ended with exit 0 and the queue's state.json counts no crash and no dead start.
@@ -241,17 +241,17 @@ def gate(qdir, rc):
     return True, f"clean: {st.get('status')}"
 
 
-LAUNCHES = ("steam", "exe")
+LAUNCHES = ("exe", "steam")
 
 
 def run_chain(camp, log=print, call=None):
-    """The chain in Python (the elevated task's action): 0 when every queue ran clean, else 1. call(argv, env) runs one
+    """The chain in Python: 0 when every queue ran clean, else 1. call(argv, env) runs one
     step and returns its exit code (subprocess in the repo by default)."""
     import subprocess
     if call is None:
         def call(argv, env):
             return subprocess.run(argv, cwd=os.path.dirname(os.path.dirname(HERE)), env=env).returncode
-    launch = camp.get("launch", "steam")
+    launch = camp.get("launch", "exe")
     if launch not in LAUNCHES:
         log(f"REFUSED campaign: launch {launch!r}, want one of {LAUNCHES}")
         return 1

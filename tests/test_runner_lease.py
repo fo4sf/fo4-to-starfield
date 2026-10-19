@@ -220,17 +220,17 @@ class RunnerLeaseTests(unittest.TestCase):
         src = read(os.path.join(GAME, "cycle.ps1"))
         self.assertEqual(src.count("$launch = 'steam://rungameid/1716740'"), 1)
         self.assertEqual(src.count("Start-Process $launch"), 1)
+        self.assertEqual(src.count("Start-Process -FilePath $launch"), 1)
         self.assertNotIn("for ($try", src)                                     # retries are the runner's, after its checks
         self.assertIn("Get-Process -Id $q.Id", src)                            # alive 20 s later, not just seen once
         self.assertLess(src.index("if (-not $q) {"), src.index("Wait-Screen 'main menu'"))
         self.assertIn("exit 10", src)
 
-    def test_cycle_ps1_starts_starfield_exe_only_on_the_opt_in(self):
+    def test_cycle_ps1_starts_starfield_exe_unless_steam_is_asked_for(self):
         src = read(os.path.join(GAME, "cycle.ps1"))
-        start = src.index("$launch = 'steam://rungameid/1716740'")
+        start = src.index("$launch = Join-Path $sf 'Starfield.exe'")
         block = src[start:src.index("$q = $null", start)]
-        self.assertIn("if ($env:FO4SF_LAUNCH -eq 'exe') {", block)             # opt-in only; steam:// otherwise
-        self.assertIn("$launch = Join-Path $sf 'Starfield.exe'", block)
+        self.assertIn("if ($env:FO4SF_LAUNCH -eq 'steam') {", block)            # steam:// only on request
         self.assertLess(block.index("Test-Path -LiteralPath $launch"), block.index("Start-Process -FilePath $launch"))
         self.assertIn("exit 10", block)                                       # a missing exe is a dead start
         self.assertEqual(src.count("Start-Process -FilePath $launch -WorkingDirectory $sf"), 1)
