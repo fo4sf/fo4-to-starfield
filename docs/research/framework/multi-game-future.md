@@ -108,7 +108,7 @@ Embedded scripts also live inside INFO, PACK, TERM and PERK entries (MS 3, verif
 - Why it matters: 1/2/Tactics are 2D and need hand-built recreations; FO76 is online-only under its own terms.
 - Options: record FO76 "out" unless research finds an offline data path; 1/2/Tactics deferred (MS Q33; ROADMAP C3).
 - Answer by: owner decision. Who: owner.
-- Blocks: Multi-game. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page MU-2): Fallout 76's story and places only (no online parts) for the combined core, best version of repeated places; Fallout 1, 2 and Tactics stay open; 76's terms go into the Bethesda letter. Owner's note: "For Fallout 76 we will not recreate the online parts, only the gameplay and story people might want. That is mostly so the other core has the location: we take Appalachia and its missions and add them, for the core that combines all the locations into one travel area. Where a location exists more than once, like the Pitt in Fallout 3 and Fallout 76, we will likely add the best version.". Before: open.
+- Blocks: Multi-game. Status: **Owner answer, 2026-10-19:** [Terms read 2026-10-19: Fallout 76's ToS bars reverse engineering, derivative works and copying content that is not a Game Mod, and Bethesda says 76 supports no mods; see REL-60 and findings/fo76-terms.md; 76 work waits on Bethesda's answer.] decided by owner in the talk-through, 2026-10-19 (page MU-2): Fallout 76's story and places only (no online parts) for the combined core, best version of repeated places; Fallout 1, 2 and Tactics stay open; 76's terms go into the Bethesda letter. Owner's note: "For Fallout 76 we will not recreate the online parts, only the gameplay and story people might want. That is mostly so the other core has the location: we take Appalachia and its missions and add them, for the core that combines all the locations into one travel area. Where a location exists more than once, like the Pitt in Fallout 3 and Fallout 76, we will likely add the best version.". Before: open.
 
 ### Legal and release
 
@@ -120,7 +120,7 @@ Embedded scripts also live inside INFO, PACK, TERM and PERK entries (MS 3, verif
 - Options: local conversion (TTW model); subtitles only; re-voice (CW v2, F4NV).
 - Answer by: written question to Bethesda or ZeniMax community staff, legal opinion, a talk with the TTW team. Who:
   owner, Bethesda contact, community contact.
-- Blocks: Multi-game, People and story, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-1): "No: subtitles only, for now" (as recommended). Owner's note: "Did you guys ask? You have access to my email to send any.". Before: open. (also: MS Q9, PR Q31)
+- Blocks: Multi-game, People and story, Release. Status: **Owner position, 2026-10-19 22:38Z:** reusing voice lines is a known no for Fallout 3 (the Capital Wasteland precedent); for Fallout 4, New Vegas and Fallout 76 it is open until Bethesda answers the letter's voice question (sent 22:30Z). **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-1): "No: subtitles only, for now" (as recommended). Owner's note: "Did you guys ask? You have access to my email to send any.". Before: open. (also: MS Q9, PR Q31)
 
 **MG-04. Should the TTW team be contacted before any FO3/NV work, and could they be partners?**
 - Why it matters: they hold the know-how and the history with Bethesda (MS 1).
