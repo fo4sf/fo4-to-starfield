@@ -145,7 +145,7 @@ morphs" is no longer the leading hypothesis for named NPCs.
 - Options: prompt only; full line (Full Dialogue Interface, https://www.nexusmods.com/fallout4/mods/1235); both in a custom SWF. (also: people-story Q1; engine-mechanics.md D3)
 - Answer by: one converted scene in game with each variant. Who: PC probe, then owner decision.
 - Blocks: New game, People and story.
-- Status: open. PC job 21 (**verified**): Starfield ships 278,582 per-line `.ffxanim` files and no `.facefx` files; LipGenerator.exe needs `actor.facefx` and `actoranalysis.facefx`, which are not in the shipped data (source unresolved). The Starfield CK lip path is `-CompileFaceFXAnims` plus LipGenerator.exe (job 18).
+- Status: open. PC job 21 (**verified**): Starfield ships 278,582 per-line `.ffxanim` files and no `.facefx` files; LipGenerator.exe needs `actor.facefx` and `actoranalysis.facefx`, which are not in the shipped data (source unresolved). The Starfield CK lip path is `-CompileFaceFXAnims` plus LipGenerator.exe (job 18). **Answered in part (2026-10-19, PC job 24, verified; research/engine-mechanics/dialogue.md):** LipGenerator.exe with the CK's Tools\FaceFX actors made `.ffxanim` files from a synthetic WAV in seconds, headless; job 25 compares the header with vanilla files. Open: time per 1,000 real lines, resume, and acceptance in game.
 
 **PS-02. Do we ship our own dialogue SWF, and how does the launcher detect conflicting UI mods?**
 - Why it matters: Enhanced Dialogue Interface and similar replace the same files (https://www.nexusmods.com/starfield/mods/871).
@@ -203,7 +203,7 @@ morphs" is no longer the leading hypothesis for named NPCs.
 - Options: one batch per voice type; rerun skips existing `.ffxanim`. (also: people-story Q8, Q34)
 - Answer by: rerun after a partial compile; compile the same 20 lines twice and compare hashes. Who: PC probe.
 - Blocks: Launcher.
-- Status: open.
+- Status: open. **Answered in part (2026-10-19, PC job 24, verified; research/engine-mechanics/dialogue.md):** LipGenerator.exe with the CK's Tools\FaceFX actors made `.ffxanim` files from a synthetic WAV in seconds, headless; job 25 compares the header with vanilla files. Open: time per 1,000 real lines, resume, and acceptance in game.
 
 **PS-10. Which path and name rules does the launcher enforce before compiling?**
 - Why it matters: no spaces in paths, plugin-name case (https://facefx.com/node/4600), numeric names; Steam often sits under "Program Files (x86)".

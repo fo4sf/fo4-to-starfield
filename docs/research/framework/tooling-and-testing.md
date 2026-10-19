@@ -257,7 +257,7 @@ research/next-phase/testing-automation.md. Labels: **verified**,
   queued for LipGenerator's usage text]; one timed batch on PC.
   (also: ST Q18)
 - Blocks: People and story.
-- Status: open; narrowed 2026-10-19 (lip switch and tool exist, batch behaviour unproven). [Update 2026-10-19, job 21
+- Status: open; narrowed 2026-10-19 (lip switch and tool exist, batch behaviour unproven). [Update 2026-10-19, job 21 **Answered in part (2026-10-19, PC job 24, verified; research/engine-mechanics/dialogue.md):** LipGenerator.exe with the CK's Tools\FaceFX actors made `.ffxanim` files from a synthetic WAV in seconds, headless; job 25 compares the header with vanilla files. Open: time per 1,000 real lines, resume, and acceptance in game.
   (**verified**): Starfield's archives ship 0 `.facefx` files and 278,582 per-line `.ffxanim` lip files;
   LipGenerator.exe's required `actor.facefx` and `actoranalysis.facefx` inputs are not in the shipped data; where they
   come from is **unresolved**, and that now gates any batch run.]

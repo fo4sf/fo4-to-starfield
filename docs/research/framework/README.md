@@ -30,7 +30,7 @@ Breadth before polish. A launcher that ships no assets; the player owns both gam
 
 | phase | file | raw notes |
 |---|---|---|
-| 1. New game (Vault 111 start) | [newgame.md](newgame.md): revision 2, 96 questions NG-A1 to NG-L (K: FO4's MQ101/MQ102 chain; L: saves), owner decisions, cheapest-first list | [newgame-notes/](newgame-notes/) |
+| 1. New game (Vault 111 start) | [newgame.md](newgame.md): revision 4, 114 questions NG-A1 to NG-N (K: FO4's MQ101/MQ102 chain; L: saves; M: Bethesda guideline; N: char-gen state), owner decisions, cheapest-first list | [newgame-notes/](newgame-notes/) |
 | 2. Door enter and exit animations | [door-animations.md](door-animations.md): 40 questions A to J, blockers starred | |
 | 3. All interiors | [interiors.md](interiors.md): 80 questions by step (A offline to F release), D1 to D9 on doors and markers, X1 to X9 from these findings | |
 | 4. Launcher | [launcher.md](launcher.md): 13 owner decisions D1 to D13, about 60 questions in seven areas | [launcher-sources/](launcher-sources/) |
@@ -133,6 +133,11 @@ engine-mechanics thread), [distribution-community](findings/distribution-communi
   but has no RELA group; Address Library supports 1.16.244; the Carbon UI licence needs its author's word; new precedent
   BACUP, a GPL-3 Creation Engine record and asset converter. A read-only PC job (CK command-line switches for lip
   generation, script compiling, animation data) is queued; its answer settles PS-08, AP-40 and TT CK-only steps.
+- **Unattended lip sync works (PC job 24, verified; engine-mechanics dialogue.md):** LipGenerator.exe with the CK's
+  Tools\FaceFX actors produced `.ffxanim` from a synthetic WAV in seconds, headless. Real-line timing and in-game
+  acceptance remain. Closes most of PS-08, AP-41, TT-08.
+- **New game save trap (newgame.md N, verified by job 23):** stopping MQ101 leaves saving off and the HUD hidden
+  (stage 0 sets char-gen mode, the stop fragment restores neither); fixed offline on the NewGame branch, nothing installed.
 - **Lip-sync inputs (PC job 21, verified):** Starfield ships 278,582 per-line `.ffxanim` files and no `.facefx` files;
   LipGenerator.exe needs `actor.facefx` and `actoranalysis.facefx` per face rig, which are not in the shipped data.
   Where they come from is the open lip-sync question (PS-08, AP-40, TT-08).
