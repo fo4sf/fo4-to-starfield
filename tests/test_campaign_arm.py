@@ -186,13 +186,13 @@ class RunChainTests(Base):
     def test_runs_each_queue_with_the_caps_and_stops_at_a_crash(self):
         qa = self.queue("a", [{"coc": "FO4Port_X"}])
         qb = self.queue("b", [{"coc": "FO4Port_Y"}])
-        c = self.camp([("a", qa), ("b", qb)], launch="steam")
+        c = self.camp([("a", qa), ("b", qb)], launch="exe")
         c["queues"][0]["judge"] = ["scripts/bridge/door_rounds.py", "judge", "--queue", qa]
         rc = ca.run_chain(c, self.lines.append, self.fake([0, 0], {"status": "finished", "crashes": 1}))
         self.assertEqual(rc, 1)
         self.assertEqual([a for a, _ in self.calls], [[os.path.join("scripts", "game", "testqueue.py"), "run"],
                                                       [os.path.join("scripts", "bridge", "door_rounds.py"), "judge"]])
-        self.assertEqual({e for _, e in self.calls}, {"steam"})
+        self.assertEqual({e for _, e in self.calls}, {"exe"})
         self.assertIn("a: STOP", self.lines[-1])
 
     def test_a_clean_chain_runs_every_queue(self):
@@ -202,7 +202,7 @@ class RunChainTests(Base):
                           self.fake([0, 0], {"status": "finished", "crashes": 0}))
         self.assertEqual(rc, 0)
         self.assertEqual(len(self.calls), 2)
-        self.assertEqual({e for _, e in self.calls}, {"exe"})
+        self.assertEqual({e for _, e in self.calls}, {"steam"})
 
     def test_holds_launch_and_released_come_from_the_campaign(self):
         q = self.queue("walk", [{"coc": "FO4Core_RedRocketSpawn"}])

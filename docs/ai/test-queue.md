@@ -47,10 +47,12 @@ launch, and the run stops with `limit: ...` when one is hit:
 
 Negative values, and a NaN or infinite floor, are refused. 0 means off.
 
-**Launch (2026-10-19).** cycle.ps1 starts `Starfield.exe` from the game folder, as the owner does (admin is needed
-only for the first run after an update). `FO4SF_LAUNCH=steam` keeps the old `steam://rungameid/1716740` launch, which
-failed with Steam error 84 on the night run (07:46Z). Run the runner without elevation: the game inherits its token,
-and Windows drops input sent up to a higher integrity level (UIPI, supported). A missing exe exits 10.
+**Launch (2026-10-19).** cycle.ps1 launches with `steam://rungameid/1716740`; `FO4SF_LAUNCH=exe` starts
+`Starfield.exe` from the game folder instead (a missing exe exits 10). The night run's dead start (Steam error 84) was
+Starfield exiting with code 0x54 about 3 s after start, a second after crashwatch's ProcDump (`-w`, waiting for
+Starfield.exe) logged a BREAKPOINT on it; every short-lived start since Oct 18 shows the same pair (supported: the
+debugger's attach ends the game). Stop the crashwatch loop before a runner launch, never while it is attached to a
+live game, and restart it after; Windows LocalDumps still captures crashes.
 
 ### Stairs routes (`routes.py`, 2026-10-13; amended after QA on PR #111)
 

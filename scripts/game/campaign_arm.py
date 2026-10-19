@@ -19,7 +19,7 @@ usage:
   python scripts/game/campaign_arm.py run --campaign <campaign.json>
       the same chain without PowerShell: the check (holds
       lifted only by the campaign's "released" list), then per queue testqueue.py run with the caps, its judge and the
-      gate, stopping at the first refusal. The campaign's "launch" ("exe", the default, or "steam") becomes
+      gate, stopping at the first refusal. The campaign's "launch" ("steam", the default, or "exe") becomes
       FO4SF_LAUNCH for cycle.ps1. Every step is logged to <campaign>.run.log. Exit 0 only when every queue passed.
   python scripts/game/campaign_arm.py gate --queue <queue> --run-exit N
       exit 0 only when the run ended with exit 0 and the queue's state.json counts no crash and no dead start.
@@ -241,7 +241,7 @@ def gate(qdir, rc):
     return True, f"clean: {st.get('status')}"
 
 
-LAUNCHES = ("exe", "steam")
+LAUNCHES = ("steam", "exe")
 
 
 def run_chain(camp, log=print, call=None):
@@ -251,7 +251,7 @@ def run_chain(camp, log=print, call=None):
     if call is None:
         def call(argv, env):
             return subprocess.run(argv, cwd=os.path.dirname(os.path.dirname(HERE)), env=env).returncode
-    launch = camp.get("launch", "exe")
+    launch = camp.get("launch", "steam")
     if launch not in LAUNCHES:
         log(f"REFUSED campaign: launch {launch!r}, want one of {LAUNCHES}")
         return 1
