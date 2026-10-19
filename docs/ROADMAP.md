@@ -7,6 +7,27 @@ comes after the current testing, and it is the brief Codex and Grok work from. S
 Two independent reviews of this document (17 Oct) are folded in; their corrections are the reason several claims
 below are narrower than the first draft.
 
+## Update, 19 October 2026
+
+Phase A and the start of Phase B overlap: the B4 mission ("When Freedom Calls", cut down) has run to completion in
+game on the v6c build (#353, notes in docs/mission/when-freedom-calls.md), and Codsworth stands in Sanctuary as a
+robot stand-in (#361). Phase A is not closed: v6 crashes near Red Rocket and the Museum of Freedom are under a
+bisect (#375; the v6e test build is staged), and the map markers do not draw yet (#376).
+
+On 19 October the owner approved the order of the next phases. It replaces section 2's order where they differ:
+
+1. **New game:** a Vault 111 start with no Starfield intro, which everything else plugs into.
+2. **Doors:** load doors with their enter and exit animations.
+3. **Interiors:** all of them (about 190 are still unconverted), in batches.
+4. **Launcher:** it ships no assets and builds the port from the player's own Fallout 4 and DLC; it may require
+   Starfield's free Creation Kit, and the port may require SFSE.
+
+The owner also decided: the Commonwealth, Far Harbor and Nuka-World share one Earth-like planet with real days and
+weather; the player is silent by default; Starfield's own animations come first; releases go to GitHub first. The
+order after the launcher is open. Research inputs are in draft PR #380 (docs/research/next-phase/), with Grok's
+proposals (#381, PR #386) and Codex's review (#382). Offline work on the four phases has started on separate branches;
+nothing from it is installed until the current crash test is done.
+
 ## 0. Where we are (17 October 2026): Phase A, the Commonwealth slice, in testing
 
 Phase A is "the playable Commonwealth exterior plus the first interiors, running natively in Starfield". It maps to
