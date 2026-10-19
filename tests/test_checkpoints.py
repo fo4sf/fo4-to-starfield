@@ -62,6 +62,11 @@ class CheckpointTests(unittest.TestCase):
             self.assertEqual(len(calls), 2)                  # cold, reused, reclassified (miss), reused
             self.assertEqual(made.call_args.kwargs["load_door_models"], ["meshes\\Architecture\\RoofHatch01.nif"])
 
+    def test_no_rig_tags_only_the_matching_mesh(self):
+        key = batch.checkpoint_key
+        self.assertEqual(key("meshes\\a.nif", "meshes\\a.nif", [], [], ["meshes\\A.nif"]), "meshes\\a.nif|no_rig")
+        self.assertEqual(key("meshes\\b.nif", "meshes\\b.nif", [], [], ["meshes\\A.nif"]), "meshes\\b.nif")
+
     def test_degraded_checkpoint_with_valid_outputs_cannot_be_reused(self):
         for failure in ({"ok": False}, {"fallback_materials": 1},
                         {"door_error": "missing native rig"}):
