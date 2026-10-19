@@ -208,10 +208,12 @@ def main():
                          "keep the single-hinge template and list the parts that stay closed, the second stay passable")
     ap.add_argument("--no-rig-pattern", default="",
                     help="regex over mesh names: these doors skip their own rig (as without --door-anim-dll), only they "
-                         "reconvert on --resume (crash bisects: v6 Red Rocket, 2026-10-19)")
+                         "reconvert on --resume once the checkpoints match this code (the signature digests src/fo4sf and this "
+                         "script, so the first run after a code change reconverts everything; crash bisects: v6 Red "
+                         "Rocket, 2026-10-19)")
     ap.add_argument("--static-pattern", default="",
                     help="regex over mesh names, or @file listing mesh names: these keep a static body though items "
-                         "are movable; only they reconvert on --resume")
+                         "are movable; only they reconvert on --resume once the checkpoints match this code (as --no-rig-pattern)")
     ap.add_argument("--resume", action="store_true", help="reuse content-verified per-model checkpoints")
     ap.add_argument("--pattern", default=r"^meshes[\\/]setdressing[\\/]")
     ap.add_argument("--limit", type=int, default=20)

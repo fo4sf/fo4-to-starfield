@@ -6,7 +6,9 @@
 Both builds are make_core64c stage outputs (objects.json); X,Y and the radius are core-local metres, as objects.json
 positions (Red Rocket's workshop station sits at about -1005, 1136). Every reference within the radius in either build,
 matched by its FO4 source key, is listed when it differs: only in one build, a different class (STAT or a promoted
-class: containers, items, activators, workshops, doors, ...), a different base (model, door, collision source), or, with
+class: containers, items, activators, workshops, doors, ...), a different placement (position, rotation, scale, disabled,
+open by default; numbers within TOLERANCE), different promoted fields (editor id, name, radius, a door's destination and
+arrival), a different base (model, door, collision source), or, with
 the conversions' manifests, a different conversion of its model (door rig, door_error / door_not_opening, movable mass,
 collision source). Written for the v6 Red Rocket crash (2026-10-19): v5 walked past Red Rocket, v6 crashes near it.
 Prints one JSON line per changed reference, then a count per kind of change. Writes nothing.
@@ -18,6 +20,9 @@ import os
 from collections import Counter
 
 BASE_FIELDS = ("model", "door", "collision")
+PLACEMENT_FIELDS = ("pos", "rot", "scale", "disabled", "open_by_default")
+PROMOTED_FIELDS = ("model", "edid", "name", "radius", "vanilla", "destination", "arrival")
+TOLERANCE = 1e-3    # metres, radians and scale: float rounding between builds, not a move
 CONVERSION_FIELDS = ("door_rig", "door_error", "door_not_opening", "movable_kg", "collision_source", "load_door")
 
 
@@ -32,15 +37,15 @@ def placements(objects):
     bases = objects.get("bases") or []
     for r in objects.get("refs") or []:
         b = bases[r["base"]] if isinstance(r.get("base"), int) and 0 <= r["base"] < len(bases) else {}
-        out[r["src"]] = {"class": "STAT", "pos": r.get("pos"), **{k: b.get(k) for k in BASE_FIELDS if k in b}}
+        out[r["src"]] = {"class": "STAT", **{k: r[k] for k in PLACEMENT_FIELDS if k in r},
+                         **{k: b.get(k) for k in BASE_FIELDS if k in b}}
     for key, entries in objects.items():
         if key in ("world", "edid_prefix", "bases", "refs", "lights", "light_bases", "garage_buttons") \
                 or not isinstance(entries, list):
             continue
         for e in entries:
             if isinstance(e, dict) and "src" in e:
-                out[e["src"]] = {"class": key, "pos": e.get("pos"),
-                                 **{k: e[k] for k in ("model", "edid", "name", "radius", "vanilla") if k in e}}
+                out[e["src"]] = {"class": key, **{k: e[k] for k in PLACEMENT_FIELDS + PROMOTED_FIELDS if k in e}}
     return out
 
 
@@ -68,6 +73,17 @@ def model_key(model):
     return str(model or "").replace("\\", "/").lower()
 
 
+def same(a, b):
+    """Equal, numbers within TOLERANCE at any depth (positions, rotations, a door's arrival point)."""
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool) and not isinstance(b, bool):
+        return abs(a - b) <= TOLERANCE
+    if isinstance(a, (list, tuple)) and isinstance(b, (list, tuple)):
+        return len(a) == len(b) and all(same(x, y) for x, y in zip(a, b))
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(same(a[k], b[k]) for k in a)
+    return a == b
+
+
 def near(pos, center, radius):
     return bool(pos) and math.hypot(pos[0] - center[0], pos[1] - center[1]) <= radius
 
@@ -87,9 +103,8 @@ def changes(old, new, center, radius, old_conv=None, new_conv=None):
             if pa["class"] != pb["class"]:
                 kinds.append("class")
             kinds += [f"base.{k}" for k in BASE_FIELDS if pa.get(k) != pb.get(k)]
-            for k in ("edid", "name", "radius", "vanilla"):
-                if pa.get(k) != pb.get(k):
-                    kinds.append(f"promoted.{k}")
+            kinds += [f"placement.{k}" for k in PLACEMENT_FIELDS if not same(pa.get(k), pb.get(k))]
+            kinds += [f"promoted.{k}" for k in PROMOTED_FIELDS if k not in BASE_FIELDS and not same(pa.get(k), pb.get(k))]
         row = {"src": src, "old": pa, "new": pb}
         if old_conv is not None and new_conv is not None:
             ca = old_conv.get(model_key(pa.get("model")), {}) if pa else {}
