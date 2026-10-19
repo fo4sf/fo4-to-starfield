@@ -2331,6 +2331,15 @@ def map_marker_problems(recs, own_index, ov, ids):
     at the COC): one REFR per entry, STAT MapMarker, XMRK present, persistent, at the entry's position; one LCSR
     MapMarkerRefType row per marker on the overlay's Location (this world, grid Y then X as the writer writes it, tail
     0xFFFFFFFF), each also in LCID; every marker id after every other record of the plugin. Returns problems."""
+    def position3(value):
+        if not isinstance(value, (list, tuple)) or len(value) != 3:
+            return False
+        try:
+            return all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                       for v in value)
+        except OverflowError:
+            return False
+
     own = own_index << 24
     want = ov.get("map_markers") or [{"tag": "RedRocket", "pos": ov["spawn"], "cell": ov["spawn_cell"]}]
     got = (ids.get("map_marker_refs") or {}).get(ov["world"])
@@ -2354,9 +2363,13 @@ def map_marker_problems(recs, own_index, ov, ids):
             problems.append(f"{m['tag']}: no XMRK")
         if not r["flags"] & overlay_records.PERSISTENT:
             problems.append(f"{m['tag']}: not persistent (flags 0x{r['flags']:X})")
+        expected = m.get("pos")
+        if not position3(expected):
+            problems.append(f"{m['tag']}: invalid expected position {expected}; need three finite numbers")
+            continue
         pos = fo4land.parse_ref(r["fields"])["pos"]
-        if not all(math.isfinite(v) for v in pos) or max(abs(u - v) for u, v in zip(pos, m["pos"])) > 1e-3:
-            problems.append(f"{m['tag']}: position {pos} != {m['pos']}")
+        if not position3(pos) or max(abs(u - v) for u, v in zip(pos, expected)) > 1e-3:
+            problems.append(f"{m['tag']}: position {pos} != {expected}")
     wrld = [r for r in recs if r["sig"] == "WRLD" and overlay_records.edid(r) == ov["world"]]
     loc = [r for r in recs if r["sig"] == "LCTN" and overlay_records.edid(r) == ov["location"]]
     if len(wrld) != 1 or len(loc) != 1:

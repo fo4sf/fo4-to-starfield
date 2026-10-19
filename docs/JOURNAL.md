@@ -1891,3 +1891,10 @@ the build side. No deploy, no game.
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+
+
+## Codex: October18 map-marker expected-position validation (#365)
+
+Read-only marker output checks accepted malformed expected vectors: two coordinates hid a written250m height difference, and a NaN expectation hid written X/Z drift. Extra coordinates were ignored; empty/scalar inputs raised. Reproduced through the actual checker with synthetic record dictionaries, not a whole-stage or native verdict.
+
+The verifier now requires exactly three finite numeric coordinates for actual and expected positions. Malformed expected data returns a diagnostic, including booleans, strings and integer-to-float overflow; valid tuple/list positions and the existing1e-3 tolerance remain. Three regression methods cover11 invalid expectations, two drift cases, valid tuples and three nonfinite actual values.16 focused tests, direct old/new differential controls and guard pass. Only map_marker_problems changes in production; all other functions, writer, producer/staging and #280 allocation remain unchanged. Independent QA/CI pending; no stage/install/game actions. Failed and passing evidence is retained privately.

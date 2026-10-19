@@ -102,6 +102,46 @@ class CheckMapMarkers(unittest.TestCase):
         r["fields"][2] = (b"DATA", struct.pack("<6f", 0, 0, 0, 0, 0, 0))
         self.assertTrue(any("Vault111" in p for p in mk.map_marker_problems(recs, 1, self.ov, self.ids)))
 
+    def test_malformed_expected_positions_return_diagnostics(self):
+        recs = self.recs()
+        position = self.ov["map_markers"][0]["pos"]
+        malformed = (None, 0, [], position[:2], [*position, 42],
+                     [float("nan"), *position[1:]], [position[0], float("inf"), position[2]],
+                     [position[0], position[1], float("-inf")],
+                     [str(position[0]), *position[1:]], [True, *position[1:]],
+                     [10 ** 400, *position[1:]])
+        for expected in malformed:
+            with self.subTest(expected=expected):
+                ov = dict(self.ov, map_markers=[dict(m) for m in self.ov["map_markers"]])
+                ov["map_markers"][0]["pos"] = expected
+                problems = mk.map_marker_problems(recs, 1, ov, self.ids)
+                self.assertTrue(any("RedRocket" in p and "expected position" in p for p in problems), problems)
+        self.assertEqual(mk.map_marker_problems(recs, 1, self.ov, self.ids), [])
+
+    def test_invalid_expectations_cannot_hide_written_coordinate_drift(self):
+        position = self.ov["map_markers"][0]["pos"]
+        cases = ((position[:2], [position[0], position[1], position[2] + 250]),
+                 ([float("nan"), *position[1:]], [position[0] + 100, position[1], position[2] + 250]))
+        for expected, actual in cases:
+            with self.subTest(expected=expected):
+                recs = self.recs()
+                marker = next(r for r in recs if r["fid"] == OWN | 0x900)
+                marker["fields"][2] = (b"DATA", struct.pack("<6f", *actual, 0, 0, 0))
+                ov = dict(self.ov, map_markers=[dict(m) for m in self.ov["map_markers"]])
+                ov["map_markers"][0]["pos"] = expected
+                self.assertTrue(mk.map_marker_problems(recs, 1, ov, self.ids))
+
+    def test_finite_tuple_expectations_and_nonfinite_written_positions(self):
+        ov = dict(self.ov, map_markers=[dict(m, pos=tuple(m["pos"])) for m in self.ov["map_markers"]])
+        self.assertEqual(mk.map_marker_problems(self.recs(), 1, ov, self.ids), [])
+        position = self.ov["map_markers"][0]["pos"]
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(actual=value):
+                recs = self.recs()
+                marker = next(r for r in recs if r["fid"] == OWN | 0x900)
+                marker["fields"][2] = (b"DATA", struct.pack("<6f", value, *position[1:], 0, 0, 0))
+                self.assertTrue(any("position" in p for p in mk.map_marker_problems(recs, 1, ov, self.ids)))
+
     def test_single_coc_marker_without_params(self):
         ov = {k: v for k, v in self.ov.items() if k != "map_markers"}
         ids = {"bases": {}, "refs": {}, "map_markers": {"W": "000900"}}

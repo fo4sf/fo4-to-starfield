@@ -38,3 +38,5 @@ Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved 
 Failed/passing capsules are reopened/source-verified on a second local volume, not offsite. Claude owns cleanup/free-space receipts; Codex deleted nothing. Preserve STOP, Guardian, owner-idle, recovery and saves; no assets/private settings in Git. See testing/progress-storage.md.
 
 Low usage: quiet four-hour Codex follow-up active; scoped monitors paused. Read changed evidence, avoid unchanged retests, guard before commits. History: #32, PRs and Git.
+
+Codex October18, #365: isolated main-based read-only map-marker XYZ verifier fix rejects malformed expected vectors that hid synthetic written height/XZ drift.16 focused checks and old/new differential controls pass; independent QA/CI pending. No writer, stage/controller or paired allocator change; native gates remain.
