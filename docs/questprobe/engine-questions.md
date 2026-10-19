@@ -2,8 +2,8 @@
 
 Groundwork for the people-and-story phase. This is N1 of the NPC and quest research
 (`research/next-phase/npcs-ai-factions-dialogue-quests.md`, section 9). Owner: Claude-cloud (the Vault 111 new game
-thread). Status: built and tested offline only. Nothing is installed. It goes in only on the owner's word, after the
-current v6e test.
+thread). Status: staged on the PC at `D:\Modding\staging\questprobe_v1` (19 Oct, commit 7d5ad61): offline check
+passes, all three scripts compile. Nothing is installed. It goes in only on the owner's word, after the current v6e test.
 
 ## Why
 
@@ -112,9 +112,11 @@ few kilobytes, published only when every step passed. `--no-sm` drops E5 if the 
 ## Unresolved until it runs (labelled for the research log)
 
 - **E3 and E4 are judged by eye** from screenshots. The log can only say whether the alias filled.
-- **The GetEventData member** for a script event's keyword is assumed to be Keyword1 (supported hypothesis: Mutagen
-  names the members, and FO4's script events carry the sending keyword). The vanilla example `check` prints will show
-  whether Starfield's own nodes gate the same way. If they use another member, rebuild with that member before the
-  run.
-- **The fragment.** Copying MQ00's layout is the best evidence available offline. Whether an unprefixed fragment
+- **The gate member, verified** (PC, 19 Oct, `check` on the real Starfield.esm): under the Script Event node (195
+  nodes), 91 GetEventData conditions: GetIsID Keyword1 x80, GetValue Value1 x9, HasKeyword OldLocation x2; the first
+  is MissionBranchCargo, GetIsID Keyword1 05BD85 == 1. Our branch gates exactly that way. 418 Starfield quests carry
+  event SCPT, as our Story Manager quest does.
+- **The fragment.** MQ00's real layout (PC, 19 Oct): VMAD v6/2/3, fragment `Fragments:Quests:QF_MQ00_00005790.
+  Fragment_Stage_0010_Item_00`, stage 10, index 0, unknowns 0/1, and the fragment script NOT listed among the quest's
+  scripts. Ours copies all of it. Whether an unprefixed fragment
   script name (no `Fragments:Quests:` namespace) binds is part of what E1 answers.
