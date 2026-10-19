@@ -566,22 +566,53 @@ def core_doors(core):
     return ids["plugin"], out
 
 
-def port_edits(core_plugin, doors, port_plugin, port_next, merge):
+def port_edits(core_plugin, doors, port_plugin, port_next, merge, *, marker_plan=None,
+               expected_sha256=None, base_raw=None, base_map_raw=None, base_map_sha256=None):
     """[{"src", "door": local id of the interior door REFR, "cell": its CELL id, "marker": the marker's id, "pos",
     "rot", "return_pos": the exterior marker's merged position, "vmad"}] in doors order; ValueError when a door's
-    destination is not this plugin, its promised marker id is not the one this plugin allocates (port_next + k), or an
+    destination is not this plugin, its promised marker id is not the checked reservation (legacy: port_next + k), or an
     id repeats. merge = merge_offset(core): the return VMAD's DestinationX / Y / Z = the exterior marker's position
-    (objects.json "arrival", the marker's DATA) + merge."""
+    (objects.json "arrival", the marker's DATA) + merge. A marker_plan requires its
+    externally preserved expected_sha256 and base_map_sha256 from the producer
+    receipt, plus exact base plugin/map bytes. The
+    orchestration caller must retain the producer's writer lease through both
+    publications and checks; this function does not publish or reacquire it."""
+    assignments = None
+    if marker_plan is not None:
+        import port_marker_ids as marker_ids
+        import hashlib
+        if expected_sha256 is None or base_raw is None or base_map_raw is None or base_map_sha256 is None:
+            raise ValueError("marker plan requires external state pin and both base inputs")
+        if hashlib.sha256(base_map_raw).hexdigest() != base_map_sha256:
+            raise ValueError("base map bytes differ from producer receipt")
+        if Plugin(base_raw).hedr()[2] != port_next:
+            raise ValueError("port next ID differs from pinned base")
+        checked = marker_ids.reserve(marker_plan.state, expected_sha256, base_raw, base_map_raw,
+                                     [e["src"] for e in doors], plugin=port_plugin)
+        if (checked.sha256 != marker_plan.sha256 or checked.sha256 != expected_sha256
+                or checked.assignments != marker_plan.assignments):
+            raise ValueError("marker plan differs from pinned allocation or base")
+        assignments = checked.assignments
+        state = marker_ids.validate_state(checked.state, checked.sha256)
+        sources = state["base"]["source_ids"]
+        cells = {v: k[5:] for k, v in sources.items() if k.startswith("cell:")}
+    elif any(v is not None for v in (expected_sha256, base_raw, base_map_raw, base_map_sha256)):
+        raise ValueError("reservation inputs require a marker plan")
     out, seen = [], set()
     for k, e in enumerate(doors):
         d = e["destination"]
         if str(d.get("plugin", "")).casefold() != port_plugin.casefold():
             raise ValueError(f"{e['src']}: destination plugin {d.get('plugin')!r} is not {port_plugin}")
-        want = port_next + k
+        want = assignments[marker_ids.source_key(e["src"])] if assignments is not None else port_next + k
         if int(d["id"]) != want:
             raise ValueError(f"{e['src']}: the cluster promised marker id {int(d['id']):06X}, this plugin allocates "
                              f"{want:06X} (make_cluster.py doors again against this port)")
         door, cell = int(d["ref"], 16), int(d["cell"], 16)
+        if assignments is not None:
+            inner = marker_ids.source_key(d["door"])
+            key = f"refr:{cells.get(cell, '')}:{inner}"
+            if cell not in cells or sources.get(key) != door:
+                raise ValueError(f"{e['src']}: interior source reference differs from pinned base map")
         if door in seen or want in seen:
             raise ValueError(f"{e['src']}: interior door {door:06X} or marker {want:06X} listed twice")
         seen |= {door, want}
@@ -677,17 +708,36 @@ def cell_edid(ids, cell_local):
 
 
 # ----------------------------------------------------------------------------------------------------------- check
-def check_port(before, after, doors, core_plugin=None, merge=None):
+def check_port(before, after, doors, core_plugin=None, merge=None, *, marker_plan=None,
+               expected_sha256=None, base_map_raw=None, base_map_sha256=None):
     """[what, ok] of a patched port against its pinned input: masters, every record but the door REFRs byte-identical
     (sig, flags, fields, group path), each door REFR identical but for the inserted VMAD, which decodes to the script,
     the destination (the core's arrival marker when core_plugin is given) and the return position DestinationX / Y / Z
     (that marker's objects.json position + merge when merge is given; present in any case, with UseDestinationPosition
     true: load_door_target refuses a VMAD whose floats lack the bool), the markers (and nothing
-    else) new: persistent XMarker REFRs in their cell's persistent group at the arrival points, HEDR counts."""
+    else) new: persistent XMarker REFRs in their cell's persistent group at the arrival points, HEDR counts.
+    Pinned plans permit retained gaps; HEDR describes emitted records, while the
+    reservation ledger independently retains every un-emitted ID and high-water mark."""
     checks = []
 
     def need(cond, what):
         checks.append([what, bool(cond)])
+    if marker_plan is not None:
+        try:
+            import port_marker_ids as marker_ids
+            state = marker_ids.validate_state(marker_plan.state, expected_sha256)
+            # Reuse the production consumer's exact source/base/pin checks.
+            port_edits(core_plugin or "Check.esm", doors, state["base"]["plugin"], before.hedr()[2],
+                       merge if merge is not None else (0, 0, 0), marker_plan=marker_plan,
+                       expected_sha256=expected_sha256, base_raw=before.serialize(), base_map_raw=base_map_raw,
+                       base_map_sha256=base_map_sha256)
+        except (ValueError, TypeError, KeyError, AttributeError) as error:
+            need(False, f"pinned marker allocation: {error}")
+            return checks
+        need(True, "pinned marker allocation matches sources and base")
+    elif expected_sha256 is not None or base_map_raw is not None or base_map_sha256 is not None:
+        need(False, "reservation inputs require a marker plan")
+        return checks
     need(before.masters() == after.masters(), f"masters unchanged {after.masters()}")
     own = len(before.masters()) << 24
     old, new = before.records(), after.records()
@@ -735,7 +785,7 @@ def check_port(before, after, doors, core_plugin=None, merge=None):
              f"{e['src']}: marker {fid:08X} persistent XMarker in the persistent group of cell {cell:08X} at {q['pos']} rot {q['rot']}")
     ob, nb = before.hedr(), after.hedr()
     need(nb[1] == ob[1] + len(markers) and nb[2] == max((f & 0xFFFFFF for f in new if (f >> 24) == len(before.masters())), default=0) + 1
-         and nb[2] == ob[2] + len(markers),
+         and (marker_plan is not None or nb[2] == ob[2] + len(markers)),
          f"HEDR records {ob[1]} -> {nb[1]}, next 0x{ob[2]:06X} -> 0x{nb[2]:06X} (the markers, nothing else)")
     return checks
 
