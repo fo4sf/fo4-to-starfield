@@ -1,5 +1,7 @@
 # Codex / Claude / Grok status
 
+Codex October19: isolated ReferenceLinks lock-key fix uses canonical owning-plugin/local-ID equality, refuses malformed/conflicting KEYM reservations before mutation, and retains missing/deleted/wrong-type key warnings. Red/green lock regressions, the complete ReferenceLinks synthetic suite, seven actual CLI replays and five typed binary readbacks pass; peer QA pending. Stacked on PR375; no stage/deploy/game changes or expansion of the pending #280 shared-stage scope.
+
 Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved identities/state and native Starfield physics. Persistent doors first. Read current [#32 claims](https://github.com/fo4sf/fo4-to-starfield/issues/32) first.
 
 ## Owners / locks
