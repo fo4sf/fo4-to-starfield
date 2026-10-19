@@ -114,9 +114,19 @@ def detect(*, fo4_data, starfield, sources=None, out_dir=None, need_gb=0.0, floo
                     f"Fallout 4: {name} (sha256 {m['sha256'][:12]}...) is not a known version")
         if fo4["dlc_missing"]:
             (warnings if allow_missing_dlc else refusals).append("DLC missing: " + ", ".join(fo4["dlc_missing"]))
+        ba2_versions = {}
+        for a in fo4["archives"].values():
+            ba2_versions[str(a["ba2_version"])] = ba2_versions.get(str(a["ba2_version"]), 0) + 1
+        if set(ba2_versions) - {"1"}:
+            warnings.append("Fallout 4: archive header versions " + ", ".join(
+                f"v{v} x{n}" for v, n in sorted(ba2_versions.items())) + " (v7 and v8 come from the 2024 next-gen "
+                "update or later; the converter is tested on v1 data)")
+        for name, paths in sorted(fo4["archive_duplicates"].items()):
+            warnings.append(f"Fallout 4: {name} found {len(paths)} times; using {paths[-1]}")
         out["fo4"] = {"masters": {n: {"sha256": m["sha256"], "size": m["size"], "version": versions[n]}
                                   for n, m in fo4["masters"].items()},
-                      "dlc_missing": fo4["dlc_missing"], "archives": len(fo4["archives"])}
+                      "dlc_missing": fo4["dlc_missing"], "archives": len(fo4["archives"]),
+                      "ba2_versions": ba2_versions, "archive_duplicates": fo4["archive_duplicates"]}
     if starfield and os.path.isdir(starfield):
         g = mf.game_pins(starfield)
         f = g["files"]

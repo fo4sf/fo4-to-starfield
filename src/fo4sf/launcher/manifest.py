@@ -58,13 +58,29 @@ def fo4_inputs(data_dirs, hash_archives=False):
         dlc[name] = {"title": title, "present": p is not None}
         if p:
             masters[name] = dict(files.identity(p), path=p)
-    archives = {}
+    archives, duplicates = {}, {}
     for d in data_dirs:
         for p in sorted(glob.glob(os.path.join(d, "*.ba2"))):
-            archives[os.path.basename(p)] = dict(files.identity(p, None if hash_archives else 0), path=p)
+            name = os.path.basename(p)
+            if name in archives:
+                # the same archive name in two Data folders (the owner's depot-split install has Meshes.ba2 twice):
+                # the later folder wins, as before; both paths are recorded so the choice is visible
+                duplicates.setdefault(name, [archives[name]["path"]]).append(p)
+            archives[name] = dict(files.identity(p, None if hash_archives else 0), path=p,
+                                  ba2_version=ba2_header_version(p))
     return {"data_dirs": data_dirs, "masters": masters, "dlc": dlc,
             "dlc_missing": [f"{n} ({v['title']})" for n, v in dlc.items() if not v["present"]],
-            "archives": archives, "archive_identity": "sha256" if hash_archives else "size+mtime"}
+            "archives": archives, "archive_identity": "sha256" if hash_archives else "size+mtime",
+            "archive_duplicates": duplicates}
+
+
+def ba2_header_version(path):
+    """The BA2 header's version field (Fallout 4: 1 before the 2024 next-gen update, 7 or 8 after), or None."""
+    with open(path, "rb") as f:
+        head = f.read(8)
+    if len(head) < 8 or head[:4] != b"BTDX":
+        return None
+    return int.from_bytes(head[4:8], "little")
 
 
 def game_pins(starfield_dir, hash_game_esm=False):

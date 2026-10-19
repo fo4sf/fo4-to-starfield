@@ -97,6 +97,20 @@ class DetectTests(unittest.TestCase):
         self.assertTrue(any("loose files" in w for w in r["warnings"]))
         self.assertTrue(any("not found" in w for w in self.run_detect(my_games=mg + "x")["warnings"]))
 
+    def test_archive_versions_and_duplicates_reported(self):
+        write(os.path.join(self.fo4, "Fallout4 - Meshes.ba2"), b"BTDX\x01\x00\x00\x00GNRL")
+        other = os.path.join(self.root, "depot2", "Data")
+        write(os.path.join(other, "Fallout4 - Meshes.ba2"), b"BTDX\x08\x00\x00\x00GNRL")
+        r = detect.detect(fo4_data=[self.fo4, other], starfield=self.sf, sources=self.table)
+        self.assertTrue(r["ready"], r["refusals"])
+        self.assertEqual(r["fo4"]["ba2_versions"], {"8": 1})
+        self.assertEqual(len(r["fo4"]["archive_duplicates"]["Fallout4 - Meshes.ba2"]), 2)
+        self.assertTrue(any("v8 x1" in w for w in r["warnings"]))
+        self.assertTrue(any("found 2 times" in w for w in r["warnings"]))
+        r = self.run_detect()
+        self.assertEqual(r["fo4"]["ba2_versions"], {"1": 1})
+        self.assertEqual(r["warnings"], [])
+
     def test_no_fallout4(self):
         r = detect.detect(fo4_data=[self.root], starfield=self.sf, sources=self.table)
         self.assertFalse(r["ready"])
