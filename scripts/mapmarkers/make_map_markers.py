@@ -64,8 +64,8 @@ Install (game closed), with the core active (its own record, beside exp_install'
   python scripts\\game\\map_markers_install.py install --dir "{out}" --starfield <game>
 In game: outdoors in the Commonwealth the log {LOG} gets one line per marker moved:
   FO4SF_MAP rt=<s> moved <i> to <x> <y> <z> target <x> <y> <z> before=<distance> d=<distance> moves=<n>
-Then open the map. Uninstall: map_markers_install.py uninstall --starfield <game>. After a core swap, run
-  map_markers_install.py order --starfield <game> so the plugin loads after the core again.
+Then open the map. Uninstall: map_markers_install.py uninstall --starfield <game>. Uninstall it before a core swap
+  and install it again after (its only master, the core, leaves Plugins.txt during the swap).
 """)
     print(f"staged {out}: {a.plugin}, {os.path.relpath(pex, out)}, offline_check.txt, README.txt")
 

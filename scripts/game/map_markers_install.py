@@ -7,6 +7,8 @@ Plugins.txt, and Data\\FO4SFMapMarkers.install.json records what was added. It i
 experiment record, so it rides along with the installed core set. install refuses unless every master of the staged
 plugin (the core, FO4TerrainCore.esm) is an active Plugins.txt line. order moves its line to the end; cycle.ps1 runs it
 before the bridge's order, so the planned reads' load indexes (the experiment's, FO4Port's) stay as they were.
+Uninstall it before a core swap (exp_install uninstall + install): its only master leaves Plugins.txt meanwhile, and
+exp_install refuses missing masters. Install it again after the swap.
 
 usage: python map_markers_install.py install|uninstall|status|order --dir <staged dir> --starfield <game dir>
        (the staged dir: scripts/mapmarkers/make_map_markers.py stage, e.g. D:\\Modding\\staging\\mapmarkers_v6e_wfc10)
