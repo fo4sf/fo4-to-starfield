@@ -75,11 +75,27 @@ D:\Modding\scratch\e1_inventory\e1.md.
 - **.afx** (verified): plain XML beside each .af: state flag, tag, filename, prefix, and sound events by frame.
 - **.rig** (supported hypothesis): `bipeda\characterassets\skeleton.rig`, 13,716 bytes, size at 0x04; per-bone records
   every 0x60 bytes with index, parent index (-1 for the root), a quaternion, a translation and an offset into a name
-  table near 0x2e70. Readable enough to map FO4 bone names onto Starfield's for retargeting.
+  table near 0x2e70. Correction (AT): the bone names (Root, COM, C_Spine, L_ClavicleFront, L_BicepsRear, C_Tail1-9,
+  L_Mandible; 123 bones, first name at 0x2faa) show `bipeda` is a creature rig with front and rear limbs and tails, not
+  the human skeleton. The human rig is still to be found among the 390 .rig files.
 - **anim_files.xtbl** (verified): XML list of .af file names with a preload flag.
 - **.swf** (verified): `interface\almanacmenu.swf` is a zlib SWF (CWS, version 12), Scaleform as in FO4.
 - **.pex** (verified): FO4 scripts carry magic FA57C0DE, version 3.9, game id 2 and the original source path; Starfield's
   game id for comparison is unresolved.
+
+## AT: Starfield start quests and the FO4 human skeleton (PC job AT, 2026-10-19)
+
+- `SfInspect startquests` (verified, 500cc62): 144 Starfield.esm quests start with a new game. Groups: the main quest
+  start (MQ00, MQ207C_AlwaysOn), the player ship and travel (SQ_PlayerShip, SQ_Airlock, SQ_ENV, SQ_ENV_Tutorial,
+  OutpostTutorial), radiant parents (RE_Parent, RQ_Parent, SQ_Parent, MB_Parent), companions and traits, city support
+  quests, about 40 generic dialogue quests (DialogueGeneric, DialogueMiniBot, DialogueGenericRobotModelA, ...), and
+  13 Patch_* hotfix quests. A Fallout-only start holds off the first four groups and the city, companion and trait
+  quests; generic dialogue that our NPCs' voice types could pick up (DialogueMiniBot for Codsworth's RobotMiniBotA
+  voice) is held off too or filtered by condition. Patch_* stay until each is read. Full list on the PC:
+  D:\Modding\scratch\e1_inventory\at\startquests.txt.
+- FO4 `meshes\actors\character\characterassets\skeleton.nif` (verified): bs_version 130, 129 NiNodes: Root, COM,
+  Pelvis, SPINE1, SPINE2, Chest, Neck, HEAD, LArm_Collarbone/UpperArm/ForeArm1-3/Hand/Finger11-53, LLeg_Thigh/Calf/
+  Foot/Toe1, the R side, twist and _skin helpers, WEAPON, WeaponLeft, PipboyBone, Camera and AnimObject nodes.
 
 Routes this sets: NPCs move with Starfield's own animations at first; FO4 clip conversion waits on an .af layout spike
 (read the .rig names first, then several .af samples against their known durations); the Pip-Boy is a Scaleform menu of
