@@ -10,7 +10,7 @@ quest script), `scripts/newgame/FO4SF_NewGameLooks.psc` (optional character crea
 
 ## 1. What the player gets (the defaults)
 
-1. A new game starts. Our quest `FO4SF_NewGame` (start game enabled, run once) waits until the player is loaded and no
+   (Starfield has no Papyrus menu check, so it cannot wait for menus).
    menu is open.
 2. **Guard:** it acts only on a new game (fewer than 0.25 game days passed and the player at level 1). An existing save
    that gains the plugin stands the quest down at stage 1 and nothing moves. The owner's test saves are safe.
@@ -36,7 +36,7 @@ Every step goes to `My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log`; `m
 | Option | How | For | Against |
 |---|---|---|---|
 | **A. Stop the opening quests at start (default)** | Our start-game quest stops MQ00 and MQ101 from Papyrus (`Quest.Stop`), then moves the player | Edits no Starfield record; reversible by removing our plugin; the list is a build option (`--hold`) | **unresolved** whether MQ101 has already started its scene, disabled controls or opened its menus before our quest runs; the in-game proof decides |
-| B. The debug start (`--mq101debug 8`) | Override Starfield's GLOB `MQ101Debug`. SKK Fast Start New Game (Nexus Starfield 5971) sets it to 8 as a "hard edit in the ESM" and its start then runs character creation and checks the player is in `NewAtlantisSpaceport03`; our quest moves the player from there | A path Bethesda built and a public mod relies on | **supported hypothesis** from that mod page only; what each value does is in MQ101's Papyrus source, which `make_newgame.py precheck` lists on the PC; it still runs some of MQ101 |
+| B. The debug start (`--mq101debug <n>`) | Override Starfield's GLOB `MQ101Debug`. SKK Fast Start New Game (Nexus Starfield 5971) sets it to 8 as a "hard edit in the ESM" and checks the player is in `NewAtlantisSpaceport03` | A path Bethesda built and a public mod relies on | **unresolved** which value skips what. The PC precheck (19 Oct, ContentResources.zip, verified lines): `MQ101Script.psc` declares the property (line 14) and branches on `MQ101Debug.GetValueInt() == 1` (line 79); `QF_MQ00_00005790.psc` line 7 sets it to 10; MQ101's fragment shows a debug message box `MQ101DebugMSG01` (line 288); most MQ102 to MQ305 start stages set it to 2; 8 is set by the test quest `QF_TestQuest_LVC_010D747E.psc` (line 101) and read by `SFBGS00D\CruiseModeTestSupportScript.psc` (line 29), so 8 belongs to a cruise-mode test start. Reading MQ101Script around line 79 decides whether a value fits us |
 | C. Override MQ00 / MQ101 without StartGameEnabled | Plugin overrides of Starfield's quest records | The opening never starts | Edits Starfield records; anything that expects MQ101 (NG+, Constellation, achievements) may break; hardest to undo in a save |
 | D. Our own start menu (as SKK) | A message box after character creation picking Vault 111 or Starfield's own start | Players keep the choice | More UI; only worth it once the Fallout start works |
 
@@ -75,9 +75,11 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   along its facing. Which of the pod's axes faces out is a **supported hypothesis** (+Y turned by its z rotation); the
   points step prints every candidate pod, and `--pod-ref` names it if FO4's EditorIDs give more than one. If the move
   misses the cell, the quest retries each second; the log shows the landing.
-- Character creation: `FO4SF_NewGameLooks` calls `Game.ShowRaceMenu()` once the player is in the vault. Whether
-  Starfield's Game.psc has it, and with which arguments, is **unresolved**; it is a separate script so a failed compile
-  drops only it (`--no-looks`, and the quest then does not wait). FO4's own looks menu and the bathroom mirror are a
+- Character creation: `FO4SF_NewGameLooks` calls `Game.ShowRaceMenu()` once the player is in the vault. **verified**
+  (PC precheck, 19 Oct): Starfield's Game.psc declares `ShowRaceMenu`; what it shows with no arguments is
+  **unresolved**. Starfield's Utility.psc has **no** `IsInMenuMode` (verified, same precheck), so neither script waits on
+  menus: the quest starts once the player's 3D is loaded, and the looks script sets stage 20 when the call returns. It
+  stays a separate script so a failed compile drops only it (`--no-looks`, and the quest then does not wait). FO4's own looks menu and the bathroom mirror are a
   later UI item (Scaleform; animations-ui-and-start.md section 3).
 - Alternatives for the talk: keep Starfield's character creation before the vault (option B's path); or skip it and
   set a default look.

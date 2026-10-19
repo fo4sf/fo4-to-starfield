@@ -91,6 +91,12 @@ class ContractTests(unittest.TestCase):
         # GetPositionY/Z share GetPositionX's script; GetDistance is not used; the rest must be listed or our own
         missing = calls - listed - own - {"GetPositionY", "GetPositionZ"}
         self.assertEqual(missing, set())
+        # Starfield's Utility.psc has no IsInMenuMode (precheck on the PC, 2026-10-19): neither script may call it
+        self.assertNotIn("IsInMenuMode(", psc)
+        self.assertNotIn("IsInMenuMode(", read(LOOKS))
+        looks_calls = set(re.findall(r"\.(\w+)\(", read(LOOKS)))
+        looks_listed = {f for bases in ng.NATIVES[ng.LOOKS].values() for f in bases}
+        self.assertEqual(looks_calls - looks_listed - {"TraceUser", "SetStage", "StartTimer", "GetStage"}, set())
 
     def test_declared_properties_parser(self):
         text = ("Quest[] Property A Auto Const Mandatory\nfloat Property B = 0.25 Auto Const\n"
@@ -151,9 +157,9 @@ class PrecheckTests(unittest.TestCase):
 
     def test_missing_core_native_fails(self):
         z = os.path.join(self.tmp, "cr.zip")
-        fake_zip(z, utility="float Function GetCurrentRealTime() native global\n")
+        fake_zip(z, utility="Function Wait(float a) native global\n")
         r = ng.precheck_zip(z)
-        self.assertEqual(r["missing_core"], ["Utility.IsInMenuMode"])
+        self.assertEqual(r["missing_core"], ["Utility.GetCurrentRealTime"])
         with unittest.mock.patch("sys.stdout", io.StringIO()):
             self.assertEqual(ng.main(["precheck", "--content-resources", z]), 1)
 

@@ -59,11 +59,11 @@ NATIVES = {
         "Quest": ["SetStage", "GetStage", "IsRunning", "Stop", "CompleteQuest", "SetObjectiveDisplayed",
                   "SetObjectiveCompleted", "SetActive"],
         "ScriptObject": ["StartTimer"],
-        "Utility": ["GetCurrentRealTime", "IsInMenuMode"],
+        "Utility": ["GetCurrentRealTime"],
     },
     LOOKS: {
         "Game": ["ShowRaceMenu"],
-        "Utility": ["Wait", "IsInMenuMode"],
+        "Utility": ["Wait", "GetCurrentRealTime"],
     },
 }
 

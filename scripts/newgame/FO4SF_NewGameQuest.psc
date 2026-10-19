@@ -108,8 +108,9 @@ Event OnTimer(int aiTimerID)
     int stage = GetStage()
     ticks += 1
     if stage == 0
-        if !player.Is3DLoaded() || Utility.IsInMenuMode()
-            StartTimer(1.0, 1)                               ; the game is still loading or a menu is open
+        ; Starfield's Utility.psc has no IsInMenuMode (PC precheck, 19 Oct): loaded 3D is the only wait
+        if !player.Is3DLoaded()
+            StartTimer(1.0, 1)                               ; the game is still loading
             return
         endif
         float days = GameDaysPassed.GetValue()
