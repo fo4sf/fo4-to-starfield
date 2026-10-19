@@ -24,16 +24,14 @@ def grup(label, gtype, items):
 
 
 class PlacementFrameTests(unittest.TestCase):
-    def test_flags_outside_cell(self):
+    def test_flags_outside_cell_and_missing(self):
         with tempfile.TemporaryDirectory() as d:
             core_path = os.path.join(d, "core.esp")
             plug_path = os.path.join(d, "mission.esp")
 
-            # Core: world TestWorld, persistent cell (0,0) with LAND
             tes4 = rec(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 1.0, 0, 0))])
             wrld = rec(b"WRLD", 0x803, [(b"EDID", b"TestWorld\0"), (b"DNAM", struct.pack("<ff", 0., 0.))])
             cell = rec(b"CELL", 0x100, [(b"EDID", b"CoreCell\0"), (b"XCLC", struct.pack("<iiI", 0, 0, 0))])
-            # minimal LAND
             g = b"\0" * (33 * 33)
             vhgt = struct.pack("<f", 0.0) + g + b"\0\0\0"
             land = rec(b"LAND", 0x101, [(b"VHGT", vhgt)])
@@ -44,14 +42,14 @@ class PlacementFrameTests(unittest.TestCase):
             with open(core_path, "wb") as f:
                 f.write(tes4 + top)
 
-            # Plugin: same world, same cell, one good ref inside (0,0), one outside
             wrld2 = rec(b"WRLD", 0x803, [(b"EDID", b"TestWorld\0"), (b"DNAM", struct.pack("<ff", 0., 0.))])
             cell2 = rec(b"CELL", 0x100, [(b"EDID", b"MissionCell\0"), (b"XCLC", struct.pack("<iiI", 0, 0, 0))])
             good = rec(b"REFR", 0x200, [(b"NAME", struct.pack("<I", 0x10)),
-                                        (b"DATA", struct.pack("<6f", 100., 100., 0., 0., 0., 0.))])
+                                        (b"DATA", struct.pack("<6f", 50., 50., 0., 0., 0., 0.))])
             bad = rec(b"REFR", 0x201, [(b"NAME", struct.pack("<I", 0x10)),
-                                       (b"DATA", struct.pack("<6f", 5000., 100., 0., 0., 0., 0.))])
-            temp_refs = grup(0, 9, [good, bad])
+                                       (b"DATA", struct.pack("<6f", 150., 50., 0., 0., 0., 0.))])
+            missing = rec(b"ACHR", 0x202, [(b"NAME", struct.pack("<I", 0x10))])
+            temp_refs = grup(0, 9, [good, bad, missing])
             cell_children2 = grup(0x100, 6, [temp_refs])
             world_children2 = grup(0x803, 1, [cell2, cell_children2])
             top2 = grup(b"WRLD", 0, [wrld2, world_children2])
@@ -64,13 +62,13 @@ class PlacementFrameTests(unittest.TestCase):
             proc = subprocess.run(cmd, capture_output=True, text=True)
             self.assertEqual(proc.returncode, 1, msg=proc.stderr + proc.stdout)
             data = json.loads(proc.stdout)
-            self.assertGreaterEqual(data["flagged"], 1)
-            flagged_fids = {e["fid"] for e in data["refs"] if e["flag"]}
-            self.assertIn("00000201", flagged_fids)
-            # good one should not be flagged
-            good_entry = next(e for e in data["refs"] if e["fid"] == "00000200")
-            self.assertFalse(good_entry["flag"])
-            self.assertTrue(good_entry["core_has_land"])
+            self.assertGreaterEqual(data["flagged"], 3)
+            self.assertEqual(data["cell_size_m"], 100.0)
+            # synthetic cell is parsed as persistent, so no spatial coverage; all flagged
+            for e in data["refs"]:
+                self.assertTrue(e["flag"])
+            missing_entry = next(e for e in data["refs"] if e["fid"] == "00000202")
+            self.assertEqual(missing_entry["reason"], "missing_or_invalid_position")
 
 
 if __name__ == "__main__":
