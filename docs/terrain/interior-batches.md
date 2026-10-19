@@ -138,7 +138,8 @@ python scripts/terrain/interior_batch.py prune --staging-root D:\Modding\staging
 | 0 | run 1 failed (1e9945b) | 16 | | | removed 2,684 (names, flags) | | fresh work staging, flags missing |
 | 0 | 2026-10-19 PASS (5ecb8a7) | 16 | 16 | 0 | pass: 55,049 records, all identical, none changed/added/removed | not packed | convert 807 s, total 825 s; D: 61.5 to 57.8 GB free; teleports Linked 2, DestinationNotInBuild 28 |
 | 1 | 2026-10-19 PASS (5ecb8a7) | 27 | 27 | 0 cells; 15 models in 8 cells (below) | pass: 55,044 base records identical, 5 changed, 51,437 added | Main 152,387,704 B, Textures 2,708,113,806 B | plugin 297b0f33 (7,899,352 B); convert 704 s, total 815 s; D: 57.8 to 54.1 GB free; teleports Linked 22, Pairs 11 |
-| 2 to 9 | not yet | | | | | | |
+| 2 | 2026-10-19 PASS (5ecb8a7) | 48 (27 + 21) | 48 | 0 cells; 7 models in 4 new cells | pass: same 5 base doors changed, 103,899 added | Main 177,735,013 B, Textures 3,104,207,280 B | plugin 23edf959 (11,520,178 B); convert 618 s, total 726 s; D: 54.0 to 50.1 GB free; teleports Linked 24 |
+| 3 to 9 | not yet | | | | | | |
 
 Batch 1 notes (**verified** from interiors_b01's result.json, port\compare.json and both plugins):
 - The 5 changed base records are load doors of installed cells (REFR 010062BB, 010062BE, 010045AE, 0100383E,
@@ -150,3 +151,7 @@ Batch 1 notes (**verified** from interiors_b01's result.json, port\compare.json 
   `furniture\invisible\deskterminalfurniture01.nif`, `setdressing\quest\bs101\dn017_hallwaysmoke.nif`.
   Traps, decals, smoke and an invisible marker: none is a wall or floor (**supported**, from the paths; the
   convert log has each reason).
+
+Batch 2 failed models (new cells): `traps\gastrap01.nif`, `traps\oiltrappuddle01.nif`,
+`setdressing\kitchen\beerglassgwinnett01.nif`, `architecture\diamondcity\dext\tempdiamondcityspeaker01.nif`,
+`interiors\steamt\temp\tempinsanebricks.nif` (the last two are Bethesda "temp" models).
