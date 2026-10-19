@@ -8,10 +8,17 @@
     python scripts/launcher.py same-ids <build A> <build B> [--plugins a.esm,b.esm] [--report <out.json>]
     python scripts/launcher.py snapshot --starfield <game dir> --out <snapshot.json> [--plugins-txt <path>] [--watch <file> ...]
     python scripts/launcher.py restore --snapshot <snapshot.json> [--port-staging <dir>] [--apply]
+    python scripts/launcher.py detect --fo4-data <dir> ... --starfield <game dir> [--out-dir <drive or folder>]
+                                      [--need-gb N] [--floor-gb 40] [--allow-unknown] [--allow-missing-dlc]
+    python scripts/launcher.py sources-add --manifest <build manifest.json> --label <text> [--table <json>]
+    python scripts/launcher.py measure <folder> ...
 
 manifest   what a build was made from and what it made (read only).
 build      runs a recipe of the repo's make scripts with resumable, recorded steps (src/fo4sf/launcher/driver.py).
 same-ids   do two builds give the same FormIDs? IDENTICAL / SAME_IDS exit 0; IDS_DIFFER / INCOMPLETE exit 1.
+detect     can this PC build? Fallout 4 version and DLC, Starfield, Archive2, CK, SFSE, disk (read only; exit 1 if not).
+sources-add  adds a real install's master hashes (from a build manifest) to the known-sources table.
+measure    a folder's real disk use, hard links counted once (read only).
 snapshot   records Starfield's Plugins.txt, Data plugins and archives and the three install records (read only).
 restore    prints what would bring the install back to a snapshot; --apply does it through the existing installers
            and refuses while the game runs or on any conflict.
@@ -23,7 +30,9 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "src"))
-from fo4sf.launcher import driver, files, manifest, restore, same_ids  # noqa: E402
+from fo4sf.launcher import detect, driver, files, manifest, restore, same_ids  # noqa: E402
+
+SOURCES = os.path.join(REPO, "scripts", "launcher_recipes", "known_sources.json")
 
 
 def cmd_manifest(a):
@@ -103,6 +112,46 @@ def cmd_restore(a):
     return 0 if not left else 1
 
 
+def cmd_detect(a):
+    r = detect.detect(fo4_data=a.fo4_data, starfield=a.starfield, sources=a.table, out_dir=a.out_dir or None,
+                      need_gb=a.need_gb, floor_gb=a.floor_gb, allow_unknown=a.allow_unknown,
+                      allow_missing_dlc=a.allow_missing_dlc, require_ck=a.require_ck, require_sfse=a.require_sfse)
+    for m, v in ((r.get("fo4") or {}).get("masters") or {}).items():
+        print(f"  {m:<20} {v['version'] or 'unknown version'}  {v['sha256'][:12]}")
+    if r.get("game"):
+        g = r["game"]
+        print(f"  Starfield: Archive2 {'yes' if g['archive2'] else 'no'}, Creation Kit "
+              f"{'yes' if g['creation_kit'] else 'no'}, SFSE {'yes' if g['sfse'] else 'no'}")
+    if r.get("disk"):
+        d = r["disk"]
+        print(f"  disk: {d['free_gb']} GB free, {d['floor_gb']:g} kept free, {d['usable_gb']} usable, need {d['need_gb']:g}")
+    for w in r["warnings"]:
+        print("  warning: " + w)
+    for x in r["refusals"]:
+        print("  REFUSED: " + x)
+    if a.report:
+        files.save_json(a.report, r)
+    print("READY" if r["ready"] else "NOT READY")
+    return 0 if r["ready"] else 1
+
+
+def cmd_sources_add(a):
+    table = detect.load_sources(a.table)
+    n = detect.add_sources(table, files.load_json(a.manifest), a.label)
+    files.save_json(a.table, table)
+    print(f"{n} entries added to {a.table} ({len(table['sources'])} in all)")
+    return 0
+
+
+def cmd_measure(a):
+    for p in a.paths:
+        m = detect.measure(p)
+        print(f"  {p}: {m['files']:,} files, listed {m['bytes_listed'] / 2**30:.2f} GiB, unique "
+              f"{m['bytes_unique'] / 2**30:.2f} GiB, shared with other folders {m['bytes_shared'] / 2**30:.2f} GiB, "
+              f"deleting frees {m['frees_if_deleted'] / 2**30:.2f} GiB")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -142,10 +191,29 @@ def main(argv=None):
     s.add_argument("--snapshot", required=True)
     s.add_argument("--port-staging", default="")
     s.add_argument("--apply", action="store_true")
+    s = sub.add_parser("detect")
+    s.add_argument("--fo4-data", action="append", required=True)
+    s.add_argument("--starfield", required=True)
+    s.add_argument("--table", default=SOURCES)
+    s.add_argument("--out-dir", default="")
+    s.add_argument("--need-gb", type=float, default=0.0)
+    s.add_argument("--floor-gb", type=float, default=detect.DEFAULT_FLOOR_GB)
+    s.add_argument("--allow-unknown", action="store_true")
+    s.add_argument("--allow-missing-dlc", action="store_true")
+    s.add_argument("--require-ck", action="store_true")
+    s.add_argument("--require-sfse", action="store_true")
+    s.add_argument("--report", default="")
+    s = sub.add_parser("sources-add")
+    s.add_argument("--manifest", required=True)
+    s.add_argument("--label", required=True)
+    s.add_argument("--table", default=SOURCES)
+    s = sub.add_parser("measure")
+    s.add_argument("paths", nargs="+")
     a = ap.parse_args(argv)
     try:
         return {"manifest": cmd_manifest, "manifest-diff": cmd_manifest_diff, "build": cmd_build,
-                "same-ids": cmd_same_ids, "snapshot": cmd_snapshot, "restore": cmd_restore}[a.cmd](a)
+                "same-ids": cmd_same_ids, "snapshot": cmd_snapshot, "restore": cmd_restore,
+                "detect": cmd_detect, "sources-add": cmd_sources_add, "measure": cmd_measure}[a.cmd](a)
     except driver.RecipeError as e:
         print(f"recipe: {e}")
         return 2

@@ -5,7 +5,7 @@ build-and-restore backbone and the same-ids check run alongside phases 1 to 3, t
 Nothing here has run on the PC yet: every result below is a **synthetic-fixture** result, not an in-game or PC one.
 
 Code: `src/fo4sf/launcher/` (manifest, driver, restore, same_ids), CLI `scripts/launcher.py`, example recipe
-`scripts/launcher_recipes/core_restage_same_ids.example.json`. Tests: `tests/test_launcher_*.py` (42 cases).
+`scripts/launcher_recipes/core_restage_same_ids.example.json`. Tests: `tests/test_launcher_*.py`.
 
 ## What each piece does
 
@@ -51,6 +51,20 @@ Level 1 plugin bytes; level 2 a raw record walk (no Mutagen, no load order): For
 FormID, editor ids that moved to another FormID, record-header metadata, record bodies, TES4 header; level 3 the
 converter's formids.json through compare-ids. Verdicts IDENTICAL, SAME_IDS (ids equal, explained diff listed),
 IDS_DIFFER, INCOMPLETE; exit 0 only for the first two.
+
+### detect (the launcher's first stage)
+`launcher.py detect --fo4-data <Data> ... --starfield <game> --out-dir <drive> --need-gb N` answers "can this PC
+build?", read only: Fallout4.esm and each DLC master matched by hash against `scripts/launcher_recipes/known_sources.json`
+(unknown versions refused unless `--allow-unknown`), missing DLC named and refused unless `--allow-missing-dlc`,
+Starfield.exe, Data and Archive2 required, Creation Kit and SFSE reported (refused only with `--require-ck` /
+`--require-sfse`), and free space minus the floor (default 40 GB) against the need. The table ships empty; entries
+come from a real install with `sources-add --manifest <build manifest> --label <text>`, never typed in. On the owner's
+PC today detect refuses on DLC (only Automatron and Wasteland Workshop are installed), which is the intended answer.
+
+### measure
+`launcher.py measure <folder>` gives a folder's real disk cost with hard links counted once and the part shared with
+other folders split out, so "deleting this frees N GB" is a number, not a guess (staged builds hard-link Data from the
+work folders). This is the measuring half of the unresolved full-build disk budget.
 
 ## First PC run (read-only and staged only; needs the install thread)
 

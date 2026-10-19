@@ -1,0 +1,5 @@
+{
+ "schema": 1,
+ "note": "Fallout 4 master hashes of known-good installs. Filled from a real install with launcher.py sources-add --manifest <build manifest> --label <text>; never typed in.",
+ "sources": []
+}
