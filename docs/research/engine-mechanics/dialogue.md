@@ -131,7 +131,10 @@ example `LipGenerator Test.wav test.txt -OutputFileName:foo.ffxanim`; languages 
 Spanish, Italian, Korean, Japanese. It ships with FonixData.cdf (speech analysis data) and runs without a window, so
 **lip generation can run unattended from the launcher** (supported hypothesis until one line is generated and plays).
 It needs an actor `.facefx` and an actor analysis `.facefx` per face rig: where Starfield keeps them and which one fits
-each converted voice type is **unresolved** (next check: list `.facefx` names in Starfield's archives).
+each converted voice type is **unresolved**. Starfield's archives ship **no** `.facefx` files, only 278,582 per-line
+`.ffxanim` files named by WEM id under `sound/voice/(plugin)/(voicetype)/` (verified, PC job 21: FaceAnimation01 to 04,
+FaceAnimationPatch and the DLC main archives). The actor files would come from the CK's tools or source data, if
+anywhere (next check: search the Starfield and CK folders and ContentResources.zip).
 
 ## Mapping for the port
 
