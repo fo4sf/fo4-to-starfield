@@ -94,6 +94,11 @@ SNAM/NNAM/FNAM is unresolved.
 - ROADMAP.md C2 lists "SPECIAL and perks" in the base core; PLAN.md's non-goal on VATS/Pip-Boy is under revision there.
 - Menus: [../next-phase/animations-ui-and-start.md](../next-phase/animations-ui-and-start.md). Quests and scripts that
   award XP: [../next-phase/npcs-ai-factions-dialogue-quests.md](../next-phase/npcs-ai-factions-dialogue-quests.md).
+- Community precedent (verified, mod pages; framework research 2026-10-19): VaultTec S.P.E.C.I.A.L. System (Nexus SF
+  13025) shows attributes in the status menu under Character but allocates points through terminal menus, "a
+  workaround until scripts can pass information to the UI"; Papyrus cannot push numbers into Starfield's menus without
+  a UI bridge (OSF UI's Papyrus API or our own SFSE plugin). Variable Progression Settings sets `fXPModBase` and
+  `fXPModMult` from Papyrus and grants perk points without SFSE.
 
 ## Open questions and cheap checks
 - xEdit: list Fallout4.esm AVIF where NAM1 = Special; note FormIDs and editor ids (one filter).

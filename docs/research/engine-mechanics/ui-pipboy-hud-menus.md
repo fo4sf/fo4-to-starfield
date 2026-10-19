@@ -134,6 +134,13 @@ FO4 loading screens are 3D models with rotation and zoom, not images.
   [../next-phase/animations-ui-and-start.md](../next-phase/animations-ui-and-start.md).
 - Map markers and the surface map: [../next-phase/world-maps-lod-fasttravel.md](../next-phase/world-maps-lod-fasttravel.md).
 - docs/PLAN.md P5 lists "Pip-Boy/VATS equivalents".
+- Community precedent (verified, mod pages; framework research 2026-10-19): three proven UI stacks. Replacing vanilla
+  SWF/GFX menu files with an INI the SWF reads (StarUI, Astral UI, Venworks HUD; no SFSE, reaches consoles through
+  Creations, but breaks on patches and clashes with other UI mods); OSF UI (WebView2 HTML views, Papyrus and C++ API, a
+  manifest per view with `pausesGame` and `capturesInput`); Carbon UI (Ultralight, C API, pinned to one exact game
+  build, licence unclear between its Nexus page and README). Starcade OS shows a Pip-Boy skeleton: an inventory item
+  opens an HTML menu through OSF UI, with Papyrus glue and a native state file. StarUI's author also made FallUI for
+  FO4. Questions: [../framework/engine-mechanics.md](../framework/engine-mechanics.md).
 
 ## Open questions and cheap checks
 - FO4 SWF list: dump all 304 Interface `.swf` names from Interface.ba2 (PC, read-only) and confirm menu names above.

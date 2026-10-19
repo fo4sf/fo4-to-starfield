@@ -38,7 +38,10 @@ supported hypothesis / unresolved.
 
 ## How Starfield does it
 - No power armor, no mechs as a player system. Mechs exist only as static/destroyed set dressing in vanilla; a
-  pilotable-mech mod by Korodic was shown in 2023 without technical detail. **supported hypothesis** (PCGamesN).
+  pilotable-mech mod was shown in 2023 (PCGamesN names Korodic; Starfield Portal and TweakTown name Jared Kohr, who
+  attached the Vasco mech-parts mod to a Model A robot and turned the player into it with a polymorph-style race swap,
+  "a little crude"). Which name is right is **unresolved**; the method suggests a race-swap effect works on the
+  Starfield player (**supported hypothesis**, video only).
 - "Power armor" mods for Starfield found so far are spacesuits styled after FO4 PA (e.g. Nexus SF 6038 "Fallout 42
   Power Armor": a helmet + spacesuit pair). **verified** (mod page). No furniture-based PA precedent found:
   **unresolved**, recheck.

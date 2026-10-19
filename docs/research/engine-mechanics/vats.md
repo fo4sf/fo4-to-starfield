@@ -70,7 +70,9 @@ hypothesis** for the perk-to-hook pairing beyond the entry point names.
 ## What must be rebuilt, and what needs SFSE or the Creation Kit
 Minimal VATS (in order, each provable alone):
 1. **Time slow**: Papyrus has no global time scale call in FO4 vanilla that we checked; the console `sgtm` exists in
-   older CE titles (unresolved for Starfield). A Slow Time MGEF archetype applied to the player is the no-SFSE path
+   older CE titles, and in Starfield a published mod binds `setglobaltimemultiplier 0.45` to console hotkeys (Nexus SF
+   939), Slow Time SFSE (GPL-3) scales the global multiplier while keeping the player at normal speed, and vanilla ship
+   targeting mode already runs at 0.65x (SF 8063) (verified as documented on the mod pages; our own test still open). A Slow Time MGEF archetype applied to the player is the no-SFSE path
    (verified the archetype exists; behaviour under player cast unresolved). An SFSE plugin setting the engine's time
    multiplier is the robust path.
 2. **Target selection**: find actors in a cone, pick body parts from their BPTD nodes, compute hit chance. Papyrus can
@@ -81,8 +83,12 @@ Minimal VATS (in order, each provable alone):
 4. **Execution**: fire queued shots with forced aim (SFSE or scripted `Actor.StartCombat`-style workaround; unresolved),
    apply perk hooks through our own code since engine VATS entry points will not fire.
 5. **Camera**: optional; a scripted camera path or none.
-Community precedent: no Starfield VATS mod was found in this pass (searches returned only timescale mods and FO4's
-bullet-time VATS replacements). **unresolved**; recheck Nexus before designing.
+Community precedent: no Starfield VATS mod with body-part targeting was found in two later passes either (only
+time-scale mods; **unresolved**, absence of evidence). FO4's VATS rewrites (VAFS, Bullet Time VATS VR, Fallout 76 VATS
+for F4SE) all had to redesign the same group of VATS perks (Gun Fu, Concentrated Fire, Critical Banker, Penetrator),
+because perk entry points tied to the engine mode stop firing; per-limb tracking in Papyrus was "too heavy on the
+script engine" (verified, mod pages). Plan the VATS perk list together with the mode. Framework questions:
+[../framework/engine-mechanics.md](../framework/engine-mechanics.md).
 
 ## Port status and links
 - No VATS work in the repo. PLAN.md non-goal: "VATS, Pip-Boy, settlements get Starfield-native equivalents";

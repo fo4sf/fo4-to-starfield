@@ -124,6 +124,12 @@ interactive music states inside Wwise are **supported hypothesis**.
 - Voice: 20 Codsworth lines converted to `.wem` end to end, playback unproven (PR #361; voice note).
 - No SFX, music or radio work yet. docs/FORMAT-GAP.md lists SNDR as missing in Starfield.
 - Weather sounds tie to [weather-time-climate.md](weather-time-climate.md).
+- Community precedent (verified, mod pages, found by the framework research 2026-10-19): three SFSE plugins play
+  radio outside Wwise by decoding MP3, OGG, FLAC or WAV themselves. Starfield Galactic Radio (station packs as data,
+  e.g. The Other Starfield Radio); Star Radio Player (portable and placed radios built through the outpost menu, placed
+  radios fade with distance and pan, music lowers during dialogue, jingles by filename prefix); Starfield Radio on
+  Carbon UI (no game state). FO4's world radios could ride the same pattern instead of Wwise events. Question for the
+  framework: Wwise events or our own SFSE player ([../framework/engine-mechanics.md](../framework/engine-mechanics.md)).
 
 ## Open questions and cheap checks
 - Does a loose self-written PCM `.wem` play from a SOUN? Same test as the voice note's first step.
