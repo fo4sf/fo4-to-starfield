@@ -45,7 +45,7 @@ Status: plan only. Nothing here is built or tested. Labels as in docs/ai/researc
    PACK, NPC_ (raider-conversion.md section 4 lists what it cannot write for NPC_). The bulk converter generalises
    dotnet/Mission and dotnet/ActorRaider rather than starting over.
 4. **UI.** Verified (E1): Starfield - Interface.ba2 holds 250 .swf and 29 .gfx (Scaleform, as FO4's interface is), e.g.
-   interface\\almanacmenu.swf, plus 3 .json data providers. Supported hypothesis: a menu of our own can be added as a
+   interface\almanacmenu.swf, plus 3 .json data providers. Supported hypothesis: a menu of our own can be added as a
    loose .swf; unresolved: how a new menu is opened from Papyrus without SFSE. A Pip-Boy built as our own menu (original code and art, FO4's text and data)
    is the target; a Papyrus message-box Pip-Boy is the fallback for testing.
 5. **Keeping Starfield out (supported hypothesis).** Override Starfield's start-game-enabled quests to off and add our
@@ -64,7 +64,7 @@ Status: plan only. Nothing here is built or tested. Labels as in docs/ai/researc
 
 Scripts (.pex): Fallout4 - Misc.ba2 7875, DLCRobot - Main.ba2 483, DLCworkshop01 - Main.ba2 43. DIAL and INFO match the
 Codsworth picker's counts. Not installed: DLCCoast, DLCworkshop02, DLCworkshop03, DLCNukaWorld. Full output on the PC:
-D:\\Modding\\scratch\\e1_inventory\\e1.md.
+D:\Modding\scratch\e1_inventory\e1.md.
 
 ## 4. Order (bounded tasks; owner priorities first: Codsworth, the mission, the map)
 
