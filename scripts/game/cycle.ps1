@@ -16,7 +16,8 @@
 # 8 the experiment plugins are no longer active after the save loaded, or the load order dialog could not be answered
 # with "Current" (loadorder.ps1; nothing tested, the game is left running for the runner to close),
 # 9 no valid controller lease for this owner, or python could not run the check (only with FO4SF_LEASE_DIR set;
-# nothing closed, deployed or launched).
+# nothing closed, deployed or launched), 10 Steam was asked to start the game and no Starfield process was alive 20 s
+# after it appeared (the screen is saved to -Shot; nothing tested; the runner may launch again after its own checks).
 param([Parameter(Mandatory)][string]$Staging, [Parameter(Mandatory)][string]$Starfield, [string]$Cell = 'FO4Port_Vault111Cryo',
       [string]$Shot = (Join-Path $env:TEMP 'fo4sf_cycle.png'), [string]$CellJson = '')
 if ($Cell -notmatch '^[A-Za-z0-9_]+$') { "cell name must be letters, digits and underscores (it is typed into the game): $Cell"; exit 1 }
@@ -81,8 +82,29 @@ $HudShown = { param($png)                                       # in game: oxyge
   $py = if ($env:FO4SF_PYTHON) { $env:FO4SF_PYTHON } else { 'python' }
   return ((& $py (Join-Path $PSScriptRoot 'hud_visible.py') $png 2>$null) -eq 'yes') }
 
+# One Steam launch; it counts once a Starfield process is still alive 20 s after it appeared. The first launch of a
+# session can exit within ~2 s (2026-10-18: the runner's launch at 14:32:38 and the owner's own first try at 14:38:16
+# both died after 2 s; the owner's second try stayed up; Steam console_log.txt, no error line). Another try is the
+# runner's (exit 10): it re-checks the lease, STOP, the Guardian and idle before every launch (Codex, #358).
 Start-Process 'steam://rungameid/1716740'
-$deadline = (Get-Date).AddSeconds(150); while ((Get-Date) -lt $deadline) { $q = Get-Process Starfield -ErrorAction SilentlyContinue; if ($q) { $q.Id | Set-Content $pidFile; break }; Start-Sleep 3 }
+$q = $null
+$deadline = (Get-Date).AddSeconds(150)
+while ((Get-Date) -lt $deadline) {
+  $q = Get-Process Starfield -ErrorAction SilentlyContinue | Select-Object -First 1
+  if ($q) { break }
+  Start-Sleep 1
+}
+if ($q) {
+  Start-Sleep 20
+  $q = Get-Process -Id $q.Id -ErrorAction SilentlyContinue
+  if ($q) { $q.Id | Set-Content $pidFile }
+}
+if (-not $q) {
+  # no game to drive: say so, with the screen (a Steam dialog, say), instead of failing later as an input-guard exit 2
+  # (door_rounds_sdm, 2026-10-18 20:32Z: cycle exit 2 after 5 minutes with no Starfield process)
+  powershell -NoProfile -ExecutionPolicy Bypass -File $PSScriptRoot\shot.ps1 -Out $Shot | Out-Null
+  "Starfield did not stay up 20 s after steam://rungameid/1716740 (screen: $Shot): nothing tested"; exit 10
+}
 Start-Sleep 10
 Wait-Screen 'main menu' 120 $MenuShown | Out-Null
 

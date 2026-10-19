@@ -40,7 +40,7 @@ Open before Phase A closes (the [test sheet](owner/in-game-test-sheet.md) is the
 | Vault 111 flat grey floor | the gear-room pit's water sheet was converted as an opaque plank; #300 leaves water planes out; needs an interior rebuild | Claude |
 | Vault 111 cog door (an activator with Stage clips, played from its console) and the exit elevator | not built | Claude |
 | Picking up and carrying objects in the world (not into the inventory) | does not work (owner, row 26); hypothesis: FO4 masses are 2 to 10 times Starfield's for small items (research log); the owner's in-game mass experiment decides | Claude |
-| Garage button does nothing | #303 (Grok, open): FO4's XAPR link becomes the vanilla DefaultActivateLinkedRefOnActivate plus an XLKR on the button, with Opening/Closing clip aliases for the garage door rig; next: independent QA, then the garage NIF reconversion | Grok, Codex QA, Claude build |
+| Garage button does nothing | #303 (Grok, open, wire-only): FO4's XAPR link becomes the vanilla DefaultActivateLinkedRefOnActivate plus an XLKR on the button; no Opening/Closing clip alias (that made garage meshes passable). Garage NIF rig is later, Claude on the build side | Grok, Codex QA, Claude build |
 | Nothing visible beyond the loaded cells | no distant LOD for converted statics; trial plan in [object-lod.md](terrain/object-lod.md) (no build yet; Claude owns the CK spike) | Grok research, Claude build |
 | Textures: foliage cutouts, greyscale palettes, vines, white walls | Grok's #288/#289 need the review fixes, then Claude reconverts | Grok, Codex QA |
 | Map surface view and markers | what the surface map shows over the Commonwealth is not recorded yet (a playtest row with the owner's screenshot comes first); #296 restores the first marker; the 3D view is section 3's first Grok item | Grok |
@@ -186,7 +186,7 @@ equivalents and which are rebuilt, and PLAN.md is updated once the owner agrees.
      appear there from our own plugin and locally generated files; then the build on #296's marker after its LCSR fix.
      Acceptance: a screenshot of the surface map opened at Red Rocket showing the Commonwealth terrain in 3D with the
      Red Rocket marker (Claude takes it);
-  2. the review fixes on #288, #289, #290, #296 and the #303 review; after Codex's QA, Claude runs the reconversion and
+  2. the review fixes on #288, #289, #290, #296 and the #303 wire-only review (clip alias out); after Codex's QA, Claude runs the reconversion and
      the in-game checks;
   3. the object-LOD trial in [object-lod.md](terrain/object-lod.md), with Claude on the build side (the exterior writer
      and staging are Claude's; Grok hands over patches, or the file scope is agreed on #32 first).

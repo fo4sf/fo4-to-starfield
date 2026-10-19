@@ -4,6 +4,7 @@ Map markers are REFR of STAT MapMarker (00000010) with an empty XMRK. A Location
 (MasterSpecialReferences) in a 5 x u32 stride and usually LCID (MasterInitiallyDisabledReferences) = that REFR.
 Synthetic only: no game files.
 """
+import math
 import struct
 
 MAPMARKER_STAT = 0x00000010
@@ -54,3 +55,46 @@ def pack_lcsr(entries):
 def map_marker_lcsr(refr, wrld):
     """One MapMarkerRefType LCSR row for a marker REFR in wrld."""
     return pack_lcsr([{"lcrt": MAPMARKER_REF_TYPE, "refr": refr, "wrld": wrld}])
+
+
+# Commonwealth map markers of the core overlay (docs/terrain/map-markers.md, "Commonwealth markers"). FO4 positions in
+# FO4 units from Fallout4.esm (the landmarks scripts/terrain/make_cw_overlays.py already uses: the Sanctuary, Vault 111
+# and Concord map-marker REFRs). Red Rocket sits on the COC arrival (the flat vertex at the station), so its icon and
+# the tested spawn are one place. The overlay's local frame is the CW frame: position = FO4 position / 70.
+FO4_UNITS_PER_M = 70.0
+COMMONWEALTH_MARKERS = (
+    # (tag, map name, FO4 source REFR, FO4 x, FO4 y); None position = the COC arrival
+    ("RedRocket", "Red Rocket Truck Stop", 0x000211C0, None, None),
+    ("Sanctuary", "Sanctuary Hills", 0x00072A48, -80768.19, 88174.80),
+    ("Vault111", "Vault 111", 0x0009F272, -89271.98, 91369.30),
+    ("Concord", "Concord", 0x00082138, -60286.01, 72977.79),
+)
+EDGE_KEEP_M = 200.0     # two cells inside the overlay, as the ray plans keep their probes
+
+
+def sf_cell(x, y, cell_m=100.0):
+    return [int(math.floor(x / cell_m)), int(math.floor(y / cell_m))]
+
+
+def overlay_markers(spawn, bounds_m, ground, markers=COMMONWEALTH_MARKERS, keep=EDGE_KEEP_M):
+    """The overlay's "map_markers" params entries: {tag, name, src, pos [x, y, z], cell}, local metres.
+
+    spawn: the COC marker position (x, y, z); bounds_m: (min, max) of the overlay's square in local metres; ground:
+    f(x, y) -> terrain height (the BTD). A marker outside the overlay (less than `keep` from its edge) raises: the core
+    always contains these four, and a silent drop would ship a map without one of them."""
+    lo, hi = bounds_m
+    out = []
+    for tag, name, src, fx, fy in markers:
+        if fx is None:
+            x, y, z = (float(v) for v in spawn)
+        else:
+            x, y = fx / FO4_UNITS_PER_M, fy / FO4_UNITS_PER_M
+            if not (lo + keep <= x <= hi - keep and lo + keep <= y <= hi - keep):
+                raise ValueError(f"map marker {tag} at ({x:.1f}, {y:.1f}) m is not {keep:.0f} m inside the overlay "
+                                 f"[{lo}, {hi}]")
+            z = float(ground(x, y))
+        out.append({"tag": tag, "name": name, "src": f"{src:06X}:Fallout4.esm",
+                    "pos": [round(x, 4), round(y, 4), round(z, 4)], "cell": sf_cell(x, y)})
+    if len({m["tag"] for m in out}) != len(out):
+        raise ValueError("map marker tags repeat")
+    return out

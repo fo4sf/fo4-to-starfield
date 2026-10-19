@@ -1,7 +1,7 @@
 # Map markers: overlay location chain (playtest row 7)
 
-Author: Grok, 2026-10-17. Status: **research + plan, offline**. Nothing written into the overlay plugin; nothing run
-in game. Labels as in the other terrain docs: **verified** = read from files, **supported** = hypothesis with
+Author: Grok, 2026-10-17. Status: **implemented, offline**. TerrainOverlays restores one MapMarker + LCSR/LCID per
+overlay (`grok/map-marker-restore`). Nothing deployed; nothing run in game. Labels as in the other terrain docs: **verified** = read from files, **supported** = hypothesis with
 evidence, **unresolved** = open. Owner playtest row 7 (fast travel to The Frontier from the overlay map hung). Plan
 section 5 of [commonwealth-build-plan.md](commonwealth-build-plan.md): "FO4 map markers -> LCTN/REFR".
 
@@ -13,7 +13,7 @@ landing overlay carries.
 
 Pinned `FO4TerrainCore.esm` (`terrain_core64k`, read-only):
 
-- LCTN `01000802` `FO4Core_CommonwealthLocation`: `LCSR` absent (0 bytes), `LCID` absent, `FULL` "Commonwealth 00 (FO4
+- LCTN `01000802` `FO4Core_CommonwealthLocation`: `LCSR` and `LCID` present with 0-byte payloads, `FULL` "Commonwealth 00 (FO4
   terrain)", `KWDA` `002CA99D` (`LocTypeOverlay`), `PNAM` `0001B736` (`SSol_PMars_Surface`).
 - WRLD `FO4Core_Commonwealth` `XLCN` that location (already documented in [overlay-records.md](overlay-records.md) §2).
 - 654,600 `REFR`: **0** carry `XMRK`, **0** `NAME` a MapMarker STAT (`00000010` / long / short / medium-long).
@@ -35,7 +35,7 @@ A typical unique-overlay marker (LC172 persistent `REFR` `003E5E12`):
 
 | Field | Value |
 |---|---|
-| flags | `00000C00` |
+| flags | `00000C00` (Persistent `0x400` + Initially Disabled `0x800`) |
 | `NAME` | `00000010` MapMarker |
 | `XMRK` | empty payload |
 | `FNAM` | `1b000000` (u32 `0x1B`) |
@@ -52,8 +52,12 @@ A typical unique-overlay marker (LC172 persistent `REFR` `003E5E12`):
 `LCSR` is a repeated 20-byte (5 × u32) stride:
 
 ```
-LCRT formid, REFR formid, WRLD formid, 0, 0xFFFFFFFF
+LCRT formid, REFR formid, WRLD formid, grid (two i16, Y then X), 0xFFFFFFFF
 ```
+
+The 4th dword is the marker's cell as two i16, Y then X (Mutagen `LocationCellStaticReference.Grid`). The 5th is
+Mutagen `Unknown = -1` (`0xFFFFFFFF` on every vanilla MapMarkerRefType row). The constructor default is 0; the
+writer sets Grid from `spawn_cell` and Unknown to -1.
 
 `LCID` is often the map-marker `REFR`. Mutagen: `MasterSpecialReferences` = `LCSR`,
 `MasterInitiallyDisabledReferences` = `LCID`.
@@ -131,17 +135,18 @@ Core `selected.json` does not list a MapMarker type (FO4 markers are not a conve
 
 ## Plan
 
-### GO (next PR, writer + synthetic tests; Claude scratch overlay for in-game)
+### GO (this PR, writer; Claude scratch overlay for in-game)
 
-One persistent MapMarker `REFR` in the Commonwealth overlay:
+One persistent MapMarker `REFR` in the Commonwealth overlay, written **after** doors/lights so reserved object FormIDs
+stay:
 
-- `NAME` STAT `00000010`, empty `XMRK`, `FNAM` `0x1B` and `TNAM` `0x17` (LC172, because we Duplicate that location, not
-  a landing overlay).
-- Position: the Red Rocket COC (`FO4Core_RedRocketSpawnMarker`), overlay-local metres, same cell.
-- After the existing `MasterSpecialReferences.Clear()` (that drop of LC172's snow-globe `LCSR` and LC172's own marker
-  form id stays; those refs are not in our world), append one `LCSR` `MapMarkerRefType` → that `REFR` → our WRLD, and
-  `LCID` that `REFR`.
-- Tests: `LCSR` 20-byte stride, empty `XMRK`, `LCID` matches the marker; the snow-globe `LCSR` is not copied.
+- Duplicate LC172's persistent MapMarker `REFR` `003E5E12` (keeps empty `XMRK`, `FNAM` `0x1B`, `TNAM` `0x17`), `NAME`
+  STAT `00000010`.
+- Position: the Red Rocket COC spawn, overlay-local metres; persistent in the world's `TopCell` (same list as the
+  XMarker anchor). `FULL` "Red Rocket". LC172's `XLKR` is cleared.
+- After the existing `MasterSpecialReferences.Clear()` (LC172's snow-globe `LCSR` and LC172's own marker form id stay
+  dropped; those refs are not in our world), append one `LCSR` `MapMarkerRefType` → that `REFR` → our WRLD, and `LCID`
+  that `REFR`. `formids.json` `"map_markers"` maps world editor id → REFR id.
 
 Do **not** stamp a PCM 3 × 3 landing overlay over the unique 64-cell Commonwealth overlay. Do **not** add ship pads
 or `LinkShipLandingOverlayMapMarker` in this first change.
@@ -156,6 +161,44 @@ or `LinkShipLandingOverlayMapMarker` in this first change.
 
 Second PR: add the landing-overlay `XLKR` (`LinkShipLandingOverlayMapMarker` from a pad to the marker) **without**
 swapping the world type. Still no PCM stamp. Claude runs the game.
+
+## Commonwealth markers (Claude-cloud, 2026-10-17, stacked on #296)
+
+Status: **offline, verified by synthetic tests only**; the writer change is not built in the cloud (no .NET there) and
+nothing has run in game.
+
+`make_core64c.py stage` now writes the overlay's `map_markers` into `overlays_params.json`
+(`fo4sf.map_markers.overlay_markers`), and `TerrainOverlays` writes one MapMarker REFR, one `LCSR` MapMarkerRefType row
+and one `LCID` entry per entry, in this order, after every other record:
+
+| Tag | Map name | FO4 source | Position (local m) |
+|---|---|---|---|
+| RedRocket | Red Rocket Truck Stop | building `000211C0` | the COC arrival (`FO4Core_RedRocketSpawnMarker`), as #296 |
+| Sanctuary | Sanctuary Hills | map marker `00072A48` | FO4 position / 70, z = BTD ground |
+| Vault111 | Vault 111 | map marker `0009F272` | FO4 position / 70, z = BTD ground |
+| Concord | Concord | map marker `00082138` | FO4 position / 70, z = BTD ground |
+
+FO4 positions are the ones `make_cw_overlays.py` already uses as probe landmarks (read from Fallout4.esm). A marker less
+than 200 m inside the overlay stops the stage. Without `map_markers` (core64 itself, exp builds) the writer keeps #296's
+single marker at the COC. The first marker keeps #296's EditorID and `formids.json` `map_markers`; all of them are in
+`formids.json` `map_marker_refs` {world: {tag: id}}.
+
+`make_core64c.py check` judges them (`map_marker_problems`): MapMarker NAME, XMRK, persistent, position, one `LCSR` row per
+marker with tail `0xFFFFFFFF`, no `LCID` (see the correction below), ids after every other record. It also stops counting the markers against the
+door rules (doors after everything, the persistent cell holds anchor + door markers) and compares core64's Location
+without its `LCSR` / `LCID`: before this, a door build with #296's marker would have failed `check`.
+
+The FO4 map names, the `FNAM` bits (fast travel, discovered) and the `TNAM` icon type stay LC172's (`0x1B`, `0x17`):
+whether the icons show undiscovered, and which icon they draw, is **unresolved** until the in-game check.
+
+### Correction (Claude-cloud, 2026-10-18): the markers were written initially disabled
+
+In game on FO4TerrainCore fdd3f0a5 (markers 0A7759 to 0A775C), **no icon showed on the map** (owner). The writer
+Duplicated LC172's 003E5E12 with its flags 0xC00, which include Initially Disabled 0x800. LC172's quest enables that marker.
+Ours have nothing to enable them, and the writer also listed them in `LCID` (the Location's initially disabled
+references). The landing-overlay marker 003A866E is 0x400 (persistent only). The writer now writes 0x400 and no `LCID`,
+and `check` fails a marker that is initially disabled or listed in `LCID`. **Supported hypothesis** until the
+in-game confirmation (`prid 030A7759`, `enable`, then open the map; `03` is FO4TerrainCore's load-order slot).
 
 ## Acceptance
 

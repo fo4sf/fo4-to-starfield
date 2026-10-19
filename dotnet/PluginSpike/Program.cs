@@ -65,6 +65,7 @@ var bySource = new Dictionary<string, (FormKey key, P3Float offset)>(StringCompa
 var byRef = new Dictionary<string, (FormKey key, P3Float offset)>();
 var openingDoors = new HashSet<FormKey>();   // bases of animated (non-load) doors: their references take FO4's open state
 var ownRigDoors = new HashSet<FormKey>();    // manifest rig "native": an opening rig, never a load door (TeleportLinks)
+var modelOf = new Dictionary<FormKey, string>();   // STAT / MSTT base -> its model: what a promoted reference's new base carries
 int doors = 0, loadDoors = 0, movables = 0, posed = 0;
 foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in items)
 {
@@ -102,6 +103,7 @@ foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in it
         // pushable set dressing; a Static never simulates. DATA 4 as every vanilla MSTT checked (SfInspect mstt).
         var ms = new MoveableStatic(Id("MSTT:" + editorId), release) { EditorID = editorId, Model = new Model { File = model }, DATA = 4 };
         mod.MoveableStatics.Add(ms);
+        modelOf[ms.FormKey] = model;
         PosedBases.Register(byRef, bySource, source, posedRefs, (ms.FormKey, new P3Float(0, 0, 0)));
         movables++;
         continue;
@@ -139,6 +141,7 @@ foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in it
     }
     var stat = new Static(Id("STAT:" + editorId), release) { EditorID = editorId, Model = new Model { File = model } };
     mod.Statics.Add(stat);
+    modelOf[stat.FormKey] = model;
     PosedBases.Register(byRef, bySource, source, posedRefs, (stat.FormKey, new P3Float(0, 0, 0)));
 }
 Console.WriteLine($"{items.Count - doors - loadDoors - movables} statics, {movables} movable statics, {doors} doors, {loadDoors} load doors; " +
@@ -159,7 +162,7 @@ static P3Float RotateOffset(P3Float v, P3Float r, float scale)
 }
 
 // Optional per-cell lighting overrides: <output dir>/lighting.json = { "<cell>": { "LIGHTING_TEMPLATE": "06BCF8", ... },
-// "*": { ...defaults for every cell... } }. Keys: LIGHTING_TEMPLATE, IMAGE_SPACE, OMNI_LIGHT, LIGHT_MERGE_M.
+// "*": { ...defaults for every cell... } }. Keys: LIGHTING_TEMPLATE, IMAGE_SPACE, ENV_MAP, OMNI_LIGHT, LIGHT_MERGE_M.
 // Lookup order: cell entry, "*" entry, environment variable, built-in default.
 var lightCfgPath = Path.Combine(outDir, "lighting.json");
 var lightCfg = File.Exists(lightCfgPath)
@@ -169,6 +172,10 @@ string Setting(string cell, string key, string fallback) =>
     lightCfg.TryGetValue(cell, out var c) && c.TryGetValue(key, out var v) ? v
     : lightCfg.TryGetValue("*", out var d) && d.TryGetValue(key, out var w) ? w
     : Environment.GetEnvironmentVariable(key) ?? fallback;
+
+// Interior promotions (Promotions.cs): <output dir>/promote.json, when present, gives FO4 containers, inventory items,
+// activators and terminals a native base of their kind instead of the STAT / MSTT their model would get.
+using var promotions = new Promotions(Path.Combine(outDir, "promote.json"));
 
 // ---- cells ------------------------------------------------------------------------------------------------------------
 P3Float Pos(JsonElement p) => new(p[0].GetSingle() / UnitsPerMetre, p[1].GetSingle() / UnitsPerMetre, p[2].GetSingle() / UnitsPerMetre);
@@ -188,7 +195,10 @@ foreach (var cdoc in cellDocs)
     // exposure + reflections like the vanilla underground interior DR017UndergroundInterior (25CAA7): without these the cell
     // reflects a bright default sky and auto-exposure washes everything out
     cell.ImageSpace.SetTo(new FormKey(sfEsm, Convert.ToUInt32(Setting(src4, "IMAGE_SPACE", "122393"), 16)));
-    cell.EnvironmentMap = Environment.GetEnvironmentVariable("ENV_MAP") ?? "Data\\Textures\\cubemaps\\blackcube.dds";
+    // ENV_MAP is a per-cell setting. Default: the vanilla hall cubemap (ssPirateShip01Interior's). The library under
+    // blackcube.dds was black away from placed lights; with this cube the owner judged it "fine" (18 Oct, FO4Port.esm
+    // 5204188f; research log 2026-10-18). Set "blackcube.dds" per cell to get the old look back.
+    cell.EnvironmentMap = Setting(src4, "ENV_MAP", "Data\\Textures\\Cubemaps\\Cell_HiTechHallCube.dds");
     var cocMarker = new FormKey(sfEsm, 0x000032);                                        // COCMarkerHeading
     var omni = new FormKey(sfEsm, Convert.ToUInt32(Setting(src4, "OMNI_LIGHT", "03D38C"), 16)); // LGT_ShipInterior_Omni_NS_Neutral_2k
     var merge = float.Parse(Setting(src4, "LIGHT_MERGE_M", "3"), System.Globalization.CultureInfo.InvariantCulture);
@@ -217,6 +227,12 @@ foreach (var cdoc in cellDocs)
         {
             if (!PosedBases.TryResolve(byRef, bySource, src, model, out var bas)) { skipped++; continue; }
             if (byRef.ContainsKey(src)) placedPosed++;
+            if (promotions.Has(src))
+            {
+                if (byRef.ContainsKey(src)) promotions.Kept(src, "own posed model");
+                else if (!modelOf.TryGetValue(bas.key, out var baseModel)) promotions.Kept(src, "door base");
+                else bas = (promotions.Base(src, baseModel, mod, Id, release), bas.offset);
+            }
             var scale = r.GetProperty("scale").GetSingle();
             var rot = Rot(r.GetProperty("rot"));
             var pos = Pos(r.GetProperty("pos"));
@@ -256,6 +272,25 @@ foreach (var cdoc in cellDocs)
     Console.WriteLine($"cell {cellName} {cell.FormKey}: placed {placed} references ({placedPosed} with their own posed model) + {lights} lights ({disabled} initially disabled), skipped {skipped}");
     if (openDoors + lockedDoors > 0)
         Console.WriteLine($"  doors: {openDoors} open by default (as in FO4), {lockedDoors} locked in FO4 (lock not written)");
+}
+
+if (promotions.Listed > 0)
+{
+    var handled = promotions.Counts.Values.Sum();
+    Console.WriteLine($"promotions: {string.Join(", ", promotions.Counts.Select(kv => $"{kv.Value} {kv.Key}"))}; " +
+                      $"{promotions.Listed - handled} listed but not placed");
+}
+
+// ---- activation chains (ActivationChains.cs): FO4 activate parents as Starfield linked-ref activation ------------------
+var chains = ActivationChains.Apply(placedBySource, cellDocs.Select(d => d.RootElement),
+                                    new HashSet<FormKey>(promotions.UsableBases.Concat(openingDoors)));
+if (chains.ChildrenWithParents > 0)
+{
+    Console.WriteLine($"activation chains: {chains.Wired} wired; unwired: {chains.ParentNotPlaced} parent not placed, " +
+                      $"{chains.ParentNotUsable} parent not usable, {chains.ParentDrivesSeveral} parent drives several, " +
+                      $"{chains.ParentHasScript} parent already scripted, {chains.ChildNotPlaced} child not placed; " +
+                      $"{chains.DelaysDropped} delays and {chains.ParentActivateOnly} parent-activate-only flags not carried");
+    File.WriteAllText(Path.Combine(outDir, "activation.json"), JsonSerializer.Serialize(chains, new JsonSerializerOptions { WriteIndented = true }));
 }
 
 // ---- load-door teleports between the cells of this build ---------------------------------------------------------------

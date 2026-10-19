@@ -46,6 +46,10 @@ def checkpoint_signature(a):
         sig["prefix"] = a.prefix
     if getattr(a, "door_anim_dll", "") and a.starfield_data:   # multi-part doors get their own rig and clips
         sig["door_anim_dll"] = checkpoints.digest(Path(a.door_anim_dll))
+    if getattr(a, "spec_mask_roughness", False):        # rougher outputs differ; off keeps existing checkpoints valid
+        sig["spec_mask_roughness"] = True
+    if getattr(a, "mass_scale", 1.0) != 1.0:            # scaled masses differ; default 1.0 keeps existing checkpoints valid
+        sig["mass_scale"] = a.mass_scale
     caps = textures.parse_texture_caps(getattr(a, "max_texture", ""))
     if caps:                                            # capped outputs differ; no cap keeps existing checkpoints valid
         sig["max_texture"] = caps
@@ -137,6 +141,31 @@ def cell_candidates(cell, wanted):
                   key=str.lower)
 
 
+def teleport_models(cell):
+    """The meshes FO4 places in this cell as a teleporting door ('meshes\\' + model of every Door reference with an XTEL):
+    load doors for the converter whatever their file name (pipeline.Converter load_door_models)."""
+    return sorted({"meshes\\" + r["model"].lstrip("\\") for r in cell["refs"] if r.get("model") and r.get("type") == "Door"
+                   and r.get("teleport_destination")}, key=str.lower)
+
+
+def static_body_models(cell):
+    """The meshes a cell export marks "static_body" (make_core64c convert_list: placed outdoors as STAT only, never as an
+    item): they keep a static body though movable items get dynamic ones (pipeline.Converter static_body_models)."""
+    return sorted({"meshes\\" + r["model"].lstrip("\\") for r in cell["refs"] if r.get("model") and r.get("static_body")},
+                  key=str.lower)
+
+
+def checkpoint_key(key, name, load_models, static_models):
+    """The checkpoint identity of one conversion: the mesh (or posed-variant) key plus the record-driven classes that
+    change its output (load door, static body), so a cell export that reclassifies a mesh is a cache miss (Codex review
+    of #354: a RoofHatch01 primed without an XTEL was reused, without load_door, after its XTEL appeared). A mesh in
+    neither class keeps its plain key, so existing checkpoints stay valid."""
+    low = name.replace("/", "\\").lower()
+    tags = [t for t, models in (("load_door", load_models), ("static_body", static_models))
+            if low in {m.replace("/", "\\").lower() for m in models}]
+    return "|".join([key] + tags)
+
+
 def write_json_atomic(path, value):
     fd, temporary = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".fo4port-")
     try:
@@ -182,9 +211,18 @@ def main():
                     help="cap converted textures by dropping top mip levels: one size for every kind ('1024') or per "
                          "kind ('color=1024,normal=512,rough=256,opacity=512'); default: full resolution. The full and "
                          "written size of every texture go to <staging>/texture_log.json")
+    ap.add_argument("--spec-mask-roughness", action="store_true",
+                    help="roughness also follows FO4's specular mask (smooth-spec R), so dull surfaces with high gloss "
+                         "stay rough; default off (the gloss alone, as every build so far)")
+    ap.add_argument("--mass-scale", type=float, default=1.0,
+                    help="scale FO4 dynamic body masses (playtest row 26: FO4 small items 2-10x Starfield; try 0.2-0.5 so grab works)")
     a = ap.parse_args()
     if not re.fullmatch(r"[a-z0-9_]+", a.prefix):
         ap.error("--prefix: lower-case letters, digits and _ only")
+    try:
+        a.mass_scale = convert_static.require_mass_scale(a.mass_scale)
+    except ValueError as e:
+        ap.error(f"--mass-scale: {e}")
     try:
         textures.parse_texture_caps(a.max_texture)
     except ValueError as e:
@@ -218,8 +256,11 @@ def main():
         with open(a.cell_json, encoding="utf-8-sig") as f:
             cell = json.load(f)
         names = cell_candidates(cell, set(a.types.split(",")))
+        load_models = teleport_models(cell)
+        static_models = static_body_models(cell)
     else:
         names = src.mesh_names(a.pattern)
+        load_models = static_models = []
     print(f"{len(names)} candidate meshes; converting up to {a.limit}")
     os.makedirs(a.staging, exist_ok=True)
     state_path = os.path.join(a.staging, "build-state.json")
@@ -234,7 +275,8 @@ def main():
         if not a.cell_json and re.search(r"(lod|_dmg|damaged|destr)", name, re.I):
             skipped += 1
         else:
-            r = cache.load(name) if cache else None
+            ckey = checkpoint_key(name, name, load_models, static_models)
+            r = cache.load(ckey) if cache else None
             if r is not None:
                 reused += 1
             else:
@@ -243,11 +285,14 @@ def main():
                                               rig_doors=donor is not None, door_physics_donor=donor,
                                               sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
                                               prefix=a.prefix, max_texture=a.max_texture,
-                                              door_anim_dll=a.door_anim_dll or None)
+                                              door_anim_dll=a.door_anim_dll or None,
+                                              spec_mask_roughness=a.spec_mask_roughness,
+                                              mass_scale=a.mass_scale, load_door_models=load_models,
+                                              static_body_models=static_models)
                 r = conv.convert_nif(name)
                 if cache:
                     try:
-                        cache.save(name, r)
+                        cache.save(ckey, r)
                     except (OSError, ValueError) as e:
                         print(f"  checkpoint unavailable for {name}: {e}")
             attempted_so_far += 1
@@ -279,7 +324,7 @@ def main():
         variants, pose_stats = placed_pose.plan(cell["refs"], by_source, lambda name: src.mesh(name))
         for v in variants:
             base = by_source[source_identity(v.source).replace("/", "\\")]
-            key = f"{v.source}|xrgd:{v.key}"
+            key = checkpoint_key(f"{v.source}|xrgd:{v.key}", v.source, load_models, static_models)
             r = cache.load(key) if cache else None
             if r is not None:
                 reused += 1
@@ -289,7 +334,10 @@ def main():
                                               rig_doors=donor is not None, door_physics_donor=donor,
                                               sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
                                               prefix=a.prefix, max_texture=a.max_texture,
-                                              door_anim_dll=a.door_anim_dll or None)
+                                              door_anim_dll=a.door_anim_dll or None,
+                                              spec_mask_roughness=a.spec_mask_roughness,
+                                              mass_scale=a.mass_scale, load_door_models=load_models,
+                                              static_body_models=static_models)
                 r = conv.convert_nif(v.source, pose=v.overrides, out_suffix=v.suffix)
                 if cache:
                     try:

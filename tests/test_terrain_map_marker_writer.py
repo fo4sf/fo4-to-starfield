@@ -1,0 +1,121 @@
+"""Map-marker LCSR through the actual terrain writer (dotnet/TerrainOverlays) on the synthetic master of
+test_terrain_reference_identity (dotnet/TerrainIdentityFixture map-marker extra arg), never a game: Grid from
+spawn_cell and Unknown -1 serialize as the vanilla 0xFFFFFFFF tail (docs/terrain/map-markers.md)."""
+import json
+import os
+from pathlib import Path
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import test_terrain_reference_identity as tri  # noqa: E402
+import test_terrain_lights_writer as tlw  # noqa: E402
+
+subrecords, field = tlw.subrecords, tlw.field
+MAPMARKER_REF_TYPE = 0x0002271F
+LCSR_TAIL = 0xFFFFFFFF
+
+
+class TerrainMapMarkerWriterTests(unittest.TestCase):
+    run_writer = tri.TerrainReferenceIdentityTests.run_writer
+    promote = tri.TerrainReferenceIdentityTests.promote
+
+    @classmethod
+    def setUpClass(cls):
+        cls.dotnet = shutil.which("dotnet")
+        if not cls.dotnet:
+            raise unittest.SkipTest(".NET 9 SDK/runtime needed for actual writer test")
+        sdks = subprocess.run([cls.dotnet, "--list-sdks"], capture_output=True, text=True, check=True)
+        if not any(line.startswith("9.") for line in sdks.stdout.splitlines()):
+            raise unittest.SkipTest(".NET 9 SDK/runtime needed for actual writer test")
+        build = subprocess.run([cls.dotnet, "build", str(ROOT / "dotnet/TerrainIdentityFixture"),
+                                "-c", "Release", "--nologo"], capture_output=True, text=True)
+        if build.returncode:
+            raise AssertionError(build.stdout + build.stderr)
+        temporary = tempfile.TemporaryDirectory(prefix="fo4sf-mapmarker-")
+        cls.addClassCleanup(temporary.cleanup)
+        cls.root = Path(temporary.name)
+        cls.master = cls.root / "master/Starfield.esm"
+        fixture = ROOT / "dotnet/TerrainIdentityFixture/bin/Release/net9.0/TerrainIdentityFixture.dll"
+        subprocess.run([cls.dotnet, str(fixture), str(cls.master), "map-marker"], capture_output=True, check=True)
+        cls.writer = Path(os.environ.get("FO4SF_TERRAIN_WRITER",
+                                         ROOT / "dotnet/TerrainOverlays/bin/Release/net9.0/TerrainOverlays.dll"))
+        cls.params = {
+            "plugin": "Synthetic.esm", "hmin": 0, "hmax": 1, "alignment": "absolute", "hnam": 0,
+            "objects": "objects.json", "overlays": [{"world": "SyntheticWorld", "block": "SyntheticBlock",
+            "location": "SyntheticLocation", "tag": "Synthetic", "n": 2, "cell_min": 0, "cell_max": 1,
+            "btd_path": "Terrain/Synthetic.btd", "fnam": [0] * 4, "bounds_min_m": 0, "bounds_max_m": 200,
+            "spawn": [1, 1, 2], "spawn_cell": [1, 0], "coc": "SyntheticSpawn",
+            "anchor": {"form_id": 0x800, "edid": "SyntheticAnchor", "local": [1, 1, 2]}}]}
+        cls.objects = {"world": "SyntheticWorld", "bases": [{"edid": "SyntheticBase", "model": "synthetic.nif"}],
+                       "refs": [{"src": f"{i + 1:06X}:Synthetic.esm", "base": 0, "cell": cell,
+                                 "pos": pos, "rot": [0, 0, i / 10], "scale": 1 + i / 10, "disabled": False}
+                                for i, (cell, pos) in enumerate(zip(([0, 0], [0, 1], [1, 1]),
+                                                                   ([1, 2, 3], [4, 101, 6], [101, 102, 9])))]}
+
+    def test_lcsr_tail_is_ffffffff_and_grid_follows_spawn_cell(self):
+        proc, stage = self.run_writer(self.objects, "map-marker-lcsr")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        ids = json.loads((stage / "formids.json").read_text())
+        self.assertIn("map_markers", ids)
+        marker = int(ids["map_markers"]["SyntheticWorld"], 16)
+        recs = tri.records(stage / "Synthetic.esm")
+        lctn = next(r for r in recs.values() if r[0] == b"LCTN")
+        lcsr = field(lctn[1], b"LCSR")
+        self.assertIsNotNone(lcsr)
+        self.assertEqual(len(lcsr), 20)
+        lcrt, refr, wrld, grid, tail = struct.unpack_from("<5I", lcsr)
+        self.assertEqual(lcrt, MAPMARKER_REF_TYPE)
+        self.assertEqual(refr & 0xFFFFFF, marker)
+        self.assertEqual(grid, struct.unpack("<I", struct.pack("<hh", 0, 1))[0])  # Y then X of spawn_cell [1, 0]
+        self.assertEqual(tail, LCSR_TAIL)
+        self.assertEqual(recs[marker][0], b"REFR")
+        self.assertEqual(recs[marker][3] & 0xC00, 0x400)                     # persistent, enabled (not LC172's 0xC00)
+        self.assertIsNone(field(lctn[1], b"LCID"))
+
+    def test_params_map_markers_write_one_chain_each(self):
+        # the four-marker loop (make_core64c stage "map_markers"), judged by make_core64c check's map_marker_problems
+        import copy
+        import importlib.util
+        sys.path.insert(0, str(ROOT / "scripts" / "terrain"))
+        spec = importlib.util.spec_from_file_location("make_core64c", ROOT / "scripts" / "terrain" / "make_core64c.py")
+        mk = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mk)
+        params = copy.deepcopy(self.params)
+        ov = params["overlays"][0]
+        ov["map_markers"] = [{"tag": "RedRocket", "name": "Red Rocket Truck Stop", "pos": ov["spawn"], "cell": [0, 0]},
+                             {"tag": "Sanctuary", "name": "Sanctuary Hills", "pos": [150.0, 50.0, 1.0], "cell": [1, 0]},
+                             {"tag": "Concord", "name": "Concord", "pos": [50.0, 150.0, 1.5], "cell": [0, 1]}]
+        saved, self.params = self.params, params
+        try:
+            proc, stage = self.run_writer(self.objects, "map-marker-params")
+        finally:
+            self.params = saved
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        ids = json.loads((stage / "formids.json").read_text())
+        self.assertEqual(sorted(ids["map_marker_refs"]["SyntheticWorld"]), ["Concord", "RedRocket", "Sanctuary"])
+        self.assertEqual(ids["map_markers"]["SyntheticWorld"], ids["map_marker_refs"]["SyntheticWorld"]["RedRocket"])
+        new = mk.overlay_records.walk_plugin(stage / "Synthetic.esm")
+        self.assertEqual(mk.map_marker_problems(new["records"], len(new["masters"]), ov, ids), [])
+
+    def test_missing_template_skips_map_marker_restore(self):
+        identity = tri.TerrainReferenceIdentityTests()
+        identity.dotnet = self.dotnet
+        identity.writer = self.writer
+        identity.params = self.params
+        identity.objects = self.objects
+        identity.root = self.root
+        identity.master = self.root / "master-plain/Starfield.esm"
+        fixture = ROOT / "dotnet/TerrainIdentityFixture/bin/Release/net9.0/TerrainIdentityFixture.dll"
+        identity.master.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run([self.dotnet, str(fixture), str(identity.master)], capture_output=True, check=True)
+        proc, stage = identity.run_writer(self.objects, "map-marker-skip")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        ids = json.loads((stage / "formids.json").read_text())
+        self.assertNotIn("map_markers", ids)
+        self.assertIn("003E5E12 missing", proc.stdout + proc.stderr)

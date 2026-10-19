@@ -68,5 +68,54 @@ class BatchPrefixTests(unittest.TestCase):
             self.assertEqual(batch.checkpoint_signature(a)["prefix"], "fo4cw")
 
 
+class MassScaleBatchTests(unittest.TestCase):
+    def test_mass_scale_reaches_the_converter(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            seen, _manifest = BatchPrefixTests().run_batch(tmp, ["--mass-scale", "0.2"])
+        self.assertEqual(seen["mass_scale"], 0.2)
+
+    def test_signature_only_names_a_non_default_mass_scale(self):
+        a = SimpleNamespace(fo4_data="", starfield_data="", texconv="t", content_resources="c", collision_template="x",
+                            prefix="fo4port", mass_scale=1.0)
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(batch.checkpoints, "digest", return_value="d"), \
+                patch.object(batch.checkpoints, "archive_identity", return_value={}):
+            a.fo4_data = tmp
+            self.assertNotIn("mass_scale", batch.checkpoint_signature(a))
+            a.mass_scale = 0.2
+            self.assertEqual(batch.checkpoint_signature(a)["mass_scale"], 0.2)
+
+    def test_both_converter_constructors_pass_mass_scale(self):
+        src = (root / "scripts" / "convert_batch.py").read_text(encoding="utf-8")
+        self.assertEqual(src.count("mass_scale=a.mass_scale"), 2)
+
+    def test_mass_scale_and_spec_mask_roughness_both_reach_the_converter(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            seen, _manifest = BatchPrefixTests().run_batch(
+                tmp, ["--mass-scale", "0.2", "--spec-mask-roughness"])
+        self.assertEqual(seen["mass_scale"], 0.2)
+        self.assertTrue(seen["spec_mask_roughness"])
+
+    def test_invalid_mass_scale_rejected_before_archives(self):
+        for value in ("0", "-1", "nan", "inf"):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as tmp, patch("sys.stderr"):
+                staging = Path(tmp) / "staging"
+                collision = Path(tmp) / "collision.nif"
+                collision.write_bytes(b"synthetic")
+                cell = Path(tmp) / "cell.json"
+                cell.write_text(json.dumps({"refs": [{"model": "a\\chair.nif", "type": "Static"}]}))
+                argv = ["convert_batch.py", "--fo4-data", "unused", "--staging", str(staging),
+                        "--content-resources", "unused", "--texconv", "unused",
+                        "--collision-template", str(collision), "--cell-json", str(cell),
+                        "--mass-scale", value]
+                with patch.object(sys, "argv", argv), \
+                        patch.object(batch.pipeline, "Fo4Archives",
+                                     side_effect=AssertionError("archives opened")), \
+                        patch("builtins.print"):
+                    with self.assertRaises(SystemExit):
+                        batch.main()
+                self.assertFalse(staging.exists())
+
+
 if __name__ == "__main__":
     unittest.main()
