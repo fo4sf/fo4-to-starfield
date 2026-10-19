@@ -191,13 +191,13 @@ PCM-placed POI was unsolved in the MikkoK141 thread.
 - Why: decides sky, sun, moon, day length, ground beyond the BTD, and mod conflicts.
 - Options: (a) Earth, edited; (b) a clone in its own system (SFStarEditor pattern); (c) Mars. (WP Q3; also WM owner Q3)
 - Answer by: dump of Earth's and Jemison's PNDT (`INAM`, `TEMP`, keywords, `PPBD`, `CNAM`/`EOVR`), then WP-08 result; owner decision.
-- Blocks: World, Multi-game. Status: open.
+- Blocks: World, Multi-game. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page WO-1): "Earth if the probe works, else clone" (as recommended). Before: open.
 
 **WP-02. Does a new galaxy entry (a cloned planet) need a new game, and is that acceptable?**
 - Why: forum reports say new systems needed a new game and bad entries "can destroy your save"; phase 1 is a new game anyway.
 - Options: accept new-game-only; host on an existing planet to avoid galaxy edits. (WP Q2)
 - Answer by: install the plugin on an existing save and see if the planet appears; PC probe, then owner decision.
-- Blocks: World, Release. Status: open.
+- Blocks: World, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page WO-1): "Earth if the probe works, else clone" (as recommended). Before: open.
 
 **WP-03. Can the launcher generate the planet records (clone, rotation, gravity, keywords) and copy the `.biom` from the user's own archive deterministically, and is the `.biom` keyed by planet name, FormID or edid?**
 - Why: no CK on the user's PC and no shipped assets; SFStarEditor renames the `.biom` by planet name.
@@ -208,7 +208,7 @@ PCM-placed POI was unsolved in the MikkoK141 thread.
 **WP-04. Does the planet live in its own small master that the world plugins depend on?**
 - Why: load order and reuse by FO3/NV later. (WP Q26)
 - Options: planet master; planet records inside the core ESM.
-- Answer by: owner decision after WP-01. Blocks: World, Launcher, Multi-game. Status: open.
+- Answer by: owner decision after WP-01. Blocks: World, Launcher, Multi-game. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page WO-2): "Own small planet master" (as recommended). Before: open.
 
 **WP-05. Can SfInspect dump PNDT `ENAM`/`FNAM`/`INAM`/`TEMP`/keywords for all 1,765 planets, to pick a host by data?**
 - Why: choose rotation 0.9 to 1.1, about 1 g, standard O2, temperate. (WP Q31)
@@ -272,17 +272,17 @@ PCM-placed POI was unsolved in the MikkoK141 thread.
 **WP-14. Real geography or a compact layout for the worlds?**
 - Why: real lat/long gives real local-time offsets and a credible map; compact keeps one map view. (WP Q7; also MG Q11)
 - Options: real coordinates; stylised layout over 100 cells apart.
-- Answer by: owner decision. Blocks: World, Multi-game. Status: open.
+- Answer by: owner decision. Blocks: World, Multi-game. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page WO-4): real map coordinates; a lore research pass before placing anything from games other than FO4. Owner's note: "Talk it through first. Fallout 1 and 2 handle locations against real-world distances much better than the later games, so placing things properly will have its own issues if we have world generation that lets players travel through recreated locations, based on all the lore you are going to research soon.". Before: open.
 
 **WP-15. Where is Nuka-World on the planet?**
 - Why: FO4 reaches it by monorail; its real-world position was not in the sources read. (WP Q8)
 - Options: a fictional inland site west of Boston; the lore location if FO4 data or game text gives one.
-- Answer by: offline research (FO4 data and lore), then owner decision. Blocks: World. Status: open.
+- Answer by: offline research (FO4 data and lore), then owner decision. Blocks: World. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page WO-5): "Lore location, if FO4 data gives one" (not the recommended option). Before: open.
 
 **WP-16. Do we keep FO4's unplayable outer ring (114 vs 64 cells) as terrain, LOD, or a procedural Earth biome?**
 - Why: the horizon. WM section 1 has options A to C; new option D is an Earth biome (cheap). (WP Q16)
 - Wave 2: the terrain-or-LOD options now have a concrete tool (CK `-MockWorldSpaceLOD`, see WP-45). [Correction 2026-10-19: ~~whether that switch exists is **unresolved (sources conflict)**; see WP-45.~~] [Correction 2026-10-19: the switch is **verified (Starfield CK, job 20)**; see WP-45.]
-- Answer by: owner decision after WP-25 and WP-45. Blocks: World. Status: open.
+- Answer by: owner decision after WP-25 and WP-45. Blocks: World. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page WO-6): procedural Earth terrain now; converted terrain later (breadth before polish). Before: open.
 
 **WP-17. Does the host's `KNAM` "Terrain Max Height" or biome noise shape the merge ring around a 64-cell overlay?**
 - Why: cliffs at the overlay edge. (WP Q17)
@@ -293,7 +293,7 @@ PCM-placed POI was unsolved in the MikkoK141 thread.
 **WP-18. Which day length: a real 24 h (rotation 1.0) or something else?**
 - Why: with FO4's `TimeScale` 20 a 24 h day is 72 real minutes, the same as Starfield's Earth. (WP Q11)
 - Answer by: compare `Planet.GetDayLength()` in game with the `ENAM` formula; PC probe, then owner decision.
-- Blocks: World. Status: open.
+- Blocks: World. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page WO-7): "Real 24 hours" (as recommended). Before: open.
 
 **WP-19. What local time does a new game give at the Vault 111 exit, and how do we make it morning?**
 - Why: local time depends on lat/long plus the save's universal time. (WP Q1; cross-cutting with newgame.md)
@@ -344,7 +344,7 @@ PCM-placed POI was unsolved in the MikkoK141 thread.
 **WP-27. The ship: fenced out completely, or kept as a disguised fast-travel vehicle (a vertibird skin)?**
 - Why: between landings Starfield's native path is the ship. (WP Q21)
 - Options: scripted boat or monorail (vehicles-and-travel.md); ship reskinned with the native landing UI.
-- Answer by: owner decision, informed by WP-28 and WP-29. Blocks: World, Fallout systems. Status: open.
+- Answer by: owner decision, informed by WP-28 and WP-29. Blocks: World, Fallout systems. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page NG-9): no usable ship, scripted travel; the vertibird-ship idea is kept for the combined core. Owner's note: "Go with your recommendation for now, but don't drop the idea of using the ship as a vertibird, maybe for the second core that combines the games.". Before: open.
 
 **WP-28. Does the surface map show, and fast travel to, markers of another landing on the same planet without the ship?**
 - Why: one-planet fast travel between worlds. (WP Q22; also MG Q12; already listed in vehicles-and-travel.md, gains weight here)
@@ -415,15 +415,15 @@ PCM-placed POI was unsolved in the MikkoK141 thread.
 
 **WP-38. Should a "walkable world" release (world, placements, landscape, no people) ship before people and story?**
 - Why: FNV to FO4 shipped exactly that scope and has an audience on Nexus. (PR Q15)
-- Answer by: owner decision. Blocks: Release, World. Status: open.
+- Answer by: owner decision. Blocks: Release, World. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-10): "Wait for a fuller game" (not the recommended option). Before: open.
 
 **WP-39. FO3 and New Vegas later: the same planet at other coordinates (DC, Mojave), a stylised map, or other planets?**
 - Why: decides whether the planet master is "Earth" generically. (WP Q33; MG Q11)
-- Answer by: owner decision after WP-01 and WP-14. Blocks: Multi-game. Status: open.
+- Answer by: owner decision after WP-01 and WP-14. Blocks: Multi-game. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page MU-5): "Same planet, real relative positions" (as recommended). Owner's note: "Pay attention to my other comment about placing the locations on the planet (WO-4).". Before: open.
 
 **WP-40. Are Anchorage and Zeta sealed worldspaces with no planet position, and could Zeta use Starfield's space engine?**
 - Why: fewer landings; a fun option. (MG Q13)
-- Answer by: owner decision; offline research. Blocks: Multi-game. Status: open (facts verified, choice open; the facts also answer part of MG-14).
+- Answer by: owner decision; offline research. Blocks: Multi-game. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page MU-5): "Same planet, real relative positions" (as recommended). Owner's note: "Pay attention to my other comment about placing the locations on the planet (WO-4).". Before: open (facts verified, choice open; the facts also answer part of MG-14).
 
 **WP-41. What weather and climate model do the DC and Mojave landings use (FO3 green tint, NV desert)?** (MG Q14)
 - Answer by: map FO3/NV CLMT/WTHR onto Starfield biomes and weather; offline research. Blocks: Multi-game. Status: open.

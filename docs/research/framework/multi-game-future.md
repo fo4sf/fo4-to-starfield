@@ -102,13 +102,13 @@ Embedded scripts also live inside INFO, PACK, TERM and PERK entries (MS 3, verif
 - Why it matters: core choices (rules, names, readers) are cheap now and costly later.
 - Options: after FO4 (ROADMAP order); a spike covering MG-07, MG-10, MG-21, MG-22 without building content (MS Q39).
 - Answer by: owner decision. Who: owner.
-- Blocks: Multi-game. Status: open.
+- Blocks: Multi-game. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page MU-1): "1-week research spike after phase 1" (as recommended). Before: open.
 
 **MG-02. Fallout 1, 2, Tactics and FO76: in or out?**
 - Why it matters: 1/2/Tactics are 2D and need hand-built recreations; FO76 is online-only under its own terms.
 - Options: record FO76 "out" unless research finds an offline data path; 1/2/Tactics deferred (MS Q33; ROADMAP C3).
 - Answer by: owner decision. Who: owner.
-- Blocks: Multi-game. Status: open.
+- Blocks: Multi-game. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page MU-2): Fallout 76's story and places only (no online parts) for the combined core, best version of repeated places; Fallout 1, 2 and Tactics stay open; 76's terms go into the Bethesda letter. Owner's note: "For Fallout 76 we will not recreate the online parts, only the gameplay and story people might want. That is mostly so the other core has the location: we take Appalachia and its missions and add them, for the core that combines all the locations into one travel area. Where a location exists more than once, like the Pitt in Fallout 3 and Fallout 76, we will likely add the best version.". Before: open.
 
 ### Legal and release
 
@@ -120,19 +120,19 @@ Embedded scripts also live inside INFO, PACK, TERM and PERK entries (MS 3, verif
 - Options: local conversion (TTW model); subtitles only; re-voice (CW v2, F4NV).
 - Answer by: written question to Bethesda or ZeniMax community staff, legal opinion, a talk with the TTW team. Who:
   owner, Bethesda contact, community contact.
-- Blocks: Multi-game, People and story, Release. Status: open. (also: MS Q9, PR Q31)
+- Blocks: Multi-game, People and story, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-1): "No: subtitles only, for now" (as recommended). Owner's note: "Did you guys ask? You have access to my email to send any.". Before: open. (also: MS Q9, PR Q31)
 
 **MG-04. Should the TTW team be contacted before any FO3/NV work, and could they be partners?**
 - Why it matters: they hold the know-how and the history with Bethesda (MS 1).
 - Options: no contact; informal; partnership.
 - Answer by: owner approves a contact. Who: owner, community contact.
-- Blocks: Multi-game. Status: open. (also: MS Q30)
+- Blocks: Multi-game. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-4): "Yes, all the named authors" (as recommended). Before: open. (also: MS Q30)
 
 **MG-05. Does FO3/NV ship as a separate optional launcher module, so the FO4 build survives if it is taken down?**
 - Why it matters: Bethesda reportedly asked sites not to host TTW, even with no assets (MS 1, verified as reported).
 - Options: separate module; one bundle.
 - Answer by: owner decision. Who: owner.
-- Blocks: Launcher, Release. Status: open. (also: MS Q31)
+- Blocks: Launcher, Release. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page MU-3): two cores: a pick-your-games core with each game as its own module, and a combined core that needs every game plus Starfield. Owner's note: "There will be two options: one lets you pick whichever games you own and play them as a Creation Engine 2 experience; the other core requires all of the games plus Starfield. That locks out a lot of players, but I don't care.". Before: open. (also: MS Q31)
 
 **MG-06. Is fnv-to-fo4 (GPL-3) reusable code or only a reference, and does its licence fit ours?**
 - Why it matters: it solved materials, terrain "black holes" and TTW issues (MS 2). It targets FO4, not SF (PR Q29).
@@ -147,7 +147,7 @@ Embedded scripts also live inside INFO, PACK, TERM and PERK entries (MS 3, verif
 - Why it matters: every dialogue condition (GetActorValue Speech >= 50), lock level and perk depends on it (MS Q21).
 - Options: (a) FO4 rules everywhere; (b) superset core (F4NV); (c) per-world swap (no precedent). TTW chose one winner.
 - Answer by: owner decision, informed by MG-08 counts. Who: owner.
-- Blocks: Multi-game, Fallout systems. Status: open.
+- Blocks: Multi-game, Fallout systems. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page MU-4): each game keeps its own rules in the pick-your-games core; the combined core uses a superset of systems from all games. Owner's note: "In one core each game has its own systems; the larger core combines systems from the earlier games, since, for example, the faction system did not exist in Fallout 4 the way it did in New Vegas. So it depends.". Before: open.
 
 **MG-08. If skills are dropped, how are FO3/NV skill checks (Speech, Lockpick, Science, Repair) remapped?**
 - Why it matters: conditions reference AVs 32-45 (MS 3, verified).
@@ -161,14 +161,14 @@ Embedded scripts also live inside INFO, PACK, TERM and PERK entries (MS 3, verif
   NV fame/infamy thresholds are unresolved (MS 4).
 - Options: keep karma as an AV plus REPU as factions plus affinity; derive karma from affinity events.
 - Answer by: owner decision; wave-2 research on TTW and NV reputation. Who: owner, offline research.
-- Blocks: Multi-game, People and story. Status: open. (also: MS Q23)
+- Blocks: Multi-game, People and story. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page MU-4): each game keeps its own rules in the pick-your-games core; the combined core uses a superset of systems from all games. Owner's note: "In one core each game has its own systems; the larger core combines systems from the earlier games, since, for example, the faction system did not exist in Fallout 4 the way it did in New Vegas. So it depends.". Before: open. (also: MS Q23)
 
 **MG-10. What is the unified level cap and XP curve?**
 - Why it matters: FO3 20 then 30 (Broken Steel, verified); NV 30 to 50 (supported hypothesis); TTW 60 with one perk per
   level and one per two in Hardcore (verified); FO4 uncapped.
 - Options: uncapped FO4 curve with per-world XP rebalance; TTW-style cap.
 - Answer by: XP totals of a full FO3+NV run (TTW community); owner decision. Who: owner, offline research.
-- Blocks: Multi-game, Fallout systems. Status: open. (also: MS Q24)
+- Blocks: Multi-game, Fallout systems. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page MU-4): each game keeps its own rules in the pick-your-games core; the combined core uses a superset of systems from all games. Owner's note: "In one core each game has its own systems; the larger core combines systems from the earlier games, since, for example, the faction system did not exist in Fallout 4 the way it did in New Vegas. So it depends.". Before: open. (also: MS Q24)
 
 **MG-11. How are FO3/NV bobbleheads, skill books and NV challenges (CHAL) handled?**
 - Why it matters: TTW turned FO3 bobbleheads into mini perks (verified). CHAL has 14 types; SF activity trackers are the
@@ -182,7 +182,7 @@ Embedded scripts also live inside INFO, PACK, TERM and PERK entries (MS 3, verif
   FO3's death ending (verified).
 - Options: one survival mode for all worlds; per-world.
 - Answer by: owner decision. Who: owner.
-- Blocks: Multi-game, Fallout systems. Status: open. (also: MS Q26)
+- Blocks: Multi-game, Fallout systems. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page MU-4): each game keeps its own rules in the pick-your-games core; the combined core uses a superset of systems from all games. Owner's note: "In one core each game has its own systems; the larger core combines systems from the earlier games, since, for example, the faction system did not exist in Fallout 4 the way it did in New Vegas. So it depends.". Before: open. (also: MS Q26)
 
 **MG-13. What happens to NV-only systems: weapon mods (IMOD), recipes (RCPE), ammo effects (AMEF), currencies (CMNY),
 casinos and Caravan (CSNO, CCRD, CDCK, CHIP)? And how do VATS-modifying FO3/NV perks map onto one VATS?**
@@ -199,13 +199,13 @@ casinos and Caravan (CSNO, CCRD, CDCK, CHIP)? And how do VATS-modifying FO3/NV p
 - Options: real-geography landings (east-coast cluster close; Mojave far); abstract regions; separate planets. Anchorage
   (VR) and Zeta (orbit) need no position (verified).
 - Answer by: owner decision. Who: owner.
-- Blocks: Multi-game, World. Status: open (partly answered for Anchorage and Zeta: MS 4). (also: MS Q11, Q13)
+- Blocks: Multi-game, World. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page MU-5): "Same planet, real relative positions" (as recommended). Owner's note: "Pay attention to my other comment about placing the locations on the planet (WO-4).". Before: open (partly answered for Anchorage and Zeta: MS 4). (also: MS Q11, Q13)
 
 **MG-15. How does the player travel between FO4, FO3 and NV worlds, and does every route run the same arrival handler?**
 - Why it matters: TTW sets quest variables on the train; the FAQ warns console moves "bypass" them (verified, MS 1).
 - Options: train scene; vertibird; travel-menu activator; SF ship (fenced out).
 - Answer by: the vehicles-and-travel.md probe on cross-landing surface fast travel; owner choice. Who: PC probe, owner.
-- Blocks: Multi-game, World. Status: open. (also: MS Q12)
+- Blocks: Multi-game, World. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page NG-9): no usable ship, scripted travel; the vertibird-ship idea is kept for the combined core. Owner's note: "Go with your recommendation for now, but don't drop the idea of using the ship as a vertibird, maybe for the second core that combines the games.". Before: open. (also: MS Q12)
 
 **MG-16. What weather and climate do the DC and Mojave landings use?**
 - Why it matters: FO3's green tint and NV's desert are part of each game's identity.
@@ -228,14 +228,14 @@ casinos and Caravan (CSNO, CCRD, CDCK, CHIP)? And how do VATS-modifying FO3/NV p
 - Options: always Vault 111; chronological (FO3 2277, NV 2281, FO4 2287); player choice. One person with lore glue, one
   person with no lore claims, or a frame outside canon.
 - Answer by: owner decision plus a prototype arrival quest. Who: owner.
-- Blocks: Multi-game, New game. Status: open. (also: MS Q1, Q2)
+- Blocks: Multi-game, New game. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page NG-8): "Vault 111, start-world hook built in" (as recommended). Before: open. (also: MS Q1, Q2)
 
 **MG-19. Do companions travel between worlds, and how do faction relations and story state carry over?**
 - Why it matters: Brotherhood exists in DC and Boston; NCR only in the West. TTW did not carry faction relations in 2014
   (player report; current state unresolved).
 - Options: sandboxed games; light flags (dialogue variants); deep links. Shared or per-game factions.
 - Answer by: owner decision; a probe for cross-world followers. Who: owner, PC probe.
-- Blocks: Multi-game, People and story. Status: open. (also: MS Q18, Q19, Q20)
+- Blocks: Multi-game, People and story. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page MU-6): "Light flags only (dialogue variants)" (as recommended). Before: open. (also: MS Q18, Q19, Q20)
 
 ### ObScript to Papyrus
 
@@ -285,7 +285,7 @@ about navmesh and doors?**
   about 40 GB free; German No Gore exe is a problem (verified, MS 1, PR 1). One rule set is easier with all DLC.
 - Options: all DLC required; base-only build; per-DLC optional. Hash tables per variant.
 - Answer by: owner decision; hash table from TTW docs if public, or owner PCs. Who: owner, offline research, PC probe.
-- Blocks: Launcher, Multi-game, Release. Status: open. (also: MS Q7, Q8, Q32)
+- Blocks: Launcher, Multi-game, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-5): "Steam, then GOG; refuse others" (as recommended); decided by owner, 2026-10-19 (page LA-7): "Require all DLC" (not the recommended option). Before: open. (also: MS Q7, Q8, Q32)
 
 ### Data model (reserve now)
 
@@ -293,20 +293,20 @@ about navmesh and doors?**
 - Why it matters: name clashes are real (engine-mechanics notes); TTW pins load indices (verified).
 - Options: see "What the core should reserve now".
 - Answer by: owner decision, recorded in docs/ai/decisions.md. Who: owner, offline research.
-- Blocks: Multi-game (cheap now, costly later). Status: open. (also: MS Q37)
+- Blocks: Multi-game (cheap now, costly later). Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page FS-2): "Yes: FO4SF_, FO3SF_, FNVSF_, shared FOSF_" (as recommended). Before: open. (also: MS Q37)
 
 **MG-27. Should actor values, factions and keywords on the core be named game-neutrally (e.g. `FO_Karma`,
 `FO_Skill_Speech`) even if FO4 does not use them?**
 - Why it matters: later games plug in without a migration (MS Q38).
 - Options: neutral names now; rename later.
 - Answer by: owner decision. Who: owner.
-- Blocks: Multi-game, Fallout systems. Status: open.
+- Blocks: Multi-game, Fallout systems. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page FS-1): "FO4 names, rename later" (not the recommended option). Before: open.
 
 **MG-28. Does phase 1's new-game flow need a "start world" hook now so a FO3/NV start can plug in?**
 - Why it matters: cheap now, costly to retrofit (MS Q3).
 - Options: add a parameter now; retrofit later.
 - Answer by: offline review of the new-game design. Who: offline research.
-- Blocks: New game, Multi-game. Status: open.
+- Blocks: New game, Multi-game. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page NG-8): "Vault 111, start-world hook built in" (as recommended). Before: open.
 
 ### Testing
 

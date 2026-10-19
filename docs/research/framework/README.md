@@ -179,6 +179,10 @@ The full list (16 conflicts, quoted from both sides) is in [dependencies.md](dep
 
 ## Owner decisions that unlock the most (one line each; full options in the files)
 
+**Answered 2026-10-19:** the owner submitted the Questions page at 21:37Z. Answers, notes and the 25
+talk-through-first items are recorded in [dependencies.md](dependencies.md#owner-decisions-by-phase) (last column, with what they change on the
+critical path) and in each question's Status line. The table below is the pre-answer summary.
+
 The authoritative list of all owner decisions (47, by phase) is in [dependencies.md](dependencies.md#owner-decisions-by-phase);
 this table is the short version.
 

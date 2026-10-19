@@ -247,7 +247,8 @@ Lessons for our design:
 - Scenes and escorts that cross load doors (FO4 escorts into Vault 111 and Sanctuary) must keep dialogue running
   across the door (findings/people-story.md Q4; unresolved).
 - The player has no "use door" animation on Starfield's ordinary doors. A walk-through animation would be a separate
-  feature (SFSE players such as SAF or OSF), out of scope for phase 2.
+  feature (SFSE players such as SAF or OSF; SFSE is now required, NG-1, so this is allowed later), out of scope for
+  phase 2.
 
 **Offline answers (second wave, 2026-10-19, verified from code unless marked):**
 - **G28, navmesh door links:** exterior navmesh conversion keeps FO4 door triangles only for rigged opening doors.
@@ -290,6 +291,10 @@ block the next build step.
 6. Is DLSH a loop or a lock sound? *PC read:* count DLSH in doorsounds.tsv (A7 found loop GUIDs only; check), then by ear.
 
 ### B. Our scripted doors (exterior <-> interior)
+**Decided by owner, 2026-10-19 (page NG-1):** SFSE is required; the game is blocked when SFSE breaks; our own small
+SFSE plugins are allowed where needed. So door hooks no longer have to stay in Papyrus: where Papyrus falls short (a
+wait the engine won't expose, a graph event, a native door-open hook), an SFSE plugin is an allowed fallback. Papyrus
+stays first, since every door function above is vanilla (§1) and needs no SFSE build per game update.
 7. ★ Should FO4SF_AnimatedLoadDoor use `OnOpen` instead of polling, or BlockActivation, then SetOpen, then OnOpen, then
    travel? *In game:* both variants on the SDM pair, timing E to arrival. (All the functions exist in Starfield, §1, so
    both variants compile; close only at GetOpenState 1.)
@@ -303,7 +308,7 @@ block the next build step.
 ### C. The outdoor side (step C, after the v6e test; the bugs thread owns the core writer)
 11. ★ Should the exterior be one animated DOOR, or the vanilla elevator pattern (a visible animated non-load DOOR plus a
     hidden scripted load door)? *PC read* of one vanilla load elevator's references and links; then *owner* or design
-    review with the bugs thread.
+    review with the bugs thread. **Decided by owner, 2026-10-19 (page DA-5):** the team decides after the PC read; no owner call needed.
 12. Do compare-ids show only the door ACTIs replaced? *Offline*, on the staged build.
 
 ### D. Door families (counts from the interior backlog)
@@ -323,7 +328,7 @@ block the next build step.
 19. How is `IndBgPipe1WayGrateDoor01` one-way (script, lock, or flag)? *PC read* of both references.
 20. Do FO4 doors use TNAM random destinations anywhere? Starfield has no such field. *PC read* (count).
 21. Vault 111's cog door and exit elevator are activators and an Automatic door, not animated load doors. *Owner:*
-    confirm that they stay with the new-game thread.
+    confirm that they stay with the new-game thread. **Decided by owner, 2026-10-19 (page DA-3):** they stay with the new-game thread.
 
 ### E. Locks, quests and saves
 22. (Mutagen half answered in §5: all fields exist.) Does Starfield honour lock levels 251 to 254 (Barred, Chained, Requires Terminal, Inaccessible) as FO4 does? *In game*,
@@ -343,6 +348,10 @@ block the next build step.
     asset limit; ads, sponsorship or promotional ties make it commercial; mods are not named, and the pricing page and
     software EULA are unread (verified, blog.audiokinetic.com). CDPR's REDkit gets modders keys via Audiokinetic School,
     renewed every 3 months (another game). Borrowing vanilla events still avoids the question. *Owner.*
+    **Decided by owner, 2026-10-19 (page DA-4):** allow new sounds after a licence check (not the recommended "Starfield's sounds only").
+    Owner's note (on DA-2, applies here): "Just keep everything legal and in line with other works; I will not make
+    money off this in any way." So the Non-commercial key fits on the owner's word; the pricing page and EULA still need
+    a read before any new sound ships. Vanilla sounds stay the default until then.
 
 ### G. NPCs and followers
 28. **Answered (§5): no**, a gap with a fix path. ★ Do our converted load doors get navmesh door links (XNDP) to our navmesh? *Offline* dump of output NAVM door
@@ -374,11 +383,14 @@ block the next build step.
 ### J. Release and policy (owner)
 38. Built .NET tools are GPL-3 through Mutagen: release source only, or binaries under GPL-3? *Owner*, recorded in
     decisions.md.
-39. CALUMI: user-supplied DLL or shipped unmodified with its notices? *Owner.*
+39. CALUMI: user-supplied DLL or shipped unmodified with its notices? *Owner.* **Decided by owner, 2026-10-19 (page DA-6):** the player
+    supplies the DLL. Owner's note: "Have anything like this able to be downloaded automatically, like Wabbajack." So
+    the launcher fetches CALUMI from its own release on the player's PC; we never ship it.
 40. **Channel answered by lesson 9** (GitHub, then Nexus). Still open, and only if Creations is ever reconsidered: do
     free Creations carry the paid ones' rules (no generative AI, standalone, all-new)? PCGamesN (secondary) reports
     those rules without saying; the official page (help.bethesda.net a_id 51731) refuses fetches, so a browser read is
     needed. For the chosen channels: Nexus forbids uploading copyrighted game files (verified, submission guidelines)
     and moderators say other Bethesda games' assets need permission (supported, forum 9720278); Tale of Two Wastelands
     builds everything from the player's own installed games and claims no Bethesda permission (verified, its FAQ).
-    *Source* (browser read), no owner decision needed now.
+    *Source* (browser read), no owner decision needed now. **Decided by owner, 2026-10-19 (page DA-7):** never publish on Creations; the
+    free-Creations read is now optional.

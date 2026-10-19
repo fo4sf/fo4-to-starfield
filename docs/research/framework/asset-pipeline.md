@@ -227,7 +227,7 @@ Scale numbers we have (all **verified** from repo files cited in the findings, u
 - Options: own writer (skin blocks, bone indices in `.mesh`, segment replacement) checked against Starfield Blender Extension or Void SFG Bridge output. Void SFG Bridge forbids conversion to other games: viewer or oracle at most.
 - Answer by: write one skinned outfit, compare with an oracle export, view in game; offline plus PC probe; owner on permissions.
 - Blocks: People and story, Fallout systems.
-- Status: open. (also: asset-conversion Q23)
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page PE-5): "Converted FO4 outfits" (not the recommended option). Owner's note: "I would like Fallout 4 outfits added, but with the bodies in Starfield being different we might need to remake or convert the textures.". Before: open. (also: asset-conversion Q23)
 
 **AP-08. Do FO4 body weight values map to Starfield's apparel morphs (Basis, Overweight, Thin, Strong)?**
 - Why it matters: keeps NPC body variety and avoids clipping.
@@ -250,7 +250,7 @@ Scale numbers we have (all **verified** from repo files cited in the findings, u
 - Options: (a) template; (b) FO4 head as ARMO, likely no lips; (c) hand-made record values (Enhanced Hadrian method); (d) dial-fitting optimiser.
 - Answer by: one ARMO head speaking a line; one hand-made Preston face; PC probe, then owner decision.
 - Blocks: People and story.
-- Status: narrowed (wave 2): routes (c) and (d) give a unique face only with a per-NPC bake (CK GUI, crash-prone, inconsistent) or our own FaceGeom writer (AP-11); a Use Traits template route avoids bakes but gives up a unique face. Bakes are keyed by our plugin name, so they are made on the player's PC or emitted as generated data, never shipped as Bethesda assets (**supported hypothesis**). [people-story W2-2] (also: people-story Q15) [Update 2026-10-19: the per-NPC bake may have a headless path: `-ExportFaceGenData` in the Starfield CK (**verified**, job 20; bake or export only is **unresolved**, AP-09).]
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page PE-3): "Our own face-file writer" (not the recommended option). Before: narrowed (wave 2): routes (c) and (d) give a unique face only with a per-NPC bake (CK GUI, crash-prone, inconsistent) or our own FaceGeom writer (AP-11); a Use Traits template route avoids bakes but gives up a unique face. Bakes are keyed by our plugin name, so they are made on the player's PC or emitted as generated data, never shipped as Bethesda assets (**supported hypothesis**). [people-story W2-2] (also: people-story Q15) [Update 2026-10-19: the per-NPC bake may have a headless path: `-ExportFaceGenData` in the Starfield CK (**verified**, job 20; bake or export only is **unresolved**, AP-09).]
 
 **AP-11. Can FO4 facegen `.nif` + `.tri` be converted to `BSFaceGenNiNode` + morph `.dat` at all?**
 - Why it matters: the only fully automatic route to FO4 faces.
@@ -266,7 +266,7 @@ Scale numbers we have (all **verified** from repo files cited in the findings, u
 - Options: (a) HavokLib decode, CALUMI `.af`, vanilla graph via animation text data; (b) NAF, SAF or OSF with glTF.
 - Answer by: decode one FO4 idle, play it both ways on a converted NPC; offline plus PC probe.
 - Blocks: People and story, Fallout systems.
-- Status: open. (also: asset-conversion Q24)
+- Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page NG-1): SFSE required; the game is blocked when a patch breaks SFSE (option B, not the recommendation). Our own small SFSE plugins where the older games need them; a full extender of our own only if those are not enough. Owner's note: "We might want to make our own script extender, because we will eventually need scripts from the older Fallouts to work."; decided by owner in the talk-through, 2026-10-19 (page PE-2): FO4 clips through SFSE community glTF players first; retarget into Starfield .af later. Owner's note: "I want things to be as Fallout-like as I can; that is the focus.". Before: open. (also: asset-conversion Q24)
 
 **AP-21. Can new clips be added to vanilla `.agx` graphs without editing the graph?**
 - Why it matters: route (a) of AP-20 depends on it.
@@ -326,7 +326,7 @@ Scale numbers we have (all **verified** from repo files cited in the findings, u
 - Options: Wwise on player PC, installed under the player's own Audiokinetic account (free trial or a requested Non-Commercial licence); an open encoder (none known, must be verified against the format); another playback path.
 - Answer by: ask Audiokinetic in writing whether a player's free install may batch-convert their own game's audio for a free mod, and whether `convert-external-source` output counts toward the 200-asset limit (community contact); read the full EULA (offline); WwiseConsole on the CK's `Starfield.wproj` without GUI (PC probe).
 - Blocks: People and story, Launcher, Fallout systems (radio).
-- Status: narrowed (wave 2): free trial is non-commercial and limited to 200 media assets in SoundBanks; licences are per project; MSFS and REDkit send modders to a free non-commercial key (**verified**). Nothing on redistributing WwiseConsole or on conversion counting (**unresolved**). We cannot bundle Wwise; a per-player batch conversion is a use none of the published modder paths describe (**supported hypothesis**). Headless use still untested. [legal-policy W2-B] (also: asset-conversion Q12; starfield-toolchain Q19; legal-policy W2 Q5, Q6)
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page PE-1): "Yes, after Audiokinetic confirms in writing" (as recommended). Before: narrowed (wave 2): free trial is non-commercial and limited to 200 media assets in SoundBanks; licences are per project; MSFS and REDkit send modders to a free non-commercial key (**verified**). Nothing on redistributing WwiseConsole or on conversion counting (**unresolved**). We cannot bundle Wwise; a per-player batch conversion is a use none of the published modder paths describe (**supported hypothesis**). Headless use still untested. [legal-policy W2-B] (also: asset-conversion Q12; starfield-toolchain Q19; legal-policy W2 Q5, Q6)
 
 **AP-31. Can new non-voice sounds be added (new WWED events and banks), or must FO4 SFX map to existing Starfield events?**
 - Why it matters: 5,476 FO4 SNDR records; replacing vanilla ids changes Starfield's own sounds.
@@ -388,7 +388,7 @@ Scale numbers we have (all **verified** from repo files cited in the findings, u
 - Options: one silent `.wem` per line; one shared id via the response's WEM field (untested); the SFSE plugin.
 - Answer by: an INFO with a shared silent WEM id in game; PC probe, then owner on SFSE default.
 - Blocks: People and story, New game.
-- Status: open. (also: people-story Q11)
+- Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page NG-1): SFSE required; the game is blocked when a patch breaks SFSE (option B, not the recommendation). Our own small SFSE plugins where the older games need them; a full extender of our own only if those are not enough. Owner's note: "We might want to make our own script extender, because we will eventually need scripts from the older Fallouts to work."; decided by owner in the talk-through, 2026-10-19 (page NG-17): our own silent voice files per line (works with or without SFSE). Before: open. (also: people-story Q11)
 
 **AP-46. How do we check lip sync offline?**
 - Why it matters: `.ffxanim` is not a public format.
@@ -425,7 +425,7 @@ Scale numbers we have (all **verified** from repo files cited in the findings, u
 - Options: (a) compare it with our converter first (passed to the Map and terrain threads); (b) reuse parts under GPL-3 with credit; (c) contact the author; (d) reference only.
 - Answer by: an offline code read and a side-by-side on one cell (offline research); then an owner decision on reuse or contact.
 - Blocks: World, All interiors (navmesh).
-- Status: narrowed (2026-10-19): the comparison (option a) is done. Map: BACUP writes FO4's world as its own new Starfield WRLD (no overlay or merge), scales refs by 1/69.99125 against our 1/70, drops XMRK, FNAM, TNAM, XLOC and WRLD XLCN and translates no LCTN, so it has no markers or locations and cannot answer the merge probe (map-markers.md on PR #399's branch). Interiors: no code worth taking (world only, synthetic tests only, skips FO4 navmesh, no location, image space or cubemap, OBND as i16); two ideas worth borrowing (zero a door's transition cell when unbuilt; optionally keep each cell's FO4 lighting template) and three values to check (LIGH flag bits, XCLL +28 as Gravity Scale, NVNM variants) (interiors.md, "BACUP compared"). Bugs: record-only (no meshes, collision, havok or doors; nothing shows its output loaded in game); one idea to write later, per-quadrant land-texture layering from VTXT/ATXT (docs/spikes/bacup-comparison.md on PR #400). Remaining owner decision: reuse BACUP's GPL-3 code for those three ideas, or write our own versions. All **verified** by the threads' code reads (source above), not in game.
+- Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page WO-8): reuse BACUP's GPL-3 code for the three ideas, with credit. Before: narrowed (2026-10-19): the comparison (option a) is done. Map: BACUP writes FO4's world as its own new Starfield WRLD (no overlay or merge), scales refs by 1/69.99125 against our 1/70, drops XMRK, FNAM, TNAM, XLOC and WRLD XLCN and translates no LCTN, so it has no markers or locations and cannot answer the merge probe (map-markers.md on PR #399's branch). Interiors: no code worth taking (world only, synthetic tests only, skips FO4 navmesh, no location, image space or cubemap, OBND as i16); two ideas worth borrowing (zero a door's transition cell when unbuilt; optionally keep each cell's FO4 lighting template) and three values to check (LIGH flag bits, XCLL +28 as Gravity Scale, NVNM variants) (interiors.md, "BACUP compared"). Bugs: record-only (no meshes, collision, havok or doors; nothing shows its output loaded in game); one idea to write later, per-quadrant land-texture layering from VTXT/ATXT (docs/spikes/bacup-comparison.md on PR #400). Remaining owner decision: reuse BACUP's GPL-3 code for those three ideas, or write our own versions. All **verified** by the threads' code reads (source above), not in game.
 
 ### Pipeline at scale: inputs, build time, disk, archives
 
@@ -441,14 +441,14 @@ Scale numbers we have (all **verified** from repo files cited in the findings, u
 - Options: hash `.esm` files per known version (TTW model); read BA2 header versions and accept `{1, 7, 8}` with the v1 layout in `src/fo4sf/ba2.py` (line 59); check for Anniversary CC files; support all versions with fixtures, or normalise inputs.
 - Answer by: a synthetic v7/v8 fixture unittest (offline); first 8 bytes of each `Fallout4 - *.ba2` and `cc*.ba2` on a current install (minutes); a record and archive diff between 1.10.163 and 1.11.240; PC probe then owner decision.
 - Blocks: Launcher, New game, Release.
-- Status: narrowed (wave 2): next-gen archives are versions 7 and 8 (**verified**); xEdit and OpenMW parse them exactly like v1 (**verified**), so only the version number changed (**supported hypothesis**); the reader fix is one line, not a format project. [Update 2026-10-19: fix on PR #394, not merged: draft PR #394 at 1825141 reads FO4 BA2 v7 and v8 with the v1 layout, with a synthetic test; detect lists archive versions and duplicate archive names; 368da05 makes detect refuse sTestFile INIs and report loose files in My Games Data.] Open: which vanilla archives are 7 and which 8, and whether the Anniversary update changed anything beyond that. [versions-performance W2-1; starfield-toolchain W2-6] (also: asset-conversion Q15; versions-performance Q7, Q8, Q9, Q31)
+- Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page LA-3): 1.10.163 now, add the current Steam version (1.11.240) after a record diff. Owner's note: "I'd like the most recent one, and then the one with the most mods, so it is easier for anybody bringing theirs over.". Before: narrowed (wave 2): next-gen archives are versions 7 and 8 (**verified**); xEdit and OpenMW parse them exactly like v1 (**verified**), so only the version number changed (**supported hypothesis**); the reader fix is one line, not a format project. [Update 2026-10-19: fix on PR #394, not merged: draft PR #394 at 1825141 reads FO4 BA2 v7 and v8 with the v1 layout, with a synthetic test; detect lists archive versions and duplicate archive names; 368da05 makes detect refuse sTestFile INIs and report loose files in My Games Data.] Open: which vanilla archives are 7 and which 8, and whether the Anniversary update changed anything beyond that. [versions-performance W2-1; starfield-toolchain W2-6] (also: asset-conversion Q15; versions-performance Q7, Q8, Q9, Q31)
 
 **AP-54. Are the about 150 Anniversary Creation Club files, and GOG or Microsoft Store FO4 installs, valid asset sources?**
 - Why it matters: they change what "the player's FO4" means and widen the asset surface.
 - Options: ignore `cc*` files; opt in per file; Steam only.
 - Answer by: owner decision; file listings and hashes from GOG and Game Pass installs (community contact).
 - Blocks: Launcher, Release.
-- Status: open. (also: versions-performance Q10, Q11)
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-5): "Steam, then GOG; refuse others" (as recommended); decided by owner in the talk-through, 2026-10-19 (page LA-6): opt in per file: the player picks which Creation Club files and the HD pack to convert (wider scope and more testing). Owner's note: "I want players to be able to pick the most recent version that uses those files, or a previous update; better that you talk it through.". Before: open. (also: versions-performance Q10, Q11)
 
 **AP-55. How are outputs packed under engine limits: archive count, size per archive, auto-loaded archive names?**
 - Why it matters: 256 active BA2s shared with the player's mods; 4,095 MB per archive; whether one archive can pass 4 GiB is unresolved; 64 cells need about 8.5 GiB.
@@ -471,21 +471,21 @@ Scale numbers we have (all **verified** from repo files cited in the findings, u
 - Options: CK for FaceFX, navmesh, object LOD (`-MockWorldSpaceLOD` [Correction 2026-10-19: existence ~~**unresolved (sources conflict)**~~] [Correction 2026-10-19: **verified (Starfield CK, job 20)**]), face bakes (GUI only so far [Update 2026-10-19: job 20 found "-ExportFaceGenData:(ESMFilename) (TESNPCExportFaceDataMode) [Platform]"; bake or export only is **unresolved**, AP-09]) and Archive2; Wwise for `.wem`; avoid 3ds Max.
 - Answer by: owner decision after AP-30 and AP-40.
 - Blocks: Launcher, Release, People and story.
-- Status: open (wave 2: Wwise is a non-Bethesda licence gate with free non-commercial terms whose fit for per-player conversion is **unresolved**; CK LOD has a command-line switch). (also: asset-conversion Q35; starfield-toolchain Q11, Q25)
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-1): "Player's own Creation Kit" (as recommended). Before: open (wave 2: Wwise is a non-Bethesda licence gate with free non-commercial terms whose fit for per-player conversion is **unresolved**; CK LOD has a command-line switch). (also: asset-conversion Q35; starfield-toolchain Q11, Q25)
 
 **AP-51. Which external binaries may the launcher bundle, and which must the player fetch?**
 - Why it matters: GitHub then Nexus release must meet each licence.
 - Options (licences as found): texconv (MIT, **supported hypothesis**), CALUMI (LGPL-3), HavokLib (GPL-3), Geometry Bridge (MIT), Mutagen and Spriggit (GPL-3), Cathedral Assets Optimizer (MPL-2.0, **verified**; reference only, no Starfield support), vgmstream and ffmpeg (not read), Wwise (not bundlable, player installs under own account, **supported hypothesis**; no Audiokinetic text on redistributing WwiseConsole found), CK (player installs). Nexus "no conversion to other games" clauses (Void SFG Bridge, Animation IO) versus their GitHub licences.
 - Answer by: a licence table (offline research), then owner decision.
 - Blocks: Release, Launcher.
-- Status: narrowed (wave 2): CAO licence read (MPL-2.0); Wwise cannot be bundled and nothing found allows redistributing WwiseConsole (**unresolved** pending the full EULA). [asset-conversion W2-2; legal-policy W2-B] (also: asset-conversion Q14, Q31; starfield-toolchain Q26)
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-2): "Bundle permissive and (L)GPL tools" (as recommended). Before: narrowed (wave 2): CAO licence read (MPL-2.0); Wwise cannot be bundled and nothing found allows redistributing WwiseConsole (**unresolved** pending the full EULA). [asset-conversion W2-2; legal-policy W2-B] (also: asset-conversion Q14, Q31; starfield-toolchain Q26)
 
 **AP-53. Which tool authors do we contact first?**
 - Why it matters: their work overlaps our open items.
 - Options: Calaverah (CALUMI compression), SesamePaste or MrTrilB (constraints, skin), Momidi and DJLegends (whole-master lip sync), the Souls of Cities author (run-time faces), the Void SFG Bridge author (batch re-skin).
 - Answer by: owner decision (outreach is the owner's job under AGENTS.md).
 - Blocks: People and story, Fallout systems.
-- Status: open. (also: asset-conversion Q32; people-story Q31)
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-4): "Yes, all the named authors" (as recommended). Before: open. (also: asset-conversion Q32; people-story Q31)
 
 **AP-57. Which readers and writers are reusable when FO3 and New Vegas join?**
 - Why it matters: FO3/NV NIFs (BS 34, `NiTriShape`, hk_550 collision) and audio (`.ogg`, `.lip`) differ from FO4.

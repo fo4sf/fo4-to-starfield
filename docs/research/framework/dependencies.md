@@ -432,60 +432,95 @@ Starfield CK, only the GUI actions (Int T9).]
 
 ## Owner decisions by phase
 
+**Owner's answers recorded 2026-10-19** (submitted 21:37Z on the Questions page; full copy
+/mnt/project-files/research/framework-page/submissions/2026-10-19-owner-answers.md). The last column holds the
+page answer for each row; "(changed)" means the owner picked something other than the recommendation or answered
+one that had none. The 25 "talk through first" items were all decided with the owner in this thread
+(21:52Z to 22:07Z); "(talk)" marks them. Each cross-cutting question carries the same answer
+and the owner's note in its Status line. RE-7 and RE-8 were settled in the talk-through: ship no assets and send Bethesda an informational letter
+first (drafted by Claude, sent only on the owner's approval of the exact text). On the RE-1 note: nobody has
+contacted Bethesda or Nexus; nothing goes out until the owner approves the exact text. Ten page questions that
+had no row here were added at the end of the table.
+
+What the answers change on the critical path (inference from the answers, not tested):
+- **LA-7 Require all DLC:** the launcher refuses a Fallout 4 install without every DLC. The owner's own FO4 data
+  holds only DLCRobot and DLCworkshop01 (project notes), so a full DLC install is now a precondition for any
+  end-to-end launcher test on their PC.
+- **NG-1 / VM-17 decided in the talk-through: SFSE required.** The gate is settled: SFSE-based UI, Pip-Boy and
+  door hooks are allowed from phase 1, the launcher blocks the game when a patch breaks SFSE, and Game Pass players
+  are excluded (SFSE does not support it). FS-6 dismemberment becomes our first own SFSE plugin.
+- **NG-13 Fallout-style HUD and NG-20 in-game menu entry:** both add UI work to phase 1 (new game) that the
+  recommended "as is" path did not have; how they are built depends on the same SFSE talk (NG-1, NG-11).
+- **IN-9 rebuild terminal unlocking now** and **IN-7/IN-8/IN-10 converted loot, FO4 levels, refills:** the
+  interiors phase grows from walkable cells to working terminals and leveled lists.
+- **RE-10 wait for a fuller game:** no "walkable world" public release; the first release moves behind people
+  and story. **PE-3 our own face-file writer:** a face-file format spike moves ahead of the people phase.
+
+
 This table is the authoritative list of owner decisions for the framework (the Questions page reads it). Answers the
 owner submits are recorded here and on the question in its own file.
 
 "Needed by" names the first phase that cannot move without the decision and the point where it is needed.
 
-| Decision | IDs in every file | Needed by |
-|---|---|---|
-| Data-only core, SFSE optional or required | VM-17, VM-18, TT-04, TT-39, PS-35, AP-20, AP-45, NG-D1, EM decision 3, EM companions R2 | New game, before the Pip-Boy and UI plan (NG-D2); Door animations before door hooks ship |
-| MQ101 end state and the MQ101Debug route | NG-A5, NG-M3 | New game, after NG-M1 and NG-M2, before the first in-game proof |
-| Start quest: fixed, hub or selector; start-world hook | NG-A10, NG-A11, MG-18, MG-28 | New game, before the start quest's design is frozen |
-| Ship or no ship | NG-B4, WP-27, MG-15 | New game (tutorial quest needs a ship ref); World before travel is built |
-| Character creator scope, SPECIAL, quick start | NG-C3, NG-C4, NG-C9, NG-K7 | New game, before the first in-game proof |
-| Pip-Boy, cog door, HUD | NG-D2, NG-D3, NG-D4, NG-K6, EM X6, EM UI 1.1 to 1.3, EM L3, EM L5 | New game (phase 1 minimum); Fallout systems for the full Pip-Boy |
-| Published vault-exit stages | NG-B8, NG-K5 | New game, before later phases listen to them |
-| Voice policy and codsworth_voice.py | REL-26, REL-27, MG-03, NG-G2, NG-I1, Int P2, EM decision 1, EM quests A1 | New game (voiced opening); People and story before any voice work; Release before any build |
-| AI voice; new voice; voiced-player option | REL-28, REL-58, PS-32, PS-37, EM quests A2 | People and story, before bridging lines are planned |
-| Dialogue UI: prompt or full line, own SWF | PS-01, PS-02, PS-03, NG-I2, EM quests D2, D3 | New game, before the first converted scene |
-| Silent voice route | PS-07, AP-45, NG-I5 | New game, before text-only lines ship |
-| Named-cast faces, face values, outfits | PS-15, PS-18, PS-19, AP-07, AP-10, NG-M9 | People and story, after the face probe |
-| Companion commands; fence Starfield companions | PS-22, PS-25, EM companions C1, F2 | People and story, before companion conversion |
-| Animation route (SFSE glTF or `.af` retarget) | AP-20, EM animation B1, B2 | People and story and Fallout systems, before idles and creatures |
-| Power armor route; VATS shape | EM character A1 to A4, EM UI 11.1 | Fallout systems, at design start |
-| Contact Bethesda and Nexus; what to ask | REL-30, REL-31, Lau D5, Lau D6, Lau L1, Int P3 | Release, before the Nexus upload; REL-52 puts the first public release after it |
-| Outreach to community and tool authors | REL-33, PS-33, AP-53, MG-04, Int P11, EM L4 | People and story (PS-08 is the largest unknown); Multi-game before FO3/NV work |
-| Licence split and source delivery; CALUMI (LGPL-3) shipped or user-supplied | REL-01, REL-02, REL-05, REL-08, Lau D8, Lau L8, Door J38, Door J39, NG-G6 | Launcher, before the first binary release |
-| Build-from-own-install policy; derived data | NG-G1, REL-19, REL-20 | Door animations (derived timings); New game (FO4 strings); before any release |
-| Bethesda tools on the player's PC; bundling | TT-13, AP-50, AP-51, REL-03, REL-10, Lau T4, Lau L3, Int T17 | Launcher, before the build pipeline is fixed; All interiors (REL-10) |
-| Wwise | AP-30, REL-04, TT-09, Door F27 | People and story, before any `.wem` conversion |
-| Fallout 4 data versions | VM-01, AP-52, Lau D1, Lau S5 | Launcher and New game, after the VM-02 diff |
-| Fallout 4 stores and CC files | VM-05, VM-07, AP-54, Lau D2, Lau S7, MG-25 | Launcher, before detect is released |
-| Languages | PS-36, REL-54, VM-39 | Launcher, after one non-English test; Release support matrix |
-| DLC ownership | REL-56, MG-25, Lau L2b | Launcher; World before Far Harbor and Nuka-World |
-| Starfield update policy and pin | TT-01, VM-12, VM-19, Lau D3, Lau T1, NG-F3, NG-L9, Int P7 | Launcher, before the first public build |
-| Support matrix and patch-follow promise; patch-day duty | VM-36, VM-37, TT-02, Lau L11, Lau A5b | Release |
-| Game Pass | VM-21, REL-11, Lau D2, NG-F9 | Release, after the SFSE decision |
-| Save promise and save versioning | VM-14, REL-51, Lau D9, NG-F5, NG-L2, NG-L4 | New game (save version from v1); Release |
-| Plugin type per output plugin | VM-25, NG-H5, Int X2, Lau M3, EM decision 9 | All interiors and World, before any release (type cannot change) |
-| Internet use and updates | REL-32, Lau D7 | Launcher, before the Nexus build |
-| Code signing | REL-36, Lau D11, Lau A3 | Launcher, before the first binary release |
-| How the player picks our game; undo | NG-F1, NG-F4, Lau D4, Lau I4 | Launcher and New game, before public install |
-| Host planet, planet master, add-on or total conversion | WP-01, WP-02, WP-04, REL-12 | World, after the census and island probe |
-| Layout, Nuka-World site, day length, outer ring | WP-14, WP-15, WP-16, WP-18 | World, before Far Harbor and Nuka-World landings |
-| First public release | WP-38, REL-52, REL-44, Int P6, REL-50 | Release; All interiors for the interiors milestone |
-| Story cells, loot, level bands, terminal locks, respawn, first combat room | Int C2, Int C3, Int C4, Int C6, Int C10, Int C11 | All interiors, step E |
-| Crash logger | TT-23, VM-33, Lau A12 | Release; all in-game testing (TT-23 blocks it) |
-| Debug whitelist | TT-25, NG-J3 | New game, before unattended runs |
-| Spriggit snapshot storage | TT-15 | All interiors and World, before build diffs are adopted |
-| Testers, labels, review minutes | TT-36, TT-37, TT-38, REL-42, REL-43, Int X9 | All interiors (QA budget); Release |
-| Naming, Pip-Boy art | REL-25, Lau L5 | Fallout systems (UI art); Launcher and Release (names) |
-| AI tag | REL-57, Lau D12 | Release, before the Nexus page |
-| Add-on rules, pre-built packs | REL-21, REL-22, Lau D13, Lau M4 | Release |
-| Money and store listings | REL-37, REL-38, REL-59, Lau L6, Lau L9 | Release |
-| Community home, triage, contributors, succession, dates | REL-39, REL-40, REL-45, REL-46, REL-47, REL-48, REL-49, PS-34 | Release |
-| Game-neutral names and namespaces | PS-27, MG-26, MG-27, EM X4 | Fallout systems and People and story, now (cheap now, costly later) |
-| Reuse BACUP's GPL-3 code for three ideas (zero an unbuilt door's transition cell, keep FO4 lighting templates, per-quadrant land-texture layering) or write our own | AP-60, EM BACUP item | World, All interiors (comparison done 2026-10-19: nothing else to borrow) |
-| Keep FO4 dismemberment (small SFSE plugin) or drop it | VM-40, EM job 34 census | People and story, after VM-17 |
-| Multi-game timing, scope, rules | MG-01, MG-02, MG-05, MG-07, MG-09, MG-10, MG-12, PS-26, PS-28, PS-29, MG-19, WP-39, WP-40, MG-14 | Multi-game; MG-01 recommends a spike after phase 1 ships |
+| Decision | IDs in every file | Needed by | Owner, 2026-10-19 |
+|---|---|---|---|
+| Data-only core, SFSE optional or required | VM-17, VM-18, TT-04, TT-39, PS-35, AP-20, AP-45, NG-D1, EM decision 3, EM companions R2 | New game, before the Pip-Boy and UI plan (NG-D2); Door animations before door hooks ship | NG-1: SFSE required, block when broken (talk); NG-17: Our own silent voice files (talk); PE-2: SFSE glTF players first, .af later (talk) |
+| MQ101 end state and the MQ101Debug route | NG-A5, NG-M3 | New game, after NG-M1 and NG-M2, before the first in-game proof | NG-2: Set the debug setting ourselves (changed); NG-3: Stopped (talk) |
+| Start quest: fixed, hub or selector; start-world hook | NG-A10, NG-A11, MG-18, MG-28 | New game, before the start quest's design is frozen | NG-8: Vault 111, start-world hook built in |
+| Ship or no ship | NG-B4, WP-27, MG-15 | New game (tutorial quest needs a ship ref); World before travel is built | NG-9: No usable ship, fenced out (talk) |
+| Character creator scope, SPECIAL, quick start | NG-C3, NG-C4, NG-C9, NG-K7 | New game, before the first in-game proof | NG-4: Looks only (changed); NG-5: At a vault terminal (talk); NG-6: Yes, in phase 1 (changed) |
+| Pip-Boy, cog door, HUD | NG-D2, NG-D3, NG-D4, NG-K6, EM X6, EM UI 1.1 to 1.3, EM L3, EM L5 | New game (phase 1 minimum); Fallout systems for the full Pip-Boy | NG-11: None yet (talk); NG-12: Console opens it, as now (talk); NG-13: Fallout-style reskin (changed) |
+| Published vault-exit stages | NG-B8, NG-K5 | New game, before later phases listen to them | NG-14: Yes, fixed stages as a contract |
+| Voice policy and codsworth_voice.py | REL-26, REL-27, MG-03, NG-G2, NG-I1, Int P2, EM decision 1, EM quests A1 | New game (voiced opening); People and story before any voice work; Release before any build | RE-1: No: subtitles only, for now |
+| AI voice; new voice; voiced-player option | REL-28, REL-58, PS-32, PS-37, EM quests A2 | People and story, before bridging lines are planned | RE-2: No new voice in early releases; RE-3: FO4 player lines, unchanged only |
+| Dialogue UI: prompt or full line, own SWF | PS-01, PS-02, PS-03, NG-I2, EM quests D2, D3 | New game, before the first converted scene | NG-16: Full line, no own menu file |
+| Silent voice route | PS-07, AP-45, NG-I5 | New game, before text-only lines ship | NG-1: SFSE required, block when broken (talk); NG-17: Our own silent voice files (talk) |
+| Named-cast faces, face values, outfits | PS-15, PS-18, PS-19, AP-07, AP-10, NG-M9 | People and story, after the face probe | PE-3: Our own face-file writer (changed); PE-4: Ship values, bake on player's PC only (talk); PE-5: Converted FO4 outfits (changed) |
+| Companion commands; fence Starfield companions | PS-22, PS-25, EM companions C1, F2 | People and story, before companion conversion | PE-6: Dialogue orders first, command mode later; PE-7: Fence them out |
+| Animation route (SFSE glTF or `.af` retarget) | AP-20, EM animation B1, B2 | People and story and Fallout systems, before idles and creatures | NG-1: SFSE required, block when broken (talk); PE-2: SFSE glTF players first, .af later (talk) |
+| Power armor route; VATS shape | EM character A1 to A4, EM UI 11.1 | Fallout systems, at design start | FS-5: Full VATS (queue shots on limbs) (changed) |
+| Contact Bethesda and Nexus; what to ask | REL-30, REL-31, Lau D5, Lau D6, Lau L1, Int P3 | Release, before the Nexus upload; REL-52 puts the first public release after it | RE-7: Ship no assets; ask Bethesda first (talk); RE-8: Informational letter, specific questions (talk); RE-9: Yes, written questions first |
+| Outreach to community and tool authors | REL-33, PS-33, AP-53, MG-04, Int P11, EM L4 | People and story (PS-08 is the largest unknown); Multi-game before FO3/NV work | RE-4: Yes, all the named authors |
+| Licence split and source delivery; CALUMI (LGPL-3) shipped or user-supplied | REL-01, REL-02, REL-05, REL-08, Lau D8, Lau L8, Door J38, Door J39, NG-G6 | Launcher, before the first binary release | DA-6: Player supplies the DLL (changed); LA-2: Bundle permissive and (L)GPL tools; LA-11: MIT launcher plus separate GPL-3 tools; LA-12: Source zip on the same release; LA-13: Copy where useful, mark GPL-3 (talk) |
+| Build-from-own-install policy; derived data | NG-G1, REL-19, REL-20 | Door animations (derived timings); New game (FO4 strings); before any release | DA-1: Generate everything at build time; DA-2: Build FO4 text from player's files; RE-7: Ship no assets; ask Bethesda first (talk) |
+| Bethesda tools on the player's PC; bundling | TT-13, AP-50, AP-51, REL-03, REL-10, Lau T4, Lau L3, Int T17 | Launcher, before the build pipeline is fixed; All interiors (REL-10) | LA-1: Player's own Creation Kit; LA-2: Bundle permissive and (L)GPL tools |
+| Wwise | AP-30, REL-04, TT-09, Door F27 | People and story, before any `.wem` conversion | DA-4: Allow new sounds after licence check (changed); PE-1: Yes, after Audiokinetic confirms in writing |
+| Fallout 4 data versions | VM-01, AP-52, Lau D1, Lau S5 | Launcher and New game, after the VM-02 diff | LA-3: 1.10.163 now, add 1.11.240 after diff (talk); LA-4: Accept depots, merge in fixed order (talk) |
+| Fallout 4 stores and CC files | VM-05, VM-07, AP-54, Lau D2, Lau S7, MG-25 | Launcher, before detect is released | LA-5: Steam, then GOG; refuse others; LA-6: Opt in per file (talk); LA-7: Require all DLC (changed); RE-12: Steam only for v1, say so (talk) |
+| Languages | PS-36, REL-54, VM-39 | Launcher, after one non-English test; Release support matrix | LA-8: English first, pass through 4 more |
+| DLC ownership | REL-56, MG-25, Lau L2b | Launcher; World before Far Harbor and Nuka-World | LA-5: Steam, then GOG; refuse others; LA-7: Require all DLC (changed); LA-17: One-time screen plus plugin marker |
+| Starfield update policy and pin | TT-01, VM-12, VM-19, Lau D3, Lau T1, NG-F3, NG-L9, Int P7 | Launcher, before the first public build | LA-15: Refuse until we list it as good; LA-16: Refuse, advise 'update only when launched' |
+| Support matrix and patch-follow promise; patch-day duty | VM-36, VM-37, TT-02, Lau L11, Lau A5b | Release | RE-13: "Use previous build"; no time promise |
+| Game Pass | VM-21, REL-11, Lau D2, NG-F9 | Release, after the SFSE decision | LA-5: Steam, then GOG; refuse others; RE-12: Steam only for v1, say so (talk) |
+| Save promise and save versioning | VM-14, REL-51, Lau D9, NG-F5, NG-L2, NG-L4 | New game (save version from v1); Release | NG-15: Yes, and launcher blocks unsafe swaps; NG-22: No promise before 1.0 |
+| Plugin type per output plugin | VM-25, NG-H5, Int X2, Lau M3, EM decision 9 | All interiors and World, before any release (type cannot change) | IN-1: main plugins stay normal (full); small add-ons decided when there are any (confirmed in talk) |
+| Internet use and updates | REL-32, Lau D7 | Launcher, before the Nexus build | LA-18: Offline; update check on click |
+| Code signing | REL-36, Lau D11, Lau A3 | Launcher, before the first binary release | LA-14: Hashes now, apply to SignPath |
+| How the player picks our game; undo | NG-F1, NG-F4, Lau D4, Lau I4 | Launcher and New game, before public install | NG-20: In-game menu entry (changed); NG-21: Own install, snapshot and restore |
+| Host planet, planet master, add-on or total conversion | WP-01, WP-02, WP-04, REL-12 | World, after the census and island probe | WO-1: Earth if the probe works, else clone; WO-2: Own small planet master; WO-3: Add the planet, keep Starfield; strip step by step (talk) |
+| Layout, Nuka-World site, day length, outer ring | WP-14, WP-15, WP-16, WP-18 | World, before Far Harbor and Nuka-World landings | WO-4: Real coordinates (talk); WO-5: Lore location, if FO4 data gives one (changed); WO-6: Procedural Earth biome (talk); WO-7: Real 24 hours |
+| First public release | WP-38, REL-52, REL-44, Int P6, REL-50 | Release; All interiors for the interiors milestone | RE-10: Wait for a fuller game (changed); RE-11: Closed tester beta; RE-22: No dates; "what works now" |
+| Story cells, loot, level bands, terminal locks, respawn, first combat room | Int C2, Int C3, Int C4, Int C6, Int C10, Int C11 | All interiors, step E | IN-6: Ship as walkable scenery (changed); IN-7: Converted FO4 items (changed); IN-8: FO4's levels per location (changed); IN-9: Rebuild now (changed); IN-10: Yes, refill like FO4 (changed); IN-11: Yes, that room (changed) |
+| Crash logger | TT-23, VM-33, Lau A12 | Release; all in-game testing (TT-23 blocks it) | RE-5: Engine Fixes' crash logger |
+| Debug whitelist | TT-25, NG-J3 | New game, before unattended runs | NG-10: Only the one probe list |
+| Spriggit snapshot storage | TT-15 | All interiors and World, before build diffs are adopted | IN-2: Off GitHub, local or PC only |
+| Testers, labels, review minutes | TT-36, TT-37, TT-38, REL-42, REL-43, Int X9 | All interiors (QA budget); Release | IN-3: Both (changed); IN-4: Changed-screenshot sheet only; IN-5: Cell, position, build hash (changed); IN-12: Add those two labels; IN-13: Small closed pool, clean profile |
+| Naming, Pip-Boy art | REL-25, Lau L5 | Fallout systems (UI art); Launcher and Release (names) | RE-6: Fallout name and art (changed) |
+| AI tag | REL-57, Lau D12 | Release, before the Nexus page | RE-2: No new voice in early releases; RE-14: AI-Generated Content |
+| Add-on rules, pre-built packs | REL-21, REL-22, Lau D13, Lau M4 | Release | RE-15: Original data plus references only; RE-16: Pinned statement plus report template |
+| Money and store listings | REL-37, REL-38, REL-59, Lau L6, Lau L9 | Release | RE-17: No money; no store before 1.0 (talk) |
+| Community home, triage, contributors, succession, dates | REL-39, REL-40, REL-45, REL-46, REL-47, REL-48, REL-49, PS-34 | Release | RE-18: GitHub only (changed); RE-19: AI drafts, you approve in bulk; RE-20: Yes, sign-off plus asset records; RE-21: Name a second caretaker; RE-22: No dates; "what works now" |
+| Game-neutral names and namespaces | PS-27, MG-26, MG-27, EM X4 | Fallout systems and People and story, now (cheap now, costly later) | FS-1: FO4 names, rename later (changed); FS-2: Yes: FO4SF_, FO3SF_, FNVSF_, shared FOSF_ |
+| Reuse BACUP's GPL-3 code for three ideas (zero an unbuilt door's transition cell, keep FO4 lighting templates, per-quadrant land-texture layering) or write our own | AP-60, EM BACUP item | World, All interiors (comparison done 2026-10-19: nothing else to borrow) | WO-8: Reuse BACUP's code, GPL-3, with credit (talk) |
+| Keep FO4 dismemberment (small SFSE plugin) or drop it | VM-40, EM job 34 census | People and story, after VM-17 | FS-6: Keep it with a small SFSE plugin (changed) |
+| Multi-game timing, scope, rules | MG-01, MG-02, MG-05, MG-07, MG-09, MG-10, MG-12, PS-26, PS-28, PS-29, MG-19, WP-39, WP-40, MG-14 | Multi-game; MG-01 recommends a spike after phase 1 ships | MU-1: 1-week research spike after phase 1; MU-2: 76 story and places for the combined core; 1, 2, Tactics open (talk); MU-3: Two cores: per-game modules plus a combined all-games core (talk); MU-4: Own rules per game; superset in the combined core (talk); MU-5: Same planet, real relative positions; MU-6: Light flags only (dialogue variants) |
+| Phase 1: recreate Kellogg scene, spouse pod, pod corpses and ring? [added 2026-10-19 from the page] | NG-K10 | Before the first in-game proof | NG-7: Leave all out of phase 1 (changed) |
+| Lines that answer the player's unspoken words: keep, cut or rewrite? [added 2026-10-19 from the page] | NG-I3, PS-05 | Before the opening scenes are converted | NG-18: keep as text (blank, note: changes nothing) |
+| Fence off Starfield content that starts its own quests (Shattered Space, Unity, NG+)? [added 2026-10-19 from the page] | NG-E3, NG-E4, NG-N2 | Before the first public start | NG-19: Block them (changed) |
+| Do Vault 111's cog door and exit elevator stay with the new-game work? [added 2026-10-19 from the page] | Door 21 | Door animations, now | DA-3: Yes, new-game thread owns them |
+| Outside doors: one animated door, or Starfield's elevator-style door pair? [added 2026-10-19 from the page] | Door 11 | Door animations, step C | DA-5: Team decides after the PC read (changed) |
+| Rule out Bethesda Creations for good? [added 2026-10-19 from the page] | Door J40, REL-13 | Release | DA-7: Yes, never publish on Creations |
+| What should the launcher look like: command line, window, or both? [added 2026-10-19 from the page] | Lau D10, Lau A1 | Launcher, before the window is built | LA-9: Command line first, then a window (talk) |
+| Is Linux and Steam Deck a target? [added 2026-10-19 from the page] | Lau L10 | Launcher, before new build steps are written | LA-10: Not a target, keep it possible |
+| Locks: use Starfield's digipick game, or build a bobby-pin game? [added 2026-10-19 from the page] | EM UI 7.1 | All interiors (locked doors and containers) | FS-3: Rebuild FO4's bobby-pin game (changed) |
+| How should power armor work? [added 2026-10-19 from the page] | EM character A1, EM character A2, EM character A3, EM character A4 | Fallout systems, at design start | FS-4: Per game: worn suit (FO3/NV), climb-in (FO4, combined core) (talk) |

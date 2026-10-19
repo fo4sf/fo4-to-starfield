@@ -187,7 +187,7 @@ research/next-phase/testing-automation.md. Labels: **verified**,
   release page (VP Q25). (also: ST Q1, ST Q13, VP Q12, VP Q13, VP Q25, QA Q22)
 - Answer by: owner decision, informed by the measured patch-day timeline (SFSE same day in 2026).
 - Blocks: Launcher, Release.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-15): "Refuse until we list it as good" (as recommended); decided by owner, 2026-10-19 (page LA-16): "Refuse, advise 'update only when launched'" (as recommended). Before: open.
 
 **TT-02. What is the patch-day checklist, is it automated, and who owns it?**
 - Why it matters: patches renamed mesh paths (1.11.36), changed the root form class (1.14.70), broke SFSE plugins
@@ -198,7 +198,7 @@ research/next-phase/testing-automation.md. Labels: **verified**,
   (also: ST Q3, ST Q4, ST Q31, VP Q19, VP Q26, VP Q29, VP Q33)
 - Answer by: offline design; time one full smoke chain on PC; owner names the owner and the follow-up promise.
 - Blocks: Release, World, Launcher.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-13): ""Use previous build"; no time promise" (as recommended). Before: open.
 
 **TT-03. Can we keep a previous-runtime profile and watch the `beta` branch?**
 - Why it matters: reproduce reports from players who have not updated; get warning before a patch.
@@ -215,7 +215,7 @@ research/next-phase/testing-automation.md. Labels: **verified**,
   system for when SFSE breaks (degrade, block launch, Papyrus fallback). (also: VP Q32, VP Q21, VP Q23, ST Q21)
 - Answer by: owner decision, recorded in docs/ai/decisions.md.
 - Blocks: Fallout systems, People and story, Release, Multi-game.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page NG-1): SFSE required; the game is blocked when a patch breaks SFSE (option B, not the recommendation). Our own small SFSE plugins where the older games need them; a full extender of our own only if those are not enough. Owner's note: "We might want to make our own script extender, because we will eventually need scripts from the older Fallouts to work.". Before: open.
 
 **TT-05. Do saves survive a Starfield patch with our plugins loaded?**
 - Why it matters: long playthroughs span patches.
@@ -267,7 +267,7 @@ research/next-phase/testing-automation.md. Labels: **verified**,
 - Options: Wwise CLI on the player's PC (licence); community encoders; another playback path.
 - Answer by: offline research on Wwise terms; PC test of other formats. (also: ST Q19; asset pipeline file)
 - Blocks: People and story, Launcher.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page PE-1): "Yes, after Audiokinetic confirms in writing" (as recommended). Before: open.
 
 **TT-10. How is LOD made, and is there a precombine/previs step in CE2?**
 - Why it matters: exterior breadth needs distant LOD; FO4 relies on precombines and we place refs one by one, so draw
@@ -316,7 +316,7 @@ research/next-phase/testing-automation.md. Labels: **verified**,
 - Options: the player's CK install; bundled open alternatives (bsa-rs, Caprica, named in ST, not evaluated).
 - Answer by: offline test of our pipeline with the CK absent; owner decision. (also: ST Q11)
 - Blocks: Launcher.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-1): "Player's own Creation Kit" (as recommended). Before: open.
 
 ### SFSE and native code
 
@@ -336,7 +336,7 @@ research/next-phase/testing-automation.md. Labels: **verified**,
 - Answer by: offline: time `serialize` of core64c and of FO4Port.esm with `-u ErrorOnUnknown`; owner decision on
   storage. (also: ST Q29, QA Q27)
 - Blocks: World, All interiors, Release.
-- Status: narrowed (wave 2): versioning is settled by Spriggit's own design (**verified**): translation packages are
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page IN-2): "Off GitHub, local or PC only" (as recommended). Before: narrowed (wave 2): versioning is settled by Spriggit's own design (**verified**): translation packages are
   fetched from NuGet by name and version and stamped into each tree; a bump is its own `upgrade` commit with its own
   baseline diff. So pin the package version and keep a local NuGet cache for offline CI (**supported hypothesis**).
   Scale and storage remain open. [QA W2-3]
@@ -416,7 +416,7 @@ research/next-phase/testing-automation.md. Labels: **verified**,
 - Answer by: PC probe: trigger the known Havok assert (vault cart case) with each, compare output and dump size; two
   forced crashes (same, different) to compare signatures; owner picks. (also: QA Q11, QA Q30, VP Q24)
 - Blocks: Release, Launcher, all in-game testing.
-- Status: narrowed (wave 2): sf-crash-logger maturity is now known (**verified**): four releases in one month, last
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-5): "Engine Fixes' crash logger" (as recommended). Before: narrowed (wave 2): sf-crash-logger maturity is now known (**verified**): four releases in one month, last
   v0.4.0 on 10 Jul 2026, one maintainer, tested under Wine; the signature became version-stable only in v0.4.0, and
   raw `__fastfail` cannot be caught by any plugin. So (**supported hypothesis**) it is a candidate for test runs, pinned
   by version and checked against a deliberate crash, not yet the shipped logger; Engine Fixes' logger remains the more
@@ -438,7 +438,7 @@ research/next-phase/testing-automation.md. Labels: **verified**,
   Note our own probe found `GetFormEditorID` DebugOnly.
 - Answer by: PC probe; owner whitelists `cgf "Debug.<fn>"`. (also: QA Q31, QA Q3, QA Q17, QA Q19, QA Q32)
 - Blocks: New game, People and story, World, all in-game testing.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page NG-10): "Only the one probe list" (as recommended). Before: open.
 
 **TT-26. Can the Papyrus remote debugger be a read-only observation channel?**
 - Why it matters: typing is the runner's most fragile part; `bAlwaysActive=1` and `bPauseOnAltTab=0` may also fix
@@ -533,7 +533,7 @@ research/next-phase/testing-automation.md. Labels: **verified**,
   (Skywind: three months, then two weeks' notice).
 - Answer by: owner decision. (also: QA Q23, QA Q5, PR W2 question 5)
 - Blocks: Release.
-- Status: narrowed (wave 2): label set, retest-before-close rule and triage split are **verified** from the Skywind
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page IN-12): "Add those two labels" (as recommended). Before: narrowed (wave 2): label set, retest-before-close rule and triage split are **verified** from the Skywind
   handbook; our AGENTS.md labels already match the flow, the gaps are `Claim Fixed` with retest-before-close and
   `Known Shippable`. Still an owner decision. [PR W2-5, QA W2-2]
 
@@ -543,7 +543,7 @@ research/next-phase/testing-automation.md. Labels: **verified**,
   unfinished, do not report" list with each tester build.
 - Answer by: owner decision. (also: QA Q24, QA Q25, QA Q26)
 - Blocks: Release.
-- Status: narrowed (wave 2): Skywind's practice is **verified**: clean Skyrim SE with only SKSE and SkyUI; monthly
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page IN-13): "Small closed pool, clean profile" (as recommended). Before: narrowed (wave 2): Skywind's practice is **verified**: clean Skyrim SE with only SKSE and SkyUI; monthly
   builds with 2 to 3 hotfixes in the first week; builds by P2P (Resilio) and OneDrive, not GitHub ("a boatload of
   problems"); a dated do-not-report list. Our builds are generated on the player's PC, so build distribution matters
   less to us; the do-not-report list carries over (**supported hypothesis**). [QA W2-2]
@@ -553,7 +553,7 @@ research/next-phase/testing-automation.md. Labels: **verified**,
   marks Review (Skywind's LD Review pattern).
 - Answer by: owner decision. (also: QA Q34)
 - Blocks: All interiors, World, Release.
-- Status: narrowed (wave 2): Skywind gates level-design QA with an automated LD Review report (**verified** that it
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page IN-4): "Changed-screenshot sheet only" (as recommended). Before: narrowed (wave 2): Skywind gates level-design QA with an automated LD Review report (**verified** that it
   exists; its checks are not described). Our testqueue per-cell report as the gate is a **supported hypothesis**.
   [QA W2-2]
 
@@ -563,7 +563,7 @@ research/next-phase/testing-automation.md. Labels: **verified**,
   on no-SFSE; Game Pass excluded or an SFSE-free tier.
 - Answer by: owner decision; Game Pass load test via community contact. (also: ST Q24, ST Q25, QA Q13, VP Q27)
 - Blocks: Launcher, Release.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page NG-1): SFSE required; the game is blocked when a patch breaks SFSE (option B, not the recommendation). Our own small SFSE plugins where the older games need them; a full extender of our own only if those are not enough. Owner's note: "We might want to make our own script extender, because we will eventually need scripts from the older Fallouts to work.". Before: open.
 
 ### Multi-game
 

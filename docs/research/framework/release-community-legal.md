@@ -114,28 +114,28 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 - Options: relicense the whole repo GPL-3; keep MIT plus a GPL-3 tools bundle (legal-policy 12). A GPL binary can carry no "non-commercial" or "no redistribution" terms of ours.
 - Wave 2 (GPL FAQ, **verified** text): in-process Mutagen makes one program, so that launcher is GPL-3; command-line and file exchange is "normally" separate programs, but plugin-shaped data risks the "intimate semantics" caveat. MIT is GPL-compatible, so even a combined work can ship as GPL-3. Simplest framing (**supported hypothesis**): call every Mutagen-linked binary GPL-3 and describe the release as "an MIT pipeline plus GPL-3 tools, side by side".
 - Answer by: a docs/ai/decisions.md entry. Who: owner decision.
-- Blocks: Launcher, Release. Status: narrowed (wave 2): GPL FAQ read; only the owner's choice remains [legal-policy W2-A]. (also: legal-policy Q8)
+- Blocks: Launcher, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-11): "MIT launcher plus separate GPL-3 tools" (as recommended). Before: narrowed (wave 2): GPL FAQ read; only the owner's choice remains [legal-policy W2-A]. (also: legal-policy Q8)
 
 **REL-02. How do we deliver "corresponding source" for each binary release?**
 - Why it matters: GPL-3 section 6 (supported hypothesis; text not re-read).
 - Options: tag plus source zip on the same GitHub release; written offer.
-- Answer by: release checklist. Who: owner decision. Blocks: Release. Status: open. (also: legal-policy Q9)
+- Answer by: release checklist. Who: owner decision. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-12): "Source zip on the same release" (as recommended). Before: open. (also: legal-policy Q9)
 
 **REL-03. What must the player install themselves, and how is each one checked?**
 - Why it matters: Bethesda CK tools (Archive2, Papyrus compiler, ContentResources.zip), SFSE, Address Library and Wwise may not be bundled (legal-policy 11, 13, 15); texconv's licence is unread.
 - Options: per-tool detection with an instructions screen; refuse to build if missing.
 - Wave 2: SFSE's licence confirms it is not permissive beyond `PluginAPI.h`, so detect and link, never bundle or mirror (**verified**); Wwise is installed by the player under their own Audiokinetic account (**supported hypothesis**).
-- Answer by: per-tool licence reads (texconv/DirectXTex, xEdit/BSArch, Address Library still unread). Who: offline research. Blocks: Launcher, Release. Status: narrowed (wave 2): SFSE and Wwise settled as player-installed [legal-policy W2-B, W2-C]. (also: legal-policy Q10)
+- Answer by: per-tool licence reads (texconv/DirectXTex, xEdit/BSArch, Address Library still unread). Who: offline research. Blocks: Launcher, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-1): "Player's own Creation Kit" (as recommended). Before: narrowed (wave 2): SFSE and Wwise settled as player-installed [legal-policy W2-B, W2-C]. (also: legal-policy Q10)
 
 **REL-04. Does Wwise's licence allow a free public tool to drive `WwiseConsole` on the player's PC, and which version must the player install?**
 - Why it matters: any audio conversion depends on it; the repo uses 2021.1.10 and notes 2026.1.3 (`codsworth_voice.py`).
 - Wave 2: the free trial is non-commercial with a 200 media-asset limit; free Non-Commercial licences are per registered project; MSFS and REDkit route modders to that key for their own mod (**verified**). Nothing covers a player batch-converting their own game's audio, redistributing `WwiseConsole`, or whether `convert-external-source` output counts toward the limit (**unresolved**; full EULA unread).
 - Options: ask Audiokinetic in writing (both points above); find a verified non-Wwise encoder that writes Starfield-compatible `.wem` (must be checked against the format first, **unresolved**).
-- Answer by: Audiokinetic written answer; offline format research plus a PC probe for an alternative encoder. Who: owner (contact), offline research. Blocks: People and story. Status: narrowed (wave 2): pricing terms read; the per-player conversion question goes to Audiokinetic [legal-policy W2-B]. (also: legal-policy Q29 and wave 2 Q5, Q6)
+- Answer by: Audiokinetic written answer; offline format research plus a PC probe for an alternative encoder. Who: owner (contact), offline research. Blocks: People and story. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page PE-1): "Yes, after Audiokinetic confirms in writing" (as recommended). Before: narrowed (wave 2): pricing terms read; the per-player conversion question goes to Audiokinetic [legal-policy W2-B]. (also: legal-policy Q29 and wave 2 Q5, Q6)
 
 **REL-05. Can we depend on CALUMI.Animation (LGPLv3) from MIT and GPL-3 code, and how must it ship?**
 - Why it matters: LGPL needs notices and replaceable linking.
-- Answer by: read its LICENSE and our linking method. Who: offline research. Blocks: Door animations, Release. Status: open. (also: legal-policy Q4)
+- Answer by: read its LICENSE and our linking method. Who: offline research. Blocks: Door animations, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page DA-6): "Player supplies the DLL" (not the recommended option). Owner's note: "Have anything like this downloadable and automated, like Wabbajack.". Before: open. (also: legal-policy Q4)
 
 **REL-06. Which open code from precedents can we reuse?**
 - Options: BSA# (MIT, made for TTW, [bsasharp](https://github.com/jzebedee/bsasharp/)); fnv-to-fo4 (GPL-3, targets FO4, reference only) (precedents Q29).
@@ -159,21 +159,21 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 **REL-10. Does a plugin generated on the player's PC count as a "Game Mod" under the Starfield CK EULA when it is packed with the player's Archive2 and compiled with the player's Papyrus compiler?**
 - Why it matters: ~~if yes, clause (ii) "approved by Bethesda" applies.~~ [Correction 2026-10-19: clause (ii) is the paid-Creations channel ("to be distributed through Bethesda Creations"), not a route for this case (launcher-sources/eula.md); if yes, the question is whether clause (i) "solely in connection with the Product" covers it.] Our pipeline calls `PapyrusCompiler.exe` and `Archive2.exe` and reads `ContentResources.zip` (verified, `scripts/mission/make_mission.py:293`, `scripts/deploy_starfield.py:155`, `scripts/convert_asset.py:5`).
 - Options: accept and ask Bethesda; avoid CK tools (loose files, BSArch, MO2 2.5.2's BSA Packer which "now supports Starfield archive formats", verified [MO2 releases](https://github.com/Modorganizer2/modorganizer/releases); a third-party compiler such as Caprica, Starfield support unresolved).
-- Answer by: Bethesda contact; BSArch licence; loose vs BA2 load-time measurement. Who: Bethesda contact, owner, PC probe. Blocks: All interiors, Launcher, Release. Status: open. (also: legal-policy Q5, Q6)
+- Answer by: Bethesda contact; BSArch licence; loose vs BA2 load-time measurement. Who: Bethesda contact, owner, PC probe. Blocks: All interiors, Launcher, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-1): "Player's own Creation Kit" (as recommended). Before: open. (also: legal-policy Q5, Q6)
 
 **REL-11. Which storefronts do we support for legal reasons as well as technical ones?**
 - Why it matters: Game Pass runs under the Microsoft Services Agreement (unread); Microsoft's rules say "You can't reverse engineer our games to access the assets" ([Xbox rules](https://www.xbox.com/en-US/developers/rules), scope over Bethesda unresolved). Skyblivion rejects Epic and Game Pass copies as "encrypted and/or different" ([FAQ](https://skyblivion.com/faq)).
 - Wave 2: SFSE's README says "The MS Store/Gamepass version is not supported" (**verified**), so any phase that needs SFSE excludes Game Pass players.
 - Options: Steam-only v1 and say so; state "Steam Starfield only" whenever a phase needs SFSE; Game Pass later without SFSE features (PC probe of what works without SFSE).
-- Answer by: read the MSA and Microsoft Store Starfield EULA. Who: offline research, then owner decision. Blocks: Launcher, Release. Status: narrowed (wave 2): SFSE phases are Steam-only by SFSE's own statement [legal-policy W2-C]. (also: legal-policy Q13 and wave 2 Q2, distribution-community Q10, precedents Q8)
+- Answer by: read the MSA and Microsoft Store Starfield EULA. Who: offline research, then owner decision. Blocks: Launcher, Release. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page RE-12): Steam only for v1, said plainly; revisit if SFSE ever supports Game Pass. Owner's note: "I genuinely don't believe we'll be able to do this for console users, but if possible, then yes.". Before: narrowed (wave 2): SFSE phases are Steam-only by SFSE's own statement [legal-policy W2-C]. (also: legal-policy Q13 and wave 2 Q2, distribution-community Q10, precedents Q8)
 
 **REL-12. Is a total conversion that replaces Starfield's content more exposed than an add-on planet?**
 - Why it matters: it looks more like "Fallout 4 on Starfield's engine" as a product.
-- Options: keep Starfield intact and add the planet; total conversion. Who: owner decision; maybe Bethesda contact. Blocks: World, Release. Status: open. (also: legal-policy Q14)
+- Options: keep Starfield intact and add the planet; total conversion. Who: owner decision; maybe Bethesda contact. Blocks: World, Release. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page WO-3): add our planet and keep Starfield for now; strip Starfield content step by step wherever removing it breaks nothing. Owner's note: "Do what you need to now, but if we can take away as much of the Starfield content as we can, we should.". Before: open. (also: legal-policy Q14)
 
 **REL-13. Do we ever publish anything on Bethesda Creations?**
 - Why it matters: the CK EULA bars ZeniMax-owned content there; a Creation of only our scripts is useless without the local build.
-- Who: owner decision. Blocks: Release. Status: open; supported hypothesis says no (legal-policy 8).
+- Who: owner decision. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page DA-7): "Yes, never publish on Creations" (as recommended). Before: open; supported hypothesis says no (legal-policy 8).
 - [Added 2026-10-19] Bethesda's guideline (help.bethesda.net article 51731) bans uploading mods with assets from other Bethesda games, and Creations is ruled out; building on the player's PC is neither covered nor approved (**verified**, quoted verbatim in newgame.md section M).
 
 **REL-14. Does the launcher check ownership beyond file hashes?**
@@ -184,7 +184,7 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 
 **REL-15. Does the launcher show an acceptance screen?**
 - Why it matters: documents that the player owns both games and keeps outputs private.
-- Options: one-time screen; README only. Who: owner decision. Blocks: Launcher. Status: open. (also: legal-policy Q11)
+- Options: one-time screen; README only. Who: owner decision. Blocks: Launcher. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-17): "One-time screen plus plugin marker" (as recommended). Before: open. (also: legal-policy Q11)
 
 **REL-16. Is there any record of a Bethesda takedown or C&D against a local converter, as opposed to an asset port?**
 - Why it matters: the single most useful precedent we lack.
@@ -205,20 +205,20 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 **REL-19. Can derived data (heightmaps, navmeshes, placements, animation timings measured from FO4 clips) ever ship, or is all of it generated locally?**
 - Why it matters: Zaldir ruled re-creations from captures count as the original asset (legal-policy 10).
 - Options: generate everything at build time (supported hypothesis default); ship only original curves made by eye.
-- Answer by: owner rule; Nexus staff written answer. Blocks: Door animations, World, Release. Status: open. (also: legal-policy Q3, Q15)
+- Answer by: owner rule; Nexus staff written answer. Blocks: Door animations, World, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page DA-1): "Generate everything at build time" (as recommended). Before: open. (also: legal-policy Q3, Q15)
 
 **REL-20. May our own text (tutorial hints, quest notes, launcher lore) quote or paraphrase FO4?**
 - Why it matters: paraphrase can be a derivative work; "Vault-Tec" is a trademark.
-- Options: generate FO4-authored strings at build time from the player's files (TTW model); neutral original wording; nominative references only. Who: owner decision; include in the Bethesda letter. Blocks: New game, People and story. Status: open. (also: legal-policy Q1, Q2, Q17)
+- Options: generate FO4-authored strings at build time from the player's files (TTW model); neutral original wording; nominative references only. Who: owner decision; include in the Bethesda letter. Blocks: New game, People and story. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page DA-2): "Build FO4 text from player's files" (as recommended). Owner's note: "Just keep everything legal and in line with other works. I will not make money off this in any way.". Before: open. (also: legal-policy Q1, Q2, Q17)
 
 **REL-21. May users share patches and add-ons built on the generated masters, and what may they contain?**
 - Why it matters: a patch that copies FO4 record data redistributes Bethesda content.
 - Options: patches as local "recipes" (Synthesis-style patchers, GPL-3); records with FormID references and original data only. Nexus Collections can carry such mods after the launcher has built the base (supported hypothesis, distribution-community 1).
-- Answer by: deterministic FormIDs across PCs (plan L4); a Nexus ruling. Who: Nexus contact, owner. Blocks: Release, Multi-game. Status: open. (also: legal-policy Q23)
+- Answer by: deterministic FormIDs across PCs (plan L4); a Nexus ruling. Who: Nexus contact, owner. Blocks: Release, Multi-game. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-15): "Original data plus references only" (as recommended). Before: open. (also: legal-policy Q23)
 
 **REL-22. How do we handle someone uploading a pre-built pack?**
 - Why it matters: high likelihood; can drag the tool down with it (legal-policy risk 3).
-- Options: pinned "we never host outputs" statement; a report template for Nexus; deterministic outputs so there is no reason to share. Who: owner decision. Blocks: Release. Status: open. (also: legal-policy Q26)
+- Options: pinned "we never host outputs" statement; a report template for Nexus; deterministic outputs so there is no reason to share. Who: owner decision. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-16): "Pinned statement plus report template" (as recommended). Before: open. (also: legal-policy Q26)
 
 **REL-23. Do screenshots and videos of converted content fall under Bethesda's video policy?**
 - Why it matters: they show Bethesda assets; the README already excludes screenshots from the code licence.
@@ -232,7 +232,7 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 **REL-25. Do we use "Fallout", Vault Boy or Pip-Boy art in the project, launcher, UI or Nexus page?**
 - Why it matters: trademark complaints are easier than copyright ones; Community Standards forbid trademarked material on Bethesda.net.
 - Options: nominative "fo4-to-starfield" style name; a neutral brand; "for Fallout 4" phrasing; original neutral Pip-Boy-like UI, or FO4 UI converted locally. No precedent with "Fallout" in the name was verified as having permission.
-- Who: owner decision; Bethesda contact. Blocks: Launcher, Fallout systems, Release. Status: open. (also: legal-policy Q18, Q24)
+- Who: owner decision; Bethesda contact. Blocks: Launcher, Fallout systems, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-6): "Fallout name and art" (not the recommended option). Owner's note: "Other games have been given the go-ahead with things like this and other Bethesda works. Voice lines are the big issue: Fallout 3 was recorded outside Bethesda, but other games were recorded in-house, so Bethesda kept the rights, apart from New Vegas, and Obsidian has not shown an issue with using that material. Under my understanding of copyright law we are not distributing anything, or using anything in a way a user who owns the game and modifies it is not allowed to. If somebody modified one game so all the characters use the same voice line, nothing is against that; here it is the same: we use that NPC's voice line so the NPC can still talk. There are no changes or modifications for distribution.". Before: open. (also: legal-policy Q18, Q24)
 
 ### Voice and audio policy (legal side)
 
@@ -240,16 +240,16 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 - Why it matters: Capital Wasteland's halt was "entirely related to audio"; Bethesda staff said voice acting is licensed, so Bethesda could not grant it; PCGamesN says player-side extraction was "also deemed unworkable" (precedents 5). TTW re-encodes audio and survived, likely because both games share an engine family (supported hypothesis).
 - Options: (a) convert the player's own files (CW's red flag); (b) subtitles only; (c) volunteer re-voice; (d) synthetic voice (REL-28).
 - Wave 2: option (a) also needs each player's own Wwise licence, a non-Bethesda gate (REL-04). SS2 reuses and splices vanilla FO4 player lines inside FO4 (**verified** patch notes; sourcing **supported hypothesis**), which supports the silent-player default but is not cross-game evidence; a voiced-player option is REL-58.
-- Answer by: written question to Bethesda or ZeniMax; legal opinion. Who: owner decision, then Bethesda contact. Blocks: New game, People and story, Multi-game. Status: narrowed (wave 2): Wwise gate added to option (a) [legal-policy W2-B, precedents W2-4]. (also: precedents Q1, Q16; legal-policy Q16)
+- Answer by: written question to Bethesda or ZeniMax; legal opinion. Who: owner decision, then Bethesda contact. Blocks: New game, People and story, Multi-game. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-1): "No: subtitles only, for now" (as recommended). Owner's note: "Did you guys ask? You have access to my email to send any.". Before: narrowed (wave 2): Wwise gate added to option (a) [legal-policy W2-B, precedents W2-4]. (also: precedents Q1, Q16; legal-policy Q16)
 
 **REL-27. Does `scripts/actors/codsworth_voice.py` stay a private PC test, or is it gated out of release builds until REL-26 is decided?**
 - Why it matters: it converts FO4 `.fuz` to Starfield `.wem` via Wwise, which is the Capital Wasteland shape. This is an owner decision only; this file records the precedent, not a verdict.
-- Options: keep as private test; gate behind a flag off by default in releases; remove from release packaging. Who: owner decision, now. Blocks: People and story, Release. Status: open. (also: precedents Q17)
+- Options: keep as private test; gate behind a flag off by default in releases; remove from release packaging. Who: owner decision, now. Blocks: People and story, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-1): "No: subtitles only, for now" (as recommended). Owner's note: "Did you guys ask? You have access to my email to send any.". Before: open. (also: precedents Q17)
 
 **REL-28. Is any synthetic (AI) voice allowed, for gaps or for new lines?**
 - Why it matters: personality rights of FO4 actors; Bethesda's Creations reportedly bans generative AI (press search results only, **unresolved**).
 - Wave 2: Nexus does not ban it but requires tagging; its AI-Generated Content tag covers "AI-Generated code, user interface elements, voices ..." (**verified**, Nexus help 28). Community comments say SS2 rejects AI voices (**supported hypothesis**).
-- Answer by: read the Creations rule (still press-only). Who: offline research, owner. Blocks: People and story. Status: narrowed (wave 2): Nexus side is a tagging rule [legal-policy W2-D]. (also: legal-policy Q16, precedents Q16)
+- Answer by: read the Creations rule (still press-only). Who: offline research, owner. Blocks: People and story. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-2): "No new voice in early releases" (as recommended). Before: narrowed (wave 2): Nexus side is a tagging rule [legal-policy W2-D]. (also: legal-policy Q16, precedents Q16)
 
 **REL-29. Does converting FO4 `.lip` and face data carry the same question as audio?**
 - Why it matters: Codsworth has no face; humans do. Who: offline research, owner. Blocks: People and story. Status: open. (also: precedents Q18)
@@ -258,25 +258,25 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 
 **REL-30. Do we contact Bethesda/ZeniMax before the Nexus release, and what do we ask?**
 - Why it matters: ~~the Starfield CK EULA names an approval route for cross-game mods.~~ [Correction 2026-10-19: clause (ii) covers paid Creations only (launcher-sources/eula.md). No licence text covers what we do, so a written question to ZeniMax is the only way to move from tolerance toward permission (matches launcher.md D6).] Contact killed CW v1; Skyblivion got conditions (100% asset replacement) and later praise; Skywind is described as "officially approved"; Fallout London reported "zero correspondence" (precedents 3, 4, 5, 2).
-- Options: no contact (TTW model); an informational letter; an explicit approval request covering REL-10, REL-20, REL-25, REL-26. Who: owner decision; Bethesda contact. Blocks: Release, People and story. Status: open. (also: legal-policy Q20, precedents Q23)
+- Options: no contact (TTW model); an informational letter; an explicit approval request covering REL-10, REL-20, REL-25, REL-26. Who: owner decision; Bethesda contact. Blocks: Release, People and story. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page RE-8): informational letter with specific questions (voice, our own text, naming, the local build); Claude drafts, nothing is sent until the owner approves the exact text; the offer of control is the owner's to include. Owner's note: "Talk it through with people first. Realistically, given the efforts and intentions of this project, Bethesda should have no copyright issue, because it is not intended to be anything they could take down, like the Fallout New York game. If you do message them, include a mention that I am willing to change the goal of the project and give them rights and control over it when I'm done, if they let me finish it and get it to a good state. I just really want a S.T.A.L.K.E.R. GAMMA-style Fallout experience.". Before: open. (also: legal-policy Q20, precedents Q23)
 
 **REL-31. What exactly do we ask Nexus staff, and in what order?**
 - Proposed: (a) is a no-assets FO4-to-Starfield converter acceptable as a "modding tool" (cite FNV to FO4); (b) only if a network feature stays: the reasoning plus source code, as the guideline asks (REL-32); (c) may add-ons on generated masters be hosted (REL-21); (d) which game page and category; (e) which AI tag applies (REL-57).
-- Who: owner via Nexus support (support@nexusmods.com is the guideline's named address, **verified**). Blocks: Release. Status: narrowed (wave 2): (b) mostly answered by the published rule [legal-policy W2-D]. (also: legal-policy Q21, distribution-community Q28)
+- Who: owner via Nexus support (support@nexusmods.com is the guideline's named address, **verified**). Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-9): "Yes, written questions first" (as recommended). Before: narrowed (wave 2): (b) mostly answered by the published rule [legal-policy W2-D]. (also: legal-policy Q21, distribution-community Q28)
 
 **REL-32. Will the Nexus build of the launcher connect to the internet (manifests, hash tables, updates, crash reports)?**
 - Why it matters: Nexus prohibits internet-connecting executables unless crucial (legal-policy 9).
 - Wave 2: "auto update" functionality "does not qualify as crucial"; Nexus may remove any tool that communicates with the internet; a tool that depends on network access must be explained to staff with its source code (**verified**).
-- Options: fully offline Nexus build (no auto-update, no telemetry), hash table compiled into the release; GitHub build allowed an opt-in update check; online add-on fetching only after a staff conversation. Who: owner decision, then Nexus staff only if a network feature stays. Blocks: Launcher, Release. Status: narrowed (wave 2): auto-update is out for the Nexus build [legal-policy W2-D]. (also: legal-policy Q7 and wave 2 Q4)
+- Options: fully offline Nexus build (no auto-update, no telemetry), hash table compiled into the release; GitHub build allowed an opt-in update check; online add-on fetching only after a staff conversation. Who: owner decision, then Nexus staff only if a network feature stays. Blocks: Launcher, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-18): "Offline; update check on click" (as recommended). Before: narrowed (wave 2): auto-update is out for the Nexus build [legal-policy W2-D]. (also: legal-policy Q7 and wave 2 Q4)
 
 **REL-33. Do we contact the FNV to FO4 and Outfit Porter authors?**
 - Why it matters: they solve parts of our pipeline and have already dealt with Nexus about cross-game converters. Outreach is owner-only (AGENTS.md).
-- Who: owner decision. Blocks: Release. Status: open. (also: distribution-community Q27)
+- Who: owner decision. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-4): "Yes, all the named authors" (as recommended). Before: open. (also: distribution-community Q27)
 
 ### Hosting and release page
 
 **REL-34. Where do we host after GitHub, and under which Nexus game page?**
-- Options: Nexus Starfield page; ModPub plus Discord as fallback (TTW); GitHub only. Who: owner, Nexus contact. Blocks: Release. Status: open. (also: precedents Q24)
+- Options: Nexus Starfield page; ModPub plus Discord as fallback (TTW); GitHub only. Who: owner, Nexus contact. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page RE-7): ship no assets and ask Bethesda first with a written informational letter (see RE-8). Before: open. (also: precedents Q24)
 - [Added 2026-10-19] Wherever we host, Bethesda's guideline (help.bethesda.net article 51731) bans uploading mods with assets from other Bethesda games; building on the player's PC is neither covered nor approved; Creations is ruled out (**verified**, quoted verbatim in newgame.md section M).
 
 **REL-35. How does the release page answer "is this legal?" and avoid reading as a remaster or a "free FO4"?**
@@ -285,26 +285,26 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 
 **REL-36. How do we pre-empt antivirus and scanner flags on the released executable?**
 - Why it matters: Nexus flagged Outfit Porter as "Some suspicious files"; unsigned downloads get SmartScreen and "Unblock" prompts (TTW FAQ).
-- Options: code signing (costs money); published hashes and a VirusTotal link; reproducible source builds. Who: owner decision. Blocks: Launcher, Release. Status: open. (also: distribution-community Q15, release part)
+- Options: code signing (costs money); published hashes and a VirusTotal link; reproducible source builds. Who: owner decision. Blocks: Launcher, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-14): "Hashes now, apply to SignPath" (as recommended). Before: open. (also: distribution-community Q15, release part)
 
 ### Money
 
 **REL-37. Do we accept donations at all?**
 - Options: none; Nexus Donation Points only; a tactful optional hosting link. Never Patreon or crowdfunding (Community Standards).
-- Who: owner decision. Blocks: Release. Status: open. (also: legal-policy Q22)
+- Who: owner decision. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page RE-17): no money and no store listing before 1.0; a free GOG listing is a post-1.0 question needing Bethesda's OK. Owner's note: "We will likely only have a GOG listing, like Fallout London and S.T.A.L.K.E.R. GAMMA. Monetization and making money is a big no-no.". Before: open. (also: legal-policy Q22)
 
 **REL-38. Is a GOG-style store listing ever a goal?**
 - Options: not a goal; revisit after 1.0; a free Steam "Community-Made Mod" app (REL-59).
-- Who: owner decision. Blocks: Release. Status: open. (also: distribution-community Q32)
+- Who: owner decision. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page RE-17): no money and no store listing before 1.0; a free GOG listing is a post-1.0 question needing Bethesda's OK. Owner's note: "We will likely only have a GOG listing, like Fallout London and S.T.A.L.K.E.R. GAMMA. Monetization and making money is a big no-no.". Before: open. (also: distribution-community Q32)
 
 ### Community home and support
 
 **REL-39. Where is the project's home?**
 - Options: GitHub Issues and Discussions only; own Discord with install and known-issues channels; a channel on Starfield Modding or Collective Modding (rules unread).
-- Answer by: ask those servers' admins. Who: owner, community contact. Blocks: Release. Status: open. (also: distribution-community Q23)
+- Answer by: ask those servers' admins. Who: owner, community contact. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-18): "GitHub only" (not the recommended option). Before: open. (also: distribution-community Q23)
 
 **REL-40. Who triages community reports when volume grows, given only the owner may remove `needs-triage`?**
-- Options: trusted human volunteers with a triage role; AI-drafted summaries the owner approves in bulk; a known-issues auto-reply. Needs an AGENTS.md change. Who: owner decision. Blocks: Release. Status: open. (also: distribution-community Q24)
+- Options: trusted human volunteers with a triage role; AI-drafted summaries the owner approves in bulk; a known-issues auto-reply. Needs an AGENTS.md change. Who: owner decision. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-19): "AI drafts, you approve in bulk" (as recommended). Before: open. (also: distribution-community Q24)
 
 **REL-41. What is the day-one support model?**
 - Why it matters: Fallout London's first week was install problems (INI overwrites, CC files, wrong `Fallout4.esm` size; [GameStar](https://www.gamestar.de/artikel/fallout-london-absturz-crash-technische-probleme,3417255,seite2.html)); TTW's FAQ is mostly environment errors (quotes in paths, Controlled Folder Access, Unblock, CPU heat).
@@ -313,48 +313,48 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 
 **REL-42. What must every bug report carry to be reproducible?**
 - Options: cell, position and a build hash printed by the launcher; reproducible "on a new save" bar like the Community Patch ([starfieldpatch.dev](https://starfieldpatch.dev)); our report hotkey already records cell and position (docs/community/reporting-tool.md); Skywind's bar is "easily reproducible by another tester", "Search existing bugs first", with a retest before close (**verified**, precedents W2-5; label adoption is a tooling question, handed off below).
-- Who: offline design, owner sign-off. Blocks: All interiors, Release. Status: open. (also: distribution-community Q5, Q35)
+- Who: offline design, owner sign-off. Blocks: All interiors, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page IN-5): "Cell, position, build hash" (not the recommended option). Before: open. (also: distribution-community Q5, Q35)
 
 **REL-43. How do we recruit testers and specialists, and which environments must be tested before a public release?**
 - Why it matters: agents cannot test other PCs, languages, Linux or Game Pass; Fallout London had about 20 testers and launched "barely playable".
-- Options: tester sign-up issue form; ask in r/starfieldmods; matrix of Steam Windows English, non-English, OneDrive-redirected Documents, Proton, Steam Deck. Who: owner, community. Blocks: Release. Status: open. (also: distribution-community Q26, Q33; precedents Q6)
+- Options: tester sign-up issue form; ask in r/starfieldmods; matrix of Steam Windows English, non-English, OneDrive-redirected Documents, Proton, Steam Deck. Who: owner, community. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page IN-13): "Small closed pool, clean profile" (as recommended). Before: open. (also: distribution-community Q26, Q33; precedents Q6)
 
 **REL-44. Is "all interiors" a public milestone or internal?**
-- Options: closed tester beta; public GitHub pre-release; nothing public. Answer by: support capacity estimate. Who: owner decision. Blocks: All interiors, Release. Status: open. (also: distribution-community Q4)
+- Options: closed tester beta; public GitHub pre-release; nothing public. Answer by: support capacity estimate. Who: owner decision. Blocks: All interiors, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-11): "Closed tester beta" (as recommended). Before: open. (also: distribution-community Q4)
 
 ### Contributors and succession
 
 **REL-45. Do we accept outside human contributors, and on what terms?**
 - Options: no outside PRs before 1.0; PRs with DCO sign-off or a CLA; per-asset provenance manifest (The Frontier had to strip one person's work, [PC Gamer](https://www.pcgamer.com/uk/fallout-mod-the-frontier-returns-after-stripping-out-content-from-disgraced-artist/)); credits page; existing code of conduct. Licence split (REL-01) affects the terms.
-- Who: owner decision; decisions.md. Blocks: Release. Status: open. (also: distribution-community Q25, precedents Q25)
+- Who: owner decision; decisions.md. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-20): "Yes, sign-off plus asset records" (as recommended). Before: open. (also: distribution-community Q25, precedents Q25)
 
 **REL-46. How do we plan succession and avoid management failure in an owner-plus-agents team?**
 - Why it matters: the Community Patch is "looking for new caretakers" within about 3 years; The Frontier's rework collapsed through "poor management" and competing visions.
 - Wave 2: Skywind removes lead permissions after three months without response plus a formal message and two weeks to reply (**verified**); Beyond Skyrim's umbrella of semi-independent teams diverged and stalled, with a 2022 leadership shake-up (**supported hypothesis**, Reddit posts by claimed members).
-- Options: named caretakers and a handover rule; an inactivity rule for agents and humans (the watchdog already covers Claude); single owner for direction plus decisions.md; public roadmap with previews. Who: owner decision. Blocks: Release. Status: narrowed (wave 2): an inactivity-rule template exists [precedents W2-1, W2-5]. (also: precedents Q27)
+- Options: named caretakers and a handover rule; an inactivity rule for agents and humans (the watchdog already covers Claude); single owner for direction plus decisions.md; public roadmap with previews. Who: owner decision. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-21): "Name a second caretaker" (as recommended). Before: narrowed (wave 2): an inactivity-rule template exists [precedents W2-1, W2-5]. (also: precedents Q27)
 
 ### Dates and communication
 
 **REL-47. What is our policy on dates?**
-- Options: no dates, only "what works now" (Skywind); windows with a slip policy. Every precedent slipped. Who: owner decision. Blocks: Release. Status: open. (also: distribution-community Q29, precedents Q21)
+- Options: no dates, only "what works now" (Skywind); windows with a slip policy. Every precedent slipped. Who: owner decision. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-22): "No dates; "what works now"" (as recommended). Before: open. (also: distribution-community Q29, precedents Q21)
 
 **REL-48. How do we answer "voices, quests, companions, VATS, Far Harbor?" before those phases exist?**
-- Options: a public feature matrix (not yet / partial / works); a roadmap page or no promises; a map image explaining one planet. Who: owner wording. Blocks: Release. Status: open. (also: distribution-community Q17, Q20, Q21)
+- Options: a public feature matrix (not yet / partial / works); a roadmap page or no promises; a map image explaining one planet. Who: owner wording. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-22): "No dates; "what works now"" (as recommended). Before: open. (also: distribution-community Q17, Q20, Q21)
 
 **REL-49. What do we say about FO4 mods working with the port?**
 - Options: "no, but mods built on our core will" (plan L2) in the first post; a later FO4-mod converter. Who: owner. Blocks: Release. Status: open. (also: distribution-community Q22)
 
 **REL-50. Which outputs do we show publicly as video, and with what caption?**
-- Options: show with "pre-alpha, no quests" caption; nothing until interiors. Legal side is REL-23. Who: owner decision. Blocks: Door animations, Release. Status: open. (also: distribution-community Q3)
+- Options: show with "pre-alpha, no quests" caption; nothing until interiors. Legal side is REL-23. Who: owner decision. Blocks: Door animations, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-22): "No dates; "what works now"" (as recommended). Before: open. (also: distribution-community Q3)
 
 **REL-51. What goes in a player changelog, and do we promise save compatibility?**
 - Why it matters: GAMMA says saves are "mostly" compatible across a big update; our FormIDs change if the build changes (plan L4).
 - Options: player changelog separate from the agent journal, generated from PR labels, with "new save? rebuild?" lines; no save promise before 1.0, or a save-safe flag per release.
-- Answer by: determinism test plus a save loaded across two builds. Who: owner after an L4 probe. Blocks: Release, New game. Status: open. (also: distribution-community Q1, Q30)
+- Answer by: determinism test plus a save loaded across two builds. Who: owner after an L4 probe. Blocks: Release, New game. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page NG-22): "No promise before 1.0" (as recommended). Before: open. (also: distribution-community Q1, Q30)
 
 **REL-52. What can ship first as a public release?**
 - Options: a "walkable Commonwealth" release before people and story (FNV to FO4 shipped world and placements only and has an audience); public slices (Vault 111 start, then interiors) rather than one "full Commonwealth" drop. Beyond Skyrim's Bruma pre-release (2017) is still its only province release and kept interest for years (**verified** release, status **supported hypothesis**).
-- Who: owner decision. Blocks: World, Release. Status: narrowed (wave 2): slice model has a precedent [precedents W2-1]. (also: precedents Q15 and wave 2 Q1)
+- Who: owner decision. Blocks: World, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-10): "Wait for a fuller game" (not the recommended option). Before: narrowed (wave 2): slice model has a precedent [precedents W2-1]. (also: precedents Q15 and wave 2 Q1)
 
 **REL-53. What is our realistic time scale?**
 - Precedents: Enderal 5 years with 14 people; Fallout London 5 years with about 100; Skyblivion and Skywind 13 years or more. Converting rather than remaking is our structural advantage (supported hypothesis).
@@ -366,7 +366,7 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 - Why it matters: TTW requires English installs of both games; if our record writer keeps localized string references, a German FO4 could give a German port.
 - Wave 2 language sets (**verified**, see What is settled): voiced in both games EN, FR, DE, ES, JA; text only in both PL, PT-BR; Italian is voiced in FO4 but text only in Starfield; Russian and Traditional Chinese exist only in FO4; the Starfield CK is English only. TTW requires English installs (**verified**).
 - Options: English-only v1 (TTW precedent); English-first v1 with string tables passed through for the five shared voiced languages (cheapest plan that does not exclude most players, **supported hypothesis**); voice per language (tied to REL-26).
-- Answer by: a synthetic non-English STRINGS fixture through the converter. Who: offline research, owner. Blocks: People and story, Launcher, Release. Status: narrowed (wave 2): data half answered; technical test remains [distribution-community W2-4]. (also: distribution-community Q18)
+- Answer by: a synthetic non-English STRINGS fixture through the converter. Who: offline research, owner. Blocks: People and story, Launcher, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-8): "English first, pass through 4 more" (as recommended). Before: narrowed (wave 2): data half answered; technical test remains [distribution-community W2-4]. (also: distribution-community Q18)
 
 **REL-55. What happens when a player's FO4 is not English?**
 - Options: one hash table per language; hash language-neutral files and treat STRINGS separately; refuse (TTW requires "all DLCs and in English", **verified**). Wave 2: RU and Traditional Chinese FO4 have no matching Starfield language, so those players need a refusal or a fallback message whatever is chosen (**supported hypothesis**).
@@ -377,20 +377,20 @@ contact. Labels: **verified** (read in a linked source or a repo file), **suppor
 **REL-56. Does the converter refuse to build FO4 DLC content (Far Harbor, Nuka-World, any DLC records the Vault 111 start touches) unless the player's FO4 has that DLC?**
 - Why it matters: Bethesda's removal policy names mods that "circumvent the need to purchase add-on content" (**verified**, help 34803; scope Bethesda.net, but it is an obvious objection anywhere).
 - Options: detect each DLC `.esm` and its archives and skip that content when absent; require all DLC (TTW model).
-- Answer by: PC probe of DLC detection. Who: owner decision, PC probe. Blocks: Launcher, World, Release. Status: open (wave 2) [legal-policy W2-E]. (also: legal-policy wave 2 Q1)
+- Answer by: PC probe of DLC detection. Who: owner decision, PC probe. Blocks: Launcher, World, Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-7): "Require all DLC" (not the recommended option). Before: open (wave 2) [legal-policy W2-E]. (also: legal-policy wave 2 Q1)
 
 **REL-57. Which Nexus AI tag applies, and what evidence do we keep ready for a moderation dispute?**
 - Why it matters: Nexus requires an AI-Generated Content or AI Assisted tag; AI Assisted "requires significant evidence of development"; undisclosed generative AI may be moderated; performance claims "must be truthful and supported by reasonable evidence" (**verified**, Nexus help 28). This project's code is largely agent-written, so AI-Generated Content is almost certainly the tag (**supported hypothesis**).
 - Options: AI-Generated Content tag with commit prefixes and `team.py board` as evidence; AI Assisted (needs the human-led development evidence the page describes).
-- Who: owner decision. Blocks: Release. Status: open (wave 2) [legal-policy W2-D]. (also: legal-policy wave 2 Q3)
+- Who: owner decision. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-14): "AI-Generated Content" (as recommended). Before: open (wave 2) [legal-policy W2-D]. (also: legal-policy wave 2 Q3)
 
 **REL-58. If a voiced-player option is ever offered, is it FO4's own player lines unchanged only, converted on the player's PC, or are spliced lines allowed?**
 - Why it matters: SS2 splices vanilla player lines inside FO4 (same game); a spliced line is closer to a new derivative recording, and Capital Wasteland is the cross-game precedent (**supported hypothesis**, precedents W2-4). Silent player stays the default.
-- Who: owner decision plus a question in the Bethesda letter (REL-30). Blocks: People and story. Status: open (wave 2) [precedents W2-4]. (also: precedents wave 2 Q4)
+- Who: owner decision plus a question in the Bethesda letter (REL-30). Blocks: People and story. Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-3): "FO4 player lines, unchanged only" (as recommended). Before: open (wave 2) [precedents W2-4]. (also: precedents wave 2 Q4)
 
 **REL-59. Is a free Steam "Community-Made Mod" listing (Enderal model) ever an option for a tool that needs two games?**
 - Why it matters: it gives an ownership check, separate install and saves; Enderal's needs one base game, ours needs FO4 and Starfield (**unresolved** whether Steam's listing can express that).
-- Answer by: read Steam's rules for Community-Made Mod apps; Valve contact. Who: offline research, owner. Blocks: Release. Status: open (wave 2) [precedents W2-2]. (also: precedents wave 2 Q7)
+- Answer by: read Steam's rules for Community-Made Mod apps; Valve contact. Who: offline research, owner. Blocks: Release. Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page RE-17): no money and no store listing before 1.0; a free GOG listing is a post-1.0 question needing Bethesda's OK. Owner's note: "We will likely only have a GOG listing, like Fallout London and S.T.A.L.K.E.R. GAMMA. Monetization and making money is a big no-no.". Before: open (wave 2) [precedents W2-2]. (also: precedents wave 2 Q7)
 
 ## Owner decisions in this area
 Recommendations only; the owner decides.

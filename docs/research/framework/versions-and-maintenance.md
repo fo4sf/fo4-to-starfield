@@ -133,7 +133,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - [Added 2026-10-19] GOG Fallout 4 ships only 1.10.163.0, so GOG players need no downgrade (**verified**, gogdb.org, via launcher.md revision 2).
 - Answer by: record and archive diff between 1.10.163, 1.10.984 and 1.11.240 data (VM-02), then owner decision.
 - Blocks: Launcher, Release, New game.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page LA-3): 1.10.163 now, add the current Steam version (1.11.240) after a record diff. Owner's note: "I'd like the most recent one, and then the one with the most mods, so it is easier for anybody bringing theirs over.". Before: open.
 
 **VM-02. Did the next-gen and Anniversary updates change Fallout4.esm, the DLC .esm files or the BA2 archives, and which records?**
 - Why it matters: if records differ, players build different games and the launcher's determinism gate (L4) fails across players. The Vault 111 cells and MQ101 may differ by player.
@@ -163,7 +163,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Options: Steam and GOG only (TTW, Skyblivion mix-and-match); any store whose data hashes match a known table.
 - Answer by: file listing and hashes from a GOG, an Epic and a Game Pass install. Community contact. (also: versions-performance Q11, precedents Q8)
 - Blocks: Launcher, Release.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-5): "Steam, then GOG; refuse others" (as recommended). Before: open.
 
 **VM-06. Which Fallout 4 runtime is canonical for our synthetic test fixtures, and do we keep fixtures for more than one?**
 - Why it matters: unit tests use synthetic fixtures; a per-runtime header and record fixture (BA2 v1 vs v7/v8, one changed record) catches an FO4 update offline without shipping game data.
@@ -178,7 +178,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Options: English-only v1; English-first with string tables passed through for the five shared voiced languages (**supported hypothesis** as the cheapest plan that does not exclude most players, DC W2-4); all pairs.
 - Answer by: one build test with a non-English FO4 STRINGS set (PC probe or community contact); owner decision. (also: distribution-community Q18, Q19)
 - Blocks: Launcher, Release.
-- Status: narrowed (wave 2): language data verified; policy open [DC W2-4].
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-8): "English first, pass through 4 more" (as recommended). Before: narrowed (wave 2): language data verified; policy open [DC W2-4].
 
 ### B. Creation Club and other official extras
 
@@ -187,7 +187,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Options: ignore every `cc*.esl`; opt in per file; refuse to build while they are active.
 - Answer by: owner decision; offline list of CC files from a current install.
 - Blocks: Launcher, Release, World.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page LA-6): opt in per file: the player picks which Creation Club files and the HD pack to convert (wider scope and more testing). Owner's note: "I want players to be able to pick the most recent version that uses those files, or a previous update; better that you talk it through.". Before: open.
 
 ### C. Starfield versions, patch days and SFSE
 
@@ -224,7 +224,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Options: refuse until supported (current preflight gate); warn and run a data-only tier; keep a "known good" build table updated within N days. (also: versions-performance Q12, starfield-toolchain Q1, distribution-community Q9, precedents Q2)
 - Answer by: owner decision, informed by the 2026 patch-day timeline (SFSE same day).
 - Blocks: Launcher, Release.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-15): "Refuse until we list it as good" (as recommended). Before: open.
 
 **VM-13. Do saves survive a Starfield patch with our plugins loaded?**
 - Why it matters: long playthroughs span patches.
@@ -238,7 +238,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Options: no promise before 1.0; a "save-safe" flag per release; a migration tool.
 - Answer by: determinism test plus a save loaded across two builds; then owner decision. (also: distribution-community Q1)
 - Blocks: Release.
-- Status: open. Precedent (engine-mechanics.md, precedents pass): Fallout London's 1.03 patch forced players to start a new game, so a save-compatibility plan is needed before anyone plays on our builds.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page NG-22): "No promise before 1.0" (as recommended). Before: open. Precedent (engine-mechanics.md, precedents pass): Fallout London's 1.03 patch forced players to start a new game, so a save-compatibility plan is needed before anyone plays on our builds.
 
 **VM-15. Does the Creation Kit track game versions exactly; does an older CK refuse or corrupt plugins?**
 - Why it matters: SFSE and the CK MAY be required; CK changes ride inside game patch notes (**verified**, 1.15.214), but whether every patch ships a matching CK is a **supported hypothesis**.
@@ -260,14 +260,14 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Wave 2: SFSE's own README excludes MS Store/Game Pass, and only `sfse/PluginAPI.h` is MIT; the rest is "not under a permissive license", so SFSE is detected and linked, never bundled or mirrored (**verified**, LP W2-C). An SFSE plugin of ours may include `PluginAPI.h`.
 - Answer by: list what each phase calls (door package, start, Pip-Boy) offline; owner decision recorded in decisions.md.
 - Blocks: New game, Door animations, Fallout systems, People and story, Release.
-- Status: open (wave 2 confirmed the Game Pass cost of any SFSE dependency) [LP W2-C].
+- Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page NG-1): SFSE required; the game is blocked when a patch breaks SFSE (option B, not the recommendation). Our own small SFSE plugins where the older games need them; a full extender of our own only if those are not enough. Owner's note: "We might want to make our own script extender, because we will eventually need scripts from the older Fallouts to work.". Before: open (wave 2 confirmed the Game Pass cost of any SFSE dependency) [LP W2-C].
 
 **VM-18. When a patch breaks SFSE plugins, what does each SFSE-dependent feature do?**
 - Why it matters: decides whether a compiler-setting patch takes the whole port down or only some features.
 - Options: degrade (hide the feature); block launch; Papyrus fallback. (also: starfield-toolchain Q21)
 - Answer by: owner decision after VM-17.
 - Blocks: Fallout systems, Release.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page NG-1): SFSE required; the game is blocked when a patch breaks SFSE (option B, not the recommendation). Our own small SFSE plugins where the older games need them; a full extender of our own only if those are not enough. Owner's note: "We might want to make our own script extender, because we will eventually need scripts from the older Fallouts to work.". Before: open.
 
 ### D. Pinning, rollback and stores for Starfield
 
@@ -276,7 +276,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Options: refuse on mismatch (current); MO2-style Stock Game copy (doubles disk use, **supported hypothesis**); Steam "update only when launched"; read-only `appmanifest` (Fallout London, **verified**); keep a backup exe. (also: versions-performance Q13, starfield-toolchain Q13)
 - Answer by: owner decision plus offline research on what Steam allows.
 - Blocks: Launcher, Release.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-16): "Refuse, advise 'update only when launched'" (as recommended). Before: open.
 
 **VM-20. How does the launcher detect the Starfield version and store?**
 - Why it matters: preflight and the support matrix depend on it.
@@ -291,7 +291,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Wave 2: SFSE's README: "The MS Store/Gamepass version is not supported" (**verified**, LP W2-C). So the release page states "Steam Starfield only" whenever any phase needs SFSE (legal-policy wave 2 new question 2).
 - Answer by: load the S9 test plugin on a Game Pass install (community contact); owner decision after VM-17.
 - Blocks: Release, Launcher.
-- Status: narrowed (wave 2): any SFSE phase excludes Game Pass by SFSE's own statement; a data-only Game Pass build still untested [LP W2-C].
+- Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page RE-12): Steam only for v1, said plainly; revisit if SFSE ever supports Game Pass. Owner's note: "I genuinely don't believe we'll be able to do this for console users, but if possible, then yes.". Before: narrowed (wave 2): any SFSE phase excludes Game Pass by SFSE's own statement; a data-only Game Pass build still untested [LP W2-C].
 
 **VM-22. Can we keep a "previous Starfield runtime" test profile?**
 - Why it matters: to reproduce reports from players who have not updated or rolled back.
@@ -323,7 +323,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Options: full ESM for the world core (it is about 10x a medium master); medium masters per interior cluster under 65k records; update plugins only for pure overrides (cost a slot since 1.12.30). (also: starfield-toolchain Q8, Q32, Q33)
 - Answer by: load a synthetic medium master near 60,000 records to confirm the engine agrees with xEdit (PC probe); record counts per FO4 cluster (offline); owner decision.
 - Blocks: All interiors, World.
-- Status: answered (wave 2): 65,536 ObjectIDs, 256 slots; only the in-game check remains [TC W2-5].
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page IN-1, confirmed in the Interiors thread): the main plugins stay the normal (full) type; whether later small add-ons use the medium type is decided when there are any. Owner's note: "I agree. Just decide which ones need to be used when; don't force something on something that isn't needed, but make sure we implement the right thing before something is broken and needs to be completely redone." Before: answered (wave 2): 65,536 ObjectIDs, 256 slots; only the in-game check remains [TC W2-5].
 
 **VM-26. Does Starfield have a precombine/previs equivalent our build could produce?**
 - Why it matters: decides between writing our own merged meshes or finding an engine feature. FO4 relies on precombines (`SCOL\CM*.NIF`). Wave 2: FO4's CELL has `VISI`, `PCMB`, `XPRI`, `XCRI`; Starfield's CELL has none of them (**verified** schema, xEdit sf1.pas). An `OVIS` "Object Visibility Manager" record exists, purpose undocumented (**verified**). ~~CE2 has no FO4-style bake, so there is nothing to produce and nothing to break (**supported hypothesis**, TC W2-2).~~ [Correction 2026-10-19: that hypothesis is weakened by interiors.md T9 (both CK string dumps, PC job 18): the FO4 CK has `-GeneratePreCombined` and `-GeneratePreVisData`; the Starfield CK has neither switch but has the GUI actions "Generate Precombined Visibility for Current Cell" and "... All Loaded Cells". Starfield may have a precombined-visibility bake run from the CK GUI; what it writes and whether it matters for performance is **unresolved**. The Starfield CK also has `-GenerateCellAndRefCounts` (possibly per-cell reference counts; **unresolved**).]
@@ -385,7 +385,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Options: Trainwreck (version-independent); Starfield Engine Fixes' logger (pinned per runtime).
 - Answer by: trigger the known Havok assert (vault cart case) with each logger. PC probe. (also: versions-performance Q24)
 - Blocks: Release.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-5): "Engine Fixes' crash logger" (as recommended). Before: open.
 
 **VM-34. What is on the patch-day checklist, and is it automated?**
 - Why it matters: Starfield has 2027 content announced (**unresolved**, fansite) and Fallout 4 still patches.
@@ -407,14 +407,14 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Wave 2: the matrix says "Steam Starfield only" whenever any phase needs SFSE (**verified** basis, LP W2-C), and lists the supported languages (VM-39).
 - Answer by: owner decision after VM-01, VM-12 and VM-39.
 - Blocks: Release.
-- Status: open (wave 2 added the Steam-only and language lines) [LP W2-C, DC W2-4].
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-13): ""Use previous build"; no time promise" (as recommended). Before: open (wave 2 added the Steam-only and language lines) [LP W2-C, DC W2-4].
 
 **VM-37. Who owns patch-day duty when the project is quiet?**
 - Why it matters: both games are still moving; maintenance runs for years.
 - Options: owner; the watchdog/Codex runbook carries detection and reporting only (no deploys or code changes).
 - Answer by: owner decision. (also: versions-performance Q33)
 - Blocks: Release.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-13): ""Use previous build"; no time promise" (as recommended). Before: open.
 
 **VM-38. What is the real long-term cost, measured?**
 - Why it matters: precedents took 5 years (Enderal, 14 people; Fallout London, about 100) to 13+ (Skyblivion, Skywind) (**verified**); converting is our structural advantage, but maintenance across two moving games adds cost.
@@ -435,7 +435,7 @@ Short names used below: **VP** = findings/versions-performance.md, **TC** = find
 - Options: (a) keep it through a small SFSE plugin (an optional SFSE module under VM-17); (b) drop it and strip the
   calls in conversion.
 - Answer by: owner decision. Blocks: People and story, Fallout systems (combat).
-- Status: open; owner decision.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page FS-6): "Keep it with a small SFSE plugin" (not the recommended option). Before: open; owner decision.
 
 ## Owner decisions in this area
 

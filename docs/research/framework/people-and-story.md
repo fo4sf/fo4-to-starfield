@@ -145,21 +145,21 @@ morphs" is no longer the leading hypothesis for named NPCs.
 - Options: prompt only; full line (Full Dialogue Interface, https://www.nexusmods.com/fallout4/mods/1235); both in a custom SWF. (also: people-story Q1; engine-mechanics.md D3)
 - Answer by: one converted scene in game with each variant. Who: PC probe, then owner decision.
 - Blocks: New game, People and story.
-- Status: open. [Moved 2026-10-19: the FaceFX lip-sync note that sat here belongs to PS-08 and now sits there.]
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page NG-16): "Full line, no own menu file" (as recommended). Owner's note: "Only have FO4 have that option, for later phases.". Before: open. [Moved 2026-10-19: the FaceFX lip-sync note that sat here belongs to PS-08 and now sits there.]
 
 **PS-02. Do we ship our own dialogue SWF, and how does the launcher detect conflicting UI mods?**
 - Why it matters: Enhanced Dialogue Interface and similar replace the same files (https://www.nexusmods.com/starfield/mods/871).
 - Options: no custom UI at first; optional wheel module; compatibility patches. (also: people-story Q12)
 - Answer by: owner decision; list of known dialogue SWF mods. Who: owner, offline research.
 - Blocks: Launcher, Release.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page NG-16): "Full line, no own menu file" (as recommended). Owner's note: "Only have FO4 have that option, for later phases.". Before: open.
 
 **PS-03. What does the four-slot wheel lose in a list, and how do we keep it?**
 - Why it matters: FO4 slot position carries meaning (positive, negative, sarcastic always in one slot).
 - Options: order the list in FO4 slot order; tone tags like FDI ([Sarcastic], [Lie]); a wheel SWF. (also: people-story Q21; engine-mechanics.md D2)
 - Answer by: player test of one converted scene. Who: owner decision after a PC probe.
 - Blocks: People and story.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page NG-16): "Full line, no own menu file" (as recommended). Owner's note: "Only have FO4 have that option, for later phases.". Before: open.
 
 **PS-04. How many FO4 player choice lines have no RNAM prompt?**
 - Why it matters: an empty prompt shows as the full line or blank in Starfield.
@@ -173,7 +173,7 @@ morphs" is no longer the leading hypothesis for named NPCs.
 - Options: keep; subtitle note; cut; play FO4 player audio on the player (legal side: [release-community-legal.md](release-community-legal.md)). SS2 wrote its new dialogue around available base-game player lines, some spliced (**supported hypothesis**, Reddit comments, https://www.reddit.com/r/SimSettlements/comments/1cdhpbx/player_va_question/); that is same-game practice, not evidence for moving lines into Starfield. See PS-37.
 - Answer by: offline sampling plus a list of player monologue INFOs (no choice). Who: offline research, owner decision.
 - Blocks: New game, People and story.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page NG-18): keep as text (left blank; their note says it changes nothing). Owner's note: "It shouldn't change anything; I don't know what this is asking.". Before: open.
 
 **PS-06. How is persuasion shown: FO4 Charisma odds on the INFO, or Starfield's minigame?**
 - Why it matters: kept INCC needs our own SPECIAL for the odds formula.
@@ -189,7 +189,7 @@ morphs" is no longer the leading hypothesis for named NPCs.
 - Options: as in Possibilities. (also: people-story Q11; engine-mechanics.md V5, D6)
 - Answer by: an INFO with a shared silent WEM id in game. Who: PC probe, owner decision on SFSE.
 - Blocks: People and story, Launcher.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page NG-17): our own silent voice files per line (works with or without SFSE). Before: open.
 
 **PS-08. Can the launcher run the FaceFX compile unattended, and how long per 1,000 lines?**
 - Why it matters: the biggest build-time unknown for about 123k lines.
@@ -247,7 +247,7 @@ morphs" is no longer the leading hypothesis for named NPCs.
 - Options: template; FO4 head as ARMO; hand-made faces via CharGenMenu then xEdit (https://www.nexusmods.com/starfield/mods/9326) shipped as record values, then a CK bake per NPC on the player's PC; our own FaceGeom `.nif` plus DDS writer; a Use Traits template (no bake, no unique face); an optimiser. (also: people-story Q15)
 - Answer by: one ARMO head speaking a line; one hand-made Preston face baked with both CK bakes. Who: PC probe, owner decision.
 - Blocks: People and story, Launcher.
-- Status: narrowed (wave 2): every unique named face needs a per-NPC bake (CK GUI, crash-prone, inconsistent results) or our own writer; bakes are keyed by our plugin name, so they are made on the player's PC or shipped as generated data, never Bethesda assets [people-story W2-2].
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page PE-3): "Our own face-file writer" (not the recommended option). Before: narrowed (wave 2): every unique named face needs a per-NPC bake (CK GUI, crash-prone, inconsistent results) or our own writer; bakes are keyed by our plugin name, so they are made on the player's PC or shipped as generated data, never Bethesda assets [people-story W2-2].
 
 **PS-16. Does a new named NPC_ need pre-baked facegen, or is it built at run time from its morph data?**
 - Why it matters: if pre-baked, the CK must export facegen, another launcher CK step.
@@ -269,7 +269,7 @@ morphs" is no longer the leading hypothesis for named NPCs.
 - Options: ship values; generate them on the player's PC; bake on the player's PC only. (also: people-story Q16)
 - Answer by: owner decision; see [release-community-legal.md](release-community-legal.md). Who: owner.
 - Blocks: Release.
-- Status: open (wave 2 adds: bakes must be made on the player's PC or as generated data, never shipped as Bethesda assets).
+- Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page PE-4): ship our hand-made face values; faces are baked only on the player's PC and bakes never ship. Before: open (wave 2 adds: bakes must be made on the player's PC or as generated data, never shipped as Bethesda assets).
 
 ### Bodies and clothing
 
@@ -278,7 +278,7 @@ morphs" is no longer the leading hypothesis for named NPCs.
 - Options: stand-ins per outfit class; FO4 outfits with Morph Data NONE; full re-skin later. (also: people-story Q27)
 - Answer by: owner decision after a PC probe of one converted outfit. Who: owner, PC probe.
 - Blocks: People and story.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page PE-5): "Converted FO4 outfits" (not the recommended option). Owner's note: "I would like Fallout 4 outfits added, but with the bodies in Starfield being different we might need to remake or convert the textures.". Before: open.
 
 **PS-20. Is the FO4 human skeleton a name-mappable subset of Starfield's?**
 - Why it matters: decides whether clothing weights transfer by bone name.
@@ -301,7 +301,7 @@ morphs" is no longer the leading hypothesis for named NPCs.
 - Options: dialogue only; own command layer. (also: people-story Q23)
 - Answer by: owner decision; ask the Liga author how it is built. Who: owner, community contact.
 - Blocks: People and story, Fallout systems.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page PE-6): "Dialogue orders first, command mode later" (as recommended). Before: open.
 
 **PS-23. Do we use the Aflin and DJLegends voiced-follower template as the checklist for converted companions?**
 - Why it matters: it lists dialogue categories and affinity events a Starfield follower needs (https://www.nexusmods.com/starfield/mods/17694).
@@ -322,7 +322,7 @@ morphs" is no longer the leading hypothesis for named NPCs.
 - Options: fence Starfield companions out of our world; allow with a patch. (also: people-story Q14)
 - Answer by: PC check with one Starfield companion in our world. Who: owner decision, PC probe.
 - Blocks: World, People and story.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page PE-7): "Fence them out" (as recommended). Before: open.
 
 ### Factions, karma and reputation
 
@@ -331,28 +331,28 @@ morphs" is no longer the leading hypothesis for named NPCs.
 - Options: keep karma as a world-local AV, REPU as factions, plus affinity; or derive karma from affinity events. How TTW reconciles karma and reputation is unresolved. (also: multi-game-scope Q23)
 - Answer by: owner decision. Who: owner.
 - Blocks: Multi-game, Fallout systems.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page MU-4): each game keeps its own rules in the pick-your-games core; the combined core uses a superset of systems from all games. Owner's note: "In one core each game has its own systems; the larger core combines systems from the earlier games, since, for example, the faction system did not exist in Fallout 4 the way it did in New Vegas. So it depends.". Before: open.
 
 **PS-27. Do we name the core's factions, actor values and keywords game-neutrally now (for example `FO_Karma`)?**
 - Why it matters: later games plug in without a migration; cheap now.
 - Options: neutral names; FO4 names and migrate later. (also: multi-game-scope Q38)
 - Answer by: owner decision. Who: owner.
 - Blocks: People and story, Multi-game.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page FS-1): "FO4 names, rename later" (not the recommended option). Before: open.
 
 **PS-28. How do faction relations and companions cross worlds (Brotherhood in DC and Boston; Dogmeat in both)?**
 - Why it matters: TTW did not carry faction relations in 2014 (Steam thread 522728813700378577); cross-world followers are unresolved.
 - Options: a shared faction with a lore state; separate factions per game. (also: multi-game-scope Q18, Q19)
 - Answer by: owner decision, then a probe. Who: owner.
 - Blocks: Multi-game.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page MU-6): "Light flags only (dialogue variants)" (as recommended). Before: open.
 
 **PS-29. Does story state from one game affect another?**
 - Why it matters: lore links (the Brotherhood) invite it; deep links multiply work.
 - Options: none (sandboxed); light flags for dialogue variants; deep quest changes. (also: multi-game-scope Q20)
 - Answer by: owner decision. Who: owner.
 - Blocks: Multi-game.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page MU-6): "Light flags only (dialogue variants)" (as recommended). Before: open.
 
 ### Quests, radiant quests and settlers
 
@@ -379,21 +379,21 @@ morphs" is no longer the leading hypothesis for named NPCs.
 - Wave 2: any new voice multiplies by language; only EN/FR/DE/ES/JA are voiced in both games (see PS-36).
 - Answer by: owner decision. Who: owner.
 - Blocks: People and story, Release.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-2): "No new voice in early releases" (as recommended). Before: open.
 
 **PS-33. Which community authors do we contact first?**
 - Why it matters: they hold practice we cannot read on a wiki (no public Starfield CK wiki, https://dev.starfieldwiki.net/wiki/Starfield_Mod:Main_Page; wave 2 re-check of the live https://starfieldwiki.net/wiki/Starfield_Mod:Main_Page: still no quest, dialogue, scene, follower, NPC or face pages, **verified**).
 - Options: DJLegends (lips, voiced followers), Momidi (master-scale lips), Void SFG Bridge author (re-skin), Souls of Cities author (run-time faces), Liga author (commands). (also: people-story Q31)
 - Answer by: owner outreach (outreach is the owner's job under AGENTS.md). Who: owner.
 - Blocks: People and story.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-4): "Yes, all the named authors" (as recommended). Before: open.
 
 **PS-34. How do we tell players the Sole Survivor is silent and faces are approximations?**
 - Why it matters: expectations; FO4 players already accept silent-player mods (https://www.nexusmods.com/fallout4/mods/83415, XDI).
 - Options: release notes; an in-launcher note. (also: people-story Q32)
 - Answer by: owner. Who: owner.
 - Blocks: Release.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-22): "No dates; "what works now"" (as recommended). Before: open.
 
 ### Cross-cutting
 
@@ -402,7 +402,7 @@ morphs" is no longer the leading hypothesis for named NPCs.
 - Options: SFSE-free base with optional SFSE modules; SFSE required. (also: people-story Q36)
 - Answer by: owner decision (SFSE is allowed; this is the default). Who: owner.
 - Blocks: Launcher, People and story.
-- Status: open.
+- Status: **Owner answer, 2026-10-19:** decided by owner in the talk-through, 2026-10-19 (page NG-1): SFSE required; the game is blocked when a patch breaks SFSE (option B, not the recommendation). Our own small SFSE plugins where the older games need them; a full extender of our own only if those are not enough. Owner's note: "We might want to make our own script extender, because we will eventually need scripts from the older Fallouts to work.". Before: open.
 
 **PS-36. Which languages does converted dialogue support, and what happens to voice and lips in each?**
 - Why it matters: FO4 full audio is EN/FR/IT/DE/ES/JA; Starfield full audio is EN/FR/DE/ES/JA; the Starfield CK is English only (**verified**, Steam store API appids 377160, 1716740, 2722710). Italian FO4 voice has no Starfield voice set; Russian and Traditional Chinese FO4 players have no matching Starfield UI language.
@@ -410,14 +410,14 @@ morphs" is no longer the leading hypothesis for named NPCs.
 - Evidence: the FaceFX compile reads `.wav` per voice folder, so non-English FO4 voice should lip the same way (Lip Sync Japanese precedent, https://www.nexusmods.com/starfield/mods/12842) (**supported hypothesis**, untested).
 - Answer by: one test with a non-English FO4 STRINGS set and one non-English voice folder through the FaceFX compile; then owner decision. Who: PC probe, owner.
 - Blocks: People and story, Launcher, Release.
-- Status: narrowed (wave 2): language data verified; overlap EN/FR/DE/ES/JA is the end-to-end candidate set [people-story W2-4; distribution-community W2-4].
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page LA-8): "English first, pass through 4 more" (as recommended). Before: narrowed (wave 2): language data verified; overlap EN/FR/DE/ES/JA is the end-to-end candidate set [people-story W2-4; distribution-community W2-4].
 
 **PS-37. If a voiced-player option is ever offered, may it use only FO4's own player lines unchanged, or also spliced lines?**
 - Why it matters: SS2 ships its own player-voice audio in FO4, reportedly built from base-game lines, some spliced (https://wiki.simsettlements2.com/getting-started/patch-notes, **verified**; splicing **supported hypothesis**). That is same-game practice; Capital Wasteland is the cross-game precedent. A spliced line is closer to a new derivative recording.
 - Options: no voiced player (settled default); FO4 player lines unchanged, converted on the player's PC; spliced lines allowed. (also: precedents W2-4 new question 4)
 - Answer by: owner decision plus a Bethesda question; legal side in [release-community-legal.md](release-community-legal.md). Who: owner.
 - Blocks: People and story, Release.
-- Status: open (new in wave 2) [precedents W2-4].
+- Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-3): "FO4 player lines, unchanged only" (as recommended). Before: open (new in wave 2) [precedents W2-4].
 
 ## Owner decisions in this area
 

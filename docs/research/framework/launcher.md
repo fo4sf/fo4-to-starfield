@@ -20,23 +20,24 @@ precedents.md, legal-policy.md.
 ## 0. The owner's decisions, in one list
 
 These change what everything else builds. Each has a recommended default; nothing is built against an undecided one
-except as reversible groundwork.
+except as reversible groundwork. The owner's answers of 2026-10-19 21:37Z (Next-Phase Questions page; page ids such as
+LA-5 in brackets) are in the Status column and on each mapped question below.
 
-| # | Decision | Recommended default | Why |
-|---|---|---|---|
-| D1 | Which Fallout 4 data versions to accept (1.10.163 only, or also next-gen 1.10.984 and current 1.11.240) | 1.10.163 first (what the owner has), then add 1.11.240 once a record diff shows how far it differs | Most players are on 1.11.240 now (fo4source §1, versions-performance Q7); Fallout London forced a downgrade and paid for it in support load |
-| D2 | Which stores to support (Steam, GOG, Game Pass, Epic) for Fallout 4 and Starfield | Steam for both; GOG Fallout 4 as soon as one GOG install is hashed (GOG ships only 1.10.163.0, dated 2023-08-11, per gogdb.org, so GOG players need no downgrade); Game Pass and Epic refused with a clear message until tested | TTW, Wabbajack and Skyblivion exclude the Microsoft Store; SFSE is Steam-only; Epic can't roll back (installers-precedents §1, §7; sfstack §1) |
-| D3 | Starfield runtime policy after a Steam update | refuse to build or launch on an unknown Starfield.exe hash, keep a known-good table, tell the player how to stay on the last good build | Starfield shipped 1.16.236, .242 and .244 between April and June 2026; updates broke SFSE twice (sfstack §1) |
-| D4 | Where the built game goes: our own folder plus restore, an MO2 instance, or a Vortex package | our own install plus snapshot and restore (built), with an MO2 mod-folder export later | MO2's last public build is 2.5.2 (Aug 2024) with 2026 reports of disabled masters, though wave 1 says it handles Starfield natively; Vortex 1.10.5 is current (sfstack §4; distribution-community); TTW builds an MO2 mod folder |
-| D5 | Hosting order and the Nexus question | GitHub first (settled 07:0xZ), and a written question to Nexus staff before any upload | Nexus file rules updated 2026-09-29 ban internet-connecting executables by default; TTW was kept off Nexus at Bethesda's request (TTW's account); FNV to FO4, a converter that needs both games, has lived on Nexus since 2023 (community §2-3; distribution-community) |
-| D6 | Ask ZeniMax for written permission before a public release, and what to ask | the owner decides; the research now leans toward asking, because no licence text covers what we do | ~~the Starfield CK EULA's clause (ii) offers an approval route for cross-game mods~~ [Correction, eula.md: clause (ii) ends "to be distributed through Bethesda Creations (hereinafter, "Creations Paid Content")", so it is the paid-Creations route only.] The Fallout 4 licences are the stronger obstacle: ToS §3 licenses content "solely in connection with such Service", and the Fallout 4 Steam EULA says material made with its tools is "used exclusively in combination with" Fallout 4 (verified, eula.md §4). Not legal advice |
-| D7 | Does the launcher use the internet at all | offline by default; update check only on the player's click, from GitHub Releases; the hash tables ship inside the release | the Nexus rule above; antivirus profile; trust (community Q4) |
-| D8 | Licence of the launcher binary | keep MIT for our code, ship the Mutagen tools as separate GPL-3 programs called by command line and JSON, with source on the same release | GPL FAQ treats command-line and pipe communication as separate programs unless they exchange "complex internal data structures" (community §6); relicensing everything GPL-3 is the simple fallback |
-| D9 | Save promise across core versions | 0.y.z with a "save compatible: yes/no" line per release; the launcher blocks a core swap under a save when same-ids says IDS_DIFFER | v6c to v6e changed 010027A0 from DOOR to STAT under the same FormID (PR #394); saves store changed forms with their record type (buildorch §9) |
-| D10 | The launcher's UI stack | a Python command line first (exists), then a PySide6 window that runs the same command line as a separate process | Python core exists; Qt has MO2 and LOOT precedent; LGPL is fine for an open-source tool; a CLI keeps Linux and Steam Deck possible (appeng Q1; distribution-community Q12) |
-| D11 | Code signing | apply to SignPath Foundation (free for open source); paid signing only if it refuses | EV certificates no longer skip SmartScreen (Microsoft, 2024); SignPath wants named roles and MFA, which our one shared GitHub account may not meet (appeng §3) |
-| D12 | Support channel and AI disclosure | GitHub Issues with a log-bundle form first; a plain AI-assisted disclosure on the release page, and a "no AI voices or art in outputs" promise if the owner agrees | every comparable project is Discord-first; Nexus added AI tags on 2026-07-29 and the mood is hostile (community §4, §7) |
-| D13 | Add-on rules for mods built on the core | original content plus FormID references only, no converted assets, no paywall, never re-upload generated output | Bethesda's Community Standards ban monetised mod projects; Wabbajack forbids uploading tool outputs (community Q8, Q18) |
+| # | Decision | Recommended default | Why | Status |
+|---|---|---|---|---|
+| D1 | Which Fallout 4 data versions to accept (1.10.163 only, or also next-gen 1.10.984 and current 1.11.240) | 1.10.163 first (what the owner has), then add 1.11.240 once a record diff shows how far it differs | Most players are on 1.11.240 now (fo4source §1, versions-performance Q7); Fallout London forced a downgrade and paid for it in support load | **Status: decided by owner, 2026-10-19 (talk-through, LA-3, 21:56Z): accept 1.10.163 now; add 1.11.240 after a record diff of the two (S3).** |
+| D2 | Which stores to support (Steam, GOG, Game Pass, Epic) for Fallout 4 and Starfield | Steam for both; GOG Fallout 4 as soon as one GOG install is hashed (GOG ships only 1.10.163.0, dated 2023-08-11, per gogdb.org, so GOG players need no downgrade); Game Pass and Epic refused with a clear message until tested | TTW, Wabbajack and Skyblivion exclude the Microsoft Store; SFSE is Steam-only; Epic can't roll back (installers-precedents §1, §7; sfstack §1) | **Status: decided by owner, 2026-10-19 (LA-5: Steam, then GOG; refuse others).** **Status: decided by owner, 2026-10-19 (talk-through, owner's 22:02Z reply in the Framework thread): Starfield on Steam only for version 1, said plainly; no Game Pass build, since SFSE is required.** Owner's note: "I genuinely don’t believe we’ll be able to implement this for Console users but if possible, then yeah" (Game Pass Starfield) |
+| D3 | Starfield runtime policy after a Steam update | refuse to build or launch on an unknown Starfield.exe hash, keep a known-good table, tell the player how to stay on the last good build | Starfield shipped 1.16.236, .242 and .244 between April and June 2026; updates broke SFSE twice (sfstack §1) | **Status: decided by owner, 2026-10-19 (LA-15: Refuse until we list it as good).** **Status: decided by owner, 2026-10-19 (LA-16: Refuse, advise 'update only when launched').** Also NG-1 (decided by owner, 2026-10-19): SFSE is required, so the launcher blocks the game when SFSE is missing or broken for the installed runtime. |
+| D4 | Where the built game goes: our own folder plus restore, an MO2 instance, or a Vortex package | our own install plus snapshot and restore (built), with an MO2 mod-folder export later | MO2's last public build is 2.5.2 (Aug 2024) with 2026 reports of disabled masters, though wave 1 says it handles Starfield natively; Vortex 1.10.5 is current (sfstack §4; distribution-community); TTW builds an MO2 mod folder | **Status: decided by owner, 2026-10-19 (NG-21: Own install, snapshot and restore).** Owner's note: "If we can have it be its own EXE or launcher for remote play etc to be best  that’d be best" |
+| D5 | Hosting order and the Nexus question | GitHub first (settled 07:0xZ), and a written question to Nexus staff before any upload | Nexus file rules updated 2026-09-29 ban internet-connecting executables by default; TTW was kept off Nexus at Bethesda's request (TTW's account); FNV to FO4, a converter that needs both games, has lived on Nexus since 2023 (community §2-3; distribution-community) | open |
+| D6 | Ask ZeniMax for written permission before a public release, and what to ask | the owner decides; the research now leans toward asking, because no licence text covers what we do | ~~the Starfield CK EULA's clause (ii) offers an approval route for cross-game mods~~ [Correction, eula.md: clause (ii) ends "to be distributed through Bethesda Creations (hereinafter, "Creations Paid Content")", so it is the paid-Creations route only.] The Fallout 4 licences are the stronger obstacle: ToS §3 licenses content "solely in connection with such Service", and the Fallout 4 Steam EULA says material made with its tools is "used exclusively in combination with" Fallout 4 (verified, eula.md §4). Not legal advice | **Status: decided by owner, 2026-10-19 (talk-through, RE-7 and RE-8, 21:56Z): ship no assets; an informational letter goes to Bethesda first, drafted by Claude and sent only on the owner's approval of the exact text.** (Replaces the 21:37Z page answer "don't ask".) |
+| D7 | Does the launcher use the internet at all | offline by default; update check only on the player's click, from GitHub Releases; the hash tables ship inside the release | the Nexus rule above; antivirus profile; trust (community Q4) | **Status: decided by owner, 2026-10-19 (LA-18: Offline; update check on click).** |
+| D8 | Licence of the launcher binary | keep MIT for our code, ship the Mutagen tools as separate GPL-3 programs called by command line and JSON, with source on the same release | GPL FAQ treats command-line and pipe communication as separate programs unless they exchange "complex internal data structures" (community §6); relicensing everything GPL-3 is the simple fallback | **Status: decided by owner, 2026-10-19 (LA-11: MIT launcher plus separate GPL-3 tools).** |
+| D9 | Save promise across core versions | 0.y.z with a "save compatible: yes/no" line per release; the launcher blocks a core swap under a save when same-ids says IDS_DIFFER | v6c to v6e changed 010027A0 from DOOR to STAT under the same FormID (PR #394); saves store changed forms with their record type (buildorch §9) | open |
+| D10 | The launcher's UI stack | a Python command line first (exists), then a PySide6 window that runs the same command line as a separate process | Python core exists; Qt has MO2 and LOOT precedent; LGPL is fine for an open-source tool; a CLI keeps Linux and Steam Deck possible (appeng Q1; distribution-community Q12) | **Status: decided by owner, 2026-10-19 (talk-through, owner's 22:02Z reply in the Framework thread): command line first, then a window on top of it.** Owner's note: "At first while we get this working, it’s fine to just be a command line than a window but having a nice clean only a window later on would be nice" |
+| D11 | Code signing | apply to SignPath Foundation (free for open source); paid signing only if it refuses | EV certificates no longer skip SmartScreen (Microsoft, 2024); SignPath wants named roles and MFA, which our one shared GitHub account may not meet (appeng §3) | **Status: decided by owner, 2026-10-19 (LA-14: Hashes now, apply to SignPath).** |
+| D12 | Support channel and AI disclosure | GitHub Issues with a log-bundle form first; a plain AI-assisted disclosure on the release page, and a "no AI voices or art in outputs" promise if the owner agrees | every comparable project is Discord-first; Nexus added AI tags on 2026-07-29 and the mood is hostile (community §4, §7) | **Status: decided by owner, 2026-10-19 (RE-18: GitHub only).** (support channel); the AI-disclosure half stays open. |
+| D13 | Add-on rules for mods built on the core | original content plus FormID references only, no converted assets, no paywall, never re-upload generated output | Bethesda's Community Standards ban monetised mod projects; Wabbajack forbids uploading tool outputs (community Q8, Q18) | open |
 
 ---
 
@@ -79,22 +80,32 @@ except as reversible groundwork.
   manifest 5819088023757897745 (`DepotDownloader -manifest-only`). **PC.**
 - S2. What are the 1.10.163 hashes of DLCCoast, DLCworkshop02, DLCworkshop03 and DLCNukaWorld? The owner downloads the
   four depots, then `launcher.py sources-add`. Blocks a complete detect. **owner + PC.**
+  LA-7 (require all DLC, decided 2026-10-19) makes this a hard blocker: the owner's Fallout 4 has only Automatron and
+  Wasteland Workshop, so every end-to-end launcher test on their PC waits until they install the other DLC (on their list).
 - S3. How far does 1.11.240 differ from 1.10.163 in records and FormIDs? A record diff of the two Fallout4.esm files
   with our reader decides D1. **PC** (one current download) **+ offline.**
+  **Status: decided by owner, 2026-10-19 (talk-through, 21:56Z): accept 1.10.163 now; add 1.11.240 after this record diff.** Owner's note: "I’d like to have the most recent one and then the one with the most mods so if anybody tries to bring theirs over, it’s easier."
 - S4. Do the DLC esm hashes differ per language? Compare an English and a German depot download. Decides whether
   `known_sources.json` needs a language column. **PC.**
 - S5. Do we accept the depot-split layout, merging in a fixed depot order, or require a normal install? And which
   `Meshes.ba2` wins? **owner + offline** (a merge rule and a test that it equals a normal install's file set).
+  **Status: decided by owner, 2026-10-19 (talk-through, owner's 22:02Z reply in the Framework thread): accept Steam depot-download folders, merged in a fixed depot order.** Owner's note: "Do whatever is best I’ve had both situations and neither personally bugged me"
 - S6. What does detect do with a modded Fallout 4 Data folder (Vortex hard links, loose files, ENB)? Default: the
   vanilla set is the files whose hash is in our table; everything else is ignored and listed. **offline.**
 - S7. Are Creation Club files inputs, ignored, or a refusal? Default: ignored (we read only the seven masters and
   their archives), listed in detect. **owner.**
+  **Status: decided by owner, 2026-10-19 (talk-through, 21:56Z): Creation Club files and the HD texture pack are opt-in per file.** Owner's note: "Because I want players to be able to pick from the most recent version that uses those files and a Previous update it’s better you talk it through"
 - S8. Is a GOG or Game Pass Fallout 4 readable and on which version? Needs a community tester's file list and
   hashes. **outside.**
 - S9. Should the BA2 reader accept v7 and v8? Header bytes of one next-gen archive settle it; then a synthetic
   fixture per version. **PC + offline.**
 - S10. Does a refusal for missing DLC print the exact `download_depot` commands? Only after the manifest IDs are
   cross-checked (the downgrader's table has a duplicated Nuka-World French and Russian row). **offline.**
+- S11. Fetching third-party pieces the player must supply (first case: the CALUMI DLL for door animations, J39). How does
+  the launcher download them for the player, Wabbajack-style: a manifest entry per piece with its URL, version and sha256,
+  fetched only on the player's click (D7), hash-checked, never redistributed by us, with a manual-download fallback when
+  a host needs a login? **offline** (manifest format and a fetch-and-verify step) **+ outside** (each host's terms).
+  **Status: decided by owner, 2026-10-19 (DA-6: Player supplies the DLL); the launcher should automate the download.** Owner's note: "Have anything like this able to have it’s downloaded automated like wabajack"
 
 ## 2. Target: the player's Starfield
 
@@ -132,6 +143,10 @@ except as reversible groundwork.
 - T1. Which Starfield runtimes do we support, and do we block unknown ones? Record Starfield.exe version and sha256
   in the build manifest (done) and a known-good table (to build, like `known_sources.json`). Decides D3. **owner +
   offline.**
+  **Status: decided by owner, 2026-10-19 (LA-15: Refuse until we list it as good).**
+  **Status: decided by owner, 2026-10-19 (LA-16: Refuse, advise 'update only when launched').**
+  **Status: decided by owner, 2026-10-19 (NG-1): SFSE is required.** The known-good table records the SFSE version per runtime, and the
+  launcher blocks the game when SFSE is missing or does not match the installed runtime.
 - T2. How many BA2s will the full port ship, and how many slots will players have left under the 256 limit? Count the
   converter's planned archives against 256 minus 78. If it does not fit, fewer, larger archives. **offline.**
 - T3. Is there a per-archive size cap for Starfield (Fallout 4 breaks above 4 GB)? Build a 4.5 GB test BA2 and read an
@@ -139,6 +154,7 @@ except as reversible groundwork.
 - T4. Who packs the BA2s: the player's Archive2 (needs the Creation Kit, whose minimum spec is 32 GB RAM), or an
   open-source writer? Byte and in-game parity test of the `ba2` crate against Archive2 for v2 GNRL and v3 DX10.
   **offline + PC**; the EULA reading on a launcher driving the player's own Archive2 is **owner / outside.**
+  **Status: decided by owner, 2026-10-19 (LA-1: Player's own Creation Kit).** So the build drives the player's own Archive2; the `ba2` crate parity test drops to optional.
 - T5. Does the launcher keep our order in Plugins.txt after the game rewrites it? A launch, close and diff test,
   repeated with Creations installed and offline. Default: re-assert our own lines before each launch, never move
   plugins we don't own. **PC.**
@@ -152,6 +168,7 @@ except as reversible groundwork.
 - T10. Which form version and HEDR version must our plugins carry, and does a patch change them? Compare Starfield.esm
   across 1.16.236 and 1.16.244 and pin a guard test. **offline.**
 - T11. Is Game Pass Starfield usable (folder access, Plugins.txt, no SFSE)? Needs one Game Pass tester. **outside.**
+  **Status: decided by owner, 2026-10-19 (talk-through, owner's 22:02Z reply in the Framework thread): Starfield on Steam only for version 1, said plainly; no Game Pass build, since SFSE is required.** Owner's note: "I genuinely don’t believe we’ll be able to implement this for Console users but if possible, then yeah"
 
 ## 3. Build: time, disk, determinism, resume
 
@@ -219,10 +236,14 @@ confirmed).
   round trip, with the owner's word since it touches the load order. **PC (owner's word).**
 - I2. Does the launcher coexist with MO2 and Vortex users: detect them and refuse, export a package for them, or write
   directly? One install under Vortex 1.10.5 and one under MO2 2.5.2. **PC** (later).
+  **Status: decided by owner, 2026-10-19 (NG-21: Own install, snapshot and restore).** Owner's note: "If we can have it be its own EXE or launcher for remote play etc to be best  that’d be best"
 - I3. Does the launcher read Starfield.ccc and ContentCatalog.txt (Creations) in detect and preflight? Read the
   owner's copies first. **PC + offline.**
 - I4. How does the player start the Vault 111 game without a console: a launcher "Fallout mode" start, a menu
   entry, or a readme line? Ties to the new-game thread. **owner.**
+  **Status: decided by owner, 2026-10-19 (NG-20: In-game menu entry).** Owner's note: "Like stalker gamma you will be given a menu to pick for the core that’s just gives you the ability to load one game for a creation engine 2 just has you pick which game you want the save from and any settings that should be picked before you launch the game. 
+
+The second one will be just pike gamma just a little different"
 - I5. What does the launcher store about saves? Default: a backup before every core change, the core fingerprint per
   save (from the save header's plugin lists), refusal to swap the core under a save when same-ids says IDS_DIFFER.
   **offline** (save header reader) **+ owner** (D9).
@@ -245,9 +266,11 @@ drive roots (verified, appeng §6-7). Our code still guesses `~/OneDrive/Documen
 **Questions.**
 - A1. UI stack (D10): a one-day spike of three screens (detect, progress, restore) in PySide6, measured for size and
   cold start. **offline.**
+  **Status: decided by owner, 2026-10-19 (talk-through, owner's 22:02Z reply in the Framework thread): command line first, then a window on top of it.** Owner's note: "At first while we get this working, it’s fine to just be a command line than a window but having a nice clean only a window later on would be nice"
 - A2. How to ship Python: PyInstaller onedir with a self-built bootloader, embeddable CPython, or a uv bootstrap?
   Build all three in CI and scan each with Defender and VirusTotal. **offline.**
 - A3. Signing (D11): ask SignPath whether one owner as sole approver with agents as authors meets its rules. **owner.**
+  **Status: decided by owner, 2026-10-19 (LA-14: Hashes now, apply to SignPath).**
 - A4. Where does the release build run? Default: a GitHub Actions Windows job with no game files; game-dependent
   tests stay on the PC. **offline.**
 - A5. Updates (D7): check at start only, never applied while a build or install runs; the status view says how many
@@ -257,6 +280,7 @@ drive roots (verified, appeng §6-7). Our code still guesses `~/OneDrive/Documen
   Python bindings 1.2.161 (2026-09-29) are thin and the build machine needs .NET for `vpk`. Unauthenticated GitHub
   REST is 60 requests per hour per IP and no token can ship, so default: a static feed file on the release, "could
   not check" stays silent, a portable zip as fallback. **offline** (a spike).
+  **Status: decided by owner, 2026-10-19 (LA-18: Offline; update check on click).**
 - A5b. A signed `status.json` per game version driving an in-launcher banner ("Starfield 1.16.244: supported"; "new
   patch: use the previous build until we publish support"). SFSE followed each of five 2025-2026 patches within 0 to
   1 days, Address Library 0 to 2, Engine Fixes 1 to 2 (ops.md §9), so our own converter is the slow link. **owner**
@@ -343,26 +367,36 @@ Starfield total conversion and no takedown of one (unresolved).
   certain Content ... except as authorized in writing", and whether that reaches an offline converter is unresolved.
   The cleaner route: our own BA2 packer (the 0BSD `ba2` crate, T4) and the community Papyrus compiler Caprica, so the
   build calls no Bethesda tool at all. **offline** (parity tests) **+ owner.**
+  **Status: decided by owner, 2026-10-19 (LA-1: Player's own Creation Kit).** The player's own Archive2 and PapyrusCompiler stay the route; our own packer and Caprica are no longer the default.
 - L2b. Should conversion need an explicit player action each time, check that each game and DLC is owned (not just
   hashed), and write a notice into every output? Bethesda's mod rules ban circumventing add-on purchases, so the
   converter checks each DLC is present and known before converting it, and converts only what is there (eula.md;
   framework wave 2). **owner.**
+  **Status: decided by owner, 2026-10-19 (LA-7: Require all DLC).** So a missing DLC is a refusal (detect already refuses), not "converts only what is there".
+  **Status: decided by owner, 2026-10-19 (LA-17: One-time screen plus plugin marker).**
 - L2c. Licence boundary (framework wave 2, GPL FAQ): a launcher that loads Mutagen in-process becomes GPL-3; one that
   talks to the Mutagen tools by command line and files stays separate. This fixes D8's design rule: the Python
   launcher never loads a .NET assembly. SFSE is not permissively licensed apart from PluginAPI.h, so we never bundle
   it. **owner** (D8).
+  **Status: decided by owner, 2026-10-19 (LA-11: MIT launcher plus separate GPL-3 tools).**
 - L4. Is a FormID lock file (ids plus FO4 keys) distributable? Decides B2. **outside.**
 - L5. Do we use "Fallout" in the launcher's or Nexus page's name? Default: a nominative "for Fallout 4" phrasing.
   **owner.**
+  **Status: decided by owner, 2026-10-19 (RE-6: Fallout name and art).** Owner's note: "Their are other games that have been given the go ahead with stuff like this and other Bethesda works voice lines is the big issue because fallout 3 was recorded outside of Bethesda, but other games were recorded in-house so they have retained the rights to them besides like new Vegas, but obsidian has not shown an issue with using that stuff with fallout Vegas, and under My understanding of copyright law We are not distributing anything or using anything In a manner a user Who owns the game and modifies it is allowed to. So For example, if somebody wanted to modify and make all of the characters in one game consistently use the same voice line there is nothing against that, In this situation It is the same you are using that NPC’s voice line so the NPC can still talk. There’s no changes modifications or anything for distribution or any of that sort." This is against the recommended neutral name.
 - L6. Donations at all? Default none, given Bethesda's monetisation rule. **owner.**
+  **Status: decided by owner, 2026-10-19 (talk-through, owner's 22:02Z reply in the Framework thread): no money and no store listing before 1.0; a free GOG listing is a question for after 1.0 and needs Bethesda's OK.** Owner's note: "We will likely only have a GOG listing Like fallout London and stalker gamma. Monetization and making money is a big no-no."
 - L7. A first-run screen saying the player owns both games, the output is for personal use and must not be
   re-uploaded, and a marker in generated plugins saying they were generated locally? **owner.**
+  **Status: decided by owner, 2026-10-19 (LA-17: One-time screen plus plugin marker).**
 - L8. GPL release checklist: tag, source archive, MIT and GPL-3 licence texts, a third-party notices file for Mutagen
   and its dependencies, checked in CI against the release assets. **offline.**
+  **Status: decided by owner, 2026-10-19 (LA-12: Source zip on the same release).**
 - L9. Is GOG a better partner than Nexus once the GitHub release is stable? Read GOG's total-conversion terms.
   **outside.**
+  **Status: decided by owner, 2026-10-19 (talk-through, owner's 22:02Z reply in the Framework thread): no money and no store listing before 1.0; a free GOG listing is a question for after 1.0 and needs Bethesda's OK.** Owner's note: "We will likely only have a GOG listing Like fallout London and stalker gamma. Monetization and making money is a big no-no."
 - L10. Linux and Steam Deck: a target or not? Every precedent grew Linux late through community rewrites. Default:
   keep stages headless and scriptable, avoid new PowerShell-only steps. **owner.**
+  **Status: decided by owner, 2026-10-19 (LA-10: Not a target, keep it possible).**
 - L11. A support matrix on the release page and a patch-day promise ("use the previous build until we publish
   support")? **owner.**
 

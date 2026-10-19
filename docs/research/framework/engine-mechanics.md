@@ -28,12 +28,14 @@ The questions below decide the most; each links to its area. Owner decisions are
 
 1. **Voice reuse (owner, before release).** Reusing FO4's voice files inside Starfield is the Capital Wasteland case
    (Bethesda licenses voice acting, cannot grant reuse); ask Bethesda, or plan text-first and silent files. (quests A1)
+   **Decided by owner, 2026-10-19 (page RE-1): no voice reuse for now, subtitles only;** writing to Bethesda waits on the RE-8 talk-through.
 2. **UI stack.** Replace vanilla menu files (consoles, but breaks on patches) or an SFSE HTML framework (OSF UI with a
    Papyrus API; Carbon UI pinned to one build) or our own SFSE menu. Decides Pip-Boy, HUD, SPECIAL display. (UI 1.1 to
    1.3, L3)
 3. **How much SFSE we require.** Command mode, affinity, slow time, legendaries and most progression work without it;
    menus, radio outside Wwise and a faithful VATS need it. SFSE co-save is off, so state lives in records and Papyrus.
    Game updates broke native plugins four times. (X1, X7, companions R2)
+   **Decided by owner, 2026-10-19 (page NG-1, talk-through 21:56Z): SFSE is required; the game is blocked when SFSE breaks; we write our own small SFSE plugins where needed, dismemberment first.** Plain Papyrus stays the first choice per feature, but an SFSE-free core is no longer a goal; the owner also floats our own script extender later, for older Fallout scripts.
 4. **Our own frameworks, never Starfield's quests.** Follower framework, settlement rules layer and build categories are
    ours; Starfield's follower lines are locked behind MQ101 and its build lists are shared by every outpost mod.
    (companions F2, workshop B1)
@@ -41,12 +43,45 @@ The questions below decide the most; each links to its area. Owner decisions are
    player's faction (hit allowance), testable in one run. (companions H2)
 6. **New sounds and new animations are unproven.** Every sound mod replaces existing `.wem` by id; adding clips or
    graphs is disputed. These gate radio, creatures, power armor enter and exit. (animation B1, B2, H1, H2)
+   **Decided by owner, 2026-10-19 (page PE-2, talk-through 22:04Z): play FO4's own clips through SFSE community glTF players first; move them into Starfield's .af format later.**
 7. **Power armor route.** No furniture-based power armor exists in Starfield; the options are an outfit, a race swap,
    or furniture plus `SwitchToPowerArmor` (declared, behaviour unknown). (character A1 to A4)
+   **Talk through first (owner, page FS-4); still undecided.** Owner: FO4 and 76 style (climb in, a second suit) for FO4; a worn suit needing training for the older games.
 8. **VATS shape.** Full VATS or bullet time; whichever we pick, the VATS perks are redesigned with it. (UI 11.1)
+   **Decided by owner, 2026-10-19 (page FS-5): full VATS, queued shots on limbs.**
 9. **Plugin layout.** Full or medium masters per output plugin, fixed before release. (tools)
+   **Decided by owner, 2026-10-19 (page IN-1), as recommended: full core, medium masters for small clusters;** the owner asked what this means, so explain it at the talk-through.
 10. **Headless CK steps.** Compiling about 10,000 scripts and lip generation from the launcher, or in the CK GUI.
     (tools, quests L1)
+
+## Owner answers recorded (questions page, submitted 2026-10-19 21:37Z)
+
+Source: research/framework-page/submissions/2026-10-19-owner-answers.md. Each answer is also written on the question
+rows it covers (here and in the notes folder).
+
+| page | our ids | status |
+|---|---|---|
+| FS-6 | G7 (job 34) | decided: keep dismemberment with a small SFSE plugin |
+| FS-5 | decision 8, UI 11.1 | decided: full VATS |
+| FS-3 | UI 7.1 | decided: rebuild FO4's bobby-pin game, not the digipick |
+| FS-1, FS-2 | X4 | decided: FO4 names now, rename later; prefixes FO4SF_, FO3SF_, FNVSF_, FOSF_ reserved |
+| NG-13 | L5 | decided: Fallout-style HUD reskin ("It won't just be a reskin later") |
+| NG-16 | quests D2, D3 | decided as recommended (full line); FO4 only gets the option in later phases |
+| IN-1 | decision 9 | decided as recommended; the owner asked what it means |
+| RE-1, RE-2 | decision 1, quests A1, A2 | decided as recommended: no voice reuse for now, no new voice early |
+| RE-4 | L4 | decided as recommended: may contact the named authors (outreach still goes through the owner's word per contact) |
+| PE-6, PE-7 | companions C1, C3, F2 | decided as recommended: dialogue orders first; Starfield's companions fenced out |
+| NG-1 | decision 3, X1, companions R2 | decided after the talk-through: SFSE required, blocked when broken, our own small SFSE plugins (dismemberment first) |
+| NG-11 | X6, UI 1.1 to 1.3, L3 | talk through first |
+| FS-4 | decision 7, character A1 to A4 | talk through first (per-game power armor) |
+| PE-2 | animation B1, B2 | decided after the talk-through: FO4 clips through SFSE glTF players first, .af later |
+| WO-8 | conversion A3, BACUP | decided after the talk-through: reuse BACUP's GPL-3 code with credit for the three ideas |
+
+**What changes for this reference:** the digipick leaves the borrowed list and the reuse table (FS-3: our own lock
+game); dismemberment moves from "decision" to "SFSE native to build" in the script-gap plan (FS-6), so the SFSE plugin
+list now starts with Dismember and IsDismembered; the character creator row becomes looks only (NG-4); new editor ids
+keep FO4 names (FS-1). These edits to the repo pages (starfield-systems-to-reuse.md, papyrus-and-script-extenders.md)
+are the next push on PR #404.
 
 ## Areas and status
 
@@ -64,12 +99,12 @@ The questions below decide the most; each links to its area. Owner decisions are
 
 | # | question | why it matters | known so far | cheapest way to answer | depends on / blocks | phase |
 |---|---|---|---|---|---|---|
-| X1 | Which FO4 systems need SFSE natives, and can each be done in plain Papyrus first? | decides whether players must install SFSE for each feature | about 77 FO4 engine function names are missing in Starfield's core scripts (verified, PC probe job 15) | map each of the 77 to a feature; prototype the Papyrus-only ones | blocks the shim library | P3, P4 |
+| X1 | Which FO4 systems need SFSE natives, and can each be done in plain Papyrus first? **Decided by owner, 2026-10-19 (page NG-1, talk-through 21:56Z): SFSE is required; the game is blocked when SFSE breaks; we write our own small SFSE plugins where needed, dismemberment first.** | decides whether players must install SFSE for each feature | about 77 FO4 engine function names are missing in Starfield's core scripts (verified, PC probe job 15) | map each of the 77 to a feature; prototype the Papyrus-only ones | blocks the shim library | P3, P4 |
 | X2 | Do we compile converted scripts on the player's PC (CK compiler) or ship compiled `.pex` built from FO4 sources? | ships no game assets vs. player setup burden | FO4 sources come with the free FO4 CK (verified); Starfield's compiler ships with CK2 | ask whether compiled scripts from Bethesda sources count as assets (legal area); test Caprica | launcher design, release | P5 |
 | X3 | Which Starfield systems do we reuse (affinity, legendaries, build mode, Missions menu, barter) and which do we fence out? | reuse saves rebuild work but risks Starfield progression leaking in | first list in [starfield-systems-to-reuse.md](../engine-mechanics/starfield-systems-to-reuse.md) | one in-game check per reused system | most P3 and P4 designs | P3, P4 |
-| X4 | How do we name and namespace converted scripts and editor ids? | Papyrus names are global; clashes replace Starfield's scripts (both games ship `CompanionActorScript`) | verified clash | decide once, record in docs/ai/decisions.md | every script conversion | P3 |
+| X4 | How do we name and namespace converted scripts and editor ids? **Decided by owner, 2026-10-19 (page FS-2):** as recommended, reserve FO4SF_, FO3SF_, FNVSF_ and shared FOSF_ prefixes. **Decided by owner, 2026-10-19 (page FS-1):** FO4 names now, rename later (not neutral names). | Papyrus names are global; clashes replace Starfield's scripts (both games ship `CompanionActorScript`) | verified clash | decide once, record in docs/ai/decisions.md | every script conversion | P3 |
 | X5 | Voice and lip sync at FO4's scale (78,089 INFO records, 122,857 base-game `.fuz` files, project counts): CK batch lip generation, another tool, or text first? Also: may the launcher reuse FO4's voice files at all? | the biggest single cost, and a legal risk (Capital Wasteland precedent) | the player is silent (settled); voice acting is licensed, not owned by Bethesda (PCGamesN) | try `-GenerateLips:<plugin>` on Starfield's CK; owner decides whether to ask Bethesda | quests, companions | P3 |
-| X6 | Pip-Boy: rebuild as a menu, reuse Starfield menus, or both in stages? | the most visible Fallout system | Missions menu reuse first for quests (reference) | survey SFSE menu frameworks | UI, quests | P4 |
+| X6 | Pip-Boy: rebuild as a menu, reuse Starfield menus, or both in stages? **Talk through first (owner, 2026-10-19, page NG-11); still undecided.** | the most visible Fallout system | Missions menu reuse first for quests (reference) | survey SFSE menu frameworks | UI, quests | P4 |
 | X7 | How do game updates break SFSE plugins and our tools, and how do we stay safe? | a Starfield update can break players' installs overnight | unresolved | read the SFSE and Address Library history | release | P5 |
 
 ## Questions already open in the reference
@@ -275,9 +310,9 @@ New questions from these leads:
 |---|---|---|---|---|
 | L1 | Which `Debug` test functions work in the retail build? | each one replaces a console step in the test runner | one probe quest calling each and logging | P2 |
 | L2 | Radio: Wwise events or our own SFSE player? | world radios with distance fade exist outside Wwise; Wwise needs the user's install | try Star Radio Player's pattern against one FO4 station offline | P4 |
-| L3 | Pip-Boy: build on OSF UI, Carbon UI or our own SFSE menu? | single-maintainer frameworks and build pinning are the risk | read both APIs, check update history across 1.15 and 1.16 | P4 |
-| L4 | Do we coordinate with the StarUI/FallUI, OSF and SPECIAL authors? | users run their mods next to ours | owner decides (outreach is owner-only) | P5 |
-| L5 | Should our HUD changes overlay rather than replace `hudmenu.gfx`? | compatibility with StarUI HUD and Venworks | design decision after L3 | P4 |
+| L3 | Pip-Boy: build on OSF UI, Carbon UI or our own SFSE menu? **Talk through first (owner, 2026-10-19, page NG-11); still undecided.** | single-maintainer frameworks and build pinning are the risk | read both APIs, check update history across 1.15 and 1.16 | P4 |
+| L4 | Do we coordinate with the StarUI/FallUI, OSF and SPECIAL authors? **Decided by owner, 2026-10-19 (page RE-4):** as recommended, yes, all the named authors may be contacted. | users run their mods next to ours | owner decides (outreach is owner-only) | P5 |
+| L5 | Should our HUD changes overlay rather than replace `hudmenu.gfx`? **Decided by owner, 2026-10-19 (page NG-13):** Fallout-style reskin. Owner's note: "It won’t just be a reskin later with other things that will be added" | compatibility with StarUI HUD and Venworks | design decision after L3 | P4 |
 
 ### Animation, audio and physics ([notes](engine-mechanics-notes/animation-audio-physics.md), 13 groups, 22 key)
 
@@ -443,14 +478,14 @@ papyrus-and-script-extenders.md. New questions:
   native (dismemberment, menu mode, cleared-location flags)? Cheapest: compile the 9 FO4 scripts that call them most
   against Starfield sources and read the errors. Phase P3 and P4.
 - **G7 (key):** dismemberment (126 calls, deathclaw and mole rat effects): SFSE native, Starfield's own gore if any,
-  or drop? Owner call once G6 shows the cost. Phase P4.
+  or drop? **Decided by owner, 2026-10-19 (page FS-6): keep it with a small SFSE plugin.** G6 still sizes the plugin. Phase P4.
 - **G8:** cleared locations: our own flag on our LCTN records (keyword or actor value) set by a shim, or Starfield's
   "explored" state? Decides FO4's location-reset rules (32 calls). Phase P3.
 
 ### Wave 3: conversion precedents ([notes](engine-mechanics-notes/conversion-precedents.md), 34 questions, 12 key)
 
 Lessons that change plans (labels and sources in the notes):
-- **BACUP compared (Map, Interiors and Bugs threads, offline):** no code worth taking; three ideas (unbuilt door targets zeroed, FO4 lighting templates kept, per-quadrant land textures later) and three values to check (LIGH flags, XCLL +28, NVNM variants); see A1 to A3 in the notes.
+- **BACUP compared (Map, Interiors and Bugs threads, offline):** no code worth taking; three ideas (unbuilt door targets zeroed, FO4 lighting templates kept, per-quadrant land textures later) and three values to check (LIGH flags, XCLL +28, NVNM variants); see A1 to A3 in the notes. **Decided by owner, 2026-10-19 (page WO-8, talk-through 22:04Z): reuse BACUP's GPL-3 code with credit for the three ideas (zero an unbuilt door target cell, keep each cell's FO4 lighting template, per-quadrant land texturing) rather than writing our own.**
 - **BACUP (GPL-3, last commit 2026-10-17) already has a FO4-to-Starfield pair, world only:** a translation map, layout
   rebuilds for LIGH, SCOL, WATR and LGTM, a spatial scale of 1/69.99125, cell and placed-object writers, FO4 terrain to
   Starfield `.btd`, and a navmesh module. It leaves out quests, dialogue, NPCs, packages, perks and the Story Manager.

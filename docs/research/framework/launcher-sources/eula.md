@@ -2,6 +2,8 @@
 
 Research date: 2026-10-19. Author: Claude (research subagent). Reading only.
 
+**Status (owner, 2026-10-19 21:37Z, Next-Phase Questions page):** decided by owner, 2026-10-19: ship no assets, and an informational letter goes to Bethesda first, drafted by Claude and sent only on the owner's approval of the exact text (RE-7 and RE-8, talk-through 21:56Z, replacing the page's "don't ask"); use the Fallout name and art (RE-6); players use their own Creation Kit (LA-1). Donations and a store listing are to be talked through first (RE-17; the owner's note says a GOG listing is likely and monetisation is "a big no-no"). The legal reading below stands unchanged.
+
 > **This is not legal advice.** It is a reading of contract text by a non-lawyer AI, done to work out what the
 > project should ask a lawyer and what it should design around. Nothing here says the launcher is permitted.
 > Labels follow docs/ai/research-log.md: **verified** = the quoted text says it; **supported hypothesis** =

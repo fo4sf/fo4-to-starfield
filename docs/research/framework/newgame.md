@@ -27,6 +27,25 @@ unresolved. Every question names how it gets answered: offline check, PC read-on
 7. Retry of the rate-limited primary sources: Bethesda's guidelines, UESP main quest and NG+, Nexus start mods
 8. Saves, install, uninstall, versioning and repeatable start testing
 
+## The owner's answers (2026-10-19, Next-Phase Questions page)
+Copied from research/framework-page/submissions/2026-10-19-owner-answers.md and marked on each question below.
+Decided: set MQ101Debug ourselves (M1 to M3); looks-only creator (C3); a preset quick start in phase 1 (C9); no
+Kellogg scene, spouse pod, corpses or ring in phase 1 (K10); Fallout-style HUD reskin (D4, M6); block Starfield
+content that starts its own quests (E3, E4, N2); an in-game menu entry to pick the game (F1, L1); and, as recommended,
+a Vault 111 start with a start-world hook (A10, A11), the probe-list Debug rule (J3), published stages (B8, K5), a
+save version with the launcher blocking unsafe swaps (F5, L2), full lines in the choice list (I2), lines kept as text
+(I3), own install with snapshot and restore (F4, L8, L10), no save promise before 1.0 (L4).
+Decided in the talk-through: SFSE required, the game blocked when it breaks, our own small SFSE plugins where
+needed (D1); MQ101 stays stopped (A5); SPECIAL at a vault terminal for testing, the elevator later (C4, K7); no usable
+ship, scripted travel (B4); no Pip-Boy in phase 1 (D2); the console opens the cog door for now, the Pip-Boy plug-in
+later as a shared vault-door feature (D3, K6); our own silent voice file per text-only line (I5); Alternate Start
+code may be copied, those scripts marked GPL-3 (G6); Steam only for version 1 (F9). No new-game question is left to
+talk through.
+
+What changes for the staged build: newgame_v2 calls the full creator (ShowRaceMenu mode 0) and leaves MQ101Debug alone;
+the next build needs `--mq101debug` (M3), a looks-only menu mode (C1, still unresolved), a preset quick start
+(C9) and a SPECIAL vault terminal (C4); MQ101 stopped, no ship and the console cog door stay as built.
+
 ## The answer so far, in one paragraph
 Every Starfield start mod hits the same wall: almost everything the player starts with (character creation, traits,
 scanner, ship, fast travel, tutorials, Cruise Mode, sustenance, Shattered Space) hangs off MQ101, so skipping it
@@ -55,7 +74,7 @@ across notes are merged. Ids are stable (NG-A1 ...) so other files and threads c
 - **NG-A4. When our quest runs, has MQ101 already disabled controls or started a scene, and does `Stop()` release its
   input layers?** A stuck input layer is the commonest start failure (NG+ chargen redirect left Esc dead until a
   coc). PC (MQ101 stages 0 to 9 and its scripts), then GAME (`sqv MQ101`, our log). Unresolved. n01, n03, n04.
-- **NG-A5. Do we leave MQ101 stopped, completed, or dormant?** Shattered Space and some Creations wait on MQ101
+- **NG-A5. Do we leave MQ101 stopped, completed, or dormant?** *Status: decided by owner, 2026-10-19 (talk-through): Starfield's intro quest stays stopped, as today (page NG-3). Earlier owner note: "Because we're planning on taking away a bunch of that stuff eventually Talk to each other and pick what's best"* Shattered Space and some Creations wait on MQ101
   complete; completing it may fire rewards and Constellation state. GAME on a throwaway save, then OWNER. Unresolved.
   n01, n02, n03.
 - **NG-A6. Which other start-game-enabled Starfield quests must we hold off, and which must keep running?** The fence
@@ -71,11 +90,11 @@ across notes are merged. Ids are stable (NG-A1 ...) so other files and threads c
   (dotnet/NewGame/Program.cs:267) and stands down when game days or level say it is not a new game
   (FO4SF_NewGameQuest.psc:149). Still open: does a newly added start-game quest start on an existing save in Starfield
   (CK wiki says yes for Skyrim)? GAME. Supported hypothesis. n03, n08.
-- **NG-A10. Choice hub or one fixed start?** Live Another Life keeps the vanilla start as one option and lets the
+- **NG-A10. Choice hub or one fixed start?** *Status: decided by owner, 2026-10-19 (recommended kept): Vault 111 start with a start-world hook built in (page NG-8).* Live Another Life keeps the vanilla start as one option and lets the
   choice change until it is final; Roleplayers' Alternate Start does the same in Starfield. OWNER (option D in
   docs/newgame/vault111-start.md). n01, n02.
 - **NG-A11. Design the start quest as a selector now (Vault 111 today; Far Harbor, Nuka-World or other Fallout starts
-  later)?** Cheap now, costly later. OWNER. n02.
+  later)?** *Status: decided by owner, 2026-10-19 (recommended kept): Vault 111 start with a start-world hook built in (page NG-8).* Cheap now, costly later. OWNER. n02.
 - **NG-A12. Failsafes: every way the player can skip the elevator exit (coc, tcl, fast travel) still ends in a sane
   state?** Live Another Life forces the main quest when the trigger is bypassed. OFF (state table and unittests), then
   GAME. n01.
@@ -88,7 +107,7 @@ across notes are merged. Ids are stable (NG-A1 ...) so other files and threads c
   Verified per mod page that start mods restore them. PC, then GAME. n01, n03.
 - **NG-B3. Does the scanner work without MQ101's hand-over?** The scanner is the closest thing to a Pip-Boy screen
   we get for free. GAME. Unresolved. n03, n04.
-- **NG-B4. Ship or no ship?** `MQ_TutorialQuest` fails silently with no `PlayerShip.GetShipRef()` (verified from
+- **NG-B4. Ship or no ship?** *Status: decided by owner, 2026-10-19 (talk-through): no usable ship, scripted travel; the vertibird-as-ship idea is kept for the combined core (page NG-9). Earlier owner note: "Go with your recommend for now but don't take away the idea of using the ship as a virtabird to maybe be used for the second core that combines the games" (for now: no usable ship, fenced out).* `MQ_TutorialQuest` fails silently with no `PlayerShip.GetShipRef()` (verified from
   Community Patch issue 714); No Ship Fast Start makes a hidden placeholder ship. OWNER, then a Papyrus log sweep for
   empty ship references in GAME. n01, n03.
 - **NG-B5. Does fast travel and the map work in a worldspace with no planet data?** Players will expect fast travel
@@ -98,7 +117,7 @@ across notes are merged. Ids are stable (NG-A1 ...) so other files and threads c
 - **NG-B7. Does the intro leave state to reset: time scale, image space, controls, HUD mode?** FO4 start mods reset
   time scale. GAME. n01.
 - **NG-B8. Do we publish a fixed "left the vault" stage, like FO4's MQ102 10 and 15, for later phases and other mods
-  to listen to?** OWNER. n01 (and n06 when back).
+  to listen to?** *Status: decided by owner, 2026-10-19 (recommended kept): yes, fixed stages published as a contract (page NG-14).* OWNER. n01 (and n06 when back).
 - **NG-B9. Stagger work after the vault exit (radio, Codsworth, workshops)?** Start Me Up Redux waits 20 s; FO4's
   start is a known script bottleneck. Design rule now, timings in GAME. n01.
 
@@ -111,9 +130,9 @@ across notes are merged. Ids are stable (NG-A1 ...) so other files and threads c
   the Lodge" as n03 had it), which our start never reaches. GAME (`sqv`). n01, n03,
   n04.
 - **NG-C3. Full creator (backgrounds, traits) or looks only? Starfield backgrounds kept, neutral, stripped, or Fallout
-  versions? Harmful traits blocked?** Verified: backgrounds and traits are perks; the creator is chargenmenu.swf;
+  versions? Harmful traits blocked?** *Status: decided by owner, 2026-10-19: looks only (page NG-4). Owner note: "So I'm thinking of 2 different ways for this to be implemented 1 will just make the original from the game it's having be brought to creation engine 2, and the second will build off of starfields and take the original skills and stuff from previous games and build a good RP style version of the special system, if you are choosing a story play though the background perks and stuff like that will be not used for the other ones it will be."* Verified: backgrounds and traits are perks; the creator is chargenmenu.swf;
   the neutral background still grants three skills. OWNER. n04.
-- **NG-C4. Where are SPECIAL and the name set, and is SPECIAL in scope for phase 1?** FO4 sets them pre-war with the
+- **NG-C4. Where are SPECIAL and the name set, and is SPECIAL in scope for phase 1?** *Status: decided by owner, 2026-10-19 (talk-through): SPECIAL is set at a vault terminal for testing; the elevator version comes with the remade start later (page NG-5). Earlier owner note: "I'd say for now we will keep it at the vault for testing put it in what ever phase is handling the same stuff, but we will later try to remake the start."* FO4 sets them pre-war with the
   Vault-Tec Rep, which our start skips; Start Me Up uses the cryo terminal. OWNER. n04.
 - **NG-C5 (answered in section N). Can we wait for the menu to close (`RegisterForMenuOpenCloseEvent` on "ChargenMenu")?** Utility has no
   `IsInMenuMode`. PC (ScriptObject.psc in ContentResources.zip). Unresolved. n04.
@@ -123,15 +142,15 @@ across notes are merged. Ids are stable (NG-A1 ...) so other files and threads c
 - **NG-C7. Does the creator's camera and lighting work in our Vault 111 cell?** GAME. n04.
 - **NG-C8. Converted FO4 dialogue checks the player's sex; what does a "they" player get?** Starfield offers they/them.
   OFF (scan FO4 conditions on GetIsSex in the converted dialogue). n04.
-- **NG-C9. Quick start for replays (skip chargen with a preset)?** OWNER. n04.
+- **NG-C9. Quick start for replays (skip chargen with a preset)?** *Status: decided by owner, 2026-10-19: yes, a preset quick start in phase 1 (page NG-6).* OWNER. n04.
 
 ## D. Pip-Boy and UI
-- **NG-D1. SFSE or not?** It decides the whole UI plan: SFSE 0.2.21 is Steam-only, pinned to 1.16.244 and broken
+- **NG-D1. SFSE or not?** *Status: decided by owner, 2026-10-19 (talk-through): SFSE is required, the game is blocked when SFSE breaks, and we write our own small SFSE plugins where needed (page NG-1). Earlier owner note: "Hey so we might want to make our own script extender because we are eventually going to be needing To make scripts from older fallouts, and stuff work"* It decides the whole UI plan: SFSE 0.2.21 is Steam-only, pinned to 1.16.244 and broken
   by past patches; reskins need no SFSE, new screens do (Menu Framework, OSF UI, Carbon UI). OWNER. Verified. n04, n05.
 - **NG-D2. Phase 1 Pip-Boy: nothing, a terminal-menu item (the VaultTec S.P.E.C.I.A.L. pattern, no SFSE), or an SFSE
-  view?** No Starfield Pip-Boy mod exists (verified). OWNER. n04.
-- **NG-D3. Does the cog door keep FO4's "plug in the Pip-Boy" rule?** Ours opens from the console today. OWNER. n04.
-- **NG-D4. Which Starfield HUD pieces to reskin or hide (loose Data\Interface SWFs replace whole files)?** Our test PC
+  view?** *Status: decided by owner, 2026-10-19 (talk-through): no Pip-Boy in phase 1; the real one is built once with the Fallout systems, now that SFSE is required (page NG-11).* No Starfield Pip-Boy mod exists (verified). OWNER. n04.
+- **NG-D3. Does the cog door keep FO4's "plug in the Pip-Boy" rule?** *Status: decided by owner, 2026-10-19 (talk-through): the console opens the cog door for now; the Pip-Boy plug-in comes later as one shared vault-door feature (page NG-12). Earlier owner note: "I want it to work how it does in game later but for testing keep it simple but we want that function other vault doors use it." (for now: the console opens it, as built).* Ours opens from the console today. OWNER. n04.
+- **NG-D4. Which Starfield HUD pieces to reskin or hide (loose Data\Interface SWFs replace whole files)?** *Status: decided by owner, 2026-10-19: Fallout-style HUD reskin (page NG-13). Owner note: "It won't just be a reskin later with other things that will be added"* Our test PC
   reads no loose files (sResourceDataDirsFinal=STRINGS\), so SWFs would ship in a ba2 too. OWNER, then GAME. n04.
 
 ## E. Starfield's world systems in our world
@@ -139,27 +158,27 @@ across notes are merged. Ids are stable (NG-A1 ...) so other files and threads c
   probe's E5 tests our own Story Manager branch. OFF (event list), then GAME. n02, n03.
 - **NG-E2. Which UI and systems depend on "One Small Step" being done?** PC and GAME. n02, n03.
 - **NG-E3. Shattered Space and Creations that start their own quests: do we need a block plugin like Fallout London's
-  DLC block?** OWNER, then PC scan. n01, n02.
+  DLC block?** *Status: decided by owner, 2026-10-19: block Starfield content that starts its own quests (Shattered Space, Unity, NG+) (page NG-19).* OWNER, then PC scan. n01, n02.
 - **NG-E4. Anything tied to a home system or Unity state our world lacks? What do NG+ and Unity do if MQ101 never
-  completes?** GAME, OWNER. n02, n03.
+  completes?** *Status: decided by owner, 2026-10-19: block Starfield content that starts its own quests (Shattered Space, Unity, NG+) (page NG-19).* GAME, OWNER. n02, n03.
 - **NG-E5. Vault 111 coherence if the player returns (corpses, spouse pod, cog door)?** Later phase. n01 (n06).
 
 ## F. Install, launcher, versions, saves
-- **NG-F1. How does the player choose our game over vanilla Starfield: a separate profile and INI, or in game?**
+- **NG-F1. How does the player choose our game over vanilla Starfield: a separate profile and INI, or in game?** *Status: decided by owner, 2026-10-19: an in-game menu entry (page NG-20). Owner note: "Like stalker gamma you will be given a menu to pick for the core that's just gives you the ability to load one game for a creation engine 2 just has you pick which game you want the save from and any settings that should be picked before you launch the game."*
   OWNER. n02.
 - **NG-F2. Loud broken-start check, both in the launcher and in game.** Fallout London's commonest failure. OFF
   (launcher check, unittest), in-game script line. n02.
 - **NG-F3. Supported Starfield builds and what happens after an update?** Fallout London needed a downgrader and a new
   save. Launcher version gate (PR #394 records versions). n02, n05.
-- **NG-F4. Full undo of the install (INIs, Plugins.txt).** OWNER policy; launcher already restores Data and
+- **NG-F4. Full undo of the install (INIs, Plugins.txt).** *Status: decided by owner, 2026-10-19 (recommended kept): own install, snapshot and restore (page NG-21). Owner note: "If we can have it be its own EXE or launcher for remote play etc to be best  that'd be best"* OWNER policy; launcher already restores Data and
   Plugins.txt. n02.
-- **NG-F5. Save versioning policy from day one.** OWNER, record in docs/ai/decisions.md. n02 (n08).
+- **NG-F5. Save versioning policy from day one.** *Status: decided by owner, 2026-10-19 (recommended kept): store a save version from v1, and the launcher blocks unsafe swaps (page NG-15).* OWNER, record in docs/ai/decisions.md. n02 (n08).
 - **NG-F6. Refuse when an `sTestFile` INI entry exists (it makes Plugins.txt ignored)?** Verified behaviour. OFF plus
   PC read-only check. n05.
 - **NG-F7. Do installed Creations or ContentCatalog.txt override our Plugins.txt? Do Mod Organizer 2 or Vortex users
   break our deploy (MO2 keeps INIs in its profile)?** PC read-only, then GAME. n05.
 - **NG-F8. Completeness check: a manifest of expected files and hashes (TTW's size rule).** OFF, unittest. n02.
-- **NG-F9. Game Pass users?** OWNER. n05.
+- **NG-F9. Game Pass users?** *Status: decided by owner, 2026-10-19 (talk-through): Steam only for version 1, said plainly, since SFSE is required and does not support Game Pass (page RE-12).* OWNER. n05.
 - **NG-F10. Does `sStartingConsoleCommand` work on 1.16.244 (a test harness and a fallback start)?** GAME, Claude
   only. n05.
 
@@ -176,7 +195,7 @@ across notes are merged. Ids are stable (NG-A1 ...) so other files and threads c
   docs/ai/decisions.md. n05, n07.
 - **NG-G5. Does being a public, AI-built project change our risk?** A press report (not primary, unverified) says
   Bethesda sent a cease-and-desist this month to an AI-built Fallout project. OWNER. n07 Q17.
-- **NG-G6. May we read Roleplayers' Alternate Start's GPL-3.0 source?** Reading is fine; copying its code makes those
+- **NG-G6. May we read Roleplayers' Alternate Start's GPL-3.0 source?** *Status: decided by owner, 2026-10-19 (talk-through): copy Alternate Start code where useful and mark those scripts GPL-3 (page LA-13).* Reading is fine; copying its code makes those
   scripts GPL (our release already carries a GPL-3 notice for Mutagen). OWNER. n07 Q14.
 - **NG-G4. Hosting: GitHub first, then Nexus (already decided); TTW says Bethesda asked sites not to host it.** OWNER.
   n02.
@@ -210,14 +229,14 @@ across notes are merged. Ids are stable (NG-A1 ...) so other files and threads c
 - **NG-I1. Does the start use any FO4 voice lines (Nate or Nora, Codsworth, the Vault-Tec Rep)?** The opening is
   heavily voiced and Capital Wasteland died over audio; ties to G2 and to `scripts/actors/codsworth_voice.py`. OWNER,
   then a written question to Bethesda or Nexus staff. findings/precedents.md Q1, Q17.
-- **NG-I2. What does the dialogue list show for FO4 player choices: the prompt, the full line, or both?** The first
+- **NG-I2. What does the dialogue list show for FO4 player choices: the prompt, the full line, or both?** *Status: decided by owner, 2026-10-19 (recommended kept): the choice list shows the full line, no own menu file (page NG-16). Owner note: "Only have fo4 have that option for later phases."* The first
   scenes are choice-heavy and a silent player turns paraphrases into guesswork. One converted scene in game with each
   option, then OWNER. findings/people-story.md Q1.
-- **NG-I3. Which spouse and player-addressed lines break with a silent player (monologue INFOs in MQ101 and MQ102)?**
+- **NG-I3. Which spouse and player-addressed lines break with a silent player (monologue INFOs in MQ101 and MQ102)?** *Status: decided by owner, 2026-10-19: keep the lines as text (page NG-18 left blank, treated as keep). Owner note: "It shouldn't change anything idk what this is asking"*
   OFF (record scan of FO4 INFOs with no choice), then OWNER: keep text, cut, or replay. findings/people-story.md Q2.
 - **NG-I4. Can Starfield's looks menu open in our cell (`showlooksmenu player 1` per Nexus 8015), and do we curate
   presets that approximate FO4 looks?** Overlaps C1; FO4 sliders do not map. GAME. findings/people-story.md Q3.
-- **NG-I5. Silent placeholder voice files for text-only NPC lines, or Starfield Silent Voice (SFSE)?** Unvoiced lines
+- **NG-I5. Silent placeholder voice files for text-only NPC lines, or Starfield Silent Voice (SFSE)?** *Status: decided by owner, 2026-10-19 (talk-through): we make our own silent voice files per line, so unvoiced text stays on screen long enough to read (page NG-17).* Unvoiced lines
   flash past. GAME with one shared silent WEM id, OWNER on SFSE. findings/people-story.md Q11.
 
 ## J. Proving the start works, repeatably
@@ -226,9 +245,10 @@ across notes are merged. Ids are stable (NG-A1 ...) so other files and threads c
   findings/testing-qa.md Q1.
 - **NG-J2. How to start a new game unattended with no intro (sStartingConsoleCommand bat, Papyrus on load, a scripted
   menu click)?** The runner today loads saves. PC probe, 5 runs each. findings/testing-qa.md Q2; NG-F10.
-- **NG-J3. Does `Debug.QuitGame` work in retail for a clean end of run?** PC probe, whitelist is the owner's call.
+- **NG-J3. Does `Debug.QuitGame` work in retail for a clean end of run?** *Status: decided by owner, 2026-10-19 (recommended kept): unattended runs may call only the one probe list of Debug functions (page NG-10).* PC probe, whitelist is the owner's call.
   findings/testing-qa.md Q3.
-- **NG-J4. Can the start be built and run with no SFSE at all?** Ours is data plus Papyrus today (supported
+- **NG-J4. Can the start be built and run with no SFSE at all?** *No longer a goal: SFSE is required (NG-D1, owner, 2026-10-19); the start stays data plus Papyrus because it
+  needs nothing more, and the launcher's SFSE check comes first.* Ours is data plus Papyrus today (supported
   hypothesis: ShowRaceMenu and SetInChargen exist in Starfield's sources). The first proof answers it.
   findings/starfield-toolchain.md Q2.
 - **NG-J5. What happens to the start quest's overrides after a Starfield patch?** Diff Starfield.esm's start quests
@@ -250,13 +270,13 @@ and 15, and SKK's fallback has a stated blind spot for a start that skips MQ102 
   docs/newgame/vault111-start.md section 4).** Our doc may be wrong; an offline read of the converted cell settles it.
   Unresolved. n06 Q4.
 - **NG-K5. Our own published stages: "out of the pod", "left the vault", "radios on", by name and number, as a
-  contract for later phases (same as NG-B8).** OWNER. n06 Q8, Q17.
-- **NG-K6. The console seat and plug-in sequence, or just the door opening (with NG-D3)?** OWNER. n06 Q15.
-- **NG-K7. SPECIAL on the elevator, as FO4 does, if SPECIAL is in scope (NG-C4)?** OWNER. n06 Q6.
+  contract for later phases (same as NG-B8).** *Status: decided by owner, 2026-10-19 (recommended kept): yes, fixed stages published as a contract (page NG-14).* OWNER. n06 Q8, Q17.
+- **NG-K6. The console seat and plug-in sequence, or just the door opening (with NG-D3)?** *Status: decided by owner, 2026-10-19 (talk-through): the console opens the cog door for now; the Pip-Boy plug-in comes later as one shared vault-door feature (page NG-12). Earlier owner note: "I want it to work how it does in game later but for testing keep it simple but we want that function other vault doors use it." (for now: the console opens it, as built).* OWNER. n06 Q15.
+- **NG-K7. SPECIAL on the elevator, as FO4 does, if SPECIAL is in scope (NG-C4)?** *Status: decided by owner, 2026-10-19 (talk-through): SPECIAL is set at a vault terminal for testing; the elevator version comes with the remade start later (page NG-5). Earlier owner note: "I'd say for now we will keep it at the vault for testing put it in what ever phase is handling the same stuff, but we will later try to remake the start."* OWNER. n06 Q6.
 - **NG-K8. Clear Starfield's starting inventory, and when (FO4 runs RemoveAllItems at 0 and 900)?** GAME. n06 Q7.
 - **NG-K9. What Codsworth, Dogmeat and the Concord and Minutemen start need faked from MQ102 to start in our world?**
   OFF (conditions in the converted records), then GAME. n06 Q18, Q19, Q23.
-- **NG-K10. Pod corpses, the spouse pod and the Wedding Ring; going back down the elevator.** Later phase, OWNER for
+- **NG-K10. Pod corpses, the spouse pod and the Wedding Ring; going back down the elevator.** *Status: decided by owner, 2026-10-19: leave the Kellogg scene, spouse pod, pod corpses and ring out of phase 1 (page NG-7).* Later phase, OWNER for
   phase 1 scope. n06 Q12 to Q14.
 - **NG-K11. Which surface map markers are known at the exit?** With the map thread. n06 Q11.
 - **NG-K12. FO4's own input layers and the "cannot move or save after the pod" bug: does any layer, ours or
@@ -268,23 +288,23 @@ different plugin list shows the Creations load-order prompt with "Save" preselec
 Plugins.txt with our plugins off, silently. Users also report the game clears active plugins when the Creations
 menu opens (findings/people-story.md wave 2, supported hypothesis).
 - **NG-L1. What a player sees loading a pre-mod save after install, and how we keep the prompt from switching us off
-  (separate profile or launcher swap instead of editing their Plugins.txt).** GAME on a throwaway save, OWNER. n08 Q1, Q2.
+  (separate profile or launcher swap instead of editing their Plugins.txt).** *Status: decided by owner, 2026-10-19: an in-game menu entry (page NG-20). Owner note: "Like stalker gamma you will be given a menu to pick for the core that's just gives you the ability to load one game for a creation engine 2 just has you pick which game you want the save from and any settings that should be picked before you launch the game."* GAME on a throwaway save, OWNER. n08 Q1, Q2.
 - **NG-L2. A save-format version and the FO4Port and core build ids stored in the save from v1, checked on every
-  load with a visible warning.** Today the quest records only "stood down" and stops. OWNER, OFF unittest; needs
+  load with a visible warning.** *Status: decided by owner, 2026-10-19 (recommended kept): store a save version from v1, and the launcher blocks unsafe swaps (page NG-15).* Today the quest records only "stood down" and stops. OWNER, OFF unittest; needs
   NG-L3. n08 Q3, Q4, Q11.
 - **NG-L3 (answered in section N). Does Starfield's Papyrus have OnPlayerLoadGame or an equivalent?** OFF/PC (ContentResources.zip). n08 Q6.
-- **NG-L4. Update policy: new game on any port rebuild, only on a save-format change, or migration.** OWNER. n08 Q5.
+- **NG-L4. Update policy: new game on any port rebuild, only on a save-format change, or migration.** *Status: decided by owner, 2026-10-19 (recommended kept): no promise that old saves keep working before 1.0 (page NG-22).* OWNER. n08 Q5.
 - **NG-L5. Are game days 0 and level 1 reliable new-game signals after chargen and on NG+, and does our Run Once quest
   behave on NG+?** GAME. n08 Q7, Q9.
 - **NG-L6. Negative tests before each release: existing save, NG+, our plugin missing, the port missing.** OWNER,
   throwaway-save GAME runs. n08 Q10, Q18.
 - **NG-L7. Per-stage timeouts that log "FAIL stage N" for unattended runs.** OFF unittest, GAME. n08 Q12.
 - **NG-L8. INI rules: never write sTestFile; sStartingConsoleCommand only in test profiles; bInvalidateOlderFiles not
-  needed (ba2 only); MO2 keeps INIs per profile; restore the Starfield.ini backup our logging setup made.** OWNER, PC
+  needed (ba2 only); MO2 keeps INIs per profile; restore the Starfield.ini backup our logging setup made.** *Status: decided by owner, 2026-10-19 (recommended kept): own install, snapshot and restore (page NG-21). Owner note: "If we can have it be its own EXE or launcher for remote play etc to be best  that'd be best"* OWNER, PC
   read-only. n08 Q15, Q16.
 - **NG-L9. Steam auto-update: read-only appmanifest as Fallout London did, or an installer version gate only?** A
   Papyrus-only mod cannot read the game version. OWNER. n08 Q19, Q20.
-- **NG-L10. Clean-uninstall checklist and the achievements note for players.** OWNER, OFF check of
+- **NG-L10. Clean-uninstall checklist and the achievements note for players.** *Status: decided by owner, 2026-10-19 (recommended kept): own install, snapshot and restore (page NG-21). Owner note: "If we can have it be its own EXE or launcher for remote play etc to be best  that'd be best"* OWNER, OFF check of
   `exp_install.py uninstall`. n08 Q21, Q23.
 
 ## M. What the source retry changed (n07)
@@ -308,17 +328,17 @@ menu opens (findings/people-story.md wave 2, supported hypothesis).
   only on Wikipedia.
 
 New questions from it:
-- **NG-M1. Does our quest stop MQ00 before it runs, and so leave MQ101Debug at 0 and sustenance off?** This is the
+- **NG-M1. Does our quest stop MQ00 before it runs, and so leave MQ101Debug at 0 and sustenance off?** *Status: decided by owner, 2026-10-19: set the debug setting (MQ101Debug) ourselves (page NG-2).* This is the
   most concrete risk to our current build. OFF/PC (MQ00 conditions and fragment, our quest's order), then the first
   GAME proof checks hunger. Our quest stops MQ00 only if it is running when our script starts
   (FO4SF_NewGameQuest.psc HoldOffStart), so whether MQ00's stage 10 has set the global by then is a race. Supported
   hypothesis that the risk is real.
-- **NG-M2. What does MQ101 stage 9000 do when we stop it?** OFF/PC read of the fragment. Unresolved.
-- **NG-M3. Let MQ00 run, set MQ101Debug ourselves, or override 002EEA4D like No Ship Fast Start?** OWNER after M1, M2.
+- **NG-M2. What does MQ101 stage 9000 do when we stop it?** *Status: decided by owner, 2026-10-19: set the debug setting (MQ101Debug) ourselves (page NG-2).* OFF/PC read of the fragment. Unresolved.
+- **NG-M3. Let MQ00 run, set MQ101Debug ourselves, or override 002EEA4D like No Ship Fast Start?** *Status: decided by owner, 2026-10-19: set the debug setting (MQ101Debug) ourselves (page NG-2).* OWNER after M1, M2.
   Our writer already has `--mq101debug <n>` (a GLOB override, off by default), so the second route needs no new code.
 - **NG-M4. Which MQ101Debug value, if any, gives a clean start state for us?** OFF, then GAME (Claude only).
 - **NG-M5. Is the stage-900 fast-travel block ever set in our start, and what clears it?** OFF.
-- **NG-M6. Do we give back the watch's HUD (compass, oxygen, planet name) another way?** GAME, OWNER. With NG-B3.
+- **NG-M6. Do we give back the watch's HUD (compass, oxygen, planet name) another way?** *Status: decided by owner, 2026-10-19: Fallout-style HUD reskin (page NG-13). Owner note: "It won't just be a reskin later with other things that will be added"* GAME, OWNER. With NG-B3.
 - **NG-M7. Do we call `SetInCharGen` off after our race menu, as the NG+ workaround does?** OFF, then GAME.
 - **NG-M8. Does our script look up any non-persistent reference with GetFormFromFile?** OFF (the new game writer
   already refuses a non-persistent exit anchor; check every property). n07 Q13.
@@ -353,7 +373,7 @@ Verified from the Creation Kit's script sources (C:\Modding\scratch\newgame_star
 New questions from it:
 - **NG-N1. Hold off what stage 9000 starts: MQ_TutorialQuest_Misc04 (tutorials) and MQ101PostQuest (Constellation
   hellos)?** Stop() may run 9000 after our loop, so it needs ordering or a second pass. OFF, then GAME.
-- **NG-N2. Is "Artifact acquired" on stop harmful (the Starborn line, the Unity)?** OWNER, later GAME.
+- **NG-N2. Is "Artifact acquired" on stop harmful (the Starborn line, the Unity)?** *Status: decided by owner, 2026-10-19: block Starfield content that starts its own quests (Shattered Space, Unity, NG+) (page NG-19).* OWNER, later GAME.
 - **NG-N3. Undo the outfit swap and RemoveAllItems of MQ101 stage 0 (miner spacesuit), with NG-K8?** GAME.
 - **NG-N4. A Starfield.esm read for the stage-0 item conditions, MQ00's conditions, 002EEA4D and StartupQuest_DO.**
   The next read-only PC job (Mutagen). OFF tooling, PC.
