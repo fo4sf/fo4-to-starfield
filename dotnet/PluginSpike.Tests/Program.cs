@@ -267,6 +267,65 @@ Console.WriteLine("Posed-model plugin round trip passed.");
 }
 Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed.");
 
+// Load doors that open before the trip (load_door.anim, scripts/door_bridge/load_door_anim.py): PluginSpike end to end.
+// The animated load door gets the rig's graph, skeleton and clips and the twin's model, its reference shifts by the rig's
+// origin offset; a load door without "anim" stays the graph-less DOOR every earlier build wrote.
+{
+    var animDir = Path.Combine(Path.GetTempPath(), "fo4sf-loadanim-" + Guid.NewGuid().ToString("N"));
+    var outDir = Path.Combine(animDir, "out");
+    Directory.CreateDirectory(outDir);
+    var stdout = Console.Out;
+    try
+    {
+        var manifest = Path.Combine(animDir, "manifest.json");
+        File.WriteAllText(manifest, """
+{"items":[
+ {"editor_id":"FO4Port_SynthDoorLoad","model":"fo4port\\doorload.nif","source":"meshes\\doors\\doorload.nif",
+  "load_door":{"bounds":[[-1,-0.1,0],[1,0.1,2.2]],
+   "anim":{"anim_graph":"AnimTextData\\Tables\\Graphs\\SimpleOpenClose01.agx","skeleton":"t\\skeleton.rig","animations":"t\\animations",
+           "origin_offset":[0.5,0,0],"bounds":[[-1.5,-0.1,0],[0.5,0.1,2.2]],"model":"fo4port\\door.nif","twin":"meshes\\doors\\door.nif",
+           "open_seconds":1.0333}}},
+ {"editor_id":"FO4Port_SynthPlainLoad","model":"fo4port\\plainload.nif","source":"meshes\\doors\\plainload.nif",
+  "load_door":{"bounds":[[-1,-0.1,0],[1,0.1,2.2]]}}]}
+""");
+        var export = Path.Combine(animDir, "Anim.json");
+        File.WriteAllText(export, """
+{"cell":"Anim","formkey":"cell","refs":[
+ {"formkey":"000A01:Fallout4.esm","base_editor_id":"DL","type":"Door","model":"doors\\doorload.nif","pos":[0,0,0],"rot":[0,0,0],"scale":1},
+ {"formkey":"000A02:Fallout4.esm","base_editor_id":"PL","type":"Door","model":"doors\\plainload.nif","pos":[70,0,0],"rot":[0,0,0],"scale":1}]}
+""");
+        foreach (var hook in new[] { "FO4PORT_DOOR_MODEL", "FO4PORT_DOOR_BASE", "FO4PORT_DOORTEST" }) Environment.SetEnvironmentVariable(hook, null);
+        Environment.SetEnvironmentVariable("STARFIELD_DATA", animDir);
+        var log = new StringWriter();
+        Console.SetOut(log);
+        typeof(TeleportLinks).Assembly.EntryPoint!.Invoke(null, new object[] { new[] { outDir, manifest, export } });
+        Console.SetOut(stdout);
+        var ids = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+        var port = ModKey.FromNameAndExtension("FO4Port.esm");
+        var spikeMasters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+        spikeMasters.Set(new KeyedMasterStyle(ModKey.FromNameAndExtension("Starfield.esm"), MasterStyle.Full));
+        using var written = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(outDir, "FO4Port.esm"), release,
+            new BinaryReadParameters { MasterFlagsLookup = spikeMasters });
+        var doorsBy = written.Doors.ToDictionary(x => x.EditorID!);
+        var animated = doorsBy["FO4Port_SynthDoorLoad"];
+        var graph = animated.Components.OfType<IAnimationGraphComponentGetter>().Single();
+        Require(graph.ANAM == "AnimTextData\\Tables\\Graphs\\SimpleOpenClose01.agx" && graph.BNAM == "t\\skeleton.rig" && graph.CNAM == "t\\animations",
+                "animated load door lost its graph, skeleton or clips");
+        Require(AssetPath(animated.Model?.File)?.EndsWith("fo4port/door.nif") == true, "animated load door does not use the twin's rigged model: " + AssetPath(animated.Model?.File));
+        Require(animated.ObjectBounds.First.X == -1.5f && animated.ObjectBounds.Second.X == 0.5f, "animated load door keeps the static model's bounds");
+        var plainDoor = doorsBy["FO4Port_SynthPlainLoad"];
+        Require(!plainDoor.Components.Any() && AssetPath(plainDoor.Model?.File)?.EndsWith("fo4port/plainload.nif") == true, "a load door without anim changed");
+        var refs = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).Single()
+            .Temporary.OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey);
+        IPlacedObjectGetter Ref(string fo4) => refs[new FormKey(port, ids[$"REFR:FO4Port_Anim:{fo4}:Fallout4.esm"])];
+        Require(Math.Abs(Ref("000A01").Position.X - 0.5f) < 1e-5 && Ref("000A01").Base.FormKey == animated.FormKey, "animated load door reference not shifted by the rig's origin offset");
+        Require(Math.Abs(Ref("000A02").Position.X - 1f) < 1e-5 && Ref("000A02").Base.FormKey == plainDoor.FormKey, "plain load door reference moved");
+        Require(log.ToString().Contains("2 load doors (1 open before the trip)"), "animated load doors not counted:\n" + log);
+    }
+    finally { Console.SetOut(stdout); Directory.Delete(animDir, true); }
+}
+Console.WriteLine("Animated load-door checks passed.");
+
 // Interior promotions (Promotions.cs, scripts/terrain/port_promote.py): PluginSpike end to end with a promote.json. FO4
 // containers, inventory items, activators and terminals get a CONT / MISC / ACTI / TERM + TMLM base carrying the model
 // their STAT / MSTT would have had, shared per edid; the reference keeps its stable REFR FormID; a door base is kept; two

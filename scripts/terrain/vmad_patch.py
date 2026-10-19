@@ -257,6 +257,42 @@ def load_door_destination(vmad):
     return plugin, local_id
 
 
+# Load doors that open before the trip (docs/spikes/load-door-animations.md): the same contract under the child script
+# scripts/door_bridge/FO4SF_AnimatedLoadDoor.psc plus its OpenSeconds float. Only these two functions know it; `port`
+# and `check` still write and require FO4SF_LoadDoor, so no build changes until they are given an opt-in.
+ANIMATED_SCRIPT = "FO4SF_AnimatedLoadDoor"
+PROP_OPEN_SECONDS = "OpenSeconds"
+
+
+def animated_load_door_scripts(plugin, local_id, position=None, open_seconds=0.0):
+    """load_door_scripts under ANIMATED_SCRIPT, with OpenSeconds (float, edited, finite, 0..30) appended."""
+    try:
+        seconds = float(open_seconds)
+    except (TypeError, ValueError):
+        raise ValueError(f"open seconds {open_seconds!r} is not a number")
+    if not math.isfinite(seconds) or not 0.0 <= seconds <= 30.0:
+        raise ValueError(f"open seconds {open_seconds!r} outside 0..30")
+    (script,) = load_door_scripts(plugin, local_id, position)
+    script = dict(script, name=ANIMATED_SCRIPT, properties=script["properties"] + [
+        {"name": PROP_OPEN_SECONDS, "type": T_FLOAT, "status": PROP_EDITED, "value": seconds}])
+    return [script]
+
+
+def animated_load_door_target(vmad):
+    """(plugin, id, position, open_seconds) of an animated load door's VMAD; ValueError unless it is exactly
+    animated_load_door_scripts' shape (load_door_target's rules for the rest)."""
+    d = decode(vmad)
+    if len(d["scripts"]) != 1 or d["scripts"][0]["name"] != ANIMATED_SCRIPT:
+        raise ValueError(f"not one {ANIMATED_SCRIPT} script")
+    s = d["scripts"][0]
+    last = s["properties"][-1] if s["properties"] else None
+    if not last or (last["name"], last["type"], last["status"]) != (PROP_OPEN_SECONDS, T_FLOAT, PROP_EDITED):
+        raise ValueError(f"{PROP_OPEN_SECONDS} (float, edited) is not the last property")
+    base = dict(s, name=SCRIPT, properties=s["properties"][:-1])
+    plugin, local_id, position = load_door_target(encode([base], d["version"], d["format"]))
+    return plugin, local_id, position, last["value"]
+
+
 def same_position(got, want, tol=1e-3):
     """True when a decoded position (or None) equals the wanted three numbers within tol (metres)."""
     return got is not None and want is not None and len(got) == len(want) == 3 and all(

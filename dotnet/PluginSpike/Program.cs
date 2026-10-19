@@ -66,7 +66,7 @@ var byRef = new Dictionary<string, (FormKey key, P3Float offset)>();
 var openingDoors = new HashSet<FormKey>();   // bases of animated (non-load) doors: their references take FO4's open state
 var ownRigDoors = new HashSet<FormKey>();    // manifest rig "native": an opening rig, never a load door (TeleportLinks)
 var modelOf = new Dictionary<FormKey, string>();   // STAT / MSTT base -> its model: what a promoted reference's new base carries
-int doors = 0, loadDoors = 0, movables = 0, posed = 0;
+int doors = 0, loadDoors = 0, animatedLoadDoors = 0, movables = 0, posed = 0;
 foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in items)
 {
     if (posedRefs.Count > 0 && (door is not null || loadDoor is not null))
@@ -92,8 +92,31 @@ foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in it
                 First = new P3Float(lb[0][0].GetSingle(), lb[0][1].GetSingle(), lb[0][2].GetSingle()),
                 Second = new P3Float(lb[1][0].GetSingle(), lb[1][1].GetSingle(), lb[1][2].GetSingle()),
             };
+        // load_door.anim (scripts/door_bridge/load_door_anim.py, convert_batch.py --rig-load-doors): the load door opens
+        // before the trip, as Starfield's own visible load doors do. The record takes the rig's graph, skeleton and
+        // clips (and the twin's rigged model when the rig is borrowed); references shift by the rig's origin offset as
+        // the opening doors' do. Without "anim" (every manifest before 2026-10-19) nothing here changes.
+        var loadOffset = new P3Float(0, 0, 0);
+        if (ld.ValueKind == JsonValueKind.Object && ld.TryGetProperty("anim", out var la) && la.ValueKind == JsonValueKind.Object)
+        {
+            if (la.TryGetProperty("model", out var lm) && lm.GetString() is string twinModel) rec.Model = new Model { File = twinModel };
+            if (la.TryGetProperty("bounds", out var ab))
+                rec.ObjectBounds = new ObjectBounds
+                {
+                    First = new P3Float(ab[0][0].GetSingle(), ab[0][1].GetSingle(), ab[0][2].GetSingle()),
+                    Second = new P3Float(ab[1][0].GetSingle(), ab[1][1].GetSingle(), ab[1][2].GetSingle()),
+                };
+            rec.Components.Add(new AnimationGraphComponent
+            {
+                ANAM = la.GetProperty("anim_graph").GetString(), BNAM = la.GetProperty("skeleton").GetString(),
+                CNAM = la.GetProperty("animations").GetString(),
+            });
+            if (la.TryGetProperty("origin_offset", out var lo))
+                loadOffset = new P3Float(lo[0].GetSingle(), lo[1].GetSingle(), lo[2].GetSingle());
+            animatedLoadDoors++;
+        }
         mod.Doors.Add(rec);
-        bySource[source.Replace('/', '\\')] = (rec.FormKey, new P3Float(0, 0, 0));
+        bySource[source.Replace('/', '\\')] = (rec.FormKey, loadOffset);
         loadDoors++;
         continue;
     }
@@ -144,7 +167,8 @@ foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in it
     modelOf[stat.FormKey] = model;
     PosedBases.Register(byRef, bySource, source, posedRefs, (stat.FormKey, new P3Float(0, 0, 0)));
 }
-Console.WriteLine($"{items.Count - doors - loadDoors - movables} statics, {movables} movable statics, {doors} doors, {loadDoors} load doors; " +
+Console.WriteLine($"{items.Count - doors - loadDoors - movables} statics, {movables} movable statics, {doors} doors, {loadDoors} load doors" +
+                  (animatedLoadDoors > 0 ? $" ({animatedLoadDoors} open before the trip)" : "") + "; " +
                   $"{posed} of these are posed models for {byRef.Count} references");
 
 // FO4 / Starfield reference rotation (radians): Bethesda angles turn CLOCKWISE seen from the positive axis, so the matrix
