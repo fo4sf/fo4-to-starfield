@@ -56,3 +56,5 @@ No live stage, installation, controller release or native acceptance is implied;
 #280 paired allocator scope and current #32 ownership still apply.
 
 Codex October18: PR279 current-main compatibility with reviewed PR267 is in progress. Preserve persistent return markers, arrival coordinates, audit lease, flora/map-marker identities and caller controls. 44 targeted synthetic writer/caller/lease checks (no skips), three new integration regressions, two negative regression controls, build/provenance and guard pass. Shared make_cluster/vmad_patch match main unchanged. Independent current-head review/CI and newly pinned full-size/native acceptance remain required; no stage/install/game actions.
+
+Codex October18:279/f0a97b8 independent Grok QA6257004942/6257022597 clears the scoped merge. CI39179440252 ran2223 tests OK/110 skips but timed out at the15min job cap during cleanup. CI/doc-only follow-up gives20min bounded headroom; every production/test blob remains f0a97b8. New-head CI and independent CI/doc delta review remain pending; do not call the timed-out job green.

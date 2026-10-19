@@ -2077,3 +2077,10 @@ Plain merge combines PR279/beb7466 with reviewed PR267/2ff2a47, which contains m
 Resolved CLI/caller and fixture conflicts. A compiler check caught a duplicate local introduced by the merge; corrected assignment retains the outer reference plan. Removed a premature single-file cluster read so comma-separated clusters reach the actual merger; core comparison removes stage identity controls while preserving world settings. Three new integration regressions cover these caller contracts and a real synthetic map-marker/door-return held generation; both negative caller mutations fail as expected. All44 focused writer/caller/lease tests, build, provenance and guard pass, no skips. Independent current-head QA and hosted CI remain gates.
 
 The prior full-size core64l migration/parity evidence belongs to beb7466, not this new combined head. No fresh real stage, paired interior publication, installed archives/PEX, native outside/inside/return/save/reload or walking acceptance is claimed. No game installation, controller input or cleanup was performed. Initial merge/compiler failure and passing synthetic outputs remain privately preserved.
+
+
+## Codex: October18 CI headroom for the combined door-identity suite
+
+PR279/f0a97b8 CI39179440252 completed all2223 tests successfully with110 skips in888.656s, then the complete job timed out at15m01s. The earlier267/2ff2a47 job39175102642 already took13m54s. Original logs and timing-gap analysis retained; no individual test failure or hang was observed.
+
+Raise the existing CI job cap from15 to20 minutes, preserving every step, test, permission and security check. No production/test source changes or manual unchanged-suite reruns. f0a97b8 independent Grok QA6257004942/6257022597 and44 Windows controls remain scoped source evidence; terminal CI success at the new head is still required. This bounded headroom is not a performance improvement or native door acceptance. Independent CI/doc delta review requested.
