@@ -25,8 +25,10 @@ was cloned, run or copied. Below, `S` means `py_bacup_lib/native/conversion/src`
    dirt patches do not show. This is a later-phase terrain item; we would write it ourselves from the published format,
    not copy GPL code without the owner's decision (AP-60).
 2. **The dangling-teleport rule.** It matches what our interior writer already does. Unresolved: whether the core's
-   FO4SF_LoadDoor VMAD or an XTEL can point at a reference that does not exist (check make_core64c's load-door writer). It is
-   cheap to check offline and belongs on the crash list after props and door rigs.
+   FO4SF_LoadDoor VMAD can point at a reference that does not exist. The core writes no XTEL outdoors, and
+   `make_core64c.door_destination` checks only the destination's form (plugin file name, local id), not that the port
+   holds it. The VMAD target is looked up by the script when the door is used, not when the cell loads, so a missing
+   target should be a failed lookup rather than a load crash (**supported hypothesis**). It stays low on the crash list.
 3. Its LIGH, WATR and LGTM byte relayouts are checked against vanilla Starfield data; compare them with
    `scripts/terrain/fo4light.py` when lighting comes back.
 
