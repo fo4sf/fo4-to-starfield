@@ -328,6 +328,21 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(self.results()[0]["class"], "CRASH")
         self.assertEqual(jload(os.path.join(self.d, "state.json"))["crashes"], 1)
 
+    def test_a_second_crash_in_the_same_test_is_a_final_fail(self):
+        def step(test, out):
+            self.ctl.pid = None                           # the game exits during every attempt
+            return 0
+        self.runner(step, max_tests=1).run()
+        first = self.results()[0]
+        self.assertEqual((first["verdict"], first["class"]), ("INCONCLUSIVE", "CRASH"))
+        self.ctl.pid = self.ctl.owned_pid()
+        self.runner(step, max_tests=1).run()              # a later run of the same queue: the same test again
+        second = self.results()[1]
+        self.assertEqual((second["id"], second["verdict"], second["class"]), (first["id"], "FAIL", "CRASH"))
+        st = jload(os.path.join(self.d, "state.json"))
+        self.assertEqual(st["done"][first["id"]]["verdict"], "FAIL")
+        self.assertEqual(st["test_crashes"][first["id"]], 2)
+
     def test_someone_elses_game_is_never_touched(self):
         self.ctl.pid = 7                                  # not the pid cycle.ps1 recorded
         calls = []

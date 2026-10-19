@@ -129,6 +129,7 @@ BREAKER = 6          # inconclusive attempts in a row, with no PASS/FAIL yet, th
 # the same id fails the same way on every attempt
 FINAL_INCONCLUSIVE = ("CONTROL", "PRECONDITION", "ELEVATED", "NOBASE")
 NO_BREAKER = ("CRASH", "NOCELL", "NIGHT")
+CRASH_FAIL = 2          # crashes during one test that make it a final FAIL CRASH
 
 # npc_nav (PR #61 docs/actors/npc-navigation.md 3.4): what qstep.ps1 types on the verified console selection to make the
 # actor walk to the player, who stands at B. qstep.ps1 has the same table; nothing else is ever typed for a method.
@@ -3431,7 +3432,16 @@ class Runner:
                 if pid_before and not self.ctl.game_pid():
                     self.state["crashes"] += 1
                     self.session, self.cell = False, None
-                    verdict, cls, detail = "INCONCLUSIVE", "CRASH", "the game exited during this test"
+                    # a test the game exited during CRASH_FAIL times (this run or an earlier one of the queue) is a
+                    # final FAIL CRASH: the crash repeats there, and it goes on the bugs list instead of being retried
+                    # every run (docs/ai/test-queue.md "Crashes")
+                    tc = self.state.setdefault("test_crashes", {})
+                    tc[t["id"]] = tc.get(t["id"], 0) + 1
+                    if tc[t["id"]] >= CRASH_FAIL:
+                        verdict, cls, detail = "FAIL", "CRASH", (f"the game exited during this test {tc[t['id']]} "
+                                                                 f"times: final")
+                    else:
+                        verdict, cls, detail = "INCONCLUSIVE", "CRASH", "the game exited during this test"
                 else:
                     obs = load(os.path.join(out_dir, "obs.json"))
                     raw = judge(t, obs, out_dir)

@@ -47,6 +47,10 @@ launch, and the run stops with `limit: ...` when one is hit:
 
 Negative values, and a NaN or infinite floor, are refused. 0 means off.
 
+A test the game exits during twice is a final **FAIL CRASH** (`CRASH_FAIL`, counted per test in `state.json`
+`test_crashes`, across runs of the same queue). The crash repeats there, so the test goes on the bugs list instead of
+being retried every run. A single crash stays INCONCLUSIVE CRASH and is retried.
+
 ### Stairs routes (`routes.py`, 2026-10-13; amended after QA on PR #111)
 
 `routes.py` keeps a stairs route only when an offline walk (`src/fo4sf/walksim.py`, a 0.35 x 1.8 m capsule over FO4's
