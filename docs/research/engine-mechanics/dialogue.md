@@ -138,6 +138,12 @@ anywhere. Found (verified, PC job 22): `Starfield\Tools\FaceFX\` holds four acto
 `StarfieldHumanFemale.facefx`, `GenesisDefault.facefx` and `GenesisDeadHead.facefx`; none in ContentResources.zip or
 the FO4 folder. No file is named as an analysis actor, so which one goes in which LipGenerator slot is **unresolved**
 until a trial run.
+**Trial (verified, PC job 24):** a Windows text-to-speech WAV plus its text through LipGenerator with
+`StarfieldHumanMale.facefx` and `GenesisDefault.facefx` wrote an `.ffxanim` (18,170 bytes) in seconds, no window, no
+error; using the male actor twice (17,762 bytes) and passing the text inline instead of a file (17,052 bytes) also
+worked. Header `FACE`, then "ZeniMax Media" and an `EFG` block. So **unattended lip generation works with the files the
+free CK installs**. Still open: that the output matches a vanilla `.ffxanim` header and plays on a face in game, which
+analysis actor is right, and which actor fits robots and creatures (Codsworth).
 
 ## Mapping for the port
 
