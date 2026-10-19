@@ -213,3 +213,13 @@ class RunChainTests(Base):
         rc = ca.run_chain(self.camp([("walk", q)], released=["red_rocket"]), self.lines.append,
                           self.fake([0], {"status": "finished"}))
         self.assertEqual(rc, 0)
+
+
+class ShippedCampaignTests(unittest.TestCase):
+    def test_the_v6e_campaign_has_the_caps_and_holds_the_red_rocket_walk(self):
+        c = ca.read_campaign(os.path.join(ROOT, "scripts", "game", "campaigns", "v6e.json"))
+        self.assertEqual(ca.check_caps(c["caps"]), [])
+        self.assertEqual(c["released"], [])
+        self.assertEqual(c["holds"], {"red_rocket": ["FO4Core_RedRocketSpawn"]})
+        self.assertEqual([q["name"] for q in c["queues"]][-1], "walk")              # the held queue last
+        self.assertIn(c["launch"], ca.LAUNCHES)
