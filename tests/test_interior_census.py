@@ -1,0 +1,314 @@
+"""scripts/terrain/interior_census.py, interior_batches.py and interior_batch.py on synthetic plugins and plans: every
+interior cell and how it is reached, the batch order and limits, the port id comparison, the door selection, the prune
+rule. No game data."""
+import json
+import os
+import struct
+import sys
+import tempfile
+import unittest
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "scripts", "terrain"))
+sys.path.insert(0, os.path.join(ROOT, "src"))
+import interior_batch as ib  # noqa: E402
+import interior_batches as ibs  # noqa: E402
+import interior_census as ic  # noqa: E402
+import vmad_patch as vp  # noqa: E402
+
+G = vp.Group
+
+
+def rec(sig, fid, fields, flags=0):
+    return vp.record_bytes(sig, fid, flags, fields)
+
+
+def ref(fid, base, xtel=None, sig=b"REFR"):
+    fields = [(b"NAME", struct.pack("<I", base)), (b"DATA", struct.pack("<6f", 0, 0, 0, 0, 0, 0))]
+    if xtel:
+        fields.append((b"XTEL", struct.pack("<I", xtel) + bytes(28)))
+    return rec(sig, fid, fields)
+
+
+def cell(fid, edid, refs, interior=True, persistent=()):
+    c = rec(b"CELL", fid, [(b"EDID", edid.encode() + b"\0"), (b"DATA", struct.pack("<H", 1 if interior else 0))])
+    kids = []
+    if persistent:
+        kids.append(G(struct.pack("<I", fid), vp.GROUP_PERSISTENT, bytes(8), list(persistent)))
+    kids.append(G(struct.pack("<I", fid), vp.GROUP_TEMPORARY, bytes(8), list(refs)))
+    return [c, G(struct.pack("<I", fid), vp.GROUP_CELL_CHILDREN, bytes(8), kids)]
+
+
+def fo4_plugin():
+    """Fallout4.esm in miniature: a DOOR and a LIGH base; interiors Lobby (door from the Commonwealth, door on to
+    Vault), Vault (reached only through Lobby), Store (a door from DiamondCity) and zzTestCell (no door leads in);
+    the Commonwealth's exterior cell holds the door into Lobby, DiamondCity's the door into Store."""
+    DOOR, LIGH = 0x100, 0x101
+    bases = [G(b"DOOR", 0, bytes(8), [rec(b"DOOR", DOOR, [(b"EDID", b"Door\0")])]),
+             G(b"LIGH", 0, bytes(8), [rec(b"LIGH", LIGH, [(b"EDID", b"Light\0")])])]
+    lobby = cell(0x200, "Lobby", [ref(0x301, DOOR, xtel=0x900), ref(0x302, DOOR, xtel=0x311), ref(0x303, LIGH),
+                                   ref(0x304, LIGH), ref(0x305, 0x102, sig=b"ACHR")])
+    vault = cell(0x210, "Vault", [ref(0x311, DOOR, xtel=0x302), ref(0x312, 0x103)])
+    store = cell(0x220, "Store", [ref(0x321, DOOR, xtel=0x910)])
+    test = cell(0x230, "zzTestCell", [ref(0x331, 0x103)])
+    sub = G(struct.pack("<I", 0), vp.GROUP_INT_SUB if hasattr(vp, "GROUP_INT_SUB") else 3, bytes(8), lobby + vault + store + test)
+    cells = G(b"CELL", 0, bytes(8), [G(struct.pack("<I", 0), 2, bytes(8), [sub])])
+    ext_cw = cell(0x500, "", [ref(0x900, DOOR, xtel=0x301)], interior=False)
+    ext_dc = cell(0x510, "", [ref(0x910, DOOR, xtel=0x321)], interior=False)
+
+    def world(fid, edid, cells_):
+        w = rec(b"WRLD", fid, [(b"EDID", edid.encode() + b"\0")])
+        blk = G(struct.pack("<I", 0), 4, bytes(8), [G(struct.pack("<I", 0), 5, bytes(8), cells_)])
+        return [w, G(struct.pack("<I", fid), 1, bytes(8), [blk])]
+    worlds = G(b"WRLD", 0, bytes(8), world(0x3C, "Commonwealth", ext_cw) + world(0xF94, "DiamondCity", ext_dc))
+    tes4 = rec(b"TES4", 0, [(b"HEDR", struct.pack("<fII", 1.0, 20, 0x1000))], flags=1)
+    return tes4.serialize() + b"".join(g.serialize() for g in bases) + cells.serialize() + worlds.serialize()
+
+
+def fk(local):
+    return "%06X:Fallout4.esm" % local
+
+
+class CensusTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.esm = os.path.join(self.tmp.name, "Fallout4.esm")
+        with open(self.esm, "wb") as f:
+            f.write(fo4_plugin())
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_every_interior_and_its_reach(self):
+        backlog = {"backlog": [{"formkey": fk(0x200), "rank": 1}], "second_hop": [{"formkey": fk(0x210), "after_rank": 1}]}
+        r = ic.census([self.esm], port_cells=["Store"], backlog=backlog)
+        by = {c["editor_id"]: c for c in r["cells"]}
+        self.assertEqual(sorted(by), ["Lobby", "Store", "Vault", "zzTestCell"])
+        self.assertEqual((by["Lobby"]["reach"], by["Lobby"]["hop"], by["Lobby"]["entered_from"]), ("worldspace", 1, ["Commonwealth"]))
+        self.assertEqual((by["Vault"]["reach"], by["Vault"]["hop"], by["Vault"]["entered_from"]), ("behind_interior", 2, ["Lobby"]))
+        self.assertEqual(by["Store"]["entered_from"], ["DiamondCity"])
+        self.assertEqual((by["zzTestCell"]["reach"], by["zzTestCell"]["test_name"]), ("no_load_door", True))
+        self.assertEqual((by["Lobby"]["status"], by["Lobby"]["backlog_rank"]), ("backlog", 1))
+        self.assertEqual(by["Vault"]["status"], "second_hop")
+        self.assertEqual(by["Store"]["status"], "in_port")
+        self.assertEqual(by["zzTestCell"]["status"], "new")
+        self.assertEqual((by["Lobby"]["refs"], by["Lobby"]["lights"], by["Lobby"]["placed"]), (5, 2, {"ACHR": 1, "REFR": 4}))
+        self.assertEqual(sorted(d["to"] for d in by["Lobby"]["load_doors_out"]), ["Vault", "world:Commonwealth"])
+        self.assertEqual(by["Lobby"]["formkey"], fk(0x200))
+        self.assertEqual(r["totals"]["interiors"], 4)
+        with self.assertRaisesRegex(ValueError, "port cells not among"):
+            ic.census([self.esm], port_cells=["Nowhere"])
+
+    def test_main_writes_the_census(self):
+        out = os.path.join(self.tmp.name, "census.json")
+        self.assertEqual(ic.main(["--out", out, self.esm]), 0)
+        self.assertEqual(len(ib.load(out)["cells"]), 4)
+        with self.assertRaises(SystemExit):
+            ic.main(["--out", out, os.path.join(self.tmp.name, "DLCRobot.esm")])   # Fallout4.esm must come first
+
+
+def crow(eid, key, reach="worldspace", status="backlog", refs=100, entered=("Commonwealth",), bases=10, worlds=None):
+    return {"editor_id": eid, "formkey": key, "reach": reach, "status": status, "refs": refs, "lights": 1, "navmeshes": 1,
+            "distinct_bases": bases, "entered_from": list(entered), "test_name": False,
+            "load_doors_out": [], "load_doors_in": [{"from": e, "door": "D" + eid} for e in entered]}
+
+
+class BatchPlanTests(unittest.TestCase):
+    def plan_inputs(self):
+        rows = [crow("Port", "1", status="in_port"),
+                crow("BehindPort", "2", reach="behind_interior", status="second_hop", entered=("Port",)),
+                crow("Near", "3"), crow("Far1", "4"), crow("Far2", "5"),
+                crow("Behind2", "6", reach="behind_interior", status="second_hop", entered=("Far1",)),
+                crow("DmndShop", "7", status="new", entered=("DiamondCity",)),
+                crow("ccABCFO4001", "8", status="new"), crow("Unreached", "9", reach="no_load_door", status="new")]
+        backlog = {"totals": {"backlog_new_models": 10, "backlog_new_models_per_cell_sum": 20},
+                   "backlog": [{"formkey": "3", "nearest_m": 200, "rank": 9, "adds_models": 5, "distinct_models": 10, "new_models": 5},
+                               {"formkey": "4", "nearest_m": 1500, "rank": 1, "adds_models": 7, "distinct_models": 10, "new_models": 5},
+                               {"formkey": "5", "nearest_m": 1600, "rank": 2, "adds_models": 1, "distinct_models": 10, "new_models": 5}],
+                   "second_hop": [{"formkey": "2", "after_rank": 0, "adds_models": 2},
+                                  {"formkey": "6", "after_rank": 1, "adds_models": 3}]}
+        return {"cells": rows, "worlds": {"a": "Commonwealth", "b": "DiamondCity"}}, backlog
+
+    def test_order_limits_and_left_out(self):
+        census, backlog = self.plan_inputs()
+        r = ibs.plan(census, backlog, min_cells=1, max_cells=30)
+        names = [c["editor_id"] for b in r["batches"] for c in b["cells"]]
+        # completes the port first, then near, then the ranking with Behind2 right after Far1, then other worlds
+        self.assertEqual(names, ["BehindPort", "Near", "Far1", "Behind2", "Far2", "DmndShop"])
+        self.assertEqual([s["editor_id"] for s in r["skipped"]], ["ccABCFO4001"])
+        phases = {c["editor_id"]: c["phase"] for b in r["batches"] for c in b["cells"]}
+        self.assertEqual((phases["BehindPort"], phases["Near"], phases["Far1"], phases["DmndShop"]),
+                         ("completes_port", "near", "ranked", "world"))
+        self.assertEqual(r["batches"][0]["new_models_est"], 2 + 5 + 7 + 3 + 1 + round(10 * 0.5 * 0.5))
+        small = ibs.plan(census, backlog, min_cells=1, max_cells=2)
+        self.assertEqual([b["cell_count"] for b in small["batches"]], [2, 2, 2])
+        byrefs = ibs.plan(census, backlog, min_cells=1, max_cells=30, max_refs=250)
+        self.assertEqual([b["cell_count"] for b in byrefs["batches"]], [2, 2, 2])
+        checked = ibs.disk_check(ibs.plan(census, backlog, 1, 2), free_gb=45, floor_gb=40)
+        self.assertEqual(checked["totals"]["first_batch_under_floor"], 1)   # 2 x archives + loose: about 9 GB already
+        self.assertIn("| 1 | 2 |", ibs.markdown(small))
+
+
+class BatchToolTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def port(self, name, ids, plugin_bytes):
+        d = os.path.join(self.tmp.name, name)
+        os.makedirs(d)
+        with open(os.path.join(d, "FO4Port.esm"), "wb") as f:
+            f.write(plugin_bytes)
+        with open(os.path.join(d, "formids.json"), "w", encoding="utf-8") as f:
+            json.dump(ids, f)
+        return d
+
+    def plugin(self, extra=(), change=False, drop=False):
+        OWN = 0x01000000
+        stat = rec(b"STAT", OWN | 0x800, [(b"EDID", b"FO4Port_a\0"), (b"MODL", b"a.nif\0" if not change else b"b.nif\0")])
+        c = rec(b"CELL", OWN | 0x801, [(b"EDID", b"FO4Port_Old\0"), (b"DATA", struct.pack("<I", 1))])
+        refs = [] if drop else [ref(OWN | 0x802, OWN | 0x800)]
+        kids = G(struct.pack("<I", OWN | 0x801), vp.GROUP_CELL_CHILDREN, bytes(8),
+                 [G(struct.pack("<I", OWN | 0x801), vp.GROUP_TEMPORARY, bytes(8), refs)])
+        blocks = [c, kids] + list(extra)
+        top = G(b"CELL", 0, bytes(8), [G(struct.pack("<I", 0), 2, bytes(8), [G(struct.pack("<I", 0), 3, bytes(8), blocks)])])
+        tes4 = vp.record_bytes(b"TES4", 0, 1, [(b"HEDR", struct.pack("<fII", 0.96, 3, 0x900)), (b"MAST", b"Starfield.esm\0"),
+                                               (b"DATA", bytes(8))])
+        return tes4.serialize() + G(b"STAT", 0, bytes(8), [stat]).serialize() + top.serialize()
+
+    def test_compare_passes_a_grown_port_and_fails_renumbered_or_removed(self):
+        OWN = 0x01000000
+        ids = {"STAT:FO4Port_a": 0x800, "CELL:FO4Port_Old": 0x801, "REFR:FO4Port_Old:1:Fallout4.esm": 0x802}
+        old = self.port("old", ids, self.plugin())
+        newc = rec(b"CELL", OWN | 0x850, [(b"EDID", b"FO4Port_New\0"), (b"DATA", struct.pack("<I", 1))])
+        grown = self.port("grown", dict(ids, **{"CELL:FO4Port_New": 0x850}), self.plugin(extra=[newc], change=True))
+        r = ib.compare(old, grown)
+        self.assertTrue(r["pass"], r["problems"])
+        self.assertEqual(r["cells_added"], ["FO4Port_New"])
+        self.assertEqual((r["records"]["changed"], r["records"]["identical"], r["records"]["added"]),
+                         ({"STAT": 1}, {"CELL": 1, "REFR": 1}, {"CELL": 1}))
+        moved = self.port("moved", dict(ids, **{"STAT:FO4Port_a": 0x851}), self.plugin())
+        self.assertIn("renumbered", ib.compare(old, moved)["problems"][0])
+        gone = self.port("gone", {k: v for k, v in ids.items() if not k.startswith("REFR")}, self.plugin(drop=True))
+        problems = " ".join(ib.compare(old, gone)["problems"])
+        self.assertIn("missing", problems)
+        self.assertIn("removed", problems)
+
+    def test_batch_cells_doors_placed_counts_and_prune(self):
+        plan = {"batches": [{"name": "interiors_b01", "cells": [{"editor_id": "A"}, {"editor_id": "B"}]},
+                            {"name": "interiors_b02", "cells": [{"editor_id": "C"}]}]}
+        self.assertEqual(ib.batch_cells(plan, 0), [])
+        self.assertEqual(ib.batch_cells(plan, 2), ["A", "B", "C"])
+        with self.assertRaises(ValueError):
+            ib.batch_cells(plan, 3)
+        census = {"worlds": {"x": "Commonwealth", "y": "DiamondCity"},
+                  "cells": [{"editor_id": "A", "load_doors_in": [{"from": "Commonwealth", "door": "0AA:Fallout4.esm"}]},
+                            {"editor_id": "B", "load_doors_in": [{"from": "A", "door": "0BB:Fallout4.esm"},
+                                                                 {"from": "DiamondCity", "door": "0CC:Fallout4.esm"}]}]}
+        d = ib.doors(plan, census, 1)
+        self.assertEqual(d["only"], "FO4Port_A")
+        self.assertEqual(d["coc_only"], ["FO4Port_B"])
+        self.assertEqual(d["cells"][1]["interior_doors_from"], ["A"])
+        self.assertEqual(d["cells"][1]["other_worldspace_doors"], ["DiamondCity"])
+        log = os.path.join(self.tmp.name, "build.log")
+        with open(log, "w", encoding="utf-8") as f:
+            f.write("cell FO4Port_ConcordFactory 001387:FO4Port.esm: placed 493 references + 23 lights (0 initially disabled), skipped 28\n")
+        self.assertEqual(ib.placed_counts(log), {"ConcordFactory": {"placed": 493, "lights": 23, "skipped": 28}})
+        root = os.path.join(self.tmp.name, "staging")
+        for n, mine in (("interiors_b01", True), ("interiors_b02", True), ("interiors_b03", True), ("interiors_b04", False),
+                        ("integ_v6", True)):
+            os.makedirs(os.path.join(root, n))
+            if mine:
+                with open(os.path.join(root, n, "result.json"), "w", encoding="utf-8") as f:
+                    json.dump({"name": n, "installed": False}, f)
+        self.assertEqual([os.path.basename(p) for p in ib.prune(root, 2, delete=False)], ["interiors_b01"])
+        self.assertTrue(os.path.isdir(os.path.join(root, "interiors_b01")))
+        ib.prune(root, 2, delete=True)
+        self.assertEqual(sorted(os.listdir(root)), ["integ_v6", "interiors_b02", "interiors_b03", "interiors_b04"])
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+class BuildFlowTests(unittest.TestCase):
+    """build() with every external step faked (export, convert, promote, PluginSpike, the door patch): the order of the
+    steps, the arguments they get, the base exports pinned, the result table. The real tools run on the PC."""
+
+    def test_build_runs_the_steps_and_writes_the_result(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        t = tmp.name
+        base = os.path.join(t, "base")
+        os.makedirs(base)
+        OWN = 0x01000000
+        tool = BatchToolTests()
+        old_plugin = tool.plugin()
+        with open(os.path.join(base, "FO4Port.esm"), "wb") as f:
+            f.write(old_plugin)
+        ids = {"STAT:FO4Port_a": 0x800, "CELL:FO4Port_Old": 0x801, "REFR:FO4Port_Old:1:Fallout4.esm": 0x802}
+        ib.save(os.path.join(base, "formids.json"), ids)
+        ib.save(os.path.join(base, "doors.json"), {"doors": [{"src": "1:Fallout4.esm", "marker": "000803"}]})
+        ib.save(os.path.join(base, "Old.json"), {"cell": "Old", "refs": [{"model": "a.nif"}]})
+        plan = os.path.join(t, "plan.json")
+        ib.save(plan, {"batches": [{"name": "interiors_b01", "peak_gb_est": 0.0, "cells": [{"editor_id": "New"}, {"editor_id": "Bad"}]}]})
+        work, out = os.path.join(t, "work"), os.path.join(t, "staging", "interiors_b01")
+        calls = []
+        newc = rec(b"CELL", OWN | 0x850, [(b"EDID", b"FO4Port_New\0"), (b"DATA", struct.pack("<I", 1))])
+
+        def fake_run(cmd, log, env=None, cwd=None):
+            calls.append(cmd)
+            joined = " ".join(cmd)
+            if "export" in cmd and cmd[0] == "dotnet":
+                if cmd[-2] == "Bad":
+                    return 1, 0.1
+                ib.save(cmd[-1], {"cell": cmd[-2], "refs": [{"model": "meshes\\n.nif"}]})
+            elif "convert_batch.py" in joined:
+                merged = ib.load(cmd[cmd.index("--cell-json") + 1])
+                self.assertEqual(len(merged["refs"]), 2)                 # Old (pinned) + New
+                ib.save(os.path.join(work, "manifest.json"), {"items": [], "failures": [{"nif": "meshes\\n.nif", "reason": "x"}]})
+            elif "port_promote.py" in joined:
+                ib.save(cmd[cmd.index("--out") + 1], {})
+            elif cmd[0] == "dotnet":                                     # PluginSpike
+                raw = cmd[2]
+                self.assertEqual(ib.load(os.path.join(raw, "formids.json")), ids)   # seeded with the base map
+                with open(os.path.join(raw, "FO4Port.esm"), "wb") as f:
+                    f.write(tool.plugin(extra=[newc]))
+                ib.save(os.path.join(raw, "formids.json"), dict(ids, **{"CELL:FO4Port_New": 0x850}))
+                ib.save(os.path.join(raw, "teleports.json"), {"Linked": 0, "Issues": []})
+                with open(log, "a", encoding="utf-8") as f:
+                    f.write("cell FO4Port_New 000850:FO4Port.esm: placed 1 references + 0 lights (0 initially disabled), skipped 0\n")
+            elif "vmad_patch.py" in joined and cmd[2] == "port":
+                self.assertEqual(cmd[cmd.index("--keep-markers") + 1], os.path.join(base, "doors.json"))
+                dst = cmd[cmd.index("--out") + 1]
+                os.makedirs(dst)
+                src = cmd[cmd.index("--port") + 1]
+                for n in ("FO4Port.esm", "formids.json"):
+                    with open(os.path.join(src, n), "rb") as a_, open(os.path.join(dst, n), "wb") as b_:
+                        b_.write(a_.read())
+            return 0, 0.1
+
+        argv = ["build", "--plan", plan, "--batch", "1", "--base", base, "--base-exports", base, "--core", os.path.join(t, "core"),
+                "--work", work, "--out", out, "--fo4-data", t, "--starfield", t, "--content-resources", "c.zip",
+                "--texconv", "tex.exe", "--collision-template", "t.nif", "--fo4export", "Fo4Export.dll",
+                "--pluginspike", "PluginSpike.dll", "--no-pack", "--jobs", "1", "--min-free-gb", "0"]
+        real = ib.run
+        ib.run = fake_run
+        try:
+            rc = ib.main(argv)
+        finally:
+            ib.run = real
+        res = ib.load(os.path.join(out, "result.json"))
+        self.assertEqual(rc, 1, res)                                      # the Bad export fails the batch
+        self.assertEqual(res["cells"]["New"]["result"], "converted")
+        self.assertEqual(res["cells"]["New"]["placed"], 1)
+        self.assertEqual(res["cells"]["New"]["failed_models"], ["meshes\\n.nif"])
+        self.assertEqual((res["cells"]["Bad"]["result"], res["cells"]["Bad"]["reason"]), ("failed", "export failed"))
+        self.assertTrue(res["steps"]["compare"]["pass"])
+        self.assertFalse(res["installed"])
+        self.assertTrue(os.path.isfile(os.path.join(out, "base_exports", "Old.json")))
+        self.assertIn("--resume", calls[[i for i, c in enumerate(calls) if "convert_batch.py" in " ".join(c)][0]])
+        with self.assertRaises(SystemExit):                                # never into an existing folder
+            ib.main(argv)

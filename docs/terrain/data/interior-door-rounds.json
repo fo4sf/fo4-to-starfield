@@ -1,0 +1,2732 @@
+{
+ "note": "scripts/terrain/interior_batch.py doors, per batch (docs/terrain/interior-batches.md)",
+ "batches": [
+  {
+   "batch": 1,
+   "name": "interiors_b01",
+   "only": "FO4Port_SanctuaryBasementJahani,FO4Port_ConcordCivicAccess01,FO4Port_ConcordFactory,FO4Port_ConcordSpeakeasy,FO4Port_ConcordMuseum01,FO4Port_GorskiCabin01,FO4Port_USAFSatellite01,FO4Port_WaldenPond01,FO4Port_Switchboard,FO4Port_zLexingtonGarage,FO4Port_zLexingtonLaundromat,FO4Port_FederalRationStockpile01,FO4Port_CorvegaAssemblyPlant01,FO4Port_ArcjetSystems02,FO4Port_zLexingtonApartments,FO4Port_zLexingtonPharmacy,FO4Port_CovenantHQ01,FO4Port_ArcjetSystems01,FO4Port_GraygardenHomestead01,FO4Port_zInstituteRotunda",
+   "cells": [
+    {
+     "cell": "GoodneighborTheMemoryDen",
+     "coc": "FO4Port_GoodneighborTheMemoryDen",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "Goodneighbor"
+     ],
+     "interior_doors_from": [
+      "MQ203KelloggsBrain"
+     ]
+    },
+    {
+     "cell": "MQ203KelloggsBrain",
+     "coc": "FO4Port_MQ203KelloggsBrain",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "GoodneighborTheMemoryDen",
+      "PrewarVault111",
+      "Vault111Cryo"
+     ]
+    },
+    {
+     "cell": "ParsonsState02",
+     "coc": "FO4Port_ParsonsState02",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "ParsonsState01",
+      "ParsonsState03"
+     ]
+    },
+    {
+     "cell": "ParsonsState03",
+     "coc": "FO4Port_ParsonsState03",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "ParsonsState01",
+      "ParsonsState02"
+     ]
+    },
+    {
+     "cell": "PrewarVault111",
+     "coc": "FO4Port_PrewarVault111",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "SanctuaryHillsWorld"
+     ],
+     "interior_doors_from": [
+      "MQ203KelloggsBrain"
+     ]
+    },
+    {
+     "cell": "PrydwenHull03",
+     "coc": "FO4Port_PrydwenHull03",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "PrydwenHull01"
+     ]
+    },
+    {
+     "cell": "Vault11402",
+     "coc": "FO4Port_Vault11402",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "Vault114"
+     ]
+    },
+    {
+     "cell": "SanctuaryBasementJahani",
+     "coc": "FO4Port_SanctuaryBasementJahani",
+     "commonwealth_doors": [
+      "0A36EB:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "ConcordCivicAccess01",
+     "coc": "FO4Port_ConcordCivicAccess01",
+     "commonwealth_doors": [
+      "04C3E0:Fallout4.esm",
+      "04C3DE:Fallout4.esm",
+      "02C9A5:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "ConcordFactory",
+     "coc": "FO4Port_ConcordFactory",
+     "commonwealth_doors": [
+      "0E3DAD:Fallout4.esm",
+      "0E3DAB:Fallout4.esm",
+      "0E3DA1:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "ConcordSpeakeasy",
+     "coc": "FO4Port_ConcordSpeakeasy",
+     "commonwealth_doors": [
+      "07895F:Fallout4.esm",
+      "07895D:Fallout4.esm",
+      "07895C:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "ConcordMuseum01",
+     "coc": "FO4Port_ConcordMuseum01",
+     "commonwealth_doors": [
+      "01D22F:Fallout4.esm",
+      "01AC07:Fallout4.esm",
+      "029AD8:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "GorskiCabin01",
+     "coc": "FO4Port_GorskiCabin01",
+     "commonwealth_doors": [
+      "0EEEC9:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "USAFSatellite01",
+     "coc": "FO4Port_USAFSatellite01",
+     "commonwealth_doors": [
+      "06908E:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "WaldenPond01",
+     "coc": "FO4Port_WaldenPond01",
+     "commonwealth_doors": [
+      "02F7ED:Fallout4.esm",
+      "0317E0:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "Switchboard",
+     "coc": "FO4Port_Switchboard",
+     "commonwealth_doors": [
+      "0B42E5:Fallout4.esm",
+      "0B4786:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "zLexingtonGarage",
+     "coc": "FO4Port_zLexingtonGarage",
+     "commonwealth_doors": [
+      "1AE416:Fallout4.esm",
+      "1AE3A8:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "zLexingtonLaundromat",
+     "coc": "FO4Port_zLexingtonLaundromat",
+     "commonwealth_doors": [
+      "1AD102:Fallout4.esm",
+      "1AD0A5:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "FederalRationStockpile01",
+     "coc": "FO4Port_FederalRationStockpile01",
+     "commonwealth_doors": [
+      "0EC3A8:Fallout4.esm",
+      "0220C4:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "CorvegaAssemblyPlant01",
+     "coc": "FO4Port_CorvegaAssemblyPlant01",
+     "commonwealth_doors": [
+      "22F1EB:Fallout4.esm",
+      "1A842A:Fallout4.esm",
+      "0CFB19:Fallout4.esm",
+      "057283:Fallout4.esm",
+      "057281:Fallout4.esm",
+      "057280:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "ArcjetSystems02",
+     "coc": "FO4Port_ArcjetSystems02",
+     "commonwealth_doors": [
+      "11D817:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "ArcjetSystems01"
+     ]
+    },
+    {
+     "cell": "zLexingtonApartments",
+     "coc": "FO4Port_zLexingtonApartments",
+     "commonwealth_doors": [
+      "137A4A:Fallout4.esm",
+      "137A49:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "zLexingtonPharmacy",
+     "coc": "FO4Port_zLexingtonPharmacy",
+     "commonwealth_doors": [
+      "1AD13B:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "CovenantHQ01",
+     "coc": "FO4Port_CovenantHQ01",
+     "commonwealth_doors": [
+      "0731A9:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "ArcjetSystems01",
+     "coc": "FO4Port_ArcjetSystems01",
+     "commonwealth_doors": [
+      "081EF8:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "ArcjetSystems02"
+     ]
+    },
+    {
+     "cell": "GraygardenHomestead01",
+     "coc": "FO4Port_GraygardenHomestead01",
+     "commonwealth_doors": [
+      "15A342:Fallout4.esm",
+      "15A341:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "zInstituteRotunda",
+     "coc": "FO4Port_zInstituteRotunda",
+     "commonwealth_doors": [
+      "1B2090:Fallout4.esm",
+      "0C7621:Fallout4.esm",
+      "0C7620:Fallout4.esm",
+      "0C761F:Fallout4.esm",
+      "0C761E:Fallout4.esm",
+      "0C761D:Fallout4.esm",
+      "0C761C:Fallout4.esm",
+      "0C75E9:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    }
+   ],
+   "commonwealth_door_count": 47,
+   "needs": "this batch's port installed together with a core build whose doors cluster was made against it (make_cluster.py doors --port <this batch's port>, make_core64c.py stage --cluster, then vmad_patch.py port): the installed core v6c/v6e only wires the 16 base cells' doors",
+   "then": [
+    "python scripts/bridge/door_rounds.py order --plugins-txt <Plugins.txt>",
+    "python scripts/bridge/door_rounds.py stage --core <that core build> --port <this batch's port> --core-index HH --port-index HH --out <NEW folder> --only FO4Port_SanctuaryBasementJahani,FO4Port_ConcordCivicAccess01,FO4Port_ConcordFactory,FO4Port_ConcordSpeakeasy,FO4Port_ConcordMuseum01,FO4Port_GorskiCabin01,FO4Port_USAFSatellite01,FO4Port_WaldenPond01,FO4Port_Switchboard,FO4Port_zLexingtonGarage,FO4Port_zLexingtonLaundromat,FO4Port_FederalRationStockpile01,FO4Port_CorvegaAssemblyPlant01,FO4Port_ArcjetSystems02,FO4Port_zLexingtonApartments,FO4Port_zLexingtonPharmacy,FO4Port_CovenantHQ01,FO4Port_ArcjetSystems01,FO4Port_GraygardenHomestead01,FO4Port_zInstituteRotunda",
+    "python scripts/game/testqueue.py plan-terrain --staging <port> --exp-dir <out> --out <queue> --bridge <bridge staging>",
+    "python scripts/game/testqueue.py run --queue <queue> --max-attempts 1",
+    "python scripts/bridge/door_rounds.py judge --queue <queue>"
+   ],
+   "coc_only": [
+    "FO4Port_GoodneighborTheMemoryDen",
+    "FO4Port_MQ203KelloggsBrain",
+    "FO4Port_ParsonsState02",
+    "FO4Port_ParsonsState03",
+    "FO4Port_PrewarVault111",
+    "FO4Port_PrydwenHull03",
+    "FO4Port_Vault11402"
+   ]
+  },
+  {
+   "batch": 2,
+   "name": "interiors_b02",
+   "only": "FO4Port_FaneuilHall01,FO4Port_USSConstitution01,FO4Port_TheaterHub360,FO4Port_TheaterMassBayMedicalCenter01,FO4Port_MassFusion01,FO4Port_CambridgeCollegeAdminBuilding,FO4Port_Financial14,FO4Port_FensParkviewApartments02,FO4Port_CambridgePlumbing01,FO4Port_CambridgeMonsignorPlaza01,FO4Port_CambridgeEastCITRaiderCamp01,FO4Port_FensCafeBuilding,FO4Port_LaytonTowers01,FO4Port_CambridgePD01,FO4Port_EastBostonPrep01,FO4Port_GeneralAtomicsGalleria01,FO4Port_Financial07,FO4Port_DBTechHighSchool01,FO4Port_HardwareTown01,FO4Port_MassPikeTunnel01",
+   "cells": [
+    {
+     "cell": "FaneuilHall01",
+     "coc": "FO4Port_FaneuilHall01",
+     "commonwealth_doors": [
+      "075DB5:Fallout4.esm",
+      "063DFF:Fallout4.esm",
+      "063DFC:Fallout4.esm",
+      "063DFB:Fallout4.esm",
+      "063DFA:Fallout4.esm",
+      "063DF8:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "USSConstitution01",
+     "coc": "FO4Port_USSConstitution01",
+     "commonwealth_doors": [
+      "0A18E9:Fallout4.esm",
+      "03F363:Fallout4.esm",
+      "03F35A:Fallout4.esm",
+      "0B1A6A:Fallout4.esm",
+      "0B1A7F:Fallout4.esm",
+      "0B1A7E:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "TheaterHub360",
+     "coc": "FO4Port_TheaterHub360",
+     "commonwealth_doors": [
+      "1C2EC7:Fallout4.esm",
+      "0CFC62:Fallout4.esm",
+      "09643A:Fallout4.esm",
+      "095439:Fallout4.esm",
+      "176408:Fallout4.esm",
+      "176223:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "CTEST",
+      "ccTOSFO4001"
+     ]
+    },
+    {
+     "cell": "TheaterMassBayMedicalCenter01",
+     "coc": "FO4Port_TheaterMassBayMedicalCenter01",
+     "commonwealth_doors": [
+      "1C03C6:Fallout4.esm",
+      "09C301:Fallout4.esm",
+      "09C2EE:Fallout4.esm",
+      "09C2ED:Fallout4.esm",
+      "09C2E7:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "TheaterMassBayMedicalCenter02"
+     ]
+    },
+    {
+     "cell": "MassFusion01",
+     "coc": "FO4Port_MassFusion01",
+     "commonwealth_doors": [
+      "098B1D:Fallout4.esm",
+      "098B1C:Fallout4.esm",
+      "0973EB:Fallout4.esm",
+      "0973E2:Fallout4.esm",
+      "083B0C:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "MassFusion02"
+     ]
+    },
+    {
+     "cell": "MassFusion02",
+     "coc": "FO4Port_MassFusion02",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "MassFusion01"
+     ]
+    },
+    {
+     "cell": "CambridgeCollegeAdminBuilding",
+     "coc": "FO4Port_CambridgeCollegeAdminBuilding",
+     "commonwealth_doors": [
+      "0A4609:Fallout4.esm",
+      "0A4616:Fallout4.esm",
+      "0A460A:Fallout4.esm",
+      "0A4607:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "Financial14",
+     "coc": "FO4Port_Financial14",
+     "commonwealth_doors": [
+      "1CA70E:Fallout4.esm",
+      "04CB76:Fallout4.esm",
+      "04EF0A:Fallout4.esm",
+      "0938F8:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "FensParkviewApartments02",
+     "coc": "FO4Port_FensParkviewApartments02",
+     "commonwealth_doors": [
+      "1B4B62:Fallout4.esm",
+      "0C94C9:Fallout4.esm",
+      "0C94CA:Fallout4.esm",
+      "0C94E2:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "CambridgePlumbing01",
+     "coc": "FO4Port_CambridgePlumbing01",
+     "commonwealth_doors": [
+      "1BAE00:Fallout4.esm",
+      "1BADFF:Fallout4.esm",
+      "1BADFE:Fallout4.esm",
+      "1BADFD:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "CambridgeMonsignorPlaza01",
+     "coc": "FO4Port_CambridgeMonsignorPlaza01",
+     "commonwealth_doors": [
+      "0A9740:Fallout4.esm",
+      "0A9742:Fallout4.esm",
+      "0A9737:Fallout4.esm",
+      "0A9771:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "CambridgeEastCITRaiderCamp01",
+     "coc": "FO4Port_CambridgeEastCITRaiderCamp01",
+     "commonwealth_doors": [
+      "0A97B6:Fallout4.esm",
+      "0A97B5:Fallout4.esm",
+      "0C3B94:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "FensCafeBuilding",
+     "coc": "FO4Port_FensCafeBuilding",
+     "commonwealth_doors": [
+      "0C0889:Fallout4.esm",
+      "0C0887:Fallout4.esm",
+      "0C0886:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "LaytonTowers01",
+     "coc": "FO4Port_LaytonTowers01",
+     "commonwealth_doors": [
+      "0A21C3:Fallout4.esm",
+      "0A21CA:Fallout4.esm",
+      "0A21CB:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "CambridgePD01",
+     "coc": "FO4Port_CambridgePD01",
+     "commonwealth_doors": [
+      "06F0C7:Fallout4.esm",
+      "06E977:Fallout4.esm",
+      "03A241:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "EastBostonPrep01",
+     "coc": "FO4Port_EastBostonPrep01",
+     "commonwealth_doors": [
+      "137537:Fallout4.esm",
+      "130F05:Fallout4.esm",
+      "039A2A:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "GeneralAtomicsGalleria01",
+     "coc": "FO4Port_GeneralAtomicsGalleria01",
+     "commonwealth_doors": [
+      "0FD6A7:Fallout4.esm",
+      "0EA510:Fallout4.esm",
+      "0EA50F:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "Financial07",
+     "coc": "FO4Port_Financial07",
+     "commonwealth_doors": [
+      "071F59:Fallout4.esm",
+      "06FE7E:Fallout4.esm",
+      "0693A9:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DBTechHighSchool01",
+     "coc": "FO4Port_DBTechHighSchool01",
+     "commonwealth_doors": [
+      "0E2286:Fallout4.esm",
+      "0D92AB:Fallout4.esm",
+      "0484CA:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "DBTechHighSchool02"
+     ]
+    },
+    {
+     "cell": "HardwareTown01",
+     "coc": "FO4Port_HardwareTown01",
+     "commonwealth_doors": [
+      "02A997:Fallout4.esm",
+      "02A98E:Fallout4.esm",
+      "02680E:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "MassPikeTunnel01",
+     "coc": "FO4Port_MassPikeTunnel01",
+     "commonwealth_doors": [
+      "043ED7:Fallout4.esm",
+      "07D99B:Fallout4.esm",
+      "07D925:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    }
+   ],
+   "commonwealth_door_count": 78,
+   "needs": "this batch's port installed together with a core build whose doors cluster was made against it (make_cluster.py doors --port <this batch's port>, make_core64c.py stage --cluster, then vmad_patch.py port): the installed core v6c/v6e only wires the 16 base cells' doors",
+   "then": [
+    "python scripts/bridge/door_rounds.py order --plugins-txt <Plugins.txt>",
+    "python scripts/bridge/door_rounds.py stage --core <that core build> --port <this batch's port> --core-index HH --port-index HH --out <NEW folder> --only FO4Port_FaneuilHall01,FO4Port_USSConstitution01,FO4Port_TheaterHub360,FO4Port_TheaterMassBayMedicalCenter01,FO4Port_MassFusion01,FO4Port_CambridgeCollegeAdminBuilding,FO4Port_Financial14,FO4Port_FensParkviewApartments02,FO4Port_CambridgePlumbing01,FO4Port_CambridgeMonsignorPlaza01,FO4Port_CambridgeEastCITRaiderCamp01,FO4Port_FensCafeBuilding,FO4Port_LaytonTowers01,FO4Port_CambridgePD01,FO4Port_EastBostonPrep01,FO4Port_GeneralAtomicsGalleria01,FO4Port_Financial07,FO4Port_DBTechHighSchool01,FO4Port_HardwareTown01,FO4Port_MassPikeTunnel01",
+    "python scripts/game/testqueue.py plan-terrain --staging <port> --exp-dir <out> --out <queue> --bridge <bridge staging>",
+    "python scripts/game/testqueue.py run --queue <queue> --max-attempts 1",
+    "python scripts/bridge/door_rounds.py judge --queue <queue>"
+   ],
+   "coc_only": [
+    "FO4Port_MassFusion02"
+   ]
+  },
+  {
+   "batch": 3,
+   "name": "interiors_b03",
+   "only": "FO4Port_WestonWaterTreatment01,FO4Port_TrinityChurch01,FO4Port_CambridgeChurchGraveyard01,FO4Port_CambridgeMassChemical01,FO4Port_HestersRobotics01,FO4Port_GNN01,FO4Port_FallonsDepartmentStore01,FO4Port_UniversityPoint01,FO4Port_BostonAirportRuins01,FO4Port_NationalGuardTrainingYard01,FO4Port_NationalGuardTrainingYard02,FO4Port_Financial30,FO4Port_NorthEndSalemStreetCottage,FO4Port_ShenleysOysterBar01,FO4Port_BackStreetApparel01,FO4Port_CambridgeDiner01,FO4Port_WRVRBroadcastCenter01,FO4Port_CharlestownDrugDen,FO4Port_NorthEndMeanPastries,FO4Port_OldGulletSinkhole01,FO4Port_BeaconHillApartments,FO4Port_FensParkviewApartments01,FO4Port_BeaconHillBostonBugle,FO4Port_FraternalPost11501,FO4Port_Financial28,FO4Port_Theater16PearwoodResidences01,FO4Port_HubrisComics01,FO4Port_VaultTecOffice01,FO4Port_TiconderogaStation01",
+   "cells": [
+    {
+     "cell": "WestonWaterTreatment01",
+     "coc": "FO4Port_WestonWaterTreatment01",
+     "commonwealth_doors": [
+      "0E5A5A:Fallout4.esm",
+      "0E4DF0:Fallout4.esm",
+      "072199:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "TrinityChurch01",
+     "coc": "FO4Port_TrinityChurch01",
+     "commonwealth_doors": [
+      "1E46B5:Fallout4.esm",
+      "0E7E2D:Fallout4.esm",
+      "0E7E13:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "CambridgeChurchGraveyard01",
+     "coc": "FO4Port_CambridgeChurchGraveyard01",
+     "commonwealth_doors": [
+      "1E46BC:Fallout4.esm",
+      "0BEDD4:Fallout4.esm",
+      "0BEDC8:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "CambridgeMassChemical01",
+     "coc": "FO4Port_CambridgeMassChemical01",
+     "commonwealth_doors": [
+      "0A9700:Fallout4.esm",
+      "0A9701:Fallout4.esm",
+      "0A9702:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "HestersRobotics01",
+     "coc": "FO4Port_HestersRobotics01",
+     "commonwealth_doors": [
+      "0D3D75:Fallout4.esm",
+      "0D3D6B:Fallout4.esm",
+      "0D3CE1:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "GNN01",
+     "coc": "FO4Port_GNN01",
+     "commonwealth_doors": [
+      "0AC6CB:Fallout4.esm",
+      "03D7DD:Fallout4.esm",
+      "0AE21E:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "GNN02"
+     ]
+    },
+    {
+     "cell": "FallonsDepartmentStore01",
+     "coc": "FO4Port_FallonsDepartmentStore01",
+     "commonwealth_doors": [
+      "1C92EA:Fallout4.esm",
+      "142E20:Fallout4.esm",
+      "0422D1:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "UniversityPoint01",
+     "coc": "FO4Port_UniversityPoint01",
+     "commonwealth_doors": [
+      "0340C0:Fallout4.esm",
+      "03369D:Fallout4.esm",
+      "03369E:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "BostonAirportRuins01",
+     "coc": "FO4Port_BostonAirportRuins01",
+     "commonwealth_doors": [
+      "048873:Fallout4.esm",
+      "0D6D8A:Fallout4.esm",
+      "0D6FD1:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "NationalGuardTrainingYard01",
+     "coc": "FO4Port_NationalGuardTrainingYard01",
+     "commonwealth_doors": [
+      "0660F0:Fallout4.esm",
+      "0533A4:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "NationalGuardTrainingYard02",
+     "coc": "FO4Port_NationalGuardTrainingYard02",
+     "commonwealth_doors": [
+      "0E31D0:Fallout4.esm",
+      "0533B1:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "Financial30",
+     "coc": "FO4Port_Financial30",
+     "commonwealth_doors": [
+      "1B17E5:Fallout4.esm",
+      "06B19D:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "NorthEndSalemStreetCottage",
+     "coc": "FO4Port_NorthEndSalemStreetCottage",
+     "commonwealth_doors": [
+      "1ADA0D:Fallout4.esm",
+      "1ADA0C:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "ShenleysOysterBar01",
+     "coc": "FO4Port_ShenleysOysterBar01",
+     "commonwealth_doors": [
+      "180948:Fallout4.esm",
+      "180947:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "BackStreetApparel01",
+     "coc": "FO4Port_BackStreetApparel01",
+     "commonwealth_doors": [
+      "04E618:Fallout4.esm",
+      "04E617:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "CambridgeDiner01",
+     "coc": "FO4Port_CambridgeDiner01",
+     "commonwealth_doors": [
+      "0A96D6:Fallout4.esm",
+      "0A96D7:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "WRVRBroadcastCenter01",
+     "coc": "FO4Port_WRVRBroadcastCenter01",
+     "commonwealth_doors": [
+      "1C961B:Fallout4.esm",
+      "1C961F:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "CharlestownDrugDen",
+     "coc": "FO4Port_CharlestownDrugDen",
+     "commonwealth_doors": [
+      "0A4653:Fallout4.esm",
+      "18C648:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "NorthEndMeanPastries",
+     "coc": "FO4Port_NorthEndMeanPastries",
+     "commonwealth_doors": [
+      "0A8C6B:Fallout4.esm",
+      "0A8C67:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "OldGulletSinkhole01",
+     "coc": "FO4Port_OldGulletSinkhole01",
+     "commonwealth_doors": [
+      "03B60E:Fallout4.esm",
+      "03A898:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "BeaconHillApartments",
+     "coc": "FO4Port_BeaconHillApartments",
+     "commonwealth_doors": [
+      "0A4664:Fallout4.esm",
+      "1640E0:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "FensParkviewApartments01",
+     "coc": "FO4Port_FensParkviewApartments01",
+     "commonwealth_doors": [
+      "0C889A:Fallout4.esm",
+      "0C889B:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "BeaconHillBostonBugle",
+     "coc": "FO4Port_BeaconHillBostonBugle",
+     "commonwealth_doors": [
+      "09FB51:Fallout4.esm",
+      "09D35A:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "FraternalPost11501",
+     "coc": "FO4Port_FraternalPost11501",
+     "commonwealth_doors": [
+      "0CC18F:Fallout4.esm",
+      "03AB68:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "Financial28",
+     "coc": "FO4Port_Financial28",
+     "commonwealth_doors": [
+      "13C556:Fallout4.esm",
+      "12BF51:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "Theater16PearwoodResidences01",
+     "coc": "FO4Port_Theater16PearwoodResidences01",
+     "commonwealth_doors": [
+      "095449:Fallout4.esm",
+      "095443:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "HubrisComics01",
+     "coc": "FO4Port_HubrisComics01",
+     "commonwealth_doors": [
+      "18BB7D:Fallout4.esm",
+      "066907:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "VaultTecOffice01",
+     "coc": "FO4Port_VaultTecOffice01",
+     "commonwealth_doors": [
+      "092098:Fallout4.esm",
+      "08E62D:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "TiconderogaStation01",
+     "coc": "FO4Port_TiconderogaStation01",
+     "commonwealth_doors": [
+      "1B5C2F:Fallout4.esm",
+      "10C518:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    }
+   ],
+   "commonwealth_door_count": 67,
+   "needs": "this batch's port installed together with a core build whose doors cluster was made against it (make_cluster.py doors --port <this batch's port>, make_core64c.py stage --cluster, then vmad_patch.py port): the installed core v6c/v6e only wires the 16 base cells' doors",
+   "then": [
+    "python scripts/bridge/door_rounds.py order --plugins-txt <Plugins.txt>",
+    "python scripts/bridge/door_rounds.py stage --core <that core build> --port <this batch's port> --core-index HH --port-index HH --out <NEW folder> --only FO4Port_WestonWaterTreatment01,FO4Port_TrinityChurch01,FO4Port_CambridgeChurchGraveyard01,FO4Port_CambridgeMassChemical01,FO4Port_HestersRobotics01,FO4Port_GNN01,FO4Port_FallonsDepartmentStore01,FO4Port_UniversityPoint01,FO4Port_BostonAirportRuins01,FO4Port_NationalGuardTrainingYard01,FO4Port_NationalGuardTrainingYard02,FO4Port_Financial30,FO4Port_NorthEndSalemStreetCottage,FO4Port_ShenleysOysterBar01,FO4Port_BackStreetApparel01,FO4Port_CambridgeDiner01,FO4Port_WRVRBroadcastCenter01,FO4Port_CharlestownDrugDen,FO4Port_NorthEndMeanPastries,FO4Port_OldGulletSinkhole01,FO4Port_BeaconHillApartments,FO4Port_FensParkviewApartments01,FO4Port_BeaconHillBostonBugle,FO4Port_FraternalPost11501,FO4Port_Financial28,FO4Port_Theater16PearwoodResidences01,FO4Port_HubrisComics01,FO4Port_VaultTecOffice01,FO4Port_TiconderogaStation01",
+    "python scripts/game/testqueue.py plan-terrain --staging <port> --exp-dir <out> --out <queue> --bridge <bridge staging>",
+    "python scripts/game/testqueue.py run --queue <queue> --max-attempts 1",
+    "python scripts/bridge/door_rounds.py judge --queue <queue>"
+   ],
+   "coc_only": []
+  },
+  {
+   "batch": 4,
+   "name": "interiors_b04",
+   "only": "FO4Port_IrishPrideShipyard01,FO4Port_TrinityTower01,FO4Port_AtomatoysCorporateHQ01,FO4Port_Financial21,FO4Port_PickmanGallery01,FO4Port_HalluciGen01,FO4Port_BeantownBrewery01,FO4Port_Financial13,FO4Port_CambridgeKendallHospital01,FO4Port_Theater27TickerTapeLounge,FO4Port_EsplanadeChurch01,FO4Port_SaugusIronworks01,FO4Port_OldNorthChurch01,FO4Port_CambridgeConstructionSiteWarehouse01,FO4Port_InstituteConcourse,FO4Port_NahantOceanSociety01,FO4Port_UniversityPoint02,FO4Port_PrydwenHull02",
+   "cells": [
+    {
+     "cell": "IrishPrideShipyard01",
+     "coc": "FO4Port_IrishPrideShipyard01",
+     "commonwealth_doors": [
+      "042D67:Fallout4.esm",
+      "048D3C:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "TrinityTower01",
+     "coc": "FO4Port_TrinityTower01",
+     "commonwealth_doors": [
+      "0F9A05:Fallout4.esm",
+      "09DCB5:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "AtomatoysCorporateHQ01",
+     "coc": "FO4Port_AtomatoysCorporateHQ01",
+     "commonwealth_doors": [
+      "0908DC:Fallout4.esm",
+      "0908CA:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "Financial21",
+     "coc": "FO4Port_Financial21",
+     "commonwealth_doors": [
+      "20EB0B:Fallout4.esm",
+      "0693CB:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "PickmanGallery01",
+     "coc": "FO4Port_PickmanGallery01",
+     "commonwealth_doors": [
+      "08CBA4:Fallout4.esm",
+      "039A2C:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "HalluciGen01",
+     "coc": "FO4Port_HalluciGen01",
+     "commonwealth_doors": [
+      "0342DA:Fallout4.esm",
+      "0342D9:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "BeantownBrewery01",
+     "coc": "FO4Port_BeantownBrewery01",
+     "commonwealth_doors": [
+      "0DDF6B:Fallout4.esm",
+      "04B628:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "Financial13",
+     "coc": "FO4Port_Financial13",
+     "commonwealth_doors": [
+      "1CCC35:Fallout4.esm",
+      "071F60:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "CambridgeKendallHospital01",
+     "coc": "FO4Port_CambridgeKendallHospital01",
+     "commonwealth_doors": [
+      "1F9980:Fallout4.esm",
+      "1F9964:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "Theater27TickerTapeLounge",
+     "coc": "FO4Port_Theater27TickerTapeLounge",
+     "commonwealth_doors": [
+      "09D50A:Fallout4.esm",
+      "094787:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "EsplanadeChurch01",
+     "coc": "FO4Port_EsplanadeChurch01",
+     "commonwealth_doors": [
+      "0A4727:Fallout4.esm",
+      "0DD849:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "SaugusIronworks01",
+     "coc": "FO4Port_SaugusIronworks01",
+     "commonwealth_doors": [
+      "0475AC:Fallout4.esm",
+      "047491:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "SaugusIronworks02"
+     ]
+    },
+    {
+     "cell": "SaugusIronworks02",
+     "coc": "FO4Port_SaugusIronworks02",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "SaugusIronworks01"
+     ]
+    },
+    {
+     "cell": "OldNorthChurch01",
+     "coc": "FO4Port_OldNorthChurch01",
+     "commonwealth_doors": [
+      "142FE4:Fallout4.esm",
+      "066EF4:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "RailroadHQ01"
+     ]
+    },
+    {
+     "cell": "RailroadHQ01",
+     "coc": "FO4Port_RailroadHQ01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "OldNorthChurch01",
+      "RailroadHQEscapeTunnel"
+     ]
+    },
+    {
+     "cell": "CambridgeConstructionSiteWarehouse01",
+     "coc": "FO4Port_CambridgeConstructionSiteWarehouse01",
+     "commonwealth_doors": [
+      "1E1D6E:Fallout4.esm",
+      "088752:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "InstituteConcourse",
+     "coc": "FO4Port_InstituteConcourse",
+     "commonwealth_doors": [
+      "1EB12C:Fallout4.esm",
+      "1868BC:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "InstituteAdvSystems",
+      "InstituteBioScience",
+      "InstituteCave",
+      "InstituteOldRobotics01",
+      "InstituteRobotics",
+      "InstituteSRB",
+      "InstituteTunnel01"
+     ]
+    },
+    {
+     "cell": "InstituteAdvSystems",
+     "coc": "FO4Port_InstituteAdvSystems",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "InstituteConcourse",
+      "InstituteReactor"
+     ]
+    },
+    {
+     "cell": "InstituteBioScience",
+     "coc": "FO4Port_InstituteBioScience",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "InstituteConcourse",
+      "InstituteFEVlab",
+      "InstituteOldRobotics01"
+     ]
+    },
+    {
+     "cell": "InstituteCave",
+     "coc": "FO4Port_InstituteCave",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "InstituteConcourse"
+     ]
+    },
+    {
+     "cell": "InstituteFEVlab",
+     "coc": "FO4Port_InstituteFEVlab",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "InstituteBioScience"
+     ]
+    },
+    {
+     "cell": "InstituteOldRobotics01",
+     "coc": "FO4Port_InstituteOldRobotics01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "InstituteBioScience",
+      "InstituteConcourse"
+     ]
+    },
+    {
+     "cell": "InstituteRobotics",
+     "coc": "FO4Port_InstituteRobotics",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "InstituteConcourse"
+     ]
+    },
+    {
+     "cell": "InstituteSRB",
+     "coc": "FO4Port_InstituteSRB",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "InstituteConcourse"
+     ]
+    },
+    {
+     "cell": "NahantOceanSociety01",
+     "coc": "FO4Port_NahantOceanSociety01",
+     "commonwealth_doors": [
+      "046299:Fallout4.esm",
+      "0461E9:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "UniversityPoint02",
+     "coc": "FO4Port_UniversityPoint02",
+     "commonwealth_doors": [
+      "0FB894:Fallout4.esm",
+      "0EE2F2:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "PrydwenHull02",
+     "coc": "FO4Port_PrydwenHull02",
+     "commonwealth_doors": [
+      "1A7A72:Fallout4.esm",
+      "14FC66:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "PrydwenHull01"
+     ]
+    }
+   ],
+   "commonwealth_door_count": 36,
+   "needs": "this batch's port installed together with a core build whose doors cluster was made against it (make_cluster.py doors --port <this batch's port>, make_core64c.py stage --cluster, then vmad_patch.py port): the installed core v6c/v6e only wires the 16 base cells' doors",
+   "then": [
+    "python scripts/bridge/door_rounds.py order --plugins-txt <Plugins.txt>",
+    "python scripts/bridge/door_rounds.py stage --core <that core build> --port <this batch's port> --core-index HH --port-index HH --out <NEW folder> --only FO4Port_IrishPrideShipyard01,FO4Port_TrinityTower01,FO4Port_AtomatoysCorporateHQ01,FO4Port_Financial21,FO4Port_PickmanGallery01,FO4Port_HalluciGen01,FO4Port_BeantownBrewery01,FO4Port_Financial13,FO4Port_CambridgeKendallHospital01,FO4Port_Theater27TickerTapeLounge,FO4Port_EsplanadeChurch01,FO4Port_SaugusIronworks01,FO4Port_OldNorthChurch01,FO4Port_CambridgeConstructionSiteWarehouse01,FO4Port_InstituteConcourse,FO4Port_NahantOceanSociety01,FO4Port_UniversityPoint02,FO4Port_PrydwenHull02",
+    "python scripts/game/testqueue.py plan-terrain --staging <port> --exp-dir <out> --out <queue> --bridge <bridge staging>",
+    "python scripts/game/testqueue.py run --queue <queue> --max-attempts 1",
+    "python scripts/bridge/door_rounds.py judge --queue <queue>"
+   ],
+   "coc_only": [
+    "FO4Port_SaugusIronworks02",
+    "FO4Port_RailroadHQ01",
+    "FO4Port_InstituteAdvSystems",
+    "FO4Port_InstituteBioScience",
+    "FO4Port_InstituteCave",
+    "FO4Port_InstituteFEVlab",
+    "FO4Port_InstituteOldRobotics01",
+    "FO4Port_InstituteRobotics",
+    "FO4Port_InstituteSRB"
+   ]
+  },
+  {
+   "batch": 5,
+   "name": "interiors_b05",
+   "only": "FO4Port_SuffolkCountyCharterSchool01,FO4Port_Waterfront12,FO4Port_MiltonGeneral01,FO4Port_FederalSurvCenter01,FO4Port_PoseidonEnergy01,FO4Port_ShamrockTaphouse01,FO4Port_GwinnettBrewery01,FO4Port_Libertalia01,FO4Port_MahkraFishpacking01,FO4Port_AndrewStation01,FO4Port_GlowingSeaPOIDB06Int,FO4Port_GwinnettBrewery02,FO4Port_TheCastle01,FO4Port_SentinelSite01,FO4Port_NorthEndHoardersApartment,FO4Port_RelayTowerInt15A,FO4Port_FensBank01,FO4Port_NorthEndValentiStation,FO4Port_Vault81Entry,FO4Port_RelayTowerInt08,FO4Port_RelayTowerInt01,FO4Port_CambridgeScienceCenter01,FO4Port_RelayTowerInt12,FO4Port_RelayTowerInt06,FO4Port_NationalGuardTrainingYard03,FO4Port_CharlestownLaundry,FO4Port_RelayTowerInt09",
+   "cells": [
+    {
+     "cell": "SuffolkCountyCharterSchool01",
+     "coc": "FO4Port_SuffolkCountyCharterSchool01",
+     "commonwealth_doors": [
+      "0A5921:Fallout4.esm",
+      "0276B9:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "Waterfront12",
+     "coc": "FO4Port_Waterfront12",
+     "commonwealth_doors": [
+      "21810C:Fallout4.esm",
+      "182FC1:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "MiltonGeneral01",
+     "coc": "FO4Port_MiltonGeneral01",
+     "commonwealth_doors": [
+      "09BEE7:Fallout4.esm",
+      "034312:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "FederalSurvCenter01",
+     "coc": "FO4Port_FederalSurvCenter01",
+     "commonwealth_doors": [
+      "0E825C:Fallout4.esm",
+      "048B23:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "PoseidonEnergy01",
+     "coc": "FO4Port_PoseidonEnergy01",
+     "commonwealth_doors": [
+      "050795:Fallout4.esm",
+      "050793:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "PoseidonEnergy02"
+     ]
+    },
+    {
+     "cell": "ShamrockTaphouse01",
+     "coc": "FO4Port_ShamrockTaphouse01",
+     "commonwealth_doors": [
+      "04541C:Fallout4.esm",
+      "04541B:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "GwinnettBrewery01",
+     "coc": "FO4Port_GwinnettBrewery01",
+     "commonwealth_doors": [
+      "04E934:Fallout4.esm",
+      "04C816:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "GwinnettBrewery02"
+     ]
+    },
+    {
+     "cell": "Libertalia01",
+     "coc": "FO4Port_Libertalia01",
+     "commonwealth_doors": [
+      "11E424:Fallout4.esm",
+      "11A621:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "MahkraFishpacking01",
+     "coc": "FO4Port_MahkraFishpacking01",
+     "commonwealth_doors": [
+      "0E049E:Fallout4.esm",
+      "054892:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "AndrewStation01",
+     "coc": "FO4Port_AndrewStation01",
+     "commonwealth_doors": [
+      "184438:Fallout4.esm",
+      "0780A4:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "GlowingSeaPOIDB06Int",
+     "coc": "FO4Port_GlowingSeaPOIDB06Int",
+     "commonwealth_doors": [
+      "1F6DDD:Fallout4.esm",
+      "1F6DCF:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "GwinnettBrewery02",
+     "coc": "FO4Port_GwinnettBrewery02",
+     "commonwealth_doors": [
+      "07444F:Fallout4.esm",
+      "07446D:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "GwinnettBrewery01"
+     ]
+    },
+    {
+     "cell": "TheCastle01",
+     "coc": "FO4Port_TheCastle01",
+     "commonwealth_doors": [
+      "0ADED9:Fallout4.esm",
+      "0ADED8:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "SentinelSite01",
+     "coc": "FO4Port_SentinelSite01",
+     "commonwealth_doors": [
+      "178D98:Fallout4.esm",
+      "178D96:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "NorthEndHoardersApartment",
+     "coc": "FO4Port_NorthEndHoardersApartment",
+     "commonwealth_doors": [
+      "1849B5:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "RelayTowerInt15A",
+     "coc": "FO4Port_RelayTowerInt15A",
+     "commonwealth_doors": [
+      "1D590F:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "RelayTowerInt15B"
+     ]
+    },
+    {
+     "cell": "RelayTowerInt15B",
+     "coc": "FO4Port_RelayTowerInt15B",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "RelayTowerInt15A"
+     ]
+    },
+    {
+     "cell": "FensBank01",
+     "coc": "FO4Port_FensBank01",
+     "commonwealth_doors": [
+      "0C82DC:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "NorthEndValentiStation",
+     "coc": "FO4Port_NorthEndValentiStation",
+     "commonwealth_doors": [
+      "1ACF23:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "Vault81Entry",
+     "coc": "FO4Port_Vault81Entry",
+     "commonwealth_doors": [
+      "0A87C2:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "Vault81",
+      "Vault81Secret"
+     ]
+    },
+    {
+     "cell": "Vault81HoldingCell",
+     "coc": "FO4Port_Vault81HoldingCell",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "Vault81"
+     ]
+    },
+    {
+     "cell": "Vault81Secret",
+     "coc": "FO4Port_Vault81Secret",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "Vault81",
+      "Vault81Entry"
+     ]
+    },
+    {
+     "cell": "RelayTowerInt08",
+     "coc": "FO4Port_RelayTowerInt08",
+     "commonwealth_doors": [
+      "1D5910:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "RelayTowerInt01",
+     "coc": "FO4Port_RelayTowerInt01",
+     "commonwealth_doors": [
+      "1B29D0:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "CambridgeScienceCenter01",
+     "coc": "FO4Port_CambridgeScienceCenter01",
+     "commonwealth_doors": [
+      "0C9B6E:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "RelayTowerInt12",
+     "coc": "FO4Port_RelayTowerInt12",
+     "commonwealth_doors": [
+      "1C2428:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "RelayTowerInt06",
+     "coc": "FO4Port_RelayTowerInt06",
+     "commonwealth_doors": [
+      "1E05F8:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "NationalGuardTrainingYard03",
+     "coc": "FO4Port_NationalGuardTrainingYard03",
+     "commonwealth_doors": [
+      "0E31D2:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "CharlestownLaundry",
+     "coc": "FO4Port_CharlestownLaundry",
+     "commonwealth_doors": [
+      "0A465F:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "RelayTowerInt09",
+     "coc": "FO4Port_RelayTowerInt09",
+     "commonwealth_doors": [
+      "1DE7ED:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    }
+   ],
+   "commonwealth_door_count": 41,
+   "needs": "this batch's port installed together with a core build whose doors cluster was made against it (make_cluster.py doors --port <this batch's port>, make_core64c.py stage --cluster, then vmad_patch.py port): the installed core v6c/v6e only wires the 16 base cells' doors",
+   "then": [
+    "python scripts/bridge/door_rounds.py order --plugins-txt <Plugins.txt>",
+    "python scripts/bridge/door_rounds.py stage --core <that core build> --port <this batch's port> --core-index HH --port-index HH --out <NEW folder> --only FO4Port_SuffolkCountyCharterSchool01,FO4Port_Waterfront12,FO4Port_MiltonGeneral01,FO4Port_FederalSurvCenter01,FO4Port_PoseidonEnergy01,FO4Port_ShamrockTaphouse01,FO4Port_GwinnettBrewery01,FO4Port_Libertalia01,FO4Port_MahkraFishpacking01,FO4Port_AndrewStation01,FO4Port_GlowingSeaPOIDB06Int,FO4Port_GwinnettBrewery02,FO4Port_TheCastle01,FO4Port_SentinelSite01,FO4Port_NorthEndHoardersApartment,FO4Port_RelayTowerInt15A,FO4Port_FensBank01,FO4Port_NorthEndValentiStation,FO4Port_Vault81Entry,FO4Port_RelayTowerInt08,FO4Port_RelayTowerInt01,FO4Port_CambridgeScienceCenter01,FO4Port_RelayTowerInt12,FO4Port_RelayTowerInt06,FO4Port_NationalGuardTrainingYard03,FO4Port_CharlestownLaundry,FO4Port_RelayTowerInt09",
+    "python scripts/game/testqueue.py plan-terrain --staging <port> --exp-dir <out> --out <queue> --bridge <bridge staging>",
+    "python scripts/game/testqueue.py run --queue <queue> --max-attempts 1",
+    "python scripts/bridge/door_rounds.py judge --queue <queue>"
+   ],
+   "coc_only": [
+    "FO4Port_RelayTowerInt15B",
+    "FO4Port_Vault81HoldingCell",
+    "FO4Port_Vault81Secret"
+   ]
+  },
+  {
+   "batch": 6,
+   "name": "interiors_b06",
+   "only": "FO4Port_BADTFL01,FO4Port_CharlestownHouse01,FO4Port_zPOIJoel06,FO4Port_FensKenmoreStation,FO4Port_GreenetechGenetics02,FO4Port_BostonPublicLibrary01,FO4Port_CollegeSquare01,FO4Port_WestEverettEstates01,FO4Port_zWaystation,FO4Port_EsplanadeMansion01,FO4Port_UFOCrashSite01,FO4Port_Financial06,FO4Port_BostonCommon02,FO4Port_NorthEndBoxingGym,FO4Port_NHMFreightDepot01,FO4Port_Wattz01,FO4Port_ListeningPostBravo01,FO4Port_RevereBeachStation01,FO4Port_RelayTowerInt03,FO4Port_BostonMayoralShelter01,FO4Port_MedTekResearch01,FO4Port_DBTechHighSchool02,FO4Port_MedfordMemorial01,FO4Port_RelayTowerInt14,FO4Port_MaldenCenter01,FO4Port_WarrenTheater01,FO4Port_PoseidonReservoir01",
+   "cells": [
+    {
+     "cell": "BADTFL01",
+     "coc": "FO4Port_BADTFL01",
+     "commonwealth_doors": [
+      "198BF8:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "CharlestownHouse01",
+     "coc": "FO4Port_CharlestownHouse01",
+     "commonwealth_doors": [
+      "09FE75:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "zPOIJoel06",
+     "coc": "FO4Port_zPOIJoel06",
+     "commonwealth_doors": [
+      "16FCC1:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "FensKenmoreStation",
+     "coc": "FO4Port_FensKenmoreStation",
+     "commonwealth_doors": [
+      "1B602A:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "GreenetechGenetics02",
+     "coc": "FO4Port_GreenetechGenetics02",
+     "commonwealth_doors": [
+      "0B464F:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "GreenetechGenetics01"
+     ]
+    },
+    {
+     "cell": "BostonPublicLibrary01",
+     "coc": "FO4Port_BostonPublicLibrary01",
+     "commonwealth_doors": [
+      "18DFAA:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "BostonPublicLibrary02"
+     ]
+    },
+    {
+     "cell": "CollegeSquare01",
+     "coc": "FO4Port_CollegeSquare01",
+     "commonwealth_doors": [
+      "1C6996:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "WestEverettEstates01",
+     "coc": "FO4Port_WestEverettEstates01",
+     "commonwealth_doors": [
+      "04A4C8:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "zWaystation",
+     "coc": "FO4Port_zWaystation",
+     "commonwealth_doors": [
+      "14A0F6:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "EsplanadeMansion01",
+     "coc": "FO4Port_EsplanadeMansion01",
+     "commonwealth_doors": [
+      "19690F:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "UFOCrashSite01",
+     "coc": "FO4Port_UFOCrashSite01",
+     "commonwealth_doors": [
+      "1870CA:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "Financial06",
+     "coc": "FO4Port_Financial06",
+     "commonwealth_doors": [
+      "066662:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "BostonCommon02",
+     "coc": "FO4Port_BostonCommon02",
+     "commonwealth_doors": [
+      "19D1E3:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "NorthEndBoxingGym",
+     "coc": "FO4Port_NorthEndBoxingGym",
+     "commonwealth_doors": [
+      "0A6009:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "NHMFreightDepot01",
+     "coc": "FO4Port_NHMFreightDepot01",
+     "commonwealth_doors": [
+      "12ACC9:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "TheBigDig01"
+     ]
+    },
+    {
+     "cell": "GoodneighborBobbisPlace",
+     "coc": "FO4Port_GoodneighborBobbisPlace",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "Goodneighbor"
+     ],
+     "interior_doors_from": [
+      "TheBigDig01"
+     ]
+    },
+    {
+     "cell": "TheBigDig01",
+     "coc": "FO4Port_TheBigDig01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "GoodneighborBobbisPlace",
+      "NHMFreightDepot01"
+     ]
+    },
+    {
+     "cell": "Wattz01",
+     "coc": "FO4Port_Wattz01",
+     "commonwealth_doors": [
+      "06E894:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "ListeningPostBravo01",
+     "coc": "FO4Port_ListeningPostBravo01",
+     "commonwealth_doors": [
+      "0DCC2E:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "RevereBeachStation01",
+     "coc": "FO4Port_RevereBeachStation01",
+     "commonwealth_doors": [
+      "149253:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "RelayTowerInt03",
+     "coc": "FO4Port_RelayTowerInt03",
+     "commonwealth_doors": [
+      "1B9AE2:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "BostonMayoralShelter01",
+     "coc": "FO4Port_BostonMayoralShelter01",
+     "commonwealth_doors": [
+      "04914A:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "MedTekResearch01",
+     "coc": "FO4Port_MedTekResearch01",
+     "commonwealth_doors": [
+      "0456B8:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "MedTekResearch02"
+     ]
+    },
+    {
+     "cell": "MedTekResearch02",
+     "coc": "FO4Port_MedTekResearch02",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "MedTekResearch01"
+     ]
+    },
+    {
+     "cell": "DBTechHighSchool02",
+     "coc": "FO4Port_DBTechHighSchool02",
+     "commonwealth_doors": [
+      "0DE7B2:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "DBTechHighSchool01"
+     ]
+    },
+    {
+     "cell": "MedfordMemorial01",
+     "coc": "FO4Port_MedfordMemorial01",
+     "commonwealth_doors": [
+      "04AE4F:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "RelayTowerInt14",
+     "coc": "FO4Port_RelayTowerInt14",
+     "commonwealth_doors": [
+      "1B2966:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "MaldenCenter01",
+     "coc": "FO4Port_MaldenCenter01",
+     "commonwealth_doors": [
+      "038DE2:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "WarrenTheater01",
+     "coc": "FO4Port_WarrenTheater01",
+     "commonwealth_doors": [
+      "0947F4:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "PoseidonReservoir01",
+     "coc": "FO4Port_PoseidonReservoir01",
+     "commonwealth_doors": [
+      "09BC22:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    }
+   ],
+   "commonwealth_door_count": 27,
+   "needs": "this batch's port installed together with a core build whose doors cluster was made against it (make_cluster.py doors --port <this batch's port>, make_core64c.py stage --cluster, then vmad_patch.py port): the installed core v6c/v6e only wires the 16 base cells' doors",
+   "then": [
+    "python scripts/bridge/door_rounds.py order --plugins-txt <Plugins.txt>",
+    "python scripts/bridge/door_rounds.py stage --core <that core build> --port <this batch's port> --core-index HH --port-index HH --out <NEW folder> --only FO4Port_BADTFL01,FO4Port_CharlestownHouse01,FO4Port_zPOIJoel06,FO4Port_FensKenmoreStation,FO4Port_GreenetechGenetics02,FO4Port_BostonPublicLibrary01,FO4Port_CollegeSquare01,FO4Port_WestEverettEstates01,FO4Port_zWaystation,FO4Port_EsplanadeMansion01,FO4Port_UFOCrashSite01,FO4Port_Financial06,FO4Port_BostonCommon02,FO4Port_NorthEndBoxingGym,FO4Port_NHMFreightDepot01,FO4Port_Wattz01,FO4Port_ListeningPostBravo01,FO4Port_RevereBeachStation01,FO4Port_RelayTowerInt03,FO4Port_BostonMayoralShelter01,FO4Port_MedTekResearch01,FO4Port_DBTechHighSchool02,FO4Port_MedfordMemorial01,FO4Port_RelayTowerInt14,FO4Port_MaldenCenter01,FO4Port_WarrenTheater01,FO4Port_PoseidonReservoir01",
+    "python scripts/game/testqueue.py plan-terrain --staging <port> --exp-dir <out> --out <queue> --bridge <bridge staging>",
+    "python scripts/game/testqueue.py run --queue <queue> --max-attempts 1",
+    "python scripts/bridge/door_rounds.py judge --queue <queue>"
+   ],
+   "coc_only": [
+    "FO4Port_GoodneighborBobbisPlace",
+    "FO4Port_TheBigDig01",
+    "FO4Port_MedTekResearch02"
+   ]
+  },
+  {
+   "batch": 7,
+   "name": "interiors_b07",
+   "only": "FO4Port_GreenetechGenetics01,FO4Port_BunkerHill01,FO4Port_SlocumsJoeHQOffice,FO4Port_RelayTowerInt04,FO4Port_BeaconHillPub,FO4Port_BackBayTallOffice01,FO4Port_CustomHouseTower01,FO4Port_MassStateHouse01,FO4Port_Financial24,FO4Port_TheaterMassBayMedicalCenter02,FO4Port_RailroadHQEscapeTunnel,FO4Port_CabotHouse01,FO4Port_InstituteTunnel01,FO4Port_CombatZone01,FO4Port_InstituteReactor,FO4Port_zVitalePumphouse01,FO4Port_FensStreetSewer01,FO4Port_MaldenDrainage01,FO4Port_CambridgeParkingGarage01,FO4Port_DunwichBorers01,FO4Port_FourLeafFishpacking02,FO4Port_BobbisNewPlace01,FO4Port_FortStrong01,FO4Port_BarneysBunker01,FO4Port_SouthBostonPoliceDepartment01,FO4Port_GlowingSeaPOIDB05Int,FO4Port_SandyCovesHome01,FO4Port_JamaicaPlain01",
+   "cells": [
+    {
+     "cell": "GreenetechGenetics01",
+     "coc": "FO4Port_GreenetechGenetics01",
+     "commonwealth_doors": [
+      "021EDD:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "GreenetechGenetics02"
+     ]
+    },
+    {
+     "cell": "BunkerHill01",
+     "coc": "FO4Port_BunkerHill01",
+     "commonwealth_doors": [
+      "0ECEA4:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "SlocumsJoeHQOffice",
+     "coc": "FO4Port_SlocumsJoeHQOffice",
+     "commonwealth_doors": [
+      "1C94BA:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "RelayTowerInt04",
+     "coc": "FO4Port_RelayTowerInt04",
+     "commonwealth_doors": [
+      "191F25:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "BeaconHillPub",
+     "coc": "FO4Port_BeaconHillPub",
+     "commonwealth_doors": [
+      "16C427:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "BackBayTallOffice01",
+     "coc": "FO4Port_BackBayTallOffice01",
+     "commonwealth_doors": [
+      "13A975:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "CustomHouseTower01",
+     "coc": "FO4Port_CustomHouseTower01",
+     "commonwealth_doors": [
+      "0A0EF2:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "MassStateHouse01",
+     "coc": "FO4Port_MassStateHouse01",
+     "commonwealth_doors": [
+      "1E97A9:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "Financial24",
+     "coc": "FO4Port_Financial24",
+     "commonwealth_doors": [
+      "071F73:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "TheaterMassBayMedicalCenter02",
+     "coc": "FO4Port_TheaterMassBayMedicalCenter02",
+     "commonwealth_doors": [
+      "1C56F1:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "TheaterMassBayMedicalCenter01"
+     ]
+    },
+    {
+     "cell": "RailroadHQEscapeTunnel",
+     "coc": "FO4Port_RailroadHQEscapeTunnel",
+     "commonwealth_doors": [
+      "134C93:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "RailroadHQ01"
+     ]
+    },
+    {
+     "cell": "CabotHouse01",
+     "coc": "FO4Port_CabotHouse01",
+     "commonwealth_doors": [
+      "03C0F2:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "InstituteTunnel01",
+     "coc": "FO4Port_InstituteTunnel01",
+     "commonwealth_doors": [
+      "17E1C6:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "InstituteConcourse"
+     ]
+    },
+    {
+     "cell": "CombatZone01",
+     "coc": "FO4Port_CombatZone01",
+     "commonwealth_doors": [
+      "03F034:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "InstituteReactor",
+     "coc": "FO4Port_InstituteReactor",
+     "commonwealth_doors": [
+      "1EB12D:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "InstituteAdvSystems"
+     ]
+    },
+    {
+     "cell": "zVitalePumphouse01",
+     "coc": "FO4Port_zVitalePumphouse01",
+     "commonwealth_doors": [
+      "066C1A:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "FensStreetSewer01",
+     "coc": "FO4Port_FensStreetSewer01",
+     "commonwealth_doors": [
+      "02CAE9:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "MaldenDrainage01",
+     "coc": "FO4Port_MaldenDrainage01",
+     "commonwealth_doors": [
+      "056CB7:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "CambridgeParkingGarage01",
+     "coc": "FO4Port_CambridgeParkingGarage01",
+     "commonwealth_doors": [
+      "1BD472:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DunwichBorers01",
+     "coc": "FO4Port_DunwichBorers01",
+     "commonwealth_doors": [
+      "01B3AB:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "FourLeafFishpacking02",
+     "coc": "FO4Port_FourLeafFishpacking02",
+     "commonwealth_doors": [
+      "03D70D:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "FourLeafFishpacking01"
+     ]
+    },
+    {
+     "cell": "BobbisNewPlace01",
+     "coc": "FO4Port_BobbisNewPlace01",
+     "commonwealth_doors": [
+      "09B76D:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "FortStrong01",
+     "coc": "FO4Port_FortStrong01",
+     "commonwealth_doors": [
+      "03F66A:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "FortStrong02"
+     ]
+    },
+    {
+     "cell": "FortStrong02",
+     "coc": "FO4Port_FortStrong02",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "FortStrong01"
+     ]
+    },
+    {
+     "cell": "BarneysBunker01",
+     "coc": "FO4Port_BarneysBunker01",
+     "commonwealth_doors": [
+      "1202C7:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "SouthBostonPoliceDepartment01",
+     "coc": "FO4Port_SouthBostonPoliceDepartment01",
+     "commonwealth_doors": [
+      "09BEAC:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "GlowingSeaPOIDB05Int",
+     "coc": "FO4Port_GlowingSeaPOIDB05Int",
+     "commonwealth_doors": [
+      "1F419B:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "SandyCovesHome01",
+     "coc": "FO4Port_SandyCovesHome01",
+     "commonwealth_doors": [
+      "0BD4A6:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "JamaicaPlain01",
+     "coc": "FO4Port_JamaicaPlain01",
+     "commonwealth_doors": [
+      "0F18E0:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    }
+   ],
+   "commonwealth_door_count": 28,
+   "needs": "this batch's port installed together with a core build whose doors cluster was made against it (make_cluster.py doors --port <this batch's port>, make_core64c.py stage --cluster, then vmad_patch.py port): the installed core v6c/v6e only wires the 16 base cells' doors",
+   "then": [
+    "python scripts/bridge/door_rounds.py order --plugins-txt <Plugins.txt>",
+    "python scripts/bridge/door_rounds.py stage --core <that core build> --port <this batch's port> --core-index HH --port-index HH --out <NEW folder> --only FO4Port_GreenetechGenetics01,FO4Port_BunkerHill01,FO4Port_SlocumsJoeHQOffice,FO4Port_RelayTowerInt04,FO4Port_BeaconHillPub,FO4Port_BackBayTallOffice01,FO4Port_CustomHouseTower01,FO4Port_MassStateHouse01,FO4Port_Financial24,FO4Port_TheaterMassBayMedicalCenter02,FO4Port_RailroadHQEscapeTunnel,FO4Port_CabotHouse01,FO4Port_InstituteTunnel01,FO4Port_CombatZone01,FO4Port_InstituteReactor,FO4Port_zVitalePumphouse01,FO4Port_FensStreetSewer01,FO4Port_MaldenDrainage01,FO4Port_CambridgeParkingGarage01,FO4Port_DunwichBorers01,FO4Port_FourLeafFishpacking02,FO4Port_BobbisNewPlace01,FO4Port_FortStrong01,FO4Port_BarneysBunker01,FO4Port_SouthBostonPoliceDepartment01,FO4Port_GlowingSeaPOIDB05Int,FO4Port_SandyCovesHome01,FO4Port_JamaicaPlain01",
+    "python scripts/game/testqueue.py plan-terrain --staging <port> --exp-dir <out> --out <queue> --bridge <bridge staging>",
+    "python scripts/game/testqueue.py run --queue <queue> --max-attempts 1",
+    "python scripts/bridge/door_rounds.py judge --queue <queue>"
+   ],
+   "coc_only": [
+    "FO4Port_FortStrong02"
+   ]
+  },
+  {
+   "batch": 8,
+   "name": "interiors_b08",
+   "only": "FO4Port_WestRoxburyStation01,FO4Port_ShawHighSchool01,FO4Port_PoseidonEnergy02,FO4Port_DanversHideout,FO4Port_GNN02,FO4Port_SouthBoston19,FO4Port_FourLeafFishpacking01,FO4Port_QuincyPD01,FO4Port_NahantOceanSociety02,FO4Port_CroupManor01,FO4Port_SouthBoston35,FO4Port_Yangtze01,FO4Port_GeneralAtomicsFactory01,FO4Port_Waterfront02,FO4Port_RelayTowerInt05,FO4Port_SouthBoston25,FO4Port_BigJohnsSalvage01,FO4Port_LongneckLukowskis01,FO4Port_VirgilsLab01",
+   "cells": [
+    {
+     "cell": "WestRoxburyStation01",
+     "coc": "FO4Port_WestRoxburyStation01",
+     "commonwealth_doors": [
+      "05BA97:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "ShawHighSchool01",
+     "coc": "FO4Port_ShawHighSchool01",
+     "commonwealth_doors": [
+      "03C0F4:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "RelayTowerInt17"
+     ]
+    },
+    {
+     "cell": "RelayTowerInt17",
+     "coc": "FO4Port_RelayTowerInt17",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "ShawHighSchool01"
+     ]
+    },
+    {
+     "cell": "PoseidonEnergy02",
+     "coc": "FO4Port_PoseidonEnergy02",
+     "commonwealth_doors": [
+      "16D40A:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "PoseidonEnergy01"
+     ]
+    },
+    {
+     "cell": "DanversHideout",
+     "coc": "FO4Port_DanversHideout",
+     "commonwealth_doors": [
+      "05A9B5:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "GNN02",
+     "coc": "FO4Port_GNN02",
+     "commonwealth_doors": [
+      "0AEBEA:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "GNN01"
+     ]
+    },
+    {
+     "cell": "SouthBoston19",
+     "coc": "FO4Port_SouthBoston19",
+     "commonwealth_doors": [
+      "0A158A:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "FourLeafFishpacking01",
+     "coc": "FO4Port_FourLeafFishpacking01",
+     "commonwealth_doors": [
+      "060409:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": [
+      "FourLeafFishpacking02"
+     ]
+    },
+    {
+     "cell": "QuincyPD01",
+     "coc": "FO4Port_QuincyPD01",
+     "commonwealth_doors": [
+      "11D1FE:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "NahantOceanSociety02",
+     "coc": "FO4Port_NahantOceanSociety02",
+     "commonwealth_doors": [
+      "0800A9:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "CroupManor01",
+     "coc": "FO4Port_CroupManor01",
+     "commonwealth_doors": [
+      "03C0F8:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "SouthBoston35",
+     "coc": "FO4Port_SouthBoston35",
+     "commonwealth_doors": [
+      "09C672:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "Yangtze01",
+     "coc": "FO4Port_Yangtze01",
+     "commonwealth_doors": [
+      "031F00:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "GeneralAtomicsFactory01",
+     "coc": "FO4Port_GeneralAtomicsFactory01",
+     "commonwealth_doors": [
+      "097E29:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "Waterfront02",
+     "coc": "FO4Port_Waterfront02",
+     "commonwealth_doors": [
+      "0A1248:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "RelayTowerInt05",
+     "coc": "FO4Port_RelayTowerInt05",
+     "commonwealth_doors": [
+      "1B2F40:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "SouthBoston25",
+     "coc": "FO4Port_SouthBoston25",
+     "commonwealth_doors": [
+      "170454:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "BigJohnsSalvage01",
+     "coc": "FO4Port_BigJohnsSalvage01",
+     "commonwealth_doors": [
+      "18E835:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "LongneckLukowskis01",
+     "coc": "FO4Port_LongneckLukowskis01",
+     "commonwealth_doors": [
+      "03D6F9:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "VirgilsLab01",
+     "coc": "FO4Port_VirgilsLab01",
+     "commonwealth_doors": [
+      "15A1CB:Fallout4.esm"
+     ],
+     "other_worldspace_doors": [],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndAbbotsHouse",
+     "coc": "FO4Port_DmndAbbotsHouse",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndAllFaithsChapel01",
+     "coc": "FO4Port_DmndAllFaithsChapel01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndArturosHouse01",
+     "coc": "FO4Port_DmndArturosHouse01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndArturosHouse02",
+     "coc": "FO4Port_DmndArturosHouse02",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndChoiceChops01",
+     "coc": "FO4Port_DmndChoiceChops01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndChoiceChops02",
+     "coc": "FO4Port_DmndChoiceChops02",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndCitySurplus01New",
+     "coc": "FO4Port_DmndCitySurplus01New",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndDugoutInn01",
+     "coc": "FO4Port_DmndDugoutInn01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndEarlsHouse01",
+     "coc": "FO4Port_DmndEarlsHouse01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndFallons01",
+     "coc": "FO4Port_DmndFallons01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    }
+   ],
+   "commonwealth_door_count": 19,
+   "needs": "this batch's port installed together with a core build whose doors cluster was made against it (make_cluster.py doors --port <this batch's port>, make_core64c.py stage --cluster, then vmad_patch.py port): the installed core v6c/v6e only wires the 16 base cells' doors",
+   "then": [
+    "python scripts/bridge/door_rounds.py order --plugins-txt <Plugins.txt>",
+    "python scripts/bridge/door_rounds.py stage --core <that core build> --port <this batch's port> --core-index HH --port-index HH --out <NEW folder> --only FO4Port_WestRoxburyStation01,FO4Port_ShawHighSchool01,FO4Port_PoseidonEnergy02,FO4Port_DanversHideout,FO4Port_GNN02,FO4Port_SouthBoston19,FO4Port_FourLeafFishpacking01,FO4Port_QuincyPD01,FO4Port_NahantOceanSociety02,FO4Port_CroupManor01,FO4Port_SouthBoston35,FO4Port_Yangtze01,FO4Port_GeneralAtomicsFactory01,FO4Port_Waterfront02,FO4Port_RelayTowerInt05,FO4Port_SouthBoston25,FO4Port_BigJohnsSalvage01,FO4Port_LongneckLukowskis01,FO4Port_VirgilsLab01",
+    "python scripts/game/testqueue.py plan-terrain --staging <port> --exp-dir <out> --out <queue> --bridge <bridge staging>",
+    "python scripts/game/testqueue.py run --queue <queue> --max-attempts 1",
+    "python scripts/bridge/door_rounds.py judge --queue <queue>"
+   ],
+   "coc_only": [
+    "FO4Port_RelayTowerInt17",
+    "FO4Port_DmndAbbotsHouse",
+    "FO4Port_DmndAllFaithsChapel01",
+    "FO4Port_DmndArturosHouse01",
+    "FO4Port_DmndArturosHouse02",
+    "FO4Port_DmndChoiceChops01",
+    "FO4Port_DmndChoiceChops02",
+    "FO4Port_DmndCitySurplus01New",
+    "FO4Port_DmndDugoutInn01",
+    "FO4Port_DmndEarlsHouse01",
+    "FO4Port_DmndFallons01"
+   ]
+  },
+  {
+   "batch": 9,
+   "name": "interiors_b09",
+   "only": "",
+   "cells": [
+    {
+     "cell": "DmndGreenhouse01",
+     "coc": "FO4Port_DmndGreenhouse01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndJohnsHouse01",
+     "coc": "FO4Port_DmndJohnsHouse01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndMoeCroninsHouse01",
+     "coc": "FO4Port_DmndMoeCroninsHouse01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndOutfieldShengsHouse01",
+     "coc": "FO4Port_DmndOutfieldShengsHouse01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndPembrokesHouse01",
+     "coc": "FO4Port_DmndPembrokesHouse01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndPlayerHouse01",
+     "coc": "FO4Port_DmndPlayerHouse01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndPublick01",
+     "coc": "FO4Port_DmndPublick01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndRadio01",
+     "coc": "FO4Port_DmndRadio01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndSchoolhouse01",
+     "coc": "FO4Port_DmndSchoolhouse01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndScienceCenter01",
+     "coc": "FO4Port_DmndScienceCenter01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndSecurity01",
+     "coc": "FO4Port_DmndSecurity01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndSolomonsHouse01",
+     "coc": "FO4Port_DmndSolomonsHouse01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndStandsCodman01",
+     "coc": "FO4Port_DmndStandsCodman01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndStandsCooke01",
+     "coc": "FO4Port_DmndStandsCooke01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndStandsHawthorne01",
+     "coc": "FO4Port_DmndStandsHawthorne01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndStandsKellogg01",
+     "coc": "FO4Port_DmndStandsKellogg01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndStandsLatimer01",
+     "coc": "FO4Port_DmndStandsLatimer01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndStandsTaphouse01",
+     "coc": "FO4Port_DmndStandsTaphouse01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndSurgeryBasement01",
+     "coc": "FO4Port_DmndSurgeryBasement01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndSurgeryCellar01",
+     "coc": "FO4Port_DmndSurgeryCellar01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndWarehouseA01",
+     "coc": "FO4Port_DmndWarehouseA01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndWaterfrontCrockersHouse01",
+     "coc": "FO4Port_DmndWaterfrontCrockersHouse01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "DmndWaterfrontSunsHouse01",
+     "coc": "FO4Port_DmndWaterfrontSunsHouse01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "DiamondCity"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "GoodneighborOldStateHouse",
+     "coc": "FO4Port_GoodneighborOldStateHouse",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "Goodneighbor"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "GoodneighborTheThirdRail",
+     "coc": "FO4Port_GoodneighborTheThirdRail",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "Goodneighbor"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "GoodneighborWarehouse01",
+     "coc": "FO4Port_GoodneighborWarehouse01",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "Goodneighbor"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "GoodneighborWarehouse02",
+     "coc": "FO4Port_GoodneighborWarehouse02",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "Goodneighbor"
+     ],
+     "interior_doors_from": []
+    },
+    {
+     "cell": "GoodneighborWarehouse03",
+     "coc": "FO4Port_GoodneighborWarehouse03",
+     "commonwealth_doors": [],
+     "other_worldspace_doors": [
+      "Goodneighbor"
+     ],
+     "interior_doors_from": []
+    }
+   ],
+   "commonwealth_door_count": 0,
+   "needs": "this batch's port installed together with a core build whose doors cluster was made against it (make_cluster.py doors --port <this batch's port>, make_core64c.py stage --cluster, then vmad_patch.py port): the installed core v6c/v6e only wires the 16 base cells' doors",
+   "then": [
+    "python scripts/bridge/door_rounds.py order --plugins-txt <Plugins.txt>",
+    "python scripts/bridge/door_rounds.py stage --core <that core build> --port <this batch's port> --core-index HH --port-index HH --out <NEW folder> --only <none>",
+    "python scripts/game/testqueue.py plan-terrain --staging <port> --exp-dir <out> --out <queue> --bridge <bridge staging>",
+    "python scripts/game/testqueue.py run --queue <queue> --max-attempts 1",
+    "python scripts/bridge/door_rounds.py judge --queue <queue>"
+   ],
+   "coc_only": [
+    "FO4Port_DmndGreenhouse01",
+    "FO4Port_DmndJohnsHouse01",
+    "FO4Port_DmndMoeCroninsHouse01",
+    "FO4Port_DmndOutfieldShengsHouse01",
+    "FO4Port_DmndPembrokesHouse01",
+    "FO4Port_DmndPlayerHouse01",
+    "FO4Port_DmndPublick01",
+    "FO4Port_DmndRadio01",
+    "FO4Port_DmndSchoolhouse01",
+    "FO4Port_DmndScienceCenter01",
+    "FO4Port_DmndSecurity01",
+    "FO4Port_DmndSolomonsHouse01",
+    "FO4Port_DmndStandsCodman01",
+    "FO4Port_DmndStandsCooke01",
+    "FO4Port_DmndStandsHawthorne01",
+    "FO4Port_DmndStandsKellogg01",
+    "FO4Port_DmndStandsLatimer01",
+    "FO4Port_DmndStandsTaphouse01",
+    "FO4Port_DmndSurgeryBasement01",
+    "FO4Port_DmndSurgeryCellar01",
+    "FO4Port_DmndWarehouseA01",
+    "FO4Port_DmndWaterfrontCrockersHouse01",
+    "FO4Port_DmndWaterfrontSunsHouse01",
+    "FO4Port_GoodneighborOldStateHouse",
+    "FO4Port_GoodneighborTheThirdRail",
+    "FO4Port_GoodneighborWarehouse01",
+    "FO4Port_GoodneighborWarehouse02",
+    "FO4Port_GoodneighborWarehouse03"
+   ]
+  }
+ ]
+}

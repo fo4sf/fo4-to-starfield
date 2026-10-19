@@ -441,3 +441,15 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Why: the owner found these unusable indoors (18 Oct); the exterior path is already verified in game.
 - Alternatives: a Python record patch of the pinned plugin (vmad_patch style): rejected, new record types would need a
   hand-written layout Mutagen already writes; copying the table logic into C#: rejected, two rule sets would drift.
+
+## 2026-10-19 Claude-cloud: all interiors go into one cumulative FO4Port.esm, every earlier id kept
+- **Decision:** the remaining interiors are converted in staged batches (docs/terrain/interior-batches.md), each a
+  new full FO4Port.esm = the installed port's cells + every batch so far. PluginSpike is seeded with the installed
+  port's formids.json, and `vmad_patch.py port --keep-markers` re-applies the installed scripted doors with their
+  marker ids; `interior_batch.py compare` fails a batch that renumbers or drops an installed id.
+- **Why:** the installed core's exterior doors name FO4Port.esm marker ids (00E175..00E183); a grown port that moved
+  them would break those doors, and saves hold port ids. One plugin keeps the owner's load order unchanged and lets
+  interior-to-interior doors across batches link by XTEL in one build.
+- **Alternatives:** one plugin per batch (FO4PortB01.esm ...): independent rollbacks, but nine more plugins, duplicated
+  bases or a master chain, and cross-batch door links between plugins; a rebuild of the core with every door per
+  batch: forbidden while the v6e test runs, and it is the door gate's own step.

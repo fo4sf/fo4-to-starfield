@@ -1,6 +1,7 @@
 """vmad_patch.py: the scripted load door's VMAD (docs/terrain/scripted-doors.md), raw and record-level.
 
   python scripts/terrain/vmad_patch.py port  --port <integ staging> --core <core64 build with doors> --out <NEW folder>
+         [--keep-markers <doors.json of an earlier doors build>]
   python scripts/terrain/vmad_patch.py check --port <integ staging> --out <that folder> [--core <core build>]
   python scripts/terrain/vmad_patch.py decode <plugin> <6 hex local id>        print a REFR's VMAD, decoded
 
@@ -19,6 +20,10 @@ record-level byte diff of the two plugins. Per door of the core build's objects.
     group (created when the cell has none), with the local id the cluster promised (destination.id = the pinned
     plugin's next free id + k, make_cluster.py doors): the exterior door's VMAD already names it (and carries its
     position as DestinationX / Y / Z with UseDestinationPosition true).
+--keep-markers re-applies the doors of an earlier doors build to a LATER port build (a port that grew, built with that
+build's formids.json, so every earlier id stayed put): each door's marker keeps the id that build gave it (the id the
+core's exterior door already names), which must be free in the later plugin, and the core must still promise it; the
+"next free id + k" rule is not used, and nothing else changes.
 A temporary destination does not resolve from the other side (an unloaded cell's temporary references are not in
 memory: Game.GetFormFromFile returns None and the script refuses; seen in game for the exterior marker 0A76FD,
 C:\\Modding\\testqueue\\door_trip_sdm_1018), so both markers are persistent. Interiors have no overlay merge, so a
@@ -566,21 +571,30 @@ def core_doors(core):
     return ids["plugin"], out
 
 
-def port_edits(core_plugin, doors, port_plugin, port_next, merge):
+def port_edits(core_plugin, doors, port_plugin, port_next, merge, keep=None):
     """[{"src", "door": local id of the interior door REFR, "cell": its CELL id, "marker": the marker's id, "pos",
     "rot", "return_pos": the exterior marker's merged position, "vmad"}] in doors order; ValueError when a door's
     destination is not this plugin, its promised marker id is not the one this plugin allocates (port_next + k), or an
-    id repeats. merge = merge_offset(core): the return VMAD's DestinationX / Y / Z = the exterior marker's position
+    id repeats. keep: {src: marker local id} (--keep-markers): the marker id per door instead of port_next + k (the
+    cluster must promise the same id; a door missing from keep is refused). merge = merge_offset(core): the return VMAD's DestinationX / Y / Z = the exterior marker's position
     (objects.json "arrival", the marker's DATA) + merge."""
     out, seen = [], set()
     for k, e in enumerate(doors):
         d = e["destination"]
         if str(d.get("plugin", "")).casefold() != port_plugin.casefold():
             raise ValueError(f"{e['src']}: destination plugin {d.get('plugin')!r} is not {port_plugin}")
-        want = port_next + k
-        if int(d["id"]) != want:
-            raise ValueError(f"{e['src']}: the cluster promised marker id {int(d['id']):06X}, this plugin allocates "
-                             f"{want:06X} (make_cluster.py doors again against this port)")
+        if keep is not None:
+            if e["src"] not in keep:
+                raise ValueError(f"{e['src']}: not in the kept doors build")
+            want = keep[e["src"]]
+            if int(d["id"]) != want:
+                raise ValueError(f"{e['src']}: the cluster promised marker id {int(d['id']):06X}, the kept doors build "
+                                 f"has {want:06X}")
+        else:
+            want = port_next + k
+            if int(d["id"]) != want:
+                raise ValueError(f"{e['src']}: the cluster promised marker id {int(d['id']):06X}, this plugin allocates "
+                                 f"{want:06X} (make_cluster.py doors again against this port)")
         door, cell = int(d["ref"], 16), int(d["cell"], 16)
         if door in seen or want in seen:
             raise ValueError(f"{e['src']}: interior door {door:06X} or marker {want:06X} listed twice")
@@ -618,19 +632,29 @@ def cmd_port(a):
     core_plugin, doors = core_doors(a.core)
     if not doors:
         sys.exit(f"{a.core}: no doors in objects.json")
-    port_next = next_local_id(src_plugin)
+    keep = None
+    if getattr(a, "keep_markers", ""):
+        keep = kept_markers(a.keep_markers)
+        port_next = Plugin.read(src_plugin).hedr()[2]
+    else:
+        port_next = next_local_id(src_plugin)
     try:
         merge = merge_offset(a.core)
-        edits = port_edits(core_plugin, doors, name, port_next, merge)
+        edits = port_edits(core_plugin, doors, name, port_next, merge, keep)
     except ValueError as e:
         sys.exit(f"doors: {e}")
     plugin = Plugin.read(src_plugin)
     own_index = len(plugin.masters())
+    if keep is not None:
+        taken = {fid & 0xFFFFFF for fid in plugin.records() if fid >> 24 == own_index}
+        clash = sorted(ed["marker"] for ed in edits if ed["marker"] in taken)
+        if clash:
+            sys.exit(f"doors: kept marker id(s) {[f'{m:06X}' for m in clash]} already used by records of {name}")
     with open(os.path.join(a.port, "formids.json"), encoding="utf-8-sig") as f:
         ids = json.load(f)
     for e, ed in zip(doors, edits):
         key = f"MARK:{cell_edid(ids, ed['cell'])}:{e['src']}"
-        if key in ids:
+        if key in ids and not (keep is not None and ids[key] == ed["marker"]):
             sys.exit(f"formids.json already has {key}")
         ids[key] = ed["marker"]
     patch_port(plugin, edits, own_index)
@@ -639,7 +663,8 @@ def cmd_port(a):
     write_output(os.path.join(a.out, name), serialized)
     write_output(os.path.join(a.out, "formids.json"), json.dumps(ids).encode("utf-8"))
     report = {"port": os.path.abspath(a.port), "core": os.path.abspath(a.core), "plugin": name, "core_plugin": core_plugin,
-              "port_next_before": f"{port_next:06X}", "merge_offset": list(merge), "doors": [
+              "port_next_before": f"{port_next:06X}", "merge_offset": list(merge),
+              "kept_markers": os.path.abspath(a.keep_markers) if keep is not None else None, "doors": [
                   {"src": e["src"], "edid": e["edid"], "interior_door": f"{ed['door']:06X}", "cell": f"{ed['cell']:06X}",
                    "cell_edid": cell_edid(ids, ed["cell"]), "marker": f"{ed['marker']:06X}", "marker_pos": ed["pos"],
                    "marker_rot": ed["rot"], "vmad": ed["vmad"].hex(),
@@ -659,6 +684,8 @@ def cmd_port(a):
              "scripts are not read on this install (docs/slice/scripted-door.md). The three coordinates and the bool need a",
              "script that declares them (PR #291, a draft: it applies them only with UseDestinationPosition, written true).",
              "NOT deployed, NOT queued."]
+    if keep is not None:
+        lines.insert(-1, f"Marker ids kept from {a.keep_markers} (the ids the core's exterior doors already name).")
     for d in report["doors"]:
         lines.append(f"  {d['src']} {d['cell_edid']}: door REFR {d['interior_door']} -> {core_plugin}:{d['return_destination']['id']} "
                      f"at {[round(v, 4) for v in d['return_destination']['merged']]}, marker {d['marker']} at {d['marker_pos']} "
@@ -666,6 +693,20 @@ def cmd_port(a):
     write_output(os.path.join(a.out, "README.txt"), ("\n".join(lines) + "\n").encode("utf-8"))
     print("\n".join(lines))
     return 0
+
+
+def kept_markers(path):
+    """{src: marker local id} of an earlier doors build's doors.json (vmad_patch.py port's report)."""
+    with open(path, encoding="utf-8-sig") as f:
+        rep = json.load(f)
+    out = {}
+    for d in rep.get("doors") or []:
+        if d["src"] in out:
+            raise ValueError(f"{path}: {d['src']} twice")
+        out[d["src"]] = int(d["marker"], 16)
+    if not out:
+        raise ValueError(f"{path}: no doors")
+    return out
 
 
 def cell_edid(ids, cell_local):
@@ -677,7 +718,7 @@ def cell_edid(ids, cell_local):
 
 
 # ----------------------------------------------------------------------------------------------------------- check
-def check_port(before, after, doors, core_plugin=None, merge=None):
+def check_port(before, after, doors, core_plugin=None, merge=None, kept=False):
     """[what, ok] of a patched port against its pinned input: masters, every record but the door REFRs byte-identical
     (sig, flags, fields, group path), each door REFR identical but for the inserted VMAD, which decodes to the script,
     the destination (the core's arrival marker when core_plugin is given) and the return position DestinationX / Y / Z
@@ -734,9 +775,14 @@ def check_port(before, after, doors, core_plugin=None, merge=None):
              and max(abs(u - v) for u, v in zip(q["rot"], want_rot)) < 1e-5 and q["scale"] == 1.0,
              f"{e['src']}: marker {fid:08X} persistent XMarker in the persistent group of cell {cell:08X} at {q['pos']} rot {q['rot']}")
     ob, nb = before.hedr(), after.hedr()
-    need(nb[1] == ob[1] + len(markers) and nb[2] == max((f & 0xFFFFFF for f in new if (f >> 24) == len(before.masters())), default=0) + 1
-         and nb[2] == ob[2] + len(markers),
-         f"HEDR records {ob[1]} -> {nb[1]}, next 0x{ob[2]:06X} -> 0x{nb[2]:06X} (the markers, nothing else)")
+    if kept:      # kept ids sit below the later plugin's next id: the count grows, next only if a marker is above it
+        top = max((fid & 0xFFFFFF for fid in markers), default=-1)
+        need(nb[1] == ob[1] + len(markers) and nb[2] == max(ob[2], top + 1),
+             f"HEDR records {ob[1]} -> {nb[1]}, next 0x{ob[2]:06X} -> 0x{nb[2]:06X} (kept marker ids, nothing else)")
+    else:
+        need(nb[1] == ob[1] + len(markers) and nb[2] == max((f & 0xFFFFFF for f in new if (f >> 24) == len(before.masters())), default=0) + 1
+             and nb[2] == ob[2] + len(markers),
+             f"HEDR records {ob[1]} -> {nb[1]}, next 0x{ob[2]:06X} -> 0x{nb[2]:06X} (the markers, nothing else)")
     return checks
 
 
@@ -756,7 +802,7 @@ def cmd_check(a):
         merge = merge_offset(core)
     except ValueError as e:
         sys.exit(f"doors: {e}")
-    checks = check_port(before, after, doors, core_plugin, merge)
+    checks = check_port(before, after, doors, core_plugin, merge, kept=bool(rep.get("kept_markers")))
     own = len(after.masters()) << 24
     raw = {}
     for e in doors:
@@ -804,6 +850,7 @@ def main(argv=None):
     p.add_argument("--port", required=True, help="the pinned interior staging (FO4Port.esm, formids.json, cell exports)")
     p.add_argument("--core", required=True, help="the core build with doors (objects.json, formids.json)")
     p.add_argument("--out", required=True, help="a new folder")
+    p.add_argument("--keep-markers", default="", help="an earlier doors build's doors.json: keep its marker ids")
     p = sub.add_parser("check", help="the patched folder against its pinned input, record by record")
     p.add_argument("--port", required=True)
     p.add_argument("--out", required=True)
