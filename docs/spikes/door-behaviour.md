@@ -54,5 +54,11 @@ move, not one load door; which records and scripts take part is **unresolved** u
 2. Write what the survey shows matters most, each with a synthetic test: locks (XLOC level and key on the reference),
    enable parents (so quest-hidden doors stay hidden and come back when FO4 would show them), the FO4 name in the prompt,
    and doors FO4 makes unusable (no-activation or inaccessible set-ups the survey finds).
+   Status 2026-10-19: names are written by PluginSpike (DoorNames.cs). Locks and enable parents are translated by
+   dotnet/ReferenceLinks, but **no port build runs it yet**: the port is PluginSpike's output alone, so FO4 locks are
+   counted only and a quest-hidden door stays disabled for good. Next step, read-only: run ReferenceLinks with
+   `--report-only` over the port plugin, its formids.json and the same cell exports, and read `relationships-report.json`
+   (enable parents, recreated markers, locks, issues). If the issues are few, the port build gains ReferenceLinks as its last
+   step, writing into a fresh directory and keeping its updated formids.json with the plugin (REFERENCE-LINKS.md).
 3. Elevators and scripted doors: map FO4's scripts to a small Starfield script set as FO4SF_LoadDoor does for teleports;
    design after step 1, since it depends on which scripts appear and how often.
