@@ -184,14 +184,56 @@ single marker at the COC. The first marker keeps #296's EditorID and `formids.js
 `formids.json` `map_marker_refs` {world: {tag: id}}.
 
 `make_core64c.py check` judges them (`map_marker_problems`): MapMarker NAME, XMRK, persistent, position, one `LCSR` row per
-marker with tail `0xFFFFFFFF`, `LCID`, ids after every other record. It also stops counting the markers against the
+marker with tail `0xFFFFFFFF`, no `LCID` (see the correction below), ids after every other record. It also stops counting the markers against the
 door rules (doors after everything, the persistent cell holds anchor + door markers) and compares core64's Location
 without its `LCSR` / `LCID`: before this, a door build with #296's marker would have failed `check`.
 
 The FO4 map names, the `FNAM` bits (fast travel, discovered) and the `TNAM` icon type stay LC172's (`0x1B`, `0x17`):
 whether the icons show undiscovered, and which icon they draw, is **unresolved** until the in-game check.
 
+### Correction (Claude-cloud, 2026-10-18): the markers were written initially disabled
+
+In game on FO4TerrainCore fdd3f0a5 (markers 0A7759 to 0A775C), **no icon showed on the map** (owner). The writer
+Duplicated LC172's 003E5E12 with its flags 0xC00, which include Initially Disabled 0x800. LC172's quest enables that marker.
+Ours have nothing to enable them, and the writer also listed them in `LCID` (the Location's initially disabled
+references). The landing-overlay marker 003A866E is 0x400 (persistent only). The writer now writes 0x400 and no `LCID`,
+and `check` fails a marker that is initially disabled or listed in `LCID`. **Supported hypothesis** until the
+in-game confirmation (`prid 030A7759`, `enable`, then open the map; `03` is FO4TerrainCore's load-order slot).
+
 ## Acceptance
 
 Claude: scratch overlay from this writer, `coc` Red Rocket, open the planet / overlay map, confirm one icon at the
 station, then retry Frontier fast travel. Offline `check` cannot see a hang.
+
+## Markers in the merged world (2026-10-19, supported hypothesis)
+
+With #356 the markers are enabled, yet v6 showed no icon (owner, 19 Oct). The markers are **persistent** references of
+the overlay world, and a persistent reference of that world stays at its **local** position in the base world
+(`0x02000803`: door probe (a), 16 Oct, docs/JOURNAL.md), while the player walks in a world made at run time that places
+the core's records at local + the merge offset (`vmad_patch.MERGE_MEASURED`, (-1200, -2700)). The mission's actors hit
+the same wall (#353 moves them). So the map of the world the player is in has no marker in it.
+
+`FO4SFMapMarkers.esm` (`dotnet/MapMarkers`, `scripts/mapmarkers/make_map_markers.py stage --core <core> --out <dir>`)
+is one start-game-enabled quest carrying `FO4SF_MapMarkers`: every 2 s, with the player outdoors inside the overlay's
+merged extent (x -4400..2000, y -5900..500), each marker that is not at its merged spot in the player's world is
+enabled and moved there (`MoveTo` onto the player with the difference as the offset, the form the door script and
+the mission use), at most 40 moves per session, each logged to `fo4sf_map.0.log`. The plugin names the core's marker
+REFRs by FormID, so it is rebuilt with every core build. Unverified: that a moved marker shows on the map; the
+extent check cannot tell another world with the same coordinates apart (as the mission).
+
+Console check (no plugin needed): `prid 030A775A`, `getpos x`, `getpos y`: about (-1154, 1260) is the local spot,
+about (-2354, -1440) the merged one. `prid 030A775A` then `moveto player` moves the Sanctuary marker onto the player by
+hand, then the map shows whether a moved marker draws.
+
+**Can a writer fix exist? (`dotnet/MergeProbe`, offline-checked, not run in game).** Two writer-side candidates
+failed in game: the vanilla persistent-cell shape (fix A, cave_fixA_1015, refuted: the door still read local) and
+WRLD OFST / CLSZ (fix E, cave_ofst_1015, FAIL NOLOAD only, which does not isolate an unmerged position). Neither
+rules out every writer fix. `MergeProbe build <Starfield.esm> <out>` writes `FO4SFMergeProbe.esm`: one persistent XMarker
+`FO4SF_MergeProbeMarker` (0x800) in an override of vanilla LC172World's persistent cell, 3 m east of the COC marker
+0010238E, which reads merged in game (offset -500, -2300, -3.62). In game, with only this plugin added:
+`coc LC172Ext01`, then `prid <its load index>000800`, `getpos x`, `getpos y`, and in the same session `prid 0010238E`,
+`getpos x`, `getpos y` as the vanilla control (it must read merged, or the session proves nothing). One read is scoped
+to that world, build, load order, save and session. A merged probe read says a plugin's persistent reference can
+merge there, so the cause is likely in our WRLD / LCTN records (diff them next). A local read with a merged control
+says persistent references this plugin adds did not merge in that setup; it supports keeping the runtime moves (the
+door script, #353, this quest) as the design, but does not prove no record shape can merge.

@@ -1135,8 +1135,8 @@ if (doorEntries.Count > 0)
 }
 // Map markers (docs/terrain/map-markers.md): Duplicate LC172's persistent MapMarker REFR 003E5E12 so empty XMRK /
 // FNAM 0x1B / TNAM 0x17 stay vanilla; one per entry of the overlay's "map_markers" (make_core64c stage: Red Rocket at
-// the COC, Sanctuary, Vault 111, Concord), else one at the COC; fill LCSR MapMarkerRefType + LCID that the location
-// Duplicate cleared. New FormIDs after doors/lights so object IDs stay, in params order. Skip when the master has no
+// the COC, Sanctuary, Vault 111, Concord), else one at the COC; fill LCSR MapMarkerRefType that the location
+// Duplicate cleared (no LCID: the markers are enabled). New FormIDs after doors/lights so object IDs stay, in params order. Skip when the master has no
 // 003E5E12 (synthetic identity fixture) so existing writer tests keep their FormIDs.
 var srcMapMarker = sf.EnumerateMajorRecords<IPlacedObjectGetter>().FirstOrDefault(r => r.FormKey.ID == 0x3E5E12);
 int nMap = 0;
@@ -1166,7 +1166,10 @@ else foreach (var (w, o) in worlds)
         marker.EditorID = w.EditorID + "MapMarker" + (i == 0 ? "" : tag);       // the first keeps #296's EditorID
         marker.Position = new P3Float(pos[0], pos[1], pos[2]);
         marker.Rotation = new P3Float(0, 0, 0);
-        marker.MajorRecordFlagsRaw |= 0xC00;                                 // Persistent 0x400 + Initially Disabled 0x800 (LC172 003E5E12)
+        // Persistent 0x400, ENABLED: LC172's 003E5E12 is 0xC00 (Initially Disabled, its quest enables it), and with
+        // 0x800 kept no icon showed on the map in game (owner, 18 Oct, FO4TerrainCore fdd3f0a5); the landing-overlay
+        // marker 003A866E is 0x400 (docs/terrain/map-markers.md)
+        marker.MajorRecordFlagsRaw = (marker.MajorRecordFlagsRaw | 0x400) & ~0x800;
         marker.LinkedReferences?.Clear();                                    // drop LC172's XLKR into a vanilla ref
         if (marker.MapMarker != null)
             marker.MapMarker.Name = name;
@@ -1180,8 +1183,7 @@ else foreach (var (w, o) in worlds)
             Grid = new P2Int16((short)cell[0], (short)cell[1]),               // Mutagen writes Y then X; Unknown -1 is vanilla 0xFFFFFFFF
             Unknown = -1,
         });
-        loc.MasterInitiallyDisabledReferences ??= new ExtendedList<IFormLinkGetter<IPlacedGetter>>();
-        loc.MasterInitiallyDisabledReferences.Add(new FormLink<IPlacedGetter>(marker.FormKey));
+        // no LCID (MasterInitiallyDisabledReferences): the marker is not initially disabled
         if (i == 0)
             mapIds[w.EditorID!] = marker.FormKey.ID.ToString("X6");
         tags[identityTags[i]] = marker.FormKey.ID.ToString("X6");

@@ -8,20 +8,41 @@ Reviewing or forking with an AI assistant? Point it at [docs/ai/for-ai-reviewers
 
 Converters read **your own copies of both games** and generate local outputs. No game files or conversion pack are distributed. Existing in-game screenshots depict Bethesda-owned visuals and are excluded from the project's code license.
 
-[Latest progress](#latest-progress--2026-10-17) · [Roadmap](docs/ROADMAP.md) · [Progress dashboard](https://claude.ai/artifact/SjY6rgmjtdmN8ryjxAUxAp) · [Play and test (newcomers)](docs/PLAY-AND-TEST.md) · [Run an installed build](#run-an-installed-build-windows) · [Cell commands](#visit-converted-cells) · [Live updates](https://github.com/fo4sf/fo4-to-starfield/issues/32) · [Contribute](CONTRIBUTING.md)
+[Latest progress](#latest-progress--2026-10-19) · [Roadmap](docs/ROADMAP.md) · [Progress dashboard](https://claude.ai/artifact/SjY6rgmjtdmN8ryjxAUxAp) · [Play and test (newcomers)](docs/PLAY-AND-TEST.md) · [Run an installed build](#run-an-installed-build-windows) · [Cell commands](#visit-converted-cells) · [Live updates](https://github.com/fo4sf/fo4-to-starfield/issues/32) · [Contribute](CONTRIBUTING.md)
 
-## Latest progress — 2026-10-17
+## Latest progress — 2026-10-19
 
-**The whole playable Commonwealth exterior and 16 interiors run natively in Starfield, and the owner is playtesting them.** Dates are Mountain time. The live list of what the owner found and what was done about it is [docs/owner/playtest-issues.md](docs/owner/playtest-issues.md) (26 rows with screenshots); the checks he runs are in [docs/owner/in-game-test-sheet.md](docs/owner/in-game-test-sheet.md); what comes after this testing is in [docs/ROADMAP.md](docs/ROADMAP.md).
+**The first mission runs in game, and the build that carries it is under a crash bisect.** Nothing new is deployed until that test is done. Dates are UTC unless marked.
+
+| Area | State on 19 Oct | Evidence |
+|---|---|---|
+| **Installed on the test PC** | core `terrain_core64v6c_l125_mission_wfc9b` with port `integ_v6_specmask_doors_c`; the earlier v5 set is the rollback | install record on the PC; mission notes on #353 (2c2ef2b) |
+| **Mission** | a cut-down "When Freedom Calls" ran to completion in game: stages 20, 30 (5 of 5 raiders dead), 40, 200 and complete. Preston targeted the player twice; the faction fix (wfc10) is built but untested | [docs/mission/when-freedom-calls.md on #353](https://github.com/fo4sf/fo4-to-starfield/blob/2c2ef2bd7fc896bdff0996bf943bfb624f5c6c5b/docs/mission/when-freedom-calls.md), PR #353 |
+| **Codsworth** | a robot stand-in at his Sanctuary spot; 20 of his Fallout 4 voice lines have been converted from the owner's own files so far, and the in-game voice check is open | #361 (merged, 4492d13) |
+| **Crashes near Red Rocket and the museum** | three crashes on v6, two of them seconds after the museum fight; crashes persisted with the two nearby map markers disabled, and the cause remains unresolved. Within 300 m of Red Rocket v6c added 404 movable props and 12 door changes, so a test build with the side-door rig off and those props static (v6e) is staged, not installed | #375 (bisect switches and `near_changes.py`, merged 19 Oct), #353 notes |
+| **Map** | the four markers (Red Rocket, Sanctuary, Vault 111, Concord) are enabled but draw no icon on v6. Supported hypothesis: persistent references stay at their local position, so #376 (merged 19 Oct) moves them at run time; a one-reference merge probe compares add-on and vanilla persistent-reference positions in the same session to narrow the writer-side cause | #376 |
+| **Passed in game so far** | the mission (above); the Super Duper Mart and Boston Public Library load doors both ways; most indoor pickups; 19 of 20 library stair routes (the 20th never started); the Red Rocket to Sanctuary walk on core64c (before v6) | test records of 17 and 18 Oct, summarised on [#32](https://github.com/fo4sf/fo4-to-starfield/issues/32) |
+| **Still open** | about 190 interiors unconverted; no Pip-Boy; lights, distant LOD, textures, carrying objects (the 18 Oct movable tests read FAIL or INCONCLUSIVE) | [docs/owner/playtest-issues.md](docs/owner/playtest-issues.md) |
+
+**Next, approved by the owner on 19 Oct** (order: new game first, then doors, then interiors, then the launcher): a Vault 111 new-game start with no Starfield intro; load doors with enter and exit animations; all interiors converted in batches; then a launcher that ships no assets and builds the port from the player's own Fallout 4. Offline work on all four started on 19 Oct as draft PRs (#393, #392, #396, #394; listed in the roadmap); the research notes are in draft PR #380 and the proposals from Grok and Codex in #381 and #382.
+
+<details>
+<summary>Progress on 17 October</summary>
+
+### 2026-10-17
+
+**The whole playable Commonwealth exterior and 16 interiors run natively in Starfield, and the owner is playtesting them.** Dates are Mountain time. The live list of what the owner found and what was done about it is [docs/owner/playtest-issues.md](docs/owner/playtest-issues.md) (26 rows with screenshots); the checks the owner runs are in [docs/owner/in-game-test-sheet.md](docs/owner/in-game-test-sheet.md); what comes after this testing is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 | Area | State on 17 Oct | Evidence |
 |---|---|---|
 | **Exterior** | the 64 x 64 cell core as native terrain with 648,358 placed objects (build `core64k`); the owner walked from Red Rocket to the Diamond City gate with no crash and no boundary | playtest row 25; walk gates PASS |
 | **Objects as records** | 5,185 containers, 12,438 loose items, activators, terminals, 6,249 lights, 29 workshops, 269 crafting benches on Starfield's stations; owner-verified: pickup, containers, the scanner, the Red Rocket workshop's build mode. Not yet checked: the other workshops, the bench menus, the terminals; activators show a prompt but are not wired yet | playtest rows 12, 16, 21 |
-| **Interiors** | 16 reachable by `coc` (build `integ_1018`): Vault 111's sliding doors work (the cog door is still a solid static), posed props, crash-fixed collision | owner-verified 17 Oct; the shooting crash's cause came from his crash dump (#274) |
+| **Interiors** | 16 reachable by `coc` (build `integ_1018`): Vault 111's sliding doors work (the cog door is still a solid static), posed props, crash-fixed collision | owner-verified 17 Oct; the shooting crash's cause came from the owner's crash dump (#274) |
 | **Doors between them** | the exterior Super Duper Mart door is a scripted door: entering works when the runner activates it from the console (16 Oct); the way back is written (#291, #297) and its runner test is staged | docs/terrain/scripted-doors.md |
 | **Actors** | a converted raider fights the player once combat is forced from the console; a vanilla NPC paths on the converted navmesh | npc_combat, npc_nav queues |
 | **Open** | lights far too bright at night (calibration 2.3x vanilla; a dimmed build staged, #302), nothing visible beyond the loaded cells (no distant LOD yet), a passable gate and a plank over water in Vault 111 (fixes in review), carrying objects, the garage button (#303), textures (Grok's passes), map and fast travel | playtest rows 19-26 |
+
+</details>
 
 <details>
 <summary>Earlier progress (14-15 October)</summary>
@@ -91,7 +112,7 @@ More captured work: [Vault 111](docs/spikes/WP10-vault111-first-light.md) · [ad
 
 ## What remains
 
-The next goals, in the owner's order, are in [docs/ROADMAP.md](docs/ROADMAP.md): finish the Commonwealth slice (doors both ways, lights, LOD, textures), then one playable slice with a complex NPC and a simple mission, then a launcher and a shared Fallout core on Creation Engine 2. The interior slice still needs reliable stairs, clear openings, both-side door operation, pushable objects and repeatable deployment. Some route failures come from test positioning; others require geometry or physics fixes. Nearby terrain has sampled evidence and continuous walking has lead-reported passes; the cave connection, independent acceptance, larger regional streaming and actor behavior remain open. Quests, dialogue, combat systems and full-game parity are unfinished. See [the issue tracker](https://github.com/fo4sf/fo4-to-starfield/issues) and [risk register](docs/RISKS.md).
+The next goals are in [docs/ROADMAP.md](docs/ROADMAP.md). First the current v6e crash test finishes; then, in the owner's order of 19 Oct, a Vault 111 new-game start, load doors with enter and exit animations, all interiors, and a launcher that builds from the player's own games. The interior slice still needs reliable stairs, clear openings, both-side door operation, pushable objects and repeatable deployment. Some route failures come from test positioning; others require geometry or physics fixes. Nearby terrain has sampled evidence and continuous walking has lead-reported passes; the cave connection, independent acceptance, larger regional streaming and actor behavior remain open. Quests, dialogue, combat systems and full-game parity are unfinished. See [the issue tracker](https://github.com/fo4sf/fo4-to-starfield/issues) and [risk register](docs/RISKS.md).
 
 ## Run an installed build (Windows)
 

@@ -497,3 +497,10 @@ The main697bc07 marker writer calls unnamed NewKey, which the persistent ledger 
   - Find another GetMass route: none is known (no console command; the CallFunction route refuses).
 - Taken under the owner's standing rule (2026-10-18 03:56Z) that threads take their recommended option on reversible
   choices.
+
+## 2026-10-18: interior usable objects reuse the exterior promotion rules (Claude-cloud)
+- Decision: FO4Port.esm promotes containers, inventory items, activators and terminals with the core's make_cluster rules
+  and tables, through an optional promote.json PluginSpike reads (docs/terrain/port-promotions.md).
+- Why: the owner found these unusable indoors (18 Oct); the exterior path is already verified in game.
+- Alternatives: a Python record patch of the pinned plugin (vmad_patch style): rejected, new record types would need a
+  hand-written layout Mutagen already writes; copying the table logic into C#: rejected, two rule sets would drift.

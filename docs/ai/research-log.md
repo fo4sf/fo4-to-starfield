@@ -1431,3 +1431,25 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   Next: pick a dim vanilla interior cubemap and a brighter template from `envmaps` / `templates`, rebuild the library
   only with `{"BostonPublicLibrary02": {"ENV_MAP": "<vanilla>", "LIGHTING_TEMPLATE": "006658"}}` and compare in game
   against the current build, then map FO4's ambient level to the template per cell.
+- **verified (in game, owner, 18 Oct 19:32Z):** with only the library's ENV_MAP changed to
+  `Data\Textures\Cubemaps\Cell_HiTechHallCube.dds` (FO4Port.esm 5204188f, template ShipInteriorLT 006658, image space
+  122393 unchanged) the owner reported "Lighting looks fine". The hall cube becomes PluginSpike's default ENV_MAP for
+  every converted interior; the other interiors (Vault 111 above all, on the darker template) are not yet seen with it.
+  Variants B (image space 005322) and C (B + DefaultLightingTemplate 0300E2) were built and not needed.
+
+## 2026-10-18 Claude-cloud: black patches on floors and walls (debris decals drawn opaque)
+- **Seen (owner, 18 Oct):** hard-edged black patches in debris and decal patches: library, Cambridge Polymer and Concord
+  road floors, Fort Hagen 01 walls.
+- **verified (converted files, integ_1011):** `bldfloorconcdebris02alpha.mat` was a cutout at AlphaTestThreshold 0.024.
+  Its opacity map never goes below 28, so nothing is cut. The texels with alpha 64-128 (half the map) have colour
+  luminance 1 of 255, so they are black.
+- **verified (PC probe, clean-master depot, main 2906601):** DebrisPileLargeConc01-06 shape `Decals:10` uses
+  BldFloorConcDebris02Alpha.BGSM, header bytes 32..51 = `00 06000000 07000000 06 01 01 01 00 00 01 00 01 ...`: no blend,
+  alpha test ref 6, alpha test on, decal (47) on, decal no fade (49) on. The shape has flags2 0x21 (vertex colours), no
+  NiAlphaProperty, and vertex alpha 0..48. Its other shapes (BldConcChunkies01, DirtRubbleBrick01) have ref 128 and no
+  alpha test, blend or decal flag.
+- **supported hypothesis:** FO4 draws decal-flagged alpha-tested materials as overlays, with opacity = texture alpha
+  times vertex alpha, so this one is at most 19 % opaque. The converter treated it as an opaque cutout.
+- **Change:** a BGSM that is decal plus alpha test now converts like a blended one, through the decal template. A shape
+  with vertex colours that never reach full alpha gets its own decal material with the opacity map multiplied by its
+  peak vertex alpha under `vadecals/a48/` (a peak of 0 skips the shape). The rim fade itself is not reproduced. Not yet seen in game.

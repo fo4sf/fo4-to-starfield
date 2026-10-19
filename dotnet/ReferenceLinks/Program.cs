@@ -48,7 +48,7 @@ try
     var statePath = Path.Combine(args[2], "build-state.json");
     File.WriteAllText(statePath, JsonSerializer.Serialize(new { complete = false, status = "relationship_translation", unresolved, warnings = report.Warnings.Count, blocking }));
     File.WriteAllText(Path.Combine(args[2], "relationships-report.json"), JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
-    Console.WriteLine($"markers={report.CreatedMarkers}, keywords={report.CreatedKeywords}, persistent={report.Persistent}, enable parents={report.EnableParents}, linked refs={report.LinkedReferences}, teleports={report.Teleports}, issues={report.Issues.Count}, warnings={report.Warnings.Count}");
+    Console.WriteLine($"markers={report.CreatedMarkers}, keywords={report.CreatedKeywords}, persistent={report.Persistent}, enable parents={report.EnableParents}, linked refs={report.LinkedReferences}, teleports={report.Teleports}, locks={report.Locks}, issues={report.Issues.Count}, warnings={report.Warnings.Count}");
     foreach (var warning in report.Warnings)
         Console.Error.WriteLine($"warning: {warning.Source} {warning.Field}: {warning.Reason}");
     if (blocking > 0 && !args.Contains("--allow-unresolved")) { Environment.ExitCode = 2; return; }
