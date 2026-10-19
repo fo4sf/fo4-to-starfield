@@ -62,14 +62,15 @@ class PairedCallerTests(unittest.TestCase):
 
     def patch(self, plan, entries, **changes):
         args = dict(marker_plan=plan, expected_sha256=plan.sha256, base_raw=self.case.base,
-                    base_map_raw=self.map_raw)
+                    base_map_raw=self.map_raw, base_map_sha256=hashlib.sha256(self.map_raw).hexdigest())
         args.update(changes)
         edits = vp.port_edits("Core.esm", entries, "FO4Port.esm", 0x804, (-1200, -2700, 0), **args)
         plugin = vp.Plugin(self.case.base)
         vp.patch_port(plugin, edits, 1)
         raw = plugin.serialize()
         checks = vp.check_port(vp.Plugin(self.case.base), vp.Plugin(raw), entries, "Core.esm", (-1200, -2700, 0),
-                               marker_plan=plan, expected_sha256=plan.sha256, base_map_raw=self.map_raw)
+                               marker_plan=plan, expected_sha256=plan.sha256, base_map_raw=self.map_raw,
+                               base_map_sha256=hashlib.sha256(self.map_raw).hexdigest())
         self.assertTrue(all(ok for _, ok in checks), checks)
         return raw
 
@@ -97,6 +98,25 @@ class PairedCallerTests(unittest.TestCase):
             self.assertEqual(writer.reserve(self.case.base, self.map_raw, ["000003:Synthetic.esm"],
                                             plugin="FO4Port.esm").assignments["000003:synthetic.esm"], 0x806)
 
+    def test_new_producer_source_cannot_recycle_a_removed_source_marker(self):
+        new_source = "000003:Synthetic.esm"
+        added = copy.deepcopy(self.refs[0])
+        added["formkey"] = new_source
+        self.refs.append(added)
+        path = self.port / "Test.json"
+        exports = json.loads(path.read_text(encoding="utf-8"))
+        exports["refs"][0]["teleport_destination"]["door"] = new_source
+        path.write_text(json.dumps(exports), encoding="utf-8")
+        new_door = copy.deepcopy(self.case.doors[0])
+        new_door["src"] = new_source
+        self.case.doors.append(new_door)
+        with store.session(self.directory, self.initial.sha256) as writer:
+            port, cluster, _ = self.produce(writer, [self.case.sources[1], new_source])
+            self.assertEqual([e["destination"]["id"] for e in cluster["doors"]], ["000805", "000806"])
+            self.assertEqual(json.loads(writer.raw)["reservations"][self.case.sources[0].lower()], 0x804)
+            raw = self.patch(port["_marker_plan"], self.consumer_entries(cluster))
+            self.assertEqual(vp.Plugin(raw).hedr()[2], 0x807)
+
     def test_empty_selection_preserves_all_reservations(self):
         with store.session(self.directory, self.initial.sha256) as writer:
             port, cluster, _ = self.produce(writer, [])
@@ -118,7 +138,8 @@ class PairedCallerTests(unittest.TestCase):
             plan, entries = port["_marker_plan"], self.consumer_entries(cluster)
             cases = [dict(expected_sha256="0" * 64), dict(base_raw=self.case.base + b"x"),
                      dict(base_map_raw=fixture.encoded({**self.case.mapping, "STAT:extra": 0x900})),
-                     dict(expected_sha256=None)]
+                     dict(expected_sha256=None), dict(base_map_raw=self.map_raw + b" "),
+                     dict(base_map_sha256=None), dict(base_map_sha256="0" * 64)]
             for change in cases:
                 with self.subTest(change=list(change)), self.assertRaises((ValueError, KeyError)):
                     self.patch(plan, entries, **change)
@@ -163,7 +184,8 @@ class PairedCallerTests(unittest.TestCase):
             plan, entries = port["_marker_plan"], self.consumer_entries(cluster)
             raw = self.patch(plan, entries)
             checks = vp.check_port(vp.Plugin(self.case.base), vp.Plugin(raw), entries, "Core.esm", (0, 0, 0),
-                                   marker_plan=plan, expected_sha256="0" * 64, base_map_raw=self.map_raw)
+                                   marker_plan=plan, expected_sha256="0" * 64, base_map_raw=self.map_raw,
+                                   base_map_sha256=hashlib.sha256(self.map_raw).hexdigest())
             self.assertFalse(all(ok for _, ok in checks))
             self.assertIn("hash mismatch", checks[0][0])
             checks = vp.check_port(vp.Plugin(self.case.base), vp.Plugin(raw), entries, "Core.esm", (0, 0, 0),
