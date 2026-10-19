@@ -155,6 +155,16 @@ def static_body_models(cell):
                   key=str.lower)
 
 
+def static_pattern_models(pattern, names):
+    """--static-pattern: the candidate names matching a regex, or, for "@file", the names listed in that file (one mesh
+    name per line, as a manifest prints them; case and slashes ignored)."""
+    if pattern.startswith("@"):
+        with open(pattern[1:], encoding="utf-8-sig") as f:
+            wanted = {line.strip().replace("/", "\\").lower() for line in f if line.strip()}
+        return {n for n in names if n.replace("/", "\\").lower() in wanted}
+    return {n for n in names if re.search(pattern, n, re.I)}
+
+
 def checkpoint_key(key, name, load_models, static_models, no_rig_models=()):
     """The checkpoint identity of one conversion: the mesh (or posed-variant) key plus the record-driven classes that
     change its output (load door, static body), so a cell export that reclassifies a mesh is a cache miss (Codex review
@@ -200,8 +210,8 @@ def main():
                     help="regex over mesh names: these doors skip their own rig (as without --door-anim-dll), only they "
                          "reconvert on --resume (crash bisects: v6 Red Rocket, 2026-10-19)")
     ap.add_argument("--static-pattern", default="",
-                    help="regex over mesh names: these keep a static body though items are movable; only they "
-                         "reconvert on --resume")
+                    help="regex over mesh names, or @file listing mesh names: these keep a static body though items "
+                         "are movable; only they reconvert on --resume")
     ap.add_argument("--resume", action="store_true", help="reuse content-verified per-model checkpoints")
     ap.add_argument("--pattern", default=r"^meshes[\\/]setdressing[\\/]")
     ap.add_argument("--limit", type=int, default=20)
@@ -270,8 +280,7 @@ def main():
         load_models = static_models = []
     no_rig_models = [n for n in names if a.no_rig_pattern and re.search(a.no_rig_pattern, n, re.I)]
     if a.static_pattern:
-        static_models = sorted(set(static_models) | {n for n in names if re.search(a.static_pattern, n, re.I)},
-                               key=str.lower)
+        static_models = sorted(set(static_models) | static_pattern_models(a.static_pattern, names), key=str.lower)
     print(f"{len(names)} candidate meshes; converting up to {a.limit}")
     os.makedirs(a.staging, exist_ok=True)
     state_path = os.path.join(a.staging, "build-state.json")
