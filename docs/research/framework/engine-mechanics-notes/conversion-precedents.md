@@ -370,7 +370,7 @@ Phases: **P1** new game, **P2** interiors, **P3** quests and people, **P4** Fall
 - https://morroblivion.com/comment/58279
 - https://en.m.uesp.net/wiki/Tes5Mod:Skyblivion
 - https://www.dsogaming.com/videotrailer-news/skyblivion-oblivion-mod-for-skyrim-gets-a-new-teaser-trailer/
-- https://handbook.tesrskywind.com/home/history
+- https://handbook.tesrskywind.com/%68ome/history (the handbook's history page)
 - https://handbook.tesrskywind.com/dev/Principles
 - https://handbook.tesrskywind.com/dev/quest-testing-guidelines
 - Project files read: ../findings/precedents.md, ../engine-mechanics.md, wave2-rechecks.md, ../README.md
