@@ -66,6 +66,25 @@ Scripts (.pex): Fallout4 - Misc.ba2 7875, DLCRobot - Main.ba2 483, DLCworkshop01
 Codsworth picker's counts. Not installed: DLCCoast, DLCworkshop02, DLCworkshop03, DLCNukaWorld. Full output on the PC:
 D:\Modding\scratch\e1_inventory\e1.md.
 
+## AS file layouts (PC job AS, 2026-10-19; first 512 bytes of each, full dumps on the PC in D:\Modding\scratch\e1_inventory\as\dumps.txt)
+
+- **.af** (verified: binary, no magic): `alert_idle.af` 1,513 bytes, `bipeda\animations\bleedout_walkforward.af` 27,740
+  bytes. Supported hypothesis: a shared header (1.0f at 0x08, a float at 0x1c that may be the duration, 2.4186 for the
+  walk, u16 5 at 0x28, then two counts), a u16 index list (bone or channel ids), then quantized keys or float curves.
+  Writing .af needs this layout pinned down from several samples first.
+- **.afx** (verified): plain XML beside each .af: state flag, tag, filename, prefix, and sound events by frame.
+- **.rig** (supported hypothesis): `bipeda\characterassets\skeleton.rig`, 13,716 bytes, size at 0x04; per-bone records
+  every 0x60 bytes with index, parent index (-1 for the root), a quaternion, a translation and an offset into a name
+  table near 0x2e70. Readable enough to map FO4 bone names onto Starfield's for retargeting.
+- **anim_files.xtbl** (verified): XML list of .af file names with a preload flag.
+- **.swf** (verified): `interface\almanacmenu.swf` is a zlib SWF (CWS, version 12), Scaleform as in FO4.
+- **.pex** (verified): FO4 scripts carry magic FA57C0DE, version 3.9, game id 2 and the original source path; Starfield's
+  game id for comparison is unresolved.
+
+Routes this sets: NPCs move with Starfield's own animations at first; FO4 clip conversion waits on an .af layout spike
+(read the .rig names first, then several .af samples against their known durations); the Pip-Boy is a Scaleform menu of
+our own; quest scripts go through decompile, shim and recompile (E2).
+
 ## 4. Order (bounded tasks; owner priorities first: Codsworth, the mission, the map)
 
 | # | Task | Owner | Needs | Done when |
