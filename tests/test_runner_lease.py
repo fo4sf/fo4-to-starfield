@@ -248,6 +248,47 @@ class RunnerLeaseTests(unittest.TestCase):
         a = seen["a"]
         self.assertEqual((a.lease_dir, a.lease_owner), ("", "Bob"))
 
+    def _limited(self, **kw):
+        r = self.runner(max_attempts=1, **kw)
+        r.session, r.cell, self.ctl.pid = False, None, None                   # no game: it has to be launched
+        calls = []
+        r._ps = lambda script, *a, **k: calls.append(script) or (0, "")
+        return r, calls
+
+    def test_the_crash_budget_stops_before_the_next_launch(self):
+        r, calls = self._limited(crash_budget=1)
+        r.state["crashes"] = 1
+        self.assertEqual(r.run(), 3)
+        self.assertEqual((calls, self.calls), ([], []))
+        self.assertTrue(self.status().startswith("stopped: limit: 1 crash(es) this run, --crash-budget 1"),
+                        self.status())
+
+    def test_a_crash_under_the_budget_still_launches(self):
+        r, calls = self._limited(crash_budget=2)
+        r.state["crashes"] = 1
+        with mock.patch.object(tq.Runner, "pinned_ok", return_value=True), \
+                mock.patch.object(tq.Runner, "setup_session", side_effect=RuntimeError("launched")), \
+                self.assertRaisesRegex(RuntimeError, "launched"):
+            r.run()                                                           # past the limit: the launch ran
+        self.assertIn("cycle.ps1", calls)
+
+    def test_the_disk_floor_stops_before_a_launch(self):
+        r, calls = self._limited(min_free_gb=43, dump_drive="X:\\")
+        with mock.patch.object(tq.shutil, "disk_usage", return_value=mock.Mock(free=30e9)) as du:
+            self.assertEqual(r.run(), 3)
+        du.assert_called_with("X:\\")
+        self.assertEqual((calls, self.calls), ([], []))
+        self.assertTrue(self.status().startswith("stopped: limit: 30.0 GB free on X:\\, --min-free-gb 43"),
+                        self.status())
+        r, calls = self._limited(min_free_gb=43, dump_drive="X:\\")
+        with mock.patch.object(tq.shutil, "disk_usage", side_effect=OSError("no drive")):
+            self.assertEqual(r.run(), 3)                                      # unreadable counts as too full
+        self.assertEqual(calls, [])
+        self.assertIn("unreadable", self.status())
+
+    def test_the_limits_are_off_by_default(self):
+        self.assertIsNone(tq.launch_limit(tt.args(), {"crashes": 9}))
+
     def test_a_launch_is_gated_before_the_idle_check(self):
         ctl = tt.FakeControls()
         ctl.pid, ctl.idle, ctl.last_sent_tick = None, 5, None    # would otherwise say "owner active"

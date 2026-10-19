@@ -38,6 +38,11 @@ another window in front of the game, also stops it (or makes it wait for an idle
 Every verdict needs its observations: a position that was not read or a screenshot that is missing makes the test
 INCONCLUSIVE, never PASS. INCONCLUSIVE tests are retried once more at the end of the queue (`--max-attempts 2`); a FAIL
 is final. A game crash during a test is recorded (class CRASH) and the game is relaunched (at most `--max-relaunch`).
+Crashes never trip the breaker, so night runs can set two limits, both off by default. Each is checked before every
+launch, and the run stops with `limit: ...` when one is hit:
+- `--crash-budget N`: stop after the Nth crash of the run.
+- `--min-free-gb G`: stop while `--dump-drive` (default `D:\`) has less than G GB free. Each crash writes a dump there,
+  18 GB as full dumps on 2026-10-19. A drive that can't be read counts as too full.
 
 ### Stairs routes (`routes.py`, 2026-10-13; amended after QA on PR #111)
 

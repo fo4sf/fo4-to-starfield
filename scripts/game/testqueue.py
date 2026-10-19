@@ -2496,6 +2496,27 @@ def stop_controls(queue_dir):
     return {"files": stop_files(queue_dir), "guardian_db": os.path.join(Controls.state_dir, "guardian.db")}
 
 
+def launch_limit(a, state):
+    """Why no further launch is allowed by the night-run limits, else None (both off by default):
+    --crash-budget N stops before the launch that would follow the Nth crash of this run (a repeatable crash otherwise
+    relaunches up to --max-relaunch times, and crashes never trip the BREAKER); --min-free-gb G stops while the crash
+    dump drive (--dump-drive) has less than G GB free, since every crash writes a dump there (18 GB full dumps on D:,
+    2026-10-19). An unreadable drive counts as too full."""
+    budget = getattr(a, "crash_budget", 0) or 0
+    if budget and state.get("crashes", 0) >= budget:
+        return f"limit: {state.get('crashes', 0)} crash(es) this run, --crash-budget {budget}"
+    floor = getattr(a, "min_free_gb", 0) or 0
+    if floor:
+        drive = getattr(a, "dump_drive", "") or "D:\\"
+        try:
+            free = shutil.disk_usage(drive).free / 1e9
+        except OSError as e:
+            return f"limit: free space on {drive} unreadable ({e}), --min-free-gb {floor:g}"
+        if free < floor:
+            return f"limit: {free:.1f} GB free on {drive}, --min-free-gb {floor:g}"
+    return None
+
+
 def blocked_reason(ctl, q, launching=False, min_idle=900, lease=None):
     if lease is not None:                                 # the controller lease, only when the runner was given one
         why = lease.blocked()
@@ -2962,6 +2983,9 @@ class Runner:
             if not fresh and self.state["relaunches"] >= self.a.max_relaunch:
                 self.log(f"game not running and {self.state['relaunches']} relaunches used: stopping")
                 return "stop"
+            why = launch_limit(self.a, self.state)
+            if why:
+                return why
             why = blocked_reason(self.ctl, self.q, launching=True, min_idle=self.a.min_idle, lease=self.lease)
             if why:
                 return why
@@ -3317,7 +3341,7 @@ class Runner:
                 self.session, self.cell, self.game_used = False, None, False
                 self.fresh_launch = True                  # an intended relaunch: not counted against --max-relaunch
             g = self.ensure_game(t["cell"])
-            if g and g.startswith("the game did not start"):   # cycle.ps1 exit 10: no waiting fixes Steam's side
+            if g and g.startswith(("the game did not start", "limit:")):   # no waiting fixes Steam or a full disk
                 self.log(f"stopped: {g}")
                 self.checkpoint(f"stopped: {g}")
                 return 3
@@ -3667,6 +3691,11 @@ def main(argv=None):
     r.add_argument("--min-idle", type=int, default=900)
     r.add_argument("--max-attempts", type=int, default=2)
     r.add_argument("--max-relaunch", type=int, default=3)
+    r.add_argument("--crash-budget", type=int, default=0,
+                   help="stop before relaunching after this many crashes in the run (0, the default: off)")
+    r.add_argument("--min-free-gb", type=float, default=0.0,
+                   help="stop before a launch while --dump-drive has less free space than this (0, the default: off)")
+    r.add_argument("--dump-drive", default="D:\\", help="where crash dumps are written (default D:\\)")
     r.add_argument("--wait-for-idle", action="store_true")
     r.add_argument("--refocus", action="store_true")
     r.add_argument("--dry-run", action="store_true")
