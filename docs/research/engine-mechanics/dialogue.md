@@ -120,6 +120,11 @@ Codsworth lines use `sound\voice\starfield.esm\robotminibota\`), plus a FaceFX `
 
 **Lip sync.** The Starfield CK generates `.ffxanim` from WAV in `Data\Sound\Voice\<plugin>\<VoiceType>\` (Audio > Run
 FaceFX compiler). **supported hypothesis** (Starfield modding wiki; not run here).
+Command line (verified, PC string scan of both CKs, job 18): Starfield's CK has `-CompileFaceFXAnims` but no
+`-GenerateLips` (FO4's CK has `-GenerateLips` and `-GenerateSingleLip`); it runs `Tools\LipGenerator\LipGenerator.exe`
+as a command-line tool (setting `sLipGeneratorPath`). FO4's CK calls LipGenerator with the WAV, the text,
+`-Language:` and `-GestureExaggeration:`. So a headless route likely exists: call LipGenerator.exe directly, or the CK
+with `-CompileFaceFXAnims` (**unresolved** until one PC run writes an `.ffxanim`).
 
 ## Mapping for the port
 
