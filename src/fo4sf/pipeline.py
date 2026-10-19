@@ -172,7 +172,8 @@ class Converter:
                  no_collision_pattern: str = r"^meshes[\\/](architecture|interiors|scol)[\\/]", rig_doors: bool = False,
                  door_physics_donor: Optional[bytes] = None, sf_mesh_template: Optional[bytes] = None,
                  dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None,
-                 spec_mask_roughness: bool = False, mass_scale: float = 1.0, load_door_models=(), static_body_models=()):
+                 spec_mask_roughness: bool = False, mass_scale: float = 1.0, load_door_models=(), static_body_models=(),
+                 no_rig_models=()):
         self.src, self.staging, self.texconv = src, staging, texconv_exe
         # load_door_models: mesh names FO4 places as a teleporting Door (a Door reference with an XTEL in the cell export,
         # convert_batch.teleport_models), load doors whatever their name: RoofHatch01 and MetalTrapdoorLadder01 match no
@@ -181,6 +182,8 @@ class Converter:
         # static_body_models: mesh names that keep a static body even with dynamic_template (the outdoor core places
         # them as STAT only, never as a pickable item: cars, skeletons, cones; convert_batch.static_body_models)
         self.static_body_models = {n.replace("/", "\\").lower() for n in static_body_models}
+        # no_rig_models: doors that skip their own rig as if door_anim_dll were missing (crash bisects; --no-rig-pattern)
+        self.no_rig_models = {n.replace("/", "\\").lower() for n in no_rig_models}
         # spec_mask_roughness: roughness also follows FO4's specular mask (smooth-spec R), not only its gloss (G); off by
         # default so existing builds and checkpoints keep their textures (owner's Vault 111 floor report, 2026-10-17)
         self.spec_mask_roughness = spec_mask_roughness
@@ -643,6 +646,7 @@ class Converter:
             aliases = OWN_RIG_ALIASES.get(re.split(r"[\\/]", nif_name)[-1].lower())
             if aliases and not any(0 <= s < len(src.strings) and src.strings[s].decode("latin-1") in aliases for s in seq_names):
                 aliases = None                           # not the model the table means (no such clip)
+            anim_dll = None if nif_name.replace("/", "\\").lower() in getattr(self, "no_rig_models", ()) else self.door_anim_dll
             use_box = self.collision_template is not None
             coll_report = {}
             files = None
@@ -656,7 +660,7 @@ class Converter:
                 # clips (one track and one keyframed body per part, as vanilla double doors); without it the template
                 # door is kept and the parts that stay closed are listed (door_frozen_parts), not silently dropped.
                 frozen = convert_static.frozen_door_parts(src)
-                if frozen and self.door_anim_dll:
+                if frozen and anim_dll:
                     try:
                         from . import native_door
                         files, res["door"] = convert_static.convert_multipart_door(
@@ -679,7 +683,7 @@ class Converter:
                             res["door_frozen_parts"] = frozen
                     except Exception as e:               # noqa: BLE001  (falls back to a static door)
                         res["door_error"] = (res["door_error"] + "; " if "door_error" in res else "") + f"{type(e).__name__}: {e}"
-            elif (pose is None and self.rig_doors and self.door_physics_donor is not None and self.door_anim_dll
+            elif (pose is None and self.rig_doors and self.door_physics_donor is not None and anim_dll
                   and (animated or aliases) and not load_door
                   and (aliases or (DOOR_RE.search(nif_name) and not_hinged))):
                 # Sliding, lifting and trapdoor families (vault doors, elevator doors, hatches) cannot hang under the
