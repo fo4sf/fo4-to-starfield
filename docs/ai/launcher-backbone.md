@@ -66,6 +66,13 @@ PC today detect refuses on DLC (only Automatron and Wasteland Workshop are insta
 other folders split out, so "deleting this frees N GB" is a number, not a guess (staged builds hard-link Data from the
 work folders). This is the measuring half of the unresolved full-build disk budget.
 
+### Mod manifests (draft v0, plan task L2)
+`src/fo4sf/launcher/mods.py`: a mod declares id, version, the core version range it needs, an optional exact Starfield
+pin, its plugins, `requires` and `load_after`. `resolve` puts the core's plugins first, then mods in dependency order
+with ties broken by id (the same order on every PC), and refuses with every reason at once: a missing requirement, a
+cycle, a core or Starfield version mismatch, a duplicate id, a plugin claimed twice or claimed from the core. Not
+wired to any install yet; the format is for the talk (it targets a core master that does not exist yet).
+
 ## First PC run (read-only and staged only; needs the install thread)
 
 1. **Done 2026-10-19 14:40Z (verified, read only):** `same-ids` on the two staged core plugins
