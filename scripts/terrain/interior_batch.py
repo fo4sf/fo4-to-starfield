@@ -118,8 +118,9 @@ def compare(old_dir, new_dir):
             if len(changed_ids) < 50:
                 changed_ids.append(f"{sig.decode()} {fid:08X}")
     added = Counter(new_r[f][0].decode() for f in set(new_r) - set(old_r))
+    why = removed_causes(old_ids, new_ids, removed, new_r)
     if removed:
-        problems.append(f"{len(removed)} base record(s) removed (first: {removed[:5]})")
+        problems.append(f"{len(removed)} base record(s) removed (first: {removed[:5]}; by cause: {why['counts']})")
     if resig:
         problems.append(f"{len(resig)} base record(s) changed signature (first: {resig[:5]})")
     old_cells = {k[5:] for k in old_ids if k.startswith("CELL:")}
@@ -128,9 +129,35 @@ def compare(old_dir, new_dir):
             "ids": {"old": len(old_ids), "new": len(new_ids), "missing": len(missing), "renumbered": len(moved)},
             "records": {"old": len(old_r), "new": len(new_r), "identical": dict(sorted(same.items())),
                         "changed": dict(sorted(changed.items())), "changed_first": changed_ids,
-                        "removed": len(removed), "added": dict(sorted(added.items()))},
+                        "removed": len(removed), "removed_causes": why, "added": dict(sorted(added.items()))},
             "hedr": {"old": list(old_p.hedr()[1:]), "new": list(new_p.hedr()[1:])},
             "cells_added": sorted(new_cells - old_cells), "cells_removed": sorted(old_cells - new_cells)}
+
+
+def removed_causes(old_ids, new_ids, removed, new_records):
+    """Why base records went: {"counts": {cause: n}, "first": {cause: [keys]}}. Per removed record its old key
+    ("SIG:editor id"); the new build wrote a record under a key with the same editor id in another case ("renamed_case":
+    a converter that names models differently, e.g. a work staging without the base's editorids.json), under another
+    signature ("retyped": e.g. a DOOR that is a STAT now, a door rig the build did not make), or not at all ("gone": a
+    promotion or a model the build left out)."""
+    inv = {v: k for k, v in old_ids.items()}
+    live = {}
+    for k, v in new_ids.items():
+        if (v | 0x01000000) in new_records and ":" in k:
+            sig, rest = k.split(":", 1)
+            live.setdefault(rest.casefold(), set()).add((sig, rest))
+    counts, first = Counter(), {}
+    for entry in removed:
+        sig, fid = entry.split(" ")
+        key = inv.get(int(fid, 16) & 0xFFFFFF, f"{sig}:?")
+        ksig, rest = key.split(":", 1) if ":" in key else (sig, key)
+        alts = live.get(rest.casefold(), set()) - {(ksig, rest)}
+        cause = ("renamed_case" if any(a[0] == ksig for a in alts) else "retyped" if alts else "gone")
+        counts[cause] += 1
+        first.setdefault(cause, [])
+        if len(first[cause]) < 10:
+            first[cause].append(key + (" -> " + ",".join(sorted(f"{a}:{b}" for a, b in alts)) if alts else ""))
+    return {"counts": dict(sorted(counts.items())), "first": first}
 
 
 # ------------------------------------------------------------------------------------------------------------- build
@@ -207,7 +234,25 @@ def build(a):
     export_paths = [os.path.join(pinned, c + ".json") for c in old_cells] + \
                    [os.path.join(exports, c + ".json") for c in new_cells if c not in failed_exports]
 
-    # 3. convert
+    # 3. convert: the base's model -> editor id map first, so every base model keeps its record name (and FormID key);
+    # convert_batch names new models itself. A work staging that already names a base model differently is refused.
+    seed = os.path.join(a.base_exports, "editorids.json")
+    if os.path.isfile(seed):
+        base_names = load(seed)
+        work_names_path = os.path.join(a.work, "editorids.json")
+        work_names = load(work_names_path) if os.path.isfile(work_names_path) else {}
+        norm = lambda m: {k.replace("\\", "/").lower(): v for k, v in m.items()}  # noqa: E731
+        bn, wn = norm(base_names), norm(work_names)
+        differ = sorted(k for k in bn if k in wn and wn[k] != bn[k])
+        if differ:
+            return finish(a, plan, steps, cells, t0, f"--work names {len(differ)} base model(s) differently from the base's "
+                                                      f"editorids.json (first {differ[:3]}): use a new --work")
+        merged_names = dict(work_names)
+        merged_names.update({k: v for k, v in base_names.items() if k.replace("\\", "/").lower() not in wn})
+        save(work_names_path, merged_names)
+        steps["editorids"] = {"seeded_from": seed, "base": len(base_names), "work_before": len(work_names)}
+    else:
+        steps["editorids"] = {"seeded_from": None, "warning": f"{seed} missing: base models may be renamed"}
     refs = []
     for p in export_paths:
         refs.extend(load(p)["refs"])

@@ -252,6 +252,7 @@ class BuildFlowTests(unittest.TestCase):
         ib.save(os.path.join(base, "formids.json"), ids)
         ib.save(os.path.join(base, "doors.json"), {"doors": [{"src": "1:Fallout4.esm", "marker": "000803"}]})
         ib.save(os.path.join(base, "Old.json"), {"cell": "Old", "refs": [{"model": "a.nif"}]})
+        ib.save(os.path.join(base, "editorids.json"), {"meshes\\A.nif": "FO4Port_A"})
         plan = os.path.join(t, "plan.json")
         ib.save(plan, {"batches": [{"name": "interiors_b01", "peak_gb_est": 0.0, "cells": [{"editor_id": "New"}, {"editor_id": "Bad"}]}]})
         work, out = os.path.join(t, "work"), os.path.join(t, "staging", "interiors_b01")
@@ -266,6 +267,7 @@ class BuildFlowTests(unittest.TestCase):
                     return 1, 0.1
                 ib.save(cmd[-1], {"cell": cmd[-2], "refs": [{"model": "meshes\\n.nif"}]})
             elif "convert_batch.py" in joined:
+                self.assertEqual(ib.load(os.path.join(work, "editorids.json")), {"meshes\\A.nif": "FO4Port_A"})
                 merged = ib.load(cmd[cmd.index("--cell-json") + 1])
                 self.assertEqual(len(merged["refs"]), 2)                 # Old (pinned) + New
                 ib.save(os.path.join(work, "manifest.json"), {"items": [], "failures": [{"nif": "meshes\\n.nif", "reason": "x"}]})
@@ -312,3 +314,21 @@ class BuildFlowTests(unittest.TestCase):
         self.assertIn("--resume", calls[[i for i, c in enumerate(calls) if "convert_batch.py" in " ".join(c)][0]])
         with self.assertRaises(SystemExit):                                # never into an existing folder
             ib.main(argv)
+        # a work staging that names a base model differently is refused (the base's names keep the FormID keys)
+        ib.save(os.path.join(work, "editorids.json"), {"meshes/a.nif": "FO4Port_a"})
+        out2 = os.path.join(t, "staging", "interiors_b01b")
+        argv2 = [out2 if x == out else x for x in argv]
+        ib.run = fake_run
+        try:
+            self.assertEqual(ib.main(argv2), 1)
+        finally:
+            ib.run = real
+        self.assertIn("use a new --work", ib.load(os.path.join(out2, "result.json"))["error"])
+
+    def test_removed_causes(self):
+        old = {"STAT:FO4Port_Chair": 0x800, "DOOR:FO4Port_VaultDoor": 0x801, "FURN:FO4Port_furn_1": 0x802}
+        new = dict(old, **{"STAT:FO4Port_chair": 0x900, "STAT:FO4Port_vaultdoor": 0x901})
+        recs = {0x01000900: None, 0x01000901: None}
+        why = ib.removed_causes(old, new, ["STAT 01000800", "DOOR 01000801", "FURN 01000802"], recs)
+        self.assertEqual(why["counts"], {"gone": 1, "renamed_case": 1, "retyped": 1})
+        self.assertEqual(why["first"]["retyped"], ["DOOR:FO4Port_VaultDoor -> STAT:FO4Port_vaultdoor"])
