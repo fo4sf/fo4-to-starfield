@@ -20,8 +20,8 @@ def rec(t, fid, body):
     return t + struct.pack("<III", len(body), 0, fid) + b"\0" * 8 + body
 
 
-def grp(label, body):
-    return b"GRUP" + struct.pack("<I", 24 + len(body)) + label + struct.pack("<i", 0) + b"\0" * 8 + body
+def grp(label, body, gtype=0):
+    return b"GRUP" + struct.pack("<I", 24 + len(body)) + label + struct.pack("<i", gtype) + b"\0" * 8 + body
 
 
 def z(s):
@@ -33,7 +33,9 @@ def u32(v):
 
 
 def plugin():
-    wrld = grp(b"WRLD", rec(b"WRLD", 0x10, sub(b"EDID", z("TestCity")) + sub(b"DATA", b"\x01") + sub(b"BNAM", u32(0x20))))
+    children = grp(u32(0x10), grp(b"\0" * 4, rec(b"CELL", 0x11, sub(b"EDID", z(""))), 4), 1)   # as Starfield.esm: cells
+    wrld = grp(b"WRLD", rec(b"WRLD", 0x10, sub(b"EDID", z("TestCity")) + sub(b"DATA", b"\x01") + sub(b"BNAM", u32(0x20)))
+               + children)
     biom = grp(b"BIOM", rec(b"BIOM", 0x20, sub(b"EDID", z("TestBiome"))
                             + sub(b"LNAM", u32(7) + u32(0x30) + u32(0x40))
                             + sub(b"ANAM", u32(7) + u32(0x31) + u32(0))))

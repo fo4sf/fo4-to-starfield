@@ -35,9 +35,11 @@ def read(plugins):
             for item in fl.iter_items(p.buf, p.body, len(p.buf)):
                 if item[0] != "GRUP" or bytes(item[3]) not in TYPES:
                     continue
-                for typ, off, _f, fid in fl.iter_items(p.buf, item[1] + 24, item[2]):
-                    if typ != "GRUP":
-                        recs[typ.decode()][key(fid)] = (pi, list(fl.iter_subrecords(fl.record_data(p.buf, off))))
+                for rec in fl.iter_items(p.buf, item[1] + 24, item[2]):
+                    if rec[0] == "GRUP":          # a world's children group (5-tuple): cells are not needed here
+                        continue
+                    typ, off, _f, fid = rec
+                    recs[typ.decode()][key(fid)] = (pi, list(fl.iter_subrecords(fl.record_data(p.buf, off))))
     return recs, keyers
 
 
