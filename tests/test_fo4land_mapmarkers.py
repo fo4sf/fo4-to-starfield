@@ -35,10 +35,10 @@ def z(text):
     return text.encode("cp1252") + b"\0"
 
 
-def marker(fid, name, pos, flags=0x400, edid=None):
+def marker(fid, name, pos, flags=0x400, edid=None, mtype=5):
     subs = ([(b"EDID", z(edid))] if edid else []) + [
         (b"NAME", struct.pack("<I", 0x10)), (b"XMRK", b""), (b"FNAM", b"\x03"), (b"FULL", z(name)),
-        (b"TNAM", b"\x05\x00"), (b"DATA", struct.pack("<6f", *pos, 0, 0, 0))]
+        (b"TNAM", bytes([mtype, 0])), (b"DATA", struct.pack("<6f", *pos, 0, 0, 0))]
     return record(b"REFR", fid, subs, flags)
 
 
@@ -58,7 +58,7 @@ def synthetic_plugin(path):
     plain = record(b"REFR", 0x812, [(b"NAME", struct.pack("<I", 0x10)), (b"DATA", struct.pack("<6f", 1, 2, 3, 0, 0, 0))],
                    flags=0x400)
     cw = world(0x800, "Commonwealth", 0x801, [
-        marker(0x811, "Sanctuary Hills", (-80768.19, 88174.80, 2800.0), edid="SynthSanctuaryMarker"),
+        marker(0x811, "Sanctuary Hills", (-80768.19, 88174.80, 2800.0), edid="SynthSanctuaryMarker", mtype=15),
         marker(0x810, "Concord", (-60286.01, 72977.79, 1500.0)), plain],
         [marker(0x813, "Abernathy Farm", (-81000.0, 86000.0, 1200.0), flags=0)])
     other = world(0x820, "DiamondCityWorld", 0x821, [marker(0x830, "Diamond City", (0, 0, 0))], [])
@@ -95,6 +95,8 @@ class Fo4LandMapMarkersTests(unittest.TestCase):
             self.assertEqual([r["persistent"] for r in rows], [True, True, False])
             self.assertEqual(rows[1]["editor_id"], "SynthSanctuaryMarker")
             self.assertEqual(rows[1]["base"], "00000010")
+            self.assertEqual([(r["type"], r["type_id"]) for r in rows],
+                             [("GovtBuildingOrMonument", 5), ("Vault", 15), ("GovtBuildingOrMonument", 5)])
             self.assertAlmostEqual(rows[1]["pos"][0], -80768.19, places=1)
             self.assertAlmostEqual(rows[1]["pos"][1], 88174.80, places=1)
 

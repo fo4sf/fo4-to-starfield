@@ -3,11 +3,12 @@
 //
 //   dotnet run --project dotnet/Fo4Land -c Release -- <Fallout4.esm> export-mapmarkers <out.json> [<WorldEditorId>]
 //
-// {"plugin", "world", "markers": [{"fid", "editor_id", "base", "name", "pos": [x, y, z], "persistent"}]}: every placed
+// {"plugin", "world", "markers": [{"fid", "editor_id", "base", "name", "type", "type_id", "pos": [x, y, z], "persistent"}]}: every placed
 // object of the world (persistent and temporary) that carries map-marker data (XMRK and its FULL), FO4 units, sorted
 // by FormID. "name" is the marker's own FULL: Fallout4.esm is localized, and Mutagen reads it from the Strings files
 // in the archives next to the plugin (as export-names). The world defaults to Commonwealth. The output stays outside
-// the repository (derived game data).
+// the repository (derived game data). "type" / "type_id" are the marker's TNAM type as Mutagen's Fallout 4 enum
+// (Vault = 15, MetroStation = 6, ...), for a later FO4-to-Starfield icon table (docs/terrain/map-markers.md).
 using System.Text.Json;
 using Mutagen.Bethesda;
 using Mutagen.Bethesda.Fallout4;
@@ -26,6 +27,7 @@ public static class MapMarkersExport
             {
                 fid = ctx.FormKey.ID.ToString("X8"), editor_id = ctx.EditorID, @base = ctx.Base.FormKey.ID.ToString("X8"),
                 name = string.IsNullOrEmpty(ctx.MapMarker.Name?.String) ? null : ctx.MapMarker.Name!.String,
+                type = ctx.MapMarker.Type.ToString(), type_id = (int)ctx.MapMarker.Type,
                 pos = new[] { ctx.Position.X, ctx.Position.Y, ctx.Position.Z },
                 persistent = (ctx.MajorRecordFlagsRaw & 0x400) != 0,
             }));

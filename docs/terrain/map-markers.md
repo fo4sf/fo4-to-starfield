@@ -223,7 +223,20 @@ named; 307 left after the fixed four's own records, all inside the overlay. Noth
    quests, in FormID order, against the core.
 
 Every new marker keeps LC172's `FNAM` 0x1B and `TNAM` 0x17, so they all draw one icon type; FO4's own marker types
-are not mapped yet. This takes a new core build, so it waits for the current phase's tests.
+are not mapped yet. The export carries each FO4 marker's type (`type`, `type_id`) for that later table.
+
+Marker data in the two games (Claude-cloud, 2026-10-19). Mutagen 0.55.0-alpha.67, read by reflection on
+`PlacedObjectMapMarker`:
+- Fallout 4: `Flags` (Visible 1, CanTravelTo 2, ShowAllIsHidden 4, UseLocationName 8), `Name`, `Type` (an enum of
+  66 FO4 icons: Cave 0, City 1, DiamondCity 2, MetroStation 6, Vault 15, ... Minutemen 57, ...), then one unknown
+  byte. This is **verified** as Mutagen's layout. The byte widths on disk are **unresolved** (no `Fallout4.esm` here;
+  the synthetic test writes `FNAM` 1 byte and `TNAM` 2 bytes).
+- Starfield: the same `Flags`, plus `Name`, `Type` as a bare signed byte (no enum), one unknown byte, `VNAM` (u16),
+  `UNAM` (a string) and `VISI` (a byte). LC172's bytes above agree: `FNAM` is u32, and `TNAM` `1700` is type 0x17
+  plus the unknown 0x00 (**verified**).
+- The Interiors thread reports that no Starfield marker type matches FO4's Vault, Metro or Diamond City icons. That
+  is **unresolved**: Mutagen names no Starfield types, so checking it takes a census of `TNAM` values in
+  `Starfield.esm` or the in-game check. Either way, a lossy FO4-to-Starfield type table is the likely shape. This takes a new core build, so it waits for the current phase's tests.
 
 ## Acceptance
 
