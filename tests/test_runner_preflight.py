@@ -122,6 +122,63 @@ class RunnerPreflightTests(unittest.TestCase):
         self.assertIn("dry run: would run 0000_fall", read(os.path.join(self.d, "run.log")))
 
 
+class PreflightReportTests(unittest.TestCase):
+    """--preflight-report: the same checklist, logged and written to preflight.json, never a refusal or a ledger line."""
+    setUp, runner, status = RunnerPreflightTests.setUp, RunnerPreflightTests.runner, RunnerPreflightTests.status
+
+    def test_report_only_names_what_it_would_refuse_and_runs_on(self):
+        c.Controller(self.leader).claim("Claude", "window", 3600)
+        r = self.runner(probe=tcp.FakeProbe(version=None, guard=("paused", "db")), preflight_report=True,
+                        lease_dir=self.leader, lease_owner="Claude", max_attempts=1)
+        r.run()
+        self.assertEqual(sorted(set(self.calls)), ["0000_fall", "0001_fall"])
+        log = read(os.path.join(self.d, "run.log"))
+        self.assertIn("preflight (report only): would refuse: game_version UNKNOWN, guardian FAIL", log)
+        self.assertIn("  FAIL    guardian: Resource Guardian mode paused", log)
+        self.assertNotIn("REFUSED", log)
+        self.assertEqual(self.status(), "finished")
+        rep = tt.jload(os.path.join(self.d, "preflight.json"))
+        self.assertEqual((rep["mode"], rep["ok"], rep["would_refuse"]), ("report", False, ["game_version", "guardian"]))
+        self.assertEqual([x["name"] for x in rep["checks"]], list(pf.CHECKS))
+        events = Ledger(os.path.join(self.leader, "ledger.jsonl")).read()
+        self.assertNotIn("blocker_opened", [e.ev for e in events])
+
+    def test_a_passing_report_and_a_probe_that_breaks(self):
+        self.runner(probe=tcp.FakeProbe(), preflight_report=True, max_attempts=1).run()
+        self.assertIn("preflight (report only): every check passed", read(os.path.join(self.d, "run.log")))
+        self.assertTrue(tt.jload(os.path.join(self.d, "preflight.json"))["ok"])
+        self.calls.clear()
+        os.remove(os.path.join(self.d, "state.json"))
+        r = self.runner(preflight_report=True, max_attempts=1)
+        r.preflight_probe = lambda runner: (_ for _ in ()).throw(RuntimeError("no probe"))
+        r.run()
+        self.assertIn("preflight (report only): not run: RuntimeError: no probe", read(os.path.join(self.d, "run.log")))
+        self.assertTrue(self.calls)
+
+    def test_the_enforcing_gate_wins_when_both_are_on(self):
+        r = self.runner(probe=tcp.FakeProbe(save=None), preflight=True, preflight_report=True)
+        self.assertEqual(r.run(), 3)
+        self.assertNotIn("report only", read(os.path.join(self.d, "run.log")))
+        self.assertFalse(os.path.exists(os.path.join(self.d, "preflight.json")))
+
+    def test_main_reads_the_report_switch_from_the_environment(self):
+        seen = {}
+
+        class FakeRunner:
+            def __init__(self, qdir, a):
+                seen["a"] = a
+
+            def run(self):
+                return 0
+        for value, want in (("1", True), ("on", True), ("0", False), ("", False)):
+            with mock.patch.dict(os.environ, {"FO4SF_PREFLIGHT_REPORT": value}), mock.patch.object(tq, "Runner", FakeRunner):
+                tq.main(["run", "--queue", self.d])
+            self.assertIs(seen["a"].preflight_report, want, value)
+        with mock.patch.dict(os.environ, {"FO4SF_PREFLIGHT_REPORT": ""}), mock.patch.object(tq, "Runner", FakeRunner):
+            tq.main(["run", "--queue", self.d, "--preflight-report"])
+        self.assertIs(seen["a"].preflight_report, True)
+
+
 class ProbeOnThisBoxTests(unittest.TestCase):
     """The PC-side readings that can be taken anywhere: paths, absent files, the lease, the Guardian database."""
 

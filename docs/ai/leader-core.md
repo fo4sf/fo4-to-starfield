@@ -248,6 +248,13 @@ a `--dry-run` prints the checklist and refuses the same way; a later pass closes
 so the report does not carry a refusal that no longer holds. Unset, the gate is not built and the runner is the one
 of §6. The after-load activation check stays where it is (cycle.ps1 exit 8 after `exp_install.py active`).
 
+**Report-only, the first step of switching it on:** `testqueue.py run --preflight-report` (or `FO4SF_PREFLIGHT_REPORT=1`)
+runs the same checks at the same point but never refuses: `run.log` gets `preflight (report only): every check passed`
+or `... would refuse: <check> <status>, ...` and the checklist, `preflight.json` in the queue folder gets `mode`,
+`ok`, `would_refuse` and each check's status and detail, nothing goes to the ledger, and a probe that cannot start is
+logged and the run goes on. `--preflight` wins when both are on. A few night runs in this mode show which checks the
+PC would fail before the gate is enforced.
+
 ## 8. Task cards and the worker result contract
 
 **The card** (`src/fo4sf/core/tasks.py`, `TaskCard`): data with exactly the fields of the §4 cards: `id`,
