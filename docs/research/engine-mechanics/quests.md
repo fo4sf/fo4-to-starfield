@@ -139,6 +139,10 @@ it).
   aliases, an own faction for Preston (v6e, untested). docs/mission/when-freedom-calls.md.
 - The new game (draft PR #393) holds FO4's `MQ00` and `MQ101` equivalents in `FO4SFNewGame.esm`; see
   [saves-and-new-game.md](saves-and-new-game.md).
+- The quest engine probe (`FO4SFQuestProbe.esm`, `docs/questprobe/engine-questions.md` on the PR #393 branch, built
+  offline, not installed) answers five open behaviours in one plugin: stage fragments, OnStageSet (the mission's never
+  fired), markers following a forced alias, our own quest-type heading, and our own Story Manager branch under
+  Starfield's Script Event node with "Shares Event" set.
 - Scale, order and fencing: [../next-phase/npcs-ai-factions-dialogue-quests.md](../next-phase/npcs-ai-factions-dialogue-quests.md)
   sections 6 to 9.
 
