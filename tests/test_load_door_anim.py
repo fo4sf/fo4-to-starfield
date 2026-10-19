@@ -259,6 +259,77 @@ class AnimatedScriptTests(unittest.TestCase):
                     self.assertEqual(json.load(f)["status"], "failed")
 
 
+class PortAnimatedDoorsTests(unittest.TestCase):
+    """vmad_patch.py port / check --animated-doors (step B) on test_vmad_patch's synthetic port, with the door base a
+    DOOR as PluginSpike writes load doors."""
+
+    def setUp(self):
+        import test_vmad_patch as tv
+        self.tv = tv
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.port = os.path.join(self.tmp.name, "integ")
+        os.makedirs(self.port)
+        with open(os.path.join(self.port, "FO4Port.esm"), "wb") as f:
+            f.write(tv.tiny_plugin().replace(b"STAT", b"DOOR"))             # the door REFR's base becomes a DOOR
+        with open(os.path.join(self.port, "formids.json"), "w", encoding="utf-8") as f:
+            json.dump({"DOOR:FO4Port_door02": 0x800, "CELL:FO4Port_Test": 0x801,
+                       "REFR:FO4Port_Test:0EE5D6:Fallout4.esm": 0x802, "REFR:FO4Port_Test:000001:Fallout4.esm": 0x803}, f)
+        self.core = os.path.join(self.tmp.name, "core")
+        tv.core_folder(self.core, [tv.door_entry()])
+        self.manifest = os.path.join(self.tmp.name, "manifest.json")
+
+    def write_manifest(self, anim):
+        ld = {"bounds": BOUNDS}
+        if anim:
+            ld["anim"] = dict(rigged(), open_seconds=1.3)
+        with open(self.manifest, "w", encoding="utf-8") as f:
+            json.dump({"items": [item("FO4Port_door02", "meshes\\doors\\d.nif", load_door=ld)]}, f)
+
+    def run_port(self, out, *extra):
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(vmad_patch.main(["port", "--port", self.port, "--core", self.core, "--out", out, *extra]), 0)
+            return vmad_patch.main(["check", "--port", self.port, "--out", out])
+
+    def vmad(self, out):
+        door = vmad_patch.Plugin.read(os.path.join(out, "FO4Port.esm")).find(self.tv.OWN | 0x802)[2]
+        return dict(door.fields())[b"VMAD"]
+
+    def test_animated_door_gets_the_child_script_and_check_passes(self):
+        self.write_manifest(True)
+        out = os.path.join(self.tmp.name, "anim")
+        self.assertEqual(self.run_port(out, "--animated-doors", self.manifest), 0)
+        plugin, local_id, pos, seconds = vmad_patch.animated_load_door_target(self.vmad(out))
+        self.assertEqual((plugin, local_id), ("FO4TerrainCore.esm", 0xA5E20))
+        self.assertAlmostEqual(seconds, 1.3, places=5)
+        with open(os.path.join(out, "doors.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["doors"][0]["script"], "FO4SF_AnimatedLoadDoor")
+
+    def test_without_the_option_or_without_anim_the_door_is_byte_for_byte_as_before(self):
+        plain = os.path.join(self.tmp.name, "plain")
+        self.assertEqual(self.run_port(plain), 0)
+        self.write_manifest(False)
+        none = os.path.join(self.tmp.name, "none")
+        self.assertEqual(self.run_port(none, "--animated-doors", self.manifest), 0)
+        for out in (plain, none):
+            self.assertEqual(vmad_patch.load_door_target(self.vmad(out))[:2], ("FO4TerrainCore.esm", 0xA5E20))
+        with open(os.path.join(plain, "FO4Port.esm"), "rb") as a, open(os.path.join(none, "FO4Port.esm"), "rb") as b:
+            self.assertEqual(a.read(), b.read())
+
+    def test_check_refuses_a_plain_vmad_where_doors_json_promises_the_animated_one(self):
+        self.write_manifest(True)
+        out = os.path.join(self.tmp.name, "anim")
+        self.run_port(out, "--animated-doors", self.manifest)
+        p = os.path.join(out, "doors.json")
+        with open(p, encoding="utf-8") as f:
+            rep = json.load(f)
+        rep["doors"][0]["open_seconds"] = 2.0                                 # the plugin says 1.3
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(rep, f)
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(vmad_patch.main(["check", "--port", self.port, "--out", out]), 1)
+
+
 class BatchFlagTests(unittest.TestCase):
     def test_signature_names_the_switch_only_when_on(self):
         a = SimpleNamespace(fo4_data="", starfield_data="sf", texconv="t", content_resources="c", collision_template="x",

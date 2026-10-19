@@ -40,9 +40,9 @@ Owner's ask (2026-10-19, roadmap phase 2): doors with their animations working f
    FO4SF_LoadDoor. On the player's activation the engine has already started the DOOR's open; the script waits until
    `GetOpenState() == 1` (at most `OpenSeconds` + 0.25 s, else `MaxWaitSeconds` 3 s), calls the parent's travel
    unchanged, then `SetOpen(False)` so the door is shut when the player comes back. VMAD: the same six properties plus
-   `OpenSeconds` (`vmad_patch.animated_load_door_scripts` / `animated_load_door_target`). The existing `port` and
-   `check` commands still write and require FO4SF_LoadDoor (tested: the plain reader refuses the animated VMAD), so no
-   build changes until they get an opt-in (step B below).
+   `OpenSeconds` (`vmad_patch.animated_load_door_scripts` / `animated_load_door_target`), written by
+   `vmad_patch.py port --animated-doors <manifest>` (step B, done 2026-10-19). Without the option `port` and `check`
+   write and require FO4SF_LoadDoor exactly as before (tested byte for byte).
 4. **The trip, XTEL doors** (interior <-> interior, today only FortHagen01 <-> FortHagen02 in the pinned cells):
    vanilla uses a `*_Load` graph for this. Which `_Load` graph goes with which rig is check A1; until then an animated
    XTEL door would carry `SimpleOpenClose01.agx`, whose behaviour with an XTEL is **unresolved** (in-game check G2).
@@ -60,7 +60,7 @@ keys play only where the door already gets its own rig. FO4 clips can replace th
 | converter | `convert_batch.py --rig-load-doors` (needs `--starfield-data`) | load doors stay static | animated load-door NIFs rigged into `load_door.anim`; checkpoint signature gains `rig_load_doors` |
 | manifest | `scripts/door_bridge/load_door_anim.py plan --out <new>` | input manifest untouched | a new manifest with twins filled in; `<out>.load_doors.json` lists every load door and why |
 | writer | `load_door.anim` present in the manifest | graph-less DOOR (as every pinned build) | DOOR with graph, twin model, offset |
-| VMAD | `vmad_patch.animated_load_door_scripts` | not used by any command | (step B wires it into `port`) |
+| VMAD | `vmad_patch.py port --animated-doors <manifest>` | every door FO4SF_LoadDoor, byte for byte as before | doors whose DOOR base (by EDID) has `load_door.anim` get FO4SF_AnimatedLoadDoor + OpenSeconds; doors.json records it and `check` requires it |
 
 Unit tests: tests/test_load_door_anim.py (converter switch on/off, twins, CLI, survey, VMAD, compile wrapper, batch
 signature) and dotnet/PluginSpike.Tests. The suite passes with the switches off, so every existing build path is the
@@ -108,12 +108,15 @@ head commit. Nothing is installed, nothing touches Starfield's Data folder or th
 - **A3, Papyrus** (**verified**, ObjectReference.psc): `GetOpenState()`, `SetOpen(bool)`, `BlockActivation`,
   `PlayAnimationAndWait`, events `OnOpen` / `OnClose` all exist, as the script assumes.
 - **A4, compile:** FO4SF_LoadDoor compiled (3,578 bytes); FO4SF_AnimatedLoadDoor failed on a local variable named
-  `state`, a Papyrus keyword (lines 25-26). Renamed `openState`; a test now refuses a local of that name. Rerun pending.
+  `state`, a Papyrus keyword (lines 25-26). Renamed `openState`; a test now refuses a local of that name. Rerun at
+  28a63af: both compiled (**verified**), nothing installed.
 
 ## Next steps
 
-- **B** (after A3 and A4): `vmad_patch.py port --animated-doors` writes FO4SF_AnimatedLoadDoor with `OpenSeconds` from
-  `load_door.anim` and `check --animated-doors` requires it; off by default.
+- **B, done 2026-10-19** (after A3 and A4 passed): `vmad_patch.py port --animated-doors <manifest>` writes
+  FO4SF_AnimatedLoadDoor with `OpenSeconds` from `load_door.anim`; `check` reads which doors from doors.json and requires
+  it there. Both compiled PEX files (A4 rerun: FO4SF_LoadDoor 3,578 bytes sha256 35d8b66b..., FO4SF_AnimatedLoadDoor
+  1,985 bytes sha256 5662f5d9..., from 28a63af) must ride in the port's archive.
 - **C** (after the v6e test): the core writer places the exterior side as the same animated DOOR (FO4 name, rig,
   VMAD) behind a switch; compare-ids must show only the door ACTIs replaced.
 - **G** (in game, owner's window only): G1 the SDM pair with both sides animated: E, the leaf swings, then the trip,
