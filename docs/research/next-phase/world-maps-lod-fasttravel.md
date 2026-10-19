@@ -10,7 +10,7 @@ maps, LOD and travel.
 
 1. The 64x64-cell core already holds every Fallout4.esm exterior object. "Beyond the core" means the DLC content plus FO4's unplayable outer LAND ring, not more playable Commonwealth.
 2. Each DLC exterior worldspace (Far Harbor, Nuka-World) should be its own overlay in its own landing, joined by scripted doors and fast travel. Four of the six DLC are still not installed on the PC (PR #371 E1).
-3. Map markers, fast travel and inter-world doors share one root problem: our persistent references stay at their local (unmerged) position, while vanilla LC172's persistent anchor moves with its merge. A writer-side fix would beat the runtime mover in #376.
+3. Map markers, fast travel and inter-world doors share one root problem: our persistent references stay at their local (unmerged) position, while vanilla LC172's persistent anchor moves with its merge. Two writer-side fixes (the persistent-cell shape, WRLD OFST/CLSZ) were already refuted in game, so the runtime mover in #376 is the path; one add-on test in vanilla LC172World would settle whether a writer fix can exist.
 4. Starfield world object LOD (`lodsettings/*.lod` + `meshes/lod/generated`) is absent. xLODGen does not list Starfield. We would need either the Creation Kit on the player's PC or our own generator, and a tiny-overlay spike decides which.
 5. Breadth order: (1) persistent-ref diff, (2) DLC census, (3) bulk FO4 map markers, (4) LOD spike, (5) a second overlay for Far Harbor. The Pip-Boy map comes after Starfield's surface map works.
 
@@ -101,12 +101,22 @@ planet's ground and world object LOD (supported, surface-map.md). The 3D accepta
 Markers: 4 written (Red Rocket, Sanctuary, Vault 111, Concord; map-markers.md), enabled since #356, no icon in v6.
 PR #376 (open) adds `FO4SFMapMarkers.esm`, a quest that moves each marker to its merged spot every 2 s.
 
-**The key lead (supported).** Vanilla LC172's persistent anchor reads at its merged position. Ours read unmerged
-4 of 4 times (commonwealth-scale.md section 2). So something in our records keeps persistent refs out of the merge,
-and #376 only treats the symptom. Candidates, all **unresolved**: which CELL holds them (our TopCell / persistent
-cell layout vs LC172's), WRLD flags or the parent/overlay component, membership in the Location's `LCSR` (LC172's
-anchor and marker are listed there; ours were not until #296), and cell ownership (XLCN). Fixing this in the writer
-would also mend door arrivals and actor placement (#353), which hit the same wall.
+**The key lead (supported), with a correction (Claude-cloud, 19 Oct 07:40Z).** Vanilla LC172's persistent COC marker
+0010238E reads at its merged position (offset -500, -2300; terrain_A2_lc172 and merge_ctrl_lc172). Ours read unmerged
+4 of 4 times (commonwealth-scale.md section 2). Two writer-side causes are **already refuted in game**:
+fix A, which gave our persistent cell vanilla's record shape (flag 0x400, XCLC sentinel, LTMP, XCLW, XILS; queue
+cave_fixA_1015, JOURNAL 2026-10-15), and fix E, which added WRLD OFST / CLSZ (queue cave_ofst_1015, FAIL NOLOAD,
+testing/manual-test-commands-2026-10-17.md). Cell storage and the XTEL frame already match vanilla
+(door-frames.md section 3). So the project moved to runtime moves (the door script's MoveTo + SetPosition, the
+mission's Relocate in #353, the marker quest in #376), and #376 stays the path for now. Still **unresolved**:
+cell ownership (XLCN), the WRLD's overlay component or parent fields, and whether the merge only covers persistent
+refs of worlds that a vanilla master registers. **The cheapest discriminating test (PC, small, later):** an add-on
+plugin that places one persistent XMarker in vanilla LC172World's persistent cell, read with `getpos` after
+`coc LC172Ext01` (the control run's arrival). If it reads merged, the cause is in our WRLD/LCTN records, so diff
+those next. If it reads local while vanilla 0010238E reads merged in the same session, persistent refs that plugin
+adds did not merge in that world, build, load order and save; that supports keeping the runtime moves as the design,
+without proving no record shape can merge. (Built and offline-checked 07:47Z as #376's FO4SFMergeProbe.esm, staged
+on the PC, not installed.)
 
 **Next phase needs.** (a) Every FO4 map marker, Fallout4.esm plus DLC, as a MapMarker REFR at the merged position,
 with an `LCSR` row each. The FO4 `XMRK`/`FNAM`/`TNAM` layout is unresolved in the cloud (map-markers.md "FO4 map

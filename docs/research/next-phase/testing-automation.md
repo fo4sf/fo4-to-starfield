@@ -27,6 +27,9 @@ Labels used below:
 - **The launch is flaky.** A steam:// launch exited after about 2 s twice on Oct 18, once from the runner and once for
   the user. The runner now retries up to 3 times, going through all its checks each time (#358). The cause is
   unresolved. Supported hypothesis: Steam isn't elevated, and the user runs the game as admin (error 84 otherwise).
+  **Verified 2026-10-19 07:46Z:** the night run's steam:// launch failed with Steam's dialog "Starfield failed to start
+  (error code 84)" (D:\Modding\testqueue_v6c_out\doors_out\cycle.png). #377's `--crash-budget 1` stopped the run after
+  that one dead start, as designed, so nothing was tested. Unattended runs need the elevated launch in 2.4.
 - **The leader core exists but is switched off.** `src/fo4sf/core/` has the ledger model, the controller lease,
   preflight, the importer and the report. The runner uses the lease and preflight only with `--lease-dir` /
   `FO4SF_LEASE_DIR` (testqueue.py:59, 2443). Today's runs write `results.jsonl` per queue, not one ledger.

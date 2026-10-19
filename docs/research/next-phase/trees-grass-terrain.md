@@ -3,7 +3,7 @@
 Foliage thread (Claude-cloud), 2026-10-19 overnight. Repo main 4492d13. Labels follow docs/ai/research-log.md:
 **verified** (file, command or output named), **supported** (evidence points one way, not shown in game),
 **unresolved**. Nothing here was run in game. A read-only PC survey is queued (section 7) and will fill in the
-per-worldspace numbers marked "survey".
+per-worldspace numbers (Part A arrived 07:30Z and is in section 2).
 
 ## Short answer
 
@@ -13,7 +13,7 @@ per-worldspace numbers marked "survey".
    `ltex_source`), there is no grass at all, and trees are converted statics that vanish at the loaded-cell edge.
 2. **Breadth order I recommend:** (a) FO4 land textures on the BTD across the whole core, (b) a small grass go/no-go
    overlay, (c) Far Harbor and Nuka-World as their own overlay worldspaces with heights and objects, (d) tree LOD and
-   wind, (e) the small worlds (prewar Sanctuary, Diamond City). (a) is offline work with a large visible payoff; (b)
+   wind, (e) the small worlds (prewar Sanctuary, Diamond City, Goodneighbor). (a) is offline work with a large visible payoff; (b)
    decides whether grass is cheap or expensive; (c) is the "all DLC" rule and is blocked today by one converter gap.
 3. **DLC blocker (verified):** the converter opens only archives named `Fallout4 - *.ba2`
    (src/fo4sf/pipeline.py:115, scripts/convert_batch.py:30), and `dotnet/Fo4Land export-exterior` loads one plugin
@@ -36,15 +36,32 @@ per-worldspace numbers marked "survey".
 
 ## 2. The worldspaces to cover
 
-| Plugin | Worldspace | Size | Status |
-|---|---|---|---|
-| Fallout4.esm | Commonwealth | 36,864 LAND, heights -118.86..641.03 m; playable core 39 x 42 Starfield cells | core built (64 cells) |
-| Fallout4.esm | SanctuaryHillsWorld (prewar intro) | 118 LAND, 0..149.83 m | not built |
-| Fallout4.esm | DiamondCity | 4 LAND | not built (Diamond City is a walled exterior world in FO4) |
-| Fallout4.esm | 2 more WRLD without LAND in the measured three | names: survey | |
-| DLCCoast.esm (Far Harbor) | the island (EditorID: survey) | 937 navigable cells, about 32 % of the Commonwealth's 2,965 (community count with FO4Edit, unverified) | not converted |
-| DLCNukaWorld.esm | Nuka-World park and surrounding wasteland (EditorID: survey) | 516 navigable cells, about 17 % (same source) | not converted |
-| DLCRobot, DLCworkshop01-03 | no new worldspace (supported: the DLC descriptions name none; Vault 88 is an interior) | | survey confirms |
+Verified by the PC survey (fo4_world_survey.py at c356cc1, 2026-10-19 07:30Z, clean depots; refs = placed
+REFR, by the base's model folder; "unknown" = bases outside STAT/SCOL/MSTT/FLOR/TREE such as furniture, doors, items,
+lights; "other" = statics outside the landscape folders):
+
+| Plugin | Worldspace | Cells / LAND | Heights (m) | Refs | Trees | Plants | Rocks | Grass statics | Status |
+|---|---|---|---|---|---|---|---|---|---|
+| Fallout4.esm | Commonwealth | 36,864 / 36,864, x and y -96..95 | -118.86..641.03 | 701,757 | 57,508 | 72,410 | 46,763 | 4,895 | core built (64 cells) |
+| Fallout4.esm | SanctuaryHillsWorld (prewar intro) | 1,728 / 118, x -28..7, y -13..34 | 0..149.83 | 4,276 | 1,967 | 481 | 132 | 271 | not built |
+| Fallout4.esm | DiamondCity (child of Commonwealth) | 164 / 38 | -30.06..-29.26 | 4,401 | 1 | 158 | 1 | 162 | not built |
+| Fallout4.esm | Goodneighbor (child of Commonwealth) | 108 / 0 | uses the parent's land | 6,691 | 2 | 5 | 0 | 21 | not built |
+| Fallout4.esm | DiamondCityFX (child) | 101 / 0 | | 1 | | | | | effects only |
+| DLCRobot.esm | edits Commonwealth (no new world) | 111 / 2 | 8.69..13.83 | 671 | 4 | 4 | 4 | | rides on the core |
+| DLCworkshop01.esm | no worldspace | | | | | | | | |
+| DLCCoast.esm (Far Harbor) | the island | not on the PC yet | | | | | | | community count 937 navigable cells, about 32 % of the Commonwealth (unverified) |
+| DLCNukaWorld.esm | the park and its wasteland | not on the PC yet | | | | | | | community count 516 cells, about 17 % (unverified) |
+| DLCworkshop02, DLCworkshop03 | not on the PC yet | | | | | | | | expected: no worldspace (supported) |
+
+LTEX 105 (52 of them carry a grass list), GRAS 82 (Fallout4.esm). Far Harbor, Nuka-World and the two other workshop
+DLC esms are missing from the PC (the user is installing them), so the survey reruns when they land.
+
+Two things this changes:
+- **DiamondCity and Goodneighbor are child worldspaces of the Commonwealth** (parent 00003C): they reuse its land and
+  are walled areas the player enters by a load door. In Starfield each becomes its own small overlay worldspace or an
+  interior-like cell set; DiamondCity is 14 x 12 FO4 cells (about 8 x 7 Starfield cells).
+- **Trees are big: 57,508 placed in the Commonwealth** (8 % of its references), plus 72,410 plants. They already
+  convert as statics, so the tree work is LOD (distance) and wind, not placement.
 
 FO4 counts: docs/terrain/architecture.md section 2 and docs/measurements/fo4_esm.json (WRLD 5, LAND 37,020).
 Community size source: [The SIZE! A comparative study on vanilla FO4 and DLCs](https://steamcommunity.com/app/377160/discussions/0/350543319567332507/).
@@ -102,8 +119,29 @@ Plan, gated:
 3. If it does not: grass only as placed statics (FO4 clumps already are), which is a lot of references; or vanilla
    Starfield ground cover as a stand-in, which breaks "as far from Starfield as possible". I would report it, not
    pick it.
-PC Part B (queued) reads how vanilla akilacity, NewAtlantis and CydoniaCity wire BNAM, BIOM terrain data and GCVR,
-so the go/no-go copies a shape that is known to render.
+PC Part B (verified; Job 7, sf_ground_cover.py 0685e85, output C:\Modding\scratch\nextphase\job7.txt and
+sf_ground_cover.json). Each WRLD carries two BNAMs: the first is the overlay component's Surface Block, the second
+the Biome. Cities: akilacity 27CFA2 -> 203EA1 `SavannaLifeAkila`, NewAtlantis 01251B -> 1CBD6A
+`ForestDeciduousLifeJemison`, CydoniaCity 2CFC4A -> 2A3777 `DesertRockyNoLifeMars`. Each biome has 12 terrain entries:
+7 main (masks 0 to 6) and 5 alternate (masks 1 to 5); my earlier "5 and 5" from SfInspect was wrong. Each entry is one
+(LTEX, GCVR) pair, ground cover optional; e.g. Akila mask 2 is `LGrassDeadWet02` with `GC_GrassFieldDried04` (4 GRAS:
+SaltGrass02, GrassFieldDried04A, SaltGrass03, GrassFieldDried02CClump), New Atlantis mask 3 is `LDirtForestRoots02`
+with a fern and mayapple cover.
+
+Two findings change the plan:
+- **Our Commonwealth already names a biome: Cydonia's Mars one.** FO4TerrainCore WRLD 000803 has BNAMs
+  [FO4TerrainCore 000801, Starfield 2A3777], and its 12 terrain lines are Cydonia's (Mars sand and rock textures with
+  GC_RocksLayered02 to 05, all rock "grass"). So any Starfield ground cover we see in the Commonwealth today is Mars
+  rock scatter, and our own biome must replace 2A3777 there (verified record; what it draws in game is unchecked).
+- **All 10 GCVRs read have an empty LTEX list** (ltex 0), with painted thresholds 0.30 to 0.52. So in vanilla the link
+  from texture to grass is the biome's mask entry, not the GCVR's LTEX list. The "grass follows painted overlay
+  textures" idea above is now weaker (still unresolved: how a mask is chosen per spot, and whether the threshold
+  applies to the mask's weight).
+
+Go/no-go, revised: write our own BIOM with one main entry per used mask, each pairing a converted FO4 LTEX with a GCVR of
+converted FO4 GRAS, and point our WRLD's second BNAM at it in place of 2A3777. Look: FO4 grass instead of Mars rocks,
+and where it appears. Totals in Starfield.esm: WRLD 434, BIOM 431, GCVR 96, GRAS 189, LTEX 416. GRAS DNAM is 40 bytes
+(e.g. SaltGrass02 `00008e42 cdcc4c3f 6666e63e ...`); its field layout is not decoded yet.
 
 ## 5. Trees
 
@@ -144,7 +182,7 @@ Starfield's biome and ground-cover wiring for three overlay cities. Results land
 4. Far Harbor overlay: export, convert, stage with the core64c pipeline, one in-game arrival plus a short walk.
 5. Nuka-World overlay, same steps.
 6. Object LOD spike from FO4's own LOD meshes.
-7. SanctuaryHillsWorld and DiamondCity overlays (small).
+7. SanctuaryHillsWorld, DiamondCity and Goodneighbor (small; the last two are child worlds of the Commonwealth).
 Unresolved, by gate: painted layers versus biome blending (2), ground cover on overlays (3), overlay size and arrival
 for DLC worlds (4), `.lod` format (6).
 
