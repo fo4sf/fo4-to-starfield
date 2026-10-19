@@ -262,5 +262,29 @@ class JudgeTests(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(d, "door_rounds_judge.json")))
 
 
+class OutLegsTests(unittest.TestCase):
+    def test_keeps_the_far_out_legs_renumbered(self):
+        import door_out_legs
+        d = tempfile.mkdtemp()
+        core, port, _ = build(d)
+        st = os.path.join(d, "st")
+        with redirect_stdout(io.StringIO()):
+            dr.main(["stage", "--core", core, "--port", port, "--core-index", "02", "--port-index", "06", "--out", st])
+            door_out_legs.main([st, os.path.join(d, "near"), "0"])
+            door_out_legs.main([st, os.path.join(d, "far"), "99999"])
+        with open(os.path.join(st, "plan.json")) as f:
+            plan = json.load(f)
+        with open(os.path.join(d, "near", "plan.json")) as f:
+            kept = json.load(f)
+        with open(os.path.join(d, "near", "rounds.json")) as f:
+            rounds = json.load(f)
+        self.assertEqual(kept, [plan[1]])                       # the OUT leg only
+        self.assertEqual([(e["test"], e["leg"]) for e in rounds["tests"]], [(0, "out")])
+        with open(os.path.join(d, "far", "plan.json")) as f:
+            self.assertEqual(json.load(f), [])
+        with self.assertRaises(FileExistsError):                # a new folder only
+            door_out_legs.main([st, os.path.join(d, "near"), "0"])
+
+
 if __name__ == "__main__":
     unittest.main()
