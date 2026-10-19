@@ -65,6 +65,29 @@ class EngineProbeTest(unittest.TestCase):
             self.assertTrue(doc["fo4"][0]["source_base"]["exists"])
             self.assertTrue(doc["fo4"][0]["query"]["functions"]["IsInPowerArmor"])
 
+    def test_ck_layout_and_native_gap(self):
+        # the FO4 CK puts Base.zip inside Data\Scripts\Source\Base, with DLC zips beside it
+        with tempfile.TemporaryDirectory() as t:
+            sfz = os.path.join(t, "sf", "ContentResources.zip")
+            os.makedirs(os.path.dirname(sfz))
+            with zipfile.ZipFile(sfz, "w") as f:
+                f.writestr("Scripts/Source/Actor.psc", "ScriptName Actor\nFunction StartCombat(Actor a) native\n")
+            fo4 = os.path.join(t, "FO4Data")
+            for sub in ("Base", "DLC01"):
+                os.makedirs(os.path.join(fo4, "Scripts", "Source", sub))
+            with zipfile.ZipFile(os.path.join(fo4, "Scripts", "Source", "Base", "Base.zip"), "w") as f:
+                f.writestr("Actor.psc", ACTOR)
+            with zipfile.ZipFile(os.path.join(fo4, "Scripts", "Source", "DLC01", "DLC01.zip"), "w") as f:
+                f.writestr("DLC01Script.psc", "ScriptName DLC01Script\n")
+            out = os.path.join(t, "out", "p.json")
+            self.assertEqual(ep.main(["--sf-zip", sfz, "--fo4-data", fo4, "--out", out]), 0)
+            e = json.load(open(out))["fo4"][0]
+            self.assertTrue(e["base_zip"]["exists"])
+            self.assertEqual(e["source_zips"], {"Base/Base.zip": 1, "DLC01/DLC01.zip": 1})
+            g = e["native_gap"]["actor"]
+            self.assertEqual(g["fo4_only"], ["EvaluatePackage", "IsInPowerArmor", "OnDeath"])
+            self.assertEqual((g["shared_count"], g["sf_only_count"]), (1, 0))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,7 +5,8 @@
         --out D:\\Modding\\research\\engine_probe.json
 
 Reads zip member lists and .psc text in memory (nothing is extracted or changed). Records, per game: whether vanilla
-script sources exist (Starfield ContentResources.zip; FO4 CK Data\\Scripts\\Base.zip or Data\\Scripts\\Source\\Base),
+script sources exist (Starfield ContentResources.zip; FO4 CK Data\\Scripts\\Base.zip,
+Data\\Scripts\\Source\\Base\\Base.zip or loose Source\\Base),
 the function and event NAMES declared in the core scripts, which of the queried script and function names exist, and
 the compiler flags files. Only names go into the output, never script bodies. The output file must not be inside an
 input folder.
@@ -86,6 +87,35 @@ def scan_dir(path):
     return res
 
 
+def source_zips(data):
+    """Every Data\\Scripts\\Source\\<name>\\*.zip (the FO4 CK's Base, DLC01-06, CreationClub) with its .psc count."""
+    root, out = os.path.join(data, "Scripts", "Source"), {}
+    if os.path.isdir(root):
+        for sub in sorted(os.listdir(root)):
+            folder = os.path.join(root, sub)
+            if os.path.isdir(folder):
+                for f in sorted(os.listdir(folder)):
+                    if f.lower().endswith(".zip"):
+                        with zipfile.ZipFile(os.path.join(folder, f)) as z:
+                            out[f"{sub}/{f}"] = sum(1 for n in z.namelist() if n.lower().endswith(".psc"))
+    return out
+
+
+def native_gap(fo4_src, sf_src):
+    """Per core script: names FO4 declares that Starfield's same script does not, and the reverse count."""
+    if not fo4_src.get("exists") or not sf_src.get("exists"):
+        return None
+    gap = {}
+    for name, c in fo4_src.get("core", {}).items():
+        sf_names = {d["name"].lower() for d in sf_src.get("core", {}).get(name, {}).get("decls", [])}
+        fo4_names = {d["name"].lower(): d["name"] for d in c["decls"]}
+        gap[name] = {"fo4_only": sorted(v for k, v in fo4_names.items() if k not in sf_names),
+                     "sf_only_count": len(sf_names - set(fo4_names)),
+                     "shared_count": len(sf_names & set(fo4_names)),
+                     "sf_has_script": name in sf_src.get("core", {})}
+    return gap
+
+
 def query(src):
     """Which queried scripts and functions a scanned source has."""
     if not src.get("exists"):
@@ -115,8 +145,11 @@ def main(argv=None):
     fo4 = []
     for d in a.fo4_data:
         z = scan_zip(os.path.join(d, "Scripts", "Base.zip"))
+        if not z["exists"]:
+            z = scan_zip(os.path.join(d, "Scripts", "Source", "Base", "Base.zip"))
         loose = scan_dir(os.path.join(d, "Scripts", "Source", "Base"))
-        fo4.append({"data": d, "base_zip": z, "source_base": loose})
+        fo4.append({"data": d, "base_zip": z, "source_base": loose, "source_zips": source_zips(d),
+                    "native_gap": native_gap(z if z["exists"] else loose, sf)})
     flags = sorted(f for f in os.listdir(a.sf_tools) if f.lower().endswith(".flg")) if a.sf_tools and \
         os.path.isdir(a.sf_tools) else []
     doc = {"starfield": sf, "starfield_query": query(sf), "starfield_flags_files": flags,
@@ -129,7 +162,11 @@ def main(argv=None):
     print("starfield scripts present:", sorted(k for k, v in q.get("scripts", {}).items() if v))
     print("starfield functions absent:", sorted(k for k, v in q.get("functions", {}).items() if not v))
     for e in doc["fo4"]:
-        print(f"fo4 {e['data']}: Base.zip {e['base_zip']['exists']}, Source\\Base {e['source_base']['exists']}")
+        print(f"fo4 {e['data']}: Base.zip {e['base_zip']['exists']} ({e['base_zip'].get('psc_count', 0)} .psc), "
+              f"Source\\Base {e['source_base']['exists']}, source zips {e['source_zips']}")
+        for name, g in sorted((e["native_gap"] or {}).items()):
+            print(f"  {name}: shared {g['shared_count']}, fo4-only {len(g['fo4_only'])}, sf-only {g['sf_only_count']}"
+                  + (f": {' '.join(g['fo4_only'])}" if g["fo4_only"] else ""))
         if e["query"]:
             print("  fo4 functions absent:", sorted(k for k, v in e["query"]["functions"].items() if not v))
     print(f"wrote {a.out}")
