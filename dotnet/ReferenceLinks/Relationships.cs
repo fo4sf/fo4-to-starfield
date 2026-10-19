@@ -273,13 +273,14 @@ public static class Relationships
                     key = mod.Keys.FirstOrDefault(k => k.FormKey == new FormKey(mod.ModKey, keyId) && (k.MajorRecordFlagsRaw & 0x20) == 0);
                 if (key == null)
                 {
-                    report.Issues.Add(new(source, "lock_data.key", sourceKey, "key does not resolve to a key record in the target plugin; lock not written"));
+                    // A warning, not an issue: keys are not converted yet, so an issue would block every real run.
+                    report.Warnings.Add(new(source, "lock_data.key", sourceKey, "key does not resolve to a key record in the target plugin; lock not written"));
                     return;
                 }
             }
             else if (level == 255)
             {
-                report.Issues.Add(new(source, "lock_data.key", null, "RequiresKey lock without a key would never open; lock not written"));
+                report.Warnings.Add(new(source, "lock_data.key", null, "RequiresKey lock without a key would never open; lock not written"));
                 return;
             }
             target.Lock = new LockData { Level = (LockLevel)level, Flags = (LockData.Flag)flags };

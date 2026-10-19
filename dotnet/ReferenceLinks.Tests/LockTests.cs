@@ -67,21 +67,21 @@ public static class LockTests
         var keyed = refs["keyed"].Lock!;
         Require(keyed.Level == LockLevel.RequiresKey && keyed.Key.FormKey == key.FormKey, "resolved key not written");
         string[] Fields(IEnumerable<LinkIssue> list, string source) => list.Where(i => i.Source == source).Select(i => i.Field).ToArray();
-        Require(Fields(report.Issues, "unresolved").SequenceEqual(new[] { "lock_data.key" }), "unresolved key not reported");
-        Require(Fields(report.Issues, "reserved").SequenceEqual(new[] { "lock_data.key" }), "reserved key ID alone resolved a key");
+        Require(Fields(report.Warnings, "unresolved").SequenceEqual(new[] { "lock_data.key" }), "unresolved key not reported");
+        Require(Fields(report.Warnings, "reserved").SequenceEqual(new[] { "lock_data.key" }), "reserved key ID alone resolved a key");
         Require(Fields(report.Issues, "odd").SequenceEqual(new[] { "lock_data.level" }), "unmappable level not reported");
         Require(Fields(report.Issues, "flags").SequenceEqual(new[] { "lock_data.flags" }), "unknown flag bits not reported");
-        Require(Fields(report.Issues, "keyless").SequenceEqual(new[] { "lock_data.key" }), "key-only lock without key not reported");
+        Require(Fields(report.Warnings, "keyless").SequenceEqual(new[] { "lock_data.key" }), "key-only lock without key not reported");
         Require(Fields(report.Warnings, "terminal").SequenceEqual(new[] { "lock_data.level" }) &&
                 Fields(report.Warnings, "inaccessible").SequenceEqual(new[] { "lock_data.level" }), "refused levels not warned");
         Require(Fields(report.Warnings, "chest").SequenceEqual(new[] { "lock_data" }), "non-door lock not warned");
-        Require(report.Issues.Count == 5 && report.Warnings.Count == 3, $"unexpected report {report.Issues.Count}/{report.Warnings.Count}");
+        Require(report.Issues.Count == 2 && report.Warnings.Count == 6, $"unexpected report {report.Issues.Count}/{report.Warnings.Count}");
         foreach (var name in new[] { "unresolved", "reserved", "terminal", "inaccessible", "odd", "flags", "keyless", "chest" })
             Require(refs[name].Lock == null, name + " got a guessed lock");
         Require(mod.Keys.Count == 1, "a key record was invented");
 
         var again = Relationships.Apply(mod, ids, sources);
-        Require(again.Locks == 2 && again.Issues.Count == 5 && refs["keyed"].Lock!.Key.FormKey == key.FormKey &&
+        Require(again.Locks == 2 && again.Issues.Count == 2 && refs["keyed"].Lock!.Key.FormKey == key.FormKey &&
                 refs["plain"].Lock!.Level == LockLevel.Advanced && mod.Keys.Count == 1, "repeat application changed locks");
 
         var directory = Path.Combine(Path.GetTempPath(), "fo4sf-locks-" + Guid.NewGuid().ToString("N"));

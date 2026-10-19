@@ -38,12 +38,12 @@ Implemented translation:
   Starfield `LockLevel` enums give the value the same name: 0 None, 1 Novice1, 25 Novice25,
   50 Advanced, 75 Expert, 100 Master, 255 RequiresKey (only with a key). Flag bit 1
   (LeveledLock, same in both) is kept. A key must resolve through `KEYM:<source formkey>` in
-  `formids.json` to an existing, non-deleted KEYM in the plugin; otherwise it is an issue and
-  no lock is written (PluginSpike converts no keys, so keyed locks normally fail; no key is
-  invented). Refused as warnings, nothing written: 251 Barred, 252 Chained, 253
+  `formids.json` to an existing, non-deleted KEYM in the plugin; otherwise it is a warning and
+  no lock is written (PluginSpike converts no keys, so keyed locks normally fail; a warning, so
+  real runs are not blocked; no key is invented). Refused as warnings, nothing written: 251 Barred, 252 Chained, 253
   RequiresTerminal, 254 Inaccessible (what opens them in FO4 is not translated) and locks on
-  non-door bases such as containers. Issues: any other level, other flag bits, RequiresKey
-  without a key. `--strict-activation-parents` blocks on every warning, lock warnings included.
+  non-door bases such as containers. RequiresKey without a key is a warning too.
+  Issues: any other level, other flag bits. `--strict-activation-parents` blocks on every warning, lock warnings included.
   Synthetic and binary round-trip tests only; not verified in game.
 - Absolute teleport destinations resolve placed doors and transition cells;
   positions convert from source units to metres and rotations remain radians.
