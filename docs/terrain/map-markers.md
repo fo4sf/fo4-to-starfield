@@ -204,3 +204,23 @@ in-game confirmation (`prid 030A7759`, `enable`, then open the map; `03` is FO4T
 
 Claude: scratch overlay from this writer, `coc` Red Rocket, open the planet / overlay map, confirm one icon at the
 station, then retry Frontier fast travel. Offline `check` cannot see a hang.
+
+## Markers in the merged world (2026-10-19, supported hypothesis)
+
+With #356 the markers are enabled, yet v6 showed no icon (owner, 19 Oct). The markers are **persistent** references of
+the overlay world, and a persistent reference of that world stays at its **local** position in the base world
+(`0x02000803`: door probe (a), 16 Oct, docs/JOURNAL.md), while the player walks in a world made at run time that places
+the core's records at local + the merge offset (`vmad_patch.MERGE_MEASURED`, (-1200, -2700)). The mission's actors hit
+the same wall (#353 moves them). So the map of the world the player is in has no marker in it.
+
+`FO4SFMapMarkers.esm` (`dotnet/MapMarkers`, `scripts/mapmarkers/make_map_markers.py stage --core <core> --out <dir>`)
+is one start-game-enabled quest carrying `FO4SF_MapMarkers`: every 2 s, with the player outdoors inside the overlay's
+merged extent (x -4400..2000, y -5900..500), each marker that is not at its merged spot in the player's world is
+enabled and moved there (`MoveTo` onto the player with the difference as the offset, the form the door script and
+the mission use), at most 40 moves per session, each logged to `fo4sf_map.0.log`. The plugin names the core's marker
+REFRs by FormID, so it is rebuilt with every core build. Unverified: that a moved marker shows on the map; the
+extent check cannot tell another world with the same coordinates apart (as the mission).
+
+Console check (no plugin needed): `prid 030A775A`, `getpos x`, `getpos y`: about (-1154, 1260) is the local spot,
+about (-2354, -1440) the merged one. `prid 030A775A` then `moveto player` moves the Sanctuary marker onto the player by
+hand, then the map shows whether a moved marker draws.
