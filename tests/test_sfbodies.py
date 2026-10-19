@@ -198,6 +198,44 @@ class SfBodiesTests(unittest.TestCase):
         with self.assertRaises(sfbodies.BodyError):
             sfbodies.blob_bodies(bytes(blob))
 
+    def test_compound_instances_are_moved_and_free_slots_skipped(self):
+        """A movable item's dynamic compound (meshcollision._emit_dynamic_compound): v6's core stage stopped on 62 of
+        them ("unsupported shape hknpCompoundShape", PC 2026-10-18)."""
+        v, f = cube((0, 0, 0), (1, 1, 1))
+        w = TagWriter()
+        body_types(w, "hknpCompoundShape")
+        w.type("hull", 48, [("vertices", 0, "ptr"), ("faces", 16, "ptr"), ("indices", 32, "ptr")])
+        w.type("hknpConvexShape", 80, [("convexRadius", 8, "float3"), ("hull", 16, "hull")])
+        w.type("freelist", 16, [("elements", 0, "ptr")])
+        w.type("hknpCompoundShape", 32, [("instances", 16, "freelist")])
+        w.type("instance", 64, [("rotation", 0, "float3"), ("translation", 16, "float3"), ("scale", 32, "float3"),
+                                ("shape", 48, "ptr")])
+        child = w.item("hknpConvexShape", bytearray(80))
+        vi = w.item("float3", b"".join(struct.pack("<3f", *p) for p in v), len(v))
+        fr, idx = b"", b""
+        for face in f:
+            fr += struct.pack("<HBB", len(idx), len(face), 0)
+            idx += bytes(face)
+        fi, ii = w.item("face", fr, len(f)), w.item("u8", idx, len(idx))
+        for off, target in ((16, vi), (32, fi), (48, ii)):
+            w.ptr(child, off, target)
+        cs = w.item("hknpCompoundShape", bytearray(32))
+        inst = bytearray(128)
+        h = math.sqrt(0.5)
+        struct.pack_into("<4f3f4x3f", inst, 0, 0, 0, h, h, 10, 0, 0, 2, 2, 2)      # 90 degrees about z, x2, +10 x
+        struct.pack_into("<4f", inst, 64, 0, 0, 0, 1)                             # second slot free (no shape)
+        ins = w.item("instance", inst, 2)
+        w.ptr(ins, 48, child)
+        w.ptr(cs, 16, ins)
+        add_body(w, cs)
+        bodies = sfbodies.blob_bodies(w.build())
+        self.assertEqual(bodies[0]["shape"], "hknpCompoundShape")
+        pts = {tuple(round(c, 4) for c in p) for t in bodies[0]["triangles"] for p in t}
+        self.assertEqual(min(p[0] for p in pts), 8.0)                            # x' = 10 - 2y
+        self.assertEqual(max(p[1] for p in pts), 2.0)                            # y' = 2x
+        self.assertEqual(max(p[2] for p in pts), 2.0)
+        self.assertEqual(len(bodies[0]["triangles"]), 12)
+
     def test_unsupported_shape_raises(self):
         v, f = cube((0, 0, 0), (1, 1, 1))
         with self.assertRaises(sfbodies.BodyError):

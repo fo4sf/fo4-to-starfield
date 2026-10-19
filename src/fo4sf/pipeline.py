@@ -17,7 +17,7 @@ from typing import Dict, List, Optional
 
 from . import ba2 as ba2mod
 from . import convert_material as cm
-from . import convert_static, nif, sfcollision, sfmesh, sfnif, textures
+from . import convert_static, door_rig, nif, sfcollision, sfmesh, sfnif, textures
 
 DOOR_RE = re.compile(r"[\\/]doors?[\\/]|door[^\\/]*\.nif$", re.I)
 NOT_HINGED_RE = re.compile(r"vault|elevator|garage|gate|hatch|slid", re.I)   # sliding / lifting doors animate differently:
@@ -172,8 +172,15 @@ class Converter:
                  no_collision_pattern: str = r"^meshes[\\/](architecture|interiors|scol)[\\/]", rig_doors: bool = False,
                  door_physics_donor: Optional[bytes] = None, sf_mesh_template: Optional[bytes] = None,
                  dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None,
-                 spec_mask_roughness: bool = False, mass_scale: float = 1.0):
+                 spec_mask_roughness: bool = False, mass_scale: float = 1.0, load_door_models=(), static_body_models=()):
         self.src, self.staging, self.texconv = src, staging, texconv_exe
+        # load_door_models: mesh names FO4 places as a teleporting Door (a Door reference with an XTEL in the cell export,
+        # convert_batch.teleport_models), load doors whatever their name: RoofHatch01 and MetalTrapdoorLadder01 match no
+        # LOAD_DOOR_RE and stayed STATs nobody could activate (Museum of Witchcraft roof hatch, owner 2026-10-18)
+        self.load_door_models = {n.replace("/", "\\").lower() for n in load_door_models}
+        # static_body_models: mesh names that keep a static body even with dynamic_template (the outdoor core places
+        # them as STAT only, never as a pickable item: cars, skeletons, cones; convert_batch.static_body_models)
+        self.static_body_models = {n.replace("/", "\\").lower() for n in static_body_models}
         # spec_mask_roughness: roughness also follows FO4's specular mask (smooth-spec R), not only its gloss (G); off by
         # default so existing builds and checkpoints keep their textures (owner's Vault 111 floor report, 2026-10-17)
         self.spec_mask_roughness = spec_mask_roughness
@@ -620,7 +627,7 @@ class Converter:
             # used to get no collision at all, so walls beside doors and grass mounds could be walked through.)
             no_guess = bool(re.search(r"[\\/]landscape[\\/](trees|plants|grass)|roots|cobweb|vines|hanging"
                                       r"|[\\/]doors?[\\/]|door[^\\/]*\.nif$", nif_name, re.I))
-            load_door = bool(LOAD_DOOR_RE.search(nif_name))
+            load_door = bool(LOAD_DOOR_RE.search(nif_name)) or nif_name.replace("/", "\\").lower() in getattr(self, "load_door_models", ())
             if load_door:
                 # bounds (metres, NIF space) for the DOOR record's OBND, like the hinged doors' "door.bounds"
                 pts = [sfmesh.decode_position(p, m.scale) for m in (convert_static.shape_to_mesh(s) for s in shapes)
@@ -639,7 +646,11 @@ class Converter:
             use_box = self.collision_template is not None
             coll_report = {}
             files = None
-            if pose is None and self.rig_doors and self.door_physics_donor is not None and DOOR_RE.search(nif_name) and not NOT_HINGED_RE.search(nif_name) and not aliases and not load_door and nif.door_hinge(src):
+            # not hinged: by name (vault, elevator, garage, gate, hatch, sliding) or by its Open motion (parts that travel
+            # without turning: a sliding door named like any other, RedRPedDoor.nif)
+            not_hinged = bool(NOT_HINGED_RE.search(nif_name)) or (animated and pose is None and self.rig_doors
+                                                                  and DOOR_RE.search(nif_name) and door_rig.slides(src))
+            if pose is None and self.rig_doors and self.door_physics_donor is not None and DOOR_RE.search(nif_name) and not not_hinged and not aliases and not load_door and nif.door_hinge(src):
                 # Parts FO4 moves outside the first animated node (second leaf, shutter, other sliding panels) cannot
                 # hang under the template's single hinge: with the CALUMI library such a door gets its own rig and
                 # clips (one track and one keyframed body per part, as vanilla double doors); without it the template
@@ -670,7 +681,7 @@ class Converter:
                         res["door_error"] = (res["door_error"] + "; " if "door_error" in res else "") + f"{type(e).__name__}: {e}"
             elif (pose is None and self.rig_doors and self.door_physics_donor is not None and self.door_anim_dll
                   and (animated or aliases) and not load_door
-                  and (aliases or (DOOR_RE.search(nif_name) and NOT_HINGED_RE.search(nif_name)))):
+                  and (aliases or (DOOR_RE.search(nif_name) and not_hinged))):
                 # Sliding, lifting and trapdoor families (vault doors, elevator doors, hatches) cannot hang under the
                 # template's vertical hinge, and no vanilla door moves like them; vanilla sliding doors play the same graph
                 # (SimpleOpenClose01.agx) with their own rig and clips (docs/spikes/sliding-doors.md). So such a door gets
@@ -696,7 +707,8 @@ class Converter:
                                                       sf_mesh_template=self.sf_mesh_template if use_box else None,
                                                       collision_template=self.collision_template if use_box else None,
                                                       allow_guess=not no_guess,
-                                                      dynamic_template=self.dynamic_template if use_box else None,
+                                                      dynamic_template=self.dynamic_template if use_box and nif_name.replace(
+                                                          "/", "\\").lower() not in getattr(self, "static_body_models", ()) else None,
                                                       pose=pose, mass_scale=self.mass_scale)
                 if coll_report.get("motion") == "dynamic":
                     res["movable"] = {"mass_kg": coll_report["mass_kg"],
