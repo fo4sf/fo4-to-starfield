@@ -31,6 +31,8 @@ companion order). Labels: **verified**, **supported hypothesis**, **unresolved**
 
 ## What is settled
 
+- **Forward priority (owner, 2026-10-19 23:19Z and 23:24Z):** the GAMMA-style combined core comes first; stories continue but second for now. Where this file overlaps it (PS-26 and the faction and settlement questions), [combined-core.md](combined-core.md) is the working file.
+
 - **Voice reuse (owner position, 2026-10-19 22:38Z):** reusing original voice lines is a known no for Fallout 3 (Capital Wasteland precedent) and, by the owner's word at 22:54Z, for New Vegas; for Fallout 4 and Fallout 76 it is open until Bethesda answers the letter's voice question (sent 22:30Z). See REL-26, REL-27, MG-03.
 
 | item | source | label |
@@ -420,6 +422,18 @@ morphs" is no longer the leading hypothesis for named NPCs.
 - Answer by: owner decision plus a Bethesda question; legal side in [release-community-legal.md](release-community-legal.md). Who: owner.
 - Blocks: People and story, Release.
 - Status: **Owner answer, 2026-10-19:** decided by owner, 2026-10-19 (page RE-3): "FO4 player lines, unchanged only" (as recommended). Before: open (new in wave 2) [precedents W2-4].
+
+**PS-38. Does the core keep the source of each voice line and music track swappable?** (new 2026-10-19, design constraint)
+- Why it matters: Bethesda's answer to the letter may allow FO4 voice, radio through the original engine (REL-61), or neither; a swappable source lets that answer slot in without a rebuild.
+- Options: (a) one indirection per line and track (silent file, converted FO4 audio, or a later external player), chosen at build time; (b) hard-wire silent files now.
+- Blocks: People and story, Fallout systems (radio), Launcher.
+- Status: **recommendation standing until the owner says otherwise (Voice and music thread, 2026-10-19; findings/original-engine-audio.md):** (a), keep the source swappable.
+
+**PS-39. Is each silent voice file cut to the original line's length?** (new 2026-10-19, design constraint)
+- Why it matters: NG-17 chose our own silent voice files per line; matching each original line's duration keeps subtitle timing, scenes and lip timing unchanged if real audio is allowed later.
+- Options: (a) cut each silent file to the original line's length, read from the player's own files at build time; (b) a fixed or text-length-based duration.
+- Blocks: New game (text lines), People and story.
+- Status: **recommendation standing until the owner says otherwise (Voice and music thread, 2026-10-19; findings/original-engine-audio.md):** (a).
 
 ## Owner decisions in this area
 

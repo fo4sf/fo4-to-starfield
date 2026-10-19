@@ -20,6 +20,8 @@ findings/precedents.md (cited as PR; its TTW, Capital Wasteland, F4NV and FNV to
 
 ## What is settled
 
+- **Forward priority (owner, 2026-10-19 23:19Z and 23:24Z):** the GAMMA-style combined core comes first; stories continue but second for now. Where this file overlaps it (MG-01, MG-05, MG-07, MG-09, MG-10, MG-14), [combined-core.md](combined-core.md) is the working file.
+
 | Item | Source | Label |
 |---|---|---|
 | Build 2, "All games, one playthrough", is a planned later build on the core. Each game needs its own converter and the player's own copy. FO3/NV are a second reader feeding the same pipeline. | docs/ROADMAP.md C3 | owner decision |

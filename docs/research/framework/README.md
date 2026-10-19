@@ -34,6 +34,7 @@ Breadth before polish. A launcher that ships no assets; the player owns both gam
 | 2. Door enter and exit animations | [door-animations.md](door-animations.md): 40 questions A to J, blockers starred | |
 | 3. All interiors | [interiors.md](interiors.md): 98 questions: 80 by step (A offline to F release), D1 to D9 on doors and markers, X1 to X9 from these findings | |
 | 4. Launcher | [launcher.md](launcher.md): 88 questions: 13 owner decisions D1 to D13 plus 75 in seven areas | [launcher-sources/](launcher-sources/) |
+| Forward focus: GAMMA-style combined core (owner, 2026-10-19 23:19Z) | [combined-core.md](combined-core.md), owned by the GAMMA-style combined core thread | [combined-core-notes/](combined-core-notes/) |
 | Fallout systems and engine mechanics | [engine-mechanics.md](engine-mechanics.md): ten top decisions | [engine-mechanics-notes/](engine-mechanics-notes/) (about 400 questions) |
 
 ### Cross-cutting files (this thread)

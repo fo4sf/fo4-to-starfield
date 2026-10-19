@@ -442,6 +442,8 @@ first (drafted by Claude, sent only on the owner's approval of the exact text). 
 contacted Bethesda or Nexus; nothing goes out until the owner approves the exact text. Ten page questions that
 had no row here were added at the end of the table.
 
+**Forward priority (owner decision, 2026-10-19 23:19Z and 23:24Z):** "let's continue work towards my second idea of a stalker gamma style thing because that has more value of being made without the stuff with legal implications" and "I still want to get the stories working let's continue where we're at but forward focus on building these other things first instead of the other one for now". So: the GAMMA-style combined core (settlements, factions, a connected wasteland) is the forward focus; story work continues where it stands but comes second for now. The approved phases (new game, doors, interiors, launcher) stay in order as shared foundations, with the core's design and PC-free groundwork beside them. The GAMMA-style combined core thread owns [combined-core.md](combined-core.md) and combined-core-notes/.
+
 What the answers change on the critical path (inference from the answers, not tested):
 - **LA-7 Require all DLC:** the launcher refuses a Fallout 4 install without every DLC. The owner's own FO4 data
   holds only DLCRobot and DLCworkshop01 (project notes), so a full DLC install is now a precondition for any
@@ -524,3 +526,4 @@ owner submits are recorded here and on the question in its own file.
 | Is Linux and Steam Deck a target? [added 2026-10-19 from the page] | Lau L10 | Launcher, before new build steps are written | LA-10: Not a target, keep it possible |
 | Locks: use Starfield's digipick game, or build a bobby-pin game? [added 2026-10-19 from the page] | EM UI 7.1 | All interiors (locked doors and containers) | FS-3: Rebuild FO4's bobby-pin game (changed) |
 | How should power armor work? [added 2026-10-19 from the page] | EM character A1, EM character A2, EM character A3, EM character A4 | Fallout systems, at design start | FS-4: Per game: worn suit (FO3/NV), climb-in (FO4, combined core) (talk) |
+| Forward priority: GAMMA-style combined core first, stories continue but second for now | MG-01, MG-05, MG-07, MG-09, MG-10, PS-26, combined-core.md | All later phases; approved phases 1 to 4 stay as shared foundations | Owner, 23:19Z and 23:24Z: GAMMA-style core first (decided) |
