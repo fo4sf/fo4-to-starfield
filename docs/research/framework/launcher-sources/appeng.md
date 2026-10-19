@@ -176,7 +176,7 @@ and the UI must say so.
   privacy statement (**verified**, signpath.org/terms), which makes zero-telemetry the cheap default.
 - Support bundle contents that would be useful for us (**supported hypothesis**): the driver's `state.json`, the failed
   step's log, the build manifest (already contains versions and hashes, no assets), detect output, Plugins.txt, the
-  install records; with user name and drive paths redacted (`%USERPROFILE%` -> `%USERPROFILE%`), and never any game
+  install records; with user name and drive paths redacted (the user profile folder -> `%USERPROFILE%`), and never any game
   file contents.
 
 ## 7. Accessibility and localization
