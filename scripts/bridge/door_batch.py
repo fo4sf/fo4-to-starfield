@@ -10,15 +10,22 @@ usage:
       A cell may be named with or without the FO4Port_ prefix. Every cell gets one coverage state:
         doors          its scripted load doors passed every check and are planned
         doors_skipped  the build has doors into it, but each failed a check (the reasons are listed)
-        no_door        the cell is in the installed port, no build door leads into it
+        not_wired      in the port, and the interiors plan gives it Commonwealth doors, but none is in the installed
+                       core yet (that needs a core whose door cluster was made against this port)
+        coc_only       in the port, and the interiors plan gives it no Commonwealth door (city interiors, cells
+                       behind other interiors): door_rounds can not test it
+        no_door        in the port, no build door leads into it (a batch without the interiors plan)
         not_in_port    no cell of that editor id in the installed FO4Port.esm (not converted, or another name)
+      --batch <interior-door-rounds.json> --batch-number N reads one batch of the interiors thread's plan
+      (docs/terrain/data/interior-door-rounds.json). --allow-empty writes coverage.json and README.txt even when no
+      door can be planned yet, as a readiness report.
       --legs out keeps only the OUT legs (each starts with a coc inside, never at the Red Rocket arrival) of doors whose
       exterior arrival is at least --min-out-m from the Red Rocket arrival (door_out_legs.select, the same checks).
       --legs both plans IN and OUT; every IN leg starts at the Red Rocket arrival (door_rounds.SPAWN_COC).
       --chunk N splits the tests into folders chunk_00, chunk_01, ... of at most N tests (a door's two legs stay in
       one chunk), each with plan.json and rounds.json that plan-terrain and door_rounds.py judge read as they are.
       Writes coverage.json and README.txt with the plan, run and judge commands. Refuses an existing --out, and writes
-      nothing when no cell of the batch has a planned door.
+      nothing when no cell of the batch has a planned door (unless --allow-empty).
 Nothing here touches the game or its install.
 """
 import argparse
@@ -46,16 +53,35 @@ def key(name):
     return (n[len(PREFIX):] if n.casefold().startswith(PREFIX.casefold()) else n).casefold()
 
 
-def read_batch(path):
-    """(name, [cells]) from batch.json or a text file of one cell per line; exits on a bad name or an empty batch."""
+def read_batch(path, number=None):
+    """(name, [cells], {key: plan entry}) from batch.json, a text file of one cell per line, or the interiors thread's
+    data/interior-door-rounds.json with --batch-number (its plan entry per cell says which cells have Commonwealth
+    doors and which only coc reaches); exits on a bad name or an empty batch."""
     with open(path, encoding="utf-8-sig") as f:
         text = f.read()
+    plan = {}
     if path.lower().endswith(".json"):
         b = json.loads(text)
+        if isinstance(b, dict) and isinstance(b.get("batches"), list):
+            if number is None:
+                sys.exit(f"{path} holds several batches: give --batch-number")
+            b = next((x for x in b["batches"] if x.get("batch") == number), None)
+            if b is None:
+                sys.exit(f"{path}: no batch {number}")
+            entries = b.get("cells")
+            if not isinstance(entries, list) or not all(isinstance(e, dict) and isinstance(e.get("cell"), str)
+                                                       for e in entries):
+                sys.exit(f"{path}: batch {number}'s cells must be objects with a cell editor id")
+            plan = {key(e["cell"]): e for e in entries}
+            b = {"name": b.get("name") or f"batch{number}", "cells": [e["cell"] for e in entries]}
+        elif number is not None:
+            sys.exit(f"{path} is one batch: drop --batch-number")
         name, cells = str(b.get("name") or os.path.splitext(os.path.basename(path))[0]), b.get("cells")
         if not isinstance(cells, list) or not all(isinstance(c, str) for c in cells):
             sys.exit(f"{path}: cells must be a list of cell editor ids")
     else:
+        if number is not None:
+            sys.exit(f"{path} is one batch: drop --batch-number")
         name = os.path.splitext(os.path.basename(path))[0]
         cells = [ln.split("#", 1)[0].strip() for ln in text.splitlines()]
     cells = [c.strip() for c in cells if c.strip()]
@@ -69,7 +95,7 @@ def read_batch(path):
         if key(c) not in seen:
             seen.add(key(c))
             out.append(c)
-    return name, out
+    return name, out, plan
 
 
 def port_cells(port):
@@ -77,9 +103,11 @@ def port_cells(port):
     return {key(e): e for local, r in port.recs.items() if r[0] == "CELL" for e in [port.edid(local)] if e}
 
 
-def coverage(cells, rounds, skipped, in_port):
-    """One row per batch cell, in batch order."""
-    rows = []
+def coverage(cells, rounds, skipped, in_port, plan=None):
+    """One row per batch cell, in batch order. With the interiors thread's plan, a cell in the port without a planned
+    door is not_wired when the plan gives it Commonwealth doors (its exterior doors are not in the installed core yet:
+    they need a core whose door cluster was made against this port) and coc_only when it has none."""
+    rows, plan = [], plan or {}
     for c in cells:
         k = key(c)
         mine = [r for r in rounds if key(r["cell_edid"]) == k]
@@ -91,10 +119,16 @@ def coverage(cells, rounds, skipped, in_port):
             rows.append({"cell": c, "state": "doors_skipped", "doors": [],
                          "skipped": [{"src": s["src"], "why": s["why"]} for s in why]})
         elif k in in_port:
-            rows.append({"cell": in_port[k], "state": "no_door", "doors": [], "skipped": []})
+            state = "no_door"
+            if k in plan:
+                state = "not_wired" if plan[k].get("commonwealth_doors") else "coc_only"
+            rows.append({"cell": in_port[k], "state": state, "doors": [], "skipped": []})
         else:
             rows.append({"cell": c, "state": "not_in_port", "doors": [], "skipped": []})
     return rows
+
+
+STATES = ("doors", "doors_skipped", "not_wired", "coc_only", "no_door", "not_in_port")
 
 
 def legs(plan, info, which, min_m):
@@ -125,20 +159,20 @@ def stage(a):
         sys.exit(f"{out} exists: the stage writes a new folder only")
     if a.chunk < 2 or not (math.isfinite(a.min_out_m) and a.min_out_m >= 0):
         sys.exit("--chunk needs 2 or more tests and --min-out-m a finite distance of 0 or more")
-    name, cells = read_batch(a.batch)
+    name, cells, plan_cells = read_batch(a.batch, a.batch_number)
     rounds, skipped, merge, core, port, first = dr.collect(os.path.abspath(a.core), a.core_plugin, a.port)
     want = {key(c) for c in cells}
     mine = [r for r in rounds if key(r["cell_edid"]) in want]
-    rows = coverage(cells, mine, skipped, port_cells(port))
+    rows = coverage(cells, mine, skipped, port_cells(port), plan_cells)
     ci, pi = int(a.core_index, 16), int(a.port_index, 16)
     groups = []
     if mine:
         plan, expect = dr.plan_rounds(mine, first, ci, pi)
         info = {"core_index": f"{ci:02X}", "port_index": f"{pi:02X}", "doors": mine, "tests": expect}
         groups = legs(plan, info, a.legs, a.min_out_m)
-    if not groups:
+    if not groups and not a.allow_empty:
         sys.exit(f"batch {name}: no door to plan; " + "; ".join(f"{r['cell']} {r['state']}" for r in rows))
-    parts = chunks(groups, a.chunk)
+    parts = chunks(groups, a.chunk) if groups else []
     base = {"core": os.path.abspath(a.core), "core_plugin": core.path, "port_plugin": port.path,
             "core_index": f"{ci:02X}", "port_index": f"{pi:02X}", "merge": list(merge), "tol_m": dr.TOL_M,
             "doors": mine, "skipped": skipped}
@@ -153,8 +187,7 @@ def stage(a):
         folders.append({"folder": d, "tests": len(tests)})
     cov = {"batch": name, "legs": a.legs, "min_out_m": a.min_out_m if a.legs == "out" else None,
            "cells": rows, "chunks": folders,
-           "counts": {s: sum(1 for r in rows if r["state"] == s)
-                      for s in ("doors", "doors_skipped", "no_door", "not_in_port")}}
+           "counts": {s: sum(1 for r in rows if r["state"] == s) for s in STATES}}
     dr.save(os.path.join(out, "coverage.json"), cov)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(readme(cov, a))
@@ -192,6 +225,8 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("stage")
     s.add_argument("--batch", required=True)
+    s.add_argument("--batch-number", type=int, default=None,
+                   help="the batch of a multi-batch file (data/interior-door-rounds.json)")
     s.add_argument("--core", required=True)
     s.add_argument("--core-plugin", default="")
     s.add_argument("--port", required=True)
@@ -201,6 +236,8 @@ def main(argv=None):
     s.add_argument("--legs", choices=("both", "out"), default="out")
     s.add_argument("--min-out-m", type=float, default=MIN_OUT_M)
     s.add_argument("--chunk", type=int, default=CHUNK)
+    s.add_argument("--allow-empty", action="store_true",
+                   help="write coverage.json even when no door can be planned yet (a readiness report)")
     a = ap.parse_args(argv)
     stage(a)
     return 0

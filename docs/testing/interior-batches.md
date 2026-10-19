@@ -3,6 +3,20 @@
 Claude-cloud (bridge thread), 2026-10-19. For the "Convert all interiors" work: each conversion batch gets its door
 tests from `scripts/bridge/door_batch.py`, run against the plugins actually installed.
 
+## Where this stands (2026-10-19)
+The interiors thread plans each batch's doors in `docs/terrain/data/interior-door-rounds.json` on
+`claude/all-interiors-r0yte1` (#396). door_batch reads that file directly:
+`--batch <interior-door-rounds.json> --batch-number N`.
+
+A new interior's Commonwealth doors work only on a wired set. That is the batch's port installed with a core whose door
+cluster was made against that port. Until then, in the installed core v6c or v6e:
+- the 16 base cells' doors are the only ones planned;
+- every new cell with Commonwealth doors reads `not_wired`;
+- cells that only coc reaches, such as city interiors or cells behind other interiors, read `coc_only`.
+
+`--allow-empty` writes that readiness report without any queue. Doors between two interiors need a test kind of
+their own: door_rounds starts or ends every leg outside (proposal, not built).
+
 ## What the batch thread sends
 - The installed port's staging folder.
 - The list of interior cells the batch delivers. Either `{"name": "batch07", "cells": ["Vault81Main", ...]}` as JSON,
@@ -14,7 +28,9 @@ writes three things:
 - **coverage.json**, one state per cell:
   - `doors`: its load doors passed every check and are planned;
   - `doors_skipped`: it has doors, but each one failed a check, with the reason;
-  - `no_door`: it is in the port, but no exterior door leads into it;
+  - `not_wired`: the interiors plan gives it Commonwealth doors, but none is in the installed core yet;
+  - `coc_only`: the plan gives it no Commonwealth door;
+  - `no_door`: it is in the port, but no exterior door leads into it (a batch given without the plan);
   - `not_in_port`: no cell of that name is in the installed port.
 - **chunk_NN folders** of at most 20 tests. A door's two legs never split. `plan-terrain` and `door_rounds.py judge`
   read each one as it is.

@@ -48,7 +48,8 @@ class BatchTests(unittest.TestCase):
         cov = load(o, "coverage.json")
         self.assertEqual([(r["cell"], r["state"]) for r in cov["cells"]],
                          [("SuperDuperMart01", "doors"), ("FO4Port_Vault95", "not_in_port")])   # the duplicate dropped
-        self.assertEqual(cov["counts"], {"doors": 1, "doors_skipped": 0, "no_door": 0, "not_in_port": 1})
+        self.assertEqual(cov["counts"], {"doors": 1, "doors_skipped": 0, "not_wired": 0, "coc_only": 0, "no_door": 0,
+                                         "not_in_port": 1})
         plan, rounds = load(o, "chunk_00", "plan.json"), load(o, "chunk_00", "rounds.json")
         self.assertEqual([p["coc"] for p in plan], ["FO4Port_SuperDuperMart01"])     # never the Red Rocket arrival
         self.assertEqual([(t["test"], t["leg"], t["ack"]) for t in rounds["tests"]], [(0, "out", "door-ret-0")])
@@ -71,6 +72,13 @@ class BatchTests(unittest.TestCase):
         self.assertIn("no door to plan", str(cm.exception))
         self.assertFalse(os.path.exists(os.path.join(self.d, "out")))
 
+    def test_allow_empty_writes_only_the_readiness_report(self):
+        o = self.stage(["SuperDuperMart01", "Vault95"], "--min-out-m", "99999", "--allow-empty")
+        cov = load(o, "coverage.json")
+        self.assertEqual(cov["chunks"], [])
+        self.assertEqual(cov["counts"]["doors"], 1)                       # planned door, but too near Red Rocket
+        self.assertFalse(any(n.startswith("chunk_") for n in os.listdir(o)))
+
     def test_a_cell_whose_doors_fail_their_checks_is_doors_skipped(self):
         with self.assertRaises(SystemExit) as cm:
             self.stage(["SuperDuperMart01"], port_marker_target=0x901)
@@ -92,7 +100,9 @@ class PartsTests(unittest.TestCase):
         p = os.path.join(d, "batch7.txt")
         with open(p, "w") as f:
             f.write("# batch 7\nVault81Main\n\nFO4Port_Vault81Main  # again\nDiamondCity01\n")
-        self.assertEqual(db.read_batch(p), ("batch7", ["Vault81Main", "DiamondCity01"]))
+        self.assertEqual(db.read_batch(p), ("batch7", ["Vault81Main", "DiamondCity01"], {}))
+        with self.assertRaises(SystemExit):
+            db.read_batch(p, 2)
         with open(p, "w") as f:
             f.write("coc Vault81Main\n")
         with self.assertRaises(SystemExit):
@@ -110,6 +120,22 @@ class PartsTests(unittest.TestCase):
         self.assertEqual([r["state"] for r in rows], ["doors", "doors_skipped", "no_door", "not_in_port"])
         self.assertEqual(rows[0]["skipped"], [{"src": "3:Fallout4.esm", "why": "x"}])
         self.assertEqual(rows[2]["cell"], "FO4Port_C")
+
+    def test_the_interiors_plan_marks_unwired_and_coc_only_cells(self):
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "interior-door-rounds.json")
+        with open(p, "w") as f:
+            json.dump({"batches": [{"batch": 2, "name": "interiors_b02", "cells": [
+                {"cell": "MassFusion01", "commonwealth_doors": [{"src": "1"}]},
+                {"cell": "HardwareTown01", "commonwealth_doors": []}]}]}, f)
+        name, cells, plan = db.read_batch(p, 2)
+        self.assertEqual((name, cells), ("interiors_b02", ["MassFusion01", "HardwareTown01"]))
+        rows = db.coverage(cells, [], [], {"massfusion01": "FO4Port_MassFusion01",
+                                           "hardwaretown01": "FO4Port_HardwareTown01"}, plan)
+        self.assertEqual([r["state"] for r in rows], ["not_wired", "coc_only"])
+        for n in (None, 3):
+            with self.subTest(n=n), self.assertRaises(SystemExit):
+                db.read_batch(p, n)
 
     def test_chunks_never_split_a_door(self):
         groups = [(0, ["i0", "o0"]), (1, ["i1", "o1"]), (2, ["i2", "o2"])]
