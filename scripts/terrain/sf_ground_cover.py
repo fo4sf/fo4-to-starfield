@@ -66,12 +66,14 @@ def survey(plugins, worlds):
             out["worlds"][w] = None
             continue
         k, pi, f = hit
-        bnam = next((d for s, d in f if s == b"BNAM" and len(d) == 4), None)
+        # A WRLD carries more than one BNAM: the overlay component's Surface Block (SFBK) comes first, inside the base
+        # form components, then the record's own Biome. Take the one that names a BIOM; list all for the record.
+        bnams = [ref(pi, d) for s, d in f if s == b"BNAM" and len(d) == 4]
+        biome = next((b for b in bnams if b in recs["BIOM"]), None)
         data = next((d for s, d in f if s == b"DATA"), b"")
-        out["worlds"][w] = {"form": k, "biome": ref(pi, bnam) if bnam else None,
-                            "data_flags": data[0] if len(data) else None}
-        if bnam:
-            add_biome(out, recs, ref(pi, bnam), ref, name)
+        out["worlds"][w] = {"form": k, "biome": biome, "bnam_all": bnams, "data_flags": data[0] if len(data) else None}
+        if biome:
+            add_biome(out, recs, biome, ref, name)
     return out
 
 
@@ -150,7 +152,7 @@ def main(argv=None):
     for w, v in out["worlds"].items():
         b = out["biomes"].get(v["biome"]) if v and v["biome"] else None
         print(w, "missing" if v is None else f"{v['form']} biome {v['biome']} {b['edid'] if b else None} "
-              f"DATA {v['data_flags']} terrain {len(b['terrain']) if b else 0}")
+              f"DATA {v['data_flags']} terrain {len(b['terrain']) if b else 0} BNAMs {v['bnam_all']}")
         for t in (b["terrain"] if b else []):
             print("   ", t["kind"], t["mask"], t["land_texture_edid"], t["ground_cover_edid"])
     for k, g in out["ground_covers"].items():

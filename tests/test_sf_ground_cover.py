@@ -34,7 +34,8 @@ def u32(v):
 
 def plugin():
     children = grp(u32(0x10), grp(b"\0" * 4, rec(b"CELL", 0x11, sub(b"EDID", z(""))), 4), 1)   # as Starfield.esm: cells
-    wrld = grp(b"WRLD", rec(b"WRLD", 0x10, sub(b"EDID", z("TestCity")) + sub(b"DATA", b"\x01") + sub(b"BNAM", u32(0x20)))
+    wrld = grp(b"WRLD", rec(b"WRLD", 0x10, sub(b"EDID", z("TestCity")) + sub(b"BNAM", u32(0x60))   # component SFBK first
+                            + sub(b"DATA", b"\x01") + sub(b"BNAM", u32(0x20)))
                + children)
     biom = grp(b"BIOM", rec(b"BIOM", 0x20, sub(b"EDID", z("TestBiome"))
                             + sub(b"LNAM", u32(7) + u32(0x30) + u32(0x40))
@@ -57,6 +58,7 @@ class GroundCoverTest(unittest.TestCase):
             out = gc.main([os.path.join(d, "out.json"), esm, "--worlds", "testcity,Nowhere"])
         w = out["worlds"]["testcity"]
         self.assertEqual((w["biome"], w["data_flags"]), ("Test.esm:000020", 1))
+        self.assertEqual(w["bnam_all"], ["Test.esm:000060", "Test.esm:000020"])
         self.assertIsNone(out["worlds"]["Nowhere"])
         t = out["biomes"]["Test.esm:000020"]["terrain"]
         self.assertEqual([(x["kind"], x["mask"], x["land_texture_edid"], x["ground_cover_edid"]) for x in t],
