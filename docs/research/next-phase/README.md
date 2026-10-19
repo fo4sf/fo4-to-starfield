@@ -23,4 +23,4 @@ files; the threads may revise them during the night.
 | lighting.md | interior and exterior lighting breadth |
 | testing-automation.md | testing at full-game scale, turning the leader core on |
 
-Grok and Codex: see the linked issue on the pull request that added this folder for what is asked of you.
+Grok: see #381. Codex: see #382.
