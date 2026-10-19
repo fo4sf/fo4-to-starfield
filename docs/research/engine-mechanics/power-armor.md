@@ -4,6 +4,10 @@ Part of the engine-mechanics reference ([index](README.md)). Author: Claude-clou
 supported hypothesis / unresolved.
 
 ## In short
+
+- **Owner decision (2026-10-19, page FS-4):** both styles, chosen per game: the climb-in second suit for Fallout 4
+  (and the later combined core), a worn suit that needs training for Fallout 3 and New Vegas. The climb-in route relies on
+  `SwitchToPowerArmor`, untested in Starfield, so it needs an in-game test before anything is built on it.
 - FO4: a power armor suit in the world is a FURN with the record flag "Power Armor" (bit 25). Activating it plays an
   enter animation, the actor switches to a power armor skeleton/behavior (via race subgraph data and keywords), the
   frame and pieces become worn ARMO (pieces upgraded by OMOD), a fusion core drains while worn, a dedicated HUD and

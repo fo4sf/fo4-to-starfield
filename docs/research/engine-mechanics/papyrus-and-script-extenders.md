@@ -19,7 +19,7 @@ supported hypothesis / unresolved.
   changed to read them) (**supported hypothesis**). Every FO4 script must be recompiled on the player's PC.
 - SFSE 0.2.21 (game 1.16.244) has a plugin loader, a Scaleform menu interface and custom Papyrus native support
   (**verified**, SFSE whatsnew). Community plugins such as Cassiopeia Papyrus Extender register about 115 extra
-  natives. Verdict: SFSE is allowed (settled), so missing natives that Papyrus cannot fake become a small SFSE plugin.
+  natives. Verdict: SFSE is required (owner, page NG-1, 2026-10-19: the game is blocked when SFSE breaks), so missing natives that Papyrus cannot fake become our own small SFSE plugin, dismemberment first.
 
 ## How Fallout 4 does it
 **Language** (FO4 added these over Skyrim; **verified**, falloutck "Differences from Skyrim to Fallout 4"):

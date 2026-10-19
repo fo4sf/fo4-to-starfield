@@ -17,6 +17,8 @@ mechanism detail (records, file types, how an actor picks a clip) and does not r
   subrecords (DNAM graph, ENAM event, ANAM parent/previous, GNAM file; SAKD/SGNM/SAPT/STKD/SRAF). Verdict: **translate**.
 - The **asset side is a rebuild**: every FO4 clip must be decoded, retargeted 129 to 97 bones and written as `.af`.
   FO4 behavior graphs do not convert; actors use Starfield's `.agx` graphs (settled: Starfield animations first).
+- **Owner decision (2026-10-19, page PE-2):** FO4's own clips play first through SFSE community glTF players, and are
+  moved into Starfield's `.af` format later; the `.af` rebuild above is the second stage, not the first.
 - New graphs or new events may need **CK2 or SFSE**; replacing clips at existing paths is proven by players.
 
 ## How Fallout 4 does it
