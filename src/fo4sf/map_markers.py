@@ -98,3 +98,41 @@ def overlay_markers(spawn, bounds_m, ground, markers=COMMONWEALTH_MARKERS, keep=
     if len({m["tag"] for m in out}) != len(out):
         raise ValueError("map marker tags repeat")
     return out
+
+
+def load_fo4_markers(doc):
+    """The rows of a Fo4Land export-mapmarkers document (dotnet/Fo4Land/MapMarkersExport.cs) as overlay_markers
+    tuples (tag, name, src, FO4 x, FO4 y), FormID order. A marker without a name is left out (no label to show), and
+    so are the core's fixed four (COMMONWEALTH_MARKERS, by source REFR): they stay first, as written before. Returns
+    (markers, left out: [{"src", "reason"}])."""
+    if doc.get("world") != "Commonwealth":
+        raise ValueError(f"map markers export of world {doc.get('world')!r}, not Commonwealth")
+    fixed = {src for _t, _n, src, _x, _y in COMMONWEALTH_MARKERS}
+    out, left = [], []
+    for r in doc.get("markers") or []:
+        fid = int(r["fid"], 16)
+        src = f"{fid:06X}:{doc.get('plugin', 'Fallout4.esm')}"
+        if fid in fixed:
+            left.append({"src": src, "reason": "one of the core's fixed markers"})
+        elif not r.get("name"):
+            left.append({"src": src, "reason": "no name"})
+        elif r.get("pos") is None or len(r["pos"]) < 2 or not all(math.isfinite(v) for v in r["pos"][:2]):
+            left.append({"src": src, "reason": "no finite position"})
+        else:
+            out.append((f"M{fid:06X}", r["name"], fid, float(r["pos"][0]), float(r["pos"][1])))
+    return out, left
+
+
+def extra_markers(markers, bounds_m, ground, keep=EDGE_KEEP_M):
+    """overlay_markers for exported markers (load_fo4_markers): a marker less than `keep` inside the overlay is left
+    out with its reason instead of stopping the build (the core covers only part of the Commonwealth). Returns
+    (entries, left out: [{"src", "reason"}])."""
+    lo, hi = bounds_m
+    inside, left = [], []
+    for tag, name, src, fx, fy in markers:
+        x, y = fx / FO4_UNITS_PER_M, fy / FO4_UNITS_PER_M
+        if lo + keep <= x <= hi - keep and lo + keep <= y <= hi - keep:
+            inside.append((tag, name, src, fx, fy))
+        else:
+            left.append({"src": f"{src:06X}:Fallout4.esm", "reason": f"outside the overlay ({x:.1f}, {y:.1f}) m"})
+    return overlay_markers(None, bounds_m, ground, markers=inside, keep=keep), left

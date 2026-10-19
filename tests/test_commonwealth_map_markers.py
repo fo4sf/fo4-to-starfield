@@ -52,6 +52,47 @@ class OverlayMarkers(unittest.TestCase):
             self.markers(markers=dup)
 
 
+class ExportedMarkers(unittest.TestCase):
+    """Fo4Land export-mapmarkers rows (dotnet/Fo4Land/MapMarkersExport.cs) into stage entries after the fixed four."""
+    DOC = {"plugin": "Fallout4.esm", "world": "Commonwealth", "markers": [
+        {"fid": "00072A48", "name": "Sanctuary Hills", "pos": [-80768.19, 88174.80, 0]},     # one of the fixed four
+        {"fid": "0001F2A9", "name": "Abernathy Farm", "pos": [-81000.0, 86000.0, 0]},
+        {"fid": "0001F2AA", "name": None, "pos": [0, 0, 0]},
+        {"fid": "0001F2AB", "name": "Far Away", "pos": [-300000.0, 0.0, 0]},              # beyond the overlay
+        {"fid": "0001F2AC", "name": "Lost", "pos": [float("nan"), 0.0, 0]},
+    ]}
+
+    def test_named_markers_load_without_the_fixed_four(self):
+        rows, left = map_markers.load_fo4_markers(self.DOC)
+        self.assertEqual([r[0] for r in rows], ["M01F2A9", "M01F2AB"])
+        self.assertEqual(sorted(e["reason"] for e in left),
+                         ["no finite position", "no name", "one of the core's fixed markers"])
+
+    def test_outside_the_overlay_is_left_out_not_fatal(self):
+        rows, _ = map_markers.load_fo4_markers(self.DOC)
+        entries, left = map_markers.extra_markers(rows, BOUNDS, lambda x, y: 2.0)
+        self.assertEqual([(e["tag"], e["name"]) for e in entries], [("M01F2A9", "Abernathy Farm")])
+        self.assertEqual(entries[0]["src"], "01F2A9:Fallout4.esm")
+        self.assertAlmostEqual(entries[0]["pos"][0], -81000.0 / 70, places=3)
+        self.assertEqual(entries[0]["pos"][2], 2.0)
+        self.assertEqual([e["src"] for e in left], ["01F2AB:Fallout4.esm"])
+        self.assertIn("outside the overlay", left[0]["reason"])
+
+    def test_another_world_is_refused(self):
+        with self.assertRaises(ValueError):
+            map_markers.load_fo4_markers(dict(self.DOC, world="FarHarbor"))
+
+    def test_the_check_takes_the_extra_markers(self):
+        rows, _ = map_markers.load_fo4_markers(self.DOC)
+        extra, _ = map_markers.extra_markers(rows, BOUNDS, lambda x, y: 1.0)
+        check = CheckMapMarkers("test_written_chain_passes")
+        check.setUp()
+        check.ov["map_markers"] += extra
+        tags = [m["tag"] for m in check.ov["map_markers"]]
+        check.ids["map_marker_refs"]["W"] = {t: f"{0x900 + k:06X}" for k, t in enumerate(tags)}
+        self.assertEqual(mk.map_marker_problems(check.recs(), 1, check.ov, check.ids), [])
+
+
 class WriterSource(unittest.TestCase):
     def test_writer_enables_the_markers(self):
         # CI has no .NET: the writer's source must clear LC172's Initially Disabled bit and add no LCID (18 Oct: no

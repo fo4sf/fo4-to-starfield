@@ -200,6 +200,30 @@ references). The landing-overlay marker 003A866E is 0x400 (persistent only). The
 and `check` fails a marker that is initially disabled or listed in `LCID`. **Supported hypothesis** until the
 in-game confirmation (`prid 030A7759`, `enable`, then open the map; `03` is FO4TerrainCore's load-order slot).
 
+## Every Commonwealth marker (Claude-cloud, 2026-10-19, offline only)
+
+Status: **built and tested on synthetic plugins only**. No FO4 marker list has been exported yet, and nothing has run
+in game.
+
+1. On the PC, `dotnet run --project dotnet/Fo4Land -c Release -- <Fallout4.esm> export-mapmarkers <out.json>` lists
+   every placed object of the Commonwealth worldspace that carries map-marker data (`MapMarkersExport.cs`):
+   its FormID, editor id, name, FO4 position and whether it is persistent, in FormID order. The name is the marker's
+   own FULL, which Mutagen reads from the Strings files next to the localized plugin, as `export-names` does. The
+   output is derived game data and stays outside the repository.
+2. `make_core64c.py stage ... --fo4-map-markers <out.json>` adds every named marker that lies more than 200 m inside
+   the overlay (`map_markers.load_fo4_markers`, `extra_markers`, FO4 position / 70, z = BTD ground). The fixed four
+   come first, so their FormIDs stay. The others follow in FO4 FormID order, tagged `M<FO4 id>`. Markers left out
+   (no name, one of the fixed four, no finite position, outside the overlay) go to `map_markers_left_out.json` with
+   their reason. `check` judges every marker the same way as the four.
+3. `dotnet/MapMarkers` splits the core's markers into quests of at most 100 (`FO4SF_MapMarkersQuest`,
+   `FO4SF_MapMarkersQuest2`, ...: 0x800, 0x801, ...). Papyrus arrays made in script hold at most 128 entries;
+   whether a plugin-filled property may hold more is **unresolved**, so no quest goes near that limit. Above 20
+   markers, a quest's `MaxMoves` is twice its marker count, so one session can place them all. `check` matches the
+   quests, in FormID order, against the core.
+
+Every new marker keeps LC172's `FNAM` 0x1B and `TNAM` 0x17, so they all draw one icon type; FO4's own marker types
+are not mapped yet. This takes a new core build, so it waits for the current phase's tests.
+
 ## Acceptance
 
 Claude: scratch overlay from this writer, `coc` Red Rocket, open the planet / overlay map, confirm one icon at the

@@ -98,6 +98,44 @@ class MapMarkersPluginTests(unittest.TestCase):
         self.assertIn(f"LocalX: {', '.join(self.num(by_id[i][0]) for i in want)}", check.stdout)
         self.assertIn(f"LocalZ: {', '.join(self.num(by_id[i][2]) for i in want)}", check.stdout)
 
+    def test_many_markers_split_into_quests_of_100(self):
+        params = copy.deepcopy(self.params)
+        params["overlays"][0]["map_markers"] = [
+            {"tag": f"M{k:03d}", "name": f"Marker {k}", "pos": [10.0 + k * 0.5, 20.0 + k * 0.25, 1.0], "cell": [0, 0]}
+            for k in range(205)]
+        saved, type(self).params = type(self).params, params
+        try:
+            proc, many = self.run_writer(self.objects, "core-many")
+        finally:
+            type(self).params = saved
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        out = self.root / "plugin-many"
+        built = self.tool_run("build", "--core", many / "Synthetic.esm", "--out", out)
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        self.assertIn("3 quest(s) FO4SF_MapMarkersQuest 000800", built.stdout)
+        check = self.tool_run("check", out / "FO4SFMapMarkers.esm", many / "Synthetic.esm")
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        recs = tri.records(out / "FO4SFMapMarkers.esm")
+        self.assertEqual(sorted(recs), [0x800, 0x801, 0x802])
+        lists = [self.object_list(tlw.field(recs[q][1], b"VMAD")) for q in (0x800, 0x801, 0x802)]
+        self.assertEqual([len(x) for x in lists], [100, 100, 5])
+        ids = [f & 0xFFFFFF for x in lists for f in x]
+        self.assertEqual(ids, sorted(ids))                                     # FormID order across the quests
+        self.assertEqual(len(set(ids)), 205)
+        for q, cap in ((0x800, 200), (0x801, 200)):
+            vmad = tlw.field(recs[q][1], b"VMAD")
+            name = b"\x08\x00MaxMoves"
+            at = vmad.index(name) + len(name)
+            self.assertEqual(struct.unpack_from("<BBi", vmad, at), (3, 1, cap))  # int property, edited, the cap
+        self.assertNotIn(b"MaxMoves", tlw.field(recs[0x802][1], b"VMAD"))       # 5 markers: the script's 40
+        # a plugin missing its last quest no longer matches the core
+        short = self.root / "plugin-many-short"
+        three = self.tool_run("build", "--core", self.core, "--out", short)
+        self.assertEqual(three.returncode, 0)
+        bad = self.tool_run("check", short / "FO4SFMapMarkers.esm", many / "Synthetic.esm")
+        self.assertEqual(bad.returncode, 1, bad.stdout)
+        self.assertIn("1 quest(s) for 205 marker(s): 3 wanted", bad.stdout)
+
     def test_check_rejects_an_alias_encoded_marker(self):
         out = self.root / "plugin-alias"
         self.assertEqual(self.tool_run("build", "--core", self.core, "--out", out).returncode, 0)
