@@ -53,6 +53,13 @@ of our world unless reused on purpose.
 | world | [weather-time-climate.md](weather-time-climate.md) | climate, weather, time of day vs planets, atmospheres, biomes |
 | world | [world-cells-navigation.md](world-cells-navigation.md) | worldspaces, cells, terrain, navmesh, locations, map markers, doors |
 | lifecycle | [saves-and-new-game.md](saves-and-new-game.md) | save files, new game flow, character creation, skipping Starfield's intro |
+| world objects | [doors-activators-furniture.md](doors-activators-furniture.md) | doors and teleports, door motion, activators, furniture, containers |
+| world objects | [physics-and-collision.md](physics-and-collision.md) | Havok formats, collision layers, motion types, destruction, impacts |
+| presentation | [materials-textures-lighting.md](materials-textures-lighting.md) | BGSM/BGEM vs .mat, material swaps, texture sets, decals, lights, image spaces |
+| DLC | [dlc-mechanics.md](dlc-mechanics.md) | Automatron, Far Harbor, Nuka-World, Vault-Tec, Contraptions, Wasteland Workshop |
+| world | [vehicles-and-travel.md](vehicles-and-travel.md) | vertibirds, fast travel, elevators, travel across the one planet |
+| economy | [economy-vendors-barter.md](economy-vendors-barter.md) | caps, vendors, barter, restock, pickpocketing |
+| foundations | [supporting-records.md](supporting-records.md) | the leftover record types (reference groups, layers, splines, flora ...) |
 
 Files not yet present are being written; the status line of the engine-mechanics thread says which.
 
