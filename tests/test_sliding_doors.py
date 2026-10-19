@@ -244,7 +244,7 @@ class RestPoseTests(unittest.TestCase):
 class NonHingedRoutingTests(unittest.TestCase):
     """pipeline.Converter.convert_nif: which path a door-named model takes (stubbed converters)."""
 
-    def convert(self, staging, name, parts, dll, multipart=None):
+    def convert(self, staging, name, parts, dll, multipart=None, **attrs):
         converter = pipeline.Converter.__new__(pipeline.Converter)
         converter.src = SimpleNamespace(mesh=lambda _: nif.serialize(door_nif(parts)))
         converter.staging = staging
@@ -259,6 +259,7 @@ class NonHingedRoutingTests(unittest.TestCase):
         converter.neutral = "placeholder.mat"
         converter._shape_material = Mock(return_value="synthetic.mat")
         converter.stats = {"assets": 0, "failed": 0}
+        converter.__dict__.update(attrs)
         entry = {"origin_offset": [0.0, 0.0, 0.0], "rig": "native"}
         with patch.object(pipeline.convert_static, "convert_door",
                           return_value=({}, (0, 0, 0), ((0, 0, 0), (1, 1, 1)))) as single, \

@@ -96,6 +96,7 @@ import bridge_log  # noqa: E402
 import walk_eval  # noqa: E402
 
 UNIT = 1.0 / 70.0
+LAUNCH_TRIES = 3              # cycle.ps1 exit 10 (the game died at start): launches per launch, each after every check
 COMPANION_REF = "000057BE"   # Starfield.esm ACHR VascoREF: the test save's companion, disabled per session
 KINDS = ("stairs", "door", "fall", "movable", "travel")         # planned from a build; "terrain" via plan-terrain
 EXTRA_KINDS = ("terrain", "npc_nav", "door_trip", "walk", "movable_control")   # planned from an experiment's plan.json
@@ -3002,6 +3003,18 @@ class Runner:
             if code == 9:                                 # cycle.ps1's own lease check refused (nothing launched): the
                 return ("lease refused by cycle.ps1 (exit 9) although this runner's check passed: the two read "
                         "different leases; nothing launched")   # run stops, resumable, never a retry per test
+            if code == 10:                                # the game did not stay up after Steam started it
+                self.launch_tries = getattr(self, "launch_tries", 0) + 1
+                if self.launch_tries < LAUNCH_TRIES:
+                    # the first start of a session can die within ~2 s (cycle.ps1); another launch goes through every
+                    # check above again (lease, STOP, Guardian, idle, pins), never straight back to Steam (Codex, #358)
+                    self.log(f"the game did not stay up (launch {self.launch_tries} of {LAUNCH_TRIES}): launching again")
+                    self.fresh_launch = True              # not counted against --max-relaunch
+                    return self.ensure_game(cell)
+                self.launch_tries = 0
+                return (f"the game did not start (cycle.ps1 exit 10 on {LAUNCH_TRIES} launches: no Starfield process "
+                        f"stayed up; screen {os.path.join(self.qdir, 'cycle.png')}); nothing tested")   # stop, resumable
+            self.launch_tries = 0
             if code != 0:
                 # 7: an installed experiment plugin's master is not active (exp_install.py order): nothing launched
                 return "stop" if code in (2, 3, 5, 6, 7) else "retry"
@@ -3304,6 +3317,10 @@ class Runner:
                 self.session, self.cell, self.game_used = False, None, False
                 self.fresh_launch = True                  # an intended relaunch: not counted against --max-relaunch
             g = self.ensure_game(t["cell"])
+            if g and g.startswith("the game did not start"):   # cycle.ps1 exit 10: no waiting fixes Steam's side
+                self.log(f"stopped: {g}")
+                self.checkpoint(f"stopped: {g}")
+                return 3
             if g in ("stop",) or (g and g.startswith(("owner", "STOP", "Resource", "outside", "lease"))):
                 if g != "stop" and self.wait_or_stop(g):
                     g = self.ensure_game(t["cell"])

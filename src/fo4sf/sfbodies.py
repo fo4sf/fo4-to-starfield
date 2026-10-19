@@ -12,6 +12,8 @@ places it. Inside each tagfile, the physics system's body cinfos point at the sh
   hknpConvexShape / hknpSphereShape / hknpBoxShape   the hull: float3 vertices, faces (u16 first index, u8 count,
                            u8 angle) into u8 indices; convexRadius pushes every face out along its normal (a sphere is
                            its centre vertex + radius, returned as an octahedron)
+  hknpCompoundShape        instances.elements: per instance a rotation quaternion, translation, scale and child shape
+                           (meshcollision._emit_dynamic_compound's layout; movable items)
 
 Body position / orientation (quaternion x, y, z, w) are applied (our converter writes identity).
 Everything is metres in the NIF's root space.
@@ -171,6 +173,49 @@ def _hull_triangles(r: _Reader, shape_at: int, shape_type: int, kind: str) -> Li
     return tris
 
 
+def _compound_triangles(r: _Reader, cs_at: int, cs_type: int, depth: int = 0) -> List[Tri]:
+    """hknpCompoundShape (meshcollision._emit_dynamic_compound: the movable items' bodies): every used instance's child
+    shape, scaled, turned (quaternion x, y, z, w) and moved by the instance. A free slot (no shape) is skipped."""
+    tf, b = r.tf, r.b
+    if depth > 4:
+        raise BodyError("compound shapes nested too deep")
+    f_inst = _field(tf, cs_type, "instances")
+    at, n, item = r.target(cs_at + f_inst.offset + _field(tf, f_inst.type, "elements").offset)
+    if not n:
+        raise BodyError("compound without instances")
+    size = tf.size_of(item.type)
+    f_rot, f_tr = _field(tf, item.type, "rotation"), _field(tf, item.type, "translation")
+    f_sc, f_shape = _field(tf, item.type, "scale"), _field(tf, item.type, "shape")
+    tris = []
+    for k in range(n):
+        e = at + size * k
+        c_at, _, c_item = r.target(e + f_shape.offset)
+        if c_item is None:
+            continue
+        q = struct.unpack_from("<4f", b, e + f_rot.offset)
+        t = struct.unpack_from("<3f", b, e + f_tr.offset)
+        sc = struct.unpack_from("<3f", b, e + f_sc.offset)
+        if not all(math.isfinite(x) for x in q + t + sc) or abs(sum(x * x for x in q) - 1.0) > 1e-3:
+            raise BodyError(f"compound instance {k} has a bad transform")
+        for tri in _shape_triangles(r, c_at, c_item, len(b), depth + 1):
+            tris.append(tuple(tuple(a + c for a, c in zip(_quat_apply(q, tuple(v[i] * sc[i] for i in range(3))), t))
+                              for v in tri))
+    return tris
+
+
+def _shape_triangles(r: _Reader, s_at: int, s_item, blob_len: int, depth: int = 0) -> List[Tri]:
+    kind = r.tf.type_name(s_item.type)
+    if kind == "hknpCompressedMeshShape":
+        return _cms_triangles(r, s_at, s_item.type)
+    if kind == "hknpBoxShape" and blob_len == sfcollision.BLOB_SIZE:
+        return box_triangles(*sfcollision.read_box(r.b))       # the vanilla box template (sfcollision.box_blob)
+    if kind in ("hknpConvexShape", "hknpConvexPolytopeShape", "hknpSphereShape", "hknpBoxShape"):
+        return _hull_triangles(r, s_at, s_item.type, kind)
+    if kind == "hknpCompoundShape":
+        return _compound_triangles(r, s_at, s_item.type, depth)
+    raise BodyError(f"unsupported shape {kind}")
+
+
 def box_triangles(centre, half) -> List[Tri]:
     """The 12 triangles of an axis-aligned box."""
     c = [tuple(centre[a] + (half[a] if (k >> a) & 1 else -half[a]) for a in range(3)) for k in range(8)]
@@ -197,14 +242,7 @@ def blob_bodies(blob: bytes) -> List[dict]:
             if s_item is None:
                 raise BodyError(f"body {k} has no shape")
             kind = tf.type_name(s_item.type)
-            if kind == "hknpCompressedMeshShape":
-                tris = _cms_triangles(r, s_at, s_item.type)
-            elif kind == "hknpBoxShape" and len(blob) == sfcollision.BLOB_SIZE:
-                tris = box_triangles(*sfcollision.read_box(blob))   # the vanilla box template (sfcollision.box_blob)
-            elif kind in ("hknpConvexShape", "hknpConvexPolytopeShape", "hknpSphereShape", "hknpBoxShape"):
-                tris = _hull_triangles(r, s_at, s_item.type, kind)
-            else:
-                raise BodyError(f"unsupported shape {kind}")
+            tris = _shape_triangles(r, s_at, s_item, len(blob))
             pos = struct.unpack_from("<3f", r.b, at + f_pos.offset)
             q = struct.unpack_from("<4f", r.b, at + f_rot.offset)
             if any(abs(x) > 1e-6 for x in q[:3]) or any(abs(x) > 1e-6 for x in pos):

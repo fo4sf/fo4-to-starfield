@@ -10,6 +10,8 @@ using Mutagen.Bethesda.Starfield;
 using Noggog;
 
 void Require(bool ok, string message) { if (!ok) throw new InvalidOperationException(message); }
+// an asset path as written, with either separator (Mutagen gives back Windows separators on Windows: Codex, #357)
+static string? AssetPath(object? file) => file?.ToString()?.Replace('\\', '/');
 var release = StarfieldRelease.Starfield;
 var modKey = ModKey.FromNameAndExtension("Synthetic.esm");
 FormKey Key(uint id) => new(modKey, id);
@@ -264,3 +266,160 @@ Console.WriteLine("Posed-model plugin round trip passed.");
     finally { Console.SetOut(stdout); Directory.Delete(doorDir, true); }
 }
 Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed.");
+
+// Interior promotions (Promotions.cs, scripts/terrain/port_promote.py): PluginSpike end to end with a promote.json. FO4
+// containers, inventory items, activators and terminals get a CONT / MISC / ACTI / TERM + TMLM base carrying the model
+// their STAT / MSTT would have had, shared per edid; the reference keeps its stable REFR FormID; a door base is kept; two
+// entries of one edid that disagree stop the build.
+{
+    var promoDir = Path.Combine(Path.GetTempPath(), "fo4sf-promote-" + Guid.NewGuid().ToString("N"));
+    var outDir = Path.Combine(promoDir, "out");
+    Directory.CreateDirectory(outDir);
+    var stdout = Console.Out;
+    var sfKey = ModKey.FromNameAndExtension("Starfield.esm");
+    try
+    {
+        // a synthetic master holding the vanilla terminal template 0155A2 with a furniture block
+        var master = new StarfieldMod(sfKey, release);
+        master.ModHeader.Flags |= StarfieldModHeader.HeaderFlag.Master;
+        var marker = new Keyword(new FormKey(sfKey, 0x000900), release) { EditorID = "SynthFurnitureKeyword" };
+        master.Keywords.Add(marker);
+        master.Terminals.Add(new Terminal(new FormKey(sfKey, 0x0155A2), release)
+        {
+            EditorID = "OE_AustinF_DeployMicrobe_Terminal", MarkerModel = "Furniture\\furn_human_standingterminal.nif",
+            Keywords = new ExtendedList<IFormLinkGetter<IKeywordGetter>> { new FormLink<IKeywordGetter>(marker.FormKey) },
+        });
+        // and a vanilla chair template 0027D5 (as NPCChairTech03_Free_270: one marker, one Sit entry block)
+        master.Furniture.Add(new Furniture(new FormKey(sfKey, 0x0027D5), release)
+        {
+            EditorID = "NPCChairTech03_Free_270", MarkerModel = "Markers\\FurnitureMarkers\\ChairNeutral_Free_Marker.nif",
+            Keywords = new ExtendedList<IFormLinkGetter<IKeywordGetter>> { new FormLink<IKeywordGetter>(marker.FormKey) },
+            MarkerParameters = new ExtendedList<FurnitureMarkerParameters> { new FurnitureMarkerParameters { Offset = new P3Float(0, 0.12f, 0) } },
+            MarkerEntryPoints = new ExtendedList<FurnitureMarkerEntryPoints> { new FurnitureMarkerEntryPoints() },
+        });
+        var sfPath = Path.Combine(promoDir, "Starfield.esm");
+        master.BeginWrite.ToPath(sfPath).WithNoLoadOrder().Write();
+        var manifest = Path.Combine(promoDir, "manifest.json");
+        File.WriteAllText(manifest, """
+{"items":[
+ {"editor_id":"FO4Port_Crate","model":"fo4port\\crate.nif","source":"meshes\\crate.nif"},
+ {"editor_id":"FO4Port_Can","model":"fo4port\\can.nif","source":"meshes\\can.nif","movable":{"mass_kg":1}},
+ {"editor_id":"FO4Port_Switch","model":"fo4port\\switch.nif","source":"meshes\\switch.nif"},
+ {"editor_id":"FO4Port_Term","model":"fo4port\\term.nif","source":"meshes\\term.nif"},
+ {"editor_id":"FO4Port_SynthDoor","model":"fo4port\\d.nif","source":"meshes\\d.nif",
+  "door":{"anim_graph":"SimpleOpenClose01.agx","skeleton":"fo4port\\d\\skeleton.rig","animations":"fo4port\\d\\animations","origin_offset":[0,0,0]}},
+ {"editor_id":"FO4Port_Chair","model":"fo4port\\chair.nif","source":"meshes\\chair.nif"},
+ {"editor_id":"FO4Port_Wall","model":"fo4port\\wall.nif","source":"meshes\\wall.nif"}]}
+""");
+        // an activate parents block as Fo4Export writes it (PR #305): flags + parents [{reference, delay}]
+        string Parents(string parent, float delay) => $$"""{"reference":"{{parent}}:Fallout4.esm","delay":{{delay}}}""";
+        string R(string id, string type, string model, string? parents = null, uint flags = 0) =>
+            $$"""{"formkey":"{{id}}:Fallout4.esm","base_editor_id":"X","type":"{{type}}","model":"{{model}}","pos":[0,0,0],"rot":[0,0,0],"scale":1""" +
+            (parents == null ? "}" : $$$""","activate_parents":{"flags":{{{flags}}},"parents":[{{{parents}}}]}}""");
+        var export = Path.Combine(promoDir, "Promo.json");
+        File.WriteAllText(export, "{\"cell\":\"Promo\",\"refs\":[" + string.Join(",",
+            R("000901", "Container", "crate.nif"), R("000902", "MiscItem", "can.nif"), R("000903", "MiscItem", "can.nif"),
+            R("000904", "Activator", "switch.nif"), R("000905", "Terminal", "term.nif", Parents("0009FF", 0)),
+            R("000906", "Door", "d.nif", Parents("000904", 0.5f), 1), R("000908", "Static", "wall.nif", Parents("000901", 0)),
+            R("000909", "Furniture", "chair.nif"), R("00090A", "Furniture", "chair.nif"),
+            // a second switch drives two FO4 doors, one of them not converted (no model in the manifest): no partial wire
+            R("00090B", "Activator", "switch.nif"), R("00090C", "Door", "d.nif", Parents("00090B", 0)),
+            R("00090D", "Door", "unconverted.nif", Parents("00090B", 0))) + "]}");
+        string Promote(string canName) => $$"""
+{"starfield_esm": {{JsonSerializer.Serialize(sfPath)}},
+ "containers":[{"src":"000901:Fallout4.esm","edid":"FO4Port_cont_A","name":"Crate","items":[{"form":"Starfield.esm:00000F","count":10}]},
+               {"src":"000906:Fallout4.esm","edid":"FO4Port_cont_D","name":"Door","items":[]},
+               {"src":"000907:Fallout4.esm","edid":"FO4Port_cont_A","name":"Crate","items":[{"form":"Starfield.esm:00000F","count":10}]}],
+ "items":[{"src":"000902:Fallout4.esm","edid":"FO4Port_misc_B","name":"Can","value":1,"weight":0.5},
+          {"src":"000903:Fallout4.esm","edid":"FO4Port_misc_B","name":"{{canName}}","value":1,"weight":0.5}],
+ "activators":[{"src":"000904:Fallout4.esm","edid":"FO4Port_acti_C","name":null},
+               {"src":"00090B:Fallout4.esm","edid":"FO4Port_acti_C","name":null}],
+ "terminals":[{"src":"000905:Fallout4.esm","edid":"FO4Port_term_E","menu_edid":"FO4Port_tmlm_E","name":"Terminal","body":"FO4 terminal"}],
+ "furniture":[{"src":"000909:Fallout4.esm","edid":"FO4Port_furn_F","name":"Chair","template":"0027D5",
+               "markers":[{"offset":[0,-0.2,0],"rotation_z":180},{"offset":[0.5,-0.2,0],"rotation_z":180}]},
+              {"src":"00090A:Fallout4.esm","edid":"FO4Port_furn_G","name":"Stool","template":"0027D5","markers":null}]}
+""";
+        File.WriteAllText(Path.Combine(outDir, "promote.json"), Promote("Can"));
+        foreach (var hook in new[] { "FO4PORT_DOOR_MODEL", "FO4PORT_DOOR_BASE", "FO4PORT_DOORTEST" }) Environment.SetEnvironmentVariable(hook, null);
+        Environment.SetEnvironmentVariable("STARFIELD_DATA", promoDir);
+        var log = new StringWriter();
+        Console.SetOut(log);
+        typeof(Promotions).Assembly.EntryPoint!.Invoke(null, new object[] { new[] { outDir, manifest, export } });
+        Console.SetOut(stdout);
+        var ids = StableFormIds.Load(Path.Combine(outDir, "formids.json"));
+        var port = ModKey.FromNameAndExtension("FO4Port.esm");
+        var masters = new Cache<IModMasterStyledGetter, ModKey>(x => x.ModKey);
+        masters.Set(new KeyedMasterStyle(sfKey, MasterStyle.Full));
+        using (var written = StarfieldMod.CreateFromBinaryOverlay(Path.Combine(outDir, "FO4Port.esm"), release,
+                   new BinaryReadParameters { MasterFlagsLookup = masters }))
+        {
+            var refs = written.Cells.Records.SelectMany(x => x.SubBlocks).SelectMany(x => x.Cells).Single()
+                .Temporary.OfType<IPlacedObjectGetter>().ToDictionary(r => r.FormKey);
+            FormKey BaseOf(string fo4) => refs[new FormKey(port, ids[$"REFR:FO4Port_Promo:{fo4}:Fallout4.esm"])].Base.FormKey;
+            var cont = written.Containers.Single();
+            Require(BaseOf("000901") == cont.FormKey && cont.FormKey.ID == ids["CONT:FO4Port_cont_A"], "container not on its CONT");
+            Require(AssetPath(cont.Model?.File) == "Meshes/fo4port/crate.nif" && cont.Name!.String == "Crate"
+                    && cont.Items!.Single().Item.Count == 10 && cont.Items!.Single().Item.Item.FormKey == new FormKey(sfKey, 0x00000F),
+                    "CONT model, name or inventory wrong");
+            var misc = written.MiscItems.Single();
+            Require(BaseOf("000902") == misc.FormKey && BaseOf("000903") == misc.FormKey, "the two items do not share one MISC");
+            Require(AssetPath(misc.Model?.File) == "Meshes/fo4port/can.nif" && misc.Name!.String == "Can" && misc.Value == 1 && misc.Weight == 0.5f,
+                    "MISC model, name, value or weight wrong");
+            var acti = written.Activators.Single();
+            Require(BaseOf("000904") == acti.FormKey && acti.Name == null && AssetPath(acti.Model?.File) == "Meshes/fo4port/switch.nif",
+                    "activator not on a nameless ACTI with its model");
+            var term = written.Terminals.Single();
+            var menu = written.TerminalMenus.Single();
+            Require(BaseOf("000905") == term.FormKey && term.Menu.FormKey == menu.FormKey && term.Name!.String == "Terminal"
+                    && term.MarkerModel == "Furniture\\furn_human_standingterminal.nif" && term.Keywords!.Single().FormKey == marker.FormKey
+                    && menu.BodyTexts!.Single().Text.String == "FO4 terminal", "terminal, its furniture block or its menu wrong");
+            Require(written.Doors.Any(d => d.FormKey == BaseOf("000906")), "a door listed for promotion lost its DOOR base");
+            // chairs: copies of the vanilla template with our model, the FO4 name and FO4's marker places
+            var chair = written.Furniture.Single(f => f.FormKey == BaseOf("000909"));
+            var stool = written.Furniture.Single(f => f.FormKey == BaseOf("00090A"));
+            Require(chair.EditorID == "FO4Port_furn_F" && AssetPath(chair.Model?.File) == "Meshes/fo4port/chair.nif" && chair.Name!.String == "Chair"
+                    && chair.MarkerModel == "Markers\\FurnitureMarkers\\ChairNeutral_Free_Marker.nif" && chair.Keywords!.Single().FormKey == marker.FormKey,
+                    "chair not a copy of the template with our model and name");
+            Require(chair.MarkerParameters!.Count == 2 && chair.MarkerEntryPoints!.Count == 2
+                    && Math.Abs(chair.MarkerParameters[1].Offset.X - 0.5f) < 1e-6 && Math.Abs(chair.MarkerParameters[0].RotationZ - 180f) < 1e-4,
+                    "chair markers not FO4's places");
+            Require(stool.MarkerParameters!.Single().Offset.Y == 0.12f && stool.Name!.String == "Stool", "a chair without FO4 markers lost the template's");
+            // the switch (a promoted activator) activates the door it is FO4's activate parent of
+            IPlacedObjectGetter RefOf(string fo4) => refs[new FormKey(port, ids[$"REFR:FO4Port_Promo:{fo4}:Fallout4.esm"])];
+            var wire = RefOf("000904");
+            Require(wire.VirtualMachineAdapter?.Scripts.Single().Name == "DefaultActivateLinkedRefOnActivate"
+                    && wire.LinkedReferences.Single().Reference.FormKey == RefOf("000906").FormKey
+                    && wire.LinkedReferences.Single().KeywordOrReference.FormKey == new FormKey(sfKey, 0x5D5E7),
+                    "switch -> door activation chain not written");
+            Require(RefOf("00090B").VirtualMachineAdapter == null && RefOf("00090B").LinkedReferences.Count == 0
+                    && RefOf("00090C").VirtualMachineAdapter == null,
+                    "a switch whose second FO4 child was not converted got a partial one-child wire");
+            Require(RefOf("000901").VirtualMachineAdapter == null && RefOf("000901").LinkedReferences.Count == 0,
+                    "a container (not a usable parent) got an activation wire");
+            Require(written.Statics.Any(s => s.FormKey == BaseOf("000908")) && written.Statics.Count == 5
+                    && written.MoveableStatics.Count == 1, "unlisted wall moved, or the promoted models' own bases missing");
+        }
+        var text = log.ToString();
+        var unwired = JsonDocument.Parse(File.ReadAllText(Path.Combine(outDir, "activation.json"))).RootElement.ToString();
+        Require(unwired.Contains("00090D:Fallout4.esm: parent drives 2 children (one linked ref per script) (child not placed)"),
+                "the unconverted child of a two-child switch is not named in activation.json:\n" + unwired);
+        Require(text.Contains("promotions: 2 activators, 1 containers, 2 furniture, 2 items, 1 kept (door base), 1 terminals; 1 listed but not placed"),
+                "promotions not reported:\n" + text);
+        Require(text.Contains("activation chains: 1 wired; unwired: 1 parent not placed, 1 parent not usable, 2 parent drives several, " +
+                              "0 parent already scripted, 1 child not placed; 1 delays and 1 parent-activate-only flags not carried"),
+                "activation chains not reported:\n" + text);
+        // a second build keeps every FormID; a disagreeing entry of one edid stops it
+        var before = File.ReadAllText(Path.Combine(outDir, "formids.json"));
+        File.WriteAllText(Path.Combine(outDir, "promote.json"), Promote("Tin"));
+        var refused = false;
+        Console.SetOut(new StringWriter());
+        try { typeof(Promotions).Assembly.EntryPoint!.Invoke(null, new object[] { new[] { outDir, manifest, export } }); }
+        catch (System.Reflection.TargetInvocationException ex) when (ex.InnerException is InvalidDataException ide && ide.Message.Contains("FO4Port_misc_B"))
+        { refused = true; }
+        Console.SetOut(stdout);
+        Require(refused, "two entries of one edid with different names were not refused");
+        Require(File.ReadAllText(Path.Combine(outDir, "formids.json")) == before, "a refused build changed the FormID map");
+    }
+    finally { Console.SetOut(stdout); Directory.Delete(promoDir, true); }
+}
+Console.WriteLine("Interior promotion checks passed.");

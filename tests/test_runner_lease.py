@@ -180,6 +180,50 @@ class RunnerLeaseTests(unittest.TestCase):
         self.assertEqual(self.calls, [])                                       # no step, no INCONCLUSIVE rows
         self.assertFalse(os.path.exists(os.path.join(self.d, "results.jsonl")))
 
+    def _launch(self, codes, blocked=lambda launches: None):
+        c.Controller(self.leader).claim("Claude", "window", 3600)
+        r = self.runner(lease_dir=self.leader, lease_owner="Claude", max_attempts=1)
+        r.session, r.cell, self.ctl.pid = False, None, None                   # no game: it has to be launched
+        calls, checks = [], []
+
+        def ps(script, args, timeout, steal=False):
+            calls.append(script)
+            return (codes.pop(0) if codes else 0, "x") if script == "cycle.ps1" else (0, "")
+
+        def why(*a, **k):
+            checks.append(1)
+            return blocked(calls.count("cycle.ps1"))
+        r._ps = ps
+        with mock.patch.object(tq.Runner, "pinned_ok", return_value=True), \
+                mock.patch.object(tq, "blocked_reason", side_effect=why):
+            code = r.run()
+        return code, calls
+
+    def test_a_game_that_never_starts_stops_after_three_guarded_launches(self):
+        code, calls = self._launch([10, 10, 10, 10])
+        self.assertEqual(code, 3)
+        self.assertEqual(calls, ["cycle.ps1"] * 3)                             # three launches, no relaunch per test
+        with open(os.path.join(self.d, "run.log"), encoding="utf-8") as f:
+            self.assertIn("the game did not stay up (launch 2 of 3): launching again", f.read())
+        self.assertTrue(self.status().startswith("stopped: the game did not start (cycle.ps1 exit 10 on 3 launches"),
+                        self.status())
+        self.assertEqual(self.calls, [])
+
+    def test_a_relaunch_after_a_dead_start_rechecks_every_launch_control(self):
+        # Codex's review of #358: a STOP (or a lost lease, the owner back) between two launches is honoured
+        code, calls = self._launch([10, 0], blocked=lambda launches: "STOP file present" if launches else None)
+        self.assertEqual(calls, ["cycle.ps1"])                                 # no second Steam launch
+        self.assertEqual(code, 3)
+        self.assertIn("STOP", self.status())
+
+    def test_cycle_ps1_launches_once_and_exits_10_when_the_game_does_not_stay_up(self):
+        src = read(os.path.join(GAME, "cycle.ps1"))
+        self.assertEqual(src.count("Start-Process 'steam://rungameid/1716740'"), 1)
+        self.assertNotIn("for ($try", src)                                     # retries are the runner's, after its checks
+        self.assertIn("Get-Process -Id $q.Id", src)                            # alive 20 s later, not just seen once
+        self.assertLess(src.index("if (-not $q) {"), src.index("Wait-Screen 'main menu'"))
+        self.assertIn("exit 10", src)
+
     def test_main_reads_the_switches_from_the_environment(self):
         seen = {}
 

@@ -107,6 +107,8 @@ def core_params_view(prm):
 def slim(ref):
     out = {k: ref.get(k) for k in SLIM_KEYS}
     out["enable_parent"] = ref.get("enable_parent")
+    if ref.get("type") == "Door" and ref.get("teleport_destination"):
+        out["teleports"] = True                    # a load door: convert_list converts its model as one
     return out
 
 
@@ -137,12 +139,29 @@ def select_bands(paths):
     return kept, skipped, tot
 
 
+ITEM_TYPES = ("MiscItem", "Ingestible", "Weapon")     # make_cluster.ITEM_TYPES: the references the core places as MISC
+
+
 def convert_list(kept):
-    """One entry per model (convert_batch --cell-json reads only "model" and "type")."""
-    by_model = {}
+    """One entry per model (convert_batch --cell-json reads "model", "type" and "teleport_destination"). A model FO4
+    places anywhere as a teleporting Door (slim "teleports") carries teleport_destination true, so convert_batch converts it as a load door:
+    solid, with its own collision for the activation prompt, never a passable animated door (Fort Hagen's and Vault 95's
+    elevator entrances could not be used from outside, owner 2026-10-18; confirmed by door_audit.py). A model no reference
+    places as an item (ITEM_TYPES: the core's MISC pickups) carries static_body true: the core places it as a STAT, so it
+    keeps a static body (v6: 62 models, 6,128 references such as cars, skeletons and cones got dynamic compounds once
+    --static-items was dropped; a STAT that falls or slides at cell load would be a regression)."""
+    by_model, items = {}, {}
     for r in kept:
-        by_model.setdefault(exterior.source_key(r["model"]), {"model": r["model"], "type": r["type"],
-                                                               "formkey": r["formkey"]})
+        e = by_model.setdefault(exterior.source_key(r["model"]), {"model": r["model"], "type": r["type"],
+                                                                   "formkey": r["formkey"]})
+        if r.get("teleports"):
+            e.update(type="Door", teleport_destination=True)
+        items.setdefault(exterior.source_key(r["model"]), False)
+        if r["type"] in ITEM_TYPES:
+            items[exterior.source_key(r["model"])] = True
+    for k, e in by_model.items():
+        if not items[k]:
+            e["static_body"] = True
     return [by_model[k] for k in sorted(by_model)]
 
 
@@ -241,7 +260,8 @@ class DryConverter:
         return self.dims_cache[n.lower()]
 
     def _texture_set(self, stem, diffuse, normal, spec, smoothness=1.0, spec_mult=1.0, alpha_test=False,
-                     alpha_ref=128, decal=False, greyscale=None, palette_scale=1.0, two_sided=False):
+                     alpha_ref=128, decal=False, greyscale=None, palette_scale=1.0, two_sided=False,
+                     opacity_scale=1.0):
         d = self.dims(diffuse)
         n = self.dims(normal) if normal else None
         s = self.dims(spec) if spec else None
@@ -2330,7 +2350,7 @@ def map_marker_problems(recs, own_index, ov, ids):
     """The map markers TerrainOverlays wrote for the overlay against its params (stage: "map_markers"; without them one
     at the COC): one REFR per entry, STAT MapMarker, XMRK present, persistent, at the entry's position; one LCSR
     MapMarkerRefType row per marker on the overlay's Location (this world, grid Y then X as the writer writes it, tail
-    0xFFFFFFFF), each also in LCID; every marker id after every other record of the plugin. Returns problems."""
+    0xFFFFFFFF), none in LCID (enabled, not initially disabled); every marker id after every other record of the plugin. Returns problems."""
     own = own_index << 24
     want = ov.get("map_markers") or [{"tag": "RedRocket", "pos": ov["spawn"], "cell": ov["spawn_cell"]}]
     got = (ids.get("map_marker_refs") or {}).get(ov["world"])
@@ -2352,8 +2372,9 @@ def map_marker_problems(recs, own_index, ov, ids):
             continue
         if overlay_records.field(r, "XMRK") is None:
             problems.append(f"{m['tag']}: no XMRK")
-        if not r["flags"] & overlay_records.PERSISTENT:
-            problems.append(f"{m['tag']}: not persistent (flags 0x{r['flags']:X})")
+        if not r["flags"] & overlay_records.PERSISTENT or r["flags"] & 0x800:
+            # initially disabled (LC172's 0xC00) hid every icon in game (18 Oct): persistent and enabled wanted
+            problems.append(f"{m['tag']}: not persistent and enabled (flags 0x{r['flags']:X})")
         pos = fo4land.parse_ref(r["fields"])["pos"]
         if not all(math.isfinite(v) for v in pos) or max(abs(u - v) for u, v in zip(pos, m["pos"])) > 1e-3:
             problems.append(f"{m['tag']}: position {pos} != {m['pos']}")
@@ -2378,8 +2399,8 @@ def map_marker_problems(recs, own_index, ov, ids):
         if e["wrld"] != wrld[0]["fid"] or e["tail"] != map_markers.LCSR_TAIL or (
                 c is not None and e["pad"] != struct.unpack("<I", struct.pack("<hh", c[1], c[0]))[0]):
             problems.append(f"{ov['location']}: LCSR row {e} (world {wrld[0]['fid']:08X}, cell {c})")
-    if not set(cell) <= lcid:
-        problems.append(f"{ov['location']}: LCID lacks {[f'{f:08X}' for f in sorted(set(cell) - lcid)]}")
+    if set(cell) & lcid:
+        problems.append(f"{ov['location']}: LCID (initially disabled) lists {[f'{f:08X}' for f in sorted(set(cell) & lcid)]}")
     mm = {f & 0xFFFFFF for f in cell}
     others = [r["fid"] & 0xFFFFFF for r in recs if (r["fid"] >> 24) == own_index and r["fid"] & 0xFFFFFF not in mm]
     if mm and others and min(mm) < max(others):
