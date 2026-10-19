@@ -16,7 +16,7 @@
 # 8 the experiment plugins are no longer active after the save loaded, or the load order dialog could not be answered
 # with "Current" (loadorder.ps1; nothing tested, the game is left running for the runner to close),
 # 9 no valid controller lease for this owner, or python could not run the check (only with FO4SF_LEASE_DIR set;
-# nothing closed, deployed or launched), 10 Steam was asked to start the game and no Starfield process was alive 20 s
+# nothing closed, deployed or launched), 10 Steam (or Starfield.exe, FO4SF_LAUNCH=exe) was asked to start the game and no Starfield process was alive 20 s
 # after it appeared (the screen is saved to -Shot; nothing tested; the runner may launch again after its own checks).
 param([Parameter(Mandatory)][string]$Staging, [Parameter(Mandatory)][string]$Starfield, [string]$Cell = 'FO4Port_Vault111Cryo',
       [string]$Shot = (Join-Path $env:TEMP 'fo4sf_cycle.png'), [string]$CellJson = '')
@@ -86,7 +86,19 @@ $HudShown = { param($png)                                       # in game: oxyge
 # session can exit within ~2 s (2026-10-18: the runner's launch at 14:32:38 and the owner's own first try at 14:38:16
 # both died after 2 s; the owner's second try stayed up; Steam console_log.txt, no error line). Another try is the
 # runner's (exit 10): it re-checks the lease, STOP, the Guardian and idle before every launch (Codex, #358).
-Start-Process 'steam://rungameid/1716740'
+# FO4SF_LAUNCH=exe (opt-in, 2026-10-19): start Starfield.exe from the game folder instead of asking Steam. The game
+# then inherits this script's token, so a runner started elevated (the owner's admin launch task) starts an elevated
+# game that its input can still reach (Windows UIPI drops input sent up to a higher integrity level: supported, not
+# tested here). Steam's error 84 on the night run's steam:// launch (2026-10-19 07:46Z) is the reason; whether this
+# avoids it is unresolved. Unset or any other value: the steam:// launch as before.
+$launch = 'steam://rungameid/1716740'
+if ($env:FO4SF_LAUNCH -eq 'exe') {
+  $launch = Join-Path $sf 'Starfield.exe'
+  if (-not (Test-Path -LiteralPath $launch -PathType Leaf)) { "FO4SF_LAUNCH=exe but $launch is missing: nothing launched, nothing tested"; exit 10 }
+  Start-Process -FilePath $launch -WorkingDirectory $sf
+} else {
+  Start-Process $launch
+}
 $q = $null
 $deadline = (Get-Date).AddSeconds(150)
 while ((Get-Date) -lt $deadline) {
@@ -103,7 +115,7 @@ if (-not $q) {
   # no game to drive: say so, with the screen (a Steam dialog, say), instead of failing later as an input-guard exit 2
   # (door_rounds_sdm, 2026-10-18 20:32Z: cycle exit 2 after 5 minutes with no Starfield process)
   powershell -NoProfile -ExecutionPolicy Bypass -File $PSScriptRoot\shot.ps1 -Out $Shot | Out-Null
-  "Starfield did not stay up 20 s after steam://rungameid/1716740 (screen: $Shot): nothing tested"; exit 10
+  "Starfield did not stay up 20 s after $launch (screen: $Shot): nothing tested"; exit 10
 }
 Start-Sleep 10
 Wait-Screen 'main menu' 120 $MenuShown | Out-Null
