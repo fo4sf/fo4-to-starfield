@@ -397,3 +397,76 @@ whether Vortex now handles BA2 conflicts.
 - https://stepmodifications.org/wiki/Starfield:Starfield_Script_Extender_(SFSE)
 - Repo files (read-only, main 447ec09): scripts/bridge/make_bridge.py, scripts/game/bridge_log.py, scripts/game/testqueue.py,
   scripts/mission/make_mission.py, docs/community/reporting-tool.md
+
+## Wave 2 additions (2026-10-19)
+
+Added by a wave-2 research agent (Claude). Wave-1 text above is unchanged. It reads the three pages wave 1 got HTTP 429
+on, plus language lists. Labels as above.
+
+### W2-1. "Game Launch deactivates Starfield Plugins" (Nexus forum thread, Vortex Support)
+
+- **verified**: a Vortex 1.15.2 user on Starfield 1.15.222 (163 mods, no Creations account) found every plugin
+  deactivated after launching through SFSE; a Vortex staff member answered that the game "cannot be accessing Vortex"
+  but is "probably wiping or altering the Plugins.txt file". A second user tested with Vortex closed and Notepad++
+  watching `Plugins.txt`: unchanged until the main menu, then **loading a save or opening the Creations load-order menu
+  deselected every plugin**; the same happened launching from Steam without SFSE. Reports run from October 2025 to
+  April 2026; one user stopped seeing it after removing two mods, another after deleting and re-downloading four
+  Creations; no root cause was posted.
+  https://forums.nexusmods.com/topic/13524420-game-launch-deactivates-starfield-plugins/
+- **verified**: separate, older MO2 symptom: MO2 2.5.2 disabled `SFBGS004.esm` and `ShatteredSpace.esm` on launch until
+  an updated `game_starfield.dll` from the MO2 Discord was installed (Oct 2024 Reddit; still being reported on GitHub in
+  Jan 2026 with the same fix). https://www.reddit.com/r/starfieldmods/comments/1g5jqca/mod_organizer_2_disabling_core_starfield_plugins/ ,
+  https://github.com/ModOrganizer2/modorganizer/issues/2325
+- **supported hypothesis**: the game itself rewrites `Plugins.txt` when it reconciles its Creations state (at save load
+  or in the Creations menu), so any external plugin list is fragile. For us: the launcher should (a) re-check
+  `Plugins.txt` after the first save load in a smoke test, (b) not rely on the in-game Creations menu, and (c) the
+  test runner's start-of-run assert should compare the active plugin list, not just the file on disk before launch.
+  Adds to Q7/Q8 (sTestFile, Starfield.ccc/ContentCatalog.txt). **unresolved**: the trigger condition.
+
+### W2-2. starfieldwiki.net modding namespace (wave 1 got 429)
+
+- **verified**: the Starfield Mod main page lists Form Reference, File Formats, audio guides (Xbox porting, .wem/.wav),
+  3ds Max setup and collision, AssetWatcher texture conversion, Archive2 for Xbox/Game Pass, Papyrus references, VS Code
+  debugging, Creating Custom Gameplay Options, and utility links (BAE, Champollion, texconv, Starfield Voice Tool,
+  fo76utils NifSkope). "Modification" and "Getting Started" (mod installation) are red links (pages not written). It
+  links a wiki Discord. https://starfieldwiki.net/wiki/Starfield_Mod:Main_Page
+- Relevance (**supported hypothesis**): the wiki is a plausible home for neutral technical pages we could contribute
+  (our verified format notes), but it has no installation or mod-manager guidance for us to align with.
+
+### W2-3. STEP Starfield portal (wave 1 got 429)
+
+- **verified**: STEP's Starfield home shows "No Official Guides Available", 81 Starfield mod pages, and only a Step
+  Patch Reference page; the portal is the guide-maintenance form set. The `Starfield:1.0` guide is marked "in the
+  development phase and is NOT supported". Its draft sets xEdit up as `xEdit.exe -SF1 -IKnowWhatImDoing
+  -AllowMasterFilesEdit` and `xEditQuickAutoClean.exe -SF1` in MO2, and has users clean vanilla masters because
+  deleted/disabled/overridden large references trigger large-reference bugs.
+  https://stepmodifications.org/wiki/Starfield:Wiki , https://stepmodifications.org/wiki/Starfield:Portal ,
+  https://stepmodifications.org/wiki/Starfield:1.0
+- Relevance (**supported hypothesis**): there is no curated Starfield baseline list to target, so "clean profile" for our
+  testers is ours to define (testing-qa Q25). The STEP note on large references is a warning for our generated
+  exterior references (worth a decisions.md check: do we ever mark a large reference initially disabled?).
+
+### W2-4. Languages (answers the data half of Q18; informs Q19)
+
+- **verified** (Steam store API, 2026-10-19): **Fallout 4**: full audio EN, FR, IT, DE, ES (Spain), JA; text only PL,
+  PT-BR, RU, Traditional Chinese. **Starfield**: full audio EN, FR, DE, ES (Spain), JA; text only IT, PL, PT-BR,
+  Simplified Chinese. **Starfield Creation Kit**: English only.
+  https://store.steampowered.com/api/appdetails?appids=377160 , https://store.steampowered.com/api/appdetails?appids=1716740 ,
+  https://store.steampowered.com/api/appdetails?appids=2722710
+- **verified**: TTW's installer requires both games "installed with all DLCs and in English" (troubleshooting answer
+  for "BASS Init or XD3 Input"). https://thebestoftimes.moddinglinked.com/faq.html
+- **supported hypothesis** for Q18/Q19: the language pairs that could work end to end are EN, FR, DE, ES, JA (voiced in
+  both), plus PL and PT-BR as text-only in both. Italian (voiced in FO4, text-only in Starfield), Russian and
+  Traditional Chinese (FO4 only) have no matching Starfield setup. Since TTW's precedent is English-only and the CK is
+  English-only, an English-first v1 with string tables passed through for the five shared voiced languages is the
+  cheapest plan that does not exclude most players; it needs one test with a non-English FO4 STRINGS set.
+
+### Wave 2 sources (distribution-community)
+
+- https://forums.nexusmods.com/topic/13524420-game-launch-deactivates-starfield-plugins/
+- https://www.reddit.com/r/starfieldmods/comments/1g5jqca/mod_organizer_2_disabling_core_starfield_plugins/
+- https://github.com/ModOrganizer2/modorganizer/issues/2325
+- https://starfieldwiki.net/wiki/Starfield_Mod:Main_Page
+- https://stepmodifications.org/wiki/Starfield:Wiki , https://stepmodifications.org/wiki/Starfield:Portal , https://stepmodifications.org/wiki/Starfield:1.0
+- https://store.steampowered.com/api/appdetails?appids=377160 , ...=1716740 , ...=2722710
+- https://thebestoftimes.moddinglinked.com/faq.html

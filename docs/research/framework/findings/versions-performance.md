@@ -344,3 +344,75 @@ and Starfield draw-call/VRAM profiles.
 - Repo (read-only): docs/RISKS.md, docs/SETUP.md, docs/PLAN.md, docs/PLAY-AND-TEST.md, docs/ai/optimization.md,
   docs/ai/decisions.md (2026-10-12), docs/JOURNAL.md (2026-10-16), src/fo4sf/ba2.py, src/fo4sf/core/preflight.py;
   /mnt/project-files/research/next-phase/launcher-architecture.md
+
+## Wave 2 additions (2026-10-19)
+
+Wave 2 fills gaps this report left **unresolved**. Same labels. xEdit line numbers refer to `Core/*.pas` at
+`dev-4.1.6` on raw.githubusercontent.com; OpenMW lines to `components/bsa/*` on gitlab.com master (both read today).
+
+### W2-1. Fallout 4 next-gen / Anniversary BA2 header versions (answers "versions 7/8 unresolved" and Q9)
+- **verified**: the April 2024 next-gen update "introduced archive versions 7 and 8"; NG archives show
+  `07 00 00 00` or `08 00 00 00` in the version bytes; NG Archive2 "may save archives as Version 7 or 8", which "are
+  incompatible with many pre-2024 versions of the game or external tools"; the old-gen exe "can only load archives up to
+  Archive2 v1.1.0.4"; the fix for old-gen users is a version patcher or a hex edit of the version byte to `01`
+  ([Nexus article 5844 "BA2 and Archive2", Qrsr, May 2025, edited Sep 2026](https://www.nexusmods.com/fallout4/articles/5844)).
+- **verified**: xEdit defines `HEADER_VERSION_FO4v7 = $07; // FO4 NG/AE` and `HEADER_VERSION_FO4v8 = $08; // FO4 NG/AE`
+  and maps 1, 7 and 8 to the same archive type `baFO4` with the same 24-byte header; only Starfield v2 (+8 bytes) and v3
+  (+8 bytes and a compression field) differ (wbBSArchive.pas 545-553, 1336-1346, 1441-1443). xEdit **writes** FO4
+  archives as v1 (1600-1608).
+- **verified**: OpenMW reads `Fallout4NextGen_v7 = 7` and `Fallout4NextGen_v8 = 8` in the same `case` as v1 in both the
+  GNRL and DX10 readers, with no extra header read (`ba2gnrlfile.cpp` 92-104, `ba2dx10file.cpp` 95-109); its merge request
+  calls them "apparently unchanged" ([OpenMW MR 4055](https://gitlab.com/OpenMW/openmw/-/merge_requests/4055),
+  [rename commit](https://git.cijber.net/mirror/openmw/commit/a5d936993fb017f1c6bc17aecdc95e760c270edd)).
+- **supported hypothesis** (three independent readers + the hex-edit-to-01 workaround agree): **v7/v8 changed only
+  the version number**, not the header, file table or compression. The fix for `src/fo4sf/ba2.py` line 59 is to accept
+  `{1, 7, 8}` with the v1 layout. Not shown: which vanilla archives are 7 and which are 8, and whether the Anniversary
+  update (1.11.x) changed anything beyond NG (xEdit's comment labels both "NG/AE"). A PC probe that reads the first
+  8 bytes of every `Fallout4 - *.ba2` and `cc*.ba2` settles it; a synthetic v7/v8 fixture test covers the code.
+- **Corrections**: wave 1 said "from memory" v7/v8; that is now **verified**. The worst case the wave-1 text feared
+  ("cannot read a player's unmodified 1.10.984 or 1.11.x install") is real for the current reader but is a one-line fix,
+  not a format project.
+
+### W2-2. Draw calls, VRAM and dense content (extends "Performance bottlenecks: unresolved", Q5, Q18, Q20)
+- **verified**: Starfield's D3D12 renderer generates indirect draw arguments with a compute shader and issues
+  **ExecuteIndirect** calls, several back to back, often with a draw count of 0; vkd3d-proton added a Starfield workaround
+  ([vkd3d-proton PR 1694](https://github.com/HansKristian-Work/vkd3d-proton/pull/1694)). The author later said the gains
+  are "very minute", "single percent range" (same PR). Press summary:
+  [Destructoid](https://www.destructoid.com/open-source-community-figures-out-problems-with-performance-in-starfield/).
+- **supported hypothesis**: rendering is largely **GPU-driven** (culling/argument generation on the GPU), so per-object
+  CPU draw-call cost, the reason FO4 needed precombines, matters less. CE2 has no precombine/previs records at all
+  (starfield-toolchain.md W2-2). The remaining cost of 650k refs is likely on the CPU side in **reference loading,
+  scripts/havok and streaming**, not draw submission. Unproven: no source measures a dense modded cell.
+- **verified**: Starfield "can take advantage of up to eight CPU cores"; the heaviest test scene was New Atlantis with
+  "a lot of NPCs" ([DSOGaming, Sep 2023](https://www.dsogaming.com/pc-performance-analyses/starfield-pc-performance-analysis/)).
+  No draw-call figures there.
+- **verified (single test, vanilla)**: VRAM on an RTX 3080 12 GB: under 3 GB at 1080p low, 3.8 GB at 1080p ultra,
+  4.4 GB at 1440p low, 5.7 GB at 1440p max, about 6.5 GB at 4K ultra with FSR2 Ultra Performance (indoors only)
+  ([Noticias3D, 1 Sep 2023, NJ Tech tests](https://www.noticias3d.com/noticia/92797/starfield-requisitos-4k-cuanta-memoria-grafica-consume.html)).
+  Vanilla leaves headroom on the owner's 12 GB card; our converted textures add to that. **unresolved**: VRAM with
+  our core loaded. Corsair recommends 32 GB system RAM over 16 GB without published numbers in text
+  ([Corsair](https://www.corsair.com/us/de/explorer/diy-builder/memory/how-memory-capacity-affects-starfield/)).
+- **Experiment** (for Q5/Q18/Q20): on the PC, stand at 3 fixed spots in the core (dense downtown, open wasteland,
+  interior) and log fps, frame time, VRAM and RAM (PresentMon + GPU counters), vanilla vs core vs core-with-LOD; repeat with
+  the texture caps halved. Numbers to docs/ai/optimization.md.
+
+### W2-3. Medium masters and archives over 4 GiB (answers the unresolved part of Q4)
+- **verified**: medium ObjectIDs 0x0000-0xFFFF, 256 medium slots (xEdit, details in starfield-toolchain.md W2-5).
+- **verified (format)**: BA2 offsets are 64-bit (wbBSArchive.pas 54, 75), so nothing in the file format stops at 4 GiB.
+  FO4 users report 9.5 GB and 14.7 GB BA2s loading
+  ([forum 11091353](https://forums.nexusmods.com/topic/11091353-ba2-size-limits-and-splitting-textures-between-ba2s), user
+  reports). **unresolved for Starfield**: vanilla archives still stop just under 4 GiB, which may be Bethesda's packing
+  habit or an engine limit. Until a PC probe loads a >4 GiB archive, keep splitting at 4,095 MB (no cost but archive
+  slots; see Q17).
+
+### Sources (wave 2)
+- https://www.nexusmods.com/fallout4/articles/5844
+- https://raw.githubusercontent.com/TES5Edit/TES5Edit/dev-4.1.6/Core/wbBSArchive.pas
+- https://gitlab.com/OpenMW/openmw/-/raw/master/components/bsa/ba2gnrlfile.cpp , ba2dx10file.cpp , ba2file.hpp
+- https://gitlab.com/OpenMW/openmw/-/merge_requests/4055 ; https://git.cijber.net/mirror/openmw/commit/a5d936993fb017f1c6bc17aecdc95e760c270edd
+- https://forums.nexusmods.com/topic/13484961-solved-nifskope-and-next-gen-ba2-archives (NifSkope needed fo76utils fork for the NG BA2 version)
+- https://github.com/HansKristian-Work/vkd3d-proton/pull/1694 ; https://www.destructoid.com/open-source-community-figures-out-problems-with-performance-in-starfield/
+- https://www.dsogaming.com/pc-performance-analyses/starfield-pc-performance-analysis/
+- https://www.noticias3d.com/noticia/92797/starfield-requisitos-4k-cuanta-memoria-grafica-consume.html
+- https://www.corsair.com/us/de/explorer/diy-builder/memory/how-memory-capacity-affects-starfield/
+- https://forums.nexusmods.com/topic/11091353-ba2-size-limits-and-splitting-textures-between-ba2s

@@ -378,3 +378,168 @@ we survive game updates on both sides (FO4 *and* Starfield), and how do we keep 
   docs/ROADMAP.md §2 (Phase C launcher model)
 - Not readable this run (HTTP 429 or search budget): beyondskyrim.org, openmw.org/faq, handbook.tesrskywind.com,
   Wccftech Fallout London interview, Hitmarker Skyblivion/Bethesda piece; Starfield total-conversion search not run.
+
+## Wave 2 additions (2026-10-19)
+
+Appended by a wave-2 research agent (Claude-cloud). The wave-1 text above is unchanged. Each item names the wave-1
+gap or question it answers or changes. Tools: WebSearch plus TinyFish search/fetch (gnu.org and uesp.net blocked or
+timed out for direct fetch; TinyFish worked). Nexus Mods pages were not fetched.
+
+### W2-1. Beyond Skyrim (answers wave-1 §8 "Beyond Skyrim ... unresolved")
+- **Structure.** "Beyond Skyrim is a collaboration between several modding teams. We're creating large continent
+  expansion mods for The Elder Scrolls V: Skyrim." The site lists one released "Cyrodiil Pre-release" (Bruma, SE and
+  LE) and a small teaser mod (Dawn's Venture / Cardana Pallo); recruitment and contact are via Discord ("This is where
+  we are the most active"). **verified** ([beyondskyrim.org](https://beyondskyrim.org/))
+- **Bruma release.** Released 2017-07-01 for Skyrim (LE), requiring "the base game plus all of the DLC"; "recreated
+  from scratch", 70+ residents, "Over 24,000 lines of high-quality voiceover from a professional and semi-professional
+  cast", 3+ hours of original music; SE and Xbox One promised later. **verified**
+  ([Kotaku, 2017-07-01](https://kotaku.com/beyond-skyrim-mod-adding-giant-city-from-the-elder-scro-1796573865)).
+  Kotaku's phrase "import all of Oblivion" is a journalist's gloss; the content was rebuilt, not imported.
+- **Hosting on Bethesda's own platform.** A Bethesda Creations listing "Beyond Skyrim - Bruma" exists (search snippet
+  dated 2021-11-14: "fully voiced mod with a wider scope than the ..."). **supported hypothesis** (the page did not
+  render in our fetch; only the search snippet was read:
+  [Creations 7559](https://creations.bethesda.net/en/skyrim/details/7559/Beyond_Skyrim___Bruma)). A Nexus SE page
+  exists ([Nexus SSE 10917](https://www.nexusmods.com/skyrimspecialedition/mods/10917), search result only, not fetched).
+- **Status in late 2025.** Self-identified team members on Reddit (2025-10-22): Bruma is still the only province
+  release after 8 years; Cyrodiil "made the decision to commit to the entire province after Bruma"; Iliac Bay had a
+  "big leadership shake-up in 2022" after management that "was... not great"; several projects have "entered voice
+  acting"; staff leave for industry jobs; smaller item mods are spun off ("Wares of Tamriel"). **supported hypothesis**
+  (forum posts by claimed members, not an official statement:
+  [r/skyrimmods](https://www.reddit.com/r/skyrimmods/comments/1odnpmo/so_what_happened_to_the_beyond_skyrim_project/))
+- **What this changes.** Confirms the wave-1 pattern (remade assets, re-voiced, multi-year), adds two lessons: an
+  umbrella of semi-independent teams diverges and stalls; and a playable "pre-release slice" (Bruma) kept interest for
+  years while the full scope did not ship. A commenter contrasts this with Tamriel Rebuilt's region-by-region drip
+  releases (opinion, not evidence). For us: ship breadth in public slices (Phase 1 Vault 111 start, then interiors) not
+  one big drop. The Bethesda-staff reference to "a Beyond Skyrim-style path" in Capital Wasteland (wave-1 §5) therefore
+  means "remake everything and voice it yourselves", which our design (convert locally) is not.
+
+### W2-2. Enderal's Steam edition (answers wave-1 §8 "Enderal's Steam standalone ... unresolved")
+- **Release model.** *Enderal: Forgotten Stories* is listed on Steam as a free "Community-Made Mod" that "requires
+  that you own The Elder Scrolls V: Skyrim"; Developer and Publisher: SureAI; released 2019-02-14; genre includes "Free
+  To Play"; "Enderal is free and can be played by anyone owning a legal copy of TES V: Skyrim. (No DLCs are
+  necessary.) It is developed non-commercially by SureAI". System notes: "Skyrim Classic needed ... Skyrim Special
+  Edition does not work". It has Steam Achievements, Workshop and Cloud. **verified**
+  ([Steam 933480](https://store.steampowered.com/app/933480/Enderal_Forgotten_Stories/))
+- PCGamesN: "a mostly stand-alone package. You'll still need to own Skyrim ... but you can install and launch Enderal
+  totally separately"; separate saves; "Both Enderal and its DLC ... will continue to be completely free". **verified**
+  ([PCGamesN, 2019-02-08](https://www.pcgamesn.com/skyrim/skyrim-enderal-forgotten-stories-release-date))
+- **Bethesda relation.** No public Bethesda agreement text was found. Steam's "Community-Made Mod" listing requires the
+  base game's ownership check, which is a Valve-side programme; whether Bethesda signed off is **unresolved**.
+- **What this changes.** A second distribution route beyond GitHub/Nexus exists for free mods that need the base game:
+  a free Steam "mod" app with an ownership check. For us it would need two games owned (FO4 + Starfield), which Steam's
+  single-parent mod listing may not express (**unresolved**; Steam's mod-listing rules not read). It also shows the
+  value of installing *outside* the game folder with separate saves, which is the GAMMA-style launcher's aim.
+
+### W2-3. Fallout: London launch problems, primary text (extends wave-1 §2)
+- Team FOLON's own quick-start post on GOG's forum (read in full) tells players to: uninstall FO4 and delete
+  `Documents\My Games\Fallout4` and `AppData\Local\Fallout4`; "Uninstall any mod managers and remove mods"; remove all
+  `cc*` Creation Club files; on Steam install only the six named DLC and skip the HD texture pack; run the "Official
+  FOLON Downgrader", which asks for the Steam "username + password ... so the downgrader can confirm your licence ...
+  and access the depot" and may need Steam Guard authorisation "2 or 3 times"; launch FO4 once so the default launcher
+  writes registry keys ("This can be the cause of various installation issues"). The installer writes the INIs and
+  AppData itself ("you don't need a mod manager") and launches via `f4se_loader.exe`. **verified**
+  ([GOG forum, FOLON quick start](https://www.gog.com/forum/fallout_london/fallout_london_quick_start_guide_common_bug_fixes/page1))
+- Its FAQ shows which failures dominated: most answers are "Make sure you are opening f4se_loader.exe NOT
+  Fallout4.exe" (crash after the train, cannot choose gender, manual-install bugs); HD pack or leftover mods causing odd
+  textures; stale INIs causing the vanilla menu; F4SE closing because `iSize H/W` did not match the monitor; intro video
+  stalling fixed by "Run this program as an administrator"; a stuck door worked around with `tcl`; a perk bug worked
+  around with `player.removeperk`; "Try running at 1080p" for 4K. **verified** (same post)
+- PCGamesN (2024-07-29): crashes and "extremely long loading times" on both Steam and GOG; patch promised via X with a
+  known-issues list. **verified** ([PCGamesN](https://www.pcgamesn.com/fallout-london/crashes-patch-soon)). A 1.02
+  patch with "hundreds of changes/fixes" followed (Wccftech 2024-10-20, search snippet only, **supported hypothesis**).
+- **What this changes.** Sharpens wave-1's "hash-checked preflight" lesson into a concrete checklist our launcher's
+  preflight should test before building: wrong entry exe, stale INIs, leftover mods/CC files in Data, optional HD
+  packs, missing first-run registry keys, resolution mismatch, admin rights. And it adds one firm design rule: **never
+  ask for a Steam password** (the Downgrader's Steam Guard loop was its top support issue); use Steam's own
+  `steam://` / depot tooling run by the player instead (supported hypothesis).
+
+### W2-4. Sim Settlements 2 and the voiced FO4 player (new; bears on "silent player by default")
+- SS2's patch notes repeatedly fix *player* voice files: "Fixed a few player voice lines that were still using
+  placeholder “robovoice” versions"; "Restored several missing player voice files"; "Fixed a player line ... that would
+  play the male player voice for both male and female player characters". So SS2 ships player-voice audio of its own
+  for its new dialogue, with male and female variants and a robotic placeholder during development. **verified**
+  ([SS2 wiki patch notes](https://wiki.simsettlements2.com/getting-started/patch-notes))
+- How the lines were made: community members say the player lines are "all from the game ... Some are spliced, but all
+  are base game", that writers "looked at the lines they had available, and wrote dialogue around that", and that the
+  team rejects AI voices. **supported hypothesis** (Reddit comments, not a team statement:
+  [r/SimSettlements](https://www.reddit.com/r/SimSettlements/comments/1cdhpbx/player_va_question/)). A player-forum
+  question on the SS2 site repeats the "taken from the original game" belief (not answered in the fetched text:
+  [simsettlements.com](https://simsettlements.com/site/index.php?threads/changing-the-players-character-voice.26659/)).
+  Mods that mute the player voice (Silent Protagonist, Mute Player Voice) are popular companions to SS2 (search results
+  only).
+- **What this changes.** For a *same-game* FO4 mod, reusing and splicing vanilla player lines is tolerated practice;
+  it is not evidence that moving those lines into Starfield is acceptable (Capital Wasteland, wave-1 §5, is the
+  cross-game precedent). It supports the settled "silent player by default" and adds a framework question: if a voiced
+  player option ever comes, does it use only FO4's own player lines unchanged, converted on the player's PC, and never
+  spliced into new sentences we authored (a spliced line is closer to a new derivative recording)? Owner decision plus a
+  Bethesda question.
+
+### W2-5. Skywind volunteer handbook (answers wave-1 "Not read: the Skywind volunteer handbook")
+- The handbook is a team-only Google Sites hub: "the hub of all Skywind processes, manuals, and guides", editable by
+  department heads, with the aim to "Bring our documentation all under one roof" and help new contributors "find the
+  information they need, independently". **verified** ([handbook](https://handbook.tesrskywind.com/))
+- **Bug tracking.** QA uses GitHub Issues with a template; "Search existing bugs first"; reports must be "easily
+  reproducible by another tester"; labels `Confirmed`, `In Progress`, `Claim Fixed`, `Fix Fail`, `Invalid Issue`,
+  `Known Shippable`, a `Crash` label, plus department labels; "Do NOT close the issue! All issues need to be retested
+  before we can close them. A QA member will verify the proposed fix". **verified**
+  ([bug reporting](https://handbook.tesrskywind.com/qa/bug-reporting))
+- **Inactive leads.** A lead is inactive after three months of no response, missed meetings without apologies or
+  neglected duties; they get a formal message and two weeks to reply, then lose lead permissions; returning does not
+  restore the role automatically. "inactivity is not an issue if the lead team is informed". **verified**
+  ([inactive lead guide](https://handbook.tesrskywind.com/misc/inactive-lead-guide))
+- **Public progress.** "the ongoing health of the project relies on it"; anyone may post their own work to
+  `#progress_updates` (WIP labelled), ask a lead before showing anything "big news or secret", never link a store
+  ("this would be a conflict of interest"); about 650 Discord servers subscribe to the channel. **verified**
+  ([sharing](https://handbook.tesrskywind.com/misc/sharing))
+- **Engineering rules worth copying.** Quest rule 0: follow the original "as closely as possible ... things should not
+  be changed ... for the sake of easier implementation"; dialogue filenames derive from the first 10 characters of the
+  quest ID and 15 of the topic ID, so moving topics between quests breaks the voice pipeline unless prefixes match.
+  **verified** ([quest design principles](https://handbook.tesrskywind.com/dev/Principles)). Scripting: avoid
+  `Game.GetPlayer()` in favour of a PlayerREF property, avoid persistent ObjectReference properties, avoid polling and
+  long `Wait()`. **verified** ([scripting best practices](https://handbook.tesrskywind.com/dev/lessons)); these are
+  Skyrim-engine practices, applicability to Starfield is a supported hypothesis.
+- **What this changes.** Our AGENTS.md labels (`ready`, `in-progress`, `needs-qa`) already match Skywind's flow; the gaps
+  are a `Claim Fixed` → retest-before-close rule, a `Known Shippable` label for accepted engine bugs, and an
+  inactivity rule for agents and humans (our watchdog already covers Claude). The filename rule is a direct warning for
+  our FO4→Starfield dialogue conversion: Starfield voice file paths are keyed on record IDs, so any record renaming must
+  be stable (supported hypothesis; check against Starfield's voice path scheme before People-and-story).
+
+### W2-6. DMCA or takedown of a Bethesda cross-game port or converter (wave-1 legal table: unresolved)
+- Searches for a ZeniMax DMCA against a cross-game port or converter (GitHub's DMCA repo, news, Nexus) found **no
+  verifiable case** this session. What exists is policy, not enforcement: Bethesda's own help page lists removal for
+  "using assets from other Bethesda games" and for mods that "circumvent the need to purchase add-on content".
+  **verified** ([Bethesda help 34803](https://help.bethesda.net/app/answers/detail/a_id/34803/~/why-was-my-mod-removed%3F)).
+  Detail in legal-policy.md "Wave 2 additions". Status remains **unresolved** (absence of evidence, not evidence).
+
+### W2 new questions for the framework
+1. **Release and community.** Do we ship public slices (Vault 111 start, then interiors) like Bruma, and never one
+   "full Commonwealth" drop? Evidence: W2-1. Owner decision.
+2. **Launcher.** Will the launcher ever need the player's store credentials? Proposed rule: never; detect, instruct,
+   refuse. Evidence: W2-3. Owner decision.
+3. **Launcher.** Which preflight checks from FOLON's FAQ (entry exe, INI freshness, CC files, HD pack, first-run
+   registry keys, resolution, admin rights) map onto Starfield + SFSE? Offline research + PC probe.
+4. **People and story.** If a voiced-player option is ever offered, is it FO4 player lines unchanged only, or are
+   spliced lines allowed? Evidence: W2-4 vs Capital Wasteland. Owner decision + Bethesda question.
+5. **Tooling and testing.** Adopt Skywind's `Claim Fixed`/retest-before-close and `Known Shippable` labels? Evidence:
+   W2-5. Owner decision.
+6. **Cross-cutting.** Is there a stable naming scheme so converted dialogue and voice paths survive re-builds? Evidence:
+   W2-5 filename rule. Offline research on Starfield voice paths.
+7. **Release and community.** Is a free Steam "Community-Made Mod" listing (Enderal model) ever an option for a tool that
+   needs two games? Evidence: W2-2. Offline research on Steam's mod-app rules; Valve contact.
+
+### W2 sources
+- https://beyondskyrim.org/
+- https://kotaku.com/beyond-skyrim-mod-adding-giant-city-from-the-elder-scro-1796573865
+- https://creations.bethesda.net/en/skyrim/details/7559/Beyond_Skyrim___Bruma (snippet only)
+- https://www.reddit.com/r/skyrimmods/comments/1odnpmo/so_what_happened_to_the_beyond_skyrim_project/
+- https://store.steampowered.com/app/933480/Enderal_Forgotten_Stories/
+- https://www.pcgamesn.com/skyrim/skyrim-enderal-forgotten-stories-release-date
+- https://www.gog.com/forum/fallout_london/fallout_london_quick_start_guide_common_bug_fixes/page1
+- https://www.pcgamesn.com/fallout-london/crashes-patch-soon
+- https://wccftech.com/fallout-londons-patch-1-02-is-out-now-with-hundreds-of-fixes-and-a-specific-focus-on-graphical-improvements/ (snippet only)
+- https://wiki.simsettlements2.com/getting-started/patch-notes
+- https://www.reddit.com/r/SimSettlements/comments/1cdhpbx/player_va_question/
+- https://simsettlements.com/site/index.php?threads/changing-the-players-character-voice.26659/
+- https://handbook.tesrskywind.com/ ; /qa/bug-reporting ; /misc/inactive-lead-guide ; /misc/sharing ; /dev/Principles ; /dev/lessons
+- https://tesrskywind.com/volunteer/
+- https://help.bethesda.net/app/answers/detail/a_id/34803/~/why-was-my-mod-removed%3F

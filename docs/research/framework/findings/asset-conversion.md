@@ -429,3 +429,87 @@ All from prior knowledge; their pages could not be read this session, so all are
 - https://falloutck.uesp.net/wiki/Subgraphs (found, not read)
 - Not readable this session (HTTP 429): https://taleoftwowastelands.com/faq,
   https://github.com/Guekka/Cathedral_Assets_Optimizer
+
+## Wave 2 additions (2026-10-19)
+
+Added by a wave-2 research agent (Claude). Wave-1 text above is unchanged. It fills the pages wave 1 could not read (TTW
+FAQ, Cathedral Assets Optimizer) and the facegen follow-up. Labels as above.
+
+### W2-1. TTW installer behaviour (turns the wave-1 precedent row from hypothesis into verified; feeds Q11, Q14, Q35)
+
+- **verified**: the TTW FAQ's "What does the TTW Installer do?" lists: updates Vorbis libraries to 1.3.7; creates or
+  edits the Custom INI in My Games\FalloutNV (archive list plus performance settings); **decompresses the BSAs in the
+  mod folder (not the originals)**; transcodes sound effects OGG to WAV; transcodes **all voice files to 24 kHz** to
+  match New Vegas; fixes some FO3 radio tracks (mono MP3 to WAV to stereo WAV to MP3); moves all MP3s out of BSAs as
+  loose files; and "**patches and creates all non-unique assets dynamically from original game files**".
+  https://thebestoftimes.moddinglinked.com/faq.html (the taleoftwowastelands.com/faq link now redirects to a mod.pub
+  page whose body did not render: https://mod.pub/ttw/133/docs/25-faq-frequently-asked-questions)
+- **verified**: installer errors "BASS Init or XD3 Input" are answered with "make sure you have both games installed
+  with all DLCs and **in English**, run them once"; "xdelta3.dll was not found" means the archive was not extracted
+  first, so the installer is an **xdelta3 binary-patch** applier over the original files. It accepts `-threads:1` to
+  run slower when CPUs overheat or the installer closes with an NTDLL error; Intel E-cores make it slower.
+  Same FAQ.
+- **verified**: install guide: the installer writes into an MO2 mod folder the user creates
+  (`<MO2>\mods\Tale of Two Wastelands`); "the audio encoding section is very CPU-intensive. It takes about **40 minutes
+  on a Ryzen 5 5600x** but could take several hours or even longer on a slower CPU"; the finished folder should be
+  **17 GB**, and a smaller folder means a failed install (missing-mesh red diamonds), fixed by reinstalling.
+  https://thebestoftimes.moddinglinked.com/ttw.html
+- **verified**: updates: delete and reinstall; a new major or minor version needs a new game; patch versions are safe.
+  Verifying game files reverts the Vorbis update and the exe patch. Linux support "planned but not near".
+  https://thebestoftimes.moddinglinked.com/faq.html
+- What this teaches us (**supported hypothesis**): (1) audio transcoding, not patching, dominates install time, which
+  matches our expectation that voice (122,857 `.fuz`) plus textures will dominate; budget the launcher in tens of
+  minutes to hours and give it a thread-count switch from day one. (2) A size check on the output folder is the
+  community's own install validator; our launcher can do better with the planned per-file hash ledger. (3) TTW
+  requires English for both games; we have a reason to do better (see W2-4 in people-story.md: FO4/Starfield voice
+  languages overlap in EN/FR/DE/ES/JA).
+
+### W2-2. Cathedral Assets Optimizer and other batch texture tools (answers the CAO gap in §4)
+
+- **verified**: the CAO Nexus page says it aims "to automate asset conversion and optimization for Skyrim Special
+  Edition, Skyrim Legendary Edition, Fallout 3, Fallout New Vegas, and Fallout 4"; **Starfield is not mentioned**.
+  Version field 5.3.15, newest changelog entry a 7.0 beta, page updated 23 March 2026. Features: uncompressed DDS to
+  BC7, resize by divider or absolute size (5.0), mipmap generation (5.0), command-line support added in 4.2.4 (current
+  state not documented). https://www.nexusmods.com/skyrimspecialedition/mods/23316
+- **verified**: the GitHub repo is MPL-2.0, "in-development, experimental", ~1,000 commits, no GitHub releases; it
+  credits DirectXTex, nifly, BSArch/libbsarch and hkxcmd. https://github.com/Guekka/Cathedral-Assets-Optimizer/ ,
+  https://github.com/Guekka/Cathedral-Assets-Optimizer/releases . STEP's FO4 CAO profile uses Base Profile FO4 with
+  "Necessary optimization" and "Generate mipmaps". https://stepmodifications.org/wiki/Fallout4:Cathedral_Assets_Optimizer
+- **verified**: Starfield-specific batch texture tools found on Nexus are image-to-DDS converters (Automatic Image to
+  DDS Converter, 12471; Encrypteds Universal DDS Texture Converter, 14825, "smart auto-detection"), Material Editor Lite
+  (14659, batch conversion "powered by texconv.exe"), and BA2 Upgrader (1192, v1.3.3, Dec 2025), which rewrites texture
+  BA2s to **version 3** (LZ4; two compression levels, the Bethesda-like level taking "tens of minutes to several
+  hours"). A 2024 comment on 1192 asks for "Cathedral Assets Optimizer"-style downscaling for Starfield, i.e. none
+  existed then; a later commenter notes the CK's Archive2 can write v3 directly (DDS + LZ4).
+  Search-result listings: https://www.nexusmods.com/starfield/mods/12471 , https://www.nexusmods.com/starfield/mods/14825 ,
+  https://www.nexusmods.com/starfield/mods/14659 ; read: https://www.nexusmods.com/starfield/mods/1192?tab=posts
+- **supported hypothesis**: there is no CAO equivalent for Starfield; every Starfield tool found wraps texconv. So our
+  own texconv-based step (already in the repo, S3) is the norm, and the remaining choices are ours: BC format per
+  texture role, whether to downscale 4K FO4 HD textures, and whether to pack into v3 texture BA2s (users report better
+  load times and smoother play with v3 and fewer archives; **supported hypothesis**, user reports only).
+- New question for the framework: **Do we pack converted textures into Starfield v3 texture BA2s (via Archive2 or our
+  own writer) instead of loose files, and must each BA2 be added to `sResourceIndexFileList`?** One BA2 Upgrader user
+  says packed loose files need that INI entry. Evidence: load time and stutter, loose vs v3 BA2, same route. Who: PC probe.
+
+### W2-3. Facegen (answers Q22 in part)
+
+- **verified**: Starfield ships per-NPC face geometry `meshes\Actors\Character\FaceGenData\FaceGeom\Starfield.esm\<FormID>.nif`
+  and per-NPC face textures under `textures\actors\character\facecustomization\starfield.esm\`; the CK produces them with
+  two bakes, "Bake FCT" (Ctrl+F4: ao/color/normal/rough DDS) and "Bake Chargen Mesh Geometry"; structure edits need the
+  geometry bake. Full sources and caveats in people-story.md, "Wave 2 additions", W2-2.
+- Changes Q22: the answer is "named NPCs: pre-computed (baked) assets keyed by plugin and FormID; templated
+  Use-Traits NPCs: no per-NPC bake" (**supported hypothesis**). Our converter then has to either drive the CK bake
+  (GUI, per actor, reported crashes) or write FaceGeom NIFs and the four face DDS itself; Geometry Bridge's morph
+  `.dat` support (wave 1) is the closest open reference. **unresolved**: the FaceGeom NIF's internal layout
+  (likely `BSFaceGenNiNode` per FORMAT-GAP) versus what our NIF writer already emits; a read-only dump of one vanilla
+  FaceGeom NIF answers it.
+
+### Wave 2 sources (asset-conversion)
+
+- https://thebestoftimes.moddinglinked.com/faq.html , https://thebestoftimes.moddinglinked.com/ttw.html ,
+  https://mod.pub/ttw/133/docs/25-faq-frequently-asked-questions (redirect target; body not rendered)
+- https://www.nexusmods.com/skyrimspecialedition/mods/23316 , https://github.com/Guekka/Cathedral-Assets-Optimizer/ ,
+  https://github.com/Guekka/Cathedral-Assets-Optimizer/releases , https://stepmodifications.org/wiki/Fallout4:Cathedral_Assets_Optimizer
+- https://www.nexusmods.com/starfield/mods/1192?tab=posts , https://www.nexusmods.com/starfield/mods/12471 ,
+  https://www.nexusmods.com/starfield/mods/14825 , https://www.nexusmods.com/starfield/mods/14659 (last three: search listings only)
+- Facegen sources: see people-story.md, "Wave 2 sources (people-story)".

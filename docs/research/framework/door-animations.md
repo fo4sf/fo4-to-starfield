@@ -1,6 +1,6 @@
 # Door enter and exit animations: research framework (phase 2)
 
-Owner: the "Door animations" thread (Claude-cloud). Started 2026-10-19 17:45Z. Status: **first wave written (four research agents); 40 questions in section 6**. Labels: **verified** (read from a file or a command we ran), **supported** (sourced, not yet tested here),
+Owner: the "Door animations" thread (Claude-cloud). Started 2026-10-19 17:45Z. Status: **two waves written; door graphs read (A1); Starfield Papyrus API read (§1); 40 questions in section 6**. Labels: **verified** (read from a file or a command we ran), **supported** (sourced, not yet tested here),
 **unresolved**. Sources are linked inline. The index of every phase's framework is this folder's README.md (owned by the
 "Next-phase research framework" thread).
 
@@ -40,6 +40,27 @@ The DOOR record:
   `docs/handoff-archive/2026-10-07-codex-history.md:439`). **What a `*_Load` graph adds is the biggest unknown:** there
   is no public spec of `.agx` (unresolved; a PC diff of the graphs answers it).
 
+**Graph read (PC read A1 / job 17, 2026-10-19, `extract_door_graphs.py` at fd26932: 30 door graphs from Starfield -
+Animations.ba2, summary in D:\Modding\scratch\door_graphs; verified unless marked).** `.agx` is XML: nodes
+(NT_STATE_MACHINE_EMBEDDED, NT_BLEND_TREE_EMBEDDED, NT_ANIMATION_NODE, NT_ASSIGN_VARIABLE, NT_GRAPH_REF, ...) with
+property sheets.
+- `SimpleOpenClose01` is a thin wrapper: a Graph Ref to `SimpleOpenClose_Base01` plus "Capacity" effect states.
+- `SimpleOpenClose_Base01` is a four-state machine. Each state assigns `OpenCloseFormState`: Opened 1, Opening 2,
+  Closed 3, Closing 4. **These are exactly GetOpenState's values**, so the script's wait on state 1 reads the graph
+  (supported: the variable name and the matching numbers). The event `Open` enters Opening, which plays the `Open`
+  clip at `AnimSpeed` (default 1), whole; `Close` is the mirror. Opening and Closing send `Trans01` on entry and
+  **`Done` on exit**, so `PlayAnimationAndWait("Open", "Done")` is a safe call on these doors (supported).
+- **The `*_Load` graphs are self-contained, not wrappers.** In `SimpleOpenClose02_Load`, Opening plays `Open` at speed
+  **0.8 with the last 20 frames cropped**, then moves to Opened. Opened plays the `Close` clip cropped at both ends and,
+  when that ends, **sends `Close` by itself**. **A vanilla load door shuts itself after opening**, with no script.
+- `SimpleOpenClose01_Load` to `10_Load` are near-identical (39,429 to 41,125 bytes); 02 against 06 differs only in
+  whether Opened's speed is `AnimSpeed`. The rig and clips make the difference, not the graph.
+  `07_Load` and `StateOpenClose01_Load` add Graph Refs; `SpecialOpenCloseAirlock01_Load` adds effect sequences.
+- **Consequence:** a `*_Load` graph crops 20 frames (0.67 s at 30 fps). FO4's own clips run 4 to 40 frames (A5), so
+  most would play nothing, or almost nothing, under a load graph. **Own-rig load doors must keep `SimpleOpenClose01`**
+  (as the writer does). The `_XtelLoad` copy stays limited to Akila-template doors, whose 31-frame clip leaves 11 frames
+  at speed 0.8, about 0.46 s (inferred from the numbers above).
+
 Teleport (XTEL) and load doors:
 - XTEL (verified): the destination door, position, rotation, flags (No Alarm 0x1, **No Load Screen 0x2**, Relative
   Position 0x4) and a Transition Interior cell. XTNM is the teleport name. Vanilla data uses No Load Screen on 4 of 964
@@ -47,7 +68,9 @@ Teleport (XTEL) and load doors:
 - A reference also carries Lock (XLOC: levels 0 to 100, plus 251 Barred, 252 Chained, 253 Requires Terminal, 254
   Inaccessible, 255 Requires Key), the navmesh door link XNDP, OpenByDefault and TeleportName (verified, Mutagen dev).
 - The engine plays a graph-bearing load door's open before the load screen (supported, Instant Doors 2313). What ends
-  the wait (a graph event, the end of the clip, or a timer) is unresolved.
+  the wait is unresolved, but it is not an ini timer: INSTANT DOORS' ini lines only remove fades, and its speed-up ships
+  as loose files (verified, its files tab; correction of an earlier claim here). Mod 2489's door files are graphs, so the
+  `*_Load` graph's playback most likely sets the wait (supported); G2's stopwatch decides.
 - Load elevators: a visible `*_Load` DOOR animates while a hidden `LoadElevator_InvisibleDoor` (322 refs) carries the
   XTEL (verified, repo). This "visible door plus hidden load door" pattern could serve the outdoor side.
 
@@ -60,7 +83,22 @@ Papyrus (CK wiki, Skyrim and FO4 lineage; Starfield names verified by our A3 rea
   travel) (verified, ck.uesp BlockActivation).
 - PlayAnimationAndWait never returns if the graph never sends the named event (verified), so it stays unused until we
   know a door graph's output events. Vanilla uses `PlayAnimationAndWait("Play01", "done")` on an elevator helper.
-- Whether RegisterForAnimationEvent exists in Starfield is unresolved (grep ScriptObject.psc).
+- Starfield 1.16's own sources (verified, rux616/modding-sf1-scripts-vanilla, cross-checked with the Community Patch
+  mirror; file:line):
+  | Function or event | Where |
+  |---|---|
+  | `RegisterForAnimationEvent(akSender, asEventName)` (native, selfonly), `OnAnimationEvent`, `OnAnimationEventUnregistered` | ScriptObject.psc:81, 368, 373 |
+  | `RegisterForPlayerTeleport()`, `OnPlayerTeleport()` (load door, fast travel, MoveTo) | ScriptObject.psc:178, 441 |
+  | `IsLocked()`, `GetLockLevel`, `SetLockLevel`, `OnLockStateChanged` | ObjectReference.psc:764, 497, 1058, 1661 |
+  | `Lock(abLock, abAsOwner, abTraverseLinkedLockables = true)` | ObjectReference.psc:801 |
+  | `GetOpenState` (0 none, 1 open, 2 opening, 3 closed, 4 closing), `SetOpen`, `OnOpen`, `OnClose` | ObjectReference.psc:514, 1090, 1673, 1607 |
+  | `BlockActivation`, `IsActivationBlocked`, `PlayAnimation`, `PlayAnimationAndWait`, `WaitFor3DLoad` | ObjectReference.psc:245, 702, 879, 882, 1201 |
+  | `GetTeleportCell`, `GetTransitionCell`, `IsRefInTransitionCell`, `IsTeleportAreaLoaded` | ObjectReference.psc:584, 587, 785, 788 |
+- **Risk:** Starfield's `Lock` has a third parameter FO4's lacks and, by default, also locks "linked lockable" references,
+  which may include a door's XTEL partner. Our scripts pass `abTraverseLinkedLockables = False` unless that is wanted.
+  What counts as linked lockable is unresolved; FO4 closes an open door at once when it is locked (verified FO4 only).
+- Animation-event registration needs the 3D loaded and drops when the graph unloads (verified FO4 wiki; supported
+  for Starfield).
 
 Sounds: SoundReference is a WWise start GUID, a stop GUID, a condition and an event mapping (verified; A7 found only the
 GUIDs used). That a plugin can play vanilla events by GUID without its own soundbank is a supported hypothesis to check
@@ -80,8 +118,8 @@ unmerged positions, which breaks native exterior XTEL; that is why exterior door
   unresolved.
 - **Motion** comes from NIF Open/Close sequences with `Sound:` text keys (verified, repo). No FO4 DOOR with a behaviour
   graph was found. Whether FO4 plays the whole Open sequence before the load is unresolved; our wait is a design choice.
-- The backlog lists **230 interiors** (203 behind 368 exterior load doors, plus 27 reached only from other interiors).
-  The "271" figure used elsewhere needs reconciling (unresolved; the interiors thread owns that count).
+- The backlog lists **230 interiors** behind Commonwealth doors; the whole census is 271 (see the count reconciliation in
+  section 5).
 
 Door families, by exterior load-door references (373 in all, the agent's grouping by base name):
 
@@ -144,10 +182,14 @@ Starfield door and load mods:
   So a load door's open timing lives in its `*_Load` graph. Editing a shared graph changed every object on it and
   conflicted with other mods; door audio drifted out of sync. The Redux version (17655, verified) had to swap door sound
   files to resync, and its author notes that weapon sounds follow animation events but door sounds do not (supported).
-- **INSTANT DOORS** (Nexus SF 2313, verified, https://www.nexusmods.com/starfield/mods/2313): a `StarfieldCustom.ini`
-  setting shortens the wait for a load door to open before the load screen. So the engine already does "open, then the
-  trip" for animated load doors. The setting's name is unresolved. The author calls stuck doors a vanilla bug that a
-  reload fixes.
+- **INSTANT DOORS** (Nexus SF 2313, verified, https://www.nexusmods.com/starfield/mods/2313): its `StarfieldCustom.ini`
+  lines (`fAutoDoorFadeSecs`, `fNormalDoorFadeSecs`, `fNormalFadeSecs`, `fLoadGameFadeSecs`, `fFadeToBlackFadeSeconds`,
+  plus the `[Archive]` loose-file switch) **only remove fades**; the author says to skip the `[General]` lines to keep
+  fades and the door speed-up still works. **Correction:** an earlier version of this section said an ini setting
+  shortens the load-door wait; it does not. The speed-up ships as loose files, likely `.agx` graphs as in 2489 (supported;
+  file names unresolved until the archive is opened). A second file adds "loading airlocks like the ones in Cydonia". So
+  the engine already does "open, then the trip" for animated load doors. The author calls stuck doors a vanilla bug that a
+  quicksave and reload fixes.
 - **The Real Elevator for Starfield** (Nexus SF 10904, verified, https://www.nexusmods.com/starfield/mods/10904): copies
   of `ElevatorMasterScript` / `MovingPlatformMasterScript`, trigger volumes and linked-ref keywords; walking up calls the
   car. It broke two faction quests until v2.0.0 was rebuilt to touch no QUEST.
@@ -207,6 +249,27 @@ Lessons for our design:
 - The player has no "use door" animation on Starfield's ordinary doors. A walk-through animation would be a separate
   feature (SFSE players such as SAF or OSF), out of scope for phase 2.
 
+**Offline answers (second wave, 2026-10-19, verified from code unless marked):**
+- **G28, navmesh door links:** exterior navmesh conversion keeps FO4 door triangles only for rigged opening doors.
+  Load doors are dropped (`scripts/actors/navmesh_core64n_convert.py:49-62`), no writer sets `NavigationDoorLink`
+  (XNDP), and interiors have no navmesh at all. **NPCs and followers cannot path through our load doors today.** Fix
+  path: send load-door refs to the navmesh writer, export FO4's XNDP in Fo4Export, and set it in TerrainOverlays.
+  Interiors wait for interior navmesh.
+- **D13, FNAM flags:** no DOOR writer copies flags (PluginSpike `Program.cs:94-176`, TerrainOverlays `:223-227`).
+  Fo4Export already exports `door_bases[..].record.Flags`. PluginSpike keys door bases by model, so FO4 bases that share
+  a model but differ in flags (the `*MinUse` variants) cannot be told apart yet.
+- **D17:** automatic and invisible doors are markers and never reach the converter, and a door without an Open
+  sequence cannot be rigged. **Gap found and fixed** (aa5173a): a trapdoor whose name says "door" (not "hatch") swung on
+  the upright template; under `--rig-load-doors` it now takes the own-rig route (`door_rig.flips`).
+- **E22:** pinned Mutagen 0.55.0-alpha.67 has `PlacedObject.Lock`, `TeleportName` and `NavigationDoorLink`, and
+  `Door.Flag` NoQuestTarget/NoDirectActivation (reflection). Lock is already written (`ReferenceLinks/Relationships.cs:299`).
+- **D14:** in the backlog, 10 double-door bases (61 refs) and 12 trapdoor or hatch bases (49 refs) were counted by name.
+  The two-leaf and horizontal-axis own-rig paths are tested for ordinary doors. A two-leaf load-door test is still to add.
+- **E23:** enable parents are exported and written. 24 of 350 exterior load doors have one (Institute rotunda 8/8, USS
+  Constitution 6/6, ...). Quest aliases are not exported at all.
+- **Count reconciliation** (Interiors thread): use 230 for interiors behind Commonwealth doors and 271 for the whole census
+  (it adds 41 interiors entered from Diamond City and Goodneighbor).
+
 ## 6. The framework of questions
 
 Each question names what answers it: **PC read** (read-only on the PC, small output), **offline** (cloud, repo code),
@@ -214,11 +277,12 @@ Each question names what answers it: **PC read** (read-only on the PC, small out
 block the next build step.
 
 ### A. The engine contract (how "open, then trip" works)
-1. ★ What does a `*_Load` graph add over `SimpleOpenClose01` (states, events, `AnimSpeed`, an end tag)? *PC read:* pull
+1. **Answered (A1, §1):** a self-contained machine whose open is 0.8x speed minus 20 frames and which closes itself. ★ What does a `*_Load` graph add over `SimpleOpenClose01` (states, events, `AnimSpeed`, an end tag)? *PC read:* pull
    `SimpleOpenClose01`, `_Base01`, `02_Load` and `06_Load` `.agx` from Starfield - Animations.ba2 and diff them as XML.
 2. ★ What ends the engine's wait before an XTEL trip: a graph event, the end of the clip, or a timer, and is a long FO4
-   clip cut short? *PC read* (Q1), then *in game* G2 with a stopwatch; the INSTANT DOORS ini setting (*source*).
-3. Which output events does a door graph send (Opened, Done, Closed), so `PlayAnimationAndWait` or
+   clip cut short? *PC read* (Q1), then *in game* G2 with a stopwatch. (INSTANT DOORS' ini is fades only, §4, so no ini
+   timer is known; its loose file names are a *PC read* of its archive if wanted.)
+3. **Answered (A1, §1):** `Done` when opening or closing ends. Which output events does a door graph send (Opened, Done, Closed), so `PlayAnimationAndWait` or
    `RegisterForAnimationEvent` is safe? *PC read* (Q1); also grep `ScriptObject.psc` for RegisterForAnimationEvent.
 4. Do vanilla `*_Load` doors set AnimationGraphComponent DNAM (response file) or ENAM? *PC read:* `SfInspect doorrec`.
 5. Do the four vanilla XTELs with No Load Screen animate and then move without a load screen? *PC read:* `SfInspect
@@ -227,10 +291,13 @@ block the next build step.
 
 ### B. Our scripted doors (exterior <-> interior)
 7. ★ Should FO4SF_AnimatedLoadDoor use `OnOpen` instead of polling, or BlockActivation, then SetOpen, then OnOpen, then
-   travel? *In game:* both variants on the SDM pair, timing E to arrival.
-8. ★ Does it refuse the trip on a locked door? OnActivate fires on locked doors. *Offline:* add a lock check once
-   `IsLocked` is confirmed in Starfield's ObjectReference.psc (*PC read*, the A3 file).
-9. Does `SetOpen(False)` take effect after the player has left the cell (G3)? Fallback: close in OnLoad. *In game.*
+   travel? *In game:* both variants on the SDM pair, timing E to arrival. (All the functions exist in Starfield, §1, so
+   both variants compile; close only at GetOpenState 1.)
+8. ★ Does it refuse the trip on a locked door? OnActivate fires on locked doors. `IsLocked()` exists (§1, verified), so
+   *offline:* add the check; *in game* once on a locked pair. Never call `Lock()` without
+   `abTraverseLinkedLockables = False` until we know what it traverses.
+9. Does `SetOpen(False)` take effect after the player has left the cell (G3)? Fallbacks: close in OnLoad, or on
+   `OnPlayerTeleport` (exists, §1). *In game.*
 10. The edited script (e11478e) must be recompiled on the PC before any test. *PC read* (compile only, no install).
 
 ### C. The outdoor side (step C, after the v6e test; the bugs thread owns the core writer)
@@ -247,10 +314,11 @@ block the next build step.
     MetalTrapdoor01.
 15. ★ Which FO4 load elevators set XTEL Transition Interior, and to which cells? Do Starfield XTELs honour it (0 of 964
     use it)? *PC read* of Fo4Export over door XTELs; *in game* one test cell. Safe default: drop the transition cell
-    (a plain door trip, as Nexus FO4 73623 does).
+    (a plain door trip, as Nexus FO4 73623 does). Transition cells are a live Starfield concept (`GetTransitionCell`,
+    `IsRefInTransitionCell`, `IsTeleportAreaLoaded`, §1), so the in-game test is worth one cell.
 16. Where does `MakeElevatorFunctional` live, what does `LoadElevatorDoorScript` do, and which quests gate which
     elevators (Fort Hagen MQ106)? *PC read* of the elevator VMADs and the user's FO4 script sources (policy P8).
-17. Automatic and invisible doors (~17) must never wait on an animation. *Offline:* a test that refuses `anim` on them.
+17. **Answered (§5):** they are markers and never rigged. Automatic and invisible doors (~17) must never wait on an animation. *Offline:* a test that refuses `anim` on them.
 18. Do any FO4 door NIFs carry text keys other than `Sound:`, or a behaviour graph? *PC read:* scan door NIFs.
 19. How is `IndBgPipe1WayGrateDoor01` one-way (script, lock, or flag)? *PC read* of both references.
 20. Do FO4 doors use TNAM random destinations anywhere? Starfield has no such field. *PC read* (count).
@@ -258,7 +326,7 @@ block the next build step.
     confirm that they stay with the new-game thread.
 
 ### E. Locks, quests and saves
-22. Does Starfield honour lock levels 251 to 254 (Barred, Chained, Requires Terminal, Inaccessible) as FO4 does? *In game*,
+22. (Mutagen half answered in §5: all fields exist.) Does Starfield honour lock levels 251 to 254 (Barred, Chained, Requires Terminal, Inaccessible) as FO4 does? *In game*,
     one synthetic door each. Does pinned Mutagen expose `Lock`, `NavigationDoorLink`, `TeleportName` and the
     `NoDirectActivation` flag? *PC read* (reflection, check P3).
 23. Which converted door references are quest aliases, script properties or enable-parent children (Fort Hagen
@@ -270,14 +338,20 @@ block the next build step.
 25. Does a plugin play vanilla WWise events by GUID without its own bank? *In game*, by ear on one animated door.
 26. Do the A7 pairs suit FO4's door types (wood, metal, vault), or does each FO4 SNDR category need a hand-picked vanilla
     pair? *Offline* table (FO4 SNAM/ANAM/BNAM against A7), then by ear on about 10 door types.
-27. Are new sounds ever needed, and what does the Wwise licence allow for a free mod? *Source* (Audiokinetic terms);
-    *owner*.
+27. Are new sounds ever needed, and what does the Wwise licence allow for a free mod? *Source, partly answered:*
+    Audiokinetic's indie post says a Non-commercial key covers "totally free games (no monetisation at all)" with no
+    asset limit; ads, sponsorship or promotional ties make it commercial; mods are not named, and the pricing page and
+    software EULA are unread (verified, blog.audiokinetic.com). CDPR's REDkit gets modders keys via Audiokinetic School,
+    renewed every 3 months (another game). Borrowing vanilla events still avoids the question. *Owner.*
 
 ### G. NPCs and followers
-28. ★ Do our converted load doors get navmesh door links (XNDP) to our navmesh? *Offline* dump of output NAVM door
+28. **Answered (§5): no**, a gap with a fix path. ★ Do our converted load doors get navmesh door links (XNDP) to our navmesh? *Offline* dump of output NAVM door
     links matched against FO4's.
 29. Do followers use our `_XtelLoad` and scripted doors, and is their fade the same as vanilla? *In game* with a vanilla
-    follower at Fort Hagen and at one exterior pair.
+    follower at Fort Hagen and at one exterior pair. Precedent: a Skyrim thread (verified, forum 13474629) fixed
+    followers on linked doors only by putting both doors in one cell; a Starfield thread (13509472) has an unsolved
+    one-way door with an endless load screen, with leads on one-sided navmesh, arrival markers and instanced interiors.
+    New check: none of our target cells is flagged as an instanced interior unless meant (*offline* dump).
 30. Do escort scenes keep running across our doors (FO4 escorts into Vault 111 and Sanctuary)? *In game* (people track).
 
 ### H. Tools and pipeline
@@ -301,5 +375,9 @@ block the next build step.
 38. Built .NET tools are GPL-3 through Mutagen: release source only, or binaries under GPL-3? *Owner*, recorded in
     decisions.md.
 39. CALUMI: user-supplied DLL or shipped unmodified with its notices? *Owner.*
-40. Creations is likely closed to us (generative-AI and standalone rules); GitHub and Nexus are the channels. *Source*
-    (the official free-Creations guidelines), then *owner*.
+40. Creations is likely closed to us (generative-AI and standalone rules); GitHub and Nexus are the channels. Found so
+    far: the official guidelines page (help.bethesda.net a_id 51731) refuses fetches, so a browser read is needed;
+    PCGamesN (secondary) reports the gen-AI ban and "standalone, all-new" rules for Creations without saying if free ones
+    are covered. Nexus forbids uploading copyrighted game files (verified, submission guidelines) and moderators say
+    other Bethesda games' assets need permission (supported, forum 9720278). Tale of Two Wastelands builds everything
+    from the player's own installed games and claims no Bethesda permission (verified, its FAQ). *Owner.*

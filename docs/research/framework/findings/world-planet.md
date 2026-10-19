@@ -339,3 +339,87 @@ terrain". Releases should be ESM, and medium masters "should be avoided".
 - Project notes: /mnt/project-files/research/next-phase/world-maps-lod-fasttravel.md, trees-grass-terrain.md;
   /mnt/project-files/research/engine-mechanics/weather-time-climate.md, world-cells-navigation.md, vehicles-and-travel.md;
   repo docs/terrain/commonwealth-scale.md, docs/ai/test-queue.md
+
+## Wave 2 additions (2026-10-19)
+
+Wave 2 read the two pages that were rate-limited in wave 1 and looked again at Shattered Space, LOD and the PCM. Same
+labels.
+
+### W2-1. Planet Content Manager: placing a POI (MikkoK141 tutorial, forum topic 13491382; answers Q20 in part)
+- **verified** ([forum 13491382, MikkoK141, 14 Jun 2024, edited 19 Jun 2024; page 1 of 3 read](https://forums.nexusmods.com/topic/13491382-tutorial-creating-your-own-randomly-placed-pois/)):
+  1. WorldData > Blocks: pick a terrain block; Ctrl+H opens the terrain cutting tools; cut an area (author used 3x3
+     cells) and "create overlay".
+  2. On the overlay's WRLD add `BSGPlanetContentManagerContentProperties_Component`.
+  3. Create a Location with keywords `LocTypeOE_Keyword` and `LocTypeOverlay`; assign it to the overlay.
+  4. Optional pre-discovered MapMarker.
+  5. WorldData > **Planet Content Manager Tree** > `PCM_BlockCreationRequest` > `PCM_BlockCreation_DRsRLs`: right-click
+     "add worldspacecontent", pick the POI. Removing competing entries makes it spawn more often.
+  6. Test with the console command `AddWorldSpaceToPlanetBiome <WorldSpace> <Planet> <biomeIndex>`; random spawning is
+     "not guaranteed". `RE_PackIn_Overlay` adds random-encounter triggers; removing its landing areas stops ship encounters.
+  Gotchas: terrain sometimes missing in the cell view (redo the cut; a reply ties it to **underscores in the overlay
+  name**); distant LOD for the POI was unsolved in the thread.
+- **verified** ([Anig, Steam guide 3269084567, Jun 2024 / Jun 2025](https://steamcommunity.com/sharedfiles/filedetails/?id=3269084567)):
+  PCM branches (e.g. `PCM_BlockCreation_OEWorlds_Natural`) apply their **conditions** to the content added to them,
+  e.g. a biome must be Snowfield; a Location with keyword **`PCM_OverlayExclusionZone`** makes PCM keep random POIs at
+  least **4,000 units** away. Random POIs from mods show no model on the local map.
+- **What this answers**: Q20 ("Can the PCM be told to place nothing on our planet?"): there are two levers in the data:
+  `PCM_OverlayExclusionZone` on our Locations (a 4,000-unit ring, verified as described) and PCM tree **conditions**
+  (planet/biome conditions on branches; supported hypothesis that a condition excluding our host planet stops all
+  random content there, which needs an override of vanilla branches: a conflict risk with PCM mods). Q6 is partly
+  answered: overlay WRLDs carry the PCM content component.
+
+### W2-2. Unique POI at fixed coordinates (Anig, Steam guide 3266682879; answers Q4/Q15 context)
+- **verified** ([Anig, 12 Jun 2024, upd. 19 Jun 2024; the page now carries a Steam removal notice but the text is visible](https://steamcommunity.com/sharedfiles/filedetails/?id=3266682879)):
+  Galaxy View > system > planet > pick a surface position > Overlays tab "+" > cut an area (recommended **no larger than
+  6x6** cells), lock, name, tick **"Unique"**. Then place MapMarker, `ShipLandingMarker_80m_Large`, `XMarkerHeading`;
+  link MapMarker > landing marker > heading marker (Linked Ref) so the ship lands there; set Marker Data (Visible,
+  Visible on Star Map, Allow Grav Jump, Can Travel To, Radius). Cells whose name ends in `*` "MUST BE GIVEN a UNIQUE
+  NAME" or the POI does not appear on the planet map. Placing a POI far from the central cell can crash the CK; the
+  workable limits are unknown to the author. Landscape edits show in the CK but not in game (fixed by exporting the
+  terrain `.btd`, starfield-toolchain.md W2-1).
+- **Implication (supported hypothesis)**: the CK's own overlay workflow is tuned for small (≤ 6x6) overlays. Our 64-cell
+  (and Far Harbor ~18x18) overlays are 10-100x that, written by our converter, not cut in the CK. Q15 (one overlay or a
+  grid) gains weight: a grid of smaller overlays stays inside the size the community has seen working.
+- **verified**: mods that override cells of a vanilla worldspace (NEON Core, The Well, Cydonia in `SFBGS008.esm`) broke
+  surface maps and POI scanner markers until a patch re-copied the affected sub-blocks (user report, 1.13.61,
+  [forum 13497605](https://forums.nexusmods.com/topic/13497605-info-mods-changing-world-spaces-may-break-surface-maps-poi-markers)).
+  Relevant to Q29 if we host on vanilla Earth.
+
+### W2-3. LOD for our worlds (extends Q15, Q16 and "Performance")
+- **verified**: object LOD via `CreationKit.exe -MockWorldSpaceLOD:<Plugin> <Worldspace,...>`, objects chosen by layers
+  with the LOD box; output in `Data\Meshes\Terrain\<Worldspace>\` and `Data\LODSettings\`; cells can fail in multi-cell
+  worldspaces ([modding.wiki](https://modding.wiki/en/starfield/developers/tutorials/creatingworldspacelod)). Full detail in
+  starfield-toolchain.md W2-1. A Reddit snippet (not read in full) ties this LOD run to the **local map** rendering
+  ([r/starfieldmods](https://www.reddit.com/r/starfieldmods/comments/1ntdwu9/starfields_local_maps/), **supported
+  hypothesis**).
+- **supported hypothesis**: Starfield has no precombine/previs step (no such CELL fields in xEdit's SF1 definitions), so
+  the world plan needs object LOD + terrain BTD, not a previs bake.
+
+### W2-4. How Shattered Space's landmass was built (Q5) — still **unresolved** on method
+- **verified**: Emil Pagliarulo (design director): "We knew very early on that we needed to add an explorable landmass with
+  lots of hand-crafted content ... as opposed to the base game's method of providing systemic and procedural content";
+  "content is contained to a single, large landmass"; "there's definitely some procedural, repeatable content in Shattered
+  Space". The team tested "the limitations of what they could do" in "the creation tools" (eternal eclipse, pools of
+  mercury) ([GamesRadar+, 30 Sep 2024](https://www.gamesradar.com/games/rpg/players-can-explore-like-they-used-to-in-fallout-and-skyrim-how-shattered-space-brings-the-bespoke-goodness-of-past-bethesda-rpgs-to-starfield/)).
+  Size: "at least 50 unique locations" ([Kotaku AU](https://kotaku.com.au/2024/09/9-minute-starfield-deep-dive-gives-a-tour-of-the-expansions-new-handcrafted-planet));
+  no km or cell figure in any source read.
+- **No public source** describes the build (one big overlay vs several, unique surface, BTD size). The answer is a PC
+  read: list `ShatteredSpace.esm` WRLD records with their bounds and PNDT `EOVR`/`CNAM` entries for Va'ruun'kai, and the
+  sizes of the `.btd` files in its archives. That gives Bethesda's own precedent for a large handmade area on one planet.
+
+### Questions changed or added
+- **Q20**: options now named (exclusion-zone keyword; branch conditions). Remaining: does an exclusion zone scale beyond
+  4,000 units, or do we need conditions? Experiment: one test planet, both levers, land 10 times.
+- **Q15**: add "the CK overlay tool is used at ≤ 6x6; is a converter-written 64-cell overlay stable in the CK and the game?"
+- **New Q35**: do overlay names with underscores break terrain (two independent user reports)? Our generated EDIDs must
+  avoid the pattern until disproved. Who: offline rule now, PC probe later.
+- **New Q36**: do we need `BSGPlanetContentManagerContentProperties_Component` and `LocTypeOverlay` on our WRLDs even for
+  fixed (unique) overlays? Who: xEdit read of a vanilla unique overlay (e.g. an Earth city).
+
+### Sources (wave 2)
+- https://forums.nexusmods.com/topic/13491382-tutorial-creating-your-own-randomly-placed-pois/
+- https://steamcommunity.com/sharedfiles/filedetails/?id=3266682879 ; https://steamcommunity.com/sharedfiles/filedetails/?id=3269084567
+- https://forums.nexusmods.com/topic/13497605-info-mods-changing-world-spaces-may-break-surface-maps-poi-markers
+- https://modding.wiki/en/starfield/developers/tutorials/creatingworldspacelod ; https://www.reddit.com/r/starfieldmods/comments/1ntdwu9/starfields_local_maps/ (snippet only)
+- https://www.gamesradar.com/games/rpg/players-can-explore-like-they-used-to-in-fallout-and-skyrim-how-shattered-space-brings-the-bespoke-goodness-of-past-bethesda-rpgs-to-starfield/
+- https://80.lv/articles/starfield-dev-explained-how-shattered-space-s-world-was-created/ ; https://kotaku.com.au/2024/09/9-minute-starfield-deep-dive-gives-a-tour-of-the-expansions-new-handcrafted-planet

@@ -2,8 +2,8 @@
 
 Owner: the Vault 111 new game thread (Claude-cloud). Folded into the framework index by the Next-phase research
 framework thread; do not edit here from other threads, send changes through the coordinator.
-Status: revision 1, 19 Oct 18:00Z. Five areas researched (notes 01 to 05); three more agents out (06 FO4's own Vault 111
-quest chain, 07 retry of rate-limited sources, 08 saves, install and testing). No game touched; web sources only,
+Status: revision 3, 19 Oct. All eight areas researched (notes 01 to 08); 07 re-read the rate-limited primary
+sources and corrects some earlier claims (section M). No game touched; web sources only,
 plus our own repo. Several key pages were rate limited (HTTP 429); claims resting on them are marked unresolved.
 Raw agent notes: research/framework/newgame-notes/ (one file per area).
 
@@ -23,9 +23,9 @@ unresolved. Every question names how it gets answered: offline check, PC read-on
 4. Character creation, player identity, Pip-Boy and UI in Starfield
 5. Tools and the modding ecosystem for a start mod
 
-6. Fallout 4's own opening chain (MQ101, MQ102, Vault 111): what our start recreates or leaves out (agent out)
-7. Retry of the rate-limited primary sources: Bethesda's guidelines, UESP main quest and NG+, Nexus start mods (agent out)
-8. Saves, install, uninstall, versioning and repeatable start testing (agent out)
+6. Fallout 4's own opening chain (MQ101, MQ102, Vault 111): what our start recreates or leaves out
+7. Retry of the rate-limited primary sources: Bethesda's guidelines, UESP main quest and NG+, Nexus start mods
+8. Saves, install, uninstall, versioning and repeatable start testing
 
 ## The answer so far, in one paragraph
 Every Starfield start mod hits the same wall: almost everything the player starts with (character creation, traits,
@@ -167,8 +167,16 @@ across notes are merged. Ids are stable (NG-A1 ...) so other files and threads c
   it; Skyblivion had to replace 100% of assets. OWNER (and docs/ai/decisions.md). n02, n05.
 - **NG-G2. FO4 voice files.** Capital Wasteland was cancelled after legal advice because Bethesda licenses the voices.
   OWNER, possibly legal advice. Verified. n02.
-- **NG-G3. Bethesda's modding guidelines and the Creation Kit EULA on other games' assets.** Unread (rate limited);
-  agent 07 retrying. OWNER after. n05.
+- **NG-G3. Bethesda's modding guidelines.** Verified (help.bethesda.net answer 51731): "Do not upload mods using
+  third-party content (licensed properties, content from other games, and other trademarked properties). This includes
+  using assets from other Bethesda games." The Nexus wiki says ZeniMax does not allow porting assets under any
+  circumstances. Neither text covers files built on the user's own PC from their own games, and nothing approves that
+  either; Creations (Bethesda's store) is ruled out. The Creation Kit EULA is still unread. OWNER, recorded in
+  docs/ai/decisions.md. n05, n07.
+- **NG-G5. Does being a public, AI-built project change our risk?** A press report (not primary, unverified) says
+  Bethesda sent a cease-and-desist this month to an AI-built Fallout project. OWNER. n07 Q17.
+- **NG-G6. May we read Roleplayers' Alternate Start's GPL-3.0 source?** Reading is fine; copying its code makes those
+  scripts GPL (our release already carries a GPL-3 notice for Mutagen). OWNER. n07 Q14.
 - **NG-G4. Hosting: GitHub first, then Nexus (already decided); TTW says Bethesda asked sites not to host it.** OWNER.
   n02.
 
@@ -220,13 +228,101 @@ across notes are merged. Ids are stable (NG-A1 ...) so other files and threads c
   across two game versions (Fallout London's next-gen lesson). OFF plus PC. findings/precedents.md Q2;
   findings/starfield-toolchain.md Q1, Q3.
 
+## K. Fallout 4's own opening chain: what we recreate (n06)
+Verified from our B4 spike's read of Fallout4.esm: MQ102 runs pod to Concord. The cog door console without a Pip-Boy
+sets stage 5 and fails; with one, 7 seats the player and the button sets 9; the exit elevator's
+`vaultExitElevatorSCRIPT` reopens the SPECIAL and looks menus; an exterior trigger sets 10 "Go home"; 15 is "Radios
+on" (SKK); 55 starts Min00. MQ103 is "Jewel of the Commonwealth" (000229E5). Mods and Creation Club wait on MQ102 10
+and 15, and SKK's fallback has a stated blind spot for a start that skips MQ102 inside an interior, which is ours.
+- **NG-K1. The full MQ102 table (54 stages) and which stage completes it (wiki 65, B4 fragments to 200).** OFF/PC read
+  of Fallout4.esm. Unresolved conflict. n06 Q1.
+- **NG-K2. MQ101 stages 710 to 1000 (cryo scene, Kellogg, 770 which spawns the pod corpses, 900 the move and second
+  RemoveAllItems).** OFF/PC. n06 Q2.
+- **NG-K3. MQ102 stage 6 (Fallout London teleports into the vault with it).** OFF. n06 Q3.
+- **NG-K4. Where the Pip-Boy skeleton is: by the cog door (wiki) or in the overseer's office (our
+  docs/newgame/vault111-start.md section 4).** Our doc may be wrong; an offline read of the converted cell settles it.
+  Unresolved. n06 Q4.
+- **NG-K5. Our own published stages: "out of the pod", "left the vault", "radios on", by name and number, as a
+  contract for later phases (same as NG-B8).** OWNER. n06 Q8, Q17.
+- **NG-K6. The console seat and plug-in sequence, or just the door opening (with NG-D3)?** OWNER. n06 Q15.
+- **NG-K7. SPECIAL on the elevator, as FO4 does, if SPECIAL is in scope (NG-C4)?** OWNER. n06 Q6.
+- **NG-K8. Clear Starfield's starting inventory, and when (FO4 runs RemoveAllItems at 0 and 900)?** GAME. n06 Q7.
+- **NG-K9. What Codsworth, Dogmeat and the Concord and Minutemen start need faked from MQ102 to start in our world?**
+  OFF (conditions in the converted records), then GAME. n06 Q18, Q19, Q23.
+- **NG-K10. Pod corpses, the spouse pod and the Wedding Ring; going back down the elevator.** Later phase, OWNER for
+  phase 1 scope. n06 Q12 to Q14.
+- **NG-K11. Which surface map markers are known at the exit?** With the map thread. n06 Q11.
+- **NG-K12. FO4's own input layers and the "cannot move or save after the pod" bug: does any layer, ours or
+  Starfield's, stay on after our start (with NG-A4)?** GAME. n06 Q9.
+
+## L. Saves, updates and uninstall (n08)
+Verified on our PC (scripts/game/loadorder.ps1, docs/ai/first-run-failures-1014.md): loading a save made with a
+different plugin list shows the Creations load-order prompt with "Save" preselected, and accepting it rewrites
+Plugins.txt with our plugins off, silently.
+- **NG-L1. What a player sees loading a pre-mod save after install, and how we keep the prompt from switching us off
+  (separate profile or launcher swap instead of editing their Plugins.txt).** GAME on a throwaway save, OWNER. n08 Q1, Q2.
+- **NG-L2. A save-format version and the FO4Port and core build ids stored in the save from v1, checked on every
+  load with a visible warning.** Today the quest records only "stood down" and stops. OWNER, OFF unittest; needs
+  NG-L3. n08 Q3, Q4, Q11.
+- **NG-L3. Does Starfield's Papyrus have OnPlayerLoadGame or an equivalent?** OFF/PC (ContentResources.zip). n08 Q6.
+- **NG-L4. Update policy: new game on any port rebuild, only on a save-format change, or migration.** OWNER. n08 Q5.
+- **NG-L5. Are game days 0 and level 1 reliable new-game signals after chargen and on NG+, and does our Run Once quest
+  behave on NG+?** GAME. n08 Q7, Q9.
+- **NG-L6. Negative tests before each release: existing save, NG+, our plugin missing, the port missing.** OWNER,
+  throwaway-save GAME runs. n08 Q10, Q18.
+- **NG-L7. Per-stage timeouts that log "FAIL stage N" for unattended runs.** OFF unittest, GAME. n08 Q12.
+- **NG-L8. INI rules: never write sTestFile; sStartingConsoleCommand only in test profiles; bInvalidateOlderFiles not
+  needed (ba2 only); MO2 keeps INIs per profile; restore the Starfield.ini backup our logging setup made.** OWNER, PC
+  read-only. n08 Q15, Q16.
+- **NG-L9. Steam auto-update: read-only appmanifest as Fallout London did, or an installer version gate only?** A
+  Papyrus-only mod cannot read the game version. OWNER. n08 Q19, Q20.
+- **NG-L10. Clean-uninstall checklist and the achievements note for players.** OWNER, OFF check of
+  `exp_install.py uninstall`. n08 Q21, Q23.
+
+## M. What the source retry changed (n07)
+- **MQ101Debug survives from the main menu (verified, UESP).** Setting the global (000A7D31) to 8 at the main menu
+  before New Game starts a vanilla game at the New Atlantis spaceport. So MQ00's write of 10 is conditional, which
+  changes NG-A3 from a conflict to a question of conditions.
+- **Sustenance needs MQ101Debug not 0 (verified, Community Patch).** The condition form is 002EEA4D (named PEO_ or
+  POE_SustenanceAllowed; the name differs between sources). A start that stops MQ00 before it runs leaves the global
+  at 0 and sustenance silently off; No Ship Fast Start overrides that form for this reason.
+- **Stopping MQ101 runs its stage 9000 "Run on Stop" (verified, UESP raw stage table).** Our start stops MQ101, so
+  9000 runs in every one of our games.
+- **The watch is the HUD (verified).** Barrett's watch at stage 305 gives the compass, oxygen bar and planet name;
+  stage 900 blocks fast travel except Jemison and Kreet; stage 63 starts chargen with its own failsafe; at 1800 Dream
+  Home, Kid Stuff, Board and Lodging and The Old Neighborhood begin at once (not "on leaving the Lodge", n03 corrected).
+- **NG+ universes can leave saving and inventory locked; the documented fix is `SetInCharGen 0 0 0`.** Direct evidence
+  for NG-A4 and NG-C6.
+- **Corrections:** Nexus SSE 8328 is Random Alternate Start Reborn; Realm of Lorkhan is SSE 18223 (n01 wrong). Mod
+  15088 is a face preset needing the SFSE CharGenMenu plugin, not a start mod. The Starfield Creation Kit has some
+  command-line switches (icon generation, community post, unconfirmed); lip, SEQ and precombine switches unresolved.
+  Address Library v22 (13 June 2026) covers 1.16.244 and the Microsoft Store build. Skyblivion's "100% replaced" rule is
+  only on Wikipedia.
+
+New questions from it:
+- **NG-M1. Does our quest stop MQ00 before it runs, and so leave MQ101Debug at 0 and sustenance off?** This is the
+  most concrete risk to our current build. OFF/PC (MQ00 conditions and fragment, our quest's order), then the first
+  GAME proof checks hunger. Our quest stops MQ00 only if it is running when our script starts
+  (FO4SF_NewGameQuest.psc HoldOffStart), so whether MQ00's stage 10 has set the global by then is a race. Supported
+  hypothesis that the risk is real.
+- **NG-M2. What does MQ101 stage 9000 do when we stop it?** OFF/PC read of the fragment. Unresolved.
+- **NG-M3. Let MQ00 run, set MQ101Debug ourselves, or override 002EEA4D like No Ship Fast Start?** OWNER after M1, M2.
+  Our writer already has `--mq101debug <n>` (a GLOB override, off by default), so the second route needs no new code.
+- **NG-M4. Which MQ101Debug value, if any, gives a clean start state for us?** OFF, then GAME (Claude only).
+- **NG-M5. Is the stage-900 fast-travel block ever set in our start, and what clears it?** OFF.
+- **NG-M6. Do we give back the watch's HUD (compass, oxygen, planet name) another way?** GAME, OWNER. With NG-B3.
+- **NG-M7. Do we call `SetInCharGen` off after our race menu, as the NG+ workaround does?** OFF, then GAME.
+- **NG-M8. Does our script look up any non-persistent reference with GetFormFromFile?** OFF (the new game writer
+  already refuses a non-persistent exit anchor; check every property). n07 Q13.
+- **NG-M9. Could the SFSE CharGenMenu preset format carry an approximate FO4 face?** OFF, OWNER. n07 Q18.
+
 ## Owner decisions, gathered (for the roadmap talk)
 A5 MQ101 end state; A10 hub or fixed start; A11 selector design; B4 ship; B8 published vault-exit stage; C3 creator
 scope and backgrounds; C4 SPECIAL; C9 quick start; D1 SFSE; D2 Pip-Boy; D3 cog door rule; D4 HUD; E3 DLC block; E4
 NG+ and Unity; F1 how the player picks our game; F4 undo policy; F5 save versions; F9 Game Pass; G1 to G4 legal and
-hosting; H5 plugin type; I1 voice lines; I2 choice text; I3 silent-player lines; I5 silent voice route.
+hosting; H5 plugin type; I1 voice lines; I2 choice text; I3 silent-player lines; I5 silent voice route; K5 to K7, K10; L1, L2, L4, L6, L8 to L10; M3, M6, M9; G5, G6.
 
 ## Cheapest first (offline or read-only, no game)
-A1, A3, A4, A6, A7, B1, C5, C6 (all read Starfield.esm and ContentResources.zip on the PC, read only); A8 header flags;
+M1, M2, M5, M7, M8 first (they test our current build), then A1, A3, A4, A6, A7, B1, C5, C6, K1 to K4, L3 (read Starfield.esm, Fallout4.esm and the script sources on the PC, read only); A8 header flags;
 C8 dialogue scan; F6, F8; H1, H8. The first in-game proof (after the v6e test, new game, owner's word) then covers
 A4, A5, A9, B2, B3, B5, B7, C1, C2, C6, C7 in one session with `sqv MQ101`, `sqv` on our quest and the Papyrus log.

@@ -388,3 +388,145 @@ rules; any Bethesda DMCA precedent.
 - Repo files: LICENSE, README.md, dotnet/*.csproj, scripts/mission/make_mission.py,
   scripts/deploy_starfield.py, scripts/convert_asset.py, scripts/actors/codsworth_voice.py,
   scripts/actors/codsworth_inventory.py, src/fo4sf/textures.py
+
+## Wave 2 additions (2026-10-19)
+
+Appended by a wave-2 research agent (Claude-cloud). The wave-1 text above is unchanged. Each item names the wave-1
+finding, risk or "Follow-up read" it answers or changes. Not legal advice.
+
+### W2-A. GNU GPL FAQ on separate processes and aggregation (answers Follow-up read "GNU GPL FAQ"; firms up finding 12)
+- "Mere aggregation": "An “aggregate” consists of a number of separate programs, distributed together on the same
+  CD-ROM or other media. The GPL permits you to create and distribute an aggregate, even when the licenses of the other
+  software are nonfree or GPL-incompatible. The only condition is that you cannot release the aggregate under a license
+  that prohibits users from exercising rights that each program's individual license would grant them." **verified**
+  ([GPL FAQ #MereAggregation](https://www.gnu.org/licenses/gpl-faq.html#MereAggregation))
+- Where the line is: "a proper criterion depends both on the mechanism of communication (exec, pipes, rpc, function
+  calls within a shared address space, etc.) and the semantics of the communication". "If modules are designed to run
+  linked together in a shared address space, that almost surely means combining them into one program." "By contrast,
+  pipes, sockets and command-line arguments are communication mechanisms normally used between two separate programs
+  ... But if the semantics of the communication are intimate enough, exchanging complex internal data structures, that
+  too could be a basis to consider the two parts as combined". **verified** (same entry)
+- "you must make sure that the free and nonfree programs communicate at arms length"; "If the two programs remain well
+  separated, like the compiler and the kernel ... you can treat them as two separate programs—but you have to do it
+  properly. The issue is simply one of form: how you describe what you are doing." **verified**
+  ([GPL FAQ #GPLInProprietarySystem](https://www.gnu.org/licenses/gpl-faq.html#GPLInProprietarySystem))
+- **Reading for us (supported hypothesis).** Our case is easier than the FAQ's: the repo is MIT, which is GPL-compatible,
+  so even a combined work could go out under GPL-3. The practical rules: (1) the Python pipeline and a GPL-3 C# tool
+  that talk by command line and files are "normally" separate programs, but we exchange plugin-shaped data, so the
+  "intimate semantics" caveat is the one to avoid arguing; simplest is to call every Mutagen-linked binary GPL-3 and
+  describe the release as "an MIT pipeline plus GPL-3 tools, side by side" (the FAQ's "matter of form"). (2) A launcher
+  that loads Mutagen in-process is one program and must be GPL-3 (wave-1 finding 12, now sourced). (3) The aggregate
+  (release zip) must not carry a licence or EULA that takes away GPL rights from the C# tools, e.g. no "no
+  redistribution" clause covering the whole zip. **Changes:** wave-1 finding 12's "commonly treated as aggregation"
+  is now supported by the FAQ text, with the caveat above.
+
+### W2-B. Wwise licence for free use and command-line conversion (answers wave-1 finding 15 "Audio encoder (unresolved)")
+- Audiokinetic's pricing FAQ: "The Free Trial version allows you to create a project for non-commercial use only and is
+  limited to 200 media assets in the Wwise SoundBanks. If you need more media assets, you can also request a free and
+  unrestricted Non-Commercial License. To do so, please register your project here." Licences are per project: "The
+  Wwise Project License is tied to a specific project (Licensee Title), so it cannot be used to create new titles.
+  Doing so breaches the terms of the Audiokinetic Master License Agreement, or the Audiokinetic License Agreement, and
+  the EULA." The free "Indie" plan covers commercial productions with budgets under $250K. **verified**
+  ([Wwise pricing](https://www.audiokinetic.com/en/wwise/pricing/))
+- How other games' modding communities use it: Microsoft Flight Simulator tells a modder making "a single,
+  non-commercial mod" to "Register My Project", choose "Non-Commercial", and receive "a non-commercial key"
+  ([MSFS docs](https://docs.flightsimulator.com/html/Asset_Creation/Sounds/Wwise_Licence_Information.htm)); CD Projekt's
+  REDkit says "Wwise is available for free to non-commercial users" and issues modders a key through an Audiokinetic
+  course, renewed every 3 months
+  ([REDkit](https://cdprojektred.atlassian.net/wiki/spaces/W3REDkit/pages/6327958/HOW-TO+Get+a+Wwise+license)).
+  **verified** (those pages say so)
+- **Not found:** any Audiokinetic text on redistributing `WwiseConsole`, or on whether converting loose `.wav` to
+  `.wem` with `WwiseConsole convert-external-source` counts against the 200 "media assets in the Wwise SoundBanks"
+  limit. The full EULA was not read. **unresolved**
+- **Reading for us (supported hypothesis).** (1) We cannot bundle Wwise; the player installs it from Audiokinetic under
+  their own account and accepts its EULA. (2) A tool that converts thousands of FO4 voice lines on each player's PC uses
+  Wwise in a way none of the published modder paths describe (they cover a modder authoring *their own* mod). Whether a
+  player's free trial covers "conversion for my own copy" is a question for Audiokinetic, not one we can answer by
+  reading. (3) This adds a non-Bethesda gate to any voice/audio phase on top of the Capital Wasteland precedent; an
+  alternative encoder that writes Starfield-compatible `.wem` without Wwise would remove the dependency but must be
+  verified against the format first (unresolved).
+
+### W2-C. SFSE licence and redistribution (answers Follow-up read "SFSE repo licence"; extends finding 11)
+- SFSE's repo `LICENSE`: the MIT text applies only to `sfse/PluginAPI.h` ("This applies to sfse/PluginAPI.h: Copyright
+  (c) 2023 Ian Patterson"), then: "The remainder of the files are currently not under a permissive license." **verified**
+  ([raw LICENSE](https://raw.githubusercontent.com/ianpatt/sfse/master/LICENSE))
+- README: "SFSE supports the latest version of Starfield on Steam. The MS Store/Gamepass version is not supported."
+  **verified** ([github.com/ianpatt/sfse](https://github.com/ianpatt/sfse))
+- **Changes.** Confirms wave-1 finding 11 from the source side: only the plugin API header may be reused (so an SFSE
+  plugin of ours may include `PluginAPI.h` under MIT); SFSE itself must be detected and linked, never bundled or
+  mirrored. New: if any phase requires SFSE, **Game Pass/Microsoft Store Starfield players are excluded** by SFSE's own
+  statement. That is a release-scope fact for the launcher's preflight and the README.
+
+### W2-D. Nexus rule on executables that connect to the internet (extends wave-1 finding 9)
+- The current guideline (page dated 2026-09-29) adds two sentences wave-1 did not quote: "Please note that "auto update"
+  functionality does not qualify as crucial and that we reserve the right to moderate and/or remove any
+  files/tools/utilities/mods that communicate with the internet. If your tool's/app's functionality depends on the
+  ability to send and receive information/files, please contact staff or send an email to support@nexusmods.com laying
+  out your reasoning and providing the source code for your tool/app." Also: "Files that require registration or
+  submission of user information in order to function, may only do so to facilitate the functions associated with the
+  mod and must be clearly presented as such to the user." **verified**
+  ([Nexus help 28](https://help.nexusmods.com/article/28-file-submission-guidelines))
+- **New and relevant to an AI-agent-built project:** the same page now requires generative-AI tags: "AI-Generated
+  Content - AI-Generated code, user interface elements, voices ..."; "AI Assisted - Developer-led code ... with limited
+  AI involvement"; "If your mod is primarily generated with AI, you should apply the AI-Generated Content tag"; the AI
+  Assisted tag "requires significant evidence of development" (commit history, "Genuine expertise and understanding of
+  the functionality of your code, which you may have to explain in moderation disputes"); "Failure to correctly tag
+  mods, including undisclosed generative AI usage, may be subject to moderation action." Also: claims such as
+  performance improvements "must be truthful and supported by reasonable evidence". **verified** (same page)
+- **Changes.** (1) The Nexus build of the launcher must have no auto-update; any update check must be off by default or
+  absent, and online add-on fetching needs a staff conversation with source code. (2) This project's code is largely
+  written by AI agents, so the Nexus page almost certainly needs the **AI-Generated Content** tag, with the commit
+  history (which already prefixes each agent) as evidence (supported hypothesis; owner decision). Wave-1 did not raise
+  this.
+
+### W2-E. DMCA or takedown precedent (answers wave-1 precedent row "DMCA / takedowns ... Unresolved")
+- Searched: GitHub's DMCA notices for "ZeniMax", news for Bethesda/ZeniMax DMCA against mod projects 2024-2025, and
+  Fallout 76-to-FO4 asset ports. No verifiable DMCA or takedown of a **cross-game converter** was found. **unresolved**
+  (absence of evidence).
+- Policy that exists: Bethesda's help page "Why was my Mod removed?" lists "Do not upload mods using third-party
+  content (licensed properties, content from other games, and other trademarked properties). This includes using
+  assets from other Bethesda games." and "Do not create mods that allow users to circumvent the need to purchase
+  add-on content." **verified** ([Bethesda help 34803](https://help.bethesda.net/app/answers/detail/a_id/34803/~/why-was-my-mod-removed%3F)).
+  This governs Bethesda.net/Creations, not GitHub or Nexus.
+- A Nexus moderator (2018) repeats "Porting assets is not allowed. But, it's possible to recreate them." (search
+  snippet only, [forum 7106276](https://forums.nexusmods.com/topic/7106276-fallout-76-brought-to-fallout-4/);
+  **supported hypothesis**, consistent with wave-1 finding 10). Polygon (2016) notes modders can file DMCA requests
+  "through the company's owner, ZeniMax Media" for stolen mods (snippet only), i.e. the known DMCA traffic is mod theft,
+  not converters.
+- **Changes / new requirement:** the "circumvent the need to purchase add-on content" line means our launcher must
+  check that the player owns each FO4 DLC whose content it converts (Far Harbor, Nuka-World, and any DLC records the
+  Vault 111 start touches) and skip that content when the DLC is absent. That is cheap to build (detect the `.esm` and
+  its archives) and removes an obvious objection. Owner decision; PC probe for detection.
+
+### W2 new questions for the framework
+1. **Launcher.** Does the converter refuse to build Far Harbor / Nuka-World content unless the player's FO4 has that DLC
+   (detected by its `.esm` and archives)? Why: Bethesda's "circumvent ... add-on content" rule (W2-E). Owner + PC probe.
+2. **Launcher / Release.** Do we state "Steam Starfield only" whenever a phase needs SFSE? Why: SFSE excludes Game Pass /
+   MS Store (W2-C). Owner decision; PC probe of what works without SFSE.
+3. **Release.** Which Nexus AI tag applies, and what evidence (commit prefixes, `team.py board`) do we keep ready for a
+   moderation dispute? Why: W2-D. Owner decision.
+4. **Launcher.** Is the Nexus build fully offline (no auto-update, no telemetry) with the GitHub build allowed an
+   opt-in update check? Why: "auto update ... does not qualify as crucial" (W2-D). Owner decision; Nexus staff email
+   with source if any network feature stays.
+5. **Tooling / People and story.** Ask Audiokinetic in writing whether a player's free Wwise install may batch-convert
+   their own game's audio for a free mod, and whether `convert-external-source` output counts toward the 200-asset
+   limit. Why: W2-B. Community contact.
+6. **Tooling.** Is there a verified non-Wwise path to Starfield-compatible `.wem` (so audio never depends on a
+   third-party licence)? Offline research + PC probe.
+7. **Release.** Do release notes describe the C# tools as separate GPL-3 programs shipped beside an MIT pipeline, with
+   no zip-wide licence that restricts them? Why: W2-A. Owner decision; QA checklist item.
+
+### W2 sources
+- https://www.gnu.org/licenses/gpl-faq.html#MereAggregation
+- https://www.gnu.org/licenses/gpl-faq.html#GPLInProprietarySystem
+- https://www.audiokinetic.com/en/wwise/pricing/
+- https://docs.flightsimulator.com/html/Asset_Creation/Sounds/Wwise_Licence_Information.htm
+- https://cdprojektred.atlassian.net/wiki/spaces/W3REDkit/pages/6327958/HOW-TO+Get+a+Wwise+license
+- https://raw.githubusercontent.com/ianpatt/sfse/master/LICENSE
+- https://github.com/ianpatt/sfse
+- https://help.nexusmods.com/article/28-file-submission-guidelines
+- https://help.bethesda.net/app/answers/detail/a_id/34803/~/why-was-my-mod-removed%3F
+- https://forums.nexusmods.com/topic/7106276-fallout-76-brought-to-fallout-4/ (snippet only)
+- https://www.polygon.com/2016/6/7/11877442/fallout-4-stolen-mods-xbox-one-pc/ (snippet only)
+- Still not read: Bethesda game EULA, Microsoft Services Agreement, xEdit/BSArch and DirectXTex licences, Nexus
+  collections and Donation Points articles, Wwise full EULA, Steam rules for "Community-Made Mod" apps.

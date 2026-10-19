@@ -1,6 +1,6 @@
 # People and story
 
-Part of the [next-phase framework](README.md). Wave 1, 2026-10-19. Sources: findings/people-story.md, findings/precedents.md (voice parts), findings/multi-game-scope.md (karma, reputation, affinity, factions and companions parts).
+Part of the [next-phase framework](README.md). Waves 1 and 2, 2026-10-19. Sources: findings/people-story.md, findings/precedents.md (voice parts, incl. wave 2 Sim Settlements 2), findings/multi-game-scope.md (karma, reputation, affinity, factions and companions parts), findings/distribution-community.md (wave 2 languages part).
 
 Covers quests, dialogue and its UI, the silent player, voice and lip sync (technical side only), NPC faces and bodies,
 clothing, companions, factions, settlers and radiant quests. The **legal side of voice** (reusing FO4 voice, AI voice,
@@ -20,7 +20,12 @@ companion order). Labels: **verified**, **supported hypothesis**, **unresolved**
   placeholder files or the Silent Voice SFSE plugin.
 - Faces and clothing are the weakest area: no morph translator and no batch re-skinning tool exist (**unresolved** /
   **verified** that published tools are interactive).
-- Most uncertain: how a named NPC face is built (pre-baked facegen or run time), and whether a converted voice type lips.
+- Named Starfield NPCs render from per-NPC CK bakes (FaceGeom `.nif` plus face textures keyed by FormID and plugin);
+  the bakes are GUI, per actor and crash-prone (**verified** community reports; runtime fallback **unresolved**).
+- Always-on (Start Game Enabled) dialogue quests likely need `Data\SEQ\<plugin>.seq`, a bare FormID list we can write
+  ourselves (**supported hypothesis**; the Starfield CK still makes SEQ files, **verified**).
+- Voiced in both games: EN, FR, DE, ES, JA only (**verified**, Steam store API); the Starfield CK is English only.
+- Most uncertain: whether bakes can be made without the CK GUI, and whether a converted voice type lips.
 - Three decisions that unlock the most: **PS-01** (prompt, full line or both for player choices), **PS-08** (how the
   launcher runs the FaceFX compile, decided after one timed probe), **PS-15** (named-cast face route).
 
@@ -48,10 +53,18 @@ companion order). Labels: **verified**, **supported hypothesis**, **unresolved**
 | FO3 karma: -1000 to +1000 in five bands; gates companions and hit squads; AV 23 | https://fallout.fandom.com/wiki/Karma_(Fallout_3) ; xEdit FO3/FNV definitions | verified |
 | NV reputation is a per-faction REPU record with GetReputation conditions (indices 573 to 575) | xEdit wbDefinitionsFNV.pas | verified |
 | Every long-lived remake re-voiced; Capital Wasteland stopped over converting audio from the player's copy | findings/precedents.md section 5; see [release-community-legal.md](release-community-legal.md) | verified (press reports) |
+| Starfield ships per-NPC face geometry at `meshes\Actors\Character\FaceGenData\FaceGeom\Starfield.esm\<FormID>.nif` and face textures under `facecustomization\starfield.esm\` | https://www.nexusmods.com/starfield/mods/5572 ; people-story W2-2 | verified |
+| The CK has two bakes: Bake FCT (textures) and Bake Chargen Mesh Geometry; structure edits need the geometry bake; results inconsistent (bald heads, seams) | https://forums.nexusmods.com/topic/13521838-ck-bugquestion-%E2%80%9Cbake-chargen-mesh-geometry%E2%80%9D-always-crashes-%E2%80%94-is-this-broken-for-everyone/ ; https://www.reddit.com/r/starfieldmods/comments/1dp6yv8/npc_edits_having_issues/ | verified |
+| CK facegen export writes nothing for actors with the Chargen preset flag or a Use Traits template | https://www.reddit.com/r/CreationKit/comments/1lp64l5/creation_kit_not_generating_facegen_files/ | verified |
+| SEQ files are needed only for Start Game Enabled quests (FO4/Skyrim); format is a flat array of 32-bit FormIDs in `Data\Seq\<plugin>.seq` | https://forums.nexusmods.com/topic/7720963-do-i-still-need-to-make-a-seq-file/ ; xEdit `xeMainForm.pas` (dev-4.1.6) | verified |
+| The Starfield CK still generates SEQ files (Drag and Drop Quest SEQ Tool) | https://www.nexusmods.com/starfield/mods/13119 | verified |
+| Full audio: FO4 EN/FR/IT/DE/ES/JA, Starfield EN/FR/DE/ES/JA; Starfield CK English only | Steam store API appids 377160, 1716740, 2722710 | verified |
+| SS2 ships its own player-voice audio (male and female, robovoice placeholders in development) | https://wiki.simsettlements2.com/getting-started/patch-notes | verified |
 
 Corrections carried from the findings (people-story.md "Corrections"): the CK FaceFX route works at master scale in
 community practice; a faithful wheel likely needs no SFSE; named Starfield NPCs do ship facegen; text-before-audio is
-not safe without silent files.
+not safe without silent files. Wave 2 (people-story W2-2): named faces need a per-NPC CK bake, so "run-time build from
+morphs" is no longer the leading hypothesis for named NPCs.
 
 ## Possibilities
 
@@ -64,7 +77,7 @@ not safe without silent files.
 | Custom SWF: prompt plus full line, tone tags | FO4 feel, clear | UI file to maintain; conflicts with other dialogue SWFs | FDI, XDI (fallout4/27216), EDI (starfield/871) | verified precedents; Starfield fit supported hypothesis |
 | Four-direction wheel SWF | most faithful | most UI work; conflicts | XDI keeps a wheel with an F4SE plugin | supported hypothesis |
 | HTML menu via Carbon UI | modern UI stack | SFSE, version-locked, not a vanilla-menu replacement | starfield/17899 | verified (tool), unresolved (fit) |
-| Play FO4 player audio as a sound on the player | keeps voiced lines | menu must wait; legal side in release file | next-phase note "later option" | unresolved |
+| Play FO4 player audio as a sound on the player | keeps voiced lines | menu must wait; legal side in release file | next-phase note "later option"; SS2 ships player lines in FO4 itself (wiki patch notes) | unresolved |
 
 ### Unvoiced and text-first lines
 
@@ -90,7 +103,9 @@ not safe without silent files.
 |---|---|---|---|---|
 | Starfield template faces | free, works today | named cast look like strangers | converted raider renders (people-story Q6) | supported hypothesis |
 | FO4 head as an ARMO | FO4 look | seams, eyes; likely no lip sync (FaceFX drives the race face rig) | none | supported hypothesis |
-| Hand-made Starfield face per named NPC (CharGenMenu, then xEdit), shipped as record values | good likeness, no assets shipped | manual per NPC; legal check on values | Enhanced Hadrian (starfield/9326) | verified (method) |
+| Hand-made Starfield face per named NPC (CharGenMenu, then xEdit), shipped as record values | good likeness, no assets shipped | manual per NPC; legal check on values; also needs a CK bake (FCT plus geometry) per NPC on the player's PC, crash-prone | Enhanced Hadrian (starfield/9326); people-story W2-2 | verified (method); bake step verified |
+| Our own writer for the FaceGeom `.nif` plus face DDS | no CK GUI step | format work; unknown effort | none | unresolved |
+| Named NPC on a Use Traits template | no bake needed | no unique face | vanilla generic NPCs | supported hypothesis |
 | Optimiser fitting Starfield dials to FO4 head renders | scalable | research project | none | unresolved |
 | Run-time face pool for settlers and crowds | variety for thousands of templated NPCs | SFSE | Souls of Cities | verified (tool) |
 
@@ -119,6 +134,7 @@ not safe without silent files.
 | Own Story Manager branch for radiants | fenced from Starfield events | some FO4 SM events may not exist on CE2 | next-phase note section 6 | supported hypothesis |
 | Rewrite radiants whose events are missing as scripted triggers | keeps Minutemen loop | script work | none | unresolved |
 | Generic settlers on Starfield templates; run-time face pool later | thousands of NPCs cheaply | sameness | Souls of Cities | supported hypothesis |
+| Our launcher writes `Data\SEQ\<plugin>.seq` for SGE quests | no CK step | Starfield FormID encoding for small/medium masters unknown | xEdit SEQ writer (Skyrim only); starfield/13119 (CK route) | supported hypothesis |
 
 ## Questions
 
@@ -154,7 +170,7 @@ not safe without silent files.
 
 **PS-05. Which FO4 lines address or quote the voiced player so directly that they need a rewrite or a cut?**
 - Why it matters: NPCs answer lines the player never audibly said. (also: people-story Q2 for the intro, Q25)
-- Options: keep; subtitle note; cut; play FO4 player audio on the player (legal side: [release-community-legal.md](release-community-legal.md)).
+- Options: keep; subtitle note; cut; play FO4 player audio on the player (legal side: [release-community-legal.md](release-community-legal.md)). SS2 wrote its new dialogue around available base-game player lines, some spliced (**supported hypothesis**, Reddit comments, https://www.reddit.com/r/SimSettlements/comments/1cdhpbx/player_va_question/); that is same-game practice, not evidence for moving lines into Starfield. See PS-37.
 - Answer by: offline sampling plus a list of player monologue INFOs (no choice). Who: offline research, owner decision.
 - Blocks: New game, People and story.
 - Status: open.
@@ -228,31 +244,32 @@ not safe without silent files.
 
 **PS-15. Named-cast faces: which route, and does it lip sync?**
 - Why it matters: Preston, Piper and Nick on template faces look like strangers; an ARMO head likely does not lip sync.
-- Options: template; FO4 head as ARMO; hand-made faces via CharGenMenu then xEdit (https://www.nexusmods.com/starfield/mods/9326) shipped as record values; an optimiser. (also: people-story Q15)
-- Answer by: one ARMO head speaking a line; one hand-made Preston face. Who: PC probe, owner decision.
-- Blocks: People and story.
-- Status: open.
+- Options: template; FO4 head as ARMO; hand-made faces via CharGenMenu then xEdit (https://www.nexusmods.com/starfield/mods/9326) shipped as record values, then a CK bake per NPC on the player's PC; our own FaceGeom `.nif` plus DDS writer; a Use Traits template (no bake, no unique face); an optimiser. (also: people-story Q15)
+- Answer by: one ARMO head speaking a line; one hand-made Preston face baked with both CK bakes. Who: PC probe, owner decision.
+- Blocks: People and story, Launcher.
+- Status: narrowed (wave 2): every unique named face needs a per-NPC bake (CK GUI, crash-prone, inconsistent results) or our own writer; bakes are keyed by our plugin name, so they are made on the player's PC or shipped as generated data, never Bethesda assets [people-story W2-2].
 
 **PS-16. Does a new named NPC_ need pre-baked facegen, or is it built at run time from its morph data?**
 - Why it matters: if pre-baked, the CK must export facegen, another launcher CK step.
-- Options: CK facegen export; run-time build. (also: people-story Q17)
-- Answer by: a new NPC_ with custom morphs and no facegen files, in game. Who: PC probe.
+- Options: CK Bake FCT plus Bake Chargen Mesh Geometry (`[Debug]` `bAlwaysGenerateCpuGeometryExtraFields=1`, `bEnableEditorSaveGeometry=1` community fix); our own writer; run-time build. (also: people-story Q17)
+- Evidence: per-NPC FaceGeom `.nif` and face textures keyed by FormID (**verified**, https://www.nexusmods.com/starfield/mods/5572); missing or stale bakes show bald heads or seams (**verified**, community reports); pre-baked is the rule for named NPCs (**supported hypothesis**). Exact runtime fallback and a non-GUI bake: **unresolved**.
+- Answer by: a new NPC_ with custom morphs and no facegen files, in game; then a CK bake with no GUI (command line or automation). Who: PC probe.
 - Blocks: People and story, Launcher.
-- Status: open.
+- Status: narrowed (wave 2): pre-baked, per NPC, through two CK bakes; open part is a headless bake and the fallback [people-story W2-2].
 
 **PS-17. Do generic NPCs (settlers, vendors) get run-time faces or pre-baked ones?**
 - Why it matters: thousands of templated NPCs.
-- Options: Starfield templates; a Souls of Cities-style run-time pool (https://allmods.net/?p=225677). (also: people-story Q6)
+- Options: Starfield templates (Use Traits, no per-NPC bake); a Souls of Cities-style run-time pool (https://allmods.net/?p=225677). (also: people-story Q6)
 - Answer by: a templated converted NPC with no facegen in game (the raider already renders, so likely yes). Who: PC probe.
 - Blocks: All interiors, World, People and story.
-- Status: open.
+- Status: narrowed (wave 2): Use Traits templated NPCs are the case without per-NPC bakes, consistent with run-time generic faces (**supported hypothesis**) [people-story W2-2].
 
 **PS-18. Is a hand-made face record legal to ship in a no-assets GPL release?**
-- Why it matters: dial values are numbers we author but they reference Starfield morph assets.
-- Options: ship values; generate them on the player's PC. (also: people-story Q16)
+- Why it matters: dial values are numbers we author but they reference Starfield morph assets; baked `.nif` and DDS output is derived from Starfield assets.
+- Options: ship values; generate them on the player's PC; bake on the player's PC only. (also: people-story Q16)
 - Answer by: owner decision; see [release-community-legal.md](release-community-legal.md). Who: owner.
 - Blocks: Release.
-- Status: open.
+- Status: open (wave 2 adds: bakes must be made on the player's PC or as generated data, never shipped as Bethesda assets).
 
 ### Bodies and clothing
 
@@ -348,22 +365,24 @@ not safe without silent files.
 
 **PS-31. Do Start Game Enabled dialogue quests need SEQ files in Starfield?**
 - Why it matters: could explain always-on dialogue that never appears; the launcher must build them if needed.
-- Options: generate SEQ in the launcher; none needed. (also: people-story Q37)
-- Answer by: Skyrim/FO4 SEQ guides (not read), then a dialogue quest with and without SEQ. Who: offline research, PC probe.
+- Options: our own writer emits `Data\SEQ\<plugin>.seq` (flat array of 32-bit FormIDs of SGE quests, xEdit format); drive the CK (https://www.nexusmods.com/starfield/mods/13119); use Story Manager starts instead of SGE where dialogue is not always-on; none needed. (also: people-story Q37)
+- Evidence: FO4/Skyrim need SEQ only for SGE quests (**verified**); the Starfield CK still makes them (**verified**); Starfield requires them (**supported hypothesis**); Starfield FormID encoding for small/medium masters in the file (**unresolved**).
+- Answer by: one SGE dialogue quest with a greeting, from a save made before the plugin was added, with and without the `.seq`; our file compared byte for byte with the CK's. Who: PC probe plus one offline writer task.
 - Blocks: People and story, Launcher, New game.
-- Status: open.
+- Status: narrowed (wave 2): only SGE quests matter, format known, writer is cheap; open part is whether Starfield requires it [people-story W2-1].
 
 ### New voice and community
 
 **PS-32. Is any new voice needed (bridging lines), and if so volunteers or synthetic?**
 - Why it matters: lines that explain missing systems or replace player references.
-- Options: none; volunteers (SS2 casting, https://www.castingcall.club/projects/fallout-sim-settlements; Skywind about 300 actors); synthetic (ElevenLabs in https://www.nexusmods.com/starfield/mods/9957). Rights and platform rules: [release-community-legal.md](release-community-legal.md). (also: people-story Q26; precedents Q16)
+- Options: none; volunteers (SS2 casting, https://www.castingcall.club/projects/fallout-sim-settlements; Skywind about 300 actors); synthetic (ElevenLabs in https://www.nexusmods.com/starfield/mods/9957; the SS2 team rejects AI voices, **supported hypothesis**, Reddit comments). Rights and platform rules: [release-community-legal.md](release-community-legal.md). (also: people-story Q26; precedents Q16)
+- Wave 2: any new voice multiplies by language; only EN/FR/DE/ES/JA are voiced in both games (see PS-36).
 - Answer by: owner decision. Who: owner.
 - Blocks: People and story, Release.
 - Status: open.
 
 **PS-33. Which community authors do we contact first?**
-- Why it matters: they hold practice we cannot read on a wiki (no public Starfield CK wiki, https://dev.starfieldwiki.net/wiki/Starfield_Mod:Main_Page).
+- Why it matters: they hold practice we cannot read on a wiki (no public Starfield CK wiki, https://dev.starfieldwiki.net/wiki/Starfield_Mod:Main_Page; wave 2 re-check of the live https://starfieldwiki.net/wiki/Starfield_Mod:Main_Page: still no quest, dialogue, scene, follower, NPC or face pages, **verified**).
 - Options: DJLegends (lips, voiced followers), Momidi (master-scale lips), Void SFG Bridge author (re-skin), Souls of Cities author (run-time faces), Liga author (commands). (also: people-story Q31)
 - Answer by: owner outreach (outreach is the owner's job under AGENTS.md). Who: owner.
 - Blocks: People and story.
@@ -385,6 +404,21 @@ not safe without silent files.
 - Blocks: Launcher, People and story.
 - Status: open.
 
+**PS-36. Which languages does converted dialogue support, and what happens to voice and lips in each?**
+- Why it matters: FO4 full audio is EN/FR/IT/DE/ES/JA; Starfield full audio is EN/FR/DE/ES/JA; the Starfield CK is English only (**verified**, Steam store API appids 377160, 1716740, 2722710). Italian FO4 voice has no Starfield voice set; Russian and Traditional Chinese FO4 players have no matching Starfield UI language.
+- Options: English-only v1 (TTW precedent, installer needs both games in English, https://thebestoftimes.moddinglinked.com/faq.html); English-first with string tables passed through for EN/FR/DE/ES/JA (plus PL and PT-BR text-only in both); all FO4 languages. (also: people-story W2-4; distribution-community Q18, Q19)
+- Evidence: the FaceFX compile reads `.wav` per voice folder, so non-English FO4 voice should lip the same way (Lip Sync Japanese precedent, https://www.nexusmods.com/starfield/mods/12842) (**supported hypothesis**, untested).
+- Answer by: one test with a non-English FO4 STRINGS set and one non-English voice folder through the FaceFX compile; then owner decision. Who: PC probe, owner.
+- Blocks: People and story, Launcher, Release.
+- Status: narrowed (wave 2): language data verified; overlap EN/FR/DE/ES/JA is the end-to-end candidate set [people-story W2-4; distribution-community W2-4].
+
+**PS-37. If a voiced-player option is ever offered, may it use only FO4's own player lines unchanged, or also spliced lines?**
+- Why it matters: SS2 ships its own player-voice audio in FO4, reportedly built from base-game lines, some spliced (https://wiki.simsettlements2.com/getting-started/patch-notes, **verified**; splicing **supported hypothesis**). That is same-game practice; Capital Wasteland is the cross-game precedent. A spliced line is closer to a new derivative recording.
+- Options: no voiced player (settled default); FO4 player lines unchanged, converted on the player's PC; spliced lines allowed. (also: precedents W2-4 new question 4)
+- Answer by: owner decision plus a Bethesda question; legal side in [release-community-legal.md](release-community-legal.md). Who: owner.
+- Blocks: People and story, Release.
+- Status: open (new in wave 2) [precedents W2-4].
+
 ## Owner decisions in this area
 
 Each line is a **recommendation**, not a decision.
@@ -405,6 +439,10 @@ Each line is a **recommendation**, not a decision.
 - PS-33: DJLegends and Momidi first; they cover the largest unknown (PS-08).
 - PS-34: say it plainly in release notes and the launcher.
 - PS-35: SFSE-free base, optional SFSE modules; widest audience, matches EDI precedent.
+- PS-36: English-first v1, string tables passed through for EN/FR/DE/ES/JA after one non-English test; cheapest plan
+  that does not exclude most players.
+- PS-37: keep the silent player; if a voiced option comes, unchanged FO4 lines only, never spliced, pending the legal
+  thread.
 
 ## Cheapest experiments
 
@@ -417,20 +455,23 @@ Nothing here runs now; it is a list.
    interrupt and rerun, then 20 lines twice for hashes, then a WAVs-only run, and `ffxc.exe -h` for usage text.
    Closes PS-08, PS-09, PS-10, PS-11, informs PS-14.
 3. **One converted choice scene in game** with three list variants, one shared-silent-WEM text line, one angry line,
-   one line with and without VTYP ANAM, and the quest built with and without SEQ. Closes PS-01, PS-03, PS-07, PS-12,
-   PS-13, PS-31.
-4. **Face probe:** a new NPC_ with custom morphs and no facegen; a templated NPC; one FO4 head as ARMO speaking a line.
-   Closes PS-15 (lip part), PS-16, PS-17.
+   one line with and without VTYP ANAM, and an SGE greeting quest loaded from an older save with and without our
+   generated `.seq` (compared byte for byte with the CK's). Closes PS-01, PS-03, PS-07, PS-12, PS-13, PS-31.
+4. **Face probe:** a new NPC_ with custom morphs and no facegen; the same NPC after both CK bakes (with the `[Debug]`
+   INI fix); a templated Use Traits NPC; one FO4 head as ARMO speaking a line. Closes PS-15 (lip part), PS-16, PS-17.
 5. **Read-only nif dump of both `skeleton.nif`** files, offline if reachable. Closes PS-20, informs PS-19 and PS-21.
 6. **Offline reading** of the NPC template (starfield/17694) and Liga docs, plus the papyrus native diff. Closes PS-23,
    informs PS-22, PS-24.
+7. **Non-English pass:** one FO4 STRINGS set and one non-English voice folder through the converter and FaceFX
+   compile. Closes most of PS-36.
 
-## Gaps for wave 2
+## Gaps (after wave 2)
 
-- How Sim Settlements 2 handled the voiced Sole Survivor's lines (pages blocked: nexusmods fallout4/75137, bethesda.net
-  Monthly Modder Sirick).
+- SS2's own account of how its player lines were made (only patch notes and Reddit comments read; team pages
+  nexusmods fallout4/75137 and bethesda.net Monthly Modder Sirick still unread).
 - Nexus pages not read (HTTP 429): starfield/14176, /6401, /6439.
-- Whether Starfield needs SEQ files (Skyrim and FO4 SEQ guides listed but not read).
+- Whether the Starfield engine requires SEQ files, and its FormID encoding for small/medium masters in them.
+- Whether face bakes can run without the CK GUI, and the engine's fallback when bakes are missing.
 - FO4 and Starfield human bone name lists.
 - Any published FO4-to-Starfield face morph or tint translator (none found).
 - A Starfield CK command-line lip generation switch.
@@ -484,7 +525,7 @@ Nothing here runs now; it is a list.
 - https://www.castingcall.club/projects/fallout-sim-settlements
 - https://dev.starfieldwiki.net/wiki/Starfield_Mod:Main_Page
 - https://wiki.beyondskyrim.org/wiki/Arcane_University:Seq_Guide (not read)
-- https://forums.nexusmods.com/topic/7720963-do-i-still-need-to-make-a-seq-file (not read)
+- https://forums.nexusmods.com/topic/7720963-do-i-still-need-to-make-a-seq-file/ (read in wave 2)
 - https://kotaku.com/fallout-3-in-fallout-4-mod-canceled-after-team-talks-to-1823738281
 - https://pcgamesn.com/fallout-4/fallout-4-fallout-3-capital-wasteland-mod
 - https://www.pcgamer.com/au/capital-wasteland-the-fallout-3-remake-in-fallout-4-has-resumed-development
@@ -498,6 +539,22 @@ Nothing here runs now; it is a list.
 - https://thebestoftimes.moddinglinked.com/faq.html
 - https://fallout.wiki/wiki/Mod:Tale_of_Two_Wastelands
 - https://steamcommunity.com/app/22380/discussions/0/522728813700378577
+- Wave 2: https://www.reddit.com/r/CreationKit/comments/1mg6kj1/created_npc_doesnt_spawn_when_loading_prior_saves/
+- Wave 2: https://www.nexusmods.com/starfield/mods/13119
+- Wave 2: https://github.com/TES5Edit/TES5Edit (branch dev-4.1.6: xEdit/xeMainForm.pas, xEdit/xeInit.pas, Core/wbInterface.pas)
+- Wave 2: https://www.nexusmods.com/starfield/mods/5572 , https://www.nexusmods.com/starfield/mods/7834/?tab=posts (snippet)
+- Wave 2: https://creations.bethesda.net/it/starfield/details/41e41fc3-438d-4608-8ed1-a7cacb74c843/Female_Dani_Garcia (snippet only)
+- Wave 2: https://forums.nexusmods.com/topic/13521838-ck-bugquestion-%E2%80%9Cbake-chargen-mesh-geometry%E2%80%9D-always-crashes-%E2%80%94-is-this-broken-for-everyone/
+- Wave 2: https://www.reddit.com/r/starfieldmods/comments/1dp6yv8/npc_edits_having_issues/
+- Wave 2: https://steamcommunity.com/sharedfiles/filedetails/?id=3287508493
+- Wave 2: https://www.reddit.com/r/CreationKit/comments/1lp64l5/creation_kit_not_generating_facegen_files/
+- Wave 2: https://forums.nexusmods.com/topic/13526765-generating-facegen-data/
+- Wave 2: https://starfieldwiki.net/wiki/Starfield_Mod:Main_Page , https://starfieldwiki.net/wiki/Starfield_Mod:Starfield_Creation_Kit
+- Wave 2: https://store.steampowered.com/api/appdetails?appids=377160 , https://store.steampowered.com/api/appdetails?appids=1716740 ,
+  https://store.steampowered.com/api/appdetails?appids=2722710
+- Wave 2: https://wiki.simsettlements2.com/getting-started/patch-notes
+- Wave 2: https://www.reddit.com/r/SimSettlements/comments/1cdhpbx/player_va_question/
+- Wave 2: https://simsettlements.com/site/index.php?threads/changing-the-players-character-voice.26659/
 - Not readable in wave 1: https://www.nexusmods.com/fallout4/mods/75137 , https://bethesda.net/en-EU/news/monthly-modder-sirick ,
   https://www.nexusmods.com/starfield/mods/14176 , https://www.nexusmods.com/starfield/mods/6401 , https://www.nexusmods.com/starfield/mods/6439
 - Project files: scripts/actors/codsworth_voice.py; next-phase/npcs-ai-factions-dialogue-quests.md;

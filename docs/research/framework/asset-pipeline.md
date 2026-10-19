@@ -1,14 +1,14 @@
 # Asset pipeline: converting every Fallout 4 asset class on the player's PC
 
-Part of the [next-phase framework](README.md). Wave 1, 2026-10-19. Sources: findings/asset-conversion.md, findings/starfield-toolchain.md (asset parts), findings/people-story.md (faces, lip sync, clothing), findings/versions-performance.md (disk, archive limits).
+Part of the [next-phase framework](README.md). Waves 1 and 2, 2026-10-19. Sources: findings/asset-conversion.md, findings/starfield-toolchain.md (asset parts; wave 2 LOD, precombine, CDB, BA2), findings/people-story.md (faces, lip sync, clothing; wave 2 facegen), findings/versions-performance.md (disk, archive limits; wave 2 BA2), findings/legal-policy.md (wave 2 Wwise licence).
 
 ## In short
 
 - Static assets are solved in our own code and verified in game: meshes (S1 writer), materials (S3 `.mat` cloner) and collision (compressed-mesh transplant). Outside tools are oracles, not dependencies.
 - Voice and lip sync have a proven route: loose `.wem` for playback plus the Creation Kit's FaceFX compiler for `.ffxanim`. A community mod ran it over whole masters. Unattended running, time per 1,000 lines and resume are not proven.
-- Sound effects, behaviour graphs (`.agx`), facegen and skinned clothing are the open research areas. LOD and precombines have no known tool path.
-- Scale is unmeasured: no whole-game build time, no peak disk figure, no FO4 texture count. Engine ceilings (256 BA2s, about 4 GiB per archive) are known.
-- Most uncertain: whether CK-only steps (FaceFX, maybe LOD) can run with no human, and whether `.wem` encoding needs Wwise on the player's PC.
+- Sound effects, behaviour graphs (`.agx`), facegen and skinned clothing are the open research areas. Wave 2: named NPC faces need per-NPC baked FaceGeom NIFs plus face DDS (CK GUI bake or our own writer). Object LOD has a CK command-line switch (`-MockWorldSpaceLOD`); Starfield has no precombine or previs records, so there is nothing to bake there.
+- Scale is unmeasured: no whole-game build time, no peak disk figure, no FO4 texture count. Engine ceilings (256 BA2s, about 4 GiB per archive) are known; the BA2 format itself has 64-bit offsets. TTW's installer (about 40 minutes, mostly audio encoding) is the nearest precedent.
+- Most uncertain: whether CK-only steps (FaceFX, face bakes, LOD) can run with no human, and whether `.wem` encoding needs Wwise on the player's PC. Wave 2: Wwise's free trial is non-commercial and limited to 200 media assets in SoundBanks; whether a player's batch conversion is allowed is a question for Audiokinetic.
 - The 3 decisions that unlock the most: (1) which external tools the player must install (CK settled; Wwise open), AP-50; (2) animation route: Starfield graphs with retargeted clips, or SFSE glTF players, AP-20; (3) the people route for breadth: Starfield stand-in faces and outfits first, AP-31 and AP-36.
 
 ## What is settled
@@ -39,6 +39,19 @@ Verified facts that close or bound questions:
 - BA2: 4,095 MB per archive, split large sets; v2 GNRL/DX10 and v3 LZ4 textures; Archive2 ships with the CK (**verified**, [ejams1 guide](https://github.com/ejams1/starfield-modding-guide), repo S9). At most 256 active archives; an SFSE "BA2 Limit Fix" raises it (**verified**, [Nexus 17936](https://www.nexusmods.com/starfield/mods/17936)).
 - Starfield patch 1.11.36 renamed about 323,099 vanilla mesh paths (**verified**, [Nexus 9234](https://www.nexusmods.com/starfield/mods/9234)). Lesson: resolve vanilla paths at build time, never hard-code them.
 - Hardware floor: 16 GB RAM, GTX 1070 Ti class, 125 GB on an SSD (required) (**verified**, [system requirements](https://starfieldwiki.net/wiki/Starfield:System_Requirements)).
+
+Wave 2 facts (2026-10-19):
+
+- Facegen: Starfield ships per-NPC face geometry at `meshes\Actors\Character\FaceGenData\FaceGeom\Starfield.esm\<FormID>.nif` and per-NPC face textures under `textures\actors\character\facecustomization\starfield.esm\`. The CK makes them with two GUI bakes on the NPC's Face Customization tab: "Bake FCT" (Ctrl+F4; ao, color, normal, rough DDS) and "Bake Chargen Mesh Geometry"; facial-structure edits need the geometry bake. Export silently writes nothing for actors with the Chargen preset flag or a Use Traits template. Results are inconsistent (bald heads, seams; one crash report on CK 1.15.222, another user has both bakes working) (**verified**, people-story W2-2; [Nexus 5572](https://www.nexusmods.com/starfield/mods/5572), [forum 13521838](https://forums.nexusmods.com/topic/13521838-ck-bugquestion-%E2%80%9Cbake-chargen-mesh-geometry%E2%80%9D-always-crashes-%E2%80%94-is-this-broken-for-everyone/)). Bakes are keyed by plugin name, so for us they must be made on the player's PC or emitted as generated data (**supported hypothesis**).
+- Object LOD: `CreationKit.exe -MockWorldSpaceLOD:<Plugin>.esp <Worldspace>,...` writes LOD `.nif` to `Data\Meshes\Terrain\<Worldspace>\` and settings to `Data\LODSettings\`; objects are picked by layers with the LOD box ticked; "one or more cells may fail to process", more likely in multi-cell worldspaces (**verified**, [modding.wiki](https://modding.wiki/en/starfield/developers/tutorials/creatingworldspacelod), [forum 13497519](https://forums.nexusmods.com/topic/13497519-how-to-create-lod/)). LAYR has `LODB` (Default / Aggregate / No LODs) and base objects carry "Has Distant LOD" / "Is Full LOD" flags, so LOD membership is plugin data we can write (**verified** schema, xEdit `wbDefinitionsSF1.pas`). xLODGen/DynDoLOD do not list Starfield (**verified**, [dyndolod.info](https://dyndolod.info/Help/xLODGen)).
+- Terrain edits reach the game only through an exported `.btd`; our pipeline already writes BTD directly (**verified**, [Steam guide 3385012985](https://steamcommunity.com/sharedfiles/filedetails/?id=3385012985)).
+- Precombines: Starfield's CELL has no `PCMB`, `VISI`, `XPRI` or `XCRI` (FO4 has all four); Starfield has an `OVIS` "Object Visibility Manager" record of unknown purpose (**verified** schema, xEdit `wbDefinitionsSF1.pas` / `wbDefinitionsFO4.pas`). The renderer builds indirect draw arguments on the GPU (ExecuteIndirect) (**verified**, [vkd3d-proton PR 1694](https://github.com/HansKristian-Work/vkd3d-proton/pull/1694)).
+- Materials: no public tool writes or merges `materialsbeta.cdb`; the community uses loose `.mat` plus the CK's refresh (**supported hypothesis**). Starfield Material Exporter (SFME, open source) reads the CDB or Materials BA2 and exports loose `.mat` JSON (**verified**, [github.com/maximusmaxy/SFME](https://github.com/maximusmaxy/SFME)).
+- Textures: Cathedral Assets Optimizer (MPL-2.0) does not list Starfield; every Starfield batch texture tool found wraps texconv (**verified** CAO page and repo, **supported hypothesis** for "no CAO equivalent"; asset-conversion W2-2). BA2 Upgrader rewrites texture BA2s to v3 (LZ4), and the CK's Archive2 writes v3 directly (**verified**, user comments, [Nexus 1192](https://www.nexusmods.com/starfield/mods/1192?tab=posts)).
+- BA2: FO4 next-gen archives are header versions 7 and 8; xEdit and OpenMW parse them exactly like v1 (**verified**, [Nexus FO4 article 5844](https://www.nexusmods.com/fallout4/articles/5844), xEdit `wbBSArchive.pas`, [OpenMW MR 4055](https://gitlab.com/OpenMW/openmw/-/merge_requests/4055)); so v7/v8 changed only the version number (**supported hypothesis**, three readers agree). BA2 offsets are 64-bit in the format (**verified**, `wbBSArchive.pas`); FO4 users report 9.5 GB and 14.7 GB archives loading; Starfield above 4 GiB is **unresolved**.
+- Medium masters hold ObjectIDs 0x0000 to 0xFFFF (at most 65,536) and there are 256 medium slots; Update-flagged files cannot hold new records (**verified**, xEdit `wbImplementation.pas`, `wbInterface.pas`).
+- Wwise: the free trial is for non-commercial projects and limited to 200 media assets in SoundBanks; a free Non-Commercial licence can be requested per project; licences are tied to one project (**verified**, [Wwise pricing](https://www.audiokinetic.com/en/wwise/pricing/)). Nothing found on redistributing WwiseConsole or on whether `convert-external-source` counts toward the 200 limit; full EULA not read (**unresolved**).
+- TTW precedent: its installer applies xdelta3 patches to the player's own files, transcodes audio (all voice to 24 kHz), and "patches and creates all non-unique assets dynamically from original game files"; about 40 minutes on a Ryzen 5 5600X, mostly audio encoding; a `-threads:1` switch; a 17 GB output folder is the community's install check; both games must be English (**verified**, [TTW FAQ](https://thebestoftimes.moddinglinked.com/faq.html), [install guide](https://thebestoftimes.moddinglinked.com/ttw.html)).
 
 Scale numbers we have (all **verified** from repo files cited in the findings, unless marked):
 
@@ -94,6 +107,9 @@ Scale numbers we have (all **verified** from repo files cited in the findings, u
 | (d) Optimiser fitting Starfield dials to FO4 head renders | automatic | research project | none | **unresolved** |
 | Run-time face pool for generic NPCs (SFSE) | variety for crowds | SFSE dependency | Souls of Cities ([allmods](https://allmods.net/?p=225677)) | **verified** tool |
 | Convert FO4 facegen `.nif`+`.tri` to `BSFaceGenNiNode` + morph `.dat` | FO4 faces as assets | only reader/writer reference is Geometry Bridge | [Nexus 4360](https://nexusmods.com/starfield/mods/4360) | **unresolved** |
+| Drive the CK face bakes (Bake FCT + Bake Chargen Mesh Geometry) per named NPC on the player's PC | baked FaceGeom NIF + four face DDS keyed by our plugin | GUI, per actor, inconsistent results, crash reports; no headless switch known | people-story W2-2 | **verified** bakes exist, **unresolved** unattended |
+| Write FaceGeom `.nif` + ao/color/normal/rough DDS ourselves | no CK bake | internal FaceGeom layout unknown (likely `BSFaceGenNiNode`) | Geometry Bridge `.dat` code | **unresolved** |
+| "Use Traits" template NPCs (no per-NPC bake) | no bake step | no unique face | vanilla generic crowds | **supported hypothesis** |
 
 ### Animation and behaviour
 
@@ -112,12 +128,14 @@ Scale numbers we have (all **verified** from repo files cited in the findings, u
 | S3 path: BC1/BC5/BC4 re-encode with texconv, loose `.mat` | in game today | likely slowest bulk step; count unknown | S3 | **verified** |
 | Texture caps per VRAM tier (today 1024 colour / 512 normal) | fits 8 GB cards | quality loss | decisions 2026-10-12 | **supported hypothesis** |
 | Compare our `.mat` with compiled `materialsbeta.cdb` via fo76utils NifSkope | material oracle | GUI tool | [releases](https://github.com/fo76utils/nifskope/releases) | **supported hypothesis** |
+| Export vanilla `.mat` JSON with SFME (open source, reads CDB) and diff with ours | scriptable material oracle | reader only, no CDB writer exists | [SFME](https://github.com/maximusmaxy/SFME) | **verified** tool |
+| Pack converted textures into v3 (LZ4) texture BA2s instead of loose | users report faster loads, smoother play | maybe a `sResourceIndexFileList` INI entry; Bethesda-like compression takes tens of minutes to hours | BA2 Upgrader ([Nexus 1192](https://www.nexusmods.com/starfield/mods/1192?tab=posts)), Archive2 | **supported hypothesis** (user reports) |
 
 ### Sound and music
 
 | option | what it gives | cost or risk | precedent | label |
 |---|---|---|---|---|
-| Decode `.xwm` (ffmpeg) then Wwise 2021.1.14.8108 encodes Vorbis `.wem` on the player's PC | correct format | Wwise licence, install, login unknown; headless unknown | Nexus 12561, article 173 | **supported hypothesis** |
+| Decode `.xwm` (ffmpeg) then Wwise 2021.1.14.8108 encodes Vorbis `.wem` on the player's PC | correct format | free trial is non-commercial, 200 media assets in SoundBanks; whether `convert-external-source` counts and whether a player's batch conversion is covered is **unresolved**; headless unknown; player installs under own account | Nexus 12561, article 173; modder licence paths at MSFS and REDkit ([Wwise pricing](https://www.audiokinetic.com/en/wwise/pricing/)) | **supported hypothesis** |
 | Open-source `.wem` encoder | no Wwise | none known | none | **unresolved** |
 | Map FO4 SNDR to nearest vanilla Starfield WWED event | no new events | wrong sounds in places | none | **supported hypothesis** |
 | Author new WWED events and banks | real FO4 sounds | no public guide; one failed attempt | article 641 comments | **unresolved** |
@@ -138,20 +156,21 @@ Scale numbers we have (all **verified** from repo files cited in the findings, u
 
 | option | what it gives | cost or risk | precedent | label |
 |---|---|---|---|---|
-| CK object LOD generation | official output | no documented batch; trial planned | docs/terrain/object-lod.md | **unresolved** |
+| CK object LOD: `CreationKit.exe -MockWorldSpaceLOD:<Plugin>.esp <Worldspace>` | official output, command line | some cells may fail in multi-cell worldspaces; stray meshes reported; `.esm` acceptance and 64-cell time unknown | [modding.wiki](https://modding.wiki/en/starfield/developers/tutorials/creatingworldspacelod), docs/terrain/object-lod.md | **verified** command, **supported hypothesis** it runs unattended |
+| Converter sets LAYR `LODB` and object LOD flags so the CK run picks the right objects | no manual layer work | which flags vanilla uses unknown | xEdit SF1 schema | **supported hypothesis** |
 | Convert FO4 `.bto` as stand-in `_lod_N` NIFs | whole map at once | `lodruntimedb.bgsdb` listing unknown | none | **unresolved** |
-| Third-party generator (xLODGen-style) | batch | Starfield support unknown | none found | **unresolved** |
-| Merge static geometry per cell ourselves | fewer draw calls | new writer work | FO4 precombines | **supported hypothesis** |
+| Third-party generator (xLODGen-style) | batch | xLODGen/DynDoLOD do not list Starfield | none | **verified** not available |
+| Merge static geometry per cell ourselves | fewer draw calls | new writer work; CE2 has no precombine records and draws GPU-driven, so the need is unproven | FO4 precombines | **supported hypothesis** not needed |
 | Place references one by one (current) | simple | draw-call cost unmeasured | Phase A walk, no crash | **verified** current state |
 
 ### Packaging, input versions and budgets
 
 | option | what it gives | cost or risk | precedent | label |
 |---|---|---|---|---|
-| One ESM + 1 to 3 archives, medium masters for DLC areas | stays under 256 BA2s | archives over 4 GiB unresolved | versions-performance Q17 | **supported hypothesis** |
+| One ESM + 1 to 3 archives, medium masters for DLC areas | stays under 256 BA2s | archives over 4 GiB unresolved (format allows it); a medium master holds at most 65,536 ObjectIDs, so world plugins must be full masters | versions-performance Q17, toolchain W2-5 | **supported hypothesis** |
 | Archive2 from the CK install | official packer | needs CK (allowed) | repo S9 | **verified** |
 | Open packer (bsa-rs) | no CK for packing | maintenance | toolchain Q11 | **unresolved** |
-| Detect FO4 data version by `.esm` hashes and BA2 headers | right converter per player | per-version fixtures | TTW model (**supported hypothesis**) | **supported hypothesis** |
+| Detect FO4 data version by `.esm` hashes and BA2 headers | right converter per player | per-version fixtures; BA2 v7/v8 read with the v1 layout | TTW model (installer needs both games with all DLCs, in English, **verified**), xEdit and OpenMW for v7/v8 | **supported hypothesis** |
 
 ## Questions
 
@@ -221,24 +240,24 @@ Scale numbers we have (all **verified** from repo files cited in the findings, u
 
 **AP-09. Does a new Starfield NPC need pre-baked facegen, or will the engine build it at run time from NPC_ morph data?**
 - Why it matters: pre-baked facegen would add a CK export step to the launcher.
-- Options: pre-baked (named vanilla NPCs have it); run-time (vanilla crowds and Souls of Cities suggest it works).
-- Answer by: a new NPC_ with custom morphs and no facegen files, in game; PC probe.
+- Options: pre-baked (named vanilla NPCs have it); run-time (vanilla crowds and Souls of Cities suggest it works). Wave 2: a custom named face needs the CK's two bakes (Bake FCT, Bake Chargen Mesh Geometry) or our own FaceGeom NIF + four DDS writer; "Use Traits" template NPCs need no per-NPC bake.
+- Answer by: a new NPC_ with custom morphs and no facegen files, in game, to see the exact fallback; PC probe.
 - Blocks: People and story.
-- Status: open (partly answered: named vanilla NPCs ship pre-baked facegen, **verified**, [Nexus 9326](https://www.nexusmods.com/starfield/mods/9326); run-time faces for crowds are a **supported hypothesis**). (also: asset-conversion Q22; people-story Q6, Q17)
+- Status: narrowed (wave 2): named NPCs render from pre-baked FaceGeom `.nif` + face DDS keyed by plugin and FormID; missing or stale bakes look visibly wrong (bald, mismatched) rather than being rebuilt from the record (**supported hypothesis**); templated Use Traits NPCs have no per-NPC bake. Open: the exact run-time fallback, and whether bakes can be made without the CK GUI (**unresolved**). [people-story W2-2; asset-conversion W2-3] (also: asset-conversion Q22; people-story Q6, Q17)
 
 **AP-10. Which named-cast face route, and does it lip sync?**
 - Why it matters: Preston, Piper and Nick looking like strangers is the most visible flaw.
 - Options: (a) template; (b) FO4 head as ARMO, likely no lips; (c) hand-made record values (Enhanced Hadrian method); (d) dial-fitting optimiser.
 - Answer by: one ARMO head speaking a line; one hand-made Preston face; PC probe, then owner decision.
 - Blocks: People and story.
-- Status: open. (also: people-story Q15)
+- Status: narrowed (wave 2): routes (c) and (d) give a unique face only with a per-NPC bake (CK GUI, crash-prone, inconsistent) or our own FaceGeom writer (AP-11); a Use Traits template route avoids bakes but gives up a unique face. Bakes are keyed by our plugin name, so they are made on the player's PC or emitted as generated data, never shipped as Bethesda assets (**supported hypothesis**). [people-story W2-2] (also: people-story Q15)
 
 **AP-11. Can FO4 facegen `.nif` + `.tri` be converted to `BSFaceGenNiNode` + morph `.dat` at all?**
 - Why it matters: the only fully automatic route to FO4 faces.
-- Options: read Geometry Bridge's `.dat` code as reference (MIT); no other reader known.
-- Answer by: offline research, then one test face; offline plus PC probe.
+- Options: read Geometry Bridge's `.dat` code as reference (MIT); no other reader known. Wave 2: the target is the vanilla pair `FaceGeom\<Plugin>\<FormID>.nif` plus ao/color/normal/rough DDS under `facecustomization\<plugin>\`; or drive the CK bakes instead.
+- Answer by: read-only dump of one vanilla FaceGeom NIF against what our NIF writer emits (offline), then one test face (PC probe).
 - Blocks: People and story.
-- Status: open.
+- Status: narrowed (wave 2): output files and paths are known (**verified**); the FaceGeom NIF's internal layout (likely `BSFaceGenNiNode` per FORMAT-GAP) is **unresolved**. [asset-conversion W2-3; people-story W2-2]
 
 ### Animation and behaviour
 
@@ -274,10 +293,10 @@ Scale numbers we have (all **verified** from repo files cited in the findings, u
 
 **AP-24. How many FO4 textures are there, how large, and how long does re-encoding take?**
 - Why it matters: likely the slowest bulk step on the player's PC.
-- Options: count from archives offline; time a sample with texconv.
+- Options: count from archives offline; time a sample with texconv. Wave 2: no CAO-like batch optimiser exists for Starfield; every tool found wraps texconv, so our S3 step is the norm; choices left are BC format per role, downscaling 4K FO4 HD textures, and packing (AP-58).
 - Answer by: archive listing count plus a timed 1,000-texture batch; offline then PC probe.
 - Blocks: Launcher, World.
-- Status: open.
+- Status: open (tooling narrowed, wave 2: texconv is the only engine, **supported hypothesis**; count and time still unmeasured). [asset-conversion W2-2]
 
 **AP-25. What texture caps does the default build use per VRAM tier?**
 - Why it matters: today's caps (1024 colour, 512 normal) were set for archive size, not VRAM.
@@ -288,18 +307,26 @@ Scale numbers we have (all **verified** from repo files cited in the findings, u
 
 **AP-26. Can we use fo76utils NifSkope's compiled-material reader as an oracle for our loose `.mat`?**
 - Why it matters: no offline check today against vanilla compiled materials.
-- Answer by: extract a vanilla material via the fixed Extract Resource Files spell and diff with our clone; offline.
+- Options: fo76utils NifSkope (GUI); Starfield Material Exporter (SFME, open source, reads `materialsbeta.cdb` or the Materials BA2 and exports loose `.mat` JSON, so it can be scripted).
+- Answer by: export a vanilla material with SFME (or the fixed Extract Resource Files spell) and diff with our clone; offline.
 - Blocks: All interiors (quality checks).
-- Status: open.
+- Status: narrowed (wave 2): SFME is a **verified** open-source CDB reader and the better oracle candidate; no public tool writes a CDB, which supports our loose-`.mat` route (**supported hypothesis**). [starfield-toolchain W2-3, its Q36]
+
+**AP-58. Do we pack converted textures into Starfield v3 (LZ4) texture BA2s instead of loose files, and must each BA2 be listed in `sResourceIndexFileList`?**
+- Why it matters: users report better load times and smoother play with v3 and fewer archives (**supported hypothesis**, user reports); one BA2 Upgrader user says packed former loose files need that INI entry.
+- Options: Archive2 from the CK writes v3 directly; our own v3 writer; stay loose. Bethesda-like compression takes "tens of minutes to several hours" in BA2 Upgrader.
+- Answer by: load time and stutter, loose vs v3 BA2, same route; with and without the INI entry; PC probe.
+- Blocks: Launcher, World, All interiors.
+- Status: open (new, wave 2). [asset-conversion W2-2] (also: AP-55)
 
 ### Sound and music
 
 **AP-30. Is Wwise 2021.1.14.8108 authoring on the player's PC acceptable (licence, download, login), and can it convert headless?**
 - Why it matters: it is the only verified `.wem` encoder; 122,857 voice files plus SFX depend on it.
-- Options: Wwise on player PC; an open encoder (none known); another playback path.
-- Answer by: Audiokinetic licence terms (offline research); WwiseConsole on the CK's `Starfield.wproj` without GUI (PC probe).
+- Options: Wwise on player PC, installed under the player's own Audiokinetic account (free trial or a requested Non-Commercial licence); an open encoder (none known, must be verified against the format); another playback path.
+- Answer by: ask Audiokinetic in writing whether a player's free install may batch-convert their own game's audio for a free mod, and whether `convert-external-source` output counts toward the 200-asset limit (community contact); read the full EULA (offline); WwiseConsole on the CK's `Starfield.wproj` without GUI (PC probe).
 - Blocks: People and story, Launcher, Fallout systems (radio).
-- Status: open. (also: asset-conversion Q12; starfield-toolchain Q19)
+- Status: narrowed (wave 2): free trial is non-commercial and limited to 200 media assets in SoundBanks; licences are per project; MSFS and REDkit send modders to a free non-commercial key (**verified**). Nothing on redistributing WwiseConsole or on conversion counting (**unresolved**). We cannot bundle Wwise; a per-player batch conversion is a use none of the published modder paths describe (**supported hypothesis**). Headless use still untested. [legal-policy W2-B] (also: asset-conversion Q12; starfield-toolchain Q19; legal-policy W2 Q5, Q6)
 
 **AP-31. Can new non-voice sounds be added (new WWED events and banks), or must FO4 SFX map to existing Starfield events?**
 - Why it matters: 5,476 FO4 SNDR records; replacing vanilla ids changes Starfield's own sounds.
@@ -374,33 +401,40 @@ Scale numbers we have (all **verified** from repo files cited in the findings, u
 
 **AP-47. Where does Commonwealth object and terrain LOD come from: the CK, a third-party generator, converted FO4 `.bto`, or our own writer?**
 - Why it matters: nothing draws beyond loaded cells today; Starfield uses `.btd`/`.lod`, with no public `.btd` writer.
-- Options: CK trial (object-lod.md); FO4 `.bto` as `_lod_N` stand-ins; xLODGen-style tool (unknown); own writer.
-- Answer by: CK strings scan for LOD switches and the planned CK trial (PC probe); read one `.bto` against a vanilla `_lod_0.nif` (offline).
+- Options: CK `-MockWorldSpaceLOD:<Plugin>.esp <Worldspace>` on the player's PC (object LOD; objects chosen by LOD-ticked layers); FO4 `.bto` as `_lod_N` stand-ins; own writer. xLODGen/DynDoLOD do not support Starfield (**verified**). Terrain LOD stays our own `.btd` writer.
+- Answer by: run `-MockWorldSpaceLOD` on a 4-cell test worldspace, time it, check `.esm` acceptance and the partial-cell failure on 64 cells (PC probe); read one `.bto` against a vanilla `_lod_0.nif` (offline).
 - Blocks: World.
-- Status: open. (also: asset-conversion Q16, Q17; starfield-toolchain Q15)
+- Status: narrowed (wave 2): the CK command and its output folders are **verified**; that it runs unattended is a **supported hypothesis**; run time, `.esm` acceptance and cell failures at 64 cells are **unresolved**. [starfield-toolchain W2-1, its Q15] (also: asset-conversion Q16, Q17; starfield-toolchain Q15)
 
 **AP-48. Does Starfield have a precombine or previs step, and is per-reference placement fast enough without one?**
 - Why it matters: FO4 relies on 95,856 precombined NIFs plus previs; we place about 650k references one by one.
 - Options: find an engine feature; merge static geometry per cell ourselves; accept the cost; reduce clutter.
-- Answer by: scan Starfield.esm for precombine-like data (offline); frame time and draw calls in the densest converted interior and on a core64 walking route (PC probe).
+- Answer by: frame time, VRAM and RAM at 3 fixed spots (dense downtown, open wasteland, interior), vanilla vs core vs core-with-LOD (PC probe).
 - Blocks: All interiors, World.
-- Status: open. (also: asset-conversion Q7; starfield-toolchain Q7; versions-performance Q5, Q6, Q18)
+- Status: narrowed (wave 2), first half answered: Starfield's CELL has no precombine or previs subrecords (**verified** schema), so there is no bake to replicate; the GPU-driven renderer lowers per-object draw cost (**supported hypothesis**). Open: whether dense converted cells run well without it; remaining cost is likely reference loading, scripts, Havok and streaming (**supported hypothesis**, unmeasured). The `OVIS` record's purpose is **unresolved**. [starfield-toolchain W2-2; versions-performance W2-2] (also: asset-conversion Q7; starfield-toolchain Q7; versions-performance Q5, Q6, Q18)
+
+**AP-59. Should the converter set LAYR `LODB` and object LOD flags itself so the CK LOD run picks the right objects without manual layer work?**
+- Why it matters: `-MockWorldSpaceLOD` selects objects by LOD-ticked layers; LAYR `LODB` (Default / Aggregate / No LODs), "Has Distant LOD" / "Is Full LOD" flags and `BGSLodOwner_Component` are plugin data (**verified** schema), so an unattended run needs them written by us.
+- Options: the converter writes layers and flags; or an author ticks layers in the CK by hand (not unattended).
+- Answer by: xEdit read of a vanilla overlay's layers (offline), then one CK LOD run on our flagged test worldspace (PC probe).
+- Blocks: World.
+- Status: open (new, wave 2). [starfield-toolchain W2-1, its Q35] (also: AP-47)
 
 ### Pipeline at scale: inputs, build time, disk, archives
 
 **AP-49. What is the total first-install time and peak disk per asset class, on the owner's PC and on a minimum-spec PC?**
 - Why it matters: Starfield 125 GB on SSD plus FO4 plus work folder plus output plus temporary archives; the owner's 7950X3D hides costs.
-- Options: measure the whole 64-cell core, scale by cell count; rerun with a memory cap and fewer cores.
+- Options: measure the whole 64-cell core, scale by cell count; rerun with a memory cap and fewer cores; a thread-count switch from day one and an output check (TTW uses folder size; our planned per-file hash ledger is stricter).
 - Answer by: timed full conversion with peak disk and peak RSS; PC probe (or cloud VM with matching cores).
 - Blocks: Launcher, Release.
-- Status: open. (also: asset-conversion Q13; versions-performance Q15, Q16)
+- Status: open; precedent added (wave 2): TTW's installer takes about 40 minutes on a Ryzen 5 5600X, "several hours or even longer" on slower CPUs, mostly in audio encoding, and writes 17 GB (**verified**); so budget tens of minutes to hours, dominated by voice and textures (**supported hypothesis**). [asset-conversion W2-1] (also: asset-conversion Q13; versions-performance Q15, Q16)
 
 **AP-52. Which FO4 data versions does the converter accept, and how does it detect them from data alone?**
-- Why it matters: most players have 1.11.240; `ba2.py` accepts only header versions 1 to 3; v7/v8 for next-gen is **unresolved**.
-- Options: hash `.esm` files per known version (TTW model); read BA2 header versions; check for Anniversary CC files; support all versions with fixtures, or normalise inputs.
-- Answer by: first 8 bytes of each `Fallout4 - *.ba2` on a current install (minutes); a record and archive diff between 1.10.163 and 1.11.240; PC probe then owner decision.
+- Why it matters: most players have 1.11.240; `ba2.py` accepts only header versions 1 to 3, so it cannot read a current unmodified install's next-gen archives.
+- Options: hash `.esm` files per known version (TTW model); read BA2 header versions and accept `{1, 7, 8}` with the v1 layout in `src/fo4sf/ba2.py` (line 59); check for Anniversary CC files; support all versions with fixtures, or normalise inputs.
+- Answer by: a synthetic v7/v8 fixture unittest (offline); first 8 bytes of each `Fallout4 - *.ba2` and `cc*.ba2` on a current install (minutes); a record and archive diff between 1.10.163 and 1.11.240; PC probe then owner decision.
 - Blocks: Launcher, New game, Release.
-- Status: open. (also: asset-conversion Q15; versions-performance Q7, Q8, Q9, Q31)
+- Status: narrowed (wave 2): next-gen archives are versions 7 and 8 (**verified**); xEdit and OpenMW parse them exactly like v1 (**verified**), so only the version number changed (**supported hypothesis**); the reader fix is one line, not a format project. Open: which vanilla archives are 7 and which 8, and whether the Anniversary update changed anything beyond that. [versions-performance W2-1; starfield-toolchain W2-6] (also: asset-conversion Q15; versions-performance Q7, Q8, Q9, Q31)
 
 **AP-54. Are the about 150 Anniversary Creation Club files, and GOG or Microsoft Store FO4 installs, valid asset sources?**
 - Why it matters: they change what "the player's FO4" means and widen the asset surface.
@@ -412,9 +446,9 @@ Scale numbers we have (all **verified** from repo files cited in the findings, u
 **AP-55. How are outputs packed under engine limits: archive count, size per archive, auto-loaded archive names?**
 - Why it matters: 256 active BA2s shared with the player's mods; 4,095 MB per archive; whether one archive can pass 4 GiB is unresolved; 64 cells need about 8.5 GiB.
 - Options: one ESM with `- Main.ba2` and `- Textures.ba2`; numbered archives (`- Main01.ba2`, unresolved); BA2 Limit Fix (SFSE).
-- Answer by: a synthetic archive over 4 GiB and two numbered archives loaded in game; archive count with Starfield Engine Fixes' counter; PC probe.
+- Answer by: a synthetic 5 GiB archive and two numbered archives loaded in game; archive count with Starfield Engine Fixes' counter; PC probe.
 - Blocks: All interiors, World, Launcher.
-- Status: open. (also: starfield-toolchain Q14; versions-performance Q4, Q17)
+- Status: narrowed (wave 2): BA2 offsets are 64-bit, so the format does not stop at 4 GiB (**verified**); FO4 users report 9.5 GB and 14.7 GB archives loading (user reports, FO4 only). Whether Starfield's engine reads past 4 GiB is **unresolved**; keep splitting at 4,095 MB until the probe. Medium masters hold at most 65,536 ObjectIDs over 256 slots (**verified**), so world plugins must be full masters. [starfield-toolchain W2-5, W2-6; versions-performance W2-3] (also: starfield-toolchain Q14; versions-performance Q4, Q17)
 
 **AP-56. Does the build cache key include the Starfield runtime and Starfield.esm hash?**
 - Why it matters: a Starfield patch can change records we override or vanilla assets we reference.
@@ -427,17 +461,17 @@ Scale numbers we have (all **verified** from repo files cited in the findings, u
 
 **AP-50. Which steps may depend on Bethesda or third-party tools installed on the player's PC, and is each acceptable?**
 - Why it matters: CK is settled; Wwise and 3ds Max are not; each adds install friction and per-patch risk.
-- Options: CK for FaceFX, navmesh, maybe LOD and Archive2; Wwise for `.wem`; avoid 3ds Max.
+- Options: CK for FaceFX, navmesh, object LOD (`-MockWorldSpaceLOD`), face bakes (GUI only so far) and Archive2; Wwise for `.wem`; avoid 3ds Max.
 - Answer by: owner decision after AP-30 and AP-40.
 - Blocks: Launcher, Release, People and story.
-- Status: open. (also: asset-conversion Q35; starfield-toolchain Q11, Q25)
+- Status: open (wave 2: Wwise is a non-Bethesda licence gate with free non-commercial terms whose fit for per-player conversion is **unresolved**; CK LOD has a command-line switch). (also: asset-conversion Q35; starfield-toolchain Q11, Q25)
 
 **AP-51. Which external binaries may the launcher bundle, and which must the player fetch?**
 - Why it matters: GitHub then Nexus release must meet each licence.
-- Options (licences as found): texconv (MIT, **supported hypothesis**), CALUMI (LGPL-3), HavokLib (GPL-3), Geometry Bridge (MIT), Mutagen and Spriggit (GPL-3), vgmstream and ffmpeg (not read), Wwise (not bundlable, **supported hypothesis**), CK (player installs). Nexus "no conversion to other games" clauses (Void SFG Bridge, Animation IO) versus their GitHub licences.
+- Options (licences as found): texconv (MIT, **supported hypothesis**), CALUMI (LGPL-3), HavokLib (GPL-3), Geometry Bridge (MIT), Mutagen and Spriggit (GPL-3), Cathedral Assets Optimizer (MPL-2.0, **verified**; reference only, no Starfield support), vgmstream and ffmpeg (not read), Wwise (not bundlable, player installs under own account, **supported hypothesis**; no Audiokinetic text on redistributing WwiseConsole found), CK (player installs). Nexus "no conversion to other games" clauses (Void SFG Bridge, Animation IO) versus their GitHub licences.
 - Answer by: a licence table (offline research), then owner decision.
 - Blocks: Release, Launcher.
-- Status: open. (also: asset-conversion Q14, Q31; starfield-toolchain Q26)
+- Status: narrowed (wave 2): CAO licence read (MPL-2.0); Wwise cannot be bundled and nothing found allows redistributing WwiseConsole (**unresolved** pending the full EULA). [asset-conversion W2-2; legal-policy W2-B] (also: asset-conversion Q14, Q31; starfield-toolchain Q26)
 
 **AP-53. Which tool authors do we contact first?**
 - Why it matters: their work overlaps our open items.
@@ -457,7 +491,7 @@ Scale numbers we have (all **verified** from repo files cited in the findings, u
 
 Recommendations, not decisions:
 
-- **AP-50 player-installed tools:** recommend CK required, Wwise only if AP-30 shows free headless use is allowed, 3ds Max never. Why: CK is already allowed; Wwise is the only verified encoder.
+- **AP-50 player-installed tools:** recommend CK required, Wwise only if AP-30 shows free headless use is allowed, 3ds Max never. Why: CK is already allowed; Wwise is the only verified encoder. Wave 2: the free terms are non-commercial and capped at 200 SoundBank media assets, so ask Audiokinetic in writing before committing (legal-policy W2-B).
 - **AP-51 bundling:** recommend bundling only permissive and LGPL/GPL tools with notices; the player installs CK and Wwise. Why: keeps the no-assets, GPL-noticed release clean.
 - **AP-20 animation route:** recommend SFSE glTF players for idles and scenes first, `.af` retargeting later. Why: no `.agx` spec, and SFSE is allowed.
 - **AP-10 named-cast faces:** recommend template faces for breadth, hand-made record faces for the main cast later. Why: only route (c) is known to lip sync without shipping assets.
@@ -473,12 +507,15 @@ Offline first:
 1. **Asset census over the owner's FO4 archives:** max vertices per shape, texture count and size, `.xwm` decode with failure count. Closes AP-01, AP-24 (count part), AP-32; feeds AP-49.
 2. **Full-archive convert-and-count run per class** with a failure report. Closes AP-05; feeds AP-01, AP-22, AP-49.
 3. **Licence table** for every tool named here. Closes AP-51; feeds AP-50.
-4. **Read Geometry Bridge `.dat` code and Starfield Blender Extension constraint code.** Feeds AP-04, AP-11.
-5. **Read one FO4 `.bto` against a vanilla `_lod_0.nif`; scan Starfield.esm for precombine-like data.** Feeds AP-47, AP-48.
+4. **Read Geometry Bridge `.dat` code and Starfield Blender Extension constraint code; dump one vanilla FaceGeom NIF read-only and compare with our NIF writer's output.** Feeds AP-04, AP-11.
+5. **Read one FO4 `.bto` against a vanilla `_lod_0.nif`; xEdit read of a vanilla overlay's layers and LOD flags.** Feeds AP-47, AP-59. (The precombine scan is done: no such records, AP-48.)
+5a. **Synthetic BA2 v7/v8 fixture unittest and the one-line `ba2.py` fix.** Feeds AP-52.
+5b. **SFME export of a vanilla material, diffed with our clone.** Closes AP-26.
+5c. **Written question to Audiokinetic** on per-player batch conversion and the 200-asset limit (owner sends; outreach is the owner's job). Feeds AP-30, AP-50.
 
 PC read-only probes:
 
-6. **Strings scan of CreationKit.exe** for FaceFX, LOD and precombine switches (like the navmesh one). Feeds AP-40, AP-47, AP-48, AP-50.
+6. **Strings scan of CreationKit.exe** for FaceFX and face-bake switches (like the navmesh and `-MockWorldSpaceLOD` ones). Feeds AP-09, AP-40, AP-50.
 7. **First 8 bytes of every `Fallout4 - *.ba2`** on a current install, plus `.esm` hashes. Closes the BA2 part of AP-52; feeds AP-54.
 8. **Read-only dump of both games' `skeleton.nif`.** Closes AP-06.
 
@@ -487,19 +524,20 @@ PC probes that write test data (owner time):
 9. **1,000-line FaceFX run** from a space-free staging folder: time it, rerun to test resume, compile 20 lines twice for hashes, try WAV-only. Closes AP-40 (timing), AP-41, AP-42, AP-43; feeds AP-44.
 10. **WwiseConsole on `Starfield.wproj` without the GUI.** Feeds AP-30, AP-50.
 11. **Whole-core build with peak disk, RSS and time,** then with a memory cap. Closes AP-49.
+12. **`-MockWorldSpaceLOD` on a 4-cell test worldspace:** time, `.esm` acceptance, failed cells; then 64 cells. Feeds AP-47, AP-59.
+13. **Synthetic 5 GiB BA2 loaded in game; loose vs v3 texture BA2 load time and stutter.** Closes the engine part of AP-55; closes AP-58.
+14. **Frame time, VRAM and RAM at 3 fixed spots,** vanilla vs core vs core-with-LOD. Closes the second half of AP-48.
 
-## Gaps for wave 2
+## Gaps (after wave 2)
 
-- Read the Audiokinetic Wwise licence terms: free use, automation, redistribution (AP-30, AP-51).
+- Read the full Wwise EULA: redistribution of WwiseConsole, and whether `convert-external-source` counts toward the 200-asset limit (AP-30, AP-51). Pricing page read in wave 2.
 - Find any open-source Wwise Vorbis `.wem` encoder (AP-30).
 - Search for a public `.agx` description or editor, and Starfield animation text data or subgraph practice (AP-20, AP-21).
-- Search for xLODGen or other Starfield object LOD support, and CK LOD batch use (AP-47).
-- Find whether CE2 has a precombine or previs equivalent; Starfield draw-call and VRAM profiles (AP-48, AP-25).
-- Confirm next-gen FO4 BA2 header versions (v7/v8) and their layout from BSArch or xEdit source (AP-52).
-- Read the TTW FAQ and the Cathedral Assets Optimizer README (rate-limited in wave 1) to verify the precedent lessons.
+- Purpose of Starfield's `OVIS` "Object Visibility Manager" record (AP-48).
+- Starfield draw-call and VRAM profile with a dense modded load (only vanilla VRAM figures found) (AP-48, AP-25).
 - Read Nexus article 535 on music replacers (AP-33) and any guide on new WWED events (AP-31).
 - Licences of vgmstream, ffmpeg builds, texconv (re-read), Trainwreck and the Starfield Blender Extension (AP-51).
-- Starfield NPC face pipeline: whether a new NPC_ renders a face without facegen files (AP-09) from community sources.
+- Whether the CK face bakes can run without the GUI, and the exact run-time fallback for a named NPC with no bake (AP-09, AP-11).
 - FO4 install size with DLC and Anniversary content (AP-49).
 
 ## Handed to phase files
@@ -569,3 +607,34 @@ PC probes that write test data (owner time):
 - https://www.nuget.org/packages/Mutagen.Bethesda.Starfield
 - https://github.com/Mutagen-Modding/Spriggit
 - Not readable in wave 1 (HTTP 429): https://taleoftwowastelands.com/faq , https://github.com/Guekka/Cathedral_Assets_Optimizer
+
+Wave 2 (as cited by the findings files):
+
+- https://thebestoftimes.moddinglinked.com/faq.html
+- https://thebestoftimes.moddinglinked.com/ttw.html
+- https://www.nexusmods.com/skyrimspecialedition/mods/23316
+- https://github.com/Guekka/Cathedral-Assets-Optimizer/
+- https://stepmodifications.org/wiki/Fallout4:Cathedral_Assets_Optimizer
+- https://www.nexusmods.com/starfield/mods/1192?tab=posts
+- https://www.nexusmods.com/starfield/mods/12471 , https://www.nexusmods.com/starfield/mods/14825 , https://www.nexusmods.com/starfield/mods/14659 (search listings)
+- https://www.nexusmods.com/starfield/mods/5572
+- https://www.nexusmods.com/starfield/mods/7834/?tab=posts (snippet)
+- https://forums.nexusmods.com/topic/13521838-ck-bugquestion-%E2%80%9Cbake-chargen-mesh-geometry%E2%80%9D-always-crashes-%E2%80%94-is-this-broken-for-everyone/
+- https://www.reddit.com/r/starfieldmods/comments/1dp6yv8/npc_edits_having_issues/
+- https://steamcommunity.com/sharedfiles/filedetails/?id=3287508493
+- https://www.reddit.com/r/CreationKit/comments/1lp64l5/creation_kit_not_generating_facegen_files/
+- https://forums.nexusmods.com/topic/13526765-generating-facegen-data/
+- https://modding.wiki/en/starfield/developers/tutorials/creatingworldspacelod
+- https://forums.nexusmods.com/topic/13497519-how-to-create-lod/
+- https://steamcommunity.com/sharedfiles/filedetails/?id=3385012985
+- https://dyndolod.info/Help/xLODGen
+- https://github.com/maximusmaxy/SFME , https://www.nexusmods.com/starfield/mods/7830
+- https://www.nexusmods.com/starfield/mods/17879
+- https://raw.githubusercontent.com/TES5Edit/TES5Edit/dev-4.1.6/Core/ (wbDefinitionsSF1.pas, wbDefinitionsFO4.pas, wbImplementation.pas, wbInterface.pas, wbBSArchive.pas)
+- https://forums.nexusmods.com/topic/11091353-ba2-size-limits-and-splitting-textures-between-ba2s
+- https://www.nexusmods.com/fallout4/articles/5844
+- https://gitlab.com/OpenMW/openmw/-/merge_requests/4055
+- https://github.com/HansKristian-Work/vkd3d-proton/pull/1694
+- https://www.audiokinetic.com/en/wwise/pricing/
+- https://docs.flightsimulator.com/html/Asset_Creation/Sounds/Wwise_Licence_Information.htm
+- https://cdprojektred.atlassian.net/wiki/spaces/W3REDkit/pages/6327958/HOW-TO+Get+a+Wwise+license

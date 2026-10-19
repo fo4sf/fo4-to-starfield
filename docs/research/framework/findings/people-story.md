@@ -410,3 +410,113 @@ faces and outfits.**
 - https://wiki.beyondskyrim.org/wiki/Arcane_University:Seq_Guide , https://forums.nexusmods.com/topic/7720963-do-i-still-need-to-make-a-seq-file (SEQ, not read)
 - Not readable this session (rate limit): https://www.nexusmods.com/fallout4/mods/75137 , https://bethesda.net/en-EU/news/monthly-modder-sirick ,
   https://www.nexusmods.com/starfield/mods/14176 , https://www.nexusmods.com/starfield/mods/6401 , https://www.nexusmods.com/starfield/mods/6439
+
+## Wave 2 additions (2026-10-19)
+
+Added by a wave-2 research agent (Claude). Wave-1 text above is unchanged. Labels as above. Pages read this pass are
+listed under "Wave 2 sources" at the end of this section. Not checked this pass: Sim Settlements 2's player-voice handling
+(the Nexus pages wave 1 could not read were not retried, to avoid hammering nexusmods.com).
+
+### W2-1. SEQ files and Start Game Enabled dialogue quests (answers part of Q37; changes its "who")
+
+- **verified** (FO4/Skyrim rule, forum answer): SEQ files are needed only for quests flagged Start Game Enabled; that the
+  quest is a dialogue quest does not matter; most vanilla dialogue quests are SGE, which is why people think dialogue
+  quests always need one. The same answer recommends Story Manager starts over SGE for anything that is not always-on
+  NPC dialogue. https://forums.nexusmods.com/topic/7720963-do-i-still-need-to-make-a-seq-file/
+- **verified** (Skyrim community, 2025): "SEQ file is required to start the 'start game enabled' quests reliably";
+  missing SEQ shows as dialogue missing until a reload, or an NPC/quest not starting on older saves.
+  https://www.reddit.com/r/CreationKit/comments/1mg6kj1/created_npc_doesnt_spawn_when_loading_prior_saves/
+- **verified** (format, from source code): xEdit's "Create SEQ file" writes `Data\Seq\<plugin>.seq` as a flat array of
+  32-bit FormIDs: every QUST in the plugin whose `DNAM` flags bit 0 (Start Game Enabled) is set, and which is either new
+  or sets SGE on a master quest that did not have it. A plugin with no such quest gets no file. xEdit shows this menu
+  item **only for Skyrim game modes** (`wbIsSkyrim` = TES5, Enderal, TES5VR, SSE, EnderalSE), not FO4 or Starfield,
+  and has a `-generateseq:<plugin>` command-line mode. Source: `xEdit/xeMainForm.pas` `GenerateSEQFileForFile` and
+  `mniNavCreateSEQFile.Visible := wbIsSkyrim and ...`; `xEdit/xeInit.pas` (`generateseq`), `Core/wbInterface.pas`
+  (`wbIsSkyrim`), branch `dev-4.1.6` of https://github.com/TES5Edit/TES5Edit
+- **verified**: a Starfield-category Nexus utility, "Drag and Drop Quest SEQ Tool" (TheAncientOneNM, v1.2, Feb 2025),
+  drives the Starfield `CreationKit.exe` to create an SEQ for a dropped plugin and moves it to `Data\SEQ\`.
+  https://www.nexusmods.com/starfield/mods/13119 . So the Starfield CK can still generate SEQ files.
+- **supported hypothesis**: Starfield keeps the SEQ mechanism (the CK still produces the file and a modder built a
+  tool for it), so our always-on (SGE) dialogue quests should ship `Data\SEQ\<ourplugin>.seq`. Because the format is a
+  bare FormID list (xEdit source above), our own writer can emit it without the CK. **unresolved**: whether the
+  Starfield engine actually *requires* it (no Starfield-specific statement was found; the Skyrim/FO4 statements are
+  the only explicit ones), and whether Starfield's form-ID encoding for medium/small masters changes the stored IDs.
+- Change to Q37 "who": it is now a cheap PC probe plus one offline writer task, not open research. Experiment: one SGE
+  dialogue quest with a greeting, tested from a save made before the plugin was added, with and without the `.seq`
+  (our generated file vs the CK's file, compared byte for byte).
+
+### W2-2. How a Starfield NPC face is built (answers Q6 and Q17 in part; supports the wave-1 hypothesis in §4)
+
+- **verified**: Starfield ships per-NPC baked face geometry at
+  `meshes\Actors\Character\FaceGenData\FaceGeom\Starfield.esm\<FormID>.nif` (a Creations author names `001CDAFD.NIF`)
+  and per-NPC face textures at `textures\actors\character\facecustomization\starfield.esm\` inside
+  `Starfield - Textures01.ba2` (`<FormID>_color` etc.).
+  https://www.nexusmods.com/starfield/mods/5572 ,
+  https://creations.bethesda.net/it/starfield/details/41e41fc3-438d-4608-8ed1-a7cacb74c843/Female_Dani_Garcia (search
+  snippet; page body did not render), https://www.nexusmods.com/starfield/mods/7834/?tab=posts (snippet)
+- **verified**: the Starfield CK has two separate bakes on the NPC's Face Customization tab: **Bake FCT** (Ctrl+F4),
+  which writes `Data\Textures\Actors\Character\Face Customization\Starfield.esm\` (`ao.dds, color.dds, normal.dds,
+  rough.dds` per the poster), and **Bake Chargen Mesh Geometry**. Texture-only edits (eyes, scars, complexion, hair
+  colour) show in game after Bake FCT alone; facial-structure edits (jaw, nose, cheekbones) do not carry through
+  unless the geometry bake succeeds. One user found the geometry bake crashing on CK 1.15.222; LarannKiar reports both
+  bakes working on 1.15.222 (run as admin, vanilla CreationKit.ini).
+  https://forums.nexusmods.com/topic/13521838-ck-bugquestion-%E2%80%9Cbake-chargen-mesh-geometry%E2%80%9D-always-crashes-%E2%80%94-is-this-broken-for-everyone/
+- **verified**: community fix for bald/mismatched edited NPCs: add `bAlwaysGenerateCpuGeometryExtraFields=1` and
+  `bEnableEditorSaveGeometry=1` under `[Debug]` in `CreationKit.ini`, close and reopen the actor, then run both bakes;
+  several users still got bald heads, floating eyes/teeth or skin-tone seams, so results are inconsistent.
+  https://www.reddit.com/r/starfieldmods/comments/1dp6yv8/npc_edits_having_issues/ ,
+  https://steamcommunity.com/sharedfiles/filedetails/?id=3287508493 (guide comments)
+- **verified**: CK facegen export silently produces no files when the actor has the Chargen preset flag ticked, or has a
+  template with Use Traits ticked (quoted community checklist); a `.NPC` preset exported from the in-game ChargenMenu
+  imports into the CK with correct geometry but post-blend layer intensities reduced (about x1.5 to correct).
+  https://www.reddit.com/r/CreationKit/comments/1lp64l5/creation_kit_not_generating_facegen_files/ ,
+  https://forums.nexusmods.com/topic/13526765-generating-facegen-data/
+- **supported hypothesis** (inference from the above): named NPCs render from **pre-baked** geometry + textures keyed
+  by FormID and plugin name; when bakes are missing or stale the engine falls back to something visibly wrong (bald,
+  mismatched neck/arms) rather than building a correct face from the record. Templated "Use Traits" NPCs (generic crowd)
+  are the case without per-NPC bakes, which fits wave 1's "generic faces at run time" hypothesis. **unresolved**: the
+  exact runtime fallback, and whether bakes can be produced without the CK GUI.
+- Consequence for Q15-Q17: any route that gives a named FO4 NPC a custom Starfield face needs a CK bake per NPC
+  (GUI, per actor, crash-prone) or our own writer for the FaceGeom `.nif` + four DDS; a "Use Traits" template route
+  avoids bakes but gives up a unique face. This is a new launcher constraint: bakes are keyed by *our plugin name*, so
+  they must be produced on the player's PC or shipped as generated data, never as Bethesda assets.
+
+### W2-3. starfieldwiki.net modding namespace (updates §8)
+
+- **verified**: the live `starfieldwiki.net/wiki/Starfield_Mod:Main_Page` (oldid 117483) now lists Form Reference, File
+  Formats, audio (Xbox porting, .wem/.wav conversion), 3ds Max setup and collision, AssetWatcher DDS conversion,
+  Archive2 for Xbox/Game Pass, Papyrus references, VS Code debugging and Creating Custom Gameplay Options, plus BAE,
+  Champollion 1.2.2+, texconv, Starfield Voice Tool and the fo76utils NifSkope. Still **no** quest, dialogue, scene,
+  follower, NPC or face pages, and the CK page covers only menus and the render window. Wave 1's conclusion stands.
+  https://starfieldwiki.net/wiki/Starfield_Mod:Main_Page , https://starfieldwiki.net/wiki/Starfield_Mod:Starfield_Creation_Kit
+
+### W2-4. Language support of both games (feeds Q32 and distribution-community Q18/Q19)
+
+- **verified** (Steam store API, read 2026-10-19): Fallout 4: English, French, Italian, German, Spanish (Spain),
+  Japanese with full audio; Polish, Portuguese (Brazil), Russian, Traditional Chinese text only. Starfield: English,
+  French, German, Spanish (Spain), Japanese with full audio; Italian, Polish, Portuguese (Brazil), Simplified Chinese
+  text only. Starfield Creation Kit: English only.
+  https://store.steampowered.com/api/appdetails?appids=377160 , https://store.steampowered.com/api/appdetails?appids=1716740 ,
+  https://store.steampowered.com/api/appdetails?appids=2722710
+- **supported hypothesis**: for dialogue, the overlap where both games have full voice is EN/FR/DE/ES/JA. Italian FO4
+  voice exists but Starfield has no Italian voice set (its own lines would be silent or English in an Italian install);
+  Russian and Traditional Chinese FO4 players have no matching Starfield UI language. The CK FaceFX compile (wave 1 §2)
+  reads `.wav` per voice folder, so non-English FO4 voice should lip-sync the same way (the Japanese lip-sync mod in §1
+  is the precedent), but this is not tested.
+
+### Wave 2 sources (people-story)
+
+- https://forums.nexusmods.com/topic/7720963-do-i-still-need-to-make-a-seq-file/
+- https://www.reddit.com/r/CreationKit/comments/1mg6kj1/created_npc_doesnt_spawn_when_loading_prior_saves/
+- https://www.reddit.com/r/CreationKit/comments/1v2e347/dog_follower_npc_trainers/ (xEdit "generate SEQ" tip, Skyrim)
+- https://www.nexusmods.com/starfield/mods/13119
+- https://github.com/TES5Edit/TES5Edit (branch dev-4.1.6: xEdit/xeMainForm.pas, xEdit/xeInit.pas, Core/wbInterface.pas)
+- https://www.nexusmods.com/starfield/mods/5572 , https://www.nexusmods.com/starfield/mods/7834/?tab=posts
+- https://creations.bethesda.net/it/starfield/details/41e41fc3-438d-4608-8ed1-a7cacb74c843/Female_Dani_Garcia (snippet only)
+- https://forums.nexusmods.com/topic/13521838-ck-bugquestion-%E2%80%9Cbake-chargen-mesh-geometry%E2%80%9D-always-crashes-%E2%80%94-is-this-broken-for-everyone/
+- https://www.reddit.com/r/starfieldmods/comments/1dp6yv8/npc_edits_having_issues/
+- https://steamcommunity.com/sharedfiles/filedetails/?id=3287508493
+- https://www.reddit.com/r/CreationKit/comments/1lp64l5/creation_kit_not_generating_facegen_files/
+- https://forums.nexusmods.com/topic/13526765-generating-facegen-data/
+- https://starfieldwiki.net/wiki/Starfield_Mod:Main_Page , https://starfieldwiki.net/wiki/Starfield_Mod:Starfield_Creation_Kit
+- https://store.steampowered.com/api/appdetails?appids=377160 , ...=1716740 , ...=2722710

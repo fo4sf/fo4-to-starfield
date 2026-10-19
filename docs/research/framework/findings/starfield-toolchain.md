@@ -341,3 +341,109 @@ needed them are marked **unresolved**, not guessed.
 - Archives/INI: https://github.com/ejams1/starfield-modding-guide ; https://forums.nexusmods.com/topic/13459379-a-guide-to-game-pass-modding-no-mod-manager
 - Repo (447ec09): docs/actors/npc-navigation.md §2.4; docs/spikes/S2-S4-S9-plugin-units-loading.md; docs/FORMAT-GAP.md; docs/ROADMAP.md C1; docs/SETUP.md; docs/PLAY-AND-TEST.md; docs/ai/known-unknowns.md
 - Not read (HTTP 429 rate limit): https://www.nexusmods.com/starfield/mods/17161 ; https://www.nexusmods.com/starfield/mods/7830 ; https://github.com/JMPZ11/nifskope-sf-mesh/ ; mp1st 1.16.244 article ; kitguru CK improvements article. Steam Community threads were behind a content gate.
+
+## Wave 2 additions (2026-10-19)
+
+Wave 2 fills gaps that wave 1 left **unresolved** for lack of search budget. Same labels: **verified** (read in the linked
+source or file), **supported hypothesis**, **unresolved**. xEdit facts come from source files at tag/branch
+`dev-4.1.6` (`Core/wbDefinitionsSF1.pas`, `Core/wbDefinitionsFO4.pas`, `Core/wbImplementation.pas`,
+`Core/wbInterface.pas`, `Core/wbBSArchive.pas`), downloaded from raw.githubusercontent.com and grepped (line numbers below
+are for that download).
+
+### W2-1. LOD generation in the Starfield CK (answers §2 "LOD generation unresolved", Q15, Risk 8)
+- **verified**: the CK generates **object LOD** for a plugin worldspace from the command line:
+  `CreationKit.exe -MockWorldSpaceLOD:<Plugin>.esp <Worldspace1>,<Worldspace2>,...`, run from the Starfield folder.
+  Output: LOD meshes (`.nif`) in `Data\Meshes\Terrain\<Worldspace>\` and settings in `Data\LODSettings\`. Objects are
+  chosen by layer: View > Layers, tick the **LOD** checkbox on the layer that holds them. Known issues: "One or more cells
+  may fail to process", "more likely in multi-cell worldspaces"; biome markers may appear in the LOD
+  ([modding.wiki: Creating Worldspace LOD](https://modding.wiki/en/starfield/developers/tutorials/creatingworldspacelod)).
+  The same command is given by InvokerGray on the Nexus forum (26 Sep 2025), where another user reports stray purple
+  meshes until the generated files were removed
+  ([forum 13497519](https://forums.nexusmods.com/topic/13497519-how-to-create-lod/)).
+- **verified (schema)**: the LAYR record has `LODB` "LOD Behavior" = Default / Aggregate / No LODs (sf1.pas 13330-13339);
+  base objects carry "Has Distant LOD" / "Is Full LOD" flags and a `BGSLodOwner_Component`. So LOD membership is data a
+  plugin (and therefore our converter) can write, not only a CK click.
+- **verified**: **terrain** edits reach the game only through an exported `.btd`: "Terrain > Export Landscape", save under
+  `Data\Terrain\<Worldspace>.btd` (rename around the original), then pack into the plugin's archive; unexported edits
+  "do not automatically appear in-game" ([Steam guide 3385012985, Mesmacat, Jan 2025 / Apr 2026](https://steamcommunity.com/sharedfiles/filedetails/?id=3385012985)).
+  Anig's POI guide lists the same symptom as a known issue ([Steam guide 3266682879](https://steamcommunity.com/sharedfiles/filedetails/?id=3266682879)).
+  Our pipeline already writes BTD directly (FORMAT-GAP), so this is a cross-check, not a new route.
+- **supported hypothesis**: `-MockWorldSpaceLOD` is a headless batch switch, so object LOD could run unattended on the
+  player's PC (like the documented navmesh switch). Not shown: run time for a 64-cell world, and whether it needs the
+  plugin as `.esp` (the example) or accepts `.esm`.
+- xLODGen/DynDoLOD do **not** list Starfield (**verified**, [dyndolod.info/Help/xLODGen](https://dyndolod.info/Help/xLODGen)).
+
+### W2-2. Precombine / previs (answers §2 "precombine / previs unresolved", Risk 8)
+- **verified (schema)**: FO4's CELL has `VISI` "PreVis Files Timestamp", `PCMB` "PreCombined Files Timestamp", `XPRI`
+  "PreVis Reference Index" and `XCRI` "Combined Reference Index" (fo4.pas 5988-6088). Starfield's CELL definition has none
+  of them; `XCRI|PCMB|XPRI` occur 0 times in sf1.pas. Starfield CELL subrecords are DATA, XCLL, LTMP, TODD, XCLW, XCWT,
+  XCIM, XEMP, XCAS, XCMO, XLCN, XCCM, XCGD, XCIB, XBPS, XILL, XWCN/XWCU, XWEM, CHAL.
+- **verified (schema)**: Starfield has an `OVIS` "Object Visibility Manager" record (a list of STAT + object bounds,
+  sf1.pas 15514) and "Non Occluder" flags on several base types. Purpose not documented.
+- **supported hypothesis**: CE2 has **no FO4-style precombine/previs bake**; nothing for our build to produce, and
+  nothing to break when we place 650k references. Its renderer is GPU-driven (compute shaders generate ExecuteIndirect
+  arguments, see versions-performance W2), which also lowers the per-object CPU draw cost that precombines existed to cut.
+  Not proved: that dense handmade cells run well without it (PC probe, versions-performance W2).
+
+### W2-3. Standalone material (CDB) tools (answers §5 "Standalone CDB editors unresolved")
+- **verified**: **Starfield Material Exporter** (maximusmaxy, 24 Dec 2023, v1.0.0) **reads** `materialsbeta.cdb` (or
+  the Materials BA2) and exports loose `.mat` JSON; it can also generate a new material ID for a `.nif` from a `.mat`.
+  It does not write a CDB. Source: https://github.com/maximusmaxy/SFME
+  ([Nexus 7830](https://www.nexusmods.com/starfield/mods/7830)).
+- **verified**: **Material Editor Lite** (510deshawn, v2.3, Aug 2026) edits loose `.mat` (full edit for Standard1Layer,
+  StandardTwoSided1Layer, ColorEmissive; others read-only); no CDB mention; no source, restrictive permissions
+  ([Nexus 14659](https://www.nexusmods.com/starfield/mods/14659)). **Material Editor Studio** (same author, beta,
+  8 Aug 2026, "Created ... with Codex 5.6") edits `.mat`, previews NIFs; no CDB mention, no source
+  ([Nexus 17879](https://www.nexusmods.com/starfield/mods/17879)).
+- **Bottom line (supported hypothesis)**: no public tool writes or merges `materialsbeta.cdb`; the whole community uses
+  loose `.mat` JSON plus the CK's "refresh materials". This supports the project's loose-`.mat` route. The open-source
+  reader (SFME) is a reference for decoding vanilla materials as an input oracle.
+
+### W2-4. Synthesis for Starfield (answers §4 "Synthesis unresolved")
+- **verified**: Synthesis `main` (commit 14cf3fa, 21 Aug 2026) has Starfield-specific code:
+  `Synthesis.Bethesda.GUI/Services/Main/ProfileFactory.cs` sets `profile.MasterFile = release == GameRelease.Starfield;`
+  with the comment "Starfield requires masters", and pins Mutagen 0.54.4 (`Directory.Packages.props`).
+  So Synthesis can create Starfield profiles whose output is a master. (Source: git clone of
+  https://github.com/Mutagen-Modding/Synthesis.)
+- **unresolved**: whether any published Synthesis patcher targets Starfield. For us Synthesis is a host, not a need:
+  our converter already calls Mutagen directly.
+
+### W2-5. Medium-master record limit (answers Q32)
+- **verified**: xEdit masks new ObjectIDs with `$FFFF` for a medium module (`mtMedium: Mask := $FFFF`,
+  wbImplementation.pas 5219) and rejects any ObjectID with bits in `$00FF0000` ("invalid ObjectID ... for a medium
+  module", 2464-2468); `MaxMediumSlot` = `$FF` (wbInterface.pas 22600). So a medium master holds ObjectIDs 0x0000-0xFFFF
+  (at most 65,536, fewer after any reserved low range) and there are 256 medium slots. The "≤ 0xFF" on the MO2 page
+  is the **slot** count, not the record limit. Light masters: mask `$FFF`.
+- **verified**: xEdit refuses new records in an **Update**-flagged file ("is Update flagged and can't contain new
+  records", wbImplementation.pas ~5214). Update plugins are override-only (answers part of Q33).
+- **Inference**: the 64-cell core alone (649,596 convertible exterior refs, decisions 2026-10-12) is ~10x a medium
+  master, so world plugins must be full masters; mediums fit interiors in clusters of < 65k records.
+
+### W2-6. BA2: next-gen FO4 versions and archives over 4 GiB (extends §6)
+- **verified**: xEdit's archive code knows header versions 1 (FO4), 2 and 3 (SF), **7 and 8 ("FO4 NG/AE")**, and parses
+  7/8 exactly like v1; only SF v2/v3 add header fields (wbBSArchive.pas 545-553, 1336-1346, 1763-1765). Details and
+  what it means for `ba2.py` in versions-performance.md W2.
+- **verified**: BA2 offsets are 64-bit in the format (`FileTableOffset: Int64`, per-file `Offset: Int64`,
+  wbBSArchive.pas 54, 75), so the **format** does not stop at 4 GiB. Whether **Starfield's engine** reads past 4 GiB
+  stays **unresolved**; FO4 users report 9.5 GB and 14.7 GB texture BA2s working, and that Archive2 caps at "17.592 gig"
+  ([forum 11091353](https://forums.nexusmods.com/topic/11091353-ba2-size-limits-and-splitting-textures-between-ba2s), user
+  reports, FO4 not Starfield). A 5 GiB synthetic archive on the PC answers it for Starfield.
+
+### Questions changed or added
+- **Q15 (LOD)**: now "CK `-MockWorldSpaceLOD` on the player's PC, or our own LOD writer?" Experiment: run it on a 4-cell
+  test worldspace, time it, check `.esm` acceptance and the partial-cell failure on 64 cells.
+- **Q32**: answered (65,536 ObjectIDs, 256 slots); keep only the in-game check that the engine agrees.
+- **Q7 / Risk 8 (precombines)**: downgraded to "measure frame time on a dense cell"; there is no bake step to replicate.
+- **New Q35**: should the converter set LAYR `LODB` and object LOD flags itself so the CK LOD run picks up the right
+  objects without manual layer work? Who: offline (xEdit read of a vanilla overlay's layers) + PC probe.
+- **New Q36**: use SFME (open source) as a material oracle to compare our generated `.mat` against vanilla? Who: offline.
+
+### Sources (wave 2)
+- https://modding.wiki/en/starfield/developers/tutorials/creatingworldspacelod
+- https://forums.nexusmods.com/topic/13497519-how-to-create-lod/
+- https://steamcommunity.com/sharedfiles/filedetails/?id=3385012985 ; https://steamcommunity.com/sharedfiles/filedetails/?id=3266682879
+- https://dyndolod.info/Help/xLODGen
+- https://www.nexusmods.com/starfield/mods/7830 ; https://github.com/maximusmaxy/SFME ; https://www.nexusmods.com/starfield/mods/14659 ; https://www.nexusmods.com/starfield/mods/17879
+- https://github.com/Mutagen-Modding/Synthesis (commit 14cf3fa)
+- https://raw.githubusercontent.com/TES5Edit/TES5Edit/dev-4.1.6/Core/ (wbDefinitionsSF1.pas, wbDefinitionsFO4.pas, wbImplementation.pas, wbInterface.pas, wbBSArchive.pas)
+- https://forums.nexusmods.com/topic/11091353-ba2-size-limits-and-splitting-textures-between-ba2s

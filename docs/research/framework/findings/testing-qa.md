@@ -434,3 +434,103 @@ updates every 7 to 10 days over about six months, feedback by Discord and commen
 - https://arxiv.org/pdf/2307.11105
 - Repo files read: docs/PLAY-AND-TEST.md, docs/SETUP.md, docs/PLAN.md, docs/RISKS.md, scripts/bridge/FO4SF_Probe.psc,
   scripts/bridge/FO4SF_Bridge.psc (grep), docs/terrain/core64c.md:271; research/next-phase/testing-automation.md.
+
+## Wave 2 additions (2026-10-19)
+
+Added by a wave-2 research agent (Claude). Wave-1 text above is unchanged. It reads the pages wave 1 could not (Skywind
+QA FAQ and QA Fixes Guide, Spriggit workflow, crash-logger changelogs) and answers the xEdit batch-mode gap from the
+xEdit source. Labels as above.
+
+### W2-1. xEdit command-line and unattended modes (answers Q29; corrects the "headless" framing)
+
+All **verified** from the xEdit source, branch `dev-4.1.6` (`xEdit/xeInit.pas`, `xEdit/xeMainForm.pas`,
+`Core/wbInterface.pas`, `xEdit.dpr`) at https://github.com/TES5Edit/TES5Edit , and from the What's New page
+https://tes5edit.github.io/docs/18-whatsnew.html :
+- Game mode is chosen by `-SF1` / `-FO4` etc. or the exe name (`SF1Edit.exe`). Tool modes are chosen the same way:
+  `edit, view, lodgen, script, translate, onamupdate, masterupdate, masterrestore, setesm, clearesm, sortandclean(masters),
+  checkforerrors, checkforitm, checkfordr`.
+- **`checkforerrors` is an unattended mode with an exit code**: it loads, runs Check for Errors on the last loaded file,
+  never saves, and sets `ExitCode` to the error count capped at 127 (`checkforitm` / `checkfordr` do the same for
+  identical-to-master records and deleted references). This is exactly a build gate.
+- `-autoload` skips the module-selection dialog and loads what `plugins.txt` marks active; `-P:<file>` points at a
+  custom plugins list; `-D:<path>` sets the data folder; `-autoexit` closes after Quick (Auto) Clean, LODGen or Script.
+  `-script:"x.pas"` (or a script file named on the command line) enters Script mode and runs it after loading;
+  `-testconflicts:<file>` writes a conflict report and returns exit code 255 on a mode clash; `-generateseq:<plugin>`
+  writes an SEQ (Skyrim-only menu, see people-story.md W2-1). `-R:<file>` sets a log file.
+- **Not headless**: xEdit is a VCL GUI app (`Application.Initialize`, a main form); these modes run "without user
+  interaction until final status" but still open a window. The xEdit team declined full CLI automation in 2019
+  ("not a current focus nor have we ever wanted to fully automate that"; closed as not planned 2025).
+  https://github.com/TES5Edit/TES5Edit/issues/655
+- Starfield cost (**verified**, What's New 18.15.1.2.1): first SF1Edit start builds reference info using 4 to 5 GB RAM
+  and over 10 minutes; later starts load the cache in seconds. So a CI gate needs a persistent cache directory (`-C:`).
+- Answer to Q29 (**supported hypothesis**): yes, xEdit can gate builds on Windows (or under Wine on Linux CI, untested)
+  as `xEdit.exe -SF1 -checkforerrors -autoload -P:<our plugins.txt> -D:<data>` and read the exit code; it is
+  "unattended", not windowless. Untested whether it runs under Wine on a display-less runner (needs Xvfb at least).
+
+### W2-2. Skywind QA FAQ and QA Fixes Guide (deepens the Skywind lifecycle in §A)
+
+- **verified**: QA FAQ: a dated "not finished as of January 2026, do not report" list (Red Mountain exteriors, Redoran
+  areas, navmesh in many areas, steep stairs, most voice acting, placeholder models, missing textures shown blue/purple,
+  creatures, crafting systems, balancing; "many Skyrim physics/engine bugs" cannot be fixed). One issue per root cause,
+  split by department; keep the most complete duplicate. Testers are encouraged to learn the CK and may attach fixes
+  to a GitHub issue using a template for lead review. https://handbook.tesrskywind.com/qa/frequently-asked-questions
+- **verified**: level-design cards reaching QA carry a report from an automated **LD Review tool**; nothing may be marked
+  Fail, items marked Review get extra attention. Same FAQ and https://handbook.tesrskywind.com/qa/onboarding . This is
+  the closest precedent found for an automated per-cell pre-QA check (its checks are not described).
+- **verified**: QA Fixes Guide: floating clutter is usually a collision mismatch (F4 in the CK shows collision), which
+  is "QA Blocked" for 3D, not a level-design failure; gaps into the void and z-fighting are level-design faults; texture
+  seams are 3D; replace objects with Ctrl+F (Selection Only) to keep teleport markers and scripts.
+  https://handbook.tesrskywind.com/qa/qa-fixes-guide
+- **verified**: onboarding: QA installs a clean Skyrim SE with only SKSE and SkyUI; builds are ~18 GB zipped / 30 GB
+  unzipped, monthly merges with 2-3 hotfixes in the first week, distributed by Resilio P2P (preferred) and OneDrive;
+  GitHub is not used for builds ("we tried to make it work and had a boatload of problems").
+  https://handbook.tesrskywind.com/qa/onboarding
+- For us (**supported hypothesis**): (1) publish a dated "known unfinished, do not report" list with each tester build
+  (Q24/Q25); (2) the "QA Blocked vs Fail" split maps onto our converter-vs-engine triage: a collision mismatch after
+  `meshcollision.py` is a converter bug, a floating object with matching collision is a placement bug; (3) our
+  per-cell automated report (testqueue) is the analogue of the LD Review tool and should gate what humans see.
+
+### W2-3. Spriggit workflow and versioning (deepens Q27/Q28)
+
+- **verified**: Workflow page: plugin to `.yaml`/`.json` in a Git repo, commit, collaborators deserialize back to a
+  plugin, edit, re-serialize, pull request. https://mutagen-modding.github.io/Spriggit/workflow/
+- **verified**: translation logic is in NuGet packages (`Spriggit.Yaml.<Game>`, `Spriggit.Json.<Game>`), downloaded at
+  run time by name and version; each text tree is stamped with the package version so old trees deserialize with the
+  old package. Upgrades should be a dedicated commit (`Spriggit.CLI.exe upgrade -p <dir> -v <ver>`, then review the
+  diff) to avoid "ambush diffs". https://mutagen-modding.github.io/Spriggit/translation-packages/ ,
+  https://mutagen-modding.github.io/Spriggit/upgrade-practices/
+- For us (**supported hypothesis**): pin the Spriggit package version in the build (it is fetched from nuget.org at run
+  time, so offline CI needs a local NuGet cache), and treat a Spriggit version bump like a toolchain bump: its own
+  commit, its own baseline diff.
+
+### W2-4. Crash logger changelogs (answers "maturity unresolved" for sf-crash-logger; Q11, Q30)
+
+- **verified**: sf-crash-logger: four releases, v0.1.0 (16 Jun 2026) to **v0.4.0 (10 Jul 2026)**, ~20 commits
+  (co-authored with Claude per the commit list), no activity shown after 10 July. v0.3.0 added Address Library IDs from
+  `versionlib-<ver>.bin` (omitted if no matching database), fault-to-register correlation, poison-pattern recognition and
+  the `Plugins.txt` load order. v0.4.0 added the **version-stable 8-hex crash signature** (hash of exception code,
+  access type and the Address Library IDs of the fault site and three callers; tokens printed so it can be
+  reproduced; withheld if the game module cannot be located), a dedicated reporter thread so stack overflows produce
+  a report, dbghelp-independent unwinding, Wine/Proton detection, and fixed `/EHa` (earlier builds' guarded reads did
+  not catch access violations). Its notes say raw `__fastfail` cannot be caught by any plugin (use `PROTON_LOG=1` on
+  Proton) and that results were "measured under Wine 11.7". https://github.com/0xra0/sf-crash-logger/releases ,
+  https://github.com/0xra0/sf-crash-logger/commits
+- **verified**: Crash Logger SSE (Skyrim, alandtse) is the mature sibling: v1.19 to **v1.25.0 (21 Aug 2026)** in 2026,
+  adding stack-overflow survival and null-function-pointer caller recovery (1.23.0), `__fastfail` logging via VEH
+  (1.24.0), navmesh/NiSkin/NIF-model introspection (1.21.0), BGSLocation/SpellItem introspection (1.22.0).
+  https://github.com/alandtse/CrashLoggerSSE/releases
+- Change to wave 1 (**supported hypothesis**): sf-crash-logger is young (one month of releases, one maintainer,
+  Proton-tested) and its crash signature only became version-stable in v0.4.0, so treat it as a candidate for test
+  runs, pinned by version and checked against a deliberate crash (Q30), not yet as the launcher's shipped logger
+  (Q11). Starfield Engine Fixes' optional Crash Logger (wave 1) remains the more established player-facing option.
+
+### Wave 2 sources (testing-qa)
+
+- https://github.com/TES5Edit/TES5Edit (dev-4.1.6: xEdit/xeInit.pas, xEdit/xeMainForm.pas, Core/wbInterface.pas, xEdit.dpr)
+- https://tes5edit.github.io/docs/18-whatsnew.html , https://github.com/TES5Edit/TES5Edit/issues/655
+- https://handbook.tesrskywind.com/qa/frequently-asked-questions , https://handbook.tesrskywind.com/qa/qa-fixes-guide ,
+  https://handbook.tesrskywind.com/qa/onboarding
+- https://mutagen-modding.github.io/Spriggit/workflow/ , https://mutagen-modding.github.io/Spriggit/translation-packages/ ,
+  https://mutagen-modding.github.io/Spriggit/upgrade-practices/
+- https://github.com/0xra0/sf-crash-logger/releases , https://github.com/0xra0/sf-crash-logger/commits
+- https://github.com/alandtse/CrashLoggerSSE/releases

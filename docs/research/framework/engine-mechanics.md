@@ -7,7 +7,7 @@ VATS, workshop, power armor, perks, companions, dialogue, quests, radio and the 
 world and planet, people and story, release and legal, and tooling and testing areas are in the framework index
 (README.md beside this file, owned by the framework thread).
 
-Author: Claude-cloud (Mechanics thread). Status: **first wave complete** (all seven areas, about 400 questions in the notes; 18:10Z). Wave 2 re-reads the pages
+Author: Claude-cloud (Mechanics thread). Status: **first wave complete, wave 2 rechecks folded in** (all seven areas, about 400 questions in the notes; 18:10Z). Wave 2 re-reads the pages
 the agents could not reach (web rate limits). Labels:
 **verified** / **supported hypothesis** / **unresolved**.
 
@@ -84,7 +84,7 @@ power-armor, papyrus, health-damage-effects and ai-packages (7 each).
 
 Findings (labels and sources in the notes):
 - Four ways to put UI on screen: replacing vanilla Scaleform menu files, SFSE plugins, HTML overlays, ImGui overlays.
-  Two HTML overlay frameworks run on game 1.16.244 with SFSE 0.2.21; Carbon UI's Nexus page says GPL-3+ but its GitHub README says source-available (licence **unresolved**, flagged by the character agent), OSF UI
+  Two HTML overlay frameworks run on game 1.16.244 with SFSE 0.2.21; Carbon UI's code is GPL-3+ with exceptions for Ultralight, the game and SFSE, but its Nexus page asks for permission before modifying (wave 2: ask the author before forking or depending on it); OSF UI is GPL-3.0, OSF UI
   has a Papyrus API. Only menu-file replacement also reaches consoles. (verified, mod pages)
 - Replaced menu files break on game patches and clash with other UI mods (StarUI after Free Lanes). If we override
   vanilla menus, the launcher should rebuild them from the player's current files. (verified, mod pages)
@@ -305,3 +305,48 @@ Key questions: B1 can a plugin add a new idle; B2 can a plugin ship its own `.ag
 own rigs, Codsworth; H1 does a `.wem` we write ourselves play; H2 can we make new events and banks; H3 how OSF plays its
 own Wwise audio; J1 does the engine radio work without FO4's transmitter and talking-activator records; J2 fall back to
 an SFSE player; L1 decode one vanilla Havok constraint; M1, M2 which tools the launcher may call or bundle.
+
+### Wave 2 rechecks ([notes](engine-mechanics-notes/wave2-rechecks.md))
+
+Changed questions (labels and sources in the notes):
+- **UI 1.2 (key), own engine menu: partly yes** (supported hypothesis). SFSE alone cannot register a menu (its API only
+  offers movie-load callbacks; verified, PluginAPI.h); CommonLibSF wraps the game's `UI::RegisterMenu` (verified); OSF UI
+  registers a real engine menu with no Flash movie to handle input for its HTML overlay (verified, source). PULSAR's
+  native Flash menu on 1.16.244 hit crashes and stale CommonLibSF addresses. Whether our own SWF draws in such a menu is
+  unresolved. New option for UI 1.1: an HTML overlay paired with a movie-less engine menu.
+- **Tools 3.5: Mutagen types Starfield's FACT fully** (relations, crime values, prisons, vendors, herd, formation
+  radius; verified schema), so the factions reuse can be written; one write-and-load test remains. Tools 3.1: newest
+  Starfield package 0.55.0-alpha.75 (2026-10-19); we pin alpha.67.
+- **New constraint, companions H5:** Mutagen's Starfield code has no RELA group, so FO4's 64 relationship records need
+  raw record writing or a Mutagen contribution.
+- Address Library for SFSE supports 1.16.244 (version 22, 13 June 2026; version 21 for 1.16.242, 15 May 2026): input
+  for the patch-delay table (tools 5.3).
+- CK command line (tools 6.1, voice L1): still no documented Starfield switch. FO4's CK has
+  `-GenerateAnimInfo:<esm> <data> <out>` (verified), likely the launch argument behind the custom-clip report
+  (animation B1, supported hypothesis). PC check: `strings` on CreationKit.exe for GenerateLips, GenerateAnimInfo and
+  compile switches (read-only).
+- Companions A3 (key) sourced: reactions +50 / +25 / 0 / -15 / -35; 8 story gates every 100 points, 30 minutes then 1
+  hour real time apart. A8: Starfield already dismisses a companion on civilian assault and angers them on a kill
+  (overlaps FO4's rules). C1 (key): the command test must call `SetCanDoCommand` first or use a teammate; FO4's
+  `OnCommandModeGiveCommand` has 13 command types (Workshop Assign, Ride Vertibird, Enter Power Armor feed C5). H2:
+  Skyrim's Friend and Ally effect sourced.
+- Licences: OSF Animation GPL-3.0 with a modding exception; Animation IO's Blender manifest says MIT while its Nexus page
+  sets custom permissions; CALUMI.Animation listed as LGPL-3.0 (our GPL-3 launcher can call it, if right).
+- Animation H3 (key) in outline: OSF Animation plays loose `.wem` and `.wav` through the game's Wwise with its own
+  subtitles via SFSE; positional audio falls back to non-3D on 1.16.244; it creates no events or banks, so H2 stays open.
+- **New precedent:** BACUP (github.com/Bryant-21/bacup, GPL-3) converts records and assets between Creation Engine
+  games, most complete for Fallout 76 to Fallout 4, with a Starfield schema but no pair targeting Starfield. Question
+  T-new: reuse its FO4 schema and asset converters, or talk to its author (owner, outreach).
+
+### PC check: Creation Kit command-line switches (job 18, verified, read-only string scan at 9abbb0f)
+
+- **Starfield CK** names `-CompileFaceFXAnims`, `-GenerateAnimInfo:(ESM) (Data) (Output)`, `-CompileMaterials`,
+  `-CompileTextExport`, `-GenerateSEQ`, `-GenerateWarnings`, `-GenerateCellAndRefCounts`, mesh LOD reports, icon and
+  ship blueprint generators. **No `-GenerateLips`** (FO4's CK has it, plus `-GenerateSingleLip`). Lip sync goes through
+  FaceFX: the CK runs `Tools\LipGenerator\LipGenerator.exe` (`sLipGeneratorPath`) as a command-line tool and reports its
+  exit code. FO4's CK calls `LipGenerator "(wav)" "(text)" -Language:(lang) -GestureExaggeration:(f)`.
+- No script-compile switch in either CK; compiling is `PapyrusCompiler.exe`, which we already run headless.
+- What it changes: decision 10 (headless CK steps) now has two concrete probes. (a) Run Starfield's
+  `LipGenerator.exe` directly on one WAV plus text, FO4-style arguments first (quests L1, X5). (b) Run
+  `-CompileFaceFXAnims` and `-GenerateAnimInfo:` on a test plugin (animation B1: new clips need anim info, which this
+  switch likely generates). Both are PC runs that write only to a scratch folder.

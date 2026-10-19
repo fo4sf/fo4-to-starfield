@@ -2,7 +2,7 @@
 
 Started 2026-10-19 by Claude-cloud (framework thread) on the owner's ask: "build a framework of questions and things
 for what we are going to do; look at modding communities, the tools, and other things." A living document, extended in
-waves. **Wave 1 done 2026-10-19 ~18:05Z**: 11 research agents (raw findings with every source in
+waves. **Wave 1 done 2026-10-19 ~18:05Z; wave 2 (gap filling) folded in ~18:30Z**: 11 research agents (raw findings with every source in
 [findings/](findings/)), folded into 7 cross-cutting files with about 280 numbered questions, plus the five phase files
 the phase threads write. Nothing here is decided until the owner says so; every "recommend" is a default to argue with.
 
@@ -30,11 +30,11 @@ Breadth before polish. A launcher that ships no assets; the player owns both gam
 
 | phase | file | raw notes |
 |---|---|---|
-| 1. New game (Vault 111 start) | [newgame.md](newgame.md) | [newgame-notes/](newgame-notes/) |
-| 2. Door enter and exit animations | [door-animations.md](door-animations.md) | |
-| 3. All interiors | [interiors.md](interiors.md) | |
-| 4. Launcher | [launcher.md](launcher.md) | |
-| Fallout systems and engine mechanics | [engine-mechanics.md](engine-mechanics.md) | [engine-mechanics-notes/](engine-mechanics-notes/) |
+| 1. New game (Vault 111 start) | [newgame.md](newgame.md): revision 2, 96 questions NG-A1 to NG-L (K: FO4's MQ101/MQ102 chain; L: saves), owner decisions, cheapest-first list | [newgame-notes/](newgame-notes/) |
+| 2. Door enter and exit animations | [door-animations.md](door-animations.md): 40 questions A to J, blockers starred | |
+| 3. All interiors | [interiors.md](interiors.md): 80 questions by step (A offline to F release), D1 to D9 on doors and markers, X1 to X9 from these findings | |
+| 4. Launcher | [launcher.md](launcher.md): 13 owner decisions D1 to D13, about 60 questions in seven areas | [launcher-sources/](launcher-sources/) |
+| Fallout systems and engine mechanics | [engine-mechanics.md](engine-mechanics.md): ten top decisions | [engine-mechanics-notes/](engine-mechanics-notes/) (about 400 questions) |
 
 ### Cross-cutting files (this thread)
 
@@ -64,9 +64,10 @@ engine-mechanics thread), [distribution-community](findings/distribution-communi
 2. **We rest on tolerance, not permission.** Read literally, Bethesda's terms forbid tools "created for" its games
    without written permission; the Starfield CK EULA names an approval route for cross-game mods. A player-side
    cross-game converter (FNV to FO4, GPL-3) has been on Nexus since 2023 (**verified**). REL-30, REL-31.
-3. **Most players own a different Fallout 4 than we pin.** Steam is on 1.11.240 (Aug 2026), we pin 1.10.163, and our
-   BA2 reader accepts header versions 1 to 3 only; whether current archives are v7/v8 is **unresolved** and a one-minute
-   header read settles it. VM-01 to VM-03.
+3. **Most players own a different Fallout 4 than we pin, and our archive reader can't open it yet.** Steam is on
+   1.11.240 (Aug 2026), we pin 1.10.163. The April 2024 next-gen update added BA2 header versions 7 and 8, which xEdit
+   and OpenMW read with the v1 layout (**verified**, wave 2); `src/fo4sf/ba2.py` accepts 1 to 3 only. Small fix:
+   accept {1, 7, 8}. VM-01 to VM-03.
 4. **Starfield's own Earth is a serious host.** It already has a 24 h day, the real Sun and Moon, and handmade overlays
    at real city coordinates; PNDT `EOVR` may add our overlays without overriding the planet's list (**supported
    hypothesis**). Three landings, not one worldspace. WP-01, WP-08, WP-14.
@@ -81,6 +82,54 @@ engine-mechanics thread), [distribution-community](findings/distribution-communi
 9. **No Starfield mod has a furniture-style power armor or a real VATS**; Starcade OS shows a Pip-Boy shape (an item
    opens an HTML menu through OSF UI). Passed to the engine-mechanics thread.
 10. **Mod managers handle Starfield natively now** (MO2 2.5.2, Vortex); SFSE refuses the Game Pass build. REL and launcher.
+
+## What wave 2 added (gap filling)
+
+- **Licence line (verified):** the GPL FAQ treats programs that talk over pipes or command-line arguments as separate
+  programs; a launcher that loads Mutagen in-process becomes GPL-3. SFSE is not permissively licensed (only
+  `PluginAPI.h` is MIT) and does not support Game Pass. REL-01, VM-21.
+- **Nexus (verified):** auto-update does not count as "crucial" for an internet-using executable; network features need a
+  staff review with source; an AI-content tag is now required. Bethesda's own mod rules ban getting around add-on
+  purchases, so the converter should check DLC ownership before converting each DLC. REL.
+- **CK steps:** LOD has a command line (`CreationKit.exe -MockWorldSpaceLOD:<plugin> <worldspaces>`, **verified**);
+  Starfield cells carry no precombine or previs fields (**supported hypothesis**: no bake step). Named NPC faces are
+  pre-baked per form ID by two CK bakes. Lip sync stays GUI-only until the queued PC job answers. TT, AP, PS.
+- **Limits (verified):** medium masters hold 65,536 new records, with 256 slots. BA2 offsets are 64-bit; whether Starfield
+  loads an archive over 4 GiB is still open. VM-23 to VM-28.
+- **Saves:** the game itself clears active plugins in Plugins.txt when a save loads or the Creations menu opens (users'
+  reports, matching newgame.md L). VM-14.
+- **Still unresolved after wave 2:** any DMCA or takedown of a cross-game converter (none found); how Shattered Space's
+  landmass was built (a read of its esm settles it); whether Starfield needs an SEQ file for start-game dialogue quests
+  (one PC probe; our writer could make one); Wwise terms for batch conversion on players' PCs.
+
+## Cross-cutting points from the phase threads (wave 1)
+
+- **New game:** `StartupQuest_DO` may be a cleaner override than stopping MQ00 and MQ101 (newgame.md NG-A1).
+- **Licences:** our built .NET tools are GPL-3 through Mutagen; CALUMI is LGPL (door-animations.md J38, J39). Creations
+  is likely closed to us (J40; also REL-13).
+- **Mutagen pin:** alpha.75 shipped today, we pin alpha.67 (TT). The "Fallout4 2.8.1-prerelease002" package named in
+  next-phase/launcher-gamma-model-and-community-tools.md is an unlisted 2021 package, not a newer release (correction,
+  from the Interiors thread).
+- **Record tools disagree:** Mutagen and xEdit read the LIGH flag bits from bit 4 up differently (Interiors thread).
+- **CK risk:** the Starfield CK may crash on terminals written outside it (Interiors thread; affects TT CK-only steps).
+- **Locations:** the port writes no XLCN on interior cells, so our interiors have no location, leveling or cleared state
+  today (Interiors thread; touches PS radiant quests and WP map).
+- **Interior count (reconciled, interiors.md "Count reconciliation"):** 230 in the repo's interior-backlog.json counts
+  interiors behind the Commonwealth worldspace's own load doors (203 plus 27 second-hop); 271 in the census adds 41
+  entered from the walled Diamond City and Goodneighbor worldspaces. The plan builds 251 of the 255 still to do (4 have
+  no door model), plus 2 from Automatron.
+- **Medium-master test:** interiors.md declines the synthetic-plugin probe for itself (FO4Port stays a full master); it
+  stays open for VM-25 and the planet master (WP-04).
+- **Engine mechanics wave 2:** an own engine menu is partly possible via CommonLibSF; Mutagen types Starfield FACT fully
+  but has no RELA group; Address Library supports 1.16.244; the Carbon UI licence needs its author's word; new precedent
+  BACUP, a GPL-3 Creation Engine record and asset converter. A read-only PC job (CK command-line switches for lip
+  generation, script compiling, animation data) is queued; its answer settles PS-08, AP-40 and TT CK-only steps.
+- **Saves (newgame.md L):** the Creations load-order prompt with Save preselected silently switches our plugins off on
+  old saves (verified on the owner's PC). Touches VM-14 and REL-51.
+- **Map markers (PR #399, map-markers.md on its branch):** FO4 markers carry a 66-icon Type enum; Starfield's Type is a
+  bare byte with no enum in Mutagen. Whether Starfield has icons for Vault, Metro and Diamond City is unresolved (a TNAM
+  census of Starfield.esm settles it). Touches WP map questions.
+- **Voice reuse** is flagged as the owner's decision by engine-mechanics.md too (same decision as REL-26).
 
 ## Where the files disagree (to settle first)
 
@@ -124,8 +173,7 @@ Read-only PC probes (through the coordinator, when the PC is free):
 10. **One terrain-only island overlay through `EOVR`** with gravity, an ocean biome and a map marker: WP-08/17/23/26/28.
 11. **Crash logger A/B** on the known Havok assert: TT-23.
 
-## Wave 2 (next)
+## Wave 3 (next)
 
-Fill the gaps each file lists (Beyond Skyrim, Enderal SE, Sim Settlements 2's voice approach, Starfield precombines and
-LOD, CDB material editors, Nexus rules pages that refused us, DMCA precedents, Fallout London's launch), fold in the
-phase threads' revisions, and cross-link questions that block each other.
+Cross-link questions that block each other across all twelve files (one dependency table), fold in the phase threads'
+next revisions and the queued CK command-line PC job, and chase the gaps that remain.

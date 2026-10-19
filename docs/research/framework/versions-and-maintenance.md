@@ -1,11 +1,13 @@
 # Game versions, engine budgets and long-term maintenance
 
-Part of the [next-phase framework](README.md). Wave 1, 2026-10-19. Sources: findings/versions-performance.md, plus the
-version and store parts of findings/starfield-toolchain.md, findings/distribution-community.md and findings/precedents.md.
+Part of the [next-phase framework](README.md). Waves 1 and 2, 2026-10-19. Sources: findings/versions-performance.md, plus
+the version and store parts of findings/starfield-toolchain.md, findings/distribution-community.md and
+findings/precedents.md; wave 2 also the SFSE and Game Pass part of findings/legal-policy.md.
 
 Short names used below: **VP** = findings/versions-performance.md, **TC** = findings/starfield-toolchain.md,
-**DC** = findings/distribution-community.md, **PR** = findings/precedents.md. "(also: TC Q9)" means the same question
-appears there as question 9.
+**DC** = findings/distribution-community.md, **PR** = findings/precedents.md, **LP** = findings/legal-policy.md.
+"(also: TC Q9)" means the same question appears there as question 9. "VP W2-1" means item W2-1 in that file's
+"Wave 2 additions" section.
 
 ## In short
 
@@ -13,11 +15,13 @@ appears there as question 9.
   Fallout 4 **1.11.240** (Aug 2026), so our source pin does not match what most players own (VP, **verified**).
 - Starfield has been calm since 11 June 2026 and SFSE shipped the same day as each 2026 patch. Fallout 4 moved four
   times since the Anniversary Edition (Nov 2025), with about 15 days of F4SE lag at launch (VP, **verified**).
-- Most uncertain: whether next-gen and Anniversary updates changed Fallout 4 **data** (Fallout4.esm, DLC .esm, BA2
-  headers). Our BA2 reader accepts header versions 1 to 3 only; next-gen v7/v8 is **unresolved**. If true, the converter
-  cannot read a current install at all.
-- Also uncertain: real engine ceilings for a full conversion (one archive past 4 GiB, medium master limit, draw calls
-  without precombines) and how the build and the game run below the owner's high-end PC.
+- Most uncertain: whether next-gen and Anniversary updates changed Fallout 4 **data** (Fallout4.esm, DLC .esm). For BA2
+  archives wave 2 settled most of it: next-gen archives carry header version 7 or 8 (**verified**), and xEdit and OpenMW
+  read them with the v1 layout, so only the version number changed (**supported hypothesis**). Our reader rejects them
+  today, but the fix is one line (accept 1, 7, 8), not a format project (VP W2-1).
+- Also uncertain: whether Starfield's engine loads one archive past 4 GiB (the format allows it, **verified**), and how
+  the build and the game run below the owner's high-end PC. Settled in wave 2: a medium master holds ObjectIDs
+  0x0000-0xFFFF (**verified**, xEdit), and CE2 has no precombine/previs records to produce (**verified** schema).
 - Three decisions unlock the most: (1) which Fallout 4 data versions the launcher accepts (VM-01); (2) a data-only core
   with SFSE as an optional layer (VM-17); (3) the Starfield patch-day policy: pin, refuse, and how fast we follow
   (VM-12, VM-36).
@@ -46,6 +50,17 @@ appears there as question 9.
 | SFSE serialization (co-save) is disabled since 0.2.12 and not re-enabled | **verified** | [sfse_whatsnew](https://raw.githubusercontent.com/ianpatt/sfse/master/sfse_whatsnew.txt) |
 | The Havok `HK_ASSERT` int3 ends the process with no WER entry | **verified** (repo docs/JOURNAL.md 2026-10-16) | VP |
 | History of Starfield patches that broke SFSE (DC listed it as unresolved) is now answered: 1.14.70 (root form class), 1.15.216 (compiler settings, Address Library v2) | **verified** | sfse_whatsnew; TC section 1 |
+| Fallout 4 next-gen (April 2024) introduced BA2 header versions 7 and 8; old-gen exe loads only up to v1; old-gen users hex-edit the byte to `01` | **verified** | VP W2-1; [Nexus article 5844](https://www.nexusmods.com/fallout4/articles/5844) |
+| xEdit and OpenMW parse FO4 v7/v8 with the same 24-byte header as v1; xEdit writes FO4 archives as v1 | **verified** (source: wbBSArchive.pas 545-553, 1336-1346; OpenMW `ba2gnrlfile.cpp` 92-104, `ba2dx10file.cpp` 95-109) | VP W2-1, TC W2-6 |
+| v7/v8 changed only the version number (header, file table, compression unchanged) | **supported hypothesis** | VP W2-1 |
+| BA2 offsets are 64-bit in the format, so the format does not stop at 4 GiB; whether Starfield's engine does is open | **verified** (format); engine **unresolved** | VP W2-3, TC W2-6 |
+| A medium master holds ObjectIDs 0x0000-0xFFFF (at most 65,536); 256 medium slots; the MO2 page's "0xFF" is the slot count | **verified** (xEdit wbImplementation.pas 5219, 2464-2468; wbInterface.pas 22600) | TC W2-5 |
+| Update-flagged plugins cannot hold new records (override-only) | **verified** (xEdit wbImplementation.pas ~5214) | TC W2-5 |
+| Starfield's CELL has no precombine/previs subrecords (`XCRI`, `PCMB`, `XPRI` occur 0 times in sf1.pas); an `OVIS` "Object Visibility Manager" record exists, purpose undocumented | **verified** (schema) | TC W2-2 |
+| Starfield's D3D12 renderer generates indirect draw arguments with a compute shader and issues ExecuteIndirect calls | **verified** | VP W2-2; [vkd3d-proton PR 1694](https://github.com/HansKristian-Work/vkd3d-proton/pull/1694) |
+| SFSE's licence: MIT covers only `sfse/PluginAPI.h`; "The remainder of the files are currently not under a permissive license"; README: "The MS Store/Gamepass version is not supported" | **verified** | LP W2-C; [raw LICENSE](https://raw.githubusercontent.com/ianpatt/sfse/master/LICENSE), [github.com/ianpatt/sfse](https://github.com/ianpatt/sfse) |
+| Loading a save or opening the Creations load-order menu deselected every plugin in `Plugins.txt` for some players (Vortex and plain Steam launches, Oct 2025 to Apr 2026); no root cause posted | **verified** (reports) | DC W2-1; [forum 13524420](https://forums.nexusmods.com/topic/13524420-game-launch-deactivates-starfield-plugins/) |
+| Languages: Fallout 4 voiced EN, FR, IT, DE, ES, JA, text-only PL, PT-BR, RU, zh-Hant; Starfield voiced EN, FR, DE, ES, JA, text-only IT, PL, PT-BR, zh-Hans; Starfield CK English only | **verified** (Steam store API, 2026-10-19) | DC W2-4 |
 
 ## Possibilities
 
@@ -85,18 +100,18 @@ appears there as question 9.
 |---|---|---|---|
 | Steam only (current) | Matches SFSE, MO2 | Game Pass players excluded | **verified** basis (SFSE, [MO2 releases](https://github.com/Modorganizer2/modorganizer/releases)) |
 | Game Pass without SFSE: plugins + BA2 via Ultimate ASI Loader / Vortex | Wider audience | Different folders (`XboxGames\Starfield\Content\Data`, `Documents\My Games\Starfield\Data`, Plugins.txt in `%LOCALAPPDATA%\Starfield`); Vortex calls its ASI loader outdated; MO2 cannot manage Game Pass | paths **verified** ([Nexus forum guide](https://forums.nexusmods.com/topic/13459379-a-guide-to-game-pass-modding-no-mod-manager), [Vortex extension](https://www.nexusmods.com/site/mods/634)); that it would work **supported hypothesis** |
-| Note: Address Library ships MS Store `.bin` files, but SFSE's loader refuses non-Steam | n/a | n/a | **verified** ([Nexus 3256](https://www.nexusmods.com/starfield/mods/3256)) |
+| Note: Address Library ships MS Store `.bin` files, but SFSE's loader refuses non-Steam; SFSE's README says the MS Store/Game Pass version is not supported, so any phase that needs SFSE excludes Game Pass | n/a | n/a | **verified** ([Nexus 3256](https://www.nexusmods.com/starfield/mods/3256); LP W2-C) |
 
 ### Engine budgets and packing
 
 | Option | What it gives | Cost or risk | Label |
 |---|---|---|---|
-| One full ESM + 1 to 3 large archives for the core | Few slots used | Archive size ceiling near 4 GiB; core64 already about 8.5 GiB at full resolution | **verified** numbers; plan **supported hypothesis** |
-| Medium masters for DLC areas or interior clusters | Saves full slots (256 medium) | Record limit conflict: about 65,535 (Bethesda) vs ObjectID up to 0xFF (MO2 BPM page); type cannot be changed later | **verified** both claims; conflict **unresolved** |
-| Update plugins for pure overrides of Starfield records | No new forms | Take a slot since 1.12.30; xEdit cannot write them | **verified** (LOOT, TC) |
+| One full ESM + 1 to 3 large archives for the core | Few slots used | Archive size ceiling near 4 GiB (format allows more, engine **unresolved**, VP W2-3); core64 already about 8.5 GiB at full resolution | **verified** numbers; plan **supported hypothesis** |
+| Medium masters for DLC areas or interior clusters | Saves full slots (256 medium) | Up to 65,536 ObjectIDs each (the MO2 "0xFF" is the slot count, TC W2-5); core64's 649,596 refs are about 10x that, so world plugins stay full masters; type cannot be changed later | limit **verified** (xEdit); in-game agreement **unresolved** |
+| Update plugins for pure overrides of Starfield records | No new forms (xEdit refuses new records in them, TC W2-5) | Take a slot since 1.12.30; xEdit cannot write them | **verified** (LOOT, TC) |
 | Depend on BA2 Limit Fix | Lifts 256 archives | SFSE plugin, pinned per runtime | **verified** |
-| Build our own merged static meshes per cell (precombine stand-in) | Fewer draw calls | Engineering; no CE2 precombine feature found | **unresolved** |
-| Texture presets keyed to VRAM | Fits 8 GB cards | Current caps (1024 colour / 512 normal) were set for archive size, not VRAM | **supported hypothesis** |
+| Build our own merged static meshes per cell (precombine stand-in) | Fewer draw calls | Engineering; CE2 has no precombine/previs records (**verified** schema) and a GPU-driven renderer (ExecuteIndirect), so per-object CPU draw cost likely matters less (**supported hypothesis**, VP W2-2, TC W2-2) | only if a frame-time probe shows a need; **unresolved** |
+| Texture presets keyed to VRAM | Fits 8 GB cards | Current caps (1024 colour / 512 normal) were set for archive size, not VRAM; vanilla uses 3.8 GB (1080p ultra) to 5.7 GB (1440p max) on a 12 GB card in one test (VP W2-2) | **supported hypothesis** |
 
 ### Crash diagnosis for players
 
@@ -120,23 +135,25 @@ appears there as question 9.
 **VM-02. Did the next-gen and Anniversary updates change Fallout4.esm, the DLC .esm files or the BA2 archives, and which records?**
 - Why it matters: if records differ, players build different games and the launcher's determinism gate (L4) fails across players. The Vault 111 cells and MQ101 may differ by player.
 - Options: evidence so far: one guide replaces only Fallout4.exe (**verified**); another lists six depots (**verified** that it lists them); the downgrader detects DLC and patches "the modified files" (**supported hypothesis** that data changed). (also: versions-performance Q2, precedents Q4, Q30)
+- Wave 2: for the BA2 archives, next-gen changed the header version to 7 or 8 (**verified**) and, by three independent readers, nothing else (**supported hypothesis**, VP W2-1); the .esm question is untouched.
 - Answer by: hash and record-level diff (Mutagen or xEdit read-only) of the base and DLC masters from a 1.10.163 copy and a 1.11.240 install. PC probe.
 - Blocks: Launcher, New game, All interiors, Release.
-- Status: open.
+- Status: narrowed (wave 2): archives differ by version number only (supported hypothesis); master records still open [VP W2-1].
 
 **VM-03. Do next-gen Fallout 4 BA2 archives use header versions the reader rejects (v7/v8)?**
-- Why it matters: `ba2.py` raises `unsupported version` for anything but 1 to 3 (**verified**). The v7/v8 claim is from memory (**unresolved**).
-- Options: add v7/v8 parsing after reading xEdit/BSArch source for the layout; or require 1.10.163 archives.
-- Answer by: first 8 bytes of each `Fallout4 - *.ba2` on a current install (a 1-minute PC probe), plus offline source reading.
+- Why it matters: `ba2.py` raises `unsupported version` for anything but 1 to 3 (**verified**). Next-gen archives are v7 or v8 (**verified**, Nexus article 5844, xEdit, OpenMW), so the current reader cannot read a player's unmodified 1.10.984 or 1.11.x install.
+- Options: accept `{1, 7, 8}` in `ba2.py` line 59 with the v1 layout (xEdit and OpenMW parse 7/8 exactly like v1, **verified**; that nothing else changed is a **supported hypothesis**); or require 1.10.163 archives. NifSkope needed the fo76utils fork for NG archives (VP W2 sources).
+- Answer by: a synthetic v7/v8 fixture test (offline) for the code; first 8 bytes of each `Fallout4 - *.ba2` and `cc*.ba2` on a current install (a 1-minute PC probe) to learn which vanilla archives are 7 and which 8, and whether 1.11.x changed anything beyond next-gen.
 - Blocks: Launcher, All interiors (any build on a current install).
-- Status: open.
+- Status: answered (wave 2): yes, v7/v8; layout same as v1 (supported hypothesis); one-line fix; per-archive version list still needs the PC probe [VP W2-1, TC W2-6].
 
 **VM-04. How does the launcher identify the Fallout 4 data version, store and language without the exe?**
 - Why it matters: the converter never runs Fallout 4; the launcher note's "check its version" should check data (VP Corrections). Fallout London failed on a wrong Fallout4.esm size (**verified**, GameStar).
 - Options: hash table of Fallout4.esm and each DLC .esm per version; BA2 header bytes; presence of Anniversary CC files; one hash table per language, or hash only language-neutral files and treat STRINGS separately (DC Q19; TTW requires English installs, **verified**). (also: versions-performance Q8, distribution-community Q19, precedents Q4)
+- Wave 2: BA2 header bytes do tell next-gen (7/8) from old-gen (1) archives (**verified**, VP W2-1). Fallout 4 ships nine Steam languages (six voiced), so a per-language hash table has up to nine rows per version (DC W2-4, **verified**); see VM-39.
 - Answer by: hashes from three installs (1.10.163, 1.10.984, 1.11.240) and one non-English install. PC probe plus community contacts.
 - Blocks: Launcher, Release.
-- Status: open.
+- Status: narrowed (wave 2): archive version byte is a verified signal; .esm hashes still open [VP W2-1, DC W2-4].
 
 **VM-05. Do GOG, Epic and Microsoft Store / Game Pass Fallout 4 installs work as sources?**
 - Why it matters: the converter needs only data, so the store may not matter, but layout, BA2 versions and runtime may differ. Epic cannot roll back (**verified**); Skyblivion and TTW reject some stores (**verified**).
@@ -148,9 +165,17 @@ appears there as question 9.
 **VM-06. Which Fallout 4 runtime is canonical for our synthetic test fixtures, and do we keep fixtures for more than one?**
 - Why it matters: unit tests use synthetic fixtures; a per-runtime header and record fixture (BA2 v1 vs v7/v8, one changed record) catches an FO4 update offline without shipping game data.
 - Options: 1.10.163 only; 1.10.163 + current. (also: versions-performance Q31, precedents Q30)
+- Wave 2: a v7/v8 BA2 fixture differs from v1 only in the version field (**supported hypothesis**, VP W2-1), so the archive fixture is cheap; the record fixture still waits on VM-02.
 - Answer by: offline tooling after VM-02 and VM-03.
 - Blocks: Launcher, Release.
-- Status: open.
+- Status: narrowed (wave 2): BA2 fixture shape known; record fixture open [VP W2-1].
+
+**VM-39. Which Fallout 4 and Starfield language pairs does v1 support?** (new in wave 2)
+- Why it matters: the hash tables (VM-04) and the support matrix (VM-36) grow with each language. Voiced in both games: EN, FR, DE, ES, JA; text-only in both: PL, PT-BR; Italian is voiced in FO4 but text-only in Starfield; RU and Traditional Chinese exist only for FO4; the Starfield CK is English only (**verified**, Steam store API). TTW requires English installs (**verified**).
+- Options: English-only v1; English-first with string tables passed through for the five shared voiced languages (**supported hypothesis** as the cheapest plan that does not exclude most players, DC W2-4); all pairs.
+- Answer by: one build test with a non-English FO4 STRINGS set (PC probe or community contact); owner decision. (also: distribution-community Q18, Q19)
+- Blocks: Launcher, Release.
+- Status: narrowed (wave 2): language data verified; policy open [DC W2-4].
 
 ### B. Creation Club and other official extras
 
@@ -177,12 +202,12 @@ appears there as question 9.
 - Blocks: Door animations, All interiors, Release.
 - Status: open.
 
-**VM-10. Does a Starfield patch reset Plugins.txt or `Starfield.ccc`, or re-order Creations?**
-- Why it matters: 1.15.214 fixed "Creations load order restoration" (**verified**, [SteamDB 18285521](https://steamdb.info/patchnotes/18285521)); a reset would silently unload our plugins.
-- Options: preflight re-checks load order after every Starfield version change.
-- Answer by: diff Plugins.txt and `.ccc` before and after the next patch. PC probe. (also: starfield-toolchain Q3)
+**VM-10. Does a Starfield patch (or a save load, or the in-game Creations menu) reset Plugins.txt or `Starfield.ccc`, or re-order Creations?**
+- Why it matters: 1.15.214 fixed "Creations load order restoration" (**verified**, [SteamDB 18285521](https://steamdb.info/patchnotes/18285521)); a reset would silently unload our plugins. Wave 2: players on 1.15.222 saw every plugin deselected in `Plugins.txt` on loading a save or opening the Creations load-order menu, with Vortex closed and also from plain Steam (**verified** reports, Oct 2025 to Apr 2026; trigger **unresolved**); separately MO2 2.5.2 disabled `SFBGS004.esm` and `ShatteredSpace.esm` until an updated `game_starfield.dll` (**verified**). That the game itself rewrites `Plugins.txt` when it reconciles Creations is a **supported hypothesis** (DC W2-1).
+- Options: preflight re-checks load order after every Starfield version change; the smoke test re-checks `Plugins.txt` after the first save load; the test runner asserts the active plugin list in game, not only the file before launch; tell players not to use the in-game Creations menu.
+- Answer by: diff Plugins.txt and `.ccc` before and after the next patch and before and after a save load. PC probe. (also: starfield-toolchain Q3; distribution-community Q7, Q8)
 - Blocks: Launcher.
-- Status: open.
+- Status: narrowed (wave 2): a non-patch reset path exists in player reports; trigger and patch behaviour open [DC W2-1].
 
 **VM-11. Is a build keyed to the Starfield runtime?**
 - Why it matters: the build graph caches by input hash + converter version; if Starfield.esm changes, overrides may need a rebuild.
@@ -229,9 +254,10 @@ appears there as question 9.
 **VM-17. Data-only core with SFSE as an optional layer: is this the long-term strategy?**
 - Why it matters: everything exe-bound (SFSE plugins, Address Library) breaks on patches: 1.14.70 needed recompiles and 1.15.216 broke "most if not all" plugins (**verified**). Data breaks less often and a diff catches it. Each SFSE dependency also excludes Game Pass. Third-party SFSE plugins we might use (BA2 Limit Fix, Engine Fixes) lag behind patches.
 - Options: Papyrus and data only for the core, SFSE for add-ons; SFSE where needed with a maintained build per runtime (CommonLibSF + Address Library). Precedent: Skywind needs SKSE plugins (**verified**, [Skywind FAQ](https://tesrskywind.com/faq/)). (also: versions-performance Q3, Q21, Q23, Q32; starfield-toolchain Q2, Q21; distribution-community Q36; precedents Q19, Q20)
+- Wave 2: SFSE's own README excludes MS Store/Game Pass, and only `sfse/PluginAPI.h` is MIT; the rest is "not under a permissive license", so SFSE is detected and linked, never bundled or mirrored (**verified**, LP W2-C). An SFSE plugin of ours may include `PluginAPI.h`.
 - Answer by: list what each phase calls (door package, start, Pip-Boy) offline; owner decision recorded in decisions.md.
 - Blocks: New game, Door animations, Fallout systems, People and story, Release.
-- Status: open.
+- Status: open (wave 2 confirmed the Game Pass cost of any SFSE dependency) [LP W2-C].
 
 **VM-18. When a patch breaks SFSE plugins, what does each SFSE-dependent feature do?**
 - Why it matters: decides whether a compiler-setting patch takes the whole port down or only some features.
@@ -259,9 +285,10 @@ appears there as question 9.
 **VM-21. Do we support Game Pass Starfield at all?**
 - Why it matters: SFSE and MO2 do not run there; Vortex does via an ASI loader it calls outdated (**verified**). A data-only core might load there.
 - Options: Steam-only v1 and say so; a no-SFSE build loaded through Plugins.txt and archives; later. (also: versions-performance Q27, starfield-toolchain Q24, distribution-community Q10)
+- Wave 2: SFSE's README: "The MS Store/Gamepass version is not supported" (**verified**, LP W2-C). So the release page states "Steam Starfield only" whenever any phase needs SFSE (legal-policy wave 2 new question 2).
 - Answer by: load the S9 test plugin on a Game Pass install (community contact); owner decision after VM-17.
 - Blocks: Release, Launcher.
-- Status: open.
+- Status: narrowed (wave 2): any SFSE phase excludes Game Pass by SFSE's own statement; a data-only Game Pass build still untested [LP W2-C].
 
 **VM-22. Can we keep a "previous Starfield runtime" test profile?**
 - Why it matters: to reproduce reports from players who have not updated or rolled back.
@@ -275,53 +302,57 @@ appears there as question 9.
 **VM-23. How many BA2 archives and plugin slots will the full port use, and does it need the BA2 Limit Fix?**
 - Why it matters: 256 archives and 253 full slots are shared with the player's other mods and Creations; a soft instability appears around 100 to 120 plugins (**verified** as article claims, slot-per-override rests on "one study").
 - Options: core as one ESM + 1 to 3 archives; medium masters for DLC areas; depend on BA2 Limit Fix. (also: versions-performance Q17, starfield-toolchain Q17)
+- Wave 2: the world core must use full masters (649,596 refs is about 10x a medium master's 65,536 ObjectIDs); medium masters fit interior clusters under 65k records (TC W2-5, inference from **verified** limits).
 - Answer by: archive counts with Starfield Engine Fixes' counter on the owner's PC; plugins.txt counts from testers. PC probe plus community contact.
 - Blocks: World, All interiors, Release.
-- Status: open.
+- Status: narrowed (wave 2): plugin-type split fixed by the medium limit; archive count open [TC W2-5].
 
 **VM-24. Can one archive pass 4 GiB, and how many numbered archives does a plugin auto-load (`- Main01.ba2`?)?**
 - Why it matters: core64 needs about 8.5 GiB at full resolution; `<plugin> - Main.ba2` auto-loads (**verified**, repo S9), numbered ones are **unresolved**.
 - Options: split by kind (Main/Textures); numbered archives; INI archive lists (avoid: Controlled Folder Access blocked Documents writes, **verified** repo).
-- Answer by: a synthetic archive over 4 GiB and two numbered archives loaded in game (an S9-style spike). PC probe. (also: versions-performance Q4, starfield-toolchain Q14)
+- Wave 2: BA2 offsets are 64-bit (`FileTableOffset: Int64`, per-file `Offset: Int64`, **verified**), so the format does not stop at 4 GiB; FO4 users report 9.5 GB and 14.7 GB archives loading and Archive2 capping at "17.592 gig" (user reports, FO4 only). For Starfield's engine it stays **unresolved**; keep splitting at 4,095 MB until a probe loads one (VP W2-3, TC W2-6).
+- Answer by: a synthetic 5 GiB archive and two numbered archives loaded in game (an S9-style spike). PC probe. (also: versions-performance Q4, starfield-toolchain Q14)
 - Blocks: All interiors, World.
-- Status: open.
+- Status: narrowed (wave 2): format limit ruled out; engine limit and numbered auto-load open [VP W2-3, TC W2-6].
 
 **VM-25. What is the real medium master record limit, and should interiors or DLC areas be medium masters?**
-- Why it matters: about 65,535 (Bethesda) vs ObjectID up to 0xFF (MO2 BPM page); the type cannot be changed later.
-- Options: full ESM only; medium masters per region; update plugins for pure overrides (cost a slot since 1.12.30). (also: starfield-toolchain Q8, Q32, Q33)
-- Answer by: write synthetic medium masters with 4,000 and 60,000 records and load them (PC probe); record counts per FO4 cluster (offline); owner decision.
+- Why it matters: the type cannot be changed later. Wave 2: xEdit masks medium ObjectIDs with `$FFFF` and rejects any ID with bits in `$00FF0000`; `MaxMediumSlot` = `$FF`. So a medium master holds 0x0000-0xFFFF (at most 65,536, fewer after any reserved low range) and the MO2 "0xFF" is the slot count (**verified**, TC W2-5). Update plugins cannot hold new records (**verified**).
+- Options: full ESM for the world core (it is about 10x a medium master); medium masters per interior cluster under 65k records; update plugins only for pure overrides (cost a slot since 1.12.30). (also: starfield-toolchain Q8, Q32, Q33)
+- Answer by: load a synthetic medium master near 60,000 records to confirm the engine agrees with xEdit (PC probe); record counts per FO4 cluster (offline); owner decision.
 - Blocks: All interiors, World.
-- Status: open.
+- Status: answered (wave 2): 65,536 ObjectIDs, 256 slots; only the in-game check remains [TC W2-5].
 
 **VM-26. Does Starfield have a precombine/previs equivalent our build could produce?**
-- Why it matters: decides between writing our own merged meshes or finding an engine feature. FO4 relies on precombines (`SCOL\CM*.NIF`); no CE2 precombine step found in any source (**unresolved**).
-- Options: merge static geometry per cell at build time; accept the cost; reduce clutter.
-- Answer by: scan Starfield.esm vanilla interiors for precombine-like data (Mutagen/xEdit); strings scan of CreationKit.exe. Offline research plus PC. (also: versions-performance Q6, starfield-toolchain Q7)
+- Why it matters: decides between writing our own merged meshes or finding an engine feature. FO4 relies on precombines (`SCOL\CM*.NIF`). Wave 2: FO4's CELL has `VISI`, `PCMB`, `XPRI`, `XCRI`; Starfield's CELL has none of them (**verified** schema, xEdit sf1.pas). An `OVIS` "Object Visibility Manager" record exists, purpose undocumented (**verified**). CE2 has no FO4-style bake, so there is nothing to produce and nothing to break (**supported hypothesis**, TC W2-2).
+- Options: accept the cost and measure (VM-27); merge static geometry per cell only if frame time demands it; reduce clutter.
+- Answer by: frame-time measurement on a dense cell (VM-27); optionally read what vanilla `OVIS` records hold (offline). (also: versions-performance Q6, starfield-toolchain Q7)
 - Blocks: All interiors, World.
-- Status: open.
+- Status: answered (wave 2): no precombine/previs equivalent to produce (supported hypothesis); downgraded to a frame-time measurement [TC W2-2, VP W2-2].
 
 **VM-27. What per-cell reference and draw-call budget keeps interiors at 60 fps on a minimum-spec GPU?**
-- Why it matters: we place references one by one; draw calls may grow sharply against FO4 (**supported hypothesis**).
+- Why it matters: we place references one by one. Wave 2: Starfield's renderer builds draw arguments on the GPU and issues ExecuteIndirect (**verified**, vkd3d-proton PR 1694), so per-object CPU draw cost, the reason FO4 needed precombines, likely matters less; the cost of many references is likely in reference loading, scripts, Havok and streaming (**supported hypothesis**, VP W2-2). The game uses up to eight CPU cores; New Atlantis with many NPCs was the heaviest test scene (**verified**, DSOGaming). No source measures a dense modded cell.
 - Options: as VM-26.
 - Answer by: frame time and reference count in the densest FO4 interiors (Vault 111, Diamond City Market interior, Mass Fusion) with PresentMon or the game's overlay. PC probe. (also: versions-performance Q5)
 - Blocks: All interiors.
-- Status: open.
+- Status: narrowed (wave 2): draw submission is likely not the bottleneck; budget still unmeasured [VP W2-2].
 
 **VM-28. Does an exterior with 650k+ references stream without traversal stutter?**
 - Why it matters: Starfield Engine Fixes ships "Reduce Traversal Stutter" and "Increase File Handle Limit" (**verified** names), which suggests vanilla pain points (**supported hypothesis**).
 - Options: accept; merged meshes; fewer references per cell.
-- Answer by: frame-time capture on a walking route over core64 (the route runner exists). PC probe. (also: versions-performance Q18)
+- Wave 2: the likely cost is CPU-side reference loading and streaming, not draw calls (**supported hypothesis**, VP W2-2).
+- Answer by: frame-time capture on a walking route over core64 (the route runner exists), at three fixed spots (dense downtown, open wasteland, interior), vanilla vs core vs core-with-LOD (VP W2-2 experiment). PC probe. (also: versions-performance Q18)
 - Blocks: World.
-- Status: open.
+- Status: narrowed (wave 2): where to look is known; numbers open [VP W2-2].
 
 ### F. Hardware, disk and build performance
 
 **VM-29. What texture caps should the default build use per VRAM tier?**
 - Why it matters: the 2026-10-12 caps (1024 colour / 512 normal) were set for archive size, not VRAM; no official VRAM figure exists (**verified**).
 - Options: three presets keyed to detected VRAM.
-- Answer by: VRAM use at each cap on an 8 GB card. Community tester. (also: versions-performance Q20)
+- Wave 2: vanilla VRAM on a 12 GB RTX 3080 in one test: under 3 GB at 1080p low, 3.8 GB at 1080p ultra, 4.4 GB at 1440p low, 5.7 GB at 1440p max, about 6.5 GB at 4K ultra with FSR2 Ultra Performance (**verified**, single vanilla test, Noticias3D). Vanilla leaves headroom on the owner's 12 GB card; VRAM with our core loaded is **unresolved**. Corsair recommends 32 GB system RAM over 16 GB without published numbers.
+- Answer by: VRAM use at each cap on an 8 GB card (community tester), and on the owner's PC with the caps halved (VP W2-2 experiment). (also: versions-performance Q20)
 - Blocks: Launcher, Release.
-- Status: open.
+- Status: narrowed (wave 2): vanilla baseline known; our added VRAM open [VP W2-2].
 
 **VM-30. What disk space does the launcher check for, and can it build on another drive than Starfield?**
 - Why it matters: Starfield 125 GB on SSD + Fallout 4 (about 30+ GB, **unresolved**) + work folder + output + temporary archives; the owner's D: is nearly full. FNV to FO4 states 1 to 2 hours; TTW output is about 17 GB (**verified**).
@@ -370,9 +401,10 @@ appears there as question 9.
 **VM-36. What support matrix and patch-follow promise go on the release page?**
 - Why it matters: players need one line, and a missed promise costs trust.
 - Options: "Steam Starfield 1.16.244 + SFSE 0.2.21; Fallout 4 data from 1.10.163 or 1.11.240"; "within a week, use the previous build until then"; automated patch-day run. (also: versions-performance Q25, Q26)
-- Answer by: owner decision after VM-01 and VM-12.
+- Wave 2: the matrix says "Steam Starfield only" whenever any phase needs SFSE (**verified** basis, LP W2-C), and lists the supported languages (VM-39).
+- Answer by: owner decision after VM-01, VM-12 and VM-39.
 - Blocks: Release.
-- Status: open.
+- Status: open (wave 2 added the Steam-only and language lines) [LP W2-C, DC W2-4].
 
 **VM-37. Who owns patch-day duty when the project is quiet?**
 - Why it matters: both games are still moving; maintenance runs for years.
@@ -405,8 +437,12 @@ Each line is a recommendation, not a decision.
 - **VM-18 SFSE breakage behaviour:** recommend degrade (hide the feature), not block launch, once VM-17 is decided.
 - **VM-19 Pin method:** recommend refuse plus guidance ("update only when launched"); no Stock Game copy by default
   because of disk cost; no login-based downgrade (already ruled out).
-- **VM-21 Game Pass:** recommend Steam-only for v1 and say so, revisit after a community Game Pass load test.
-- **VM-25 Plugin types:** recommend one full ESM for the core until the medium master limit is measured.
+- **VM-21 Game Pass:** recommend Steam-only for v1 and say so (SFSE itself excludes Game Pass, LP W2-C), revisit after
+  a community Game Pass load test.
+- **VM-25 Plugin types:** recommend full masters for the world core (about 10x a medium master) and medium masters only
+  for interior clusters under 65k records, after one in-game load of a near-full synthetic medium master.
+- **VM-39 Languages:** recommend English-first v1 with string tables passed through for EN, FR, DE, ES, JA, after one
+  non-English test build.
 - **VM-36 Support matrix and patch-follow promise:** recommend publishing the matrix line and "use the previous build
   until we post support", with no time promise until patch-day timing is measured.
 - **VM-37 Patch-day duty:** recommend detection and reporting through the existing watchdog/Codex runbook, with
@@ -418,23 +454,30 @@ Nothing here runs now; this is a list.
 
 | # | Experiment | Kind | Closes |
 |---|---|---|---|
-| E1 | On one current Steam Fallout 4 install: read the first 8 bytes of every `Fallout4 - *.ba2`, hash and size Fallout4.esm and each DLC .esm, list `cc*` files. Compare with the owner's 1.10.163 copy | PC read-only probe, minutes | VM-02 (first half), VM-03, VM-04, VM-07 (inputs list) |
+| E0 | Synthetic v7 and v8 BA2 fixtures (v1 layout, version field changed) plus accepting `{1, 7, 8}` in `ba2.py` | Offline unittest, minutes | VM-03 (code side), VM-06 (archive fixture) |
+| E1 | On one current Steam Fallout 4 install: read the first 8 bytes of every `Fallout4 - *.ba2` and `cc*.ba2` (which are v7, which v8), hash and size Fallout4.esm and each DLC .esm, list `cc*` files. Compare with the owner's 1.10.163 copy | PC read-only probe, minutes | VM-02 (first half), VM-03 (per-archive list), VM-04, VM-07 (inputs list) |
 | E2 | Record-level diff of base and DLC masters between the two installs (Mutagen read-only) | Offline after E1 copies hashes/records | VM-01, VM-02, VM-06 |
 | E3 | Scripted diff of every Starfield record we override (start quests, planet, worldspace) and every vanilla path we reference, against Starfield.esm of 1.16.236/.242/.244 | Offline tooling, reusable each patch day | VM-08, VM-09, VM-11, part of VM-34 |
-| E4 | Synthetic load spike: one archive over 4 GiB, two numbered `- Main01.ba2` archives, medium masters with 4,000 and 60,000 records; read the Engine Fixes BA2 counter | PC probe (S9-style) | VM-23, VM-24, VM-25 |
-| E5 | Frame-time capture (PresentMon) on the core64 walking route and in three dense interiors, with reference counts and VRAM use | PC probe, route runner exists | VM-27, VM-28, VM-29 (owner tier), VM-26 (cost side) |
+| E4 | Synthetic load spike: one 5 GiB archive, two numbered `- Main01.ba2` archives, one medium master near 60,000 records (in-game check of the xEdit limit); read the Engine Fixes BA2 counter | PC probe (S9-style) | VM-23, VM-24, VM-25 |
+| E5 | Frame-time capture (PresentMon + GPU counters) on the core64 walking route and at three fixed spots (dense downtown, open wasteland, interior): fps, frame time, VRAM, RAM; vanilla vs core vs core-with-LOD; repeat with texture caps halved | PC probe, route runner exists | VM-27, VM-28, VM-29 (owner tier), VM-26 (cost side) |
 | E6 | Trigger the vault cart Havok assert with Trainwreck, then with Engine Fixes' logger | PC probe | VM-33 |
 | E7 | 15-cell build under a memory cap and limited cores; record peak RSS, peak disk, time | Offline or cloud VM | VM-30, VM-31 |
 | E8 | List every SFSE, Address Library or runtime-address call in the repo's door, start and bridge code | Offline repo read | VM-17, VM-18 |
 | E9 | At the next Starfield patch: diff Plugins.txt and `Starfield.ccc`, read the CK exe version, load a 1.16.244 save | PC probe on patch day | VM-10, VM-13, VM-15 |
+| E10 | In the next smoke run: diff `Plugins.txt` before launch, at the main menu and after the first save load | PC probe, minutes | VM-10 (save-load path) |
+| E11 | Build once from a non-English Fallout 4 STRINGS set | PC probe or community tester | VM-39, VM-04 (language half) |
 
-## Gaps for wave 2
+## Gaps (after wave 2)
 
-- Confirm Fallout 4 next-gen BA2 header versions (v7/v8) and their layout from xEdit/BSArch source.
-- Which files and records changed in Fallout 4 1.10.98x and 1.11.x (patch notes, depot listings, community diffs).
+- Which vanilla Fallout 4 archives are v7 and which v8, and whether 1.11.x (Anniversary) changed anything beyond
+  next-gen (needs E1; the layout itself is answered, VP W2-1).
+- Which .esm files and records changed in Fallout 4 1.10.98x and 1.11.x (patch notes, depot listings, community diffs).
 - Fallout 4 runtime and data on GOG, Epic and Microsoft Store / Game Pass today.
 - Starfield Steam depot IDs and whether older public builds are offered as beta branches.
-- Starfield draw-call budgets, reference streaming, VRAM profiles; any CE2 precombine/previs equivalent.
+- Measured frame time, reference streaming cost and VRAM with our core loaded (no source measures a dense modded cell;
+  the precombine question and vanilla VRAM are answered, VP W2-2, TC W2-2).
+- Whether Starfield's engine loads a BA2 over 4 GiB (format allows it, VP W2-3).
+- What triggers the save-load `Plugins.txt` reset (DC W2-1).
 - Trainwreck's GitHub page and licence.
 - Exact dates for 1.14.70 (late Sep 2024, **supported hypothesis**) and 1.15.222 (sources disagree), and SFSE lag for
   the 2024 patches (**unresolved** in VP's table).
@@ -466,7 +509,7 @@ Nothing here runs now; this is a list.
 ## Sources
 
 Findings files: findings/versions-performance.md, findings/starfield-toolchain.md, findings/distribution-community.md,
-findings/precedents.md.
+findings/precedents.md, findings/legal-policy.md (wave 2, SFSE and Game Pass).
 
 Repo files cited through them: docs/SETUP.md, docs/PLAN.md, docs/PLAY-AND-TEST.md, docs/ROADMAP.md (C1),
 docs/ai/optimization.md, docs/ai/decisions.md (2026-10-12), docs/JOURNAL.md (2026-10-16), docs/FORMAT-GAP.md,
@@ -532,3 +575,27 @@ scripts/bridge/make_bridge.py; /mnt/project-files/research/next-phase/launcher-a
 - https://en.wikipedia.org/wiki/Enderal
 - https://en.wikipedia.org/wiki/Skyblivion
 - https://en.wikipedia.org/wiki/Skywind
+
+Wave 2:
+
+- https://www.nexusmods.com/fallout4/articles/5844
+- https://raw.githubusercontent.com/TES5Edit/TES5Edit/dev-4.1.6/Core/wbBSArchive.pas
+- https://raw.githubusercontent.com/TES5Edit/TES5Edit/dev-4.1.6/Core/ (wbDefinitionsSF1.pas, wbDefinitionsFO4.pas, wbImplementation.pas, wbInterface.pas)
+- https://gitlab.com/OpenMW/openmw/-/raw/master/components/bsa/ba2gnrlfile.cpp , ba2dx10file.cpp , ba2file.hpp
+- https://gitlab.com/OpenMW/openmw/-/merge_requests/4055
+- https://git.cijber.net/mirror/openmw/commit/a5d936993fb017f1c6bc17aecdc95e760c270edd
+- https://forums.nexusmods.com/topic/13484961-solved-nifskope-and-next-gen-ba2-archives
+- https://forums.nexusmods.com/topic/11091353-ba2-size-limits-and-splitting-textures-between-ba2s
+- https://github.com/HansKristian-Work/vkd3d-proton/pull/1694
+- https://www.destructoid.com/open-source-community-figures-out-problems-with-performance-in-starfield/
+- https://www.dsogaming.com/pc-performance-analyses/starfield-pc-performance-analysis/
+- https://www.noticias3d.com/noticia/92797/starfield-requisitos-4k-cuanta-memoria-grafica-consume.html
+- https://www.corsair.com/us/de/explorer/diy-builder/memory/how-memory-capacity-affects-starfield/
+- https://forums.nexusmods.com/topic/13524420-game-launch-deactivates-starfield-plugins/
+- https://www.reddit.com/r/starfieldmods/comments/1g5jqca/mod_organizer_2_disabling_core_starfield_plugins/
+- https://github.com/ModOrganizer2/modorganizer/issues/2325
+- https://store.steampowered.com/api/appdetails?appids=377160
+- https://store.steampowered.com/api/appdetails?appids=1716740
+- https://store.steampowered.com/api/appdetails?appids=2722710
+- https://raw.githubusercontent.com/ianpatt/sfse/master/LICENSE
+- https://github.com/ianpatt/sfse
