@@ -2084,3 +2084,10 @@ The prior full-size core64l migration/parity evidence belongs to beb7466, not th
 PR279/f0a97b8 CI39179440252 completed all2223 tests successfully with110 skips in888.656s, then the complete job timed out at15m01s. The earlier267/2ff2a47 job39175102642 already took13m54s. Original logs and timing-gap analysis retained; no individual test failure or hang was observed.
 
 Raise the existing CI job cap from15 to20 minutes, preserving every step, test, permission and security check. No production/test source changes or manual unchanged-suite reruns. f0a97b8 independent Grok QA6257004942/6257022597 and44 Windows controls remain scoped source evidence; terminal CI success at the new head is still required. This bounded headroom is not a performance improvement or native door acceptance. Independent CI/doc delta review requested.
+
+
+## Codex: October18 persistent garage identity audit (#367)
+
+At279/9d18e9e the actual synthetic writer publishes a valid garage button pair with persistent IDs and existing VMAD/XLKR links, but --check-identities refuses the emitted garage_buttons section with map/source key sets differ. Reproduction and failing actual-writer regression retained; artifacts unchanged by the failed audit.
+
+Recognize that section only for nonempty source pairs and validate exact ordered row shape/count, active promoted-activator ownership and both source-keyed REFR reservations. This is not an unchecked schema allowance. Three actual-writer/auditor regression methods pass: growth/reordering preserves prior endpoint IDs and serialized reference bytes/links; six source mismatch/type/count controls refuse unchanged artifacts; absent/empty pairs and canonical source case retain writer semantics. Build/provenance/guard pass; every other auditor line and all producer/VMAD/allocator code remain unchanged. Independent QA/CI pending. Identity-only report remains record_fields_checked:false/native_acceptance:false; native activation/save and #280 paired integration remain separate. No stage/install/game action.

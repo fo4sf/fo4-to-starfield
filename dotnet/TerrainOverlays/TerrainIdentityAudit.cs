@@ -163,6 +163,27 @@ internal static class TerrainIdentityAudit
                         if (name == "doors") Match(v.GetProperty("arrival"), "door-arrival", src);
                     }
                 }
+                var garagePairs = Entries(obj, "garage_buttons");
+                if (garagePairs.Length > 0)
+                {
+                    sections.Add("garage_buttons");
+                    var mapped = map.GetProperty("garage_buttons");
+                    if (mapped.ValueKind != JsonValueKind.Array || mapped.GetArrayLength() != garagePairs.Length)
+                        throw new InvalidDataException("garage pair count differs from source");
+                    var activators = Entries(obj, "activators")
+                        .Select(e => TerrainStableIds.Source(Text(e, "src"))).ToHashSet(StringComparer.Ordinal);
+                    for (int i = 0; i < garagePairs.Length; i++)
+                    {
+                        Keys(mapped[i], new[] { "button", "door" });
+                        foreach (string endpoint in new[] { "button", "door" })
+                        {
+                            string source = TerrainStableIds.Source(Text(garagePairs[i], endpoint));
+                            if (!activators.Contains(source))
+                                throw new InvalidDataException($"garage {endpoint} is not a promoted activator: {source}");
+                            Match(mapped[i].GetProperty(endpoint), "reference", source);
+                        }
+                    }
+                }
                 if (obj.TryGetProperty("benches", out var benches))
                 {
                     sections.Add("benches");
