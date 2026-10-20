@@ -157,6 +157,9 @@ head commit. Nothing is installed, nothing touches Starfield's Data folder or th
   VMAD) behind a switch; compare-ids must show only the door ACTIs replaced.
 - **G** (in game, owner's window only): G1 the SDM pair with both sides animated: E, the leaf swings, then the trip,
   both ways; G2 the FortHagen01 <-> 02 XTEL pair with an animated base; G3 come back through a door you used: it is
-  shut. Pass = a screenshot of the open leaf before each load screen and the bridge log's arrival line.
+  shut. Pass = a screenshot of the open leaf before each load screen, the bridge log's arrival line, and a Papyrus
+  log line `FO4SF_AnimatedLoadDoor open_state=1` for each trip: the wait times out into the trip anyway (so the player
+  is never stuck), so a trip alone does not prove the door opened first (Codex review, 6edf223). Also: a locked pair
+  refuses the trip, and the door state survives a save and reload. Run with the PEX recompiled from the tested commit.
 - **XTEL load graph and sounds, done 2026-10-19 offline** (design points 4 and 6); A7 gives the real sound table, then
   `load_door_anim.py sounds` runs on the next staged port manifest (offline, no install).
