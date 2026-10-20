@@ -27,7 +27,7 @@ Converters read **your own copies of both games** and generate local outputs. No
 | **Next-phase framework** | the questions, dependencies and decisions for every later phase, including the combined core's design and offline prototype | #408 |
 | **Test tooling** | night-chain arm check, preflight report, tiered queues, door trips per interior batch | #391, #397, #403, #405 |
 
-All of these are offline or staged builds. Nothing new is installed until the v6e test is done.
+The v6e test runs on the installed build, and the mission result is from the game. Everything else in the table is offline or staged, and nothing new is installed until the v6e test is done.
 
 <details>
 <summary>Progress on 19 October</summary>
