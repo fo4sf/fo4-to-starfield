@@ -20,6 +20,7 @@ float Property SavedVersion = -1.0 Auto
 string Property LogName = "fo4sf_newgame" Auto Const
 
 Event OnInit()
+    Debug.OpenUserLog(LogName)                               ; the quest script opens it too, but the order of the two OnInits is not ours to set
     if SavedVersion < 0.0
         SavedVersion = BuildVersion.GetValue()
         Trace("version saved=" + SavedVersion + " (new game)")

@@ -121,7 +121,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn('Trace("version mismatch")', code)
         self.assertIn("Debug.Notification(", code)
         self.assertEqual(code.count("Debug.Notification("), 1)   # on the mismatch alone
-        self.assertIn("Debug.OpenUserLog(LogName)", code)   # a loaded save is a new game session: the log is reopened
+        self.assertEqual(code.count("Debug.OpenUserLog(LogName)"), 2)   # in OnInit (the quest script's open may not have run yet) and on load (a new game session)
         for forbidden in ("SetStage(", "SetValue(", "MoveTo(", "Stop(", "SetPosition(", "Clear(", "ForceRefTo("):
             self.assertNotIn(forbidden, code)              # the check changes nothing
         self.assertNotIn("Version", psc.split("}", 1)[1])   # the quest script knows nothing of it

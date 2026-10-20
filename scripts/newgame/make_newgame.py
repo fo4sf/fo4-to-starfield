@@ -87,7 +87,7 @@ SPECIAL_MAX_PRESSES = 300
 # mismatch" and a notification when they differ. --build-version sets another number; bump it when a save made under
 # the old build must not go on under the new one.
 DEFAULT_BUILD_VERSION = 1
-STARFIELD =r"D:\SteamLibrary\steamapps\common\Starfield"
+STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"
 LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User",
                    "fo4sf_newgame.0.log")
 LINE = re.compile(r"FO4SF_NEWGAME rt=(?P<rt>[-\d.]+) (?P<msg>.*)$")
