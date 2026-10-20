@@ -56,7 +56,9 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   them where FO4 has it (door probe (e), the Super Duper Mart round trip PASS 17 Oct, `FO4SF_LoadDoor`
   UseDestinationPosition). The new game uses the same two steps for the elevator exit.
 - So the script resolves its places at run time with `Game.GetFormFromFile(id, plugin)` (the `FO4SF_LoadDoor`
-  contract): the vault anchor is the COC marker of `FO4Port_Vault111Cryo`; the exit anchor is the core's persistent
+  contract): the vault anchor is a persistent reference of `FO4Port_Vault111Cryo` (its COC marker when that is persistent,
+  else the port's persistent reference nearest to it: a temporary reference in an unloaded cell resolves to none, 16 Oct
+  probe), and every resolved reference must be the named plugin's own record; the exit anchor is the core's persistent
   `FO4Core_CommonwealthMapMarkerVault111`; the cog door is the port's reference keyed
   `REFR:FO4Port_Vault111Cryo:0330C3:Fallout4.esm` (Mutagen prints six digits; the id is matched as a number) in its stable `formids.json`. The writer reads the port, its
   `formids.json` and the core to find those ids and refuses when any is missing or ambiguous; `check` re-reads them.

@@ -103,6 +103,19 @@ class ProbeInstallTests(unittest.TestCase):
             self.run_cmd("install")
         self.assertEqual(os.listdir(self.data), [])
 
+    def test_every_dir_spelling_is_plan_checked(self):
+        """20 Oct review on #393: "--dir=X" skipped check_plan. Each spelling must refuse a changed script."""
+        write(os.path.join(self.staged, "Data", "Scripts", "FO4SF_QProbeSMQuest.pex"), b"edited")
+        for args in (["--dir=" + self.staged], ["--dir", self.staged]):
+            with self.subTest(args[0][:6]), self.assertRaises(SystemExit):
+                qi.main(["install", *args, "--starfield", self.game])
+            self.assertEqual(os.listdir(self.data), [])
+
+    def test_install_without_dir_is_refused(self):
+        with self.assertRaises(SystemExit):
+            qi.main(["install", "--starfield", self.game])
+        self.assertEqual(os.listdir(self.data), [])
+
     def test_an_unplanned_file_in_data_is_refused(self):
         write(os.path.join(self.staged, "Data", "Scripts", "Other.pex"), b"x")
         with self.assertRaises(SystemExit):

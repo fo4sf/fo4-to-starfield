@@ -91,8 +91,16 @@ def main(argv=None):
         ap.add_argument("--dir", required=True)
         ap.add_argument("--starfield", required=True)
         return pack_check(ap.parse_args(argv))
-    if argv[:1] == ["install"] and "--dir" in argv:
-        check_plan(os.path.abspath(argv[argv.index("--dir") + 1]))
+    if argv[:1] == ["install"]:
+        # parse --dir the way argparse does (--dir X, --dir=X, an unambiguous prefix), so no spelling skips the plan
+        # check (20 Oct review on #393: "--dir=X" did)
+        import argparse
+        ap = argparse.ArgumentParser(add_help=False)
+        ap.add_argument("--dir")
+        known, _ = ap.parse_known_args(argv[1:])
+        if not known.dir:
+            sys.exit("install needs --dir <staged probe dir> (its plan.json is checked first)")
+        check_plan(os.path.abspath(known.dir))
     bridge_install.main(argv)
     return 0
 

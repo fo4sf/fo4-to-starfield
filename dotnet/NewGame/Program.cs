@@ -182,7 +182,17 @@ static class NewGame
         var inCell = cell.Persistent.Concat(cell.Temporary).OfType<SF.IPlacedObjectGetter>().ToList();
         var cocs = inCell.Where(r => r.Base.FormKey == new FormKey(SfEsm, CocMarkerId)).ToList();
         if (cocs.Count != 1) throw new Refusal($"{VaultCell} has {cocs.Count} COC markers, not one");
-        Owned(cocs[0], port.ModKey, "the vault anchor (COC marker)");
+        Owned(cocs[0], port.ModKey, "the vault's COC marker");
+        // The script resolves the anchor at game start, while the vault is not loaded: a temporary reference in an
+        // unloaded cell resolves to none (16 Oct probe, JOURNAL), so the anchor must be persistent. The COC marker when
+        // it is; otherwise the port's own persistent reference in the cell nearest to it (the script moves the player
+        // by the pod's offset from the anchor, so any persistent reference of the cell serves). 20 Oct review on #393.
+        var c0 = cocs[0].Position;
+        float Dist(SF.IPlacedObjectGetter r) => MathF.Sqrt(MathF.Pow(r.Position.X - c0.X, 2) + MathF.Pow(r.Position.Y - c0.Y, 2) + MathF.Pow(r.Position.Z - c0.Z, 2));
+        var anchor = IsPersistent(cocs[0]) ? cocs[0]
+                   : cell.Persistent.OfType<SF.IPlacedObjectGetter>().Where(r => r.FormKey.ModKey == port.ModKey && IsPersistent(r))
+                         .OrderBy(Dist).ThenBy(r => r.FormKey.ID).FirstOrDefault()
+                     ?? throw new Refusal($"{VaultCell} has no persistent reference of {port.ModKey} to anchor the start on (its COC marker is temporary, and a temporary reference does not resolve before the vault loads)");
         uint cog = 0;
         string cogBase = "none";
         using (var doc = JsonDocument.Parse(File.ReadAllText(portIds)))
@@ -204,9 +214,11 @@ static class NewGame
         var exits = all.OfType<SF.IPlacedObjectGetter>().Where(r => r.EditorID == exitAnchor).ToList();
         if (exits.Count != 1) throw new Refusal($"{World} has {exits.Count} references {exitAnchor}, not one");
         Owned(exits[0], core.ModKey, "the exit anchor");
-        if ((exits[0].MajorRecordFlagsRaw & 0x400) == 0) throw new Refusal($"{exitAnchor} is not persistent (MoveTo needs a persistent reference)");
-        return new Places(cocs[0].FormKey.ID, cocs[0].Position, cog, cogBase, exits[0].FormKey.ID, exits[0].Position);
+        if (!IsPersistent(exits[0])) throw new Refusal($"{exitAnchor} is not persistent (MoveTo needs a persistent reference)");
+        return new Places(anchor.FormKey.ID, anchor.Position, cog, cogBase, exits[0].FormKey.ID, exits[0].Position);
     }
+
+    static bool IsPersistent(IMajorRecordGetter r) => (r.MajorRecordFlagsRaw & 0x400) != 0;
 
     /// The script resolves each id as GetFormFromFile(id, <plugin name>), so the input must be the plugin of that name.
     static void Owner(ModKey key, string expected, string what)
@@ -474,6 +486,11 @@ static class NewGame
         var pcell = new SF.Cell(new FormKey(portKey, 0x800), rel) { EditorID = VaultCell, Flags = SF.Cell.Flag.IsInteriorCell };
         pcell.Temporary.Add(new SF.PlacedObject(new FormKey(portKey, 0x801), rel) { Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(new FormKey(SfEsm, CocMarkerId)), Position = new P3Float(60, 15, 1) });
         pcell.Temporary.Add(new SF.PlacedObject(new FormKey(portKey, 0x802), rel) { Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(pdoor.FormKey), Position = new P3Float(52, 10, 0) });
+        // persistent references of the port in the cell (the converted load doors are): the COC marker is temporary, so
+        // the anchor is the nearer of these two
+        SF.PlacedObject Pers(uint id, float x, float y, float z) { var r = new SF.PlacedObject(new FormKey(portKey, id), rel) { Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(pdoor.FormKey), Position = new P3Float(x, y, z) }; r.MajorRecordFlagsRaw |= 0x400; return r; }
+        pcell.Persistent.Add(Pers(0x805, 60, 25, 1));
+        pcell.Persistent.Add(Pers(0x806, 90, 40, 20));
         var pb = new SF.CellBlock { BlockNumber = 0, GroupType = SF.GroupTypeEnum.InteriorCellBlock };
         var ps = new SF.CellSubBlock { BlockNumber = 0, GroupType = SF.GroupTypeEnum.InteriorCellSubBlock };
         ps.Cells.Add(pcell);
@@ -603,6 +620,14 @@ static class NewGame
                 try { Resolve(p, idsPath, c, ExitAnchorEdid); Console.WriteLine($"FAIL  resolve accepted {why}"); return 1; }
                 catch (Refusal e) { Console.WriteLine($"refused as expected ({why}): {e.Message}"); }
             }
+            // the vault anchor is persistent: a temporary COC marker gives way to the nearest persistent reference
+            // of the port in the cell; a persistent COC marker is used itself; none at all is refused
+            if (Resolve(portPath, idsPath, corePath, ExitAnchorEdid).VaultAnchor != 0x805) { Console.WriteLine("FAIL  the anchor is not the nearest persistent reference"); return 1; }
+            var persCoc = Port(m => { var c = VCell(m); var r = (SF.PlacedObject)c.Temporary.First(x => x.FormKey.ID == 0x801); c.Temporary.Remove(r); r.MajorRecordFlagsRaw |= 0x400; c.Persistent.Add(r); });
+            if (Resolve(persCoc, idsPath, corePath, ExitAnchorEdid).VaultAnchor != 0x801) { Console.WriteLine("FAIL  a persistent COC marker is not the anchor"); return 1; }
+            var noPers = Port(m => VCell(m).Persistent.Clear());
+            try { Resolve(noPers, idsPath, corePath, ExitAnchorEdid); Console.WriteLine("FAIL  resolve accepted a vault with no persistent reference"); return 1; }
+            catch (Refusal e) { Console.WriteLine($"refused as expected (no persistent reference in the vault): {e.Message}"); }
         }
         // refusals: a hold quest Starfield lacks, an exit anchor the core lacks
         foreach (var (why, o) in new[] { ("an unknown hold quest", plain with { Hold = new[] { "MQ999" } }), ("an unknown exit anchor", plain with { ExitAnchor = "NoSuchMarker" }) })
