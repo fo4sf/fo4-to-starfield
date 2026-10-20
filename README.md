@@ -2,7 +2,7 @@
 
 **Bring Fallout 4 into Starfield's Creation Engine 2 through a measured, repeatable conversion toolchain.** The goal is to preserve Fallout 4 gameplay while using Starfield's native physics and modern engine capabilities. Experimental interiors already load in Starfield; the full game conversion is unfinished.
 
-**Not offered for download or play for now.** On 19 Oct the owner withdrew the play and install guides, for legal reasons and so nobody's hopes are raised early; a letter asking Bethesda about the project went out the same day, and the repository is to be made private. This page records progress only.
+**Not offered for download or play for now.** On 19 Oct the owner withdrew the play and install guides, for legal reasons and so nobody's hopes are raised early; a letter asking Bethesda about the project went out the same day, and the repository is now private. This page records progress only.
 
 Reviewing or forking with an AI assistant? Point it at [docs/ai/for-ai-reviewers.md](docs/ai/for-ai-reviewers.md) first.
 
