@@ -1891,3 +1891,16 @@ the build side. No deploy, no game.
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+
+## 2026-10-20: Codex owner-authorized Grok #389 basename correction
+
+`by_extension` split only backslashes, so a forward-slash extensionless entry
+such as textures.v1/README was counted under v1/readme. Reuse the archive's
+existing lookup normalization before extracting the basename. Two synthetic
+archive test methods reproduced three failed assertions on ad91ab8; raw and
+compressed archives cover dotted directories, mixed separators, multi-dot
+filenames, unchanged input bytes and successful payload lookups. The original
+Grok branch remains intact. Peer #374/#388 alternatives are unchanged; lead
+should choose one implementation, not merge duplicate extension counters.
+No private archive, game, deployment or performance/capacity claim. Peer QA pending.
+All five focused methods and guard pass after the one-line correction.
