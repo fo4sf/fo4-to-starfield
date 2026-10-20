@@ -2,9 +2,17 @@ Scriptname FO4SF_NewGameQuest extends Quest
 {A Fallout 4 new game in Starfield (fo4-to-starfield, docs/newgame/vault111-start.md): on a NEW game only, holds off
  Starfield's opening quests, puts the player in front of their cryo pod in the converted Vault 111 (FO4Port.esm), opens
  the cog door from its console, and takes the player up the elevator onto the Commonwealth at Fallout 4's surface
- arrival. Stages: 1 stood down (not a new game), 10 in the vault, 20 looks done, 30 cog door opened, 40 on the surface,
- 200 complete. Every step and a status line every 5 s go to the user log "fo4sf_newgame"
+ arrival. Every step and a status line every 5 s go to the user log "fo4sf_newgame"
  (My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log), the evidence of a run.
+ Stages are the published contract (NG-14) other scripts and mods may listen to; make_newgame.py STAGE_CONTRACT lists
+ the same numbers with the same meanings (tests/test_newgame.py) and the doc's stage table explains them:
+   0 started: waiting for the player's 3D, then the guard and the hold-off
+   1 stood down: not a new game, nothing moved
+   10 in the vault: the player stands at their pod
+   20 looks done: character creation closed, or LooksWait passed
+   30 cog door opened: from its console
+   40 on the surface: the elevator ride is over
+   200 complete: landed, or put on the fallback spot
  The places come from other plugins by their plugin-local form ids (the FO4SF_LoadDoor contract): this plugin has no
  master but Starfield.esm, so a rebuilt port or core never needs this plugin rebuilt while those ids stay (stable ids).}
 
@@ -12,8 +20,10 @@ GlobalVariable Property GameDaysPassed Auto Const Mandatory
 {Starfield.esm 000039, 0 on a new game. Part of the new-game guard (IsNewGame).}
 
 Quest[] Property HoldOff Auto Const Mandatory
-{Starfield start quests stopped on a new game before the player is moved (the writer's --hold list, default MQ00 and
- MQ101: the main-quest start and the opening). Each is stopped only if it runs; each stop is logged.}
+{Starfield start quests stopped on a new game (the writer's --hold list, default MQ00, MQ101, MQ101PostQuest and
+ MQ_TutorialQuest_Misc04: the main-quest start, the opening, and the two its stop starts). Walked twice: before the
+ player is moved, and one tick later for what MQ101's stage 9000 started. Each is stopped only if it runs; each stop is
+ logged with its pass.}
 
 Message Property ExitMessage Auto Const Mandatory
 {The elevator prompt (FO4SFNewGame.esm 0x801): button 0 rides up, button 1 stays.}
@@ -75,6 +85,7 @@ float startedAt = 0.0
 float arrivedAt = 0.0
 bool asked = false
 int applied = 0
+int holdPasses = 0
 
 Event OnQuestInit()
     Debug.OpenUserLog(LogName)
@@ -107,6 +118,9 @@ Event OnTimer(int aiTimerID)
     Actor player = Game.GetPlayer()
     int stage = GetStage()
     ticks += 1
+    if holdPasses == 1
+        HoldOffPass(2)                                       ; one tick after MQ101 was stopped: its stage 9000 has run
+    endif
     if stage == 0
         ; Starfield's Utility.psc has no IsInMenuMode (PC precheck, 19 Oct): loaded 3D is the only wait
         if !player.Is3DLoaded()
@@ -121,7 +135,9 @@ Event OnTimer(int aiTimerID)
             Stop()
             return
         endif
-        HoldOffStart()
+        if holdPasses == 0
+            HoldOffPass(1)
+        endif
         ; MQ101's stage 0 has already run by now: it turned saving off (SetInChargen) and hid the HUD (SetCharGenHUDMode
         ; 2). Stopping MQ101 runs its stage 9000, which deletes its input layer but restores neither; vanilla does so
         ; at stages 105 and 315 (QF_MQ101_00003448.psc, PC read 19 Oct, start_read.py).
@@ -157,18 +173,25 @@ bool Function IsNewGame(float days, int level)
     return days < MaxNewGameDays && level <= MaxNewGameLevel
 EndFunction
 
-Function HoldOffStart()
+Function HoldOffPass(int pass)
+{Pass 1 runs before the move. Stopping MQ101 runs its stage 9000, which starts MQ101PostQuest and (unless the player
+ has entered the Unity) MQ_TutorialQuest_Misc04 (PC read 19 Oct, NG-N1); Stop() does not wait for that, so pass 2 walks
+ the list again one tick later. What each pass stopped is in the log (make_newgame.py log, held_off_by_pass).}
+    holdPasses = pass
+    int stopped = 0
     int i = 0
     while i < HoldOff.Length
         Quest q = HoldOff[i]
         if q != None && q.IsRunning()
             q.Stop()
-            Trace("held off " + q + " running_after=" + q.IsRunning())
+            stopped += 1
+            Trace("held off " + q + " running_after=" + q.IsRunning() + " pass=" + pass)
         else
-            Trace("not running " + q)
+            Trace("not running " + q + " pass=" + pass)
         endif
         i += 1
     endwhile
+    Trace("hold-off pass " + pass + " stopped=" + stopped + " of " + HoldOff.Length)
 EndFunction
 
 bool Function EnterVault(Actor player)

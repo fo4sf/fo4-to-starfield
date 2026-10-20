@@ -51,7 +51,7 @@ class ContractTests(unittest.TestCase):
         QF_MQ101_00003448.psc, 19 Oct). The quest restores both right after stopping it, before the move."""
         psc = read(PSC)
         body = psc[psc.index("Event OnTimer"):]
-        hold = body.index("HoldOffStart()")
+        hold = body.index("HoldOffPass(1)")
         self.assertLess(hold, body.index("Game.SetInChargen(false, false, false)"))
         self.assertLess(body.index("Game.SetInChargen(false, false, false)"), body.index("EnterVault(player)"))
         self.assertLess(hold, body.index("Game.SetCharGenHUDMode(0)"))
@@ -75,6 +75,48 @@ class ContractTests(unittest.TestCase):
         self.assertIn("AdvanceTo(30)", psc)
         self.assertIn("SetObjectiveDisplayed(10)", psc)
         self.assertIn("Objective = 10", cs)
+
+    def test_the_stage_contract_is_the_scripts(self):
+        """NG-14: the stages are a published contract. The .psc header lists each stage with its meaning; the Python
+        constants (the log summary, plan.json) and the doc's table must say the same."""
+        header = read(PSC).split("}", 1)[0]
+        listed = {int(m.group(1)): m.group(2).strip()
+                  for m in re.finditer(r"^\s+(\d+) ([a-z].*)$", header[header.index("Stages are the published"):], re.M)}
+        self.assertEqual(listed, ng.STAGE_CONTRACT)
+        self.assertEqual(ng.STAGES, (1, 10, 20, 30, 40, 200))
+        self.assertEqual(list(ng.STAGE_CONTRACT), [0] + list(ng.STAGES))
+        doc = read(os.path.join(ROOT, "docs", "newgame", "vault111-start.md"))
+        for n, what in ng.STAGE_CONTRACT.items():
+            self.assertIn(f"| {n} | {what} |", doc)
+
+    def test_the_writer_defaults_match_the_python_ones(self):
+        """NG-2: the default build sets GLOB MQ101Debug to 10 (what MQ00 writes), off under --no-mq101debug. NG-19 /
+        NG-N1: the default hold list has the two quests MQ101's stage 9000 starts on stop."""
+        cs = read(CS)
+        self.assertIn("DefaultHold = { " + ", ".join(f'"{q}"' for q in ng.DEFAULT_HOLD) + " }", cs)
+        self.assertIn(f"DefaultMQ101Debug = {ng.DEFAULT_MQ101DEBUG}f", cs)
+        self.assertEqual(ng.DEFAULT_HOLD[2:], ("MQ101PostQuest", "MQ_TutorialQuest_Misc04"))
+        p = ng.main.__globals__["argparse"].Namespace(hold=None, mq101debug=None, no_mq101debug=False, looks=True)
+        self.assertEqual(ng.tool_options(p), [])
+        self.assertEqual(ng.mq101debug_option(p), 10)
+        p.no_mq101debug = True
+        self.assertEqual(ng.tool_options(p), ["--no-mq101debug"])
+        self.assertIsNone(ng.mq101debug_option(p))
+        p.no_mq101debug, p.mq101debug, p.looks = False, 8.0, False
+        self.assertEqual(ng.tool_options(p), ["--mq101debug", "8.0", "--no-looks"])
+        self.assertEqual(ng.mq101debug_option(p), 8.0)
+
+    def test_the_hold_off_runs_twice(self):
+        """Stopping MQ101 runs its stage 9000, which starts MQ101PostQuest and MQ_TutorialQuest_Misc04 (PC read 19 Oct,
+        NG-N1): the list is walked again one tick after the first pass, and each stop is logged with its pass."""
+        psc = read(PSC)
+        body = psc[psc.index("Event OnTimer"):]
+        self.assertLess(body.index("HoldOffPass(2)"), body.index("if stage == 0"))
+        self.assertIn("if holdPasses == 1\n        HoldOffPass(2)", body)
+        self.assertIn("if holdPasses == 0\n            HoldOffPass(1)", body)
+        self.assertIn('" pass=" + pass', psc)
+        for q in ng.DEFAULT_HOLD:
+            self.assertIn(q, psc)                            # the HoldOff property's doc names the default list
 
     def test_script_names_and_log_name(self):
         cs = read(CS)
@@ -196,10 +238,13 @@ class PrecheckTests(unittest.TestCase):
 class LogTests(unittest.TestCase):
     LINES = [
         "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 init holdoff=2 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915",
-        "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 held off [Quest < (00012345)>] running_after=False",
-        "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 not running [Quest < (00054321)>]",
+        "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 held off [Quest < (00012345)>] running_after=False pass=1",
+        "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 not running [Quest < (00054321)>] pass=1",
+        "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 hold-off pass 1 stopped=1 of 4",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 enter vault ok=True pos=11 20 1 target=11 20 1 cell=[Cell <FO4Port_Vault111Cryo>]",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 stage 10",
+        "[10/20/2026 - 09:00:03AM] FO4SF_NEWGAME rt=8.0 held off [Quest < (00013579)>] running_after=False pass=2",
+        "[10/20/2026 - 09:00:03AM] FO4SF_NEWGAME rt=8.0 hold-off pass 2 stopped=1 of 4",
         "[10/20/2026 - 09:00:03AM] FO4SF rt=7.5 pos=1 2 3 (another log's line)",
         "[10/20/2026 - 09:01:00AM] FO4SF_NEWGAME rt=60.0 status stage=20 pos=50 10 0 cell=x world=None",
         "[10/20/2026 - 09:02:00AM] FO4SF_NEWGAME rt=120.0 elevator prompt button=0",
@@ -212,7 +257,9 @@ class LogTests(unittest.TestCase):
     def test_summary(self):
         s = ng.summarize(self.LINES)
         self.assertEqual(s["stages"], [10, 40, 200])
-        self.assertEqual(s["held_off"], ["[Quest < (00012345)>]"])
+        self.assertEqual(s["stages_named"], [f"{n} {ng.STAGE_CONTRACT[n]}" for n in (10, 40, 200)])
+        self.assertEqual(s["held_off"], ["[Quest < (00012345)>]", "[Quest < (00013579)>]"])
+        self.assertEqual(s["held_off_by_pass"], {"1": ["[Quest < (00012345)>]"], "2": ["[Quest < (00013579)>]"]})
         self.assertTrue(s["entered_vault"])
         self.assertTrue(s["landed"])
         self.assertFalse(s["fell"])

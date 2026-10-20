@@ -9,14 +9,17 @@
 //        arrival of the ride (the XTEL of Vault111InteriorAutoLoadDoorREF 0001F180); MQ102's name. Interior positions
 //        in metres in the port's frame and exterior ones in the core's (both FO4 position / 70); headings in degrees.
 //   write <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> <out dir>
-//         [--plugin FO4SFNewGame.esm] [--hold MQ00,MQ101] [--mq101debug <n>] [--no-looks] [--exit-anchor <REFR EditorID>]
+//         [--plugin FO4SFNewGame.esm] [--hold MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04] [--mq101debug <n>]
+//         [--no-mq101debug] [--no-looks] [--exit-anchor <REFR EditorID>]
 //        the plugin, mastered on Starfield.esm only: QUST FO4SF_NewGame (start game enabled, run once; stages 1 / 10 /
-//        20 / 30 / 40 / 200; objective 10) carrying FO4SF_NewGameQuest (and FO4SF_NewGameLooks unless --no-looks) with
-//        its properties, and MESG FO4SF_NewGameElevator (two buttons). The port and the core are read for the ids and
-//        positions the script resolves at run time with Game.GetFormFromFile (plugin-local ids): the vault anchor (the
-//        COC marker of FO4Port_Vault111Cryo), the cog door (formids.json REFR:FO4Port_Vault111Cryo:0330C3:...; 0 when
-//        the port has none) and the exit anchor (the core's Vault 111 map marker). --mq101debug also overrides
-//        Starfield's GLOB MQ101Debug (the debug start path; off by default, see the doc).
+//        20 / 30 / 40 / 200, the published stage contract of make_newgame.py STAGE_CONTRACT; objective 10) carrying
+//        FO4SF_NewGameQuest (and FO4SF_NewGameLooks unless --no-looks) with its properties, MESG FO4SF_NewGameElevator
+//        (two buttons), and an override of Starfield's GLOB MQ101Debug set to 10 (what MQ00 writes before it starts
+//        MQ101; the owner's decision NG-2 is that we set it ourselves) unless --no-mq101debug, or --mq101debug <n> for
+//        another value. The port and the core are read for the ids and positions the script resolves at run time with
+//        Game.GetFormFromFile (plugin-local ids): the vault anchor (the COC marker of FO4Port_Vault111Cryo), the cog
+//        door (formids.json REFR:FO4Port_Vault111Cryo:0330C3:...; 0 when the port has none) and the exit anchor (the
+//        core's Vault 111 map marker).
 //   check <plugin> <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> [same options]
 //        reads the plugin back and checks every record, property and id the script relies on (exit 1 on a problem).
 //   selftest <scratch dir>
@@ -60,7 +63,11 @@ static class NewGame
     public const string PortPlugin = "FO4Port.esm", CorePluginFile = "FO4TerrainCore.esm";
     public const string QuestEdid = "FO4SF_NewGame", ScriptName = "FO4SF_NewGameQuest", LooksScript = "FO4SF_NewGameLooks";
     public const string MessageEdid = "FO4SF_NewGameElevator", ExitAnchorEdid = "FO4Core_CommonwealthMapMarkerVault111";
-    public const uint QuestId = 0x800, MessageId = 0x801, MQ101DebugOverride = 0;  // the GLOB override keeps Starfield's id
+    public const uint QuestId = 0x800, MessageId = 0x801;   // the GLOB override keeps Starfield's id
+    // GLOB MQ101Debug: MQ00's stage 10 sets it to 10 and starts MQ101 (verified, QF_MQ00_00005790.psc). We stop MQ00,
+    // which may leave it at 0 (sustenance off, NG-M1), so the default build writes 10 ourselves (NG-2); which value
+    // gives the cleanest start is unverified until the PC run (NG-M4), hence --mq101debug <n> and --no-mq101debug.
+    public const float DefaultMQ101Debug = 10f;
     // Starfield.esm, verified: QuestTypeSideQuest (the mission, Missions tab), GameDaysPassed (FLTV 0 on a new game,
     // docs/ai/test-queue.md), COCMarkerHeading (the port places each cell's COC marker on it, WP10)
     public const uint QuestTypeSideId = 0x047600, GameDaysPassedId = 0x000039, CocMarkerId = 0x000032;
@@ -68,8 +75,11 @@ static class NewGame
     // Fallout4.esm, verified in docs/spikes/B4-mission-anatomy.md section 3
     public const uint Fo4VaultCell = 0x0016D8, Fo4Console = 0x091A49, Fo4CogDoor = 0x0330C3, Fo4Platform = 0x0244EB,
                       Fo4ExitDoor = 0x01F180, Fo4MQ102 = 0x01CC2A;
-    public static readonly string[] DefaultHold = { "MQ00", "MQ101" };
-    // the stages and the objective FO4SF_NewGameQuest.psc drives
+    // the quests held off on a new game: the main-quest start and the opening, and the two MQ101's stage 9000 starts
+    // when MQ101 is stopped (MQ101PostQuest always, MQ_TutorialQuest_Misc04 unless the player entered the Unity; PC
+    // read 19 Oct, NG-19 / NG-N1), which the script stops on a second pass one tick later
+    public static readonly string[] DefaultHold = { "MQ00", "MQ101", "MQ101PostQuest", "MQ_TutorialQuest_Misc04" };
+    // the stages and the objective FO4SF_NewGameQuest.psc drives (stage 0, the wait for the player's 3D, is no record)
     public static readonly ushort[] Stages = { 1, 10, 20, 30, 40, 200 };
     public const ushort Objective = 10;
     public const string ObjectiveText = "Leave Vault 111";
@@ -94,7 +104,7 @@ static class NewGame
         public static Options From(string[] a) => new(
             ArgOrNull(a, "--plugin") ?? NewGame.Plugin,
             (ArgOrNull(a, "--hold") ?? string.Join(",", DefaultHold)).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
-            ArgOrNull(a, "--mq101debug") is { } d ? float.Parse(d, CultureInfo.InvariantCulture) : null,
+            a.Contains("--no-mq101debug") ? null : ArgOrNull(a, "--mq101debug") is { } d ? float.Parse(d, CultureInfo.InvariantCulture) : DefaultMQ101Debug,
             !a.Contains("--no-looks"), ArgOrNull(a, "--exit-anchor") ?? ExitAnchorEdid);
     }
 
@@ -350,7 +360,7 @@ static class NewGame
                           $"hold [{string.Join(", ", o.Hold)}]; vault anchor FO4Port.esm:{places.VaultAnchor:X6} at {Show(places.AnchorPos)}, " +
                           $"cog door {(places.CogDoor == 0 ? "none" : $"{places.CogDoor:X6} ({places.CogDoorBase})")}, exit anchor " +
                           $"FO4TerrainCore.esm:{places.ExitAnchor:X6} at {Show(places.ExitPos)}; looks {(o.Looks ? "on" : "off")}" +
-                          (o.MQ101Debug is { } d2 ? $"; GLOB MQ101Debug = {F(d2)}" : ""));
+                          (o.MQ101Debug is { } d2 ? $"; GLOB MQ101Debug = {F(d2)}" : "; GLOB MQ101Debug not overridden"));
         return 0;
     }
 
@@ -383,7 +393,7 @@ static class NewGame
             Need(globals.Count == 1 && src is not null && globals[0].FormKey == src.FormKey && globals[0].Data == dbg,
                  $"GLOB MQ101Debug is not overridden to {F(dbg)}");
         }
-        else Need(globals.Count == 0, "a build without --mq101debug overrides a GLOB");
+        else Need(globals.Count == 0, "a --no-mq101debug build overrides a GLOB");
 
         var q = plug.Quests.FirstOrDefault(x => x.FormKey == new FormKey(key, QuestId));
         if (q is null) problems.Add("no QUST 0x800");
@@ -473,6 +483,8 @@ static class NewGame
         sf.Globals.Add(new SF.Global(new FormKey(SfEsm, 0x900), rel) { EditorID = "MQ101Debug", Data = 0 });
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x901), rel) { EditorID = "MQ00" });
         sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x902), rel) { EditorID = "MQ101" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x903), rel) { EditorID = "MQ101PostQuest" });
+        sf.Quests.Add(new SF.Quest(new FormKey(SfEsm, 0x904), rel) { EditorID = "MQ_TutorialQuest_Misc04" });
         sf.Statics.Add(new SF.Static(new FormKey(SfEsm, CocMarkerId), rel) { EditorID = "COCMarkerHeading" });
         sf.ModHeader.Stats.NextFormID = 0x800;
         var sfPath = Path.Combine(dir, "Starfield.esm");
@@ -533,11 +545,13 @@ static class NewGame
 
         var outDir = Path.Combine(dir, "out");
         var plain = Options.From(Array.Empty<string>());
+        if (plain.MQ101Debug != DefaultMQ101Debug || !plain.Hold.SequenceEqual(DefaultHold)) { Console.WriteLine("FAIL  the default options"); return 1; }
+        if (Options.From(new[] { "--no-mq101debug" }).MQ101Debug is not null || Options.From(new[] { "--mq101debug", "8" }).MQ101Debug != 8) { Console.WriteLine("FAIL  the MQ101Debug options"); return 1; }
         var variants = new (string Name, string Ids, Options O)[]
         {
             ("default", idsPath, plain), ("nolooks", idsPath, plain with { Looks = false }),
-            ("debug8", idsPath, plain with { MQ101Debug = 8 }), ("nocog", noCogIds, plain),
-            ("hold1", idsPath, plain with { Hold = new[] { "MQ101" } }),
+            ("nodebug", idsPath, plain with { MQ101Debug = null }), ("debug8", idsPath, plain with { MQ101Debug = 8 }),
+            ("nocog", noCogIds, plain), ("hold2", idsPath, plain with { Hold = new[] { "MQ00", "MQ101" } }),
         };
         foreach (var (name, ids, o) in variants)
         {
@@ -551,10 +565,13 @@ static class NewGame
         {
             ("default", plain with { Looks = false }, idsPath, "a looks build as a no-looks one"),
             ("nolooks", plain, idsPath, "a no-looks build as a looks one"),
-            ("default", plain with { MQ101Debug = 8 }, idsPath, "a plain build as an MQ101Debug one"),
-            ("debug8", plain, idsPath, "an MQ101Debug build as a plain one"),
+            ("default", plain with { MQ101Debug = null }, idsPath, "the default (MQ101Debug 10) build as a --no-mq101debug one"),
+            ("nodebug", plain, idsPath, "a --no-mq101debug build as the default one"),
+            ("default", plain with { MQ101Debug = 8 }, idsPath, "the default build as an MQ101Debug 8 one"),
+            ("debug8", plain, idsPath, "an MQ101Debug 8 build as the default one"),
             ("nocog", plain, idsPath, "a build without the cog door against a port with it"),
-            ("default", plain with { Hold = new[] { "MQ101" } }, idsPath, "another hold list"),
+            ("default", plain with { Hold = new[] { "MQ00", "MQ101" } }, idsPath, "the default hold list as the two-quest one"),
+            ("hold2", plain, idsPath, "a two-quest hold list as the default one"),
         };
         foreach (var (build, o, ids, why) in crosses)
         {
@@ -572,6 +589,9 @@ static class NewGame
             ("the merge offset changed", m => ((SF.ScriptFloatProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "MergeOffsetY")).Data = 0),
             ("a property removed", m => m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.RemoveAll(p => p.Name == "PodHeading")),
             ("the hold list emptied", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.Clear()),
+            ("the hold list lost MQ101PostQuest", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(2)),
+            ("the MQ101Debug override reads 0", m => m.Globals.First().Data = 0),
+            ("the MQ101Debug override removed", m => m.Globals.Clear()),
             ("the elevator prompt has one button", m => m.Messages.First().MenuButtons.RemoveAt(1)),
             ("the quest has no QuestType", m => m.Quests.First().QuestType.Clear()),
         };

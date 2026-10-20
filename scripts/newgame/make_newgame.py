@@ -7,7 +7,8 @@ usage:
       native of FO4SF_NewGameQuest is missing (do not stage); a missing Game.ShowRaceMenu only means --no-looks.
   python make_newgame.py stage --out <dir> --fo4 <Fallout4.esm> --port <FO4Port.esm> --port-ids <formids.json>
                                --core <FO4TerrainCore.esm> [--starfield <Starfield.esm>] [--compiler <exe>]
-                               [--content-resources <zip>] [--no-looks] [--hold MQ00,MQ101] [--mq101debug N] [--pod-ref HEX]
+                               [--content-resources <zip>] [--no-looks] [--hold MQ00,MQ101,...] [--mq101debug N]
+                               [--no-mq101debug] [--pod-ref HEX]
       1. dotnet/NewGame points (Fallout4.esm read only: the pod, the console, the cog door, the platform, the arrival);
       2. dotnet/NewGame write + check against the port and core given (offline_check.txt);
       3. the Papyrus compile of FO4SF_NewGameQuest.psc (and FO4SF_NewGameLooks.psc unless --no-looks);
@@ -21,7 +22,8 @@ usage:
       exp_install.py holds one experiment, so the new game goes in WITH a core set: a copy of it plus the plugin and its
       .pex, published only after verify passes on the result.
   python make_newgame.py log [--file <fo4sf_newgame.0.log>]
-      the run's user log as a summary (stages, held-off quests, moves, the landing); exit 0 when stage 200 was reached.
+      the run's user log as a summary (stages by the contract below, held-off quests by pass, moves, the landing); exit 0
+      when stage 200 was reached.
 Nothing here installs anything: the install is the owner's line, to the install session, after the current test.
 """
 import argparse
@@ -41,7 +43,24 @@ PROJECT = os.path.join(REPO, "dotnet", "NewGame")
 PLUGIN = "FO4SFNewGame.esm"
 SCRIPT = "FO4SF_NewGameQuest"
 LOOKS = "FO4SF_NewGameLooks"
-STAGES = (1, 10, 20, 30, 40, 200)
+# The stage contract (NG-14): the stages FO4SF_NewGame publishes for later phases and other mods to listen to, with
+# what each means. FO4SF_NewGameQuest.psc's header lists the same lines and tests/test_newgame.py holds them equal;
+# docs/newgame/vault111-start.md section 9 is the published table. Stage 0 is the quest's start, not a QUST record.
+STAGE_CONTRACT = {
+    0: "started: waiting for the player's 3D, then the guard and the hold-off",
+    1: "stood down: not a new game, nothing moved",
+    10: "in the vault: the player stands at their pod",
+    20: "looks done: character creation closed, or LooksWait passed",
+    30: "cog door opened: from its console",
+    40: "on the surface: the elevator ride is over",
+    200: "complete: landed, or put on the fallback spot",
+}
+STAGES = tuple(n for n in STAGE_CONTRACT if n > 0)           # the QUST's stage records (Program.cs Stages)
+# the writer's defaults (Program.cs DefaultHold and DefaultMQ101Debug, held equal by tests/test_newgame.py): the opening
+# quests, the two MQ101's stage 9000 starts when it is stopped (NG-19, NG-N1), and GLOB MQ101Debug set to 10 ourselves,
+# the value MQ00 writes before starting MQ101 (NG-2)
+DEFAULT_HOLD = ("MQ00", "MQ101", "MQ101PostQuest", "MQ_TutorialQuest_Misc04")
+DEFAULT_MQ101DEBUG = 10
 STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"
 LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User",
                    "fo4sf_newgame.0.log")
@@ -188,11 +207,20 @@ def tool_options(a):
     opts = []
     if a.hold:
         opts += ["--hold", a.hold]
-    if a.mq101debug is not None:
+    if a.no_mq101debug:
+        opts.append("--no-mq101debug")
+    elif a.mq101debug is not None:
         opts += ["--mq101debug", str(a.mq101debug)]
     if not a.looks:
         opts.append("--no-looks")
     return opts
+
+
+def mq101debug_option(a):
+    """The GLOB MQ101Debug value the build writes: None under --no-mq101debug, else the value given or the default."""
+    if a.no_mq101debug:
+        return None
+    return DEFAULT_MQ101DEBUG if a.mq101debug is None else a.mq101debug
 
 
 def pins(a):
@@ -228,8 +256,9 @@ def stage(a):
         pts = json.load(f)
     plan = {"kind": "newgame", "plugin": PLUGIN, "plugin_sha256": sha256(os.path.join(out, PLUGIN)),
             "scripts": {s: sha256(p) for s, p in pex.items()}, "checked_against_sha256": before,
-            "options": {"hold": a.hold or "MQ00,MQ101", "mq101debug": a.mq101debug, "looks": a.looks},
-            "stages": list(STAGES), "points": pts, "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_newgame.0.log"}
+            "options": {"hold": a.hold or ",".join(DEFAULT_HOLD), "mq101debug": mq101debug_option(a), "looks": a.looks},
+            "stages": {str(n): what for n, what in STAGE_CONTRACT.items()}, "points": pts,
+            "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_newgame.0.log"}
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
         json.dump(plan, f, indent=1)
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
@@ -326,20 +355,28 @@ def split_runs(lines, line_re, start="init "):
 
 
 def summarize(lines):
-    """The LATEST run of the new-game log as {"stages", "held_off", "entered_vault", "surfaced", "landed", "fell",
-    "stood_down", "last_status", "runs", "earlier_completed"}. Only the latest run is judged; "runs" counts the runs in
-    the file and "earlier_completed" says whether an older one reached stage 200 (kept as history, never as the
-    current result). Lines of other logs are ignored."""
-    s = {"stages": [], "held_off": [], "entered_vault": None, "surfaced": None, "landed": None, "fell": False,
-         "stood_down": False, "last_status": None, "runs": 0, "earlier_completed": False}
+    """The LATEST run of the new-game log as {"stages", "stages_named", "held_off", "held_off_by_pass", "entered_vault",
+    "surfaced", "landed", "fell", "stood_down", "last_status", "runs", "earlier_completed"}. "stages_named" reads each
+    stage reached by the contract (STAGE_CONTRACT); "held_off_by_pass" says what each hold-off pass stopped (pass 1
+    before the move, pass 2 one tick later for what MQ101's stop started). Only the latest run is judged; "runs"
+    counts the runs in the file and "earlier_completed" says whether an older one reached stage 200 (kept as history,
+    never as the current result). Lines of other logs are ignored."""
+    s = {"stages": [], "stages_named": [], "held_off": [], "held_off_by_pass": {}, "entered_vault": None,
+         "surfaced": None, "landed": None, "fell": False, "stood_down": False, "last_status": None, "runs": 0,
+         "earlier_completed": False}
     runs = split_runs(lines, LINE)
     s["runs"] = len(runs)
     s["earlier_completed"] = any("stage 200" in r for r in runs[:-1])
     for msg in runs[-1] if runs else []:
         if msg.startswith("stage "):
-            s["stages"].append(int(msg.split()[1]))
+            n = int(msg.split()[1])
+            s["stages"].append(n)
+            s["stages_named"].append(f"{n} {STAGE_CONTRACT.get(n, 'not in the contract')}")
         elif msg.startswith("held off "):
-            s["held_off"].append(msg[len("held off "):].split(" running_after=")[0])
+            quest, _, rest = msg[len("held off "):].partition(" running_after=")
+            s["held_off"].append(quest)
+            m = re.search(r"\bpass=(\d+)", rest)
+            s["held_off_by_pass"].setdefault(m.group(1) if m else "1", []).append(quest)
         elif msg.startswith("enter vault ok="):
             s["entered_vault"] = msg.split()[2] == "ok=True"
         elif msg.startswith("surface setposition "):
@@ -379,8 +416,9 @@ def main(argv=None):
     s.add_argument("--compiler", default=os.path.join(STARFIELD, "Tools", "Papyrus Compiler", "PapyrusCompiler.exe"))
     s.add_argument("--content-resources", default=cr)
     s.add_argument("--no-looks", dest="looks", action="store_false")
-    s.add_argument("--hold", default=None, help="Starfield start quests to stop, by EditorID (default MQ00,MQ101)")
-    s.add_argument("--mq101debug", type=float, default=None, help="override GLOB MQ101Debug (off by default)")
+    s.add_argument("--hold", default=None, help=f"Starfield start quests to stop, by EditorID (default {','.join(DEFAULT_HOLD)})")
+    s.add_argument("--mq101debug", type=float, default=None, help=f"the GLOB MQ101Debug override's value (default {DEFAULT_MQ101DEBUG})")
+    s.add_argument("--no-mq101debug", action="store_true", help="write no GLOB MQ101Debug override")
     s.add_argument("--pod-ref", default=None, help="the player's pod in Vault111Cryo, FO4 hex id (when points finds several)")
     v = sub.add_parser("verify")
     v.add_argument("--exp-dir", required=True)
