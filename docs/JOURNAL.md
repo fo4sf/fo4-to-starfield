@@ -1891,3 +1891,19 @@ the build side. No deploy, no game.
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+
+## 2026-10-20: Codex #412 status result and advisory reports
+
+Follow-up to #409: auto-discovered malformed manifests printed an error but returned
+success, while malformed optional failure-summary shapes could crash healthy status
+or print a partial batch-success banner. Discovery now returns the manifest reader's
+result. Optional reports validate their displayed structure and render completely
+before printing; read/shape/format failures warn without changing the manifest result.
+
+Seven new actual-subprocess CLI methods (38 invocations) failed with 27 assertions
+on the original #409 source, then passed after the correction. Valid formatting,
+three-reason limit, explicit/discovered errors, staging precedence, work fallback,
+null top and absent-manifest behavior are covered. The existing summary test,
+seven config/CLI tests and five manifest tests also pass (20 methods total).
+Original red and green evidence retained privately. Synthetic metadata only;
+independent QA and lead integration remain pending, with no native game claims.
