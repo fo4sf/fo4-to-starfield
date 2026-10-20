@@ -85,7 +85,8 @@ def writer_pins():
     for name, executable in (("python", sys.executable), ("dotnet", shutil.which("dotnet"))):
         if not executable:
             raise ValueError(f"missing {name} runtime")
-        result[f"runtime:{name}"] = {"path": str(Path(executable).resolve()), "sha256": sha(read(executable))}
+        resolved = Path(executable).resolve(strict=True)
+        result[f"runtime:{name}"] = {"path": str(resolved), "sha256": sha(read(resolved))}
     result["runtime:dotnet-info"] = subprocess.check_output([shutil.which("dotnet"), "--info"]).decode()
     return result
 

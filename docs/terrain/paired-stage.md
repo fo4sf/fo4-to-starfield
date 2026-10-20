@@ -85,3 +85,8 @@ Production dispatch calls the unmodified core stage/check implementations with
 added paired-session guards. A freshly pinned full-size paired build, current
 PEX/archive validation and native outside/inside/return/save/reload remain
 required. Independent source QA is required before lead integration.
+
+Runtime launcher aliases are resolved before hashing their actual binary,
+so installed Python/dotnet symlinks work on Linux. Rechecking pins resolves the
+launcher again, so retargeting changes identity/hash and refuses the old request.
+This runtime-only resolution does not relax source/state reparse protections.

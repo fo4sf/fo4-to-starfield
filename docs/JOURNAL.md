@@ -2121,3 +2121,16 @@ The added unfinished-generation guard also exposed a real same-request intent
 collision across distinct fresh folders. The intent now binds the generation
 path before hashing/registering it; the retained four-boundary retry loop
 regresses this collision. Windows case aliases use Path identity for lineage.
+
+
+## 2026-10-19 Mountain / 20 UTC: Codex paired-stage runtime alias correction
+
+Hosted410 run39345368803 finished FAILED:2393 tests,8 errors,111 skips.
+All eight paired-stage tests refused the Linux Python launcher symlink because
+writer_pins recorded its resolved filename but hashed its unresolved alias.
+Resolve runtime executables before applying the regular-file hash guard; source
+and state files still reject symlinks/reparse points. Added regular runtime
+identity and real symlink-retargeting regressions. On Windows the real symlink
+case skips when existing permissions disallow creating a link; no permission
+settings are changed. Keep the original failed hosted job and await corrected
+Linux CI plus independent QA; no native/staging/deployment actions.
