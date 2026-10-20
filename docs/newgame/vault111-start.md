@@ -101,8 +101,10 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   `OnMenuOpenCloseEvent` when "ChargenMenu" closes. The event handler is written with FO4's signature
   `(string asMenuName, bool abOpening)`, **unverified** until the Papyrus compile on the PC; the precheck looks the
   registration and the event up in ScriptObject.psc, and a miss means `--no-looks`. The quest's `LooksWait` (120 s from
-  stage 10) stays as the fallback. The log says which ended the wait: `looks done: creator closed`, `looks done: quick
-  start` or `looks done: LooksWait fallback after 120 s` (`make_newgame.py log` prints it as `looks_done`).
+  stage 10, so it also covers a player who leaves the choice open) stays as the fallback. The log says which ended the
+  wait: `looks done: creator closed`, `looks done: quick start` or `looks done: LooksWait fallback after <LooksWait> s`
+  (Papyrus prints the float as `120.000000`); `make_newgame.py log` prints the first ending as `looks_done`. A later
+  ending is not logged: once stage 20 is set, the looks script's `Done` does nothing.
 - The looks script stays separate so a failed compile drops only it (`--no-looks`, and the quest then does not wait
   and shows no choice). FO4's own looks menu and the bathroom mirror are a later UI item (Scaleform;
   animations-ui-and-start.md section 3). SPECIAL is set at a vault terminal (NG-C4), not here.

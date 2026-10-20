@@ -70,7 +70,8 @@ Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)
 EndEvent
 
 Function Done(string how)
-{Stage 20 once, with what ended the wait (the quest logs "looks: no stage 20 after ..." when its LooksWait does).}
+{Stage 20 once, with what ended the wait (the quest logs "looks done: LooksWait fallback after ..." when its LooksWait
+ does, and this then logs nothing: the first ending is the one the log summary reads).}
     if GetStage() >= 20
         return
     endif
