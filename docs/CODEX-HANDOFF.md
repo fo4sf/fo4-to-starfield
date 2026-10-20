@@ -19,6 +19,7 @@ Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved 
 
 ## Source work / next gates
 
+- Codex PR267 merges main697bc07 and binds new map markers to world/tag ledger keys, retaining door destinations. Reproduced unnamed-key failure; eight actual-writer regressions cover rebuilds, bootstrap, source mismatches and adding the marker template. Parent-main legacy byte parity passes; current delta QA pending. Empty-door audit fix and prior-ledger continuity remain. No stage/game actions or native return/save acceptance; #280 paired caller scope still pending.
 - Codex PR277 main merge preserves pinned door-stage sources: selected existing VMAD is refused before output, generated files are independent/atomic, nested output rejected. Retains main persistent-return coordinate reporting. Offline preservation/return checks required; no staging/install/native acceptance.
 - Codex activation-parent export: shared Fo4Export/Fo4Land serializer retains ordered parent FormKeys, raw flags and delays, including deferred actors. Claude reviewed the export. Requested follow-up now makes untranslated blocks counted/listed warnings by default, with partial fidelity and optional `--strict-activation-parents` gating; other link errors still block. Eight synthetic CLI controls cover publication/report/strict/override and missing-parent behavior. Grok delta QA passed at e79da3e; main-merge changes only documentation conflicts, source continuity checked. No native activation behavior or live changes. See PR305 and CELL-EXPORT.md.
 - Codex PR176 full-source promoted-name identity merges main697bc07; CONT/MISC identity repair retained and current main callers reconciled. 91 Python cases covered (89 initial passes, two stale alias expectations corrected/retested) and eight actual writer tests pass; independent merge-delta QA pending; no stage or allocation migration. Previously aliased mixed-plugin builds still require separately pinned regeneration, not silent save compatibility claims.
@@ -38,3 +39,14 @@ Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved 
 Failed/passing capsules are reopened/source-verified on a second local volume, not offsite. Claude owns cleanup/free-space receipts; Codex deleted nothing. Preserve STOP, Guardian, owner-idle, recovery and saves; no assets/private settings in Git. See testing/progress-storage.md.
 
 Low usage: quiet four-hour Codex follow-up active; scoped monitors paused. Read changed evidence, avoid unchanged retests, guard before commits. History: #32, PRs and Git.
+
+## PR267 current-main flora compatibility (October18)
+
+Current main's FLOR promotion is retained with named flora base reservations,
+ledger loading and identity-audit coverage. Main's bench/door behavior remains;
+legacy plugin/map bytes match an independent main build in three scenarios.
+Fourteen targeted writer/ledger/audit tests pass, including six flora cases;
+four pre-fix failures and all passing evidence are retained. Independent
+current-head QA is pending. Earlier counts above are historical checkpoints.
+No live stage, installation, controller release or native acceptance is implied;
+#280 paired allocator scope and current #32 ownership still apply.

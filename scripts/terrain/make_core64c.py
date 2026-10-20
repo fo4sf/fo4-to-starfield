@@ -52,6 +52,8 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, os.path.join(REPO, "src"))
+sys.path.insert(0, os.path.join(REPO, "scripts"))
+from stage_outputs import require_ready_stage  # noqa: E402
 from fo4sf import btd, exterior, map_markers  # noqa: E402
 from fo4sf import terrain_grid as tg  # noqa: E402
 
@@ -89,6 +91,7 @@ def save(path, value, indent=None):
 
 def core_params(core):
     """(overlays_params.json, its single overlay) of the staged core64 terrain."""
+    require_ready_stage(core)
     prm = load(os.path.join(core, "overlays_params.json"))
     if len(prm["overlays"]) != 1:
         sys.exit(f"{core}: core64c needs exactly one overlay, found {len(prm['overlays'])}")

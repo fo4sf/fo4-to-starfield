@@ -1950,4 +1950,3 @@ class DoorPromotionTests(unittest.TestCase):
         self.assertIn("marker 0100080F", mk.door_marker_placement(where, [own | 0x80F], own | 0x800)[0])  # temporary in the persistent cell
         self.assertIn("marker 01000811", mk.door_marker_placement(where, [own | 0x811], own | 0x800)[0])  # not written
         self.assertIn("the anchor", mk.door_marker_placement(where, [own | 0x80C], own | 0x80D)[0])       # the anchor in an exterior cell
-
