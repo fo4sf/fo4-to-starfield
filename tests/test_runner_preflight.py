@@ -154,6 +154,8 @@ class PreflightReportTests(unittest.TestCase):
         r.run()
         self.assertIn("preflight (report only): not run: RuntimeError: no probe", read(os.path.join(self.d, "run.log")))
         self.assertTrue(self.calls)
+        rep = tt.jload(os.path.join(self.d, "preflight.json"))       # never the earlier run's pass (Codex on #403)
+        self.assertEqual((rep["ok"], rep["checks"], rep["not_run"]), (False, [], "RuntimeError: no probe"))
 
     def test_the_enforcing_gate_wins_when_both_are_on(self):
         r = self.runner(probe=tcp.FakeProbe(save=None), preflight=True, preflight_report=True)

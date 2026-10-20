@@ -3187,7 +3187,7 @@ class Runner:
     def preflight_report(self):
         """The same gate in report-only mode: the checklist goes to run.log and preflight.json, what it would refuse
         is named, and the run goes on whatever it finds (no refusal, no ledger event). A probe that fails to start is
-        logged and the run still goes on."""
+        logged, preflight.json says so (ok false, nothing checked: never an earlier run's pass), and the run still goes on."""
         src = os.path.join(REPO, "src")
         if src not in sys.path:
             sys.path.insert(0, src)
@@ -3195,14 +3195,16 @@ class Runner:
             from fo4sf.core import preflight
             rep = preflight.run_gate(self.preflight_probe(self))
         except Exception as e:                             # report-only must never cost the run
-            self.log(f"preflight (report only): not run: {type(e).__name__}: {e}")
-            return
-        failing = ", ".join(f"{c.name} {c.status}" for c in rep.failing)
-        self.log("preflight (report only): " + ("every check passed" if rep.ok else f"would refuse: {failing}"))
-        for c in rep.checks:
-            self.log("  " + c.line())
-        out = {"at": now(), "mode": "report", "ok": rep.ok, "would_refuse": [c.name for c in rep.failing],
-               "checks": [{"name": c.name, "status": c.status, "detail": c.detail} for c in rep.checks]}
+            why = f"{type(e).__name__}: {e}"
+            self.log(f"preflight (report only): not run: {why}")
+            out = {"at": now(), "mode": "report", "ok": False, "not_run": why, "would_refuse": [], "checks": []}
+        else:
+            failing = ", ".join(f"{c.name} {c.status}" for c in rep.failing)
+            self.log("preflight (report only): " + ("every check passed" if rep.ok else f"would refuse: {failing}"))
+            for c in rep.checks:
+                self.log("  " + c.line())
+            out = {"at": now(), "mode": "report", "ok": rep.ok, "would_refuse": [c.name for c in rep.failing],
+                   "checks": [{"name": c.name, "status": c.status, "detail": c.detail} for c in rep.checks]}
         try:
             with open(os.path.join(self.qdir, "preflight.json"), "w", encoding="utf-8") as f:
                 json.dump(out, f, indent=1, default=str)

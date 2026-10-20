@@ -252,7 +252,7 @@ of §6. The after-load activation check stays where it is (cycle.ps1 exit 8 afte
 runs the same checks at the same point but never refuses: `run.log` gets `preflight (report only): every check passed`
 or `... would refuse: <check> <status>, ...` and the checklist, `preflight.json` in the queue folder gets `mode`,
 `ok`, `would_refuse` and each check's status and detail, nothing goes to the ledger, and a probe that cannot start is
-logged and the run goes on. `--preflight` wins when both are on. A few night runs in this mode show which checks the
+logged, written as `ok: false` with `not_run` and no checks, and the run goes on. `--preflight` wins when both are on. A few night runs in this mode show which checks the
 PC would fail before the gate is enforced.
 
 ## 8. Task cards and the worker result contract
