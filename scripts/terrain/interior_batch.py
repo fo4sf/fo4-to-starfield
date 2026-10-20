@@ -9,7 +9,8 @@ rounds, prune superseded batches (docs/terrain/interior-batches.md). Nothing her
          [--convert-arg ARG ...] [--prev <the previous batch's --out>] [--dlc-data <a DLC's Data folder> ...] [--min-free-gb 40] [--no-pack] [--jobs 2]
   python scripts/terrain/interior_batch.py compare --old <port folder> --new <port folder> [--json <out>]
   python scripts/terrain/interior_batch.py doors --plan <batches.json> --census <census.json> --batch N --out <door_rounds.json>
-  python scripts/terrain/interior_batch.py release --dir <interiors_bNN> --reason <text> --check-refs <dir> [...] --starfield <dir>
+  python scripts/terrain/interior_batch.py release --dir <interiors_bNN> --reason <text> --successor <interiors_bMM> --archive <dir>
+         --check-refs <dir> [...] --starfield <dir>
   python scripts/terrain/interior_batch.py prune --staging-root <dir> --keep N [--delete]
 
 build (batch 0 = the base port's own cells only: proves the pipeline reproduces the installed port before it grows it;
@@ -40,8 +41,10 @@ compare: every key of the old formids.json has the same FormID in the new one; e
 same signature; counts of byte-identical / changed records by signature, added records by signature, the cells added.
 doors: the batch's door-round selection for scripts/bridge/door_rounds.py stage --only (FO4Port_<Cell> editor ids),
 the Commonwealth doors into each cell and the interior pairs, and what must be installed first.
-release: marks one passed stage as safe to delete once its plugin is not the installed one and nothing under --check-refs
-(queues, recovery receipts, install logs) names it; writes release.json. Failed builds are never released.
+release: marks one passed stage as safe to delete once a passed successor was built from it (--prev, compare pass), its
+plugin is not the installed one, nothing under --check-refs (queues, recovery receipts, install logs) names it, and its
+evidence files are copied to --archive and verified; writes release.json with the whole tree's sha256s. Failed builds
+are never released. prune repeats every check before deleting.
 prune: lists the interiors_bNN folders under --staging-root that this tool made (result.json written by build), keeps the
 newest --keep, and with --delete removes only the older ones that are released and unchanged since (nothing else is ever
 deleted).
@@ -519,8 +522,14 @@ def references(path, roots):
     full = os.path.abspath(path)
     needles = {s.lower() for s in (full, full.replace("\\", "/"), full.replace("/", "\\"), os.path.basename(full))}
     hits = []
+
+    def unreadable(e):
+        raise ValueError(f"cannot read {e.filename}: {e.strerror}")
+
     for root in roots:
-        for d, _dirs, files in os.walk(root):
+        if not os.path.isdir(root):
+            raise ValueError(f"reference folder {root} is missing")
+        for d, _dirs, files in os.walk(root, onerror=unreadable):
             here = os.path.abspath(d).lower()
             if here == full.lower() or here.startswith(full.lower() + os.sep):
                 continue                                                # the stage's own files don't count
@@ -533,18 +542,86 @@ def references(path, roots):
                         continue
                     with open(fp, encoding="utf-8", errors="replace") as h:
                         text = h.read().lower()
-                except OSError:
-                    continue
+                except OSError as e:
+                    raise ValueError(f"cannot read {fp}: {e.strerror}")
                 if any(n in text for n in needles):
                     hits.append(fp)
     return sorted(hits)
 
 
-def release(stage, reason, check_refs, starfield):
-    """Mark one interiors_bNN stage as safe to delete, after checking what the build-time result.json cannot know: it
-    passed (failed builds are evidence and are never released here), its plugin is not the one in Starfield's Data
-    folder, and nothing under check_refs (queues, recovery receipts, install logs) names it. Writes release.json with
-    the plugin's sha256, so a stage changed after its release is not deleted. Raises ValueError with the reason."""
+def dependencies(stage, check_refs, starfield):
+    """Raise ValueError when stage is still needed now: its plugin is the installed one, or a text file under check_refs
+    names it. A missing or unreadable check refuses too. Returns the stage plugin's sha256 (None without one)."""
+    name = os.path.basename(stage)
+    if not check_refs:
+        raise ValueError("at least one --check-refs folder is required (queues, recovery receipts, install logs)")
+    data = os.path.join(starfield, "Data")
+    if not os.path.isdir(data):
+        raise ValueError(f"{data} is missing, so the installed plugin cannot be checked")
+    plugin = os.path.join(stage, "port", PLUGIN)
+    digest = sha256(plugin) if os.path.isfile(plugin) else None
+    installed = os.path.join(data, PLUGIN)
+    try:
+        if digest and os.path.isfile(installed) and sha256(installed) == digest:
+            raise ValueError(f"{name}: its {PLUGIN} is the one installed in {installed}")
+    except OSError as e:
+        raise ValueError(f"cannot read {installed}: {e.strerror}")
+    hits = references(stage, check_refs)
+    if hits:
+        raise ValueError(f"{name}: still named by " + ", ".join(hits[:5]) + (f" and {len(hits) - 5} more" if len(hits) > 5 else ""))
+    return digest
+
+
+EVIDENCE_MAX_BYTES = 64 * 2 ** 20
+
+
+def tree(stage):
+    """{relative path: [bytes, sha256]} of every file under stage except release.json: a deletion covers exactly this."""
+    out = {}
+
+    def unreadable(e):
+        raise ValueError(f"cannot read {e.filename}: {e.strerror}")
+
+    for d, _dirs, files in os.walk(stage, onerror=unreadable):
+        for f in files:
+            fp = os.path.join(d, f)
+            rel = os.path.relpath(fp, stage).replace("\\", "/")
+            if rel == RELEASE:
+                continue
+            out[rel] = [os.path.getsize(fp), sha256(fp)]
+    return dict(sorted(out.items()))
+
+
+def successor_check(stage, successor):
+    """Raise ValueError unless successor is a passed later build chained from stage (--prev stage, compare_prev pass):
+    every id and record of stage is carried forward, so its plugin and archives are superseded, not lost."""
+    name = os.path.basename(stage)
+    try:
+        nxt = load(os.path.join(successor, MARKER))
+    except (OSError, ValueError):
+        raise ValueError(f"successor {successor}: no result.json")
+    cp = (nxt.get("steps") or {}).get("compare_prev") or {}
+    if nxt.get("pass") is not True:
+        raise ValueError(f"successor {os.path.basename(successor)} did not pass")
+    if os.path.abspath(cp.get("prev") or "").lower() != os.path.abspath(stage).lower() or cp.get("pass") is not True:
+        raise ValueError(f"successor {os.path.basename(successor)} was not built with --prev {name} and a passing compare")
+
+
+def archived_check(rec):
+    """Raise ValueError unless every evidence file recorded in rec is still in its archive copy, byte for byte."""
+    for rel, (size, digest) in rec.get("archived", {}).items():
+        cp = os.path.join(rec["archive"], rel)
+        if not os.path.isfile(cp) or os.path.getsize(cp) != size or sha256(cp) != digest:
+            raise ValueError(f"archived copy {cp} is missing or changed")
+
+
+def release(stage, reason, check_refs, starfield, successor, archive):
+    """Mark one interiors_bNN stage as safe to delete. It must have passed (failed builds are evidence and are never
+    released here), be superseded by a passed successor built from it (successor_check), and be needed by nothing now:
+    its plugin is not the installed one and nothing under check_refs names it (dependencies). Its evidence (every file
+    up to EVIDENCE_MAX_BYTES: result, compare and door reports, logs, maps) is copied to archive/<name>/ and verified;
+    the bigger files (plugin, archives) are what the successor carries forward. release.json records the whole tree's
+    sha256s, the archive copies and the checks; prune repeats every check before deleting. Raises ValueError."""
     stage = os.path.abspath(stage)
     name = os.path.basename(stage)
     if not BATCH_DIR.match(name):
@@ -559,37 +636,48 @@ def release(stage, reason, check_refs, starfield):
         raise ValueError(f"{name}: a failed build is evidence; keep it (delete it by hand once archived)")
     if not reason.strip():
         raise ValueError("a reason is required")
-    if not check_refs:
-        raise ValueError("at least one --check-refs folder is required (queues, recovery receipts, install logs)")
-    for r in check_refs:
-        if not os.path.isdir(r):
-            raise ValueError(f"--check-refs {r}: not a folder")
-    plugin = os.path.join(stage, "port", PLUGIN)
-    digest = sha256(plugin) if os.path.isfile(plugin) else None
-    installed = os.path.join(starfield, "Data", PLUGIN)
-    if digest and os.path.isfile(installed) and sha256(installed) == digest:
-        raise ValueError(f"{name}: its {PLUGIN} is the one installed in {installed}")
-    hits = references(stage, check_refs)
-    if hits:
-        raise ValueError(f"{name}: still named by " + ", ".join(hits[:5]) + (f" and {len(hits) - 5} more" if len(hits) > 5 else ""))
+    successor_check(stage, successor)
+    digest = dependencies(stage, check_refs, starfield)
+    files = tree(stage)
+    dest = os.path.join(os.path.abspath(archive), name)
+    if os.path.abspath(dest).lower().startswith(stage.lower() + os.sep):
+        raise ValueError("the archive must be outside the stage")
+    archived = {}
+    for rel, (size, sha) in files.items():
+        if size > EVIDENCE_MAX_BYTES:
+            continue
+        cp = os.path.join(dest, rel)
+        os.makedirs(os.path.dirname(cp), exist_ok=True)
+        shutil.copyfile(os.path.join(stage, rel), cp)
+        archived[rel] = [size, sha]
     rec = {"name": name, "released_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "reason": reason,
            "plugin_sha256": digest, "starfield": os.path.abspath(starfield),
-           "checked_refs": [os.path.abspath(r) for r in check_refs]}
+           "checked_refs": [os.path.abspath(r) for r in check_refs], "successor": os.path.abspath(successor),
+           "archive": dest, "archived": archived, "tree": files}
+    archived_check(rec)
     save(os.path.join(stage, RELEASE), rec)
     return rec
 
 
 def released(stage):
-    """Why stage may not be deleted, or None when its release.json still matches it."""
+    """Why stage may not be deleted, or None when its release still holds. Every release check runs again here, right
+    before deleting: the tree is byte-for-byte what was released (a log added later, or any change, keeps the stage),
+    the archive copies are intact, the successor still passes, and nothing installed or under the recorded reference
+    folders needs it. A missing or unreadable check keeps the stage."""
     try:
         rec = load(os.path.join(stage, RELEASE))
     except (OSError, ValueError):
         return "not released (run release first)"
     if rec.get("name") != os.path.basename(stage):
         return "release.json names another folder"
-    plugin = os.path.join(stage, "port", PLUGIN)
-    if (sha256(plugin) if os.path.isfile(plugin) else None) != rec.get("plugin_sha256"):
-        return "port changed since its release"
+    try:
+        if tree(stage) != rec.get("tree"):
+            return "stage changed since its release"
+        archived_check(rec)
+        successor_check(os.path.abspath(stage), rec.get("successor") or "")
+        dependencies(os.path.abspath(stage), rec.get("checked_refs") or [], rec.get("starfield") or "")
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        return f"no longer releasable: {e}"
     return None
 
 
@@ -659,6 +747,8 @@ def main(argv=None):
     r.add_argument("--reason", required=True)
     r.add_argument("--check-refs", action="append", default=[], help="a folder to scan for names of the stage (repeatable)")
     r.add_argument("--starfield", required=True)
+    r.add_argument("--successor", required=True, help="the passed later stage built with --prev this stage")
+    r.add_argument("--archive", required=True, help="where the stage's evidence files are copied and verified")
     a = ap.parse_args(argv)
     if a.cmd == "build":
         return build(a)
@@ -674,7 +764,8 @@ def main(argv=None):
         return 0
     if a.cmd == "release":
         try:
-            print(json.dumps(release(a.dir, a.reason, a.check_refs, a.starfield), indent=1))
+            rec = release(a.dir, a.reason, a.check_refs, a.starfield, a.successor, a.archive)
+            print(json.dumps({k: v for k, v in rec.items() if k not in ("tree", "archived")} | {"files": len(rec["tree"]), "archived": len(rec["archived"])}, indent=1))
         except ValueError as e:
             print("refused: " + str(e))
             return 1

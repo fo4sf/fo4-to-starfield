@@ -246,54 +246,95 @@ class BatchToolTests(unittest.TestCase):
         self.assertTrue(os.path.isdir(os.path.join(root, "interiors_b01")))
         self.assertEqual(sorted(os.listdir(root)), ["integ_v6", "interiors_b01", "interiors_b02", "interiors_b03", "interiors_b04"])
 
-    def test_release_refuses_installed_queued_or_failed_stages(self):
+    def test_release_refuses_installed_queued_failed_or_unsuperseded_stages(self):
         root = os.path.join(self.tmp.name, "staging")
         refs = os.path.join(self.tmp.name, "refs")
+        arch = os.path.join(self.tmp.name, "archive")
         sf = os.path.join(self.tmp.name, "Starfield")
         os.makedirs(os.path.join(sf, "Data"))
         os.makedirs(refs)
-        for n, ok in (("interiors_b01", True), ("interiors_b02", False), ("interiors_b03", True), ("interiors_b04", True)):
-            os.makedirs(os.path.join(root, n, "port"))
+
+        def stage(n, ok, prev=None):
+            os.makedirs(os.path.join(root, n, "port"), exist_ok=True)
+            steps = {"compare_prev": {"prev": os.path.join(root, prev), "pass": True}} if prev else {}
             with open(os.path.join(root, n, "result.json"), "w", encoding="utf-8") as f:
-                json.dump({"name": n, "installed": False, "pass": ok}, f)
+                json.dump({"name": n, "installed": False, "pass": ok, "steps": steps}, f)
             with open(os.path.join(root, n, "port", "FO4Port.esm"), "wb") as f:
                 f.write(n.encode())
-        b01 = os.path.join(root, "interiors_b01")
+            with open(os.path.join(root, n, "build.log"), "w", encoding="utf-8") as f:
+                f.write("log of " + n)
+            return os.path.join(root, n)
+
+        b01 = stage("interiors_b01", True)
+        b02 = stage("interiors_b02", False, "interiors_b01")         # failed: not a successor, and itself evidence
+        b03 = stage("interiors_b03", True, "interiors_b01")
+        b04 = stage("interiors_b04", True, "interiors_b03")
+        b05 = stage("interiors_b05", True, "interiors_b04")
+
+        def rel(st, succ):
+            return ib.release(st, "superseded", [refs], sf, succ, arch)
+
+        # failed builds are evidence; a reason, reference folders, the Starfield folder and a real successor are required
+        with self.assertRaisesRegex(ValueError, "failed build"):
+            rel(b02, b03)
+        with self.assertRaisesRegex(ValueError, "reason"):
+            ib.release(b01, " ", [refs], sf, b03, arch)
+        with self.assertRaisesRegex(ValueError, "check-refs"):
+            ib.release(b01, "x", [], sf, b03, arch)
+        with self.assertRaisesRegex(ValueError, "missing"):
+            ib.release(b01, "x", [refs], os.path.join(self.tmp.name, "NoStarfield"), b03, arch)
+        with self.assertRaisesRegex(ValueError, "did not pass"):
+            rel(b01, b02)
+        with self.assertRaisesRegex(ValueError, "was not built with --prev"):
+            rel(b01, b04)
         # a queue or recovery receipt naming the stage (either slash form, any case) keeps it
         receipt = os.path.join(refs, "queue", "cleanup_pending.json")
         os.makedirs(os.path.dirname(receipt))
         with open(receipt, "w", encoding="utf-8") as f:
             json.dump({"plugins_restore_pending": b01.upper().replace("/", "\\") + "\\port"}, f)
         with self.assertRaisesRegex(ValueError, "still named by"):
-            ib.release(b01, "superseded by b03", [refs], sf)
+            rel(b01, b03)
         os.remove(receipt)
         # the installed plugin keeps it
         with open(os.path.join(sf, "Data", "FO4Port.esm"), "wb") as f:
             f.write(b"interiors_b01")
         with self.assertRaisesRegex(ValueError, "installed"):
-            ib.release(b01, "superseded by b03", [refs], sf)
+            rel(b01, b03)
         os.remove(os.path.join(sf, "Data", "FO4Port.esm"))
-        # failed builds are evidence; no reason or no reference folder is refused
-        with self.assertRaisesRegex(ValueError, "failed build"):
-            ib.release(os.path.join(root, "interiors_b02"), "x", [refs], sf)
-        with self.assertRaisesRegex(ValueError, "reason"):
-            ib.release(b01, " ", [refs], sf)
-        with self.assertRaisesRegex(ValueError, "check-refs"):
-            ib.release(b01, "x", [], sf)
-        # released and unchanged: prune deletes it; the unreleased failed one and the newest two stay
-        rec = ib.release(b01, "superseded by b03", [refs], sf)
-        self.assertEqual(rec["name"], "interiors_b01")
+        # nothing is deleted without a release
+        self.assertEqual(ib.prune(root, 2, delete=True), [])
+        # released: the evidence is archived and verified, then prune deletes it; the failed one and the newest two stay
+        rec = rel(b01, b03)
+        self.assertEqual(sorted(rec["tree"]), ["build.log", "port/FO4Port.esm", "result.json"])
+        with open(os.path.join(arch, "interiors_b01", "build.log"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "log of interiors_b01")
         self.assertEqual([os.path.basename(p) for p in ib.prune(root, 2, delete=False)], ["interiors_b01"])
         self.assertTrue(os.path.isdir(b01))
         ib.prune(root, 2, delete=True)
-        self.assertEqual(sorted(os.listdir(root)), ["interiors_b02", "interiors_b03", "interiors_b04"])
-        # a stage whose port changed after its release is kept
-        b03 = os.path.join(root, "interiors_b03")
-        ib.release(b03, "superseded", [refs], sf)
-        with open(os.path.join(b03, "port", "FO4Port.esm"), "wb") as f:
-            f.write(b"rebuilt")
-        self.assertEqual(ib.prune(root, 1, delete=True), [])
+        self.assertEqual(sorted(os.listdir(root)), ["interiors_b02", "interiors_b03", "interiors_b04", "interiors_b05"])
+        # a release goes stale when anything changes after it
+        rel(b03, b04)
+        with open(os.path.join(b03, "crash.log"), "w", encoding="utf-8") as f:     # new evidence after the release
+            f.write("x")
+        self.assertEqual(ib.prune(root, 2, delete=True), [])
+        os.remove(os.path.join(b03, "crash.log"))
+        with open(os.path.join(refs, "running_queue.json"), "w", encoding="utf-8") as f:   # a queue naming it
+            json.dump({"stage": b03}, f)
+        self.assertEqual(ib.prune(root, 2, delete=True), [])
+        os.remove(os.path.join(refs, "running_queue.json"))
+        with open(os.path.join(sf, "Data", "FO4Port.esm"), "wb") as f:              # its plugin installed
+            f.write(b"interiors_b03")
+        self.assertEqual(ib.prune(root, 2, delete=True), [])
+        os.remove(os.path.join(sf, "Data", "FO4Port.esm"))
+        os.remove(os.path.join(arch, "interiors_b03", "build.log"))                 # the archive copy lost
+        self.assertEqual(ib.prune(root, 2, delete=True), [])
+        rel(b03, b04)
+        os.rename(refs, refs + "_moved")                                           # a check that cannot run
+        self.assertEqual(ib.prune(root, 2, delete=True), [])
+        os.rename(refs + "_moved", refs)
         self.assertTrue(os.path.isdir(b03))
+        self.assertEqual([os.path.basename(p) for p in ib.prune(root, 2, delete=True)], ["interiors_b03"])
+        self.assertFalse(os.path.isdir(b03))
 
 if __name__ == "__main__":
     unittest.main()
