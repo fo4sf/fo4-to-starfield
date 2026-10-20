@@ -338,8 +338,9 @@ def main():
         if (attempted_so_far + skipped) % progress_every == 0:
             elapsed_now = time.time() - t0
             rate = attempted_so_far / elapsed_now if elapsed_now > 0 else 0
+            avg = elapsed_now / attempted_so_far if attempted_so_far > 0 else 0
             print(f"  progress: {attempted_so_far} attempted ({len(items)} ok, {len(failures)} fail, {skipped} skipped) "
-                  f"in {elapsed_now:.0f}s ({rate:.1f}/s)")
+                  f"in {elapsed_now:.0f}s ({rate:.1f}/s, avg {avg:.2f}s/item)")
     pose_stats = None
     if a.cell_json and not a.no_ref_poses:
         # FO4 ragdoll poses (XRGD): one posed model per distinct pose that moves its model (skeletons lying down)
@@ -395,7 +396,8 @@ def main():
     success_pct = 100.0 * len(items) / attempted if attempted else 100.0
     print(f"  Batch result: {len(items)}/{attempted} succeeded ({success_pct:.1f}%)")
     elapsed = round(time.time() - t0, 1)
-    print(f"  reused={reused}  seconds={elapsed}")
+    avg = elapsed / attempted if attempted > 0 else 0
+    print(f"  reused={reused}  seconds={elapsed}  avg={avg:.2f}s/item")
     doors = sum(1 for it in items if "door" in it)
     load_doors = sum(1 for it in items if "load_door" in it)
     movables = sum(1 for it in items if "movable" in it)
