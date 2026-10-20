@@ -21,8 +21,9 @@ usage:
       lifted only by the campaign's "released" list), then per queue testqueue.py run with the caps, its judge and the
       gate, stopping at the first refusal. The campaign's "launch" ("steam", the default, or "exe") becomes
       FO4SF_LAUNCH for cycle.ps1. Every step is logged to <campaign>.run.log. Exit 0 only when every queue passed.
-  python scripts/game/campaign_arm.py gate --queue <queue> --run-exit N
-      exit 0 only when the run ended with exit 0 and the queue's state.json counts no crash and no dead start.
+  python scripts/game/campaign_arm.py gate --queue <queue> --run-exit N [--judge-exit N]
+      exit 0 only when the run ended with exit 0, the judge (when given) with exit 0, and the queue's state.json
+      exists, says finished and counts no crash and no dead start.
 
 campaign.json:
   {"name": "v6e", "checkout": "D:\\Modding\\wt_nightrun", "python": "C:\\Modding\\venv-render\\Scripts\\python.exe",
@@ -223,22 +224,35 @@ def chain(camp, path, release):
     for e, _, _ in check(camp, release)[0]["queues"]:
         lines += ["", f"# {e['name']}",
                   "& $py " + " ".join(ps(x) for x in run_args(e["queue"], caps)), "$rc = $LASTEXITCODE"]
+        judge = ""
         if e.get("judge"):
-            lines.append("& $py " + " ".join(ps(x.replace("/", "\\") if i == 0 else x) for i, x in enumerate(e["judge"])))
-        lines += [f"& $py scripts\\game\\campaign_arm.py gate --queue {ps(e['queue'])} --run-exit $rc",
+            lines += ["& $py " + " ".join(ps(x.replace("/", "\\") if i == 0 else x) for i, x in enumerate(e["judge"])),
+                      "$jr = $LASTEXITCODE"]
+            judge = " --judge-exit $jr"
+        lines += [f"& $py scripts\\game\\campaign_arm.py gate --queue {ps(e['queue'])} --run-exit $rc{judge}",
                   f"if ($LASTEXITCODE -ne 0) {{ Write-Host 'stopped after {e['name']}'; exit 1 }}"]
     lines += ["", "Write-Host 'chain finished'"]
     return "\r\n".join(lines) + "\r\n"
 
 
-def gate(qdir, rc):
-    """(ok, why) for one finished run."""
-    st = tq.load(os.path.join(qdir, "state.json"), {}) or {}
+def gate(qdir, rc, judge_rc=None):
+    """(ok, why) for one run: ok only for exit 0, a judge (when one ran) that exited 0, and a state.json that
+    says finished with no crash and no dead start. A missing or unfinished state is no proof the queue ran."""
+    try:
+        st = tq.load(os.path.join(qdir, "state.json"))
+    except ValueError:
+        st = None
+    if not isinstance(st, dict):
+        return False, f"no readable state.json in {qdir}: nothing proves the queue ran"
     if rc != 0:
         return False, f"the run ended with exit {rc} ({st.get('status')})"
+    if judge_rc not in (None, 0):
+        return False, f"the judge exited {judge_rc}"
+    if st.get("status") != "finished":
+        return False, f"the queue is {st.get('status')!r}, not finished"
     if st.get("crashes") or st.get("start_deaths"):
         return False, f"{st.get('crashes', 0)} crash(es), {st.get('start_deaths', 0)} dead start(s)"
-    return True, f"clean: {st.get('status')}"
+    return True, "clean: finished"
 
 
 LAUNCHES = ("steam", "exe")
@@ -271,10 +285,11 @@ def run_chain(camp, log=print, call=None):
     for e, _, _ in res["queues"]:
         rc = call([py, os.path.join("scripts", "game", "testqueue.py")] + run_args(e["queue"], caps)[1:], env)
         log(f"{e['name']}: run exit {rc}")
+        jr = None
         if e.get("judge"):
             jr = call([py, e["judge"][0].replace("/", os.sep)] + e["judge"][1:], env)
             log(f"{e['name']}: judge exit {jr}")
-        good, why = gate(e["queue"], rc)
+        good, why = gate(e["queue"], rc, jr)
         log(f"{e['name']}: {'PASS' if good else 'STOP'} {why}")
         if not good:
             return 1
@@ -296,9 +311,10 @@ def main(argv=None):
     g = sub.add_parser("gate")
     g.add_argument("--queue", required=True)
     g.add_argument("--run-exit", type=int, required=True)
+    g.add_argument("--judge-exit", type=int, default=None)
     a = ap.parse_args(argv)
     if a.cmd == "gate":
-        ok, why = gate(a.queue, a.run_exit)
+        ok, why = gate(a.queue, a.run_exit, a.judge_exit)
         print(("PASS " if ok else "STOP ") + why)
         return 0 if ok else 1
     if a.cmd == "run":
