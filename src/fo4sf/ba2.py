@@ -156,7 +156,7 @@ class Ba2:
         from collections import Counter
         counts = Counter()
         for e in self.entries:
-            name = e.name.lower().rsplit("\\", 1)[-1]
+            name = self._norm(e.name).rsplit("\\", 1)[-1]
             ext = name.rsplit(".", 1)[-1] if "." in name else ""
             counts[ext] += 1
         return dict(counts)

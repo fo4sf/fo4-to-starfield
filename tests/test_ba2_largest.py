@@ -61,6 +61,32 @@ class LargestEntriesTests(unittest.TestCase):
             self.assertEqual(counts.get(""), 1)
             self.assertEqual(sum(counts.values()), 6)
 
+    def test_dotted_directory_is_not_a_filename_extension(self):
+        for name in ["textures.v1/README", "textures.v1\\README", "parent.v2/sub.dir/README"]:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as d:
+                path = os.path.join(d, "dotted.ba2")
+                data = general_archive({name: b"synthetic"})
+                with open(path, "wb") as f:
+                    f.write(data)
+                archive = Ba2(path)
+                self.assertEqual(archive.by_extension(), {"": 1})
+                with open(path, "rb") as f:
+                    self.assertEqual(f.read(), data)
+
+    def test_mixed_separator_paths_and_multidot_leaf_keep_real_extensions(self):
+        entries = {"parent.v2/sub.dir/file.part.NIF": b"one",
+                   "parent.v2\\sub.dir/file.DDS": b"two",
+                   "parent.v2/sub.dir\\file.BGSM": b"three",
+                   "parent.v2/README": b"four"}
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "mixed.ba2")
+            with open(path, "wb") as f:
+                f.write(general_archive(entries, compressed=True))
+            archive = Ba2(path)
+            self.assertEqual(archive.by_extension(), {"nif": 1, "dds": 1, "bgsm": 1, "": 1})
+            for name, expected in entries.items():
+                self.assertEqual(archive.read(name.replace("/", "\\")), expected)
+
 
 if __name__ == "__main__":
     unittest.main()
