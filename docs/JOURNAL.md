@@ -1891,3 +1891,26 @@ the build side. No deploy, no game.
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+
+## 2026-10-20: Codex owner-authorized #363 placement oracle correction
+
+Resolve each source WRLD FormID against its TES4 MAST order plus the self plugin
+name before comparing owning plugin/local ID. Equal raw numbers in unrelated
+plugins no longer pass, and legitimate master-index rebasing now passes. Reject
+invalid/ambiguous master tables and unsupported source IDs before assessment;
+a world mismatch remains nonzero even with zero references. Record input hashes.
+
+Only local LAND record presence is assessed by this reader. Empty exterior CELLs
+or absent unpopulated dictionary keys do not prove missing SFBK/BTD/inherited
+terrain. Such observations retain a nonzero outcome with coverage_unknown/null,
+not no_coverage/false. Preserve persistent-parent and missing-position checks.
+The previously ignored --anchor option now explicitly refuses unsupported
+distance measurement rather than imply that it was performed.
+
+Eleven focused methods (17 CLI invocations) and guard pass. Four ORIGINAL frozen
+binary cases were replayed unchanged: wrong owner refuses, both valid owning-key
+controls pass, actual TerrainOverlays output retains all five observations as
+coverage unknown. Their hashes are unchanged. The original source produced nine
+failures and one error in the first nine new methods. Red/green logs and original
+results are retained privately. No shared reader edits, private rebuild, install,
+game input, native terrain/frame/arrival acceptance or main merge. Peer QA pending.
