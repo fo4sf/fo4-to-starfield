@@ -149,7 +149,7 @@ if (cell.LightingTemplate.TryResolve(cache, out var lgtm))
     lighting["template_values"] = Dump(lgtm, 0);
 }
 File.WriteAllText(args[3], JsonSerializer.Serialize(new { schema_version = 3, cell = cell.EditorID, formkey = cell.FormKey.ToString(),
-    cell_data = LocationExport.CellData(cell), location = LocationExport.Location(cell.Location, cache),
+    cell_data = LocationExport.CellData(cell, cache), location = LocationExport.Location(cell.Location, cache),
     encounter_zone = LocationExport.EncounterZone(cell.EncounterZone, cache), lighting, refs,
     deferred_refs = deferred, door_bases = doorBases, referenced_keywords = keywords.Values, teleport_dependencies = dependencies },
     new JsonSerializerOptions { WriteIndented = true }));

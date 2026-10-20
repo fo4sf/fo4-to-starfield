@@ -725,24 +725,56 @@ class BuildFlowTests(unittest.TestCase):
                     shutil.copyfile(os.path.join(cmd[cmd.index("--port") + 1], n), os.path.join(dst, n))
             return 0, 0.1
 
-        def build(n, out, prev=None):
+        with open(os.path.join(t, "Fallout4.esm"), "wb") as f:           # the source the batches are pinned to (X8)
+            f.write(b"TES4 fallout 4")
+        with open(os.path.join(t, "Fallout4 - Meshes.ba2"), "wb") as f:
+            f.write(b"BTDX")
+
+        def build(n, out, prev=None, extra=(), pack=False):
             argv = ["build", "--plan", plan, "--batch", str(n), "--base", base, "--base-exports", base,
                     "--core", t, "--work", work, "--out", out, "--fo4-data", t, "--starfield", t,
                     "--content-resources", "c", "--texconv", "x", "--collision-template", "t", "--fo4export", "e",
-                    "--pluginspike", "p", "--no-pack", "--jobs", "1", "--min-free-gb", "0"] + (["--prev", prev] if prev else [])
+                    "--pluginspike", "p", "--jobs", "1", "--min-free-gb", "0"] + (["--prev", prev] if prev else []) \
+                + ([] if pack else ["--no-pack"]) + list(extra)
             real, ib.run = ib.run, fake_run
+            real_pack, ib.deploy_starfield.build_archive = ib.deploy_starfield.build_archive, PackAndSourcesTests.fake_pack
             try:
                 return ib.main(argv)
             finally:
-                ib.run = real
+                ib.run, ib.deploy_starfield.build_archive = real, real_pack
 
         b1, b2, b2x = (os.path.join(t, "staging", n) for n in ("interiors_b01", "interiors_b02", "interiors_b02x"))
         self.assertEqual(build(1, b1), 0)
         self.assertEqual(seeds[-1], ids)                                  # batch 1 starts from the base map
-        self.assertEqual(build(2, b2, prev=b1), 0)
+        r1 = ib.load(os.path.join(b1, "result.json"))
+        self.assertEqual(r1["sources"]["plugins"], {"Fallout4.esm": {"sha256": ib.sha256(os.path.join(t, "Fallout4.esm")), "bytes": 14}})
+        self.assertEqual(list(r1["sources"]["archives"]), ["Fallout4 - Meshes.ba2"])
+        self.assertEqual(r1["steps"]["sources"], {"plugins": 1, "archives": 1, "allowed_change": None, "added": None})
+        self.assertEqual(r1["install"], {"files": ["FO4Port.esm"], "plugins_txt": ["FO4Port.esm"]})   # --no-pack: the plugin only
+        # batch 2 packed (Archive2 faked), with textures split at a tiny limit: two parts, one companion plugin
+        for n, size in (("a.dds", 40), ("b.dds", 40), ("c.dds", 30)):
+            os.makedirs(os.path.join(work, "textures"), exist_ok=True)
+            with open(os.path.join(work, "textures", n), "wb") as f:
+                f.write(b"x" * size)
+        limit = ib.ARCHIVE_LIMIT
+        ib.ARCHIVE_LIMIT = 100
+        try:
+            self.assertEqual(build(2, b2, prev=b1, pack=True), 0)
+        finally:
+            ib.ARCHIVE_LIMIT = limit
         self.assertEqual(seeds[-1]["CELL:FO4Port_One"], 0x850)            # batch 2 starts from batch 1's map
         self.assertEqual(seeds[-1]["LCTN:FO4Port_InteriorsLocation"], 0x8F0)   # and the LCTN key rides the chain
         r2 = ib.load(os.path.join(b2, "result.json"))
+        self.assertEqual([p["archive"] for p in r2["steps"]["pack"]["parts"]], ["FO4Port - Textures.ba2", "FO4PortTextures2 - Textures.ba2"])
+        self.assertEqual(r2["install"], {"files": ["FO4Port.esm", "FO4Port - Main.ba2", "FO4Port - Textures.ba2",
+                                                   "FO4PortTextures2.esm", "FO4PortTextures2 - Textures.ba2"],
+                                         "plugins_txt": ["FO4Port.esm", "FO4PortTextures2.esm"]})
+        self.assertEqual(sorted(r2["steps"]["pack"]["sha256"]), sorted(r2["install"]["files"][1:]))
+        with open(os.path.join(b2, "README.txt"), encoding="utf-8") as f:
+            readme = f.read()
+        self.assertIn("  port\\FO4PortTextures2 - Textures.ba2\n", readme)
+        self.assertIn("*FO4Port.esm\n  *FO4PortTextures2.esm\n", readme)
+        self.assertEqual(ib.load(os.path.join(b2, "port", "textures_parts.json"))["assignment"], {"a.dds": 0, "b.dds": 0, "c.dds": 1})
         self.assertTrue(r2["steps"]["compare_prev"]["pass"])
         self.assertEqual(r2["steps"]["compare_prev"]["records"]["changed"], {})   # batch 1's LCTN and XLCN unchanged
         self.assertEqual(r2["steps"]["compare"]["records"]["changed"], {"CELL": 1})   # the base cell gained its XLCN
@@ -754,6 +786,25 @@ class BuildFlowTests(unittest.TestCase):
         self.assertFalse(ib.load(os.path.join(b2x, "result.json"))["steps"]["compare_prev"]["pass"])
         with self.assertRaises(SystemExit):                               # a failed batch is no --prev
             build(2, os.path.join(t, "staging", "interiors_b02y"), prev=b2x)
+        # X8: a --prev built from another Fallout4.esm is refused, unless --allow-source-change, which is recorded
+        renumber[0] = False
+        with open(os.path.join(t, "Fallout4.esm"), "wb") as f:
+            f.write(b"TES4 fallout 4 patched")
+        with self.assertRaisesRegex(SystemExit, "--prev was built from other game files .*Fallout4.esm sha256"):
+            build(2, os.path.join(t, "staging", "interiors_b02z"), prev=b1)
+        self.assertFalse(os.path.exists(os.path.join(t, "staging", "interiors_b02z")))
+        b2w = os.path.join(t, "staging", "interiors_b02w")
+        self.assertEqual(build(2, b2w, prev=b1, extra=["--allow-source-change"]), 0)
+        allowed = ib.load(os.path.join(b2w, "result.json"))["steps"]["sources"]["allowed_change"]
+        self.assertEqual(list(allowed), ["--prev"])
+        self.assertTrue(allowed["--prev"][0].startswith("Fallout4.esm sha256 "))
+        # a --base that is a batch's own stage (its result.json carries sources) is checked the same way; the installed
+        # doors staging has no record and is never refused for one
+        ib.save(os.path.join(base, "result.json"), {"sources": r1["sources"]})
+        with self.assertRaisesRegex(SystemExit, "--base was built from other game files"):
+            build(1, os.path.join(t, "staging", "interiors_b01v"))
+        os.remove(os.path.join(base, "result.json"))
+        self.assertEqual(build(1, os.path.join(t, "staging", "interiors_b01u")), 0)
 
     def test_dlc_cells_export_from_their_plugin_with_the_master(self):
         tmp = tempfile.TemporaryDirectory()
@@ -835,3 +886,402 @@ class BuildFlowTests(unittest.TestCase):
         why = ib.removed_causes(old, new, ["STAT 01000800", "DOOR 01000801", "FURN 01000802"], recs)
         self.assertEqual(why["counts"], {"gone": 1, "renamed_case": 1, "retyped": 1})
         self.assertEqual(why["first"]["retyped"], ["DOOR:FO4Port_VaultDoor -> STAT:FO4Port_vaultdoor"])
+
+
+class PackAndSourcesTests(unittest.TestCase):
+    """The textures split over companion plugins (X3) and the game-file pins (X8), with Archive2 faked: a fake packer
+    writes "BTDX" plus every packed file's bytes, so an archive's size is its part's loose size plus 4."""
+
+    # Mutagen.Bethesda.Starfield 0.55.0-alpha.67 writing `new StarfieldMod(key, StarfieldRelease.Starfield)` with
+    # HeaderFlag.Master and no records (verified: scratchpad/probe-companion, `dotnet9 run`, both companions 42 bytes).
+    PROBE_HEX = "544553341200000001000000000000000000000040020000484544520c008fc2753f0000000000000000"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.t = self.tmp.name
+        self.limit, self.warn = ib.ARCHIVE_LIMIT, ib.ARCHIVE_WARN
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        ib.ARCHIVE_LIMIT, ib.ARCHIVE_WARN = self.limit, self.warn
+
+    @staticmethod
+    def fake_pack(a, out, folders, fmt, compression="Default"):
+        body = b"BTDX"
+        for d in folders:
+            root = os.path.join(a.staging, d)
+            if os.path.isdir(root):
+                for dp, _dn, fs in sorted(os.walk(root)):
+                    for f in sorted(fs):
+                        with open(os.path.join(dp, f), "rb") as h:
+                            body += h.read()
+        with open(out, "wb") as h:
+            h.write(body)
+
+    def test_plan_parts_is_deterministic_greedy_and_keeps_previous_parts(self):
+        sizes = {"b.dds": 40, "A.dds": 30, "c/d.dds": 50, "e.dds": 10}
+        # sorted by path (case-insensitive), greedy, a file never split: A+b (70) | c/d (50) | e... no: e fits part 1
+        self.assertEqual(ib.plan_parts(sizes, 90), [["A.dds", "b.dds", "e.dds"], ["c/d.dds"]])
+        self.assertEqual(ib.plan_parts(sizes, 90), ib.plan_parts(dict(reversed(list(sizes.items()))), 90))
+        self.assertEqual(ib.plan_parts(sizes, 1000), [["A.dds", "b.dds", "c/d.dds", "e.dds"]])
+        self.assertEqual(ib.plan_parts({}, 90), [])
+        # a file keeps the part the previous batch gave it while that part has room; new files take the lowest part with room
+        prev = {"c/d.dds": 0, "A.dds": 1}
+        self.assertEqual(ib.plan_parts(sizes, 90, prev), [["b.dds", "c/d.dds"], ["A.dds", "e.dds"]])
+        # ... and moves only when its old part filled up around it (c/d's part 0 has no room once new files take it)
+        grown = dict(sizes, **{"aa.dds": 45})
+        self.assertEqual(ib.plan_parts(grown, 90, {"c/d.dds": 0, "A.dds": 0, "b.dds": 1}),
+                         [["A.dds", "c/d.dds", "e.dds"], ["aa.dds", "b.dds"]])
+        with self.assertRaisesRegex(ValueError, "larger than one archive part"):
+            ib.plan_parts({"huge.dds": 91}, 90)
+        self.assertEqual(ib.pack_ratio(None), 1.0)
+        self.assertEqual(ib.pack_ratio({"steps": {"pack": {"parts": [{"bytes": 50, "loose_bytes": 100}, {"bytes": 80, "loose_bytes": 100}]}}}), 0.8)
+        self.assertEqual(ib.pack_ratio({"steps": {"pack": {"parts": [{"bytes": 300, "loose_bytes": 100}]}}}), 3.0)   # plans tighter
+        legacy = {"steps": {"pack": {"bytes": {"FO4Port - Main.ba2": 900, "FO4Port - Textures.ba2": 40}}}}   # batches 0-4
+        self.assertEqual(ib.pack_ratio(legacy, 100), 0.4)
+        self.assertEqual(ib.pack_ratio(legacy), 1.0)
+        self.assertEqual(ib.pack_ratio({"steps": {"pack": {"bytes": {"FO4Port - Textures.ba2": 400}}}}, 100), 1.0)
+        # a part emptied by the previous assignment is dropped and the later ones move down: no empty part anywhere,
+        # at the tail or in the middle (an empty middle part would be packed from a folder that was never made)
+        self.assertEqual(ib.plan_parts({"a.dds": 10, "c.dds": 10}, 100, {"a.dds": 0, "c.dds": 2}), [["a.dds"], ["c.dds"]])
+        self.assertEqual(ib.plan_parts({"a.dds": 10}, 100, {"a.dds": 2}), [["a.dds"]])
+        self.assertNotIn([], ib.plan_parts({"a.dds": 10, "b.dds": 10, "c.dds": 10}, 15, {"a.dds": 0, "c.dds": 3}))
+
+    def test_companion_plugin_bytes_match_the_mutagen_probe(self):
+        b = ib.companion_plugin_bytes()
+        self.assertEqual(b.hex(), self.PROBE_HEX)
+        p = vp.Plugin(b)
+        self.assertEqual((p.masters(), p.items, p.tes4.flags, struct.unpack_from("<H", p.tes4.header, 20)[0]), ([], [], 1, 576))
+        self.assertEqual(p.hedr()[1:], (0, 0))
+        self.assertEqual(ib.part_names(0), ("FO4Port - Textures.ba2", None))
+        self.assertEqual(ib.part_names(2), ("FO4PortTextures3 - Textures.ba2", "FO4PortTextures3.esm"))
+        for rel, want in (("port/FO4PortTextures2.esm", True), ("port/FO4PortTextures12 - Textures.ba2", True),
+                          ("port/FO4Port - Textures.ba2", True), ("port/FO4PortTextures2 - Main.ba2", False),
+                          ("plugin/FO4PortTextures2.esm", False), ("port/x/FO4PortTextures2.esm", False)):
+            self.assertEqual(ib.is_superseded(rel), want, rel)
+
+    def _work(self, files, name="work"):
+        work = os.path.join(self.t, name)
+        for rel, n in files.items():
+            p = os.path.join(work, "textures", *rel.split("/"))
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "wb") as f:
+                f.write(bytes([n % 251]) * n)
+        os.makedirs(os.path.join(work, "meshes"), exist_ok=True)
+        with open(os.path.join(work, "meshes", "m.mesh"), "wb") as f:
+            f.write(b"mesh")
+        return work
+
+    def test_pack_splits_textures_into_companion_archives_and_keeps_the_assignment(self):
+        ib.ARCHIVE_LIMIT, ib.ARCHIVE_WARN = 100, 0.9                       # cap 90 loose bytes per part
+        work = self._work({"a.dds": 40, "b.dds": 40, "sub/c.dds": 30, "d.dds": 60})
+        out1 = os.path.join(self.t, "interiors_b01")
+        port1 = os.path.join(out1, "port")
+        os.makedirs(port1)
+        a = argparse.Namespace(starfield=self.t, work=work, out=out1)
+        real = ib.deploy_starfield.build_archive
+        ib.deploy_starfield.build_archive = self.fake_pack
+        try:
+            r1 = ib.pack(a, port1, None, None, os.path.join(out1, "build.log"))
+        finally:
+            ib.deploy_starfield.build_archive = real
+        # a+b (80) | d (60) + sub/c (30 -> part 2 since 60+30 > 90)... sorted: a, b, d, sub/c: a+b=80, d -> part 1, sub/c: part 0? 80+30>90, part 1: 60+30=90 fits
+        parts = [p["archive"] for p in r1["parts"]]
+        self.assertEqual(parts, ["FO4Port - Textures.ba2", "FO4PortTextures2 - Textures.ba2"])
+        self.assertEqual([p["files"] for p in r1["parts"]], [2, 2])
+        self.assertEqual([p["loose_bytes"] for p in r1["parts"]], [80, 90])
+        self.assertEqual([p["bytes"] for p in r1["parts"]], [84, 94])
+        self.assertEqual([p["plugin"] for p in r1["parts"]], [None, "FO4PortTextures2.esm"])
+        self.assertEqual(sorted(os.listdir(port1)), ["FO4Port - Main.ba2", "FO4Port - Textures.ba2", "FO4PortTextures2 - Textures.ba2",
+                                                     "FO4PortTextures2.esm", "textures_parts.json"])
+        self.assertFalse(os.path.exists(os.path.join(out1, "pack_parts")))   # the link trees are gone
+        with open(os.path.join(port1, "FO4PortTextures2.esm"), "rb") as f:
+            self.assertEqual(f.read().hex(), self.PROBE_HEX)
+        self.assertEqual(sorted(r1["sha256"]), sorted(r1["bytes"]))
+        self.assertEqual(sorted(r1["bytes"]), ["FO4Port - Main.ba2", "FO4Port - Textures.ba2", "FO4PortTextures2 - Textures.ba2", "FO4PortTextures2.esm"])
+        self.assertEqual(r1["bytes"]["FO4PortTextures2.esm"], 42)
+        self.assertEqual(r1["sha256"]["FO4Port - Main.ba2"], ib.sha256(os.path.join(port1, "FO4Port - Main.ba2")))
+        self.assertTrue(r1["pass"])
+        self.assertEqual(r1["near_limit"], ["FO4PortTextures2 - Textures.ba2"])   # 94 of 100: listed, not failed
+        self.assertEqual((r1["ratio"], r1["cap_loose_bytes"], r1["moved"], r1["ratio_source"]), (1.0, 90, 0, "default"))
+        self.assertEqual(r1["attempts"], [{"ratio": 1.0, "cap_loose_bytes": 90, "parts": 2, "over": []}])
+        self.assertEqual(ib.load(os.path.join(port1, "textures_parts.json"))["assignment"],
+                         {"a.dds": 0, "b.dds": 0, "d.dds": 1, "sub/c.dds": 1})
+        self.assertEqual(ib.install_set(port1), {"files": ["FO4Port - Main.ba2", "FO4Port - Textures.ba2",
+                                                           "FO4PortTextures2.esm", "FO4PortTextures2 - Textures.ba2"],
+                                                 "plugins_txt": ["FO4PortTextures2.esm"]})   # no FO4Port.esm in this port folder
+        # the next batch: a new texture joins, every old one keeps its part; the measured ratio (<1) widens the cap
+        with open(os.path.join(work, "textures", "0first.dds"), "wb") as f:
+            f.write(b"x" * 5)
+        out2 = os.path.join(self.t, "interiors_b02")
+        port2 = os.path.join(out2, "port")
+        os.makedirs(port2)
+        prev_result = {"steps": {"pack": {"parts": [{"bytes": 42, "loose_bytes": 80}, {"bytes": 47, "loose_bytes": 90}]}}}
+        ib.deploy_starfield.build_archive = self.fake_pack
+        try:
+            r2 = ib.pack(argparse.Namespace(starfield=self.t, work=work, out=out2), port2, port1, prev_result, os.path.join(out2, "build.log"))
+        finally:
+            ib.deploy_starfield.build_archive = real
+        self.assertAlmostEqual(r2["ratio"], 0.525)                        # the least packed part: 42 / 80
+        self.assertEqual((r2["cap_loose_bytes"], r2["ratio_source"]), (int(90 / 0.525), "prev"))
+        self.assertEqual(ib.load(os.path.join(port2, "textures_parts.json"))["assignment"],
+                         {"0first.dds": 0, "a.dds": 0, "b.dds": 0, "d.dds": 1, "sub/c.dds": 1})   # kept, though one part would do now
+        self.assertEqual(r2["moved"], 0)
+        # a single part is packed straight from the work staging (no link tree), with no companion
+        ib.ARCHIVE_LIMIT = 10_000
+        out3 = os.path.join(self.t, "interiors_b03")
+        os.makedirs(os.path.join(out3, "port"))
+        ib.deploy_starfield.build_archive = self.fake_pack
+        try:
+            r3 = ib.pack(argparse.Namespace(starfield=self.t, work=work, out=out3), os.path.join(out3, "port"), None, None, os.path.join(out3, "build.log"))
+        finally:
+            ib.deploy_starfield.build_archive = real
+        self.assertEqual(sorted(r3["bytes"]), ["FO4Port - Main.ba2", "FO4Port - Textures.ba2"])
+        self.assertEqual(r3["parts"][0]["loose_bytes"], 175)
+        # an unsplittable texture fails the step, which fails the batch
+        ib.ARCHIVE_LIMIT = 50
+        ib.deploy_starfield.build_archive = self.fake_pack
+        try:
+            with self.assertRaisesRegex(ValueError, "larger than one archive part"):
+                ib.pack(argparse.Namespace(starfield=self.t, work=work, out=out3), os.path.join(out3, "port"), None, None, os.path.join(out3, "build.log"))
+        finally:
+            ib.deploy_starfield.build_archive = real
+
+    def test_pack_replans_a_part_that_packs_over_the_limit_and_repacks_only_changed_parts(self):
+        """The --prev's ratio is measured on its parts, not on the files this batch adds: when the new ones pack worse,
+        the over-limit part is replanned with the measured ratio, parts whose file list did not change are not packed
+        again, and the files that moved are counted."""
+        ib.ARCHIVE_LIMIT, ib.ARCHIVE_WARN = 100, 0.9
+        work = self._work({"p.dds": 80, "q.dds": 80, "r.dds": 80})
+        out = os.path.join(self.t, "interiors_b05")
+        port, prev_port = os.path.join(out, "port"), os.path.join(self.t, "interiors_b04", "port")
+        os.makedirs(port)
+        os.makedirs(prev_port)
+        ib.save(os.path.join(prev_port, ib.PARTS), {"assignment": {"p.dds": 0, "q.dds": 1}})
+        prev_result = {"steps": {"pack": {"parts": [{"bytes": 40, "loose_bytes": 80}, {"bytes": 40, "loose_bytes": 80}]}}}  # ratio 0.5
+        calls = []
+
+        def counting_pack(a, out_, folders, fmt, compression="Default"):
+            calls.append(os.path.basename(out_))
+            self.fake_pack(a, out_, folders, fmt, compression)              # the new file packs 1:1, so part 0 overshoots
+
+        a = argparse.Namespace(starfield=self.t, work=work, out=out)
+        real, ib.deploy_starfield.build_archive = ib.deploy_starfield.build_archive, counting_pack
+        try:
+            r = ib.pack(a, port, prev_port, prev_result, os.path.join(out, "build.log"))
+        finally:
+            ib.deploy_starfield.build_archive = real
+        # attempt 1: cap 180 loose, p + r in part 0 (164 packed: over), q in part 1 (84); the measured ratio (the
+        # least packed part's: 84/80 = 1.05) plans attempt 2 at cap 85: p | q | r, part 1 untouched
+        self.assertTrue(r["pass"])
+        self.assertEqual([(x["ratio"], x["cap_loose_bytes"], x["parts"], x["over"]) for x in r["attempts"]],
+                         [(0.5, 180, 2, ["FO4Port - Textures.ba2"]), (1.05, 85, 3, [])])
+        self.assertEqual((r["ratio"], r["cap_loose_bytes"], r["ratio_source"]), (1.05, 85, "prev"))
+        self.assertEqual([p["files"] for p in r["parts"]], [1, 1, 1])
+        self.assertEqual(calls.count("FO4PortTextures2 - Textures.ba2"), 1)
+        self.assertEqual(calls.count("FO4Port - Textures.ba2"), 2)
+        self.assertEqual(r["moved"], 0)                                   # p and q kept their parts; r is new
+        self.assertEqual(ib.load(os.path.join(port, ib.PARTS))["assignment"], {"p.dds": 0, "q.dds": 1, "r.dds": 2})
+        self.assertEqual(sorted(r["sha256"]), ["FO4Port - Main.ba2", "FO4Port - Textures.ba2", "FO4PortTextures2 - Textures.ba2",
+                                              "FO4PortTextures2.esm", "FO4PortTextures3 - Textures.ba2", "FO4PortTextures3.esm"])
+        self.assertEqual(sorted(os.listdir(port)), sorted(r["sha256"]) + ["textures_parts.json"])
+        # --pack-ratio plans by the given ratio instead (first attempt right at 1.0, no replanning)
+        out2 = os.path.join(self.t, "interiors_b06")
+        os.makedirs(os.path.join(out2, "port"))
+        ib.deploy_starfield.build_archive = self.fake_pack
+        try:
+            r2 = ib.pack(argparse.Namespace(starfield=self.t, work=work, out=out2, pack_ratio=1.0), os.path.join(out2, "port"),
+                         port, {"steps": {"pack": r}}, os.path.join(out2, "build.log"))
+        finally:
+            ib.deploy_starfield.build_archive = real
+        self.assertEqual((r2["ratio"], r2["ratio_source"], len(r2["attempts"]), r2["moved"]), (1.0, "--pack-ratio", 1, 0))
+        # a file moves when its old part filled up around it (counted), and a part that packs over the limit after
+        # every attempt fails the step with the reason
+        out3 = os.path.join(self.t, "interiors_b07")
+        os.makedirs(os.path.join(out3, "port"))
+        ib.save(os.path.join(port, ib.PARTS), {"assignment": {"p.dds": 1, "q.dds": 1, "r.dds": 1}})   # 240 loose in one part
+        ib.deploy_starfield.build_archive = self.fake_pack
+        try:
+            r3 = ib.pack(argparse.Namespace(starfield=self.t, work=work, out=out3, pack_ratio=1.0), os.path.join(out3, "port"),
+                         port, None, os.path.join(out3, "build.log"))
+        finally:
+            ib.deploy_starfield.build_archive = real
+        self.assertEqual((r3["moved"], r3["pass"]), (2, True))            # p stays in part 1 (becomes 0); q and r move
+        # a packer whose output does not follow the loose bytes (any two files pack to the limit) is still over after
+        # PACK_ATTEMPTS plans: the step fails with the attempts recorded, and the batch with it
+        work4 = self._work({"a.dds": 10, "b.dds": 10, "c.dds": 10, "d.dds": 10}, "work4")
+
+        def odd_pack(a, out_, folders, fmt, compression="Default"):
+            n = sum(len(fs) for d in folders for _dp, _dn, fs in os.walk(os.path.join(a.staging, d)))
+            with open(out_, "wb") as h:
+                h.write(b"BTDX" + b"x" * (96 if n >= 2 else 6))
+
+        out4 = os.path.join(self.t, "interiors_b08")
+        os.makedirs(os.path.join(out4, "port"))
+        ib.deploy_starfield.build_archive = odd_pack
+        try:
+            r4 = ib.pack(argparse.Namespace(starfield=self.t, work=work4, out=out4), os.path.join(out4, "port"),
+                         None, None, os.path.join(out4, "build.log"))
+        finally:
+            ib.deploy_starfield.build_archive = real
+        self.assertFalse(r4["pass"])
+        self.assertEqual([(x["cap_loose_bytes"], x["parts"]) for x in r4["attempts"]], [(90, 1), (36, 2), (27, 2)])
+        self.assertIn("packed worse than planned even after replanning", r4["problem"])
+        # ... and a replanned cap no file fits says so, naming the attempts
+        ib.ARCHIVE_LIMIT, ib.ARCHIVE_WARN = 100, 0.9
+        work5 = self._work({"a.dds": 20}, "work5")
+        out5 = os.path.join(self.t, "interiors_b09")
+        os.makedirs(os.path.join(out5, "port"))
+        ib.deploy_starfield.build_archive = odd_pack                       # one file packs to 10 bytes: never over
+        try:
+            self.assertTrue(ib.pack(argparse.Namespace(starfield=self.t, work=work5, out=out5), os.path.join(out5, "port"),
+                                    None, None, os.path.join(out5, "build.log"))["pass"])
+            ib.ARCHIVE_LIMIT = 10                                          # 10 >= the limit: over; the measured ratio 0.5 shrinks the cap under 20
+            out6 = os.path.join(self.t, "interiors_b10")
+            os.makedirs(os.path.join(out6, "port"))
+            with self.assertRaisesRegex(ValueError, r"larger than one archive part .* after replanning"):
+                ib.pack(argparse.Namespace(starfield=self.t, work=work5, out=out6, pack_ratio=0.2), os.path.join(out6, "port"),
+                        None, None, os.path.join(out6, "build.log"))
+        finally:
+            ib.deploy_starfield.build_archive = real
+
+    def test_install_set_orders_many_companions_by_number_and_link_tree_counts_copies(self):
+        port = os.path.join(self.t, "port")
+        os.makedirs(port)
+        for n in ("FO4Port.esm", "FO4Port - Main.ba2", "FO4Port - Textures.ba2", "FO4PortTextures10.esm", "FO4PortTextures10 - Textures.ba2",
+                  "FO4PortTextures2.esm", "FO4PortTextures2 - Textures.ba2", "FO4PortTextures3.esm", "FO4PortTextures3 - Textures.ba2",
+                  "textures_parts.json", "compare.json"):
+            with open(os.path.join(port, n), "wb") as f:
+                f.write(b"x")
+        self.assertEqual(ib.install_set(port), {
+            "files": ["FO4Port.esm", "FO4Port - Main.ba2", "FO4Port - Textures.ba2", "FO4PortTextures2.esm", "FO4PortTextures2 - Textures.ba2",
+                      "FO4PortTextures3.esm", "FO4PortTextures3 - Textures.ba2", "FO4PortTextures10.esm", "FO4PortTextures10 - Textures.ba2"],
+            "plugins_txt": ["FO4Port.esm", "FO4PortTextures2.esm", "FO4PortTextures3.esm", "FO4PortTextures10.esm"]})
+        # a volume that refuses hard links gets copies, counted
+        work = self._work({"a.dds": 3, "s/b.dds": 4})
+        tree = os.path.join(self.t, "tree")
+        self.assertEqual(ib.link_tree(work, ["a.dds", "s/b.dds"], tree), 0)
+        self.assertEqual(os.stat(os.path.join(tree, "textures", "a.dds")).st_nlink, 2)
+        real_link = os.link
+
+        def no_link(src, dst, **kw):
+            raise OSError(18, "Invalid cross-device link")
+
+        os.link = no_link
+        try:
+            self.assertEqual(ib.link_tree(work, ["a.dds", "s/b.dds"], os.path.join(self.t, "tree2")), 2)
+        finally:
+            os.link = real_link
+        with open(os.path.join(self.t, "tree2", "textures", "s", "b.dds"), "rb") as f:
+            self.assertEqual(f.read(), bytes([4]) * 4)
+
+    def test_release_treats_companions_like_the_ports_archives(self):
+        root, refs, arch, sf = (os.path.join(self.t, n) for n in ("staging", "refs", "archive", "Starfield"))
+        os.makedirs(os.path.join(sf, "Data"))
+        os.makedirs(refs)
+
+        def stage(n, prev=None, companions=(2,), succ_sha_for=None):
+            port = os.path.join(root, n, "port")
+            os.makedirs(port)
+            names = ["FO4Port - Main.ba2", "FO4Port - Textures.ba2"]
+            for k in companions:
+                names += [f"FO4PortTextures{k}.esm", f"FO4PortTextures{k} - Textures.ba2"]
+            for f in names:
+                with open(os.path.join(port, f), "wb") as h:
+                    h.write(ib.companion_plugin_bytes() if f.endswith(".esm") else b"BTDX" + (n + f).encode())
+            with open(os.path.join(port, "FO4Port.esm"), "wb") as h:
+                h.write(n.encode())
+            steps = {"compare_prev": {"prev": os.path.join(root, prev), "pass": True}} if prev else {}
+            steps["pack"] = {"bytes": {f: os.path.getsize(os.path.join(port, f)) for f in names},
+                             "sha256": {f: ib.sha256(os.path.join(port, f)) for f in (succ_sha_for if succ_sha_for is not None else names)}}
+            ib.save(os.path.join(root, n, "result.json"), {"name": n, "installed": False, "pass": True, "steps": steps,
+                                                           "pins": {"plugin": ib.sha256(os.path.join(port, "FO4Port.esm"))}})
+            with open(os.path.join(root, n, "build.log"), "w", encoding="utf-8") as h:
+                h.write("log of " + n)
+            return os.path.join(root, n)
+
+        b01 = stage("interiors_b01")
+        b02 = stage("interiors_b02", "interiors_b01")
+        self.assertEqual(ib.superseded_files(b01), ["port/FO4Port - Main.ba2", "port/FO4Port - Textures.ba2", "port/FO4Port.esm",
+                                                    "port/FO4PortTextures2 - Textures.ba2", "port/FO4PortTextures2.esm"])
+        # the companion archive installed keeps the stage (its plugin is the same 42 bytes in every stage: not a key)
+        shutil.copyfile(os.path.join(b01, "port", "FO4PortTextures2 - Textures.ba2"), os.path.join(sf, "Data", "FO4PortTextures2 - Textures.ba2"))
+        with self.assertRaisesRegex(ValueError, "FO4PortTextures2 - Textures.ba2 is the one installed"):
+            ib.release(b01, "x", [refs], sf, b02, arch)
+        os.remove(os.path.join(sf, "Data", "FO4PortTextures2 - Textures.ba2"))
+        shutil.copyfile(os.path.join(b02, "port", "FO4PortTextures2.esm"), os.path.join(sf, "Data", "FO4PortTextures2.esm"))   # another stage's: identical, not a key
+        rec = ib.release(b01, "superseded", [refs], sf, b02, arch)
+        self.assertEqual(sorted(rec["archived"]), ["build.log", "result.json"])       # the companions: carried by b02
+        self.assertEqual([os.path.basename(p) for p in ib.prune(root, 1, delete=False)], ["interiors_b01"])
+        # a successor without a build-time sha256 for the companion, or whose companion archive changed, cannot stand in
+        b03 = stage("interiors_b03", "interiors_b02", succ_sha_for=["FO4Port - Main.ba2", "FO4Port - Textures.ba2", "FO4PortTextures2.esm"])
+        with self.assertRaisesRegex(ValueError, "no build-time sha256 for port/FO4PortTextures2 - Textures.ba2"):
+            ib.release(b02, "x", [refs], sf, b03, arch)
+        b04 = stage("interiors_b04", "interiors_b03")
+        with open(os.path.join(b04, "port", "FO4PortTextures2 - Textures.ba2"), "ab") as h:
+            h.write(b"!")
+        with self.assertRaisesRegex(ValueError, "FO4PortTextures2 - Textures.ba2 is missing or not the one it packed"):
+            ib.release(b03, "x", [refs], sf, b04, arch)
+        # a successor that needed one part fewer lacks the stage's last companion: refused, conservatively
+        b05 = stage("interiors_b05", "interiors_b04", companions=())
+        with self.assertRaisesRegex(ValueError, "no build-time sha256 for port/FO4PortTextures2 - Textures.ba2"):
+            ib.release(b04, "x", [refs], sf, b05, arch)
+        # a release.json that lists a companion neither archived nor superseded would refuse; a companion is superseded
+        rec = dict(rec, tree=dict(rec["tree"], **{"port/FO4PortTextures3.esm": [42, "0" * 64]}))
+        ib.archived_check(rec)
+        with self.assertRaisesRegex(ValueError, "not archived: port/FO4PortTextures3 - Main.ba2"):
+            ib.archived_check(dict(rec, tree=dict(rec["tree"], **{"port/FO4PortTextures3 - Main.ba2": [1, "0" * 64]})))
+
+    def test_source_pins_and_changes(self):
+        data, dlc = os.path.join(self.t, "Data"), os.path.join(self.t, "dlc")
+        os.makedirs(data)
+        os.makedirs(dlc)
+        for d, names in ((data, ["Fallout4.esm", "Fallout4 - Meshes.ba2", "Fallout4 - Textures1.ba2"]), (dlc, ["DLCRobot.esm", "DLCRobot - Main.ba2"])):
+            for n in names:
+                with open(os.path.join(d, n), "wb") as f:
+                    f.write(n.encode())
+        plan = {"batches": [{"cells": [{"editor_id": "Old", "formkey": "000001:Fallout4.esm"}]},
+                            {"cells": [{"editor_id": "Lair", "formkey": "0008A3:DLCRobot.esm"}, {"editor_id": "Gone", "formkey": "000001:DLCCoast.esm"}]}]}
+        a = argparse.Namespace(fo4_data=data, dlc_data=[dlc])
+        s1 = ib.source_pins(a, plan, 1)
+        self.assertEqual(sorted(s1["plugins"]), ["Fallout4.esm"])
+        self.assertEqual(s1["plugins"]["Fallout4.esm"], {"sha256": ib.sha256(os.path.join(data, "Fallout4.esm")), "bytes": 12})
+        self.assertEqual(sorted(s1["archives"]), ["DLCRobot - Main.ba2", "Fallout4 - Meshes.ba2", "Fallout4 - Textures1.ba2"])
+        self.assertEqual(set(s1["archives"]["Fallout4 - Meshes.ba2"]), {"bytes", "mtime", "folder"})
+        self.assertEqual(s1["archives"]["DLCRobot - Main.ba2"]["folder"], os.path.abspath(dlc))
+        s2 = ib.source_pins(a, plan, 2)
+        self.assertEqual(sorted(s2["plugins"]), ["DLCCoast.esm", "DLCRobot.esm", "Fallout4.esm"])
+        self.assertIsNone(s2["plugins"]["DLCCoast.esm"])                   # not installed: pinned as missing
+        self.assertEqual(ib.source_changes(s1, s1), [])
+        # the first batch with a DLC cell pins the DLC plugin for the first time: not a change (nothing the --prev read
+        # differs), listed by source_added instead; the DLC plugin pinned before and gone now is one; a changed Fallout4.esm too
+        self.assertEqual(ib.source_changes(s1, s2), [])
+        self.assertEqual(ib.source_added(s1, s2), ["DLCCoast.esm", "DLCRobot.esm"])
+        self.assertEqual(ib.source_added(s2, s1), [])
+        self.assertEqual(ib.source_changes(s2, s1), ["DLCRobot.esm sha256 " + s2["plugins"]["DLCRobot.esm"]["sha256"] + " -> None"])
+        with open(os.path.join(data, "Fallout4.esm"), "wb") as f:
+            f.write(b"patched")
+        diff = ib.source_changes(s1, ib.source_pins(a, plan, 1))
+        self.assertEqual(len(diff), 1)
+        self.assertTrue(diff[0].startswith("Fallout4.esm sha256 "))
+        # a BA2 that changed size or mtime differs too; one only one side has differs by bytes only (not twice)
+        os.utime(os.path.join(data, "Fallout4 - Meshes.ba2"), (1, 1))
+        diff = ib.source_changes(s1, ib.source_pins(a, plan, 1))
+        self.assertEqual(len(diff), 2)
+        self.assertTrue(diff[1].startswith("Fallout4 - Meshes.ba2 mtime "), diff)
+        os.remove(os.path.join(dlc, "DLCRobot - Main.ba2"))
+        self.assertIn("DLCRobot - Main.ba2 bytes 19 -> None", ib.source_changes(s1, ib.source_pins(a, plan, 1)))
+        # a BA2 added to a folder since (a DLC installed) is pinned for the first time: added, not changed
+        with open(os.path.join(dlc, "DLCRobot - Textures.ba2"), "wb") as f:
+            f.write(b"BTDX")
+        s3 = ib.source_pins(a, plan, 1)
+        self.assertNotIn("DLCRobot - Textures.ba2", " ".join(ib.source_changes(s1, s3)))
+        self.assertEqual(ib.source_added(s1, s3), ["DLCRobot - Textures.ba2"])
+        # base_sources: a stage's port folder (or the stage) carries its result.json's record; the installed doors staging has none
+        stage = os.path.join(self.t, "interiors_b04")
+        os.makedirs(os.path.join(stage, "port"))
+        self.assertIsNone(ib.base_sources(os.path.join(stage, "port")))
+        ib.save(os.path.join(stage, "result.json"), {"sources": s1})
+        self.assertEqual(ib.base_sources(os.path.join(stage, "port")), s1)
+        self.assertEqual(ib.base_sources(stage), s1)

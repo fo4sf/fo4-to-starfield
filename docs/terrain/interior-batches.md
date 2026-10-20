@@ -1,7 +1,9 @@
 # Every interior: census, batch plan and staged batch builds
 
 Author: Claude-cloud, 2026-10-19 (roadmap phase 3, "all interiors", approved by the owner 07:23Z). Status: **census
-and plan done offline; build tooling written and unit tested; no batch built yet; nothing installed or queued.**
+and plan done offline; build tooling written and unit tested; batches 0 to 4 built and staged (Results); nothing
+installed or queued; the texture split over companion plugins (2026-10-20) is unit tested, not yet built or loaded
+in game.**
 Labels as in docs/ai/research-log.md: **verified** = read from the files or commands named here; **supported** =
 a hypothesis with evidence; **unresolved**. Offline checks are not in-game acceptance.
 
@@ -79,18 +81,56 @@ PluginSpike seeded with the installed port's `formids.json` and `lighting.json`,
   keeps its FormID, no installed record is removed or changes signature; byte-identical and changed records are
   counted by signature (a changed record of an old cell means the converter or tables changed since the installed
   build: listed, not failed). Any renumbered, missing or removed id fails the batch.
-- **Pack**: `FO4Port - Main.ba2` and `FO4Port - Textures.ba2` from the work staging with Starfield's Archive2
+- **Pack**: `FO4Port - Main.ba2` and the textures from the work staging with Starfield's Archive2
   (deploy_starfield.py's packer, no install). An archive of 4,095 MiB (4,293,918,720 bytes) or more fails the batch;
   one over 90% of that is listed under `near_limit`. Every vanilla Starfield archive stays under 4 GiB, and whether the
   engine reads a larger one is unresolved. Measured (verified, D:\Modding\staging\interiors_b04\port): batch 4's
   Textures.ba2 is 3,590,442,691 bytes and Main.ba2 230,547,923, which is 0.81 of the plan's 4.70 GB estimate. At that
   ratio, the textures archive reaches about 90% of the limit at batch 5 or 6 and passes it at batch 7 (supported
-  estimate). Before then the textures need a split: a second archive (whose auto-load name is unverified), a small
-  companion plugin carrying its own `- Textures.ba2`, or a smaller texture set. That choice is open and goes in
-  docs/ai/decisions.md.
+  estimate). So the textures are split (decided 2026-10-20, docs/ai/decisions.md; X3):
+  - **As many DDS archives as needed.** `plan_parts` takes the loose files under `<work>\textures` in case-insensitive
+    path order and fills parts greedily to a cap of 90% of the limit in loose bytes (a file is never split; a file
+    larger than the cap fails the batch). With `--prev`, a file keeps the part the previous batch gave it
+    (`port\textures_parts.json`, written by every packed batch) as long as that part still has room, and the previous
+    batch's measured packed/loose ratio (the least packed part's; above 1 it plans tighter) or `--pack-ratio R`
+    widens the cap. A `--prev` built before the split (batches 0 to 4) recorded only its one textures archive's
+    size, so the ratio is that size over this batch's loose bytes: a lower bound, optimistic by design, corrected by
+    the replanning below if a part comes out over. A first build without `--prev` plans by loose bytes alone:
+    conservative, since Archive2's DDS format packs batch 4's textures to under half their loose size (the work
+    staging is about twice the archives, above). New
+    files go to the lowest part with room. A part emptied by the previous assignment is dropped and the parts after
+    it move down one number (a part is never empty, so no archive is packed from nothing and no companion ships
+    without textures). `steps.pack.moved` counts files that changed part; `steps.pack.parts` has each part's file
+    count, loose and packed bytes.
+  - **Replanning.** The ratio is measured on the parts the previous batch packed, never on the files this batch adds,
+    so a part can come out over the limit when the new textures pack worse (a **hypothesis** about Archive2's DDS
+    compression varying per file; the arithmetic is the tool's). Then the plan is redone with the ratio this attempt
+    measured (its least packed part's, which is always above the ratio planned with, since an over-limit part packed
+    more than cap times ratio bytes), only the parts whose file list changed are packed again, up to three attempts
+    (`steps.pack.attempts`: ratio, cap, part count and the over-limit archives of each); a part still over fails the
+    batch, with the measured ratio in result.json for the next plan, and `--pack-ratio` plans the next build tighter
+    by hand (recorded as `steps.pack.ratio_source`: `prev`, `default` or `--pack-ratio`). Unit tested with a fake
+    packer; no real batch has needed a second attempt yet.
+  - **Names.** Part 0 is `FO4Port - Textures.ba2`. Part k (k >= 1) is `FO4PortTextures<k+1> - Textures.ba2` next to a
+    companion plugin `FO4PortTextures<k+1>.esm`: an empty full-master plugin, 42 bytes, byte for byte what
+    Mutagen.Bethesda.Starfield 0.55.0-alpha.67 writes for a `StarfieldMod` with the Master flag and no records (TES4
+    flags 0x1, form version 576, HEDR 0.96 / 0 records / next id 0, no MAST; **verified** in a cloud probe,
+    `tests/test_interior_census.py` pins the bytes). The game loads `<plugin> - Textures.ba2` for a loaded plugin
+    (**verified** for FO4Port.esm, docs/JOURNAL.md "renders with its original texture", and for the vanilla SFBGS003 /
+    SFBGS00D pairs, docs/terrain/core64c.md); that it does so for a plugin with no records is **supported** by that
+    rule and **unresolved** in game (PC tests below). Full master per the X2 rule (decisions.md).
+  - **How a part is packed.** One part is packed straight from the work staging as before. Several are each packed
+    from a link tree `<out>\pack_parts\<k>\textures\...` of hard links to the work staging's files (same volume, no
+    copy; a volume that refuses links gets a copy, counted in `steps.pack.copies`), with `build_archive`'s folder-list
+    call unchanged (`Archive2 textures -root=<tree>`), then the tree is removed.
+  - **Pins.** `steps.pack.bytes` and `steps.pack.sha256` cover every archive and every companion plugin.
+  - **Install set.** result.json `install.files` lists every file of `port\` to install and `install.plugins_txt` the
+    Plugins.txt order: `FO4Port.esm`, then the companions in number order (README.txt repeats both). deploy_starfield.py
+    still copies only FO4Port.esm and its two archives; a batch with companions is installed by hand until the
+    installer learns the list (**open**).
 - **result.json**: per cell converted / checked / failed with the reason, PluginSpike's placed / lights / skipped, the
-  failed models, the pins (commit, sha256 of the plan, the installed port's plugin and map, the new plugin), times,
-  sizes and free space. A stage is deleted in two steps.
+  failed models, the pins (commit, sha256 of the plan, the installed port's plugin and map, the new plugin), the
+  `sources` (below), the install set, times, sizes and free space. A stage is deleted in two steps.
 
   First, `release` marks one stage as safe to delete. It refuses:
   - a failed build, which is evidence and is deleted by hand once archived;
@@ -101,18 +141,45 @@ PluginSpike seeded with the installed port's `formids.json` and `lighting.json`,
     folders there, not the staging root, because later stages name their `--prev`.
   - any check that cannot run, such as a missing folder or an unreadable file.
 
-  It copies every file except the port's FO4Port.esm and its two BA2s to `--archive`/<name>/<generation>/, whatever the size. A generation is named by the tree's digest and never
+  It copies every file except the port's FO4Port.esm, its two BA2s and the texture companions (`FO4PortTexturesN.esm`
+  and `FO4PortTexturesN - Textures.ba2`) to `--archive`/<name>/<generation>/, whatever the size. A generation is named by the tree's digest and never
   overwritten: a changed stage released again gets a new one, and an existing one with other bytes refuses the release (each copy is published exclusively, so a file another
   writer puts there first is kept and verified, never replaced), and
-  verifies the copies. Those three are covered by the successor: its own plugin and BA2s must match the sha256s pinned when it
+  verifies the copies. Those files are covered by the successor: its own plugin, BA2s and companions must match the sha256s pinned when it
   was built (result.json pins.plugin and steps.pack.sha256), at release and again at prune. A batch built before
-  0156f14's successor, with no archive sha256s, cannot stand in. It then writes release.json with the whole tree's sha256s; any file not
+  0156f14's successor, with no archive sha256s, cannot stand in; nor can a successor that needed fewer texture parts
+  than the stage (it lacks the stage's last companion). The installed check covers the archives too: a stage whose
+  `FO4Port - Textures.ba2` or companion archive is the one in Starfield's Data (same size, then sha256) is kept; the
+  companion plugin itself is the same 42 bytes in every stage, so it never identifies one. It then writes release.json with the whole tree's sha256s; any file not
   covered by one of the two refuses deletion.
 
   Second, `prune --keep 2 --delete` repeats every check right before deleting: the same tree (a log added later keeps
   the stage), intact archive copies, the successor and its port still intact, nothing installed or named. It deletes only the
   stages that still pass, and lists the rest with the reason they stay. The build-time `installed: false` in result.json
   is never taken as a release (Codex's reviews on #396).
+
+**Sources (X8).** Every build pins what it reads from the game in result.json `sources`: the sha256 and size of
+Fallout4.esm and of each DLC plugin a cell of the batch is exported from, and the size and mtime of every `.ba2`
+directly under `--fo4-data` and each `--dlc-data` folder (the set convert_batch.py can open; hashing some 30 GB of
+BA2s would take longer than the convert step, so they are pinned by size and mtime only). A `--prev`, or a `--base`
+that is a batch's own stage (its result.json carries `sources`; the installed doors staging has none and is never
+refused for one), built from other files is refused with the differences listed, unless `--allow-source-change`,
+which result.json records under `steps.sources.allowed_change`. A difference is a pin the earlier record has whose
+value changed or that is gone now; a plugin or BA2 pinned for the first time (batch 10 adds DLCRobot.esm and the
+DLC's BA2s to batch 9's pins) is not one, since nothing the earlier batches read changed: it is listed under
+`steps.sources.added`, and the flag keeps meaning a real change (a Fallout4.esm updated by Steam in the same build
+is still refused).
+
+**PC tests, not run** (the companion split is unverified in game):
+- `coc` into a cell whose textures are only in `FO4PortTextures2 - Textures.ba2` (pick one from
+  `port\textures_parts.json` with part 1) with `FO4Port.esm` and `FO4PortTextures2.esm` active, in that order: the
+  model renders textured, not the missing-texture magenta, and the load completes without a missing-plugin prompt.
+- The same with `FO4PortTextures2.esm` left out of Plugins.txt: the texture must be missing. That proves the archive
+  is loaded through the plugin's name, not found some other way.
+- Plugins.txt with the companion before `FO4Port.esm`: whether order matters (nothing masters the companion, so it
+  should not).
+- `FO4PortTextures2.esm` rewritten as a small or medium master (the X2 question): the same texture test. Only a PASS
+  there would allow the smaller type; the choice is fixed once released.
 
 **Batch 0** builds only the 16 installed cells and compares them with the installed port: it shows whether today's
 converter reproduces the installed port before anything grows it. Its change counts are the baseline every later
@@ -160,7 +227,8 @@ the other. No keywords are written
 (FO4's LocType keywords have no verified Starfield mapping; the export keeps them for a later pass).
 
 **Where the FO4 data comes from.** `Fo4Export export` writes schema 3 (`docs/CELL-EXPORT.md`): `cell_data` (flags,
-name), `location`, `encounter_zone`. The 16 base cells' exports are pinned copies that predate schema 3, so
+name, and for later passes acoustic space, music, image space, god rays, water and ownership; PluginSpike reads only
+the name), `location`, `encounter_zone`. The 16 base cells' exports are pinned copies that predate schema 3, so
 `interior_batch.py build` runs `Fo4Export <plugin> [--master ...] locations plugin\locations.json <cell>...` for them
 (one run per source plugin, DLC cells with `--master Fallout4.esm` as `export_cell` does) before PluginSpike, which
 reads a cell's keys from its own export first, then from `locations.json`, else writes a per-cell LCTN with no
@@ -234,7 +302,7 @@ python scripts/terrain/interior_batch.py build --plan docs/terrain/data/interior
   --fo4export <Fo4Export.dll> --pluginspike <PluginSpike.dll> --spec-mask-roughness ^
   --convert-arg=--door-anim-dll --convert-arg=<CALUMI.Animation.dll> --convert-arg=--mass-scale --convert-arg=0.2 ^
   --promote-arg=--names --promote-arg=<fo4_names.json> --promote-arg=--furniture --promote-arg=<fo4-furniture.json> ^
-  --promote-arg=--fo4-data --promote-arg=<FO4 Data>
+  --promote-arg=--fo4-data --promote-arg=<FO4 Data> [--prev D:\Modding\staging\interiors_bMM] [--allow-source-change] [--pack-ratio R]
 python scripts/terrain/interior_batch.py release --dir D:\Modding\staging\interiors_b03 --reason "superseded by b05" ^
   --successor D:\Modding\staging\interiors_b04 --archive <evidence archive folder> --check-refs <queue folder> --check-refs <recovery receipts folder> --starfield <Starfield>
 python scripts/terrain/interior_batch.py prune --staging-root D:\Modding\staging --keep 2 --delete

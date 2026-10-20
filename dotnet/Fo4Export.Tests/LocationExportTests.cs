@@ -1,7 +1,8 @@
 // Synthetic checks for LocationExport (schema 3 cell_data / location / encounter_zone), the `export` mode's schema-3 cell
 // JSON and the `locations` sidecar mode.
 // A master and a plugin are written to a temp folder and read back through the binary overlay with a two-mod link cache,
-// the way Fo4Export reads a DLC with --master, so XLCN, XEZN, PNAM, KWDA and ECZN DATA all go through the real reader.
+// the way Fo4Export reads a DLC with --master, so XLCN, XEZN, PNAM, KWDA and ECZN DATA all go through the real reader,
+// as do the cell_data subrecords XCAS, XCMO, XCIM, XGDR, XCWT, XCLW, XOWN and XRNK.
 using System.Diagnostics;
 using System.Text.Json;
 using Mutagen.Bethesda;
@@ -30,6 +31,15 @@ public static class LocationExportTests
         var kw = new Keyword(new FormKey(masterKey, 0x803), Fallout4Release.Fallout4) { EditorID = "LocTypeDungeon" };
         var fac = new Faction(new FormKey(masterKey, 0x804), Fallout4Release.Fallout4) { EditorID = "RaiderFaction" };
         master.Locations.Add(grand); master.Locations.Add(parent); master.Keywords.Add(kw); master.Factions.Add(fac);
+        // the cell_data link targets (XCAS, XCMO, XCIM, XGDR, XCWT) and an NPC owner, all in the master
+        var aspc = new AcousticSpace(new FormKey(masterKey, 0x805), Fallout4Release.Fallout4) { EditorID = "IntVaultAcousticSpace" };
+        var musc = new MusicType(new FormKey(masterKey, 0x806), Fallout4Release.Fallout4) { EditorID = "MUSDungeonVault" };
+        var imgs = new ImageSpace(new FormKey(masterKey, 0x807), Fallout4Release.Fallout4) { EditorID = "VaultImageSpace" };
+        var gdry = new GodRays(new FormKey(masterKey, 0x808), Fallout4Release.Fallout4) { EditorID = "VaultGodRays" };
+        var watr = new Water(new FormKey(masterKey, 0x809), Fallout4Release.Fallout4) { EditorID = "DefaultWater" };
+        var npc = new Npc(new FormKey(masterKey, 0x80A), Fallout4Release.Fallout4) { EditorID = "Overseer" };
+        master.AcousticSpaces.Add(aspc); master.MusicTypes.Add(musc); master.ImageSpaces.Add(imgs); master.GodRays.Add(gdry);
+        master.Waters.Add(watr); master.Npcs.Add(npc);
 
         var plugin = new Fallout4Mod(pluginKey, Fallout4Release.Fallout4);
         // (a) the plugin's own LCTN, parented into the master two levels up, with one keyword and one unresolvable keyword
@@ -72,8 +82,28 @@ public static class LocationExportTests
         cycleCell.Location.SetTo(cycleA.FormKey);
         var orphanCell = new Cell(new FormKey(pluginKey, 0x817), Fallout4Release.Fallout4) { EditorID = "OrphanCell", Flags = Cell.Flag.IsInteriorCell };
         orphanCell.Location.SetTo(orphan.FormKey);
+        // (i) every cell_data link set and resolvable, water height, faction owner with a rank
+        var ambient = new Cell(new FormKey(pluginKey, 0x818), Fallout4Release.Fallout4)
+            { EditorID = "Ambient", Flags = Cell.Flag.IsInteriorCell | Cell.Flag.HasWater, WaterHeight = -512.5f, FactionRank = 3, Ownership = new Ownership { NoCrime = true } };
+        ambient.AcousticSpace.SetTo(aspc.FormKey); ambient.Music.SetTo(musc.FormKey); ambient.ImageSpace.SetTo(imgs.FormKey);
+        ambient.GodRays.SetTo(gdry.FormKey); ambient.Water.SetTo(watr.FormKey); ambient.Ownership.Owner.SetTo(fac.FormKey);
+        // (j) an NPC owner, no rank
+        var npcOwned = new Cell(new FormKey(pluginKey, 0x819), Fallout4Release.Fallout4) { EditorID = "NpcOwned", Flags = Cell.Flag.IsInteriorCell, Ownership = new Ownership() };
+        npcOwned.Ownership.Owner.SetTo(npc.FormKey);
+        // (k) every cell_data link pointing at records no loaded plugin has, owner included
+        var danglingAmbient = new Cell(new FormKey(pluginKey, 0x81A), Fallout4Release.Fallout4) { EditorID = "DanglingAmbient", Flags = Cell.Flag.IsInteriorCell, Ownership = new Ownership() };
+        danglingAmbient.AcousticSpace.SetTo(new FormKey(masterKey, 0x7781)); danglingAmbient.Music.SetTo(new FormKey(masterKey, 0x7782));
+        danglingAmbient.ImageSpace.SetTo(new FormKey(masterKey, 0x7783)); danglingAmbient.GodRays.SetTo(new FormKey(masterKey, 0x7784));
+        danglingAmbient.Water.SetTo(new FormKey(masterKey, 0x7785)); danglingAmbient.Ownership.Owner.SetTo(new FormKey(masterKey, 0x7786));
+        // (l) XRNK without XOWN: the rank must survive with owner null, not be dropped with the ownership object
+        var rankOnly = new Cell(new FormKey(pluginKey, 0x81B), Fallout4Release.Fallout4) { EditorID = "RankOnly", Flags = Cell.Flag.IsInteriorCell, FactionRank = 2 };
+        // (m) an XCLW that reads back as NaN (Mutagen round-trips the float as is) must be written as null, since
+        // System.Text.Json cannot write a non-finite number; also an XOWN with a non-zero Unknown
+        var nanWater = new Cell(new FormKey(pluginKey, 0x81C), Fallout4Release.Fallout4)
+            { EditorID = "NanWater", Flags = Cell.Flag.IsInteriorCell | Cell.Flag.HasWater, WaterHeight = float.NaN, Ownership = new Ownership { Unknown = 7 } };
+        nanWater.Ownership.Owner.SetTo(fac.FormKey);
         var sub = new CellSubBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellSubBlock };
-        foreach (var cellRecord in new[] { both, zoneOnly, locOnly, neither, dangling, bareCell, cycleCell, orphanCell }) sub.Cells.Add(cellRecord);
+        foreach (var cellRecord in new[] { both, zoneOnly, locOnly, neither, dangling, bareCell, cycleCell, orphanCell, ambient, npcOwned, danglingAmbient, rankOnly, nanWater }) sub.Cells.Add(cellRecord);
         var block = new CellBlock { BlockNumber = 0, GroupType = GroupTypeEnum.InteriorCellBlock };
         block.SubBlocks.Add(sub);
         plugin.Cells.Records.Add(block);
@@ -150,6 +180,52 @@ public static class LocationExportTests
                 && orphanChain[0].GetProperty("formkey").GetString() == new FormKey(masterKey, 0x7779).ToString(), "unresolved parent not kept in the chain");
         Console.WriteLine("Location export synthetic cell checks passed.");
 
+        // (i) XCAS / XCMO / XCIM / XGDR / XCWT / XCLW / XOWN / XRNK all set and resolvable
+        var amb = Export("Ambient").GetProperty("cell_data");
+        foreach (var (key, record) in new (string, IMajorRecordGetter)[] { ("acoustic_space", aspc), ("music", musc), ("image_space", imgs), ("god_rays", gdry), ("water", watr) })
+        {
+            var got = amb.GetProperty(key);
+            Require(got.GetProperty("formkey").GetString() == record.FormKey.ToString() && got.GetProperty("editor_id").GetString() == record.EditorID, $"cell_data.{key} lost");
+            Require(!got.TryGetProperty("unresolved", out _), $"resolved cell_data.{key} marked unresolved");
+        }
+        Require(amb.GetProperty("water_height").GetSingle() == -512.5f, "water height lost");
+        var own = amb.GetProperty("ownership");
+        Require(own.GetProperty("owner").GetString() == fac.FormKey.ToString() && own.GetProperty("owner_type").GetString() == "faction", "faction owner lost");
+        Require(own.GetProperty("owner_editor_id").GetString() == "RaiderFaction" && own.GetProperty("faction_rank").GetInt32() == 3, "owner editor id or rank lost");
+        Require(own.GetProperty("no_crime").GetBoolean() && own.GetProperty("unresolved").ValueKind == JsonValueKind.Null, "no-crime lost or resolved owner marked unresolved");
+        Require(own.GetProperty("unknown").GetInt32() == 0, "XOWN unknown field changed");
+        // (l) XRNK with no XOWN: an ownership object with the rank and a null owner, never null outright
+        var rankOwn = Export("RankOnly").GetProperty("cell_data").GetProperty("ownership");
+        Require(rankOwn.ValueKind == JsonValueKind.Object, "rank-only ownership dropped");
+        Require(rankOwn.GetProperty("faction_rank").GetInt32() == 2, "rank lost without an owner");
+        foreach (var key in new[] { "owner", "owner_type", "owner_editor_id", "unresolved", "no_crime", "unknown" })
+            Require(rankOwn.GetProperty(key).ValueKind == JsonValueKind.Null, $"ownership.{key} invented for a rank-only cell");
+        // (m) a NaN XCLW is written as null, the cell's other keys untouched; XOWN's Unknown is kept
+        var nan = Export("NanWater").GetProperty("cell_data");
+        Require(nan.GetProperty("water_height").ValueKind == JsonValueKind.Null, "non-finite water height not written as null");
+        Require(nan.GetProperty("flags").GetInt32() == (int)(Cell.Flag.IsInteriorCell | Cell.Flag.HasWater), "NaN water cell flags lost");
+        Require(nan.GetProperty("ownership").GetProperty("unknown").GetInt32() == 7 && nan.GetProperty("ownership").GetProperty("owner_type").GetString() == "faction", "XOWN unknown field lost");
+        // (j) an NPC owner is typed "npc" and carries no rank
+        var npcOwn = Export("NpcOwned").GetProperty("cell_data").GetProperty("ownership");
+        Require(npcOwn.GetProperty("owner").GetString() == npc.FormKey.ToString() && npcOwn.GetProperty("owner_type").GetString() == "npc", "npc owner lost");
+        Require(npcOwn.GetProperty("faction_rank").ValueKind == JsonValueKind.Null, "rank invented for an npc owner");
+        // a cell with none of the subrecords reports null for each, never an invented link, height or owner
+        var none = Export("Neither").GetProperty("cell_data");
+        foreach (var key in new[] { "acoustic_space", "music", "image_space", "god_rays", "water", "water_height", "ownership" })
+            Require(none.GetProperty(key).ValueKind == JsonValueKind.Null, $"cell_data.{key} invented for a bare cell");
+        // (k) links into an unloaded master are kept as {formkey, unresolved: true}; the owner likewise, with no type
+        var dang = Export("DanglingAmbient").GetProperty("cell_data");
+        foreach (var (key, id) in new[] { ("acoustic_space", 0x7781u), ("music", 0x7782u), ("image_space", 0x7783u), ("god_rays", 0x7784u), ("water", 0x7785u) })
+        {
+            var got = dang.GetProperty(key);
+            Require(got.GetProperty("unresolved").GetBoolean() && got.GetProperty("formkey").GetString() == new FormKey(masterKey, id).ToString(), $"dangling cell_data.{key} dropped");
+            Require(!got.TryGetProperty("editor_id", out _), $"dangling cell_data.{key} given an editor id");
+        }
+        var dangOwn = dang.GetProperty("ownership");
+        Require(dangOwn.GetProperty("owner").GetString() == new FormKey(masterKey, 0x7786).ToString() && dangOwn.GetProperty("unresolved").GetBoolean(), "dangling owner dropped");
+        Require(dangOwn.GetProperty("owner_type").ValueKind == JsonValueKind.Null && dangOwn.GetProperty("owner_editor_id").ValueKind == JsonValueKind.Null, "dangling owner given a type");
+        Console.WriteLine("Cell data (acoustic, music, image space, god rays, water, ownership) checks passed.");
+
         // (g) the locations sidecar from the real exe equals the per-cell keys (serialized through the same builder)
         // the exporter's apphost is copied beside the test binary by the project reference
         var exe = Path.Combine(AppContext.BaseDirectory, OperatingSystem.IsWindows() ? "Fo4Export.exe" : "Fo4Export");
@@ -179,7 +255,7 @@ public static class LocationExportTests
         Console.WriteLine("Location export mode checks passed.");
 
         var sidecarPath = Path.Combine(dir, "locations.json");
-        var names = new[] { "DLCMuseum01", "EczOnly", "LctnOnly", "Neither", "Dangling", "BareCell", "CycleCell", "OrphanCell" };
+        var names = new[] { "DLCMuseum01", "EczOnly", "LctnOnly", "Neither", "Dangling", "BareCell", "CycleCell", "OrphanCell", "Ambient", "NpcOwned", "DanglingAmbient", "RankOnly", "NanWater" };
         var run = RunExporter(new[] { pluginPath, "--master", masterPath, "locations", sidecarPath }.Concat(names).ToArray());
         Require(run.Code == 0, "locations mode failed: " + run.Err);
         using var sidecar = JsonDocument.Parse(File.ReadAllText(sidecarPath));

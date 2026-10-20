@@ -475,3 +475,63 @@ decided the import path); keeping the order as a parameter (two orders in the co
   (CommonwealthLocation ...): nothing consumes it yet; the export keeps `parent_chain` for the core's region derivation.
   Carrying FO4's LocType keywords: no verified Starfield mapping, kept in the export for a later pass. Inheriting a
   missing zone's leveling from the nearest FO4 ancestor: no evidence Starfield resolves it the same way; left null.
+
+## 2026-10-20 Claude-cloud: textures beyond one archive ride empty companion plugins, full masters for now
+- **Decision:** `interior_batch.py build` packs the textures into as many DDS archives as fit under 90% of the
+  4,095 MiB limit (`plan_parts`: case-insensitive path order, greedy, a file never split, a file keeps the part the
+  `--prev` batch gave it while that part has room, the previous batch's packed/loose ratio widens the cap). Part 0
+  stays `FO4Port - Textures.ba2`; part k is `FO4PortTextures<k+1> - Textures.ba2` next to `FO4PortTextures<k+1>.esm`,
+  an empty full-master plugin (42 bytes, byte for byte Mutagen alpha.67's output for a record-less master: **verified**
+  in a probe, pinned in `tests/test_interior_census.py`), listed in Plugins.txt right after FO4Port.esm. The
+  companions and their archives are pinned, successor-verified and never archived, like the port's own archives.
+  docs/terrain/interior-batches.md "Pack".
+- **Why:** batch 4's Textures.ba2 is 3,590,442,691 bytes (**verified**) and grows about 5% per batch, so the single
+  archive reaches the limit around batch 7, and whether the engine reads a larger one is unresolved (X3). The game
+  loads `<plugin> - Textures.ba2` for a loaded plugin (**verified** for FO4Port.esm and the vanilla SFBGS003 / 00D
+  pairs); an empty plugin is the smallest carrier of that name. Full master because X2's rule keeps every new plugin's
+  type a recorded choice checked in game before release: a small or medium master has never been loaded by this
+  project (S2 verified only a Mutagen full master, docs/spikes/S2-S4-S9), and a record-less plugin gains nothing from
+  the smaller type but a load-order slot. The in-game test that would allow the smaller type: the companion rewritten
+  as a small or medium master, a texture only its archive holds rendering after `coc` (interior-batches.md PC tests);
+  the choice is fixed once released.
+- **Alternatives:** numbered archives of one plugin (`FO4Port - Textures02.ba2`): the executable holds a
+  `%s%s%02u.ba2` pattern (core64c.md) but no installed plugin uses it, so it is a second unverified mechanism; a
+  smaller texture set (`--max-texture` caps as the core uses): changes every converted texture and the pinned
+  batches; a plugin per batch: rejected on 2026-10-19 (ids and doors). Planning by packed size (pack, measure, split,
+  repack): gigabytes of Archive2 time per attempt; the loose-bytes plan with the measured ratio is conservative and
+  deterministic.
+- **Open:** deploy_starfield.py installs FO4Port.esm and its two archives only; a batch with companions is installed by
+  hand from result.json `install` until the installer learns the list.
+
+## 2026-10-20 Claude-cloud: a batch pins the game files it read and refuses a chain built from other ones
+- **Decision:** result.json `sources` holds the sha256 and size of Fallout4.esm and of each DLC plugin a cell is
+  exported from, and the size and mtime of every BA2 under `--fo4-data` and `--dlc-data`. A `--prev`, or a `--base`
+  that is a batch's own stage, with other pins is refused; `--allow-source-change` overrides and is recorded.
+- **Why:** X8 (precedents Q4): the chained batches reuse the previous batch's exports and converted models, so a
+  changed Fallout4.esm or BA2 would silently mix two game versions in one port. Hashing the BA2s (some 30 GB) would
+  take longer than the convert step, so they are pinned by size and mtime; the plugins are hashed (seconds).
+- **Alternatives:** hash everything (too slow per batch); refuse nothing and only record (the mix would go unnoticed
+  until a model looks wrong in game); pin the installed doors staging too (it predates the pins; a base without a
+  record is accepted, said so in the doc).
+
+## 2026-10-20 Claude-cloud: the texture plan replans on an over-limit part; a source pinned for the first time is not a change
+- **Decision:** `interior_batch.py pack` packs a part that came out at or over the 4,095 MiB limit again, replanned
+  with the packed/loose ratio that attempt measured (always above the one planned with: an over-limit part packed
+  more than cap times ratio bytes), repacking only the parts whose file list changed, up to three attempts
+  (`steps.pack.attempts`); `--pack-ratio R` overrides the `--prev`'s measured ratio (`steps.pack.ratio_source`). A
+  measured ratio above 1 is kept, not clamped to 1. `plan_parts` never returns an empty part: one the previous
+  assignment emptied is dropped and the parts after it move down (their files count as moved). `source_changes`
+  counts a pin whose value changed or that is gone; a plugin or BA2 pinned for the first time is listed under
+  `steps.sources.added` and never refused. Review findings on #396, docs/terrain/interior-batches.md "Replanning"
+  and "Sources".
+- **Why:** the ratio is measured on the previous batch's parts, never on the files the batch adds, so a batch whose
+  new textures pack worse could exceed the limit after hours of Archive2 time, and a failed batch is no `--prev`:
+  the chain had no recovery path but editing result.json. Repacking only changed parts bounds the extra Archive2
+  time to the parts that moved. An empty middle part (every file of it gone from the work staging) would have been
+  packed from a link tree never made: a FileNotFoundError past build()'s handler, no result.json. Batch 10 (the DLC
+  cells) pins DLCRobot.esm and its BA2s for the first time; refusing it would force `--allow-source-change`, which
+  would also silence a real Fallout4.esm change in that build.
+- **Alternatives:** plan by packed size (pack, measure, split, repack every part): the replanning does that only
+  when the plan missed; keep gaps in the companion numbering so a file never moves when a part empties (sparse
+  `FO4PortTexturesN` numbers; rejected as confusing, and the case needs every file of a part gone); refuse a
+  first-time pin too (the reviewed behaviour, rejected above).

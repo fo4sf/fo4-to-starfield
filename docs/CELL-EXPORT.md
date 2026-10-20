@@ -84,7 +84,7 @@ interior a Starfield LCTN (`docs/terrain/interior-batches.md`, "Locations"):
 
 | Key | Shape |
 |---|---|
-| `cell_data` | `{"flags": int, "name": string\|null}`: the raw CELL DATA flags and FULL name |
+| `cell_data` | `{"flags": int, "name": string\|null, ...}`: the raw CELL DATA flags and FULL name, plus the sound, image-space, water and ownership keys under "Cell data: sound, image space, water and ownership" below |
 | `location` | `null` when the cell has no XLCN; else `{"formkey", "editor_id", "name", "parent", "parent_chain", "keywords"}` |
 | `encounter_zone` | `null` when the cell has no XEZN; else `{"formkey", "editor_id", "min_level", "max_level", "rank", "flags", "owner", "location"}` |
 
@@ -100,6 +100,40 @@ plugin (a missing `--master`) is kept as `{"formkey", "unresolved": true}` rathe
 than dropped, the rule `teleport_dependencies` already follows. Fallout 4 keeps
 leveling only on the encounter zone, so a cell can carry any of the four
 combinations; nothing is inherited from parent locations here.
+
+### Cell data: sound, image space, water and ownership
+
+`cell_data` also carries the cell's own atmosphere and ownership subrecords, the
+inputs for the vanilla-family mapping of acoustic spaces, music and image spaces
+(`research/framework/interiors.md`, section 3, L14 and L15) and for the owner the
+combined core gives a place. These keys are additive within `cell_data`;
+`schema_version` stays 3, and PluginSpike's `Locations.cs` keeps reading only
+`name`. Every link is `null` when the subrecord is absent, `{"formkey", "editor_id"}`
+when its record is loaded, and `{"formkey", "unresolved": true}` when it is not (a
+missing `--master`), the same rule as `location` and `encounter_zone`.
+
+| Key | FO4 subrecord | Mutagen property (verified by reflection, 0.55.0-alpha.67) | Starfield field it could feed |
+|---|---|---|---|
+| `acoustic_space` | XCAS | `ICellGetter.AcousticSpace` | CELL XCAS (verified: Starfield CELL has XCAS, interiors.md section 3). The FO4 ASPC itself cannot be copied: Starfield acoustic spaces reference Wwise events (verified), so the writer must pick a vanilla ASPC per FO4 acoustic family (L14, **hypothesis**: family grouping by editor id) |
+| `music` | XCMO | `ICellGetter.Music` | CELL XCMO (verified: present on the Starfield CELL). Mapping to a vanilla MUSC by family is a **hypothesis**; which of cell XCMO and ASPC music wins is L16, unresolved |
+| `image_space` | XCIM | `ICellGetter.ImageSpace` | CELL XCIM (verified: present on the Starfield CELL). FO4 IMGS cannot be converted field for field (Starfield IMGS is an opaque reflection blob, verified), so this feeds the choice of a vanilla IMGS per cell family (L8, **hypothesis**) |
+| `god_rays` | XGDR | `ICellGetter.GodRays` | none: FO4 god rays have no Starfield record (verified). Exported so the family grouping can tell "hazy" cells apart; a VOLI or FOGV substitute is a **hypothesis** (L8, L9) |
+| `water` | XCWT | `ICellGetter.Water` | CELL XCWT (**hypothesis**: not yet checked against the Starfield CELL definition) |
+| `water_height` | XCLW | `ICellGetter.WaterHeight` (`float?`) | CELL XCLW (**hypothesis**, as above). The value is the raw FO4 float; whether FO4 uses a sentinel for "default height" is a **hypothesis**, not verified here. A non-finite height is written as `null` because JSON cannot carry it (Mutagen reads a NaN XCLW back as NaN; verified by the synthetic test) |
+| `ownership` | XOWN, XRNK | `ICellGetter.Ownership` (`Owner`, `NoCrime`), `ICellGetter.FactionRank` | LCTN DATA ownership (verified: the Starfield LCTN DATA carries ownership, interiors.md section 4); whether the Starfield CELL also keeps XOWN is a **hypothesis** |
+
+`ownership` is `null` when the cell has neither XOWN nor XRNK; otherwise
+`{"owner", "owner_type", "owner_editor_id", "unresolved", "faction_rank", "no_crime", "unknown"}`.
+`owner` is the XOWN FormKey or null; `owner_type` is `"faction"` or `"npc"` (both
+implement Mutagen's `IOwnerGetter`; anything else is `"other"`) and null when the
+owner is not loaded, in which case `unresolved` is `true` (null otherwise).
+`faction_rank` is the raw XRNK integer or null; `no_crime` and `unknown` are the
+XOWN flag and its unknown integer, null without XOWN. The shape is wider than the
+per-reference `ownership` above (`{"owner", "no_crime", "unknown"}` with
+`faction_rank` as a sibling key): the cell adds the resolved owner's type and
+editor id and folds XRNK in, but every XOWN field the reference shape keeps is here
+under the same name. Exports and `locations` sidecars written before this change lack
+these keys; readers treat a missing key as the subrecord being absent.
 
 ### `locations` mode
 

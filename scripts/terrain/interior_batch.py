@@ -7,6 +7,7 @@ rounds, prune superseded batches (docs/terrain/interior-batches.md). Nothing her
          --content-resources <ContentResources.zip> --texconv <Texconvx64.exe> --collision-template <template.nif>
          --fo4export <Fo4Export.dll> --pluginspike <PluginSpike.dll> [--spec-mask-roughness] [--promote-arg ARG ...]
          [--convert-arg ARG ...] [--prev <the previous batch's --out>] [--dlc-data <a DLC's Data folder> ...] [--min-free-gb 40] [--no-pack] [--jobs 2]
+         [--allow-source-change] [--pack-ratio R]
   python scripts/terrain/interior_batch.py compare --old <port folder> --new <port folder> [--json <out>]
   python scripts/terrain/interior_batch.py doors --plan <batches.json> --census <census.json> --batch N --out <door_rounds.json>
   python scripts/terrain/interior_batch.py release --dir <interiors_bNN> --reason <text> --successor <interiors_bMM> --archive <dir>
@@ -35,11 +36,23 @@ batch N = the base cells + every cell of batches 1..N; the port is cumulative, o
   6. compare (below) against the base, written to --out/port/compare.json; a renumbered or missing base id, or a
      removed base record, fails the batch. With --prev, the same compare against the previous batch's port
      (--out/port/compare_prev.json) must pass too: a save made on that staged batch carries over.
-  7. pack (unless --no-pack): "FO4Port - Main.ba2" and "FO4Port - Textures.ba2" from the work staging into --out/port
-     with Starfield's Archive2 (scripts/deploy_starfield.py's packer; the install step itself is not run). An archive
-     of 4,095 MiB or more fails the batch (archive_check); one over 90% of that is listed as near_limit.
+  7. pack (unless --no-pack): "FO4Port - Main.ba2" and the textures from the work staging into --out/port with
+     Starfield's Archive2 (scripts/deploy_starfield.py's packer; the install step itself is not run). The textures go
+     into as many DDS archives as needed, each planned under 90% of the 4,095 MiB limit (plan_parts: sorted paths,
+     greedy, a file never split, a file keeps the part --prev gave it when it still fits; the cap in loose bytes is
+     widened by --prev's measured packed/loose ratio, or --pack-ratio): the first is "FO4Port - Textures.ba2", every
+     further part is "FO4PortTexturesN - Textures.ba2" next to an empty full-master companion plugin
+     "FO4PortTexturesN.esm" (N = 2, 3, ...), listed in Plugins.txt right after FO4Port.esm so that the archive named
+     after it is loaded with it (hypothesis until the PC test in docs/terrain/interior-batches.md runs: the game loads
+     "<plugin> - Textures.ba2" for FO4Port.esm, verified, but no record-less plugin has carried one yet). A part that
+     packs over the limit is replanned with the ratio it measured and repacked, up to three attempts; one still over
+     4,095 MiB fails the batch (archive_check), one over 90% of that is listed as near_limit.
+     port\textures_parts.json records the assignment for the next batch.
   8. --out/result.json: the batch's cells with converted / checked / failed per cell, the pins (git commit, input
-     sha256s of the plugins and maps), timings, sizes, free space; README.txt says NOT installed.
+     sha256s of the plugins and maps), the sources (sha256 of Fallout4.esm and of each DLC plugin a cell is exported
+     from; size and mtime of every BA2 under --fo4-data and --dlc-data), the files to install and their Plugins.txt
+     order, timings, sizes, free space; README.txt says NOT installed. A --prev built from other sources is refused
+     unless --allow-source-change (recorded in result.json).
 compare: every key of the old formids.json has the same FormID in the new one; every old record is still there with the
 same signature; counts of byte-identical / changed records by signature, added records by signature, the cells added.
 doors: the batch's door-round selection for scripts/bridge/door_rounds.py stage --only (FO4Port_<Cell> editor ids),
@@ -58,6 +71,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -187,7 +201,8 @@ def disk_need(plan, n, work_started):
 
 
 def check_prev(a, n):
-    """The previous batch this one grows: a passing build of an earlier batch over the same base port."""
+    """The previous batch this one grows: a passing build of an earlier batch over the same base port. Returns
+    (its port folder, its result.json)."""
     r = load(os.path.join(a.prev, MARKER))
     port = os.path.join(a.prev, "port")
     if not (r.get("pass") and isinstance(r.get("batch"), int) and r["batch"] < n):
@@ -197,7 +212,72 @@ def check_prev(a, n):
     for need in (PLUGIN, "formids.json"):
         if not os.path.isfile(os.path.join(port, need)):
             sys.exit(f"--prev {a.prev} lacks port\\{need}")
-    return port
+    return port, r
+
+
+# ---------------------------------------------------------------------------------------------------- sources (X8)
+def source_pins(a, plan, n):
+    """What this batch reads from the game: {"plugins": {name: {"sha256", "bytes"}}, "archives": {file name: {"bytes",
+    "mtime", "folder"}}} (keyed by name, so a moved game folder changes no pin). The plugins are Fallout4.esm and each DLC plugin a cell of batches 1..n is exported from (hashed:
+    330 MB and 8 MB, seconds). The archives are every .ba2 directly under --fo4-data and each --dlc-data folder, the
+    set convert_batch.py can open (a superset of what one batch reads); they are pinned by size and mtime only, since
+    hashing some 30 GB of BA2s would take longer than the convert step. A missing plugin is pinned as None (the export
+    step reports it)."""
+    plugins = {}
+    fo4 = os.path.join(a.fo4_data, "Fallout4.esm")
+    names = ["Fallout4.esm"] + sorted(set(cell_plugins(plan, n).values()), key=str.casefold)
+    for name in names:
+        path = fo4 if name == "Fallout4.esm" else find_plugin(a.dlc_data, name)
+        plugins[name] = ({"sha256": sha256(path), "bytes": os.path.getsize(path)} if path and os.path.isfile(path) else None)
+    archives = {}
+    for d in [a.fo4_data] + list(a.dlc_data):
+        if not os.path.isdir(d):
+            continue
+        for f in sorted(os.listdir(d), key=str.casefold):
+            p = os.path.join(d, f)
+            if f.lower().endswith(".ba2") and os.path.isfile(p):
+                st = os.stat(p)
+                archives[f] = {"bytes": st.st_size, "mtime": st.st_mtime, "folder": os.path.abspath(d)}
+    return {"plugins": plugins, "archives": archives}
+
+
+def source_changes(old, new):
+    """The source pins that differ between an earlier record (a --prev's or a base's result.json "sources") and this
+    build's: ["Fallout4.esm sha256 a1b2.. -> c3d4..", ...]. A plugin or archive the earlier record pinned and this
+    build no longer has counts ("... -> None": something the chain read is gone); one pinned here for the first time
+    does not (the first batch with a DLC cell pins its plugin and its BA2s: nothing the earlier batches read changed,
+    so no --allow-source-change is needed, and the flag keeps meaning only a real change). source_added lists those."""
+    out = []
+    for kind, key in (("plugins", "sha256"), ("archives", "bytes"), ("archives", "mtime")):
+        o, n = (old or {}).get(kind) or {}, (new or {}).get(kind) or {}
+        for name in sorted(o, key=str.casefold):
+            ov, nv = (o.get(name) or {}).get(key), (n.get(name) or {}).get(key)
+            if ov != nv and not (kind == "archives" and name not in n and key == "mtime"):
+                out.append(f"{name} {key} {ov} -> {nv}")
+    return out
+
+
+def source_added(old, new):
+    """The plugins and archives this build pins that the earlier record did not: ["DLCRobot.esm", ...] (recorded,
+    never refused)."""
+    out = []
+    for kind in ("plugins", "archives"):
+        o, n = (old or {}).get(kind) or {}, (new or {}).get(kind) or {}
+        out += sorted((name for name in n if name not in o), key=str.casefold)
+    return out
+
+
+def base_sources(base):
+    """The "sources" record of the stage --base belongs to, when it is a batch this tool built (--base is a stage's
+    port folder, or the stage itself): None for the installed port's doors staging, which predates the pins."""
+    for d in (base, os.path.dirname(os.path.abspath(base))):
+        marker = os.path.join(d, MARKER)
+        if os.path.isfile(marker):
+            try:
+                return load(marker).get("sources")
+            except (OSError, ValueError):
+                return None
+    return None
 
 
 def cell_plugins(plan, n):
@@ -336,7 +416,20 @@ def build(a):
     clash = sorted(set(c.casefold() for c in new_cells) & set(c.casefold() for c in old_cells))
     if clash:
         sys.exit(f"cells already in the base port: {clash}")
-    prev_port = check_prev(a, a.batch) if a.prev else None
+    prev_port, prev_result = check_prev(a, a.batch) if a.prev else (None, None)
+    # X8: the game files this batch reads are pinned; a chain built from other files is refused, since the
+    # converted models and the exported cells would silently differ from the earlier batches'.
+    sources = source_pins(a, plan, a.batch)
+    source_change, added = {}, {}
+    for what, old in (("--prev", (prev_result or {}).get("sources")), ("--base", base_sources(a.base))):
+        diff = source_changes(old, sources) if old else []
+        if diff:
+            if not a.allow_source_change:
+                sys.exit(f"{what} was built from other game files ({len(diff)} difference(s): {'; '.join(diff[:5])}): "
+                         f"refusing; pass --allow-source-change to build over it anyway")
+            source_change[what] = diff
+        if old and source_added(old, sources):
+            added[what] = source_added(old, sources)
     need = disk_need(plan, a.batch, os.path.isfile(os.path.join(a.work, "manifest.json")))
     os.makedirs(a.work, exist_ok=True)
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
@@ -346,6 +439,9 @@ def build(a):
     os.makedirs(a.out)
     log = os.path.join(a.out, "build.log")
     steps, cells = {}, {}
+    steps["sources"] = {"plugins": len(sources["plugins"]), "archives": len(sources["archives"]),
+                        "allowed_change": source_change or None, "added": added or None}
+    finish_ = lambda error: finish(a, plan, steps, cells, t0, error, sources)  # noqa: E731
 
     # 2. exports
     exports = os.path.join(a.work, "exports")
@@ -376,7 +472,7 @@ def build(a):
         bn, wn = norm(base_names), norm(work_names)
         differ = sorted(k for k in bn if k in wn and wn[k] != bn[k])
         if differ:
-            return finish(a, plan, steps, cells, t0, f"--work names {len(differ)} base model(s) differently from the base's "
+            return finish_(f"--work names {len(differ)} base model(s) differently from the base's "
                                                       f"editorids.json (first {differ[:3]}): use a new --work")
         merged_names = dict(work_names)
         merged_names.update({k: v for k, v in base_names.items() if k.replace("\\", "/").lower() not in wn})
@@ -405,7 +501,7 @@ def build(a):
     os.remove(merged)                                         # the exports are kept; the merge is rebuilt each time
     steps["convert"] = {"exit": rc, "seconds": s}
     if rc != 0:
-        return finish(a, plan, steps, cells, t0, "convert failed")
+        return finish_("convert failed")
     manifest = load(os.path.join(a.work, "manifest.json"))
     failed_models = {f["nif"].replace("/", "\\").lower(): f.get("reason", "") for f in manifest.get("failures", [])}
 
@@ -422,7 +518,7 @@ def build(a):
     rc, s = locations_sidecar(a, stale, os.path.join(raw, "locations.json"), log)
     steps["locations"] = {"exit": rc, "seconds": s, "cells": len(stale)}
     if rc != 0:
-        return finish(a, plan, steps, cells, t0, "locations failed")
+        return finish_("locations failed")
     tables = os.path.join(ROOT, "scripts", "terrain", "clusters")
     rc, s = run([sys.executable, os.path.join(HERE, "port_promote.py"), "--out", os.path.join(raw, "promote.json"),
                  "--containers-table", os.path.join(tables, "container_table.json"),
@@ -430,12 +526,12 @@ def build(a):
                 + a.promote_arg + export_paths, log, cwd=ROOT)
     steps["promote"] = {"exit": rc, "seconds": s}
     if rc != 0:
-        return finish(a, plan, steps, cells, t0, "port_promote failed")
+        return finish_("port_promote failed")
     env = dict(os.environ, STARFIELD_DATA=sf_data)
     rc, s = run(["dotnet", a.pluginspike, raw, os.path.join(a.work, "manifest.json")] + export_paths, log, env=env)
     steps["pluginspike"] = {"exit": rc, "seconds": s}
     if rc != 0:
-        return finish(a, plan, steps, cells, t0, "PluginSpike failed")
+        return finish_("PluginSpike failed")
     placed = placed_counts(log)
     for c in new_cells:
         if c in cells and c in placed:
@@ -447,7 +543,7 @@ def build(a):
                  "--keep-markers", os.path.join(a.base, "doors.json")], log, cwd=ROOT)
     steps["doors"] = {"exit": rc, "seconds": s}
     if rc != 0:
-        return finish(a, plan, steps, cells, t0, "vmad_patch port failed")
+        return finish_("vmad_patch port failed")
     rc, s = run([sys.executable, os.path.join(HERE, "vmad_patch.py"), "check", "--port", raw, "--out", port, "--core", a.core],
                 log, cwd=ROOT)
     steps["doors_check"] = {"exit": rc, "seconds": s}
@@ -485,26 +581,223 @@ def build(a):
 
     # 7. pack (not for a batch with cells missing from its plugin: it fails anyway)
     if not a.no_pack and cmp_["pass"] and prev_ok and not unwritten:
-        packer = argparse.Namespace(starfield=a.starfield, staging=a.work)
-        t = time.time()
-        main_dirs = [d for d in deploy_starfield.MAIN_DIRS if os.path.isdir(os.path.join(a.work, d))]
-        deploy_starfield.build_archive(packer, os.path.join(port, deploy_starfield.ARCHIVE), main_dirs, "General")
-        deploy_starfield.build_archive(packer, os.path.join(port, deploy_starfield.TEX_ARCHIVE), ["textures"], "DDS")
-        steps["pack"] = archive_check({n: os.path.getsize(os.path.join(port, n))
-                                       for n in (deploy_starfield.ARCHIVE, deploy_starfield.TEX_ARCHIVE)})
-        # Pinned at build time: a later release checks this batch's archives against these when it stands in for an
-        # older batch's (successor_check).
-        steps["pack"]["sha256"] = {n: sha256(os.path.join(port, n)) for n in (deploy_starfield.ARCHIVE, deploy_starfield.TEX_ARCHIVE)}
-        steps["pack"]["seconds"] = round(time.time() - t, 1)
+        try:
+            steps["pack"] = pack(a, port, prev_port, prev_result, log)
+        except ValueError as e:
+            steps["pack"] = {"pass": False, "problem": str(e)}
     ok = (cmp_["pass"] and prev_ok and steps["doors_check"]["exit"] == 0 and not failed_exports and not unwritten
           and steps.get("pack", {}).get("pass", True))
-    return finish(a, plan, steps, cells, t0, None if ok else "checks failed (see steps)")
+    return finish_(None if ok else "checks failed (see steps)")
 
 
+# -------------------------------------------------------------------------------------------------------------- pack
 # Every vanilla Starfield archive stays under 4 GiB and no source shows the engine reading a larger one
 # (research/framework/interiors.md X3), so a batch whose archive reaches this fails its check.
 ARCHIVE_LIMIT = 4095 * 2 ** 20
 ARCHIVE_WARN = 0.9
+# The textures beyond the first archive ride companion plugins: Starfield loads "<plugin> - Textures.ba2" for a loaded
+# plugin (verified for FO4Port.esm, docs/JOURNAL.md 2026-09 "renders with its original texture", and for the vanilla
+# SFBGS003 / SFBGS00D pairs, docs/terrain/core64c.md); that an archive named after an empty plugin loads the same way
+# is a hypothesis until the PC test in docs/terrain/interior-batches.md runs.
+COMPANION_PLUGIN = "FO4PortTextures{n}.esm"
+COMPANION_ARCHIVE = "FO4PortTextures{n} - Textures.ba2"
+COMPANION_RX = re.compile(r"^FO4PortTextures(\d+)( - Textures\.ba2|\.esm)$")
+PARTS = "textures_parts.json"
+
+
+def companion_plugin_bytes():
+    """An empty full-master Starfield plugin, byte for byte what Mutagen.Bethesda.Starfield 0.55.0-alpha.67 writes for
+    `new StarfieldMod(key, StarfieldRelease.Starfield)` with HeaderFlag.Master and no records (verified: the probe
+    under scratchpad/probe-companion wrote 42 bytes, TES4 flags 0x1, form version 576, HEDR 0.96 / 0 records / next
+    id 0, no MAST; the same writer and header layout as the FO4Port.esm the game loads, docs/spikes/S2-S4-S9).
+    Full master per X2: FO4Port.esm's own type; whether the game accepts a smaller type for a record-less plugin is
+    the in-game test docs/ai/decisions.md 2026-10-20 names."""
+    return vmad_patch.record_bytes(b"TES4", 0, 1, [(b"HEDR", struct.pack("<fII", 0.96, 0, 0))]).serialize()
+
+
+def texture_sizes(work):
+    """{relative path under <work>/textures (forward slashes): bytes} of every file there, sorted case-insensitively."""
+    root = os.path.join(work, "textures")
+    out = {}
+    for d, _dirs, files in os.walk(root):
+        for f in files:
+            p = os.path.join(d, f)
+            out[os.path.relpath(p, root).replace("\\", "/")] = os.path.getsize(p)
+    return dict(sorted(out.items(), key=lambda kv: kv[0].casefold()))
+
+
+def plan_parts(sizes, cap, previous=None):
+    """Split {path: bytes} into parts of at most cap bytes each (loose bytes; a file is never split): a list of
+    sorted path lists, part 0 the main textures archive. Deterministic: a file that `previous` ({path: part index})
+    placed keeps its part when that part still has room, taken in sorted path order; every other file goes, in sorted
+    path order, to the lowest part with room, a new part when none has. So a file keeps its archive across batches
+    unless its old part filled up around it. A file larger than cap raises ValueError."""
+    previous = previous or {}
+    parts, used = [], []
+    paths = sorted(sizes, key=str.casefold)
+    big = [p for p in paths if sizes[p] > cap]
+    if big:
+        raise ValueError(f"{len(big)} texture(s) larger than one archive part ({cap:,} bytes): {big[:3]}")
+    rest = []
+    for p in paths:
+        k = previous.get(p)
+        if isinstance(k, int) and k >= 0:
+            while len(parts) <= k:
+                parts.append([])
+                used.append(0)
+            if used[k] + sizes[p] <= cap:
+                parts[k].append(p)
+                used[k] += sizes[p]
+                continue
+        rest.append(p)
+    for p in rest:
+        k = next((i for i, u in enumerate(used) if u + sizes[p] <= cap), None)
+        if k is None:
+            parts.append([])
+            used.append(0)
+            k = len(parts) - 1
+        parts[k].append(p)
+        used[k] += sizes[p]
+    # A part emptied by the previous assignment (every file of it gone or moved) is dropped and the parts after it
+    # move down one number (their files count as moved): a part is never empty, so no archive is packed from nothing
+    # and no companion ships without textures.
+    return [sorted(p, key=str.casefold) for p in parts if p]
+
+
+def pack_ratio(prev_result, loose_total=None):
+    """Packed bytes per loose byte of the previous batch's texture archives, the largest over its parts (the least
+    compressed part bounds the others; above 1.0 when an archive came out larger than its files, which then plans
+    tighter); 1.0 without a previous measurement, so a first build plans by loose bytes (Archive2's DDS format packs
+    the batch 4 textures to under half their loose size, docs/terrain/interior-batches.md, so that plan is only
+    conservative)."""
+    parts = ((prev_result or {}).get("steps") or {}).get("pack", {}).get("parts") or []
+    ratios = [p["bytes"] / p["loose_bytes"] for p in parts if p.get("loose_bytes") and p.get("bytes")]
+    if ratios:
+        return max(ratios)
+    # A previous batch built before the split (batches 0 to 4) recorded only its one textures archive's size: that
+    # size over this batch's loose bytes (a superset of the previous batch's) is a lower bound, so the plan may come
+    # out optimistic; an over-limit part is then replanned (pack()). Without it batch 5 would plan by loose bytes and
+    # split into a companion archive it does not need.
+    legacy = ((prev_result or {}).get("steps") or {}).get("pack", {}).get("bytes", {}).get(deploy_starfield.TEX_ARCHIVE)
+    if legacy and loose_total:
+        return min(1.0, legacy / loose_total)
+    return 1.0
+
+
+def measured_ratio(recorded):
+    """The largest packed/loose ratio over this attempt's parts (None when nothing was measured)."""
+    ratios = [p["bytes"] / p["loose_bytes"] for p in recorded if p["loose_bytes"]]
+    return max(ratios) if ratios else None
+
+
+def part_names(k):
+    """(archive, companion plugin or None) of texture part k (0 = the port's own textures archive)."""
+    if k == 0:
+        return deploy_starfield.TEX_ARCHIVE, None
+    return COMPANION_ARCHIVE.format(n=k + 1), COMPANION_PLUGIN.format(n=k + 1)
+
+
+def link_tree(work, rels, dst):
+    """<dst>/textures/<rel> for every rel of the part: a hard link to the work staging's file (no copy, the same
+    bytes), or a copy where the volume refuses links (counted, reported). Returns the copies made."""
+    copies = 0
+    for rel in rels:
+        src = os.path.join(work, "textures", *rel.split("/"))
+        to = os.path.join(dst, "textures", *rel.split("/"))
+        os.makedirs(os.path.dirname(to), exist_ok=True)
+        try:
+            os.link(src, to)
+        except OSError:
+            shutil.copyfile(src, to)
+            copies += 1
+    return copies
+
+
+PACK_ATTEMPTS = 3
+
+
+def pack(a, port, prev_port, prev_result, log):
+    """Step 7: "FO4Port - Main.ba2" from the work staging's model folders, then the textures in as many DDS archives as
+    plan_parts needs under ARCHIVE_WARN of the limit (the previous batch's assignment from <prev port>/textures_parts.json
+    and its packed/loose ratio, or --pack-ratio, tighten the plan). One part is packed straight from the work staging,
+    as before; several are each packed from a link tree under <out>/pack_parts/<k> (removed after). Every further part
+    gets its companion plugin next to it.
+    The ratio is measured on the parts the previous batch packed, never on the files this batch adds, so a part can
+    come out over the limit when the new textures pack worse: then the plan is redone with the ratio this attempt
+    measured (its least packed part's, always above the ratio planned with, since an over-limit part packed more than
+    cap * ratio bytes), only the parts whose file list changed are packed again, up to PACK_ATTEMPTS times; a batch
+    that is still over fails (archive_check), and the measured ratio is in steps.pack for the next plan.
+    Returns steps.pack: archive_check's fields over every archive and plugin, plus "sha256" of each (pinned for
+    successor_check), "parts", "ratio" / "cap_loose_bytes" (the plan that was kept), "ratio_source", "attempts",
+    "moved" (files whose part changed from the previous batch's) and "copies" (link fallbacks). Raises ValueError for
+    an unsplittable file."""
+    t = time.time()
+    packer = argparse.Namespace(starfield=a.starfield, staging=a.work)
+    main_dirs = [d for d in deploy_starfield.MAIN_DIRS if os.path.isdir(os.path.join(a.work, d))]
+    deploy_starfield.build_archive(packer, os.path.join(port, deploy_starfield.ARCHIVE), main_dirs, "General")
+    sizes = texture_sizes(a.work)
+    previous = {}
+    if prev_port and os.path.isfile(os.path.join(prev_port, PARTS)):
+        previous = load(os.path.join(prev_port, PARTS)).get("assignment") or {}
+    forced = getattr(a, "pack_ratio", None)
+    ratio = forced or pack_ratio(prev_result, sum(sizes.values()))
+    ratio_source = "--pack-ratio" if forced else ("prev" if prev_result else "default")
+    copies, attempts, packed = 0, [], {}                      # packed: part k -> the rels its archive on disk holds
+    while True:
+        cap = int(ARCHIVE_WARN * ARCHIVE_LIMIT / ratio)
+        try:
+            parts = plan_parts(sizes, cap, previous) or [[]]           # no textures: one (empty) archive, as before
+        except ValueError as e:
+            if not attempts:
+                raise
+            raise ValueError(f"{e} after replanning at ratio {ratio:.3f} (attempts: {attempts})")
+        recorded = []
+        for k, rels in enumerate(parts):
+            archive, plugin = part_names(k)
+            if packed.get(k) != tuple(rels):
+                if len(parts) == 1:
+                    deploy_starfield.build_archive(packer, os.path.join(port, archive), ["textures"], "DDS")
+                else:
+                    tree_root = os.path.join(a.out, "pack_parts", str(k))
+                    copies += link_tree(a.work, rels, tree_root)
+                    deploy_starfield.build_archive(argparse.Namespace(starfield=a.starfield, staging=tree_root),
+                                                   os.path.join(port, archive), ["textures"], "DDS")
+                    shutil.rmtree(tree_root, ignore_errors=True)
+                packed[k] = tuple(rels)
+            if plugin:
+                with open(os.path.join(port, plugin), "wb") as f:
+                    f.write(companion_plugin_bytes())
+            recorded.append({"archive": archive, "plugin": plugin, "files": len(rels), "loose_bytes": sum(sizes[r] for r in rels),
+                             "bytes": os.path.getsize(os.path.join(port, archive))})
+        over = [p["archive"] for p in recorded if p["bytes"] >= ARCHIVE_LIMIT]
+        attempts.append({"ratio": ratio, "cap_loose_bytes": cap, "parts": len(parts), "over": over})
+        if not over or len(attempts) >= PACK_ATTEMPTS:
+            break
+        ratio = max(measured_ratio(recorded), ratio)              # the measured one is larger (docstring); max for safety
+        with open(log, "a", encoding="utf-8") as f:
+            f.write(f"pack: {', '.join(over)} over the limit at ratio {attempts[-1]['ratio']:.3f}; replanning at {ratio:.3f}\n")
+    for k in sorted(packed):                                      # parts an earlier attempt packed and the kept plan has not
+        if k >= len(parts):
+            for n in part_names(k):
+                if n and os.path.isfile(os.path.join(port, n)):
+                    os.remove(os.path.join(port, n))
+    shutil.rmtree(os.path.join(a.out, "pack_parts"), ignore_errors=True)
+    files = [deploy_starfield.ARCHIVE] + [n for p in recorded for n in (p["archive"], p["plugin"]) if n]
+    assignment = {r: k for k, rels in enumerate(parts) for r in rels}
+    save(os.path.join(port, PARTS), {"schema_version": 1, "cap_loose_bytes": cap, "ratio": ratio,
+                                     "parts": [p["archive"] for p in recorded], "assignment": assignment})
+    out = archive_check({n: os.path.getsize(os.path.join(port, n)) for n in files})
+    # Pinned at build time: a later release checks this batch's archives and companions against these when it stands
+    # in for an older batch's (successor_check).
+    out["sha256"] = {n: sha256(os.path.join(port, n)) for n in files}
+    out.update({"parts": recorded, "ratio": ratio, "ratio_source": ratio_source, "cap_loose_bytes": cap, "attempts": attempts,
+                "copies": copies, "moved": sum(1 for r, k in assignment.items() if r in previous and previous[r] != k),
+                "seconds": round(time.time() - t, 1)})
+    with open(log, "a", encoding="utf-8") as f:
+        f.write(f"pack: {len(parts)} texture part(s), cap {cap:,} loose bytes (ratio {ratio:.3f} from {ratio_source}, "
+                f"{len(attempts)} attempt(s)), {out['moved']} file(s) moved from the previous batch's part, {copies} copied "
+                f"where a hard link failed\n")
+    return out
 
 
 def archive_check(sizes):
@@ -513,8 +806,27 @@ def archive_check(sizes):
     near = sorted(n for n, s in sizes.items() if ARCHIVE_WARN * ARCHIVE_LIMIT <= s < ARCHIVE_LIMIT)
     out = {"bytes": sizes, "limit": ARCHIVE_LIMIT, "pass": not over, "near_limit": near}
     if over:
-        out["problem"] = f"over {ARCHIVE_LIMIT:,} bytes: {', '.join(over)} (split the archive before installing)"
+        out["problem"] = (f"over {ARCHIVE_LIMIT:,} bytes: {', '.join(over)} (a texture part packed worse than planned "
+                          f"even after replanning: see steps.pack.attempts, or plan tighter with --pack-ratio)")
     return out
+
+
+def install_set(port):
+    """What a port folder installs: {"files": [...], "plugins_txt": [...]} from the files there, the plugin first, then
+    its archives, then each companion plugin and its archive in number order; Plugins.txt lists FO4Port.esm and then
+    the companions in that order (a companion must load for its archive to, and nothing masters it)."""
+    if not os.path.isdir(port):
+        return {"files": [], "plugins_txt": []}
+    have = set(os.listdir(port))
+    files = [n for n in (PLUGIN, deploy_starfield.ARCHIVE, deploy_starfield.TEX_ARCHIVE) if n in have]
+    plugins = [PLUGIN] if PLUGIN in have else []
+    nums = sorted({int(m.group(1)) for n in have for m in [COMPANION_RX.match(n)] if m})
+    for n in nums:
+        plugin, archive = COMPANION_PLUGIN.format(n=n), COMPANION_ARCHIVE.format(n=n)
+        files += [x for x in (plugin, archive) if x in have]
+        if plugin in have:
+            plugins.append(plugin)
+    return {"files": files, "plugins_txt": plugins}
 
 
 def placed_counts(log):
@@ -529,16 +841,18 @@ def placed_counts(log):
     return out
 
 
-def finish(a, plan, steps, cells, t0, error):
+def finish(a, plan, steps, cells, t0, error, sources=None):
     port = os.path.join(a.out, "port")
     pins = {"commit": git_head(), "plan": sha256(a.plan), "base_plugin": sha256(os.path.join(a.base, PLUGIN)),
             "base_formids": sha256(os.path.join(a.base, "formids.json"))}
     if os.path.isfile(os.path.join(port, PLUGIN)):
         pins["plugin"] = sha256(os.path.join(port, PLUGIN))
         pins["plugin_bytes"] = os.path.getsize(os.path.join(port, PLUGIN))
+    install = install_set(port)
     result = {"batch": a.batch, "name": os.path.basename(os.path.abspath(a.out)), "pass": error is None, "error": error,
               "installed": False, "base": os.path.abspath(a.base), "core": os.path.abspath(a.core),
-              "work": os.path.abspath(a.work), "pins": pins, "steps": steps, "cells": cells,
+              "work": os.path.abspath(a.work), "pins": pins, "sources": sources, "install": install,
+              "steps": steps, "cells": cells,
               "totals": dict(Counter(c.get("result", "pending") for c in cells.values())),
               "seconds": round(time.time() - t0, 1), "free_gb_after": round(free_gb(a.out), 1)}
     save(os.path.join(a.out, MARKER), result)
@@ -546,6 +860,12 @@ def finish(a, plan, steps, cells, t0, error):
         f.write(f"Interior batch {a.batch} (scripts/terrain/interior_batch.py build; docs/terrain/interior-batches.md).\n"
                 f"{'PASS' if error is None else 'FAIL: ' + error}. NOT installed, NOT queued. The port to install is port\\ "
                 f"(FO4Port.esm + archives); plugin\\ is PluginSpike's output before the door patch.\n")
+        if install["files"]:
+            f.write("Files to install into Starfield\\Data, all of them (a texture archive beyond the first is named after "
+                    "the companion plugin next to it, which must be active for the game to load it: unverified in game, "
+                    "docs/terrain/interior-batches.md PC tests):\n" + "".join(f"  port\\{n}\n" for n in install["files"])
+                    + "Plugins.txt order (the companions right after FO4Port.esm):\n"
+                    + "".join(f"  *{n}\n" for n in install["plugins_txt"]))
     print(json.dumps({k: result[k] for k in ("batch", "pass", "error", "totals", "seconds", "free_gb_after")}, indent=1))
     return 0 if error is None else 1
 
@@ -638,21 +958,42 @@ def dependencies(stage, check_refs, starfield):
         raise ValueError(f"{data} is missing, so the installed plugin cannot be checked")
     plugin = os.path.join(stage, "port", PLUGIN)
     digest = sha256(plugin) if os.path.isfile(plugin) else None
-    installed = os.path.join(data, PLUGIN)
+    installed = theirs = os.path.join(data, PLUGIN)
     try:
         if digest and os.path.isfile(installed) and sha256(installed) == digest:
             raise ValueError(f"{name}: its {PLUGIN} is the one installed in {installed}")
+        # The archives too: a companion plugin is the same 42 bytes in every stage, so only its archive (and the
+        # port's own two) can say whose textures the game has. Same size first, so a different archive costs no hash.
+        for rel in superseded_files(stage):
+            if rel.endswith(".esm"):
+                continue
+            mine, theirs = os.path.join(stage, *rel.split("/")), os.path.join(data, rel.split("/")[-1])
+            if os.path.isfile(theirs) and os.path.getsize(theirs) == os.path.getsize(mine) and sha256(theirs) == sha256(mine):
+                raise ValueError(f"{name}: its {rel.split('/')[-1]} is the one installed in {theirs}")
     except OSError as e:
-        raise ValueError(f"cannot read {installed}: {e.strerror}")
+        raise ValueError(f"cannot read {e.filename or theirs}: {e.strerror}")
     hits = references(stage, check_refs)
     if hits:
         raise ValueError(f"{name}: still named by " + ", ".join(hits[:5]) + (f" and {len(hits) - 5} more" if len(hits) > 5 else ""))
     return digest
 
 
-# The only files a release may delete without an archive copy: the stage's port plugin and archives, which the
-# successor carries forward (its own copies are checked, byte for byte, against its pins at release and again at prune).
+# The only files a release may delete without an archive copy: the stage's port plugin and archives, and the texture
+# companions (FO4PortTexturesN.esm and its archive), which the successor carries forward (its own copies are checked,
+# byte for byte, against its pins at release and again at prune).
 SUPERSEDED = ("port/" + PLUGIN, "port/FO4Port - Main.ba2", "port/FO4Port - Textures.ba2")
+
+
+def is_superseded(rel):
+    """True for a stage file (relative, forward slashes) the successor carries: SUPERSEDED or a texture companion."""
+    return rel in SUPERSEDED or (rel.startswith("port/") and rel.count("/") == 1 and bool(COMPANION_RX.match(rel[5:])))
+
+
+def superseded_files(stage):
+    """The superseded files a stage has, sorted: the port's plugin and archives, then each companion plugin and archive."""
+    port = os.path.join(stage, "port")
+    have = os.listdir(port) if os.path.isdir(port) else []
+    return sorted("port/" + n for n in have if is_superseded("port/" + n))
 
 
 def tree(stage):
@@ -674,8 +1015,9 @@ def tree(stage):
 
 def successor_check(stage, successor):
     """Raise ValueError unless successor is a passed later build chained from stage (--prev stage, compare_prev pass)
-    whose port is still on disk as built: its plugin and each packed archive match the sha256s pinned when it was built
-    (a build without archive sha256s cannot stand in).
+    whose port is still on disk as built: its plugin and each packed archive and texture companion match the sha256s
+    pinned when it was built (a build without archive sha256s cannot stand in; a successor that needed fewer texture
+    parts than the stage lacks the stage's last companion and cannot stand in either).
     Then every id and record of stage survives in a checked copy, so stage's own plugin and archives may go."""
     name = os.path.basename(stage)
     try:
@@ -693,20 +1035,21 @@ def successor_check(stage, successor):
     if not want or not os.path.isfile(plugin) or sha256(plugin) != want:
         raise ValueError(f"successor {os.path.basename(successor)}: its {PLUGIN} is missing or not the one it built")
     packed = (steps.get("pack") or {}).get("sha256") or {}
-    for f in SUPERSEDED[1:]:
-        if os.path.isfile(os.path.join(stage, *f.split("/"))):
-            got = os.path.join(successor, *f.split("/"))
-            want = packed.get(f.split("/")[-1])
-            if not want:
-                raise ValueError(f"successor {os.path.basename(successor)}: no build-time sha256 for {f}")
-            if not os.path.isfile(got) or sha256(got) != want:
-                raise ValueError(f"successor {os.path.basename(successor)}: {f} is missing or not the one it packed")
+    for f in superseded_files(stage):
+        if f == "port/" + PLUGIN:
+            continue                                                    # checked above against pins.plugin
+        got = os.path.join(successor, *f.split("/"))
+        want = packed.get(f.split("/")[-1])
+        if not want:
+            raise ValueError(f"successor {os.path.basename(successor)}: no build-time sha256 for {f}")
+        if not os.path.isfile(got) or sha256(got) != want:
+            raise ValueError(f"successor {os.path.basename(successor)}: {f} is missing or not the one it packed")
 
 
 def archived_check(rec):
-    """Raise ValueError unless every file of the released tree is either SUPERSEDED or still in its archive copy, byte
-    for byte. Nothing else may be deleted, whatever its size."""
-    missing = sorted(set(rec.get("tree", {})) - set(rec.get("archived", {})) - set(SUPERSEDED))
+    """Raise ValueError unless every file of the released tree is either superseded (is_superseded) or still in its
+    archive copy, byte for byte. Nothing else may be deleted, whatever its size."""
+    missing = sorted(f for f in set(rec.get("tree", {})) - set(rec.get("archived", {})) if not is_superseded(f))
     if missing:
         raise ValueError("not archived: " + ", ".join(missing[:5]))
     for rel, (size, digest) in rec.get("archived", {}).items():
@@ -747,7 +1090,7 @@ def release(stage, reason, check_refs, starfield, successor, archive):
         raise ValueError("the archive must be outside the stage")
     archived = {}
     for rel, (size, sha) in files.items():
-        if rel in SUPERSEDED:
+        if is_superseded(rel):
             continue
         cp = os.path.join(dest, rel)
         os.makedirs(os.path.dirname(cp), exist_ok=True)
@@ -843,6 +1186,11 @@ def main(argv=None):
     b.add_argument("--min-free-gb", type=float, default=40.0)
     b.add_argument("--no-pack", action="store_true")
     b.add_argument("--jobs", type=int, default=2)
+    b.add_argument("--allow-source-change", action="store_true",
+                   help="build over a --prev or --base made from other game files (other Fallout4.esm, DLC or BA2 pins)")
+    b.add_argument("--pack-ratio", type=float, default=None,
+                   help="plan the texture parts by this packed/loose ratio (0 < r) instead of the --prev's measured one; "
+                        "a smaller ratio widens the loose-byte cap, 1.0 plans by loose bytes")
     c = sub.add_parser("compare")
     c.add_argument("--old", required=True)
     c.add_argument("--new", required=True)
