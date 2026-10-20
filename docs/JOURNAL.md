@@ -1891,3 +1891,23 @@ the build side. No deploy, no game.
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+
+## 2026-10-20: Codex integrates reviewed object-LOD plan documents
+
+Independent delta reviews clear #326 at 5ccadd6 (main-merge continuity) and #334
+at a7ee144 (LOD-enabled layer/save pin and 20-byte-only schema correction).
+Combining them exposed two documentation conflicts. This isolated proposal
+merges both histories onto main 4a434761; it changes no production code/tests.
+
+Retain the complete current-main research log, appending only #334's reviewed
+LOD entry. The first preservation check incorrectly demanded obsolete text from
+the older branch too; it stopped before writing and is retained privately.
+Use #334's corrected plan while verifying #326's prefix, pins/recovery and
+trial steps 2-4 remain exact. Current-main garage-button wire-only rows stay.
+The command remains community-supported; the five-int32 structure is limited
+to 20 bytes and other output lengths remain inspect/retain, not forced failures.
+
+Guard, diff and local-link checks pass. No unchanged source suite is repeated.
+This is documentation preparation, not a CK spike, generated LOD, source writer,
+INI/install/game input or native distant-object acceptance. Original branches
+and failed/passing evidence remain; independent merge-resolution QA is pending.

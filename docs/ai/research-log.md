@@ -1453,3 +1453,16 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
 - **Change:** a BGSM that is decal plus alpha test now converts like a blended one, through the decal template. A shape
   with vertex colours that never reach full alpha gets its own decal material with the opacity map multiplied by its
   peak vertex alpha under `vadecals/a48/` (a peak of 0 skips the shape). The rim fade itself is not reproduced. Not yet seen in game.
+
+## 2026-10-17 Grok: object-LOD CK command and .lod format (external)
+- Question: which CK command generates object LOD for a worldspace/overlay, and what is the on-disk .lod layout.
+- Method: [r/starfieldmods 1ntdwu9](https://www.reddit.com/r/starfieldmods/comments/1ntdwu9/) (primary firsthand
+  procedure) and [ConvertFromLOD.cs](https://github.com/UnknownExplorer13/Bethesda-LOD-File-Generator/blob/01380dce14898a3a2ebea41ef151b094d4d83e11/Bethesda%20LOD%20File%20Generator/ConvertFromLOD.cs)
+  at `01380dce14898a3a2ebea41ef151b094d4d83e11`. No CK run this turn.
+- **supported hypothesis:** `-MockWorldSpaceLOD:<SavedPluginName> <WorldspaceEDID>` after refs are on a LOD-enabled
+  layer and the plugin is saved. Community-supported until the installed CK spike. Use the saved filename/extension;
+  do not assume `.esp`. Missing output without that pin is inconclusive.
+- **supported hypothesis:** 20-byte `.lod` is five int32 (`minX, minY, size, 0, 0`). NewAtlantis hex =
+  minX=-35, minY=-59, size=136. The extractor also has a 16-byte legacy layout and rejects other lengths;
+  22-byte vanilla files are inspect-only. Creation/size derivation **unresolved**. CK fixture is the gate.
+- Labels: supported hypothesis. Plan in docs/terrain/object-lod.md. No writer, no hand-authored files.
