@@ -2567,6 +2567,13 @@ def navmesh_input(nav, ov):
 
 
 def cmd_stage(a):
+    pair = getattr(a, "paired", None)
+    if pair is not None:
+        pair.before_core(a)
+    elif getattr(a, "cluster", None):
+        for path in a.cluster.split(","):
+            if load(path).get("doors_port", {}).get("marker_state_sha256"):
+                raise ValueError("planned door cluster requires paired_stage.py and its held lease")
     t0 = time.time()
     prm, ov = core_params(a.core)
     core_plan = load(os.path.join(a.core, "plan.json"))
@@ -2987,6 +2994,11 @@ def cmd_check(a):
 
 
 def check_stage(a, audit=None):
+    pair = getattr(a, "paired", None)
+    if pair is not None:
+        pair.require_core(a.out)
+    elif os.path.exists(os.path.join(a.out, "paired-input.json")):
+        raise ValueError("paired stage requires its live reservation session")
     import make_cw_overlays as cwo
     t0 = time.time()
     out = a.out

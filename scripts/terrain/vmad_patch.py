@@ -641,6 +641,13 @@ def patch_port(plugin, edits, own_index):
 
 
 def cmd_port(a):
+    pair = getattr(a, "paired", None)
+    if pair is not None:
+        pair.require_core(a.core)
+        if Plugin.read(os.path.join(a.port, plugin_in(a.port))).serialize() != pair.base:
+            raise ValueError("paired port input changed")
+    elif os.path.exists(os.path.join(a.core, "paired-input.json")):
+        raise ValueError("paired core requires its live reservation session")
     require_separate_output(a.out, a.port, a.core)
     if os.path.exists(a.out):
         sys.exit(f"{a.out} exists: every output is a new folder")
@@ -652,7 +659,8 @@ def cmd_port(a):
     port_next = next_local_id(src_plugin)
     try:
         merge = merge_offset(a.core)
-        edits = port_edits(core_plugin, doors, name, port_next, merge)
+        edits = port_edits(core_plugin, doors, name, port_next, merge,
+                           **(pair.port_args(include_base=True) if pair else {}))
     except ValueError as e:
         sys.exit(f"doors: {e}")
     plugin = Plugin.read(src_plugin)
@@ -791,6 +799,7 @@ def check_port(before, after, doors, core_plugin=None, merge=None, *, marker_pla
 
 
 def cmd_check(a):
+    pair = getattr(a, "paired", None)
     name = plugin_in(a.out)
     before, after = Plugin.read(os.path.join(a.port, name)), Plugin.read(os.path.join(a.out, name))
     core_plugin, doors = None, None
@@ -802,11 +811,18 @@ def cmd_check(a):
         core_plugin, doors = core_doors(core)
     if doors is None:
         sys.exit(f"the core build {core} is needed (--core)")
+    if pair is not None:
+        pair.require_core(core)
+        if before.serialize() != pair.base:
+            raise ValueError("paired port input changed")
+    elif os.path.exists(os.path.join(core, "paired-input.json")):
+        raise ValueError("paired check requires its live reservation session")
     try:
         merge = merge_offset(core)
     except ValueError as e:
         sys.exit(f"doors: {e}")
-    checks = check_port(before, after, doors, core_plugin, merge)
+    checks = check_port(before, after, doors, core_plugin, merge,
+                        **(pair.port_args() if pair else {}))
     own = len(after.masters()) << 24
     raw = {}
     for e in doors:

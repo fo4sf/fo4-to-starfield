@@ -504,3 +504,14 @@ The main697bc07 marker writer calls unnamed NewKey, which the persistent ledger 
 - Why: the owner found these unusable indoors (18 Oct); the exterior path is already verified in game.
 - Alternatives: a Python record patch of the pinned plugin (vmad_patch style): rejected, new record types would need a
   hand-written layout Mutagen already writes; copying the table logic into C#: rejected, two rule sets would drift.
+
+## 2026-10-19: Codex paired door stage generations (#280)
+
+Owner explicitly authorized the stage entrypoint and four command/test scopes after #378.
+Use one externally pinned #281 session through the actual core stage/check and
+port patch/check, with fresh generation directories and immutable intent/completion
+receipts. Preserve partial outputs and reservations; explicit retry creates a new
+generation and retains the original. Separate output files are not atomic as a pair.
+Reject automatic reset/rollback and independently allocated stage commands because
+they can recycle persistent identities or advertise only one checked half.
+Claude retains native/controller/deployment/merge authority.

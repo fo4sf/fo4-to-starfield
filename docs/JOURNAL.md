@@ -2096,3 +2096,28 @@ Recognize that section only for nonempty source pairs and validate exact ordered
 ## Codex: October19 — pinned interior-marker caller APIs (#280 / #378)
 
 Owner authorized only the four shared caller functions and tests. Added the #281 optional Plan path, exact state/map receipt checks and retained-gap raw verification; source-keyed reservations survive reorder/removal and failed functional output. Initial 54 targeted Windows tests passed; a further map-byte receipt pin and new-source regression pass25 focused tests (30 unchanged store/identity tests carry forward). Guard and four-function AST scope checks pass. Independent QA/CI pending. Current production stage CLI and full paired publication/recovery remain unwired; no installation, game input, merge or native round-trip verdict. Original failed controls and passing evidence retained privately.
+
+
+## 2026-10-19: Codex authorized paired-stage source extension (#280)
+
+The owner explicitly extended scope to the new paired-stage entrypoint and
+vmad_patch.cmd_port/cmd_check, make_core64c.cmd_stage/check_stage plus tests.
+The old unanswered stage-scope blocker is resolved. Isolated branch merges
+reviewed378/e099d3c and main4a43476, without changing Claude’s checkout.
+The original real cmd_port reproduced the retained-gap failure: promised000805
+but sequentially allocated000804. The new entrypoint keeps the same externally
+pinned store lease through actual core/port generation and checks, preserves
+failed outputs/reservations, and retries into a new generation only.
+Eight new synthetic controls use an actual core ESM writer, raw door checks
+and actual port commands; process exit44 after core publication retains bytes
+and reservations, releases only the OS lease, and explicit retry succeeds.
+159 related tests/guard pass. Initial missing-offset fixture and overlong
+Windows evidence-path failures are retained alongside corrected controls.
+The synthetic terrain survey adapter is not private full-size check_stage
+acceptance. Independent source QA, full-size paired stage/archive/current PEX
+and native return/save/reload remain pending; no deployment or game actions.
+
+The added unfinished-generation guard also exposed a real same-request intent
+collision across distinct fresh folders. The intent now binds the generation
+path before hashing/registering it; the retained four-boundary retry loop
+regresses this collision. Windows case aliases use Path identity for lineage.

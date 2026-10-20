@@ -56,3 +56,11 @@ wrong state/map pins (including byte-only map drift), tampered Plan assignments,
 wrong destination source/owner/cell, closed writer, input drift, competing
 process and failed-publication retry. Existing #281 identity/store tests remain.
 No game assets, staging or installed files are used.
+
+## Authorized stage command extension
+
+The owner subsequently authorized the separate actual stage entrypoint and command/test edits.
+See [paired generation protocol](paired-stage.md). The isolated implementation now calls
+real core stage/check and port patch/check under the same lease; source QA and a
+freshly pinned full-size paired build remain required. The earlier unwired-CLI
+statements above describe #378 alone, not this later extension. No native verdict.
