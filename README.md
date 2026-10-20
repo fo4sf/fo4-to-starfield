@@ -2,26 +2,71 @@
 
 **Bring Fallout 4 into Starfield's Creation Engine 2 through a measured, repeatable conversion toolchain.** The goal is to preserve Fallout 4 gameplay while using Starfield's native physics and modern engine capabilities. Experimental interiors already load in Starfield; the full game conversion is unfinished.
 
-**New here and want to play or test it?** Start with [docs/PLAY-AND-TEST.md](docs/PLAY-AND-TEST.md): download, build, install, play and report, step by step.
+**Not offered for download or play for now.** On 19 Oct the owner withdrew the play and install guides, for legal reasons and so nobody's hopes are raised early; a letter asking Bethesda about the project went out the same day, and the repository is now private. This page records progress only.
 
 Reviewing or forking with an AI assistant? Point it at [docs/ai/for-ai-reviewers.md](docs/ai/for-ai-reviewers.md) first.
 
 Converters read **your own copies of both games** and generate local outputs. No game files or conversion pack are distributed. Existing in-game screenshots depict Bethesda-owned visuals and are excluded from the project's code license.
 
-[Latest progress](#latest-progress--2026-10-17) · [Roadmap](docs/ROADMAP.md) · [Progress dashboard](https://claude.ai/artifact/SjY6rgmjtdmN8ryjxAUxAp) · [Play and test (newcomers)](docs/PLAY-AND-TEST.md) · [Run an installed build](#run-an-installed-build-windows) · [Cell commands](#visit-converted-cells) · [Live updates](https://github.com/fo4sf/fo4-to-starfield/issues/32) · [Contribute](CONTRIBUTING.md)
+[Latest progress](#latest-progress--2026-10-20) · [Roadmap](docs/ROADMAP.md) · [Progress dashboard](https://claude.ai/artifact/SjY6rgmjtdmN8ryjxAUxAp) · [Live updates](https://github.com/fo4sf/fo4-to-starfield/issues/32) · [Contribute](CONTRIBUTING.md)
 
-## Latest progress — 2026-10-17
+## Latest progress — 2026-10-20
 
-**The whole playable Commonwealth exterior and 16 interiors run natively in Starfield, and the owner is playtesting them.** Dates are Mountain time. The live list of what the owner found and what was done about it is [docs/owner/playtest-issues.md](docs/owner/playtest-issues.md) (26 rows with screenshots); the checks he runs are in [docs/owner/in-game-test-sheet.md](docs/owner/in-game-test-sheet.md); what comes after this testing is in [docs/ROADMAP.md](docs/ROADMAP.md).
+**Priority from here on (owner, 19 Oct): the combined core comes first.** This is a GAMMA-style second way to play, built around settlements that grow, factions that act and a connected wasteland, starting on the Commonwealth. It has value without the open legal questions. The stories are still wanted, and the work already in flight continues. The owner's decisions for every phase are in [docs/research/framework/dependencies.md on #408](https://github.com/fo4sf/fo4-to-starfield/pull/408) and are not repeated here.
+
+| Work | State on 20 Oct | Where |
+|---|---|---|
+| **v6e crash test** | in progress on the owner's PC: the Red Rocket and museum build with the side-door rig off and the movable props static; the next build in the bisect waits on its result | #375 (merged), #400 |
+| **Mission** | the cut-down "When Freedom Calls" ran to completion in game on v6c; the Preston fix is in the v6e build | #353 |
+| **Map markers** | the runtime mover is merged; an installer and every Commonwealth marker are staged, and a merge probe is staged; none is installed yet | #376 (merged), #399 |
+| **All interiors** | 271 interiors in 9 staged batches; batches 2 to 4 (104 interiors) passed their build checks on the PC; batch 5 is queued; not installed | #396 |
+| **Vault 111 start** (phase 1) | the cryo-pod start in converted Vault 111 and a quest engine probe are built and staged offline; the first test needs a new game after v6e | #393 |
+| **Door animations** (phase 2) | load doors that open before the trip, behind a switch that is off by default | #392 |
+| **Launcher backbone** (phase 4) | build manifest, resumable build, recorded restore and a same-ids check; CI green, waiting on Codex | #394 |
+| **Engine mechanics reference** | Fallout 4 against Starfield, mechanism by mechanism | #404 |
+| **Next-phase framework** | the questions, dependencies and decisions for every later phase, including the combined core's design and offline prototype | #408 |
+| **Test tooling** | night-chain arm check, preflight report, tiered queues, door trips per interior batch | #391, #397, #403, #405 |
+
+The v6e test runs on the installed build, and the mission result is from the game. Everything else in the table is offline or staged, and nothing new is installed until the v6e test is done.
+
+<details>
+<summary>Progress on 19 October</summary>
+
+### 2026-10-19
+
+**The first mission runs in game, and the build that carries it is under a crash bisect.** Nothing new is deployed until that test is done. Dates are UTC unless marked.
+
+| Area | State on 19 Oct | Evidence |
+|---|---|---|
+| **Installed on the test PC** | core `terrain_core64v6c_l125_mission_wfc9b` with port `integ_v6_specmask_doors_c`; the earlier v5 set is the rollback | install record on the PC; mission notes on #353 (2c2ef2b) |
+| **Mission** | a cut-down "When Freedom Calls" ran to completion in game: stages 20, 30 (5 of 5 raiders dead), 40, 200 and complete. Preston targeted the player twice; the faction fix (wfc10) is built but untested | [docs/mission/when-freedom-calls.md on #353](https://github.com/fo4sf/fo4-to-starfield/blob/2c2ef2bd7fc896bdff0996bf943bfb624f5c6c5b/docs/mission/when-freedom-calls.md), PR #353 |
+| **Codsworth** | a robot stand-in at his Sanctuary spot; 20 of his Fallout 4 voice lines have been converted from the owner's own files so far, and the in-game voice check is open | #361 (merged, 4492d13) |
+| **Crashes near Red Rocket and the museum** | three crashes on v6, two of them seconds after the museum fight; crashes persisted with the two nearby map markers disabled, and the cause remains unresolved. Within 300 m of Red Rocket v6c added 404 movable props and 12 door changes, so a test build with the side-door rig off and those props static (v6e) is staged, not installed | #375 (bisect switches and `near_changes.py`, merged 19 Oct), #353 notes |
+| **Map** | the four markers (Red Rocket, Sanctuary, Vault 111, Concord) are enabled but draw no icon on v6. Supported hypothesis: persistent references stay at their local position, so #376 (merged 19 Oct) moves them at run time; a one-reference merge probe compares add-on and vanilla persistent-reference positions in the same session to narrow the writer-side cause | #376 |
+| **Passed in game so far** | the mission (above); the Super Duper Mart and Boston Public Library load doors both ways; most indoor pickups; 19 of 20 library stair routes (the 20th never started); the Red Rocket to Sanctuary walk on core64c (before v6) | test records of 17 and 18 Oct, summarised on [#32](https://github.com/fo4sf/fo4-to-starfield/issues/32) |
+| **Still open** | about 190 interiors unconverted; no Pip-Boy; lights, distant LOD, textures, carrying objects (the 18 Oct movable tests read FAIL or INCONCLUSIVE) | [docs/owner/playtest-issues.md](docs/owner/playtest-issues.md) |
+
+**Next, approved by the owner on 19 Oct** (order: new game first, then doors, then interiors, then the launcher): a Vault 111 new-game start with no Starfield intro; load doors with enter and exit animations; all interiors converted in batches; then a launcher that ships no assets and builds the port from the player's own Fallout 4. Offline work on all four started on 19 Oct as draft PRs (#393, #392, #396, #394; listed in the roadmap); the research notes are in draft PR #380 and the proposals from Grok and Codex in #381 and #382.
+
+</details>
+
+<details>
+<summary>Progress on 17 October</summary>
+
+### 2026-10-17
+
+**The whole playable Commonwealth exterior and 16 interiors run natively in Starfield, and the owner is playtesting them.** Dates are Mountain time. The live list of what the owner found and what was done about it is [docs/owner/playtest-issues.md](docs/owner/playtest-issues.md) (26 rows with screenshots); the checks the owner runs are in [docs/owner/in-game-test-sheet.md](docs/owner/in-game-test-sheet.md); what comes after this testing is in [docs/ROADMAP.md](docs/ROADMAP.md).
 
 | Area | State on 17 Oct | Evidence |
 |---|---|---|
 | **Exterior** | the 64 x 64 cell core as native terrain with 648,358 placed objects (build `core64k`); the owner walked from Red Rocket to the Diamond City gate with no crash and no boundary | playtest row 25; walk gates PASS |
 | **Objects as records** | 5,185 containers, 12,438 loose items, activators, terminals, 6,249 lights, 29 workshops, 269 crafting benches on Starfield's stations; owner-verified: pickup, containers, the scanner, the Red Rocket workshop's build mode. Not yet checked: the other workshops, the bench menus, the terminals; activators show a prompt but are not wired yet | playtest rows 12, 16, 21 |
-| **Interiors** | 16 reachable by `coc` (build `integ_1018`): Vault 111's sliding doors work (the cog door is still a solid static), posed props, crash-fixed collision | owner-verified 17 Oct; the shooting crash's cause came from his crash dump (#274) |
+| **Interiors** | 16 reachable by `coc` (build `integ_1018`): Vault 111's sliding doors work (the cog door is still a solid static), posed props, crash-fixed collision | owner-verified 17 Oct; the shooting crash's cause came from the owner's crash dump (#274) |
 | **Doors between them** | the exterior Super Duper Mart door is a scripted door: entering works when the runner activates it from the console (16 Oct); the way back is written (#291, #297) and its runner test is staged | docs/terrain/scripted-doors.md |
 | **Actors** | a converted raider fights the player once combat is forced from the console; a vanilla NPC paths on the converted navmesh | npc_combat, npc_nav queues |
 | **Open** | lights far too bright at night (calibration 2.3x vanilla; a dimmed build staged, #302), nothing visible beyond the loaded cells (no distant LOD yet), a passable gate and a plank over water in Vault 111 (fixes in review), carrying objects, the garage button (#303), textures (Grok's passes), map and fast travel | playtest rows 19-26 |
+
+</details>
 
 <details>
 <summary>Earlier progress (14-15 October)</summary>
@@ -91,46 +136,7 @@ More captured work: [Vault 111](docs/spikes/WP10-vault111-first-light.md) · [ad
 
 ## What remains
 
-The next goals, in the owner's order, are in [docs/ROADMAP.md](docs/ROADMAP.md): finish the Commonwealth slice (doors both ways, lights, LOD, textures), then one playable slice with a complex NPC and a simple mission, then a launcher and a shared Fallout core on Creation Engine 2. The interior slice still needs reliable stairs, clear openings, both-side door operation, pushable objects and repeatable deployment. Some route failures come from test positioning; others require geometry or physics fixes. Nearby terrain has sampled evidence and continuous walking has lead-reported passes; the cave connection, independent acceptance, larger regional streaming and actor behavior remain open. Quests, dialogue, combat systems and full-game parity are unfinished. See [the issue tracker](https://github.com/fo4sf/fo4-to-starfield/issues) and [risk register](docs/RISKS.md).
-
-## Run an installed build (Windows)
-
-If your converted build is **already installed and enabled** in Starfield, this PowerShell command launches the Steam game:
-
-```powershell
-Start-Process "steam://rungameid/1716740"
-```
-
-Load a dedicated test save, then use the console commands below. Downloading this repository alone does not install converted cells.
-
-For an existing converted staging folder, deploy it from the repository folder before launching. Replace the two placeholders with your local paths; see [setup](docs/SETUP.md) for prerequisites, including the Creation Kit's Archive2 tool:
-
-```powershell
-python -I scripts/deploy_starfield.py install --staging "<converted-staging>" --starfield "<Starfield-install>"
-```
-
-The installer refuses to overwrite an existing deployment. Its paired cleanup command is:
-
-```powershell
-python -I scripts/deploy_starfield.py uninstall --starfield "<Starfield-install>"
-```
-
-## Visit converted cells
-
-Open Starfield's console with the tilde/backtick key and enter **one** command. Each destination must be included in your installed build; an unbuilt cell is unavailable.
-
-| Destination | Starfield console command |
-|---|---|
-| Vault 111 | `coc FO4Port_Vault111Cryo` |
-| Vault 81 | `coc FO4Port_Vault81` |
-| Red Rocket cave | `coc FO4Port_RedRocket01` |
-| Vault 114 | `coc FO4Port_Vault114` |
-| Prydwen | `coc FO4Port_PrydwenHull01` |
-| Hotel Rexford | `coc FO4Port_GoodneighborHotelRexford` |
-| Boston Public Library | `coc FO4Port_BostonPublicLibrary02` |
-| Parsons State | `coc FO4Port_ParsonsState01` |
-
-These are prototype cells for testing, not a campaign start or a completed playthrough.
+The next goals are in [docs/ROADMAP.md](docs/ROADMAP.md). First the current v6e crash test finishes. The combined core comes first from here on; the approved single-game phases continue in the owner's order of 19 Oct: a Vault 111 new-game start, load doors with enter and exit animations, all interiors, and a launcher that builds from the player's own games. The interior slice still needs reliable stairs, clear openings, both-side door operation, pushable objects and repeatable deployment. Some route failures come from test positioning; others require geometry or physics fixes. Nearby terrain has sampled evidence and continuous walking has lead-reported passes; the cave connection, independent acceptance, larger regional streaming and actor behavior remain open. Quests, dialogue, combat systems and full-game parity are unfinished. See [the issue tracker](https://github.com/fo4sf/fo4-to-starfield/issues) and [risk register](docs/RISKS.md).
 
 ## Why conversion is difficult
 
@@ -144,20 +150,6 @@ These are prototype cells for testing, not a campaign start or a completed playt
 | Collision | Havok 2014 packfile | Havok tagfile and `hknp` shapes |
 
 These are measured research notes, not promises of complete format support. Methods and sources: [format gap](docs/FORMAT-GAP.md), [spikes](docs/spikes/), and [measurement scripts](scripts/).
-
-## Try it
-
-```powershell
-git clone https://github.com/fo4sf/fo4-to-starfield.git
-cd fo4-to-starfield
-python -m pip install -r requirements-ci.txt
-python -m unittest discover -s tests -v
-python scripts/guard.py
-```
-
-`scripts/convert_batch.py` converts groups of statics and now prints the top failure reasons by count (with percentages) after a run and writes failure-summary.json, making common issues easier to spot and process programmatically.
-
-To play or test the port, follow [docs/PLAY-AND-TEST.md](docs/PLAY-AND-TEST.md). To reproduce measurements, install the tools listed in [setup](docs/SETUP.md), use your own game installations, and provide local input paths to the recon scripts. Keep generated data and converted assets outside this repository. Read [contributing](CONTRIBUTING.md) before opening a pull request.
 
 ## Safety and project rules
 

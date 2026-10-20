@@ -8,6 +8,11 @@ if (args.SequenceEqual(new[] { "--activation-only" }))
     ActivationParentTests.Run();
     return;
 }
+if (args.SequenceEqual(new[] { "--locks-only" }))
+{
+    LockTests.Run();
+    return;
+}
 if (args.SequenceEqual(new[] { "--missing-door-cells-only" }))
 {
     MissingDoorEndpointTests.Run(cellsOnly: true);
@@ -186,3 +191,4 @@ Console.WriteLine("Relationship translation and binary round-trip synthetic chec
 NativeDoorBaseTests.Run();
 MissingDoorEndpointTests.Run();
 ActivationParentTests.Run();
+LockTests.Run();
