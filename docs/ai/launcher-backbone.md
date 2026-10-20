@@ -95,6 +95,14 @@ Work folders (A6): detect refuses an `--out-dir` that is a drive root or sits un
 ProgramData, OneDrive or the Users folder, as Wabbajack and GAMMA do (Controlled Folder Access guards Documents and
 Desktop and has blocked `make_bridge.py` once). The owner's `D:\Modding` and `C:\Modding` folders pass.
 
+### find
+`launcher.py find [--steam <Steam folder>]` finds Steam's Fallout 4 and Starfield the way MO2 does: SteamPath from
+`HKCU\Software\Valve\Steam`, the libraries from `config\libraryfolders.vdf` (and the old `steamapps` copy), and each
+game from `steamapps\appmanifest_<appid>.acf` ("installdir" under `steamapps\common`; 377160 Fallout 4, 1716740
+Starfield). Depot downloads under `steamapps\content\app_377160\depot_*` are listed in depot-number order, the
+fixed merge order of the owner's LA-4 answer, and it prints the detect line to run. Read only. GOG lookup is not
+written yet; the VDF reader and the paths are tested on synthetic files only, not on a real Steam folder.
+
 ### check-plugins
 `launcher.py check-plugins <build folder> [--starfield-data <Starfield\Data>]` reads each built plugin's TES4 header
 only and refuses `BlueprintShips-Starfield.esm` as a master (blueprint plugins load last and cannot be depended on,
