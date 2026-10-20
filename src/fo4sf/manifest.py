@@ -44,7 +44,7 @@ def summarize_manifest(items: list[dict[str, Any]]) -> dict[str, Any]:
     load_doors = 0
     movables = 0
     total_shapes = 0
-    for it in items:
+    for index, it in enumerate(items):
         typ = str(it.get("type") or it.get("record_type") or "unknown")
         by_type[typ] = by_type.get(typ, 0) + 1
         tier = str(it.get("fidelity_tier") or it.get("tier") or "T?")
@@ -55,8 +55,15 @@ def summarize_manifest(items: list[dict[str, Any]]) -> dict[str, Any]:
             load_doors += 1
         if "movable" in it:
             movables += 1
-        total_shapes += int(it.get("shapes") or 0)
-    avg_shapes = round(total_shapes / total, 1) if total else 0.0
+        shapes = it.get("shapes")
+        if shapes is not None:
+            if type(shapes) is not int or shapes < 0:
+                raise ManifestError(f"manifest item {index} shapes must be a nonnegative integer or null")
+            total_shapes += shapes
+    try:
+        avg_shapes = round(total_shapes / total, 1) if total else 0.0
+    except OverflowError as exc:
+        raise ManifestError("manifest shape total is too large to summarize") from exc
     return {
         "total": total,
         "by_type": by_type,

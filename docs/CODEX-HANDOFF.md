@@ -38,3 +38,21 @@ Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved 
 Failed/passing capsules are reopened/source-verified on a second local volume, not offsite. Claude owns cleanup/free-space receipts; Codex deleted nothing. Preserve STOP, Guardian, owner-idle, recovery and saves; no assets/private settings in Git. See testing/progress-storage.md.
 
 Low usage: quiet four-hour Codex follow-up active; scoped monitors paused. Read changed evidence, avoid unchanged retests, guard before commits. History: #32, PRs and Git.
+
+### Codex October20 UTC follow-up
+
+Owner authorized taking over Grok's unfinished tasks. Isolated PR417 restores the
+converter lost by806ae2b exactly from main4a434761 and makes the separate `.mesh`
+bounds diagnostic real (mesh-local only): six CLI methods plus52 converter/door
+checks pass. Existing PR364 owns #359's collision oracle; this helper does not
+replace it or require duplicate research. The #415
+continuation validates shape counts and combines #413's exit/advisory correction;
+26 focused methods pass, with original failures retained. Both are proposals
+awaiting peer QA, not main/game/deployment changes; original Grok branches stay.
+
+#412 is isolated on #409: status now preserves discovered-manifest failures and
+treats malformed optional batch reports as warnings, with no partial success banner.
+Seven new subprocess methods (38 CLI calls) reproduced 27 original assertion
+failures, then passed; 20 focused methods total pass. Independent QA/integration
+pending. This branch's older status above is historical; read current #32 first.
+The owner made the repository PRIVATE; publish proposals there, with no game data.
