@@ -1891,3 +1891,21 @@ the build side. No deploy, no game.
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+
+## 2026-10-20: Codex detect profile-INI coverage warning (offline)
+
+PR394 finding7: detect could print READY without checking My Games INIs or saying
+they were unchecked. It now warns when --my-games is omitted or the supplied
+folder is unavailable. Paths remain explicit, never guessed. READY and exit-code
+policy are unchanged: the warning is not proof of a clean profile. Supplied
+profile and game-folder sTestFile entries still refuse; loose files still warn.
+
+Five new methods plus thirteen existing detect/measure methods pass. Twelve
+old/new actual CLI calls cover omitted, missing, clean, blocked, game-blocked and
+loose-file profiles on identical synthetic inputs. Only coverage warnings change;
+refusals/readiness and all input bytes remain unchanged. The initial four new
+methods produced six pre-fix assertion failures, retained with their green runs.
+Legacy no-warning tests now explicitly supply an empty synthetic profile, keeping
+their original tool/source assertions. Only detect() changes among production
+functions; CLI dispatch is unchanged. Independent QA pending; no real profile,
+game action, staging, deployment or native acceptance.
