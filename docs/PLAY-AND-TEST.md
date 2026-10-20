@@ -1,5 +1,9 @@
 # Play and test the port: a guide for newcomers
 
+> **Withdrawn for now (owner, 19 Oct 2026).** The project is not offered for download or play, for legal reasons and so
+> nobody's hopes are raised early. This page is kept as a record of the procedure; please do not follow it until the
+> owner says the project is open again.
+
 You found the Fallout 4 to Starfield project and want to try it. This page takes you from download to walking around
 the converted Commonwealth in Starfield, and to sending a useful report when something is wrong.
 
