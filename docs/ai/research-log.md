@@ -1455,17 +1455,31 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
   peak vertex alpha under `vadecals/a48/` (a peak of 0 skips the shape). The rim fade itself is not reproduced. Not yet seen in game.
 
 ## 2026-10-20 Claude-cloud: doors_out2, the first door-exit campaign (job 6, #383)
-- **Run (Install session's report, 20 Oct 04:33Z; not read from the cloud):** queue `D:\Modding\testqueue_v6c_out\doors_out2`,
-  pinned build 9af962d2 from wt_nightrun c0024fa, installed v6c set, 19 Oct 18:02 to 18:43 local; 8 OUT legs, no crash,
-  no dump. Judge at c0024fa: PASS 0, FAIL 1, INCONCLUSIVE 7, NOT_RUN 0.
-- **verified (judge fault, fixed in #383):** the 7 INCONCLUSIVE were all `WORLD`: player in FF00552F, marker in 02000803,
-  0.0 to 0.3 m from the planned merged arrival. A persistent reference reports our base WRLD while the player stands in
+- **Run (Install session's report, 20 Oct 04:33Z):** queue `D:\Modding\testqueue_v6c_out\doors_out2`, pinned build
+  9af962d2 from wt_nightrun c0024fa, installed v6c set, 19 Oct 18:02 to 18:43 local; 8 OUT legs, no crash, no dump.
+  The judge at c0024fa gave PASS 0, FAIL 1, INCONCLUSIVE 7: all 7 were `WORLD` (player in FF00552F, marker in 02000803).
+- **verified (judge fault, fixed in #383 daff232):** a persistent reference reports our base WRLD while the player stands in
   the overlay's runtime instance (JOURNAL 2026-10-16 "Step 0 probes" (a) and (e); docs/terrain/door-arrival-position.md
-  already warned that equal world ids are not the success check). The judge now accepts a runtime (FF) player world
-  for a plugin marker world, and nothing else. **supported hypothesis:** re-judged, those 7 legs are PASS (one of them,
-  0001 Vault114, was also INCONCLUSIVE for the runner: 3 recovery escapes before the console opened). Not re-judged:
-  the evidence is on the PC.
+  already warned that equal world ids are not the success check). The judge now accepts a runtime (FF) player world for
+  a plugin marker world, and nothing else.
+- **verified (re-judged on the PC at daff232, read-only, 20 Oct ~04:50Z; the c0024fa output kept as
+  door_rounds_judge.c0024fa.json):** PASS 5, FAIL 3, INCONCLUSIVE 0, NOT_RUN 0.
+  PASS: 0000 ParsonsState01 (0.00 m xy, 0.01 m z), 0001 Vault114 (0.04, 0.10), 0002 Vault114 (0.28, 0.02),
+  0003 BostonPublicLibrary02 (0.00, 0.00), 0005 MuseumOfWitchcraft01 (0.00, 0.02).
+  FAIL: 0004 Vault95 STAYED (interior cell 06007D12); 0006 MuseumOfWitchcraft01 WRONG_PLACE (0.0 m xy, 16.4 m z);
+  0007 PrydwenHull01 WRONG_PLACE (0.0 m xy, 71.7 m z). The world check had hidden 0006 and 0007. An earlier version of
+  this entry and of #383's description guessed "7 PASS" before the re-judge: **wrong**, corrected here.
+- **What the code says about 0006 and 0007 (verified from source):** the expected position is the exterior marker's own
+  record position plus the build's merge, and the merge has no z (`vmad_patch.merge_offset` returns (dx, dy, 0.0)), so
+  the expected z is the marker's record z. The judge's tolerance is 3.0 m on z. The runner never scores the exterior
+  arrival: an OUT leg's only runner point is `inside_arrival`, the start inside after the coc, so its PASS says nothing
+  about where the door put the player, in z or otherwise. With 16.4 m and 71.7 m off, the tolerance is not the question;
+  the marker height or the landing is.
+- **supported hypothesis, unchecked:** the player arrived exactly over a marker that sits on a raised structure (the
+  Prydwen's hull on its mooring, an upper level at the museum) and ended at another height, most likely below it with
+  that structure missing or without collision in the converted exterior. **unresolved:** the sign of each z miss
+  (`got.pos` against `pos` in door_rounds_judge.json) and what stands under each marker in game.
 - **FAIL STAYED stands, 0004 Vault95 OUT:** after an activation the runner proved, the ack and the exterior marker's
-  resolve, the player was still in interior cell 06007D12. The runner's PASS is only its terrain check of the leg's
-  start point (`inside_arrival` z -11.20 against -11.14 after the coc), not the door. **unresolved:** why the exit door
-  left the player inside (papyrus.log of that attempt: a `refused` line, or no `MoveTo returned`).
+  resolve, the player was still in interior cell 06007D12. The runner's PASS is only its check of the leg's start
+  point (`inside_arrival` z -11.20 against -11.14). **unresolved:** why the exit door left the player inside (that
+  attempt's papyrus.log: a `refused` line, or no `MoveTo returned`).
