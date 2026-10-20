@@ -342,6 +342,9 @@ class RunnerTests(unittest.TestCase):
         st = jload(os.path.join(self.d, "state.json"))
         self.assertEqual(st["done"][first["id"]]["verdict"], "FAIL")
         self.assertEqual(st["test_crashes"][first["id"]], 2)
+        # review pass on #402: the FAIL CRASH counted as decided and closed the breaker for the kind for good
+        self.assertTrue(st.get("breaker"))
+        self.assertEqual({k: v["decided"] for k, v in st["breaker"].items()}, {k: 0 for k in st["breaker"]})
 
     def test_someone_elses_game_is_never_touched(self):
         self.ctl.pid = 7                                  # not the pid cycle.ps1 recorded

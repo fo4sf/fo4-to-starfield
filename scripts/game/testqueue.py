@@ -3484,7 +3484,7 @@ class Runner:
             k = br.setdefault(t["kind"], {"inconclusive_run": 0, "decided": 0, "open": False})
             if verdict == "INCONCLUSIVE" and cls not in NO_BREAKER + FINAL_INCONCLUSIVE:
                 k["inconclusive_run"] += 1
-            elif verdict != "INCONCLUSIVE":
+            elif verdict != "INCONCLUSIVE" and cls not in NO_BREAKER:   # a FAIL CRASH says nothing of the step
                 k["inconclusive_run"], k["decided"] = 0, k["decided"] + 1
             if k["decided"] == 0 and k["inconclusive_run"] >= BREAKER:
                 k["open"] = True                          # this kind's step is broken here: stop spending hours on it
