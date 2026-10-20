@@ -75,11 +75,21 @@ IDS_DIFFER, INCOMPLETE; exit 0 only for the first two.
 `launcher.py detect --fo4-data <Data> ... --starfield <game> --out-dir <drive> --need-gb N` answers "can this PC
 build?", read only: Fallout4.esm and each DLC master matched by hash against `scripts/launcher_recipes/known_sources.json`
 (unknown versions refused unless `--allow-unknown`), missing DLC named and refused unless `--allow-missing-dlc`,
-Starfield.exe, Data and Archive2 required, Creation Kit and SFSE reported (refused only with `--require-ck` /
-`--require-sfse`), any `sTestFileN` in Starfield's INIs refused (the game then ignores Plugins.txt), loose files in
+Starfield.exe, Data, Archive2 and SFSE required (SFSE since the owner's NG-1 answer, 2026-10-19; `--allow-missing-sfse`
+reports instead), Creation Kit reported (refused only with `--require-ck`), any `sTestFileN` in Starfield's INIs refused (the game then ignores Plugins.txt), loose files in
 the My Games Data folder reported when `--my-games` is given (passed as Windows resolves it, never guessed), and free
 space minus the floor (default 40 GB) against the need. Entries come from a real install's build manifest (`sources-add`). On the owner's PC today detect refuses on DLC
 (only Automatron and Wasteland Workshop are installed), which is the intended answer.
+
+Runtime gate (owner's answers LA-15, LA-16, NG-1 and RE-12, 2026-10-19). `scripts/launcher_recipes/known_runtimes.json`
+lists Starfield.exe builds by sha256, each with the SFSE files measured with it: the loader, and every `sfse_*.dll`
+next to it, by hash, with names read from the folder and never assumed. Detect refuses a Starfield.exe that is not
+listed ("keep Steam set to update Starfield only when launched until support is published"); `--allow-unknown-runtime`
+reports instead. For a listed runtime, an SFSE loader or DLL other than the listed one is refused, and so is a path
+under `XboxGames` or `WindowsApps` (Steam only for version 1). The table ships empty: an entry is added only by
+`launcher.py runtimes-add --manifest <manifest of a real install> --label <text>`, which refuses a manifest without a
+hashed Starfield.exe or without SFSE. Until the owner's PC is measured, detect refuses every Starfield, which is the
+intended answer. The build manifest now records the `sfse_*.dll` hashes too.
 
 ### measure
 `launcher.py measure <folder>` gives a folder's real disk cost with hard links counted once and the part shared with

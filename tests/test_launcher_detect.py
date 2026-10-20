@@ -7,7 +7,7 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "src"))
-from fo4sf.launcher import detect, manifest  # noqa: E402
+from fo4sf.launcher import detect, manifest, runtimes  # noqa: E402
 
 DLC = ("DLCRobot.esm", "DLCworkshop01.esm", "DLCCoast.esm", "DLCworkshop02.esm", "DLCworkshop03.esm",
        "DLCNukaWorld.esm")
@@ -32,15 +32,19 @@ class DetectTests(unittest.TestCase):
         write(os.path.join(self.sf, "Starfield.exe"), b"MZ")
         write(os.path.join(self.sf, "Tools", "Archive2", "Archive2.exe"), b"MZ")
         write(os.path.join(self.sf, "CreationKit.exe"), b"MZ")
-        write(os.path.join(self.sf, "sfse_loader.exe"), b"MZ")
+        write(os.path.join(self.sf, "sfse_loader.exe"), b"MZ loader")
+        write(os.path.join(self.sf, "sfse_test.dll"), b"MZ sfse dll")      # synthetic; the real name is measured
         os.makedirs(os.path.join(self.sf, "Data"), exist_ok=True)
         self.table = {"schema": 1, "sources": []}
         detect.add_sources(self.table, {"fo4": manifest.fo4_inputs([self.fo4])}, "test install")
+        self.runtimes = {"schema": 1, "runtimes": []}
+        runtimes.add_runtime(self.runtimes, {"game": manifest.game_pins(self.sf)}, "test runtime")
         self.my_games = os.path.join(self.root, "Documents", "My Games", "Starfield")
         os.makedirs(self.my_games)
 
     def run_detect(self, **kw):
         kw.setdefault("sources", self.table)
+        kw.setdefault("runtimes", self.runtimes)
         return detect.detect(fo4_data=[self.fo4], starfield=self.sf, **kw)
 
     def test_ready_when_everything_is_known(self):
@@ -63,16 +67,69 @@ class DetectTests(unittest.TestCase):
         self.assertIn("DLC missing: DLCNukaWorld.esm (Nuka-World)", r["refusals"])
         self.assertTrue(self.run_detect(allow_missing_dlc=True)["ready"])
 
-    def test_archive2_required_ck_and_sfse_optional(self):
+    def test_archive2_and_sfse_required_ck_optional(self):
         os.remove(os.path.join(self.sf, "Tools", "Archive2", "Archive2.exe"))
         os.remove(os.path.join(self.sf, "CreationKit.exe"))
         os.remove(os.path.join(self.sf, "sfse_loader.exe"))
         r = self.run_detect(my_games=self.my_games)
         self.assertTrue(any("Archive2" in x for x in r["refusals"]))
-        self.assertEqual(len(r["refusals"]), 1)
-        self.assertEqual(len(r["warnings"]), 2)
-        r = self.run_detect(require_ck=True, require_sfse=True, my_games=self.my_games)
+        self.assertIn("Starfield: SFSE not installed (required)", r["refusals"])    # NG-1
+        self.assertEqual(len(r["refusals"]), 2)
+        self.assertEqual(len(r["warnings"]), 1)
+        r = self.run_detect(require_ck=True, my_games=self.my_games)
         self.assertEqual(len(r["refusals"]), 3)
+        r = self.run_detect(require_sfse=False, my_games=self.my_games)
+        self.assertEqual(len(r["refusals"]), 1)
+
+    def test_unlisted_runtime_is_refused_unless_allowed(self):
+        write(os.path.join(self.sf, "Starfield.exe"), b"MZ a later patch")      # LA-15
+        r = self.run_detect(my_games=self.my_games)
+        self.assertFalse(r["ready"])
+        self.assertTrue(any("not listed as a good runtime" in x and "only when launched" in x for x in r["refusals"]))
+        self.assertIsNone(r["game"]["runtime"])
+        r = self.run_detect(my_games=self.my_games, allow_unknown_runtime=True)
+        self.assertTrue(r["ready"], r["refusals"])
+        self.assertTrue(any("not listed as a good runtime" in w for w in r["warnings"]))
+
+    def test_listed_runtime_needs_its_own_sfse_build(self):
+        r = self.run_detect(my_games=self.my_games)
+        self.assertEqual(r["game"]["runtime"], "test runtime")
+        write(os.path.join(self.sf, "sfse_test.dll"), b"MZ another sfse build")
+        r = self.run_detect(my_games=self.my_games)
+        self.assertIn("Starfield: SFSE: sfse_test.dll is not the SFSE build listed for this runtime", r["refusals"])
+        os.remove(os.path.join(self.sf, "sfse_test.dll"))
+        r = self.run_detect(my_games=self.my_games)
+        self.assertTrue(any("sfse_test.dll missing" in x for x in r["refusals"]))
+        write(os.path.join(self.sf, "sfse_test.dll"), b"MZ sfse dll")
+        write(os.path.join(self.sf, "sfse_loader.exe"), b"MZ other loader")
+        r = self.run_detect(my_games=self.my_games)
+        self.assertIn("Starfield: SFSE: sfse_loader.exe is not the SFSE build listed for this runtime", r["refusals"])
+
+    def test_game_pass_folder_is_refused(self):
+        xbox = os.path.join(self.root, "XboxGames", "Starfield", "Content")
+        for rel in ("Starfield.exe", "sfse_loader.exe", "sfse_test.dll", os.path.join("Tools", "Archive2", "Archive2.exe")):
+            with open(os.path.join(self.sf, rel), "rb") as f:
+                write(os.path.join(xbox, rel), f.read())
+        os.makedirs(os.path.join(xbox, "Data"))
+        r = detect.detect(fo4_data=[self.fo4], starfield=xbox, sources=self.table, runtimes=self.runtimes,
+                          my_games=self.my_games)
+        self.assertFalse(r["ready"])
+        self.assertTrue(any("Game Pass" in x and "Steam" in x for x in r["refusals"]))
+
+    def test_runtimes_add_needs_a_hashed_exe_and_sfse(self):
+        self.assertEqual(runtimes.add_runtime(self.runtimes, {"game": manifest.game_pins(self.sf)}, "again"), 0)
+        os.remove(os.path.join(self.sf, "sfse_test.dll"))
+        with self.assertRaises(ValueError):
+            runtimes.add_runtime({"schema": 1, "runtimes": []}, {"game": manifest.game_pins(self.sf)}, "x")
+        with self.assertRaises(ValueError):
+            runtimes.add_runtime({"schema": 1, "runtimes": []}, {"game": {}}, "x")
+
+    def test_shipped_runtime_table_is_well_formed(self):
+        t = runtimes.load_runtimes()
+        for r in t["runtimes"]:
+            self.assertRegex(r["exe_sha256"], r"^[0-9a-f]{64}$")
+            self.assertRegex(r["sfse"]["loader_sha256"], r"^[0-9a-f]{64}$")
+            self.assertTrue(r["sfse"]["dlls"] and r["label"])
 
     def test_disk_floor(self):
         r = self.run_detect(out_dir=os.path.join(self.root, "not", "yet"), need_gb=10 ** 9, floor_gb=40)
@@ -103,7 +160,7 @@ class DetectTests(unittest.TestCase):
         write(os.path.join(self.fo4, "Fallout4 - Meshes.ba2"), b"BTDX\x01\x00\x00\x00GNRL")
         other = os.path.join(self.root, "depot2", "Data")
         write(os.path.join(other, "Fallout4 - Meshes.ba2"), b"BTDX\x08\x00\x00\x00GNRL")
-        r = detect.detect(fo4_data=[self.fo4, other], starfield=self.sf, sources=self.table)
+        r = detect.detect(fo4_data=[self.fo4, other], starfield=self.sf, sources=self.table, runtimes=self.runtimes)
         self.assertTrue(r["ready"], r["refusals"])
         self.assertEqual(r["fo4"]["ba2_versions"], {"8": 1})
         self.assertEqual(len(r["fo4"]["archive_duplicates"]["Fallout4 - Meshes.ba2"]), 2)
@@ -135,11 +192,16 @@ class DetectTests(unittest.TestCase):
         cli = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cli)
         table = os.path.join(self.root, "sources.json")
+        rts = os.path.join(self.root, "runtimes.json")
         man = os.path.join(self.root, "m.json")
-        self.assertEqual(cli.main(["manifest", "--out", man, "--fo4-data", self.fo4]), 0)
-        self.assertEqual(cli.main(["detect", "--fo4-data", self.fo4, "--starfield", self.sf, "--table", table]), 1)
+        det = ["detect", "--fo4-data", self.fo4, "--starfield", self.sf, "--table", table, "--runtimes", rts]
+        self.assertEqual(cli.main(["manifest", "--out", man, "--fo4-data", self.fo4, "--starfield", self.sf]), 0)
+        self.assertEqual(cli.main(det), 1)
         self.assertEqual(cli.main(["sources-add", "--manifest", man, "--label", "x", "--table", table]), 0)
-        self.assertEqual(cli.main(["detect", "--fo4-data", self.fo4, "--starfield", self.sf, "--table", table]), 0)
+        self.assertEqual(cli.main(det), 1)                                  # the runtime is not listed yet
+        self.assertEqual(cli.main(det + ["--allow-unknown-runtime"]), 0)
+        self.assertEqual(cli.main(["runtimes-add", "--manifest", man, "--label", "y", "--table", rts]), 0)
+        self.assertEqual(cli.main(det), 0)
         self.assertEqual(cli.main(["measure", self.fo4]), 0)
 
 

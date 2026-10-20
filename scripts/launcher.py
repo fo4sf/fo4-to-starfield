@@ -1,4 +1,4 @@
-"""Launcher backbone CLI (docs/ai/launcher-backbone.md). Offline except `restore --apply`.
+r"""Launcher backbone CLI (docs/ai/launcher-backbone.md). Offline except `restore --apply`.
 
     python scripts/launcher.py manifest --out <manifest.json> [--fo4-data <dir> ...] [--starfield <game dir>]
                                         [--output <build dir or file> ...] [--hash-archives] [--hash-limit-mb N]
@@ -11,8 +11,10 @@
     python scripts/launcher.py restore --snapshot <snapshot.json> [--port-staging <dir>] [--apply]
     python scripts/launcher.py detect --fo4-data <dir> ... --starfield <game dir> [--out-dir <drive or folder>]
                                       [--need-gb N] [--floor-gb 40] [--allow-unknown] [--allow-missing-dlc]
-                                      [--my-games <Documents\My Games\Starfield>]
+                                      [--my-games <Documents\My Games\Starfield>] [--allow-unknown-runtime]
+                                      [--allow-missing-sfse]
     python scripts/launcher.py sources-add --manifest <build manifest.json> --label <text> [--table <json>]
+    python scripts/launcher.py runtimes-add --manifest <build manifest.json> --label <text> [--table <json>]
     python scripts/launcher.py measure <folder> ...
 
 manifest   what a build was made from and what it made (read only).
@@ -22,6 +24,8 @@ status     read only, no lock: each step's last result, its log if it failed, an
 same-ids   do two builds give the same FormIDs? IDENTICAL / SAME_IDS exit 0; IDS_DIFFER / INCOMPLETE exit 1.
 detect     can this PC build? Fallout 4 version and DLC, Starfield, Archive2, CK, SFSE, disk (read only; exit 1 if not).
 sources-add  adds a real install's master hashes (from a build manifest) to the known-sources table.
+runtimes-add adds a real install's Starfield.exe and SFSE hashes (from a build manifest) to the known-runtimes table;
+           detect refuses a Starfield.exe that is not listed there, a missing SFSE and a Game Pass install.
 measure    a folder's real disk use, hard links counted once (read only).
 snapshot   records Starfield's Plugins.txt, Data plugins and archives and the three install records (read only).
 restore    prints what would bring the install back to a snapshot; --apply does it through the existing installers
@@ -34,7 +38,7 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "src"))
-from fo4sf.launcher import detect, driver, files, manifest, restore, same_ids  # noqa: E402
+from fo4sf.launcher import detect, driver, files, manifest, restore, runtimes, same_ids  # noqa: E402
 
 SOURCES = os.path.join(REPO, "scripts", "launcher_recipes", "known_sources.json")
 
@@ -154,14 +158,16 @@ def cmd_restore(a):
 def cmd_detect(a):
     r = detect.detect(fo4_data=a.fo4_data, starfield=a.starfield, sources=a.table, out_dir=a.out_dir or None,
                       need_gb=a.need_gb, floor_gb=a.floor_gb, allow_unknown=a.allow_unknown,
-                      allow_missing_dlc=a.allow_missing_dlc, require_ck=a.require_ck, require_sfse=a.require_sfse,
-                      my_games=a.my_games or None)
+                      allow_missing_dlc=a.allow_missing_dlc, require_ck=a.require_ck,
+                      require_sfse=not a.allow_missing_sfse, my_games=a.my_games or None,
+                      runtimes=a.runtimes, allow_unknown_runtime=a.allow_unknown_runtime)
     for m, v in ((r.get("fo4") or {}).get("masters") or {}).items():
         print(f"  {m:<20} {v['version'] or 'unknown version'}  {v['sha256'][:12]}")
     if r.get("game"):
         g = r["game"]
         print(f"  Starfield: Archive2 {'yes' if g['archive2'] else 'no'}, Creation Kit "
-              f"{'yes' if g['creation_kit'] else 'no'}, SFSE {'yes' if g['sfse'] else 'no'}")
+              f"{'yes' if g['creation_kit'] else 'no'}, SFSE {'yes' if g['sfse'] else 'no'}, runtime "
+              f"{g['runtime'] or 'not listed'}")
     if r.get("disk"):
         d = r["disk"]
         print(f"  disk: {d['free_gb']} GB free, {d['floor_gb']:g} kept free, {d['usable_gb']} usable, need {d['need_gb']:g}")
@@ -180,6 +186,14 @@ def cmd_sources_add(a):
     n = detect.add_sources(table, files.load_json(a.manifest), a.label)
     files.save_json(a.table, table)
     print(f"{n} entries added to {a.table} ({len(table['sources'])} in all)")
+    return 0
+
+
+def cmd_runtimes_add(a):
+    table = runtimes.load_runtimes(a.table)
+    n = runtimes.add_runtime(table, files.load_json(a.manifest), a.label)
+    files.save_json(a.table, table)
+    print(f"{n} runtime added to {a.table} ({len(table['runtimes'])} in all)")
     return 0
 
 
@@ -247,20 +261,27 @@ def main(argv=None):
     s.add_argument("--allow-unknown", action="store_true")
     s.add_argument("--allow-missing-dlc", action="store_true")
     s.add_argument("--require-ck", action="store_true")
-    s.add_argument("--require-sfse", action="store_true")
+    s.add_argument("--require-sfse", action="store_true", help="the default now (NG-1); kept for old command lines")
+    s.add_argument("--allow-missing-sfse", action="store_true", help="report a missing SFSE instead of refusing")
+    s.add_argument("--runtimes", default=runtimes.DEFAULT_TABLE)
+    s.add_argument("--allow-unknown-runtime", action="store_true")
     s.add_argument("--my-games", default="", help="Documents\\My Games\\Starfield, as Windows resolves it (not guessed)")
     s.add_argument("--report", default="")
     s = sub.add_parser("sources-add")
     s.add_argument("--manifest", required=True)
     s.add_argument("--label", required=True)
     s.add_argument("--table", default=SOURCES)
+    s = sub.add_parser("runtimes-add")
+    s.add_argument("--manifest", required=True)
+    s.add_argument("--label", required=True)
+    s.add_argument("--table", default=runtimes.DEFAULT_TABLE)
     s = sub.add_parser("measure")
     s.add_argument("paths", nargs="+")
     a = ap.parse_args(argv)
     try:
         return {"manifest": cmd_manifest, "manifest-diff": cmd_manifest_diff, "build": cmd_build,
                 "same-ids": cmd_same_ids, "snapshot": cmd_snapshot, "restore": cmd_restore,
-                "detect": cmd_detect, "sources-add": cmd_sources_add, "measure": cmd_measure,
+                "detect": cmd_detect, "sources-add": cmd_sources_add, "runtimes-add": cmd_runtimes_add, "measure": cmd_measure,
                 "status": cmd_status}[a.cmd](a)
     except driver.RecipeError as e:
         print(f"recipe: {e}")

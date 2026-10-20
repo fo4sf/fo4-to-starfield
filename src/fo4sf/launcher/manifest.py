@@ -93,6 +93,10 @@ def game_pins(starfield_dir, hash_game_esm=False):
     esm = os.path.join(root, "Data", "Starfield.esm")
     out["files"]["Data/Starfield.esm"] = (files.identity(esm, None if hash_game_esm else 0)
                                           if os.path.isfile(esm) else None)
+    # the SFSE runtime DLLs next to the loader, hashed (small); their names come from the folder, never assumed
+    out["sfse_dlls"] = {n: files.identity(os.path.join(root, n)) for n in sorted(os.listdir(root))
+                        if n.casefold().startswith("sfse_") and n.casefold().endswith(".dll")
+                        and os.path.isfile(os.path.join(root, n))} if os.path.isdir(root) else {}
     out["sfse"] = out["files"]["sfse_loader.exe"] is not None
     out["creation_kit"] = out["files"]["CreationKit.exe"] is not None
     return out

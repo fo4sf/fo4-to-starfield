@@ -4,8 +4,10 @@ read only.
     Fallout 4   Fallout4.esm present and its hash in the known-sources table (unknown versions are refused unless
                 allow_unknown: Wabbajack and TTW refuse sources they cannot match); the six DLC masters, missing ones
                 named (the port assumes all six, so a missing DLC is a refusal unless allow_missing_dlc)
-    Starfield   Starfield.exe and Data present; Archive2 present (packing needs it: required); Creation Kit and SFSE
-                presence reported (both allowed as requirements by the owner, 2026-10-19; required only if asked)
+    Starfield   Starfield.exe and Data present; Archive2 present (packing needs it: required); Creation Kit presence
+                reported (required only if asked). Runtime gate (owner, 2026-10-19: LA-15, LA-16, NG-1, RE-12):
+                Starfield.exe must be listed in the known-runtimes table, SFSE must be installed and be the SFSE
+                build listed for that runtime, and a Microsoft Store / Game Pass folder is refused (Steam only)
     INIs        any sTestFileN in Starfield.ini, StarfieldPrefs.ini or StarfieldCustom.ini (game folder and My Games) is a
                 refusal: the game then ignores Plugins.txt
     My Games    loose files in its Data folder are reported (the game reads them over archives); the folder is given
@@ -23,6 +25,7 @@ import shutil
 
 from . import files
 from . import manifest as mf
+from . import runtimes as rt
 
 DEFAULT_FLOOR_GB = 40.0
 INI_NAMES = ("Starfield.ini", "StarfieldPrefs.ini", "StarfieldCustom.ini")
@@ -95,7 +98,8 @@ def loose_data(my_games):
 
 
 def detect(*, fo4_data, starfield, sources=None, out_dir=None, need_gb=0.0, floor_gb=DEFAULT_FLOOR_GB,
-           allow_unknown=False, allow_missing_dlc=False, require_ck=False, require_sfse=False, my_games=None):
+           allow_unknown=False, allow_missing_dlc=False, require_ck=False, require_sfse=True, my_games=None,
+           runtimes=None, allow_unknown_runtime=False):
     """{"ready": bool, "refusals": [...], "warnings": [...], "fo4": {...}, "game": {...}, "disk": {...}}."""
     refusals, warnings = [], []
     table = sources if isinstance(sources, dict) else load_sources(sources)
@@ -140,10 +144,27 @@ def detect(*, fo4_data, starfield, sources=None, out_dir=None, need_gb=0.0, floo
         if not g["creation_kit"]:
             (refusals if require_ck else warnings).append("Starfield: Creation Kit not installed")
         if not g["sfse"]:
-            (refusals if require_sfse else warnings).append("Starfield: SFSE not installed")
+            if require_sfse:
+                refusals.append("Starfield: SFSE not installed (required)")
+            else:
+                warnings.append("Starfield: SFSE not installed")
+        if rt.store_install(starfield):
+            refusals.append("Starfield: this looks like a Microsoft Store / Game Pass install; version 1 supports "
+                            "Steam Starfield only (SFSE does not run on the Store build)")
+        exe_sha = (f.get("Starfield.exe") or {}).get("sha256")
+        table_rt = runtimes if isinstance(runtimes, dict) else rt.load_runtimes(runtimes)
+        known = rt.match_runtime(table_rt, exe_sha)
+        if exe_sha and known is None:
+            (warnings if allow_unknown_runtime else refusals).append(
+                f"Starfield: this Starfield.exe (sha256 {exe_sha[:12]}...) is not listed as a good runtime yet; "
+                "keep Steam set to update Starfield only when launched until support is published")
+        elif known is not None and g["sfse"]:
+            for p in rt.sfse_problems(known, g):
+                (refusals if require_sfse else warnings).append(f"Starfield: SFSE: {p}")
         out["game"] = {"sfse": g["sfse"], "creation_kit": g["creation_kit"],
                        "archive2": f.get("Tools/Archive2/Archive2.exe") is not None,
-                       "exe_sha256": (f.get("Starfield.exe") or {}).get("sha256")}
+                       "exe_sha256": exe_sha, "runtime": None if known is None else known["label"],
+                       "sfse_dlls": sorted(g["sfse_dlls"])}
     else:
         refusals.append(f"Starfield: folder {starfield!r} not found")
     ini_folders = [starfield] if starfield and os.path.isdir(starfield) else []

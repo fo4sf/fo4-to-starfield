@@ -84,7 +84,7 @@ class IniCoverageTests(unittest.TestCase):
                 report = Path(self.root) / f"{kind}.json"
                 argv = [sys.executable, "-I", "-B", os.path.join(fixture.ROOT, "scripts", "launcher.py"),
                         "detect", "--fo4-data", self.fo4, "--starfield", self.sf, "--table", str(table),
-                        "--report", str(report)]
+                        "--report", str(report), "--allow-unknown-runtime"]   # runtime gate tested elsewhere
                 if profile is not None:
                     argv.extend(["--my-games", str(profile)])
                 child = subprocess.run(argv, capture_output=True, text=True, check=False)
