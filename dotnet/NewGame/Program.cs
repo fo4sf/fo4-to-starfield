@@ -2,27 +2,34 @@
 // start-game-enabled quest holds off Starfield's opening, puts the player at their cryo pod in the converted Vault 111
 // (FO4Port.esm) and takes them up the elevator onto the Commonwealth (FO4TerrainCore.esm). Claude's project.
 //
-//   points <Fallout4.esm> <out points.json> [--pod-ref <hex>] [--pod-step 1.0]
+//   points <Fallout4.esm> <out points.json> [--pod-ref <hex>] [--pod-step 1.0] [--terminal-ref <hex>]
 //        reads Fallout 4 only: in Vault111Cryo (000016D8) the player's cryo pod (the one placed reference whose
 //        EditorID names both the player and a pod, or --pod-ref), the cog door console MQ102GearDoorConsoleREF 00091A49,
-//        the cog door Vault111GearDoorREF 000330C3, the elevator platform V111ElevatorREF 000244EB, and the surface
-//        arrival of the ride (the XTEL of Vault111InteriorAutoLoadDoorREF 0001F180); MQ102's name. Interior positions
-//        in metres in the port's frame and exterior ones in the core's (both FO4 position / 70); headings in degrees.
+//        the cog door Vault111GearDoorREF 000330C3, the elevator platform V111ElevatorREF 000244EB, the surface
+//        arrival of the ride (the XTEL of Vault111InteriorAutoLoadDoorREF 0001F180), and the cell's terminals (every
+//        placed reference of a TERM, nearest the pod first, or --terminal-ref alone: the SPECIAL terminal, NG-C4);
+//        MQ102's name. Interior positions in metres in the port's frame and exterior ones in the core's (both FO4
+//        position / 70); headings in degrees.
 //   write <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> <out dir>
 //         [--plugin FO4SFNewGame.esm] [--hold MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04] [--mq101debug <n>]
-//         [--no-mq101debug] [--no-looks] [--race-menu-mode <n>] [--exit-anchor <REFR EditorID>]
+//         [--no-mq101debug] [--no-looks] [--race-menu-mode <n>] [--no-special] [--exit-anchor <REFR EditorID>]
 //        the plugin, mastered on Starfield.esm only: QUST FO4SF_NewGame (start game enabled, run once; stages 1 / 10 /
 //        20 / 30 / 40 / 200, the published stage contract of make_newgame.py STAGE_CONTRACT; objective 10) carrying
-//        FO4SF_NewGameQuest (and FO4SF_NewGameLooks unless --no-looks) with their properties, MESG FO4SF_NewGameElevator
-//        and MESG FO4SF_NewGameStart (two buttons each: the elevator prompt, and the opening choice "Create character"
-//        or "Quick start" the looks script shows, NG-6 / NG-C9), and an override of Starfield's GLOB MQ101Debug set to
-//        10 (what MQ00 writes before it starts MQ101; the owner's decision NG-2 is that we set it ourselves) unless
-//        --no-mq101debug, or --mq101debug <n> for another value. --race-menu-mode <n> is the uiMode the looks script
-//        passes to Game.ShowRaceMenu (its RaceMenuMode property; default 0, the full creator: which mode is looks-only
-//        is unverified until the in-game C1 test). The port and the core are read for the ids and positions the script resolves at run time with
-//        Game.GetFormFromFile (plugin-local ids): the vault anchor (the COC marker of FO4Port_Vault111Cryo), the cog
-//        door (formids.json REFR:FO4Port_Vault111Cryo:0330C3:...; 0 when the port has none) and the exit anchor (the
-//        core's Vault 111 map marker).
+//        FO4SF_NewGameQuest (and FO4SF_NewGameLooks unless --no-looks, FO4SF_NewGameSpecial unless --no-special) with
+//        their properties, MESG FO4SF_NewGameElevator and MESG FO4SF_NewGameStart (two buttons each: the elevator
+//        prompt, and the opening choice "Create character" or "Quick start" the looks script shows, NG-6 / NG-C9), and
+//        an override of Starfield's GLOB MQ101Debug set to 10 (what MQ00 writes before it starts MQ101; the owner's
+//        decision NG-2 is that we set it ourselves) unless --no-mq101debug, or --mq101debug <n> for another value.
+//        --race-menu-mode <n> is the uiMode the looks script passes to Game.ShowRaceMenu (its RaceMenuMode property;
+//        default 0, the full creator: which mode is looks-only is unverified until the in-game C1 test). Unless
+//        --no-special: seven AVIF FO4SF_Special_<stat> (Strength to Luck, the SPECIAL stats as our own actor values),
+//        MESG FO4SF_NewGameTerminal (the prompt at the vault terminal, two buttons) and MESG FO4SF_NewGameSpecial (the
+//        allocation: one button per stat, Reset, Confirm, Leave), which the SPECIAL script drives (NG-5 / NG-C4). The
+//        port and the core are read for the ids and positions the scripts resolve at run time with Game.GetFormFromFile
+//        (plugin-local ids): the vault anchor (the COC marker of FO4Port_Vault111Cryo), the cog door (formids.json
+//        REFR:FO4Port_Vault111Cryo:0330C3:...; 0 when the port has none), the terminal (the first of points' terminals
+//        the port carries, a persistent one preferred; 0 when it carries none, the prompt then watches points' spot)
+//        and the exit anchor (the core's Vault 111 map marker).
 //   check <plugin> <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> [same options]
 //        reads the plugin back and checks every record, property and id the script relies on (exit 1 on a problem).
 //   selftest <scratch dir>
@@ -45,7 +52,7 @@ try
 {
     return args[0] switch
     {
-        "points" when args.Length >= 3 => NewGame.Points(args[1], args[2], NewGame.ArgOrNull(args, "--pod-ref"), NewGame.Opt(args, "--pod-step", 1.0f)),
+        "points" when args.Length >= 3 => NewGame.Points(args[1], args[2], NewGame.ArgOrNull(args, "--pod-ref"), NewGame.Opt(args, "--pod-step", 1.0f), NewGame.ArgOrNull(args, "--terminal-ref")),
         "write" when args.Length >= 7 => NewGame.Write(args[1], args[2], args[3], args[4], args[5], args[6], NewGame.Options.From(args)),
         "check" when args.Length >= 7 => NewGame.Check(args[1], args[2], args[3], args[4], args[5], args[6], NewGame.Options.From(args)),
         "selftest" when args.Length >= 2 => NewGame.SelfTest(args[1]),
@@ -64,9 +71,20 @@ static class NewGame
     // the plugins the script resolves its ids in (FO4SF_NewGameQuest.psc VaultPlugin and CorePlugin): every resolved
     // reference must be owned by the plugin of that name, or the script would ask for the wrong record
     public const string PortPlugin = "FO4Port.esm", CorePluginFile = "FO4TerrainCore.esm";
-    public const string QuestEdid = "FO4SF_NewGame", ScriptName = "FO4SF_NewGameQuest", LooksScript = "FO4SF_NewGameLooks";
+    public const string QuestEdid = "FO4SF_NewGame", ScriptName = "FO4SF_NewGameQuest", LooksScript = "FO4SF_NewGameLooks", SpecialScript = "FO4SF_NewGameSpecial";
     public const string MessageEdid = "FO4SF_NewGameElevator", StartMessageEdid = "FO4SF_NewGameStart", ExitAnchorEdid = "FO4Core_CommonwealthMapMarkerVault111";
-    public const uint QuestId = 0x800, MessageId = 0x801, StartMessageId = 0x802;   // the GLOB override keeps Starfield's id
+    public const string TerminalMessageEdid = "FO4SF_NewGameTerminal", SpecialMessageEdid = "FO4SF_NewGameSpecial", SpecialAvifPrefix = "FO4SF_Special_";
+    public const uint QuestId = 0x800, MessageId = 0x801, StartMessageId = 0x802, TerminalMessageId = 0x803, SpecialMessageId = 0x804;   // the GLOB override keeps Starfield's id
+    public const uint SpecialAvifBase = 0x810;                  // the seven AVIF: 0x810 Strength to 0x816 Luck
+    // SPECIAL at the vault terminal (NG-5 / NG-C4, the owner's decision 2026-10-19): FO4's numbers, base 1 each, 21
+    // points to spend, 10 at most per stat (make_newgame.py SPECIAL_*, held equal by tests/test_newgame.py; the script's
+    // defaults are the same). The buttons of MESG FO4SF_NewGameSpecial, in order: the seven stats, Reset, Confirm, Leave
+    // (ten buttons, FO4's MESG limit; whether Starfield's message box shows ten is unverified until the PC run). The
+    // AVIF shape is minimal (name, abbreviation, SpecialAttribute type, default 1, min 1, max 10): nothing in this repo
+    // reads a Starfield AVIF back in full, so the shape is unverified until the PC run (xEdit opens the plugin).
+    public static readonly string[] SpecialNames = { "Strength", "Perception", "Endurance", "Charisma", "Intelligence", "Agility", "Luck" };
+    public static readonly string[] SpecialExtraButtons = { "Reset", "Confirm", "Leave" };
+    public const int SpecialBase = 1, SpecialPoints = 21, SpecialMax = 10;
     // Game.ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0, ...) (verified, Starfield's Game.psc): the
     // modes are FO4's (0 chargen, 1 remake, 2 haircut, 3 surgery, 4 face paint, NG-C1), but what each shows with
     // MQ101 stopped, and which is looks-only (the owner's decision NG-C3), is unverified until the in-game C1 test
@@ -106,7 +124,7 @@ static class NewGame
     static string F(float v) => v.ToString("0.###", CultureInfo.InvariantCulture);
     static float Deg(float rad) => rad * 180f / MathF.PI;
 
-    public record Options(string Plugin, string[] Hold, float? MQ101Debug, bool Looks, int RaceMenuMode, string ExitAnchor)
+    public record Options(string Plugin, string[] Hold, float? MQ101Debug, bool Looks, int RaceMenuMode, bool Special, string ExitAnchor)
     {
         public static Options From(string[] a) => new(
             ArgOrNull(a, "--plugin") ?? NewGame.Plugin,
@@ -114,12 +132,13 @@ static class NewGame
             a.Contains("--no-mq101debug") ? null : ArgOrNull(a, "--mq101debug") is { } d ? float.Parse(d, CultureInfo.InvariantCulture) : DefaultMQ101Debug,
             !a.Contains("--no-looks"),
             ArgOrNull(a, "--race-menu-mode") is { } m ? int.Parse(m, CultureInfo.InvariantCulture) : DefaultRaceMenuMode,
+            !a.Contains("--no-special"),
             ArgOrNull(a, "--exit-anchor") ?? ExitAnchorEdid);
     }
 
     // ---------------------------------------------------------------- points (Fallout 4, read only)
 
-    public static int Points(string fo4Path, string outPath, string? podRef, float podStep)
+    public static int Points(string fo4Path, string outPath, string? podRef, float podStep, string? terminalRef = null)
     {
         using var fo4 = F4.Fallout4Mod.CreateFromBinaryOverlay(fo4Path, F4.Fallout4Release.Fallout4);
         var key = fo4.ModKey;
@@ -143,6 +162,15 @@ static class NewGame
         var stand = new[] { pod.Position.X / Units + podStep * MathF.Sin(h), pod.Position.Y / Units + podStep * MathF.Cos(h), pod.Position.Z / Units };
         string mq102 = fo4.Quests.FirstOrDefault(q => q.FormKey.ID == Fo4MQ102)?.Name?.String is { Length: > 0 } n ? n : "Out of Time";
         float[] M(P3Float p) => new[] { p.X / Units, p.Y / Units, p.Z / Units };
+        // the SPECIAL terminal (NG-C4): every placed TERM of the cell, nearest the pod first (the cryo hall's terminals
+        // stand by the pods), or the one --terminal-ref names, any base. Which the port carries is the writer's call
+        var terms = fo4.Terminals.Select(t => t.FormKey).ToHashSet();
+        float PodDist(F4.IPlacedObjectGetter r) => MathF.Sqrt(MathF.Pow(r.Position.X - pod.Position.X, 2) + MathF.Pow(r.Position.Y - pod.Position.Y, 2) + MathF.Pow(r.Position.Z - pod.Position.Z, 2));
+        var terminals = terminalRef is not null
+            ? new List<F4.IPlacedObjectGetter> { Ref(uint.Parse(terminalRef, NumberStyles.HexNumber, CultureInfo.InvariantCulture), "--terminal-ref") as F4.IPlacedObjectGetter ?? throw new Refusal("--terminal-ref is not a placed object") }
+            : refs.Values.OfType<F4.IPlacedObjectGetter>().Where(r => terms.Contains(r.Base.FormKey)).OrderBy(PodDist).ThenBy(r => r.FormKey.ID).ToList();
+        foreach (var t in terminals) Console.WriteLine($"  terminal {t.FormKey.ID:X8} {t.EditorID} at fo4 {Show(t.Position)}, {F(PodDist(t) / Units)} m from the pod");
+        if (terminals.Count == 0) Console.WriteLine($"  no terminal in {cell.EditorID}: write needs --no-special, or points --terminal-ref <hex>");
         var doc = new Dictionary<string, object?>
         {
             ["source"] = Path.GetFileName(fo4Path),
@@ -155,11 +183,12 @@ static class NewGame
             ["platform"] = new Dictionary<string, object?> { ["src"] = $"{Fo4Platform:X8}", ["pos"] = M(PosOf(platform)) },
             ["arrival"] = new Dictionary<string, object?> { ["src"] = $"{Fo4ExitDoor:X8}:XTEL", ["to"] = $"{tel.Door.FormKey.ID:X8}",
                                                              ["pos"] = M(tel.Position), ["heading"] = Deg(tel.Rotation.Z) },
+            ["terminals"] = terminals.Select(t => new Dictionary<string, object?> { ["src"] = $"{t.FormKey.ID:X8}", ["edid"] = t.EditorID, ["pos"] = M(t.Position) }).ToList(),
         };
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPath))!);
         File.WriteAllText(outPath, JsonSerializer.Serialize(doc, new JsonSerializerOptions { WriteIndented = true }));
         Console.WriteLine($"wrote {outPath}: pod {pod.FormKey.ID:X8} {pod.EditorID}, stand ({F(stand[0])}, {F(stand[1])}, {F(stand[2])}) m heading {F(Deg(h))}; " +
-                          $"arrival ({F(tel.Position.X / Units)}, {F(tel.Position.Y / Units)}, {F(tel.Position.Z / Units)}) m; quest \"{mq102}\"");
+                          $"arrival ({F(tel.Position.X / Units)}, {F(tel.Position.Y / Units)}, {F(tel.Position.Z / Units)}) m; {terminals.Count} terminal(s); quest \"{mq102}\"");
         return 0;
     }
 
@@ -180,7 +209,21 @@ static class NewGame
 
     // ---------------------------------------------------------------- the places the script resolves at run time
 
-    public record Places(uint VaultAnchor, P3Float AnchorPos, uint CogDoor, string CogDoorBase, uint ExitAnchor, P3Float ExitPos);
+    public record Places(uint VaultAnchor, P3Float AnchorPos, uint CogDoor, string CogDoorBase, uint ExitAnchor, P3Float ExitPos,
+                         uint Terminal, uint TerminalSrc, P3Float TerminalPos);
+
+    /// points.json's terminals, nearest the pod first: (FO4 id, position in metres).
+    public static List<(uint Src, P3Float Pos)> Terminals(JsonElement pts)
+    {
+        var list = new List<(uint, P3Float)>();
+        if (!pts.TryGetProperty("terminals", out var arr)) return list;
+        foreach (var t in arr.EnumerateArray())
+        {
+            var p = Floats(t.GetProperty("pos"));
+            list.Add((uint.Parse(t.GetProperty("src").GetString()!, NumberStyles.HexNumber, CultureInfo.InvariantCulture), new P3Float(p[0], p[1], p[2])));
+        }
+        return list;
+    }
 
     static BinaryReadParameters Full(params ModKey[] keys)
     {
@@ -190,9 +233,11 @@ static class NewGame
     }
 
     /// The vault anchor (the one COC marker of FO4Port_Vault111Cryo), the cog door (formids.json's key for FO4 000330C3
-    /// in that cell, 0 when absent, and it must be a reference of that cell) and the exit anchor (the core world's REFR
-    /// with that EditorID, persistent).
-    public static Places Resolve(string portPath, string portIds, string corePath, string exitAnchor)
+    /// in that cell, 0 when absent, and it must be a reference of that cell), the SPECIAL terminal (the first of points'
+    /// terminals the port carries, a persistent one preferred, nearest the pod among those; each key named must be the
+    /// port's own reference of the cell; 0 when it carries none, and the prompt then watches points' nearest terminal)
+    /// and the exit anchor (the core world's REFR with that EditorID, persistent).
+    public static Places Resolve(string portPath, string portIds, string corePath, string exitAnchor, IReadOnlyList<(uint Src, P3Float Pos)>? terminals = null)
     {
         using var port = SF.StarfieldMod.CreateFromBinaryOverlay(portPath, SF.StarfieldRelease.Starfield, Full(SfEsm));
         Owner(port.ModKey, PortPlugin, "the port");
@@ -214,14 +259,40 @@ static class NewGame
                      ?? throw new Refusal($"{VaultCell} has no persistent reference of {port.ModKey} to anchor the start on (its COC marker is temporary, and a temporary reference does not resolve before the vault loads)");
         uint cog = 0;
         string cogBase = "none";
+        var termRefs = new Dictionary<uint, uint>();            // FO4 terminal id -> the port's reference id
         using (var doc = JsonDocument.Parse(File.ReadAllText(portIds)))
             foreach (var e in doc.RootElement.EnumerateObject())
-                if (IsCogDoorKey(e.Name)) { cog = e.Value.GetUInt32(); break; }
+            {
+                if (IsCogDoorKey(e.Name)) cog = e.Value.GetUInt32();
+                foreach (var (src, _) in terminals ?? Array.Empty<(uint, P3Float)>())
+                    if (IsRefKey(e.Name, src)) termRefs[src] = e.Value.GetUInt32();
+            }
         if (cog != 0)
         {
             var r = inCell.FirstOrDefault(x => x.FormKey.ID == cog) ?? throw new Refusal($"formids.json names {cog:X6} as the cog door, not a reference of {VaultCell}");
             Owned(r, port.ModKey, "the cog door");
             cogBase = port.EnumerateMajorRecords().FirstOrDefault(x => x.FormKey == r.Base.FormKey) is { } b ? $"{b.GetType().Name.Replace("BinaryOverlay", "")} {b.EditorID}" : r.Base.FormKey.ToString();
+        }
+        // the SPECIAL terminal: the script resolves it once the player is in the vault (the cell is loaded, so a
+        // temporary reference resolves too), but a persistent one is the safer handle; among equals, nearest the pod
+        uint terminal = 0, terminalSrc = 0;
+        var terminalPos = new P3Float(0, 0, 0);
+        if (terminals is { Count: > 0 })
+        {
+            (terminalSrc, terminalPos) = terminals[0];
+            var carried = new List<(uint Src, P3Float Pos, SF.IPlacedObjectGetter Ref, int Order)>();
+            for (int i = 0; i < terminals.Count; i++)
+                if (termRefs.TryGetValue(terminals[i].Src, out var id))
+                {
+                    var r = inCell.FirstOrDefault(x => x.FormKey.ID == id) ?? throw new Refusal($"formids.json names {id:X6} as terminal {terminals[i].Src:X8}, not a reference of {VaultCell}");
+                    Owned(r, port.ModKey, $"terminal {terminals[i].Src:X8}");
+                    carried.Add((terminals[i].Src, terminals[i].Pos, r, i));
+                }
+            if (carried.Count > 0)
+            {
+                var pick = carried.OrderByDescending(c => IsPersistent(c.Ref)).ThenBy(c => c.Order).First();
+                (terminalSrc, terminalPos, terminal) = (pick.Src, pick.Pos, pick.Ref.FormKey.ID);
+            }
         }
         using var core = SF.StarfieldMod.CreateFromBinaryOverlay(corePath, SF.StarfieldRelease.Starfield, Full(SfEsm));
         Owner(core.ModKey, CorePluginFile, "the core");
@@ -234,7 +305,7 @@ static class NewGame
         if (exits.Count != 1) throw new Refusal($"{World} has {exits.Count} references {exitAnchor}, not one");
         Owned(exits[0], core.ModKey, "the exit anchor");
         if (!IsPersistent(exits[0])) throw new Refusal($"{exitAnchor} is not persistent (MoveTo needs a persistent reference)");
-        return new Places(anchor.FormKey.ID, anchor.Position, cog, cogBase, exits[0].FormKey.ID, exits[0].Position);
+        return new Places(anchor.FormKey.ID, anchor.Position, cog, cogBase, exits[0].FormKey.ID, exits[0].Position, terminal, terminalSrc, terminalPos);
     }
 
     static bool IsPersistent(IMajorRecordGetter r) => (r.MajorRecordFlagsRaw & 0x400) != 0;
@@ -257,13 +328,16 @@ static class NewGame
     /// PluginSpike's key for the cog door's reference: REFR:FO4Port_Vault111Cryo:<FO4 FormKey>, the FormKey as Mutagen
     /// prints it (0330C3:Fallout4.esm, six digits; the PC's first build, 19 Oct, found no match for eight). The id is
     /// compared as a number, so either width matches.
-    public static bool IsCogDoorKey(string key)
+    public static bool IsCogDoorKey(string key) => IsRefKey(key, Fo4CogDoor);
+
+    /// formids.json's key for the port's reference of FO4 reference `src` in the vault cell (the cog door's form).
+    public static bool IsRefKey(string key, uint src)
     {
         var prefix = $"REFR:{VaultCell}:";
         if (!key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return false;
         var parts = key[prefix.Length..].Split(':');
         return parts.Length == 2 && parts[1].Equals("Fallout4.esm", StringComparison.OrdinalIgnoreCase) &&
-               uint.TryParse(parts[0], System.Globalization.NumberStyles.HexNumber, null, out var id) && id == Fo4CogDoor;
+               uint.TryParse(parts[0], System.Globalization.NumberStyles.HexNumber, null, out var id) && id == src;
     }
 
     // ---------------------------------------------------------------- write (Starfield)
@@ -293,6 +367,18 @@ static class NewGame
     /// The looks script's value properties (its StartMessage is an object property, written beside them).
     public static List<(string Name, object Value)> LooksProperties(Options o) => new() { ("RaceMenuMode", o.RaceMenuMode) };
 
+    /// The SPECIAL script's value properties (Special, TerminalMessage and SpecialMessage are object properties, written
+    /// beside them): the terminal the port carries (0 when none) and points' spot of the terminal the prompt watches.
+    /// A points.json without a terminal refuses a SPECIAL build: --no-special, or points --terminal-ref.
+    public static List<(string Name, object Value)> SpecialProperties(JsonElement pts, Places p)
+    {
+        if (Terminals(pts).Count == 0) throw new Refusal("points.json has no terminal in Vault111Cryo: build with --no-special, or run points with --terminal-ref <hex>");
+        return new()
+        {
+            ("TerminalId", (int)p.Terminal), ("TerminalX", p.TerminalPos.X), ("TerminalY", p.TerminalPos.Y), ("TerminalZ", p.TerminalPos.Z),
+        };
+    }
+
     static SF.ScriptProperty ValueProperty(string name, object value) => value switch
     {
         int i => new SF.ScriptIntProperty { Name = name, Flags = SF.ScriptProperty.Flag.Edited, Data = i },
@@ -310,7 +396,7 @@ static class NewGame
     public static int Write(string sfPath, string portPath, string portIds, string corePath, string pointsPath, string outDir, Options o)
     {
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
-        var places = Resolve(portPath, portIds, corePath, o.ExitAnchor);
+        var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts));
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
         var modKey = ModKey.FromFileName(o.Plugin);
         var mod = new SF.StarfieldMod(modKey, SF.StarfieldRelease.Starfield);
@@ -341,6 +427,30 @@ static class NewGame
         start.MenuButtons.Add(new SF.MessageButton { Text = "Create character" });
         start.MenuButtons.Add(new SF.MessageButton { Text = "Quick start" });
         mod.Messages.Add(start);
+        // SPECIAL at the vault terminal (NG-5 / NG-C4): the prompt, the allocation and the seven actor values
+        var avifs = new List<SF.ActorValueInformation>();
+        SF.Message? terminalMsg = null, specialMsg = null;
+        if (o.Special)
+        {
+            terminalMsg = new SF.Message(new FormKey(modKey, TerminalMessageId), SF.StarfieldRelease.Starfield)
+            {
+                EditorID = TerminalMessageEdid, Name = "Vault 111 terminal", Description = "Set your S.P.E.C.I.A.L. at this terminal?",
+                Flags = SF.Message.Flag.MessageBox,
+            };
+            terminalMsg.MenuButtons.Add(new SF.MessageButton { Text = "Set SPECIAL" });
+            terminalMsg.MenuButtons.Add(new SF.MessageButton { Text = "Later" });
+            mod.Messages.Add(terminalMsg);
+            // the text's %.0f tokens take Message.Show's float arguments (the seven values, then the points left), as
+            // FO4's message boxes do; whether Starfield's substitute the same way is unverified until the PC run
+            specialMsg = new SF.Message(new FormKey(modKey, SpecialMessageId), SF.StarfieldRelease.Starfield)
+            {
+                EditorID = SpecialMessageEdid, Name = "S.P.E.C.I.A.L.",
+                Description = SpecialDescription, Flags = SF.Message.Flag.MessageBox,
+            };
+            foreach (var b in SpecialNames.Concat(SpecialExtraButtons)) specialMsg.MenuButtons.Add(new SF.MessageButton { Text = b });
+            mod.Messages.Add(specialMsg);
+            for (int i = 0; i < SpecialNames.Length; i++) { var av = SpecialAvif(modKey, i); avifs.Add(av); mod.ActorValueInformation.Add(av); }
+        }
 
         var quest = new SF.Quest(new FormKey(modKey, QuestId), SF.StarfieldRelease.Starfield)
         {
@@ -380,6 +490,17 @@ static class NewGame
             foreach (var (name, value) in LooksProperties(o)) looks.Properties.Add(ValueProperty(name, value));
             quest.VirtualMachineAdapter.Scripts.Add(looks);
         }
+        if (o.Special)
+        {
+            var special = new SF.ScriptEntry { Name = SpecialScript, Flags = SF.ScriptEntry.Flag.Local };
+            var avs = new SF.ScriptObjectListProperty { Name = "Special", Flags = SF.ScriptProperty.Flag.Edited };
+            foreach (var av in avifs) avs.Objects.Add(Obj("", av.FormKey));
+            special.Properties.Add(avs);
+            special.Properties.Add(Obj("TerminalMessage", terminalMsg!.FormKey));
+            special.Properties.Add(Obj("SpecialMessage", specialMsg!.FormKey));
+            foreach (var (name, value) in SpecialProperties(pts, places)) special.Properties.Add(ValueProperty(name, value));
+            quest.VirtualMachineAdapter.Scripts.Add(special);
+        }
         mod.Quests.Add(quest);
 
         if (o.MQ101Debug is { } dbg)
@@ -389,7 +510,7 @@ static class NewGame
             over.Data = dbg;
             mod.Globals.Add(over);
         }
-        mod.ModHeader.Stats.NextFormID = StartMessageId + 1;
+        mod.ModHeader.Stats.NextFormID = SpecialAvifBase + (uint)SpecialNames.Length;
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, o.Plugin);
         mod.BeginWrite.ToPath(path).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
@@ -397,9 +518,24 @@ static class NewGame
                           $"hold [{string.Join(", ", o.Hold)}]; vault anchor FO4Port.esm:{places.VaultAnchor:X6} at {Show(places.AnchorPos)}, " +
                           $"cog door {(places.CogDoor == 0 ? "none" : $"{places.CogDoor:X6} ({places.CogDoorBase})")}, exit anchor " +
                           $"FO4TerrainCore.esm:{places.ExitAnchor:X6} at {Show(places.ExitPos)}; looks {(o.Looks ? $"on (race menu mode {o.RaceMenuMode})" : "off")}" +
-                          (o.MQ101Debug is { } d2 ? $"; GLOB MQ101Debug = {F(d2)}" : "; GLOB MQ101Debug not overridden"));
+                          (o.MQ101Debug is { } d2 ? $"; GLOB MQ101Debug = {F(d2)}" : "; GLOB MQ101Debug not overridden") +
+                          (o.Special ? $"; SPECIAL on: terminal {TerminalText(places)}, {avifs.Count} AVIF" : "; SPECIAL off"));
         return 0;
     }
+
+    static string TerminalText(Places p) => p.TerminalSrc == 0 ? "none" :
+        $"FO4 {p.TerminalSrc:X8} at {Show(p.TerminalPos)} -> {(p.Terminal == 0 ? "not in the port (the prompt watches the spot)" : $"FO4Port.esm:{p.Terminal:X6}")}";
+
+    /// The allocation's text: one %.0f token per value, in Message.Show's argument order (the stats, then the points left).
+    public static readonly string SpecialDescription = string.Join("  ", SpecialNames.Select(n => n[0] + " %.0f")) + "   Points left: %.0f";
+
+    /// One SPECIAL stat as our own actor value: a SpecialAttribute with FO4's range (default 1, 1 to 10, NG-C4). The
+    /// minimal shape; which flags a shipped Starfield AVIF carries is unverified until the PC run.
+    public static SF.ActorValueInformation SpecialAvif(ModKey modKey, int i) => new(new FormKey(modKey, SpecialAvifBase + (uint)i), SF.StarfieldRelease.Starfield)
+    {
+        EditorID = SpecialAvifPrefix + SpecialNames[i], Name = SpecialNames[i], Abbreviation = SpecialNames[i][..1],
+        Type = SF.ActorValueInformation.Types.SpecialAttribute, DefaultValue = SpecialBase, Min = SpecialBase, Max = SpecialMax,
+    };
 
     // ---------------------------------------------------------------- check
 
@@ -408,13 +544,13 @@ static class NewGame
         var problems = new List<string>();
         void Need(bool ok, string what) { if (!ok) problems.Add(what); }
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
-        var places = Resolve(portPath, portIds, corePath, o.ExitAnchor);
+        var places = Resolve(portPath, portIds, corePath, o.ExitAnchor, Terminals(pts));
         using var sf = SF.StarfieldMod.CreateFromBinaryOverlay(sfPath, SF.StarfieldRelease.Starfield);
         using var plug = SF.StarfieldMod.CreateFromBinaryOverlay(pluginPath, SF.StarfieldRelease.Starfield, Full(SfEsm));
         var key = plug.ModKey;
         var masters = plug.ModHeader.MasterReferences.Select(x => x.Master.FileName.String).ToList();
         Console.WriteLine($"{key}: header {plug.ModHeader.Flags}, masters [{string.Join(", ", masters)}], {plug.Quests.Count} QUST, " +
-                          $"{plug.Messages.Count} MESG, {plug.Globals.Count} GLOB");
+                          $"{plug.Messages.Count} MESG, {plug.Globals.Count} GLOB, {plug.ActorValueInformation.Count} AVIF");
         Need(plug.ModHeader.Flags.HasFlag(SF.StarfieldModHeader.HeaderFlag.Master), "not flagged as a master");
         Need(masters.SequenceEqual(new[] { "Starfield.esm" }), "masters are not Starfield.esm alone (the port and the core are resolved at run time)");
         Need(plug.Npcs.Count == 0 && plug.Worldspaces.Count == 0 && plug.Cells.Count == 0, "the plugin carries NPC_, WRLD or CELL records (it places nothing)");
@@ -425,7 +561,28 @@ static class NewGame
         var start = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, StartMessageId));
         Need(start is { EditorID: StartMessageEdid } && start.Flags.HasFlag(SF.Message.Flag.MessageBox) && start.MenuButtons.Count == 2 &&
              start.MenuButtons.All(b => !string.IsNullOrWhiteSpace(b.Text?.String)), $"MESG 0x{StartMessageId:X} is not {StartMessageEdid}, a message box with two buttons");
-        Need(plug.Messages.Count == 2, $"{plug.Messages.Count} MESG, expected 2");
+        var terminalMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, TerminalMessageId));
+        var specialMsg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, SpecialMessageId));
+        var avifs = plug.ActorValueInformation.OrderBy(a => a.FormKey.ID).ToList();
+        if (o.Special)
+        {
+            Need(terminalMsg is { EditorID: TerminalMessageEdid } && terminalMsg.Flags.HasFlag(SF.Message.Flag.MessageBox) && terminalMsg.MenuButtons.Count == 2 &&
+                 terminalMsg.MenuButtons.All(b => !string.IsNullOrWhiteSpace(b.Text?.String)), $"MESG 0x{TerminalMessageId:X} is not {TerminalMessageEdid}, a message box with two buttons");
+            var buttons = SpecialNames.Concat(SpecialExtraButtons).ToList();
+            Need(specialMsg is { EditorID: SpecialMessageEdid } && specialMsg.Flags.HasFlag(SF.Message.Flag.MessageBox) &&
+                 specialMsg.MenuButtons.Select(b => b.Text?.String).SequenceEqual(buttons) && specialMsg.Description?.String == SpecialDescription,
+                 $"MESG 0x{SpecialMessageId:X} is not {SpecialMessageEdid}, a message box with the buttons [{string.Join(", ", buttons)}] and the allocation text");
+            Need(plug.Messages.Count == 4, $"{plug.Messages.Count} MESG, expected 4");
+            Need(avifs.Count == SpecialNames.Length && avifs.Select((a, i) => a.FormKey == new FormKey(key, SpecialAvifBase + (uint)i) && a.EditorID == SpecialAvifPrefix + SpecialNames[i] &&
+                     a.Name?.String == SpecialNames[i] && a.Type == SF.ActorValueInformation.Types.SpecialAttribute && a.DefaultValue == SpecialBase && a.Min == SpecialBase && a.Max == SpecialMax).All(x => x),
+                 $"the AVIF are not the seven {SpecialAvifPrefix}<stat> SpecialAttributes, default {SpecialBase}, {SpecialBase} to {SpecialMax}");
+            Console.WriteLine($"  AVIF [{string.Join(", ", avifs.Select(a => a.EditorID))}]; terminal {TerminalText(places)}");
+        }
+        else
+        {
+            Need(plug.Messages.Count == 2, $"{plug.Messages.Count} MESG, expected 2 in a --no-special build");
+            Need(avifs.Count == 0, "a --no-special build carries AVIF records");
+        }
 
         var globals = plug.Globals.ToList();
         if (o.MQ101Debug is { } dbg)
@@ -450,8 +607,10 @@ static class NewGame
             Need(q.Objectives.Count == 1 && q.Objectives[0].Index == Objective && q.Objectives[0].DisplayText?.String == ObjectiveText, $"objective {Objective} is not \"{ObjectiveText}\"");
             Need((q.Aliases?.Count ?? 0) == 0 && q.DialogTopics.Count == 0, "the quest carries aliases or dialogue");
             var scripts = q.VirtualMachineAdapter?.Scripts.Select(s => s.Name).ToList() ?? new();
-            Need(scripts.SequenceEqual(o.Looks ? new[] { ScriptName, LooksScript } : new[] { ScriptName }),
-                 $"scripts [{string.Join(", ", scripts)}] are not {ScriptName}{(o.Looks ? " + " + LooksScript : " alone")}");
+            var wantScripts = new List<string> { ScriptName };
+            if (o.Looks) wantScripts.Add(LooksScript);
+            if (o.Special) wantScripts.Add(SpecialScript);
+            Need(scripts.SequenceEqual(wantScripts), $"scripts [{string.Join(", ", scripts)}] are not [{string.Join(", ", wantScripts)}]");
             var s = q.VirtualMachineAdapter?.Scripts.FirstOrDefault(x => x.Name == ScriptName);
             if (s is not null)
             {
@@ -481,6 +640,21 @@ static class NewGame
                     Need(props.TryGetValue(name, out var p) && ValueMatches(value, p), $"looks property {name} is not {value}");
                 Need(props.Count == expected.Count + 1, $"{props.Count} looks properties, expected {expected.Count + 1}");
             }
+            var ss = q.VirtualMachineAdapter?.Scripts.FirstOrDefault(x => x.Name == SpecialScript);
+            if (ss is not null)
+            {
+                var props = ss.Properties.ToDictionary(p => p.Name);
+                Console.WriteLine($"  script {ss.Name}: {props.Count} properties");
+                Need(props.TryGetValue("Special", out var ap) && ap is SF.IScriptObjectListPropertyGetter al &&
+                     al.Objects.Select(x => x.Object.FormKey).SequenceEqual(avifs.Select(a => a.FormKey)) && al.Objects.Count == SpecialNames.Length,
+                     "property Special is not the seven AVIF, Strength to Luck");
+                Need(props.TryGetValue("TerminalMessage", out var tp) && tp is SF.IScriptObjectPropertyGetter to && to.Object.FormKey == terminalMsg?.FormKey, "property TerminalMessage");
+                Need(props.TryGetValue("SpecialMessage", out var xp) && xp is SF.IScriptObjectPropertyGetter xo && xo.Object.FormKey == specialMsg?.FormKey, "property SpecialMessage");
+                var expected = SpecialProperties(pts, places);
+                foreach (var (name, value) in expected)
+                    Need(props.TryGetValue(name, out var p) && ValueMatches(value, p), $"SPECIAL property {name} is not {value}");
+                Need(props.Count == expected.Count + 3, $"{props.Count} SPECIAL properties, expected {expected.Count + 3}");
+            }
         }
         Console.WriteLine($"  vault anchor FO4Port.esm:{places.VaultAnchor:X6}, cog door {(places.CogDoor == 0 ? "none" : $"{places.CogDoor:X6} {places.CogDoorBase}")}, " +
                           $"exit anchor FO4TerrainCore.esm:{places.ExitAnchor:X6}");
@@ -507,6 +681,12 @@ static class NewGame
         vcell.Temporary.Add(P(Fo4Console, "MQ102GearDoorConsoleREF", 3500f, 700f, 0f));
         vcell.Temporary.Add(P(Fo4CogDoor, "Vault111GearDoorREF", 3640f, 700f, 0f));
         vcell.Temporary.Add(P(Fo4Platform, "V111ElevatorREF", 4200f, 1050f, -140f));
+        // two terminals: one by the pods (the nearer), one far off; the port carries the far one persistent
+        var term = new F4.Terminal(new FormKey(f4Key, 0x2000), F4.Fallout4Release.Fallout4) { EditorID = "Vault111CryoTerminal" };
+        f4.Terminals.Add(term);
+        F4.PlacedObject T(uint id, string edid, float x, float y, float z) { var r = P(id, edid, x, y, z); r.Base = new FormLinkNullable<F4.IPlaceableObjectGetter>(term.FormKey); return r; }
+        vcell.Temporary.Add(T(0x1003, "V111OverseerTerminalREF", 3000f, 700f, 0f));
+        vcell.Temporary.Add(T(0x1002, "V111CryoTerminalREF", 770f, 1400f, 70f));
         var door = P(Fo4ExitDoor, "Vault111InteriorAutoLoadDoorREF", 4200f, 1050f, 1563f);
         door.TeleportDestination = new F4.TeleportDestination { Door = new FormLink<F4.IPlacedObjectGetter>(new FormKey(f4Key, 0x0998E3)),
                                                                 Position = new P3Float(-87500f, 90300f, 7700f), Rotation = new P3Float(0, 0, MathF.PI) };
@@ -547,6 +727,9 @@ static class NewGame
         SF.PlacedObject Pers(uint id, float x, float y, float z) { var r = new SF.PlacedObject(new FormKey(portKey, id), rel) { Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(pdoor.FormKey), Position = new P3Float(x, y, z) }; r.MajorRecordFlagsRaw |= 0x400; return r; }
         pcell.Persistent.Add(Pers(0x805, 60, 25, 1));
         pcell.Persistent.Add(Pers(0x806, 90, 40, 20));
+        // the terminals: the nearer one temporary, the farther persistent (preferred)
+        pcell.Temporary.Add(new SF.PlacedObject(new FormKey(portKey, 0x807), rel) { Base = new FormLinkNullable<SF.IPlaceableObjectGetter>(pdoor.FormKey), Position = new P3Float(11, 20, 1) });
+        pcell.Persistent.Add(Pers(0x808, 42.857f, 10, 0));
         var pb = new SF.CellBlock { BlockNumber = 0, GroupType = SF.GroupTypeEnum.InteriorCellBlock };
         var ps = new SF.CellSubBlock { BlockNumber = 0, GroupType = SF.GroupTypeEnum.InteriorCellSubBlock };
         ps.Cells.Add(pcell);
@@ -556,9 +739,12 @@ static class NewGame
         var portPath = Path.Combine(dir, portKey.FileName);
         port.BeginWrite.ToPath(portPath).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
         var idsPath = Path.Combine(dir, "formids.json");
-        File.WriteAllText(idsPath, $"{{\"CELL:{VaultCell}\": {0x800}, \"REFR:{VaultCell}:0330C3:Fallout4.esm\": {0x802}, \"DOOR:FO4Port_VltGearDoor01\": {0x810}}}");
-        var noCogIds = Path.Combine(dir, "formids_nocog.json");
+        File.WriteAllText(idsPath, $"{{\"CELL:{VaultCell}\": {0x800}, \"REFR:{VaultCell}:0330C3:Fallout4.esm\": {0x802}, \"DOOR:FO4Port_VltGearDoor01\": {0x810}, " +
+                                   $"\"REFR:{VaultCell}:001002:Fallout4.esm\": {0x807}, \"REFR:{VaultCell}:001003:Fallout4.esm\": {0x808}}}");
+        var noCogIds = Path.Combine(dir, "formids_nocog.json");          // neither the cog door nor a terminal
         File.WriteAllText(noCogIds, $"{{\"CELL:{VaultCell}\": {0x800}}}");
+        var nearTermIds = Path.Combine(dir, "formids_nearterm.json");    // only the nearer, temporary terminal
+        File.WriteAllText(nearTermIds, $"{{\"CELL:{VaultCell}\": {0x800}, \"REFR:{VaultCell}:0330C3:Fallout4.esm\": {0x802}, \"REFR:{VaultCell}:001002:Fallout4.esm\": {0x807}}}");
         // a core with the world and its Vault 111 map marker, persistent
         var coreKey = ModKey.FromFileName("FO4TerrainCore.esm");
         var core = new SF.StarfieldMod(coreKey, rel);
@@ -577,6 +763,12 @@ static class NewGame
         int rc = Points(f4Path, pointsPath, null, 1.0f);
         if (rc != 0) return rc;
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
+        var terms = Terminals(pts);
+        // nearest the pod first: the cryo terminal (one metre from the pod), then the overseer's
+        if (terms.Count != 2 || terms[0].Src != 0x1002 || terms[1].Src != 0x1003 || MathF.Abs(terms[0].Pos.X - 11f) > 1e-3) { Console.WriteLine($"FAIL  terminals {string.Join(",", terms)}"); return 1; }
+        var oneTerm = Path.Combine(dir, "points_oneterm.json");
+        if (Points(f4Path, oneTerm, null, 1.0f, "1003") != 0 || Terminals(JsonDocument.Parse(File.ReadAllText(oneTerm)).RootElement).Select(t => t.Src).SequenceEqual(new uint[] { 0x1003 }) == false)
+            { Console.WriteLine("FAIL  --terminal-ref"); return 1; }
         var stand = Floats(pts.GetProperty("pod").GetProperty("pos"));
         // the pod faces +x (rotation pi/2): one metre out of it is x + 1
         if (MathF.Abs(stand[0] - 11f) > 1e-3 || MathF.Abs(stand[1] - 20f) > 1e-3 || MathF.Abs(pts.GetProperty("pod").GetProperty("heading").GetSingle() - 90f) > 1e-3)
@@ -592,12 +784,14 @@ static class NewGame
         if (plain.MQ101Debug != DefaultMQ101Debug || !plain.Hold.SequenceEqual(DefaultHold)) { Console.WriteLine("FAIL  the default options"); return 1; }
         if (Options.From(new[] { "--no-mq101debug" }).MQ101Debug is not null || Options.From(new[] { "--mq101debug", "8" }).MQ101Debug != 8) { Console.WriteLine("FAIL  the MQ101Debug options"); return 1; }
         if (plain.RaceMenuMode != DefaultRaceMenuMode || Options.From(new[] { "--race-menu-mode", "1" }).RaceMenuMode != 1) { Console.WriteLine("FAIL  the race menu mode option"); return 1; }
+        if (!plain.Special || Options.From(new[] { "--no-special" }).Special) { Console.WriteLine("FAIL  the SPECIAL option"); return 1; }
         var variants = new (string Name, string Ids, Options O)[]
         {
             ("default", idsPath, plain), ("nolooks", idsPath, plain with { Looks = false }),
             ("nodebug", idsPath, plain with { MQ101Debug = null }), ("debug8", idsPath, plain with { MQ101Debug = 8 }),
             ("nocog", noCogIds, plain), ("hold2", idsPath, plain with { Hold = new[] { "MQ00", "MQ101" } }),
-            ("mode1", idsPath, plain with { RaceMenuMode = 1 }),
+            ("mode1", idsPath, plain with { RaceMenuMode = 1 }), ("nospecial", idsPath, plain with { Special = false }),
+            ("nearterm", nearTermIds, plain),
         };
         foreach (var (name, ids, o) in variants)
         {
@@ -620,6 +814,10 @@ static class NewGame
             ("hold2", plain, idsPath, "a two-quest hold list as the default one"),
             ("default", plain with { RaceMenuMode = 1 }, idsPath, "the default (race menu mode 0) build as a mode 1 one"),
             ("mode1", plain, idsPath, "a race menu mode 1 build as the default one"),
+            ("default", plain with { Special = false }, idsPath, "a SPECIAL build as a --no-special one"),
+            ("nospecial", plain, idsPath, "a --no-special build as a SPECIAL one"),
+            ("default", plain, nearTermIds, "a build on the persistent terminal against a port with only the temporary one"),
+            ("nearterm", plain, idsPath, "a build on the temporary terminal against a port with the persistent one"),
         };
         foreach (var (build, o, ids, why) in crosses)
         {
@@ -646,6 +844,14 @@ static class NewGame
             ("the race menu mode changed", m => ((SF.ScriptIntProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[1].Properties.First(p => p.Name == "RaceMenuMode")).Data = 3),
             ("the looks script lost StartMessage", m => m.Quests.First().VirtualMachineAdapter!.Scripts[1].Properties.RemoveAll(p => p.Name == "StartMessage")),
             ("the quest has no QuestType", m => m.Quests.First().QuestType.Clear()),
+            ("an AVIF removed", m => m.ActorValueInformation.Remove(m.ActorValueInformation.First(a => a.EditorID == SpecialAvifPrefix + "Luck").FormKey)),
+            ("an AVIF's maximum changed", m => m.ActorValueInformation.First(a => a.EditorID == SpecialAvifPrefix + "Strength").Max = 11),
+            ("the allocation lost its Leave button", m => m.Messages.First(x => x.EditorID == SpecialMessageEdid).MenuButtons.RemoveAt(9)),
+            ("the allocation's text lost a token", m => m.Messages.First(x => x.EditorID == SpecialMessageEdid).Description = "S.P.E.C.I.A.L."),
+            ("the terminal prompt removed", m => m.Messages.Remove(m.Messages.First(x => x.EditorID == TerminalMessageEdid).FormKey)),
+            ("the SPECIAL list order swapped", m => { var l = (SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[2].Properties.First(p => p.Name == "Special"); (l.Objects[0], l.Objects[6]) = (l.Objects[6], l.Objects[0]); }),
+            ("the terminal id changed", m => ((SF.ScriptIntProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[2].Properties.First(p => p.Name == "TerminalId")).Data = 0x807),
+            ("the terminal spot changed", m => ((SF.ScriptFloatProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[2].Properties.First(p => p.Name == "TerminalX")).Data += 1),
         };
         foreach (var (name, edit) in mutations)
         {
@@ -686,20 +892,47 @@ static class NewGame
             Directory.CreateDirectory(cd);
             var foreignCore = Path.Combine(cd, coreKey.FileName);
             cm.BeginWrite.ToPath(foreignCore).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
+            var foreignTerm = Port(m => { var c = VCell(m); var r = (SF.PlacedObject)c.Persistent.First(x => x.FormKey.ID == 0x808); c.Persistent.Remove(r); c.Persistent.Add(Rekey(r, new FormKey(SfEsm, 0x808))); });
+            var lostTerm = Port(m => { var c = VCell(m); c.Persistent.Remove(c.Persistent.First(x => x.FormKey.ID == 0x808)); });
             foreach (var (why, p, c) in new[] { ("a COC marker owned by Starfield.esm", foreignCoc, corePath), ("a cog door owned by Starfield.esm", foreignCog, corePath),
-                                                ("a port under another file name", renamed, corePath), ("an exit anchor owned by Starfield.esm", portPath, foreignCore) })
+                                                ("a port under another file name", renamed, corePath), ("an exit anchor owned by Starfield.esm", portPath, foreignCore),
+                                                ("a terminal owned by Starfield.esm", foreignTerm, corePath), ("a terminal formids.json names but the cell lacks", lostTerm, corePath) })
             {
-                try { Resolve(p, idsPath, c, ExitAnchorEdid); Console.WriteLine($"FAIL  resolve accepted {why}"); return 1; }
+                try { Resolve(p, idsPath, c, ExitAnchorEdid, terms); Console.WriteLine($"FAIL  resolve accepted {why}"); return 1; }
                 catch (Refusal e) { Console.WriteLine($"refused as expected ({why}): {e.Message}"); }
             }
             // the vault anchor is persistent: a temporary COC marker gives way to the nearest persistent reference
             // of the port in the cell; a persistent COC marker is used itself; none at all is refused
-            if (Resolve(portPath, idsPath, corePath, ExitAnchorEdid).VaultAnchor != 0x805) { Console.WriteLine("FAIL  the anchor is not the nearest persistent reference"); return 1; }
+            if (Resolve(portPath, idsPath, corePath, ExitAnchorEdid, terms).VaultAnchor != 0x805) { Console.WriteLine("FAIL  the anchor is not the nearest persistent reference"); return 1; }
             var persCoc = Port(m => { var c = VCell(m); var r = (SF.PlacedObject)c.Temporary.First(x => x.FormKey.ID == 0x801); c.Temporary.Remove(r); r.MajorRecordFlagsRaw |= 0x400; c.Persistent.Add(r); });
-            if (Resolve(persCoc, idsPath, corePath, ExitAnchorEdid).VaultAnchor != 0x801) { Console.WriteLine("FAIL  a persistent COC marker is not the anchor"); return 1; }
+            if (Resolve(persCoc, idsPath, corePath, ExitAnchorEdid, terms).VaultAnchor != 0x801) { Console.WriteLine("FAIL  a persistent COC marker is not the anchor"); return 1; }
             var noPers = Port(m => VCell(m).Persistent.Clear());
-            try { Resolve(noPers, idsPath, corePath, ExitAnchorEdid); Console.WriteLine("FAIL  resolve accepted a vault with no persistent reference"); return 1; }
+            try { Resolve(noPers, idsPath, corePath, ExitAnchorEdid, terms); Console.WriteLine("FAIL  resolve accepted a vault with no persistent reference"); return 1; }
             catch (Refusal e) { Console.WriteLine($"refused as expected (no persistent reference in the vault): {e.Message}"); }
+            // the terminal: the persistent one is preferred over the nearer temporary one; with only the temporary
+            // one it is taken; with none the id is 0 and the spot is the nearest terminal's; --terminal-ref pins one
+            var full = Resolve(portPath, idsPath, corePath, ExitAnchorEdid, terms);
+            if (full.Terminal != 0x808 || full.TerminalSrc != 0x1003 || MathF.Abs(full.TerminalPos.X - 42.857f) > 1e-3) { Console.WriteLine($"FAIL  the terminal is not the persistent one: {full.Terminal:X} {full.TerminalSrc:X}"); return 1; }
+            var near = Resolve(portPath, nearTermIds, corePath, ExitAnchorEdid, terms);
+            if (near.Terminal != 0x807 || near.TerminalSrc != 0x1002) { Console.WriteLine("FAIL  the only carried terminal is not taken"); return 1; }
+            var none = Resolve(portPath, noCogIds, corePath, ExitAnchorEdid, terms);
+            if (none.Terminal != 0 || none.TerminalSrc != 0x1002 || MathF.Abs(none.TerminalPos.X - 11f) > 1e-3) { Console.WriteLine("FAIL  a port without a terminal"); return 1; }
+            var pinned = Resolve(portPath, idsPath, corePath, ExitAnchorEdid, Terminals(JsonDocument.Parse(File.ReadAllText(oneTerm)).RootElement));
+            if (pinned.Terminal != 0x808 || Resolve(portPath, nearTermIds, corePath, ExitAnchorEdid, pinned.Terminal == 0x808 ? Terminals(JsonDocument.Parse(File.ReadAllText(oneTerm)).RootElement) : terms).Terminal != 0)
+                { Console.WriteLine("FAIL  --terminal-ref"); return 1; }
+            if (!IsRefKey($"REFR:{VaultCell}:001002:Fallout4.esm", 0x1002) || IsRefKey($"REFR:{VaultCell}:001002:Fallout4.esm", 0x1003)) { Console.WriteLine("FAIL  IsRefKey"); return 1; }
+        }
+        // refusals: a SPECIAL build from a points.json without a terminal (a --no-special one builds)
+        {
+            var noTerm = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(pointsPath))!;
+            noTerm["terminals"] = JsonDocument.Parse("[]").RootElement;
+            var noTermPath = Path.Combine(dir, "points_noterm.json");
+            File.WriteAllText(noTermPath, JsonSerializer.Serialize(noTerm));
+            try { Write(sfPath, portPath, idsPath, corePath, noTermPath, Path.Combine(outDir, "refused"), plain); Console.WriteLine("FAIL  write accepted a SPECIAL build without a terminal"); return 1; }
+            catch (Refusal e) { Console.WriteLine($"refused as expected (no terminal): {e.Message}"); }
+            var od = Path.Combine(outDir, "noterm_nospecial");
+            var ns = plain with { Special = false };
+            if (Write(sfPath, portPath, idsPath, corePath, noTermPath, od, ns) != 0 || Check(Path.Combine(od, Plugin), sfPath, portPath, idsPath, corePath, noTermPath, ns) != 0) { Console.WriteLine("FAIL  a --no-special build without a terminal"); return 1; }
         }
         // refusals: a hold quest Starfield lacks, an exit anchor the core lacks
         foreach (var (why, o) in new[] { ("an unknown hold quest", plain with { Hold = new[] { "MQ999" } }), ("an unknown exit anchor", plain with { ExitAnchor = "NoSuchMarker" }) })

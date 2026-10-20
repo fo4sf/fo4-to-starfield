@@ -5,7 +5,8 @@ Vault 111 with no Starfield intro, which everything else plugs into. **Offline o
 game or been installed.** Labels follow docs/ai/research-log.md (verified, supported hypothesis, unresolved).
 
 Files: `dotnet/NewGame/Program.cs` (the plugin writer and its checks), `scripts/newgame/FO4SF_NewGameQuest.psc` (the
-quest script), `scripts/newgame/FO4SF_NewGameLooks.psc` (optional character creation), `scripts/newgame/make_newgame.py`
+quest script), `scripts/newgame/FO4SF_NewGameLooks.psc` (optional character creation),
+`scripts/newgame/FO4SF_NewGameSpecial.psc` (optional SPECIAL at the vault terminal), `scripts/newgame/make_newgame.py`
 (precheck, stage, verify, fold, log reader), `tests/test_newgame.py`.
 
 ## 1. What the player gets (the defaults)
@@ -28,11 +29,15 @@ quest script), `scripts/newgame/FO4SF_NewGameLooks.psc` (optional character crea
 5. **Looks:** a message box in the vault asks "Create character" or "Quick start" (NG-6, NG-C9). Create opens
    Starfield's character creation in place of FO4's bathroom mirror and waits for it to close; quick start keeps the
    preset and skips it. A message box needs no voice: the player stays silent (optional script; see section 4).
-6. **The cog door:** standing at its console opens the cog door (no Pip-Boy needed, unlike FO4).
-7. **The exit:** standing on the elevator platform asks "Ride the elevator up to the surface?". Yes puts the player at
+6. **SPECIAL:** standing at the vault terminal after the looks asks "Set SPECIAL" or "Later". Set opens the
+   allocation: FO4's numbers, 1 in each stat, 21 points to spend, 10 at most in one; one button per stat, Reset,
+   Confirm, Leave. Confirm writes seven actor values of our own (NG-5, NG-C4; section 4a). The player can skip it and
+   ride up; the log then says so (optional script).
+7. **The cog door:** standing at its console opens the cog door (no Pip-Boy needed, unlike FO4).
+8. **The exit:** standing on the elevator platform asks "Ride the elevator up to the surface?". Yes puts the player at
    FO4's surface arrival of the ride in the Commonwealth core, at the right world position (core-local + the measured
    merge offset). If the player lands more than 3 m below the arrival, they are put on the Vault 111 map marker's spot.
-8. The quest completes. The player is **silent** (Starfield's player has no voice; nothing to do), and has **no
+9. The quest completes. The player is **silent** (Starfield's player has no voice; nothing to do), and has **no
    Pip-Boy** (section 5). The stages the quest passes through are a published contract (section 9).
 
 Every step goes to `My Games\Starfield\Logs\Script\User\fo4sf_newgame.0.log`; `make_newgame.py log` summarises it.
@@ -107,7 +112,42 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   ending is not logged: once stage 20 is set, the looks script's `Done` does nothing.
 - The looks script stays separate so a failed compile drops only it (`--no-looks`, and the quest then does not wait
   and shows no choice). FO4's own looks menu and the bathroom mirror are a later UI item (Scaleform;
-  animations-ui-and-start.md section 3). SPECIAL is set at a vault terminal (NG-C4), not here.
+  animations-ui-and-start.md section 3). SPECIAL is set at a vault terminal (NG-C4), not here (section 4a).
+
+## 4a. SPECIAL at the vault terminal
+
+- The owner decided (2026-10-19, NG-C4 / NG-K7, page NG-5): SPECIAL is set at a vault terminal for testing; the
+  elevator version comes with the remade start. FO4 sets it pre-war with the Vault-Tec Rep, which our start skips.
+- The stats: seven AVIF records of our own, `FO4SF_Special_Strength` to `FO4SF_Special_Luck` (FO4SFNewGame.esm 0x810 to
+  0x816), each a SpecialAttribute with default 1, range 1 to 10. Starfield has no SPECIAL values, and nothing in this
+  repo reads a Starfield AVIF back in full, so the record shape is minimal (name, abbreviation, type, default, min,
+  max) and **unverified** until the PC run opens the plugin in xEdit. Later phases read the player's values from these
+  records (`Actor.GetValue`).
+- The terminal: the points step lists every placed TERM of FO4's Vault111Cryo, nearest the player's pod first (the cryo
+  hall's terminals stand by the pods), or the one `--terminal-ref <hex>` names. The writer takes the first of them the
+  port carries (its `formids.json` key `REFR:FO4Port_Vault111Cryo:<FO4 id>:Fallout4.esm`), a persistent one preferred,
+  and refuses a key that names a reference outside the cell or another plugin's record, as it does the anchor and the
+  cog door. When the port carries none, the id is 0 and the prompt watches FO4's spot of the nearest terminal (the
+  position is FO4's / 70 either way). A points.json without a terminal refuses a SPECIAL build: `--no-special`, or
+  `--terminal-ref`. Which terminal the real cell gives, and whether the installed port carries it, is **unresolved**
+  until the PC build (the points step prints every candidate; `offline_check.txt` prints the pick).
+- The prompt: `FO4SF_NewGameSpecial` waits for stage 20 (the looks done), then shows MESG `FO4SF_NewGameTerminal`
+  (0x803) once per visit when the player stands within 2.5 m of the terminal: "Set SPECIAL" or "Later". Set runs MESG
+  `FO4SF_NewGameSpecial` (0x804) in a loop: its text has one `%.0f` token per stat and one for the points left, filled
+  from `Message.Show`'s float arguments; the ten buttons are the seven stats, Reset, Confirm and Leave. A stat button
+  adds a point (nothing past 10 in one stat, nothing with no points left); Confirm only applies with every point spent
+  (a notification says how many are left); Leave keeps the defaults. Confirm writes each value with
+  `Actor.SetValue(Special[i], value)` and reads two back into the log. `make_newgame.py special_press` is the same
+  rule, tested in Python; the three constants live in `SPECIAL_BASE`, `SPECIAL_POINTS`, `SPECIAL_MAX` and are held
+  equal to the writer's and the script's by `tests/test_newgame.py`.
+- **Unverified** until the PC run: `Actor.SetValue` / `GetValue` with a plugin's own AVIF (FO4's Actor.psc declares
+  them; the precheck reads Starfield's, and a miss means `--no-special`), the `%.0f` token substitution in a Starfield
+  message box, and a ten-button message box (FO4's MESG limit).
+- The quest never waits on SPECIAL: the player can ride the elevator with it unset. The script logs
+  `special skipped: left the vault with SPECIAL unset` at stage 40, `special set S=.. P=.. ...` on Confirm, `special
+  later` and `special left: ...` for the other buttons; `make_newgame.py log` prints the first ending as `special`.
+- The script is separate for the same reason as the looks script: a failed compile drops only it (`--no-special`, and
+  the plugin then carries no AVIF and neither MESG).
 
 ## 5. What Vault 111 needs from the port today
 
@@ -117,6 +157,7 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
 | Gear-room gates passable, gear-pit water sheet | fixes on main (static gate leaves, water planes left out); need an interior rebuild | ROADMAP Phase A table |
 | Cog door VltGearDoor01 | converted as a door with its own rig (Stage2 as Open, `pipeline.OWN_RIG_ALIASES`, tests/test_cog_door.py); in game it was still a solid static on integ_1018. Whether the installed port carries the rigged door and whether `SetOpen` opens it: **unresolved** | ROADMAP, door_motion.py |
 | Cog door console | FO4 activator with MQ03ControlPanelScript; ours is only a spot the quest watches | B4 |
+| The SPECIAL terminal | FO4 TERM references of the cryo cell; the converted one is a prop, the SPECIAL script watches its spot (section 4a). Which one the port carries: **unresolved** | this plugin |
 | Exit elevator | not connected: both autoload doors (interior 01F180, surface 0998E3) are marker doors the converter never places (`door_skipped`); the elevator is an animated activator. The new-game quest's prompt replaces the ride | scripted-doors.md, research log 2026-10-14 |
 | Going back down | not handled: the surface elevator and the descend trigger are not converted; the doors phase owns it | B4 |
 | Pip-Boy, the overseer's office skeleton, the cryo cut scene, the spouse, Kellogg | none: later phases (UI with SFSE; NPCs and scenes) | animations-ui-and-start.md |
@@ -125,21 +166,25 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
 ## 6. Build recipe (PC, offline, no game)
 
 1. `python scripts\newgame\make_newgame.py precheck --out D:\Modding\scratch\newgame\precheck.json` reads
-   ContentResources.zip only and lists every native and event both scripts use and every MQ101Debug line. Exit 1 means
-   a core native is missing: stop and report. A missing `Game.ShowRaceMenu`, `RegisterForMenuOpenCloseEvent` or
-   `OnMenuOpenCloseEvent` means stage with `--no-looks`.
+   ContentResources.zip only and lists every native and event the three scripts use and every MQ101Debug line. Exit 1
+   means a core native is missing: stop and report. A missing `Game.ShowRaceMenu`, `RegisterForMenuOpenCloseEvent` or
+   `OnMenuOpenCloseEvent` means stage with `--no-looks`; a missing `Actor.SetValue` or `Actor.GetValue` means
+   `--no-special`.
 2. `python scripts\newgame\make_newgame.py stage --out D:\Modding\staging\newgame_v1 --fo4 <Fallout4.esm> --port
    <installed FO4Port.esm> --port-ids <that port build's formids.json> --core <installed FO4TerrainCore.esm>` runs
    points, write, check and the Papyrus compile, then writes plan.json and README.txt. Inputs are read only; the output is
    one new folder on D:.
    Options: `--hold <list>` (default `MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04`), `--mq101debug <n>`
    (default 10), `--no-mq101debug` (no GLOB override), `--no-looks`, `--race-menu-mode <n>` (default 0, section 4),
-   `--pod-ref <hex>`. plan.json records them and the stage contract.
+   `--no-special` (section 4a), `--pod-ref <hex>`, `--terminal-ref <hex>`. plan.json records them and the stage
+   contract.
 3. The offline checks are `offline_check.txt` (every record, property and resolved id) and the selftest
    (`dotnet run -c Release --project dotnet\NewGame -- selftest <scratch>`, synthetic masters and mutations). The
-   selftest builds the default, `--no-looks`, `--no-mq101debug`, `--mq101debug 8`, no-cog-door, two-quest-hold and
-   `--race-menu-mode 1` variants, and each build must fail `check` under the others' options. It also checks both MESG
-   records (two buttons each) and the looks script's `StartMessage` and `RaceMenuMode` properties.
+   selftest builds the default, `--no-looks`, `--no-mq101debug`, `--mq101debug 8`, no-cog-door, two-quest-hold,
+   `--race-menu-mode 1`, `--no-special` and temporary-terminal-only variants, and each build must fail `check` under
+   the others' options. It also checks the four MESG records (two buttons each, ten on the allocation), the seven
+   AVIF, the looks script's `StartMessage` and `RaceMenuMode` properties and the SPECIAL script's list, messages and
+   terminal; the terminal pick prefers a persistent reference and refuses a foreign or missing one.
 4. Install is a later owner line: `fold` into a copy of the installed core set, `verify`, then `exp_install.py`, game
    closed, after the current v6e test. Testing needs a NEW game, so it never touches the owner's saves.
 

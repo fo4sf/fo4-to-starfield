@@ -2,17 +2,21 @@
 
 usage:
   python make_newgame.py precheck [--content-resources <zip>] [--out <precheck.json>]
-      read only, no game: every native and event the two scripts use, looked up in Starfield's base sources
+      read only, no game: every native and event the three scripts use, looked up in Starfield's base sources
       (Scripts/Source of ContentResources.zip), and every source line naming MQ101Debug (how Starfield's debug start
       works). Exit 1 when a native of FO4SF_NewGameQuest is missing (do not stage); a missing native of the looks
-      script (Game.ShowRaceMenu, the menu open/close event) only means --no-looks.
+      script (Game.ShowRaceMenu, the menu open/close event) only means --no-looks, one of the SPECIAL script
+      (Actor.SetValue / GetValue) only --no-special.
   python make_newgame.py stage --out <dir> --fo4 <Fallout4.esm> --port <FO4Port.esm> --port-ids <formids.json>
                                --core <FO4TerrainCore.esm> [--starfield <Starfield.esm>] [--compiler <exe>]
-                               [--content-resources <zip>] [--no-looks] [--race-menu-mode N] [--hold MQ00,MQ101,...]
-                               [--mq101debug N] [--no-mq101debug] [--pod-ref HEX]
-      1. dotnet/NewGame points (Fallout4.esm read only: the pod, the console, the cog door, the platform, the arrival);
+                               [--content-resources <zip>] [--no-looks] [--race-menu-mode N] [--no-special]
+                               [--hold MQ00,MQ101,...] [--mq101debug N] [--no-mq101debug] [--pod-ref HEX]
+                               [--terminal-ref HEX]
+      1. dotnet/NewGame points (Fallout4.esm read only: the pod, the console, the cog door, the platform, the arrival,
+         the cell's terminals);
       2. dotnet/NewGame write + check against the port and core given (offline_check.txt);
-      3. the Papyrus compile of FO4SF_NewGameQuest.psc (and FO4SF_NewGameLooks.psc unless --no-looks);
+      3. the Papyrus compile of FO4SF_NewGameQuest.psc (and FO4SF_NewGameLooks.psc unless --no-looks,
+         FO4SF_NewGameSpecial.psc unless --no-special);
       4. plan.json (the plugin's and scripts' SHA-256 and the port, its formids.json and the core it was checked
          against) and README.txt. Built in a new <out>.partial-<time>-<pid> and renamed to <out> only when every step
          passed; an existing <out> is refused.
@@ -24,7 +28,7 @@ usage:
       .pex, published only after verify passes on the result.
   python make_newgame.py log [--file <fo4sf_newgame.0.log>]
       the run's user log as a summary (stages by the contract below, held-off quests by pass, what ended the looks wait,
-      moves, the landing); exit 0 when stage 200 was reached.
+      the SPECIAL ending, moves, the landing); exit 0 when stage 200 was reached.
 Nothing here installs anything: the install is the owner's line, to the install session, after the current test.
 """
 import argparse
@@ -44,6 +48,7 @@ PROJECT = os.path.join(REPO, "dotnet", "NewGame")
 PLUGIN = "FO4SFNewGame.esm"
 SCRIPT = "FO4SF_NewGameQuest"
 LOOKS = "FO4SF_NewGameLooks"
+SPECIAL = "FO4SF_NewGameSpecial"
 # The stage contract (NG-14): the stages FO4SF_NewGame publishes for later phases and other mods to listen to, with
 # what each means. FO4SF_NewGameQuest.psc's header lists the same lines and tests/test_newgame.py holds them equal;
 # docs/newgame/vault111-start.md section 9 is the published table. Stage 0 is the quest's start, not a QUST record.
@@ -65,6 +70,13 @@ DEFAULT_MQ101DEBUG = 10
 # Game.ShowRaceMenu's uiMode (Program.cs DefaultRaceMenuMode, the looks script's RaceMenuMode): 0 is the full creator;
 # which mode is looks-only is unverified until the in-game C1 test
 DEFAULT_RACE_MENU_MODE = 0
+# SPECIAL at the vault terminal (NG-5 / NG-C4; Program.cs SpecialNames, SpecialExtraButtons, SpecialBase, SpecialPoints,
+# SpecialMax and the SPECIAL script's defaults, held equal by tests/test_newgame.py): Fallout 4's rule, 1 in each stat,
+# 21 points to spend, 10 at most in one stat. SPECIAL_BUTTONS is the allocation message's button order, the index
+# Message.Show returns; special_press is the script's rule for one press, tested in Python.
+SPECIAL_STATS = ("Strength", "Perception", "Endurance", "Charisma", "Intelligence", "Agility", "Luck")
+SPECIAL_BUTTONS = SPECIAL_STATS + ("Reset", "Confirm", "Leave")
+SPECIAL_BASE, SPECIAL_POINTS, SPECIAL_MAX = 1, 21, 10
 STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"
 LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User",
                    "fo4sf_newgame.0.log")
@@ -93,7 +105,21 @@ NATIVES = {
         "ScriptObject": ["StartTimer", "RegisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"],
         "Utility": ["Wait", "GetCurrentRealTime"],
     },
+    # Actor.SetValue(ActorValue, float) / GetValue(ActorValue) are FO4's; whether Starfield's Actor.psc declares them
+    # the same way is what this precheck reads (unverified until then)
+    SPECIAL: {
+        "Actor": ["SetValue", "GetValue"],
+        "Debug": ["TraceUser", "Notification"],
+        "Game": ["GetPlayer", "GetFormFromFile"],
+        "Message": ["Show"],
+        "ObjectReference": ["GetPositionX", "IsInInterior"],
+        "Quest": ["GetStage"],
+        "ScriptObject": ["StartTimer"],
+        "Utility": ["GetCurrentRealTime"],
+    },
 }
+# the optional scripts: the stage option that drops each, and the precheck's advice when a native is missing
+OPTIONAL = {LOOKS: "--no-looks", SPECIAL: "--no-special"}
 
 
 def run(cmd, cwd=None, check=True):
@@ -113,6 +139,25 @@ def sha256(path):
         for b in iter(lambda: f.read(1 << 20), b""):
             h.update(b)
     return h.hexdigest()
+
+
+def special_press(values, left, button, base=SPECIAL_BASE, points=SPECIAL_POINTS, maximum=SPECIAL_MAX):
+    """FO4SF_NewGameSpecial.Allocate's rule for one press of SPECIAL_BUTTONS[button] on (values, left): the new
+    (values, left, ending), ending None while the message shows again, "set" on Confirm with every point spent,
+    "left" on Leave (or a closed message, button -1). A stat button with no points left or the stat at the maximum
+    changes nothing; Confirm with points left changes nothing."""
+    values = list(values)
+    name = SPECIAL_BUTTONS[button] if 0 <= button < len(SPECIAL_BUTTONS) else "Leave"
+    if name in SPECIAL_STATS:
+        if left > 0 and values[button] < maximum:
+            values[button] += 1
+            left -= 1
+        return values, left, None
+    if name == "Reset":
+        return [base] * len(SPECIAL_STATS), points, None
+    if name == "Confirm":
+        return values, left, "set" if left == 0 else None
+    return values, left, "left"
 
 
 def is_new_game(days, level, max_days=0.25, max_level=1):
@@ -153,7 +198,8 @@ def precheck_zip(zip_path):
     for script, bases in NATIVES.items():
         natives[script] = {f"{b}.{f}": has_function(sources.get(b.lower(), ""), f) for b, fs in bases.items() for f in fs}
     missing = [k for k, ok in natives[SCRIPT].items() if not ok]
-    return {"natives": natives, "mq101debug": debug, "missing_core": missing}
+    drop = [opt for script, opt in OPTIONAL.items() if not all(natives[script].values())]
+    return {"natives": natives, "mq101debug": debug, "missing_core": missing, "drop": drop}
 
 
 def precheck(a):
@@ -167,9 +213,8 @@ def precheck(a):
     if a.out:
         with open(a.out, "w", encoding="utf-8") as f:
             json.dump(r, f, indent=1)
-    looks = all(r["natives"][LOOKS].values())
     print("precheck: " + ("ok" if not r["missing_core"] else f"{len(r['missing_core'])} native(s) missing; do not stage")
-          + ("" if looks else "; the looks script cannot compile: stage with --no-looks"))
+          + "".join(f"; {script} cannot compile: stage with {opt}" for script, opt in OPTIONAL.items() if opt in r["drop"]))
     return 0 if not r["missing_core"] else 1
 
 
@@ -197,7 +242,7 @@ def compile_script(compiler, name, src_dir, out_dir):
             cwd=HERE, check=False)
     pex = os.path.join(out_dir, name + ".pex")
     if r.returncode != 0 or "Compilation succeeded" not in r.stdout or not os.path.exists(pex):
-        hint = " (stage again with --no-looks)" if name == LOOKS else ""
+        hint = f" (stage again with {OPTIONAL[name]})" if name in OPTIONAL else ""
         sys.exit(f"the Papyrus compile of {name}.psc did not produce {name}.pex{hint}")
     return pex
 
@@ -224,6 +269,8 @@ def tool_options(a):
         opts.append("--no-looks")
     if a.race_menu_mode is not None:
         opts += ["--race-menu-mode", str(a.race_menu_mode)]
+    if not a.special:
+        opts.append("--no-special")
     return opts
 
 
@@ -248,7 +295,8 @@ def stage(a):
     os.makedirs(work)
     tool = ["dotnet", "run", "-c", "Release", "--project", PROJECT, "--"]
     points = os.path.join(work, "points.json")
-    run(tool + ["points", a.fo4, points] + (["--pod-ref", a.pod_ref] if a.pod_ref else []))
+    run(tool + ["points", a.fo4, points] + (["--pod-ref", a.pod_ref] if a.pod_ref else [])
+        + (["--terminal-ref", a.terminal_ref] if a.terminal_ref else []))
     opts = tool_options(a)
     masters = [a.starfield, a.port, a.port_ids, a.core, points]
     run(tool + ["write", a.starfield, a.port, a.port_ids, a.core, points, out] + opts)
@@ -256,7 +304,7 @@ def stage(a):
     with open(os.path.join(out, "offline_check.txt"), "w", encoding="utf-8") as f:
         f.write(check)
     src = extract_sources(a.content_resources, work)
-    scripts = [SCRIPT] + ([LOOKS] if a.looks else [])
+    scripts = [SCRIPT] + ([LOOKS] if a.looks else []) + ([SPECIAL] if a.special else [])
     pex = {s: compile_script(a.compiler, s, src, os.path.join(out, "Data", "Scripts")) for s in scripts}
     for s in scripts:
         shutil.copy(os.path.join(HERE, s + ".psc"), os.path.join(out, s + ".psc"))
@@ -268,7 +316,8 @@ def stage(a):
     plan = {"kind": "newgame", "plugin": PLUGIN, "plugin_sha256": sha256(os.path.join(out, PLUGIN)),
             "scripts": {s: sha256(p) for s, p in pex.items()}, "checked_against_sha256": before,
             "options": {"hold": a.hold or ",".join(DEFAULT_HOLD), "mq101debug": mq101debug_option(a), "looks": a.looks,
-                        "race_menu_mode": DEFAULT_RACE_MENU_MODE if a.race_menu_mode is None else a.race_menu_mode},
+                        "race_menu_mode": DEFAULT_RACE_MENU_MODE if a.race_menu_mode is None else a.race_menu_mode,
+                        "special": a.special},
             "stages": {str(n): what for n, what in STAGE_CONTRACT.items()}, "points": pts,
             "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_newgame.0.log"}
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
@@ -276,9 +325,11 @@ def stage(a):
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(f"""Fallout 4 new game (Claude-cloud, {datetime.date.today().isoformat()}). docs/newgame/vault111-start.md
 {PLUGIN} (sha256 {plan['plugin_sha256']}): QUST FO4SF_NewGame "{pts['quest_name']}" (start game enabled, run once),
-MESG FO4SF_NewGameElevator and FO4SF_NewGameStart; master Starfield.esm only. Scripts: {', '.join(s + '.pex' for s in scripts)} in Data\\Scripts.
+MESG FO4SF_NewGameElevator and FO4SF_NewGameStart{', FO4SF_NewGameTerminal and FO4SF_NewGameSpecial, 7 AVIF FO4SF_Special_<stat>' if a.special else ''};
+master Starfield.esm only. Scripts: {', '.join(s + '.pex' for s in scripts)} in Data\\Scripts.
 Checked against (the ids it resolves at run time must stay): {json.dumps(before)}. Re-stage after a port or core change.
-Pod {pts['pod']['src']} {pts['pod'].get('edid')}; arrival {pts['arrival']['pos']} m (core-local). Options {json.dumps(plan['options'])}.
+Pod {pts['pod']['src']} {pts['pod'].get('edid')}; arrival {pts['arrival']['pos']} m (core-local); {len(pts.get('terminals', []))} terminal(s) in the cell.
+Options {json.dumps(plan['options'])}.
 Install: not now. When the owner says so (game closed): fold into a core set, verify, then exp_install.py.
 In game: a NEW game only (an existing save stands the quest down at stage 1). Read the run:
   python scripts\\newgame\\make_newgame.py log
@@ -368,15 +419,17 @@ def split_runs(lines, line_re, start="init "):
 
 def summarize(lines):
     """The LATEST run of the new-game log as {"stages", "stages_named", "held_off", "held_off_by_pass", "looks_done",
-    "entered_vault", "surfaced", "landed", "fell", "stood_down", "last_status", "runs", "earlier_completed"}.
+    "special", "entered_vault", "surfaced", "landed", "fell", "stood_down", "last_status", "runs", "earlier_completed"}.
     "stages_named" reads each stage reached by the contract (STAGE_CONTRACT); "held_off_by_pass" says what each
     hold-off pass stopped (pass 1 before the move, pass 2 one tick later for what MQ101's stop started); "looks_done"
-    says what ended the looks wait ("creator closed", "quick start", or the quest's "LooksWait fallback ..."). Only the latest run is judged; "runs"
+    says what ended the looks wait ("creator closed", "quick start", or the quest's "LooksWait fallback ..."); "special"
+    is the SPECIAL script's ending ("set S=.. P=.. ..." or "skipped: ..." when the player left the vault without it;
+    "later" and "left" prompts are not endings). Only the latest run is judged; "runs"
     counts the runs in the file and "earlier_completed" says whether an older one reached stage 200 (kept as history,
     never as the current result). Lines of other logs are ignored."""
-    s = {"stages": [], "stages_named": [], "held_off": [], "held_off_by_pass": {}, "looks_done": None, "entered_vault": None,
-         "surfaced": None, "landed": None, "fell": False, "stood_down": False, "last_status": None, "runs": 0,
-         "earlier_completed": False}
+    s = {"stages": [], "stages_named": [], "held_off": [], "held_off_by_pass": {}, "looks_done": None, "special": None,
+         "entered_vault": None, "surfaced": None, "landed": None, "fell": False, "stood_down": False, "last_status": None,
+         "runs": 0, "earlier_completed": False}
     runs = split_runs(lines, LINE)
     s["runs"] = len(runs)
     s["earlier_completed"] = any("stage 200" in r for r in runs[:-1])
@@ -393,6 +446,9 @@ def summarize(lines):
         elif msg.startswith("looks done: "):
             if s["looks_done"] is None:                      # the first ending counts; a later one changes nothing
                 s["looks_done"] = msg[len("looks done: "):]
+        elif msg.startswith("special set ") or msg.startswith("special skipped"):
+            if s["special"] is None:
+                s["special"] = msg[len("special "):]
         elif msg.startswith("enter vault ok="):
             s["entered_vault"] = msg.split()[2] == "ok=True"
         elif msg.startswith("surface setposition "):
@@ -434,6 +490,9 @@ def main(argv=None):
     s.add_argument("--no-looks", dest="looks", action="store_false")
     s.add_argument("--race-menu-mode", type=int, default=None,
                    help=f"Game.ShowRaceMenu's uiMode for the looks script (default {DEFAULT_RACE_MENU_MODE}, the full creator)")
+    s.add_argument("--no-special", dest="special", action="store_false",
+                   help="no SPECIAL terminal: no FO4SF_NewGameSpecial script, AVIF or its two MESG")
+    s.add_argument("--terminal-ref", default=None, help="the SPECIAL terminal in Vault111Cryo, FO4 hex id (default: the cell's terminals, nearest the pod first)")
     s.add_argument("--hold", default=None, help=f"Starfield start quests to stop, by EditorID (default {','.join(DEFAULT_HOLD)})")
     s.add_argument("--mq101debug", type=float, default=None, help=f"the GLOB MQ101Debug override's value (default {DEFAULT_MQ101DEBUG})")
     s.add_argument("--no-mq101debug", action="store_true", help="write no GLOB MQ101Debug override")

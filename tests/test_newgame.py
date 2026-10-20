@@ -1,6 +1,6 @@
 """The Fallout 4 new game (docs/newgame/vault111-start.md): the contract between dotnet/NewGame (the plugin),
-FO4SF_NewGameQuest.psc / FO4SF_NewGameLooks.psc (the scripts) and make_newgame.py (precheck, staging, verify, fold, the
-log reader). Synthetic only; the C# writer's own self-test runs when a dotnet SDK is on PATH."""
+FO4SF_NewGameQuest.psc / FO4SF_NewGameLooks.psc / FO4SF_NewGameSpecial.psc (the scripts) and make_newgame.py (precheck,
+staging, verify, fold, the log reader). Synthetic only; the C# writer's own self-test runs when a dotnet SDK is on PATH."""
 import io
 import unittest.mock
 import json
@@ -19,6 +19,7 @@ import make_newgame as ng  # noqa: E402
 
 PSC = os.path.join(ROOT, "scripts", "newgame", "FO4SF_NewGameQuest.psc")
 LOOKS = os.path.join(ROOT, "scripts", "newgame", "FO4SF_NewGameLooks.psc")
+SPECIAL = os.path.join(ROOT, "scripts", "newgame", "FO4SF_NewGameSpecial.psc")
 CS = os.path.join(ROOT, "dotnet", "NewGame", "Program.cs")
 
 
@@ -28,18 +29,24 @@ def read(path):
 
 
 def written_properties(cs):
-    """(quest, looks): the property names Program.cs writes to each script. The quest's are the Properties() table
-    plus its three object properties; the looks script's are LooksProperties() plus StartMessage."""
-    body = cs[cs.index("public static List<(string Name, object Value)> Properties"):]
-    body = body[:body.index("};")]
-    quest = set(re.findall(r'\("(\w+)",', body))
-    looks_body = cs[cs.index("LooksProperties(Options o)"):]
-    looks = set(re.findall(r'\("(\w+)",', looks_body[:looks_body.index("};")]))
-    looks_entry = cs[cs.index("var looks = new SF.ScriptEntry"):]
-    looks |= set(re.findall(r'Obj\("(\w+)"', looks_entry[:looks_entry.index("quest.VirtualMachineAdapter.Scripts.Add(looks)")]))
-    quest |= set(re.findall(r'Obj\("(\w+)"', cs)) - {""} - looks
-    quest |= set(re.findall(r'Name = "(\w+)", Flags = SF\.ScriptProperty', cs))
-    return quest, looks
+    """(quest, looks, special): the property names Program.cs writes to each script. The quest's are the Properties()
+    table plus its three object properties; the looks script's are LooksProperties() plus StartMessage; the SPECIAL
+    script's are SpecialProperties() plus Special, TerminalMessage and SpecialMessage."""
+    def values(table):
+        body = cs[cs.index(table):]
+        return set(re.findall(r'\("(\w+)",', body[:body.index("};")]))
+
+    def objects(entry, end):
+        body = cs[cs.index(entry):]
+        body = body[:body.index(end)]
+        return set(re.findall(r'Obj\("(\w+)"', body)) | set(re.findall(r'ListProperty \{ Name = "(\w+)"', body))
+    quest = values("public static List<(string Name, object Value)> Properties")
+    looks = values("LooksProperties(Options o)")
+    special = values("SpecialProperties(JsonElement pts, Places p)")
+    looks |= objects("var looks = new SF.ScriptEntry", "quest.VirtualMachineAdapter.Scripts.Add(looks)")
+    special |= objects("var special = new SF.ScriptEntry", "quest.VirtualMachineAdapter.Scripts.Add(special)")
+    quest |= objects("var script = new SF.ScriptEntry", "quest.VirtualMachineAdapter = new SF.QuestAdapter")
+    return quest, looks, special
 
 
 class ContractTests(unittest.TestCase):
@@ -62,8 +69,8 @@ class ContractTests(unittest.TestCase):
         self.assertLess(hold, body.index("Game.SetCharGenHUDMode(0)"))
 
     def test_every_mandatory_property_is_written_and_every_written_one_declared(self):
-        written, looks_written = written_properties(read(CS))
-        for psc, written_here in ((PSC, written), (LOOKS, looks_written)):
+        written, looks_written, special_written = written_properties(read(CS))
+        for psc, written_here in ((PSC, written), (LOOKS, looks_written), (SPECIAL, special_written)):
             declared = ng.declared_properties(read(psc))
             mandatory = {n for n, m in declared.items() if m}
             self.assertEqual(mandatory - written_here, set(), f"mandatory properties the plugin never fills ({psc})")
@@ -71,6 +78,61 @@ class ContractTests(unittest.TestCase):
         self.assertIn("HoldOff", written)
         self.assertIn("LooksWait", written)                  # 0 in a --no-looks build, so the quest does not wait
         self.assertEqual(looks_written, {"StartMessage", "RaceMenuMode"})
+        self.assertEqual(special_written, {"Special", "TerminalMessage", "SpecialMessage", "TerminalId", "TerminalX", "TerminalY", "TerminalZ"})
+
+    def test_special_at_the_vault_terminal(self):
+        """NG-5 / NG-C4: the SPECIAL rule is one set of numbers in the writer, the script and Python; the allocation
+        message's buttons are the stats in order, then Reset, Confirm, Leave; the script applies Confirm with
+        Actor.SetValue on the seven AVIF and logs every ending as "special <how>"; the quest never waits on it (no
+        SPECIAL wait in the quest script), and a --no-special build drops the script, its MESG and the AVIF."""
+        cs, special, psc = read(CS), read(SPECIAL), read(PSC)
+        self.assertIn("SpecialNames = { " + ", ".join(f'"{n}"' for n in ng.SPECIAL_STATS) + " }", cs)
+        self.assertIn("SpecialExtraButtons = { " + ", ".join(f'"{n}"' for n in ng.SPECIAL_BUTTONS[len(ng.SPECIAL_STATS):]) + " }", cs)
+        self.assertIn(f"SpecialBase = {ng.SPECIAL_BASE}, SpecialPoints = {ng.SPECIAL_POINTS}, SpecialMax = {ng.SPECIAL_MAX};", cs)
+        self.assertIn(f"int Property SpecialBase = {ng.SPECIAL_BASE} Auto Const", special)
+        self.assertIn(f"int Property SpecialPoints = {ng.SPECIAL_POINTS} Auto Const", special)
+        self.assertIn(f"int Property SpecialMax = {ng.SPECIAL_MAX} Auto Const", special)
+        self.assertEqual(len(ng.SPECIAL_BUTTONS), 10)         # FO4's MESG limit; the script's button indices
+        self.assertIn("if button >= 0 && button < 7", special)
+        self.assertIn("elseif button == 7", special)         # Reset
+        self.assertIn("elseif button == 8", special)         # Confirm
+        self.assertIn("int[] values = new int[7]", special)
+        self.assertIn("player.SetValue(Special[i], values[i] as float)", special)
+        self.assertIn('Trace("special set S="', special)
+        self.assertIn('Trace("special skipped: left the vault with SPECIAL unset")', special)
+        self.assertIn('Trace("special later")', special)
+        self.assertIn('Trace("special left: ', special)
+        self.assertIn("ActorValue[] Property Special Auto Const Mandatory", special)
+        self.assertIn('string Property VaultPlugin = "FO4Port.esm" Auto Const', special)
+        self.assertNotIn("Special", psc.split("}", 1)[1])     # the quest script knows nothing of it
+        self.assertIn('SpecialScript = "FO4SF_NewGameSpecial"', cs)
+        self.assertIn('a.Contains("--no-special")', cs)
+        self.assertIn("Types.SpecialAttribute", cs)
+        self.assertIn('"TerminalId", (int)p.Terminal', cs)
+        p = ng.main.__globals__["argparse"].Namespace(hold=None, mq101debug=None, no_mq101debug=False, looks=True,
+                                                      race_menu_mode=None, special=False)
+        self.assertEqual(ng.tool_options(p), ["--no-special"])
+        self.assertEqual(ng.OPTIONAL, {ng.LOOKS: "--no-looks", ng.SPECIAL: "--no-special"})
+
+    def test_the_allocation_rule(self):
+        """special_press is FO4SF_NewGameSpecial.Allocate's rule: base 1 each, 21 points, 10 at most per stat, Reset
+        starts over, Confirm only with every point spent, Leave (or a closed message) keeps the defaults."""
+        base, pts = [ng.SPECIAL_BASE] * 7, ng.SPECIAL_POINTS
+        values, left, end = ng.special_press(base, pts, 0)
+        self.assertEqual((values, left, end), ([2, 1, 1, 1, 1, 1, 1], 20, None))
+        for _ in range(12):                                   # Strength stops at 10 and costs nothing past it
+            values, left, end = ng.special_press(values, left, 0)
+        self.assertEqual((values[0], left, end), (ng.SPECIAL_MAX, 12, None))
+        self.assertEqual(ng.special_press(values, left, 8), (values, 12, None))          # Confirm with points left
+        for b in (1, 2, 3, 4, 5, 6, 6, 6, 6, 6, 6, 6):        # spend the rest
+            values, left, end = ng.special_press(values, left, b)
+        self.assertEqual((values, left, end), ([10, 2, 2, 2, 2, 2, 8], 0, None))
+        self.assertEqual(sum(values), 7 * ng.SPECIAL_BASE + ng.SPECIAL_POINTS)
+        self.assertEqual(ng.special_press(values, 0, 3), (values, 0, None))              # no points left
+        self.assertEqual(ng.special_press(values, 0, 8), (values, 0, "set"))
+        self.assertEqual(ng.special_press(values, 0, 7), (base, pts, None))
+        self.assertEqual(ng.special_press(values, 0, 9), (values, 0, "left"))
+        self.assertEqual(ng.special_press(base, pts, -1), (base, pts, "left"))
 
     def test_the_race_menu_mode_and_the_opening_choice(self):
         """NG-6 / NG-C9 / NG-C1: the writer's --race-menu-mode (default 0) is the looks script's RaceMenuMode, passed
@@ -99,7 +161,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn('Trace("looks done: " + how)', looks)
         self.assertIn('Trace("looks done: LooksWait fallback after " + LooksWait + " s")', psc)
         p = ng.main.__globals__["argparse"].Namespace(hold=None, mq101debug=None, no_mq101debug=False, looks=True,
-                                                      race_menu_mode=1)
+                                                      race_menu_mode=1, special=True)
         self.assertEqual(ng.tool_options(p), ["--race-menu-mode", "1"])
 
     def test_stages_match(self):
@@ -134,7 +196,7 @@ class ContractTests(unittest.TestCase):
         self.assertIn(f"DefaultMQ101Debug = {ng.DEFAULT_MQ101DEBUG}f", cs)
         self.assertEqual(ng.DEFAULT_HOLD[2:], ("MQ101PostQuest", "MQ_TutorialQuest_Misc04"))
         p = ng.main.__globals__["argparse"].Namespace(hold=None, mq101debug=None, no_mq101debug=False, looks=True,
-                                                      race_menu_mode=None)
+                                                      race_menu_mode=None, special=True)
         self.assertEqual(ng.tool_options(p), [])
         self.assertEqual(ng.mq101debug_option(p), 10)
         p.no_mq101debug = True
@@ -163,7 +225,10 @@ class ContractTests(unittest.TestCase):
         self.assertIn(f'Plugin = "{ng.PLUGIN}"', cs)
         self.assertRegex(read(PSC), rf"Scriptname {ng.SCRIPT} extends Quest")
         self.assertRegex(read(LOOKS), rf"Scriptname {ng.LOOKS} extends Quest")
+        self.assertIn(f'SpecialScript = "{ng.SPECIAL}"', cs)
+        self.assertRegex(read(SPECIAL), rf"Scriptname {ng.SPECIAL} extends Quest")
         self.assertIn('"FO4SF_NEWGAME rt="', read(PSC))
+        self.assertIn('"FO4SF_NEWGAME rt="', read(SPECIAL))
 
     def test_merge_offset_is_the_measured_one(self):
         sys.path.insert(0, os.path.join(ROOT, "scripts", "terrain"))
@@ -201,6 +266,16 @@ class ContractTests(unittest.TestCase):
         looks_listed = {f for bases in ng.NATIVES[ng.LOOKS].values() for f in bases}
         self.assertEqual(looks_calls - looks_listed - looks_own, set())
         self.assertEqual(set(ng.NATIVES[ng.LOOKS]["ScriptObject"]), {"StartTimer", "RegisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"})
+        # the SPECIAL script the same way; its Actor.SetValue / GetValue are the unverified pair the precheck reads
+        special = read(SPECIAL)
+        special_calls = set(re.findall(r"\.(\w+)\(", special)) | set(re.findall(r"^\s*(RegisterFor\w+|StartTimer)\(", special, re.M))
+        special_calls |= set(re.findall(r"^Event (On\w+)\(", special, re.M)) - {"OnQuestInit", "OnTimer"}
+        special_own = set(re.findall(r"^\s*[\w\[\]]*\s*Function\s+(\w+)", special, re.M))
+        special_listed = {f for bases in ng.NATIVES[ng.SPECIAL].values() for f in bases}
+        self.assertEqual(special_calls - special_listed - special_own - {"GetPositionY", "GetPositionZ"}, set())
+        self.assertEqual(set(ng.NATIVES[ng.SPECIAL]["Actor"]), {"SetValue", "GetValue"})
+        self.assertNotIn("IsInMenuMode(", special)
+        self.assertNotIn("Function Reset(", special)          # Quest.psc has Reset(); Papyrus has no overloads
 
     def test_declared_properties_parser(self):
         text = ("Quest[] Property A Auto Const Mandatory\nfloat Property B = 0.25 Auto Const\n"
@@ -213,9 +288,12 @@ CHARGEN = ("Function SetInChargen(bool abDisableSaving, bool abDisableWaiting, b
            "native global\nFunction SetCharGenHUDMode(int aiCGHUDMode) native global\n")
 
 
-def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None):
+def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None, actor=None):
     base = {
-        "Actor": "Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n",
+        # Actor.psc: GetLevel (the guard) and FO4's SetValue / GetValue (the SPECIAL script; unverified in Starfield)
+        "Actor": actor if actor is not None else "Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n"
+                                                 "Function SetValue(ActorValue akAV, float afValue) native\n"
+                                                 "float Function GetValue(ActorValue akAV) native\n",
         "Debug": "Function OpenUserLog(string a) native global\nbool Function TraceUser(string a, string b) native global\n"
                  "Function Notification(string a) native global\n",
         "Game": game if game is not None else "Actor Function GetPlayer() native global\n"
@@ -223,7 +301,7 @@ def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None):
                                               "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n"
                                               + CHARGEN,
         "GlobalVariable": "float Function GetValue() native\n",
-        "Message": "int Function Show(float a = 0.0) native\n",
+        "Message": "int Function Show(" + ", ".join(f"float afArg{i} = 0.0" for i in range(1, 10)) + ") native\n",
         "ObjectReference": "\n".join(f"Function {f}() native" for f in ng.NATIVES[ng.SCRIPT]["ObjectReference"]),
         "Quest": "\n".join(f"Function {f}() native" for f in ng.NATIVES[ng.SCRIPT]["Quest"]),
         # ScriptObject.psc (PC read 19 Oct): RegisterForMenuOpenCloseEvent is native; the event's signature is FO4's
@@ -252,6 +330,8 @@ class PrecheckTests(unittest.TestCase):
         r = ng.precheck_zip(z)
         self.assertEqual(r["missing_core"], [])
         self.assertTrue(all(r["natives"][ng.LOOKS].values()))
+        self.assertTrue(all(r["natives"][ng.SPECIAL].values()))
+        self.assertEqual(r["drop"], [])
         self.assertEqual(len(r["mq101debug"]), 1)
         self.assertIn("QF_MQ101_00003448.psc:1:", r["mq101debug"][0])
 
@@ -267,7 +347,24 @@ class PrecheckTests(unittest.TestCase):
             rc = ng.main(["precheck", "--content-resources", z, "--out", out])
         self.assertEqual(rc, 0)
         self.assertIn("--no-looks", o.getvalue())
+        self.assertNotIn("--no-special", o.getvalue())
         self.assertTrue(os.path.isfile(out))
+
+    def test_missing_set_value_only_drops_the_special(self):
+        """Actor.SetValue / GetValue are what the SPECIAL script needs beyond the quest's natives: a source set
+        without them fails only that script, and the precheck says --no-special."""
+        z = os.path.join(self.tmp, "cr.zip")
+        fake_zip(z, actor="Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n")
+        r = ng.precheck_zip(z)
+        self.assertEqual(r["missing_core"], [])
+        self.assertFalse(r["natives"][ng.SPECIAL]["Actor.SetValue"])
+        self.assertFalse(r["natives"][ng.SPECIAL]["Actor.GetValue"])
+        self.assertTrue(all(r["natives"][ng.LOOKS].values()))
+        self.assertEqual(r["drop"], ["--no-special"])
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
+            self.assertEqual(ng.main(["precheck", "--content-resources", z]), 0)
+        self.assertIn("FO4SF_NewGameSpecial cannot compile: stage with --no-special", o.getvalue())
+        self.assertNotIn("--no-looks", o.getvalue())
 
     def test_missing_core_native_fails(self):
         z = os.path.join(self.tmp, "cr.zip")
@@ -312,6 +409,10 @@ class LogTests(unittest.TestCase):
         "[10/20/2026 - 09:00:03AM] FO4SF_NEWGAME rt=8.0 held off [Quest < (00013579)>] running_after=False pass=2",
         "[10/20/2026 - 09:00:03AM] FO4SF_NEWGAME rt=8.0 hold-off pass 2 stopped=1 of 4",
         "[10/20/2026 - 09:00:03AM] FO4SF rt=7.5 pos=1 2 3 (another log's line)",
+        "[10/20/2026 - 09:00:50AM] FO4SF_NEWGAME rt=55.0 terminal prompt button=1",
+        "[10/20/2026 - 09:00:50AM] FO4SF_NEWGAME rt=55.0 special later",
+        "[10/20/2026 - 09:00:58AM] FO4SF_NEWGAME rt=58.0 terminal prompt button=0",
+        "[10/20/2026 - 09:00:59AM] FO4SF_NEWGAME rt=59.0 special set S=10 P=2 E=2 C=2 I=2 A=2 L=8 readback=10.000000 8.000000",
         "[10/20/2026 - 09:01:00AM] FO4SF_NEWGAME rt=60.0 status stage=20 pos=50 10 0 cell=x world=None",
         "[10/20/2026 - 09:02:00AM] FO4SF_NEWGAME rt=120.0 elevator prompt button=0",
         "[10/20/2026 - 09:02:00AM] FO4SF_NEWGAME rt=120.1 surface setposition pos=-2450 -1410 110 target=-2450 -1410 110",
@@ -325,6 +426,7 @@ class LogTests(unittest.TestCase):
         self.assertEqual(s["stages"], [10, 20, 40, 200])
         self.assertEqual(s["stages_named"], [f"{n} {ng.STAGE_CONTRACT[n]}" for n in (10, 20, 40, 200)])
         self.assertEqual(s["looks_done"], "creator closed")
+        self.assertEqual(s["special"], "set S=10 P=2 E=2 C=2 I=2 A=2 L=8 readback=10.000000 8.000000")
         self.assertEqual(s["held_off"], ["[Quest < (00012345)>]", "[Quest < (00013579)>]"])
         self.assertEqual(s["held_off_by_pass"], {"1": ["[Quest < (00012345)>]"], "2": ["[Quest < (00013579)>]"]})
         self.assertTrue(s["entered_vault"])
@@ -399,6 +501,15 @@ class LogTests(unittest.TestCase):
                                       "[x] FO4SF_NEWGAME rt=130.0 looks done: LooksWait fallback after 120.0 s\n")
         self.assertEqual(s["looks_done"], "creator closed")
         self.assertIsNone(self.run_log(head)[1]["looks_done"])
+
+    def test_special_endings(self):
+        """The SPECIAL ending: set at the terminal, or skipped when the player left the vault without it; "later" and
+        "left" are not endings, and a run without one reads None."""
+        head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915\n"
+        code, s = self.run_log(head + "[x] FO4SF_NEWGAME rt=9.0 special later\n[x] FO4SF_NEWGAME rt=12.0 special left: defaults kept, 21 points unspent\n"
+                                      "[x] FO4SF_NEWGAME rt=90.0 stage 40\n[x] FO4SF_NEWGAME rt=91.0 special skipped: left the vault with SPECIAL unset\n")
+        self.assertEqual(s["special"], "skipped: left the vault with SPECIAL unset")
+        self.assertIsNone(self.run_log(head + "[x] FO4SF_NEWGAME rt=9.0 special later\n")[1]["special"])
 
     def test_split_runs(self):
         lines = ["[a] FO4SF_NEWGAME rt=1 status stage=20", "[b] other log", "[c] FO4SF_NEWGAME rt=2 init x",
