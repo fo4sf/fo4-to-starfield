@@ -1914,3 +1914,22 @@ cheap default capture unchanged. Paths/timestamps remain informational across PC
 existing identity/manifest controls pass (28 total). Fourteen controlled actual-CLI replays retain positive
 hashed comparisons and qualify hidden same-sized content changes; ten synthetic input files remain unchanged.
 No new hashing/build job on private inputs, decoder, driver, restore or native action. Independent QA is pending.
+
+## 2026-10-20: Codex restore Plugins.txt namespace binding (offline)
+
+PR394 finding5: a snapshot could name a different file while its installer always
+used LOCALAPPDATA/Starfield/Plugins.txt. Two original-source backend replays
+(wrong filename and wrong parent) returned an empty differences list after an
+injected installer changed the canonical file. The correction validates and
+canonicalizes that address before reading snapshots, planning, verifying, writing
+or applying; mismatched snapshots refuse. Valid custom roots, Windows case aliases
+of the same namespace, missing files and no-op restores remain supported.
+
+Eight new synthetic methods and seven existing read-only restore methods pass.
+Six retained old/new backend calls reproduce both false successes, show refusal
+before the callback with all state unchanged, and preserve both valid no-ops.
+Install effects were injected in temporary profiles, not performed on a game.
+Initial test setup mistakes (imported TestCase discovery and missing LOCALAPPDATA
+isolation) and original failures are retained privately; corrected tests pin a
+temporary profile in every case. Other PR394 findings and independent QA remain
+open. No physical restore, deployment, game input or native acceptance.
