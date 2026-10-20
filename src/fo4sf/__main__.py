@@ -90,6 +90,17 @@ def _print_manifest(manifest_path: Path) -> int:
         print("  By fidelity tier:")
         for k, v in sorted(summary["by_tier"].items()):
             print(f"    {k}: {v}")
+    mix = []
+    if summary.get("doors"):
+        mix.append(f"doors={summary['doors']}")
+    if summary.get("load_doors"):
+        mix.append(f"load_doors={summary['load_doors']}")
+    if summary.get("movables"):
+        mix.append(f"movables={summary['movables']}")
+    if summary.get("total_shapes"):
+        mix.append(f"avg_shapes={summary['avg_shapes']}")
+    if mix:
+        print(f"  Asset mix: {' '.join(mix)}")
     return 0
 
 

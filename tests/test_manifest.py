@@ -51,5 +51,18 @@ class TestManifest(unittest.TestCase):
                 load_manifest(p)
 
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_asset_mix_counts(self):
+        items = [
+            {"type": "STAT", "door": True, "shapes": 4},
+            {"type": "STAT", "load_door": True, "shapes": 2},
+            {"type": "MISC", "movable": True, "shapes": 1},
+            {"type": "STAT"},
+        ]
+        s = summarize_manifest(items)
+        self.assertEqual(s["doors"], 1)
+        self.assertEqual(s["load_doors"], 1)
+        self.assertEqual(s["movables"], 1)
+        self.assertEqual(s["total_shapes"], 7)
+        self.assertAlmostEqual(s["avg_shapes"], 1.8)
+
+

@@ -36,13 +36,34 @@ def load_manifest(path: str | Path) -> list[dict[str, Any]]:
 
 
 def summarize_manifest(items: list[dict[str, Any]]) -> dict[str, Any]:
-    """Return simple counts for a coverage table."""
+    """Return simple counts for a coverage table, plus optional asset mix if fields are present."""
     total = len(items)
     by_type: dict[str, int] = {}
     by_tier: dict[str, int] = {}
+    doors = 0
+    load_doors = 0
+    movables = 0
+    total_shapes = 0
     for it in items:
         typ = str(it.get("type") or it.get("record_type") or "unknown")
         by_type[typ] = by_type.get(typ, 0) + 1
         tier = str(it.get("fidelity_tier") or it.get("tier") or "T?")
         by_tier[tier] = by_tier.get(tier, 0) + 1
-    return {"total": total, "by_type": by_type, "by_tier": by_tier}
+        if "door" in it:
+            doors += 1
+        if "load_door" in it:
+            load_doors += 1
+        if "movable" in it:
+            movables += 1
+        total_shapes += int(it.get("shapes") or 0)
+    avg_shapes = round(total_shapes / total, 1) if total else 0.0
+    return {
+        "total": total,
+        "by_type": by_type,
+        "by_tier": by_tier,
+        "doors": doors,
+        "load_doors": load_doors,
+        "movables": movables,
+        "total_shapes": total_shapes,
+        "avg_shapes": avg_shapes,
+    }
