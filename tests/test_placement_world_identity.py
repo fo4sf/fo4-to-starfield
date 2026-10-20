@@ -126,11 +126,14 @@ class PlacementWorldIdentityTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertFalse(json.loads(result.stdout)["identity_ok"])
 
-    def test_unimplemented_anchor_is_refused_instead_of_ignored(self):
+    def test_missing_anchor_is_explicit_non_success(self):
         plugin(self.mission, ["core.esp"], 0x803)
         result = self.run_cli("--anchor", "Good")
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("anchor", result.stderr)
+        self.assertEqual(result.returncode, 1)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["anchor"]["requested_edid"], "Good")
+        self.assertEqual(report["anchor"]["status"], "missing")
+        self.assertTrue(all(r["anchor_distance_m"] is None for r in report["refs"]))
 
 
 if __name__ == "__main__":
