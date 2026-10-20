@@ -19,8 +19,8 @@ Each match is one of:
 Exit 1 when anything regressed or was lost, else 0. A key that two tests of one side share is reported, and the
 later queue on the command line wins for it. Exit 2, with no report, when a queue cannot be read as evidence: a
 missing or unreadable queue.json (no "tests" list), an unreadable door_rounds_judge.json, or a door rounds queue
-(its experiment folder holds rounds.json) that has not been judged yet (scripts/bridge/door_rounds.py judge): the
-runner's terrain verdicts never stand in for a door's.
+(tests labelled "door round N ...", or an experiment folder holding rounds.json) that has not been judged yet
+(scripts/bridge/door_rounds.py judge): the runner's terrain verdicts never stand in for a door's.
 """
 import argparse
 import json
@@ -59,6 +59,15 @@ def rows(qdir):
     return out
 
 
+def is_door_queue(q):
+    """A door rounds queue, from the queue itself: its tests carry door_rounds.py's "door round N IN/OUT" labels
+    (plan-terrain copies them into model), so an archived queue whose stage folder moved still counts; or its
+    experiment folder holds rounds.json."""
+    if any(str(t.get("model", "")).startswith("door round ") for t in q["tests"] if isinstance(t, dict)):
+        return True
+    return bool(q.get("experiment")) and os.path.exists(os.path.join(q["experiment"], "rounds.json"))
+
+
 def results(qdir):
     """({key: {"verdict", "detail", "id", "queue"}}, build id, [duplicate keys]) for one queue."""
     q = load(os.path.join(qdir, "queue.json"))
@@ -75,7 +84,7 @@ def results(qdir):
     judged = load(judge_p)
     if os.path.exists(judge_p) and not (isinstance(judged, dict) and isinstance(judged.get("results"), list)):
         raise Unavailable(f"{judge_p}: unreadable or without a results list; judge the queue again")
-    if judged is None and q.get("experiment") and os.path.exists(os.path.join(q["experiment"], "rounds.json")):
+    if judged is None and is_door_queue(q):
         raise Unavailable(f"{qdir}: a door rounds queue not judged yet; run scripts/bridge/door_rounds.py judge "
                           f"--queue {qdir} first")
     if judged is not None:

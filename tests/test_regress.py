@@ -125,6 +125,15 @@ class DiffTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()) as buf:
             self.assertEqual(rg.main(["--old", old, "--new", new]), 2)
         self.assertIn("unreadable or without a results list", buf.getvalue())
+        archived = queue(d, "archived", "c", [{"kind": "terrain", "cell": "", "ref": "FO4Port_Vault95",
+                                               "model": "door round 0 OUT (FO4Port_Vault95): coc inside"}], [(0, "PASS")])
+        with open(os.path.join(archived, "queue.json")) as f:              # its stage folder moved away (Codex on #401)
+            q2 = json.load(f)
+        with open(os.path.join(archived, "queue.json"), "w") as f:
+            json.dump(dict(q2, experiment=os.path.join(d, "moved_away")), f)
+        with redirect_stdout(io.StringIO()) as buf:
+            self.assertEqual(rg.main(["--old", old, "--new", archived]), 2)
+        self.assertIn("not judged yet", buf.getvalue())
         with open(os.path.join(new, "door_rounds_judge.json"), "w") as f:
             json.dump({"results": [dict(row, verdict="NOT_RUN")]}, f)    # judged, never run: lost, exit 1
         with redirect_stdout(io.StringIO()):

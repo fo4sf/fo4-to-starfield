@@ -25,7 +25,8 @@ python scripts/game/regress.py --old <queues of the old build> --new <queues of 
 
 The tool exits 1 when anything regressed or was lost, so a chain can stop on it. It exits 2, writing no report,
 when a queue cannot be read as evidence: a missing or torn `queue.json`, an unreadable `door_rounds_judge.json`, or a
-door rounds queue that has not been judged yet (run `scripts/bridge/door_rounds.py judge --queue <queue>` first).
+door rounds queue that has not been judged yet, known by its tests' "door round N IN/OUT" labels even when its stage folder
+has moved (run `scripts/bridge/door_rounds.py judge --queue <queue>` first).
 
 ## Limits
 - The verdicts are only as good as each test's own judge.
