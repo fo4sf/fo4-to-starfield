@@ -428,6 +428,7 @@ def main():
         "reused": reused,
         "skipped": skipped,
         "seconds": elapsed,
+        "rate_per_second": round(attempted / elapsed, 2) if elapsed > 0 else 0.0,
         "limit": a.limit,
         "pattern": a.pattern,
         "doors": doors,
