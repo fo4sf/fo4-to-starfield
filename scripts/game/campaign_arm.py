@@ -58,10 +58,11 @@ def norm(p):
 
 
 def cells(q):
-    """The cells every test of a queue starts in (a plan kind's cell, coc, a "coc X" travel), in order, no repeats."""
+    """The cells every test of a queue starts in (a plan kind's cell, coc, plan-terrain's world_coc, which an empty
+    travel starts at, and a "coc X" travel), in order, no repeats."""
     out = []
     for t in q.get("tests") or []:
-        for c in (t.get("cell"), t.get("coc"), *re.findall(r"(?i)\bcoc\s+([A-Za-z0-9_]+)", str(t.get("travel") or ""))):
+        for c in (t.get("cell"), t.get("coc"), t.get("world_coc"), *re.findall(r"(?i)\bcoc\s+([A-Za-z0-9_]+)", str(t.get("travel") or ""))):
             if c and c not in out:
                 out.append(c)
     return out

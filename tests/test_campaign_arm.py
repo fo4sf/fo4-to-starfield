@@ -124,6 +124,21 @@ class CheckTests(Base):
         self.assertIn("repeated", self.check(self.camp([("c", q3), ("c", q3)]))[1][-1])
 
 
+class PlanTerrainHoldTests(Base):
+    def test_a_plan_terrain_door_in_leg_is_held(self):
+        # review pass on #391: plan-terrain writes no "coc"; an IN leg starts at world_coc with an empty travel
+        # (testqueue.py plan-terrain, door_rounds.py's IN leg), so the red_rocket hold never saw it
+        q = self.queue("doors", [{"kind": "terrain", "cell": "", "ref": "FO4Core_RedRocketSpawn",
+                                  "world_coc": "FO4Core_RedRocketSpawn", "travel": ""},
+                                 {"kind": "terrain", "cell": "", "ref": "FO4Port_SuperDuperMart01",
+                                  "world_coc": "FO4Port_SuperDuperMart01", "travel": "coc FO4Port_SuperDuperMart01"}])
+        self.assertEqual(ca.cells(ca.tq.load(os.path.join(q, "queue.json"))),
+                         ["FO4Core_RedRocketSpawn", "FO4Port_SuperDuperMart01"])
+        ok, why = self.check(self.camp([("doors", q)]))
+        self.assertFalse(ok)
+        self.assertIn("FO4Core_RedRocketSpawn", " ".join(why))
+
+
 class ScriptAndGateTests(Base):
     def test_the_chain_carries_the_caps_and_stops_on_the_gate(self):
         q = self.queue("doors_out", [{"coc": "FO4Port_Vault95"}])
