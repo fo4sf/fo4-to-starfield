@@ -96,5 +96,39 @@ class TestCLI(unittest.TestCase):
             self.assertEqual(rc, 0)
 
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_status_reports_path_existence(self):
+        with tempfile.TemporaryDirectory() as td:
+            td_path = Path(td)
+            work = td_path / "work"
+            work.mkdir()
+            missing = td_path / "missing_dir"
+            cfg = td_path / "config.toml"
+            cfg.write_text(
+                f"""
+[fo4]
+data_dirs = ["{missing.as_posix()}"]
+
+[starfield]
+data_dir = "{work.as_posix()}"
+
+[paths]
+work_dir = "{work.as_posix()}"
+staging_dir = "{missing.as_posix()}"
+
+[tools]
+nifskope = "{missing.as_posix()}/tool.exe"
+"""
+            )
+            import io
+            from contextlib import redirect_stdout
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = main(["--config", str(cfg), "status"])
+            self.assertEqual(rc, 0)
+            out = buf.getvalue()
+            self.assertIn("not found", out)
+            self.assertIn("exists (dir)", out)
+            self.assertIn("nifskope:", out)
+            self.assertIn(str(work), out)
+
+

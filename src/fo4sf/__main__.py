@@ -12,6 +12,16 @@ from .config import ConfigError, load_config
 from .manifest import ManifestError, load_manifest, summarize_manifest
 
 
+def _path_status(p: Path | None) -> str:
+    if p is None:
+        return "missing"
+    if p.is_dir():
+        return "exists (dir)"
+    if p.is_file():
+        return "exists (file)"
+    return "not found"
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     try:
         cfg = load_config(args.config)
@@ -21,13 +31,34 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     print("fo4-to-starfield status")
     print(f"  config: {Path(args.config or 'config.toml').resolve()}")
+
     fo4 = cfg.get("fo4", {})
-    print(f"  Fallout 4 data dirs: {len(fo4.get('data_dirs', []))} configured")
+    data_dirs = fo4.get("data_dirs", [])
+    print(f"  Fallout 4 data dirs: {len(data_dirs)} configured")
+    for d in data_dirs:
+        print(f"    {d}: {_path_status(d)}")
+
     sf = cfg.get("starfield", {})
-    print(f"  Starfield data dir: {'set' if sf.get('data_dir') else 'missing'}")
+    sf_dir = sf.get("data_dir")
+    print(f"  Starfield data dir: {_path_status(sf_dir) if sf_dir else 'missing'}")
+    if sf_dir:
+        print(f"    {sf_dir}")
+
     paths = cfg.get("paths", {})
-    print(f"  work_dir: {paths.get('work_dir', 'missing')}")
-    print(f"  staging_dir: {paths.get('staging_dir', 'missing')}")
+    for key in ("work_dir", "staging_dir"):
+        p = paths.get(key)
+        print(f"  {key}: {_path_status(p)}")
+        if p:
+            print(f"    {p}")
+
+    tools = cfg.get("tools", {})
+    if tools:
+        print("  Tools:")
+        for name, p in sorted(tools.items()):
+            status = _path_status(p) if isinstance(p, Path) else "invalid"
+            print(f"    {name}: {status}")
+            if isinstance(p, Path):
+                print(f"      {p}")
 
     if args.manifest:
         return _print_manifest(Path(args.manifest))
@@ -35,8 +66,8 @@ def cmd_status(args: argparse.Namespace) -> int:
     # Optional auto-discovery in staging_dir or work_dir
     for key in ("staging_dir", "work_dir"):
         d = paths.get(key)
-        if d:
-            cand = Path(d) / "manifest.json"
+        if d and isinstance(d, Path):
+            cand = d / "manifest.json"
             if cand.is_file():
                 return _print_manifest(cand)
     print("  Manifest: not found (run a conversion stage to generate one)")
@@ -67,7 +98,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", help="path to config.toml (default: ./config.toml)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_status = sub.add_parser("status", help="show configuration summary and manifest coverage")
+    p_status = sub.add_parser("status", help="show configuration summary, path/tool existence, and manifest coverage")
     p_status.add_argument("--manifest", help="explicit path to manifest.json")
     p_status.set_defaults(func=cmd_status)
 
