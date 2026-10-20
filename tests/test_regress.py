@@ -83,6 +83,53 @@ class DiffTests(unittest.TestCase):
         with open(out) as f:
             self.assertEqual(json.load(f)["counts"]["regressed"], 1)
 
+    def test_missing_or_torn_queues_are_refused_not_read_as_empty(self):
+        # Codex on #401: an absent --new folder or a torn queue.json read as an empty queue, so a PASS became "gone", exit 0
+        d = tempfile.mkdtemp()
+        old = queue(d, "old", "a", [STAIRS], [(0, "PASS")])
+        torn = queue(d, "torn", "b", [STAIRS], [(0, "PASS")])
+        with open(os.path.join(torn, "queue.json"), "w") as f:
+            f.write('{"build_id": "b", "tests": [')
+        empty = queue(d, "empty", "c", [], [])
+        out = os.path.join(d, "r.json")
+        for args in (["--old", old, "--new", os.path.join(d, "nope")], ["--old", old, "--new", torn],
+                     ["--old", torn, "--new", old], ["--old", os.path.join(d, "nope"), "--new", old]):
+            with self.subTest(args=args), redirect_stdout(io.StringIO()) as buf:
+                self.assertEqual(rg.main(args + ["--out", out]), 2)
+            self.assertIn("not compared", buf.getvalue())
+            self.assertFalse(os.path.exists(out))
+        with redirect_stdout(io.StringIO()):                      # a valid empty queue still compares: the PASS is gone
+            self.assertEqual(rg.main(["--old", old, "--new", empty]), 0)
+
+    def test_an_unjudged_or_torn_judged_door_queue_is_refused(self):
+        # Codex on #401: without a readable judge, a door queue fell back to the runner's terrain PASS
+        d = tempfile.mkdtemp()
+        exp = os.path.join(d, "exp")
+        os.makedirs(exp)
+        with open(os.path.join(exp, "rounds.json"), "w") as f:
+            json.dump({"tests": []}, f)
+        doors = [{"kind": "terrain", "cell": "", "ref": "door round 0 OUT"}]
+        row = {"cell_edid": "FO4Port_Vault95", "leg": "out", "src": "1:Fallout4.esm", "verdict": "PASS", "why": "",
+               "id": "0000_terrain"}
+        old = queue(d, "old", "a", doors, [(0, "PASS")], judged=[row])
+        new = queue(d, "new", "b", doors, [(0, "PASS")])
+        with open(os.path.join(new, "queue.json")) as f:
+            q = json.load(f)
+        with open(os.path.join(new, "queue.json"), "w") as f:
+            json.dump(dict(q, experiment=exp), f)
+        with redirect_stdout(io.StringIO()) as buf:
+            self.assertEqual(rg.main(["--old", old, "--new", new]), 2)
+        self.assertIn("not judged yet", buf.getvalue())
+        with open(os.path.join(new, "door_rounds_judge.json"), "w") as f:
+            f.write('{"results": [')
+        with redirect_stdout(io.StringIO()) as buf:
+            self.assertEqual(rg.main(["--old", old, "--new", new]), 2)
+        self.assertIn("unreadable or without a results list", buf.getvalue())
+        with open(os.path.join(new, "door_rounds_judge.json"), "w") as f:
+            json.dump({"results": [dict(row, verdict="NOT_RUN")]}, f)    # judged, never run: lost, exit 1
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(rg.main(["--old", old, "--new", new]), 1)
+
     def test_repeated_keys_are_reported(self):
         d = tempfile.mkdtemp()
         a = queue(d, "a", "x", [STAIRS], [(0, "PASS")])

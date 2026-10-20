@@ -17,7 +17,10 @@ Each match is one of:
   unchanged     the same verdict otherwise
   new / gone    only in the new / only in the old results
 Exit 1 when anything regressed or was lost, else 0. A key that two tests of one side share is reported, and the
-later queue on the command line wins for it.
+later queue on the command line wins for it. Exit 2, with no report, when a queue cannot be read as evidence: a
+missing or unreadable queue.json (no "tests" list), an unreadable door_rounds_judge.json, or a door rounds queue
+(its experiment folder holds rounds.json) that has not been judged yet (scripts/bridge/door_rounds.py judge): the
+runner's terrain verdicts never stand in for a door's.
 """
 import argparse
 import json
@@ -25,6 +28,10 @@ import os
 import sys
 
 PASS, FAIL = "PASS", "FAIL"
+
+
+class Unavailable(Exception):
+    """A queue whose evidence cannot be read: compared, it would read as an empty or wrong side."""
 
 
 def load(p, default=None):
@@ -54,7 +61,9 @@ def rows(qdir):
 
 def results(qdir):
     """({key: {"verdict", "detail", "id", "queue"}}, build id, [duplicate keys]) for one queue."""
-    q = load(os.path.join(qdir, "queue.json"), {}) or {}
+    q = load(os.path.join(qdir, "queue.json"))
+    if not isinstance(q, dict) or not isinstance(q.get("tests"), list):
+        raise Unavailable(f"{qdir}: queue.json missing, unreadable or without a tests list")
     build = q.get("build_id") or ""
     out, dup = {}, []
 
@@ -62,8 +71,14 @@ def results(qdir):
         if k in out:
             dup.append(k)
         out[k] = v
-    judged = load(os.path.join(qdir, "door_rounds_judge.json"))
-    if isinstance(judged, dict) and isinstance(judged.get("results"), list):
+    judge_p = os.path.join(qdir, "door_rounds_judge.json")
+    judged = load(judge_p)
+    if os.path.exists(judge_p) and not (isinstance(judged, dict) and isinstance(judged.get("results"), list)):
+        raise Unavailable(f"{judge_p}: unreadable or without a results list; judge the queue again")
+    if judged is None and q.get("experiment") and os.path.exists(os.path.join(q["experiment"], "rounds.json")):
+        raise Unavailable(f"{qdir}: a door rounds queue not judged yet; run scripts/bridge/door_rounds.py judge "
+                          f"--queue {qdir} first")
+    if judged is not None:
         for r in judged["results"]:
             k = ("door", r.get("cell_edid"), r.get("leg"), r.get("src"))
             put(k, {"verdict": r.get("verdict"), "detail": r.get("why", ""), "id": r.get("id"), "queue": qdir})
@@ -71,7 +86,7 @@ def results(qdir):
     last = {}
     for r in rows(qdir):
         last[r["id"]] = r                                  # the last row of a test is its final verdict
-    for t in q.get("tests") or []:
+    for t in q["tests"]:
         r = last.get(t["id"])
         k = (t.get("kind"), t.get("cell") or "", t.get("ref") or "")
         put(k, {"verdict": r.get("verdict") if r else "NOT_RUN",
@@ -129,7 +144,11 @@ def main(argv=None):
     ap.add_argument("--new", nargs="+", required=True)
     ap.add_argument("--out", default="")
     a = ap.parse_args(argv)
-    d = diff(a.old, a.new)
+    try:
+        d = diff(a.old, a.new)
+    except Unavailable as e:
+        print(f"not compared: {e}")
+        return 2
     print(f"builds {','.join(d['old_builds']) or '?'} -> {','.join(d['new_builds']) or '?'}: "
           + ", ".join(f"{g} {c}" for g, c in d["counts"].items()))
     for g in ("regressed", "lost", "fixed"):
