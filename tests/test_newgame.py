@@ -237,7 +237,7 @@ class PrecheckTests(unittest.TestCase):
 
 class LogTests(unittest.TestCase):
     LINES = [
-        "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 init holdoff=2 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915",
+        "[10/20/2026 - 09:00:00AM] FO4SF_NEWGAME rt=5.0 init holdoff=4 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 held off [Quest < (00012345)>] running_after=False pass=1",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 not running [Quest < (00054321)>] pass=1",
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 hold-off pass 1 stopped=1 of 4",
@@ -295,7 +295,7 @@ class LogTests(unittest.TestCase):
     def test_an_older_completion_never_passes_a_newer_run(self):
         """Codex review on #393: the log is appended across sessions, so only the latest run is judged."""
         done = "\n".join(self.LINES) + "\n"
-        init = "[y] FO4SF_NEWGAME rt=2.0 init holdoff=2 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915\n"
+        init = "[y] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915\n"
         cases = {
             "failed": init + "[y] FO4SF_NEWGAME rt=3.0 enter vault ok=False pos=0 0 0 target=11 20 1 cell=None\n",
             "stood down": init + "[y] FO4SF_NEWGAME rt=3.0 not a new game: days=41.2 level=12: standing down\n"
@@ -313,7 +313,7 @@ class LogTests(unittest.TestCase):
         self.assertTrue(self.run_log(done + cases["stood down"])[1]["stood_down"])
 
     def test_the_latest_run_completing_passes(self):
-        failed = "[y] FO4SF_NEWGAME rt=2.0 init holdoff=2 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915\n" \
+        failed = "[y] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915\n" \
                  "[y] FO4SF_NEWGAME rt=3.0 enter vault ok=False pos=0 0 0 target=11 20 1 cell=None\n"
         code, s = self.run_log(failed + "\n".join(self.LINES) + "\n")
         self.assertEqual(code, 0)
