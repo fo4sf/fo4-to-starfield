@@ -454,7 +454,7 @@ class DeploymentRollbackTests(unittest.TestCase):
             self.uninstall_at(args, pt)
             self.assertEqual(pt.read_text().splitlines(), ["*Other.esm"])
 
-    def test_plugins_write_is_atomic_when_replace_fails(self):
+    def test_plugins_write_preserves_original_when_journal_replace_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
             plugins = Path(tmp) / "Plugins.txt"
             original = b"\xef\xbb\xbf*Other.esm\r\n*FO4Port.esm\r\n"
@@ -463,7 +463,10 @@ class DeploymentRollbackTests(unittest.TestCase):
                 with self.assertRaisesRegex(OSError, "injected replace failure"):
                     deploy.write_lines(str(plugins), ["*Other.esm"], original)
             self.assertEqual(plugins.read_bytes(), original)
-            self.assertEqual({path.name for path in plugins.parent.iterdir()}, {"Plugins.txt"})
+            recovery = list(plugins.parent.glob(".fo4port-config-*"))
+            self.assertEqual(len(recovery), 1)
+            self.assertFalse((recovery[0] / "before.txt").exists())
+            self.assertTrue((recovery[0] / "intended.txt").exists())
 
     def test_plugins_write_preserves_edit_during_atomic_update(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -485,7 +488,10 @@ class DeploymentRollbackTests(unittest.TestCase):
                 with self.assertRaisesRegex(OSError, "changed during update"):
                     deploy.write_lines(str(plugins), ["*Other.esm"], original)
             self.assertEqual(plugins.read_bytes(), concurrent_edit)
-            self.assertEqual({path.name for path in plugins.parent.iterdir()}, {"Plugins.txt"})
+            recovery = list(plugins.parent.glob(".fo4port-config-*"))
+            self.assertEqual(len(recovery), 1)
+            self.assertEqual((recovery[0] / "before.txt").read_bytes(), concurrent_edit)
+            self.assertFalse(json.loads((recovery[0] / "transaction.json").read_text())["complete"])
 
     def test_uninstall_does_not_remove_plugins_file_created_after_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -499,7 +505,7 @@ class DeploymentRollbackTests(unittest.TestCase):
                 "plugins_original": None, "complete": True})
             user_file = b"*UserAdded.esm\n"
             args = SimpleNamespace(starfield=str(root), dry_run=False)
-            real_exists = deploy.os.path.exists
+            real_exists = deploy.config_path_exists
             plugin_checks = 0
 
             def create_after_snapshot(path):
@@ -512,7 +518,7 @@ class DeploymentRollbackTests(unittest.TestCase):
                 return real_exists(path)
 
             with patch.object(deploy, "plugins_txt_path", return_value=str(plugins)), \
-                    patch.object(deploy.os.path, "exists", side_effect=create_after_snapshot):
+                    patch.object(deploy, "config_path_exists", side_effect=create_after_snapshot):
                 deploy.uninstall(args)
             self.assertEqual(plugins.read_bytes(), user_file)
 

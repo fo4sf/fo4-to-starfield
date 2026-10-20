@@ -22,6 +22,7 @@ Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved 
 - Codex PR277 main merge preserves pinned door-stage sources: selected existing VMAD is refused before output, generated files are independent/atomic, nested output rejected. Retains main persistent-return coordinate reporting. Offline preservation/return checks required; no staging/install/native acceptance.
 - Codex activation-parent export: shared Fo4Export/Fo4Land serializer retains ordered parent FormKeys, raw flags and delays, including deferred actors. Claude reviewed the export. Requested follow-up now makes untranslated blocks counted/listed warnings by default, with partial fidelity and optional `--strict-activation-parents` gating; other link errors still block. Eight synthetic CLI controls cover publication/report/strict/override and missing-parent behavior. Grok delta QA passed at e79da3e; main-merge changes only documentation conflicts, source continuity checked. No native activation behavior or live changes. See PR305 and CELL-EXPORT.md.
 - Codex PR176 full-source promoted-name identity merges main697bc07; CONT/MISC identity repair retained and current main callers reconciled. 91 Python cases covered (89 initial passes, two stale alias expectations corrected/retested) and eight actual writer tests pass; independent merge-delta QA pending; no stage or allocation migration. Previously aliased mixed-plugin builds still require separately pinned regeneration, not silent save compatibility claims.
+- Codex PR104 current-main config recovery integration: four reviewed source/test/usage blobs unchanged; main build/archive/identity/publisher/install functions preserved.167 focused config/deployment/current-caller tests and guard pass; independent merge-delta QA pending. Preserve recovery ownership, concurrent writes and expected_sha256 publisher API. No live configuration/deployment actions.
 
 - Codex light-patch bounds PR315: Claude independently reviewed the source and found no blocking implementation defect. Added the requested second-input-only malformed-LIGH test: both negative cases fail if B validation is removed; 31 focused light/FO4-light checks pass. Earlier selected baseline run had five failed assertions across three methods. Source-only, final test-delta review pending; no brightness-policy/stage/game changes.
 
@@ -38,3 +39,8 @@ Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved 
 Failed/passing capsules are reopened/source-verified on a second local volume, not offsite. Claude owns cleanup/free-space receipts; Codex deleted nothing. Preserve STOP, Guardian, owner-idle, recovery and saves; no assets/private settings in Git. See testing/progress-storage.md.
 
 Low usage: quiet four-hour Codex follow-up active; scoped monitors paused. Read changed evidence, avoid unchanged retests, guard before commits. History: #32, PRs and Git.
+
+
+## Codex PR104 current-main compatibility, October18
+
+Plain merge preserves configuration recovery and current content-pinned publication APIs. Seven targeted synthetic boundary/caller controls and guard pass; independent QA and current CI remain required before integration. No live configuration, recovery, installation, watchdog or game actions; Claude retains control.

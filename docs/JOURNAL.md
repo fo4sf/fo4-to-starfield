@@ -1027,6 +1027,31 @@ convert_batch.py now prints failure counts with percentages and unique-reason to
 staging/failure-summary.json (top 10 reasons) for later review. Synthetic test covers the summary
 shape and percentages. Offline only; no game data or format changes. Guard and new test pass.
 
+## 2026-10-13 Recoverable configuration publication (Codex, #84)
+
+Four synthetic final-operation races reproduce overwritten/deleted owner edits before the repair.
+Conditional Plugins.txt writes and both removal paths now capture the actual file before comparison,
+publish/restore without replacing a newer target, and retain before/intended files with a prepared
+journal. Hard-link support is tested before capture; unsupported filesystems refuse without moving
+the configuration. Unresolved/crash journals block retries and cannot silently release uninstall
+ownership when the target is absent. Thirty-three focused regressions include real helper-process
+exits after capture/publication, late captured-file writes and recovery/metadata failures.
+
+Independent QA reproduced access failures being treated as absent recovery files. Checked metadata
+inspection and explicit capture-attempt tracking now retain ownership in those cases; three denial
+regressions failed before the correction, and a fourth checks target inspection.
+Validation:344 full Windows tests pass (2 existing skips); guard/diff checks pass. An isolated overlay
+on Claude's pinned129b9ae text sources passes1009 tests (38 existing skips), preserving the advanced
+archive/copy APIs and safe ConcurrentUpdateError classification. Its source/overlay hashes are
+recorded privately; no canonical integration files were edited. Earlier independent QA passed the
+publication/removal paths; final Linnaeus QA PASSes c89795b's retry guard, exception contract and
+recovery notes after the access-error correction. Hosted CI38499957451 passes that code head;
+PR104 is ready for integration. Any subsequent status-only commit leaves the tested helper unchanged.
+The conditional target name can briefly be absent. This preserves recoverable bytes rather than
+claiming compare-and-swap, immutable snapshots or power-loss durability; one controller and a
+closed game remain required. [Recovery procedure](testing/plugin-config-recovery.md).
+Offline synthetic files only: no actual game configuration, deployment or controller was changed.
+
 ## 2026-10-13 Codex: preserve evidence before reclaiming storage (#105)
 
 Added a private lossless capsule tool and [storage procedure](testing/progress-storage.md).
@@ -1887,7 +1912,37 @@ out. Button wiring, docs, and Codex's #319 actual-writer test stay. Garage NIF r
 the build side. No deploy, no game.
 
 - **2026-10-18 Codex PR176 main merge:** retained six owned identity functions and109 current-main function bodies (excluding docs). Updated two stale ACTI/workshop tests from expecting punctuation aliases to checking distinct bases/original slots, retaining injected-collision refusal.89 initial Python passes plus two corrected reruns cover91 cases; eight actual-writer tests pass, including new ACTI/TERM/workshop identity, NAME/ref-slot and terminal-menu controls. Six parent-main helper alias counterexamples reproduced. Two existing C# warnings remain. Original failures and synthetic outputs retained privately; no live stage or save migration, independent integration QA pending.
+## 2026-10-15 Codex: integrate configuration recovery with current artifact APIs (#84/PR104)
 
 ## 2026-10-18: Grok Ba2.largest_entries
+Merged main d628b56 into PR104 without rewriting history. Source conflict resolved by keeping the
+conditional recovery delegate/early return and removing the unreachable legacy comparison. Merged
+deployer SHA256b881a5278c6626f4e935661a1648a1a493d9b2473a3b0eed56376502b53976e3 equals the reviewed
+current-caller overlay. Artifact builder/identity/copy(expected_sha256)/install ASTs match main;
+configuration/restore/uninstall ASTs match reviewedbf239522. Both documentation histories retained;
+current README, actors, walk, bridge and archive guard unchanged.77 focused/1310 Windows tests
+(70 skips)/guard pass. Independent integration QA/current-head CI are recorded on PR104. Old race,
+access-denial and invalid-whole-module controls remain preserved. The first integration assertion
+incorrectly assumed uninstall was unchanged from main; corrected to its reviewed configuration
+removal behavior, with the failed script retained. No live configuration, deployment, watchdog,
+queue or game changed. Recovery limits remain explicit; source integration is not live application.
+Independent Codex QA (Herschel) passed four invariants: AST composition/current caller compatibility,
+seven-file scope/main preservation and unchanged recovery limits. No blocker or source change required.
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+### 2026-10-18 Codex: current-main configuration recovery integration (PR104)
+
+Merged main697bc07 with documentation conflicts only, retaining both histories.
+Four deployer/test/recovery-document blobs match58f0b51 exactly; build_archive,
+artifact_identity, copy_new_artifact(expected_sha256) and install ASTs also match
+current main. Current experiment/bridge callers are unchanged.167 targeted tests
+pass across configuration boundary races/crashes, deployment and both current
+callers, plus guard/owned diff checks. Tests use temporary synthetic installs;
+no live configuration, recovery directory, game, watchdog or queue changed.
+Independent merge-delta QA pending. Historical failure evidence remains retained;
+no compare-and-swap, isolation or power-loss-durability guarantee added.
+
+
+## Codex PR104 current-main compatibility, October18
+
+Plain merge preserves configuration recovery and current content-pinned publication APIs. Seven targeted synthetic boundary/caller controls and guard pass; independent QA and current CI remain required before integration. No live configuration, recovery, installation, watchdog or game actions; Claude retains control.

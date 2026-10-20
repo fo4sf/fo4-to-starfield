@@ -110,6 +110,28 @@ class ExperimentReceiptTests(unittest.TestCase):
                 exp.install(self.args)
         self.assert_original_checkpoint()
 
+    def assert_retained_checkpoint_copies(self, active=()):
+        """Only the exact completed receipt transaction may remain beside active receipts."""
+        directories = list(self.data.glob(".fo4port-config-*"))
+        self.assertEqual(len(directories), 1)
+        directory = directories[0]
+        self.assertEqual({p.name for p in directory.iterdir()},
+                         {"before.txt", "intended.txt", "transaction.json"})
+        before = (directory / "before.txt").read_bytes()
+        intended = (directory / "intended.txt").read_bytes()
+        self.assertEqual(before, self.before_rollback)
+        digest = hashlib.sha256(before).hexdigest()
+        expected = dict(json.loads(before), rollback_completed={
+            "schema": 1, "original_sha256": digest,
+            "original_receipt_b64": base64.b64encode(before).decode("ascii")})
+        self.assertEqual(json.loads(intended), expected)
+        self.assertEqual(json.loads((directory / "transaction.json").read_bytes()), {
+            "version": 1, "target": str(self.data / exp.RECORD), "operation": "write",
+            "expected_sha256": digest, "intended_sha256": hashlib.sha256(intended).hexdigest(),
+            "complete": True, "status": "published", "capture_attempted": True})
+        self.assertEqual(set(self.data.iterdir()), {directory, *active})
+        return {p.name: p.read_bytes() for p in directory.iterdir()}
+
     def test_failed_install_rolls_back_when_history_full_and_retains_full_receipt(self):
         with self.fail_final_install_write(), patch.object(
                 exp, "preserve_receipt", side_effect=OSError("history volume full")):
@@ -121,12 +143,12 @@ class ExperimentReceiptTests(unittest.TestCase):
                          {"Experiment.esm", str(self.terrain)})
         self.assertFalse(json.loads(record.read_bytes())["complete"])
         self.assertEqual(self.plugins.read_bytes(), self.original)
-        self.assertEqual(list(self.data.rglob("*")), [record])
+        retained = self.assert_retained_checkpoint_copies([record])
         self.assertEqual(self.receipts(), [])
         exp.uninstall(self.args)
         self.assertEqual(set(self.receipts()[0]["files"]),
                          {"Experiment.esm", str(self.terrain)})
-        self.assertEqual(list(self.data.iterdir()), [])
+        self.assertEqual(self.assert_retained_checkpoint_copies(), retained)
 
     def test_failed_install_with_history_failure_preserves_changed_file(self):
         plugin = self.data / "Experiment.esm"
@@ -147,17 +169,19 @@ class ExperimentReceiptTests(unittest.TestCase):
 
     def test_completed_rollback_retry_preserves_later_configuration_edits(self):
         self.rollback_with_history_outage()
+        retained = self.assert_retained_checkpoint_copies([self.data / exp.RECORD])
         edited = self.original + b"*OwnerAddedLater.esm\r\n"
         self.plugins.write_bytes(edited)
         exp.uninstall(self.args)
         self.assertEqual(self.plugins.read_bytes(), edited)
-        self.assertEqual(list(self.data.iterdir()), [])
+        self.assertEqual(self.assert_retained_checkpoint_copies(), retained)
         raw = base64.b64decode(self.receipts()[0]["rollback_completed"]["original_receipt_b64"], validate=True)
         self.assertEqual(raw, self.before_rollback)
         # Finishing the receipt no longer traps the next installation.
         exp.install(self.args)
         exp.uninstall(self.args)
         self.assertEqual(self.plugins.read_bytes(), edited)
+        self.assertEqual(self.assert_retained_checkpoint_copies(), retained)
 
     def test_completed_rollback_retry_preserves_recreated_files_even_if_identical(self):
         plugin = self.data / "Experiment.esm"
@@ -319,11 +343,11 @@ class ExperimentReceiptTests(unittest.TestCase):
         self.assert_original_checkpoint()
         self.assertEqual(len(json.loads(record.read_bytes())["files"]), 2)
         self.assertEqual(len(json.loads(record.read_bytes())["published_files"]), 1)
-        self.assertEqual(list(self.data.rglob("*")), [record])
+        retained = self.assert_retained_checkpoint_copies([record])
         self.assertEqual(self.plugins.read_bytes(), self.original)
         exp.uninstall(self.args)
         self.assertEqual(len(self.receipts()[0]["files"]), 2)
-        self.assertEqual(list(self.data.iterdir()), [])
+        self.assertEqual(self.assert_retained_checkpoint_copies(), retained)
 
     def test_existing_corrupt_history_refuses_cleanup_without_overwrite(self):
         exp.install(self.args)
