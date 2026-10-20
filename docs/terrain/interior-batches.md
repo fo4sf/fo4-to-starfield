@@ -90,8 +90,13 @@ PluginSpike seeded with the installed port's `formids.json` and `lighting.json`,
   docs/ai/decisions.md.
 - **result.json**: per cell converted / checked / failed with the reason, PluginSpike's placed / lights / skipped, the
   failed models, the pins (commit, sha256 of the plan, the installed port's plugin and map, the new plugin), times,
-  sizes and free space. `prune --keep 2 --delete` removes older `interiors_bNN` folders this tool made (result.json
-  with `installed: false`), never anything else.
+  sizes and free space. A stage is deleted in two steps. First, `release` marks one stage as safe to delete. It refuses
+  a failed build (that is evidence, deleted by hand once archived), a stage whose FO4Port.esm is the one in Starfield's
+  Data folder, and a stage named by any text file under the `--check-refs` folders. Pass the queue, recovery-receipt and
+  install-log folders there, not the staging root, because later stages name their `--prev`. Release writes release.json
+  with the plugin's sha256. Second, `prune --keep 2 --delete` removes only older stages that are released and unchanged
+  since. Unreleased ones are listed with the reason they stay. The build-time `installed: false` in result.json is never
+  taken as a release (Codex's review on #396).
 
 **Batch 0** builds only the 16 installed cells and compares them with the installed port: it shows whether today's
 converter reproduces the installed port before anything grows it. Its change counts are the baseline every later
@@ -157,6 +162,8 @@ python scripts/terrain/interior_batch.py build --plan docs/terrain/data/interior
   --convert-arg=--door-anim-dll --convert-arg=<CALUMI.Animation.dll> --convert-arg=--mass-scale --convert-arg=0.2 ^
   --promote-arg=--names --promote-arg=<fo4_names.json> --promote-arg=--furniture --promote-arg=<fo4-furniture.json> ^
   --promote-arg=--fo4-data --promote-arg=<FO4 Data>
+python scripts/terrain/interior_batch.py release --dir D:\Modding\staging\interiors_b03 --reason "superseded by b05" ^
+  --check-refs <queue folder> --check-refs <recovery receipts folder> --starfield <Starfield>
 python scripts/terrain/interior_batch.py prune --staging-root D:\Modding\staging --keep 2 --delete
 ```
 

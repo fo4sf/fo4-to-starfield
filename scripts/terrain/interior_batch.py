@@ -9,6 +9,7 @@ rounds, prune superseded batches (docs/terrain/interior-batches.md). Nothing her
          [--convert-arg ARG ...] [--prev <the previous batch's --out>] [--dlc-data <a DLC's Data folder> ...] [--min-free-gb 40] [--no-pack] [--jobs 2]
   python scripts/terrain/interior_batch.py compare --old <port folder> --new <port folder> [--json <out>]
   python scripts/terrain/interior_batch.py doors --plan <batches.json> --census <census.json> --batch N --out <door_rounds.json>
+  python scripts/terrain/interior_batch.py release --dir <interiors_bNN> --reason <text> --check-refs <dir> [...] --starfield <dir>
   python scripts/terrain/interior_batch.py prune --staging-root <dir> --keep N [--delete]
 
 build (batch 0 = the base port's own cells only: proves the pipeline reproduces the installed port before it grows it;
@@ -39,8 +40,11 @@ compare: every key of the old formids.json has the same FormID in the new one; e
 same signature; counts of byte-identical / changed records by signature, added records by signature, the cells added.
 doors: the batch's door-round selection for scripts/bridge/door_rounds.py stage --only (FO4Port_<Cell> editor ids),
 the Commonwealth doors into each cell and the interior pairs, and what must be installed first.
+release: marks one passed stage as safe to delete once its plugin is not the installed one and nothing under --check-refs
+(queues, recovery receipts, install logs) names it; writes release.json. Failed builds are never released.
 prune: lists the interiors_bNN folders under --staging-root that this tool made (result.json written by build), keeps the
-newest --keep, and with --delete removes the older ones (nothing else is ever deleted).
+newest --keep, and with --delete removes only the older ones that are released and unchanged since (nothing else is ever
+deleted).
 """
 import argparse
 import hashlib
@@ -503,7 +507,95 @@ def doors(plan, census, n):
 
 
 # ------------------------------------------------------------------------------------------------------------- prune
+RELEASE = "release.json"
+REF_EXTS = (".json", ".md", ".txt", ".ps1", ".cmd", ".bat", ".log", ".csv", ".tsv", ".ini")
+REF_MAX_BYTES = 5 * 2 ** 20
+
+
+def references(path, roots):
+    """Text files under roots (recursive; small text-like files only) that name path: its absolute path in either slash
+    form, or its folder name, case-insensitive. A queue, a recovery receipt or an install record that names a stage
+    keeps it."""
+    full = os.path.abspath(path)
+    needles = {s.lower() for s in (full, full.replace("\\", "/"), full.replace("/", "\\"), os.path.basename(full))}
+    hits = []
+    for root in roots:
+        for d, _dirs, files in os.walk(root):
+            here = os.path.abspath(d).lower()
+            if here == full.lower() or here.startswith(full.lower() + os.sep):
+                continue                                                # the stage's own files don't count
+            for f in files:
+                fp = os.path.join(d, f)
+                if not f.lower().endswith(REF_EXTS):
+                    continue
+                try:
+                    if os.path.getsize(fp) > REF_MAX_BYTES:
+                        continue
+                    with open(fp, encoding="utf-8", errors="replace") as h:
+                        text = h.read().lower()
+                except OSError:
+                    continue
+                if any(n in text for n in needles):
+                    hits.append(fp)
+    return sorted(hits)
+
+
+def release(stage, reason, check_refs, starfield):
+    """Mark one interiors_bNN stage as safe to delete, after checking what the build-time result.json cannot know: it
+    passed (failed builds are evidence and are never released here), its plugin is not the one in Starfield's Data
+    folder, and nothing under check_refs (queues, recovery receipts, install logs) names it. Writes release.json with
+    the plugin's sha256, so a stage changed after its release is not deleted. Raises ValueError with the reason."""
+    stage = os.path.abspath(stage)
+    name = os.path.basename(stage)
+    if not BATCH_DIR.match(name):
+        raise ValueError(f"{name}: not an interiors_bNN folder")
+    try:
+        made = load(os.path.join(stage, MARKER))
+    except (OSError, ValueError):
+        raise ValueError(f"{name}: no result.json written by build")
+    if made.get("name") != name:
+        raise ValueError(f"{name}: result.json names {made.get('name')!r}")
+    if made.get("pass") is not True:
+        raise ValueError(f"{name}: a failed build is evidence; keep it (delete it by hand once archived)")
+    if not reason.strip():
+        raise ValueError("a reason is required")
+    if not check_refs:
+        raise ValueError("at least one --check-refs folder is required (queues, recovery receipts, install logs)")
+    for r in check_refs:
+        if not os.path.isdir(r):
+            raise ValueError(f"--check-refs {r}: not a folder")
+    plugin = os.path.join(stage, "port", PLUGIN)
+    digest = sha256(plugin) if os.path.isfile(plugin) else None
+    installed = os.path.join(starfield, "Data", PLUGIN)
+    if digest and os.path.isfile(installed) and sha256(installed) == digest:
+        raise ValueError(f"{name}: its {PLUGIN} is the one installed in {installed}")
+    hits = references(stage, check_refs)
+    if hits:
+        raise ValueError(f"{name}: still named by " + ", ".join(hits[:5]) + (f" and {len(hits) - 5} more" if len(hits) > 5 else ""))
+    rec = {"name": name, "released_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "reason": reason,
+           "plugin_sha256": digest, "starfield": os.path.abspath(starfield),
+           "checked_refs": [os.path.abspath(r) for r in check_refs]}
+    save(os.path.join(stage, RELEASE), rec)
+    return rec
+
+
+def released(stage):
+    """Why stage may not be deleted, or None when its release.json still matches it."""
+    try:
+        rec = load(os.path.join(stage, RELEASE))
+    except (OSError, ValueError):
+        return "not released (run release first)"
+    if rec.get("name") != os.path.basename(stage):
+        return "release.json names another folder"
+    plugin = os.path.join(stage, "port", PLUGIN)
+    if (sha256(plugin) if os.path.isfile(plugin) else None) != rec.get("plugin_sha256"):
+        return "port changed since its release"
+    return None
+
+
 def prune(root, keep, delete):
+    """The interiors_bNN folders this tool made, oldest first. The newest keep are kept; of the rest, --delete removes
+    only those released (release.json, see release()); the others are listed with the reason they stay."""
     found = []
     for n in sorted(os.listdir(root)):
         m = BATCH_DIR.match(n)
@@ -513,17 +605,23 @@ def prune(root, keep, delete):
                 made = load(os.path.join(p, MARKER))
             except (OSError, ValueError):
                 continue
-            if made.get("name") == n and made.get("installed") is False:
+            if made.get("name") == n:
                 found.append((int(m.group(1)), p))
     found.sort()
-    drop = found[:-keep] if keep > 0 else found
-    for _n, p in drop:
+    older = found[:-keep] if keep > 0 else found
+    drop = []
+    for _n, p in older:
+        why = released(p)
+        if why:
+            print(f"keep {p} ({why})")
+            continue
+        drop.append(p)
         print(("delete " if delete else "would delete ") + p)
         if delete:
             shutil.rmtree(p)
-    for _n, p in found[len(drop):]:
-        print("keep " + p)
-    return [p for _n, p in drop]
+    for _n, p in found[len(older):]:
+        print("keep " + p + " (newest)")
+    return drop
 
 
 def main(argv=None):
@@ -556,6 +654,11 @@ def main(argv=None):
     p.add_argument("--staging-root", required=True)
     p.add_argument("--keep", type=int, default=2)
     p.add_argument("--delete", action="store_true")
+    r = sub.add_parser("release")
+    r.add_argument("--dir", required=True)
+    r.add_argument("--reason", required=True)
+    r.add_argument("--check-refs", action="append", default=[], help="a folder to scan for names of the stage (repeatable)")
+    r.add_argument("--starfield", required=True)
     a = ap.parse_args(argv)
     if a.cmd == "build":
         return build(a)
@@ -568,6 +671,13 @@ def main(argv=None):
         return 0 if r["pass"] else 1
     if a.cmd == "doors":
         save(a.out, doors(load(a.plan), load(a.census), a.batch))
+        return 0
+    if a.cmd == "release":
+        try:
+            print(json.dumps(release(a.dir, a.reason, a.check_refs, a.starfield), indent=1))
+        except ValueError as e:
+            print("refused: " + str(e))
+            return 1
         return 0
     if a.keep < 1:
         sys.exit("--keep must be at least 1 (the latest batch is never pruned)")
