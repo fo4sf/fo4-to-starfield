@@ -17,7 +17,7 @@ from typing import Dict, List, Optional
 
 from . import ba2 as ba2mod
 from . import convert_material as cm
-from . import convert_static, nif, sfcollision, sfmesh, sfnif, textures
+from . import convert_static, door_rig, nif, sfcollision, sfmesh, sfnif, textures
 
 DOOR_RE = re.compile(r"[\\/]doors?[\\/]|door[^\\/]*\.nif$", re.I)
 NOT_HINGED_RE = re.compile(r"vault|elevator|garage|gate|hatch|slid", re.I)   # sliding / lifting doors animate differently:
@@ -49,6 +49,32 @@ SLSF1_GREYSCALE_TO_PALETTE_COLOR = 0x10
 # refraction/smoothness/spec, then Subsurface Rolloff, Rimlight Power, optional Backlight Power
 # when rim is FLT_MAX, then Grayscale to Palette Scale.
 _FO4_RIM_FLT_MAX = 3.402823e38
+
+
+# nif.xml Fallout4ShaderPropertyFlags2 bit 5: Vertex_Colors. FO4 multiplies the texture alpha by the vertex alpha.
+SLSF2_VERTEX_COLORS = 0x20
+
+
+def vertex_alpha_scale(blk: bytes, shape) -> Optional[float]:
+    """Peak vertex alpha of a lighting-shader shape as an opacity factor (0..1, in steps of 16/255), or None when the
+    shape has no vertex colours or reaches full alpha; 0.0 when every vertex alpha is 0. Debris-pile floor decals (DebrisPileLargeConc01-06 Decals:10)
+    peak at vertex alpha 48, so FO4 draws them as a faint overlay; the Starfield decal gets that as a fixed factor
+    (the per-vertex fade at the rims is not reproduced)."""
+    colors = getattr(shape, "colors", None)
+    if not colors or len(blk) < 12:
+        return None
+    n_extra, = struct.unpack_from("<I", blk, 8)
+    if len(blk) < 12 + 4 * n_extra + 12:
+        return None
+    flags2, = struct.unpack_from("<I", blk, 12 + 4 * n_extra + 8)
+    if not flags2 & SLSF2_VERTEX_COLORS:
+        return None
+    peak = max(c[3] for c in colors)
+    if peak >= 255:
+        return None
+    if peak == 0:
+        return 0.0                                     # never visible in FO4: the caller skips the shape
+    return max(16, min(240, (peak + 15) // 16 * 16)) / 255.0
 
 
 def lighting_palette_scale(blk: bytes) -> float:
@@ -146,8 +172,18 @@ class Converter:
                  no_collision_pattern: str = r"^meshes[\\/](architecture|interiors|scol)[\\/]", rig_doors: bool = False,
                  door_physics_donor: Optional[bytes] = None, sf_mesh_template: Optional[bytes] = None,
                  dynamic_template: Optional[bytes] = None, max_texture=None, door_anim_dll: Optional[str] = None,
-                 spec_mask_roughness: bool = False, mass_scale: float = 1.0):
+                 spec_mask_roughness: bool = False, mass_scale: float = 1.0, load_door_models=(), static_body_models=(),
+                 no_rig_models=()):
         self.src, self.staging, self.texconv = src, staging, texconv_exe
+        # load_door_models: mesh names FO4 places as a teleporting Door (a Door reference with an XTEL in the cell export,
+        # convert_batch.teleport_models), load doors whatever their name: RoofHatch01 and MetalTrapdoorLadder01 match no
+        # LOAD_DOOR_RE and stayed STATs nobody could activate (Museum of Witchcraft roof hatch, owner 2026-10-18)
+        self.load_door_models = {n.replace("/", "\\").lower() for n in load_door_models}
+        # static_body_models: mesh names that keep a static body even with dynamic_template (the outdoor core places
+        # them as STAT only, never as a pickable item: cars, skeletons, cones; convert_batch.static_body_models)
+        self.static_body_models = {n.replace("/", "\\").lower() for n in static_body_models}
+        # no_rig_models: doors that skip their own rig as if door_anim_dll were missing (crash bisects; --no-rig-pattern)
+        self.no_rig_models = {n.replace("/", "\\").lower() for n in no_rig_models}
         # spec_mask_roughness: roughness also follows FO4's specular mask (smooth-spec R), not only its gloss (G); off by
         # default so existing builds and checkpoints keep their textures (owner's Vault 111 floor report, 2026-10-17)
         self.spec_mask_roughness = spec_mask_roughness
@@ -258,11 +294,15 @@ class Converter:
                                          alpha_test=b.alpha_test, alpha_ref=b.alpha_ref,
                                          greyscale=gs, palette_scale=b.palette_scale, two_sided=b.two_sided)
 
-    def decal_material(self, bgsm_path: str) -> Optional[str]:
-        """Alpha-blended FO4 material -> Starfield decal material (or None: the shape is skipped, as before decals)."""
+    def decal_material(self, bgsm_path: str, opacity_scale: float = 1.0) -> Optional[str]:
+        """Alpha-blended FO4 material -> Starfield decal material (or None: the shape is skipped, as before decals).
+        opacity_scale < 1: the shape's peak vertex alpha (see vertex_alpha_scale); the opacity map is multiplied by it
+        and the material gets its own name under vadecals/aNN/, a folder no FO4 material path maps to, so it never
+        shares files with the unscaled decal of this or any other .bgsm."""
         m = re.search(r"materials[\\/].*", bgsm_path, re.I)
         bgsm_path = m.group(0) if m else bgsm_path
-        key = "decal:" + bgsm_path.replace("/", "\\").lower()
+        scaled = opacity_scale < 1.0
+        key = "decal:" + bgsm_path.replace("/", "\\").lower() + (f"|a{round(opacity_scale * 255)}" if scaled else "")
         if key not in self._materials:
             try:
                 raw = self.src.material(bgsm_path)
@@ -272,9 +312,11 @@ class Converter:
                 if not (b.diffuse and b.normal):
                     raise ValueError("material lacks diffuse/normal textures")
                 rel = re.sub(r"^materials[\\/]", "", bgsm_path.replace("\\", "/"), flags=re.I)
-                self._materials[key] = self._convert_texture_set("decals/" + os.path.splitext(rel)[0].lower(), b.diffuse,
-                                                                 b.normal, b.smooth_spec, smoothness=b.smoothness,
-                                                                 spec_mult=b.spec_mult, decal=True)
+                stem = (f"vadecals/a{round(opacity_scale * 255)}/" if scaled else "decals/") + os.path.splitext(rel)[0].lower()
+                extra = {"opacity_scale": opacity_scale} if scaled else {}
+                self._materials[key] = self._convert_texture_set(stem, b.diffuse, b.normal, b.smooth_spec,
+                                                                 smoothness=b.smoothness, spec_mult=b.spec_mult,
+                                                                 decal=True, **extra)
                 self.stats["materials_ok"] += 1
             except Exception as e:                        # noqa: BLE001
                 self._materials[key] = None
@@ -325,7 +367,7 @@ class Converter:
                              smoothness: float = 1.0, spec_mult: float = 1.0,
                              alpha_test: bool = False, alpha_ref: int = 128, decal: bool = False,
                              greyscale: str = None, palette_scale: float = 1.0,
-                             two_sided: bool = False) -> str:
+                             two_sided: bool = False, opacity_scale: float = 1.0) -> str:
         """FO4 diffuse / normal / smooth-spec textures -> Starfield colour / normal / rough DDS + a .mat. Spec is optional.
         decal: alpha-blended overlay; the diffuse alpha always becomes the opacity map and the .mat is cloned from the
         vanilla decal template (cm.DECAL_TEMPLATE_MAT) so it blends over the surface behind it.
@@ -335,7 +377,8 @@ class Converter:
         alpha_test with a real opacity map: clone ConduitKit01TwoSided (shader TwoSided1Layer) instead of
         the opaque metal template, which ignored the cutout and drew leaf cards as black slabs.
         two_sided is accepted for DryConverter's signature; opacity still requires alpha_test or decal
-        (FO4 two-sided materials without alpha test are not cutouts)."""
+        (FO4 two-sided materials without alpha test are not cutouts).
+        opacity_scale: multiplies the opacity map (decals only; a shape's peak vertex alpha, see vertex_alpha_scale)."""
         import numpy as np
         d, n = self.src.texture(diffuse), (self.src.texture(normal) if normal else None)
         s = self.src.texture(spec) if spec else None
@@ -373,6 +416,8 @@ class Converter:
                 px = np.frombuffer(raw_a[ha["data_offset"]:ha["data_offset"] + ha["width"] * ha["height"] * 4], np.uint8)
                 alpha = px.reshape(ha["height"], ha["width"], 4)[:, :, 3].copy()
                 if decal or alpha.min() < 250:            # only if the texture really has a cutout
+                    if opacity_scale < 1.0:
+                        alpha = np.round(alpha * opacity_scale).astype(np.uint8)
                     textures.write_r8(os.path.join(tmp, "o_in.dds"), alpha)
                     textures.texconv(self.texconv, os.path.join(tmp, "o_in.dds"), tmp, "BC4_UNORM")
                     opacity = "o_in.dds"
@@ -480,7 +525,11 @@ class Converter:
         if key not in self._blend_cache:
             raw = self.src.material(key)
             try:
-                self._blend_cache[key] = bool(raw) and cm.parse_bgsm(raw).alpha_blend
+                b = cm.parse_bgsm(raw) if raw else None
+                # blended, or a decal that is alpha-tested: FO4 draws both as overlays in its decal pass. Drawn opaque,
+                # BldFloorConcDebris02Alpha (decal, alpha test ref 6, texture alpha never below 28) showed its
+                # transparent texels, which are black, as hard black patches (research log 2026-10-18)
+                self._blend_cache[key] = bool(b) and (b.alpha_blend or (b.decal and b.alpha_test))
             except Exception:                         # noqa: BLE001
                 self._blend_cache[key] = False
         return self._blend_cache[key]
@@ -522,6 +571,11 @@ class Converter:
         name = src.strings[idx] if 0 <= idx < len(src.strings) else b""
         if name.lower().endswith(b".bgsm"):
             if self._is_blended(name.decode("latin-1")):
+                scale = vertex_alpha_scale(blk, s)
+                if scale == 0.0:
+                    return None                            # every vertex fully transparent: FO4 never shows it
+                if scale is not None:                      # faded by vertex alpha (debris-pile floor decals)
+                    return self.decal_material(name.decode("latin-1"), opacity_scale=scale)
                 return self.decal_material(name.decode("latin-1"))   # overlay shells (cracks, grime): decal; None = skip
             return self.material(name.decode("latin-1")) or self.neutral
         # no material file: shader type, name, extra data list, controller, flags1, flags2, UV offset, UV scale, texture set
@@ -576,7 +630,7 @@ class Converter:
             # used to get no collision at all, so walls beside doors and grass mounds could be walked through.)
             no_guess = bool(re.search(r"[\\/]landscape[\\/](trees|plants|grass)|roots|cobweb|vines|hanging"
                                       r"|[\\/]doors?[\\/]|door[^\\/]*\.nif$", nif_name, re.I))
-            load_door = bool(LOAD_DOOR_RE.search(nif_name))
+            load_door = bool(LOAD_DOOR_RE.search(nif_name)) or nif_name.replace("/", "\\").lower() in getattr(self, "load_door_models", ())
             if load_door:
                 # bounds (metres, NIF space) for the DOOR record's OBND, like the hinged doors' "door.bounds"
                 pts = [sfmesh.decode_position(p, m.scale) for m in (convert_static.shape_to_mesh(s) for s in shapes)
@@ -592,16 +646,21 @@ class Converter:
             aliases = OWN_RIG_ALIASES.get(re.split(r"[\\/]", nif_name)[-1].lower())
             if aliases and not any(0 <= s < len(src.strings) and src.strings[s].decode("latin-1") in aliases for s in seq_names):
                 aliases = None                           # not the model the table means (no such clip)
+            anim_dll = None if nif_name.replace("/", "\\").lower() in getattr(self, "no_rig_models", ()) else self.door_anim_dll
             use_box = self.collision_template is not None
             coll_report = {}
             files = None
-            if pose is None and self.rig_doors and self.door_physics_donor is not None and DOOR_RE.search(nif_name) and not NOT_HINGED_RE.search(nif_name) and not aliases and not load_door and nif.door_hinge(src):
+            # not hinged: by name (vault, elevator, garage, gate, hatch, sliding) or by its Open motion (parts that travel
+            # without turning: a sliding door named like any other, RedRPedDoor.nif)
+            not_hinged = bool(NOT_HINGED_RE.search(nif_name)) or (animated and pose is None and self.rig_doors
+                                                                  and DOOR_RE.search(nif_name) and door_rig.slides(src))
+            if pose is None and self.rig_doors and self.door_physics_donor is not None and DOOR_RE.search(nif_name) and not not_hinged and not aliases and not load_door and nif.door_hinge(src):
                 # Parts FO4 moves outside the first animated node (second leaf, shutter, other sliding panels) cannot
                 # hang under the template's single hinge: with the CALUMI library such a door gets its own rig and
                 # clips (one track and one keyframed body per part, as vanilla double doors); without it the template
                 # door is kept and the parts that stay closed are listed (door_frozen_parts), not silently dropped.
                 frozen = convert_static.frozen_door_parts(src)
-                if frozen and self.door_anim_dll:
+                if frozen and anim_dll:
                     try:
                         from . import native_door
                         files, res["door"] = convert_static.convert_multipart_door(
@@ -624,9 +683,9 @@ class Converter:
                             res["door_frozen_parts"] = frozen
                     except Exception as e:               # noqa: BLE001  (falls back to a static door)
                         res["door_error"] = (res["door_error"] + "; " if "door_error" in res else "") + f"{type(e).__name__}: {e}"
-            elif (pose is None and self.rig_doors and self.door_physics_donor is not None and self.door_anim_dll
+            elif (pose is None and self.rig_doors and self.door_physics_donor is not None and anim_dll
                   and (animated or aliases) and not load_door
-                  and (aliases or (DOOR_RE.search(nif_name) and NOT_HINGED_RE.search(nif_name)))):
+                  and (aliases or (DOOR_RE.search(nif_name) and not_hinged))):
                 # Sliding, lifting and trapdoor families (vault doors, elevator doors, hatches) cannot hang under the
                 # template's vertical hinge, and no vanilla door moves like them; vanilla sliding doors play the same graph
                 # (SimpleOpenClose01.agx) with their own rig and clips (docs/spikes/sliding-doors.md). So such a door gets
@@ -652,7 +711,8 @@ class Converter:
                                                       sf_mesh_template=self.sf_mesh_template if use_box else None,
                                                       collision_template=self.collision_template if use_box else None,
                                                       allow_guess=not no_guess,
-                                                      dynamic_template=self.dynamic_template if use_box else None,
+                                                      dynamic_template=self.dynamic_template if use_box and nif_name.replace(
+                                                          "/", "\\").lower() not in getattr(self, "static_body_models", ()) else None,
                                                       pose=pose, mass_scale=self.mass_scale)
                 if coll_report.get("motion") == "dynamic":
                     res["movable"] = {"mass_kg": coll_report["mass_kg"],
