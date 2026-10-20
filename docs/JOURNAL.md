@@ -1891,3 +1891,22 @@ the build side. No deploy, no game.
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+
+## 2026-10-20: Codex restore Plugins.txt namespace binding (offline)
+
+PR394 finding5: a snapshot could name a different file while its installer always
+used LOCALAPPDATA/Starfield/Plugins.txt. Two original-source backend replays
+(wrong filename and wrong parent) returned an empty differences list after an
+injected installer changed the canonical file. The correction validates and
+canonicalizes that address before reading snapshots, planning, verifying, writing
+or applying; mismatched snapshots refuse. Valid custom roots, Windows case aliases
+of the same namespace, missing files and no-op restores remain supported.
+
+Eight new synthetic methods and seven existing read-only restore methods pass.
+Six retained old/new backend calls reproduce both false successes, show refusal
+before the callback with all state unchanged, and preserve both valid no-ops.
+Install effects were injected in temporary profiles, not performed on a game.
+Initial test setup mistakes (imported TestCase discovery and missing LOCALAPPDATA
+isolation) and original failures are retained privately; corrected tests pin a
+temporary profile in every case. Other PR394 findings and independent QA remain
+open. No physical restore, deployment, game input or native acceptance.

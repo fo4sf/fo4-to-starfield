@@ -52,6 +52,27 @@ def plugins_txt_default():
     return os.path.join(os.environ.get("LOCALAPPDATA", ""), "Starfield", "Plugins.txt")
 
 
+def _plugins_txt_path(path):
+    """Bind snapshots and installers to one LOCALAPPDATA/Starfield/Plugins.txt address."""
+    try:
+        requested = os.fspath(path)
+    except TypeError:
+        raise RestoreRefused("Plugins.txt path must be a filesystem path") from None
+    if not isinstance(requested, str) or not requested:
+        raise RestoreRefused("Plugins.txt path must be nonempty text")
+    requested = os.path.abspath(requested)
+    parent = os.path.dirname(requested)
+    if os.path.basename(requested).casefold() != "plugins.txt" or os.path.basename(parent).casefold() != "starfield":
+        raise RestoreRefused("Plugins.txt must address LOCALAPPDATA/Starfield/Plugins.txt")
+    canonical = os.path.join(os.path.dirname(parent), "Starfield", "Plugins.txt")
+    if requested != canonical:
+        for given, actual in ((parent, os.path.dirname(canonical)), (requested, canonical)):
+            present, actual_present = os.path.exists(given), os.path.exists(actual)
+            if present != actual_present or (present and os.path.realpath(given) != os.path.realpath(actual)):
+                raise RestoreRefused("Plugins.txt case alias addresses a different installer namespace")
+    return canonical
+
+
 def _read(path):
     if not os.path.isfile(path):
         return None
@@ -62,7 +83,7 @@ def _read(path):
 def take(starfield, plugins_txt=None, watch=()):
     """The snapshot dict of a Starfield install (read only)."""
     data = os.path.join(os.path.abspath(starfield), "Data")
-    pt = plugins_txt or plugins_txt_default()
+    pt = _plugins_txt_path(plugins_txt or plugins_txt_default())
     raw = _read(pt)
     top = {}
     if os.path.isdir(data):
@@ -224,6 +245,13 @@ def install_argv(comp, rec, repo, starfield, port_staging=None):
 def plan(target, current, repo, port_staging=None):
     """{"steps": [{"what", "argv"}], "plugins_txt": "same" | "restore" | "conflict", "conflicts": [...],
     "notes": [...]}: what apply would do to turn `current` into `target`."""
+    try:
+        target_pt = _plugins_txt_path(target.get("plugins_txt"))
+        current_pt = _plugins_txt_path(current.get("plugins_txt"))
+        if os.path.realpath(target_pt) != os.path.realpath(current_pt):
+            raise RestoreRefused("Plugins.txt snapshots address different installer namespaces")
+    except RestoreRefused as error:
+        return {"steps": [], "plugins_txt": "conflict", "conflicts": [str(error)], "notes": []}
     starfield = target["starfield"]
     steps, conflicts, notes = [], [], []
     change = {}
@@ -299,6 +327,13 @@ def plan(target, current, repo, port_staging=None):
 
 def verify(target, after):
     """[differences] between a target snapshot and the state after apply (empty: restored)."""
+    try:
+        target_pt = _plugins_txt_path(target.get("plugins_txt"))
+        after_pt = _plugins_txt_path(after.get("plugins_txt"))
+        if os.path.realpath(target_pt) != os.path.realpath(after_pt):
+            raise RestoreRefused("Plugins.txt snapshots address different installer namespaces")
+    except RestoreRefused as error:
+        return [str(error)]
     diffs = []
     if target["plugins_txt_sha256"] != after["plugins_txt_sha256"]:
         diffs.append("Plugins.txt bytes differ")
@@ -342,6 +377,7 @@ def game_running():
 
 def write_plugins_txt(path, target_b64, expected_sha256):
     """Guarded rewrite: refuses if Plugins.txt changed after the plan was made."""
+    path = _plugins_txt_path(path)
     cur = _read(path)
     if (None if cur is None else hashlib.sha256(cur).hexdigest()) != expected_sha256:
         raise RestoreRefused("Plugins.txt changed while restoring; nothing written")
@@ -358,6 +394,7 @@ def write_plugins_txt(path, target_b64, expected_sha256):
 def apply(target, repo, *, port_staging=None, running=game_running, run=subprocess.run, echo=print, watch=()):
     """Bring the install back to `target`. Returns the list of remaining differences (empty: restored). Raises
     RestoreRefused before touching anything when the game runs or the plan has conflicts."""
+    target = dict(target, plugins_txt=_plugins_txt_path(target.get("plugins_txt")))
     if running():
         raise RestoreRefused("Starfield is running (or its state is unknown); close it first")
     current = take(target["starfield"], target["plugins_txt"], watch or tuple(target.get("watched") or ()))
