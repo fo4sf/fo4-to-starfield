@@ -73,7 +73,7 @@ Open before Phase A closes (the [test sheet](owner/in-game-test-sheet.md) is the
 | Vault 111 cog door (an activator with Stage clips, played from its console) and the exit elevator | not built | Claude |
 | Picking up and carrying objects in the world (not into the inventory) | does not work (owner, row 26); hypothesis: FO4 masses are 2 to 10 times Starfield's for small items (research log); the owner's in-game mass experiment decides | Claude |
 | Garage button does nothing | #303 (Grok, open, wire-only): FO4's XAPR link becomes the vanilla DefaultActivateLinkedRefOnActivate plus an XLKR on the button; no Opening/Closing clip alias (that made garage meshes passable). Garage NIF rig is later, Claude on the build side | Grok, Codex QA, Claude build |
-| Nothing visible beyond the loaded cells | no distant LOD for converted statics; #303 carries the object-LOD plan (no build yet; next a small LOD trial) | Grok research, Claude build |
+| Nothing visible beyond the loaded cells | no distant LOD for converted statics; trial plan in [object-lod.md](terrain/object-lod.md) (no build yet; Claude owns the CK spike) | Grok research, Claude build |
 | Textures: foliage cutouts, greyscale palettes, vines, white walls | Grok's #288/#289 need the review fixes, then Claude reconverts | Grok, Codex QA |
 | Map surface view and markers | what the surface map shows over the Commonwealth is not recorded yet (a playtest row with the owner's screenshot comes first); #296 restores the first marker; the 3D view is section 3's first Grok item | Grok |
 | Benches show Starfield's models | low priority (owner) | Claude |
@@ -220,8 +220,8 @@ equivalents and which are rebuilt, and PLAN.md is updated once the owner agrees.
      Red Rocket marker (Claude takes it);
   2. the review fixes on #288, #289, #290, #296 and the #303 wire-only review (clip alias out); after Codex's QA, Claude runs the reconversion and
      the in-game checks;
-  3. the object-LOD trial from #303's plan, with Claude on the build side (the exterior writer and staging are Claude's;
-     Grok hands over patches, or the file scope is agreed on #32 first).
+  3. the object-LOD trial in [object-lod.md](terrain/object-lod.md), with Claude on the build side (the exterior writer
+     and staging are Claude's; Grok hands over patches, or the file scope is agreed on #32 first).
 - **Codex:** independent QA of Grok's #303 writer change, the round-trip run's evidence review, #301 (the #293
   follow-up) to merge after QA, then the Phase B record machinery design (quest, dialogue, packages) as a written note
   on #32.
