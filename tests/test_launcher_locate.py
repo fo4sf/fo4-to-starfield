@@ -61,7 +61,7 @@ class LocateTests(unittest.TestCase):
 
     def test_manifest_without_its_folder_is_not_an_install(self):
         write(os.path.join(self.steam, "steamapps", "appmanifest_1716740.acf"), manifest("1716740", "Starfield"))
-        r = locate.locate(self.steam)
+        r = locate.locate(self.steam, gog="")
         self.assertIsNone(r["starfield"])
         self.assertIn("Starfield not found in any Steam library", r["notes"])
 
@@ -72,8 +72,18 @@ class LocateTests(unittest.TestCase):
         os.remove(os.path.join(self.steam, "config", "libraryfolders.vdf"))
         self.assertEqual(locate.libraries(self.steam), [os.path.normpath(self.steam), os.path.normpath(self.lib2)])
 
+    def test_gog_fallout4_when_steam_has_none(self):
+        gog = os.path.join(os.path.dirname(self.steam), "GOG Games", "Fallout 4 GOTY")
+        os.makedirs(os.path.join(gog, "Data"))
+        r = locate.locate(self.steam, gog=gog)
+        self.assertEqual((r["fallout4"], r["fallout4_store"]), (gog, "gog"))
+        self.assertEqual(locate.fo4_data_folders(r), [os.path.join(gog, "Data")])
+        write(os.path.join(self.steam, "steamapps", "appmanifest_377160.acf"), manifest("377160", "Fallout 4"))
+        os.makedirs(os.path.join(self.steam, "steamapps", "common", "Fallout 4"))
+        self.assertEqual(locate.locate(self.steam, gog=gog)["fallout4_store"], "steam")       # Steam first (LA-5)
+
     def test_no_steam(self):
-        r = locate.locate(os.path.join(self.steam, "missing"))
+        r = locate.locate(os.path.join(self.steam, "missing"), gog="")
         self.assertIsNone(r["steam"])
         self.assertTrue(r["notes"])
 

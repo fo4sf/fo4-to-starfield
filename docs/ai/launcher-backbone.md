@@ -100,8 +100,10 @@ Desktop and has blocked `make_bridge.py` once). The owner's `D:\Modding` and `C:
 `HKCU\Software\Valve\Steam`, the libraries from `config\libraryfolders.vdf` (and the old `steamapps` copy), and each
 game from `steamapps\appmanifest_<appid>.acf` ("installdir" under `steamapps\common`; 377160 Fallout 4, 1716740
 Starfield). Depot downloads under `steamapps\content\app_377160\depot_*` are listed in depot-number order, the
-fixed merge order of the owner's LA-4 answer, and it prints the detect line to run. Read only. GOG lookup is not
-written yet; the VDF reader and the paths are tested on synthetic files only, not on a real Steam folder.
+fixed merge order of the owner's LA-4 answer, and it prints the detect line to run. Read only. When Steam has no
+Fallout 4, GOG's is used (LA-5: Steam, then GOG), found the way LOOT does (`HKLM\Software\GOG.com\Games\1998527297`
+"path", else the uninstall key's "InstallLocation") or given with `--gog`. The VDF reader and the paths are tested on
+synthetic files only; neither registry lookup has run on a real Windows install.
 
 ### check-plugins
 `launcher.py check-plugins <build folder> [--starfield-data <Starfield\Data>]` reads each built plugin's TES4 header

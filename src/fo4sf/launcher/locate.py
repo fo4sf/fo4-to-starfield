@@ -6,14 +6,16 @@ The route is the one MO2 takes (stores.md, gamegamebryo.cpp:456-485): Steam's fo
 library's steamapps\\appmanifest_<appid>.acf ("installdir", under steamapps\\common). Depot downloads (the owner's
 Fallout 4 sits in steamapps\\content\\app_377160\\depot_*) are listed too: detect accepts several data folders.
 
-Steam only: version 1 supports Steam Starfield (owner, RE-12) and Steam or GOG Fallout 4 (LA-5); GOG lookup is not
-written yet.
+Version 1 supports Steam Starfield only (owner, RE-12) and Steam, then GOG, Fallout 4 (LA-5). GOG Fallout 4 is found
+the way LOOT finds it (stores.md, gog.cpp:36-45): HKLM\Software\GOG.com\Games\1998527297 value "path", else the
+uninstall key 1998527297_is1 value "InstallLocation". GOG ships only 1.10.163.0.
 """
 import os
 import re
 
 FALLOUT4_APPID = "377160"
 STARFIELD_APPID = "1716740"
+GOG_FALLOUT4_ID = "1998527297"
 _TOKEN = re.compile(r'"((?:[^"\\]|\\.)*)"|([{}])|//[^\n]*')
 
 
@@ -72,6 +74,25 @@ def steam_path_from_registry():
         return None
 
 
+def gog_fallout4_from_registry():
+    """GOG Fallout 4's install folder from the Windows registry, or None."""
+    if os.name != "nt":
+        return None
+    import winreg
+    keys = ((rf"Software\GOG.com\Games\{GOG_FALLOUT4_ID}", "path"),
+            (rf"Software\WOW6432Node\GOG.com\Games\{GOG_FALLOUT4_ID}", "path"),
+            (rf"Software\Microsoft\Windows\CurrentVersion\Uninstall\{GOG_FALLOUT4_ID}_is1", "InstallLocation"))
+    for key, value in keys:
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key) as k:
+                p = os.path.normpath(winreg.QueryValueEx(k, value)[0])
+        except OSError:
+            continue
+        if os.path.isdir(p):
+            return p
+    return None
+
+
 def libraries(steam):
     """Every Steam library folder: Steam's own, then those libraryfolders.vdf lists (new and old layouts)."""
     out = [os.path.normpath(steam)]
@@ -123,18 +144,23 @@ def depot_downloads(steam, appid):
     return out
 
 
-def locate(steam=None):
-    """{"steam", "libraries", "fallout4", "fallout4_depots", "starfield", "notes"}."""
+def locate(steam=None, gog=None):
+    """{"steam", "libraries", "fallout4", "fallout4_store", "fallout4_depots", "starfield", "notes"}. Steam's Fallout 4
+    comes first; a GOG install (from `gog` or the registry) is used when Steam has none."""
     steam = steam or steam_path_from_registry()
+    gog = gog if gog is not None else gog_fallout4_from_registry()
+    gog = gog if gog and os.path.isdir(gog) else None
     if not steam or not os.path.isdir(steam):
-        return {"steam": None, "libraries": [], "fallout4": None, "fallout4_depots": [], "starfield": None,
-                "notes": ["Steam not found (pass --steam with its folder)"]}
+        return {"steam": None, "libraries": [], "fallout4": gog, "fallout4_store": "gog" if gog else None,
+                "fallout4_depots": [], "starfield": None,
+                "notes": ["Steam not found (pass --steam with its folder); Starfield needs Steam"]}
     fo4 = find_app(steam, FALLOUT4_APPID)
-    out = {"steam": os.path.normpath(steam), "libraries": libraries(steam), "fallout4": fo4,
+    out = {"steam": os.path.normpath(steam), "libraries": libraries(steam), "fallout4": fo4 or gog,
+           "fallout4_store": "steam" if fo4 else ("gog" if gog else None),
            "fallout4_depots": depot_downloads(steam, FALLOUT4_APPID),
            "starfield": find_app(steam, STARFIELD_APPID), "notes": []}
     if not out["fallout4"] and not out["fallout4_depots"]:
-        out["notes"].append("Fallout 4 not found in any Steam library")
+        out["notes"].append("Fallout 4 not found in any Steam library or GOG")
     if not out["starfield"]:
         out["notes"].append("Starfield not found in any Steam library")
     return out

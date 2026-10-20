@@ -16,7 +16,7 @@ r"""Launcher backbone CLI (docs/ai/launcher-backbone.md). Offline except `restor
     python scripts/launcher.py sources-add --manifest <build manifest.json> --label <text> [--table <json>]
     python scripts/launcher.py runtimes-add --manifest <build manifest.json> --label <text> [--table <json>]
     python scripts/launcher.py check-plugins <build folder> [--starfield-data <Starfield\Data>] [--also <master> ...]
-    python scripts/launcher.py find [--steam <Steam folder>] [--json <out.json>]
+    python scripts/launcher.py find [--steam <Steam folder>] [--gog <GOG Fallout 4 folder>] [--json <out.json>]
     python scripts/launcher.py measure <folder> ...
 
 manifest   what a build was made from and what it made (read only).
@@ -215,11 +215,12 @@ def cmd_check_plugins(a):
 
 
 def cmd_find(a):
-    r = locate.locate(a.steam or None)
+    r = locate.locate(a.steam or None, a.gog or None)
     print(f"  Steam: {r['steam'] or 'not found'}")
     for lib in r["libraries"][1:]:
         print(f"    library: {lib}")
-    print(f"  Fallout 4: {r['fallout4'] or 'no normal install'}")
+    print(f"  Fallout 4: {r['fallout4'] or 'no normal install'}"
+          + (f" ({r['fallout4_store']})" if r["fallout4_store"] else ""))
     for d in r["fallout4_depots"]:
         print(f"    depot download: {d}")
     print(f"  Starfield: {r['starfield'] or 'not found'}")
@@ -318,6 +319,7 @@ def main(argv=None):
     s.add_argument("--also", action="append", default=[])
     s = sub.add_parser("find")
     s.add_argument("--steam", default="")
+    s.add_argument("--gog", default="", help="GOG Fallout 4's folder, when the registry does not have it")
     s.add_argument("--json", default="")
     s = sub.add_parser("measure")
     s.add_argument("paths", nargs="+")
