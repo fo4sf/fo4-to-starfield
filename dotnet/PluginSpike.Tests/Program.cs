@@ -288,7 +288,7 @@ Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed."
  {"editor_id":"FO4Port_SynthPlainLoad","model":"fo4port\\plainload.nif","source":"meshes\\doors\\plainload.nif",
   "load_door":{"bounds":[[-1,-0.1,0],[1,0.1,2.2]]}},
  {"editor_id":"FO4Port_SynthTplLoad","model":"fo4port\\tplload.nif","source":"meshes\\doors\\tplload.nif",
-  "load_door":{"bounds":[[-1,-0.1,0],[1,0.1,2.2]],
+  "load_door":{"bounds":[[-1,-0.1,0],[1,0.1,2.2]],"fo4_door_flags":138,
    "anim":{"anim_graph":"AnimTextData\\Tables\\Graphs\\SimpleOpenClose01.agx","skeleton":"ak\\skeleton.rig","animations":"ak\\animations",
            "origin_offset":[0,0,0],"bounds":[[-1,-0.1,0],[1,0.1,2.2]],"open_seconds":1.0333,
            "xtel_anim_graph":"AnimTextData\\Tables\\Graphs\\SimpleOpenClose02_Load.agx",
@@ -337,6 +337,10 @@ Console.WriteLine("Own-rig XTEL guard and PluginSpike door-state checks passed."
                 "XTEL copy lost the load graph, skeleton or clips");
         Require(tpl.Components.OfType<IAnimationGraphComponentGetter>().Single().ANAM.EndsWith("SimpleOpenClose01.agx"), "scripted record lost its graph");
         Require(AssetPath(tplXtel.Model?.File) == AssetPath(tpl.Model?.File), "XTEL copy has another model");
+        // load_door_anim.py flags: FO4's FNAM bits on both records (0x8A: Automatic and Minimal Use; 0x80 is not an FO4 bit and
+        // is dropped); a door without fo4_door_flags keeps 0
+        Require((int)tpl.Flags == 0x0A && (int)tplXtel.Flags == 0x0A, $"FO4 door flags not copied: {tpl.Flags} / {tplXtel.Flags}");
+        Require((int)plainDoor.Flags == 0 && (int)animated.Flags == 0, "door flags written without fo4_door_flags");
         Require(Ref("000A03").Base.FormKey == tplXtel.FormKey && Ref("000A04").Base.FormKey == tplXtel.FormKey, "XTEL references not on the load-graph copy");
         Require(Ref("000A03").TeleportDestination != null && Ref("000A05").TeleportDestination == null && Ref("000A05").Base.FormKey == tpl.FormKey,
                 "reference without an XTEL moved onto the load-graph copy");

@@ -243,3 +243,70 @@ def sound_plan(manifest, sound_rows, ordinary=False):
                     rig["close_sound"] = dict(src["close"])
                 rig["sounds_from"] = src["formkey"]
     return out, rows
+
+
+# FO4 DOOR FNAM flags as Mutagen names them (Fallout4.Door.Flag) and their bits; Starfield's Door.Flag has the same names
+# at the same bits plus NoQuestTarget 0x01 and NoDirectActivation 0x80 (verified, Mutagen 0.55.0-alpha.67 reflection,
+# 2026-10-20), so a copy is bit for bit (framework question D13).
+FO4_DOOR_FLAGS = {"Automatic": 0x02, "Hidden": 0x04, "MinimalUse": 0x08, "Sliding": 0x10,
+                  "DoNotOpenInCombatSearch": 0x20, "NoToText": 0x40}
+
+
+def door_flag_bits(flags):
+    """The FNAM bits of an export's door_bases[..].record.Flags string ("Automatic, MinimalUse", "0", "" or None).
+    Raises ValueError on a name not in FO4_DOOR_FLAGS, so an unknown flag is never dropped silently."""
+    bits = 0
+    for name in str(flags or "").split(","):
+        name = name.strip()
+        if not name or name == "0":
+            continue
+        if name not in FO4_DOOR_FLAGS:
+            raise ValueError(f"unknown FO4 door flag {name!r}")
+        bits |= FO4_DOOR_FLAGS[name]
+    return bits
+
+
+def flag_plan(manifest, cells):
+    """(new manifest, rows). Gives each door entry of the manifest (load_door when it is an object, and door) the FNAM
+    flags of the FO4 DOOR bases placed with its model, as "fo4_door_flags" (int). cells: parsed Fo4Export cell exports
+    (refs plus door_bases). Our door records are keyed by model, so when FO4 bases sharing a model disagree, or a flag is
+    unknown, or no base was exported, nothing is written and the row says why. The input is not changed. Rows:
+    {"editor_id", "source", "flags", "bases", "reason"} (flags None when not written)."""
+    by_model = {}
+    for cell in cells:
+        bases = cell.get("door_bases") or {}
+        for r in cell.get("refs", []):
+            if r.get("type") != "Door" or not r.get("model"):
+                continue
+            key = ("meshes\\" + r["model"].replace("/", "\\").lstrip("\\")).lower()
+            base = bases.get(r.get("base_formkey"))
+            entry = by_model.setdefault(key, {})
+            entry[r.get("base_formkey")] = None if base is None else ((base.get("record") or {}).get("Flags"))
+    out = copy.deepcopy(manifest)
+    rows = []
+    for it in out.get("items", []):
+        targets = [e for e in (it.get("load_door"), it.get("door")) if isinstance(e, dict)]
+        if not targets:
+            continue
+        found = by_model.get(str(it.get("source", "")).replace("/", "\\").lower())
+        row = {"editor_id": it.get("editor_id"), "source": it.get("source"), "flags": None,
+               "bases": sorted(found) if found else [], "reason": None}
+        rows.append(row)
+        if not found:
+            row["reason"] = "no placed FO4 door with this model in the cell exports"
+            continue
+        if any(v is None for v in found.values()):
+            row["reason"] = "a base's record was not exported (export older than 2026-10-18)"
+            continue
+        try:
+            values = {door_flag_bits(v) for v in found.values()}
+        except ValueError as e:
+            row["reason"] = str(e)
+            continue
+        if len(values) > 1:
+            row["reason"] = "FO4 bases sharing this model disagree: " + ", ".join(f"0x{v:02X}" for v in sorted(values))
+            continue
+        row["flags"] = values.pop()
+        for e in targets:
+            e["fo4_door_flags"] = row["flags"]
+    return out, rows

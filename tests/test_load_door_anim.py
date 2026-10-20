@@ -454,3 +454,72 @@ class DoorSoundTests(unittest.TestCase):
                 cli.main(["sounds", "--manifest", man, "--doorsounds", tsv, "--out", out])
             with self.assertRaises(SystemExit):
                 cli.main(["sounds", "--manifest", man, "--doorsounds", tsv, "--out", man])
+
+
+class DoorFlagTests(unittest.TestCase):
+    """load_door_anim.flag_plan / `flags`: FO4's FNAM door flags copied bit for bit onto our door entries (D13)."""
+
+    def cells(self):
+        def ref(fk, base, model):
+            return {"formkey": fk, "type": "Door", "base_formkey": base, "model": model}
+        return [{"refs": [ref("1", "B1", "Doors\\Auto.nif"), ref("2", "B2", "doors\\auto.nif"),     # two bases, same flags
+                          ref("3", "B3", "Doors\\Mixed.nif"), ref("4", "B4", "Doors\\Mixed.nif"),   # bases disagree
+                          ref("5", "B5", "Doors\\Plain.nif"), ref("6", "B6", "Doors\\Odd.nif"),
+                          ref("7", "B7", "Doors\\Old.nif"), {"formkey": "8", "type": "Static", "model": "Doors\\Auto.nif"}],
+                 "door_bases": {"B1": {"record": {"Flags": "Automatic, MinimalUse"}},
+                                "B2": {"record": {"Flags": "MinimalUse, Automatic"}},
+                                "B3": {"record": {"Flags": "Hidden"}}, "B4": {"record": {"Flags": "0"}},
+                                "B5": {"record": {"Flags": "0"}}, "B6": {"record": {"Flags": "Teleporting"}}}}]
+
+    def manifest(self):
+        return {"items": [item("Auto", "meshes\\Doors\\Auto.nif", load_door={"bounds": BOUNDS, "anim": {"x": 1}}),
+                          item("Mixed", "meshes\\Doors\\Mixed.nif", door={"anim_graph": "g"}),
+                          item("Plain", "meshes\\Doors\\Plain.nif", door={"anim_graph": "g"}),
+                          item("Odd", "meshes\\Doors\\Odd.nif", door={"anim_graph": "g"}),
+                          item("Old", "meshes\\Doors\\Old.nif", door={"anim_graph": "g"}),
+                          item("Gone", "meshes\\Doors\\Gone.nif", door={"anim_graph": "g"}),
+                          item("Chair", "meshes\\Furniture\\Chair.nif"),
+                          item("Legacy", "meshes\\Doors\\Auto.nif", load_door="note string")]}
+
+    def test_flag_bits_match_mutagen(self):
+        self.assertEqual(load_door_anim.door_flag_bits("Automatic, MinimalUse"), 0x0A)
+        self.assertEqual(load_door_anim.door_flag_bits("0"), 0)
+        self.assertEqual(load_door_anim.door_flag_bits(None), 0)
+        self.assertEqual(load_door_anim.door_flag_bits("Sliding, DoNotOpenInCombatSearch, NoToText, Hidden"), 0x74)
+        with self.assertRaises(ValueError):
+            load_door_anim.door_flag_bits("Teleporting")
+
+    def test_plan_copies_agreeing_flags_and_refuses_the_rest(self):
+        m = self.manifest()
+        out, rows = load_door_anim.flag_plan(m, self.cells())
+        by = {it["editor_id"]: it for it in out["items"]}
+        self.assertEqual(by["Auto"]["load_door"]["fo4_door_flags"], 0x0A)
+        self.assertNotIn("fo4_door_flags", by["Auto"]["load_door"]["anim"])     # on the entry, read by the writer
+        self.assertEqual(by["Plain"]["door"]["fo4_door_flags"], 0)
+        reasons = {r["editor_id"]: r["reason"] for r in rows}
+        self.assertTrue(reasons["Mixed"].startswith("FO4 bases sharing this model disagree: 0x00, 0x04"))
+        self.assertIn("unknown FO4 door flag", reasons["Odd"])
+        self.assertIn("not exported", reasons["Old"])
+        self.assertIn("no placed FO4 door", reasons["Gone"])
+        for name in ("Mixed", "Odd", "Old", "Gone"):
+            self.assertNotIn("fo4_door_flags", by[name]["door"])
+        self.assertNotIn("Chair", reasons)                                       # not a door
+        self.assertNotIn("Legacy", reasons)                                      # old string entry left alone
+        self.assertNotIn("fo4_door_flags", m["items"][0]["load_door"])           # the input is never changed
+
+    def test_cli_writes_new_files_only(self):
+        with tempfile.TemporaryDirectory() as d:
+            man, cell, out = (os.path.join(d, n) for n in ("m.json", "c.json", "new.json"))
+            for path, value in ((man, self.manifest()), (cell, self.cells()[0])):
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(value, f)
+            with redirect_stdout(io.StringIO()) as printed:
+                cli.main(["flags", "--manifest", man, "--cells", cell, "--out", out])
+            self.assertIn("flags written on 2", printed.getvalue())
+            with open(out + ".flags.json", encoding="utf-8") as f:
+                side = json.load(f)
+            self.assertEqual((side["doors"], side["written"]), (6, 2))
+            with self.assertRaises(SystemExit):
+                cli.main(["flags", "--manifest", man, "--cells", cell, "--out", out])
+            with self.assertRaises(SystemExit):
+                cli.main(["flags", "--manifest", man, "--cells", cell, "--out", man])

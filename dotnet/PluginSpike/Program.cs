@@ -59,6 +59,11 @@ SoundReference? VanillaSound(JsonElement rig, string name)
     return r;
 }
 
+// load_door_anim.py flags: the FO4 DOOR's FNAM flags (fo4_door_flags; same bits in Starfield, D13), only the six FO4 has;
+// 0 when the entry has none (every manifest before 2026-10-20), as before
+Door.Flag Fo4DoorFlags(JsonElement entry) =>
+    entry.ValueKind == JsonValueKind.Object && entry.TryGetProperty("fo4_door_flags", out var f) ? (Door.Flag)(f.GetInt32() & 0x7E) : 0;
+
 // ---- statics ----------------------------------------------------------------------------------------------------------
 var items = new List<(string editorId, string model, string source, JsonElement? door, JsonElement? loadDoor, bool movable,
                        IReadOnlyList<string> posedRefs)>();
@@ -95,6 +100,7 @@ foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in it
         {
             EditorID = editorId, Model = new Model { File = model }, Name = "Door",
             SoundLevel = SoundLevel.Normal, FacingAxisOverride = Door.FacingAxisOverrideEnum.BasedOnBounds,
+            Flags = Fo4DoorFlags(ld),
         };
         // newer manifests carry the model's bounds (metres, NIF space); older ones hold only a note string
         if (ld.ValueKind == JsonValueKind.Object && ld.TryGetProperty("bounds", out var lb))
@@ -137,7 +143,7 @@ foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in it
                 var xtel = new Door(Id("DOOR:" + editorId + ":xtel"), release)
                 {
                     EditorID = editorId + "_XtelLoad", Model = new Model { File = animModel },
-                    Name = "Door", SoundLevel = rec.SoundLevel, FacingAxisOverride = rec.FacingAxisOverride,
+                    Name = "Door", SoundLevel = rec.SoundLevel, FacingAxisOverride = rec.FacingAxisOverride, Flags = rec.Flags,
                     ObjectBounds = rec.ObjectBounds.DeepCopy(),
                     OpenSound = VanillaSound(la, "open_sound"), CloseSound = VanillaSound(la, "close_sound"),
                 };
@@ -174,6 +180,7 @@ foreach (var (editorId, model, source, door, loadDoor, movable, posedRefs) in it
             Name = "Door",
             SoundLevel = SoundLevel.Normal,                                     // DEVT 1, as vanilla doors
             FacingAxisOverride = Door.FacingAxisOverrideEnum.BasedOnBounds,     // trailing ANAM, as vanilla doors
+            Flags = Fo4DoorFlags(d),
         };
         rec.OpenSound = VanillaSound(d, "open_sound");                         // load_door_anim.py sounds --ordinary-doors
         rec.CloseSound = VanillaSound(d, "close_sound");

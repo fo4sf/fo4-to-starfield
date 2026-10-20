@@ -63,6 +63,12 @@ Owner's ask (2026-10-19, roadmap phase 2): doors with their animations working f
    same graph (**supported hypothesis** that it fits an own rig); `--ordinary-doors` does the same for rigged non-load
    doors. The writer sets the sounds only where the manifest has them. FO4's own sound keys (`fo4_open_events`) stay
    recorded, unused.
+7. **FO4 door flags (D13, 2026-10-20).** FO4's DOOR FNAM bits 0x02 to 0x40 (Automatic, Hidden, Minimal Use, Sliding,
+   Do Not Open In Combat Search, No To Text) have the same names at the same bits in Starfield (**verified**, Mutagen
+   0.55.0-alpha.67 enums), so `load_door_anim.py flags` copies them from the FO4 bases in the Fo4Export cell exports
+   onto a new manifest (`fo4_door_flags` on each door entry), and the writer sets them on the DOOR record (and on its
+   `_XtelLoad` copy). Our door records are keyed by model, so a model whose FO4 bases disagree keeps 0 and its row says
+   why. Starfield's own extra bits (0x01, 0x80) are never set. Today every converted door has flags 0.
 
 Starfield's own door animations come first (owner, 2026-10-19): the template doors play the Akila clips; FO4's own
 keys play only where the door already gets its own rig. FO4 clips can replace the template later per door.
@@ -76,6 +82,7 @@ keys play only where the door already gets its own rig. FO4 clips can replace th
 | writer | `load_door.anim` present in the manifest | graph-less DOOR (as every pinned build) | DOOR with graph, twin model, offset |
 | writer, XTEL refs | `load_door.anim.xtel_anim_graph` (set by the converter for template rigs) | n/a | `<edid>_XtelLoad` copy with the vanilla load graph for XTEL references |
 | sounds | `load_door_anim.py sounds --doorsounds <tsv> --out <new>` (`--ordinary-doors`) | doors silent, as today | vanilla OpenSound / CloseSound on rigged load doors (and ordinary doors) |
+| flags | `load_door_anim.py flags --cells <cell.json>... --out <new>` | FNAM 0, as today | FO4's FNAM bits on every door whose FO4 bases agree |
 | VMAD | `vmad_patch.py port --animated-doors <manifest>` | every door FO4SF_LoadDoor, byte for byte as before | doors whose DOOR base (by EDID) has `load_door.anim` get FO4SF_AnimatedLoadDoor + OpenSeconds; doors.json records it and `check` requires it |
 
 Unit tests: tests/test_load_door_anim.py (converter switch on/off, twins, CLI, survey, VMAD, compile wrapper, batch
@@ -100,6 +107,8 @@ head commit. Nothing is installed, nothing touches Starfield's Data folder or th
   which load models animate, how long, their sound keys, and which have an animated twin.
 - **A7 vanilla door sounds** (asked 2026-10-19 after the first reads). `SfInspect doorsounds` over Starfield.esm to a
   TSV: every DOOR with sounds, its graph, rig and WWise events. Small output; feeds `load_door_anim.py sounds`.
+- **A8 door flags** (offline once the cell exports are copied; read-only). `load_door_anim.py flags` over the staged
+  port manifest and the same cell exports as A5: how many doors get flags, how many models' bases disagree.
 - **A6 manifest report.** `load_door_anim.py report` on the installed port's manifest: how many load doors would get
   a rig today (twins only, since the pinned build was converted without `--rig-load-doors`).
 

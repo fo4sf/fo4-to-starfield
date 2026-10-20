@@ -13,6 +13,10 @@
       writes a NEW manifest where rigged load doors (and with --ordinary-doors every rigged door) carry the open / close
       sounds of a vanilla door (SfInspect doorsounds over Starfield.esm): same skeleton first, else the commonest pair on
       the same graph; plus <out>.sounds.json (one row per door and where its sounds came from).
+  python scripts/door_bridge/load_door_anim.py flags --manifest <manifest.json> --cells <cell.json>... --out <new>
+      writes a NEW manifest where each door entry carries the FNAM flags (Automatic, Hidden, Minimal Use, Sliding, Do Not
+      Open In Combat Search, No To Text) of the FO4 DOOR bases placed with its model in those Fo4Export cell exports, bit
+      for bit; models whose bases disagree are left as they are. Plus <out>.flags.json (one row per door).
 
 The plugin writer (dotnet/PluginSpike) gives a load door an animation graph only when its manifest entry has "anim", so a
 manifest this tool did not touch builds exactly as before.
@@ -58,7 +62,29 @@ def main(argv=None):
     so.add_argument("--doorsounds", required=True, help="SfInspect <Starfield.esm> doorsounds output (TSV)")
     so.add_argument("--out", required=True)
     so.add_argument("--ordinary-doors", action="store_true", help="also give rigged non-load doors their vanilla sounds")
+    fl = sub.add_parser("flags")
+    fl.add_argument("--manifest", required=True)
+    fl.add_argument("--cells", nargs="+", required=True, help="Fo4Export cell exports with door_bases (2026-10-18 or later)")
+    fl.add_argument("--out", required=True)
     a = ap.parse_args(argv)
+    if a.cmd == "flags":
+        if os.path.abspath(a.out) == os.path.abspath(a.manifest):
+            raise SystemExit("refusing to overwrite the input manifest: give a new --out")
+        side = a.out + ".flags.json"
+        if os.path.exists(side):
+            raise SystemExit(f"refusing to overwrite {side}: give a new file")
+        new, rows = load_door_anim.flag_plan(read(a.manifest), [read(c) for c in a.cells])
+        written = sum(1 for r in rows if r["flags"] is not None)
+        reasons = {}
+        for r in rows:
+            if r["reason"]:
+                key = r["reason"].split(":")[0]
+                reasons[key] = reasons.get(key, 0) + 1
+        write_new(a.out, new)
+        write_new(side, {"doors": len(rows), "written": written, "reasons": reasons, "rows": rows})
+        print(f"{len(rows)} doors: flags written on {written}" + "".join(f"; {v} {k}" for k, v in sorted(reasons.items()))
+              + f"; wrote {a.out}")
+        return 0
     if a.cmd == "sounds":
         if os.path.abspath(a.out) == os.path.abspath(a.manifest):
             raise SystemExit("refusing to overwrite the input manifest: give a new --out")
