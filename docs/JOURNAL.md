@@ -1906,5 +1906,7 @@ the complete collision-vs-mesh oracle requested in #359.
 Six actual isolated CLI tests reproduced 12 failed assertions on the old helper
 and now pass; 52 existing converter, mass-argument, transform and door checks
 pass, as does guard. Original red logs and broken source are retained privately.
-Original Grok branch and main are unchanged. Source-only draft repair; peer QA,
-the remaining #359 collision research and native acceptance remain pending.
+Original Grok branch and main are unchanged. Source-only draft repair; peer QA
+and native acceptance remain pending. The existing collision-bounds proposal
+PR364 is separate; do not duplicate its research or confuse this vertex helper
+with its collision/NIF-frame oracle.
