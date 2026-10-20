@@ -31,9 +31,9 @@ def grup(label, records):
     return b"GRUP" + struct.pack("<I", 24 + len(inner)) + label.encode() + struct.pack("<IHHHH", 0, 0, 0, 0, 0) + inner
 
 
-def plugin(recs, hedr_next=0x800, stamp_tes4=0):
-    tes4 = record("TES4", 0, [("HEDR", struct.pack("<fII", 0.96, len(recs), hedr_next)),
-                               ("MAST", b"Starfield.esm\0")], stamp=stamp_tes4)
+def plugin(recs, hedr_next=0x800, stamp_tes4=0, masters=("Starfield.esm",)):
+    tes4 = record("TES4", 0, [("HEDR", struct.pack("<fII", 0.96, len(recs), hedr_next))]
+                  + [("MAST", name.encode() + b"\0") for name in masters], stamp=stamp_tes4)
     return tes4 + grup("STAT", recs)
 
 
@@ -84,6 +84,62 @@ class SameIdsTests(unittest.TestCase):
         e = same_ids.check(self.a, self.b)["plugins"]["P.esm"]
         self.assertEqual(e["verdict"], "SAME_IDS")
         self.assertEqual(sorted(e["tes4"]), ["HEDR"])
+
+    def test_ordered_master_changes_fail_with_unchanged_raw_record_ids(self):
+        cases = [
+            (("A.esm", "B.esm"), ("B.esm", "A.esm")),
+            (("A.esm", "B.esm"), ("C.esm", "B.esm")),
+            (("A.esm", "B.esm"), ("A.esm", "C.esm", "B.esm")),
+            (("A.esm", "C.esm", "B.esm"), ("A.esm", "B.esm")),
+            (("A.esm", "B.esm", "C.esm"), ("X.esm", "B.esm", "C.esm")),
+            (("A.esm", "B.esm", "C.esm"), ("A.esm", "X.esm", "C.esm")),
+        ]
+        for a, b in cases:
+            with self.subTest(a=a, b=b):
+                self.write(self.a, "P.esm", plugin(self.base(), masters=a))
+                self.write(self.b, "P.esm", plugin(self.base(), masters=b))
+                report = same_ids.check(self.a, self.b)
+                entry = report["plugins"]["P.esm"]
+                self.assertEqual(report["verdict"], "IDS_DIFFER")
+                self.assertTrue(entry["ids"]["masters_changed"])
+                self.assertEqual(entry["tes4"]["MAST"], {
+                    "a": [(name.encode() + b"\0").hex() for name in a],
+                    "b": [(name.encode() + b"\0").hex() for name in b],
+                })
+                self.assertEqual(entry["ids"]["only_a"], 0)
+                self.assertEqual(entry["ids"]["only_b"], 0)
+
+    def test_parser_retains_every_master_in_order(self):
+        masters = ("First.esm", "Middle.esm", "Last.esm")
+        self.write(self.a, "P.esm", plugin(self.base(), masters=masters))
+        parsed = same_ids.read_plugin(os.path.join(self.a, "P.esm"))
+        self.assertEqual(parsed["tes4"]["subrecords"]["MAST"],
+                         [(name.encode() + b"\0").hex() for name in masters])
+
+    def test_unchanged_masters_allow_content_and_timestamp_differences(self):
+        masters = ("Starfield.esm", "FO4Port.esm")
+        self.write(self.a, "P.esm", plugin(self.base(), masters=masters))
+        self.write(self.b, "P.esm", plugin(self.base(stamp=7, model=b"other.nif"), masters=masters))
+        report = same_ids.check(self.a, self.b)
+        entry = report["plugins"]["P.esm"]
+        self.assertEqual(report["verdict"], "SAME_IDS")
+        self.assertFalse(entry["ids"]["masters_changed"])
+        self.assertNotIn("MAST", entry["tes4"])
+        self.assertEqual((entry["metadata"]["count"], entry["content"]["count"]), (1, 1))
+
+    def test_master_reorder_cli_refuses_and_writes_complete_report(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("launcher_master_cli", os.path.join(ROOT, "scripts", "launcher.py"))
+        cli = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cli)
+        self.write(self.a, "P.esm", plugin(self.base(), masters=("A.esm", "B.esm")))
+        self.write(self.b, "P.esm", plugin(self.base(), masters=("B.esm", "A.esm")))
+        out = os.path.join(self.a, "..", "master-report.json")
+        self.assertEqual(cli.main(["same-ids", self.a, self.b, "--report", out]), 1)
+        with open(out, encoding="utf-8") as stream:
+            report = json.load(stream)
+        self.assertEqual(report["verdict"], "IDS_DIFFER")
+        self.assertTrue(report["plugins"]["P.esm"]["ids"]["masters_changed"])
 
     def test_editor_id_on_another_formid_differs(self):
         self.write(self.a, "P.esm", plugin([stat(0x01000800, "X"), stat(0x01000801, "Y")]))

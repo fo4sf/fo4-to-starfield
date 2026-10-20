@@ -1891,3 +1891,14 @@ the build side. No deploy, no game.
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+### 2026-10-20 Codex: include ordered plugin masters in same-IDs verification
+
+Scoped identity/output-verification correction to394/774cb7f, coordinated on its PR. The old checker flattened
+repeated MAST subrecords and allowed SAME_IDS after master reorder or earlier-entry replacement. The reader now
+retains all raw MAST bytes in order; a changed table sets ids.masters_changed and refuses identity equivalence.
+This is a strict ordered-table comparison, not runtime load-order or semantic rebasing proof. Other metadata and
+content changes with the same masters retain explained SAME_IDS results. Sixteen focused methods pass after
+new cases fail on the original source. Sixteen separate controlled actual-CLI calls reproduce/fix five false
+PASS cases and retain three positive outcomes; all eight synthetic input pairs remain unchanged. Only reader
+header handling and comparison change; launcher driver, restore and other parent findings remain untouched.
+No private plugin, real installer, game/stage/input or main merge. Independent QA remains pending.

@@ -7,8 +7,9 @@ inflated) compares, record by record:
     the FormID set, and for every FormID its record type and editor id (EDID)   -> the ids
     the record header's version-control fields (timestamp, VC info, form version) -> metadata
     the record body                                                            -> content
-and the TES4 header on its own. Two builds have the same ids when the FormID sets match and every FormID keeps its
-type and editor id; a difference in metadata or content alone is an explained diff, listed with examples.
+and the TES4 header on its own. Two builds have the same ids when the FormID sets match, every FormID keeps its
+type and editor id, and the ordered MAST entries are unchanged. A raw FormID's master index cannot be compared
+across changed master tables. A difference in other metadata or content alone is an explained diff, listed with examples.
 Level 3, formids.json: when both build folders carry the converter's formids.json, make_core64c.py's formids_diff
 (the compare-ids tool) runs on them too, so the converter's own allocation map is checked, not just the plugin.
 
@@ -56,7 +57,7 @@ def subrecords(data):
 
 
 def read_plugin(path):
-    """{"tes4": {...}, "records": {formid: {"type", "edid", "meta", "body_sha256"}}, "duplicates": [...]}."""
+    """Parsed records; tes4.subrecords.MAST retains every master's raw bytes as an ordered hex list."""
     with open(path, "rb") as f:
         raw = f.read()
     if raw[:4] != b"TES4" or len(raw) < 24:
@@ -89,7 +90,9 @@ def read_plugin(path):
         entry = {"type": typ, "edid": edid, "flags": flags & ~COMPRESSED,
                  "meta": [vc1, version, vc2], "body_sha256": hashlib.sha256(body).hexdigest()}
         if typ == "TES4":
-            tes4 = dict(entry, subrecords={t: v.hex() for t, v in subs if t in ("HEDR", "MAST", "CNAM", "SNAM")})
+            header = {t: v.hex() for t, v in subs if t in ("HEDR", "CNAM", "SNAM")}
+            header["MAST"] = [v.hex() for t, v in subs if t == "MAST"]
+            tes4 = dict(entry, subrecords=header)
             continue
         if formid in records:
             dups.append(f"{formid:08X}")
@@ -115,14 +118,17 @@ def compare_plugins(a_path, b_path, examples=5):
     for k in sorted(set(a["tes4"]["subrecords"]) | set(b["tes4"]["subrecords"])):
         if a["tes4"]["subrecords"].get(k) != b["tes4"]["subrecords"].get(k):
             tes4[k] = {"a": a["tes4"]["subrecords"].get(k), "b": b["tes4"]["subrecords"].get(k)}
+    masters_changed = a["tes4"]["subrecords"]["MAST"] != b["tes4"]["subrecords"]["MAST"]
 
     def ex(ids, f=lambda i: f"{i:08X}"):
         return [f(i) for i in ids[:examples]]
-    ids_equal = not (only_a or only_b or retyped or renamed or moved or a["duplicates"] or b["duplicates"])
+    ids_equal = not (only_a or only_b or retyped or renamed or moved or masters_changed
+                     or a["duplicates"] or b["duplicates"])
     return {
         "ids_equal": ids_equal, "records": [len(ra), len(rb)],
         "ids": {"only_a": len(only_a), "only_b": len(only_b), "retyped": len(retyped), "renamed": len(renamed),
-                "edid_moved": len(moved), "duplicates": [a["duplicates"][:examples], b["duplicates"][:examples]],
+                "edid_moved": len(moved), "masters_changed": masters_changed,
+                "duplicates": [a["duplicates"][:examples], b["duplicates"][:examples]],
                 "examples": {"only_a": ex(only_a), "only_b": ex(only_b), "retyped": ex(retyped),
                              "renamed": ex(renamed, lambda i: f"{i:08X} {ra[i]['edid']} -> {rb[i]['edid']}"),
                              "edid_moved": [f"{e}: {by_edid_a[e]:08X} -> {by_edid_b[e]:08X}" for e in moved[:examples]]}},
