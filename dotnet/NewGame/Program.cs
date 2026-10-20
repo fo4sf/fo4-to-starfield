@@ -10,13 +10,16 @@
 //        in metres in the port's frame and exterior ones in the core's (both FO4 position / 70); headings in degrees.
 //   write <Starfield.esm> <FO4Port.esm> <port formids.json> <FO4TerrainCore.esm> <points.json> <out dir>
 //         [--plugin FO4SFNewGame.esm] [--hold MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04] [--mq101debug <n>]
-//         [--no-mq101debug] [--no-looks] [--exit-anchor <REFR EditorID>]
+//         [--no-mq101debug] [--no-looks] [--race-menu-mode <n>] [--exit-anchor <REFR EditorID>]
 //        the plugin, mastered on Starfield.esm only: QUST FO4SF_NewGame (start game enabled, run once; stages 1 / 10 /
 //        20 / 30 / 40 / 200, the published stage contract of make_newgame.py STAGE_CONTRACT; objective 10) carrying
-//        FO4SF_NewGameQuest (and FO4SF_NewGameLooks unless --no-looks) with its properties, MESG FO4SF_NewGameElevator
-//        (two buttons), and an override of Starfield's GLOB MQ101Debug set to 10 (what MQ00 writes before it starts
-//        MQ101; the owner's decision NG-2 is that we set it ourselves) unless --no-mq101debug, or --mq101debug <n> for
-//        another value. The port and the core are read for the ids and positions the script resolves at run time with
+//        FO4SF_NewGameQuest (and FO4SF_NewGameLooks unless --no-looks) with their properties, MESG FO4SF_NewGameElevator
+//        and MESG FO4SF_NewGameStart (two buttons each: the elevator prompt, and the opening choice "Create character"
+//        or "Quick start" the looks script shows, NG-6 / NG-C9), and an override of Starfield's GLOB MQ101Debug set to
+//        10 (what MQ00 writes before it starts MQ101; the owner's decision NG-2 is that we set it ourselves) unless
+//        --no-mq101debug, or --mq101debug <n> for another value. --race-menu-mode <n> is the uiMode the looks script
+//        passes to Game.ShowRaceMenu (its RaceMenuMode property; default 0, the full creator: which mode is looks-only
+//        is unverified until the in-game C1 test). The port and the core are read for the ids and positions the script resolves at run time with
 //        Game.GetFormFromFile (plugin-local ids): the vault anchor (the COC marker of FO4Port_Vault111Cryo), the cog
 //        door (formids.json REFR:FO4Port_Vault111Cryo:0330C3:...; 0 when the port has none) and the exit anchor (the
 //        core's Vault 111 map marker).
@@ -62,8 +65,12 @@ static class NewGame
     // reference must be owned by the plugin of that name, or the script would ask for the wrong record
     public const string PortPlugin = "FO4Port.esm", CorePluginFile = "FO4TerrainCore.esm";
     public const string QuestEdid = "FO4SF_NewGame", ScriptName = "FO4SF_NewGameQuest", LooksScript = "FO4SF_NewGameLooks";
-    public const string MessageEdid = "FO4SF_NewGameElevator", ExitAnchorEdid = "FO4Core_CommonwealthMapMarkerVault111";
-    public const uint QuestId = 0x800, MessageId = 0x801;   // the GLOB override keeps Starfield's id
+    public const string MessageEdid = "FO4SF_NewGameElevator", StartMessageEdid = "FO4SF_NewGameStart", ExitAnchorEdid = "FO4Core_CommonwealthMapMarkerVault111";
+    public const uint QuestId = 0x800, MessageId = 0x801, StartMessageId = 0x802;   // the GLOB override keeps Starfield's id
+    // Game.ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0, ...) (verified, Starfield's Game.psc): the
+    // modes are FO4's (0 chargen, 1 remake, 2 haircut, 3 surgery, 4 face paint, NG-C1), but what each shows with
+    // MQ101 stopped, and which is looks-only (the owner's decision NG-C3), is unverified until the in-game C1 test
+    public const int DefaultRaceMenuMode = 0;
     // GLOB MQ101Debug: MQ00's stage 10 sets it to 10 and starts MQ101 (verified, QF_MQ00_00005790.psc). We stop MQ00,
     // which may leave it at 0 (sustenance off, NG-M1), so the default build writes 10 ourselves (NG-2); which value
     // gives the cleanest start is unverified until the PC run (NG-M4), hence --mq101debug <n> and --no-mq101debug.
@@ -99,13 +106,15 @@ static class NewGame
     static string F(float v) => v.ToString("0.###", CultureInfo.InvariantCulture);
     static float Deg(float rad) => rad * 180f / MathF.PI;
 
-    public record Options(string Plugin, string[] Hold, float? MQ101Debug, bool Looks, string ExitAnchor)
+    public record Options(string Plugin, string[] Hold, float? MQ101Debug, bool Looks, int RaceMenuMode, string ExitAnchor)
     {
         public static Options From(string[] a) => new(
             ArgOrNull(a, "--plugin") ?? NewGame.Plugin,
             (ArgOrNull(a, "--hold") ?? string.Join(",", DefaultHold)).Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
             a.Contains("--no-mq101debug") ? null : ArgOrNull(a, "--mq101debug") is { } d ? float.Parse(d, CultureInfo.InvariantCulture) : DefaultMQ101Debug,
-            !a.Contains("--no-looks"), ArgOrNull(a, "--exit-anchor") ?? ExitAnchorEdid);
+            !a.Contains("--no-looks"),
+            ArgOrNull(a, "--race-menu-mode") is { } m ? int.Parse(m, CultureInfo.InvariantCulture) : DefaultRaceMenuMode,
+            ArgOrNull(a, "--exit-anchor") ?? ExitAnchorEdid);
     }
 
     // ---------------------------------------------------------------- points (Fallout 4, read only)
@@ -281,6 +290,23 @@ static class NewGame
         };
     }
 
+    /// The looks script's value properties (its StartMessage is an object property, written beside them).
+    public static List<(string Name, object Value)> LooksProperties(Options o) => new() { ("RaceMenuMode", o.RaceMenuMode) };
+
+    static SF.ScriptProperty ValueProperty(string name, object value) => value switch
+    {
+        int i => new SF.ScriptIntProperty { Name = name, Flags = SF.ScriptProperty.Flag.Edited, Data = i },
+        float f => new SF.ScriptFloatProperty { Name = name, Flags = SF.ScriptProperty.Flag.Edited, Data = f },
+        _ => throw new Refusal($"property {name}: unsupported value"),
+    };
+
+    static bool ValueMatches(object value, SF.IScriptPropertyGetter p) => (value, p) switch
+    {
+        (int i, SF.IScriptIntPropertyGetter ip) => ip.Data == i,
+        (float f, SF.IScriptFloatPropertyGetter fp) => fp.Data == f && float.IsFinite(fp.Data),
+        _ => false,
+    };
+
     public static int Write(string sfPath, string portPath, string portIds, string corePath, string pointsPath, string outDir, Options o)
     {
         var pts = JsonDocument.Parse(File.ReadAllText(pointsPath)).RootElement;
@@ -305,6 +331,16 @@ static class NewGame
         msg.MenuButtons.Add(new SF.MessageButton { Text = "Ride up" });
         msg.MenuButtons.Add(new SF.MessageButton { Text = "Stay" });
         mod.Messages.Add(msg);
+        // the opening choice (NG-6, NG-C9): button 0 opens the creator, button 1 keeps the preset and skips it. A
+        // message box, so it needs no voice: the player is silent
+        var start = new SF.Message(new FormKey(modKey, StartMessageId), SF.StarfieldRelease.Starfield)
+        {
+            EditorID = StartMessageEdid, Name = "Vault 111", Description = "Create your character, or start quickly with the preset?",
+            Flags = SF.Message.Flag.MessageBox,
+        };
+        start.MenuButtons.Add(new SF.MessageButton { Text = "Create character" });
+        start.MenuButtons.Add(new SF.MessageButton { Text = "Quick start" });
+        mod.Messages.Add(start);
 
         var quest = new SF.Quest(new FormKey(modKey, QuestId), SF.StarfieldRelease.Starfield)
         {
@@ -330,19 +366,20 @@ static class NewGame
         script.Properties.Add(list);
         script.Properties.Add(Obj("ExitMessage", msg.FormKey));
         foreach (var (name, value) in Properties(pts, places, o))
-            script.Properties.Add(value switch
-            {
-                int i => new SF.ScriptIntProperty { Name = name, Flags = SF.ScriptProperty.Flag.Edited, Data = i },
-                float f => (SF.ScriptProperty)new SF.ScriptFloatProperty { Name = name, Flags = SF.ScriptProperty.Flag.Edited, Data = f },
-                _ => throw new Refusal($"property {name}: unsupported value"),
-            });
+            script.Properties.Add(ValueProperty(name, value));
         quest.VirtualMachineAdapter = new SF.QuestAdapter
         {
             Version = 6, ObjectFormat = 2, ExtraBindDataVersion = 3,
             Script = new SF.ScriptEntry { Name = "", Flags = SF.ScriptEntry.Flag.Local },
         };
         quest.VirtualMachineAdapter.Scripts.Add(script);
-        if (o.Looks) quest.VirtualMachineAdapter.Scripts.Add(new SF.ScriptEntry { Name = LooksScript, Flags = SF.ScriptEntry.Flag.Local });
+        if (o.Looks)
+        {
+            var looks = new SF.ScriptEntry { Name = LooksScript, Flags = SF.ScriptEntry.Flag.Local };
+            looks.Properties.Add(Obj("StartMessage", start.FormKey));
+            foreach (var (name, value) in LooksProperties(o)) looks.Properties.Add(ValueProperty(name, value));
+            quest.VirtualMachineAdapter.Scripts.Add(looks);
+        }
         mod.Quests.Add(quest);
 
         if (o.MQ101Debug is { } dbg)
@@ -352,14 +389,14 @@ static class NewGame
             over.Data = dbg;
             mod.Globals.Add(over);
         }
-        mod.ModHeader.Stats.NextFormID = MessageId + 1;
+        mod.ModHeader.Stats.NextFormID = StartMessageId + 1;
         Directory.CreateDirectory(outDir);
         var path = Path.Combine(outDir, o.Plugin);
         mod.BeginWrite.ToPath(path).WithLoadOrder(SfEsm).WithKnownMasters(new KeyedMasterStyle(SfEsm, MasterStyle.Full)).Write();
         Console.WriteLine($"wrote {path} ({new FileInfo(path).Length:N0} bytes): QUST {QuestEdid} {quest.FormKey} \"{quest.Name}\" " +
                           $"hold [{string.Join(", ", o.Hold)}]; vault anchor FO4Port.esm:{places.VaultAnchor:X6} at {Show(places.AnchorPos)}, " +
                           $"cog door {(places.CogDoor == 0 ? "none" : $"{places.CogDoor:X6} ({places.CogDoorBase})")}, exit anchor " +
-                          $"FO4TerrainCore.esm:{places.ExitAnchor:X6} at {Show(places.ExitPos)}; looks {(o.Looks ? "on" : "off")}" +
+                          $"FO4TerrainCore.esm:{places.ExitAnchor:X6} at {Show(places.ExitPos)}; looks {(o.Looks ? $"on (race menu mode {o.RaceMenuMode})" : "off")}" +
                           (o.MQ101Debug is { } d2 ? $"; GLOB MQ101Debug = {F(d2)}" : "; GLOB MQ101Debug not overridden"));
         return 0;
     }
@@ -385,6 +422,10 @@ static class NewGame
         var msg = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, MessageId));
         Need(msg is { EditorID: MessageEdid } && msg.Flags.HasFlag(SF.Message.Flag.MessageBox) && msg.MenuButtons.Count == 2 &&
              msg.MenuButtons.All(b => !string.IsNullOrWhiteSpace(b.Text?.String)), $"MESG 0x{MessageId:X} is not {MessageEdid}, a message box with two buttons");
+        var start = plug.Messages.FirstOrDefault(m => m.FormKey == new FormKey(key, StartMessageId));
+        Need(start is { EditorID: StartMessageEdid } && start.Flags.HasFlag(SF.Message.Flag.MessageBox) && start.MenuButtons.Count == 2 &&
+             start.MenuButtons.All(b => !string.IsNullOrWhiteSpace(b.Text?.String)), $"MESG 0x{StartMessageId:X} is not {StartMessageEdid}, a message box with two buttons");
+        Need(plug.Messages.Count == 2, $"{plug.Messages.Count} MESG, expected 2");
 
         var globals = plug.Globals.ToList();
         if (o.MQ101Debug is { } dbg)
@@ -424,19 +465,22 @@ static class NewGame
                      hl.Objects.Select(x => (FormKey?)x.Object.FormKey).SequenceEqual(want), $"property HoldOff is not [{string.Join(", ", o.Hold)}] in order");
                 var expected = Properties(pts, places, o);
                 foreach (var (name, value) in expected)
-                {
-                    bool ok = props.TryGetValue(name, out var p) && (value, p) switch
-                    {
-                        (int i, SF.IScriptIntPropertyGetter ip) => ip.Data == i,
-                        (float f, SF.IScriptFloatPropertyGetter fp) => fp.Data == f && float.IsFinite(fp.Data),
-                        _ => false,
-                    };
-                    Need(ok, $"property {name} is not {value}");
-                }
+                    Need(props.TryGetValue(name, out var p) && ValueMatches(value, p), $"property {name} is not {value}");
                 Need(props.Count == expected.Count + 3, $"{props.Count} properties, expected {expected.Count + 3}");
                 Need(places.VaultAnchor > 0 && places.ExitAnchor > 0, "an anchor id is 0");
             }
             else problems.Add($"script {ScriptName} not attached");
+            var ls = q.VirtualMachineAdapter?.Scripts.FirstOrDefault(x => x.Name == LooksScript);
+            if (ls is not null)
+            {
+                var props = ls.Properties.ToDictionary(p => p.Name);
+                Console.WriteLine($"  script {ls.Name}: {props.Count} properties, RaceMenuMode {(props.TryGetValue("RaceMenuMode", out var rm) && rm is SF.IScriptIntPropertyGetter ri ? ri.Data.ToString() : "missing")}");
+                Need(props.TryGetValue("StartMessage", out var sp) && sp is SF.IScriptObjectPropertyGetter so && so.Object.FormKey == start?.FormKey, "property StartMessage");
+                var expected = LooksProperties(o);
+                foreach (var (name, value) in expected)
+                    Need(props.TryGetValue(name, out var p) && ValueMatches(value, p), $"looks property {name} is not {value}");
+                Need(props.Count == expected.Count + 1, $"{props.Count} looks properties, expected {expected.Count + 1}");
+            }
         }
         Console.WriteLine($"  vault anchor FO4Port.esm:{places.VaultAnchor:X6}, cog door {(places.CogDoor == 0 ? "none" : $"{places.CogDoor:X6} {places.CogDoorBase}")}, " +
                           $"exit anchor FO4TerrainCore.esm:{places.ExitAnchor:X6}");
@@ -547,11 +591,13 @@ static class NewGame
         var plain = Options.From(Array.Empty<string>());
         if (plain.MQ101Debug != DefaultMQ101Debug || !plain.Hold.SequenceEqual(DefaultHold)) { Console.WriteLine("FAIL  the default options"); return 1; }
         if (Options.From(new[] { "--no-mq101debug" }).MQ101Debug is not null || Options.From(new[] { "--mq101debug", "8" }).MQ101Debug != 8) { Console.WriteLine("FAIL  the MQ101Debug options"); return 1; }
+        if (plain.RaceMenuMode != DefaultRaceMenuMode || Options.From(new[] { "--race-menu-mode", "1" }).RaceMenuMode != 1) { Console.WriteLine("FAIL  the race menu mode option"); return 1; }
         var variants = new (string Name, string Ids, Options O)[]
         {
             ("default", idsPath, plain), ("nolooks", idsPath, plain with { Looks = false }),
             ("nodebug", idsPath, plain with { MQ101Debug = null }), ("debug8", idsPath, plain with { MQ101Debug = 8 }),
             ("nocog", noCogIds, plain), ("hold2", idsPath, plain with { Hold = new[] { "MQ00", "MQ101" } }),
+            ("mode1", idsPath, plain with { RaceMenuMode = 1 }),
         };
         foreach (var (name, ids, o) in variants)
         {
@@ -572,6 +618,8 @@ static class NewGame
             ("nocog", plain, idsPath, "a build without the cog door against a port with it"),
             ("default", plain with { Hold = new[] { "MQ00", "MQ101" } }, idsPath, "the default hold list as the two-quest one"),
             ("hold2", plain, idsPath, "a two-quest hold list as the default one"),
+            ("default", plain with { RaceMenuMode = 1 }, idsPath, "the default (race menu mode 0) build as a mode 1 one"),
+            ("mode1", plain, idsPath, "a race menu mode 1 build as the default one"),
         };
         foreach (var (build, o, ids, why) in crosses)
         {
@@ -592,7 +640,11 @@ static class NewGame
             ("the hold list lost MQ101PostQuest", m => ((SF.ScriptObjectListProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[0].Properties.First(p => p.Name == "HoldOff")).Objects.RemoveAt(2)),
             ("the MQ101Debug override reads 0", m => m.Globals.First().Data = 0),
             ("the MQ101Debug override removed", m => m.Globals.Clear()),
-            ("the elevator prompt has one button", m => m.Messages.First().MenuButtons.RemoveAt(1)),
+            ("the elevator prompt has one button", m => m.Messages.First(x => x.EditorID == MessageEdid).MenuButtons.RemoveAt(1)),
+            ("the opening choice has one button", m => m.Messages.First(x => x.EditorID == StartMessageEdid).MenuButtons.RemoveAt(1)),
+            ("the opening choice removed", m => m.Messages.Remove(m.Messages.First(x => x.EditorID == StartMessageEdid).FormKey)),
+            ("the race menu mode changed", m => ((SF.ScriptIntProperty)m.Quests.First().VirtualMachineAdapter!.Scripts[1].Properties.First(p => p.Name == "RaceMenuMode")).Data = 3),
+            ("the looks script lost StartMessage", m => m.Quests.First().VirtualMachineAdapter!.Scripts[1].Properties.RemoveAll(p => p.Name == "StartMessage")),
             ("the quest has no QuestType", m => m.Quests.First().QuestType.Clear()),
         };
         foreach (var (name, edit) in mutations)

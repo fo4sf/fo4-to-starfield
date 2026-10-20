@@ -28,13 +28,18 @@ def read(path):
 
 
 def written_properties(cs):
-    """The property names Program.cs writes: the Properties() table plus the three object properties."""
+    """(quest, looks): the property names Program.cs writes to each script. The quest's are the Properties() table
+    plus its three object properties; the looks script's are LooksProperties() plus StartMessage."""
     body = cs[cs.index("public static List<(string Name, object Value)> Properties"):]
     body = body[:body.index("};")]
-    names = set(re.findall(r'\("(\w+)",', body))
-    names |= set(re.findall(r'Obj\("(\w+)"', cs)) - {""}
-    names |= set(re.findall(r'Name = "(\w+)", Flags = SF\.ScriptProperty', cs))
-    return names
+    quest = set(re.findall(r'\("(\w+)",', body))
+    looks_body = cs[cs.index("LooksProperties(Options o)"):]
+    looks = set(re.findall(r'\("(\w+)",', looks_body[:looks_body.index("};")]))
+    looks_entry = cs[cs.index("var looks = new SF.ScriptEntry"):]
+    looks |= set(re.findall(r'Obj\("(\w+)"', looks_entry[:looks_entry.index("quest.VirtualMachineAdapter.Scripts.Add(looks)")]))
+    quest |= set(re.findall(r'Obj\("(\w+)"', cs)) - {""} - looks
+    quest |= set(re.findall(r'Name = "(\w+)", Flags = SF\.ScriptProperty', cs))
+    return quest, looks
 
 
 class ContractTests(unittest.TestCase):
@@ -57,13 +62,45 @@ class ContractTests(unittest.TestCase):
         self.assertLess(hold, body.index("Game.SetCharGenHUDMode(0)"))
 
     def test_every_mandatory_property_is_written_and_every_written_one_declared(self):
-        declared = ng.declared_properties(read(PSC))
-        written = written_properties(read(CS))
-        mandatory = {n for n, m in declared.items() if m}
-        self.assertEqual(mandatory - written, set(), "mandatory properties the plugin never fills")
-        self.assertEqual(written - set(declared), set(), "properties the plugin writes that the script lacks")
+        written, looks_written = written_properties(read(CS))
+        for psc, written_here in ((PSC, written), (LOOKS, looks_written)):
+            declared = ng.declared_properties(read(psc))
+            mandatory = {n for n, m in declared.items() if m}
+            self.assertEqual(mandatory - written_here, set(), f"mandatory properties the plugin never fills ({psc})")
+            self.assertEqual(written_here - set(declared), set(), f"properties the plugin writes that {psc} lacks")
         self.assertIn("HoldOff", written)
         self.assertIn("LooksWait", written)                  # 0 in a --no-looks build, so the quest does not wait
+        self.assertEqual(looks_written, {"StartMessage", "RaceMenuMode"})
+
+    def test_the_race_menu_mode_and_the_opening_choice(self):
+        """NG-6 / NG-C9 / NG-C1: the writer's --race-menu-mode (default 0) is the looks script's RaceMenuMode, passed
+        to ShowRaceMenu as its uiMode; the opening MESG offers the creator or the quick start, and the quick start never
+        calls ShowRaceMenu. The creator's close is awaited on "ChargenMenu", registered before the menu opens, with
+        the quest's LooksWait as the fallback; every ending is logged as "looks done: <how>" (the log summary reads it)."""
+        cs, looks, psc = read(CS), read(LOOKS), read(PSC)
+        self.assertIn(f"DefaultRaceMenuMode = {ng.DEFAULT_RACE_MENU_MODE};", cs)
+        self.assertIn('ArgOrNull(a, "--race-menu-mode")', cs)
+        self.assertIn(f"int Property RaceMenuMode = {ng.DEFAULT_RACE_MENU_MODE} Auto Const", looks)
+        code = looks[looks.index("Message Property StartMessage"):]   # past the header's signature note
+        self.assertEqual(code.count("ShowRaceMenu("), 1)
+        self.assertIn("Game.ShowRaceMenu(None, RaceMenuMode)", code)
+        self.assertIn('StartMessageEdid = "FO4SF_NewGameStart"', cs)
+        self.assertIn('Text = "Create character"', cs)
+        self.assertIn('Text = "Quick start"', cs)
+        self.assertIn("Message Property StartMessage Auto Const Mandatory", looks)
+        body = looks[looks.index("Event OnTimer"):]
+        self.assertLess(body.index("StartMessage.Show()"), body.index("RegisterForMenuOpenCloseEvent(MenuName)"))
+        self.assertLess(body.index("RegisterForMenuOpenCloseEvent(MenuName)"), body.index("Game.ShowRaceMenu("))
+        self.assertIn('string Property MenuName = "ChargenMenu" Auto Const', looks)
+        self.assertIn("Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)", looks)
+        self.assertIn("if asMenuName == MenuName && !abOpening && waiting", looks)
+        self.assertIn('Done("quick start")', looks)
+        self.assertIn('Done("creator closed")', looks)
+        self.assertIn('Trace("looks done: " + how)', looks)
+        self.assertIn('Trace("looks done: LooksWait fallback after " + LooksWait + " s")', psc)
+        p = ng.main.__globals__["argparse"].Namespace(hold=None, mq101debug=None, no_mq101debug=False, looks=True,
+                                                      race_menu_mode=1)
+        self.assertEqual(ng.tool_options(p), ["--race-menu-mode", "1"])
 
     def test_stages_match(self):
         cs, psc = read(CS), read(PSC)
@@ -96,7 +133,8 @@ class ContractTests(unittest.TestCase):
         self.assertIn("DefaultHold = { " + ", ".join(f'"{q}"' for q in ng.DEFAULT_HOLD) + " }", cs)
         self.assertIn(f"DefaultMQ101Debug = {ng.DEFAULT_MQ101DEBUG}f", cs)
         self.assertEqual(ng.DEFAULT_HOLD[2:], ("MQ101PostQuest", "MQ_TutorialQuest_Misc04"))
-        p = ng.main.__globals__["argparse"].Namespace(hold=None, mq101debug=None, no_mq101debug=False, looks=True)
+        p = ng.main.__globals__["argparse"].Namespace(hold=None, mq101debug=None, no_mq101debug=False, looks=True,
+                                                      race_menu_mode=None)
         self.assertEqual(ng.tool_options(p), [])
         self.assertEqual(ng.mq101debug_option(p), 10)
         p.no_mq101debug = True
@@ -154,9 +192,15 @@ class ContractTests(unittest.TestCase):
         # Starfield's Utility.psc has no IsInMenuMode (precheck on the PC, 2026-10-19): neither script may call it
         self.assertNotIn("IsInMenuMode(", psc)
         self.assertNotIn("IsInMenuMode(", read(LOOKS))
-        looks_calls = set(re.findall(r"\.(\w+)\(", read(LOOKS)))
+        # the looks script: every dotted call, its bare self calls (RegisterForMenuOpenCloseEvent, StartTimer) and the
+        # event it handles must be listed, or the precheck could pass a script that does not compile
+        looks = read(LOOKS)
+        looks_calls = set(re.findall(r"\.(\w+)\(", looks)) | set(re.findall(r"^\s*(RegisterFor\w+|StartTimer)\(", looks, re.M))
+        looks_calls |= set(re.findall(r"^Event (On\w+)\(", looks, re.M)) - {"OnQuestInit", "OnTimer"}
+        looks_own = set(re.findall(r"^\s*\w*\s*Function\s+(\w+)", looks, re.M))
         looks_listed = {f for bases in ng.NATIVES[ng.LOOKS].values() for f in bases}
-        self.assertEqual(looks_calls - looks_listed - {"TraceUser", "SetStage", "StartTimer", "GetStage"}, set())
+        self.assertEqual(looks_calls - looks_listed - looks_own, set())
+        self.assertEqual(set(ng.NATIVES[ng.LOOKS]["ScriptObject"]), {"StartTimer", "RegisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"})
 
     def test_declared_properties_parser(self):
         text = ("Quest[] Property A Auto Const Mandatory\nfloat Property B = 0.25 Auto Const\n"
@@ -169,20 +213,23 @@ CHARGEN = ("Function SetInChargen(bool abDisableSaving, bool abDisableWaiting, b
            "native global\nFunction SetCharGenHUDMode(int aiCGHUDMode) native global\n")
 
 
-def fake_zip(path, game=None, utility=None, extra=None):
+def fake_zip(path, game=None, utility=None, extra=None, scriptobject=None):
     base = {
         "Actor": "Scriptname Actor extends ObjectReference\nint Function GetLevel() native\n",
         "Debug": "Function OpenUserLog(string a) native global\nbool Function TraceUser(string a, string b) native global\n"
                  "Function Notification(string a) native global\n",
         "Game": game if game is not None else "Actor Function GetPlayer() native global\n"
                                               "Form Function GetFormFromFile(int a, string b) native global\n"
-                                              "Function ShowRaceMenu(ObjectReference a = None) native global\n"
+                                              "Function ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0) native global\n"
                                               + CHARGEN,
         "GlobalVariable": "float Function GetValue() native\n",
         "Message": "int Function Show(float a = 0.0) native\n",
         "ObjectReference": "\n".join(f"Function {f}() native" for f in ng.NATIVES[ng.SCRIPT]["ObjectReference"]),
         "Quest": "\n".join(f"Function {f}() native" for f in ng.NATIVES[ng.SCRIPT]["Quest"]),
-        "ScriptObject": "Function StartTimer(float a, int b = 0) native\n",
+        # ScriptObject.psc (PC read 19 Oct): RegisterForMenuOpenCloseEvent is native; the event's signature is FO4's
+        "ScriptObject": scriptobject if scriptobject is not None else
+                        "Function StartTimer(float a, int b = 0) native\nFunction RegisterForMenuOpenCloseEvent(string asMenuName) native\n"
+                        "Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)\nEndEvent\n",
         "Utility": utility if utility is not None else "float Function GetCurrentRealTime() native global\n"
                                                        "bool Function IsInMenuMode() native global\nFunction Wait(float a) native global\n",
     }
@@ -233,6 +280,22 @@ class PrecheckTests(unittest.TestCase):
     def test_has_function_needs_the_declaration(self):
         self.assertTrue(ng.has_function("bool Function IsInMenuMode() native global", "IsInMenuMode"))
         self.assertFalse(ng.has_function("; IsInMenuMode() is not here\nFunction IsInMenuModeX()", "IsInMenuMode"))
+        self.assertTrue(ng.has_function("Event OnMenuOpenCloseEvent(string asMenuName, bool abOpening)", "OnMenuOpenCloseEvent"))
+        self.assertFalse(ng.has_function("Function RegisterForMenuOpenCloseEvent(string a) native", "OnMenuOpenCloseEvent"))
+
+    def test_missing_menu_event_only_drops_the_looks(self):
+        """The creator's close is awaited with RegisterForMenuOpenCloseEvent / OnMenuOpenCloseEvent (ScriptObject,
+        PC read 19 Oct): a source set without them fails only the looks script, and the precheck says --no-looks."""
+        z = os.path.join(self.tmp, "cr.zip")
+        fake_zip(z, scriptobject="Function StartTimer(float a, int b = 0) native\n")
+        r = ng.precheck_zip(z)
+        self.assertEqual(r["missing_core"], [])
+        self.assertFalse(r["natives"][ng.LOOKS]["ScriptObject.RegisterForMenuOpenCloseEvent"])
+        self.assertFalse(r["natives"][ng.LOOKS]["ScriptObject.OnMenuOpenCloseEvent"])
+        self.assertTrue(r["natives"][ng.LOOKS]["ScriptObject.StartTimer"])
+        with unittest.mock.patch("sys.stdout", io.StringIO()) as o:
+            self.assertEqual(ng.main(["precheck", "--content-resources", z]), 0)
+        self.assertIn("--no-looks", o.getvalue())
 
 
 class LogTests(unittest.TestCase):
@@ -243,6 +306,9 @@ class LogTests(unittest.TestCase):
         "[10/20/2026 - 09:00:01AM] FO4SF_NEWGAME rt=6.0 hold-off pass 1 stopped=1 of 4",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 enter vault ok=True pos=11 20 1 target=11 20 1 cell=[Cell <FO4Port_Vault111Cryo>]",
         "[10/20/2026 - 09:00:02AM] FO4SF_NEWGAME rt=7.0 stage 10",
+        "[10/20/2026 - 09:00:04AM] FO4SF_NEWGAME rt=9.0 start choice button=0",
+        "[10/20/2026 - 09:00:40AM] FO4SF_NEWGAME rt=45.0 looks done: creator closed",
+        "[10/20/2026 - 09:00:40AM] FO4SF_NEWGAME rt=45.0 stage 20",
         "[10/20/2026 - 09:00:03AM] FO4SF_NEWGAME rt=8.0 held off [Quest < (00013579)>] running_after=False pass=2",
         "[10/20/2026 - 09:00:03AM] FO4SF_NEWGAME rt=8.0 hold-off pass 2 stopped=1 of 4",
         "[10/20/2026 - 09:00:03AM] FO4SF rt=7.5 pos=1 2 3 (another log's line)",
@@ -256,8 +322,9 @@ class LogTests(unittest.TestCase):
 
     def test_summary(self):
         s = ng.summarize(self.LINES)
-        self.assertEqual(s["stages"], [10, 40, 200])
-        self.assertEqual(s["stages_named"], [f"{n} {ng.STAGE_CONTRACT[n]}" for n in (10, 40, 200)])
+        self.assertEqual(s["stages"], [10, 20, 40, 200])
+        self.assertEqual(s["stages_named"], [f"{n} {ng.STAGE_CONTRACT[n]}" for n in (10, 20, 40, 200)])
+        self.assertEqual(s["looks_done"], "creator closed")
         self.assertEqual(s["held_off"], ["[Quest < (00012345)>]", "[Quest < (00013579)>]"])
         self.assertEqual(s["held_off_by_pass"], {"1": ["[Quest < (00012345)>]"], "2": ["[Quest < (00013579)>]"]})
         self.assertTrue(s["entered_vault"])
@@ -320,6 +387,18 @@ class LogTests(unittest.TestCase):
         self.assertEqual(s["runs"], 2)
         self.assertFalse(s["earlier_completed"])
         self.assertTrue(s["entered_vault"])
+
+    def test_looks_done_endings(self):
+        """What ended the looks wait: the creator's close event, the quick start, or the quest's LooksWait fallback;
+        the first ending counts, and a run without one reads None."""
+        head = "[x] FO4SF_NEWGAME rt=2.0 init holdoff=4 vault=FO4Port.esm:2049 core=FO4TerrainCore.esm:685915\n"
+        for ending, want in (("quick start", "quick start"), ("LooksWait fallback after 120.0 s", "LooksWait fallback after 120.0 s")):
+            code, s = self.run_log(head + f"[x] FO4SF_NEWGAME rt=9.0 looks done: {ending}\n[x] FO4SF_NEWGAME rt=9.0 stage 20\n")
+            self.assertEqual(s["looks_done"], want)
+        code, s = self.run_log(head + "[x] FO4SF_NEWGAME rt=9.0 looks done: creator closed\n"
+                                      "[x] FO4SF_NEWGAME rt=130.0 looks done: LooksWait fallback after 120.0 s\n")
+        self.assertEqual(s["looks_done"], "creator closed")
+        self.assertIsNone(self.run_log(head)[1]["looks_done"])
 
     def test_split_runs(self):
         lines = ["[a] FO4SF_NEWGAME rt=1 status stage=20", "[b] other log", "[c] FO4SF_NEWGAME rt=2 init x",

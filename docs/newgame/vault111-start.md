@@ -25,8 +25,9 @@ quest script), `scripts/newgame/FO4SF_NewGameLooks.psc` (optional character crea
    in front of their own pod, facing out of it. The notification reads "Vault 111" and the objective is "Leave Vault
    111" under FO4's quest name for this part (MQ102's name, read from Fallout4.esm by the points step; "Out of
    Time" is only the fallback when it has none).
-5. **Looks:** Starfield's character creation opens once in the vault, in place of FO4's bathroom mirror (optional
-   script; see section 4).
+5. **Looks:** a message box in the vault asks "Create character" or "Quick start" (NG-6, NG-C9). Create opens
+   Starfield's character creation in place of FO4's bathroom mirror and waits for it to close; quick start keeps the
+   preset and skips it. A message box needs no voice: the player stays silent (optional script; see section 4).
 6. **The cog door:** standing at its console opens the cog door (no Pip-Boy needed, unlike FO4).
 7. **The exit:** standing on the elevator platform asks "Ride the elevator up to the surface?". Yes puts the player at
    FO4's surface arrival of the ride in the Commonwealth core, at the right world position (core-local + the measured
@@ -84,14 +85,27 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
   points step prints every candidate pod (on the PC: MQPlayerCryopodREF 0004A011, the player's, and MQPlayerSpousePodREF
   0004A012, which the rule skips), and `--pod-ref` names one if that ever changes. If the move
   misses the cell, the quest retries each second; the log shows the landing.
-- Character creation: `FO4SF_NewGameLooks` calls `Game.ShowRaceMenu()` once the player is in the vault. **verified**
-  (PC precheck, 19 Oct): Starfield's Game.psc declares `ShowRaceMenu`; what it shows with no arguments is
-  **unresolved**. Starfield's Utility.psc has **no** `IsInMenuMode` (verified, same precheck), so neither script waits on
-  menus: the quest starts once the player's 3D is loaded, and the looks script sets stage 20 when the call returns. It
-  stays a separate script so a failed compile drops only it (`--no-looks`, and the quest then does not wait). FO4's own looks menu and the bathroom mirror are a
-  later UI item (Scaleform; animations-ui-and-start.md section 3).
-- Alternatives for the talk: keep Starfield's character creation before the vault (option B's path); or skip it and
-  set a default look.
+- The opening choice: once the player is in the vault, `FO4SF_NewGameLooks` shows MESG `FO4SF_NewGameStart`
+  (FO4SFNewGame.esm 0x802), "Create character" or "Quick start". The owner decided (2026-10-19, NG-C9) that phase 1
+  has a preset quick start for replays: button 1 skips the creator and keeps the look the player already has (the
+  game's default new player; a shipped Fallout-style face preset is a later item, NG-M9). Button 0 opens the creator.
+- Character creation: `Game.ShowRaceMenu(None, RaceMenuMode)`. **verified** (PC read, 19 Oct): Starfield's Game.psc
+  declares `ShowRaceMenu(ObjectReference akMenuTarget = None, int uiMode = 0, ...)`, the modes FO4's (0 chargen, 1
+  remake, 2 haircut, 3 surgery, 4 face paint). The owner wants a looks-only creator (NG-C3); which mode that is, and
+  what each shows with MQ101 stopped, is **unresolved** until the in-game C1 test (one mode per run). So the mode is a
+  writer option, `--race-menu-mode <n>` (default 0, the full creator), written into the looks script's `RaceMenuMode`
+  property; `check` and the selftest hold a build to its mode.
+- Waiting for the creator: Starfield's Utility.psc has **no** `IsInMenuMode` (verified, PC precheck 19 Oct).
+  **verified** (PC read, 19 Oct): ScriptObject has `RegisterForMenuOpenCloseEvent(string)` and the creator's menu is
+  "ChargenMenu" (9 vanilla registrations). The looks script registers for it before the menu opens and sets stage 20 in
+  `OnMenuOpenCloseEvent` when "ChargenMenu" closes. The event handler is written with FO4's signature
+  `(string asMenuName, bool abOpening)`, **unverified** until the Papyrus compile on the PC; the precheck looks the
+  registration and the event up in ScriptObject.psc, and a miss means `--no-looks`. The quest's `LooksWait` (120 s from
+  stage 10) stays as the fallback. The log says which ended the wait: `looks done: creator closed`, `looks done: quick
+  start` or `looks done: LooksWait fallback after 120 s` (`make_newgame.py log` prints it as `looks_done`).
+- The looks script stays separate so a failed compile drops only it (`--no-looks`, and the quest then does not wait
+  and shows no choice). FO4's own looks menu and the bathroom mirror are a later UI item (Scaleform;
+  animations-ui-and-start.md section 3). SPECIAL is set at a vault terminal (NG-C4), not here.
 
 ## 5. What Vault 111 needs from the port today
 
@@ -109,19 +123,21 @@ because stopping SQ_PlayerShip or SQ_ENV could break the HUD or travel.
 ## 6. Build recipe (PC, offline, no game)
 
 1. `python scripts\newgame\make_newgame.py precheck --out D:\Modding\scratch\newgame\precheck.json` reads
-   ContentResources.zip only and lists every native both scripts call and every MQ101Debug line. Exit 1 means a core
-   native is missing: stop and report. A missing `Game.ShowRaceMenu` means stage with `--no-looks`.
+   ContentResources.zip only and lists every native and event both scripts use and every MQ101Debug line. Exit 1 means
+   a core native is missing: stop and report. A missing `Game.ShowRaceMenu`, `RegisterForMenuOpenCloseEvent` or
+   `OnMenuOpenCloseEvent` means stage with `--no-looks`.
 2. `python scripts\newgame\make_newgame.py stage --out D:\Modding\staging\newgame_v1 --fo4 <Fallout4.esm> --port
    <installed FO4Port.esm> --port-ids <that port build's formids.json> --core <installed FO4TerrainCore.esm>` runs
    points, write, check and the Papyrus compile, then writes plan.json and README.txt. Inputs are read only; the output is
    one new folder on D:.
    Options: `--hold <list>` (default `MQ00,MQ101,MQ101PostQuest,MQ_TutorialQuest_Misc04`), `--mq101debug <n>`
-   (default 10), `--no-mq101debug` (no GLOB override), `--no-looks`, `--pod-ref <hex>`. plan.json records them and the
-   stage contract.
+   (default 10), `--no-mq101debug` (no GLOB override), `--no-looks`, `--race-menu-mode <n>` (default 0, section 4),
+   `--pod-ref <hex>`. plan.json records them and the stage contract.
 3. The offline checks are `offline_check.txt` (every record, property and resolved id) and the selftest
    (`dotnet run -c Release --project dotnet\NewGame -- selftest <scratch>`, synthetic masters and mutations). The
-   selftest builds the default, `--no-looks`, `--no-mq101debug`, `--mq101debug 8`, no-cog-door and two-quest-hold
-   variants, and each build must fail `check` under the others' options.
+   selftest builds the default, `--no-looks`, `--no-mq101debug`, `--mq101debug 8`, no-cog-door, two-quest-hold and
+   `--race-menu-mode 1` variants, and each build must fail `check` under the others' options. It also checks both MESG
+   records (two buttons each) and the looks script's `StartMessage` and `RaceMenuMode` properties.
 4. Install is a later owner line: `fold` into a copy of the installed core set, `verify`, then `exp_install.py`, game
    closed, after the current v6e test. Testing needs a NEW game, so it never touches the owner's saves.
 
@@ -135,7 +151,8 @@ continuous-traversal gate starts at the vault exit.
 ## 8. Questions for the talk
 
 1. Option A (stop the opening quests) as the default, B as the fallback? Or skip straight to B?
-2. Character creation: Starfield's menu in the vault (default), before the vault, or none for now?
+2. Character creation: decided (2026-10-19): looks only, in the vault, with a quick start (NG-C3, NG-C9). Open:
+   which `ShowRaceMenu` mode is looks-only (NG-C1, the first in-game test).
 3. Should players be able to pick Starfield's own start instead (option D)?
 4. Hold off more of Starfield's 144 start quests now, or only after the first `sqv` record?
 
@@ -146,8 +163,8 @@ mods can listen to them. These are the stages of `FO4SF_NewGame` (FO4SFNewGame.e
 meanings live in one place each: `scripts/newgame/make_newgame.py` `STAGE_CONTRACT` (the log summary and plan.json
 read it), the header of `FO4SF_NewGameQuest.psc`, and this table; `tests/test_newgame.py` holds all three equal, and
 the writer's `Stages` array must list every stage but 0. Stage 0 is the quest's start, not a stage record. A stage,
-once reached, is never set back. Stage 20 is set by the looks script, or by the quest after `LooksWait` seconds; a
-`--no-looks` build does not wait.
+once reached, is never set back. Stage 20 is set by the looks script (the creator closed, or the quick start), or by
+the quest after `LooksWait` seconds; a `--no-looks` build does not wait.
 
 | Stage | Meaning |
 |---|---|

@@ -77,7 +77,8 @@ float Property PlatformRadius = 2.5 Auto Const
 float Property FallDrop = 3.0 Auto Const
 {A landing this far below its target z (m) counts as a fall: the player is put on the fallback spot.}
 float Property LooksWait = 120.0 Auto Const
-{Seconds stage 10 waits for the looks script (FO4SF_NewGameLooks, optional) to set stage 20 before moving on.}
+{Seconds stage 10 waits for the looks script (FO4SF_NewGameLooks, optional) to set stage 20 (the creator closed, or the
+ quick start) before moving on: the fallback when the creator's close event never comes. 0 in a --no-looks build.}
 
 string LogName = "fo4sf_newgame"
 int ticks = 0
@@ -152,7 +153,7 @@ Event OnTimer(int aiTimerID)
         startedAt = Utility.GetCurrentRealTime()
     elseif stage == 10
         if Utility.GetCurrentRealTime() - startedAt > LooksWait
-            Trace("looks: no stage 20 after " + LooksWait + " s; going on")
+            Trace("looks done: LooksWait fallback after " + LooksWait + " s")
             AdvanceTo(20)
         endif
     elseif stage == 20 || stage == 30

@@ -2,13 +2,14 @@
 
 usage:
   python make_newgame.py precheck [--content-resources <zip>] [--out <precheck.json>]
-      read only, no game: every native the two scripts call, looked up in Starfield's base sources (Scripts/Source of
-      ContentResources.zip), and every source line naming MQ101Debug (how Starfield's debug start works). Exit 1 when a
-      native of FO4SF_NewGameQuest is missing (do not stage); a missing Game.ShowRaceMenu only means --no-looks.
+      read only, no game: every native and event the two scripts use, looked up in Starfield's base sources
+      (Scripts/Source of ContentResources.zip), and every source line naming MQ101Debug (how Starfield's debug start
+      works). Exit 1 when a native of FO4SF_NewGameQuest is missing (do not stage); a missing native of the looks
+      script (Game.ShowRaceMenu, the menu open/close event) only means --no-looks.
   python make_newgame.py stage --out <dir> --fo4 <Fallout4.esm> --port <FO4Port.esm> --port-ids <formids.json>
                                --core <FO4TerrainCore.esm> [--starfield <Starfield.esm>] [--compiler <exe>]
-                               [--content-resources <zip>] [--no-looks] [--hold MQ00,MQ101,...] [--mq101debug N]
-                               [--no-mq101debug] [--pod-ref HEX]
+                               [--content-resources <zip>] [--no-looks] [--race-menu-mode N] [--hold MQ00,MQ101,...]
+                               [--mq101debug N] [--no-mq101debug] [--pod-ref HEX]
       1. dotnet/NewGame points (Fallout4.esm read only: the pod, the console, the cog door, the platform, the arrival);
       2. dotnet/NewGame write + check against the port and core given (offline_check.txt);
       3. the Papyrus compile of FO4SF_NewGameQuest.psc (and FO4SF_NewGameLooks.psc unless --no-looks);
@@ -22,8 +23,8 @@ usage:
       exp_install.py holds one experiment, so the new game goes in WITH a core set: a copy of it plus the plugin and its
       .pex, published only after verify passes on the result.
   python make_newgame.py log [--file <fo4sf_newgame.0.log>]
-      the run's user log as a summary (stages by the contract below, held-off quests by pass, moves, the landing); exit 0
-      when stage 200 was reached.
+      the run's user log as a summary (stages by the contract below, held-off quests by pass, what ended the looks wait,
+      moves, the landing); exit 0 when stage 200 was reached.
 Nothing here installs anything: the install is the owner's line, to the install session, after the current test.
 """
 import argparse
@@ -61,11 +62,15 @@ STAGES = tuple(n for n in STAGE_CONTRACT if n > 0)           # the QUST's stage 
 # the value MQ00 writes before starting MQ101 (NG-2)
 DEFAULT_HOLD = ("MQ00", "MQ101", "MQ101PostQuest", "MQ_TutorialQuest_Misc04")
 DEFAULT_MQ101DEBUG = 10
+# Game.ShowRaceMenu's uiMode (Program.cs DefaultRaceMenuMode, the looks script's RaceMenuMode): 0 is the full creator;
+# which mode is looks-only is unverified until the in-game C1 test
+DEFAULT_RACE_MENU_MODE = 0
 STARFIELD = r"D:\SteamLibrary\steamapps\common\Starfield"
 LOG = os.path.join(os.path.expanduser("~"), "Documents", "My Games", "Starfield", "Logs", "Script", "User",
                    "fo4sf_newgame.0.log")
 LINE = re.compile(r"FO4SF_NEWGAME rt=(?P<rt>[-\d.]+) (?P<msg>.*)$")
-# the natives each script calls, by the base script that must declare them (precheck)
+# the natives each script calls and the events it handles, by the base script that must declare them (precheck).
+# Events are declarations too (Event OnMenuOpenCloseEvent in ScriptObject.psc), looked up the same way.
 NATIVES = {
     SCRIPT: {
         "Actor": ["GetLevel"],
@@ -81,7 +86,11 @@ NATIVES = {
         "Utility": ["GetCurrentRealTime"],
     },
     LOOKS: {
+        "Debug": ["TraceUser"],
         "Game": ["ShowRaceMenu"],
+        "Message": ["Show"],
+        "Quest": ["SetStage", "GetStage"],
+        "ScriptObject": ["StartTimer", "RegisterForMenuOpenCloseEvent", "OnMenuOpenCloseEvent"],
         "Utility": ["Wait", "GetCurrentRealTime"],
     },
 }
@@ -122,8 +131,8 @@ def declared_properties(psc_text):
 
 
 def has_function(source, name):
-    """True when a base script's source declares Function <name> (native or not)."""
-    return re.search(rf"^\s*(?:[\w\[\]:]+\s+)?Function\s+{re.escape(name)}\s*\(", source, re.M | re.I) is not None
+    """True when a base script's source declares Function <name> (native or not) or Event <name>."""
+    return re.search(rf"^\s*(?:[\w\[\]:]+\s+)?(?:Function|Event)\s+{re.escape(name)}\s*\(", source, re.M | re.I) is not None
 
 
 def precheck_zip(zip_path):
@@ -213,6 +222,8 @@ def tool_options(a):
         opts += ["--mq101debug", str(a.mq101debug)]
     if not a.looks:
         opts.append("--no-looks")
+    if a.race_menu_mode is not None:
+        opts += ["--race-menu-mode", str(a.race_menu_mode)]
     return opts
 
 
@@ -256,7 +267,8 @@ def stage(a):
         pts = json.load(f)
     plan = {"kind": "newgame", "plugin": PLUGIN, "plugin_sha256": sha256(os.path.join(out, PLUGIN)),
             "scripts": {s: sha256(p) for s, p in pex.items()}, "checked_against_sha256": before,
-            "options": {"hold": a.hold or ",".join(DEFAULT_HOLD), "mq101debug": mq101debug_option(a), "looks": a.looks},
+            "options": {"hold": a.hold or ",".join(DEFAULT_HOLD), "mq101debug": mq101debug_option(a), "looks": a.looks,
+                        "race_menu_mode": DEFAULT_RACE_MENU_MODE if a.race_menu_mode is None else a.race_menu_mode},
             "stages": {str(n): what for n, what in STAGE_CONTRACT.items()}, "points": pts,
             "log": "<My Games>/Starfield/Logs/Script/User/fo4sf_newgame.0.log"}
     with open(os.path.join(out, "plan.json"), "w", encoding="utf-8") as f:
@@ -264,7 +276,7 @@ def stage(a):
     with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
         f.write(f"""Fallout 4 new game (Claude-cloud, {datetime.date.today().isoformat()}). docs/newgame/vault111-start.md
 {PLUGIN} (sha256 {plan['plugin_sha256']}): QUST FO4SF_NewGame "{pts['quest_name']}" (start game enabled, run once),
-MESG FO4SF_NewGameElevator; master Starfield.esm only. Scripts: {', '.join(s + '.pex' for s in scripts)} in Data\\Scripts.
+MESG FO4SF_NewGameElevator and FO4SF_NewGameStart; master Starfield.esm only. Scripts: {', '.join(s + '.pex' for s in scripts)} in Data\\Scripts.
 Checked against (the ids it resolves at run time must stay): {json.dumps(before)}. Re-stage after a port or core change.
 Pod {pts['pod']['src']} {pts['pod'].get('edid')}; arrival {pts['arrival']['pos']} m (core-local). Options {json.dumps(plan['options'])}.
 Install: not now. When the owner says so (game closed): fold into a core set, verify, then exp_install.py.
@@ -355,13 +367,14 @@ def split_runs(lines, line_re, start="init "):
 
 
 def summarize(lines):
-    """The LATEST run of the new-game log as {"stages", "stages_named", "held_off", "held_off_by_pass", "entered_vault",
-    "surfaced", "landed", "fell", "stood_down", "last_status", "runs", "earlier_completed"}. "stages_named" reads each
-    stage reached by the contract (STAGE_CONTRACT); "held_off_by_pass" says what each hold-off pass stopped (pass 1
-    before the move, pass 2 one tick later for what MQ101's stop started). Only the latest run is judged; "runs"
+    """The LATEST run of the new-game log as {"stages", "stages_named", "held_off", "held_off_by_pass", "looks_done",
+    "entered_vault", "surfaced", "landed", "fell", "stood_down", "last_status", "runs", "earlier_completed"}.
+    "stages_named" reads each stage reached by the contract (STAGE_CONTRACT); "held_off_by_pass" says what each
+    hold-off pass stopped (pass 1 before the move, pass 2 one tick later for what MQ101's stop started); "looks_done"
+    says what ended the looks wait ("creator closed", "quick start", or the quest's "LooksWait fallback ..."). Only the latest run is judged; "runs"
     counts the runs in the file and "earlier_completed" says whether an older one reached stage 200 (kept as history,
     never as the current result). Lines of other logs are ignored."""
-    s = {"stages": [], "stages_named": [], "held_off": [], "held_off_by_pass": {}, "entered_vault": None,
+    s = {"stages": [], "stages_named": [], "held_off": [], "held_off_by_pass": {}, "looks_done": None, "entered_vault": None,
          "surfaced": None, "landed": None, "fell": False, "stood_down": False, "last_status": None, "runs": 0,
          "earlier_completed": False}
     runs = split_runs(lines, LINE)
@@ -377,6 +390,9 @@ def summarize(lines):
             s["held_off"].append(quest)
             m = re.search(r"\bpass=(\d+)", rest)
             s["held_off_by_pass"].setdefault(m.group(1) if m else "1", []).append(quest)
+        elif msg.startswith("looks done: "):
+            if s["looks_done"] is None:                      # the first ending counts; a later one changes nothing
+                s["looks_done"] = msg[len("looks done: "):]
         elif msg.startswith("enter vault ok="):
             s["entered_vault"] = msg.split()[2] == "ok=True"
         elif msg.startswith("surface setposition "):
@@ -416,6 +432,8 @@ def main(argv=None):
     s.add_argument("--compiler", default=os.path.join(STARFIELD, "Tools", "Papyrus Compiler", "PapyrusCompiler.exe"))
     s.add_argument("--content-resources", default=cr)
     s.add_argument("--no-looks", dest="looks", action="store_false")
+    s.add_argument("--race-menu-mode", type=int, default=None,
+                   help=f"Game.ShowRaceMenu's uiMode for the looks script (default {DEFAULT_RACE_MENU_MODE}, the full creator)")
     s.add_argument("--hold", default=None, help=f"Starfield start quests to stop, by EditorID (default {','.join(DEFAULT_HOLD)})")
     s.add_argument("--mq101debug", type=float, default=None, help=f"the GLOB MQ101Debug override's value (default {DEFAULT_MQ101DEBUG})")
     s.add_argument("--no-mq101debug", action="store_true", help="write no GLOB MQ101Debug override")
