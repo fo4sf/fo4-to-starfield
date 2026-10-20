@@ -1,15 +1,37 @@
 # Starfield terrain architecture for the Commonwealth (S5 / WP-12)
 
-Author: Claude, 2026-10-11. Branch `claude/terrain-architecture`. Status: **offline research done, in-game test pending**.
+Author: Claude, 2026-10-11. Branch `claude/terrain-architecture`. Status: **offline research done; the first in-game
+runs (2026-10-11) refute or qualify several claims below, see [In-game results](#in-game-results-2026-10-11)**.
 
 Labels used below: **verified** = measured here, command and number given; **supported** = supported hypothesis
-(evidence points one way, not proven in game); **unresolved** = not known yet. Community claims from the web are
-marked **unverified** unless we measured the same thing. Nothing about terrain has been tested in game yet; a terrain
-research handoff the owner mentioned could not be found, so this document assumes nothing works until shown.
+(evidence points one way, not proven in game); **unresolved** = not known yet; **refuted** = contradicted by a
+measurement. Community claims from the web are marked **unverified** unless we measured the same thing. The offline
+sections were written before any terrain test in game; where the in-game runs contradict them, the text now says so
+in place. A terrain research handoff the owner mentioned could not be found.
 
 Goal (owner): a faithful conversion with the Commonwealth as the main authored location, exact geography (no
 procedural replacement, no Earth overhaul as the final design). An engine-required planet registration is fine if it
 stays behind the scenes. Prefer native terrain; static-mesh terrain only if the evidence forces it.
+
+## In-game results (2026-10-11)
+Unattended runner (PR #59) on Starfield 1.16.244. Evidence per run: `C:\Modding\testqueue\<queue>\tests\...\obs.json`
+plus screenshots (outside the repo). Experiment 1 itself is described in section 5.
+
+| Finding | Status | Evidence (queue) |
+|---|---|---|
+| Loose files are disabled on this install: `Starfield.ini` has `sResourceDataDirsFinal=STRINGS\` and there is no `StarfieldCustom.ini`. Every loose-BTD run had no readable BTD. Terrain must ship in `<plugin> - Main.ba2`. | verified | `terrain_exp1` |
+| A worldspace's own BTD only applies to an overlay **activated** on a planet (PNDT `CNAM`). Unregistered plugin worldspaces load and show procedural planet ground: World01 and World02 read identical heights, 4.18 / 11.86 / 15.98 m at ground / pad A / pad B (BTDs: 10 / 35 / 22.5 m for World01, 10 / 45 / 27.5 m for World02), loose and packed. | verified | `terrain_exp1`, `terrain_exp1b` |
+| Activation merges the overlay's cells into the planet worldspace at a whole-cell XY offset plus a Z offset: World01 on Mars +3000 / -3500 m; exp2b -1200 / -2700 m; vanilla LC172World -500 / -2300 m, Z -3.62 m (read from its persistent COC marker `0010238E`). | verified | `terrain_exp1_mars`, `terrain_exp2b`, `terrain_A2_lc172` |
+| "BTD height = world z" (section 1.5) holds only relative to the overlay's Z offset. Anchor-relative probes on vanilla LC172World matched its BTD within 0.02 m in the cell the vanilla overlay mask marks authored, 0.3-0.36 m next to it, and were 4-6 m off in mask-255 border cells. So the mask (or the outer cell ring; LC172World cannot separate the two) also blends heights with the planet. | absolute form refuted; relative form verified (Relative alignment, `INAM` 0); Absolute alignment unresolved | `terrain_A2_lc172` |
+| Every registered run with the BTD in our plugin BA2 was flat at exactly the BTD's raw-0 height: exp2b -116.00 m at all 14 probes (= `ENAM` minimum), exp1d -500.00 m at the arrival. | verified (observation) | `terrain_exp2b`, `terrain_exp2b2`, `terrain_exp1d` |
+| Cause of the flat result: the BTD was zlib-compressed inside our BA2 (Archive2 default), while all 2,112 vanilla BTDs are stored uncompressed. `exp_install.py` now packs with `-compression=None` (branch `claude/test-queue`). Rerun pending. | supported hypothesis | offline comparison; journal on `claude/test-queue` |
+| A worldspace without the overlay component (World03) hangs on the loading screen (black screen and spinner for more than 150 s), with a loose BTD and with the BTD in an archive. | verified (twice) | `terrain_exp1`, `terrain_C_w03` |
+| Our persistent `XMarker` anchors read back their **unmerged** local position (exp1d 50 50 10; exp2b -989.03 1147.20 105.14), unlike vanilla's COC marker in LC172World; the runner falls back to the arrival point to measure the offset. | verified | `terrain_exp1d`, `terrain_exp2b` |
+| Console: `coc <exterior cell EditorID>` works (`LC172Ext01`, `LC001Outpost`); `cow`, `coc <worldspace>` and `player.moveto <non-persistent ref>` do not. | verified | `terrain_ctrl*`, `terrain_A_ctrl`, `terrain_A2_lc172` |
+
+Size, from the QA review of this PR (raw walk of Starfield.esm, offline): no 100 x 100-cell BTD is behind any WRLD
+overlay component. The largest overlay BTDs are **14 x 14** cells (NewAtlantis, SettleWaggonerFarm, both registered);
+unregistered PCM overlays are at most 5 x 5. Activated overlays larger than 14 x 14 are untested (exp2b is 29 x 29).
 
 ## Short answer
 
@@ -18,13 +40,17 @@ stays behind the scenes. Prefer native terrain; static-mesh terrain only if the 
 - The data binds a worldspace to its BTD by a **record chain** (verified: 430 of 433 WRLD have
   `WorldSpaceOverlayComponent.SurfaceBlock` -> `SFBK.ANAM = "Data\TERRAIN\<EditorID>.btd"`, the other 3 have no overlay
   component) and planets place worldspaces by `PNDT.MasterWorldspaces[]` (latitude/longitude). Every vanilla WRLD
-  also has `terrain/<EditorID>.btd` (433/433), so whether the engine reads the record or the name is still open.
-- The BTD format is fully decodable (verified on real files, byte-exact): 128 height samples per 100 m cell, 16-bit
-  heights mapped linearly between a per-file min and max **in metres**, 5 LOD levels, a land-texture (LTEX) table.
-  Vanilla ships BTDs up to **100 x 100 cells (10 km x 10 km)** and with custom height ranges.
-- So a **dedicated Commonwealth worldspace with its own BTD (option A)** can carry the exact FO4 heights with ~1 cm
-  quantisation. It is the recommended path, *if* the engine loads a new worldspace + new BTD from a plugin. That is the
-  one thing only the game can answer (experiment 1 below).
+  also has `terrain/<EditorID>.btd` (433/433). In game the BTD is used only for an overlay **activated on a planet**
+  (PNDT `CNAM`): an unregistered worldspace shows procedural planet ground, and one without the overlay component hangs
+  on load (both **verified**). Record path vs name for an activated overlay is still **unresolved**.
+- The BTD format is fully decodable (verified on real files, byte-exact per section and per decompressed block):
+  128 height samples per 100 m cell, 16-bit heights mapped linearly between a per-file min and max **in metres**, 5 LOD
+  levels, a land-texture (LTEX) table. Vanilla ships BTDs up to **100 x 100 cells (10 km x 10 km)** and with custom
+  height ranges, but none of the 100-cell BTDs backs an overlay: the largest overlay BTD is **14 x 14 cells**.
+- So a **Commonwealth worldspace with its own BTD (option A)** can carry the exact FO4 heights with ~1 cm
+  quantisation, but in game it must be activated on a host planet, as in option B. Still **unresolved**: whether the
+  engine uses a plugin's own BTD at all (every registered run so far was flat at the BTD's raw-0 height; supported
+  hypothesis: our BA2 stored the BTD compressed, rerun pending) and whether overlays larger than 14 x 14 cells work.
 
 ## 1. Evidence: how Starfield stores terrain
 
@@ -79,6 +105,11 @@ Which one the engine uses is **unresolved** (record path vs name). fo76utils (Fa
 `Terrain/<WRLD EDID>.btd` (`src/landdata.cpp` lines 732-762). `TempJemisonWorld` (171 cells, 100 x 100-cell BTD) has
 no overlay component and no SFBK, so if it loads terrain at all, the name path must exist. Experiment 1 tests record
 path + name, record path only, and name only in one session.
+**In game (2026-10-11) experiment 1 could not separate them:** unregistered World01 (record + name) and World02
+(record only) read identical procedural heights, so neither used its BTD; World03 (name only, no overlay component)
+hung on the loading screen, loose and packed (**verified**, section [In-game results](#in-game-results-2026-10-11)).
+A plugin worldspace without the overlay component does not load; for an activated overlay, record path vs name is
+still **unresolved**.
 
 Field names from xEdit's Starfield definitions (`Core/wbDefinitionsSF1.pas`, TES5Edit `dev-4.1.6` at 9fb0168, MPL-2.0;
 one file read, not run; community reverse engineering, so names are **supported**, not verified):
@@ -87,9 +118,10 @@ one file read, not run; community reverse engineering, so names are **supported*
 - WRLD `DATA` flags: Small World, Can't Fast Travel From Here, No LOD Water, **No Landscape**, No Sky, **Fixed
   Dimensions**, No Grass. WRLD `FNAM` flags: ..., **Allow ProcGen**, Allow Cell Content. Parent worldspace flags: Use
   Land / LOD / Map / Water / Climate Data, Use Sky Cell.
-- SFBK: `ANAM` data file, `DNAM` size X/Y (cells), `ENAM` height min/max, `FNAM` "Connections" (8 x i16: in vanilla
-  these are raw BTD heights near the border, e.g. 21889 = 0.1 m in a -500/1000 file: border heights for stitching,
-  **supported**), `GNAM` rarity, `HNAM`/`INAM` manual alignment value / mode (**Relative / Absolute**), `JNAM` grid
+- SFBK: `ANAM` data file, `DNAM` size X/Y (cells), `ENAM` height min/max, `FNAM` "Connections" (our earlier reading,
+  8 x i16 border heights for stitching, is **refuted**: all 1,730 vanilla SFBK with an `FNAM` store `DNAM.x` x
+  `DNAM.y` u16 values, one per BTD cell, 0 exceptions; in most records each value is the raw BTD height at that cell's
+  SW corner, see `docs/terrain/overlay-records.md` on PR #64), `GNAM` rarity, `HNAM`/`INAM` manual alignment value / mode (**Relative / Absolute**), `JNAM` grid
   alignment override (Min / Max / Average / Median / Percent), `KNAM` grid sampling override, `WHGT` water height,
   `NAM2`/`NAM3` cell min/max, `NAM4` height range, `NAM5` source block. NewAtlantis: INAM 1 (Absolute), HNAM -239.
 - PNDT: `CNAM` *Master Worldspaces* (latitude, longitude as f64, then the WRLD) and `EOVR` *Edited Worldspaces*
@@ -97,9 +129,12 @@ one file read, not run; community reverse engineering, so names are **supported*
   Note: Mutagen 0.55 names the two doubles the other way round (its "Longitude" is xEdit's first value, range
   -1.32..1.16 = latitude; its "Latitude" ranges -2.93..3.04 = longitude). Tables here print them as (first, second).
 
-**Planet registration (verified data, behaviour unresolved):** `JemisonPlanetData.MasterWorldspaces =
-[(0.7111, 2.2810) -> 01251B NewAtlantis]`. This is what places a city on a planet. Whether a worldspace *must* be
-registered there to load or render terrain is the main unknown.
+**Planet registration (verified data; behaviour verified in game 2026-10-11):** `JemisonPlanetData.MasterWorldspaces =
+[(0.7111, 2.2810) -> 01251B NewAtlantis]`. This is what places a city on a planet. A worldspace's own BTD only
+applies when the worldspace is activated this way: an unregistered plugin worldspace loads but shows the planet's
+procedural ground (**verified**, exp1/exp1b). Activation merges the overlay's cells into the planet worldspace at a
+whole-cell XY offset plus a Z offset (**verified**: World01 on Mars +3000 / -3500 m, exp2b -1200 / -2700 m, vanilla
+LC172World -500 / -2300 m with Z -3.62 m).
 
 ### 1.4 BTD format (verified on real files)
 Source of the layout: fo76utils `src/btdfile.cpp` (MIT licence, (c) 2021-2025 fo76utils; cloned read-only to
@@ -129,7 +164,8 @@ quadrant map and LOD4 byte-identical; only the per-cell min/max floats differ in
 wider, rounded bounds; ours are the exact bounds of the data). Synthetic round trip: `tests/test_btd.py` (5 tests).
 No vertex colour and no ground-cover sections in Starfield BTDs (FO76 has them). Header survey of all 2,112 BTDs
 (`btd_survey.py`, reads 44 bytes per member): height ranges per file vary: -500/1000 (762 files), -1000/3000 (78),
-NewAtlantis 0/260.502, many small custom ranges. **Largest: 100 x 100 cells** (12,800 x 12,800 samples), 108 files, e.g.
+NewAtlantis 0/260.502, many small custom ranges. **Largest: 100 x 100 cells** (12,800 x 12,800 samples), 108 files,
+none of them behind a WRLD overlay component (the largest overlay BTD is 14 x 14, QA raw walk), e.g.
 `testplayeranimworld.btd` 134 MB, `defaultworld.btd` 4.2 MB (flat compresses well). Compressed size of real terrain:
 ~45 KB per cell (akilacity 46.8, NewAtlantis 43.4).
 
@@ -139,15 +175,24 @@ NewAtlantis 0/260.502, many small custom ranges. **Largest: 100 x 100 cells** (1
 - **128 samples per cell -> 0.78125 m spacing** (verified from the format; spacing in metres is supported, see below).
 - **Heights are metres, linear:** z = min + raw / 65535 x (max - min) (verified against the per-cell table; the x8 scale
   in fo76utils' Starfield path, marked FIXME there, is **refuted**: median error 754 m against placed objects).
-- **World z = BTD height** (supported): `lc001world` (Vectera, Kreet research base) BTD centre is a flat pad at
-  111.4 m (80 x 80 samples, p5-p95 109.8-111.9); the base's placed objects cluster at z 112.0-113.5 m (foundations on
-  the pad).
-- **Grid alignment** (supported): BTD cell i = world cell i - n//2 (n = cells per side; the BTD's SW corner is at
+- **World z = BTD height: refuted in this absolute form** (in game, 2026-10-11). An activated overlay is merged into
+  the planet worldspace with a Z offset (LC172World: -3.62 m under Relative alignment, `INAM` 0), so the BTD height
+  equals world z only relative to that offset. The relative form is **verified** on vanilla LC172World: probes
+  measured from the overlay's anchor matched its BTD within 0.02 m in the cell the vanilla overlay mask marks
+  authored, 0.3-0.36 m next to it, and 4-6 m off in mask-255 border cells (heights blend with the planet there).
+  Under Absolute alignment (`INAM` 1): **unresolved** (exp2b, the test for it, came out flat; see the results table).
+  The offline evidence was measured in the overlay's own frame and fits the relative form: `lc001world` (Vectera,
+  Kreet research base) BTD centre is a flat pad at 111.4 m (80 x 80 samples, p5-p95 109.8-111.9); the base's placed
+  objects cluster at z 112.0-113.5 m (foundations on the pad).
+- **Grid alignment** (supported, in the overlay's own frame only; in the planet frame the cells move by the
+  whole-cell activation offset): BTD cell i = world cell i - n//2 (n = cells per side; the BTD's SW corner is at
   -(n//2) x 100 m), rows south to north. With bilinear sampling, the share of all placed refs within 0.25 m of the surface
   is 12.3% (akilacity, 50,785 refs) and 7.5% (lc001world, 7,412 refs) for this mapping, against 3.6% / 2.5% with Y
   flipped and lower for 100/127 spacing (`align4.py`). Cities are mostly floors and walls, so a low absolute share is
   expected. Second check: NewAtlantis (14 x 14-cell BTD -> cells -7..6): **130 of the 133** cells that hold placed
-  objects lie inside that footprint (`SfInspect wcells NewAtlantis`). The in-game test confirms it.
+  objects lie inside that footprint (`SfInspect wcells NewAtlantis`). Not measured in game yet: at LC172World's
+  authored probe `lc172_7` the corner rule, a half-sample shift, a one-sample shift and a Y flip differ by at most
+  0.035 m, too little to tell apart; exp2b's slope points are the deciding test.
 
 ### 1.6 Cities and landing zones use BTD terrain (verified as data)
 NewAtlantis (14 x 14 cells, 0..260.5 m), akilacity (9 x 9), NeonCity (11 x 11, has `NoLandscape` flag), CydoniaCity
@@ -172,8 +217,8 @@ Conversion math (verified arithmetic): FO4 cell 4,096 units = 58.514 m; FO4 vert
 Starfield sample spacing 0.781 m (2.34 samples per FO4 vertex). The grids do not line up, so heights are resampled
 (bilinear on the FO4 33 x 33 grid) at exact world positions; absolute positions and heights are kept, cell indices
 are not (FO4 cell (x, y) covers 0.585 x 0.585 Starfield cells). The full FO4 LAND grid is 11.23 km per side = 113
-Starfield cells, a bit over the 100-cell maximum seen in vanilla; the playable core is much smaller (unresolved exact
-bounds). Quantisation with min/max = -120/645 m: 1.2 cm per step (FO4's own VHGT step is 8 units = 11.4 cm).
+Starfield cells, a bit over the 100-cell maximum seen in vanilla BTDs and about 8x the largest vanilla overlay
+(14 cells) per side; the playable core is much smaller (unresolved exact bounds). Quantisation with min/max = -120/645 m: 1.2 cm per step (FO4's own VHGT step is 8 units = 11.4 cm).
 
 ## 3. Community knowledge (web, unverified unless stated)
 Web access was poor today (Steam guides returned HTTP 429, Nexus 403), so this section is thin.
@@ -203,37 +248,63 @@ FO4 geometry to keep: absolute positions (FO4 units / 70 = metres, verified S4),
 the 4,096-unit cell grid (58.5 m). Starfield's grid is 100 m, so cell indices change in every option; positions and
 heights do not have to.
 
+**Update 2026-10-11 (in game):** the engine uses a worldspace's BTD only when the worldspace is activated on a planet
+(**verified**), so A cannot stand alone: it needs B's registration, and with it B's merge offset, Z offset and border
+blending. The rows below are corrected where the in-game runs contradict them.
+
 | | **A. Dedicated worldspace, own BTD** | **B. Overlay on a host planet** | **C. Static mesh terrain tiles** |
 |---|---|---|---|
-| What it is | WRLD + SFBK + one large BTD with the FO4 heights; entered by load door / fast travel; registered on a host planet only if the engine needs it | Same records, but stamped into a planet's procedural terrain like New Atlantis / landing sites, procedural terrain around it | FO4 LAND baked into `.mesh` tiles with Havok collision, placed as STAT refs in a worldspace with no (or flat) BTD |
-| Records / files | WRLD (overlay component), SFBK (`ANAM`), BTD (writer done), LTEX list, Location, Biome/Climate, water heights; optional PNDT `CNAM`/`EOVR` entry | A + PNDT entry (lat/long), SFBK placement fields (alignment mode, connections), planet biome/atmosphere | WRLD (`NoLandscape` flag exists, NeonCity uses it), ~37k mesh tiles (or fewer, merged), collision per tile, a terrain material |
-| Exact geography | Yes: heights quantised to 1.2 cm (range -120..645 m); resampling a 1.83 m grid onto 0.78 m keeps FO4's surface if we sample FO4's triangles | Only with `INAM` Absolute alignment (supported by field name; NewAtlantis uses it). Relative/median alignment would shift heights | Yes, FO4's own triangles exactly |
-| Size | Vanilla BTDs up to 100 x 100 cells = 10 km (verified). FO4 LAND grid is 11.2 km (113 cells): crop the outer ring or test >100 | Vanilla overlays are at most 14 x 14 cells (1.4 km, NewAtlantis); 100-cell overlays exist only as test worlds | No hard limit; memory and draw calls grow with tiles |
-| Seams | None inside one heightfield; edge = BTD border (FO4's outer LOD ring sits there) | Border blends into procedural terrain (FNAM connections) | Tile edges must share vertices exactly (we control that); seams at LOD changes |
+| What it is | WRLD + SFBK + one large BTD with the FO4 heights; entered by load door / fast travel; activated on a host planet (PNDT `CNAM`), which the engine requires (**verified**), so A uses B's mechanism | Same records, but stamped into a planet's procedural terrain like New Atlantis / landing sites, procedural terrain around it | FO4 LAND baked into `.mesh` tiles with Havok collision, placed as STAT refs in a worldspace with a flat BTD (a worldspace without the overlay component hangs on load, **verified**) |
+| Records / files | WRLD (overlay component), SFBK (`ANAM`), BTD (writer done) shipped in `<plugin> - Main.ba2` (loose files are not read on this install), LTEX list, Location, Biome/Climate, water heights; PNDT `CNAM`/`EOVR` entry (required) | A + PNDT entry (lat/long), SFBK placement fields (alignment mode, per-cell `FNAM`), planet biome/atmosphere | WRLD with overlay component + SFBK + BTD (`NoLandscape` flag exists, NeonCity uses it), ~37k mesh tiles (or fewer, merged), collision per tile, a terrain material |
+| Exact geography | Heights quantised to 1.2 cm (range -120..645 m); resampling a 1.83 m grid onto 0.78 m keeps FO4's surface if we sample FO4's triangles. In game heights are relative to the overlay's Z offset (**verified**), so absolute z needs the same alignment as B | Only with `INAM` Absolute alignment (supported by field name; NewAtlantis uses it; untested in game, exp2b came out flat). Relative alignment shifts heights (LC172World: Z -3.62 m, **verified**) | Yes, FO4's own triangles exactly |
+| Size | Vanilla BTDs reach 100 x 100 cells = 10 km (verified), but none backs an overlay: the largest activated overlay is 14 x 14 cells (NewAtlantis, SettleWaggonerFarm). FO4 LAND grid is 11.2 km (113 cells), 8x that per side: **unresolved** | Vanilla overlays are at most 14 x 14 cells (1.4 km, NewAtlantis); the 100-cell BTDs belong to worlds without an overlay component or without a WRLD (test worlds) | No hard limit; memory and draw calls grow with tiles |
+| Seams | None inside one heightfield. At the edge, the overlay mask (or the outer cell ring) blends heights with the planet: LC172World's mask-255 border cells were 4-6 m off its BTD (**verified**), so the BTD must reach at least one cell past the authored area | Border blends into procedural terrain (overlay mask / outer ring, as for A) | Tile edges must share vertices exactly (we control that); seams at LOD changes |
 | LOD | Built into the BTD (LOD0-4, verified format); object LOD separate | Same | Must build our own (mesh LODs or none) |
 | Collision | Expected from BTD heights (no terrain collision files exist in vanilla: Terrain BA2s hold only `.btd`, **supported**) | Same | Havok per tile (S6 work, not done for terrain) |
 | Texturing | LTEX table, up to 6 layers per quadrant, 3-bit alphas (coarser than FO4's float alphas); FO4 textures need SF LTEX/material records | Same | One material per tile, layer blending must be baked into textures |
 | Navmesh | FO4 NAVM stays valid if heights are kept (FORMAT-GAP: NAVM subrecords match 1.0) | Same | Same, navmesh is independent of how the ground renders |
-| Behind-the-scenes registration | Optional (if required: one PNDT entry on an unused host planet, nobody needs to see that planet) | Required and visible (you are on that planet: sky, gravity, procedural edges) | Same as A |
-| Main unknowns | Does a plugin WRLD + loose BTD load? Is registration required? What renders beyond the BTD? Max size? | All of A + how alignment/blending treats a 10 km overlay; ship landing and scanner behaviour | Performance at Commonwealth scale; terrain materials; collision baking |
+| Behind-the-scenes registration | Required (**verified**): one PNDT entry on a host planet; how much of that planet (sky, gravity, edges) shows when the BTD covers the playable area is **unresolved** | Required and visible (you are on that planet: sky, gravity, procedural edges) | Same as A (the worldspace still needs an overlay) |
+| Main unknowns | Answered: registration is required; loose BTDs are not read on this install. Open: does the engine use a plugin's own BTD at all (registered runs were flat at raw 0; supported hypothesis: compressed BA2 entry)? Overlays above 14 x 14 cells? Absolute alignment? | All of A + how alignment/blending treats a 10 km overlay; ship landing and scanner behaviour | Performance at Commonwealth scale; terrain materials; collision baking |
 
 ## Recommendation
-**Option A**: one dedicated Commonwealth worldspace with its own native BTD, generated from FO4 `LAND` at exact
-absolute heights, entered by a transition. If the engine requires a planet registration, add a single PNDT entry
-(`EOVR` "Added" or `CNAM`) on a host planet and keep it behind the scenes; the BTD covers the whole playable area so
-no procedural terrain is visible inside it. Use B's mechanics only for that registration, and C only for local
-patches (for example under structures, or if experiment 1 shows that a plugin cannot bring its own BTD).
-Why: every piece A needs is either verified offline (format, writer, coordinates, height scale, vanilla sizes up to
-10 km, custom height ranges) or answered by one short in-game test; C needs large new pipelines (terrain collision,
-LOD, materials) and loses the engine's terrain LOD and texture blending.
+**Option A, amended after the first in-game runs (2026-10-11):** one Commonwealth worldspace with its own native
+BTD, generated from FO4 `LAND` at exact heights, entered by a transition. The engine only uses that BTD when the
+worldspace is activated on a planet (PNDT `CNAM`, **verified**), so A now uses B's registration mechanism: a single
+entry on a host planet kept as far behind the scenes as the planet allows, with the BTD covering the playable area
+plus at least one extra cell ring for the border blend. C stays for local patches (for example under structures) or
+as the fallback if a plugin cannot bring its own BTD.
+Not shown yet, and the next gates: that the engine uses a plugin's own BTD at all (every registered run so far was
+flat at the BTD's raw-0 height; supported hypothesis: the BTD was stored compressed in our BA2, rerun with stored
+BTDs pending); Absolute alignment for exact absolute z; overlays larger than 14 x 14 cells (exp2b is 29 x 29, the
+Commonwealth would be ~113).
+Why (offline): every piece A needs is either verified offline (format, writer, coordinates, height scale, custom
+height ranges; vanilla BTD sizes up to 10 km, but overlays only up to 1.4 km) or answered by short in-game tests; C
+needs large new pipelines (terrain collision, LOD, materials) and loses the engine's terrain LOD and texture blending.
 
 Not decided here: LTEX/texture mapping, water (FO4 per-cell water heights vs Starfield's `CellWaterHeightLocations`,
 8 entries in NewAtlantis), terrain holes (the BTD layout has no hole mask; whether the Commonwealth needs any is
 unresolved), grass. They do not change the choice.
 
-## 5. Experiment 1 (prepared offline, not deployed)
+## 5. Experiment 1 (prepared offline; run in game 2026-10-11)
 **Question:** does a plugin-defined worldspace load its own BTD, at the heights and positions we compute, and does
 it need a planet registration or a record path vs a name?
+
+**Result (unattended runner, `C:\Modding\testqueue\<queue>`):** our BTD was never seen in game yet.
+
+| Queue | Setup | Result |
+|---|---|---|
+| `terrain_exp1` | loose BTDs, no registration | World01 and World02: identical procedural heights, 4.18 / 11.86 / 15.98 / 10.68 m at ground / pad A / pad B / pit C. World03: hung on the loading screen |
+| `terrain_exp1_mars` | loose, World01 registered on Mars | arrival moved to (3050, -3450, -72.8) on a Mars mountainside (merge offset +3000 / -3500 m); the probes, at unshifted x/y, missed the overlay |
+| `terrain_exp1b` | BTDs in `FO4TerrainExp1 - Main.ba2` (zlib-compressed), no registration | World01 and World02: the same procedural heights as `terrain_exp1` |
+| `terrain_B_w01`, `terrain_exp1c_mars` | packed (compressed), World01 registered | flat: -13.94 m at every probe |
+| `terrain_C_w03` | packed, World03 | hung on the loading screen again |
+| `terrain_exp1d` | PR #64 record fixes, packed (compressed), registered | arrival at -500.00 m, the BTD's raw-0 height (`ENAM` minimum). The anchor read its unmerged local position (50, 50, 10), so the probes missed the overlay |
+
+Reading: loose BTDs are not read on this install (**verified**); unregistered worlds get procedural planet ground
+(**verified**); a world without the overlay component hangs (**verified**); registered worlds with our packed BTD are
+flat at its raw-0 height (**verified**), probably because the archive stored the BTD compressed (**supported
+hypothesis**; reruns with stored BTDs are queued). The steps and the reading table below are the original plan; the
+notes in them say where the game behaved differently.
 
 Built by `dotnet/TerrainExp1` (plugin) and `scripts/terrain/make_exp1_btd.py` (BTDs) into
 `C:\Modding\staging\terrain_exp1`:
@@ -255,9 +326,11 @@ Heights in every BTD (world metres): ground **10.0**; pad A x 20..40, y 20..40 a
 y 20..40 at **10 + D/2**; pit C x 20..40, y 60..80 at **5.0**; D = 25 / 35 / 45 for World01 / 02 / 03, so the pad
 height says which file the engine loaded.
 
-**Steps for the lead** (game closed to install; nothing here touches saves except what you do in game):
+**Steps for the lead** (original plan; game closed to install; nothing here touches saves except what you do in game):
 1. Copy `FO4TerrainExp1.esm` to `Starfield\Data`, and the three `.btd` to `Starfield\Data\Terrain\` (create the folder).
    Add `*FO4TerrainExp1.esm` to `Plugins.txt`. Loose files must be enabled as for the converted meshes.
+   **Superseded:** loose files are not read on this install (`sResourceDataDirsFinal=STRINGS\`); the BTDs go into
+   `FO4TerrainExp1 - Main.ba2` next to the plugin, stored uncompressed (`exp_install.py --pack`, `claude/test-queue`).
 2. Start the game, load a test save, open the console: `tgm`.
 3. `coc FO4TX_W01Spawn`. Look: is there ground? `player.getpos z` -> expect **10.0** (+-0.1). Screenshot.
 4. Pad A: `player.setpos x 30`, `player.setpos y 30`, `player.setpos z 80`, wait to land, `player.getpos z` ->
@@ -265,30 +338,38 @@ height says which file the engine loaded.
    10.0 (tests XY alignment to +-1 m). Note whether the platform top at x 86..94, y ~50 is flush with the ground.
 5. Look past x/y = +-250 m (edge of the BTD): void, flat ground, water, or procedural Mars terrain?
 6. `coc FO4TX_W02Spawn` -> pad A **45.0** (record path works). `coc FO4TX_W03Spawn` -> pad A **55.0** (name path works).
+   In game `coc FO4TX_W03Spawn` never finished loading (World03 has no overlay component).
 7. Only if 3 shows no terrain: add `*FO4TerrainExp1_Mars.esm` after it in `Plugins.txt`, restart, repeat 3-5.
-8. Uninstall: remove the lines from `Plugins.txt`, delete the five files.
+   In game there is always ground; the BTD needs the registration, and the registered world is merged at
+   +3000 / -3500 m, so the x/y in steps 3-5 must be shifted by that offset.
+8. Uninstall: remove the lines from `Plugins.txt`, delete the plugin files and `FO4TerrainExp1 - Main.ba2`.
 
 **Reading the result**
 
 | Observation | Meaning |
 |---|---|
-| Ground at 10.0, pads at 35 / 22.5 / 5 | A works without registration; height scale and grid alignment verified |
-| Pads at the right height but shifted by a constant | alignment origin differs (fix ORIGIN in the generator) |
+| Ground at 10.0, pads at 35 / 22.5 / 5 | A works without registration; height scale and grid alignment verified (**refuted** premise: without registration the BTD is never used) |
+| Pads at the right height but shifted by a constant | alignment origin differs (fix ORIGIN in the generator); in game, expect the whole-cell merge offset and a Z offset |
 | Pads at heights scaled by a factor | height mapping differs (fo76utils' x8 or similar) |
-| No ground in World01, ground after step 7 | planet registration is required: keep it behind the scenes |
-| World02 has terrain, World03 not (or the reverse) | the engine binds by record (or by name) |
-| No ground anywhere, even with Mars | loose BTD not loaded, or a field we copied matters; next: pack into a BA2, then try overriding a vanilla BTD |
+| No ground in World01, ground after step 7 | planet registration is required: keep it behind the scenes. In game there was always ground: unregistered = procedural planet terrain (**verified**) |
+| World02 has terrain, World03 not (or the reverse) | the engine binds by record (or by name). In game neither used its BTD unregistered, and World03 hung on load |
+| No ground anywhere, even with Mars | loose BTD not loaded, or a field we copied matters; next: pack into a BA2, then try overriding a vanilla BTD. In game: registered with a packed BTD, flat at the raw-0 height instead |
 
 **Experiment 2** (staged next, also not deployed): the real Commonwealth heights around Red Rocket in one 29 x 29-cell
 BTD with 14 check points for the unattended runner. See [experiment2.md](experiment2.md).
 
 ## 6. Unknowns (in order)
-1. **In game:** does `FO4TX_World01` show terrain at 10 m without a planet entry (experiment 1)? Everything else waits on this.
-2. Record path vs name binding; what is drawn beyond the BTD edge; whether loose `.btd` files load or must be in a BA2.
-3. BTDs larger than 100 x 100 cells (the full FO4 grid needs 113).
+1. **In game:** does the engine use a plugin's own BTD at all, once the worldspace is activated on a planet? Every
+   registered run so far was flat at the BTD's raw-0 height (supported hypothesis: compressed BA2 entry; rerun with
+   stored BTDs pending). Everything else waits on this. (Answered 2026-10-11: without a planet entry the BTD is never
+   used, **verified**; loose `.btd` files are not read on this install, they must be in a BA2, **verified**.)
+2. Record path vs name binding for an activated overlay; Absolute alignment (`INAM` 1) for exact absolute z; where
+   exactly the overlay mask or the outer cell ring blends heights with the planet.
+3. Activated overlays larger than the largest vanilla one (14 x 14 cells): exp2b is 29 x 29, the full FO4 grid needs
+   113 (also above the 100 x 100 maximum of any vanilla BTD).
 4. LTEX/material mapping for FO4 land textures; water heights; terrain holes; grass.
-5. Meaning of `SNAM`/`PNAM` beyond xEdit's names; `FNAM` connections and alignment fields for a master worldspace that
-   is never blended (A).
+5. Meaning of `SNAM`/`PNAM` beyond xEdit's names; the per-cell `FNAM` values and the alignment fields (`FNAM` is not
+   "8 connections", see 1.3).
 
 ## Reproduce
 - `dotnet run --project dotnet/SfInspect -c Release -- <Starfield.esm> wrld | sfbk | planetworlds | wcells <WRLD> [out.tsv] | form <hex>... | form type:Planet <name>` (read-only).
