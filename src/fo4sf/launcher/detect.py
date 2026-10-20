@@ -60,6 +60,28 @@ def match_source(table, name, sha):
     return None
 
 
+# folders a build must not run in (Wabbajack and GAMMA refuse the same, appeng §6-7): protected or synced by Windows,
+# or a drive root
+PROTECTED_PARTS = ("program files", "program files (x86)", "windows", "programdata")
+
+
+def work_folder_problems(path):
+    """[problems] with a build output folder, read from its path alone (Windows or POSIX spelling)."""
+    raw = os.path.abspath(path) if not re.match(r"^[A-Za-z]:[\\/]", path) else path
+    parts = [p for p in re.split(r"[\\/]+", raw) if p]
+    low = [p.casefold() for p in parts]
+    out = []
+    if len(parts) <= 1:
+        out.append(f"{path} is a drive root; use a folder such as D:\\Modding\\FO4SF")
+    if any(p in PROTECTED_PARTS for p in low):
+        out.append(f"{path} is under a protected Windows folder (Program Files, Windows, ProgramData)")
+    if any(p == "onedrive" or p.startswith("onedrive - ") for p in low):
+        out.append(f"{path} is under OneDrive, which syncs and locks files while the build writes them")
+    if len(low) > 1 and re.match(r"^[a-z]:$", low[0]) and low[1] == "users":
+        out.append(f"{path} is under the Users folder (Documents and Desktop are guarded by Controlled Folder Access)")
+    return out
+
+
 def free_gb(path):
     probe = os.path.abspath(path)
     while not os.path.exists(probe):
@@ -183,6 +205,8 @@ def detect(*, fo4_data, starfield, sources=None, out_dir=None, need_gb=0.0, floo
     for path, n, key, value in ini_test_files(ini_folders):
         refusals.append(f"Starfield: {key}={value} in {path} line {n} makes the game ignore Plugins.txt")
     if out_dir:
+        for p in work_folder_problems(out_dir):
+            refusals.append("Work folder: " + p)
         free = free_gb(out_dir)
         usable = free - floor_gb
         out["disk"] = {"path": os.path.abspath(out_dir), "free_gb": round(free, 1), "floor_gb": floor_gb,

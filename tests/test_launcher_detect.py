@@ -136,6 +136,17 @@ class DetectTests(unittest.TestCase):
         self.assertFalse(r["ready"])
         self.assertTrue(any(x.startswith("Disk:") for x in r["refusals"]))
 
+    def test_work_folder_rules(self):
+        bad = {"D:\\": "drive root", "C:/Program Files/FO4SF": "protected", "C:\\Users\\aaron\\Documents\\out":
+               "Users folder", "E:\\OneDrive - Home\\build": "OneDrive", "D:\\OneDrive\\x": "OneDrive"}
+        for path, why in bad.items():
+            with self.subTest(path=path):
+                self.assertTrue(any(why in p for p in detect.work_folder_problems(path)), path)
+        for path in ("D:\\Modding\\FO4SF", "C:\\Modding\\scratch", self.root):
+            self.assertEqual(detect.work_folder_problems(path), [], path)
+        r = self.run_detect(out_dir="C:\\Users\\aaron\\Desktop\\fo4sf", need_gb=0, floor_gb=0, my_games=self.my_games)
+        self.assertTrue(any(x.startswith("Work folder:") for x in r["refusals"]))
+
     def test_test_file_in_any_ini_is_refused(self):
         mg = os.path.join(self.root, "My Games", "Starfield")
         write(os.path.join(mg, "StarfieldCustom.ini"), b"[General]\nsTestFile1=Foo.esm\nsTestFile2=\n")

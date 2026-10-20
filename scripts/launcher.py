@@ -15,6 +15,7 @@ r"""Launcher backbone CLI (docs/ai/launcher-backbone.md). Offline except `restor
                                       [--allow-missing-sfse]
     python scripts/launcher.py sources-add --manifest <build manifest.json> --label <text> [--table <json>]
     python scripts/launcher.py runtimes-add --manifest <build manifest.json> --label <text> [--table <json>]
+    python scripts/launcher.py check-plugins <build folder> [--starfield-data <Starfield\Data>] [--also <master> ...]
     python scripts/launcher.py measure <folder> ...
 
 manifest   what a build was made from and what it made (read only).
@@ -26,6 +27,8 @@ detect     can this PC build? Fallout 4 version and DLC, Starfield, Archive2, CK
 sources-add  adds a real install's master hashes (from a build manifest) to the known-sources table.
 runtimes-add adds a real install's Starfield.exe and SFSE hashes (from a build manifest) to the known-runtimes table;
            detect refuses a Starfield.exe that is not listed there, a missing SFSE and a Game Pass install.
+check-plugins  each built plugin's masters: refuses BlueprintShips-Starfield.esm as a master and masters that are
+           neither in the build nor in the Starfield Data folder (read only; exit 1 on a problem).
 measure    a folder's real disk use, hard links counted once (read only).
 snapshot   records Starfield's Plugins.txt, Data plugins and archives and the three install records (read only).
 restore    prints what would bring the install back to a snapshot; --apply does it through the existing installers
@@ -38,7 +41,7 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "src"))
-from fo4sf.launcher import detect, driver, files, manifest, restore, runtimes, same_ids  # noqa: E402
+from fo4sf.launcher import detect, driver, files, manifest, plugin_checks, restore, runtimes, same_ids  # noqa: E402
 
 SOURCES = os.path.join(REPO, "scripts", "launcher_recipes", "known_sources.json")
 
@@ -197,6 +200,16 @@ def cmd_runtimes_add(a):
     return 0
 
 
+def cmd_check_plugins(a):
+    r = plugin_checks.check(a.folder, a.starfield_data or None, a.also)
+    for n, ms in r["plugins"].items():
+        print(f"  {n:<32} masters: {', '.join(ms) or 'none'}")
+    for p in r["problems"]:
+        print("  PROBLEM: " + p)
+    print("plugins ok" if not r["problems"] else f"{len(r['problems'])} problems")
+    return 0 if not r["problems"] else 1
+
+
 def cmd_measure(a):
     for p in a.paths:
         m = detect.measure(p)
@@ -275,13 +288,17 @@ def main(argv=None):
     s.add_argument("--manifest", required=True)
     s.add_argument("--label", required=True)
     s.add_argument("--table", default=runtimes.DEFAULT_TABLE)
+    s = sub.add_parser("check-plugins")
+    s.add_argument("folder")
+    s.add_argument("--starfield-data", default="")
+    s.add_argument("--also", action="append", default=[])
     s = sub.add_parser("measure")
     s.add_argument("paths", nargs="+")
     a = ap.parse_args(argv)
     try:
         return {"manifest": cmd_manifest, "manifest-diff": cmd_manifest_diff, "build": cmd_build,
                 "same-ids": cmd_same_ids, "snapshot": cmd_snapshot, "restore": cmd_restore,
-                "detect": cmd_detect, "sources-add": cmd_sources_add, "runtimes-add": cmd_runtimes_add, "measure": cmd_measure,
+                "detect": cmd_detect, "sources-add": cmd_sources_add, "runtimes-add": cmd_runtimes_add, "check-plugins": cmd_check_plugins, "measure": cmd_measure,
                 "status": cmd_status}[a.cmd](a)
     except driver.RecipeError as e:
         print(f"recipe: {e}")

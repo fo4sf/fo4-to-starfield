@@ -91,6 +91,17 @@ under `XboxGames` or `WindowsApps` (Steam only for version 1). The table ships e
 hashed Starfield.exe or without SFSE. Until the owner's PC is measured, detect refuses every Starfield, which is the
 intended answer. The build manifest now records the `sfse_*.dll` hashes too.
 
+Work folders (A6): detect refuses an `--out-dir` that is a drive root or sits under Program Files, Windows,
+ProgramData, OneDrive or the Users folder, as Wabbajack and GAMMA do (Controlled Folder Access guards Documents and
+Desktop and has blocked `make_bridge.py` once). The owner's `D:\Modding` and `C:\Modding` folders pass.
+
+### check-plugins
+`launcher.py check-plugins <build folder> [--starfield-data <Starfield\Data>]` reads each built plugin's TES4 header
+only and refuses `BlueprintShips-Starfield.esm` as a master (blueprint plugins load last and cannot be depended on,
+framework T7), a plugin that lists itself, and a master that is neither in the build nor in the given Data folder (no
+list of the game's own masters is assumed; without the folder only Starfield.esm counts). Read only; exit 1 on a
+problem.
+
 ### measure
 `launcher.py measure <folder>` gives a folder's real disk cost with hard links counted once and the part shared with
 other folders split out, so "deleting this frees N GB" is a number, not a guess (staged builds hard-link Data from the
