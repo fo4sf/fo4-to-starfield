@@ -19,6 +19,8 @@ Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved 
 
 ## Source work / next gates
 
+- October20 #360 anchor completion follows #419: --anchor now reports source-WRLD Euclidean distances with canonical reference keys/flags. Rebased/renamed/deleted/outside-world overrides cannot fall back to stale core coordinates; invalid/ambiguous/cross-world anchors remain non-success with no distance.25 focused methods/guard pass; four original419 reports remain JSON-identical, five actual-writer synthetic distances checked while terrain stays unknown. Shared readers untouched, peer QA pending; no runtime merge, native mission, stage/install/game or main-merge claim.
+
 - October20 owner-authorized Grok #363 continuation: source WRLD keys now resolve MAST/self ownership, so raw-ID collisions refuse and valid rebasing passes. Local LAND presence stays measurable; absent local LAND is coverage_unknown/null, not proof of missing external terrain. Eleven focused methods/guard and four original frozen fixture replays pass; all five actual-writer observations remain unknown, not accepted. Invalid world ownership also refuses with zero refs; unsupported --anchor refuses explicitly. Original Grok branch preserved, peer QA pending; no shared reader/stage/game/install changes.
 
 - Codex PR277 main merge preserves pinned door-stage sources: selected existing VMAD is refused before output, generated files are independent/atomic, nested output rejected. Retains main persistent-return coordinate reporting. Offline preservation/return checks required; no staging/install/native acceptance.

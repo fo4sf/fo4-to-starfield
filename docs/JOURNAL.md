@@ -1914,3 +1914,32 @@ coverage unknown. Their hashes are unchanged. The original source produced nine
 failures and one error in the first nine new methods. Red/green logs and original
 results are retained privately. No shared reader edits, private rebuild, install,
 game input, native terrain/frame/arrival acceptance or main merge. Peer QA pending.
+
+## 2026-10-20: Codex completes #360 named source-anchor measurements
+
+The original placement-oracle request includes distance to a named REFR/ACHR;
+the old --anchor parameter never measured it. Optional anchor mode now reads
+EDID/header flags through existing plugin walkers, selects a unique source
+reference case-insensitively, and measures unrounded Euclidean XYZ distance in
+the common source WRLD's metres. Reports include canonical source key, source
+role, record flags and an explicit source-only frame label.
+
+Plugin overrides replace core references by owning plugin/local ID, including
+rebasing, rename and deletion. An index of placed references throughout the
+plugin prevents falling back to stale core coordinates when the overriding
+record moves outside the selected world. Missing, ambiguous, deleted, moved,
+unreadable or cross-world anchors yield no invented distance and non-success.
+Initially disabled references may supply file coordinates; that does not claim
+runtime enablement. Duplicate source identities refuse instead of last-wins.
+Shared fo4land and terrain readers are unchanged; no new binary layout is used.
+
+Twenty-five focused methods (35 CLI calls) and guard pass. Four ORIGINAL #419
+frozen fixture reports remain JSON-identical with unchanged input hashes. All
+five distances in the preserved actual TerrainOverlays synthetic plugin match
+the known coordinates; its five terrain observations still return coverage
+unknown/exit1. The first 11 anchor methods produced 13 failures on #419. A
+subsequent prototype outside-world fallback failure was retained and corrected.
+The old unsupported-anchor test now asserts a structured missing-anchor failure.
+This is source-coordinate arithmetic, not a runtime merge/mission/NPC or native
+arrival verdict. No private rebuild, install/game input or main merge. Peer QA
+and lead integration remain pending.
