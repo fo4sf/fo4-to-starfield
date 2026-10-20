@@ -48,7 +48,7 @@ class BatchTests(unittest.TestCase):
         cov = load(o, "coverage.json")
         self.assertEqual([(r["cell"], r["state"]) for r in cov["cells"]],
                          [("SuperDuperMart01", "doors"), ("FO4Port_Vault95", "not_in_port")])   # the duplicate dropped
-        self.assertEqual(cov["counts"], {"doors": 1, "doors_skipped": 0, "not_wired": 0, "coc_only": 0, "no_door": 0,
+        self.assertEqual(cov["counts"], {"doors": 1, "too_near": 0, "doors_skipped": 0, "not_wired": 0, "coc_only": 0, "no_door": 0,
                                          "not_in_port": 1})
         plan, rounds = load(o, "chunk_00", "plan.json"), load(o, "chunk_00", "rounds.json")
         self.assertEqual([p["coc"] for p in plan], ["FO4Port_SuperDuperMart01"])     # never the Red Rocket arrival
@@ -76,7 +76,10 @@ class BatchTests(unittest.TestCase):
         o = self.stage(["SuperDuperMart01", "Vault95"], "--min-out-m", "99999", "--allow-empty")
         cov = load(o, "coverage.json")
         self.assertEqual(cov["chunks"], [])
-        self.assertEqual(cov["counts"]["doors"], 1)                       # planned door, but too near Red Rocket
+        # review pass on #397: a door --min-out-m dropped is not planned, so its cell is too_near, not doors
+        self.assertEqual((cov["counts"]["doors"], cov["counts"]["too_near"]), (0, 1))
+        row = next(r for r in cov["cells"] if r["state"] == "too_near")
+        self.assertEqual((row["doors"], len(row["near"])), ([], 1))
         self.assertFalse(any(n.startswith("chunk_") for n in os.listdir(o)))
 
     def test_a_cell_whose_doors_fail_their_checks_is_doors_skipped(self):

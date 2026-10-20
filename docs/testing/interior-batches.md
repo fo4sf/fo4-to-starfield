@@ -27,6 +27,8 @@ their own: door_rounds starts or ends every leg outside (proposal, not built).
 writes three things:
 - **coverage.json**, one state per cell:
   - `doors`: its load doors passed every check and are planned;
+  - `too_near`: its doors passed every check, but OUT legs only kept none of them (nearer than `--min-out-m` to the
+    Red Rocket arrival; listed under `near`);
   - `doors_skipped`: it has doors, but each one failed a check, with the reason;
   - `not_wired`: the interiors plan gives it Commonwealth doors, but none is in the installed core yet;
   - `coc_only`: the plan gives it no Commonwealth door;

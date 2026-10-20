@@ -9,6 +9,7 @@ usage:
       batch.json: {"name": "...", "cells": ["FO4Port_Vault81Main", ...]}; batch.txt: one cell per line (# comments).
       A cell may be named with or without the FO4Port_ prefix. Every cell gets one coverage state:
         doors          its scripted load doors passed every check and are planned
+        too_near       its doors passed every check, but --legs out dropped each one as nearer than --min-out-m
         doors_skipped  the build has doors into it, but each failed a check (the reasons are listed)
         not_wired      in the port, and the interiors plan gives it Commonwealth doors, but none is in the installed
                        core yet (that needs a core whose door cluster was made against this port)
@@ -128,7 +129,23 @@ def coverage(cells, rounds, skipped, in_port, plan=None):
     return rows
 
 
-STATES = ("doors", "doors_skipped", "not_wired", "coc_only", "no_door", "not_in_port")
+STATES = ("doors", "too_near", "doors_skipped", "not_wired", "coc_only", "no_door", "not_in_port")
+
+
+def mark_planned(rows, mine, groups):
+    """A doors row keeps only the doors that got a test; a row whose every door was dropped (--legs out under
+    --min-out-m) becomes too_near, its doors listed under "near" (the review pass on #397: "doors" means planned)."""
+    planned = {mine[k]["src"] for k, _ in groups}
+    for r in rows:
+        if r["state"] != "doors":
+            continue
+        near = [d for d in r["doors"] if d not in planned]
+        r["doors"] = [d for d in r["doors"] if d in planned]
+        if near:
+            r["near"] = near
+        if not r["doors"]:
+            r["state"] = "too_near"
+    return rows
 
 
 def legs(plan, info, which, min_m):
@@ -170,6 +187,7 @@ def stage(a):
         plan, expect = dr.plan_rounds(mine, first, ci, pi)
         info = {"core_index": f"{ci:02X}", "port_index": f"{pi:02X}", "doors": mine, "tests": expect}
         groups = legs(plan, info, a.legs, a.min_out_m)
+    rows = mark_planned(rows, mine, groups)
     if not groups and not a.allow_empty:
         sys.exit(f"batch {name}: no door to plan; " + "; ".join(f"{r['cell']} {r['state']}" for r in rows))
     parts = chunks(groups, a.chunk) if groups else []
