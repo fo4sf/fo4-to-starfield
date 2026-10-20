@@ -417,6 +417,9 @@ def build(a):
         deploy_starfield.build_archive(packer, os.path.join(port, deploy_starfield.TEX_ARCHIVE), ["textures"], "DDS")
         steps["pack"] = archive_check({n: os.path.getsize(os.path.join(port, n))
                                        for n in (deploy_starfield.ARCHIVE, deploy_starfield.TEX_ARCHIVE)})
+        # Pinned at build time: a later release checks this batch's archives against these when it stands in for an
+        # older batch's (successor_check).
+        steps["pack"]["sha256"] = {n: sha256(os.path.join(port, n)) for n in (deploy_starfield.ARCHIVE, deploy_starfield.TEX_ARCHIVE)}
         steps["pack"]["seconds"] = round(time.time() - t, 1)
     ok = (cmp_["pass"] and prev_ok and steps["doors_check"]["exit"] == 0 and not failed_exports
           and steps.get("pack", {}).get("pass", True))
@@ -596,7 +599,8 @@ def tree(stage):
 
 def successor_check(stage, successor):
     """Raise ValueError unless successor is a passed later build chained from stage (--prev stage, compare_prev pass)
-    whose port is still on disk as built: its plugin's sha256 matches its pins and each packed archive its recorded size.
+    whose port is still on disk as built: its plugin and each packed archive match the sha256s pinned when it was built
+    (a build without archive sha256s cannot stand in).
     Then every id and record of stage survives in a checked copy, so stage's own plugin and archives may go."""
     name = os.path.basename(stage)
     try:
@@ -613,11 +617,14 @@ def successor_check(stage, successor):
     want = (nxt.get("pins") or {}).get("plugin")
     if not want or not os.path.isfile(plugin) or sha256(plugin) != want:
         raise ValueError(f"successor {os.path.basename(successor)}: its {PLUGIN} is missing or not the one it built")
-    packed = (steps.get("pack") or {}).get("bytes") or {}
+    packed = (steps.get("pack") or {}).get("sha256") or {}
     for f in SUPERSEDED[1:]:
         if os.path.isfile(os.path.join(stage, *f.split("/"))):
             got = os.path.join(successor, *f.split("/"))
-            if f.split("/")[-1] not in packed or not os.path.isfile(got) or os.path.getsize(got) != packed[f.split("/")[-1]]:
+            want = packed.get(f.split("/")[-1])
+            if not want:
+                raise ValueError(f"successor {os.path.basename(successor)}: no build-time sha256 for {f}")
+            if not os.path.isfile(got) or sha256(got) != want:
                 raise ValueError(f"successor {os.path.basename(successor)}: {f} is missing or not the one it packed")
 
 

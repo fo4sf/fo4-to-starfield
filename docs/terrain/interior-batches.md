@@ -102,8 +102,9 @@ PluginSpike seeded with the installed port's `formids.json` and `lighting.json`,
   - any check that cannot run, such as a missing folder or an unreadable file.
 
   It copies every file except the port's FO4Port.esm and its two BA2s to `--archive`/<name>/, whatever the size, and
-  verifies the copies. Those three are covered by the successor: its own plugin must match its pins and its BA2s their
-  packed sizes, at release and again at prune. It then writes release.json with the whole tree's sha256s; any file not
+  verifies the copies. Those three are covered by the successor: its own plugin and BA2s must match the sha256s pinned when it
+  was built (result.json pins.plugin and steps.pack.sha256), at release and again at prune. A batch built before
+  0156f14's successor, with no archive sha256s, cannot stand in. It then writes release.json with the whole tree's sha256s; any file not
   covered by one of the two refuses deletion.
 
   Second, `prune --keep 2 --delete` repeats every check right before deleting: the same tree (a log added later keeps

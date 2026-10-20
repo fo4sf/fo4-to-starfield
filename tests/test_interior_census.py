@@ -261,7 +261,8 @@ class BatchToolTests(unittest.TestCase):
                 f.write(n.encode())
             with open(os.path.join(root, n, "port", "FO4Port - Main.ba2"), "wb") as f:
                 f.write(b"BTDX" + n.encode())
-            steps["pack"] = {"bytes": {"FO4Port - Main.ba2": 4 + len(n)}}
+            steps["pack"] = {"bytes": {"FO4Port - Main.ba2": 4 + len(n)},
+                             "sha256": {"FO4Port - Main.ba2": ib.sha256(os.path.join(root, n, "port", "FO4Port - Main.ba2"))}}
             pins = {"plugin": ib.sha256(os.path.join(root, n, "port", "FO4Port.esm"))}
             with open(os.path.join(root, n, "result.json"), "w", encoding="utf-8") as f:
                 json.dump({"name": n, "installed": False, "pass": ok, "steps": steps, "pins": pins}, f)
@@ -347,8 +348,22 @@ class BatchToolTests(unittest.TestCase):
         with open(os.path.join(b04, "port", "FO4Port - Main.ba2"), "ab") as f:
             f.write(b"more")
         self.assertEqual(ib.prune(root, 2, delete=True), [])
+        with open(os.path.join(b04, "port", "FO4Port - Main.ba2"), "wb") as f:   # same size, one byte flipped
+            f.write(b"BTDXinteriors_b05")
+        self.assertEqual(ib.prune(root, 2, delete=True), [])
+        legacy = os.path.join(b04, "result.json")                               # a build with no archive sha256s
+        with open(legacy, encoding="utf-8") as f:
+            r4 = json.load(f)
+        del r4["steps"]["pack"]["sha256"]
+        with open(legacy, "w", encoding="utf-8") as f:
+            json.dump(r4, f)
+        with self.assertRaisesRegex(ValueError, "no build-time sha256"):
+            rel(b03, b04)
         with open(os.path.join(b04, "port", "FO4Port - Main.ba2"), "wb") as f:
             f.write(b"BTDXinteriors_b04")
+        r4["steps"]["pack"]["sha256"] = {"FO4Port - Main.ba2": ib.sha256(os.path.join(b04, "port", "FO4Port - Main.ba2"))}
+        with open(legacy, "w", encoding="utf-8") as f:
+            json.dump(r4, f)
         os.rename(refs, refs + "_moved")                                           # a check that cannot run
         self.assertEqual(ib.prune(root, 2, delete=True), [])
         os.rename(refs + "_moved", refs)
