@@ -441,3 +441,15 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - Why: the owner found these unusable indoors (18 Oct); the exterior path is already verified in game.
 - Alternatives: a Python record patch of the pinned plugin (vmad_patch style): rejected, new record types would need a
   hand-written layout Mutagen already writes; copying the table logic into C#: rejected, two rule sets would drift.
+
+## 2026-10-20: the combined core starts as a game-neutral, deterministic model in its own package (Claude-cloud)
+- Decision: `src/fo4sf/combined/` holds the GAMMA-style combined core's L1 world-state model, L5 packs that only add,
+  the L2 off-screen simulation seeded from (seed, hour), and a read-only Fallout 4 reader that drafts the first pack
+  (docs/combined-core.md). It is separate from `src/fo4sf/core/` (the leader core) and has no engine code yet.
+- Why: the owner put the combined core's systems ahead of the single-game mode's extras (2026-10-19 23:24Z, CC-01 A,
+  first on the Commonwealth). Getting the state shape, pack rules and save replay right before any Papyrus or SFSE work
+  avoids a rebuild when the other worlds arrive; determinism lets a player's save be replayed offline in tests.
+- Alternatives: Papyrus-first prototype on the PC (rejected: the PC is busy with the v6e test and Papyrus cannot be
+  unit-tested on CI); reusing Sim Settlements 2 or Workshop Framework code (rejected: their permissions forbid
+  conversion; design question CC-04); one shared `core` package (rejected: build orchestration and game runtime would
+  drift into each other).
