@@ -190,9 +190,10 @@ class ProbeOnThisBoxTests(unittest.TestCase):
         self.assertFalse(os.path.exists(esm))
         left = p.deploy_manifest()
         self.assertEqual((left["complete"], left["files"], left["artifacts"][deploy.PLUGIN]["sha256"]), (True, [deploy.ARCHIVE], sha))
+        self.assertTrue(left["cleanup_pending"])
         c = pf.check_deploy(p)
         self.assertEqual(c.status, pf.FAIL, c.detail)
-        self.assertIn("half-finished uninstall: FO4Port.esm removed", c.detail)
+        self.assertIn("an interrupted install sits in the game folder", c.detail)
         rep = pf.run_gate(p, ["pin", "deploy"])                            # the staging copy is intact: pin alone says nothing
         self.assertEqual({x.name: x.status for x in rep.checks}["deploy"], pf.FAIL)
         with open(os.path.join(data, deploy.MANIFEST), "w", encoding="utf-8") as f:
