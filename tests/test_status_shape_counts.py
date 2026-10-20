@@ -15,6 +15,27 @@ INVALID = ["many", "2", -1, 1.75, True, [], {}, 10 ** 400]
 
 
 class StatusShapeCountsTests(unittest.TestCase):
+    def test_asset_mix_coexists_with_advisory_failure_report(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            config = base / "settings.toml"
+            config.write_text(f'[paths]\nstaging_dir = {json.dumps(base.as_posix())}\n', encoding="utf-8")
+            (base / "manifest.json").write_text(json.dumps([{"shapes": 2, "door": {"parts": 1}}]), encoding="utf-8")
+            for summary in [{"attempted": 2, "successes": 1, "total_failures": 1}, {"top": [None]}]:
+                with self.subTest(summary=summary):
+                    (base / "failure-summary.json").write_text(json.dumps(summary), encoding="utf-8")
+                    result = subprocess.run([sys.executable, "-I", "-B", "-c", ENTRY,
+                                             "--config", str(config), "status"],
+                                            cwd=base, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("doors=1", result.stdout)
+                    self.assertIn("avg_shapes=2.0", result.stdout)
+                    if "top" in summary:
+                        self.assertIn("failure-summary error:", result.stderr)
+                        self.assertNotIn("Latest batch:", result.stdout)
+                    else:
+                        self.assertIn("Latest batch: 1/2", result.stdout)
+
     def test_valid_counts_and_legacy_missing_null_fields(self):
         report = summarize_manifest([{"shapes": 4}, {"shapes": 0}, {}, {"shapes": None}])
         self.assertEqual(report["total_shapes"], 4)

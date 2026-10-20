@@ -1903,3 +1903,29 @@ Three regression methods include 16 actual subprocess calls, explicit and
 auto-discovered; the old code produced 22 failures and two errors. All17 focused
 config/manifest/CLI methods now pass, as does guard. Inputs remain unchanged.
 No private build/game/deploy actions; independent review remains required.
+## 2026-10-20: Codex #412 status result and advisory reports
+
+Follow-up to #409: auto-discovered malformed manifests printed an error but returned
+success, while malformed optional failure-summary shapes could crash healthy status
+or print a partial batch-success banner. Discovery now returns the manifest reader's
+result. Optional reports validate their displayed structure and render completely
+before printing; read/shape/format failures warn without changing the manifest result.
+
+Seven new actual-subprocess CLI methods (38 invocations) failed with 27 assertions
+on the original #409 source, then passed after the correction. Valid formatting,
+three-reason limit, explicit/discovered errors, staging precedence, work fallback,
+null top and absent-manifest behavior are covered. The existing summary test,
+seven config/CLI tests and five manifest tests also pass (20 methods total).
+Original red and green evidence retained privately. Synthetic metadata only;
+independent QA and lead integration remain pending, with no native game claims.
+
+The owner-authorized #415 continuation merges the #413 proposal in an isolated
+branch, preserving path/tool and asset-mix diagnostics alongside the manifest
+exit result and advisory report. The only caller conflict was discovery's Path
+variable; both reports and both parents' journal entries are retained. This is
+proposal compatibility work, not a main merge or independent review clearance.
+The first combined run exposed a string-path compatibility break in the existing
+advisory test; normalize diagnostic paths through Path and retain both input
+forms. All26 focused methods now pass, including 56 actual subprocess calls in
+the shape and exit/advisory regression classes. The original combined failure
+log is retained. Guard passes; independent QA remains pending.
