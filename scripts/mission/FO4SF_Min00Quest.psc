@@ -253,6 +253,9 @@ bool Function MoveOver(Actor a, Actor player, float px, float py, float pz, stri
     if before < RelocateGap
         return False                                      ; already where the player is
     endif
+    WorldSpace wa = a.GetWorldSpace()                     ; evidence for Codex's world-identity point (#353): which
+    WorldSpace wp = player.GetWorldSpace()                ; world each side is in before a move
+    Trace("world " + what + " player=" + wp + " actor=" + wa + " cell=" + a.GetParentCell())
     float x = a.GetPositionX() + MergeOffsetX
     float y = a.GetPositionY() + MergeOffsetY
     float z = a.GetPositionZ()
@@ -264,6 +267,7 @@ bool Function MoveOver(Actor a, Actor player, float px, float py, float pz, stri
     a.MoveTo(player, x - px, y - py, z - pz, True, False)
     float d = player.GetDistance(a)
     bool failed = d >= RelocateGap
+    Trace("world " + what + " after=" + a.GetWorldSpace() + " cell=" + a.GetParentCell())
     Trace("moved " + what + " to " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " target " + x + " " + y + " " + z + " before=" + before + " d=" + d + " failed=" + failed)
     return failed
 EndFunction

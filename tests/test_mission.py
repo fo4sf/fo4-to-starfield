@@ -209,6 +209,17 @@ class RelocateContractTests(unittest.TestCase):
         self.assertRegex(psc, r"if aiTimerID == 2\s+KeepCodsworth\(\)")
         self.assertEqual(psc.count("KeepCodsworthStart()"), 3)          # defined, from OnQuestInit, from timer 1
 
+    def test_moves_trace_the_worlds(self):
+        """Codex's world-identity point (#353): every move logs the player's and the actor's world before it and the
+        actor's world after it, so the anchor gate can be designed from evidence."""
+        with open(PSC, encoding="utf-8") as f:
+            psc = f.read()
+        move = psc[psc.index("bool Function MoveOver"):psc.index("Function Trace(")]
+        self.assertIn("player.GetWorldSpace()", move)
+        self.assertIn("a.GetWorldSpace()", move)
+        self.assertLess(move.index('" player="'), move.index("a.MoveTo("))
+        self.assertGreater(move.index('" after="'), move.index("a.MoveTo("))
+
     def test_codsworth_is_an_optional_property(self):
         with open(PSC, encoding="utf-8") as f:
             psc = f.read()
