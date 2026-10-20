@@ -572,7 +572,9 @@ def dependencies(stage, check_refs, starfield):
     return digest
 
 
-EVIDENCE_MAX_BYTES = 64 * 2 ** 20
+# The only files a release may delete without an archive copy: the stage's port plugin and archives, which the
+# successor carries forward (its own copies are checked, byte for byte, against its pins at release and again at prune).
+SUPERSEDED = ("port/" + PLUGIN, "port/FO4Port - Main.ba2", "port/FO4Port - Textures.ba2")
 
 
 def tree(stage):
@@ -593,22 +595,38 @@ def tree(stage):
 
 
 def successor_check(stage, successor):
-    """Raise ValueError unless successor is a passed later build chained from stage (--prev stage, compare_prev pass):
-    every id and record of stage is carried forward, so its plugin and archives are superseded, not lost."""
+    """Raise ValueError unless successor is a passed later build chained from stage (--prev stage, compare_prev pass)
+    whose port is still on disk as built: its plugin's sha256 matches its pins and each packed archive its recorded size.
+    Then every id and record of stage survives in a checked copy, so stage's own plugin and archives may go."""
     name = os.path.basename(stage)
     try:
         nxt = load(os.path.join(successor, MARKER))
     except (OSError, ValueError):
         raise ValueError(f"successor {successor}: no result.json")
-    cp = (nxt.get("steps") or {}).get("compare_prev") or {}
+    steps = nxt.get("steps") or {}
+    cp = steps.get("compare_prev") or {}
     if nxt.get("pass") is not True:
         raise ValueError(f"successor {os.path.basename(successor)} did not pass")
     if os.path.abspath(cp.get("prev") or "").lower() != os.path.abspath(stage).lower() or cp.get("pass") is not True:
         raise ValueError(f"successor {os.path.basename(successor)} was not built with --prev {name} and a passing compare")
+    plugin = os.path.join(successor, "port", PLUGIN)
+    want = (nxt.get("pins") or {}).get("plugin")
+    if not want or not os.path.isfile(plugin) or sha256(plugin) != want:
+        raise ValueError(f"successor {os.path.basename(successor)}: its {PLUGIN} is missing or not the one it built")
+    packed = (steps.get("pack") or {}).get("bytes") or {}
+    for f in SUPERSEDED[1:]:
+        if os.path.isfile(os.path.join(stage, *f.split("/"))):
+            got = os.path.join(successor, *f.split("/"))
+            if f.split("/")[-1] not in packed or not os.path.isfile(got) or os.path.getsize(got) != packed[f.split("/")[-1]]:
+                raise ValueError(f"successor {os.path.basename(successor)}: {f} is missing or not the one it packed")
 
 
 def archived_check(rec):
-    """Raise ValueError unless every evidence file recorded in rec is still in its archive copy, byte for byte."""
+    """Raise ValueError unless every file of the released tree is either SUPERSEDED or still in its archive copy, byte
+    for byte. Nothing else may be deleted, whatever its size."""
+    missing = sorted(set(rec.get("tree", {})) - set(rec.get("archived", {})) - set(SUPERSEDED))
+    if missing:
+        raise ValueError("not archived: " + ", ".join(missing[:5]))
     for rel, (size, digest) in rec.get("archived", {}).items():
         cp = os.path.join(rec["archive"], rel)
         if not os.path.isfile(cp) or os.path.getsize(cp) != size or sha256(cp) != digest:
@@ -617,10 +635,10 @@ def archived_check(rec):
 
 def release(stage, reason, check_refs, starfield, successor, archive):
     """Mark one interiors_bNN stage as safe to delete. It must have passed (failed builds are evidence and are never
-    released here), be superseded by a passed successor built from it (successor_check), and be needed by nothing now:
-    its plugin is not the installed one and nothing under check_refs names it (dependencies). Its evidence (every file
-    up to EVIDENCE_MAX_BYTES: result, compare and door reports, logs, maps) is copied to archive/<name>/ and verified;
-    the bigger files (plugin, archives) are what the successor carries forward. release.json records the whole tree's
+    released here), be superseded by a passed successor built from it whose port is intact (successor_check), and be
+    needed by nothing now: its plugin is not the installed one and nothing under check_refs names it (dependencies).
+    Every file except its port plugin and archives (SUPERSEDED, which the successor carries forward) is copied to
+    archive/<name>/ and verified, whatever its size. release.json records the whole tree's
     sha256s, the archive copies and the checks; prune repeats every check before deleting. Raises ValueError."""
     stage = os.path.abspath(stage)
     name = os.path.basename(stage)
@@ -644,7 +662,7 @@ def release(stage, reason, check_refs, starfield, successor, archive):
         raise ValueError("the archive must be outside the stage")
     archived = {}
     for rel, (size, sha) in files.items():
-        if size > EVIDENCE_MAX_BYTES:
+        if rel in SUPERSEDED:
             continue
         cp = os.path.join(dest, rel)
         os.makedirs(os.path.dirname(cp), exist_ok=True)

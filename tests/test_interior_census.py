@@ -257,10 +257,14 @@ class BatchToolTests(unittest.TestCase):
         def stage(n, ok, prev=None):
             os.makedirs(os.path.join(root, n, "port"), exist_ok=True)
             steps = {"compare_prev": {"prev": os.path.join(root, prev), "pass": True}} if prev else {}
-            with open(os.path.join(root, n, "result.json"), "w", encoding="utf-8") as f:
-                json.dump({"name": n, "installed": False, "pass": ok, "steps": steps}, f)
             with open(os.path.join(root, n, "port", "FO4Port.esm"), "wb") as f:
                 f.write(n.encode())
+            with open(os.path.join(root, n, "port", "FO4Port - Main.ba2"), "wb") as f:
+                f.write(b"BTDX" + n.encode())
+            steps["pack"] = {"bytes": {"FO4Port - Main.ba2": 4 + len(n)}}
+            pins = {"plugin": ib.sha256(os.path.join(root, n, "port", "FO4Port.esm"))}
+            with open(os.path.join(root, n, "result.json"), "w", encoding="utf-8") as f:
+                json.dump({"name": n, "installed": False, "pass": ok, "steps": steps, "pins": pins}, f)
             with open(os.path.join(root, n, "build.log"), "w", encoding="utf-8") as f:
                 f.write("log of " + n)
             return os.path.join(root, n)
@@ -305,7 +309,8 @@ class BatchToolTests(unittest.TestCase):
         self.assertEqual(ib.prune(root, 2, delete=True), [])
         # released: the evidence is archived and verified, then prune deletes it; the failed one and the newest two stay
         rec = rel(b01, b03)
-        self.assertEqual(sorted(rec["tree"]), ["build.log", "port/FO4Port.esm", "result.json"])
+        self.assertEqual(sorted(rec["tree"]), ["build.log", "port/FO4Port - Main.ba2", "port/FO4Port.esm", "result.json"])
+        self.assertEqual(sorted(rec["archived"]), ["build.log", "result.json"])          # the port: carried by b03
         with open(os.path.join(arch, "interiors_b01", "build.log"), encoding="utf-8") as f:
             self.assertEqual(f.read(), "log of interiors_b01")
         self.assertEqual([os.path.basename(p) for p in ib.prune(root, 2, delete=False)], ["interiors_b01"])
@@ -328,7 +333,22 @@ class BatchToolTests(unittest.TestCase):
         os.remove(os.path.join(sf, "Data", "FO4Port.esm"))
         os.remove(os.path.join(arch, "interiors_b03", "build.log"))                 # the archive copy lost
         self.assertEqual(ib.prune(root, 2, delete=True), [])
-        rel(b03, b04)
+        # any file other than the port plugin and archives is archived whatever its size; a successor whose port has
+        # gone or changed no longer covers the stage
+        with open(os.path.join(b03, "crash-evidence.bin"), "wb") as f:
+            f.write(b"\0" * 1000)
+        rec = rel(b03, b04)
+        self.assertIn("crash-evidence.bin", rec["archived"])
+        os.rename(os.path.join(b04, "port"), os.path.join(b04, "port_moved"))
+        self.assertEqual(ib.prune(root, 2, delete=True), [])
+        with self.assertRaisesRegex(ValueError, "not the one it built"):
+            rel(b03, b04)
+        os.rename(os.path.join(b04, "port_moved"), os.path.join(b04, "port"))
+        with open(os.path.join(b04, "port", "FO4Port - Main.ba2"), "ab") as f:
+            f.write(b"more")
+        self.assertEqual(ib.prune(root, 2, delete=True), [])
+        with open(os.path.join(b04, "port", "FO4Port - Main.ba2"), "wb") as f:
+            f.write(b"BTDXinteriors_b04")
         os.rename(refs, refs + "_moved")                                           # a check that cannot run
         self.assertEqual(ib.prune(root, 2, delete=True), [])
         os.rename(refs + "_moved", refs)

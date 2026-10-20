@@ -101,11 +101,13 @@ PluginSpike seeded with the installed port's `formids.json` and `lighting.json`,
     folders there, not the staging root, because later stages name their `--prev`.
   - any check that cannot run, such as a missing folder or an unreadable file.
 
-  It copies every evidence file up to 64 MiB (results, compare and door reports, logs, maps) to `--archive`/<name>/ and
-  verifies the copies. It then writes release.json with the whole tree's sha256s.
+  It copies every file except the port's FO4Port.esm and its two BA2s to `--archive`/<name>/, whatever the size, and
+  verifies the copies. Those three are covered by the successor: its own plugin must match its pins and its BA2s their
+  packed sizes, at release and again at prune. It then writes release.json with the whole tree's sha256s; any file not
+  covered by one of the two refuses deletion.
 
   Second, `prune --keep 2 --delete` repeats every check right before deleting: the same tree (a log added later keeps
-  the stage), intact archive copies, the successor still passing, nothing installed or named. It deletes only the
+  the stage), intact archive copies, the successor and its port still intact, nothing installed or named. It deletes only the
   stages that still pass, and lists the rest with the reason they stay. The build-time `installed: false` in result.json
   is never taken as a release (Codex's reviews on #396).
 
