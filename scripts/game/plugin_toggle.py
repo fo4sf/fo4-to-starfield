@@ -105,6 +105,16 @@ def on(a):
         print("nothing held off")
         return
     back = {p.casefold() for p in want}
+    still = {p.casefold() for p in held} - back
+    mine = owned(data)
+    for p in want:                                        # what comes back must not need what stays off
+        if p.casefold() not in mine:
+            continue
+        needs = [m for m in exp_install.plugin_masters(exp_install.data_path(data, mine[p.casefold()]))
+                 if m.casefold() in still]
+        if needs:
+            raise ValueError(f"{p} needs {', '.join(needs)} as a master, which stays held off: "
+                             f"bring them back together")
     p_txt = rec.get("plugins_txt") or exp_install.plugins_txt()
     if os.path.normcase(os.path.abspath(p_txt)) != os.path.normcase(os.path.abspath(exp_install.plugins_txt())):
         raise ValueError("the record's Plugins.txt is not the current user's")

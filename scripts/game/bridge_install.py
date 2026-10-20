@@ -155,6 +155,8 @@ def install(a):
         except (OSError, ValueError) as error:
             sys.exit(f"bridge not installed: {error}")
         if held:                                          # plugin_toggle.py holds it off: stays unticked
+            if plugin_line_present(exp_install.read_plugins(exp_install.plugins_txt())[0], PLUGIN) is not None:
+                sys.exit(f"bridge not installed: {PLUGIN} is held off by plugin_toggle.py but active in Plugins.txt")
             print(f"already installed; {PLUGIN} held off by plugin_toggle.py")
             return
         lines, _, _ = exp_install.read_plugins(exp_install.plugins_txt())
@@ -283,6 +285,9 @@ def order(a):
             raise ValueError(f"installed bridge changed: {relative}")
     p = validate_profile(rec)
     if PLUGIN.casefold() in exp_install.held_off(data):
+        if plugin_line_present(exp_install.read_plugins(p)[0], PLUGIN) is not None:
+            raise ValueError(f"{PLUGIN} is held off by plugin_toggle.py but active in Plugins.txt: "
+                             f"run plugin_toggle.py on, or untick it")
         print(f"{PLUGIN} held off by plugin_toggle.py: left unticked")
         return
     original = exp_install.read_bytes(p)

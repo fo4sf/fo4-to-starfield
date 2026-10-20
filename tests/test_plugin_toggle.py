@@ -122,6 +122,29 @@ class ToggleTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "inactive"):         # without the toggle it is a fault
                 exp.verify_relaunch(a, str(self.data), ["Core.esm", "Mission.esm"], False, rec)
 
+    def test_on_refuses_a_child_whose_master_stays_held(self):
+        # Codex on #407: on --plugins Mission.esm after holding Core and Mission activated Mission without its master
+        self.run_cmd("off", "--plugins", "Core.esm,Mission.esm")
+        before, rec = self.txt.read_bytes(), (self.data / exp.TOGGLE).read_bytes()
+        with self.assertRaises(SystemExit) as cm:
+            self.run_cmd("on", "--plugins", "Mission.esm")
+        self.assertIn("Mission.esm needs Core.esm as a master, which stays held off", str(cm.exception))
+        self.assertEqual((self.txt.read_bytes(), (self.data / exp.TOGGLE).read_bytes()), (before, rec))
+        self.run_cmd("on", "--plugins", "Core.esm")                        # the master alone is fine
+        self.run_cmd("on")
+        self.assertEqual(self.txt.read_bytes().decode(), self.original)
+
+    def test_a_held_bridge_ticked_again_is_refused_not_accepted(self):
+        # Codex on #407: order and active accepted the record alone while *FO4SFBridge.esm was active again
+        self.run_cmd("off", "--plugins", "FO4SFBridge.esm")
+        self.txt.write_bytes(self.original.encode())
+        with self.assertRaisesRegex(ValueError, "held off by plugin_toggle.py but active"):
+            bi.order(SimpleNamespace(starfield=str(self.game), dir=""))
+        with redirect_stdout(io.StringIO()) as buf:
+            self.assertEqual(exp.active(self.a()), 8)
+        self.assertIn("but active in Plugins.txt: fo4sfbridge.esm", buf.getvalue())
+        self.assertEqual(self.txt.read_bytes().decode(), self.original)       # nothing rewritten
+
     def test_order_skips_held_plugins(self):
         self.run_cmd("off", "--plugins", "Mission.esm")
         self.txt.write_bytes("*Core.esm\r\n*FO4Port.esm\r\nMission.esm\r\n".encode())   # Core before its master

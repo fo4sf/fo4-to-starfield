@@ -197,6 +197,17 @@ def active(a):
     8 no. Starfield itself can deactivate them while running (2026-10-13: answering "Save" to its "different Creations
     Load Order" dialog after Continue rewrote Plugins.txt with every experiment plugin inactive; coc then froze)."""
     rec_p = os.path.join(a.starfield, "Data", RECORD)
+    try:
+        held = held_off(os.path.join(a.starfield, "Data"))
+    except (OSError, ValueError) as error:
+        print(f"toggle record unreadable: {error}")
+        return 8
+    if held:                                              # every held plugin, the bridge too, must stay unticked
+        ticked = {ln.strip()[1:].strip().casefold() for ln in read_plugins(plugins_txt())[0]
+                  if ln.strip().startswith("*")} & held
+        if ticked:
+            print(f"held off by plugin_toggle.py but active in Plugins.txt: {', '.join(sorted(ticked))}")
+            return 8
     if not os.path.exists(rec_p):
         print("nothing installed")
         return 0
@@ -208,20 +219,11 @@ def active(a):
     if plugins is None:
         plugins = [x.lstrip("*").strip() for x in rec.get("plugins_added", [])]
         plugins += [x["active"].lstrip("*").strip() for x in rec.get("plugins_replaced", [])]
-    try:
-        held = held_off(os.path.join(a.starfield, "Data"))
-    except (OSError, ValueError) as error:
-        print(f"toggle record unreadable: {error}")
-        return 8
     lines, _, _ = read_plugins(plugins_txt())
     on = {ln.strip()[1:].strip().casefold() for ln in lines if ln.strip().startswith("*")}
     off = [p for p in plugins if p.casefold() not in on and p.casefold() not in held]
     if off:
         print(f"inactive in Plugins.txt: {', '.join(off)}")
-        return 8
-    wrong = [p for p in plugins if p.casefold() in held and p.casefold() in on]
-    if wrong:                                             # held off, yet the game would load it
-        print(f"held off by plugin_toggle.py but active in Plugins.txt: {', '.join(wrong)}")
         return 8
     kept = [p for p in plugins if p.casefold() not in held]
     print(f"active: {', '.join(kept) or 'none'}" + (f"; held off: {', '.join(p for p in plugins if p not in kept)}"
