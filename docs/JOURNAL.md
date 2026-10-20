@@ -1902,3 +1902,15 @@ new cases fail on the original source. Sixteen separate controlled actual-CLI ca
 PASS cases and retain three positive outcomes; all eight synthetic input pairs remain unchanged. Only reader
 header handling and comparison change; launcher driver, restore and other parent findings remain untouched.
 No private plugin, real installer, game/stage/input or main merge. Independent QA remains pending.
+
+### 2026-10-20 Codex: distinguish manifest metadata agreement from input content proof
+
+Continued the scoped427 identity proposal for394 finding6. The comparison now includes recorded BA2 versions;
+same-sized v1/v7/v8 header captures no longer pass as equal metadata. The existing list API remains, while the
+read-only CLI lists unhashed master/archive/game inputs and labels their content unverified. Exit0 still means
+no detected compared differences, not a content-proof gate; full matches are stated only for hashed declared
+files. Wired the existing optional hash_game_esm capability to --hash-game-esm alongside --hash-archives, leaving
+cheap default capture unchanged. Paths/timestamps remain informational across PCs. Seven new methods and the
+existing identity/manifest controls pass (28 total). Fourteen controlled actual-CLI replays retain positive
+hashed comparisons and qualify hidden same-sized content changes; ten synthetic input files remain unchanged.
+No new hashing/build job on private inputs, decoder, driver, restore or native action. Independent QA is pending.

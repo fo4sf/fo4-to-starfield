@@ -1,10 +1,10 @@
 """The build manifest: what a build was made from (Fallout 4 masters and archives, DLC presence, tool and game pins)
-and what it made (plugins, assets, hashes). One JSON file per build; two manifests answer "same inputs?" before
-anyone compares outputs.
+and what it made (plugins, assets, hashes). One JSON file per build; two manifests compare recorded inputs/pins
+before outputs. Content identity is confirmed only for files whose hashes were recorded.
 
 Inputs are read only. Masters are always hashed (a different Fallout4.esm is a different build). Archives (.ba2) are
-identified by size and modification time unless hash_archives is set: hashing the full FO4 + DLC archive set reads
-tens of GB, the same trade-off the convert checkpoints make (docs/RESUMING-BUILDS.md).
+recorded by size, modification time and BA2 version unless hash_archives is set: hashing the full FO4 + DLC archive
+set reads tens of GB. Paths/timestamps are informational in cross-PC comparison; content proof requires hashes.
 """
 import glob
 import os
@@ -157,8 +157,8 @@ def build_manifest(*, repo, fo4_data=(), starfield="", output_paths=(), hash_arc
 
 
 def compare_inputs(a, b):
-    """What differs between two manifests' inputs and pins: a list of plain sentences (empty: same inputs). Paths are
-    ignored (another PC keeps Fallout 4 elsewhere); identities, DLC presence and pins are compared."""
+    """Differences in compared input metadata/hashes and pins. Empty does not prove unhashed file content equal.
+    Paths/timestamps are informational across PCs; archive version, size and available hashes are compared."""
     diffs = []
     fa, fb = a.get("fo4") or {}, b.get("fo4") or {}
     for name in sorted(set(fa.get("masters", {})) | set(fb.get("masters", {}))):
@@ -169,8 +169,11 @@ def compare_inputs(a, b):
         x, y = fa.get("archives", {}).get(name), fb.get("archives", {}).get(name)
         if x is None or y is None:
             diffs.append(f"archive {name}: only in {'second' if x is None else 'first'}")
-        elif x.get("size") != y.get("size") or x.get("sha256") != y.get("sha256"):
-            diffs.append(f"archive {name}: size or hash differs")
+        else:
+            if x.get("size") != y.get("size") or x.get("sha256") != y.get("sha256"):
+                diffs.append(f"archive {name}: size or hash differs")
+            if x.get("ba2_version") != y.get("ba2_version"):
+                diffs.append(f"archive {name}: BA2 version differs ({x.get('ba2_version')} vs {y.get('ba2_version')})")
     ta, tb = a.get("tools", {}), b.get("tools", {})
     for k in ("repo_commit", "repo_dirty", "python", "numpy", "PIL", "dotnet", "mutagen"):
         if ta.get(k) != tb.get(k):

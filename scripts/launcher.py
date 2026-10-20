@@ -42,6 +42,7 @@ SOURCES = os.path.join(REPO, "scripts", "launcher_recipes", "known_sources.json"
 def cmd_manifest(a):
     m = manifest.build_manifest(repo=REPO, fo4_data=a.fo4_data, starfield=a.starfield, output_paths=a.output,
                                 hash_archives=a.hash_archives,
+                                hash_game_esm=getattr(a, "hash_game_esm", False),
                                 hash_limit=None if a.hash_limit_mb is None else int(a.hash_limit_mb * 2 ** 20))
     files.save_json(a.out, m)
     if "fo4" in m:
@@ -55,10 +56,26 @@ def cmd_manifest(a):
 
 
 def cmd_manifest_diff(a):
-    diffs = manifest.compare_inputs(files.load_json(a.a), files.load_json(a.b))
+    left, right = files.load_json(a.a), files.load_json(a.b)
+    diffs = manifest.compare_inputs(left, right)
+    unverified = []
+    for side, value in (("first", left), ("second", right)):
+        fo4 = value.get("fo4") or {}
+        for kind, entries in (("master", fo4.get("masters", {})), ("archive", fo4.get("archives", {})),
+                              ("game", (value.get("game") or {}).get("files", {}))):
+            for name, identity in sorted(entries.items()):
+                if identity is not None and not identity.get("sha256"):
+                    unverified.append(f"{kind} {name} ({side})")
     for d in diffs:
         print("  " + d)
-    print("same inputs and pins" if not diffs else f"{len(diffs)} differences")
+    if diffs:
+        print(f"{len(diffs)} differences")
+    elif unverified:
+        print("no compared input/pin differences; content identity unverified")
+    else:
+        print("compared input identities and pins match")
+    for name in unverified:
+        print(f"  content not compared (missing SHA-256): {name}")
     return 0 if not diffs else 1
 
 
@@ -184,6 +201,8 @@ def main(argv=None):
     s.add_argument("--starfield", default="")
     s.add_argument("--output", action="append", default=[])
     s.add_argument("--hash-archives", action="store_true")
+    s.add_argument("--hash-game-esm", action="store_true",
+                   help="also hash Starfield.esm input content (large optional read)")
     s.add_argument("--hash-limit-mb", type=float, default=None,
                    help="hash non-plugin outputs up to this size (default: hash everything)")
     s = sub.add_parser("manifest-diff")
