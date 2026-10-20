@@ -55,7 +55,16 @@ when one trips:
   - owner activity: keyboard/mouse input that the runner did not send, or another window in front of the game. With
     --wait-for-idle the runner waits until the PC has been idle --min-idle seconds instead of stopping; with --refocus it
     then brings ITS OWN game window back to the front once (never another app);
-  - allowed hours (queue.json "hours", default all day); --max-hours and --max-tests.
+  - allowed hours (queue.json "hours", default all day); --max-hours and --max-tests;
+  - the controller lease (opt-in, default off; docs/ai/leader-core.md section 6): with --lease-dir or FO4SF_LEASE_DIR
+    set, nothing is launched and no step is sent unless --lease-owner / FO4SF_LEASE_OWNER (default Claude) holds an
+    unexpired lease in that folder (scripts/game/lease.py claim); it is renewed before every test, and the runner
+    writes its queue, attempts and results to the ledger in that folder (section 10). Unset: not checked, not written;
+  - the preflight gate (opt-in, default off; docs/ai/leader-core.md section 7): with --preflight or FO4SF_PREFLIGHT=1,
+    eleven checks (pinned build staged and deployed, experiment as pinned, plugins active, load order, game version,
+    lease, STOP files, Resource Guardian, recovery save, log capture) run before the first launch; one FAIL or UNKNOWN
+    refuses the run (status "stopped: preflight refused (...)"; with a lease folder the ledger gets a blocker_opened) and a --dry-run
+    prints the checklist either way. Unset: not run.
 A game is only launched when the PC has been idle --min-idle seconds, and only by cycle.ps1 (the runner never touches a
 Starfield the owner started). Every key press still goes through input.ps1's foreground guard, with
 FO4SF_NO_FOCUS_STEAL=1 so a step can never pull the game in front of the owner's window.
@@ -87,6 +96,7 @@ import bridge_log  # noqa: E402
 import walk_eval  # noqa: E402
 
 UNIT = 1.0 / 70.0
+LAUNCH_TRIES = 3              # cycle.ps1 exit 10 (the game died at start): launches per launch, each after every check
 COMPANION_REF = "000057BE"   # Starfield.esm ACHR VascoREF: the test save's companion, disabled per session
 KINDS = ("stairs", "door", "fall", "movable", "travel")         # planned from a build; "terrain" via plan-terrain
 EXTRA_KINDS = ("terrain", "npc_nav", "door_trip", "walk", "movable_control")   # planned from an experiment's plan.json
@@ -114,7 +124,10 @@ BREAKER = 6          # inconclusive attempts in a row, with no PASS/FAIL yet, th
 # the player stopped at the desk 0.67 m from it), or above the player's head. The same walk from the same stand point
 # stops at the same furniture however often it is retried, and the step itself worked. An item the walk passed through
 # (batch_full 0100: 0.26 m from the walk, 0.53 m above the highest feet read) is not ELEVATED: FAIL NOTMOVED
-FINAL_INCONCLUSIVE = ("CONTROL", "PRECONDITION", "ELEVATED")
+# NOBASE (movable_control): placeatme found no such base form ("Item '0200CEDF' not found for parameter Object ID",
+# movable_1019 2026-10-18: the queue was planned for plugin index 02 while FO4Port loaded at 05 in the runner's session);
+# the same id fails the same way on every attempt
+FINAL_INCONCLUSIVE = ("CONTROL", "PRECONDITION", "ELEVATED", "NOBASE")
 NO_BREAKER = ("CRASH", "NOCELL", "NIGHT")
 
 # npc_nav (PR #61 docs/actors/npc-navigation.md 3.4): what qstep.ps1 types on the verified console selection to make the
@@ -472,6 +485,7 @@ def plan_terrain(a):
             sys.exit(f"bad travel command in plan.json: {travel!r}")
         if w.get("activate"):
             w = dict(w, activate=activate_block(w["activate"]))
+        w = dict(w, points=terrain_points(w.get("points")))
         tests.append(with_extras({"id": f"{n:04d}_terrain_{w['coc']}", "kind": "terrain", "cell": "",
                                   "ref": w["coc"], "model": w.get("label", ""), "world_coc": w["coc"], "travel": travel,
                                   **{k: w[k] for k in ("spawn_local", "anchor", "drop_above_spawn", "settle_ms",
@@ -509,6 +523,20 @@ def plan_terrain(a):
     save_atomic(os.path.join(a.out, "queue.json"), q)
     print(f"{len(q['tests'])} terrain tests (experiment {a.exp_dir}) on build {q['build_id']}"
           + (f", needs runner features {', '.join(q['needs'])}" if q.get("needs") else ""))
+
+
+def terrain_points(points):
+    """plan.json's terrain "points": a non-empty list of {label, x, y, expect} with finite numbers, like the other
+    planners' _vec / _num (#219: an empty list made the judge's checks vacuous, a NaN expect never failed)."""
+    if not isinstance(points, list) or not points:
+        sys.exit(f"bad points in plan.json (want a non-empty list of {{label, x, y, expect}}): {points!r}")
+    out = []
+    for p in points:
+        if not isinstance(p, dict):
+            sys.exit(f"bad point in plan.json: {p!r}")
+        out.append(dict(p, label=str(p.get("label") or f"p{len(out)}"),
+                        **{k: _num(p, k, None, -1e6, 1e6) for k in ("x", "y", "expect")}))
+    return out
 
 
 def _vec(v, sizes, what):
@@ -947,6 +975,17 @@ def walk_test(n, w, exp_dir):
     return with_extras(t, w, {})
 
 
+def speedmult_tests(tests, a):
+    """--speedmult: every test reads the player's speedmult, sets it to 100 and reads it again before the travel
+    (console_plan.SPEEDMULT_PRE); the judge makes a test that does not start at 100 INCONCLUSIVE RUNCOND."""
+    if not getattr(a, "speedmult", False):
+        return tests
+    try:
+        return [console_plan.with_speedmult(t) for t in tests]
+    except ValueError as e:
+        sys.exit(str(e))
+
+
 def plan_walk(a):
     """walk tests from <exp-dir>/plan.json (a list, or {"tests": [...]}); see walk_test."""
     staging = os.path.abspath(a.staging)
@@ -964,6 +1003,7 @@ def plan_walk(a):
                  "pinned here and checked against the install record when a result is recorded")
     cli = light_cli(a)
     tests = [with_extras(walk_test(n, w, os.path.abspath(a.exp_dir)), w, cli) for n, w in enumerate(src)]
+    tests = speedmult_tests(tests, a)
     digest = sha256(esm)
     world = os.path.abspath(a.install_exp or a.exp_dir)   # the terrain experiment the walk happens on
     try:
@@ -987,7 +1027,7 @@ def plan_walk(a):
 MOVABLE_PLAN_KEYS = frozenset((
     "label", "model", "travel", "base", "base_edid", "mass_kg", "set_mass_kg", "mass_probe", "mass_wait_ms", "spot",
     "heading", "stand_m", "park_m", "walk_ms", "settle_ms", "spawn_wait_ms", "handle_tol", "drop", "impulse_dv",
-    "impulse_wait_ms", "moved_m", "reach_m", "settle_m", "fresh", "expect", "basis") + console_plan.CONSOLE_KEYS)
+    "impulse_wait_ms", "impulse_control", "moved_m", "reach_m", "settle_m", "fresh", "expect", "basis") + console_plan.CONSOLE_KEYS)
 
 
 def movable_test(n, w, formids=None, items=None, plugin_index="02"):
@@ -1064,6 +1104,12 @@ def movable_test(n, w, formids=None, items=None, plugin_index="02"):
         t["probe_cmd"] = MASS_PROBE
     # the ladder's magnitudes are for the mass the body has during the test
     t["impulses"] = impulse_steps(t.get("set_mass_kg", mass), heading, dvs) if dvs else []
+    if w.get("impulse_control"):
+        # a control: the ladder runs after the walk even when the walk moved the item, so the queue shows whether
+        # ApplyHavokImpulse moves a vanilla body at all (judge_push: detail only; the walk still decides the verdict)
+        if not dvs:
+            sys.exit(f"{label}: impulse_control needs an impulse ladder (impulse_dv is empty)")
+        t["impulse_control"] = True
     if w.get("fresh"):
         t["fresh"] = True
     for k in ("expect", "basis"):
@@ -1088,7 +1134,7 @@ def plan_movable(a):
         sys.exit(f"no movable_control tests in {os.path.join(a.exp_dir, 'plan.json')} (a list of test objects)")
     formids = load(os.path.join(staging, "formids.json"), {})
     items = {it["source"].lower(): it for it in load(os.path.join(staging, "manifest.json"), {"items": []})["items"]}
-    tests = [movable_test(n, w, formids, items, a.plugin_index) for n, w in enumerate(src)]
+    tests = speedmult_tests([movable_test(n, w, formids, items, a.plugin_index) for n, w in enumerate(src)], a)
     labels = [t["ref"] for t in tests]
     if len(set(labels)) != len(labels):
         sys.exit(f"duplicate labels in plan.json: {sorted({x for x in labels if labels.count(x) > 1})}")
@@ -1098,7 +1144,8 @@ def plan_movable(a):
          "save": f"fo4sf_test_{digest[:8]}", "plugin_index": a.plugin_index, "hours": [[0, 24]],
          "launch_cell": a.launch_cell, "experiment": os.path.abspath(a.exp_dir),
          "tests": [dict(t, fresh=True) if a.fresh else t for t in (tests[:a.only] if a.only else tests)]}
-    q.update(queue_extras(q["tests"], SimpleNamespace(plugins=""), a.exp_dir))
+    # --bridge too (#218: dropped here, so the queue had no bridge pin, no bridge_reads and no "bridge" need)
+    q.update(queue_extras(q["tests"], SimpleNamespace(plugins="", bridge=getattr(a, "bridge", "")), a.exp_dir))
     os.makedirs(a.out, exist_ok=True)
     save_atomic(os.path.join(a.out, "queue.json"), q)
     print(f"{len(q['tests'])} movable_control tests (experiment {a.exp_dir}) on build {q['build_id']}"
@@ -1151,7 +1198,14 @@ def judge(test, obs, out_dir):
     median, else the arrival camera after the commands) becomes INCONCLUSIVE NIGHT, or INCONCLUSIVE LIGHT when nothing
     was read; both are retried (another arrival can read differently). A FAIL stays a FAIL."""
     v, cls, detail = judge_kind(test, obs, out_dir)
-    con, _ = console_plan.summary(test, obs)              # console_pre / console_post replies: shown, never judged
+    sm = console_plan.speedmult_condition(test, obs) if obs and not obs.get("stopped") else None
+    if sm is not None and not sm[0] and v in ("PASS", "FAIL"):
+        # the run condition (console_plan.speedmult_condition): a walk at another speed is not a walk at the speed its
+        # limits assume, whatever the judge made of it; the kind's verdict is kept in the detail
+        v, cls, detail = "INCONCLUSIVE", "RUNCOND", f"{sm[1]}; the judge said {v} {cls}: {detail}"
+    elif sm is not None:
+        detail = f"{detail} [{sm[1]}]"
+    con, _ = console_plan.summary(test, obs)              # other console replies: shown, never judged
     if con and obs:
         detail = f"{detail} {con}"
     act = activate_summary(test, obs)
@@ -1228,6 +1282,12 @@ def judge_kind(test, obs, out_dir):
         return "INCONCLUSIVE", "ELSEWHERE", f"ended {d:.1f} m from the arrival point"
     if kind == "terrain":
         # heights measured by dropping the player onto known terrain pads (terrain experiment 1, PR #57)
+        planned = test.get("points")
+        if not planned or not all(isinstance(p, dict) and all(
+                isinstance(p.get(k), (int, float)) and not isinstance(p.get(k), bool) and math.isfinite(p[k])
+                for k in ("x", "y", "expect")) for p in planned):
+            # a queue planned before plan-terrain checked its points (#219): nothing to judge a height against
+            return "INCONCLUSIVE", "PLAN", f"the test has no points or a non-numeric one: {planned!r:.120}"
         pts = obs.get("points") or []
         reads = [(p, parse3(o.get("read")) if isinstance(o, dict) else None) for p, o in zip(test["points"], pts)]
         if len(reads) < len(test["points"]) or any(r is None for _, r in reads) or not shot_ok(obs.get("shot")):
@@ -1268,7 +1328,18 @@ def judge_kind(test, obs, out_dir):
 
 
 CLEAR_ECHO = re.compile(r"C[Il1|]ear\s?Conso[Il1|]e", re.I)          # ClearConsole's echo, as parse_npc.py reads it
+NO_BASE = re.compile(r"not\s?found\s?for\s?param", re.I)     # placeatme <id> 1 with an id the game does not know
 REFUSED = re.compile(r"not\s?found|unknown|invalid|missing|error|failed|cannot|can't", re.I)
+
+
+def placeatme_no_base(ocr):
+    """The placeatme session's OCR says the base form does not exist: after its last ClearConsole echo and its
+    placeatme echo (older lines stay on screen above them)."""
+    text = str(ocr or "")
+    starts = [m.end() for m in CLEAR_ECHO.finditer(text)]
+    text = text[starts[-1]:] if starts else text
+    k = re.search(r"p[Il1|]aceatme", text, re.I)
+    return bool(k and NO_BASE.search(text[k.end():]))
 
 
 def console_refused(ocr):
@@ -1309,6 +1380,23 @@ def impulse_outcome(test, obs, start):
     return "incomplete", "; ".join(why)
 
 
+def impulse_control_note(test, obs, start):
+    """The ladder of an impulse_control test after a walk that moved the item: whether ApplyHavokImpulse moved this
+    vanilla body (the positive control an item's FAIL STUCK is read against). Detail only."""
+    if not test.get("impulse_control"):
+        return ""
+    imp = impulse_outcome(test, obs, start)
+    if imp is None or imp[0] == "incomplete":
+        return f"; impulse control: the ladder did not finish ({imp[1] if imp else 'none planned'})"
+    if imp[0] == "moved":
+        _, k, d, _drop, rec = imp
+        return (f"; impulse control: ApplyHavokImpulse {rec.get('magnitude')} (dv {rec.get('dv')} m/s, step {k + 1}) "
+                f"moved it {d:.2f} m")
+    top = max(r.get("dv", 0) for r in test["impulses"])
+    return (f"; impulse control: {imp[1]} impulses up to dv {top} m/s did not move it either: in this queue a FAIL "
+            f"STUCK does not show a body that does not respond")
+
+
 def judge_push(test, obs, shot_ok):
     """movable (an item of the build, walked into) and movable_control (an item placed in a vanilla cell): the walk,
     then, when it did not move the item, the impulse ladder.
@@ -1343,7 +1431,8 @@ def judge_push(test, obs, shot_ok):
         if near < reach:
             reach, how = near, f"player passed {near:.2f} m from it (walked {math.hypot(pe[0] - ps[0], pe[1] - ps[1]):.1f} m)"
     if moved >= test.get("moved_m", MOVE_M):
-        return "PASS", "WALKED" if control else "PASS", f"item moved {moved:.2f} m" + (f" ({how})" if control else "")
+        return "PASS", "WALKED" if control else "PASS", (f"item moved {moved:.2f} m" + (f" ({how})" if control else "")
+                                                         + impulse_control_note(test, obs, a_))
     walk = f"{how} but it moved {moved:.3f} m"
     imp = impulse_outcome(test, obs, a_)
     note = ""
@@ -1402,6 +1491,23 @@ def mass_read(ocr):
     return vals[0], ""
 
 
+NO_OBJREF_SCRIPT = re.compile(r"no\s?script\s?named\s?Object\s?Reference", re.I)
+
+
+def unreadable_mass(ocr):
+    """The GetMass probe's own session says the console cannot run it at all: after this session's ClearConsole, the
+    probe's echo, then "No script named ObjectReference is attached to the object" (movable_1019c). No reading will
+    ever come, unlike a reply OCR missed. Any other refusal, or the refusal without the probe's echo before it, is
+    not this case."""
+    text = str(ocr or "")
+    starts = [m.end() for m in CLEAR_ECHO.finditer(text)]
+    if not starts:
+        return False
+    text = text[starts[-1]:]
+    echo = MASS_ECHO.search(text)
+    return bool(echo and NO_OBJREF_SCRIPT.search(text[echo.end():]))
+
+
 def mass_ok(read, want):
     """GetMass read the mass SetRigidBodyMass set: within 5 %, at least 0.25 kg."""
     return read is not None and abs(read - want) <= max(0.25, 0.05 * want)
@@ -1410,10 +1516,11 @@ def mass_ok(read, want):
 def judge_movable_control(test, obs, shot_ok):
     """movable_control: the player at the spot (within 1 m, and SPOT_Z_M of its height: on the floor there), the item
     placed and its handle confirmed (PickLastRef's id, GetSelf, GetIsID <base> 1, within handle_tol of the spot and
-    SPAWN_Z_M of its height), the player at the stand point on the same floor; with set_mass_kg, SetRigidBodyMass typed
-    and not refused and GetMass read back as the mass set (else INCONCLUSIVE MASS: a mass that did not change would
-    otherwise read as "thinness, not mass"); the item at rest before the walk (its spawn read and its read before the
-    walk within settle_m); then judge_push."""
+    SPAWN_Z_M of its height), the player at the stand point on the same floor; the item at rest before the walk (its
+    spawn read and its read before the walk within settle_m; checked before any mass rule, so settling never reads as
+    a push); with set_mass_kg, SetRigidBodyMass typed and not refused and GetMass read back as the mass set (else
+    INCONCLUSIVE MASS: a mass that did not change would otherwise read as "thinness, not mass"; when the probe itself
+    cannot run, unreadable_mass, only a move is judged); then judge_push."""
     sp = parse3(obs.get("player_spot"))
     spot = test["spot"]
     if sp is None or math.hypot(sp[0] - spot[0], sp[1] - spot[1]) > 1.0:
@@ -1422,6 +1529,11 @@ def judge_movable_control(test, obs, shot_ok):
         return "INCONCLUSIVE", "START", (f"the player was read {sp[2] - spot[2]:+.2f} m from the spot's height: not on "
                                          f"the open floor planned there ({obs.get('player_spot')})")
     s = obs.get("spawn") or {}
+    if not s.get("confirmed") and placeatme_no_base(s.get("place_ocr")):
+        base = str(test.get("base") or "")
+        return "INCONCLUSIVE", "NOBASE", (f"placeatme {base}: the game has no such form, so nothing was placed. The queue "
+                                          f"was planned for plugin index {base[:2]}; re-plan with the --plugin-index the "
+                                          f"plugin has in the runner's load order")
     if not s.get("confirmed"):
         return "INCONCLUSIVE", "SPAWN", f"the placed item's handle was not confirmed: {s.get('why') or 'no spawn read'}"
     r0 = parse3(s.get("read"))
@@ -1432,6 +1544,10 @@ def judge_movable_control(test, obs, shot_ok):
     if ps is not None and abs(ps[2] - spot[2]) > SPOT_Z_M:
         return "INCONCLUSIVE", "START", (f"the player was read {ps[2] - spot[2]:+.2f} m from the spot's height at the "
                                          f"stand point: the walk would not start on the spot's floor")
+    b = parse3(obs.get("item_before"))
+    if r0 is not None and b is not None and math.dist(r0, b) > test.get("settle_m", 0.1):
+        return "INCONCLUSIVE", "SETTLE", (f"the item was still moving before the walk: {math.dist(r0, b):.2f} m between "
+                                          f"its spawn read and its read before the walk")
     mass_note = ""
     if test.get("set_mass_cmd"):
         m = obs.get("set_mass") or {}
@@ -1447,6 +1563,17 @@ def judge_movable_control(test, obs, shot_ok):
         else:
             after, why = mass_read(probe["after"])
         was = f" (before: {_fmt(before, 2)} kg)" if before is not None else ""
+        if after is None and unreadable_mass(probe.get("after")):
+            # the probe cannot read any mass (movable_1019c 2026-10-18, verified: cf "ObjectReference.GetMass" answers
+            # "No script named ObjectReference is attached to the object"). Decided 2026-10-18 (decisions.md): a move
+            # stands, since the set mass can only have made it lighter or left it as it was; no move cannot tell an
+            # unchanged mass from a heavy one, so it stays INCONCLUSIVE MASS
+            v, c, d = judge_push(test, obs, shot_ok)
+            unread = f" [mass not read back: GetMass is not reachable from the console ({why})]"
+            if v == "PASS":
+                return v, c, d + unread
+            return "INCONCLUSIVE", "MASS", (f"{v} {c} with {test['set_mass_cmd']} typed but its mass not read back: "
+                                            f"a mass that did not take reads the same; {d}")
         if after is None:
             return "INCONCLUSIVE", "MASS", (f"GetMass was not read after {test['set_mass_cmd']}: {why}{was}; the mass "
                                             f"the walk met is unknown")
@@ -1454,10 +1581,6 @@ def judge_movable_control(test, obs, shot_ok):
             return "INCONCLUSIVE", "MASS", (f"GetMass read {_fmt(after, 2)} kg after {test['set_mass_cmd']}{was}: the "
                                             f"mass set did not take")
         mass_note = f" [GetMass {_fmt(after, 2)} kg after {test['set_mass_cmd']}{was}]"
-    b = parse3(obs.get("item_before"))
-    if r0 is not None and b is not None and math.dist(r0, b) > test.get("settle_m", 0.1):
-        return "INCONCLUSIVE", "SETTLE", (f"the item was still moving before the walk: {math.dist(r0, b):.2f} m between "
-                                          f"its spawn read and its read before the walk")
     v, c, d = judge_push(test, obs, shot_ok)
     return v, c, d + mass_note
 
@@ -2021,7 +2144,42 @@ def control_gate(qdir, q, test, verdict, cls, detail):
     return "INCONCLUSIVE", "CONTROL", f"{'; '.join(refused)}; {raw}"
 
 
+def dedicated_save(saves, name):
+    """The dedicated save's file (the console's `save <name>` writes <name>.sfs), matched by its exact name, any case;
+    None when there is none. The old glob *<name>* also took fo4sf_test_<id>.sfs.bak (a save set aside by hand,
+    2026-10-17: the runner kept loading the save it was meant to replace) and fo4sf_test_<id>_s100.sfs."""
+    want = f"{name}.sfs".casefold()
+    try:
+        names = os.listdir(saves)
+    except OSError:
+        return None
+    return next((os.path.join(saves, n) for n in sorted(names) if n.casefold() == want), None)
+
+
 # ----------------------------------------------------------------------------------------------------------- controls
+TICK_FRESH_S = 900     # a chain's next queue starts within seconds of the last one's input; an older tick is stale
+
+
+def read_tick_file(path, now_wall, tick_now):
+    """The runner's last input tick from last_sent_tick.txt ("<tick> <unix time written>"), or None when there is
+    none to trust: no file, the old format without a time (its age is unknown), written more than TICK_FRESH_S ago or
+    in the future, or a tick after the current one (the PC restarted since). A stale tick is not ignored for safety
+    alone: compared with any input the owner gave since, it reads as foreign input and stops the run before it starts.
+    tick_now is called only for a fresh record (GetTickCount, Windows)."""
+    try:
+        with open(path) as f:
+            parts = f.read().split()
+        tick, written = int(parts[0]), float(parts[1])
+    except (OSError, ValueError, IndexError):
+        return None
+    if not 0 <= now_wall - written <= TICK_FRESH_S:
+        return None
+    ago = (tick_now() - tick) & 0xFFFFFFFF                 # ms since the tick, wrapping as GetTickCount does
+    if ago > (now_wall - written + 60) * 1000:             # more than the wall clock says: a restart or a reused file
+        return None
+    return tick
+
+
 class Controls:
     """The owner's PC-use controls and the game process (Windows). Replaced by a fake in the unit tests."""
     state_dir = os.environ.get("FO4_AI_TEAM_STATE") or os.path.join(os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"),
@@ -2029,13 +2187,11 @@ class Controls:
 
     def __init__(self, queue_dir):
         self.queue_dir = queue_dir
-        # shared by the queues of one chain (same parent folder): input sent by the previous queue is not the owner's
+        # shared by the queues of one chain (same parent folder): input sent by the previous queue is not the owner's.
+        # Only a fresh tick counts (read_tick_file): one left by a run that ended earlier made every later run in that
+        # folder stop at once with "owner input detected" (2026-10-17, D:\Modding\testqueue_1019)
         self.tick_file = os.path.join(os.path.dirname(os.path.abspath(queue_dir)), "last_sent_tick.txt")
-        self.last_sent_tick = None
-        try:
-            self.last_sent_tick = int(open(self.tick_file).read().strip())
-        except (OSError, ValueError):
-            pass
+        self.last_sent_tick = read_tick_file(self.tick_file, time.time(), self._tick)
 
     def stop_file(self):
         for p in stop_files(self.queue_dir):
@@ -2075,7 +2231,9 @@ class Controls:
         self.last_sent_tick = self._tick()
         try:
             with open(self.tick_file, "w") as f:
-                f.write(str(self.last_sent_tick))
+                # the tick and when it was written (wall clock, unrounded: a time rounded up and read back at once
+                # looked future-dated to read_tick_file)
+                f.write(f"{self.last_sent_tick} {time.time()!r}")
         except OSError:
             pass
 
@@ -2134,6 +2292,196 @@ class Controls:
         return r.returncode == 0
 
 
+class LeaseGate:
+    """The controller lease (docs/ai/leader-core.md section 6; src/fo4sf/core/controller.py), consulted only when the
+    runner was given a lease folder (--lease-dir or FO4SF_LEASE_DIR): nothing is launched and no step is sent while
+    `owner` does not hold an unexpired lease there, and the lease is renewed before every test so a long queue keeps
+    it. Without a folder the runner never constructs this class, so nothing changes."""
+
+    def __init__(self, lease_dir, owner):
+        src = os.path.join(REPO, "src")
+        if src not in sys.path:
+            sys.path.insert(0, src)
+        from fo4sf.core import controller, runner_events  # pure Python; imported only when the switch is on
+        self.ctl = controller.Controller(lease_dir, by=f"testqueue:{owner}")
+        self.Refused = controller.LeaseRefused
+        self.events = runner_events                       # the runner's own ledger events (section 10)
+        self.owner, self.dir = owner, self.ctl.dir
+        self.last_warning = None
+
+    def blocked(self):
+        """None while the owner holds the lease, else the reason (prefix "lease": the run stops, never waits)."""
+        why = self.ctl.valid_for(self.owner)
+        return f"lease {why}" if why else None
+
+    def renew(self):
+        """None when renewed, or when the renewal failed but the lease on disk is still the owner's and unexpired (a
+        transient error, e.g. a Windows sharing violation while another process reads the file: the next test renews
+        again, and the reason is in last_warning for the log); else the reason (the lease is gone: the run stops)."""
+        self.last_warning = None
+        try:
+            self.ctl.renew(self.owner)
+        except (self.Refused, ValueError, OSError) as e:
+            if self.ctl.valid_for(self.owner) is None:
+                self.last_warning = f"lease renewal failed ({e}); the lease on disk is still valid, renewing again before the next test"
+                return None
+            return f"lease renewal refused: {e}"
+        return None
+
+
+GAME_VERSION = re.compile(r"\d+(\.\d+){3}")        # four parts, as Starfield.exe's file version reads (1.16.244.0)
+
+
+def pin_game_version(a):
+    """pin-game-version: write queue.json "game_version", the pin the preflight gate's game_version check compares
+    Starfield.exe's file version against (docs/ai/leader-core.md section 7). The value comes from --version or, on
+    Windows, from the game folder's Starfield.exe; a different pin already in the queue needs --force."""
+    qp = os.path.join(a.queue, "queue.json")
+    q = load(qp)
+    if not q:
+        sys.exit(f"{qp} holds no queue (no object)" if os.path.exists(qp) else f"no queue.json in {a.queue}")
+    version = (a.version or "").strip()
+    if not version:
+        version = exe_file_version(os.path.join(a.starfield, "Starfield.exe")) or ""
+        if not version:
+            sys.exit("Starfield.exe's version is not readable here (Windows only): pass --version")
+    if not GAME_VERSION.fullmatch(version):
+        sys.exit(f"not a four-part file version: {version!r} (Starfield.exe's reads as four numbers, e.g. 1.16.244.0; "
+                 f"a shorter pin could never match it)")
+    have = q.get("game_version")
+    if have and have != version and not a.force:
+        sys.exit(f"queue.json already pins game_version {have}; --force replaces it with {version}")
+    q["game_version"] = version
+    save_atomic(qp, q)
+    print(f"game_version {version} pinned in {qp}" + (f" (was {have})" if have and have != version else ""))
+    return 0
+
+
+def exe_file_version(path, _ver=None):
+    """The file version of a Windows executable ("1.16.244.0"); None when not on Windows or not readable.
+    _ver: the version.dll object (ctypes.windll.version); a test passes a stand-in to exercise the decoding."""
+    if _ver is None and (os.name != "nt" or not os.path.exists(path)):
+        return None
+    try:
+        ver = _ver if _ver is not None else ctypes.windll.version
+        size = ver.GetFileVersionInfoSizeW(path, None)
+        if not size:
+            return None
+        buf = ctypes.create_string_buffer(size)
+        if not ver.GetFileVersionInfoW(path, 0, size, buf):
+            return None
+        ptr, length = ctypes.c_void_p(), ctypes.c_uint()
+        if not ver.VerQueryValueW(buf, "\\", ctypes.byref(ptr), ctypes.byref(length)) or not ptr.value:
+            return None
+        fixed = ctypes.cast(ptr, ctypes.POINTER(ctypes.c_uint32 * 13)).contents   # VS_FIXEDFILEINFO
+        ms, ls = fixed[2], fixed[3]                                                # dwFileVersionMS, dwFileVersionLS
+        return f"{ms >> 16}.{ms & 0xFFFF}.{ls >> 16}.{ls & 0xFFFF}"
+    except (OSError, AttributeError, ValueError):
+        return None
+
+
+class PreflightProbe:
+    """The readings fo4sf.core.preflight's gate asks for (its module docstring lists them), taken from the PC: the
+    adapter side of T3 (docs/ai/leader-core.md section 7). Built only when `run --preflight` is on. Read-only."""
+
+    def __init__(self, runner):
+        self.r = runner
+        self.queue, self.state = runner.q, runner.state
+        self.starfield = getattr(runner.a, "starfield", "") or ""
+
+    def staged_plugin_sha256(self):
+        esm = os.path.join(self.queue.get("staging") or "", "FO4Port.esm")
+        return sha256(esm) if os.path.exists(esm) else None
+
+    def deploy_manifest(self):
+        p = os.path.join(self.starfield, "Data", "FO4Port.deploy.json")
+        return load(p) if os.path.exists(p) else None
+
+    def experiment_inputs(self, exp_dir, plugins):
+        return exp_install.source_inventory(exp_dir, plugins)
+
+    def install_record(self):
+        if not os.path.exists(os.path.join(self.starfield, "Data", exp_install.RECORD)):
+            return None
+        return installed_identity(self.starfield)
+
+    def data_file_sha256(self, rel):
+        data = os.path.join(self.starfield, "Data")
+        p = exp_install.data_path(data, rel)                 # inside Data only; outside raises (UNKNOWN for the check)
+        return sha256(p) if os.path.isfile(p) else None
+
+    def plugins_txt_lines(self):
+        local = os.environ.get("LOCALAPPDATA", "")
+        if not local or not os.path.isabs(local):
+            return None
+        p = os.path.join(local, "Starfield", "Plugins.txt")
+        return exp_install.read_plugins(p)[0] if os.path.exists(p) else []
+
+    def plugin_masters(self, name):
+        pin = self.queue.get("experiment_identity") or {}
+        p = os.path.join(pin.get("exp_dir") or "", name)
+        return exp_install.plugin_masters(p) if os.path.exists(p) else []
+
+    def implicit(self, name):
+        return exp_install.implicit(name)
+
+    def exe_path(self):
+        return os.path.join(self.starfield, "Starfield.exe")
+
+    def game_version(self):
+        return exe_file_version(self.exe_path())
+
+    def ledger_game_version(self):
+        if not self.r.lease:
+            return None
+        from fo4sf.core.state import fold                # on sys.path since the lease gate was built
+        return fold(self.r.lease.ctl.ledger.read()).build.get("game_version")
+
+    def lease_status(self):
+        g = self.r.lease
+        if g is None:
+            return "unknown", "no lease folder (--lease-dir / FO4SF_LEASE_DIR): the gate needs the lease (T2)"
+        why = g.blocked()
+        return ("fail", why) if why else ("ok", f"{g.owner} holds the lease in {g.dir}")
+
+    def stop_dirs(self):
+        out = []
+        for p in stop_files(self.r.qdir):
+            d = os.path.dirname(os.path.abspath(p))
+            out.append((p, os.path.isdir(d), os.path.isdir(d) and os.access(d, os.W_OK)))
+        return out
+
+    def guardian(self):
+        db = os.path.join(Controls.state_dir, "guardian.db")
+        if not os.path.exists(db):
+            return "missing", db
+        return self.r.ctl.guardian_mode(), db
+
+    @staticmethod
+    def saves_dirs():
+        home = os.path.expanduser("~")
+        return [os.path.join(home, "OneDrive", "Documents", "My Games", "Starfield", "Saves"),
+                os.path.join(home, "Documents", "My Games", "Starfield", "Saves")]
+
+    def save_present(self, name):
+        dirs = [d for d in self.saves_dirs() if os.path.isdir(d)]
+        if not dirs:
+            return None
+        return any(dedicated_save(d, name) for d in dirs)          # the runner's own rule: <name>.sfs exactly
+
+    def ini_texts(self):
+        """Lowest precedence first: the game folder's Starfield.ini, then StarfieldCustom.ini in My Games (the game
+        reads it after, so its keys override)."""
+        cands = [os.path.join(self.starfield, "Starfield.ini")]
+        cands += [os.path.join(os.path.dirname(d), "StarfieldCustom.ini") for d in self.saves_dirs()]
+        out = []
+        for p in cands:
+            if os.path.exists(p):
+                with open(p, encoding="utf-8", errors="replace") as f:
+                    out.append(f.read())
+        return out
+
+
 def stop_files(queue_dir):
     """The STOP files that stop a run: the queue's own, the chain folder's STOP_ALL (the queues of one chain share a
     parent folder; watchdog.ps1 honours the same file) and the state folder's testqueue.STOP."""
@@ -2148,7 +2496,51 @@ def stop_controls(queue_dir):
     return {"files": stop_files(queue_dir), "guardian_db": os.path.join(Controls.state_dir, "guardian.db")}
 
 
-def blocked_reason(ctl, q, launching=False, min_idle=900):
+def nonneg_int(s):
+    v = int(s)
+    if v < 0:
+        raise argparse.ArgumentTypeError(f"{s}: want 0 (off) or more")
+    return v
+
+
+def nonneg_float(s):
+    v = float(s)
+    if not math.isfinite(v) or v < 0:
+        raise argparse.ArgumentTypeError(f"{s}: want a finite number, 0 (off) or more")
+    return v
+
+
+def launch_limit(a, state):
+    """Why no further launch is allowed by the night-run limits, else None (both off by default):
+    --crash-budget N stops before the launch that would follow the Nth crash of this run, counting crashes during a
+    test and starts that died (cycle.ps1 exit 10, retried up to LAUNCH_TRIES) alike, since either can write a dump (a
+    repeatable crash otherwise relaunches up to --max-relaunch times, and crashes never trip the BREAKER); --min-free-gb G stops while the crash
+    dump drive (--dump-drive) has less than G GB free, since every crash writes a dump there (18 GB full dumps on D:,
+    2026-10-19). An unreadable drive counts as too full."""
+    budget = getattr(a, "crash_budget", 0) or 0
+    floor = getattr(a, "min_free_gb", 0) or 0
+    if not isinstance(budget, int) or budget < 0 or not math.isfinite(floor) or floor < 0:
+        return f"limit: bad --crash-budget {budget!r} or --min-free-gb {floor!r} (want 0 for off, or more)"
+    used = state.get("crashes", 0) + state.get("start_deaths", 0)
+    if budget and used >= budget:
+        return (f"limit: {state.get('crashes', 0)} crash(es) and {state.get('start_deaths', 0)} start death(s) "
+                f"this run, --crash-budget {budget}")
+    if floor:
+        drive = getattr(a, "dump_drive", "") or "D:\\"
+        try:
+            free = shutil.disk_usage(drive).free / 1e9
+        except OSError as e:
+            return f"limit: free space on {drive} unreadable ({e}), --min-free-gb {floor:g}"
+        if free < floor:
+            return f"limit: {free:.1f} GB free on {drive}, --min-free-gb {floor:g}"
+    return None
+
+
+def blocked_reason(ctl, q, launching=False, min_idle=900, lease=None):
+    if lease is not None:                                 # the controller lease, only when the runner was given one
+        why = lease.blocked()
+        if why:
+            return why
     p = ctl.stop_file()
     if p:
         return f"STOP file {p}"
@@ -2165,6 +2557,30 @@ def blocked_reason(ctl, q, launching=False, min_idle=900):
     if ctl.foreign_input():
         return "owner input detected (keyboard/mouse the runner did not send)"
     return None
+
+
+FOREGROUND_THIEF = re.compile(r"foreground window belongs to '([^']*)'")
+POPUP_RETRIES = 2       # a test whose step lost the focus to a popup runs again this often in one run
+
+
+def unused_name(prefix):
+    """prefix1, prefix2, ...: the first that does not exist yet (a resumed run's counters start again at 0, and an
+    existing archive is never replaced, Codex on #341 at 446b5a9)."""
+    k = 1
+    while os.path.exists(f"{prefix}{k}"):
+        k += 1
+    return f"{prefix}{k}"
+
+
+def foreground_thief(out_dir):
+    """The window input.ps1 found in front when it refused to send input (its ABORT line in the attempt's step.log),
+    or None."""
+    try:
+        with open(os.path.join(out_dir, "step.log"), encoding="utf-8", errors="replace") as f:
+            m = FOREGROUND_THIEF.findall(f.read())
+    except OSError:
+        return None
+    return m[-1] if m else None
 
 
 def planned_on_other_code(commit):
@@ -2271,6 +2687,7 @@ LIGHT_WAIT_MS = 4000    # qstep.ps1's wait after such a command before the scree
 LIGHT_PROBE_S = 4       # terrain with light: the measure of every probe shot
 REPIN_S = 8             # terrain, time_repin: the time command typed again in every probe's teleport session
 CONSOLE_CMD_S = 35      # one console_pre / console_post command: open, ~45 characters, capture, OCR, close
+MOVETO_S = 100          # after a FO4SF_Probe.MoveTo line: qstep.ps1 waits up to 90 s for the HUD (a cell load), then 3 s
 HOP_S = 40              # one intermediate terrain hop: console open, five setpos / setangle lines, close
 
 
@@ -2294,9 +2711,11 @@ def step_timeout(test):
     capture and OCR, close), twice light_wait_ms, two screenshots and their measures: LIGHT_TRY_S each, worst case (the
     ladder stops early); terrain also measures every probe shot (LIGHT_PROBE_S) and types the time command again before
     every probe (REPIN_S, time_repin).
-    console_pre / console_post: CONSOLE_CMD_S per command (console open, typing, capture, OCR, close)."""
+    console_pre / console_post: CONSOLE_CMD_S per command (console open, typing, capture, OCR, close), and MOVETO_S
+    more for each FO4SF_Probe.MoveTo line (the HUD wait after it)."""
     light = len(sky_light.commands(test)) * (LIGHT_TRY_S + 2 * test.get("light_wait_ms", LIGHT_WAIT_MS) / 1000)
     light += CONSOLE_CMD_S * sum(len(test.get(k) or []) for k in console_plan.CONSOLE_KEYS)
+    light += MOVETO_S * sum(1 for k in console_plan.CONSOLE_KEYS for c in test.get(k) or [] if console_plan.is_moveto(c))
     if test.get("kind") == "terrain":
         # a terrain drop takes about a minute per point (teleport, fall, OCR read): 300 s cut experiment 1 off; a
         # settle_ms above the step's default 4.5 s adds to every point (core64 2026-10-11: 10-12 s settle, 103-114 s a
@@ -2331,8 +2750,8 @@ def movable_timeout(test):
     """Worst case of a movable / movable_control step: every impulse is one confirmed selection (Select-Item: up to two
     sessions), the impulse line in its own capture, impulse_wait_ms with the console closed and a confirmed read (two
     sessions). movable_control adds the coc arrival read until it settles, the player to the spot and its read, the
-    placeatme session with the player's move to the park point, spawn_wait_ms, the handle (plr; prid + GetSelf; GetIsID +
-    getpos), the GetMass probe and SetRigidBodyMass (one selection and a capture each; after SetRigidBodyMass the console
+    placeatme session with the player's move to the park point, spawn_wait_ms, the handle (plr, once more after 2 s when
+    it named no id; prid + GetSelf; GetIsID + getpos), the GetMass probe and SetRigidBodyMass (one selection and a capture each; after SetRigidBodyMass the console
     closed MASS_WAIT_MS, a second selection and the probe again), the player to the stand point and its read, the
     confirmed reads before and after the walk, and the removal (a selection, disable, markfordelete)."""
     per_imp = 4 * NPC_SESSION_S + test.get("impulse_wait_ms", 3000) / 1000 + 10
@@ -2346,6 +2765,7 @@ def movable_timeout(test):
              + 2 * (30 + test.get("settle_ms", 1500) / 1000 + NPC_READ_S)   # the player to the spot and to the stand
              + NPC_SESSION_S + 15 + test.get("spawn_wait_ms", 3000) / 1000    # placeatme, the move to the park point
              + 3 * NPC_SESSION_S + 10                           # the handle: plr; prid + GetSelf; GetIsID + getpos
+             + NPC_SESSION_S + 2                                # plr again after 2 s when it named no FFxxxxxx id
              + mass
              + 2 * (2 * NPC_SESSION_S) + 10                     # the item read before and after the walk, two shots
              + test.get("walk_ms", 900) / 1000 + 2 + NPC_READ_S  # the walk and the player's read after it
@@ -2414,8 +2834,9 @@ def walk_timeout(test, light=0.0):
 
 def installed_identity(starfield):
     """What exp_install.py says is installed (its record in the game's Data folder: the staged folder, the plugins and
-    the sha256 of every installed file, the packed archive included, and of every staged input), pinned with every
-    walk result and checked against the queue's experiment_identity; {"error": ...} when it cannot be read. Read only."""
+    the sha256 of every installed file, the packed archive included, and of every staged input, and whether an
+    uninstall is half done: cleanup_pending), pinned with every walk result and checked against the queue's
+    experiment_identity; {"error": ...} when it cannot be read. Read only."""
     p = os.path.join(starfield or "", "Data", exp_install.RECORD)
     try:
         with open(p, encoding="utf-8") as f:
@@ -2424,7 +2845,7 @@ def installed_identity(starfield):
         return {"error": f"{type(e).__name__}: {e}"}
     return {"exp_dir": r.get("exp_dir"), "plugins": r.get("plugins"), "files": r.get("files"),
             "source_inputs": r.get("source_inputs"), "packing_policy": r.get("packing_policy"),
-            "complete": r.get("complete")}
+            "complete": r.get("complete"), "cleanup_pending": r.get("cleanup_pending")}
 
 
 def experiment_identity(exp_dir, plugins):
@@ -2447,6 +2868,8 @@ def install_mismatch(q, inst):
         return f"no install record: {inst.get('error') if inst else 'nothing read'}"
     if inst.get("complete") is not True:
         return "the experiment install record is incomplete"
+    if inst.get("cleanup_pending"):
+        return "the experiment install record is incomplete: its uninstall did not finish (cleanup pending)"
     if os.path.normcase(os.path.abspath(inst.get("exp_dir") or "")) != os.path.normcase(pin["exp_dir"]):
         return f"installed experiment {inst.get('exp_dir')!r} is not the pinned {pin['exp_dir']!r}"
     if [str(p).casefold() for p in inst.get("plugins") or []] != [p.casefold() for p in pin["plugins"]]:
@@ -2485,7 +2908,12 @@ class Runner:
         self.step = step or self._step
         self.cell = None                                  # cell the player is verified to be in
         self.session = False                              # game set up by this run (save loaded, god mode)
+        self.popups = {}                                  # test id -> steps rerun after a popup took the focus
         self.log_p = os.path.join(qdir, "run.log")
+        lease_dir = getattr(a, "lease_dir", "") or ""     # opt-in (docs/ai/leader-core.md section 6); "" = not checked
+        self.lease = LeaseGate(lease_dir, getattr(a, "lease_owner", "") or "Claude") if lease_dir else None
+        self.preflight_probe = PreflightProbe              # replaced by a fake in the tests
+        self.ledger_failed, self.ledger_seen = False, None  # section 10: the runner's events, only with a lease folder
 
     def log(self, msg):
         line = f"{now()} {msg}"
@@ -2499,11 +2927,20 @@ class Runner:
         self.state["updated"] = now()
         save_atomic(self.state_p, self.state)
 
+    def ps_env(self, steal=False):
+        """The environment of every PowerShell step. With the lease on, cycle.ps1 reads FO4SF_LEASE_DIR / _OWNER: the
+        runner's effective folder and owner go in (a --lease-dir / --lease-owner given as flags would otherwise be
+        invisible to it, and it would launch unchecked, or check another owner's lease)."""
+        env = dict(os.environ, FO4SF_NO_FOCUS_STEAL="0" if steal else "1", LEGACY="1")
+        env.setdefault("FO4SF_PYTHON", sys.executable)
+        if self.lease:
+            env["FO4SF_LEASE_DIR"], env["FO4SF_LEASE_OWNER"] = self.lease.dir, self.lease.owner
+        return env
+
     def _ps(self, script, args, timeout, steal=False):
         # steal=True only for cycle.ps1's launch, which runs after --min-idle of owner inactivity: the new game window
         # has to come to the front once. Every other step refuses to take the foreground (input.ps1 exits 2 instead).
-        env = dict(os.environ, FO4SF_NO_FOCUS_STEAL="0" if steal else "1", LEGACY="1")
-        env.setdefault("FO4SF_PYTHON", sys.executable)
+        env = self.ps_env(steal)
         try:
             r = subprocess.run(PS + [os.path.join(HERE, script)] + args, capture_output=True, text=True, timeout=timeout, env=env)
             code, out = r.returncode, (r.stdout or "") + (r.stderr or "")
@@ -2565,7 +3002,10 @@ class Runner:
             if not fresh and self.state["relaunches"] >= self.a.max_relaunch:
                 self.log(f"game not running and {self.state['relaunches']} relaunches used: stopping")
                 return "stop"
-            why = blocked_reason(self.ctl, self.q, launching=True, min_idle=self.a.min_idle)
+            why = launch_limit(self.a, self.state)
+            if why:
+                return why
+            why = blocked_reason(self.ctl, self.q, launching=True, min_idle=self.a.min_idle, lease=self.lease)
             if why:
                 return why
             if not self.pinned_ok():
@@ -2603,6 +3043,23 @@ class Runner:
                                                "-Cell", f"FO4Port_{launch}", "-CellJson", cell_json,
                                                "-Shot", os.path.join(self.qdir, "cycle.png")], 900, steal=True)
             self.log(f"cycle exit {code}: {out.strip().splitlines()[-1] if out.strip() else ''}")
+            if code == 9:                                 # cycle.ps1's own lease check refused (nothing launched): the
+                return ("lease refused by cycle.ps1 (exit 9) although this runner's check passed: the two read "
+                        "different leases; nothing launched")   # run stops, resumable, never a retry per test
+            if code == 10:                                # the game did not stay up after Steam started it
+                self.launch_tries = getattr(self, "launch_tries", 0) + 1
+                self.state["start_deaths"] = self.state.get("start_deaths", 0) + 1   # --crash-budget counts these
+                self.checkpoint()
+                if self.launch_tries < LAUNCH_TRIES:
+                    # the first start of a session can die within ~2 s (cycle.ps1); another launch goes through every
+                    # check above again (lease, STOP, Guardian, idle, pins), never straight back to Steam (Codex, #358)
+                    self.log(f"the game did not stay up (launch {self.launch_tries} of {LAUNCH_TRIES}): launching again")
+                    self.fresh_launch = True              # not counted against --max-relaunch
+                    return self.ensure_game(cell)
+                self.launch_tries = 0
+                return (f"the game did not start (cycle.ps1 exit 10 on {LAUNCH_TRIES} launches: no Starfield process "
+                        f"stayed up; screen {os.path.join(self.qdir, 'cycle.png')}); nothing tested")   # stop, resumable
+            self.launch_tries = 0
             if code != 0:
                 # 7: an installed experiment plugin's master is not active (exp_install.py order): nothing launched
                 return "stop" if code in (2, 3, 5, 6, 7) else "retry"
@@ -2628,15 +3085,17 @@ class Runner:
         name = self.q["save"]
         sd = os.path.join(self.qdir, "_session")
         os.makedirs(sd, exist_ok=True)
-        if glob.glob(os.path.join(saves, f"*{name}*")):
+        if dedicated_save(saves, name):
             code = self.step({"kind": "load", "name": name}, sd)
             self.log(f"loaded the dedicated save {name}: exit {code}")
             self.cell = None                              # the save's cell; coc follows
         else:
             code = self.step({"kind": "save", "name": name}, sd)
-            found = glob.glob(os.path.join(saves, f"*{name}*"))
+            found = dedicated_save(saves, name)
             self.log(f"created the dedicated save {name}: exit {code}, file {'found' if found else 'NOT found'}")
             self.state["save_file"] = bool(found)
+            if found and self.lease:                      # section 10: the save is the build's recovery point
+                self.ledger_event(lambda: self.lease.events.recovery_point(self.q, name, self.ledger_by))
         code = self.step({"kind": "godmode"}, sd)
         obs = load(os.path.join(sd, "obs.json"), {})
         self.log(f"god mode: {obs.get('god')} (reply {obs.get('reply', '')[:60]!r})")
@@ -2670,7 +3129,7 @@ class Runner:
         refocus_fails = 0
         while True:
             time.sleep(30)
-            hard = blocked_reason(self.ctl, self.q)
+            hard = blocked_reason(self.ctl, self.q, lease=self.lease)
             if hard and not hard.startswith("owner"):
                 self.log(f"{hard}: stopping while waiting")
                 return False
@@ -2691,6 +3150,91 @@ class Runner:
                 self.log("idle again: continuing")
                 return True
 
+    def preflight(self):
+        """The deployment gate (fo4sf.core.preflight) before the first launch: the checklist goes to run.log, one FAIL
+        or UNKNOWN refuses the run (exit 3, resumable) and leaves a blocker_opened in the ledger when there is one."""
+        src = os.path.join(REPO, "src")
+        if src not in sys.path:
+            sys.path.insert(0, src)
+        from fo4sf.core import preflight                   # pure Python; imported only when the switch is on
+        rep = preflight.run_gate(self.preflight_probe(self))
+        for line in rep.lines():
+            self.log(line)
+        if rep.ok:
+            if self.lease:                                 # a blocker an earlier refusal opened is closed by this pass
+                try:
+                    from fo4sf.core.state import fold
+                    ledger = self.lease.ctl.ledger
+                    if fold(ledger.read()).blockers.get("preflight", {}).get("open"):
+                        ledger.append(preflight.Event("blocker_closed", f"testqueue:{self.lease.owner}",
+                                                      fields={"blocker": "preflight", "evidence": rep.lines()[:1]}))
+                except (OSError, ValueError) as e:
+                    self.log(f"preflight: the blocker could not be closed in the ledger: {e}")
+            return 0
+        names = ", ".join(f"{c.name} {c.status}" for c in rep.failing)
+        if self.lease:
+            try:
+                self.lease.ctl.ledger.append(rep.blocker_event(f"testqueue:{self.lease.owner}"))
+            except (OSError, ValueError) as e:
+                self.log(f"preflight: the blocker could not be written to the ledger: {e}")
+        self.log(f"stopped: preflight refused ({names})")
+        self.checkpoint(f"stopped: preflight refused ({names})")
+        return 3
+
+    @property
+    def ledger_by(self):
+        return f"testqueue:{self.lease.owner}" if self.lease else "testqueue"
+
+    def ledger_event(self, make):
+        """With a lease folder, append the event make() returns to the ledger there, skipping an event whose src key
+        the ledger already holds (a resumed run queues nothing twice). Before the first event the ledger is read once
+        and runner_events.check_binding refuses a queue folder whose name the ledger already binds to another folder
+        holding another queue: another build, another plan or results that disagree (the importer's rule): nothing of such a run is written, so the two queues never fold
+        into one task. A failure is logged once and never stops the run: the ledger is evidence, not control, and
+        import_queue recovers the events from the queue files."""
+        if not self.lease or self.ledger_failed:
+            return
+        try:
+            if self.ledger_seen is None:
+                events = self.lease.ctl.ledger.read()
+                rows = self.lease.events.results_rows(os.path.join(self.qdir, "results.jsonl"))[0]
+                self.lease.events.check_binding(events, self.qdir, self.q, rows)   # section 10: a rebuilt queue under a bound name
+                self.ledger_seen = {e.get("src") for e in events if e.get("src")}
+            ev = make()
+            if ev is None:
+                return
+            src = ev.get("src")
+            if src and src in self.ledger_seen:
+                return
+            self.lease.ctl.ledger.append(ev)
+            if src:
+                self.ledger_seen.add(src)
+        except (OSError, ValueError) as e:
+            self.ledger_failed = True
+            if isinstance(e, self.lease.events.CampaignBound):
+                self.log(f"ledger: {e}: nothing of this run is written to the ledger")
+            else:
+                self.log(f"ledger: {e}: no more events are written this run (import_queue recovers them from the queue files)")
+
+    def record(self, rec):
+        """Append one results.jsonl row (every attempt; PRECONDITION and BREAKER rows too) and, with a lease folder,
+        the matching task_finished event (section 10). A torn last line (a power cut mid-row) is not a row: it is
+        terminated first so the new row starts on its own line, and the importer reports the torn line."""
+        p = os.path.join(self.qdir, "results.jsonl")
+        line, torn = 1, False
+        if os.path.exists(p) and os.path.getsize(p):
+            with open(p, "rb") as f:
+                data = f.read()
+            line, torn = data.count(b"\n") + 1, not data.endswith(b"\n")
+        with open(p, "a", encoding="utf-8") as f:
+            if torn:
+                f.write("\n")
+                line += 1
+            f.write(json.dumps(rec) + "\n")
+        if self.lease:
+            self.ledger_event(lambda: self.lease.events.task_finished(self.qdir, self.q, rec, line, self.ledger_by,
+                                                                       self.lease.owner))
+
     def run(self):
         a = self.a
         self.deadline = time.time() + a.max_hours * 3600
@@ -2707,6 +3251,18 @@ class Runner:
         if note:
             self.log(note)
         self.checkpoint("running")
+        if self.lease:
+            self.log(f"controller lease: {self.lease.dir}, owner {self.lease.owner} (checked before every launch and "
+                     f"test, renewed before every test)")
+        if getattr(a, "preflight", False):                 # opt-in (docs/ai/leader-core.md section 7); off = not run
+            code = self.preflight()
+            if code:
+                return code
+        if self.lease:                                     # section 10: the queue's pin and tests into the ledger, once
+            self.ledger_event(lambda: self.lease.events.build_pinned(self.qdir, self.q, self.ledger_by))
+            for t in tests:
+                self.ledger_event(lambda t=t: self.lease.events.task_queued(self.qdir, self.q, t, self.ledger_by,
+                                                                            self.lease.owner))
         ran = 0
         waits, max_waits = {}, len(tests) * max(a.max_attempts, 1) + 1
         self.qdir_abs = os.path.abspath(self.qdir)
@@ -2734,14 +3290,13 @@ class Runner:
                        "dir": "", "t": now()}
                 if t.get("expect"):
                     rec["expect"] = t["expect"]
-                with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
-                    f.write(json.dumps(rec) + "\n")
+                self.record(rec)
                 self.state["done"][t["id"]] = {"verdict": "INCONCLUSIVE", "class": "PRECONDITION", "attempts": 0}
                 self.checkpoint()
                 self.log(f"{t['id']}: INCONCLUSIVE PRECONDITION {pre}")
                 continue
             while True:
-                why = blocked_reason(self.ctl, self.q)
+                why = blocked_reason(self.ctl, self.q, lease=self.lease)
                 if not why and self.ctl.game_pid() and not self.ctl.game_in_front():
                     # no keyboard/mouse input since the runner's last step: a popup took the focus (the Steam
                     # overlay hint did, 2026-10-11), not the owner, so take the game back at once
@@ -2757,6 +3312,14 @@ class Runner:
                     self.log(f"stopped: {why}")
                     self.checkpoint(f"stopped: {why}")
                     return 3
+            if self.lease and not a.dry_run:               # keep the lease for the test about to run
+                why = self.lease.renew()
+                if self.lease.last_warning:
+                    self.log(self.lease.last_warning)
+                if why:
+                    self.log(f"stopped: {why}")
+                    self.checkpoint(f"stopped: {why}")
+                    return 3
             if a.dry_run:
                 self.log(f"dry run: would run {t['id']}")
                 ran += 1
@@ -2764,13 +3327,30 @@ class Runner:
             # an open breaker skips the test before any launch (core64 2026-10-11: a "fresh" test relaunched the game
             # only to be skipped)
             br = self.state.setdefault("breaker", {})
+            if br.get(t["kind"], {}).get("open") and self.state["attempts"].get(t["id"]):
+                # a pending retry of a test that already ran: its real attempt stands, only the retry is skipped (#220:
+                # a "not run" BREAKER row, attempt 0, replaced it as the last row per id in the report and the ledger)
+                last = {}
+                with open(os.path.join(self.qdir, "results.jsonl"), encoding="utf-8") as f:
+                    for x in f:
+                        try:
+                            r = json.loads(x)
+                        except ValueError:
+                            continue
+                        if isinstance(r, dict) and r.get("id") == t["id"]:
+                            last = r
+                self.state["done"][t["id"]] = {"verdict": last.get("verdict", "INCONCLUSIVE"),
+                                               "class": last.get("class", "UNREAD"),
+                                               "attempts": self.state["attempts"][t["id"]], "retry": "BREAKER"}
+                self.log(f"{t['id']}: retry skipped, the {t['kind']} breaker is open; its last attempt stands")
+                self.checkpoint()
+                continue
             if br.get(t["kind"], {}).get("open"):
                 rec = {"id": t["id"], "kind": t["kind"], "cell": t["cell"], "ref": t["ref"], "model": t.get("model", ""),
                        "attempt": 0, "verdict": "INCONCLUSIVE", "class": "BREAKER",
                        "detail": f"not run: the first {BREAKER} {t['kind']} tests were all inconclusive", "exit": None,
                        "dir": "", "t": now()}
-                with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
-                    f.write(json.dumps(rec) + "\n")
+                self.record(rec)
                 self.state["done"][t["id"]] = {"verdict": "INCONCLUSIVE", "class": "BREAKER", "attempts": 0}
                 self.checkpoint()
                 continue
@@ -2782,7 +3362,11 @@ class Runner:
                 self.session, self.cell, self.game_used = False, None, False
                 self.fresh_launch = True                  # an intended relaunch: not counted against --max-relaunch
             g = self.ensure_game(t["cell"])
-            if g in ("stop",) or (g and g.startswith(("owner", "STOP", "Resource", "outside"))):
+            if g and g.startswith(("the game did not start", "limit:")):   # no waiting fixes Steam or a full disk
+                self.log(f"stopped: {g}")
+                self.checkpoint(f"stopped: {g}")
+                return 3
+            if g in ("stop",) or (g and g.startswith(("owner", "STOP", "Resource", "outside", "lease"))):
                 if g != "stop" and self.wait_or_stop(g):
                     g = self.ensure_game(t["cell"])
                 if g:
@@ -2791,7 +3375,14 @@ class Runner:
                     return 3
             n = self.state["attempts"].get(t["id"], 0) + 1
             self.state["attempts"][t["id"]] = n
+            if self.lease:                                # section 10: running or lost until its row is recorded
+                self.ledger_event(lambda: self.lease.events.task_started(self.qdir, self.q, t, n, self.ledger_by,
+                                                                          self.lease.owner))
             out_dir = os.path.join(self.qdir, "tests", t["id"], f"a{n}")
+            if os.path.isdir(out_dir) and os.listdir(out_dir):
+                # an attempt that was not counted (the owner took over mid-step, then the run stopped or was resumed)
+                # left its evidence here: kept beside the new attempt, never overwritten
+                os.rename(out_dir, unused_name(f"{out_dir}_interrupted"))
             os.makedirs(out_dir, exist_ok=True)
             lt = None                                     # the sky reading, for tests that asked for a time of day
             con = []                                      # console_pre / console_post replies (parsed OCR)
@@ -2805,9 +3396,27 @@ class Runner:
                 pid_before = self.ctl.game_pid()
                 code = self.step(t, out_dir)
                 self.game_used = True
-                if code == 2:                             # the owner took the foreground mid-step: not an attempt
+                if code == 2:                             # the foreground was lost mid-step: not an attempt
                     self.state["attempts"][t["id"]] = n - 1
                     self.cell = None
+                    who = foreground_thief(out_dir)
+                    # no keyboard/mouse input since the runner's last one: a window took the focus by itself (the AMD
+                    # auto-updater did, movable_1019c 2026-10-18), not the owner: take the game back and run the test
+                    # again, at most POPUP_RETRIES times per test
+                    popup = self.ctl.last_sent_tick is not None and not self.ctl.foreign_input()
+                    pops = self.popups.get(t["id"], 0)
+                    if popup and self.a.refocus and pops < POPUP_RETRIES and self.ctl.refocus_game():
+                        self.popups[t["id"]] = pops + 1
+                        # the rerun reuses the attempt number, so this interrupted attempt's folder (step.log, obs.json,
+                        # screenshots) is kept beside it before the rerun would write into it (Codex on #341 at f2fe7bf)
+                        os.rename(out_dir, unused_name(f"{out_dir}_popup"))
+                        self.log(f"{t['id']}: {who or 'another window'} took the focus mid-step without owner input "
+                                 f"(popup): game brought back to the front, the test runs again")
+                        self.ctl.mark_sent()
+                        pending.append(t)
+                        continue
+                    if who and popup:
+                        self.log(f"{t['id']}: {who} took the focus mid-step without owner input")
                     if self.wait_or_stop("owner switched windows during a step"):
                         pending.append(t)                 # run it again later in this run
                         continue
@@ -2856,8 +3465,7 @@ class Runner:
                 rec["install"] = inst
             if cls == "CONTROL":
                 rec["raw"] = list(raw)                    # the report gates it again (write_report)
-            with open(os.path.join(self.qdir, "results.jsonl"), "a", encoding="utf-8") as f:
-                f.write(json.dumps(rec) + "\n")
+            self.record(rec)
             final = verdict != "INCONCLUSIVE" or n >= a.max_attempts or cls in FINAL_INCONCLUSIVE
             if final:
                 self.state["done"][t["id"]] = {"verdict": verdict, "class": cls, "attempts": n}
@@ -2895,7 +3503,13 @@ def write_report(qdir):
     rows = []
     if os.path.exists(os.path.join(qdir, "results.jsonl")):
         with open(os.path.join(qdir, "results.jsonl"), encoding="utf-8") as f:
-            rows = [json.loads(x) for x in f]
+            for x in f:
+                try:
+                    r = json.loads(x)
+                except ValueError:                        # a torn line (a power cut mid-row): not a row (section 10)
+                    continue
+                if isinstance(r, dict) and r.get("id"):
+                    rows.append(r)
     final = {}
     for r in rows:                                        # last attempt per test counts
         final[r["id"]] = r
@@ -3060,6 +3674,9 @@ def main(argv=None):
     pm.add_argument("--plugin-index", default="02")
     pm.add_argument("--only", type=int, default=0, help="keep the first N tests")
     pm.add_argument("--fresh", action="store_true", help="relaunch the game before every test")
+    pm.add_argument("--speedmult", action="store_true",
+                    help="read the player's speedmult, set it to 100 and read it again before every test's travel; a "
+                         "test that does not start at 100 is INCONCLUSIVE RUNCOND (runner feature speedmult)")
     pw = sub.add_parser("plan-walk", help="walk tests (a continuous walk over planned waypoints) from <exp-dir>\\plan.json "
                                           "(docs/terrain/walk-redrocket-sanctuary.md)")
     pw.add_argument("--staging", required=True)
@@ -3072,6 +3689,9 @@ def main(argv=None):
     pw.add_argument("--install-exp", default="", help="experiment folder those plugins come from (default --exp-dir)")
     pw.add_argument("--only", type=int, default=0, help="keep the first N tests")
     pw.add_argument("--fresh", action="store_true", help="relaunch the game before every test")
+    pw.add_argument("--speedmult", action="store_true",
+                    help="read the player's speedmult, set it to 100 and read it again before every test's travel; a "
+                         "test that does not start at 100 is INCONCLUSIVE RUNCOND (runner feature speedmult)")
     for sp in (p, pt, pn, pd, pw, pm):                    # the observation bridge for every kind (docs/ai/test-queue.md)
         sp.add_argument("--bridge", default="", help="staged bridge folder (make_bridge.py stage): positions from the "
                                                      "game's own log instead of console captures; runner feature bridge")
@@ -3092,13 +3712,37 @@ def main(argv=None):
     r.add_argument("--min-idle", type=int, default=900)
     r.add_argument("--max-attempts", type=int, default=2)
     r.add_argument("--max-relaunch", type=int, default=3)
+    r.add_argument("--crash-budget", type=nonneg_int, default=0,
+                   help="stop before relaunching after this many crashes in the run (0, the default: off)")
+    r.add_argument("--min-free-gb", type=nonneg_float, default=0.0,
+                   help="stop before a launch while --dump-drive has less free space than this (0, the default: off)")
+    r.add_argument("--dump-drive", default="D:\\", help="where crash dumps are written (default D:\\)")
     r.add_argument("--wait-for-idle", action="store_true")
     r.add_argument("--refocus", action="store_true")
     r.add_argument("--dry-run", action="store_true")
+    r.add_argument("--lease-dir", default=os.environ.get("FO4SF_LEASE_DIR", ""),
+                   help="controller lease folder (docs/ai/leader-core.md section 6); default FO4SF_LEASE_DIR; "
+                        "empty (the default): the lease is not checked")
+    r.add_argument("--lease-owner", default=os.environ.get("FO4SF_LEASE_OWNER") or "Claude",
+                   help="the lease owner this runner runs as (default FO4SF_LEASE_OWNER, else Claude)")
+    r.add_argument("--preflight", action=argparse.BooleanOptionalAction,
+                   default=os.environ.get("FO4SF_PREFLIGHT", "").strip().lower() in ("1", "true", "yes", "on"),
+                   help="run the deployment gate before the first launch (docs/ai/leader-core.md section 7); "
+                        "default on with FO4SF_PREFLIGHT=1 (true / yes / on), --no-preflight turns it off for one run; "
+                        "off (the default): not run")
     for name in ("report", "status"):
         s = sub.add_parser(name)
         s.add_argument("--queue", required=True)
+    pg = sub.add_parser("pin-game-version", help="record Starfield.exe's file version in queue.json: the pin the "
+                                                 "preflight gate's game_version check compares against (section 7)")
+    pg.add_argument("--queue", required=True)
+    pg.add_argument("--version", default="", help="the version to pin, e.g. 1.16.244.0; default: read from "
+                                                   "--starfield's Starfield.exe (Windows)")
+    pg.add_argument("--starfield", default=r"D:\SteamLibrary\steamapps\common\Starfield")
+    pg.add_argument("--force", action="store_true", help="replace a different pin already in the queue")
     a = ap.parse_args(argv)
+    if a.cmd == "pin-game-version":
+        return pin_game_version(a)
     if a.cmd == "plan":
         return plan(a)
     if a.cmd == "plan-terrain":

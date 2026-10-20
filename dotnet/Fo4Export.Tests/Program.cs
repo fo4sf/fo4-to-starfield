@@ -3,6 +3,8 @@ using Mutagen.Bethesda.Fallout4;
 using Mutagen.Bethesda.Plugins;
 using Noggog;
 
+ActivationParentTests.Run();
+
 var modKey = ModKey.FromNameAndExtension("Synthetic.esm");
 FormKey Key(uint id) => new(modKey, id);
 void Require(bool condition, string message)

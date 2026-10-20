@@ -27,7 +27,8 @@ CONVERT_TYPES = ("Static", "StaticCollection", "MovableStatic", "Furniture", "Do
 
 # types that are never converted, with the reason (everything else outside CONVERT_TYPES gets "type_not_translated")
 TYPE_REASONS = {
-    "Light": "light source: exterior lights are not translated (daylight scene, no Starfield LIGH records built)",
+    "Light": "light source: not a static; native LIGH records only through make_cluster.py lights + make_core64c.py "
+             "stage --cluster (docs/terrain/exterior-lights.md)",
     "TextureSet": "decal (placed texture set): no decal translation yet",
     "BendableSpline": "bendable spline (power lines, cables): no Starfield equivalent built yet",
     "IdleMarker": "idle marker: AI animation marker, editor-only",
@@ -127,7 +128,7 @@ def place(selected: dict, manifest: dict, cell_min: int, cell_max: int, edid_pre
     """Join the selected references with the converter manifest.
     Returns (bases, placed, skipped): bases = [{"key", "edid", "model", "door"?}] in first-use order;
     placed = [{"src", "base", "cell", "pos", "rot", "scale", "disabled", ...}] (pos in metres, door origin offsets
-    applied); skipped = [{..., "reason", "detail"}]."""
+    applied; "open_by_default": True on a rigged door FO4 places open); skipped = [{..., "reason", "detail"}]."""
     items = {i["source"].replace("/", "\\").lower(): i for i in manifest["items"]}
     failures = {f["nif"].replace("/", "\\").lower(): f["reason"] for f in manifest.get("failures", [])}
     bases, base_index, placed, skipped = [], {}, [], []
@@ -167,6 +168,8 @@ def place(selected: dict, manifest: dict, cell_min: int, cell_max: int, edid_pre
                        "pos": [round(v, 5) for v in pos], "rot": rot, "scale": scale,
                        "disabled": bool(r.get("disabled")), "fo4_persistent": bool(r.get("persistent")),
                        "fo4_cell": r.get("exterior_cell"), "enable_parent": r.get("enable_parent") is not None})
+        if "door" in item and r.get("open_by_default") is True:
+            placed[-1]["open_by_default"] = True     # a doorway FO4 shows open starts open (as PluginSpike's interiors)
     return bases, placed, skipped
 
 

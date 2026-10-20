@@ -9,6 +9,8 @@ results and a ranked problem list instead of spending its own time driving the g
 $py = 'C:\Modding\venv-render\Scripts\python.exe'
 # 1. plan: one pinned build (staging folder with FO4Port.esm, manifest, formids, cell exports, routes_<cell>.json)
 & $py scripts\game\testqueue.py plan --staging C:\Modding\staging\<build> --out C:\Modding\testqueue\<batch> --per-cell 12
+# 1b. (only with the preflight gate, docs/ai/leader-core.md section 7) pin the game version the gate checks
+& $py scripts\game\testqueue.py pin-game-version --queue C:\Modding\testqueue\<batch>   # or --version 1.16.244.0
 # 2. run (resumable: run the same command again to continue)
 & $py scripts\game\testqueue.py run --queue C:\Modding\testqueue\<batch> --wait-for-idle --refocus --max-hours 8
 # 3. read
@@ -36,6 +38,14 @@ another window in front of the game, also stops it (or makes it wait for an idle
 Every verdict needs its observations: a position that was not read or a screenshot that is missing makes the test
 INCONCLUSIVE, never PASS. INCONCLUSIVE tests are retried once more at the end of the queue (`--max-attempts 2`); a FAIL
 is final. A game crash during a test is recorded (class CRASH) and the game is relaunched (at most `--max-relaunch`).
+Crashes never trip the breaker, so night runs can set two limits, both off by default. Each is checked before every
+launch, and the run stops with `limit: ...` when one is hit:
+- `--crash-budget N`: stop after N crashes in the run. Both kinds count: a crash during a test, and a start that died
+  (cycle.ps1 exit 10).
+- `--min-free-gb G`: stop while `--dump-drive` (default `D:\`) has less than G GB free. Each crash writes a dump there,
+  18 GB as full dumps on 2026-10-19. A drive that can't be read counts as too full.
+
+Negative values, and a NaN or infinite floor, are refused. 0 means off.
 
 ### Stairs routes (`routes.py`, 2026-10-13; amended after QA on PR #111)
 
@@ -74,7 +84,25 @@ the walk climbs).
 - Owner activity: input the runner did not send, or another window in front of the game, stops the run (or waits with
   `--wait-for-idle`; with `--refocus` it then brings its own game window back to the front once, never another app).
   Every step runs with `FO4SF_NO_FOCUS_STEAL=1`, so `input.ps1` refuses to pull the game in front during a test.
+- A window that takes the focus mid-step with no keyboard or mouse input since the runner's last (a popup: the AMD
+  auto-updater, movable_1019c 2026-10-18) is not the owner: with `--refocus` the game is brought back and the test runs
+  again at the end of the queue, not counted as an attempt, at most `POPUP_RETRIES` (2) times per test. The log names
+  the window from `input.ps1`'s ABORT line in the attempt's `step.log`. The interrupted attempt's folder is kept as
+  `a<n>_popup<k>`, and any uncounted attempt's folder found at the start of a new attempt (the owner took over, then a
+  resume) as `a<n>_interrupted<k>`, each with the first unused k: no evidence is overwritten.
 - `queue.json` `"hours"` limits the allowed hours (default `[[0, 24]]`); `--max-hours` and `--max-tests` bound a run.
+- Controller lease (opt-in, default off; docs/ai/leader-core.md section 6): with `FO4SF_LEASE_DIR` set (or `run
+  --lease-dir`), the runner launches nothing and sends no step unless `FO4SF_LEASE_OWNER` (default `Claude`, or
+  `--lease-owner`) holds an unexpired lease in that folder (`python scripts\game\lease.py claim --dir <folder> --owner
+  Claude --purpose "<why>" --ttl 28800`), renews it before every test and stops, resumable, with `stopped: lease ...`
+  when it is gone; `cycle.ps1` then refuses to launch (exit 9) and `watchdog.ps1` reads the lease instead of the last
+  `Claude:` commit; the runner also writes its queue, attempts and results to the ledger in that folder (section 10),
+  so `python scripts\leader_report.py --ledger <folder>` shows the live state. Unset: none of this runs.
+- Preflight gate (opt-in, default off; docs/ai/leader-core.md section 7): `run --preflight` (or `FO4SF_PREFLIGHT=1`;
+  `--no-preflight` overrides the variable for one run) runs eleven checks before the first launch (pinned build staged and deployed, experiment as pinned, plugins active,
+  load order, game version, lease, STOP files, Resource Guardian, recovery save, log capture); one FAIL or UNKNOWN
+  stops the run (`stopped: preflight refused (...)`, with a lease folder a `blocker_opened` in the ledger) and `--dry-run` prints the
+  checklist either way. Unset: not run.
 - The build is pinned: `queue.json` records the SHA-256 of `FO4Port.esm`; the runner will not launch a staging folder
   whose plugin changed. The dedicated save `fo4sf_test_<build id>` is created on the first launch and loaded on later ones. After god mode the
   session disables the save's companion (Vasco, Starfield.esm ACHR `000057BE`; qstep kind `companion_off`, confirmed by
@@ -294,7 +322,20 @@ at most 12 per list):
 - the time-of-day / weather lines: `SetLocalTime <h> [1]`, `cgf "Game.SetLocalTime" <h>` (h 0..23.99), `fw <8 hex> [1]`;
 - the bridge's lines (2026-10-14, "Bridge" below): `cgf "FO4SF_Probe.Pos" <decimal form id>`, `cgf "FO4SF_Probe.Ack" "<tag>"`,
   `cgf "FO4SF_Probe.Player"`, `cgf "Debug.TraceUser" "fo4sf" "<text>"` (tags `[A-Za-z0-9_.-]{1,40}`); their replies are
-  lines of the bridge's log, not console text (the OCR'd reply is kept as for any line).
+  lines of the bridge's log, not console text (the OCR'd reply is kept as for any line);
+- the scripted door's Step 0 (2026-10-16): `cgf "FO4SF_Probe.Resolve" "<plugin>" <id>` and
+  `cgf "FO4SF_Probe.MoveTo" "<plugin>" <id> <dx> <dy> <dz>` (plugin `[A-Za-z0-9_.-]{1,60}.esm|esp|esl`, the plugin-local
+  id in decimal, offsets `-?\d{1,5}(.\d{1,3})?` m). A MoveTo can load another cell, so after it the step waits up to 90 s
+  for the HUD before the next line (`obs.console[k]`: `hud_back`, `load_s`, `console_<k>_hud.png`; `MOVETO_S` in the
+  step timeout). Runner feature `probe_moveto`: an older runner refuses such a queue before launching.
+- the walk's run condition (2026-10-17): `player.getav speedmult` and `player.setav speedmult 100` (no other value).
+  `plan-walk` / `plan-movable --speedmult` put `player.getav speedmult`, `player.setav speedmult 100`,
+  `player.getav speedmult` first in every test's `console_pre`. The judge (`console_plan.speedmult_condition`) reads
+  the last value before the travel (reply `GetActorValue: SpeedMult >> <n>`, **supported hypothesis**, not yet seen in a
+  Starfield capture): anything but 100 (within 0.5), or no value read, turns a PASS or FAIL into INCONCLUSIVE `RUNCOND`
+  with the kind's verdict and every read in the detail. Why: the first automated walk on 1d4591b6 moved about 14 m/s
+  against the calibrated 4.6 m/s and was judged STUCK and JUMP; a speedmult the save brought is the suspected cause. The
+  reset lasts the session only: the runner never saves after the start. Runner feature `speedmult`.
 
 Anything else (`qqq`, `player.additem ...`, `coc ...`, `tgm`, a `;` or `|` inside a line, unquoted names, curly quotes, a
 trailing newline) is refused; `tests/test_console_plan.py` lists the cases.
@@ -629,7 +670,10 @@ on it.
    `spawn_wait_ms` (2 s) of game time.
 2. `plr` alone: the id in `PickLastRef: (FFxxxxxx)` after this session's start, 8 hex digits starting `FF`; nothing
    further is typed without it.
-3. `prid <id>`, `GetSelf`: GetSelf must not name another ref (N0_base's `0024A824`); unread is allowed.
+3. `prid <id>`, `GetSelf`: GetSelf must not name another ref (N0_base's `0024A824`); unread is allowed, and so is
+   `00000000` (form id 0 is never a ref: the movable queue of 2026-10-18 read it after `prid` of placed vanilla items,
+   supported hypothesis that the game prints it for a ref it does not name). For a movable item a `plr` that names
+   no `FFxxxxxx` id is typed once more after the game ran another 2 s.
 4. `GetIsID <npc>` must read 1; `getpos x/y/z` must put the ref within `handle_tol` (2 m) of the player's read at A
    (placeatme puts it at the player's feet).
 
@@ -762,10 +806,11 @@ floor. `plan-movable` reads `plan.json` (a list):
 | `mass_kg` | the body's mass (vanilla: from its NIF) | the manifest's for `base_edid` |
 | `spot`, `heading` | where the item is placed (metres, the cell's frame) and the walk's heading (degrees, as `setangle z`) | required, 0 |
 | `stand_m`, `park_m` | the player starts `stand_m` before the item's read position; waits `park_m` behind the spot while it settles | 1.1, 3.0 |
-| `set_mass_kg` | `SetRigidBodyMass <kg>` on the confirmed selection before the walk, with the `GetMass` probe before it and again after it (the console closed `mass_wait_ms`, a second confirmed selection). A refusal in the console reply is INCONCLUSIVE SETMASS; unless the probe after it reads the mass set (within 5 %, at least 0.25 kg) the test is INCONCLUSIVE MASS, whatever the walk did | none |
+| `set_mass_kg` | `SetRigidBodyMass <kg>` on the confirmed selection before the walk, with the `GetMass` probe before it and again after it (the console closed `mass_wait_ms`, a second confirmed selection). A refusal in the console reply is INCONCLUSIVE SETMASS; unless the probe after it reads the mass set (within 5 %, at least 0.25 kg) the test is INCONCLUSIVE MASS, whatever the walk did. Exception (2026-10-18): when the probe after it answers "No script named ..." (the console cannot reach GetMass, verified in movable_1019c), a move (PASS WALKED or PASS IMPULSE) stands with "mass not read back" in the detail, and no move stays INCONCLUSIVE MASS | none |
 | `mass_probe` | `cf "ObjectReference.GetMass"` on the confirmed selection (always with `set_mass_kg`; `mass_probe: false` with it stops the planning); without `set_mass_kg` its reading is only shown | false |
 | `mass_wait_ms` | the console closed after `SetRigidBodyMass` before the reading | 1000 |
 | `impulse_dv`, `impulse_wait_ms` | the ladder's speed steps (m/s, up to 4; `[]`: none) and the wait after each | [1.5, 6, 24], 3000 |
+| `impulse_control` | a control (a vanilla item): the ladder runs after the walk even when the walk moved it, shown in the detail only (the walk decides the verdict); runner feature `impulse_control`. A FAIL STUCK means a body that does not respond only when a control's impulse moved it in the same queue (movable_1019c, 2026-10-18: two converted items STUCK, no impulse ever typed on a vanilla item) | off |
 | `walk_ms`, `settle_ms`, `drop`, `spawn_wait_ms`, `handle_tol` | hold W; wait after a teleport; teleport height; console closed after `placeatme`; how close to the spot the placed item must lie | 900, 1500, 0.3, 3000, 2.0 |
 | `moved_m`, `reach_m`, `settle_m` | moved; the walk reached the item; at rest before the walk (spawn read vs the read before the walk) | 0.05, 0.6, 0.1 |
 | `console_pre`, `console_post` | whitelisted console lines (section above), e.g. `GetINI "fCharacterMaxSlope:HAVOK"` | none |
@@ -783,7 +828,9 @@ One test (`qstep.ps1` kind `movable_control`): `coc`, the arrival read until it 
 `player.placeatme <base> 1` in its own session and, in the same session (the game paused), the player moved to the
 park point, then the console closed for `spawn_wait_ms` so the item drops onto a free floor; the handle as npc_nav's
 (`plr` alone, `prid <id>` + `GetSelf` must not name another ref, `GetIsID <base>` 1, within `handle_tol` of the spot:
-else INCONCLUSIVE SPAWN and nothing acts on any selection); the `GetMass` probe and `SetRigidBodyMass`, then the
+else INCONCLUSIVE SPAWN and nothing acts on any selection; when `placeatme` itself answered "not found for parameter",
+INCONCLUSIVE NOBASE, final: the base id is wrong for this load order, e.g. a queue planned with `--plugin-index 02`
+while the plugin loads at 05, verified in movable_1019 on 2026-10-18); the `GetMass` probe and `SetRigidBodyMass`, then the
 console closed `mass_wait_ms` and `GetMass` again on a second confirmed selection; the player
 `stand_m` before the item's read position facing `heading`; the item read (confirmed), the walk, the player's and the
 item's reads; the ladder; then `disable`, `GetDisabled`, `markfordelete` on a confirmed selection only. `movable` tests
@@ -891,6 +938,17 @@ Instead the game writes a file:
   (`FO4SF ref=<id> pos=.. ang=.. cell=.. disabled=.. loaded=..`), `cgf "FO4SF_Probe.Ack" "<tag>"` logs `FO4SF ack <tag>`,
   `cgf "FO4SF_Probe.Player"` the player. If the VM loads an unattached script for cgf (supported hypothesis; the first
   window tells), door and probe reads of `door_trip` and the NPC reads of `npc_nav` can leave OCR too.
+- **`FO4SF_Probe.Resolve` / `MoveTo` (2026-10-16, staged in `C:\Modding\staging\bridge_t2`, not run in game yet):** the
+  scripted door's Step 0 (docs/slice/scripted-door.md). `Resolve(plugin, id)` logs what `Game.GetFormFromFile(id, plugin)`
+  returns for a plugin-local id (`FO4SF resolve plugin=.. id=.. form=<runtime id>|none [ref=true|false pos=.. ang=..
+  cell=.. cellname=.. world=.. worldname=.. disabled=.. loaded=..]`); `MoveTo(plugin, id, dx, dy, dz)` looks the
+  reference up the same way (`FO4SF target ...`), moves the player there plus the offset as `FO4SF_LoadDoor.psc` does
+  (match rotation, no rotated offset) and logs the player before, right after and one second of game time after
+  (`FO4SF moveto plugin=.. id=.. offset=dx dy dz phase=before|after|settled|refused pos=.. ang=.. cell=.. cellname=..
+  world=.. worldname=.. loaded=..`). `cellname` / `worldname` come from the DebugOnly `GetFormEditorID`, asked in a
+  function of its own (empty where the game keeps no editor id). `bridge_log.py events` parses all of them. Pos, Ack
+  and Player are unchanged; `make_bridge.py stage` compiles every `.psc` of `scripts/bridge` and keeps the sources
+  beside the stage.
 
 ## Reference reads through the bridge (2026-10-15)
 
@@ -908,7 +966,9 @@ A terrain test may carry `"activate": {"ref": "<8 hex>", "base": "<8 hex>", "exp
 the native container's reference, load index included). After the probes and before the beyond teleport, the step opens one
 console session, types `prid <ref>` and `GetIsID <base>` and reads the console: the reply must be 1 (the selection is a
 reference of that base; a refused `prid` leaves the previous selection, which `activate player` would open: Codex's review
-of #145). Only then it types `activate player` and closes the console (the menu opens with the player as the activator: no
+of #145). The one capture is OCR'd at the thresholds 135, 140, 130 and 145 in turn until the reply is read (Item-Capture's
+four; core64g_accept_1016 test 0002 lost the reply row at 135 although `activate_sel.png` shows `GetIsID >> 1.00`);
+`obs.activate.sel_threshold` is the threshold that read it (null: none did). Only then it types `activate player` and closes the console (the menu opens with the player as the activator: no
 facing, no E); without the proof nothing is activated and `obs.activate.selected` is false, captures the whole screen as `activate.png`, OCRs it, and closes the menu with a held Tab, the UI's hold-to-exit (a tap only goes back a level;
 `activate_closed.png`, a second hold when the HUD is not back). The verdict detail gets `[activate <ref>: read [...] of [...]]`, the expected words the OCR found;
 it is shown and never judged, and the owner's own E-press stays the interaction acceptance. Runner feature `activate`

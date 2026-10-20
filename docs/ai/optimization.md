@@ -55,7 +55,11 @@ Before (measured today, `cycle.ps1` from close to verified arrival): 195 s (Vaul
 18:5x). Fixed timers inside: 30 s after launch, 45 s after Continue, 37 s after a blind `coc` (112 s), plus coc.ps1's
 30 s. Change: poll a screenshot every 3 s for the main menu text, then for the HUD, and go on as soon as it shows (the
 timers stay as the upper bound). After (first run, 2026-10-11 01:3x, library cell, verified arrival): **168 s**, from 195-210 s (-15 to -20%). The per-phase times were swallowed by a pipe on that run; the script now prints them with Write-Host.
+
 ### 2026-10-20 Codex: linear batch-progress candidate accounting (PR184 follow-up)
+
+The following comparison pins the original isolated sources1f7604a ande6f6199; it is not a comparison against
+current main. The later main reconciliation preserves its classified checkpoints and complete pose path.
 
 Measured offline with the same `python -I -B benchmark.py` command and synthetic inputs on Windows/Python3.14:
 4,000 distinct candidate names, every conversion stub fails, limit20, fixed100s reporting clock, three trials
@@ -68,3 +72,8 @@ candidate list. Cell-mode eligibility and skipped-LOD/exhausted/zero-success ETA
 The actual-main linear-cost regression fails before the change (201,000 checks for2,000 candidates, cap6,000)
 and passes afterward;18 batch/identity/ETA tests pass. Full before/after harness, hashes and failures are retained
 in the private evidence archive. Independent QA is pending before integration; no game/staging/deployment action.
+
+Current-main reconciliation:93 relevant batch/checkpoint/pose/routing methods pass (one Windows-specific symlink
+case skips, pending Linux CI). Twelve helper functions, every classified conversion/cache statement and the
+entire pose pipeline remain AST-identical to main4a434761. Its existing progress cadence includes skipped names;
+only the percentage/ETA and linear eligible count are added. Independent QA remains required before main merge.

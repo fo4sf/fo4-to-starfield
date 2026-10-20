@@ -245,6 +245,14 @@ class PlaceTests(unittest.TestCase):
         self.assertEqual(reasons, {"C": "conversion_failed", "D": "not_converted", "E": "outside_terrain"})
         self.assertIn("BSTriShape", next(s["detail"] for s in skipped if s["formkey"] == "C"))
 
+    def test_open_by_default_is_kept_on_rigged_doors_only(self):
+        # Red Rocket 056332 / 056333: FO4 places these doorways open; the exterior build wrote them shut
+        sel = {"refs": [ref("O", t="Door", model="doors\\door.nif", open_by_default=True),
+                        ref("S", t="Door", model="doors\\door.nif", open_by_default=False),
+                        ref("T", model="architecture\\a.nif", open_by_default=True)]}
+        _, placed, _ = ex.place(sel, self.manifest(), -14, 14)
+        self.assertEqual({p["src"]: p.get("open_by_default") for p in placed}, {"O": True, "S": None, "T": None})
+
     def test_door_shifted_out_of_the_terrain_is_skipped(self):
         # FO4 origin inside cell 13 (x 1399 m), the hinge 2 m east puts the door in cell 14: outside -14..13
         sel = {"refs": [ref("G", t="Door", model="doors\\door.nif", pos=(1399 * 70, 0, 0), scale=2.0)]}

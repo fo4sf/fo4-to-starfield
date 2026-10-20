@@ -4,6 +4,9 @@ usage: python convert_batch.py --fo4-data <Fallout 4 Data dir> --staging <out di
                                --texconv <Texconvx64.exe> --collision-template <vanilla box-collision Starfield .nif>
                                [--pattern "setdressing/(chair|stool)"] [--limit 40] [--manifest manifest.json]
 Writes <staging>/manifest.json: converted items (EditorID + model path for the plugin writer), failures with reasons, stats.
+With --cell-json, references whose FO4 ragdoll data (XRGD) poses their model away from its node pose get a posed model of
+their own (src/fo4sf/placed_pose.py): extra items with "pose": {"kind": "xrgd", "refs": [FO4 FormKeys]}, which the plugin
+writer places for those references only; manifest "poses" counts every reference with ragdoll data. --no-ref-poses: off.
 After conversion, prints the top failure reasons by count (with percentages) and writes failure-summary.json.
 Needs numpy. Deterministic: names are processed in sorted order.
 """
@@ -17,7 +20,7 @@ import time
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "src"))
-from fo4sf import ba2, checkpoints, convert_static, meshcollision, pipeline, sfcollision, sfnif, textures  # noqa: E402
+from fo4sf import ba2, checkpoints, convert_static, exterior, meshcollision, pipeline, placed_pose, sfcollision, sfnif, textures  # noqa: E402
 
 
 def checkpoint_signature(a):
@@ -34,21 +37,19 @@ def checkpoint_signature(a):
             packages[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
             packages[name] = None
-    def safe_resolve(p):
-        try:
-            return str(p.resolve())
-        except (OSError, ValueError):
-            return str(p)
-
     sig = {"version": 1, "python": sys.version, "packages": packages,
            "archives": [checkpoints.archive_identity(p) for p in archives],
-           "content": {safe_resolve(p): checkpoints.digest(p) for p in
+           "content": {str(p.resolve()): checkpoints.digest(p) for p in
                        [*code, Path(a.texconv), Path(a.content_resources), Path(a.collision_template)]},
            "rig_doors": bool(a.starfield_data), "movable_items": bool(a.starfield_data) and not a.static_items}
     if getattr(a, "prefix", "fo4port") != "fo4port":   # output paths differ; the default keeps existing checkpoints valid
         sig["prefix"] = a.prefix
     if getattr(a, "door_anim_dll", "") and a.starfield_data:   # multi-part doors get their own rig and clips
         sig["door_anim_dll"] = checkpoints.digest(Path(a.door_anim_dll))
+    if getattr(a, "spec_mask_roughness", False):        # rougher outputs differ; off keeps existing checkpoints valid
+        sig["spec_mask_roughness"] = True
+    if getattr(a, "mass_scale", 1.0) != 1.0:            # scaled masses differ; default 1.0 keeps existing checkpoints valid
+        sig["mass_scale"] = a.mass_scale
     caps = textures.parse_texture_caps(getattr(a, "max_texture", ""))
     if caps:                                            # capped outputs differ; no cap keeps existing checkpoints valid
         sig["max_texture"] = caps
@@ -102,7 +103,8 @@ def load_editor_ids(staging):
     if os.path.exists(manifest):
         with open(manifest, encoding="utf-8") as f:
             for item in json.load(f)["items"]:
-                adopt(item["source"], item["editor_id"])
+                if "pose" not in item:          # posed variants share their base's source; their names derive from it
+                    adopt(item["source"], item["editor_id"])
     if len({v.lower() for v in ids.values()}) != len(ids):
         raise ValueError("duplicate editor IDs in persistent source mapping")
     return ids
@@ -121,6 +123,58 @@ def editor_id(source, ids):
             raise ValueError(f"editor ID collision for {key}")
         ids[key] = name
     return ids[key]
+
+
+DEFAULT_CELL_TYPES = "Static,StaticCollection,MovableStatic,Furniture,Door,Activator,Container,MiscItem,Terminal"
+
+
+def cell_candidates(cell, wanted):
+    """The meshes --cell-json converts for one cell export: 'meshes\\' + model of every reference whose base type is in
+    wanted, without editor markers, effect meshes (fog / light volumes) and placed water planes, sorted
+    case-insensitively, each once. A water plane (Water\\*.nif: a BSWaterShaderProperty quad plus an L_WATER body) is out
+    for the reason the exterior path already leaves it out (exterior.WATER_RE): as a static it is an opaque flat grey sheet
+    (the neutral fallback material) AND a solid floor, because the converted L_WATER body supports the player (Vault 111
+    gear pit: the player stood on the sheet 0.44 m above the real floor; docs/JOURNAL.md 2026-10-17)."""
+    return sorted({"meshes\\" + r["model"].lstrip("\\") for r in cell["refs"] if r["model"] and r["type"] in wanted
+                   and not re.search(r"marker|^\\?effects[\\/]", r["model"], re.I)   # editor markers, fog/light volumes
+                   and not exterior.WATER_RE.search(r["model"])},                    # water planes (see the docstring)
+                  key=str.lower)
+
+
+def teleport_models(cell):
+    """The meshes FO4 places in this cell as a teleporting door ('meshes\\' + model of every Door reference with an XTEL):
+    load doors for the converter whatever their file name (pipeline.Converter load_door_models)."""
+    return sorted({"meshes\\" + r["model"].lstrip("\\") for r in cell["refs"] if r.get("model") and r.get("type") == "Door"
+                   and r.get("teleport_destination")}, key=str.lower)
+
+
+def static_body_models(cell):
+    """The meshes a cell export marks "static_body" (make_core64c convert_list: placed outdoors as STAT only, never as an
+    item): they keep a static body though movable items get dynamic ones (pipeline.Converter static_body_models)."""
+    return sorted({"meshes\\" + r["model"].lstrip("\\") for r in cell["refs"] if r.get("model") and r.get("static_body")},
+                  key=str.lower)
+
+
+def static_pattern_models(pattern, names):
+    """--static-pattern: the candidate names matching a regex, or, for "@file", the names listed in that file (one mesh
+    name per line, as a manifest prints them; case and slashes ignored)."""
+    if pattern.startswith("@"):
+        with open(pattern[1:], encoding="utf-8-sig") as f:
+            wanted = {line.strip().replace("/", "\\").lower() for line in f if line.strip()}
+        return {n for n in names if n.replace("/", "\\").lower() in wanted}
+    return {n for n in names if re.search(pattern, n, re.I)}
+
+
+def checkpoint_key(key, name, load_models, static_models, no_rig_models=()):
+    """The checkpoint identity of one conversion: the mesh (or posed-variant) key plus the record-driven classes that
+    change its output (load door, static body), so a cell export that reclassifies a mesh is a cache miss (Codex review
+    of #354: a RoofHatch01 primed without an XTEL was reused, without load_door, after its XTEL appeared). A mesh in
+    neither class keeps its plain key, so existing checkpoints stay valid. no_rig_models (--no-rig-pattern) tags the
+    same way."""
+    low = name.replace("/", "\\").lower()
+    tags = [t for t, models in (("load_door", load_models), ("static_body", static_models), ("no_rig", no_rig_models))
+            if low in {m.replace("/", "\\").lower() for m in models}]
+    return "|".join([key] + tags)
 
 
 def write_json_atomic(path, value):
@@ -149,15 +203,26 @@ def main():
                     help="keep FO4 loose items fixed (default with --starfield-data: movable, as in FO4)")
     ap.add_argument("--door-anim-dll", default="",
                     help="external CALUMI.Animation.dll (not distributed): with --starfield-data, doors that move more "
-                         "than one part (double doors, shutters, sliding panel sets) get their own rig and Open/Close "
-                         "clips; without it they keep the single-hinge template and list the parts that stay closed")
+                         "than one part (double doors, shutters, sliding panel sets) and sliding / lifting / trapdoor "
+                         "doors (vault, elevator, hatch) get their own rig and Open/Close clips; without it the first "
+                         "keep the single-hinge template and list the parts that stay closed, the second stay passable")
+    ap.add_argument("--no-rig-pattern", default="",
+                    help="regex over mesh names: these doors skip their own rig (as without --door-anim-dll), only they "
+                         "reconvert on --resume once the checkpoints match this code (the signature digests src/fo4sf and this "
+                         "script, so the first run after a code change reconverts everything; crash bisects: v6 Red "
+                         "Rocket, 2026-10-19)")
+    ap.add_argument("--static-pattern", default="",
+                    help="regex over mesh names, or @file listing mesh names: these keep a static body though items "
+                         "are movable; only they reconvert on --resume once the checkpoints match this code (as --no-rig-pattern)")
     ap.add_argument("--resume", action="store_true", help="reuse content-verified per-model checkpoints")
     ap.add_argument("--pattern", default=r"^meshes[\\/]setdressing[\\/]")
     ap.add_argument("--limit", type=int, default=20)
     ap.add_argument("--max-tris", type=int, default=20000, help="skip meshes with more triangles than this")
     ap.add_argument("--cell-json", default="", help="convert the models placed in a cell exported by dotnet/Fo4Export")
-    ap.add_argument("--types", default="Static,StaticCollection,MovableStatic,Furniture,Door,Activator,Container,MiscItem,Terminal",
-                    help="base record types to take from --cell-json")
+    ap.add_argument("--no-ref-poses", action="store_true",
+                    help="with --cell-json: place every reference with its base's shared model, ignoring FO4 ragdoll "
+                         "poses (XRGD); default: references the pose moves get a posed model of their own")
+    ap.add_argument("--types", default=DEFAULT_CELL_TYPES, help="base record types to take from --cell-json")
     ap.add_argument("--prefix", default="fo4port",
                     help="folder under meshes/, materials/ and textures/ for the converted files (another plugin's own "
                          "archive needs its own prefix, so two archives never hold different files at the same path)")
@@ -165,9 +230,18 @@ def main():
                     help="cap converted textures by dropping top mip levels: one size for every kind ('1024') or per "
                          "kind ('color=1024,normal=512,rough=256,opacity=512'); default: full resolution. The full and "
                          "written size of every texture go to <staging>/texture_log.json")
+    ap.add_argument("--spec-mask-roughness", action="store_true",
+                    help="roughness also follows FO4's specular mask (smooth-spec R), so dull surfaces with high gloss "
+                         "stay rough; default off (the gloss alone, as every build so far)")
+    ap.add_argument("--mass-scale", type=float, default=1.0,
+                    help="scale FO4 dynamic body masses (playtest row 26: FO4 small items 2-10x Starfield; try 0.2-0.5 so grab works)")
     a = ap.parse_args()
     if not re.fullmatch(r"[a-z0-9_]+", a.prefix):
         ap.error("--prefix: lower-case letters, digits and _ only")
+    try:
+        a.mass_scale = convert_static.require_mass_scale(a.mass_scale)
+    except ValueError as e:
+        ap.error(f"--mass-scale: {e}")
     try:
         textures.parse_texture_caps(a.max_texture)
     except ValueError as e:
@@ -200,12 +274,15 @@ def main():
     if a.cell_json:
         with open(a.cell_json, encoding="utf-8-sig") as f:
             cell = json.load(f)
-        wanted = set(a.types.split(","))
-        names = sorted({"meshes\\" + r["model"].lstrip("\\") for r in cell["refs"] if r["model"] and r["type"] in wanted
-                        and not re.search(r"marker|^\\?effects[\\/]", r["model"], re.I)},   # editor markers, fog/light volumes
-                       key=str.lower)
+        names = cell_candidates(cell, set(a.types.split(",")))
+        load_models = teleport_models(cell)
+        static_models = static_body_models(cell)
     else:
         names = src.mesh_names(a.pattern)
+        load_models = static_models = []
+    no_rig_models = [n for n in names if a.no_rig_pattern and re.search(a.no_rig_pattern, n, re.I)]
+    if a.static_pattern:
+        static_models = sorted(set(static_models) | static_pattern_models(a.static_pattern, names), key=str.lower)
     print(f"{len(names)} candidate meshes; converting up to {a.limit}")
     os.makedirs(a.staging, exist_ok=True)
     state_path = os.path.join(a.staging, "build-state.json")
@@ -213,7 +290,7 @@ def main():
     items, failures, reused = [], [], 0
     attempted_so_far = 0
     skipped = 0
-    progress_every = 10  # live status every N attempts; % of limit and success-rate ETA when --limit is set
+    progress_every = 10
     lod_skip = re.compile(r"(lod|_dmg|damaged|destr)", re.I)
     remaining_candidates = (sum(1 for name in names if a.cell_json or not lod_skip.search(name))
                             if a.limit > 0 else 0)
@@ -222,52 +299,55 @@ def main():
             break
         if not a.cell_json and lod_skip.search(name):
             skipped += 1
-            continue
-        remaining_candidates -= 1
-        r = cache.load(name) if cache else None
-        if r is not None:
-            reused += 1
         else:
-            if conv is None:
-                conv = pipeline.Converter(src, a.staging, a.texconv, a.content_resources, template,
-                                          rig_doors=donor is not None, door_physics_donor=donor,
-                                          sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
-                                          prefix=a.prefix, max_texture=a.max_texture,
-                                          door_anim_dll=a.door_anim_dll or None)
-            r = conv.convert_nif(name)
-            if cache:
-                try:
-                    cache.save(name, r)
-                except (OSError, ValueError) as e:
-                    print(f"  checkpoint unavailable for {name}: {e}")
-        attempted_so_far += 1
-        if not r["ok"]:
-            failures.append({"nif": name, "reason": r["reason"]})
-        else:
-            eid = editor_id(name, ids)
-            if cache:
-                os.makedirs(a.staging, exist_ok=True)
-                write_json_atomic(os.path.join(a.staging, "editorids.json"), ids)
-            items.append({"editor_id": eid, "model": r["out_name"].replace("/", "\\") + ".nif", "source": name,
-                          "shapes": r["shapes"], "fallback_materials": r["fallback_materials"], "form_index": len(items),
-                          "collision_report": r.get("collision_report") or {}, **({"door": r["door"]} if "door" in r else {}),
-                          **({"load_door": r["load_door"]} if "load_door" in r else {}),
-                          **({"movable": r["movable"]} if "movable" in r else {}),
-                          **({"door_not_opening": r["door_not_opening"]} if "door_not_opening" in r else {}),
-                          **({"door_frozen_parts": r["door_frozen_parts"]} if "door_frozen_parts" in r else {}),
-                          **({"door_error": r["door_error"]} if "door_error" in r else {})})
-            print(f"  ok  {name} -> {eid} (shapes {r['shapes']}, fallback materials {r['fallback_materials']})")
-        if attempted_so_far % progress_every == 0:
+            remaining_candidates -= 1
+            ckey = checkpoint_key(name, name, load_models, static_models, no_rig_models)
+            r = cache.load(ckey) if cache else None
+            if r is not None:
+                reused += 1
+            else:
+                if conv is None:
+                    conv = pipeline.Converter(src, a.staging, a.texconv, a.content_resources, template,
+                                              rig_doors=donor is not None, door_physics_donor=donor,
+                                              sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
+                                              prefix=a.prefix, max_texture=a.max_texture,
+                                              door_anim_dll=a.door_anim_dll or None,
+                                              spec_mask_roughness=a.spec_mask_roughness,
+                                              mass_scale=a.mass_scale, load_door_models=load_models,
+                                              static_body_models=static_models,
+                                              no_rig_models=no_rig_models)
+                r = conv.convert_nif(name)
+                if cache:
+                    try:
+                        cache.save(ckey, r)
+                    except (OSError, ValueError) as e:
+                        print(f"  checkpoint unavailable for {name}: {e}")
+            attempted_so_far += 1
+            if not r["ok"]:
+                failures.append({"nif": name, "reason": r["reason"]})
+            else:
+                eid = editor_id(name, ids)
+                if cache:
+                    os.makedirs(a.staging, exist_ok=True)
+                    write_json_atomic(os.path.join(a.staging, "editorids.json"), ids)
+                items.append({"editor_id": eid, "model": r["out_name"].replace("/", "\\") + ".nif", "source": name,
+                              "shapes": r["shapes"], "fallback_materials": r["fallback_materials"], "form_index": len(items),
+                              "collision_report": r.get("collision_report") or {}, **({"door": r["door"]} if "door" in r else {}),
+                              **({"load_door": r["load_door"]} if "load_door" in r else {}),
+                              **({"movable": r["movable"]} if "movable" in r else {}),
+                              **({"door_not_opening": r["door_not_opening"]} if "door_not_opening" in r else {}),
+                              **({"door_frozen_parts": r["door_frozen_parts"]} if "door_frozen_parts" in r else {}),
+                              **({"door_error": r["door_error"]} if "door_error" in r else {})})
+                print(f"  ok  {name} -> {eid} (shapes {r['shapes']}, fallback materials {r['fallback_materials']})")
+        if (attempted_so_far + skipped) % progress_every == 0:
             elapsed_now = time.time() - t0
             rate = attempted_so_far / elapsed_now if elapsed_now > 0 else 0
             pct = ""
             eta = ""
-            if a.limit and a.limit > 0:
+            if a.limit > 0:
                 pct = f" ({100.0 * len(items) / a.limit:.0f}% of limit)"
                 success_rate = len(items) / elapsed_now if elapsed_now > 0 else 0
                 remaining_successes = a.limit - len(items)
-                # Success-target ETA uses successful throughput, not attempt rate. Skip it with no
-                # measured successes or when remaining candidates cannot reach the limit (exhausted input).
                 if success_rate > 0 and remaining_successes > 0 and remaining_candidates >= remaining_successes:
                     eta_s = remaining_successes / success_rate
                     if eta_s > 60:
@@ -276,6 +356,46 @@ def main():
                         eta = f", ~{eta_s:.0f}s left"
             print(f"  progress: {attempted_so_far} attempted ({len(items)} ok, {len(failures)} fail, {skipped} skipped) "
                   f"in {elapsed_now:.0f}s ({rate:.1f}/s){pct}{eta}")
+    pose_stats = None
+    if a.cell_json and not a.no_ref_poses:
+        # FO4 ragdoll poses (XRGD): one posed model per distinct pose that moves its model (skeletons lying down)
+        by_source = {source_identity(it["source"]).replace("/", "\\"): it for it in items}
+        variants, pose_stats = placed_pose.plan(cell["refs"], by_source, lambda name: src.mesh(name))
+        for v in variants:
+            base = by_source[source_identity(v.source).replace("/", "\\")]
+            key = checkpoint_key(f"{v.source}|xrgd:{v.key}", v.source, load_models, static_models, no_rig_models)
+            r = cache.load(key) if cache else None
+            if r is not None:
+                reused += 1
+            else:
+                if conv is None:
+                    conv = pipeline.Converter(src, a.staging, a.texconv, a.content_resources, template,
+                                              rig_doors=donor is not None, door_physics_donor=donor,
+                                              sf_mesh_template=mesh_template, dynamic_template=dynamic_template,
+                                              prefix=a.prefix, max_texture=a.max_texture,
+                                              door_anim_dll=a.door_anim_dll or None,
+                                              spec_mask_roughness=a.spec_mask_roughness,
+                                              mass_scale=a.mass_scale, load_door_models=load_models,
+                                              static_body_models=static_models,
+                                              no_rig_models=no_rig_models)
+                r = conv.convert_nif(v.source, pose=v.overrides, out_suffix=v.suffix)
+                if cache:
+                    try:
+                        cache.save(key, r)
+                    except (OSError, ValueError) as e:
+                        print(f"  checkpoint unavailable for {key}: {e}")
+            if not r["ok"]:
+                failures.append({"nif": key, "reason": r["reason"]})
+                pose_stats["posed_refs"] -= len(v.refs)
+                pose_stats["failed_refs"] = pose_stats.get("failed_refs", 0) + len(v.refs)
+                continue
+            items.append({"editor_id": base["editor_id"] + v.suffix, "model": r["out_name"].replace("/", "\\") + ".nif",
+                          "source": v.source, "shapes": r["shapes"], "fallback_materials": r["fallback_materials"],
+                          "form_index": len(items), "collision_report": r.get("collision_report") or {},
+                          **({"movable": r["movable"]} if "movable" in r else {}),
+                          "pose": {"kind": "xrgd", "key": v.key, "refs": sorted(v.refs), "nodes": len(v.overrides),
+                                   "shift_units": round(v.shift, 2)}})
+        print(f"  ragdoll poses: {json.dumps(pose_stats)}")
     for f in failures[:15]:
         print("  FAIL", f["nif"], "-", f["reason"][:110])
     from collections import Counter, defaultdict
@@ -303,6 +423,8 @@ def main():
         for reason, count in reason_counts.most_common(5):
             pct = 100.0 * count / total
             print(f"    {count:4d} ({pct:5.1f}%)  {reason[:80]}")
+            if examples[reason]:
+                print(f"      examples: {', '.join(examples[reason][:3])}")
     else:
         print("  Failure summary: 0 failures")
     if items:
@@ -346,7 +468,7 @@ def main():
     if tex_totals is not None:
         stats["textures"] = dict(tex_totals, caps=textures.parse_texture_caps(a.max_texture))
     manifest = {"items": items, "failures": failures, "material_fallbacks": conv.material_errors if conv else {}, "stats": stats,
-                "seconds": round(time.time() - t0, 1)}
+                "seconds": round(time.time() - t0, 1), **({"poses": pose_stats} if pose_stats is not None else {})}
     os.makedirs(a.staging, exist_ok=True)
     write_json_atomic(os.path.join(a.staging, "editorids.json"), ids)
     write_json_atomic(os.path.join(a.staging, "manifest.json"), manifest)
