@@ -183,6 +183,46 @@ class RestoreTests(unittest.TestCase):
         self.assertEqual(self.apply(target, run=no_installer), [])
         self.assertTrue(self.snap()["records"]["experiment"]["plugins_restore_pending"])
 
+    def test_target_taken_over_a_changed_owned_file_is_refused(self):
+        # review case 4: a snapshot captured while an owned file was changed or gone must not count as restored
+        # once the healthy file is back
+        self.exp_install("install", "--exp-dir", self.exp)
+        for rel, change in (("FO4SFExpTest.esm", "edit"), (os.path.join("Terrain", "x.btd"), "edit"),
+                            ("FO4SFExpTest.esm", "remove")):
+            with self.subTest(rel=rel, change=change):
+                path = os.path.join(self.data, rel)
+                with open(path, "rb") as f:
+                    good = f.read()
+                if change == "edit":
+                    with open(path, "wb") as f:
+                        f.write(good[:-1] + b"X")
+                else:
+                    os.remove(path)
+                target = self.snap()
+                self.assertTrue(restore.owned_problems(target))
+                with open(path, "wb") as f:
+                    f.write(good)
+                healthy = self.snap()
+                p = restore.plan(target, healthy, ROOT)
+                self.assertTrue(any(c.startswith("snapshot: experiment:") for c in p["conflicts"]), p)
+                self.assertTrue(any(d.startswith("snapshot: experiment:") for d in restore.verify(target, healthy)))
+
+                def no_installer(*_a, **_k):
+                    raise AssertionError("no installer may run for a refused restore")
+                with self.assertRaises(restore.RestoreRefused):
+                    self.apply(target, run=no_installer)
+                with open(path, "rb") as f:
+                    self.assertEqual(f.read(), good)                   # current bytes kept
+                self.assertTrue(self.snap()["records"]["experiment"]["complete"])
+
+    def test_unhashed_owned_file_is_checked_against_the_snapshot_bytes(self):
+        snap = self.snap()
+        rec = {"files": ["FO4Port.esm"], "artifacts": {}}           # a port record that keeps no hash for its plugin
+        target = dict(snap, records=dict(snap["records"], port=rec), owned_live={"port": {"FO4Port.esm": "a" * 64}})
+        after = dict(target, owned_live={"port": {"FO4Port.esm": "b" * 64}})
+        self.assertIn("port: Data/FO4Port.esm differs from the snapshot", restore.verify(target, after))
+        self.assertEqual(restore.verify(target, dict(after, owned_live=target["owned_live"])), [])
+
     def test_vanished_unowned_file_is_a_conflict(self):
         target = self.snap()
         os.remove(os.path.join(self.data, "SomeOwnerMod.esm"))

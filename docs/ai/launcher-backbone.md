@@ -59,7 +59,7 @@ Starfield.exe runs, refuses on any conflict before changing anything (an owner's
 unowned file, a port record with no staging folder unless `--port-staging`), and checks the result against the
 snapshot afterwards. An equal install record is not taken as proof: every file a record owns (loose files in
 subfolders included) is hashed at snapshot time and must match the hash the record keeps, before and after, or the
-restore refuses. Unhashed archives are compared by size and time. A complete install that keeps
+restore refuses. That holds for the target too: a snapshot taken while an owned file was changed or missing is refused as a target, and an owned file whose record keeps no hash must come back with the bytes the snapshot saw (Codex review, 2026-10-20). Unhashed archives are compared by size and time. A complete install that keeps
 `plugins_restore_pending` set (it owns the later uninstall's Plugins.txt restoration) is healthy and left alone; only
 `complete: false` or `cleanup_pending` counts as an interrupted install to recover (Codex review, 2026-10-19). The install thread's swap scripts on the PC are not replaced or touched; this is the same
 practice in code, so the launcher can later call it.

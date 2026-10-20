@@ -15,7 +15,8 @@ plan      compares the live state with a snapshot and lists the installer comman
           what was added since, reinstall what the snapshot had (from the source folder its record names), in the
           swap scripts' order. Plugins.txt is restored byte for byte only when every line that differs names a
           plugin one of the installers owns; any other difference is the owner's edit and is a conflict.
-          A file an installer owns that is missing or no longer matches its recorded hash is a conflict.
+          A file an installer owns that is missing or no longer matches its recorded hash is a conflict, now or in
+          the snapshot itself (a snapshot taken over a changed owned file is refused as a target).
 apply     refuses while Starfield runs or on any conflict, runs the plan through the installers (never deleting a
           file itself), restores Plugins.txt, then takes a new snapshot and checks it against the target.
 
@@ -256,7 +257,11 @@ def plan(target, current, repo, port_staging=None):
                     steps.append({"what": "order experiment plugins",
                                   "argv": [sys.executable, os.path.join(repo, COMPONENTS["experiment"][1]), "order",
                                            "--starfield", starfield]})
-    # files an installer owns must still be the files it recorded; a changed or missing one is refused, not repaired
+    # files an installer owns must still be the files it recorded; a changed or missing one is refused, not repaired.
+    # The same holds for the target: a snapshot taken while an owned file was changed or missing is not a state the
+    # installers can give back, so restoring to it would report success on different bytes
+    for problem in owned_problems(target):
+        conflicts.append("snapshot: " + problem + "; take a new snapshot once that component is installed cleanly")
     for problem in owned_problems(current):
         conflicts.append(problem + "; uninstall or reinstall that component by hand first")
     # Plugins.txt: the installers put their own lines back; what is left must be ours alone to rewrite
@@ -300,7 +305,18 @@ def verify(target, after):
     for comp in COMPONENTS:
         if record_identity(comp, target["records"].get(comp)) != record_identity(comp, after["records"].get(comp)):
             diffs.append(f"{comp} install differs")
+    diffs += ["snapshot: " + p for p in owned_problems(target)]
     diffs += owned_problems(after)               # and the files those records own are really there, unchanged
+    # an owned file the record keeps no hash for is checked against the bytes the snapshot saw; a hashed one is
+    # already held to its record on both sides (a packed archive is rebuilt with a new hash on every install)
+    tl, al = target.get("owned_live") or {}, after.get("owned_live") or {}
+    for comp in COMPONENTS:
+        te = owned_expected(comp, target["records"].get(comp))
+        ae = owned_expected(comp, after["records"].get(comp))
+        x, y = tl.get(comp) or {}, al.get(comp) or {}
+        for rel in sorted(r for r in set(te) & set(ae) if te[r] is None and ae[r] is None):
+            if x.get(rel) != y.get(rel):
+                diffs.append(f"{comp}: Data/{rel} differs from the snapshot")
     tt, at = target["data_top"], after["data_top"]
     mine = owned_files(target, after)            # installer-owned files are compared through their records above
     for n in sorted(set(tt) | set(at)):
