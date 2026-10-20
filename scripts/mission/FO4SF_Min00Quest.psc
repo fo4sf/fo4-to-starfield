@@ -36,6 +36,9 @@ float Property RelocateGap = 1500.0 Auto Const
 int Property RewardCount = 100 Auto Const
 {Fallout 4 gives 100 caps (DialogueConcordArea stage 40).}
 
+float Property CodsworthCheck = 5.0 Auto Const
+{Seconds between Codsworth's own relocation checks (KeepCodsworth).}
+
 float Property EngageRadius = 60.0 Auto Const
 {The fight starts when the player comes this close (m) to a living raider, as FO4's DN092 StartCombat on its ambush.}
 
@@ -45,6 +48,8 @@ float Property TalkRadius = 3.0 Auto Const
 string LogName = "fo4sf_mission"
 int ticks = 0
 int relocateFails = 0
+int codsworthFails = 0
+bool codsworthKept = False
 int applied = 0
 
 Event OnQuestInit()
@@ -55,7 +60,17 @@ Event OnQuestInit()
     AdvanceTo(10)
     SetActive(True)                                      ; tracked, so the objectives show (in game 18 Oct: none seen)
     StartTimer(1.0, 1)
+    KeepCodsworthStart()
 EndEvent
+
+Function KeepCodsworthStart()
+{Starts Codsworth's own check once (review 20 Oct); also from the mission timer, for a save that ran OnQuestInit before
+ this check existed.}
+    if Codsworth != None && !codsworthKept
+        codsworthKept = True
+        StartTimer(CodsworthCheck, 2)
+    endif
+EndFunction
 
 Function AdvanceTo(int n)
 {SetStage, then the stage's actions. In game 18 Oct the stages reached 40 but OnStageSet never ran (no "stage" line, no
@@ -106,10 +121,14 @@ Event ObjectReference.OnActivate(ObjectReference akSender, ObjectReference akAct
 EndEvent
 
 Event OnTimer(int aiTimerID)
-    if aiTimerID != 1
+    if aiTimerID == 2
+        KeepCodsworth()
+        return
+    elseif aiTimerID != 1
         return
     endif
     Actor player = Game.GetPlayer()
+    KeepCodsworthStart()
     if relocateFails < 10
         Relocate(player)
     endif
@@ -188,7 +207,7 @@ int Function NextStage(int stage, int dead, int total, bool fighting, bool atPre
 EndFunction
 
 Function Relocate(Actor player)
-{Moves Preston, the raiders and Codsworth from their unmerged local position to the same spot in the merged world the
+{Moves Preston and the raiders (Codsworth: KeepCodsworth) from their unmerged local position to the same spot in the merged world the
  player walks in: each actor's local position + the merge offset, z kept (MoveTo onto the player with the difference as
  the offset, the verified MoveTo form of FO4SF_LoadDoor and FO4SF_Probe). Decided per actor and by position, every
  check: in game 18 Oct 14:40 the unmoved actors read a finite distance (same world, local spot), so "finite means
@@ -200,23 +219,39 @@ Function Relocate(Actor player)
     float px = player.GetPositionX()
     float py = player.GetPositionY()
     float pz = player.GetPositionZ()
-    MoveOver(Preston, player, px, py, pz, "preston")
+    if MoveOver(Preston, player, px, py, pz, "preston")
+        relocateFails += 1
+    endif
     int i = 0
     while i < Raiders.Length
-        MoveOver(Raiders[i], player, px, py, pz, "raider " + i)
+        if MoveOver(Raiders[i], player, px, py, pz, "raider " + i)
+            relocateFails += 1
+        endif
         i += 1
     endwhile
-    if Codsworth != None
-        MoveOver(Codsworth, player, px, py, pz, "codsworth")
+EndFunction
+
+Function KeepCodsworth()
+{Codsworth is not part of the quest, so he has his own check every CodsworthCheck seconds with its own budget of 10
+ failed moves. It keeps running after stage 200, which ends the mission's timer: the player may reach Sanctuary only
+ after the mission, and he went back to his unmerged spot once already (in game 18 Oct 15:17).}
+    Actor player = Game.GetPlayer()
+    if codsworthFails < 10 && !player.IsInInterior()
+        if MoveOver(Codsworth, player, player.GetPositionX(), player.GetPositionY(), player.GetPositionZ(), "codsworth")
+            codsworthFails += 1
+        endif
+    endif
+    if codsworthFails < 10
+        StartTimer(CodsworthCheck, 2)
     endif
 EndFunction
 
-Function MoveOver(Actor a, Actor player, float px, float py, float pz, string what)
-{Moves one actor when the player is within RelocateRadius of its merged spot and it is still farther than RelocateGap;
- counts a move that leaves it farther than RelocateGap as failed.}
+bool Function MoveOver(Actor a, Actor player, float px, float py, float pz, string what)
+{Moves one actor when the player is within RelocateRadius of its merged spot and it is still farther than RelocateGap.
+ Returns True for a failed move: one that leaves it farther than RelocateGap.}
     float before = player.GetDistance(a)                  ; float max: another world; finite: this world (the world proof)
     if before < RelocateGap
-        return                                            ; already where the player is
+        return False                                      ; already where the player is
     endif
     float x = a.GetPositionX() + MergeOffsetX
     float y = a.GetPositionY() + MergeOffsetY
@@ -224,14 +259,13 @@ Function MoveOver(Actor a, Actor player, float px, float py, float pz, string wh
     float dx = px - x
     float dy = py - y
     if dx * dx + dy * dy > RelocateRadius * RelocateRadius
-        return                                            ; the player is not at its merged spot
+        return False                                      ; the player is not at its merged spot
     endif
     a.MoveTo(player, x - px, y - py, z - pz, True, False)
     float d = player.GetDistance(a)
-    if d >= RelocateGap
-        relocateFails += 1
-    endif
-    Trace("moved " + what + " to " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " target " + x + " " + y + " " + z + " before=" + before + " d=" + d + " fails=" + relocateFails)
+    bool failed = d >= RelocateGap
+    Trace("moved " + what + " to " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " target " + x + " " + y + " " + z + " before=" + before + " d=" + d + " failed=" + failed)
+    return failed
 EndFunction
 
 Function Trace(string msg)

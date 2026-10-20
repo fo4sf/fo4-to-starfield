@@ -193,6 +193,22 @@ class RelocateContractTests(unittest.TestCase):
         step((-1276.0, -3032.0), away, lambda a: True)                  # Red Rocket: not at the museum yet
         self.assertEqual(away[0]["pos"], (-811.1, 1002.5))
 
+    def test_codsworth_is_kept_after_the_mission(self):
+        """Review 20 Oct: Codsworth has his own timer (2) and failure budget, which stage 200 does not cancel, and the
+        mission's Relocate no longer moves him."""
+        with open(PSC, encoding="utf-8") as f:
+            psc = f.read()
+        keep = psc[psc.index("Function KeepCodsworth()"):psc.index("bool Function MoveOver")]
+        self.assertIn("codsworthFails += 1", keep)
+        self.assertRegex(keep, r"if codsworthFails < 10\s+StartTimer\(CodsworthCheck, 2\)")
+        self.assertNotIn("GetStage", keep)
+        relocate = psc[psc.index("Function Relocate("):psc.index("Function KeepCodsworth()")]
+        self.assertNotIn("MoveOver(Codsworth", relocate)
+        self.assertIn("CancelTimer(1)", psc)
+        self.assertNotIn("CancelTimer(2)", psc)
+        self.assertRegex(psc, r"if aiTimerID == 2\s+KeepCodsworth\(\)")
+        self.assertEqual(psc.count("KeepCodsworthStart()"), 3)          # defined, from OnQuestInit, from timer 1
+
     def test_codsworth_is_an_optional_property(self):
         with open(PSC, encoding="utf-8") as f:
             psc = f.read()

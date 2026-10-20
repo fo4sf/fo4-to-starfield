@@ -94,6 +94,11 @@ at the core-frame position above (about 30 m from the walk route's Sanctuary goa
 small hovering robot, not a companion with quests like Vasco). **Unresolved:** whether the bot's AI packages and
 template run without its outpost, and how he behaves (sandbox, hover, idle). No dialogue or voice yet (WP-15).
 Check in game: travel to Sanctuary; a robot named Codsworth hovers near his house, does not attack, and stays.
+Since the 20 Oct review, Codsworth is moved by his own check (`KeepCodsworth`, timer 2, every `CodsworthCheck` = 5 s,
+with its own budget of 10 failed moves), not by the mission's 1 s check. Stage 200 cancels only the mission's timer,
+so he is still placed, and placed again after a snap-back, when the player reaches Sanctuary after the mission.
+**Supported hypothesis:** a quest's timers keep running after `CompleteQuest`, since the quest is completed, not
+stopped. To check in game: finish the mission, then go to Sanctuary and look for a `moved codsworth` line in the log.
 
 **His voice (18 Oct, from the Codsworth thread, PR #361):** `stage --codsworth-voice <codsworth_voice.py output>` reads
 lines.tsv, gives each line a WEMFile id (00F4C001 on, below 0x01000000 like vanilla's) and copies its `<info>_<response>.wem` to
