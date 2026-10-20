@@ -167,10 +167,26 @@ def inspect(source, aliases=None):
         sequences.append({"block": i, "name": seq_name.decode("latin-1"), "targets": targets,
                           "timing": sequence_timing(source, block, count)})
     hinge = nif.door_hinge(source)
-    selected = shapes & nif.descendants(source, hinge[0]) if hinge else set()
+    hinge_descendants = nif.descendants(source, hinge[0]) if hinge else set()
+    selected = shapes & hinge_descendants
     animated = {shape for seq in sequences if seq["name"] == "Open" for target in seq["targets"] for shape in target["shape_blocks"]}
+    # Subtree membership proves attachment, not rigid motion. An explicitly
+    # controlled child replaces its own local channels, which a parent-only
+    # hinge cannot retain. Include Close: an Open parent still covers these
+    # shapes in the legacy frozen_door_parts caller.
+    # Be conservative even for constant/unsupported interpolators: no bind-
+    # equivalence proof exists here. Null interpolators retain the node bind.
+    nested = {shape for seq in sequences for target in seq["targets"]
+              if hinge and target["node"] != hinge[0]
+              and target["node"] in hinge_descendants
+              and target["transform_track"] is not None
+              for shape in target["shape_blocks"]}
+    unsupported = (animated - selected) | nested
     return {"sequences": sequences, "issues": issues, "ignored_targets": ignored,
             "single_hinge_node": hinge[0] if hinge else None,
             "single_hinge_shape_blocks": sorted(selected), "all_animated_shape_blocks": sorted(animated),
-            "animated_shapes_outside_single_hinge": sorted(animated - selected),
-            "requires_additional_motion_support": bool(animated - selected)}
+            "nested_controlled_shape_blocks": sorted(nested),
+            # Historical key means outside the hinge's motion coverage, not
+            # strictly outside its descendant set. Retain it for callers.
+            "animated_shapes_outside_single_hinge": sorted(unsupported),
+            "requires_additional_motion_support": bool(unsupported)}

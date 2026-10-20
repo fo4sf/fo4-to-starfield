@@ -19,6 +19,7 @@ Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved 
 
 ## Source work / next gates
 
+- Codex PR234 current-main merge retains non-transform filtering/ignored_targets and independently controlled nested geometry detection. 63 focused motion/rig/clip/routing tests and both parent negative controls pass. Main parser/filter prefix and four pipeline/rig/clip caller blobs are unchanged. Independent current-head QA pending; no native acceptance.
 - Codex PR277 main merge preserves pinned door-stage sources: selected existing VMAD is refused before output, generated files are independent/atomic, nested output rejected. Retains main persistent-return coordinate reporting. Offline preservation/return checks required; no staging/install/native acceptance.
 - Codex activation-parent export: shared Fo4Export/Fo4Land serializer retains ordered parent FormKeys, raw flags and delays, including deferred actors. Claude reviewed the export. Requested follow-up now makes untranslated blocks counted/listed warnings by default, with partial fidelity and optional `--strict-activation-parents` gating; other link errors still block. Eight synthetic CLI controls cover publication/report/strict/override and missing-parent behavior. Grok delta QA passed at e79da3e; main-merge changes only documentation conflicts, source continuity checked. No native activation behavior or live changes. See PR305 and CELL-EXPORT.md.
 - Codex PR176 full-source promoted-name identity merges main697bc07; CONT/MISC identity repair retained and current main callers reconciled. 91 Python cases covered (89 initial passes, two stale alias expectations corrected/retested) and eight actual writer tests pass; independent merge-delta QA pending; no stage or allocation migration. Previously aliased mixed-plugin builds still require separately pinned regeneration, not silent save compatibility claims.
@@ -38,3 +39,7 @@ Codex checkpoint, October16 Mountain /17 UTC. Goal: playable FO4 with preserved 
 Failed/passing capsules are reopened/source-verified on a second local volume, not offsite. Claude owns cleanup/free-space receipts; Codex deleted nothing. Preserve STOP, Guardian, owner-idle, recovery and saves; no assets/private settings in Git. See testing/progress-storage.md.
 
 Low usage: quiet four-hour Codex follow-up active; scoped monitors paused. Read changed evidence, avoid unchanged retests, guard before commits. History: #32, PRs and Git.
+
+## PR234 current-main compatibility (October18)
+
+The feature now includes main d263b19 with both parent journal histories retained. Main parser/alias/non-transform filtering and helper ASTs are unchanged; nested child coverage and legacy routing remain. 22 targeted motion/rig/clip tests and guard pass. Earlier counts above are historical checkpoints; independent current-head delta QA is pending. No game, stage, install or controller actions. Current #32 ownership and native acceptance gates still apply.

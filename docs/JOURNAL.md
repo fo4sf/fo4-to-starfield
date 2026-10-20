@@ -1442,6 +1442,12 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
 
+
+## 2026-10-16: Codex, nested door motion coverage (#216)
+
+Offline tested with synthetic NIF BS130 only; no game runtime tested. Before: five failing assertions across seven regression tests, including opposite nested leaves and Close-only child motion. After: 112 door tests pass (`unittest discover -s tests -p test_door*.py` with src/tests import paths); the unchanged Claude PR202 3a9689a DoorTests regression also passes when called directly without expectedFailure handling.
+
+`door_motion.inspect` preserves explicit descendant interpolators as requiring additional motion support. The legacy coverage key feeds the existing frozen-parts/multipart caller without pipeline edits; a separate nested-shape list explains the result. Constant or unsupported child tracks conservatively require support because equivalence to the stored bind is not proven. No claim that every flagged track actually moves, or that multipart export/native behavior succeeds. Null child tracks and unanimated descendants retain prior routing. Failed and passing logs retained privately; independent peer QA and in-game acceptance remain pending.
 ## 2026-10-16: preserve full source-plugin identity in container groups (Codex)
 
 Offline synthetic review of merged1670f128805: disabled-reference refusal and metadata agreement work, but
@@ -1886,8 +1892,11 @@ rigger refuses it. Alias, door_motion Opening sequences, door_rig.alias_clips, a
 out. Button wiring, docs, and Codex's #319 actual-writer test stay. Garage NIF rig is later, Claude on
 the build side. No deploy, no game.
 
+- **2026-10-18 Codex PR234 main merge:** retain main non-transform filtering/ignored-target reporting alongside nested child-transform coverage. Old NiFloat-as-unsupported fixture failed after filtering; use unsupported B-spline transform instead, add ignored-only and mixed ignored/moving-child tests.63 targeted tests pass; direct parent controls demonstrate main misses nested motion and old branch misclassifies float tracks. Main parsing/filter prefix and four pipeline/rig/clip callers unchanged. Offline only, independent merge QA pending.
 - **2026-10-18 Codex PR176 main merge:** retained six owned identity functions and109 current-main function bodies (excluding docs). Updated two stale ACTI/workshop tests from expecting punctuation aliases to checking distinct bases/original slots, retaining injected-collision refusal.89 initial Python passes plus two corrected reruns cover91 cases; eight actual-writer tests pass, including new ACTI/TERM/workshop identity, NAME/ref-slot and terminal-menu controls. Six parent-main helper alias counterexamples reproduced. Two existing C# warnings remain. Original failures and synthetic outputs retained privately; no live stage or save migration, independent integration QA pending.
 
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+
+- **2026-10-18 Codex PR234 current-main compatibility:** merge main d263b19 into the nested-door-motion proposal. Both complete parent journal line sequences retained. All main parser/alias/filter prefix and helper ASTs retained; nested motion still reaches the existing multipart/frozen routing. 22 targeted motion/rig/clip tests pass (0 skips), guard passes. Source-only; independent current-head delta QA pending, no native deployment or acceptance.
