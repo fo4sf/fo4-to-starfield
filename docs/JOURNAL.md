@@ -1441,3 +1441,12 @@ promotion, the door gate), finish the slice, start the whole Commonwealth.
 - Merged tonight: #162, #163, #161, #165, #166 (and the queue of the day before). Open: #164 (sandbox suite running),
   #167 (on #150), #134 (waits for #150), Codex's drafts #150 / #146 / #153 / #149, cloud-Claude's #136 (needs-qa).
 - 22:47: the opt-in sandbox suite passed on #164 (68 of 68, 41 min, run from an idle worktree); #168 merged. Codex is back: full-size validation of #150 / #153 passed (every source REFR id and base id preserved) and an independent review of #167 is under way.
+### 2026-10-20 Codex: preserve ETA correctness without repeated suffix scans
+
+Owner-authorized isolated Grok takeover, stacked on PR184/1f7604a. Original success-rate/zero-success/exhausted
+ETA correction replays pass. The new actual-main cost regression first failed:2,000 candidates caused201,000
+LOD checks even with no displayed ETA. A running eligible-candidate count reduces the same4,000-input benchmark
+from802,000 to8,000 checks (three-trial median0.509489s to0.031557s); result records/stdout remain byte-equivalent
+by digest. Three new actual-main controls cover linear cost, skipped LOD candidates and cell-mode LOD names;
+18 focused batch tests pass. See optimization notes for scope and measurements. Original branches/evidence remain;
+no native test, asset, private stage, install or main merge. Independent QA remains required.

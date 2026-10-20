@@ -24,7 +24,7 @@ def _fail(_name):
 
 
 class BatchProgressEtaTests(unittest.TestCase):
-    def _run(self, names, convert, limit, elapsed=100.0):
+    def _run(self, names, convert, limit, elapsed=100.0, cell=False):
         printed = []
         with tempfile.TemporaryDirectory() as tmp:
             staging = Path(tmp) / "staging"
@@ -36,6 +36,12 @@ class BatchProgressEtaTests(unittest.TestCase):
             argv = ["convert_batch.py", "--fo4-data", "unused", "--staging", str(staging),
                     "--content-resources", "unused", "--texconv", "unused",
                     "--collision-template", str(collision), "--limit", str(limit)]
+            if cell:
+                cell_file = Path(tmp) / "cell.json"
+                cell_file.write_text(json.dumps({"refs": [
+                    {"model": name.removeprefix("meshes\\"), "type": "Static"}
+                    for name in names]}), encoding="utf-8")
+                argv.extend(["--cell-json", str(cell_file)])
             clock = {"n": 0}
 
             def fake_time():
@@ -93,6 +99,54 @@ class BatchProgressEtaTests(unittest.TestCase):
         self.assertNotIn("left", line)
         self.assertEqual(len(manifest["items"]), 1)
         self.assertEqual(len(manifest["failures"]), 9)
+
+    def test_remaining_candidate_accounting_is_linear(self):
+        names = [f"meshes/setdressing/f{i:05d}.nif" for i in range(2000)]
+        original_compile = batch.re.compile
+        searches = []
+
+        def counted_compile(pattern, *args, **kwargs):
+            actual = original_compile(pattern, *args, **kwargs)
+            if pattern != r"(lod|_dmg|damaged|destr)":
+                return actual
+
+            def search(name):
+                searches.append(name)
+                return actual.search(name)
+
+            return SimpleNamespace(search=search)
+
+        with patch.object(batch.re, "compile", side_effect=counted_compile):
+            progress, manifest, _printed = self._run(names, _fail, limit=20)
+        self.assertEqual([row["nif"] for row in manifest["failures"]], names)
+        self.assertEqual(manifest["items"], [])
+        self.assertTrue(progress)
+        self.assertTrue(all("left" not in line for line in progress))
+        self.assertLessEqual(len(searches), 3 * len(names))
+
+    def test_skipped_lod_candidates_cannot_supply_success_target(self):
+        eligible = [f"meshes/setdressing/e{i:02d}.nif" for i in range(28)]
+        skipped = [f"meshes/setdressing/lod{i:02d}.nif" for i in range(20)]
+        names = eligible[:10] + skipped + eligible[10:]
+
+        def convert(name):
+            return _ok(name) if name == eligible[0] else _fail(name)
+
+        progress, manifest, _printed = self._run(names, convert, limit=20)
+        self.assertNotIn("left", progress[0])  # Only 18 eligible remain; target needs 19.
+        self.assertEqual([row["source"] for row in manifest["items"]], eligible[:1])
+        self.assertEqual([row["nif"] for row in manifest["failures"]], eligible[1:])
+
+    def test_cell_mode_counts_lod_named_models_as_eligible(self):
+        names = [f"meshes\\setdressing\\lod{i:02d}.nif" for i in range(30)]
+
+        def convert(name):
+            return _ok(name) if name == names[0] else _fail(name)
+
+        progress, manifest, _printed = self._run(names, convert, limit=20, cell=True)
+        self.assertIn("~32m left", progress[0])
+        self.assertEqual([row["source"] for row in manifest["items"]], names[:1])
+        self.assertEqual([row["nif"] for row in manifest["failures"]], names[1:])
 
 
 if __name__ == "__main__":

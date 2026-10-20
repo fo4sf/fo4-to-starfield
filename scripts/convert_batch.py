@@ -215,12 +215,15 @@ def main():
     skipped = 0
     progress_every = 10  # live status every N attempts; % of limit and success-rate ETA when --limit is set
     lod_skip = re.compile(r"(lod|_dmg|damaged|destr)", re.I)
-    for index, name in enumerate(names):
+    remaining_candidates = (sum(1 for name in names if a.cell_json or not lod_skip.search(name))
+                            if a.limit > 0 else 0)
+    for name in names:
         if len(items) >= a.limit:
             break
         if not a.cell_json and lod_skip.search(name):
             skipped += 1
             continue
+        remaining_candidates -= 1
         r = cache.load(name) if cache else None
         if r is not None:
             reused += 1
@@ -263,8 +266,6 @@ def main():
                 pct = f" ({100.0 * len(items) / a.limit:.0f}% of limit)"
                 success_rate = len(items) / elapsed_now if elapsed_now > 0 else 0
                 remaining_successes = a.limit - len(items)
-                rest = names[index + 1:]
-                remaining_candidates = len(rest) if a.cell_json else sum(1 for n in rest if not lod_skip.search(n))
                 # Success-target ETA uses successful throughput, not attempt rate. Skip it with no
                 # measured successes or when remaining candidates cannot reach the limit (exhausted input).
                 if success_rate > 0 and remaining_successes > 0 and remaining_candidates >= remaining_successes:
