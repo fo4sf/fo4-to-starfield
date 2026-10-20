@@ -11,8 +11,10 @@ too: the ones behind other worldspaces' doors (Diamond City, Goodneighbor, ...),
 all (quest holding cells, editor test cells), and the DLC's own interiors.
 
 Per interior cell: form key ("<6 hex>:<owner plugin>", as Mutagen and the exports write it; a DLC record that overrides a Fallout4.esm cell keeps the
-Fallout4.esm key and lists both plugins), editor id, DATA flags, location (XLCN), references by record type, lights,
-navmeshes, distinct bases, load doors out (their destination: an interior form key or a worldspace editor id) and in.
+Fallout4.esm key and lists both plugins), editor id, DATA flags, location (XLCN), encounter zone (XEZN: the ECZN's
+level band and flags, the leveling the port folds into the cell's Starfield location), references by record type,
+lights, navmeshes, distinct bases, load doors out (their destination: an interior form key or a worldspace editor id)
+and in.
 Reach, by breadth-first search over the load doors from every worldspace (a door leads from its own cell to the cell
 its XTEL destination door stands in):
   worldspace       a worldspace's load door leads straight in (`entered_from` names the worldspaces)
@@ -41,10 +43,25 @@ CELL_INTERIOR = 0x0001
 PLACED = (b"REFR", b"ACHR", b"PGRE", b"PMIS", b"PARW", b"PBAR", b"PBEA", b"PCON", b"PFLA", b"PHZD")
 TEST_NAME = re.compile(r"^(zz|aaa|test|qa|debug|ctest|warehouse)|test(cell)?$|holding|packin|template|dummy|"
                        r"^cc[a-z]{3}fo4", re.I)
+# ECZN DATA (Fallout 4): owner u32, location u32, rank u8, min level u8, flags u8, max level u8: the 12 bytes Mutagen
+# writes for an EncounterZone (xEdit declares the levels itS8, but Mutagen's MinLevel/MaxLevel/Rank are Byte and
+# Fo4Export emits them unsigned, so the census reads them the same way and a level of 255 is 255 here as in the export).
+# The flags are the four the port carries over: NeverResets 1, MatchPcBelowMinimumLevel 2, DisableCombatBoundary 4,
+# Workshop 8.
+ECZN_DATA = struct.Struct("<IIBBBB")
 
 
 def u32(d, o=0):
     return struct.unpack_from("<I", d, o)[0]
+
+
+def zone_data(d):
+    """{"owner", "location" (raw form ids), "rank", "min_level", "flags", "max_level"} of an ECZN DATA, or None when
+    it is not the 12-byte layout above."""
+    if len(d) < ECZN_DATA.size:
+        return None
+    owner, location, rank, lo, flags, hi = ECZN_DATA.unpack_from(d)
+    return {"owner": owner, "location": location, "rank": rank, "min_level": lo, "flags": flags, "max_level": hi}
 
 
 class Keys:
@@ -65,7 +82,7 @@ class Keys:
 
 def read_plugin(path, pi, keys, out):
     """Walk one plugin: top-level record signatures (bases), every CELL (interior or worldspace) with its placed
-    references, the WRLD editor ids and the LCTN editor ids. Fills `out` (see census())."""
+    references, the WRLD editor ids, the LCTN editor ids and the ECZN level bands. Fills `out` (see census())."""
     name = os.path.basename(path)
     keys.add(name)
     with fl.Plugin(path) as p:
@@ -92,6 +109,18 @@ def read_plugin(path, pi, keys, out):
                             if s == b"EDID":
                                 out["locations"][K(fid)] = fl.zstring(d)
                                 break
+                    elif typ == b"ECZN":
+                        zone = {"editor_id": ""}
+                        for s, d in fl.iter_subrecords(fl.record_data(buf, roff)):
+                            if s == b"EDID":
+                                zone["editor_id"] = fl.zstring(d)
+                            elif s == b"DATA":
+                                data = zone_data(d)
+                                if data:
+                                    data["owner"] = K(data["owner"]) if data["owner"] else None
+                                    data["location"] = K(data["location"]) if data["location"] else None
+                                    zone.update(data)
+                        out["zones"][K(fid)] = zone                 # the last plugin's record wins, as the cell's
 
 
 def walk_worlds(buf, start, end, K, plugin, out):
@@ -135,8 +164,9 @@ def walk_cells(buf, start, end, world, K, plugin, out):
             continue
         cell = out["cells"].get(key)
         if cell is None:
-            cell = out["cells"][key] = {"formkey": key, "editor_id": "", "flags": 0, "location": None, "plugins": [],
-                                        "placed": Counter(), "bases": Counter(), "navmeshes": 0, "load_doors": []}
+            cell = out["cells"][key] = {"formkey": key, "editor_id": "", "flags": 0, "location": None, "zone": None,
+                                        "plugins": [], "placed": Counter(), "bases": Counter(), "navmeshes": 0,
+                                        "load_doors": []}
         cell["plugins"].append(plugin)
         cell["flags"] = flags                                   # the last plugin's record wins, as in the game
         for s, d in fields:
@@ -144,6 +174,8 @@ def walk_cells(buf, start, end, world, K, plugin, out):
                 cell["editor_id"] = fl.zstring(d)
             elif s == b"XLCN" and len(d) >= 4 and u32(d):
                 cell["location"] = K(u32(d))
+            elif s == b"XEZN" and len(d) >= 4 and u32(d):
+                cell["zone"] = K(u32(d))
 
 
 def read_children(buf, start, end, cell, K, out):
@@ -194,7 +226,7 @@ def read_children(buf, start, end, cell, K, out):
 
 def census(paths, port_cells=(), backlog=None):
     keys = Keys()
-    out = {"bases": {}, "locations": {}, "worlds": {}, "cells": {}, "ext": {}, "door_cell": {}}
+    out = {"bases": {}, "locations": {}, "zones": {}, "worlds": {}, "cells": {}, "ext": {}, "door_cell": {}}
     for pi, path in enumerate(paths):
         read_plugin(path, pi, keys, out)
     return summarize(out, [os.path.basename(p) for p in paths], port_cells, backlog)
@@ -238,6 +270,22 @@ def summarize(out, plugins, port_cells=(), backlog=None):
                     reach[d[1]]["hop"] == reach[k]["hop"] + 1 and k not in reach[d[1]]["entered_from"]:
                 reach[d[1]]["entered_from"].append(k)
     port = {e.casefold() for e in port_cells}
+    locations = out.get("locations", {})
+    zones = out.get("zones", {})
+
+    def zone_row(key):
+        """The cell's encounter zone as the port folds it: the ECZN's form key and editor id, its level band and
+        flags, and the LCTN it names (which may be an exterior location, so it never stands in for the cell's own).
+        None without XEZN; a zone the plugins do not hold keeps its form key and nothing else."""
+        if not key:
+            return None
+        z = zones.get(key)
+        if z is None:
+            return {"formkey": key, "editor_id": None, "min_level": None, "max_level": None, "flags": None,
+                    "rank": None, "location": None}
+        return {"formkey": key, "editor_id": z.get("editor_id") or None, "min_level": z.get("min_level"),
+                "max_level": z.get("max_level"), "flags": z.get("flags"), "rank": z.get("rank"),
+                "location": locations.get(z.get("location"), z.get("location"))}
     bl = {}
     if backlog:
         for c in backlog.get("backlog", []):
@@ -266,7 +314,7 @@ def summarize(out, plugins, port_cells=(), backlog=None):
                               (cells[dest[1]]["editor_id"] or dest[1]) if dest[0] == "interior" else "world:" + dest[1]})
         rows.append({
             "formkey": k, "editor_id": c["editor_id"], "plugins": c["plugins"], "flags": c["flags"],
-            "location": out["locations"].get(c["location"], c["location"]),
+            "location": locations.get(c["location"], c["location"]), "encounter_zone": zone_row(c.get("zone")),
             "refs": sum(placed.values()), "placed": dict(sorted(placed.items())), "lights": lights,
             "navmeshes": c["navmeshes"], "distinct_bases": len(c["bases"]),
             "base_types": dict(sorted(Counter(out["bases"].get(b, "?") for b in c["bases"]).items())),
@@ -286,6 +334,10 @@ def summarize(out, plugins, port_cells=(), backlog=None):
         totals[f"plugin_{r['formkey'].split(':')[1]}"] += 1
         if r["test_name"]:
             totals["test_name"] += 1
+        if r["location"]:
+            totals["with_location"] += 1
+        if r["encounter_zone"]:
+            totals["with_encounter_zone"] += 1
         if r["reach"] in ("worldspace", "behind_interior") and r["status"] == "new":
             totals["reached_new"] += 1
     missing_port = sorted(port - {r["editor_id"].casefold() for r in rows})

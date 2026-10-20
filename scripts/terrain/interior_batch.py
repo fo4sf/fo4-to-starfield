@@ -24,7 +24,10 @@ batch N = the base cells + every cell of batches 1..N; the port is cumulative, o
      checkpoints make a later batch convert only its new models) with --starfield-data (rigged doors and movables, as
      the integ builds) and --spec-mask-roughness when given.
   4. plugin: --out/plugin gets the base's formids.json, or with --prev the previous batch's port\formids.json (every
-     earlier record, the previous batch's new ones included, keeps its FormID; PluginSpike reuses the map) and lighting.json, scripts/terrain/port_promote.py writes promote.json, PluginSpike writes FO4Port.esm.
+     earlier record, the previous batch's new ones included, keeps its FormID; PluginSpike reuses the map) and lighting.json;
+     Fo4Export's locations mode writes the base cells' FO4 location data (XLCN, XEZN, cell flags and name) to
+     locations.json (their pinned exports predate it; a failed run fails the batch), scripts/terrain/port_promote.py
+     writes promote.json, PluginSpike writes FO4Port.esm with one LCTN per FO4 location and every cell's XLCN.
   5. doors: scripts/terrain/vmad_patch.py port --keep-markers <base>/doors.json into --out/port: the base's scripted
      load doors re-applied with the SAME marker ids the installed core's exterior doors name, then vmad_patch check.
      The new cells' doors into the Commonwealth stay unwired (they need a core build with their doors: the doors gate,
@@ -247,15 +250,11 @@ def export_cell(a, cell, exports, log, plugin=None):
     if os.path.isfile(dst) and os.path.getsize(dst) > 0:
         return cell, 0, 0.0
     tmp = dst + ".tmp"
-    fo4 = os.path.join(a.fo4_data, "Fallout4.esm")
-    src = [fo4]
-    if plugin:
-        path = find_plugin(a.dlc_data, plugin)
-        if path is None:
-            with open(log + f".{cell}", "w", encoding="utf-8") as f:
-                f.write(f"{plugin} not found in --dlc-data {a.dlc_data}\n")
-            return cell, 2, 0.0
-        src = [path, "--master", fo4]
+    src, why = export_sources(a, plugin)
+    if src is None:
+        with open(log + f".{cell}", "w", encoding="utf-8") as f:
+            f.write(why + "\n")
+        return cell, 2, 0.0
     rc, s = run(["dotnet", a.fo4export] + src + ["export", cell, tmp], log + f".{cell}")
     if rc == 0 and os.path.isfile(tmp) and os.path.getsize(tmp) > 0:
         os.replace(tmp, dst)
@@ -265,6 +264,63 @@ def export_cell(a, cell, exports, log, plugin=None):
             f.write(f"exit 0 but {tmp} is missing or empty\n")
         rc = 3
     return cell, rc, s
+
+
+def export_sources(a, plugin=None):
+    """The Fo4Export source arguments for a cell: [Fallout4.esm], or for a DLC's own cell [its plugin, --master,
+    Fallout4.esm]; None (and the reason) when the DLC plugin is not under --dlc-data."""
+    fo4 = os.path.join(a.fo4_data, "Fallout4.esm")
+    if not plugin:
+        return [fo4], None
+    path = find_plugin(a.dlc_data, plugin)
+    if path is None:
+        return None, f"{plugin} not found in --dlc-data {a.dlc_data}"
+    return [path, "--master", fo4], None
+
+
+def lacks_location_keys(doc):
+    """True for a cell export that predates schema 3: neither "location" nor "encounter_zone" is present, the test
+    PluginSpike applies before it falls back to locations.json."""
+    return isinstance(doc, dict) and "location" not in doc and "encounter_zone" not in doc
+
+
+def locations_sidecar(a, exports, dst, log):
+    """Fo4Export's location data (XLCN location, XEZN encounter zone, cell flags and name) for the cells of `exports`
+    ({cell editor id: its export's path}) whose exports predate schema 3 and never carry it (the pinned base cells, and
+    any earlier batch's cell whose export is still cached in --work from before schema 3: export_cell never re-exports
+    a cached file), into dst (PluginSpike's locations.json: {"schema_version": 1, "cells": {cell editor id: {...}}}).
+    One Fo4Export run per source plugin (an export's formkey names a DLC's cell; the rest are Fallout4.esm's), merged
+    in editor-id order; no run at all when every export already carries the keys. Returns (exit code, seconds):
+    non-zero when a run fails, a DLC plugin is missing, or a run wrote nothing."""
+    t = time.time()
+    by_plugin = {}
+    for c, path in exports.items():
+        try:
+            plugin = (load(path).get("formkey") or "").partition(":")[2]
+        except (OSError, ValueError, AttributeError):
+            plugin = ""
+        by_plugin.setdefault(None if not plugin or plugin.lower() == "fallout4.esm" else plugin, []).append(c)
+    merged = {}
+    for plugin, names in sorted(by_plugin.items(), key=lambda kv: kv[0] or ""):
+        src, why = export_sources(a, plugin)
+        if src is None:
+            with open(log, "a", encoding="utf-8") as f:
+                f.write(f"locations: {why}\n")
+            return 2, round(time.time() - t, 1)
+        tmp = dst + (f".{plugin}" if plugin else "") + ".tmp"
+        rc, _s = run(["dotnet", a.fo4export] + src + ["locations", tmp] + sorted(names), log)
+        try:
+            part = load(tmp)["cells"] if rc == 0 else {}
+        except (OSError, ValueError, KeyError, TypeError):
+            part = {}
+        if rc != 0 or not part:
+            with open(log, "a", encoding="utf-8") as f:
+                f.write(f"locations: Fo4Export exit {rc}, {tmp} {'missing or empty' if rc == 0 else 'not used'}\n")
+            return rc or 3, round(time.time() - t, 1)
+        merged.update(part)
+        os.remove(tmp)
+    save(dst, {"schema_version": 1, "cells": dict(sorted(merged.items()))})
+    return 0, round(time.time() - t, 1)
 
 
 def build(a):
@@ -305,6 +361,7 @@ def build(a):
         cells[c] = {"exported": rc == 0, "export_s": s}
     failed_exports = [c for c, rc, _s in got if rc != 0]
     steps["export"] = {"cells": len(new_cells), "failed": failed_exports}
+    export_cells = old_cells + [c for c in new_cells if c not in failed_exports]
     export_paths = [os.path.join(pinned, c + ".json") for c in old_cells] + \
                    [os.path.join(exports, c + ".json") for c in new_cells if c not in failed_exports]
 
@@ -327,9 +384,12 @@ def build(a):
         steps["editorids"] = {"seeded_from": seed, "base": len(base_names), "work_before": len(work_names)}
     else:
         steps["editorids"] = {"seeded_from": None, "warning": f"{seed} missing: base models may be renamed"}
-    refs = []
-    for p in export_paths:
-        refs.extend(load(p)["refs"])
+    refs, stale = [], {}                                      # stale: cells whose export predates schema 3 (step 4)
+    for c, p in zip(export_cells, export_paths):
+        doc = load(p)
+        refs.extend(doc["refs"])
+        if lacks_location_keys(doc):
+            stale[c] = p
     merged = os.path.join(a.out, "merged.json")
     save(merged, {"cell": "merged", "refs": refs})
     sf_data = os.path.join(a.starfield, "Data")
@@ -356,6 +416,13 @@ def build(a):
     steps["formids_seed"] = os.path.abspath(os.path.join(prev_port or a.base, "formids.json"))
     if os.path.isfile(os.path.join(a.base, "lighting.json")):
         shutil.copyfile(os.path.join(a.base, "lighting.json"), os.path.join(raw, "lighting.json"))
+    # The base cells' pinned exports predate schema 3 (no location keys), and so may an earlier batch's export cached
+    # in --work (never re-exported): their FO4 location data comes from a locations.json sidecar next to lighting.json,
+    # so the LCTN key of a cell is the same whether its export is old or fresh. A schema-3 export carries its own.
+    rc, s = locations_sidecar(a, stale, os.path.join(raw, "locations.json"), log)
+    steps["locations"] = {"exit": rc, "seconds": s, "cells": len(stale)}
+    if rc != 0:
+        return finish(a, plan, steps, cells, t0, "locations failed")
     tables = os.path.join(ROOT, "scripts", "terrain", "clusters")
     rc, s = run([sys.executable, os.path.join(HERE, "port_promote.py"), "--out", os.path.join(raw, "promote.json"),
                  "--containers-table", os.path.join(tables, "container_table.json"),

@@ -453,3 +453,25 @@ decided the import path); keeping the order as a parameter (two orders in the co
 - **Alternatives:** one plugin per batch (FO4PortB01.esm ...): independent rollbacks, but nine more plugins, duplicated
   bases or a master chain, and cross-batch door links between plugins; a rebuild of the core with every door per
   batch: forbidden while the v6e test runs, and it is the door gate's own step.
+
+## 2026-10-20 Claude-cloud: one location per FO4 location, rooted in FO4Port.esm, leveling from the encounter zone
+- **Decision:** PluginSpike writes one Starfield LCTN per Fallout 4 LCTN, shared by the cells that name it (one per
+  cell when the cell has no XLCN), keyed `LCTN:FO4Port_<FO4 LCTN editor id>` so the chained formids.json fixes its
+  FormID on first use; every converted cell gets XLCN. All of them are parented to one root LCTN inside FO4Port.esm,
+  `FO4Port_InteriorsLocation`, whose parent is `SSol_PMars_Surface` 01B736:Starfield.esm. The FO4 encounter zone's
+  level band and its four flags fold into the LCTN's owner data (levels clamped to 127); no keywords are written;
+  CELL bit 0x10000 ("Use Location as Name") stays off unless the per-cell setting `LOCATION_AS_NAME` is "1". The
+  FO4 data comes from Fo4Export (schema 3 exports; a `locations` mode writes a sidecar for the 16 pinned base
+  exports). docs/terrain/interior-batches.md "Locations".
+- **Why:** interiors.md C4 and C10 decided that FO4's levels and cleared state are per location, and in FO4 both live
+  on the LCTN and its ECZN: a per-cell location would split Vault 81 and Parsons State into three places each that the
+  combined core (which keys places by FO4 LCTN editor id) would have to re-merge. A root in FO4Port.esm keeps the
+  plugin's masters at Starfield.esm alone, so every earlier FormID and the installed core's door markers stay as they
+  are; re-pointing the root later is a one-record change.
+- **Alternatives:** parent = the overlay location `FO4CW_CommonwealthLocation` in FO4TerrainCore.esm (interiors.md's
+  supported default): rejected, FO4Port.esm would have to master the core, reversing the build order and breaking the
+  "no plugin masters the other" rule the door wiring relies on; whether a chain that bypasses the overlay satisfies the
+  cleared-state system is an in-game test. Per-cell locations only: rejected above. Replicating FO4's parent chain
+  (CommonwealthLocation ...): nothing consumes it yet; the export keeps `parent_chain` for the core's region derivation.
+  Carrying FO4's LocType keywords: no verified Starfield mapping, kept in the export for a later pass. Inheriting a
+  missing zone's leveling from the nearest FO4 ancestor: no evidence Starfield resolves it the same way; left null.

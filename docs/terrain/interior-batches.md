@@ -127,6 +127,63 @@ out and used a fresh work staging, so its compare failed (2,684 base records "re
 11 rigged doors written as STAT without the animation dll, 11 chairs without the furniture table); cd78ab1 seeds the
 base's editorids.json and the rerun passes the flags.
 
+## Locations
+
+Every converted cell gets a Starfield location (LCTN, the cell's XLCN) in FO4Port.esm, carrying the Fallout 4
+encounter zone's level band, so the leveled-actor and cleared-state systems have a place to attach to
+(interiors.md C4, C10, D1; the decision is in docs/ai/decisions.md, 2026-10-20). Everything below is **verified** in
+unit tests on synthetic records (`dotnet/Fo4Export.Tests`, `dotnet/PluginSpike.Tests`, `tests/test_interior_census.py`)
+and **unresolved** in game: no batch with locations has been built or loaded yet.
+
+**Mapping rule: one Starfield LCTN per FO4 LCTN, shared by its cells** (28 FO4 locations own 65 census cells, Vault 81
+and Parsons State three cells each). A cell without XLCN (960 of the 1,225 census cells) gets its own.
+
+| FO4 cell | Starfield LCTN | formids.json key | EditorID |
+|---|---|---|---|
+| has XLCN | one per FO4 LCTN, shared | `LCTN:FO4Port_<FO4 LCTN editor id>` | `FO4Port_<FO4 LCTN editor id>` |
+| has XLCN, the FO4 LCTN has no editor id | one per FO4 LCTN | `LCTN:FO4Port_LCTN_<formkey, ':' as '_'>` | the same without `LCTN:` |
+| no XLCN (or it does not resolve) | one per cell | `LCTN:FO4Port_<cell editor id>Location` | `FO4Port_<cell editor id>Location` |
+| (root, once per plugin) | `FO4Port_InteriorsLocation`, parent `SSol_PMars_Surface` 01B736:Starfield.esm | `LCTN:FO4Port_InteriorsLocation` | `FO4Port_InteriorsLocation` |
+
+Every interior LCTN's parent is the root; FO4's own parent chain (CommonwealthLocation and the like) is exported
+(`location.parent_chain`) but not replicated. Name = the FO4 LCTN's FULL, else the cell's. The keys are deterministic
+from FO4 data, never ordinal, so the chained formids.json fixes each LCTN's FormID the first time a batch touches it.
+
+**Leveling** (`encounter_zone`, the FO4 cell's XEZN -> ECZN DATA): min and max level and the flags
+(NeverResets 1, MatchPcBelowMinimumLevel 2, DisableCombatBoundary 4, Workshop 8, the same four bits in Starfield's
+LocationOwnerData) fold into the LCTN's Owner data; levels are clamped to 127 (Starfield's are signed bytes) and the
+FO4 owner faction is dropped. A cell with a zone but no LCTN keeps the zone's leveling on its per-cell LCTN (never the
+zone's own location, which may be an exterior one); an LCTN without a zone has no leveling; when cells sharing one LCTN
+carry different zones, the first cell in PluginSpike's argument order wins (the pinned base cells sorted by editor id,
+then the batch's cells in plan order, so a cell moving between the two sets can change the pick) and PluginSpike logs
+the other. No keywords are written
+(FO4's LocType keywords have no verified Starfield mapping; the export keeps them for a later pass).
+
+**Where the FO4 data comes from.** `Fo4Export export` writes schema 3 (`docs/CELL-EXPORT.md`): `cell_data` (flags,
+name), `location`, `encounter_zone`. The 16 base cells' exports are pinned copies that predate schema 3, so
+`interior_batch.py build` runs `Fo4Export <plugin> [--master ...] locations plugin\locations.json <cell>...` for them
+(one run per source plugin, DLC cells with `--master Fallout4.esm` as `export_cell` does) before PluginSpike, which
+reads a cell's keys from its own export first, then from `locations.json`, else writes a per-cell LCTN with no
+leveling. A failed locations run fails the batch (`locations failed`); result.json records
+`steps.locations = {exit, seconds, cells}`. The census (`interior_census.py`) shows the same data per cell:
+`location` (the FO4 LCTN editor id) and `encounter_zone` (`min_level`, `max_level`, `flags`, `rank`, the zone's location).
+
+**`LOCATION_AS_NAME`**: the CELL flag bit 0x10000 ("Use Location as Name", which Mutagen alpha.67 has no member for)
+is off by default, because which source the "Enter X" prompt reads is unresolved (interiors.md D2). The per-cell
+lighting.json-style setting `LOCATION_AS_NAME` = `"1"` sets it on one cell for the test (the cell's entry or `"*"` in
+`plugin\lighting.json`; unlike the lighting keys it is never read from the environment, so a stray variable cannot flip
+every cell of a batch).
+
+**Compare.** A batch built after this change shows every base CELL under `records.changed` (it gained its XLCN; the
+record is otherwise the same) and the LCTNs under `records.added`; `cells_added` scans `CELL:` keys only. Neither is
+a problem: the compare fails only on a missing, renumbered or removed base id or a changed signature, and
+`tests/test_interior_census.py` pins that a base cell gaining XLCN plus added LCTNs passes, that an LCTN key renumbered
+by the next batch fails, and that the `LCTN:` keys ride the `--prev` chain. Expect the next batch's compare against the
+installed port to list the 16 base CELLs as changed and, added, the root plus one LCTN per FO4 location (or per
+cell without one) of every cell in the build. Open (**unresolved**, PC tests in interiors.md):
+whether a save made on batch 4 carries to a batch whose base cells gained a location, and whether a location chain
+that bypasses the overlay location satisfies the cleared-state system (C10).
+
 ## Door rounds per batch
 
 `interior_batch.py doors` lists, per batch, the cells with Commonwealth doors (`door_rounds.py stage --only`

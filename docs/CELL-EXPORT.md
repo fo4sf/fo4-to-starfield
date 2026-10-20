@@ -1,8 +1,10 @@
-# Cell placement export, version 2
+# Cell placement export, version 3
 
 `dotnet/Fo4Export` exports placement data from the user's Fallout 4 installation.
-JSON stays outside this repository. Version 2 adds `schema_version: 2` at the top
+JSON stays outside this repository. Version 2 added `schema_version: 2` at the top
 level; existing `cell`, `formkey`, `refs` and placement fields keep their meanings.
+Version 3 (`schema_version: 3`) adds the cell-level location data described under
+"Cell data, location and encounter zone" below; nothing else changed.
 
 Each reference retains `formkey`, original base `type`, `base_editor_id`, `model`,
 `pos`, `rot`, `scale`, and the numeric `disabled` mask. Positions remain Fallout 4
@@ -74,6 +76,47 @@ does not itself export those cells or implement their transitions.
 
 Primitive geometry and bound half-extents also remain in source units in the
 placement JSON. Primitive colors are explicit RGBA integer arrays.
+
+## Cell data, location and encounter zone (schema 3)
+
+Three top-level keys carry what the plugin writer needs to give every converted
+interior a Starfield LCTN (`docs/terrain/interior-batches.md`, "Locations"):
+
+| Key | Shape |
+|---|---|
+| `cell_data` | `{"flags": int, "name": string\|null}`: the raw CELL DATA flags and FULL name |
+| `location` | `null` when the cell has no XLCN; else `{"formkey", "editor_id", "name", "parent", "parent_chain", "keywords"}` |
+| `encounter_zone` | `null` when the cell has no XEZN; else `{"formkey", "editor_id", "min_level", "max_level", "rank", "flags", "owner", "location"}` |
+
+`parent` is the LCTN's PNAM FormKey or null. `parent_chain` walks PNAM up to the
+root, in order, each entry `{"formkey", "editor_id", "name"}`; it is cycle-guarded,
+and a parent whose record is not loaded ends the chain with
+`{"formkey", "unresolved": true}`. `keywords` lists the LCTN's KWDA as
+`{"formkey", "editor_id"}` (editor id null when unresolved); an absent KWDA is an
+empty list. `flags` on the zone is the raw ECZN DATA flag word (NeverResets 1,
+MatchPcBelowMinimumLevel 2, DisableCombatBoundary 4, Workshop 8); `owner` and
+`location` are FormKeys or null. An XLCN or XEZN whose record is in no loaded
+plugin (a missing `--master`) is kept as `{"formkey", "unresolved": true}` rather
+than dropped, the rule `teleport_dependencies` already follows. Fallout 4 keeps
+leveling only on the encounter zone, so a cell can carry any of the four
+combinations; nothing is inherited from parent locations here.
+
+### `locations` mode
+
+```powershell
+dotnet run --project dotnet/Fo4Export -- <plugin.esm> [--master <m.esm>]... locations <out.json> <EditorID>...
+```
+
+writes only those three keys for several interior cells of the plugin:
+
+```json
+{"schema_version": 1, "cells": {"<cell EditorID>": {"cell_data": ..., "location": ..., "encounter_zone": ...}}}
+```
+
+Each entry is exactly what the same cell's schema-3 export would carry.
+`interior_batch.py` uses it to build `plugin/locations.json` for the pinned base
+cells whose exports predate schema 3. A named cell that is not an interior of the
+plugin fails the run (non-zero exit, nothing written).
 
 Synthetic checks run with:
 

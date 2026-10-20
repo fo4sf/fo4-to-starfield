@@ -32,8 +32,8 @@ def ref(fid, base, xtel=None, sig=b"REFR"):
     return rec(sig, fid, fields)
 
 
-def cell(fid, edid, refs, interior=True, persistent=()):
-    c = rec(b"CELL", fid, [(b"EDID", edid.encode() + b"\0"), (b"DATA", struct.pack("<H", 1 if interior else 0))])
+def cell(fid, edid, refs, interior=True, persistent=(), fields=()):
+    c = rec(b"CELL", fid, [(b"EDID", edid.encode() + b"\0"), (b"DATA", struct.pack("<H", 1 if interior else 0))] + list(fields))
     kids = []
     if persistent:
         kids.append(G(struct.pack("<I", fid), vp.GROUP_PERSISTENT, bytes(8), list(persistent)))
@@ -44,14 +44,21 @@ def cell(fid, edid, refs, interior=True, persistent=()):
 def fo4_plugin():
     """Fallout4.esm in miniature: a DOOR and a LIGH base; interiors Lobby (door from the Commonwealth, door on to
     Vault), Vault (reached only through Lobby), Store (a door from DiamondCity) and zzTestCell (no door leads in);
-    the Commonwealth's exterior cell holds the door into Lobby, DiamondCity's the door into Store."""
-    DOOR, LIGH = 0x100, 0x101
+    the Commonwealth's exterior cell holds the door into Lobby, DiamondCity's the door into Store. Lobby and Vault
+    share the location VaultLocation (XLCN); Lobby sits in the encounter zone VaultZone (XEZN: levels 3-10, flags
+    NeverResets|DisableCombatBoundary, location VaultLocation); Store names a zone the plugin does not hold."""
+    DOOR, LIGH, LCTN, ECZN = 0x100, 0x101, 0x400, 0x410
+    # ECZN DATA: owner u32, location u32, rank u8, min level u8, flags u8, max level u8 (Mutagen's byte widths)
+    zone = rec(b"ECZN", ECZN, [(b"EDID", b"VaultZone\0"), (b"DATA", struct.pack("<IIbbBb", 0, LCTN, 0, 3, 5, 10))])
     bases = [G(b"DOOR", 0, bytes(8), [rec(b"DOOR", DOOR, [(b"EDID", b"Door\0")])]),
-             G(b"LIGH", 0, bytes(8), [rec(b"LIGH", LIGH, [(b"EDID", b"Light\0")])])]
+             G(b"LIGH", 0, bytes(8), [rec(b"LIGH", LIGH, [(b"EDID", b"Light\0")])]),
+             G(b"ECZN", 0, bytes(8), [zone]),                       # before LCTN on purpose: resolved after the walk
+             G(b"LCTN", 0, bytes(8), [rec(b"LCTN", LCTN, [(b"EDID", b"VaultLocation\0"), (b"FULL", b"Vault\0")])])]
     lobby = cell(0x200, "Lobby", [ref(0x301, DOOR, xtel=0x900), ref(0x302, DOOR, xtel=0x311), ref(0x303, LIGH),
-                                   ref(0x304, LIGH), ref(0x305, 0x102, sig=b"ACHR")])
-    vault = cell(0x210, "Vault", [ref(0x311, DOOR, xtel=0x302), ref(0x312, 0x103)])
-    store = cell(0x220, "Store", [ref(0x321, DOOR, xtel=0x910)])
+                                   ref(0x304, LIGH), ref(0x305, 0x102, sig=b"ACHR")],
+                 fields=[(b"XLCN", struct.pack("<I", LCTN)), (b"XEZN", struct.pack("<I", ECZN))])
+    vault = cell(0x210, "Vault", [ref(0x311, DOOR, xtel=0x302), ref(0x312, 0x103)], fields=[(b"XLCN", struct.pack("<I", LCTN))])
+    store = cell(0x220, "Store", [ref(0x321, DOOR, xtel=0x910)], fields=[(b"XEZN", struct.pack("<I", 0x411))])
     test = cell(0x230, "zzTestCell", [ref(0x331, 0x103)])
     sub = G(struct.pack("<I", 0), vp.GROUP_INT_SUB if hasattr(vp, "GROUP_INT_SUB") else 3, bytes(8), lobby + vault + store + test)
     cells = G(b"CELL", 0, bytes(8), [G(struct.pack("<I", 0), 2, bytes(8), [sub])])
@@ -100,6 +107,27 @@ class CensusTests(unittest.TestCase):
         self.assertEqual(r["totals"]["interiors"], 4)
         with self.assertRaisesRegex(ValueError, "port cells not among"):
             ic.census([self.esm], port_cells=["Nowhere"])
+
+    def test_location_and_encounter_zone_per_cell(self):
+        r = ic.census([self.esm])
+        by = {c["editor_id"]: c for c in r["cells"]}
+        # the FO4 location (XLCN) resolves to its editor id for both cells that share it, None elsewhere
+        self.assertEqual((by["Lobby"]["location"], by["Vault"]["location"]), ("VaultLocation", "VaultLocation"))
+        self.assertEqual((by["Store"]["location"], by["zzTestCell"]["location"]), (None, None))
+        # the encounter zone (XEZN -> ECZN DATA): level band, flags, rank and the location the zone names
+        self.assertEqual(by["Lobby"]["encounter_zone"], {"formkey": fk(0x410), "editor_id": "VaultZone", "min_level": 3,
+                                                        "max_level": 10, "flags": 5, "rank": 0, "location": "VaultLocation"})
+        self.assertIsNone(by["Vault"]["encounter_zone"])
+        self.assertIsNone(by["zzTestCell"]["encounter_zone"])
+        # a zone the plugins do not hold keeps its key, with nothing to fold
+        self.assertEqual(by["Store"]["encounter_zone"]["formkey"], fk(0x411))
+        self.assertIsNone(by["Store"]["encounter_zone"]["min_level"])
+        self.assertEqual((r["totals"]["with_location"], r["totals"]["with_encounter_zone"]), (2, 2))
+        # the raw DATA reader: the 12-byte layout with unsigned levels (255 stays 255, as Fo4Export exports it), and a
+        # short DATA is no zone
+        self.assertEqual(ic.zone_data(struct.pack("<IIBBBB", 0x804, 0x801, 2, 5, 5, 255)),
+                         {"owner": 0x804, "location": 0x801, "rank": 2, "min_level": 5, "flags": 5, "max_level": 255})
+        self.assertIsNone(ic.zone_data(bytes(8)))
 
     def test_a_dlc_override_of_a_reference_counts_once(self):
         # A DLC re-saves Lobby's light 0x303 as a door (base 0x100) and its load door 0x301 with a new destination.
@@ -195,10 +223,13 @@ class BatchToolTests(unittest.TestCase):
             json.dump(ids, f)
         return d
 
-    def plugin(self, extra=(), change=False, drop=False):
+    def plugin(self, extra=(), change=False, drop=False, xlcn=None, lctn=()):
+        """The base port in miniature; `xlcn` gives the base cell an XLCN, `lctn` adds LCTN records as a top group
+        (both what a later batch does once PluginSpike writes locations)."""
         OWN = 0x01000000
         stat = rec(b"STAT", OWN | 0x800, [(b"EDID", b"FO4Port_a\0"), (b"MODL", b"a.nif\0" if not change else b"b.nif\0")])
-        c = rec(b"CELL", OWN | 0x801, [(b"EDID", b"FO4Port_Old\0"), (b"DATA", struct.pack("<I", 1))])
+        c = rec(b"CELL", OWN | 0x801, [(b"EDID", b"FO4Port_Old\0"), (b"DATA", struct.pack("<I", 1))]
+                + ([(b"XLCN", struct.pack("<I", xlcn))] if xlcn else []))
         refs = [] if drop else [ref(OWN | 0x802, OWN | 0x800)]
         kids = G(struct.pack("<I", OWN | 0x801), vp.GROUP_CELL_CHILDREN, bytes(8),
                  [G(struct.pack("<I", OWN | 0x801), vp.GROUP_TEMPORARY, bytes(8), refs)])
@@ -206,7 +237,31 @@ class BatchToolTests(unittest.TestCase):
         top = G(b"CELL", 0, bytes(8), [G(struct.pack("<I", 0), 2, bytes(8), [G(struct.pack("<I", 0), 3, bytes(8), blocks)])])
         tes4 = vp.record_bytes(b"TES4", 0, 1, [(b"HEDR", struct.pack("<fII", 0.96, 3, 0x900)), (b"MAST", b"Starfield.esm\0"),
                                                (b"DATA", bytes(8))])
-        return tes4.serialize() + G(b"STAT", 0, bytes(8), [stat]).serialize() + top.serialize()
+        locs = G(b"LCTN", 0, bytes(8), list(lctn)).serialize() if lctn else b""
+        return tes4.serialize() + G(b"STAT", 0, bytes(8), [stat]).serialize() + locs + top.serialize()
+
+    def test_compare_passes_when_base_cells_gain_locations(self):
+        # The locations milestone: a base CELL gains an XLCN (its record changes, allowed) and LCTN records appear
+        # (added); no id moves, no record goes, cells_added sees only CELL keys. The compare must keep passing.
+        OWN = 0x01000000
+        ids = {"STAT:FO4Port_a": 0x800, "CELL:FO4Port_Old": 0x801, "REFR:FO4Port_Old:1:Fallout4.esm": 0x802}
+        old = self.port("old", ids, self.plugin())
+        root = rec(b"LCTN", OWN | 0x8F0, [(b"EDID", b"FO4Port_InteriorsLocation\0"), (b"PNAM", struct.pack("<I", 0x01B736))])
+        loc = rec(b"LCTN", OWN | 0x8F1, [(b"EDID", b"FO4Port_OldLocation\0"), (b"PNAM", struct.pack("<I", OWN | 0x8F0)),
+                                         (b"DATA", bytes(4) + b"\xff" + bytes(3))])
+        grown_ids = dict(ids, **{"LCTN:FO4Port_InteriorsLocation": 0x8F0, "LCTN:FO4Port_OldLocation": 0x8F1})
+        grown = self.port("grown", grown_ids, self.plugin(xlcn=OWN | 0x8F1, lctn=[root, loc]))
+        r = ib.compare(old, grown)
+        self.assertTrue(r["pass"], r["problems"])
+        self.assertEqual(r["records"]["changed"], {"CELL": 1})
+        self.assertEqual(r["records"]["added"], {"LCTN": 2})
+        self.assertEqual(r["records"]["identical"], {"REFR": 1, "STAT": 1})
+        self.assertEqual((r["cells_added"], r["cells_removed"]), ([], []))
+        # and the next batch over that one: the LCTN ids are base ids now, so they must keep their numbers
+        later = self.port("later", dict(grown_ids, **{"LCTN:FO4Port_OldLocation": 0x8F2}),
+                          self.plugin(xlcn=OWN | 0x8F1, lctn=[root, loc]))
+        self.assertIn("renumbered", ib.compare(grown, later)["problems"][0])
+        self.assertTrue(ib.compare(grown, self.port("same", grown_ids, self.plugin(xlcn=OWN | 0x8F1, lctn=[root, loc])))["pass"])
 
     def test_compare_passes_a_grown_port_and_fails_renumbered_or_removed(self):
         OWN = 0x01000000
@@ -445,7 +500,65 @@ class BuildFlowTests(unittest.TestCase):
         self.assertEqual(res["steps"]["cells_failed"], ["Bad"])
         self.assertNotIn("pack", res["steps"])
 
-    def _build_flow(self, bad_export_ok=False):
+    def test_a_failed_locations_run_fails_the_batch_before_pluginspike(self):
+        res = self._build_flow(locations_fail=True)
+        self.assertEqual(res["error"], "locations failed")
+        self.assertEqual(res["steps"]["locations"]["exit"], 1)
+        self.assertNotIn("pluginspike", res["steps"])
+
+    def test_a_cached_pre_schema_3_export_joins_the_locations_run(self):
+        # An earlier batch's export still in --work from before schema 3 is reused as is (never re-exported), so its
+        # FO4 location data must come from the sidecar too, or the cell's LCTN key would change on a later re-export
+        res = self._build_flow(stale_cache=True)
+        self.assertEqual((res["steps"]["locations"]["exit"], res["steps"]["locations"]["cells"]), (0, 2))
+
+    def test_locations_sidecar_runs_once_per_source_plugin(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        t = tmp.name
+        dlc = os.path.join(t, "dlcdata")
+        os.makedirs(dlc)
+        open(os.path.join(dlc, "DLCRobot.esm"), "wb").close()
+        a = argparse.Namespace(fo4export="Fo4Export.dll", fo4_data=os.path.join(t, "Data"), dlc_data=[dlc])
+        fo4 = os.path.join(a.fo4_data, "Fallout4.esm")
+        exports = {}
+        for c, fk in (("Old", "000001:Fallout4.esm"), ("Lair", "0008A3:DLCRobot.esm"), ("Keyless", None), ("Gone", "000002:DLCCoast.esm")):
+            exports[c] = os.path.join(t, c + ".json")
+            ib.save(exports[c], {"cell": c, "refs": []} if fk is None else {"cell": c, "formkey": fk, "refs": []})
+        calls, empty = [], [False]
+
+        def fake_run(cmd, log, env=None, cwd=None):
+            calls.append(cmd)
+            ib.save(cmd[cmd.index("locations") + 1], {"schema_version": 1, "cells": {} if empty[0] else {
+                c: {"cell_data": {"flags": 1, "name": c}, "location": None, "encounter_zone": None} for c in cmd[cmd.index("locations") + 2:]}})
+            return 0, 0.1
+        real, ib.run = ib.run, fake_run
+        try:
+            dst, log = os.path.join(t, "locations.json"), os.path.join(t, "build.log")
+            # Fallout4.esm's cells (a formkey-less export counts as Fallout4.esm's) in one run, the DLC's in its own with the master
+            self.assertEqual(ib.locations_sidecar(a, {c: exports[c] for c in ("Old", "Lair", "Keyless")}, dst, log)[0], 0)
+            self.assertEqual([c[1:] for c in calls], [["Fo4Export.dll", fo4, "locations", dst + ".tmp", "Keyless", "Old"],
+                                                      ["Fo4Export.dll", os.path.join(dlc, "DLCRobot.esm"), "--master", fo4, "locations",
+                                                       dst + ".DLCRobot.esm.tmp", "Lair"]])
+            self.assertEqual(sorted(ib.load(dst)["cells"]), ["Keyless", "Lair", "Old"])
+            self.assertEqual(ib.load(dst)["cells"]["Lair"]["cell_data"]["name"], "Lair")
+            self.assertFalse(os.path.exists(dst + ".tmp") or os.path.exists(dst + ".DLCRobot.esm.tmp"))
+            # a DLC that is not under --dlc-data fails the step before any run
+            del calls[:]
+            self.assertEqual(ib.locations_sidecar(a, {"Gone": exports["Gone"]}, dst, log)[0], 2)
+            self.assertEqual(calls, [])
+            # a run that wrote no cells is a failure, not an empty sidecar
+            empty[0] = True
+            self.assertEqual(ib.locations_sidecar(a, {"Old": exports["Old"]}, dst, log)[0], 3)
+            # nothing stale: no run, an empty sidecar
+            del calls[:]
+            self.assertEqual(ib.locations_sidecar(a, {}, dst, log)[0], 0)
+            self.assertEqual((calls, ib.load(dst)["cells"]), ([], {}))
+            self.assertIn("locations: Fo4Export exit 0", open(log, encoding="utf-8").read())
+        finally:
+            ib.run = real
+
+    def _build_flow(self, bad_export_ok=False, locations_fail=False, stale_cache=False):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         t = tmp.name
@@ -466,6 +579,10 @@ class BuildFlowTests(unittest.TestCase):
         work, out = os.path.join(t, "work"), os.path.join(t, "staging", "interiors_b01")
         calls = []
         newc = rec(b"CELL", OWN | 0x850, [(b"EDID", b"FO4Port_New\0"), (b"DATA", struct.pack("<I", 1))])
+        if stale_cache:                                                   # an earlier batch's export, schema 2, reused as is
+            os.makedirs(os.path.join(work, "exports"))
+            ib.save(os.path.join(work, "exports", "New.json"), {"cell": "New", "refs": [{"model": "meshes\\n.nif"}]})
+        sidecar_cells = ["New", "Old"] if stale_cache else ["Old"]
 
         def fake_run(cmd, log, env=None, cwd=None):
             calls.append(cmd)
@@ -473,7 +590,10 @@ class BuildFlowTests(unittest.TestCase):
             if "export" in cmd and cmd[0] == "dotnet":
                 if cmd[-2] == "Bad" and not bad_export_ok:
                     return 1, 0.1
-                ib.save(cmd[-1], {"cell": cmd[-2], "refs": [{"model": "meshes\\n.nif"}]})
+                if stale_cache:                                           # the cached export is never re-exported
+                    self.assertNotEqual(cmd[-2], "New")
+                ib.save(cmd[-1], {"schema_version": 3, "cell": cmd[-2], "refs": [{"model": "meshes\\n.nif"}],
+                                  "cell_data": {"flags": 1, "name": None}, "location": None, "encounter_zone": None})
             elif "convert_batch.py" in joined:
                 self.assertEqual(ib.load(os.path.join(work, "editorids.json")), {"meshes\\A.nif": "FO4Port_A"})
                 merged = ib.load(cmd[cmd.index("--cell-json") + 1])
@@ -481,9 +601,17 @@ class BuildFlowTests(unittest.TestCase):
                 ib.save(os.path.join(work, "manifest.json"), {"items": [], "failures": [{"nif": "meshes\\n.nif", "reason": "x"}]})
             elif "port_promote.py" in joined:
                 ib.save(cmd[cmd.index("--out") + 1], {})
+            elif "locations" in cmd and cmd[0] == "dotnet":              # Fo4Export locations: the exports without the keys
+                self.assertEqual(cmd[1:4], ["Fo4Export.dll", os.path.join(t, "Fallout4.esm"), "locations"])
+                self.assertEqual(cmd[5:], sidecar_cells)
+                if locations_fail:
+                    return 1, 0.1
+                ib.save(cmd[4], {"schema_version": 1, "cells": {c: {"cell_data": {"flags": 1, "name": None}, "location": None,
+                                                                     "encounter_zone": None} for c in cmd[5:]}})
             elif cmd[0] == "dotnet":                                     # PluginSpike
                 raw = cmd[2]
                 self.assertEqual(ib.load(os.path.join(raw, "formids.json")), ids)   # seeded with the base map
+                self.assertEqual(sorted(ib.load(os.path.join(raw, "locations.json"))["cells"]), sidecar_cells)   # the sidecar is there first
                 with open(os.path.join(raw, "FO4Port.esm"), "wb") as f:
                     f.write(tool.plugin(extra=[newc]))
                 ib.save(os.path.join(raw, "formids.json"), dict(ids, **{"CELL:FO4Port_New": 0x850}))
@@ -513,8 +641,10 @@ class BuildFlowTests(unittest.TestCase):
             ib.run, ib.deploy_starfield.build_archive = real, real_pack
         res = ib.load(os.path.join(out, "result.json"))
         self.assertEqual(rc, 1, res)                                      # the Bad cell fails the batch
-        if bad_export_ok:
+        if bad_export_ok or locations_fail or stale_cache:
             return res
+        self.assertEqual((res["steps"]["locations"]["exit"], res["steps"]["locations"]["cells"]), (0, 1))
+        self.assertEqual(ib.load(os.path.join(out, "plugin", "locations.json"))["schema_version"], 1)
         self.assertEqual(res["cells"]["New"]["result"], "converted")
         self.assertEqual(res["cells"]["New"]["placed"], 1)
         self.assertEqual(res["cells"]["New"]["failed_models"], ["meshes\\n.nif"])
@@ -567,6 +697,9 @@ class BuildFlowTests(unittest.TestCase):
                 ib.save(os.path.join(work, "manifest.json"), {"items": [], "failures": []})
             elif "port_promote.py" in joined:
                 ib.save(cmd[cmd.index("--out") + 1], {})
+            elif "locations" in cmd and cmd[0] == "dotnet":
+                ib.save(cmd[4], {"schema_version": 1, "cells": {c: {"cell_data": {"flags": 1, "name": None}, "location": None,
+                                                                     "encounter_zone": None} for c in cmd[5:]}})
             elif cmd[0] == "dotnet":
                 raw = cmd[2]
                 seed = ib.load(os.path.join(raw, "formids.json"))
@@ -575,9 +708,12 @@ class BuildFlowTests(unittest.TestCase):
                 extra = [one, two] if second else [one]
                 if second and renumber[0]:
                     extra = [rec(b"CELL", OWN | 0x852, [(b"EDID", b"FO4Port_One\0"), (b"DATA", struct.pack("<I", 1))]), two]
+                # the root LCTN every batch writes: batch 1 allocates it, batch 2 must find it in the seed and keep it
+                root_id = seed.get("LCTN:FO4Port_InteriorsLocation", 0x8F0)
+                root = rec(b"LCTN", OWN | root_id, [(b"EDID", b"FO4Port_InteriorsLocation\0"), (b"PNAM", struct.pack("<I", 0x01B736))])
                 with open(os.path.join(raw, "FO4Port.esm"), "wb") as f:
-                    f.write(tool.plugin(extra=extra))
-                got = dict(seed, **{"CELL:FO4Port_One": 0x852 if renumber[0] else 0x850})
+                    f.write(tool.plugin(extra=extra, xlcn=OWN | root_id, lctn=[root]))
+                got = dict(seed, **{"CELL:FO4Port_One": 0x852 if renumber[0] else 0x850, "LCTN:FO4Port_InteriorsLocation": root_id})
                 if second:
                     got["CELL:FO4Port_Two"] = 0x851
                 ib.save(os.path.join(raw, "formids.json"), got)
@@ -605,8 +741,13 @@ class BuildFlowTests(unittest.TestCase):
         self.assertEqual(seeds[-1], ids)                                  # batch 1 starts from the base map
         self.assertEqual(build(2, b2, prev=b1), 0)
         self.assertEqual(seeds[-1]["CELL:FO4Port_One"], 0x850)            # batch 2 starts from batch 1's map
+        self.assertEqual(seeds[-1]["LCTN:FO4Port_InteriorsLocation"], 0x8F0)   # and the LCTN key rides the chain
         r2 = ib.load(os.path.join(b2, "result.json"))
         self.assertTrue(r2["steps"]["compare_prev"]["pass"])
+        self.assertEqual(r2["steps"]["compare_prev"]["records"]["changed"], {})   # batch 1's LCTN and XLCN unchanged
+        self.assertEqual(r2["steps"]["compare"]["records"]["changed"], {"CELL": 1})   # the base cell gained its XLCN
+        self.assertEqual(r2["steps"]["compare"]["records"]["added"], {"CELL": 2, "LCTN": 1})
+        self.assertEqual(ib.load(os.path.join(b2, "plugin", "locations.json"))["cells"]["Old"]["cell_data"]["flags"], 1)
         self.assertTrue(os.path.isfile(os.path.join(b2, "port", "compare_prev.json")))
         renumber[0] = True                                                # batch 1's cell moved: the batch fails
         self.assertEqual(build(2, b2x, prev=b1), 1)

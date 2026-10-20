@@ -1,6 +1,11 @@
 // Export Fallout 4 interior-cell placements to JSON (input for the cell converter).
 //   dotnet run -- <plugin.esm> [--master <Fallout4.esm>]... list <substring>   list interior cells whose EditorID contains <substring>
 //   dotnet run -- <plugin.esm> [--master <Fallout4.esm>]... export <EditorID> <out.json>
+//   dotnet run -- <plugin.esm> [--master <Fallout4.esm>]... locations <out.json> <EditorID>...
+// export writes one cell's placements (schema 3: cell_data, location and encounter_zone sit beside the refs, see
+// LocationExport.cs and docs/CELL-EXPORT.md); locations writes only those three keys for several cells at once,
+// {"schema_version": 1, "cells": {<EditorID>: {...}}}, the sidecar interior_batch.py keeps for cells whose pinned exports
+// predate schema 3. A cell named in locations mode that is not an interior of the plugin fails the run.
 // Each reference: base record type + EditorID + model path, position (game units), rotation (radians), scale.
 // --master (repeatable, in load order) loads the plugin's masters too, so a DLC plugin's cells resolve the base records
 // and the Commonwealth doors that live in Fallout4.esm; the cells listed and exported are still the plugin's own.
@@ -18,9 +23,9 @@ for (var i = 0; i < args.Length; i++)
     else rest.Add(args[i]);
 }
 args = rest.ToArray();
-if (args.Length < 3 || (args[1] != "list" && args[1] != "export") || (args[1] == "export" && args.Length < 4))
+if (args.Length < 3 || args[1] is not ("list" or "export" or "locations") || (args[1] != "list" && args.Length < 4))
 {
-    Console.Error.WriteLine("usage: <plugin.esm> [--master <master.esm>]... list <substr> | export <EditorID> <out.json>");
+    Console.Error.WriteLine("usage: <plugin.esm> [--master <master.esm>]... list <substr> | export <EditorID> <out.json> | locations <out.json> <EditorID>...");
     Environment.ExitCode = 1;
     return;
 }
@@ -53,7 +58,29 @@ if (args[1] == "list")
     return;
 }
 
-var cell = InteriorCells().First(c => string.Equals(c.EditorID, args[2], StringComparison.OrdinalIgnoreCase));
+ICellGetter? FindCell(string editorId) =>
+    InteriorCells().FirstOrDefault(c => string.Equals(c.EditorID, editorId, StringComparison.OrdinalIgnoreCase));
+
+if (args[1] == "locations")
+{
+    var cells = new SortedDictionary<string, object>(StringComparer.Ordinal);
+    foreach (var editorId in args.Skip(3))
+    {
+        var c = FindCell(editorId);
+        if (c == null)
+        {
+            Console.Error.WriteLine($"locations: no interior cell '{editorId}' in {Path.GetFileName(args[0])}");
+            Environment.ExitCode = 1;
+            return;
+        }
+        cells[c.EditorID!] = LocationExport.Build(c, cache);
+    }
+    File.WriteAllText(args[2], JsonSerializer.Serialize(new { schema_version = 1, cells }, new JsonSerializerOptions { WriteIndented = true }));
+    Console.WriteLine($"{cells.Count} cells' location data -> {args[2]}");
+    return;
+}
+
+var cell = FindCell(args[2]) ?? throw new InvalidOperationException($"no interior cell '{args[2]}' in {Path.GetFileName(args[0])}");
 var refs = new List<object>();
 var deferred = new List<object>();
 var keywords = new Dictionary<string, object>();
@@ -121,7 +148,9 @@ if (cell.LightingTemplate.TryResolve(cache, out var lgtm))
     lighting["template_editor_id"] = lgtm.EditorID;
     lighting["template_values"] = Dump(lgtm, 0);
 }
-File.WriteAllText(args[3], JsonSerializer.Serialize(new { schema_version = 2, cell = cell.EditorID, formkey = cell.FormKey.ToString(), lighting, refs,
+File.WriteAllText(args[3], JsonSerializer.Serialize(new { schema_version = 3, cell = cell.EditorID, formkey = cell.FormKey.ToString(),
+    cell_data = LocationExport.CellData(cell), location = LocationExport.Location(cell.Location, cache),
+    encounter_zone = LocationExport.EncounterZone(cell.EncounterZone, cache), lighting, refs,
     deferred_refs = deferred, door_bases = doorBases, referenced_keywords = keywords.Values, teleport_dependencies = dependencies },
     new JsonSerializerOptions { WriteIndented = true }));
 Console.WriteLine($"{cell.EditorID}: {refs.Count} references -> {args[3]}");
