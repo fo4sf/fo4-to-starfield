@@ -1509,6 +1509,45 @@ ReferenceLinks now accepts --door-bases=JSON keyed by original source reference.
 ## 2026-10-16 — Codex: actual missing cave endpoint candidate
 
 PR251/code63131c6 exercised against private integ_1016/RedRocket01 snapshots and verified native24F9CE base. Strict mode exit2/no plugin retains missing08EB65 destination; explicitly partial candidate adds05E844 as local00DE5D, preserves54,877 map entries, no XTEL invented. Separate raw parser verifies group/flag/base/transforms/scale and compares all prior records: only header plus three original-export persistent promotions (05F97B/05FAA0/05FAA3), unchanged subrecord bytes. All source pins unchanged. Output cdd69d7b..., private missing-cave-production-20261016; initial wrong net8.0 harness path retained, correctednet9.0 run passes. No stage/install/input change; peer/native/cross-plugin integration pending.
+
+## 2026-10-16 — Codex: interior-only persistent door return prototype
+
+Standalone dotnet/DoorReturn validates a Core-owned persistent outbound endpoint and Port-owned persistent interior endpoint, then emits exactly the existing Port CELL/REFR overrides with the return XTEL. No world/exterior overrides or ID allocations. Header dependency and typed winning-base checks, original transforms/state preserved, finite absolute arrivals, input hash receipts. Sixteen synthetic scenarios pass (serialized+CLI positive,15 refusals); source bytes unchanged. Initial nullable-cell flag compile error and exploratory nonexistent master-style API were corrected using actual library types; final uses MasterStyle. Peer/native QA pending, existing Python CI does not run the .NET project. Private first/final fixtures retained in door-return-20261016. Real Core exterior is a dependency, not manufactured or installed. See docs/slice/door-return-patch.md.
+
+## 2026-10-16 — Codex: joint persistent-door CLI handoff
+
+PR253 adds a joint synthetic CLI check: ReferenceLinks strict refuses missing exterior, explicit partial writes the source-mapped persistent endpoint, a synthetic Core outbound fixture references its saved identity, actual DoorReturn CLI writes the return. Readback of both serialized Core and patch verifies reciprocal targets, preserved reserved IDs (including unrelated reservation), transformed source state, arrival and exact two-record interior scope; input bytes unchanged. Targeted --pipeline-only passes; sixteen boundary cases unchanged/not rerun. Guard passes. This validates component interfaces, not the real Core producer or gameplay. Initial and final private packets retained; peer QA pending.
+
+## 2026-10-16 — Codex: preserve effective Core overrides in door return patch
+
+Reproduced PR253 restoring an older Port CELL instead of a newer Core override (failed serialized output retained). ReturnPatch now resolves effective Core cell/reference overrides before validation/copy; cell-only changes inherit the original reference, while moved/temporary/deleted/different-type/duplicate endpoint conflicts refuse. Four focused cases pass, followed by20 boundary cases (3 binary/CLI successes,17 refusals) and the joint pipeline check. Guard/diff pass. Private door-winning-overrides-20261016 retains before/after/regression evidence. Peer QA pending; no game/stage/deployment changes.
+
+## 2026-10-16 — Codex: single-writer claim for door-return output
+
+Actual two-process reproduction found both CLIs exit0 for the same fresh directory at8c42df3 (fourth bounded attempt, different arrival plans). Directory.Exists then CreateDirectory was not exclusive. New same-parent temporary-directory rename claims output atomically; existing empty/populated and concurrent directories refuse without changing prior files. Four focused claim checks and six actual two-process runs pass (one winner each). Independent raw XTEL/hash/receipt verification matches each winner. No unchanged20-case rerun; writer data path unchanged. Evidence before/after retained in door-return-publication-20261016; peer QA pending, no game/stage changes.
+## 2026-10-16: Codex return patch declares its master status
+
+Reproduced Claude's PR253 review finding on099240e: serialized FO4DoorReturn.esm
+has TES4 flags0 despite its extension. ReturnPatch now sets IsMaster explicitly.
+Three positive library/CLI scenarios pass new raw-header and typed-master checks.
+Independent byte comparison finds only offset8 changed (0 to1) in the baseline
+fixture; all three CLI receipt/input hashes verify. Source relationships and
+publication logic are unchanged, so unrelated refusal/race suites were not rerun.
+Guard/diff checks pass; private failed/passing evidence in
+test-plans/door-return-master-20261016. Correction awaits peer QA. No live install,
+slot allocation or engine-loading claim; stacked25102239ef integration remains
+pending separately.
+## 2026-10-16: Codex return-patch output path normalization
+
+Reproduced PR253's trailing-separator finding on a6cab39: the actual CLI creates
+the requested output directory as its own parent, then fails the atomic claim.
+A separate follow-up normalizes the path for checking, claiming and writing.
+Targeted actual-CLI build/retry and publication checks pass: trailing native/alt/
+repeated separators, relative paths, unchanged filesystem-root normalization,
+preserved existing outputs, exactly one winner for competing path spellings,
+and no temporary claim leftovers. Failed/passing evidence is retained privately
+in test-plans/door-output-path-20261016. Guard/diff pass; peer QA pending. No door
+relationships, staged inputs, game files or controller input changed.
 ## 2026-10-16: Codex explicit door selection requires an existing cell
 
 Reproduced Claude's PR251 review finding: `--allow-unresolved` published a plugin
@@ -1555,6 +1594,19 @@ Initial XCLC concern was disproved by the existing tests: unpack_from already
 handles the fixture; no XCLC change made. No writer/stage/game modifications or
 retroactive native rescoring. Private evidence: persistent-ref-selectors-20261016;
 peer QA pending. Merge placement and native travel/save-reload remain unresolved.
+
+## 2026-10-16: Codex return-door main integration follow-through
+
+PR253 merged into the already-merged PR251 branch (c9f78bf), leaving DoorReturn
+absent from mainf27d24e. PR256 now carries that reviewed merge and the output-path
+normalization onto main. Journal conflict preserves both entries; unchanged
+return logic, endpoint conversion and script source blobs match c9f78bf.
+The joint actual-CLI endpoint/return handoff, output-alias build/retry/claim
+controls and six missing-cell controls pass; guard passes. Private evidence is
+retained in test-plans/door-return-main-integration-20261016. Peer review and main
+merge remain pending. This is offline integration, not proof of native travel,
+world offset, return-marker persistence or save/reload.
+
 ## 2026-10-10 Claude: FO4 skin reader and pose bake (offline)
 New `src/fo4sf/fo4skin.py` reads a skinned FO4 shape's skin (bone nodes from `BSSkin::Instance`, skin-to-bone
 transforms and bone-space bounding spheres from `BSSkin::BoneData`, f16 weights and u8 bone slots per vertex) and
@@ -1891,3 +1943,8 @@ the build side. No deploy, no game.
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+
+
+## Codex PR256 current-main compatibility, October18
+
+Plain merge retains both parent history and the reviewed DoorReturn tool/test bytes. Targeted current-main CLI publication and ReferenceLinks-to-Core-to-return-patch checks pass offline; no native travel, VMAD activation, merged offset or save acceptance. Claude retains integration and game ownership.
