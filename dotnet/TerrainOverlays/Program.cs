@@ -15,7 +15,8 @@
 //                          are restored after doors/lights (docs/terrain/map-markers.md).
 //   WRLD <world>           copy of LC172World (02DF8C) minus cells/offsets/location; overlay component -> the SFBK;
 //                          object bounds = the BTD; every exterior cell of the BTD (empty), the COC cell with a
-//                          COCMarkerHeading 2 m above the ground, a persistent XMarker anchor in the persistent cell
+//                          COCMarkerHeading 2 m above the ground, a persistent XMarker anchor in the persistent cell;
+//                          optional "fill" (params): one tiny vanilla static in every cell (playable-border test)
 // PNDT CNAM entries store latitude first, then longitude (radians; Earth overlays sit at their real cities). Mutagen
 // 0.55 names the first value Longitude and the second Latitude, so the params' latitude goes into .Longitude.
 //
@@ -140,6 +141,14 @@ foreach (var o in overlays)
     var spawn = o.GetProperty("spawn").EnumerateArray().Select(e => e.GetSingle()).ToArray();
     var spawnCell = o.GetProperty("spawn_cell").EnumerateArray().Select(e => e.GetInt32()).ToArray();
     string coc = o.GetProperty("coc").GetString()!;
+    // optional "fill": {"base": "0x2EE51", "offset_m": 3}: one placed static per exterior cell (see the cell loop)
+    uint? fillBase = null; float fillOffset = 3f; int filled = 0;
+    if (Has(o, "fill"))
+    {
+        var fl = o.GetProperty("fill");
+        fillBase = Convert.ToUInt32(fl.GetProperty("base").GetString()!, 16);
+        if (fl.TryGetProperty("offset_m", out var fo)) fillOffset = fo.GetSingle();
+    }
     var blocks = new Dictionary<(int, int), WorldspaceBlock>();
     var subs = new Dictionary<(int, int), WorldspaceSubBlock>();
     var cellAt = cellsOf[world] = new Dictionary<(int, int), Cell>();
@@ -158,6 +167,20 @@ foreach (var o in overlays)
                     Position = new P3Float(spawn[0], spawn[1], spawn[2]),
                     Rotation = new P3Float(0, 0, 0),
                 });
+            }
+            if (fillBase is not null)
+            {
+                // border test (core64 2026-10-11: "Boundary Reached" 4 cells from the arrival in an otherwise empty overlay):
+                // one tiny vanilla static per cell, so every cell has content. Ground = the cell's FNAM (SW-corner) height.
+                ushort raw = fnam[(y - cmin) * n + (x - cmin)];
+                float gz = hmin + raw / 65535f * (hmax - hmin);
+                c.Temporary.Add(new PlacedObject(NewKey(), release)
+                {
+                    Base = new FormLinkNullable<IPlaceableObjectGetter>(new FormKey(sfEsm, fillBase.Value)),
+                    Position = new P3Float(x * 100f + fillOffset, y * 100f + fillOffset, gz),
+                    Rotation = new P3Float(0, 0, 0),
+                });
+                filled++;
             }
             int bx = (int)Math.Floor(x / 32.0), by = (int)Math.Floor(y / 32.0), sx = (int)Math.Floor(x / 8.0), sy = (int)Math.Floor(y / 8.0);
             if (!blocks.TryGetValue((bx, by), out var blk)) { blk = new WorldspaceBlock { BlockNumberX = (short)bx, BlockNumberY = (short)by, GroupType = GroupTypeEnum.ExteriorCellBlock }; blocks[(bx, by)] = blk; w.SubCells.Add(blk); }
@@ -179,7 +202,8 @@ foreach (var o in overlays)
     mod.Worldspaces.Add(w);
     worlds.Add((w, o));
     Console.WriteLine($"  {world}: WRLD {w.FormKey}, SFBK {block.FormKey} -> {block.ANAM}, LCTN {loc.FormKey}, anchor {anchor.FormKey} at ({p[0]}, {p[1]}, {p[2]}), " +
-                      $"{(cmax - cmin + 1) * (cmax - cmin + 1)} cells {cmin}..{cmax}, COC {coc} in ({spawnCell[0]}, {spawnCell[1]})");
+                      $"{(cmax - cmin + 1) * (cmax - cmin + 1)} cells {cmin}..{cmax}, COC {coc} in ({spawnCell[0]}, {spawnCell[1]})" +
+                      (fillBase is null ? "" : $", fill {filled} x Starfield.esm 0x{fillBase:X6}"));
     idx++;
 }
 int nStat = 0, nDoor = 0, nOpenDoor = 0, nRef = 0, nDisabled = 0, nNav = 0, nNavTri = 0, nNavLink = 0, nNavDoor = 0, nCont = 0, nMisc = 0,
