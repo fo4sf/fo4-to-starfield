@@ -261,9 +261,13 @@ bool Function MoveOver(Actor a, Actor player, float px, float py, float pz, stri
     if dx * dx + dy * dy > RelocateRadius * RelocateRadius
         return False                                      ; the player is not at its merged spot
     endif
+    WorldSpace wa = a.GetWorldSpace()                     ; evidence for Codex's world-identity point (#353): which
+    WorldSpace wp = player.GetWorldSpace()                ; world each side is in before a move (only moves: Codex 4331303552)
+    Trace("world " + what + " player=" + wp + " actor=" + wa + " cell=" + a.GetParentCell())
     a.MoveTo(player, x - px, y - py, z - pz, True, False)
     float d = player.GetDistance(a)
     bool failed = d >= RelocateGap
+    Trace("world " + what + " after=" + a.GetWorldSpace() + " cell=" + a.GetParentCell())
     Trace("moved " + what + " to " + a.GetPositionX() + " " + a.GetPositionY() + " " + a.GetPositionZ() + " target " + x + " " + y + " " + z + " before=" + before + " d=" + d + " failed=" + failed)
     return failed
 EndFunction
