@@ -1891,3 +1891,26 @@ the build side. No deploy, no game.
 ## 2026-10-18: Grok Ba2.largest_entries
 
 Added `Ba2.largest_entries(n)` returning the top-n entries by unpacked size (GNRL unpacked field; DX10 sum of chunk unpacked). Useful for conversion planning: identify the biggest meshes or textures before a full extract. Synthetic tests in tests/test_ba2_largest.py cover ordering, compression, and limit. No game data; guard ok.
+### 2026-10-20 Codex: include ordered plugin masters in same-IDs verification
+
+Scoped identity/output-verification correction to394/774cb7f, coordinated on its PR. The old checker flattened
+repeated MAST subrecords and allowed SAME_IDS after master reorder or earlier-entry replacement. The reader now
+retains all raw MAST bytes in order; a changed table sets ids.masters_changed and refuses identity equivalence.
+This is a strict ordered-table comparison, not runtime load-order or semantic rebasing proof. Other metadata and
+content changes with the same masters retain explained SAME_IDS results. Sixteen focused methods pass after
+new cases fail on the original source. Sixteen separate controlled actual-CLI calls reproduce/fix five false
+PASS cases and retain three positive outcomes; all eight synthetic input pairs remain unchanged. Only reader
+header handling and comparison change; launcher driver, restore and other parent findings remain untouched.
+No private plugin, real installer, game/stage/input or main merge. Independent QA remains pending.
+
+### 2026-10-20 Codex: distinguish manifest metadata agreement from input content proof
+
+Continued the scoped427 identity proposal for394 finding6. The comparison now includes recorded BA2 versions;
+same-sized v1/v7/v8 header captures no longer pass as equal metadata. The existing list API remains, while the
+read-only CLI lists unhashed master/archive/game inputs and labels their content unverified. Exit0 still means
+no detected compared differences, not a content-proof gate; full matches are stated only for hashed declared
+files. Wired the existing optional hash_game_esm capability to --hash-game-esm alongside --hash-archives, leaving
+cheap default capture unchanged. Paths/timestamps remain informational across PCs. Seven new methods and the
+existing identity/manifest controls pass (28 total). Fourteen controlled actual-CLI replays retain positive
+hashed comparisons and qualify hidden same-sized content changes; ten synthetic input files remain unchanged.
+No new hashing/build job on private inputs, decoder, driver, restore or native action. Independent QA is pending.
