@@ -22,7 +22,7 @@ usage:
   python scripts/bridge/door_rounds.py judge --queue <queue> [--rounds <out>/rounds.json]
       PASS needs every proof: the runner's activation (obs.json activate.selected true), the test's ack, the
       destination marker resolved after it at the planned index, a loaded player position after it in the marker's
-      cell (in) or the world it resolves in (out), within TOL_M of the marker (its record position; out: + the
+      cell (in) or the world it resolves in or that world's runtime instance (out, instance_of), within TOL_M of the marker (its record position; out: + the
       build's merge, never the VMAD under test). FAIL STAYED / WRONG_PLACE when the player is elsewhere; missing or
       contradictory evidence is INCONCLUSIVE (NOT_ACTIVATED, NO_ACK, NO_RESOLVE, CONFLICT: replies that disagree or name another form, INDEX: re-plan with the right
       indices, NO_POSITION, UNSETTLED, TARGET, WORLD, BAD_PLAN).
@@ -328,6 +328,15 @@ def latest_attempt(qdir, test_id):
     return os.path.join(d, tries[-1][1]) if tries else None
 
 
+def instance_of(player_world, marker_world):
+    """Whether the player's world can be the runtime instance of the marker's world. A persistent reference
+    resolves in our base WRLD (a plugin form, e.g. 02000803) while the player stands in the overlay's runtime
+    instance, a created form (index FF): verified 2026-10-16, docs/JOURNAL.md "Step 0 probes" (a) and (e), and
+    doors_out2 on 2026-10-19 (player FF00552F, markers 02000803, 0.0 to 0.3 m off). Only that pair: two plugin
+    worlds, or a marker in a runtime world, still have to be equal."""
+    return str(player_world).upper().startswith("FF") and not str(marker_world).upper().startswith("FF")
+
+
 def judge_test(events, obs, exp, tol=TOL_M):
     """(verdict, why, last position event) of one leg from its attempt's bridge events and obs.json. PASS needs every
     proof present: the runner's activation (obs.json activate.selected true), the test's ack, the destination marker
@@ -381,7 +390,7 @@ def judge_test(events, obs, exp, tol=TOL_M):
             return "INCONCLUSIVE", "TARGET: the exterior marker resolves in no world", last
         if not last.get("world"):
             return "FAIL", f"STAYED: still in an interior (cell {last.get('cell')})", last
-        if last["world"] != target["world"]:
+        if last["world"] != target["world"] and not instance_of(last["world"], target["world"]):
             return "INCONCLUSIVE", (f"WORLD: the player is in world {last['world']}, the marker resolves in "
                                     f"{target['world']} ({dxy:.1f} m off)"), last
     if dxy > tol or dz > tol:

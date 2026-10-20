@@ -210,6 +210,21 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual(verdict((IN_OK[0], res("FO4Port.esm", 2304, 2, cell="7"), IN_OK[2]), EXP_IN),
                          ("INCONCLUSIVE", "TARGET"))
 
+    def test_out_accepts_the_runtime_instance_of_the_markers_base_world(self):
+        # doors_out2 (2026-10-19): the player stood in FF00552F, the marker resolved in our WRLD 02000803, 0.0 to
+        # 0.3 m off; the journal's Step 0 probes (2026-10-16) show the persistent ref reports the base WRLD
+        runtime, base = str(0xFF00552F - (1 << 32)), str(0x02000803)
+        out = (OUT_OK[0], res("FO4TerrainCore.esm", 1794, 3, cell="-5", world=base),
+               pos(-1669.3, -2063.8, 42.4, cell="-6", world=runtime))
+        self.assertEqual(verdict(out, EXP_OUT)[0], "PASS")
+        far = out[:2] + (pos(-469, 636, 42, cell="-6", world=runtime),)
+        self.assertEqual(verdict(far, EXP_OUT), ("FAIL", "WRONG_PLACE"))       # the instance never excuses distance
+        for player in ("42", str(0x04000803)):                                   # another plugin's world: not an instance
+            with self.subTest(player=player):
+                self.assertEqual(verdict(out[:2] + (pos(-1669.3, -2063.8, 42.4, cell="-6", world=player),), EXP_OUT),
+                                 ("INCONCLUSIVE", "WORLD"))
+        self.assertEqual(verdict(out[:2] + (pos(-1669.3, -2063.8, 42.4),), EXP_OUT), ("FAIL", "STAYED"))
+
     def test_every_resolve_reply_must_name_the_planned_form_in_one_place(self):
         # Codex's correction review of #358: the full id, and no later contradiction, before a PASS
         wrong = (IN_OK[0], res("FO4Port.esm", 2304, 2).replace(f"form={(2 << 24) | 2304}", f"form={(2 << 24) | 2305}"),

@@ -1453,3 +1453,19 @@ supported hypothesis / unresolved. Older research lives in docs/JOURNAL.md and d
 - **Change:** a BGSM that is decal plus alpha test now converts like a blended one, through the decal template. A shape
   with vertex colours that never reach full alpha gets its own decal material with the opacity map multiplied by its
   peak vertex alpha under `vadecals/a48/` (a peak of 0 skips the shape). The rim fade itself is not reproduced. Not yet seen in game.
+
+## 2026-10-20 Claude-cloud: doors_out2, the first door-exit campaign (job 6, #383)
+- **Run (Install session's report, 20 Oct 04:33Z; not read from the cloud):** queue `D:\Modding\testqueue_v6c_out\doors_out2`,
+  pinned build 9af962d2 from wt_nightrun c0024fa, installed v6c set, 19 Oct 18:02 to 18:43 local; 8 OUT legs, no crash,
+  no dump. Judge at c0024fa: PASS 0, FAIL 1, INCONCLUSIVE 7, NOT_RUN 0.
+- **verified (judge fault, fixed in #383):** the 7 INCONCLUSIVE were all `WORLD`: player in FF00552F, marker in 02000803,
+  0.0 to 0.3 m from the planned merged arrival. A persistent reference reports our base WRLD while the player stands in
+  the overlay's runtime instance (JOURNAL 2026-10-16 "Step 0 probes" (a) and (e); docs/terrain/door-arrival-position.md
+  already warned that equal world ids are not the success check). The judge now accepts a runtime (FF) player world
+  for a plugin marker world, and nothing else. **supported hypothesis:** re-judged, those 7 legs are PASS (one of them,
+  0001 Vault114, was also INCONCLUSIVE for the runner: 3 recovery escapes before the console opened). Not re-judged:
+  the evidence is on the PC.
+- **FAIL STAYED stands, 0004 Vault95 OUT:** after an activation the runner proved, the ack and the exterior marker's
+  resolve, the player was still in interior cell 06007D12. The runner's PASS is only its terrain check of the leg's
+  start point (`inside_arrival` z -11.20 against -11.14 after the coc), not the door. **unresolved:** why the exit door
+  left the player inside (papyrus.log of that attempt: a `refused` line, or no `MoveTo returned`).
