@@ -67,6 +67,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(ROOT, "src"))
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import vmad_patch  # noqa: E402
+import deploy_starfield  # noqa: E402
 
 PLUGIN = "FO4Port.esm"
 MARKER = "result.json"
@@ -409,7 +410,6 @@ def build(a):
 
     # 7. pack
     if not a.no_pack and cmp_["pass"] and prev_ok:
-        import deploy_starfield
         packer = argparse.Namespace(starfield=a.starfield, staging=a.work)
         t = time.time()
         main_dirs = [d for d in deploy_starfield.MAIN_DIRS if os.path.isdir(os.path.join(a.work, d))]
@@ -675,14 +675,16 @@ def release(stage, reason, check_refs, starfield, successor, archive):
         if rel in SUPERSEDED:
             continue
         cp = os.path.join(dest, rel)
-        if os.path.exists(cp):
-            if not os.path.isfile(cp) or os.path.getsize(cp) != size or sha256(cp) != sha:
-                raise ValueError(f"{cp} already exists with other bytes; refusing to overwrite archived evidence")
-        else:
-            os.makedirs(os.path.dirname(cp), exist_ok=True)
-            tmp = cp + ".partial"
-            shutil.copyfile(os.path.join(stage, rel), tmp)
-            os.replace(tmp, cp)
+        os.makedirs(os.path.dirname(cp), exist_ok=True)
+        try:
+            # Exclusive publication (a hard link, or open "xb"): never replaces a file another writer put there first.
+            deploy_starfield.copy_new_artifact(os.path.join(stage, rel), cp, expected_sha256=sha)
+        except FileExistsError:
+            pass                                                        # verified below like any existing copy
+        except OSError as e:
+            raise ValueError(f"cannot archive {rel}: {e}")
+        if not os.path.isfile(cp) or os.path.getsize(cp) != size or sha256(cp) != sha:
+            raise ValueError(f"{cp} already exists with other bytes; refusing to overwrite archived evidence")
         archived[rel] = [size, sha]
     rec = {"name": name, "released_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "reason": reason,
            "plugin_sha256": digest, "starfield": os.path.abspath(starfield),

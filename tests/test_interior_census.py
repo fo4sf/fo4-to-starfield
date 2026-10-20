@@ -351,6 +351,29 @@ class BatchToolTests(unittest.TestCase):
             f.write("tampered")
         with self.assertRaisesRegex(ValueError, "refusing to overwrite"):
             rel(b03, b04)
+        # another writer publishing at the destination mid-copy keeps its bytes, and the release refuses
+        with open(os.path.join(b03, "late.log"), "w", encoding="utf-8") as f:
+            f.write("ours")
+        real_copy = shutil.copyfile
+
+        def racing_copy(src, dst, *args, **kwargs):
+            out = real_copy(src, dst, *args, **kwargs)
+            if src.endswith("late.log"):
+                with open(os.path.join(os.path.dirname(dst), "late.log"), "w", encoding="utf-8") as f:
+                    f.write("theirs")
+            return out
+
+        shutil.copyfile = racing_copy
+        try:
+            with self.assertRaisesRegex(ValueError, "refusing to overwrite"):
+                rel(b03, b04)
+        finally:
+            shutil.copyfile = real_copy
+        racing = [d for d in os.listdir(os.path.join(arch, "interiors_b03")) if os.path.isfile(
+            os.path.join(arch, "interiors_b03", d, "late.log"))]
+        with open(os.path.join(arch, "interiors_b03", racing[0], "late.log"), encoding="utf-8") as f:
+            self.assertEqual(f.read(), "theirs")
+        os.remove(os.path.join(b03, "late.log"))
         # any file other than the port plugin and archives is archived whatever its size; a successor whose port has
         # gone or changed no longer covers the stage
         with open(os.path.join(b03, "crash-evidence.bin"), "wb") as f:
